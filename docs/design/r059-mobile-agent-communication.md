@@ -86,3 +86,81 @@
 - 不把 Tauri `kz:*` 事件直接暴露为远程 API。
 - 不在没有认证、设备绑定和权限模型的情况下开放公网端口。
 - 不在 R-030/R-050 契约未稳定前实现跨进程消息路由、远程写入或 worktree 合并。
+
+## 8. 阶段 A 字段契约与状态语义
+
+以下示例是逻辑协议，不代表最终传输格式；字段统一使用 `snake_case`。
+
+### 8.1 主代理发送任务消息
+
+```json
+{
+  "message_id": "msg_01",
+  "idempotency_key": "task_01_attempt_01",
+  "project_id": "project_01",
+  "process_id": "process_01",
+  "thread_id": "thread_01",
+  "sender_agent_id": "primary_01",
+  "receiver_agent_id": "subagent_01",
+  "message_kind": "task_requested",
+  "payload": {"prompt": "只读检查依赖关系"},
+  "created_at": "2026-08-09T00:00:00Z"
+}
+```
+
+服务端按 `idempotency_key` 保存执行结果：同一 key 的重试返回原结果，不重新创建任务；不同 key 即使 payload 相同也必须显式视为新任务。
+
+### 8.2 通知事件
+
+```json
+{
+  "event_id": "evt_01",
+  "sequence": 42,
+  "project_id": "project_01",
+  "process_id": "process_01",
+  "thread_id": "thread_01",
+  "agent_id": "subagent_01",
+  "kind": "agent_status_changed",
+  "status": "failed",
+  "summary": "只读检查超时",
+  "requires_action": false,
+  "created_at": "2026-08-09T00:01:00Z"
+}
+```
+
+`sequence` 只在同一订阅归属范围内递增；客户端遇到跳号必须请求 cursor 补发，不能自行填充缺失事件。`event_id` 是去重主键，重复事件只更新接收时间，不重复展示或触发动作。
+
+### 8.3 状态迁移
+
+```text
+queued -> running -> succeeded
+                  ├-> failed
+                  ├-> cancelled
+                  └-> approval_required -> running | cancelled
+```
+
+- `queued` 只能由服务端接受任务时产生。
+- `running` 只能由实际执行器确认，移动端不能伪造。
+- `approval_required` 只允许进入脱敏、待授权状态；超时或设备撤销默认迁移为 `cancelled`，不得自动放行。
+- `succeeded`、`failed`、`cancelled` 是终态；重试必须生成新的 `message_id`/`idempotency_key`，并通过 `retry_of` 关联原消息。
+- 终态通知必须持久化到可补发流；普通进度通知可按策略合并，但不能覆盖终态。
+
+### 8.4 错误分类
+
+| 错误 | 客户端行为 | 是否自动重试 |
+|---|---|---|
+| `duplicate_message` | 使用原消息结果 | 否 |
+| `cursor_expired` | 重新获取允许范围内的历史快照，再建立新 cursor | 否 |
+| `device_revoked` | 清理本地订阅并要求重新配对 | 否 |
+| `not_authorized` | 不展示敏感 payload，提示权限不足 | 否 |
+| `temporary_unavailable` | 保留本地未确认 cursor，退避重连 | 是，有限次数 |
+| `invalid_state_transition` | 展示服务端权威状态，禁止本地强行修改 | 否 |
+
+### 8.5 阶段 A 最小测试清单
+
+- 相同 `idempotency_key` 重复投递只产生一个任务和一个终态。
+- 不同 `thread_id` 的同名消息互不覆盖，事件 sequence 和 cursor 各自隔离。
+- 客户端断线后从 cursor 补齐缺失事件，重复事件不会重复通知。
+- 终态事件在普通进度事件合并后仍可补发且顺序正确。
+- `approval_required` 在设备撤销、超时和取消后不能自动迁移为 running。
+- 未授权项目、线程或设备不能读取消息 payload，只能收到明确的错误分类。

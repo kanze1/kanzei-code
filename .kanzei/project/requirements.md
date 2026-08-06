@@ -26,8 +26,8 @@
 - 复杂度: 大
 - 验收: 在移动端完成：①可配置主/子代理间的消息双向通信 ②实时显示来自主要及次级代理的通知推送 ③支持子代理独立升级为管理项目容器（不依赖具体项目结构）
 - 优先级: P3
-- 下一步: 新增 R-059 设计文档并形成分阶段验收矩阵；设计完成后再评估 API/移动端实现。
-- 进展: 已完成第一步设计盘点：确认无移动端源码、HTTP/SSE/WebSocket 订阅入口或 agent 通信协议；新增通信对象、幂等键、断线 cursor、设备授权、权限边界、升级回滚和 A/B/C 分阶段验收矩阵。暂不选择移动端技术栈，不直接暴露 Tauri 事件或改桌面 runtime。
+- 下一步: 阶段 A 协议逻辑定义已完成；下一步为实现与测试技术无关的内存 broker/订阅 POC，待确认存储与服务边界后再落地。
+- 进展: 补充阶段 A 字段契约与状态语义：新增任务消息/通知 JSON 示例、幂等键和 retry_of 规则、sequence/cursor 补发与去重、queued/running/approval_required/终态迁移、错误分类及最小测试清单。仍不选择 HTTP/SSE/WebSocket，不开放远程控制。
 - 设计: docs/design/r059-mobile-agent-communication.md
 - 验证: 执行 .\scripts\r050-poc-check.ps1 成功：kanzei-core 13 项、kanzei-app 1 项、node --check 全部通过；git diff --check 通过。
 
