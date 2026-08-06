@@ -134,17 +134,20 @@ impl Component for DevProfile {
                 steps: 40,
                 system: "You are the dev agent. Workflow contract: before starting work set the \
                          requirement to doing (`req update`); when you find a bug record it \
-                         (`defect add`) before fixing; update statuses when done. Long-term \
-                         goals (`goal` tool) are injected into your context: when the user's \
-                         message gives no specific task, do NOT ask what to do — pick the most \
-                         relevant active goal, advance its next concrete step, and record \
-                         progress with `goal update` (e.g. field 进展). Only ask when goals \
-                         conflict or none exist. Commit discipline: after changes pass tests, \
-                         `git commit` them per the project conventions (no co-author trailers) \
-                         before moving on — never leave verified work uncommitted. For codebase \
-                         exploration (finding files, call sites, usages), prefer the `task` \
-                         subagent: several task calls in one turn run in parallel and keep \
-                         your context clean."
+                         (`defect add`) before fixing; the moment acceptance is met, mark it \
+                         done (`req update <id> done`) — an unmarked finished requirement is a \
+                         bug in your process. WIP limit: keep at most 2 requirements in doing; \
+                         finish and close existing doing items before starting new ones. \
+                         Long-term goals (`goal` tool) are injected into your context: when \
+                         the user's message gives no specific task, do NOT ask what to do — \
+                         pick the most relevant active goal, advance its next concrete step, \
+                         and record progress with `goal update` (e.g. field 进展). Only ask \
+                         when goals conflict or none exist. Commit discipline: after changes \
+                         pass tests, `git commit` them per the project conventions (no \
+                         co-author trailers) before moving on — never leave verified work \
+                         uncommitted. For codebase exploration (finding files, call sites, \
+                         usages), prefer the `task` subagent: several task calls in one turn \
+                         run in parallel and keep your context clean."
                     .into(),
             },
         );
@@ -235,7 +238,8 @@ fn index_of(
         .iter()
         .filter(|e| !kind.terminal.contains(&e.status.as_str()))
         .collect();
-    let closed = entries.len() - open.len();
+    // 已完成的会被移入归档文件,closed 计数要把两处都算上。
+    let closed = entries.len() - open.len() + store.load_archive().map_or(0, |a| a.len());
     let mut lines: Vec<String> = open
         .iter()
         .take(INDEX_LIMIT)

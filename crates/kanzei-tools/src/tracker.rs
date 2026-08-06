@@ -20,7 +20,7 @@ pub struct TrackerTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
-    /// list | get | add | update | close
+    /// list | get | add | update | close | archive
     action: String,
     /// get/update/close 必填,如 "R-012"
     #[serde(default)]
@@ -49,7 +49,7 @@ impl Tool for TrackerTool {
 
     fn description(&self) -> String {
         let mut d = format!(
-            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id). Statuses: {}.",
+            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file). Statuses: {}.",
             self.noun,
             self.kind.statuses.join("→"),
         );
@@ -90,9 +90,26 @@ impl Tool for TrackerTool {
                 };
                 match entries.iter().find(|e| &e.id == id) {
                     Some(e) => ToolOutput::ok(render_full(e)),
-                    None => ToolOutput::error(unknown_id(id, &entries)),
+                    // 已归档条目仍可读:回落到 archive 文件(只读,不可 update)。
+                    None => match store
+                        .load_archive()
+                        .ok()
+                        .and_then(|arch| arch.into_iter().find(|e| &e.id == id))
+                    {
+                        Some(e) => ToolOutput::ok(format!("{} (archived)", render_full(&e))),
+                        None => ToolOutput::error(unknown_id(id, &entries)),
+                    },
                 }
             }
+            "archive" => match store.archive_terminal() {
+                Ok(0) => ToolOutput::ok("nothing to archive (no terminal entries)"),
+                Ok(n) => ToolOutput::ok(format!(
+                    "archived {n} terminal {}(s) to {}",
+                    self.noun,
+                    store.archive_file().display()
+                )),
+                Err(e) => ToolOutput::error(format!("archive failed: {e}")),
+            },
             "add" => {
                 let Some(title) = input.title.as_deref().filter(|t| !t.trim().is_empty()) else {
                     return ToolOutput::error("`title` is required for add");
@@ -194,7 +211,7 @@ impl Tool for TrackerTool {
                 ToolOutput::ok(format!("updated: {line}"))
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: list | get | add | update | close"
+                "unknown action `{other}`; valid: list | get | add | update | close | archive"
             )),
         }
     }

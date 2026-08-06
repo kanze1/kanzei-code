@@ -196,6 +196,15 @@ fn strip_verbatim(p: PathBuf) -> String {
 fn docs_snapshot(project_dir: String) -> serde_json::Value {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 自动归档:终态条目移入 *-archive.md,侧边栏与 agent 上下文只剩进行中的。
+    for kind in [&REQUIREMENTS, &DEFECTS, &GOALS] {
+        let _ = DocStore::open(&root, kind).archive_terminal();
+    }
+    let archived = |kind: &'static kanzei_tools::docstore::DocKind| -> usize {
+        DocStore::open(&root, kind)
+            .load_archive()
+            .map_or(0, |a| a.len())
+    };
     let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
         DocStore::open(&root, kind)
             .load()
@@ -238,6 +247,11 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
         "requirements": load(&REQUIREMENTS),
         "defects": load(&DEFECTS),
         "goals": load(&GOALS),
+        "archived": {
+            "req": archived(&REQUIREMENTS),
+            "defect": archived(&DEFECTS),
+            "goal": archived(&GOALS),
+        },
     })
 }
 
@@ -444,14 +458,17 @@ async fn docs_update(
 fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let rel = match kind.as_str() {
-        "req" => kanzei_tools::docstore::REQUIREMENTS.rel_path,
-        "defect" => kanzei_tools::docstore::DEFECTS.rel_path,
-        "goal" => kanzei_tools::docstore::GOALS.rel_path,
-        "conventions" => CONVENTIONS_REL,
+    let path = match kind.as_str() {
+        "req" => root.join(kanzei_tools::docstore::REQUIREMENTS.rel_path),
+        "defect" => root.join(kanzei_tools::docstore::DEFECTS.rel_path),
+        "goal" => root.join(kanzei_tools::docstore::GOALS.rel_path),
+        "conventions" => root.join(CONVENTIONS_REL),
+        // 归档文件:req-archive / defect-archive / goal-archive
+        "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
+        "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
+        "goal-archive" => DocStore::open(&root, &GOALS).archive_file(),
         other => return Err(format!("unknown kind `{other}`")),
     };
-    let path = root.join(rel);
     if !path.is_file() {
         return Err(format!("文档还不存在:{}", path.display()));
     }

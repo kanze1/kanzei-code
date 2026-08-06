@@ -128,9 +128,12 @@ impl DocStore {
         std::fs::write(&self.path, render(self.kind, entries))
     }
 
+    /// ID 分配扫活跃 + 归档两个文件:归档移走条目后编号绝不复用。
     pub fn next_id(&self, entries: &[Entry]) -> String {
+        let archived = self.load_archive().unwrap_or_default();
         let max = entries
             .iter()
+            .chain(archived.iter())
             .filter_map(|e| {
                 e.id.strip_prefix(self.kind.prefix)?
                     .strip_prefix('-')?
@@ -140,6 +143,48 @@ impl DocStore {
             .max()
             .unwrap_or(0);
         format!("{}-{:03}", self.kind.prefix, max + 1)
+    }
+
+    /// 归档文件:同目录 `<name>-archive.md`(如 requirements-archive.md)。
+    pub fn archive_file(&self) -> PathBuf {
+        match self.path.file_stem().and_then(|s| s.to_str()) {
+            Some(stem) => self.path.with_file_name(format!("{stem}-archive.md")),
+            None => self.path.with_extension("archive.md"),
+        }
+    }
+
+    pub fn load_archive(&self) -> std::io::Result<Vec<Entry>> {
+        match std::fs::read_to_string(self.archive_file()) {
+            Ok(text) => Ok(parse(self.kind, &text)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// 终态条目移入归档文件(追加,幂等):活跃文件只留进行中的,前端与
+    /// 上下文注入都不再被完成项干扰;历史仍可随时翻(get 会回落到归档)。
+    pub fn archive_terminal(&self) -> std::io::Result<usize> {
+        let entries = self.load()?;
+        let (terminal, live): (Vec<Entry>, Vec<Entry>) = entries
+            .into_iter()
+            .partition(|e| self.kind.terminal.contains(&e.status.as_str()));
+        if terminal.is_empty() {
+            return Ok(0);
+        }
+        let mut archived = self.load_archive()?;
+        let moved = terminal.len();
+        archived.extend(terminal);
+        let text = render(self.kind, &archived).replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        if let Some(parent) = self.archive_file().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(self.archive_file(), text)?;
+        self.save(&live)?;
+        Ok(moved)
     }
 
     /// 状态流转校验:前进(列表序)或进终态;后退/未知状态拒绝。
@@ -344,6 +389,35 @@ mod tests {
         assert!(store.transition_allowed("fixing", "open").is_err());
         assert!(store.transition_allowed("open", "banana").is_err());
         assert!(store.transition_allowed("手改状态", "fixing").is_ok());
+    }
+
+    #[test]
+    fn archive_moves_terminal_and_preserves_ids() {
+        let dir = std::env::temp_dir().join(format!("kz-archive-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mk = |id: &str, status: &str| Entry {
+            id: id.into(),
+            title: "t".into(),
+            status: status.into(),
+            severity: None,
+            fields: vec![],
+        };
+        store
+            .save(&[mk("R-001", "done"), mk("R-002", "doing"), mk("R-003", "dropped")])
+            .unwrap();
+
+        assert_eq!(store.archive_terminal().unwrap(), 2);
+        let live = store.load().unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].id, "R-002");
+        let archived = store.load_archive().unwrap();
+        assert_eq!(archived.len(), 2);
+        // 归档后 ID 分配仍延续全局最大值,不复用 R-003。
+        assert_eq!(store.next_id(&live), "R-004");
+        // 幂等:再跑一次不动任何东西。
+        assert_eq!(store.archive_terminal().unwrap(), 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

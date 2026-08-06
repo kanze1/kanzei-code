@@ -446,7 +446,8 @@ const AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
 const CONTINUE_PROMPT =
   "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
-  "完成后用 goal update 记录进展。若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+  "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
+  "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
   "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
 
 async function sendText(prompt, { auto = false } = {}) {
@@ -620,9 +621,9 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-function renderDocList(el, entries, kind) {
+function renderDocList(el, entries, kind, archivedCount = 0) {
   el.innerHTML = "";
-  if (entries.length === 0) {
+  if (entries.length === 0 && archivedCount === 0) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
     empty.textContent = "(空)";
@@ -719,15 +720,29 @@ function renderDocList(el, entries, kind) {
     row.addEventListener("click", () => detail.classList.toggle("hidden"));
     el.appendChild(item);
   }
+  // 已完成项归档在 *-archive.md,不占侧边栏;一行入口可翻历史。
+  if (archivedCount > 0) {
+    const foot = document.createElement("div");
+    foot.className = "doc-empty";
+    foot.style.cursor = "pointer";
+    foot.title = "打开归档文件";
+    foot.textContent = `${archivedCount} 条已归档 ↗`;
+    foot.addEventListener("click", () => {
+      invoke("docs_open", { projectDir: currentProject, kind: `${kind}-archive` }).catch((e) =>
+        toast(String(e))
+      );
+    });
+    el.appendChild(foot);
+  }
 }
 
 async function refreshDocs() {
   if (!currentProject) return;
   try {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    renderDocList($("req-list"), snapshot.requirements, "req");
-    renderDocList($("defect-list"), snapshot.defects, "defect");
-    renderDocList($("goal-list"), snapshot.goals ?? [], "goal");
+    renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0);
+    renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0);
+    renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0);
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
     $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
