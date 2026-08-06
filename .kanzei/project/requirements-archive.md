@@ -329,3 +329,9 @@
 - 验收: 完成对需求、缺陷之外的其他管理功能设计，并验证可用性
 - 进展: 已完成：新增 docs/design/subagent-management.md，完成 agent/任务/策略/审计四层管理设计，明确硬门禁与实施顺序，并用现有活动面板、task 子轨迹回放、只读子代理测试完成可用性验证；与 R-049 风险报告对齐。git diff --check、cargo test -p kanzei-harness -p kanzei-core -p kanzei-tools 通过。
 - 设计: docs/design/subagent-management.md
+
+## R-060 补全所有需求条目的复杂度字段标记（优先级/难度评估） [done]
+- 验证: 检查项目文档中所有现存需求的 P0-P3 级优先级标签是否已完整标注
+- 优先级: P2
+- 进展: 已完成：盘点并补齐全部当前未归档需求的复杂度字段：R-030/R-050/R-059 标记为大，R-060/R-061 标记为小；R-051 已验证列表对缺失字段显示未评估、支持筛选/排序/编辑。req get 逐项核验通过，git diff --check、cargo test -p kanzei-tools 通过。
+- 复杂度: 小
