@@ -10,9 +10,10 @@
 - 归属: kanzei
 - 备注: 粘贴/拖拽附件已随 R-014 完成,本条剩输入框体验
 
-## R-025 权限规则管理:设置页查看/删除已记住的放行规则 [todo]
+## R-025 权限规则管理:设置页查看/删除已记住的放行规则 [done]
 - priority: P2
 - 归属: kanzei
+- 进展: 已完成：设置页新增当前项目已记住放行规则列表，显示操作/资源/配置路径；可确认删除单条规则。新增 Tauri permission_rules_get/permission_rule_delete 命令并注册，删除仅允许 allow 规则且重新读取项目配置。node --check、git diff --check、cargo test -p kanzei-harness -p kanzei-app 通过。
 
 ## R-030 进程与项目解耦:多进程并行,每进程独立模型选择与子代理开关 [todo]
 - priority: P0

@@ -205,6 +205,14 @@
             </select>
           </div>
 
+          <h2>已记住的权限</h2>
+          <p class="dim">当前项目中选择“总是允许”后保存的放行规则。删除后下次匹配时会再次询问。</p>
+          <table id="permission-rules-table">
+            <thead><tr><th>操作</th><th>资源</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="permission-rules-empty" class="dim">当前项目没有已记住的放行规则。</p>
+          <p id="permission-rules-path" class="dim"></p>
           <h2>版本与更新</h2>
           <div class="form-row">
             <label>当前版本 <span id="update-current" class="dim"></span></label>

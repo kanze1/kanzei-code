@@ -1959,6 +1959,51 @@ function renderProviders() {
   });
 }
 
+function renderPermissionRules(data) {
+  const tbody = $("permission-rules-table").querySelector("tbody");
+  tbody.replaceChildren();
+  const rules = data?.rules ?? [];
+  $("permission-rules-empty").classList.toggle("hidden", rules.length > 0);
+  $("permission-rules-path").textContent = data?.path ? `配置: ${data.path}` : "";
+  for (const rule of rules) {
+    const row = document.createElement("tr");
+    const action = document.createElement("td");
+    action.textContent = rule.action;
+    const resource = document.createElement("td");
+    resource.textContent = rule.resource;
+    const controls = document.createElement("td");
+    const remove = document.createElement("button");
+    remove.className = "icon-btn";
+    remove.title = "删除规则";
+    remove.textContent = "×";
+    remove.addEventListener("click", async () => {
+      if (!confirm(`删除 ${rule.action} / ${rule.resource}？`)) return;
+      try {
+        await invoke("permission_rule_delete", { projectDir: currentProject, index: rule.index });
+        toast("已删除权限规则");
+        loadPermissionRules();
+      } catch (err) {
+        toast(`删除失败: ${err}`);
+      }
+    });
+    controls.appendChild(remove);
+    row.append(action, resource, controls);
+    tbody.appendChild(row);
+  }
+}
+
+async function loadPermissionRules() {
+  if (!currentProject) {
+    renderPermissionRules({ rules: [] });
+    return;
+  }
+  try {
+    renderPermissionRules(await invoke("permission_rules_get", { projectDir: currentProject }));
+  } catch (err) {
+    renderPermissionRules({ rules: [] });
+    toast(`读取权限规则失败: ${err}`);
+  }
+}
 async function loadSettings() {
   const s = await invoke("settings_get");
   $("settings-path").textContent = s.path;
@@ -1976,6 +2021,7 @@ async function loadSettings() {
   }
   settingsProviders = s.providers;
   renderProviders();
+  loadPermissionRules();
 }
 
 $("set-proxy-mode").addEventListener("change", () => {
