@@ -19,7 +19,7 @@
     </aside>
 
     <aside id="sidebar">
-      <div class="sidebar-section" id="projects-section">
+      <div class="sidebar-section" data-collapse-key="projects" id="projects-section">
         <div class="section-title">
           <span>项目</span>
           <span>
@@ -29,7 +29,7 @@
         </div>
         <div id="project-list" class="project-list"></div>
       </div>
-      <div class="sidebar-section" id="live-section">
+      <div class="sidebar-section" data-collapse-key="live" id="live-section">
         <div class="section-title"><span>当前进展</span></div>
         <div id="live-status">
           <div id="live-turn" class="live-row dim">空闲</div>
@@ -38,11 +38,11 @@
           <div id="live-note" class="live-row hidden"></div>
         </div>
       </div>
-      <div class="sidebar-section" id="queue-section">
+      <div class="sidebar-section" data-collapse-key="queue" id="queue-section">
         <div class="section-title"><span>排队输入 <em id="queue-count"></em></span></div>
         <div id="queue-list" class="queue-list"></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section" data-collapse-key="goals">
         <div class="section-title">
           <span>目标 <em id="goal-count"></em></span>
           <span>
@@ -52,14 +52,14 @@
         </div>
         <div id="goal-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section" data-collapse-key="conversations">
         <div class="section-title">
           <span>历史对话 <em id="conversation-count"></em></span>
           <button id="chat-del" class="icon-btn" title="删除勾选的对话">🗑</button>
         </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section" id="req-section">
+      <div class="sidebar-section" data-collapse-key="requirements" id="req-section">
         <div class="section-title">
           <span>需求 <em id="req-count"></em></span>
           <span>
@@ -92,7 +92,7 @@
         </div>
         <div id="req-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section" id="defect-section">
+      <div class="sidebar-section" data-collapse-key="defects" id="defect-section">
         <div class="section-title">
           <span>缺陷 <em id="defect-count"></em></span>
           <span>
@@ -102,7 +102,7 @@
         </div>
         <div id="defect-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section" id="research-section">
+      <div class="sidebar-section" data-collapse-key="research" id="research-section">
         <div class="section-title">
           <span>研究 <em id="research-count"></em></span>
           <button id="report-open" class="icon-btn" title="打开 research/report.md">↗</button>
@@ -112,7 +112,7 @@
         <div class="research-subtitle">发现</div>
         <div id="finding-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section" data-collapse-key="conventions">
         <div class="section-title">
           <span>开发规范</span>
           <span>

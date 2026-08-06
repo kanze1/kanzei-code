@@ -51,7 +51,8 @@ body {
   flex-wrap: wrap; row-gap: 4px;
 }
 /* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
-.section-title > span:first-child { cursor: pointer; }
+.section-title > span:first-child { flex: 1 1 auto; min-width: 0; cursor: pointer; }
+.section-title > span:first-child::after { content: " ▾"; }
 .section-title > span:first-child:hover { color: var(--fg-strong); }
 .sidebar-section.collapsed > *:not(.section-title) { display: none; }
 .sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; }

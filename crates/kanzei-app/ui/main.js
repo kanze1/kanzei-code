@@ -2677,16 +2677,32 @@ $("update-install").addEventListener("click", async () => {
   }
 });
 
-// ---------- 侧边栏分区折叠:点标题文字收/展,记忆到 localStorage ----------
+// ---------- 侧边栏分区折叠:标题文字收/展,记忆到 localStorage ----------
 document.querySelectorAll(".sidebar-section").forEach((section) => {
   const title = section.querySelector(".section-title > span:first-child");
   if (!title) return;
-  // key 剔除数字:标题里的计数(如"目标 3")会变,不能进 key。
-  const key = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
-  if (localStorage.getItem(key) === "1") section.classList.add("collapsed");
-  title.addEventListener("click", () => {
+  const collapseKey = section.dataset.collapseKey || title.textContent.replace(/[\d\s]/g, "").slice(0, 8);
+  const key = `kz-collapse-${collapseKey}`;
+  const legacyKey = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
+  const saved = localStorage.getItem(key) ?? (legacyKey === key ? null : localStorage.getItem(legacyKey));
+  if (saved === "1") {
+    section.classList.add("collapsed");
+    if (legacyKey !== key) localStorage.setItem(key, "1");
+  }
+  title.setAttribute("role", "button");
+  title.setAttribute("tabindex", "0");
+  const syncExpanded = () => title.setAttribute("aria-expanded", String(!section.classList.contains("collapsed")));
+  const toggle = () => {
     const collapsed = section.classList.toggle("collapsed");
     localStorage.setItem(key, collapsed ? "1" : "0");
+    syncExpanded();
+  };
+  syncExpanded();
+  title.addEventListener("click", toggle);
+  title.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    toggle();
   });
 });
 
