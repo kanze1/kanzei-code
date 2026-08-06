@@ -39,7 +39,7 @@ pub struct ProviderConfig {
     pub base_url: String,
     #[serde(default)]
     pub api_key_env: Option<String>,
-    /// 特殊认证:"codex" = 复用 Codex CLI 订阅登录态(~/.codex/auth.json)。
+    /// 特殊认证:"codex" = 复用 Codex CLI 登录态,"claude" = 复用 Claude Code 登录态。
     #[serde(default)]
     pub auth: Option<String>,
     /// 上下文窗口(token)。用于界面占用比例显示与(M2)压缩预检。
@@ -110,6 +110,16 @@ impl KanzeiConfig {
                 api_key_env: None,
                 auth: Some("codex".into()),
                 context_limit: Some(272_000),
+            });
+        // Claude Code 订阅通道:复用 Claude Code 登录态,零配置可用。
+        self.providers
+            .entry("claude".into())
+            .or_insert(ProviderConfig {
+                protocol: "anthropic".into(),
+                base_url: "https://api.anthropic.com".into(),
+                api_key_env: None,
+                auth: Some("claude".into()),
+                context_limit: Some(200_000),
             });
         if self.models.primary.is_none() {
             self.models.primary = Some("anthropic:claude-sonnet-5".into());
@@ -257,6 +267,9 @@ mod tests {
         let m = c.resolve_model("primary").unwrap();
         assert_eq!(m.provider_name, "anthropic");
         assert_eq!(m.model, "claude-sonnet-5");
+        let claude = c.resolve_model("claude:claude-sonnet-4-6").unwrap();
+        assert_eq!(claude.provider.protocol, "anthropic");
+        assert_eq!(claude.provider.auth.as_deref(), Some("claude"));
         let m = c.resolve_model("fast").unwrap();
         assert_eq!(m.provider_name, "ollama");
         let m = c.resolve_model("ollama:llama3.3").unwrap();

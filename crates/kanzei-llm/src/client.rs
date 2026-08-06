@@ -28,14 +28,21 @@ impl Route {
     }
 
     pub fn anthropic_at(base_url: &str, api_key: &str) -> Route {
+        Route::anthropic_with_headers_at(
+            base_url,
+            vec![
+                ("x-api-key".into(), api_key.into()),
+                ("anthropic-version".into(), "2023-06-01".into()),
+            ],
+        )
+    }
+
+    pub fn anthropic_with_headers_at(base_url: &str, headers: Vec<(String, String)>) -> Route {
         Route {
             kind: ProtocolKind::AnthropicMessages,
             endpoint: Endpoint {
                 base_url: base_url.trim_end_matches('/').to_string(),
-                headers: vec![
-                    ("x-api-key".into(), api_key.into()),
-                    ("anthropic-version".into(), "2023-06-01".into()),
-                ],
+                headers,
             },
         }
     }

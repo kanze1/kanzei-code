@@ -700,6 +700,10 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
             for m in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
+        } else if p.auth.as_deref() == Some("claude") {
+            for m in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"] {
+                items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
+            }
         } else if p.base_url.contains("11434") {
             let tags_url = format!("{}/api/tags", p.base_url.trim_end_matches("/v1"));
             let client = reqwest::Client::builder()

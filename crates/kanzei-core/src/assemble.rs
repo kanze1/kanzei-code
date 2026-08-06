@@ -20,6 +20,14 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
         ));
     }
 
+    if resolved.provider.auth.as_deref() == Some("claude") {
+        let headers = kanzei_llm::auth::claude::claude_headers()?;
+        return Ok(Route::anthropic_with_headers_at(
+            &resolved.provider.base_url,
+            headers,
+        ));
+    }
+
     match resolved.provider.protocol.as_str() {
         "anthropic" => {
             let key = api_key.ok_or_else(|| {

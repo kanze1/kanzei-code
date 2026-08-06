@@ -3,6 +3,7 @@
 ## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [doing]
 - 已完成: Codex 凭证(auth.json 刷新回写、Responses 协议、gpt-5.6 三兄弟)
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
+- 进展: 已完成 Claude Code OAuth provider 的基础接入：读取 ~/.claude/.credentials.json、校验 accessToken/过期时间、生成 Anthropic OAuth headers；新增 Claude provider 默认配置、Anthropic 自定义 headers Route、统一 route 装配、桌面端模型列表和配置解析测试。cargo test --workspace 全部通过。剩余 OAuth token 自动刷新与真实 Claude Code 端到端验证。
 
 ## R-010 需求与缺陷分级及可编辑管理 [doing]
 - 范围: 需求/缺陷等级与字段编辑、按等级筛选排序、非法修改拒绝并提示
