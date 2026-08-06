@@ -299,6 +299,21 @@ mod tests {
     }
 
     #[test]
+    fn subscription_ignores_other_thread_without_advancing_cursor() {
+        let mut broker = InMemoryBroker::default();
+        let mut other = notification("evt_b", "running");
+        other.thread_id = "thread_b".to_owned();
+        broker.publish_notification(other);
+        let mut subscription = NotificationSubscription::new("thread_a");
+        assert!(broker.poll_subscription(&mut subscription, 10).is_empty());
+        assert_eq!(subscription.cursor, 0);
+
+        broker.publish_notification(notification("evt_a", "running"));
+        assert_eq!(broker.poll_subscription(&mut subscription, 10).len(), 1);
+        assert_eq!(subscription.cursor, 1);
+    }
+
+    #[test]
     fn cursor_after_latest_sequence_returns_empty() {
         let mut broker = InMemoryBroker::default();
         broker.publish_notification(notification("evt_1", "running"));
