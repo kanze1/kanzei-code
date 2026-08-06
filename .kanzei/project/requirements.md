@@ -7,12 +7,6 @@
 - 验收: 多进程可并行运行,各自拥有模型选择与子代理开关;前端以进程页签呈现;默认进程兼容既有历史
 - 备注: 大手术,与 R-037 的渲染层重构一起做
 
-## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [done]
-- priority: P2
-- 归属: kanzei
-- 验收: research 模式显示来源/发现侧边栏,引用可跳转,支持报告入口,与后端 sources/findings 对齐
-- 进展: 已完成首个可用闭环：docs_snapshot 现在返回 sources/findings 及归档计数；docs_path 支持 source/finding/report 及归档文档；侧栏新增研究区与报告入口；source/finding 的 refs 字段渲染为可点击引用，可滚动定位对应条目。node --check、git diff --check、cargo test -p kanzei-app 通过。
-
 ## R-042 上下文成分拆解 + 压缩纪要可查看 [todo]
 - 内容: 上下文占用现在只有状态栏百分比;需要拆解 system/工具结果/历史消息各占多少。压缩(自动/手动)后模型实际看到的纪要无处查看,违背上下文透明原则。来源: docs/design/frontend-phase3.md §一 表格相关行
 - 来源: docs/design/frontend-phase3.md
