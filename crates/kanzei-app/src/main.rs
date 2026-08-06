@@ -54,7 +54,88 @@ struct AppState {
     conversation_project: Arc<Mutex<Option<String>>>,
 }
 
+fn pending_path(exe: &Path) -> PathBuf {
+    let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("kzapp.exe");
+    exe.with_file_name(format!("{name}.pending"))
+}
+
+/// 启动早期处理 release.ps1 留下的 pending 文件。自身不能覆盖自身，
+/// 因此派生同一个二进制作为 helper，旧进程退出后由 helper 完成替换并重启。
+fn startup_update() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--kz-update-helper") {
+        let exe = args.get(2).map(PathBuf::from);
+        let pending = args.get(3).map(PathBuf::from);
+        if let (Some(exe), Some(pending)) = (exe, pending) {
+            apply_pending_update(&exe, &pending);
+        }
+        return true;
+    }
+    let Ok(exe) = std::env::current_exe() else { return false };
+    // 上次更新的备份因镜像锁删不掉,会残留一份 .previous:启动时清理。
+    let _ = std::fs::remove_file(exe.with_extension("exe.previous"));
+    let pending = pending_path(&exe);
+    if !pending.is_file() { return false; }
+    match Command::new(&exe)
+        .arg("--kz-update-helper")
+        .arg(&exe)
+        .arg(&pending)
+        .spawn()
+    {
+        Ok(_) => true,
+        Err(error) => {
+            eprintln!("kzapp:无法启动自更新 helper: {error}");
+            false
+        }
+    }
+}
+
+fn apply_pending_update(exe: &Path, pending: &Path) {
+    // 给父进程释放 Windows 映像文件锁留出时间；后续 rename 仍以重试为准。
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let backup = exe.with_extension("exe.previous");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        let _ = std::fs::remove_file(&backup);
+        if std::fs::rename(exe, &backup).is_ok() {
+            match std::fs::rename(pending, exe) {
+                Ok(()) => {
+                    match Command::new(exe).spawn() {
+                        Ok(_) => { let _ = std::fs::remove_file(&backup); }
+                        Err(error) => {
+                            eprintln!("kzapp:新版本启动失败,回滚: {error}");
+                            let _ = std::fs::remove_file(exe);
+                            let _ = std::fs::rename(&backup, exe);
+                        }
+                    }
+                    return;
+                }
+                Err(_) => {
+                    let _ = std::fs::rename(&backup, exe);
+                }
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    eprintln!("kzapp:pending 更新失败,保留旧版本与 pending 文件");
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::pending_path;
+    use std::path::Path;
+
+    #[test]
+    fn pending_path_uses_executable_sibling() {
+        assert_eq!(
+            pending_path(Path::new(r"C:\bin\kzapp.exe")),
+            Path::new(r"C:\bin\kzapp.exe.pending")
+        );
+    }
+}
+
 fn main() {
+    if startup_update() { return; }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),

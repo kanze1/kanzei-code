@@ -682,6 +682,39 @@ messages.addEventListener("click", (event) => {
   if (button) copyReadable(button.closest(".msg, .tool-chip"));
 });
 
+// ---------- 复制上下文:整段对话导出为 markdown(贴给其他 AI 用) ----------
+$("copy-context").addEventListener("click", async () => {
+  const parts = [];
+  for (const el of messages.children) {
+    if (el.classList.contains("user")) {
+      const text = (el.querySelector(".message-body")?.textContent ?? el.textContent).trim();
+      if (text) parts.push(`## 用户\n${text}`);
+    } else if (el.classList.contains("assistant")) {
+      const raw = (el.dataset.raw ?? el.textContent).trim();
+      if (raw) parts.push(`## 助手\n${raw}`);
+    } else if (el.classList.contains("reasoning")) {
+      const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
+      if (raw) parts.push(`> 思考:${raw.split("\n").find(Boolean)?.slice(0, 160) ?? ""}`);
+    } else if (el.classList.contains("tool-chip")) {
+      const head = el.querySelector(".head")?.textContent?.trim();
+      if (head) parts.push(`> 工具:${head.slice(0, 200)}`);
+    } else if (el.classList.contains("turn-divider")) {
+      parts.push(`---\n${el.textContent}`);
+    }
+  }
+  if (!parts.length) {
+    toast("当前没有可复制的对话");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(parts.join("\n\n"));
+    toast(`已复制上下文(${parts.length} 段)`);
+  } catch (err) {
+    log(`复制上下文失败:${err}`, "err");
+    toast("复制失败,请检查剪贴板权限");
+  }
+});
+
 let searchMatches = [];
 let searchIndex = 0;
 function updateSearch() {

@@ -1,10 +1,5 @@
 # Requirements
 
-## R-016 kzapp 启动时自动完成 pending 自更新 [todo]
-- priority: P1
-- 归属: kanzei
-- 范围: 启动检测 kzapp.exe.pending 并自替换,发版后重启即新版
-
 ## R-018 对话结束时播放提示音并显示完成提示 [todo]
 - priority: P3
 - 归属: kanzei
