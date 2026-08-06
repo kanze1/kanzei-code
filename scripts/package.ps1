@@ -25,7 +25,13 @@ Write-Host "==> installer: $out ($([math]::Round((Get-Item $out).Length/1MB)) MB
 if ($Publish) {
     $tag = "build-$hash"
     Write-Host "==> publishing GitHub release $tag" -ForegroundColor Cyan
-    gh release create $tag $out --repo kanze1/kanzei-code --title "kanzei $date ($hash)" --notes "自动构建:$hash($date)。应用内「检查更新」以此为源。" 2>&1 | ForEach-Object { $_ }
+    # 变更日志:自上一个 release 标签以来的提交(引流物料,顺手生成)。
+    $lastTag = (git -C $root tag --list "build-*" --sort=-creatordate | Select-Object -First 1)
+    $log = if ($lastTag) { git -C $root log "$lastTag..HEAD" --format="- %s" } else { git -C $root log -10 --format="- %s" }
+    $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date)。应用内「检查更新」以此为源。"
+    $notesFile = Join-Path $env:TEMP "kanzei-release-notes.md"
+    Set-Content $notesFile $notes -Encoding UTF8
+    gh release create $tag $out --repo kanze1/kanzei-code --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
 }
