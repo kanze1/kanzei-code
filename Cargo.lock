@@ -2025,6 +2025,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
+ "futures",
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",

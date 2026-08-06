@@ -82,6 +82,9 @@ pub async fn run_once(
     // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
     let mut session_approved: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
+    // "总是允许"的会话内即时生效层(D-006):快照是开跑时定死的,新写入的规则
+    // 本次运行读不到——泛化 pattern 记在这里,同类资源当场不再询问。
+    let mut session_rules: Vec<(String, String)> = Vec::new();
 
     for step in 1..=max_steps {
         let last_step = step == max_steps;
@@ -208,13 +211,24 @@ pub async fn run_once(
                     if session_approved.contains(&key) {
                         continue;
                     }
-                    match ask(action.to_string(), resource).await {
+                    if session_rules.iter().any(|(a, pattern)| {
+                        a == action && kanzei_harness::permission::wildcard_match(pattern, &resource)
+                    }) {
+                        continue;
+                    }
+                    match ask(action.to_string(), resource.clone()).await {
                         AskReply::Deny => {
                             gate_result = Gate::UserDeclined;
                             break;
                         }
-                        AskReply::AllowOnce | AskReply::AlwaysAllow => {
+                        AskReply::AllowOnce => {
                             session_approved.insert(key);
+                        }
+                        AskReply::AlwaysAllow => {
+                            session_rules.push((
+                                action.to_string(),
+                                kanzei_harness::config::generalize_resource(action, &resource),
+                            ));
                         }
                     }
                 }

@@ -93,14 +93,24 @@ function markFirstSignal() {
   }
 }
 
+let ctxLimit = null;
+let ctxTokens = 0;
 function renderTokens() {
   const t = runTokens;
-  if (t.input + t.output === 0) {
-    $("status-tokens").textContent = "";
-    return;
+  let text = t.input + t.output === 0
+    ? ""
+    : `in ${t.input} (cache r${t.cacheRead} w${t.cacheWrite}) · out ${t.output}`;
+  if (ctxTokens > 0) {
+    const k = (ctxTokens / 1000).toFixed(1);
+    if (ctxLimit) {
+      const pct = Math.round((ctxTokens / ctxLimit) * 100);
+      text += `${text ? " · " : ""}ctx ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)`;
+      $("status-tokens").classList.toggle("ctx-warn", pct >= 70);
+    } else {
+      text += `${text ? " · " : ""}ctx ${k}k`;
+    }
   }
-  $("status-tokens").textContent =
-    `in ${t.input} (cache r${t.cacheRead} w${t.cacheWrite}) · out ${t.output}`;
+  $("status-tokens").textContent = text;
 }
 
 function setRunning(value, statusText) {
@@ -169,7 +179,8 @@ on("kz:status", (e) => {
 });
 on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
-  log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}`);
+  ctxLimit = e.payload.contextLimit ?? null;
+  log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
   if (running) setStatus("等待模型响应", true);
 });
 on("kz:text", (e) => {
@@ -223,8 +234,10 @@ on("kz:step", (e) => {
   runTokens.output += p.output;
   runTokens.cacheRead += p.cacheRead;
   runTokens.cacheWrite += p.cacheWrite;
+  // 本轮 prompt 体积 ≈ 当前上下文占用。
+  ctxTokens = p.input + p.cacheRead;
   renderTokens();
-  log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output}`);
+  log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
 });
 on("kz:error", (e) => {
   addMessage("error", e.payload.message);
@@ -254,8 +267,22 @@ const askQueue = [];
 let askActive = null;
 
 on("kz:ask", (e) => {
+  // 自动放行(yolo):不弹窗,直接允许并留日志。
+  if ($("auto-allow").checked) {
+    log(`自动放行:${e.payload.action} ${e.payload.resource}`);
+    invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
+      log(`自动放行失败:${err}`, "err")
+    );
+    return;
+  }
   askQueue.push(e.payload);
   pumpAsk();
+});
+
+$("auto-allow").checked = localStorage.getItem("kz-auto-allow") === "1";
+$("auto-allow").addEventListener("change", () => {
+  localStorage.setItem("kz-auto-allow", $("auto-allow").checked ? "1" : "0");
+  log($("auto-allow").checked ? "已开启自动放行(本会话所有权限询问直接通过)" : "已关闭自动放行");
 });
 
 function pumpAsk() {
@@ -309,6 +336,7 @@ async function send() {
   currentAssistant = null;
   currentReasoning = null;
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  ctxTokens = 0;
   renderTokens();
   addMessage("user", prompt);
   setRunning(true, "准备中");
@@ -511,6 +539,37 @@ async function refreshDocs() {
     console.error(err);
   }
 }
+
+// ---------- 对话总结 ----------
+$("summarize-btn").addEventListener("click", async () => {
+  if (!currentProject) {
+    toast("先选择一个项目");
+    return;
+  }
+  const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
+    .map((el) => el.textContent.trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .slice(0, 60000);
+  if (!transcript) {
+    toast("当前没有可总结的对话");
+    return;
+  }
+  $("summarize-btn").disabled = true;
+  setStatus("总结中(fast 模型)", true);
+  log("开始总结当前对话…");
+  try {
+    const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
+    addMessage("notice", `📋 对话总结\n${r.summary}\n(已存档 ${r.path})`);
+    log(`总结完成,已存档:${r.path}`);
+  } catch (err) {
+    toast(`总结失败:${err}`);
+    log(`总结失败:${err}`, "err");
+  } finally {
+    $("summarize-btn").disabled = false;
+    setStatus(running ? "运行中" : "空闲", running);
+  }
+});
 
 for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"]]) {
   $(btn).addEventListener("click", () =>

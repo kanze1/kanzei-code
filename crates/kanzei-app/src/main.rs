@@ -64,7 +64,8 @@ fn main() {
             app_info,
             models_list,
             docs_update,
-            docs_open
+            docs_open,
+            summarize_chat
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -233,6 +234,7 @@ fn settings_get() -> serde_json::Value {
                 "apiKeyEnv": p.api_key_env,
                 "keyPresent": key_present,
                 "auth": p.auth,
+                "contextLimit": p.context_limit,
             })
         })
         .collect();
@@ -268,6 +270,8 @@ struct ProviderPayload {
     /// 特殊认证透传(codex);表单只读展示,不丢字段。
     #[serde(default)]
     auth: Option<String>,
+    #[serde(default)]
+    context_limit: Option<u64>,
 }
 
 #[tauri::command]
@@ -295,6 +299,7 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
                 base_url: p.base_url.trim().trim_end_matches('/').to_string(),
                 api_key_env: p.api_key_env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
                 auth: p.auth.filter(|s| !s.is_empty()),
+                context_limit: p.context_limit,
             },
         );
     }
@@ -377,6 +382,54 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 对话总结:fast 模型生成纪要并存档到 .kanzei/summaries/。
+#[tauri::command]
+async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde_json::Value, String> {
+    use futures::StreamExt;
+    let cwd = PathBuf::from(&project_dir);
+    let config = KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
+    let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let route = kanzei_core::build_route(&resolved, &proxy).await.map_err(|e| e.to_string())?;
+    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let request = kanzei_llm::LlmRequest {
+        model: resolved.model.clone(),
+        system: vec![
+            "把下面的人机协作对话记录总结成简洁的中文纪要:做了什么、改了哪些文件、\
+             结论、遗留问题/下一步。markdown 列表,300 字以内。"
+                .into(),
+        ],
+        messages: vec![kanzei_llm::Message::user_text(transcript)],
+        tools: vec![],
+        max_tokens: 2048,
+        temperature: None,
+    };
+    let mut stream = client.stream(&route, &request).await.map_err(|e| e.to_string())?;
+    let mut summary = String::new();
+    while let Some(event) = stream.next().await {
+        if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? {
+            summary.push_str(&text);
+        }
+    }
+    if summary.trim().is_empty() {
+        return Err("模型没有产出总结(fast 模型是否在运行?)".into());
+    }
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let dir = root.join(".kanzei").join("summaries");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path = dir.join(format!("summary-{secs}.md"));
+    std::fs::write(&path, &summary).map_err(|e| e.to_string())?;
+    Ok(json!({ "summary": summary, "path": path.display().to_string() }))
 }
 
 // ---------- 运行 ----------
@@ -602,6 +655,7 @@ async fn run_task(
             "profile": format!("{profile:?}").to_lowercase(),
             "agent": agent.name,
             "model": format!("{}:{}", resolved.provider_name, resolved.model),
+            "contextLimit": resolved.provider.context_limit,
         }),
     );
 

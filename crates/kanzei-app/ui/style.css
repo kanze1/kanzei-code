@@ -276,3 +276,15 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 #ask-dialog .ask-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 #ask-always { border: 1px solid var(--warn); color: var(--warn); background: transparent; border-radius: 4px; padding: 5px 12px; cursor: pointer; }
 #ask-always:hover { background: rgba(220, 220, 170, .12); }
+
+/* ---------- 三期:自动放行/总结/上下文占用/弹窗排版 ---------- */
+#auto-allow-wrap {
+  display: flex; align-items: center; gap: 4px; color: var(--dim);
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+#auto-allow-wrap:has(input:checked) { color: var(--warn); }
+#summarize-btn { white-space: nowrap; }
+#status-tokens.ctx-warn { color: #ffd27a; font-weight: 600; }
+.ask-line { display: flex; align-items: baseline; gap: 10px; margin-top: 6px; }
+.ask-line .dim { white-space: nowrap; min-width: 52px; }
+.ask-line code { word-break: break-all; }

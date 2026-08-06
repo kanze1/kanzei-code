@@ -46,6 +46,10 @@
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
           <span class="spacer"></span>
+          <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
+            <input type="checkbox" id="auto-allow" /> 自动放行
+          </label>
+          <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
           <select id="model-select" title="模型(agent 默认或直选)"></select>
           <select id="profile-select" title="模式">
             <option value="dev">dev 开发</option>
@@ -148,7 +152,7 @@
       <div class="ask-body">
         <div class="ask-line"><span class="dim">操作</span><code id="ask-action"></code></div>
         <div class="ask-line"><span class="dim">资源</span><code id="ask-resource"></code></div>
-        <div class="ask-line"><span class="dim">总是允许将记住</span><code id="ask-remember"></code></div>
+        <div class="ask-line"><span class="dim">记住为</span><code id="ask-remember"></code></div>
       </div>
       <div class="ask-buttons">
         <button id="ask-deny">拒绝</button>

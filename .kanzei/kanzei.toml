@@ -1,0 +1,60 @@
+[models]
+
+[providers]
+
+[profile]
+
+[[permissions.rules]]
+action = "req"
+resource = "*"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-ChildItem *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "git *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Content *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-ChildItem *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Content *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "./scripts/release.ps1"
+effect = "allow"
+
+[[permissions.rules]]
+action = "defect"
+resource = "*"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Process *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "Get-Item *"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = "git *"
+effect = "allow"

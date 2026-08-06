@@ -42,6 +42,9 @@ pub struct ProviderConfig {
     /// 特殊认证:"codex" = 复用 Codex CLI 订阅登录态(~/.codex/auth.json)。
     #[serde(default)]
     pub auth: Option<String>,
+    /// 上下文窗口(token)。用于界面占用比例显示与(M2)压缩预检。
+    #[serde(default)]
+    pub context_limit: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -85,12 +88,14 @@ impl KanzeiConfig {
             base_url: "https://api.anthropic.com".into(),
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
             auth: None,
+            context_limit: Some(200_000),
         });
         self.providers.entry("ollama".into()).or_insert(ProviderConfig {
             protocol: "openai".into(),
             base_url: "http://127.0.0.1:11434/v1".into(),
             api_key_env: None,
             auth: None,
+            context_limit: Some(32_000),
         });
         // Codex 订阅通道:复用 Codex CLI 登录态,零配置可用。
         self.providers.entry("codex".into()).or_insert(ProviderConfig {
@@ -98,6 +103,7 @@ impl KanzeiConfig {
             base_url: "https://chatgpt.com/backend-api/codex".into(),
             api_key_env: None,
             auth: Some("codex".into()),
+            context_limit: Some(272_000),
         });
         if self.models.primary.is_none() {
             self.models.primary = Some("anthropic:claude-sonnet-5".into());
