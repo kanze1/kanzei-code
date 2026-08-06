@@ -798,7 +798,7 @@ on("kz:stopped", (e) => {
   notifyRunState("stopped", cancelled > 0 ? `已停止并取消 ${cancelled} 条排队输入` : "已停止");
   refreshPendingInputs();
 });
-on("kz:done", (e) => {
+on("kz:done", async (e) => {
   const p = e.payload;
   setAutoStopReason(p.halted ? "用户拒绝后停止" : "本轮完成");
 
@@ -819,6 +819,7 @@ on("kz:done", (e) => {
   refreshPendingInputs();
 
   // 鞭挞:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
+  if (await stopAutoWhenBacklogEmpty()) return;
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
     if (autoPaused) {
       addMessage("notice", "鞭挞已暂停,点击“继续鞭挞”恢复");
@@ -1103,6 +1104,26 @@ function scheduleAutoContinue() {
   }, 2000);
 }
 
+async function stopAutoWhenBacklogEmpty() {
+  if (!$("auto-continue").checked || !autoContinueAllowed()) return false;
+  try {
+    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
+    const active = [...(snapshot.requirements ?? []), ...(snapshot.defects ?? [])]
+      .some((entry) => !entry.closed && !["done", "dropped", "fixed", "wontfix"].includes(entry.status));
+    if (active) return false;
+    $("auto-continue").checked = false;
+    localStorage.setItem("kz-auto-continue", "0");
+    autoRounds = 0;
+    cancelAutoContinueTimer();
+    setAutoStopReason("需求与缺陷已清空，自动推进停止");
+    addMessage("notice", "✅ 需求与缺陷已清空，自动推进已停止");
+    log("自动推进停止:需求与缺陷已清空");
+    return true;
+  } catch (error) {
+    log(`检查需求/缺陷是否清空失败:${error}`, "warn");
+    return false;
+  }
+}
 function renderAttachments() {
   const box = $("attachments");
   box.innerHTML = "";
