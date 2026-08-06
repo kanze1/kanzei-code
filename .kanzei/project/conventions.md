@@ -90,7 +90,7 @@
 ## 9. kanzei 本仓库:构建与发版(优先级高于上文通用规则)
 
 - 本仓库是 Rust workspace:`crates/kanzei-{harness,llm,core,tools,app}` + `crates/kanzei`(bin `kz`)。
-- **分支流程**:日常开发(含 agent 自举)一律提交到 `dev` 分支;`main` 只接收来自 dev 的合并,保持随时可发布。发布安装包前:`git checkout main && git merge dev --ff-only && git push`,再跑 `package.ps1 -Publish`,然后切回 dev。禁止直接在 main 上做开发提交。
+- **分支流程**:日常开发(含 agent 自举)一律提交到 `dev` 分支;`main` 只接收来自 dev 的合并,保持随时可发布。**main 常驻发布树**(`C:\Users\kanzei\Documents\kanzei-release`),主工作树里 `git checkout main` 会因分支被占而失败——合并发布一律在发布树执行:`git -C <发布树> fetch origin && git -C <发布树> merge origin/dev --ff-only && git -C <发布树> push`,再跑发布树里的 `package.ps1 -Publish`。禁止直接在 main 上做开发提交。
 - **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里,发现异常身份立即改写修正并强推。
 - 测试:`cargo test --workspace`,全绿才算改动完成;单 crate 快速检查用 `cargo build -p <crate>`。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
