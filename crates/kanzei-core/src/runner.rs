@@ -94,6 +94,8 @@ pub async fn run_once(
     // 本次运行读不到——泛化 pattern 记在这里,同类资源当场不再询问。
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
+    let mut overflow_recovered = false;
+
     for step in 1..=max_steps {
         on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = step == max_steps;
@@ -107,7 +109,21 @@ pub async fn run_once(
             temperature: None,
         };
 
-        let mut stream = client.stream(route, &request).await?;
+        // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
+        // 请求尚未建立时可以安全压缩本轮的旧工具轨迹并重试一次；重试上限
+        // 是硬限制，避免超限错误造成死循环。流已经建立后不做重放，防止工具副作用重复执行。
+        let mut stream = match client.stream(route, &request).await {
+            Err(error) if error.is_context_overflow() && !overflow_recovered => {
+                overflow_recovered = true;
+                compact_messages_for_retry(&mut messages);
+                let retry_request = LlmRequest {
+                    messages: messages.clone(),
+                    ..request
+                };
+                client.stream(route, &retry_request).await?
+            }
+            result => result?,
+        };
         let mut text_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut reasoning_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut parts: Vec<Part> = Vec::new();
@@ -297,6 +313,39 @@ enum Gate {
     UserDeclined,
 }
 
+fn compact_messages_for_retry(messages: &mut Vec<Message>) {
+    let Some(first) = messages.first().cloned() else {
+        return;
+    };
+    let mut history = String::new();
+    for message in messages.iter().skip(1) {
+        for part in &message.parts {
+            let text = match part {
+                Part::Text { text } => text,
+                Part::ToolResult { content, .. } => content,
+                _ => continue,
+            };
+            if history.len() >= 16_000 {
+                break;
+            }
+            let remaining = 16_000 - history.len();
+            let mut snippet: String = text.chars().take(remaining).collect();
+            while snippet.len() > remaining {
+                snippet.pop();
+            }
+            history.push_str(&snippet);
+            history.push('\n');
+        }
+    }
+    messages.clear();
+    messages.push(first);
+    if !history.trim().is_empty() {
+        messages.push(Message::user_text(format!(
+            "以下是此前工具执行结果的压缩记录，仅供继续当前任务参考：\n{}",
+            history.trim_end()
+        )));
+    }
+}
 fn add_usage(a: Usage, b: Usage) -> Usage {
     Usage {
         input: a.input + b.input,
@@ -326,4 +375,29 @@ fn preview(content: &str) -> String {
         p.push_str(&format!(" (+{} lines)", lines - 1));
     }
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compact_messages_for_retry;
+    use kanzei_llm::{Message, Part};
+
+    #[test]
+    fn compact_retry_keeps_prompt_and_bounded_tool_history() {
+        let mut messages = vec![
+            Message::user_text("原始任务"),
+            Message::assistant(vec![Part::Text { text: "旧回复".into() }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "call_1".into(),
+                content: "工具结果".into(),
+                is_error: false,
+            }]),
+        ];
+
+        compact_messages_for_retry(&mut messages);
+
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text == "原始任务"));
+        assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text.contains("工具结果")));
+    }
 }

@@ -29,8 +29,21 @@ if ($LASTEXITCODE -ne 0) { throw "install failed" }
 Write-Host "==> cargo build --release -p kanzei-app (kzapp)" -ForegroundColor Cyan
 cargo build --release -p kanzei-app
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
-Copy-Item "$root\target\release\kzapp.exe" "$env:USERPROFILE\.cargo\bin\kzapp.exe" -Force
+
+$app_source = "$root\target\release\kzapp.exe"
+$app_destination = "$env:USERPROFILE\.cargo\bin\kzapp.exe"
+try {
+    Copy-Item $app_source $app_destination -Force -ErrorAction Stop
+} catch {
+    # Windows 不允许覆盖正在运行的 exe。保留待安装副本，避免构建成功但新版本丢失。
+    $pending_destination = "$app_destination.pending"
+    Copy-Item $app_source $pending_destination -Force -ErrorAction Stop
+    Write-Host "应用构建成功，但安装失败：$app_destination 可能正在运行。" -ForegroundColor Yellow
+    Write-Host "新版本已保存到：$pending_destination" -ForegroundColor Yellow
+    Write-Host "请关闭 kzapp.exe 后重新执行 .\scripts\release.ps1 完成安装。" -ForegroundColor Yellow
+    throw "app build succeeded, installation failed"
+}
 
 Write-Host "==> installed:" -ForegroundColor Green
 kz --version
-"kzapp.exe $((Get-Item "$env:USERPROFILE\.cargo\bin\kzapp.exe").Length / 1MB -as [int]) MB -> 桌面端,任意终端输入 kzapp 启动"
+"kzapp.exe $((Get-Item $app_destination).Length / 1MB -as [int]) MB -> 桌面端,任意终端输入 kzapp 启动"
