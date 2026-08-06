@@ -1163,6 +1163,24 @@ promptBox.addEventListener("keydown", (e) => {
   }
 });
 
+window.addEventListener("keydown", (e) => {
+  const modifier = e.ctrlKey || e.metaKey;
+  if (!modifier || e.altKey) return;
+  if (e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    promptBox.focus();
+    return;
+  }
+  if (!e.shiftKey) return;
+  if (e.key.toLowerCase() === "c") {
+    e.preventDefault();
+    $("stop").click();
+  } else if (e.key.toLowerCase() === "n") {
+    e.preventDefault();
+    $("new-chat").click();
+  }
+});
+
 // ---------- 模型直选 ----------
 async function loadModels() {
   const select = $("model-select");
