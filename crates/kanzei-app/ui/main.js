@@ -680,6 +680,40 @@ function renderTodoPanel(items, done, total) {
 }
 
 // R-037 对话为主:工具活动一律不进主对话区,收束到右侧活动面板。
+let lastCompactionSummary = "";
+let lastCompactionEntry = null;
+
+function addCompactionEntry(summary) {
+  const el = document.createElement("div");
+  el.className = "bg-entry ok compaction-entry";
+  const title = document.createElement("div");
+  title.className = "bg-title";
+  title.textContent = "上下文压缩 · 点击查看纪要";
+  const detail = document.createElement("div");
+  detail.className = "bg-detail";
+  detail.textContent = summary;
+  el.append(title, detail);
+  title.addEventListener("click", () => detail.classList.toggle("hidden"));
+  $("bg-list").appendChild(el);
+  while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
+  lastCompactionEntry = el;
+}
+
+function renderContextDetail() {
+  const detail = $("context-detail");
+  const t = runTokens;
+  const total = t.input + t.cacheRead + t.output;
+  detail.innerHTML = `<strong>上下文成分</strong><br>输入上下文(系统/历史/工具结果): ${t.input.toLocaleString()} tokens<br>缓存读取(已复用上下文): ${t.cacheRead.toLocaleString()} tokens<br>本轮输出: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? "<br>最近一次压缩纪要已收进活动面板" : ""}<br>合计: ${total.toLocaleString()} tokens`;
+  if (lastCompactionEntry) {
+    activityPanelOpen = true;
+    syncActivityPanel();
+    lastCompactionEntry.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+$("status-tokens").title = "点击查看上下文成分";
+$("status-tokens").classList.add("context-clickable");
+$("status-tokens").addEventListener("click", renderContextDetail);
 on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);
@@ -725,8 +759,10 @@ on("kz:error", (e) => {
   notifyRunState("failed", message);
   $("log-panel").classList.remove("hidden");
 });
-on("kz:compacted", () => {
+on("kz:compacted", (e) => {
+  lastCompactionSummary = e.payload?.summary ?? "";
   addMessage("notice", "🗜 上下文占用过高,已自动压缩为纪要并延续对话");
+  if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
   log("自动压缩完成:多轮历史已替换为纪要");
   ctxTokens = 0;
   renderTokens();
