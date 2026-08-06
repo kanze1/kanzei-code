@@ -5,10 +5,11 @@
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
 - 进展: 已完成 Claude OAuth token 自动刷新：接入 console.anthropic.com/v1/oauth/token，使用 Claude Code client_id 与 refresh_token，在过期前 5 分钟刷新并回写 accessToken/refreshToken/expiresAt；构建请求继续复用 Anthropic OAuth headers。cargo test --workspace 全部通过。剩余真实 Claude Code 端到端验证。
 
-## R-014 多模态模型支持上传图片和 PDF 等文件 [todo]
+## R-014 多模态模型支持上传图片和 PDF 等文件 [doing]
 - 已完成: 三协议的 image/document 消息映射(协议层就绪)
 - 剩余: 前端上传/粘贴入口(与 R-024 一起做)
 - refs: R-024
+- 进展: 开始推进前端多模态入口，范围与 R-024 输入体验关联；先检查现有 composer、拖拽/剪贴板事件和 LlmRequest 图片文档字段。
 
 ## R-016 kzapp 启动时自动完成 pending 自更新 [todo]
 - 范围: 启动检测 kzapp.exe.pending 并自替换,发版后重启即新版
@@ -32,3 +33,15 @@
 ## R-028 todo 工具:运行内任务清单,长连跑会话的结构化计划 + 前端可视化 [todo]
 
 ## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道 [todo]
+
+## R-030 进程与项目解耦:多进程并行,每进程独立模型选择与子代理开关(设计 docs/design/r030-process-decoupling.md) [todo]
+
+## R-031 子代理轨迹透视:task 块可展开子代理完整工具轨迹,后台面板历史可回看 [todo]
+
+## R-032 队列可视化:排队输入列表(内容/交付方式)+ 单条撤销 [todo]
+
+## R-033 阅读体验:智能滚动跟随+回到最新按钮、消息一键复制、对话内搜索 [todo]
+
+## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [todo]
+
+## R-035 diff 查看器升级:语法高亮、并排视图、多文件改动汇总 [todo]
