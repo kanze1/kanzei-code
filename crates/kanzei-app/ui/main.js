@@ -28,10 +28,12 @@ document.querySelectorAll(".activity-item").forEach((item) => {
     document.querySelectorAll(".activity-item").forEach((i) => i.classList.remove("active"));
     item.classList.add("active");
     const view = item.dataset.view;
+    document.body.classList.toggle("documents-active", view === "documents");
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     $(`view-${view}`).classList.add("active");
     if (view === "settings") loadSettings();
     if (view === "workspace") refreshWorkspace();
+    if (view === "documents") refreshDocs();
   });
 });
 
@@ -1990,6 +1992,30 @@ async function refreshWorkspace() {
     toast(`工作区刷新失败:${error}`);
   }
 }
+let documentsKind = "req";
+let latestDocsSnapshot = null;
+function renderDocuments(snapshot) {
+  latestDocsSnapshot = snapshot;
+  const reqList = $("documents-req-list");
+  const defectList = $("documents-defect-list");
+  if (!reqList || !defectList) return;
+  const saved = { ...reqFilters };
+  reqFilters.status = "all";
+  reqFilters.priority = "all";
+  reqFilters.complexity = "all";
+  reqFilters.sort = "manual";
+  renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0);
+  Object.assign(reqFilters, saved);
+  const status = $("documents-status-filter").value;
+  const priority = $("documents-priority-filter").value;
+  const defects = (snapshot.defects ?? []).filter((entry) =>
+    (status === "all" || entry.status === status) && (priority === "all" || entry.priority === priority));
+  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0);
+  reqList.classList.toggle("hidden", documentsKind !== "req");
+  defectList.classList.toggle("hidden", documentsKind !== "defect");
+  $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
+  $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
+}
 async function refreshDocs() {
   if (!currentProject) return;
   try {
@@ -1997,6 +2023,7 @@ async function refreshDocs() {
     renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0);
     renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0);
     renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0);
+    renderDocuments(snapshot);
     renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0);
     renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0);
     $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
@@ -2010,6 +2037,9 @@ async function refreshDocs() {
   }
 }
 
+$("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+for (const id of ["documents-status-filter", "documents-priority-filter"]) $(id).addEventListener("change", () => { if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;

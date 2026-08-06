@@ -12,6 +12,7 @@
         <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </div>
       <div class="activity-item" data-view="workspace" title="工作区">⌂</div>
+      <div class="activity-item" data-view="documents" title="需求与缺陷">☷</div>
       <div class="activity-item" data-view="settings" title="设置">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </div>
@@ -58,7 +59,7 @@
         </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section" id="req-section">
         <div class="section-title">
           <span>需求 <em id="req-count"></em></span>
           <span>
@@ -91,7 +92,7 @@
         </div>
         <div id="req-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section">
+      <div class="sidebar-section" id="defect-section">
         <div class="section-title">
           <span>缺陷 <em id="defect-count"></em></span>
           <span>
@@ -199,6 +200,21 @@
       </div>
 
       <!-- 设置视图 -->
+      <div id="view-documents" class="view">
+        <div id="documents-scroll">
+          <h1>需求与缺陷</h1>
+          <p class="dim">独立管理页面：筛选、拖拽排序、详情和状态编辑会与侧栏同步。</p>
+          <div class="documents-toolbar">
+            <button id="documents-tab-req" class="primary">需求</button>
+            <button id="documents-tab-defect" class="ghost">缺陷</button>
+            <select id="documents-status-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
+            <select id="documents-priority-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+          </div>
+          <div id="documents-req-list" class="doc-list documents-list"></div>
+          <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
+        </div>
+      </div>
+
       <div id="view-settings" class="view">
         <div id="settings-scroll">
           <h1>设置</h1>
