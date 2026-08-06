@@ -84,6 +84,16 @@ fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
         .clone()
 }
 
+fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {
+    state
+        .runtimes
+        .lock()
+        .unwrap()
+        .values()
+        .find_map(|runtime| runtime.asks.lock().unwrap().remove(&id))
+}
+
+
 fn pending_path(exe: &Path) -> PathBuf {
     let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("kzapp.exe");
     exe.with_file_name(format!("{name}.pending"))
@@ -152,9 +162,10 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 
 #[cfg(test)]
 mod update_tests {
-    use super::{pending_path, runtime_for, with_session_id, AppState};
-    use std::path::Path;
+    use super::{pending_path, runtime_for, take_pending_ask, with_session_id, AppState, PendingAsk};
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
+    use tokio::sync::oneshot;
 
     #[test]
     fn pending_path_uses_executable_sibling() {
@@ -185,6 +196,32 @@ mod update_tests {
         let other = runtime_for(&state, "ses_b");
         assert!(Arc::ptr_eq(&first, &same));
         assert!(!Arc::ptr_eq(&first, &other));
+    }
+
+    #[test]
+    fn pending_ask_lookup_stays_with_its_runtime_container() {
+        let state = AppState::default();
+        let first = runtime_for(&state, "ses_a");
+        let second = runtime_for(&state, "ses_b");
+        let (sender, _receiver) = oneshot::channel();
+        first.asks.lock().unwrap().insert(
+            7,
+            PendingAsk {
+                sender,
+                request: kanzei_core::AskRequest::Question {
+                    question: "继续?".into(),
+                    options: Vec::new(),
+                    default: None,
+                },
+                action: "question".into(),
+                resource: "继续?".into(),
+                project_root: PathBuf::from("project-a"),
+                session_id: "ses_a".into(),
+            },
+        );
+        assert_eq!(take_pending_ask(&state, 7).unwrap().session_id, "ses_a");
+        assert!(take_pending_ask(&state, 7).is_none());
+        assert!(second.asks.lock().unwrap().is_empty());
     }
 
 }
@@ -1325,13 +1362,7 @@ async fn summarize_chat(
 /// reply: "deny" | "once" | "always"。always 先把泛化规则写进项目配置再放行。
 #[tauri::command]
 fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
-    let pending = state
-        .runtimes
-        .lock()
-        .unwrap()
-        .values()
-        .find_map(|runtime| runtime.asks.lock().unwrap().remove(&id));
-    let Some(pending) = pending else {
+    let Some(pending) = take_pending_ask(&state, id) else {
         return;
     };
     if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
