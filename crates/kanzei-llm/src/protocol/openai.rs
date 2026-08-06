@@ -30,7 +30,9 @@ pub fn build_body(request: &LlmRequest) -> Value {
                             messages.push(json!({"role": "user", "content": text}))
                         }
                         Part::Image { media_type, data } => {
-                            messages.push(json!({"role": "user", "content": [{"type":"image","image_url":{"url":format!("data:{media_type};base64,{data}")}}]}))
+                            // OpenAI Chat Completions 规范的部件类型是 "image_url"(D-028:
+                            // 写成 "image" 会被 moonshot 等严格校验的 provider 400 拒收)。
+                            messages.push(json!({"role": "user", "content": [{"type":"image_url","image_url":{"url":format!("data:{media_type};base64,{data}")}}]}))
                         }
                         Part::Document { media_type, data } => {
                             // Chat Completions 没有统一的 PDF 输入协议;发送为 data URL,

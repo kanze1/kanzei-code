@@ -116,3 +116,10 @@
 - 范围: 启动检测 kzapp.exe.pending 并自替换,发版后重启即新版
 - 进展: 已完成 kzapp pending 自更新闭环：启动早期检测同目录 pending，派生独立 helper 等待旧进程释放文件锁，原子重命名旧版本为 previous、替换 pending、启动新版本，失败自动回滚；release.ps1 安装失败时改为提示下次启动自动更新，直接安装成功会清理旧 pending。新增 pending 路径单测。已通过 cargo test --workspace 与 node --check。
 - 验收: release 生成的 kzapp.exe.pending 可在下一次启动自动替换，无需重新运行 release.ps1；替换失败保留旧版本并回滚。
+
+## R-037 对话为主布局:主区只留对话与思考,工具活动收束到右侧活动面板 [done]
+- priority: P0
+- 归属: Claude
+- 设计: docs/design/interaction-modes.md 附录
+- 验收: 主区只保留用户消息/assistant 文本/思考头/轮次分隔,工具降为一行痕迹;右侧活动面板按序列出全部工具调用,详情(diff/终端)面板内展开
+- 备注: 与 R-030 页签共用渲染状态重构,一起做
