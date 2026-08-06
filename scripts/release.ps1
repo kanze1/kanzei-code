@@ -26,5 +26,11 @@ Write-Host "==> cargo install --path crates/kanzei" -ForegroundColor Cyan
 cargo install --path crates/kanzei --force
 if ($LASTEXITCODE -ne 0) { throw "install failed" }
 
+Write-Host "==> cargo build --release -p kanzei-app (kzapp)" -ForegroundColor Cyan
+cargo build --release -p kanzei-app
+if ($LASTEXITCODE -ne 0) { throw "app build failed" }
+Copy-Item "$root\target\release\kzapp.exe" "$env:USERPROFILE\.cargo\bin\kzapp.exe" -Force
+
 Write-Host "==> installed:" -ForegroundColor Green
 kz --version
+"kzapp.exe $((Get-Item "$env:USERPROFILE\.cargo\bin\kzapp.exe").Length / 1MB -as [int]) MB -> 桌面端,任意终端输入 kzapp 启动"

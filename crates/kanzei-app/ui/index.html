@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>kanzei</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="activitybar">
+      <div class="activity-item active" data-view="docs" title="项目文档">📋</div>
+      <div class="activity-item" data-view="chat" title="对话">💬</div>
+    </aside>
+
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <span id="profile-badge" class="badge">dev</span>
+        <span id="project-name">kanzei</span>
+      </div>
+      <div class="sidebar-section">
+        <div class="section-title">需求 <span id="req-count"></span></div>
+        <div id="req-list" class="doc-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="section-title">缺陷 <span id="defect-count"></span></div>
+        <div id="defect-list" class="doc-list"></div>
+      </div>
+    </aside>
+
+    <main id="main">
+      <header id="topbar">
+        <input id="project-dir" type="text" spellcheck="false" title="工作目录" />
+        <span id="model-badge" class="badge dim"></span>
+      </header>
+
+      <section id="messages"></section>
+
+      <footer id="composer">
+        <textarea id="prompt" rows="3" placeholder="想做什么?(Ctrl+Enter 发送)"></textarea>
+        <div id="composer-bar">
+          <span id="status" class="dim"></span>
+          <button id="send">发送</button>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <div id="ask-overlay" class="hidden">
+    <div id="ask-dialog">
+      <div class="ask-title">权限请求</div>
+      <div class="ask-body"><code id="ask-action"></code> <code id="ask-resource" class="ask-resource"></code></div>
+      <div class="ask-buttons">
+        <button id="ask-deny">拒绝</button>
+        <button id="ask-allow" class="primary">允许</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="main.js" defer></script>
+</body>
+</html>

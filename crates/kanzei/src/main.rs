@@ -142,13 +142,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }
         RunEvent::StepEnd { .. } => {}
     };
-    let mut ask = |action: &str, resource: &str| -> bool {
+    let mut ask = |action: String, resource: String| -> kanzei_core::AskFuture {
         eprint!("\x1b[33m? allow {action}: {resource} [y/N]\x1b[0m ");
         let mut line = String::new();
-        if std::io::stdin().read_line(&mut line).is_err() {
-            return false;
-        }
-        matches!(line.trim(), "y" | "Y" | "yes")
+        let allow = std::io::stdin().read_line(&mut line).is_ok()
+            && matches!(line.trim(), "y" | "Y" | "yes");
+        Box::pin(async move { allow })
     };
 
     let summary = run_once(

@@ -35,6 +35,9 @@ pub struct RunSummary {
     pub halted_by_user: bool,
 }
 
+/// 权限询问回调的返回值:异步等待用户决定(CLI 同步问、桌面端走事件+oneshot)。
+pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>;
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_once(
     client: &LlmClient,
@@ -45,7 +48,7 @@ pub async fn run_once(
     ctx: &ToolCtx,
     prompt: &str,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-    ask: &mut (dyn FnMut(&str, &str) -> bool + Send),
+    ask: &mut (dyn FnMut(String, String) -> AskFuture + Send),
 ) -> anyhow::Result<RunSummary> {
     let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
     let specs: Vec<ToolSpec> = tools
@@ -162,11 +165,33 @@ pub async fn run_once(
             });
 
             // ---- 硬门禁:权限 Ruleset(deny 回喂模型;ask 问用户,拒绝停整轮)----
-            let output = match gate(snapshot, tool.as_ref(), &input, ask) {
+            let action = tool.action();
+            let mut gate_result = Gate::Pass;
+            let mut pending_ask: Vec<String> = Vec::new();
+            for resource in tool.resources(&input) {
+                // 统一正斜杠,权限 pattern 不用关心平台。
+                let normalized = resource.replace('\\', "/");
+                match snapshot.evaluate(action, &normalized) {
+                    Effect::Deny => {
+                        gate_result = Gate::Deny(normalized);
+                        break;
+                    }
+                    Effect::Ask => pending_ask.push(normalized),
+                    Effect::Allow => {}
+                }
+            }
+            if matches!(gate_result, Gate::Pass) {
+                for resource in pending_ask {
+                    if !ask(action.to_string(), resource).await {
+                        gate_result = Gate::UserDeclined;
+                        break;
+                    }
+                }
+            }
+            let output = match gate_result {
                 Gate::Deny(resource) => kanzei_harness::ToolOutput::error(format!(
-                    "permission denied by ruleset: {} on `{resource}`. \
+                    "permission denied by ruleset: {action} on `{resource}`. \
                      This resource is policy-managed; use the dedicated tool for it.",
-                    tool.action(),
                 )),
                 Gate::UserDeclined => {
                     on_event(RunEvent::ToolEnd {
@@ -214,31 +239,6 @@ enum Gate {
     Pass,
     Deny(String),
     UserDeclined,
-}
-
-fn gate(
-    snapshot: &HarnessSnapshot,
-    tool: &dyn Tool,
-    input: &serde_json::Value,
-    ask: &mut (dyn FnMut(&str, &str) -> bool + Send),
-) -> Gate {
-    let action = tool.action();
-    let mut pending_ask: Vec<String> = Vec::new();
-    for resource in tool.resources(input) {
-        // 统一正斜杠,权限 pattern 不用关心平台。
-        let normalized = resource.replace('\\', "/");
-        match snapshot.evaluate(action, &normalized) {
-            Effect::Deny => return Gate::Deny(normalized),
-            Effect::Ask => pending_ask.push(normalized),
-            Effect::Allow => {}
-        }
-    }
-    for resource in pending_ask {
-        if !ask(action, &resource) {
-            return Gate::UserDeclined;
-        }
-    }
-    Gate::Pass
 }
 
 fn add_usage(a: Usage, b: Usage) -> Usage {

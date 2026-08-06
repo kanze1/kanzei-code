@@ -6,6 +6,7 @@ members = [
     "crates/kanzei-core",
     "crates/kanzei-tools",
     "crates/kanzei",
+    "crates/kanzei-app",
 ]
 
 [workspace.package]

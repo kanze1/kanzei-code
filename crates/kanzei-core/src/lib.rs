@@ -3,4 +3,4 @@
 
 pub mod runner;
 
-pub use runner::{run_once, RunEvent, RunSummary, RunnerConfig};
+pub use runner::{run_once, AskFuture, RunEvent, RunSummary, RunnerConfig};
