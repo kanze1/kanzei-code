@@ -35,13 +35,31 @@
 ## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道 [todo]
 
 ## R-030 进程与项目解耦:多进程并行,每进程独立模型选择与子代理开关(设计 docs/design/r030-process-decoupling.md) [todo]
+- 前端优先级: P1
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: 进程与项目解耦后，多个进程可并行运行且各自拥有模型选择与子代理开关；前端以页签/进程视图呈现。
 
 ## R-031 子代理轨迹透视:task 块可展开子代理完整工具轨迹,后台面板历史可回看 [todo]
+- 前端优先级: P1
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: task 块可展开查看子代理完整工具轨迹，后台面板条目可回看，不因短时超时消失。
 
 ## R-032 队列可视化:排队输入列表(内容/交付方式)+ 单条撤销 [todo]
+- 前端优先级: P1
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: 运行中的 queue 输入显示内容与交付方式，并支持单条撤销，状态与后端 admission 同步。
 
 ## R-033 阅读体验:智能滚动跟随+回到最新按钮、消息一键复制、对话内搜索 [todo]
+- 前端优先级: P0
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: 消息阅读支持智能滚动跟随、回到最新、单条复制和对话内搜索，滚动历史时不被新事件强制拉回底部。
 
 ## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [todo]
+- 前端优先级: P1
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: research 模式显示来源/发现侧边栏，引用可跳转，支持报告入口，并与后端 sources/findings 对齐。
 
 ## R-035 diff 查看器升级:语法高亮、并排视图、多文件改动汇总 [todo]
+- 前端优先级: P2
+- 来源文档: docs/design/frontend-phase3.md
+- 验收补充: diff 支持语法高亮、并排视图及多文件改动汇总。
