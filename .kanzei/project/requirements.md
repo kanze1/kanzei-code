@@ -26,7 +26,7 @@
 - 归属: kanzei
 - 验收: research 模式显示来源/发现侧边栏,引用可跳转,支持报告入口,与后端 sources/findings 对齐
 
-## R-035 diff 查看器升级:语法高亮、并排视图、多文件改动汇总 [doing]
+## R-035 diff 查看器升级:语法高亮、并排视图、多文件改动汇总 [done]
 - priority: P3
 - 归属: kanzei
 - 实现计划: 扩展 write/edit diff payload 增加 language 与结构化 lines,保留旧 diff 字段兼容;前端统一 diff renderer 支持 unified/split 切换、行号和常见语言轻量高亮;活动面板聚合当前会话多文件 additions/deletions。
@@ -99,3 +99,5 @@
 - 来源: 用户反馈:需求评估分复杂度大中小,不要只有优先级
 - 验收: 需求数据支持复杂度字段;新增/编辑需求可设置小/中/大;列表和详情显示;旧需求缺失字段不报错并显示未评估;支持复杂度筛选或排序。
 - 优先级: P2
+
+## R-052 发行版安装包与应用内更新:NSIS setup.exe(scripts/package.ps1),GitHub Releases 为更新源,设置页检查更新/下载安装 [todo]

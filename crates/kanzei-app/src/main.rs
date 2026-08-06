@@ -159,6 +159,8 @@ fn main() {
             settings_save,
             settings_open,
             provider_test,
+            update_check,
+            update_install,
             app_info,
             models_list,
             docs_update,
@@ -593,6 +595,82 @@ fn settings_open() -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 应用内检查更新:比对 GitHub Releases 最新 build 标签与当前构建号。
+#[tauri::command]
+async fn update_check() -> Result<serde_json::Value, String> {
+    let current = option_env!("KANZEI_BUILD_INFO").unwrap_or("dev");
+    let current_hash = current.split_whitespace().next().unwrap_or("dev").to_string();
+    let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
+    let resp = client
+        .get("https://api.github.com/repos/kanze1/kanzei-code/releases/latest")
+        .header("user-agent", "kanzei-app")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("请求失败:{e}"))?;
+    if resp.status().as_u16() == 404 {
+        return Ok(json!({ "current": current_hash, "status": "none",
+            "message": "还没有发布过安装包(用 scripts/package.ps1 -Publish 发布第一版)" }));
+    }
+    let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let tag = body["tag_name"].as_str().unwrap_or("").to_string();
+    let url = body["assets"]
+        .as_array()
+        .and_then(|assets| {
+            assets.iter().find(|a| {
+                a["name"].as_str().is_some_and(|n| n.ends_with(".exe"))
+            })
+        })
+        .and_then(|a| a["browser_download_url"].as_str())
+        .unwrap_or("")
+        .to_string();
+    let newer = !tag.is_empty() && !tag.contains(&current_hash);
+    Ok(json!({
+        "current": current_hash,
+        "latest": tag,
+        "newer": newer,
+        "url": url,
+        "status": if newer { "update" } else { "latest" },
+    }))
+}
+
+/// 下载并启动安装器(只接受本仓库 release 资源);安装器负责替换与重启。
+#[tauri::command]
+async fn update_install(url: String) -> Result<String, String> {
+    if !url.starts_with("https://github.com/kanze1/kanzei-code/") {
+        return Err("仅允许本仓库 release 资源".into());
+    }
+    let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
+    let bytes = client
+        .get(&url)
+        .header("user-agent", "kanzei-app")
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await
+        .map_err(|e| format!("下载失败:{e}"))?
+        .error_for_status()
+        .map_err(|e| format!("下载失败:{e}"))?
+        .bytes()
+        .await
+        .map_err(|e| e.to_string())?;
+    let path = std::env::temp_dir().join("kanzei-setup.exe");
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Command::new(&path).spawn().map_err(|e| format!("启动安装器失败:{e}"))?;
+    Ok(format!("安装器已启动({} MB),按向导完成后重新打开 kanzei", bytes.len() / 1_048_576))
 }
 
 /// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。

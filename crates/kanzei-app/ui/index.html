@@ -205,6 +205,14 @@
             </select>
           </div>
 
+          <h2>版本与更新</h2>
+          <div class="form-row">
+            <label>当前版本 <span id="update-current" class="dim"></span></label>
+            <button id="update-check" class="ghost">检查更新</button>
+            <button id="update-install" class="primary hidden">下载并安装</button>
+            <span id="update-result" class="dim"></span>
+          </div>
+
           <div class="settings-actions">
             <button id="settings-open" class="ghost">打开配置原文</button>
             <button id="settings-save" class="primary">保存</button>
@@ -243,7 +251,8 @@
     </aside>
 
     <aside id="bg-panel" class="hidden">
-      <div class="bg-head">活动</div>
+      <div class="bg-head">活动 <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
+      <div id="diff-summary" class="diff-summary hidden"></div>
       <div id="bg-list"></div>
     </aside>
   </div>

@@ -98,3 +98,4 @@
 - 版本验证:`kz --version` 输出 `kanzei 0.1.0 (<git hash> <日期>)`;桌面端右下角有相同版本徽章,以此确认用户装到的是新版。
 - 网络:`git push` / 访问 GitHub 需要代理,PowerShell 里先 `$env:HTTPS_PROXY = “http://127.0.0.1:12000”` 再执行。
 - 提交规范:commit message 一律**不带任何 Co-Authored-By 署名**;提交前 `git status` 确认只包含本次任务的必要改动。
+- **发行版安装包**:`.\scripts\package.ps1` = `cargo tauri build` 产出 NSIS 安装器到 `dist\kanzei-setup-<hash>.exe`;加 `-Publish` 会用 `gh release create build-<hash>` 发布到 GitHub Releases——**应用内"检查更新"以最新 release 为源**,所以想让用户端收到更新必须带 `-Publish` 发布。`dist/`、`target/`、安装器产物不入库。

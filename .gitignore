@@ -4,3 +4,6 @@
 .kanzei/summaries/
 *.pending
 .kanzei/state.db
+/dist
+crates/kanzei-app/icons/android/
+crates/kanzei-app/icons/ios/

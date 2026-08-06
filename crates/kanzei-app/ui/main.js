@@ -272,7 +272,19 @@ function appendReasoning(text) {
 
 // ---------- 活动面板(R-037):全部工具调用按序入列,详情点击展开,跑完保留可回看 ----------
 const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
+const diffSummary = new Map();
 const BG_MAX = 120;
+function renderDiffSummary() {
+  const panel = $("diff-summary");
+  const label = $("diff-summary-toggle");
+  const files = [...diffSummary.values()];
+  const additions = files.reduce((sum, item) => sum + item.additions, 0);
+  const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
+  label.textContent = files.length ? `· ${files.length} 文件 +${additions}/−${deletions}` : "";
+  panel.classList.toggle("hidden", files.length === 0);
+  panel.innerHTML = files.map((item) => `<div class="diff-summary-row"><span>${escapeHtml(item.path)}</span><span>+${item.additions}/−${item.deletions}</span></div>`).join("");
+}
+
 function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
@@ -303,29 +315,92 @@ function bgAdd(id, name, summary) {
   bgSync();
   list.scrollTop = list.scrollHeight;
 }
-function appendDisplayBlock(container, display) {
-  if (!display) return;
-  const block = document.createElement("div");
-  if (display.kind === "diff") {
-    block.className = "tool-display diff";
-    for (const line of (display.diff || "").split("\n")) {
-      const row = document.createElement("div");
-      row.className = line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
-      row.textContent = line || " ";
-      block.appendChild(row);
-    }
-  } else if (display.kind === "terminal") {
-    block.className = "tool-display term";
-    block.textContent = `$ ${display.command}\n${display.output}`;
-  } else if (display.kind === "create") {
-    block.className = "tool-display term";
-    block.textContent = `新建 ${display.path}(${display.bytes} bytes)\n${display.preview}`;
-  } else {
-    return;
+function highlightLine(container, text, language) {
+  const pattern = /("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\/\/.*|#.*|\b\d+(?:\.\d+)?\b|\b(?:fn|let|const|function|class|return|if|else|for|while|pub|struct|use|import|from|true|false|null|None|async|await)\b)/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > cursor) container.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    const token = document.createElement("span");
+    token.className = match[0].startsWith("//") || match[0].startsWith("#") ? "syntax-comment" : /^['"]/.test(match[0]) ? "syntax-string" : /^\d/.test(match[0]) ? "syntax-number" : "syntax-keyword";
+    token.textContent = match[0];
+    container.appendChild(token);
+    cursor = match.index + match[0].length;
   }
-  container.appendChild(block);
+  if (cursor < text.length) container.appendChild(document.createTextNode(text.slice(cursor)));
 }
 
+function renderDiff(display) {
+  const block = document.createElement("div");
+  block.className = "tool-display diff";
+  let mode = "unified";
+  const header = document.createElement("div");
+  header.className = "diff-file-header";
+  const label = document.createElement("span");
+  label.textContent = `${display.path || "文件"}  +${display.additions || 0} −${display.deletions || 0} · ${display.language || "text"}`;
+  const toggle = document.createElement("button");
+  toggle.className = "ghost mini";
+  toggle.textContent = "并排";
+  header.append(label, toggle);
+  const body = document.createElement("div");
+  body.className = "diff-body";
+  const lines = display.lines?.length ? display.lines : (display.diff || "").split("\n").filter(Boolean).map((text) => ({ kind: text[0] === "+" ? "add" : text[0] === "-" ? "del" : "ctx", text: text.slice(1) }));
+  function render() {
+    body.innerHTML = "";
+    body.className = `diff-body ${mode}`;
+    if (mode === "unified") {
+      let oldLine = 1;
+      let newLine = 1;
+      for (const line of lines) {
+        const row = document.createElement("div");
+        row.className = `diff-row ${line.kind || "ctx"}`;
+        const oldNo = document.createElement("span");
+        const newNo = document.createElement("span");
+        oldNo.className = newNo.className = "diff-line-number";
+        oldNo.textContent = line.old_line ?? (line.kind === "add" ? "" : oldLine++);
+        newNo.textContent = line.new_line ?? (line.kind === "del" ? "" : newLine++);
+        const text = document.createElement("code");
+        highlightLine(text, line.text || "", display.language || "text");
+        row.append(oldNo, newNo, text);
+        body.appendChild(row);
+      }
+    } else {
+      const rows = [];
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i];
+        if (line.kind === "del" && lines[i + 1]?.kind === "add") rows.push([line, lines[++i]]);
+        else if (line.kind === "del") rows.push([line, null]);
+        else if (line.kind === "add") rows.push([null, line]);
+        else rows.push([line, line]);
+      }
+      for (const [left, right] of rows) {
+        const row = document.createElement("div");
+        row.className = "diff-split-row";
+        for (const line of [left, right]) {
+          const pane = document.createElement("div");
+          pane.className = `diff-pane ${line?.kind || "empty"}`;
+          if (line) {
+            const no = document.createElement("span");
+            no.className = "diff-line-number";
+            no.textContent = line.old_line ?? line.new_line ?? "";
+            const text = document.createElement("code");
+            highlightLine(text, line.text || "", display.language || "text");
+            pane.append(no, text);
+          }
+          row.appendChild(pane);
+        }
+        body.appendChild(row);
+      }
+    }
+  }
+  toggle.addEventListener("click", () => {
+    mode = mode === "unified" ? "split" : "unified";
+    toggle.textContent = mode === "unified" ? "并排" : "统一";
+    render();
+  });
+  block.append(header, body);
+  render();
+  return block;
+}
 function bgProgress(id, text, trace) {
   const entry = bgEntries.get(id);
   if (!entry) return;
@@ -368,15 +443,13 @@ function bgEnd(id, ok, preview, display) {
   const d = display;
   if (d?.kind === "diff") {
     entry.title.textContent += `  +${d.additions} −${d.deletions}`;
-    const block = document.createElement("div");
-    block.className = "tool-display diff";
-    for (const line of (d.diff || "").split("\n")) {
-      const ln = document.createElement("div");
-      ln.className = line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
-      ln.textContent = line || " ";
-      block.appendChild(ln);
-    }
-    entry.detail.appendChild(block);
+    diffSummary.set(d.path || entry.title.textContent, {
+      path: d.path || "未命名文件",
+      additions: d.additions || 0,
+      deletions: d.deletions || 0,
+    });
+    renderDiffSummary();
+    entry.detail.appendChild(renderDiff(d));
   } else if (d?.kind === "terminal") {
     const block = document.createElement("div");
     block.className = "tool-display term";
@@ -1884,6 +1957,41 @@ $("settings-save").addEventListener("click", async () => {
 
 $("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toast(String(e))));
 
+// ---------- 版本与更新(GitHub Releases 为源) ----------
+let updateUrl = null;
+$("update-check").addEventListener("click", async () => {
+  $("update-result").textContent = "检查中…";
+  $("update-install").classList.add("hidden");
+  updateUrl = null;
+  try {
+    const r = await invoke("update_check");
+    if (r.current) $("update-current").textContent = r.current;
+    if (r.status === "none") {
+      $("update-result").textContent = r.message;
+    } else if (r.newer && r.url) {
+      updateUrl = r.url;
+      $("update-result").textContent = `发现新版本:${r.latest}`;
+      $("update-install").classList.remove("hidden");
+    } else {
+      $("update-result").textContent = `已是最新(${r.latest || r.current})`;
+    }
+  } catch (err) {
+    $("update-result").textContent = `检查失败:${err}`;
+  }
+});
+$("update-install").addEventListener("click", async () => {
+  if (!updateUrl) return;
+  $("update-result").textContent = "下载中…(安装器就绪后会自动弹出)";
+  $("update-install").disabled = true;
+  try {
+    $("update-result").textContent = await invoke("update_install", { url: updateUrl });
+  } catch (err) {
+    $("update-result").textContent = String(err);
+  } finally {
+    $("update-install").disabled = false;
+  }
+});
+
 // ---------- 侧边栏分区折叠:点标题文字收/展,记忆到 localStorage ----------
 document.querySelectorAll(".sidebar-section").forEach((section) => {
   const title = section.querySelector(".section-title > span:first-child");
@@ -1902,6 +2010,7 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
   try {
     const info = await invoke("app_info");
     $("status-version").textContent = `v${info.version} (${info.build})`;
+    $("update-current").textContent = String(info.build).split(" ")[0];
     log(`kanzei 桌面端启动 · v${info.version} (${info.build})`);
   } catch (err) {
     log(`获取版本失败:${err}`, "warn");
