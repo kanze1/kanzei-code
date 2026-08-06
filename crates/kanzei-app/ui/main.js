@@ -35,11 +35,54 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
 
+// ---------- 运行日志面板 ----------
+const LOG_MAX = 300;
+function log(text, cls = "") {
+  const lines = $("log-lines");
+  const line = document.createElement("div");
+  line.className = `log-line ${cls}`;
+  const time = new Date().toTimeString().slice(0, 8);
+  line.textContent = `${time}  ${text}`;
+  lines.appendChild(line);
+  while (lines.childElementCount > LOG_MAX) lines.firstElementChild.remove();
+  lines.scrollTop = lines.scrollHeight;
+}
+$("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
+$("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
+
 // ---------- 状态栏 ----------
 function setStatus(text, isRunning) {
   $("status-text").textContent = text;
   $("status-dot").className = `dot ${isRunning ? "run" : "idle"}`;
   $("statusbar").classList.toggle("running", !!isRunning);
+}
+
+// 运行计时 + 首响应看门狗:等太久时把"卡在哪"讲清楚。
+let runStart = 0;
+let firstSignal = false;
+let elapsedTimer = null;
+function startElapsed() {
+  runStart = Date.now();
+  firstSignal = false;
+  clearInterval(elapsedTimer);
+  elapsedTimer = setInterval(() => {
+    const secs = Math.floor((Date.now() - runStart) / 1000);
+    $("status-elapsed").textContent = `· ${secs}s`;
+    if (!firstSignal && secs > 0 && secs % 15 === 0) {
+      log(`仍在等待模型首个响应(已 ${secs}s)——订阅高峰或网络较慢时属正常;超时上限 15s 连接 / 180s 读`, "warn");
+    }
+  }, 1000);
+}
+function stopElapsed() {
+  clearInterval(elapsedTimer);
+  elapsedTimer = null;
+  $("status-elapsed").textContent = "";
+}
+function markFirstSignal() {
+  if (!firstSignal) {
+    firstSignal = true;
+    log(`模型开始响应(${((Date.now() - runStart) / 1000).toFixed(1)}s)`);
+  }
 }
 
 function renderTokens() {
@@ -92,16 +135,29 @@ function appendReasoning(text) {
 }
 
 // ---------- 事件订阅 ----------
+listen("kz:status", (e) => {
+  const p = e.payload;
+  log(`[${p.stage}] ${p.detail}`);
+  if (running) setStatus(`${p.stage} · ${p.detail}`, true);
+});
 listen("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
-  if (running) setStatus("请求模型中", true);
+  log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}`);
+  if (running) setStatus("等待模型响应", true);
 });
 listen("kz:text", (e) => {
+  markFirstSignal();
   if (running) setStatus("生成中", true);
   appendAssistant(e.payload.text);
 });
-listen("kz:reasoning", (e) => appendReasoning(e.payload.text));
+listen("kz:reasoning", (e) => {
+  markFirstSignal();
+  if (running) setStatus("思考中", true);
+  appendReasoning(e.payload.text);
+});
 listen("kz:tool-start", (e) => {
+  markFirstSignal();
+  log(`工具 ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
   currentReasoning = null;
   clearEmptyState();
@@ -113,10 +169,11 @@ listen("kz:tool-start", (e) => {
   chip.appendChild(head);
   messages.appendChild(chip);
   currentTool = chip;
-  setStatus(`运行中 · ${e.payload.name}`, true);
+  setStatus(`工具执行中 · ${e.payload.name}`, true);
   scrollBottom();
 });
 listen("kz:tool-end", (e) => {
+  log(`工具结果 ${e.payload.name}: ${e.payload.ok ? "成功" : "失败"} — ${e.payload.preview}`, e.payload.ok ? "" : "warn");
   if (currentTool) {
     currentTool.classList.remove("running");
     currentTool.classList.add(e.payload.ok ? "ok" : "err");
@@ -136,19 +193,27 @@ listen("kz:step", (e) => {
   runTokens.cacheRead += p.cacheRead;
   runTokens.cacheWrite += p.cacheWrite;
   renderTokens();
+  log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output}`);
 });
 listen("kz:error", (e) => {
   addMessage("error", e.payload.message);
-  setRunning(false);
+  log(`错误:${e.payload.message}`, "err");
+  stopElapsed();
+  setRunning(false, "出错");
+  $("log-panel").classList.remove("hidden");
 });
 listen("kz:stopped", () => {
   hideAsk();
   addMessage("notice", "已停止");
-  setRunning(false);
+  log("已手动停止");
+  stopElapsed();
+  setRunning(false, "已停止");
 });
 listen("kz:done", (e) => {
   const p = e.payload;
   addMessage("notice", `完成 · steps ${p.steps}${p.halted ? " · 已按你的拒绝停止" : ""}`);
+  log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+  stopElapsed();
   setRunning(false);
   refreshDocs();
 });
@@ -191,14 +256,25 @@ $("ask-deny").addEventListener("click", () => answerAsk(false));
 // ---------- 发送 / 停止 ----------
 async function send() {
   const prompt = promptBox.value.trim();
-  if (!prompt || running || !currentProject) return;
+  // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
+  if (!prompt) return;
+  if (running) {
+    toast("上一个任务还在运行——点「停止」或等它结束");
+    return;
+  }
+  if (!currentProject) {
+    toast("先在左侧「项目」里添加并选择一个目录");
+    return;
+  }
   promptBox.value = "";
   currentAssistant = null;
   currentReasoning = null;
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   renderTokens();
   addMessage("user", prompt);
-  setRunning(true);
+  setRunning(true, "准备中");
+  startElapsed();
+  log(`发送:${prompt.slice(0, 80)}`);
   try {
     await invoke("run_prompt", {
       prompt,
@@ -207,6 +283,8 @@ async function send() {
     });
   } catch (err) {
     addMessage("error", String(err));
+    log(`发送被拒:${err}`, "err");
+    stopElapsed();
     setRunning(false);
   }
 }
@@ -328,7 +406,7 @@ function renderProviders() {
 
     const tdProtocol = document.createElement("td");
     const protocolSelect = document.createElement("select");
-    for (const proto of ["anthropic", "openai"]) {
+    for (const proto of ["anthropic", "openai", "openai-responses"]) {
       const opt = document.createElement("option");
       opt.value = proto;
       opt.textContent = proto;
@@ -345,16 +423,24 @@ function renderProviders() {
     tdUrl.appendChild(urlInput);
 
     const tdKey = document.createElement("td");
-    const keyInput = document.createElement("input");
-    keyInput.value = p.apiKeyEnv ?? "";
-    keyInput.placeholder = "(本地服务留空)";
-    keyInput.addEventListener("input", () => (p.apiKeyEnv = keyInput.value));
-    tdKey.appendChild(keyInput);
-    if (p.keyPresent !== null && p.keyPresent !== undefined) {
-      const state = document.createElement("span");
-      state.className = `key-state ${p.keyPresent ? "key-ok" : "key-missing"}`;
-      state.textContent = p.keyPresent ? "已设" : "缺失";
-      tdKey.appendChild(state);
+    if (p.auth) {
+      // 特殊认证(codex 订阅登录态):只展示,不可编辑成 key。
+      const badge = document.createElement("span");
+      badge.className = "key-state key-ok";
+      badge.textContent = `订阅登录态(${p.auth})`;
+      tdKey.appendChild(badge);
+    } else {
+      const keyInput = document.createElement("input");
+      keyInput.value = p.apiKeyEnv ?? "";
+      keyInput.placeholder = "(本地服务留空)";
+      keyInput.addEventListener("input", () => (p.apiKeyEnv = keyInput.value));
+      tdKey.appendChild(keyInput);
+      if (p.keyPresent !== null && p.keyPresent !== undefined) {
+        const state = document.createElement("span");
+        state.className = `key-state ${p.keyPresent ? "key-ok" : "key-missing"}`;
+        state.textContent = p.keyPresent ? "已设" : "缺失";
+        tdKey.appendChild(state);
+      }
     }
 
     const tdRemove = document.createElement("td");
@@ -415,6 +501,7 @@ $("settings-save").addEventListener("click", async () => {
           protocol: p.protocol,
           baseUrl: p.baseUrl,
           apiKeyEnv: p.apiKeyEnv || null,
+          auth: p.auth || null,
         })),
       },
     });
@@ -429,6 +516,13 @@ $("settings-open").addEventListener("click", () => invoke("settings_open").catch
 
 // ---------- 启动 ----------
 (async () => {
+  try {
+    const info = await invoke("app_info");
+    $("status-version").textContent = `v${info.version} (${info.build})`;
+    log(`kanzei 桌面端启动 · v${info.version} (${info.build})`);
+  } catch (err) {
+    log(`获取版本失败:${err}`, "warn");
+  }
   renderProjects(await invoke("projects_get"));
   await refreshDocs();
   setStatus("空闲", false);

@@ -52,7 +52,8 @@ fn main() {
             answer_ask,
             settings_get,
             settings_save,
-            settings_open
+            settings_open,
+            app_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -316,6 +317,14 @@ fn answer_ask(state: State<'_, AppState>, id: u64, allow: bool) {
 }
 
 #[tauri::command]
+fn app_info() -> serde_json::Value {
+    json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "build": option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"),
+    })
+}
+
+#[tauri::command]
 fn stop_run(window: Window, state: State<'_, AppState>) {
     if let Some(handle) = state.current_run.lock().unwrap().take() {
         handle.abort();
@@ -371,9 +380,15 @@ async fn run_task(
     project_dir: String,
     profile: Option<String>,
 ) -> anyhow::Result<()> {
+    // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
+    let stage = |name: &str, detail: String| {
+        let _ = window.emit("kz:status", json!({ "stage": name, "detail": detail }));
+    };
+
     let cwd = PathBuf::from(&project_dir);
     anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
 
+    stage("配置", format!("加载 {}", cwd.display()));
     let config = Arc::new(KanzeiConfig::load(&cwd)?);
     let profile: ProfileKind = match profile.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
@@ -397,6 +412,10 @@ async fn run_task(
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
     let agent = snapshot.select_agent(None)?.clone();
+    stage(
+        "装配",
+        format!("harness 就绪:agent {} · {} 个工具", agent.name, snapshot.materialize_tools().len()),
+    );
 
     let resolved = config.resolve_model(&agent.model)?;
     let proxy = match config.proxy.as_deref() {
@@ -404,7 +423,17 @@ async fn run_task(
         Some("env") | None => ProxyConfig::Env,
         Some(p) => ProxyConfig::Explicit(p.to_string()),
     };
+    stage(
+        "鉴权",
+        format!(
+            "{}:{}{}",
+            resolved.provider_name,
+            resolved.model,
+            if resolved.provider.auth.is_some() { "(订阅登录态,可能刷新令牌)" } else { "" }
+        ),
+    );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
+    stage("请求", "已发起,等待模型响应…".into());
     let client = LlmClient::new(&proxy)?;
     let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };
     let ctx = ToolCtx { cwd, project_root };
