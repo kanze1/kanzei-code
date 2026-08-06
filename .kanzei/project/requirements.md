@@ -32,10 +32,13 @@
 - 验证: cargo test -p kanzei-core（26 项通过）；cargo test -p kanzei-app（1 项通过，含 r050-poc-check）；scripts/r050-poc-check.ps1 与 git diff --check 通过。
 - 阻塞: 完整移动端通信仍受 R-030/R-050 runtime 契约和认证部署方案阻塞；R-075 网络错误重试已入队，暂不与当前通知 POC 混实现。
 
-## R-064 联通性前端检查实现 [todo]
+## R-064 联通性前端检查实现 [done]
 - 复杂度: 中
 - 验收: 通过测试确认前端具备网络连通性检测能力
 - 优先级: P0
+- 进展: 已完成：设置页新增“测试全部连通性”，按 Provider 顺序复用既有 provider_test 并显示进度/可用数量；单项测试增加禁用态防重复触发。
+- 阻塞: 无
+- 验证: node --check crates/kanzei-app/ui/main.js；cargo check -p kanzei-app；git diff --check 均通过。cargo check 有既存 kanzei-core final_text unused assignment 警告，不影响本需求。
 
 ## R-065 联通性检查前后端联动缺陷修复 [todo]
 - 复杂度: 中

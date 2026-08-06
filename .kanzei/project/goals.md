@@ -10,4 +10,4 @@
 - priority: P0
 - 验收: R-036、R-033 完成且 R-030/R-037 由 Claude 落地后,前端不再落后于后端能力;达成即 `goal update G-002 achieved`
 - 来源文档: docs/design/frontend-phase3.md、docs/design/interaction-modes.md
-- 进展: 最新调度结论未变化：R-030/R-037 的 Claude 前置实现仍缺失，G-002 的前端对齐无法继续；R-064 按顺序等待现有 doing 槽释放后再取活。
+- 进展: 已推进 R-064 并完成：桌面端设置页现在支持逐个或一键测试全部 Provider 连通性，显示测试进度与可用数量；复用既有 provider_test 后端命令，node --check、cargo check -p kanzei-app、git diff --check 均通过。R-030/R-037 的 Claude runtime 前置契约仍未落地，R-050/R-059 继续阻塞。

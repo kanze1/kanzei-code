@@ -2431,6 +2431,20 @@ for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goa
 // ---------- 设置 ----------
 let settingsProviders = [];
 
+async function testProvider(provider) {
+  try {
+    return await invoke("provider_test", {
+      protocol: provider.protocol,
+      baseUrl: provider.baseUrl,
+      apiKeyEnv: provider.apiKeyEnv || null,
+      apiKey: provider.apiKey || null,
+      auth: provider.auth || null,
+    });
+  } catch (err) {
+    return `测试失败:${err}`;
+  }
+}
+
 function renderProviders() {
   const tbody = document.querySelector("#providers-table tbody");
   tbody.innerHTML = "";
@@ -2496,17 +2510,12 @@ function renderProviders() {
       const result = document.createElement("div");
       result.className = "key-test-result";
       testBtn.addEventListener("click", async () => {
+        testBtn.disabled = true;
         result.textContent = "测试中…";
         try {
-          result.textContent = await invoke("provider_test", {
-            protocol: p.protocol,
-            baseUrl: p.baseUrl,
-            apiKeyEnv: p.apiKeyEnv || null,
-            apiKey: p.apiKey || null,
-            auth: p.auth || null,
-          });
-        } catch (err) {
-          result.textContent = `测试失败:${err}`;
+          result.textContent = await testProvider(p);
+        } finally {
+          testBtn.disabled = false;
         }
       });
       tdKey.append(testBtn, result);
@@ -2611,6 +2620,28 @@ $("set-proxy-mode").addEventListener("change", () => {
 $("provider-add").addEventListener("click", () => {
   settingsProviders.push({ name: "", protocol: "openai", baseUrl: "http://", apiKeyEnv: "" });
   renderProviders();
+});
+
+$("providers-test").addEventListener("click", async () => {
+  const button = $("providers-test");
+  const result = $("providers-test-result");
+  if (!settingsProviders.length) {
+    result.textContent = "没有可测试的 provider";
+    return;
+  }
+  button.disabled = true;
+  result.textContent = `测试中(0/${settingsProviders.length})…`;
+  try {
+    let passed = 0;
+    for (const [index, provider] of settingsProviders.entries()) {
+      const status = await testProvider(provider);
+      if (status.startsWith("✓")) passed += 1;
+      result.textContent = `测试中(${index + 1}/${settingsProviders.length})…`;
+    }
+    result.textContent = `连通性检查完成: ${passed}/${settingsProviders.length} 可用`;
+  } finally {
+    button.disabled = false;
+  }
 });
 
 $("settings-save").addEventListener("click", async () => {
