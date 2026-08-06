@@ -1776,13 +1776,25 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
         el.insertBefore(dragging, before ? item : item.nextSibling);
       });
     }
-    if (/^P[0-3]$/.test(pri)) {
-      const badge = document.createElement("span");
-      badge.className = `pri-badge ${pri}`;
-      badge.textContent = pri;
+    if (kind === "req") {
+      const badge = document.createElement("button");
+      badge.className = `pri-badge ${/^P[0-3]$/.test(pri) ? pri : "unset"}`;
+      badge.textContent = /^P[0-3]$/.test(pri) ? pri : "P?";
+      badge.title = "点击循环调整优先级";
+      badge.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const order = ["P0", "P1", "P2", "P3"];
+        const next = order[(order.indexOf(pri) + 1) % order.length];
+        try {
+          await invoke("docs_update", { projectDir: currentProject, kind: "req", action: "update", id: entry.id, priority: next });
+          toast(`${entry.id} 优先级已调整为 ${next}`);
+          refreshDocs();
+        } catch (error) {
+          toast(`优先级保存失败:${error}`);
+        }
+      });
       row.appendChild(badge);
-    }
-    // 复杂度(R-051):不用文字,行底部宽度条表达体量(小短/中中/大长);未评估无条。
+    }    // 复杂度(R-051):不用文字,行底部宽度条表达体量(小短/中中/大长);未评估无条。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);

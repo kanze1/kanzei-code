@@ -168,7 +168,7 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .doc-item.pri-P1 .id { color: var(--alert, var(--warn)); }
 .doc-item.pri-P2::before { background: var(--info); opacity: .8; }
 .doc-item.pri-P3::before { background: var(--border); }
-.pri-badge { font-size: 10px; border-radius: 8px; padding: 0 5px; flex-shrink: 0; font-family: var(--mono); }
+.pri-badge { font-size: 10px; border-radius: 8px; padding: 0 5px; flex-shrink: 0; font-family: var(--mono); border: 0; cursor: pointer; }
 /* 复杂度(R-051):左侧竖线的宽度三级表达——细=小 2px / 中 4px / 粗=大 7px。
    颜色说优先级(多急),宽度说复杂度(多大),同一根线两个维度。 */
 .doc-item.cx-s::before, .doc-item.cx-m::before, .doc-item.cx-l::before {
@@ -185,6 +185,8 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .pri-badge.P1 { background: #3d2a10; color: var(--alert); }
 .pri-badge.P2 { background: #16283a; color: var(--info); }
 .pri-badge.P3 { background: var(--panel2); color: var(--dim); }
+.pri-badge.unset { background: var(--panel2); color: var(--dim); }
+.pri-badge:hover { filter: brightness(1.3); }
 
 .st { font-size: 10px; border-radius: 8px; padding: 0 6px; flex-shrink: 0; }
 .st-doing, .st-fixing { background: #3d3113; color: var(--warn); }
