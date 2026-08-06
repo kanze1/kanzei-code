@@ -5,11 +5,19 @@ use kanzei_harness::ResolvedModel;
 use kanzei_llm::{ProxyConfig, Route};
 
 pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyhow::Result<Route> {
+    // 直填 key 优先(设置页可直接填);否则读 api_key_env 指向的环境变量。
     let api_key = resolved
         .provider
-        .api_key_env
-        .as_deref()
-        .and_then(|name| std::env::var(name).ok());
+        .api_key
+        .clone()
+        .filter(|k| !k.trim().is_empty())
+        .or_else(|| {
+            resolved
+                .provider
+                .api_key_env
+                .as_deref()
+                .and_then(|name| std::env::var(name).ok())
+        });
 
     // 特殊认证优先(codex = 复用订阅登录态,含按需刷新)。
     if resolved.provider.auth.as_deref() == Some("codex") {

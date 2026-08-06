@@ -156,6 +156,7 @@ fn main() {
             settings_get,
             settings_save,
             settings_open,
+            provider_test,
             app_info,
             models_list,
             docs_update,
@@ -371,15 +372,20 @@ fn settings_get() -> serde_json::Value {
         .providers
         .iter()
         .map(|(name, p)| {
-            let key_present = p
-                .api_key_env
-                .as_deref()
-                .map(|env| std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false));
+            // 直填 key 优先;否则看 env 是否已设。
+            let key_present = if p.api_key.as_deref().is_some_and(|k| !k.trim().is_empty()) {
+                Some(true)
+            } else {
+                p.api_key_env
+                    .as_deref()
+                    .map(|env| std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false))
+            };
             json!({
                 "name": name,
                 "protocol": p.protocol,
                 "baseUrl": p.base_url,
                 "apiKeyEnv": p.api_key_env,
+                "apiKey": p.api_key,
                 "keyPresent": key_present,
                 "auth": p.auth,
                 "contextLimit": p.context_limit,
@@ -415,6 +421,9 @@ struct ProviderPayload {
     protocol: String,
     base_url: String,
     api_key_env: Option<String>,
+    /// 直填 key(优先于 env;明文存 toml)。
+    #[serde(default)]
+    api_key: Option<String>,
     /// 特殊认证透传(codex);表单只读展示,不丢字段。
     #[serde(default)]
     auth: Option<String>,
@@ -449,6 +458,10 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
                     .api_key_env
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty()),
+                api_key: p
+                    .api_key
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
                 auth: p.auth.filter(|s| !s.is_empty()),
                 context_limit: p.context_limit,
             },
@@ -480,6 +493,66 @@ fn settings_open() -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。
+#[tauri::command]
+async fn provider_test(
+    protocol: String,
+    base_url: String,
+    api_key_env: Option<String>,
+    api_key: Option<String>,
+    auth: Option<String>,
+) -> Result<String, String> {
+    if matches!(auth.as_deref(), Some("codex") | Some("claude")) {
+        return Ok("订阅登录态通道,无需 key 测试".into());
+    }
+    let key = api_key
+        .filter(|k| !k.trim().is_empty())
+        .or_else(|| api_key_env.as_deref().and_then(|e| std::env::var(e).ok()))
+        .filter(|k| !k.trim().is_empty());
+    let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
+    let base = base_url.trim_end_matches('/');
+    let request = match protocol.as_str() {
+        "anthropic" => {
+            let mut r = client
+                .get(format!("{base}/v1/models"))
+                .header("anthropic-version", "2023-06-01");
+            if let Some(k) = &key {
+                r = r.header("x-api-key", k);
+            }
+            r
+        }
+        _ => {
+            let mut r = client.get(format!("{base}/models"));
+            if let Some(k) = &key {
+                r = r.bearer_auth(k);
+            }
+            r
+        }
+    };
+    match request.timeout(std::time::Duration::from_secs(15)).send().await {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            Ok(match status {
+                200 => format!("✓ 可用(HTTP 200{})", if key.is_some() { ",key 有效" } else { ",无鉴权" }),
+                401 | 403 => format!(
+                    "✗ key 无效(HTTP {status})——检查 key 是否过期/复制完整;moonshot 注意 .cn 与 .ai 的 key 不通用"
+                ),
+                404 => "✗ 端点 404——base_url 可能不对(需要以 /v1 结尾?)".into(),
+                _ => format!("? HTTP {status}——通道可达但响应异常"),
+            })
+        }
+        Err(e) if e.is_timeout() => Ok("✗ 超时——检查网络/代理设置(本地服务不走代理)".into()),
+        Err(e) if e.is_connect() => Ok("✗ 连接失败——服务未启动或代理不通".into()),
+        Err(e) => Ok(format!("✗ 请求失败:{e}")),
+    }
 }
 
 /// 侧边栏直接改状态/关闭(走同一套 TrackerTool 硬门禁,不绕过状态机)。

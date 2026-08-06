@@ -18,7 +18,6 @@ let running = false;
 let currentProject = null;
 let currentAssistant = null;
 let currentReasoning = null;
-let currentTool = null;
 let attachments = [];
 let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -101,15 +100,24 @@ function renderTokens() {
   let text = t.input + t.output === 0
     ? ""
     : `in ${t.input} (cache r${t.cacheRead} w${t.cacheWrite}) · out ${t.output}`;
+  const bar = $("ctx-bar");
   if (ctxTokens > 0) {
     const k = (ctxTokens / 1000).toFixed(1);
     if (ctxLimit) {
       const pct = Math.round((ctxTokens / ctxLimit) * 100);
       text += `${text ? " · " : ""}ctx ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)`;
       $("status-tokens").classList.toggle("ctx-warn", pct >= 70);
+      // 进度条:容量占用一眼可见,≥70% 变警示色(自动压缩阈值同源)。
+      bar.classList.remove("hidden");
+      bar.classList.toggle("warn", pct >= 70);
+      $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
+      bar.title = `上下文 ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% 自动压缩)`;
     } else {
       text += `${text ? " · " : ""}ctx ${k}k`;
+      bar.classList.add("hidden");
     }
+  } else {
+    bar.classList.add("hidden");
   }
   $("status-tokens").textContent = text;
 }
@@ -245,53 +253,98 @@ function appendReasoning(text) {
   scrollBottom();
 }
 
-// ---------- 后台任务面板:子代理/长时间运行的工具实时监控 ----------
-const bgEntries = new Map(); // call_id -> {el, prog, meta, startedAt, done}
+// ---------- 活动面板(R-037):全部工具调用按序入列,详情点击展开,跑完保留可回看 ----------
+const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
+const BG_MAX = 120;
 function bgSync() {
   $("bg-panel").classList.toggle("hidden", $("bg-list").children.length === 0);
 }
 function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
-  const make = () => {
-    if (bgEntries.has(id)) return;
-    const el = document.createElement("div");
-    el.className = "bg-entry running";
-    const title = document.createElement("div");
-    title.className = "bg-title";
-    title.textContent = `${name} ${summary}`;
-    title.title = summary;
-    const prog = document.createElement("div");
-    prog.className = "bg-prog";
-    prog.textContent = "…";
-    const meta = document.createElement("div");
-    meta.className = "bg-meta";
-    el.append(title, prog, meta);
-    $("bg-list").appendChild(el);
-    bgEntries.set(id, { el, prog, meta, startedAt: Date.now(), done: false });
-    bgSync();
-  };
-  // task 立即入面板;其他工具超过 2.5s 还没结束才算"长任务"。
-  if (name === "task") make();
-  else setTimeout(() => { if (toolChips.has(id)) make(); }, 2500);
+  const el = document.createElement("div");
+  el.className = "bg-entry running";
+  const title = document.createElement("div");
+  title.className = "bg-title";
+  title.textContent = `${name} ${summary}`;
+  title.title = summary;
+  const prog = document.createElement("div");
+  prog.className = "bg-prog";
+  prog.textContent = name === "task" ? "… 子代理启动中" : "…";
+  const meta = document.createElement("div");
+  meta.className = "bg-meta";
+  const detail = document.createElement("div");
+  detail.className = "bg-detail hidden";
+  title.addEventListener("click", () => {
+    if (detail.children.length) detail.classList.toggle("hidden");
+  });
+  el.append(title, prog, meta, detail);
+  const list = $("bg-list");
+  list.appendChild(el);
+  while (list.children.length > BG_MAX) list.firstElementChild.remove();
+  bgEntries.set(id, { el, title, prog, meta, detail, startedAt: Date.now(), done: false });
+  bgSync();
+  list.scrollTop = list.scrollHeight;
 }
 function bgProgress(id, text) {
   const entry = bgEntries.get(id);
   if (entry && !entry.done) entry.prog.textContent = text;
 }
-function bgEnd(id, ok, preview) {
+function bgEnd(id, ok, preview, display) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   entry.done = true;
   entry.el.classList.remove("running");
   entry.el.classList.add(ok ? "ok" : "err");
   entry.prog.textContent = preview || (ok ? "完成" : "失败");
-  // 留 6 秒看得见结果,然后让位。
-  setTimeout(() => { entry.el.remove(); bgEntries.delete(id); bgSync(); }, 6000);
+  entry.meta.textContent = `${Math.round((Date.now() - entry.startedAt) / 1000)}s`;
+  // 结构化详情进面板内展开区(diff/终端/新建/todo)。
+  const d = display;
+  if (d?.kind === "diff") {
+    entry.title.textContent += `  +${d.additions} −${d.deletions}`;
+    const block = document.createElement("div");
+    block.className = "tool-display diff";
+    for (const line of (d.diff || "").split("\n")) {
+      const ln = document.createElement("div");
+      ln.className = line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
+      ln.textContent = line || " ";
+      block.appendChild(ln);
+    }
+    entry.detail.appendChild(block);
+  } else if (d?.kind === "terminal") {
+    const block = document.createElement("div");
+    block.className = "tool-display term";
+    block.textContent = `$ ${d.command}\n${d.output}`;
+    entry.detail.appendChild(block);
+  } else if (d?.kind === "create") {
+    const block = document.createElement("div");
+    block.className = "tool-display term";
+    block.textContent = `新建 ${d.path}(${d.bytes} bytes)\n${d.preview}`;
+    entry.detail.appendChild(block);
+  }
+  if (!ok && preview) {
+    const err = document.createElement("div");
+    err.className = "tool-display term";
+    err.textContent = preview;
+    entry.detail.appendChild(err);
+  }
+  if (entry.detail.children.length) entry.el.classList.add("has-detail");
 }
 function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
+  $("bg-list").innerHTML = "";
   bgSync();
+}
+// 中止/出错时把仍在跑的条目标记为中止,不再空转。
+function bgAbortRunning(label) {
+  for (const entry of bgEntries.values()) {
+    if (!entry.done) {
+      entry.done = true;
+      entry.el.classList.remove("running");
+      entry.el.classList.add("err");
+      entry.prog.textContent = label;
+    }
+  }
 }
 setInterval(() => {
   for (const entry of bgEntries.values()) {
@@ -338,12 +391,9 @@ on("kz:turn", (e) => {
   const p = e.payload;
   if (p.step > 1) {
     clearEmptyState();
-    const divider = document.createElement("div");
-    divider.className = "turn-divider";
-    divider.textContent = p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
-    messages.appendChild(divider);
-    scrollBottom();
+    // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
   }
+  if (p.step === 1) bgClear(); // 新一轮 run 开始:活动面板翻页
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
@@ -363,8 +413,6 @@ on("kz:reasoning", (e) => {
   if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
-// 工具块按调用 id 配对:并行 task 结束顺序不定,靠全局 currentTool 会张冠李戴(D-017 根因)。
-const toolChips = new Map();
 let todoItems = [];
 function renderTodoPanel(items, done, total) {
   todoItems = items || [];
@@ -387,42 +435,17 @@ function renderTodoPanel(items, done, total) {
   }
 }
 
+// R-037 对话为主:工具活动一律不进主对话区,收束到右侧活动面板。
 on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
   currentReasoning = null;
-  clearEmptyState();
-  const chip = document.createElement("div");
-  chip.className = "tool-chip running";
-  const head = document.createElement("div");
-  head.className = "head";
-  head.textContent = `${e.payload.name} ${e.payload.summary}`;
-  chip.appendChild(head);
-  // task 子代理:块内实时进度行,kz:task-progress 持续刷新。
-  if (e.payload.name === "task") {
-    const prog = document.createElement("div");
-    prog.className = "task-progress";
-    prog.textContent = "… 子代理启动中";
-    chip.appendChild(prog);
-  }
-  messages.appendChild(chip);
-  currentTool = chip;
-  if (e.payload.id) toolChips.set(e.payload.id, chip);
   bgAdd(e.payload.id, e.payload.name, e.payload.summary);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`工具执行中 · ${e.payload.name}`, true);
-  scrollBottom();
 });
-on("kz:task-progress", (e) => {
-  const p = e.payload;
-  const chip = toolChips.get(p.id);
-  if (chip) {
-    const prog = chip.querySelector(".task-progress");
-    if (prog) prog.textContent = `… ${p.text}`;
-  }
-  bgProgress(p.id, p.text);
-});
+on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text));
 on("kz:tool-end", (e) => {
   const p = e.payload;
   log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
@@ -430,76 +453,11 @@ on("kz:tool-end", (e) => {
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
   }
-  const chip = (p.id && toolChips.get(p.id)) || currentTool;
-  if (p.id) toolChips.delete(p.id);
-  if (chip === currentTool) currentTool = null;
-  bgEnd(p.id, p.ok, p.preview);
-  if (chip) {
-    chip.querySelector(".task-progress")?.remove();
-    chip.classList.remove("running");
-    chip.classList.add(p.ok ? "ok" : "err");
-    const collapsibles = [];
-
-    const result = document.createElement("div");
-    result.className = "result hidden";
-    result.textContent = p.preview;
-    chip.appendChild(result);
-    collapsibles.push(result);
-
-    // 结构化展示:diff 默认收纳,头部保留文件路径和增删统计;终端块也默认折叠。
-    const d = p.display;
-    if (d && d.kind === "diff") {
-      const stat = document.createElement("span");
-      stat.className = "diff-stat";
-      stat.textContent = ` +${d.additions} −${d.deletions} ${d.path}`;
-      chip.querySelector(".head").appendChild(stat);
-      const block = document.createElement("div");
-      block.className = "tool-display diff hidden";
-      for (const line of (d.diff || "").split("\n")) {
-        const ln = document.createElement("div");
-        ln.className =
-          line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
-        ln.textContent = line || " ";
-        block.appendChild(ln);
-      }
-      chip.appendChild(block);
-      collapsibles.push(block);
-    } else if (d && d.kind === "terminal") {
-      const block = document.createElement("div");
-      block.className = "tool-display term hidden";
-      block.textContent = `$ ${d.command}\n${d.output}`;
-      chip.appendChild(block);
-      collapsibles.push(block);
-    } else if (d && d.kind === "create") {
-      const block = document.createElement("div");
-      block.className = "tool-display term";
-      block.textContent = `新建 ${d.path}(${d.bytes} bytes)\n${d.preview}`;
-      chip.appendChild(block);
-      collapsibles.push(block);
-    } else if (d && d.kind === "todo") {
-      renderTodoPanel(d.items || [], d.done || 0, d.total || 0);
-      const block = document.createElement("div");
-      block.className = "tool-display term hidden";
-      block.textContent = `${d.done || 0}/${d.total || 0} done`;
-      chip.appendChild(block);
-      collapsibles.push(block);
-    }
-
-    chip.querySelector(".head").addEventListener("click", () => {
-      for (const el of collapsibles) el.classList.toggle("hidden");
-    });
-    // 失败结果直接展开可见,且不参与折叠切换(避免与 diff 展开状态错位)。
-    if (!p.ok) {
-      result.classList.remove("hidden");
-      collapsibles.splice(collapsibles.indexOf(result), 1);
-    }
-    const actions = document.createElement("span");
-    actions.className = "msg-actions";
-    actions.appendChild(copyButton());
-    chip.appendChild(actions);
+  if (p.display?.kind === "todo") {
+    renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
+  bgEnd(p.id, p.ok, p.preview, p.display);
   setStatus("运行中", true);
-  scrollBottom();
 });
 on("kz:step", (e) => {
   const p = e.payload;
@@ -517,8 +475,7 @@ on("kz:error", (e) => {
   log(`错误:${e.payload.message}`, "err");
   stopElapsed();
   setRunning(false, "出错");
-  toolChips.clear();
-  bgClear();
+  bgAbortRunning("(出错中止)");
   liveIdle("出错");
   $("log-panel").classList.remove("hidden");
 });
@@ -535,8 +492,7 @@ on("kz:stopped", (e) => {
   log(cancelled > 0 ? `已手动停止并取消 ${cancelled} 条排队输入` : "已手动停止");
   stopElapsed();
   setRunning(false, "已停止");
-  toolChips.clear();
-  bgClear();
+  bgAbortRunning("(已停止)");
   liveIdle("已停止");
 });
 on("kz:done", (e) => {
@@ -550,8 +506,7 @@ on("kz:done", (e) => {
   setRunning(false);
   // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
   refreshConversationList();
-  toolChips.clear();
-  bgClear();
+  // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
   liveIdle(`空闲 · 上轮 ${p.steps} 轮完成`);
   refreshDocs();
   refreshGit();
@@ -1484,17 +1439,47 @@ function renderProviders() {
       badge.textContent = `订阅登录态(${p.auth})`;
       tdKey.appendChild(badge);
     } else {
+      const envInput = document.createElement("input");
+      envInput.value = p.apiKeyEnv ?? "";
+      envInput.placeholder = "环境变量名(可选)";
+      envInput.title = "读取该环境变量作为 key";
+      envInput.addEventListener("input", () => (p.apiKeyEnv = envInput.value));
       const keyInput = document.createElement("input");
-      keyInput.value = p.apiKeyEnv ?? "";
-      keyInput.placeholder = "(本地服务留空)";
-      keyInput.addEventListener("input", () => (p.apiKeyEnv = keyInput.value));
-      tdKey.appendChild(keyInput);
+      keyInput.type = "password";
+      keyInput.value = p.apiKey ?? "";
+      keyInput.placeholder = "或直接粘贴 key";
+      keyInput.title = "直填优先于环境变量;明文存 kanzei.toml";
+      keyInput.addEventListener("input", () => (p.apiKey = keyInput.value));
+      tdKey.append(envInput, keyInput);
       if (p.keyPresent !== null && p.keyPresent !== undefined) {
         const state = document.createElement("span");
         state.className = `key-state ${p.keyPresent ? "key-ok" : "key-missing"}`;
         state.textContent = p.keyPresent ? "已设" : "缺失";
         tdKey.appendChild(state);
       }
+    }
+    // 当场探测:401/超时都给可操作提示,不用跑一轮对话才发现 key 坏了。
+    {
+      const testBtn = document.createElement("button");
+      testBtn.className = "ghost mini";
+      testBtn.textContent = "测试";
+      const result = document.createElement("div");
+      result.className = "key-test-result";
+      testBtn.addEventListener("click", async () => {
+        result.textContent = "测试中…";
+        try {
+          result.textContent = await invoke("provider_test", {
+            protocol: p.protocol,
+            baseUrl: p.baseUrl,
+            apiKeyEnv: p.apiKeyEnv || null,
+            apiKey: p.apiKey || null,
+            auth: p.auth || null,
+          });
+        } catch (err) {
+          result.textContent = `测试失败:${err}`;
+        }
+      });
+      tdKey.append(testBtn, result);
     }
 
     // D-015:context_limit 必须在表单可见可编辑,保存不许丢字段。
@@ -1567,6 +1552,7 @@ $("settings-save").addEventListener("click", async () => {
           protocol: p.protocol,
           baseUrl: p.baseUrl,
           apiKeyEnv: p.apiKeyEnv || null,
+          apiKey: p.apiKey || null,
           auth: p.auth || null,
           contextLimit: p.contextLimit ?? null,
         })),

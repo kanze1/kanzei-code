@@ -39,6 +39,9 @@ pub struct ProviderConfig {
     pub base_url: String,
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// 直填 API key(个人工具的便利通道,优先于 api_key_env;明文存 toml,自担风险)。
+    #[serde(default)]
+    pub api_key: Option<String>,
     /// 特殊认证:"codex" = 复用 Codex CLI 登录态,"claude" = 复用 Claude Code 登录态。
     #[serde(default)]
     pub auth: Option<String>,
@@ -89,6 +92,7 @@ impl KanzeiConfig {
                 protocol: "anthropic".into(),
                 base_url: "https://api.anthropic.com".into(),
                 api_key_env: Some("ANTHROPIC_API_KEY".into()),
+                api_key: None,
                 auth: None,
                 context_limit: Some(200_000),
             });
@@ -98,6 +102,7 @@ impl KanzeiConfig {
                 protocol: "openai".into(),
                 base_url: "http://127.0.0.1:11434/v1".into(),
                 api_key_env: None,
+                api_key: None,
                 auth: None,
                 context_limit: Some(32_000),
             });
@@ -108,6 +113,7 @@ impl KanzeiConfig {
                 protocol: "openai-responses".into(),
                 base_url: "https://chatgpt.com/backend-api/codex".into(),
                 api_key_env: None,
+                api_key: None,
                 auth: Some("codex".into()),
                 context_limit: Some(272_000),
             });
@@ -118,6 +124,7 @@ impl KanzeiConfig {
                 protocol: "anthropic".into(),
                 base_url: "https://api.anthropic.com".into(),
                 api_key_env: None,
+                api_key: None,
                 auth: Some("claude".into()),
                 context_limit: Some(200_000),
             });

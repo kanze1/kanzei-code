@@ -337,6 +337,22 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-entry.running .bg-title::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
 .bg-entry.ok .bg-title::before { content: "✓ "; color: var(--ok); }
 .bg-entry.err .bg-title::before { content: "✗ "; color: var(--err); }
+.bg-entry.has-detail .bg-title { cursor: pointer; }
+.bg-entry.has-detail .bg-title:hover { color: var(--fg-strong); }
+.bg-detail { margin-top: 4px; max-height: 320px; overflow-y: auto; user-select: text; }
+.bg-detail.hidden { display: none; }
+
+/* 状态栏上下文进度条 */
+#ctx-bar {
+  width: 72px; height: 7px; border-radius: 4px; background: var(--panel2);
+  border: 1px solid var(--border-soft); overflow: hidden; display: inline-block;
+}
+#ctx-bar.hidden { display: none; }
+#ctx-bar-fill {
+  display: block; height: 100%; width: 0; background: var(--info);
+  transition: width .3s ease; border-radius: 3px;
+}
+#ctx-bar.warn #ctx-bar-fill { background: var(--warn); }
 
 /* ---------- 历史对话行(复选批删) ---------- */
 .conv-row { cursor: pointer; align-items: center; }
