@@ -693,4 +693,41 @@ mod tests {
         assert!(store.has_pending("ses_other", Delivery::Queue).unwrap());
         assert!(!store.cancel_input("ses_test", "s1").unwrap());
     }
+
+    #[test]
+    fn r050_poc_不同会话事件回放互不串线() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"thread": "a"}))
+            .unwrap();
+        store
+            .append_event("ses_other", "conversation.updated", &serde_json::json!({"thread": "b"}))
+            .unwrap();
+
+        let a = store.list_events("ses_test", 0).unwrap();
+        let b = store.list_events("ses_other", 0).unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+        assert_eq!(a[0].payload["thread"], "a");
+        assert_eq!(b[0].payload["thread"], "b");
+        assert_eq!(a[0].sequence, 1);
+        assert_eq!(b[0].sequence, 1);
+    }
+
+    #[test]
+    fn r050_poc_停止一个会话不影响另一个会话队列() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store.admit_input("ses_test", "a-pending", "A", Delivery::Queue).unwrap();
+        store.admit_input("ses_other", "b-pending", "B", Delivery::Queue).unwrap();
+        store.admit_input("ses_other", "b-steer", "B steer", Delivery::Steer).unwrap();
+
+        assert_eq!(store.cancel_pending_inputs("ses_test").unwrap(), 1);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(store.has_pending("ses_other", Delivery::Queue).unwrap());
+        assert_eq!(store.promote_next_input("ses_other").unwrap().unwrap().prompt, "B steer");
+        assert_eq!(store.promote_next_input("ses_other").unwrap().unwrap().prompt, "B");
+    }
+
 }

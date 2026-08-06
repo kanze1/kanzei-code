@@ -15,9 +15,9 @@
 - 风险: 高:涉及运行生命周期隔离、SQLite session/thread 数据模型、权限 ask 路由、队列/活动事件归属、文件写入冲突、git worktree 生命周期、合并与恢复;不能只靠前端 tab 模拟。建议先做线程模型与状态机设计,再做单项目双线程只读 POC,最后做 worktree/冲突合并。
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口。
 - 优先级: P1
-- 进展: 已完成 R-050 前置设计阶段文档：补齐 project/process/thread/session/worktree 关系、线程状态机、停止与恢复语义、锁顺序、只读门禁及双线程 POC 验收矩阵。完整实现继续等待 R-030 的 process_id/session_id 契约与项目文件锁策略。
-- 阻塞: 完整实现依赖 R-030 的 ProcessHandle、process_id/session_id 事件契约和共享项目文件锁策略；这些前置契约当前归属 Claude。
-- 验证: git diff --check、node --check crates/kanzei-app/ui/main.js、cargo test -p kanzei-app 通过。
+- 进展: 在前置设计基础上新增两项只读 POC 回归测试：跨 session 事件回放互不串线；取消一个 session 的 pending 输入不影响另一 session，且另一 session 仍保持 steer 优先。当前仅验证 SessionStore 隔离不变量，未接入 R-030 runtime 契约。
+- 阻塞: 真实双线程运行、权限路由、活动事件分桶和 worktree 流程仍等待 R-030 的 process_id/session_id 契约。
+- 验证: cargo test -p kanzei-core（13 项通过）、cargo test -p kanzei-app（1 项通过）、git diff --check、node --check crates/kanzei-app/ui/main.js 通过。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 原始描述: 记录一个比较大的需求，我们有一个比较远的目标就是在手机端可以实现子代理和主要代理的交互和通知的展示，同时子代理是升级成管理项目装填的，也就是可以独立于项目存在，这个先留着吧，等我来调整，写一个不紧急的目标
@@ -64,6 +64,7 @@
 ## R-071 外部阻塞需求显示与记录 [todo]
 - 复杂度: 中
 - 验收: - 前端需展示已标记为“外部阻塞”的需求
-- 每条阻塞需求应显示来源、处理状态及详细信息日志
-- 支持查看和访问该记录的完整详情
+- 优先级: P1
+
+## R-072 修改文案将需求改为需求与工作 [todo]
 - 优先级: P1
