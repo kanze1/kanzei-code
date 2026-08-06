@@ -1140,9 +1140,114 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   }
 }
 
+const PROMPT_HISTORY_KEY = "kz-prompt-history";
+const PROMPT_HISTORY_LIMIT = 30;
+let promptHistory = (() => {
+  try { return JSON.parse(localStorage.getItem(PROMPT_HISTORY_KEY) || "[]").filter((item) => typeof item === "string"); }
+  catch (_) { return []; }
+})();
+let promptHistoryIndex = -1;
+let promptHistoryDraft = "";
+
+function rememberPrompt(prompt) {
+  const value = prompt.trim();
+  if (!value) return;
+  promptHistory = [value, ...promptHistory.filter((item) => item !== value)].slice(0, PROMPT_HISTORY_LIMIT);
+  localStorage.setItem(PROMPT_HISTORY_KEY, JSON.stringify(promptHistory));
+  promptHistoryIndex = -1;
+}
+
+function navigatePromptHistory(direction) {
+  if (promptHistory.length === 0) return false;
+  if (promptHistoryIndex === -1) promptHistoryDraft = promptBox.value;
+  const next = promptHistoryIndex + direction;
+  if (next < 0 || next > promptHistory.length) return false;
+  promptHistoryIndex = next;
+  promptBox.value = next === promptHistory.length ? promptHistoryDraft : promptHistory[next];
+  promptBox.setSelectionRange(promptBox.value.length, promptBox.value.length);
+  return true;
+}
+
+let fileSuggestions = [];
+let fileSuggestionIndex = -1;
+let fileSuggestionToken = null;
+let fileSuggestionRequest = 0;
+
+function currentFileToken() {
+  const cursor = promptBox.selectionStart;
+  const before = promptBox.value.slice(0, cursor);
+  const match = before.match(/(?:^|\s)@([^\s]*)$/);
+  if (!match) return null;
+  return { start: cursor - match[1].length - 1, end: cursor, query: match[1] };
+}
+
+function hideFileSuggestions() {
+  fileSuggestions = [];
+  fileSuggestionIndex = -1;
+  fileSuggestionToken = null;
+  $("file-suggestions").classList.add("hidden");
+  $("file-suggestions").replaceChildren();
+}
+
+function renderFileSuggestions() {
+  const box = $("file-suggestions");
+  box.replaceChildren();
+  fileSuggestions.forEach((path, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `file-suggestion${index === fileSuggestionIndex ? " active" : ""}`;
+    button.textContent = `@${path}`;
+    button.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      chooseFileSuggestion(index);
+    });
+    box.appendChild(button);
+  });
+  box.classList.toggle("hidden", fileSuggestions.length === 0);
+}
+
+function chooseFileSuggestion(index = fileSuggestionIndex) {
+  const path = fileSuggestions[index];
+  const token = currentFileToken() || fileSuggestionToken;
+  if (!path || !token) return;
+  promptBox.value = `${promptBox.value.slice(0, token.start)}@${path} ${promptBox.value.slice(token.end)}`;
+  const cursor = token.start + path.length + 2;
+  promptBox.focus();
+  promptBox.setSelectionRange(cursor, cursor);
+  hideFileSuggestions();
+}
+
+async function refreshFileSuggestions() {
+  const token = currentFileToken();
+  if (!token || !currentProject) {
+    hideFileSuggestions();
+    return;
+  }
+  fileSuggestionToken = token;
+  const request = ++fileSuggestionRequest;
+  try {
+    const paths = await invoke("project_files", { projectDir: currentProject, query: token.query });
+    if (request !== fileSuggestionRequest || !currentFileToken()) return;
+    fileSuggestions = paths;
+    fileSuggestionIndex = paths.length ? 0 : -1;
+    renderFileSuggestions();
+  } catch (error) {
+    hideFileSuggestions();
+    log(`文件补全失败:${error}`, "warn");
+  }
+}
+
+let fileSuggestionTimer = null;
+promptBox.addEventListener("input", () => {
+  promptHistoryIndex = -1;
+  clearTimeout(fileSuggestionTimer);
+  fileSuggestionTimer = setTimeout(refreshFileSuggestions, 80);
+});
 function send() {
   const prompt = promptBox.value.trim();
   if (!prompt && attachments.length === 0) return;
+  rememberPrompt(prompt);
+  hideFileSuggestions();
   const promptAttachments = attachments;
   promptBox.value = "";
   attachments = [];
@@ -1215,7 +1320,33 @@ $("stop").addEventListener("click", () => {
   log("已请求停止(本地已复位)");
 });
 promptBox.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+  if (e.key === "Escape" && !$("file-suggestions").classList.contains("hidden")) {
+    e.preventDefault();
+    hideFileSuggestions();
+    return;
+  }
+  if ((e.key === "Tab" || e.key === "Enter") && fileSuggestions.length > 0 && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    chooseFileSuggestion();
+    return;
+  }
+  if (e.key === "ArrowDown" && (promptBox.selectionStart === promptBox.value.length || promptBox.value === "")) {
+    if (fileSuggestions.length > 0) {
+      e.preventDefault();
+      fileSuggestionIndex = (fileSuggestionIndex + 1) % fileSuggestions.length;
+      renderFileSuggestions();
+      return;
+    }
+    if (navigatePromptHistory(1)) e.preventDefault();
+  } else if (e.key === "ArrowUp" && (promptBox.selectionStart === 0 || promptBox.value === "")) {
+    if (fileSuggestions.length > 0) {
+      e.preventDefault();
+      fileSuggestionIndex = (fileSuggestionIndex - 1 + fileSuggestions.length) % fileSuggestions.length;
+      renderFileSuggestions();
+      return;
+    }
+    if (navigatePromptHistory(-1)) e.preventDefault();
+  } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     send();
   }
