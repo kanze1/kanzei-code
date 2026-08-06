@@ -17,9 +17,9 @@
 - 风险: 高:涉及运行生命周期隔离、SQLite session/thread 数据模型、权限 ask 路由、队列/活动事件归属、文件写入冲突、git worktree 生命周期、合并与恢复;不能只靠前端 tab 模拟。建议先做线程模型与状态机设计,再做单项目双线程只读 POC,最后做 worktree/冲突合并。
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口。
 - 优先级: P1
-- 进展: 已补齐生命周期路由验证：抽出 take_pending_ask 统一从按 session_id 的运行时容器取出权限询问；answer_ask 复用该路径；新增容器复用、权限询问取出隔离测试。current_run 仍按容器存储，stop_run 已按目标容器 abort/清理。
+- 进展: 已推进运行句柄生命周期：会话任务自然完成或失败时主动取走对应 current_run；spawn 与任务快速结束竞态下，在安装句柄后根据 running 状态再次清理，避免残留已结束 JoinHandle；stop_run abort 路径保持由停止命令取走。
 - 阻塞: 无
-- 验证: cargo test -p kanzei-app（5 项通过，含权限询问容器隔离测试）；node --check crates/kanzei-app/ui/main.js；git diff --check 通过。cargo test 有既存 kanzei-core final_text unused assignment 警告。
+- 验证: cargo test -p kanzei-app（5 项通过）；node --check crates/kanzei-app/ui/main.js；git diff --check 通过。cargo test 有既存 kanzei-core final_text unused assignment 警告。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [doing]
 - 原始描述: 记录一个比较大的需求，我们有一个比较远的目标就是在手机端可以实现子代理和主要代理的交互和通知的展示，同时子代理是升级成管理项目装填的，也就是可以独立于项目存在，这个先留着吧，等我来调整，写一个不紧急的目标

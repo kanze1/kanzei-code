@@ -1805,6 +1805,7 @@ async fn run_prompt(
     let running_project = state.running_project.clone();
     let conversation = state.conversation.clone();
 
+    let runtime_for_task = runtime.clone();
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
@@ -1871,8 +1872,14 @@ async fn run_prompt(
                 json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }),
             );
         }
+        // 自然完成/失败时释放会话容器中的句柄;stop_run abort 后则由 stop 路径取走。
+        runtime_for_task.current_run.lock().unwrap().take();
     });
     *runtime.current_run.lock().unwrap() = Some(handle);
+    // spawn 可能在句柄安装前快速结束,避免把已结束句柄重新放回容器。
+    if !state.running.load(Ordering::SeqCst) {
+        runtime.current_run.lock().unwrap().take();
+    }
     Ok(())
 }
 
