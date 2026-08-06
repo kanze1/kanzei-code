@@ -19,7 +19,7 @@ use kanzei_core::{run_once, AskFuture, RunEvent, RunnerConfig};
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
-use kanzei_llm::{LlmClient, ProxyConfig, Route};
+use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
@@ -212,6 +212,7 @@ fn settings_get() -> serde_json::Value {
                 "baseUrl": p.base_url,
                 "apiKeyEnv": p.api_key_env,
                 "keyPresent": key_present,
+                "auth": p.auth,
             })
         })
         .collect();
@@ -244,6 +245,9 @@ struct ProviderPayload {
     protocol: String,
     base_url: String,
     api_key_env: Option<String>,
+    /// 特殊认证透传(codex);表单只读展示,不丢字段。
+    #[serde(default)]
+    auth: Option<String>,
 }
 
 #[tauri::command]
@@ -270,6 +274,7 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
                 protocol: p.protocol.trim().to_string(),
                 base_url: p.base_url.trim().trim_end_matches('/').to_string(),
                 api_key_env: p.api_key_env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                auth: p.auth.filter(|s| !s.is_empty()),
             },
         );
     }
@@ -394,30 +399,12 @@ async fn run_task(
     let agent = snapshot.select_agent(None)?.clone();
 
     let resolved = config.resolve_model(&agent.model)?;
-    let api_key = resolved
-        .provider
-        .api_key_env
-        .as_deref()
-        .and_then(|name| std::env::var(name).ok());
-    let route = match resolved.provider.protocol.as_str() {
-        "anthropic" => {
-            let key = api_key.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "provider `{}` 需要环境变量 {}(在设置页可查看状态)",
-                    resolved.provider_name,
-                    resolved.provider.api_key_env.as_deref().unwrap_or("<api_key_env>")
-                )
-            })?;
-            Route::anthropic_at(&resolved.provider.base_url, &key)
-        }
-        "openai" => Route::openai_at(&resolved.provider.base_url, api_key.as_deref()),
-        other => anyhow::bail!("unknown protocol `{other}`"),
-    };
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
         Some("env") | None => ProxyConfig::Env,
         Some(p) => ProxyConfig::Explicit(p.to_string()),
     };
+    let route = kanzei_core::build_route(&resolved, &proxy).await?;
     let client = LlmClient::new(&proxy)?;
     let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };
     let ctx = ToolCtx { cwd, project_root };

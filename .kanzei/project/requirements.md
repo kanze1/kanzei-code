@@ -12,4 +12,4 @@
 
 ## R-006 桌面端 UI 美化(用户反馈:现在有点丑) [doing]
 
-## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [todo]
+## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [doing]

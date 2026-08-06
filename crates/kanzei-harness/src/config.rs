@@ -34,11 +34,14 @@ pub struct ModelRoles {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
-    /// "anthropic" | "openai"
+    /// "anthropic" | "openai" | "openai-responses"
     pub protocol: String,
     pub base_url: String,
     #[serde(default)]
     pub api_key_env: Option<String>,
+    /// 特殊认证:"codex" = 复用 Codex CLI 订阅登录态(~/.codex/auth.json)。
+    #[serde(default)]
+    pub auth: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -81,17 +84,26 @@ impl KanzeiConfig {
             protocol: "anthropic".into(),
             base_url: "https://api.anthropic.com".into(),
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
+            auth: None,
         });
         self.providers.entry("ollama".into()).or_insert(ProviderConfig {
             protocol: "openai".into(),
             base_url: "http://127.0.0.1:11434/v1".into(),
             api_key_env: None,
+            auth: None,
+        });
+        // Codex 订阅通道:复用 Codex CLI 登录态,零配置可用。
+        self.providers.entry("codex".into()).or_insert(ProviderConfig {
+            protocol: "openai-responses".into(),
+            base_url: "https://chatgpt.com/backend-api/codex".into(),
+            api_key_env: None,
+            auth: Some("codex".into()),
         });
         if self.models.primary.is_none() {
             self.models.primary = Some("anthropic:claude-sonnet-5".into());
         }
         if self.models.fast.is_none() {
-            self.models.fast = Some("ollama:qwen3".into());
+            self.models.fast = Some("ollama:qwen3.5:4b".into());
         }
     }
 

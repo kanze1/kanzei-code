@@ -40,6 +40,17 @@ impl Route {
         }
     }
 
+    /// OpenAI Responses 协议端点,headers 由调用方备好(如 codex 订阅凭证)。
+    pub fn openai_responses_at(base_url: &str, headers: Vec<(String, String)>) -> Route {
+        Route {
+            kind: ProtocolKind::OpenAiResponses,
+            endpoint: Endpoint {
+                base_url: base_url.trim_end_matches('/').to_string(),
+                headers,
+            },
+        }
+    }
+
     /// OpenAI 兼容端点。本地服务(Ollama/LM Studio)不需要 key,传 None 即可。
     /// base_url 含版本前缀,如 `http://127.0.0.1:11434/v1`。
     pub fn openai_at(base_url: &str, api_key: Option<&str>) -> Route {

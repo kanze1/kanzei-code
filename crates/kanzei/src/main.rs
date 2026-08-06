@@ -11,7 +11,7 @@ use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, Tool,
     ToolCtx,
 };
-use kanzei_llm::{LlmClient, ProxyConfig, Route};
+use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 #[tokio::main]
@@ -90,25 +90,6 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。
     let model_ref = std::env::var("KANZEI_MODEL").unwrap_or_else(|_| agent.model.clone());
     let resolved = config.resolve_model(&model_ref)?;
-    let api_key = resolved
-        .provider
-        .api_key_env
-        .as_deref()
-        .and_then(|name| std::env::var(name).ok());
-    let route = match resolved.provider.protocol.as_str() {
-        "anthropic" => {
-            let key = api_key.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "provider `{}` requires env {}",
-                    resolved.provider_name,
-                    resolved.provider.api_key_env.as_deref().unwrap_or("<api_key_env>")
-                )
-            })?;
-            Route::anthropic_at(&resolved.provider.base_url, &key)
-        }
-        "openai" => Route::openai_at(&resolved.provider.base_url, api_key.as_deref()),
-        other => anyhow::bail!("unknown protocol `{other}` for provider `{}`", resolved.provider_name),
-    };
 
     let proxy = match std::env::var("KANZEI_PROXY").ok().or_else(|| config.proxy.clone()) {
         Some(p) if p == "off" => ProxyConfig::Disabled,
@@ -116,6 +97,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
         _ => ProxyConfig::Env,
     };
+    let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
     let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };

@@ -85,6 +85,7 @@ pub async fn run_once(
 
         let mut stream = client.stream(route, &request).await?;
         let mut text_buffers: BTreeMap<usize, String> = BTreeMap::new();
+        let mut reasoning_buffers: BTreeMap<usize, String> = BTreeMap::new();
         let mut parts: Vec<Part> = Vec::new();
         let mut calls: Vec<(String, String, serde_json::Value, String)> = Vec::new();
         let mut finish = FinishReason::EndTurn;
@@ -100,8 +101,17 @@ pub async fn run_once(
                         parts.push(Part::Text { text });
                     }
                 }
-                LlmEvent::ReasoningDelta { text, .. } => {
-                    on_event(RunEvent::Reasoning(text));
+                LlmEvent::ReasoningDelta { index, text } => {
+                    on_event(RunEvent::Reasoning(text.clone()));
+                    reasoning_buffers.entry(index).or_default().push_str(&text);
+                }
+                // reasoning 连同 signature(codex 的 encrypted_content)入历史,
+                // Responses 协议多轮工具循环必须回放;其他协议的 builder 自行忽略。
+                LlmEvent::ReasoningEnd { index, signature } => {
+                    let text = reasoning_buffers.remove(&index).unwrap_or_default();
+                    if !text.is_empty() || signature.is_some() {
+                        parts.push(Part::Reasoning { text, signature });
+                    }
                 }
                 LlmEvent::ToolCall { id, name, input, raw_input } => {
                     // 协议层解析失败 → 宽容修复(尾逗号/单引号/裸键/围栏)。
