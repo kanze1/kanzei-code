@@ -783,6 +783,8 @@ on("kz:stopped", (e) => {
 });
 on("kz:done", (e) => {
   const p = e.payload;
+  setAutoStopReason(p.halted ? "用户拒绝后停止" : "本轮完成");
+
   addMessage(
     "notice",
     `完成 · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? " · 已按你的拒绝停止" : ""}`
@@ -824,7 +826,8 @@ on("kz:done", (e) => {
       return;
     }
     autoRounds += 1;
-    setStatus(`鞭挞:${autoRounds}/${max},2 秒后继续…`, false);
+    setStatus(`自主推进 ${autoRounds}/${max} · 2 秒后继续…`, false);
+    renderAutoStatus(`自主推进 ${autoRounds}/${max} · 等待下一轮`);
     scheduleAutoContinue();
   }
 });
@@ -1032,6 +1035,8 @@ let autoPaused = false;
 let autoStopAfterRound = false;
 let autoContinueTimer = null;
 let autoContinueGeneration = 0;
+let autoOvernight = localStorage.getItem("kz-overnight-mode") === "1";
+let autoStopReason = "";
 const CONTINUE_PROMPT =
   "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
   "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
@@ -1046,6 +1051,17 @@ function selectedAgent() {
   return { profile: "research", agent: "research" };
 }
 
+function renderAutoStatus(text = autoStopReason) {
+  const el = $("auto-status");
+  if (!el) return;
+  const max = autoContinueMax();
+  el.textContent = text || (autoOvernight ? `过夜待机 · 上限 ${max}` : `连续推进上限 ${max}`);
+}
+
+function setAutoStopReason(reason) {
+  autoStopReason = reason;
+  renderAutoStatus(reason);
+}
 function autoContinueAllowed() {
   return $("profile-select").value === "dev-auto";
 }
@@ -1295,6 +1311,13 @@ function send() {
 $("send").addEventListener("click", send);
 $("continue-btn").addEventListener("click", () => sendText(CONTINUE_PROMPT));
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
+$("overnight-mode").checked = autoOvernight;
+renderAutoStatus();
+$("overnight-mode").addEventListener("change", () => {
+  autoOvernight = $("overnight-mode").checked;
+  localStorage.setItem("kz-overnight-mode", autoOvernight ? "1" : "0");
+  setAutoStopReason(autoOvernight ? "过夜模式已启用，需手动开启鞭挞后运行" : "过夜模式已关闭");
+});
 $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
 $("auto-stop-round").checked = localStorage.getItem("kz-auto-stop-round") === "1";
 autoStopAfterRound = $("auto-stop-round").checked;
@@ -1318,6 +1341,7 @@ $("auto-max").addEventListener("change", () => {
   const max = autoContinueMax();
   $("auto-max").value = max;
   localStorage.setItem("kz-auto-max", String(max));
+  renderAutoStatus();
   autoRounds = 0;
   cancelAutoContinueTimer();
   log(`鞭挞上限已设为 ${max} 连`);

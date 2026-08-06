@@ -134,6 +134,10 @@
             <input type="checkbox" id="auto-stop-round" /> 本轮后停
           </label>
           <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" />
+          <label id="overnight-wrap" title="持久化连续推进偏好，重启后不会静默自动运行">
+            <input type="checkbox" id="overnight-mode" /> 过夜
+          </label>
+          <span id="auto-status" class="dim"></span>
           <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
           <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
             <input type="checkbox" id="auto-allow" /> 自动放行
