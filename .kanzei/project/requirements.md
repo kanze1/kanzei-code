@@ -5,10 +5,12 @@
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
 - 进展: 已完成 Claude OAuth token 自动刷新：接入 console.anthropic.com/v1/oauth/token，使用 Claude Code client_id 与 refresh_token，在过期前 5 分钟刷新并回写 accessToken/refreshToken/expiresAt；构建请求继续复用 Anthropic OAuth headers。cargo test --workspace 全部通过。剩余真实 Claude Code 端到端验证。
 
-## R-010 需求与缺陷分级及可编辑管理 [doing]
+## R-010 需求与缺陷分级及可编辑管理 [done]
 - 范围: 需求/缺陷等级与字段编辑、按等级筛选排序、非法修改拒绝并提示
 - 已完成: 侧边栏展开编辑、状态流转按钮、缺陷 severity 展示
 - 剩余: 需求优先级枚举、列表筛选/排序
+- 完成说明: 需求条目新增 P0/P1/P2/P3 优先级枚举并由 tracker 硬门禁校验；桌面端 docs_snapshot 透传优先级，支持需求按状态/优先级筛选及按优先级、状态、编号排序；编辑入口支持保存优先级。cargo test --workspace 与 node --check crates/kanzei-app/ui/main.js 全部通过。
+- 验收: 非法优先级被拒绝并提示合法值；需求列表可按状态和优先级筛选，并按优先级、状态、编号排序；优先级持久化在 requirements.md 的“优先级”字段。
 
 ## R-013 支持回到之前的对话 [todo]
 - 范围: 会话列表、历史会话加载与继续对话(R-003 落地后的 UI 层)

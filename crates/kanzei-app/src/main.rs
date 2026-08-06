@@ -218,6 +218,7 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     "title": e.title,
                     "status": e.status,
                     "severity": e.severity,
+                    "priority": e.fields.iter().find(|(key, _)| key == "优先级").map(|(_, value)| value),
                     "closed": kind.terminal.contains(&e.status.as_str()),
                     "fields": e.fields,
                     // 展开面板需要:合法的下一步状态(硬门禁同款规则)。
@@ -398,6 +399,7 @@ async fn docs_update(
     id: String,
     status: Option<String>,
     title: Option<String>,
+    priority: Option<String>,
     fields: Option<serde_json::Value>,
 ) -> Result<String, String> {
     use kanzei_harness::Tool as _;
@@ -442,6 +444,9 @@ async fn docs_update(
     }
     if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
         input["title"] = json!(title);
+    }
+    if let Some(priority) = priority.filter(|p| !p.trim().is_empty()) {
+        input["priority"] = json!(priority);
     }
     if let Some(fields) = fields.filter(|f| f.is_object()) {
         input["fields"] = fields;

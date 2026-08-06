@@ -23,6 +23,7 @@ pub struct DocKind {
     /// 终态(close 的合法目标)。
     pub terminal: &'static [&'static str],
     pub severities: Option<&'static [&'static str]>,
+    pub priorities: Option<&'static [&'static str]>,
     /// 非终态之间允许自由往返(目标 active⇄paused);false = 只进不退。
     pub bidirectional: bool,
 }
@@ -34,6 +35,7 @@ pub const REQUIREMENTS: DocKind = DocKind {
     statuses: &["todo", "doing", "done", "dropped"],
     terminal: &["done", "dropped"],
     severities: None,
+    priorities: Some(&["P0", "P1", "P2", "P3"]),
     bidirectional: false,
 };
 
@@ -44,6 +46,7 @@ pub const DEFECTS: DocKind = DocKind {
     statuses: &["open", "fixing", "fixed", "wontfix"],
     terminal: &["fixed", "wontfix"],
     severities: Some(&["high", "medium", "low"]),
+    priorities: None,
     bidirectional: false,
 };
 
@@ -54,6 +57,7 @@ pub const SOURCES: DocKind = DocKind {
     statuses: &["active", "archived"],
     terminal: &["archived"],
     severities: None,
+    priorities: None,
     bidirectional: false,
 };
 
@@ -64,6 +68,7 @@ pub const FINDINGS: DocKind = DocKind {
     statuses: &["draft", "confirmed", "dropped"],
     terminal: &["confirmed", "dropped"],
     severities: None,
+    priorities: None,
     bidirectional: false,
 };
 
@@ -75,6 +80,7 @@ pub const GOALS: DocKind = DocKind {
     statuses: &["active", "paused", "achieved", "dropped"],
     terminal: &["achieved", "dropped"],
     severities: None,
+    priorities: None,
     bidirectional: true,
 };
 

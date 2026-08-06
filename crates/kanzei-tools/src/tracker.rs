@@ -33,6 +33,8 @@ struct TrackerInput {
     status: Option<String>,
     #[serde(default)]
     severity: Option<String>,
+    #[serde(default)]
+    priority: Option<String>,
     /// 自由字段,如 {"验收": "...", "复现": "..."}
     #[serde(default)]
     fields: BTreeMap<String, String>,
@@ -117,6 +119,9 @@ impl Tool for TrackerTool {
                 if let Some(sev_err) = self.check_severity(&input.severity) {
                     return ToolOutput::error(sev_err);
                 }
+                if let Some(priority_err) = self.check_priority(&input.priority) {
+                    return ToolOutput::error(priority_err);
+                }
                 if let Err(e) = self.check_refs(ctx, &input.refs, true) {
                     return ToolOutput::error(e);
                 }
@@ -124,6 +129,9 @@ impl Tool for TrackerTool {
                 let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
+                }
+                if let Some(priority) = input.priority {
+                    fields.push(("优先级".into(), priority));
                 }
                 let severity = input
                     .severity
@@ -157,6 +165,9 @@ impl Tool for TrackerTool {
                 if let Some(sev_err) = self.check_severity(&input.severity) {
                     return ToolOutput::error(sev_err);
                 }
+                if let Some(priority_err) = self.check_priority(&input.priority) {
+                    return ToolOutput::error(priority_err);
+                }
                 if let Err(e) = self.check_refs(ctx, &input.refs, false) {
                     return ToolOutput::error(e);
                 }
@@ -187,6 +198,12 @@ impl Tool for TrackerTool {
                 }
                 if input.severity.is_some() && self.kind.severities.is_some() {
                     entry.severity = input.severity;
+                }
+                if let Some(priority) = input.priority {
+                    match entry.fields.iter_mut().find(|(key, _)| key == "优先级") {
+                        Some((_, value)) => *value = priority,
+                        None => entry.fields.push(("优先级".into(), priority)),
+                    }
                 }
                 for (key, value) in input.fields {
                     match entry.fields.iter_mut().find(|(k, _)| *k == key) {
@@ -232,7 +249,20 @@ impl TrackerTool {
         }
     }
 
-    /// finding 强制溯源:refs 非空且每个 ID 都存在(设计红线,研究模式底线)。
+    fn check_priority(&self, priority: &Option<String>) -> Option<String> {
+        let (Some(value), Some(valid)) = (priority.as_deref(), self.kind.priorities) else {
+            return None;
+        };
+        if valid.contains(&value) {
+            None
+        } else {
+            Some(format!(
+                "invalid priority `{value}`; valid: {}",
+                valid.join(" | ")
+            ))
+        }
+    }
+
     fn check_refs(&self, ctx: &ToolCtx, refs: &[String], adding: bool) -> Result<(), String> {
         let Some(ref_kind) = self.requires_refs else {
             return Ok(());

@@ -709,7 +709,27 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
+const reqFilters = { status: "all", priority: "all", sort: "priority" };
+const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
+
+function filterRequirements(entries) {
+  return entries
+    .filter((entry) => reqFilters.status === "all" || entry.status === reqFilters.status)
+    .filter((entry) => reqFilters.priority === "all" || entry.priority === reqFilters.priority)
+    .sort((a, b) => {
+      if (reqFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
+      if (reqFilters.sort === "status") {
+        return (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
+      }
+      return (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99)
+        || (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99)
+        || a.id.localeCompare(b.id, undefined, { numeric: true });
+    });
+}
+
 function renderDocList(el, entries, kind, archivedCount = 0) {
+  if (kind === "req") entries = filterRequirements(entries);
   el.innerHTML = "";
   if (entries.length === 0 && archivedCount === 0) {
     const empty = document.createElement("div");
@@ -730,7 +750,7 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     id.textContent = entry.id;
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
-    st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
+    st.textContent = entry.status + (entry.priority ? `/${entry.priority}` : "") + (entry.severity ? `/${entry.severity}` : "");
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = entry.title;
@@ -838,6 +858,13 @@ async function refreshDocs() {
   } catch (err) {
     console.error(err);
   }
+}
+
+for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-sort", "sort"]]) {
+  $(id).addEventListener("change", (event) => {
+    reqFilters[key] = event.target.value;
+    refreshDocs();
+  });
 }
 
 function renderConventions(conv) {
