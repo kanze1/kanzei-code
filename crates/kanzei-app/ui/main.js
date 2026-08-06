@@ -1687,18 +1687,18 @@ const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
 const complexityRank = { "小": 0, "中": 1, "大": 2 };
 
-function filterRequirements(entries) {
+function filterRequirements(entries, filters = reqFilters) {
   const filtered = entries
-    .filter((entry) => reqFilters.status === "all" || entry.status === reqFilters.status)
-    .filter((entry) => reqFilters.priority === "all" || entry.priority === reqFilters.priority);
+    .filter((entry) => filters.status === "all" || entry.status === filters.status)
+    .filter((entry) => filters.priority === "all" || entry.priority === filters.priority);
   const complexityValue = (entry) => entry.complexity || "unassessed";
-  const complexityFiltered = filtered.filter((entry) => reqFilters.complexity === "all" || complexityValue(entry) === reqFilters.complexity);
+  const complexityFiltered = filtered.filter((entry) => filters.complexity === "all" || complexityValue(entry) === filters.complexity);
   // 手动模式(R-054 默认):文件顺序即开发顺序,不做任何排序。
-  if (reqFilters.sort === "manual") return complexityFiltered;
+  if (filters.sort === "manual") return complexityFiltered;
   return complexityFiltered.sort((a, b) => {
-    if (reqFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
-    if (reqFilters.sort === "complexity") return (complexityRank[complexityValue(a)] ?? 99) - (complexityRank[complexityValue(b)] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
-    if (reqFilters.sort === "status") {
+    if (filters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
+    if (filters.sort === "complexity") return (complexityRank[complexityValue(a)] ?? 99) - (complexityRank[complexityValue(b)] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
+    if (filters.sort === "status") {
       return (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
     }
     return (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99)
@@ -1706,6 +1706,7 @@ function filterRequirements(entries) {
       || a.id.localeCompare(b.id, undefined, { numeric: true });
   });
 }
+
 
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
@@ -1731,8 +1732,8 @@ async function commitReqOrder(listEl) {
   }
 }
 
-function renderDocList(el, entries, kind, archivedCount = 0) {
-  if (kind === "req") entries = filterRequirements(entries);
+function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters) {
+  if (kind === "req") entries = filterRequirements(entries, reqFilterState);
   el.innerHTML = "";
   if (entries.length === 0 && archivedCount === 0) {
     const empty = document.createElement("div");
@@ -2027,22 +2028,31 @@ async function refreshWorkspace() {
 }
 let documentsKind = "req";
 let latestDocsSnapshot = null;
+const documentFilters = {
+  req: { status: "all", priority: "all", complexity: "all", sort: "manual" },
+  defect: { status: "all" },
+};
+const documentStatusOptions = {
+  req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
+  defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
+};
+function syncDocumentFilters() {
+  const statusFilter = $("documents-status-filter");
+  const priorityFilter = $("documents-priority-filter");
+  const filters = documentFilters[documentsKind];
+  statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  statusFilter.value = filters.status;
+  priorityFilter.classList.toggle("hidden", documentsKind === "defect");
+  priorityFilter.value = documentsKind === "req" ? filters.priority : "all";
+}
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
   const reqList = $("documents-req-list");
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
-  const saved = { ...reqFilters };
-  reqFilters.status = "all";
-  reqFilters.priority = "all";
-  reqFilters.complexity = "all";
-  reqFilters.sort = "manual";
-  renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0);
-  Object.assign(reqFilters, saved);
-  const status = $("documents-status-filter").value;
-  const priority = $("documents-priority-filter").value;
-  const defects = (snapshot.defects ?? []).filter((entry) =>
-    (status === "all" || entry.status === status) && (priority === "all" || entry.priority === priority));
+  syncDocumentFilters();
+  renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req);
+  const defects = (snapshot.defects ?? []).filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status);
   renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0);
   reqList.classList.toggle("hidden", documentsKind !== "req");
   defectList.classList.toggle("hidden", documentsKind !== "defect");
@@ -2072,7 +2082,8 @@ async function refreshDocs() {
 
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-for (const id of ["documents-status-filter", "documents-priority-filter"]) $(id).addEventListener("change", () => { if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-status-filter").addEventListener("change", (event) => { documentFilters[documentsKind].status = event.target.value; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-priority-filter").addEventListener("change", (event) => { documentFilters.req.priority = event.target.value; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
