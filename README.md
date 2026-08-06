@@ -5,6 +5,7 @@
 [![release](https://img.shields.io/github/v/release/kanze1/kanzei-code?label=release&color=c9962e)](https://github.com/kanze1/kanzei-code/releases/latest)
 ![platform](https://img.shields.io/badge/platform-Windows-2ea44f)
 ![built with](https://img.shields.io/badge/Rust%20%2B%20Tauri-19MB%20installer-8fae8a)
+[![license](https://img.shields.io/badge/license-PolyForm%20Noncommercial-4a7aa8)](LICENSE.md)
 
 > 一个**自己开发自己**的 AI coding agent:桌面端里的 agent 按 backlog 连跑,把 kanzei 的下一个功能写出来、测完、提交、发版。你现在看到的大部分代码,就是它自己写的。
 
@@ -115,3 +116,8 @@ From source (dev machine):
 - **Tauri desktop app**: conversation-first layout, activity sidebar, permission dialogs with persistent allow-rules, in-app doc viewer, priority/complexity-coded backlog
 
 Chinese sections above are the source of truth; this summary tracks them loosely.
+
+## License / 许可
+
+[PolyForm Noncommercial 1.0.0](LICENSE.md) — 可自由使用、修改、分发,**禁止商业用途**。
+Free to use, modify, and redistribute for **noncommercial purposes only**.

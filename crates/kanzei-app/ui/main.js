@@ -1061,7 +1061,9 @@ const CONTINUE_PROMPT =
   "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
   "取活顺序:按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
   "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
-  "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
+  "若活跃目标/需求全部被阻塞或无可推进项:只用【纯文本】说明原因并停住——" +
+  "不要调用任何工具、不要往 goal/req 写'仍在阻塞'类记录、不要产生空提交;" +
+  "纯文本回复会让鞭挞自动刹车,写阻塞日记则会让它空转烧钱。";
 
 function selectedAgent() {
   const mode = $("profile-select").value;
@@ -1399,6 +1401,12 @@ $("auto-continue").addEventListener("change", () => {
   autoRounds = 0;
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
   log($("auto-continue").checked ? `鞭挞已开启:每轮结束自动推进目标(上限 ${autoContinueMax()} 连)` : "鞭挞已关闭");
+  // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
+  // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
+  if ($("auto-continue").checked && !running && !autoPaused) {
+    setStatus("鞭挞启动,2 秒后开始…", false);
+    scheduleAutoContinue();
+  }
 });
 $("profile-select").addEventListener("change", () => {
   if (!autoContinueAllowed() && $("auto-continue").checked) {
