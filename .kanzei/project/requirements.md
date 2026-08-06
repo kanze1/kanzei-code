@@ -17,7 +17,7 @@
 - 测试: cargo test -p kanzei、cargo test -p kanzei-app 已通过
 - 当前进度: 已完成 SQLite 会话状态生命周期持久化：running/idle/failed 状态更新、状态事件和核心测试；CLI/桌面端均已接入。后续仍需 steer 前端入口、运行中 queue drain、事件恢复消息历史。
 - 验证: cargo test -p kanzei-core：8 passed；cargo build -p kanzei-app 通过；node --check ui/main.js 通过；cargo test --workspace 全部通过。格式检查仅保留仓库既有 app/tools 差异。下一步：运行中 queue admission/drain。
-- 进展: 推进运行中 queue admission/drain：先核对桌面端 run_prompt 并发入口、任务完成边界与现有 store API
+- 进展: 运行中 queue admission/drain 已完成并修正启动竞态：run_prompt 在 spawn 前登记活动项目，同项目追加 pending queue；任务完成后 FIFO promote 并继续执行，跨项目明确拒绝。cargo test --workspace 全部通过（仅既有 current_run unused warning）。下一步：补 steer 前端入口，并推进事件恢复消息历史。
 
 ## R-004 本地模型跑并行子代理(M4) [todo]
 

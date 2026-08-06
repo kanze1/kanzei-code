@@ -758,6 +758,46 @@ fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<Stri
     }
 }
 
+fn admit_queue_input(
+    project_dir: &str,
+    prompt: &str,
+) -> anyhow::Result<kanzei_core::AdmittedInput> {
+    let project_root = PathBuf::from(project_dir);
+    let session_id = kanzei_core::project_session_id(&project_root);
+    let state_path = kanzei_core::project_state_path(&project_root);
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    store.create_session(&session_id, project_dir, None)?;
+    let input_id = format!(
+        "input_{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
+    let input = store.admit_input(&session_id, &input_id, prompt, kanzei_core::Delivery::Queue)?;
+    store.append_event(
+        &session_id,
+        "prompt.admitted",
+        &json!({ "input_id": input_id, "delivery": "queue" }),
+    )?;
+    Ok(input)
+}
+
+fn promote_next_queue_input(
+    project_dir: &str,
+) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
+    let project_root = PathBuf::from(project_dir);
+    let session_id = kanzei_core::project_session_id(&project_root);
+    let state_path = kanzei_core::project_state_path(&project_root);
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    let Some(input) = store.promote_next_queue(&session_id)? else {
+        return Ok(None);
+    };
+    store.append_event(
+        &session_id,
+        "prompt.promoted",
+        &json!({ "input_id": input.input_id, "delivery": "queue" }),
+    )?;
+    Ok(Some(input))
+}
+
 #[tauri::command]
 async fn run_prompt(
     window: Window,
@@ -768,7 +808,16 @@ async fn run_prompt(
     model: Option<String>,
 ) -> Result<(), String> {
     if state.running.swap(true, Ordering::SeqCst) {
-        return Err("已有任务在运行".into());
+        if state.conversation_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
+            return Err("已有其他项目的任务在运行".into());
+        }
+        let queued = admit_queue_input(&project_dir, &prompt).map_err(|e| e.to_string())?;
+        let _ = window.emit(
+            "kz:status",
+            json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
+        );
+        state.running.store(true, Ordering::SeqCst);
+        return Ok(());
     }
     let asks = state.asks.clone();
     let ask_seq = state.ask_seq.clone();
@@ -776,32 +825,56 @@ async fn run_prompt(
     let current_run = state.current_run.clone();
     let conversation = state.conversation.clone();
     let conversation_project = state.conversation_project.clone();
+    *conversation_project.lock().unwrap() = Some(project_dir.clone());
 
     let handle = tauri::async_runtime::spawn(async move {
-        let result = run_task(
-            &window,
-            asks,
-            ask_seq,
-            prompt,
-            project_dir,
-            profile,
-            model,
-            conversation,
-            conversation_project,
-        )
-        .await;
-        if let Err(e) = result {
-            let message = e.to_string();
-            let lower = message.to_lowercase();
-            let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
-                .iter()
-                .any(|k| lower.contains(k))
-            {
-                "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
-            } else {
-                ""
+        let mut next_input = None;
+        let mut next_prompt = prompt;
+        loop {
+            let result = run_task(
+                &window,
+                asks.clone(),
+                ask_seq.clone(),
+                next_prompt,
+                project_dir.clone(),
+                profile.clone(),
+                model.clone(),
+                conversation.clone(),
+                conversation_project.clone(),
+                next_input.take(),
+            )
+            .await;
+            if let Err(e) = &result {
+                let message = e.to_string();
+                let lower = message.to_lowercase();
+                let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
+                    .iter()
+                    .any(|k| lower.contains(k))
+                {
+                    "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
+                } else {
+                    ""
+                };
+                let _ = window.emit("kz:error", json!({ "message": format!("{message}{hint}") }));
+            }
+            if result.is_err() {
+                break;
+            }
+            next_input = match promote_next_queue_input(&project_dir) {
+                Ok(input) => input,
+                Err(error) => {
+                    let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
+                    None
+                }
             };
-            let _ = window.emit("kz:error", json!({ "message": format!("{message}{hint}") }));
+            let Some(input) = next_input.as_ref() else {
+                break;
+            };
+            next_prompt = input.prompt.clone();
+            let _ = window.emit(
+                "kz:status",
+                json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }),
+            );
         }
         running.store(false, Ordering::SeqCst);
     });
@@ -819,6 +892,7 @@ async fn run_task(
     model_override: Option<String>,
     conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
     conversation_project: Arc<Mutex<Option<String>>>,
+    promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -897,29 +971,37 @@ async fn run_task(
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
-    let input_id = format!(
-        "input_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
-    );
-    store.admit_input(
-        &session_id,
-        &input_id,
-        &prompt,
-        kanzei_core::Delivery::Queue,
-    )?;
-    store.append_event(
-        &session_id,
-        "prompt.admitted",
-        &json!({ "input_id": input_id, "delivery": "queue" }),
-    )?;
-    let promoted = store
-        .promote_next_queue(&session_id)?
-        .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?;
-    store.append_event(
-        &session_id,
-        "prompt.promoted",
-        &json!({ "input_id": promoted.input_id, "delivery": "queue" }),
-    )?;
+    let is_new_input = promoted_input.is_none();
+    let promoted = if let Some(input) = promoted_input {
+        input
+    } else {
+        let input_id = format!(
+            "input_{}",
+            SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        );
+        store.admit_input(
+            &session_id,
+            &input_id,
+            &prompt,
+            kanzei_core::Delivery::Queue,
+        )?;
+        store.append_event(
+            &session_id,
+            "prompt.admitted",
+            &json!({ "input_id": input_id, "delivery": "queue" }),
+        )?;
+        store
+            .promote_next_queue(&session_id)?
+            .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
+    };
+    if is_new_input {
+        store.append_event(
+            &session_id,
+            "prompt.promoted",
+            &json!({ "input_id": promoted.input_id, "delivery": "queue" }),
+        )?;
+    }
+    let prompt = promoted.prompt;
     store.set_status(&session_id, "running")?;
     store.append_event(
         &session_id,
