@@ -5,12 +5,6 @@
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
 - 进展: 已完成 Claude OAuth token 自动刷新：接入 console.anthropic.com/v1/oauth/token，使用 Claude Code client_id 与 refresh_token，在过期前 5 分钟刷新并回写 accessToken/refreshToken/expiresAt；构建请求继续复用 Anthropic OAuth headers。cargo test --workspace 全部通过。剩余真实 Claude Code 端到端验证。
 
-## R-013 支持回到之前的对话 [done]
-- 范围: 会话列表、历史会话加载与继续对话(R-003 落地后的 UI 层)
-- 验收: 历史列表可见；任意条目可加载消息并同步后端上下文；加载失败有可见错误；继续发送使用选中的历史上下文。
-- refs: R-003
-- 完成说明: 桌面端新增历史对话列表；用户可查看当前项目的持久化 conversation.updated 快照，打开任意历史快照恢复消息上下文并继续对话。启动、项目切换和新对话边界均已同步；cargo test --workspace 与 node --check 通过。
-
 ## R-014 多模态模型支持上传图片和 PDF 等文件 [todo]
 - 已完成: 三协议的 image/document 消息映射(协议层就绪)
 - 剩余: 前端上传/粘贴入口(与 R-024 一起做)
