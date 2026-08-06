@@ -22,7 +22,7 @@ use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
 use kanzei_llm::{LlmClient, ProxyConfig};
-use kanzei_tools::docstore::{DocStore, DEFECTS, GOALS, REQUIREMENTS};
+use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -453,10 +453,14 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
         "requirements": load(&REQUIREMENTS),
         "defects": load(&DEFECTS),
         "goals": load(&GOALS),
+        "sources": load(&SOURCES),
+        "findings": load(&FINDINGS),
         "archived": {
             "req": archived(&REQUIREMENTS),
             "defect": archived(&DEFECTS),
             "goal": archived(&GOALS),
+            "source": archived(&SOURCES),
+            "finding": archived(&FINDINGS),
         },
     })
 }
@@ -1055,6 +1059,11 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
         "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
         "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
         "goal-archive" => DocStore::open(&root, &GOALS).archive_file(),
+        "source" => root.join(kanzei_tools::docstore::SOURCES.rel_path),
+        "finding" => root.join(kanzei_tools::docstore::FINDINGS.rel_path),
+        "report" => root.join(".kanzei/research/report.md"),
+        "source-archive" => DocStore::open(&root, &SOURCES).archive_file(),
+        "finding-archive" => DocStore::open(&root, &FINDINGS).archive_file(),
         other => return Err(format!("unknown kind `{other}`")),
     };
     if !path.is_file() {

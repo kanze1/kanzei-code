@@ -1645,6 +1645,7 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
     const pri = (entry.priority || "").toUpperCase();
     item.className = `doc-item${entry.closed ? " closed" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
+    item.dataset.docId = entry.id;
 
     const row = document.createElement("div");
     row.className = "doc-row";
@@ -1722,7 +1723,25 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     for (const [key, value] of entry.fields ?? []) {
       const f = document.createElement("div");
       f.className = "doc-field";
-      f.textContent = `${key}: ${value}`;
+      if (key.toLowerCase() === "refs") {
+        f.append(`${key}: `);
+        for (const ref of String(value).split(/[\\s,]+/).filter(Boolean)) {
+          const link = document.createElement("button");
+          link.className = "ref-link";
+          link.textContent = ref;
+          link.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const target = document.querySelector(`[data-doc-id="${ref}"]`);
+            target?.scrollIntoView({ behavior: "smooth", block: "center" });
+            target?.classList.add("ref-highlight");
+            setTimeout(() => target?.classList.remove("ref-highlight"), 1200);
+          });
+          f.appendChild(link);
+          f.append(" ");
+        }
+      } else {
+        f.textContent = `${key}: ${value}`;
+      }
       detail.appendChild(f);
     }
     // 目标专属:进展速记(写入 fields.进展,注入上下文时 agent 可见)。
@@ -1804,6 +1823,9 @@ async function refreshDocs() {
     renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0);
     renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0);
     renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0);
+    renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0);
+    renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0);
+    $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
     $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
@@ -2147,7 +2169,7 @@ $("summarize-btn").addEventListener("click", async () => {
   }
 });
 
-for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"]]) {
+for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"], ["report-open", "report"]]) {
   $(btn).addEventListener("click", () => openDocViewer(kind));
 }
 
