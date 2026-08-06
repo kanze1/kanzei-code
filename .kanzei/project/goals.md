@@ -9,7 +9,7 @@
 - priority: P0
 - 验收: R-036、R-033 完成且 R-030/R-037 由 Claude 落地后,前端不再落后于后端能力;达成即 `goal update G-002 achieved`
 - 来源文档: docs/design/frontend-phase3.md、docs/design/interaction-modes.md
-- 进展: R-013/R-014 已完成;当前按 priority 推进:R-036 → R-033 → R-028/R-029/R-031/R-032
+- 进展: R-036 已完成：新增 dev-pair 结伴人格，桌面端模式选择器默认结伴开发并支持自主推进/research，run_prompt 已传递显式 agent，连跑仅在自主推进模式可用。下一步按 priority 推进 R-033 阅读体验。
 
 ## G-003 工具面与体验补全 [active]
 - 类型: 短期
