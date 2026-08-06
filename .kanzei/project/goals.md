@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: 完成 R-066：需求与缺陷菜单标题布局、筛选隔离、拖拽排序、折叠收纳及键盘/ARIA 状态反馈均已落地。D-035、D-036、D-037、D-032、D-034 已修复；node --check、git diff --check、cargo test -p kanzei-app 通过。下一步按需求列表顺序关注 R-030；R-067 是后续新增需求，不抢当前顺序。
+- 进展: R-066 已完成。当前按列表处理 R-030/R-050：R-030 明确归属 Claude，G-002 等待其落地；R-050 已推进前置设计阶段，在 docs/design/frontend-phase3.md 补齐线程—项目—session—worktree 关系、状态机、锁顺序、崩溃恢复和双线程只读 POC 验收矩阵。完整运行时实现仍等待 R-030 契约。git diff --check、node --check、cargo test -p kanzei-app 通过。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
