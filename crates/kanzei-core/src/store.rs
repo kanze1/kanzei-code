@@ -216,13 +216,23 @@ impl SessionStore {
     }
 
     /// 取消尚未提升的输入。已提升或已取消的输入不会被回收，避免篡改调度事实。
-    pub fn cancel_input(&self, input_id: &str) -> Result<bool, StoreError> {
+    pub fn cancel_input(&self, session_id: &str, input_id: &str) -> Result<bool, StoreError> {
         let changed = self.connection.execute(
             "UPDATE session_inputs SET status = 'cancelled'
-             WHERE input_id = ?1 AND status = 'pending'",
-            params![input_id],
+             WHERE session_id = ?1 AND input_id = ?2 AND status = 'pending'",
+            params![session_id, input_id],
         )?;
         Ok(changed > 0)
+    }
+
+    /// 取消会话中全部尚未提升的输入，供停止运行时清理 queue。
+    pub fn cancel_pending_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE session_inputs SET status = 'cancelled'
+             WHERE session_id = ?1 AND status = 'pending'",
+            params![session_id],
+        )?;
+        Ok(changed)
     }
 
     pub fn promote_steers(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
@@ -511,13 +521,34 @@ mod tests {
         store
             .admit_input("ses_test", "promoted", "已提升", Delivery::Queue)
             .unwrap();
-        assert!(store.cancel_input("pending").unwrap());
-        assert!(!store.cancel_input("pending").unwrap());
-        assert!(!store.cancel_input("missing").unwrap());
+        assert!(store.cancel_input("ses_test", "pending").unwrap());
+        assert!(!store.cancel_input("ses_test", "pending").unwrap());
+        assert!(!store.cancel_input("ses_test", "missing").unwrap());
         assert!(store.has_pending("ses_test", Delivery::Queue).unwrap());
 
         store.promote_next_queue("ses_test").unwrap();
-        assert!(!store.cancel_input("promoted").unwrap());
+        assert!(!store.cancel_input("ses_test", "promoted").unwrap());
         assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+    }
+
+    #[test]
+    fn 停止运行时只取消本会话的_pending_输入() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store
+            .admit_input("ses_test", "q1", "当前会话", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_other", "q2", "其他会话", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s1", "已提升", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+
+        assert_eq!(store.cancel_pending_inputs("ses_test").unwrap(), 1);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(store.has_pending("ses_other", Delivery::Queue).unwrap());
+        assert!(!store.cancel_input("ses_test", "s1").unwrap());
     }
 }

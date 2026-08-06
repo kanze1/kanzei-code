@@ -723,14 +723,39 @@ fn app_info() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn stop_run(window: Window, state: State<'_, AppState>) {
+fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<String>) {
     if let Some(handle) = state.current_run.lock().unwrap().take() {
         handle.abort();
     }
     // 挂起的权限询问一并作废(否则 runner 已死、弹窗还悬着)。
     state.asks.lock().unwrap().clear();
     state.running.store(false, Ordering::SeqCst);
-    let _ = window.emit("kz:stopped", json!({}));
+
+    let cancelled = project_dir
+        .map(|project_dir| {
+            let cwd = PathBuf::from(&project_dir);
+            let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+            let session_id = kanzei_core::project_session_id(&root);
+            let state_path = kanzei_core::project_state_path(&root);
+            kanzei_core::SessionStore::open(&state_path)
+                .and_then(|store| store.cancel_pending_inputs(&session_id))
+        })
+        .transpose();
+    match cancelled {
+        Ok(Some(count)) => {
+            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": count }));
+        }
+        Ok(None) => {
+            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": 0 }));
+        }
+        Err(error) => {
+            let _ = window.emit(
+                "kz:error",
+                json!({ "message": format!("停止时清理排队输入失败: {error}") }),
+            );
+            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": 0 }));
+        }
+    }
 }
 
 #[tauri::command]

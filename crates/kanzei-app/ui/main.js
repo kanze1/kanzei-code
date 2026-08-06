@@ -342,10 +342,11 @@ on("kz:compacted", () => {
   ctxTokens = 0;
   renderTokens();
 });
-on("kz:stopped", () => {
+on("kz:stopped", (e) => {
   hideAsk();
-  addMessage("notice", "已停止");
-  log("已手动停止");
+  const cancelled = e.payload?.cancelled_queue ?? 0;
+  addMessage("notice", cancelled > 0 ? `已停止,已取消 ${cancelled} 条排队输入` : "已停止");
+  log(cancelled > 0 ? `已手动停止并取消 ${cancelled} 条排队输入` : "已手动停止");
   stopElapsed();
   setRunning(false, "已停止");
 });
@@ -445,7 +446,8 @@ const AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
 const CONTINUE_PROMPT =
   "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
-  "完成后用 goal update 记录进展。若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
+  "完成后用 goal update 记录进展。若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+  "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
 
 async function sendText(prompt, { auto = false } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
@@ -501,7 +503,7 @@ $("auto-continue").addEventListener("change", () => {
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
-  invoke("stop_run").catch((err) => log(`停止指令失败:${err}`, "err"));
+  invoke("stop_run", { projectDir: currentProject }).catch((err) => log(`停止指令失败:${err}`, "err"));
   hideAsk();
   stopElapsed();
   setRunning(false, "已停止");
@@ -910,6 +912,18 @@ function renderProviders() {
       }
     }
 
+    // D-015:context_limit 必须在表单可见可编辑,保存不许丢字段。
+    const tdCtx = document.createElement("td");
+    const ctxInput = document.createElement("input");
+    ctxInput.type = "number";
+    ctxInput.value = p.contextLimit ?? "";
+    ctxInput.placeholder = "(不限)";
+    ctxInput.addEventListener("input", () => {
+      const n = parseInt(ctxInput.value, 10);
+      p.contextLimit = Number.isFinite(n) && n > 0 ? n : null;
+    });
+    tdCtx.appendChild(ctxInput);
+
     const tdRemove = document.createElement("td");
     const removeBtn = document.createElement("button");
     removeBtn.className = "icon-btn";
@@ -920,7 +934,7 @@ function renderProviders() {
     });
     tdRemove.appendChild(removeBtn);
 
-    tr.append(tdName, tdProtocol, tdUrl, tdKey, tdRemove);
+    tr.append(tdName, tdProtocol, tdUrl, tdKey, tdCtx, tdRemove);
     tbody.appendChild(tr);
   });
 }
@@ -969,6 +983,7 @@ $("settings-save").addEventListener("click", async () => {
           baseUrl: p.baseUrl,
           apiKeyEnv: p.apiKeyEnv || null,
           auth: p.auth || null,
+          contextLimit: p.contextLimit ?? null,
         })),
       },
     });

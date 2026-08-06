@@ -36,4 +36,7 @@ R-003 的第一步在 `kanzei-core` 引入项目级 SQLite 存储层，默认数
 - 输入 admission 以 `input_id` 幂等；
 - 事件序列按 session 递增，事件 ID 在不同 session 间也必须唯一。
 
+- 取消输入必须显式匹配 `session_id` 与 `input_id`，且仅允许 `pending` 状态；错误会话、重复取消和已提升输入均返回 `false`，防止调度器跨会话误取消。
+- 停止运行时，桌面端按当前项目会话批量取消仍处于 `pending` 的 queue 输入；已提升输入不受影响，其他会话输入不受影响。
+
 当前实现已完成存储层、CLI/桌面端输入 admission、运行生命周期状态事件和单元测试；steer 输入的前端入口、运行中的 queue drain，以及完整消息历史从事件恢复仍是 R-003/R-009 后续工作。

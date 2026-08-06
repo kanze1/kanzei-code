@@ -139,7 +139,9 @@ impl Component for DevProfile {
                          message gives no specific task, do NOT ask what to do — pick the most \
                          relevant active goal, advance its next concrete step, and record \
                          progress with `goal update` (e.g. field 进展). Only ask when goals \
-                         conflict or none exist."
+                         conflict or none exist. Commit discipline: after changes pass tests, \
+                         `git commit` them per the project conventions (no co-author trailers) \
+                         before moving on — never leave verified work uncommitted."
                     .into(),
             },
         );
