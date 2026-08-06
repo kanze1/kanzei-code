@@ -23,12 +23,6 @@
 - priority: P1
 - 归属: kanzei
 
-## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道 [todo]
-- priority: P1
-- 归属: kanzei
-- refs: R-036
-- 备注: 结伴开发人格的"拿不准就问"依赖此工具
-
 ## R-030 进程与项目解耦:多进程并行,每进程独立模型选择与子代理开关 [todo]
 - priority: P0
 - 归属: Claude

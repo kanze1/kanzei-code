@@ -192,29 +192,38 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::StepEnd { .. } => {}
     };
     let ask_root = ctx.project_root.clone();
-    let mut ask = move |action: String, resource: String| -> kanzei_core::AskFuture {
-        eprint!("\x1b[33m? {action}: {resource} [y 一次 / a 总是 / N 拒绝]\x1b[0m ");
-        let mut line = String::new();
-        let reply = if std::io::stdin().read_line(&mut line).is_ok() {
-            match line.trim() {
-                "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
-                "a" | "A" | "always" => {
-                    let pattern = kanzei_harness::config::generalize_resource(&action, &resource);
-                    match kanzei_harness::config::append_allow_rule(&ask_root, &action, &pattern) {
-                        Ok(path) => eprintln!(
-                            "\x1b[90m已记住 {action} `{pattern}` → {}\x1b[0m",
-                            path.display()
-                        ),
-                        Err(e) => eprintln!("\x1b[31m规则保存失败: {e}\x1b[0m"),
-                    }
-                    kanzei_core::AskReply::AlwaysAllow
+    let mut ask = move |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
+        let response = match request {
+            kanzei_core::AskRequest::Question { question, options, default } => {
+                eprint!("\x1b[33m? {question}");
+                if !options.is_empty() { eprint!(" [{}]", options.join(" / ")); }
+                if let Some(default) = default { eprint!(" (默认: {default})"); }
+                eprint!("\x1b[0m ");
+                let mut line = String::new();
+                if std::io::stdin().read_line(&mut line).is_ok() && !line.trim().is_empty() {
+                    kanzei_core::AskResponse::Answer(line.trim().to_string())
+                } else {
+                    kanzei_core::AskResponse::Cancelled
                 }
-                _ => kanzei_core::AskReply::Deny,
             }
-        } else {
-            kanzei_core::AskReply::Deny
+            kanzei_core::AskRequest::Permission { action, resource } => {
+                eprint!("\x1b[33m? {action}: {resource} [y 一次 / a 总是 / N 拒绝]\x1b[0m ");
+                let mut line = String::new();
+                let reply = if std::io::stdin().read_line(&mut line).is_ok() {
+                    match line.trim() {
+                        "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
+                        "a" | "A" | "always" => {
+                            let pattern = kanzei_harness::config::generalize_resource(&action, &resource);
+                            let _ = kanzei_harness::config::append_allow_rule(&ask_root, &action, &pattern);
+                            kanzei_core::AskReply::AlwaysAllow
+                        }
+                        _ => kanzei_core::AskReply::Deny,
+                    }
+                } else { kanzei_core::AskReply::Deny };
+                kanzei_core::AskResponse::Permission(reply)
+            }
         };
-        Box::pin(async move { reply })
+        Box::pin(async move { response })
     };
 
     // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。

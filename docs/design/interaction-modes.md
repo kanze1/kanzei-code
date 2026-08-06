@@ -51,7 +51,8 @@ harness 的 agents 注册表天然支持多 agent,不需要新机制:
 
 已完成首个闭环：桌面端模式选择器现在提供“结伴开发”（默认）、“自主推进”和 research；前两者都使用 dev profile，但分别显式选择 `dev-pair` 与 `dev` agent。`run_prompt` 已将 agent 参数传入 harness 的 `select_agent`，因此请求不会再固定使用 profile 的第一个 agent。连跑仅允许自主推进模式，切换到结伴开发或 research 会自动关闭连跑，并在手动勾选时给出提示。
 
-仍待后续：连跑的结构化进展字段、多进程隔离，以及 R-029 的结构化提问工具。
+R-029 已完成首个闭环：新增 `question` 工具，runner 将问题、选项和默认值转为统一 `AskRequest::Question`，桌面端复用 ask 队列与弹窗，支持选项点击、文本回答和取消；CLI 支持终端输入。权限询问仍保持原有 once/always/deny 语义，自动放行不会跳过 question。
+
 
 
 - R-027(需求分析沟通模式)的"沟通模式"部分并入本设计(dev-pair 即结构化沟通的宿主);

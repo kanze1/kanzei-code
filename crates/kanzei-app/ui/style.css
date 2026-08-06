@@ -256,6 +256,10 @@ button:disabled { opacity: .45; cursor: default; }
   border-radius: 4px; padding: 3px 8px; word-break: break-all;
 }
 .ask-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+#ask-question { color: var(--fg-strong); white-space: pre-wrap; margin-bottom: 10px; }
+#ask-options { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+#ask-answer { width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border); border-radius: 4px; padding: 7px; font: inherit; }
+.ask-option { margin: 0; }
 #ask-deny { background: var(--panel); color: var(--fg); }
 #ask-deny:hover { background: #3a3a3a; }
 

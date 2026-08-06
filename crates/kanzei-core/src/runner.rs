@@ -116,7 +116,21 @@ pub enum AskReply {
 }
 
 /// 权限询问回调的返回值:异步等待用户决定(CLI 同步问、桌面端走事件+oneshot)。
-pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = AskReply> + Send>>;
+#[derive(Clone, Debug)]
+pub enum AskRequest {
+    Permission { action: String, resource: String },
+    Question { question: String, options: Vec<String>, default: Option<String> },
+}
+
+#[derive(Clone, Debug)]
+pub enum AskResponse {
+    Permission(AskReply),
+    Answer(String),
+    Cancelled,
+}
+
+/// 交互询问回调的返回值:异步等待权限决定或用户答案。
+pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = AskResponse> + Send>>;
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_once<'a>(
@@ -130,7 +144,7 @@ pub fn run_once<'a>(
     prior: &'a [Message],
     subagent: Option<&'a SubagentRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
-    ask: &'a mut (dyn FnMut(String, String) -> AskFuture + Send),
+    ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     run_once_with_parts(client, route, snapshot, agent, config, ctx, prompt, prior, None, subagent, on_event, ask)
 }
@@ -150,7 +164,7 @@ pub fn run_once_with_parts<'a>(
     // Some = 注册 task 工具,模型可派生并行子代理;子代理自身传 None(禁嵌套)。
     subagent: Option<&'a SubagentRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
-    ask: &'a mut (dyn FnMut(String, String) -> AskFuture + Send),
+    ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     Box::pin(async move {
     let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
@@ -428,6 +442,25 @@ pub fn run_once_with_parts<'a>(
                 summary: summarize_input(&input, &raw_input),
             });
 
+            // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
+            if name == "question" {
+                let question = input.get("question").and_then(|v| v.as_str()).unwrap_or("").trim();
+                let options = input.get("options").and_then(|v| v.as_array()).map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+                let default = input.get("default").and_then(|v| v.as_str()).map(str::to_owned);
+                let output = if question.is_empty() {
+                    kanzei_harness::ToolOutput::error("question must not be empty")
+                } else {
+                    match ask(AskRequest::Question { question: question.to_owned(), options, default }).await {
+                        AskResponse::Answer(answer) => kanzei_harness::ToolOutput::ok(format!("User answer: {answer}")),
+                        AskResponse::Cancelled => kanzei_harness::ToolOutput::error("question cancelled by user"),
+                        AskResponse::Permission(_) => kanzei_harness::ToolOutput::error("invalid question response"),
+                    }
+                };
+                on_event(RunEvent::ToolEnd { id: id.clone(), name: name.clone(), ok: !output.is_error, preview: preview(&output.content), display: output.display.clone() });
+                results.push(Part::ToolResult { call_id: id, content: output.content, is_error: output.is_error });
+                continue;
+            }
+
             // ---- 硬门禁:权限 Ruleset(deny 回喂模型;ask 问用户,拒绝停整轮)----
             let action = tool.action();
             let mut gate_result = Gate::Pass;
@@ -456,15 +489,15 @@ pub fn run_once_with_parts<'a>(
                     }) {
                         continue;
                     }
-                    match ask(action.to_string(), resource.clone()).await {
-                        AskReply::Deny => {
+                    match ask(AskRequest::Permission { action: action.to_string(), resource: resource.clone() }).await {
+                        AskResponse::Permission(AskReply::Deny) | AskResponse::Cancelled | AskResponse::Answer(_) => {
                             gate_result = Gate::UserDeclined;
                             break;
                         }
-                        AskReply::AllowOnce => {
+                        AskResponse::Permission(AskReply::AllowOnce) => {
                             session_approved.insert(key);
                         }
-                        AskReply::AlwaysAllow => {
+                        AskResponse::Permission(AskReply::AlwaysAllow) => {
                             session_rules.push((
                                 action.to_string(),
                                 kanzei_harness::config::generalize_resource(action, &resource),
@@ -597,8 +630,8 @@ async fn run_subagent(
             });
         }
     };
-    let mut ask = |_action: String, _resource: String| -> AskFuture {
-        Box::pin(async { AskReply::Deny })
+    let mut ask = |_request: AskRequest| -> AskFuture {
+        Box::pin(async { AskResponse::Permission(AskReply::Deny) })
     };
     // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
     let fut = run_once(

@@ -33,7 +33,8 @@ struct PromptAttachment {
 }
 /// 悬挂中的权限询问:除通道外携带上下文,支持"总是允许"落盘。
 struct PendingAsk {
-    sender: oneshot::Sender<kanzei_core::AskReply>,
+    sender: oneshot::Sender<kanzei_core::AskResponse>,
+    request: kanzei_core::AskRequest,
     action: String,
     resource: String,
     project_root: PathBuf,
@@ -663,6 +664,15 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
     let Some(pending) = state.asks.lock().unwrap().remove(&id) else {
         return;
     };
+    if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
+        let response = if reply.trim().is_empty() || reply == "cancel" {
+            kanzei_core::AskResponse::Cancelled
+        } else {
+            kanzei_core::AskResponse::Answer(reply)
+        };
+        let _ = pending.sender.send(response);
+        return;
+    }
     let decision = match reply.as_str() {
         "always" => {
             let pattern =
@@ -693,7 +703,7 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
         "once" => kanzei_core::AskReply::AllowOnce,
         _ => kanzei_core::AskReply::Deny,
     };
-    let _ = pending.sender.send(decision);
+    let _ = pending.sender.send(kanzei_core::AskResponse::Permission(decision));
 }
 
 /// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。
@@ -1289,24 +1299,27 @@ async fn run_task(
 
     let ask_window = window.clone();
     let ask_root = ctx.project_root.clone();
-    let mut ask = move |action: String, resource: String| -> AskFuture {
+    let mut ask = move |request: kanzei_core::AskRequest| -> AskFuture {
         let (sender, receiver) = oneshot::channel();
         let id = ask_seq.fetch_add(1, Ordering::SeqCst);
-        let remember = kanzei_harness::config::generalize_resource(&action, &resource);
+        let (action, resource, payload) = match &request {
+            kanzei_core::AskRequest::Permission { action, resource } => (
+                action.clone(),
+                resource.clone(),
+                json!({ "kind": "permission", "id": id, "action": action, "resource": resource, "remember": kanzei_harness::config::generalize_resource(action, resource) }),
+            ),
+            kanzei_core::AskRequest::Question { question, options, default } => (
+                "question".into(),
+                question.clone(),
+                json!({ "kind": "question", "id": id, "question": question, "options": options, "default": default }),
+            ),
+        };
         asks.lock().unwrap().insert(
             id,
-            PendingAsk {
-                sender,
-                action: action.clone(),
-                resource: resource.clone(),
-                project_root: ask_root.clone(),
-            },
+            PendingAsk { sender, request, action, resource, project_root: ask_root.clone() },
         );
-        let _ = ask_window.emit(
-            "kz:ask",
-            json!({ "id": id, "action": action, "resource": resource, "remember": remember }),
-        );
-        Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskReply::Deny) })
+        let _ = ask_window.emit("kz:ask", payload);
+        Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskResponse::Cancelled) })
     };
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。

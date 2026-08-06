@@ -554,7 +554,7 @@ let askActive = null;
 
 on("kz:ask", (e) => {
   // 自动放行(yolo):不弹窗,直接允许并留日志。
-  if ($("auto-allow").checked) {
+  if (e.payload.kind !== "question" && $("auto-allow").checked) {
     log(`自动放行:${e.payload.action} ${e.payload.resource}`);
     invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
       log(`自动放行失败:${err}`, "err")
@@ -574,9 +574,30 @@ $("auto-allow").addEventListener("change", () => {
 function pumpAsk() {
   if (askActive || askQueue.length === 0) return;
   askActive = askQueue.shift();
-  $("ask-action").textContent = askActive.action;
-  $("ask-resource").textContent = askActive.resource;
-  $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
+  const question = askActive.kind === "question";
+  $("ask-title").textContent = question ? "需要你的回答" : "权限请求";
+  $("permission-fields").classList.toggle("hidden", question);
+  $("permission-buttons").classList.toggle("hidden", question);
+  $("question-fields").classList.toggle("hidden", !question);
+  $("question-buttons").classList.toggle("hidden", !question);
+  if (question) {
+    $("ask-question").textContent = askActive.question;
+    const options = $("ask-options");
+    options.innerHTML = "";
+    for (const option of askActive.options || []) {
+      const button = document.createElement("button");
+      button.className = "ghost ask-option";
+      button.textContent = option;
+      button.addEventListener("click", () => answerAsk(option));
+      options.appendChild(button);
+    }
+    $("ask-answer").value = askActive.default || "";
+    setTimeout(() => $("ask-answer").focus(), 0);
+  } else {
+    $("ask-action").textContent = askActive.action;
+    $("ask-resource").textContent = askActive.resource;
+    $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
+  }
   $("ask-overlay").classList.remove("hidden");
 }
 
@@ -589,10 +610,11 @@ function hideAsk() {
 async function answerAsk(reply) {
   if (!askActive) return;
   const id = askActive.id;
-  const summary = `${askActive.action}: ${askActive.resource}`;
+  const question = askActive.kind === "question";
+  const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
   askActive = null;
   $("ask-overlay").classList.add("hidden");
-  log(`权限 ${reply === "deny" ? "拒绝" : reply === "always" ? "总是允许" : "允许一次"} — ${summary}`);
+  log(`${question ? "回答" : "权限"} ${reply === "deny" ? "拒绝" : reply === "always" ? "总是允许" : reply} — ${summary}`);
   try {
     await invoke("answer_ask", { id, reply });
   } catch (err) {
@@ -601,9 +623,14 @@ async function answerAsk(reply) {
   pumpAsk();
 }
 
-$("ask-allow").addEventListener("click", () => answerAsk("once"));
-$("ask-always").addEventListener("click", () => answerAsk("always"));
 $("ask-deny").addEventListener("click", () => answerAsk("deny"));
+$("ask-always").addEventListener("click", () => answerAsk("always"));
+$("ask-allow").addEventListener("click", () => answerAsk("once"));
+$("ask-cancel").addEventListener("click", () => answerAsk("cancel"));
+$("ask-submit").addEventListener("click", () => answerAsk($("ask-answer").value.trim()));
+$("ask-answer").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") answerAsk($("ask-answer").value.trim());
+});
 
 // ---------- 阅读辅助 ----------
 async function copyReadable(el) {

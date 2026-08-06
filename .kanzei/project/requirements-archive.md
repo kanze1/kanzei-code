@@ -95,3 +95,11 @@
 - 剩余: websearch 检索入口,结果可直接 source add
 - 进展: 已完成 research 专属 websearch 工具：复用代理配置，调用 DuckDuckGo HTML 搜索，返回有界的 query/results/truncated JSON（title/url/snippet），限制查询长度、结果数和响应体，非 2xx/网络错误明确返回错误；新增解析单测。已通过 cargo test --workspace。
 - 验收: research profile 已具备可调用且受权限控制的 websearch，结果结构化并有硬上限。
+
+## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道 [done]
+- priority: P1
+- 归属: kanzei
+- refs: R-036
+- 备注: 结伴开发人格的"拿不准就问"依赖此工具
+- 进展: 已完成 question 工具闭环：新增结构化 question schema（question/options/default），runner 新增 AskRequest/AskResponse 并将答案作为工具结果回喂；桌面端复用 ask 队列和弹窗，支持选项、文本输入、取消，自动放行不跳过 question；CLI 支持终端输入。已通过 cargo test --workspace 与 node --check。
+- 验收: agent 可通过 question 向用户发起带选项的结构化提问，桌面端和 CLI 均可回答，取消不会永久阻塞。

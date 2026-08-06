@@ -17,7 +17,7 @@ impl Component for BaseComponent {
         draft.tools.insert("edit", Arc::new(crate::edit::EditTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
-        draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        draft.tools.insert("question", Arc::new(crate::question::QuestionTool));
         draft
             .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
@@ -27,6 +27,7 @@ impl Component for BaseComponent {
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
+            rule("question", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
             rule("bash", "*", Effect::Ask),

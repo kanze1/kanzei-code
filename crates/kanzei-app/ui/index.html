@@ -230,16 +230,27 @@
 
   <div id="ask-overlay" class="hidden">
     <div id="ask-dialog">
-      <div class="ask-title">权限请求</div>
+      <div class="ask-title" id="ask-title">权限请求</div>
       <div class="ask-body">
-        <div class="ask-line"><span class="dim">操作</span><code id="ask-action"></code></div>
-        <div class="ask-line"><span class="dim">资源</span><code id="ask-resource"></code></div>
-        <div class="ask-line"><span class="dim">记住为</span><code id="ask-remember"></code></div>
+        <div id="permission-fields">
+          <div class="ask-line"><span class="dim">操作</span><code id="ask-action"></code></div>
+          <div class="ask-line"><span class="dim">资源</span><code id="ask-resource"></code></div>
+          <div class="ask-line"><span class="dim">记住为</span><code id="ask-remember"></code></div>
+        </div>
+        <div id="question-fields" class="hidden">
+          <div id="ask-question"></div>
+          <div id="ask-options"></div>
+          <input id="ask-answer" type="text" placeholder="输入你的回答" />
+        </div>
       </div>
-      <div class="ask-buttons">
+      <div class="ask-buttons" id="permission-buttons">
         <button id="ask-deny">拒绝</button>
         <button id="ask-always" title="写入项目 .kanzei/kanzei.toml,之后不再询问">总是允许</button>
         <button id="ask-allow" class="primary">允许一次</button>
+      </div>
+      <div class="ask-buttons hidden" id="question-buttons">
+        <button id="ask-cancel">取消</button>
+        <button id="ask-submit" class="primary">提交回答</button>
       </div>
     </div>
   </div>
