@@ -162,7 +162,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let mut on_event = move |event: RunEvent| match event {
         RunEvent::TurnStart { step, max_steps } => {
             if step > 1 {
-                let _ = writeln!(stdout, "\n\x1b[90m── 第 {step}/{max_steps} 轮 ──\x1b[0m");
+                let label = if max_steps > 0 {
+                    format!("第 {step}/{max_steps} 轮")
+                } else {
+                    format!("第 {step} 轮")
+                };
+                let _ = writeln!(stdout, "\n\x1b[90m── {label} ──\x1b[0m");
             }
         }
         RunEvent::Text(text) => {

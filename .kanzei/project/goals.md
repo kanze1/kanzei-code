@@ -1,12 +1,18 @@
 # Goals
 
-## G-001 把 kanzei 打磨成日常主力开发工具:清空 open 缺陷,推进 R-003 持久化与 R-012 子代理 [active]
-- 进展: R-014 已完成并提交 8675924：桌面端支持图片/PDF选择、拖拽、粘贴并接通 Image/Document Part；D-026 已修复并标记 fixed。下一步按编号推进后续需求。
-- 执行顺序: 按需求编号从小到大，遵循依赖关系；当前继续 R-003，完成后进入后续未完成需求，直至所有可实施需求完成。新增 R-027：需求分析沟通模式与缺陷查找入口，排在现有需求之后。
-- 目标调整: 改为按照需求编号顺序推进并完成全部需求：优先完成当前 doing 需求，再按 R-003、R-004……R-027 顺序处理 todo/未完成需求；已 done 保持，仅 dropped 不恢复。
+## G-001 把 kanzei 打磨成日常主力开发工具 [active]
+- 类型: 长期
+- 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
 
-## G-002 把前端收束到和后端对齐吧，然后有仓库的前端需求文档你看下加到需求里 [active]
-- 优先级: P0
-- 来源文档: docs/design/frontend-phase3.md
-- 状态: 当前优先
-- 进展: R-014 多模态入口已完成并提交 8675924；前端支持选择、拖拽、粘贴图片/PDF，下一步按当前 P0 顺序推进 R-030 进程与项目解耦。
+## G-002 前端与后端能力对齐 [active]
+- 类型: 短期
+- priority: P0
+- 验收: R-036、R-033 完成且 R-030/R-037 由 Claude 落地后,前端不再落后于后端能力;达成即 `goal update G-002 achieved`
+- 来源文档: docs/design/frontend-phase3.md、docs/design/interaction-modes.md
+- 进展: R-013/R-014 已完成;当前按 priority 推进:R-036 → R-033 → R-028/R-029/R-031/R-032
+
+## G-003 工具面与体验补全 [active]
+- 类型: 短期
+- priority: P1
+- 验收: R-016、R-028、R-029、R-023 全部 done;达成即 `goal update G-003 achieved`
+- 说明: 发版自更新闭环 + agent 工具面(todo/question/websearch)

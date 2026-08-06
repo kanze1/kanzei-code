@@ -64,3 +64,13 @@
 - 已完成: Codex 凭证(auth.json 刷新回写、Responses 协议、gpt-5.6 三兄弟)
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
 - 进展: 已完成 Claude OAuth token 自动刷新：接入 console.anthropic.com/v1/oauth/token，使用 Claude Code client_id 与 refresh_token，在过期前 5 分钟刷新并回写 accessToken/refreshToken/expiresAt；构建请求继续复用 Anthropic OAuth headers。cargo test --workspace 全部通过。剩余真实 Claude Code 端到端验证。
+
+## R-014 多模态模型支持上传图片和 PDF 等文件 [done]
+- 已完成: 三协议的 image/document 消息映射(协议层就绪)
+- 剩余: 前端上传/粘贴入口(与 R-024 一起做)
+- refs: R-024
+- 进展: 已完成桌面端多模态入口：支持文件选择、拖拽和剪贴板粘贴图片/PDF；附件以 base64 传入 runner，映射为 Image/Document Part；纯文本路径保持兼容。运行中排队附件明确报错，避免持久化 admission 丢失附件。已通过 node --check 与 cargo test --workspace。
+
+## R-027 需求分析沟通模式与缺陷查找入口 [dropped]
+- 范围: 需求澄清/边界/验收的结构化沟通模式;缺陷查找按钮与状态展示
+- 验收: 具体交互方案与权限边界在实现前补充确认

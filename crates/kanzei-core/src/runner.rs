@@ -186,7 +186,9 @@ pub fn run_once_with_parts<'a>(
     messages.push(Message { role: Role::User, parts: user_parts });
     let mut total_usage = Usage::default();
     let mut final_text = String::new();
-    let max_steps = agent.steps.max(1);
+    // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
+    // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
+    let max_steps = agent.steps;
     // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
     let mut session_approved: std::collections::HashSet<(String, String)> =
         std::collections::HashSet::new();
@@ -196,9 +198,11 @@ pub fn run_once_with_parts<'a>(
 
     let mut overflow_recovered = false;
 
-    for step in 1..=max_steps {
+    let mut step = 0u32;
+    loop {
+        step += 1;
         on_event(RunEvent::TurnStart { step, max_steps });
-        let last_step = step == max_steps;
+        let last_step = max_steps > 0 && step == max_steps;
         // 最后一步收走工具强制收敛;必须同时明确告知(D-027:只收走不告知,
         // codex 仍试图调用工具,把调用 JSON 当纯文本狂喷并在思考里反复自我纠正)。
         let request_messages = if last_step {
@@ -522,12 +526,15 @@ pub fn run_once_with_parts<'a>(
                 messages,
             });
         }
+        if last_step {
+            break;
+        }
     }
 
     Ok(RunSummary {
         text: final_text,
         usage: total_usage,
-        steps: max_steps,
+        steps: step,
         halted_by_user: false,
         messages,
     })
@@ -572,7 +579,11 @@ async fn run_subagent(
     };
     let mut on_event = |event: RunEvent| {
         let text = match &event {
-            RunEvent::TurnStart { step, max_steps } => Some(format!("第 {step}/{max_steps} 轮")),
+            RunEvent::TurnStart { step, max_steps } => Some(if *max_steps > 0 {
+                format!("第 {step}/{max_steps} 轮")
+            } else {
+                format!("第 {step} 轮")
+            }),
             RunEvent::ToolStart { name, summary, .. } => {
                 let head: String = summary.chars().take(80).collect();
                 Some(format!("{name} {head}"))

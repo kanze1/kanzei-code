@@ -314,14 +314,14 @@ on("kz:turn", (e) => {
     clearEmptyState();
     const divider = document.createElement("div");
     divider.className = "turn-divider";
-    divider.textContent = `第 ${p.step}/${p.maxSteps} 轮`;
+    divider.textContent = p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
     messages.appendChild(divider);
     scrollBottom();
   }
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
-  liveTurn(`第 ${p.step}/${p.maxSteps} 轮`);
+  liveTurn(p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`);
   if (running) setStatus(`第 ${p.step} 轮 · 等待模型`, true);
 });
 on("kz:text", (e) => {

@@ -78,7 +78,14 @@ impl Component for DevProfile {
                 if paused > 0 {
                     out.push_str(&format!("(另有 {paused} 个 paused 目标,goal list 可见)\n"));
                 }
-                out.push_str("When the user gives no specific task, advance these goals and record progress via `goal update`.\n</goals>");
+                out.push_str(
+                    "When the user gives no specific task, advance these goals and record \
+                     progress via `goal update`. Goals with field `类型: 短期` are \
+                     finishable: the moment their acceptance is met, CLOSE them with \
+                     `goal update <id> achieved` — never leave a completed short-term \
+                     goal active. Goals with `类型: 长期` are standing directions; do \
+                     not close them yourself.\n</goals>",
+                );
                 Some(out)
             }),
         );
@@ -131,7 +138,8 @@ impl Component for DevProfile {
                 profile: ProfileScope::Dev,
                 model: "primary".into(),
                 mode: AgentMode::Primary,
-                steps: 40,
+                // 0 = 无轮数上限(用户定调)。
+                steps: 0,
                 system: "You are the dev agent. Workflow contract: before starting work set the \
                          requirement to doing (`req update`); when you find a bug record it \
                          (`defect add`) before fixing; the moment acceptance is met, mark it \
@@ -212,7 +220,8 @@ impl Component for ResearchProfile {
                 profile: ProfileScope::Research,
                 model: "primary".into(),
                 mode: AgentMode::Primary,
-                steps: 40,
+                // 0 = 无轮数上限(用户定调)。
+                steps: 0,
                 system: "You are the research agent. Record every consulted source \
                          (`source add`) and register conclusions as findings citing those \
                          sources. The final report goes to .kanzei/research/report.md."

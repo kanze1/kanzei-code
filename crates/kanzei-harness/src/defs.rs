@@ -70,7 +70,8 @@ fn default_model_ref() -> String {
 }
 
 fn default_steps() -> u32 {
-    40
+    // 0 = 无轮数上限(用户定调):停止权在用户与上下文管理,不在计数器。
+    0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
