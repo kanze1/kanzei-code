@@ -311,7 +311,9 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     "title": e.title,
                     "status": e.status,
                     "severity": e.severity,
-                    "priority": e.fields.iter().find(|(key, _)| key == "优先级").map(|(_, value)| value),
+                    "priority": e.fields.iter()
+                        .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
+                        .map(|(_, value)| value),
                     "closed": kind.terminal.contains(&e.status.as_str()),
                     "fields": e.fields,
                     // 展开面板需要:合法的下一步状态(硬门禁同款规则)。

@@ -997,7 +997,9 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
   }
   for (const entry of entries) {
     const item = document.createElement("div");
-    item.className = `doc-item${entry.closed ? " closed" : ""}`;
+    // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
+    const pri = (entry.priority || "").toUpperCase();
+    item.className = `doc-item${entry.closed ? " closed" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
 
     const row = document.createElement("div");
     row.className = "doc-row";
@@ -1007,11 +1009,18 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     id.textContent = entry.id;
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
-    st.textContent = entry.status + (entry.priority ? `/${entry.priority}` : "") + (entry.severity ? `/${entry.severity}` : "");
+    st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
+    row.append(id, st);
+    if (/^P[0-3]$/.test(pri)) {
+      const badge = document.createElement("span");
+      badge.className = `pri-badge ${pri}`;
+      badge.textContent = pri;
+      row.appendChild(badge);
+    }
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = entry.title;
-    row.append(id, st, title);
+    row.appendChild(title);
     item.appendChild(row);
 
     // 展开面板:完整标题、字段、合法的状态流转按钮(与硬门禁同一套规则)。
@@ -1133,12 +1142,14 @@ function renderConventions(conv) {
     el.appendChild(empty);
     return;
   }
-  for (const heading of conv.headings) {
-    const item = document.createElement("div");
-    item.className = "doc-item";
-    item.textContent = `§ ${heading}`;
-    el.appendChild(item);
-  }
+  // 规范不再铺开章节列表占满侧边栏:一行入口,点开进应用内 MD 查看器。
+  const item = document.createElement("div");
+  item.className = "doc-item";
+  item.style.cursor = "pointer";
+  item.textContent = `${conv.headings.length} 个章节 · 点击查看`;
+  item.title = conv.headings.slice(0, 12).join("\n");
+  item.addEventListener("click", () => openDocViewer("conventions"));
+  el.appendChild(item);
 }
 
 // 新建目标:内联输入(webview 无 window.prompt)。
