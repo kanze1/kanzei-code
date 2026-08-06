@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +44,7 @@ pub struct AgentNotification {
 pub struct NotificationSubscription {
     pub thread_id: String,
     pub cursor: u64,
+    seen_event_ids: HashSet<String>,
 }
 
 impl NotificationSubscription {
@@ -51,6 +52,7 @@ impl NotificationSubscription {
         Self {
             thread_id: thread_id.into(),
             cursor: 0,
+            seen_event_ids: HashSet::new(),
         }
     }
 }
@@ -122,10 +124,14 @@ impl InMemoryBroker {
             subscription.cursor,
             limit,
         );
-        if let Some(last) = events.last() {
-            subscription.cursor = last.sequence;
+        let mut unique_events = Vec::with_capacity(events.len());
+        for event in events {
+            subscription.cursor = event.sequence;
+            if subscription.seen_event_ids.insert(event.event_id.clone()) {
+                unique_events.push(event);
+            }
         }
-        events
+        unique_events
     }
 
     pub fn notification_count(&self) -> usize {
@@ -298,6 +304,19 @@ mod tests {
         assert_eq!(subscription.cursor, 3);
     }
 
+    #[test]
+    fn subscription_deduplicates_event_id_and_advances_cursor() {
+        let mut broker = InMemoryBroker::default();
+        broker.publish_notification(notification("evt_same", "running"));
+        broker.publish_notification(notification("evt_same", "running"));
+        let mut subscription = NotificationSubscription::new("thread_a");
+
+        let events = broker.poll_subscription(&mut subscription, 10);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, "evt_same");
+        assert_eq!(subscription.cursor, 2);
+        assert!(broker.poll_subscription(&mut subscription, 10).is_empty());
+    }
     #[test]
     fn subscription_ignores_other_thread_without_advancing_cursor() {
         let mut broker = InMemoryBroker::default();
