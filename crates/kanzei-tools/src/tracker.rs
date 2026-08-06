@@ -71,7 +71,9 @@ impl Tool for TrackerTool {
         let store = DocStore::open(&ctx.project_root, self.kind);
         let mut entries = match store.load() {
             Ok(e) => e,
-            Err(e) => return ToolOutput::error(format!("cannot read {}: {e}", store.path.display())),
+            Err(e) => {
+                return ToolOutput::error(format!("cannot read {}: {e}", store.path.display()))
+            }
         };
 
         match input.action.as_str() {
@@ -102,23 +104,29 @@ impl Tool for TrackerTool {
                     return ToolOutput::error(e);
                 }
                 let id = store.next_id(&entries);
-                let mut fields: Vec<(String, String)> =
-                    input.fields.into_iter().collect();
+                let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
                 }
-                let severity = input.severity.or_else(|| {
-                    self.kind.severities.map(|s| s[s.len() / 2].to_string())
-                });
+                let severity = input
+                    .severity
+                    .or_else(|| self.kind.severities.map(|s| s[s.len() / 2].to_string()));
                 entries.push(Entry {
                     id: id.clone(),
                     title: title.trim().to_string(),
                     status: self.kind.statuses[0].to_string(),
-                    severity: if self.kind.severities.is_some() { severity } else { None },
+                    severity: if self.kind.severities.is_some() {
+                        severity
+                    } else {
+                        None
+                    },
                     fields,
                 });
                 if let Err(e) = store.save(&entries) {
-                    return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
+                    return ToolOutput::error(format!(
+                        "cannot write {}: {e}",
+                        store.path.display()
+                    ));
                 }
                 ToolOutput::ok(format!("added {id} [{}] {title}", self.kind.statuses[0]))
             }
@@ -178,7 +186,10 @@ impl Tool for TrackerTool {
                 }
                 let line = render_line(&entries[pos]);
                 if let Err(e) = store.save(&entries) {
-                    return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
+                    return ToolOutput::error(format!(
+                        "cannot write {}: {e}",
+                        store.path.display()
+                    ));
                 }
                 ToolOutput::ok(format!("updated: {line}"))
             }
@@ -197,7 +208,10 @@ impl TrackerTool {
         if valid.contains(&sev) {
             None
         } else {
-            Some(format!("invalid severity `{sev}`; valid: {}", valid.join(" | ")))
+            Some(format!(
+                "invalid severity `{sev}`; valid: {}",
+                valid.join(" | ")
+            ))
         }
     }
 
@@ -211,13 +225,21 @@ impl TrackerTool {
                 let available = DocStore::open(&ctx.project_root, ref_kind)
                     .load()
                     .map(|entries| {
-                        entries.iter().map(render_line).collect::<Vec<_>>().join("\n")
+                        entries
+                            .iter()
+                            .map(render_line)
+                            .collect::<Vec<_>>()
+                            .join("\n")
                     })
                     .unwrap_or_default();
                 return Err(format!(
                     "every {} MUST cite at least one source via `refs`. Existing sources:\n{}",
                     self.noun,
-                    if available.is_empty() { "(none — record a source first)" } else { &available },
+                    if available.is_empty() {
+                        "(none — record a source first)"
+                    } else {
+                        &available
+                    },
                 ));
             }
             return Ok(());
@@ -227,7 +249,10 @@ impl TrackerTool {
             .map_err(|e| e.to_string())?;
         for id in refs {
             if !existing.iter().any(|e| &e.id == id) {
-                return Err(format!("ref `{id}` does not exist. {}", unknown_id(id, &existing)));
+                return Err(format!(
+                    "ref `{id}` does not exist. {}",
+                    unknown_id(id, &existing)
+                ));
             }
         }
         Ok(())
@@ -235,7 +260,11 @@ impl TrackerTool {
 }
 
 fn render_line(e: &Entry) -> String {
-    let sev = e.severity.as_ref().map(|s| format!(" ({s})")).unwrap_or_default();
+    let sev = e
+        .severity
+        .as_ref()
+        .map(|s| format!(" ({s})"))
+        .unwrap_or_default();
     format!("{} [{}]{sev} {}", e.id, e.status, e.title)
 }
 
@@ -251,6 +280,10 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
     let known: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
     format!(
         "unknown id `{id}`; existing: {}",
-        if known.is_empty() { "(none)".into() } else { known.join(", ") }
+        if known.is_empty() {
+            "(none)".into()
+        } else {
+            known.join(", ")
+        }
     )
 }

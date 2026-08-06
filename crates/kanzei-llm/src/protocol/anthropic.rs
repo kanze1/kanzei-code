@@ -106,8 +106,14 @@ fn message_to_value(message: &crate::request::Message) -> Value {
 
 enum Block {
     Text,
-    Thinking { signature: Option<String> },
-    ToolUse { id: String, name: String, input_json: String },
+    Thinking {
+        signature: Option<String>,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input_json: String,
+    },
 }
 
 #[derive(Default)]
@@ -131,8 +137,7 @@ impl ProtocolState for AnthropicState {
                 let usage = &data["message"]["usage"];
                 self.usage.input = usage["input_tokens"].as_u64().unwrap_or(0);
                 self.usage.cache_read = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
-                self.usage.cache_write =
-                    usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+                self.usage.cache_write = usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
                 out.push(LlmEvent::StepStart);
             }
             "content_block_start" => {
@@ -144,7 +149,8 @@ impl ProtocolState for AnthropicState {
                         out.push(LlmEvent::TextStart { index });
                     }
                     "thinking" | "redacted_thinking" => {
-                        self.blocks.insert(index, Block::Thinking { signature: None });
+                        self.blocks
+                            .insert(index, Block::Thinking { signature: None });
                         out.push(LlmEvent::ReasoningStart { index });
                     }
                     "tool_use" => {
@@ -152,12 +158,18 @@ impl ProtocolState for AnthropicState {
                         let name = block["name"].as_str().unwrap_or("").to_string();
                         self.blocks.insert(
                             index,
-                            Block::ToolUse { id: id.clone(), name: name.clone(), input_json: String::new() },
+                            Block::ToolUse {
+                                id: id.clone(),
+                                name: name.clone(),
+                                input_json: String::new(),
+                            },
                         );
                         out.push(LlmEvent::ToolInputStart { index, id, name });
                     }
                     other => {
-                        return Err(LlmError::Protocol(format!("unknown content block: {other}")))
+                        return Err(LlmError::Protocol(format!(
+                            "unknown content block: {other}"
+                        )))
                     }
                 }
             }
@@ -179,7 +191,10 @@ impl ProtocolState for AnthropicState {
                         {
                             input_json.push_str(partial);
                         }
-                        out.push(LlmEvent::ToolInputDelta { index, delta: partial.to_string() });
+                        out.push(LlmEvent::ToolInputDelta {
+                            index,
+                            delta: partial.to_string(),
+                        });
                     }
                     "signature_delta" => {
                         if let Some(Block::Thinking { signature }) = self.blocks.get_mut(&index) {
@@ -197,11 +212,24 @@ impl ProtocolState for AnthropicState {
                     Some(Block::Thinking { signature }) => {
                         out.push(LlmEvent::ReasoningEnd { index, signature })
                     }
-                    Some(Block::ToolUse { id, name, input_json }) => {
-                        let raw = if input_json.is_empty() { "{}".to_string() } else { input_json };
+                    Some(Block::ToolUse {
+                        id,
+                        name,
+                        input_json,
+                    }) => {
+                        let raw = if input_json.is_empty() {
+                            "{}".to_string()
+                        } else {
+                            input_json
+                        };
                         // 解析失败不报错:input 置 Null,raw_input 交给上层修复回路。
                         let input = serde_json::from_str(&raw).unwrap_or(Value::Null);
-                        out.push(LlmEvent::ToolCall { id, name, input, raw_input: raw });
+                        out.push(LlmEvent::ToolCall {
+                            id,
+                            name,
+                            input,
+                            raw_input: raw,
+                        });
                     }
                     None => {}
                 }
@@ -225,7 +253,10 @@ impl ProtocolState for AnthropicState {
                 let err = &data["error"];
                 return Err(LlmError::classify_provider(
                     err["type"].as_str().unwrap_or("unknown").to_string(),
-                    err["message"].as_str().unwrap_or("unknown error").to_string(),
+                    err["message"]
+                        .as_str()
+                        .unwrap_or("unknown error")
+                        .to_string(),
                 ));
             }
             other => {
@@ -254,25 +285,66 @@ mod tests {
 
     fn feed(state: &mut AnthropicState, event: &str, data: &str) -> Vec<LlmEvent> {
         state
-            .step(&SseEvent { event: event.into(), data: data.into() })
+            .step(&SseEvent {
+                event: event.into(),
+                data: data.into(),
+            })
             .unwrap()
     }
 
     #[test]
     fn full_tool_call_stream() {
         let mut s = AnthropicState::default();
-        let ev = feed(&mut s, "message_start", r#"{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_read_input_tokens":80,"cache_creation_input_tokens":5}}}"#);
+        let ev = feed(
+            &mut s,
+            "message_start",
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":100,"cache_read_input_tokens":80,"cache_creation_input_tokens":5}}}"#,
+        );
         assert_eq!(ev, vec![LlmEvent::StepStart]);
 
-        feed(&mut s, "content_block_start", r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#);
-        let ev = feed(&mut s, "content_block_delta", r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你好"}}"#);
-        assert_eq!(ev, vec![LlmEvent::TextDelta { index: 0, text: "你好".into() }]);
-        feed(&mut s, "content_block_stop", r#"{"type":"content_block_stop","index":0}"#);
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"你好"}}"#,
+        );
+        assert_eq!(
+            ev,
+            vec![LlmEvent::TextDelta {
+                index: 0,
+                text: "你好".into()
+            }]
+        );
+        feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
 
-        feed(&mut s, "content_block_start", r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_1","name":"read"}}"#);
-        feed(&mut s, "content_block_delta", r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#);
-        feed(&mut s, "content_block_delta", r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}"#);
-        let ev = feed(&mut s, "content_block_stop", r#"{"type":"content_block_stop","index":1}"#);
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tu_1","name":"read"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"path\":"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"a.txt\"}"}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":1}"#,
+        );
         assert_eq!(
             ev,
             vec![LlmEvent::ToolCall {
@@ -283,13 +355,23 @@ mod tests {
             }]
         );
 
-        feed(&mut s, "message_delta", r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":42}}"#);
+        feed(
+            &mut s,
+            "message_delta",
+            r#"{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":42}}"#,
+        );
         let ev = feed(&mut s, "message_stop", r#"{"type":"message_stop"}"#);
         assert_eq!(
             ev,
             vec![LlmEvent::StepFinish {
                 reason: FinishReason::ToolUse,
-                usage: Usage { input: 100, output: 42, reasoning: 0, cache_read: 80, cache_write: 5 },
+                usage: Usage {
+                    input: 100,
+                    output: 42,
+                    reasoning: 0,
+                    cache_read: 80,
+                    cache_write: 5
+                },
             }]
         );
     }
@@ -297,11 +379,25 @@ mod tests {
     #[test]
     fn malformed_tool_json_becomes_null_not_error() {
         let mut s = AnthropicState::default();
-        feed(&mut s, "content_block_start", r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_2","name":"edit"}}"#);
-        feed(&mut s, "content_block_delta", r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": oops"}}"#);
-        let ev = feed(&mut s, "content_block_stop", r#"{"type":"content_block_stop","index":0}"#);
+        feed(
+            &mut s,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_2","name":"edit"}}"#,
+        );
+        feed(
+            &mut s,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": oops"}}"#,
+        );
+        let ev = feed(
+            &mut s,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        );
         match &ev[0] {
-            LlmEvent::ToolCall { input, raw_input, .. } => {
+            LlmEvent::ToolCall {
+                input, raw_input, ..
+            } => {
                 assert_eq!(*input, Value::Null);
                 assert_eq!(raw_input, "{\"path\": oops");
             }
@@ -338,7 +434,9 @@ mod tests {
         let body = build_body(&req);
         assert!(body["system"][0].get("cache_control").is_none());
         assert_eq!(body["system"][1]["cache_control"]["type"], "ephemeral");
-        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
+        assert!(body["messages"][0]["content"][0]
+            .get("cache_control")
+            .is_none());
         assert_eq!(
             body["messages"][1]["content"][0]["cache_control"]["type"],
             "ephemeral"

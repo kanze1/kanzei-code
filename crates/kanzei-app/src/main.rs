@@ -7,8 +7,10 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -46,8 +48,7 @@ struct AppState {
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .init();
     tauri::Builder::default()
@@ -89,7 +90,10 @@ struct AppPrefs {
 }
 
 fn prefs_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".kanzei").join("app.json")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".kanzei")
+        .join("app.json")
 }
 
 fn load_prefs() -> AppPrefs {
@@ -104,7 +108,10 @@ fn save_prefs(prefs: &AppPrefs) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(prefs).unwrap_or_default());
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(prefs).unwrap_or_default(),
+    );
 }
 
 #[tauri::command]
@@ -116,7 +123,12 @@ fn projects_get() -> AppPrefs {
             prefs.projects.push(cwd.display().to_string());
         }
     }
-    if prefs.current.as_deref().map(|c| !Path::new(c).is_dir()).unwrap_or(true) {
+    if prefs
+        .current
+        .as_deref()
+        .map(|c| !Path::new(c).is_dir())
+        .unwrap_or(true)
+    {
         prefs.current = prefs.projects.first().cloned();
     }
     save_prefs(&prefs);
@@ -129,7 +141,10 @@ fn projects_add(path: String) -> Result<AppPrefs, String> {
     if !dir.is_dir() {
         return Err(format!("目录不存在: {path}"));
     }
-    let canonical = dir.canonicalize().map(strip_verbatim).unwrap_or(path.clone());
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or(path.clone());
     let mut prefs = load_prefs();
     if !prefs.projects.contains(&canonical) {
         prefs.projects.push(canonical.clone());
@@ -228,7 +243,10 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
 // ---------- 设置(全局 kanzei.toml 表单) ----------
 
 fn global_config_path() -> PathBuf {
-    dirs::home_dir().unwrap_or_default().join(".kanzei").join("kanzei.toml")
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".kanzei")
+        .join("kanzei.toml")
 }
 
 #[tauri::command]
@@ -317,7 +335,10 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
             kanzei_harness::config::ProviderConfig {
                 protocol: p.protocol.trim().to_string(),
                 base_url: p.base_url.trim().trim_end_matches('/').to_string(),
-                api_key_env: p.api_key_env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+                api_key_env: p
+                    .api_key_env
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
                 auth: p.auth.filter(|s| !s.is_empty()),
                 context_limit: p.context_limit,
             },
@@ -344,7 +365,7 @@ fn settings_open() -> Result<(), String> {
             providers: vec![],
         })?;
     }
-    std::process::Command::new("cmd")
+    hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -364,10 +385,30 @@ async fn docs_update(
     use kanzei_tools::docstore::{DEFECTS as D, FINDINGS as F, REQUIREMENTS as R, SOURCES as S};
     use kanzei_tools::tracker::TrackerTool;
     let tool = match kind.as_str() {
-        "req" => TrackerTool { tool_name: "req", noun: "requirement", kind: &R, requires_refs: None },
-        "defect" => TrackerTool { tool_name: "defect", noun: "defect", kind: &D, requires_refs: None },
-        "source" => TrackerTool { tool_name: "source", noun: "source", kind: &S, requires_refs: None },
-        "finding" => TrackerTool { tool_name: "finding", noun: "finding", kind: &F, requires_refs: Some(&S) },
+        "req" => TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &R,
+            requires_refs: None,
+        },
+        "defect" => TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &D,
+            requires_refs: None,
+        },
+        "source" => TrackerTool {
+            tool_name: "source",
+            noun: "source",
+            kind: &S,
+            requires_refs: None,
+        },
+        "finding" => TrackerTool {
+            tool_name: "finding",
+            noun: "finding",
+            kind: &F,
+            requires_refs: Some(&S),
+        },
         other => return Err(format!("unknown kind `{other}`")),
     };
     let mut input = json!({ "action": action, "id": id });
@@ -398,7 +439,7 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     if !path.is_file() {
         return Err(format!("文档还不存在:{}", path.display()));
     }
-    std::process::Command::new("cmd")
+    hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
         .spawn()
         .map_err(|e| e.to_string())?;
@@ -412,7 +453,7 @@ async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
         .unwrap_or_else(|| PathBuf::from(&project_dir));
     tokio::task::spawn_blocking(move || {
         let run = |args: &[&str]| -> Option<String> {
-            let out = std::process::Command::new("git")
+            let out = hidden_command("git")
                 .args(args)
                 .current_dir(&root)
                 .output()
@@ -433,6 +474,17 @@ async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
 }
 
 const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
+
+/// 桌面端调用外部程序时禁止创建控制台窗口(Windows GUI 应用不应闪出黑框)。
+fn hidden_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
 
 /// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
 #[tauri::command]
@@ -456,7 +508,10 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 
 /// 对话总结:fast 模型生成纪要并存档到 .kanzei/summaries/。
 #[tauri::command]
-async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde_json::Value, String> {
+async fn summarize_chat(
+    project_dir: String,
+    transcript: String,
+) -> Result<serde_json::Value, String> {
     use futures::StreamExt;
     let cwd = PathBuf::from(&project_dir);
     let config = KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
@@ -466,7 +521,9 @@ async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde
         Some("env") | None => ProxyConfig::Env,
         Some(p) => ProxyConfig::Explicit(p.to_string()),
     };
-    let route = kanzei_core::build_route(&resolved, &proxy).await.map_err(|e| e.to_string())?;
+    let route = kanzei_core::build_route(&resolved, &proxy)
+        .await
+        .map_err(|e| e.to_string())?;
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
     let request = kanzei_llm::LlmRequest {
         model: resolved.model.clone(),
@@ -480,7 +537,10 @@ async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde
         max_tokens: 2048,
         temperature: None,
     };
-    let mut stream = client.stream(&route, &request).await.map_err(|e| e.to_string())?;
+    let mut stream = client
+        .stream(&route, &request)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut summary = String::new();
     while let Some(event) = stream.next().await {
         if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? {
@@ -526,10 +586,13 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
                     }));
                 }
                 Err(e) => {
-                    let _ = window.emit("kz:status", json!({
-                        "stage": "权限",
-                        "detail": format!("规则保存失败:{e}(本次仍放行)"),
-                    }));
+                    let _ = window.emit(
+                        "kz:status",
+                        json!({
+                            "stage": "权限",
+                            "detail": format!("规则保存失败:{e}(本次仍放行)"),
+                        }),
+                    );
                 }
             }
             kanzei_core::AskReply::AlwaysAllow
@@ -638,8 +701,15 @@ async fn run_prompt(
 
     let handle = tauri::async_runtime::spawn(async move {
         let result = run_task(
-            &window, asks, ask_seq, prompt, project_dir, profile, model,
-            conversation, conversation_project,
+            &window,
+            asks,
+            ask_seq,
+            prompt,
+            project_dir,
+            profile,
+            model,
+            conversation,
+            conversation_project,
         )
         .await;
         if let Err(e) = result {
@@ -706,7 +776,11 @@ async fn run_task(
     let agent = snapshot.select_agent(None)?.clone();
     stage(
         "装配",
-        format!("harness 就绪:agent {} · {} 个工具", agent.name, snapshot.materialize_tools().len()),
+        format!(
+            "harness 就绪:agent {} · {} 个工具",
+            agent.name,
+            snapshot.materialize_tools().len()
+        ),
     );
 
     // 界面模型下拉直选优先于 agent 定义。
@@ -725,14 +799,56 @@ async fn run_task(
             "{}:{}{}",
             resolved.provider_name,
             resolved.model,
-            if resolved.provider.auth.is_some() { "(订阅登录态,可能刷新令牌)" } else { "" }
+            if resolved.provider.auth.is_some() {
+                "(订阅登录态,可能刷新令牌)"
+            } else {
+                ""
+            }
         ),
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = LlmClient::new(&proxy)?;
-    let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };
+    let runner_config = RunnerConfig {
+        model: resolved.model.clone(),
+        max_tokens: 8192,
+    };
     let ctx = ToolCtx { cwd, project_root };
+
+    let session_id = kanzei_core::project_session_id(&ctx.project_root);
+    let state_path = kanzei_core::project_state_path(&ctx.project_root);
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
+    let input_id = format!(
+        "input_{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
+    store.admit_input(
+        &session_id,
+        &input_id,
+        &prompt,
+        kanzei_core::Delivery::Queue,
+    )?;
+    store.append_event(
+        &session_id,
+        "prompt.admitted",
+        &json!({ "input_id": input_id, "delivery": "queue" }),
+    )?;
+    let promoted = store
+        .promote_next_queue(&session_id)?
+        .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?;
+    store.append_event(
+        &session_id,
+        "prompt.promoted",
+        &json!({ "input_id": promoted.input_id, "delivery": "queue" }),
+    )?;
+    store.set_status(&session_id, "running")?;
+    store.append_event(
+        &session_id,
+        "session.status_changed",
+        &json!({ "status": "running" }),
+    )?;
+    drop(store);
 
     let _ = window.emit(
         "kz:meta",
@@ -747,16 +863,20 @@ async fn run_task(
     let event_window = window.clone();
     let mut on_event = move |event: RunEvent| {
         let _ = match event {
-            RunEvent::TurnStart { step, max_steps } => event_window.emit(
-                "kz:turn",
-                json!({ "step": step, "maxSteps": max_steps }),
-            ),
+            RunEvent::TurnStart { step, max_steps } => {
+                event_window.emit("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
+            }
             RunEvent::Text(text) => event_window.emit("kz:text", json!({ "text": text })),
             RunEvent::Reasoning(text) => event_window.emit("kz:reasoning", json!({ "text": text })),
             RunEvent::ToolStart { name, summary } => {
                 event_window.emit("kz:tool-start", json!({ "name": name, "summary": summary }))
             }
-            RunEvent::ToolEnd { name, ok, preview, display } => event_window.emit(
+            RunEvent::ToolEnd {
+                name,
+                ok,
+                preview,
+                display,
+            } => event_window.emit(
                 "kz:tool-end",
                 json!({ "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
@@ -806,7 +926,7 @@ async fn run_task(
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
     }
 
-    let summary = run_once(
+    let run_result = run_once(
         &client,
         &route,
         &snapshot,
@@ -818,7 +938,42 @@ async fn run_task(
         &mut on_event,
         &mut ask,
     )
-    .await?;
+    .await;
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    match &run_result {
+        Ok(summary) => {
+            store.set_status(&session_id, "idle")?;
+            store.append_event(
+                &session_id,
+                "session.status_changed",
+                &json!({ "status": "idle" }),
+            )?;
+            store.append_event(
+                &session_id,
+                "run.completed",
+                &json!({
+                    "steps": summary.steps,
+                    "halted_by_user": summary.halted_by_user,
+                    "input": summary.usage.input,
+                    "output": summary.usage.output,
+                }),
+            )?;
+        }
+        Err(error) => {
+            store.set_status(&session_id, "failed")?;
+            store.append_event(
+                &session_id,
+                "session.status_changed",
+                &json!({ "status": "failed" }),
+            )?;
+            store.append_event(
+                &session_id,
+                "run.failed",
+                &json!({ "error": error.to_string() }),
+            )?;
+        }
+    }
+    let summary = run_result?;
 
     let history_len = summary.messages.len();
     *conversation.lock().unwrap() = summary.messages;

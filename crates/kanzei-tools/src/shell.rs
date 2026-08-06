@@ -22,13 +22,25 @@ pub fn detected_shell() -> &'static DetectedShell {
 #[cfg(windows)]
 fn detect() -> DetectedShell {
     if let Some(p) = which("pwsh.exe") {
-        return DetectedShell { name: "pwsh", program: p, args: vec!["-NoProfile", "-NonInteractive", "-Command"] };
+        return DetectedShell {
+            name: "pwsh",
+            program: p,
+            args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+        };
     }
     if let Some(p) = which("powershell.exe") {
-        return DetectedShell { name: "powershell", program: p, args: vec!["-NoProfile", "-NonInteractive", "-Command"] };
+        return DetectedShell {
+            name: "powershell",
+            program: p,
+            args: vec!["-NoProfile", "-NonInteractive", "-Command"],
+        };
     }
     let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
-    DetectedShell { name: "cmd", program: comspec.into(), args: vec!["/d", "/s", "/c"] }
+    DetectedShell {
+        name: "cmd",
+        program: comspec.into(),
+        args: vec!["/d", "/s", "/c"],
+    }
 }
 
 #[cfg(not(windows))]
@@ -40,10 +52,18 @@ fn detect() -> DetectedShell {
                 "/bin/zsh" => "zsh",
                 _ => "sh",
             };
-            return DetectedShell { name, program: candidate.into(), args: vec!["-c"] };
+            return DetectedShell {
+                name,
+                program: candidate.into(),
+                args: vec!["-c"],
+            };
         }
     }
-    DetectedShell { name: "sh", program: "/bin/sh".into(), args: vec!["-c"] }
+    DetectedShell {
+        name: "sh",
+        program: "/bin/sh".into(),
+        args: vec!["-c"],
+    }
 }
 
 #[cfg(windows)]

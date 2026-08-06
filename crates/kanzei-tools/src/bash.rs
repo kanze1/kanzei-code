@@ -40,11 +40,16 @@ impl Tool for BashTool {
     fn description(&self) -> String {
         let shell = detected_shell();
         let syntax = match shell.name {
-            "pwsh" | "powershell" => "PowerShell syntax (NOT POSIX: use ; or && (pwsh7), $env:VAR, Get-ChildItem)",
+            "pwsh" | "powershell" => {
+                "PowerShell syntax (NOT POSIX: use ; or && (pwsh7), $env:VAR, Get-ChildItem)"
+            }
             "cmd" => "cmd.exe syntax (NOT POSIX: use %VAR%, dir, &&)",
             _ => "POSIX sh syntax",
         };
-        format!("Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir.", shell.name)
+        format!(
+            "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir.",
+            shell.name
+        )
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -60,7 +65,12 @@ impl Tool for BashTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        let timeout = Duration::from_millis(input.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS).min(MAX_TIMEOUT_MS));
+        let timeout = Duration::from_millis(
+            input
+                .timeout_ms
+                .unwrap_or(DEFAULT_TIMEOUT_MS)
+                .min(MAX_TIMEOUT_MS),
+        );
         let workdir = match &input.workdir {
             Some(dir) => ctx.cwd.join(dir),
             None => ctx.cwd.clone(),
@@ -79,6 +89,7 @@ impl Tool for BashTool {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        hide_console_window(&mut command);
 
         let mut child = match command.spawn() {
             Ok(c) => c,
@@ -114,15 +125,26 @@ impl Tool for BashTool {
                 }
                 let code = status.as_ref().ok().and_then(|s| s.code());
                 let ok = code == Some(0);
-                let text = if text.trim().is_empty() { "(no output)".to_string() } else { text };
-                let rendered = format!("exit code: {}\n{text}", code.map_or("unknown".into(), |c| c.to_string()));
+                let text = if text.trim().is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    text
+                };
+                let rendered = format!(
+                    "exit code: {}\n{text}",
+                    code.map_or("unknown".into(), |c| c.to_string())
+                );
                 let display = serde_json::json!({
                     "kind": "terminal",
                     "command": input.command,
                     "exitCode": code,
                     "output": text.chars().take(4000).collect::<String>(),
                 });
-                let output = if ok { ToolOutput::ok(rendered) } else { ToolOutput::error(rendered) };
+                let output = if ok {
+                    ToolOutput::ok(rendered)
+                } else {
+                    ToolOutput::error(rendered)
+                };
                 output.with_display(display)
             }
             Err(_) => {
@@ -139,7 +161,19 @@ impl Tool for BashTool {
     }
 }
 
-async fn read_capped(reader: &mut (impl tokio::io::AsyncRead + Unpin), buffer: &mut Vec<u8>) -> bool {
+#[cfg(windows)]
+fn hide_console_window(command: &mut tokio::process::Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console_window(_command: &mut tokio::process::Command) {}
+
+async fn read_capped(
+    reader: &mut (impl tokio::io::AsyncRead + Unpin),
+    buffer: &mut Vec<u8>,
+) -> bool {
     let mut chunk = [0u8; 8192];
     let mut capped = false;
     loop {

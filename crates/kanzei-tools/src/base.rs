@@ -11,7 +11,9 @@ pub struct BaseComponent;
 impl Component for BaseComponent {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
-        draft.tools.insert("write", Arc::new(crate::write::WriteTool));
+        draft
+            .tools
+            .insert("write", Arc::new(crate::write::WriteTool));
         draft.tools.insert("edit", Arc::new(crate::edit::EditTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
 

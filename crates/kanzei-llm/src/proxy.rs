@@ -67,7 +67,11 @@ fn system_proxy() -> Option<String> {
         server
             .split(';')
             .find_map(|part| part.strip_prefix("https="))
-            .or_else(|| server.split(';').find_map(|part| part.strip_prefix("http=")))?
+            .or_else(|| {
+                server
+                    .split(';')
+                    .find_map(|part| part.strip_prefix("http="))
+            })?
             .to_string()
     } else {
         server
@@ -75,7 +79,11 @@ fn system_proxy() -> Option<String> {
     if pick.is_empty() {
         return None;
     }
-    Some(if pick.contains("://") { pick } else { format!("http://{pick}") })
+    Some(if pick.contains("://") {
+        pick
+    } else {
+        format!("http://{pick}")
+    })
 }
 
 #[cfg(not(windows))]
@@ -134,7 +142,10 @@ fn should_proxy(hostname: &str, port: u16, env: &dyn Fn(&str) -> Option<String>)
     if no_proxy == "*" {
         return false;
     }
-    for entry in no_proxy.split([',', ' ', '\t', '\n']).filter(|s| !s.is_empty()) {
+    for entry in no_proxy
+        .split([',', ' ', '\t', '\n'])
+        .filter(|s| !s.is_empty())
+    {
         let (entry_host, entry_port) = match entry.rsplit_once(':') {
             Some((h, p)) if p.parse::<u16>().is_ok() => (h, p.parse::<u16>().ok()),
             _ => (entry, None),
@@ -190,7 +201,10 @@ mod tests {
     fn no_proxy_star_and_suffix() {
         let url = url::Url::parse("https://internal.corp.example.com/x").unwrap();
         let base = ("https_proxy", "http://p:1");
-        assert_eq!(proxy_for_url(&url, &env_of(&[base, ("no_proxy", "*")])), None);
+        assert_eq!(
+            proxy_for_url(&url, &env_of(&[base, ("no_proxy", "*")])),
+            None
+        );
         assert_eq!(
             proxy_for_url(&url, &env_of(&[base, ("no_proxy", ".example.com")])),
             None
@@ -205,7 +219,11 @@ mod tests {
     #[test]
     fn loopback_never_proxied() {
         let env = [("https_proxy", "http://p:1"), ("http_proxy", "http://p:1")];
-        for target in ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "https://[::1]:8443/x"] {
+        for target in [
+            "http://127.0.0.1:11434/v1",
+            "http://localhost:1234/v1",
+            "https://[::1]:8443/x",
+        ] {
             let url = url::Url::parse(target).unwrap();
             assert_eq!(proxy_for_url(&url, &env_of(&env)), None, "{target}");
         }

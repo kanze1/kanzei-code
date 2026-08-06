@@ -59,7 +59,11 @@ pub async fn codex_headers(proxy: &ProxyConfig) -> Result<Vec<(String, String)>,
     ])
 }
 
-async fn refresh(auth: &mut Value, path: &std::path::Path, proxy: &ProxyConfig) -> Result<(), LlmError> {
+async fn refresh(
+    auth: &mut Value,
+    path: &std::path::Path,
+    proxy: &ProxyConfig,
+) -> Result<(), LlmError> {
     let refresh_token = auth["tokens"]["refresh_token"]
         .as_str()
         .filter(|s| !s.is_empty())

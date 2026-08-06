@@ -277,7 +277,7 @@ on("kz:tool-end", (e) => {
     chip.appendChild(result);
     collapsibles.push(result);
 
-    // 结构化展示:diff 默认展开(看得见改了什么),终端块默认折叠。
+    // 结构化展示:diff 默认收纳,头部保留文件路径和增删统计;终端块也默认折叠。
     const d = p.display;
     if (d && d.kind === "diff") {
       const stat = document.createElement("span");
@@ -285,7 +285,7 @@ on("kz:tool-end", (e) => {
       stat.textContent = ` +${d.additions} −${d.deletions} ${d.path}`;
       chip.querySelector(".head").appendChild(stat);
       const block = document.createElement("div");
-      block.className = "tool-display diff";
+      block.className = "tool-display diff hidden";
       for (const line of (d.diff || "").split("\n")) {
         const ln = document.createElement("div");
         ln.className =

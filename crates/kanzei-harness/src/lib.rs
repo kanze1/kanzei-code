@@ -15,7 +15,9 @@ pub mod tool;
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{source, ContextSource};
 pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
-pub use harness::{rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx};
+pub use harness::{
+    rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
+};
 pub use markdown::MarkdownComponent;
 pub use permission::{Effect, Rule, Ruleset};
 pub use registry::Registry;

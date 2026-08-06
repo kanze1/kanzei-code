@@ -94,14 +94,25 @@ mod tests {
         assert!(wildcard_match("git *", "git status"));
         assert!(wildcard_match("git*", "git"));
         assert!(!wildcard_match("git *", "cargo build"));
-        assert!(wildcard_match("*.kanzei/project/*", "x/.kanzei/project/requirements.md"));
+        assert!(wildcard_match(
+            "*.kanzei/project/*",
+            "x/.kanzei/project/requirements.md"
+        ));
     }
 
     #[test]
     fn last_match_wins_default_ask() {
         let rs = Ruleset::new(vec![
-            Rule { action: "bash".into(), resource: "*".into(), effect: Effect::Allow },
-            Rule { action: "bash".into(), resource: "rm *".into(), effect: Effect::Deny },
+            Rule {
+                action: "bash".into(),
+                resource: "*".into(),
+                effect: Effect::Allow,
+            },
+            Rule {
+                action: "bash".into(),
+                resource: "rm *".into(),
+                effect: Effect::Deny,
+            },
         ]);
         assert_eq!(rs.evaluate("bash", "git status"), Effect::Allow);
         assert_eq!(rs.evaluate("bash", "rm -rf /"), Effect::Deny);

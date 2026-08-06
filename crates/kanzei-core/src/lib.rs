@@ -3,6 +3,11 @@
 
 pub mod assemble;
 pub mod runner;
+pub mod store;
 
 pub use assemble::build_route;
 pub use runner::{run_once, AskFuture, AskReply, RunEvent, RunSummary, RunnerConfig};
+pub use store::{
+    project_session_id, project_state_path, AdmittedInput, Delivery, Session, SessionStore,
+    StoreError, StoredEvent,
+};

@@ -39,7 +39,13 @@ impl LlmError {
 
 fn is_overflow_message(message: &str) -> bool {
     let lower = message.to_lowercase();
-    ["prompt is too long", "context length", "maximum context", "context_length_exceeded", "input is too long"]
-        .iter()
-        .any(|p| lower.contains(p))
+    [
+        "prompt is too long",
+        "context length",
+        "maximum context",
+        "context_length_exceeded",
+        "input is too long",
+    ]
+    .iter()
+    .any(|p| lower.contains(p))
 }

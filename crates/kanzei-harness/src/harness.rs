@@ -40,7 +40,9 @@ pub struct Harness {
 
 impl Default for Harness {
     fn default() -> Self {
-        Harness { components: Vec::new() }
+        Harness {
+            components: Vec::new(),
+        }
     }
 }
 
@@ -56,7 +58,10 @@ impl Harness {
         for component in &self.components {
             component.contribute(&mut draft, ctx)?;
         }
-        Ok(Arc::new(HarnessSnapshot { ctx: ctx.clone(), draft }))
+        Ok(Arc::new(HarnessSnapshot {
+            ctx: ctx.clone(),
+            draft,
+        }))
     }
 }
 
@@ -105,8 +110,7 @@ impl HarnessSnapshot {
             .iter()
             .map(|(_, a)| a)
             .find(|a| {
-                a.profile.includes(self.ctx.profile)
-                    && a.mode == crate::defs::AgentMode::Primary
+                a.profile.includes(self.ctx.profile) && a.mode == crate::defs::AgentMode::Primary
             })
             .ok_or_else(|| anyhow::anyhow!("no primary agent for profile {:?}", self.ctx.profile))
     }
@@ -155,5 +159,9 @@ impl Component for ConfigComponent {
 
 /// 便捷构造:权限规则。
 pub fn rule(action: &str, resource: &str, effect: Effect) -> Rule {
-    Rule { action: action.into(), resource: resource.into(), effect }
+    Rule {
+        action: action.into(),
+        resource: resource.into(),
+        effect,
+    }
 }

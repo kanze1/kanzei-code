@@ -21,10 +21,16 @@ pub struct RunnerConfig {
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
 pub enum RunEvent {
     /// 一轮 provider 调用开始(UI 画轮次分隔)。
-    TurnStart { step: u32, max_steps: u32 },
+    TurnStart {
+        step: u32,
+        max_steps: u32,
+    },
     Text(String),
     Reasoning(String),
-    ToolStart { name: String, summary: String },
+    ToolStart {
+        name: String,
+        summary: String,
+    },
     ToolEnd {
         name: String,
         ok: bool,
@@ -32,7 +38,10 @@ pub enum RunEvent {
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,
     },
-    StepEnd { usage: Usage, reason: FinishReason },
+    StepEnd {
+        usage: Usage,
+        reason: FinishReason,
+    },
 }
 
 pub struct RunSummary {
@@ -159,7 +168,12 @@ pub async fn run_once(
                         parts.push(Part::Reasoning { text, signature });
                     }
                 }
-                LlmEvent::ToolCall { id, name, input, raw_input } => {
+                LlmEvent::ToolCall {
+                    id,
+                    name,
+                    input,
+                    raw_input,
+                } => {
                     // 协议层解析失败 → 宽容修复(尾逗号/单引号/裸键/围栏)。
                     let input = if input.is_null() {
                         tolerant_parse(&raw_input).unwrap_or(serde_json::Value::Null)
@@ -169,7 +183,11 @@ pub async fn run_once(
                     parts.push(Part::ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        input: if input.is_null() { serde_json::json!({}) } else { input.clone() },
+                        input: if input.is_null() {
+                            serde_json::json!({})
+                        } else {
+                            input.clone()
+                        },
                     });
                     calls.push((id, name, input, raw_input));
                 }
@@ -199,7 +217,13 @@ pub async fn run_once(
         }
 
         if calls.is_empty() {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false, messages });
+            return Ok(RunSummary {
+                text: final_text,
+                usage: total_usage,
+                steps: step,
+                halted_by_user: false,
+                messages,
+            });
         }
 
         let mut results = Vec::new();
@@ -209,7 +233,11 @@ pub async fn run_once(
                     call_id: id,
                     content: format!(
                         "unknown tool `{name}`; available: {}",
-                        tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+                        tools
+                            .iter()
+                            .map(|t| t.name())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ),
                     is_error: true,
                 });
@@ -243,7 +271,8 @@ pub async fn run_once(
                         continue;
                     }
                     if session_rules.iter().any(|(a, pattern)| {
-                        a == action && kanzei_harness::permission::wildcard_match(pattern, &resource)
+                        a == action
+                            && kanzei_harness::permission::wildcard_match(pattern, &resource)
                     }) {
                         continue;
                     }
@@ -307,11 +336,23 @@ pub async fn run_once(
         messages.push(Message::tool_results(results));
 
         if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false, messages });
+            return Ok(RunSummary {
+                text: final_text,
+                usage: total_usage,
+                steps: step,
+                halted_by_user: false,
+                messages,
+            });
         }
     }
 
-    Ok(RunSummary { text: final_text, usage: total_usage, steps: max_steps, halted_by_user: false, messages })
+    Ok(RunSummary {
+        text: final_text,
+        usage: total_usage,
+        steps: max_steps,
+        halted_by_user: false,
+        messages,
+    })
 }
 
 enum Gate {
@@ -364,7 +405,11 @@ fn add_usage(a: Usage, b: Usage) -> Usage {
 }
 
 fn summarize_input(input: &serde_json::Value, raw: &str) -> String {
-    let rendered = if input.is_null() { raw.to_string() } else { input.to_string() };
+    let rendered = if input.is_null() {
+        raw.to_string()
+    } else {
+        input.to_string()
+    };
     match rendered.char_indices().nth(160) {
         Some((idx, _)) => format!("{}…", &rendered[..idx]),
         None => rendered,
@@ -393,7 +438,9 @@ mod tests {
     fn compact_retry_keeps_prompt_and_bounded_tool_history() {
         let mut messages = vec![
             Message::user_text("原始任务"),
-            Message::assistant(vec![Part::Text { text: "旧回复".into() }]),
+            Message::assistant(vec![Part::Text {
+                text: "旧回复".into(),
+            }]),
             Message::tool_results(vec![Part::ToolResult {
                 call_id: "call_1".into(),
                 content: "工具结果".into(),
@@ -405,6 +452,8 @@ mod tests {
 
         assert_eq!(messages.len(), 2);
         assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text == "原始任务"));
-        assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text.contains("工具结果")));
+        assert!(
+            matches!(messages[1].parts[0], Part::Text { ref text } if text.contains("工具结果"))
+        );
     }
 }

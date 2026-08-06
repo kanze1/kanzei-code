@@ -66,8 +66,8 @@ impl Tool for ReadTool {
 }
 
 fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let mut file =
+        std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
     if meta.is_dir() {
         return Err(format!("{} is a directory", path.display()));
@@ -77,7 +77,11 @@ fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String
     let mut probe = [0u8; 8192];
     let n = file.read(&mut probe).map_err(|e| e.to_string())?;
     if probe[..n].contains(&0) {
-        return Err(format!("{} looks binary ({} bytes); read refuses binary files", path.display(), meta.len()));
+        return Err(format!(
+            "{} looks binary ({} bytes); read refuses binary files",
+            path.display(),
+            meta.len()
+        ));
     }
     file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
 
@@ -99,7 +103,9 @@ fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String
             continue;
         }
         if shown >= limit || total_bytes >= MAX_OUTPUT_BYTES {
-            out.push_str(&format!("... (truncated at line {line_no}; use offset to continue)\n"));
+            out.push_str(&format!(
+                "... (truncated at line {line_no}; use offset to continue)\n"
+            ));
             break;
         }
         let rendered = render_line(line_no, &line);
@@ -108,7 +114,9 @@ fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String
         shown += 1;
     }
     if shown == 0 {
-        return Ok(format!("(empty range: file has {line_no} lines, offset was {offset})"));
+        return Ok(format!(
+            "(empty range: file has {line_no} lines, offset was {offset})"
+        ));
     }
     Ok(out)
 }
@@ -138,7 +146,11 @@ fn read_tail(file: &mut std::fs::File, len: u64, n: usize) -> Result<String, Str
     }
     let mut out = String::new();
     if !from_start {
-        out.push_str(&format!("(last {} lines of {})\n", lines.len(), human_bytes(len)));
+        out.push_str(&format!(
+            "(last {} lines of {})\n",
+            lines.len(),
+            human_bytes(len)
+        ));
     }
     for (i, line) in lines.iter().enumerate() {
         out.push_str(&render_line(i + 1, line));
@@ -155,7 +167,14 @@ fn render_line(no: usize, line: &str) -> String {
         }
         None => false,
     };
-    format!("{no:>6}\t{text}{}\n", if truncated { " …(line truncated)" } else { "" })
+    format!(
+        "{no:>6}\t{text}{}\n",
+        if truncated {
+            " …(line truncated)"
+        } else {
+            ""
+        }
+    )
 }
 
 fn human_bytes(n: u64) -> String {

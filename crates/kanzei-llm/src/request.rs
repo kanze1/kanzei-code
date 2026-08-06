@@ -19,14 +19,33 @@ pub enum Role {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// 图片内容,以 base64 编码传输,不含 data: 前缀。
-    Image { media_type: String, data: String },
+    Image {
+        media_type: String,
+        data: String,
+    },
     /// PDF/其它文档内容,以 base64 编码传输。
-    Document { media_type: String, data: String },
-    Reasoning { text: String, signature: Option<String> },
-    ToolCall { id: String, name: String, input: Value },
-    ToolResult { call_id: String, content: String, is_error: bool },
+    Document {
+        media_type: String,
+        data: String,
+    },
+    Reasoning {
+        text: String,
+        signature: Option<String>,
+    },
+    ToolCall {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    ToolResult {
+        call_id: String,
+        content: String,
+        is_error: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,16 +56,25 @@ pub struct Message {
 
 impl Message {
     pub fn user_text(text: impl Into<String>) -> Self {
-        Message { role: Role::User, parts: vec![Part::Text { text: text.into() }] }
+        Message {
+            role: Role::User,
+            parts: vec![Part::Text { text: text.into() }],
+        }
     }
 
     pub fn assistant(parts: Vec<Part>) -> Self {
-        Message { role: Role::Assistant, parts }
+        Message {
+            role: Role::Assistant,
+            parts,
+        }
     }
 
     /// 工具结果按 Anthropic 语义以 user 角色回传。
     pub fn tool_results(parts: Vec<Part>) -> Self {
-        Message { role: Role::User, parts }
+        Message {
+            role: Role::User,
+            parts,
+        }
     }
 }
 

@@ -90,7 +90,10 @@ pub struct DocStore {
 
 impl DocStore {
     pub fn open(project_root: &Path, kind: &'static DocKind) -> Self {
-        DocStore { kind, path: project_root.join(kind.rel_path) }
+        DocStore {
+            kind,
+            path: project_root.join(kind.rel_path),
+        }
     }
 
     pub fn load(&self) -> std::io::Result<Vec<Entry>> {
@@ -111,7 +114,12 @@ impl DocStore {
     pub fn next_id(&self, entries: &[Entry]) -> String {
         let max = entries
             .iter()
-            .filter_map(|e| e.id.strip_prefix(self.kind.prefix)?.strip_prefix('-')?.parse::<u32>().ok())
+            .filter_map(|e| {
+                e.id.strip_prefix(self.kind.prefix)?
+                    .strip_prefix('-')?
+                    .parse::<u32>()
+                    .ok()
+            })
             .max()
             .unwrap_or(0);
         format!("{}-{:03}", self.kind.prefix, max + 1)
@@ -121,7 +129,10 @@ impl DocStore {
     pub fn transition_allowed(&self, from: &str, to: &str) -> Result<(), String> {
         let idx = |s: &str| self.kind.statuses.iter().position(|x| *x == s);
         let Some(to_idx) = idx(to) else {
-            return Err(format!("unknown status `{to}`; valid: {}", self.kind.statuses.join(" → ")));
+            return Err(format!(
+                "unknown status `{to}`; valid: {}",
+                self.kind.statuses.join(" → ")
+            ));
         };
         if self.kind.terminal.contains(&to) {
             return Ok(());
@@ -148,7 +159,9 @@ pub fn parse(kind: &DocKind, text: &str) -> Vec<Entry> {
         } else if let Some(entry) = entries.last_mut() {
             if let Some(bullet) = trimmed.trim_start().strip_prefix("- ") {
                 if let Some((key, value)) = bullet.split_once(':') {
-                    entry.fields.push((key.trim().to_string(), value.trim().to_string()));
+                    entry
+                        .fields
+                        .push((key.trim().to_string(), value.trim().to_string()));
                 }
             }
         }
@@ -192,7 +205,13 @@ fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
         _ if looks_like_id(&title) => (title.clone(), String::new()),
         _ => (String::new(), title.clone()),
     };
-    Entry { id, title, status, severity, fields: Vec::new() }
+    Entry {
+        id,
+        title,
+        status,
+        severity,
+        fields: Vec::new(),
+    }
 }
 
 fn looks_like_id(s: &str) -> bool {
@@ -237,7 +256,10 @@ mod tests {
             title: "支持本地模型".into(),
             status: "doing".into(),
             severity: None,
-            fields: vec![("验收".into(), "ollama 走通循环".into()), ("refs".into(), "D-003".into())],
+            fields: vec![
+                ("验收".into(), "ollama 走通循环".into()),
+                ("refs".into(), "D-003".into()),
+            ],
         }];
         let text = render(&REQUIREMENTS, &entries);
         assert_eq!(parse(&REQUIREMENTS, &text), entries);
@@ -275,10 +297,25 @@ mod tests {
 
     #[test]
     fn id_allocation_and_transitions() {
-        let store = DocStore { kind: &DEFECTS, path: "x".into() };
+        let store = DocStore {
+            kind: &DEFECTS,
+            path: "x".into(),
+        };
         let entries = vec![
-            Entry { id: "D-002".into(), title: "t".into(), status: "open".into(), severity: None, fields: vec![] },
-            Entry { id: "D-009".into(), title: "t".into(), status: "open".into(), severity: None, fields: vec![] },
+            Entry {
+                id: "D-002".into(),
+                title: "t".into(),
+                status: "open".into(),
+                severity: None,
+                fields: vec![],
+            },
+            Entry {
+                id: "D-009".into(),
+                title: "t".into(),
+                status: "open".into(),
+                severity: None,
+                fields: vec![],
+            },
         ];
         assert_eq!(store.next_id(&entries), "D-010");
         assert!(store.transition_allowed("open", "fixing").is_ok());

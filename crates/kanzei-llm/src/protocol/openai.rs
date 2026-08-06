@@ -75,7 +75,11 @@ pub fn build_body(request: &LlmRequest) -> Value {
                     })
                     .collect();
                 let mut m = json!({"role": "assistant"});
-                m["content"] = if text.is_empty() { Value::Null } else { Value::String(text) };
+                m["content"] = if text.is_empty() {
+                    Value::Null
+                } else {
+                    Value::String(text)
+                };
                 if !tool_calls.is_empty() {
                     m["tool_calls"] = Value::Array(tool_calls);
                 }
@@ -142,14 +146,26 @@ impl OpenAiState {
         }
         if self.reasoning_open {
             self.reasoning_open = false;
-            out.push(LlmEvent::ReasoningEnd { index: 0, signature: None });
+            out.push(LlmEvent::ReasoningEnd {
+                index: 0,
+                signature: None,
+            });
         }
         if !self.calls_emitted {
             self.calls_emitted = true;
             for (_, call) in std::mem::take(&mut self.calls) {
-                let raw = if call.arguments.is_empty() { "{}".to_string() } else { call.arguments };
+                let raw = if call.arguments.is_empty() {
+                    "{}".to_string()
+                } else {
+                    call.arguments
+                };
                 let input = serde_json::from_str(&raw).unwrap_or(Value::Null);
-                out.push(LlmEvent::ToolCall { id: call.id, name: call.name, input, raw_input: raw });
+                out.push(LlmEvent::ToolCall {
+                    id: call.id,
+                    name: call.name,
+                    input,
+                    raw_input: raw,
+                });
             }
         }
     }
@@ -176,8 +192,15 @@ impl ProtocolState for OpenAiState {
 
         if let Some(err) = data.get("error").filter(|e| !e.is_null()) {
             return Err(LlmError::classify_provider(
-                err["type"].as_str().or(err["code"].as_str()).unwrap_or("unknown").to_string(),
-                err["message"].as_str().unwrap_or(&err.to_string()).to_string(),
+                err["type"]
+                    .as_str()
+                    .or(err["code"].as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                err["message"]
+                    .as_str()
+                    .unwrap_or(&err.to_string())
+                    .to_string(),
             ));
         }
 
@@ -188,12 +211,15 @@ impl ProtocolState for OpenAiState {
 
         if let Some(usage) = data.get("usage").filter(|u| !u.is_null()) {
             let prompt = usage["prompt_tokens"].as_u64().unwrap_or(0);
-            let cached = usage["prompt_tokens_details"]["cached_tokens"].as_u64().unwrap_or(0);
+            let cached = usage["prompt_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0);
             self.usage.input = prompt.saturating_sub(cached);
             self.usage.cache_read = cached;
             self.usage.output = usage["completion_tokens"].as_u64().unwrap_or(0);
-            self.usage.reasoning =
-                usage["completion_tokens_details"]["reasoning_tokens"].as_u64().unwrap_or(0);
+            self.usage.reasoning = usage["completion_tokens_details"]["reasoning_tokens"]
+                .as_u64()
+                .unwrap_or(0);
         }
 
         let Some(choice) = data["choices"].get(0) else {
@@ -202,25 +228,36 @@ impl ProtocolState for OpenAiState {
         let delta = &choice["delta"];
 
         // DeepSeek/Kimi 风格思维链字段。
-        let reasoning = delta["reasoning_content"].as_str().or(delta["reasoning"].as_str());
+        let reasoning = delta["reasoning_content"]
+            .as_str()
+            .or(delta["reasoning"].as_str());
         if let Some(text) = reasoning.filter(|t| !t.is_empty()) {
             if !self.reasoning_open {
                 self.reasoning_open = true;
                 out.push(LlmEvent::ReasoningStart { index: 0 });
             }
-            out.push(LlmEvent::ReasoningDelta { index: 0, text: text.to_string() });
+            out.push(LlmEvent::ReasoningDelta {
+                index: 0,
+                text: text.to_string(),
+            });
         }
 
         if let Some(text) = delta["content"].as_str().filter(|t| !t.is_empty()) {
             if self.reasoning_open {
                 self.reasoning_open = false;
-                out.push(LlmEvent::ReasoningEnd { index: 0, signature: None });
+                out.push(LlmEvent::ReasoningEnd {
+                    index: 0,
+                    signature: None,
+                });
             }
             if !self.text_open {
                 self.text_open = true;
                 out.push(LlmEvent::TextStart { index: 0 });
             }
-            out.push(LlmEvent::TextDelta { index: 0, text: text.to_string() });
+            out.push(LlmEvent::TextDelta {
+                index: 0,
+                text: text.to_string(),
+            });
         }
 
         if let Some(tool_calls) = delta["tool_calls"].as_array() {
@@ -241,7 +278,10 @@ impl ProtocolState for OpenAiState {
                         name: call.name.clone(),
                     });
                 }
-                if let Some(args) = tc["function"]["arguments"].as_str().filter(|a| !a.is_empty()) {
+                if let Some(args) = tc["function"]["arguments"]
+                    .as_str()
+                    .filter(|a| !a.is_empty())
+                {
                     call.arguments.push_str(args);
                     out.push(LlmEvent::ToolInputDelta {
                         index: index as usize,
@@ -276,23 +316,40 @@ mod tests {
     use crate::request::Message;
 
     fn feed(state: &mut OpenAiState, data: &str) -> Vec<LlmEvent> {
-        state.step(&SseEvent { event: String::new(), data: data.into() }).unwrap()
+        state
+            .step(&SseEvent {
+                event: String::new(),
+                data: data.into(),
+            })
+            .unwrap()
     }
 
     #[test]
     fn text_then_done() {
         let mut s = OpenAiState::default();
-        let ev = feed(&mut s, r#"{"choices":[{"delta":{"content":"你"},"index":0}]}"#);
+        let ev = feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"content":"你"},"index":0}]}"#,
+        );
         assert_eq!(
             ev,
             vec![
                 LlmEvent::StepStart,
                 LlmEvent::TextStart { index: 0 },
-                LlmEvent::TextDelta { index: 0, text: "你".into() }
+                LlmEvent::TextDelta {
+                    index: 0,
+                    text: "你".into()
+                }
             ]
         );
-        feed(&mut s, r#"{"choices":[{"delta":{"content":"好"},"index":0}]}"#);
-        let ev = feed(&mut s, r#"{"choices":[{"delta":{},"finish_reason":"stop","index":0}]}"#);
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"content":"好"},"index":0}]}"#,
+        );
+        let ev = feed(
+            &mut s,
+            r#"{"choices":[{"delta":{},"finish_reason":"stop","index":0}]}"#,
+        );
         assert_eq!(ev, vec![LlmEvent::TextEnd { index: 0 }]);
         let ev = feed(
             &mut s,
@@ -304,7 +361,13 @@ mod tests {
             ev,
             vec![LlmEvent::StepFinish {
                 reason: FinishReason::EndTurn,
-                usage: Usage { input: 6, output: 2, reasoning: 0, cache_read: 4, cache_write: 0 },
+                usage: Usage {
+                    input: 6,
+                    output: 2,
+                    reasoning: 0,
+                    cache_read: 4,
+                    cache_write: 0
+                },
             }]
         );
     }
@@ -312,10 +375,22 @@ mod tests {
     #[test]
     fn incremental_tool_call_assembly() {
         let mut s = OpenAiState::default();
-        feed(&mut s, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":""}}]},"index":0}]}"#);
-        feed(&mut s, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"a"}}]},"index":0}]}"#);
-        feed(&mut s, r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".txt\"}"}}]},"index":0}]}"#);
-        let ev = feed(&mut s, r#"{"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}"#);
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":""}}]},"index":0}]}"#,
+        );
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":\"a"}}]},"index":0}]}"#,
+        );
+        feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".txt\"}"}}]},"index":0}]}"#,
+        );
+        let ev = feed(
+            &mut s,
+            r#"{"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}"#,
+        );
         assert_eq!(
             ev,
             vec![LlmEvent::ToolCall {
@@ -329,24 +404,42 @@ mod tests {
         let ev = feed(&mut s, "[DONE]");
         assert_eq!(
             ev,
-            vec![LlmEvent::StepFinish { reason: FinishReason::ToolUse, usage: Usage::default() }]
+            vec![LlmEvent::StepFinish {
+                reason: FinishReason::ToolUse,
+                usage: Usage::default()
+            }]
         );
     }
 
     #[test]
     fn reasoning_content_maps_to_reasoning_events() {
         let mut s = OpenAiState::default();
-        let ev = feed(&mut s, r#"{"choices":[{"delta":{"reasoning_content":"思考中"},"index":0}]}"#);
+        let ev = feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"reasoning_content":"思考中"},"index":0}]}"#,
+        );
         assert_eq!(
             ev,
             vec![
                 LlmEvent::StepStart,
                 LlmEvent::ReasoningStart { index: 0 },
-                LlmEvent::ReasoningDelta { index: 0, text: "思考中".into() }
+                LlmEvent::ReasoningDelta {
+                    index: 0,
+                    text: "思考中".into()
+                }
             ]
         );
-        let ev = feed(&mut s, r#"{"choices":[{"delta":{"content":"答案"},"index":0}]}"#);
-        assert_eq!(ev[0], LlmEvent::ReasoningEnd { index: 0, signature: None });
+        let ev = feed(
+            &mut s,
+            r#"{"choices":[{"delta":{"content":"答案"},"index":0}]}"#,
+        );
+        assert_eq!(
+            ev[0],
+            LlmEvent::ReasoningEnd {
+                index: 0,
+                signature: None
+            }
+        );
     }
 
     #[test]
@@ -373,7 +466,10 @@ mod tests {
         };
         let body = build_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["messages"][2]["tool_calls"][0]["function"]["name"], "read");
+        assert_eq!(
+            body["messages"][2]["tool_calls"][0]["function"]["name"],
+            "read"
+        );
         assert_eq!(body["messages"][3]["role"], "tool");
         assert_eq!(body["messages"][3]["tool_call_id"], "call_1");
         assert_eq!(body["stream_options"]["include_usage"], true);

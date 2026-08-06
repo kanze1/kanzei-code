@@ -83,28 +83,34 @@ impl KanzeiConfig {
     }
 
     pub fn fill_defaults(&mut self) {
-        self.providers.entry("anthropic".into()).or_insert(ProviderConfig {
-            protocol: "anthropic".into(),
-            base_url: "https://api.anthropic.com".into(),
-            api_key_env: Some("ANTHROPIC_API_KEY".into()),
-            auth: None,
-            context_limit: Some(200_000),
-        });
-        self.providers.entry("ollama".into()).or_insert(ProviderConfig {
-            protocol: "openai".into(),
-            base_url: "http://127.0.0.1:11434/v1".into(),
-            api_key_env: None,
-            auth: None,
-            context_limit: Some(32_000),
-        });
+        self.providers
+            .entry("anthropic".into())
+            .or_insert(ProviderConfig {
+                protocol: "anthropic".into(),
+                base_url: "https://api.anthropic.com".into(),
+                api_key_env: Some("ANTHROPIC_API_KEY".into()),
+                auth: None,
+                context_limit: Some(200_000),
+            });
+        self.providers
+            .entry("ollama".into())
+            .or_insert(ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "http://127.0.0.1:11434/v1".into(),
+                api_key_env: None,
+                auth: None,
+                context_limit: Some(32_000),
+            });
         // Codex 订阅通道:复用 Codex CLI 登录态,零配置可用。
-        self.providers.entry("codex".into()).or_insert(ProviderConfig {
-            protocol: "openai-responses".into(),
-            base_url: "https://chatgpt.com/backend-api/codex".into(),
-            api_key_env: None,
-            auth: Some("codex".into()),
-            context_limit: Some(272_000),
-        });
+        self.providers
+            .entry("codex".into())
+            .or_insert(ProviderConfig {
+                protocol: "openai-responses".into(),
+                base_url: "https://chatgpt.com/backend-api/codex".into(),
+                api_key_env: None,
+                auth: Some("codex".into()),
+                context_limit: Some(272_000),
+            });
         if self.models.primary.is_none() {
             self.models.primary = Some("anthropic:claude-sonnet-5".into());
         }
@@ -121,12 +127,18 @@ impl KanzeiConfig {
             direct => direct,
         };
         let (provider_name, model) = spec.split_once(':').ok_or_else(|| {
-            anyhow::anyhow!("model reference `{spec}` must be `provider:model` (from `{reference}`)")
+            anyhow::anyhow!(
+                "model reference `{spec}` must be `provider:model` (from `{reference}`)"
+            )
         })?;
         let provider = self.providers.get(provider_name).ok_or_else(|| {
             anyhow::anyhow!(
                 "unknown provider `{provider_name}`; configured: {}",
-                self.providers.keys().cloned().collect::<Vec<_>>().join(", ")
+                self.providers
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         })?;
         Ok(ResolvedModel {
@@ -176,7 +188,11 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
 }
 
 /// "总是允许"的持久化:向项目配置追加 allow 规则(后来的规则 last-match-wins)。
-pub fn append_allow_rule(project_root: &Path, action: &str, resource: &str) -> anyhow::Result<PathBuf> {
+pub fn append_allow_rule(
+    project_root: &Path,
+    action: &str,
+    resource: &str,
+) -> anyhow::Result<PathBuf> {
     let path = project_root.join(".kanzei").join("kanzei.toml");
     let mut config = if path.is_file() {
         let text = std::fs::read_to_string(&path)?;

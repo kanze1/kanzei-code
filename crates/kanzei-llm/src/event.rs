@@ -26,14 +26,36 @@ pub enum FinishReason {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum LlmEvent {
     StepStart,
-    TextStart { index: usize },
-    TextDelta { index: usize, text: String },
-    TextEnd { index: usize },
-    ReasoningStart { index: usize },
-    ReasoningDelta { index: usize, text: String },
-    ReasoningEnd { index: usize, signature: Option<String> },
-    ToolInputStart { index: usize, id: String, name: String },
-    ToolInputDelta { index: usize, delta: String },
+    TextStart {
+        index: usize,
+    },
+    TextDelta {
+        index: usize,
+        text: String,
+    },
+    TextEnd {
+        index: usize,
+    },
+    ReasoningStart {
+        index: usize,
+    },
+    ReasoningDelta {
+        index: usize,
+        text: String,
+    },
+    ReasoningEnd {
+        index: usize,
+        signature: Option<String>,
+    },
+    ToolInputStart {
+        index: usize,
+        id: String,
+        name: String,
+    },
+    ToolInputDelta {
+        index: usize,
+        delta: String,
+    },
     /// 完整工具调用。`input` 为解析结果(失败时为 Null);`raw_input` 保留原文,
     /// 供上层修复回路(宽容解析+schema 纠错反馈)使用——绝不因坏 JSON 直接崩给用户。
     ToolCall {
@@ -42,5 +64,8 @@ pub enum LlmEvent {
         input: serde_json::Value,
         raw_input: String,
     },
-    StepFinish { reason: FinishReason, usage: Usage },
+    StepFinish {
+        reason: FinishReason,
+        usage: Usage,
+    },
 }

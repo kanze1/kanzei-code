@@ -3,3 +3,4 @@
 .env
 .kanzei/summaries/
 *.pending
+.kanzei/state.db

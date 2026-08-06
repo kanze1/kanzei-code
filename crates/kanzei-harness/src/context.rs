@@ -22,7 +22,10 @@ pub fn source<F>(key: impl Into<String>, render: F) -> Arc<dyn ContextSource>
 where
     F: Fn(&ResolveCtx) -> Option<String> + Send + Sync + 'static,
 {
-    Arc::new(FnSource { key: key.into(), render })
+    Arc::new(FnSource {
+        key: key.into(),
+        render,
+    })
 }
 
 impl<F: Fn(&ResolveCtx) -> Option<String> + Send + Sync> ContextSource for FnSource<F> {

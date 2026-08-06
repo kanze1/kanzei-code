@@ -54,12 +54,18 @@ impl Tool for EditTool {
             return ToolOutput::error("old_string and new_string are identical — nothing to do");
         }
         if input.old_string.is_empty() {
-            return ToolOutput::error("old_string must not be empty (use the write tool to create files)");
+            return ToolOutput::error(
+                "old_string must not be empty (use the write tool to create files)",
+            );
         }
         let path = ctx.cwd.join(&input.path);
         match tokio::fs::metadata(&path).await {
             Ok(meta) if meta.len() > MAX_FILE_BYTES => {
-                return ToolOutput::error(format!("{} is too large ({} bytes)", path.display(), meta.len()))
+                return ToolOutput::error(format!(
+                    "{} is too large ({} bytes)",
+                    path.display(),
+                    meta.len()
+                ))
             }
             Err(e) => return ToolOutput::error(format!("cannot access {}: {e}", path.display())),
             _ => {}

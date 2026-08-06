@@ -5,6 +5,7 @@
 
 use std::io::Write as _;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_core::{run_once, RunEvent, RunnerConfig};
 use kanzei_harness::{
@@ -18,8 +19,7 @@ use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -64,8 +64,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Ok(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
         Err(_) => config.default_profile(),
     };
-    let project_root = kanzei_harness::config::discover_project_root(&cwd)
-        .unwrap_or_else(|| cwd.clone());
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -91,7 +91,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let model_ref = std::env::var("KANZEI_MODEL").unwrap_or_else(|_| agent.model.clone());
     let resolved = config.resolve_model(&model_ref)?;
 
-    let proxy = match std::env::var("KANZEI_PROXY").ok().or_else(|| config.proxy.clone()) {
+    let proxy = match std::env::var("KANZEI_PROXY")
+        .ok()
+        .or_else(|| config.proxy.clone())
+    {
         Some(p) if p == "off" => ProxyConfig::Disabled,
         Some(p) if p == "env" => ProxyConfig::Env,
         Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
@@ -100,8 +103,46 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
-    let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };
+    let runner_config = RunnerConfig {
+        model: resolved.model.clone(),
+        max_tokens: 8192,
+    };
     let ctx = ToolCtx { cwd, project_root };
+
+    let session_id = kanzei_core::project_session_id(&ctx.project_root);
+    let state_path = kanzei_core::project_state_path(&ctx.project_root);
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
+    let input_id = format!(
+        "input_{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
+    store.admit_input(
+        &session_id,
+        &input_id,
+        &prompt,
+        kanzei_core::Delivery::Queue,
+    )?;
+    store.append_event(
+        &session_id,
+        "prompt.admitted",
+        &serde_json::json!({ "input_id": input_id, "delivery": "queue" }),
+    )?;
+    let promoted = store
+        .promote_next_queue(&session_id)?
+        .ok_or_else(|| anyhow::anyhow!("无法提升已提交的 CLI 输入"))?;
+    store.append_event(
+        &session_id,
+        "prompt.promoted",
+        &serde_json::json!({ "input_id": promoted.input_id, "delivery": "queue" }),
+    )?;
+    store.set_status(&session_id, "running")?;
+    store.append_event(
+        &session_id,
+        "session.status_changed",
+        &serde_json::json!({ "status": "running" }),
+    )?;
+    drop(store);
 
     eprintln!(
         "\x1b[90mprofile {:?} · agent {} · model {}:{}\x1b[0m",
@@ -124,7 +165,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             let _ = writeln!(stdout, "\n\x1b[36m● {name}\x1b[0m {summary}");
         }
         RunEvent::ToolEnd { ok, preview, .. } => {
-            let mark = if ok { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+            let mark = if ok {
+                "\x1b[32m✓\x1b[0m"
+            } else {
+                "\x1b[31m✗\x1b[0m"
+            };
             let _ = writeln!(stdout, "  {mark} {preview}");
         }
         RunEvent::StepEnd { .. } => {}
@@ -137,8 +182,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             match line.trim() {
                 "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
                 "a" | "A" | "always" => {
-                    let pattern =
-                        kanzei_harness::config::generalize_resource(&action, &resource);
+                    let pattern = kanzei_harness::config::generalize_resource(&action, &resource);
                     match kanzei_harness::config::append_allow_rule(&ask_root, &action, &pattern) {
                         Ok(path) => eprintln!(
                             "\x1b[90m已记住 {action} `{pattern}` → {}\x1b[0m",
@@ -156,11 +200,54 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Box::pin(async move { reply })
     };
 
-    let summary = run_once(
-        &client, &route, &snapshot, &agent, &runner_config, &ctx, &prompt, &[], &mut on_event,
+    let run_result = run_once(
+        &client,
+        &route,
+        &snapshot,
+        &agent,
+        &runner_config,
+        &ctx,
+        &prompt,
+        &[],
+        &mut on_event,
         &mut ask,
     )
-    .await?;
+    .await;
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    match &run_result {
+        Ok(summary) => {
+            store.set_status(&session_id, "idle")?;
+            store.append_event(
+                &session_id,
+                "session.status_changed",
+                &serde_json::json!({ "status": "idle" }),
+            )?;
+            store.append_event(
+                &session_id,
+                "run.completed",
+                &serde_json::json!({
+                    "steps": summary.steps,
+                    "halted_by_user": summary.halted_by_user,
+                    "input": summary.usage.input,
+                    "output": summary.usage.output,
+                }),
+            )?;
+        }
+        Err(error) => {
+            store.set_status(&session_id, "failed")?;
+            store.append_event(
+                &session_id,
+                "session.status_changed",
+                &serde_json::json!({ "status": "failed" }),
+            )?;
+            store.append_event(
+                &session_id,
+                "run.failed",
+                &serde_json::json!({ "error": error.to_string() }),
+            )?;
+        }
+    }
+    let summary = run_result?;
 
     if summary.halted_by_user {
         eprintln!("\n\x1b[33m(stopped: permission declined)\x1b[0m");
@@ -182,10 +269,30 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     use kanzei_tools::tracker::TrackerTool;
 
     let tool = match args[0].as_str() {
-        "req" => TrackerTool { tool_name: "req", noun: "requirement", kind: &REQUIREMENTS, requires_refs: None },
-        "defect" => TrackerTool { tool_name: "defect", noun: "defect", kind: &DEFECTS, requires_refs: None },
-        "source" => TrackerTool { tool_name: "source", noun: "source", kind: &SOURCES, requires_refs: None },
-        "finding" => TrackerTool { tool_name: "finding", noun: "finding", kind: &FINDINGS, requires_refs: Some(&SOURCES) },
+        "req" => TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        },
+        "defect" => TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        },
+        "source" => TrackerTool {
+            tool_name: "source",
+            noun: "source",
+            kind: &SOURCES,
+            requires_refs: None,
+        },
+        "finding" => TrackerTool {
+            tool_name: "finding",
+            noun: "finding",
+            kind: &FINDINGS,
+            requires_refs: Some(&SOURCES),
+        },
         _ => unreachable!(),
     };
     let action = args.get(1).map(String::as_str).unwrap_or("list");

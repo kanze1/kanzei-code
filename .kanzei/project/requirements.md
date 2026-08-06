@@ -6,9 +6,17 @@
 ## R-002 Tauri 桌面端(类 VSCode 布局) [dropped]
 
 ## R-003 SQLite 事件溯源 + steer/queue 调度(M2) [doing]
-- 当前工作: 已确认按需求编号顺序推进，先处理 R-003；当前阶段先完成架构方案与现状核对，待方案确认后实施。
+- 当前工作: 继续完善 SQLite 事件溯源与 steer/queue 调度，同时完成新需求 R-020 的 diff 默认收纳展示
 - 范围顺序: R-003 → R-004 → R-007 → R-008 → R-009 → R-010 → R-011 → R-012 → R-013 → R-014 → R-016
 - 说明: R-003 涉及 SQLite 表结构、事件语义和调度核心流程，按仓库规则先提交方案，不直接改代码。
+- 实施顺序: 阶段一：R-003 → R-009 → R-013
+- 当前阶段: 继续完善 runner 内部事件边界与 steer/queue 活跃调度；R-009 将复用同一事件日志做完整消息历史投影
+- 实现内容: 新增 state.db 迁移、SessionStore、事件追加与 steer/queue 输入存储；随后接入 runner
+- 已完成: CLI 与桌面端在项目 .kanzei/state.db 记录 session 创建、prompt.admitted、prompt.promoted、run.completed/run.failed；core 提供项目状态路径和稳定 session_id
+- 文档: 新增 docs/design/m2-sqlite-store.md，说明 schema、迁移与回滚；.kanzei/state.db 已加入 .gitignore
+- 测试: cargo test -p kanzei、cargo test -p kanzei-app 已通过
+- 当前进度: 已完成 SQLite 会话状态生命周期持久化：running/idle/failed 状态更新、状态事件和核心测试；CLI/桌面端均已接入。后续仍需 steer 前端入口、运行中 queue drain、事件恢复消息历史。
+- 验证: cargo fmt --all -- --check；cargo test -p kanzei-core（6 项通过）；cargo build -p kanzei；cargo build -p kanzei-app。
 
 ## R-004 本地模型跑并行子代理(M4) [todo]
 
@@ -51,4 +59,29 @@
 
 ## R-015 对话全状态显示:edit/write diff 可视化、bash 终端块、轮次标记、思考块修正、markdown 渲染、git 状态、侧边栏开发规范 [done]
 
-## R-016 kzapp 启动时自动完成 pending 自更新(检测 kzapp.exe.pending 并自替换,发版后重启即新版) [todo]
+## R-016 kzapp 启动时自动完成 pending 自更新(检测 kzapp.exe.pending 并自替换,发版后重启即新版) [doing]
+- 备注: 用户反馈发版/启动时仍短暂弹黑色终端窗口；本次修复启动链路并执行发版验证。
+
+## R-017 终端命令执行不弹出黑色控制台窗口 [done]
+- 范围: Windows 桌面端和 CLI 触发的终端命令执行
+- 验收: 执行 bash/shell 工具时不额外弹出独立黑色控制台窗口；命令输出仍能正常回传并显示；命令失败行为不变
+- 当前阶段: 实现 Windows shell 子进程隐藏控制台窗口，并补充平台条件测试/构建验证
+- 实现: Windows shell 子进程设置 CREATE_NO_WINDOW；stdout/stderr 管道和超时/终止逻辑保持不变
+- 影响范围: 仅 kanzei-tools bash 工具的 Windows 进程创建
+- 测试: cargo test -p kanzei-tools 通过；Windows 条件代码成功编译
+
+## R-018 对话结束时播放提示音并显示完成提示 [todo]
+- 范围: 桌面端对话运行结束，包括成功、失败、用户停止
+- 验收: 对话结束后播放一次提示音并显示可见完成提示；应用失焦时仍可感知；播放或通知失败不能影响对话结果
+
+## R-019 支持设定目标并持久化长期工作 [todo]
+- 范围: 项目级目标管理与长期工作状态
+- 验收: 用户可以创建、查看、编辑、完成和归档目标；目标持久化到项目状态，应用重启后仍可恢复；目标可关联会话、需求和缺陷；目标状态变更有记录且写入失败明确提示
+
+## R-020 编辑 diff 默认收纳并显示改变量摘要 [done]
+- 影响范围: 桌面端对话结果中的编辑 diff 展示。
+- 需求: 编辑工具产生的 diff 默认折叠，不自动展开完整 diff 内容；折叠状态下仅显示改动文件、增删行数等改变量摘要，用户主动点击后才展开具体 diff。
+- 验收: 发生编辑操作后，UI 中 diff 区块默认收纳；可见文件名/改动统计；点击后展开具体 diff，再次点击可收起。
+- 当前工作: 定位编辑 diff UI，并将默认展开改为默认收纳，保留改变量摘要和手动展开
+- 实现内容: 桌面端编辑 diff 默认收纳，工具头部显示文件路径和增删统计，点击头部可展开/收起详情。
+- 验证: node --check crates/kanzei-app/ui/main.js；cargo build -p kanzei-app；cargo test -p kanzei-core，均通过。

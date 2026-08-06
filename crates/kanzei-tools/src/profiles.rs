@@ -42,7 +42,9 @@ impl Component for DevProfile {
 
         // 硬 deny:项目文档只能走专用工具(用户手改不受此限——这是模型的门禁)。
         for action in ["write", "edit"] {
-            draft.permissions.push(rule(action, "*.kanzei/project/*", Effect::Deny));
+            draft
+                .permissions
+                .push(rule(action, "*.kanzei/project/*", Effect::Deny));
         }
 
         // 开发规范(用户手写,agent 只读遵守;write/edit 对 project 目录本就硬 deny)。
@@ -59,7 +61,11 @@ impl Component for DevProfile {
                 let truncated = capped.len() < text.len();
                 Some(format!(
                     "<conventions>\n{capped}{}\n</conventions>",
-                    if truncated { "\n…(规范过长已截断,完整内容 read .kanzei/project/conventions.md)" } else { "" }
+                    if truncated {
+                        "\n…(规范过长已截断,完整内容 read .kanzei/project/conventions.md)"
+                    } else {
+                        ""
+                    }
                 ))
             }),
         );
@@ -129,7 +135,9 @@ impl Component for ResearchProfile {
         // 写权限收窄:仅 .kanzei/research/** 可写(report.md 等自由写作);其余 deny。
         for action in ["write", "edit"] {
             draft.permissions.push(rule(action, "*", Effect::Deny));
-            draft.permissions.push(rule(action, "*.kanzei/research/*", Effect::Allow));
+            draft
+                .permissions
+                .push(rule(action, "*.kanzei/research/*", Effect::Allow));
         }
         // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图)。
         draft.permissions.push(rule("bash", "*", Effect::Ask));
@@ -176,19 +184,29 @@ fn index_of(
     if entries.is_empty() {
         return None;
     }
-    let open: Vec<&crate::docstore::Entry> =
-        entries.iter().filter(|e| !kind.terminal.contains(&e.status.as_str())).collect();
+    let open: Vec<&crate::docstore::Entry> = entries
+        .iter()
+        .filter(|e| !kind.terminal.contains(&e.status.as_str()))
+        .collect();
     let closed = entries.len() - open.len();
     let mut lines: Vec<String> = open
         .iter()
         .take(INDEX_LIMIT)
         .map(|e| {
-            let sev = e.severity.as_ref().map(|s| format!("/{s}")).unwrap_or_default();
+            let sev = e
+                .severity
+                .as_ref()
+                .map(|s| format!("/{s}"))
+                .unwrap_or_default();
             format!("{} [{}{sev}] {}", e.id, e.status, e.title)
         })
         .collect();
     if open.len() > INDEX_LIMIT {
         lines.push(format!("… +{} more open", open.len() - INDEX_LIMIT));
     }
-    Some(format!("{label} ({} open, {closed} closed):\n{}", open.len(), lines.join("\n")))
+    Some(format!(
+        "{label} ({} open, {closed} closed):\n{}",
+        open.len(),
+        lines.join("\n")
+    ))
 }

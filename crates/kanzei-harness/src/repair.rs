@@ -15,7 +15,10 @@ pub fn tolerant_parse(raw: &str) -> Option<Value> {
 
 fn strip_fences(raw: &str) -> &str {
     let raw = raw.trim();
-    if let Some(rest) = raw.strip_prefix("```json").or_else(|| raw.strip_prefix("```")) {
+    if let Some(rest) = raw
+        .strip_prefix("```json")
+        .or_else(|| raw.strip_prefix("```"))
+    {
         if let Some(inner) = rest.strip_suffix("```") {
             return inner.trim();
         }

@@ -74,7 +74,9 @@ pub struct LlmClient {
 
 impl LlmClient {
     pub fn new(proxy: &ProxyConfig) -> Result<Self, LlmError> {
-        Ok(LlmClient { http: build_http_client(proxy)? })
+        Ok(LlmClient {
+            http: build_http_client(proxy)?,
+        })
     }
 
     /// 发起一次 provider turn,返回 LlmEvent 流。
@@ -85,7 +87,11 @@ impl LlmClient {
         request: &LlmRequest,
     ) -> Result<impl Stream<Item = Result<LlmEvent, LlmError>> + Send + Unpin, LlmError> {
         let body = protocol::build_body(route.kind, request);
-        let url = format!("{}{}", route.endpoint.base_url, protocol::request_path(route.kind));
+        let url = format!(
+            "{}{}",
+            route.endpoint.base_url,
+            protocol::request_path(route.kind)
+        );
 
         let mut builder = self
             .http
@@ -96,7 +102,11 @@ impl LlmClient {
             builder = builder.header(k, v);
         }
 
-        let response = builder.json(&body).send().await.map_err(LlmError::Transport)?;
+        let response = builder
+            .json(&body)
+            .send()
+            .await
+            .map_err(LlmError::Transport)?;
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();

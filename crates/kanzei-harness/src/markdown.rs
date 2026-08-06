@@ -33,7 +33,10 @@ pub struct Frontmatter {
 
 impl Frontmatter {
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+        self.pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -41,7 +44,10 @@ impl Frontmatter {
 pub fn parse_frontmatter(text: &str) -> Frontmatter {
     let mut lines = text.lines();
     if lines.next().map(str::trim) != Some("---") {
-        return Frontmatter { pairs: Vec::new(), body: text.to_string() };
+        return Frontmatter {
+            pairs: Vec::new(),
+            body: text.to_string(),
+        };
     }
     let mut pairs = Vec::new();
     let mut body_start = 0usize;
@@ -84,9 +90,15 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
         let name = fm.get("name").unwrap_or(stem).to_string();
         let agent = AgentDef {
             name: name.clone(),
-            profile: fm.get("profile").and_then(|s| serde_plain(s)).unwrap_or_default(),
+            profile: fm
+                .get("profile")
+                .and_then(|s| serde_plain(s))
+                .unwrap_or_default(),
             model: fm.get("model").unwrap_or("primary").to_string(),
-            mode: fm.get("mode").and_then(|s| serde_plain(s)).unwrap_or_default(),
+            mode: fm
+                .get("mode")
+                .and_then(|s| serde_plain(s))
+                .unwrap_or_default(),
             steps: fm.get("steps").and_then(|s| s.parse().ok()).unwrap_or(40),
             system: fm.body,
         };
@@ -100,7 +112,10 @@ fn scan_commands(dir: &Path, draft: &mut HarnessDraft) {
             continue;
         };
         let fm = parse_frontmatter(&text);
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("command");
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("command");
         let name = fm.get("name").unwrap_or(stem).to_string();
         draft.commands.insert(
             name.clone(),
@@ -131,7 +146,10 @@ fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
         };
         let fm = parse_frontmatter(&text);
         let stem = if path.file_name().map(|f| f == "SKILL.md").unwrap_or(false) {
-            path.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()).unwrap_or("skill")
+            path.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|s| s.to_str())
+                .unwrap_or("skill")
         } else {
             path.file_stem().and_then(|s| s.to_str()).unwrap_or("skill")
         };
@@ -140,7 +158,14 @@ fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
             tracing::warn!(path = %path.display(), "skill missing description; skipped");
             continue;
         };
-        draft.skills.insert(name.clone(), SkillDef { name, description, path });
+        draft.skills.insert(
+            name.clone(),
+            SkillDef {
+                name,
+                description,
+                path,
+            },
+        );
     }
 }
 

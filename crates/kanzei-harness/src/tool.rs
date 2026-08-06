@@ -11,7 +11,8 @@ pub struct ToolCtx {
 
 impl ToolCtx {
     pub fn new(cwd: std::path::PathBuf) -> Self {
-        let project_root = crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+        let project_root =
+            crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
         ToolCtx { cwd, project_root }
     }
 }
@@ -27,11 +28,19 @@ pub struct ToolOutput {
 
 impl ToolOutput {
     pub fn ok(content: impl Into<String>) -> Self {
-        ToolOutput { content: content.into(), is_error: false, display: None }
+        ToolOutput {
+            content: content.into(),
+            is_error: false,
+            display: None,
+        }
     }
 
     pub fn error(content: impl Into<String>) -> Self {
-        ToolOutput { content: content.into(), is_error: true, display: None }
+        ToolOutput {
+            content: content.into(),
+            is_error: true,
+            display: None,
+        }
     }
 
     pub fn with_display(mut self, display: serde_json::Value) -> Self {
