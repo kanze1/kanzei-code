@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct InMemoryBroker {
     messages: HashMap<(String, String), AgentMessage>,
     notifications: Vec<AgentNotification>,
-    next_sequence: u64,
+    next_sequence_by_thread: HashMap<String, u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,8 +54,12 @@ impl InMemoryBroker {
         &mut self,
         mut notification: AgentNotification,
     ) -> AgentNotification {
-        self.next_sequence += 1;
-        notification.sequence = self.next_sequence;
+        let sequence = self
+            .next_sequence_by_thread
+            .entry(notification.thread_id.clone())
+            .or_default();
+        *sequence += 1;
+        notification.sequence = *sequence;
         self.notifications.push(notification.clone());
         notification
     }
@@ -179,7 +183,7 @@ mod tests {
 
         let mut expected_a = notification("evt_a", "running");
         expected_a.sequence = 1;
-        other.sequence = 2;
+        other.sequence = 1;
         assert_eq!(
             broker.replay_notifications_for_thread("thread_a", 0, 10),
             vec![expected_a]
@@ -191,6 +195,27 @@ mod tests {
         assert!(broker
             .replay_notifications_for_thread("thread_a", 2, 10)
             .is_empty());
+    }
+
+    #[test]
+    fn thread_sequence_is_independent_when_notifications_interleave() {
+        let mut broker = InMemoryBroker::default();
+        let first_a = broker.publish_notification(notification("evt_a1", "running"));
+        let mut event_b = notification("evt_b1", "running");
+        event_b.thread_id = "thread_b".to_owned();
+        let first_b = broker.publish_notification(event_b);
+        let second_a = broker.publish_notification(notification("evt_a2", "succeeded"));
+
+        assert_eq!((first_a.sequence, second_a.sequence), (1, 2));
+        assert_eq!(first_b.sequence, 1);
+        assert_eq!(
+            broker
+                .replay_notifications_for_thread("thread_a", 1, 10)
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            vec![2]
+        );
     }
 
     #[test]
