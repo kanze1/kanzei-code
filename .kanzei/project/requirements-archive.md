@@ -335,3 +335,12 @@
 - 优先级: P2
 - 进展: 已完成：盘点并补齐全部当前未归档需求的复杂度字段：R-030/R-050/R-059 标记为大，R-060/R-061 标记为小；R-051 已验证列表对缺失字段显示未评估、支持筛选/排序/编辑。req get 逐项核验通过，git diff --check、cargo test -p kanzei-tools 通过。
 - 复杂度: 小
+
+## R-061 设计APP图标 [done]
+- priority: P2
+- 原始描述: 设计一个好看的。app图标
+- 复杂度: 小
+- 归属: kanzei
+- 验收: icon设计规范清晰且美观符合品牌调性
+- 进展: 已完成：补充 K 形图标设计规范，明确主色/安全区/小尺寸约束/多平台资产验收；核验现有源图与 Tauri、Windows、macOS、Android、iOS 资产，1024/512/32/64/128/256 尺寸检查通过。cargo test -p kanzei-app、git diff --check 通过。
+- 设计: docs/design/app-icon.md
