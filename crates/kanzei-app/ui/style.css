@@ -107,6 +107,13 @@ body {
 .doc-item.pri-P2 { border-left: 3px solid var(--info); }
 .doc-item.pri-P3 { border-left: 3px solid var(--border); }
 .pri-badge { font-size: 10px; border-radius: 8px; padding: 0 5px; flex-shrink: 0; font-family: var(--mono); }
+/* 复杂度徽标:空心轮廓(与实心的优先级徽标视觉区分),大号带警示色边 */
+.cx-badge {
+  font-size: 10px; border-radius: 3px; padding: 0 4px; flex-shrink: 0;
+  border: 1px solid var(--border); color: var(--dim); background: transparent;
+}
+.cx-badge.cx-m { border-color: var(--info); color: var(--info); }
+.cx-badge.cx-l { border-color: var(--alert, var(--warn)); color: var(--alert, var(--warn)); font-weight: 600; }
 .pri-badge.P0 { background: #3a221c; color: var(--err); }
 .pri-badge.P1 { background: #3d2a10; color: var(--alert); }
 .pri-badge.P2 { background: #16283a; color: var(--info); }

@@ -1,5 +1,7 @@
 # kanzei
 
+**中文** | [English](#english)
+
 自用 AI coding agent,Rust 重写自 [opencode](https://github.com/anomalyco/opencode)(参考其 V2 架构),核心卖点是自研 **harness 系统**。
 
 设计原则:**好用压倒一切**(自用工具,按自己的使用习惯优化)。四大关注点:harness 设计、内存占用、记忆管理、loop 调度。
@@ -50,3 +52,34 @@ kz --version
 日常开发由 kanzei 自举完成(dev agent 按 backlog 连跑),需求/缺陷全录在 `.kanzei/project/`。
 
 设计规格参照:`docs/design/harness-m1.md` 与 `docs/reference/`(拷自 opencode 的 CONTEXT.md 与 specs/v2)。
+
+---
+
+## English
+
+Personal AI coding agent, rewritten in Rust from [opencode](https://github.com/anomalyco/opencode) (modeled on its V2 architecture). The core differentiator is a custom **harness system**: six registries (agents / tools / commands / skills / context sources / permissions) resolved into immutable snapshots, with hard gates enforced in code rather than prompts.
+
+**Design principle: usability above all** — this is a personal daily-driver tool, optimized for transparent context management, multi-agent collaboration, speed, minimal interruptions, and clear information.
+
+### Install
+
+Download `kanzei-setup-*.exe` from [Releases](https://github.com/kanze1/kanzei-code/releases/latest) (per-user NSIS installer with uninstaller and Start Menu entry). The app silently checks for updates on startup; one-click update from Settings.
+
+From source (dev machine):
+
+```powershell
+.\scripts\release.ps1            # test → build → install kz + kzapp to ~/.cargo/bin (with pending self-update)
+.\scripts\package.ps1 -Publish   # build NSIS installer and publish to GitHub Releases
+```
+
+### Highlights
+
+- **Three-protocol LLM layer**: Anthropic Messages / OpenAI Chat / OpenAI Responses, streaming state machines with proxy support (loopback exempt)
+- **Subscription reuse**: Codex CLI login (`codex:gpt-5.6-*`), Claude Code long-lived token (`claude:*`), plus any OpenAI-compatible endpoint (Kimi, Ollama, ...)
+- **Parallel read-only subagents** (`task` tool, fast/primary tiers) with live progress streaming to an activity panel
+- **Dual agent personas**: pair-programming (conversation-first, default) vs. autonomous (backlog-driven with auto-continue), plus a research profile with enforced source citations
+- **Markdown-native project tracking**: requirements / defects / goals as plain markdown with engine-enforced IDs, state machines, and archives — the agent develops kanzei itself off this backlog
+- **Event-sourced sessions** (SQLite): steer/queue scheduling, restart recovery, conversation replay, automatic context compaction
+- **Tauri desktop app**: conversation-first layout, activity sidebar, permission dialogs with persistent allow-rules, in-app doc viewer, priority/complexity-coded backlog
+
+Chinese sections above are the source of truth; this summary tracks them loosely.

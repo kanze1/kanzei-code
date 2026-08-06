@@ -414,6 +414,10 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     "priority": e.fields.iter()
                         .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
                         .map(|(_, value)| value),
+                    // R-051:复杂度(小/中/大),缺失前端显示"未评估"。
+                    "complexity": e.fields.iter()
+                        .find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity"))
+                        .map(|(_, value)| value),
                     "closed": kind.terminal.contains(&e.status.as_str()),
                     "fields": e.fields,
                     // 展开面板需要:合法的下一步状态(硬门禁同款规则)。
