@@ -94,8 +94,12 @@ function appendReasoning(text) {
 // ---------- 事件订阅 ----------
 listen("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
+  if (running) setStatus("请求模型中", true);
 });
-listen("kz:text", (e) => appendAssistant(e.payload.text));
+listen("kz:text", (e) => {
+  if (running) setStatus("生成中", true);
+  appendAssistant(e.payload.text);
+});
 listen("kz:reasoning", (e) => appendReasoning(e.payload.text));
 listen("kz:tool-start", (e) => {
   currentAssistant = null;

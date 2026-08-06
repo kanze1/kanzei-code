@@ -17,8 +17,12 @@ pub enum ProxyConfig {
 
 /// 构建应用了代理策略的 reqwest Client。
 /// 一律先 no_proxy() 关掉 reqwest 自带的 env 探测,由我们统一决定,行为可预测。
+/// 超时硬约束(D-003):连接 15s、流式读间隔 180s——网络不通必须快速报错,绝不静默挂起。
 pub fn build_http_client(config: &ProxyConfig) -> Result<reqwest::Client, LlmError> {
-    let builder = reqwest::Client::builder().no_proxy();
+    let builder = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(180));
     let builder = match config {
         ProxyConfig::Disabled => builder,
         ProxyConfig::Explicit(proxy) => {
@@ -34,11 +38,49 @@ pub fn build_http_client(config: &ProxyConfig) -> Result<reqwest::Client, LlmErr
                 }
             }))
         }
+        // env 优先;GUI 双击启动没有环境变量时,退回 Windows 系统代理(注册表)。
         ProxyConfig::Env => builder.proxy(reqwest::Proxy::custom(|url: &url::Url| {
-            proxy_for_url(url, &|key| std::env::var(key).ok())
+            if is_loopback(url.host_str().unwrap_or("")) {
+                return None;
+            }
+            proxy_for_url(url, &|key| std::env::var(key).ok()).or_else(system_proxy)
         })),
     };
     builder.build().map_err(LlmError::Transport)
+}
+
+/// Windows 系统代理(Internet Settings 注册表);其他平台恒 None。
+#[cfg(windows)]
+fn system_proxy() -> Option<String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+    let key = RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
+        .ok()?;
+    let enabled: u32 = key.get_value("ProxyEnable").ok()?;
+    if enabled != 1 {
+        return None;
+    }
+    let server: String = key.get_value("ProxyServer").ok()?;
+    // 格式:"host:port" 或 "http=h:p;https=h:p;..."
+    let pick = if server.contains('=') {
+        server
+            .split(';')
+            .find_map(|part| part.strip_prefix("https="))
+            .or_else(|| server.split(';').find_map(|part| part.strip_prefix("http=")))?
+            .to_string()
+    } else {
+        server
+    };
+    if pick.is_empty() {
+        return None;
+    }
+    Some(if pick.contains("://") { pick } else { format!("http://{pick}") })
+}
+
+#[cfg(not(windows))]
+fn system_proxy() -> Option<String> {
+    None
 }
 
 /// 给定目标 URL,返回应使用的代理地址(env 注入便于测试)。

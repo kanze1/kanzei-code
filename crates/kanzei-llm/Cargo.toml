@@ -15,3 +15,6 @@ thiserror.workspace = true
 tracing.workspace = true
 url.workspace = true
 async-stream.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"

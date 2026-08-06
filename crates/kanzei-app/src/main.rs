@@ -340,7 +340,17 @@ async fn run_prompt(
     let handle = tauri::async_runtime::spawn(async move {
         let result = run_task(&window, asks, ask_seq, prompt, project_dir, profile).await;
         if let Err(e) = result {
-            let _ = window.emit("kz:error", json!({ "message": e.to_string() }));
+            let message = e.to_string();
+            let lower = message.to_lowercase();
+            let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
+                .iter()
+                .any(|k| lower.contains(k))
+            {
+                "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
+            } else {
+                ""
+            };
+            let _ = window.emit("kz:error", json!({ "message": format!("{message}{hint}") }));
         }
         running.store(false, Ordering::SeqCst);
     });
