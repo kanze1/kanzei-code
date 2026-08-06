@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 /// 阶段 A 的技术无关内存 broker：只验证消息幂等和通知补发，不连接任何传输层。
 #[derive(Debug, Default)]
 pub struct InMemoryBroker {
-    messages: HashMap<String, AgentMessage>,
+    messages: HashMap<(String, String), AgentMessage>,
     notifications: Vec<AgentNotification>,
     next_sequence: u64,
 }
@@ -42,11 +42,11 @@ pub struct AgentNotification {
 
 impl InMemoryBroker {
     pub fn publish_message(&mut self, message: AgentMessage) -> PublishMessage {
-        if let Some(existing) = self.messages.get(&message.idempotency_key) {
+        let message_key = (message.thread_id.clone(), message.idempotency_key.clone());
+        if let Some(existing) = self.messages.get(&message_key) {
             return PublishMessage::Duplicate(existing.clone());
         }
-        self.messages
-            .insert(message.idempotency_key.clone(), message.clone());
+        self.messages.insert(message_key, message.clone());
         PublishMessage::Accepted(message)
     }
 
@@ -130,6 +130,22 @@ mod tests {
         assert_eq!(
             duplicate,
             PublishMessage::Duplicate(message("same", "msg_1"))
+        );
+    }
+
+    #[test]
+    fn same_idempotency_key_is_independent_between_threads() {
+        let mut broker = InMemoryBroker::default();
+        let first = message("same", "msg_a");
+        let mut other = message("same", "msg_b");
+        other.thread_id = "thread_b".to_owned();
+        assert_eq!(
+            broker.publish_message(first),
+            PublishMessage::Accepted(message("same", "msg_a"))
+        );
+        assert_eq!(
+            broker.publish_message(other.clone()),
+            PublishMessage::Accepted(other)
         );
     }
 

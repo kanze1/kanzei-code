@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: R-059 POC 继续完善：新增按 thread_id 隔离通知的 replay_notifications_for_thread，以及 cursor 超过最新 sequence 的边界测试；发现并修正 D-039 测试期望缺陷。core 19 项、app 1 项、r050-poc-check.ps1、git diff --check 全部通过。下一步是继续补内存订阅边界并评估 R-030/R-050 归属契约适配。
+- 进展: R-059 POC 继续完善：发现并修复 D-040，将 AgentMessage 幂等作用域从全局 key 改为 `(thread_id, idempotency_key)`，避免跨线程误判；新增跨线程相同 key 的隔离测试。core 20 项、app 1 项、r050-poc-check.ps1、git diff --check 全部通过。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
