@@ -69,6 +69,10 @@
               <option value="done">done</option>
               <option value="dropped">dropped</option>
             </select>
+            <select id="req-complexity-filter" class="doc-filter" title="按复杂度筛选">
+              <option value="all">全部复杂度</option>
+              <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
+            </select>
             <select id="req-priority-filter" class="doc-filter" title="按优先级筛选">
               <option value="all">全部优先级</option>
               <option value="P0">P0</option><option value="P1">P1</option>
@@ -77,6 +81,7 @@
             <select id="req-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
               <option value="manual">手动</option>
               <option value="priority">优先级</option>
+              <option value="complexity">复杂度</option>
               <option value="status">状态</option>
               <option value="id">编号</option>
             </select>

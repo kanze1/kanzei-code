@@ -1659,18 +1659,22 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-const reqFilters = { status: "all", priority: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
+const reqFilters = { status: "all", priority: "all", complexity: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
+const complexityRank = { "小": 0, "中": 1, "大": 2 };
 
 function filterRequirements(entries) {
   const filtered = entries
     .filter((entry) => reqFilters.status === "all" || entry.status === reqFilters.status)
     .filter((entry) => reqFilters.priority === "all" || entry.priority === reqFilters.priority);
+  const complexityValue = (entry) => entry.complexity || "unassessed";
+  const complexityFiltered = filtered.filter((entry) => reqFilters.complexity === "all" || complexityValue(entry) === reqFilters.complexity);
   // 手动模式(R-054 默认):文件顺序即开发顺序,不做任何排序。
-  if (reqFilters.sort === "manual") return filtered;
-  return filtered.sort((a, b) => {
+  if (reqFilters.sort === "manual") return complexityFiltered;
+  return complexityFiltered.sort((a, b) => {
     if (reqFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
+    if (reqFilters.sort === "complexity") return (complexityRank[complexityValue(a)] ?? 99) - (complexityRank[complexityValue(b)] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
     if (reqFilters.sort === "status") {
       return (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
     }
@@ -1684,7 +1688,7 @@ function filterRequirements(entries) {
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
 let dragReqId = null;
 function reqDragEnabled() {
-  return reqFilters.sort === "manual" && reqFilters.status === "all" && reqFilters.priority === "all";
+  return reqFilters.sort === "manual" && reqFilters.status === "all" && reqFilters.priority === "all" && reqFilters.complexity === "all";
 }
 async function commitReqOrder(listEl) {
   const order = [...listEl.querySelectorAll(".doc-item[data-req-id]")].map((el) => el.dataset.reqId);
@@ -1782,6 +1786,10 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
       item.title = `复杂度:${cx}`;
     }
+    const complexityBadge = document.createElement("span");
+    complexityBadge.className = "complexity-badge";
+    complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `复杂度:${cx}` : "未评估";
+    row.appendChild(complexityBadge);
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = entry.title;
@@ -1801,7 +1809,7 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
       f.className = "doc-field";
       if (key.toLowerCase() === "refs") {
         f.append(`${key}: `);
-        for (const ref of String(value).split(/[\\s,]+/).filter(Boolean)) {
+        for (const ref of String(value).split(/[\s,]+/).filter(Boolean)) {
           const link = document.createElement("button");
           link.className = "ref-link";
           link.textContent = ref;
@@ -1819,6 +1827,26 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
         f.textContent = `${key}: ${value}`;
       }
       detail.appendChild(f);
+    }
+    if (kind === "req" && !entry.closed) {
+      const complexityRow = document.createElement("div");
+      complexityRow.className = "doc-progress";
+      const complexitySelect = document.createElement("select");
+      complexitySelect.innerHTML = "<option value=\"\">未评估</option><option>小</option><option>中</option><option>大</option>";
+      complexitySelect.value = cx;
+      complexitySelect.title = "设置需求复杂度";
+      complexitySelect.addEventListener("click", (event) => event.stopPropagation());
+      complexitySelect.addEventListener("change", async () => {
+        try {
+          await invoke("docs_update", { projectDir: currentProject, kind: "req", action: "update", id: entry.id, fields: { "复杂度": complexitySelect.value } });
+          toast("复杂度已保存");
+          refreshDocs();
+        } catch (error) {
+          toast(`复杂度保存失败:${error}`);
+        }
+      });
+      complexityRow.append("复杂度: ", complexitySelect);
+      detail.appendChild(complexityRow);
     }
     // 目标专属:进展速记(写入 fields.进展,注入上下文时 agent 可见)。
     if (kind === "goal" && !entry.closed) {
@@ -1982,13 +2010,14 @@ async function refreshDocs() {
   }
 }
 
-for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-sort", "sort"]]) {
+for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
     if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
     refreshDocs();
   });
 }
+$("req-complexity-filter").value = reqFilters.complexity;
 $("req-sort").value = reqFilters.sort;
 
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
