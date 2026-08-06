@@ -21,7 +21,7 @@
 - 验收: 多进程可并行运行,各自拥有模型选择与子代理开关;前端以进程页签呈现;默认进程兼容既有历史
 - 备注: 大手术,与 R-037 的渲染层重构一起做
 
-## R-031 子代理轨迹透视:task 块可展开子代理完整工具轨迹,后台面板历史可回看 [doing]
+## R-031 子代理轨迹透视:task 块可展开子代理完整工具轨迹,后台面板历史可回看 [done]
 - priority: P1
 - 归属: kanzei
 - 验收: task 块可展开查看子代理完整工具轨迹,后台面板条目可回看,不因短时超时消失
@@ -29,6 +29,8 @@
 - 验收准备: 实时 task 轨迹可展开,子工具顺序/状态/预览可见,活动面板跨轮不因短时事件清空。
 - 进展: 已完成实时阶段:RunEvent::TaskProgress 携带子代理工具 start/end 结构化轨迹;task 条目可展开子工具名称、状态、预览和 display;活动面板跨轮保留历史,不再因每轮开始清空。剩余:将轨迹持久化并在历史会话回放中恢复。
 - 验证: cargo test --workspace; cargo check -p kanzei-app; node --check crates/kanzei-app/ui/main.js
+- 实现: TaskProgress 携带子代理工具 start/end 结构化轨迹;task 块可展开子工具名称、状态、预览和 display;活动面板跨轮保留;运行轨迹写入 run.trace 事件;新增 conversation_trace_get,历史加载按对话分段恢复 task/子工具轨迹。
+- 验收结果: 实时与历史回放均可查看 task 内完整子工具轨迹,短时事件不会导致活动面板历史消失,新对话不会串入旧轨迹。
 
 ## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [todo]
 - priority: P2

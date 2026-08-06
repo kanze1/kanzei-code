@@ -396,6 +396,26 @@ function bgEnd(id, ok, preview, display) {
   }
   if (entry.detail.children.length) entry.el.classList.add("has-detail");
 }
+function renderRecoveredTraces(payloads) {
+  const ids = new Set();
+  for (const payload of payloads || []) {
+    for (const event of payload.events || []) {
+      ids.add(event.id);
+      if (!bgEntries.has(event.id)) bgAdd(event.id, "task", "历史子代理轨迹");
+      bgProgress(event.id, event.text, event.trace);
+    }
+  }
+  for (const id of ids) {
+    const entry = bgEntries.get(id);
+    if (!entry) continue;
+    entry.done = true;
+    entry.el.classList.remove("running");
+    entry.el.classList.add("ok");
+    entry.prog.textContent = "历史轨迹";
+    entry.meta.textContent = "回放";
+  }
+}
+
 function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
@@ -1479,9 +1499,13 @@ function renderRecoveredMessages(items) {
 async function loadConversation(sequence = null) {
   if (!currentProject) return;
   try {
+    bgClear();
+    renderTodoPanel([], 0, 0);
     const history = await invoke("conversation_get", { projectDir: currentProject, sequence });
     renderRecoveredMessages(history);
-    log(`已恢复 ${history.length} 条历史消息`);
+    const traces = await invoke("conversation_trace_get", { projectDir: currentProject, sequence });
+    renderRecoveredTraces(traces);
+    log(`已恢复 ${history.length} 条历史消息和 ${traces.length} 组工具轨迹`);
   } catch (err) {
     addMessage("error", `历史消息恢复失败:${err}`);
     log(`历史消息恢复失败:${err}`, "warn");

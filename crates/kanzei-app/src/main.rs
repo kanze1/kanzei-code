@@ -170,6 +170,7 @@ fn main() {
             conversation_delete,
             docs_read,
             conversation_get,
+            conversation_trace_get,
             conversation_list,
             list_pending_inputs,
             cancel_input
@@ -1063,6 +1064,43 @@ fn conversation_get(
 }
 
 #[tauri::command]
+fn conversation_trace_get(
+    project_dir: String,
+    sequence: Option<i64>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    let events = store.list_events(&session_id, 0).map_err(|e| e.to_string())?;
+    let limit = sequence.unwrap_or(i64::MAX);
+    let mut segment_start = 0;
+    for event in &events {
+        if event.sequence > limit {
+            break;
+        }
+        if event.event_type == "conversation.updated"
+            && event.payload["messages"].as_array().map_or(false, Vec::is_empty)
+        {
+            segment_start = event.sequence;
+        }
+    }
+    Ok(events
+        .into_iter()
+        .filter(|event| {
+            event.event_type == "run.trace"
+                && event.sequence > segment_start
+                && event.sequence <= limit
+        })
+        .map(|event| event.payload)
+        .collect())
+}
+
+#[tauri::command]
 fn conversation_list(project_dir: String) -> Result<Vec<serde_json::Value>, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
@@ -1515,6 +1553,8 @@ async fn run_task(
     );
 
     let event_window = window.clone();
+    let run_trace = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let trace_log = run_trace.clone();
     let mut on_event = move |event: RunEvent| {
         let _ = match event {
             RunEvent::TurnStart { step, max_steps } => {
@@ -1537,9 +1577,8 @@ async fn run_task(
                 json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
-            RunEvent::TaskProgress { id, text, trace } => event_window.emit(
-                "kz:task-progress",
-                json!({
+            RunEvent::TaskProgress { id, text, trace } => {
+                let payload = json!({
                     "id": id,
                     "text": text,
                     "trace": trace.map(|item| json!({
@@ -1551,8 +1590,10 @@ async fn run_task(
                         "preview": item.preview,
                         "display": item.display,
                     })),
-                }),
-            ),
+                });
+                trace_log.lock().unwrap().push(payload.clone());
+                event_window.emit("kz:task-progress", payload)
+            },
             RunEvent::StepEnd { usage, .. } => event_window.emit(
                 "kz:step",
                 json!({
@@ -1741,6 +1782,10 @@ async fn run_task(
     }
 
     let messages = conversation.lock().unwrap().clone();
+    let trace = run_trace.lock().unwrap().clone();
+    if !trace.is_empty() {
+        store.append_event(&session_id, "run.trace", &json!({ "events": trace }))?;
+    }
     store.append_event(
         &session_id,
         "conversation.updated",
