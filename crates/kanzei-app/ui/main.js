@@ -31,6 +31,7 @@ document.querySelectorAll(".activity-item").forEach((item) => {
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     $(`view-${view}`).classList.add("active");
     if (view === "settings") loadSettings();
+    if (view === "workspace") refreshWorkspace();
   });
 });
 
@@ -1852,6 +1853,76 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
   }
 }
 
+function formatWorkspaceTime(value) {
+  if (!value) return "暂无时间";
+  return new Date(Number(value)).toLocaleString();
+}
+
+async function selectWorkspaceProject(path) {
+  try {
+    const previous = currentProject;
+    renderProjects(await invoke("projects_select", { path }));
+    if (previous !== path) {
+      clearChat();
+      bgClear();
+      renderTodoPanel([], 0, 0);
+      await loadConversation();
+      await refreshDocs();
+      await loadModels();
+      refreshGit();
+      await refreshPendingInputs();
+    }
+    refreshWorkspace();
+  } catch (error) {
+    toast(`切换项目失败:${error}`);
+  }
+}
+
+function renderWorkspace(snapshot) {
+  const root = $("workspace-projects");
+  root.replaceChildren();
+  for (const project of snapshot.projects ?? []) {
+    const card = document.createElement("section");
+    card.className = `workspace-card${project.current ? " current" : ""}`;
+    const head = document.createElement("div");
+    head.className = "workspace-card-head";
+    const title = document.createElement("strong");
+    title.textContent = project.name;
+    const status = document.createElement("span");
+    status.className = `workspace-status ${project.status}`;
+    status.textContent = project.status === "running" ? "运行中" : project.status === "failed" ? "失败" : "空闲";
+    head.append(title, status);
+    const path = document.createElement("div");
+    path.className = "dim workspace-path";
+    path.textContent = project.path;
+    const conversation = project.conversation;
+    const summary = document.createElement("div");
+    summary.className = "workspace-summary";
+    summary.textContent = conversation
+      ? `当前对话: ${conversation.title} · ${conversation.message_count} 条`
+      : "当前对话: 暂无";
+    const activity = document.createElement("div");
+    activity.className = "workspace-activity dim";
+    const trace = (project.recent_activity ?? []).flatMap((item) => item.events ?? []);
+    activity.textContent = trace.length
+      ? `最近活动: ${trace.slice(0, 3).map((item) => item.text || item.name || "运行事件").join(" · ")}`
+      : "最近活动: 暂无";
+    const queue = document.createElement("div");
+    queue.className = "workspace-meta dim";
+    queue.textContent = `排队 ${project.pending_count ?? 0} 条 · 更新于 ${formatWorkspaceTime(project.updated_at)}`;
+    card.append(head, path, summary, activity, queue);
+    card.addEventListener("click", () => selectWorkspaceProject(project.path));
+    root.appendChild(card);
+  }
+}
+
+async function refreshWorkspace() {
+  try {
+    renderWorkspace(await invoke("workspace_snapshot"));
+  } catch (error) {
+    toast(`工作区刷新失败:${error}`);
+  }
+}
 async function refreshDocs() {
   if (!currentProject) return;
   try {

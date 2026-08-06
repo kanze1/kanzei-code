@@ -151,6 +151,7 @@ fn main() {
             projects_pick,
             projects_remove,
             projects_select,
+            workspace_snapshot,
             docs_snapshot,
             run_prompt,
             stop_run,
@@ -389,6 +390,34 @@ fn cancel_input(project_dir: String, input_id: String) -> Result<bool, String> {
     Ok(cancelled)
 }
 
+#[tauri::command]
+fn workspace_snapshot() -> Result<serde_json::Value, String> {
+    let prefs = projects_get();
+    let mut projects = Vec::new();
+    for path in &prefs.projects {
+        let root = kanzei_harness::config::discover_project_root(Path::new(path))
+            .unwrap_or_else(|| PathBuf::from(path));
+        let session_id = kanzei_core::project_session_id(&root);
+        let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+            .map_err(|e| e.to_string())?;
+        let session = store.create_session(&session_id, &root.display().to_string(), None)
+            .map_err(|e| e.to_string())?;
+        let conversations = conversation_list(path.clone()).unwrap_or_default();
+        let pending = list_pending_inputs(path.clone()).unwrap_or_default();
+        let recent = conversation_trace_get(path.clone(), None).unwrap_or_default();
+        projects.push(json!({
+            "path": path,
+            "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name(path)),
+            "current": prefs.current.as_deref() == Some(path.as_str()),
+            "status": session.status,
+            "updated_at": session.updated_at,
+            "pending_count": pending.len(),
+            "conversation": conversations.first(),
+            "recent_activity": recent.into_iter().rev().take(8).collect::<Vec<_>>(),
+        }));
+    }
+    Ok(json!({ "current": prefs.current, "projects": projects }))
+}
 // ---------- 项目文档 ----------
 
 #[tauri::command]

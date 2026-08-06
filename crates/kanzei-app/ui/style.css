@@ -136,6 +136,15 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .research-subtitle { font-size: 11px; color: var(--muted); margin: 6px 0 2px; }
 .ref-link { border: 0; background: transparent; color: var(--accent); cursor: pointer; padding: 0 2px; }
 .ref-highlight { outline: 1px solid var(--accent); border-radius: 4px; }
+.workspace-projects { display: grid; gap: 10px; max-width: 900px; }
+.workspace-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); cursor: pointer; }
+.workspace-card:hover, .workspace-card.current { border-color: var(--accent); }
+.workspace-card-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.workspace-status { padding: 2px 7px; border-radius: 10px; font-size: 11px; }
+.workspace-status.running { color: var(--ok); background: #2a8a4233; }
+.workspace-status.failed { color: var(--danger); background: #b34a4a33; }
+.workspace-status.idle { color: var(--muted); background: #8883; }
+.workspace-path, .workspace-summary, .workspace-activity, .workspace-meta { margin-top: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-item.closed { opacity: .4; }
 .doc-item.closed .title { text-decoration: line-through; }
