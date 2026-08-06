@@ -13,6 +13,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+rfd = "0.15"
+dirs.workspace = true
+toml.workspace = true
 kanzei-core.workspace = true
 kanzei-harness.workspace = true
 kanzei-llm.workspace = true

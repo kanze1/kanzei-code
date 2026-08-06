@@ -1,6 +1,7 @@
-//! kzapp — kanzei Tauri 桌面端(最小可用壳)。
-//! 前端为静态页面(ui/),经 Tauri command + event 与 runner 通信:
-//! run_prompt 发起 → kz:text/kz:tool-* 流式事件 → kz:ask 权限弹窗 → answer_ask 回填。
+//! kzapp — kanzei Tauri 桌面端。
+//! 前端为静态页面(ui/),经 command + event 通信:
+//! run_prompt → kz:* 流式事件;kz:ask 权限弹窗 → answer_ask;stop_run 中止;
+//! projects_* 多项目管理(~/.kanzei/app.json);settings_* 全局配置表单。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
@@ -26,6 +28,7 @@ struct AppState {
     asks: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
     ask_seq: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
+    current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
 }
 
 fn main() {
@@ -38,22 +41,121 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
-            default_project_dir,
+            projects_get,
+            projects_add,
+            projects_pick,
+            projects_remove,
+            projects_select,
             docs_snapshot,
             run_prompt,
-            answer_ask
+            stop_run,
+            answer_ask,
+            settings_get,
+            settings_save,
+            settings_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
 }
 
-#[tauri::command]
-fn default_project_dir() -> String {
-    std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .display()
-        .to_string()
+// ---------- 多项目管理(~/.kanzei/app.json) ----------
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AppPrefs {
+    #[serde(default)]
+    projects: Vec<String>,
+    #[serde(default)]
+    current: Option<String>,
 }
+
+fn prefs_path() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".kanzei").join("app.json")
+}
+
+fn load_prefs() -> AppPrefs {
+    std::fs::read_to_string(prefs_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_prefs(prefs: &AppPrefs) {
+    let path = prefs_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(prefs).unwrap_or_default());
+}
+
+#[tauri::command]
+fn projects_get() -> AppPrefs {
+    let mut prefs = load_prefs();
+    prefs.projects.retain(|p| Path::new(p).is_dir());
+    if prefs.projects.is_empty() {
+        if let Ok(cwd) = std::env::current_dir() {
+            prefs.projects.push(cwd.display().to_string());
+        }
+    }
+    if prefs.current.as_deref().map(|c| !Path::new(c).is_dir()).unwrap_or(true) {
+        prefs.current = prefs.projects.first().cloned();
+    }
+    save_prefs(&prefs);
+    prefs
+}
+
+#[tauri::command]
+fn projects_add(path: String) -> Result<AppPrefs, String> {
+    let dir = PathBuf::from(&path);
+    if !dir.is_dir() {
+        return Err(format!("目录不存在: {path}"));
+    }
+    let canonical = dir.canonicalize().map(strip_verbatim).unwrap_or(path.clone());
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    prefs.current = Some(canonical);
+    save_prefs(&prefs);
+    Ok(projects_get())
+}
+
+#[tauri::command]
+async fn projects_pick() -> Result<Option<AppPrefs>, String> {
+    let picked = rfd::AsyncFileDialog::new().pick_folder().await;
+    match picked {
+        Some(handle) => projects_add(handle.path().display().to_string()).map(Some),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+fn projects_remove(path: String) -> AppPrefs {
+    let mut prefs = load_prefs();
+    prefs.projects.retain(|p| p != &path);
+    if prefs.current.as_deref() == Some(path.as_str()) {
+        prefs.current = prefs.projects.first().cloned();
+    }
+    save_prefs(&prefs);
+    projects_get()
+}
+
+#[tauri::command]
+fn projects_select(path: String) -> AppPrefs {
+    let mut prefs = load_prefs();
+    if prefs.projects.contains(&path) {
+        prefs.current = Some(path);
+    }
+    save_prefs(&prefs);
+    prefs
+}
+
+/// Windows canonicalize 会带 \\?\ 前缀,展示前剥掉。
+fn strip_verbatim(p: PathBuf) -> String {
+    let s = p.display().to_string();
+    s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+}
+
+// ---------- 项目文档 ----------
 
 #[tauri::command]
 fn docs_snapshot(project_dir: String) -> serde_json::Value {
@@ -82,11 +184,141 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
     })
 }
 
+// ---------- 设置(全局 kanzei.toml 表单) ----------
+
+fn global_config_path() -> PathBuf {
+    dirs::home_dir().unwrap_or_default().join(".kanzei").join("kanzei.toml")
+}
+
+#[tauri::command]
+fn settings_get() -> serde_json::Value {
+    let path = global_config_path();
+    let mut config: KanzeiConfig = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| toml::from_str(&text).ok())
+        .unwrap_or_default();
+    config.fill_defaults();
+    let providers: Vec<serde_json::Value> = config
+        .providers
+        .iter()
+        .map(|(name, p)| {
+            let key_present = p
+                .api_key_env
+                .as_deref()
+                .map(|env| std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false));
+            json!({
+                "name": name,
+                "protocol": p.protocol,
+                "baseUrl": p.base_url,
+                "apiKeyEnv": p.api_key_env,
+                "keyPresent": key_present,
+            })
+        })
+        .collect();
+    json!({
+        "path": path.display().to_string(),
+        "primary": config.models.primary,
+        "fast": config.models.fast,
+        "proxy": config.proxy.unwrap_or_else(|| "env".into()),
+        "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
+        "providers": providers,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsPayload {
+    primary: String,
+    fast: String,
+    proxy: String,
+    profile_default: Option<String>,
+    #[serde(default)]
+    profile: Option<String>,
+    providers: Vec<ProviderPayload>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderPayload {
+    name: String,
+    protocol: String,
+    base_url: String,
+    api_key_env: Option<String>,
+}
+
+#[tauri::command]
+fn settings_save(payload: SettingsPayload) -> Result<(), String> {
+    let mut config = KanzeiConfig::default();
+    config.models.primary = Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty());
+    config.models.fast = Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty());
+    config.proxy = match payload.proxy.trim() {
+        "" | "env" => None,
+        other => Some(other.to_string()),
+    };
+    config.profile.default = payload
+        .profile_default
+        .or(payload.profile)
+        .filter(|p| p == "dev" || p == "research");
+    for p in payload.providers {
+        let name = p.name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        config.providers.insert(
+            name,
+            kanzei_harness::config::ProviderConfig {
+                protocol: p.protocol.trim().to_string(),
+                base_url: p.base_url.trim().trim_end_matches('/').to_string(),
+                api_key_env: p.api_key_env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            },
+        );
+    }
+    let text = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    let path = global_config_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn settings_open() -> Result<(), String> {
+    let path = global_config_path();
+    if !path.is_file() {
+        settings_save(SettingsPayload {
+            primary: String::new(),
+            fast: String::new(),
+            proxy: "env".into(),
+            profile_default: None,
+            profile: None,
+            providers: vec![],
+        })?;
+    }
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &path.display().to_string()])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ---------- 运行 ----------
+
 #[tauri::command]
 fn answer_ask(state: State<'_, AppState>, id: u64, allow: bool) {
     if let Some(sender) = state.asks.lock().unwrap().remove(&id) {
         let _ = sender.send(allow);
     }
+}
+
+#[tauri::command]
+fn stop_run(window: Window, state: State<'_, AppState>) {
+    if let Some(handle) = state.current_run.lock().unwrap().take() {
+        handle.abort();
+    }
+    // 挂起的权限询问一并作废(否则 runner 已死、弹窗还悬着)。
+    state.asks.lock().unwrap().clear();
+    state.running.store(false, Ordering::SeqCst);
+    let _ = window.emit("kz:stopped", json!({}));
 }
 
 #[tauri::command]
@@ -103,14 +335,16 @@ async fn run_prompt(
     let asks = state.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
+    let current_run = state.current_run.clone();
 
-    tauri::async_runtime::spawn(async move {
+    let handle = tauri::async_runtime::spawn(async move {
         let result = run_task(&window, asks, ask_seq, prompt, project_dir, profile).await;
         if let Err(e) = result {
             let _ = window.emit("kz:error", json!({ "message": e.to_string() }));
         }
         running.store(false, Ordering::SeqCst);
     });
+    *state.current_run.lock().unwrap() = Some(handle);
     Ok(())
 }
 
@@ -126,7 +360,7 @@ async fn run_task(
     anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
 
     let config = Arc::new(KanzeiConfig::load(&cwd)?);
-    let profile: ProfileKind = match profile.as_deref() {
+    let profile: ProfileKind = match profile.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
         None => config.default_profile(),
     };
@@ -159,7 +393,7 @@ async fn run_task(
         "anthropic" => {
             let key = api_key.ok_or_else(|| {
                 anyhow::anyhow!(
-                    "provider `{}` 需要环境变量 {}",
+                    "provider `{}` 需要环境变量 {}(在设置页可查看状态)",
                     resolved.provider_name,
                     resolved.provider.api_key_env.as_deref().unwrap_or("<api_key_env>")
                 )
