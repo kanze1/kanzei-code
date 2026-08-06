@@ -12,3 +12,12 @@
 ## D-038 队列输入相关问题 [open] (medium)
 - 原始描述: 排队输入相关的功能可能有点问题
 - 复现: 待补充
+
+## D-042 上下文超限错误未能稳定自动恢复，前端显示致命错误 [fixed] (high)
+- 原始描述: 偶发收到 context_length_exceeded / invalid_request_error，提示输入超过上下文窗口后直接停止；需要优先压缩并继续。
+- 复现: 长对话或工具输出累积后发起下一轮请求，provider 返回 context_length_exceeded；当前仅尝试一次固定压缩，失败后直接以致命错误结束。
+- 影响: 用户当前任务被中断，无法在压缩上下文后继续。
+- 计划: 先修复 core 的受控上下文超限恢复与错误提示，补回归测试；不得无限重试或重放已产生副作用的工具调用。
+- 优先级: P0
+- 修复: provider HTTP 400/413/422 超限分类扩展；runner 保留当前用户消息，压缩历史后最多再做一次仅当前输入的安全重试；前端将上下文超限标记为可压缩重试。
+- 验证: cargo test -p kanzei-llm -p kanzei-core（18+24 全部通过）；node --check crates/kanzei-app/ui/main.js；git diff --check。

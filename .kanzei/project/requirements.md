@@ -17,7 +17,7 @@
 - 风险: 高:涉及运行生命周期隔离、SQLite session/thread 数据模型、权限 ask 路由、队列/活动事件归属、文件写入冲突、git worktree 生命周期、合并与恢复;不能只靠前端 tab 模拟。建议先做线程模型与状态机设计,再做单项目双线程只读 POC,最后做 worktree/冲突合并。
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口。
 - 优先级: P1
-- 进展: 新增 scripts/r050-poc-check.ps1 作为可重复验收入口，固定运行 kanzei-core POC/回归、kanzei-app 回归和前端语法检查；设计文档已记录脚本边界，明确不创建 worktree、不写项目文件、不执行 git。完整实现仍等待 R-030 契约。
+- 进展: 用户反馈上下文超限导致当前运行中断，已转入优先修复：先检查 runner 的压缩重试与前端错误呈现，再回归并继续线程隔离工作。
 - 阻塞: 真实双线程运行、权限路由、活动事件分桶和 worktree 流程仍等待 R-030 的 process_id/session_id 契约。
 - 验证: 执行 .\scripts\r050-poc-check.ps1 成功：kanzei-core 13 项、kanzei-app 1 项、node --check 全部通过；git diff --check 通过。
 

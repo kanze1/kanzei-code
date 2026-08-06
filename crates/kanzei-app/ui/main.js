@@ -269,9 +269,10 @@ function addMessage(cls, text) {
 function addErrorMessage(message, { retryable = false } = {}) {
   const el = addMessage("error", "");
   const body = el.querySelector(".message-body");
+  const contextOverflow = /context[_ ]length|context overflow|prompt is too long|input is too long|上下文.{0,4}(过长|超限)/i.test(message);
   const level = document.createElement("strong");
   level.className = "error-level";
-  level.textContent = retryable ? "可重试错误" : "致命错误";
+  level.textContent = contextOverflow ? "可压缩重试" : retryable ? "可重试错误" : "致命错误";
   const text = document.createElement("div");
   text.textContent = message;
   body.append(level, text);
@@ -292,7 +293,7 @@ function addErrorMessage(message, { retryable = false } = {}) {
 }
 
 function isRetryableError(message) {
-  return /timed out|timeout|connect|connection|dns|网络|连接|超时/i.test(message);
+  return /timed out|timeout|connect|connection|dns|网络|连接|超时|context[_ ]length|context overflow|prompt is too long|input is too long|上下文.{0,4}(过长|超限)/i.test(message);
 }
 
 function reportError(message, { retryable = isRetryableError(message) } = {}) {

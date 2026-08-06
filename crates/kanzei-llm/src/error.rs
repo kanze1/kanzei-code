@@ -23,7 +23,9 @@ impl LlmError {
 
     /// HTTP 错误分类:识别 context overflow(驱动压缩重试),其余原样返回。
     pub(crate) fn classify_http(status: u16, body: String) -> Self {
-        if status == 400 && is_overflow_message(&body) {
+        // 不同 provider 对输入过大的响应码并不一致(400/413/422)，只要
+        // 错误体明确指出上下文超限，就交给 runner 的有界压缩重试处理。
+        if matches!(status, 400 | 413 | 422) && is_overflow_message(&body) {
             return LlmError::ContextOverflow { message: body };
         }
         LlmError::Http { status, body }
@@ -45,6 +47,10 @@ fn is_overflow_message(message: &str) -> bool {
         "maximum context",
         "context_length_exceeded",
         "input is too long",
+        "maximum prompt",
+        "too many tokens",
+        "token limit",
+        "input_tokens",
     ]
     .iter()
     .any(|p| lower.contains(p))

@@ -262,7 +262,19 @@ pub fn run_once_with_parts<'a>(
                     messages: messages.clone(),
                     ..request
                 };
-                client.stream(route, &retry_request).await?
+                match client.stream(route, &retry_request).await {
+                    Err(error) if error.is_context_overflow() => {
+                        // 第一次压缩仍可能被超大的 system/tool schema 或当前输入
+                        // 拒绝；第二次只保留当前用户消息，且不再继续重试。
+                        compact_messages_aggressively(&mut messages);
+                        let final_request = LlmRequest {
+                            messages: messages.clone(),
+                            ..retry_request
+                        };
+                        client.stream(route, &final_request).await?
+                    }
+                    result => result?,
+                }
             }
             result => result?,
         };
@@ -700,36 +712,45 @@ async fn run_subagent(
 }
 
 fn compact_messages_for_retry(messages: &mut Vec<Message>) {
-    let Some(first) = messages.first().cloned() else {
+    let Some(current_index) = messages.iter().rposition(|message| message.role == Role::User) else {
         return;
     };
+    let current = messages[current_index].clone();
     let mut history = String::new();
-    for message in messages.iter().skip(1) {
+    for message in messages.iter().take(current_index) {
         for part in &message.parts {
             let text = match part {
                 Part::Text { text } => text,
                 Part::ToolResult { content, .. } => content,
                 _ => continue,
             };
-            if history.len() >= 16_000 {
+            if history.len() >= 8_000 {
                 break;
             }
-            let remaining = 16_000 - history.len();
-            let mut snippet: String = text.chars().take(remaining).collect();
-            while snippet.len() > remaining {
-                snippet.pop();
-            }
+            let remaining = 8_000 - history.len();
+            let snippet: String = text.chars().take(remaining).collect();
             history.push_str(&snippet);
             history.push('\n');
         }
     }
     messages.clear();
-    messages.push(first);
     if !history.trim().is_empty() {
         messages.push(Message::user_text(format!(
             "以下是此前工具执行结果的压缩记录，仅供继续当前任务参考：\n{}",
             history.trim_end()
         )));
+    }
+    messages.push(current);
+}
+
+fn compact_messages_aggressively(messages: &mut Vec<Message>) {
+    if let Some(current) = messages
+        .iter()
+        .rfind(|message| message.role == Role::User)
+        .cloned()
+    {
+        messages.clear();
+        messages.push(current);
     }
 }
 fn add_usage(a: Usage, b: Usage) -> Usage {
@@ -784,14 +805,13 @@ mod tests {
                 content: "工具结果".into(),
                 is_error: false,
             }]),
+            Message::user_text("当前任务"),
         ];
 
         compact_messages_for_retry(&mut messages);
 
         assert_eq!(messages.len(), 2);
-        assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text == "原始任务"));
-        assert!(
-            matches!(messages[1].parts[0], Part::Text { ref text } if text.contains("工具结果"))
-        );
+        assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果")));
+        assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text == "当前任务"));
     }
 }
