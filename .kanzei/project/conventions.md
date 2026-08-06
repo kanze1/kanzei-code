@@ -98,4 +98,12 @@
 - 版本验证:`kz --version` 输出 `kanzei 0.1.0 (<git hash> <日期>)`;桌面端右下角有相同版本徽章,以此确认用户装到的是新版。
 - 网络:`git push` / 访问 GitHub 需要代理,PowerShell 里先 `$env:HTTPS_PROXY = “http://127.0.0.1:12000”` 再执行。
 - 提交规范:commit message 一律**不带任何 Co-Authored-By 署名**;提交前 `git status` 确认只包含本次任务的必要改动。
-- **发行版安装包**:`.\scripts\package.ps1` = `cargo tauri build` 产出 NSIS 安装器到 `dist\kanzei-setup-<hash>.exe`;加 `-Publish` 会用 `gh release create build-<hash>` 发布到 GitHub Releases——**应用内"检查更新"以最新 release 为源**,所以想让用户端收到更新必须带 `-Publish` 发布。`dist/`、`target/`、安装器产物不入库。
+### 9.1 发布部署(两条通道)
+
+- **开发通道(自举机)**:`.\scripts\release.ps1` = 全量测试 → 装 `kz` → 构建并安装 kzapp;kzapp 运行中会落 `kzapp.exe.pending`,**下次启动自动接力替换**,无需手动处理。
+- **发行通道(安装包)**:`.\scripts\package.ps1 -Publish` = `cargo tauri build` 产出 NSIS 安装器 `dist\kanzei-setup-<hash>.exe` → `gh release create build-<hash>` 发布到 GitHub Releases。
+  - 应用内更新以**最新 release** 为源:启动 3 秒后静默检查(有新版弹 toast),设置页「检查更新」可手动查 + 一键下载安装;
+  - 所以:想让安装版用户收到更新,**必须带 `-Publish`**;只跑 release.ps1 安装版是感知不到的。
+- **发布时机与检查单**:完成一批已验证需求/缺陷后发布;发布前必须 ①`cargo test --workspace` 全绿 ②工作区干净且已 push ③`kz --version` 的 hash 与 HEAD 一致。
+- **Release 标签规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;历史 release 不删除(更新只看 latest)。
+- **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。

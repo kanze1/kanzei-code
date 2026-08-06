@@ -14,10 +14,15 @@
 | `kanzei-tools` | 内置工具:read(反向 seek tail)/ write(写后校验)/ bash(动态 shell 检测)... |
 | `kanzei` | CLI 入口(`kz`);M3 起为 Tauri 桌面端的后端 |
 
-## 构建安装
+## 安装
+
+**安装包(推荐)**:从 [Releases](https://github.com/kanze1/kanzei-code/releases/latest) 下载 `kanzei-setup-*.exe` 双击安装(用户级,含开始菜单/卸载器)。应用启动会静默检查新版本,设置页可一键更新。
+
+**源码构建(开发机)**:
 
 ```powershell
-.\scripts\release.ps1   # test → release build → 安装到 ~/.cargo/bin
+.\scripts\release.ps1            # test → release build → 安装 kz + kzapp 到 ~/.cargo/bin(带 pending 自更新)
+.\scripts\package.ps1 -Publish   # 打 NSIS 安装包并发布到 GitHub Releases(安装版的更新源)
 kz --version
 ```
 
@@ -27,19 +32,21 @@ kz --version
 
 **CLI**:`kz run "任务"`,`kz req|defect|source|finding list|add|...`(人用直通)。
 
-**模型通道**(`~/.kanzei/kanzei.toml`):
-- `codex:gpt-5.6-sol|terra|luna` — 复用 Codex CLI 订阅登录态(`~/.codex/auth.json`),自动刷新
-- `ollama:<model>` — 本地模型,loopback 自动免代理
-- 任意 Anthropic / OpenAI 兼容端点(自定义 provider + api_key_env)
+**模型通道**(`~/.kanzei/kanzei.toml`,设置页可视化编辑 + 一键测试):
+- `codex:gpt-5.6-sol|terra|luna` — 复用 Codex CLI 订阅登录态,自动刷新
+- `claude:claude-opus-5|sonnet-5|haiku-4-5` — 复用 Claude Code 长效令牌(`claude setup-token`)
+- `kimi:kimi-k3` 等任意 OpenAI 兼容端点(key 支持环境变量或直填)
+- `ollama:<model>` — 本地模型,loopback 自动免代理;fast 角色驱动并行 task 子代理
 
 **权限**:Ruleset last-match-wins,默认 ask;弹窗选"总是允许"会把泛化规则(bash 取命令首词前缀)写进项目 `.kanzei/kanzei.toml`。
 
 ## 进展
 
-- ✅ M0/M0.5:LLM 协议层(Anthropic / OpenAI Chat / OpenAI Responses)+ 工具循环 + 代理
-- ✅ M1 核心:harness 六注册表、双模式 profile(dev/research)、权限硬门禁、工具修复回路、req/defect/source/finding 追踪工具
-- ✅ 桌面端一期/二期:见上
-- ⏳ M2:SQLite 事件溯源、steer/queue 调度、压缩与 recall(**当前每条消息是独立任务,无跨消息会话记忆**)
-- ⏳ M4:task 并行子代理(fast 角色跑)、MCP
+- ✅ M0-M2:三协议 LLM 层、harness 六注册表与双模式、SQLite 事件溯源、steer/queue 调度、会话持久化与回放、自动压缩
+- ✅ 多 agent:task 并行子代理(fast/primary 双档)、双状态人格(结伴开发/自主推进)、连跑与目标驱动自举
+- ✅ 桌面端:对话为主布局 + 右侧活动面板、历史对话管理、附件(图片/PDF)、todo/question 工具、发行版安装包与应用内更新
+- ⏳ 进行中:多进程解耦(R-030)、并行对话线程与 worktree 合并(R-050)、MCP
+
+日常开发由 kanzei 自举完成(dev agent 按 backlog 连跑),需求/缺陷全录在 `.kanzei/project/`。
 
 设计规格参照:`docs/design/harness-m1.md` 与 `docs/reference/`(拷自 opencode 的 CONTEXT.md 与 specs/v2)。
