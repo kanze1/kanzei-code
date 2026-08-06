@@ -511,6 +511,12 @@ button:disabled { opacity: .45; cursor: default; }
 .reasoning-head:hover { color: var(--fg); }
 .reasoning-body { color: var(--dim); font-size: 12px; white-space: pre-wrap; margin-top: 4px; }
 
+.doc-row .id, .doc-row .pos { flex: 0 0 34px; }
+.doc-row .st { flex: 0 0 72px; white-space: nowrap; }
+.doc-row .pri-badge { flex: 0 0 36px; text-align: center; }
+.doc-row .complexity-badge { flex: 0 0 68px; text-align: center; white-space: nowrap; }
+.doc-row .title { flex: 1 1 auto; min-width: 0; }
+@media (max-width: 760px) { .documents-list .doc-row .complexity-badge { flex-basis: 58px; } .documents-list .doc-row .st { flex-basis: 60px; } }
 .doc-row { display: flex; gap: 6px; align-items: baseline; cursor: pointer; min-width: 0; }
 .doc-detail {
   margin: 4px 0 6px 8px; padding: 6px 8px; border-left: 2px solid var(--border);
