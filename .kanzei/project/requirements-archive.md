@@ -320,3 +320,12 @@
 - 验收: 用户在需求列表中可点击条目直接修改其优先级标签
 - 优先级: P2
 - 进展: 已完成：需求列表中的优先级徽章现在可直接点击，按 P0→P1→P2→P3→P0 循环；点击会阻止详情展开/拖拽，并通过 docs_update 持久化，未评估需求显示 P? 作为入口。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
+## R-058 子代理管理体系扩展优化方案 [done]
+- priority: P2
+- 原始描述: 子代理的管理扩展，不只是管理需求和缺陷，你看下还有怎么管理比较方便和合适的
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 完成对需求、缺陷之外的其他管理功能设计，并验证可用性
+- 进展: 已完成：新增 docs/design/subagent-management.md，完成 agent/任务/策略/审计四层管理设计，明确硬门禁与实施顺序，并用现有活动面板、task 子轨迹回放、只读子代理测试完成可用性验证；与 R-049 风险报告对齐。git diff --check、cargo test -p kanzei-harness -p kanzei-core -p kanzei-tools 通过。
+- 设计: docs/design/subagent-management.md
