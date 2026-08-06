@@ -17,7 +17,7 @@
 - 测试: cargo test -p kanzei、cargo test -p kanzei-app 已通过
 - 当前进度: 已完成 SQLite 会话状态生命周期持久化：running/idle/failed 状态更新、状态事件和核心测试；CLI/桌面端均已接入。后续仍需 steer 前端入口、运行中 queue drain、事件恢复消息历史。
 - 验证: cargo test -p kanzei-core：8 passed；cargo build -p kanzei-app 通过；node --check ui/main.js 通过；cargo test --workspace 全部通过。格式检查仅保留仓库既有 app/tools 差异。下一步：运行中 queue admission/drain。
-- 进展: 已完成 steer 前端入口：桌面端新增 queue/steer 交付方式选择，run_prompt 统一接收 delivery；SessionStore drain 优先提升 steer、无 steer 时 FIFO 提升 queue；新增回归测试。cargo test --workspace 与 node --check 均通过。下一步：推进事件恢复消息历史。
+- 进展: 已修复 D-021 的递归 runner Send 编译阻塞：run_once 改为显式生命周期的 Send boxed future；同时完成 R-003 事件恢复第一阶段代码。cargo test --workspace 全部通过（kanzei-core 10 tests），node --check 通过。下一步：提交当前已验证的 R-003/R-012 改动，并继续按编号推进。
 
 ## R-004 本地模型跑并行子代理(M4) [todo]
 
@@ -49,6 +49,7 @@
 ## R-012 将子Agent调度能力开放给主Agent [doing]
 - 范围: 主Agent可按任务创建、排队、并发调度、暂停/取消、汇总子Agent，并复用统一的事件与结果协议
 - 验收: 主Agent可发起并行子任务并获得可关联结果；支持并发上限、失败/超时、取消和重试；调度过程可观测且不破坏主会话；结果可回写历史和事件流
+- 进展: D-021 已修复：run_once 使用显式生命周期的 Send boxed future，R-012 子代理递归 runner 恢复 workspace 编译。cargo test --workspace 全部通过；后续继续补齐子代理调度验收（取消、超时、重试与事件回写）。
 
 ## R-013 支持回到之前的对话 [doing]
 - 范围: 会话列表、历史会话加载与继续对话

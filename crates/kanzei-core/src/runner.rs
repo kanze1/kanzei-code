@@ -18,6 +18,47 @@ pub struct RunnerConfig {
     pub max_tokens: u32,
 }
 
+/// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
+/// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
+pub struct SubagentRuntime {
+    pub snapshot: Arc<HarnessSnapshot>,
+    pub agent: AgentDef,
+    /// (route, model id):fast = 本地小模型跑机械检索。
+    pub fast: (Route, String),
+    /// primary = 主模型,给需要理解代码的任务。
+    pub primary: (Route, String),
+    pub max_tokens: u32,
+}
+
+fn task_spec() -> ToolSpec {
+    ToolSpec {
+        name: "task".into(),
+        description: "Delegate a narrow read-only exploration task (find files, call \
+                      sites, usages; read and summarize code) to a subagent with tools \
+                      read/glob/grep. Params: prompt (self-contained instruction saying \
+                      exactly what to find and what to report back); optional model: \
+                      \"fast\" (default, local model, mechanical searches) | \"primary\" \
+                      (tasks needing code comprehension). Multiple task calls in one \
+                      turn run in parallel."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Self-contained task: what to find and exactly what to report back"
+                },
+                "model": {
+                    "type": "string",
+                    "enum": ["fast", "primary"],
+                    "description": "fast = local small model (default); primary = main model"
+                }
+            },
+            "required": ["prompt"]
+        }),
+    }
+}
+
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
 pub enum RunEvent {
     /// 一轮 provider 调用开始(UI 画轮次分隔)。
@@ -68,21 +109,24 @@ pub enum AskReply {
 pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = AskReply> + Send>>;
 
 #[allow(clippy::too_many_arguments)]
-pub async fn run_once(
-    client: &LlmClient,
-    route: &Route,
-    snapshot: &HarnessSnapshot,
-    agent: &AgentDef,
-    config: &RunnerConfig,
-    ctx: &ToolCtx,
-    prompt: &str,
+pub fn run_once<'a>(
+    client: &'a LlmClient,
+    route: &'a Route,
+    snapshot: &'a HarnessSnapshot,
+    agent: &'a AgentDef,
+    config: &'a RunnerConfig,
+    ctx: &'a ToolCtx,
+    prompt: &'a str,
     // 之前轮次的完整消息历史(空 = 新对话)。
-    prior: &[Message],
-    on_event: &mut (dyn FnMut(RunEvent) + Send),
-    ask: &mut (dyn FnMut(String, String) -> AskFuture + Send),
-) -> anyhow::Result<RunSummary> {
+    prior: &'a [Message],
+    // Some = 注册 task 工具,模型可派生并行子代理;子代理自身传 None(禁嵌套)。
+    subagent: Option<&'a SubagentRuntime>,
+    on_event: &'a mut (dyn FnMut(RunEvent) + Send),
+    ask: &'a mut (dyn FnMut(String, String) -> AskFuture + Send),
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
+    Box::pin(async move {
     let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
-    let specs: Vec<ToolSpec> = tools
+    let mut specs: Vec<ToolSpec> = tools
         .iter()
         .map(|t| ToolSpec {
             name: t.name().to_string(),
@@ -90,6 +134,9 @@ pub async fn run_once(
             input_schema: t.input_schema(),
         })
         .collect();
+    if subagent.is_some() {
+        specs.push(task_spec());
+    }
 
     // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
     let system: Vec<String> = [agent.system.clone(), snapshot.system_baseline()]
@@ -226,8 +273,51 @@ pub async fn run_once(
             });
         }
 
+        // ---- task 子代理:同轮多个 task 并行执行。只读快照无副作用,与任何工具并发都安全 ----
+        let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
+            std::collections::HashMap::new();
+        if let Some(rt) = subagent {
+            let task_calls: Vec<(String, serde_json::Value, String)> = calls
+                .iter()
+                .filter(|(_, name, _, _)| name == "task")
+                .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
+                .collect();
+            if !task_calls.is_empty() {
+                for (_, input, raw) in &task_calls {
+                    on_event(RunEvent::ToolStart {
+                        name: "task".into(),
+                        summary: summarize_input(input, raw),
+                    });
+                }
+                let jobs = task_calls.iter().map(|(id, input, _)| async move {
+                    (id.clone(), run_subagent(client, rt, ctx, input).await)
+                });
+                for (id, output) in futures::future::join_all(jobs).await {
+                    task_results.insert(id, output);
+                }
+            }
+        }
+
         let mut results = Vec::new();
         for (id, name, input, raw_input) in calls {
+            // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
+            if name == "task" && subagent.is_some() {
+                let output = task_results.remove(&id).unwrap_or_else(|| {
+                    kanzei_harness::ToolOutput::error("internal: task result missing")
+                });
+                on_event(RunEvent::ToolEnd {
+                    name: name.clone(),
+                    ok: !output.is_error,
+                    preview: preview(&output.content),
+                    display: output.display.clone(),
+                });
+                results.push(Part::ToolResult {
+                    call_id: id,
+                    content: output.content,
+                    is_error: output.is_error,
+                });
+                continue;
+            }
             let Some(tool) = tools.iter().find(|t| t.name() == name) else {
                 results.push(Part::ToolResult {
                     call_id: id,
@@ -353,12 +443,71 @@ pub async fn run_once(
         halted_by_user: false,
         messages,
     })
+    })
 }
 
 enum Gate {
     Pass,
     Deny(String),
     UserDeclined,
+}
+
+/// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
+/// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
+async fn run_subagent(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    input: &serde_json::Value,
+) -> kanzei_harness::ToolOutput {
+    let prompt = ["prompt", "task", "instruction", "query"]
+        .iter()
+        .find_map(|k| input.get(k).and_then(|v| v.as_str()))
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if prompt.is_empty() {
+        return kanzei_harness::ToolOutput::error(
+            "task requires a `prompt` string: a self-contained exploration instruction",
+        );
+    }
+    let (route, model) = match input.get("model").and_then(|v| v.as_str()) {
+        Some("primary") => (&rt.primary.0, &rt.primary.1),
+        _ => (&rt.fast.0, &rt.fast.1),
+    };
+    let config = RunnerConfig {
+        model: model.clone(),
+        max_tokens: rt.max_tokens,
+    };
+    let mut on_event = |_event: RunEvent| {};
+    let mut ask = |_action: String, _resource: String| -> AskFuture {
+        Box::pin(async { AskReply::Deny })
+    };
+    // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
+    let fut = run_once(
+        client,
+        route,
+        &rt.snapshot,
+        &rt.agent,
+        &config,
+        ctx,
+        &prompt,
+        &[],
+        None,
+        &mut on_event,
+        &mut ask,
+    );
+    match fut.await {
+        Ok(summary) => {
+            let text = if summary.text.trim().is_empty() {
+                "(subagent finished without a text answer)".to_string()
+            } else {
+                summary.text
+            };
+            kanzei_harness::ToolOutput::ok(text)
+        }
+        Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
+    }
 }
 
 fn compact_messages_for_retry(messages: &mut Vec<Message>) {

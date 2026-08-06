@@ -114,6 +114,10 @@ pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<S
         "json" => serde_json::from_str::<serde_json::Value>(content)
             .err()
             .map(|e| format!("file was written but is not valid JSON: {e}")),
+        "toml" => content
+            .parse::<toml::Table>()
+            .err()
+            .map(|e| format!("file was written but is not valid TOML: {e}")),
         _ => None,
     }
 }

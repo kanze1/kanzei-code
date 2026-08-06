@@ -182,6 +182,24 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    pub fn latest_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+    ) -> Result<Option<StoredEvent>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+                 FROM session_events
+                 WHERE session_id = ?1 AND event_type = ?2
+                 ORDER BY sequence DESC LIMIT 1",
+                params![session_id, event_type],
+                event_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     pub fn admit_input(
         &self,
         session_id: &str,
@@ -470,6 +488,25 @@ mod tests {
         assert_eq!(store.list_events("ses_test", 1).unwrap().len(), 1);
     }
 
+    #[test]
+    fn latest_event_按类型返回最新事件() {
+        let store = store();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 1}))
+            .unwrap();
+        store
+            .append_event("ses_test", "run.completed", &serde_json::json!({}))
+            .unwrap();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 2}))
+            .unwrap();
+        let latest = store
+            .latest_event("ses_test", "conversation.updated")
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.payload["v"], 2);
+        assert!(store.latest_event("ses_test", "missing").unwrap().is_none());
+    }
     #[test]
     fn 不同会话的事件_id_保持唯一() {
         let store = store();

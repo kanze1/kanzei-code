@@ -892,6 +892,21 @@ async fn run_prompt(
     Ok(())
 }
 
+fn recover_messages(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let Some(event) = store.latest_event(session_id, "conversation.updated")? else {
+        return Ok(Vec::new());
+    };
+    let messages = event
+        .payload
+        .get("messages")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    Ok(serde_json::from_value(messages)?)
+}
+
 async fn run_task(
     window: &Window,
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
@@ -1014,8 +1029,6 @@ async fn run_task(
         "session.status_changed",
         &json!({ "status": "running" }),
     )?;
-    drop(store);
-
     let _ = window.emit(
         "kz:meta",
         json!({
@@ -1078,7 +1091,8 @@ async fn run_task(
         Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskReply::Deny) })
     };
 
-    // 会话连续:同项目续上历史,换项目自动开新对话。
+    // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
+    let persisted = recover_messages(&store, &session_id)?;
     let prior: Vec<kanzei_llm::Message> = {
         let mut proj = conversation_project.lock().unwrap();
         let mut conv = conversation.lock().unwrap();
@@ -1086,11 +1100,34 @@ async fn run_task(
             *proj = Some(project_dir.clone());
             conv.clear();
         }
+        if conv.is_empty() && !persisted.is_empty() {
+            *conv = persisted;
+        }
         conv.clone()
     };
     if !prior.is_empty() {
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
     }
+
+    // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
+    let subagent_rt = {
+        let mut sub_harness = Harness::default();
+        sub_harness.add(kanzei_tools::SubagentBase);
+        let sub_snapshot = sub_harness.resolve(&rctx)?;
+        let fast = match config.resolve_model("fast") {
+            Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
+                .ok()
+                .map(|fr| (fr, r.model.clone())),
+            Err(_) => None,
+        };
+        kanzei_core::SubagentRuntime {
+            snapshot: sub_snapshot,
+            agent: kanzei_tools::explore_agent(),
+            fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
+            primary: (route.clone(), resolved.model.clone()),
+            max_tokens: 4096,
+        }
+    };
 
     let run_result = run_once(
         &client,
@@ -1101,6 +1138,7 @@ async fn run_task(
         &ctx,
         &prompt,
         &prior,
+        Some(&subagent_rt),
         &mut on_event,
         &mut ask,
     )
@@ -1177,6 +1215,13 @@ async fn run_task(
             }
         }
     }
+
+    let messages = conversation.lock().unwrap().clone();
+    store.append_event(
+        &session_id,
+        "conversation.updated",
+        &json!({ "messages": messages }),
+    )?;
 
     let _ = window.emit(
         "kz:done",

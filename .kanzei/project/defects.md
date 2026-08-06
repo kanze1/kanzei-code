@@ -89,3 +89,29 @@
 - 验收: 恢复测试函数结构后 cargo test -p kanzei-core 与 workspace 全部通过。
 - 修复: 恢复并补充 steer drain 测试，SessionStore 测试模块结构正常。新增 promote_next_input：优先提升 pending steer，无 steer 时按 FIFO 提升 queue。
 - 验证: cargo test --workspace 全部通过：kanzei-core 9 tests passed；node --check crates/kanzei-app/ui/main.js 通过。
+
+## D-019 事件恢复改动误删 SessionStore admit_input 方法声明 [fixed] (medium)
+- 复现: 新增 SessionStore::latest_event 时替换了 admit_input 方法声明，导致 store.rs 出现孤立参数列表；cargo test --workspace 编译报 unexpected closing delimiter。
+- 影响: 事件恢复改动暂时无法编译。
+- 验收: 恢复 admit_input 声明后 cargo test --workspace 与 node --check 全部通过。
+- 验证: 恢复 admit_input 方法声明后，cargo test --workspace 全部通过。
+
+## D-020 插入 latest_event 测试误删相邻事件 ID 测试声明 [fixed] (medium)
+- 复现: 插入 latest_event 回归测试时匹配并替换了“不同会话的事件_id_保持唯一”测试声明，仅保留函数体，cargo test 报测试模块 unexpected closing delimiter。
+- 影响: 核心测试模块无法编译。
+- 验收: 恢复不同会话事件 ID 测试声明后，store 与 workspace 测试全部通过。
+- 验证: 恢复相邻事件 ID 测试声明后，cargo test --workspace 全部通过。
+
+## D-021 子代理递归 runner future 不满足 Send 导致 workspace 无法编译 [fixed] (high)
+- 复现: 工作区已有 R-012 子代理实现编译时，kanzei-core runner 将 run_once 强制装箱为 Send future；递归 run_subagent future 仍捕获非 Send 状态，cargo test --workspace 报 future cannot be sent between threads safely。
+- 影响: 当前 workspace 无法通过编译，事件恢复改动无法完成验证和提交。
+- 验收: 调整子代理递归 future/回调的 Send 边界后，cargo test --workspace 全部通过。
+- 修复: 将 run_once 改为显式生命周期的 Send boxed future，打断子代理递归 async future 的类型环并满足线程安全边界。
+- 验证: cargo test --workspace 全部通过；kanzei-core 10 项测试通过。
+
+## D-022 桌面端事件恢复读取使用已 drop 的 SessionStore [fixed] (medium)
+- 复现: 事件恢复代码在 run_task 中先 drop 初始 SessionStore，再调用 recover_messages(&store, ...)，cargo test --workspace 编译报 borrow of moved value: store。
+- 影响: 桌面端事件恢复代码无法编译。
+- 验收: 调整 store 生命周期后 cargo test --workspace 与 node --check 全部通过。
+- 修复: 恢复 run_task 中 SessionStore 生命周期，事件恢复读取与最终 conversation.updated 写入共用有效 store。
+- 验证: cargo test --workspace 与 node --check crates/kanzei-app/ui/main.js 全部通过。

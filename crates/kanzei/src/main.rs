@@ -142,6 +142,15 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         "session.status_changed",
         &serde_json::json!({ "status": "running" }),
     )?;
+    let prior = store
+        .latest_event(&session_id, "conversation.updated")?
+        .map(|event| {
+            serde_json::from_value::<Vec<kanzei_llm::Message>>(
+                event.payload.get("messages").cloned().unwrap_or_default(),
+            )
+        })
+        .transpose()?
+        .unwrap_or_default();
     drop(store);
 
     eprintln!(
@@ -200,6 +209,26 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Box::pin(async move { reply })
     };
 
+    // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
+    let subagent_rt = {
+        let mut sub_harness = Harness::default();
+        sub_harness.add(kanzei_tools::SubagentBase);
+        let sub_snapshot = sub_harness.resolve(&rctx)?;
+        let fast = match config.resolve_model("fast") {
+            Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
+                .ok()
+                .map(|fr| (fr, r.model.clone())),
+            Err(_) => None,
+        };
+        kanzei_core::SubagentRuntime {
+            snapshot: sub_snapshot,
+            agent: kanzei_tools::explore_agent(),
+            fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
+            primary: (route.clone(), resolved.model.clone()),
+            max_tokens: 4096,
+        }
+    };
+
     let run_result = run_once(
         &client,
         &route,
@@ -208,7 +237,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         &runner_config,
         &ctx,
         &prompt,
-        &[],
+        &prior,
+        Some(&subagent_rt),
         &mut on_event,
         &mut ask,
     )
@@ -224,13 +254,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             )?;
             store.append_event(
                 &session_id,
-                "run.completed",
-                &serde_json::json!({
-                    "steps": summary.steps,
-                    "halted_by_user": summary.halted_by_user,
-                    "input": summary.usage.input,
-                    "output": summary.usage.output,
-                }),
+                "conversation.updated",
+                &serde_json::json!({ "messages": summary.messages }),
             )?;
         }
         Err(error) => {

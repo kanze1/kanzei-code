@@ -13,9 +13,11 @@ pub mod tracker;
 mod write;
 
 pub mod profiles;
+pub mod subagent;
 
 pub use base::BaseComponent;
 pub use profiles::{DevProfile, ResearchProfile};
+pub use subagent::{explore_agent, SubagentBase};
 pub use shell::detected_shell;
 
 use kanzei_harness::Tool;

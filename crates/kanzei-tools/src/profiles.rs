@@ -141,7 +141,10 @@ impl Component for DevProfile {
                          progress with `goal update` (e.g. field 进展). Only ask when goals \
                          conflict or none exist. Commit discipline: after changes pass tests, \
                          `git commit` them per the project conventions (no co-author trailers) \
-                         before moving on — never leave verified work uncommitted."
+                         before moving on — never leave verified work uncommitted. For codebase \
+                         exploration (finding files, call sites, usages), prefer the `task` \
+                         subagent: several task calls in one turn run in parallel and keep \
+                         your context clean."
                     .into(),
             },
         );
