@@ -201,6 +201,10 @@ impl Component for ResearchProfile {
             }),
         );
         draft.tools.insert(
+            "websearch",
+            Arc::new(crate::websearch::WebSearchTool),
+        );
+        draft.tools.insert(
             "finding",
             Arc::new(TrackerTool {
                 tool_name: "finding",
@@ -220,6 +224,7 @@ impl Component for ResearchProfile {
         // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图);联网抓取放行(主力工具)。
         draft.permissions.push(rule("bash", "*", Effect::Ask));
         draft.permissions.push(rule("webfetch", "*", Effect::Allow));
+        draft.permissions.push(rule("websearch", "*", Effect::Allow));
 
         draft.context.insert(
             "research/docs",

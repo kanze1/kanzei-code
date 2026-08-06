@@ -16,3 +16,4 @@
 - priority: P1
 - 验收: R-016、R-028、R-029、R-023 全部 done;达成即 `goal update G-003 achieved`
 - 说明: 发版自更新闭环 + agent 工具面(todo/question/websearch)
+- 进展: R-036 已完成：新增 dev-pair 结伴人格，桌面端模式选择器默认结伴开发并支持自主推进/research，run_prompt 已传递显式 agent，连跑仅在自主推进模式可用。R-033 已完成：消息区智能滚动跟随/回到最新、消息与工具一键复制、对话内搜索及上下匹配跳转。R-023 已完成：research profile 新增受权限控制的 websearch，复用代理配置，返回有界结构化搜索结果并补充解析测试。下一步推进 G-003 的 R-029 question 工具。

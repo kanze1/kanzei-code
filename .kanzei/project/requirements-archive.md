@@ -87,3 +87,11 @@
 - 归属: kanzei
 - 验收: 滚动跟随、回到最新、复制和对话搜索均已落地并接入实时消息与历史回放。
 - 进展: 已完成阅读体验闭环：消息区智能跟随（用户上滚时暂停）、回到最新按钮、消息/工具一键复制、对话内搜索及上下匹配跳转。已通过 cargo test --workspace 与 node --check。
+
+## R-023 research 模式补 websearch 工具 [done]
+- priority: P2
+- 归属: kanzei
+- 已完成: webfetch(走代理、输出截断)
+- 剩余: websearch 检索入口,结果可直接 source add
+- 进展: 已完成 research 专属 websearch 工具：复用代理配置，调用 DuckDuckGo HTML 搜索，返回有界的 query/results/truncated JSON（title/url/snippet），限制查询长度、结果数和响应体，非 2xx/网络错误明确返回错误；新增解析单测。已通过 cargo test --workspace。
+- 验收: research profile 已具备可调用且受权限控制的 websearch，结果结构化并有硬上限。

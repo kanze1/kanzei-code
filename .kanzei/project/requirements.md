@@ -10,12 +10,6 @@
 - 归属: kanzei
 - 验收: 成功/失败/停止均提示;失焦可感知;通知失败不影响对话结果
 
-## R-023 research 模式补 websearch 工具 [todo]
-- priority: P2
-- 归属: kanzei
-- 已完成: webfetch(走代理、输出截断)
-- 剩余: websearch 检索入口,结果可直接 source add
-
 ## R-024 输入体验:提示词历史(上下箭头)、@文件引用补全 [todo]
 - priority: P2
 - 归属: kanzei

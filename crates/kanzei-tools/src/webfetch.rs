@@ -112,7 +112,7 @@ impl Tool for WebFetchTool {
 }
 
 /// 轻量 HTML→文本:去 script/style,剥标签,压空白;不引第三方解析器。
-fn html_to_text(html: &str) -> String {
+pub(crate) fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 4);
     let mut chars = html.char_indices().peekable();
     let lower = html.to_lowercase();

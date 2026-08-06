@@ -7,6 +7,7 @@ mod edit;
 mod glob;
 mod grep;
 mod webfetch;
+mod websearch;
 mod read;
 mod shell;
 pub mod tracker;

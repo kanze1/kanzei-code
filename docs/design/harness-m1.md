@@ -118,6 +118,8 @@ Profile = 一组组件的成套启用:agents + tools + context sources + 权限�
 └── report.md     # 最终报告(自由写作,普通 write 即可)
 ```
 
+**当前实现状态（R-023，2026-08-06）**：research profile 已注册 `websearch`，通过 DuckDuckGo HTML 搜索页返回有界的 `query/results/truncated` JSON；每条结果包含 `title`、`url`、`snippet`。搜索请求复用 kanzei 代理配置，research 下放行，其他 profile 不暴露该工具。结果数、查询长度和响应体均有硬上限，解析失败或非 2xx 会返回工具错误。
+
 **硬门禁**:
 1. `source` / `finding` 专用工具,同 §4 的 ID/格式机制。
 2. **finding 必须引用至少一个 S-xxx**,引用不存在的 ID 直接拒绝——结论可溯源是研究模式的底线。
