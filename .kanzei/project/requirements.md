@@ -6,6 +6,8 @@
 - 下一步: 运行中 queue admission/drain 收尾,使 pending 输入在当前任务结束后自动提升执行
 - 文档: docs/design/m2-sqlite-store.md
 - refs: R-013 D-010
+- 最新提交: 91d3f2b
+- 进展: 已完成 queue/steer drain 的关键修复：promote_next_input 逐条 FIFO 提升 steer，避免后续 steer 丢失；新增连续 steer→queue 回归测试。cargo test --workspace 全部通过。剩余运行中 admission/drain 竞态与端到端覆盖。
 
 ## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [doing]
 - 已完成: Codex 凭证(auth.json 刷新回写、Responses 协议、gpt-5.6 三兄弟)
