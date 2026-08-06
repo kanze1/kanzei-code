@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: R-059 继续推进：在第一步通信/通知设计盘点后，补充阶段 A 的逻辑协议契约：任务消息与通知 JSON 示例、幂等与 retry_of、sequence/cursor 断线补发、状态迁移、错误分类和最小测试清单。不选择 HTTP/SSE/WebSocket，不开放公网远程控制。r050-poc-check.ps1 继续通过（core 13 项、app 1 项、前端语法）。下一步是技术无关的内存 broker/订阅 POC。
+- 进展: R-059 阶段 A 的技术无关内存 broker/订阅 POC 已落地到 kanzei-core：AgentMessage 幂等去重、通知 sequence/cursor replay、limit 不丢事件、终态补发，新增 4 项测试；core 17 项、app 1 项通过。未接入网络、桌面事件或远程控制。cargo fmt 全量检查暴露仓库既存无关格式差异，已恢复无关文件，仅保留本次改动。下一步是补充内存订阅边界测试并评估 R-030/R-050 适配点。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
