@@ -74,3 +74,10 @@
 ## R-027 需求分析沟通模式与缺陷查找入口 [dropped]
 - 范围: 需求澄清/边界/验收的结构化沟通模式;缺陷查找按钮与状态展示
 - 验收: 具体交互方案与权限边界在实现前补充确认
+
+## R-036 双状态 agent:自主推进(backlog驱动/连跑)与结伴开发(Claude式对话协作) [done]
+- priority: P0
+- 归属: kanzei
+- 设计: docs/design/interaction-modes.md(含 pair 人格系统提示词草案,可直接用)
+- 验收: 模式人格分离、显式 agent 路由、连跑边界均已落地。
+- 进展: 已完成首个闭环：新增 dev-pair agent；桌面端默认提供结伴开发/自主推进/research 模式并把 agent 参数传入 run_prompt→select_agent；连跑仅允许自主推进，切换模式会关闭。已通过 cargo test --workspace 与 node --check。
