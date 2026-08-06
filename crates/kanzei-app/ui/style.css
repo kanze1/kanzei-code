@@ -215,6 +215,8 @@ button.ghost {
 }
 button.ghost:hover { background: var(--panel2); color: var(--fg-strong); border-color: var(--border); }
 #topbar button.ghost, #topbar select { height: 26px; padding-top: 0; padding-bottom: 0; }
+.auto-max { width: 44px; height: 26px; padding: 2px 4px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 11px; }
+#auto-pause.active { color: var(--warn); border-color: var(--warn); }
 #activity-toggle.active { color: var(--fg-strong); border-color: var(--accent); background: var(--accent-soft); }
 button:disabled { opacity: .45; cursor: default; }
 .hidden { display: none !important; }
@@ -282,6 +284,9 @@ button:disabled { opacity: .45; cursor: default; }
   box-shadow: 0 12px 40px rgba(0,0,0,.5);
 }
 .ask-title { font-weight: 600; margin-bottom: 14px; color: var(--warn); }
+.ask-queue-status { color: var(--dim); font-size: 11px; margin: -8px 0 10px; }
+.ask-queue-preview { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 4px; padding: 5px 8px; margin-bottom: 10px; color: var(--dim); font-size: 11px; max-height: 72px; overflow-y: auto; white-space: pre-wrap; }
+.ask-queue-preview.hidden { display: none; }
 .ask-line { display: flex; gap: 10px; margin-bottom: 8px; align-items: baseline; }
 .ask-line .dim { width: 34px; flex-shrink: 0; }
 .ask-line code {

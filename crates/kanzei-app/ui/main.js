@@ -558,6 +558,7 @@ on("kz:step", (e) => {
   log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
 });
 on("kz:error", (e) => {
+  cancelAutoContinueTimer();
   addMessage("error", e.payload.message);
   log(`错误:${e.payload.message}`, "err");
   stopElapsed();
@@ -573,6 +574,7 @@ on("kz:compacted", () => {
   renderTokens();
 });
 on("kz:stopped", (e) => {
+  cancelAutoContinueTimer();
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
   addMessage("notice", cancelled > 0 ? `已停止,已取消 ${cancelled} 条排队输入` : "已停止");
@@ -602,22 +604,31 @@ on("kz:done", (e) => {
 
   // 连跑:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
+    if (autoPaused) {
+      addMessage("notice", "连跑已暂停,点击“继续连跑”恢复");
+      return;
+    }
+    if (autoStopAfterRound) {
+      autoStopAfterRound = false;
+      $("auto-stop-round").checked = false;
+      addMessage("notice", "已完成本轮,连跑停止");
+      return;
+    }
     if (p.steps <= 1 && autoRounds > 0) {
       addMessage("notice", "连跑停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
       log("连跑停止:steps<=1");
       autoRounds = 0;
       return;
     }
-    if (autoRounds >= AUTO_CONTINUE_MAX) {
-      addMessage("notice", `连跑停止:已达 ${AUTO_CONTINUE_MAX} 连上限,点「继续」或重开连跑`);
+    const max = autoContinueMax();
+    if (autoRounds >= max) {
+      addMessage("notice", `连跑停止:已达 ${max} 连上限,点“继续”或重开连跑`);
       autoRounds = 0;
       return;
     }
     autoRounds += 1;
-    setStatus(`连跑:${autoRounds}/${AUTO_CONTINUE_MAX},2 秒后继续…`, false);
-    setTimeout(() => {
-      if ($("auto-continue").checked && autoContinueAllowed() && !running) sendText(CONTINUE_PROMPT, { auto: true });
-    }, 2000);
+    setStatus(`连跑:${autoRounds}/${max},2 秒后继续…`, false);
+    scheduleAutoContinue();
   }
 });
 
@@ -644,8 +655,24 @@ $("auto-allow").addEventListener("change", () => {
   log($("auto-allow").checked ? "已开启自动放行(本会话所有权限询问直接通过)" : "已关闭自动放行");
 });
 
+function updateAskQueueStatus() {
+  const total = (askActive ? 1 : 0) + askQueue.length;
+  const status = $("ask-queue-status");
+  const preview = $("ask-queue-preview");
+  status.textContent = total > 1 ? `当前请求 1/${total} · 还有 ${total - 1} 条待处理` : "当前无其他待处理请求";
+  const lines = askQueue.slice(0, 4).map((item, index) => {
+    const text = item.kind === "question" ? item.question : `${item.action} · ${item.resource}`;
+    return `${index + 2}. ${text}`;
+  });
+  preview.textContent = lines.join("\n");
+  preview.classList.toggle("hidden", lines.length === 0);
+}
+
 function pumpAsk() {
-  if (askActive || askQueue.length === 0) return;
+  if (askActive || askQueue.length === 0) {
+    updateAskQueueStatus();
+    return;
+  }
   askActive = askQueue.shift();
   const question = askActive.kind === "question";
   $("ask-title").textContent = question ? "需要你的回答" : "权限请求";
@@ -672,12 +699,14 @@ function pumpAsk() {
     $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
   }
   $("ask-overlay").classList.remove("hidden");
+  updateAskQueueStatus();
 }
 
 function hideAsk() {
   askQueue.length = 0;
   askActive = null;
   $("ask-overlay").classList.add("hidden");
+  updateAskQueueStatus();
 }
 
 async function answerAsk(reply) {
@@ -687,6 +716,7 @@ async function answerAsk(reply) {
   const summary = question ? askActive.question : `${askActive.action}: ${askActive.resource}`;
   askActive = null;
   $("ask-overlay").classList.add("hidden");
+  updateAskQueueStatus();
   log(`${question ? "回答" : "权限"} ${reply === "deny" ? "拒绝" : reply === "always" ? "总是允许" : reply} — ${summary}`);
   try {
     await invoke("answer_ask", { id, reply });
@@ -799,8 +829,12 @@ $("jump-latest").addEventListener("click", () => {
 
 // ---------- 发送 / 停止 ----------
 // 连跑状态:自动续跑计数(手动发送归零),上限防失控。
-const AUTO_CONTINUE_MAX = 10;
+const DEFAULT_AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
+let autoPaused = false;
+let autoStopAfterRound = false;
+let autoContinueTimer = null;
+let autoContinueGeneration = 0;
 const CONTINUE_PROMPT =
   "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
   "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
@@ -816,6 +850,26 @@ function selectedAgent() {
 
 function autoContinueAllowed() {
   return $("profile-select").value === "dev-auto";
+}
+function autoContinueMax() {
+  const value = Number.parseInt($("auto-max").value, 10);
+  return Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : DEFAULT_AUTO_CONTINUE_MAX;
+}
+function cancelAutoContinueTimer() {
+  if (autoContinueTimer) clearTimeout(autoContinueTimer);
+  autoContinueTimer = null;
+  autoContinueGeneration += 1;
+}
+function scheduleAutoContinue() {
+  cancelAutoContinueTimer();
+  const generation = autoContinueGeneration;
+  autoContinueTimer = setTimeout(() => {
+    autoContinueTimer = null;
+    if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
+    if ($("auto-continue").checked && autoContinueAllowed() && !running) {
+      sendText(CONTINUE_PROMPT, { auto: true });
+    }
+  }, 2000);
 }
 
 function renderAttachments() {
@@ -892,15 +946,18 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     }
     return;
   }
-  if (!auto) autoRounds = 0;
+  if (!auto) {
+    autoRounds = 0;
+    cancelAutoContinueTimer();
+  }
   currentAssistant = null;
   currentReasoning = null;
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   ctxTokens = 0;
   outputChars = 0;
   renderTokens();
-  addMessage("user", auto ? `(连跑 ${autoRounds}/${AUTO_CONTINUE_MAX})${prompt}` : prompt);
-  setRunning(true, auto ? `连跑 ${autoRounds}/${AUTO_CONTINUE_MAX} · 准备中` : "准备中");
+  addMessage("user", auto ? `(连跑 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt);
+  setRunning(true, auto ? `连跑 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中");
   startElapsed();
   log(`${auto ? "连跑" : "发送"}:${prompt.slice(0, 80)}`);
   try {
@@ -935,29 +992,56 @@ function send() {
 $("send").addEventListener("click", send);
 $("continue-btn").addEventListener("click", () => sendText(CONTINUE_PROMPT));
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
+$("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
+$("auto-stop-round").checked = localStorage.getItem("kz-auto-stop-round") === "1";
+autoStopAfterRound = $("auto-stop-round").checked;
+$("auto-pause").addEventListener("click", () => {
+  autoPaused = !autoPaused;
+  $("auto-pause").classList.toggle("active", autoPaused);
+  $("auto-pause").textContent = autoPaused ? "继续连跑" : "暂停连跑";
+  if (autoPaused) cancelAutoContinueTimer();
+  log(autoPaused ? "连跑已暂停" : "连跑已恢复");
+});
+$("auto-stop-round").addEventListener("change", () => {
+  autoStopAfterRound = $("auto-stop-round").checked;
+  localStorage.setItem("kz-auto-stop-round", autoStopAfterRound ? "1" : "0");
+});
+$("auto-max").addEventListener("change", () => {
+  const max = autoContinueMax();
+  $("auto-max").value = max;
+  localStorage.setItem("kz-auto-max", String(max));
+  autoRounds = 0;
+  cancelAutoContinueTimer();
+  log(`连跑上限已设为 ${max} 连`);
+});
 $("auto-continue").addEventListener("change", () => {
   if ($("auto-continue").checked && !autoContinueAllowed()) {
     $("auto-continue").checked = false;
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
+    cancelAutoContinueTimer();
     toast("连跑仅适用于自主推进模式，请先切换模式");
     log("连跑未开启:结伴开发模式不支持自动续跑");
     return;
   }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
-  log($("auto-continue").checked ? "连跑已开启:每轮结束自动推进目标(上限 10 连)" : "连跑已关闭");
+  if (!$('auto-continue').checked) cancelAutoContinueTimer();
+  log($("auto-continue").checked ? `连跑已开启:每轮结束自动推进目标(上限 ${autoContinueMax()} 连)` : "连跑已关闭");
 });
 $("profile-select").addEventListener("change", () => {
   if (!autoContinueAllowed() && $("auto-continue").checked) {
     $("auto-continue").checked = false;
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
+    cancelAutoContinueTimer();
     log("已切换结伴/研究模式，连跑自动关闭");
   }
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
+  cancelAutoContinueTimer();
+  autoRounds = 0;
   invoke("stop_run", { projectDir: currentProject }).catch((err) => log(`停止指令失败:${err}`, "err"));
   hideAsk();
   stopElapsed();

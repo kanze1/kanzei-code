@@ -110,9 +110,14 @@
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板">活动</button>
           <span class="spacer"></span>
           <button id="continue-btn" class="ghost" title="让 agent 检查活跃目标并推进下一步">继续</button>
-          <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」,直到无实质进展或你点停止(上限 10 连)">
+          <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」">
             <input type="checkbox" id="auto-continue" /> 连跑
           </label>
+          <button id="auto-pause" class="ghost" title="暂停/恢复自动连跑">暂停连跑</button>
+          <label id="auto-stop-round-wrap" title="当前轮完成后停止连跑">
+            <input type="checkbox" id="auto-stop-round" /> 本轮后停
+          </label>
+          <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="连跑上限(1-100)" />
           <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
           <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
             <input type="checkbox" id="auto-allow" /> 自动放行
@@ -246,6 +251,8 @@
   <div id="ask-overlay" class="hidden">
     <div id="ask-dialog">
       <div class="ask-title" id="ask-title">权限请求</div>
+      <div id="ask-queue-status" class="ask-queue-status"></div>
+      <div id="ask-queue-preview" class="ask-queue-preview hidden"></div>
       <div class="ask-body">
         <div id="permission-fields">
           <div class="ask-line"><span class="dim">操作</span><code id="ask-action"></code></div>
