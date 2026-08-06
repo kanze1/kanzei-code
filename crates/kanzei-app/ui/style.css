@@ -4,7 +4,7 @@
   --bg: #0e100a; --panel: #14160e; --panel2: #1b1e13; --input: #22251a;
   --border: #2c2f21; --border-soft: #22251a;
   --fg: #c6c4b2; --fg-strong: #e8e6d4; --dim: #7e7c68;
-  --accent: #c9962e; --accent-hover: #e0ab3a; --accent-soft: #3a2f12;
+  --accent: #0e639c; --accent-hover: #1177bb; --accent-soft: #0d3a5c;
   --ok: #a9bc6f; --err: #c2543a; --warn: #e0ab3a; --info: #8fae8a;
   --statusbar: #181a10; --statusbar-run: #4a3a12;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
@@ -34,7 +34,7 @@ body {
 }
 .activity-item svg { width: 22px; height: 22px; }
 .activity-item:hover { color: var(--fg-strong); }
-.activity-item.active { color: var(--accent); border-left-color: var(--accent); }
+.activity-item.active { color: #ffffff; border-left-color: #ffffff; }
 
 /* ---------- 侧边栏 ---------- */
 #sidebar {
@@ -142,7 +142,7 @@ select {
 #chat-search { display: inline-flex; align-items: center; gap: 3px; }
 #chat-search input { width: 130px; padding: 3px 6px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 11px; }
 #chat-search-count { color: var(--dim); font-size: 11px; min-width: 34px; text-align: center; }
-.search-hit { outline: 1px solid var(--accent-hover); background: rgba(201,150,46,.18); }
+.search-hit { outline: 1px solid var(--accent-hover); background: rgba(14,99,156,.18); }
 .search-current { outline-color: var(--warn); }
 #empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
