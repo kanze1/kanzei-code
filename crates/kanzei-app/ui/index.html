@@ -110,6 +110,13 @@
             <input type="checkbox" id="auto-allow" /> 自动放行
           </label>
           <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
+          <button id="chat-search-toggle" class="ghost" title="搜索当前对话">搜索</button>
+          <span id="chat-search" class="hidden">
+            <input id="chat-search-input" placeholder="搜索对话" />
+            <span id="chat-search-count"></span>
+            <button id="chat-search-prev" class="ghost" title="上一个匹配">↑</button>
+            <button id="chat-search-next" class="ghost" title="下一个匹配">↓</button>
+          </span>
           <select id="model-select" title="模型(agent 默认或直选)"></select>
           <select id="profile-select" title="模式">
             <option value="dev-pair">结伴开发</option>
@@ -123,6 +130,7 @@
             <div class="hint">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送</div>
           </div>
         </section>
+        <button id="jump-latest" class="ghost hidden">回到最新</button>
         <footer id="composer">
           <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
           <div id="attachments" class="attachments hidden"></div>

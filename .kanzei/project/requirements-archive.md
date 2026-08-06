@@ -81,3 +81,9 @@
 - 设计: docs/design/interaction-modes.md(含 pair 人格系统提示词草案,可直接用)
 - 验收: 模式人格分离、显式 agent 路由、连跑边界均已落地。
 - 进展: 已完成首个闭环：新增 dev-pair agent；桌面端默认提供结伴开发/自主推进/research 模式并把 agent 参数传入 run_prompt→select_agent；连跑仅允许自主推进，切换模式会关闭。已通过 cargo test --workspace 与 node --check。
+
+## R-033 阅读体验:智能滚动跟随+回到最新按钮、消息一键复制、对话内搜索 [done]
+- priority: P0
+- 归属: kanzei
+- 验收: 滚动跟随、回到最新、复制和对话搜索均已落地并接入实时消息与历史回放。
+- 进展: 已完成阅读体验闭环：消息区智能跟随（用户上滚时暂停）、回到最新按钮、消息/工具一键复制、对话内搜索及上下匹配跳转。已通过 cargo test --workspace 与 node --check。

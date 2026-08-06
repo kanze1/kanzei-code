@@ -148,15 +148,41 @@ function clearEmptyState() {
   if (empty) empty.remove();
 }
 
-function scrollBottom() {
-  messages.scrollTop = messages.scrollHeight;
+let followLatest = true;
+function nearBottom() {
+  return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 48;
+}
+function updateLatestButton() {
+  $("jump-latest").classList.toggle("hidden", followLatest);
+}
+messages.addEventListener("scroll", () => {
+  followLatest = nearBottom();
+  updateLatestButton();
+});
+function scrollBottom(force = false) {
+  if (force || followLatest) messages.scrollTop = messages.scrollHeight;
+  updateLatestButton();
+}
+function copyButton() {
+  const button = document.createElement("button");
+  button.className = "copy-btn";
+  button.type = "button";
+  button.textContent = "复制";
+  button.title = "复制消息";
+  return button;
 }
 
 function addMessage(cls, text) {
   clearEmptyState();
   const el = document.createElement("div");
   el.className = `msg ${cls}`;
-  el.textContent = text;
+  const body = document.createElement("div");
+  body.className = "message-body";
+  body.textContent = text;
+  const actions = document.createElement("span");
+  actions.className = "msg-actions";
+  actions.appendChild(copyButton());
+  el.append(body, actions);
   messages.appendChild(el);
   scrollBottom();
   return el;
@@ -169,7 +195,7 @@ function appendAssistant(text) {
     currentAssistant.dataset.raw = "";
   }
   currentAssistant.dataset.raw += text;
-  currentAssistant.innerHTML = renderMarkdown(currentAssistant.dataset.raw);
+  currentAssistant.querySelector(".message-body").innerHTML = renderMarkdown(currentAssistant.dataset.raw);
   outputChars += text.length;
   // 侧边栏"最近在说":assistant 输出的最新一行。
   const lines = currentAssistant.dataset.raw
@@ -438,6 +464,10 @@ on("kz:tool-end", (e) => {
       result.classList.remove("hidden");
       collapsibles.splice(collapsibles.indexOf(result), 1);
     }
+    const actions = document.createElement("span");
+    actions.className = "msg-actions";
+    actions.appendChild(copyButton());
+    chip.appendChild(actions);
   }
   setStatus("运行中", true);
   scrollBottom();
@@ -574,6 +604,65 @@ async function answerAsk(reply) {
 $("ask-allow").addEventListener("click", () => answerAsk("once"));
 $("ask-always").addEventListener("click", () => answerAsk("always"));
 $("ask-deny").addEventListener("click", () => answerAsk("deny"));
+
+// ---------- 阅读辅助 ----------
+async function copyReadable(el) {
+  const text = el.dataset.raw || [...el.childNodes]
+    .filter((node) => !(node.nodeType === Node.ELEMENT_NODE && node.classList.contains("msg-actions")))
+    .map((node) => node.textContent || "")
+    .join("")
+    .trim();
+  if (!text) return toast("没有可复制的内容");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("已复制");
+  } catch (err) {
+    log(`复制失败:${err}`, "err");
+    toast("复制失败，请检查剪贴板权限");
+  }
+}
+messages.addEventListener("click", (event) => {
+  const button = event.target.closest(".copy-btn");
+  if (button) copyReadable(button.closest(".msg, .tool-chip"));
+});
+
+let searchMatches = [];
+let searchIndex = 0;
+function updateSearch() {
+  const query = $("chat-search-input").value.trim().toLowerCase();
+  document.querySelectorAll(".search-hit, .search-current").forEach((el) => el.classList.remove("search-hit", "search-current"));
+  searchMatches = query ? [...messages.querySelectorAll(".msg, .tool-chip")].filter((el) => el.textContent.toLowerCase().includes(query)) : [];
+  searchIndex = Math.min(searchIndex, Math.max(0, searchMatches.length - 1));
+  searchMatches.forEach((el) => el.classList.add("search-hit"));
+  if (searchMatches.length) {
+    const current = searchMatches[searchIndex];
+    current.classList.add("search-current");
+    current.scrollIntoView({ block: "center" });
+  }
+  $("chat-search-count").textContent = query ? `${searchMatches.length ? searchIndex + 1 : 0}/${searchMatches.length}` : "";
+}
+function moveSearch(delta) {
+  if (!searchMatches.length) return;
+  searchIndex = (searchIndex + delta + searchMatches.length) % searchMatches.length;
+  updateSearch();
+}
+$("chat-search-toggle").addEventListener("click", () => {
+  const bar = $("chat-search");
+  bar.classList.toggle("hidden");
+  if (!bar.classList.contains("hidden")) $("chat-search-input").focus();
+});
+$("chat-search-input").addEventListener("input", () => { searchIndex = 0; updateSearch(); });
+$("chat-search-input").addEventListener("keydown", (event) => {
+  if (event.key === "Enter") moveSearch(event.shiftKey ? -1 : 1);
+  if (event.key === "Escape") $("chat-search").classList.add("hidden");
+});
+$("chat-search-prev").addEventListener("click", () => moveSearch(-1));
+$("chat-search-next").addEventListener("click", () => moveSearch(1));
+$("jump-latest").addEventListener("click", () => {
+  followLatest = true;
+  scrollBottom(true);
+  messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
+});
 
 // ---------- 发送 / 停止 ----------
 // 连跑状态:自动续跑计数(手动发送归零),上限防失控。
@@ -1097,6 +1186,7 @@ async function refreshGit() {
 }
 
 function renderRecoveredMessages(items) {
+  followLatest = true;
   messages.innerHTML = "";
   currentAssistant = null;
   currentReasoning = null;
@@ -1121,16 +1211,16 @@ function renderRecoveredMessages(items) {
       const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
       if (message.role === "assistant") {
         el.dataset.raw = part.text;
-        el.innerHTML = renderMarkdown(part.text);
+        el.querySelector(".message-body").innerHTML = renderMarkdown(part.text);
       } else {
-        el.textContent = part.text;
+        el.querySelector(".message-body").textContent = part.text;
       }
     }
   }
   if (!items?.length) {
     messages.innerHTML = '<div id="empty-state"><div class="logo-mark">K</div><div class="hint">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送</div></div>';
   }
-  scrollBottom();
+  scrollBottom(true);
 }
 
 async function loadConversation(sequence = null) {

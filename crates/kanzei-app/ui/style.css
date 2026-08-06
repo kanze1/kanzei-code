@@ -98,7 +98,7 @@ body {
 .st-dropped, .st-wontfix { background: var(--panel2); color: var(--dim); }
 
 /* ---------- 主区 ---------- */
-#main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 .view { flex: 1; min-height: 0; display: none; flex-direction: column; }
 .view.active { display: flex; }
 
@@ -114,6 +114,19 @@ select {
 }
 
 #messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
+#jump-latest { position: absolute; right: 28px; bottom: 92px; z-index: 2; box-shadow: 0 2px 8px #0008; }
+#messages + #jump-latest { align-self: flex-end; }
+#messages .message-body { min-width: 0; }
+.msg { position: relative; }
+.msg-actions { position: absolute; right: 4px; top: 2px; opacity: 0; transition: opacity .12s; }
+.msg:hover .msg-actions, .tool-chip:hover .msg-actions { opacity: 1; }
+.copy-btn { background: var(--panel2); color: var(--dim); border: 1px solid var(--border); padding: 2px 6px; font-size: 11px; }
+.copy-btn:hover { color: var(--fg-strong); }
+#chat-search { display: inline-flex; align-items: center; gap: 3px; }
+#chat-search input { width: 130px; padding: 3px 6px; background: var(--input); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 11px; }
+#chat-search-count { color: var(--dim); font-size: 11px; min-width: 34px; text-align: center; }
+.search-hit { outline: 1px solid var(--accent-hover); background: rgba(14,99,156,.18); }
+.search-current { outline-color: var(--warn); }
 #empty-state {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
   color: var(--dim);
