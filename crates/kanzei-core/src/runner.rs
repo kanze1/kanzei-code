@@ -71,15 +71,23 @@ pub enum RunEvent {
     Text(String),
     Reasoning(String),
     ToolStart {
+        /// 工具调用 id:并行工具(task)结束顺序不定,UI 靠它配对 start/end。
+        id: String,
         name: String,
         summary: String,
     },
     ToolEnd {
+        id: String,
         name: String,
         ok: bool,
         preview: String,
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,
+    },
+    /// 子代理运行中的实时状态(轮次/正在用的工具),挂在对应 task 块上。
+    TaskProgress {
+        id: String,
+        text: String,
     },
     StepEnd {
         usage: Usage,
@@ -285,17 +293,57 @@ pub fn run_once<'a>(
                 .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
                 .collect();
             if !task_calls.is_empty() {
-                for (_, input, raw) in &task_calls {
+                for (id, input, raw) in &task_calls {
                     on_event(RunEvent::ToolStart {
+                        id: id.clone(),
                         name: "task".into(),
                         summary: summarize_input(input, raw),
                     });
                 }
-                let jobs = task_calls.iter().map(|(id, input, _)| async move {
-                    (id.clone(), run_subagent(client, rt, ctx, input).await)
-                });
-                for (id, output) in futures::future::join_all(jobs).await {
-                    task_results.insert(id, output);
+                // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
+                // 完成一个立刻报一个 ToolEnd——不再等最慢的,UI 全程有反馈。
+                let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
+                let mut jobs: futures::stream::FuturesUnordered<_> = task_calls
+                    .iter()
+                    .map(|(id, input, _)| {
+                        let tx = tx.clone();
+                        async move {
+                            let bound = std::time::Duration::from_secs(rt.timeout_secs);
+                            let output = match tokio::time::timeout(
+                                bound,
+                                run_subagent(client, rt, ctx, id, input, tx),
+                            )
+                            .await
+                            {
+                                Ok(output) => output,
+                                // 纯兜底(默认 15 分钟):防失控,不是性能预算。
+                                Err(_) => kanzei_harness::ToolOutput::error(format!(
+                                    "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
+                                    rt.timeout_secs
+                                )),
+                            };
+                            (id.clone(), output)
+                        }
+                    })
+                    .collect();
+                drop(tx);
+                loop {
+                    tokio::select! {
+                        next = jobs.next() => match next {
+                            Some((id, output)) => {
+                                on_event(RunEvent::ToolEnd {
+                                    id: id.clone(),
+                                    name: "task".into(),
+                                    ok: !output.is_error,
+                                    preview: preview(&output.content),
+                                    display: output.display.clone(),
+                                });
+                                task_results.insert(id, output);
+                            }
+                            None => break,
+                        },
+                        Some(event) = rx.recv() => on_event(event),
+                    }
                 }
             }
         }
@@ -303,15 +351,10 @@ pub fn run_once<'a>(
         let mut results = Vec::new();
         for (id, name, input, raw_input) in calls {
             // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
+            // ToolEnd 已在并行阶段按完成顺序上报过,这里只归位结果。
             if name == "task" && subagent.is_some() {
                 let output = task_results.remove(&id).unwrap_or_else(|| {
                     kanzei_harness::ToolOutput::error("internal: task result missing")
-                });
-                on_event(RunEvent::ToolEnd {
-                    name: name.clone(),
-                    ok: !output.is_error,
-                    preview: preview(&output.content),
-                    display: output.display.clone(),
                 });
                 results.push(Part::ToolResult {
                     call_id: id,
@@ -336,6 +379,7 @@ pub fn run_once<'a>(
                 continue;
             };
             on_event(RunEvent::ToolStart {
+                id: id.clone(),
                 name: name.clone(),
                 summary: summarize_input(&input, &raw_input),
             });
@@ -392,6 +436,7 @@ pub fn run_once<'a>(
                 )),
                 Gate::UserDeclined => {
                     on_event(RunEvent::ToolEnd {
+                        id: id.clone(),
                         name: name.clone(),
                         ok: false,
                         preview: "(user declined)".into(),
@@ -414,6 +459,7 @@ pub fn run_once<'a>(
                 }
             };
             on_event(RunEvent::ToolEnd {
+                id: id.clone(),
                 name: name.clone(),
                 ok: !output.is_error,
                 preview: preview(&output.content),
@@ -456,11 +502,14 @@ enum Gate {
 
 /// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
 /// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
+/// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
 async fn run_subagent(
     client: &LlmClient,
     rt: &SubagentRuntime,
     ctx: &ToolCtx,
+    parent_call_id: &str,
     input: &serde_json::Value,
+    progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
 ) -> kanzei_harness::ToolOutput {
     let prompt = ["prompt", "task", "instruction", "query"]
         .iter()
@@ -481,7 +530,22 @@ async fn run_subagent(
         model: model.clone(),
         max_tokens: rt.max_tokens,
     };
-    let mut on_event = |_event: RunEvent| {};
+    let mut on_event = |event: RunEvent| {
+        let text = match &event {
+            RunEvent::TurnStart { step, max_steps } => Some(format!("第 {step}/{max_steps} 轮")),
+            RunEvent::ToolStart { name, summary, .. } => {
+                let head: String = summary.chars().take(80).collect();
+                Some(format!("{name} {head}"))
+            }
+            _ => None,
+        };
+        if let Some(text) = text {
+            let _ = progress.send(RunEvent::TaskProgress {
+                id: parent_call_id.to_string(),
+                text,
+            });
+        }
+    };
     let mut ask = |_action: String, _resource: String| -> AskFuture {
         Box::pin(async { AskReply::Deny })
     };

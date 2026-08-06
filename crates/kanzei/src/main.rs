@@ -170,8 +170,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             let _ = stdout.flush();
         }
         RunEvent::Reasoning(_) => {}
-        RunEvent::ToolStart { name, summary } => {
+        RunEvent::ToolStart { name, summary, .. } => {
             let _ = writeln!(stdout, "\n\x1b[36m● {name}\x1b[0m {summary}");
+        }
+        RunEvent::TaskProgress { text, .. } => {
+            let _ = writeln!(stdout, "  \x1b[90m… {text}\x1b[0m");
         }
         RunEvent::ToolEnd { ok, preview, .. } => {
             let mark = if ok {
@@ -226,6 +229,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
             primary: (route.clone(), resolved.model.clone()),
             max_tokens: 4096,
+            // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
+            timeout_secs: 900,
         }
     };
 

@@ -195,15 +195,70 @@ function appendReasoning(text) {
   currentReasoning.dataset.raw += text;
   currentReasoning.innerHTML = renderMarkdown(currentReasoning.dataset.raw);
   if (currentReasoningHead) {
-    const preview = currentReasoning.dataset.raw
-      .split("\n")[0]
-      .replace(/[#*`]/g, "")
-      .trim()
-      .slice(0, 60);
+    // 预览取最新的非空行:思考推进时头部跟着走,不再冻结在第一行。
+    const lines = currentReasoning.dataset.raw
+      .split("\n")
+      .map((l) => l.replace(/[#*`]/g, "").trim())
+      .filter(Boolean);
+    const preview = (lines[lines.length - 1] || "").slice(0, 60);
     currentReasoningHead.textContent = `· ${preview || "思考中…"}(点击展开)`;
   }
   scrollBottom();
 }
+
+// ---------- 后台任务面板:子代理/长时间运行的工具实时监控 ----------
+const bgEntries = new Map(); // call_id -> {el, prog, meta, startedAt, done}
+function bgSync() {
+  $("bg-panel").classList.toggle("hidden", $("bg-list").children.length === 0);
+}
+function bgAdd(id, name, summary) {
+  if (!id || bgEntries.has(id)) return;
+  const make = () => {
+    if (bgEntries.has(id)) return;
+    const el = document.createElement("div");
+    el.className = "bg-entry running";
+    const title = document.createElement("div");
+    title.className = "bg-title";
+    title.textContent = `${name} ${summary}`;
+    title.title = summary;
+    const prog = document.createElement("div");
+    prog.className = "bg-prog";
+    prog.textContent = "…";
+    const meta = document.createElement("div");
+    meta.className = "bg-meta";
+    el.append(title, prog, meta);
+    $("bg-list").appendChild(el);
+    bgEntries.set(id, { el, prog, meta, startedAt: Date.now(), done: false });
+    bgSync();
+  };
+  // task 立即入面板;其他工具超过 2.5s 还没结束才算"长任务"。
+  if (name === "task") make();
+  else setTimeout(() => { if (toolChips.has(id)) make(); }, 2500);
+}
+function bgProgress(id, text) {
+  const entry = bgEntries.get(id);
+  if (entry && !entry.done) entry.prog.textContent = text;
+}
+function bgEnd(id, ok, preview) {
+  const entry = bgEntries.get(id);
+  if (!entry) return;
+  entry.done = true;
+  entry.el.classList.remove("running");
+  entry.el.classList.add(ok ? "ok" : "err");
+  entry.prog.textContent = preview || (ok ? "完成" : "失败");
+  // 留 6 秒看得见结果,然后让位。
+  setTimeout(() => { entry.el.remove(); bgEntries.delete(id); bgSync(); }, 6000);
+}
+function bgClear() {
+  for (const entry of bgEntries.values()) entry.el.remove();
+  bgEntries.clear();
+  bgSync();
+}
+setInterval(() => {
+  for (const entry of bgEntries.values()) {
+    if (!entry.done) entry.meta.textContent = `${Math.round((Date.now() - entry.startedAt) / 1000)}s`;
+  }
+}, 1000);
 
 // ---------- 事件订阅 ----------
 on("kz:status", (e) => {
@@ -245,6 +300,8 @@ on("kz:reasoning", (e) => {
   if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
+// 工具块按调用 id 配对:并行 task 结束顺序不定,靠全局 currentTool 会张冠李戴(D-017 根因)。
+const toolChips = new Map();
 on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);
@@ -257,16 +314,38 @@ on("kz:tool-start", (e) => {
   head.className = "head";
   head.textContent = `${e.payload.name} ${e.payload.summary}`;
   chip.appendChild(head);
+  // task 子代理:块内实时进度行,kz:task-progress 持续刷新。
+  if (e.payload.name === "task") {
+    const prog = document.createElement("div");
+    prog.className = "task-progress";
+    prog.textContent = "… 子代理启动中";
+    chip.appendChild(prog);
+  }
   messages.appendChild(chip);
   currentTool = chip;
+  if (e.payload.id) toolChips.set(e.payload.id, chip);
+  bgAdd(e.payload.id, e.payload.name, e.payload.summary);
   setStatus(`工具执行中 · ${e.payload.name}`, true);
   scrollBottom();
+});
+on("kz:task-progress", (e) => {
+  const p = e.payload;
+  const chip = toolChips.get(p.id);
+  if (chip) {
+    const prog = chip.querySelector(".task-progress");
+    if (prog) prog.textContent = `… ${p.text}`;
+  }
+  bgProgress(p.id, p.text);
 });
 on("kz:tool-end", (e) => {
   const p = e.payload;
   log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
-  if (currentTool) {
-    const chip = currentTool;
+  const chip = (p.id && toolChips.get(p.id)) || currentTool;
+  if (p.id) toolChips.delete(p.id);
+  if (chip === currentTool) currentTool = null;
+  bgEnd(p.id, p.ok, p.preview);
+  if (chip) {
+    chip.querySelector(".task-progress")?.remove();
     chip.classList.remove("running");
     chip.classList.add(p.ok ? "ok" : "err");
     const collapsibles = [];
@@ -312,8 +391,11 @@ on("kz:tool-end", (e) => {
     chip.querySelector(".head").addEventListener("click", () => {
       for (const el of collapsibles) el.classList.toggle("hidden");
     });
-    if (!p.ok) result.classList.remove("hidden");
-    currentTool = null;
+    // 失败结果直接展开可见,且不参与折叠切换(避免与 diff 展开状态错位)。
+    if (!p.ok) {
+      result.classList.remove("hidden");
+      collapsibles.splice(collapsibles.indexOf(result), 1);
+    }
   }
   setStatus("运行中", true);
   scrollBottom();
@@ -334,6 +416,8 @@ on("kz:error", (e) => {
   log(`错误:${e.payload.message}`, "err");
   stopElapsed();
   setRunning(false, "出错");
+  toolChips.clear();
+  bgClear();
   $("log-panel").classList.remove("hidden");
 });
 on("kz:compacted", () => {
@@ -349,6 +433,8 @@ on("kz:stopped", (e) => {
   log(cancelled > 0 ? `已手动停止并取消 ${cancelled} 条排队输入` : "已手动停止");
   stopElapsed();
   setRunning(false, "已停止");
+  toolChips.clear();
+  bgClear();
 });
 on("kz:done", (e) => {
   const p = e.payload;
@@ -359,6 +445,8 @@ on("kz:done", (e) => {
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
   setRunning(false);
+  toolChips.clear();
+  bgClear();
   refreshDocs();
   refreshGit();
 

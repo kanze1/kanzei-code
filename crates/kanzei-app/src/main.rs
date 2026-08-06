@@ -38,6 +38,8 @@ struct AppState {
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     ask_seq: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
+    /// 串行化运行状态、输入 admission 与 drain 收尾，避免边界竞态。
+    lifecycle: Arc<Mutex<()>>,
     current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// 会话内多轮连续:窗口存活期间的完整消息历史(M2 落盘前的内存态方案)。
     conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
@@ -741,6 +743,7 @@ fn app_info() -> serde_json::Value {
 
 #[tauri::command]
 fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<String>) {
+    let _lifecycle = state.lifecycle.lock().unwrap();
     if let Some(handle) = state.current_run.lock().unwrap().take() {
         handle.abort();
     }
@@ -1064,18 +1067,24 @@ async fn run_task(
             }
             RunEvent::Text(text) => event_window.emit("kz:text", json!({ "text": text })),
             RunEvent::Reasoning(text) => event_window.emit("kz:reasoning", json!({ "text": text })),
-            RunEvent::ToolStart { name, summary } => {
-                event_window.emit("kz:tool-start", json!({ "name": name, "summary": summary }))
-            }
+            RunEvent::ToolStart { id, name, summary } => event_window.emit(
+                "kz:tool-start",
+                json!({ "id": id, "name": name, "summary": summary }),
+            ),
             RunEvent::ToolEnd {
+                id,
                 name,
                 ok,
                 preview,
                 display,
             } => event_window.emit(
                 "kz:tool-end",
-                json!({ "name": name, "ok": ok, "preview": preview, "display": display }),
+                json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
+            // 子代理实时状态:挂到对应 task 块的进度行。
+            RunEvent::TaskProgress { id, text } => {
+                event_window.emit("kz:task-progress", json!({ "id": id, "text": text }))
+            }
             RunEvent::StepEnd { usage, .. } => event_window.emit(
                 "kz:step",
                 json!({
@@ -1143,6 +1152,8 @@ async fn run_task(
             fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
             primary: (route.clone(), resolved.model.clone()),
             max_tokens: 4096,
+            // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
+            timeout_secs: 900,
         }
     };
 
