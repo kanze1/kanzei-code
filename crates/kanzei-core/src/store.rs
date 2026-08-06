@@ -182,6 +182,29 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 按 sequence 删除指定类型的事件(类型限定防止误删调度事件)。返回删除数。
+    /// 用途:历史对话管理——快照删除不影响 prompt/session 生命周期事件。
+    pub fn delete_events_by_sequence(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        sequences: &[i64],
+    ) -> Result<usize, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let mut deleted = 0usize;
+        {
+            let mut statement = tx.prepare(
+                "DELETE FROM session_events
+                 WHERE session_id = ?1 AND event_type = ?2 AND sequence = ?3",
+            )?;
+            for sequence in sequences {
+                deleted += statement.execute(params![session_id, event_type, sequence])?;
+            }
+        }
+        tx.commit()?;
+        Ok(deleted)
+    }
+
     pub fn latest_event(
         &self,
         session_id: &str,

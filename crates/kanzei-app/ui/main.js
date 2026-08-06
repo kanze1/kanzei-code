@@ -881,9 +881,7 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     foot.title = "打开归档文件";
     foot.textContent = `${archivedCount} 条已归档 ↗`;
     foot.addEventListener("click", () => {
-      invoke("docs_open", { projectDir: currentProject, kind: `${kind}-archive` }).catch((e) =>
-        toast(String(e))
-      );
+      openDocViewer(`${kind}-archive`);
     });
     el.appendChild(foot);
   }
@@ -974,9 +972,36 @@ $("conv-init").addEventListener("click", async () => {
     toast(String(err));
   }
 });
-$("conv-open").addEventListener("click", () =>
-  invoke("docs_open", { projectDir: currentProject, kind: "conventions" }).catch((e) => toast(String(e)))
-);
+$("conv-open").addEventListener("click", () => openDocViewer("conventions"));
+
+// ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
+let viewerKind = null;
+async function openDocViewer(kind) {
+  try {
+    const doc = await invoke("docs_read", { projectDir: currentProject, kind });
+    viewerKind = kind;
+    $("viewer-title").textContent = doc.name;
+    const body = $("viewer-body");
+    if (doc.name.endsWith(".md")) {
+      body.className = "md";
+      body.innerHTML = renderMarkdown(doc.content);
+    } else {
+      body.className = "";
+      body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
+    }
+    body.scrollTop = 0;
+    $("viewer-overlay").classList.remove("hidden");
+  } catch (err) {
+    toast(String(err));
+  }
+}
+$("viewer-close").addEventListener("click", () => $("viewer-overlay").classList.add("hidden"));
+$("viewer-overlay").addEventListener("click", (e) => {
+  if (e.target === $("viewer-overlay")) $("viewer-overlay").classList.add("hidden");
+});
+$("viewer-external").addEventListener("click", () => {
+  if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toast(String(e)));
+});
 
 // ---------- git 状态 ----------
 async function refreshGit() {
@@ -998,17 +1023,30 @@ function renderRecoveredMessages(items) {
   currentReasoning = null;
   currentReasoningHead = null;
   for (const message of items ?? []) {
-    const text = (message.parts ?? [])
-      .map((part) => {
-        if (part.type === "text") return part.text;
-        if (part.type === "reasoning") return `[思考] ${part.text}`;
-        if (part.type === "tool_call") return `[工具调用] ${part.name}`;
-        if (part.type === "tool_result") return `[工具结果] ${part.content}`;
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n");
-    if (text) addMessage(message.role === "assistant" ? "assistant md" : "user", text);
+    // 回放只呈现对话正文:思考/工具结果不回放,工具调用折叠成一行痕迹。
+    const toolNames = [];
+    for (const part of message.parts ?? []) {
+      if (part.type === "tool_call" && part.name) toolNames.push(part.name);
+    }
+    if (toolNames.length) {
+      const chip = document.createElement("div");
+      chip.className = "tool-chip ok replay";
+      const head = document.createElement("div");
+      head.className = "head";
+      head.textContent = toolNames.join(" · ");
+      chip.appendChild(head);
+      messages.appendChild(chip);
+    }
+    for (const part of message.parts ?? []) {
+      if (part.type !== "text" || !part.text?.trim()) continue;
+      const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
+      if (message.role === "assistant") {
+        el.dataset.raw = part.text;
+        el.innerHTML = renderMarkdown(part.text);
+      } else {
+        el.textContent = part.text;
+      }
+    }
   }
   if (!items?.length) {
     messages.innerHTML = '<div id="empty-state"><div class="logo-mark">K</div><div class="hint">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送</div></div>';
@@ -1038,9 +1076,17 @@ function renderConversationList(items) {
   }
   for (const item of [...items].reverse()) {
     const row = document.createElement("div");
-    row.className = "doc-item";
-    row.title = "打开此历史对话";
-    row.textContent = `${item.title || "新对话"} (${item.message_count} 条)`;
+    row.className = "doc-item conv-row";
+    row.title = "点击打开 · 勾选后点 🗑 批量删除";
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "chat-check";
+    check.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
+    check.addEventListener("click", (e) => e.stopPropagation());
+    const title = document.createElement("span");
+    title.className = "title";
+    title.textContent = `${item.title || "新对话"} (${item.message_count} 条)`;
+    row.append(check, title);
     row.addEventListener("click", async () => {
       try {
         await loadConversation(item.sequence);
@@ -1052,6 +1098,22 @@ function renderConversationList(items) {
     el.appendChild(row);
   }
 }
+
+$("chat-del").addEventListener("click", async () => {
+  const sequences = [...document.querySelectorAll(".chat-check:checked")]
+    .flatMap((c) => JSON.parse(c.dataset.seqs));
+  if (!sequences.length) {
+    toast("先勾选要删除的历史对话");
+    return;
+  }
+  try {
+    const n = await invoke("conversation_delete", { projectDir: currentProject, sequences });
+    toast(`已删除 ${n} 份对话快照`);
+    await refreshConversationList();
+  } catch (err) {
+    toast(String(err));
+  }
+});
 
 async function refreshConversationList() {
   if (!currentProject) return;
@@ -1120,9 +1182,7 @@ $("summarize-btn").addEventListener("click", async () => {
 });
 
 for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"]]) {
-  $(btn).addEventListener("click", () =>
-    invoke("docs_open", { projectDir: currentProject, kind }).catch((e) => toast(String(e)))
-  );
+  $(btn).addEventListener("click", () => openDocViewer(kind));
 }
 
 // ---------- 设置 ----------

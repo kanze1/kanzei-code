@@ -44,7 +44,10 @@
         <div id="goal-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section">
-        <div class="section-title"><span>历史对话 <em id="conversation-count"></em></span></div>
+        <div class="section-title">
+          <span>历史对话 <em id="conversation-count"></em></span>
+          <button id="chat-del" class="icon-btn" title="删除勾选的对话">🗑</button>
+        </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section">
@@ -226,6 +229,19 @@
         <button id="ask-always" title="写入项目 .kanzei/kanzei.toml,之后不再询问">总是允许</button>
         <button id="ask-allow" class="primary">允许一次</button>
       </div>
+    </div>
+  </div>
+
+  <div id="viewer-overlay" class="hidden">
+    <div id="viewer-dialog">
+      <div class="viewer-head">
+        <span id="viewer-title"></span>
+        <span>
+          <button id="viewer-external" class="icon-btn" title="在外部编辑器打开">↗</button>
+          <button id="viewer-close" class="icon-btn" title="关闭">✕</button>
+        </span>
+      </div>
+      <div id="viewer-body"></div>
     </div>
   </div>
 

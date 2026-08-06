@@ -76,6 +76,8 @@ fn main() {
             git_status,
             conventions_init,
             conversation_clear,
+            conversation_delete,
+            docs_read,
             conversation_get,
             conversation_list
         ])
@@ -462,12 +464,11 @@ async fn docs_update(
     }
 }
 
-/// 用系统默认程序打开文档原文(requirements.md / defects.md)。
-#[tauri::command]
-fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let path = match kind.as_str() {
+/// kind → 文档路径(docs_open / docs_read 共用)。
+fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
+        .unwrap_or_else(|| PathBuf::from(project_dir));
+    let path = match kind {
         "req" => root.join(kanzei_tools::docstore::REQUIREMENTS.rel_path),
         "defect" => root.join(kanzei_tools::docstore::DEFECTS.rel_path),
         "goal" => root.join(kanzei_tools::docstore::GOALS.rel_path),
@@ -481,6 +482,13 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     if !path.is_file() {
         return Err(format!("文档还不存在:{}", path.display()));
     }
+    Ok(path)
+}
+
+/// 用系统默认程序打开文档原文(应用内查看器的"外部打开"兜底)。
+#[tauri::command]
+fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
+    let path = docs_path(&project_dir, &kind)?;
     hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
         .spawn()
@@ -787,27 +795,82 @@ fn conversation_list(project_dir: String) -> Result<Vec<serde_json::Value>, Stri
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
-    Ok(store
+    // 按"对话段"分组:同一段对话每轮都会追加快照,只展示每段最新的那份;
+    // 清空快照(新对话)是分段边界。sequences 携带整段快照,供批量删除。
+    let mut segments: Vec<Vec<serde_json::Value>> = Vec::new();
+    let mut open = false;
+    for event in store
         .list_events(&session_id, 0)
         .map_err(|e| e.to_string())?
         .into_iter()
         .filter(|event| event.event_type == "conversation.updated")
-        .map(|event| {
-            let messages = event.payload["messages"].as_array();
-            let title = messages
-                .and_then(|items| items.iter().find(|item| item["role"] == "user"))
-                .and_then(|item| item["parts"].as_array())
-                .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
-                .and_then(|part| part["text"].as_str())
-                .unwrap_or("新对话");
+    {
+        let messages = event.payload["messages"].as_array();
+        let count = messages.map_or(0, Vec::len);
+        if count == 0 {
+            open = false;
+            continue;
+        }
+        if !open {
+            segments.push(Vec::new());
+            open = true;
+        }
+        let title = messages
+            .and_then(|items| items.iter().find(|item| item["role"] == "user"))
+            .and_then(|item| item["parts"].as_array())
+            .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
+            .and_then(|part| part["text"].as_str())
+            .unwrap_or("新对话");
+        segments.last_mut().unwrap().push(json!({
+            "sequence": event.sequence,
+            "created_at": event.created_at,
+            "title": title.chars().take(48).collect::<String>(),
+            "message_count": count,
+        }));
+    }
+    Ok(segments
+        .into_iter()
+        .filter(|snapshots| !snapshots.is_empty())
+        .map(|snapshots| {
+            let sequences: Vec<i64> = snapshots
+                .iter()
+                .filter_map(|s| s["sequence"].as_i64())
+                .collect();
+            let last = snapshots.last().cloned().unwrap_or_default();
             json!({
-                "sequence": event.sequence,
-                "created_at": event.created_at,
-                "title": title.chars().take(48).collect::<String>(),
-                "message_count": messages.map_or(0, Vec::len),
+                "sequence": last["sequence"],
+                "created_at": last["created_at"],
+                "title": last["title"],
+                "message_count": last["message_count"],
+                "sequences": sequences,
             })
         })
         .collect())
+}
+
+/// 批量删除历史对话快照(只删 conversation.updated,不动调度事件)。
+#[tauri::command]
+fn conversation_delete(project_dir: String, sequences: Vec<i64>) -> Result<usize, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    store
+        .delete_events_by_sequence(&session_id, "conversation.updated", &sequences)
+        .map_err(|e| e.to_string())
+}
+
+/// 应用内查看文档:返回原文,前端直接渲染(markdown/代码),不再强制跳外部工具。
+#[tauri::command]
+fn docs_read(project_dir: String, kind: String) -> Result<serde_json::Value, String> {
+    let path = docs_path(&project_dir, &kind)?;
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
+    Ok(json!({
+        "path": path.display().to_string(),
+        "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(&kind),
+        "content": content,
+    }))
 }
 
 #[tauri::command]
