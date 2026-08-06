@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: 本轮状态未变化：代码仍未出现 ProcessHandle、process_id/session_id runtime 契约、真实双线程 runner 或权限/活动路由。R-050 已完成设计、SessionStore 隔离回归和 POC 验收脚本，剩余实现继续等待 R-030（Claude）；G-002 继续等待 R-030/R-037。按列表顺序和阻塞规则，本轮不重复改动。
+- 进展: 本轮状态仍未变化：R-050 保持 doing，其剩余真实双线程、权限/活动路由、worktree 能力继续依赖 R-030；代码中仍未出现 ProcessHandle 或 process_id/session_id runtime 契约。按先完成 doing、再取后续需求的规则，R-059 等不能启动；本轮无安全且有意义的独立步骤。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
