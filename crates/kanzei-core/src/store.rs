@@ -215,6 +215,16 @@ impl SessionStore {
         Ok(count > 0)
     }
 
+    /// 取消尚未提升的输入。已提升或已取消的输入不会被回收，避免篡改调度事实。
+    pub fn cancel_input(&self, input_id: &str) -> Result<bool, StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE session_inputs SET status = 'cancelled'
+             WHERE input_id = ?1 AND status = 'pending'",
+            params![input_id],
+        )?;
+        Ok(changed > 0)
+    }
+
     pub fn promote_steers(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
         self.promote_where(session_id, "steer", false)
     }
@@ -490,5 +500,24 @@ mod tests {
             .admit_input("ses_test", "same", "other", Delivery::Steer)
             .unwrap();
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn 只能取消尚未提升的输入() {
+        let store = store();
+        store
+            .admit_input("ses_test", "pending", "待取消", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "promoted", "已提升", Delivery::Queue)
+            .unwrap();
+        assert!(store.cancel_input("pending").unwrap());
+        assert!(!store.cancel_input("pending").unwrap());
+        assert!(!store.cancel_input("missing").unwrap());
+        assert!(store.has_pending("ses_test", Delivery::Queue).unwrap());
+
+        store.promote_next_queue("ses_test").unwrap();
+        assert!(!store.cancel_input("promoted").unwrap());
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
     }
 }

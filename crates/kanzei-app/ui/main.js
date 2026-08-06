@@ -360,6 +360,26 @@ on("kz:done", (e) => {
   setRunning(false);
   refreshDocs();
   refreshGit();
+
+  // 连跑:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
+  if ($("auto-continue").checked && !p.halted) {
+    if (p.steps <= 1 && autoRounds > 0) {
+      addMessage("notice", "连跑停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
+      log("连跑停止:steps<=1");
+      autoRounds = 0;
+      return;
+    }
+    if (autoRounds >= AUTO_CONTINUE_MAX) {
+      addMessage("notice", `连跑停止:已达 ${AUTO_CONTINUE_MAX} 连上限,点「继续」或重开连跑`);
+      autoRounds = 0;
+      return;
+    }
+    autoRounds += 1;
+    setStatus(`连跑:${autoRounds}/${AUTO_CONTINUE_MAX},2 秒后继续…`, false);
+    setTimeout(() => {
+      if ($("auto-continue").checked && !running) sendText(CONTINUE_PROMPT, { auto: true });
+    }, 2000);
+  }
 });
 
 // ---------- 权限弹窗 ----------
@@ -420,29 +440,35 @@ $("ask-always").addEventListener("click", () => answerAsk("always"));
 $("ask-deny").addEventListener("click", () => answerAsk("deny"));
 
 // ---------- 发送 / 停止 ----------
-async function send() {
-  const prompt = promptBox.value.trim();
+// 连跑状态:自动续跑计数(手动发送归零),上限防失控。
+const AUTO_CONTINUE_MAX = 10;
+let autoRounds = 0;
+const CONTINUE_PROMPT =
+  "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
+  "完成后用 goal update 记录进展。若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
+
+async function sendText(prompt, { auto = false } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
   if (running) {
-    toast("上一个任务还在运行——点「停止」或等它结束");
+    if (!auto) toast("上一个任务还在运行——点「停止」或等它结束");
     return;
   }
   if (!currentProject) {
     toast("先在左侧「项目」里添加并选择一个目录");
     return;
   }
-  promptBox.value = "";
+  if (!auto) autoRounds = 0;
   currentAssistant = null;
   currentReasoning = null;
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   ctxTokens = 0;
   outputChars = 0;
   renderTokens();
-  addMessage("user", prompt);
-  setRunning(true, "准备中");
+  addMessage("user", auto ? `(连跑 ${autoRounds}/${AUTO_CONTINUE_MAX})${prompt}` : prompt);
+  setRunning(true, auto ? `连跑 ${autoRounds}/${AUTO_CONTINUE_MAX} · 准备中` : "准备中");
   startElapsed();
-  log(`发送:${prompt.slice(0, 80)}`);
+  log(`${auto ? "连跑" : "发送"}:${prompt.slice(0, 80)}`);
   try {
     await invoke("run_prompt", {
       prompt,
@@ -458,7 +484,21 @@ async function send() {
   }
 }
 
+function send() {
+  const prompt = promptBox.value.trim();
+  if (!prompt) return;
+  promptBox.value = "";
+  sendText(prompt);
+}
+
 $("send").addEventListener("click", send);
+$("continue-btn").addEventListener("click", () => sendText(CONTINUE_PROMPT));
+$("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
+$("auto-continue").addEventListener("change", () => {
+  localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
+  autoRounds = 0;
+  log($("auto-continue").checked ? "连跑已开启:每轮结束自动推进目标(上限 10 连)" : "连跑已关闭");
+});
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
   invoke("stop_run").catch((err) => log(`停止指令失败:${err}`, "err"));
@@ -599,6 +639,32 @@ function renderDocList(el, entries, kind) {
       f.textContent = `${key}: ${value}`;
       detail.appendChild(f);
     }
+    // 目标专属:进展速记(写入 fields.进展,注入上下文时 agent 可见)。
+    if (kind === "goal" && !entry.closed) {
+      const progressRow = document.createElement("div");
+      progressRow.className = "doc-progress";
+      const input = document.createElement("input");
+      input.placeholder = "记录进展/调整方向,回车保存";
+      input.addEventListener("click", (e) => e.stopPropagation());
+      input.addEventListener("keydown", async (e) => {
+        if (e.key !== "Enter" || !input.value.trim()) return;
+        try {
+          const msg = await invoke("docs_update", {
+            projectDir: currentProject,
+            kind,
+            action: "update",
+            id: entry.id,
+            fields: { "进展": input.value.trim() },
+          });
+          log(msg);
+          refreshDocs();
+        } catch (err) {
+          toast(String(err));
+        }
+      });
+      progressRow.appendChild(input);
+      detail.appendChild(progressRow);
+    }
     if ((entry.nextStatuses ?? []).length > 0) {
       const actions = document.createElement("div");
       actions.className = "doc-actions";
@@ -666,6 +732,40 @@ function renderConventions(conv) {
     el.appendChild(item);
   }
 }
+
+// 新建目标:内联输入(webview 无 window.prompt)。
+$("goal-add").addEventListener("click", () => {
+  const list = $("goal-list");
+  if (list.querySelector(".goal-add-form")) return;
+  const form = document.createElement("div");
+  form.className = "goal-add-form";
+  const input = document.createElement("input");
+  input.placeholder = "目标描述,回车创建(Esc 取消)";
+  input.addEventListener("keydown", async (e) => {
+    if (e.key === "Escape") {
+      form.remove();
+      return;
+    }
+    if (e.key !== "Enter" || !input.value.trim()) return;
+    try {
+      const msg = await invoke("docs_update", {
+        projectDir: currentProject,
+        kind: "goal",
+        action: "add",
+        id: "",
+        title: input.value.trim(),
+      });
+      log(msg);
+      form.remove();
+      refreshDocs();
+    } catch (err) {
+      toast(String(err));
+    }
+  });
+  form.appendChild(input);
+  list.prepend(form);
+  input.focus();
+});
 
 $("conv-init").addEventListener("click", async () => {
   try {

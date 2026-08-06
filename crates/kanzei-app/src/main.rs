@@ -381,6 +381,8 @@ async fn docs_update(
     action: String,
     id: String,
     status: Option<String>,
+    title: Option<String>,
+    fields: Option<serde_json::Value>,
 ) -> Result<String, String> {
     use kanzei_harness::Tool as _;
     use kanzei_tools::docstore::{DEFECTS as D, FINDINGS as F, REQUIREMENTS as R, SOURCES as S};
@@ -421,6 +423,12 @@ async fn docs_update(
     let mut input = json!({ "action": action, "id": id });
     if let Some(status) = status {
         input["status"] = json!(status);
+    }
+    if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
+        input["title"] = json!(title);
+    }
+    if let Some(fields) = fields.filter(|f| f.is_object()) {
+        input["fields"] = fields;
     }
     let ctx = kanzei_harness::ToolCtx::new(PathBuf::from(&project_dir));
     let output = tool.execute(input, &ctx).await;

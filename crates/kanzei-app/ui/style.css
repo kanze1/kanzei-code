@@ -323,3 +323,17 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .diff-stat { color: var(--dim); font-size: 11px; margin-left: 8px; }
 .tool-chip.ok .diff-stat { color: var(--ok); }
 #status-git { opacity: .85; }
+
+/* ---------- 目标模式(R-019 二期):连跑/新建/进展 ---------- */
+#auto-continue-wrap {
+  display: flex; align-items: center; gap: 4px; color: var(--dim);
+  font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+#auto-continue-wrap:has(input:checked) { color: var(--ok); }
+#continue-btn { white-space: nowrap; }
+.goal-add-form input, .doc-progress input {
+  width: 100%; background: var(--input); border: 1px solid var(--border);
+  color: var(--fg); border-radius: 4px; padding: 4px 8px; font-size: 12px;
+  margin: 4px 0;
+}
+.goal-add-form input:focus, .doc-progress input:focus { outline: 1px solid var(--accent); }

@@ -27,7 +27,10 @@
       <div class="sidebar-section">
         <div class="section-title">
           <span>目标 <em id="goal-count"></em></span>
-          <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)">↗</button>
+          <span>
+            <button id="goal-add" class="icon-btn" title="新建目标">＋</button>
+            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)">↗</button>
+          </span>
         </div>
         <div id="goal-list" class="doc-list"></div>
       </div>
@@ -63,6 +66,10 @@
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
           <span class="spacer"></span>
+          <button id="continue-btn" class="ghost" title="让 agent 检查活跃目标并推进下一步">继续</button>
+          <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」,直到无实质进展或你点停止(上限 10 连)">
+            <input type="checkbox" id="auto-continue" /> 连跑
+          </label>
           <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
           <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
             <input type="checkbox" id="auto-allow" /> 自动放行

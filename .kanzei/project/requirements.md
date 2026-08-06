@@ -16,7 +16,8 @@
 - 文档: 新增 docs/design/m2-sqlite-store.md，说明 schema、迁移与回滚；.kanzei/state.db 已加入 .gitignore
 - 测试: cargo test -p kanzei、cargo test -p kanzei-app 已通过
 - 当前进度: 已完成 SQLite 会话状态生命周期持久化：running/idle/failed 状态更新、状态事件和核心测试；CLI/桌面端均已接入。后续仍需 steer 前端入口、运行中 queue drain、事件恢复消息历史。
-- 验证: cargo fmt --all -- --check；cargo test -p kanzei-core（6 项通过）；cargo build -p kanzei；cargo build -p kanzei-app。
+- 验证: cargo test -p kanzei-core：7 passed。cargo fmt --all -- --check 未通过，但仅发现仓库既有 kanzei-app/kanzei-tools 格式差异，本轮未改动这些文件。
+- 进展: 已完成 SessionStore::cancel_input：原子地将 pending 输入标记为 cancelled，重复取消、未知输入、已 promoted 输入均返回 false；新增测试后 kanzei-core 7 项全部通过。下一步仍需将取消 API 接入运行中 queue/子Agent调度入口。
 
 ## R-004 本地模型跑并行子代理(M4) [todo]
 
