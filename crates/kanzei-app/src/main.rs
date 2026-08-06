@@ -22,7 +22,7 @@ use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
 use kanzei_llm::{LlmClient, ProxyConfig};
-use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
+use kanzei_tools::docstore::{DocStore, DEFECTS, GOALS, REQUIREMENTS};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 /// 悬挂中的权限询问:除通道外携带上下文,支持"总是允许"落盘。
@@ -237,6 +237,7 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
         "root": root.display().to_string(),
         "requirements": load(&REQUIREMENTS),
         "defects": load(&DEFECTS),
+        "goals": load(&GOALS),
     })
 }
 
@@ -409,6 +410,12 @@ async fn docs_update(
             kind: &F,
             requires_refs: Some(&S),
         },
+        "goal" => TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        },
         other => return Err(format!("unknown kind `{other}`")),
     };
     let mut input = json!({ "action": action, "id": id });
@@ -432,6 +439,7 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     let rel = match kind.as_str() {
         "req" => kanzei_tools::docstore::REQUIREMENTS.rel_path,
         "defect" => kanzei_tools::docstore::DEFECTS.rel_path,
+        "goal" => kanzei_tools::docstore::GOALS.rel_path,
         "conventions" => CONVENTIONS_REL,
         other => return Err(format!("unknown kind `{other}`")),
     };

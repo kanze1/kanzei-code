@@ -23,6 +23,8 @@ pub struct DocKind {
     /// 终态(close 的合法目标)。
     pub terminal: &'static [&'static str],
     pub severities: Option<&'static [&'static str]>,
+    /// 非终态之间允许自由往返(目标 active⇄paused);false = 只进不退。
+    pub bidirectional: bool,
 }
 
 pub const REQUIREMENTS: DocKind = DocKind {
@@ -32,6 +34,7 @@ pub const REQUIREMENTS: DocKind = DocKind {
     statuses: &["todo", "doing", "done", "dropped"],
     terminal: &["done", "dropped"],
     severities: None,
+    bidirectional: false,
 };
 
 pub const DEFECTS: DocKind = DocKind {
@@ -41,6 +44,7 @@ pub const DEFECTS: DocKind = DocKind {
     statuses: &["open", "fixing", "fixed", "wontfix"],
     terminal: &["fixed", "wontfix"],
     severities: Some(&["high", "medium", "low"]),
+    bidirectional: false,
 };
 
 pub const SOURCES: DocKind = DocKind {
@@ -50,6 +54,7 @@ pub const SOURCES: DocKind = DocKind {
     statuses: &["active", "archived"],
     terminal: &["archived"],
     severities: None,
+    bidirectional: false,
 };
 
 pub const FINDINGS: DocKind = DocKind {
@@ -59,6 +64,18 @@ pub const FINDINGS: DocKind = DocKind {
     statuses: &["draft", "confirmed", "dropped"],
     terminal: &["confirmed", "dropped"],
     severities: None,
+    bidirectional: false,
+};
+
+/// 长期目标(R-019):agent 每次运行注入活跃目标,无明确任务时自主推进。
+pub const GOALS: DocKind = DocKind {
+    rel_path: ".kanzei/project/goals.md",
+    heading: "Goals",
+    prefix: "G",
+    statuses: &["active", "paused", "achieved", "dropped"],
+    terminal: &["achieved", "dropped"],
+    severities: None,
+    bidirectional: true,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +152,10 @@ impl DocStore {
             ));
         };
         if self.kind.terminal.contains(&to) {
+            return Ok(());
+        }
+        // 双向类型(目标):非终态之间自由往返(active⇄paused)。
+        if self.kind.bidirectional {
             return Ok(());
         }
         match idx(from) {

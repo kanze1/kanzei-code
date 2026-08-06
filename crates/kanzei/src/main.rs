@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
             );
             Ok(())
         }
-        Some("req" | "defect" | "source" | "finding") => tracker_cli(&args).await,
+        Some("req" | "defect" | "source" | "finding" | "goal") => tracker_cli(&args).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
         None => {
@@ -265,10 +265,16 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
 
 /// 人用直通:不经 LLM,直接调 tracker 工具。
 async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
-    use kanzei_tools::docstore::{DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
+    use kanzei_tools::docstore::{DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
     use kanzei_tools::tracker::TrackerTool;
 
     let tool = match args[0].as_str() {
+        "goal" => TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        },
         "req" => TrackerTool {
             tool_name: "req",
             noun: "requirement",

@@ -8,7 +8,7 @@ use kanzei_harness::{
     ResolveCtx,
 };
 
-use crate::docstore::{DocStore, DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
+use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 
 /// 索引注入的预算上限(条数;超出折叠为计数)。
@@ -21,6 +21,15 @@ impl Component for DevProfile {
         if ctx.profile != ProfileKind::Dev {
             return Ok(());
         }
+        draft.tools.insert(
+            "goal",
+            Arc::new(TrackerTool {
+                tool_name: "goal",
+                noun: "goal",
+                kind: &GOALS,
+                requires_refs: None,
+            }),
+        );
         draft.tools.insert(
             "req",
             Arc::new(TrackerTool {
@@ -46,6 +55,33 @@ impl Component for DevProfile {
                 .permissions
                 .push(rule(action, "*.kanzei/project/*", Effect::Deny));
         }
+
+        // 长期目标(R-019):活跃目标全文注入——"没有明确任务时推进目标"的信息基础。
+        draft.context.insert(
+            "dev/goals",
+            source("dev/goals", |ctx: &ResolveCtx| {
+                let entries = DocStore::open(&ctx.project_root, &GOALS).load().ok()?;
+                let active: Vec<&crate::docstore::Entry> =
+                    entries.iter().filter(|e| e.status == "active").collect();
+                if active.is_empty() {
+                    return None;
+                }
+                let mut out = String::from("<goals>\n");
+                for goal in active.iter().take(5) {
+                    out.push_str(&format!("{} {}\n", goal.id, goal.title));
+                    for (key, value) in &goal.fields {
+                        let v: String = value.chars().take(300).collect();
+                        out.push_str(&format!("  - {key}: {v}\n"));
+                    }
+                }
+                let paused = entries.iter().filter(|e| e.status == "paused").count();
+                if paused > 0 {
+                    out.push_str(&format!("(另有 {paused} 个 paused 目标,goal list 可见)\n"));
+                }
+                out.push_str("When the user gives no specific task, advance these goals and record progress via `goal update`.\n</goals>");
+                Some(out)
+            }),
+        );
 
         // 开发规范(用户手写,agent 只读遵守;write/edit 对 project 目录本就硬 deny)。
         draft.context.insert(
@@ -98,7 +134,12 @@ impl Component for DevProfile {
                 steps: 40,
                 system: "You are the dev agent. Workflow contract: before starting work set the \
                          requirement to doing (`req update`); when you find a bug record it \
-                         (`defect add`) before fixing; update statuses when done."
+                         (`defect add`) before fixing; update statuses when done. Long-term \
+                         goals (`goal` tool) are injected into your context: when the user's \
+                         message gives no specific task, do NOT ask what to do — pick the most \
+                         relevant active goal, advance its next concrete step, and record \
+                         progress with `goal update` (e.g. field 进展). Only ask when goals \
+                         conflict or none exist."
                     .into(),
             },
         );

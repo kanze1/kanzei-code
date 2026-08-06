@@ -639,8 +639,10 @@ async function refreshDocs() {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
     renderDocList($("req-list"), snapshot.requirements, "req");
     renderDocList($("defect-list"), snapshot.defects, "defect");
+    renderDocList($("goal-list"), snapshot.goals ?? [], "goal");
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
+    $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
     renderConventions(snapshot.conventions);
   } catch (err) {
     console.error(err);
@@ -748,7 +750,7 @@ $("summarize-btn").addEventListener("click", async () => {
   }
 });
 
-for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"]]) {
+for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"]]) {
   $(btn).addEventListener("click", () =>
     invoke("docs_open", { projectDir: currentProject, kind }).catch((e) => toast(String(e)))
   );
