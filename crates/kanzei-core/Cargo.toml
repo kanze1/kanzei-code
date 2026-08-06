@@ -1,0 +1,17 @@
+[package]
+name = "kanzei-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kanzei-llm.workspace = true
+kanzei-harness.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

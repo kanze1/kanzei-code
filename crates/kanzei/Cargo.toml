@@ -1,0 +1,19 @@
+[package]
+name = "kanzei"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kz"
+path = "src/main.rs"
+
+[dependencies]
+kanzei-core.workspace = true
+kanzei-llm.workspace = true
+kanzei-tools.workspace = true
+kanzei-harness.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
