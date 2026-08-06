@@ -28,6 +28,8 @@ pub struct SubagentRuntime {
     /// primary = 主模型,给需要理解代码的任务。
     pub primary: (Route, String),
     pub max_tokens: u32,
+    /// 单个子代理的墙钟上限(秒):本地模型多轮可能极慢,必须有界。
+    pub timeout_secs: u64,
 }
 
 fn task_spec() -> ToolSpec {
