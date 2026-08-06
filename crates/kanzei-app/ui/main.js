@@ -711,32 +711,32 @@ on("kz:done", (e) => {
   refreshGit();
   refreshPendingInputs();
 
-  // 连跑:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
+  // 鞭挞:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
     if (autoPaused) {
-      addMessage("notice", "连跑已暂停,点击“继续连跑”恢复");
+      addMessage("notice", "鞭挞已暂停,点击“继续鞭挞”恢复");
       return;
     }
     if (autoStopAfterRound) {
       autoStopAfterRound = false;
       $("auto-stop-round").checked = false;
-      addMessage("notice", "已完成本轮,连跑停止");
+      addMessage("notice", "已完成本轮,鞭挞停止");
       return;
     }
     if (p.steps <= 1 && autoRounds > 0) {
-      addMessage("notice", "连跑停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
-      log("连跑停止:steps<=1");
+      addMessage("notice", "鞭挞停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
+      log("鞭挞停止:steps<=1");
       autoRounds = 0;
       return;
     }
     const max = autoContinueMax();
     if (autoRounds >= max) {
-      addMessage("notice", `连跑停止:已达 ${max} 连上限,点“继续”或重开连跑`);
+      addMessage("notice", `鞭挞停止:已达 ${max} 连上限,点“继续”或重开鞭挞`);
       autoRounds = 0;
       return;
     }
     autoRounds += 1;
-    setStatus(`连跑:${autoRounds}/${max},2 秒后继续…`, false);
+    setStatus(`鞭挞:${autoRounds}/${max},2 秒后继续…`, false);
     scheduleAutoContinue();
   }
 });
@@ -937,7 +937,7 @@ $("jump-latest").addEventListener("click", () => {
 });
 
 // ---------- 发送 / 停止 ----------
-// 连跑状态:自动续跑计数(手动发送归零),上限防失控。
+// 鞭挞状态:自动续跑计数(手动发送归零),上限防失控。
 const DEFAULT_AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
 let autoPaused = false;
@@ -1026,7 +1026,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   if (!prompt) return;
   const delivery = $("delivery-select").value;
   if (running && auto) {
-    toast("当前任务还在运行，自动连跑将在本轮完成后继续");
+    toast("当前任务还在运行，自动鞭挞将在本轮完成后继续");
     return;
   }
   if (!currentProject) {
@@ -1064,10 +1064,10 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   ctxTokens = 0;
   outputChars = 0;
   renderTokens();
-  addMessage("user", auto ? `(连跑 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt);
-  setRunning(true, auto ? `连跑 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中");
+  addMessage("user", auto ? `(鞭挞 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt);
+  setRunning(true, auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中");
   startElapsed();
-  log(`${auto ? "连跑" : "发送"}:${prompt.slice(0, 80)}`);
+  log(`${auto ? "鞭挞" : "发送"}:${prompt.slice(0, 80)}`);
   try {
     const mode = selectedAgent();
     const request = {
@@ -1107,9 +1107,14 @@ autoStopAfterRound = $("auto-stop-round").checked;
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   $("auto-pause").classList.toggle("active", autoPaused);
-  $("auto-pause").textContent = autoPaused ? "继续连跑" : "暂停连跑";
+  $("auto-pause").textContent = autoPaused ? "继续鞭挞" : "暂停鞭挞";
   if (autoPaused) cancelAutoContinueTimer();
-  log(autoPaused ? "连跑已暂停" : "连跑已恢复");
+  // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
+  if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
+    setStatus("鞭挞恢复,2 秒后继续…", false);
+    scheduleAutoContinue();
+  }
+  log(autoPaused ? "鞭挞已暂停" : "鞭挞已恢复");
 });
 $("auto-stop-round").addEventListener("change", () => {
   autoStopAfterRound = $("auto-stop-round").checked;
@@ -1121,7 +1126,7 @@ $("auto-max").addEventListener("change", () => {
   localStorage.setItem("kz-auto-max", String(max));
   autoRounds = 0;
   cancelAutoContinueTimer();
-  log(`连跑上限已设为 ${max} 连`);
+  log(`鞭挞上限已设为 ${max} 连`);
 });
 $("auto-continue").addEventListener("change", () => {
   if ($("auto-continue").checked && !autoContinueAllowed()) {
@@ -1129,14 +1134,14 @@ $("auto-continue").addEventListener("change", () => {
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
-    toast("连跑仅适用于自主推进模式，请先切换模式");
-    log("连跑未开启:结伴开发模式不支持自动续跑");
+    toast("鞭挞仅适用于自主推进模式，请先切换模式");
+    log("鞭挞未开启:结伴开发模式不支持自动续跑");
     return;
   }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
-  log($("auto-continue").checked ? `连跑已开启:每轮结束自动推进目标(上限 ${autoContinueMax()} 连)` : "连跑已关闭");
+  log($("auto-continue").checked ? `鞭挞已开启:每轮结束自动推进目标(上限 ${autoContinueMax()} 连)` : "鞭挞已关闭");
 });
 $("profile-select").addEventListener("change", () => {
   if (!autoContinueAllowed() && $("auto-continue").checked) {
@@ -1144,7 +1149,7 @@ $("profile-select").addEventListener("change", () => {
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
-    log("已切换结伴/研究模式，连跑自动关闭");
+    log("已切换结伴/研究模式，鞭挞自动关闭");
   }
 });
 $("stop").addEventListener("click", () => {
