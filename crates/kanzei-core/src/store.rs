@@ -249,6 +249,17 @@ impl SessionStore {
             .next())
     }
 
+    /// 优先提升 steer；没有 steer 时再提升一条 queue，供运行边界 drain 使用。
+    pub fn promote_next_input(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<AdmittedInput>, StoreError> {
+        if let Some(input) = self.promote_steers(session_id)?.into_iter().next() {
+            return Ok(Some(input));
+        }
+        self.promote_next_queue(session_id)
+    }
+
     fn promote_where(
         &self,
         session_id: &str,
@@ -498,6 +509,33 @@ mod tests {
             "q1"
         );
         assert!(!store.has_pending("ses_test", Delivery::Steer).unwrap());
+    }
+
+    #[test]
+    fn drain_优先提升_steer_再取_queue() {
+        let store = store();
+        store
+            .admit_input("ses_test", "q1", "队列", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s1", "插入", Delivery::Steer)
+            .unwrap();
+        assert_eq!(
+            store
+                .promote_next_input("ses_test")
+                .unwrap()
+                .unwrap()
+                .delivery,
+            Delivery::Steer
+        );
+        assert_eq!(
+            store
+                .promote_next_input("ses_test")
+                .unwrap()
+                .unwrap()
+                .delivery,
+            Delivery::Queue
+        );
     }
 
     #[test]

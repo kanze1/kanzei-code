@@ -758,9 +758,18 @@ fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<Stri
     }
 }
 
-fn admit_queue_input(
+fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
+    match value.unwrap_or("queue") {
+        "steer" => Ok(kanzei_core::Delivery::Steer),
+        "queue" => Ok(kanzei_core::Delivery::Queue),
+        other => Err(anyhow::anyhow!("未知输入交付模式: {other}")),
+    }
+}
+
+fn admit_input(
     project_dir: &str,
     prompt: &str,
+    delivery: kanzei_core::Delivery,
 ) -> anyhow::Result<kanzei_core::AdmittedInput> {
     let project_root = PathBuf::from(project_dir);
     let session_id = kanzei_core::project_session_id(&project_root);
@@ -771,29 +780,27 @@ fn admit_queue_input(
         "input_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
-    let input = store.admit_input(&session_id, &input_id, prompt, kanzei_core::Delivery::Queue)?;
+    let input = store.admit_input(&session_id, &input_id, prompt, delivery)?;
     store.append_event(
         &session_id,
         "prompt.admitted",
-        &json!({ "input_id": input_id, "delivery": "queue" }),
+        &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
     )?;
     Ok(input)
 }
 
-fn promote_next_queue_input(
-    project_dir: &str,
-) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
+fn promote_next_input(project_dir: &str) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
     let project_root = PathBuf::from(project_dir);
     let session_id = kanzei_core::project_session_id(&project_root);
     let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
-    let Some(input) = store.promote_next_queue(&session_id)? else {
+    let Some(input) = store.promote_next_input(&session_id)? else {
         return Ok(None);
     };
     store.append_event(
         &session_id,
         "prompt.promoted",
-        &json!({ "input_id": input.input_id, "delivery": "queue" }),
+        &json!({ "input_id": input.input_id, "delivery": if matches!(input.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
     )?;
     Ok(Some(input))
 }
@@ -806,12 +813,14 @@ async fn run_prompt(
     project_dir: String,
     profile: Option<String>,
     model: Option<String>,
+    delivery: Option<String>,
 ) -> Result<(), String> {
+    let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     if state.running.swap(true, Ordering::SeqCst) {
         if state.conversation_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
             return Err("已有其他项目的任务在运行".into());
         }
-        let queued = admit_queue_input(&project_dir, &prompt).map_err(|e| e.to_string())?;
+        let queued = admit_input(&project_dir, &prompt, delivery).map_err(|e| e.to_string())?;
         let _ = window.emit(
             "kz:status",
             json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
@@ -841,6 +850,7 @@ async fn run_prompt(
                 model.clone(),
                 conversation.clone(),
                 conversation_project.clone(),
+                delivery,
                 next_input.take(),
             )
             .await;
@@ -860,7 +870,7 @@ async fn run_prompt(
             if result.is_err() {
                 break;
             }
-            next_input = match promote_next_queue_input(&project_dir) {
+            next_input = match promote_next_input(&project_dir) {
                 Ok(input) => input,
                 Err(error) => {
                     let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
@@ -892,6 +902,7 @@ async fn run_task(
     model_override: Option<String>,
     conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
     conversation_project: Arc<Mutex<Option<String>>>,
+    delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
@@ -979,26 +990,21 @@ async fn run_task(
             "input_{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
         );
-        store.admit_input(
-            &session_id,
-            &input_id,
-            &prompt,
-            kanzei_core::Delivery::Queue,
-        )?;
+        store.admit_input(&session_id, &input_id, &prompt, delivery)?;
         store.append_event(
             &session_id,
             "prompt.admitted",
-            &json!({ "input_id": input_id, "delivery": "queue" }),
+            &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
         )?;
         store
-            .promote_next_queue(&session_id)?
+            .promote_next_input(&session_id)?
             .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
     };
     if is_new_input {
         store.append_event(
             &session_id,
             "prompt.promoted",
-            &json!({ "input_id": promoted.input_id, "delivery": "queue" }),
+            &json!({ "input_id": promoted.input_id, "delivery": if matches!(promoted.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
         )?;
     }
     let prompt = promoted.prompt;
@@ -1150,7 +1156,11 @@ async fn run_task(
         if estimate > limit * 7 / 10 {
             stage(
                 "压缩",
-                format!("历史约 {}k token,超过 {}k 的 70%,自动压缩中…", estimate / 1000, limit / 1000),
+                format!(
+                    "历史约 {}k token,超过 {}k 的 70%,自动压缩中…",
+                    estimate / 1000,
+                    limit / 1000
+                ),
             );
             let transcript = {
                 let conv = conversation.lock().unwrap();

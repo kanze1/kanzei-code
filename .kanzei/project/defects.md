@@ -82,3 +82,10 @@
 - 验收: 运行中提交提示词返回成功并显示排队状态；当前任务完成后按 FIFO 自动提升并执行；停止运行取消仍 pending 的输入。
 - 修复: 桌面端运行中同项目提示词写入 session_inputs queue；当前任务完成后按 created_at FIFO promote 并在同一 runner loop 执行；不同项目仍明确拒绝。
 - 验证: cargo test --workspace 全部通过；core queue FIFO、取消 pending 回归测试通过。
+
+## D-018 steer drain 单测补充造成 store 测试模块语法错误 [fixed] (medium)
+- 复现: 补充 steer drain 单测时误删重复 admission 测试函数声明，cargo fmt/cargo test 报 store.rs unexpected closing delimiter。
+- 影响: 核心 crate 暂时无法编译。
+- 验收: 恢复测试函数结构后 cargo test -p kanzei-core 与 workspace 全部通过。
+- 修复: 恢复并补充 steer drain 测试，SessionStore 测试模块结构正常。新增 promote_next_input：优先提升 pending steer，无 steer 时按 FIFO 提升 queue。
+- 验证: cargo test --workspace 全部通过：kanzei-core 9 tests passed；node --check crates/kanzei-app/ui/main.js 通过。

@@ -452,12 +452,31 @@ const CONTINUE_PROMPT =
 async function sendText(prompt, { auto = false } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
-  if (running) {
-    if (!auto) toast("上一个任务还在运行——点「停止」或等它结束");
+  const delivery = $("delivery-select").value;
+  if (running && auto) {
+    toast("当前任务还在运行，自动连跑将在本轮完成后继续");
     return;
   }
   if (!currentProject) {
     toast("先在左侧「项目」里添加并选择一个目录");
+    return;
+  }
+  if (running) {
+    addMessage("user", prompt);
+    log(`运行中${delivery === "steer" ? "插入" : "排队"}:${prompt.slice(0, 80)}`);
+    try {
+      await invoke("run_prompt", {
+        prompt,
+        projectDir: currentProject,
+        profile: $("profile-select").value,
+        model: $("model-select").value || null,
+        delivery,
+      });
+      toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
+    } catch (err) {
+      addMessage("error", String(err));
+      log(`提交被拒:${err}`, "err");
+    }
     return;
   }
   if (!auto) autoRounds = 0;
@@ -477,6 +496,7 @@ async function sendText(prompt, { auto = false } = {}) {
       projectDir: currentProject,
       profile: $("profile-select").value,
       model: $("model-select").value || null,
+      delivery,
     });
   } catch (err) {
     addMessage("error", String(err));

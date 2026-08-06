@@ -17,7 +17,7 @@
 - 测试: cargo test -p kanzei、cargo test -p kanzei-app 已通过
 - 当前进度: 已完成 SQLite 会话状态生命周期持久化：running/idle/failed 状态更新、状态事件和核心测试；CLI/桌面端均已接入。后续仍需 steer 前端入口、运行中 queue drain、事件恢复消息历史。
 - 验证: cargo test -p kanzei-core：8 passed；cargo build -p kanzei-app 通过；node --check ui/main.js 通过；cargo test --workspace 全部通过。格式检查仅保留仓库既有 app/tools 差异。下一步：运行中 queue admission/drain。
-- 进展: 运行中 queue admission/drain 已完成并修正启动竞态：run_prompt 在 spawn 前登记活动项目，同项目追加 pending queue；任务完成后 FIFO promote 并继续执行，跨项目明确拒绝。cargo test --workspace 全部通过（仅既有 current_run unused warning）。下一步：补 steer 前端入口，并推进事件恢复消息历史。
+- 进展: 已完成 steer 前端入口：桌面端新增 queue/steer 交付方式选择，run_prompt 统一接收 delivery；SessionStore drain 优先提升 steer、无 steer 时 FIFO 提升 queue；新增回归测试。cargo test --workspace 与 node --check 均通过。下一步：推进事件恢复消息历史。
 
 ## R-004 本地模型跑并行子代理(M4) [todo]
 
@@ -98,3 +98,8 @@
 ## R-025 权限规则管理:设置页查看/删除已记住的放行规则(现在只能手改 toml) [todo]
 
 ## R-026 glob/grep 检索工具:ripgrep 内核带 head-limit 早停,当前 agent 只能用 bash 绕路 [done]
+
+## R-027 需求分析沟通模式与缺陷查找入口 [todo]
+- 优先级说明: 按新增需求纳入整体需求顺序，排在现有需求之后。
+- 范围: 新增需求分析沟通模式：围绕需求澄清、边界、验收标准进行结构化沟通；新增缺陷查找按钮：提供明确的用户入口触发缺陷查找/诊断流程，并展示查找状态与结果。
+- 验收: 用户可在桌面端进入需求分析沟通模式并开始分析；用户可点击缺陷查找按钮触发缺陷查找，看到进行中、完成、失败或无结果状态；具体交互方案与权限边界在实现前补充确认。
