@@ -61,6 +61,17 @@ fn task_spec() -> ToolSpec {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TaskTrace {
+    pub child_id: String,
+    pub phase: String,
+    pub name: String,
+    pub summary: Option<String>,
+    pub ok: Option<bool>,
+    pub preview: Option<String>,
+    pub display: Option<serde_json::Value>,
+}
+
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
 pub enum RunEvent {
     /// 一轮 provider 调用开始(UI 画轮次分隔)。
@@ -88,6 +99,7 @@ pub enum RunEvent {
     TaskProgress {
         id: String,
         text: String,
+        trace: Option<TaskTrace>,
     },
     StepEnd {
         usage: Usage,
@@ -623,14 +635,41 @@ async fn run_subagent(
             }
             _ => None,
         };
+        let trace = match event {
+            RunEvent::ToolStart { id, name, summary } => Some(TaskTrace {
+                child_id: id,
+                phase: "start".into(),
+                name,
+                summary: Some(summary),
+                ok: None,
+                preview: None,
+                display: None,
+            }),
+            RunEvent::ToolEnd { id, name, ok, preview, display } => Some(TaskTrace {
+                child_id: id,
+                phase: "end".into(),
+                name,
+                summary: None,
+                ok: Some(ok),
+                preview: Some(preview),
+                display,
+            }),
+            _ => None,
+        };
         if let Some(text) = text {
             let _ = progress.send(RunEvent::TaskProgress {
                 id: parent_call_id.to_string(),
                 text,
+                trace: trace.clone(),
+            });
+        } else if trace.is_some() {
+            let _ = progress.send(RunEvent::TaskProgress {
+                id: parent_call_id.to_string(),
+                text: "子代理工具完成".into(),
+                trace,
             });
         }
-    };
-    let mut ask = |_request: AskRequest| -> AskFuture {
+    };    let mut ask = |_request: AskRequest| -> AskFuture {
         Box::pin(async { AskResponse::Permission(AskReply::Deny) })
     };
     // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。

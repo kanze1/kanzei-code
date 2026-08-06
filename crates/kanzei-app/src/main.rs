@@ -1536,10 +1536,23 @@ async fn run_task(
                 "kz:tool-end",
                 json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
-            // 子代理实时状态:挂到对应 task 块的进度行。
-            RunEvent::TaskProgress { id, text } => {
-                event_window.emit("kz:task-progress", json!({ "id": id, "text": text }))
-            }
+            // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
+            RunEvent::TaskProgress { id, text, trace } => event_window.emit(
+                "kz:task-progress",
+                json!({
+                    "id": id,
+                    "text": text,
+                    "trace": trace.map(|item| json!({
+                        "child_id": item.child_id,
+                        "phase": item.phase,
+                        "name": item.name,
+                        "summary": item.summary,
+                        "ok": item.ok,
+                        "preview": item.preview,
+                        "display": item.display,
+                    })),
+                }),
+            ),
             RunEvent::StepEnd { usage, .. } => event_window.emit(
                 "kz:step",
                 json!({

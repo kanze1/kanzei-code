@@ -299,14 +299,63 @@ function bgAdd(id, name, summary) {
   const list = $("bg-list");
   list.appendChild(el);
   while (list.children.length > BG_MAX) list.firstElementChild.remove();
-  bgEntries.set(id, { el, title, prog, meta, detail, startedAt: Date.now(), done: false });
+  bgEntries.set(id, { el, title, prog, meta, detail, children: new Map(), startedAt: Date.now(), done: false });
   bgSync();
   list.scrollTop = list.scrollHeight;
 }
-function bgProgress(id, text) {
-  const entry = bgEntries.get(id);
-  if (entry && !entry.done) entry.prog.textContent = text;
+function appendDisplayBlock(container, display) {
+  if (!display) return;
+  const block = document.createElement("div");
+  if (display.kind === "diff") {
+    block.className = "tool-display diff";
+    for (const line of (display.diff || "").split("\n")) {
+      const row = document.createElement("div");
+      row.className = line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
+      row.textContent = line || " ";
+      block.appendChild(row);
+    }
+  } else if (display.kind === "terminal") {
+    block.className = "tool-display term";
+    block.textContent = `$ ${display.command}\n${display.output}`;
+  } else if (display.kind === "create") {
+    block.className = "tool-display term";
+    block.textContent = `新建 ${display.path}(${display.bytes} bytes)\n${display.preview}`;
+  } else {
+    return;
+  }
+  container.appendChild(block);
 }
+
+function bgProgress(id, text, trace) {
+  const entry = bgEntries.get(id);
+  if (!entry) return;
+  if (text) entry.prog.textContent = text;
+  if (!trace) return;
+  entry.detail.classList.add("trace-detail");
+  let child = entry.children.get(trace.child_id);
+  if (trace.phase === "start") {
+    if (!child) {
+      const row = document.createElement("div");
+      row.className = "bg-child running";
+      const head = document.createElement("div");
+      head.className = "bg-child-head";
+      head.textContent = `${trace.name} ${trace.summary || ""}`;
+      const meta = document.createElement("div");
+      meta.className = "bg-child-meta";
+      row.append(head, meta);
+      entry.detail.appendChild(row);
+      child = { row, head, meta };
+      entry.children.set(trace.child_id, child);
+      entry.el.classList.add("has-detail");
+    }
+  } else if (child) {
+    child.row.classList.remove("running");
+    child.row.classList.add(trace.ok ? "ok" : "err");
+    child.meta.textContent = trace.preview || (trace.ok ? "完成" : "失败");
+    appendDisplayBlock(child.row, trace.display);
+  }
+}
+
 function bgEnd(id, ok, preview, display) {
   const entry = bgEntries.get(id);
   if (!entry) return;
@@ -411,7 +460,7 @@ on("kz:turn", (e) => {
     clearEmptyState();
     // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
   }
-  if (p.step === 1) bgClear(); // 新一轮 run 开始:活动面板翻页
+  // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
@@ -463,7 +512,7 @@ on("kz:tool-start", (e) => {
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`工具执行中 · ${e.payload.name}`, true);
 });
-on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text));
+on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text, e.payload.trace));
 on("kz:tool-end", (e) => {
   const p = e.payload;
   log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
