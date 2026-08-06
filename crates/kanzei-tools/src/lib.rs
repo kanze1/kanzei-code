@@ -1,21 +1,20 @@
-//! kanzei-tools: 内置工具。M0:read / write / bash。
+//! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
+mod base;
 mod bash;
+pub mod docstore;
 mod read;
 mod shell;
+pub mod tracker;
 mod write;
 
+pub mod profiles;
+
+pub use base::BaseComponent;
+pub use profiles::{DevProfile, ResearchProfile};
 pub use shell::detected_shell;
 
 use kanzei_harness::Tool;
-
-pub fn builtin_tools() -> Vec<Box<dyn Tool>> {
-    vec![
-        Box::new(read::ReadTool),
-        Box::new(write::WriteTool),
-        Box::new(bash::BashTool),
-    ]
-}
 
 /// 工具输入解析的公共入口:serde 失败时返回纠错反馈而不是崩溃。
 pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(

@@ -40,6 +40,8 @@ grep-regex = "0.1"
 url = "2"
 async-stream = "0.3"
 async-trait = "0.1"
+toml = "0.8"
+dirs = "5"
 
 [profile.release]
 lto = "thin"

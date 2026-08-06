@@ -1,10 +1,14 @@
-//! 极简 agent 循环(M0):prompt → 流式 LLM → 执行工具 → 续轮,直到无工具调用或步数用尽。
-//! V2 语义中的"安全轮次边界/steer/queue"在 M2 引入;此处保持单 drain 单输入。
+//! agent 循环(M1):harness 快照驱动——工具物化过权限、system 由 Context Source 拼装、
+//! 每次工具调用过硬门禁(deny 回喂模型 / ask 问用户,用户拒绝则整轮停,与 V2 语义一致)。
+//! steer/queue/持久化调度在 M2 引入。
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use futures::StreamExt;
-use kanzei_harness::{tool::repair_hint, Tool, ToolCtx};
+use kanzei_harness::{
+    tolerant_parse, tool::repair_hint, AgentDef, Effect, HarnessSnapshot, Tool, ToolCtx,
+};
 use kanzei_llm::{
     FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, Route, ToolSpec, Usage,
 };
@@ -12,12 +16,9 @@ use kanzei_llm::{
 pub struct RunnerConfig {
     pub model: String,
     pub max_tokens: u32,
-    pub max_steps: u32,
-    /// system 分块:agent 提示词 + harness baseline。
-    pub system: Vec<String>,
 }
 
-/// 面向 UI 的运行事件(CLI/TUI 都消费这一层,不直接碰 LlmEvent)。
+/// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
 pub enum RunEvent {
     Text(String),
     Reasoning(String),
@@ -30,17 +31,23 @@ pub struct RunSummary {
     pub text: String,
     pub usage: Usage,
     pub steps: u32,
+    /// 用户拒绝权限导致的提前停止。
+    pub halted_by_user: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_once(
     client: &LlmClient,
     route: &Route,
-    tools: &[Box<dyn Tool>],
+    snapshot: &HarnessSnapshot,
+    agent: &AgentDef,
     config: &RunnerConfig,
     ctx: &ToolCtx,
     prompt: &str,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
+    ask: &mut (dyn FnMut(&str, &str) -> bool + Send),
 ) -> anyhow::Result<RunSummary> {
+    let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
     let specs: Vec<ToolSpec> = tools
         .iter()
         .map(|t| ToolSpec {
@@ -50,15 +57,22 @@ pub async fn run_once(
         })
         .collect();
 
+    // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
+    let system: Vec<String> = [agent.system.clone(), snapshot.system_baseline()]
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+
     let mut messages = vec![Message::user_text(prompt)];
     let mut total_usage = Usage::default();
     let mut final_text = String::new();
+    let max_steps = agent.steps.max(1);
 
-    for step in 1..=config.max_steps {
-        let last_step = step == config.max_steps;
+    for step in 1..=max_steps {
+        let last_step = step == max_steps;
         let request = LlmRequest {
             model: config.model.clone(),
-            system: config.system.clone(),
+            system: system.clone(),
             messages: messages.clone(),
             // 最后一步收走工具,强制模型收敛(对应 V2 的 max-steps 处理)。
             tools: if last_step { vec![] } else { specs.clone() },
@@ -87,6 +101,12 @@ pub async fn run_once(
                     on_event(RunEvent::Reasoning(text));
                 }
                 LlmEvent::ToolCall { id, name, input, raw_input } => {
+                    // 协议层解析失败 → 宽容修复(尾逗号/单引号/裸键/围栏)。
+                    let input = if input.is_null() {
+                        tolerant_parse(&raw_input).unwrap_or(serde_json::Value::Null)
+                    } else {
+                        input
+                    };
                     parts.push(Part::ToolCall {
                         id: id.clone(),
                         name: name.clone(),
@@ -102,7 +122,6 @@ pub async fn run_once(
                 _ => {}
             }
         }
-        // 流意外中断时兜底收尾未闭合的文本块。
         for (_, text) in std::mem::take(&mut text_buffers) {
             parts.push(Part::Text { text });
         }
@@ -121,26 +140,54 @@ pub async fn run_once(
         }
 
         if calls.is_empty() {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step });
+            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false });
         }
 
         let mut results = Vec::new();
         for (id, name, input, raw_input) in calls {
-            let output = match tools.iter().find(|t| t.name() == name) {
-                Some(tool) => {
-                    let summary = summarize_input(&input, &raw_input);
-                    on_event(RunEvent::ToolStart { name: name.clone(), summary });
+            let Some(tool) = tools.iter().find(|t| t.name() == name) else {
+                results.push(Part::ToolResult {
+                    call_id: id,
+                    content: format!(
+                        "unknown tool `{name}`; available: {}",
+                        tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
+                    ),
+                    is_error: true,
+                });
+                continue;
+            };
+            on_event(RunEvent::ToolStart {
+                name: name.clone(),
+                summary: summarize_input(&input, &raw_input),
+            });
+
+            // ---- 硬门禁:权限 Ruleset(deny 回喂模型;ask 问用户,拒绝停整轮)----
+            let output = match gate(snapshot, tool.as_ref(), &input, ask) {
+                Gate::Deny(resource) => kanzei_harness::ToolOutput::error(format!(
+                    "permission denied by ruleset: {} on `{resource}`. \
+                     This resource is policy-managed; use the dedicated tool for it.",
+                    tool.action(),
+                )),
+                Gate::UserDeclined => {
+                    on_event(RunEvent::ToolEnd {
+                        name: name.clone(),
+                        ok: false,
+                        preview: "(user declined)".into(),
+                    });
+                    return Ok(RunSummary {
+                        text: final_text,
+                        usage: total_usage,
+                        steps: step,
+                        halted_by_user: true,
+                    });
+                }
+                Gate::Pass => {
                     if input.is_null() {
-                        // 协议层解析失败 → 纠错反馈回喂(设计红线 1)。
                         repair_hint(tool.as_ref(), &raw_input, "tool input was not valid JSON")
                     } else {
                         tool.execute(input, ctx).await
                     }
                 }
-                None => kanzei_harness::ToolOutput::error(format!(
-                    "unknown tool `{name}`; available: {}",
-                    tools.iter().map(|t| t.name()).collect::<Vec<_>>().join(", ")
-                )),
             };
             on_event(RunEvent::ToolEnd {
                 name: name.clone(),
@@ -155,13 +202,43 @@ pub async fn run_once(
         }
         messages.push(Message::tool_results(results));
 
-        // 模型没请求工具却也没结束(如 max_tokens)的场合直接返回。
         if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step });
+            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false });
         }
     }
 
-    Ok(RunSummary { text: final_text, usage: total_usage, steps: config.max_steps })
+    Ok(RunSummary { text: final_text, usage: total_usage, steps: max_steps, halted_by_user: false })
+}
+
+enum Gate {
+    Pass,
+    Deny(String),
+    UserDeclined,
+}
+
+fn gate(
+    snapshot: &HarnessSnapshot,
+    tool: &dyn Tool,
+    input: &serde_json::Value,
+    ask: &mut (dyn FnMut(&str, &str) -> bool + Send),
+) -> Gate {
+    let action = tool.action();
+    let mut pending_ask: Vec<String> = Vec::new();
+    for resource in tool.resources(input) {
+        // 统一正斜杠,权限 pattern 不用关心平台。
+        let normalized = resource.replace('\\', "/");
+        match snapshot.evaluate(action, &normalized) {
+            Effect::Deny => return Gate::Deny(normalized),
+            Effect::Ask => pending_ask.push(normalized),
+            Effect::Allow => {}
+        }
+    }
+    for resource in pending_ask {
+        if !ask(action, &resource) {
+            return Gate::UserDeclined;
+        }
+    }
+    Gate::Pass
 }
 
 fn add_usage(a: Usage, b: Usage) -> Usage {

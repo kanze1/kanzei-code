@@ -51,6 +51,10 @@ impl Tool for BashTool {
         serde_json::to_value(schemars::schema_for!(BashInput)).unwrap()
     }
 
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        vec![input["command"].as_str().unwrap_or("*").to_string()]
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: BashInput = match crate::parse_input(self, input) {
             Ok(v) => v,

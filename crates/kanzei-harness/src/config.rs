@@ -1,0 +1,232 @@
+//! kanzei.toml:全局(~/.kanzei/)→ 项目(.kanzei/,从 cwd 向上发现),后者覆盖前者。
+//! 配置本身以组件形式进入 harness(贡献权限规则),没有第二条 config→runtime 路径。
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+use crate::permission::Rule;
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct KanzeiConfig {
+    #[serde(default)]
+    pub models: ModelRoles,
+    #[serde(default)]
+    pub providers: BTreeMap<String, ProviderConfig>,
+    /// "env"(默认)| "off" | 代理地址。
+    #[serde(default)]
+    pub proxy: Option<String>,
+    #[serde(default)]
+    pub profile: ProfileSection,
+    #[serde(default)]
+    pub permissions: PermissionsSection,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelRoles {
+    pub primary: Option<String>,
+    pub fast: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderConfig {
+    /// "anthropic" | "openai"
+    pub protocol: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileSection {
+    pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PermissionsSection {
+    #[serde(default)]
+    pub rules: Vec<Rule>,
+}
+
+/// 解析后的模型指向。
+#[derive(Debug, Clone)]
+pub struct ResolvedModel {
+    pub provider_name: String,
+    pub provider: ProviderConfig,
+    pub model: String,
+}
+
+impl KanzeiConfig {
+    /// 全局 + 项目层叠加载。任一文件解析失败返回错误(配置错误要炸在启动,不能静默)。
+    pub fn load(cwd: &Path) -> anyhow::Result<KanzeiConfig> {
+        let mut config = KanzeiConfig::default();
+        if let Some(home) = dirs::home_dir() {
+            merge_file(&mut config, &home.join(".kanzei").join("kanzei.toml"))?;
+        }
+        if let Some(project) = discover_project_config(cwd) {
+            merge_file(&mut config, &project)?;
+        }
+        config.fill_defaults();
+        Ok(config)
+    }
+
+    pub fn fill_defaults(&mut self) {
+        self.providers.entry("anthropic".into()).or_insert(ProviderConfig {
+            protocol: "anthropic".into(),
+            base_url: "https://api.anthropic.com".into(),
+            api_key_env: Some("ANTHROPIC_API_KEY".into()),
+        });
+        self.providers.entry("ollama".into()).or_insert(ProviderConfig {
+            protocol: "openai".into(),
+            base_url: "http://127.0.0.1:11434/v1".into(),
+            api_key_env: None,
+        });
+        if self.models.primary.is_none() {
+            self.models.primary = Some("anthropic:claude-sonnet-5".into());
+        }
+        if self.models.fast.is_none() {
+            self.models.fast = Some("ollama:qwen3".into());
+        }
+    }
+
+    /// "primary"/"fast"(角色)或 "provider:model"(直指)→ ResolvedModel。
+    pub fn resolve_model(&self, reference: &str) -> anyhow::Result<ResolvedModel> {
+        let spec = match reference {
+            "primary" => self.models.primary.as_deref().unwrap_or_default(),
+            "fast" => self.models.fast.as_deref().unwrap_or_default(),
+            direct => direct,
+        };
+        let (provider_name, model) = spec.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!("model reference `{spec}` must be `provider:model` (from `{reference}`)")
+        })?;
+        let provider = self.providers.get(provider_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown provider `{provider_name}`; configured: {}",
+                self.providers.keys().cloned().collect::<Vec<_>>().join(", ")
+            )
+        })?;
+        Ok(ResolvedModel {
+            provider_name: provider_name.to_string(),
+            provider: provider.clone(),
+            model: model.to_string(),
+        })
+    }
+
+    pub fn default_profile(&self) -> crate::defs::ProfileKind {
+        self.profile
+            .default
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(crate::defs::ProfileKind::Dev)
+    }
+}
+
+fn merge_file(config: &mut KanzeiConfig, path: &Path) -> anyhow::Result<()> {
+    if !path.is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
+    let layer: KanzeiConfig = toml::from_str(&text)
+        .map_err(|e| anyhow::anyhow!("invalid config {}: {e}", path.display()))?;
+    merge(config, layer);
+    Ok(())
+}
+
+/// 标量覆盖、map 合并、规则追加(后层排后 → last-match-wins 自然让后层优先)。
+fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
+    if layer.models.primary.is_some() {
+        base.models.primary = layer.models.primary;
+    }
+    if layer.models.fast.is_some() {
+        base.models.fast = layer.models.fast;
+    }
+    base.providers.extend(layer.providers);
+    if layer.proxy.is_some() {
+        base.proxy = layer.proxy;
+    }
+    if layer.profile.default.is_some() {
+        base.profile.default = layer.profile.default;
+    }
+    base.permissions.rules.extend(layer.permissions.rules);
+}
+
+/// 从 cwd 向上找 `.kanzei/kanzei.toml`。
+pub fn discover_project_config(cwd: &Path) -> Option<PathBuf> {
+    discover_project_root(cwd).map(|root| root.join(".kanzei").join("kanzei.toml"))
+}
+
+/// 项目根 = 向上最近的含 `.kanzei/` 或 `.git/` 的目录;都没有则 cwd 本身。
+pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
+    let mut dir = Some(cwd);
+    let mut fallback = None;
+    while let Some(d) = dir {
+        if d.join(".kanzei").is_dir() {
+            return Some(d.to_path_buf());
+        }
+        if fallback.is_none() && d.join(".git").is_dir() {
+            fallback = Some(d.to_path_buf());
+        }
+        dir = d.parent();
+    }
+    fallback.or_else(|| Some(cwd.to_path_buf()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_and_model_resolution() {
+        let mut c = KanzeiConfig::default();
+        c.fill_defaults();
+        let m = c.resolve_model("primary").unwrap();
+        assert_eq!(m.provider_name, "anthropic");
+        assert_eq!(m.model, "claude-sonnet-5");
+        let m = c.resolve_model("fast").unwrap();
+        assert_eq!(m.provider_name, "ollama");
+        let m = c.resolve_model("ollama:llama3.3").unwrap();
+        assert_eq!(m.model, "llama3.3");
+        assert!(c.resolve_model("nope").is_err());
+    }
+
+    #[test]
+    fn merge_layers() {
+        let mut base: KanzeiConfig = toml::from_str(
+            r#"
+[models]
+primary = "anthropic:claude-sonnet-5"
+[[permissions.rules]]
+action = "bash"
+resource = "*"
+effect = "allow"
+"#,
+        )
+        .unwrap();
+        let layer: KanzeiConfig = toml::from_str(
+            r#"
+[models]
+primary = "kimi:kimi-k2"
+[providers.kimi]
+protocol = "openai"
+base_url = "https://api.moonshot.cn/v1"
+api_key_env = "MOONSHOT_API_KEY"
+[[permissions.rules]]
+action = "bash"
+resource = "rm *"
+effect = "deny"
+"#,
+        )
+        .unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.models.primary.as_deref(), Some("kimi:kimi-k2"));
+        assert_eq!(base.permissions.rules.len(), 2);
+        assert!(base.providers.contains_key("kimi"));
+    }
+}

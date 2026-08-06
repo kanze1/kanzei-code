@@ -1,11 +1,18 @@
-//! kz — kanzei CLI。M0:一次性问答 `kz run "<prompt>"`。
+//! kz — kanzei CLI。
+//! `kz run "<prompt>"`         跑 agent 循环(harness 装配)
+//! `kz req|defect|source|finding <action> [...]`  人用直通:直接操作项目文档
+//! 配置:~/.kanzei/kanzei.toml + 项目 .kanzei/kanzei.toml;env 快捷覆盖见 usage。
 
 use std::io::Write as _;
+use std::sync::Arc;
 
 use kanzei_core::{run_once, RunEvent, RunnerConfig};
-use kanzei_harness::ToolCtx;
+use kanzei_harness::{
+    ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, Tool,
+    ToolCtx,
+};
 use kanzei_llm::{LlmClient, ProxyConfig, Route};
-use kanzei_tools::{builtin_tools, detected_shell};
+use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -17,72 +24,107 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    if matches!(args.first().map(String::as_str), Some("--version" | "-V" | "version")) {
-        println!("kanzei {} ({})", env!("CARGO_PKG_VERSION"), option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"));
-        return Ok(());
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--version" | "-V" | "version") => {
+            println!(
+                "kanzei {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                option_env!("KANZEI_BUILD_INFO").unwrap_or("dev")
+            );
+            Ok(())
+        }
+        Some("req" | "defect" | "source" | "finding") => tracker_cli(&args).await,
+        Some("run") => run_cli(&args[1..]).await,
+        Some(_) => run_cli(&args).await,
+        None => {
+            usage();
+            std::process::exit(2);
+        }
     }
-    if args.first().map(String::as_str) == Some("run") {
-        args.remove(0);
-    }
+}
+
+fn usage() {
+    eprintln!("usage: kz run \"<prompt>\"");
+    eprintln!("       kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]");
+    eprintln!("config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml");
+    eprintln!("env 快捷覆盖: KANZEI_PROFILE=dev|research  KANZEI_AGENT  KANZEI_MODEL=<role|provider:model>  KANZEI_PROXY");
+}
+
+async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let prompt = args.join(" ");
     if prompt.trim().is_empty() {
-        eprintln!("usage: kz run \"<prompt>\"");
-        eprintln!("env: KANZEI_PROVIDER=anthropic|openai|ollama (default anthropic)");
-        eprintln!("     anthropic: ANTHROPIC_API_KEY (required), ANTHROPIC_BASE_URL");
-        eprintln!("     openai:    KANZEI_BASE_URL, KANZEI_API_KEY/OPENAI_API_KEY");
-        eprintln!("     ollama:    KANZEI_BASE_URL (default http://127.0.0.1:11434/v1), no key");
-        eprintln!("     common:    KANZEI_MODEL, KANZEI_PROXY");
+        usage();
         std::process::exit(2);
     }
 
-    let provider = std::env::var("KANZEI_PROVIDER").unwrap_or_else(|_| "anthropic".into());
-    let (route, default_model) = match provider.as_str() {
-        "anthropic" => {
-            let api_key = std::env::var("ANTHROPIC_API_KEY")
-                .or_else(|_| std::env::var("KANZEI_API_KEY"))
-                .map_err(|_| anyhow::anyhow!("set ANTHROPIC_API_KEY (or KANZEI_API_KEY)"))?;
-            let base = std::env::var("ANTHROPIC_BASE_URL")
-                .unwrap_or_else(|_| "https://api.anthropic.com".into());
-            (Route::anthropic_at(&base, &api_key), "claude-sonnet-5")
-        }
-        "openai" => {
-            let base = std::env::var("KANZEI_BASE_URL")
-                .unwrap_or_else(|_| "https://api.openai.com/v1".into());
-            let key = std::env::var("KANZEI_API_KEY")
-                .or_else(|_| std::env::var("OPENAI_API_KEY"))
-                .ok();
-            (Route::openai_at(&base, key.as_deref()), "gpt-5")
-        }
-        // 本地模型:简单工具调用快速响应/并行子代理的跑法,零配置直连。
-        "ollama" => {
-            let base = std::env::var("KANZEI_BASE_URL")
-                .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into());
-            (Route::openai_at(&base, None), "qwen3")
-        }
-        other => anyhow::bail!("unknown KANZEI_PROVIDER `{other}` (anthropic|openai|ollama)"),
+    let cwd = std::env::current_dir()?;
+    let config = Arc::new(KanzeiConfig::load(&cwd)?);
+    let profile: ProfileKind = match std::env::var("KANZEI_PROFILE") {
+        Ok(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
+        Err(_) => config.default_profile(),
     };
-    let model = std::env::var("KANZEI_MODEL").unwrap_or_else(|_| default_model.into());
-    let proxy = match std::env::var("KANZEI_PROXY") {
-        Ok(p) if !p.is_empty() => ProxyConfig::Explicit(p),
+    let project_root = kanzei_harness::config::discover_project_root(&cwd)
+        .unwrap_or_else(|| cwd.clone());
+    let rctx = ResolveCtx {
+        profile,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
+
+    // 装配顺序即覆盖顺序:内置 → profile → 用户 markdown → 用户 toml(用户永远最后、永远赢)。
+    let mut harness = Harness::default();
+    harness
+        .add(BaseComponent)
+        .add(DevProfile)
+        .add(ResearchProfile)
+        .add(MarkdownComponent)
+        .add(ConfigComponent);
+    let snapshot = harness.resolve(&rctx)?;
+
+    let agent = snapshot
+        .select_agent(std::env::var("KANZEI_AGENT").ok().as_deref())?
+        .clone();
+
+    // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。
+    let model_ref = std::env::var("KANZEI_MODEL").unwrap_or_else(|_| agent.model.clone());
+    let resolved = config.resolve_model(&model_ref)?;
+    let api_key = resolved
+        .provider
+        .api_key_env
+        .as_deref()
+        .and_then(|name| std::env::var(name).ok());
+    let route = match resolved.provider.protocol.as_str() {
+        "anthropic" => {
+            let key = api_key.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "provider `{}` requires env {}",
+                    resolved.provider_name,
+                    resolved.provider.api_key_env.as_deref().unwrap_or("<api_key_env>")
+                )
+            })?;
+            Route::anthropic_at(&resolved.provider.base_url, &key)
+        }
+        "openai" => Route::openai_at(&resolved.provider.base_url, api_key.as_deref()),
+        other => anyhow::bail!("unknown protocol `{other}` for provider `{}`", resolved.provider_name),
+    };
+
+    let proxy = match std::env::var("KANZEI_PROXY").ok().or_else(|| config.proxy.clone()) {
+        Some(p) if p == "off" => ProxyConfig::Disabled,
+        Some(p) if p == "env" => ProxyConfig::Env,
+        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
         _ => ProxyConfig::Env,
     };
 
-    let cwd = std::env::current_dir()?;
-    let shell = detected_shell();
-    // 系统提示词预算制(设计红线 9):一段话,不写教程。
-    let system = vec![format!(
-        "You are kanzei, a coding agent in a terminal. Environment: OS {}, cwd {}, shell {}. \
-         Use tools to inspect and change things instead of guessing; then answer concisely in the user's language.",
-        std::env::consts::OS,
-        cwd.display(),
-        shell.name,
-    )];
-
     let client = LlmClient::new(&proxy)?;
-    let tools = builtin_tools();
-    let config = RunnerConfig { model, max_tokens: 8192, max_steps: 24, system };
-    let ctx = ToolCtx { cwd };
+    let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 8192 };
+    let ctx = ToolCtx { cwd, project_root };
+
+    eprintln!(
+        "\x1b[90mprofile {:?} · agent {} · model {}:{}\x1b[0m",
+        profile, agent.name, resolved.provider_name, resolved.model
+    );
 
     let mut stdout = std::io::stdout();
     let mut on_event = move |event: RunEvent| match event {
@@ -100,9 +142,23 @@ async fn main() -> anyhow::Result<()> {
         }
         RunEvent::StepEnd { .. } => {}
     };
+    let mut ask = |action: &str, resource: &str| -> bool {
+        eprint!("\x1b[33m? allow {action}: {resource} [y/N]\x1b[0m ");
+        let mut line = String::new();
+        if std::io::stdin().read_line(&mut line).is_err() {
+            return false;
+        }
+        matches!(line.trim(), "y" | "Y" | "yes")
+    };
 
-    let summary = run_once(&client, &route, &tools, &config, &ctx, &prompt, &mut on_event).await?;
+    let summary = run_once(
+        &client, &route, &snapshot, &agent, &runner_config, &ctx, &prompt, &mut on_event, &mut ask,
+    )
+    .await?;
 
+    if summary.halted_by_user {
+        eprintln!("\n\x1b[33m(stopped: permission declined)\x1b[0m");
+    }
     println!(
         "\n\x1b[90m— steps {} · in {} (cache r{} w{}) · out {}\x1b[0m",
         summary.steps,
@@ -111,5 +167,44 @@ async fn main() -> anyhow::Result<()> {
         summary.usage.cache_write,
         summary.usage.output
     );
+    Ok(())
+}
+
+/// 人用直通:不经 LLM,直接调 tracker 工具。
+async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
+    use kanzei_tools::docstore::{DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
+    use kanzei_tools::tracker::TrackerTool;
+
+    let tool = match args[0].as_str() {
+        "req" => TrackerTool { tool_name: "req", noun: "requirement", kind: &REQUIREMENTS, requires_refs: None },
+        "defect" => TrackerTool { tool_name: "defect", noun: "defect", kind: &DEFECTS, requires_refs: None },
+        "source" => TrackerTool { tool_name: "source", noun: "source", kind: &SOURCES, requires_refs: None },
+        "finding" => TrackerTool { tool_name: "finding", noun: "finding", kind: &FINDINGS, requires_refs: Some(&SOURCES) },
+        _ => unreachable!(),
+    };
+    let action = args.get(1).map(String::as_str).unwrap_or("list");
+    let mut input = serde_json::json!({ "action": action });
+    match action {
+        "get" | "close" | "update" => {
+            if let Some(id) = args.get(2) {
+                input["id"] = serde_json::json!(id);
+            }
+            if let Some(status) = args.get(3) {
+                input["status"] = serde_json::json!(status);
+            }
+        }
+        "add" => {
+            let title = args[2..].join(" ");
+            input["title"] = serde_json::json!(title);
+        }
+        _ => {}
+    }
+    let ctx = ToolCtx::new(std::env::current_dir()?);
+    let output = tool.execute(input, &ctx).await;
+    if output.is_error {
+        eprintln!("{}", output.content);
+        std::process::exit(1);
+    }
+    println!("{}", output.content);
     Ok(())
 }

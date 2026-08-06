@@ -1,7 +1,23 @@
 //! kanzei-harness: 统一扩展层。
-//! M0 仅提供 Tool 契约;M1 扩展为六注册表(agents/tools/commands/skills/
-//! context-sources/permissions)+ 快照解析 + 拦截器链。
+//! 一切喂给模型的东西都是组件 → 六注册表 → 每轮不可变快照;
+//! 规则全走代码硬门禁(权限 Ruleset + 拦截器),不靠提示词恳求。
 
+pub mod config;
+pub mod context;
+pub mod defs;
+pub mod harness;
+pub mod markdown;
+pub mod permission;
+pub mod registry;
+pub mod repair;
 pub mod tool;
 
+pub use config::{KanzeiConfig, ResolvedModel};
+pub use context::{source, ContextSource};
+pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
+pub use harness::{rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx};
+pub use markdown::MarkdownComponent;
+pub use permission::{Effect, Rule, Ruleset};
+pub use registry::Registry;
+pub use repair::tolerant_parse;
 pub use tool::{Tool, ToolCtx, ToolOutput};

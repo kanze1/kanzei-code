@@ -1,0 +1,175 @@
+//! 双模式 Profile 组件:dev(需求/缺陷)与 research(来源/发现)。
+//! 组件按当前 profile 决定贡献什么;权限规则是硬门禁的落点。
+
+use std::sync::Arc;
+
+use kanzei_harness::{
+    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
+    ResolveCtx,
+};
+
+use crate::docstore::{DocStore, DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
+use crate::tracker::TrackerTool;
+
+/// 索引注入的预算上限(条数;超出折叠为计数)。
+const INDEX_LIMIT: usize = 30;
+
+pub struct DevProfile;
+
+impl Component for DevProfile {
+    fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
+        if ctx.profile != ProfileKind::Dev {
+            return Ok(());
+        }
+        draft.tools.insert(
+            "req",
+            Arc::new(TrackerTool {
+                tool_name: "req",
+                noun: "requirement",
+                kind: &REQUIREMENTS,
+                requires_refs: None,
+            }),
+        );
+        draft.tools.insert(
+            "defect",
+            Arc::new(TrackerTool {
+                tool_name: "defect",
+                noun: "defect",
+                kind: &DEFECTS,
+                requires_refs: None,
+            }),
+        );
+
+        // 硬 deny:项目文档只能走专用工具(用户手改不受此限——这是模型的门禁)。
+        for action in ["write", "edit"] {
+            draft.permissions.push(rule(action, "*.kanzei/project/*", Effect::Deny));
+        }
+
+        draft.context.insert(
+            "dev/project-docs",
+            source("dev/project-docs", |ctx: &ResolveCtx| {
+                let req = index_of(ctx, &REQUIREMENTS, "Requirements");
+                let def = index_of(ctx, &DEFECTS, "Defects");
+                if req.is_none() && def.is_none() {
+                    return Some(
+                        "<project-docs>\n(empty — record requirements with `req add`, defects with `defect add`)\n</project-docs>".into(),
+                    );
+                }
+                Some(format!(
+                    "<project-docs>\n{}{}Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
+                    req.map(|s| s + "\n").unwrap_or_default(),
+                    def.map(|s| s + "\n").unwrap_or_default(),
+                ))
+            }),
+        );
+
+        draft.agents.insert(
+            "dev",
+            AgentDef {
+                name: "dev".into(),
+                profile: ProfileScope::Dev,
+                model: "primary".into(),
+                mode: AgentMode::Primary,
+                steps: 40,
+                system: "You are the dev agent. Workflow contract: before starting work set the \
+                         requirement to doing (`req update`); when you find a bug record it \
+                         (`defect add`) before fixing; update statuses when done."
+                    .into(),
+            },
+        );
+        Ok(())
+    }
+}
+
+pub struct ResearchProfile;
+
+impl Component for ResearchProfile {
+    fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
+        if ctx.profile != ProfileKind::Research {
+            return Ok(());
+        }
+        draft.tools.insert(
+            "source",
+            Arc::new(TrackerTool {
+                tool_name: "source",
+                noun: "source",
+                kind: &SOURCES,
+                requires_refs: None,
+            }),
+        );
+        draft.tools.insert(
+            "finding",
+            Arc::new(TrackerTool {
+                tool_name: "finding",
+                noun: "finding",
+                kind: &FINDINGS,
+                requires_refs: Some(&SOURCES),
+            }),
+        );
+
+        // 写权限收窄:仅 .kanzei/research/** 可写(report.md 等自由写作);其余 deny。
+        for action in ["write", "edit"] {
+            draft.permissions.push(rule(action, "*", Effect::Deny));
+            draft.permissions.push(rule(action, "*.kanzei/research/*", Effect::Allow));
+        }
+        // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图)。
+        draft.permissions.push(rule("bash", "*", Effect::Ask));
+
+        draft.context.insert(
+            "research/docs",
+            source("research/docs", |ctx: &ResolveCtx| {
+                let src = index_of(ctx, &SOURCES, "Sources");
+                let fnd = index_of(ctx, &FINDINGS, "Findings");
+                Some(format!(
+                    "<research-docs>\n{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs.\n</research-docs>",
+                    src.map(|s| s + "\n").unwrap_or_default(),
+                    fnd.map(|s| s + "\n").unwrap_or_default(),
+                ))
+            }),
+        );
+
+        draft.agents.insert(
+            "research",
+            AgentDef {
+                name: "research".into(),
+                profile: ProfileScope::Research,
+                model: "primary".into(),
+                mode: AgentMode::Primary,
+                steps: 40,
+                system: "You are the research agent. Record every consulted source \
+                         (`source add`) and register conclusions as findings citing those \
+                         sources. The final report goes to .kanzei/research/report.md."
+                    .into(),
+            },
+        );
+        Ok(())
+    }
+}
+
+/// 文档索引:非终态条目一行一个,预算封顶。
+fn index_of(
+    ctx: &ResolveCtx,
+    kind: &'static crate::docstore::DocKind,
+    label: &str,
+) -> Option<String> {
+    let store = DocStore::open(&ctx.project_root, kind);
+    let entries = store.load().ok()?;
+    if entries.is_empty() {
+        return None;
+    }
+    let open: Vec<&crate::docstore::Entry> =
+        entries.iter().filter(|e| !kind.terminal.contains(&e.status.as_str())).collect();
+    let closed = entries.len() - open.len();
+    let mut lines: Vec<String> = open
+        .iter()
+        .take(INDEX_LIMIT)
+        .map(|e| {
+            let sev = e.severity.as_ref().map(|s| format!("/{s}")).unwrap_or_default();
+            format!("{} [{}{sev}] {}", e.id, e.status, e.title)
+        })
+        .collect();
+    if open.len() > INDEX_LIMIT {
+        lines.push(format!("… +{} more open", open.len() - INDEX_LIMIT));
+    }
+    Some(format!("{label} ({} open, {closed} closed):\n{}", open.len(), lines.join("\n")))
+}

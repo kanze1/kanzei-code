@@ -1,10 +1,19 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
-/// 工具执行上下文。M1 起会带 session/agent/权限句柄。
+/// 工具执行上下文。
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
     pub cwd: std::path::PathBuf,
+    /// 项目根(.kanzei/.git 所在);工作区文档(requirements/defects/sources)挂在这下面。
+    pub project_root: std::path::PathBuf,
+}
+
+impl ToolCtx {
+    pub fn new(cwd: std::path::PathBuf) -> Self {
+        let project_root = crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+        ToolCtx { cwd, project_root }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +40,14 @@ pub trait Tool: Send + Sync {
     /// 描述可动态生成(如 bash 按实际选中的 shell 生成语法提示)。
     fn description(&self) -> String;
     fn input_schema(&self) -> Value;
+    /// 权限动作名(默认=工具名);拦截器以 (action, resource) 查 Ruleset。
+    fn action(&self) -> &'static str {
+        self.name()
+    }
+    /// 从输入提取受权限约束的资源(路径/命令等)。默认 "*" = 只按 action 粒度管。
+    fn resources(&self, _input: &Value) -> Vec<String> {
+        vec!["*".into()]
+    }
     async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput;
 }
 
