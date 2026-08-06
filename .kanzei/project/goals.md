@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: R-059 POC 继续完善：新增 messages_for_thread，验证同一 thread_id 内主/子代理双向消息可读取、不同线程不泄漏。core 23 项、app 1 项、r050-poc-check.ps1、git diff --check 全部通过；仍未接入网络或 runtime。
+- 进展: R-059 阶段 A 继续推进：新增跨 thread 订阅不推进错误 cursor 的边界测试，core 24 项、app 1 项、r050-poc-check.ps1 与 git diff --check 全部通过；设计矩阵已同步已验证范围。完整移动端通信仍等待 R-030/R-050 runtime 契约与认证方案。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
