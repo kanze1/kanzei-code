@@ -651,28 +651,36 @@ fn settings_open() -> Result<(), String> {
     Ok(())
 }
 
-/// R-053 快速记需求:只挂 req 工具的最小组件(独立迷你 run 专用)。
-struct QuickReqComponent;
-impl kanzei_harness::Component for QuickReqComponent {
+/// R-053 快速记录:只挂单个 tracker 工具的最小组件(独立迷你 run 专用)。
+struct QuickCaptureComponent {
+    capture: &'static str, // "req" | "defect"
+}
+impl kanzei_harness::Component for QuickCaptureComponent {
     fn contribute(
         &self,
         draft: &mut kanzei_harness::HarnessDraft,
         _ctx: &ResolveCtx,
     ) -> anyhow::Result<()> {
-        draft.tools.insert(
-            "req",
-            Arc::new(kanzei_tools::tracker::TrackerTool {
+        let tool = if self.capture == "defect" {
+            kanzei_tools::tracker::TrackerTool {
+                tool_name: "defect",
+                noun: "defect",
+                kind: &DEFECTS,
+                requires_refs: None,
+            }
+        } else {
+            kanzei_tools::tracker::TrackerTool {
                 tool_name: "req",
                 noun: "requirement",
                 kind: &REQUIREMENTS,
                 requires_refs: None,
-            }),
-        );
-        draft.permissions.push(kanzei_harness::rule(
-            "req",
-            "*",
-            kanzei_harness::Effect::Allow,
-        ));
+            }
+        };
+        let name = tool.tool_name;
+        draft.tools.insert(name, Arc::new(tool));
+        draft
+            .permissions
+            .push(kanzei_harness::rule(name, "*", kanzei_harness::Effect::Allow));
         Ok(())
     }
 }
@@ -680,11 +688,19 @@ impl kanzei_harness::Component for QuickReqComponent {
 /// R-053:自然语言描述 → 独立子代理结构化落库。与主对话完全并行,
 /// 不碰 conversation/queue/lifecycle;fast 落库失败自动升级 primary 重试一次。
 #[tauri::command]
-async fn quick_req(project_dir: String, description: String) -> Result<String, String> {
+async fn quick_req(
+    project_dir: String,
+    description: String,
+    kind: Option<String>,
+) -> Result<String, String> {
     let description = description.trim().to_string();
     if description.is_empty() {
-        return Err("需求描述不能为空".into());
+        return Err("描述不能为空".into());
     }
+    let capture: &'static str = match kind.as_deref() {
+        Some("defect") => "defect",
+        _ => "req",
+    };
     let cwd = PathBuf::from(&project_dir);
     let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
     let project_root =
@@ -696,21 +712,28 @@ async fn quick_req(project_dir: String, description: String) -> Result<String, S
         config: config.clone(),
     };
     let mut harness = Harness::default();
-    harness.add(QuickReqComponent);
+    harness.add(QuickCaptureComponent { capture });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
+    let system = if capture == "defect" {
+        "You capture ONE defect from the user's natural-language description. Call the \
+         `defect` tool exactly once with action \"add\": a concise title (<=40 chars, \
+         Chinese preferred), severity high|medium|low, fields = {\"复现\": how to reproduce \
+         if inferable, \"原始描述\": the user's original text verbatim}. Then reply with \
+         only the new id."
+    } else {
+        "You capture ONE requirement from the user's natural-language description. Call \
+         the `req` tool exactly once with action \"add\": a concise title (<=40 chars, \
+         Chinese preferred), fields = {\"priority\": suggested P0-P3, \"复杂度\": 小|中|大, \
+         \"验收\": one draft acceptance line, \"归属\": \"kanzei\", \"原始描述\": the \
+         user's original text verbatim}. Then reply with only the new id."
+    };
     let agent = kanzei_harness::AgentDef {
-        name: "quickreq".into(),
+        name: "quickcapture".into(),
         profile: kanzei_harness::ProfileScope::Dev,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
         steps: 4,
-        system: "You capture ONE requirement from the user's natural-language description. \
-                 Call the `req` tool exactly once with action \"add\": a concise title \
-                 (<=40 chars, Chinese preferred), fields = {\"priority\": suggested P0-P3, \
-                 \"复杂度\": 小|中|大, \"验收\": one draft acceptance line, \"归属\": \
-                 \"kanzei\", \"原始描述\": the user's original text verbatim}. Then reply \
-                 with only the new id."
-            .into(),
+        system: system.into(),
     };
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
@@ -722,14 +745,15 @@ async fn quick_req(project_dir: String, description: String) -> Result<String, S
         cwd: cwd.clone(),
         project_root: project_root.clone(),
     };
-    let store = DocStore::open(&project_root, &REQUIREMENTS);
+    let doc_kind = if capture == "defect" { &DEFECTS } else { &REQUIREMENTS };
+    let store = DocStore::open(&project_root, doc_kind);
     let before: std::collections::HashSet<String> = store
         .load()
         .map_err(|e| e.to_string())?
         .iter()
         .map(|e| e.id.clone())
         .collect();
-    let prompt = format!("需求描述(原文):\n{description}");
+    let prompt = format!("描述(原文):\n{description}");
     for role in ["fast", "primary"] {
         let Ok(resolved) = config.resolve_model(role) else {
             continue;
