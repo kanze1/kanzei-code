@@ -267,12 +267,22 @@ impl SessionStore {
             .next())
     }
 
-    /// 优先提升 steer；没有 steer 时再提升一条 queue，供运行边界 drain 使用。
+    fn promote_next_steer(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<AdmittedInput>, StoreError> {
+        Ok(self
+            .promote_where(session_id, "steer", true)?
+            .into_iter()
+            .next())
+    }
+
+    /// 优先提升一条 steer；没有 steer 时再提升一条 queue，供运行边界 drain 使用。
     pub fn promote_next_input(
         &self,
         session_id: &str,
     ) -> Result<Option<AdmittedInput>, StoreError> {
-        if let Some(input) = self.promote_steers(session_id)?.into_iter().next() {
+        if let Some(input) = self.promote_next_steer(session_id)? {
             return Ok(Some(input));
         }
         self.promote_next_queue(session_id)
@@ -573,6 +583,27 @@ mod tests {
                 .delivery,
             Delivery::Queue
         );
+    }
+
+    #[test]
+    fn drain_依次提升全部_steer_再取_queue() {
+        let store = store();
+        store
+            .admit_input("ses_test", "s1", "插入一", Delivery::Steer)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s2", "插入二", Delivery::Steer)
+            .unwrap();
+        store
+            .admit_input("ses_test", "q1", "队列", Delivery::Queue)
+            .unwrap();
+
+        let prompts = (0..3)
+            .map(|_| store.promote_next_input("ses_test").unwrap().unwrap().prompt)
+            .collect::<Vec<_>>();
+        assert_eq!(prompts, ["插入一", "插入二", "队列"]);
+        assert!(!store.has_pending("ses_test", Delivery::Steer).unwrap());
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
     }
 
     #[test]
