@@ -7,7 +7,9 @@ pub mod runner;
 pub mod store;
 
 pub use assemble::build_route;
-pub use notification::{AgentMessage, AgentNotification, InMemoryBroker, PublishMessage};
+pub use notification::{
+    AgentMessage, AgentNotification, InMemoryBroker, NotificationSubscription, PublishMessage,
+};
 pub use runner::{
     run_once, run_once_with_parts, AskFuture, AskReply, AskRequest, AskResponse, RunEvent,
     RunSummary, RunnerConfig, SubagentRuntime,

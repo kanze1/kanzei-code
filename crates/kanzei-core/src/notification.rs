@@ -40,6 +40,21 @@ pub struct AgentNotification {
     pub sequence: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotificationSubscription {
+    pub thread_id: String,
+    pub cursor: u64,
+}
+
+impl NotificationSubscription {
+    pub fn new(thread_id: impl Into<String>) -> Self {
+        Self {
+            thread_id: thread_id.into(),
+            cursor: 0,
+        }
+    }
+}
+
 impl InMemoryBroker {
     pub fn publish_message(&mut self, message: AgentMessage) -> PublishMessage {
         let message_key = (message.thread_id.clone(), message.idempotency_key.clone());
@@ -87,6 +102,22 @@ impl InMemoryBroker {
             .take(limit)
             .cloned()
             .collect()
+    }
+
+    pub fn poll_subscription(
+        &self,
+        subscription: &mut NotificationSubscription,
+        limit: usize,
+    ) -> Vec<AgentNotification> {
+        let events = self.replay_notifications_for_thread(
+            &subscription.thread_id,
+            subscription.cursor,
+            limit,
+        );
+        if let Some(last) = events.last() {
+            subscription.cursor = last.sequence;
+        }
+        events
     }
 
     pub fn notification_count(&self) -> usize {
@@ -216,6 +247,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![2]
         );
+    }
+
+    #[test]
+    fn subscription_poll_advances_cursor_without_duplicate_delivery() {
+        let mut broker = InMemoryBroker::default();
+        broker.publish_notification(notification("evt_1", "running"));
+        broker.publish_notification(notification("evt_2", "succeeded"));
+        let mut subscription = NotificationSubscription::new("thread_a");
+
+        assert_eq!(broker.poll_subscription(&mut subscription, 1).len(), 1);
+        assert_eq!(subscription.cursor, 1);
+        assert!(broker.poll_subscription(&mut subscription, 1).len() == 1);
+        assert_eq!(subscription.cursor, 2);
+        assert!(broker.poll_subscription(&mut subscription, 1).is_empty());
+
+        broker.publish_notification(notification("evt_3", "failed"));
+        assert_eq!(broker.poll_subscription(&mut subscription, 1).len(), 1);
+        assert_eq!(subscription.cursor, 3);
     }
 
     #[test]
