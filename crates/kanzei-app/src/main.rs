@@ -75,7 +75,8 @@ fn main() {
             summarize_chat,
             git_status,
             conventions_init,
-            conversation_clear
+            conversation_clear,
+            conversation_get
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -735,11 +736,36 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
     Ok(json!(items))
 }
 
-/// 开新对话:清空会话内多轮历史。
+/// 开新对话:清空会话内多轮历史,并写入空的持久化投影。
 #[tauri::command]
-fn conversation_clear(state: State<'_, AppState>) {
+fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result<(), String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    store
+        .append_event(&session_id, "conversation.updated", &json!({ "messages": [] }))
+        .map_err(|e| e.to_string())?;
     state.conversation.lock().unwrap().clear();
-    *state.conversation_project.lock().unwrap() = None;
+    *state.conversation_project.lock().unwrap() = Some(root.display().to_string());
+    Ok(())
+}
+
+#[tauri::command]
+fn conversation_get(project_dir: String) -> Result<Vec<kanzei_llm::Message>, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    recover_messages(&store, &session_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

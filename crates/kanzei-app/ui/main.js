@@ -729,7 +729,8 @@ function renderProjects(prefs) {
       const previous = currentProject;
       renderProjects(await invoke("projects_select", { path }));
       if (previous && previous !== path) {
-        clearChat("已切换项目,对话历史重新开始");
+        clearChat();
+        await loadConversation();
       }
       refreshDocs();
       loadModels();
@@ -990,6 +991,42 @@ async function refreshGit() {
   }
 }
 
+function renderRecoveredMessages(items) {
+  messages.innerHTML = "";
+  currentAssistant = null;
+  currentReasoning = null;
+  currentReasoningHead = null;
+  for (const message of items ?? []) {
+    const text = (message.parts ?? [])
+      .map((part) => {
+        if (part.type === "text") return part.text;
+        if (part.type === "reasoning") return `[思考] ${part.text}`;
+        if (part.type === "tool_call") return `[工具调用] ${part.name}`;
+        if (part.type === "tool_result") return `[工具结果] ${part.content}`;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    if (text) addMessage(message.role === "assistant" ? "assistant md" : "user", text);
+  }
+  if (!items?.length) {
+    messages.innerHTML = '<div id="empty-state"><div class="logo-mark">K</div><div class="hint">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送</div></div>';
+  }
+  scrollBottom();
+}
+
+async function loadConversation() {
+  if (!currentProject) return;
+  try {
+    const history = await invoke("conversation_get", { projectDir: currentProject });
+    renderRecoveredMessages(history);
+    log(`已恢复 ${history.length} 条历史消息`);
+  } catch (err) {
+    addMessage("error", `历史消息恢复失败:${err}`);
+    log(`历史消息恢复失败:${err}`, "warn");
+  }
+}
+
 // ---------- 新对话 ----------
 function clearChat(noticeText) {
   messages.innerHTML = "";
@@ -1007,7 +1044,7 @@ $("new-chat").addEventListener("click", async () => {
     return;
   }
   try {
-    await invoke("conversation_clear");
+    await invoke("conversation_clear", { projectDir: currentProject });
     clearChat("已开启新对话(历史已清空)");
     log("新对话:多轮历史已清空");
   } catch (err) {
@@ -1213,6 +1250,7 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
     log(`获取版本失败:${err}`, "warn");
   }
   renderProjects(await invoke("projects_get"));
+  await loadConversation();
   await refreshDocs();
   await loadModels();
   refreshGit();
