@@ -56,7 +56,8 @@ pub struct StoredEvent {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum Delivery {
     Steer,
     Queue,
@@ -71,7 +72,7 @@ impl Delivery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdmittedInput {
     pub input_id: String,
     pub session_id: String,
@@ -257,6 +258,18 @@ impl SessionStore {
     }
 
     /// 取消尚未提升的输入。已提升或已取消的输入不会被回收，避免篡改调度事实。
+    /// 返回尚未提升的输入,按 admission 顺序展示给前端队列面板。
+    pub fn list_pending_inputs(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT input_id, session_id, prompt, delivery, created_at
+             FROM session_inputs
+             WHERE session_id = ?1 AND status = 'pending'
+             ORDER BY created_at, rowid",
+        )?;
+        let rows = statement.query_map(params![session_id], input_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     pub fn cancel_input(&self, session_id: &str, input_id: &str) -> Result<bool, StoreError> {
         let changed = self.connection.execute(
             "UPDATE session_inputs SET status = 'cancelled'

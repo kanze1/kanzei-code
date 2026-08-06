@@ -494,6 +494,7 @@ on("kz:stopped", (e) => {
   setRunning(false, "已停止");
   bgAbortRunning("(已停止)");
   liveIdle("已停止");
+  refreshPendingInputs();
 });
 on("kz:done", (e) => {
   const p = e.payload;
@@ -510,6 +511,7 @@ on("kz:done", (e) => {
   liveIdle(`空闲 · 上轮 ${p.steps} 轮完成`);
   refreshDocs();
   refreshGit();
+  refreshPendingInputs();
 
   // 连跑:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
@@ -796,6 +798,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         attachments: promptAttachments,
       });
       toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
+      await refreshPendingInputs();
     } catch (err) {
       addMessage("error", String(err));
       log(`提交被拒:${err}`, "err");
@@ -908,6 +911,66 @@ $("model-select").addEventListener("change", () => {
   localStorage.setItem("kz-model", $("model-select").value);
 });
 
+// ---------- 队列输入 ----------
+function renderPendingInputs(items) {
+  const list = $("queue-list");
+  const count = $("queue-count");
+  list.innerHTML = "";
+  count.textContent = items.length ? `(${items.length})` : "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "queue-empty";
+    empty.textContent = "暂无排队输入";
+    list.appendChild(empty);
+    return;
+  }
+  for (const item of items) {
+    const entry = document.createElement("div");
+    entry.className = "queue-entry";
+    entry.title = item.prompt;
+    const prompt = document.createElement("div");
+    prompt.className = "queue-prompt";
+    prompt.textContent = item.prompt;
+    const delivery = document.createElement("span");
+    delivery.className = "queue-delivery";
+    delivery.textContent = item.delivery === "steer" ? "steer" : "queue";
+    const cancel = document.createElement("button");
+    cancel.className = "queue-cancel";
+    cancel.textContent = "撤销";
+    cancel.title = "撤销这条排队输入";
+    cancel.addEventListener("click", async () => {
+      cancel.disabled = true;
+      try {
+        const changed = await invoke("cancel_input", {
+          projectDir: currentProject,
+          inputId: item.input_id,
+        });
+        if (changed) {
+          toast("已撤销排队输入");
+          await refreshPendingInputs();
+        }
+      } catch (err) {
+        cancel.disabled = false;
+        toast(`撤销失败:${err}`);
+      }
+    });
+    entry.append(prompt, delivery, cancel);
+    list.appendChild(entry);
+  }
+}
+
+async function refreshPendingInputs() {
+  if (!currentProject) {
+    renderPendingInputs([]);
+    return;
+  }
+  try {
+    renderPendingInputs(await invoke("list_pending_inputs", { projectDir: currentProject }));
+  } catch (err) {
+    log(`队列刷新失败:${err}`, "warn");
+  }
+}
+
 // ---------- 项目管理 ----------
 function baseName(path) {
   const parts = path.replaceAll("\\", "/").split("/").filter(Boolean);
@@ -947,6 +1010,7 @@ function renderProjects(prefs) {
       refreshDocs();
       loadModels();
       refreshGit();
+      refreshPendingInputs();
     });
     list.appendChild(item);
   }
@@ -1605,5 +1669,6 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
   await refreshDocs();
   await loadModels();
   refreshGit();
+  await refreshPendingInputs();
   setStatus("空闲", false);
 })();

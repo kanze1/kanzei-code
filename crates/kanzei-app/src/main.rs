@@ -168,7 +168,9 @@ fn main() {
             conversation_delete,
             docs_read,
             conversation_get,
-            conversation_list
+            conversation_list,
+            list_pending_inputs,
+            cancel_input
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -283,6 +285,44 @@ fn projects_select(path: String) -> AppPrefs {
 fn strip_verbatim(p: PathBuf) -> String {
     let s = p.display().to_string();
     s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
+}
+
+fn open_project_store(project_dir: &str) -> Result<(kanzei_core::SessionStore, String), String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
+        .unwrap_or_else(|| PathBuf::from(project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|error| error.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|error| error.to_string())?;
+    Ok((store, session_id))
+}
+
+#[tauri::command]
+fn list_pending_inputs(project_dir: String) -> Result<Vec<kanzei_core::AdmittedInput>, String> {
+    let (store, session_id) = open_project_store(&project_dir)?;
+    store
+        .list_pending_inputs(&session_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn cancel_input(project_dir: String, input_id: String) -> Result<bool, String> {
+    let (store, session_id) = open_project_store(&project_dir)?;
+    let cancelled = store
+        .cancel_input(&session_id, &input_id)
+        .map_err(|error| error.to_string())?;
+    if cancelled {
+        store
+            .append_event(
+                &session_id,
+                "prompt.cancelled",
+                &json!({ "input_id": input_id }),
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(cancelled)
 }
 
 // ---------- 项目文档 ----------

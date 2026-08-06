@@ -9,4 +9,4 @@
 - priority: P0
 - 验收: R-036、R-033 完成且 R-030/R-037 由 Claude 落地后,前端不再落后于后端能力;达成即 `goal update G-002 achieved`
 - 来源文档: docs/design/frontend-phase3.md、docs/design/interaction-modes.md
-- 进展: R-036 已完成：新增 dev-pair 结伴人格，桌面端模式选择器默认结伴开发并支持自主推进/research，run_prompt 已传递显式 agent，连跑仅在自主推进模式可用。R-033 已完成：消息区智能滚动跟随/回到最新、消息与工具一键复制、对话内搜索及上下匹配跳转。下一步按 priority 推进 R-030/R-037（由 Claude 落地）后的剩余前端对齐项。
+- 进展: 继续完成 R-032:新增队列查询/单条撤销 Tauri command,前端新增排队输入面板、delivery 标识与单条撤销,发送/完成/停止/项目切换/启动自动刷新;cargo test --workspace、cargo check -p kanzei-app、node --check 全部通过。下一步按 P0 推进 R-044 右侧活动面板保持稳定。

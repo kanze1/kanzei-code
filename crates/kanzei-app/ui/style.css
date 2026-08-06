@@ -65,6 +65,13 @@ body {
 #live-focus { color: var(--warn); }
 #live-action { color: var(--info); }
 #live-note { color: var(--dim); }
+.queue-list { display: flex; flex-direction: column; gap: 5px; padding: 0 10px 6px; }
+.queue-empty { color: var(--dim); font-size: 11px; padding: 2px 4px; }
+.queue-entry { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 7px; display: flex; gap: 6px; align-items: flex-start; }
+.queue-entry .queue-prompt { flex: 1; min-width: 0; font-size: 11.5px; line-height: 1.35; white-space: pre-wrap; word-break: break-word; max-height: 48px; overflow: hidden; }
+.queue-entry .queue-delivery { color: var(--info); font: 10px var(--mono); flex-shrink: 0; }
+.queue-entry .queue-cancel { color: var(--err); padding: 0 3px; font-size: 11px; background: transparent; flex-shrink: 0; }
+.queue-entry .queue-cancel:hover { color: var(--fg-strong); background: rgba(208,104,78,.16); }
 .section-title em { font-style: normal; color: var(--dim); }
 .icon-btn {
   background: transparent; border: 0; color: var(--dim); cursor: pointer;
