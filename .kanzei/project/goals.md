@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: 继续推进 R-066：完成 D-036。独立需求/缺陷页面现在按类型隔离筛选状态；需求状态选项为 todo/doing/done/dropped，缺陷状态选项为 open/fixing/fixed/wontfix；缺陷页隐藏无效优先级筛选；需求列表不再临时污染侧栏 reqFilters。node --check、git diff --check、cargo test -p kanzei-app 通过。R-032、D-034 仍待后续治理。
+- 进展: 继续推进 R-066：完成 D-036。独立需求/缺陷页面现在按类型隔离筛选状态；需求状态选项为 todo/doing/done/dropped，缺陷状态选项为 open/fixing/fixed/wontfix；缺陷页隐藏无效优先级筛选；需求列表不再临时污染侧栏 reqFilters。node --check、git diff --check、cargo test -p kanzei-app 通过。D-032、D-034 仍待后续治理。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期
