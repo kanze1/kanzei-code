@@ -21,3 +21,16 @@
 - 原始描述: 需求列表字段长度长了之后，展开渲染有问题
 - 复现: 需求列表字段内容长度增加超过阈值时，展开渲染出现异常
 - 优先级: medium
+
+## D-046 运行闸门使用原始项目路径比较导致规范化路径绕过停止边界 [fixed] (medium)
+- 复现: run_prompt 设置 running_project 时使用 discover_project_root 后的规范化路径，但运行中分支直接将原始 project_dir 与其比较；相对路径、项目子目录或等价路径可能被误判为其他项目。
+- 影响: R-050 的项目运行/停止边界不稳定，等价路径可能无法排队或停止对应运行。
+- 验收: 统一通过项目根路径规范化后比较，补充等价路径回归测试。
+- refs: R-050
+- 优先级: P1
+- 修复: 新增 normalized_project_root，运行闸门、停止边界和 session_id 均使用可发现且 canonicalize 的项目根路径；等价路径不再被误判为其他项目。
+- 验证: cargo test -p kanzei-app（6项通过）；node --check crates/kanzei-app/ui/main.js；git diff --check。
+
+## D-047 需求优先级调整功能存在大量bug [open] (high)
+- 原始描述: 需求优先级的调整现在很多bug，然后缺陷一样有优先级和复杂度评估
+- 复现: 在系统中对需求进行优先级调整操作时会出现多种bug（具体操作步骤未说明）

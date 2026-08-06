@@ -74,6 +74,12 @@ struct AppState {
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
 }
 
+fn normalized_project_root(path: &Path) -> PathBuf {
+    let root = kanzei_harness::config::discover_project_root(path)
+        .unwrap_or_else(|| path.to_path_buf());
+    std::fs::canonicalize(&root).unwrap_or(root)
+}
+
 fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
     state
         .runtimes
@@ -166,6 +172,15 @@ mod update_tests {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use tokio::sync::oneshot;
+
+    #[test]
+    fn project_root_normalizes_equivalent_paths() {
+        let current = std::env::current_dir().unwrap();
+        assert_eq!(
+            super::normalized_project_root(Path::new(".")),
+            std::fs::canonicalize(current).unwrap()
+        );
+    }
 
     #[test]
     fn pending_path_uses_executable_sibling() {
@@ -1656,7 +1671,7 @@ fn app_info() -> serde_json::Value {
 fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<String>) {
     let _lifecycle = state.lifecycle.lock().unwrap();
     let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| {
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd)
+        normalized_project_root(&cwd)
     });
     let can_stop = match (&target_project, state.running_project.lock().unwrap().as_ref()) {
         (None, _) => true,
@@ -1770,11 +1785,13 @@ async fn run_prompt(
     attachments: Option<Vec<PromptAttachment>>,
 ) -> Result<(), String> {
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
+    let project_root = normalized_project_root(Path::new(&project_dir));
+    let normalized_project_dir = project_root.display().to_string();
     let lifecycle = state.lifecycle.clone();
     {
         let _lifecycle = lifecycle.lock().unwrap();
         if state.running.load(Ordering::SeqCst) {
-            if state.running_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
+            if state.running_project.lock().unwrap().as_deref() != Some(normalized_project_dir.as_str()) {
                 return Err("已有其他项目的任务在运行".into());
             }
             if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
@@ -1789,14 +1806,10 @@ async fn run_prompt(
         }
         state.running.store(true, Ordering::SeqCst);
         *state.running_project.lock().unwrap() = Some(
-            kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-                .unwrap_or_else(|| PathBuf::from(&project_dir))
-                .display()
-                .to_string(),
+            normalized_project_dir.clone(),
         );
     }
-    let project_root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let project_root = normalized_project_root(Path::new(&project_dir));
     let session_id = kanzei_core::project_session_id(&project_root);
     let runtime = runtime_for(&state, &session_id);
     let asks = runtime.asks.clone();
