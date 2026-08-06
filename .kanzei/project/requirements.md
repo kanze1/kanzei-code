@@ -17,7 +17,7 @@
 - 风险: 高:涉及运行生命周期隔离、SQLite session/thread 数据模型、权限 ask 路由、队列/活动事件归属、文件写入冲突、git worktree 生命周期、合并与恢复;不能只靠前端 tab 模拟。建议先做线程模型与状态机设计,再做单项目双线程只读 POC,最后做 worktree/冲突合并。
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口。
 - 优先级: P1
-- 进展: 已落地 R-050 第一阶段线程路由基础：运行元数据、turn/text/reasoning/tool/task/step 事件及权限询问与权限状态反馈统一携带 sessionId；PendingAsk 保存所属 session_id，避免后续线程路由丢失。暂未开启并行写入或 worktree，下一步继续改造按线程存储的运行句柄与历史。
+- 进展: 已落地第二阶段历史隔离基础：AppState 内存对话由单份 Vec 改为按 session_id 存储；conversation_clear/get、run_task 历史恢复、自动压缩与持久化投影均按对应 session 读写；保留全局运行闸门，暂未开放并行执行、worktree 或并行写入。
 - 阻塞: 无
 - 验证: cargo test -p kanzei-app（3 项通过）；node --check crates/kanzei-app/ui/main.js；git diff --check 通过。cargo test 有既存 kanzei-core final_text unused assignment 警告。
 

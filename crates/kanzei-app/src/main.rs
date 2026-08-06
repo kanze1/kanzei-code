@@ -55,11 +55,10 @@ struct AppState {
     running: Arc<AtomicBool>,
     /// 串行化运行状态、输入 admission 与 drain 收尾，避免边界竞态。
     lifecycle: Arc<Mutex<()>>,
+    running_project: Arc<Mutex<Option<String>>>,
     current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
-    /// 会话内多轮连续:窗口存活期间的完整消息历史(M2 落盘前的内存态方案)。
-    conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
-    /// 历史所属项目;切换项目自动清空。
-    conversation_project: Arc<Mutex<Option<String>>>,
+    /// 会话内多轮连续:按 session_id 保存各线程历史(M2 落盘前的内存态方案)。
+    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
 }
 
 fn pending_path(exe: &Path) -> PathBuf {
@@ -1417,8 +1416,11 @@ fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result
             &json!({ "messages": [] }),
         )
         .map_err(|e| e.to_string())?;
-    state.conversation.lock().unwrap().clear();
-    *state.conversation_project.lock().unwrap() = Some(root.display().to_string());
+    state
+        .conversation
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), Vec::new());
     Ok(())
 }
 
@@ -1437,8 +1439,11 @@ fn conversation_get(
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     let messages = recover_messages_at(&store, &session_id, sequence).map_err(|e| e.to_string())?;
-    *state.conversation.lock().unwrap() = messages.clone();
-    *state.conversation_project.lock().unwrap() = Some(root.display().to_string());
+    state
+        .conversation
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), messages.clone());
     Ok(messages)
 }
 
@@ -1676,7 +1681,7 @@ async fn run_prompt(
     {
         let _lifecycle = lifecycle.lock().unwrap();
         if state.running.load(Ordering::SeqCst) {
-            if state.conversation_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
+            if state.running_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
                 return Err("已有其他项目的任务在运行".into());
             }
             if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
@@ -1690,13 +1695,12 @@ async fn run_prompt(
             return Ok(());
         }
         state.running.store(true, Ordering::SeqCst);
-        *state.conversation_project.lock().unwrap() = Some(project_dir.clone());
+        *state.running_project.lock().unwrap() = Some(project_dir.clone());
     }
     let asks = state.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
     let conversation = state.conversation.clone();
-    let conversation_project = state.conversation_project.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
@@ -1714,7 +1718,6 @@ async fn run_prompt(
                 agent.clone(),
                 model.clone(),
                 conversation.clone(),
-                conversation_project.clone(),
                 delivery,
                 next_input.take(),
             )
@@ -1807,8 +1810,7 @@ async fn run_task(
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
-    conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
-    conversation_project: Arc<Mutex<Option<String>>>,
+    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
@@ -2017,12 +2019,8 @@ async fn run_task(
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
     let persisted = recover_messages(&store, &session_id)?;
     let prior: Vec<kanzei_llm::Message> = {
-        let mut proj = conversation_project.lock().unwrap();
-        let mut conv = conversation.lock().unwrap();
-        if proj.as_deref() != Some(project_dir.as_str()) {
-            *proj = Some(project_dir.clone());
-            conv.clear();
-        }
+        let mut conversations = conversation.lock().unwrap();
+        let conv = conversations.entry(session_id.clone()).or_default();
         if conv.is_empty() && !persisted.is_empty() {
             *conv = persisted;
         }
@@ -2130,14 +2128,18 @@ async fn run_task(
     let summary = run_result?;
 
     let history_len = summary.messages.len();
-    *conversation.lock().unwrap() = summary.messages;
+    conversation
+        .lock()
+        .unwrap()
+        .insert(session_id.clone(), summary.messages);
 
     // R-021 自动压缩:历史估算超过上下文上限 70% 时,fast 模型出纪要并替换历史。
     // 估算用 len/4(与压缩预检同源的粗粒度);失败保留原历史,绝不丢上下文。
     if let Some(limit) = resolved.provider.context_limit {
         let estimate = {
-            let conv = conversation.lock().unwrap();
-            serde_json::to_string(&*conv)
+            let conversations = conversation.lock().unwrap();
+            let conv = conversations.get(&session_id).cloned().unwrap_or_default();
+            serde_json::to_string(&conv)
                 .map(|s| s.len() as u64 / 4)
                 .unwrap_or(0)
         };
@@ -2151,14 +2153,18 @@ async fn run_task(
                 ),
             );
             let transcript = {
-                let conv = conversation.lock().unwrap();
+                let conversations = conversation.lock().unwrap();
+                let conv = conversations.get(&session_id).cloned().unwrap_or_default();
                 render_transcript(&conv)
             };
             match fast_summarize(&ctx.cwd, &transcript).await {
                 Ok(digest) => {
-                    *conversation.lock().unwrap() = vec![kanzei_llm::Message::user_text(format!(
-                        "(系统:此前对话已自动压缩为以下纪要,基于它继续)\n{digest}"
-                    ))];
+                    conversation.lock().unwrap().insert(
+                        session_id.clone(),
+                        vec![kanzei_llm::Message::user_text(format!(
+                            "(系统:此前对话已自动压缩为以下纪要,基于它继续)\n{digest}"
+                        ))],
+                    );
                     let _ = window.emit("kz:compacted", json!({ "summary": digest }));
                 }
                 Err(e) => stage("压缩", format!("压缩失败:{e}(保留原历史)")),
@@ -2166,7 +2172,12 @@ async fn run_task(
         }
     }
 
-    let messages = conversation.lock().unwrap().clone();
+    let messages = conversation
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .cloned()
+        .unwrap_or_default();
     let trace = run_trace.lock().unwrap().clone();
     if !trace.is_empty() {
         store.append_event(&session_id, "run.trace", &json!({ "events": trace }))?;
