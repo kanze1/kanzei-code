@@ -333,6 +333,22 @@ mod tests {
     }
 
     #[test]
+    fn subscription_rebuild_with_persisted_cursor_does_not_replay_old_events() {
+        let mut broker = InMemoryBroker::default();
+        broker.publish_notification(notification("evt_1", "running"));
+        broker.publish_notification(notification("evt_2", "succeeded"));
+
+        let mut first = NotificationSubscription::new("thread_a");
+        assert_eq!(broker.poll_subscription(&mut first, 1).len(), 1);
+
+        let mut rebuilt = NotificationSubscription::new("thread_a");
+        rebuilt.cursor = first.cursor;
+        let events = broker.poll_subscription(&mut rebuilt, 10);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, "evt_2");
+        assert_eq!(rebuilt.cursor, 2);
+    }
+    #[test]
     fn cursor_after_latest_sequence_returns_empty() {
         let mut broker = InMemoryBroker::default();
         broker.publish_notification(notification("evt_1", "running"));

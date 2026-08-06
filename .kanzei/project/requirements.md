@@ -26,10 +26,10 @@
 - 复杂度: 大
 - 验收: 在移动端完成：①可配置主/子代理间的消息双向通信 ②实时显示来自主要及次级代理的通知推送 ③支持子代理独立升级为管理项目容器（不依赖具体项目结构）
 - 优先级: P3
-- 下一步: 继续补 cursor 过期语义测试，并明确订阅重建/进程重启后的 event_id 去重持久化边界；网络错误有限重试需求 R-075 保持 todo，按队列顺序等待 R-030/R-050/R-059 可执行槽。
-- 进展: 阶段 A 已补订阅内 event_id 去重：重复事件不重复投递但 cursor 仍推进到最新 sequence；跨 thread 错误 cursor 边界也已覆盖。设计矩阵已同步，跨重启持久化去重仍未实现。
+- 下一步: 完成 cursor 重建/过期边界测试后，等待 R-030/R-050 runtime 契约，再设计持久化 delivery_cursor；R-075 保持 todo。
+- 进展: 已完成 cursor 重建边界：恢复已持久化 cursor 后不会重放旧事件，继续读取后续事件；文档已明确内存 broker 无历史裁剪、生产服务需返回 cursor_expired，跨重启 event_id 去重仍需持久化。
 - 设计: docs/design/r059-mobile-agent-communication.md
-- 验证: cargo test -p kanzei-core（23 项通过）、cargo test -p kanzei-app（1 项通过）、scripts/r050-poc-check.ps1、git diff --check 全部通过。
+- 验证: cargo test -p kanzei-core（26 项通过）；cargo test -p kanzei-app（1 项通过，含 r050-poc-check）；scripts/r050-poc-check.ps1 与 git diff --check 通过。
 - 阻塞: 完整移动端通信仍受 R-030/R-050 runtime 契约和认证部署方案阻塞；R-075 网络错误重试已入队，暂不与当前通知 POC 混实现。
 
 ## R-064 联通性前端检查实现 [todo]

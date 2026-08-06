@@ -156,7 +156,12 @@ queued -> running -> succeeded
 | `temporary_unavailable` | 保留本地未确认 cursor，退避重连 | 是，有限次数 |
 | `invalid_state_transition` | 展示服务端权威状态，禁止本地强行修改 | 否 |
 
-### 8.5 阶段 A 最小测试清单
+### 8.6 cursor 重建与过期边界
+
+阶段 A 的 `InMemoryBroker` 不裁剪历史，因此只要 cursor 仍在内存 broker 的序列范围内，重新创建订阅并恢复已持久化的 cursor 即可继续读取，不会重放 cursor 之前的事件。当前订阅的 `seen_event_ids` 是内存态，重建订阅后依靠 cursor 避免已确认事件重复投递；跨进程或进程重启的 event_id 去重仍需持久化 delivery_cursor/去重记录。
+
+生产服务必须在历史窗口被裁剪或 cursor 不属于当前 thread 时返回 `cursor_expired`，由客户端获取授权范围内的历史快照并建立新 cursor；不能静默从最早事件开始，避免重复展示或遗漏终态通知。
+
 
 - 相同 `idempotency_key` 重复投递只产生一个任务和一个终态。
 - 不同 `thread_id` 的同名消息互不覆盖，事件 sequence 和 cursor 各自隔离。
