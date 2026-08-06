@@ -1004,7 +1004,7 @@ function renderProjects(prefs) {
     item.className = `project-item${path === prefs.current ? " active" : ""}`;
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = baseName(path);
+    name.textContent = prefs.names?.[path] || baseName(path);
     const pathEl = document.createElement("span");
     pathEl.className = "path";
     pathEl.textContent = path;
@@ -1014,15 +1014,47 @@ function renderProjects(prefs) {
     remove.title = "移除(不删除文件)";
     remove.addEventListener("click", async (e) => {
       e.stopPropagation();
-      renderProjects(await invoke("projects_remove", { path }));
-      refreshDocs();
+      if (!window.confirm(`移除项目“${name.textContent}”吗？只解除登记,不会删除磁盘文件。`)) return;
+      try {
+        const wasCurrent = currentProject === path;
+        const next = await invoke("projects_remove", { path });
+        renderProjects(next);
+        if (wasCurrent && currentProject !== path) {
+          clearChat();
+          bgClear();
+          renderTodoPanel([], 0, 0);
+          await loadConversation();
+          await refreshDocs();
+          await loadModels();
+          refreshGit();
+          await refreshPendingInputs();
+        }
+      } catch (err) {
+        toast(String(err));
+      }
     });
-    item.append(name, pathEl, remove);
+    const rename = document.createElement("button");
+    rename.className = "icon-btn rename";
+    rename.textContent = "✎";
+    rename.title = "重命名项目(只修改显示名)";
+    rename.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const nextName = window.prompt("项目显示名", prefs.names?.[path] || baseName(path));
+      if (nextName === null || !nextName.trim()) return;
+      try {
+        renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }));
+      } catch (err) {
+        toast(String(err));
+      }
+    });
+    item.append(name, pathEl, rename, remove);
     item.addEventListener("click", async () => {
       const previous = currentProject;
       renderProjects(await invoke("projects_select", { path }));
       if (previous && previous !== path) {
         clearChat();
+        bgClear();
+        renderTodoPanel([], 0, 0);
         await loadConversation();
       }
       refreshDocs();
@@ -1035,12 +1067,47 @@ function renderProjects(prefs) {
   $("project-label").textContent = prefs.current ?? "(未选择项目)";
 }
 
+$("project-init").addEventListener("click", async () => {
+  const path = window.prompt("新项目目录路径(不存在时会创建)");
+  if (path === null || !path.trim()) return;
+  const name = window.prompt("项目显示名(可留空)", baseName(path.trim()));
+  if (name === null) return;
+  try {
+    const prefs = await invoke("projects_init", {
+      path: path.trim(),
+      name: name.trim() || null,
+    });
+    renderProjects(prefs);
+    clearChat("已初始化并切换到新项目");
+    await loadConversation();
+    await refreshDocs();
+    await loadModels();
+    refreshGit();
+    await refreshPendingInputs();
+    toast("项目初始化完成");
+  } catch (err) {
+    toast(String(err));
+  }
+});
+
 $("project-add").addEventListener("click", async () => {
   try {
     const prefs = await invoke("projects_pick");
     if (prefs) {
+      const previous = currentProject;
       renderProjects(prefs);
-      refreshDocs();
+      if (previous !== currentProject) {
+        clearChat();
+        bgClear();
+        renderTodoPanel([], 0, 0);
+        await loadConversation();
+        await refreshDocs();
+        await loadModels();
+        refreshGit();
+        await refreshPendingInputs();
+      } else {
+        await refreshDocs();
+      }
     }
   } catch (err) {
     toast(String(err));

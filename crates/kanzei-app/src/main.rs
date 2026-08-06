@@ -146,6 +146,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             projects_get,
             projects_add,
+            projects_init,
+            projects_rename,
             projects_pick,
             projects_remove,
             projects_select,
@@ -184,6 +186,9 @@ struct AppPrefs {
     projects: Vec<String>,
     #[serde(default)]
     current: Option<String>,
+    /// 项目显示名映射;旧版 app.json 没有此字段时回退为目录名。
+    #[serde(default)]
+    names: HashMap<String, String>,
 }
 
 fn prefs_path() -> PathBuf {
@@ -215,6 +220,7 @@ fn save_prefs(prefs: &AppPrefs) {
 fn projects_get() -> AppPrefs {
     let mut prefs = load_prefs();
     prefs.projects.retain(|p| Path::new(p).is_dir());
+    prefs.names.retain(|path, _| prefs.projects.contains(path));
     if prefs.projects.is_empty() {
         if let Ok(cwd) = std::env::current_dir() {
             prefs.projects.push(cwd.display().to_string());
@@ -230,6 +236,56 @@ fn projects_get() -> AppPrefs {
     }
     save_prefs(&prefs);
     prefs
+}
+
+#[tauri::command]
+fn projects_init(path: String, name: Option<String>) -> Result<AppPrefs, String> {
+    let dir = PathBuf::from(&path);
+    std::fs::create_dir_all(&dir).map_err(|error| format!("创建项目目录失败: {error}"))?;
+    std::fs::create_dir_all(dir.join(".kanzei"))
+        .map_err(|error| format!("创建项目配置目录失败: {error}"))?;
+    let canonical = dir
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or(path.clone());
+    let mut prefs = load_prefs();
+    if !prefs.projects.contains(&canonical) {
+        prefs.projects.push(canonical.clone());
+    }
+    let display_name = name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| base_name(&canonical));
+    prefs.names.insert(canonical.clone(), display_name);
+    prefs.current = Some(canonical);
+    save_prefs(&prefs);
+    Ok(projects_get())
+}
+
+#[tauri::command]
+fn projects_rename(path: String, name: String) -> Result<AppPrefs, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("项目名称不能为空".into());
+    }
+    let mut prefs = load_prefs();
+    if !prefs.projects.iter().any(|project| project == &path) {
+        return Err("项目不在项目列表中".into());
+    }
+    prefs.names.insert(path, name.to_owned());
+    save_prefs(&prefs);
+    Ok(projects_get())
+}
+
+fn base_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+        .to_owned()
 }
 
 #[tauri::command]
@@ -264,6 +320,7 @@ async fn projects_pick() -> Result<Option<AppPrefs>, String> {
 fn projects_remove(path: String) -> AppPrefs {
     let mut prefs = load_prefs();
     prefs.projects.retain(|p| p != &path);
+    prefs.names.remove(&path);
     if prefs.current.as_deref() == Some(path.as_str()) {
         prefs.current = prefs.projects.first().cloned();
     }

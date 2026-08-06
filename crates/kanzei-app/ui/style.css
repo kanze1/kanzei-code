@@ -88,8 +88,8 @@ body {
 .project-item.active { background: var(--accent-soft); border-left-color: var(--info); }
 .project-item .name { font-weight: 600; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-item .path { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 1; }
-.project-item .remove { visibility: hidden; }
-.project-item:hover .remove { visibility: visible; }
+.project-item .remove, .project-item .rename { visibility: hidden; }
+.project-item:hover .remove, .project-item:hover .rename { visibility: visible; }
 
 .doc-filter { font-size: 10px; max-width: 84px; padding: 2px 3px; }
 .doc-empty { padding: 2px 14px; color: var(--dim); font-size: 12px; }
