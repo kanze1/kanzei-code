@@ -1,11 +1,5 @@
 # Requirements
 
-## R-018 对话结束时播放提示音并显示完成提示 [done]
-- priority: P3
-- 归属: kanzei
-- 验收: 成功/失败/停止均提示;失焦可感知;通知失败不影响对话结果
-- 进展: 已完成：运行成功、失败、手动停止及权限拒绝停止均显示 toast、播放短提示音；窗口失焦时更新标题并在已授权时发送系统通知，通知/音频失败仅记录 warn，不影响运行结果。新增统一 notifyRunState/playRunNotice 与回焦标题恢复。node --check、git diff --check、cargo test -p kanzei-app 通过。
-
 ## R-024 输入体验:提示词历史(上下箭头)、@文件引用补全 [todo]
 - priority: P2
 - 归属: kanzei
