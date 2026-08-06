@@ -5,4 +5,4 @@ pub mod assemble;
 pub mod runner;
 
 pub use assemble::build_route;
-pub use runner::{run_once, AskFuture, RunEvent, RunSummary, RunnerConfig};
+pub use runner::{run_once, AskFuture, AskReply, RunEvent, RunSummary, RunnerConfig};

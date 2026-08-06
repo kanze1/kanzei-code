@@ -3,6 +3,7 @@
 mod base;
 mod bash;
 pub mod docstore;
+mod edit;
 mod read;
 mod shell;
 pub mod tracker;

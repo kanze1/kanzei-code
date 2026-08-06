@@ -57,8 +57,8 @@ impl Tool for WriteTool {
     }
 }
 
-/// 写后语法校验(不阻断,只告知)。M1 扩展 TOML/YAML/XML。
-fn validate_syntax(path: &std::path::Path, content: &str) -> Option<String> {
+/// 写后语法校验(不阻断,只告知)。edit 工具复用。
+pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_lowercase();
     match ext.as_str() {
         "json" => serde_json::from_str::<serde_json::Value>(content)

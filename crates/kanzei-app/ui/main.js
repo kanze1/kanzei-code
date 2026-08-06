@@ -137,7 +137,26 @@ function appendAssistant(text) {
 }
 
 function appendReasoning(text) {
-  if (!currentReasoning) currentReasoning = addMessage("reasoning", "");
+  if (!currentReasoning) {
+    // 思考块默认折叠成一行,点击展开(对话收纳)。
+    clearEmptyState();
+    const wrap = document.createElement("div");
+    wrap.className = "msg reasoning";
+    const head = document.createElement("div");
+    head.className = "reasoning-head";
+    head.textContent = "· 思考过程(点击展开)";
+    const body = document.createElement("div");
+    body.className = "reasoning-body hidden";
+    head.addEventListener("click", () => {
+      body.classList.toggle("hidden");
+      head.textContent = body.classList.contains("hidden")
+        ? "· 思考过程(点击展开)"
+        : "· 思考过程(点击收起)";
+    });
+    wrap.append(head, body);
+    messages.appendChild(wrap);
+    currentReasoning = body;
+  }
   currentReasoning.textContent += text;
   scrollBottom();
 }
@@ -183,12 +202,16 @@ on("kz:tool-start", (e) => {
 on("kz:tool-end", (e) => {
   log(`工具结果 ${e.payload.name}: ${e.payload.ok ? "成功" : "失败"} — ${e.payload.preview}`, e.payload.ok ? "" : "warn");
   if (currentTool) {
-    currentTool.classList.remove("running");
-    currentTool.classList.add(e.payload.ok ? "ok" : "err");
+    const chip = currentTool;
+    chip.classList.remove("running");
+    chip.classList.add(e.payload.ok ? "ok" : "err");
     const result = document.createElement("div");
-    result.className = "result";
+    result.className = "result hidden";
     result.textContent = e.payload.preview;
-    currentTool.appendChild(result);
+    chip.appendChild(result);
+    // 收纳:结果默认折叠,点工具头展开;失败的自动展开。
+    chip.querySelector(".head").addEventListener("click", () => result.classList.toggle("hidden"));
+    if (!e.payload.ok) result.classList.remove("hidden");
     currentTool = null;
   }
   setStatus("运行中", true);
@@ -240,6 +263,7 @@ function pumpAsk() {
   askActive = askQueue.shift();
   $("ask-action").textContent = askActive.action;
   $("ask-resource").textContent = askActive.resource;
+  $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
   $("ask-overlay").classList.remove("hidden");
 }
 
@@ -249,17 +273,24 @@ function hideAsk() {
   $("ask-overlay").classList.add("hidden");
 }
 
-async function answerAsk(allow) {
+async function answerAsk(reply) {
   if (!askActive) return;
   const id = askActive.id;
+  const summary = `${askActive.action}: ${askActive.resource}`;
   askActive = null;
   $("ask-overlay").classList.add("hidden");
-  await invoke("answer_ask", { id, allow });
+  log(`权限 ${reply === "deny" ? "拒绝" : reply === "always" ? "总是允许" : "允许一次"} — ${summary}`);
+  try {
+    await invoke("answer_ask", { id, reply });
+  } catch (err) {
+    log(`权限应答失败:${err}`, "err");
+  }
   pumpAsk();
 }
 
-$("ask-allow").addEventListener("click", () => answerAsk(true));
-$("ask-deny").addEventListener("click", () => answerAsk(false));
+$("ask-allow").addEventListener("click", () => answerAsk("once"));
+$("ask-always").addEventListener("click", () => answerAsk("always"));
+$("ask-deny").addEventListener("click", () => answerAsk("deny"));
 
 // ---------- 发送 / 停止 ----------
 async function send() {
@@ -392,8 +423,8 @@ $("project-add").addEventListener("click", async () => {
   }
 });
 
-// ---------- 侧边栏文档 ----------
-function renderDocList(el, entries) {
+// ---------- 侧边栏文档(可展开 + 状态流转) ----------
+function renderDocList(el, entries, kind) {
   el.innerHTML = "";
   if (entries.length === 0) {
     const empty = document.createElement("div");
@@ -405,7 +436,10 @@ function renderDocList(el, entries) {
   for (const entry of entries) {
     const item = document.createElement("div");
     item.className = `doc-item${entry.closed ? " closed" : ""}`;
-    item.title = `${entry.id} ${entry.title}`;
+
+    const row = document.createElement("div");
+    row.className = "doc-row";
+    row.title = `${entry.id} ${entry.title}(点击展开)`;
     const id = document.createElement("span");
     id.className = "id";
     id.textContent = entry.id;
@@ -415,7 +449,52 @@ function renderDocList(el, entries) {
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = entry.title;
-    item.append(id, st, title);
+    row.append(id, st, title);
+    item.appendChild(row);
+
+    // 展开面板:完整标题、字段、合法的状态流转按钮(与硬门禁同一套规则)。
+    const detail = document.createElement("div");
+    detail.className = "doc-detail hidden";
+    const full = document.createElement("div");
+    full.className = "doc-full-title";
+    full.textContent = entry.title;
+    detail.appendChild(full);
+    for (const [key, value] of entry.fields ?? []) {
+      const f = document.createElement("div");
+      f.className = "doc-field";
+      f.textContent = `${key}: ${value}`;
+      detail.appendChild(f);
+    }
+    if ((entry.nextStatuses ?? []).length > 0) {
+      const actions = document.createElement("div");
+      actions.className = "doc-actions";
+      for (const next of entry.nextStatuses) {
+        const btn = document.createElement("button");
+        btn.className = "ghost mini";
+        btn.textContent = `→ ${next}`;
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            const msg = await invoke("docs_update", {
+              projectDir: currentProject,
+              kind,
+              action: "update",
+              id: entry.id,
+              status: next,
+            });
+            log(msg);
+            refreshDocs();
+          } catch (err) {
+            toast(String(err));
+            log(`状态流转失败:${err}`, "warn");
+          }
+        });
+        actions.appendChild(btn);
+      }
+      detail.appendChild(actions);
+    }
+    item.appendChild(detail);
+    row.addEventListener("click", () => detail.classList.toggle("hidden"));
     el.appendChild(item);
   }
 }
@@ -424,13 +503,19 @@ async function refreshDocs() {
   if (!currentProject) return;
   try {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    renderDocList($("req-list"), snapshot.requirements);
-    renderDocList($("defect-list"), snapshot.defects);
+    renderDocList($("req-list"), snapshot.requirements, "req");
+    renderDocList($("defect-list"), snapshot.defects, "defect");
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
   } catch (err) {
     console.error(err);
   }
+}
+
+for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"]]) {
+  $(btn).addEventListener("click", () =>
+    invoke("docs_open", { projectDir: currentProject, kind }).catch((e) => toast(String(e)))
+  );
 }
 
 // ---------- 设置 ----------

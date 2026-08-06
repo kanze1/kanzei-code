@@ -35,8 +35,17 @@ pub struct RunSummary {
     pub halted_by_user: bool,
 }
 
+/// 权限询问的用户决定。AlwaysAllow 的持久化由 UI 层负责(写入项目配置),
+/// runner 只负责本次会话内不再重复询问。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AskReply {
+    Deny,
+    AllowOnce,
+    AlwaysAllow,
+}
+
 /// 权限询问回调的返回值:异步等待用户决定(CLI 同步问、桌面端走事件+oneshot)。
-pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>;
+pub type AskFuture = std::pin::Pin<Box<dyn std::future::Future<Output = AskReply> + Send>>;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_once(
@@ -70,6 +79,9 @@ pub async fn run_once(
     let mut total_usage = Usage::default();
     let mut final_text = String::new();
     let max_steps = agent.steps.max(1);
+    // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
+    let mut session_approved: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
 
     for step in 1..=max_steps {
         let last_step = step == max_steps;
@@ -192,9 +204,18 @@ pub async fn run_once(
             }
             if matches!(gate_result, Gate::Pass) {
                 for resource in pending_ask {
-                    if !ask(action.to_string(), resource).await {
-                        gate_result = Gate::UserDeclined;
-                        break;
+                    let key = (action.to_string(), resource.clone());
+                    if session_approved.contains(&key) {
+                        continue;
+                    }
+                    match ask(action.to_string(), resource).await {
+                        AskReply::Deny => {
+                            gate_result = Gate::UserDeclined;
+                            break;
+                        }
+                        AskReply::AllowOnce | AskReply::AlwaysAllow => {
+                            session_approved.insert(key);
+                        }
                     }
                 }
             }

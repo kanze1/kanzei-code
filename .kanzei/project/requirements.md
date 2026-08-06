@@ -1,6 +1,7 @@
 # Requirements
 
-## R-001 harness 双模式 dev/research profile [doing]
+## R-001 harness 双模式 dev/research profile [done]
+- 本次工作: 完成项目结构、代码实现、测试结果与风险分析；未修改业务代码
 
 ## R-002 Tauri 桌面端(类 VSCode 布局) [todo]
 
@@ -10,6 +11,8 @@
 
 ## R-005 桌面端基础件:多项目管理/运行状态/设置页 [done]
 
-## R-006 桌面端 UI 美化(用户反馈:现在有点丑) [doing]
+## R-006 桌面端 UI 美化(用户反馈:现在有点丑) [done]
 
 ## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [doing]
+
+## R-008 自举:用 kanzei 开发 kanzei(dev 模式吃自己狗粮) [doing]

@@ -12,12 +12,14 @@ impl Component for BaseComponent {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("write", Arc::new(crate::write::WriteTool));
+        draft.tools.insert("edit", Arc::new(crate::edit::EditTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
 
-        // 默认权限:读全放行;写/命令走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
+        // 默认权限:读全放行;写/改/命令走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
+            rule("edit", "*", Effect::Ask),
             rule("bash", "*", Effect::Ask),
         ]);
 

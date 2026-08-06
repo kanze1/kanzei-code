@@ -25,11 +25,17 @@
         <div id="project-list" class="project-list"></div>
       </div>
       <div class="sidebar-section">
-        <div class="section-title"><span>需求 <em id="req-count"></em></span></div>
+        <div class="section-title">
+          <span>需求 <em id="req-count"></em></span>
+          <button id="req-open" class="icon-btn" title="打开 requirements.md 原文">↗</button>
+        </div>
         <div id="req-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section">
-        <div class="section-title"><span>缺陷 <em id="defect-count"></em></span></div>
+        <div class="section-title">
+          <span>缺陷 <em id="defect-count"></em></span>
+          <button id="defect-open" class="icon-btn" title="打开 defects.md 原文">↗</button>
+        </div>
         <div id="defect-list" class="doc-list"></div>
       </div>
     </aside>
@@ -142,10 +148,12 @@
       <div class="ask-body">
         <div class="ask-line"><span class="dim">操作</span><code id="ask-action"></code></div>
         <div class="ask-line"><span class="dim">资源</span><code id="ask-resource"></code></div>
+        <div class="ask-line"><span class="dim">总是允许将记住</span><code id="ask-remember"></code></div>
       </div>
       <div class="ask-buttons">
         <button id="ask-deny">拒绝</button>
-        <button id="ask-allow" class="primary">允许</button>
+        <button id="ask-always" title="写入项目 .kanzei/kanzei.toml,之后不再询问">总是允许</button>
+        <button id="ask-allow" class="primary">允许一次</button>
       </div>
     </div>
   </div>

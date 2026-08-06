@@ -169,6 +169,40 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     base.permissions.rules.extend(layer.permissions.rules);
 }
 
+/// "总是允许"的持久化:向项目配置追加 allow 规则(后来的规则 last-match-wins)。
+pub fn append_allow_rule(project_root: &Path, action: &str, resource: &str) -> anyhow::Result<PathBuf> {
+    let path = project_root.join(".kanzei").join("kanzei.toml");
+    let mut config = if path.is_file() {
+        let text = std::fs::read_to_string(&path)?;
+        toml::from_str(&text).map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?
+    } else {
+        KanzeiConfig::default()
+    };
+    config.permissions.rules.push(Rule {
+        action: action.to_string(),
+        resource: resource.to_string(),
+        effect: crate::permission::Effect::Allow,
+    });
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, toml::to_string_pretty(&config)?)?;
+    Ok(path)
+}
+
+/// "总是允许"时把具体资源泛化成可复用的 pattern:
+/// bash 命令 → 首词前缀(`git *`);其余(路径等)→ 原样精确匹配。
+pub fn generalize_resource(action: &str, resource: &str) -> String {
+    if action == "bash" {
+        match resource.split_whitespace().next() {
+            Some(first) if first != resource => format!("{first} *"),
+            _ => resource.to_string(),
+        }
+    } else {
+        resource.to_string()
+    }
+}
+
 /// 从 cwd 向上找 `.kanzei/kanzei.toml`。
 pub fn discover_project_config(cwd: &Path) -> Option<PathBuf> {
     discover_project_root(cwd).map(|root| root.join(".kanzei").join("kanzei.toml"))

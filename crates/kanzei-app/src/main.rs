@@ -23,9 +23,17 @@ use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
+/// 悬挂中的权限询问:除通道外携带上下文,支持"总是允许"落盘。
+struct PendingAsk {
+    sender: oneshot::Sender<kanzei_core::AskReply>,
+    action: String,
+    resource: String,
+    project_root: PathBuf,
+}
+
 #[derive(Default)]
 struct AppState {
-    asks: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
+    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     ask_seq: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
@@ -54,7 +62,9 @@ fn main() {
             settings_save,
             settings_open,
             app_info,
-            models_list
+            models_list,
+            docs_update,
+            docs_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -175,6 +185,14 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     "status": e.status,
                     "severity": e.severity,
                     "closed": kind.terminal.contains(&e.status.as_str()),
+                    "fields": e.fields,
+                    // 展开面板需要:合法的下一步状态(硬门禁同款规则)。
+                    "nextStatuses": kind.statuses.iter()
+                        .filter(|s| {
+                            **s != e.status
+                                && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()
+                        })
+                        .collect::<Vec<_>>(),
                 })
             })
             .collect()
@@ -308,13 +326,95 @@ fn settings_open() -> Result<(), String> {
     Ok(())
 }
 
+/// 侧边栏直接改状态/关闭(走同一套 TrackerTool 硬门禁,不绕过状态机)。
+#[tauri::command]
+async fn docs_update(
+    project_dir: String,
+    kind: String,
+    action: String,
+    id: String,
+    status: Option<String>,
+) -> Result<String, String> {
+    use kanzei_harness::Tool as _;
+    use kanzei_tools::docstore::{DEFECTS as D, FINDINGS as F, REQUIREMENTS as R, SOURCES as S};
+    use kanzei_tools::tracker::TrackerTool;
+    let tool = match kind.as_str() {
+        "req" => TrackerTool { tool_name: "req", noun: "requirement", kind: &R, requires_refs: None },
+        "defect" => TrackerTool { tool_name: "defect", noun: "defect", kind: &D, requires_refs: None },
+        "source" => TrackerTool { tool_name: "source", noun: "source", kind: &S, requires_refs: None },
+        "finding" => TrackerTool { tool_name: "finding", noun: "finding", kind: &F, requires_refs: Some(&S) },
+        other => return Err(format!("unknown kind `{other}`")),
+    };
+    let mut input = json!({ "action": action, "id": id });
+    if let Some(status) = status {
+        input["status"] = json!(status);
+    }
+    let ctx = kanzei_harness::ToolCtx::new(PathBuf::from(&project_dir));
+    let output = tool.execute(input, &ctx).await;
+    if output.is_error {
+        Err(output.content)
+    } else {
+        Ok(output.content)
+    }
+}
+
+/// 用系统默认程序打开文档原文(requirements.md / defects.md)。
+#[tauri::command]
+fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let rel = match kind.as_str() {
+        "req" => kanzei_tools::docstore::REQUIREMENTS.rel_path,
+        "defect" => kanzei_tools::docstore::DEFECTS.rel_path,
+        other => return Err(format!("unknown kind `{other}`")),
+    };
+    let path = root.join(rel);
+    if !path.is_file() {
+        return Err(format!("文档还不存在:{}", path.display()));
+    }
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &path.display().to_string()])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ---------- 运行 ----------
 
+/// reply: "deny" | "once" | "always"。always 先把泛化规则写进项目配置再放行。
 #[tauri::command]
-fn answer_ask(state: State<'_, AppState>, id: u64, allow: bool) {
-    if let Some(sender) = state.asks.lock().unwrap().remove(&id) {
-        let _ = sender.send(allow);
-    }
+fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
+    let Some(pending) = state.asks.lock().unwrap().remove(&id) else {
+        return;
+    };
+    let decision = match reply.as_str() {
+        "always" => {
+            let pattern =
+                kanzei_harness::config::generalize_resource(&pending.action, &pending.resource);
+            match kanzei_harness::config::append_allow_rule(
+                &pending.project_root,
+                &pending.action,
+                &pattern,
+            ) {
+                Ok(path) => {
+                    let _ = window.emit("kz:status", json!({
+                        "stage": "权限",
+                        "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()),
+                    }));
+                }
+                Err(e) => {
+                    let _ = window.emit("kz:status", json!({
+                        "stage": "权限",
+                        "detail": format!("规则保存失败:{e}(本次仍放行)"),
+                    }));
+                }
+            }
+            kanzei_core::AskReply::AlwaysAllow
+        }
+        "once" => kanzei_core::AskReply::AllowOnce,
+        _ => kanzei_core::AskReply::Deny,
+    };
+    let _ = pending.sender.send(decision);
 }
 
 /// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。
@@ -427,7 +527,7 @@ async fn run_prompt(
 
 async fn run_task(
     window: &Window,
-    asks: Arc<Mutex<HashMap<u64, oneshot::Sender<bool>>>>,
+    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     ask_seq: Arc<AtomicU64>,
     prompt: String,
     project_dir: String,
@@ -528,15 +628,25 @@ async fn run_task(
     };
 
     let ask_window = window.clone();
+    let ask_root = ctx.project_root.clone();
     let mut ask = move |action: String, resource: String| -> AskFuture {
         let (sender, receiver) = oneshot::channel();
         let id = ask_seq.fetch_add(1, Ordering::SeqCst);
-        asks.lock().unwrap().insert(id, sender);
+        let remember = kanzei_harness::config::generalize_resource(&action, &resource);
+        asks.lock().unwrap().insert(
+            id,
+            PendingAsk {
+                sender,
+                action: action.clone(),
+                resource: resource.clone(),
+                project_root: ask_root.clone(),
+            },
+        );
         let _ = ask_window.emit(
             "kz:ask",
-            json!({ "id": id, "action": action, "resource": resource }),
+            json!({ "id": id, "action": action, "resource": resource, "remember": remember }),
         );
-        Box::pin(async move { receiver.await.unwrap_or(false) })
+        Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskReply::Deny) })
     };
 
     let summary = run_once(
