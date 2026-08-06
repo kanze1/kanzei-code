@@ -708,7 +708,8 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
         } else if p.auth.as_deref() == Some("claude") {
-            for m in ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"] {
+            // 实际可用型号(2026-08):Opus 5 / Sonnet 5 / Haiku 4.5。
+            for m in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"] {
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
         } else if p.base_url.contains("11434") {
