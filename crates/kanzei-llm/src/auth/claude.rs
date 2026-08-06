@@ -13,13 +13,22 @@ const REFRESH_BEFORE_MS: i64 = 5 * 60 * 1000;
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 
 /// 组装 Claude Code OAuth 调用 Anthropic Messages API 所需的请求头。
+/// 优先级:CLAUDE_CODE_OAUTH_TOKEN 环境变量(`claude setup-token` 生成的长效令牌,
+/// 新版 Claude Code 的推荐方式)→ ~/.claude/.credentials.json(旧版登录态,可刷新)。
 pub async fn claude_headers(proxy: &ProxyConfig) -> Result<Vec<(String, String)>, LlmError> {
+    if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+        let token = token.trim().to_string();
+        if !token.is_empty() {
+            return Ok(bearer_headers(&token));
+        }
+    }
     let path = dirs::home_dir()
         .ok_or_else(|| LlmError::Config("cannot locate home dir".into()))?
         .join(CREDENTIALS_FILE);
     let text = std::fs::read_to_string(&path).map_err(|e| {
         LlmError::Config(format!(
-            "无法读取 {}({e})。先运行 Claude Code 登录。",
+            "无法读取 {}({e}),且未设置 CLAUDE_CODE_OAUTH_TOKEN。\
+             运行 `claude setup-token` 生成长效令牌并设入该环境变量。",
             path.display()
         ))
     })?;
@@ -42,7 +51,13 @@ async fn refresh_if_needed(
     let refresh_token = oauth["refreshToken"]
         .as_str()
         .filter(|token| !token.is_empty())
-        .ok_or_else(|| LlmError::Config(format!("{} 缺少 refreshToken，请重新登录", path.display())))?;
+        .ok_or_else(|| {
+            LlmError::Config(format!(
+                "{} 凭证已过期且无 refreshToken(新版 Claude Code 可能已不维护此文件)。\
+                 运行 `claude setup-token` 生成长效令牌,设置环境变量 CLAUDE_CODE_OAUTH_TOKEN 后重试。",
+                path.display()
+            ))
+        })?;
 
     let client = build_http_client(proxy)?;
     let response = client
@@ -100,12 +115,16 @@ fn headers_from_credentials(
         }
     }
 
-    Ok(vec![
+    Ok(bearer_headers(access_token))
+}
+
+fn bearer_headers(access_token: &str) -> Vec<(String, String)> {
+    vec![
         ("authorization".into(), format!("Bearer {access_token}")),
         ("anthropic-version".into(), "2023-06-01".into()),
         ("anthropic-beta".into(), OAUTH_BETA.into()),
         ("x-app".into(), "cli".into()),
-    ])
+    ]
 }
 
 #[cfg(test)]
