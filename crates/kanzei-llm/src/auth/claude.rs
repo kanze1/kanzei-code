@@ -1,15 +1,19 @@
 //! Claude Code 订阅凭证:复用 Claude Code 的登录态(~/.claude/.credentials.json)。
-//! 不发起 OAuth 授权流程；凭证过期时提示用户先用 Claude Code 重新登录。
+//! 不发起 OAuth 授权流程；只在令牌临近过期时使用 refresh_token 自动刷新。
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::error::LlmError;
+use crate::proxy::{build_http_client, ProxyConfig};
 
 const CREDENTIALS_FILE: &str = ".claude/.credentials.json";
+const TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
+const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const REFRESH_BEFORE_MS: i64 = 5 * 60 * 1000;
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 
 /// 组装 Claude Code OAuth 调用 Anthropic Messages API 所需的请求头。
-pub fn claude_headers() -> Result<Vec<(String, String)>, LlmError> {
+pub async fn claude_headers(proxy: &ProxyConfig) -> Result<Vec<(String, String)>, LlmError> {
     let path = dirs::home_dir()
         .ok_or_else(|| LlmError::Config("cannot locate home dir".into()))?
         .join(CREDENTIALS_FILE);
@@ -19,9 +23,63 @@ pub fn claude_headers() -> Result<Vec<(String, String)>, LlmError> {
             path.display()
         ))
     })?;
-    let credentials: Value = serde_json::from_str(&text)
+    let mut credentials: Value = serde_json::from_str(&text)
         .map_err(|e| LlmError::Config(format!("{} 解析失败: {e}", path.display())))?;
+    refresh_if_needed(&mut credentials, &path, proxy).await?;
     headers_from_credentials(&credentials, &path)
+}
+
+async fn refresh_if_needed(
+    credentials: &mut Value,
+    path: &std::path::Path,
+    proxy: &ProxyConfig,
+) -> Result<(), LlmError> {
+    let oauth = &credentials["claudeAiOauth"];
+    let expires_at = oauth["expiresAt"].as_i64().unwrap_or_default();
+    if expires_at > chrono::Utc::now().timestamp_millis() + REFRESH_BEFORE_MS {
+        return Ok(());
+    }
+    let refresh_token = oauth["refreshToken"]
+        .as_str()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| LlmError::Config(format!("{} 缺少 refreshToken，请重新登录", path.display())))?;
+
+    let client = build_http_client(proxy)?;
+    let response = client
+        .post(TOKEN_URL)
+        .json(&json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": CLIENT_ID,
+        }))
+        .send()
+        .await
+        .map_err(LlmError::Transport)?;
+    let status = response.status();
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    if !status.is_success() {
+        return Err(LlmError::Config(format!(
+            "Claude OAuth 令牌刷新失败(HTTP {status}): {}。请重新登录。",
+            body["error"].as_str().unwrap_or("unknown")
+        )));
+    }
+    let access_token = body["access_token"]
+        .as_str()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| LlmError::Config("Claude OAuth 刷新响应缺少 access_token".into()))?;
+    let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
+    credentials["claudeAiOauth"]["accessToken"] = json!(access_token);
+    if let Some(token) = body["refresh_token"].as_str().filter(|token| !token.is_empty()) {
+        credentials["claudeAiOauth"]["refreshToken"] = json!(token);
+    }
+    credentials["claudeAiOauth"]["expiresAt"] =
+        json!(chrono::Utc::now().timestamp_millis() + expires_in * 1000);
+    let serialized = serde_json::to_string_pretty(credentials)
+        .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
+    std::fs::write(path, serialized)
+        .map_err(|e| LlmError::Config(format!("write {}: {e}", path.display())))?;
+    tracing::info!("claude OAuth token refreshed");
+    Ok(())
 }
 
 fn headers_from_credentials(
@@ -34,8 +92,7 @@ fn headers_from_credentials(
         .filter(|token| !token.is_empty())
         .ok_or_else(|| LlmError::Config(format!("{} 缺少 claudeAiOauth.accessToken，请重新登录", path.display())))?;
     if let Some(expires_at) = oauth["expiresAt"].as_i64() {
-        let now = chrono::Utc::now().timestamp_millis();
-        if expires_at <= now {
+        if expires_at <= chrono::Utc::now().timestamp_millis() {
             return Err(LlmError::Config(format!(
                 "{} 中的 Claude OAuth 凭证已过期，请先重新登录",
                 path.display()

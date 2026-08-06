@@ -21,7 +21,7 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
     }
 
     if resolved.provider.auth.as_deref() == Some("claude") {
-        let headers = kanzei_llm::auth::claude::claude_headers()?;
+        let headers = kanzei_llm::auth::claude::claude_headers(proxy).await?;
         return Ok(Route::anthropic_with_headers_at(
             &resolved.provider.base_url,
             headers,
