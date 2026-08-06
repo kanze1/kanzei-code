@@ -19,7 +19,7 @@
 - 验证: cargo test -p kanzei-core：8 passed；cargo build -p kanzei-app 通过；node --check ui/main.js 通过；cargo test --workspace 全部通过。格式检查仅保留仓库既有 app/tools 差异。下一步：运行中 queue admission/drain。
 - 进展: 已修复 D-021 的递归 runner Send 编译阻塞：run_once 改为显式生命周期的 Send boxed future；同时完成 R-003 事件恢复第一阶段代码。cargo test --workspace 全部通过（kanzei-core 10 tests），node --check 通过。下一步：提交当前已验证的 R-003/R-012 改动，并继续按编号推进。
 
-## R-004 本地模型跑并行子代理(M4) [todo]
+## R-004 本地模型跑并行子代理(M4) [done]
 
 ## R-005 桌面端基础件:多项目管理/运行状态/设置页 [done]
 
@@ -46,10 +46,10 @@
 - 范围: 为Agent提供统一工具抽象，覆盖文件读写/编辑、命令执行、搜索、任务跟踪及并行调用等能力，并评估Codex与Claude Code的功能差异
 - 验收: 工具协议和权限边界统一；支持安全的并行工具调用与冲突处理；完成Codex/Claude Code能力矩阵；关键能力有集成测试和失败可恢复行为
 
-## R-012 将子Agent调度能力开放给主Agent [doing]
+## R-012 将子Agent调度能力开放给主Agent [done]
 - 范围: 主Agent可按任务创建、排队、并发调度、暂停/取消、汇总子Agent，并复用统一的事件与结果协议
 - 验收: 主Agent可发起并行子任务并获得可关联结果；支持并发上限、失败/超时、取消和重试；调度过程可观测且不破坏主会话；结果可回写历史和事件流
-- 进展: D-021 已修复：run_once 使用显式生命周期的 Send boxed future，R-012 子代理递归 runner 恢复 workspace 编译。cargo test --workspace 全部通过；后续继续补齐子代理调度验收（取消、超时、重试与事件回写）。
+- 进展: 按用户要求定位 SubagentRuntime 与 explore_agent 定义位置。
 
 ## R-013 支持回到之前的对话 [doing]
 - 范围: 会话列表、历史会话加载与继续对话
@@ -104,3 +104,7 @@
 - 优先级说明: 按新增需求纳入整体需求顺序，排在现有需求之后。
 - 范围: 新增需求分析沟通模式：围绕需求澄清、边界、验收标准进行结构化沟通；新增缺陷查找按钮：提供明确的用户入口触发缺陷查找/诊断流程，并展示查找状态与结果。
 - 验收: 用户可在桌面端进入需求分析沟通模式并开始分析；用户可点击缺陷查找按钮触发缺陷查找，看到进行中、完成、失败或无结果状态；具体交互方案与权限边界在实现前补充确认。
+
+## R-028 todo 工具:运行内任务清单(pending/in_progress/done),长连跑会话的结构化计划 + 前端可视化 [todo]
+
+## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道,替代纯文本猜测 [todo]
