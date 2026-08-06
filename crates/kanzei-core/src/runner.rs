@@ -41,6 +41,9 @@ pub struct RunSummary {
     pub steps: u32,
     /// 用户拒绝权限导致的提前停止。
     pub halted_by_user: bool,
+    /// 本次运行结束时的完整消息历史(含本次),调用方保存后可作为下次 prior 传入,
+    /// 实现跨消息连续对话(M2 落盘前的内存态方案)。
+    pub messages: Vec<Message>,
 }
 
 /// 权限询问的用户决定。AlwaysAllow 的持久化由 UI 层负责(写入项目配置),
@@ -64,6 +67,8 @@ pub async fn run_once(
     config: &RunnerConfig,
     ctx: &ToolCtx,
     prompt: &str,
+    // 之前轮次的完整消息历史(空 = 新对话)。
+    prior: &[Message],
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     ask: &mut (dyn FnMut(String, String) -> AskFuture + Send),
 ) -> anyhow::Result<RunSummary> {
@@ -83,7 +88,8 @@ pub async fn run_once(
         .filter(|s| !s.trim().is_empty())
         .collect();
 
-    let mut messages = vec![Message::user_text(prompt)];
+    let mut messages: Vec<Message> = prior.to_vec();
+    messages.push(Message::user_text(prompt));
     let mut total_usage = Usage::default();
     let mut final_text = String::new();
     let max_steps = agent.steps.max(1);
@@ -193,7 +199,7 @@ pub async fn run_once(
         }
 
         if calls.is_empty() {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false });
+            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false, messages });
         }
 
         let mut results = Vec::new();
@@ -275,6 +281,7 @@ pub async fn run_once(
                         usage: total_usage,
                         steps: step,
                         halted_by_user: true,
+                        messages,
                     });
                 }
                 Gate::Pass => {
@@ -300,11 +307,11 @@ pub async fn run_once(
         messages.push(Message::tool_results(results));
 
         if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
-            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false });
+            return Ok(RunSummary { text: final_text, usage: total_usage, steps: step, halted_by_user: false, messages });
         }
     }
 
-    Ok(RunSummary { text: final_text, usage: total_usage, steps: max_steps, halted_by_user: false })
+    Ok(RunSummary { text: final_text, usage: total_usage, steps: max_steps, halted_by_user: false, messages })
 }
 
 enum Gate {

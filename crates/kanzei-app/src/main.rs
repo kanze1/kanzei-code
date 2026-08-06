@@ -37,6 +37,10 @@ struct AppState {
     ask_seq: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+    /// 会话内多轮连续:窗口存活期间的完整消息历史(M2 落盘前的内存态方案)。
+    conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
+    /// 历史所属项目;切换项目自动清空。
+    conversation_project: Arc<Mutex<Option<String>>>,
 }
 
 fn main() {
@@ -67,7 +71,8 @@ fn main() {
             docs_open,
             summarize_chat,
             git_status,
-            conventions_init
+            conventions_init,
+            conversation_clear
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -586,6 +591,13 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
     Ok(json!(items))
 }
 
+/// 开新对话:清空会话内多轮历史。
+#[tauri::command]
+fn conversation_clear(state: State<'_, AppState>) {
+    state.conversation.lock().unwrap().clear();
+    *state.conversation_project.lock().unwrap() = None;
+}
+
 #[tauri::command]
 fn app_info() -> serde_json::Value {
     json!({
@@ -621,9 +633,15 @@ async fn run_prompt(
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
     let current_run = state.current_run.clone();
+    let conversation = state.conversation.clone();
+    let conversation_project = state.conversation_project.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
-        let result = run_task(&window, asks, ask_seq, prompt, project_dir, profile, model).await;
+        let result = run_task(
+            &window, asks, ask_seq, prompt, project_dir, profile, model,
+            conversation, conversation_project,
+        )
+        .await;
         if let Err(e) = result {
             let message = e.to_string();
             let lower = message.to_lowercase();
@@ -651,6 +669,8 @@ async fn run_task(
     project_dir: String,
     profile: Option<String>,
     model_override: Option<String>,
+    conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
+    conversation_project: Arc<Mutex<Option<String>>>,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -772,6 +792,20 @@ async fn run_task(
         Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskReply::Deny) })
     };
 
+    // 会话连续:同项目续上历史,换项目自动开新对话。
+    let prior: Vec<kanzei_llm::Message> = {
+        let mut proj = conversation_project.lock().unwrap();
+        let mut conv = conversation.lock().unwrap();
+        if proj.as_deref() != Some(project_dir.as_str()) {
+            *proj = Some(project_dir.clone());
+            conv.clear();
+        }
+        conv.clone()
+    };
+    if !prior.is_empty() {
+        stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
+    }
+
     let summary = run_once(
         &client,
         &route,
@@ -780,16 +814,21 @@ async fn run_task(
         &runner_config,
         &ctx,
         &prompt,
+        &prior,
         &mut on_event,
         &mut ask,
     )
     .await?;
+
+    let history_len = summary.messages.len();
+    *conversation.lock().unwrap() = summary.messages;
 
     let _ = window.emit(
         "kz:done",
         json!({
             "steps": summary.steps,
             "halted": summary.halted_by_user,
+            "history": history_len,
             "input": summary.usage.input,
             "output": summary.usage.output,
             "cacheRead": summary.usage.cache_read,

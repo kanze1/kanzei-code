@@ -157,7 +157,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     };
 
     let summary = run_once(
-        &client, &route, &snapshot, &agent, &runner_config, &ctx, &prompt, &mut on_event, &mut ask,
+        &client, &route, &snapshot, &agent, &runner_config, &ctx, &prompt, &[], &mut on_event,
+        &mut ask,
     )
     .await?;
 

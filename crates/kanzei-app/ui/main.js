@@ -345,7 +345,10 @@ on("kz:stopped", () => {
 });
 on("kz:done", (e) => {
   const p = e.payload;
-  addMessage("notice", `完成 · steps ${p.steps}${p.halted ? " · 已按你的拒绝停止" : ""}`);
+  addMessage(
+    "notice",
+    `完成 · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? " · 已按你的拒绝停止" : ""}`
+  );
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
   setRunning(false);
@@ -522,7 +525,11 @@ function renderProjects(prefs) {
     });
     item.append(name, pathEl, remove);
     item.addEventListener("click", async () => {
+      const previous = currentProject;
       renderProjects(await invoke("projects_select", { path }));
+      if (previous && previous !== path) {
+        clearChat("已切换项目,对话历史重新开始");
+      }
       refreshDocs();
       loadModels();
       refreshGit();
@@ -678,6 +685,31 @@ async function refreshGit() {
     $("status-git").textContent = "";
   }
 }
+
+// ---------- 新对话 ----------
+function clearChat(noticeText) {
+  messages.innerHTML = "";
+  currentAssistant = null;
+  currentReasoning = null;
+  currentReasoningHead = null;
+  ctxTokens = 0;
+  renderTokens();
+  if (noticeText) addMessage("notice", noticeText);
+}
+
+$("new-chat").addEventListener("click", async () => {
+  if (running) {
+    toast("任务运行中,先停止再开新对话");
+    return;
+  }
+  try {
+    await invoke("conversation_clear");
+    clearChat("已开启新对话(历史已清空)");
+    log("新对话:多轮历史已清空");
+  } catch (err) {
+    toast(String(err));
+  }
+});
 
 // ---------- 对话总结 ----------
 $("summarize-btn").addEventListener("click", async () => {
