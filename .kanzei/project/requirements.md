@@ -1,6 +1,6 @@
 # Requirements
 
-## R-003 SQLite 事件溯源 + steer/queue 调度(M2) [doing]
+## R-003 SQLite 事件溯源 + steer/queue 调度(M2) [done]
 - 范围: SQLite 事件溯源(state.db)、steer/queue 双投递、运行中 queue drain、事件恢复消息历史;对话历史持久化(原 R-009)一并交付
 - 已完成: SessionStore + 迁移、prompt admitted/promoted 事件、会话状态生命周期(running/idle/failed)、CLI/桌面端接入、事件恢复第一阶段、steer 输入入口与优先调度、运行中队列调度
 - 下一步: 运行中 queue admission/drain 收尾,使 pending 输入在当前任务结束后自动提升执行
@@ -8,6 +8,8 @@
 - refs: R-013 D-010
 - 最新提交: 91d3f2b
 - 进展: 已完成 queue/steer drain 的关键修复：promote_next_input 逐条 FIFO 提升 steer，避免后续 steer 丢失；新增连续 steer→queue 回归测试。cargo test --workspace 全部通过。剩余运行中 admission/drain 竞态与端到端覆盖。
+- 完成说明: 已完成 SQLite 事件溯源、steer/queue admission 与桌面端运行中 drain；修复多个 steer 逐条 FIFO 提升问题，并通过 lifecycle 锁消除 queue admission 与 drain 收尾竞态。相关回归测试、M2 调度文档已更新，cargo test --workspace 全部通过。
+- 验收: 运行结束边界提交的输入不会因 worker 在最后检查后直接退出而遗留 pending；steer/queue 按既定优先级与 FIFO 逐条提升。
 
 ## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [doing]
 - 已完成: Codex 凭证(auth.json 刷新回写、Responses 协议、gpt-5.6 三兄弟)
