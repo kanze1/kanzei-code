@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: R-050 在设计矩阵基础上新增两项 SessionStore 只读 POC 回归测试：跨 session 事件回放隔离、取消 A session 不影响 B session 队列且保留 steer 优先。cargo test -p kanzei-core（13 项）与 cargo test -p kanzei-app（1 项）通过。真实双线程运行仍等待 R-030 的 process_id/session_id 契约。
+- 进展: R-050 新增可重复只读 POC 验收入口 scripts/r050-poc-check.ps1，固定运行 kanzei-core（含跨 session 隔离测试）、kanzei-app 和前端语法检查；脚本和边界已写入设计文档。执行成功：core 13 项、app 1 项通过。真实双线程仍等待 R-030 的 process_id/session_id 契约。
 
 ## G-002 前端与后端能力对齐 [active]
 - 类型: 短期

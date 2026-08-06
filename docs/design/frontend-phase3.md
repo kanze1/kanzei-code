@@ -141,3 +141,23 @@ created/idle -> closed
 ### 后续入口
 
 待 R-030 确定 `process_id/session_id` 命令与事件契约后，先实现上述 POC 的内存态双线程测试，再接入 worktree、diff 审查和冲突合并；在此之前不得实现 R-050 的并行写入流程。
+
+### POC 验收入口
+
+使用 `.scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
+
+1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
+2. `cargo test -p kanzei-app`：桌面端回归；
+3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
+
+该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。
+
+### POC 验收入口
+
+使用 `.\scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
+
+1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
+2. `cargo test -p kanzei-app`：桌面端回归；
+3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
+
+该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。
