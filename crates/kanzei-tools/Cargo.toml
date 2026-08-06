@@ -7,6 +7,12 @@ license.workspace = true
 [dependencies]
 async-trait.workspace = true
 kanzei-harness.workspace = true
+kanzei-llm.workspace = true
+globset.workspace = true
+ignore.workspace = true
+grep-searcher.workspace = true
+grep-regex.workspace = true
+reqwest.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

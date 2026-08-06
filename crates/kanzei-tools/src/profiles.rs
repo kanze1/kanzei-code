@@ -139,8 +139,9 @@ impl Component for ResearchProfile {
                 .permissions
                 .push(rule(action, "*.kanzei/research/*", Effect::Allow));
         }
-        // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图)。
+        // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图);联网抓取放行(主力工具)。
         draft.permissions.push(rule("bash", "*", Effect::Ask));
+        draft.permissions.push(rule("webfetch", "*", Effect::Allow));
 
         draft.context.insert(
             "research/docs",

@@ -507,14 +507,10 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 }
 
 /// 对话总结:fast 模型生成纪要并存档到 .kanzei/summaries/。
-#[tauri::command]
-async fn summarize_chat(
-    project_dir: String,
-    transcript: String,
-) -> Result<serde_json::Value, String> {
+/// fast 模型跑一段总结(手动「总结」与 R-021 自动压缩共用)。
+async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> {
     use futures::StreamExt;
-    let cwd = PathBuf::from(&project_dir);
-    let config = KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
+    let config = KanzeiConfig::load(cwd).map_err(|e| e.to_string())?;
     let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
@@ -550,6 +546,47 @@ async fn summarize_chat(
     if summary.trim().is_empty() {
         return Err("模型没有产出总结(fast 模型是否在运行?)".into());
     }
+    Ok(summary)
+}
+
+/// 压缩用的对话文本化(工具结果截断,总量有界)。
+fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
+    let mut out = String::new();
+    'outer: for message in messages {
+        for part in &message.parts {
+            match part {
+                kanzei_llm::Part::Text { text } => {
+                    out.push_str(match message.role {
+                        kanzei_llm::Role::User => "[用户] ",
+                        kanzei_llm::Role::Assistant => "[助手] ",
+                    });
+                    out.push_str(text);
+                    out.push('\n');
+                }
+                kanzei_llm::Part::ToolCall { name, input, .. } => {
+                    out.push_str(&format!("[工具调用] {name} {input}\n"));
+                }
+                kanzei_llm::Part::ToolResult { content, .. } => {
+                    let snippet: String = content.chars().take(1500).collect();
+                    out.push_str(&format!("[工具结果] {snippet}\n"));
+                }
+                _ => {}
+            }
+            if out.len() > 100_000 {
+                break 'outer;
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+async fn summarize_chat(
+    project_dir: String,
+    transcript: String,
+) -> Result<serde_json::Value, String> {
+    let cwd = PathBuf::from(&project_dir);
+    let summary = fast_summarize(&cwd, &transcript).await?;
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
     let dir = root.join(".kanzei").join("summaries");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -977,6 +1014,36 @@ async fn run_task(
 
     let history_len = summary.messages.len();
     *conversation.lock().unwrap() = summary.messages;
+
+    // R-021 自动压缩:历史估算超过上下文上限 70% 时,fast 模型出纪要并替换历史。
+    // 估算用 len/4(与压缩预检同源的粗粒度);失败保留原历史,绝不丢上下文。
+    if let Some(limit) = resolved.provider.context_limit {
+        let estimate = {
+            let conv = conversation.lock().unwrap();
+            serde_json::to_string(&*conv)
+                .map(|s| s.len() as u64 / 4)
+                .unwrap_or(0)
+        };
+        if estimate > limit * 7 / 10 {
+            stage(
+                "压缩",
+                format!("历史约 {}k token,超过 {}k 的 70%,自动压缩中…", estimate / 1000, limit / 1000),
+            );
+            let transcript = {
+                let conv = conversation.lock().unwrap();
+                render_transcript(&conv)
+            };
+            match fast_summarize(&ctx.cwd, &transcript).await {
+                Ok(digest) => {
+                    *conversation.lock().unwrap() = vec![kanzei_llm::Message::user_text(format!(
+                        "(系统:此前对话已自动压缩为以下纪要,基于它继续)\n{digest}"
+                    ))];
+                    let _ = window.emit("kz:compacted", json!({ "summary": digest }));
+                }
+                Err(e) => stage("压缩", format!("压缩失败:{e}(保留原历史)")),
+            }
+        }
+    }
 
     let _ = window.emit(
         "kz:done",

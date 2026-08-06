@@ -336,6 +336,12 @@ on("kz:error", (e) => {
   setRunning(false, "出错");
   $("log-panel").classList.remove("hidden");
 });
+on("kz:compacted", () => {
+  addMessage("notice", "🗜 上下文占用过高,已自动压缩为纪要并延续对话");
+  log("自动压缩完成:多轮历史已替换为纪要");
+  ctxTokens = 0;
+  renderTokens();
+});
 on("kz:stopped", () => {
   hideAsk();
   addMessage("notice", "已停止");

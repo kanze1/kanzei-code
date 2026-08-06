@@ -85,3 +85,15 @@
 - 当前工作: 定位编辑 diff UI，并将默认展开改为默认收纳，保留改变量摘要和手动展开
 - 实现内容: 桌面端编辑 diff 默认收纳，工具头部显示文件路径和增删统计，点击头部可展开/收起详情。
 - 验证: node --check crates/kanzei-app/ui/main.js；cargo build -p kanzei-app；cargo test -p kanzei-core，均通过。
+
+## R-021 上下文自动压缩:占用超阈值自动总结并延续对话,压缩不丢数据可召回(替代手动总结+新对话) [done]
+
+## R-022 LLM 请求瞬断自动重试:流未建立时自动重试(退避),UI 显示重试中,代理抖动不再整轮失败 [done]
+
+## R-023 research 模式补 webfetch/websearch 工具(走代理,输出截断,来源可直接 source add) [doing]
+
+## R-024 输入体验:提示词历史(上下箭头)、@文件引用补全、粘贴/拖拽图片文件(接通 R-014) [todo]
+
+## R-025 权限规则管理:设置页查看/删除已记住的放行规则(现在只能手改 toml) [todo]
+
+## R-026 glob/grep 检索工具:ripgrep 内核带 head-limit 早停,当前 agent 只能用 bash 绕路 [done]

@@ -102,11 +102,25 @@ impl LlmClient {
             builder = builder.header(k, v);
         }
 
-        let response = builder
-            .json(&body)
-            .send()
-            .await
-            .map_err(LlmError::Transport)?;
+        let builder = builder.json(&body);
+        // R-022:流建立前的瞬断(代理抖动/连接超时)自动重试,退避 0.5s/1s。
+        // 流一旦建立绝不重放(工具副作用不可重复)。
+        let mut attempt: u32 = 0;
+        let response = loop {
+            let rb = builder
+                .try_clone()
+                .ok_or_else(|| LlmError::Config("request not clonable for retry".into()))?;
+            match rb.send().await {
+                Ok(r) => break r,
+                Err(e) if attempt < 2 && (e.is_connect() || e.is_timeout() || e.is_request()) => {
+                    attempt += 1;
+                    tracing::warn!(attempt, error = %e, "transport error before stream, retrying");
+                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64))
+                        .await;
+                }
+                Err(e) => return Err(LlmError::Transport(e)),
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             let text = response.text().await.unwrap_or_default();

@@ -16,13 +16,21 @@ impl Component for BaseComponent {
             .insert("write", Arc::new(crate::write::WriteTool));
         draft.tools.insert("edit", Arc::new(crate::edit::EditTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
+        draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
+        draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        draft
+            .tools
+            .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
 
-        // 默认权限:读全放行;写/改/命令走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
+        // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
+            rule("glob", "*", Effect::Allow),
+            rule("grep", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
             rule("bash", "*", Effect::Ask),
+            rule("webfetch", "*", Effect::Ask),
         ]);
 
         draft.context.insert(
