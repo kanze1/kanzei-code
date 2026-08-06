@@ -113,27 +113,18 @@ body {
 .doc-item.pri-P2::before { background: var(--info); opacity: .8; }
 .doc-item.pri-P3::before { background: var(--border); }
 .pri-badge { font-size: 10px; border-radius: 8px; padding: 0 5px; flex-shrink: 0; font-family: var(--mono); }
-/* 复杂度(R-051):行尾分段刻度(1/2/3 格)——格数即体量,不会误读成进度条。 */
-.doc-item.cx-s::after, .doc-item.cx-m::after, .doc-item.cx-l::after {
-  content: ""; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
-  height: 8px; border-radius: 1px;
+/* 复杂度(R-051):左侧竖线的宽度三级表达——细=小 2px / 中 4px / 粗=大 7px。
+   颜色说优先级(多急),宽度说复杂度(多大),同一根线两个维度。 */
+.doc-item.cx-s::before, .doc-item.cx-m::before, .doc-item.cx-l::before {
+  content: ""; position: absolute; left: 4px; top: 5px; bottom: 5px; border-radius: 2px;
 }
-.doc-item.cx-s::after {
-  width: 4px;
-  background: var(--dim); opacity: .5;
+.doc-item.cx-s::before { width: 2px; }
+.doc-item.cx-m::before { width: 4px; }
+.doc-item.cx-l::before { width: 7px; }
+/* 无优先级时竖线的缺省色(放最后会盖掉优先级色,故用 :not 收窄) */
+.doc-item[class*="cx-"]:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3)::before {
+  background: var(--border);
 }
-.doc-item.cx-m::after {
-  width: 12px;
-  background: repeating-linear-gradient(90deg, var(--info) 0 4px, transparent 4px 8px);
-  opacity: .7;
-}
-.doc-item.cx-l::after {
-  width: 20px;
-  background: repeating-linear-gradient(90deg, var(--alert, var(--warn)) 0 4px, transparent 4px 8px);
-  opacity: .85;
-}
-/* 给刻度让位,标题不与其重叠 */
-.doc-item.cx-s .title, .doc-item.cx-m .title, .doc-item.cx-l .title { padding-right: 26px; }
 .pri-badge.P0 { background: #3a221c; color: var(--err); }
 .pri-badge.P1 { background: #3d2a10; color: var(--alert); }
 .pri-badge.P2 { background: #16283a; color: var(--info); }
