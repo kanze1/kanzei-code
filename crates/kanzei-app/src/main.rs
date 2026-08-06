@@ -76,7 +76,8 @@ fn main() {
             git_status,
             conventions_init,
             conversation_clear,
-            conversation_get
+            conversation_get,
+            conversation_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -756,7 +757,11 @@ fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result
 }
 
 #[tauri::command]
-fn conversation_get(project_dir: String) -> Result<Vec<kanzei_llm::Message>, String> {
+fn conversation_get(
+    state: State<'_, AppState>,
+    project_dir: String,
+    sequence: Option<i64>,
+) -> Result<Vec<kanzei_llm::Message>, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
     let session_id = kanzei_core::project_session_id(&root);
@@ -765,7 +770,43 @@ fn conversation_get(project_dir: String) -> Result<Vec<kanzei_llm::Message>, Str
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
-    recover_messages(&store, &session_id).map_err(|e| e.to_string())
+    let messages = recover_messages_at(&store, &session_id, sequence).map_err(|e| e.to_string())?;
+    *state.conversation.lock().unwrap() = messages.clone();
+    *state.conversation_project.lock().unwrap() = Some(root.display().to_string());
+    Ok(messages)
+}
+
+#[tauri::command]
+fn conversation_list(project_dir: String) -> Result<Vec<serde_json::Value>, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&root);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    Ok(store
+        .list_events(&session_id, 0)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|event| event.event_type == "conversation.updated")
+        .map(|event| {
+            let messages = event.payload["messages"].as_array();
+            let title = messages
+                .and_then(|items| items.iter().find(|item| item["role"] == "user"))
+                .and_then(|item| item["parts"].as_array())
+                .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
+                .and_then(|part| part["text"].as_str())
+                .unwrap_or("新对话");
+            json!({
+                "sequence": event.sequence,
+                "created_at": event.created_at,
+                "title": title.chars().take(48).collect::<String>(),
+                "message_count": messages.map_or(0, Vec::len),
+            })
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -966,7 +1007,24 @@ fn recover_messages(
     store: &kanzei_core::SessionStore,
     session_id: &str,
 ) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    let Some(event) = store.latest_event(session_id, "conversation.updated")? else {
+    recover_messages_at(store, session_id, None)
+}
+
+fn recover_messages_at(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    sequence: Option<i64>,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let event = match sequence {
+        Some(sequence) => store
+            .list_events(session_id, 0)?
+            .into_iter()
+            .find(|event| {
+                event.sequence == sequence && event.event_type == "conversation.updated"
+            }),
+        None => store.latest_event(session_id, "conversation.updated")?,
+    };
+    let Some(event) = event else {
         return Ok(Vec::new());
     };
     let messages = event

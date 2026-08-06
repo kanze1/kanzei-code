@@ -900,6 +900,7 @@ async function refreshDocs() {
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
     $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
     renderConventions(snapshot.conventions);
+    await refreshConversationList();
   } catch (err) {
     console.error(err);
   }
@@ -1015,15 +1016,49 @@ function renderRecoveredMessages(items) {
   scrollBottom();
 }
 
-async function loadConversation() {
+async function loadConversation(sequence = null) {
   if (!currentProject) return;
   try {
-    const history = await invoke("conversation_get", { projectDir: currentProject });
+    const history = await invoke("conversation_get", { projectDir: currentProject, sequence });
     renderRecoveredMessages(history);
     log(`已恢复 ${history.length} 条历史消息`);
   } catch (err) {
     addMessage("error", `历史消息恢复失败:${err}`);
     log(`历史消息恢复失败:${err}`, "warn");
+  }
+}
+
+function renderConversationList(items) {
+  const el = $("conversation-list");
+  el.innerHTML = "";
+  $("conversation-count").textContent = items.length;
+  if (!items.length) {
+    el.textContent = "(暂无历史对话)";
+    return;
+  }
+  for (const item of [...items].reverse()) {
+    const row = document.createElement("div");
+    row.className = "doc-item";
+    row.title = "打开此历史对话";
+    row.textContent = `${item.title || "新对话"} (${item.message_count} 条)`;
+    row.addEventListener("click", async () => {
+      try {
+        await loadConversation(item.sequence);
+        addMessage("notice", `已打开历史对话 #${item.sequence}`);
+      } catch (err) {
+        toast(String(err));
+      }
+    });
+    el.appendChild(row);
+  }
+}
+
+async function refreshConversationList() {
+  if (!currentProject) return;
+  try {
+    renderConversationList(await invoke("conversation_list", { projectDir: currentProject }));
+  } catch (err) {
+    $("conversation-list").textContent = `历史对话加载失败:${err}`;
   }
 }
 
@@ -1046,6 +1081,7 @@ $("new-chat").addEventListener("click", async () => {
   try {
     await invoke("conversation_clear", { projectDir: currentProject });
     clearChat("已开启新对话(历史已清空)");
+    await refreshConversationList();
     log("新对话:多轮历史已清空");
   } catch (err) {
     toast(String(err));
