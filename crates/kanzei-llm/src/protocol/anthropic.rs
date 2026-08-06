@@ -80,7 +80,12 @@ fn message_to_value(message: &crate::request::Message) -> Value {
         .iter()
         .filter_map(|part| match part {
             Part::Text { text } => Some(json!({"type": "text", "text": text})),
-            // M0 不回传 reasoning(需要 signature 完整往返,后续里程碑处理)。
+            Part::Image { media_type, data } => Some(json!({
+                "type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}
+            })),
+            Part::Document { media_type, data } => Some(json!({
+                "type": "document", "source": {"type": "base64", "media_type": media_type, "data": data}
+            })),
             Part::Reasoning { .. } => None,
             Part::ToolCall { id, name, input } => Some(json!({
                 "type": "tool_use", "id": id, "name": name, "input": input,

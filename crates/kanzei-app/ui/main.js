@@ -120,6 +120,27 @@ function setRunning(value, statusText) {
   setStatus(statusText ?? (value ? "运行中" : "空闲"), value);
 }
 
+// ---------- markdown-lite(无依赖:代码围栏/行内码/加粗/标题;先转义再渲染,安全) ----------
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function renderMarkdown(raw) {
+  const parts = escapeHtml(raw).split(/```/);
+  let html = "";
+  parts.forEach((seg, i) => {
+    if (i % 2 === 1) {
+      const nl = seg.indexOf("\n");
+      html += `<pre class="code">${nl >= 0 ? seg.slice(nl + 1) : seg}</pre>`;
+    } else {
+      html += seg
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/^#{1,6}\s+(.+)$/gm, '<strong class="md-h">$1</strong>');
+    }
+  });
+  return html;
+}
+
 // ---------- 消息渲染 ----------
 function clearEmptyState() {
   const empty = $("empty-state");
@@ -140,34 +161,47 @@ function addMessage(cls, text) {
   return el;
 }
 
+let outputChars = 0;
 function appendAssistant(text) {
-  if (!currentAssistant) currentAssistant = addMessage("assistant", "");
-  currentAssistant.textContent += text;
+  if (!currentAssistant) {
+    currentAssistant = addMessage("assistant md", "");
+    currentAssistant.dataset.raw = "";
+  }
+  currentAssistant.dataset.raw += text;
+  currentAssistant.innerHTML = renderMarkdown(currentAssistant.dataset.raw);
+  outputChars += text.length;
   scrollBottom();
 }
 
+let currentReasoningHead = null;
 function appendReasoning(text) {
   if (!currentReasoning) {
-    // 思考块默认折叠成一行,点击展开(对话收纳)。
+    // 思考块:每个思考段独立一块,头部实时显示摘要首行,默认折叠(R-015 修正)。
     clearEmptyState();
     const wrap = document.createElement("div");
     wrap.className = "msg reasoning";
     const head = document.createElement("div");
     head.className = "reasoning-head";
-    head.textContent = "· 思考过程(点击展开)";
+    head.textContent = "· 思考中…";
     const body = document.createElement("div");
-    body.className = "reasoning-body hidden";
-    head.addEventListener("click", () => {
-      body.classList.toggle("hidden");
-      head.textContent = body.classList.contains("hidden")
-        ? "· 思考过程(点击展开)"
-        : "· 思考过程(点击收起)";
-    });
+    body.className = "reasoning-body md hidden";
+    body.dataset.raw = "";
+    head.addEventListener("click", () => body.classList.toggle("hidden"));
     wrap.append(head, body);
     messages.appendChild(wrap);
     currentReasoning = body;
+    currentReasoningHead = head;
   }
-  currentReasoning.textContent += text;
+  currentReasoning.dataset.raw += text;
+  currentReasoning.innerHTML = renderMarkdown(currentReasoning.dataset.raw);
+  if (currentReasoningHead) {
+    const preview = currentReasoning.dataset.raw
+      .split("\n")[0]
+      .replace(/[#*`]/g, "")
+      .trim()
+      .slice(0, 60);
+    currentReasoningHead.textContent = `· ${preview || "思考中…"}(点击展开)`;
+  }
   scrollBottom();
 }
 
@@ -183,9 +217,27 @@ on("kz:meta", (e) => {
   log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
   if (running) setStatus("等待模型响应", true);
 });
+on("kz:turn", (e) => {
+  const p = e.payload;
+  if (p.step > 1) {
+    clearEmptyState();
+    const divider = document.createElement("div");
+    divider.className = "turn-divider";
+    divider.textContent = `第 ${p.step}/${p.maxSteps} 轮`;
+    messages.appendChild(divider);
+    scrollBottom();
+  }
+  currentAssistant = null;
+  currentReasoning = null;
+  currentReasoningHead = null;
+  if (running) setStatus(`第 ${p.step} 轮 · 等待模型`, true);
+});
 on("kz:text", (e) => {
   markFirstSignal();
-  if (running) setStatus("生成中", true);
+  // 文本开始后,后续思考属于新的思考段。
+  currentReasoning = null;
+  currentReasoningHead = null;
+  if (running) setStatus(`生成中 · ${(outputChars / 1000).toFixed(1)}k 字`, true);
   appendAssistant(e.payload.text);
 });
 on("kz:reasoning", (e) => {
@@ -211,18 +263,56 @@ on("kz:tool-start", (e) => {
   scrollBottom();
 });
 on("kz:tool-end", (e) => {
-  log(`工具结果 ${e.payload.name}: ${e.payload.ok ? "成功" : "失败"} — ${e.payload.preview}`, e.payload.ok ? "" : "warn");
+  const p = e.payload;
+  log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
   if (currentTool) {
     const chip = currentTool;
     chip.classList.remove("running");
-    chip.classList.add(e.payload.ok ? "ok" : "err");
+    chip.classList.add(p.ok ? "ok" : "err");
+    const collapsibles = [];
+
     const result = document.createElement("div");
     result.className = "result hidden";
-    result.textContent = e.payload.preview;
+    result.textContent = p.preview;
     chip.appendChild(result);
-    // 收纳:结果默认折叠,点工具头展开;失败的自动展开。
-    chip.querySelector(".head").addEventListener("click", () => result.classList.toggle("hidden"));
-    if (!e.payload.ok) result.classList.remove("hidden");
+    collapsibles.push(result);
+
+    // 结构化展示:diff 默认展开(看得见改了什么),终端块默认折叠。
+    const d = p.display;
+    if (d && d.kind === "diff") {
+      const stat = document.createElement("span");
+      stat.className = "diff-stat";
+      stat.textContent = ` +${d.additions} −${d.deletions} ${d.path}`;
+      chip.querySelector(".head").appendChild(stat);
+      const block = document.createElement("div");
+      block.className = "tool-display diff";
+      for (const line of (d.diff || "").split("\n")) {
+        const ln = document.createElement("div");
+        ln.className =
+          line.startsWith("+") ? "dl add" : line.startsWith("-") ? "dl del" : "dl ctx";
+        ln.textContent = line || " ";
+        block.appendChild(ln);
+      }
+      chip.appendChild(block);
+      collapsibles.push(block);
+    } else if (d && d.kind === "terminal") {
+      const block = document.createElement("div");
+      block.className = "tool-display term hidden";
+      block.textContent = `$ ${d.command}\n${d.output}`;
+      chip.appendChild(block);
+      collapsibles.push(block);
+    } else if (d && d.kind === "create") {
+      const block = document.createElement("div");
+      block.className = "tool-display term";
+      block.textContent = `新建 ${d.path}(${d.bytes} bytes)\n${d.preview}`;
+      chip.appendChild(block);
+      collapsibles.push(block);
+    }
+
+    chip.querySelector(".head").addEventListener("click", () => {
+      for (const el of collapsibles) el.classList.toggle("hidden");
+    });
+    if (!p.ok) result.classList.remove("hidden");
     currentTool = null;
   }
   setStatus("运行中", true);
@@ -260,6 +350,7 @@ on("kz:done", (e) => {
   stopElapsed();
   setRunning(false);
   refreshDocs();
+  refreshGit();
 });
 
 // ---------- 权限弹窗 ----------
@@ -337,6 +428,7 @@ async function send() {
   currentReasoning = null;
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   ctxTokens = 0;
+  outputChars = 0;
   renderTokens();
   addMessage("user", prompt);
   setRunning(true, "准备中");
@@ -433,6 +525,7 @@ function renderProjects(prefs) {
       renderProjects(await invoke("projects_select", { path }));
       refreshDocs();
       loadModels();
+      refreshGit();
     });
     list.appendChild(item);
   }
@@ -535,8 +628,54 @@ async function refreshDocs() {
     renderDocList($("defect-list"), snapshot.defects, "defect");
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
+    renderConventions(snapshot.conventions);
   } catch (err) {
     console.error(err);
+  }
+}
+
+function renderConventions(conv) {
+  const el = $("conv-list");
+  el.innerHTML = "";
+  if (!conv || !conv.exists) {
+    const empty = document.createElement("div");
+    empty.className = "doc-empty";
+    empty.textContent = "(未创建,点 ＋ 生成模板;agent 会自动遵守此文件)";
+    el.appendChild(empty);
+    return;
+  }
+  for (const heading of conv.headings) {
+    const item = document.createElement("div");
+    item.className = "doc-item";
+    item.textContent = `§ ${heading}`;
+    el.appendChild(item);
+  }
+}
+
+$("conv-init").addEventListener("click", async () => {
+  try {
+    const path = await invoke("conventions_init", { projectDir: currentProject });
+    toast(`规范文件已就绪:${path}`);
+    refreshDocs();
+  } catch (err) {
+    toast(String(err));
+  }
+});
+$("conv-open").addEventListener("click", () =>
+  invoke("docs_open", { projectDir: currentProject, kind: "conventions" }).catch((e) => toast(String(e)))
+);
+
+// ---------- git 状态 ----------
+async function refreshGit() {
+  if (!currentProject) return;
+  try {
+    const g = await invoke("git_status", { projectDir: currentProject });
+    $("status-git").textContent = g.branch
+      ? `⎇ ${g.branch}${g.changes ? ` +${g.changes}` : ""}`
+      : "";
+    $("status-git").title = g.last ? `最近提交:${g.last}` : "";
+  } catch {
+    $("status-git").textContent = "";
   }
 }
 
@@ -714,5 +853,6 @@ $("settings-open").addEventListener("click", () => invoke("settings_open").catch
   renderProjects(await invoke("projects_get"));
   await refreshDocs();
   await loadModels();
+  refreshGit();
   setStatus("空闲", false);
 })();

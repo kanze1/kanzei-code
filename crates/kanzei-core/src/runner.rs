@@ -20,10 +20,18 @@ pub struct RunnerConfig {
 
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
 pub enum RunEvent {
+    /// 一轮 provider 调用开始(UI 画轮次分隔)。
+    TurnStart { step: u32, max_steps: u32 },
     Text(String),
     Reasoning(String),
     ToolStart { name: String, summary: String },
-    ToolEnd { name: String, ok: bool, preview: String },
+    ToolEnd {
+        name: String,
+        ok: bool,
+        preview: String,
+        /// 结构化展示(diff/终端块),见 ToolOutput::display。
+        display: Option<serde_json::Value>,
+    },
     StepEnd { usage: Usage, reason: FinishReason },
 }
 
@@ -87,6 +95,7 @@ pub async fn run_once(
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
     for step in 1..=max_steps {
+        on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = step == max_steps;
         let request = LlmRequest {
             model: config.model.clone(),
@@ -243,6 +252,7 @@ pub async fn run_once(
                         name: name.clone(),
                         ok: false,
                         preview: "(user declined)".into(),
+                        display: None,
                     });
                     return Ok(RunSummary {
                         text: final_text,
@@ -263,6 +273,7 @@ pub async fn run_once(
                 name: name.clone(),
                 ok: !output.is_error,
                 preview: preview(&output.content),
+                display: output.display.clone(),
             });
             results.push(Part::ToolResult {
                 call_id: id,

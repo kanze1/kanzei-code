@@ -102,6 +102,7 @@ impl Tool for EditTool {
         if let Some(warning) = crate::write::validate_syntax(&path, &updated) {
             message.push_str(&format!("\nWARNING: {warning}"));
         }
-        ToolOutput::ok(message)
+        let display = crate::write::diff_display(&input.path, &content, &updated);
+        ToolOutput::ok(message).with_display(display)
     }
 }

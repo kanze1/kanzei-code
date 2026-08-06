@@ -38,6 +38,16 @@
         </div>
         <div id="defect-list" class="doc-list"></div>
       </div>
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>开发规范</span>
+          <span>
+            <button id="conv-init" class="icon-btn" title="创建规范模板">＋</button>
+            <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)">↗</button>
+          </span>
+        </div>
+        <div id="conv-list" class="doc-list"></div>
+      </div>
     </aside>
 
     <main id="main">
@@ -135,6 +145,7 @@
           <span id="status-dot" class="dot idle"></span>
           <span id="status-text">空闲</span>
           <span id="status-elapsed"></span>
+          <span id="status-git" title="git 分支 · 未提交改动"></span>
         </div>
         <div class="status-right">
           <span id="status-tokens"></span>

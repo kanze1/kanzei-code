@@ -116,11 +116,14 @@ impl Tool for BashTool {
                 let ok = code == Some(0);
                 let text = if text.trim().is_empty() { "(no output)".to_string() } else { text };
                 let rendered = format!("exit code: {}\n{text}", code.map_or("unknown".into(), |c| c.to_string()));
-                if ok {
-                    ToolOutput::ok(rendered)
-                } else {
-                    ToolOutput::error(rendered)
-                }
+                let display = serde_json::json!({
+                    "kind": "terminal",
+                    "command": input.command,
+                    "exitCode": code,
+                    "output": text.chars().take(4000).collect::<String>(),
+                });
+                let output = if ok { ToolOutput::ok(rendered) } else { ToolOutput::error(rendered) };
+                output.with_display(display)
             }
             Err(_) => {
                 if let Some(pid) = pid {

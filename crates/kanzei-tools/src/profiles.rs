@@ -45,6 +45,25 @@ impl Component for DevProfile {
             draft.permissions.push(rule(action, "*.kanzei/project/*", Effect::Deny));
         }
 
+        // 开发规范(用户手写,agent 只读遵守;write/edit 对 project 目录本就硬 deny)。
+        draft.context.insert(
+            "dev/conventions",
+            source("dev/conventions", |ctx: &ResolveCtx| {
+                let path = ctx.project_root.join(".kanzei/project/conventions.md");
+                let text = std::fs::read_to_string(path).ok()?;
+                let text = text.trim();
+                if text.is_empty() {
+                    return None;
+                }
+                let capped: String = text.chars().take(3000).collect();
+                let truncated = capped.len() < text.len();
+                Some(format!(
+                    "<conventions>\n{capped}{}\n</conventions>",
+                    if truncated { "\n…(规范过长已截断,完整内容 read .kanzei/project/conventions.md)" } else { "" }
+                ))
+            }),
+        );
+
         draft.context.insert(
             "dev/project-docs",
             source("dev/project-docs", |ctx: &ResolveCtx| {

@@ -65,7 +65,9 @@ fn main() {
             models_list,
             docs_update,
             docs_open,
-            summarize_chat
+            summarize_chat,
+            git_status,
+            conventions_init
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -198,7 +200,20 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
             })
             .collect()
     };
+    let conventions_path = root.join(CONVENTIONS_REL);
+    let conventions = match std::fs::read_to_string(&conventions_path) {
+        Ok(text) => json!({
+            "exists": true,
+            "headings": text.lines()
+                .filter(|l| l.starts_with('#'))
+                .map(|l| l.trim_start_matches('#').trim())
+                .filter(|l| !l.is_empty())
+                .collect::<Vec<_>>(),
+        }),
+        Err(_) => json!({ "exists": false, "headings": [] }),
+    };
     json!({
+        "conventions": conventions,
         "root": root.display().to_string(),
         "requirements": load(&REQUIREMENTS),
         "defects": load(&DEFECTS),
@@ -371,6 +386,7 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     let rel = match kind.as_str() {
         "req" => kanzei_tools::docstore::REQUIREMENTS.rel_path,
         "defect" => kanzei_tools::docstore::DEFECTS.rel_path,
+        "conventions" => CONVENTIONS_REL,
         other => return Err(format!("unknown kind `{other}`")),
     };
     let path = root.join(rel);
@@ -382,6 +398,55 @@ fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
         .spawn()
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// git 概览:分支 + 未提交改动数(状态栏显示)。
+#[tauri::command]
+async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    tokio::task::spawn_blocking(move || {
+        let run = |args: &[&str]| -> Option<String> {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .ok()?;
+            out.status
+                .success()
+                .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+        let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        let changes = run(&["status", "--porcelain"])
+            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0);
+        let last = run(&["log", "-1", "--format=%h %s"]);
+        json!({ "branch": branch, "changes": changes, "last": last })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
+
+/// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
+#[tauri::command]
+fn conventions_init(project_dir: String) -> Result<String, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let path = root.join(CONVENTIONS_REL);
+    if path.is_file() {
+        return Ok(path.display().to_string());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        &path,
+        "# 开发规范\n\n## 代码风格\n- \n\n## 提交规范\n- \n\n## 测试要求\n- \n\n## 禁止事项\n- \n",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
 }
 
 /// 对话总结:fast 模型生成纪要并存档到 .kanzei/summaries/。
@@ -662,14 +727,18 @@ async fn run_task(
     let event_window = window.clone();
     let mut on_event = move |event: RunEvent| {
         let _ = match event {
+            RunEvent::TurnStart { step, max_steps } => event_window.emit(
+                "kz:turn",
+                json!({ "step": step, "maxSteps": max_steps }),
+            ),
             RunEvent::Text(text) => event_window.emit("kz:text", json!({ "text": text })),
             RunEvent::Reasoning(text) => event_window.emit("kz:reasoning", json!({ "text": text })),
             RunEvent::ToolStart { name, summary } => {
                 event_window.emit("kz:tool-start", json!({ "name": name, "summary": summary }))
             }
-            RunEvent::ToolEnd { name, ok, preview } => event_window.emit(
+            RunEvent::ToolEnd { name, ok, preview, display } => event_window.emit(
                 "kz:tool-end",
-                json!({ "name": name, "ok": ok, "preview": preview }),
+                json!({ "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
             RunEvent::StepEnd { usage, .. } => event_window.emit(
                 "kz:step",

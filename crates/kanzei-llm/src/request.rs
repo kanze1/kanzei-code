@@ -20,6 +20,10 @@ pub enum Role {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Part {
     Text { text: String },
+    /// 图片内容,以 base64 编码传输,不含 data: 前缀。
+    Image { media_type: String, data: String },
+    /// PDF/其它文档内容,以 base64 编码传输。
+    Document { media_type: String, data: String },
     Reasoning { text: String, signature: Option<String> },
     ToolCall { id: String, name: String, input: Value },
     ToolResult { call_id: String, content: String, is_error: bool },

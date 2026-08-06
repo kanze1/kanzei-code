@@ -20,15 +20,23 @@ impl ToolCtx {
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// 面向 UI 的结构化展示(diff/终端块等),模型看不到,只给人看。
+    /// 形如 {"kind":"diff","path":...,"diff":...} / {"kind":"terminal",...}。
+    pub display: Option<serde_json::Value>,
 }
 
 impl ToolOutput {
     pub fn ok(content: impl Into<String>) -> Self {
-        ToolOutput { content: content.into(), is_error: false }
+        ToolOutput { content: content.into(), is_error: false, display: None }
     }
 
     pub fn error(content: impl Into<String>) -> Self {
-        ToolOutput { content: content.into(), is_error: true }
+        ToolOutput { content: content.into(), is_error: true, display: None }
+    }
+
+    pub fn with_display(mut self, display: serde_json::Value) -> Self {
+        self.display = Some(display);
+        self
     }
 }
 

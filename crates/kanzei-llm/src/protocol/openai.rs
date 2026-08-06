@@ -29,6 +29,14 @@ pub fn build_body(request: &LlmRequest) -> Value {
                         Part::Text { text } => {
                             messages.push(json!({"role": "user", "content": text}))
                         }
+                        Part::Image { media_type, data } => {
+                            messages.push(json!({"role": "user", "content": [{"type":"image","image_url":{"url":format!("data:{media_type};base64,{data}")}}]}))
+                        }
+                        Part::Document { media_type, data } => {
+                            // Chat Completions 没有统一的 PDF 输入协议;发送为 data URL,
+                            // 支持该扩展的 provider 可直接消费,其它 provider 会返回明确错误。
+                            messages.push(json!({"role": "user", "content": [{"type":"file","file":{"filename":"attachment","file_data":format!("data:{media_type};base64,{data}")}}]}))
+                        }
                         Part::ToolResult { call_id, content, is_error } => {
                             // OpenAI 无 is_error 字段,错误语义并入正文首行。
                             let content = if *is_error {

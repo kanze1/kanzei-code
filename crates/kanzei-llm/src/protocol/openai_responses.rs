@@ -38,6 +38,15 @@ pub fn build_body(request: &LlmRequest) -> Value {
                                 "output": output,
                             }));
                         }
+                        // 多模态附件(R-014):Responses 的 input_image / input_file 条目。
+                        Part::Image { media_type, data } => input.push(json!({
+                            "type": "message", "role": "user",
+                            "content": [{"type": "input_image", "image_url": format!("data:{media_type};base64,{data}")}],
+                        })),
+                        Part::Document { media_type, data } => input.push(json!({
+                            "type": "message", "role": "user",
+                            "content": [{"type": "input_file", "filename": "attachment.pdf", "file_data": format!("data:{media_type};base64,{data}")}],
+                        })),
                         _ => {}
                     }
                 }
@@ -62,7 +71,7 @@ pub fn build_body(request: &LlmRequest) -> Value {
                             "name": name,
                             "arguments": args.to_string(),
                         })),
-                        Part::ToolResult { .. } => {}
+                        Part::ToolResult { .. } | Part::Image { .. } | Part::Document { .. } => {}
                     }
                 }
             }
