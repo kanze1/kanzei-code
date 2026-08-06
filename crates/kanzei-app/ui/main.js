@@ -170,6 +170,12 @@ function appendAssistant(text) {
   currentAssistant.dataset.raw += text;
   currentAssistant.innerHTML = renderMarkdown(currentAssistant.dataset.raw);
   outputChars += text.length;
+  // 侧边栏"最近在说":assistant 输出的最新一行。
+  const lines = currentAssistant.dataset.raw
+    .split("\n")
+    .map((l) => l.replace(/[#*`]/g, "").trim())
+    .filter(Boolean);
+  if (lines.length) liveSet("live-note", `💬 ${lines[lines.length - 1].slice(0, 60)}`);
   scrollBottom();
 }
 
@@ -186,7 +192,10 @@ function appendReasoning(text) {
     const body = document.createElement("div");
     body.className = "reasoning-body md hidden";
     body.dataset.raw = "";
-    head.addEventListener("click", () => body.classList.toggle("hidden"));
+    head.addEventListener("click", () => {
+      // 单行摘要没有可展开的正文,点了别装作有反应。
+      if (head.classList.contains("expandable")) body.classList.toggle("hidden");
+    });
     wrap.append(head, body);
     messages.appendChild(wrap);
     currentReasoning = body;
@@ -201,7 +210,10 @@ function appendReasoning(text) {
       .map((l) => l.replace(/[#*`]/g, "").trim())
       .filter(Boolean);
     const preview = (lines[lines.length - 1] || "").slice(0, 60);
-    currentReasoningHead.textContent = `· ${preview || "思考中…"}(点击展开)`;
+    // codex 常常只给一行摘要标题:没有更多内容就不给"展开"的假承诺。
+    const expandable = lines.length > 1;
+    currentReasoningHead.textContent = `· ${preview || "思考中…"}${expandable ? "(点击展开)" : ""}`;
+    currentReasoningHead.classList.toggle("expandable", expandable);
   }
   scrollBottom();
 }
@@ -260,6 +272,29 @@ setInterval(() => {
   }
 }, 1000);
 
+// ---------- 当前进展:侧边栏实时状态卡(把握 agent 进度,不用等它汇报) ----------
+function liveSet(id, text) {
+  const el = $(id);
+  if (!text) {
+    el.classList.add("hidden");
+    return;
+  }
+  el.classList.remove("hidden");
+  el.textContent = text;
+  el.title = text;
+}
+function liveIdle(label) {
+  const turn = $("live-turn");
+  turn.textContent = label;
+  turn.classList.add("dim");
+  liveSet("live-action", "");
+}
+function liveTurn(text) {
+  const turn = $("live-turn");
+  turn.textContent = text;
+  turn.classList.remove("dim");
+}
+
 // ---------- 事件订阅 ----------
 on("kz:status", (e) => {
   const p = e.payload;
@@ -285,6 +320,7 @@ on("kz:turn", (e) => {
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
+  liveTurn(`第 ${p.step}/${p.maxSteps} 轮`);
   if (running) setStatus(`第 ${p.step} 轮 · 等待模型`, true);
 });
 on("kz:text", (e) => {
@@ -325,6 +361,7 @@ on("kz:tool-start", (e) => {
   currentTool = chip;
   if (e.payload.id) toolChips.set(e.payload.id, chip);
   bgAdd(e.payload.id, e.payload.name, e.payload.summary);
+  liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`工具执行中 · ${e.payload.name}`, true);
   scrollBottom();
 });
@@ -340,6 +377,10 @@ on("kz:task-progress", (e) => {
 on("kz:tool-end", (e) => {
   const p = e.payload;
   log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
+  // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
+  if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
+    liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
+  }
   const chip = (p.id && toolChips.get(p.id)) || currentTool;
   if (p.id) toolChips.delete(p.id);
   if (chip === currentTool) currentTool = null;
@@ -418,6 +459,7 @@ on("kz:error", (e) => {
   setRunning(false, "出错");
   toolChips.clear();
   bgClear();
+  liveIdle("出错");
   $("log-panel").classList.remove("hidden");
 });
 on("kz:compacted", () => {
@@ -435,6 +477,7 @@ on("kz:stopped", (e) => {
   setRunning(false, "已停止");
   toolChips.clear();
   bgClear();
+  liveIdle("已停止");
 });
 on("kz:done", (e) => {
   const p = e.payload;
@@ -447,6 +490,7 @@ on("kz:done", (e) => {
   setRunning(false);
   toolChips.clear();
   bgClear();
+  liveIdle(`空闲 · 上轮 ${p.steps} 轮完成`);
   refreshDocs();
   refreshGit();
 
@@ -1145,6 +1189,19 @@ $("settings-save").addEventListener("click", async () => {
 });
 
 $("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toast(String(e))));
+
+// ---------- 侧边栏分区折叠:点标题文字收/展,记忆到 localStorage ----------
+document.querySelectorAll(".sidebar-section").forEach((section) => {
+  const title = section.querySelector(".section-title > span:first-child");
+  if (!title) return;
+  // key 剔除数字:标题里的计数(如"目标 3")会变,不能进 key。
+  const key = `kz-collapse-${title.textContent.replace(/[\d\s]/g, "").slice(0, 8)}`;
+  if (localStorage.getItem(key) === "1") section.classList.add("collapsed");
+  title.addEventListener("click", () => {
+    const collapsed = section.classList.toggle("collapsed");
+    localStorage.setItem(key, collapsed ? "1" : "0");
+  });
+});
 
 // ---------- 启动 ----------
 (async () => {

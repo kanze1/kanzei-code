@@ -45,7 +45,25 @@ body {
 .section-title {
   padding: 4px 14px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--dim); display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; row-gap: 4px;
 }
+/* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
+.section-title > span:first-child { cursor: pointer; }
+.section-title > span:first-child:hover { color: var(--fg-strong); }
+.sidebar-section.collapsed > *:not(.section-title) { display: none; }
+.sidebar-section.collapsed .section-title > span:first-child::after { content: " ▸"; }
+
+/* 当前进展:运行状态实时卡片 */
+#live-status { padding: 0 14px 4px; display: flex; flex-direction: column; gap: 3px; }
+.live-row {
+  font-size: 11.5px; font-family: var(--mono); color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.live-row.dim { color: var(--dim); }
+.live-row.hidden { display: none; }
+#live-focus { color: var(--warn); }
+#live-action { color: var(--info); }
+#live-note { color: var(--dim); }
 .section-title em { font-style: normal; color: var(--dim); }
 .icon-btn {
   background: transparent; border: 0; color: var(--dim); cursor: pointer;
