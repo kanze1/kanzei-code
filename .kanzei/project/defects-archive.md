@@ -234,3 +234,26 @@
 - 验证: cargo test -p kanzei-llm -p kanzei-core（18+24 全部通过）；node --check crates/kanzei-app/ui/main.js；git diff --check。
 
 ## D-044 鞭挞触发两缺陷:空闲勾选不启动第一轮(需手点继续);阻塞时写日记提交绕过无实质动作刹车,连烧20+空转轮 [fixed] (medium)
+
+## D-031 自主选择后刷新导致进入页面选项异常 [fixed] (high)
+- 原始描述: 自主推进的模式我选了之后，似乎每次进来选项会被刷新
+- 复现: 1.选择/开启自主推进模式; 2.进入页面或返回查看
+- 优先级: medium
+- 修复: 持久化模式下拉框选择，启动时仅恢复合法值；模式切换时同步保存，避免重载回到默认模式。
+- 验证: node --check crates/kanzei-app/ui/main.js；手工流程为选择“自主推进”后重载页面，仍保持“自主推进”。
+
+## D-045 需求列表字段过长导致展开渲染异常 [fixed] (low)
+- 原始描述: 需求列表字段长度长了之后，展开渲染有问题
+- 复现: 需求列表字段内容长度增加超过阈值时，展开渲染出现异常
+- 优先级: medium
+- 修复: 允许条目容器换行，将展开详情设置为完整行并限制最小宽度；长标题和字段按单词边界换行，不再撑坏列表布局。
+- 验证: node --check crates/kanzei-app/ui/main.js；手工流程为展开带超长标题/字段的需求，详情在条目下方完整换行显示。
+
+## D-046 运行闸门使用原始项目路径比较导致规范化路径绕过停止边界 [fixed] (medium)
+- 复现: run_prompt 设置 running_project 时使用 discover_project_root 后的规范化路径，但运行中分支直接将原始 project_dir 与其比较；相对路径、项目子目录或等价路径可能被误判为其他项目。
+- 影响: R-050 的项目运行/停止边界不稳定，等价路径可能无法排队或停止对应运行。
+- 验收: 统一通过项目根路径规范化后比较，补充等价路径回归测试。
+- refs: R-050
+- 优先级: P1
+- 修复: 新增 normalized_project_root，运行闸门、停止边界和 session_id 均使用可发现且 canonicalize 的项目根路径；等价路径不再被误判为其他项目。
+- 验证: cargo test -p kanzei-app（6项通过）；node --check crates/kanzei-app/ui/main.js；git diff --check。

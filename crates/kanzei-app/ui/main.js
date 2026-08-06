@@ -1408,7 +1408,13 @@ $("auto-continue").addEventListener("change", () => {
     scheduleAutoContinue();
   }
 });
+const PROFILE_STORAGE_KEY = "kz-profile";
+const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
+  $("profile-select").value = savedProfile;
+}
 $("profile-select").addEventListener("change", () => {
+  localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
   if (!autoContinueAllowed() && $("auto-continue").checked) {
     $("auto-continue").checked = false;
     localStorage.setItem("kz-auto-continue", "0");
