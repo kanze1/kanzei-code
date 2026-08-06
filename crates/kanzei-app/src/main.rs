@@ -38,6 +38,14 @@ struct PendingAsk {
     action: String,
     resource: String,
     project_root: PathBuf,
+    session_id: String,
+}
+
+fn with_session_id(mut payload: serde_json::Value, session_id: &str) -> serde_json::Value {
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("sessionId".into(), serde_json::Value::String(session_id.into()));
+    }
+    payload
 }
 
 #[derive(Default)]
@@ -122,7 +130,7 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 
 #[cfg(test)]
 mod update_tests {
-    use super::pending_path;
+    use super::{pending_path, with_session_id};
     use std::path::Path;
 
     #[test]
@@ -131,6 +139,19 @@ mod update_tests {
             pending_path(Path::new(r"C:\bin\kzapp.exe")),
             Path::new(r"C:\bin\kzapp.exe.pending")
         );
+    }
+
+    #[test]
+    fn session_id_is_added_to_event_payload() {
+        let payload = with_session_id(serde_json::json!({"text": "hello"}), "ses_test#p2");
+        assert_eq!(payload["sessionId"], "ses_test#p2");
+        assert_eq!(payload["text"], "hello");
+    }
+
+    #[test]
+    fn session_id_does_not_change_non_object_payload() {
+        let payload = with_session_id(serde_json::json!(null), "ses_test");
+        assert_eq!(payload, serde_json::Value::Null);
     }
 }
 
@@ -1292,18 +1313,21 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
                 &pattern,
             ) {
                 Ok(path) => {
-                    let _ = window.emit("kz:status", json!({
+                    let _ = window.emit("kz:status", with_session_id(json!({
                         "stage": "权限",
                         "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()),
-                    }));
+                    }), &pending.session_id));
                 }
                 Err(e) => {
                     let _ = window.emit(
                         "kz:status",
-                        json!({
-                            "stage": "权限",
-                            "detail": format!("规则保存失败:{e}(本次仍放行)"),
-                        }),
+                        with_session_id(
+                            json!({
+                                "stage": "权限",
+                                "detail": format!("规则保存失败:{e}(本次仍放行)"),
+                            }),
+                            &pending.session_id,
+                        ),
                     );
                 }
             }
@@ -1899,25 +1923,29 @@ async fn run_task(
     )?;
     let _ = window.emit(
         "kz:meta",
-        json!({
+        with_session_id(json!({
             "profile": format!("{profile:?}").to_lowercase(),
             "agent": agent.name,
             "model": format!("{}:{}", resolved.provider_name, resolved.model),
             "contextLimit": resolved.provider.context_limit,
-        }),
+        }), &session_id),
     );
 
     let event_window = window.clone();
+    let session_id_for_events = session_id.clone();
+    let emit_event = move |name: &str, payload: serde_json::Value| {
+        event_window.emit(name, with_session_id(payload, &session_id_for_events))
+    };
     let run_trace = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let trace_log = run_trace.clone();
     let mut on_event = move |event: RunEvent| {
         let _ = match event {
             RunEvent::TurnStart { step, max_steps } => {
-                event_window.emit("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
+                emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
             }
-            RunEvent::Text(text) => event_window.emit("kz:text", json!({ "text": text })),
-            RunEvent::Reasoning(text) => event_window.emit("kz:reasoning", json!({ "text": text })),
-            RunEvent::ToolStart { id, name, summary } => event_window.emit(
+            RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
+            RunEvent::Reasoning(text) => emit_event("kz:reasoning", json!({ "text": text })),
+            RunEvent::ToolStart { id, name, summary } => emit_event(
                 "kz:tool-start",
                 json!({ "id": id, "name": name, "summary": summary }),
             ),
@@ -1927,7 +1955,7 @@ async fn run_task(
                 ok,
                 preview,
                 display,
-            } => event_window.emit(
+            } => emit_event(
                 "kz:tool-end",
                 json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
             ),
@@ -1947,9 +1975,9 @@ async fn run_task(
                     })),
                 });
                 trace_log.lock().unwrap().push(payload.clone());
-                event_window.emit("kz:task-progress", payload)
+                emit_event("kz:task-progress", payload)
             },
-            RunEvent::StepEnd { usage, .. } => event_window.emit(
+            RunEvent::StepEnd { usage, .. } => emit_event(
                 "kz:step",
                 json!({
                     "input": usage.input, "output": usage.output,
@@ -1961,6 +1989,7 @@ async fn run_task(
 
     let ask_window = window.clone();
     let ask_root = ctx.project_root.clone();
+    let ask_session_id = session_id.clone();
     let mut ask = move |request: kanzei_core::AskRequest| -> AskFuture {
         let (sender, receiver) = oneshot::channel();
         let id = ask_seq.fetch_add(1, Ordering::SeqCst);
@@ -1976,9 +2005,10 @@ async fn run_task(
                 json!({ "kind": "question", "id": id, "question": question, "options": options, "default": default }),
             ),
         };
+        let payload = with_session_id(payload, &ask_session_id);
         asks.lock().unwrap().insert(
             id,
-            PendingAsk { sender, request, action, resource, project_root: ask_root.clone() },
+            PendingAsk { sender, request, action, resource, project_root: ask_root.clone(), session_id: ask_session_id.clone() },
         );
         let _ = ask_window.emit("kz:ask", payload);
         Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskResponse::Cancelled) })
