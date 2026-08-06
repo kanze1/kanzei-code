@@ -1714,12 +1714,17 @@ let dragReqId = null;
 function reqDragEnabled() {
   return reqFilters.sort === "manual" && reqFilters.status === "all" && reqFilters.priority === "all" && reqFilters.complexity === "all";
 }
-async function commitReqOrder(listEl) {
-  const order = [...listEl.querySelectorAll(".doc-item[data-req-id]")].map((el) => el.dataset.reqId);
+function docDragEnabled(kind, listEl) {
+  return kind === "req"
+    ? reqDragEnabled()
+    : kind === "defect" && (listEl.id === "defect-list" || (listEl.id === "documents-defect-list" && documentFilters.defect.status === "all"));
+}
+async function commitDocOrder(listEl, kind) {
+  const order = [...listEl.querySelectorAll(".doc-item[data-doc-id]")].map((el) => el.dataset.docId);
   try {
     const msg = await invoke("docs_update", {
       projectDir: currentProject,
-      kind: "req",
+      kind,
       action: "reorder",
       id: "",
       order,
@@ -1767,16 +1772,15 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
     row.append(id, st);
-    // 拖拽重排(仅需求 + 手动模式 + 无筛选)。提交放在 dragend:
+    // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
     // 松手落在行间隙时 drop 不触发,只靠 drop 会静默丢单。
-    if (kind === "req" && reqDragEnabled()) {
-      item.dataset.reqId = entry.id;
+    if (docDragEnabled(kind, el)) {
       item.draggable = true;
       item.addEventListener("dragstart", (e) => {
         dragReqId = entry.id;
         item.classList.add("dragging");
-        el.dataset.orderBefore = [...el.querySelectorAll(".doc-item[data-req-id]")]
-          .map((n) => n.dataset.reqId)
+        el.dataset.orderBefore = [...el.querySelectorAll(".doc-item[data-doc-id]")]
+          .map((n) => n.dataset.docId)
           .join(",");
         e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData("text/plain", entry.id);
@@ -1784,10 +1788,10 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       item.addEventListener("dragend", () => {
         item.classList.remove("dragging");
         dragReqId = null;
-        const now = [...el.querySelectorAll(".doc-item[data-req-id]")]
-          .map((n) => n.dataset.reqId)
+        const now = [...el.querySelectorAll(".doc-item[data-doc-id]")]
+          .map((n) => n.dataset.docId)
           .join(",");
-        if (now !== el.dataset.orderBefore) commitReqOrder(el);
+        if (now !== el.dataset.orderBefore) commitDocOrder(el, kind);
       });
       item.addEventListener("dragover", (e) => {
         e.preventDefault();
