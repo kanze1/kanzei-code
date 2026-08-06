@@ -1,4 +1,4 @@
 # Goals
 
 ## G-001 把 kanzei 打磨成日常主力开发工具:清空 open 缺陷,推进 R-003 持久化与 R-012 子代理 [active]
-- 进展: R-003 本轮已将取消能力接入桌面端停止入口：stop_run 传入当前 project_dir，按 session_id 批量取消 pending queue 输入，保留已 promoted 与其他会话；UI 在 kz:stopped 中显示取消数量。新增存储层隔离测试。cargo test --workspace 全部通过（仅既有 current_run unused warning）。下一具体步：补运行中 queue admission/drain，使 pending queue 能在当前任务结束后自动提升执行。
+- 进展: R-003 运行中 queue admission/drain 已落地并修正首个任务启动竞态：活动项目在 spawn 前登记；同项目输入持久化 pending、按 FIFO 自动提升执行，跨项目明确拒绝。D-017 已修复。cargo test --workspace 全部通过，仅保留既有 current_run unused warning。下一具体步：补 steer 前端入口，随后推进事件恢复消息历史。
