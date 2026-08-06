@@ -26,10 +26,10 @@
 - 复杂度: 大
 - 验收: 在移动端完成：①可配置主/子代理间的消息双向通信 ②实时显示来自主要及次级代理的通知推送 ③支持子代理独立升级为管理项目容器（不依赖具体项目结构）
 - 优先级: P3
-- 下一步: 已完成技术无关内存 broker/订阅 POC；下一步是补充内存订阅/消息测试边界并评估与 R-030/R-050 归属契约的适配点，仍不接入传输层。
-- 进展: 阶段 A POC 已落地到 kanzei-core：InMemoryBroker 支持按幂等键去重的 AgentMessage、通知 sequence、cursor replay、limit 不丢事件和终态补发；未连接网络、桌面事件或远程控制。
+- 下一步: 补充内存订阅边界测试后，评估与 R-030/R-050 process/thread 归属契约的适配点。
+- 进展: 新增 replay_notifications_for_thread，按 thread_id 隔离移动订阅通知，并补充 cursor 超过最新 sequence 返回空的边界测试；修正并关闭 D-039 测试期望缺陷。
 - 设计: docs/design/r059-mobile-agent-communication.md
-- 验证: cargo test -p kanzei-core（17 项通过）、cargo test -p kanzei-app（1 项通过）、git diff --check 通过；cargo fmt 全量检查仍有仓库既存的无关格式差异，未纳入本次修改。
+- 验证: cargo test -p kanzei-core（19 项通过）、cargo test -p kanzei-app（1 项通过）、scripts/r050-poc-check.ps1、git diff --check 全部通过。
 
 ## R-064 联通性前端检查实现 [todo]
 - 复杂度: 中

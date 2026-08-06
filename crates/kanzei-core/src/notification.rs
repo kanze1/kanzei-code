@@ -69,6 +69,22 @@ impl InMemoryBroker {
             .collect()
     }
 
+    pub fn replay_notifications_for_thread(
+        &self,
+        thread_id: &str,
+        cursor: u64,
+        limit: usize,
+    ) -> Vec<AgentNotification> {
+        self.notifications
+            .iter()
+            .filter(|notification| {
+                notification.thread_id == thread_id && notification.sequence > cursor
+            })
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
     pub fn notification_count(&self) -> usize {
         self.notifications.len()
     }
@@ -135,6 +151,37 @@ mod tests {
         assert_eq!(broker.replay_notifications(0, 1).len(), 1);
         assert_eq!(broker.replay_notifications(0, 10).len(), 3);
         assert_eq!(broker.notification_count(), 3);
+    }
+
+    #[test]
+    fn thread_replay_does_not_leak_notifications_between_threads() {
+        let mut broker = InMemoryBroker::default();
+        broker.publish_notification(notification("evt_a", "running"));
+        let mut other = notification("evt_b", "failed");
+        other.thread_id = "thread_b".to_owned();
+        broker.publish_notification(other.clone());
+
+        let mut expected_a = notification("evt_a", "running");
+        expected_a.sequence = 1;
+        other.sequence = 2;
+        assert_eq!(
+            broker.replay_notifications_for_thread("thread_a", 0, 10),
+            vec![expected_a]
+        );
+        assert_eq!(
+            broker.replay_notifications_for_thread("thread_b", 0, 10),
+            vec![other]
+        );
+        assert!(broker
+            .replay_notifications_for_thread("thread_a", 2, 10)
+            .is_empty());
+    }
+
+    #[test]
+    fn cursor_after_latest_sequence_returns_empty() {
+        let mut broker = InMemoryBroker::default();
+        broker.publish_notification(notification("evt_1", "running"));
+        assert!(broker.replay_notifications(1, 10).is_empty());
     }
 
     #[test]
