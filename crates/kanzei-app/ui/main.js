@@ -44,6 +44,54 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
 
+let completionAudioContext = null;
+const baseTitle = document.title;
+
+function playRunNotice(kind) {
+  try {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    completionAudioContext ??= new AudioCtor();
+    if (completionAudioContext.state === "suspended") completionAudioContext.resume().catch(() => {});
+    const now = completionAudioContext.currentTime;
+    const frequencies = kind === "failed" ? [220, 165] : kind === "stopped" ? [330] : [523, 659];
+    frequencies.forEach((frequency, index) => {
+      const oscillator = completionAudioContext.createOscillator();
+      const gain = completionAudioContext.createGain();
+      oscillator.frequency.value = frequency;
+      oscillator.type = "sine";
+      gain.gain.setValueAtTime(0.0001, now + index * 0.11);
+      gain.gain.exponentialRampToValueAtTime(0.12, now + index * 0.11 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.11 + 0.1);
+      oscillator.connect(gain).connect(completionAudioContext.destination);
+      oscillator.start(now + index * 0.11);
+      oscillator.stop(now + index * 0.11 + 0.11);
+    });
+  } catch (error) {
+    log(`完成提示音不可用:${error}`, "warn");
+  }
+}
+
+function notifyRunState(kind, text) {
+  const labels = { completed: "运行完成", failed: "运行失败", stopped: "运行已停止" };
+  const label = labels[kind] || "运行状态";
+  toast(`${label}: ${text}`);
+  playRunNotice(kind);
+  if (!document.hasFocus() || document.hidden) {
+    document.title = `🔔 ${label} · ${baseTitle}`;
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification(label, { body: text, tag: "kanzei-run-state" });
+      } catch (error) {
+        log(`系统通知不可用:${error}`, "warn");
+      }
+    }
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && document.hasFocus()) document.title = baseTitle;
+});
 let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
 
 function syncActivityPanel() {
@@ -674,6 +722,7 @@ on("kz:error", (e) => {
   setRunning(false, "出错");
   bgAbortRunning("(出错中止)");
   liveIdle("出错");
+  notifyRunState("failed", message);
   $("log-panel").classList.remove("hidden");
 });
 on("kz:compacted", () => {
@@ -692,6 +741,7 @@ on("kz:stopped", (e) => {
   setRunning(false, "已停止");
   bgAbortRunning("(已停止)");
   liveIdle("已停止");
+  notifyRunState("stopped", cancelled > 0 ? `已停止并取消 ${cancelled} 条排队输入` : "已停止");
   refreshPendingInputs();
 });
 on("kz:done", (e) => {
@@ -702,6 +752,7 @@ on("kz:done", (e) => {
   );
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
+  notifyRunState(p.halted ? "stopped" : "completed", p.halted ? "已按你的拒绝停止" : `完成 ${p.steps} 轮`);
   setRunning(false);
   // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
   refreshConversationList();
@@ -1480,18 +1531,27 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
     row.append(id, st);
-    // 拖拽重排(仅需求 + 手动模式 + 无筛选)。
+    // 拖拽重排(仅需求 + 手动模式 + 无筛选)。提交放在 dragend:
+    // 松手落在行间隙时 drop 不触发,只靠 drop 会静默丢单。
     if (kind === "req" && reqDragEnabled()) {
       item.dataset.reqId = entry.id;
       item.draggable = true;
       item.addEventListener("dragstart", (e) => {
         dragReqId = entry.id;
         item.classList.add("dragging");
+        el.dataset.orderBefore = [...el.querySelectorAll(".doc-item[data-req-id]")]
+          .map((n) => n.dataset.reqId)
+          .join(",");
         e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", entry.id);
       });
       item.addEventListener("dragend", () => {
         item.classList.remove("dragging");
         dragReqId = null;
+        const now = [...el.querySelectorAll(".doc-item[data-req-id]")]
+          .map((n) => n.dataset.reqId)
+          .join(",");
+        if (now !== el.dataset.orderBefore) commitReqOrder(el);
       });
       item.addEventListener("dragover", (e) => {
         e.preventDefault();
@@ -1500,10 +1560,6 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
         const rect = item.getBoundingClientRect();
         const before = e.clientY < rect.top + rect.height / 2;
         el.insertBefore(dragging, before ? item : item.nextSibling);
-      });
-      item.addEventListener("drop", (e) => {
-        e.preventDefault();
-        commitReqOrder(el);
       });
     }
     if (/^P[0-3]$/.test(pri)) {
@@ -1636,37 +1692,52 @@ for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter"
 }
 $("req-sort").value = reqFilters.sort;
 
-// ---------- R-053 快速记需求:独立子代理结构化落库,不打断主对话 ----------
-$("req-quick").addEventListener("click", () => {
-  const list = $("req-list");
+// ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
+function quickCaptureForm(kind, listId, noun) {
+  const list = $(listId);
   if (list.querySelector(".quickreq-form")) return;
   const form = document.createElement("div");
   form.className = "goal-add-form quickreq-form";
   const input = document.createElement("textarea");
   input.rows = 3;
-  input.placeholder = "自然语言描述需求;Ctrl+Enter 提交,Esc 取消。子代理后台结构化落库,不打断当前对话。";
-  input.addEventListener("keydown", async (e) => {
-    if (e.key === "Escape") {
-      form.remove();
+  input.placeholder = `自然语言描述${noun};Ctrl+Enter 或点提交,Esc 取消。子代理后台结构化落库,不打断当前对话。`;
+  const submit = async () => {
+    const text = input.value.trim();
+    if (!text) {
+      toast("先写点描述");
       return;
     }
-    if (!(e.key === "Enter" && (e.ctrlKey || e.metaKey))) return;
-    const text = input.value.trim();
-    if (!text) return;
     form.remove();
-    toast("记需求中…(独立子代理后台进行)");
+    toast(`记${noun}中…(独立子代理后台进行)`);
     try {
-      const msg = await invoke("quick_req", { projectDir: currentProject, description: text });
+      const msg = await invoke("quick_req", { projectDir: currentProject, description: text, kind });
       toast(`已记录:${msg}`);
       refreshDocs();
     } catch (err) {
-      toast(`记需求失败:${err}`);
+      toast(`记${noun}失败:${err}`);
     }
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") form.remove();
+    else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit();
   });
-  form.appendChild(input);
+  const bar = document.createElement("div");
+  bar.className = "quickreq-bar";
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "ghost mini";
+  cancelBtn.textContent = "取消";
+  cancelBtn.addEventListener("click", () => form.remove());
+  const submitBtn = document.createElement("button");
+  submitBtn.className = "primary mini";
+  submitBtn.textContent = "提交";
+  submitBtn.addEventListener("click", submit);
+  bar.append(cancelBtn, submitBtn);
+  form.append(input, bar);
   list.prepend(form);
   input.focus();
-});
+}
+$("req-quick").addEventListener("click", () => quickCaptureForm("req", "req-list", "需求"));
+$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "defect-list", "缺陷"));
 
 function renderConventions(conv) {
   const el = $("conv-list");
