@@ -1583,24 +1583,37 @@ fn app_info() -> serde_json::Value {
 #[tauri::command]
 fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<String>) {
     let _lifecycle = state.lifecycle.lock().unwrap();
+    let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| {
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd)
+    });
+    let can_stop = match (&target_project, state.running_project.lock().unwrap().as_ref()) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(target), Some(running)) => PathBuf::from(running) == *target,
+    };
+    if !can_stop {
+        let _ = window.emit("kz:error", json!({ "message": "目标项目当前没有可停止的运行" }));
+        return;
+    }
     if let Some(handle) = state.current_run.lock().unwrap().take() {
         handle.abort();
     }
-    // 挂起的权限询问一并作废(否则 runner 已死、弹窗还悬着)。
-    state.asks.lock().unwrap().clear();
+    // 只作废目标项目的权限询问;无 project_dir 时才清理全部(兼容旧前端)。
+    state.asks.lock().unwrap().retain(|_, pending| {
+        target_project
+            .as_ref()
+            .is_some_and(|target| pending.project_root != *target)
+    });
     state.running.store(false, Ordering::SeqCst);
+    *state.running_project.lock().unwrap() = None;
 
-    let cancelled = project_dir
-        .map(|project_dir| {
-            let cwd = PathBuf::from(&project_dir);
-            let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
-            let session_id = kanzei_core::project_session_id(&root);
-            let state_path = kanzei_core::project_state_path(&root);
-            kanzei_core::SessionStore::open(&state_path)
-                .and_then(|store| store.cancel_pending_inputs(&session_id))
-        })
-        .transpose();
-    match cancelled {
+    let cancelled = target_project.map(|root| {
+        let session_id = kanzei_core::project_session_id(&root);
+        let state_path = kanzei_core::project_state_path(&root);
+        kanzei_core::SessionStore::open(&state_path)
+            .and_then(|store| store.cancel_pending_inputs(&session_id))
+    });
+    match cancelled.transpose() {
         Ok(Some(count)) => {
             let _ = window.emit("kz:stopped", json!({ "cancelled_queue": count }));
         }
@@ -1695,11 +1708,17 @@ async fn run_prompt(
             return Ok(());
         }
         state.running.store(true, Ordering::SeqCst);
-        *state.running_project.lock().unwrap() = Some(project_dir.clone());
+        *state.running_project.lock().unwrap() = Some(
+            kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+                .unwrap_or_else(|| PathBuf::from(&project_dir))
+                .display()
+                .to_string(),
+        );
     }
     let asks = state.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
+    let running_project = state.running_project.clone();
     let conversation = state.conversation.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
@@ -1738,6 +1757,7 @@ async fn run_prompt(
             if result.is_err() {
                 let _lifecycle = lifecycle.lock().unwrap();
                 running.store(false, Ordering::SeqCst);
+                *running_project.lock().unwrap() = None;
                 break;
             }
             let next_input = {
@@ -1746,12 +1766,14 @@ async fn run_prompt(
                     Ok(input) => {
                         if input.is_none() {
                             running.store(false, Ordering::SeqCst);
+                            *running_project.lock().unwrap() = None;
                         }
                         input
                     }
                     Err(error) => {
                         let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
                         running.store(false, Ordering::SeqCst);
+                        *running_project.lock().unwrap() = None;
                         None
                     }
                 }
