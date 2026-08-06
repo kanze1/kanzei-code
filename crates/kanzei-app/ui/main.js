@@ -700,6 +700,21 @@ function addCompactionEntry(summary) {
   lastCompactionEntry = el;
 }
 
+function addSummaryEntry(summary, path = "") {
+  const el = document.createElement("div");
+  el.className = "bg-entry ok summary-entry";
+  const title = document.createElement("div");
+  title.className = "bg-title";
+  title.textContent = "对话小总结 · 点击查看";
+  const detail = document.createElement("div");
+  detail.className = "bg-detail";
+  detail.textContent = path ? `${summary}\n\n已存档: ${path}` : summary;
+  el.append(title, detail);
+  title.addEventListener("click", () => detail.classList.toggle("hidden"));
+  $("bg-list").appendChild(el);
+  while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
+  return el;
+}
 function renderContextDetail() {
   const detail = $("context-detail");
   const t = runTokens;
@@ -2289,8 +2304,9 @@ $("summarize-btn").addEventListener("click", async () => {
   log("开始总结当前对话…");
   try {
     const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
-    addMessage("notice", `📋 对话总结\n${r.summary}\n(已存档 ${r.path})`);
-    log(`总结完成,已存档:${r.path}`);
+    addSummaryEntry(r.summary, r.path);
+    toast("小总结已收纳到活动面板");
+    log(`总结完成,已收纳并存档:${r.path}`);
   } catch (err) {
     toast(`总结失败:${err}`);
     log(`总结失败:${err}`, "err");
