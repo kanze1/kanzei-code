@@ -1819,7 +1819,7 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
-      item.title = `复杂度:${cx}`;
+      row.title = `${row.title} · 复杂度:${cx}`;
     }
     const complexityBadge = document.createElement("span");
     complexityBadge.className = "complexity-badge";
