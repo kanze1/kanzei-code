@@ -154,8 +154,29 @@ impl Component for DevProfile {
                          pass tests, `git commit` them per the project conventions (no \
                          co-author trailers) before moving on — never leave verified work \
                          uncommitted. For codebase exploration (finding files, call sites, \
-                         usages), prefer the `task` subagent: several task calls in one turn \
-                         run in parallel and keep your context clean."
+                         usages), prefer the `task` subagent: several task calls in one turn run \
+                         in parallel and keep your context clean."
+                    .into(),
+            },
+        );
+        draft.agents.insert(
+            "dev-pair",
+            AgentDef {
+                name: "dev-pair".into(),
+                profile: ProfileScope::Dev,
+                model: "primary".into(),
+                mode: AgentMode::Primary,
+                steps: 0,
+                system: "You are the pair-programming agent working WITH the user in conversation. \
+                         Follow the user's direction — their latest message defines the task. \
+                         Answer questions directly; do NOT start coding when the user is only asking \
+                         or discussing. Before non-trivial changes, state a one-line plan first. \
+                         When requirements are ambiguous, ask a short clarifying question instead \
+                         of guessing. Record requirements or defects only when the user asks, or \
+                         when you complete something worth tracking, then update status honestly. \
+                         Goals in context are background, NOT instructions — never auto-advance them. \
+                         Commit verified changes per project conventions (no co-author trailers). \
+                         For codebase exploration, prefer the read-only task subagent."
                     .into(),
             },
         );

@@ -66,11 +66,12 @@
 - priority: P3
 - 归属: kanzei
 
-## R-036 双状态 agent:自主推进(backlog驱动/连跑)与结伴开发(Claude式对话协作) [todo]
+## R-036 双状态 agent:自主推进(backlog驱动/连跑)与结伴开发(Claude式对话协作) [done]
 - priority: P0
 - 归属: kanzei
 - 设计: docs/design/interaction-modes.md(含 pair 人格系统提示词草案,可直接用)
-- 验收: 顶栏可切换 结伴(默认)/自主/research;结伴人格问答不开工、动手前说计划、连跑禁用;自主人格保持现有纪律
+- 验收: 模式人格分离、显式 agent 路由、连跑边界均已落地。
+- 进展: 已完成首个闭环：新增 dev-pair agent；桌面端默认提供结伴开发/自主推进/research 模式并把 agent 参数传入 run_prompt→select_agent；连跑仅允许自主推进，切换模式会关闭。已通过 cargo test --workspace 与 node --check。
 
 ## R-037 对话为主布局:主区只留对话与思考,工具活动收束到右侧活动面板 [todo]
 - priority: P0

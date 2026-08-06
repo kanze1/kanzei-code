@@ -986,6 +986,7 @@ async fn run_prompt(
     prompt: String,
     project_dir: String,
     profile: Option<String>,
+    agent: Option<String>,
     model: Option<String>,
     delivery: Option<String>,
     attachments: Option<Vec<PromptAttachment>>,
@@ -1030,6 +1031,7 @@ async fn run_prompt(
                 next_attachments.take(),
                 project_dir.clone(),
                 profile.clone(),
+                agent.clone(),
                 model.clone(),
                 conversation.clone(),
                 conversation_project.clone(),
@@ -1123,6 +1125,7 @@ async fn run_task(
     attachments: Option<Vec<PromptAttachment>>,
     project_dir: String,
     profile: Option<String>,
+    agent_name: Option<String>,
     model_override: Option<String>,
     conversation: Arc<Mutex<Vec<kanzei_llm::Message>>>,
     conversation_project: Arc<Mutex<Option<String>>>,
@@ -1160,7 +1163,7 @@ async fn run_task(
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
-    let agent = snapshot.select_agent(None)?.clone();
+    let agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     stage(
         "装配",
         format!(

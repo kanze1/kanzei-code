@@ -47,7 +47,12 @@ harness 的 agents 注册表天然支持多 agent,不需要新机制:
 - **默认结伴**:用户在场打字 = 对话优先;想让它自己跑再切自主(或直接勾连跑,自动切)
 - 后端:run_prompt 增加 agent 参数 → select_agent(Some(name));CLI 走 KANZEI_AGENT(已支持)
 
-## 相关联动
+## 实现状态（2026-08-06）
+
+已完成首个闭环：桌面端模式选择器现在提供“结伴开发”（默认）、“自主推进”和 research；前两者都使用 dev profile，但分别显式选择 `dev-pair` 与 `dev` agent。`run_prompt` 已将 agent 参数传入 harness 的 `select_agent`，因此请求不会再固定使用 profile 的第一个 agent。连跑仅允许自主推进模式，切换到结伴开发或 research 会自动关闭连跑，并在手动勾选时给出提示。
+
+仍待后续：连跑的结构化进展字段、多进程隔离，以及 R-029 的结构化提问工具。
+
 
 - R-027(需求分析沟通模式)的"沟通模式"部分并入本设计(dev-pair 即结构化沟通的宿主);
   缺陷查找入口如仍需要,单独再立

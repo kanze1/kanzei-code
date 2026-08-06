@@ -498,7 +498,7 @@ on("kz:done", (e) => {
   refreshGit();
 
   // 连跑:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
-  if ($("auto-continue").checked && !p.halted) {
+  if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
     if (p.steps <= 1 && autoRounds > 0) {
       addMessage("notice", "连跑停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
       log("连跑停止:steps<=1");
@@ -513,7 +513,7 @@ on("kz:done", (e) => {
     autoRounds += 1;
     setStatus(`连跑:${autoRounds}/${AUTO_CONTINUE_MAX},2 秒后继续…`, false);
     setTimeout(() => {
-      if ($("auto-continue").checked && !running) sendText(CONTINUE_PROMPT, { auto: true });
+      if ($("auto-continue").checked && autoContinueAllowed() && !running) sendText(CONTINUE_PROMPT, { auto: true });
     }, 2000);
   }
 });
@@ -585,6 +585,17 @@ const CONTINUE_PROMPT =
   "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
   "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
 
+function selectedAgent() {
+  const mode = $("profile-select").value;
+  if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
+  if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
+  return { profile: "research", agent: "research" };
+}
+
+function autoContinueAllowed() {
+  return $("profile-select").value === "dev-auto";
+}
+
 function renderAttachments() {
   const box = $("attachments");
   box.innerHTML = "";
@@ -641,10 +652,12 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     addMessage("user", prompt);
     log(`运行中${delivery === "steer" ? "插入" : "排队"}:${prompt.slice(0, 80)}`);
     try {
+      const mode = selectedAgent();
       await invoke("run_prompt", {
         prompt,
         projectDir: currentProject,
-        profile: $("profile-select").value,
+        profile: mode.profile,
+        agent: mode.agent,
         model: $("model-select").value || null,
         delivery,
         attachments: promptAttachments,
@@ -668,10 +681,12 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   startElapsed();
   log(`${auto ? "连跑" : "发送"}:${prompt.slice(0, 80)}`);
   try {
+    const mode = selectedAgent();
     await invoke("run_prompt", {
       prompt,
       projectDir: currentProject,
-      profile: $("profile-select").value,
+      profile: mode.profile,
+      agent: mode.agent,
       model: $("model-select").value || null,
       delivery,
       attachments: promptAttachments,
@@ -698,9 +713,25 @@ $("send").addEventListener("click", send);
 $("continue-btn").addEventListener("click", () => sendText(CONTINUE_PROMPT));
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
 $("auto-continue").addEventListener("change", () => {
+  if ($("auto-continue").checked && !autoContinueAllowed()) {
+    $("auto-continue").checked = false;
+    localStorage.setItem("kz-auto-continue", "0");
+    autoRounds = 0;
+    toast("连跑仅适用于自主推进模式，请先切换模式");
+    log("连跑未开启:结伴开发模式不支持自动续跑");
+    return;
+  }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
   log($("auto-continue").checked ? "连跑已开启:每轮结束自动推进目标(上限 10 连)" : "连跑已关闭");
+});
+$("profile-select").addEventListener("change", () => {
+  if (!autoContinueAllowed() && $("auto-continue").checked) {
+    $("auto-continue").checked = false;
+    localStorage.setItem("kz-auto-continue", "0");
+    autoRounds = 0;
+    log("已切换结伴/研究模式，连跑自动关闭");
+  }
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
