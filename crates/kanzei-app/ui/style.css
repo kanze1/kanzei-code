@@ -96,6 +96,14 @@ body {
 .doc-item { padding: 3px 14px; display: flex; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--panel2); }
 .doc-item .id { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; }
+/* R-054:需求行内只显示位置序号,ID 收进展开详情 */
+.doc-item .pos { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; min-width: 22px; }
+.doc-item.dragging { opacity: .45; }
+.doc-item[draggable="true"] { cursor: grab; }
+.quickreq-form textarea {
+  width: 100%; background: var(--input); border: 1px solid var(--border);
+  color: var(--fg); border-radius: 4px; padding: 6px 8px; font-size: 12px; margin: 4px 0; resize: vertical;
+}
 .doc-item .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-item.closed { opacity: .4; }
 .doc-item.closed .title { text-decoration: line-through; }

@@ -20,8 +20,11 @@ pub struct TrackerTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
-    /// list | get | add | update | close | archive
+    /// list | get | add | update | close | archive | reorder
     action: String,
+    /// reorder 用:完整的 ID 新顺序(必须恰好覆盖当前全部条目)
+    #[serde(default)]
+    order: Vec<String>,
     /// get/update/close 必填,如 "R-012"
     #[serde(default)]
     id: Option<String>,
@@ -51,7 +54,7 @@ impl Tool for TrackerTool {
 
     fn description(&self) -> String {
         let mut d = format!(
-            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file). Statuses: {}.",
+            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file), reorder(order: complete id list — file order IS the user's dev order). Statuses: {}.",
             self.noun,
             self.kind.statuses.join("→"),
         );
@@ -227,8 +230,54 @@ impl Tool for TrackerTool {
                 }
                 ToolOutput::ok(format!("updated: {line}"))
             }
+            // R-054:整表重排(文件顺序 = 开发顺序)。要求 order 是现有条目的完整置换,
+            // 缺一多一都拒绝——引擎整读整写,天然与并发的状态更新互斥。
+            "reorder" => {
+                if input.order.is_empty() {
+                    return ToolOutput::error("`order` (complete id list) is required for reorder");
+                }
+                let mut seen = std::collections::HashSet::new();
+                for id in &input.order {
+                    if !seen.insert(id.as_str()) {
+                        return ToolOutput::error(format!("duplicate id `{id}` in order"));
+                    }
+                    if !entries.iter().any(|e| &e.id == id) {
+                        return ToolOutput::error(unknown_id(id, &entries));
+                    }
+                }
+                if input.order.len() != entries.len() {
+                    let missing: Vec<&str> = entries
+                        .iter()
+                        .filter(|e| !input.order.iter().any(|id| id == &e.id))
+                        .map(|e| e.id.as_str())
+                        .collect();
+                    return ToolOutput::error(format!(
+                        "order must cover ALL {} entries; missing: {}",
+                        entries.len(),
+                        missing.join(", ")
+                    ));
+                }
+                let mut reordered = Vec::with_capacity(entries.len());
+                for id in &input.order {
+                    if let Some(pos) = entries.iter().position(|e| &e.id == id) {
+                        reordered.push(entries.remove(pos));
+                    }
+                }
+                if let Err(e) = store.save(&reordered) {
+                    return ToolOutput::error(format!(
+                        "cannot write {}: {e}",
+                        store.path.display()
+                    ));
+                }
+                ToolOutput::ok(format!(
+                    "reordered {} {}s: {}",
+                    reordered.len(),
+                    self.noun,
+                    input.order.join(" → ")
+                ))
+            }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: list | get | add | update | close | archive"
+                "unknown action `{other}`; valid: list | get | add | update | close | archive | reorder"
             )),
         }
     }
@@ -333,4 +382,56 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
             known.join(", ")
         }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TrackerTool;
+    use crate::docstore::{DocStore, Entry, REQUIREMENTS};
+    use kanzei_harness::{Tool, ToolCtx};
+    use serde_json::json;
+
+    fn entry(id: &str) -> Entry {
+        Entry {
+            id: id.into(),
+            title: format!("t-{id}"),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn reorder_rewrites_file_order_and_rejects_partial() {
+        let dir = std::env::temp_dir().join(format!("kz-reorder-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store
+            .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
+            .unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        // 完整置换:成功且文件顺序改变。
+        let out = tool
+            .execute(json!({"action": "reorder", "order": ["R-003", "R-001", "R-002"]}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let ids: Vec<String> = store.load().unwrap().iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["R-003", "R-001", "R-002"]);
+
+        // 不完整清单:拒绝且顺序不变。
+        let out = tool
+            .execute(json!({"action": "reorder", "order": ["R-001"]}), &ctx)
+            .await;
+        assert!(out.is_error);
+        let ids: Vec<String> = store.load().unwrap().iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["R-003", "R-001", "R-002"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

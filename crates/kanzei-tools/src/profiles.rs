@@ -147,6 +147,9 @@ impl Component for DevProfile {
                          done (`req update <id> done`) — an unmarked finished requirement is a \
                          bug in your process. WIP limit: keep at most 2 requirements in doing; \
                          finish and close existing doing items before starting new ones. \
+                         Pick work TOP-DOWN from the requirements list: the list order IS the \
+                         user's intent (R-054) — take the first workable open item; priority \
+                         labels are background info, not the ordering. \
                          Long-term goals (`goal` tool) are injected into your context: when \
                          the user's message gives no specific task, do NOT ask what to do — \
                          pick the most relevant active goal, advance its next concrete step, \

@@ -947,6 +947,7 @@ let autoContinueGeneration = 0;
 const CONTINUE_PROMPT =
   "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
   "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
+  "取活顺序:按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
   "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
   "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
 
@@ -1400,23 +1401,49 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-const reqFilters = { status: "all", priority: "all", sort: "priority" };
+const reqFilters = { status: "all", priority: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
 
 function filterRequirements(entries) {
-  return entries
+  const filtered = entries
     .filter((entry) => reqFilters.status === "all" || entry.status === reqFilters.status)
-    .filter((entry) => reqFilters.priority === "all" || entry.priority === reqFilters.priority)
-    .sort((a, b) => {
-      if (reqFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
-      if (reqFilters.sort === "status") {
-        return (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
-      }
-      return (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99)
-        || (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99)
-        || a.id.localeCompare(b.id, undefined, { numeric: true });
+    .filter((entry) => reqFilters.priority === "all" || entry.priority === reqFilters.priority);
+  // 手动模式(R-054 默认):文件顺序即开发顺序,不做任何排序。
+  if (reqFilters.sort === "manual") return filtered;
+  return filtered.sort((a, b) => {
+    if (reqFilters.sort === "id") return a.id.localeCompare(b.id, undefined, { numeric: true });
+    if (reqFilters.sort === "status") {
+      return (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99) || a.id.localeCompare(b.id, undefined, { numeric: true });
+    }
+    return (priorityRank[a.priority] ?? 99) - (priorityRank[b.priority] ?? 99)
+      || (statusRank[a.status] ?? 99) - (statusRank[b.status] ?? 99)
+      || a.id.localeCompare(b.id, undefined, { numeric: true });
+  });
+}
+
+// R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
+// 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
+let dragReqId = null;
+function reqDragEnabled() {
+  return reqFilters.sort === "manual" && reqFilters.status === "all" && reqFilters.priority === "all";
+}
+async function commitReqOrder(listEl) {
+  const order = [...listEl.querySelectorAll(".doc-item[data-req-id]")].map((el) => el.dataset.reqId);
+  try {
+    const msg = await invoke("docs_update", {
+      projectDir: currentProject,
+      kind: "req",
+      action: "reorder",
+      id: "",
+      order,
     });
+    log(msg);
+    refreshDocs();
+  } catch (err) {
+    toast(`排序保存失败:${err}`);
+    refreshDocs();
+  }
 }
 
 function renderDocList(el, entries, kind, archivedCount = 0) {
@@ -1429,7 +1456,9 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     el.appendChild(empty);
     return;
   }
+  let position = 0;
   for (const entry of entries) {
+    position += 1;
     const item = document.createElement("div");
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
     const pri = (entry.priority || "").toUpperCase();
@@ -1440,11 +1469,43 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     row.title = `${entry.id} ${entry.title}(点击展开)`;
     const id = document.createElement("span");
     id.className = "id";
-    id.textContent = entry.id;
+    // R-054(用户拍板):需求行内不显示 R-xxx(乱序观感),只显示位置序号;身份收进展开详情。
+    if (kind === "req") {
+      id.className = "pos";
+      id.textContent = `#${position}`;
+    } else {
+      id.textContent = entry.id;
+    }
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
     row.append(id, st);
+    // 拖拽重排(仅需求 + 手动模式 + 无筛选)。
+    if (kind === "req" && reqDragEnabled()) {
+      item.dataset.reqId = entry.id;
+      item.draggable = true;
+      item.addEventListener("dragstart", (e) => {
+        dragReqId = entry.id;
+        item.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        dragReqId = null;
+      });
+      item.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        const dragging = el.querySelector(".doc-item.dragging");
+        if (!dragging || dragging === item) return;
+        const rect = item.getBoundingClientRect();
+        const before = e.clientY < rect.top + rect.height / 2;
+        el.insertBefore(dragging, before ? item : item.nextSibling);
+      });
+      item.addEventListener("drop", (e) => {
+        e.preventDefault();
+        commitReqOrder(el);
+      });
+    }
     if (/^P[0-3]$/.test(pri)) {
       const badge = document.createElement("span");
       badge.className = `pri-badge ${pri}`;
@@ -1468,7 +1529,8 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
     detail.className = "doc-detail hidden";
     const full = document.createElement("div");
     full.className = "doc-full-title";
-    full.textContent = entry.title;
+    // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
+    full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
     for (const [key, value] of entry.fields ?? []) {
       const f = document.createElement("div");
@@ -1568,9 +1630,43 @@ async function refreshDocs() {
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
+    if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
     refreshDocs();
   });
 }
+$("req-sort").value = reqFilters.sort;
+
+// ---------- R-053 快速记需求:独立子代理结构化落库,不打断主对话 ----------
+$("req-quick").addEventListener("click", () => {
+  const list = $("req-list");
+  if (list.querySelector(".quickreq-form")) return;
+  const form = document.createElement("div");
+  form.className = "goal-add-form quickreq-form";
+  const input = document.createElement("textarea");
+  input.rows = 3;
+  input.placeholder = "自然语言描述需求;Ctrl+Enter 提交,Esc 取消。子代理后台结构化落库,不打断当前对话。";
+  input.addEventListener("keydown", async (e) => {
+    if (e.key === "Escape") {
+      form.remove();
+      return;
+    }
+    if (!(e.key === "Enter" && (e.ctrlKey || e.metaKey))) return;
+    const text = input.value.trim();
+    if (!text) return;
+    form.remove();
+    toast("记需求中…(独立子代理后台进行)");
+    try {
+      const msg = await invoke("quick_req", { projectDir: currentProject, description: text });
+      toast(`已记录:${msg}`);
+      refreshDocs();
+    } catch (err) {
+      toast(`记需求失败:${err}`);
+    }
+  });
+  form.appendChild(input);
+  list.prepend(form);
+  input.focus();
+});
 
 function renderConventions(conv) {
   const el = $("conv-list");

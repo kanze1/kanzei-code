@@ -163,6 +163,7 @@ fn main() {
             provider_test,
             update_check,
             update_install,
+            quick_req,
             app_info,
             models_list,
             docs_update,
@@ -650,6 +651,132 @@ fn settings_open() -> Result<(), String> {
     Ok(())
 }
 
+/// R-053 快速记需求:只挂 req 工具的最小组件(独立迷你 run 专用)。
+struct QuickReqComponent;
+impl kanzei_harness::Component for QuickReqComponent {
+    fn contribute(
+        &self,
+        draft: &mut kanzei_harness::HarnessDraft,
+        _ctx: &ResolveCtx,
+    ) -> anyhow::Result<()> {
+        draft.tools.insert(
+            "req",
+            Arc::new(kanzei_tools::tracker::TrackerTool {
+                tool_name: "req",
+                noun: "requirement",
+                kind: &REQUIREMENTS,
+                requires_refs: None,
+            }),
+        );
+        draft.permissions.push(kanzei_harness::rule(
+            "req",
+            "*",
+            kanzei_harness::Effect::Allow,
+        ));
+        Ok(())
+    }
+}
+
+/// R-053:自然语言描述 → 独立子代理结构化落库。与主对话完全并行,
+/// 不碰 conversation/queue/lifecycle;fast 落库失败自动升级 primary 重试一次。
+#[tauri::command]
+async fn quick_req(project_dir: String, description: String) -> Result<String, String> {
+    let description = description.trim().to_string();
+    if description.is_empty() {
+        return Err("需求描述不能为空".into());
+    }
+    let cwd = PathBuf::from(&project_dir);
+    let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
+    let mut harness = Harness::default();
+    harness.add(QuickReqComponent);
+    let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
+    let agent = kanzei_harness::AgentDef {
+        name: "quickreq".into(),
+        profile: kanzei_harness::ProfileScope::Dev,
+        model: "fast".into(),
+        mode: kanzei_harness::AgentMode::Subagent,
+        steps: 4,
+        system: "You capture ONE requirement from the user's natural-language description. \
+                 Call the `req` tool exactly once with action \"add\": a concise title \
+                 (<=40 chars, Chinese preferred), fields = {\"priority\": suggested P0-P3, \
+                 \"复杂度\": 小|中|大, \"验收\": one draft acceptance line, \"归属\": \
+                 \"kanzei\", \"原始描述\": the user's original text verbatim}. Then reply \
+                 with only the new id."
+            .into(),
+    };
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let tool_ctx = ToolCtx {
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+    };
+    let store = DocStore::open(&project_root, &REQUIREMENTS);
+    let before: std::collections::HashSet<String> = store
+        .load()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|e| e.id.clone())
+        .collect();
+    let prompt = format!("需求描述(原文):\n{description}");
+    for role in ["fast", "primary"] {
+        let Ok(resolved) = config.resolve_model(role) else {
+            continue;
+        };
+        let Ok(route) = kanzei_core::build_route(&resolved, &proxy).await else {
+            continue;
+        };
+        let runner_config = RunnerConfig {
+            model: resolved.model.clone(),
+            max_tokens: 2048,
+        };
+        let mut on_event = |_event: RunEvent| {};
+        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
+            Box::pin(async move {
+                match request {
+                    // 快照里只有 req 工具,放行是安全的;问题一律取消(无人应答)。
+                    kanzei_core::AskRequest::Permission { .. } => {
+                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
+                    }
+                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+                }
+            })
+        };
+        let _ = run_once_with_parts(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &tool_ctx,
+            &prompt,
+            &[],
+            None,
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await;
+        // 成功判据不信模型嘴,只看库:落了新条目才算数。
+        let after = store.load().map_err(|e| e.to_string())?;
+        if let Some(new_entry) = after.iter().find(|e| !before.contains(&e.id)) {
+            return Ok(format!("{} {}", new_entry.id, new_entry.title));
+        }
+    }
+    Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
+}
+
 /// 应用内检查更新:比对 GitHub Releases 最新 build 标签与当前构建号。
 #[tauri::command]
 async fn update_check() -> Result<serde_json::Value, String> {
@@ -797,6 +924,7 @@ async fn docs_update(
     title: Option<String>,
     priority: Option<String>,
     fields: Option<serde_json::Value>,
+    order: Option<Vec<String>>,
 ) -> Result<String, String> {
     use kanzei_harness::Tool as _;
     use kanzei_tools::docstore::{DEFECTS as D, FINDINGS as F, REQUIREMENTS as R, SOURCES as S};
@@ -835,6 +963,9 @@ async fn docs_update(
         other => return Err(format!("unknown kind `{other}`")),
     };
     let mut input = json!({ "action": action, "id": id });
+    if let Some(order) = order.filter(|o| !o.is_empty()) {
+        input["order"] = json!(order);
+    }
     if let Some(status) = status {
         input["status"] = json!(status);
     }
