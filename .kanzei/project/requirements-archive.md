@@ -242,3 +242,9 @@
 - 归属: kanzei
 - 验收: 成功/失败/停止均提示;失焦可感知;通知失败不影响对话结果
 - 进展: 已完成：运行成功、失败、手动停止及权限拒绝停止均显示 toast、播放短提示音；窗口失焦时更新标题并在已授权时发送系统通知，通知/音频失败仅记录 warn，不影响运行结果。新增统一 notifyRunState/playRunNotice 与回焦标题恢复。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
+## R-024 输入体验:提示词历史(上下箭头)、@文件引用补全 [done]
+- priority: P2
+- 归属: kanzei
+- 备注: 粘贴/拖拽附件已随 R-014 完成,本条剩输入框体验
+- 进展: 已完成：提示词发送后写入本地最近 30 条历史，输入框上下键可回填并保留草稿；输入 @路径 时调用受限的 project_files 命令扫描当前项目（跳过 .git/.kanzei/target/node_modules，最多 50 条），候选支持上下选择、Enter/Tab 插入、Escape 关闭。新增补全弹层及样式。node --check、git diff --check、cargo test -p kanzei-app 通过。
