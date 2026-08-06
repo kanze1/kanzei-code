@@ -48,17 +48,40 @@ fn with_session_id(mut payload: serde_json::Value, session_id: &str) -> serde_js
     payload
 }
 
+struct SessionRuntime {
+    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+}
+
+impl Default for SessionRuntime {
+    fn default() -> Self {
+        Self {
+            asks: Arc::new(Mutex::new(HashMap::new())),
+            current_run: Arc::new(Mutex::new(None)),
+        }
+    }
+}
+
 #[derive(Default)]
 struct AppState {
-    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     ask_seq: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     /// 串行化运行状态、输入 admission 与 drain 收尾，避免边界竞态。
     lifecycle: Arc<Mutex<()>>,
     running_project: Arc<Mutex<Option<String>>>,
-    current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
     /// 会话内多轮连续:按 session_id 保存各线程历史(M2 落盘前的内存态方案)。
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+}
+
+fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
+    state
+        .runtimes
+        .lock()
+        .unwrap()
+        .entry(session_id.to_string())
+        .or_insert_with(|| Arc::new(SessionRuntime::default()))
+        .clone()
 }
 
 fn pending_path(exe: &Path) -> PathBuf {
@@ -129,8 +152,9 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 
 #[cfg(test)]
 mod update_tests {
-    use super::{pending_path, with_session_id};
+    use super::{pending_path, runtime_for, with_session_id, AppState};
     use std::path::Path;
+    use std::sync::Arc;
 
     #[test]
     fn pending_path_uses_executable_sibling() {
@@ -152,6 +176,17 @@ mod update_tests {
         let payload = with_session_id(serde_json::json!(null), "ses_test");
         assert_eq!(payload, serde_json::Value::Null);
     }
+
+    #[test]
+    fn session_runtime_is_reused_per_session_and_isolated_between_sessions() {
+        let state = AppState::default();
+        let first = runtime_for(&state, "ses_a");
+        let same = runtime_for(&state, "ses_a");
+        let other = runtime_for(&state, "ses_b");
+        assert!(Arc::ptr_eq(&first, &same));
+        assert!(!Arc::ptr_eq(&first, &other));
+    }
+
 }
 
 fn main() {
@@ -1290,7 +1325,13 @@ async fn summarize_chat(
 /// reply: "deny" | "once" | "always"。always 先把泛化规则写进项目配置再放行。
 #[tauri::command]
 fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
-    let Some(pending) = state.asks.lock().unwrap().remove(&id) else {
+    let pending = state
+        .runtimes
+        .lock()
+        .unwrap()
+        .values()
+        .find_map(|runtime| runtime.asks.lock().unwrap().remove(&id));
+    let Some(pending) = pending else {
         return;
     };
     if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
@@ -1595,15 +1636,23 @@ fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<Stri
         let _ = window.emit("kz:error", json!({ "message": "目标项目当前没有可停止的运行" }));
         return;
     }
-    if let Some(handle) = state.current_run.lock().unwrap().take() {
-        handle.abort();
+    let target_session = target_project
+        .as_ref()
+        .map(|root| kanzei_core::project_session_id(root));
+    let runtimes: Vec<Arc<SessionRuntime>> = state
+        .runtimes
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(session_id, _)| target_session.as_ref().map_or(true, |target| target == *session_id))
+        .map(|(_, runtime)| runtime.clone())
+        .collect();
+    for runtime in runtimes {
+        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+            handle.abort();
+        }
+        runtime.asks.lock().unwrap().clear();
     }
-    // 只作废目标项目的权限询问;无 project_dir 时才清理全部(兼容旧前端)。
-    state.asks.lock().unwrap().retain(|_, pending| {
-        target_project
-            .as_ref()
-            .is_some_and(|target| pending.project_root != *target)
-    });
     state.running.store(false, Ordering::SeqCst);
     *state.running_project.lock().unwrap() = None;
 
@@ -1715,7 +1764,11 @@ async fn run_prompt(
                 .to_string(),
         );
     }
-    let asks = state.asks.clone();
+    let project_root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let session_id = kanzei_core::project_session_id(&project_root);
+    let runtime = runtime_for(&state, &session_id);
+    let asks = runtime.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
     let running_project = state.running_project.clone();
@@ -1788,7 +1841,7 @@ async fn run_prompt(
             );
         }
     });
-    *state.current_run.lock().unwrap() = Some(handle);
+    *runtime.current_run.lock().unwrap() = Some(handle);
     Ok(())
 }
 
