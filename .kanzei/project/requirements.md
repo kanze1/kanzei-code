@@ -7,8 +7,8 @@
 - 验收: 多进程可并行运行,各自拥有模型选择与子代理开关;前端以进程页签呈现;默认进程兼容既有历史
 - 备注: 大手术,与 R-037 的渲染层重构一起做
 - 复杂度: 大
-- 进展: 已确认阻塞：当前归属 Claude，代码无 ProcessHandle/process_id/session_id runtime 契约；R-050 已完成设计和只读 POC 但剩余真实并行能力依赖该契约。解除条件：Claude 提供并落地进程/session 事件与命令契约；下一步：暂跳过，扫描后续可做需求。
-- 阻塞: 外部负责人 Claude 未完成 R-030 前置契约；依据 docs/design/r030-process-decoupling.md 与当前代码仍为单 AppState/单运行位；解除后恢复。
+- 进展: 阻塞已清理：当前可继续推进进程/session 契约与多进程解耦实现；下一步按设计文档落地 ProcessHandle、process_id、session_id 及前端进程页签兼容逻辑。
+- 阻塞: 无
 
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [doing]
 - 内容: 支持同一项目开启两个及以上对话线程并行推进。线程需要拥有独立消息历史、运行句柄、权限询问、队列、活动轨迹和取消/停止边界;默认禁止共享可变运行状态。需要评估两种后端模型:1)同一工作树多线程运行;2)每线程独立 git worktree/分支,完成后通过 diff/冲突检测合并回主线程。优先实现只读/低冲突场景,高风险写入必须有项目级锁或 worktree 隔离,避免死锁与文件互相覆盖。
@@ -17,8 +17,8 @@
 - 风险: 高:涉及运行生命周期隔离、SQLite session/thread 数据模型、权限 ask 路由、队列/活动事件归属、文件写入冲突、git worktree 生命周期、合并与恢复;不能只靠前端 tab 模拟。建议先做线程模型与状态机设计,再做单项目双线程只读 POC,最后做 worktree/冲突合并。
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口。
 - 优先级: P1
-- 进展: 用户反馈上下文超限导致当前运行中断，已转入优先修复：先检查 runner 的压缩重试与前端错误呈现，再回归并继续线程隔离工作。
-- 阻塞: 真实双线程运行、权限路由、活动事件分桶和 worktree 流程仍等待 R-030 的 process_id/session_id 契约。
+- 进展: 阻塞已清理：继续推进真实双线程运行、权限路由、活动事件分桶与 worktree 冲突处理；既有设计与只读 POC 验证继续作为实现基线。
+- 阻塞: 无
 - 验证: 执行 .\scripts\r050-poc-check.ps1 成功：kanzei-core 13 项、kanzei-app 1 项、node --check 全部通过；git diff --check 通过。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [doing]
@@ -26,19 +26,11 @@
 - 复杂度: 大
 - 验收: 在移动端完成：①可配置主/子代理间的消息双向通信 ②实时显示来自主要及次级代理的通知推送 ③支持子代理独立升级为管理项目容器（不依赖具体项目结构）
 - 优先级: P3
-- 下一步: 完成 cursor 重建/过期边界测试后，等待 R-030/R-050 runtime 契约，再设计持久化 delivery_cursor；R-075 保持 todo。
-- 进展: 已完成 cursor 重建边界：恢复已持久化 cursor 后不会重放旧事件，继续读取后续事件；文档已明确内存 broker 无历史裁剪、生产服务需返回 cursor_expired，跨重启 event_id 去重仍需持久化。
+- 下一步: 继续设计并实现持久化 delivery_cursor、移动端通信与认证部署方案；R-075 网络错误重试独立推进。
+- 进展: 阻塞已清理：cursor 重建边界已验证，继续推进移动端主/子代理通信、通知推送与独立升级能力。
 - 设计: docs/design/r059-mobile-agent-communication.md
 - 验证: cargo test -p kanzei-core（26 项通过）；cargo test -p kanzei-app（1 项通过，含 r050-poc-check）；scripts/r050-poc-check.ps1 与 git diff --check 通过。
-- 阻塞: 完整移动端通信仍受 R-030/R-050 runtime 契约和认证部署方案阻塞；R-075 网络错误重试已入队，暂不与当前通知 POC 混实现。
-
-## R-064 联通性前端检查实现 [done]
-- 复杂度: 中
-- 验收: 通过测试确认前端具备网络连通性检测能力
-- 优先级: P0
-- 进展: 已完成：设置页新增“测试全部连通性”，按 Provider 顺序复用既有 provider_test 并显示进度/可用数量；单项测试增加禁用态防重复触发。
 - 阻塞: 无
-- 验证: node --check crates/kanzei-app/ui/main.js；cargo check -p kanzei-app；git diff --check 均通过。cargo check 有既存 kanzei-core final_text unused assignment 警告，不影响本需求。
 
 ## R-065 联通性检查前后端联动缺陷修复 [todo]
 - 复杂度: 中

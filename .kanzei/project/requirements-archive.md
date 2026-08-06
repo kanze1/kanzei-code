@@ -368,3 +368,11 @@
 - 优先级: P0
 - 进展: 已完成 D-034：侧栏所有分区使用稳定折叠 key，兼容旧 key；需求/缺陷标题支持鼠标与键盘收纳，ARIA 和 ▾/▸ 状态同步，控件不会误触发。R-066 验收范围已完成。
 - 验证: node --check crates/kanzei-app/ui/main.js、git diff --check、cargo test -p kanzei-app 通过。
+
+## R-064 联通性前端检查实现 [done]
+- 复杂度: 中
+- 验收: 通过测试确认前端具备网络连通性检测能力
+- 优先级: P0
+- 进展: 已完成：设置页新增“测试全部连通性”，按 Provider 顺序复用既有 provider_test 并显示进度/可用数量；单项测试增加禁用态防重复触发。
+- 阻塞: 无
+- 验证: node --check crates/kanzei-app/ui/main.js；cargo check -p kanzei-app；git diff --check 均通过。cargo check 有既存 kanzei-core final_text unused assignment 警告，不影响本需求。
