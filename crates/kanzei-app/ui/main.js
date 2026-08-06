@@ -2,6 +2,14 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+// 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
+function on(event, handler) {
+  listen(event, handler).catch((err) => {
+    log(`事件订阅失败 ${event}: ${err} — 界面将收不到运行事件,请反馈`, "err");
+    $("log-panel").classList.remove("hidden");
+  });
+}
+
 const $ = (id) => document.getElementById(id);
 const messages = $("messages");
 const promptBox = $("prompt");
@@ -135,27 +143,27 @@ function appendReasoning(text) {
 }
 
 // ---------- 事件订阅 ----------
-listen("kz:status", (e) => {
+on("kz:status", (e) => {
   const p = e.payload;
   log(`[${p.stage}] ${p.detail}`);
   if (running) setStatus(`${p.stage} · ${p.detail}`, true);
 });
-listen("kz:meta", (e) => {
+on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
   log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}`);
   if (running) setStatus("等待模型响应", true);
 });
-listen("kz:text", (e) => {
+on("kz:text", (e) => {
   markFirstSignal();
   if (running) setStatus("生成中", true);
   appendAssistant(e.payload.text);
 });
-listen("kz:reasoning", (e) => {
+on("kz:reasoning", (e) => {
   markFirstSignal();
   if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
-listen("kz:tool-start", (e) => {
+on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
@@ -172,7 +180,7 @@ listen("kz:tool-start", (e) => {
   setStatus(`工具执行中 · ${e.payload.name}`, true);
   scrollBottom();
 });
-listen("kz:tool-end", (e) => {
+on("kz:tool-end", (e) => {
   log(`工具结果 ${e.payload.name}: ${e.payload.ok ? "成功" : "失败"} — ${e.payload.preview}`, e.payload.ok ? "" : "warn");
   if (currentTool) {
     currentTool.classList.remove("running");
@@ -186,7 +194,7 @@ listen("kz:tool-end", (e) => {
   setStatus("运行中", true);
   scrollBottom();
 });
-listen("kz:step", (e) => {
+on("kz:step", (e) => {
   const p = e.payload;
   runTokens.input += p.input;
   runTokens.output += p.output;
@@ -195,21 +203,21 @@ listen("kz:step", (e) => {
   renderTokens();
   log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output}`);
 });
-listen("kz:error", (e) => {
+on("kz:error", (e) => {
   addMessage("error", e.payload.message);
   log(`错误:${e.payload.message}`, "err");
   stopElapsed();
   setRunning(false, "出错");
   $("log-panel").classList.remove("hidden");
 });
-listen("kz:stopped", () => {
+on("kz:stopped", () => {
   hideAsk();
   addMessage("notice", "已停止");
   log("已手动停止");
   stopElapsed();
   setRunning(false, "已停止");
 });
-listen("kz:done", (e) => {
+on("kz:done", (e) => {
   const p = e.payload;
   addMessage("notice", `完成 · steps ${p.steps}${p.halted ? " · 已按你的拒绝停止" : ""}`);
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
@@ -222,7 +230,7 @@ listen("kz:done", (e) => {
 const askQueue = [];
 let askActive = null;
 
-listen("kz:ask", (e) => {
+on("kz:ask", (e) => {
   askQueue.push(e.payload);
   pumpAsk();
 });
@@ -280,6 +288,7 @@ async function send() {
       prompt,
       projectDir: currentProject,
       profile: $("profile-select").value,
+      model: $("model-select").value || null,
     });
   } catch (err) {
     addMessage("error", String(err));
@@ -290,12 +299,46 @@ async function send() {
 }
 
 $("send").addEventListener("click", send);
-$("stop").addEventListener("click", () => invoke("stop_run"));
+$("stop").addEventListener("click", () => {
+  // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
+  invoke("stop_run").catch((err) => log(`停止指令失败:${err}`, "err"));
+  hideAsk();
+  stopElapsed();
+  setRunning(false, "已停止");
+  log("已请求停止(本地已复位)");
+});
 promptBox.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     send();
   }
+});
+
+// ---------- 模型直选 ----------
+async function loadModels() {
+  const select = $("model-select");
+  const saved = localStorage.getItem("kz-model") ?? "";
+  select.innerHTML = "";
+  const def = document.createElement("option");
+  def.value = "";
+  def.textContent = "模型:agent 默认";
+  select.appendChild(def);
+  try {
+    const models = await invoke("models_list", { projectDir: currentProject });
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.textContent = m.label;
+      if (m.id === saved) opt.selected = true;
+      select.appendChild(opt);
+    }
+    log(`模型列表已刷新(${models.length} 个可选)`);
+  } catch (err) {
+    log(`模型列表获取失败:${err}`, "warn");
+  }
+}
+$("model-select").addEventListener("change", () => {
+  localStorage.setItem("kz-model", $("model-select").value);
 });
 
 // ---------- 项目管理 ----------
@@ -330,6 +373,7 @@ function renderProjects(prefs) {
     item.addEventListener("click", async () => {
       renderProjects(await invoke("projects_select", { path }));
       refreshDocs();
+      loadModels();
     });
     list.appendChild(item);
   }
@@ -525,5 +569,6 @@ $("settings-open").addEventListener("click", () => invoke("settings_open").catch
   }
   renderProjects(await invoke("projects_get"));
   await refreshDocs();
+  await loadModels();
   setStatus("空闲", false);
 })();

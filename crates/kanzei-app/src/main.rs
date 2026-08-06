@@ -53,7 +53,8 @@ fn main() {
             settings_get,
             settings_save,
             settings_open,
-            app_info
+            app_info,
+            models_list
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -316,6 +317,57 @@ fn answer_ask(state: State<'_, AppState>, id: u64, allow: bool) {
     }
 }
 
+/// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。
+#[tauri::command]
+async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
+    let cwd = project_dir
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| std::env::current_dir().ok())
+        .ok_or("no working dir")?;
+    let config = KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
+
+    let mut items: Vec<serde_json::Value> = Vec::new();
+    for role in ["primary", "fast"] {
+        if let Ok(r) = config.resolve_model(role) {
+            items.push(json!({
+                "id": role,
+                "label": format!("{role} → {}:{}", r.provider_name, r.model),
+            }));
+        }
+    }
+    for (name, p) in &config.providers {
+        if p.auth.as_deref() == Some("codex") {
+            // ChatGPT 订阅当前仅这三个型号(2026-08)。
+            for m in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+                items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
+            }
+        } else if p.base_url.contains("11434") {
+            let tags_url = format!("{}/api/tags", p.base_url.trim_end_matches("/v1"));
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .map_err(|e| e.to_string())?;
+            if let Ok(resp) = client.get(&tags_url).send().await {
+                if let Ok(v) = resp.json::<serde_json::Value>().await {
+                    if let Some(models) = v["models"].as_array() {
+                        for m in models {
+                            if let Some(n) = m["name"].as_str() {
+                                items.push(json!({
+                                    "id": format!("{name}:{n}"),
+                                    "label": format!("{name}:{n}"),
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(json!(items))
+}
+
 #[tauri::command]
 fn app_info() -> serde_json::Value {
     json!({
@@ -342,6 +394,7 @@ async fn run_prompt(
     prompt: String,
     project_dir: String,
     profile: Option<String>,
+    model: Option<String>,
 ) -> Result<(), String> {
     if state.running.swap(true, Ordering::SeqCst) {
         return Err("已有任务在运行".into());
@@ -352,7 +405,7 @@ async fn run_prompt(
     let current_run = state.current_run.clone();
 
     let handle = tauri::async_runtime::spawn(async move {
-        let result = run_task(&window, asks, ask_seq, prompt, project_dir, profile).await;
+        let result = run_task(&window, asks, ask_seq, prompt, project_dir, profile, model).await;
         if let Err(e) = result {
             let message = e.to_string();
             let lower = message.to_lowercase();
@@ -379,6 +432,7 @@ async fn run_task(
     prompt: String,
     project_dir: String,
     profile: Option<String>,
+    model_override: Option<String>,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -417,7 +471,11 @@ async fn run_task(
         format!("harness 就绪:agent {} · {} 个工具", agent.name, snapshot.materialize_tools().len()),
     );
 
-    let resolved = config.resolve_model(&agent.model)?;
+    // 界面模型下拉直选优先于 agent 定义。
+    let model_ref = model_override
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or_else(|| agent.model.clone());
+    let resolved = config.resolve_model(&model_ref)?;
     let proxy = match config.proxy.as_deref() {
         Some("off") => ProxyConfig::Disabled,
         Some("env") | None => ProxyConfig::Env,

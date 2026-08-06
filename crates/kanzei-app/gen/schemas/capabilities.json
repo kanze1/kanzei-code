@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"主窗口:允许核心 API(事件监听是前端接收 kz:* 运行事件的通道)","local":true,"windows":["*"],"permissions":["core:default"]}}

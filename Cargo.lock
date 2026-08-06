@@ -2029,6 +2029,7 @@ dependencies = [
  "kanzei-harness",
  "kanzei-llm",
  "kanzei-tools",
+ "reqwest 0.12.28",
  "rfd",
  "serde",
  "serde_json",

@@ -12,6 +12,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+reqwest.workspace = true
 tauri = { version = "2", features = [] }
 rfd = "0.15"
 dirs.workspace = true

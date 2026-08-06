@@ -7,3 +7,5 @@
 ## D-003 LLM 请求无超时,网络不通时永久挂起且无提示 [fixed] (medium)
 
 ## D-004 前端发送被拒时静默无反馈(running 标志卡死后点发送毫无反应) [fixed] (medium)
+
+## D-005 Tauri 缺 capabilities,前端 event.listen 被 ACL 静默拒绝,所有运行事件收不到 [fixed] (medium)
