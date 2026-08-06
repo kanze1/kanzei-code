@@ -43,6 +43,23 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
 
+let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
+
+function syncActivityPanel() {
+  $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
+  const toggle = $("activity-toggle");
+  toggle.classList.toggle("active", activityPanelOpen);
+  toggle.textContent = activityPanelOpen ? "活动 ✓" : "活动";
+  toggle.title = activityPanelOpen ? "隐藏右侧活动面板" : "显示右侧活动面板";
+}
+
+$("activity-toggle").addEventListener("click", () => {
+  activityPanelOpen = !activityPanelOpen;
+  localStorage.setItem("kz-activity-panel", activityPanelOpen ? "1" : "0");
+  syncActivityPanel();
+});
+syncActivityPanel();
+
 // ---------- 运行日志面板 ----------
 const LOG_MAX = 300;
 function log(text, cls = "") {
@@ -257,7 +274,8 @@ function appendReasoning(text) {
 const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
 const BG_MAX = 120;
 function bgSync() {
-  $("bg-panel").classList.toggle("hidden", $("bg-list").children.length === 0);
+  // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
+  syncActivityPanel();
 }
 function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
