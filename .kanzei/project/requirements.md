@@ -17,6 +17,8 @@
 
 ## R-008 自举:用 kanzei 开发 kanzei(dev 模式吃自己狗粮) [doing]
 - 当前工作: 按用户确认重新构建桌面端与工作区，完成后由用户重启验证
+- 本次工作: 按仓库 §9 执行发版构建，并使用 kz --version 验证安装结果
+- 发版验证: cargo test --workspace 全部通过；kz CLI 已安装并验证为 kanzei 0.1.0 (0aca267 2026-08-06)。kzapp release 构建成功，但因正在运行，安装结果为 kzapp.exe.pending，需关闭 kzapp.exe 后重跑 .\scripts\release.ps1。
 
 ## R-009 对话历史记录持久化 [doing]
 - 范围: 持久化主Agent与子Agent的对话消息、会话元数据、时间顺序及关联任务，重启后可恢复并查询
