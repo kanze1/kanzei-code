@@ -65,6 +65,14 @@ impl InMemoryBroker {
         PublishMessage::Accepted(message)
     }
 
+    pub fn messages_for_thread(&self, thread_id: &str) -> Vec<AgentMessage> {
+        self.messages
+            .values()
+            .filter(|message| message.thread_id == thread_id)
+            .cloned()
+            .collect()
+    }
+
     pub fn publish_notification(
         &mut self,
         mut notification: AgentNotification,
@@ -166,6 +174,29 @@ mod tests {
             duplicate,
             PublishMessage::Duplicate(message("same", "msg_1"))
         );
+    }
+
+    #[test]
+    fn messages_can_be_read_in_both_directions_without_thread_leak() {
+        let mut broker = InMemoryBroker::default();
+        let mut reply = message("reply", "msg_b");
+        reply.sender_agent_id = "subagent".to_owned();
+        reply.receiver_agent_id = "primary".to_owned();
+        broker.publish_message(message("request", "msg_a"));
+        broker.publish_message(reply);
+        let mut other = message("other", "msg_c");
+        other.thread_id = "thread_b".to_owned();
+        broker.publish_message(other);
+
+        let thread_messages = broker.messages_for_thread("thread_a");
+        assert_eq!(thread_messages.len(), 2);
+        assert!(thread_messages
+            .iter()
+            .any(|message| message.sender_agent_id == "primary"));
+        assert!(thread_messages
+            .iter()
+            .any(|message| message.sender_agent_id == "subagent"));
+        assert_eq!(broker.messages_for_thread("thread_b").len(), 1);
     }
 
     #[test]

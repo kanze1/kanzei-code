@@ -27,9 +27,9 @@
 - 验收: 在移动端完成：①可配置主/子代理间的消息双向通信 ②实时显示来自主要及次级代理的通知推送 ③支持子代理独立升级为管理项目容器（不依赖具体项目结构）
 - 优先级: P3
 - 下一步: 继续补内存 broker 的消息/订阅边界测试，并评估与 R-030/R-050 process/thread 归属契约的适配点。
-- 进展: 新增 NotificationSubscription 与 poll_subscription：按 thread_id 保存 cursor，poll 后推进 cursor，重复 poll 不重复投递，新通知可继续消费。
+- 进展: 新增 messages_for_thread，验证同一 thread_id 内主代理→子代理与子代理→主代理消息可读取，不同线程消息不泄漏；双向消息边界测试通过。
 - 设计: docs/design/r059-mobile-agent-communication.md
-- 验证: cargo test -p kanzei-core（22 项通过）、cargo test -p kanzei-app（1 项通过）、scripts/r050-poc-check.ps1、git diff --check 全部通过。
+- 验证: cargo test -p kanzei-core（23 项通过）、cargo test -p kanzei-app（1 项通过）、scripts/r050-poc-check.ps1、git diff --check 全部通过。
 
 ## R-064 联通性前端检查实现 [todo]
 - 复杂度: 中
