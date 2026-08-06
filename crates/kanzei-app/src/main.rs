@@ -836,25 +836,30 @@ async fn run_prompt(
     delivery: Option<String>,
 ) -> Result<(), String> {
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
-    if state.running.swap(true, Ordering::SeqCst) {
-        if state.conversation_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
-            return Err("已有其他项目的任务在运行".into());
+    let lifecycle = state.lifecycle.clone();
+    {
+        let _lifecycle = lifecycle.lock().unwrap();
+        if state.running.load(Ordering::SeqCst) {
+            if state.conversation_project.lock().unwrap().as_deref()
+                != Some(project_dir.as_str())
+            {
+                return Err("已有其他项目的任务在运行".into());
+            }
+            let queued = admit_input(&project_dir, &prompt, delivery).map_err(|e| e.to_string())?;
+            let _ = window.emit(
+                "kz:status",
+                json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
+            );
+            return Ok(());
         }
-        let queued = admit_input(&project_dir, &prompt, delivery).map_err(|e| e.to_string())?;
-        let _ = window.emit(
-            "kz:status",
-            json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
-        );
         state.running.store(true, Ordering::SeqCst);
-        return Ok(());
+        *state.conversation_project.lock().unwrap() = Some(project_dir.clone());
     }
     let asks = state.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let running = state.running.clone();
-    let current_run = state.current_run.clone();
     let conversation = state.conversation.clone();
     let conversation_project = state.conversation_project.clone();
-    *conversation_project.lock().unwrap() = Some(project_dir.clone());
 
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
@@ -888,16 +893,27 @@ async fn run_prompt(
                 let _ = window.emit("kz:error", json!({ "message": format!("{message}{hint}") }));
             }
             if result.is_err() {
+                let _lifecycle = lifecycle.lock().unwrap();
+                running.store(false, Ordering::SeqCst);
                 break;
             }
-            next_input = match promote_next_input(&project_dir) {
-                Ok(input) => input,
-                Err(error) => {
-                    let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
-                    None
+            let next_input = {
+                let _lifecycle = lifecycle.lock().unwrap();
+                match promote_next_input(&project_dir) {
+                    Ok(input) => {
+                        if input.is_none() {
+                            running.store(false, Ordering::SeqCst);
+                        }
+                        input
+                    }
+                    Err(error) => {
+                        let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
+                        running.store(false, Ordering::SeqCst);
+                        None
+                    }
                 }
             };
-            let Some(input) = next_input.as_ref() else {
+            let Some(input) = next_input else {
                 break;
             };
             next_prompt = input.prompt.clone();
@@ -906,7 +922,6 @@ async fn run_prompt(
                 json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }),
             );
         }
-        running.store(false, Ordering::SeqCst);
     });
     *state.current_run.lock().unwrap() = Some(handle);
     Ok(())
