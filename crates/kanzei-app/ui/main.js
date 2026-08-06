@@ -19,6 +19,7 @@ let currentProject = null;
 let currentAssistant = null;
 let currentReasoning = null;
 let attachments = [];
+let lastRequest = null;
 let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 // ---------- 视图切换 ----------
@@ -211,6 +212,40 @@ function addMessage(cls, text) {
   messages.appendChild(el);
   scrollBottom();
   return el;
+}
+
+function addErrorMessage(message, { retryable = false } = {}) {
+  const el = addMessage("error", "");
+  const body = el.querySelector(".message-body");
+  const level = document.createElement("strong");
+  level.className = "error-level";
+  level.textContent = retryable ? "可重试错误" : "致命错误";
+  const text = document.createElement("div");
+  text.textContent = message;
+  body.append(level, text);
+  if (retryable && lastRequest) {
+    const actions = el.querySelector(".msg-actions");
+    const retry = document.createElement("button");
+    retry.className = "retry-btn";
+    retry.type = "button";
+    retry.textContent = "重试上一次请求";
+    retry.addEventListener("click", () => {
+      retry.disabled = true;
+      retry.textContent = "正在重试…";
+      sendText(lastRequest.prompt, { promptAttachments: lastRequest.attachments });
+    });
+    actions.appendChild(retry);
+  }
+  return el;
+}
+
+function isRetryableError(message) {
+  return /timed out|timeout|connect|connection|dns|网络|连接|超时/i.test(message);
+}
+
+function reportError(message, { retryable = isRetryableError(message) } = {}) {
+  addErrorMessage(message, { retryable });
+  log(`错误:${message}`, "err");
 }
 
 let outputChars = 0;
@@ -632,8 +667,8 @@ on("kz:step", (e) => {
 });
 on("kz:error", (e) => {
   cancelAutoContinueTimer();
-  addMessage("error", e.payload.message);
-  log(`错误:${e.payload.message}`, "err");
+  const message = e.payload.message;
+  reportError(message);
   stopElapsed();
   setRunning(false, "出错");
   bgAbortRunning("(出错中止)");
@@ -1014,8 +1049,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
       await refreshPendingInputs();
     } catch (err) {
-      addMessage("error", String(err));
-      log(`提交被拒:${err}`, "err");
+      reportError(String(err), { retryable: false });
     }
     return;
   }
@@ -1035,18 +1069,19 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   log(`${auto ? "连跑" : "发送"}:${prompt.slice(0, 80)}`);
   try {
     const mode = selectedAgent();
-    await invoke("run_prompt", {
+    const request = {
       prompt,
       projectDir: currentProject,
       profile: mode.profile,
       agent: mode.agent,
       model: $("model-select").value || null,
       delivery,
-      attachments: promptAttachments,
-    });
+      attachments: promptAttachments.map((item) => ({ ...item })),
+    };
+    if (!auto) lastRequest = request;
+    await invoke("run_prompt", request);
   } catch (err) {
-    addMessage("error", String(err));
-    log(`发送被拒:${err}`, "err");
+    reportError(String(err));
     stopElapsed();
     setRunning(false);
   }
