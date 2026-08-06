@@ -26,15 +26,6 @@
 - 归属: kanzei
 - 验收: task 块可展开查看子代理完整工具轨迹,后台面板条目可回看,不因短时超时消失
 
-## R-032 队列可视化:排队输入列表(内容/交付方式)+ 单条撤销 [done]
-- priority: P1
-- 归属: kanzei
-- 验收: 运行中的 queue 输入显示内容与交付方式,支持单条撤销,状态与后端 admission 同步
-- 进展: 开始检查后端 admission 队列事件、停止/取消接口和桌面端运行状态，优先落地队列可视化与单条撤销的最小闭环。
-- 实现: 新增 list_pending_inputs/cancel_input Tauri command;前端新增排队输入面板、delivery 标识、单条撤销与生命周期刷新。
-- 验收结果: 队列可视化与单条撤销完成;存储层只能取消 pending 输入,调度语义不变。
-- 验证: cargo test --workspace; cargo check -p kanzei-app; node --check crates/kanzei-app/ui/main.js
-
 ## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [todo]
 - priority: P2
 - 归属: kanzei
