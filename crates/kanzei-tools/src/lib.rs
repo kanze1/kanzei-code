@@ -6,6 +6,7 @@ pub mod docstore;
 mod edit;
 mod glob;
 mod grep;
+mod todowrite;
 mod webfetch;
 mod websearch;
 mod question;

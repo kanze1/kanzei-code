@@ -16,4 +16,4 @@
 - priority: P1
 - 验收: R-016、R-028、R-029、R-023 全部 done;达成即 `goal update G-003 achieved`
 - 说明: 发版自更新闭环 + agent 工具面(todo/question/websearch)
-- 进展: R-023 已完成：research profile 新增受权限控制的 websearch，复用代理配置，返回有界结构化搜索结果并补充解析测试。R-029 已完成：question 工具新增结构化提问，runner 统一 AskRequest/AskResponse，桌面端复用 ask 弹窗支持选项/文本/取消，CLI 支持终端输入。下一步推进 G-003 的 R-028 todo 工具。
+- 进展: R-023 已完成：research profile 新增受权限控制的 websearch，复用代理配置，返回有界结构化搜索结果并补充解析测试。R-029 已完成：question 工具新增结构化提问，runner 统一 AskRequest/AskResponse，桌面端复用 ask 弹窗支持选项/文本/取消，CLI 支持终端输入。R-028 已完成：dev profile 新增 todowrite，运行内计划整体替换与状态校验，桌面端右侧当前计划面板显示条目和完成比例。G-003 验收项 R-016 尚未完成，下一步推进发版自更新闭环。

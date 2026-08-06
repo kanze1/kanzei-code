@@ -19,10 +19,6 @@
 - priority: P2
 - 归属: kanzei
 
-## R-028 todo 工具:运行内任务清单,长连跑会话的结构化计划 + 前端可视化 [todo]
-- priority: P1
-- 归属: kanzei
-
 ## R-030 进程与项目解耦:多进程并行,每进程独立模型选择与子代理开关 [todo]
 - priority: P0
 - 归属: Claude

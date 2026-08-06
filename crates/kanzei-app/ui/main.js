@@ -365,6 +365,28 @@ on("kz:reasoning", (e) => {
 });
 // 工具块按调用 id 配对:并行 task 结束顺序不定,靠全局 currentTool 会张冠李戴(D-017 根因)。
 const toolChips = new Map();
+let todoItems = [];
+function renderTodoPanel(items, done, total) {
+  todoItems = items || [];
+  const panel = $("todo-panel");
+  const list = $("todo-list");
+  list.innerHTML = "";
+  panel.classList.toggle("hidden", todoItems.length === 0);
+  $("todo-count").textContent = total ? `${done}/${total}` : "";
+  for (const item of todoItems) {
+    const row = document.createElement("div");
+    row.className = `todo-entry ${item.status}`;
+    const status = document.createElement("span");
+    status.className = "todo-status";
+    status.textContent = item.status === "done" ? "✓" : item.status === "doing" ? "●" : item.status === "dropped" ? "×" : "○";
+    const content = document.createElement("span");
+    content.className = "todo-content";
+    content.textContent = item.content;
+    row.append(status, content);
+    list.appendChild(row);
+  }
+}
+
 on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);
@@ -452,6 +474,13 @@ on("kz:tool-end", (e) => {
       const block = document.createElement("div");
       block.className = "tool-display term";
       block.textContent = `新建 ${d.path}(${d.bytes} bytes)\n${d.preview}`;
+      chip.appendChild(block);
+      collapsibles.push(block);
+    } else if (d && d.kind === "todo") {
+      renderTodoPanel(d.items || [], d.done || 0, d.total || 0);
+      const block = document.createElement("div");
+      block.className = "tool-display term hidden";
+      block.textContent = `${d.done || 0}/${d.total || 0} done`;
       chip.appendChild(block);
       collapsibles.push(block);
     }

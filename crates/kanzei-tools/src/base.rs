@@ -18,6 +18,7 @@ impl Component for BaseComponent {
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("question", Arc::new(crate::question::QuestionTool));
+        draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
         draft
             .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));

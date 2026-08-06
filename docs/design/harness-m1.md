@@ -107,7 +107,8 @@ Profile = 一组组件的成套启用:agents + tools + context sources + 权限�
 3. 格式由工具序列化,模型只提供字段值——文档永远不会被写坏。
 4. Context Source 注入**索引**(ID+标题+状态,预算上限 ~300 token);正文按需 `req get R-012`。
 
-**行为约定**(写进 dev agent 提示词,一句话级):开始做一件事→对应需求置 doing;发现 bug→先记 defect 再修;完成→更新状态。
+**当前实现状态（R-028，2026-08-06）**：dev profile 已提供 `todowrite`，每次调用整体替换当前运行计划，状态限定为 `todo/doing/done/dropped`，并通过 `ToolOutput.display.kind=todo` 发送有界计划数据；桌面端右侧“当前计划”面板显示状态和完成比例。计划只属于当前运行，不写入项目 backlog。
+
 
 ## 5. 研究模式(research)
 

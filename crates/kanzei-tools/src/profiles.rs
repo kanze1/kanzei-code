@@ -48,6 +48,7 @@ impl Component for DevProfile {
                 requires_refs: None,
             }),
         );
+        draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
 
         // 硬 deny:项目文档只能走专用工具(用户手改不受此限——这是模型的门禁)。
         for action in ["write", "edit"] {
