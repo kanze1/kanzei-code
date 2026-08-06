@@ -79,6 +79,7 @@ $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
 // ---------- 状态栏 ----------
 function setStatus(text, isRunning) {
   $("status-text").textContent = text;
+  $("status-mode").textContent = isRunning ? "运行中" : "空闲";
   $("status-dot").className = `dot ${isRunning ? "run" : "idle"}`;
   $("statusbar").classList.toggle("running", !!isRunning);
 }
@@ -1445,14 +1446,11 @@ function renderDocList(el, entries, kind, archivedCount = 0) {
       badge.textContent = pri;
       row.appendChild(badge);
     }
-    // 复杂度徽标(R-051):空心轮廓与优先级实心区分;大=醒目,未评估不占位。
+    // 复杂度(R-051):不用文字,行底部宽度条表达体量(小短/中中/大长);未评估无条。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
-      const cxBadge = document.createElement("span");
-      cxBadge.className = `cx-badge cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`;
-      cxBadge.textContent = cx;
-      cxBadge.title = `复杂度:${cx}`;
-      row.appendChild(cxBadge);
+      item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
+      item.title = `复杂度:${cx}`;
     }
     const title = document.createElement("span");
     title.className = "title";

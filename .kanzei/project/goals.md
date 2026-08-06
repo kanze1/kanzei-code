@@ -9,4 +9,4 @@
 - priority: P0
 - 验收: R-036、R-033 完成且 R-030/R-037 由 Claude 落地后,前端不再落后于后端能力;达成即 `goal update G-002 achieved`
 - 来源文档: docs/design/frontend-phase3.md、docs/design/interaction-modes.md
-- 进展: 完成 R-040 快捷键基础阶段：Ctrl/Cmd+K 聚焦输入框、Ctrl/Cmd+Shift+N 新对话、Ctrl/Cmd+Shift+C 停止，复用既有 UI 流程；切进程快捷键待 R-030/R-037 多进程模型落地后补齐。node --check、git diff --check、cargo test --workspace 均通过。此前 R-035 已在需求归档中完成，旧进展文字已纠正。
+- 进展: 完成 R-048：底部状态栏新增稳定的“运行中/空闲”主状态，保留阶段详情与计时器，运行点不再持续闪烁；完成/停止/错误路径统一复位。node --check、git diff --check、cargo test --workspace 均通过。R-040 快捷键基础阶段已完成，切进程待 R-030/R-037。
