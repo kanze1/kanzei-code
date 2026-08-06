@@ -19,6 +19,7 @@ let currentProject = null;
 let currentAssistant = null;
 let currentReasoning = null;
 let currentTool = null;
+let attachments = [];
 let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 // ---------- 视图切换 ----------
@@ -488,6 +489,8 @@ on("kz:done", (e) => {
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
   setRunning(false);
+  // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
+  refreshConversationList();
   toolChips.clear();
   bgClear();
   liveIdle(`空闲 · 上轮 ${p.steps} 轮完成`);
@@ -582,7 +585,47 @@ const CONTINUE_PROMPT =
   "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
   "若所有活跃目标已达成或被阻塞,明确说明原因,不要做无意义的空转。";
 
-async function sendText(prompt, { auto = false } = {}) {
+function renderAttachments() {
+  const box = $("attachments");
+  box.innerHTML = "";
+  box.classList.toggle("hidden", attachments.length === 0);
+  attachments.forEach((item, index) => {
+    const chip = document.createElement("span");
+    chip.className = "attachment-chip";
+    chip.textContent = `${item.file_name} ×`;
+    chip.title = "移除附件";
+    chip.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
+    box.appendChild(chip);
+  });
+}
+
+function addFiles(files) {
+  for (const file of files) {
+    if (!(file.type.startsWith("image/") || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf"))) {
+      toast(`不支持的附件类型: ${file.name}`);
+      continue;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result);
+      attachments.push({ file_name: file.name, media_type: file.type || "application/pdf", data: dataUrl.split(",", 2)[1] || "" });
+      renderAttachments();
+    };
+    reader.onerror = () => toast(`读取附件失败: ${file.name}`);
+    reader.readAsDataURL(file);
+  }
+}
+
+$("attach").addEventListener("click", () => $("attachment-input").click());
+$("attachment-input").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+promptBox.addEventListener("dragover", (e) => { e.preventDefault(); });
+promptBox.addEventListener("drop", (e) => { e.preventDefault(); addFiles(e.dataTransfer.files); });
+promptBox.addEventListener("paste", (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (files.length) { e.preventDefault(); addFiles(files); }
+});
+
+async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
   const delivery = $("delivery-select").value;
@@ -604,6 +647,7 @@ async function sendText(prompt, { auto = false } = {}) {
         profile: $("profile-select").value,
         model: $("model-select").value || null,
         delivery,
+        attachments: promptAttachments,
       });
       toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
     } catch (err) {
@@ -630,6 +674,7 @@ async function sendText(prompt, { auto = false } = {}) {
       profile: $("profile-select").value,
       model: $("model-select").value || null,
       delivery,
+      attachments: promptAttachments,
     });
   } catch (err) {
     addMessage("error", String(err));
@@ -641,9 +686,12 @@ async function sendText(prompt, { auto = false } = {}) {
 
 function send() {
   const prompt = promptBox.value.trim();
-  if (!prompt) return;
+  if (!prompt && attachments.length === 0) return;
+  const promptAttachments = attachments;
   promptBox.value = "";
-  sendText(prompt);
+  attachments = [];
+  renderAttachments();
+  sendText(prompt, { promptAttachments });
 }
 
 $("send").addEventListener("click", send);

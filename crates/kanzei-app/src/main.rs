@@ -17,7 +17,7 @@ use serde_json::json;
 use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
 
-use kanzei_core::{run_once, AskFuture, RunEvent, RunnerConfig};
+use kanzei_core::{run_once_with_parts, AskFuture, RunEvent, RunnerConfig};
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
@@ -25,6 +25,12 @@ use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::docstore::{DocStore, DEFECTS, GOALS, REQUIREMENTS};
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
+#[derive(Debug, Clone, Deserialize)]
+struct PromptAttachment {
+    file_name: String,
+    media_type: String,
+    data: String,
+}
 /// 悬挂中的权限询问:除通道外携带上下文,支持"总是允许"落盘。
 struct PendingAsk {
     sender: oneshot::Sender<kanzei_core::AskReply>,
@@ -717,7 +723,11 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
             }
         } else if p.auth.as_deref() == Some("claude") {
             // 实际可用型号(2026-08):Opus 5 / Sonnet 5 / Haiku 4.5。
-            for m in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"] {
+            for m in [
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "claude-haiku-4-5-20251001",
+            ] {
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
         } else if p.base_url.contains("11434") {
@@ -758,7 +768,11 @@ fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     store
-        .append_event(&session_id, "conversation.updated", &json!({ "messages": [] }))
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &json!({ "messages": [] }),
+        )
         .map_err(|e| e.to_string())?;
     state.conversation.lock().unwrap().clear();
     *state.conversation_project.lock().unwrap() = Some(root.display().to_string());
@@ -974,16 +988,18 @@ async fn run_prompt(
     profile: Option<String>,
     model: Option<String>,
     delivery: Option<String>,
+    attachments: Option<Vec<PromptAttachment>>,
 ) -> Result<(), String> {
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     let lifecycle = state.lifecycle.clone();
     {
         let _lifecycle = lifecycle.lock().unwrap();
         if state.running.load(Ordering::SeqCst) {
-            if state.conversation_project.lock().unwrap().as_deref()
-                != Some(project_dir.as_str())
-            {
+            if state.conversation_project.lock().unwrap().as_deref() != Some(project_dir.as_str()) {
                 return Err("已有其他项目的任务在运行".into());
+            }
+            if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
+                return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
             }
             let queued = admit_input(&project_dir, &prompt, delivery).map_err(|e| e.to_string())?;
             let _ = window.emit(
@@ -1004,12 +1020,14 @@ async fn run_prompt(
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
+        let mut next_attachments = attachments;
         loop {
             let result = run_task(
                 &window,
                 asks.clone(),
                 ask_seq.clone(),
                 next_prompt,
+                next_attachments.take(),
                 project_dir.clone(),
                 profile.clone(),
                 model.clone(),
@@ -1083,9 +1101,7 @@ fn recover_messages_at(
         Some(sequence) => store
             .list_events(session_id, 0)?
             .into_iter()
-            .find(|event| {
-                event.sequence == sequence && event.event_type == "conversation.updated"
-            }),
+            .find(|event| event.sequence == sequence && event.event_type == "conversation.updated"),
         None => store.latest_event(session_id, "conversation.updated")?,
     };
     let Some(event) = event else {
@@ -1104,6 +1120,7 @@ async fn run_task(
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     ask_seq: Arc<AtomicU64>,
     prompt: String,
+    attachments: Option<Vec<PromptAttachment>>,
     project_dir: String,
     profile: Option<String>,
     model_override: Option<String>,
@@ -1329,7 +1346,31 @@ async fn run_task(
         }
     };
 
-    let run_result = run_once(
+    let initial_parts = attachments
+        .unwrap_or_default()
+        .into_iter()
+        .map(|attachment| {
+            anyhow::ensure!(
+                !attachment.data.is_empty(),
+                "附件数据为空: {}",
+                attachment.file_name
+            );
+            let part = match attachment.media_type.as_str() {
+                "application/pdf" => kanzei_llm::Part::Document {
+                    media_type: attachment.media_type,
+                    data: attachment.data,
+                },
+                media_type if media_type.starts_with("image/") => kanzei_llm::Part::Image {
+                    media_type: attachment.media_type,
+                    data: attachment.data,
+                },
+                _ => anyhow::bail!("不支持的附件类型: {}", attachment.media_type),
+            };
+            Ok(part)
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    let run_result = run_once_with_parts(
         &client,
         &route,
         &snapshot,
@@ -1338,6 +1379,7 @@ async fn run_task(
         &ctx,
         &prompt,
         &prior,
+        (!initial_parts.is_empty()).then_some(initial_parts.as_slice()),
         Some(&subagent_rt),
         &mut on_event,
         &mut ask,

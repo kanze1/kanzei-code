@@ -6,7 +6,10 @@ pub mod runner;
 pub mod store;
 
 pub use assemble::build_route;
-pub use runner::{run_once, AskFuture, AskReply, RunEvent, RunSummary, RunnerConfig, SubagentRuntime};
+pub use runner::{
+    run_once, run_once_with_parts, AskFuture, AskReply, RunEvent, RunSummary, RunnerConfig,
+    SubagentRuntime,
+};
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, Session, SessionStore,
     StoreError, StoredEvent,

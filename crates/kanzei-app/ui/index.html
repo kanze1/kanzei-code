@@ -123,10 +123,13 @@
           </div>
         </section>
         <footer id="composer">
-          <textarea id="prompt" rows="3" placeholder="想做什么?"></textarea>
+          <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
+          <div id="attachments" class="attachments hidden"></div>
+          <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
             <div class="composer-actions">
+              <button id="attach" class="ghost" title="添加图片或 PDF">附件</button>
               <select id="delivery-select" title="输入交付方式">
                 <option value="queue">排队 queue</option>
                 <option value="steer">插入 steer</option>

@@ -155,6 +155,9 @@ select {
 .msg.notice { color: var(--dim); font-size: 11.5px; text-align: center; }
 
 #composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; }
+.attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 7px; }
+.attachment-chip { background: var(--accent-soft); color: var(--fg-strong); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 7px; cursor: pointer; font-size: 11px; }
+.attachment-chip:hover { background: var(--accent); }
 #prompt {
   width: 100%; background: var(--input); color: var(--fg-strong); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 9px 12px; font: inherit; resize: none;

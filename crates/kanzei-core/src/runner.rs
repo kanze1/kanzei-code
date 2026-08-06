@@ -10,7 +10,7 @@ use kanzei_harness::{
     tolerant_parse, tool::repair_hint, AgentDef, Effect, HarnessSnapshot, Tool, ToolCtx,
 };
 use kanzei_llm::{
-    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, Route, ToolSpec, Usage,
+    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, Role, Route, ToolSpec, Usage,
 };
 
 pub struct RunnerConfig {
@@ -127,8 +127,26 @@ pub fn run_once<'a>(
     config: &'a RunnerConfig,
     ctx: &'a ToolCtx,
     prompt: &'a str,
+    prior: &'a [Message],
+    subagent: Option<&'a SubagentRuntime>,
+    on_event: &'a mut (dyn FnMut(RunEvent) + Send),
+    ask: &'a mut (dyn FnMut(String, String) -> AskFuture + Send),
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
+    run_once_with_parts(client, route, snapshot, agent, config, ctx, prompt, prior, None, subagent, on_event, ask)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_once_with_parts<'a>(
+    client: &'a LlmClient,
+    route: &'a Route,
+    snapshot: &'a HarnessSnapshot,
+    agent: &'a AgentDef,
+    config: &'a RunnerConfig,
+    ctx: &'a ToolCtx,
+    prompt: &'a str,
     // 之前轮次的完整消息历史(空 = 新对话)。
     prior: &'a [Message],
+    initial_parts: Option<&'a [Part]>,
     // Some = 注册 task 工具,模型可派生并行子代理;子代理自身传 None(禁嵌套)。
     subagent: Option<&'a SubagentRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
@@ -155,7 +173,17 @@ pub fn run_once<'a>(
         .collect();
 
     let mut messages: Vec<Message> = prior.to_vec();
-    messages.push(Message::user_text(prompt));
+    let user_parts = match initial_parts {
+        Some(parts) => {
+            let mut parts = parts.to_vec();
+            if !prompt.is_empty() {
+                parts.insert(0, Part::Text { text: prompt.to_string() });
+            }
+            parts
+        }
+        None => vec![Part::Text { text: prompt.to_string() }],
+    };
+    messages.push(Message { role: Role::User, parts: user_parts });
     let mut total_usage = Usage::default();
     let mut final_text = String::new();
     let max_steps = agent.steps.max(1);
@@ -171,11 +199,23 @@ pub fn run_once<'a>(
     for step in 1..=max_steps {
         on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = step == max_steps;
+        // 最后一步收走工具强制收敛;必须同时明确告知(D-027:只收走不告知,
+        // codex 仍试图调用工具,把调用 JSON 当纯文本狂喷并在思考里反复自我纠正)。
+        let request_messages = if last_step {
+            let mut wrapped = messages.clone();
+            wrapped.push(Message::user_text(
+                "(system) Final step of this run: tools are no longer available. Do NOT \
+                 attempt any tool call and do NOT emit JSON — reply in plain text only, \
+                 summarizing what was completed and what remains.",
+            ));
+            wrapped
+        } else {
+            messages.clone()
+        };
         let request = LlmRequest {
             model: config.model.clone(),
             system: system.clone(),
-            messages: messages.clone(),
-            // 最后一步收走工具,强制模型收敛(对应 V2 的 max-steps 处理)。
+            messages: request_messages,
             tools: if last_step { vec![] } else { specs.clone() },
             max_tokens: config.max_tokens,
             temperature: None,

@@ -1,10 +1,10 @@
 # Requirements
 
-## R-014 多模态模型支持上传图片和 PDF 等文件 [doing]
+## R-014 多模态模型支持上传图片和 PDF 等文件 [done]
 - 已完成: 三协议的 image/document 消息映射(协议层就绪)
 - 剩余: 前端上传/粘贴入口(与 R-024 一起做)
 - refs: R-024
-- 进展: 开始推进前端多模态入口，范围与 R-024 输入体验关联；先检查现有 composer、拖拽/剪贴板事件和 LlmRequest 图片文档字段。
+- 进展: 已完成桌面端多模态入口：支持文件选择、拖拽和剪贴板粘贴图片/PDF；附件以 base64 传入 runner，映射为 Image/Document Part；纯文本路径保持兼容。运行中排队附件明确报错，避免持久化 admission 丢失附件。已通过 node --check 与 cargo test --workspace。
 
 ## R-016 kzapp 启动时自动完成 pending 自更新 [todo]
 - 范围: 启动检测 kzapp.exe.pending 并自替换,发版后重启即新版
