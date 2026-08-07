@@ -451,7 +451,11 @@ async fn consolidate_memory_inbox(
     };
     let agent = kanzei_tools::memory::manager_agent();
     let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
-    for role in ["fast", "primary"] {
+    // primary 优先(fast 兜底):记忆会注入之后每一轮的上下文,写错一条就长期误导。
+    // 实测 fast(qwen3.5:4b)把失败**次数**误读成事实内容,生成了"需要约 7 次重试才能成功"
+    // 这种编造结论(M-003 已人工校正)。manager 每轮至多跑一次、prompt 仅数 KB,
+    // 用主模型换蒸馏质量是划算的。
+    for role in ["primary", "fast"] {
         let Ok(resolved) = config.resolve_model(role) else {
             continue;
         };

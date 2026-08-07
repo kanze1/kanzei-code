@@ -2146,7 +2146,9 @@ async fn consolidate_memory_inbox(project_dir: String) {
         project_root: project_root.clone(),
     };
     let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
-    for role in ["fast", "primary"] {
+    // primary 优先(fast 兜底):记忆注入之后每一轮,写错一条就长期误导。
+    // 实测 fast 把失败次数误读成事实("需要约 7 次重试才能成功",M-003 已校正)。
+    for role in ["primary", "fast"] {
         let Ok(resolved) = config.resolve_model(role) else {
             continue;
         };

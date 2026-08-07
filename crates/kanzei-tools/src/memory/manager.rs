@@ -403,8 +403,13 @@ pub fn manager_agent() -> AgentDef {
                  duplicates. Scope rules: preference/habit → global, fact/sop → project. \
                  Write `description` as a retrieval hook: WHEN should a future agent recall \
                  this (e.g. \"处理 edit 替换失败/换行符问题时必读\"). Keep entries about \
-                 durable facts, not next steps. After processing ALL notes call \
-                 memory_inbox_clear, then reply with one summary line."
+                 durable facts, not next steps. \
+                 A failure COUNT is signal strength, never content: \"edit failed 7 times\" \
+                 means the same mistake recurred — it does NOT mean \"7 retries are needed\". \
+                 Record the underlying constraint (quote the actual error text), not the \
+                 retry count. If a note does not let you state a durable fact you could \
+                 verify, judge it NOOP rather than inventing one. After processing ALL notes \
+                 call memory_inbox_clear, then reply with one summary line."
             .into(),
     }
 }
