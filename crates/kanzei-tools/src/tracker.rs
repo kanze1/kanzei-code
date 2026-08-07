@@ -81,6 +81,27 @@ impl Tool for TrackerTool {
             }
         };
 
+        // D-140:完整性告警原先只是拼在输出末尾的一行 warn,模型可以完全忽略——
+        // 实测 R-104/107/108/110 从活动与归档同时消失后,告警连响 5 个提交无人处理,
+        // 最后靠旧副本偶然捞回。改为:发现缺号/重复时**拒绝一切写操作**,读操作照常放行,
+        // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
+        const WRITE_ACTIONS: &[&str] = &["add", "update", "close", "archive", "reorder"];
+        if WRITE_ACTIONS.contains(&input.action.as_str()) {
+            let issues = store.integrity_issues(&entries);
+            if !issues.is_empty() {
+                return ToolOutput::error(format!(
+                    "REFUSING to write {}: tracker integrity is broken.\n{}\n\
+                     Fix it first (reads still work): find the lost entries with \
+                     `git log -S \"## <id>\" -- {}` and restore them, or add an explicit \
+                     tombstone entry for ids that are genuinely unrecoverable. \
+                     Writing now would bury the loss under unrelated changes.",
+                    self.kind.rel_path,
+                    issues.join("\n"),
+                    self.kind.rel_path,
+                ));
+            }
+        }
+
         let mut output = match input.action.as_str() {
             "list" => {
                 if entries.is_empty() {
@@ -535,6 +556,59 @@ mod tests {
         assert!(!active.contains("终态说明: 归档时也不能丢"));
         assert!(active.contains("## R-002 进行中条目 [doing]"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 完整性破损时拒绝写操作但读操作放行() {
+        // D-140:告警是 warn-only 时无人处理,实测缺号连响 5 个提交。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-integrity-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        // 制造缺号:R-001 与 R-003 存在,R-002 缺失。
+        store.save(&[entry("R-001"), entry("R-003")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        // 读操作必须仍然可用——否则模型无法诊断,就成了死锁。
+        for action in ["list", "get"] {
+            let out = tool
+                .execute(json!({"action": action, "id": "R-001"}), &ctx)
+                .await;
+            assert!(!out.is_error, "读操作不该被拦: {action} -> {}", out.content);
+        }
+        // 写操作全部被拒,且错误里给出可执行的恢复路径。
+        for input in [
+            json!({"action": "add", "title": "新条目"}),
+            json!({"action": "update", "id": "R-001", "status": "doing"}),
+            json!({"action": "close", "id": "R-001"}),
+            json!({"action": "archive"}),
+            json!({"action": "reorder", "order": ["R-003", "R-001"]}),
+        ] {
+            let action = input["action"].as_str().unwrap().to_string();
+            let out = tool.execute(input, &ctx).await;
+            assert!(out.is_error, "写操作必须被拒: {action}");
+            assert!(out.content.contains("R-002"), "要指名缺失的 id: {}", out.content);
+            assert!(out.content.contains("git log -S"), "要给恢复路径: {}", out.content);
+        }
+        // 补齐缺号后写操作恢复正常。
+        store
+            .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
+            .unwrap();
+        let out = tool.execute(json!({"action": "add", "title": "恢复后可写"}), &ctx).await;
+        assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

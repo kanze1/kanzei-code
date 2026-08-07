@@ -112,10 +112,14 @@ impl KanzeiConfig {
     }
 
     /// 裸 bash 规则中需要降级为逐次询问的规则；显式 `bash/*` 放行另行提示。
+    /// deny 规则是仍然生效的护栏,不该被算作"将逐次询问"(D-139)。
     pub fn legacy_bash_rules_needing_downgrade(&self) -> Vec<&Rule> {
         self.legacy_bash_rules()
             .into_iter()
-            .filter(|rule| rule.resource.trim() != "*")
+            .filter(|rule| {
+                !is_wildcard_resource(&rule.resource)
+                    && rule.effect != crate::permission::Effect::Deny
+            })
             .collect()
     }
 
@@ -126,24 +130,50 @@ impl KanzeiConfig {
             .iter()
             .filter(|rule| {
                 rule.action == "bash"
-                    && rule.resource.trim() == "*"
+                    && is_wildcard_resource(&rule.resource)
                     && rule.effect == crate::permission::Effect::Allow
             })
             .collect()
     }
 
+    /// 启动告警(D-139):文案必须由**实际评估结果**推导,而不是按规则形态猜。
+    ///
+    /// 原实现按规则形态分别计数各说各话:legacy 规则与显式 `bash/*` 并存时
+    /// last-match-wins 让一切直接放行,告警却照样说"将逐次询问"——在安全边界上
+    /// 给出错误告知。现在先用代表性命令跑一遍 Ruleset::evaluate,以真实判定为准。
     pub fn bash_permission_warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
+        let mut ruleset = crate::permission::Ruleset::default();
+        for rule in &self.permissions.rules {
+            ruleset.push(rule.clone());
+        }
+        // 代表性命令:一条普通只读命令即可探明"默认会不会问"。
+        let probe = serde_json::json!({ "command": "git status", "workdir": "." }).to_string();
+        let effective = ruleset.evaluate("bash", &probe);
+
         let legacy_count = self.legacy_bash_rules_needing_downgrade().len();
+        let wildcard_count = self.explicit_bash_wildcard_allows().len();
+
+        if effective == crate::permission::Effect::Allow {
+            // 无论有多少条 legacy 规则,实际结果就是全量放行——必须如实说。
+            warnings.push(format!(
+                "检测到 bash 权限最终判定为全量放行(yolo){}；不会再逐次询问，请确认这是有意设置。",
+                if wildcard_count > 0 {
+                    format!("，来自 {wildcard_count} 条显式 bash/* 放行规则")
+                } else {
+                    String::new()
+                }
+            ));
+            if legacy_count > 0 {
+                warnings.push(format!(
+                    "另有 {legacy_count} 条旧 bash 规则被上述放行覆盖(last-match-wins)，实际不生效。"
+                ));
+            }
+            return warnings;
+        }
         if legacy_count > 0 {
             warnings.push(format!(
                 "检测到 {legacy_count} 条旧 bash 权限规则；将逐次询问，请重新选择精确作用域。"
-            ));
-        }
-        let wildcard_count = self.explicit_bash_wildcard_allows().len();
-        if wildcard_count > 0 {
-            warnings.push(format!(
-                "检测到 {wildcard_count} 条显式 bash/* 放行规则；将全量放行(yolo)，请确认这是有意设置。"
             ));
         }
         warnings
@@ -261,6 +291,11 @@ fn merge_file(
     }
     merge(config, layer);
     Ok(())
+}
+
+/// `*` 通配资源判定:全仓统一按 trim 后比较,避免两处判定不一致(D-139)。
+fn is_wildcard_resource(resource: &str) -> bool {
+    resource.trim() == "*"
 }
 
 /// 列出 schema 未识别的键路径。schema 变更时同步维护;
@@ -436,6 +471,50 @@ mod tests {
     }
 
     #[test]
+    fn bash_告警必须与实际评估一致() {
+        // D-139:原实现按规则形态分别计数,混合形态下说假话。
+        let parse = |text: &str| -> KanzeiConfig { toml::from_str(text).unwrap() };
+
+        // ① 只有 legacy 规则:确实会逐次询问。
+        let only_legacy = parse(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \"git status\"\neffect = \"allow\"\n",
+        );
+        let w = only_legacy.bash_permission_warnings();
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("逐次询问"), "{w:?}");
+
+        // ② legacy + 显式 bash/* allow 并存:last-match-wins 实际全量放行,
+        //    绝不能再说"将逐次询问"——这正是原实现的谎言。
+        let mixed = parse(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \"git status\"\neffect = \"allow\"\n\
+             [[permissions.rules]]\naction = \"bash\"\nresource = \"*\"\neffect = \"allow\"\n",
+        );
+        let w = mixed.bash_permission_warnings();
+        assert!(w[0].contains("全量放行"), "混合形态必须如实说放行: {w:?}");
+        assert!(
+            !w.iter().any(|line| line.contains("将逐次询问")),
+            "混合形态不得再说会询问: {w:?}"
+        );
+        assert!(w[1].contains("不生效"), "应说明 legacy 规则被覆盖: {w:?}");
+
+        // ③ deny 是仍然生效的护栏,不该被算进"将逐次询问"的计数。
+        let with_deny = parse(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \"rm *\"\neffect = \"deny\"\n",
+        );
+        assert!(
+            with_deny.bash_permission_warnings().is_empty(),
+            "deny 护栏不该触发降级告警: {:?}",
+            with_deny.bash_permission_warnings()
+        );
+
+        // ④ 空白包裹的通配与裸通配判定必须一致。
+        let padded = parse(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \" * \"\neffect = \"allow\"\n",
+        );
+        assert_eq!(padded.explicit_bash_wildcard_allows().len(), 1);
+    }
+
+    #[test]
     fn unknown_fields_are_tolerated_and_reported() {
         // D-084:新版本写入的配置节不能炸掉旧二进制;未知键忽略但可见。
         let text = r#"
@@ -563,9 +642,16 @@ typo_fielt = true
         assert_eq!(legacy[0].resource, "git status");
         assert_eq!(config.legacy_bash_rules_needing_downgrade().len(), 1);
         assert_eq!(config.explicit_bash_wildcard_allows().len(), 1);
-        assert_eq!(config.bash_permission_warnings().len(), 2);
-        assert!(config.bash_permission_warnings()[0].contains("将逐次询问"));
-        assert!(config.bash_permission_warnings()[1].contains("将全量放行(yolo)"));
+        // D-139:本夹具是混合形态(legacy + 显式 bash/* allow),last-match-wins 的
+        // 真实行为是全量放行。旧断言同时要求"将逐次询问"与"将全量放行",把互相矛盾的
+        // 两句话固化进了回归网——正是它让 D-122 带着假修复通过验收。
+        let warnings = config.bash_permission_warnings();
+        assert!(warnings[0].contains("全量放行"), "{warnings:?}");
+        assert!(
+            !warnings.iter().any(|line| line.contains("将逐次询问")),
+            "实际全量放行时不得声称会询问: {warnings:?}"
+        );
+        assert!(warnings[1].contains("不生效"), "应说明 legacy 被覆盖: {warnings:?}");
         assert_eq!(config.permissions.rules.len(), 4);
     }
     #[test]

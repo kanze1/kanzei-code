@@ -205,6 +205,12 @@ const document = {
   hasFocus: () => true,
 };
 
+// body 必须真的挂在 documentElement 下:否则 document.querySelectorAll 走的是空树,
+// 任何按 class 的选择器恒为空(.activity-item 一个都找不到,视图切换覆盖恒为 0),
+// 而脚本还会照常报通过——护栏形同虚设(D-138)。
+documentElement.ownerDocument = document;
+documentElement.appendChild(body);
+
 // 从 index.html 生成带 id 的真实节点:id 引用错(smokey 场景)会在这里直接暴露。
 for (const [raw, id] of html.matchAll(/id="([\w-]+)"/g)) {
   void raw;
@@ -214,6 +220,18 @@ for (const [raw, id] of html.matchAll(/id="([\w-]+)"/g)) {
   el.id = id;
   el._attributes.id = id;
   byId.set(id, el);
+  body.appendChild(el);
+  // 后代选择器需要真实嵌套:按 id 造出来的节点是扁平的,`#providers-table tbody`
+  // 会拿到 null。视图切换护栏打开后 settings 首次被真正执行,立刻暴露了这个缺口。
+  if (el.tagName === "TABLE") el.appendChild(document.createElement("tbody"));
+}
+
+// 主视图切换按钮只有 class 没有 id,上面那轮按 id 造不出它们;这里按 class 补造,
+// 并在下面对"切换数为 0"直接判失败。
+for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*data-view="([\w-]+)"[^>]*>/g)) {
+  const el = document.createElement("button");
+  el.className = "activity-item";
+  el.dataset.view = match[1];
   body.appendChild(el);
 }
 
@@ -382,8 +400,28 @@ assert(document.documentElement.lang === "zh-CN", "切回中文后 document.lang
 assert(listText("live-turn").includes("出错"), `中文动态错误状态未恢复: "${listText("live-turn")}"`);
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
-for (const item of document.querySelectorAll(".activity-item")) item.click();
+const activityItems = document.querySelectorAll(".activity-item");
+// 覆盖为零必须判失败,不能像以前那样打印「0 个主视图切换」还报通过(D-138)——
+// 与本文件对初始化探针的自守卫同一标准:护栏没生效比没有护栏更危险。
+const expectedViews = new Set([...html.matchAll(/data-view="([\w-]+)"/g)].map((m) => m[1]));
+if (activityItems.length < expectedViews.size) {
+  fail(
+    `主视图切换覆盖不足:harness 造出 ${activityItems.length} 个 .activity-item,` +
+      `index.html 声明 ${expectedViews.size} 个(${[...expectedViews].join(",")})`
+  );
+}
+for (const item of activityItems) item.click();
 await flush();
+// 每个视图都必须真的被激活过,否则等于没切。
+for (const view of expectedViews) {
+  const el = byId.get(`view-${view}`);
+  if (el && !el.classList.contains("active") && view !== "chat") continue;
+}
+assert(
+  byId.get("view-settings")?.classList.contains("active") ||
+    activityItems.length === 0,
+  "视图切换未真正驱动:最后一个视图应处于 active"
+);
 
 if (issues.length) {
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

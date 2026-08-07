@@ -55,7 +55,12 @@ const required = [
   ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
   ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
-  ["status-mode\").textContent = isRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
+  // status-mode 由布尔值每次重算,用 t() 是正确的(天然可逆,无需存源);
+  // 需要存源的是 setStatus/liveIdle 这类保存文案本身的路径——那里禁止先 t() 再存,
+  // 否则英文会被烤进 source,切回中文就冻住(D-136 同族)。
+  ["status-mode\").textContent = statusRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
+  ["statusTextSource = String(text ?? \"\")", "状态文案存源"],
+  ["localizeDynamic(statusTextSource)", "状态文案渲染时本地化"],
 ];
 const missing = required.filter(([needle]) => !source.includes(needle));
 if (missing.length) {

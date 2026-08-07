@@ -220,13 +220,41 @@ const I18N_DYNAMIC_EN = {
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
-function localizeDynamic(value) {
-  let text = String(value ?? "");
-  if (!languageIsEnglish()) return text;
-  for (const [source, translated] of Object.entries(I18N_DYNAMIC_EN).sort(([a], [b]) => b.length - a.length)) {
-    text = text.replaceAll(source, translated);
+// 长词优先,避免短词先命中把长词切碎;只算一次。
+const I18N_DYNAMIC_ENTRIES = Object.entries(I18N_DYNAMIC_EN).sort(([a], [b]) => b.length - a.length);
+// 紧邻这些字符时说明命中的是路径/标识符的一部分,不是产品文案。
+const I18N_TOKEN_BOUNDARY = /[\\/._\-a-zA-Z0-9]/;
+
+/// 只替换"独立出现"的产品文案。
+/// 原实现对整段自由文本无边界 replaceAll,而该函数同时用于渲染用户输入、模型输出与
+/// 文件路径,于是英文模式下 `crates/前端/模型.md` 被改写成 `crates/Frontend/Model.md`
+/// ——展示层篡改用户数据(D-135)。现在命中处紧邻路径分隔符或 ASCII 标识符字符即跳过。
+function replaceStandalone(text, source, translated) {
+  if (!source) return text;
+  let out = "";
+  let index = 0;
+  for (;;) {
+    const at = text.indexOf(source, index);
+    if (at < 0) return out + text.slice(index);
+    const before = at > 0 ? text[at - 1] : "";
+    const after = text[at + source.length] ?? "";
+    const inToken = I18N_TOKEN_BOUNDARY.test(before) || I18N_TOKEN_BOUNDARY.test(after);
+    out += text.slice(index, at) + (inToken ? source : translated);
+    index = at + source.length;
   }
-  return text;
+}
+function localizeDynamic(value) {
+  const text = String(value ?? "");
+  if (!languageIsEnglish()) return text;
+  // 整串命中优先:状态文案通常整句就是一个 key,这条路径最准也最快。
+  const trimmed = text.trim();
+  const whole = I18N_DYNAMIC_EN[trimmed] ?? I18N_EN[trimmed];
+  if (whole) return text.replace(trimmed, whole);
+  let out = text;
+  for (const [source, translated] of I18N_DYNAMIC_ENTRIES) {
+    out = replaceStandalone(out, source, translated);
+  }
+  return out;
 }
 function languageIsEnglish() {
   return (localStorage.getItem("kz-language") || "zh") === "en";
@@ -266,7 +294,16 @@ function applyLanguage() {
       for (const attribute of ["title", "placeholder"]) {
         const value = element.getAttribute(attribute);
         if (!value) continue;
-        if (!originals.has(attribute)) originals.set(attribute, value);
+        // 原文缓存必须跟随写入方更新:只认首见值会把属性永久冻结在第一次的取值上
+        // (侧栏 tooltip 折叠后仍显示「折叠左侧栏」),状态提示从此长期说谎(D-136)。
+        // 判据:当前值既不是缓存原文也不是它的译文 ⇒ 是别处新写进来的,以新值为准。
+        const cached = originals.get(attribute);
+        if (cached === undefined) {
+          originals.set(attribute, value);
+        } else if (value !== cached) {
+          const cachedTranslation = I18N_EN[cached.trim()] || localizeDynamic(cached);
+          if (value !== cachedTranslation) originals.set(attribute, value);
+        }
         const source = originals.get(attribute);
         const key = source.trim();
         const translated = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
@@ -1098,6 +1135,18 @@ function isActivityTool(name) {
   return name === "task" || name === "memory_note";
 }
 
+/// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
+/// 原先把累计写在 bgEnd 里就等于永远拿不到数据,#diff-summary 变成接不到数据源的空壳(D-137)。
+function recordDiffSummary(display) {
+  if (display?.kind !== "diff") return;
+  diffSummary.set(display.path || `#${diffSummary.size + 1}`, {
+    path: display.path || "未命名文件",
+    additions: display.additions || 0,
+    deletions: display.deletions || 0,
+  });
+  renderDiffSummary();
+}
+
 function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
   const el = document.createElement("div");
@@ -1284,12 +1333,6 @@ function bgEnd(id, ok, preview, display) {
   const d = display;
   if (d?.kind === "diff") {
     entry.title.textContent += `  +${d.additions} −${d.deletions}`;
-    diffSummary.set(d.path || entry.title.textContent, {
-      path: d.path || "未命名文件",
-      additions: d.additions || 0,
-      deletions: d.deletions || 0,
-    });
-    renderDiffSummary();
   }
   appendDisplayBlock(entry.detail, d);
   if (!ok && preview) {
@@ -1397,7 +1440,7 @@ on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
   ctxLimit = e.payload.contextLimit ?? null;
   log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
-  if (running) setStatus(t("等待模型响应"), true);
+  if (running) setStatus("等待模型响应", true);
 });
 on("kz:turn", (e) => {
   const p = e.payload;
@@ -1418,12 +1461,12 @@ on("kz:text", (e) => {
   // 文本开始后,后续思考属于新的思考段。
   currentReasoning = null;
   currentReasoningHead = null;
-  if (running) setStatus(t("生成中") + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
+  if (running) setStatus("生成中" + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
   appendAssistant(e.payload.text);
 });
 on("kz:reasoning", (e) => {
   markFirstSignal();
-  if (running) setStatus(t("思考中"), true);
+  if (running) setStatus("思考中", true);
   appendReasoning(e.payload.text);
 });
 let todoItems = [];
@@ -1556,8 +1599,9 @@ on("kz:tool-end", (e) => {
     renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
   chatToolEnd(p.id, p.ok, p.preview, p.display);
+  recordDiffSummary(p.display);
   bgEnd(p.id, p.ok, p.preview, p.display);
-  setStatus(t("运行中"), true);
+  setStatus("运行中", true);
 });
 on("kz:step", (e) => {
   const p = e.payload;
@@ -1575,9 +1619,9 @@ on("kz:error", (e) => {
   const message = e.payload.message;
   reportError(message);
   stopElapsed();
-  setRunning(false, t("出错"));
+  setRunning(false, "出错");
   bgAbortRunning(`(${localizeDynamic("出错中止")})`);
-  liveIdle(t("出错"));
+  liveIdle("出错");
   notifyRunState("failed", message);
   $("log-panel").classList.remove("hidden");
   refreshProcesses();
@@ -1612,9 +1656,9 @@ on("kz:stopped", (e) => {
   addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
   log(cancelled > 0 ? `${t("已手动停止并取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已手动停止"));
   stopElapsed();
-  setRunning(false, t("已停止"));
+  setRunning(false, "已停止");
   bgAbortRunning(`(${t("已停止")})`);
-  liveIdle(t("已停止"));
+  liveIdle("已停止");
   notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
   refreshPendingInputs();
   refreshProcesses();
@@ -2461,7 +2505,7 @@ $("auto-continue").addEventListener("change", () => {
   // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
   // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
   if ($("auto-continue").checked && !running && !autoPaused) {
-    setStatus(t("鞭挞启动,2 秒后开始…"), false);
+    setStatus("鞭挞启动,2 秒后开始…", false);
     scheduleAutoContinue();
   }
 });
@@ -2523,7 +2567,7 @@ $("stop").addEventListener("click", () => {
   invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`停止指令失败:${err}`));
   hideAsk();
   stopElapsed();
-  setRunning(false, t("已停止"));
+  setRunning(false, "已停止");
   log(t("已请求停止(本地已复位)"));
 });
 promptBox.addEventListener("keydown", (e) => {
@@ -3015,7 +3059,7 @@ function renderProjects(prefs) {
       if (previous && previous !== path) {
         // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
         // 丢弃,新项目会永久卡在"运行中"(发送键禁用)。refreshProcesses 会带回真实状态。
-        setRunning(false, t("空闲"));
+        setRunning(false, "空闲");
         clearChat();
         bgClear();
         renderTodoPanel([], 0, 0);
