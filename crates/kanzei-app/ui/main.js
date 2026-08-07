@@ -51,6 +51,7 @@ const I18N_EN = {
   "展开或收起对话总结": "Expand or collapse conversation summary",
 };
 const I18N_ZH = new WeakMap();
+const I18N_ATTR_ZH = new WeakMap();
 function languageIsEnglish() {
   return (localStorage.getItem("kz-language") || "zh") === "en";
 }
@@ -72,11 +73,18 @@ function applyLanguage() {
     node.nodeValue = source.replace(key, translated);
   }
   document.querySelectorAll("[title], [placeholder]").forEach((element) => {
+    let originals = I18N_ATTR_ZH.get(element);
+    if (!originals) {
+      originals = new Map();
+      I18N_ATTR_ZH.set(element, originals);
+    }
     for (const attribute of ["title", "placeholder"]) {
       const value = element.getAttribute(attribute);
       if (!value) continue;
-      const key = value.trim();
-      if (I18N_EN[key]) element.setAttribute(attribute, language === "en" ? I18N_EN[key] : key);
+      if (!originals.has(attribute)) originals.set(attribute, value);
+      const source = originals.get(attribute);
+      const key = source.trim();
+      if (I18N_EN[key]) element.setAttribute(attribute, language === "en" ? I18N_EN[key] : source);
     }
   });
 }

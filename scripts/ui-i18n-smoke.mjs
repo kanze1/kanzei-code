@@ -5,6 +5,8 @@ const required = [
   ["I18N_EN", "英文资源"],
   ["function t(key)", "动态翻译入口"],
   ["function applyLanguage()", "静态节点翻译入口"],
+  ["const I18N_ATTR_ZH = new WeakMap()", "属性原文缓存"],
+  ["originals.set(attribute, value)", "属性原文稳定保存"],
   ["运行中\": \"Running", "运行中翻译键"],
   ["运行完成\": \"Run completed", "运行完成翻译键"],
   ["运行失败\": \"Run failed", "运行失败翻译键"],
