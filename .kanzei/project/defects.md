@@ -142,6 +142,8 @@
 
 
 
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -295,7 +297,9 @@
 
 
 
-## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [open] (medium)
+
+
+## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [fixing] (medium)
 - 复现: 设置语言为 English,创建/切换项目、运行任务、打开文档/设置并触发 toast;静态导航的一部分变英文,动态生成的状态、日志、错误、按钮和 300 余处中文字符串仍保持中文。再切回中文还会触发 D-092 的属性不可逆问题。
 - 根因: applyLanguage 只遍历当前 DOM 文本节点和少量 title/placeholder,I18N_EN 仅覆盖有限字典;后续 JS 动态生成的文本不会经过翻译函数,也没有以 key 为中心的统一文案层。
 - 影响: 英文模式无法作为完整产品能力使用,错误与权限等高风险信息尤其容易出现语义断层;R-069 原验收“所有产品/功能文案”未满足却被归档 done。
@@ -366,7 +370,9 @@
 
 
 
-- 进展: 继续完成静态 UI affordance 与运行守卫文案一类：分栏缩放手柄、思考块/差异视图 aria-label、复制反馈、旧继续文案升级日志、停止请求、模型默认项、排队空态、新对话运行守卫、项目缺失提示、总结开始日志均改由 t(key) 生成。验证：node --check、ui-i18n/a11y/Markdown 冒烟、动态 key 缺失检查、git diff --check 通过。仍缺其余运行日志、部分按钮文案及真实双语操作快照，保持 open。
+- 进展: 已进入 fixing（本次仅建立取活边界，尚未修改代码）：后续收口运行事件/完成与停止反馈动态文案，覆盖 main.js 运行事件订阅(kz:tool-start/tool-end/step/error/stream-restart/compacted/stopped/done)及上下文详情面板；完成后跑动态 key 缺失检查与 UI 冒烟验证。设置/工作区/文档及真实双语快照仍是后续范围。
+
+
 
 
 
