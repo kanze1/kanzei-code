@@ -126,6 +126,7 @@
 
 
 
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -136,6 +137,7 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
 
 
 
@@ -334,7 +336,8 @@
 
 
 
-- 进展: 继续完成活动面板动态文案一类：diffSummary 文件计数、后台任务 aria-label/子代理启动提示、任务完成/失败状态、历史子代理轨迹/回放、差异查看器文件默认名与并排/统一切换均改由 t(key) 生成；动态 t(key) 缺失检查继续通过。验证：node --check、ui-i18n/a11y/Markdown 冒烟、git diff --check 通过。仍缺设置/权限/项目操作及大量运行日志文案，保持 open。
+- 进展: 继续完成设置/权限动态文案一类：provider 测试失败返回、移除 provider 无障碍名称、权限规则删除成功提示/确认框/按钮名称、移动端桥接启动成功提示改由 t(key) 生成；动态 key 缺失检查继续通过。验证：node --check、ui-i18n/a11y/Markdown 冒烟、git diff --check 通过。仍缺设置保存/移动端停止/agent 容器/运行日志等文案及真实双语快照，保持 open。
+
 
 
 
