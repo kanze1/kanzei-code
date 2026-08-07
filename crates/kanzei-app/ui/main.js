@@ -2750,7 +2750,7 @@ async function refreshWorkspace() {
   try {
     renderWorkspace(await invoke("workspace_snapshot"));
   } catch (error) {
-    toast(`工作区刷新失败:${error}`);
+    toastError(`工作区刷新失败:${error}`, { retry: refreshWorkspace });
   }
 }
 let documentsKind = "req";
