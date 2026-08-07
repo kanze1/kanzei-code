@@ -44,6 +44,8 @@ const required = [
   ["当前没有可复制的对话\": \"No conversation to copy", "对话复制空状态翻译键"],
   ["当前任务还在运行，自动鞭挞将在本轮完成后继续\": \"The current task is still running; auto-run will continue after this round", "运行中自动推进提示翻译键"],
   ["先在左侧「项目」里添加并选择一个目录\": \"Add and select a directory under Projects first", "项目缺失提示翻译键"],
+  ["已撤销排队输入\": \"Queued input cancelled", "队列撤销翻译键"],
+  ["暂无测试记录\": \"No test runs", "测试记录空状态翻译键"],
   ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
   ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],

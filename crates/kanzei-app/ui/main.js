@@ -65,6 +65,7 @@ const I18N_EN = {
   "已停止": "Stopped", "完成": "Completed", "用户拒绝后停止": "Stopped after user rejection", "本轮完成": "Round completed", "按你的拒绝停止": "Stopped after your rejection",
   "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
+  "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1979,8 +1980,8 @@ function renderPendingInputs(items) {
     delivery.textContent = item.delivery === "steer" ? "steer" : "queue";
     const cancel = document.createElement("button");
     cancel.className = "queue-cancel";
-    cancel.textContent = "撤销";
-    cancel.title = "撤销这条排队输入";
+    cancel.textContent = t("撤销");
+    cancel.title = t("撤销这条排队输入");
     cancel.addEventListener("click", async () => {
       cancel.disabled = true;
       try {
@@ -1990,7 +1991,7 @@ function renderPendingInputs(items) {
           processId: activeProcessId,
         });
         if (changed) {
-          toast("已撤销排队输入");
+          toast(t("已撤销排队输入"));
           await refreshPendingInputs();
         }
       } catch (err) {
@@ -2026,7 +2027,7 @@ function renderTestRuns(snapshot) {
   if (!records.length) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
-    empty.textContent = "暂无测试记录";
+    empty.textContent = t("暂无测试记录");
     list.appendChild(empty);
     return;
   }
