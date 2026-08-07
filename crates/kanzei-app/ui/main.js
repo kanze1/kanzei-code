@@ -49,6 +49,9 @@ const I18N_EN = {
   "上下文压缩 · 点击查看纪要": "Context compaction · click to view summary", "上下文压缩纪要": "Context compaction summary",
   "对话小总结 · 点击查看": "Conversation summary · click to view", "展开或收起上下文压缩纪要": "Expand or collapse context compaction summary",
   "展开或收起对话总结": "Expand or collapse conversation summary",
+  "需要你的回答": "Your answer is needed", "权限请求": "Permission request",
+  "当前请求": "Current request", "还有": "remaining", "条待处理": "pending requests",
+  "当前无其他待处理请求": "No other pending requests",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -94,6 +97,8 @@ languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
   applyLanguage();
   setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
+  if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
+  updateAskQueueStatus();
 });
 applyLanguage();
 function setupResize(elementId, key, side, min, max) {
@@ -1156,7 +1161,9 @@ function updateAskQueueStatus() {
   const total = (askActive ? 1 : 0) + queue.length;
   const status = $("ask-queue-status");
   const preview = $("ask-queue-preview");
-  status.textContent = total > 1 ? `当前请求 1/${total} · 还有 ${total - 1} 条待处理` : "当前无其他待处理请求";
+  status.textContent = total > 1
+    ? `${t("当前请求")} 1/${total} · ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
+    : t("当前无其他待处理请求");
   const lines = queue.slice(0, 4).map((item, index) => {
     const text = item.kind === "question" ? item.question : `${item.action} · ${item.resource}`;
     return `${index + 2}. ${text}`;
@@ -1177,7 +1184,7 @@ function pumpAsk() {
   }
   askActive = queue.shift();
   const question = askActive.kind === "question";
-  $("ask-title").textContent = question ? "需要你的回答" : "权限请求";
+  $("ask-title").textContent = question ? t("需要你的回答") : t("权限请求");
   $("permission-fields").classList.toggle("hidden", question);
   $("permission-buttons").classList.toggle("hidden", question);
   $("question-fields").classList.toggle("hidden", !question);

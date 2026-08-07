@@ -14,6 +14,9 @@ const required = [
   ["工具执行中\": \"Tool running", "工具状态翻译键"],
   ["成功\": \"Succeeded", "工具成功翻译键"],
   ["失败\": \"Failed", "工具失败翻译键"],
+  ["需要你的回答\": \"Your answer is needed", "问题弹窗翻译键"],
+  ["权限请求\": \"Permission request", "权限弹窗翻译键"],
+  ["function updateAskQueueStatus()", "权限队列动态入口"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
   ["status-mode\").textContent = isRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
 ];
