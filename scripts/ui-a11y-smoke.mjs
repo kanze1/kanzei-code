@@ -44,5 +44,7 @@ assert.match(js, /filterState\.priority === "all"/);
 assert.match(js, /renderDocList\(defectList,[\s\S]*documentFilters\.defect/);
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /运行中可插入或排队，按交付方式发送/);
+assert.match(js, /bgEntries\.delete\(first\.dataset\.bgId\)/);
+assert.match(js, /diffSummary\.clear\(\)/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

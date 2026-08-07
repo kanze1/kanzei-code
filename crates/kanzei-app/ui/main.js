@@ -778,6 +778,7 @@ function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
   const el = document.createElement("div");
   el.className = "bg-entry running";
+  el.dataset.bgId = id;
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
@@ -801,7 +802,12 @@ function bgAdd(id, name, summary) {
   el.append(title, prog, meta, detail);
   const list = $("bg-list");
   list.appendChild(el);
-  while (list.children.length > BG_MAX) list.firstElementChild.remove();
+  while (list.children.length > BG_MAX) {
+    const first = list.firstElementChild;
+    if (!first) break;
+    bgEntries.delete(first.dataset.bgId);
+    first.remove();
+  }
   bgEntries.set(id, { el, title, prog, meta, detail, children: new Map(), startedAt: Date.now(), done: false });
   bgSync();
   list.scrollTop = list.scrollHeight;
@@ -987,7 +993,9 @@ function renderRecoveredTraces(payloads) {
 function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
+  diffSummary.clear();
   $("bg-list").innerHTML = "";
+  renderDiffSummary();
   bgSync();
 }
 // 中止/出错时把仍在跑的条目标记为中止,不再空转。
