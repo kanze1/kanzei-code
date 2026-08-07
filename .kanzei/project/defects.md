@@ -22,7 +22,7 @@
 - 阶段: 1
 - 不变量: 消息历史:拒绝与取消也必须配对
 - 证据等级: E2
-- 进展: 补齐真实 CLI runner E2：扩展 crates/kanzei/tests/always_allow_bash.rs，mock 同批返回 WriteTool（规则允许，实际写入 allowed.md）与 BashTool（权限询问并输入 n 拒绝）；断言拒绝后项目 conversation.updated 持久化中同时存在前序真实 ToolResult 与被拒 Bash ToolResult，占位结果 is_error=true，且拒绝的 bash 未执行。cargo test -p kanzei --test always_allow_bash 两项通过；core 单测 29 项此前已通过。仍需显式第二次对话恢复/再次请求回归，以及桌面端历史恢复校验。
+- 进展: 将 CLI E2 扩展为“拒绝后继续对话”：第一次真实 kz 运行同批执行 Write、拒绝 Bash，断言 conversation.updated 中两个 ToolResult 配对；随后重启真实 kz，使用新的本地 SSE mock 返回普通文本，断言基于该历史恢复成功、输出 recovered after denial，未再触发未配对 tool_use 400。cargo test -p kanzei --test always_allow_bash 两项通过；D-054 仍待桌面端 recover_messages_at / conversation_get 过滤回归。
 
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。

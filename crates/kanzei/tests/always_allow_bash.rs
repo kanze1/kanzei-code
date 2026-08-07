@@ -233,6 +233,43 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     assert!(matches!(results[0], kanzei_llm::Part::ToolResult { call_id, is_error: false, .. } if call_id == "call_write_d054"));
     assert!(matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined")));
 
+    let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address2 = listener2.local_addr().unwrap();
+    std::fs::write(
+        project.join(".kanzei/kanzei.toml"),
+        format!(
+            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address2}/v1\"\n\n[[permissions.rules]]\naction = \"write\"\nresource = \"allowed.md\"\neffect = \"allow\"\n"
+        ),
+    )
+    .unwrap();
+    let response2 = json!({
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "recovered after denial"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+    });
+    let server2 = tokio::spawn(async move { serve_response(&listener2, response2).await });
+    let output2 = Command::new(env!("CARGO_BIN_EXE_kz"))
+        .args(["run", "拒绝后继续对话"])
+        .current_dir(&project)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env("KANZEI_MODEL", "mock:test-model")
+        .env("KANZEI_AGENT", "dev-pair")
+        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROXY", "off")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .unwrap();
+    server2.await.unwrap();
+    assert!(output2.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output2.stdout), String::from_utf8_lossy(&output2.stderr));
+    assert!(String::from_utf8_lossy(&output2.stdout).contains("recovered after denial"));
+
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
