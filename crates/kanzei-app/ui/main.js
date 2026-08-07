@@ -555,7 +555,10 @@ function renderDiff(display) {
   const label = document.createElement("span");
   label.textContent = `${display.path || "文件"}  +${display.additions || 0} −${display.deletions || 0} · ${display.language || "text"}`;
   const toggle = document.createElement("button");
+  toggle.type = "button";
   toggle.className = "ghost mini";
+  toggle.setAttribute("aria-label", "切换差异并排或统一视图");
+  toggle.setAttribute("aria-pressed", "false");
   toggle.textContent = "并排";
   header.append(label, toggle);
   const body = document.createElement("div");
@@ -612,6 +615,7 @@ function renderDiff(display) {
   toggle.addEventListener("click", () => {
     mode = mode === "unified" ? "split" : "unified";
     toggle.textContent = mode === "unified" ? "并排" : "统一";
+    toggle.setAttribute("aria-pressed", String(mode === "split"));
     render();
   });
   block.append(header, body);
@@ -1413,10 +1417,12 @@ function renderAttachments() {
   box.innerHTML = "";
   box.classList.toggle("hidden", attachments.length === 0);
   attachments.forEach((item, index) => {
-    const chip = document.createElement("span");
+    const chip = document.createElement("button");
+    chip.type = "button";
     chip.className = "attachment-chip";
     chip.textContent = `${item.file_name} ×`;
     chip.title = "移除附件";
+    chip.setAttribute("aria-label", `移除附件 ${item.file_name}`);
     chip.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
     box.appendChild(chip);
   });
