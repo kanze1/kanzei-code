@@ -69,7 +69,7 @@ const I18N_EN = {
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
-  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "回答": "Answer", "权限": "Permission", "拒绝": "Denied", "总是允许": "Always allow", "自动放行失败": "Auto-allow failed", "权限应答失败": "Permission response failed", "已开启自动放行(本会话所有权限询问直接通过)": "Auto-allow enabled (all permission requests in this session pass automatically)", "已关闭自动放行": "Auto-allow disabled", "需求": "requirement", "缺陷": "defect", "自然语言描述": "Describe in natural language", "先写点描述": "Write a description first", "记录中": "Recording", "独立子代理后台进行": "independent subagent working in background", "已记录": "Recorded", "记录失败(内容已保留,可重试)": "Recording failed (content kept; retry available)", "提交": "Submit", "取消": "Cancel", "目标描述,回车创建(Esc 取消)": "Goal description, press Enter to create (Esc to cancel)", "未创建,点 ＋ 生成模板;agent 会自动遵守此文件": "Not created; click + to generate a template; the agent will follow it", "打开开发规范": "Open conventions", "个章节": " sections", "点击查看": "click to view", "规范文件已就绪": "Conventions file ready", "空": "Empty", "按 Enter 展开详情": "Press Enter to expand details", "点击展开": "click to expand", "点击循环调整优先级": "Click to cycle priority", "优先级已调整为": "Priority changed to", "转": "Move to", "记录状态/调整方向,回车保存": "Record status/adjustment, press Enter to save", "需求与缺陷已清空，自动推进已停止": "Requirements and defects are clear; Auto-run stopped", "自动推进停止:需求与缺陷已清空": "Auto-run stopped: requirements and defects are clear", "检查需求/缺陷是否清空失败": "Failed to check whether requirements/defects are clear", "移除附件": "Remove attachment", "不支持的附件类型": "Unsupported attachment type", "鞭挞已暂停": "Auto-run paused", "鞭挞已恢复": "Auto-run resumed", "本轮结束后将停止鞭挞": "Auto-run will stop after this round", "已取消本轮后停": "Stop-after-round cancelled", "鞭挞上限已设为": "Auto-run limit set to", "鞭挞仅适用于自主推进模式，请先切换模式": "Auto-run only works in Self-directed progress mode; switch modes first", "鞭挞未开启:结伴开发模式不支持自动续跑": "Auto-run not enabled: paired development mode does not support continuation", "鞭挞已开启:每轮结束自动推进目标": "Auto-run enabled: advance the goal after each round", "鞭挞已关闭": "Auto-run disabled", "鞭挞启动,2 秒后开始…": "Auto-run starting in 2 seconds…", "当前模式不支持鞭挞，已自动关闭": "The current mode does not support Auto-run; it was disabled", "鞭挞已关闭：当前进程不是自主推进模式": "Auto-run disabled: the current process is not Self-directed progress", "复制": "Copy", "复制消息": "Copy message", "可压缩重试": "Retry after compaction", "可重试错误": "Retryable error", "致命错误": "Fatal error", "重试上一次请求": "Retry last request", "正在重试…": "Retrying…", "思考中…": "Thinking…", "轮": "rounds", "耗时": "duration"
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "回答": "Answer", "权限": "Permission", "拒绝": "Denied", "总是允许": "Always allow", "自动放行失败": "Auto-allow failed", "权限应答失败": "Permission response failed", "已开启自动放行(本会话所有权限询问直接通过)": "Auto-allow enabled (all permission requests in this session pass automatically)", "已关闭自动放行": "Auto-allow disabled", "需求": "requirement", "缺陷": "defect", "自然语言描述": "Describe in natural language", "先写点描述": "Write a description first", "记录中": "Recording", "独立子代理后台进行": "independent subagent working in background", "已记录": "Recorded", "记录失败(内容已保留,可重试)": "Recording failed (content kept; retry available)", "提交": "Submit", "取消": "Cancel", "目标描述,回车创建(Esc 取消)": "Goal description, press Enter to create (Esc to cancel)", "未创建,点 ＋ 生成模板;agent 会自动遵守此文件": "Not created; click + to generate a template; the agent will follow it", "打开开发规范": "Open conventions", "个章节": " sections", "点击查看": "click to view", "规范文件已就绪": "Conventions file ready", "空": "Empty", "按 Enter 展开详情": "Press Enter to expand details", "点击展开": "click to expand", "点击循环调整优先级": "Click to cycle priority", "优先级已调整为": "Priority changed to", "转": "Move to", "记录状态/调整方向,回车保存": "Record status/adjustment, press Enter to save", "需求与缺陷已清空，自动推进已停止": "Requirements and defects are clear; Auto-run stopped", "自动推进停止:需求与缺陷已清空": "Auto-run stopped: requirements and defects are clear", "检查需求/缺陷是否清空失败": "Failed to check whether requirements/defects are clear", "移除附件": "Remove attachment", "不支持的附件类型": "Unsupported attachment type", "鞭挞已暂停": "Auto-run paused", "鞭挞已恢复": "Auto-run resumed", "本轮结束后将停止鞭挞": "Auto-run will stop after this round", "已取消本轮后停": "Stop-after-round cancelled", "鞭挞上限已设为": "Auto-run limit set to", "鞭挞仅适用于自主推进模式，请先切换模式": "Auto-run only works in Self-directed progress mode; switch modes first", "鞭挞未开启:结伴开发模式不支持自动续跑": "Auto-run not enabled: paired development mode does not support continuation", "鞭挞已开启:每轮结束自动推进目标": "Auto-run enabled: advance the goal after each round", "鞭挞已关闭": "Auto-run disabled", "鞭挞启动,2 秒后开始…": "Auto-run starting in 2 seconds…", "当前模式不支持鞭挞，已自动关闭": "The current mode does not support Auto-run; it was disabled", "鞭挞已关闭：当前进程不是自主推进模式": "Auto-run disabled: the current process is not Self-directed progress", "复制": "Copy", "复制消息": "Copy message", "可压缩重试": "Retry after compaction", "可重试错误": "Retryable error", "致命错误": "Fatal error", "重试上一次请求": "Retry last request", "正在重试…": "Retrying…", "思考中…": "Thinking…", "拖动调整面板宽度": "Drag to adjust panel width", "调整面板宽度": "Adjust panel width", "展开或收起思考过程": "Expand or collapse reasoning", "切换差异并排或统一视图": "Toggle split or unified diff view", "已复制": "Copied", "继续文案已升级到新版(含【阻塞】刹车约定)": "Continue prompt upgraded to the new version (with the blocked brake rule)", "已请求停止(本地已复位)": "Stop requested (local state reset)", "模型:agent 默认": "Model: agent default", "暂无排队输入": "No queued input", "任务运行中,先停止再开新对话": "Stop the running task before starting a new conversation", "先选择一个项目": "Select a project first", "开始总结当前对话…": "Starting conversation summary…", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -138,11 +138,11 @@ function setupResize(elementId, key, side, min, max) {
   if (Number.isFinite(saved)) element.style.width = `${Math.min(max, Math.max(min, saved))}px`;
   const handle = document.createElement("div");
   handle.className = "resize-handle";
-  handle.title = "拖动调整面板宽度";
+  handle.title = t("拖动调整面板宽度");
   handle.tabIndex = 0;
   handle.setAttribute("role", "separator");
   handle.setAttribute("aria-orientation", "vertical");
-  handle.setAttribute("aria-label", "调整面板宽度");
+  handle.setAttribute("aria-label", t("调整面板宽度"));
   element.appendChild(handle);
   const syncHandle = () => {
     const rect = element.getBoundingClientRect();
@@ -721,7 +721,7 @@ function appendReasoning(text) {
     const head = document.createElement("button");
     head.type = "button";
     head.className = "reasoning-head";
-    head.setAttribute("aria-label", "展开或收起思考过程");
+    head.setAttribute("aria-label", t("展开或收起思考过程"));
     head.setAttribute("aria-expanded", "false");
     head.textContent = `· ${t("思考中…")}`;
     const body = document.createElement("div");
@@ -839,7 +839,7 @@ function renderDiff(display) {
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "ghost mini";
-  toggle.setAttribute("aria-label", "切换差异并排或统一视图");
+  toggle.setAttribute("aria-label", t("切换差异并排或统一视图"));
   toggle.setAttribute("aria-pressed", "false");
   toggle.textContent = t("并排");
   header.append(label, toggle);
@@ -1494,7 +1494,7 @@ async function copyReadable(el) {
   if (!text) return toast(t("没有可复制的内容"));
   try {
     await navigator.clipboard.writeText(text);
-    toast("已复制");
+    toast(t("已复制"));
   } catch (err) {
     toastError(`复制失败:${err}`);
   }
@@ -1984,7 +1984,7 @@ renderAutoStatus();
   if (!stored || isLegacyDefault) {
     localStorage.setItem("kz-continue-prompt", DEFAULT_CONTINUE_PROMPT);
     $("continue-prompt").value = DEFAULT_CONTINUE_PROMPT;
-    if (isLegacyDefault) log("继续文案已升级到新版(含【阻塞】刹车约定)");
+    if (isLegacyDefault) log(t("继续文案已升级到新版(含【阻塞】刹车约定)"));
   } else {
     $("continue-prompt").value = stored;
   }
@@ -2090,7 +2090,7 @@ $("stop").addEventListener("click", () => {
   hideAsk();
   stopElapsed();
   setRunning(false, "已停止");
-  log("已请求停止(本地已复位)");
+  log(t("已请求停止(本地已复位)"));
 });
 promptBox.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("file-suggestions").classList.contains("hidden")) {
@@ -2150,7 +2150,7 @@ async function loadModels() {
   select.innerHTML = "";
   const def = document.createElement("option");
   def.value = "";
-  def.textContent = "模型:agent 默认";
+  def.textContent = t("模型:agent 默认");
   select.appendChild(def);
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
@@ -2194,7 +2194,7 @@ function renderPendingInputs(items) {
   if (!items.length) {
     const empty = document.createElement("div");
     empty.className = "queue-empty";
-    empty.textContent = "暂无排队输入";
+    empty.textContent = t("暂无排队输入");
     list.appendChild(empty);
     return;
   }
@@ -3462,7 +3462,7 @@ function clearChat(noticeText) {
 
 $("new-chat").addEventListener("click", async () => {
   if (running) {
-    toast("任务运行中,先停止再开新对话");
+    toast(t("任务运行中,先停止再开新对话"));
     return;
   }
   try {
@@ -3478,7 +3478,7 @@ $("new-chat").addEventListener("click", async () => {
 // ---------- 对话总结 ----------
 $("summarize-btn").addEventListener("click", async () => {
   if (!currentProject) {
-    toast("先选择一个项目");
+    toast(t("先选择一个项目"));
     return;
   }
   const transcript = [...messages.querySelectorAll(".msg, .tool-chip")]
@@ -3492,7 +3492,7 @@ $("summarize-btn").addEventListener("click", async () => {
   }
   $("summarize-btn").disabled = true;
   setStatus(`${t("总结中")}(fast model)`, true);
-  log("开始总结当前对话…");
+  log(t("开始总结当前对话…"));
   try {
     const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
     addSummaryEntry(r.summary, r.path);
