@@ -69,7 +69,7 @@ const I18N_EN = {
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
-  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "轮": "rounds", "耗时": "duration"
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -2077,7 +2077,7 @@ $("profile-select").addEventListener("change", () => {
     processProfileUi.set(activeProcessId, $("profile-select").value);
     const profile = $("profile-select").value === "research" ? "research" : "dev";
     invoke("process_update", { processId: activeProcessId, profile })
-      .catch((error) => reportPersistentError(`进程模式保存失败:${error}`));
+      .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
   }
   syncAutoContinueWithProfile();
 });
@@ -2171,7 +2171,7 @@ $("reasoning-select").addEventListener("change", () => {
   localStorage.setItem("kz-reasoning", value);
   if (activeProcessId) {
     invoke("process_update", { processId: activeProcessId, reasoning: value })
-      .catch((error) => reportPersistentError(`进程思考强度保存失败:${error}`));
+      .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
   }
 });
 
@@ -2180,7 +2180,7 @@ $("model-select").addEventListener("change", () => {
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
     invoke("process_update", { processId: activeProcessId, model: $("model-select").value })
-      .catch((error) => reportPersistentError(`进程模型保存失败:${error}`));
+      .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
   }
 });
 
@@ -2387,7 +2387,7 @@ function renderProcesses(items) {
   // 只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
   if (activeProcessId !== syncedRunningProcessId) {
     syncedRunningProcessId = activeProcessId;
-    setRunning(Boolean(active?.running), active?.running ? "运行中" : "空闲");
+    setRunning(Boolean(active?.running), active?.running ? t("运行中") : t("空闲"));
   }
   const tabs = $("process-tabs");
   tabs.replaceChildren();
@@ -2408,7 +2408,7 @@ async function refreshProcesses() {
   try {
     renderProcesses(await invoke("process_list", { projectDir: currentProject }));
   } catch (err) {
-    log(`进程列表刷新失败:${err}`, "warn");
+    log(`${t("进程列表刷新失败")}:${err}`, "warn");
   }
 }
 
@@ -2430,7 +2430,7 @@ async function refreshPendingAsks() {
     }
     pumpAsk();
   } catch (err) {
-    log(`待处理权限询问恢复失败:${err}`, "warn");
+    log(`${t("待处理权限询问恢复失败")}:${err}`, "warn");
   }
 }
 
@@ -2446,7 +2446,7 @@ async function switchProcess(processId) {
   activeProcessId = processId;
   activeSessionId = target.session_id;
   pumpAsk();
-  setRunning(target.running, target.running ? "运行中" : "空闲");
+  setRunning(target.running, target.running ? t("运行中") : t("空闲"));
   renderProcesses(processItems);
   clearChat();
   bgClear();
@@ -2461,7 +2461,7 @@ async function switchProcess(processId) {
   refreshGit();
   refreshPendingInputs();
   refreshProcesses();
-  log(`已切换到进程 ${target.label}`);
+  log(`${t("已切换到进程")} ${target.label}`);
 }
 
 $("process-add").addEventListener("click", async () => {
@@ -2471,7 +2471,7 @@ $("process-add").addEventListener("click", async () => {
     await refreshProcesses();
     await switchProcess(item.id);
   } catch (err) {
-    toastError(`创建进程失败:${err}`);
+    toastError(`${t("创建进程失败")}:${err}`);
   }
 });
 
@@ -2482,7 +2482,7 @@ $("process-subagent").addEventListener("change", async (event) => {
     await refreshProcesses();
   } catch (err) {
     event.target.checked = !event.target.checked;
-    toastError(`更新进程能力失败:${err}`);
+    toastError(`${t("更新进程能力失败")}:${err}`);
   }
 });
 
@@ -2566,7 +2566,7 @@ function renderProjects(prefs) {
       if (previous && previous !== path) {
         // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
         // 丢弃,新项目会永久卡在"运行中"(发送键禁用)。refreshProcesses 会带回真实状态。
-        setRunning(false, "空闲");
+        setRunning(false, t("空闲"));
         clearChat();
         bgClear();
         renderTodoPanel([], 0, 0);
