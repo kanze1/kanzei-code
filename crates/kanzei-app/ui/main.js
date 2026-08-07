@@ -2812,8 +2812,7 @@ async function refreshDocs() {
     await refreshTests();
     await refreshWorktrees();
   } catch (err) {
-    console.error(err);
-    log(`项目文档刷新失败:${err}`, "warn");
+    toastError(`项目文档刷新失败:${err}`, { retry: refreshDocs });
   }
 }
 
