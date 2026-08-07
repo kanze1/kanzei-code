@@ -413,6 +413,33 @@ impl SessionStore {
         Ok(changed > 0)
     }
 
+    /// Ctrl+C/停止的统一收尾(D-085):恢复 idle、记录 stopped_by_user、
+    /// 取消未完成输入,三步在同一事务内原子提交——中断路径不能再留下
+    /// 永久 running 的幽灵会话,也不能只做一半。返回被取消的输入数。
+    pub fn finalize_interrupt(&self, session_id: &str) -> Result<usize, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let changed = tx.execute(
+            "UPDATE sessions SET status = 'idle', updated_at = ?1 WHERE session_id = ?2",
+            params![now_ms(), session_id],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows.into());
+        }
+        append_event_tx(
+            &tx,
+            session_id,
+            "session.status_changed",
+            &serde_json::json!({ "status": "idle", "reason": "stopped_by_user" }),
+        )?;
+        let cancelled = tx.execute(
+            "UPDATE session_inputs SET status = 'cancelled'
+             WHERE session_id = ?1 AND status IN ('pending', 'promoted')",
+            params![session_id],
+        )?;
+        tx.commit()?;
+        Ok(cancelled)
+    }
+
     /// 取消会话中全部尚未提升的输入，供停止运行时清理 queue。
     /// 停止运行时取消尚未完成的输入，包括已提升但尚未完成执行的输入。
     pub fn cancel_unfinished_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
@@ -692,6 +719,36 @@ mod tests {
             .unwrap();
         assert_eq!((first.sequence, second.sequence), (1, 2));
         assert_eq!(store.list_events("ses_test", 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn 中断收尾恢复空闲并原子取消未完成输入() {
+        // D-085:Ctrl+C 收尾必须一次做全——状态复位、事件落库、输入取消。
+        let store = store();
+        store.set_status("ses_test", "running").unwrap();
+        store
+            .admit_input("ses_test", "input_promoted", "运行中的输入", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        store
+            .admit_input("ses_test", "input_queued", "排队中的输入", Delivery::Queue)
+            .unwrap();
+
+        let cancelled = store.finalize_interrupt("ses_test").unwrap();
+        assert_eq!(cancelled, 2, "promoted 与 pending 输入都要取消");
+        assert_eq!(store.get_session("ses_test").unwrap().unwrap().status, "idle");
+        let event = store
+            .latest_event("ses_test", "session.status_changed")
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.payload["status"], "idle");
+        assert_eq!(event.payload["reason"], "stopped_by_user");
+        assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
+        // 不存在的会话必须报错而不是静默成功。
+        assert!(matches!(
+            store.finalize_interrupt("missing"),
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ));
     }
 
     #[test]

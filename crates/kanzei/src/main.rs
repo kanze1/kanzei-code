@@ -301,14 +301,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             &mut ask,
         ) => result,
         _ = tokio::signal::ctrl_c() => {
+            // 收尾逻辑在 SessionStore::finalize_interrupt 内原子完成并有测试覆盖;
+            // 这里只负责把信号接到该入口。
             let store = kanzei_core::SessionStore::open(&state_path)?;
-            store.set_status(&session_id, "idle")?;
-            store.append_event(
-                &session_id,
-                "session.status_changed",
-                &serde_json::json!({ "status": "idle", "reason": "stopped_by_user" }),
-            )?;
-            store.cancel_unfinished_inputs(&session_id)?;
+            store.finalize_interrupt(&session_id)?;
             eprintln!("\n\x1b[33m(stopped by Ctrl+C)\x1b[0m");
             return Ok(());
         }
