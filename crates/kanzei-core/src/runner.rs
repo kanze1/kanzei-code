@@ -559,7 +559,7 @@ pub fn run_once_with_parts<'a>(
                     }
                     if session_rules.iter().any(|(a, pattern)| {
                         a == action
-                            && kanzei_harness::permission::wildcard_match(pattern, &resource)
+                            && kanzei_harness::permission::resource_match(pattern, &resource)
                     }) {
                         continue;
                     }

@@ -13,7 +13,7 @@
 - 证据等级: E2
 - 缺口: 尚未达到原验收 E2：缺少真实工具调用跨权限门禁与文件系统落点的集成/故障注入测试；bash workdir/命令内部路径仍未纳入同一落点契约。保持 open。
 - 证据: E2（部分）：crates/kanzei-tools/src/write.rs 的异步测试真实调用 WriteTool，跨 kanzei-tools/kanzei-harness 并检查文件系统落点；cargo test -p kanzei-tools write::tests::permission_path_and_write落点使用同一规范化结果 通过。完整 E2 仍缺 runner 真实权限门禁集成与故障注入，bash workdir/命令内部路径未覆盖。
-- 进展: 本轮补充跨模块真实工具调用回归：kanzei-tools::WriteTool 在 Windows 风格大小写、反斜杠、`.`/`..` 输入下，使用与权限侧相同的 normalize_resource 后实际写入规范化落点；同时验证同类大小写变体命中项目文档 Deny。
+- 进展: 本轮修复 runner 会话内“总是允许”规则复用缺口：新增公开 permission::resource_match，并将 session_rules 匹配从 wildcard_match 切换为该统一路径匹配；新增 session_rule_resource_match_reuses_path_normalization 回归，覆盖反斜杠、大小写、`.`/`..`。验证通过 harness 权限两项回归、tools::WriteTool 实际落点回归、core runner 测试。仍保持 open：缺少 runner 真实权限门禁集成/故障注入，以及 bash workdir/命令内部路径覆盖。
 
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [open] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
@@ -435,17 +435,4 @@
 - refs: R-050
 - 阶段: 3
 - 不变量: 操作反馈:长结果持久可见可复制
-- 证据等级: E3
-
-## D-111 「本轮后停」被持久化,每次启动都重新武装导致鞭挞跑一轮必停 [fixed] (high)
-- 原始描述: 用户反馈"怎么还是停止了我服了" —— 鞭挞在完成 14 轮实质工作后仍然停止
-- 复现: 勾选一次顶栏「本轮后停」;此后每次启动 kzapp,鞭挞都在第一轮结束后停止,提示"已完成本轮,鞭挞停止",且无论怎么重开鞭挞都复现。
-- 根因: 「本轮后停」是一次性意图却被当作偏好持久化。ui/main.js:1577 启动时从 localStorage 读 `kz-auto-stop-round` 并据此设置复选框与 autoStopAfterRound;触发分支(927-931)只把内存变量和复选框复位,从不清除 localStorage。于是该键永远是 "1",每次启动重新武装,一次勾选等于永久生效。
-- 影响: 自主推进实际不可用——用户以为是提示词或阻塞判定的问题,反复调整文案都无效,真实原因是一个跨重启复活的一次性开关。停止提示只说"已完成本轮"而不点名是哪个开关所致,进一步掩盖了根因。
-- 验收: 「本轮后停」不跨重启存活,启动时一律为未勾选;停止提示需点名触发原因与恢复方式。
-- 修复: 移除该开关的持久化(不再读写 localStorage,并在启动时清除存量键);change 事件改为写日志说明当前意图;停止分支的提示改为"鞭挞停止:你勾了顶栏的「本轮后停」(已自动取消勾选,再点鞭挞即可继续)"并写入停止原因。顺带把"暂停中"分支的提示也改为点名原因,五个停止分支现在都会说明是什么条件触发的。
-- 验证: node --check crates/kanzei-app/ui/main.js;cargo test --workspace 全绿。存量用户启动一次即自动解除武装。
-- 优先级: P0
-- 阶段: 1
-- 不变量: 界面状态:一次性动作不得跨重启存活;停止必须可归因
 - 证据等级: E3

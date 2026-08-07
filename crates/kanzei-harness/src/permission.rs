@@ -131,7 +131,9 @@ fn is_windows_drive_path(resource: &str) -> bool {
         && resource.as_bytes()[0].is_ascii_alphabetic()
 }
 
-fn resource_match(pattern: &str, value: &str) -> bool {
+/// 按资源类型匹配权限规则；路径资源先经过统一规范化，避免会话规则
+/// 与 Ruleset::evaluate 使用不同的路径语义(D-050)。
+pub fn resource_match(pattern: &str, value: &str) -> bool {
     if pattern.contains('/')
         || pattern.contains('\\')
         || value.contains('/')
@@ -325,6 +327,17 @@ mod tests {
                 "path={path}"
             );
         }
+    }
+
+    #[test]
+    fn session_rule_resource_match_reuses_path_normalization() {
+        let pattern = r"*.KANZEI\PROJECT\*";
+        let value = normalize_resource(r".kanzei/./project/requirements.md");
+        assert!(resource_match(pattern, &value));
+        assert!(resource_match(
+            pattern,
+            &normalize_resource(r".KANZEI\project\..\project\requirements.md")
+        ));
     }
 
     #[test]
