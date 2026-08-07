@@ -22,6 +22,37 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-093 可靠性、可用性与自举质量收口 [doing]
 - 复杂度: 大
 - 归属: kanzei
@@ -62,6 +93,40 @@
 
 
 
+- 标签: quality_gate,verification,e2e,release
+- 类型: epic
+- 领域: reliability,quality
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-085 需求验收标准与完成判定的执行约束 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -73,6 +138,40 @@
 - 证据等级: E0–E4 判定规则本身
 - 设计定位: 证据等级与验收执行边界
 - 依赖: R-084 R-080
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: acceptance,transition_guard,evidence
+- 类型: governance
+- 领域: process,verification
+
+
+
+
+
+
+
 
 
 
@@ -131,6 +230,40 @@
 
 
 
+
+
+- 标签: p0,p1,codex,batch_closeout
+- 类型: epic
+- 领域: reliability,provider
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-087 工具与协议层的数据完整性收口 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -142,6 +275,40 @@
 - 证据等级: E2
 - 设计定位: 工具配对和协议数据完整性
 - 依赖: D-053 D-054 D-060 D-082 D-084
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: data_integrity,tool_pairing,context_recovery
+- 类型: epic
+- 领域: protocol,storage,runner
+
+
+
+
+
 
 
 
@@ -200,6 +367,40 @@
 
 
 
+
+
+
+
+- 标签: pending_ask,routing,multi_session
+- 类型: capability
+- 领域: session,event,interaction
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-088 凭证与 provider 协议的健壮性 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -234,6 +435,40 @@
 
 
 
+
+
+
+
+
+- 标签: oauth,protocol,rate_limit,forward_compatibility
+- 类型: epic
+- 领域: auth,provider,concurrency
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-084 建立能捕获运行时错误的前端验收手段 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -245,6 +480,40 @@
 - 证据等级: E3
 - 设计定位: 前端快速运行时冒烟
 - 依赖: R-085
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: runtime_smoke,webview,console_error
+- 类型: quality
+- 领域: testing,ui,e2e
+
+
 
 
 
@@ -305,6 +574,40 @@
 
 
 
+
+
+
+
+
+
+
+- 标签: test_record,archive,verification_run
+- 类型: capability
+- 领域: testing,tracker,persistence
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-076 鞭挞模式触发异常 bug 修复 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -319,6 +622,40 @@
 - 证据等级: E2
 - 设计定位: 鞭挞状态机可判定化,依赖测试记录供给链
 - 依赖: R-080
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: brake,backlog,anti_spin
+- 类型: quality
+- 领域: runner,auto_run,state_machine
 
 
 
@@ -377,6 +714,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+- 标签: responsive,panels,operation_hierarchy
+- 类型: epic
+- 领域: ui,layout,interaction
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-090 对话内容可读性与操作反馈可恢复 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -390,6 +761,40 @@
 - 依赖: D-094 D-096 D-106 D-109
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: markdown,recovery,persistence,history
+- 类型: quality
+- 领域: ui,message,feedback
 
 
 
@@ -425,6 +830,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: keyboard,focus,aria,e2e
+- 类型: quality
+- 领域: ui,a11y,testing
 
 
 
@@ -482,6 +921,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: resize,drag,panels
+- 类型: capability
+- 领域: ui,layout,responsive
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-069 关于我们及引导文案的多语化支持 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -500,6 +973,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: dynamic_text,language,about
+- 类型: capability
+- 领域: ui,i18n,content
 
 
 
@@ -551,6 +1058,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: review_button,findings,verification_run
+- 类型: capability
+- 领域: ui,defect_review,automation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-070 来源引用的文档解析与记忆保存 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -569,6 +1110,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: source_parse,reference,memory_write
+- 类型: capability
+- 领域: research,memory,citation
 
 
 
@@ -622,6 +1197,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: parallel,worktree,conflict,merge
+- 类型: epic
+- 领域: session,worktree,concurrency
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
 - 优先级: P3
@@ -659,6 +1268,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: push,bidirectional,container
+- 类型: epic
+- 领域: mobile,agent,notification
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-095 活动窗口终端和工具管理呈现优化 [todo]
 - 原始描述: 优化活动窗口的终端和工具管理还有呈现
 - 归属: kanzei
@@ -674,6 +1317,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: activity,terminal,presentation
+- 类型: capability
+- 领域: ui,tools,terminal
 
 
 
@@ -721,6 +1398,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: background_process,process_control,parallel
+- 类型: capability
+- 领域: tools,runner,concurrency
+
+
+
+
+
+
+
+
+
+
+
+
 ## R-099 自举轨迹冗余度量与基线对比 [todo]
 - 复杂度: 中
 - 优先级: P2
@@ -740,6 +1451,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: trace,baseline,telemetry
+- 类型: quality
+- 领域: testing,metrics,agent
 
 
 
@@ -781,6 +1526,40 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: mechanical_gate,duplicate_calls,policy
+- 类型: governance
+- 领域: runner,testing,guard
+
+
+
+
+
+
+
+
+
+
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [todo]
 - 复杂度: 大
 - 优先级: P0
@@ -789,6 +1568,40 @@
 - 验收: 建立可在测试基座安全启动真实 Tauri UI(或等价 WebView 驱动)的 E2 harness;逐项补齐延期 E2:D-051 桌面权限弹窗真实 UI E2;D-055 切回进程补发 pending ask 前端 E2;D-056 运行中切项目→终态复位 E2;D-060 update/close/reorder 手写内容保留与并发写入回归;D-064 注入故障的 run_task 收尾 E2;D-066 真实 Tauri Window/provider 停止 E2;D-086 runner 级 task→subagent read 拦截执行回归。
 - 依赖: R-086
 - 阶段: 3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: tauri,webview,harness,延期e2e
+- 类型: quality
+- 领域: testing,ui,e2e
+
+
+
+
+
+
+
 
 
 ## R-102 CLI 只读运行档位:分析类任务免配权限直接跑 [todo]
@@ -800,6 +1613,40 @@
 - 依赖: D-121
 - 设计定位: 让"问问题/做分析"成为 kz 的零门槛入口
 - 阶段: 4
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: readonly,profile,zero_config
+- 类型: capability
+- 领域: cli,permission,safety
+
+
+
+
+
+
+
 
 ## R-103 Memory 系统总纲:文件优先、分级、子代理管理 [todo]
 - 复杂度: 大
@@ -814,6 +1661,40 @@
 - 设计定位: 记忆作为 first-class primitive 的总纲与门禁
 - 依赖: R-104 R-105 R-106 R-107
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: file_first,tiers,subagent
+- 类型: epic
+- 领域: memory,architecture
+
+
+
+
+
+
+
 ## R-104 Memory M1:分级存储、引擎门禁与检索工具 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -824,6 +1705,40 @@
 - 阶段: 4
 - 设计定位: 记忆的存储真源与检索地基
 - 依赖: R-103
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: fts,index,integrity,migration
+- 类型: capability
+- 领域: memory,storage,search
+
+
+
+
+
 
 ## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [todo]
 - 复杂度: 大
@@ -836,6 +1751,40 @@
 - 设计定位: 记忆管理的执行者与节律
 - 依赖: R-104
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: memory_manager,dedup,tombstone
+- 类型: capability
+- 领域: memory,agent,tools
+
+
+
+
+
 ## R-106 Memory M3:注入改造与上下文账单 [todo]
 - 复杂度: 中
 - 优先级: P2
@@ -846,6 +1795,40 @@
 - 阶段: 4
 - 设计定位: 上下文管理精准化的数据与机制
 - 依赖: R-104 R-105
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 标签: injection,token_bill,overflow
+- 类型: quality
+- 领域: memory,context,metrics
+
+
+
 
 ## R-107 Memory M4:独立 Memory 页与空闲整理 [todo]
 - 复杂度: 大
@@ -859,3 +1842,21 @@
 - 依赖: R-106
 
 
+- 标签: memory_page,edit,sleep_cleanup
+- 类型: capability
+- 领域: memory,ui,maintenance
+
+
+## R-108 建立AI设计/技术选型沉淀机制 [todo]
+- priority: P2
+- 原始描述: 加一个大的需求，我们现在已经沉淀了需求和缺陷，但是少了一个沉淀，就是我们和AI沟通出来的设计方向和技术选择，这个应该也要落一下沉淀
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 定义规范记录与团队共享 AI 讨论的设计方案、技术方案变更及决策过程，形成可追溯的知识资产
+
+## R-109 侧边栏设计语言一致性规范 [todo]
+- priority: P0
+- 原始描述: 所有的侧边栏设计语言要一致，包括筛选排序显示等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 所有侧边栏(筛选/排序显示)使用统一的设计语言与视觉风格

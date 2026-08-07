@@ -167,6 +167,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -336,6 +345,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+- 标签: oauth,concurrency,atomic_write
+- 类型: data_loss
+- 领域: auth,provider,storage
 
 
 
@@ -524,6 +545,18 @@
 
 
 
+
+- 标签: dynamic_text,translation,runtime_feedback
+- 类型: ux
+- 领域: ui,i18n,feedback
+
+
+
+
+
+
+
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -628,11 +661,35 @@
 
 
 
+
+
+- 标签: verification,cadence,tool_efficiency
+- 类型: governance
+- 领域: process,testing,agent
+
+
+
+
+
+
+
 ## D-119 继续文章/按钮收纳逻辑及视觉显示问题 [fixing] (high)
 - 原始描述: 继续文章和继续按钮不应该同时收纳，应该独立，而且继续文案的白色底北京啥都看不到，框也很窄不能缩放
 - 复现: 1.查看'继续文章'和'继续按钮'功能 2.观察文案白色背景可读性 3.测试容器宽度能否缩放
 - 优先级: P2
 - 进展: 已定位到 ui/index.html 的 continue-panel 与 main.js 独立 toggle/submit 事件、style.css 的窄三列布局。准备拆分“继续文案”收纳与“继续”操作按钮，并扩大可编辑区、修复深色主题文字/背景对比；补 UI 冒烟验证。
+
+
+
+
+
+
+
+
+- 标签: continue_prompt,grouping,readability
+- 类型: ux
+- 领域: ui,interaction,layout
+
 
 
 
@@ -654,6 +711,18 @@
 
 
 
+
+
+
+
+- 标签: exit_code,permission_denied,automation
+- 类型: contract
+- 领域: cli,automation,permission
+
+
+
+
+
 ## D-122 裸 bash 通配规则的降级告警与实际放行行为不一致 [open] (low)
 - 复现: 项目 kanzei.toml 写 `action="bash", resource="*", effect="allow"`;kz 启动提示"检测到 1 条旧 bash 权限规则;将降级为逐次询问",随后整轮 bash 全部直接放行,一次也没询问。
 - 根因: legacy_bash_rules 把所有非 command/workdir JSON 的 bash 规则识别为旧规则并告警,但评估路径对用户显式配置的整体 `*` 保留 yolo 语义——告警文案与评估行为出自两套判断。
@@ -666,6 +735,18 @@
 - 证据等级: E2
 - 备注: 2026-08-07 kz 前端分析实测发现(用户确认立项)。
 
+
+
+
+
+
+
+
+
+
+- 标签: wildcard,legacy_rule,warning
+- 类型: contract
+- 领域: permission,bash,provider
 
 
 
@@ -685,6 +766,18 @@
 
 
 
+
+
+
+
+
+
+- 标签: help,agent,model,profile
+- 类型: ux
+- 领域: cli,docs,discoverability
+
+
+
 ## D-124 应用内更新不先退出自身,安装必败且僵尸安装器锁死后续重试 [open] (high)
 - 复现: 2026-08-08 0:17 实录:app 运行中点「下载并安装」→ 安装器无法替换正在运行的 kzapp.exe,界面报 "另一个程序正在使用此文件。(os error 32)";失败的 kanzei-setup.exe 进程(%TEMP%,PID 15036)不退出,持续握着 kzapp.exe 句柄;用户重启 app 后重试仍报同一错误,直到手动杀掉僵尸安装器。
 - 根因: 更新流程是"下载 setup → 直接运行",没有"退出自身再交给安装器"的交接;NSIS 遇文件占用时挂在隐藏对话框而非失败退出,进程成为僵尸;重试路径也不检测/清理既有安装器进程与 %TEMP% 残件。
@@ -701,6 +794,18 @@
 
 
 
+
+
+
+
+
+
+
+- 标签: self_exit,installer,process_lock
+- 类型: bug
+- 领域: release,update,windows
+
+
 ## D-125 独立文档页列表末尾与底部状态栏重叠,末行被遮挡不可读 [open] (low)
 - 复现: 打开「需求与工作/缺陷」独立管理页,列表滚到底:最后一行(截图中为 P0 的 E2 harness 条目)与底部状态栏重叠,文字被状态栏盖住;列表容器无底部安全间距。
 - 影响: 排在末尾的条目(常是新加的)难以阅读与点击;用户 2026-08-08 截图反馈。
@@ -715,3 +820,6 @@
 
 
 
+- 标签: scroll,footer_overlap,last_row
+- 类型: ux
+- 领域: ui,layout,documents

@@ -2685,15 +2685,32 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-const reqFilters = { status: "all", priority: "all", complexity: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
+const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
+const defectFilters = { status: "all", priority: "all", tag: "all" };
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
 const complexityRank = { "小": 0, "中": 1, "大": 2 };
+function entryTags(entry) {
+  const field = (entry.fields ?? []).find(([key]) => ["标签", "tags", "tag"].includes(String(key).toLowerCase()));
+  return String(field?.[1] || "").split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean);
+}
+function tagOptions(entries) {
+  return [...new Set(entries.flatMap(entryTags))].sort((a, b) => a.localeCompare(b));
+}
+function syncTagFilter(select, entries, selected = "all") {
+  select.replaceChildren(new Option("全部标签", "all"));
+  for (const tag of tagOptions(entries)) select.appendChild(new Option(tag, tag));
+  select.value = selectedOptions(select, selected);
+}
+function selectedOptions(select, selected) {
+  return [...select.options].some((option) => option.value === selected) ? selected : "all";
+}
 
 function filterRequirements(entries, filters = reqFilters) {
   const filtered = entries
     .filter((entry) => filters.status === "all" || entry.status === filters.status)
-    .filter((entry) => filters.priority === "all" || entry.priority === filters.priority);
+    .filter((entry) => filters.priority === "all" || entry.priority === filters.priority)
+    .filter((entry) => filters.tag === "all" || entryTags(entry).includes(filters.tag));
   const complexityValue = (entry) => entry.complexity || "unassessed";
   const complexityFiltered = filtered.filter((entry) => filters.complexity === "all" || complexityValue(entry) === filters.complexity);
   // 手动模式(R-054 默认):文件顺序即开发顺序,不做任何排序。
@@ -2715,7 +2732,7 @@ function filterRequirements(entries, filters = reqFilters) {
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
 let dragReqId = null;
 function reqDragEnabled(filters = reqFilters) {
-  return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all";
+  return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all";
 }
 function docDragEnabled(kind, listEl, filterState) {
   if (kind === "req") return reqDragEnabled(filterState);
@@ -2745,6 +2762,12 @@ async function commitDocOrder(listEl, kind) {
 
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
+  if (kind === "defect") {
+    entries = entries
+      .filter((entry) => reqFilterState.status === "all" || entry.status === reqFilterState.status)
+      .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
+      .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag));
+  }
   // 展开状态是 DOM 局部的,重绘会全部收起;运行中会频繁重绘,必须跨重绘保留,
   // 否则用户刚展开的条目会被 agent 的一次状态更新弹回去。
   const expandedIds = new Set(
@@ -3120,31 +3143,35 @@ async function refreshWorkspace() {
 let documentsKind = "req";
 let latestDocsSnapshot = null;
 const documentFilters = {
-  req: { status: "all", priority: "all", complexity: "all", sort: "manual" },
-  defect: { status: "all", priority: "all" },
+  req: { status: "all", priority: "all", complexity: "all", tag: "all", sort: "manual" },
+  defect: { status: "all", priority: "all", tag: "all" },
 };
 const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
   defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
 };
-function syncDocumentFilters() {
+function syncDocumentFilters(snapshot) {
   const statusFilter = $("documents-status-filter");
   const priorityFilter = $("documents-priority-filter");
+  const tagFilter = $("documents-tag-filter");
   const filters = documentFilters[documentsKind];
+  const entries = documentsKind === "req" ? (snapshot.requirements ?? []) : (snapshot.defects ?? []);
   statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
   statusFilter.value = filters.status;
   priorityFilter.value = filters.priority ?? "all";
+  syncTagFilter(tagFilter, entries, filters.tag ?? "all");
 }
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
   const reqList = $("documents-req-list");
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
-  syncDocumentFilters();
+  syncDocumentFilters(snapshot);
     renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req, snapshot.archived_entries?.req ?? []);
   const defects = (snapshot.defects ?? [])
     .filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status)
-    .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority);
+    .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority)
+    .filter((entry) => documentFilters.defect.tag === "all" || entryTags(entry).includes(documentFilters.defect.tag));
   renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
   reqList.classList.toggle("hidden", documentsKind !== "req");
   defectList.classList.toggle("hidden", documentsKind !== "defect");
@@ -3153,8 +3180,10 @@ function renderDocuments(snapshot) {
 }
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
+  syncTagFilter($("req-tag-filter"), snapshot.requirements ?? [], reqFilters.tag);
+  syncTagFilter($("defect-tag-filter"), snapshot.defects ?? [], defectFilters.tag);
   renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
-  renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, { status: "all", priority: "all" }, snapshot.archived_entries?.defect ?? []);
+  renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, defectFilters, snapshot.archived_entries?.defect ?? []);
   renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
   renderDocuments(snapshot);
   renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, reqFilters, snapshot.archived_entries?.source ?? []);
@@ -3208,15 +3237,21 @@ $("documents-priority-filter").addEventListener("change", (event) => {
   documentFilters[documentsKind].priority = event.target.value;
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 });
-for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-sort", "sort"]]) {
+$("documents-tag-filter").addEventListener("change", (event) => {
+  documentFilters[documentsKind].tag = event.target.value;
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+});
+for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
     if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
     refreshDocs();
   });
 }
-$("req-complexity-filter").value = reqFilters.complexity;
-$("req-sort").value = reqFilters.sort;
+$("defect-tag-filter").addEventListener("change", (event) => {
+  defectFilters.tag = event.target.value;
+  refreshDocs();
+});
 
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
 function quickCaptureForm(kind, sectionId, noun) {
