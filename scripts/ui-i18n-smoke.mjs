@@ -25,6 +25,9 @@ const required = [
   ["function renderPermissionRules(data)", "权限设置动态入口"],
   ["测试中\": \"Testing", "设置测试状态翻译键"],
   ["连通性检查完成\": \"Connectivity check complete", "设置测试结果翻译键"],
+  ["function renderProviders()", "Provider 动态入口"],
+  ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
+  ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
   ["status-mode\").textContent = isRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
 ];

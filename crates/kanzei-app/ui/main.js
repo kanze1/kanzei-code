@@ -58,6 +58,7 @@ const I18N_EN = {
   "外部阻塞": "Externally blocked", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
   "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
   "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
+  "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -3310,25 +3311,25 @@ function renderProviders() {
       // 特殊认证(codex 订阅登录态):只展示,不可编辑成 key。
       const badge = document.createElement("span");
       badge.className = "key-state key-ok";
-      badge.textContent = `订阅登录态(${p.auth})`;
+      badge.textContent = `${t("订阅登录态")}(${p.auth})`;
       tdKey.appendChild(badge);
     } else {
       const envInput = document.createElement("input");
       envInput.value = p.apiKeyEnv ?? "";
-      envInput.placeholder = "环境变量名(可选)";
-      envInput.title = "读取该环境变量作为 key";
+      envInput.placeholder = t("环境变量名(可选)");
+      envInput.title = t("读取该环境变量作为 key");
       envInput.addEventListener("input", () => (p.apiKeyEnv = envInput.value));
       const keyInput = document.createElement("input");
       keyInput.type = "password";
       keyInput.value = p.apiKey ?? "";
-      keyInput.placeholder = "或直接粘贴 key";
-      keyInput.title = "直填优先于环境变量;明文存 kanzei.toml";
+      keyInput.placeholder = t("或直接粘贴 key");
+      keyInput.title = t("直填优先于环境变量;明文存 kanzei.toml");
       keyInput.addEventListener("input", () => (p.apiKey = keyInput.value));
       tdKey.append(envInput, keyInput);
       if (p.keyPresent !== null && p.keyPresent !== undefined) {
         const state = document.createElement("span");
         state.className = `key-state ${p.keyPresent ? "key-ok" : "key-missing"}`;
-        state.textContent = p.keyPresent ? "已设" : "缺失";
+        state.textContent = p.keyPresent ? t("已设") : t("缺失");
         tdKey.appendChild(state);
       }
     }
@@ -3336,13 +3337,13 @@ function renderProviders() {
     {
       const testBtn = document.createElement("button");
       testBtn.className = "ghost mini";
-      testBtn.textContent = "测试";
-      testBtn.setAttribute("aria-label", `测试 ${p.name || "provider"} 连接`);
+      testBtn.textContent = t("测试");
+      testBtn.setAttribute("aria-label", `${t("测试")} ${p.name || "provider"} ${t("连接")}`);
       const result = document.createElement("div");
       result.className = "key-test-result";
       testBtn.addEventListener("click", async () => {
         testBtn.disabled = true;
-        result.textContent = "测试中…";
+        result.textContent = `${t("测试中")}…`;
         try {
           result.textContent = await testProvider(p);
         } finally {
@@ -3357,7 +3358,7 @@ function renderProviders() {
     const ctxInput = document.createElement("input");
     ctxInput.type = "number";
     ctxInput.value = p.contextLimit ?? "";
-    ctxInput.placeholder = "(不限)";
+    ctxInput.placeholder = `(${t("不限")})`;
     ctxInput.addEventListener("input", () => {
       const n = parseInt(ctxInput.value, 10);
       p.contextLimit = Number.isFinite(n) && n > 0 ? n : null;
