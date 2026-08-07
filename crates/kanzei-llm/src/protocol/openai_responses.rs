@@ -307,13 +307,22 @@ impl ProtocolState for ResponsesState {
                 ));
             }
             "error" => {
-                return Err(LlmError::classify_provider(
-                    data["code"].as_str().unwrap_or("error").to_string(),
-                    data["message"]
-                        .as_str()
-                        .unwrap_or(&data.to_string())
-                        .to_string(),
-                ));
+                // Responses SSE 的 error 事件有两层包装:
+                // {"type":"error","error":{"code":...,"message":...}}。
+                // 不能把外层 type 当 provider kind,否则上下文超限会变成
+                // unknown/unknown,runner 无法进入压缩重试。
+                let err = data.get("error").unwrap_or(&data);
+                let kind = err["code"]
+                    .as_str()
+                    .or_else(|| err["type"].as_str())
+                    .or_else(|| data["code"].as_str())
+                    .unwrap_or("error");
+                let message = err["message"]
+                    .as_str()
+                    .or_else(|| data["message"].as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| data.to_string());
+                return Err(LlmError::classify_provider(kind.to_string(), message));
             }
             _ => {} // 大量细粒度事件(*.in_progress/*.done 等)按需忽略
         }
@@ -398,6 +407,20 @@ mod tests {
             .unwrap_err();
         assert!(err.is_rate_limited());
         assert!(!err.is_context_overflow());
+    }
+
+    #[test]
+    fn nested_error_context_length_exceeded_triggers_context_overflow() {
+        let mut s = ResponsesState::default();
+        let err = s
+            .step(&SseEvent {
+                event: String::new(),
+                data: r#"{"type":"error","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again.","param":"input","type":"invalid_request_error"},"sequence_number":2}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_context_overflow());
+        assert!(!err.is_rate_limited());
+        assert!(err.to_string().contains("Your input exceeds the context window"));
     }
 
     #[test]

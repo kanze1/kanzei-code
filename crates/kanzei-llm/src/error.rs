@@ -64,7 +64,7 @@ impl LlmError {
                 retry_after: None,
             };
         }
-        if is_overflow_message(&message) {
+        if is_overflow_message(&kind) || is_overflow_message(&message) {
             return LlmError::ContextOverflow { message };
         }
         LlmError::Provider { kind, message }
