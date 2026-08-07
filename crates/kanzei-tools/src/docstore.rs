@@ -10,6 +10,7 @@
 //! ```
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy)]
 pub struct DocKind {
@@ -106,22 +107,54 @@ impl Entry {
     }
 }
 
+#[derive(Debug, Clone)]
+enum TemplateLine {
+    Raw(String),
+    Field(String),
+}
+
+#[derive(Debug, Clone)]
+struct EntryTemplate {
+    id: String,
+    lines: Vec<TemplateLine>,
+}
+
+#[derive(Debug, Clone)]
+struct DocumentTemplate {
+    preamble: Vec<String>,
+    entries: Vec<EntryTemplate>,
+}
+
+#[derive(Debug, Clone)]
+struct ParsedDocument {
+    entries: Vec<Entry>,
+    template: DocumentTemplate,
+}
+
+
 pub struct DocStore {
     pub kind: &'static DocKind,
     pub path: PathBuf,
+    preserved: Arc<Mutex<Option<DocumentTemplate>>>,
+    preserved_archive: Arc<Mutex<Option<DocumentTemplate>>>,
 }
-
 impl DocStore {
     pub fn open(project_root: &Path, kind: &'static DocKind) -> Self {
         DocStore {
             kind,
             path: project_root.join(kind.rel_path),
+            preserved: Arc::new(Mutex::new(None)),
+            preserved_archive: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn load(&self) -> std::io::Result<Vec<Entry>> {
         match std::fs::read_to_string(&self.path) {
-            Ok(text) => Ok(parse(self.kind, &text)),
+            Ok(text) => {
+                let parsed = parse_document(self.kind, &text);
+                *self.preserved.lock().unwrap() = Some(parsed.template.clone());
+                Ok(parsed.entries)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e),
         }
@@ -131,7 +164,12 @@ impl DocStore {
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&self.path, render(self.kind, entries))
+        let template = self.preserved.lock().unwrap().clone();
+        let text = template
+            .as_ref()
+            .map(|template| render_with_template(self.kind, entries, template))
+            .unwrap_or_else(|| render(self.kind, entries));
+        std::fs::write(&self.path, text)
     }
 
     /// ID 分配扫活跃 + 归档两个文件:归档移走条目后编号绝不复用。
@@ -161,7 +199,11 @@ impl DocStore {
 
     pub fn load_archive(&self) -> std::io::Result<Vec<Entry>> {
         match std::fs::read_to_string(self.archive_file()) {
-            Ok(text) => Ok(parse(self.kind, &text)),
+            Ok(text) => {
+                let parsed = parse_document(self.kind, &text);
+                *self.preserved_archive.lock().unwrap() = Some(parsed.template.clone());
+                Ok(parsed.entries)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
             Err(e) => Err(e),
         }
@@ -180,7 +222,12 @@ impl DocStore {
         let mut archived = self.load_archive()?;
         let moved = terminal.len();
         archived.extend(terminal);
-        let text = render(self.kind, &archived).replacen(
+        let archive_template = self.preserved_archive.lock().unwrap().clone();
+        let archived_text = archive_template
+            .as_ref()
+            .map(|template| render_with_template(self.kind, &archived, template))
+            .unwrap_or_else(|| render(self.kind, &archived));
+        let text = archived_text.replacen(
             &format!("# {}\n", self.kind.heading),
             &format!("# {} Archive\n", self.kind.heading),
             1,
@@ -223,24 +270,49 @@ impl DocStore {
 
 /// 宽容解析:`## ` 开头即条目;ID 缺失/状态缺失都不报错(手改友好)。
 pub fn parse(kind: &DocKind, text: &str) -> Vec<Entry> {
+    parse_document(kind, text).entries
+}
+
+fn parse_document(kind: &DocKind, text: &str) -> ParsedDocument {
     let mut entries: Vec<Entry> = Vec::new();
+    let mut templates = Vec::new();
+    let mut preamble = Vec::new();
     for line in text.lines() {
         let trimmed = line.trim_end();
         if let Some(rest) = trimmed.strip_prefix("## ") {
-            entries.push(parse_heading(kind, rest));
+            let entry = parse_heading(kind, rest);
+            templates.push(EntryTemplate {
+                id: entry.id.clone(),
+                lines: Vec::new(),
+            });
+            entries.push(entry);
         } else if let Some(entry) = entries.last_mut() {
+            let template = templates.last_mut().expect("entry template exists");
             if let Some(bullet) = trimmed.trim_start().strip_prefix("- ") {
                 if let Some((key, value)) = bullet.split_once(':') {
+                    let key = key.trim().to_string();
                     entry
                         .fields
-                        .push((key.trim().to_string(), value.trim().to_string()));
+                        .push((key.clone(), value.trim().to_string()));
+                    template.lines.push(TemplateLine::Field(key));
+                } else {
+                    template.lines.push(TemplateLine::Raw(line.to_string()));
                 }
+            } else {
+                template.lines.push(TemplateLine::Raw(line.to_string()));
             }
+        } else {
+            preamble.push(line.to_string());
         }
     }
-    entries
+    ParsedDocument {
+        entries,
+        template: DocumentTemplate {
+            preamble,
+            entries: templates,
+        },
+    }
 }
-
 fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
     let mut title = rest.trim().to_string();
     let mut status = String::new();
@@ -320,6 +392,81 @@ pub fn render(kind: &DocKind, entries: &[Entry]) -> String {
         }
     }
     out
+}
+
+fn render_with_template(
+    kind: &DocKind,
+    entries: &[Entry],
+    template: &DocumentTemplate,
+) -> String {
+    let mut out = String::new();
+    if template.preamble.is_empty() {
+        out.push_str(&format!("# {}\n", kind.heading));
+    } else {
+        for line in &template.preamble {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    for entry in entries {
+        let entry_template = template.entries.iter().find(|candidate| candidate.id == entry.id);
+        if let Some(entry_template) = entry_template {
+            render_entry_with_template(&mut out, entry, entry_template);
+        } else {
+            render_entry(&mut out, entry);
+        }
+    }
+    out
+}
+
+fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryTemplate) {
+    render_heading(out, entry);
+    let mut used = vec![false; entry.fields.len()];
+    for line in &template.lines {
+        match line {
+            TemplateLine::Raw(raw) => {
+                out.push_str(raw);
+                out.push('\n');
+            }
+            TemplateLine::Field(key) => {
+                if let Some((index, (current_key, value))) = entry
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .find(|(index, (current_key, _))| {
+                        !used[*index] && current_key.eq_ignore_ascii_case(key)
+                    })
+                {
+                    used[index] = true;
+                    out.push_str(&format!("- {current_key}: {value}\n"));
+                }
+            }
+        }
+    }
+    for (index, (key, value)) in entry.fields.iter().enumerate() {
+        if !used[index] {
+            out.push_str(&format!("- {key}: {value}\n"));
+        }
+    }
+}
+
+fn render_entry(out: &mut String, entry: &Entry) {
+    render_heading(out, entry);
+    for (key, value) in &entry.fields {
+        out.push_str(&format!("- {key}: {value}\n"));
+    }
+}
+
+fn render_heading(out: &mut String, entry: &Entry) {
+    out.push('\n');
+    out.push_str(&format!("## {} {}", entry.id, entry.title));
+    if !entry.status.is_empty() {
+        out.push_str(&format!(" [{}]", entry.status));
+    }
+    if let Some(sev) = &entry.severity {
+        out.push_str(&format!(" ({sev})"));
+    }
+    out.push('\n');
 }
 
 #[cfg(test)]
@@ -410,6 +557,8 @@ mod tests {
         let store = DocStore {
             kind: &DEFECTS,
             path: "x".into(),
+            preserved: Arc::new(Mutex::new(None)),
+            preserved_archive: Arc::new(Mutex::new(None)),
         };
         let entries = vec![
             Entry {

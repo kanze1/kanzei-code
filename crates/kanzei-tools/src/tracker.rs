@@ -438,6 +438,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn add_preserves_handwritten_free_text_and_unknown_blocks() {
+        let dir = std::env::temp_dir().join(format!("kz-preserve-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let path = dir.join(REQUIREMENTS.rel_path);
+        std::fs::write(
+            &path,
+            "# Requirements\n\n手写说明: 不应被引擎删除\n- 就是个备注\n\n## R-001 已有条目 [todo]\n### 子标题\n```text\n用户代码块\n```\n- 验收: 原字段\n",
+        )
+        .unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let output = tool
+            .execute(json!({"action": "add", "title": "新条目"}), &ToolCtx::new(dir.clone()))
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        let saved = std::fs::read_to_string(path).unwrap();
+        for line in ["手写说明: 不应被引擎删除", "- 就是个备注", "### 子标题", "用户代码块"] {
+            assert!(saved.contains(line), "missing preserved line: {line}");
+        }
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn priority_update_reuses_existing_english_field() {
         let dir = std::env::temp_dir().join(format!("kz-priority-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();

@@ -23,7 +23,7 @@
 - 阶段: 1
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
-- 进展: 完成控制事件最小路由：ui/main.js 的 on() 对后台 session 的 kz:done/kz:error/kz:stopped 不再静默丢弃，改为刷新 process_list 并记录已路由日志；活动 session 继续走原有 done/error/stopped UI handler，kz:ask 继续进入按 session 队列。node --check ui/main.js 与 cargo test -p kanzei-app 12 项通过。仍缺真实前端 UI E2、控制事件按 session 的更细粒度状态投影验证。
+- 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录；先跳过 UI E2，继续下一条可做缺陷。
 
 ## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [fixing] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。
@@ -32,13 +32,13 @@
 - 验收: 运行状态按会话维度保存并在切换项目/进程时按目标会话重算;控制类事件不因非活动会话被丢弃;补切项目后运行结束能正确复位的验证。
 - 优先级: P0
 - refs: D-055 R-078
-- 进展: 完成工作区项目切换路径补齐：selectWorkspaceProject 在 previous !== path 时先 setRunning(false, "空闲")，加载目标项目后 await refreshProcesses()，与侧栏项目切换路径保持一致；目标项目运行态重新来自后端 process_list。node --check crates/kanzei-app/ui/main.js 通过。D-056 仍需真实切项目运行中 E2，主路径控制事件架构缺口关联 D-055/R-086。
+- 进展: 侧栏与工作区项目切换均已补 setRunning(false)+refreshProcesses，node --check 通过；剩余真实运行中切项目→终态 E2 阻塞于同一前端 UI harness 缺口，且控制事件架构归 D-055/R-086。记录后跳过，继续下一条可做缺陷。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 - 阶段: 1
 - 不变量: 界面状态:前端展示是后端会话状态的投影
 - 证据等级: E2+E3
 
-## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [open] (high)
+## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixing] (high)
 - 复现: 在 requirements.md 手写一条无冒号 bullet(如 `- 就是个备注`)或自由段落/### 子标题/代码块,随后让模型执行任意一次 req/defect 写操作(哪怕改的是别的条目),手改内容消失。
 - 根因: kanzei-tools/src/docstore.rs:225-242 的 parse 只保留 `## ` 标题和 `- key: value` 形式 bullet(`bullet.split_once(':')` 无 else 分支),其余一律丢弃;render(301-318)只写回保留部分。而 tracker.rs:76-82/153/227/268 的每一个写操作(add/update/close/reorder)都是 load → 改内存 → save 整文件重写。
 - 影响: 数据静默丢失,无任何提示;与 docstore 模块头"用户可任意编辑器手改"及"文档永远写不坏"的设计承诺直接相反——引擎恰恰是唯一会删内容的一方。当前仓库文件全部合规是因为都由引擎生成,掩盖了该缺陷。
@@ -47,6 +47,7 @@
 - 阶段: 1
 - 不变量: 配置与文档:写入保留未知字段和用户自由内容
 - 证据等级: E2
+- 进展: 完成 D-060 最小修复：DocStore load 现在同时建立 DocumentTemplate，记录条目内非规范行（自由段落、无冒号 bullet、###、代码块）及前置原文；save/active archive render 按条目 ID复用模板，在原位置回写未知行，并追加新增字段/条目，避免 tracker 整文件重写丢手改内容。新增 tracker::tests::add_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req add 后断言自由文本、无冒号 bullet、子标题、代码块均保留；cargo test -p kanzei-tools 20 项通过。仍需覆盖 update/close/reorder/archive 各写路径与并发写入。
 
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
