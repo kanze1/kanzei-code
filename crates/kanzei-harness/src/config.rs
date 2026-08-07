@@ -89,6 +89,22 @@ impl KanzeiConfig {
         Ok(config)
     }
 
+    /// 找出升级到结构化 bash 资源前遗留的裸命令规则；只读，不修改配置。
+    pub fn legacy_bash_rules(&self) -> Vec<&Rule> {
+        self.permissions
+            .rules
+            .iter()
+            .filter(|rule| {
+                rule.action == "bash"
+                    && !serde_json::from_str::<serde_json::Value>(&rule.resource)
+                        .ok()
+                        .is_some_and(|resource| {
+                            resource.get("command").is_some() && resource.get("workdir").is_some()
+                        })
+            })
+            .collect()
+    }
+
     pub fn fill_defaults(&mut self) {
         self.providers
             .entry("anthropic".into())
@@ -308,6 +324,30 @@ mod tests {
         assert_eq!(saved.permissions.rules[0].resource, resource);
         assert_eq!(saved.permissions.rules[0].effect, crate::permission::Effect::Allow);
         std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn legacy_bash_rules_are_detected_without_rewriting_config() {
+        let config: KanzeiConfig = toml::from_str(
+            r#"
+[[permissions.rules]]
+ action = "bash"
+ resource = "git status"
+ effect = "allow"
+[[permissions.rules]]
+ action = "bash"
+ resource = '{"command":"git status","workdir":"C:/project"}'
+ effect = "allow"
+[[permissions.rules]]
+ action = "write"
+ resource = "notes.md"
+ effect = "allow"
+"#,
+        )
+        .unwrap();
+        let legacy = config.legacy_bash_rules();
+        assert_eq!(legacy.len(), 1);
+        assert_eq!(legacy[0].resource, "git status");
+        assert_eq!(config.permissions.rules.len(), 3);
     }
     #[test]
     fn merge_layers() {

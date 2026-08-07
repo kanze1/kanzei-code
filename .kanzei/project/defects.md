@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 补充桌面 AlwaysAllow 持久化成功回归：persist_always_allow 成功时断言返回 AlwaysAllow 且返回项目配置路径；失败路径继续断言返回 Err。cargo test -p kanzei-app 9 项通过。桌面真实 UI→answer_ask→runner→bash E2 仍未完成，当前局部 helper 测试仅覆盖真实配置写入决策。
+- 进展: 桌面真实 UI E2 因无前端测试 harness 暂缓；本轮完成旧裸 bash 规则的只读识别与可见提示：KanzeiConfig::legacy_bash_rules 仅识别 action=bash 且非 command/workdir JSON 的旧规则，不改写配置；CLI 启动时 stderr 提示其将降级逐次询问，桌面 run_task 通过现有 kz:status 展示同样提示。新增配置检测回归；cargo test -p kanzei-harness -p kanzei -p kanzei-app 全部通过（29/3/9）。仍缺桌面真实 UI E2、正式迁移方案与并发写入证据。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
