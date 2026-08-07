@@ -117,17 +117,17 @@ impl Component for DevProfile {
         draft.context.insert(
             "dev/project-docs",
             source("dev/project-docs", |ctx: &ResolveCtx| {
-                let req = index_of(ctx, &REQUIREMENTS, "Requirements");
                 let def = index_of(ctx, &DEFECTS, "Defects");
+                let req = index_of(ctx, &REQUIREMENTS, "Requirements");
                 if req.is_none() && def.is_none() {
                     return Some(
                         "<project-docs>\n(empty — record requirements with `req add`, defects with `defect add`)\n</project-docs>".into(),
                     );
                 }
                 Some(format!(
-                    "<project-docs>\n{}{}Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
-                    req.map(|s| s + "\n").unwrap_or_default(),
+                    "<project-docs>\n{}{}Defects are the first development queue; inspect and resolve them before starting new requirements. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
                     def.map(|s| s + "\n").unwrap_or_default(),
+                    req.map(|s| s + "\n").unwrap_or_default(),
                 ))
             }),
         );
@@ -147,9 +147,10 @@ impl Component for DevProfile {
                          done (`req update <id> done`) — an unmarked finished requirement is a \
                          bug in your process. WIP limit: keep at most 2 requirements in doing; \
                          finish and close existing doing items before starting new ones. \
-                         Pick work TOP-DOWN from the requirements list: the list order IS the \
-                         user's intent (R-054) — take the first workable open item; priority \
-                         labels are background info, not the ordering. If NOTHING is workable \
+                         Pick work defect-first: inspect and resolve the first workable open \
+                         defect before selecting a requirement. After defects are clear, pick \
+                         work TOP-DOWN from the requirements list: the list order IS the user's \
+                         intent (R-054). Priority labels are background info, not the ordering. If NOTHING is workable \
                          (all blocked/waiting on外部), reply in PLAIN TEXT only — no tool \
                          calls, no 'still blocked' journal entries in goals, no empty commits; \
                          a text-only reply is the signal that stops the auto-continue loop. \
@@ -238,10 +239,14 @@ impl Component for ResearchProfile {
             source("research/docs", |ctx: &ResolveCtx| {
                 let src = index_of(ctx, &SOURCES, "Sources");
                 let fnd = index_of(ctx, &FINDINGS, "Findings");
+                let memory = std::fs::read_to_string(ctx.project_root.join(".kanzei/research/memory.md"))
+                    .ok()
+                    .map(|text| text.chars().take(5000).collect::<String>());
                 Some(format!(
-                    "<research-docs>\n{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs.\n</research-docs>",
+                    "<research-docs>\n{}{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Persist reusable conclusions in .kanzei/research/memory.md and include source IDs next to each claim.\n</research-docs>",
                     src.map(|s| s + "\n").unwrap_or_default(),
                     fnd.map(|s| s + "\n").unwrap_or_default(),
+                    memory.map(|text| format!("<memory>\n{text}\n</memory>\n")).unwrap_or_default(),
                 ))
             }),
         );

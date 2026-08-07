@@ -203,7 +203,9 @@ impl Tool for TrackerTool {
                     entry.severity = input.severity;
                 }
                 if let Some(priority) = input.priority {
-                    match entry.fields.iter_mut().find(|(key, _)| key == "优先级") {
+                    match entry.fields.iter_mut().find(|(key, _)| {
+                        key == "优先级" || key.eq_ignore_ascii_case("priority")
+                    }) {
                         Some((_, value)) => *value = priority,
                         None => entry.fields.push(("优先级".into(), priority)),
                     }
@@ -432,6 +434,32 @@ mod tests {
         assert!(out.is_error);
         let ids: Vec<String> = store.load().unwrap().iter().map(|e| e.id.clone()).collect();
         assert_eq!(ids, vec!["R-003", "R-001", "R-002"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn priority_update_reuses_existing_english_field() {
+        let dir = std::env::temp_dir().join(format!("kz-priority-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut item = entry("R-001");
+        item.fields.push(("priority".into(), "P2".into()));
+        store.save(&[item]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let output = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "priority": "P0"}),
+                &ToolCtx::new(dir.clone()),
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        let fields = &store.load().unwrap()[0].fields;
+        assert_eq!(fields, &[("priority".into(), "P0".into())]);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

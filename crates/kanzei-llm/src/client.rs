@@ -9,6 +9,12 @@ use crate::proxy::{build_http_client, ProxyConfig};
 use crate::request::LlmRequest;
 use crate::sse::SseParser;
 
+pub const MAX_TRANSPORT_RETRIES: u32 = 2;
+
+fn transport_retry_delay(attempt: u32) -> std::time::Duration {
+    std::time::Duration::from_millis(500 * attempt as u64)
+}
+
 #[derive(Debug, Clone)]
 pub struct Endpoint {
     pub base_url: String,
@@ -92,7 +98,21 @@ impl LlmClient {
         &self,
         route: &Route,
         request: &LlmRequest,
-    ) -> Result<impl Stream<Item = Result<LlmEvent, LlmError>> + Send + Unpin, LlmError> {
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError> {
+        self.stream_with_retry_notice(route, request, |_, _| {}).await
+    }
+
+    /// 与 [`stream`] 相同,但在流建立前发生临时网络错误时回调重试状态。
+    /// 回调只发生在请求尚未收到响应时;一旦流建立,后续读取错误绝不重放请求。
+    pub async fn stream_with_retry_notice<F>(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+        mut on_retry: F,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError>
+    where
+        F: FnMut(u32, std::time::Duration),
+    {
         let body = protocol::build_body(route.kind, request);
         let url = format!(
             "{}{}",
@@ -119,11 +139,12 @@ impl LlmClient {
                 .ok_or_else(|| LlmError::Config("request not clonable for retry".into()))?;
             match rb.send().await {
                 Ok(r) => break r,
-                Err(e) if attempt < 2 && (e.is_connect() || e.is_timeout() || e.is_request()) => {
+                Err(e) if attempt < MAX_TRANSPORT_RETRIES && (e.is_connect() || e.is_timeout()) => {
                     attempt += 1;
-                    tracing::warn!(attempt, error = %e, "transport error before stream, retrying");
-                    tokio::time::sleep(std::time::Duration::from_millis(500 * attempt as u64))
-                        .await;
+                    let delay = transport_retry_delay(attempt);
+                    on_retry(attempt, delay);
+                    tracing::warn!(attempt, delay_ms = delay.as_millis(), error = %e, "transport error before stream, retrying");
+                    tokio::time::sleep(delay).await;
                 }
                 Err(e) => return Err(LlmError::Transport(e)),
             }
@@ -149,5 +170,17 @@ impl LlmClient {
             }
         };
         Ok(Box::pin(stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{transport_retry_delay, MAX_TRANSPORT_RETRIES};
+
+    #[test]
+    fn transport_retry_is_bounded_and_uses_backoff() {
+        assert_eq!(MAX_TRANSPORT_RETRIES, 2);
+        assert_eq!(transport_retry_delay(1).as_millis(), 500);
+        assert_eq!(transport_retry_delay(2).as_millis(), 1000);
     }
 }

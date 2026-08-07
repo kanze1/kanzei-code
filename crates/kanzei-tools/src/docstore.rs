@@ -46,7 +46,7 @@ pub const DEFECTS: DocKind = DocKind {
     statuses: &["open", "fixing", "fixed", "wontfix"],
     terminal: &["fixed", "wontfix"],
     severities: Some(&["high", "medium", "low"]),
-    priorities: None,
+    priorities: Some(&["P0", "P1", "P2", "P3"]),
     bidirectional: false,
 };
 

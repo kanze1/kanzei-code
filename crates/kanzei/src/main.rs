@@ -181,6 +181,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::TaskProgress { text, .. } => {
             let _ = writeln!(stdout, "  \x1b[90m… {text}\x1b[0m");
         }
+        RunEvent::Retry { attempt, max, delay_ms } => {
+            let _ = writeln!(stdout, "\x1b[33m重试 {attempt}/{max},等待 {delay_ms}ms\x1b[0m");
+        }
         RunEvent::ToolEnd { ok, preview, .. } => {
             let mark = if ok {
                 "\x1b[32m✓\x1b[0m"

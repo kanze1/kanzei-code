@@ -12,7 +12,7 @@
         <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </div>
       <div class="activity-item" data-view="workspace" title="工作区">⌂</div>
-      <div class="activity-item" data-view="documents" title="需求与缺陷">☷</div>
+      <div class="activity-item" data-view="documents" title="需求与工作 / 缺陷">☷</div>
       <div class="activity-item" data-view="settings" title="设置">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </div>
@@ -30,7 +30,7 @@
         <div id="project-list" class="project-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="live" id="live-section">
-        <div class="section-title"><span>当前进展</span></div>
+        <div class="section-title"><span>当前状态</span></div>
         <div id="live-status">
           <div id="live-turn" class="live-row dim">空闲</div>
           <div id="live-focus" class="live-row hidden"></div>
@@ -41,6 +41,14 @@
       <div class="sidebar-section" data-collapse-key="queue" id="queue-section">
         <div class="section-title"><span>排队输入 <em id="queue-count"></em></span></div>
         <div id="queue-list" class="queue-list"></div>
+      </div>
+      <div class="sidebar-section" data-collapse-key="tests" id="tests-section">
+        <div class="section-title"><span>测试记录 <em id="test-count"></em></span><button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试">↻</button></div>
+        <div id="test-list" class="doc-list"></div>
+      </div>
+      <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
+        <div class="section-title"><span>隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异">↻</button></div>
+        <div id="worktree-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="goals">
         <div class="section-title">
@@ -55,13 +63,13 @@
       <div class="sidebar-section" data-collapse-key="conversations">
         <div class="section-title">
           <span>历史对话 <em id="conversation-count"></em></span>
-          <button id="chat-del" class="icon-btn" title="删除勾选的对话">🗑</button>
+          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话">🗑</button></span>
         </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="requirements" id="req-section">
         <div class="section-title">
-          <span>需求 <em id="req-count"></em></span>
+          <span>需求与工作 <em id="req-count"></em></span>
           <span>
             <select id="req-status-filter" class="doc-filter" title="按状态筛选">
               <option value="all">全部状态</option>
@@ -129,9 +137,12 @@
       <div id="view-chat" class="view active">
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
+          <nav id="process-tabs" aria-label="项目进程"></nav>
+          <button id="process-add" class="icon-btn" title="为当前项目新建独立进程">＋</button>
+          <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程">⑂</button>
+          <label id="process-subagent-wrap" title="只对当前进程启用/关闭只读子代理"><input type="checkbox" id="process-subagent" /> 子代理</label>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板">活动</button>
           <span class="spacer"></span>
-          <button id="continue-btn" class="ghost" title="让 agent 检查活跃目标并推进下一步">继续</button>
           <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」">
             <input type="checkbox" id="auto-continue" /> 鞭挞
           </label>
@@ -140,9 +151,6 @@
             <input type="checkbox" id="auto-stop-round" /> 本轮后停
           </label>
           <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" />
-          <label id="overnight-wrap" title="持久化连续推进偏好，重启后不会静默自动运行">
-            <input type="checkbox" id="overnight-mode" /> 过夜
-          </label>
           <span id="auto-status" class="dim"></span>
           <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
           <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
@@ -175,6 +183,11 @@
           <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
           <div id="attachments" class="attachments hidden"></div>
           <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
+          <div id="continue-panel">
+            <label for="continue-prompt">继续文案</label>
+            <textarea id="continue-prompt" rows="2" spellcheck="false"></textarea>
+            <button id="continue-btn" class="ghost" title="按下面的文案继续推进">继续</button>
+          </div>
           <div id="file-suggestions" class="file-suggestions hidden" role="listbox"></div>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
@@ -202,10 +215,10 @@
       <!-- 设置视图 -->
       <div id="view-documents" class="view">
         <div id="documents-scroll">
-          <h1>需求与缺陷</h1>
+          <h1>需求与工作 / 缺陷</h1>
           <p class="dim">独立管理页面：筛选、拖拽排序、详情和状态编辑会与侧栏同步。</p>
           <div class="documents-toolbar">
-            <button id="documents-tab-req" class="primary">需求</button>
+            <button id="documents-tab-req" class="primary">需求与工作</button>
             <button id="documents-tab-defect" class="ghost">缺陷</button>
             <select id="documents-status-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
             <select id="documents-priority-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
@@ -219,6 +232,11 @@
         <div id="settings-scroll">
           <h1>设置</h1>
           <p class="dim">写入全局 <code id="settings-path"></code>,项目级 .kanzei/kanzei.toml 会覆盖全局。</p>
+
+          <div class="form-row">
+            <label>界面语言</label>
+            <select id="language-select"><option value="zh">简体中文</option><option value="en">English</option></select>
+          </div>
 
           <h2>模型角色</h2>
           <div class="form-row">
@@ -257,6 +275,22 @@
               <option value="dev">dev 开发</option>
               <option value="research">research 研究</option>
             </select>
+          </div>
+
+          <h2>移动端桥接</h2>
+          <p class="dim">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
+          <div class="form-row">
+            <label>本机服务</label>
+            <button id="mobile-service-start" class="ghost">启动</button>
+            <button id="mobile-service-stop" class="danger hidden">停止并撤销</button>
+            <span id="mobile-service-status" class="dim"></span>
+          </div>
+          <div class="form-row">
+            <label>代理管理容器</label>
+            <input id="agent-container-id" placeholder="agent id" spellcheck="false" />
+            <button id="agent-container-create" class="ghost">创建</button>
+            <button id="agent-container-upgrade" class="ghost">升级到 2</button>
+            <button id="agent-container-rollback" class="ghost">回滚</button>
           </div>
 
           <h2>已记住的权限</h2>

@@ -18,6 +18,9 @@ pub struct RunnerConfig {
     pub max_tokens: u32,
 }
 
+/// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
+pub const MAX_TASKS_PER_TURN: usize = 8;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 pub struct SubagentRuntime {
@@ -101,6 +104,8 @@ pub enum RunEvent {
         text: String,
         trace: Option<TaskTrace>,
     },
+    /// 流建立前的临时网络错误重试,不会重放已建立流或工具副作用。
+    Retry { attempt: u32, max: u32, delay_ms: u128 },
     StepEnd {
         usage: Usage,
         reason: FinishReason,
@@ -254,7 +259,12 @@ pub fn run_once_with_parts<'a>(
         // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
         // 请求尚未建立时可以安全压缩本轮的旧工具轨迹并重试一次；重试上限
         // 是硬限制，避免超限错误造成死循环。流已经建立后不做重放，防止工具副作用重复执行。
-        let mut stream = match client.stream(route, &request).await {
+        let mut stream = match client
+            .stream_with_retry_notice(route, &request, |attempt, delay| {
+                on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
+            })
+            .await
+        {
             Err(error) if error.is_context_overflow() && !overflow_recovered => {
                 overflow_recovered = true;
                 compact_messages_for_retry(&mut messages);
@@ -262,7 +272,12 @@ pub fn run_once_with_parts<'a>(
                     messages: messages.clone(),
                     ..request
                 };
-                match client.stream(route, &retry_request).await {
+                match client
+                    .stream_with_retry_notice(route, &retry_request, |attempt, delay| {
+                        on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
+                    })
+                    .await
+                {
                     Err(error) if error.is_context_overflow() => {
                         // 第一次压缩仍可能被超大的 system/tool schema 或当前输入
                         // 拒绝；第二次只保留当前用户消息，且不再继续重试。
@@ -271,7 +286,11 @@ pub fn run_once_with_parts<'a>(
                             messages: messages.clone(),
                             ..retry_request
                         };
-                        client.stream(route, &final_request).await?
+                        client
+                            .stream_with_retry_notice(route, &final_request, |attempt, delay| {
+                                on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
+                            })
+                            .await?
                     }
                     result => result?,
                 }
@@ -369,18 +388,42 @@ pub fn run_once_with_parts<'a>(
         let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
             std::collections::HashMap::new();
         if let Some(rt) = subagent {
-            let task_calls: Vec<(String, serde_json::Value, String)> = calls
+            let mut task_calls: Vec<(String, serde_json::Value, String)> = calls
                 .iter()
                 .filter(|(_, name, _, _)| name == "task")
                 .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
                 .collect();
             if !task_calls.is_empty() {
+                let overflow = if task_calls.len() > MAX_TASKS_PER_TURN {
+                    task_calls.split_off(MAX_TASKS_PER_TURN)
+                } else {
+                    Vec::new()
+                };
                 for (id, input, raw) in &task_calls {
                     on_event(RunEvent::ToolStart {
                         id: id.clone(),
                         name: "task".into(),
                         summary: summarize_input(input, raw),
                     });
+                }
+                for (id, input, raw) in &overflow {
+                    on_event(RunEvent::ToolStart {
+                        id: id.clone(),
+                        name: "task".into(),
+                        summary: summarize_input(input, raw),
+                    });
+                    let output = kanzei_harness::ToolOutput::error(format!(
+                        "too many parallel subagent tasks; maximum per turn is {}",
+                        MAX_TASKS_PER_TURN
+                    ));
+                    on_event(RunEvent::ToolEnd {
+                        id: id.clone(),
+                        name: "task".into(),
+                        ok: false,
+                        preview: preview(&output.content),
+                        display: output.display.clone(),
+                    });
+                    task_results.insert(id.clone(), output);
                 }
                 // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
                 // 完成一个立刻报一个 ToolEnd——不再等最慢的,UI 全程有反馈。

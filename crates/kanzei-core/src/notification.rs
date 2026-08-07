@@ -38,6 +38,8 @@ pub struct AgentNotification {
     pub requires_action: bool,
     #[serde(default)]
     pub sequence: u64,
+    #[serde(default)]
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,6 +87,9 @@ impl InMemoryBroker {
             .or_default();
         *sequence += 1;
         notification.sequence = *sequence;
+        if notification.created_at == 0 {
+            notification.created_at = now_ms();
+        }
         self.notifications.push(notification.clone());
         notification
     }
@@ -139,6 +144,13 @@ impl InMemoryBroker {
     }
 }
 
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +177,7 @@ mod tests {
             summary: status.to_owned(),
             requires_action: false,
             sequence: 0,
+            created_at: 0,
         }
     }
 
@@ -244,14 +257,16 @@ mod tests {
     #[test]
     fn thread_replay_does_not_leak_notifications_between_threads() {
         let mut broker = InMemoryBroker::default();
-        broker.publish_notification(notification("evt_a", "running"));
+        let first_a = broker.publish_notification(notification("evt_a", "running"));
         let mut other = notification("evt_b", "failed");
         other.thread_id = "thread_b".to_owned();
-        broker.publish_notification(other.clone());
+        let published_other = broker.publish_notification(other.clone());
 
         let mut expected_a = notification("evt_a", "running");
         expected_a.sequence = 1;
+        expected_a.created_at = first_a.created_at;
         other.sequence = 1;
+        other.created_at = published_other.created_at;
         assert_eq!(
             broker.replay_notifications_for_thread("thread_a", 0, 10),
             vec![expected_a]

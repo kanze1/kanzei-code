@@ -6,6 +6,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -51,6 +53,61 @@ fn with_session_id(mut payload: serde_json::Value, session_id: &str) -> serde_js
 struct SessionRuntime {
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
+    running: Arc<AtomicBool>,
+    lifecycle: Arc<Mutex<()>>,
+    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+}
+
+#[derive(Debug, Clone)]
+struct ProcessHandle {
+    id: String,
+    origin_project: String,
+    project_dir: String,
+    worktree_path: Option<String>,
+    model: Arc<Mutex<Option<String>>>,
+    profile: Arc<Mutex<Option<String>>>,
+    subagent_enabled: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ProcessInfo {
+    id: String,
+    origin_project: String,
+    project_dir: String,
+    worktree_path: Option<String>,
+    session_id: String,
+    model: Option<String>,
+    profile: Option<String>,
+    subagent: bool,
+    running: bool,
+    label: String,
+}
+
+struct MobileService {
+    active: Arc<AtomicBool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct MobileServiceInfo {
+    address: String,
+    token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AgentContainerManifest {
+    agent_id: String,
+    version: String,
+    status: String,
+    permissions: Vec<String>,
+    updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct WorktreeInfo {
+    path: String,
+    branch: String,
+    files: Vec<String>,
+    clean: bool,
 }
 
 impl Default for SessionRuntime {
@@ -58,6 +115,9 @@ impl Default for SessionRuntime {
         Self {
             asks: Arc::new(Mutex::new(HashMap::new())),
             current_run: Arc::new(Mutex::new(None)),
+            running: Arc::new(AtomicBool::new(false)),
+            lifecycle: Arc::new(Mutex::new(())),
+            conversation: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -66,18 +126,74 @@ impl Default for SessionRuntime {
 struct AppState {
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     ask_seq: Arc<AtomicU64>,
-    running: Arc<AtomicBool>,
-    /// 串行化运行状态、输入 admission 与 drain 收尾，避免边界竞态。
-    lifecycle: Arc<Mutex<()>>,
-    running_project: Arc<Mutex<Option<String>>>,
-    /// 会话内多轮连续:按 session_id 保存各线程历史(M2 落盘前的内存态方案)。
-    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    processes: Arc<Mutex<HashMap<String, ProcessHandle>>>,
+    mobile_service: Arc<Mutex<Option<MobileService>>>,
 }
 
 fn normalized_project_root(path: &Path) -> PathBuf {
     let root = kanzei_harness::config::discover_project_root(path)
         .unwrap_or_else(|| path.to_path_buf());
     std::fs::canonicalize(&root).unwrap_or(root)
+}
+
+fn default_process_id(root: &Path) -> String {
+    format!("d|{}", root.display())
+}
+
+fn process_session_id(root: &Path, process_id: Option<&str>) -> String {
+    let base = kanzei_core::project_session_id(root);
+    let default_id = default_process_id(root);
+    match process_id.filter(|id| !id.is_empty() && *id != default_id) {
+        Some(id) => {
+            let prefix = id.split_once('|').map(|(prefix, _)| prefix).unwrap_or(id);
+            format!("{base}#{prefix}")
+        }
+        None => base,
+    }
+}
+
+fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHandle {
+    let id = default_process_id(root);
+    let mut processes = state.processes.lock().unwrap();
+    processes
+        .entry(id.clone())
+        .or_insert_with(|| ProcessHandle {
+            id: id.clone(),
+            origin_project: root.display().to_string(),
+            project_dir: root.display().to_string(),
+            worktree_path: None,
+            model: Arc::new(Mutex::new(None)),
+            profile: Arc::new(Mutex::new(None)),
+            subagent_enabled: Arc::new(AtomicBool::new(true)),
+        })
+        .clone()
+}
+
+fn process_info(state: &AppState, process: &ProcessHandle) -> ProcessInfo {
+    let root = PathBuf::from(&process.project_dir);
+    let session_id = process_session_id(&root, Some(&process.id));
+    let running = state
+        .runtimes
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
+    ProcessInfo {
+        id: process.id.clone(),
+        origin_project: process.origin_project.clone(),
+        project_dir: process.project_dir.clone(),
+        worktree_path: process.worktree_path.clone(),
+        session_id,
+        model: process.model.lock().unwrap().clone(),
+        profile: process.profile.lock().unwrap().clone(),
+        subagent: process.subagent_enabled.load(Ordering::SeqCst),
+        running,
+        label: if process.id.starts_with("d|") {
+            "默认".into()
+        } else {
+            process.id.split('|').next().unwrap_or("进程").into()
+        },
+    }
 }
 
 fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
@@ -168,7 +284,10 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 
 #[cfg(test)]
 mod update_tests {
-    use super::{pending_path, runtime_for, take_pending_ask, with_session_id, AppState, PendingAsk};
+    use super::{
+        default_process_id, pending_path, process_session_id, runtime_for, take_pending_ask,
+        with_session_id, AppState, PendingAsk,
+    };
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use tokio::sync::oneshot;
@@ -201,6 +320,21 @@ mod update_tests {
     fn session_id_does_not_change_non_object_payload() {
         let payload = with_session_id(serde_json::json!(null), "ses_test");
         assert_eq!(payload, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn process_sessions_are_isolated_but_default_keeps_legacy_id() {
+        let root = Path::new(r"C:\project");
+        let default_id = default_process_id(root);
+        assert_eq!(process_session_id(root, None), kanzei_core::project_session_id(root));
+        assert_eq!(
+            process_session_id(root, Some(&default_id)),
+            kanzei_core::project_session_id(root)
+        );
+        assert_ne!(
+            process_session_id(root, Some("p1|C:\\project")),
+            process_session_id(root, Some("p2|C:\\project"))
+        );
     }
 
     #[test]
@@ -287,7 +421,22 @@ fn main() {
             conversation_list,
             list_pending_inputs,
             cancel_input,
-            project_files
+            project_files,
+            process_list,
+            process_create,
+            process_update,
+            process_close,
+            worktree_create,
+            worktree_diff,
+            worktree_merge,
+            worktree_discard,
+            test_runs_snapshot,
+            test_run_record,
+            mobile_service_start,
+            mobile_service_stop,
+            agent_container_create,
+            agent_container_upgrade,
+            agent_container_rollback
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
@@ -329,6 +478,220 @@ fn save_prefs(prefs: &AppPrefs) {
         &path,
         serde_json::to_string_pretty(prefs).unwrap_or_default(),
     );
+}
+
+#[tauri::command]
+fn process_list(state: State<'_, AppState>, project_dir: String) -> Result<Vec<ProcessInfo>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let default = ensure_default_process(&state, &root);
+    let processes = state.processes.lock().unwrap();
+    let mut result = processes
+        .values()
+        .filter(|process| process.origin_project == root.display().to_string())
+        .map(|process| process_info(&state, process))
+        .collect::<Vec<_>>();
+    if !result.iter().any(|item| item.id == default.id) {
+        result.push(process_info(&state, &default));
+    }
+    result.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(result)
+}
+
+#[tauri::command]
+fn process_create(
+    state: State<'_, AppState>,
+    project_dir: String,
+    model: Option<String>,
+    profile: Option<String>,
+    subagent: Option<bool>,
+) -> Result<ProcessInfo, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    ensure_default_process(&state, &root);
+    let project = root.display().to_string();
+    let mut processes = state.processes.lock().unwrap();
+    let next = processes
+        .values()
+        .filter(|process| process.project_dir == project && process.id.starts_with("p"))
+        .filter_map(|process| process.id.split('|').next()?.strip_prefix('p')?.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0)
+        + 1;
+    let process = ProcessHandle {
+        id: format!("p{next}|{project}"),
+        origin_project: project.clone(),
+        project_dir: project,
+        worktree_path: None,
+        model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
+        profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
+        subagent_enabled: Arc::new(AtomicBool::new(subagent.unwrap_or(true))),
+    };
+    let info = process_info(&state, &process);
+    processes.insert(process.id.clone(), process);
+    Ok(info)
+}
+
+#[tauri::command]
+fn process_update(
+    state: State<'_, AppState>,
+    process_id: String,
+    model: Option<String>,
+    profile: Option<String>,
+    subagent: Option<bool>,
+) -> Result<ProcessInfo, String> {
+    let process = state
+        .processes
+        .lock()
+        .unwrap()
+        .get(&process_id)
+        .cloned()
+        .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+    if let Some(model) = model {
+        *process.model.lock().unwrap() = Some(model).filter(|value| !value.trim().is_empty());
+    }
+    if let Some(profile) = profile {
+        *process.profile.lock().unwrap() = Some(profile).filter(|value| !value.trim().is_empty());
+    }
+    if let Some(subagent) = subagent {
+        process.subagent_enabled.store(subagent, Ordering::SeqCst);
+    }
+    Ok(process_info(&state, &process))
+}
+
+#[tauri::command]
+fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(), String> {
+    let process = state
+        .processes
+        .lock()
+        .unwrap()
+        .get(&process_id)
+        .cloned()
+        .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+    let root = PathBuf::from(&process.project_dir);
+    let session_id = process_session_id(&root, Some(&process_id));
+    if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
+        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+            handle.abort();
+        }
+        runtime.asks.lock().unwrap().clear();
+        runtime.running.store(false, Ordering::SeqCst);
+    }
+    if process_id.starts_with("d|") {
+        *process.model.lock().unwrap() = None;
+        *process.profile.lock().unwrap() = None;
+        process.subagent_enabled.store(true, Ordering::SeqCst);
+    } else {
+        state.processes.lock().unwrap().remove(&process_id);
+    }
+    Ok(())
+}
+
+fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+    hidden_command("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("git 执行失败: {e}"))
+}
+
+fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, String> {
+    let output = worktree_command(worktree, &["branch", "--show-current"])?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        return Err(format!("工作树没有可合并分支: {}", worktree.display()));
+    }
+    if field == "branch" {
+        Ok(branch)
+    } else {
+        let _ = root;
+        Ok(branch)
+    }
+}
+
+fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, String> {
+    let worktree = std::fs::canonicalize(worktree_path)
+        .map_err(|e| format!("工作树不存在或无法解析: {e}"))?;
+    let parent = root
+        .parent()
+        .unwrap_or(root)
+        .canonicalize()
+        .unwrap_or_else(|_| root.parent().unwrap_or(root).to_path_buf());
+    if !worktree.starts_with(&parent) || worktree == root {
+        return Err("工作树必须位于项目同级目录,不能指向项目本身或外部路径".into());
+    }
+    Ok(worktree)
+}
+
+#[tauri::command]
+fn worktree_create(project_dir: String, name: String) -> Result<WorktreeInfo, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let safe_name: String = name
+        .trim()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') { ch } else { '-' })
+        .collect();
+    if safe_name.is_empty() {
+        return Err("工作树名称不能为空".into());
+    }
+    let parent = root.parent().unwrap_or(&root);
+    let worktree = parent.join(format!(".kanzei-worktree-{safe_name}"));
+    if worktree.exists() {
+        return Err(format!("工作树已存在: {}", worktree.display()));
+    }
+    let branch = format!("kanzei/thread-{safe_name}");
+    let output = worktree_command(&root, &[
+        "worktree", "add", "-b", &branch, &worktree.display().to_string(), "HEAD",
+    ])?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, files: Vec::new(), clean: true })
+}
+
+#[tauri::command]
+fn worktree_diff(project_dir: String, worktree_path: String) -> Result<WorktreeInfo, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    let branch = worktree_field(&root, &worktree, "branch")?;
+    let output = worktree_command(&root, &["-C", &worktree.display().to_string(), "status", "--porcelain"])?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let files = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, clean: files.is_empty(), files })
+}
+
+#[tauri::command]
+fn worktree_merge(project_dir: String, worktree_path: String) -> Result<String, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    let branch = worktree_field(&root, &worktree, "branch")?;
+    let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
+    if !check.status.success() {
+        return Err(format!("合并前冲突检测失败,双方改动已保留:\n{}", String::from_utf8_lossy(&check.stdout)));
+    }
+    let output = worktree_command(&root, &["merge", "--no-ff", &branch])?;
+    if !output.status.success() {
+        return Err(format!("合并未完成,请在主项目中解决并保留工作树:\n{}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(format!("已合并工作树分支 {branch};工作树仍保留,可检查后显式放弃"))
+}
+
+#[tauri::command]
+fn worktree_discard(project_dir: String, worktree_path: String) -> Result<String, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    let output = worktree_command(&root, &["worktree", "remove", &worktree.display().to_string()])?;
+    if !output.status.success() {
+        return Err(format!("工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(format!("已放弃工作树 {} 的工作目录;分支仍保留", worktree.display()))
 }
 
 #[tauri::command]
@@ -459,29 +822,36 @@ fn strip_verbatim(p: PathBuf) -> String {
     s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
 }
 
-fn open_project_store(project_dir: &str) -> Result<(kanzei_core::SessionStore, String), String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
-        .unwrap_or_else(|| PathBuf::from(project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
-        .map_err(|error| error.to_string())?;
+#[tauri::command]
+fn list_pending_inputs(
+    project_dir: String,
+    process_id: Option<String>,
+) -> Result<Vec<kanzei_core::AdmittedInput>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, process_id.as_deref());
     store
         .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|error| error.to_string())?;
-    Ok((store, session_id))
-}
-
-#[tauri::command]
-fn list_pending_inputs(project_dir: String) -> Result<Vec<kanzei_core::AdmittedInput>, String> {
-    let (store, session_id) = open_project_store(&project_dir)?;
+        .map_err(|e| e.to_string())?;
     store
         .list_pending_inputs(&session_id)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn cancel_input(project_dir: String, input_id: String) -> Result<bool, String> {
-    let (store, session_id) = open_project_store(&project_dir)?;
+fn cancel_input(
+    project_dir: String,
+    input_id: String,
+    process_id: Option<String>,
+) -> Result<bool, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, process_id.as_deref());
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
     let cancelled = store
         .cancel_input(&session_id, &input_id)
         .map_err(|error| error.to_string())?;
@@ -509,9 +879,9 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
         let session = store.create_session(&session_id, &root.display().to_string(), None)
             .map_err(|e| e.to_string())?;
-        let conversations = conversation_list(path.clone()).unwrap_or_default();
-        let pending = list_pending_inputs(path.clone()).unwrap_or_default();
-        let recent = conversation_trace_get(path.clone(), None).unwrap_or_default();
+        let conversations = conversation_list(path.clone(), None).unwrap_or_default();
+        let pending = list_pending_inputs(path.clone(), None).unwrap_or_default();
+        let recent = conversation_trace_get(path.clone(), None, None).unwrap_or_default();
         projects.push(json!({
             "path": path,
             "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name(path)),
@@ -539,6 +909,23 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
         DocStore::open(&root, kind)
             .load_archive()
             .map_or(0, |a| a.len())
+    };
+    let archived_entries = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
+        DocStore::open(&root, kind)
+            .load_archive()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| {
+                json!({
+                    "id": e.id,
+                    "title": e.title,
+                    "status": e.status,
+                    "severity": e.severity,
+                    "fields": e.fields,
+                    "closed": true,
+                })
+            })
+            .collect()
     };
     let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
         DocStore::open(&root, kind)
@@ -598,7 +985,140 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
             "source": archived(&SOURCES),
             "finding": archived(&FINDINGS),
         },
+        "archived_entries": {
+            "req": archived_entries(&REQUIREMENTS),
+            "defect": archived_entries(&DEFECTS),
+            "goal": archived_entries(&GOALS),
+            "source": archived_entries(&SOURCES),
+            "finding": archived_entries(&FINDINGS),
+        },
     })
+}
+
+const TEST_RUNS_REL: &str = ".kanzei/project/tests.md";
+const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
+
+fn parse_test_blocks(text: &str) -> Vec<(String, serde_json::Value)> {
+    text.split("\n## ")
+        .filter_map(|raw| {
+            let block = if raw.starts_with("## ") {
+                raw.to_string()
+            } else {
+                format!("## {raw}")
+            };
+            let header = block.lines().next()?.trim_start_matches("## ").trim();
+            let status_start = header.rfind('[')?;
+            let status_end = header[status_start..].find(']')? + status_start;
+            let status = header[status_start + 1..status_end].trim();
+            let before = header[..status_start].trim();
+            let (id, title) = before
+                .split_once(' ')
+                .map(|(id, title)| (id.to_string(), title.to_string()))
+                .unwrap_or_else(|| (before.to_string(), String::new()));
+            let fields = block
+                .lines()
+                .skip(1)
+                .filter_map(|line| line.trim().strip_prefix("- "))
+                .filter_map(|line| line.split_once(':'))
+                .map(|(key, value)| json!({ "key": key.trim(), "value": value.trim() }))
+                .collect::<Vec<_>>();
+            Some((
+                block.trim_end().to_string(),
+                json!({ "id": id, "title": title, "status": status, "fields": fields }),
+            ))
+        })
+        .collect()
+}
+
+fn read_test_records(path: &Path) -> Vec<(String, serde_json::Value)> {
+    std::fs::read_to_string(path)
+        .map(|text| parse_test_blocks(&text))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let active_path = root.join(TEST_RUNS_REL);
+    let archive_path = root.join(TEST_RUNS_ARCHIVE_REL);
+    let active = read_test_records(&active_path);
+    let mut live_blocks = Vec::new();
+    let mut archived_blocks = Vec::new();
+    for (block, record) in active {
+        let status = record["status"].as_str().unwrap_or_default();
+        if matches!(status, "passed" | "failed" | "skipped") {
+            archived_blocks.push(block);
+        } else {
+            live_blocks.push(block);
+        }
+    }
+    if !archived_blocks.is_empty() {
+        let mut archived_text = std::fs::read_to_string(&archive_path)
+            .unwrap_or_else(|_| "# Test Runs Archive\n".into());
+        for block in archived_blocks {
+            archived_text.push_str("\n\n");
+            archived_text.push_str(&block);
+        }
+        if let Some(parent) = archive_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&archive_path, archived_text).map_err(|e| e.to_string())?;
+        let active_text = if live_blocks.is_empty() {
+            "# Test Runs\n".to_string()
+        } else {
+            format!("# Test Runs\n\n{}\n", live_blocks.join("\n\n"))
+        };
+        std::fs::write(&active_path, active_text).map_err(|e| e.to_string())?;
+    }
+    let live = read_test_records(&active_path)
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect::<Vec<_>>();
+    let archived = read_test_records(&archive_path)
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect::<Vec<_>>();
+    Ok(json!({
+        "active": live,
+        "archived": archived,
+        "path": active_path.display().to_string(),
+        "archive_path": archive_path.display().to_string(),
+    }))
+}
+
+#[tauri::command]
+fn test_run_record(
+    project_dir: String,
+    title: String,
+    status: String,
+    command: Option<String>,
+    summary: Option<String>,
+) -> Result<serde_json::Value, String> {
+    if !matches!(status.as_str(), "running" | "passed" | "failed" | "skipped") {
+        return Err("测试状态必须是 running、passed、failed 或 skipped".into());
+    }
+    let root = normalized_project_root(Path::new(&project_dir));
+    let path = root.join(TEST_RUNS_REL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let id = format!(
+        "T-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs()
+    );
+    let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Test Runs\n".into());
+    text.push_str(&format!("\n\n## {id} {} [{status}]\n", title.trim()));
+    if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
+        text.push_str(&format!("- 命令: {}\n", command.trim()));
+    }
+    if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
+        text.push_str(&format!("- 摘要: {}\n", summary.trim()));
+    }
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    test_runs_snapshot(project_dir)
 }
 
 fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
@@ -1056,6 +1576,7 @@ async fn provider_test(
     api_key_env: Option<String>,
     api_key: Option<String>,
     auth: Option<String>,
+    proxy: Option<String>,
 ) -> Result<String, String> {
     if matches!(auth.as_deref(), Some("codex") | Some("claude")) {
         return Ok("订阅登录态通道,无需 key 测试".into());
@@ -1065,7 +1586,8 @@ async fn provider_test(
         .or_else(|| api_key_env.as_deref().and_then(|e| std::env::var(e).ok()))
         .filter(|k| !k.trim().is_empty());
     let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
-    let proxy = match config.proxy.as_deref() {
+    let proxy_value = proxy.or(config.proxy);
+    let proxy = match proxy_value.as_deref() {
         Some("off") => ProxyConfig::Disabled,
         Some("env") | None => ProxyConfig::Env,
         Some(p) => ProxyConfig::Explicit(p.to_string()),
@@ -1191,6 +1713,7 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
         "defect" => root.join(kanzei_tools::docstore::DEFECTS.rel_path),
         "goal" => root.join(kanzei_tools::docstore::GOALS.rel_path),
         "conventions" => root.join(CONVENTIONS_REL),
+        "architecture" => root.join(".kanzei/project/architecture/README.md"),
         // 归档文件:req-archive / defect-archive / goal-archive
         "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
         "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
@@ -1257,6 +1780,236 @@ fn hidden_command(program: &str) -> Command {
         command.creation_flags(0x0800_0000);
     }
     command
+}
+
+fn mobile_json_response(status: &str, body: &serde_json::Value) -> Vec<u8> {
+    let body = serde_json::to_vec(body).unwrap_or_else(|_| b"{}".to_vec());
+    format!(
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes()
+    .into_iter()
+    .chain(body)
+    .collect()
+}
+
+fn mobile_query(path: &str, key: &str) -> Option<String> {
+    path.split('?')
+        .nth(1)?
+        .split('&')
+        .filter_map(|part| part.split_once('='))
+        .find(|(name, _)| *name == key)
+        .map(|(_, value)| value.replace('+', " "))
+}
+
+fn mobile_authorized(request: &str, token: &str) -> bool {
+    request.lines().any(|line| {
+        line.to_ascii_lowercase()
+            .strip_prefix("authorization: bearer ")
+            .is_some_and(|value| value.trim() == token)
+    })
+}
+
+fn handle_mobile_connection(mut stream: TcpStream, project_root: PathBuf, token: String) {
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let mut buffer = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    let header_end = loop {
+        let Ok(count) = stream.read(&mut chunk) else { return };
+        if count == 0 { return; }
+        buffer.extend_from_slice(&chunk[..count]);
+        if let Some(position) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
+        }
+        if buffer.len() > 65_536 { return; }
+    };
+    let request_head = String::from_utf8_lossy(&buffer[..header_end]).to_string();
+    if !mobile_authorized(&request_head, &token) {
+        let _ = stream.write_all(&mobile_json_response("401 Unauthorized", &json!({"error": "device_revoked_or_unauthorized"})));
+        return;
+    }
+    let request_line = request_head.lines().next().unwrap_or_default();
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let path = parts.next().unwrap_or_default();
+    let content_length = request_head
+        .lines()
+        .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(str::to_owned))
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    while buffer.len() < header_end + content_length {
+        let Ok(count) = stream.read(&mut chunk) else { return };
+        if count == 0 { return; }
+        buffer.extend_from_slice(&chunk[..count]);
+    }
+    let body = &buffer[header_end..header_end + content_length];
+    let state_path = kanzei_core::project_state_path(&project_root);
+    let response = match (method, path.split('?').next().unwrap_or_default()) {
+        ("GET", "/health") => mobile_json_response("200 OK", &json!({"status": "ok", "transport": "local_http"})),
+        ("GET", "/v1/notifications") => {
+            let Some(thread_id) = mobile_query(path, "thread_id") else {
+                let _ = stream.write_all(&mobile_json_response("400 Bad Request", &json!({"error": "thread_id_required"})));
+                return;
+            };
+            let device_id = mobile_query(path, "device_id").unwrap_or_else(|| "paired-device".into());
+            let cursor = mobile_query(path, "cursor")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or_else(|| kanzei_core::SessionStore::open(&state_path).ok()
+                    .and_then(|store| store.delivery_cursor(&device_id, &thread_id).ok())
+                    .unwrap_or(0));
+            match kanzei_core::SessionStore::open(&state_path)
+                .and_then(|store| {
+                    let events = store.replay_notifications(&thread_id, cursor, 100)?;
+                    if let Some(last) = events.last() {
+                        store.set_delivery_cursor(&device_id, &thread_id, last.sequence)?;
+                    }
+                    Ok(events)
+                }) {
+                Ok(events) => mobile_json_response("200 OK", &json!({"events": events, "cursor": events.last().map(|event| event.sequence).unwrap_or(cursor)})),
+                Err(error) => mobile_json_response("500 Internal Server Error", &json!({"error": error.to_string()})),
+            }
+        }
+        ("POST", "/v1/messages") => {
+            let payload: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+            let Some(thread_id) = payload.get("thread_id").and_then(|value| value.as_str()) else {
+                let _ = stream.write_all(&mobile_json_response("400 Bad Request", &json!({"error": "thread_id_required"})));
+                return;
+            };
+            match kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+                store.create_session(&thread_id, &project_root.display().to_string(), None)?;
+                store.append_event(&thread_id, "mobile.message", &payload)?;
+                Ok(())
+            }) {
+                Ok(()) => mobile_json_response("202 Accepted", &json!({"accepted": true})),
+                Err(error) => mobile_json_response("500 Internal Server Error", &json!({"error": error.to_string()})),
+            }
+        }
+        _ => mobile_json_response("404 Not Found", &json!({"error": "not_found"})),
+    };
+    let _ = stream.write_all(&response);
+}
+
+#[tauri::command]
+fn mobile_service_start(
+    state: State<'_, AppState>,
+    project_dir: String,
+    port: Option<u16>,
+) -> Result<MobileServiceInfo, String> {
+    if state.mobile_service.lock().unwrap().is_some() {
+        return Err("移动端桥接服务已经启动".into());
+    }
+    let root = normalized_project_root(Path::new(&project_dir));
+    let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))
+        .map_err(|e| format!("移动端桥接服务启动失败: {e}"))?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("设置本机服务非阻塞失败: {e}"))?;
+    let address = listener.local_addr().map_err(|e| e.to_string())?.to_string();
+    let token = format!(
+        "kz-mobile-{}-{}",
+        std::process::id(),
+        SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos()
+    );
+    let active = Arc::new(AtomicBool::new(true));
+    let thread_active = active.clone();
+    let thread_root = root.clone();
+    let thread_token = token.clone();
+    std::thread::spawn(move || {
+        while thread_active.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((stream, _)) => handle_mobile_connection(stream, thread_root.clone(), thread_token.clone()),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    let info = MobileServiceInfo { address: address.clone(), token: token.clone() };
+    *state.mobile_service.lock().unwrap() = Some(MobileService { active });
+    Ok(info)
+}
+
+#[tauri::command]
+fn mobile_service_stop(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(service) = state.mobile_service.lock().unwrap().take() {
+        service.active.store(false, Ordering::SeqCst);
+        Ok(())
+    } else {
+        Err("移动端桥接服务当前未启动".into())
+    }
+}
+
+fn agent_container_path(agent_id: &str) -> Result<PathBuf, String> {
+    let safe: String = agent_id
+        .trim()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') { ch } else { '-' })
+        .collect();
+    if safe.is_empty() {
+        return Err("agent_id 不能为空".into());
+    }
+    Ok(dirs::home_dir()
+        .unwrap_or_default()
+        .join(".kanzei")
+        .join("agent-containers")
+        .join(safe)
+        .join("manifest.json"))
+}
+
+fn read_agent_container(agent_id: &str) -> Result<(PathBuf, AgentContainerManifest), String> {
+    let path = agent_container_path(agent_id)?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读取代理容器失败: {e}"))?;
+    let manifest = serde_json::from_str(&text).map_err(|e| format!("代理容器清单损坏: {e}"))?;
+    Ok((path, manifest))
+}
+
+#[tauri::command]
+fn agent_container_create(agent_id: String) -> Result<AgentContainerManifest, String> {
+    let path = agent_container_path(&agent_id)?;
+    if path.exists() {
+        return Err(format!("代理容器已存在: {}", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let manifest = AgentContainerManifest {
+        agent_id: agent_id.trim().to_owned(),
+        version: "1".into(),
+        status: "ready".into(),
+        permissions: vec!["read".into()],
+        updated_at: SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs() as i64,
+    };
+    std::fs::write(&path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    Ok(manifest)
+}
+
+#[tauri::command]
+fn agent_container_upgrade(agent_id: String, version: String) -> Result<AgentContainerManifest, String> {
+    let (path, mut manifest) = read_agent_container(&agent_id)?;
+    let version = version.trim();
+    if version.is_empty() {
+        return Err("升级版本不能为空".into());
+    }
+    let backup = path.with_extension("json.previous");
+    std::fs::copy(&path, &backup).map_err(|e| format!("保存升级回滚点失败: {e}"))?;
+    manifest.version = version.to_owned();
+    manifest.updated_at = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs() as i64;
+    std::fs::write(&path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("写入升级清单失败: {e}"))?;
+    Ok(manifest)
+}
+
+#[tauri::command]
+fn agent_container_rollback(agent_id: String) -> Result<AgentContainerManifest, String> {
+    let (path, _) = read_agent_container(&agent_id)?;
+    let backup = path.with_extension("json.previous");
+    let text = std::fs::read_to_string(&backup).map_err(|e| format!("没有可用回滚点: {e}"))?;
+    let manifest: AgentContainerManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    Ok(manifest)
 }
 
 /// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
@@ -1487,10 +2240,10 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
 
 /// 开新对话:清空会话内多轮历史,并写入空的持久化投影。
 #[tauri::command]
-fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result<(), String> {
+fn conversation_clear(state: State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<(), String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
@@ -1503,7 +2256,7 @@ fn conversation_clear(state: State<'_, AppState>, project_dir: String) -> Result
             &json!({ "messages": [] }),
         )
         .map_err(|e| e.to_string())?;
-    state
+    runtime_for(&state, &session_id)
         .conversation
         .lock()
         .unwrap()
@@ -1516,17 +2269,18 @@ fn conversation_get(
     state: State<'_, AppState>,
     project_dir: String,
     sequence: Option<i64>,
+    process_id: Option<String>,
 ) -> Result<Vec<kanzei_llm::Message>, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     let messages = recover_messages_at(&store, &session_id, sequence).map_err(|e| e.to_string())?;
-    state
+    runtime_for(&state, &session_id)
         .conversation
         .lock()
         .unwrap()
@@ -1538,10 +2292,11 @@ fn conversation_get(
 fn conversation_trace_get(
     project_dir: String,
     sequence: Option<i64>,
+    process_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
@@ -1572,10 +2327,10 @@ fn conversation_trace_get(
 }
 
 #[tauri::command]
-fn conversation_list(project_dir: String) -> Result<Vec<serde_json::Value>, String> {
+fn conversation_list(project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
@@ -1636,10 +2391,10 @@ fn conversation_list(project_dir: String) -> Result<Vec<serde_json::Value>, Stri
 
 /// 批量删除历史对话快照(只删 conversation.updated,不动调度事件)。
 #[tauri::command]
-fn conversation_delete(project_dir: String, sequences: Vec<i64>) -> Result<usize, String> {
+fn conversation_delete(project_dir: String, sequences: Vec<i64>, process_id: Option<String>) -> Result<usize, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let session_id = kanzei_core::project_session_id(&root);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
     store
@@ -1668,59 +2423,89 @@ fn app_info() -> serde_json::Value {
 }
 
 #[tauri::command]
-fn stop_run(window: Window, state: State<'_, AppState>, project_dir: Option<String>) {
-    let _lifecycle = state.lifecycle.lock().unwrap();
+fn stop_run(
+    window: Window,
+    state: State<'_, AppState>,
+    project_dir: Option<String>,
+    process_id: Option<String>,
+) {
     let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| {
         normalized_project_root(&cwd)
     });
-    let can_stop = match (&target_project, state.running_project.lock().unwrap().as_ref()) {
-        (None, _) => true,
-        (Some(_), None) => false,
-        (Some(target), Some(running)) => PathBuf::from(running) == *target,
-    };
-    if !can_stop {
-        let _ = window.emit("kz:error", json!({ "message": "目标项目当前没有可停止的运行" }));
-        return;
-    }
     let target_session = target_project
         .as_ref()
-        .map(|root| kanzei_core::project_session_id(root));
+        .map(|root| process_session_id(root, process_id.as_deref()));
     let runtimes: Vec<Arc<SessionRuntime>> = state
         .runtimes
         .lock()
         .unwrap()
         .iter()
-        .filter(|(session_id, _)| target_session.as_ref().map_or(true, |target| target == *session_id))
+        .filter(|(session_id, runtime)| {
+            target_session.as_ref().map_or(true, |target| target == *session_id)
+                && runtime.running.load(Ordering::SeqCst)
+        })
         .map(|(_, runtime)| runtime.clone())
         .collect();
+    if runtimes.is_empty() {
+        let _ = window.emit(
+            "kz:error",
+            with_session_id(
+                json!({ "message": "目标项目当前没有可停止的运行" }),
+                target_session.as_deref().unwrap_or(""),
+            ),
+        );
+        return;
+    }
     for runtime in runtimes {
         if let Some(handle) = runtime.current_run.lock().unwrap().take() {
             handle.abort();
         }
         runtime.asks.lock().unwrap().clear();
+        runtime.running.store(false, Ordering::SeqCst);
     }
-    state.running.store(false, Ordering::SeqCst);
-    *state.running_project.lock().unwrap() = None;
 
     let cancelled = target_project.map(|root| {
-        let session_id = kanzei_core::project_session_id(&root);
+        let session_id = target_session
+            .clone()
+            .unwrap_or_else(|| kanzei_core::project_session_id(&root));
         let state_path = kanzei_core::project_state_path(&root);
         kanzei_core::SessionStore::open(&state_path)
             .and_then(|store| store.cancel_pending_inputs(&session_id))
     });
     match cancelled.transpose() {
         Ok(Some(count)) => {
-            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": count }));
+            let _ = window.emit(
+                "kz:stopped",
+                with_session_id(
+                    json!({ "cancelled_queue": count }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
         }
         Ok(None) => {
-            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": 0 }));
+            let _ = window.emit(
+                "kz:stopped",
+                with_session_id(
+                    json!({ "cancelled_queue": 0 }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
         }
         Err(error) => {
             let _ = window.emit(
                 "kz:error",
-                json!({ "message": format!("停止时清理排队输入失败: {error}") }),
+                with_session_id(
+                    json!({ "message": format!("停止时清理排队输入失败: {error}") }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
             );
-            let _ = window.emit("kz:stopped", json!({ "cancelled_queue": 0 }));
+            let _ = window.emit(
+                "kz:stopped",
+                with_session_id(
+                    json!({ "cancelled_queue": 0 }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
         }
     }
 }
@@ -1733,16 +2518,39 @@ fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> 
     }
 }
 
+fn append_run_notification(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    status: &str,
+    summary: impl Into<String>,
+    requires_action: bool,
+) -> anyhow::Result<()> {
+    let sequence = store.next_notification_sequence(session_id)?;
+    let notification = kanzei_core::AgentNotification {
+        event_id: format!("mobile_{session_id}_{sequence}"),
+        thread_id: session_id.to_string(),
+        agent_id: "primary".into(),
+        kind: "agent_status_changed".into(),
+        status: status.into(),
+        summary: summary.into(),
+        requires_action,
+        sequence,
+        created_at: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
+    };
+    store.append_notification(&notification)?;
+    Ok(())
+}
+
 fn admit_input(
     project_dir: &str,
+    session_id: &str,
     prompt: &str,
     delivery: kanzei_core::Delivery,
 ) -> anyhow::Result<kanzei_core::AdmittedInput> {
-    let project_root = PathBuf::from(project_dir);
-    let session_id = kanzei_core::project_session_id(&project_root);
+    let project_root = normalized_project_root(Path::new(project_dir));
     let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
-    store.create_session(&session_id, project_dir, None)?;
+    store.create_session(&session_id, &project_root.display().to_string(), None)?;
     let input_id = format!(
         "input_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
@@ -1756,9 +2564,8 @@ fn admit_input(
     Ok(input)
 }
 
-fn promote_next_input(project_dir: &str) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
-    let project_root = PathBuf::from(project_dir);
-    let session_id = kanzei_core::project_session_id(&project_root);
+fn promote_next_input(project_dir: &str, session_id: &str) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
+    let project_root = normalized_project_root(Path::new(project_dir));
     let state_path = kanzei_core::project_state_path(&project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
     let Some(input) = store.promote_next_input(&session_id)? else {
@@ -1783,40 +2590,53 @@ async fn run_prompt(
     model: Option<String>,
     delivery: Option<String>,
     attachments: Option<Vec<PromptAttachment>>,
+    process_id: Option<String>,
 ) -> Result<(), String> {
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     let project_root = normalized_project_root(Path::new(&project_dir));
-    let normalized_project_dir = project_root.display().to_string();
-    let lifecycle = state.lifecycle.clone();
+    let process = if let Some(process_id) = process_id.as_deref() {
+        let process = state
+            .processes
+            .lock()
+            .unwrap()
+            .get(process_id)
+            .cloned()
+            .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+        if process.project_dir != project_root.display().to_string() {
+            return Err("进程不属于当前项目".into());
+        }
+        process
+    } else {
+        ensure_default_process(&state, &project_root)
+    };
+    let session_id = process_session_id(&project_root, Some(&process.id));
+    let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
+    let model = model.or_else(|| process.model.lock().unwrap().clone());
+    let subagent_enabled = process.subagent_enabled.load(Ordering::SeqCst);
+    let runtime = runtime_for(&state, &session_id);
+    let _lifecycle = runtime.lifecycle.lock().unwrap();
     {
-        let _lifecycle = lifecycle.lock().unwrap();
-        if state.running.load(Ordering::SeqCst) {
-            if state.running_project.lock().unwrap().as_deref() != Some(normalized_project_dir.as_str()) {
-                return Err("已有其他项目的任务在运行".into());
-            }
+        if runtime.running.load(Ordering::SeqCst) {
             if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
                 return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
             }
-            let queued = admit_input(&project_dir, &prompt, delivery).map_err(|e| e.to_string())?;
+            let queued = admit_input(&project_dir, &session_id, &prompt, delivery).map_err(|e| e.to_string())?;
             let _ = window.emit(
                 "kz:status",
-                json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
+                with_session_id(
+                    json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }),
+                    &session_id,
+                ),
             );
             return Ok(());
         }
-        state.running.store(true, Ordering::SeqCst);
-        *state.running_project.lock().unwrap() = Some(
-            normalized_project_dir.clone(),
-        );
+        runtime.running.store(true, Ordering::SeqCst);
     }
-    let project_root = normalized_project_root(Path::new(&project_dir));
-    let session_id = kanzei_core::project_session_id(&project_root);
-    let runtime = runtime_for(&state, &session_id);
     let asks = runtime.asks.clone();
     let ask_seq = state.ask_seq.clone();
-    let running = state.running.clone();
-    let running_project = state.running_project.clone();
-    let conversation = state.conversation.clone();
+    let running = runtime.running.clone();
+    let lifecycle = runtime.lifecycle.clone();
+    let conversation = runtime.conversation.clone();
 
     let runtime_for_task = runtime.clone();
     let handle = tauri::async_runtime::spawn(async move {
@@ -1831,6 +2651,8 @@ async fn run_prompt(
                 next_prompt,
                 next_attachments.take(),
                 project_dir.clone(),
+                session_id.clone(),
+                subagent_enabled,
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
@@ -1850,28 +2672,31 @@ async fn run_prompt(
                 } else {
                     ""
                 };
-                let _ = window.emit("kz:error", json!({ "message": format!("{message}{hint}") }));
+                let _ = window.emit(
+                    "kz:error",
+                    with_session_id(json!({ "message": format!("{message}{hint}") }), &session_id),
+                );
             }
             if result.is_err() {
                 let _lifecycle = lifecycle.lock().unwrap();
                 running.store(false, Ordering::SeqCst);
-                *running_project.lock().unwrap() = None;
                 break;
             }
             let next_input = {
                 let _lifecycle = lifecycle.lock().unwrap();
-                match promote_next_input(&project_dir) {
+                match promote_next_input(&project_dir, &session_id) {
                     Ok(input) => {
                         if input.is_none() {
                             running.store(false, Ordering::SeqCst);
-                            *running_project.lock().unwrap() = None;
                         }
                         input
                     }
                     Err(error) => {
-                        let _ = window.emit("kz:error", json!({ "message": error.to_string() }));
+                        let _ = window.emit(
+                            "kz:error",
+                            with_session_id(json!({ "message": error.to_string() }), &session_id),
+                        );
                         running.store(false, Ordering::SeqCst);
-                        *running_project.lock().unwrap() = None;
                         None
                     }
                 }
@@ -1882,7 +2707,10 @@ async fn run_prompt(
             next_prompt = input.prompt.clone();
             let _ = window.emit(
                 "kz:status",
-                json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }),
+                with_session_id(
+                    json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }),
+                    &session_id,
+                ),
             );
         }
         // 自然完成/失败时释放会话容器中的句柄;stop_run abort 后则由 stop 路径取走。
@@ -1890,7 +2718,7 @@ async fn run_prompt(
     });
     *runtime.current_run.lock().unwrap() = Some(handle);
     // spawn 可能在句柄安装前快速结束,避免把已结束句柄重新放回容器。
-    if !state.running.load(Ordering::SeqCst) {
+    if !runtime.running.load(Ordering::SeqCst) {
         runtime.current_run.lock().unwrap().take();
     }
     Ok(())
@@ -1933,6 +2761,8 @@ async fn run_task(
     prompt: String,
     attachments: Option<Vec<PromptAttachment>>,
     project_dir: String,
+    session_id: String,
+    subagent_enabled: bool,
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
@@ -1942,7 +2772,10 @@ async fn run_task(
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
-        let _ = window.emit("kz:status", json!({ "stage": name, "detail": detail }));
+        let _ = window.emit(
+            "kz:status",
+            with_session_id(json!({ "stage": name, "detail": detail }), &session_id),
+        );
     };
 
     let cwd = PathBuf::from(&project_dir);
@@ -2013,7 +2846,6 @@ async fn run_task(
     };
     let ctx = ToolCtx { cwd, project_root };
 
-    let session_id = kanzei_core::project_session_id(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
@@ -2044,6 +2876,7 @@ async fn run_task(
     }
     let prompt = promoted.prompt;
     store.set_status(&session_id, "running")?;
+    append_run_notification(&store, &session_id, "running", "任务已开始", false)?;
     store.append_event(
         &session_id,
         "session.status_changed",
@@ -2105,6 +2938,10 @@ async fn run_task(
                 trace_log.lock().unwrap().push(payload.clone());
                 emit_event("kz:task-progress", payload)
             },
+            RunEvent::Retry { attempt, max, delay_ms } => emit_event(
+                "kz:status",
+                json!({ "stage": "重试", "detail": format!("网络请求暂时失败,第 {attempt}/{max} 次重试,等待 {delay_ms}ms") }),
+            ),
             RunEvent::StepEnd { usage, .. } => emit_event(
                 "kz:step",
                 json!({
@@ -2157,7 +2994,7 @@ async fn run_task(
     }
 
     // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
-    let subagent_rt = {
+    let subagent_rt = if subagent_enabled {
         let mut sub_harness = Harness::default();
         sub_harness.add(kanzei_tools::SubagentBase);
         let sub_snapshot = sub_harness.resolve(&rctx)?;
@@ -2167,7 +3004,7 @@ async fn run_task(
                 .map(|fr| (fr, r.model.clone())),
             Err(_) => None,
         };
-        kanzei_core::SubagentRuntime {
+        Some(kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
             fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
@@ -2175,7 +3012,9 @@ async fn run_task(
             max_tokens: 4096,
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: 900,
-        }
+        })
+    } else {
+        None
     };
 
     let initial_parts = attachments
@@ -2212,7 +3051,7 @@ async fn run_task(
         &prompt,
         &prior,
         (!initial_parts.is_empty()).then_some(initial_parts.as_slice()),
-        Some(&subagent_rt),
+        subagent_rt.as_ref(),
         &mut on_event,
         &mut ask,
     )
@@ -2236,6 +3075,7 @@ async fn run_task(
                     "output": summary.usage.output,
                 }),
             )?;
+            append_run_notification(&store, &session_id, "succeeded", "任务完成", false)?;
         }
         Err(error) => {
             store.set_status(&session_id, "failed")?;
@@ -2249,6 +3089,7 @@ async fn run_task(
                 "run.failed",
                 &json!({ "error": error.to_string() }),
             )?;
+            append_run_notification(&store, &session_id, "failed", error.to_string(), false)?;
         }
     }
     let summary = run_result?;
@@ -2291,7 +3132,10 @@ async fn run_task(
                             "(系统:此前对话已自动压缩为以下纪要,基于它继续)\n{digest}"
                         ))],
                     );
-                    let _ = window.emit("kz:compacted", json!({ "summary": digest }));
+                    let _ = window.emit(
+                        "kz:compacted",
+                        with_session_id(json!({ "summary": digest }), &session_id),
+                    );
                 }
                 Err(e) => stage("压缩", format!("压缩失败:{e}(保留原历史)")),
             }
@@ -2316,7 +3160,7 @@ async fn run_task(
 
     let _ = window.emit(
         "kz:done",
-        json!({
+        with_session_id(json!({
             "steps": summary.steps,
             "halted": summary.halted_by_user,
             "history": history_len,
@@ -2324,7 +3168,7 @@ async fn run_task(
             "output": summary.usage.output,
             "cacheRead": summary.usage.cache_read,
             "cacheWrite": summary.usage.cache_write,
-        }),
+        }), &session_id),
     );
     Ok(())
 }

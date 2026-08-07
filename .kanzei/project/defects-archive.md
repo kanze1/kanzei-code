@@ -257,3 +257,27 @@
 - 优先级: P1
 - 修复: 新增 normalized_project_root，运行闸门、停止边界和 session_id 均使用可发现且 canonicalize 的项目根路径；等价路径不再被误判为其他项目。
 - 验证: cargo test -p kanzei-app（6项通过）；node --check crates/kanzei-app/ui/main.js；git diff --check。
+
+## D-033 子代理调用慢 - 可能未启用并发导致？ [fixed] (medium)
+- 原始描述: 主要模型调用的子代理似乎比较慢，是因为没启用并发吗？
+- 复现: 观察主模型调用时，检查是否启用了并发机制。
+- 修复: 核实 runner 同轮通过 FuturesUnordered 并行执行 task；增加每轮最多 8 个子代理的硬上限，避免过量并发拖慢本地模型或耗尽连接资源。
+- 验证: cargo test -p kanzei-core 26 项通过；代码路径确认同轮 task 使用 FuturesUnordered，超出上限返回明确工具错误。
+
+## D-038 队列输入相关问题 [fixed] (medium)
+- 原始描述: 排队输入相关的功能可能有点问题
+- 复现: 等价相对路径/子目录路径提交排队输入后，运行 session 可能无法提升该输入。
+- 修复: 队列 admission、promotion 统一使用 canonical 项目根路径生成 session_id；保留 steer 优先、queue FIFO、撤销和停止清理语义。
+- 验证: cargo test -p kanzei-core 26 项通过；cargo test -p kanzei-app 6 项通过；前端语法检查通过。
+
+## D-043 缺陷评估请求(无具体描述) [wontfix] (low)
+- 原始描述: 评估一下缺陷
+- 复现: 无法推断:原文未提供具体缺陷现象、环境或步骤
+- 处理: 已完成可操作性评估；缺少现象、环境和复现步骤，无法形成代码修复或验收用例。若再次出现，请重新记录具体复现信息。
+- 验证: 评估结论已记录；不对不可复现条目伪造修复。
+
+## D-047 需求优先级调整功能存在大量bug [fixed] (high)
+- 原始描述: 需求优先级的调整现在很多bug，然后缺陷一样有优先级和复杂度评估
+- 复现: 在系统中对需求进行优先级调整操作时会出现多种bug（具体操作步骤未说明）
+- 修复: 统一需求与缺陷的 P0-P3 优先级 schema，前端两类文档均支持优先级调整/筛选和复杂度编辑；更新已有 priority 英文字段时原位修改，避免重复字段。
+- 验证: cargo test -p kanzei-tools 13 项通过（含英文 priority 原位更新回归）；node --check crates/kanzei-app/ui/main.js；git diff --check。

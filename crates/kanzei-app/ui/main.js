@@ -4,7 +4,11 @@ const { listen } = window.__TAURI__.event;
 
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
 function on(event, handler) {
-  listen(event, handler).catch((err) => {
+  listen(event, (eventPayload) => {
+    const sessionId = eventPayload.payload?.sessionId;
+    if (sessionId && activeSessionId && sessionId !== activeSessionId) return;
+    handler(eventPayload);
+  }).catch((err) => {
     log(`事件订阅失败 ${event}: ${err} — 界面将收不到运行事件,请反馈`, "err");
     $("log-panel").classList.remove("hidden");
   });
@@ -13,6 +17,92 @@ function on(event, handler) {
 const $ = (id) => document.getElementById(id);
 const messages = $("messages");
 const promptBox = $("prompt");
+const I18N_EN = {
+  "项目": "Projects", "当前状态": "Current status", "空闲": "Idle", "排队输入": "Queued input",
+  "测试记录": "Test runs", "目标": "Goals", "历史对话": "Chat history", "需求与工作": "Work items",
+  "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions",
+  "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
+  "鞭挞": "Auto-run", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
+  "自动放行": "Auto-allow", "总结": "Summarize", "复制上下文": "Copy context", "新对话": "New chat",
+  "附件": "Attach", "停止": "Stop", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
+  "模型角色": "Model roles", "网络与默认": "Network & defaults", "默认模式": "Default mode",
+  "已记住的权限": "Saved permissions", "版本与更新": "Version & updates", "保存": "Save",
+  "检查更新": "Check for updates", "下载并安装": "Download and install", "打开配置原文": "Open config",
+  "测试全部连通性": "Test connectivity", "+ 添加 provider": "+ Add provider", "跟随环境变量": "Environment",
+  "直连": "Direct", "指定地址": "Custom", "dev 开发": "dev development", "research 研究": "research",
+  "日志": "Logs", "当前计划": "Current plan", "回到最新": "Jump to latest", "继续文案": "Continue prompt",
+  "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
+    "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
+  "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",
+};
+const I18N_ZH = new WeakMap();
+function applyLanguage() {
+  const language = localStorage.getItem("kz-language") || "zh";
+  document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!I18N_ZH.has(node)) I18N_ZH.set(node, node.nodeValue);
+    const source = I18N_ZH.get(node);
+    const key = source.trim();
+    if (!key) continue;
+    const translated = language === "en" ? (I18N_EN[key] || source) : source;
+    node.nodeValue = source.replace(key, translated);
+  }
+  document.querySelectorAll("[title], [placeholder]").forEach((element) => {
+    for (const attribute of ["title", "placeholder"]) {
+      const value = element.getAttribute(attribute);
+      if (!value) continue;
+      const key = value.trim();
+      if (I18N_EN[key]) element.setAttribute(attribute, language === "en" ? I18N_EN[key] : key);
+    }
+  });
+}
+const languageSelect = $("language-select");
+languageSelect.value = localStorage.getItem("kz-language") || "zh";
+languageSelect.addEventListener("change", () => {
+  localStorage.setItem("kz-language", languageSelect.value);
+  applyLanguage();
+});
+applyLanguage();
+function setupResize(elementId, key, side, min, max) {
+  const element = $(elementId);
+  if (!element) return;
+  const saved = Number.parseInt(localStorage.getItem(key), 10);
+  if (Number.isFinite(saved)) element.style.width = `${Math.min(max, Math.max(min, saved))}px`;
+  const handle = document.createElement("div");
+  handle.className = "resize-handle";
+  handle.title = "拖动调整面板宽度";
+  element.appendChild(handle);
+  let dragging = false;
+  handle.addEventListener("pointerdown", (event) => {
+    dragging = true;
+    handle.classList.add("dragging");
+    handle.setPointerCapture(event.pointerId);
+    document.body.style.cursor = "col-resize";
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    const rect = element.getBoundingClientRect();
+    const width = side === "right" ? event.clientX - rect.left : rect.right - event.clientX;
+    const next = Math.min(max, Math.max(min, Math.round(width)));
+    element.style.width = `${next}px`;
+    localStorage.setItem(key, String(next));
+  });
+  const stop = () => {
+    dragging = false;
+    handle.classList.remove("dragging");
+    document.body.style.cursor = "";
+  };
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+}
+setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
+setupResize("todo-panel", "kz-todo-width", "left", 240, 520);
+setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
+let activeProcessId = null;
+let activeSessionId = null;
+let processItems = [];
 
 let running = false;
 let currentProject = null;
@@ -777,6 +867,7 @@ on("kz:error", (e) => {
   liveIdle("出错");
   notifyRunState("failed", message);
   $("log-panel").classList.remove("hidden");
+  refreshProcesses();
 });
 on("kz:compacted", (e) => {
   lastCompactionSummary = e.payload?.summary ?? "";
@@ -798,6 +889,7 @@ on("kz:stopped", (e) => {
   liveIdle("已停止");
   notifyRunState("stopped", cancelled > 0 ? `已停止并取消 ${cancelled} 条排队输入` : "已停止");
   refreshPendingInputs();
+  refreshProcesses();
 });
 on("kz:done", async (e) => {
   const p = e.payload;
@@ -1054,12 +1146,11 @@ let autoPaused = false;
 let autoStopAfterRound = false;
 let autoContinueTimer = null;
 let autoContinueGeneration = 0;
-let autoOvernight = localStorage.getItem("kz-overnight-mode") === "1";
 let autoStopReason = "";
-const CONTINUE_PROMPT =
-  "继续:检查活跃目标(goal list)与最新进展,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
-  "完成后用 goal update 记录进展。收尾优先:已是 doing 的需求先推到 done(req update <id> done)再开新的,doing 同时不超过 2 个。" +
-  "取活顺序:按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
+const DEFAULT_CONTINUE_PROMPT =
+  "继续:先检查缺陷列表,再检查需求与活跃目标,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
+  "完成后用 goal update 记录状态。收尾优先:已是 doing 的事项先关闭再开新的,doing 同时不超过 2 个。" +
+  "取活顺序:按缺陷列表优先,随后按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
   "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
   "若活跃目标/需求全部被阻塞或无可推进项:只用【纯文本】说明原因并停住——" +
   "不要调用任何工具、不要往 goal/req 写'仍在阻塞'类记录、不要产生空提交;" +
@@ -1076,7 +1167,10 @@ function renderAutoStatus(text = autoStopReason) {
   const el = $("auto-status");
   if (!el) return;
   const max = autoContinueMax();
-  el.textContent = text || (autoOvernight ? `过夜待机 · 上限 ${max}` : `连续推进上限 ${max}`);
+  el.textContent = text || `连续推进上限 ${max}`;
+}
+function continuePrompt() {
+  return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
 }
 
 function setAutoStopReason(reason) {
@@ -1102,7 +1196,7 @@ function scheduleAutoContinue() {
     autoContinueTimer = null;
     if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
     if ($("auto-continue").checked && autoContinueAllowed() && !running) {
-      sendText(CONTINUE_PROMPT, { auto: true });
+      sendText(continuePrompt(), { auto: true });
     }
   }, 2000);
 }
@@ -1192,6 +1286,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         model: $("model-select").value || null,
         delivery,
         attachments: promptAttachments,
+        processId: activeProcessId,
       });
       toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
       await refreshPendingInputs();
@@ -1224,6 +1319,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       model: $("model-select").value || null,
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
+      processId: activeProcessId,
     };
     if (!auto) lastRequest = request;
     await invoke("run_prompt", request);
@@ -1350,14 +1446,14 @@ function send() {
 }
 
 $("send").addEventListener("click", send);
-$("continue-btn").addEventListener("click", () => sendText(CONTINUE_PROMPT));
+$("continue-btn").addEventListener("click", () => sendText(continuePrompt()));
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
-$("overnight-mode").checked = autoOvernight;
 renderAutoStatus();
-$("overnight-mode").addEventListener("change", () => {
-  autoOvernight = $("overnight-mode").checked;
-  localStorage.setItem("kz-overnight-mode", autoOvernight ? "1" : "0");
-  setAutoStopReason(autoOvernight ? "过夜模式已启用，需手动开启鞭挞后运行" : "过夜模式已关闭");
+$("continue-prompt").value = localStorage.getItem("kz-continue-prompt") || DEFAULT_CONTINUE_PROMPT;
+$("continue-prompt").addEventListener("change", () => {
+  const value = $("continue-prompt").value.trim();
+  localStorage.setItem("kz-continue-prompt", value || DEFAULT_CONTINUE_PROMPT);
+  $("continue-prompt").value = value || DEFAULT_CONTINUE_PROMPT;
 });
 $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
 $("auto-stop-round").checked = localStorage.getItem("kz-auto-stop-round") === "1";
@@ -1415,6 +1511,11 @@ if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
 }
 $("profile-select").addEventListener("change", () => {
   localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
+  if (activeProcessId) {
+    const profile = $("profile-select").value === "research" ? "research" : "dev";
+    invoke("process_update", { processId: activeProcessId, profile })
+      .catch((error) => log(`进程模式保存失败:${error}`, "warn"));
+  }
   if (!autoContinueAllowed() && $("auto-continue").checked) {
     $("auto-continue").checked = false;
     localStorage.setItem("kz-auto-continue", "0");
@@ -1427,7 +1528,7 @@ $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
   cancelAutoContinueTimer();
   autoRounds = 0;
-  invoke("stop_run", { projectDir: currentProject }).catch((err) => log(`停止指令失败:${err}`, "err"));
+  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => log(`停止指令失败:${err}`, "err"));
   hideAsk();
   stopElapsed();
   setRunning(false, "已停止");
@@ -1509,6 +1610,10 @@ async function loadModels() {
 }
 $("model-select").addEventListener("change", () => {
   localStorage.setItem("kz-model", $("model-select").value);
+  if (activeProcessId) {
+    invoke("process_update", { processId: activeProcessId, model: $("model-select").value || null })
+      .catch((error) => log(`进程模型保存失败:${error}`, "warn"));
+  }
 });
 
 // ---------- 队列输入 ----------
@@ -1544,6 +1649,7 @@ function renderPendingInputs(items) {
         const changed = await invoke("cancel_input", {
           projectDir: currentProject,
           inputId: item.input_id,
+          processId: activeProcessId,
         });
         if (changed) {
           toast("已撤销排队输入");
@@ -1565,11 +1671,202 @@ async function refreshPendingInputs() {
     return;
   }
   try {
-    renderPendingInputs(await invoke("list_pending_inputs", { projectDir: currentProject }));
+    renderPendingInputs(await invoke("list_pending_inputs", {
+      projectDir: currentProject,
+      processId: activeProcessId,
+    }));
   } catch (err) {
     log(`队列刷新失败:${err}`, "warn");
   }
 }
+
+function renderTestRuns(snapshot) {
+  const list = $("test-list");
+  const records = [...(snapshot?.active ?? []), ...(snapshot?.archived ?? [])];
+  list.replaceChildren();
+  $("test-count").textContent = `${records.length}`;
+  if (!records.length) {
+    const empty = document.createElement("div");
+    empty.className = "doc-empty";
+    empty.textContent = "暂无测试记录";
+    list.appendChild(empty);
+    return;
+  }
+  for (const record of records.slice().reverse()) {
+    const row = document.createElement("div");
+    row.className = `test-entry test-${record.status}`;
+    row.textContent = `${record.status === "passed" ? "✓" : record.status === "failed" ? "×" : record.status === "running" ? "●" : "○"} ${record.id} ${record.title}`;
+    row.title = (record.fields ?? []).map((field) => `${field.key}: ${field.value}`).join("\n");
+    list.appendChild(row);
+  }
+}
+
+async function refreshTests() {
+  if (!currentProject) {
+    renderTestRuns({ active: [], archived: [] });
+    return;
+  }
+  try {
+    renderTestRuns(await invoke("test_runs_snapshot", { projectDir: currentProject }));
+  } catch (error) {
+    log(`测试记录刷新失败:${error}`, "warn");
+  }
+}
+
+$("tests-refresh").addEventListener("click", refreshTests);
+
+let worktreeItems = [];
+function renderWorktrees(items) {
+  worktreeItems = items ?? [];
+  const list = $("worktree-list");
+  list.replaceChildren();
+  if (!worktreeItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "doc-empty";
+    empty.textContent = "暂无隔离工作树";
+    list.appendChild(empty);
+    return;
+  }
+  for (const item of worktreeItems) {
+    const row = document.createElement("div");
+    row.className = "worktree-entry";
+    const label = document.createElement("div");
+    label.textContent = `${item.branch} · ${item.clean ? "干净" : `${item.files.length} 项改动`}`;
+    label.title = item.path;
+    const actions = document.createElement("div");
+    for (const [text, action] of [["差异", "diff"], ["合并", "merge"], ["放弃", "discard"]]) {
+      const button = document.createElement("button");
+      button.className = `ghost mini ${action === "merge" ? "worktree-merge" : ""}`;
+      button.textContent = text;
+      button.addEventListener("click", () => handleWorktreeAction(item, action));
+      actions.appendChild(button);
+    }
+    row.append(label, actions);
+    list.appendChild(row);
+  }
+}
+async function refreshWorktrees() {
+  if (!currentProject) return renderWorktrees([]);
+  const saved = JSON.parse(localStorage.getItem(`kz-worktrees:${currentProject}`) || "[]");
+  const live = [];
+  for (const path of saved) {
+    try { live.push(await invoke("worktree_diff", { projectDir: currentProject, worktreePath: path })); }
+    catch (error) { log(`工作树已不可用:${path} · ${error}`, "warn"); }
+  }
+  renderWorktrees(live);
+}
+async function handleWorktreeAction(item, action) {
+  try {
+    if (action === "diff") {
+      toast(item.clean ? "工作树干净,没有未提交差异" : `${item.branch}:\n${item.files.join("\n")}`);
+      return;
+    }
+    if (action === "discard" && !window.confirm(`放弃工作树 ${item.branch}？未提交改动会阻止删除并保留现场。`)) return;
+    const command = action === "merge" ? "worktree_merge" : "worktree_discard";
+    const result = await invoke(command, { projectDir: currentProject, worktreePath: item.path });
+    toast(result);
+    if (action === "discard") {
+      const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${currentProject}`) || "[]").filter((path) => path !== item.path);
+      localStorage.setItem(`kz-worktrees:${currentProject}`, JSON.stringify(paths));
+    }
+    await refreshWorktrees();
+    refreshGit();
+  } catch (error) {
+    toast(String(error));
+  }
+}
+$("worktrees-refresh").addEventListener("click", refreshWorktrees);
+$("worktree-add").addEventListener("click", async () => {
+  if (!currentProject) return;
+  const name = `thread-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+  try {
+    const item = await invoke("worktree_create", { projectDir: currentProject, name });
+    const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${currentProject}`) || "[]");
+    paths.push(item.path);
+    localStorage.setItem(`kz-worktrees:${currentProject}`, JSON.stringify(paths));
+    toast(`隔离工作树已创建:${item.path}`);
+    await refreshWorktrees();
+  } catch (error) {
+    toast(`创建工作树失败:${error}`);
+  }
+});
+
+// ---------- R-030:项目内独立进程 ----------
+function renderProcesses(items) {
+  processItems = items ?? [];
+  if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
+    const preferred = processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
+    activeProcessId = preferred?.id ?? null;
+  }
+  const active = processItems.find((item) => item.id === activeProcessId);
+  activeSessionId = active?.session_id ?? null;
+  const tabs = $("process-tabs");
+  tabs.replaceChildren();
+  for (const item of processItems) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${item.running ? " running" : ""}`;
+    tab.textContent = `${item.label}${item.running ? " ●" : ""}`;
+    tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}`;
+    tab.addEventListener("click", () => switchProcess(item.id));
+    tabs.appendChild(tab);
+  }
+  $("process-subagent").checked = active?.subagent ?? true;
+}
+
+async function refreshProcesses() {
+  if (!currentProject) return;
+  try {
+    renderProcesses(await invoke("process_list", { projectDir: currentProject }));
+  } catch (err) {
+    log(`进程列表刷新失败:${err}`, "warn");
+  }
+}
+
+async function switchProcess(processId) {
+  if (processId === activeProcessId) return;
+  const target = processItems.find((item) => item.id === processId);
+  if (!target) return;
+  activeProcessId = processId;
+  activeSessionId = target.session_id;
+  setRunning(target.running, target.running ? "运行中" : "空闲");
+  renderProcesses(processItems);
+  clearChat();
+  bgClear();
+  renderTodoPanel([], 0, 0);
+  await loadConversation();
+  await refreshDocs();
+  await loadModels();
+  if (target.model) $("model-select").value = target.model;
+  if (target.profile === "research") $("profile-select").value = "research";
+  else if (target.profile === "dev") $("profile-select").value = "dev-pair";
+  refreshGit();
+  refreshPendingInputs();
+  refreshProcesses();
+  log(`已切换到进程 ${target.label}`);
+}
+
+$("process-add").addEventListener("click", async () => {
+  if (!currentProject) return;
+  try {
+    const item = await invoke("process_create", { projectDir: currentProject, subagent: true });
+    await refreshProcesses();
+    await switchProcess(item.id);
+  } catch (err) {
+    toast(`创建进程失败:${err}`);
+  }
+});
+
+$("process-subagent").addEventListener("change", async (event) => {
+  if (!activeProcessId) return;
+  try {
+    await invoke("process_update", { processId: activeProcessId, subagent: event.target.checked });
+    await refreshProcesses();
+  } catch (err) {
+    event.target.checked = !event.target.checked;
+    toast(`更新进程能力失败:${err}`);
+  }
+});
 
 // ---------- 项目管理 ----------
 function baseName(path) {
@@ -1578,10 +1875,19 @@ function baseName(path) {
 }
 
 function renderProjects(prefs) {
+  const previousProject = currentProject;
   currentProject = prefs.current;
+  if (previousProject !== currentProject) {
+    activeProcessId = null;
+    activeSessionId = null;
+  }
   const list = $("project-list");
   list.innerHTML = "";
   for (const path of prefs.projects) {
+    const externalBlocked = (entry.fields ?? []).some(([key, value]) =>
+      ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
+      && /外部|external|blocked/i.test(String(value))
+    );
     const item = document.createElement("div");
     item.className = `project-item${path === prefs.current ? " active" : ""}`;
     const name = document.createElement("span");
@@ -1647,6 +1953,7 @@ function renderProjects(prefs) {
     list.appendChild(item);
   }
   $("project-label").textContent = prefs.current ?? "(未选择项目)";
+  refreshProcesses();
 }
 
 $("project-init").addEventListener("click", async () => {
@@ -1752,7 +2059,7 @@ async function commitDocOrder(listEl, kind) {
   }
 }
 
-function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters) {
+function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
   el.innerHTML = "";
   if (entries.length === 0 && archivedCount === 0) {
@@ -1768,7 +2075,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     const item = document.createElement("div");
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
     const pri = (entry.priority || "").toUpperCase();
-    item.className = `doc-item${entry.closed ? " closed" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
+    item.className = `doc-item${entry.closed ? " closed" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
     item.dataset.docId = entry.id;
 
     const row = document.createElement("div");
@@ -1787,6 +2094,13 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
     row.append(id, st);
+    if (externalBlocked) {
+      const blocked = document.createElement("span");
+      blocked.className = "blocked-badge";
+      blocked.textContent = "外部阻塞";
+      blocked.title = "等待项目外部条件、负责人或服务解除";
+      row.appendChild(blocked);
+    }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
     // 松手落在行间隙时 drop 不触发,只靠 drop 会静默丢单。
     if (docDragEnabled(kind, el)) {
@@ -1817,7 +2131,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
         el.insertBefore(dragging, before ? item : item.nextSibling);
       });
     }
-    if (kind === "req") {
+    if (kind === "req" || kind === "defect") {
       const badge = document.createElement("button");
       badge.className = `pri-badge ${/^P[0-3]$/.test(pri) ? pri : "unset"}`;
       badge.textContent = /^P[0-3]$/.test(pri) ? pri : "P?";
@@ -1827,7 +2141,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
         const order = ["P0", "P1", "P2", "P3"];
         const next = order[(order.indexOf(pri) + 1) % order.length];
         try {
-          await invoke("docs_update", { projectDir: currentProject, kind: "req", action: "update", id: entry.id, priority: next });
+          await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, priority: next });
           toast(`${entry.id} 优先级已调整为 ${next}`);
           refreshDocs();
         } catch (error) {
@@ -1883,7 +2197,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       }
       detail.appendChild(f);
     }
-    if (kind === "req" && !entry.closed) {
+    if ((kind === "req" || kind === "defect") && !entry.closed) {
       const complexityRow = document.createElement("div");
       complexityRow.className = "doc-progress";
       const complexitySelect = document.createElement("select");
@@ -1903,12 +2217,12 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       complexityRow.append("复杂度: ", complexitySelect);
       detail.appendChild(complexityRow);
     }
-    // 目标专属:进展速记(写入 fields.进展,注入上下文时 agent 可见)。
+    // 目标专属:状态速记(写入 fields.状态,同时保留计划字段用于展示)。
     if (kind === "goal" && !entry.closed) {
       const progressRow = document.createElement("div");
       progressRow.className = "doc-progress";
       const input = document.createElement("input");
-      input.placeholder = "记录进展/调整方向,回车保存";
+      input.placeholder = "记录状态/调整方向,回车保存";
       input.addEventListener("click", (e) => e.stopPropagation());
       input.addEventListener("keydown", async (e) => {
         if (e.key !== "Enter" || !input.value.trim()) return;
@@ -1918,7 +2232,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
             kind,
             action: "update",
             id: entry.id,
-            fields: { "进展": input.value.trim() },
+            fields: { "状态": input.value.trim() },
           });
           log(msg);
           refreshDocs();
@@ -1964,14 +2278,24 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
   // 已完成项归档在 *-archive.md,不占侧边栏;一行入口可翻历史。
   if (archivedCount > 0) {
     const foot = document.createElement("div");
-    foot.className = "doc-empty";
+    foot.className = "doc-archive-toggle";
     foot.style.cursor = "pointer";
-    foot.title = "打开归档文件";
-    foot.textContent = `${archivedCount} 条已归档 ↗`;
+    foot.title = "展开已归档条目;双击打开归档文件";
+    foot.textContent = `${archivedCount} 条已归档 ▸`;
+    const archive = document.createElement("div");
+    archive.className = "doc-archive-list hidden";
+    for (const entry of archivedEntries) {
+      const row = document.createElement("div");
+      row.className = "archived-entry";
+      row.textContent = `${entry.id} ${entry.title} [${entry.status}]`;
+      archive.appendChild(row);
+    }
     foot.addEventListener("click", () => {
-      openDocViewer(`${kind}-archive`);
+      archive.classList.toggle("hidden");
+      foot.textContent = `${archivedCount} 条已归档 ${archive.classList.contains("hidden") ? "▸" : "▾"}`;
     });
-    el.appendChild(foot);
+    foot.addEventListener("dblclick", () => openDocViewer(`${kind}-archive`));
+    el.append(foot, archive);
   }
 }
 
@@ -2049,7 +2373,7 @@ let documentsKind = "req";
 let latestDocsSnapshot = null;
 const documentFilters = {
   req: { status: "all", priority: "all", complexity: "all", sort: "manual" },
-  defect: { status: "all" },
+  defect: { status: "all", priority: "all" },
 };
 const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
@@ -2061,8 +2385,7 @@ function syncDocumentFilters() {
   const filters = documentFilters[documentsKind];
   statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
   statusFilter.value = filters.status;
-  priorityFilter.classList.toggle("hidden", documentsKind === "defect");
-  priorityFilter.value = documentsKind === "req" ? filters.priority : "all";
+  priorityFilter.value = filters.priority ?? "all";
 }
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
@@ -2070,9 +2393,11 @@ function renderDocuments(snapshot) {
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
   syncDocumentFilters();
-  renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req);
-  const defects = (snapshot.defects ?? []).filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status);
-  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0);
+    renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req, snapshot.archived_entries?.req ?? []);
+  const defects = (snapshot.defects ?? [])
+    .filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status)
+    .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority);
+  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
   reqList.classList.toggle("hidden", documentsKind !== "req");
   defectList.classList.toggle("hidden", documentsKind !== "defect");
   $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
@@ -2082,18 +2407,21 @@ async function refreshDocs() {
   if (!currentProject) return;
   try {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0);
-    renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0);
-    renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0);
+    renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
+    renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
+    renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
     renderDocuments(snapshot);
-    renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0);
-    renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0);
+    renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, reqFilters, snapshot.archived_entries?.source ?? []);
+    renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0, reqFilters, snapshot.archived_entries?.finding ?? []);
     $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
     $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
     $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
     $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
     renderConventions(snapshot.conventions);
     await refreshConversationList();
+    await refreshTests();
+    await refreshWorktrees();
+    applyLanguage();
   } catch (err) {
     console.error(err);
   }
@@ -2102,7 +2430,10 @@ async function refreshDocs() {
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-status-filter").addEventListener("change", (event) => { documentFilters[documentsKind].status = event.target.value; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-$("documents-priority-filter").addEventListener("change", (event) => { documentFilters.req.priority = event.target.value; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-priority-filter").addEventListener("change", (event) => {
+  documentFilters[documentsKind].priority = event.target.value;
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+});
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
@@ -2311,9 +2642,9 @@ async function loadConversation(sequence = null) {
   try {
     bgClear();
     renderTodoPanel([], 0, 0);
-    const history = await invoke("conversation_get", { projectDir: currentProject, sequence });
+    const history = await invoke("conversation_get", { projectDir: currentProject, processId: activeProcessId, sequence });
     renderRecoveredMessages(history);
-    const traces = await invoke("conversation_trace_get", { projectDir: currentProject, sequence });
+    const traces = await invoke("conversation_trace_get", { projectDir: currentProject, processId: activeProcessId, sequence });
     renderRecoveredTraces(traces);
     log(`已恢复 ${history.length} 条历史消息和 ${traces.length} 组工具轨迹`);
   } catch (err) {
@@ -2325,6 +2656,7 @@ async function loadConversation(sequence = null) {
 function renderConversationList(items) {
   const el = $("conversation-list");
   el.innerHTML = "";
+  $("chat-select-all").checked = false;
   $("conversation-count").textContent = items.length;
   if (!items.length) {
     el.textContent = "(暂无历史对话)";
@@ -2339,6 +2671,10 @@ function renderConversationList(items) {
     check.className = "chat-check";
     check.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
     check.addEventListener("click", (e) => e.stopPropagation());
+    check.addEventListener("change", () => {
+      const checks = [...document.querySelectorAll(".chat-check")];
+      $("chat-select-all").checked = checks.length > 0 && checks.every((item) => item.checked);
+    });
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = `${item.title || "新对话"} (${item.message_count} 条)`;
@@ -2355,6 +2691,10 @@ function renderConversationList(items) {
   }
 }
 
+$("chat-select-all").addEventListener("change", (event) => {
+  document.querySelectorAll(".chat-check").forEach((check) => { check.checked = event.target.checked; });
+});
+
 $("chat-del").addEventListener("click", async () => {
   const sequences = [...document.querySelectorAll(".chat-check:checked")]
     .flatMap((c) => JSON.parse(c.dataset.seqs));
@@ -2363,7 +2703,7 @@ $("chat-del").addEventListener("click", async () => {
     return;
   }
   try {
-    const n = await invoke("conversation_delete", { projectDir: currentProject, sequences });
+    const n = await invoke("conversation_delete", { projectDir: currentProject, processId: activeProcessId, sequences });
     toast(`已删除 ${n} 份对话快照`);
     await refreshConversationList();
   } catch (err) {
@@ -2374,7 +2714,7 @@ $("chat-del").addEventListener("click", async () => {
 async function refreshConversationList() {
   if (!currentProject) return;
   try {
-    renderConversationList(await invoke("conversation_list", { projectDir: currentProject }));
+    renderConversationList(await invoke("conversation_list", { projectDir: currentProject, processId: activeProcessId }));
   } catch (err) {
     $("conversation-list").textContent = `历史对话加载失败:${err}`;
   }
@@ -2397,7 +2737,7 @@ $("new-chat").addEventListener("click", async () => {
     return;
   }
   try {
-    await invoke("conversation_clear", { projectDir: currentProject });
+    await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
     clearChat("已开启新对话(历史已清空)");
     await refreshConversationList();
     log("新对话:多轮历史已清空");
@@ -2447,12 +2787,15 @@ let settingsProviders = [];
 
 async function testProvider(provider) {
   try {
+    const mode = $("set-proxy-mode")?.value;
+    const proxy = mode === "custom" ? $("set-proxy-url")?.value.trim() : mode;
     return await invoke("provider_test", {
       protocol: provider.protocol,
       baseUrl: provider.baseUrl,
       apiKeyEnv: provider.apiKeyEnv || null,
       apiKey: provider.apiKey || null,
       auth: provider.auth || null,
+      proxy: proxy || null,
     });
   } catch (err) {
     return `测试失败:${err}`;
@@ -2630,6 +2973,44 @@ async function loadSettings() {
 $("set-proxy-mode").addEventListener("change", () => {
   $("set-proxy-url").classList.toggle("hidden", $("set-proxy-mode").value !== "custom");
 });
+
+$("mobile-service-start").addEventListener("click", async () => {
+  try {
+    const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null });
+    $("mobile-service-status").textContent = `${info.address} · token ${info.token}`;
+    $("mobile-service-start").classList.add("hidden");
+    $("mobile-service-stop").classList.remove("hidden");
+    toast("移动端本机桥接已启动");
+  } catch (error) {
+    toast(`启动移动端桥接失败:${error}`);
+  }
+});
+$("mobile-service-stop").addEventListener("click", async () => {
+  try {
+    await invoke("mobile_service_stop");
+    $("mobile-service-status").textContent = "已停止并撤销设备 token";
+    $("mobile-service-start").classList.remove("hidden");
+    $("mobile-service-stop").classList.add("hidden");
+  } catch (error) {
+    toast(`停止移动端桥接失败:${error}`);
+  }
+});
+async function agentContainerAction(action) {
+  const agentId = $("agent-container-id").value.trim();
+  if (!agentId) return toast("先填写 agent id");
+  try {
+    const command = action === "create" ? "agent_container_create" : action === "upgrade" ? "agent_container_upgrade" : "agent_container_rollback";
+    const args = { agentId };
+    if (action === "upgrade") args.version = "2";
+    const manifest = await invoke(command, args);
+    toast(`代理容器 ${manifest.agent_id} v${manifest.version} 已${action === "rollback" ? "回滚" : action === "create" ? "创建" : "升级"}`);
+  } catch (error) {
+    toast(String(error));
+  }
+}
+$("agent-container-create").addEventListener("click", () => agentContainerAction("create"));
+$("agent-container-upgrade").addEventListener("click", () => agentContainerAction("upgrade"));
+$("agent-container-rollback").addEventListener("click", () => agentContainerAction("rollback"));
 
 $("provider-add").addEventListener("click", () => {
   settingsProviders.push({ name: "", protocol: "openai", baseUrl: "http://", apiKeyEnv: "" });
