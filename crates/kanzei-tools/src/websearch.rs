@@ -208,4 +208,14 @@ mod tests {
         assert_eq!(results[0].title, "中文标题");
         assert_eq!(results[0].snippet, "这是一段中文摘要内容");
     }
+
+    /// websearch 复用 webfetch 的 HTML 解析，Unicode 不能让搜索标题解析崩溃或泄漏脚本内容。
+    #[test]
+    fn unicode_title_keeps_visible_text_and_skips_script() {
+        let html = r#"<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com">İ <SCRIPT>ẞ hidden</SCRIPT>可见标题</a>"#;
+        let results = parse_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "İ 可见标题");
+        assert!(!results[0].title.contains("hidden"));
+    }
 }

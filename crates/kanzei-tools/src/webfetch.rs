@@ -115,7 +115,8 @@ impl Tool for WebFetchTool {
 pub(crate) fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 4);
     let mut chars = html.char_indices().peekable();
-    let lower = html.to_lowercase();
+    // 待匹配的标签标记均为 ASCII；只做 ASCII 折叠，避免 Unicode 大小写映射改变字节偏移。
+    let lower = html.to_ascii_lowercase();
     let mut skip_until: Option<usize> = None;
     let mut in_tag = false;
     while let Some((i, c)) = chars.next() {
@@ -180,4 +181,20 @@ pub(crate) fn html_to_text(html: &str) -> String {
         }
     }
     compact
+}
+
+#[cfg(test)]
+mod tests {
+    use super::html_to_text;
+
+    #[test]
+    fn unicode_text_does_not_shift_script_and_style_offsets() {
+        let html = "<p>İ 前文</p><SCRIPT>ẞ hidden script</SCRIPT><STYLE>ẞ hidden style</STYLE><p>尾文 ẞ</p>";
+        let text = html_to_text(html);
+
+        assert!(text.contains("İ 前文"));
+        assert!(text.contains("尾文 ẞ"));
+        assert!(!text.contains("hidden script"));
+        assert!(!text.contains("hidden style"));
+    }
 }
