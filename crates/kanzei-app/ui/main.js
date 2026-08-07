@@ -61,6 +61,7 @@ const I18N_EN = {
   "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
   "自动压缩": "automatic compaction", "上下文": "Context", "点击查看上下文成分": "Click to view context details",
   "连接中断": "Connection interrupted", "重放本轮": "Replaying round", "总结中": "Summarizing", "当前没有可总结的对话": "No conversation to summarize", "小总结已收纳到活动面板": "Summary added to activity panel",
+  "自主推进": "Self-directed progress", "等待下一轮": "Waiting for next round", "鞭挞恢复": "Auto-run resumed", "秒后继续": "seconds until continuing",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1129,8 +1130,8 @@ on("kz:done", async (e) => {
     }
     noActionRounds = 0;
     autoRounds += 1;
-    setStatus(`自主推进 ${autoRounds}/${max} · 2 秒后继续…`, false);
-    renderAutoStatus(`自主推进 ${autoRounds}/${max} · 等待下一轮`);
+    setStatus(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`, false);
+    renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
     scheduleAutoContinue();
   }
 });
@@ -1773,7 +1774,7 @@ $("auto-pause").addEventListener("click", () => {
   if (autoPaused) cancelAutoContinueTimer();
   // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
   if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
-    setStatus("鞭挞恢复,2 秒后继续…", false);
+    setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
     scheduleAutoContinue();
   }
   log(autoPaused ? "鞭挞已暂停" : "鞭挞已恢复");

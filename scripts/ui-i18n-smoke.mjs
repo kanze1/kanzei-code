@@ -35,6 +35,8 @@ const required = [
   ["连接中断\": \"Connection interrupted", "重连状态翻译键"],
   ["总结中\": \"Summarizing", "总结状态翻译键"],
   ["当前没有可总结的对话\": \"No conversation to summarize", "总结空状态翻译键"],
+  ["自主推进\": \"Self-directed progress", "自动推进翻译键"],
+  ["等待下一轮\": \"Waiting for next round", "自动推进等待翻译键"],
   ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
   ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
