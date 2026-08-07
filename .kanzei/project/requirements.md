@@ -53,6 +53,11 @@
 
 
 
+
+
+
+
+
 ## R-093 可靠性、可用性与自举质量收口 [doing]
 - 复杂度: 大
 - 归属: kanzei
@@ -71,7 +76,7 @@
 
 
 
-- 进展: 修复 D-126：图片/PDF 发送后在用户消息中保留附件与已发送状态，状态栏显示后端已转换的图片/文档输入，并补 Part::Image/Document 转换测试；全量测试通过。
+- 进展: 本轮在用户决定暂缓 R-093/R-083 高影响实施后，完成 D-119 体验收口：继续按钮与文案编辑区独立、编辑区宽度与窄屏布局优化；前端冒烟全部通过。
 - 验证: D-126；cargo test --workspace；UI smoke
 
 
@@ -124,6 +129,13 @@
 
 
 
+
+
+
+- 阻塞: 阶段 1 的下一步涉及 SQLite/状态机/VerificationRun 等高影响数据模型与终态门禁改动，当前没有得到具体方案确认。依据设计文档 §5/§6/§9：需先明确 schema、迁移/回滚、状态机和证据绑定边界。解除条件：确认实施方案；下一步：确认后先落地最小迁移与回归。
+
+
+- 暂缓: 用户决定本阶段先做体验完善，暂缓阶段 1 数据/VerificationRun 高影响实施；保留 doing 作为长期质量总纲，解除条件为重新确认 schema、迁移/回滚与终态门禁方案。
 
 
 
@@ -195,13 +207,18 @@
 
 
 
+
+
+
+
+
 ## R-083 修复 codex 批次遗留的高危缺陷 [doing]
 - 复杂度: 大
 - 优先级: P2
 - 来源: 2026-08-07 全项目审计(5 个分区并行审计 + 3 组验收核查)
 - 内容: 本轮审计共记录 D-048~D-096 共 49 条缺陷,其中 P0 级 9 条集中在三条主线:①前端渲染崩溃与会话事件路由(D-048、D-055、D-056);②权限硬门禁被路径变体与命令泛化击穿(D-050、D-051);③队列与会话 ID 一致性(D-057、D-058)。另有数据丢失类 D-060(手改内容被销毁)、D-053/D-054(上下文与拒绝路径毒化会话)。
 - 验收: 9 条 P0 缺陷全部修复并有回归测试;修复后 cargo test --workspace 全绿;前端补最低限度的运行时冒烟检查(能捕获 ReferenceError 一类问题)。
-- 进展: 按缺陷队列继续收口 D-068：先修正 kind 优先的限流分类并补回归，完成后再进入发布前全量验收。
+- 进展: D-068 已 fixed/archived；按用户决定暂缓剩余高影响依赖 D-061，本轮转向体验类缺陷。
 - 备注: 按项目规范先处理缺陷再做需求,本需求作为该批次的收口凭据。
 - 阶段: 1
 - 证据等级: E2
@@ -264,6 +281,13 @@
 
 
 
+
+- 阻塞: R-083 依赖的 D-061 OAuth 凭证并发锁/原子替换属于第三方 CLI 共享凭证的高影响改动，缺少用户确认的 Windows 锁实现、跨进程协作与原子替换策略。D-068 已固定并归档，不能继续按旧进展取活。解除条件：确认 D-061 方案；下一步：确认后修 D-061 并补并发测试。
+
+
+- 暂缓: 用户决定本阶段先做体验完善，暂缓 D-061 OAuth 共享凭证并发锁/原子替换；D-068 已 fixed/archived，后续恢复时先确认 Windows 锁与跨进程方案。
+
+
 ## R-087 工具与协议层的数据完整性收口 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -304,6 +328,11 @@
 - 标签: data_integrity,tool_pairing,context_recovery
 - 类型: epic
 - 领域: protocol,storage,runner
+
+
+
+
+
 
 
 
@@ -401,6 +430,11 @@
 
 
 
+
+
+
+
+
 ## R-088 凭证与 provider 协议的健壮性 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -443,6 +477,11 @@
 - 标签: oauth,protocol,rate_limit,forward_compatibility
 - 类型: epic
 - 领域: auth,provider,concurrency
+
+
+
+
+
 
 
 
@@ -512,6 +551,11 @@
 - 标签: runtime_smoke,webview,console_error
 - 类型: quality
 - 领域: testing,ui,e2e
+
+
+
+
+
 
 
 
@@ -608,6 +652,11 @@
 
 
 
+
+
+
+
+
 ## R-076 鞭挞模式触发异常 bug 修复 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -656,6 +705,11 @@
 - 标签: brake,backlog,anti_spin
 - 类型: quality
 - 领域: runner,auto_run,state_machine
+
+
+
+
+
 
 
 
@@ -748,6 +802,11 @@
 
 
 
+
+
+
+
+
 ## R-090 对话内容可读性与操作反馈可恢复 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -795,6 +854,11 @@
 - 标签: markdown,recovery,persistence,history
 - 类型: quality
 - 领域: ui,message,feedback
+
+
+
+
+
 
 
 
@@ -864,6 +928,11 @@
 - 标签: keyboard,focus,aria,e2e
 - 类型: quality
 - 领域: ui,a11y,testing
+
+
+
+
+
 
 
 
@@ -955,6 +1024,11 @@
 
 
 
+
+
+
+
+
 ## R-069 关于我们及引导文案的多语化支持 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -1007,6 +1081,11 @@
 - 标签: dynamic_text,language,about
 - 类型: capability
 - 领域: ui,i18n,content
+
+
+
+
+
 
 
 
@@ -1092,6 +1171,11 @@
 
 
 
+
+
+
+
+
 ## R-070 来源引用的文档解析与记忆保存 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -1144,6 +1228,11 @@
 - 标签: source_parse,reference,memory_write
 - 类型: capability
 - 领域: research,memory,citation
+
+
+
+
+
 
 
 
@@ -1231,6 +1320,11 @@
 
 
 
+
+
+
+
+
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
 - 优先级: P3
@@ -1302,6 +1396,11 @@
 
 
 
+
+
+
+
+
 ## R-095 活动窗口终端和工具管理呈现优化 [todo]
 - 原始描述: 优化活动窗口的终端和工具管理还有呈现
 - 归属: kanzei
@@ -1351,6 +1450,11 @@
 - 标签: activity,terminal,presentation
 - 类型: capability
 - 领域: ui,tools,terminal
+
+
+
+
+
 
 
 
@@ -1432,6 +1536,11 @@
 
 
 
+
+
+
+
+
 ## R-099 自举轨迹冗余度量与基线对比 [todo]
 - 复杂度: 中
 - 优先级: P2
@@ -1485,6 +1594,11 @@
 - 标签: trace,baseline,telemetry
 - 类型: quality
 - 领域: testing,metrics,agent
+
+
+
+
+
 
 
 
@@ -1560,6 +1674,11 @@
 
 
 
+
+
+
+
+
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [todo]
 - 复杂度: 大
 - 优先级: P0
@@ -1595,6 +1714,11 @@
 - 标签: tauri,webview,harness,延期e2e
 - 类型: quality
 - 领域: testing,ui,e2e
+
+
+
+
+
 
 
 
@@ -1640,6 +1764,11 @@
 - 标签: readonly,profile,zero_config
 - 类型: capability
 - 领域: cli,permission,safety
+
+
+
+
+
 
 
 
@@ -1696,6 +1825,11 @@
 
 
 
+
+
+
+
+
 ## R-104 Memory M1:分级存储、引擎门禁与检索工具 [doing]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -1736,6 +1870,11 @@
 - 标签: fts,index,integrity,migration
 - 类型: capability
 - 领域: memory,storage,search
+
+
+
+
+
 
 
 
@@ -1788,6 +1927,11 @@
 
 
 
+
+
+
+
+
 ## R-106 Memory M3:注入改造与上下文账单 [todo]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 中
@@ -1834,6 +1978,11 @@
 
 
 
+
+
+
+
+
 ## R-107 Memory M4:独立 Memory 页与空闲整理 [todo]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -1852,12 +2001,22 @@
 - 领域: memory,ui,maintenance
 
 
+
+
+
+
+
 ## R-108 建立AI设计/技术选型沉淀机制 [todo]
 - priority: P2
 - 原始描述: 加一个大的需求，我们现在已经沉淀了需求和缺陷，但是少了一个沉淀，就是我们和AI沟通出来的设计方向和技术选择，这个应该也要落一下沉淀
 - 复杂度: 中
 - 归属: kanzei
 - 验收: 定义规范记录与团队共享 AI 讨论的设计方案、技术方案变更及决策过程，形成可追溯的知识资产
+
+
+
+
+
 
 ## R-109 侧边栏设计语言一致性规范 [todo]
 - priority: P0

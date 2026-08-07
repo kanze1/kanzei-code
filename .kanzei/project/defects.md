@@ -176,6 +176,9 @@
 
 
 
+
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -357,6 +360,9 @@
 - 标签: oauth,concurrency,atomic_write
 - 类型: data_loss
 - 领域: auth,provider,storage
+
+
+
 
 
 
@@ -557,6 +563,9 @@
 
 
 
+
+
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -673,25 +682,6 @@
 
 
 
-## D-119 继续文章/按钮收纳逻辑及视觉显示问题 [fixing] (high)
-- 原始描述: 继续文章和继续按钮不应该同时收纳，应该独立，而且继续文案的白色底北京啥都看不到，框也很窄不能缩放
-- 复现: 1.查看'继续文章'和'继续按钮'功能 2.观察文案白色背景可读性 3.测试容器宽度能否缩放
-- 优先级: P2
-- 进展: 已定位到 ui/index.html 的 continue-panel 与 main.js 独立 toggle/submit 事件、style.css 的窄三列布局。准备拆分“继续文案”收纳与“继续”操作按钮，并扩大可编辑区、修复深色主题文字/背景对比；补 UI 冒烟验证。
-
-
-
-
-
-
-
-
-- 标签: continue_prompt,grouping,readability
-- 类型: ux
-- 领域: ui,interaction,layout
-
-
-
 
 
 
@@ -718,6 +708,9 @@
 - 标签: exit_code,permission_denied,automation
 - 类型: contract
 - 领域: cli,automation,permission
+
+
+
 
 
 
@@ -751,6 +744,9 @@
 
 
 
+
+
+
 ## D-123 usage 与 --help 不展示 agent/模型/profile 选择方式,能力不可发现 [open] (low)
 - 复现: kz --help 只列出 run 与 tracker 子命令及一行 env 提示;KANZEI_AGENT 可选值(dev/dev-pair/research)、KANZEI_MODEL 语法、profile 档位含义均无从查起。
 - 根因: usage() 是 5 行手写文本(crates/kanzei/src/main.rs:55-60),agent 清单在 harness 快照里,帮助文本不读取它。
@@ -775,6 +771,9 @@
 - 标签: help,agent,model,profile
 - 类型: ux
 - 领域: cli,docs,discoverability
+
+
+
 
 
 
@@ -804,6 +803,9 @@
 - 标签: self_exit,installer,process_lock
 - 类型: bug
 - 领域: release,update,windows
+
+
+
 
 
 ## D-125 独立文档页列表末尾与底部状态栏重叠,末行被遮挡不可读 [open] (low)

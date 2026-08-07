@@ -716,18 +716,20 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 #continue-btn { white-space: nowrap; }
 #continue-panel {
   display: grid;
-  grid-template-columns: auto minmax(180px, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 6px;
   align-items: center;
   padding: 6px 0 2px;
   color: var(--muted);
   font-size: 11px;
 }
+#continue-panel label { white-space: nowrap; }
 #continue-prompt {
-  min-height: 34px;
-  max-height: 90px;
-  resize: vertical;
-  font-size: 12px;
+  width: 100%; min-height: 34px; max-height: 140px;
+  resize: vertical; font-size: 12px;
+}
+@media (max-width: 700px) {
+  #continue-panel { grid-template-columns: 1fr; gap: 4px; }
 }
 .goal-add-form input, .doc-progress input {
   width: 100%; background: var(--input); border: 1px solid var(--border);
