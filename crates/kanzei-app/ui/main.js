@@ -864,6 +864,8 @@ function renderContextDetail() {
   const t = runTokens;
   const total = t.input + t.cacheRead + t.output;
   detail.innerHTML = `<strong>上下文成分</strong><br>输入上下文(系统/历史/工具结果): ${t.input.toLocaleString()} tokens<br>缓存读取(已复用上下文): ${t.cacheRead.toLocaleString()} tokens<br>本轮输出: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? "<br>最近一次压缩纪要已收进活动面板" : ""}<br>合计: ${total.toLocaleString()} tokens`;
+  detail.classList.remove("hidden");
+  $("status-tokens").setAttribute("aria-expanded", "true");
   if (lastCompactionEntry) {
     activityPanelOpen = true;
     syncActivityPanel();

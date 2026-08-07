@@ -508,7 +508,8 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-detail.hidden { display: none; }
 
 /* 状态栏上下文进度条 */
-.context-clickable { cursor: pointer; text-decoration: underline dotted; }
+.context-clickable { cursor: pointer; text-decoration: underline dotted; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; }
+.context-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .context-detail { position: fixed; right: 12px; bottom: 38px; z-index: 210; max-width: 360px; padding: 9px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; box-shadow: 0 4px 16px #0008; font-size: 12px; line-height: 1.55; }
 #ctx-bar {
   width: 72px; height: 7px; border-radius: 4px; background: var(--panel2);
