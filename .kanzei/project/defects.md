@@ -1,5 +1,18 @@
 # Defects
 
+## D-146 应用内更新按 hash 不相等判定,会把本地较新的开发构建降级回上一个 release [open] (high)
+- 复现: 用 scripts/release.ps1 装一个尚未发布的开发构建(如 e5c8555),启动桌面端;3 秒后的静默检查发现最新 release 标签是 build-91e8d22,与本地 KANZEI_BUILD_INFO 的 hash 不相等,于是判定"有新版"并安装——本地被回滚到更旧的已发布版本。
+- 证据: 2026-08-08 实录。5:15 release.ps1 把 21,270,016B 的构建装进 %LOCALAPPDATA%\kanzei;5:22:21 uninstall.exe 时间戳显示 NSIS 安装器运行;此后安装位变成 21,332,480B/04:37(build-91e8d22 的载荷),哈希与本次构建不一致。用户随后打开看到的仍是旧版。
+- 根因: update_check 只比较 `tag_name` 与当前 build hash 是否相等,把"不相等"当作"有新版";开发构建天然领先于最新 release,因此必然被判定为需要更新。
+- 影响: 自举机上"装了新版→它自己滚回旧版"静默发生,排查方向完全错误(以为发布没生效);且与 D-145 叠加时更难定位。
+- 验收: 判定改为"仅当 release 确实更新才提示"(比较发布时间与本地构建日期,或在构建信息里带上可比较的序号);本地构建领先于最新 release 时不提示更新;补该场景的判定单测。
+- 优先级: P1
+- refs: D-124 D-145
+- 标签: 发布
+- 阶段: 1
+- 不变量: 版本与更新:更新只前进不后退
+- 证据等级: E3
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -46,15 +59,3 @@
 
 - 阻塞: 涉及应用自退出、NSIS 安装器交接、残留进程/临时文件清理和失败恢复，属于发布/部署流程高影响改动；按规范需先确认退出时序、安装器参数、重启接力、残留清理安全边界及 Windows 测试方案，当前未确认。依据: 验收同时改变应用生命周期和安装物行为。解除条件: 确认发布交接状态机、NSIS 参数与回滚/清理策略；下一步: 方案确认后先补可观测状态机测试，再实现退出交接。
 
-## D-145 发布脚本安装到错误的 kzapp 路径导致运行旧版本 [fixed] (medium)
-- 不变量: 发布:构建、安装和实际启动路径必须一致
-- 复现: scripts/release.ps1 将 release 构建复制到 %USERPROFILE%\.cargo\bin\kzapp.exe，但实际运行的桌面端位于 %LOCALAPPDATA%\kanzei\kzapp.exe，发布后 UI 仍显示旧构建 hash 91e8d22。
-- 影响: 发布成功但用户继续运行旧版本，版本号/hash 与代码 HEAD 不一致，容易误判发布失败。
-- 标签: 发布
-- 根因: 发布脚本固定使用 cargo bin 作为桌面端安装目标，而实际桌面启动器/更新链使用 LocalAppData\kanzei。
-- 证据等级: E3
-- 进展: 方案已确定并实现：桌面端目标统一为 %LOCALAPPDATA%\kanzei\kzapp.exe；~\.cargo\bin 仅保留 kz CLI，并在发布时清理历史 kzapp.exe/pending 副本。待重新发布并核对运行实例 app_info。
-- 进展(补全与验收): e5c8555 补两处遗漏——①删掉 cargo bin 的 kzapp.exe 会让终端 `kzapp` 直接失效(conventions §9 明写过该能力),补 kzapp.cmd 转发启动器,且必须装在 try 之前(app 运行时 catch 会 throw,放后面永远装不上);②补 Get-FileHash 逐字节校验,安装位与本次构建不一致直接 throw,残留 cargo bin 副本时明确告警。启动器注释改英文(.cmd 按 OEM 代码页读,中文必乱码)。
-- 验证: 实跑 release.ps1 端到端——cargo bin\kzapp.exe 已清理、AppData 为唯一 exe、哈希与本次构建一致、`cmd /c kzapp` 实测启动的正是 AppData 那一份。
-- 阶段: 1
-- 验收: release.ps1 将 kzapp 安装到实际运行路径；旧 cargo bin\kzapp.exe 被安全清理；重新发布后运行实例 app_info 显示当前 HEAD hash；kz CLI 仍保留在 cargo bin。
