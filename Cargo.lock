@@ -2259,6 +2259,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
  "reqwest 0.12.28",

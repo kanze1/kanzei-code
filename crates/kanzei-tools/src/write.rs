@@ -181,6 +181,11 @@ pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::{diff_display, WriteTool};
+    use kanzei_core::{AskFuture, AskRequest, AskReply, AskResponse, RunnerConfig};
+    use kanzei_harness::{rule, ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
+    use crate::{BaseComponent, DevProfile};
+    use kanzei_llm::{LlmClient, ProxyConfig, ReasoningEffort, Route};
+    use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
 
     #[test]
     fn diff_display_exposes_language_counts_and_line_numbers() {
@@ -248,6 +253,157 @@ mod tests {
         );
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[tokio::test]
+    async fn runner_hard_deny_blocks_real_write_tool_before_filesystem_side_effect() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-d050-runner-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let input_path = if cfg!(windows) {
+            r".KANZEI\project\requirements.md"
+        } else {
+            r".kanzei\project\requirements.md"
+        };
+        let call_input = serde_json::json!({
+            "path": input_path,
+            "content": "must not be written"
+        });
+        let first_response = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_d050",
+                        "type": "function",
+                        "function": {
+                            "name": "write",
+                            "arguments": call_input.to_string()
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+        });
+        let second_response = serde_json::json!({
+            "choices": [{
+                "index": 0,
+                "delta": {"content": "权限拒绝"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+        });
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            for response in [first_response, second_response] {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                let mut chunk = [0_u8; 4096];
+                let header_end = loop {
+                    let count = stream.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                    if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                        break position + 4;
+                    }
+                };
+                let content_length = String::from_utf8_lossy(&request[..header_end])
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                while request.len() < header_end + content_length {
+                    let count = stream.read(&mut chunk).await.unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&chunk[..count]);
+                }
+                let body = format!("data: {}\n\ndata: [DONE]\n\n", response);
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(head.as_bytes()).await.unwrap();
+                stream.write_all(body.as_bytes()).await.unwrap();
+            }
+        });
+
+        let mut config = KanzeiConfig::default();
+        config.permissions.rules.push(rule(
+            "write",
+            "*.kanzei/project/*",
+            kanzei_harness::Effect::Ask,
+        ));
+        let resolve_ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(config),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&resolve_ctx).unwrap();
+        let agent = snapshot.select_agent(None).unwrap();
+        let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
+        let route = Route::openai_at(&format!("http://{address}/v1"), None);
+        let runner_config = RunnerConfig {
+            model: "mock".into(),
+            max_tokens: 128,
+            reasoning: ReasoningEffort::Off,
+        };
+        let tool_ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let mut on_event = |_event| {};
+        let ask_count = Arc::new(AtomicUsize::new(0));
+        let ask_count_for_callback = Arc::clone(&ask_count);
+        let mut ask = move |_request: AskRequest| -> AskFuture {
+            ask_count_for_callback.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { AskResponse::Permission(AskReply::Deny) })
+        };
+
+        let summary = kanzei_core::run_once(
+            &client,
+            &route,
+            snapshot.as_ref(),
+            agent,
+            &runner_config,
+            &tool_ctx,
+            "执行写入",
+            &[],
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(ask_count.load(Ordering::SeqCst), 0);
+        assert!(summary.messages.iter().flat_map(|message| &message.parts).any(
+            |part| matches!(part, kanzei_llm::Part::ToolResult { content, is_error: true, .. } if content.contains("permission denied"))
+        ));
+        assert!(!root.join(".kanzei/project/requirements.md").exists());
+        server.await.unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn diff_display_marks_large_output_as_truncated() {
         let old = "a\n".repeat(20_000);
