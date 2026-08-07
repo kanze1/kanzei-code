@@ -504,8 +504,11 @@ function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
   const el = document.createElement("div");
   el.className = "bg-entry running";
-  const title = document.createElement("div");
+  const title = document.createElement("button");
+  title.type = "button";
   title.className = "bg-title";
+  title.setAttribute("aria-label", "展开或收起后台任务详情");
+  title.setAttribute("aria-expanded", "false");
   title.textContent = `${name} ${summary}`;
   title.title = summary;
   const prog = document.createElement("div");
@@ -516,7 +519,10 @@ function bgAdd(id, name, summary) {
   const detail = document.createElement("div");
   detail.className = "bg-detail hidden";
   title.addEventListener("click", () => {
-    if (detail.children.length) detail.classList.toggle("hidden");
+    if (detail.children.length) {
+      detail.classList.toggle("hidden");
+      title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+    }
   });
   el.append(title, prog, meta, detail);
   const list = $("bg-list");
@@ -813,14 +819,20 @@ let lastCompactionEntry = null;
 function addCompactionEntry(summary) {
   const el = document.createElement("div");
   el.className = "bg-entry ok compaction-entry";
-  const title = document.createElement("div");
+  const title = document.createElement("button");
+  title.type = "button";
   title.className = "bg-title";
+  title.setAttribute("aria-label", "展开或收起上下文压缩纪要");
+  title.setAttribute("aria-expanded", "true");
   title.textContent = "上下文压缩 · 点击查看纪要";
   const detail = document.createElement("div");
   detail.className = "bg-detail";
   detail.textContent = summary;
   el.append(title, detail);
-  title.addEventListener("click", () => detail.classList.toggle("hidden"));
+  title.addEventListener("click", () => {
+    detail.classList.toggle("hidden");
+    title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+  });
   $("bg-list").appendChild(el);
   while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
   lastCompactionEntry = el;
@@ -829,14 +841,20 @@ function addCompactionEntry(summary) {
 function addSummaryEntry(summary, path = "") {
   const el = document.createElement("div");
   el.className = "bg-entry ok summary-entry";
-  const title = document.createElement("div");
+  const title = document.createElement("button");
+  title.type = "button";
   title.className = "bg-title";
+  title.setAttribute("aria-label", "展开或收起对话总结");
+  title.setAttribute("aria-expanded", "true");
   title.textContent = "对话小总结 · 点击查看";
   const detail = document.createElement("div");
   detail.className = "bg-detail";
   detail.textContent = path ? `${summary}\n\n已存档: ${path}` : summary;
   el.append(title, detail);
-  title.addEventListener("click", () => detail.classList.toggle("hidden"));
+  title.addEventListener("click", () => {
+    detail.classList.toggle("hidden");
+    title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+  });
   $("bg-list").appendChild(el);
   while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
   return el;

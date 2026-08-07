@@ -489,7 +489,8 @@ button:disabled { opacity: .45; cursor: default; }
   padding: 7px 9px; font-family: var(--mono); font-size: 11.5px;
   display: flex; flex-direction: column; gap: 3px;
 }
-.bg-entry .bg-title { color: var(--info); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bg-entry .bg-title { color: var(--info); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; padding: 0; background: transparent; text-align: left; font: inherit; width: 100%; cursor: pointer; }
+.bg-entry .bg-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .bg-entry .bg-prog { color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-entry .bg-meta { color: var(--dim); font-size: 10.5px; }
 .bg-entry.running .bg-title::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
