@@ -39,10 +39,13 @@ New-Item -ItemType Directory -Force $app_dir | Out-Null
 # 这里放一个转发启动器补回该能力——它没有自己的版本,不可能再产生第二份旧版(D-145)。
 # 必须在 try 之前装:app 正在运行时下面会走 pending 分支并 throw,放在后面就永远装不上。
 $launcher = "$env:USERPROFILE\.cargo\bin\kzapp.cmd"
+# 注释用英文:.cmd 由 cmd.exe 按 OEM 代码页读取,中文注释在任何编码下都会显示为乱码。
 @"
 @echo off
-rem kanzei 桌面端启动器:桌面端只有一个安装位(LocalAppData),本文件只做转发。
-rem 不要在 cargo bin 再放 kzapp.exe——两份副本各自更新就是 D-145 的成因。
+rem kanzei desktop launcher. The desktop app has exactly ONE install location
+rem (%LOCALAPPDATA%\kanzei); this file only forwards to it.
+rem Never put kzapp.exe back into ~\.cargo\bin -- two copies updated by two
+rem different channels is exactly what caused D-145 ("shipped but still running old").
 start "" "%LOCALAPPDATA%\kanzei\kzapp.exe" %*
 "@ | Set-Content $launcher -Encoding ASCII
 
