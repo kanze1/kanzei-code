@@ -1436,6 +1436,15 @@ promptBox.addEventListener("input", () => {
 function send() {
   const prompt = promptBox.value.trim();
   if (!prompt && attachments.length === 0) return;
+  // 只有附件没有文字时,sendText 的空 prompt 早退会静默吞掉附件(附件在此已被清空)。
+  // 给一句默认描述,让图片/文件真的发得出去。
+  if (!prompt && attachments.length > 0) {
+    sendText("看一下这些附件", { promptAttachments: attachments });
+    promptBox.value = "";
+    attachments = [];
+    renderAttachments();
+    return;
+  }
   rememberPrompt(prompt);
   hideFileSuggestions();
   const promptAttachments = attachments;
@@ -1516,20 +1525,34 @@ const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
 if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
   $("profile-select").value = savedProfile;
 }
+// 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的鞭挞档位,按进程单独记住,
+// 否则切换进程回显时自主推进会被静默降级成结伴开发。
+const processProfileUi = new Map();
+function syncAutoContinueWithProfile() {
+  if (autoContinueAllowed() || !$("auto-continue").checked) return;
+  $("auto-continue").checked = false;
+  localStorage.setItem("kz-auto-continue", "0");
+  autoRounds = 0;
+  cancelAutoContinueTimer();
+  renderAutoStatus();
+  log("当前模式不支持鞭挞，已自动关闭");
+}
+function applyProfileValue(backendProfile) {
+  const remembered = activeProcessId ? processProfileUi.get(activeProcessId) : null;
+  if (backendProfile === "research") $("profile-select").value = "research";
+  else $("profile-select").value = remembered && remembered !== "research" ? remembered : "dev-pair";
+  localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
+  syncAutoContinueWithProfile();
+}
 $("profile-select").addEventListener("change", () => {
   localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
   if (activeProcessId) {
+    processProfileUi.set(activeProcessId, $("profile-select").value);
     const profile = $("profile-select").value === "research" ? "research" : "dev";
     invoke("process_update", { processId: activeProcessId, profile })
       .catch((error) => log(`进程模式保存失败:${error}`, "warn"));
   }
-  if (!autoContinueAllowed() && $("auto-continue").checked) {
-    $("auto-continue").checked = false;
-    localStorage.setItem("kz-auto-continue", "0");
-    autoRounds = 0;
-    cancelAutoContinueTimer();
-    log("已切换结伴/研究模式，鞭挞自动关闭");
-  }
+  syncAutoContinueWithProfile();
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
@@ -1618,7 +1641,8 @@ async function loadModels() {
 $("model-select").addEventListener("change", () => {
   localStorage.setItem("kz-model", $("model-select").value);
   if (activeProcessId) {
-    invoke("process_update", { processId: activeProcessId, model: $("model-select").value || null })
+    // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
+    invoke("process_update", { processId: activeProcessId, model: $("model-select").value })
       .catch((error) => log(`进程模型保存失败:${error}`, "warn"));
   }
 });
@@ -1799,6 +1823,7 @@ $("worktree-add").addEventListener("click", async () => {
 });
 
 // ---------- R-030:项目内独立进程 ----------
+let syncedRunningProcessId = null;
 function renderProcesses(items) {
   processItems = items ?? [];
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
@@ -1807,6 +1832,12 @@ function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   activeSessionId = active?.session_id ?? null;
+  // 活动进程换人时按后端真实状态重算运行态(切项目/进程后旧会话的 kz:done 收不到)。
+  // 只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
+  if (activeProcessId !== syncedRunningProcessId) {
+    syncedRunningProcessId = activeProcessId;
+    setRunning(Boolean(active?.running), active?.running ? "运行中" : "空闲");
+  }
   const tabs = $("process-tabs");
   tabs.replaceChildren();
   for (const item of processItems) {
@@ -1844,9 +1875,9 @@ async function switchProcess(processId) {
   await loadConversation();
   await refreshDocs();
   await loadModels();
-  if (target.model) $("model-select").value = target.model;
-  if (target.profile === "research") $("profile-select").value = "research";
-  else if (target.profile === "dev") $("profile-select").value = "dev-pair";
+  // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
+  $("model-select").value = target.model || "";
+  if (target.profile) applyProfileValue(target.profile);
   refreshGit();
   refreshPendingInputs();
   refreshProcesses();
@@ -1943,6 +1974,9 @@ function renderProjects(prefs) {
       const previous = currentProject;
       renderProjects(await invoke("projects_select", { path }));
       if (previous && previous !== path) {
+        // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
+        // 丢弃,新项目会永久卡在"运行中"(发送键禁用)。refreshProcesses 会带回真实状态。
+        setRunning(false, "空闲");
         clearChat();
         bgClear();
         renderTodoPanel([], 0, 0);
@@ -2078,6 +2112,11 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     const item = document.createElement("div");
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
     const pri = (entry.priority || "").toUpperCase();
+    // 外部阻塞:等待项目外部条件,取活时应跳过(字段来自条目自身,不能提到循环外)。
+    const externalBlocked = (entry.fields ?? []).some(([key, value]) =>
+      ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
+      && /外部|external|blocked/i.test(String(value))
+    );
     item.className = `doc-item${entry.closed ? " closed" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
     item.dataset.docId = entry.id;
 
@@ -2206,11 +2245,11 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       const complexitySelect = document.createElement("select");
       complexitySelect.innerHTML = "<option value=\"\">未评估</option><option>小</option><option>中</option><option>大</option>";
       complexitySelect.value = cx;
-      complexitySelect.title = "设置需求复杂度";
+      complexitySelect.title = kind === "defect" ? "设置缺陷复杂度" : "设置需求复杂度";
       complexitySelect.addEventListener("click", (event) => event.stopPropagation());
       complexitySelect.addEventListener("change", async () => {
         try {
-          await invoke("docs_update", { projectDir: currentProject, kind: "req", action: "update", id: entry.id, fields: { "复杂度": complexitySelect.value } });
+          await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, fields: { "复杂度": complexitySelect.value } });
           toast("复杂度已保存");
           refreshDocs();
         } catch (error) {
@@ -2462,14 +2501,21 @@ function quickCaptureForm(kind, listId, noun) {
       toast("先写点描述");
       return;
     }
-    form.remove();
+    // 失败时表单必须还在:提交前销毁会让用户写的描述无处可寻。
+    submitBtn.disabled = true;
+    cancelBtn.disabled = true;
+    input.disabled = true;
     toast(`记${noun}中…(独立子代理后台进行)`);
     try {
       const msg = await invoke("quick_req", { projectDir: currentProject, description: text, kind });
+      form.remove();
       toast(`已记录:${msg}`);
       refreshDocs();
     } catch (err) {
-      toast(`记${noun}失败:${err}`);
+      submitBtn.disabled = false;
+      cancelBtn.disabled = false;
+      input.disabled = false;
+      toast(`记${noun}失败(内容已保留,可重试):${err}`);
     }
   };
   input.addEventListener("keydown", (e) => {
@@ -2954,7 +3000,16 @@ async function loadPermissionRules() {
   }
 }
 async function loadSettings() {
-  const s = await invoke("settings_get");
+  let s;
+  try {
+    s = await invoke("settings_get");
+  } catch (err) {
+    // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
+    $("settings-path").textContent = "配置读取失败";
+    toast(`设置读取失败:${err}`);
+    log(`设置读取失败:${err}`, "err");
+    return;
+  }
   $("settings-path").textContent = s.path;
   $("set-primary").value = s.primary ?? "";
   $("set-fast").value = s.fast ?? "";
@@ -3153,11 +3208,21 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
       if (r.newer && r.url) toast(`发现新版本 ${r.latest} — 设置页「检查更新」可一键安装`);
     } catch {}
   }, 3000);
-  renderProjects(await invoke("projects_get"));
-  await loadConversation();
-  await refreshDocs();
-  await loadModels();
-  refreshGit();
-  await refreshPendingInputs();
+  // 启动链任一步失败都不能静默中断后半段(否则界面停在初始态,用户看不到任何原因)。
+  for (const [label, step] of [
+    ["项目列表", async () => renderProjects(await invoke("projects_get"))],
+    ["历史对话", loadConversation],
+    ["项目文档", refreshDocs],
+    ["模型列表", loadModels],
+    ["git 状态", refreshGit],
+    ["排队输入", refreshPendingInputs],
+  ]) {
+    try {
+      await step();
+    } catch (err) {
+      log(`启动步骤「${label}」失败:${err}`, "err");
+      toast(`${label}加载失败:${err}`);
+    }
+  }
   setStatus("空闲", false);
 })();

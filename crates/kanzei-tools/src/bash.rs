@@ -99,19 +99,26 @@ impl Tool for BashTool {
 
         let mut stdout = child.stdout.take().expect("stdout piped");
         let mut stderr = child.stderr.take().expect("stderr piped");
-        let capture = async {
-            // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
-            let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
-            let (a, b) = tokio::join!(
-                read_capped(&mut stdout, &mut out_buf),
-                read_capped(&mut stderr, &mut err_buf)
-            );
-            let status = child.wait().await;
-            (status, out_buf, a, err_buf, b)
+        // 缓冲放在 future 外:超时把整个 future drop 掉时,已经读到的输出必须还在,
+        // 否则模型对"卡在哪一步"一无所知,只能盲目加大 timeout 重跑并重复副作用(D-062)。
+        let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
+        let capture = {
+            let out_buf = &mut out_buf;
+            let err_buf = &mut err_buf;
+            async move {
+                // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
+                let (a, b) = tokio::join!(
+                    read_capped(&mut stdout, out_buf),
+                    read_capped(&mut stderr, err_buf)
+                );
+                let status = child.wait().await;
+                (status, a, b)
+            }
         };
 
-        match tokio::time::timeout(timeout, capture).await {
-            Ok((status, out_buf, out_capped, err_buf, err_capped)) => {
+        let outcome = tokio::time::timeout(timeout, capture).await;
+        match outcome {
+            Ok((status, out_capped, err_capped)) => {
                 let mut text = String::from_utf8_lossy(&out_buf).into_owned();
                 if out_capped {
                     text.push_str("\n[stdout truncated at 1 MiB]");
@@ -151,11 +158,34 @@ impl Tool for BashTool {
                 if let Some(pid) = pid {
                     kill_tree(pid).await;
                 }
-                // 超时是可预期结果:结构化告知,让模型加大 timeout 重试。
-                ToolOutput::ok(format!(
+                // 超时是可预期结果:结构化告知,并回传已捕获的输出(卡在哪一步全靠它)。
+                let mut text = format!(
                     "timeout: true — command did not finish within {} ms and was killed. Retry with a larger timeout_ms if needed.",
                     timeout.as_millis()
-                ))
+                );
+                let partial_out = String::from_utf8_lossy(&out_buf).into_owned();
+                let partial_err = String::from_utf8_lossy(&err_buf).into_owned();
+                if partial_out.trim().is_empty() && partial_err.trim().is_empty() {
+                    text.push_str("\n[no output captured before timeout]");
+                } else {
+                    if !partial_out.trim().is_empty() {
+                        text.push_str("\n[partial stdout before timeout]\n");
+                        text.push_str(&partial_out);
+                    }
+                    if !partial_err.trim().is_empty() {
+                        text.push_str("\n[partial stderr before timeout]\n");
+                        text.push_str(&partial_err);
+                    }
+                }
+                let display = serde_json::json!({
+                    "kind": "terminal",
+                    "command": input.command,
+                    "exitCode": serde_json::Value::Null,
+                    "timeout": true,
+                    "output": text.chars().take(4000).collect::<String>(),
+                });
+                // 超时不是成功:按错误返回,上层不再把它计入正常完成。
+                ToolOutput::error(text).with_display(display)
             }
         }
     }

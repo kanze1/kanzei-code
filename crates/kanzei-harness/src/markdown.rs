@@ -50,20 +50,31 @@ pub fn parse_frontmatter(text: &str) -> Frontmatter {
         };
     }
     let mut pairs = Vec::new();
-    let mut body_start = 0usize;
-    let mut offset = text.lines().next().map(|l| l.len() + 1).unwrap_or(0);
-    for line in lines {
-        let line_len = line.len() + 1;
+    let mut body = String::new();
+    // 用剩余文本的真实字节切分,不靠 lines() 重建偏移:lines() 会剥掉 `\r\n` 两个字节,
+    // 而按 len()+1 累加每行只算一个,CRLF 文件会逐行欠 1 字节,收尾定位落进分隔符甚至
+    // 上一行;若落点切在多字节字符中间,body 会整个变空(Windows 上必现,D-052)。
+    let mut rest = match text.split_once('\n') {
+        Some((_, rest)) => rest,
+        None => "",
+    };
+    loop {
+        let (line, tail) = match rest.split_once('\n') {
+            Some((line, tail)) => (line, tail),
+            None => (rest, ""),
+        };
         if line.trim() == "---" {
-            body_start = offset + line_len;
+            body = tail.trim().to_string();
             break;
         }
         if let Some((key, value)) = line.split_once(':') {
             pairs.push((key.trim().to_string(), value.trim().to_string()));
         }
-        offset += line_len;
+        if tail.is_empty() {
+            break;
+        }
+        rest = tail;
     }
-    let body = text.get(body_start..).unwrap_or("").trim().to_string();
     Frontmatter { pairs, body }
 }
 
@@ -188,5 +199,32 @@ mod tests {
         let no_fm = parse_frontmatter("没有 frontmatter 的正文");
         assert!(no_fm.pairs.is_empty());
         assert_eq!(no_fm.body, "没有 frontmatter 的正文");
+    }
+
+    /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。
+    #[test]
+    fn crlf_与_lf_解析结果一致() {
+        for keys in 1..=6 {
+            let mut lf = String::from("---\n");
+            for i in 0..keys {
+                lf.push_str(&format!("键{i}: 中文值{i}\n"));
+            }
+            lf.push_str("---\n正文第一行\n正文第二行");
+            let crlf = lf.replace('\n', "\r\n");
+
+            let a = parse_frontmatter(&lf);
+            let b = parse_frontmatter(&crlf);
+            assert_eq!(a.pairs.len(), keys, "LF keys={keys}");
+            assert_eq!(b.pairs.len(), keys, "CRLF keys={keys}");
+            assert_eq!(a.get("键0"), Some("中文值0"));
+            assert_eq!(b.get("键0"), Some("中文值0"));
+            assert_eq!(a.body, "正文第一行\n正文第二行", "LF body keys={keys}");
+            assert_eq!(
+                b.body, "正文第一行\r\n正文第二行",
+                "CRLF body keys={keys}"
+            );
+            assert!(!b.body.is_empty(), "CRLF body 不得为空 keys={keys}");
+            assert!(!b.body.starts_with('-'), "CRLF body 不得残留分隔符 keys={keys}");
+        }
     }
 }

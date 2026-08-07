@@ -872,8 +872,8 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
     let prefs = projects_get();
     let mut projects = Vec::new();
     for path in &prefs.projects {
-        let root = kanzei_harness::config::discover_project_root(Path::new(path))
-            .unwrap_or_else(|| PathBuf::from(path));
+        // 与运行侧同源的项目根,否则工作区卡片的状态/历史与实际运行会话对不上(D-058)。
+        let root = normalized_project_root(Path::new(path));
         let session_id = kanzei_core::project_session_id(&root);
         let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
             .map_err(|e| e.to_string())?;
@@ -1527,7 +1527,9 @@ async fn update_check() -> Result<serde_json::Value, String> {
         .and_then(|a| a["browser_download_url"].as_str())
         .unwrap_or("")
         .to_string();
-    let newer = !tag.is_empty() && !tag.contains(&current_hash);
+    // dev 构建没有注入 build hash,与任何 release tag 都"不相等";若据此判有新版,
+    // 每次启动都会误报并诱导用户用 release 覆盖本地 dev 版(D-081)。
+    let newer = !tag.is_empty() && current_hash != "dev" && !tag.contains(&current_hash);
     Ok(json!({
         "current": current_hash,
         "latest": tag,
@@ -1836,7 +1838,9 @@ fn handle_mobile_connection(mut stream: TcpStream, project_root: PathBuf, token:
     let content_length = request_head
         .lines()
         .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(str::to_owned))
-        .and_then(|value| value.parse::<usize>().ok())
+        // 标准头是 "Content-Length: 123",冒号后有空格;不 trim 会解析失败退回 0,
+        // 导致 body 恒为空、所有 POST 都因缺字段返回 400(D-063)。
+        .and_then(|value| value.trim().parse::<usize>().ok())
         .unwrap_or(0);
     while buffer.len() < header_end + content_length {
         let Ok(count) = stream.read(&mut chunk) else { return };
@@ -2241,8 +2245,9 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
 /// 开新对话:清空会话内多轮历史,并写入空的持久化投影。
 #[tauri::command]
 fn conversation_clear(state: State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<(), String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
+    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
+    let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -2271,8 +2276,9 @@ fn conversation_get(
     sequence: Option<i64>,
     process_id: Option<String>,
 ) -> Result<Vec<kanzei_llm::Message>, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
+    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
+    let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -2294,8 +2300,9 @@ fn conversation_trace_get(
     sequence: Option<i64>,
     process_id: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
+    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
+    let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -2328,8 +2335,9 @@ fn conversation_trace_get(
 
 #[tauri::command]
 fn conversation_list(project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
+    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
+    let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -2392,8 +2400,9 @@ fn conversation_list(project_dir: String, process_id: Option<String>) -> Result<
 /// 批量删除历史对话快照(只删 conversation.updated,不动调度事件)。
 #[tauri::command]
 fn conversation_delete(project_dir: String, sequences: Vec<i64>, process_id: Option<String>) -> Result<usize, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
+    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
+    let root = normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -2457,6 +2466,9 @@ fn stop_run(
         return;
     }
     for runtime in runtimes {
+        // 取 lifecycle 锁再动手:否则可能与 drain 收尾/队列 admit 交错,
+        // 造成已 promote 的输入无人执行或 pending 输入变成孤儿(D-066)。
+        let _lifecycle = runtime.lifecycle.lock().unwrap();
         if let Some(handle) = runtime.current_run.lock().unwrap().take() {
             handle.abort();
         }
@@ -2469,8 +2481,17 @@ fn stop_run(
             .clone()
             .unwrap_or_else(|| kanzei_core::project_session_id(&root));
         let state_path = kanzei_core::project_state_path(&root);
-        kanzei_core::SessionStore::open(&state_path)
-            .and_then(|store| store.cancel_pending_inputs(&session_id))
+        // abort 会在下一个 await 点杀死任务,写 idle/failed 的收尾分支永远执行不到,
+        // 会话状态会永久卡在 running,工作区显示幽灵运行(D-066)。
+        kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+            let _ = store.set_status(&session_id, "idle");
+            let _ = store.append_event(
+                &session_id,
+                "session.status_changed",
+                &json!({ "status": "idle", "reason": "stopped_by_user" }),
+            );
+            store.cancel_pending_inputs(&session_id)
+        })
     });
     match cancelled.transpose() {
         Ok(Some(count)) => {
@@ -2682,7 +2703,9 @@ async fn run_prompt(
                 running.store(false, Ordering::SeqCst);
                 break;
             }
-            let next_input = {
+            // 必须写回外层 next_input:此处若新建绑定,promote 出来的输入会被丢弃,
+            // 下一轮 run_task 收到 None 后按新输入重新 admit,导致队列顺序反转并重复入库。
+            next_input = {
                 let _lifecycle = lifecycle.lock().unwrap();
                 match promote_next_input(&project_dir, &session_id) {
                     Ok(input) => {
@@ -2701,7 +2724,7 @@ async fn run_prompt(
                     }
                 }
             };
-            let Some(input) = next_input else {
+            let Some(input) = next_input.clone() else {
                 break;
             };
             next_prompt = input.prompt.clone();

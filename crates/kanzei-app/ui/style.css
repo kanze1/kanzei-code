@@ -9,6 +9,7 @@
   --accent: #0e639c; --accent-hover: #1177bb; --accent-soft: #0d3a5c;
   --ok: #8fb87a; --err: #d0684e; --warn: #e0ab3a; --info: #6ca3c8;
   --alert: #e8842a;
+  --danger: var(--err); --muted: var(--dim);
   --statusbar: #181818; --statusbar-run: #4a3a12;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
   --radius: 6px;

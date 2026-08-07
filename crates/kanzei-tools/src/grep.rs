@@ -89,7 +89,9 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
 
     let mut lines: Vec<String> = Vec::new();
     let mut done = false;
-    for entry in ignore::WalkBuilder::new(base).build().flatten() {
+    // 默认 hidden(true) 会把 .kanzei/(需求、缺陷、规范全在这)、.github/、.claude/ 整个跳过,
+    // 模型据此得出"文件不存在"的假阴性;仍尊重 .gitignore,不会扫进 target/(D-071)。
+    for entry in ignore::WalkBuilder::new(base).hidden(false).build().flatten() {
         if done {
             break;
         }

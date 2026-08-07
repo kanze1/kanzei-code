@@ -261,11 +261,16 @@ fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
                 }
             }
         }
+        // status 同样必须命中合法枚举才剥离,否则标题里的方括号(如 "支持 vec[index] 语法"、
+        // "处理 [DONE] 帧")会被截断成非法状态并永久固化(D-070,与 D-002 同族)。
         if t.ends_with(']') {
             if let Some(pos) = t.rfind('[') {
-                status = t[pos + 1..t.len() - 1].trim().to_string();
-                title = t[..pos].trim_end().to_string();
-                continue;
+                let candidate = t[pos + 1..t.len() - 1].trim();
+                if kind.statuses.contains(&candidate) {
+                    status = candidate.to_string();
+                    title = t[..pos].trim_end().to_string();
+                    continue;
+                }
             }
         }
         break;
@@ -354,6 +359,39 @@ mod tests {
         let parsed = parse(&DEFECTS, text);
         assert_eq!(parsed[0].severity.as_deref(), Some("high"));
         assert_eq!(parsed[0].title, "标题");
+    }
+
+    /// D-070:标题自带的方括号后缀不得被当成 status 剥离(与 D-002 同族)。
+    #[test]
+    fn title_with_brackets_survives_roundtrip() {
+        let entries = vec![
+            Entry {
+                id: "R-100".into(),
+                title: "支持 vec[index] 语法".into(),
+                status: "todo".into(),
+                severity: None,
+                fields: vec![],
+            },
+            Entry {
+                id: "R-101".into(),
+                title: "处理 [DONE] 帧".into(),
+                status: "doing".into(),
+                severity: None,
+                fields: vec![],
+            },
+        ];
+        let text = render(&REQUIREMENTS, &entries);
+        assert_eq!(parse(&REQUIREMENTS, &text), entries);
+
+        // 方括号结尾但不是合法状态:必须原样留在标题里,不能被截断成非法状态
+        let parsed = parse(&REQUIREMENTS, "## R-102 支持 vec[index]\n");
+        assert_eq!(parsed[0].title, "支持 vec[index]");
+        assert_eq!(parsed[0].status, "");
+
+        // 合法状态照常剥离
+        let parsed = parse(&REQUIREMENTS, "## R-103 普通标题 [done]\n");
+        assert_eq!(parsed[0].title, "普通标题");
+        assert_eq!(parsed[0].status, "done");
     }
 
     #[test]

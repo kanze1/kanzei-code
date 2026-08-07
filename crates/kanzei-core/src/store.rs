@@ -92,6 +92,12 @@ impl SessionStore {
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         }
         let connection = Connection::open(path)?;
+        // 同一个 state.db 会被大量短命连接并发读写(每个 Tauri 命令、每次运行、移动端线程各开一条)。
+        // 默认 rollback journal + busy_timeout=0 会让并发写直接 SQLITE_BUSY,
+        // 表现为运行成功却报失败、事件丢失、入队被拒(D-064)。
+        connection.busy_timeout(std::time::Duration::from_secs(5))?;
+        connection.pragma_update(None, "journal_mode", "WAL")?;
+        connection.pragma_update(None, "synchronous", "NORMAL")?;
         let store = Self { connection };
         store.migrate()?;
         Ok(store)

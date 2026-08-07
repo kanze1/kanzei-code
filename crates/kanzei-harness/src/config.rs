@@ -229,10 +229,15 @@ pub fn append_allow_rule(
     Ok(path)
 }
 
+/// 命令里一旦出现这些字符,`首词 *` 就不再等价于"这一类命令":
+/// `*` 会连 `;`、`&&`、管道、命令替换一起吞掉,一次"总是允许 git" 等于永久放行任意命令。
+const SHELL_CHAINING: [char; 8] = [';', '&', '|', '\n', '\r', '`', '$', '('];
+
 /// "总是允许"时把具体资源泛化成可复用的 pattern:
 /// bash 命令 → 首词前缀(`git *`);其余(路径等)→ 原样精确匹配。
+/// 含 shell 串联/替换字符的命令不泛化,只精确匹配本条(D-051)。
 pub fn generalize_resource(action: &str, resource: &str) -> String {
-    if action == "bash" {
+    if action == "bash" && !resource.contains(SHELL_CHAINING) {
         match resource.split_whitespace().next() {
             Some(first) if first != resource => format!("{first} *"),
             _ => resource.to_string(),

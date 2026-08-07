@@ -72,7 +72,8 @@ fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<Strin
     let mut hits: Vec<(std::time::SystemTime, String)> = Vec::new();
     let mut scanned = 0usize;
     let mut capped = false;
-    for entry in ignore::WalkBuilder::new(base).build().flatten() {
+    // 与 grep 保持一致:不跳过点开头的目录,否则 .kanzei/** 这类模式永远匹配不到(D-071)。
+    for entry in ignore::WalkBuilder::new(base).hidden(false).build().flatten() {
         if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             continue;
         }

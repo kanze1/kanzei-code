@@ -140,17 +140,21 @@ fn parse_results(html: &str) -> Vec<SearchResult> {
             .trim()
             .to_string();
         let url = decode_result_url(raw_url);
-        let snippet = title_body[title_end + 4..]
-            .find("result__snippet")
-            .and_then(|offset| title_body[title_end + 4 + offset..].find('>'))
-            .and_then(|offset| {
-                let body = &title_body[title_end + 4 + offset + 1..];
-                body.find('<')
-                    .map(|end| crate::webfetch::html_to_text(&body[..end]))
-            })
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        // 逐级把基址累进 rest,避免像原实现那样在第三步丢掉 result__snippet 的偏移,
+        // 导致起点落在开标签内部、snippet 带 `snippet">` 垃圾前缀(D-069)。
+        let snippet = {
+            let rest = &title_body[title_end + 4..];
+            rest.find("result__snippet")
+                .map(|offset| &rest[offset..])
+                .and_then(|rest| rest.find('>').map(|offset| &rest[offset + 1..]))
+                .and_then(|rest| {
+                    rest.find('<')
+                        .map(|end| crate::webfetch::html_to_text(&rest[..end]))
+                })
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        };
         if !url.is_empty() && !title.is_empty() {
             results.push(SearchResult {
                 title,
@@ -191,5 +195,17 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].url, "https://example.com/a");
         assert_eq!(results[0].title, "Example title");
+        // 原实现丢了一级基址,这里会拿到 `snippet">A useful snippet`(D-069)
+        assert_eq!(results[0].snippet, "A useful snippet");
+    }
+
+    /// 中文摘要含多字节字符,错位起点会切在字符中间直接 panic(D-069)。
+    #[test]
+    fn 中文摘要不错位也不panic() {
+        let html = r#"<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2F%E4%B8%AD%E6%96%87">中文标题</a><a class="result__snippet">这是一段中文摘要内容</a>"#;
+        let results = parse_results(html);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "中文标题");
+        assert_eq!(results[0].snippet, "这是一段中文摘要内容");
     }
 }
