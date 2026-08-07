@@ -2155,6 +2155,7 @@ function renderProjects(prefs) {
     remove.className = "icon-btn remove";
     remove.textContent = "×";
     remove.title = "移除(不删除文件)";
+    remove.setAttribute("aria-label", `移除项目 ${name.textContent}`);
     remove.addEventListener("click", async (e) => {
       e.stopPropagation();
       if (!window.confirm(`移除项目“${name.textContent}”吗？只解除登记,不会删除磁盘文件。`)) return;
@@ -2180,6 +2181,7 @@ function renderProjects(prefs) {
     rename.className = "icon-btn rename";
     rename.textContent = "✎";
     rename.title = "重命名项目(只修改显示名)";
+    rename.setAttribute("aria-label", `重命名项目 ${name.textContent}`);
     rename.addEventListener("click", async (e) => {
       e.stopPropagation();
       const nextName = window.prompt("项目显示名", prefs.names?.[path] || baseName(path));

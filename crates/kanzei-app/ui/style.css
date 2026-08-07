@@ -583,7 +583,12 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   border: 1px solid var(--border-soft); border-radius: 13px; padding: 4px 12px; height: 26px;
   transition: background .12s, border-color .12s, color .12s;
 }
-#auto-allow-wrap input, #auto-continue-wrap input { display: none; }
+#auto-allow-wrap input, #auto-continue-wrap input {
+  position: absolute; width: 1px; height: 1px; opacity: 0; margin: -1px;
+}
+#auto-allow-wrap:focus-within, #auto-continue-wrap:focus-within {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 #auto-allow-wrap::before, #auto-continue-wrap::before { content: "○"; font-size: 10px; }
 #auto-allow-wrap:hover, #auto-continue-wrap:hover { border-color: var(--border); color: var(--fg); }
 #auto-continue-wrap:has(input:checked) {
