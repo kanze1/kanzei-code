@@ -3342,7 +3342,7 @@ async function loadPermissionRules() {
     renderPermissionRules(await invoke("permission_rules_get", { projectDir: currentProject }));
   } catch (err) {
     renderPermissionRules({ rules: [] });
-    toast(`读取权限规则失败: ${err}`);
+    toastError(`读取权限规则失败: ${err}`);
   }
 }
 async function loadSettings() {
@@ -3352,8 +3352,7 @@ async function loadSettings() {
   } catch (err) {
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
     $("settings-path").textContent = "配置读取失败";
-    toast(`设置读取失败:${err}`);
-    log(`设置读取失败:${err}`, "err");
+    toastError(`设置读取失败:${err}`);
     return;
   }
   $("settings-path").textContent = s.path;
@@ -3387,7 +3386,7 @@ $("mobile-service-start").addEventListener("click", async () => {
     $("mobile-service-stop").classList.remove("hidden");
     toast("移动端本机桥接已启动");
   } catch (error) {
-    toast(`启动移动端桥接失败:${error}`);
+    toastError(`启动移动端桥接失败:${error}`);
   }
 });
 $("mobile-service-stop").addEventListener("click", async () => {
@@ -3397,7 +3396,7 @@ $("mobile-service-stop").addEventListener("click", async () => {
     $("mobile-service-start").classList.remove("hidden");
     $("mobile-service-stop").classList.add("hidden");
   } catch (error) {
-    toast(`停止移动端桥接失败:${error}`);
+    toastError(`停止移动端桥接失败:${error}`);
   }
 });
 async function agentContainerAction(action) {
