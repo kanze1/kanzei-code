@@ -509,3 +509,11 @@
 - 验证: 架构目录和 README 已存在；docs_path 支持应用内打开 architecture 文档。
 - 核查(2026-08-07): 达标但偏薄。位置/格式/约定正确,索引指向的 4 个设计文档真实存在且相对路径正确。但目录内只有 README、零篇新架构文档,且 agent 对 *.kanzei/project/* 写硬 deny,该归档空间模型自己写不进去只能用户手写,与 R-080 属同一结构性问题(建了容器没建供给侧),后续能否生长存疑。
 
+## R-071 外部阻塞需求显示与记录 [done]
+- 复杂度: 中
+- 优先级: P1
+- 验收: 前端需展示已标记为"外部阻塞"的需求
+- 退回原因: 2026-08-07 验收核查判定不达标且引入 P0 崩溃。声称的字段解析(`阻塞: 外部`/`blocked`/`blocking: external`)在当前代码中并不存在:定义先被误贴进 renderProjects(引用不存在的 entry,项目列表渲染即崩),提交 8fa8c45 删除误放的定义后 renderDocList(ui/main.js:2081、2100)仍引用该未定义变量,两个版本都从未正确工作过。
+- 完成说明: 随 D-048 修复——externalBlocked 定义放回 renderDocList 的 entry 循环内,按 entry.fields 识别 `阻塞`/`blocked`/`blocking` 键且值含"外部/external/blocked",命中时给条目加 external-blocked 类并渲染"外部阻塞"徽章。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。运行时冒烟检查仍缺,由 R-084 承接。
+- refs: D-048 R-084
