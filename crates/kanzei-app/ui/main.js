@@ -3380,7 +3380,7 @@ async function loadPermissionRules() {
     renderPermissionRules(await invoke("permission_rules_get", { projectDir: currentProject }));
   } catch (err) {
     renderPermissionRules({ rules: [] });
-    toastError(`读取权限规则失败: ${err}`);
+    toastError(`读取权限规则失败: ${err}`, { retry: loadPermissionRules });
   }
 }
 async function loadSettings() {
@@ -3390,7 +3390,7 @@ async function loadSettings() {
   } catch (err) {
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
     $("settings-path").textContent = "配置读取失败";
-    toastError(`设置读取失败:${err}`);
+    toastError(`设置读取失败:${err}`, { retry: loadSettings });
     return;
   }
   $("settings-path").textContent = s.path;
