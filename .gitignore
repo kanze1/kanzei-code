@@ -4,6 +4,11 @@
 .kanzei/summaries/
 *.pending
 .kanzei/state.db
+# SQLite 边车与记忆索引都是可重建派生物(A-001:真源是 markdown,库删了能全量重建)。
+.kanzei/state.db-shm
+.kanzei/state.db-wal
+.kanzei/memory/index.db
+.kanzei/memory/inbox.md
 /dist
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/
