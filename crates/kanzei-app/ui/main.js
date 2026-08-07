@@ -108,6 +108,7 @@ languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
   applyLanguage();
   setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
+  if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
   if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
   updateAskQueueStatus();
 });
