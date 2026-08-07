@@ -16,4 +16,4 @@ pub use client::{Endpoint, LlmClient, Route};
 pub use error::LlmError;
 pub use event::{FinishReason, LlmEvent, Usage};
 pub use proxy::ProxyConfig;
-pub use request::{LlmRequest, Message, Part, Role, ToolSpec};
+pub use request::{LlmRequest, Message, Part, ReasoningEffort, Role, ToolSpec};

@@ -78,6 +78,55 @@ impl Message {
     }
 }
 
+/// 思考强度:三种协议的表达方式不同(anthropic 是 token 预算,openai 系是 effort 档位),
+/// 统一成一档一档的强度,由各协议自己翻译成原生参数。
+/// 默认 Off = 完全不发思考参数,与未支持该能力时的行为一致。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    #[default]
+    Off,
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReasoningEffort::Off => "off",
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+        }
+    }
+
+    /// 未知取值一律回落 Off:配置里写错档位不该让请求带上意外参数。
+    pub fn parse(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "low" => ReasoningEffort::Low,
+            "medium" | "mid" => ReasoningEffort::Medium,
+            "high" | "max" => ReasoningEffort::High,
+            _ => ReasoningEffort::Off,
+        }
+    }
+
+    pub fn enabled(self) -> bool {
+        self != ReasoningEffort::Off
+    }
+
+    /// Anthropic 的 thinking 用 token 预算表达;返回 None 表示不开启。
+    /// 下限 1024 是 API 硬要求。
+    pub fn budget_tokens(self) -> Option<u32> {
+        match self {
+            ReasoningEffort::Off => None,
+            ReasoningEffort::Low => Some(4096),
+            ReasoningEffort::Medium => Some(12288),
+            ReasoningEffort::High => Some(24576),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LlmRequest {
     pub model: String,
@@ -87,4 +136,31 @@ pub struct LlmRequest {
     pub tools: Vec<ToolSpec>,
     pub max_tokens: u32,
     pub temperature: Option<f32>,
+    /// 思考强度;Off 时各协议不发任何思考相关参数。
+    pub reasoning: ReasoningEffort,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 配置里写错档位不该让请求带上意外参数:未知值一律回落 Off。
+    #[test]
+    fn effort_parse_falls_back_to_off() {
+        assert_eq!(ReasoningEffort::parse("low"), ReasoningEffort::Low);
+        assert_eq!(ReasoningEffort::parse(" HIGH "), ReasoningEffort::High);
+        assert_eq!(ReasoningEffort::parse("max"), ReasoningEffort::High);
+        assert_eq!(ReasoningEffort::parse("medium"), ReasoningEffort::Medium);
+        assert_eq!(ReasoningEffort::parse("off"), ReasoningEffort::Off);
+        assert_eq!(ReasoningEffort::parse(""), ReasoningEffort::Off);
+        assert_eq!(ReasoningEffort::parse("很高"), ReasoningEffort::Off);
+        assert_eq!(ReasoningEffort::default(), ReasoningEffort::Off);
+        assert!(!ReasoningEffort::Off.enabled());
+        assert!(ReasoningEffort::Low.enabled());
+        // 预算必须满足 Anthropic 的 1024 下限
+        for effort in [ReasoningEffort::Low, ReasoningEffort::Medium, ReasoningEffort::High] {
+            assert!(effort.budget_tokens().unwrap() >= 1024);
+        }
+        assert!(ReasoningEffort::Off.budget_tokens().is_none());
+    }
 }

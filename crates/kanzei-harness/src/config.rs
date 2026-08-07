@@ -29,6 +29,10 @@ pub struct KanzeiConfig {
 pub struct ModelRoles {
     pub primary: Option<String>,
     pub fast: Option<String>,
+    /// 思考强度默认档:"off"(默认)| "low" | "medium" | "high"。
+    /// 运行时可被桌面端的每进程选择覆盖;未配置时保持 off,行为与既有一致。
+    #[serde(default)]
+    pub reasoning: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

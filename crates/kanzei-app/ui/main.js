@@ -1723,6 +1723,16 @@ async function loadModels() {
     log(`模型列表获取失败:${err}`, "warn");
   }
 }
+// 思考强度:空值=用配置默认档,其余为本进程覆盖。
+$("reasoning-select").addEventListener("change", () => {
+  const value = $("reasoning-select").value;
+  localStorage.setItem("kz-reasoning", value);
+  if (activeProcessId) {
+    invoke("process_update", { processId: activeProcessId, reasoning: value })
+      .catch((error) => log(`进程思考强度保存失败:${error}`, "warn"));
+  }
+});
+
 $("model-select").addEventListener("change", () => {
   localStorage.setItem("kz-model", $("model-select").value);
   if (activeProcessId) {
@@ -3147,6 +3157,7 @@ async function loadSettings() {
   $("set-primary").value = s.primary ?? "";
   $("set-fast").value = s.fast ?? "";
   $("set-profile").value = s.profileDefault;
+  $("set-reasoning").value = s.reasoning || "off";
   const proxy = s.proxy;
   if (proxy === "env" || proxy === "off") {
     $("set-proxy-mode").value = proxy;
@@ -3240,6 +3251,7 @@ $("settings-save").addEventListener("click", async () => {
         fast: $("set-fast").value,
         proxy,
         profileDefault: $("set-profile").value,
+        reasoning: $("set-reasoning").value,
         providers: settingsProviders.map((p) => ({
           name: p.name,
           protocol: p.protocol,

@@ -10,12 +10,15 @@ use kanzei_harness::{
     tolerant_parse, tool::repair_hint, AgentDef, Effect, HarnessSnapshot, Tool, ToolCtx,
 };
 use kanzei_llm::{
-    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, Role, Route, ToolSpec, Usage,
+    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Role, Route,
+    ToolSpec, Usage,
 };
 
 pub struct RunnerConfig {
     pub model: String,
     pub max_tokens: u32,
+    /// 思考强度;由调用方(CLI/桌面端)按配置或运行时选择传入。
+    pub reasoning: ReasoningEffort,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
@@ -254,6 +257,7 @@ pub fn run_once_with_parts<'a>(
             tools: if last_step { vec![] } else { specs.clone() },
             max_tokens: config.max_tokens,
             temperature: None,
+            reasoning: config.reasoning,
         };
 
         // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
@@ -679,6 +683,8 @@ async fn run_subagent(
     let config = RunnerConfig {
         model: model.clone(),
         max_tokens: rt.max_tokens,
+        // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。
+        reasoning: ReasoningEffort::Off,
     };
     let mut on_event = |event: RunEvent| {
         let text = match &event {

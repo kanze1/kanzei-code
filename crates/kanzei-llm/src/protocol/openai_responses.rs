@@ -115,6 +115,10 @@ pub fn build_body(request: &LlmRequest) -> Value {
             .collect();
         body["tools"] = Value::Array(tools);
     }
+    // reasoning 对象本来就在(summary=auto),按档位补 effort;关闭时保持原样不带 effort。
+    if request.reasoning.enabled() {
+        body["reasoning"]["effort"] = json!(request.reasoning.as_str());
+    }
     body
 }
 
@@ -320,7 +324,7 @@ impl ProtocolState for ResponsesState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::Message;
+    use crate::request::{Message, ReasoningEffort};
 
     fn feed(state: &mut ResponsesState, data: &str) -> Vec<LlmEvent> {
         state
@@ -421,11 +425,33 @@ mod tests {
             tools: vec![],
             max_tokens: 100,
             temperature: None,
+            reasoning: ReasoningEffort::Off,
         };
         let body = build_body(&req);
         assert_eq!(body["input"][0]["type"], "reasoning");
         assert_eq!(body["input"][0]["encrypted_content"], "ENC123");
         assert_eq!(body["input"][1]["type"], "function_call");
         assert_eq!(body["store"], false);
+    }
+
+    /// 思考强度→reasoning.effort;关闭时保留既有 summary=auto 且不带 effort。
+    #[test]
+    fn reasoning_effort_merges_into_reasoning_object() {
+        let base = |effort| LlmRequest {
+            model: "gpt-5-codex".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![],
+            max_tokens: 100,
+            temperature: None,
+            reasoning: effort,
+        };
+        let body = build_body(&base(ReasoningEffort::Off));
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert!(body["reasoning"].get("effort").is_none());
+
+        let body = build_body(&base(ReasoningEffort::Medium));
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert_eq!(body["reasoning"]["effort"], "medium");
     }
 }

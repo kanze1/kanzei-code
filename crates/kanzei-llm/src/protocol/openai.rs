@@ -117,6 +117,10 @@ pub fn build_body(request: &LlmRequest) -> Value {
     if let Some(t) = request.temperature {
         body["temperature"] = json!(t);
     }
+    // 推理模型(o 系/gpt-5 等)用 reasoning_effort 档位;关闭时不发,兼容不认该字段的 provider。
+    if request.reasoning.enabled() {
+        body["reasoning_effort"] = json!(request.reasoning.as_str());
+    }
     body
 }
 
@@ -315,7 +319,7 @@ fn map_finish(reason: &str) -> FinishReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::Message;
+    use crate::request::{Message, ReasoningEffort};
 
     fn feed(state: &mut OpenAiState, data: &str) -> Vec<LlmEvent> {
         state
@@ -465,6 +469,7 @@ mod tests {
             tools: vec![],
             max_tokens: 100,
             temperature: None,
+            reasoning: ReasoningEffort::Off,
         };
         let body = build_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
@@ -475,5 +480,30 @@ mod tests {
         assert_eq!(body["messages"][3]["role"], "tool");
         assert_eq!(body["messages"][3]["tool_call_id"], "call_1");
         assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    /// 思考强度→reasoning_effort;关闭时不得出现该字段(旧 provider 不认)。
+    #[test]
+    fn reasoning_effort_is_sent_only_when_enabled() {
+        let base = |effort| LlmRequest {
+            model: "gpt-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![],
+            max_tokens: 100,
+            temperature: None,
+            reasoning: effort,
+        };
+        assert!(build_body(&base(ReasoningEffort::Off))
+            .get("reasoning_effort")
+            .is_none());
+        assert_eq!(
+            build_body(&base(ReasoningEffort::High))["reasoning_effort"],
+            "high"
+        );
+        assert_eq!(
+            build_body(&base(ReasoningEffort::Low))["reasoning_effort"],
+            "low"
+        );
     }
 }

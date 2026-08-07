@@ -106,6 +106,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: 8192,
+        reasoning: config
+            .models
+            .reasoning
+            .as_deref()
+            .map(kanzei_llm::ReasoningEffort::parse)
+            .unwrap_or_default(),
     };
     let ctx = ToolCtx { cwd, project_root };
 

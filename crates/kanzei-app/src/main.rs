@@ -66,6 +66,8 @@ struct ProcessHandle {
     worktree_path: Option<String>,
     model: Arc<Mutex<Option<String>>>,
     profile: Arc<Mutex<Option<String>>>,
+    /// 思考强度的每进程覆盖;None = 用配置里的默认档。
+    reasoning: Arc<Mutex<Option<String>>>,
     subagent_enabled: Arc<AtomicBool>,
 }
 
@@ -78,6 +80,7 @@ struct ProcessInfo {
     session_id: String,
     model: Option<String>,
     profile: Option<String>,
+    reasoning: Option<String>,
     subagent: bool,
     running: bool,
     label: String,
@@ -164,6 +167,7 @@ fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHandle {
             worktree_path: None,
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
+            reasoning: Arc::new(Mutex::new(None)),
             subagent_enabled: Arc::new(AtomicBool::new(true)),
         })
         .clone()
@@ -186,6 +190,7 @@ fn process_info(state: &AppState, process: &ProcessHandle) -> ProcessInfo {
         session_id,
         model: process.model.lock().unwrap().clone(),
         profile: process.profile.lock().unwrap().clone(),
+        reasoning: process.reasoning.lock().unwrap().clone(),
         subagent: process.subagent_enabled.load(Ordering::SeqCst),
         running,
         label: if process.id.starts_with("d|") {
@@ -503,6 +508,7 @@ fn process_create(
     project_dir: String,
     model: Option<String>,
     profile: Option<String>,
+    reasoning: Option<String>,
     subagent: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
@@ -523,6 +529,7 @@ fn process_create(
         worktree_path: None,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
         profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
+        reasoning: Arc::new(Mutex::new(reasoning.filter(|value| !value.trim().is_empty()))),
         subagent_enabled: Arc::new(AtomicBool::new(subagent.unwrap_or(true))),
     };
     let info = process_info(&state, &process);
@@ -536,6 +543,7 @@ fn process_update(
     process_id: String,
     model: Option<String>,
     profile: Option<String>,
+    reasoning: Option<String>,
     subagent: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let process = state
@@ -550,6 +558,11 @@ fn process_update(
     }
     if let Some(profile) = profile {
         *process.profile.lock().unwrap() = Some(profile).filter(|value| !value.trim().is_empty());
+    }
+    if let Some(reasoning) = reasoning {
+        // 空串 = 清除本进程覆盖,回落配置默认档。
+        *process.reasoning.lock().unwrap() =
+            Some(reasoning).filter(|value| !value.trim().is_empty());
     }
     if let Some(subagent) = subagent {
         process.subagent_enabled.store(subagent, Ordering::SeqCst);
@@ -1198,6 +1211,7 @@ fn settings_get() -> serde_json::Value {
         "fast": config.models.fast,
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
+        "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "providers": providers,
     })
 }
@@ -1255,6 +1269,9 @@ struct SettingsPayload {
     primary: String,
     fast: String,
     proxy: String,
+    /// 思考强度默认档:off/low/medium/high;缺省视为 off。
+    #[serde(default)]
+    reasoning: Option<String>,
     profile_default: Option<String>,
     #[serde(default)]
     profile: Option<String>,
@@ -1283,6 +1300,11 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
     let mut config = KanzeiConfig::default();
     config.models.primary = Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty());
     config.models.fast = Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty());
+    // off 是默认值,不写进文件,保持配置精简。
+    config.models.reasoning = payload
+        .reasoning
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| ["low", "medium", "high"].contains(&value.as_str()));
     config.proxy = match payload.proxy.trim() {
         "" | "env" => None,
         other => Some(other.to_string()),
@@ -1330,6 +1352,7 @@ fn settings_open() -> Result<(), String> {
             primary: String::new(),
             fast: String::new(),
             proxy: "env".into(),
+            reasoning: None,
             profile_default: None,
             profile: None,
             providers: vec![],
@@ -1455,6 +1478,8 @@ async fn quick_req(
         let runner_config = RunnerConfig {
             model: resolved.model.clone(),
             max_tokens: 2048,
+            // 快记是机械结构化,不开思考。
+            reasoning: kanzei_llm::ReasoningEffort::Off,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -2062,6 +2087,8 @@ async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> 
         tools: vec![],
         max_tokens: 2048,
         temperature: None,
+        // 纪要总结不需要思考预算。
+        reasoning: kanzei_llm::ReasoningEffort::Off,
     };
     let mut stream = client
         .stream(&route, &request)
@@ -2633,6 +2660,7 @@ async fn run_prompt(
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
     let model = model.or_else(|| process.model.lock().unwrap().clone());
+    let reasoning = process.reasoning.lock().unwrap().clone();
     let subagent_enabled = process.subagent_enabled.load(Ordering::SeqCst);
     let runtime = runtime_for(&state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
@@ -2677,6 +2705,7 @@ async fn run_prompt(
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
+                reasoning.clone(),
                 conversation.clone(),
                 delivery,
                 next_input.take(),
@@ -2789,6 +2818,7 @@ async fn run_task(
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
+    reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
@@ -2866,6 +2896,12 @@ async fn run_task(
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: 8192,
+        // 每进程选择优先,未选则用 kanzei.toml 的 [models] reasoning 默认档。
+        reasoning: reasoning_override
+            .as_deref()
+            .or(config.models.reasoning.as_deref())
+            .map(kanzei_llm::ReasoningEffort::parse)
+            .unwrap_or_default(),
     };
     let ctx = ToolCtx { cwd, project_root };
 

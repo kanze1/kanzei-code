@@ -166,6 +166,13 @@
             <button id="chat-search-next" class="ghost" title="下一个匹配">↓</button>
           </span>
           <select id="model-select" title="模型(agent 默认或直选)"></select>
+          <select id="reasoning-select" title="思考强度(仅推理模型有效;越高越慢越贵)">
+            <option value="">思考:默认</option>
+            <option value="off">思考:关闭</option>
+            <option value="low">思考:低</option>
+            <option value="medium">思考:中</option>
+            <option value="high">思考:高</option>
+          </select>
           <select id="profile-select" title="模式">
             <option value="dev-pair">结伴开发</option>
             <option value="dev-auto">自主推进</option>
@@ -277,6 +284,17 @@
               <option value="research">research 研究</option>
             </select>
           </div>
+          <div class="form-row">
+            <label>思考强度</label>
+            <select id="set-reasoning">
+              <option value="off">关闭(不发思考参数)</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+          </div>
+          <p class="dim">默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效;
+            开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。</p>
 
           <h2>移动端桥接</h2>
           <p class="dim">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>

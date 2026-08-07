@@ -14,3 +14,4 @@
 - [`r059-mobile-agent-communication.md`](../../../docs/design/r059-mobile-agent-communication.md)：主代理/子代理消息与通知演进设计。
 - [`frontend-phase3.md`](../../../docs/design/frontend-phase3.md)：前端与后端能力对齐记录。
 - [`interaction-modes.md`](../../../docs/design/interaction-modes.md)：交互模式与自动推进边界。
+- [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量的统一不变量、验证证据和阶段门禁。

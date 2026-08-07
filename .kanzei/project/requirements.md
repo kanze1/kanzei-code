@@ -155,3 +155,24 @@
 - 归属: kanzei
 - 验收: 界面上存在触发按钮，点击后启动缺陷自动审查流程并反馈结果
 - 优先级: P1
+
+## R-093 可靠性、可用性与自举质量收口 [doing]
+- 复杂度: 大
+- 归属: kanzei
+- 优先级: P0
+- 来源: 2026-08-07 用户要求全面打磨项目的可靠性、可用性和自举质量
+- 内容: 以 docs/design/reliability_usability_self_hosting_quality.md 为设计基线，按“质量基线 → 数据与状态完整性 → 验证基础设施 → 核心交互 → 自举闭环 → 日常使用候选”六个阶段推进。把权限、消息、输入、会话、持久化、界面反馈和发布变为可验证不变量，并用 VerificationRun 约束需求/缺陷终态。
+- 验收: ①P0 为零，核心域 P1 为零或有用户明确接受的限制；②权限、消息、输入、会话、持久化和配置不变量至少通过 E2；③核心桌面交互通过 800/1024/1280、纯键盘、失败恢复和后台会话的 E3 验收矩阵；④新关闭需求/缺陷 100% 关联未过期 VerificationRun；⑤连续两个质量批次通过 Kanzei 自身的 Builder、Verifier、Transition Guard 和 Release Gate 闭环；⑥安装物升级与真实 provider 边界通过 E4。
+- 当前进展: 分析与设计基线已完成，尚未实施数据库模型、状态机、前端夹具和终态门禁；保持 doing。
+- 设计: docs/design/reliability_usability_self_hosting_quality.md
+- refs: R-080 R-083 R-084 R-085 R-086 R-087 R-088 R-089 R-090 R-091 R-092
+
+## R-094 模型思考强度可配置与运行时选择 [done]
+- 复杂度: 中
+- 优先级: P1
+- 原始描述: 模型的思考强度等参数现在不可以选择和配置
+- 验收: 思考强度既能在配置里设默认档,也能在运行时按进程临时选择;三种协议(anthropic/openai/openai-responses)都按各自原生参数正确发送;关闭档不发任何思考参数,保持既有行为;配置 schema 向后兼容,设置页透传不丢字段。
+- 设计: 三协议表达方式不同(anthropic 是 token 预算,openai 系是 effort 档位),统一成 off/low/medium/high 四档,由各协议翻译成原生参数。默认 off = 完全不发思考参数,存量配置行为不变。
+- 完成说明: kanzei-llm 新增 ReasoningEffort(含未知值回落 off 的 parse)与 LlmRequest.reasoning;anthropic 映射为 thinking.budget_tokens(4096/12288/24576)并在预算超过输出上限时自动抬高 max_tokens、开启时不发 temperature(API 硬要求);openai 映射为 reasoning_effort;openai-responses 并入既有 reasoning 对象的 effort 字段。kanzei.toml 新增 `[models] reasoning`(serde default,缺省 off);桌面端 ProcessInfo/process_create/process_update 支持每进程覆盖,顶栏新增思考强度下拉(空值=用默认档),设置页新增默认档并透传保存。子代理、快记与会话总结固定 off(机械任务不需思考预算)。
+- 验证: cargo test --workspace 全绿(91 项),新增 4 项回归测试覆盖三协议映射与 parse 回落;node --check crates/kanzei-app/ui/main.js。
+- 备注: 档位对应的 token 预算是首版取值,实机用下来若偏保守可直接调 budget_tokens。

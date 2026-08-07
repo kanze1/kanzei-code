@@ -64,7 +64,15 @@ pub fn build_body(request: &LlmRequest) -> Value {
             .collect();
         body["tools"] = Value::Array(tools);
     }
-    if let Some(t) = request.temperature {
+    // thinking 开启时:①budget 必须小于 max_tokens,不够就把上限抬到 budget 之上;
+    // ②API 要求 temperature 保持默认,显式带上会被拒。
+    if let Some(budget) = request.reasoning.budget_tokens() {
+        let min_output = budget.saturating_add(4096);
+        if request.max_tokens < min_output {
+            body["max_tokens"] = json!(min_output);
+        }
+        body["thinking"] = json!({"type": "enabled", "budget_tokens": budget});
+    } else if let Some(t) = request.temperature {
         body["temperature"] = json!(t);
     }
     body
@@ -281,7 +289,7 @@ fn map_stop_reason(reason: &str) -> FinishReason {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::request::{Message, ToolSpec};
+    use crate::request::{Message, ReasoningEffort, ToolSpec};
 
     fn feed(state: &mut AnthropicState, event: &str, data: &str) -> Vec<LlmEvent> {
         state
@@ -430,6 +438,7 @@ mod tests {
             }],
             max_tokens: 1024,
             temperature: None,
+            reasoning: ReasoningEffort::Off,
         };
         let body = build_body(&req);
         assert!(body["system"][0].get("cache_control").is_none());
@@ -442,5 +451,37 @@ mod tests {
             "ephemeral"
         );
         assert_eq!(body["tools"][0]["name"], "read");
+    }
+
+    /// 思考强度→thinking 预算;开启时必须抬高 max_tokens 且不带 temperature。
+    #[test]
+    fn thinking_budget_and_max_tokens_follow_effort() {
+        let base = |effort, max_tokens, temperature| LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::user_text("hi")],
+            tools: vec![],
+            max_tokens,
+            temperature,
+            reasoning: effort,
+        };
+
+        // 关闭:不发 thinking,temperature 照常透传
+        let body = build_body(&base(ReasoningEffort::Off, 1024, Some(0.5)));
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["temperature"], 0.5);
+        assert_eq!(body["max_tokens"], 1024);
+
+        // 开启:带 budget,max_tokens 被抬到 budget 之上,且不带 temperature
+        let body = build_body(&base(ReasoningEffort::Medium, 1024, Some(0.5)));
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 12288);
+        assert!(body.get("temperature").is_none());
+        assert!(body["max_tokens"].as_u64().unwrap() > 12288);
+
+        // 用户已给足输出上限时不下调
+        let body = build_body(&base(ReasoningEffort::Low, 65536, None));
+        assert_eq!(body["max_tokens"], 65536);
+        assert_eq!(body["thinking"]["budget_tokens"], 4096);
     }
 }
