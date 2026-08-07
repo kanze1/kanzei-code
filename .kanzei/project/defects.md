@@ -86,7 +86,7 @@
 - 证据等级: E2
 - 进展: 当前代码已回收 promoted 输入并有 store 状态测试，但真实 run_task 生命周期 E2 仍缺测试夹具；保持 fixing，继续按文档顺序处理 D-067。
 
-## D-068 错误分类忽略 kind,限流可被误判为上下文超限触发破坏性压缩 [open] (medium)
+## D-068 错误分类忽略 kind,限流可被误判为上下文超限触发破坏性压缩 [fixing] (medium)
 - 复现: provider 在流内返回带 token 字样的限流/配额错误;或任何 429/529。
 - 根因: kanzei-llm/src/error.rs:34-57 的 classify_provider 完全忽略 kind(流内 error 事件走此路径),只对 message 做宽泛子串匹配,词表含 "token limit"、"too many tokens"、"input_tokens" 这类会出现在配额文案中的模式,命中后 kind(如 rate_limit_error)被丢弃归为 ContextOverflow;runner 对 overflow 的响应是原地压缩消息历史再重试(runner.rs:268-284)。同时 LlmError 没有 RateLimited/Overloaded 变体,429/529 落为普通 Http 直接终止,retry-after 头被无视,client 重试只覆盖建流前的 connect/timeout(client.rs:142)。
 - 影响: 误判时无谓压缩掉真实对话历史后重试,限流未解除则二次失败而历史已受损;正常限流没有退避重试,长跑 agent 一遇 TPM 峰值即整轮失败。
@@ -96,6 +96,7 @@
 - 阶段: 1
 - 不变量: Provider:错误分类不改变原始错误事实
 - 证据等级: E2+E4
+- 进展: 开始处理：先核对 classify_provider 的 kind/message 分支、429/529 HTTP 错误映射、runner 的 overflow 触发条件与现有测试，优先补限流不触发上下文压缩的最小回归。
 
 ## D-082 settings_save 以默认值重建全局配置,表单外字段静默丢失 [open] (medium)
 - 复现: 手工编辑 ~/.kanzei/kanzei.toml 加入 [permissions] 规则,随后在设置页点一次保存,规则消失。
