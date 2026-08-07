@@ -40,8 +40,15 @@ const I18N_EN = {
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
     "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
   "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",
+  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle",
+  "已复制": "Copied", "复制失败": "Copy failed", "暂无可复制的运行日志": "No runtime log to copy",
+  "运行日志已复制": "Runtime log copied", "运行完成": "Run completed", "运行失败": "Run failed", "运行已停止": "Run stopped",
 };
 const I18N_ZH = new WeakMap();
+function t(key) {
+  const language = localStorage.getItem("kz-language") || "zh";
+  return language === "en" ? (I18N_EN[key] || key) : key;
+}
 function applyLanguage() {
   const language = localStorage.getItem("kz-language") || "zh";
   document.documentElement.lang = language === "en" ? "en" : "zh-CN";
@@ -69,6 +76,7 @@ languageSelect.value = localStorage.getItem("kz-language") || "zh";
 languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
   applyLanguage();
+  setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
 });
 applyLanguage();
 function setupResize(elementId, key, side, min, max) {
@@ -142,7 +150,8 @@ let toastTimer = null;
 let errorRetry = null;
 function toast(text) {
   const el = $("toast");
-  el.textContent = text;
+  const source = String(text);
+  el.textContent = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
   el.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
@@ -264,12 +273,12 @@ $("log-retry").addEventListener("click", async () => {
 $("log-copy").addEventListener("click", async () => {
   const text = $("log-lines").innerText.trim();
   if (!text) {
-    toast("暂无可复制的运行日志");
+    toast(t("暂无可复制的运行日志"));
     return;
   }
   try {
     await navigator.clipboard.writeText(text);
-    toast("运行日志已复制");
+    toast(t("运行日志已复制"));
   } catch (error) {
     toastError(`复制运行日志失败:${error}`);
   }
@@ -279,7 +288,7 @@ $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
 // ---------- 状态栏 ----------
 function setStatus(text, isRunning) {
   $("status-text").textContent = text;
-  $("status-mode").textContent = isRunning ? "运行中" : "空闲";
+  $("status-mode").textContent = isRunning ? t("运行中") : t("空闲");
   $("status-dot").className = `dot ${isRunning ? "run" : "idle"}`;
   $("statusbar").classList.toggle("running", !!isRunning);
 }
