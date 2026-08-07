@@ -8,7 +8,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::docstore::{DocKind, DocStore, Entry};
+use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 pub struct TrackerTool {
     pub tool_name: &'static str,
@@ -107,7 +107,15 @@ impl Tool for TrackerTool {
                 if entries.is_empty() {
                     return ToolOutput::ok(format!("(no {}s yet)", self.noun));
                 }
-                let lines: Vec<String> = entries.iter().map(render_line).collect();
+                let dependency_states = match dependency_states(ctx, self.kind, &entries) {
+                    Ok(states) => states,
+                    Err(e) => return ToolOutput::error(format!("cannot read scheduler dependencies: {e}")),
+                };
+                let scheduled = schedule_entries(&entries, &dependency_states);
+                let lines: Vec<String> = scheduled
+                    .iter()
+                    .map(|(entry, reasons)| render_scheduled_line(entry, reasons))
+                    .collect();
                 ToolOutput::ok(lines.join("\n"))
             }
             "get" => {
@@ -417,6 +425,139 @@ impl TrackerTool {
     }
 }
 
+type DependencyStates = BTreeMap<String, bool>;
+
+fn dependency_states(
+    ctx: &ToolCtx,
+    current_kind: &DocKind,
+    current_entries: &[Entry],
+) -> Result<DependencyStates, String> {
+    let mut states = BTreeMap::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let active = if kind.rel_path == current_kind.rel_path {
+            current_entries.to_vec()
+        } else {
+            DocStore::open(&ctx.project_root, kind)
+                .load()
+                .map_err(|e| format!("{}: {e}", kind.rel_path))?
+        };
+        let archived = DocStore::open(&ctx.project_root, kind)
+            .load_archive()
+            .map_err(|e| format!("{} archive: {e}", kind.rel_path))?;
+        for entry in active.into_iter().chain(archived) {
+            states.insert(entry.id, kind.terminal.contains(&entry.status.as_str()));
+        }
+    }
+    Ok(states)
+}
+
+fn schedule_entries<'a>(
+    entries: &'a [Entry],
+    states: &DependencyStates,
+) -> Vec<(&'a Entry, Vec<String>)> {
+    // 稳定分区:不改写 Markdown,只在取活输出中把当前不可执行项后置；
+    // 因此阻塞解除后会自动回到原文档顺序。
+    let mut executable = Vec::with_capacity(entries.len());
+    let mut blocked = Vec::new();
+    for entry in entries {
+        let reasons = block_reasons(entry, states);
+        if reasons.is_empty() {
+            executable.push((entry, reasons));
+        } else {
+            blocked.push((entry, reasons));
+        }
+    }
+    executable.extend(blocked);
+    executable
+}
+
+fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
+    let mut reasons = Vec::new();
+    for (key, value) in &entry.fields {
+        if is_blocker_key(key) && is_present_blocker(value) {
+            reasons.push(format!("阻塞字段: {}", value.trim()));
+        }
+        if is_dependency_key(key) {
+            for id in tracker_ids(value) {
+                match states.get(&id) {
+                    Some(true) => {}
+                    Some(false) => reasons.push(format!("未完成依赖: {id}")),
+                    None => reasons.push(format!("依赖不存在: {id}")),
+                }
+            }
+        }
+        if is_stage_key(key) && is_deferred_stage(value) {
+            reasons.push(format!("阶段门槛: {}", value.trim()));
+        }
+    }
+    reasons
+}
+
+fn render_scheduled_line(entry: &Entry, reasons: &[String]) -> String {
+    let line = render_line(entry);
+    if reasons.is_empty() {
+        line
+    } else {
+        format!("{line} [blocked: {}]", reasons.join("；"))
+    }
+}
+
+fn is_blocker_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.contains("阻塞") || matches!(lower.as_str(), "blocked" | "blocker" | "blocking")
+}
+
+fn is_dependency_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.trim() == "依赖" || matches!(lower.as_str(), "dependency" | "dependencies" | "depends_on")
+}
+
+fn is_stage_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.trim() == "阶段" || matches!(lower.as_str(), "stage" | "phase")
+}
+
+fn is_present_blocker(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && !matches!(
+            value.to_ascii_lowercase().as_str(),
+            "无" | "否" | "none" | "no" | "false" | "未阻塞" | "暂无"
+        )
+}
+
+fn is_deferred_stage(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    value.contains("后")
+        || value.contains("以后")
+        || lower.contains("after")
+        || lower.contains("later")
+}
+
+/// 从自由文本中提取 R-001/D-002 形式的追踪 ID,兼容中文标点和说明文字。
+fn tracker_ids(value: &str) -> Vec<String> {
+    let chars: Vec<char> = value.chars().collect();
+    let mut ids = Vec::new();
+    let mut i = 0;
+    while i + 2 < chars.len() {
+        let prefix = chars[i].to_ascii_uppercase();
+        if !matches!(prefix, 'R' | 'D') || chars[i + 1] != '-' || !chars[i + 2].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let mut end = i + 2;
+        while end < chars.len() && chars[end].is_ascii_digit() {
+            end += 1;
+        }
+        let id: String = chars[i..end].iter().collect();
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+        i = end;
+    }
+    ids
+}
+
 fn render_line(e: &Entry) -> String {
     let sev = e
         .severity
@@ -695,5 +836,69 @@ mod tests {
         let fields = &store.load().unwrap()[0].fields;
         assert_eq!(fields, &[("priority".into(), "P0".into())]);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn list_stably_postpones_blocked_entries_and_restores_order() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-scheduler-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut blocked = entry("R-001");
+        blocked.fields.push(("阻塞".into(), "等待用户确认".into()));
+        let mut dependency_blocked = entry("R-003");
+        dependency_blocked
+            .fields
+            .push(("依赖".into(), "R-002".into()));
+        let mut stage_blocked = entry("R-004");
+        stage_blocked.fields.push(("阶段".into(), "5 后".into()));
+        store
+            .save(&[blocked, entry("R-002"), dependency_blocked, stage_blocked])
+            .unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        let lines: Vec<&str> = out.content.lines().collect();
+        assert!(lines[0].starts_with("R-002"), "{}", out.content);
+        assert!(lines[1].contains("R-001") && lines[1].contains("阻塞字段"));
+        assert!(lines[2].contains("R-003") && lines[2].contains("未完成依赖: R-002"));
+        assert!(lines[3].contains("R-004") && lines[3].contains("阶段门槛"));
+
+        // 解除两个阻塞后，原文档顺序自动恢复；没有持久化一份临时排序。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"阻塞": ""}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-002", "status": "done"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        let lines: Vec<&str> = out.content.lines().collect();
+        assert!(lines[0].starts_with("R-001"), "{}", out.content);
+        assert!(lines[1].starts_with("R-002"), "{}", out.content);
+        assert!(lines[2].starts_with("R-003"), "{}", out.content);
+        assert!(lines[3].contains("R-004") && lines[3].contains("阶段门槛"));
+        std::fs::remove_dir_all(dir).ok();
     }
 }

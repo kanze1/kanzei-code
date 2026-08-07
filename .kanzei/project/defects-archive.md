@@ -1378,3 +1378,26 @@
 - 阶段: 3
 - 验收: Enter 发送；Shift+Enter 保留换行；Ctrl/Cmd+Enter 继续发送；文件补全选择优先级不变。
 - 验证: node --check main.js；node --check ui-runtime-smoke.mjs；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke 全部通过。
+
+## D-145 发布脚本安装到错误的 kzapp 路径导致运行旧版本 [fixed] (medium)
+- 不变量: 发布:构建、安装和实际启动路径必须一致
+- 复现: scripts/release.ps1 将 release 构建复制到 %USERPROFILE%\.cargo\bin\kzapp.exe，但实际运行的桌面端位于 %LOCALAPPDATA%\kanzei\kzapp.exe，发布后 UI 仍显示旧构建 hash 91e8d22。
+- 影响: 发布成功但用户继续运行旧版本，版本号/hash 与代码 HEAD 不一致，容易误判发布失败。
+- 标签: 发布
+- 根因: 发布脚本固定使用 cargo bin 作为桌面端安装目标，而实际桌面启动器/更新链使用 LocalAppData\kanzei。
+- 证据等级: E3
+- 进展: 方案已确定并实现：桌面端目标统一为 %LOCALAPPDATA%\kanzei\kzapp.exe；~\.cargo\bin 仅保留 kz CLI，并在发布时清理历史 kzapp.exe/pending 副本。待重新发布并核对运行实例 app_info。
+- 进展(补全与验收): e5c8555 补两处遗漏——①删掉 cargo bin 的 kzapp.exe 会让终端 `kzapp` 直接失效(conventions §9 明写过该能力),补 kzapp.cmd 转发启动器,且必须装在 try 之前(app 运行时 catch 会 throw,放后面永远装不上);②补 Get-FileHash 逐字节校验,安装位与本次构建不一致直接 throw,残留 cargo bin 副本时明确告警。启动器注释改英文(.cmd 按 OEM 代码页读,中文必乱码)。
+- 验证: 实跑 release.ps1 端到端——cargo bin\kzapp.exe 已清理、AppData 为唯一 exe、哈希与本次构建一致、`cmd /c kzapp` 实测启动的正是 AppData 那一份。
+- 阶段: 1
+- 验收: release.ps1 将 kzapp 安装到实际运行路径；旧 cargo bin\kzapp.exe 被安全清理；重新发布后运行实例 app_info 显示当前 HEAD hash；kz CLI 仍保留在 cargo bin。
+
+## D-147 tracker list 未按阻塞、未完成依赖和阶段门槛调度队列 [fixed] (medium)
+- 复现: 调用 req list 或 defect list 时，工具直接按 Markdown 文件顺序返回条目；含“阻塞”、未完成“依赖”或“阶段: 5 后”的条目仍会挡在可执行条目前面。
+- 影响: 模型按队列取活时会被明确阻塞项挡住，解除阻塞后的原始顺序也没有自动恢复语义。
+- 标签: 流程
+- 根因: crates/kanzei-tools/src/tracker.rs 的 list 分支仅 render_line，未计算阻塞原因和稳定后置。
+- 阶段: 0
+- 验收: req/defect list 识别显式阻塞、未完成依赖和阶段后置门槛，稳定把阻塞项放到可执行项之后并输出原因；解除后按原文档顺序恢复；有回归测试。
+- 进展: 已修复并验证：req/defect list 动作通过 TrackerTool 统一计算阻塞原因并稳定后置，解除后按原文档顺序恢复；原因随输出返回。回归测试覆盖显式阻塞、未完成依赖、阶段门槛和解除。
+- 验证: cargo test -p kanzei-tools 56 passed
