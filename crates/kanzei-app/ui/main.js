@@ -68,6 +68,7 @@ const I18N_EN = {
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
   "展开或收起工具详情": "Toggle tool detail", "开发重心保存失败": "Failed to save work focus",
+  "无结果(轮次中断)": "No result (round interrupted)",
   "展开筛选与排序": "Show filters and sort", "展开需求筛选与排序": "Show requirement filters",
   "展开筛选": "Show filters", "展开缺陷筛选": "Show defect filters",
   "按标签分组显示": "Group by tag", "切换需求分组显示": "Toggle requirement grouping",
@@ -900,39 +901,122 @@ function appendAssistant(text) {
 }
 
 // ---------- 主对话内联工具块(R-090):运行细节进对话流,主对话不再贫乏 ----------
-// 与活动面板并存:面板是全量后台视图,对话流是当轮叙事;共用 appendDisplayBlock 渲染 diff/终端。
-const chatToolBlocks = new Map();
-const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
-function chatToolStart(id, name, summary) {
-  if (!id || chatToolBlocks.has(id)) return;
-  clearEmptyState();
+// 形态对齐 Claude Code:一行 `工具名(主要参数)` + 一行 `⎿ 结果摘要`,详情默认折叠。
+// 实时与历史回放共用同一个构造器,两处观感必须一致。
+
+/// 工具调用的人类摘要:取该工具最有信息量的那个参数,而不是整坨 JSON。
+function toolCallSummary(name, input) {
+  const source = input && typeof input === "object" ? input : {};
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (typeof value === "number") return String(value);
+    }
+    return "";
+  };
+  let arg;
+  switch (name) {
+    case "read": case "write": case "edit": arg = pick("path", "file_path", "file"); break;
+    case "bash": case "process": arg = pick("command", "action"); break;
+    case "grep": arg = pick("pattern"); break;
+    case "glob": arg = pick("pattern", "path"); break;
+    case "task": arg = pick("prompt"); break;
+    case "memory_search": arg = pick("query"); break;
+    case "memory_note": arg = pick("summary"); break;
+    case "webfetch": arg = pick("url"); break;
+    case "question": arg = pick("question"); break;
+    case "req": case "defect": case "goal": case "decision": case "memory": case "source": case "finding":
+      arg = [pick("action"), pick("id", "title")].filter(Boolean).join(" ");
+      break;
+    default:
+      arg = pick("path", "command", "query", "pattern", "url", "id", "title", "action", "summary");
+  }
+  arg = String(arg).replace(/\s+/g, " ").trim();
+  return arg.length > 76 ? `${arg.slice(0, 75)}…` : arg;
+}
+
+/// 结果摘要:取第一行有信息量的内容(bash 的 "exit code: 0" 独占首行时顺延到下一行)。
+function toolResultPreview(content, isError) {
+  const lines = String(content ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const meaningful = lines.find((line) => !/^exit code:\s*0$/i.test(line)) || lines[0] || "";
+  if (!meaningful) return isError ? t("失败") : t("完成");
+  return meaningful.length > 110 ? `${meaningful.slice(0, 109)}…` : meaningful;
+}
+
+/// 构造一个工具块。done=false 时是运行中占位,后续由 fillToolBlock 收尾。
+function buildToolBlock(name, input) {
   const wrap = document.createElement("div");
   wrap.className = "msg tool-msg running";
   const head = document.createElement("button");
   head.type = "button";
   head.className = "tool-msg-head";
   head.setAttribute("aria-expanded", "false");
-  head.setAttribute("aria-label", `${name} ${t("展开或收起工具详情")}`);
   const icon = document.createElement("span");
   icon.className = "tool-msg-status";
-  icon.textContent = "●";
+  icon.textContent = "⏺";
   const label = document.createElement("span");
   label.className = "tool-msg-name";
   label.textContent = name;
-  const sum = document.createElement("span");
-  sum.className = "tool-msg-summary dim";
-  sum.textContent = summary;
-  head.append(icon, label, sum);
+  const arg = document.createElement("span");
+  arg.className = "tool-msg-arg";
+  const summary = toolCallSummary(name, input);
+  arg.textContent = summary ? `(${summary})` : "";
+  head.append(icon, label, arg);
+  // 可访问名带上参数;"展开或收起"只进 aria-label,绝不进可见文本。
+  head.setAttribute("aria-label", `${name} ${summary} — ${t("展开或收起工具详情")}`);
+  const result = document.createElement("div");
+  result.className = "tool-msg-result hidden";
   const detail = document.createElement("div");
   detail.className = "tool-msg-detail hidden";
   head.addEventListener("click", () => {
     if (!detail.children.length) return;
-    detail.classList.toggle("hidden");
-    head.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+    const open = detail.classList.toggle("hidden");
+    head.setAttribute("aria-expanded", String(!open));
   });
-  wrap.append(head, detail);
-  messages.appendChild(wrap);
-  chatToolBlocks.set(id, { wrap, head, icon, sum, detail });
+  wrap.append(head, result, detail);
+  return { wrap, head, icon, result, detail };
+}
+
+/// 收尾:状态图标 + 结果摘要行 + 折叠详情(完整输入与输出)。
+function fillToolBlock(block, { ok, content, display, input }) {
+  block.wrap.classList.remove("running");
+  block.wrap.classList.add(ok ? "ok" : "err");
+  // 形状与颜色双重区分:只靠颜色对色盲不可辨(D-105 无障碍口径)。
+  block.icon.textContent = ok ? "⏺" : "✗";
+  const preview = toolResultPreview(content, !ok);
+  block.result.textContent = `⎿ ${preview}`;
+  block.result.classList.remove("hidden");
+  appendDisplayBlock(block.detail, display);
+  const full = String(content ?? "");
+  // 详情只在结果确实比摘要长时才给,避免"展开了还是那一行"。
+  if (full.trim() && full.trim() !== preview) {
+    const pre = document.createElement("pre");
+    pre.className = "tool-msg-raw";
+    pre.textContent = full.length > 8000 ? `${full.slice(0, 8000)}\n…(已截断)` : full;
+    block.detail.appendChild(pre);
+  }
+  if (input && Object.keys(input).length) {
+    const pre = document.createElement("pre");
+    pre.className = "tool-msg-raw args";
+    pre.textContent = JSON.stringify(input, null, 2);
+    block.detail.appendChild(pre);
+  }
+  if (block.detail.children.length) block.wrap.classList.add("has-detail");
+}
+
+const chatToolBlocks = new Map();
+const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
+function chatToolStart(id, name, summary, input) {
+  if (!id || chatToolBlocks.has(id)) return;
+  clearEmptyState();
+  // 实时路径拿不到结构化 input(事件里只有 summary 文本),退化为把 summary 当参数展示。
+  const block = buildToolBlock(name, input ?? { command: summary });
+  messages.appendChild(block.wrap);
+  chatToolBlocks.set(id, block);
   if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
     chatToolBlocks.delete(chatToolBlocks.keys().next().value);
   }
@@ -941,20 +1025,7 @@ function chatToolStart(id, name, summary) {
 function chatToolEnd(id, ok, preview, display) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
-  block.wrap.classList.remove("running");
-  block.wrap.classList.add(ok ? "ok" : "err");
-  block.icon.textContent = ok ? "✓" : "✗";
-  if (preview) {
-    block.sum.textContent = `${block.sum.textContent} — ${preview.split("\n")[0].slice(0, 120)}`;
-  }
-  appendDisplayBlock(block.detail, display);
-  if (!ok && preview) {
-    const err = document.createElement("div");
-    err.className = "tool-display term";
-    err.textContent = preview;
-    block.detail.appendChild(err);
-  }
-  if (block.detail.children.length) block.wrap.classList.add("has-detail");
+  fillToolBlock(block, { ok, content: preview, display });
 }
 
 let currentReasoningHead = null;
@@ -4060,33 +4131,38 @@ function refreshGitSoon() {
   }, 600);
 }
 
-function appendReplayToolPart(part) {
-  const details = document.createElement("details");
-  details.className = "tool-chip replay replay-tool";
-  const summary = document.createElement("summary");
-  summary.className = "head";
-  const isCall = part.type === "tool_call";
-  const label = isCall ? part.name || "tool" : `${part.is_error ? "✗ " : "✓ "}tool result`;
-  summary.textContent = isCall ? `${label} · ${t("展开或收起工具详情")}` : `${label} · ${part.call_id || ""}`;
-  const body = document.createElement("pre");
-  body.className = "replay-tool-body";
-  body.textContent = isCall
-    ? JSON.stringify(part.input ?? {}, null, 2)
-    : String(part.content ?? "");
-  details.append(summary, body);
-  messages.appendChild(details);
-}
-
 function renderRecoveredMessages(items) {
   followLatest = true;
   messages.innerHTML = "";
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
+  // 调用与结果按 call_id 配对成一块渲染:原先每个 part 各占一行,
+  // 结果行只显示原始 call id,对人毫无信息量(用户 2026-08-08 反馈"太丑")。
+  const pending = new Map();
   for (const message of items ?? []) {
     for (const part of message.parts ?? []) {
-      if (part.type === "tool_call" || part.type === "tool_result") {
-        appendReplayToolPart(part);
+      if (part.type === "tool_call") {
+        const block = buildToolBlock(part.name || "tool", part.input);
+        messages.appendChild(block.wrap);
+        if (part.id) pending.set(part.id, { block, input: part.input });
+        continue;
+      }
+      if (part.type === "tool_result") {
+        const entry = pending.get(part.call_id);
+        if (entry) {
+          pending.delete(part.call_id);
+          fillToolBlock(entry.block, {
+            ok: !part.is_error,
+            content: part.content,
+            input: entry.input,
+          });
+        } else {
+          // 配对不上(历史被压缩过):独立成块,总比丢掉强。
+          const orphan = buildToolBlock("tool result", {});
+          messages.appendChild(orphan.wrap);
+          fillToolBlock(orphan, { ok: !part.is_error, content: part.content });
+        }
         continue;
       }
       if (part.type !== "text" || !part.text?.trim()) continue;
@@ -4098,6 +4174,12 @@ function renderRecoveredMessages(items) {
         el.querySelector(".message-body").textContent = part.text;
       }
     }
+  }
+  // 没等到结果的调用(轮次被中断):标出来,不要停在"运行中"的假象上。
+  for (const { block } of pending.values()) {
+    block.wrap.classList.remove("running");
+    block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+    block.result.classList.remove("hidden");
   }
   if (!items?.length) {
     messages.innerHTML = '<div id="empty-state"><div class="logo-mark">K</div><div class="hint">输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送</div></div>';

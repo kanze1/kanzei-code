@@ -847,21 +847,37 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 }
 .filter-toggle.active { color: var(--accent); border-color: var(--accent); }
 
-/* ---------- 主对话内联工具块(R-090) ---------- */
-.msg.tool-msg { padding: 0; margin: 2px 0; background: transparent; }
+/* ---------- 主对话内联工具块(R-090):形态对齐 Claude Code ---------- */
+/* 无边框无底色,靠字重与缩进建立层次;两行一块:调用行 + ⎿ 结果行。 */
+.msg.tool-msg { padding: 0; margin: 1px 0; background: transparent; border: none; }
 .tool-msg-head {
   display: flex; gap: 6px; align-items: baseline; width: 100%;
   background: transparent; border: none; color: var(--fg);
-  font-size: 12px; padding: 2px 4px; cursor: default; text-align: left;
-  border-left: 2px solid var(--border);
+  font-size: 12.5px; padding: 1px 0 1px 2px; cursor: default; text-align: left;
+  font-family: var(--mono, ui-monospace, monospace);
 }
 .tool-msg.has-detail .tool-msg-head { cursor: pointer; }
-.tool-msg.has-detail .tool-msg-head:hover { border-left-color: var(--accent); }
-.tool-msg-head:focus-visible { outline: 1px solid var(--accent); }
-.tool-msg-status { width: 14px; text-align: center; }
+.tool-msg.has-detail .tool-msg-head:hover .tool-msg-name { text-decoration: underline; }
+.tool-msg-head:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.tool-msg-status { width: 12px; flex: none; }
 .tool-msg.running .tool-msg-status { color: var(--accent); }
 .tool-msg.ok .tool-msg-status { color: var(--ok, #9ece6a); }
 .tool-msg.err .tool-msg-status { color: var(--err, #f7768e); }
-.tool-msg-name { font-weight: 600; font-family: var(--mono, monospace); }
-.tool-msg-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-.tool-msg-detail { margin: 2px 0 6px 20px; }
+.tool-msg-name { font-weight: 600; flex: none; }
+.tool-msg-arg {
+  color: var(--dim, #8a8a8a); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+}
+.tool-msg-result {
+  margin: 0 0 2px 18px; font-size: 12px; color: var(--dim, #8a8a8a);
+  font-family: var(--mono, ui-monospace, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tool-msg.err .tool-msg-result { color: var(--err, #f7768e); }
+.tool-msg-detail { margin: 2px 0 6px 18px; }
+.tool-msg-raw {
+  margin: 2px 0; padding: 6px 8px; font-size: 11.5px; line-height: 1.45;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+  max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.tool-msg-raw.args { opacity: 0.75; }

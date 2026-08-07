@@ -20,7 +20,13 @@ if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
 if (!source.includes('if (isActivityTool(e.payload.name)) bgAdd')) {
   fail("活动面板仍会接收全部工具调用");
 }
-if (!source.includes('part.type === "tool_result"') || !source.includes("JSON.stringify(part.input ?? {}, null, 2)")) {
+// 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
+// fillToolBlock),详情里同时给出完整输出与完整入参 JSON。
+if (
+  !source.includes('part.type === "tool_result"') ||
+  !source.includes("JSON.stringify(input, null, 2)") ||
+  !source.includes("function fillToolBlock")
+) {
   fail("历史工具会话未保留完整调用与结果详情");
 }
 const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), source.indexOf("const I18N_ZH = new WeakMap"));

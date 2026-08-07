@@ -354,7 +354,8 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 #[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_ask_payload, pending_path, persist_always_allow, process_session_id, recover_messages_at,
+        default_process_id, pending_ask_payload, pending_path, persist_always_allow, process_session_id,
+        recover_messages_at, recover_messages_raw,
         conversation_prior, runtime_for, stop_runtime_and_finalize, take_pending_ask,
         with_session_id, AppState, PendingAsk, SessionRuntime,
     };
@@ -582,6 +583,14 @@ mod update_tests {
         let recovered = recover_messages_at(&store, "ses_history", None).unwrap();
         assert_eq!(recovered.len(), 1);
         assert!(matches!(recovered[0].parts[0], kanzei_llm::Part::Text { ref text } if text == "保留文本"));
+        // 展示路径不过滤:未配对的工具部件对人仍然可见,否则历史"看不全"。
+        let raw = recover_messages_raw(&store, "ses_history", None).unwrap();
+        let raw_parts: usize = raw.iter().map(|m| m.parts.len()).sum();
+        let filtered_parts: usize = recovered.iter().map(|m| m.parts.len()).sum();
+        assert!(
+            raw_parts > filtered_parts,
+            "原文应含被过滤掉的孤儿工具部件: raw={raw_parts} filtered={filtered_parts}"
+        );
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -3005,13 +3014,15 @@ fn conversation_get(
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
-    let messages = recover_messages_at(&store, &session_id, sequence).map_err(|e| e.to_string())?;
+    // 展示给用户的是原文(未配对的工具调用也要看得见);作为下一轮 prior 的那份仍须过滤,
+    // 否则孤儿 tool_result 会让 provider 直接 400(D-053/D-054)。
+    let raw = recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())?;
     runtime_for(&state, &session_id)
         .conversation
         .lock()
         .unwrap()
-        .insert(session_id.clone(), messages.clone());
-    Ok(messages)
+        .insert(session_id.clone(), kanzei_core::filter_message_history(&raw));
+    Ok(raw)
 }
 
 #[tauri::command]
@@ -3485,7 +3496,10 @@ fn recover_messages(
     recover_messages_at(store, session_id, None)
 }
 
-fn recover_messages_at(
+/// 落库历史原文,不做任何过滤——**展示用**。
+/// 与 recover_messages_at 的区别是后者会丢掉未配对的 tool_use/tool_result:
+/// 那是喂给 provider 的硬性要求(D-053/D-054),但对人展示时丢内容就是"会话看不全"。
+fn recover_messages_raw(
     store: &kanzei_core::SessionStore,
     session_id: &str,
     sequence: Option<i64>,
@@ -3505,8 +3519,18 @@ fn recover_messages_at(
         .get("messages")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    let messages: Vec<kanzei_llm::Message> = serde_json::from_value(messages)?;
-    Ok(kanzei_core::filter_message_history(&messages))
+    Ok(serde_json::from_value(messages)?)
+}
+
+/// 可安全作为下一轮 prior 的历史:强制 tool_use/tool_result 配对不变量。
+fn recover_messages_at(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    sequence: Option<i64>,
+) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    Ok(kanzei_core::filter_message_history(&recover_messages_raw(
+        store, session_id, sequence,
+    )?))
 }
 
 fn conversation_prior(
