@@ -60,7 +60,7 @@
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
 
-## D-064 SQLite 并发修复只加 WAL/busy_timeout,sequence 竞争与收尾假失败仍未解决 [open] (medium)
+## D-064 SQLite 并发修复只加 WAL/busy_timeout,sequence 竞争与收尾假失败仍未解决 [fixing] (medium)
 - 复现: 两个连接并发向同一 session append_event;两边的 DEFERRED 事务都可能读取相同 `MAX(sequence)+1`,后提交方撞 UNIQUE(session_id,sequence)。busy_timeout 只等待锁,不会重新计算已经读出的 sequence。
 - 根因: append_event_tx 仍采用 `SELECT MAX(sequence)+1` 后 INSERT(store.rs:527-544),没有 immediate transaction/原子计数器/唯一冲突重试;run_task 收尾的 set_status/append_event/conversation.updated 仍用 `?` 把落库失败提升为整轮失败(main.rs:3085-3104)。
 - 已完成部分: SessionStore::open 已设置 WAL、5 秒 busy_timeout 和 synchronous=NORMAL,普通读写锁冲突显著减少。
@@ -71,6 +71,7 @@
 - 阶段: 1
 - 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
 - 证据等级: E2
+- 进展: 已完成第一最小步骤：SessionStore::open 将连接默认事务行为设为 BEGIN IMMEDIATE，使 append_event 的 MAX(sequence)+1 查询与插入在写事务锁内串行化；新增真实多连接/多线程测试 store::tests::并发追加事件的_sequence_连续且唯一，4 个连接共追加 80 条并断言 sequence 恰为 1..=80。cargo test -p kanzei-core 33 项通过。仍未处理 run_task 收尾持久化失败降级/告警，下一步覆盖该路径。改动位置 crates/kanzei-core/src/store.rs:94-103、861-908。
 
 ## D-065 通知 sequence 分配与插入非原子,INSERT OR IGNORE 吞掉冲突静默丢通知 [open] (medium)
 - 复现: 同一会话/线程有两个并发通知源(如运行结束通知与状态通知同时落库)。

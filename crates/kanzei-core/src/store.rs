@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -91,13 +91,14 @@ impl SessionStore {
             std::fs::create_dir_all(parent)
                 .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
         }
-        let connection = Connection::open(path)?;
+        let mut connection = Connection::open(path)?;
         // 同一个 state.db 会被大量短命连接并发读写(每个 Tauri 命令、每次运行、移动端线程各开一条)。
         // 默认 rollback journal + busy_timeout=0 会让并发写直接 SQLITE_BUSY,
         // 表现为运行成功却报失败、事件丢失、入队被拒(D-064)。
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "NORMAL")?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
         let store = Self { connection };
         store.migrate()?;
         Ok(store)
@@ -858,4 +859,51 @@ mod tests {
         assert_eq!(store.promote_next_input("ses_other").unwrap().unwrap().prompt, "B");
     }
 
+    #[test]
+    fn 并发追加事件的_sequence_连续且唯一() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-store-concurrency-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        let initializer = SessionStore::open(&path).unwrap();
+        initializer
+            .create_session("ses_concurrent", "C:/project", None)
+            .unwrap();
+        drop(initializer);
+
+        let stores = (0..4)
+            .map(|_| SessionStore::open(&path).unwrap())
+            .collect::<Vec<_>>();
+        let handles = stores
+            .into_iter()
+            .enumerate()
+            .map(|(worker, store)| {
+                std::thread::spawn(move || {
+                    (0..20)
+                        .map(|index| {
+                            store
+                                .append_event(
+                                    "ses_concurrent",
+                                    "test.concurrent",
+                                    &serde_json::json!({"worker": worker, "index": index}),
+                                )
+                                .unwrap()
+                                .sequence
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut sequences = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (1..=80).collect::<Vec<_>>());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
 }
