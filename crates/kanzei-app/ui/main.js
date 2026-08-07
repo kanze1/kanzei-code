@@ -921,13 +921,19 @@ on("kz:done", async (e) => {
   if (await stopAutoWhenBacklogEmpty()) return;
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
     if (autoPaused) {
-      addMessage("notice", "鞭挞已暂停,点击“继续鞭挞”恢复");
+      addMessage("notice", "鞭挞停止:处于暂停中,点顶栏「继续鞭挞」恢复");
+      setAutoStopReason("已暂停");
       return;
     }
     if (autoStopAfterRound) {
       autoStopAfterRound = false;
       $("auto-stop-round").checked = false;
-      addMessage("notice", "已完成本轮,鞭挞停止");
+      // 说清是哪个开关停的:否则用户只看到"停了",无从判断该去关什么。
+      addMessage("notice", "鞭挞停止:你勾了顶栏的「本轮后停」(已自动取消勾选,再点鞭挞即可继续)");
+      log("鞭挞停止:本轮后停");
+      setAutoStopReason("本轮后停,已停止");
+      autoRounds = 0;
+      noActionRounds = 0;
       return;
     }
     // 连数上限先于其它判定:追加推进指令也要占一轮,不能借这条路冲破上限。
@@ -1574,8 +1580,12 @@ $("continue-prompt").addEventListener("change", () => {
   $("continue-prompt").value = value || DEFAULT_CONTINUE_PROMPT;
 });
 $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.getItem("kz-auto-max"), 10) || DEFAULT_AUTO_CONTINUE_MAX));
-$("auto-stop-round").checked = localStorage.getItem("kz-auto-stop-round") === "1";
-autoStopAfterRound = $("auto-stop-round").checked;
+// 「本轮后停」是一次性意图,不是偏好:绝不持久化。
+// 曾经持久化过——勾一次后 localStorage 永远是 "1",每次启动都重新武装,
+// 表现为"鞭挞跑一轮就停,怎么都停不掉"(D-111)。这里顺手清掉存量键。
+localStorage.removeItem("kz-auto-stop-round");
+$("auto-stop-round").checked = false;
+autoStopAfterRound = false;
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   $("auto-pause").classList.toggle("active", autoPaused);
@@ -1590,7 +1600,7 @@ $("auto-pause").addEventListener("click", () => {
 });
 $("auto-stop-round").addEventListener("change", () => {
   autoStopAfterRound = $("auto-stop-round").checked;
-  localStorage.setItem("kz-auto-stop-round", autoStopAfterRound ? "1" : "0");
+  log(autoStopAfterRound ? "本轮结束后将停止鞭挞" : "已取消本轮后停");
 });
 $("auto-max").addEventListener("change", () => {
   const max = autoContinueMax();
