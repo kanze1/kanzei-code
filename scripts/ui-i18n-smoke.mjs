@@ -1,6 +1,12 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync("crates/kanzei-app/ui/main.js", "utf8");
+const dictionaryBody = source.match(/const I18N_EN = \{([\s\S]*?)\n\};/)?.[1] ?? "";
+const dictionaryKeys = new Set([...dictionaryBody.matchAll(/"((?:\\.|[^"])*)"\s*:/g)].map(([, key]) => key));
+const dynamicKeys = [...source.matchAll(/\bt\("([^"]+)"\)/g)].map(([, key]) => key);
+const missingKeys = [...new Set(dynamicKeys)].filter((key) => !dictionaryKeys.has(key));
+assert.deepEqual(missingKeys, [], `动态 i18n key 未进入 I18N_EN: ${missingKeys.join(", ")}`);
 const required = [
   ["I18N_EN", "英文资源"],
   ["function t(key)", "动态翻译入口"],

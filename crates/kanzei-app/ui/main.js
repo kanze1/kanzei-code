@@ -66,6 +66,10 @@ const I18N_EN = {
   "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
+  "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
+  "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
+  "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -119,6 +123,10 @@ languageSelect.addEventListener("change", () => {
   $("status-tokens").title = t("点击查看上下文成分");
   if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
   if (document.body.classList.contains("documents-active")) refreshDocs();
+  if (currentProject) {
+    refreshWorktrees();
+    refreshConversationList();
+  }
   if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
   updateAskQueueStatus();
 });
@@ -1035,9 +1043,9 @@ on("kz:stream-restart", (e) => {
 });
 on("kz:compacted", (e) => {
   lastCompactionSummary = e.payload?.summary ?? "";
-  addMessage("notice", "🗜 上下文占用过高,已自动压缩为纪要并延续对话");
+  addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
   if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
-  log("自动压缩完成:多轮历史已替换为纪要");
+  log(t("自动压缩完成:多轮历史已替换为纪要"));
   ctxTokens = 0;
   renderTokens();
 });
@@ -1045,13 +1053,13 @@ on("kz:stopped", (e) => {
   cancelAutoContinueTimer();
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
-  addMessage("notice", cancelled > 0 ? `${t("已停止" )},已取消 ${cancelled} 条排队输入` : t("已停止"));
-  log(cancelled > 0 ? `已手动停止并取消 ${cancelled} 条排队输入` : "已手动停止");
+  addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
+  log(cancelled > 0 ? `${t("已手动停止并取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已手动停止"));
   stopElapsed();
   setRunning(false, t("已停止"));
   bgAbortRunning(`(${t("已停止")})`);
   liveIdle(t("已停止"));
-  notifyRunState("stopped", cancelled > 0 ? `已停止并取消 ${cancelled} 条排队输入` : "已停止");
+  notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
   refreshPendingInputs();
   refreshProcesses();
 });
@@ -1063,14 +1071,14 @@ on("kz:done", async (e) => {
     "notice",
     `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按你的拒绝停止")}` : ""}`
   );
-  log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
+  log(`${t("运行完成")}: ${p.steps} ${t("轮")}, ${t("耗时")} ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
-  notifyRunState(p.halted ? "stopped" : "completed", p.halted ? "已按你的拒绝停止" : `完成 ${p.steps} 轮`);
+  notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按你的拒绝停止") : `${t("完成")} ${p.steps} ${t("轮")}`);
   setRunning(false);
   // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
   refreshConversationList();
   // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
-  liveIdle(`空闲 · 上轮 ${p.steps} 轮完成`);
+  liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} ${t("完成")}`);
   refreshDocs();
   refreshGit();
   refreshPendingInputs();
@@ -1079,7 +1087,7 @@ on("kz:done", async (e) => {
   if (await stopAutoWhenBacklogEmpty()) return;
   if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
     if (autoPaused) {
-      addMessage("notice", "鞭挞停止:处于暂停中,点顶栏「继续鞭挞」恢复");
+      addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);
       setAutoStopReason("已暂停");
       return;
     }
@@ -1087,9 +1095,9 @@ on("kz:done", async (e) => {
       autoStopAfterRound = false;
       $("auto-stop-round").checked = false;
       // 说清是哪个开关停的:否则用户只看到"停了",无从判断该去关什么。
-      addMessage("notice", "鞭挞停止:你勾了顶栏的「本轮后停」(已自动取消勾选,再点鞭挞即可继续)");
-      log("鞭挞停止:本轮后停");
-      setAutoStopReason("本轮后停,已停止");
+      addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
+      log(`${t("鞭挞停止")}:${t("本轮后停")}`);
+      setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
       autoRounds = 0;
       noActionRounds = 0;
       return;
@@ -1097,8 +1105,8 @@ on("kz:done", async (e) => {
     // 连数上限先于其它判定:追加推进指令也要占一轮,不能借这条路冲破上限。
     const max = autoContinueMax();
     if (autoRounds >= max) {
-      addMessage("notice", `鞭挞停止:已达 ${max} 连上限,点"继续"或重开鞭挞`);
-      setAutoStopReason(`已达 ${max} 连上限`);
+      addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${max})`);
+      setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
       autoRounds = 0;
       noActionRounds = 0;
       return;
@@ -1110,10 +1118,10 @@ on("kz:done", async (e) => {
     if (p.steps <= 1 && autoRounds > 0) {
       if (noActionRounds === 0) {
         noActionRounds = 1;
-        addMessage("notice", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)");
-        log("鞭挞:无动作,发送推进指令");
+        addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
+        log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
         autoRounds += 1;
-        renderAutoStatus(`无动作 · 追加推进指令 ${autoRounds}/${autoContinueMax()}`);
+        renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${autoContinueMax()}`);
         cancelAutoContinueTimer();
         const generation = autoContinueGeneration;
         autoContinueTimer = setTimeout(() => {
@@ -1125,9 +1133,9 @@ on("kz:done", async (e) => {
         }, 2000);
         return;
       }
-      addMessage("notice", "鞭挞停止:连续两轮没有实质动作(可能目标已达成或确实无可推进项)");
-      log("鞭挞停止:连续两轮 steps<=1");
-      setAutoStopReason("连续两轮无动作,鞭挞停止");
+      addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能目标已达成或确实无可推进项)")}`);
+      log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
+      setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
       autoRounds = 0;
       noActionRounds = 0;
       return;
@@ -2076,7 +2084,7 @@ function renderWorktrees(items) {
   if (!worktreeItems.length) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
-    empty.textContent = "暂无隔离工作树";
+    empty.textContent = t("暂无隔离工作树");
     list.appendChild(empty);
     return;
   }
@@ -2084,10 +2092,10 @@ function renderWorktrees(items) {
     const row = document.createElement("div");
     row.className = "worktree-entry";
     const label = document.createElement("div");
-    label.textContent = `${item.branch} · ${item.clean ? "干净" : `${item.files.length} 项改动`}`;
+    label.textContent = `${item.branch} · ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
     label.title = item.path;
     const actions = document.createElement("div");
-    for (const [text, action] of [["差异", "diff"], ["合并", "merge"], ["放弃", "discard"]]) {
+    for (const [text, action] of [[t("差异"), "diff"], [t("合并"), "merge"], [t("放弃"), "discard"]]) {
       const button = document.createElement("button");
       button.className = `ghost mini ${action === "merge" ? "worktree-merge" : ""}`;
       button.textContent = text;
@@ -2112,22 +2120,22 @@ async function handleWorktreeAction(item, action) {
   try {
     if (action === "diff") {
       if (item.clean) {
-        toast("工作树干净,没有未提交差异");
+        toast(t("工作树干净,没有未提交差异"));
       } else {
         log(`${item.branch}:
 ${item.files.join("\n")}`, "info");
         $("log-panel").classList.remove("hidden");
-        toast("工作树差异已写入运行日志");
+        toast(t("工作树差异已写入运行日志"));
       }
       return;
     }
-    if (action === "discard" && !window.confirm(`放弃工作树 ${item.branch}？未提交改动会阻止删除并保留现场。`)) return;
+    if (action === "discard" && !window.confirm(`${t("放弃工作树")} ${item.branch}？${t("未提交改动会阻止删除并保留现场")}`)) return;
     const command = action === "merge" ? "worktree_merge" : "worktree_discard";
     const result = await invoke(command, { projectDir: currentProject, worktreePath: item.path });
     if (String(result).length > 160) {
       log(String(result), "info");
       $("log-panel").classList.remove("hidden");
-      toast("工作树操作完成，详细结果已写入运行日志");
+      toast(t("工作树操作完成，详细结果已写入运行日志"));
     } else {
       toast(result);
     }
@@ -2149,7 +2157,7 @@ $("worktree-add").addEventListener("click", async () => {
     const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${currentProject}`) || "[]");
     paths.push(item.path);
     localStorage.setItem(`kz-worktrees:${currentProject}`, JSON.stringify(paths));
-    toast(`隔离工作树已创建:${item.path}`);
+    toast(`${t("隔离工作树已创建")}:${item.path}`);
     await refreshWorktrees();
   } catch (error) {
     toastError(`创建工作树失败:${error}`);
@@ -3147,26 +3155,28 @@ async function loadConversation(sequence = null) {
     renderRecoveredMessages(history);
     const traces = await invoke("conversation_trace_get", { projectDir: currentProject, processId: activeProcessId, sequence });
     renderRecoveredTraces(traces);
-    log(`已恢复 ${history.length} 条历史消息和 ${traces.length} 组工具轨迹`);
+    log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
   } catch (err) {
-    addMessage("error", `历史消息恢复失败:${err}`);
-    toastError(`历史消息恢复失败:${err}`, { retry: () => loadConversation(sequence) });
+    addMessage("error", `${t("历史消息恢复失败")}:${err}`);
+    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => loadConversation(sequence) });
   }
 }
 
+let conversationItems = [];
 function renderConversationList(items) {
+  conversationItems = items ?? [];
   const el = $("conversation-list");
   el.innerHTML = "";
   $("chat-select-all").checked = false;
   $("conversation-count").textContent = items.length;
   if (!items.length) {
-    el.textContent = "(暂无历史对话)";
+    el.textContent = t("暂无历史对话");
     return;
   }
   for (const item of [...items].reverse()) {
     const row = document.createElement("div");
     row.className = "doc-item conv-row";
-    row.title = "点击打开 · 勾选后点 🗑 批量删除";
+    row.title = t("点击打开 · 勾选后点 🗑 批量删除");
     const check = document.createElement("input");
     check.type = "checkbox";
     check.className = "chat-check";
@@ -3178,12 +3188,12 @@ function renderConversationList(items) {
     });
     const title = document.createElement("span");
     title.className = "title";
-    title.textContent = `${item.title || "新对话"} (${item.message_count} 条)`;
+    title.textContent = `${item.title || t("新对话")} (${item.message_count} ${t("条")})`;
     row.append(check, title);
     row.addEventListener("click", async () => {
       try {
         await loadConversation(item.sequence);
-        addMessage("notice", `已打开历史对话 #${item.sequence}`);
+        addMessage("notice", `${t("已打开历史对话")} #${item.sequence}`);
       } catch (err) {
         toastError(String(err));
       }
@@ -3200,12 +3210,12 @@ $("chat-del").addEventListener("click", async () => {
   const sequences = [...document.querySelectorAll(".chat-check:checked")]
     .flatMap((c) => JSON.parse(c.dataset.seqs));
   if (!sequences.length) {
-    toast("先勾选要删除的历史对话");
+    toast(t("先勾选要删除的历史对话"));
     return;
   }
   try {
     const n = await invoke("conversation_delete", { projectDir: currentProject, processId: activeProcessId, sequences });
-    toast(`已删除 ${n} 份对话快照`);
+    toast(`${t("已删除")} ${n}${t("份对话快照")}`);
     await refreshConversationList();
   } catch (err) {
     toastError(String(err), { retry: () => $("chat-del").click() });
@@ -3217,8 +3227,8 @@ async function refreshConversationList() {
   try {
     renderConversationList(await invoke("conversation_list", { projectDir: currentProject, processId: activeProcessId }));
   } catch (err) {
-    $("conversation-list").textContent = `历史对话加载失败:${err}`;
-    toastError(`历史对话加载失败:${err}`, { retry: refreshConversationList });
+    $("conversation-list").textContent = `${t("历史对话加载失败")}:${err}`;
+    toastError(`${t("历史对话加载失败")}:${err}`, { retry: refreshConversationList });
   }
 }
 
@@ -3240,9 +3250,9 @@ $("new-chat").addEventListener("click", async () => {
   }
   try {
     await invoke("conversation_clear", { projectDir: currentProject, processId: activeProcessId });
-    clearChat("已开启新对话(历史已清空)");
+    clearChat(t("已开启新对话(历史已清空)"));
     await refreshConversationList();
-    log("新对话:多轮历史已清空");
+    log(t("新对话:多轮历史已清空"));
   } catch (err) {
     toastError(String(err), { retry: () => $("new-chat").click() });
   }
