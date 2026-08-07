@@ -514,6 +514,11 @@ fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryT
     for line in &template.lines {
         match line {
             TemplateLine::Raw(raw) => {
+                // 连续空行折叠为一个(D-130):条目内部堆积的空行是引擎自己吐出来的,
+                // 不是用户内容——真正的自由文本一行不丢,只压掉重复的空白。
+                if raw.trim().is_empty() && (out.ends_with("\n\n") || out.is_empty()) {
+                    continue;
+                }
                 out.push_str(raw);
                 out.push('\n');
             }
@@ -546,8 +551,26 @@ fn render_entry(out: &mut String, entry: &Entry) {
     }
 }
 
+/// 条目之间规范为恰好一个空行。
+///
+/// 不这么做会无限膨胀(D-130):解析时条目间的空行被存成上一条模板的
+/// `TemplateLine::Raw("")`,渲染时原样写回,而这里若再无条件 `push('\n')`,
+/// 每保存一次每条就多一行。实测 defects.md 已达 94% 空行、开头连着 225 个空行,
+/// 把真实内容稀释到几乎不可读,还会把数据丢失这类关键 diff 埋掉。
+/// 条目内的用户自由文本不受影响(D-060 的保留承诺仍成立),这里只规范条目间距——
+/// 格式本就由引擎在写入侧强制(见模块头)。
+fn ensure_blank_separator(out: &mut String) {
+    if out.is_empty() {
+        return;
+    }
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    out.push_str("\n\n");
+}
+
 fn render_heading(out: &mut String, entry: &Entry) {
-    out.push('\n');
+    ensure_blank_separator(out);
     out.push_str(&format!("## {} {}", entry.id, entry.title));
     if !entry.status.is_empty() {
         out.push_str(&format!(" [{}]", entry.status));
@@ -699,6 +722,68 @@ mod tests {
         assert_eq!(store.next_id(&live), "R-004");
         // 幂等:再跑一次不动任何东西。
         assert!(store.archive_terminal().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn 反复保存不会让文档膨胀出空行() {
+        // D-130:每次保存给每条多插一个空行,实测把 defects.md 稀释到 94% 空行。
+        // 不变量:load→save 是幂等的,连续保存后文件字节数必须稳定。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-blank-bloat-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mk = |id: &str| Entry {
+            id: id.into(),
+            title: "标题".into(),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![("验收".into(), "略".into())],
+        };
+        store.save(&[mk("R-001"), mk("R-002"), mk("R-003")]).unwrap();
+
+        let mut sizes = Vec::new();
+        for _ in 0..6 {
+            let entries = store.load().unwrap();
+            store.save(&entries).unwrap();
+            sizes.push(std::fs::read_to_string(&store.path).unwrap().len());
+        }
+        assert!(
+            sizes.windows(2).all(|w| w[0] == w[1]),
+            "反复保存必须字节数稳定,实测: {sizes:?}"
+        );
+
+        // 已被历史膨胀污染的文档,一次保存即被规范回来。
+        std::fs::write(
+            &store.path,
+            "# Requirements\n\n\n\n\n\n\n\n## R-001 标题 [todo]\n- 验收: 略\n\n\n\n\n\n\n## R-002 标题 [todo]\n- 验收: 略\n",
+        )
+        .unwrap();
+        let entries = store.load().unwrap();
+        store.save(&entries).unwrap();
+        let text = std::fs::read_to_string(&store.path).unwrap();
+        assert!(!text.contains("\n\n\n"), "不该留下连续空行:\n{text}");
+        assert_eq!(store.load().unwrap().len(), 2, "规范化不得丢条目");
+
+        // 条目内部的空行堆积同样要压掉,但用户自由文本一行不能少(D-060 承诺)。
+        std::fs::write(
+            &store.path,
+            "# Requirements\n\n## R-001 标题 [todo]\n- 验收: 略\n\n\n\n手写说明不能丢\n\n\n\n### 子标题\n\n\n- 备注: 保留\n",
+        )
+        .unwrap();
+        let entries = store.load().unwrap();
+        store.save(&entries).unwrap();
+        let text = std::fs::read_to_string(&store.path).unwrap();
+        assert!(!text.contains("\n\n\n"), "条目内也不该留连续空行:\n{text}");
+        for keep in ["手写说明不能丢", "### 子标题", "- 备注: 保留", "- 验收: 略"] {
+            assert!(text.contains(keep), "自由内容丢失: {keep}\n{text}");
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 
