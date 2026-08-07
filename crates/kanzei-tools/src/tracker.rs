@@ -465,6 +465,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn archive_preserves_handwritten_free_text_and_unknown_blocks() {
+        let dir = std::env::temp_dir().join(format!("kz-archive-preserve-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let path = dir.join(REQUIREMENTS.rel_path);
+        std::fs::write(
+            &path,
+            "# Requirements\n\n## R-001 已完成条目 [done]\n终态说明: 归档时也不能丢\n- 手写备注\n### 归档子标题\n```text\n归档代码块\n```\n- 验收: 原字段\n\n## R-002 进行中条目 [doing]\n- 验收: 保留在活动文档\n",
+        )
+        .unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let output = tool
+            .execute(json!({"action": "archive"}), &ToolCtx::new(dir.clone()))
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+
+        let archive = std::fs::read_to_string(
+            dir.join(".kanzei/project/requirements-archive.md"),
+        )
+        .unwrap();
+        for line in ["终态说明: 归档时也不能丢", "- 手写备注", "### 归档子标题", "归档代码块"] {
+            assert!(archive.contains(line), "missing preserved line: {line}");
+        }
+        let active = std::fs::read_to_string(path).unwrap();
+        assert!(!active.contains("终态说明: 归档时也不能丢"));
+        assert!(active.contains("## R-002 进行中条目 [doing]"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn priority_update_reuses_existing_english_field() {
         let dir = std::env::temp_dir().join(format!("kz-priority-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();

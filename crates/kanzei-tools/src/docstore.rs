@@ -221,12 +221,22 @@ impl DocStore {
         }
         let mut archived = self.load_archive()?;
         let moved = terminal.len();
+        let active_template = self.preserved.lock().unwrap().clone();
+        let mut archive_template = self.preserved_archive.lock().unwrap().clone().unwrap_or(DocumentTemplate {
+            preamble: Vec::new(),
+            entries: Vec::new(),
+        });
+        if let Some(active_template) = active_template {
+            for entry in &terminal {
+                if archive_template.entries.iter().all(|template| template.id != entry.id) {
+                    if let Some(template) = active_template.entries.iter().find(|template| template.id == entry.id) {
+                        archive_template.entries.push(template.clone());
+                    }
+                }
+            }
+        }
         archived.extend(terminal);
-        let archive_template = self.preserved_archive.lock().unwrap().clone();
-        let archived_text = archive_template
-            .as_ref()
-            .map(|template| render_with_template(self.kind, &archived, template))
-            .unwrap_or_else(|| render(self.kind, &archived));
+        let archived_text = render_with_template(self.kind, &archived, &archive_template);
         let text = archived_text.replacen(
             &format!("# {}\n", self.kind.heading),
             &format!("# {} Archive\n", self.kind.heading),

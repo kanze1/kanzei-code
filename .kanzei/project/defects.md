@@ -47,7 +47,7 @@
 - 阶段: 1
 - 不变量: 配置与文档:写入保留未知字段和用户自由内容
 - 证据等级: E2
-- 进展: 完成 D-060 最小修复：DocStore load 现在同时建立 DocumentTemplate，记录条目内非规范行（自由段落、无冒号 bullet、###、代码块）及前置原文；save/active archive render 按条目 ID复用模板，在原位置回写未知行，并追加新增字段/条目，避免 tracker 整文件重写丢手改内容。新增 tracker::tests::add_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req add 后断言自由文本、无冒号 bullet、子标题、代码块均保留；cargo test -p kanzei-tools 20 项通过。仍需覆盖 update/close/reorder/archive 各写路径与并发写入。
+- 进展: 已补 archive_terminal 模板转移：终态条目的 EntryTemplate 按 ID 合并到归档模板，归档不会丢自由段落、无冒号 bullet、### 子标题或代码块；新增 tracker::tests::archive_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req archive 并断言手写内容进入 requirements-archive.md、活动文档保留进行中条目。cargo test -p kanzei-tools 21 项通过。仍待覆盖 update/close/reorder 及并发写入；当前改动位置 crates/kanzei-tools/src/docstore.rs:222-250、crates/kanzei-tools/src/tracker.rs:467-499。
 
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
