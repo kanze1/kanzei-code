@@ -392,6 +392,8 @@ function reportError(message, { retryable = isRetryableError(message) } = {}) {
 }
 
 let outputChars = 0;
+// 本次运行的助手文本:用于判断收尾是否声明了【阻塞】(鞭挞刹车契约)。
+let roundText = "";
 function appendAssistant(text) {
   if (!currentAssistant) {
     currentAssistant = addMessage("assistant md", "");
@@ -744,6 +746,7 @@ on("kz:text", (e) => {
   currentReasoning = null;
   currentReasoningHead = null;
   if (running) setStatus(`生成中 · ${(outputChars / 1000).toFixed(1)}k 字`, true);
+  if (roundText.length < 4000) roundText += e.payload.text;
   appendAssistant(e.payload.text);
 });
 on("kz:reasoning", (e) => {
@@ -839,7 +842,13 @@ on("kz:tool-end", (e) => {
   // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
+    // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
+    refreshDocsSoon();
   }
+  // 测试记录同理:跑完测试后左侧应立即出现结果。
+  if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
+  // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
+  if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
   if (p.display?.kind === "todo") {
     renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
@@ -924,18 +933,54 @@ on("kz:done", async (e) => {
       addMessage("notice", "已完成本轮,鞭挞停止");
       return;
     }
-    if (p.steps <= 1 && autoRounds > 0) {
-      addMessage("notice", "鞭挞停止:上一轮没有实质动作(可能目标已达成或被阻塞)");
-      log("鞭挞停止:steps<=1");
-      autoRounds = 0;
-      return;
-    }
+    // 连数上限先于其它判定:追加推进指令也要占一轮,不能借这条路冲破上限。
     const max = autoContinueMax();
     if (autoRounds >= max) {
-      addMessage("notice", `鞭挞停止:已达 ${max} 连上限,点“继续”或重开鞭挞`);
+      addMessage("notice", `鞭挞停止:已达 ${max} 连上限,点"继续"或重开鞭挞`);
+      setAutoStopReason(`已达 ${max} 连上限`);
       autoRounds = 0;
+      noActionRounds = 0;
       return;
     }
+    // 无实质动作(没有任何工具调用)的处理:
+    // ① 明确声明【阻塞】→ 立刻停,这是与提示词约定的刹车信号;
+    // ② 第一次无动作 → 先给一次具体的推进指令,不停(大多是模型在"算不算阻塞"上想岔了);
+    // ③ 连续第二次无动作 → 停,避免空转烧钱(D-044 的教训)。
+    if (p.steps <= 1 && autoRounds > 0) {
+      if (roundText.includes(BLOCKED_MARKER)) {
+        const reason = roundText.slice(roundText.indexOf(BLOCKED_MARKER)).slice(0, 120);
+        addMessage("notice", `鞭挞停止:模型声明阻塞 — ${reason}`);
+        log(`鞭挞停止:${BLOCKED_MARKER}`);
+        setAutoStopReason("已声明阻塞,鞭挞停止");
+        autoRounds = 0;
+        noActionRounds = 0;
+        return;
+      }
+      if (noActionRounds === 0) {
+        noActionRounds = 1;
+        addMessage("notice", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)");
+        log("鞭挞:无动作,发送推进指令");
+        autoRounds += 1;
+        renderAutoStatus(`无动作 · 追加推进指令 ${autoRounds}/${autoContinueMax()}`);
+        cancelAutoContinueTimer();
+        const generation = autoContinueGeneration;
+        autoContinueTimer = setTimeout(() => {
+          autoContinueTimer = null;
+          if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
+          if ($("auto-continue").checked && autoContinueAllowed() && !running) {
+            sendText(NUDGE_PROMPT, { auto: true });
+          }
+        }, 2000);
+        return;
+      }
+      addMessage("notice", "鞭挞停止:连续两轮没有实质动作(可能目标已达成或确实无可推进项)");
+      log("鞭挞停止:连续两轮 steps<=1");
+      setAutoStopReason("连续两轮无动作,鞭挞停止");
+      autoRounds = 0;
+      noActionRounds = 0;
+      return;
+    }
+    noActionRounds = 0;
     autoRounds += 1;
     setStatus(`自主推进 ${autoRounds}/${max} · 2 秒后继续…`, false);
     renderAutoStatus(`自主推进 ${autoRounds}/${max} · 等待下一轮`);
@@ -1147,14 +1192,40 @@ let autoStopAfterRound = false;
 let autoContinueTimer = null;
 let autoContinueGeneration = 0;
 let autoStopReason = "";
+// 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
+let noActionRounds = 0;
 const DEFAULT_CONTINUE_PROMPT =
+  "继续推进。取活顺序:缺陷列表优先,然后按需求列表自上而下拿第一个可做的" +
+  "(列表顺序即用户意志,priority 只是背景信息)。\n" +
+  "1. 本轮必须产生一个具体落地动作:改代码、跑测试、或更新文档。先做再说明,不要只做判断。\n" +
+  "2. 大项拆着做:复杂度大的条目不要求本轮关闭,只要推进它的下一个最小可执行步骤。" +
+  "「工作量大」「要改多个文件」「需要多轮」都不是阻塞,是正常工作。\n" +
+  "3. doing 已满 2 个不代表没事可做——那意味着继续推进这两个 doing 项,而不是停下。\n" +
+  "4. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。\n" +
+  "5. 只有确实缺少外部输入时才算阻塞:等待用户拍板、缺凭据/权限、依赖外部服务或他人。" +
+  "此时回复以【阻塞】开头的纯文本,写清缺什么、解除条件是什么,不要调用任何工具、" +
+  "不要往 goal/req/defect 写「仍在阻塞」类记录、不要产生空提交。\n" +
+  "除【阻塞】外不要用纯文本收尾——没有动作的一轮会被判为空转。";
+
+// 旧版默认文案:用户没改过(存的就是某个旧默认)时静默升级到新默认,
+// 否则鞭挞的刹车契约会和提示词对不上(用户自定义过的文案不动)。
+const LEGACY_CONTINUE_PROMPTS = [
   "继续:先检查缺陷列表,再检查需求与活跃目标,推进下一个具体步骤并落地(改代码/跑测试/更新文档);" +
-  "完成后用 goal update 记录状态。收尾优先:已是 doing 的事项先关闭再开新的,doing 同时不超过 2 个。" +
-  "取活顺序:按缺陷列表优先,随后按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
-  "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
-  "若活跃目标/需求全部被阻塞或无可推进项:只用【纯文本】说明原因并停住——" +
-  "不要调用任何工具、不要往 goal/req 写'仍在阻塞'类记录、不要产生空提交;" +
-  "纯文本回复会让鞭挞自动刹车,写阻塞日记则会让它空转烧钱。";
+    "完成后用 goal update 记录状态。收尾优先:已是 doing 的事项先关闭再开新的,doing 同时不超过 2 个。" +
+    "取活顺序:按缺陷列表优先,随后按需求列表自上而下拿第一个可做的(列表顺序即用户意志,priority 只是背景信息)。" +
+    "若工作区有已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+    "若活跃目标/需求全部被阻塞或无可推进项:只用【纯文本】说明原因并停住——" +
+    "不要调用任何工具、不要往 goal/req 写'仍在阻塞'类记录、不要产生空提交;" +
+    "纯文本回复会让鞭挞自动刹车,写阻塞日记则会让它空转烧钱。",
+];
+const BLOCKED_MARKER = "【阻塞】";
+// 没有实质动作时先给一次具体的推进指令,而不是直接停:一轮无动作往往是模型
+// 在"要不要算阻塞"上想岔了,而不是真没活干(D-097)。
+const NUDGE_PROMPT =
+  "上一轮没有产生任何实质动作。不要再判断是否阻塞,直接执行:\n" +
+  "从缺陷列表最上面一条开始,说出它的下一个最小可执行步骤(具体到文件和改动),然后立刻做掉。\n" +
+  "该条确实需要外部输入才能推进时,跳过它看下一条;需求同理。\n" +
+  "确认整份列表都缺外部输入时,回复以" + BLOCKED_MARKER + "开头的纯文本,逐条写明缺什么。";
 
 function selectedAgent() {
   const mode = $("profile-select").value;
@@ -1297,6 +1368,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   }
   if (!auto) {
     autoRounds = 0;
+    noActionRounds = 0;
     cancelAutoContinueTimer();
   }
   currentAssistant = null;
@@ -1304,6 +1376,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   ctxTokens = 0;
   outputChars = 0;
+  roundText = "";
   renderTokens();
   addMessage("user", auto ? `(鞭挞 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt);
   setRunning(true, auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中");
@@ -1465,7 +1538,19 @@ $("continue-toggle").addEventListener("click", () => {
 });
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
 renderAutoStatus();
-$("continue-prompt").value = localStorage.getItem("kz-continue-prompt") || DEFAULT_CONTINUE_PROMPT;
+// 存的是旧默认文案时静默升级:否则刹车契约(【阻塞】标记)与提示词对不上,
+// 用户自己改过的文案不动。
+{
+  const stored = (localStorage.getItem("kz-continue-prompt") || "").trim();
+  const isLegacyDefault = LEGACY_CONTINUE_PROMPTS.some((old) => old.trim() === stored);
+  if (!stored || isLegacyDefault) {
+    localStorage.setItem("kz-continue-prompt", DEFAULT_CONTINUE_PROMPT);
+    $("continue-prompt").value = DEFAULT_CONTINUE_PROMPT;
+    if (isLegacyDefault) log("继续文案已升级到新版(含【阻塞】刹车约定)");
+  } else {
+    $("continue-prompt").value = stored;
+  }
+}
 $("continue-prompt").addEventListener("change", () => {
   const value = $("continue-prompt").value.trim();
   localStorage.setItem("kz-continue-prompt", value || DEFAULT_CONTINUE_PROMPT);
@@ -2098,6 +2183,16 @@ async function commitDocOrder(listEl, kind) {
 
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
+  // 展开状态是 DOM 局部的,重绘会全部收起;运行中会频繁重绘,必须跨重绘保留,
+  // 否则用户刚展开的条目会被 agent 的一次状态更新弹回去。
+  const expandedIds = new Set(
+    [...el.querySelectorAll(".doc-item[data-doc-id]")]
+      .filter((item) => {
+        const detail = item.querySelector(".doc-detail");
+        return detail && !detail.classList.contains("hidden");
+      })
+      .map((item) => item.dataset.docId)
+  );
   el.innerHTML = "";
   if (entries.length === 0 && archivedCount === 0) {
     const empty = document.createElement("div");
@@ -2209,7 +2304,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
 
     // 展开面板:完整标题、字段、合法的状态流转按钮(与硬门禁同一套规则)。
     const detail = document.createElement("div");
-    detail.className = "doc-detail hidden";
+    detail.className = expandedIds.has(entry.id) ? "doc-detail" : "doc-detail hidden";
     const full = document.createElement("div");
     full.className = "doc-full-title";
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
@@ -2445,28 +2540,55 @@ function renderDocuments(snapshot) {
   $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
   $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
 }
+/// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
+function renderDocsSnapshot(snapshot) {
+  renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
+  renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
+  renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
+  renderDocuments(snapshot);
+  renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, reqFilters, snapshot.archived_entries?.source ?? []);
+  renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0, reqFilters, snapshot.archived_entries?.finding ?? []);
+  $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
+  $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
+  $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
+  $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
+  renderConventions(snapshot.conventions);
+  applyLanguage();
+}
+
 async function refreshDocs() {
   if (!currentProject) return;
   try {
     const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
-    renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
-    renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
-    renderDocuments(snapshot);
-    renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, reqFilters, snapshot.archived_entries?.source ?? []);
-    renderDocList($("finding-list"), snapshot.findings ?? [], "finding", snapshot.archived?.finding ?? 0, reqFilters, snapshot.archived_entries?.finding ?? []);
-    $("research-count").textContent = `${(snapshot.sources ?? []).length + (snapshot.findings ?? []).length}`;
-    $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
-    $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
-    $("goal-count").textContent = `${(snapshot.goals ?? []).filter((g) => g.status === "active").length}`;
-    renderConventions(snapshot.conventions);
+    renderDocsSnapshot(snapshot);
     await refreshConversationList();
     await refreshTests();
     await refreshWorktrees();
-    applyLanguage();
   } catch (err) {
     console.error(err);
+    log(`项目文档刷新失败:${err}`, "warn");
   }
+}
+
+// agent 在运行中改需求/缺陷/目标时,侧栏必须跟着动:否则状态、计数和状态流转按钮
+// 会一直停在开跑前的样子,要等本轮结束才更新(D-098)。合并 400ms 内的连续变更。
+let docsLiveTimer = null;
+function refreshDocsSoon() {
+  if (!currentProject) return;
+  clearTimeout(docsLiveTimer);
+  docsLiveTimer = setTimeout(async () => {
+    docsLiveTimer = null;
+    // 重绘会清空列表容器:用户正在写快记或正在拖拽排序时先让路,稍后再刷。
+    if (document.querySelector(".quickreq-form") || document.querySelector(".doc-item.dragging")) {
+      refreshDocsSoon();
+      return;
+    }
+    try {
+      renderDocsSnapshot(await invoke("docs_snapshot", { projectDir: currentProject }));
+    } catch (err) {
+      console.error(err);
+    }
+  }, 400);
 }
 
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
@@ -2647,6 +2769,16 @@ async function refreshGit() {
   } catch {
     $("status-git").textContent = "";
   }
+}
+
+// 运行中改文件/跑命令后刷新工作区徽章,合并 600ms 内的连续变更。
+let gitLiveTimer = null;
+function refreshGitSoon() {
+  clearTimeout(gitLiveTimer);
+  gitLiveTimer = setTimeout(() => {
+    gitLiveTimer = null;
+    refreshGit();
+  }, 600);
 }
 
 function renderRecoveredMessages(items) {
