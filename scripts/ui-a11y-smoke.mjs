@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const html = await readFile(resolve(root, "crates/kanzei-app/ui/index.html"), "utf8");
+const js = await readFile(resolve(root, "crates/kanzei-app/ui/main.js"), "utf8");
+const css = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
+
+const static_icon_buttons = [...html.matchAll(/<button[^>]*class="icon-btn"[^>]*>/g)];
+assert.ok(static_icon_buttons.length > 0, "未发现静态 icon-btn");
+assert.equal(
+  static_icon_buttons.filter(([tag]) => !tag.includes("aria-label=")).length,
+  0,
+  "静态 icon-btn 必须有 aria-label"
+);
+
+for (const selector of ["activity-item", "sidebar-toggle", "auto-continue", "auto-allow"]) {
+  assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
+}
+assert.match(js, /activity-item[\s\S]*aria-current/);
+assert.match(js, /project-item[\s\S]*item\.click\(\)/);
+assert.match(js, /doc-row[\s\S]*aria-expanded/);
+assert.match(js, /workspace-card[\s\S]*card\.click\(\)/);
+assert.match(js, /remove\.setAttribute\("aria-label"/);
+assert.match(js, /rename\.setAttribute\("aria-label"/);
+assert.match(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{[\s\S]*opacity: 0/);
+assert.doesNotMatch(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{\s*display:\s*none/);
+assert.match(css, /:focus-visible/);
+
+console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
