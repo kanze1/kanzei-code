@@ -109,6 +109,8 @@ languageSelect.addEventListener("change", () => {
   applyLanguage();
   setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
   if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
+  if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
+  if (document.body.classList.contains("documents-active")) refreshDocs();
   if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
   updateAskQueueStatus();
 });
@@ -2745,7 +2747,9 @@ async function selectWorkspaceProject(path) {
   }
 }
 
+let lastWorkspaceSnapshot = null;
 function renderWorkspace(snapshot) {
+  lastWorkspaceSnapshot = snapshot;
   const root = $("workspace-projects");
   root.replaceChildren();
   for (const project of snapshot.projects ?? []) {
