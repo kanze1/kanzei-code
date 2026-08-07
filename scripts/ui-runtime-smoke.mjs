@@ -164,7 +164,13 @@ class Element {
   get value() { return this._value ?? ""; }
   set value(v) { this._value = String(v); }
   getAttribute(name) { return this._attributes[name] ?? null; }
-  setAttribute(name, value) { this._attributes[name] = String(value); if (name === "id") this.id = String(value); }
+  // class 必须走 className 设值,否则 classList 的内部集合与属性脱节:index.html 里
+  // 写死的 class 不进集合,第一次 classList.toggle() 回写就把它们整体抹掉了。
+  setAttribute(name, value) {
+    if (name === "class") { this.className = value; return; }
+    this._attributes[name] = String(value);
+    if (name === "id") this.id = String(value);
+  }
   removeAttribute(name) { delete this._attributes[name]; }
   hasAttribute(name) { return name in this._attributes; }
   addEventListener(type, fn) { (this._listeners[type] ??= []).push(fn); }
@@ -174,7 +180,7 @@ class Element {
   focus() {}
   querySelector(selector) { return queryAllFrom(this, selector)[0] ?? null; }
   querySelectorAll(selector) { return queryAllFrom(this, selector); }
-  closest(selector) { let el = this; while (el) { if (matchesOne(el, selector)) return el; el = el.parentElement; } return null; }
+  closest(selector) { let el = this; while (el) { if (matchesCompound(el, selector)) return el; el = el.parentElement; } return null; }
   setPointerCapture() {}
   scrollIntoView() {}
   scrollTo() {}
@@ -204,13 +210,21 @@ function matchesOne(el, selector) {
   }
   return el.tagName === selector.toUpperCase();
 }
+// 复合选择器:".doc-item[data-doc-id]" / "div.foo" / "#id.bar" —— 每一段都要同时命中。
+// 早期版本把整段当一个 class 名比,于是 main.js 里所有 ".x[attr]" 形式在冒烟中恒为空,
+// 真实浏览器却正常工作:这类静默不一致会让冒烟对整块逻辑失明。
+function matchesCompound(el, step) {
+  const parts = step.match(/^[a-zA-Z][\w-]*|\.[^.#[\]]+|#[^.#[\]]+|\[[^\]]+\]/g);
+  if (!parts) return false;
+  return parts.every((part) => matchesOne(el, part));
+}
 function queryAllFrom(node, selector) {
   // 支持逗号分组与后代组合选择器(如 ".a .b" / "div, span");近似实现,仅覆盖 main.js 的用法。
   return selector.split(",").flatMap((part) => {
     const steps = part.trim().split(/\s+/);
     let current = [node];
     for (const step of steps) {
-      current = current.flatMap((base) => descendantElements(base).filter((el) => matchesOne(el, step)));
+      current = current.flatMap((base) => descendantElements(base).filter((el) => matchesCompound(el, step)));
     }
     return current;
   });
@@ -252,13 +266,16 @@ documentElement.ownerDocument = document;
 documentElement.appendChild(body);
 
 // 从 index.html 生成带 id 的真实节点:id 引用错(smokey 场景)会在这里直接暴露。
-for (const [raw, id] of html.matchAll(/id="([\w-]+)"/g)) {
-  void raw;
+// 整个开标签一起匹配,顺带取回 class —— 早期版本只取 id,index.html 里写死的 class
+// 对冒烟完全不可见(`.documents-list .doc-item` 恒为空),按 class 的断言全是假通过。
+for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\w-]+)"((?:[^<>"]|"[^"]*")*?)>/g)) {
+  const [, tag, before, id, after] = match;
   if (byId.has(id)) continue;
-  const tagMatch = html.slice(Math.max(0, html.indexOf(`id="${id}"`) - 120), html.indexOf(`id="${id}"`)).match(/<(\w+)[^<>]*$/);
-  const el = document.createElement(tagMatch ? tagMatch[1] : "div");
+  const el = document.createElement(tag);
   el.id = id;
   el._attributes.id = id;
+  const className = `${before} ${after}`.match(/\bclass="([^"]*)"/)?.[1];
+  if (className) el.className = className;
   byId.set(id, el);
   body.appendChild(el);
   // 后代选择器需要真实嵌套:按 id 造出来的节点是扁平的,`#providers-table tbody`
@@ -277,7 +294,8 @@ for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*da
 
 // ---------- Tauri 桥桩:启动序列与各列表需要真实形状的负载 ----------
 const PROJECT = "C:/smoke/project";
-const docEntry = (id, title, status, extra = {}) => ({ id, title, status, priority: "P1", closed: false, fields: [], ...extra });
+// nextStatuses 是状态流转按钮的数据源:桩里缺它,侧栏"能不能切状态"就无从断言。
+const docEntry = (id, title, status, extra = {}) => ({ id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"], ...extra });
 const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   update_check: { newer: false },
@@ -442,8 +460,22 @@ assert(
   `跳转到不存在的条目时应给出提示而不是静默失败,实得 toast: "${listText("toast")}"`,
 );
 
-const reqEditor = document.querySelector("#req-list .doc-edit");
-assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "需求侧栏未提供标题/字段编辑控件");
+// R-123 职责分离:侧栏只读(浏览与取活),独立文档页承担深度管理(编辑/排序/批量)。
+assert(!document.querySelector("#req-list .doc-edit"), "侧栏仍在渲染字段编辑表单(应只在独立文档页)");
+assert(!document.querySelector("#defect-list .doc-edit"), "缺陷侧栏仍在渲染字段编辑表单");
+assert(!document.querySelector("#req-list .doc-pick"), "侧栏出现批量选择框(批量操作应只在文档页)");
+assert(
+  !document.querySelectorAll("#req-list .doc-item").some((n) => n.draggable),
+  "侧栏条目仍可拖拽改序(排序应只在文档页)",
+);
+// 侧栏移除编辑后必须仍能读到字段,否则等于把信息一起删了。
+const sidebarFields = document.querySelectorAll("#req-list .doc-detail .doc-field");
+assert(sidebarFields.length > 0, "侧栏详情既无编辑表单也无只读字段,信息被一起删掉了");
+// 状态流转留在侧栏:取活时要能直接切。
+assert(document.querySelector("#req-list .doc-actions button"), "侧栏详情缺少状态流转按钮(取活链路断了)");
+
+const reqEditor = document.querySelector("#documents-req-list .doc-edit");
+assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "独立文档页未提供标题/字段编辑控件");
 // D-148:曾经只给 aria-label,渲染成一片无标题输入框,改哪格全靠猜;长字段用单行 input 还会把值截没。
 const reqEditRows = reqEditor.querySelectorAll(".doc-edit-row");
 assert(reqEditRows.length >= 3, `编辑表单未按字段分行(应有 标题/备注/验收),实得 ${reqEditRows.length}`);
@@ -454,7 +486,7 @@ assert(
 assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
 // D-149:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
 const duplicatedFields = document
-  .querySelector("#req-list .doc-detail")
+  .querySelector("#documents-req-list .doc-detail")
   .querySelectorAll(".doc-field")
   .filter((node) => !node.textContent.trim().toLowerCase().startsWith("refs"));
 assert(
@@ -463,12 +495,54 @@ assert(
 );
 reqEditor.querySelector("button").click();
 await flush();
-assert(invokeLog.includes("docs_update"), "需求侧栏编辑未调用 docs_update");
-const defectEditor = document.querySelector("#defect-list .doc-edit");
-assert(defectEditor?.querySelector("input") && defectEditor?.querySelector("button"), "缺陷侧栏未提供标题/字段编辑控件");
+assert(invokeLog.includes("docs_update"), "独立文档页编辑未调用 docs_update");
+const defectEditor = document.querySelector("#documents-defect-list .doc-edit");
+assert(defectEditor?.querySelector("input") && defectEditor?.querySelector("button"), "独立文档页缺陷未提供编辑控件");
 defectEditor.querySelector("button").click();
 await flush();
-assert(invokeLog.filter((cmd) => cmd === "docs_update").length >= 2, "缺陷侧栏编辑未调用 docs_update");
+assert(invokeLog.filter((cmd) => cmd === "docs_update").length >= 2, "独立文档页缺陷编辑未调用 docs_update");
+
+// 批量操作:选中后操作条出现,应用后逐条提交。
+const pick = document.querySelector("#documents-req-list .doc-pick");
+assert(pick, "独立文档页未提供批量选择框");
+assert(byId.get("documents-batch-bar").classList.contains("hidden"), "未选中任何条目时批量操作条不应出现");
+pick.checked = true;
+pick._listeners.change?.forEach((fn) => fn({ target: pick }));
+assert(!byId.get("documents-batch-bar").classList.contains("hidden"), "选中条目后批量操作条未出现");
+assert(listText("documents-batch-count").trim().length > 0, "批量操作条未显示已选数量");
+const beforeBatch = invokeLog.filter((cmd) => cmd === "docs_update").length;
+byId.get("documents-batch-tag").value = "前端";
+byId.get("documents-batch-apply")._listeners.click?.forEach((fn) => fn({}));
+await flush();
+assert(
+  invokeLog.filter((cmd) => cmd === "docs_update").length > beforeBatch,
+  "批量应用未提交 docs_update",
+);
+// 对照:两个队列同时可见,且共用同一套筛选条件。
+byId.get("documents-tab-both")._listeners.click?.forEach((fn) => fn({}));
+await flush();
+assert(
+  !byId.get("documents-req-list").classList.contains("hidden")
+    && !byId.get("documents-defect-list").classList.contains("hidden"),
+  "对照模式未同时显示需求与缺陷两个队列",
+);
+// 对照模式下改一次筛选,两个队列都要跟着变——只作用于其中一个就等于没在对照。
+// 桩数据都不带阻塞理由,筛「已阻塞」后两边都应清空。
+const reqBefore = document.querySelectorAll("#documents-req-list .doc-item").length;
+const defectBefore = document.querySelectorAll("#documents-defect-list .doc-item").length;
+assert(reqBefore > 0 && defectBefore > 0, "对照模式下两个队列应先都有条目");
+const blockedFilter = byId.get("documents-blocked-filter");
+blockedFilter.value = "blocked";
+blockedFilter._listeners.change?.forEach((fn) => fn({ target: blockedFilter }));
+await flush();
+assert(
+  document.querySelectorAll("#documents-req-list .doc-item").length === 0
+    && document.querySelectorAll("#documents-defect-list .doc-item").length === 0,
+  "对照模式下筛选只作用于一个队列(两边口径会对不上)",
+);
+blockedFilter.value = "all";
+blockedFilter._listeners.change?.forEach((fn) => fn({ target: blockedFilter }));
+await flush();
 byId.get("sop-picker").click();
 await flush();
 const sopEntry = document.querySelector("#sop-list .sop-entry");

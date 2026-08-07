@@ -84,6 +84,8 @@ const I18N_EN = {
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source",
   "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory", "找不到": "Not found:",
+  "选择": "Select", "已选": "Selected", "改状态…": "Change status…", "混选类型,仅可改标签": "Mixed types — tags only",
+  "先选择要改的状态或标签": "Pick a status or tag to apply first", "批量操作完成": "Bulk update done", "批量操作部分失败": "Bulk update partly failed",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -3313,13 +3315,74 @@ let dragReqId = null;
 function reqDragEnabled(filters = reqFilters) {
   return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all" && (filters.blocked ?? "all") === "all";
 }
+// R-123 职责分离:侧边栏 = 浏览与取活(只读详情 + 切状态),独立文档页 = 深度管理
+// (排序、字段编辑、批量操作)。同一份 renderDocList 服务两处,靠这个判断分流。
+function docSurface(listEl) {
+  return String(listEl?.id ?? "").startsWith("documents-") ? "documents" : "sidebar";
+}
+
+// 批量操作选中集:id → kind。跨重绘保留,否则 agent 的一次刷新就把选择清空了。
+const batchSelection = new Map();
+
+function syncBatchBar() {
+  const bar = $("documents-batch-bar");
+  if (!bar) return;
+  // 条目可能因筛选/归档而消失,选中集要随之收敛,不然会对不存在的条目发批量请求。
+  const alive = new Set(
+    [...document.querySelectorAll(".documents-list .doc-item[data-doc-id]")].map((n) => n.dataset.docId),
+  );
+  for (const id of [...batchSelection.keys()]) if (!alive.has(id)) batchSelection.delete(id);
+  bar.classList.toggle("hidden", batchSelection.size === 0);
+  $("documents-batch-count").textContent = `${t("已选")} ${batchSelection.size}`;
+  // 状态选项按选中集的类型给:需求与缺陷状态机不同,混选时只允许改标签。
+  const kinds = new Set(batchSelection.values());
+  const statusSelect = $("documents-batch-status");
+  const options = kinds.size === 1 ? documentStatusOptions[[...kinds][0]].slice(1) : [];
+  statusSelect.innerHTML =
+    `<option value="">${kinds.size > 1 ? t("混选类型,仅可改标签") : t("改状态…")}</option>` +
+    options.map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`).join("");
+  statusSelect.disabled = kinds.size !== 1;
+}
+
+async function applyBatch() {
+  const status = $("documents-batch-status").value;
+  const tag = $("documents-batch-tag").value;
+  if (!status && !tag) {
+    toast(t("先选择要改的状态或标签"));
+    return;
+  }
+  const targets = [...batchSelection.entries()];
+  let ok = 0;
+  const failures = [];
+  for (const [id, kind] of targets) {
+    try {
+      await invoke("docs_update", {
+        projectDir: currentProject,
+        kind,
+        action: "update",
+        id,
+        ...(status ? { status } : {}),
+        ...(tag ? { fields: { "标签": tag } } : {}),
+      });
+      ok += 1;
+    } catch (error) {
+      // 逐条独立提交:一条失败(比如状态机不允许后退)不该把整批回滚掉,
+      // 但必须逐条报出来,否则用户以为全成功了。
+      failures.push(`${id}: ${error}`);
+    }
+  }
+  batchSelection.clear();
+  if (failures.length) toastError(`${t("批量操作部分失败")}(${ok}/${targets.length}):${failures.join(";")}`);
+  else toast(`${t("批量操作完成")}:${ok}`);
+  refreshDocs();
+}
+
 function docDragEnabled(kind, listEl, filterState) {
+  // 拖拽改序属深度管理,只在独立文档页提供:侧栏因此不再承担改序,行也轻了。
+  if (docSurface(listEl) !== "documents") return false;
   if (kind === "req") return reqDragEnabled(filterState);
   if (kind !== "defect") return false;
-  if (listEl.id === "defect-list") return true;
-  return listEl.id === "documents-defect-list"
-    && filterState.status === "all"
-    && filterState.priority === "all";
+  return filterState.status === "all" && filterState.priority === "all";
 }
 async function commitDocOrder(listEl, kind) {
   const order = [...listEl.querySelectorAll(".doc-item[data-doc-id]")].map((el) => el.dataset.docId);
@@ -3369,6 +3432,9 @@ function jumpToEntry(ref) {
 }
 
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
+  const surface = docSurface(el);
+  // 筛选一律在这里做,调用方不得再预筛一遍——两处口径必须同源,否则侧栏与文档页
+  // 会在同一筛选条件下给出不同的条目集合(R-123 验收 ④)。
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
   if (kind === "defect") {
     entries = entries
@@ -3445,6 +3511,21 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     row.className = "doc-row";
     row.setAttribute("role", "button");
     row.tabIndex = 0;
+    // 批量操作只在文档页:侧栏一行要尽量轻,多一个勾选框就多一层视觉噪音。
+    if (surface === "documents" && (kind === "req" || kind === "defect") && !entry.closed) {
+      const pick = document.createElement("input");
+      pick.type = "checkbox";
+      pick.className = "doc-pick";
+      pick.checked = batchSelection.has(entry.id);
+      pick.setAttribute("aria-label", `${t("选择")} ${entry.id}`);
+      pick.addEventListener("click", (event) => event.stopPropagation());
+      pick.addEventListener("change", () => {
+        if (pick.checked) batchSelection.set(entry.id, kind);
+        else batchSelection.delete(entry.id);
+        syncBatchBar();
+      });
+      row.appendChild(pick);
+    }
     row.setAttribute("aria-label", `${entry.id} ${entry.title}，${t("按 Enter 展开详情")}`);
     row.title = `${entry.id} ${entry.title}(${t("点击展开")})`;
     const id = document.createElement("span");
@@ -3558,7 +3639,10 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
     full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
-    if ((kind === "req" || kind === "defect") && !entry.closed) {
+    // R-123:字段编辑只在独立文档页。侧栏展开详情因此退回只读呈现,高度显著下降,
+    // 回到"浏览与取活"的本职;编辑能力没有丢,在文档页有完整入口。
+    const deepManage = surface === "documents" && (kind === "req" || kind === "defect") && !entry.closed;
+    if (deepManage) {
       const editBox = document.createElement("div");
       editBox.className = "doc-edit";
       // 每格都带可见字段名:字段集是自由的,只靠顺序或 tooltip 认不出改的是哪一条。
@@ -3614,7 +3698,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     // 编辑表单已经把每个字段连名带值摆出来了,再渲染一遍只读列表就是同一份内容显示两遍;
     // 「阻塞字段: X」这条理由更是直接重复 阻塞 字段的原文(D-149)。有编辑表单时:
     // 阻塞原因只留调度器推导出来的理由(依赖/阶段/循环),只读列表只留 refs(它是可跳转的链接)。
-    const hasEditor = (kind === "req" || kind === "defect") && !entry.closed;
+    const hasEditor = deepManage;
     if (blocked || externalBlocked) {
       const reasons = hasEditor
         ? blockedReasons.filter((reason) => !String(reason).startsWith("阻塞字段:"))
@@ -3657,7 +3741,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       }
       detail.appendChild(f);
     }
-    if ((kind === "req" || kind === "defect") && !entry.closed) {
+    // 复杂度是元数据编辑,同样归文档页;侧栏保留三格电量图标做只读呈现。
+    if (deepManage) {
       const complexityRow = document.createElement("div");
       complexityRow.className = "doc-progress";
       const complexitySelect = document.createElement("select");
@@ -3868,15 +3953,32 @@ const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
   defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
 };
+// 「对照」模式下筛选同时作用于两个队列——并排看的前提就是同一套条件,
+// 各筛各的等于没在对照。单类型模式只作用于当前那一个。
+function docFilterTargets() {
+  return documentsKind === "both" ? ["req", "defect"] : [documentsKind];
+}
 function syncDocumentFilters(snapshot) {
   const statusFilter = $("documents-status-filter");
   const priorityFilter = $("documents-priority-filter");
   const tagFilter = $("documents-tag-filter");
   const blockedFilter = $("documents-blocked-filter");
-  const filters = documentFilters[documentsKind];
-  const entries = documentsKind === "req" ? (snapshot.requirements ?? []) : (snapshot.defects ?? []);
-  statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`).join("");
-  statusFilter.value = filters.status;
+  const primary = docFilterTargets()[0];
+  const filters = documentFilters[primary];
+  const entries =
+    documentsKind === "both"
+      ? [...(snapshot.requirements ?? []), ...(snapshot.defects ?? [])]
+      : documentsKind === "req"
+        ? (snapshot.requirements ?? [])
+        : (snapshot.defects ?? []);
+  // 对照模式下两个队列的状态机不同,状态筛选只提供"全部",避免给出对另一边无意义的值。
+  const statusOptions =
+    documentsKind === "both" ? [["all", "全部状态"]] : documentStatusOptions[documentsKind];
+  statusFilter.innerHTML = statusOptions
+    .map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`)
+    .join("");
+  statusFilter.disabled = documentsKind === "both";
+  statusFilter.value = documentsKind === "both" ? "all" : filters.status;
   priorityFilter.value = filters.priority ?? "all";
   blockedFilter.value = filters.blocked ?? "all";
   syncTagFilter(tagFilter, entries, filters.tag ?? "all");
@@ -3887,17 +3989,20 @@ function renderDocuments(snapshot) {
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
   syncDocumentFilters(snapshot);
-    renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req, snapshot.archived_entries?.req ?? []);
-  const defects = (snapshot.defects ?? [])
-    .filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status)
-    .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority)
-    .filter((entry) => documentFilters.defect.tag === "all" || entryTags(entry).includes(documentFilters.defect.tag))
-    .filter((entry) => matchesBlockedFilter(entry, documentFilters.defect.blocked ?? "all"));
-  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
-  reqList.classList.toggle("hidden", documentsKind !== "req");
-  defectList.classList.toggle("hidden", documentsKind !== "defect");
+  // 两处都把原始条目交给 renderDocList 自己筛:这里曾经预筛一遍缺陷再传进去,
+  // 等于同一套筛选写了两份,改一处漏一处就会两边对不上(R-123 验收 ④)。
+  renderDocList(reqList, snapshot.requirements ?? [], "req", snapshot.archived?.req ?? 0, documentFilters.req, snapshot.archived_entries?.req ?? []);
+  renderDocList(defectList, snapshot.defects ?? [], "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
+  // 「对照」把两个队列并排摆出来:需求与缺陷互相引用,分成两个标签页时对不起来。
+  const both = documentsKind === "both";
+  reqList.classList.toggle("hidden", !both && documentsKind !== "req");
+  defectList.classList.toggle("hidden", !both && documentsKind !== "defect");
+  $("documents-scroll")?.classList.toggle("compare", both);
   $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
   $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
+  const compareTab = $("documents-tab-both");
+  if (compareTab) compareTab.className = both ? "primary" : "ghost";
+  syncBatchBar();
 }
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
@@ -4169,19 +4274,18 @@ $("documents-project-select").addEventListener("change", (event) => {
 
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-$("documents-status-filter").addEventListener("change", (event) => { documentFilters[documentsKind].status = event.target.value; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
-$("documents-priority-filter").addEventListener("change", (event) => {
-  documentFilters[documentsKind].priority = event.target.value;
+$("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-batch-apply").addEventListener("click", applyBatch);
+$("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+// 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。
+function applyDocFilter(field, value) {
+  for (const kind of docFilterTargets()) documentFilters[kind][field] = value;
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
-});
-$("documents-tag-filter").addEventListener("change", (event) => {
-  documentFilters[documentsKind].tag = event.target.value;
-  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
-});
-$("documents-blocked-filter").addEventListener("change", (event) => {
-  documentFilters[documentsKind].blocked = event.target.value;
-  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
-});
+}
+$("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
+$("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
+$("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
+$("documents-blocked-filter").addEventListener("change", (e) => applyDocFilter("blocked", e.target.value));
 // 分组开关(用户定调:按受控标签分组展示,含侧边栏):关掉即回纯开发顺序+拖拽。
 function bindGroupToggle(id, storageKey, apply) {
   const btn = $(id);

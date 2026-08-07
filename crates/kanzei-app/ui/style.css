@@ -658,6 +658,31 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .doc-edit input:focus, .doc-edit textarea:focus { outline: none; border-color: var(--accent); }
 .doc-edit-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
 
+/* R-123:批量操作与对照视图,只出现在独立文档页 */
+.documents-batch-bar {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 6px 10px; margin-bottom: 8px;
+  background: var(--panel2); border: 1px solid var(--accent-soft); border-radius: var(--radius);
+}
+.documents-batch-bar.hidden { display: none; }
+.doc-pick { flex-shrink: 0; margin-right: 2px; cursor: pointer; }
+/* 对照:两个队列并排,窄屏回落成上下堆叠 */
+#documents-scroll.compare .documents-list { display: block; }
+@media (min-width: 1100px) {
+  #documents-scroll.compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "head head" "lead lead" "tools tools" "batch batch" "req defect";
+    column-gap: 14px; align-content: start;
+  }
+  #documents-scroll.compare > h1 { grid-area: head; }
+  #documents-scroll.compare > p { grid-area: lead; }
+  #documents-scroll.compare > .documents-toolbar { grid-area: tools; }
+  #documents-scroll.compare > #documents-batch-bar { grid-area: batch; }
+  #documents-scroll.compare > #documents-req-list { grid-area: req; min-width: 0; }
+  #documents-scroll.compare > #documents-defect-list { grid-area: defect; min-width: 0; }
+}
+
 #ask-dialog .ask-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 #ask-always { border: 1px solid var(--alert); color: var(--alert); background: transparent; border-radius: 4px; padding: 5px 12px; cursor: pointer; }
 #ask-always:hover { background: rgba(232, 132, 42, .12); }
