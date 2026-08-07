@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 补充共享持久化调用方回归：config::tests::append_allow_rule_preserves_structured_bash_scope 真实写入临时项目 .kanzei/kanzei.toml，再解析确认 bash 结构化 command/workdir 资源原样保存且 effect=Allow；cargo test -p kanzei-harness config::tests::append_allow_rule_preserves_structured_bash_scope 通过。CLI/桌面仍未接入真实后续 bash 执行 E2，历史裸命令规则迁移与持久化失败策略仍是缺口。
+- 进展: 新增历史规则安全迁移行为：resource_match_for_action 对 bash 结构化资源拒绝匹配旧裸命令规则，只有显式整体 `*` 仍保持 yolo 语义；因此旧 `git status` 不会因资源格式升级而意外继续放行，而是重新 Ask。新增 legacy_bash_rules_do_not_authorize_structured_resources；cargo test -p kanzei-harness -p kanzei-tools -p kanzei-core 全部通过（harness 28、tools 19、core 28）。仍缺 CLI/桌面真实 AlwaysAllow→bash E2、旧规则提示/正式迁移、append_allow_rule 失败与并发链路。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。

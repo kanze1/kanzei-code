@@ -149,10 +149,22 @@ fn is_windows_drive_path(resource: &str) -> bool {
 /// 按 action 选择资源语义；bash 命令是 shell 语法文本，不能因其中出现 `/` 就走文件路径规范化。
 pub fn resource_match_for_action(action: &str, pattern: &str, value: &str) -> bool {
     if action == "bash" {
-        wildcard_match(pattern, value)
-    } else {
-        resource_match(pattern, value)
+        if pattern == "*" {
+            return wildcard_match(pattern, value);
+        }
+        let value_is_structured = serde_json::from_str::<serde_json::Value>(value)
+            .ok()
+            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
+        let pattern_is_structured = serde_json::from_str::<serde_json::Value>(pattern)
+            .ok()
+            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
+        return if value_is_structured && !pattern_is_structured {
+            false
+        } else {
+            wildcard_match(pattern, value)
+        };
     }
+    resource_match(pattern, value)
 }
 
 /// 按资源类型匹配权限规则；路径资源先经过统一规范化，避免会话规则
@@ -424,6 +436,29 @@ mod tests {
             ),
             Effect::Ask
         );
+    }
+    #[test]
+    fn legacy_bash_rules_do_not_authorize_structured_resources() {
+        let rs = Ruleset::new(vec![
+            Rule {
+                action: "bash".into(),
+                resource: "git status".into(),
+                effect: Effect::Allow,
+            },
+            Rule {
+                action: "bash".into(),
+                resource: "*".into(),
+                effect: Effect::Allow,
+            },
+        ]);
+        let structured = r#"{"command":"git status","workdir":"C:/project"}"#;
+        assert_eq!(rs.evaluate("bash", structured), Effect::Allow);
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "git status".into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(rs.evaluate("bash", structured), Effect::Ask);
     }
     #[test]
     fn hard_deny_cannot_be_overridden_by_later_normal_rules() {
