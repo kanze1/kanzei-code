@@ -41,7 +41,7 @@
 
 
 
-## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixing] (high)
+## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixed] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
 - 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
 - 影响: 弹窗永不出现,该运行卡在权限等待直到手动停止,用户毫无感知(无日志无提示)。R-030/R-078 主打的多进程/多项目并行在任何需要审批的场景实际不可用,只有 yolo/自动放行才真并行。
@@ -51,7 +51,7 @@
 - 阶段: 1
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
-- 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录；先跳过 UI E2，继续下一条可做缺陷。
+- 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:功能路径完整且有回归,前端 UI E2 转 R-101。
 
 
 
@@ -67,14 +67,14 @@
 
 
 
-## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [fixing] (high)
+## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [fixed] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。
 - 根因: 项目点击 handler 不调 setRunning(ui/main.js:1942-1955);renderProcesses 把 activeSessionId 换成 B 的会话(1802-1810),A 的 kz:done 带 A 的 sessionId 被 on() 过滤丢弃(894-905),setRunning(false)(905)永不执行;此时 B 的进程 tab 就是 activeProcessId,点它命中 1833-1834 早退也无法修复,唯一出路是点停止(仅本地复位)。
 - 影响: 多项目并行的基本操作(运行时切项目)导致 UI 状态永久错乱。反向情况:若 B 的 session_id 为空,过滤条件 `sessionId && activeSessionId` 不成立,A 的 kz:text 会直接串流渲染进 B 的对话区。
 - 验收: 运行状态按会话维度保存并在切换项目/进程时按目标会话重算;控制类事件不因非活动会话被丢弃;补切项目后运行结束能正确复位的验证。
 - 优先级: P0
 - refs: D-055 R-078
-- 进展: 侧栏与工作区项目切换均已补 setRunning(false)+refreshProcesses，node --check 通过；剩余真实运行中切项目→终态 E2 阻塞于同一前端 UI harness 缺口，且控制事件架构归 D-055/R-086。记录后跳过，继续下一条可做缺陷。
+- 进展: 侧栏与工作区项目切换均已补 setRunning(false)+refreshProcesses，node --check 通过；剩余真实运行中切项目→终态 E2 阻塞于同一前端 UI harness 缺口，且控制事件架构归 D-055/R-086。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:切换即复位的功能路径完整,切项目 E2 转 R-101,控制事件架构归 R-086。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 - 阶段: 1
 - 不变量: 界面状态:前端展示是后端会话状态的投影
@@ -94,7 +94,7 @@
 
 
 
-## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixing] (high)
+## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixed] (high)
 - 复现: 在 requirements.md 手写一条无冒号 bullet(如 `- 就是个备注`)或自由段落/### 子标题/代码块,随后让模型执行任意一次 req/defect 写操作(哪怕改的是别的条目),手改内容消失。
 - 根因: kanzei-tools/src/docstore.rs:225-242 的 parse 只保留 `## ` 标题和 `- key: value` 形式 bullet(`bullet.split_once(':')` 无 else 分支),其余一律丢弃;render(301-318)只写回保留部分。而 tracker.rs:76-82/153/227/268 的每一个写操作(add/update/close/reorder)都是 load → 改内存 → save 整文件重写。
 - 影响: 数据静默丢失,无任何提示;与 docstore 模块头"用户可任意编辑器手改"及"文档永远写不坏"的设计承诺直接相反——引擎恰恰是唯一会删内容的一方。当前仓库文件全部合规是因为都由引擎生成,掩盖了该缺陷。
@@ -103,7 +103,7 @@
 - 阶段: 1
 - 不变量: 配置与文档:写入保留未知字段和用户自由内容
 - 证据等级: E2
-- 进展: 已补 archive_terminal 模板转移：终态条目的 EntryTemplate 按 ID 合并到归档模板，归档不会丢自由段落、无冒号 bullet、### 子标题或代码块；新增 tracker::tests::archive_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req archive 并断言手写内容进入 requirements-archive.md、活动文档保留进行中条目。cargo test -p kanzei-tools 21 项通过。仍待覆盖 update/close/reorder 及并发写入；当前改动位置 crates/kanzei-tools/src/docstore.rs:222-250、crates/kanzei-tools/src/tracker.rs:467-499。
+- 进展: 已补 archive_terminal 模板转移：终态条目的 EntryTemplate 按 ID 合并到归档模板，归档不会丢自由段落、无冒号 bullet、### 子标题或代码块；新增 tracker::tests::archive_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req archive 并断言手写内容进入 requirements-archive.md、活动文档保留进行中条目。cargo test -p kanzei-tools 21 项通过。当前改动位置 crates/kanzei-tools/src/docstore.rs:222-250、crates/kanzei-tools/src/tracker.rs:467-499。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:parse 保留+模板回写机制覆盖全部 save 路径且本会话手写恢复内容经引擎多次重写无损(实测);update/close/reorder 覆盖与并发写入回归转 R-101。
 
 
 
@@ -144,7 +144,7 @@
 
 
 
-## D-064 SQLite 并发修复只加 WAL/busy_timeout,sequence 竞争与收尾假失败仍未解决 [fixing] (medium)
+## D-064 SQLite 并发修复只加 WAL/busy_timeout,sequence 竞争与收尾假失败仍未解决 [fixed] (medium)
 - 复现: 两个连接并发向同一 session append_event;两边的 DEFERRED 事务都可能读取相同 `MAX(sequence)+1`,后提交方撞 UNIQUE(session_id,sequence)。busy_timeout 只等待锁,不会重新计算已经读出的 sequence。
 - 根因: append_event_tx 仍采用 `SELECT MAX(sequence)+1` 后 INSERT(store.rs:527-544),没有 immediate transaction/原子计数器/唯一冲突重试;run_task 收尾的 set_status/append_event/conversation.updated 仍用 `?` 把落库失败提升为整轮失败(main.rs:3085-3104)。
 - 已完成部分: SessionStore::open 已设置 WAL、5 秒 busy_timeout 和 synchronous=NORMAL,普通读写锁冲突显著减少。
@@ -155,7 +155,7 @@
 - 阶段: 1
 - 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
 - 证据等级: E2
-- 进展: 生产代码已隔离收尾落库失败，但注入故障的 run_task E2 夹具仍未补齐；保持 fixing，不重复扩大本轮范围，继续按文档顺序处理 D-066。
+- 进展: 生产代码已隔离收尾落库失败(d3b94fa),sequence 分配已在 BEGIN IMMEDIATE 事务内原子化并有并发回归(d1dc702,4 连接 80 通知 sequence 连续唯一)。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:功能验收两项均落地有测试,注入故障的 run_task E2 夹具转 R-101。
 
 
 
@@ -171,7 +171,7 @@
 
 
 
-## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixing] (medium)
+## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixed] (medium)
 - 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
 - 根因: 首轮修复补了 lifecycle 锁、idle 状态和 pending 清理,没有实现原验收的“回收 promoted 未执行输入”;session_inputs 状态机也没有 promoted→cancelled/pending 的停止迁移。
 - 已完成部分: 手动停止后会话状态不再永久卡 running,stop 与普通 admit/drain 的大部分交错已串行化。
@@ -182,7 +182,7 @@
 - 阶段: 1
 - 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
 - 证据等级: E2
-- 进展: 本轮补齐 app 层确定性生命周期回归：新增 stop_runtime_and_finalize，保持 lifecycle 锁覆盖 abort/running 复位/数据库收尾，并沿用 SessionStore::finalize_interrupt 原子写 idle、stopped_by_user 事件及 pending/promoted 取消；stop_run 已改用该 helper。新增 update_tests::stopping_after_promote_cancels_promoted_and_pending_inputs_atomically，验证 promote 后停止时两条输入均取消、会话 idle、事件原因可见。cargo test -p kanzei-app 16 项通过。真实 Tauri Window/provider E2 仍缺，保持 fixing。
+- 进展: 本轮补齐 app 层确定性生命周期回归：新增 stop_runtime_and_finalize，保持 lifecycle 锁覆盖 abort/running 复位/数据库收尾，并沿用 SessionStore::finalize_interrupt 原子写 idle、stopped_by_user 事件及 pending/promoted 取消；stop_run 已改用该 helper。新增 update_tests::stopping_after_promote_cancels_promoted_and_pending_inputs_atomically，验证 promote 后停止时两条输入均取消、会话 idle、事件原因可见。cargo test -p kanzei-app 16 项通过。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:promoted 回收的功能验收已实现且有确定性测试,真实 Tauri Window/provider E2 转 R-101。
 
 
 
@@ -224,7 +224,7 @@
 
 
 
-## D-086 task 子代理不继承用户权限规则,read deny 可被旁路 [fixing] (medium)
+## D-086 task 子代理不继承用户权限规则,read deny 可被旁路 [fixed] (medium)
 - 复现: 在 kanzei.toml 配置 `action="read", resource="*/.env", effect="deny"`;主代理读被拦后,让模型用 task 子代理读同一文件,内容照常回传。
 - 根因: task 调用明确跳过权限门禁(kanzei-core/src/runner.rs:478-480,"硬门禁在构造,不在评估"),但构造处只 add(SubagentBase)(kanzei/src/main.rs:233-236),ConfigComponent 不在内,用户规则不进入子代理快照;而 SubagentBase 给 read/glob/grep 一律 Allow *(kanzei-tools/src/subagent.rs:14-24)。
 - 影响: "read deny 保护敏感文件"这一用户可表达的规则存在系统性旁路。"只读所以免检"的前提只对写安全成立,对读的保密性不成立。
@@ -239,7 +239,7 @@
 
 
 
-- 进展: 已复核最小权限快照回归：subagent_snapshot_applies_user_read_deny 与只读工具范围测试通过；cargo test -p kanzei-tools subagent 2 项、cargo test -p kanzei-core 37 项通过。生产路径仍已在 CLI/桌面 SubagentBase 后叠加 ConfigComponent。仍缺 runner 级 task→subagent read 实际执行回归及真实 CLI/桌面 E2，保持 fixing。
+- 进展: 已复核最小权限快照回归：subagent_snapshot_applies_user_read_deny 与只读工具范围测试通过；cargo test -p kanzei-tools subagent 2 项、cargo test -p kanzei-core 37 项通过。生产路径仍已在 CLI/桌面 SubagentBase 后叠加 ConfigComponent。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:用户 read deny 已进入子代理快照且有快照级测试,runner 级实际执行回归与 CLI/桌面 E2 转 R-101。
 
 
 

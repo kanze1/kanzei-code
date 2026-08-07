@@ -319,4 +319,13 @@
 - 阻塞: 待 R-099 数据证明提示词纪律不足以收敛后再实施,避免过度工程
 - 阶段: 1
 
+## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [todo]
+- 复杂度: 大
+- 优先级: P2
+- 归属: kanzei
+- 背景: 多条缺陷按 conventions §1.2「可用即关闭」关闭,其验证增强项收拢至此,不再阻塞缺陷与需求推进;此前反复出现的阻塞原因是仓库无 package.json、无浏览器测试 harness,无法安全启动真实 Tauri UI。
+- 验收: 建立可在测试基座安全启动真实 Tauri UI(或等价 WebView 驱动)的 E2 harness;逐项补齐延期 E2:D-051 桌面权限弹窗真实 UI E2;D-055 切回进程补发 pending ask 前端 E2;D-056 运行中切项目→终态复位 E2;D-060 update/close/reorder 手写内容保留与并发写入回归;D-064 注入故障的 run_task 收尾 E2;D-066 真实 Tauri Window/provider 停止 E2;D-086 runner 级 task→subagent read 拦截执行回归。
+- 依赖: R-086
+- 阶段: 3
+
 
