@@ -2171,6 +2171,7 @@ dependencies = [
  "kanzei-tools",
  "serde_json",
  "tokio",
+ "toml 0.8.23",
  "tracing",
  "tracing-subscriber",
 ]
