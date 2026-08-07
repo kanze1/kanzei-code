@@ -121,8 +121,12 @@ let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // ---------- 视图切换 ----------
 document.querySelectorAll(".activity-item").forEach((item) => {
   item.addEventListener("click", () => {
-    document.querySelectorAll(".activity-item").forEach((i) => i.classList.remove("active"));
+    document.querySelectorAll(".activity-item").forEach((i) => {
+      i.classList.remove("active");
+      i.removeAttribute("aria-current");
+    });
     item.classList.add("active");
+    item.setAttribute("aria-current", "page");
     const view = item.dataset.view;
     document.body.classList.toggle("documents-active", view === "documents");
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));

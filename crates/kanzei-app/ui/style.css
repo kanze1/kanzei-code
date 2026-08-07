@@ -34,8 +34,10 @@ body {
 }
 .activity-item {
   width: 48px; height: 44px; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; border-left: 2px solid transparent; color: #7a7a7a;
+  cursor: pointer; border: 0; border-left: 2px solid transparent; padding: 0;
+  background: transparent; color: #7a7a7a; font: inherit;
 }
+.activity-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
 .activity-item svg { width: 22px; height: 22px; }
 .activity-item:hover { color: var(--fg-strong); }
 .activity-item.active { color: #ffffff; border-left-color: #ffffff; }

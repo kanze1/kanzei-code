@@ -8,14 +8,14 @@
 <body>
   <div id="app">
     <aside id="activitybar">
-      <div class="activity-item active" data-view="chat" title="对话">
-        <svg viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      </div>
-      <div class="activity-item" data-view="workspace" title="工作区">⌂</div>
-      <div class="activity-item" data-view="documents" title="需求与工作 / 缺陷">☷</div>
-      <div class="activity-item" data-view="settings" title="设置">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      </div>
+      <button type="button" class="activity-item active" data-view="chat" title="对话" aria-label="切换到对话" aria-current="page">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="activity-item" data-view="workspace" title="工作区" aria-label="切换到工作区">⌂</button>
+      <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷" aria-label="切换到需求与工作和缺陷">☷</button>
+      <button type="button" class="activity-item" data-view="settings" title="设置" aria-label="切换到设置">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
     </aside>
 
     <aside id="sidebar">
