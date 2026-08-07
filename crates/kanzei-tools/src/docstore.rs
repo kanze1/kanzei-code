@@ -73,6 +73,21 @@ pub const FINDINGS: DocKind = DocKind {
     bidirectional: false,
 };
 
+/// 跨会话记忆(R-098):记"已确认的事实与踩过的坑",与追踪文档职责分离——
+/// 追踪文档记"要做什么/做到哪",记忆记"已经查清楚了什么"。
+/// stale 是终态:被推翻或过期的结论 archive 出去,不再进入上下文。
+pub const MEMORY: DocKind = DocKind {
+    rel_path: ".kanzei/project/memory.md",
+    heading: "Memory",
+    prefix: "M",
+    statuses: &["active", "stale"],
+    terminal: &["stale"],
+    severities: None,
+    priorities: None,
+    // 结论可能被重新确认,允许 active⇄stale 往返。
+    bidirectional: true,
+};
+
 /// 长期目标(R-019):agent 每次运行注入活跃目标,无明确任务时自主推进。
 pub const GOALS: DocKind = DocKind {
     rel_path: ".kanzei/project/goals.md",

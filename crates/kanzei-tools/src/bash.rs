@@ -27,6 +27,9 @@ struct BashInput {
     /// 工作目录(默认 cwd)
     #[serde(default)]
     workdir: Option<String>,
+    /// 后台运行:立刻返回进程句柄,用 process 工具查输出/停止(长驻服务、watch 用)
+    #[serde(default)]
+    background: bool,
 }
 
 pub struct BashTool;
@@ -47,7 +50,10 @@ impl Tool for BashTool {
             _ => "POSIX sh syntax",
         };
         format!(
-            "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir.",
+            "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir, \
+             background. stdin is closed: interactive prompts get EOF instead of hanging. \
+             Set background=true for long-running processes (dev server, watch): it returns a \
+             process id immediately; use the `process` tool to read output, check liveness or stop it.",
             shell.name
         )
     }
@@ -126,6 +132,34 @@ impl Tool for BashTool {
             Ok(c) => c,
             Err(e) => return ToolOutput::error(format!("failed to spawn {}: {e}", shell.name)),
         };
+
+        // 后台模式:交给注册表托管,立刻返回句柄,不等它结束也不受 timeout 约束。
+        if input.background {
+            let process = crate::background::register(
+                child,
+                input.command.clone(),
+                &ctx.project_root,
+                &workdir,
+            );
+            let rendered = format!(
+                "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n\
+                 Use the `process` tool: {{\"action\":\"output\",\"id\":\"{}\"}} to read output, \
+                 {{\"action\":\"stop\",\"id\":\"{}\"}} to terminate.",
+                process.id,
+                process.pid().map_or("unknown".into(), |p| p.to_string()),
+                input.command,
+                process.id,
+                process.id,
+            );
+            return ToolOutput::ok(rendered).with_display(serde_json::json!({
+                "kind": "terminal",
+                "command": input.command,
+                "background": true,
+                "processId": process.id,
+                "output": "(后台运行中,用 process 工具查看输出)",
+            }));
+        }
+
         let pid = child.id();
 
         let mut stdout = child.stdout.take().expect("stdout piped");

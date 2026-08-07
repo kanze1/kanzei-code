@@ -16,6 +16,7 @@ impl Component for BaseComponent {
             .insert("write", Arc::new(crate::write::WriteTool));
         draft.tools.insert("edit", Arc::new(crate::edit::EditTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
+        draft.tools.insert("process", Arc::new(crate::process::ProcessTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("question", Arc::new(crate::question::QuestionTool));
         draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));

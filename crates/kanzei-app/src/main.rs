@@ -2718,6 +2718,24 @@ fn stop_run(
             );
         }
     }
+
+    // 后台进程不随 abort 结束:不回收会留下孤儿 dev server 占端口(R-097)。
+    if let Some(root) = target_project {
+        let window = window.clone();
+        let session = target_session.clone().unwrap_or_default();
+        tauri::async_runtime::spawn(async move {
+            let killed = kanzei_tools::kill_background_processes(&root).await;
+            if killed > 0 {
+                let _ = window.emit(
+                    "kz:status",
+                    with_session_id(
+                        json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台进程") }),
+                        &session,
+                    ),
+                );
+            }
+        });
+    }
 }
 
 fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {

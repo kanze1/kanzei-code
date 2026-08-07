@@ -8,11 +8,13 @@ use kanzei_harness::{
     ResolveCtx,
 };
 
-use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 
 /// 索引注入的预算上限(条数;超出折叠为计数)。
 const INDEX_LIMIT: usize = 30;
+/// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
+const MEMORY_CONTEXT_BUDGET: usize = 3000;
 
 pub struct DevProfile;
 
@@ -45,6 +47,16 @@ impl Component for DevProfile {
                 tool_name: "defect",
                 noun: "defect",
                 kind: &DEFECTS,
+                requires_refs: None,
+            }),
+        );
+        // 跨会话记忆(R-098):复用 TrackerTool 的 ID 分配、状态机与格式强制。
+        draft.tools.insert(
+            "memory",
+            Arc::new(TrackerTool {
+                tool_name: "memory",
+                noun: "memory entry",
+                kind: &MEMORY,
                 requires_refs: None,
             }),
         );
@@ -114,6 +126,53 @@ impl Component for DevProfile {
             }),
         );
 
+        // 跨会话记忆(R-098):只注入 active 条目。追踪文档回答"要做什么",
+        // 记忆回答"已经查清楚了什么"——避免同一个坑在多条缺陷的进展字段里反复重写。
+        draft.context.insert(
+            "dev/memory",
+            source("dev/memory", |ctx: &ResolveCtx| {
+                let entries = DocStore::open(&ctx.project_root, &MEMORY).load().ok()?;
+                let active: Vec<&crate::docstore::Entry> =
+                    entries.iter().filter(|e| e.status == "active").collect();
+                if active.is_empty() {
+                    return None;
+                }
+                let mut out = String::from("<memory>\n");
+                let mut budget = MEMORY_CONTEXT_BUDGET;
+                let mut shown = 0usize;
+                for item in &active {
+                    let mut block = format!("{} {}\n", item.id, item.title);
+                    for (key, value) in &item.fields {
+                        let v: String = value.chars().take(200).collect();
+                        block.push_str(&format!("  - {key}: {v}\n"));
+                    }
+                    // 预算用尽就停,并把丢掉的条数说出来——静默截断会让模型
+                    // 以为自己看到的就是全部(研究侧 memory.md 的老毛病)。
+                    if block.chars().count() > budget {
+                        break;
+                    }
+                    budget -= block.chars().count();
+                    out.push_str(&block);
+                    shown += 1;
+                }
+                if shown < active.len() {
+                    out.push_str(&format!(
+                        "(还有 {} 条 active 记忆未注入,`memory list` 可见)\n",
+                        active.len() - shown
+                    ));
+                }
+                out.push_str(
+                    "These are confirmed facts and pitfalls from earlier sessions — trust them \
+                     over re-deriving. When you confirm something reusable (a root cause, an \
+                     environment constraint, a dead end), record it with `memory add`; when a \
+                     stored conclusion turns out wrong or obsolete, `memory update <id> stale` \
+                     instead of leaving it to mislead later runs. Keep entries about FACTS, not \
+                     about what to do next — that belongs in req/defect.\n</memory>",
+                );
+                Some(out)
+            }),
+        );
+
         draft.context.insert(
             "dev/project-docs",
             source("dev/project-docs", |ctx: &ResolveCtx| {
@@ -161,7 +220,11 @@ impl Component for DevProfile {
                          when goals conflict or none exist. Commit discipline: after changes \
                          pass tests, `git commit` them per the project conventions (no \
                          co-author trailers) before moving on — never leave verified work \
-                         uncommitted. For codebase exploration (finding files, call sites, \
+                         uncommitted. Memory: facts you confirmed that future sessions would \
+                         otherwise re-derive (root causes, environment constraints, dead ends) \
+                         go into `memory add`; do NOT bury them in req/defect progress fields. \
+                         When a stored memory turns out wrong, `memory update <id> stale`. \
+                         For codebase exploration (finding files, call sites, \
                          usages), prefer the `task` subagent: several task calls in one turn run \
                          in parallel and keep your context clean."
                     .into(),
