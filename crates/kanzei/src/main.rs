@@ -56,12 +56,19 @@ fn cli_exit_code(halted_by_user: bool) -> i32 {
     if halted_by_user { 3 } else { 0 }
 }
 
+fn usage_text() -> &'static str {
+    "usage: kz run \"<prompt>\"\n\
+       kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始\n\
+       kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
+config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
+agent: dev(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
+profile: KANZEI_PROFILE=dev|research；KANZEI_AGENT=dev|dev-pair|research\n\
+model: KANZEI_MODEL=<role|provider:model>，例如 primary、fast、ollama:qwen3.5:4b\n\
+proxy: KANZEI_PROXY=off|env|<proxy-url>\n"
+}
+
 fn usage() {
-    eprintln!("usage: kz run \"<prompt>\"");
-    eprintln!("       kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始");
-    eprintln!("       kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]");
-    eprintln!("config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml");
-    eprintln!("env 快捷覆盖: KANZEI_PROFILE=dev|research  KANZEI_AGENT  KANZEI_MODEL=<role|provider:model>  KANZEI_PROXY");
+    eprint!("{}", usage_text());
 }
 
 fn parse_run_args(args: &[String]) -> (bool, String) {
@@ -559,9 +566,17 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_exit_code, parse_run_args, persist_always_allow};
+    use super::{cli_exit_code, parse_run_args, persist_always_allow, usage_text};
     use kanzei_core::AskReply;
 
+    #[test]
+    fn usage_lists_agent_profile_and_model_selection() {
+        let usage = usage_text();
+        assert!(usage.contains("dev-pair"));
+        assert!(usage.contains("KANZEI_PROFILE=dev|research"));
+        assert!(usage.contains("KANZEI_MODEL=<role|provider:model>"));
+        assert!(usage.contains("ollama:qwen3.5:4b"));
+    }
     #[test]
     fn halted_run_uses_nonzero_exit_code_but_completed_run_stays_zero() {
         assert_eq!(cli_exit_code(true), 3);
