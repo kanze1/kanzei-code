@@ -1693,6 +1693,7 @@ function syncAutoContinueWithProfile() {
   cancelAutoContinueTimer();
   renderAutoStatus();
   log("当前模式不支持鞭挞，已自动关闭");
+  toast("鞭挞已关闭：当前进程不是自主推进模式");
 }
 function applyProfileValue(backendProfile) {
   const remembered = activeProcessId ? processProfileUi.get(activeProcessId) : null;
@@ -2056,6 +2057,9 @@ async function switchProcess(processId) {
   if (processId === activeProcessId) return;
   const target = processItems.find((item) => item.id === processId);
   if (!target) return;
+  // 后端只保存 dev/research；切换前先把前端的 dev-auto 档位绑定到旧进程，
+  // 这样回切时不会因后端 profile=dev 而退回 dev-pair。
+  if (activeProcessId) processProfileUi.set(activeProcessId, $("profile-select").value);
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
