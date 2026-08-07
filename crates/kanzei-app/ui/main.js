@@ -60,6 +60,7 @@ const I18N_EN = {
   "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
   "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
   "自动压缩": "automatic compaction", "上下文": "Context", "点击查看上下文成分": "Click to view context details",
+  "连接中断": "Connection interrupted", "重放本轮": "Replaying round", "总结中": "Summarizing", "当前没有可总结的对话": "No conversation to summarize", "小总结已收纳到活动面板": "Summary added to activity panel",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1025,7 +1026,7 @@ on("kz:stream-restart", (e) => {
   outputChars = 0;
   addMessage("notice", `⟳ 连接中断,正在重新请求本轮(${p.attempt}/${p.max})`);
   log(`连接中断,重放本轮 ${p.attempt}/${p.max},等待 ${p.delayMs}ms`, "warn");
-  setStatus(`连接中断 · 重放本轮 ${p.attempt}/${p.max}`, true);
+  setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
 });
 on("kz:compacted", (e) => {
   lastCompactionSummary = e.payload?.summary ?? "";
@@ -3240,22 +3241,22 @@ $("summarize-btn").addEventListener("click", async () => {
     .join("\n\n")
     .slice(0, 60000);
   if (!transcript) {
-    toast("当前没有可总结的对话");
+    toast(t("当前没有可总结的对话"));
     return;
   }
   $("summarize-btn").disabled = true;
-  setStatus("总结中(fast 模型)", true);
+  setStatus(`${t("总结中")}(fast model)`, true);
   log("开始总结当前对话…");
   try {
     const r = await invoke("summarize_chat", { projectDir: currentProject, transcript });
     addSummaryEntry(r.summary, r.path);
-    toast("小总结已收纳到活动面板");
+    toast(t("小总结已收纳到活动面板"));
     log(`总结完成,已收纳并存档:${r.path}`);
   } catch (err) {
     toastError(`总结失败:${err}`, { retry: () => $("summarize-btn").click() });
   } finally {
     $("summarize-btn").disabled = false;
-    setStatus(running ? "运行中" : "空闲", running);
+    setStatus(running ? t("运行中") : t("空闲"), running);
   }
 });
 
