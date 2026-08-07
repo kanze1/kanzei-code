@@ -233,22 +233,12 @@ pub fn append_allow_rule(
     Ok(path)
 }
 
-/// 命令里一旦出现这些字符,`首词 *` 就不再等价于"这一类命令":
-/// `*` 会连 `;`、`&&`、管道、命令替换一起吞掉,一次"总是允许 git" 等于永久放行任意命令。
-const SHELL_CHAINING: [char; 8] = [';', '&', '|', '\n', '\r', '`', '$', '('];
-
-/// "总是允许"时把具体资源泛化成可复用的 pattern:
-/// bash 命令 → 首词前缀(`git *`);其余(路径等)→ 原样精确匹配。
-/// 含 shell 串联/替换字符的命令不泛化,只精确匹配本条(D-051)。
+/// "总是允许"时保留具体资源，避免把一个命令的授权扩大为首词通配。
+/// bash 的 shell/解释器语义无法靠首词推断安全边界；调用方仍可对
+/// 用户明确配置的整体 `*` 使用 yolo 语义。
 pub fn generalize_resource(action: &str, resource: &str) -> String {
-    if action == "bash" && !resource.contains(SHELL_CHAINING) {
-        match resource.split_whitespace().next() {
-            Some(first) if first != resource => format!("{first} *"),
-            _ => resource.to_string(),
-        }
-    } else {
-        resource.to_string()
-    }
+    let _ = action;
+    resource.to_string()
 }
 
 /// 从 cwd 向上找 `.kanzei/kanzei.toml`。
@@ -291,6 +281,12 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    #[test]
+    fn bash_always_allow_keeps_exact_command() {
+        assert_eq!(generalize_resource("bash", "git status"), "git status");
+        assert_eq!(generalize_resource("write", "notes.md"), "notes.md");
     }
 
     #[test]

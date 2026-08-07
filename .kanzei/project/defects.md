@@ -26,6 +26,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
+- 进展: 本轮收紧 bash「总是允许」权限模型：generalize_resource 不再按首词生成 `git *`，改为保留完整命令；permission::command_chaining_escapes 对所有非整体 bash 通配 Allow 统一降级 Ask，覆盖历史规则及重定向、Git alias、python -c、pwsh -Command。新增 config::bash_always_allow_keeps_exact_command 与权限回归；cargo test -p kanzei-harness 全部 23 项通过，WriteTool 规范化回归通过。仍待补 CLI/桌面端到真实 bash 执行的 E2 集成，以及历史配置迁移策略评估。
 
 ## D-053 上下文压缩重试在工具循环中段产生孤儿 tool_result,恢复请求被 API 400 拒绝 [open] (high)
 - 复现: 长工具循环(大文件读取、grep 结果堆积)中触发上下文超限,step ≥ 2 时进入压缩重试。
