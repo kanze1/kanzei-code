@@ -2540,6 +2540,7 @@ async function selectWorkspaceProject(path) {
     const previous = currentProject;
     renderProjects(await invoke("projects_select", { path }));
     if (previous !== path) {
+      setRunning(false, "空闲");
       clearChat();
       bgClear();
       renderTodoPanel([], 0, 0);
@@ -2548,6 +2549,7 @@ async function selectWorkspaceProject(path) {
       await loadModels();
       refreshGit();
       await refreshPendingInputs();
+      await refreshProcesses();
     }
     refreshWorkspace();
   } catch (error) {

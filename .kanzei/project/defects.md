@@ -25,14 +25,14 @@
 - 证据等级: E2+E3
 - 进展: 完成控制事件最小路由：ui/main.js 的 on() 对后台 session 的 kz:done/kz:error/kz:stopped 不再静默丢弃，改为刷新 process_list 并记录已路由日志；活动 session 继续走原有 done/error/stopped UI handler，kz:ask 继续进入按 session 队列。node --check ui/main.js 与 cargo test -p kanzei-app 12 项通过。仍缺真实前端 UI E2、控制事件按 session 的更细粒度状态投影验证。
 
-## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [open] (high)
+## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [fixing] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。
 - 根因: 项目点击 handler 不调 setRunning(ui/main.js:1942-1955);renderProcesses 把 activeSessionId 换成 B 的会话(1802-1810),A 的 kz:done 带 A 的 sessionId 被 on() 过滤丢弃(894-905),setRunning(false)(905)永不执行;此时 B 的进程 tab 就是 activeProcessId,点它命中 1833-1834 早退也无法修复,唯一出路是点停止(仅本地复位)。
 - 影响: 多项目并行的基本操作(运行时切项目)导致 UI 状态永久错乱。反向情况:若 B 的 session_id 为空,过滤条件 `sessionId && activeSessionId` 不成立,A 的 kz:text 会直接串流渲染进 B 的对话区。
 - 验收: 运行状态按会话维度保存并在切换项目/进程时按目标会话重算;控制类事件不因非活动会话被丢弃;补切项目后运行结束能正确复位的验证。
 - 优先级: P0
 - refs: D-055 R-078
-- 进展: 已修主路径:renderProcesses 在活动进程身份变化时按后端真实 running 重算运行态,项目切换时先复位为空闲;不再永久卡在"运行中"。根因(on() 对控制类事件一刀切丢弃)属架构级,随 R-086 处理。
+- 进展: 完成工作区项目切换路径补齐：selectWorkspaceProject 在 previous !== path 时先 setRunning(false, "空闲")，加载目标项目后 await refreshProcesses()，与侧栏项目切换路径保持一致；目标项目运行态重新来自后端 process_list。node --check crates/kanzei-app/ui/main.js 通过。D-056 仍需真实切项目运行中 E2，主路径控制事件架构缺口关联 D-055/R-086。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 - 阶段: 1
 - 不变量: 界面状态:前端展示是后端会话状态的投影
