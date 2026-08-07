@@ -28,7 +28,7 @@ const I18N_EN = {
   "测试记录": "Test runs", "目标": "Goals", "历史对话": "Chat history", "需求与工作": "Work items",
   "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions",
   "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
-  "鞭挞": "Auto-run", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
+  "鞭挞": "Auto-run", "鞭挞已触发": "Auto-run triggered", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
   "自动放行": "Auto-allow", "总结": "Summarize", "复制上下文": "Copy context", "新对话": "New chat",
   "附件": "Attach", "停止": "Stop", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
   "模型角色": "Model roles", "网络与默认": "Network & defaults", "默认模式": "Default mode",
@@ -2277,7 +2277,11 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   const attachmentStatus = promptAttachments.length > 0
     ? `${auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · ` : ""}正在发送 ${promptAttachments.length} 个附件 · 准备中`
     : auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中";
-  addUserMessage(auto ? `(鞭挞 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt, promptAttachments);
+  if (auto) {
+    addMessage("notice", `${t("鞭挞已触发")} · ${autoRounds}/${autoContinueMax()}`);
+  } else {
+    addUserMessage(prompt, promptAttachments);
+  }
   setRunning(true, attachmentStatus);
   startElapsed();
   log(`${auto ? "鞭挞" : "发送"}:${prompt.slice(0, 80)}`);
