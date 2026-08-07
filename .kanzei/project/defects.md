@@ -132,6 +132,7 @@
 
 
 
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -142,6 +143,7 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
 
 
 
@@ -346,7 +348,8 @@
 
 
 
-- 进展: 继续完成进程操作动态文案一类：进程创建/能力更新错误、模式/思考强度/模型保存错误、进程列表刷新与 pending ask 恢复日志、进程切换日志、项目切换时空闲状态均改由 t(key) 生成；既有 process_* 与 pending_asks_get 调用方沿用。验证：node --check、ui-i18n/a11y/Markdown 冒烟、git diff --check 通过。仍缺其余运行日志、权限反馈及真实双语操作快照，保持 open。
+- 进展: 继续完成权限交互动态文案一类：自动放行日志/失败反馈、权限回答日志、拒绝/总是允许标签、自动放行开关状态、权限应答失败均改由 t(key) 生成；既有 ask 队列、answer_ask 与持久错误反馈调用方沿用。验证：node --check、ui-i18n/a11y/Markdown 冒烟、git diff --check 通过。仍缺其他运行日志、表单内联提示及真实双语操作快照，保持 open。
+
 
 
 
