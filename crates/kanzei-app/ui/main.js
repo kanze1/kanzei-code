@@ -24,6 +24,9 @@ const $ = (id) => document.getElementById(id);
 const messages = $("messages");
 const promptBox = $("prompt");
 const I18N_EN = {
+  "关于 kanzei": "About kanzei",
+  "kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。": "kanzei is a file-first daily development tool that makes context, permissions, memory, and work traces visible, replayable, and verifiable.",
+  "从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。": "Select a project on the left and enter a task in the conversation. For permission requests, choose allow, deny, or always allow. Results, errors, and tool details stay in the current session.",
   "项目": "Projects", "当前状态": "Current status", "空闲": "Idle", "排队输入": "Queued input",
   "测试记录": "Test runs", "目标": "Goals", "历史对话": "Chat history", "需求与工作": "Work items",
   "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions",

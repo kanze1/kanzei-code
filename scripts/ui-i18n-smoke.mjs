@@ -8,7 +8,9 @@ const dynamicKeys = [...source.matchAll(/\bt\("([^"]+)"\)/g)].map(([, key]) => k
 const missingKeys = [...new Set(dynamicKeys)].filter((key) => !dictionaryKeys.has(key));
 assert.deepEqual(missingKeys, [], `动态 i18n key 未进入 I18N_EN: ${missingKeys.join(", ")}`);
 const required = [
-  ["I18N_EN", "英文资源"],
+  ["关于 kanzei", "关于页面英文标题"],
+  ["kanzei 是文件优先的日常开发工具", "关于页面英文正文"],
+  ["const I18N_EN", "英文资源"],
   ["function t(key)", "动态翻译入口"],
   ["function applyLanguage()", "静态节点翻译入口"],
   ["const I18N_ATTR_ZH = new WeakMap()", "属性原文缓存"],
