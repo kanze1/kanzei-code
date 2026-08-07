@@ -2721,6 +2721,19 @@ fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> 
     }
 }
 
+fn report_persistence_failure(
+    window: &Window,
+    session_id: &str,
+    operation: &str,
+    error: impl std::fmt::Display,
+) {
+    let message = format!("运行结果已保留，但{operation}失败: {error}");
+    tracing::warn!("{message}");
+    let _ = window.emit(
+        "kz:error",
+        with_session_id(json!({ "message": message }), session_id),
+    );
+}
 fn append_run_notification(
     store: &kanzei_core::SessionStore,
     session_id: &str,
@@ -3286,40 +3299,86 @@ async fn run_task(
         &mut ask,
     )
     .await;
-    let store = kanzei_core::SessionStore::open(&state_path)?;
-    match &run_result {
-        Ok(summary) => {
-            store.set_status(&session_id, "idle")?;
-            store.append_event(
-                &session_id,
-                "session.status_changed",
-                &json!({ "status": "idle" }),
-            )?;
-            store.append_event(
-                &session_id,
-                "run.completed",
-                &json!({
-                    "steps": summary.steps,
-                    "halted_by_user": summary.halted_by_user,
-                    "input": summary.usage.input,
-                    "output": summary.usage.output,
-                }),
-            )?;
-            append_run_notification(&store, &session_id, "succeeded", "任务完成", false)?;
-        }
+    let store = match kanzei_core::SessionStore::open(&state_path) {
+        Ok(store) => Some(store),
         Err(error) => {
-            store.set_status(&session_id, "failed")?;
-            store.append_event(
-                &session_id,
-                "session.status_changed",
-                &json!({ "status": "failed" }),
-            )?;
-            store.append_event(
-                &session_id,
-                "run.failed",
-                &json!({ "error": error.to_string() }),
-            )?;
-            append_run_notification(&store, &session_id, "failed", error.to_string(), false)?;
+            report_persistence_failure(window, &session_id, "打开会话数据库", error);
+            None
+        }
+    };
+    if let Some(store) = store.as_ref() {
+        match &run_result {
+            Ok(summary) => {
+                if let Err(error) = store.set_status(&session_id, "idle") {
+                    report_persistence_failure(window, &session_id, "写入 idle 状态", error);
+                }
+                if let Err(error) = store.append_event(
+                    &session_id,
+                    "session.status_changed",
+                    &json!({ "status": "idle" }),
+                ) {
+                    report_persistence_failure(window, &session_id, "写入完成状态事件", error);
+                }
+                if let Err(error) = store.append_event(
+                    &session_id,
+                    "run.completed",
+                    &json!({
+                        "steps": summary.steps,
+                        "halted_by_user": summary.halted_by_user,
+                        "input": summary.usage.input,
+                        "output": summary.usage.output,
+                    }),
+                ) {
+                    report_persistence_failure(window, &session_id, "写入完成事件", error);
+                }
+                if let Err(error) = append_run_notification(
+                    store,
+                    &session_id,
+                    "succeeded",
+                    "任务完成",
+                    false,
+                ) {
+                    report_persistence_failure(window, &session_id, "写入完成通知", error);
+                }
+            }
+            Err(error) => {
+                if let Err(persistence_error) = store.set_status(&session_id, "failed") {
+                    report_persistence_failure(
+                        window,
+                        &session_id,
+                        "写入失败状态",
+                        persistence_error,
+                    );
+                }
+                if let Err(persistence_error) = store.append_event(
+                    &session_id,
+                    "session.status_changed",
+                    &json!({ "status": "failed" }),
+                ) {
+                    report_persistence_failure(
+                        window,
+                        &session_id,
+                        "写入失败状态事件",
+                        persistence_error,
+                    );
+                }
+                if let Err(persistence_error) = store.append_event(
+                    &session_id,
+                    "run.failed",
+                    &json!({ "error": error.to_string() }),
+                ) {
+                    report_persistence_failure(window, &session_id, "写入失败事件", persistence_error);
+                }
+                if let Err(persistence_error) = append_run_notification(
+                    store,
+                    &session_id,
+                    "failed",
+                    error.to_string(),
+                    false,
+                ) {
+                    report_persistence_failure(window, &session_id, "写入失败通知", persistence_error);
+                }
+            }
         }
     }
     let summary = run_result?;
@@ -3379,15 +3438,20 @@ async fn run_task(
         .cloned()
         .unwrap_or_default();
     let trace = run_trace.lock().unwrap().clone();
-    if !trace.is_empty() {
-        store.append_event(&session_id, "run.trace", &json!({ "events": trace }))?;
+    if let Some(store) = store.as_ref() {
+        if !trace.is_empty() {
+            if let Err(error) = store.append_event(&session_id, "run.trace", &json!({ "events": trace })) {
+                report_persistence_failure(window, &session_id, "写入运行轨迹", error);
+            }
+        }
+        if let Err(error) = store.append_event(
+            &session_id,
+            "conversation.updated",
+            &json!({ "messages": messages }),
+        ) {
+            report_persistence_failure(window, &session_id, "写入对话历史", error);
+        }
     }
-    store.append_event(
-        &session_id,
-        "conversation.updated",
-        &json!({ "messages": messages }),
-    )?;
-
     let _ = window.emit(
         "kz:done",
         with_session_id(json!({

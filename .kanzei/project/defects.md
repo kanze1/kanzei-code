@@ -71,7 +71,7 @@
 - 阶段: 1
 - 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
 - 证据等级: E2
-- 进展: 已完成第一最小步骤：SessionStore::open 将连接默认事务行为设为 BEGIN IMMEDIATE，使 append_event 的 MAX(sequence)+1 查询与插入在写事务锁内串行化；新增真实多连接/多线程测试 store::tests::并发追加事件的_sequence_连续且唯一，4 个连接共追加 80 条并断言 sequence 恰为 1..=80。cargo test -p kanzei-core 33 项通过。仍未处理 run_task 收尾持久化失败降级/告警，下一步覆盖该路径。改动位置 crates/kanzei-core/src/store.rs:94-103、861-908。
+- 进展: 第二最小步骤已完成：run_task 在模型结果产生后把 SessionStore 打开、状态/事件/通知、run.trace 与 conversation.updated 的失败全部隔离为可见持久化告警，不再用落库错误覆盖模型成功/原始失败；成功结果仍更新内存 conversation 并发送 kz:done。新增 report_persistence_failure，告警包含操作名与错误；cargo test -p kanzei-app 12 项通过，cargo test -p kanzei-core 33 项通过。仍缺注入 SQLite 收尾失败的 E2 回归（当前仅有静态调用链证据），暂保持 fixing。改动位置 crates/kanzei-app/src/main.rs:2724-2737、3302-3452。
 
 ## D-065 通知 sequence 分配与插入非原子,INSERT OR IGNORE 吞掉冲突静默丢通知 [open] (medium)
 - 复现: 同一会话/线程有两个并发通知源(如运行结束通知与状态通知同时落库)。
