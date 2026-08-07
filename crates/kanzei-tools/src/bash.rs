@@ -100,6 +100,15 @@ impl Tool for BashTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        // D-113 硬门禁:整文件覆写 cmdlet 绕过 edit/write 的语法校验与 diff 展示,一律拦截。
+        if let Some(cmdlet) = full_file_write_cmdlet(&input.command) {
+            return ToolOutput::error(format!(
+                "`{cmdlet}` is blocked: whole-file rewrites via shell bypass the edit/write \
+                 tools' syntax validation and diff display. Use `edit` for targeted changes \
+                 (it tolerates line-ending differences and, after two misses, shows you the \
+                 file's actual content) or `write` to create/replace a file deliberately."
+            ));
+        }
         let timeout = Duration::from_millis(
             input
                 .timeout_ms
@@ -202,10 +211,20 @@ impl Tool for BashTool {
                 } else {
                     text
                 };
-                let rendered = format!(
+                let mut rendered = format!(
                     "exit code: {}\n{text}",
                     code.map_or("unknown".into(), |c| c.to_string())
                 );
+                // D-112 门禁:提交成功后附带实际提交的文件清单——模型必须核对
+                // 它与计划一致(尤其 tracker 归档文件必须与活动文档同行)。
+                if ok && looks_like_git_commit(&input.command) {
+                    if let Some(stat) = git_head_stat(&workdir).await {
+                        rendered.push_str(
+                            "\n[committed files — VERIFY this matches what you planned to commit]\n",
+                        );
+                        rendered.push_str(&stat);
+                    }
+                }
                 let display = serde_json::json!({
                     "kind": "terminal",
                     "command": input.command,
@@ -256,6 +275,58 @@ impl Tool for BashTool {
     }
 }
 
+/// 命令中出现整文件覆写 cmdlet 时返回其名称(词边界匹配,Get-Content 不误伤)。
+fn full_file_write_cmdlet(command: &str) -> Option<&'static str> {
+    let lower = command.to_ascii_lowercase();
+    for (needle, name) in [("set-content", "Set-Content"), ("out-file", "Out-File")] {
+        let mut search_from = 0;
+        while let Some(pos) = lower[search_from..].find(needle) {
+            let absolute = search_from + pos;
+            let bounded_left = absolute == 0
+                || !matches!(lower.as_bytes()[absolute - 1], b'a'..=b'z' | b'0'..=b'9' | b'-');
+            let after = absolute + needle.len();
+            let bounded_right = after >= lower.len()
+                || !matches!(lower.as_bytes()[after], b'a'..=b'z' | b'0'..=b'9' | b'-');
+            if bounded_left && bounded_right {
+                return Some(name);
+            }
+            search_from = after;
+        }
+    }
+    None
+}
+
+fn looks_like_git_commit(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    lower.contains("git") && lower.contains("commit")
+}
+
+/// 提交后的实际文件清单(git show --stat HEAD);失败静默返回 None,不影响主结果。
+async fn git_head_stat(workdir: &std::path::Path) -> Option<String> {
+    let mut command = tokio::process::Command::new("git");
+    command
+        .args(["show", "--stat", "--no-color", "--format=%h %s", "HEAD"])
+        .current_dir(workdir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    hide_console_window(&mut command);
+    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
+        .await
+        .ok()?
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    Some(text.chars().take(2000).collect())
+}
+
 #[cfg(windows)]
 fn hide_console_window(command: &mut tokio::process::Command) {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -293,9 +364,48 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::BashTool;
+    use super::{full_file_write_cmdlet, looks_like_git_commit, BashTool};
     use kanzei_harness::{Tool, ToolCtx};
     use std::path::PathBuf;
+
+    #[test]
+    fn whole_file_write_cmdlets_are_detected_with_word_boundaries() {
+        // D-113:拦截整文件覆写,但不误伤 Get-Content 等读取。
+        assert_eq!(
+            full_file_write_cmdlet("Set-Content -Path main.rs -Value $code"),
+            Some("Set-Content")
+        );
+        assert_eq!(
+            full_file_write_cmdlet("$lines | out-file -Encoding utf8 x.txt"),
+            Some("Out-File")
+        );
+        assert_eq!(full_file_write_cmdlet("Get-Content main.rs"), None);
+        assert_eq!(full_file_write_cmdlet("cargo test --workspace"), None);
+        assert_eq!(full_file_write_cmdlet("echo reset-contentious"), None);
+    }
+
+    #[tokio::test]
+    async fn set_content_command_is_blocked_before_spawn() {
+        let out = BashTool
+            .execute(
+                serde_json::json!({"command": "Set-Content -Path x.rs -Value 'fn main(){}'"}),
+                &ToolCtx {
+                    cwd: std::env::temp_dir(),
+                    project_root: std::env::temp_dir(),
+                },
+            )
+            .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("edit"), "{}", out.content);
+    }
+
+    #[test]
+    fn git_commit_detection() {
+        assert!(looks_like_git_commit("git commit -m 'x'"));
+        assert!(looks_like_git_commit("git add a.rs; git commit -m fix"));
+        assert!(!looks_like_git_commit("git status"));
+        assert!(!looks_like_git_commit("cargo test"));
+    }
 
     #[test]
     fn resources_keep_the_complete_command_without_prefix_generalization() {

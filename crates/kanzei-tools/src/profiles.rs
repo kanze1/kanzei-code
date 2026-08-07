@@ -220,13 +220,25 @@ impl Component for DevProfile {
                          when goals conflict or none exist. Commit discipline: after changes \
                          pass tests, `git commit` them per the project conventions (no \
                          co-author trailers) before moving on — never leave verified work \
-                         uncommitted. Memory: facts you confirmed that future sessions would \
+                         uncommitted. After every commit the tool output lists the files \
+                         actually committed: COMPARE it against what you intended; on any \
+                         mismatch fix immediately with a follow-up commit before other work. \
+                         Tracker files pair up: defects.md changes travel WITH \
+                         defects-archive.md in the same commit (likewise requirements) — \
+                         never `git checkout` an engine-managed tracker file to shrink a \
+                         diff; that destroys archived entries (D-112). Editing files: use \
+                         `edit`; if it misses twice it shows the file's real content — align \
+                         to that, never rewrite whole files via shell. Memory: facts you \
+                         confirmed that future sessions would \
                          otherwise re-derive (root causes, environment constraints, dead ends) \
                          go into `memory add`; do NOT bury them in req/defect progress fields. \
                          When a stored memory turns out wrong, `memory update <id> stale`. \
                          For codebase exploration (finding files, call sites, \
                          usages), prefer the `task` subagent: several task calls in one turn run \
-                         in parallel and keep your context clean."
+                         in parallel and keep your context clean. But when the defect or \
+                         requirement already NAMES the file and function (根因/复现 cites \
+                         paths), read those files directly — spawning a subagent to rediscover \
+                         a known location wastes a whole exploration pass."
                     .into(),
             },
         );

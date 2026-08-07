@@ -226,16 +226,17 @@ impl DocStore {
 
     /// 终态条目移入归档文件(追加,幂等):活跃文件只留进行中的,前端与
     /// 上下文注入都不再被完成项干扰;历史仍可随时翻(get 会回落到归档)。
-    pub fn archive_terminal(&self) -> std::io::Result<usize> {
+    /// 返回被移动的条目 ID——调用方必须能告知"哪些条目去了哪个文件"(D-112)。
+    pub fn archive_terminal(&self) -> std::io::Result<Vec<String>> {
         let entries = self.load()?;
         let (terminal, live): (Vec<Entry>, Vec<Entry>) = entries
             .into_iter()
             .partition(|e| self.kind.terminal.contains(&e.status.as_str()));
         if terminal.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
         let mut archived = self.load_archive()?;
-        let moved = terminal.len();
+        let moved: Vec<String> = terminal.iter().map(|e| e.id.clone()).collect();
         let active_template = self.preserved.lock().unwrap().clone();
         let mut archive_template = self.preserved_archive.lock().unwrap().clone().unwrap_or(DocumentTemplate {
             preamble: Vec::new(),
@@ -265,6 +266,43 @@ impl DocStore {
         Ok(moved)
     }
 
+    /// 数据完整性检测(D-112):ID 由引擎顺序分配且无删除操作,因此
+    /// 活动∪归档中的缺号即数据丢失;同一 ID 出现在两份文档中即归档半途而废。
+    /// 任何一种都值得在每次工具调用时向模型告警。
+    pub fn integrity_issues(&self, active: &[Entry]) -> Vec<String> {
+        let archived = self.load_archive().unwrap_or_default();
+        let parse_num = |id: &str| {
+            id.strip_prefix(self.kind.prefix)
+                .and_then(|rest| rest.strip_prefix('-'))
+                .and_then(|num| num.parse::<u32>().ok())
+        };
+        let active_ids: std::collections::BTreeSet<u32> =
+            active.iter().filter_map(|e| parse_num(&e.id)).collect();
+        let archive_ids: std::collections::BTreeSet<u32> =
+            archived.iter().filter_map(|e| parse_num(&e.id)).collect();
+        let mut issues = Vec::new();
+        let both: Vec<u32> = active_ids.intersection(&archive_ids).copied().collect();
+        if !both.is_empty() {
+            issues.push(format!(
+                "present in BOTH active and archive (incomplete archive?): {}",
+                format_ids(self.kind.prefix, &both)
+            ));
+        }
+        let Some(max) = active_ids.iter().chain(archive_ids.iter()).max().copied() else {
+            return issues;
+        };
+        let missing: Vec<u32> = (1..=max)
+            .filter(|n| !active_ids.contains(n) && !archive_ids.contains(n))
+            .collect();
+        if !missing.is_empty() {
+            issues.push(format!(
+                "MISSING from both active and archive — likely data loss, restore from git history: {}",
+                format_ids(self.kind.prefix, &missing)
+            ));
+        }
+        issues
+    }
+
     /// 状态流转校验:前进(列表序)或进终态;后退/未知状态拒绝。
     pub fn transition_allowed(&self, from: &str, to: &str) -> Result<(), String> {
         let idx = |s: &str| self.kind.statuses.iter().position(|x| *x == s);
@@ -291,6 +329,19 @@ impl DocStore {
             None => Ok(()),
         }
     }
+}
+
+fn format_ids(prefix: &str, numbers: &[u32]) -> String {
+    const SHOWN: usize = 10;
+    let mut out: Vec<String> = numbers
+        .iter()
+        .take(SHOWN)
+        .map(|n| format!("{prefix}-{n:03}"))
+        .collect();
+    if numbers.len() > SHOWN {
+        out.push(format!("+{} more", numbers.len() - SHOWN));
+    }
+    out.join(", ")
 }
 
 /// 宽容解析:`## ` 开头即条目;ID 缺失/状态缺失都不报错(手改友好)。
@@ -625,7 +676,7 @@ mod tests {
             .save(&[mk("R-001", "done"), mk("R-002", "doing"), mk("R-003", "dropped")])
             .unwrap();
 
-        assert_eq!(store.archive_terminal().unwrap(), 2);
+        assert_eq!(store.archive_terminal().unwrap(), vec!["R-001", "R-003"]);
         let live = store.load().unwrap();
         assert_eq!(live.len(), 1);
         assert_eq!(live[0].id, "R-002");
@@ -634,7 +685,47 @@ mod tests {
         // 归档后 ID 分配仍延续全局最大值,不复用 R-003。
         assert_eq!(store.next_id(&live), "R-004");
         // 幂等:再跑一次不动任何东西。
-        assert_eq!(store.archive_terminal().unwrap(), 0);
+        assert!(store.archive_terminal().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn integrity_detects_missing_and_duplicated_ids() {
+        // D-112:缺号=数据丢失;活动+归档同现=归档半途而废。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-integrity-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &DEFECTS);
+        let mk = |id: &str, status: &str| Entry {
+            id: id.into(),
+            title: "t".into(),
+            status: status.into(),
+            severity: None,
+            fields: vec![],
+        };
+        // 活动: D-001 D-004;归档: D-002 D-004 → 缺 D-003,重复 D-004。
+        store.save(&[mk("D-001", "open"), mk("D-004", "open")]).unwrap();
+        std::fs::write(
+            store.archive_file(),
+            "# Defects Archive\n\n## D-002 done [fixed]\n\n## D-004 dup [fixed]\n",
+        )
+        .unwrap();
+        let issues = store.integrity_issues(&store.load().unwrap());
+        assert_eq!(issues.len(), 2, "{issues:?}");
+        assert!(issues[0].contains("D-004"), "{issues:?}");
+        assert!(issues[1].contains("D-003"), "{issues:?}");
+        assert!(issues[1].contains("MISSING"), "{issues:?}");
+
+        // 完整状态:无告警。
+        store.save(&[mk("D-001", "open"), mk("D-003", "open"), mk("D-004", "open")]).unwrap();
+        std::fs::write(store.archive_file(), "# Defects Archive\n\n## D-002 done [fixed]\n").unwrap();
+        assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

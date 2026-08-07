@@ -81,7 +81,7 @@ impl Tool for TrackerTool {
             }
         };
 
-        match input.action.as_str() {
+        let mut output = match input.action.as_str() {
             "list" => {
                 if entries.is_empty() {
                     return ToolOutput::ok(format!("(no {}s yet)", self.noun));
@@ -107,12 +107,36 @@ impl Tool for TrackerTool {
                 }
             }
             "archive" => match store.archive_terminal() {
-                Ok(0) => ToolOutput::ok("nothing to archive (no terminal entries)"),
-                Ok(n) => ToolOutput::ok(format!(
-                    "archived {n} terminal {}(s) to {}",
-                    self.noun,
-                    store.archive_file().display()
-                )),
+                Ok(moved) if moved.is_empty() => {
+                    ToolOutput::ok("nothing to archive (no terminal entries)")
+                }
+                Ok(moved) => {
+                    // 归档后回读校验(D-112):移动的 ID 必须真的落在归档文件里。
+                    let archived = store.load_archive().unwrap_or_default();
+                    let lost: Vec<&String> = moved
+                        .iter()
+                        .filter(|id| !archived.iter().any(|e| &&e.id == id))
+                        .collect();
+                    if !lost.is_empty() {
+                        return ToolOutput::error(format!(
+                            "archive verification FAILED: {} missing from {} after the move — \
+                             do NOT commit; the entries may be lost, investigate immediately",
+                            lost.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+                            store.archive_file().display()
+                        ));
+                    }
+                    ToolOutput::ok(format!(
+                        "archived {} terminal {}(s): {} → {}\n\
+                         IMPORTANT: `{}` and its archive file were BOTH modified — commit them \
+                         together in the SAME commit. Committing only one (or reverting the \
+                         archive) permanently loses these entries (D-112).",
+                        moved.len(),
+                        self.noun,
+                        moved.join(", "),
+                        store.archive_file().display(),
+                        self.kind.rel_path,
+                    ))
+                }
                 Err(e) => ToolOutput::error(format!("archive failed: {e}")),
             },
             "add" => {
@@ -281,7 +305,22 @@ impl Tool for TrackerTool {
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: list | get | add | update | close | archive | reorder"
             )),
+        };
+        // D-112 门禁:每次调用后对活动∪归档做缺号/重复检测,数据丢失立刻可见,
+        // 而不是等 requirements 的依赖引用悬空才被发现。
+        if !output.is_error {
+            if let Ok(current) = store.load() {
+                let issues = store.integrity_issues(&current);
+                if !issues.is_empty() {
+                    output.content.push_str(&format!(
+                        "\n⚠ tracker integrity ({}): {}",
+                        self.kind.rel_path,
+                        issues.join("; ")
+                    ));
+                }
+            }
         }
+        output
     }
 }
 
@@ -496,6 +535,66 @@ mod tests {
         assert!(!active.contains("终态说明: 归档时也不能丢"));
         assert!(active.contains("## R-002 进行中条目 [doing]"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn integrity_warning_surfaces_in_tool_output() {
+        // D-112:缺号(R-002)必须出现在每次成功调用的输出里。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-tracker-integrity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[entry("R-001"), entry("R-003")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(json!({"action": "list"}), &ToolCtx::new(dir.clone()))
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("tracker integrity"), "{}", out.content);
+        assert!(out.content.contains("R-002"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn archive_reports_moved_ids_and_requires_paired_commit() {
+        // D-112:归档输出必须列出移动的 ID 并要求两文件同一提交。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-tracker-archive-msg-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut done = entry("R-001");
+        done.status = "done".into();
+        store.save(&[done, entry("R-002")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(json!({"action": "archive"}), &ToolCtx::new(dir.clone()))
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("R-001"), "{}", out.content);
+        assert!(out.content.contains("SAME commit"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
