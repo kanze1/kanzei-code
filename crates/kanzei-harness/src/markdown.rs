@@ -110,7 +110,7 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
                 .get("mode")
                 .and_then(|s| serde_plain(s))
                 .unwrap_or_default(),
-            steps: fm.get("steps").and_then(|s| s.parse().ok()).unwrap_or(40),
+            steps: fm.get("steps").and_then(|s| s.parse().ok()).unwrap_or(0),
             system: fm.body,
         };
         draft.agents.insert(name, agent);
@@ -199,6 +199,27 @@ mod tests {
         let no_fm = parse_frontmatter("没有 frontmatter 的正文");
         assert!(no_fm.pairs.is_empty());
         assert_eq!(no_fm.body, "没有 frontmatter 的正文");
+    }
+
+    #[test]
+    fn agent_without_steps_uses_unlimited_default() {
+        let dir = std::env::temp_dir().join(format!(
+            "kanzei-markdown-agent-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("custom.md"),
+            "---\nname: custom\nprofile: dev\n---\n自定义 agent",
+        )
+        .unwrap();
+
+        let mut draft = crate::harness::HarnessDraft::default();
+        scan_agents(&dir, &mut draft);
+        assert_eq!(draft.agents.get("custom").unwrap().steps, 0);
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。
