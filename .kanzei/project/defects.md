@@ -13,17 +13,6 @@
 - 证据等级: E2
 - 进展: 桌面真实 UI E2 因无前端测试 harness 暂缓；本轮完成旧裸 bash 规则的只读识别与可见提示：KanzeiConfig::legacy_bash_rules 仅识别 action=bash 且非 command/workdir JSON 的旧规则，不改写配置；CLI 启动时 stderr 提示其将降级逐次询问，桌面 run_task 通过现有 kz:status 展示同样提示。新增配置检测回归；cargo test -p kanzei-harness -p kanzei -p kanzei-app 全部通过（29/3/9）。仍缺桌面真实 UI E2、正式迁移方案与并发写入证据。
 
-## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [fixing] (high)
-- 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
-- 根因: 工具批次结果累积在局部 results,全部执行完才 push(kanzei-core/src/runner.rs:476-618);Gate::UserDeclined 分支在 runner.rs:589 直接 return,results 被整体丢弃,包括同批排在前面、已实际执行且有副作用的工具结果。返回的 messages 最后一条是含 Part::ToolCall 的 assistant 消息且无 tool_results 跟随,而调用方无条件把该历史当 prior 复用(kanzei-app/src/main.rs:3097-3101/2984/3052、kanzei/src/main.rs:280/145/262)。
-- 影响: 拒绝后会话永久损坏,后续每次请求都因 "tool_use ids were found without tool_result blocks" 返回 400,用户只能弃掉会话;同批已执行工具(如已写盘的 edit)的结果既未进历史也未喂给模型,模型对已发生的副作用一无所知,续跑时可能重复执行。
-- 验收: 拒绝时为每一个 ToolCall 补配对 ToolResult(已执行的用真实结果,被拒与未执行的用取消占位),push 后再返回;补"拒绝后继续对话"的回归测试。
-- 优先级: P0
-- 阶段: 1
-- 不变量: 消息历史:拒绝与取消也必须配对
-- 证据等级: E2
-- 进展: 补充旧损坏快照 CLI E2：预置项目 SQLite conversation.updated 为普通文本+孤儿 ToolCall，启动真实 kz 与本地 SSE mock；断言请求体不含 legacy_orphan，CLI 成功输出 recovered legacy snapshot。结合已有拒绝后第二次对话 E2，CLI 侧旧损坏历史与新拒绝历史均已覆盖。cargo test -p kanzei --test always_allow_bash 3 项通过；桌面恢复过滤与 conversation_prior 单测继续通过。剩余停止/promoted 输入边界和桌面真实 UI E2。
-
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
 - 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
