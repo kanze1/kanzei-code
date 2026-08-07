@@ -88,11 +88,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     for warning in &config_warnings {
         eprintln!("\x1b[33m{warning}\x1b[0m");
     }
-    let legacy_bash_count = config.legacy_bash_rules().len();
-    if legacy_bash_count > 0 {
-        eprintln!(
-            "\x1b[33m检测到 {legacy_bash_count} 条旧 bash 权限规则；将降级为逐次询问，请重新选择精确作用域。\x1b[0m"
-        );
+    for warning in config.bash_permission_warnings() {
+        eprintln!("\x1b[33m{warning}\x1b[0m");
     }
     let profile: ProfileKind = match std::env::var("KANZEI_PROFILE") {
         Ok(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,

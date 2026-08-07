@@ -111,6 +111,44 @@ impl KanzeiConfig {
             .collect()
     }
 
+    /// 裸 bash 规则中需要降级为逐次询问的规则；显式 `bash/*` 放行另行提示。
+    pub fn legacy_bash_rules_needing_downgrade(&self) -> Vec<&Rule> {
+        self.legacy_bash_rules()
+            .into_iter()
+            .filter(|rule| rule.resource.trim() != "*")
+            .collect()
+    }
+
+    /// 显式 `bash/* = allow` 保持全量放行语义，启动时必须明确告知用户。
+    pub fn explicit_bash_wildcard_allows(&self) -> Vec<&Rule> {
+        self.permissions
+            .rules
+            .iter()
+            .filter(|rule| {
+                rule.action == "bash"
+                    && rule.resource.trim() == "*"
+                    && rule.effect == crate::permission::Effect::Allow
+            })
+            .collect()
+    }
+
+    pub fn bash_permission_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let legacy_count = self.legacy_bash_rules_needing_downgrade().len();
+        if legacy_count > 0 {
+            warnings.push(format!(
+                "检测到 {legacy_count} 条旧 bash 权限规则；将逐次询问，请重新选择精确作用域。"
+            ));
+        }
+        let wildcard_count = self.explicit_bash_wildcard_allows().len();
+        if wildcard_count > 0 {
+            warnings.push(format!(
+                "检测到 {wildcard_count} 条显式 bash/* 放行规则；将全量放行(yolo)，请确认这是有意设置。"
+            ));
+        }
+        warnings
+    }
+
     pub fn fill_defaults(&mut self) {
         self.providers
             .entry("anthropic".into())
@@ -507,6 +545,10 @@ typo_fielt = true
  effect = "allow"
 [[permissions.rules]]
  action = "bash"
+ resource = "*"
+ effect = "allow"
+[[permissions.rules]]
+ action = "bash"
  resource = '{"command":"git status","workdir":"C:/project"}'
  effect = "allow"
 [[permissions.rules]]
@@ -517,9 +559,14 @@ typo_fielt = true
         )
         .unwrap();
         let legacy = config.legacy_bash_rules();
-        assert_eq!(legacy.len(), 1);
+        assert_eq!(legacy.len(), 2);
         assert_eq!(legacy[0].resource, "git status");
-        assert_eq!(config.permissions.rules.len(), 3);
+        assert_eq!(config.legacy_bash_rules_needing_downgrade().len(), 1);
+        assert_eq!(config.explicit_bash_wildcard_allows().len(), 1);
+        assert_eq!(config.bash_permission_warnings().len(), 2);
+        assert!(config.bash_permission_warnings()[0].contains("将逐次询问"));
+        assert!(config.bash_permission_warnings()[1].contains("将全量放行(yolo)"));
+        assert_eq!(config.permissions.rules.len(), 4);
     }
     #[test]
     fn merge_layers() {

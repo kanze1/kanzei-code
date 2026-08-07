@@ -3514,14 +3514,8 @@ async fn run_task(
     for warning in &config_warnings {
         stage("配置", warning.clone());
     }
-    let legacy_bash_count = config.legacy_bash_rules().len();
-    if legacy_bash_count > 0 {
-        stage(
-            "权限",
-            format!(
-                "检测到 {legacy_bash_count} 条旧 bash 权限规则；将降级为逐次询问，请重新选择精确作用域。"
-            ),
-        );
+    for warning in config.bash_permission_warnings() {
+        stage("权限", warning);
     }
     let profile: ProfileKind = match profile.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
