@@ -3447,7 +3447,7 @@ async function agentContainerAction(action) {
     const manifest = await invoke(command, args);
     toast(`代理容器 ${manifest.agent_id} v${manifest.version} 已${action === "rollback" ? "回滚" : action === "create" ? "创建" : "升级"}`);
   } catch (error) {
-    toastError(String(error));
+    toastError(String(error), { retry: () => agentContainerAction(action) });
   }
 }
 $("agent-container-create").addEventListener("click", () => agentContainerAction("create"));
