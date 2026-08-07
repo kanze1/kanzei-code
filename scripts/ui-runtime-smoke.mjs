@@ -435,6 +435,15 @@ assert(
   "编辑表单存在没有可见字段名的输入框",
 );
 assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
+// D-149:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
+const duplicatedFields = document
+  .querySelector("#req-list .doc-detail")
+  .querySelectorAll(".doc-field")
+  .filter((node) => !node.textContent.trim().toLowerCase().startsWith("refs"));
+assert(
+  duplicatedFields.length === 0,
+  `字段在编辑表单之外又渲染了一遍只读副本: ${duplicatedFields.map((n) => n.textContent.slice(0, 20)).join(" | ")}`,
+);
 reqEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.includes("docs_update"), "需求侧栏编辑未调用 docs_update");
