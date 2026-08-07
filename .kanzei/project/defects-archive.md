@@ -1353,3 +1353,28 @@
 - 阶段: 2
 - 验收: ui-i18n-smoke.mjs 通过，英文模式显示 Auto-run triggered，中文模式保留鞭挞已触发。
 - 验证: ui-i18n-smoke 通过：50 项资源与动态入口契约已覆盖。
+
+## D-143 用户手动输入新问题后鞭挞未自动停止 [fixed] (medium)
+- 不变量: 界面:用户主动输入优先于自动推进
+- 复现: 鞭挞自动续跑期间，用户在输入框提交新的问题后，自动续跑开关和后续定时任务仍可能保持启用，下一轮继续自动触发。
+- 影响: 用户无法用新问题明确接管当前会话，自动推进可能与用户意图重复或冲突。
+- 标签: 前端
+- 根因: 手动 send() 没有取消 autoContinueTimer、复位 autoRounds 或关闭 auto-continue 状态。
+- 证据等级: E2
+- 进展: 已修复 crates/kanzei-app/ui/main.js:send：手动文字或附件提交时调用 stopAutoForManualInput，关闭开关、清除本地持久化、取消定时器、复位轮次，并以 notice/toast/log 明确反馈；当前运行任务仍按既有 queue/steer 继续。
+- 阶段: 3
+- 验收: 手动发送文字或仅附件时，鞭挞立即关闭、取消定时器、弹出明确提示；当前正在运行的任务仍按既有 queue/steer 语义处理；自动续轮不再触发。
+
+- 验证: node --check main.js；node --check ui-runtime-smoke.mjs；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke 全部通过。
+
+## D-144 主输入框 Enter 未发送而是换行 [fixed] (medium)
+- 不变量: 界面:输入框默认提交符合常用终端对话习惯
+- 复现: 在主问题输入框按 Enter，当前行为插入换行；只有 Ctrl/Cmd+Enter 才发送。
+- 影响: 与 Codex 等常用对话工具习惯不一致，用户需要额外记住快捷键才能提交。
+- 标签: 前端
+- 根因: crates/kanzei-app/ui/main.js:promptBox keydown 只处理 Ctrl/Cmd+Enter，没有处理无修饰 Enter 提交。
+- 证据等级: E2
+- 进展: 已修复 crates/kanzei-app/ui/main.js:promptBox keydown：无修饰 Enter 提交，Shift+Enter 换行，Ctrl/Cmd+Enter 保持兼容；文件补全候选选择逻辑优先。运行时冒烟新增键盘契约断言。
+- 阶段: 3
+- 验收: Enter 发送；Shift+Enter 保留换行；Ctrl/Cmd+Enter 继续发送；文件补全选择优先级不变。
+- 验证: node --check main.js；node --check ui-runtime-smoke.mjs；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke 全部通过。

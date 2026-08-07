@@ -33,6 +33,16 @@ const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), sourc
 const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
 const translationCalls = [...source.matchAll(/\bt\(\"((?:\\.|[^\"])*)\"\)/g)].map((match) => match[1]);
 for (const key of new Set(translationCalls)) if (!dictionaryKeys.has(key)) fail(`I18N_EN 缺少 t key: ${key}`);
+if (!source.includes("function stopAutoForManualInput()") || !source.includes('const message = t("收到手动输入，鞭挞已停止")')) {
+  fail("手动输入未确认停止鞭挞并反馈用户");
+}
+if (!source.includes('e.key === "Enter" && !e.shiftKey')) {
+  fail("主输入框未保持 Enter 发送、Shift+Enter 换行契约");
+}
+const autoNoticeIndex = source.indexOf('addMessage("notice", `${t("鞭挞已触发")}');
+if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
+  fail("自动续轮仍把内部提示词重复展示为用户消息");
+}
 const pendingTimers = new Set();
 
 // ---------- DOM harness:真实节点关系(parent/children/dataset/classList),样式与布局按 noop ----------
