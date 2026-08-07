@@ -48,5 +48,6 @@ assert.match(js, /bgEntries\.delete\(first\.dataset\.bgId\)/);
 assert.match(js, /diffSummary\.clear\(\)/);
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);
+assert.match(js, /document\.querySelectorAll\("\[data-doc-id\]"\)[\s\S]*item\.dataset\.docId === ref[\s\S]*offsetParent/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);

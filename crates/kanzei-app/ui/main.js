@@ -2831,7 +2831,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           link.textContent = ref;
           link.addEventListener("click", (event) => {
             event.stopPropagation();
-            const target = document.querySelector(`[data-doc-id="${ref}"]`);
+            const target = [...document.querySelectorAll("[data-doc-id]")]
+              .find((item) => item.dataset.docId === ref && item.offsetParent !== null);
             target?.scrollIntoView({ behavior: "smooth", block: "center" });
             target?.classList.add("ref-highlight");
             setTimeout(() => target?.classList.remove("ref-highlight"), 1200);
