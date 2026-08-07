@@ -3324,7 +3324,7 @@ function renderPermissionRules(data) {
         toast("已删除权限规则");
         loadPermissionRules();
       } catch (err) {
-        toast(`删除失败: ${err}`);
+        toastError(`删除失败: ${err}`);
       }
     });
     controls.appendChild(remove);
@@ -3409,7 +3409,7 @@ async function agentContainerAction(action) {
     const manifest = await invoke(command, args);
     toast(`代理容器 ${manifest.agent_id} v${manifest.version} 已${action === "rollback" ? "回滚" : action === "create" ? "创建" : "升级"}`);
   } catch (error) {
-    toast(String(error));
+    toastError(String(error));
   }
 }
 $("agent-container-create").addEventListener("click", () => agentContainerAction("create"));
@@ -3468,7 +3468,7 @@ $("settings-save").addEventListener("click", async () => {
     toast("已保存");
     loadSettings();
   } catch (err) {
-    toast(`保存失败: ${err}`);
+    toastError(`保存失败: ${err}`);
   }
 });
 
