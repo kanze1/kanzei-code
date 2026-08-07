@@ -10,9 +10,18 @@ use crate::request::LlmRequest;
 use crate::sse::SseParser;
 
 pub const MAX_TRANSPORT_RETRIES: u32 = 2;
+pub const MAX_RATE_LIMIT_RETRIES: u32 = 2;
 
 fn transport_retry_delay(attempt: u32) -> std::time::Duration {
     std::time::Duration::from_millis(500 * attempt as u64)
+}
+
+fn rate_limit_retry_delay(retry_after: Option<&str>, attempt: u32) -> std::time::Duration {
+    let seconds = retry_after
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(|seconds| seconds.min(30))
+        .unwrap_or((attempt as u64).min(30));
+    std::time::Duration::from_secs(seconds)
 }
 
 #[derive(Debug, Clone)]
@@ -133,11 +142,31 @@ impl LlmClient {
         // R-022:流建立前的瞬断(代理抖动/连接超时)自动重试,退避 0.5s/1s。
         // 流一旦建立绝不重放(工具副作用不可重复)。
         let mut attempt: u32 = 0;
+        let mut rate_limit_attempt: u32 = 0;
         let response = loop {
             let rb = builder
                 .try_clone()
                 .ok_or_else(|| LlmError::Config("request not clonable for retry".into()))?;
             match rb.send().await {
+                Ok(response) if matches!(response.status().as_u16(), 429 | 529)
+                    && rate_limit_attempt < MAX_RATE_LIMIT_RETRIES =>
+                {
+                    rate_limit_attempt += 1;
+                    let retry_after = response
+                        .headers()
+                        .get(reqwest::header::RETRY_AFTER)
+                        .and_then(|value| value.to_str().ok());
+                    let delay = rate_limit_retry_delay(retry_after, rate_limit_attempt);
+                    on_retry(rate_limit_attempt, delay);
+                    tracing::warn!(
+                        attempt = rate_limit_attempt,
+                        delay_ms = delay.as_millis(),
+                        status = response.status().as_u16(),
+                        "provider rate limited before stream, retrying"
+                    );
+                    let _ = response.bytes().await;
+                    tokio::time::sleep(delay).await;
+                }
                 Ok(r) => break r,
                 Err(e) if attempt < MAX_TRANSPORT_RETRIES && (e.is_connect() || e.is_timeout()) => {
                     attempt += 1;
@@ -151,8 +180,18 @@ impl LlmClient {
         };
         let status = response.status();
         if !status.is_success() {
+            let retry_after = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .map(|seconds| seconds.min(30));
             let text = response.text().await.unwrap_or_default();
-            return Err(LlmError::classify_http(status.as_u16(), text));
+            return Err(LlmError::classify_http_with_retry_after(
+                status.as_u16(),
+                text,
+                retry_after,
+            ));
         }
 
         let mut bytes = response.bytes_stream();
@@ -175,12 +214,20 @@ impl LlmClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{transport_retry_delay, MAX_TRANSPORT_RETRIES};
+    use super::{rate_limit_retry_delay, transport_retry_delay, MAX_RATE_LIMIT_RETRIES, MAX_TRANSPORT_RETRIES};
 
     #[test]
     fn transport_retry_is_bounded_and_uses_backoff() {
         assert_eq!(MAX_TRANSPORT_RETRIES, 2);
         assert_eq!(transport_retry_delay(1).as_millis(), 500);
         assert_eq!(transport_retry_delay(2).as_millis(), 1000);
+    }
+
+    #[test]
+    fn rate_limit_retry_uses_header_and_caps_delay() {
+        assert_eq!(MAX_RATE_LIMIT_RETRIES, 2);
+        assert_eq!(rate_limit_retry_delay(Some("7"), 1).as_secs(), 7);
+        assert_eq!(rate_limit_retry_delay(Some("999"), 1).as_secs(), 30);
+        assert_eq!(rate_limit_retry_delay(Some("bad"), 2).as_secs(), 2);
     }
 }

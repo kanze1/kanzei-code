@@ -6,6 +6,13 @@ pub enum LlmError {
     Transport(#[from] reqwest::Error),
     #[error("provider returned HTTP {status}: {body}")]
     Http { status: u16, body: String },
+    #[error("provider rate limited HTTP {status}: {body}")]
+    RateLimited {
+        status: u16,
+        kind: Option<String>,
+        body: String,
+        retry_after: Option<u64>,
+    },
     #[error("context overflow: {message}")]
     ContextOverflow { message: String },
     #[error("provider error ({kind}): {message}")]
@@ -21,8 +28,19 @@ impl LlmError {
         matches!(self, LlmError::ContextOverflow { .. })
     }
 
-    /// HTTP 错误分类:识别 context overflow(驱动压缩重试),其余原样返回。
-    pub(crate) fn classify_http(status: u16, body: String) -> Self {
+    pub(crate) fn classify_http_with_retry_after(
+        status: u16,
+        body: String,
+        retry_after: Option<u64>,
+    ) -> Self {
+        if matches!(status, 429 | 529) {
+            return LlmError::RateLimited {
+                status,
+                kind: None,
+                body,
+                retry_after,
+            };
+        }
         // 不同 provider 对输入过大的响应码并不一致(400/413/422)，只要
         // 错误体明确指出上下文超限，就交给 runner 的有界压缩重试处理。
         if matches!(status, 400 | 413 | 422) && is_overflow_message(&body) {
@@ -31,11 +49,20 @@ impl LlmError {
         LlmError::Http { status, body }
     }
 
+    pub fn is_rate_limited(&self) -> bool {
+        matches!(self, LlmError::RateLimited { .. })
+    }
+
     pub(crate) fn classify_provider(kind: String, message: String) -> Self {
         // 限流/过载的 kind 优先于消息文本：配额文案可能包含 token/limit，
         // 但这类错误不能触发会破坏历史的上下文压缩重试。
         if is_rate_limit_kind(&kind) {
-            return LlmError::Provider { kind, message };
+            return LlmError::RateLimited {
+                status: 0,
+                kind: Some(kind),
+                body: message,
+                retry_after: None,
+            };
         }
         if is_overflow_message(&message) {
             return LlmError::ContextOverflow { message };
@@ -86,8 +113,23 @@ mod tests {
         assert!(!error.is_context_overflow());
         assert!(matches!(
             error,
-            LlmError::Provider { kind, message }
-                if kind == "rate_limit_error" && message.contains("token limit")
+            LlmError::RateLimited { kind: Some(kind), body, .. }
+                if kind == "rate_limit_error" && body.contains("token limit")
+        ));
+    }
+
+    #[test]
+    fn http_rate_limit_keeps_status_and_retry_after() {
+        let error = LlmError::classify_http_with_retry_after(429, "slow down".into(), Some(7));
+        assert!(error.is_rate_limited());
+        assert!(matches!(
+            error,
+            LlmError::RateLimited {
+                status: 429,
+                kind: None,
+                body,
+                retry_after: Some(7)
+            } if body == "slow down"
         ));
     }
 
