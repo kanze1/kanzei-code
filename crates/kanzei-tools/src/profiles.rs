@@ -230,8 +230,10 @@ impl Component for DevProfile {
                          check git state at milestones only — before starting, once the \
                          change stabilizes, and around the commit — not between every \
                          mechanical step; batch related git queries into one call. Test \
-                         order: run the TARGETED test for what you changed first; run the \
-                         full workspace suite ONCE right before committing — never while a \
+                         selection matches the change surface: frontend-only diffs (ui/) \
+                         need node --check plus the smoke scripts, NOT the cargo suite; \
+                         when crates/ changed, run the TARGETED test first and the full \
+                         workspace suite ONCE right before committing — never while a \
                          file is still mid-edit, and never re-run a suite that nothing \
                          changed since. Editing files: use \
                          `edit`; if it misses twice it shows the file's real content — align \
