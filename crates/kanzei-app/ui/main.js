@@ -69,7 +69,7 @@ const I18N_EN = {
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
-  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "轮": "rounds", "耗时": "duration"
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1182,7 +1182,7 @@ document.addEventListener("click", (event) => {
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
-  log(`工具 ${e.payload.name} ${e.payload.summary}`);
+  log(`${t("工具")} ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
   currentReasoning = null;
   bgAdd(e.payload.id, e.payload.name, e.payload.summary);
@@ -1192,7 +1192,7 @@ on("kz:tool-start", (e) => {
 on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text, e.payload.trace));
 on("kz:tool-end", (e) => {
   const p = e.payload;
-  log(`工具结果 ${p.name}: ${p.ok ? t("成功") : t("失败")} — ${p.preview}`, p.ok ? "" : "warn");
+  log(`${t("工具结果")} ${p.name}: ${p.ok ? t("成功") : t("失败")} — ${p.preview}`, p.ok ? "" : "warn");
   // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
@@ -1218,7 +1218,7 @@ on("kz:step", (e) => {
   // 本轮 prompt 体积 ≈ 当前上下文占用。
   ctxTokens = p.input + p.cacheRead;
   renderTokens();
-  log(`一轮完成:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
+  log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
 });
 on("kz:error", (e) => {
   cancelAutoContinueTimer();
@@ -3731,7 +3731,7 @@ $("mobile-service-start").addEventListener("click", async () => {
 $("mobile-service-stop").addEventListener("click", async () => {
   try {
     await invoke("mobile_service_stop");
-    $("mobile-service-status").textContent = t("已停止并撤销设备 token");
+    $("mobile-service-status").textContent = t("移动端本机桥接已停止");
     $("mobile-service-start").classList.remove("hidden");
     $("mobile-service-stop").classList.add("hidden");
   } catch (error) {
