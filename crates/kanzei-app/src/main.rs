@@ -111,6 +111,7 @@ struct WorktreeInfo {
     branch: String,
     files: Vec<String>,
     clean: bool,
+    diff: String,
 }
 
 impl Default for SessionRuntime {
@@ -848,7 +849,7 @@ fn worktree_create(project_dir: String, name: String) -> Result<WorktreeInfo, St
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, files: Vec::new(), clean: true })
+    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, files: Vec::new(), clean: true, diff: String::new() })
 }
 
 #[tauri::command]
@@ -865,7 +866,12 @@ fn worktree_diff(project_dir: String, worktree_path: String) -> Result<WorktreeI
         .filter(|line| !line.trim().is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
-    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, clean: files.is_empty(), files })
+    let diff_output = worktree_command(&root, &["-C", &worktree.display().to_string(), "diff", "--no-ext-diff", "--binary"])?;
+    if !diff_output.status.success() {
+        return Err(String::from_utf8_lossy(&diff_output.stderr).trim().to_string());
+    }
+    let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
+    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, clean: files.is_empty(), files, diff })
 }
 
 #[tauri::command]
