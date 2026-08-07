@@ -2623,6 +2623,10 @@ function renderWorkspace(snapshot) {
   for (const project of snapshot.projects ?? []) {
     const card = document.createElement("section");
     card.className = `workspace-card${project.current ? " current" : ""}`;
+    card.setAttribute("role", "button");
+    card.tabIndex = 0;
+    card.setAttribute("aria-label", `选择工作区项目 ${project.name}`);
+    if (project.current) card.setAttribute("aria-current", "page");
     const head = document.createElement("div");
     head.className = "workspace-card-head";
     const title = document.createElement("strong");
@@ -2650,6 +2654,11 @@ function renderWorkspace(snapshot) {
     queue.className = "workspace-meta dim";
     queue.textContent = `排队 ${project.pending_count ?? 0} 条 · 更新于 ${formatWorkspaceTime(project.updated_at)}`;
     card.append(head, path, summary, activity, queue);
+    card.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      card.click();
+    });
     card.addEventListener("click", () => selectWorkspaceProject(project.path));
     root.appendChild(card);
   }
