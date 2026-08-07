@@ -139,6 +139,7 @@ document.querySelectorAll(".activity-item").forEach((item) => {
 
 // ---------- toast ----------
 let toastTimer = null;
+let errorRetry = null;
 function toast(text) {
   const el = $("toast");
   el.textContent = text;
@@ -146,9 +147,11 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
-function toastError(text) {
+function toastError(text, { retry = null } = {}) {
   toast(text);
   log(text, "err");
+  errorRetry = retry;
+  $("log-retry").classList.toggle("hidden", typeof retry !== "function");
   $("log-panel").classList.remove("hidden");
 }
 
@@ -246,6 +249,16 @@ function log(text, cls = "") {
   lines.scrollTop = lines.scrollHeight;
 }
 $("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
+$("log-retry").addEventListener("click", async () => {
+  if (typeof errorRetry !== "function") return;
+  const retry = errorRetry;
+  $("log-retry").disabled = true;
+  try {
+    await retry();
+  } finally {
+    $("log-retry").disabled = false;
+  }
+});
 $("log-copy").addEventListener("click", async () => {
   const text = $("log-lines").innerText.trim();
   if (!text) {
@@ -2055,10 +2068,9 @@ ${item.files.join("\n")}`, "info");
     await refreshWorktrees();
     refreshGit();
   } catch (error) {
-    toastError(String(error));
+    toastError(String(error), { retry: () => handleWorktreeAction(item, action) });
   }
-}
-$("worktrees-refresh").addEventListener("click", refreshWorktrees);
+}("click", refreshWorktrees);
 $("worktree-add").addEventListener("click", async () => {
   if (!currentProject) return;
   const name = `thread-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
