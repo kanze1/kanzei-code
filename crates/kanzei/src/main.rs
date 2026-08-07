@@ -54,13 +54,25 @@ async fn main() -> anyhow::Result<()> {
 
 fn usage() {
     eprintln!("usage: kz run \"<prompt>\"");
+    eprintln!("       kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始");
     eprintln!("       kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]");
     eprintln!("config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml");
     eprintln!("env 快捷覆盖: KANZEI_PROFILE=dev|research  KANZEI_AGENT  KANZEI_MODEL=<role|provider:model>  KANZEI_PROXY");
 }
 
+fn parse_run_args(args: &[String]) -> (bool, String) {
+    let new_session = args.iter().any(|arg| arg == "--new");
+    let prompt = args
+        .iter()
+        .filter(|arg| arg.as_str() != "--new")
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (new_session, prompt)
+}
+
 async fn run_cli(args: &[String]) -> anyhow::Result<()> {
-    let prompt = args.join(" ");
+    let (new_session, prompt) = parse_run_args(args);
     if prompt.trim().is_empty() {
         usage();
         std::process::exit(2);
@@ -137,6 +149,14 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
     store.create_session(&session_id, &ctx.project_root.display().to_string(), None)?;
+    if new_session {
+        let cleared = store.clear_conversation(&session_id)?;
+        store.append_event(
+            &session_id,
+            "conversation.reset",
+            &serde_json::json!({ "cleared": cleared }),
+        )?;
+    }
     let input_id = format!(
         "input_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
@@ -431,8 +451,14 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::persist_always_allow;
+    use super::{parse_run_args, persist_always_allow};
     use kanzei_core::AskReply;
+
+    #[test]
+    fn run_new_flag_is_removed_from_prompt() {
+        let args = vec!["--new".to_string(), "开始".to_string(), "新会话".to_string()];
+        assert_eq!(parse_run_args(&args), (true, "开始 新会话".to_string()));
+    }
 
     #[test]
     fn persist_always_allow_returns_always_only_after_successful_write() {

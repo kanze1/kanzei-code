@@ -340,6 +340,17 @@ impl SessionStore {
         Ok(deleted)
     }
 
+    /// 清理当前会话的对话快照，保留 session、调度和权限事件。
+    /// CLI 的 `kz run --new` 使用此入口开始新上下文，避免手动删除整个 state.db。
+    pub fn clear_conversation(&self, session_id: &str) -> Result<usize, StoreError> {
+        self.connection
+            .execute(
+                "DELETE FROM session_events WHERE session_id = ?1 AND event_type = 'conversation.updated'",
+                params![session_id],
+            )
+            .map_err(Into::into)
+    }
+
     pub fn latest_event(
         &self,
         session_id: &str,
@@ -792,6 +803,20 @@ mod tests {
         assert_eq!(latest.payload["v"], 2);
         assert!(store.latest_event("ses_test", "missing").unwrap().is_none());
     }
+    #[test]
+    fn clear_conversation_只删除对话快照() {
+        let store = store();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 1}))
+            .unwrap();
+        store
+            .append_event("ses_test", "session.status_changed", &serde_json::json!({"status": "idle"}))
+            .unwrap();
+        assert_eq!(store.clear_conversation("ses_test").unwrap(), 1);
+        assert!(store.latest_event("ses_test", "conversation.updated").unwrap().is_none());
+        assert!(store.latest_event("ses_test", "session.status_changed").unwrap().is_some());
+    }
+
     #[test]
     fn 不同会话的事件_id_保持唯一() {
         let store = store();
