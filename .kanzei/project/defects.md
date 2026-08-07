@@ -22,7 +22,7 @@
 - 阶段: 1
 - 不变量: 消息历史:拒绝与取消也必须配对
 - 证据等级: E2
-- 进展: 完成 D-054 最小修复：runner 工具批次改为保留 calls 索引；Gate::UserDeclined 现在将当前被拒绝 ToolCall 与后续未执行 ToolCall 补充错误 ToolResult，并先把此前已执行工具的真实结果与占位结果 push 到 messages，再返回 halted_by_user。新增 declined_tool_batch_keeps_real_and_placeholder_results_paired，断言真实结果保留且所有后续调用均配对。cargo test -p kanzei-core 29 项通过。仍需真实 runner 多轮“拒绝后继续对话”回归及桌面/CLI 持久化历史恢复校验。
+- 进展: 补齐真实 CLI runner E2：扩展 crates/kanzei/tests/always_allow_bash.rs，mock 同批返回 WriteTool（规则允许，实际写入 allowed.md）与 BashTool（权限询问并输入 n 拒绝）；断言拒绝后项目 conversation.updated 持久化中同时存在前序真实 ToolResult 与被拒 Bash ToolResult，占位结果 is_error=true，且拒绝的 bash 未执行。cargo test -p kanzei --test always_allow_bash 两项通过；core 单测 29 项此前已通过。仍需显式第二次对话恢复/再次请求回归，以及桌面端历史恢复校验。
 
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。

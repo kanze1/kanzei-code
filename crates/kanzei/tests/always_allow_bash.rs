@@ -136,3 +136,103 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
 
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cli_declined_permission_persists_paired_tool_results() {
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kanzei-cli-d054-{}-{suffix}", std::process::id()));
+    let home = root.join("home");
+    let project = root.join("project");
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    std::fs::write(
+        project.join(".kanzei/kanzei.toml"),
+        format!(
+            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address}/v1\"\n\n[[permissions.rules]]\naction = \"write\"\nresource = \"allowed.md\"\neffect = \"allow\"\n"
+        ),
+    )
+    .unwrap();
+
+    let response = json!({
+        "choices": [{
+            "index": 0,
+            "delta": {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_write_d054",
+                        "type": "function",
+                        "function": {
+                            "name": "write",
+                            "arguments": "{\"path\":\"allowed.md\",\"content\":\"executed\"}"
+                        }
+                    },
+                    {
+                        "index": 1,
+                        "id": "call_bash_d054",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": "{\"command\":\"echo must-not-run > refused-marker.txt\"}"
+                        }
+                    }
+                ]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+    });
+    let server = tokio::spawn(async move { serve_response(&listener, response).await });
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kz"))
+        .args(["run", "拒绝第二个工具"])
+        .current_dir(&project)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env("KANZEI_MODEL", "mock:test-model")
+        .env("KANZEI_AGENT", "dev-pair")
+        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROXY", "off")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"n\n").await.unwrap();
+    drop(stdin);
+    let output = child.wait_with_output().await.unwrap();
+    server.await.unwrap();
+
+    assert!(output.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(std::fs::read_to_string(project.join("allowed.md")).unwrap(), "executed");
+    assert!(!project.join("refused-marker.txt").exists());
+
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+    let session_id = kanzei_core::project_session_id(&project);
+    let event = store
+        .list_events(&session_id, 0)
+        .unwrap()
+        .into_iter()
+        .rev()
+        .find(|event| event.event_type == "conversation.updated")
+        .expect("declined run should persist conversation");
+    let messages: Vec<kanzei_llm::Message> = serde_json::from_value(event.payload["messages"].clone()).unwrap();
+    let results: Vec<&kanzei_llm::Part> = messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .filter(|part| matches!(part, kanzei_llm::Part::ToolResult { .. }))
+        .collect();
+    assert_eq!(results.len(), 2);
+    assert!(matches!(results[0], kanzei_llm::Part::ToolResult { call_id, is_error: false, .. } if call_id == "call_write_d054"));
+    assert!(matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined")));
+
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
