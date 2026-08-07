@@ -764,7 +764,7 @@ async fn run_subagent(
 }
 
 fn compact_messages_for_retry(messages: &mut Vec<Message>) {
-    let Some(current_index) = messages.iter().rposition(|message| message.role == Role::User) else {
+    let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
         return;
     };
     let current = messages[current_index].clone();
@@ -798,13 +798,21 @@ fn compact_messages_for_retry(messages: &mut Vec<Message>) {
 fn compact_messages_aggressively(messages: &mut Vec<Message>) {
     if let Some(current) = messages
         .iter()
-        .rfind(|message| message.role == Role::User)
+        .rfind(|message| is_text_user_message(message))
         .cloned()
     {
         messages.clear();
         messages.push(current);
     }
 }
+fn is_text_user_message(message: &Message) -> bool {
+    message.role == Role::User
+        && message
+            .parts
+            .iter()
+            .any(|part| matches!(part, Part::Text { .. }))
+}
+
 fn add_usage(a: Usage, b: Usage) -> Usage {
     Usage {
         input: a.input + b.input,
@@ -842,7 +850,7 @@ fn preview(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::compact_messages_for_retry;
+    use super::{compact_messages_aggressively, compact_messages_for_retry};
     use kanzei_llm::{Message, Part};
 
     #[test]
@@ -865,5 +873,50 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果")));
         assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text == "当前任务"));
+    }
+
+    #[test]
+    fn compact_retry_drops_orphan_tool_results_in_tool_loop() {
+        let mut messages = vec![
+            Message::user_text("当前任务"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "call_1".into(),
+                name: "read".into(),
+                input: serde_json::json!({"path": "notes.md"}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "call_1".into(),
+                content: "工具结果".into(),
+                is_error: false,
+            }]),
+        ];
+
+        compact_messages_for_retry(&mut messages);
+        assert!(messages.iter().any(|message| {
+            message.parts.iter().any(
+                |part| matches!(part, Part::Text { text } if text == "当前任务")
+            )
+        }));
+        assert!(!messages.iter().flat_map(|message| &message.parts).any(|part| {
+            matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
+        }));
+
+        let mut aggressive = vec![
+            Message::user_text("当前任务"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "call_2".into(),
+                name: "read".into(),
+                input: serde_json::json!({}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "call_2".into(),
+                content: "结果".into(),
+                is_error: false,
+            }]),
+        ];
+        compact_messages_aggressively(&mut aggressive);
+        assert!(!aggressive.iter().flat_map(|message| &message.parts).any(|part| {
+            matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
+        }));
     }
 }
