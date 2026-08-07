@@ -442,15 +442,21 @@ function appendReasoning(text) {
     clearEmptyState();
     const wrap = document.createElement("div");
     wrap.className = "msg reasoning";
-    const head = document.createElement("div");
+    const head = document.createElement("button");
+    head.type = "button";
     head.className = "reasoning-head";
+    head.setAttribute("aria-label", "展开或收起思考过程");
+    head.setAttribute("aria-expanded", "false");
     head.textContent = "· 思考中…";
     const body = document.createElement("div");
     body.className = "reasoning-body md hidden";
     body.dataset.raw = "";
     head.addEventListener("click", () => {
       // 单行摘要没有可展开的正文,点了别装作有反应。
-      if (head.classList.contains("expandable")) body.classList.toggle("hidden");
+      if (head.classList.contains("expandable")) {
+        body.classList.toggle("hidden");
+        head.setAttribute("aria-expanded", String(!body.classList.contains("hidden")));
+      }
     });
     wrap.append(head, body);
     messages.appendChild(wrap);
@@ -470,6 +476,7 @@ function appendReasoning(text) {
     const expandable = lines.length > 1;
     currentReasoningHead.textContent = `· ${preview || "思考中…"}${expandable ? "(点击展开)" : ""}`;
     currentReasoningHead.classList.toggle("expandable", expandable);
+    if (!expandable) currentReasoningHead.setAttribute("aria-expanded", "false");
   }
   scrollBottom();
 }
