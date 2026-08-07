@@ -1447,6 +1447,13 @@ function send() {
 
 $("send").addEventListener("click", send);
 $("continue-btn").addEventListener("click", () => sendText(continuePrompt()));
+$("continue-toggle").addEventListener("click", () => {
+  const panel = $("continue-panel");
+  const open = panel.classList.toggle("hidden") === false;
+  $("continue-toggle").setAttribute("aria-expanded", String(open));
+  $("continue-toggle").textContent = open ? "收起文案" : "继续文案";
+  if (open) $("continue-prompt").focus();
+});
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
 renderAutoStatus();
 $("continue-prompt").value = localStorage.getItem("kz-continue-prompt") || DEFAULT_CONTINUE_PROMPT;
@@ -1884,10 +1891,6 @@ function renderProjects(prefs) {
   const list = $("project-list");
   list.innerHTML = "";
   for (const path of prefs.projects) {
-    const externalBlocked = (entry.fields ?? []).some(([key, value]) =>
-      ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
-      && /外部|external|blocked/i.test(String(value))
-    );
     const item = document.createElement("div");
     item.className = `project-item${path === prefs.current ? " active" : ""}`;
     const name = document.createElement("span");

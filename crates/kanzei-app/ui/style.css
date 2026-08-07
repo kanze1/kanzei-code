@@ -510,7 +510,10 @@ button:disabled { opacity: .45; cursor: default; }
 #ctx-bar.warn #ctx-bar-fill { background: var(--warn); }
 
 /* ---------- 历史对话行(复选批删) ---------- */
-.conv-row { cursor: pointer; align-items: center; }
+#conversation-list { background: var(--panel); color: var(--fg); }
+.conv-row { cursor: pointer; align-items: center; color: var(--fg); background: transparent; border-bottom: 1px solid var(--border-soft); }
+.conv-row:hover { background: var(--panel2); color: var(--fg-strong); }
+.conv-row .title { color: inherit; }
 .conv-row input[type="checkbox"] { width: 13px; height: 13px; flex-shrink: 0; accent-color: var(--accent); }
 
 /* 回放里的工具痕迹:一行淡色,不喧宾夺主 */
