@@ -106,3 +106,14 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 ## 8. 明确不做(决策记录)
 
 向量嵌入检索、知识图谱、外部记忆框架(Mem0/Zep/Letta 直接接入)、参数化记忆。若未来重议,须新开设计文档引用本节说明变更理由。
+
+## 9. 具体工程决策(2026-08-08 用户逐条拍板)
+
+1. **代码落位**:`kanzei_tools::memory` 模块(mod/store/tools),kanzei-tools 加 rusqlite(bundled,锁内已有);不开新 crate。
+2. **ID 与文件**:global 前缀 `U-`、project 沿用 `M-`,两序列独立;文件名 `<id>-<创建时slug>.md`,slug 终身不改;frontmatter 手写平铺 `key: value` 解析器(不引 serde_yaml),解析宽容、写入侧强制。
+3. **episode 落位**:state.db 表(机器生成、量大、按会话关联查询,本质是日志);不做 md 文件。
+4. **分词**:FTS5 unicode61 起步,靠自举轨迹实证决定是否升级 tokenizer;排序 = bm25 取 topN 后按 新近度×log(1+hits) 在 Rust 侧重排。
+5. **安全模型**:不做重安全规则——个人开发者场景,可视化 + source 溯源 + 墓碑可逆就是安全模型;global 域写入不设确认门(避免踩 Claude Code 的易用性痛点)。
+6. **并发**:不做跨进程文件锁;tmp+rename 原子替换 + 索引可重建 + 完整性门禁检测,竞争产生的冲突留给 agent 事后解决。
+7. **工具面(M1)**:主 agent 挂 `memory_search`/`memory_note`(inbox 草稿投递)/`memory_stats`;写路径(add/update/merge/stale)留给 M2 的 memory-manager;去重门禁在引擎 add 内(FTS 近似命中即拒绝并返回候选,可 force)。
+8. **注入(M1)**:INDEX 行(id+category+title+description)预算内常驻,替换现有 dev/memory source;"SOP 触发"不做魔法匹配,description 质量即触发器;M3 再加开跑时按 prompt 预检索的提示行。
