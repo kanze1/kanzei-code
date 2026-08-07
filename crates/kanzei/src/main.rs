@@ -253,7 +253,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
     let subagent_rt = {
         let mut sub_harness = Harness::default();
-        sub_harness.add(kanzei_tools::SubagentBase);
+        sub_harness
+            .add(kanzei_tools::SubagentBase)
+            .add(ConfigComponent);
         let sub_snapshot = sub_harness.resolve(&rctx)?;
         let fast = match config.resolve_model("fast") {
             Ok(r) => (kanzei_core::build_route(&r, &proxy).await)

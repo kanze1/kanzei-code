@@ -44,7 +44,24 @@ pub fn explore_agent() -> AgentDef {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanzei_harness::{Harness, KanzeiConfig, ProfileKind};
+    use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind};
+
+    #[test]
+    fn subagent_snapshot_applies_user_read_deny() {
+        let mut config = KanzeiConfig::default();
+        config.permissions.rules.push(rule("read", "*/.env", Effect::Deny));
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: std::env::temp_dir(),
+            project_root: std::env::temp_dir(),
+            config: std::sync::Arc::new(config),
+        };
+        let mut harness = Harness::default();
+        harness.add(SubagentBase).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        assert_eq!(snapshot.evaluate("read", "project/.env"), Effect::Deny);
+        assert_eq!(snapshot.evaluate("read", "project/src/main.rs"), Effect::Allow);
+    }
 
     #[test]
     fn subagent_snapshot_is_read_only() {
