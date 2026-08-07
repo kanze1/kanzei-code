@@ -2015,7 +2015,14 @@ async function refreshWorktrees() {
 async function handleWorktreeAction(item, action) {
   try {
     if (action === "diff") {
-      toast(item.clean ? "工作树干净,没有未提交差异" : `${item.branch}:\n${item.files.join("\n")}`);
+      if (item.clean) {
+        toast("工作树干净,没有未提交差异");
+      } else {
+        log(`${item.branch}:
+${item.files.join("\n")}`, "info");
+        $("log-panel").classList.remove("hidden");
+        toast("工作树差异已写入运行日志");
+      }
       return;
     }
     if (action === "discard" && !window.confirm(`放弃工作树 ${item.branch}？未提交改动会阻止删除并保留现场。`)) return;
