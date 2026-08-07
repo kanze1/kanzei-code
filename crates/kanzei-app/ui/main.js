@@ -3078,7 +3078,7 @@ async function loadConversation(sequence = null) {
     log(`已恢复 ${history.length} 条历史消息和 ${traces.length} 组工具轨迹`);
   } catch (err) {
     addMessage("error", `历史消息恢复失败:${err}`);
-    log(`历史消息恢复失败:${err}`, "warn");
+    toastError(`历史消息恢复失败:${err}`, { retry: () => loadConversation(sequence) });
   }
 }
 
@@ -3136,7 +3136,7 @@ $("chat-del").addEventListener("click", async () => {
     toast(`已删除 ${n} 份对话快照`);
     await refreshConversationList();
   } catch (err) {
-    toast(String(err));
+    toastError(String(err), { retry: () => $("chat-del").click() });
   }
 });
 
