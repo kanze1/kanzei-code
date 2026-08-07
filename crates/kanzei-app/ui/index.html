@@ -88,6 +88,7 @@
               <option value="P0">P0</option><option value="P1">P1</option>
               <option value="P2">P2</option><option value="P3">P3</option>
             </select>
+            <button id="req-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换需求分组显示" aria-pressed="true">☰</button>
             <select id="req-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
             <select id="req-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
               <option value="manual">手动</option>
@@ -106,6 +107,7 @@
         <div class="section-title">
           <span>缺陷 <em id="defect-count"></em></span>
           <span>
+            <button id="defect-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换缺陷分组显示" aria-pressed="true">☰</button>
             <select id="defect-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
             <button id="defect-quick" class="icon-btn" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录缺陷">✎</button>
             <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
@@ -245,6 +247,7 @@
             <button id="documents-tab-defect" class="ghost">缺陷</button>
             <select id="documents-status-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
             <select id="documents-priority-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+            <button id="documents-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换文档页分组显示" aria-pressed="true">☰</button>
             <select id="documents-tag-filter" title="按标签筛选"><option value="all">全部标签</option></select>
           </div>
           <div id="documents-req-list" class="doc-list documents-list"></div>

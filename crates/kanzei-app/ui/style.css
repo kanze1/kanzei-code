@@ -810,3 +810,12 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   padding: 6px 8px; font-size: 12px; display: flex; flex-direction: column; gap: 2px;
 }
 .memory-episode-prompt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 标签分组视图 ---------- */
+.doc-group-head {
+  font-size: 11px; font-weight: 600; color: var(--dim, #888);
+  padding: 8px 6px 3px; border-bottom: 1px solid var(--border);
+  margin: 4px 0 4px; letter-spacing: 1px; position: sticky; top: 0;
+  background: var(--bg); z-index: 1;
+}
+.group-toggle.active { color: var(--accent); border-color: var(--accent); }

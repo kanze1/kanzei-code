@@ -67,6 +67,8 @@ const I18N_EN = {
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
+  "按标签分组显示": "Group by tag", "切换需求分组显示": "Toggle requirement grouping",
+  "切换缺陷分组显示": "Toggle defect grouping", "切换文档页分组显示": "Toggle documents grouping", "其他": "Other",
   "文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。":
     "File-first layered memory: every entry is a hand-editable markdown file under .kanzei/memory; this page mirrors the files.",
   "上下文账单": "Context bill", "最近一轮 system 注入的各来源字符数。": "Characters injected per source in the latest run.",
@@ -2711,8 +2713,14 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", sort: localStorage.getItem("kz-req-sort") || "manual" };
-const defectFilters = { status: "all", priority: "all", tag: "all" };
+const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", sort: localStorage.getItem("kz-req-sort") || "manual", grouped: localStorage.getItem("kz-grouped-req") !== "0" };
+const defectFilters = { status: "all", priority: "all", tag: "all", grouped: localStorage.getItem("kz-grouped-defect") !== "0" };
+// 标签受控词表(conventions §1.35,用户定调):分组顺序即展示顺序。
+const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];
+function docGroupTag(entry) {
+  const tags = entryTags(entry);
+  return DOC_TAG_ORDER.find((tag) => tags.includes(tag)) || "其他";
+}
 const priorityRank = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const statusRank = { doing: 0, todo: 1, done: 2, dropped: 3 };
 const complexityRank = { "小": 0, "中": 1, "大": 2 };
@@ -2721,7 +2729,10 @@ function entryTags(entry) {
   return String(field?.[1] || "").split(/[\s,]+/).map((tag) => tag.trim()).filter(Boolean);
 }
 function tagOptions(entries) {
-  return [...new Set(entries.flatMap(entryTags))].sort((a, b) => a.localeCompare(b));
+  // 受控词表优先,词表外的存量标签跟在后面(过渡期可见,便于归一)。
+  const seen = new Set(entries.flatMap(entryTags));
+  const extras = [...seen].filter((tag) => !DOC_TAG_ORDER.includes(tag)).sort((a, b) => a.localeCompare(b));
+  return [...DOC_TAG_ORDER.filter((tag) => seen.has(tag)), ...extras];
 }
 function syncTagFilter(select, entries, selected = "all") {
   select.replaceChildren(new Option("全部标签", "all"));
@@ -2794,6 +2805,29 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
       .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag));
   }
+  // 分组视图(用户定调):按受控词表分组展示;组内保持文件顺序。
+  // 分组改变了视觉顺序≠文件顺序,拖拽在分组视图下必须禁用(否则会提交错乱顺序)。
+  const groupHeaders = new Map();
+  const isGrouped =
+    (kind === "req" || kind === "defect") &&
+    reqFilterState.grouped &&
+    (reqFilterState.tag ?? "all") === "all";
+  if (isGrouped) {
+    const buckets = new Map();
+    for (const entry of entries) {
+      const tag = docGroupTag(entry);
+      if (!buckets.has(tag)) buckets.set(tag, []);
+      buckets.get(tag).push(entry);
+    }
+    const ordered = [];
+    for (const tag of [...DOC_TAG_ORDER, "其他"]) {
+      const bucket = buckets.get(tag);
+      if (!bucket || !bucket.length) continue;
+      groupHeaders.set(ordered.length, `${tag} · ${bucket.length}`);
+      ordered.push(...bucket);
+    }
+    entries = ordered;
+  }
   // 展开状态是 DOM 局部的,重绘会全部收起;运行中会频繁重绘,必须跨重绘保留,
   // 否则用户刚展开的条目会被 agent 的一次状态更新弹回去。
   const expandedIds = new Set(
@@ -2814,6 +2848,12 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
   }
   let position = 0;
   for (const entry of entries) {
+    if (groupHeaders.has(position)) {
+      const head = document.createElement("div");
+      head.className = "doc-group-head";
+      head.textContent = groupHeaders.get(position);
+      el.appendChild(head);
+    }
     position += 1;
     const item = document.createElement("div");
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
@@ -2874,8 +2914,9 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       row.appendChild(blocked);
     }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
+    // 分组视图下禁用(视觉顺序≠文件顺序);关掉分组开关即恢复拖拽。
     // 松手落在行间隙时 drop 不触发,只靠 drop 会静默丢单。
-    if (docDragEnabled(kind, el, reqFilterState)) {
+    if (!isGrouped && docDragEnabled(kind, el, reqFilterState)) {
       item.draggable = true;
       item.addEventListener("dragstart", (e) => {
         dragReqId = entry.id;
@@ -3169,8 +3210,8 @@ async function refreshWorkspace() {
 let documentsKind = "req";
 let latestDocsSnapshot = null;
 const documentFilters = {
-  req: { status: "all", priority: "all", complexity: "all", tag: "all", sort: "manual" },
-  defect: { status: "all", priority: "all", tag: "all" },
+  req: { status: "all", priority: "all", complexity: "all", tag: "all", sort: "manual", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
+  defect: { status: "all", priority: "all", tag: "all", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
 };
 const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
@@ -3482,6 +3523,38 @@ $("documents-priority-filter").addEventListener("change", (event) => {
 $("documents-tag-filter").addEventListener("change", (event) => {
   documentFilters[documentsKind].tag = event.target.value;
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+});
+// 分组开关(用户定调:按受控标签分组展示,含侧边栏):关掉即回纯开发顺序+拖拽。
+function bindGroupToggle(id, storageKey, apply) {
+  const btn = $(id);
+  if (!btn) return;
+  const sync = (on) => {
+    btn.setAttribute("aria-pressed", String(on));
+    btn.classList.toggle("active", on);
+  };
+  sync(apply(null));
+  btn.addEventListener("click", () => {
+    const on = apply("toggle");
+    localStorage.setItem(storageKey, on ? "1" : "0");
+    sync(on);
+    if (latestDocsSnapshot) renderDocsSnapshot(latestDocsSnapshot);
+  });
+}
+bindGroupToggle("req-group-toggle", "kz-grouped-req", (op) => {
+  if (op === "toggle") reqFilters.grouped = !reqFilters.grouped;
+  return reqFilters.grouped;
+});
+bindGroupToggle("defect-group-toggle", "kz-grouped-defect", (op) => {
+  if (op === "toggle") defectFilters.grouped = !defectFilters.grouped;
+  return defectFilters.grouped;
+});
+bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
+  if (op === "toggle") {
+    const next = !documentFilters.req.grouped;
+    documentFilters.req.grouped = next;
+    documentFilters.defect.grouped = next;
+  }
+  return documentFilters.req.grouped;
 });
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
