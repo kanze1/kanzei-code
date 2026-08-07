@@ -161,6 +161,8 @@
 
 
 
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -171,6 +173,8 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
+
 
 
 
@@ -506,6 +510,8 @@
 
 
 
+
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -604,6 +610,8 @@
 
 
 
+
+
 ## D-119 继续文章/按钮收纳逻辑及视觉显示问题 [fixing] (high)
 - 原始描述: 继续文章和继续按钮不应该同时收纳，应该独立，而且继续文案的白色底北京啥都看不到，框也很窄不能缩放
 - 复现: 1.查看'继续文章'和'继续按钮'功能 2.观察文案白色背景可读性 3.测试容器宽度能否缩放
@@ -611,15 +619,4 @@
 - 进展: 已定位到 ui/index.html 的 continue-panel 与 main.js 独立 toggle/submit 事件、style.css 的窄三列布局。准备拆分“继续文案”收纳与“继续”操作按钮，并扩大可编辑区、修复深色主题文字/背景对比；补 UI 冒烟验证。
 
 
-## D-120 继续文案无法改变实际取活顺序,需求优先模式未生效 [fixing] (high)
-- 不变量: 取活顺序:用户选择的需求优先/缺陷优先必须同时约束前端继续提示与后端 agent/system context
-- 复现: 在继续文案中写“先做 requirements.md”，使用 dev-auto 鞭挞；后端 dev agent system prompt、project-docs 和 NUDGE_PROMPT 仍固定 defects-first，实际继续取缺陷。
-- 影响: 用户界面显示的工作策略与实际执行策略不一致，需求优先模式无法使用。
-- 根因: 继续文案只是用户消息，未进入后端工作策略；profiles.rs 固定注入 Defects are the first development queue，dev system prompt 固定 Pick work defect-first，前端 NUDGE_PROMPT 也固定 defects.md。
-- 证据等级: E2
-- 阶段: 1
-- 验收: 提供需求优先/缺陷优先切换控件；模式按项目持久化；自动推进、手动继续和无动作追加使用所选顺序；后端 dev system/context 同步所选模式；默认行为保持缺陷优先；补前端/后端回归验证并发布。
-- refs: R-093
-- 优先级: P0
-- 进展: 已修复：新增按项目保存的 work-priority-select（缺陷优先/需求优先），前端继续提示、无动作追加和 run_prompt 均传递所选模式；后端 dev profile 去除固定 defects-first 冲突文本，run_task 将本轮模式追加到 agent system 指令，未传模式默认 defect-first。验证：前端四项检查、cargo test -p kanzei-tools、cargo test -p kanzei-app、cargo test --workspace 全部通过。下一步发布安装包。
-- 验证: node --check main.js；ui-a11y/i18n/Markdown smoke；cargo test -p kanzei-tools；cargo test -p kanzei-app；cargo test --workspace
+
