@@ -123,6 +123,8 @@
 
 
 
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -133,6 +135,8 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
+
 
 
 
@@ -392,6 +396,8 @@
 
 
 
+
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -468,13 +474,5 @@
 
 
 
-
-## D-115 上下文压缩把工具循环中的初始用户消息误当当前消息，直接丢弃全部工具轨迹 [open] (high)
-- 复现: 运行包含工具调用的任务：初始 User → assistant ToolCall → ToolResult；下一轮请求发生上下文超限并进入 compact_messages_for_retry。函数以最后一条含 Text 的 User 消息为 current，ToolResult 虽角色为 User 但无 Text，因此会回到初始 User，压缩前没有可遍历历史，最终只保留初始提示。
-- 影响: 超限重试后模型失去已完成的读取/编辑/测试结果与任务进展，可能重复工作、误判状态或给出错误结论。与“压缩保留历史”目标相反。
-- 根因: crates/kanzei-core/src/runner.rs:836-866 的 rposition(is_text_user_message) 将初始用户消息当作当前消息；工具结果消息没有 Text，且压缩只收集 current_index 之前的内容，所以工具循环中的所有工具结果都被清空。现有测试只断言不产生孤儿工具 part，没有断言工具结果摘要被保留。
-- 验收: 工具循环发生压缩时，当前用户提示和最近有效工具结果均保留在合法的纯文本摘要中；不保留孤儿 ToolCall/ToolResult；新增回归测试证明工具结果未被整体丢弃。
-- refs: D-068 R-093
-- 优先级: P1
 
 

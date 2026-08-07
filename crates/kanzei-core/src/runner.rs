@@ -851,7 +851,10 @@ fn compact_messages_for_retry(messages: &mut Vec<Message>) {
     };
     let current = messages[current_index].clone();
     let mut history = String::new();
-    for message in messages.iter().take(current_index) {
+    for (index, message) in messages.iter().enumerate() {
+        if index == current_index {
+            continue;
+        }
         for part in &message.parts {
             let text = match part {
                 Part::Text { text } => text,
@@ -1025,6 +1028,11 @@ mod tests {
         }));
         assert!(!messages.iter().flat_map(|message| &message.parts).any(|part| {
             matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
+        }));
+        assert!(messages.iter().any(|message| {
+            message.parts.iter().any(
+                |part| matches!(part, Part::Text { text } if text.contains("工具结果"))
+            )
         }));
 
         let mut aggressive = vec![
