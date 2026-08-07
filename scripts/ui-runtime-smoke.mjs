@@ -17,6 +17,12 @@ const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-b
 if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
   fail("独立文档页滚动容器未预留状态栏安全间距");
 }
+if (!source.includes('if (isActivityTool(e.payload.name)) bgAdd')) {
+  fail("活动面板仍会接收全部工具调用");
+}
+if (!source.includes('part.type === "tool_result"') || !source.includes("JSON.stringify(part.input ?? {}, null, 2)")) {
+  fail("历史工具会话未保留完整调用与结果详情");
+}
 const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), source.indexOf("const I18N_ZH = new WeakMap"));
 const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
 const translationCalls = [...source.matchAll(/\bt\(\"((?:\\.|[^\"])*)\"\)/g)].map((match) => match[1]);

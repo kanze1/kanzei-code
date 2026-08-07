@@ -587,6 +587,13 @@ button:disabled { opacity: .45; cursor: default; }
 
 /* 回放里的工具痕迹:一行淡色,不喧宾夺主 */
 .tool-chip.replay { padding: 4px 10px; opacity: .55; font-size: 11.5px; }
+.tool-chip.replay-tool { max-width: 92%; }
+.tool-chip.replay-tool .head { cursor: pointer; }
+.replay-tool-body {
+  margin: 4px 0 0; padding: 8px; max-height: 320px; overflow: auto;
+  background: #0a0a0a; border: 1px solid var(--border-soft); color: var(--fg);
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.5 var(--mono);
+}
 
 /* ---------- 应用内文档查看器 ---------- */
 #viewer-overlay {

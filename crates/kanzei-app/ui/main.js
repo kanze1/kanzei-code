@@ -1022,6 +1022,11 @@ function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
 }
+// 活动面板只承载不适合占据主对话的后台轨迹：记忆写入与子代理；普通工具调用已在主对话内联展示。
+function isActivityTool(name) {
+  return name === "task" || name === "memory_note";
+}
+
 function bgAdd(id, name, summary) {
   if (!id || bgEntries.has(id)) return;
   const el = document.createElement("div");
@@ -1458,7 +1463,7 @@ on("kz:tool-start", (e) => {
   currentAssistant = null;
   currentReasoning = null;
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary);
-  bgAdd(e.payload.id, e.payload.name, e.payload.summary);
+  if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -4055,6 +4060,23 @@ function refreshGitSoon() {
   }, 600);
 }
 
+function appendReplayToolPart(part) {
+  const details = document.createElement("details");
+  details.className = "tool-chip replay replay-tool";
+  const summary = document.createElement("summary");
+  summary.className = "head";
+  const isCall = part.type === "tool_call";
+  const label = isCall ? part.name || "tool" : `${part.is_error ? "✗ " : "✓ "}tool result`;
+  summary.textContent = isCall ? `${label} · ${t("展开或收起工具详情")}` : `${label} · ${part.call_id || ""}`;
+  const body = document.createElement("pre");
+  body.className = "replay-tool-body";
+  body.textContent = isCall
+    ? JSON.stringify(part.input ?? {}, null, 2)
+    : String(part.content ?? "");
+  details.append(summary, body);
+  messages.appendChild(details);
+}
+
 function renderRecoveredMessages(items) {
   followLatest = true;
   messages.innerHTML = "";
@@ -4062,21 +4084,11 @@ function renderRecoveredMessages(items) {
   currentReasoning = null;
   currentReasoningHead = null;
   for (const message of items ?? []) {
-    // 回放只呈现对话正文:思考/工具结果不回放,工具调用折叠成一行痕迹。
-    const toolNames = [];
     for (const part of message.parts ?? []) {
-      if (part.type === "tool_call" && part.name) toolNames.push(part.name);
-    }
-    if (toolNames.length) {
-      const chip = document.createElement("div");
-      chip.className = "tool-chip ok replay";
-      const head = document.createElement("div");
-      head.className = "head";
-      head.textContent = toolNames.join(" · ");
-      chip.appendChild(head);
-      messages.appendChild(chip);
-    }
-    for (const part of message.parts ?? []) {
+      if (part.type === "tool_call" || part.type === "tool_result") {
+        appendReplayToolPart(part);
+        continue;
+      }
       if (part.type !== "text" || !part.text?.trim()) continue;
       const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
       if (message.role === "assistant") {
