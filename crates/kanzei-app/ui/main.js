@@ -1148,9 +1148,25 @@ function renderContextDetail() {
   }
 }
 
+function hideContextDetail() {
+  $("context-detail").classList.add("hidden");
+  $("status-tokens").setAttribute("aria-expanded", "false");
+}
+function toggleContextDetail() {
+  if ($("context-detail").classList.contains("hidden")) renderContextDetail();
+  else hideContextDetail();
+}
+
 $("status-tokens").title = t("点击查看上下文成分");
 $("status-tokens").classList.add("context-clickable");
-$("status-tokens").addEventListener("click", renderContextDetail);
+$("status-tokens").addEventListener("click", toggleContextDetail);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") hideContextDetail();
+});
+document.addEventListener("click", (event) => {
+  if (event.target.closest("#status-tokens, #context-detail")) return;
+  hideContextDetail();
+});
 on("kz:tool-start", (e) => {
   markFirstSignal();
   log(`工具 ${e.payload.name} ${e.payload.summary}`);

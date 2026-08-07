@@ -36,5 +36,8 @@ assert.match(css, /#app \{[^}]*position: relative/);
 assert.match(css, /\.resize-handle \{ position: fixed/);
 assert.match(js, /handle\.setAttribute\("role", "separator"\)/);
 assert.match(js, /handle\.addEventListener\("keydown"/);
+assert.match(js, /function hideContextDetail\(\)/);
+assert.match(js, /function toggleContextDetail\(\)/);
+assert.match(js, /event\.key === "Escape"/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
