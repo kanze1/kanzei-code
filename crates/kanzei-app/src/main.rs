@@ -221,6 +221,26 @@ fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {
 }
 
 
+fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::Value {
+    let payload = match &pending.request {
+        kanzei_core::AskRequest::Permission { action, resource } => json!({
+            "kind": "permission",
+            "id": id,
+            "action": action,
+            "resource": resource,
+            "remember": kanzei_harness::config::generalize_resource(action, resource),
+        }),
+        kanzei_core::AskRequest::Question { question, options, default } => json!({
+            "kind": "question",
+            "id": id,
+            "question": question,
+            "options": options,
+            "default": default,
+        }),
+    };
+    with_session_id(payload, &pending.session_id)
+}
+
 fn pending_path(exe: &Path) -> PathBuf {
     let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("kzapp.exe");
     exe.with_file_name(format!("{name}.pending"))
@@ -290,7 +310,7 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 #[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_path, persist_always_allow, process_session_id, recover_messages_at,
+        default_process_id, pending_ask_payload, pending_path, persist_always_allow, process_session_id, recover_messages_at,
         conversation_prior, runtime_for, take_pending_ask,
         with_session_id, AppState, PendingAsk,
     };
@@ -314,6 +334,27 @@ mod update_tests {
             pending_path(Path::new(r"C:\bin\kzapp.exe")),
             Path::new(r"C:\bin\kzapp.exe.pending")
         );
+    }
+
+    #[test]
+    fn pending_ask_payload_can_rebuild_permission_dialog() {
+        let (sender, _receiver) = oneshot::channel();
+        let pending = PendingAsk {
+            sender,
+            request: kanzei_core::AskRequest::Permission {
+                action: "bash".into(),
+                resource: "{\"command\":\"echo x\",\"workdir\":\"C:/project\"}".into(),
+            },
+            action: "bash".into(),
+            resource: "{\"command\":\"echo x\",\"workdir\":\"C:/project\"}".into(),
+            project_root: PathBuf::from("C:/project"),
+            session_id: "session#p2".into(),
+        };
+        let payload = pending_ask_payload(7, &pending);
+        assert_eq!(payload["id"], 7);
+        assert_eq!(payload["kind"], "permission");
+        assert_eq!(payload["sessionId"], "session#p2");
+        assert_eq!(payload["action"], "bash");
     }
 
     #[test]
@@ -487,6 +528,7 @@ fn main() {
             run_prompt,
             stop_run,
             answer_ask,
+            pending_asks_get,
             settings_get,
             settings_save,
             settings_open,
@@ -2304,6 +2346,22 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
         _ => kanzei_core::AskReply::Deny,
     };
     let _ = pending.sender.send(kanzei_core::AskResponse::Permission(decision));
+}
+
+#[tauri::command]
+fn pending_asks_get(
+    state: State<'_, AppState>,
+    project_dir: String,
+    process_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let session_id = process_session_id(&root, process_id.as_deref());
+    let runtime = runtime_for(&state, &session_id);
+    let asks = runtime.asks.lock().unwrap();
+    Ok(asks
+        .iter()
+        .map(|(id, pending)| pending_ask_payload(*id, pending))
+        .collect())
 }
 
 /// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。

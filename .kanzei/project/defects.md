@@ -23,7 +23,7 @@
 - 阶段: 1
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
-- 进展: 完成 D-055 最小解锁步骤：ui/main.js 仅豁免 kz:ask 不受 activeSessionId 过滤；askQueue 改为按 sessionId 的 Map，后台 ask 事件保留在对应队列；切换进程前保留当前 ask，切换后 pump 目标 session；renderProcesses 切换活动 session 时也触发 pump。node --check crates/kanzei-app/ui/main.js 通过。尚缺后端 pending ask 查询/切回重建，以及 done/error/stopped 的完整会话路由验收。
+- 进展: 继续补齐切回重建：新增 Tauri command pending_asks_get(project_dir, process_id)，按 session 返回可直接重建 kz:ask 的 payload；注册进 invoke_handler。UI switchProcess 在切换后调用 pending_asks_get，按 session 去重合并队列并 pump；新增 pending_ask_payload Rust 回归。node --check ui/main.js、cargo test -p kanzei-app 12 项通过。仍缺 done/error/stopped 控制事件按 session 路由和真实前端 UI E2。
 
 ## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [open] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。

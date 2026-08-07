@@ -2009,6 +2009,29 @@ async function refreshProcesses() {
   }
 }
 
+async function refreshPendingAsks() {
+  if (!currentProject || !activeSessionId) return;
+  try {
+    const pending = await invoke("pending_asks_get", {
+      projectDir: currentProject,
+      processId: activeProcessId,
+    });
+    const queue = askQueueFor(activeSessionId);
+    const known = new Set(queue.map((item) => item.id));
+    if (askActive?.sessionId === activeSessionId) known.add(askActive.id);
+    for (const payload of pending || []) {
+      if (!known.has(payload.id)) {
+        queue.push(payload);
+        known.add(payload.id);
+      }
+    }
+    pumpAsk();
+  } catch (err) {
+    log(`待处理权限询问恢复失败:${err}`, "warn");
+  }
+}
+
+
 async function switchProcess(processId) {
   if (processId === activeProcessId) return;
   const target = processItems.find((item) => item.id === processId);
@@ -2023,6 +2046,7 @@ async function switchProcess(processId) {
   bgClear();
   renderTodoPanel([], 0, 0);
   await loadConversation();
+  await refreshPendingAsks();
   await refreshDocs();
   await loadModels();
   // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
