@@ -5,7 +5,9 @@
 
 
 
+
 ## R-001 harness 双模式 dev/research profile [done]
+
 
 
 
@@ -19,7 +21,9 @@
 
 
 
+
 ## R-004 本地模型跑并行子代理(M4) [done]
+
 
 
 
@@ -33,7 +37,9 @@
 
 
 
+
 ## R-006 桌面端 UI 美化(用户反馈:现在有点丑) [done]
+
 
 
 
@@ -48,8 +54,10 @@
 
 
 
+
 ## R-009 对话历史记录持久化 [dropped]
 - 备注: 与 R-003 是同一事件日志/投影,并入 R-003 一并交付;关联缺陷 D-008 已修复
+
 
 
 
@@ -64,8 +72,10 @@
 
 
 
+
 ## R-012 将子Agent调度能力开放给主Agent [done]
 - 实现: task 工具 + 只读 explore 子代理(read/glob/grep),同轮多 task 并行,fast/primary 双档位,E2E 验证通过
+
 
 
 
@@ -79,7 +89,9 @@
 
 
 
+
 ## R-017 终端命令执行不弹出黑色控制台窗口 [done]
+
 
 
 
@@ -93,7 +105,9 @@
 
 
 
+
 ## R-020 编辑 diff 默认收纳并显示改变量摘要 [done]
+
 
 
 
@@ -107,6 +121,7 @@
 
 
 
+
 ## R-022 LLM 请求瞬断自动重试(流未建立时退避重试) [done]
 
 
@@ -114,7 +129,9 @@
 
 
 
+
 ## R-026 glob/grep 检索工具(ripgrep 内核,head-limit 早停) [done]
+
 
 
 
@@ -137,12 +154,14 @@
 
 
 
+
 ## R-010 需求与缺陷分级及可编辑管理 [done]
 - 范围: 需求/缺陷等级与字段编辑、按等级筛选排序、非法修改拒绝并提示
 - 已完成: 侧边栏展开编辑、状态流转按钮、缺陷 severity 展示
 - 剩余: 需求优先级枚举、列表筛选/排序
 - 完成说明: 需求条目新增 P0/P1/P2/P3 优先级枚举并由 tracker 硬门禁校验；桌面端 docs_snapshot 透传优先级，支持需求按状态/优先级筛选及按优先级、状态、编号排序；编辑入口支持保存优先级。cargo test --workspace 与 node --check crates/kanzei-app/ui/main.js 全部通过。
 - 验收: 非法优先级被拒绝并提示合法值；需求列表可按状态和优先级筛选，并按优先级、状态、编号排序；优先级持久化在 requirements.md 的“优先级”字段。
+
 
 
 
@@ -160,10 +179,12 @@
 
 
 
+
 ## R-007 复用订阅额度:Claude Code(OAuth)/Codex 凭证当 provider [done]
 - 已完成: Codex 凭证(auth.json 刷新回写、Responses 协议、gpt-5.6 三兄弟)
 - 剩余: Claude Code OAuth provider(~/.claude/.credentials.json)
 - 进展: 已完成 Claude OAuth token 自动刷新：接入 console.anthropic.com/v1/oauth/token，使用 Claude Code client_id 与 refresh_token，在过期前 5 分钟刷新并回写 accessToken/refreshToken/expiresAt；构建请求继续复用 Anthropic OAuth headers。cargo test --workspace 全部通过。剩余真实 Claude Code 端到端验证。
+
 
 
 
@@ -181,9 +202,11 @@
 
 
 
+
 ## R-027 需求分析沟通模式与缺陷查找入口 [dropped]
 - 范围: 需求澄清/边界/验收的结构化沟通模式;缺陷查找按钮与状态展示
 - 验收: 具体交互方案与权限边界在实现前补充确认
+
 
 
 
@@ -202,11 +225,13 @@
 
 
 
+
 ## R-033 阅读体验:智能滚动跟随+回到最新按钮、消息一键复制、对话内搜索 [done]
 - priority: P0
 - 归属: kanzei
 - 验收: 滚动跟随、回到最新、复制和对话搜索均已落地并接入实时消息与历史回放。
 - 进展: 已完成阅读体验闭环：消息区智能跟随（用户上滚时暂停）、回到最新按钮、消息/工具一键复制、对话内搜索及上下匹配跳转。已通过 cargo test --workspace 与 node --check。
+
 
 
 
@@ -226,6 +251,7 @@
 
 
 
+
 ## R-029 question 工具:agent 结构化向用户提问(带选项),复用 ask 弹窗通道 [done]
 - priority: P1
 - 归属: kanzei
@@ -239,11 +265,13 @@
 
 
 
+
 ## R-028 todo 工具:运行内任务清单,长连跑会话的结构化计划 + 前端可视化 [done]
 - priority: P1
 - 归属: kanzei
 - 进展: 已完成 todo 工具闭环：dev profile 新增 todowrite，整体替换当前运行计划，状态限定 todo/doing/done/dropped，最多 30 项并校验空字段；通过 ToolOutput.display.kind=todo 向桌面端发送结构化列表，右侧当前计划面板显示条目和完成比例。计划不写入项目 backlog。已通过 cargo test --workspace 与 node --check。
 - 验收: 运行内结构化计划可由 agent 更新，桌面端实时可视化状态与完成比例，数据有界且不污染跨会话项目文档。
+
 
 
 
@@ -262,6 +290,7 @@
 
 
 
+
 ## R-037 对话为主布局:主区只留对话与思考,工具活动收束到右侧活动面板 [done]
 - priority: P0
 - 归属: Claude
@@ -274,7 +303,9 @@
 
 
 
+
 ## R-038 需求列表按优先级着色(P0红/P1黄/P2蓝/P3灰,色条+徽标) [done]
+
 
 
 
@@ -289,6 +320,7 @@
 - 实现: 新增 list_pending_inputs/cancel_input Tauri command;前端新增排队输入面板、delivery 标识、单条撤销与生命周期刷新。
 - 验收结果: 队列可视化与单条撤销完成;存储层只能取消 pending 输入,调度语义不变。
 - 验证: cargo test --workspace; cargo check -p kanzei-app; node --check crates/kanzei-app/ui/main.js
+
 
 
 
@@ -312,6 +344,7 @@
 
 
 
+
 ## R-043 项目初始化与项目切换管理 [done]
 - 优先级: P1
 - 内容: 当前桌面端缺少完整的项目生命周期入口:首次使用时无法明确初始化项目配置/工作区,已配置多个项目时缺少项目切换入口,项目列表缺少新增、移除、重命名、路径查看与当前项目状态管理。需要建立项目管理 UI,并保证切换后对话、配置、运行上下文不会误串。
@@ -323,6 +356,7 @@
 - 实现: AppPrefs 增加向后兼容的 names 映射;新增 projects_init/projects_rename command;初始化创建项目目录与 .kanzei 配置目录;项目列表新增初始化和重命名入口,移除增加确认;切换/新增/初始化/移除当前项目刷新会话、文档、模型、Git、队列和面板。
 - 验收结果: 初始化、切换、显示名重命名、路径查看、移除确认且不删磁盘、重启持久化及项目上下文刷新均已覆盖。
 - 验证: cargo test --workspace; cargo check -p kanzei-app; node --check crates/kanzei-app/ui/main.js
+
 
 
 
@@ -345,6 +379,7 @@
 
 
 
+
 ## R-039 权限弹窗队列化 + 连跑控制增强(暂停/跑完本轮停/上限可配) [done]
 - 内容: 多 ask 排队时一次只显示一个弹窗,看不到「还有几条待确认」;需要队列感(计数角标/列表)。连跑控制:上限写死 10、无暂停、无「跑完这轮就停」按钮。来源: docs/design/frontend-phase3.md §二.3/§二.4
 - 来源: docs/design/frontend-phase3.md
@@ -355,6 +390,7 @@
 - 实现: 权限弹窗增加当前/总数与待处理预览;连跑新增暂停/恢复、本轮后停止、1-100 可配置上限并持久化;新增自动续跑 timer 取消与 generation 校验,停止/错误/关闭连跑不会被旧 timer 重启。
 - 验收结果: 多 ask 排队有队列感;连跑可暂停/恢复、跑完本轮停止、上限可改;停止后不会因旧 timer 自动再次启动。
 - 验证: cargo test --workspace; cargo check -p kanzei-app; node --check crates/kanzei-app/ui/main.js
+
 
 
 
@@ -372,7 +408,9 @@
 
 
 
+
 ## R-052 发行版安装包与应用内更新:NSIS setup.exe(scripts/package.ps1),GitHub Releases 为更新源,设置页检查更新/下载安装 [done]
+
 
 
 
@@ -386,6 +424,7 @@
 - 优先级: P2
 - 实现: 桌面端统一错误卡片：网络/连接/超时错误显示“可重试错误”并提供“重试上一次请求”；其他错误显示“致命错误”且不提供重试。仅保存手动发送的最近请求，连跑错误不会覆盖重试目标，也不自动重放任务。
 - 边界: 错误级别当前基于错误文本中的网络/连接/超时关键词判断，后续如需服务端结构化分类可另行扩展 Tauri 事件契约。
+
 
 
 
@@ -406,6 +445,7 @@
 
 
 
+
 ## R-048 对话尾部运行指示与计时器 [done]
 - 内容: 在对话尾部增加稳定的运行状态信息区:running 指示图标、当前阶段、已运行计时器、必要时显示当前 turn。运行开始显示,完成/停止/错误显示最终状态和耗时,不能因事件刷新闪烁或丢失。
 - 复杂度: 小
@@ -414,6 +454,7 @@
 - 优先级: P1
 - 计划: 收數运行尾部状态：保留已有阶段详情，但新增稳定的“运行中/空闲 + 计时”视觉标识；去除状态点持续闪烁，确保完成、停止、错误路径复位。仅改前端，不改后端契约。
 - 实现: 状态栏新增稳定的“运行中/空闲”主状态，保留原有阶段详情与运行计时；运行点改为稳定颜色、不再持续闪烁。发送、完成、停止、错误均通过既有 setStatus/stopElapsed 链路正确复位。
+
 
 
 
@@ -430,6 +471,7 @@
 
 
 
+
 ## R-053 快速记需求:独立按钮+子代理把自然语言描述结构化写入需求列表,不打断主对话 [done]
 - priority: P1
 - 复杂度: 中
@@ -437,6 +479,7 @@
 - 场景: 主对话/连跑进行中,用户随时想到新需求,不想停下当前 run 也不想切上下文——点需求区的"✎ 记需求"按钮,输入一段自然语言,交给独立子代理结构化落库
 - 实现要点: ①需求区标题栏加按钮,弹小输入框(多行,Ctrl+Enter 提交);②后端新命令启动**独立的迷你 run**(参考 fast_summarize 的独立调用方式,不占主对话 conversation/queue,可与主 run 并行);③子代理只挂 req 工具,提示词要求:精炼标题、建议 priority/复杂度、起草一条验收、原始描述存入"原始描述"字段;④模型默认 fast,fast 结构化失败(空/格式错)自动升级 primary 重试一次;⑤完成后 toast 显示新 ID 并刷新需求列表,失败给明确报错
 - 验收: 主对话运行中可用;提交到落库全程不打断主 run;新条目含标题/priority/复杂度/验收/原始描述;fast 失败时 primary 兜底;连提多条互不覆盖
+
 
 
 
@@ -457,11 +500,13 @@
 
 
 
+
 ## R-018 对话结束时播放提示音并显示完成提示 [done]
 - priority: P3
 - 归属: kanzei
 - 验收: 成功/失败/停止均提示;失焦可感知;通知失败不影响对话结果
 - 进展: 已完成：运行成功、失败、手动停止及权限拒绝停止均显示 toast、播放短提示音；窗口失焦时更新标题并在已授权时发送系统通知，通知/音频失败仅记录 warn，不影响运行结果。新增统一 notifyRunState/playRunNotice 与回焦标题恢复。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -479,11 +524,13 @@
 
 
 
+
 ## R-034 research 模式前端:来源/发现侧边栏、引用跳转、报告入口 [done]
 - priority: P2
 - 归属: kanzei
 - 验收: research 模式显示来源/发现侧边栏,引用可跳转,支持报告入口,与后端 sources/findings 对齐
 - 进展: 已完成首个可用闭环：docs_snapshot 现在返回 sources/findings 及归档计数；docs_path 支持 source/finding/report 及归档文档；侧栏新增研究区与报告入口；source/finding 的 refs 字段渲染为可点击引用，可滚动定位对应条目。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -496,6 +543,7 @@
 - 验收: 上下文进度条可点击查看成分拆解;每次压缩产生的纪要可在对话或面板中回看
 - 优先级: P2
 - 进展: 已完成：上下文 token 状态栏可点击查看输入上下文、缓存读取、本轮输出与合计成分；kz:compacted 读取 summary，将压缩纪要加入活动面板并支持点击展开；点击上下文状态会打开并定位最近纪要。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -515,6 +563,7 @@
 
 
 
+
 ## R-046 统一连续推进与过夜模式:可配置 turn 上限 [done]
 - 内容: 合并“连跑”和“自主推进”入口与状态,统一为可配置的连续推进任务。保留手动暂停/恢复、本轮后停止、上限配置;新增过夜模式,可指定最多执行多少次连跑 turn,达到上限或无实质进展自动停止,并清晰显示当前轮次/剩余次数/停止原因。
 - 复杂度: 中
@@ -522,6 +571,7 @@
 - 验收: 单一入口可选择连续推进;可设置过夜 turn 上限并持久化;运行中显示当前/总 turn 与剩余次数;支持暂停、恢复、本轮后停、立即停止;达到上限、无实质进展、错误或用户停止均有明确状态。
 - 优先级: P1
 - 进展: 已完成首个统一连续推进闭环：原有鞭挞上限明确显示为连续推进上限，新增可持久化过夜模式偏好（重启不静默运行），状态栏显示当前推进轮次/上限/等待状态，完成、用户拒绝、手动停止均显示停止原因。保留暂停、本轮后停和既有安全边界。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -541,6 +591,7 @@
 
 
 
+
 ## R-049 缺陷梳理:静态 harness 分析报告 [done]
 - 内容: 在缺陷列表旁增加“缺陷梳理”按钮,调用静态 harness 流程读取当前项目 defects.md、相关代码/文档上下文,由模型生成缺陷归类、重复项、影响范围、建议优先级与下一步;第一阶段只生成报告,不自动修改缺陷状态或代码,动态监测后续再做。
 - 复杂度: 中
@@ -548,6 +599,7 @@
 - 验收: 缺陷区有按钮;点击后显示处理中/成功/失败状态;模型仅基于当前静态快照生成结构化报告(分类/重复/影响/优先级/建议);报告可在应用内查看或复制;不会自动改写 defects.md、需求状态或代码;无缺陷时有明确空状态。
 - 优先级: P1
 - 进展: 已完成静态分析报告：覆盖 harness 权限门禁、工具资源、路径边界、agent 选择、子代理隔离、runner 最后一步和 task 并发等风险；按高/中/低风险整理位置、影响、建议与测试缺口，并给出实施顺序。报告：docs/reports/2026-08-08-harness-static-analysis.md。git diff --check、cargo test -p kanzei-harness -p kanzei-core -p kanzei-tools 通过。
+
 
 
 
@@ -567,8 +619,10 @@
 
 
 
+
 ## R-055 需求与缺陷管理独立栏目:活动栏第三视图,整页管理(列表/详情/编辑/筛选/拖拽),侧边栏只留摘要 [done]
 - 进展: 已完成首个独立管理闭环：Activity bar 新增需求与缺陷视图；整页需求/缺陷列表复用详情展开、状态更新、需求拖拽排序，新增整页状态/优先级筛选；进入独立视图时侧栏收束为摘要，项目刷新后两处数据同步。node --check、git diff --check、cargo test -p kanzei-app -p kanzei-tools 通过。
+
 
 
 
@@ -588,6 +642,7 @@
 
 
 
+
 ## R-057 可直接点击需求调整优先级标签 [done]
 - 原始描述: 可以直接点击需求调整优先级标签
 - 复杂度: 中
@@ -595,6 +650,7 @@
 - 验收: 用户在需求列表中可点击条目直接修改其优先级标签
 - 优先级: P2
 - 进展: 已完成：需求列表中的优先级徽章现在可直接点击，按 P0→P1→P2→P3→P0 循环；点击会阻止详情展开/拖拽，并通过 docs_update 持久化，未评估需求显示 P? 作为入口。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -615,11 +671,13 @@
 
 
 
+
 ## R-060 补全所有需求条目的复杂度字段标记（优先级/难度评估） [done]
 - 验证: 检查项目文档中所有现存需求的 P0-P3 级优先级标签是否已完整标注
 - 优先级: P2
 - 进展: 已完成：盘点并补齐全部当前未归档需求的复杂度字段：R-030/R-050/R-059 标记为大，R-060/R-061 标记为小；R-051 已验证列表对缺失字段显示未评估、支持筛选/排序/编辑。req get 逐项核验通过，git diff --check、cargo test -p kanzei-tools 通过。
 - 复杂度: 小
+
 
 
 
@@ -640,12 +698,14 @@
 
 
 
+
 ## R-062 修复需求与缺陷计数问题，完成后停止鞭挞 [dropped]
 - 原始描述: 当所有需求和缺陷做完计数就问题的时候，停止鞭挞，而且现在计数有问题
 - 复杂度: 中
 - 归属: kanzei
 - 验收: 所有需求和缺陷全部完成时计数准确无误，且计数异常时停止鞭挞提醒
 - 优先级: P1
+
 
 
 
@@ -659,6 +719,7 @@
 - 归属: kanzei
 - 验收: 当需求与缺陷全部清空（无 todo/doing 条目）时，系统自动停止运行并退出
 - 进展: 已完成：自动续跑每轮结束前读取 docs_snapshot，检查需求与缺陷是否均无活动条目；全部清空时自动取消鞭挞、清理旧 timer/轮次、持久化关闭状态，并在对话与日志显示停止原因；查询失败时保守继续且记录警告。node --check、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -679,6 +740,7 @@
 
 
 
+
 ## R-064 联通性前端检查实现 [done]
 - 复杂度: 中
 - 验收: 通过测试确认前端具备网络连通性检测能力
@@ -686,6 +748,7 @@
 - 进展: 已完成：设置页新增“测试全部连通性”，按 Provider 顺序复用既有 provider_test 并显示进度/可用数量；单项测试增加禁用态防重复触发。
 - 阻塞: 无
 - 验证: node --check crates/kanzei-app/ui/main.js；cargo check -p kanzei-app；git diff --check 均通过。cargo check 有既存 kanzei-core final_text unused assignment 警告，不影响本需求。
+
 
 
 
@@ -709,6 +772,7 @@
 
 
 
+
 ## R-065 联通性检查前后端联动缺陷修复 [done]
 - 复杂度: 中
 - 验收: 前端网络连通性检测功能正常工作
@@ -722,6 +786,7 @@
 
 
 
+
 ## R-067 继续按钮位置调整与文案编辑功能 [done]
 - 原始描述: 把继续按钮挪到对话框下面。支持编辑继续的文案
 - 归属: kanzei
@@ -729,6 +794,7 @@
 - 进展: 继续控件已移至对话编辑区下方；文案可编辑并写入 localStorage，自动推进与手动继续共用该文案。
 - 验证: node --check crates/kanzei-app/ui/main.js；静态核对顶栏不再有继续按钮，composer 下方存在编辑框和按钮。
 - 核查(2026-08-07): 达标。继续控件确在 composer 内且文案可编辑、自动与手动共用。注:首次打勾时(3ec8f72)展开按钮无事件处理器是死按钮,同日 8fa8c45 才补上;继续按钮默认藏在折叠面板内,发现性偏低。
+
 
 
 
@@ -750,6 +816,7 @@
 
 
 
+
 ## R-072 修改文案将需求改为需求与工作 [done]
 - 优先级: P1
 - 进展: 侧栏、独立管理页和活动导航统一使用“需求与工作”文案。
@@ -761,11 +828,13 @@
 
 
 
+
 ## R-073 变更进展为状态并规划plan显示位置 [done]
 - 优先级: P2
 - 进展: 运行侧栏改为“当前状态”，目标速记写入 `状态` 字段；模型 todo 计划继续固定显示在独立计划面板，避免挤入对话正文。
 - 验证: node --check crates/kanzei-app/ui/main.js；静态核对状态字段和计划面板位置。
 - 核查(2026-08-07): 达标。侧栏"当前状态"、目标速记写入状态字段、todo 计划固定渲染进独立面板均属实。注:目标速记入口位于详情展开区,受 D-048 崩溃波及暂时摸不到,修复后恢复。
+
 
 
 
@@ -788,6 +857,7 @@
 
 
 
+
 ## R-077 优化历史对话勾选框与本地模型集成 [done]
 - 归属: kanzei
 - 验收: 修复历史对话勾选交互问题，实现本地多模型的完整服务管理集成功能
@@ -795,6 +865,7 @@
 - 进展: 历史对话增加全选/取消全选和逐条勾选同步；本地 Ollama 模型仍通过 `/api/tags` 动态纳入模型清单，并沿用 no_proxy 本地调用。
 - 验证: node --check crates/kanzei-app/ui/main.js；cargo test -p kanzei-app（7 项通过）。
 - 核查(2026-08-07): 部分达标。历史对话勾选交互真实且逻辑正确(全选/逐条同步/批量删除)。但"本地多模型的完整服务管理集成"仅是把已装模型列进下拉,无服务启停、模型拉取/删除、健康管理;且 /api/tags 集成由 08-06 提交 5ca33d2 引入,早于本需求,归档描述自己写的是"仍通过",属既有能力再打包。
+
 
 
 
@@ -816,6 +887,7 @@
 
 
 
+
 ## R-079 P0：缺陷管理优先级于需求制定流程改进 [done]
 - 原始描述: 应该先是做缺陷再做需求，这个改进优先级高
 - 复杂度: 中
@@ -825,6 +897,7 @@
 - 进展: dev 上下文、继续文案和项目文档索引均明确先扫描缺陷，再按需求文件顺序取活；缺陷终态归档后才进入需求队列。
 - 验证: cargo test -p kanzei-tools（13 项通过）；node --check crates/kanzei-app/ui/main.js。
 - 核查(2026-08-07): 部分达标。改动真实且方向正确(dev 上下文把缺陷索引前置、system prompt 与继续文案均声明 defect-first,上下文顺序对模型行为确有实际影响),但零代码强制,违反项目规范"任何规则能用代码强制的绝不只写进提示词"——tracker 状态机是现成的强制点(存在 open 缺陷时 req update doing 可警告或要求确认),未实现。profiles.rs 整个文件无测试模块,声称的 13 项测试无一覆盖 defect-first 顺序。
+
 
 
 
@@ -842,6 +915,7 @@
 
 
 
+
 ## R-082 R-001：建立架构与技术细节的档案组织 [done]
 - priority: P2
 - 复杂度: 小
@@ -849,6 +923,7 @@
 - 进展: 创建 `.kanzei/project/architecture/README.md`，并建立对现有设计文档的索引与事实/待办记录约定。
 - 验证: 架构目录和 README 已存在；docs_path 支持应用内打开 architecture 文档。
 - 核查(2026-08-07): 达标但偏薄。位置/格式/约定正确,索引指向的 4 个设计文档真实存在且相对路径正确。但目录内只有 README、零篇新架构文档,且 agent 对 *.kanzei/project/* 写硬 deny,该归档空间模型自己写不进去只能用户手写,与 R-080 属同一结构性问题(建了容器没建供给侧),后续能否生长存疑。
+
 
 
 
@@ -869,6 +944,7 @@
 
 
 
+
 ## R-094 模型思考强度可配置与运行时选择 [done]
 - 复杂度: 中
 - 优先级: P1
@@ -878,6 +954,7 @@
 - 完成说明: kanzei-llm 新增 ReasoningEffort(含未知值回落 off 的 parse)与 LlmRequest.reasoning;anthropic 映射为 thinking.budget_tokens(4096/12288/24576)并在预算超过输出上限时自动抬高 max_tokens、开启时不发 temperature(API 硬要求);openai 映射为 reasoning_effort;openai-responses 并入既有 reasoning 对象的 effort 字段。kanzei.toml 新增 `[models] reasoning`(serde default,缺省 off);桌面端 ProcessInfo/process_create/process_update 支持每进程覆盖,顶栏新增思考强度下拉(空值=用默认档),设置页新增默认档并透传保存。子代理、快记与会话总结固定 off(机械任务不需思考预算)。
 - 验证: cargo test --workspace 全绿(91 项),新增 4 项回归测试覆盖三协议映射与 parse 回落;node --check crates/kanzei-app/ui/main.js。
 - 备注: 档位对应的 token 预算是首版取值,实机用下来若偏保守可直接调 budget_tokens。
+
 
 
 
@@ -901,6 +978,7 @@
 
 
 
+
 ## R-098 dev profile 的跨会话记忆机制 [done]
 - 复杂度: 大
 - 优先级: P1
@@ -915,6 +993,7 @@
 - 完成说明: 复用 TrackerTool 而非另起一套——新增 MEMORY DocKind(.kanzei/project/memory.md,前缀 M,状态 active⇄stale,stale 为终态可 archive),白拿 ID 分配、状态机、格式强制与归档。dev profile 注册 `memory` 工具并新增 dev/memory 上下文源:只注入 active 条目,3000 字符预算,超预算显式写出还剩多少条未注入而非静默截断(研究侧 memory.md 的老毛病)。dev agent 提示词写明职责分离:已确认的事实与踩过的坑进 memory,不要埋进 req/defect 的进展字段;结论被推翻时用 memory update <id> stale 让它离开上下文。
 - 验证: cargo test -p kanzei-tools 26 项通过;cargo test --workspace 全绿(125 项)。
 - 遗留: 桌面端侧栏尚未展示 memory 列表(docs_snapshot 未接),当前只能用 memory list 或直接打开 .kanzei/project/memory.md 查看;研究侧 memory.md 的来源 ID 硬校验仍归 R-070。
+
 
 
 
@@ -973,6 +1052,7 @@
 
 
 
+
 ## R-107 Memory M4:独立 Memory 页与空闲整理 [done]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -1002,6 +1082,7 @@
 
 
 
+
 ## R-110 讨论与设计沉淀为决策条目 [done]
 - 复杂度: 中
 - 优先级: P1
@@ -1012,6 +1093,7 @@
 - 进展: 1a8a81b 交付(用户直营);种子条目 decisions.md A-001~A-005 已落。
 - refs: R-103
 - 阶段: 4
+
 
 
 ## R-108 建立AI设计/技术选型沉淀机制 [done]
@@ -1053,4 +1135,40 @@
 
 - 验收对照: ①规范记录：docs/design/readme.md 的“记录分工”“设计文档最小结构”“决策与方案变更”；②团队共享知识资产：docs/design/r108_ai_design_decision_records.md 真实示例，架构/需求/决策 ID 可追溯；③技术方案变更：示例“变更记录”及新建 A-*、superseded/rejected 规则；④沿用既有实现：decision 工具/CLI/状态机已有，未重复实现；⑤验证：PowerShell 断言与 diff check 已通过。残余：A-006 依用户接受后再转 accepted，未假定为已接受长期约束。
 - 验证: PowerShell 文档断言：规范入口、示例、A-006 均存在；示例包含背景与问题/候选方案/最终方案/技术选型与取舍/变更记录/验证证据/R-108/A-006；A-006→示例且示例→A-006 双向引用通过；git diff --check -- .kanzei/project/decisions.md 通过。改动仅文档与 tracker，未动 crates/ui，不运行 Cargo 或前端测试。
+
+
+## R-109 侧边栏设计语言一致性规范 [done]
+- 标签: 前端
+- priority: P0
+- 原始描述: 所有的侧边栏设计语言要一致，包括筛选排序显示等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 所有侧边栏(筛选/排序显示)使用统一的设计语言与视觉风格
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 进展: 已完成完整交付：统一侧栏与独立文档页的筛选/排序控件契约。crates/kanzei-app/ui/index.html:254-257 为独立文档页 status/priority/tag select 补上既有 doc-filter 类；crates/kanzei-app/ui/style.css:119-125 将 doc-filter 统一为相同尺寸、间距、颜色、边框与字体；style.css:193-198、834-838 统一独立文档工具条和侧栏筛选行的间距、边框、背景及换行。沿用既有 req/defect filter、sort 事件和 renderDocList 调用方，不新增死控件。过程中发现并修复 D-128 冒烟桩 select.options 契约缺失。
+
+- 验收对照: 验收“所有侧边栏(筛选/排序显示)使用统一设计语言与视觉风格”：①需求侧 status/complexity/priority/tag/sort 与缺陷侧 tag 继续使用 doc-filter；②独立文档页 status/priority/tag 现接入同一 doc-filter；③侧栏 doc-filter-row 与独立页 documents-toolbar 统一 6px gap、panel2 背景、边框/圆角、响应式换行；④沿用既有过滤、排序和重绘调用方，未只建展示壳。
+- 验证: node --check crates/kanzei-app/ui/main.js 通过；node scripts/ui-runtime-smoke.mjs 通过：main.js 全量执行、初始化 12 次 invoke、需求/缺陷/目标/测试/历史列表渲染，0 个运行时错误。
 

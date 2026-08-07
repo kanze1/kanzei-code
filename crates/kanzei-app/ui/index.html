@@ -251,10 +251,10 @@
             <select id="documents-project-select" title="切换当前项目"></select>
             <button id="documents-tab-req" class="primary">需求与工作</button>
             <button id="documents-tab-defect" class="ghost">缺陷</button>
-            <select id="documents-status-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
-            <select id="documents-priority-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+            <select id="documents-status-filter" class="doc-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
+            <select id="documents-priority-filter" class="doc-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
             <button id="documents-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换文档页分组显示" aria-pressed="true">☰</button>
-            <select id="documents-tag-filter" title="按标签筛选"><option value="all">全部标签</option></select>
+            <select id="documents-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
           </div>
           <div id="documents-req-list" class="doc-list documents-list"></div>
           <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
