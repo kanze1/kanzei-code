@@ -486,18 +486,15 @@
 - 进展: 阻塞：现有 `activity-toggle`/右侧活动面板已提供工具进度与最近活动展示，但条目没有明确新增入口位置、子代理数据字段或与现有面板的差异，直接实现会重复既有能力。解除条件：确认要展示的子代理字段、按钮位置和与现有活动面板的边界；下一步：按确认契约补真实数据调用与回归。
 - 阻塞: 现有活动面板已覆盖部分验收，但新增范围与数据契约不明确，疑似重复申报。
 
-## R-118 设置界面与选项配置及导出口径支持 [done]
-- 复杂度: 中
-- 验收: 实现可配置的设置UI，提供导出功能并显示路径
-- 优先级: P1
-
-- 进展: 已完成（沿用既有实现）：R-119 的设置页工作资料导出已满足本条验收，包含可配置导出项、目录选择、真实 `export_project_data` Tauri 调用和实际路径显示。位置：crates/kanzei-app/src/main.rs 的 export_pick_dir/export_project_data；ui/index.html 与 ui/main.js 的工作资料导出区。验证：export_project_data_copies_selected_work_materials、node --check、ui-runtime-smoke、ui-i18n-smoke。
-- 阻塞: 
-
-- 验证: 沿用 R-119 实现；cargo test -p kanzei-app export_project_data_copies_selected_work_materials；node --check；ui-runtime-smoke；ui-i18n-smoke
-
 ## R-120 侧边栏直接修改记录和缺陷功能 [todo]
 - 复杂度: 中
 - 归属: kanzei
 - 验收: U能在侧边栏查看并编辑需求和缺陷记录
 - 优先级: P1
+
+## R-121 继续按钮旁一键调用已沉淀SOP [todo]
+- priority: P1
+- 原始描述: 沉淀好的SOP应该支持我一键调用，这个SOP放到继续按钮旁边，然后弹窗选择可以调用SOP，比如一键发版等等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 在继续按钮旁新增SOP入口,点击弹窗展示可选SOP列表(如一键发版),选择后可一键调用执行
