@@ -1422,9 +1422,12 @@ struct ProviderPayload {
     context_limit: Option<u64>,
 }
 
-#[tauri::command]
-fn settings_save(payload: SettingsPayload) -> Result<(), String> {
-    let mut config = KanzeiConfig::default();
+fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+    // 以现有配置为底,只覆盖设置页管理的字段,保留手写权限规则等非表单内容。
+    let mut config: KanzeiConfig = std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| toml::from_str(&text).ok())
+        .unwrap_or_default();
     config.models.primary = Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty());
     config.models.fast = Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty());
     // off 是默认值,不写进文件,保持配置精简。
@@ -1464,11 +1467,15 @@ fn settings_save(payload: SettingsPayload) -> Result<(), String> {
         );
     }
     let text = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    let path = global_config_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, text).map_err(|e| e.to_string())
+    std::fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn settings_save(payload: SettingsPayload) -> Result<(), String> {
+    settings_save_at_path(payload, &global_config_path())
 }
 
 #[tauri::command]
@@ -3457,4 +3464,42 @@ async fn run_task(
         }), &session_id),
     );
     Ok(())
+}
+
+
+#[cfg(test)]
+mod settings_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn settings_save_preserves_handwritten_permission_rules() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            "[permissions]
+[[permissions.rules]]
+action = \"bash\"
+resource = \"{\\\"command\\\":\\\"git status\\\",\\\"workdir\\\":\\\".\\\"}\"
+effect = \"allow\"
+",
+        ).unwrap();
+        settings_save_at_path(SettingsPayload {
+            primary: "anthropic:claude-sonnet-5".into(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            profile_default: None,
+            profile: None,
+            providers: vec![],
+        }, &path).unwrap();
+        let config: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].action, "bash");
+        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        let _ = std::fs::remove_file(path);
+    }
 }
