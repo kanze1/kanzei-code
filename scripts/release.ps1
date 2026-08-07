@@ -34,8 +34,24 @@ $app_source = "$root\target\release\kzapp.exe"
 $app_dir = "$env:LOCALAPPDATA\kanzei"
 $app_destination = "$app_dir\kzapp.exe"
 New-Item -ItemType Directory -Force $app_dir | Out-Null
+
+# 终端 `kzapp` 必须与快捷方式启动同一个二进制:删掉 cargo bin 的副本后,
+# 这里放一个转发启动器补回该能力——它没有自己的版本,不可能再产生第二份旧版(D-145)。
+# 必须在 try 之前装:app 正在运行时下面会走 pending 分支并 throw,放在后面就永远装不上。
+$launcher = "$env:USERPROFILE\.cargo\bin\kzapp.cmd"
+@"
+@echo off
+rem kanzei 桌面端启动器:桌面端只有一个安装位(LocalAppData),本文件只做转发。
+rem 不要在 cargo bin 再放 kzapp.exe——两份副本各自更新就是 D-145 的成因。
+start "" "%LOCALAPPDATA%\kanzei\kzapp.exe" %*
+"@ | Set-Content $launcher -Encoding ASCII
+
 try {
     Copy-Item $app_source $app_destination -Force -ErrorAction Stop
+    # 硬校验:安装位内容必须与本次构建逐字节一致,杜绝"发布成功但仍在跑旧版"。
+    if ((Get-FileHash $app_source).Hash -ne (Get-FileHash $app_destination).Hash) {
+        throw "安装校验失败:$app_destination 与本次构建不一致"
+    }
     # 本次直接安装成功时清理旧 pending，避免下次启动重复回滚/覆盖。
     Remove-Item "$app_destination.pending" -Force -ErrorAction SilentlyContinue
     # 桌面端统一由 LocalAppData 运行；cargo bin 只保留 kz CLI，清理历史桌面副本。
@@ -50,6 +66,12 @@ try {
     throw "app build succeeded, installation deferred to next startup"
 }
 
+$stale = "$env:USERPROFILE\.cargo\bin\kzapp.exe"
+if (Test-Path $stale) {
+    Write-Host "警告:$stale 仍存在(可能正在运行),它是旧版且不再被更新;关闭后重跑本脚本清理。" -ForegroundColor Yellow
+}
+
 Write-Host "==> installed:" -ForegroundColor Green
 kz --version
 "kzapp.exe $((Get-Item $app_destination).Length / 1MB -as [int]) MB -> $app_destination"
+"启动器: $launcher(终端输入 kzapp 即转发到上面这一份)"

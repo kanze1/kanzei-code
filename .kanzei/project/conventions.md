@@ -120,6 +120,7 @@
 - 测试:`cargo test --workspace`,全绿才算改动完成;单 crate 快速检查用 `cargo build -p <crate>`。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
   - 流程 = 全量测试 → 安装 `kz` 到 `~\.cargo\bin` → release 构建桌面端 kzapp 并复制安装;
+  - **桌面端只有一个安装位:`%LOCALAPPDATA%\kanzei\kzapp.exe`**(应用内更新与开始菜单都指向它)。`~\.cargo\bin` 只放 `kz` CLI 与转发启动器 `kzapp.cmd`,**绝不能再放 kzapp.exe**——两份副本各自更新就会出现"发布了但仍在跑旧版"(D-145)。判断当前跑的是哪份:`Get-Process kzapp | Select-Object Path`。
   - kzapp 正在运行时复制会失败,脚本会把新版本存为 `kzapp.exe.pending` 并提示——此时告知用户”关闭 kzapp 后重跑 release.ps1”,**不要强杀用户正在使用的窗口**;
   - `-SkipTests` 仅在用户明确要求时使用。
 - 版本验证:`kz --version` 输出 `kanzei 0.1.0 (<git hash> <日期>)`;桌面端右下角有相同版本徽章,以此确认用户装到的是新版。
