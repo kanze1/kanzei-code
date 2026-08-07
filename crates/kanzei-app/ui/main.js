@@ -3337,6 +3337,16 @@ function renderProviders() {
   });
 }
 
+async function deletePermissionRule(rule) {
+  try {
+    await invoke("permission_rule_delete", { projectDir: currentProject, index: rule.index });
+    toast("已删除权限规则");
+    await loadPermissionRules();
+  } catch (err) {
+    toastError(`删除失败: ${err}`, { retry: () => deletePermissionRule(rule) });
+  }
+}
+
 function renderPermissionRules(data) {
   const tbody = $("permission-rules-table").querySelector("tbody");
   tbody.replaceChildren();
@@ -3357,13 +3367,7 @@ function renderPermissionRules(data) {
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
       if (!confirm(`删除 ${rule.action} / ${rule.resource}？`)) return;
-      try {
-        await invoke("permission_rule_delete", { projectDir: currentProject, index: rule.index });
-        toast("已删除权限规则");
-        loadPermissionRules();
-      } catch (err) {
-        toastError(`删除失败: ${err}`);
-      }
+      await deletePermissionRule(rule);
     });
     controls.appendChild(remove);
     row.append(action, resource, controls);
