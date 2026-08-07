@@ -449,6 +449,19 @@ mod tests {
     }
 
     #[test]
+    fn rate_limit_kind_with_token_message_is_not_context_overflow() {
+        let mut s = OpenAiState::default();
+        let err = s
+            .step(&SseEvent {
+                event: String::new(),
+                data: r#"{"error":{"type":"rate_limit_error","message":"token limit reached for this minute"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_rate_limited());
+        assert!(!err.is_context_overflow());
+    }
+
+    #[test]
     fn body_maps_tool_results_to_tool_role() {
         let req = LlmRequest {
             model: "qwen3".into(),

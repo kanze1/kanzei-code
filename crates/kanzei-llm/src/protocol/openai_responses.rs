@@ -388,6 +388,19 @@ mod tests {
     }
 
     #[test]
+    fn rate_limit_kind_with_token_message_is_not_context_overflow() {
+        let mut s = ResponsesState::default();
+        let err = s
+            .step(&SseEvent {
+                event: String::new(),
+                data: r#"{"type":"error","code":"rate_limit_error","message":"token limit reached for this minute"}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_rate_limited());
+        assert!(!err.is_context_overflow());
+    }
+
+    #[test]
     fn reasoning_encrypted_roundtrip() {
         let mut s = ResponsesState::default();
         feed(&mut s, r#"{"type":"response.created","response":{}}"#);

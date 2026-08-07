@@ -471,6 +471,19 @@ mod tests {
     }
 
     #[test]
+    fn rate_limit_kind_with_token_message_is_not_context_overflow() {
+        let mut s = AnthropicState::default();
+        let err = s
+            .step(&SseEvent {
+                event: "error".into(),
+                data: r#"{"type":"error","error":{"type":"rate_limit_error","message":"token limit reached for this minute"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_rate_limited());
+        assert!(!err.is_context_overflow());
+    }
+
+    #[test]
     fn body_places_cache_breakpoints() {
         let req = LlmRequest {
             model: "claude-sonnet-5".into(),
