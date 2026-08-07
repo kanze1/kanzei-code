@@ -2646,13 +2646,16 @@ function filterRequirements(entries, filters = reqFilters) {
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
 let dragReqId = null;
-function reqDragEnabled() {
-  return reqFilters.sort === "manual" && reqFilters.status === "all" && reqFilters.priority === "all" && reqFilters.complexity === "all";
+function reqDragEnabled(filters = reqFilters) {
+  return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all";
 }
-function docDragEnabled(kind, listEl) {
-  return kind === "req"
-    ? reqDragEnabled()
-    : kind === "defect" && (listEl.id === "defect-list" || (listEl.id === "documents-defect-list" && documentFilters.defect.status === "all"));
+function docDragEnabled(kind, listEl, filterState) {
+  if (kind === "req") return reqDragEnabled(filterState);
+  if (kind !== "defect") return false;
+  if (listEl.id === "defect-list") return true;
+  return listEl.id === "documents-defect-list"
+    && filterState.status === "all"
+    && filterState.priority === "all";
 }
 async function commitDocOrder(listEl, kind) {
   const order = [...listEl.querySelectorAll(".doc-item[data-doc-id]")].map((el) => el.dataset.docId);
@@ -2734,7 +2737,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
     // 松手落在行间隙时 drop 不触发,只靠 drop 会静默丢单。
-    if (docDragEnabled(kind, el)) {
+    if (docDragEnabled(kind, el, reqFilterState)) {
       item.draggable = true;
       item.addEventListener("dragstart", (e) => {
         dragReqId = entry.id;
@@ -3055,7 +3058,7 @@ function renderDocuments(snapshot) {
   const defects = (snapshot.defects ?? [])
     .filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status)
     .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority);
-  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
+  renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
   reqList.classList.toggle("hidden", documentsKind !== "req");
   defectList.classList.toggle("hidden", documentsKind !== "defect");
   $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
@@ -3064,7 +3067,7 @@ function renderDocuments(snapshot) {
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
   renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
-  renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, reqFilters, snapshot.archived_entries?.defect ?? []);
+  renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, { status: "all", priority: "all" }, snapshot.archived_entries?.defect ?? []);
   renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
   renderDocuments(snapshot);
   renderDocList($("source-list"), snapshot.sources ?? [], "source", snapshot.archived?.source ?? 0, reqFilters, snapshot.archived_entries?.source ?? []);

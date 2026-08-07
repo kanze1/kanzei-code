@@ -39,5 +39,8 @@ assert.match(js, /handle\.addEventListener\("keydown"/);
 assert.match(js, /function hideContextDetail\(\)/);
 assert.match(js, /function toggleContextDetail\(\)/);
 assert.match(js, /event\.key === "Escape"/);
+assert.match(js, /function docDragEnabled\(kind, listEl, filterState\)/);
+assert.match(js, /filterState\.priority === "all"/);
+assert.match(js, /renderDocList\(defectList,[\s\S]*documentFilters\.defect/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
