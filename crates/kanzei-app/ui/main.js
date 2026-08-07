@@ -55,6 +55,8 @@ const I18N_EN = {
   "运行事件": "run event", "当前对话": "Current chat", "暂无": "None",
   "最近活动": "Recent activity", "排队": "Queued", "条": "items", "更新于": "Updated", "已归档": "archived",
   "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
+  "外部阻塞": "Externally blocked", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
+  "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -64,6 +66,10 @@ function languageIsEnglish() {
 function t(key) {
   const language = localStorage.getItem("kz-language") || "zh";
   return language === "en" ? (I18N_EN[key] || key) : key;
+}
+function localizedDocStatus(status) {
+  const labels = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped", fixing: "Fixing", fixed: "Fixed", open: "Open", wontfix: "Won't fix" };
+  return languageIsEnglish() ? (labels[status] || status) : status;
 }
 function applyLanguage() {
   const language = localStorage.getItem("kz-language") || "zh";
@@ -2488,13 +2494,13 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     }
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
-    st.textContent = entry.status + (entry.severity ? `/${entry.severity}` : "");
+    st.textContent = localizedDocStatus(entry.status || "todo") + (entry.severity ? `/${entry.severity}` : "");
     row.append(id, st);
     if (externalBlocked) {
       const blocked = document.createElement("span");
       blocked.className = "blocked-badge";
-      blocked.textContent = "外部阻塞";
-      blocked.title = "等待项目外部条件、负责人或服务解除";
+      blocked.textContent = t("外部阻塞");
+      blocked.title = t("等待项目外部条件、负责人或服务解除");
       row.appendChild(blocked);
     }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
@@ -2553,7 +2559,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     }
     const complexityBadge = document.createElement("span");
     complexityBadge.className = "complexity-badge";
-    complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `复杂度:${cx}` : "未评估";
+    complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `${t("复杂度")}:${cx}` : t("未评估");
     row.appendChild(complexityBadge);
     const title = document.createElement("span");
     title.className = "title";
@@ -2597,20 +2603,20 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       const complexityRow = document.createElement("div");
       complexityRow.className = "doc-progress";
       const complexitySelect = document.createElement("select");
-      complexitySelect.innerHTML = "<option value=\"\">未评估</option><option>小</option><option>中</option><option>大</option>";
+      complexitySelect.innerHTML = `<option value="">${t("未评估")}</option><option>小</option><option>中</option><option>大</option>`;
       complexitySelect.value = cx;
-      complexitySelect.title = kind === "defect" ? "设置缺陷复杂度" : "设置需求复杂度";
+      complexitySelect.title = kind === "defect" ? t("设置缺陷复杂度") : t("设置需求复杂度");
       complexitySelect.addEventListener("click", (event) => event.stopPropagation());
       complexitySelect.addEventListener("change", async () => {
         try {
           await invoke("docs_update", { projectDir: currentProject, kind, action: "update", id: entry.id, fields: { "复杂度": complexitySelect.value } });
-          toast("复杂度已保存");
+          toast(t("复杂度已保存"));
           refreshDocs();
         } catch (error) {
           toastError(`复杂度保存失败:${error}`);
         }
       });
-      complexityRow.append("复杂度: ", complexitySelect);
+      complexityRow.append(`${t("复杂度")}: `, complexitySelect);
       detail.appendChild(complexityRow);
     }
     // 目标专属:状态速记(写入 fields.状态,同时保留计划字段用于展示)。
@@ -2645,7 +2651,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       for (const next of entry.nextStatuses) {
         const btn = document.createElement("button");
         btn.className = "ghost mini";
-        btn.textContent = `→ ${next}`;
+        btn.textContent = `→ ${localizedDocStatus(next)}`;
         btn.addEventListener("click", async (e) => {
           e.stopPropagation();
           try {
