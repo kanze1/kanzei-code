@@ -2804,16 +2804,34 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
         }
       });
       row.appendChild(badge);
-    }    // 复杂度(R-051):不用文字,行底部宽度条表达体量(小短/中中/大长);未评估无条。
+    }
+    // 复杂度(R-051):侧栏用三格电量图标表达体量,不再占用文字宽度。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
       row.title = `${row.title} · 复杂度:${cx}`;
     }
-    const complexityBadge = document.createElement("span");
-    complexityBadge.className = "complexity-badge";
-    complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `${t("复杂度")}:${cx}` : t("未评估");
-    row.appendChild(complexityBadge);
+    if (kind === "req" && el.id === "req-list") {
+      const levels = { "小": 1, "中": 2, "大": 3 };
+      const meter = document.createElement("span");
+      const level = levels[cx] || 0;
+      meter.className = `complexity-meter complexity-level-${level}`;
+      meter.setAttribute("role", "img");
+      meter.setAttribute("aria-label", `${t("复杂度")}:${cx || t("未评估")}`);
+      meter.title = `${t("复杂度")}:${cx || t("未评估")}`;
+      for (let i = 1; i <= 3; i += 1) {
+        const cell = document.createElement("span");
+        cell.className = `complexity-cell${i <= level ? " filled" : ""}`;
+        cell.setAttribute("aria-hidden", "true");
+        meter.appendChild(cell);
+      }
+      row.appendChild(meter);
+    } else {
+      const complexityBadge = document.createElement("span");
+      complexityBadge.className = "complexity-badge";
+      complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `${t("复杂度")}:${cx}` : t("未评估");
+      row.appendChild(complexityBadge);
+    }
     const title = document.createElement("span");
     title.className = "title";
     title.textContent = entry.title;
