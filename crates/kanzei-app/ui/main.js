@@ -33,7 +33,7 @@ const I18N_EN = {
   "附件": "Attach", "停止": "Stop", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
   "模型角色": "Model roles", "网络与默认": "Network & defaults", "默认模式": "Default mode",
   "已记住的权限": "Saved permissions", "版本与更新": "Version & updates", "保存": "Save",
-  "检查更新": "Check for updates", "下载并安装": "Download and install", "打开配置原文": "Open config",
+  "检查更新": "Check for updates", "下载并安装": "Download and install", "打开配置原文": "Open config", "工作资料导出": "Export work materials", "默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。": "Memory, requirements, defects, and project config are selected by default; the result path is shown.", "导出目录": "Export directory", "选择导出目录": "Choose an export directory", "选择目录": "Choose directory", "记忆": "Memory", "需求": "Requirements", "缺陷": "Defects", "项目配置": "Project config", "导出工作资料": "Export work materials", "导出完成": "Export completed",
   "测试全部连通性": "Test connectivity", "+ 添加 provider": "+ Add provider", "跟随环境变量": "Environment",
   "直连": "Direct", "指定地址": "Custom", "dev 开发": "dev development", "research 研究": "research",
   "日志": "Logs", "当前计划": "Current plan", "回到最新": "Jump to latest", "继续文案": "Continue prompt",
@@ -4744,6 +4744,42 @@ $("settings-save").addEventListener("click", async () => {
 });
 
 $("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toastError(String(e), { retry: () => $("settings-open").click() })));
+
+$("export-pick-dir").addEventListener("click", async () => {
+  try {
+    const path = await invoke("export_pick_dir");
+    if (path) $("export-output-dir").value = path;
+  } catch (error) {
+    toastError(`选择导出目录失败:${error}`);
+  }
+});
+$("export-project").addEventListener("click", async () => {
+  if (!currentProject) return toast(t("先在左侧「项目」里添加并选择一个目录"));
+  const outputDir = $("export-output-dir").value.trim();
+  if (!outputDir) return toast(t("选择导出目录"));
+  const button = $("export-project");
+  button.disabled = true;
+  $("export-result").textContent = `${t("导出工作资料")}…`;
+  try {
+    const result = await invoke("export_project_data", {
+      options: {
+        projectDir: currentProject,
+        outputDir,
+        includeMemory: $("export-memory").checked,
+        includeRequirements: $("export-requirements").checked,
+        includeDefects: $("export-defects").checked,
+        includeConfig: $("export-config").checked,
+      },
+    });
+    $("export-result").textContent = `${t("导出完成")}: ${result.path} (${result.files.length} ${t("条")})`;
+    toast(t("导出完成"));
+  } catch (error) {
+    $("export-result").textContent = String(error);
+    toastError(`导出失败:${error}`);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 // ---------- 版本与更新(GitHub Releases 为源) ----------
 let updateUrl = null;

@@ -372,6 +372,22 @@
           </table>
           <p id="permission-rules-empty" class="dim">当前项目没有已记住的放行规则。</p>
           <p id="permission-rules-path" class="dim"></p>
+          <h2>工作资料导出</h2>
+          <p class="dim">默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。</p>
+          <div class="form-row">
+            <label for="export-output-dir">导出目录</label>
+            <input id="export-output-dir" placeholder="选择导出目录" spellcheck="false" />
+            <button id="export-pick-dir" class="ghost">选择目录</button>
+          </div>
+          <div class="form-row export-options">
+            <label><input id="export-memory" type="checkbox" checked /> 记忆</label>
+            <label><input id="export-requirements" type="checkbox" checked /> 需求</label>
+            <label><input id="export-defects" type="checkbox" checked /> 缺陷</label>
+            <label><input id="export-config" type="checkbox" checked /> 项目配置</label>
+            <button id="export-project" class="primary">导出工作资料</button>
+          </div>
+          <p id="export-result" class="dim" role="status" aria-live="polite"></p>
+
           <h2>版本与更新</h2>
           <div class="form-row">
             <label>当前版本 <span id="update-current" class="dim"></span></label>

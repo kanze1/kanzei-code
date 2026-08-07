@@ -624,3 +624,11 @@
 
 - 验证: crates/kanzei-app/src/main.rs:update_tests::docs_snapshot_exposes_block_reasons_and_scheduler_order；crates/kanzei-app/ui/index.html；crates/kanzei-app/ui/main.js；cargo test --workspace；4 个 UI smoke
 
+## R-119 支持记忆和需求工作相关导出配置 [done]
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 可实现记忆需求等相关内容的导出功能，并覆盖系统默认及可配置项
+- 优先级: P0
+- 进展: 已完成：新增 Tauri `export_pick_dir` 与 `export_project_data` 命令，接通 invoke_handler；后端按配置复制 `.kanzei/memory`、requirements/requirements-archive、defects/defects-archive 与项目 `kanzei.toml`，拒绝导出到项目目录内并返回实际导出路径和文件清单。设置页新增导出目录选择、记忆/需求/缺陷/项目配置复选项和导出按钮，结果显示路径。调用方为既有设置页→Tauri command 闭环。验证：export_project_data_copies_selected_work_materials；node --check；四项 UI smoke；cargo test --workspace 全绿。
+- 阻塞: 导出对象和配置契约缺失，实施边界不清。
+- 验证: crates/kanzei-app/src/main.rs:export_project_data/export_pick_dir/update_tests::export_project_data_copies_selected_work_materials；crates/kanzei-app/ui/index.html/main.js；cargo test --workspace；4 个 UI smoke
