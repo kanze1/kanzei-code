@@ -63,6 +63,7 @@ const I18N_EN = {
   "连接中断": "Connection interrupted", "重放本轮": "Replaying round", "总结中": "Summarizing", "当前没有可总结的对话": "No conversation to summarize", "小总结已收纳到活动面板": "Summary added to activity panel",
   "自主推进": "Self-directed progress", "等待下一轮": "Waiting for next round", "鞭挞恢复": "Auto-run resumed", "秒后继续": "seconds until continuing",
   "已停止": "Stopped", "完成": "Completed", "用户拒绝后停止": "Stopped after user rejection", "本轮完成": "Round completed", "按你的拒绝停止": "Stopped after your rejection",
+  "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1273,7 +1274,7 @@ async function copyReadable(el) {
     .map((node) => node.textContent || "")
     .join("")
     .trim();
-  if (!text) return toast("没有可复制的内容");
+  if (!text) return toast(t("没有可复制的内容"));
   try {
     await navigator.clipboard.writeText(text);
     toast("已复制");
@@ -1307,7 +1308,7 @@ $("copy-context").addEventListener("click", async () => {
     }
   }
   if (!parts.length) {
-    toast("当前没有可复制的对话");
+    toast(t("当前没有可复制的对话"));
     return;
   }
   try {

@@ -40,6 +40,8 @@ const required = [
   ["已停止\": \"Stopped", "停止状态翻译键"],
   ["完成\": \"Completed", "完成状态翻译键"],
   ["function notifyRunState(kind, text)", "运行通知动态入口"],
+  ["没有可复制的内容\": \"Nothing to copy", "复制空状态翻译键"],
+  ["当前没有可复制的对话\": \"No conversation to copy", "对话复制空状态翻译键"],
   ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
   ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
