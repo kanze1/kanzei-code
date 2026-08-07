@@ -290,6 +290,26 @@ mod tests {
     }
 
     #[test]
+    fn append_allow_rule_preserves_structured_bash_scope() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-d051-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let resource = r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"C:/project"}"#;
+        let path = append_allow_rule(&root, "bash", resource).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(saved.permissions.rules.len(), 1);
+        assert_eq!(saved.permissions.rules[0].action, "bash");
+        assert_eq!(saved.permissions.rules[0].resource, resource);
+        assert_eq!(saved.permissions.rules[0].effect, crate::permission::Effect::Allow);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn merge_layers() {
         let mut base: KanzeiConfig = toml::from_str(
             r#"

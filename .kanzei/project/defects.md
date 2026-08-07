@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 继续完成最小步骤：Tool 新增默认 resources_with_ctx 扩展点，runner 权限门禁改用它；BashTool 将有效工作目录（默认 cwd 或输入 workdir）与完整 command 组成结构化权限资源，execute 与权限侧共用 normalize_resource。bash 命令匹配改为 opaque action-aware，避免命令内路径触发文件路径规范化。新增默认 cwd/显式 workdir 资源回归及 opaque matching 回归；全量 cargo test -p kanzei-harness -p kanzei-tools -p kanzei-core 26/19/28 通过。仍缺历史旧命令规则迁移、CLI/桌面真实 AlwaysAllow→bash E2、持久化失败链路；当前新增资源格式会让旧裸命令规则重新询问，需后续迁移策略。
+- 进展: 补充共享持久化调用方回归：config::tests::append_allow_rule_preserves_structured_bash_scope 真实写入临时项目 .kanzei/kanzei.toml，再解析确认 bash 结构化 command/workdir 资源原样保存且 effect=Allow；cargo test -p kanzei-harness config::tests::append_allow_rule_preserves_structured_bash_scope 通过。CLI/桌面仍未接入真实后续 bash 执行 E2，历史裸命令规则迁移与持久化失败策略仍是缺口。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
