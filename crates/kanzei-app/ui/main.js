@@ -2568,9 +2568,11 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
   }
   // 已完成项归档在 *-archive.md,不占侧边栏;一行入口可翻历史。
   if (archivedCount > 0) {
-    const foot = document.createElement("div");
+    const foot = document.createElement("button");
+    foot.type = "button";
     foot.className = "doc-archive-toggle";
-    foot.style.cursor = "pointer";
+    foot.setAttribute("aria-label", `展开已归档条目，共 ${archivedCount} 条`);
+    foot.setAttribute("aria-expanded", "false");
     foot.title = "展开已归档条目;双击打开归档文件";
     foot.textContent = `${archivedCount} 条已归档 ▸`;
     const archive = document.createElement("div");
@@ -2583,7 +2585,9 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     }
     foot.addEventListener("click", () => {
       archive.classList.toggle("hidden");
-      foot.textContent = `${archivedCount} 条已归档 ${archive.classList.contains("hidden") ? "▸" : "▾"}`;
+      const expanded = !archive.classList.contains("hidden");
+      foot.setAttribute("aria-expanded", String(expanded));
+      foot.textContent = `${archivedCount} 条已归档 ${expanded ? "▾" : "▸"}`;
     });
     foot.addEventListener("dblclick", () => openDocViewer(`${kind}-archive`));
     el.append(foot, archive);
