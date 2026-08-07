@@ -136,6 +136,7 @@
 
 
 
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -146,6 +147,7 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
 
 
 
@@ -354,7 +356,8 @@
 
 
 
-- 进展: 继续完成附件与鞭挞模式动态文案一类：需求/缺陷清空自动停止、检查失败、附件移除/不支持类型、鞭挞暂停恢复/本轮后停/上限/模式限制/启动状态等均改由 t(key) 生成；既有附件 FileReader、自动推进开关与定时器调用方沿用。验证：node --check、ui-i18n/a11y/Markdown 冒烟、动态 key 缺失检查、git diff --check 通过。仍缺其余运行日志、部分错误提示及真实双语操作快照，保持 open。
+- 进展: 继续完成消息操作与错误状态文案一类：复制按钮/标题、错误级别、重试上一次请求、重试中状态、思考块摘要/展开提示均改由 t(key) 生成，用户生成的正文预览保持原样。沿用既有 copyButton、addErrorMessage、appendReasoning 调用方。验证：node --check、ui-i18n/a11y/Markdown 冒烟、动态 key 缺失检查、git diff --check 通过。仍缺其余运行日志与真实双语操作快照，保持 open。
+
 
 
 
