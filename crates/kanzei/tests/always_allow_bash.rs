@@ -7,7 +7,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::Command;
 
-async fn serve_response(listener: &TcpListener, response: serde_json::Value) {
+async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
     let (mut stream, _) = listener.accept().await.unwrap();
     let mut request = Vec::new();
     let mut chunk = [0_u8; 4096];
@@ -41,6 +41,7 @@ async fn serve_response(listener: &TcpListener, response: serde_json::Value) {
     );
     stream.write_all(head.as_bytes()).await.unwrap();
     stream.write_all(body.as_bytes()).await.unwrap();
+    request
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -271,5 +272,80 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     assert!(String::from_utf8_lossy(&output2.stdout).contains("recovered after denial"));
 
     drop(store);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("kanzei-cli-legacy-d054-{}-{suffix}", std::process::id()));
+    let home = root.join("home");
+    let project = root.join("project");
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+
+    let state_path = kanzei_core::project_state_path(&project);
+    let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+    let session_id = kanzei_core::project_session_id(&project);
+    store.create_session(&session_id, &project.display().to_string(), None).unwrap();
+    let damaged = vec![
+        kanzei_llm::Message::user_text("旧任务"),
+        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
+            id: "legacy_orphan".into(),
+            name: "bash".into(),
+            input: json!({"command": "echo should-not-be-replayed"}),
+        }]),
+    ];
+    store
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &json!({"messages": damaged}),
+        )
+        .unwrap();
+    drop(store);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    std::fs::write(
+        project.join(".kanzei/kanzei.toml"),
+        format!(
+            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address}/v1\"\n"
+        ),
+    )
+    .unwrap();
+    let response = json!({
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "recovered legacy snapshot"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+    });
+    let server = tokio::spawn(async move { serve_response(&listener, response).await });
+
+    let output = Command::new(env!("CARGO_BIN_EXE_kz"))
+        .args(["run", "继续旧会话"])
+        .current_dir(&project)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env("KANZEI_MODEL", "mock:test-model")
+        .env("KANZEI_AGENT", "dev-pair")
+        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROXY", "off")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .unwrap();
+    let request = server.await.unwrap();
+
+    assert!(output.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("recovered legacy snapshot"));
+    assert!(!String::from_utf8_lossy(&request).contains("legacy_orphan"));
     std::fs::remove_dir_all(root).unwrap();
 }

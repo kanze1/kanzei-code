@@ -22,7 +22,7 @@
 - 阶段: 1
 - 不变量: 消息历史:拒绝与取消也必须配对
 - 证据等级: E2
-- 进展: 补充桌面运行内存/持久化交界：抽出 conversation_prior 统一实现“空内存时采用已过滤 persisted；已有内存快照时不被最新持久化覆盖”，run_task 已接入；新增桌面单测覆盖两种状态；recover_messages_at 孤儿过滤测试继续通过。cargo test -p kanzei-app 11 项通过。D-054 剩余仅完整旧损坏快照 CLI/桌面 E2 与停止/恢复边界，保持 fixing。
+- 进展: 补充旧损坏快照 CLI E2：预置项目 SQLite conversation.updated 为普通文本+孤儿 ToolCall，启动真实 kz 与本地 SSE mock；断言请求体不含 legacy_orphan，CLI 成功输出 recovered legacy snapshot。结合已有拒绝后第二次对话 E2，CLI 侧旧损坏历史与新拒绝历史均已覆盖。cargo test -p kanzei --test always_allow_bash 3 项通过；桌面恢复过滤与 conversation_prior 单测继续通过。剩余停止/promoted 输入边界和桌面真实 UI E2。
 
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
