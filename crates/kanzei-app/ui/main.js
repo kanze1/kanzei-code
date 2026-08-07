@@ -43,8 +43,17 @@ const I18N_EN = {
   "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle",
   "已复制": "Copied", "复制失败": "Copy failed", "暂无可复制的运行日志": "No runtime log to copy",
   "运行日志已复制": "Runtime log copied", "运行完成": "Run completed", "运行失败": "Run failed", "运行已停止": "Run stopped",
+  "运行状态": "Run status", "工具执行中": "Tool running", "成功": "Succeeded", "失败": "Failed",
+  "思考中": "Thinking", "生成中": "Generating", "等待模型": "Waiting for model", "一轮完成": "Round completed",
+  "活动": "Activity", "隐藏右侧活动面板": "Hide activity panel", "显示右侧活动面板": "Show activity panel",
+  "上下文压缩 · 点击查看纪要": "Context compaction · click to view summary", "上下文压缩纪要": "Context compaction summary",
+  "对话小总结 · 点击查看": "Conversation summary · click to view", "展开或收起上下文压缩纪要": "Expand or collapse context compaction summary",
+  "展开或收起对话总结": "Expand or collapse conversation summary",
 };
 const I18N_ZH = new WeakMap();
+function languageIsEnglish() {
+  return (localStorage.getItem("kz-language") || "zh") === "en";
+}
 function t(key) {
   const language = localStorage.getItem("kz-language") || "zh";
   return language === "en" ? (I18N_EN[key] || key) : key;
@@ -195,8 +204,8 @@ function playRunNotice(kind) {
 }
 
 function notifyRunState(kind, text) {
-  const labels = { completed: "运行完成", failed: "运行失败", stopped: "运行已停止" };
-  const label = labels[kind] || "运行状态";
+  const labels = { completed: t("运行完成"), failed: t("运行失败"), stopped: t("运行已停止") };
+  const label = labels[kind] || t("运行状态");
   toast(`${label}: ${text}`);
   playRunNotice(kind);
   if (!document.hasFocus() || document.hidden) {
@@ -220,8 +229,8 @@ function syncActivityPanel() {
   $("bg-panel").classList.toggle("hidden", !activityPanelOpen);
   const toggle = $("activity-toggle");
   toggle.classList.toggle("active", activityPanelOpen);
-  toggle.textContent = activityPanelOpen ? "活动 ✓" : "活动";
-  toggle.title = activityPanelOpen ? "隐藏右侧活动面板" : "显示右侧活动面板";
+  toggle.textContent = activityPanelOpen ? `${t("活动")} ✓` : t("活动");
+  toggle.title = activityPanelOpen ? t("隐藏右侧活动面板") : t("显示右侧活动面板");
 }
 
 $("activity-toggle").addEventListener("click", () => {
@@ -808,7 +817,7 @@ on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
   ctxLimit = e.payload.contextLimit ?? null;
   log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
-  if (running) setStatus("等待模型响应", true);
+  if (running) setStatus(t("等待模型响应"), true);
 });
 on("kz:turn", (e) => {
   const p = e.payload;
@@ -821,19 +830,19 @@ on("kz:turn", (e) => {
   currentReasoning = null;
   currentReasoningHead = null;
   liveTurn(p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`);
-  if (running) setStatus(`第 ${p.step} 轮 · 等待模型`, true);
+  if (running) setStatus(`${languageIsEnglish() ? "Round" : "第"} ${p.step}${languageIsEnglish() ? "" : "轮"} · ${t("等待模型")}`, true);
 });
 on("kz:text", (e) => {
   markFirstSignal();
   // 文本开始后,后续思考属于新的思考段。
   currentReasoning = null;
   currentReasoningHead = null;
-  if (running) setStatus(`生成中 · ${(outputChars / 1000).toFixed(1)}k 字`, true);
+  if (running) setStatus(t("生成中") + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
   appendAssistant(e.payload.text);
 });
 on("kz:reasoning", (e) => {
   markFirstSignal();
-  if (running) setStatus("思考中", true);
+  if (running) setStatus(t("思考中"), true);
   appendReasoning(e.payload.text);
 });
 let todoItems = [];
@@ -868,9 +877,9 @@ function addCompactionEntry(summary) {
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
-  title.setAttribute("aria-label", "展开或收起上下文压缩纪要");
+  title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
   title.setAttribute("aria-expanded", "true");
-  title.textContent = "上下文压缩 · 点击查看纪要";
+  title.textContent = t("上下文压缩 · 点击查看纪要");
   const detail = document.createElement("div");
   detail.className = "bg-detail";
   detail.textContent = summary;
@@ -890,9 +899,9 @@ function addSummaryEntry(summary, path = "") {
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
-  title.setAttribute("aria-label", "展开或收起对话总结");
+  title.setAttribute("aria-label", t("展开或收起对话总结"));
   title.setAttribute("aria-expanded", "true");
-  title.textContent = "对话小总结 · 点击查看";
+  title.textContent = t("对话小总结 · 点击查看");
   const detail = document.createElement("div");
   detail.className = "bg-detail";
   detail.textContent = path ? `${summary}\n\n已存档: ${path}` : summary;
@@ -929,12 +938,12 @@ on("kz:tool-start", (e) => {
   currentReasoning = null;
   bgAdd(e.payload.id, e.payload.name, e.payload.summary);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
-  setStatus(`工具执行中 · ${e.payload.name}`, true);
+  setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
 on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text, e.payload.trace));
 on("kz:tool-end", (e) => {
   const p = e.payload;
-  log(`工具结果 ${p.name}: ${p.ok ? "成功" : "失败"} — ${p.preview}`, p.ok ? "" : "warn");
+  log(`工具结果 ${p.name}: ${p.ok ? t("成功") : t("失败")} — ${p.preview}`, p.ok ? "" : "warn");
   // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
@@ -949,7 +958,7 @@ on("kz:tool-end", (e) => {
     renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
   bgEnd(p.id, p.ok, p.preview, p.display);
-  setStatus("运行中", true);
+  setStatus(t("运行中"), true);
 });
 on("kz:step", (e) => {
   const p = e.payload;

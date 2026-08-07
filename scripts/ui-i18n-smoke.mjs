@@ -9,6 +9,10 @@ const required = [
   ["运行完成\": \"Run completed", "运行完成翻译键"],
   ["运行失败\": \"Run failed", "运行失败翻译键"],
   ["运行已停止\": \"Run stopped", "运行已停止翻译键"],
+  ["工具执行中\": \"Tool running", "工具状态翻译键"],
+  ["成功\": \"Succeeded", "工具成功翻译键"],
+  ["失败\": \"Failed", "工具失败翻译键"],
+  ["思考中\": \"Thinking", "思考状态翻译键"],
   ["status-mode\").textContent = isRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
 ];
 const missing = required.filter(([needle]) => !source.includes(needle));
