@@ -61,6 +61,7 @@
 
 
 
+
 ## R-093 可靠性、可用性与自举质量收口 [doing]
 - 复杂度: 大
 - 归属: kanzei
@@ -101,9 +102,7 @@
 
 
 
-- 标签: quality_gate,verification,e2e,release
-- 类型: epic
-- 领域: reliability,quality
+- 标签: 流程
 
 
 
@@ -145,6 +144,7 @@
 
 
 
+
 ## R-085 需求验收标准与完成判定的执行约束 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -180,9 +180,8 @@
 
 
 
-- 标签: acceptance,transition_guard,evidence
-- 类型: governance
-- 领域: process,verification
+- 标签: 流程
+
 
 
 
@@ -232,7 +231,7 @@
 - 阶段: 1
 - 证据等级: E2
 - 设计定位: 高危缺陷收口与全局质量基线
-- 依赖: D-050 D-051 D-053 D-054 D-055 D-056 D-060 D-061 D-064 D-066 D-068
+- 依赖: D-061
 
 
 
@@ -258,9 +257,7 @@
 
 
 
-- 标签: p0,p1,codex,batch_closeout
-- 类型: epic
-- 领域: reliability,provider
+- 标签: 核心
 
 
 
@@ -295,6 +292,8 @@
 
 
 - 暂缓: 用户决定本阶段先做体验完善，暂缓 D-061 OAuth 共享凭证并发锁/原子替换；D-068 已 fixed/archived，后续恢复时先确认 Windows 锁与跨进程方案。
+- refs: D-050 D-051 D-053 D-054 D-055 D-056 D-060 D-064 D-066 D-068
+
 
 
 
@@ -306,11 +305,10 @@
 - 来源: 2026-08-07 审计;D-053、D-054、D-060 的共同性质
 - 内容: 三处会造成不可逆数据损坏或会话不可用,且都涉及跨层契约,需统一设计而非各自打补丁:①docstore 解析丢弃一切非 `- k: v` 行,而 tracker 每次写操作整文件重写,用户手改内容被静默销毁(D-060)——需要 parse 保留未识别行的原文与位置并在 save 时原样回写;②上下文压缩重试在工具循环中段会留下孤儿 tool_result 致 API 400,使超限恢复在最常见场景失效(D-053);③用户拒绝权限时丢弃同批已执行工具的结果,历史留下未配对 ToolCall,后续每次请求都 400 且模型不知道已发生的副作用(D-054)。②③同属"消息历史必须始终保持 tool_use/tool_result 配对"这一不变量。
 - 验收: 手写自由文本经任意 tracker 写操作后完整保留;压缩重试与权限拒绝两条路径产出的历史均满足工具调用配对不变量,并有针对性回归测试;超限恢复在工具循环中段可用。
-- refs: D-053 D-054 D-060 D-042
+- refs: D-053 D-054 D-060 D-042 D-082 D-084
 - 阶段: 1
 - 证据等级: E2
 - 设计定位: 工具配对和协议数据完整性
-- 依赖: D-053 D-054 D-060 D-082 D-084
 
 
 
@@ -337,9 +335,8 @@
 
 
 
-- 标签: data_integrity,tool_pairing,context_recovery
-- 类型: epic
-- 领域: protocol,storage,runner
+- 标签: 核心
+
 
 
 
@@ -383,11 +380,10 @@
 - 内容: 前端 on() 目前对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),把"哪个会话该看到"与"哪个会话该记账"混为一谈。ask/done/error/stopped 这类控制事件承载的是状态迁移而非展示内容,被丢弃后:后台进程的权限询问永久挂死(后端 receiver.await 无重发)、运行结束状态永不复位。当前只做了症状级修复(按进程身份重算 running),真正的解法是把会话状态与视图渲染分离:每个会话维护独立的运行/待答状态机,控制事件按 sessionId 更新对应状态机,视图只订阅活动会话的展示事件。
 - 验收: 后台会话的权限询问在切回该进程时可见并可答复;后端提供 pending asks 查询以支持重建;任意会话运行结束后其状态正确复位而不依赖当前视图;补多会话并发下 ask/done 不丢不串的验证。
 - 备注: 属架构级改动,涉及前端事件层、会话状态容器与后端 ask 生命周期,不可按普通 bug 就地打补丁。
-- refs: D-055 D-056 R-030 R-078
+- refs: D-055 D-056 R-030 R-078 D-078 D-085
 - 阶段: 1
 - 证据等级: E2+E3
 - 设计定位: 会话状态权威、控制事件路由和 pending ask 重建
-- 依赖: D-055 D-056 D-078 D-085
 
 
 
@@ -415,9 +411,8 @@
 
 
 
-- 标签: pending_ask,routing,multi_session
-- 类型: capability
-- 领域: session,event,interaction
+- 标签: 后端
+
 
 
 
@@ -459,11 +454,11 @@
 - 来源: 2026-08-07 审计
 - 内容: ①OAuth 凭证无锁读改写且非原子覆盖,与 Claude Code/Codex 官方 CLI 共享同一文件,并发刷新会因 refresh token 轮换导致登录态永久失效并殃及官方 CLI(D-061);②anthropic 协议遇未知 content_block 类型直接杀流,官方明确要求忽略未知类型,属前向兼容炸弹(D-067);③错误分类忽略 kind,限流可被误判为上下文超限从而触发破坏性压缩,且缺少限流/过载分类与 retry-after 退避(D-068)。
 - 验收: 凭证刷新加锁并原子替换,补并发不互相覆盖的测试;未知 block 类型记录并忽略;限流单独分类并按 retry-after 退避,不再触发压缩。
-- refs: D-061 D-067 D-068
+- refs: D-061 D-067 D-068 D-065
 - 阶段: 1
 - 证据等级: E2+E4
 - 设计定位: 凭证原子性与 provider 错误语义
-- 依赖: D-061 D-067 D-068 D-065
+- 依赖: D-061
 
 
 
@@ -492,9 +487,8 @@
 
 
 
-- 标签: oauth,protocol,rate_limit,forward_compatibility
-- 类型: epic
-- 领域: auth,provider,concurrency
+- 标签: 模型
+
 
 
 
@@ -569,9 +563,8 @@
 
 
 
-- 标签: runtime_smoke,webview,console_error
-- 类型: quality
-- 领域: testing,ui,e2e
+- 标签: 前端
+
 
 
 
@@ -649,9 +642,8 @@
 
 
 
-- 标签: test_record,archive,verification_run
-- 类型: capability
-- 领域: testing,tracker,persistence
+- 标签: 后端
+
 
 
 
@@ -729,9 +721,8 @@
 
 
 
-- 标签: brake,backlog,anti_spin
-- 类型: quality
-- 领域: runner,auto_run,state_machine
+- 标签: 核心
+
 
 
 
@@ -774,7 +765,6 @@
 - 阶段: 3
 - 证据等级: E3
 - 设计定位: 布局和操作层级
-- 依赖: D-104 D-107 D-110
 
 
 
@@ -807,9 +797,8 @@
 
 
 
-- 标签: responsive,panels,operation_hierarchy
-- 类型: epic
-- 领域: ui,layout,interaction
+- 标签: 前端
+
 
 
 
@@ -850,7 +839,6 @@
 - 阶段: 3
 - 证据等级: E3
 - 设计定位: 内容可读性和持久反馈
-- 依赖: D-094 D-096 D-106 D-109
 
 
 
@@ -884,9 +872,8 @@
 
 
 
-- 标签: markdown,recovery,persistence,history
-- 类型: quality
-- 领域: ui,message,feedback
+- 标签: 前端
+
 
 
 
@@ -926,7 +913,6 @@
 - 阶段: 3
 - 证据等级: E3
 - 设计定位: 键盘与可访问性
-- 依赖: D-105
 
 
 
@@ -961,9 +947,8 @@
 
 
 
-- 标签: keyboard,focus,aria,e2e
-- 类型: quality
-- 领域: ui,a11y,testing
+- 标签: 前端
+
 
 
 
@@ -1005,7 +990,7 @@
 - 阶段: 3
 - 证据等级: E3
 - 设计定位: 面板尺寸策略,并入布局治理
-- 依赖: R-089 D-107 D-110
+- 依赖: R-089
 
 
 
@@ -1041,9 +1026,8 @@
 
 
 
-- 标签: resize,drag,panels
-- 类型: capability
-- 领域: ui,layout,responsive
+- 标签: 前端
+
 
 
 
@@ -1083,7 +1067,7 @@
 - 阶段: 3
 - 证据等级: E3
 - 设计定位: 统一 i18n 资源
-- 依赖: D-092 D-108
+- 依赖: D-108
 
 
 
@@ -1120,9 +1104,8 @@
 
 
 
-- 标签: dynamic_text,language,about
-- 类型: capability
-- 领域: ui,i18n,content
+- 标签: 前端
+
 
 
 
@@ -1196,9 +1179,8 @@
 
 
 
-- 标签: review_button,findings,verification_run
-- 类型: capability
-- 领域: ui,defect_review,automation
+- 标签: 后端
+
 
 
 
@@ -1273,9 +1255,8 @@
 
 
 
-- 标签: source_parse,reference,memory_write
-- 类型: capability
-- 领域: research,memory,citation
+- 标签: 核心
+
 
 
 
@@ -1313,7 +1294,6 @@
 - 阶段: 5 后
 - 证据等级: E2+E3
 - 设计定位: 质量收口后再启的功能需求
-- 依赖: R-030 D-096
 
 
 
@@ -1353,9 +1333,8 @@
 
 
 
-- 标签: parallel,worktree,conflict,merge
-- 类型: epic
-- 领域: session,worktree,concurrency
+- 标签: 核心
+
 
 
 
@@ -1392,7 +1371,6 @@
 - 阶段: 5 后
 - 证据等级: E4
 - 设计定位: 质量收口后再启的功能需求
-- 依赖: D-063
 
 
 
@@ -1433,9 +1411,8 @@
 
 
 
-- 标签: push,bidirectional,container
-- 类型: epic
-- 领域: mobile,agent,notification
+- 标签: 后端
+
 
 
 
@@ -1504,9 +1481,8 @@
 
 
 
-- 标签: activity,terminal,presentation
-- 类型: capability
-- 领域: ui,tools,terminal
+- 标签: 前端
+
 
 
 
@@ -1581,9 +1557,8 @@
 
 
 
-- 标签: background_process,process_control,parallel
-- 类型: capability
-- 领域: tools,runner,concurrency
+- 标签: 核心
+
 
 
 
@@ -1654,9 +1629,8 @@
 
 
 
-- 标签: trace,baseline,telemetry
-- 类型: quality
-- 领域: testing,metrics,agent
+- 标签: 流程
+
 
 
 
@@ -1727,9 +1701,8 @@
 
 
 
-- 标签: mechanical_gate,duplicate_calls,policy
-- 类型: governance
-- 领域: runner,testing,guard
+- 标签: 核心
+
 
 
 
@@ -1780,9 +1753,8 @@
 
 
 
-- 标签: tauri,webview,harness,延期e2e
-- 类型: quality
-- 领域: testing,ui,e2e
+- 标签: 流程
+
 
 
 
@@ -1833,9 +1805,8 @@
 
 
 
-- 标签: readonly,profile,zero_config
-- 类型: capability
-- 领域: cli,permission,safety
+- 标签: 核心
+
 
 
 
@@ -1861,10 +1832,10 @@
 - 内容: 以 docs/design/memory-system.md 为设计基线。五个目标:提高易用性、上下文管理更精准、用户个性化持久化、常用轨迹效率提高、agent 工作效率提高。核心决策(不再重议):文件优先(markdown 真源,可编辑可透明,git 可恢复);不用向量库/知识图谱/Mem0 类框架,给 agent 好的搜索工具(FTS5+结构化过滤);记忆写读分离,写路径由 memory-manager 子代理专管;分级 = scope(global/project) × category(preference/habit/fact/sop/episode);agent 既是用户,验收全部取自举轨迹实证。
 - 验收: R-104~R-107 四期全部落地;连续自举轮次中出现"写入→检索命中→避免重复探索"的闭环实证;记忆内容全部可 git 恢复;SQLite 仅存可重建派生物(FTS 索引/hits/episode 表)。
 - 设计: docs/design/memory-system.md
-- refs: R-098 R-099 D-088 D-114
+- refs: R-098 R-099 D-088 D-114 R-104 R-107
 - 阶段: 4
 - 设计定位: 记忆作为 first-class primitive 的总纲与门禁
-- 依赖: R-104 R-105 R-106 R-107
+- 依赖: R-105 R-106
 
 
 
@@ -1890,9 +1861,8 @@
 
 
 
-- 标签: file_first,tiers,subagent
-- 类型: epic
-- 领域: memory,architecture
+- 标签: 核心
+
 
 
 
@@ -1915,10 +1885,9 @@
 - 归属: kanzei
 - 内容: memory-manager 子代理(fast 档,复用 SubagentRuntime)持有 memory_add/update/merge/stale 全套写工具;add 有近似去重门禁,merge 自动 stale 被并条目并留墓碑链接,stale 必填 reason;主 agent 只有 memory_search 与 memory_note(草稿投递),写路径全走管理子代理(写读分离)。触发点:轮末收尾复盘(episode 生成+ADD/UPDATE/NOOP)、条目关闭(根因→fact、重复操作序列→sop 候选)、用户显式「记住」。
 - 验收: 连续自举轮次出现完整闭环实证(轮末写入→后续轮命中→避免重复探索,以轨迹为证);去重门禁拦截重复写入用例;主 agent 无直接写入路径(权限快照测试)。
-- refs: R-103 R-098
+- refs: R-103 R-098 R-104
 - 阶段: 4
 - 设计定位: 记忆管理的执行者与节律
-- 依赖: R-104
 - 进展: 48a1b3f 交付核心:全套写工具+MemoryManagerComponent(无 shell,快照测试守护)+引擎去重门禁+merge 墓碑链接+CLI/桌面轮末 inbox 消化触发(fast→primary,判据只看箱)。剩余:条目关闭触发的根因→fact 蒸馏(并入轮末简报,与 R-106 episode 一起做);「写入→命中→避免重复探索」闭环实证待发版后真实轨迹。
 
 
@@ -1947,9 +1916,8 @@
 
 
 
-- 标签: memory_manager,dedup,tombstone
-- 类型: capability
-- 领域: memory,agent,tools
+- 标签: 核心
+
 
 
 
@@ -1970,10 +1938,10 @@
 - 归属: kanzei
 - 内容: 注入改为"索引常驻(预算封顶)+正文按需检索";sop 按 description 与任务匹配给出加载提示;harness 逐 context source 记录注入 token 数并落库,形成可查询的上下文账单;上下文溢出时先压缩为 episode 再重置(D-088 联动)。
 - 验收: 同类任务每轮注入 token 较基线下降且无因信息缺失导致的返工;账单可按会话/轮查询;溢出路径不再无声丢弃轨迹。
-- refs: R-103 D-088 R-099
+- refs: R-103 D-088 R-099 R-104
 - 阶段: 4
 - 设计定位: 上下文管理精准化的数据与机制
-- 依赖: R-104 R-105
+- 依赖: R-105
 - 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。剩余:上下文溢出时先压 episode 再重置(D-088 联动)。
 
 
@@ -2003,38 +1971,10 @@
 
 
 
-- 标签: injection,token_bill,overflow
-- 类型: quality
-- 领域: memory,context,metrics
+- 标签: 核心
 
 
 
-
-
-
-
-
-
-
-
-
-## R-107 Memory M4:独立 Memory 页与空闲整理 [done]
-- 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
-- 复杂度: 大
-- 优先级: P2
-- 归属: kanzei
-- 内容: 活动栏与设置同级的 Memory 页:scope×category 动态架构图(条数/体积/最近写入/本轮注入 token)、条目视图(正文/来源轨迹跳转/hits/stale 开关/直接编辑)、上下文账单面板、全局检索框;sleep-time 空闲整理(合并重复/低命中降级提示/stale 归档/INDEX 校验),整理动作全部有墓碑与日志。
-- 验收: 800/1024/1280 三档可用;整理无静默删除(全部可追溯);账单面板与 R-106 数据一致;键盘可达(承接 D-105 门槛)。
-- refs: R-103 R-091
-- 阶段: 4
-- 设计定位: 记忆的可视化与自维护
-- 依赖: R-106
-- 进展: bebe149 交付(用户直营):记忆页全量(架构总览/条目直接编辑/上下文账单/轮次画像/FTS 检索/整理按钮);设计偏差:后台 sleep-time 改为手动「整理 inbox」按钮——用户可见可控,符合 A-005 透明化模型,自动化留待实证需要再加;条目编辑全走引擎 update 保住墓碑与派生物一致性。验证:node --check+i18n/a11y 冒烟+工作区 183 项;真实 WebView E3 归 R-101(与全部前端一致)。
-
-
-- 标签: memory_page,edit,sleep_cleanup
-- 类型: capability
-- 领域: memory,ui,maintenance
 
 
 
@@ -2046,6 +1986,7 @@
 
 
 ## R-108 建立AI设计/技术选型沉淀机制 [todo]
+- 标签: 流程
 - priority: P2
 - 原始描述: 加一个大的需求，我们现在已经沉淀了需求和缺陷，但是少了一个沉淀，就是我们和AI沟通出来的设计方向和技术选择，这个应该也要落一下沉淀
 - 复杂度: 中
@@ -2060,25 +2001,18 @@
 
 
 
+
 ## R-109 侧边栏设计语言一致性规范 [todo]
+- 标签: 前端
 - priority: P0
 - 原始描述: 所有的侧边栏设计语言要一致，包括筛选排序显示等
 - 复杂度: 中
 - 归属: kanzei
 - 验收: 所有侧边栏(筛选/排序显示)使用统一的设计语言与视觉风格
 
-## R-110 讨论与设计沉淀为决策条目 [done]
-- 复杂度: 中
-- 优先级: P1
-- 归属: kanzei
-- 来源: 2026-08-08 用户:讨论的思路和设计应该也要像需求和缺陷一样沉淀
-- 内容: 新增 DECISIONS 文档类型(.kanzei/project/decisions.md,前缀 A-,draft→accepted→superseded/rejected,superseded/rejected 归档);decision 工具进 DevProfile 与 kz CLI;accepted 决策作为常驻约束注入每轮上下文,禁止重复争论;设计文档仍放 docs/design/,决策条目引用之。
-- 验收: decision add/update/close/archive 全链路可用;accepted 条目出现在注入上下文;已用 A-001~A-005 沉淀近两日全部用户定调作为种子。
-- 进展: 1a8a81b 交付(用户直营);种子条目 decisions.md A-001~A-005 已落。
-- refs: R-103
-- 阶段: 4
 
 ## R-111 需求缺陷依赖的组织与可视化 [todo]
+- 标签: 后端
 - 复杂度: 中
 - 优先级: P2
 - 归属: kanzei
@@ -2088,7 +2022,9 @@
 - refs: R-054 D-112
 - 阶段: 4
 
+
 ## R-112 需求缺陷分类体系标准化 [todo]
+- 标签: 流程
 - 复杂度: 中
 - 优先级: P2
 - 归属: kanzei

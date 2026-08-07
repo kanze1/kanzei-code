@@ -361,9 +361,7 @@
 
 
 
-- 标签: oauth,concurrency,atomic_write
-- 类型: data_loss
-- 领域: auth,provider,storage
+- 标签: 模型
 
 
 
@@ -560,9 +558,7 @@
 
 
 
-- 标签: dynamic_text,translation,runtime_feedback
-- 类型: ux
-- 领域: ui,i18n,feedback
+- 标签: 前端
 
 
 
@@ -684,9 +680,7 @@
 
 
 
-- 标签: verification,cadence,tool_efficiency
-- 类型: governance
-- 领域: process,testing,agent
+- 标签: 流程
 
 
 
@@ -721,9 +715,7 @@
 
 
 
-- 标签: exit_code,permission_denied,automation
-- 类型: contract
-- 领域: cli,automation,permission
+- 标签: 核心
 
 
 
@@ -757,9 +749,7 @@
 
 
 
-- 标签: wildcard,legacy_rule,warning
-- 类型: contract
-- 领域: permission,bash,provider
+- 标签: 核心
 
 
 
@@ -792,9 +782,7 @@
 
 
 
-- 标签: help,agent,model,profile
-- 类型: ux
-- 领域: cli,docs,discoverability
+- 标签: 核心
 
 
 
@@ -828,9 +816,7 @@
 
 
 
-- 标签: self_exit,installer,process_lock
-- 类型: bug
-- 领域: release,update,windows
+- 标签: 发布
 
 
 
@@ -854,9 +840,7 @@
 
 
 
-- 标签: scroll,footer_overlap,last_row
-- 类型: ux
-- 领域: ui,layout,documents
+- 标签: 前端
 
 
 
