@@ -69,7 +69,7 @@ const I18N_EN = {
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
-  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "轮": "rounds", "耗时": "duration"
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -767,7 +767,7 @@ function renderDiffSummary() {
   const files = [...diffSummary.values()];
   const additions = files.reduce((sum, item) => sum + item.additions, 0);
   const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
-  label.textContent = files.length ? `· ${files.length} 文件 +${additions}/−${deletions}` : "";
+  label.textContent = files.length ? `· ${files.length} ${t("文件")} +${additions}/−${deletions}` : "";
   panel.classList.toggle("hidden", files.length === 0);
   panel.innerHTML = files.map((item) => `<div class="diff-summary-row"><span>${escapeHtml(item.path)}</span><span>+${item.additions}/−${item.deletions}</span></div>`).join("");
 }
@@ -784,13 +784,13 @@ function bgAdd(id, name, summary) {
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
-  title.setAttribute("aria-label", "展开或收起后台任务详情");
+  title.setAttribute("aria-label", t("展开或收起后台任务详情"));
   title.setAttribute("aria-expanded", "false");
   title.textContent = `${name} ${summary}`;
   title.title = summary;
   const prog = document.createElement("div");
   prog.className = "bg-prog";
-  prog.textContent = name === "task" ? "… 子代理启动中" : "…";
+  prog.textContent = name === "task" ? `… ${t("子代理启动中")}` : "…";
   const meta = document.createElement("div");
   meta.className = "bg-meta";
   const detail = document.createElement("div");
@@ -835,13 +835,13 @@ function renderDiff(display) {
   const header = document.createElement("div");
   header.className = "diff-file-header";
   const label = document.createElement("span");
-  label.textContent = `${display.path || "文件"}  +${display.additions || 0} −${display.deletions || 0} · ${display.language || "text"}`;
+  label.textContent = `${display.path || t("文件")}  +${display.additions || 0} −${display.deletions || 0} · ${display.language || "text"}`;
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "ghost mini";
   toggle.setAttribute("aria-label", "切换差异并排或统一视图");
   toggle.setAttribute("aria-pressed", "false");
-  toggle.textContent = "并排";
+  toggle.textContent = t("并排");
   header.append(label, toggle);
   const body = document.createElement("div");
   body.className = "diff-body";
@@ -896,7 +896,7 @@ function renderDiff(display) {
   }
   toggle.addEventListener("click", () => {
     mode = mode === "unified" ? "split" : "unified";
-    toggle.textContent = mode === "unified" ? "并排" : "统一";
+    toggle.textContent = mode === "unified" ? t("并排") : t("统一");
     toggle.setAttribute("aria-pressed", String(mode === "split"));
     render();
   });
@@ -929,7 +929,7 @@ function bgProgress(id, text, trace) {
   } else if (child) {
     child.row.classList.remove("running");
     child.row.classList.add(trace.ok ? "ok" : "err");
-    child.meta.textContent = trace.preview || (trace.ok ? "完成" : "失败");
+    child.meta.textContent = trace.preview || (trace.ok ? t("完成") : t("失败"));
     appendDisplayBlock(child.row, trace.display);
   }
 }
@@ -940,7 +940,7 @@ function bgEnd(id, ok, preview, display) {
   entry.done = true;
   entry.el.classList.remove("running");
   entry.el.classList.add(ok ? "ok" : "err");
-  entry.prog.textContent = preview || (ok ? "完成" : "失败");
+  entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
   entry.meta.textContent = `${Math.round((Date.now() - entry.startedAt) / 1000)}s`;
   // 结构化详情进面板内展开区(diff/终端/新建/todo)。
   const d = display;
@@ -977,7 +977,7 @@ function renderRecoveredTraces(payloads) {
   for (const payload of payloads || []) {
     for (const event of payload.events || []) {
       ids.add(event.id);
-      if (!bgEntries.has(event.id)) bgAdd(event.id, "task", "历史子代理轨迹");
+      if (!bgEntries.has(event.id)) bgAdd(event.id, "task", t("历史子代理轨迹"));
       bgProgress(event.id, event.text, event.trace);
     }
   }
@@ -987,8 +987,8 @@ function renderRecoveredTraces(payloads) {
     entry.done = true;
     entry.el.classList.remove("running");
     entry.el.classList.add("ok");
-    entry.prog.textContent = "历史轨迹";
-    entry.meta.textContent = "回放";
+    entry.prog.textContent = t("历史轨迹");
+    entry.meta.textContent = t("回放");
   }
 }
 
