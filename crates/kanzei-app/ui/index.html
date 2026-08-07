@@ -141,6 +141,7 @@
           <span id="project-label" class="crumb"></span>
           <nav id="process-tabs" aria-label="项目进程"></nav>
           <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
+          <button id="new-chat" class="primary topbar-new-chat" title="清空多轮对话历史,开一段新会话">新对话</button>
           <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
           <label id="process-subagent-wrap" title="只对当前进程启用/关闭只读子代理"><input type="checkbox" id="process-subagent" /> 子代理</label>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板">活动</button>
@@ -158,7 +159,6 @@
                 <input type="checkbox" id="auto-stop-round" /> 本轮后停
               </label>
               <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" />
-              <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
               <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
                 <input type="checkbox" id="auto-allow" /> 自动放行
               </label>
@@ -238,6 +238,8 @@
           <h1>需求与工作 / 缺陷</h1>
           <p class="dim">独立管理页面：筛选、拖拽排序、详情和状态编辑会与侧栏同步。</p>
           <div class="documents-toolbar">
+            <label for="documents-project-select" class="documents-project-label">项目</label>
+            <select id="documents-project-select" title="切换当前项目"></select>
             <button id="documents-tab-req" class="primary">需求与工作</button>
             <button id="documents-tab-defect" class="ghost">缺陷</button>
             <select id="documents-status-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>

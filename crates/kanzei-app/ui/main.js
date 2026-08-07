@@ -2545,6 +2545,17 @@ function baseName(path) {
   return parts[parts.length - 1] || path;
 }
 
+function syncDocumentsProjectSelect(prefs) {
+  const select = $("documents-project-select");
+  if (!select) return;
+  select.replaceChildren();
+  for (const path of prefs.projects ?? []) {
+    select.appendChild(new Option(prefs.names?.[path] || baseName(path), path));
+  }
+  select.value = prefs.current ?? "";
+  select.disabled = !(prefs.projects ?? []).length;
+}
+
 function renderProjects(prefs) {
   const previousProject = currentProject;
   currentProject = prefs.current;
@@ -2634,6 +2645,7 @@ function renderProjects(prefs) {
     list.appendChild(item);
   }
   $("project-label").textContent = prefs.current ?? "(未选择项目)";
+  syncDocumentsProjectSelect(prefs);
   refreshProcesses();
 }
 
@@ -3229,6 +3241,10 @@ function refreshDocsSoon() {
     }
   }, 400);
 }
+
+$("documents-project-select").addEventListener("change", (event) => {
+  if (event.target.value && event.target.value !== currentProject) selectWorkspaceProject(event.target.value);
+});
 
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
