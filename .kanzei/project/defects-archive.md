@@ -1445,3 +1445,30 @@
 - 优先级: P1
 - 进展: 实现已完成：run_once_with_parts 在首次请求前统一调用 filter_message_history 清洗 prior。cargo test -p kanzei-core、cargo test -p kanzei-tools、cargo test --workspace 全部通过；配对与孤儿清洗回归覆盖。
 - 验收证据: crates/kanzei-core/src/runner.rs:492；crates/kanzei-core/src/history.rs:7-71及其三项单测；cargo test --workspace
+
+## D-148 侧栏条目编辑表单无字段名且截断长值,继续文案框只露两行 [fixed] (medium)
+- 不变量: 前端:可编辑控件必须能看出改的是什么
+- 复现: 2026-08-08 用户实测截图。①展开 R-097 → 编辑区是一片没有任何标题的输入框,默认 inline-block 两两成行像张表格,「大」「P2」「kanzei」「E2」这些值看不出属于哪个字段;`内容`/`验收`/`进展` 这类段落字段被塞进单行 input,只能看到开头十几个字,等于盲改;「保存修改」直接贴在最后一格右侧压住内容。②底部「继续文案」textarea 是 rows=2,而默认继续提示词有十几行,只能看到最后两行。
+- 标签: 前端
+- 根因: 三处。①`renderDocList` 的编辑表单只给输入框设 `aria-label`/`title`(tooltip),没有可见标签,而 `.doc-edit` 在 style.css 里**完全没有样式**,全靠浏览器默认排版;②控件一律用 `<input>`,不区分短字段与段落字段;③`#continue-panel` 的响应式规则被破坏:c65c80e(自举循环的 SOP 提交)把 `@media (max-width: 700px) {` 这一行替换成了 `#sop-picker-panel {`,导致媒体查询体变成孤儿规则、末尾多出一个游离的 `}`,`grid-template-columns: 1fr` 于是无条件生效。浏览器对花括号错配静默容错,没有任何报错。
+- 证据等级: E3
+- 阶段: 3
+- 验收: ①每个可编辑字段都有可见字段名;②长字段(>60 字符或含换行)渲染为可纵向拉伸的 textarea,行数按内容估算;③保存按钮独占一行右对齐,不压内容;④继续文案框整宽、rows=6、可纵向拉伸;⑤修复 style.css 的孤儿括号;⑥冒烟脚本能挡住这两类回归(缺字段名/长字段用单行框、CSS 括号错配)。
+- 优先级: P2
+
+- 影响: 需求/缺陷的侧栏编辑实际不可用——看不出在改哪个字段,长字段改了会截断丢内容;继续文案要靠滚动两行的窗口编辑十几行提示词。CSS 那处属于 agent 编辑锚点撞车造成的静默结构损坏,同类改动还会再犯。
+- 备注: 落地位置 crates/kanzei-app/ui/main.js(addRow 按值长度选 input/textarea,doc-edit-row 带可见 key)、ui/style.css(.doc-edit 系列样式 + #continue-panel 改纵向 + 删孤儿括号)、ui/index.html(continue-prompt rows 2→6)。冒烟新增:字段名非空、长字段为 textarea、CSS 括号平衡三项断言,其中括号检查已用注入多余 } 反验会失败。
+
+## D-149 继续文案面板 CSS 与 UI 冒烟布局契约不一致 [fixed] (medium)
+- 不变量: 前端自动化验收脚本与实际布局契约一致，继续文案区域在宽屏使用可读的标签+编辑区布局，并在窄屏保持可用。
+- 复现: 运行 node scripts/ui-a11y-smoke.mjs；第 57 项断言失败，要求 #continue-panel 存在 grid-template-columns: auto minmax(0, 1fr)，但 style.css 当前仅为 flex-direction: column。
+- 来源: R-089
+- 标签: 前端
+- 根因: R-089/D-148 后继续文案区改为纵向 flex，但既有 UI 无障碍冒烟仍锁定标签与 textarea 的双列布局契约，CSS 与验收脚本漂移。
+- 证据等级: E2
+- 阶段: 3
+- 验收: 修复 #continue-panel 宽屏双列布局与窄屏单列降级；node --check、ui-runtime-smoke、ui-a11y-smoke、ui-i18n-smoke、ui-markdown-smoke 全部通过。
+- refs: R-089
+- 优先级: P1
+- 进展: 修复已验证完成。
+- 验收证据: crates/kanzei-app/ui/style.css:#continue-panel 双列/窄屏单列；scripts/ui-a11y-smoke.mjs 新增布局与操作层级回归；四项 UI smoke 与 node --check 全部通过。

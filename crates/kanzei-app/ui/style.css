@@ -756,15 +756,20 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 /* 继续文案是十几行的长提示词:两列窄栏 + rows=2 只能露出两行,等于盲改。
    固定成标签在上、输入框整宽可纵向拉伸,不再随宽度切换列数。 */
 #continue-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 10px;
   padding: 6px 0 2px;
   color: var(--muted);
   font-size: 11px;
 }
-#continue-panel label { white-space: nowrap; }
-#continue-panel textarea { resize: vertical; min-height: 96px; max-height: 40vh; }
+#continue-panel label { white-space: nowrap; padding-top: 6px; }
+#continue-panel textarea { resize: vertical; min-height: 96px; max-height: 40vh; min-width: 0; }
+@media (max-width: 700px) {
+  #continue-panel { grid-template-columns: 1fr; }
+  #continue-panel label { padding-top: 0; }
+}
 #sop-picker-panel {
   position: absolute; right: 14px; bottom: 58px; z-index: 20;
   width: min(420px, calc(100vw - 28px)); max-height: 320px; overflow: auto;

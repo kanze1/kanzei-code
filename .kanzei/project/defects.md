@@ -1,17 +1,5 @@
 # Defects
 
-## D-148 侧栏条目编辑表单无字段名且截断长值,继续文案框只露两行 [fixed] (medium)
-- 复现: 2026-08-08 用户实测截图。①展开 R-097 → 编辑区是一片没有任何标题的输入框,默认 inline-block 两两成行像张表格,「大」「P2」「kanzei」「E2」这些值看不出属于哪个字段;`内容`/`验收`/`进展` 这类段落字段被塞进单行 input,只能看到开头十几个字,等于盲改;「保存修改」直接贴在最后一格右侧压住内容。②底部「继续文案」textarea 是 rows=2,而默认继续提示词有十几行,只能看到最后两行。
-- 根因: 三处。①`renderDocList` 的编辑表单只给输入框设 `aria-label`/`title`(tooltip),没有可见标签,而 `.doc-edit` 在 style.css 里**完全没有样式**,全靠浏览器默认排版;②控件一律用 `<input>`,不区分短字段与段落字段;③`#continue-panel` 的响应式规则被破坏:c65c80e(自举循环的 SOP 提交)把 `@media (max-width: 700px) {` 这一行替换成了 `#sop-picker-panel {`,导致媒体查询体变成孤儿规则、末尾多出一个游离的 `}`,`grid-template-columns: 1fr` 于是无条件生效。浏览器对花括号错配静默容错,没有任何报错。
-- 影响: 需求/缺陷的侧栏编辑实际不可用——看不出在改哪个字段,长字段改了会截断丢内容;继续文案要靠滚动两行的窗口编辑十几行提示词。CSS 那处属于 agent 编辑锚点撞车造成的静默结构损坏,同类改动还会再犯。
-- 验收: ①每个可编辑字段都有可见字段名;②长字段(>60 字符或含换行)渲染为可纵向拉伸的 textarea,行数按内容估算;③保存按钮独占一行右对齐,不压内容;④继续文案框整宽、rows=6、可纵向拉伸;⑤修复 style.css 的孤儿括号;⑥冒烟脚本能挡住这两类回归(缺字段名/长字段用单行框、CSS 括号错配)。
-- 优先级: P2
-- 阶段: 3
-- 不变量: 前端:可编辑控件必须能看出改的是什么
-- 证据等级: E3
-- 备注: 落地位置 crates/kanzei-app/ui/main.js(addRow 按值长度选 input/textarea,doc-edit-row 带可见 key)、ui/style.css(.doc-edit 系列样式 + #continue-panel 改纵向 + 删孤儿括号)、ui/index.html(continue-prompt rows 2→6)。冒烟新增:字段名非空、长字段为 textarea、CSS 括号平衡三项断言,其中括号检查已用注入多余 } 反验会失败。
-- 标签: 前端
-
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
