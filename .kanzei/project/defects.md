@@ -618,5 +618,40 @@
 - 优先级: P2
 - 进展: 已定位到 ui/index.html 的 continue-panel 与 main.js 独立 toggle/submit 事件、style.css 的窄三列布局。准备拆分“继续文案”收纳与“继续”操作按钮，并扩大可编辑区、修复深色主题文字/背景对比；补 UI 冒烟验证。
 
+## D-121 kz run 被权限拦停后退出码仍为 0,自动化调用方无法感知失败 [open] (medium)
+- 复现: 非交互终端执行 kz run(stdin 为管道),agent 首个 bash 调用触发权限询问,read_line 读到 EOF 判 Deny,输出 "(stopped: permission declined)" 后进程 exit 0。
+- 根因: run_cli 的 halted_by_user 分支只打印提示即正常返回 Ok(crates/kanzei/src/main.rs:343-345),权限拦停与正常完成共用同一退出语义。
+- 影响: 脚本/CI/其他 agent 调用 kz 时无法区分"完成"与"被拦停",按成功继续会基于半途结果做后续动作。
+- 验收: halted_by_user 以非零退出码结束(如 3)并在 stderr 说明;正常完成保持 0;补退出码断言测试。
+- 优先级: P2
+- refs: R-102
+- 阶段: 1
+- 不变量: 会话控制:终态语义在退出码可见
+- 证据等级: E2
+- 备注: 2026-08-07 用 kz 做前端分析实测发现(用户确认立项)。
+
+## D-122 裸 bash 通配规则的降级告警与实际放行行为不一致 [open] (low)
+- 复现: 项目 kanzei.toml 写 `action="bash", resource="*", effect="allow"`;kz 启动提示"检测到 1 条旧 bash 权限规则;将降级为逐次询问",随后整轮 bash 全部直接放行,一次也没询问。
+- 根因: legacy_bash_rules 把所有非 command/workdir JSON 的 bash 规则识别为旧规则并告警,但评估路径对用户显式配置的整体 `*` 保留 yolo 语义——告警文案与评估行为出自两套判断。
+- 影响: 用户被告知会逐次询问,实际却全量放行:轻则困惑,重则误以为有询问兜底而放松了对通配规则的警惕。
+- 验收: 告警与评估行为一致——显式 `*` 要么如实提示"将全量放行(yolo)",要么真的降级询问;补两种规则形态的启动提示测试。
+- 优先级: P3
+- refs: D-051
+- 阶段: 1
+- 不变量: 权限:授权范围精确可解释
+- 证据等级: E2
+- 备注: 2026-08-07 kz 前端分析实测发现(用户确认立项)。
+
+## D-123 usage 与 --help 不展示 agent/模型/profile 选择方式,能力不可发现 [open] (low)
+- 复现: kz --help 只列出 run 与 tracker 子命令及一行 env 提示;KANZEI_AGENT 可选值(dev/dev-pair/research)、KANZEI_MODEL 语法、profile 档位含义均无从查起。
+- 根因: usage() 是 5 行手写文本(crates/kanzei/src/main.rs:55-60),agent 清单在 harness 快照里,帮助文本不读取它。
+- 影响: 只有读过源码的人知道怎么切 agent;dev-pair 这类对话型入口实际不可发现。
+- 验收: --help 列出可用 agent(名称+一句话用途)、KANZEI_MODEL 语法示例与 profile 说明;或提供 kz agents 列表命令。
+- 优先级: P3
+- 阶段: 1
+- 不变量: 操作反馈:能力可自发现
+- 证据等级: E2
+- 备注: 2026-08-07 kz 前端分析实测发现(用户确认立项)。
+
 
 
