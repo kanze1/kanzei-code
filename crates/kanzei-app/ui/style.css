@@ -100,6 +100,7 @@ body {
 }
 .project-item:hover { background: var(--panel2); }
 .project-item.active { background: var(--accent-soft); border-left-color: var(--info); }
+.project-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .project-item .name { font-weight: 600; color: var(--fg-strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .project-item .path { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; flex: 1; }
 .project-item .remove, .project-item .rename { visibility: hidden; }

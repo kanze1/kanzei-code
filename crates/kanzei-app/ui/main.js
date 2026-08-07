@@ -2142,6 +2142,9 @@ function renderProjects(prefs) {
   for (const path of prefs.projects) {
     const item = document.createElement("div");
     item.className = `project-item${path === prefs.current ? " active" : ""}`;
+    item.setAttribute("role", "button");
+    item.tabIndex = 0;
+    item.setAttribute("aria-label", `选择项目 ${prefs.names?.[path] || baseName(path)}`);
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = prefs.names?.[path] || baseName(path);
@@ -2188,6 +2191,11 @@ function renderProjects(prefs) {
       }
     });
     item.append(name, pathEl, rename, remove);
+    item.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      item.click();
+    });
     item.addEventListener("click", async () => {
       const previous = currentProject;
       renderProjects(await invoke("projects_select", { path }));
