@@ -2487,9 +2487,10 @@ $("req-complexity-filter").value = reqFilters.complexity;
 $("req-sort").value = reqFilters.sort;
 
 // ---------- R-053 快速记录:独立子代理结构化落库(需求/缺陷通用),不打断主对话 ----------
-function quickCaptureForm(kind, listId, noun) {
-  const list = $(listId);
-  if (list.querySelector(".quickreq-form")) return;
+function quickCaptureForm(kind, sectionId, noun) {
+  const section = $(sectionId);
+  const title = section.querySelector(".section-title");
+  if (title.querySelector(".quickreq-form")) return;
   const form = document.createElement("div");
   form.className = "goal-add-form quickreq-form";
   const input = document.createElement("textarea");
@@ -2534,11 +2535,11 @@ function quickCaptureForm(kind, listId, noun) {
   submitBtn.addEventListener("click", submit);
   bar.append(cancelBtn, submitBtn);
   form.append(input, bar);
-  list.prepend(form);
+  title.append(form);
   input.focus();
 }
-$("req-quick").addEventListener("click", () => quickCaptureForm("req", "req-list", "需求"));
-$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "defect-list", "缺陷"));
+$("req-quick").addEventListener("click", () => quickCaptureForm("req", "req-section", "需求"));
+$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "defect-section", "缺陷"));
 
 function renderConventions(conv) {
   const el = $("conv-list");

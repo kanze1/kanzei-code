@@ -55,6 +55,7 @@ body {
   color: var(--dim); display: flex; align-items: center; justify-content: space-between;
   flex-wrap: wrap; row-gap: 4px;
 }
+.section-title > .quickreq-form { flex: 1 0 100%; min-width: 0; }
 /* 分区标题文字可点击折叠;控件(筛选/按钮)不参与折叠切换 */
 .section-title > span:first-child { flex: 1 1 auto; min-width: 0; cursor: pointer; }
 .section-title > span:first-child::after { content: " ▾"; }
