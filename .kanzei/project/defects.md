@@ -1,6 +1,6 @@
 # Defects
 
-## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [open] (high)
+## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [fixing] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
 - 根因: 首轮修复仅用 8 个字符 `; & | 换行 \` $ (` 做黑名单(config.rs:232-247;permission.rs:100-112),仍把任意无这些字符的命令泛化为 `首词 *`。Shell 与各 CLI 的执行语义无法用有限字符黑名单穷举。
 - 已完成部分: 常见串联、管道与 `$()`/反引号命令替换会降级为 Ask,弹窗也已能展示记住规则。
@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 本轮收紧 bash「总是允许」权限模型：generalize_resource 不再按首词生成 `git *`，改为保留完整命令；permission::command_chaining_escapes 对所有非整体 bash 通配 Allow 统一降级 Ask，覆盖历史规则及重定向、Git alias、python -c、pwsh -Command。新增 config::bash_always_allow_keeps_exact_command 与权限回归；cargo test -p kanzei-harness 全部 23 项通过，WriteTool 规范化回归通过。仍待补 CLI/桌面端到真实 bash 执行的 E2 集成，以及历史配置迁移策略评估。
+- 进展: 完成本轮最小步骤：crates/kanzei-tools/src/bash.rs 新增 resources_keep_the_complete_command_without_prefix_generalization，验证包含重定向与 workdir 输入时权限资源仍保留完整命令，不恢复首词通配。cargo test -p kanzei-tools bash::tests::resources_keep_the_complete_command_without_prefix_generalization 通过。尚未推进 workdir 绑定、CLI/桌面真实 AlwaysAllow→bash E2、历史规则迁移与持久化失败链路，保持 fixing。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。

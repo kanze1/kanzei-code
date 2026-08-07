@@ -225,3 +225,21 @@ async fn read_capped(
     }
     capped
 }
+
+#[cfg(test)]
+mod tests {
+    use super::BashTool;
+    use kanzei_harness::Tool;
+
+    #[test]
+    fn resources_keep_the_complete_command_without_prefix_generalization() {
+        let input = serde_json::json!({
+            "command": "git status > .kanzei/project/requirements.md",
+            "workdir": "subdir"
+        });
+        assert_eq!(
+            BashTool.resources(&input),
+            vec!["git status > .kanzei/project/requirements.md"]
+        );
+    }
+}
