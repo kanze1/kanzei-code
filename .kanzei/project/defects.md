@@ -28,18 +28,6 @@
 - 证据等级: E2
 - 进展: 本轮收紧 bash「总是允许」权限模型：generalize_resource 不再按首词生成 `git *`，改为保留完整命令；permission::command_chaining_escapes 对所有非整体 bash 通配 Allow 统一降级 Ask，覆盖历史规则及重定向、Git alias、python -c、pwsh -Command。新增 config::bash_always_allow_keeps_exact_command 与权限回归；cargo test -p kanzei-harness 全部 23 项通过，WriteTool 规范化回归通过。仍待补 CLI/桌面端到真实 bash 执行的 E2 集成，以及历史配置迁移策略评估。
 
-## D-053 上下文压缩重试在工具循环中段产生孤儿 tool_result,恢复请求被 API 400 拒绝 [fixing] (high)
-- 复现: 长工具循环(大文件读取、grep 结果堆积)中触发上下文超限,step ≥ 2 时进入压缩重试。
-- 根因: compact_messages_for_retry 用 `rposition(|m| m.role == Role::User)` 找"当前用户消息"并原样保留(kanzei-core/src/runner.rs:757-787),但工具结果按 Anthropic 语义也是 User 角色(kanzei-llm/src/request.rs:72-78),工具循环中最后一条 User 消息正是 tool_results。压缩后对应的 assistant ToolCall 消息已被清空,留下无配对 tool_use 的 tool_result;build_body 原样透传不做配对修复(protocol/anthropic.rs:93-104),API 返回 400 invalid_request,该错误不含超限关键词故不被 is_overflow_message 识别,直接上抛导致整次运行失败。compact_messages_aggressively(789-798)同样问题。
-- 影响: D-042 的上下文超限恢复在其最常见场景下不生效,超限直接变成运行失败,用户看到的是费解的 invalid_request 而非超限提示。单测 compact_retry_keeps_prompt_and_bounded_tool_history(runner.rs:840-859)只构造了最后一条为纯文本 user 消息的用例,掩盖了此缺陷。
-- 验收: 压缩时把末尾 ToolResult 消息降级为纯文本摘要,或回找最后一条纯文本 User 消息;补"工具循环中段触发超限"的回归测试,断言重建请求不含孤儿 tool_result。
-- 优先级: P0
-- refs: D-042
-- 阶段: 1
-- 不变量: 消息历史:每个 ToolCall 有且仅有一个对应 ToolResult
-- 证据等级: E2
-- 进展: 发现工作树已有 runner.rs 未提交修复，但测试因末尾多余 `}` 无法编译（cargo test -p kanzei-core runner::tests，runner.rs:924 unexpected closing delimiter）。先收口该阻塞性语法错误并提交，随后继续按队列处理 D-050。
-
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
 - 根因: 工具批次结果累积在局部 results,全部执行完才 push(kanzei-core/src/runner.rs:476-618);Gate::UserDeclined 分支在 runner.rs:589 直接 return,results 被整体丢弃,包括同批排在前面、已实际执行且有副作用的工具结果。返回的 messages 最后一条是含 Part::ToolCall 的 assistant 消息且无 tool_results 跟随,而调用方无条件把该历史当 prior 复用(kanzei-app/src/main.rs:3097-3101/2984/3052、kanzei/src/main.rs:280/145/262)。
