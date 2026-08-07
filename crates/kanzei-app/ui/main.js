@@ -2028,7 +2028,13 @@ ${item.files.join("\n")}`, "info");
     if (action === "discard" && !window.confirm(`放弃工作树 ${item.branch}？未提交改动会阻止删除并保留现场。`)) return;
     const command = action === "merge" ? "worktree_merge" : "worktree_discard";
     const result = await invoke(command, { projectDir: currentProject, worktreePath: item.path });
-    toast(result);
+    if (String(result).length > 160) {
+      log(String(result), "info");
+      $("log-panel").classList.remove("hidden");
+      toast("工作树操作完成，详细结果已写入运行日志");
+    } else {
+      toast(result);
+    }
     if (action === "discard") {
       const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${currentProject}`) || "[]").filter((path) => path !== item.path);
       localStorage.setItem(`kz-worktrees:${currentProject}`, JSON.stringify(paths));
