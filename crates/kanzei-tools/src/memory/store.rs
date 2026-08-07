@@ -446,6 +446,45 @@ impl MemoryStore {
         Ok(merged)
     }
 
+    /// 按标题前缀找一条 active 偏好条目(开发重心这类"随时会改的定调")。
+    pub fn find_preference(&self, title_prefix: &str) -> Option<MemoryEntry> {
+        self.load_all()
+            .into_iter()
+            .map(|(_, e)| e)
+            .find(|e| {
+                e.category == "preference" && e.status == "active" && e.title.starts_with(title_prefix)
+            })
+    }
+
+    /// 用户直写的偏好 upsert:标题前缀命中就改,否则新增。
+    /// 定调会被反复调整,必须复用同一条目——每次切换都新增会把索引撑爆且历史无从对照。
+    /// (用户手改路径,不经 memory-manager;A-005:用户编辑本就不受写读分离约束。)
+    pub fn upsert_preference(
+        &self,
+        title_prefix: &str,
+        title: &str,
+        description: &str,
+        body: &str,
+    ) -> anyhow::Result<MemoryEntry> {
+        if let Some(existing) = self.find_preference(title_prefix) {
+            let entries = self.load_all();
+            let (path, mut entry) = entries
+                .into_iter()
+                .find(|(_, e)| e.id == existing.id)
+                .expect("found above");
+            entry.title = title.trim().to_string();
+            entry.description = description.trim().to_string();
+            entry.body = body.trim().to_string();
+            entry.updated = today();
+            self.write_entry(&entry, Some(&path))?;
+            self.refresh_derived()?;
+            return Ok(entry);
+        }
+        match self.add("preference", title, description, body, "user", true)? {
+            AddOutcome::Added(entry) | AddOutcome::Duplicate(entry) => Ok(entry),
+        }
+    }
+
     /// 命中统计(UI 展示):id → hits。库缺失返回空表(派生物语义)。
     pub fn hits_map(&self) -> std::collections::BTreeMap<String, u64> {
         let mut out = std::collections::BTreeMap::new();
@@ -780,6 +819,33 @@ mod tests {
         // 未知 id 与自我合并都拒绝
         assert!(store.merge(&a.id, &[a.id.clone()], None, None, None).is_err());
         assert!(store.merge("M-999", &[b.id.clone()], None, None, None).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn upsert_preference_reuses_one_entry_across_switches() {
+        // 开发重心会被反复切换:必须复用同一条目,否则索引被同类定调撑爆、历史也无从对照。
+        let (dir, store) = temp_store();
+        let first = store
+            .upsert_preference("开发重心", "开发重心:缺陷优先", "取活时必读", "先扫 defects.md")
+            .unwrap();
+        assert_eq!(first.category, "preference");
+        let second = store
+            .upsert_preference("开发重心", "开发重心:需求优先", "取活时必读", "先扫 requirements.md")
+            .unwrap();
+        assert_eq!(second.id, first.id, "切换必须改同一条,不能新增");
+        assert_eq!(second.body, "先扫 requirements.md");
+        assert_eq!(store.load_all().len(), 1);
+        assert_eq!(
+            store.find_preference("开发重心").map(|e| e.title),
+            Some("开发重心:需求优先".to_string())
+        );
+        // 与其它偏好条目互不干扰
+        store
+            .upsert_preference("提交署名", "提交署名:不带 Co-Authored-By", "提交时必读", "只署用户本人")
+            .unwrap();
+        assert_eq!(store.load_all().len(), 2);
+        assert!(store.find_preference("开发重心").unwrap().title.contains("需求优先"));
         std::fs::remove_dir_all(dir).ok();
     }
 

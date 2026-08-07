@@ -150,11 +150,25 @@ impl Component for DevProfile {
             "dev/memory",
             source("dev/memory", |ctx: &ResolveCtx| {
                 let mut lines: Vec<String> = Vec::new();
+                // preference = 常驻定调(开发重心、验收口径…),必须全文注入才有约束力;
+                // fact/sop 只给索引行,正文按需检索(否则预算爆掉)。
+                let mut directives: Vec<String> = Vec::new();
                 let mut stores = vec![crate::memory::MemoryStore::project(&ctx.project_root)];
                 stores.extend(crate::memory::MemoryStore::global());
                 for store in &stores {
                     for (_, e) in store.load_all() {
-                        if e.status == "active" {
+                        if e.status != "active" {
+                            continue;
+                        }
+                        if e.category == "preference" {
+                            let body: String = e.body.chars().take(600).collect();
+                            directives.push(format!(
+                                "{} {}\n{}",
+                                e.id,
+                                e.title,
+                                body.trim()
+                            ));
+                        } else {
                             lines.push(format!(
                                 "{} [{}/{}] {} — {}",
                                 e.id, e.scope, e.category, e.title, e.description
@@ -162,10 +176,35 @@ impl Component for DevProfile {
                         }
                     }
                 }
-                if lines.is_empty() {
-                    return None;
+                // 冷启动(D-127):零条目时也必须留声明,否则模型根本不知道记忆系统存在,
+                // 于是永不写入 → 永远零条目 → 注入永远为空,自锁成死环。
+                if lines.is_empty() && directives.is_empty() {
+                    return Some(
+                        "<memory-index>\n(记忆库为空)\nYou have a long-term memory system: \
+                         `memory_search` to recall, `memory_note` to record anything reusable \
+                         you confirm this run (root causes, environment constraints, user \
+                         decisions, dead ends). Recording costs one call and saves future runs \
+                         from re-deriving it.\n</memory-index>"
+                            .into(),
+                    );
                 }
                 let mut out = String::from("<memory-index>\n");
+                if !directives.is_empty() {
+                    out.push_str("STANDING DIRECTIVES (obey these; they are the user's own words):\n");
+                    let mut budget = MEMORY_CONTEXT_BUDGET;
+                    for directive in &directives {
+                        let cost = directive.chars().count() + 1;
+                        if cost > budget {
+                            break;
+                        }
+                        budget -= cost;
+                        out.push_str(directive);
+                        out.push_str("\n\n");
+                    }
+                }
+                if !lines.is_empty() {
+                    out.push_str("KNOWN FACTS (index only — fetch bodies with `memory_search`):\n");
+                }
                 let mut budget = MEMORY_CONTEXT_BUDGET;
                 let mut shown = 0usize;
                 for line in &lines {
@@ -185,9 +224,8 @@ impl Component for DevProfile {
                     ));
                 }
                 out.push_str(
-                    "Index only — fetch bodies with `memory_search` (or read the file it \
-                     returns) BEFORE re-deriving anything listed above. When you confirm \
-                     something reusable (root cause, environment constraint, user decision, \
+                    "Search a listed fact BEFORE re-deriving it. When you confirm something \
+                     reusable this run (root cause, environment constraint, user decision, \
                      dead end), drop it via `memory_note`; the memory manager consolidates \
                      notes later. Facts only — next steps belong in req/defect.\n</memory-index>",
                 );

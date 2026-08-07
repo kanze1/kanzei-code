@@ -67,7 +67,7 @@ const I18N_EN = {
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
-  "展开或收起工具详情": "Toggle tool detail",
+  "展开或收起工具详情": "Toggle tool detail", "开发重心保存失败": "Failed to save work focus",
   "展开筛选与排序": "Show filters and sort", "展开需求筛选与排序": "Show requirement filters",
   "展开筛选": "Show filters", "展开缺陷筛选": "Show defect filters",
   "按标签分组显示": "Group by tag", "切换需求分组显示": "Toggle requirement grouping",
@@ -1860,8 +1860,8 @@ let autoStopReason = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
 let noActionRounds = 0;
 const DEFAULT_CONTINUE_PROMPT =
-  "继续推进。取活顺序 = 文档顺序:先从上往下扫 defects.md,再扫 requirements.md," +
-  "拿第一个可做的。列表已按阶段排好,不要自行挑看起来容易的。\n" +
+  "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
+  "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
   "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
   "2. 粒度 = 一轮一个完整条目:以做完当前这一条缺陷/需求为本轮目标;" +
   "同构批量改动(i18n、重命名、迁移这类)一轮吃掉完整类别,不要按两三处微切片。" +
@@ -1878,6 +1878,22 @@ const DEFAULT_CONTINUE_PROMPT =
 // 旧版默认文案:用户没改过(存的就是某个旧默认)时静默升级到新默认,
 // 否则鞭挞的刹车契约会和提示词对不上(用户自定义过的文案不动)。
 const LEGACY_CONTINUE_PROMPTS = [
+  // 硬编码取活顺序版:开篇写死"先扫 defects.md",与结尾追加的取活模式行直接矛盾,
+  // 开篇权威句胜出 → 用户切「需求优先」始终不生效(D-128)。
+  "继续推进。取活顺序 = 文档顺序:先从上往下扫 defects.md,再扫 requirements.md," +
+    "拿第一个可做的。列表已按阶段排好,不要自行挑看起来容易的。\n" +
+    "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
+    "2. 粒度 = 一轮一个完整条目:以做完当前这一条缺陷/需求为本轮目标;" +
+    "同构批量改动(i18n、重命名、迁移这类)一轮吃掉完整类别,不要按两三处微切片。" +
+    "确实超出单轮容量才按验收子项分轮,并在进展里写明批次边界。" +
+    "「工作量大」「要改多个文件」都是正常工作,不是停下的理由。\n" +
+    "3. 卡住就换一条:某条一时推不动,在条目里记一句原因,直接跳到下一条继续,不要停下来等。\n" +
+    "4. 关闭条目前对照验收原文,给出改动位置;没有调用方的命令或按钮不算完成;" +
+    "沿用既有实现要说明。拿不准就保留活动态写清缺口,不要打勾。\n" +
+    "5. doing 最多 2 个;已满就继续推进这两项。标着「阶段 5 后」的功能需求暂不启动。\n" +
+    "6. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+    "验证选择与改动面匹配:纯 ui/ 改动跑 node 检查与冒烟脚本,动了 crates/ 才跑 cargo test。\n" +
+    "一直做下去,不要用纯文本收尾。",
   // 微切片版:「最小可执行步骤」导致 i18n 类批量任务两三处一轮,单条缺陷拖 30+ 轮(D-114,用户定调改为一轮一条目)。
   "继续推进。取活顺序 = 文档顺序:先从上往下扫 defects.md,再扫 requirements.md," +
     "拿第一个可做的。列表已按阶段排好,不要自行挑看起来容易的。\n" +
@@ -1958,6 +1974,34 @@ function selectedWorkPriority() {
 function syncWorkPriorityControl() {
   const saved = localStorage.getItem(workPriorityStorageKey());
   $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
+  loadWorkFocus();
+}
+
+// 开发重心 = preference 记忆条目(真源)。下拉框只是快捷写法,记忆页可手写任意细度
+// (「先收完这批缺陷再转需求」这类二元开关表达不了的意图);提示词由记忆生成,
+// 所以开关与提示词不可能再互相矛盾——D-128 的根因就是二者写死后对打。
+let workFocusMemory = null;
+const WORK_FOCUS_PRESETS = {
+  "defect-first": {
+    title: "开发重心:缺陷优先",
+    body: "取活顺序:先从上到下扫描 defects.md,再扫描 requirements.md;前一个队列没有可做项时才看后一个。\npriority 标签只是背景信息,不改变列表顺序。",
+  },
+  "requirement-first": {
+    title: "开发重心:需求优先",
+    body: "取活顺序:先从上到下扫描 requirements.md,再扫描 defects.md;前一个队列没有可做项时才看后一个。\npriority 标签只是背景信息,不改变列表顺序。",
+  },
+};
+async function loadWorkFocus() {
+  if (!currentProject) return;
+  try {
+    workFocusMemory = await invoke("memory_focus_get", { projectDir: currentProject });
+  } catch {
+    workFocusMemory = null;
+  }
+  // 回显:手写的自定义重心不强行归入两个预设,保持用户当前选择不被覆盖。
+  const title = workFocusMemory?.title || "";
+  if (title.includes("需求优先")) $("work-priority-select").value = "requirement-first";
+  else if (title.includes("缺陷优先")) $("work-priority-select").value = "defect-first";
 }
 
 function renderAutoStatus(text = autoStopReason) {
@@ -1968,10 +2012,10 @@ function renderAutoStatus(text = autoStopReason) {
 }
 function continuePrompt() {
   const base = $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
-  const order = selectedWorkPriority() === "requirement-first"
-    ? "先从上到下扫描 requirements.md，再扫描 defects.md"
-    : "先从上到下扫描 defects.md，再扫描 requirements.md";
-  return `${base}\n本轮取活模式：${order}。priority 只是背景信息，不改变列表顺序。`;
+  // 重心正文优先取记忆(用户可手写细度);记忆缺失时回落到下拉框预设。
+  const focus = workFocusMemory?.body?.trim() || WORK_FOCUS_PRESETS[selectedWorkPriority()].body;
+  const from = workFocusMemory?.id ? `记忆 ${workFocusMemory.id}` : "当前选择";
+  return `${base}\n开发重心(来自${from},这是取活顺序的唯一权威):\n${focus}`;
 }
 
 function setAutoStopReason(reason) {
@@ -2380,10 +2424,21 @@ $("profile-select").addEventListener("change", () => {
   }
   syncAutoContinueWithProfile();
 });
-$("work-priority-select").addEventListener("change", () => {
+$("work-priority-select").addEventListener("change", async () => {
   const value = selectedWorkPriority();
   localStorage.setItem(workPriorityStorageKey(), value);
-  log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
+  if (!currentProject) return;
+  try {
+    // 切换 = 写记忆(真源),不是只改本地开关;记忆页随后可把正文改成任意细度。
+    workFocusMemory = await invoke("memory_focus_set", {
+      projectDir: currentProject,
+      title: WORK_FOCUS_PRESETS[value].title,
+      body: WORK_FOCUS_PRESETS[value].body,
+    });
+    log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
+  } catch (err) {
+    toastError(`${t("开发重心保存失败")}:${err}`);
+  }
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。

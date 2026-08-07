@@ -659,6 +659,8 @@ fn main() {
             memory_search_page,
             memory_context_bill,
             memory_consolidate,
+            memory_focus_get,
+            memory_focus_set,
             app_info,
             models_list,
             docs_update,
@@ -2011,6 +2013,47 @@ fn memory_search_page(project_dir: String, query: String) -> serde_json::Value {
         }
     }
     json!(out)
+}
+
+/// 开发重心偏好条目的标题前缀:切换与手改共用同一条记忆,不新增。
+const FOCUS_TITLE_PREFIX: &str = "开发重心";
+
+#[tauri::command]
+fn memory_focus_get(project_dir: String) -> serde_json::Value {
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let store = kanzei_tools::memory::MemoryStore::project(&root);
+    match store.find_preference(FOCUS_TITLE_PREFIX) {
+        Some(entry) => json!({
+            "id": entry.id,
+            "title": entry.title,
+            "body": entry.body,
+            "updated": entry.updated,
+        }),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// 取活重心写入 preference 记忆(用户直写路径)。真源是记忆文件——
+/// 提示词由它生成,所以开关与提示词不可能再互相矛盾(D-128)。
+#[tauri::command]
+fn memory_focus_set(
+    project_dir: String,
+    title: String,
+    body: String,
+) -> Result<serde_json::Value, String> {
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let store = kanzei_tools::memory::MemoryStore::project(&root);
+    let entry = store
+        .upsert_preference(
+            FOCUS_TITLE_PREFIX,
+            title.trim(),
+            "取活/排优先级时必读:当前项目该先做什么",
+            body.trim(),
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "id": entry.id, "title": entry.title, "body": entry.body }))
 }
 
 #[tauri::command]
