@@ -20,23 +20,38 @@ pub struct Rule {
 #[derive(Debug, Clone, Default)]
 pub struct Ruleset {
     rules: Vec<Rule>,
+    hard_denies: Vec<Rule>,
 }
 
 impl Ruleset {
     pub fn new(rules: Vec<Rule>) -> Self {
-        Ruleset { rules }
+        Ruleset {
+            rules,
+            hard_denies: Vec::new(),
+        }
     }
 
     pub fn push(&mut self, rule: Rule) {
         self.rules.push(rule);
     }
 
+    /// 添加不可被普通配置规则覆盖的 deny，用于 profile 的安全边界。
+    pub fn push_hard_deny(&mut self, rule: Rule) {
+        debug_assert_eq!(rule.effect, Effect::Deny);
+        self.hard_denies.push(rule);
+    }
+
     pub fn extend(&mut self, rules: impl IntoIterator<Item = Rule>) {
         self.rules.extend(rules);
     }
 
-    /// last-match-wins;无匹配 → Ask。
+    /// 硬 deny 优先；普通规则保持 last-match-wins，无匹配 → Ask。
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
+        if self.hard_denies.iter().any(|r| {
+            wildcard_match(&r.action, action) && resource_match(&r.resource, resource)
+        }) {
+            return Effect::Deny;
+        }
         let matched =
             self.rules.iter().rev().find(|r| {
                 wildcard_match(&r.action, action) && resource_match(&r.resource, resource)
@@ -384,6 +399,49 @@ mod tests {
         assert_eq!(rs.evaluate("bash", "git status; rm -rf ~"), Effect::Allow);
     }
 
+    #[test]
+    fn hard_deny_cannot_be_overridden_by_later_normal_rules() {
+        let mut rs = Ruleset::new(vec![Rule {
+            action: "write".into(),
+            resource: "*".into(),
+            effect: Effect::Allow,
+        }]);
+        rs.push_hard_deny(Rule {
+            action: "write".into(),
+            resource: "*.kanzei/project/*".into(),
+            effect: Effect::Deny,
+        });
+        rs.push(Rule {
+            action: "write".into(),
+            resource: "*.kanzei/project/*".into(),
+            effect: Effect::Ask,
+        });
+        assert_eq!(
+            rs.evaluate("write", ".KANZEI\\project\\requirements.md"),
+            Effect::Deny
+        );
+        rs.push(Rule {
+            action: "write".into(),
+            resource: "*.kanzei/project/*".into(),
+            effect: Effect::Allow,
+        });
+        assert_eq!(
+            rs.evaluate("write", ".kanzei/project/requirements.md"),
+            Effect::Deny
+        );
+    }
+
+    #[test]
+    fn hard_deny_participates_in_fully_denied_action() {
+        let mut rs = Ruleset::default();
+        rs.push_hard_deny(Rule {
+            action: "write".into(),
+            resource: "*".into(),
+            effect: Effect::Deny,
+        });
+        assert!(rs.action_fully_denied("write"));
+        assert!(!rs.action_fully_denied("edit"));
+    }
     #[test]
     fn fully_denied_action() {
         let rs = Ruleset::new(vec![Rule {

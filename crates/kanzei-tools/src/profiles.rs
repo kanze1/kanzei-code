@@ -54,7 +54,7 @@ impl Component for DevProfile {
         for action in ["write", "edit"] {
             draft
                 .permissions
-                .push(rule(action, "*.kanzei/project/*", Effect::Deny));
+                .push_hard_deny(rule(action, "*.kanzei/project/*", Effect::Deny));
         }
 
         // 长期目标(R-019):活跃目标全文注入——"没有明确任务时推进目标"的信息基础。
@@ -307,4 +307,44 @@ fn index_of(
         open.len(),
         lines.join("\n")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DevProfile;
+    use kanzei_harness::{
+        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx,
+    };
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    #[test]
+    fn dev_project_document_deny_survives_later_user_rules() {
+        let mut config = KanzeiConfig::default();
+        config.permissions.rules.push(rule(
+            "write",
+            "*.kanzei/project/*",
+            Effect::Ask,
+        ));
+        config.permissions.rules.push(rule(
+            "write",
+            "*.kanzei/project/*",
+            Effect::Allow,
+        ));
+        let root = PathBuf::from("C:/kanzei-d050-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(config),
+        };
+        let mut harness = Harness::default();
+        harness.add(DevProfile).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+
+        assert_eq!(
+            snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
+            Effect::Deny
+        );
+    }
 }

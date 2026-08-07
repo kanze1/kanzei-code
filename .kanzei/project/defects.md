@@ -1,6 +1,6 @@
 # Defects
 
-## D-050 权限路径规范化未覆盖 Windows 大小写等价,硬 deny 仍可降级为询问 [open] (high)
+## D-050 权限路径规范化未覆盖 Windows 大小写等价,硬 deny 仍可降级为询问 [fixing] (high)
 - 复现: 在 Windows dev 模式请求写入 `.KANZEI/project/requirements.md`;文件系统把它与 `.kanzei/project/requirements.md` 视为同一路径,权限匹配却大小写敏感,无法命中 `*.kanzei/project/*` 的硬 deny,降级为 Ask。
 - 根因: 首轮修复只让 normalize_resource 消解 `.`/`..`/重复斜杠(kanzei-harness/src/permission.rs:70-98),wildcard_match 仍逐字符大小写敏感(:114-130),没有实现原验收要求的 Windows case-fold,也没有把路径解析为与实际落点同源的绝对路径。
 - 已完成部分: `..` 穿越、`./` 插入和重复斜杠已被规范化,原始 research 目录穿越路径已不能直接命中放行规则。
@@ -13,7 +13,8 @@
 - 证据等级: E2
 - 缺口: 尚未达到原验收 E2：缺少真实工具调用跨权限门禁与文件系统落点的集成/故障注入测试；bash workdir/命令内部路径仍未纳入同一落点契约。保持 open。
 - 证据: E2（部分）：crates/kanzei-tools/src/write.rs 的异步测试真实调用 WriteTool，跨 kanzei-tools/kanzei-harness 并检查文件系统落点；cargo test -p kanzei-tools write::tests::permission_path_and_write落点使用同一规范化结果 通过。完整 E2 仍缺 runner 真实权限门禁集成与故障注入，bash workdir/命令内部路径未覆盖。
-- 进展: 本轮修复 runner 会话内“总是允许”规则复用缺口：新增公开 permission::resource_match，并将 session_rules 匹配从 wildcard_match 切换为该统一路径匹配；新增 session_rule_resource_match_reuses_path_normalization 回归，覆盖反斜杠、大小写、`.`/`..`。验证通过 harness 权限两项回归、tools::WriteTool 实际落点回归、core runner 测试。仍保持 open：缺少 runner 真实权限门禁集成/故障注入，以及 bash workdir/命令内部路径覆盖。
+- 进展: 完成最小权限模型收口（待真实 runner E2）：Ruleset 新增独立 hard_denies，evaluate/action_fully_denied 先检查硬 deny；DevProfile 的 write/edit 项目文档规则改用 push_hard_deny，普通 ConfigComponent 后置 Ask/Allow 不再覆盖。新增 harness 权限 hard deny 优先级与 fully_denied 回归、tools profiles 真实 DevProfile+ConfigComponent 组装回归。cargo test -p kanzei-harness permission::tests 13 项、cargo test -p kanzei-tools profiles::tests::dev_project_document_deny_survives_later_user_rules 1 项通过。仍缺 runner 真实工具调用/文件系统落点 E2，以及 bash workdir/命令内部路径契约。
+- 验收证据: crates/kanzei-harness/src/permission.rs: Ruleset::hard_denies/push_hard_deny/evaluate/action_fully_denied；crates/kanzei-tools/src/profiles.rs: DevProfile 硬 deny与 profiles::tests::dev_project_document_deny_survives_later_user_rules。
 
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [open] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
