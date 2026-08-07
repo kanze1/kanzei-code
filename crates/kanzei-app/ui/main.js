@@ -146,6 +146,11 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
+function toastError(text) {
+  toast(text);
+  log(text, "err");
+  $("log-panel").classList.remove("hidden");
+}
 
 let completionAudioContext = null;
 const baseTitle = document.title;
@@ -2024,7 +2029,7 @@ async function handleWorktreeAction(item, action) {
     await refreshWorktrees();
     refreshGit();
   } catch (error) {
-    toast(String(error));
+    toastError(String(error));
   }
 }
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
