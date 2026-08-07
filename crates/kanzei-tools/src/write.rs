@@ -180,7 +180,7 @@ pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<S
 
 #[cfg(test)]
 mod tests {
-    use super::diff_display;
+    use super::{diff_display, WriteTool};
 
     #[test]
     fn diff_display_exposes_language_counts_and_line_numbers() {
@@ -201,6 +201,53 @@ mod tests {
         assert_eq!(display["lines"][2]["new_line"], 2);
     }
 
+    #[tokio::test]
+    async fn permission_path_and_write落点使用同一规范化结果() {
+        use kanzei_harness::permission::{Effect, Rule, Ruleset};
+        use kanzei_harness::{Tool, ToolCtx};
+
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-d050-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let input_path = ".KANZEI/./project/../allowed.md";
+        let normalized = kanzei_harness::permission::normalize_resource(input_path);
+        assert_eq!(normalized, ".kanzei/allowed.md");
+
+        let deny = Ruleset::new(vec![Rule {
+            action: "write".into(),
+            resource: "*.kanzei/project/*".into(),
+            effect: Effect::Deny,
+        }]);
+        assert_eq!(
+            deny.evaluate(
+                "write",
+                &kanzei_harness::permission::normalize_resource(".KANZEI\\project\\secret.md")
+            ),
+            Effect::Deny
+        );
+
+        let output = WriteTool
+            .execute(
+                serde_json::json!({"path": input_path, "content": "落点一致"}),
+                &ToolCtx {
+                    cwd: root.clone(),
+                    project_root: root.clone(),
+                },
+            )
+            .await;
+        assert!(!output.is_error, "{output:?}");
+        assert_eq!(
+            std::fs::read_to_string(root.join(".kanzei/allowed.md")).unwrap(),
+            "落点一致"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn diff_display_marks_large_output_as_truncated() {
         let old = "a\n".repeat(20_000);
