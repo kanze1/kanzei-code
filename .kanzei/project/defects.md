@@ -149,6 +149,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -309,12 +321,24 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 ## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [fixing] (medium)
 - 复现: 设置语言为 English,创建/切换项目、运行任务、打开文档/设置并触发 toast;静态导航的一部分变英文,动态生成的状态、日志、错误、按钮和 300 余处中文字符串仍保持中文。再切回中文还会触发 D-092 的属性不可逆问题。
 - 根因: applyLanguage 只遍历当前 DOM 文本节点和少量 title/placeholder,I18N_EN 仅覆盖有限字典;后续 JS 动态生成的文本不会经过翻译函数,也没有以 key 为中心的统一文案层。
 - 影响: 英文模式无法作为完整产品能力使用,错误与权限等高风险信息尤其容易出现语义断层;R-069 原验收“所有产品/功能文案”未满足却被归档 done。
 - 验收: 所有用户可见文案由稳定 key 生成,动态内容与属性同源且可逆;中英文分别跑页面/操作快照,不得出现非用户数据导致的混合语言;补缺失 key 检查。
-- 优先级: P2
+- 优先级: P3
 - refs: D-092 R-069
 - 阶段: 3
 - 不变量: 操作反馈:文案进入统一 i18n 资源
@@ -381,6 +405,18 @@
 
 
 - 进展: 已进入 fixing（本次仅建立取活边界，尚未修改代码）：后续收口运行事件/完成与停止反馈动态文案，覆盖 main.js 运行事件订阅(kz:tool-start/tool-end/step/error/stream-restart/compacted/stopped/done)及上下文详情面板；完成后跑动态 key 缺失检查与 UI 冒烟验证。设置/工作区/文档及真实双语快照仍是后续范围。
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -556,7 +592,34 @@
 
 
 
-## D-119 继续文章/按钮收纳逻辑及视觉显示问题 [open] (high)
+
+
+
+
+
+
+
+
+
+
+
+
+## D-119 继续文章/按钮收纳逻辑及视觉显示问题 [fixing] (high)
 - 原始描述: 继续文章和继续按钮不应该同时收纳，应该独立，而且继续文案的白色底北京啥都看不到，框也很窄不能缩放
 - 复现: 1.查看'继续文章'和'继续按钮'功能 2.观察文案白色背景可读性 3.测试容器宽度能否缩放
 - 优先级: P2
+- 进展: 已定位到 ui/index.html 的 continue-panel 与 main.js 独立 toggle/submit 事件、style.css 的窄三列布局。准备拆分“继续文案”收纳与“继续”操作按钮，并扩大可编辑区、修复深色主题文字/背景对比；补 UI 冒烟验证。
+
+
+## D-120 继续文案无法改变实际取活顺序,需求优先模式未生效 [fixing] (high)
+- 不变量: 取活顺序:用户选择的需求优先/缺陷优先必须同时约束前端继续提示与后端 agent/system context
+- 复现: 在继续文案中写“先做 requirements.md”，使用 dev-auto 鞭挞；后端 dev agent system prompt、project-docs 和 NUDGE_PROMPT 仍固定 defects-first，实际继续取缺陷。
+- 影响: 用户界面显示的工作策略与实际执行策略不一致，需求优先模式无法使用。
+- 根因: 继续文案只是用户消息，未进入后端工作策略；profiles.rs 固定注入 Defects are the first development queue，dev system prompt 固定 Pick work defect-first，前端 NUDGE_PROMPT 也固定 defects.md。
+- 证据等级: E2
+- 阶段: 1
+- 验收: 提供需求优先/缺陷优先切换控件；模式按项目持久化；自动推进、手动继续和无动作追加使用所选顺序；后端 dev system/context 同步所选模式；默认行为保持缺陷优先；补前端/后端回归验证并发布。
+- refs: R-093
+- 优先级: P0
+- 进展: 已修复：新增按项目保存的 work-priority-select（缺陷优先/需求优先），前端继续提示、无动作追加和 run_prompt 均传递所选模式；后端 dev profile 去除固定 defects-first 冲突文本，run_task 将本轮模式追加到 agent system 指令，未传模式默认 defect-first。验证：前端四项检查、cargo test -p kanzei-tools、cargo test -p kanzei-app、cargo test --workspace 全部通过。下一步发布安装包。
+- 验证: node --check main.js；ui-a11y/i18n/Markdown smoke；cargo test -p kanzei-tools；cargo test -p kanzei-app；cargo test --workspace

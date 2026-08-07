@@ -184,7 +184,7 @@ impl Component for DevProfile {
                     );
                 }
                 Some(format!(
-                    "<project-docs>\n{}{}Defects are the first development queue; inspect and resolve them before starting new requirements. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
+                    "<project-docs>\n{}{}Use the selected work-priority mode from the run instruction to choose between the requirements and defects queues; when no mode is supplied, use defects-first. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
                     def.map(|s| s + "\n").unwrap_or_default(),
                     req.map(|s| s + "\n").unwrap_or_default(),
                 ))
@@ -206,10 +206,9 @@ impl Component for DevProfile {
                          done (`req update <id> done`) — an unmarked finished requirement is a \
                          bug in your process. WIP limit: keep at most 2 requirements in doing; \
                          finish and close existing doing items before starting new ones. \
-                         Pick work defect-first: inspect and resolve the first workable open \
-                         defect before selecting a requirement. After defects are clear, pick \
-                         work TOP-DOWN from the requirements list: the list order IS the user's \
-                         intent (R-054). Priority labels are background info, not the ordering. If NOTHING is workable \
+                         Pick work according to the selected work-priority mode appended for this run: \
+                         scan the selected first queue top-down, then the other queue only when the \
+                         first has no workable item. When no mode is supplied, use defect-first. Priority labels are background info, not the ordering. If NOTHING is workable \
                          (all blocked/waiting on外部), reply in PLAIN TEXT only — no tool \
                          calls, no 'still blocked' journal entries in goals, no empty commits; \
                          a text-only reply is the signal that stops the auto-continue loop. \

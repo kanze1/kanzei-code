@@ -2973,6 +2973,7 @@ async fn run_prompt(
     profile: Option<String>,
     agent: Option<String>,
     model: Option<String>,
+    work_priority: Option<String>,
     delivery: Option<String>,
     attachments: Option<Vec<PromptAttachment>>,
     process_id: Option<String>,
@@ -3042,6 +3043,7 @@ async fn run_prompt(
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
+                work_priority.clone(),
                 reasoning.clone(),
                 conversation.clone(),
                 delivery,
@@ -3169,6 +3171,7 @@ async fn run_task(
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
+    work_priority: Option<String>,
     reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     delivery: kanzei_core::Delivery,
@@ -3221,7 +3224,21 @@ async fn run_task(
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
-    let agent = snapshot.select_agent(agent_name.as_deref())?.clone();
+    let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
+    let work_priority = match work_priority.as_deref() {
+        Some("requirement-first") => "requirement-first",
+        _ => "defect-first",
+    };
+    if profile == ProfileKind::Dev {
+        let (first, second) = if work_priority == "requirement-first" {
+            ("requirements.md", "defects.md")
+        } else {
+            ("defects.md", "requirements.md")
+        };
+        agent.system.push_str(&format!(
+            "\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context."
+        ));
+    }
     stage(
         "装配",
         format!(

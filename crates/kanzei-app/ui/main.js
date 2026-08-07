@@ -1340,7 +1340,7 @@ on("kz:done", async (e) => {
           autoContinueTimer = null;
           if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
           if ($("auto-continue").checked && autoContinueAllowed() && !running) {
-            sendText(NUDGE_PROMPT, { auto: true });
+            sendText(nudgePrompt(), { auto: true });
           }
         }, 2000);
         return;
@@ -1669,11 +1669,27 @@ const NUDGE_PROMPT =
   "那一条一时推不动就跳到下一条,需求同理——总有一条是能动手的。\n" +
   "不要为了凑动作去做与当前条目无关的事,也不要只更新追踪文档就算一轮。";
 
+function nudgePrompt() {
+  const first = selectedWorkPriority() === "requirement-first" ? "requirements.md" : "defects.md";
+  const second = selectedWorkPriority() === "requirement-first" ? "defects.md" : "requirements.md";
+  return NUDGE_PROMPT.replace("defects.md", first).replace("需求同理", `${second} 同理`);
+}
+
 function selectedAgent() {
   const mode = $("profile-select").value;
   if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
   if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
   return { profile: "research", agent: "research" };
+}
+function workPriorityStorageKey() {
+  return `kz-work-priority:${currentProject || "default"}`;
+}
+function selectedWorkPriority() {
+  return $("work-priority-select").value === "requirement-first" ? "requirement-first" : "defect-first";
+}
+function syncWorkPriorityControl() {
+  const saved = localStorage.getItem(workPriorityStorageKey());
+  $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
 }
 
 function renderAutoStatus(text = autoStopReason) {
@@ -1683,7 +1699,11 @@ function renderAutoStatus(text = autoStopReason) {
   el.textContent = text || `连续推进上限 ${max}`;
 }
 function continuePrompt() {
-  return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
+  const base = $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
+  const order = selectedWorkPriority() === "requirement-first"
+    ? "先从上到下扫描 requirements.md，再扫描 defects.md"
+    : "先从上到下扫描 defects.md，再扫描 requirements.md";
+  return `${base}\n本轮取活模式：${order}。priority 只是背景信息，不改变列表顺序。`;
 }
 
 function setAutoStopReason(reason) {
@@ -1834,6 +1854,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       profile: mode.profile,
       agent: mode.agent,
       model: $("model-select").value || null,
+      workPriority: selectedWorkPriority(),
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
       processId: activeProcessId,
@@ -2087,6 +2108,11 @@ $("profile-select").addEventListener("change", () => {
       .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
   }
   syncAutoContinueWithProfile();
+});
+$("work-priority-select").addEventListener("change", () => {
+  const value = selectedWorkPriority();
+  localStorage.setItem(workPriorityStorageKey(), value);
+  log(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先");
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
@@ -2502,6 +2528,7 @@ function baseName(path) {
 function renderProjects(prefs) {
   const previousProject = currentProject;
   currentProject = prefs.current;
+  syncWorkPriorityControl();
   if (previousProject !== currentProject) {
     activeProcessId = null;
     activeSessionId = null;
