@@ -1419,3 +1419,29 @@
 
 - 验证: crates/kanzei-app/src/main.rs:update_tests::release_check_never_downgrades_a_newer_local_build、legacy_date_only_build_requires_a_later_release_day；cargo test -p kanzei-app update_tests 16 项；cargo test --workspace 全绿；PowerShell Parser 检查 scripts/package.ps1 与 scripts/release.ps1
 
+## D-147 自记阻塞只进不出,鞭挞把整个队列锁死后静默停机 [fixed] (high)
+- 复现: 2026-08-08 用户实测:侧边栏需求/缺陷仍有大量条目,鞭挞却连续两轮回复"当前没有可执行条目...本轮停止"。核对数据:requirements.md 32 条中 28 条、defects.md 3 条全部带 `阻塞:` 字段,`req list` 可执行数为 0。
+- 影响: 自举完全停摆且表现为"没活干"这一无害假象,用户看不出是 bug;单靠提示词纪律无法自愈,因为下一轮读到的仍是满屏 [blocked]。
+- 标签: 流程
+- 根因: 三处叠加。①conventions §1.1 明文授权"记录阻塞原因后跳过",而 §1 的"高影响改动须先确认方案"被套用到几乎每一条(28 条里约 21 条是同一句模板"涉及跨层/数据模型改动,需先确认方案"——实际从未真的问过用户);②鞭挞提示词规则 3 说"在条目里记一句原因",模型自然落成 `阻塞:` 字段,而 tracker 的 `block_reasons` 把任何非空阻塞字段当**永久**压制,无复核、无过期;③§1.1 末句"所有需求都 blocked 时明确说明原因并停止空转"把死锁写成了合法终态。写阻塞是 1 次工具调用且能正当结束一轮,做事要 20 次还可能失败——激励梯度全指向声明阻塞,于是逐轮累积到全队列锁死。另有 R-085 → R-084 → R-085 的真循环依赖,调度器只报"未完成依赖",永远等不到。
+- 阶段: 1
+- 验收: ①`list` 在可执行数为 0 时输出 `[调度死锁]` 横幅,要求先复核阻塞再升级给用户,并禁止"没有可执行条目"式收尾;②循环依赖被点名为 `循环依赖: A → B → A` 并要求断边,不再伪装成普通未完成依赖;③conventions §1.1 把 `阻塞:` 收窄到有具名解除人的外部阻塞,"需先确认方案(但没真问过)"明确不算;④鞭挞提示词与 nudge 同步,卡住写「进展」而非「阻塞」,并要求顺手清理已失效阻塞;⑤存量伪阻塞清理完毕。
+
+- 优先级: P0
+- 不变量: 调度:可执行数为 0 是异常状态,不是合法终态
+- 证据等级: E2
+- 备注: 落地位置 crates/kanzei-tools/src/tracker.rs(deadlock_banner、DependencyStates::cycle_from、block_reasons)、crates/kanzei-app/ui/main.js(DEFAULT_CONTINUE_PROMPT 规则 3、NUDGE_PROMPT,旧默认已入 LEGACY_CONTINUE_PROMPTS 静默升级)、conventions.md §1.1。回归:list_banners_deadlock_when_nothing_is_executable、list_names_dependency_cycles_instead_of_endless_waiting。存量清理 22 条伪阻塞(21 需求 + D-114)并断开 R-085→R-084 环,清理后可执行数 需求 11 / 缺陷 1。
+
+## D-148 首次请求未统一清洗 prior 历史可能把孤儿 tool_result 发送给 provider [fixed] (high)
+- 不变量: 发送给 provider 的消息历史不存在孤儿 tool_result/tool_call 配对。
+- 复现: 调用 run_once_with_parts 时传入包含无对应 ToolCall 的 ToolResult 历史，且首次请求未触发 ContextOverflow。当前函数直接复制 prior 并发送，未经过 filter_message_history。
+- 来源: R-087
+- 标签: 核心
+- 根因: crates/kanzei-core/src/runner.rs 的 run_once_with_parts 初始化 messages 时仅 clone prior；历史清洗只由调用方或压缩路径间接触发。
+- 证据等级: E2
+- 阶段: 1
+- 验收: 首次请求前统一清洗 prior；新增回归测试证明孤儿 ToolResult 不进入 provider 请求，同时合法 ToolCall/ToolResult 配对保留。
+- refs: R-087
+- 优先级: P1
+- 进展: 实现已完成：run_once_with_parts 在首次请求前统一调用 filter_message_history 清洗 prior。cargo test -p kanzei-core、cargo test -p kanzei-tools、cargo test --workspace 全部通过；配对与孤儿清洗回归覆盖。
+- 验收证据: crates/kanzei-core/src/runner.rs:492；crates/kanzei-core/src/history.rs:7-71及其三项单测；cargo test --workspace

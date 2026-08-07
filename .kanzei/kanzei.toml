@@ -58,3 +58,28 @@ effect = "allow"
 action = "bash"
 resource = "git *"
 effect = "allow"
+
+[[permissions.rules]]
+action = "edit"
+resource = "crates/kanzei-app/ui/style.css"
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short; git log --oneline -5","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"select-string -path crates/kanzei-app/src/main.rs,crates/kanzei-app/ui/main.js,crates/kanzei-app/ui/index.html -pattern 'kanzei_build_info','v0.1.0','version','日志' | select-object -first 120 path,linenumber,line","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short --branch; git rev-parse --short head; get-item /"$env:userprofile/.cargo/bin/kzapp.exe/" | select-object fullname,length,lastwritetime","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short --branch","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"

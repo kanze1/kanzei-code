@@ -489,7 +489,9 @@ pub fn run_once_with_parts<'a>(
         .filter(|s| !s.trim().is_empty())
         .collect();
 
-    let mut messages: Vec<Message> = prior.to_vec();
+    // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
+    // 在尚未触发上下文压缩时就把非法消息交给 provider。
+    let mut messages: Vec<Message> = crate::history::filter_message_history(prior);
     let user_parts = match initial_parts {
         Some(parts) => {
             let mut parts = parts.to_vec();

@@ -640,6 +640,22 @@ button:disabled { opacity: .45; cursor: default; }
 .doc-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
 button.mini { font-size: 11px; padding: 2px 8px; }
 
+/* 条目编辑表单:每个字段都要有可见字段名。早期版本只给 aria-label,渲染出来是
+   一片无标题输入框(默认 inline-block 还会两两成行像张表),改哪格全靠猜;
+   段落型字段(内容/验收/复现/进展)用单行 input 更是直接把值截没(D-148)。 */
+.doc-edit { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.doc-edit-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.doc-edit-key { color: var(--dim); font-size: 11px; }
+.doc-edit input, .doc-edit textarea {
+  width: 100%; box-sizing: border-box;
+  background: var(--input); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 6px; font-family: inherit; font-size: 11.5px;
+}
+.doc-edit textarea { resize: vertical; line-height: 1.5; }
+.doc-edit input:focus, .doc-edit textarea:focus { outline: none; border-color: var(--accent); }
+.doc-edit-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
+
 #ask-dialog .ask-buttons { display: flex; gap: 8px; justify-content: flex-end; }
 #ask-always { border: 1px solid var(--alert); color: var(--alert); background: transparent; border-radius: 4px; padding: 5px 12px; cursor: pointer; }
 #ask-always:hover { background: rgba(232, 132, 42, .12); }
@@ -737,16 +753,18 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 /* ---------- 目标模式(R-019 二期):连跑/新建/进展 ---------- */
 /* (连跑胶囊样式与自动放行统一,见上方开关胶囊段) */
 #continue-btn { white-space: nowrap; }
+/* 继续文案是十几行的长提示词:两列窄栏 + rows=2 只能露出两行,等于盲改。
+   固定成标签在上、输入框整宽可纵向拉伸,不再随宽度切换列数。 */
 #continue-panel {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 6px 0 2px;
   color: var(--muted);
   font-size: 11px;
 }
 #continue-panel label { white-space: nowrap; }
+#continue-panel textarea { resize: vertical; min-height: 96px; max-height: 40vh; }
 #sop-picker-panel {
   position: absolute; right: 14px; bottom: 58px; z-index: 20;
   width: min(420px, calc(100vw - 28px)); max-height: 320px; overflow: auto;
@@ -758,8 +776,6 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .sop-entry { display: flex; flex-direction: column; gap: 3px; text-align: left; background: var(--input); color: var(--fg); border: 1px solid var(--border-soft); }
 .sop-entry:hover, .sop-entry:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
 
-  #continue-panel { grid-template-columns: 1fr; gap: 4px; }
-}
 .goal-add-form input, .doc-progress input {
   width: 100%; background: var(--input); border: 1px solid var(--border);
   color: var(--fg); border-radius: 4px; padding: 4px 8px; font-size: 12px;

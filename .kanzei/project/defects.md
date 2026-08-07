@@ -1,17 +1,5 @@
 # Defects
 
-## D-147 自记阻塞只进不出,鞭挞把整个队列锁死后静默停机 [fixed] (high)
-- 复现: 2026-08-08 用户实测:侧边栏需求/缺陷仍有大量条目,鞭挞却连续两轮回复"当前没有可执行条目...本轮停止"。核对数据:requirements.md 32 条中 28 条、defects.md 3 条全部带 `阻塞:` 字段,`req list` 可执行数为 0。
-- 根因: 三处叠加。①conventions §1.1 明文授权"记录阻塞原因后跳过",而 §1 的"高影响改动须先确认方案"被套用到几乎每一条(28 条里约 21 条是同一句模板"涉及跨层/数据模型改动,需先确认方案"——实际从未真的问过用户);②鞭挞提示词规则 3 说"在条目里记一句原因",模型自然落成 `阻塞:` 字段,而 tracker 的 `block_reasons` 把任何非空阻塞字段当**永久**压制,无复核、无过期;③§1.1 末句"所有需求都 blocked 时明确说明原因并停止空转"把死锁写成了合法终态。写阻塞是 1 次工具调用且能正当结束一轮,做事要 20 次还可能失败——激励梯度全指向声明阻塞,于是逐轮累积到全队列锁死。另有 R-085 → R-084 → R-085 的真循环依赖,调度器只报"未完成依赖",永远等不到。
-- 影响: 自举完全停摆且表现为"没活干"这一无害假象,用户看不出是 bug;单靠提示词纪律无法自愈,因为下一轮读到的仍是满屏 [blocked]。
-- 验收: ①`list` 在可执行数为 0 时输出 `[调度死锁]` 横幅,要求先复核阻塞再升级给用户,并禁止"没有可执行条目"式收尾;②循环依赖被点名为 `循环依赖: A → B → A` 并要求断边,不再伪装成普通未完成依赖;③conventions §1.1 把 `阻塞:` 收窄到有具名解除人的外部阻塞,"需先确认方案(但没真问过)"明确不算;④鞭挞提示词与 nudge 同步,卡住写「进展」而非「阻塞」,并要求顺手清理已失效阻塞;⑤存量伪阻塞清理完毕。
-- 优先级: P0
-- 阶段: 1
-- 不变量: 调度:可执行数为 0 是异常状态,不是合法终态
-- 证据等级: E2
-- 备注: 落地位置 crates/kanzei-tools/src/tracker.rs(deadlock_banner、DependencyStates::cycle_from、block_reasons)、crates/kanzei-app/ui/main.js(DEFAULT_CONTINUE_PROMPT 规则 3、NUDGE_PROMPT,旧默认已入 LEGACY_CONTINUE_PROMPTS 静默升级)、conventions.md §1.1。回归:list_banners_deadlock_when_nothing_is_executable、list_names_dependency_cycles_instead_of_endless_waiting。存量清理 22 条伪阻塞(21 需求 + D-114)并断开 R-085→R-084 环,清理后可执行数 需求 11 / 缺陷 1。
-- 标签: 流程
-
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -39,7 +27,6 @@
 - 进展(追加): 鞭挞 14~17 轮暴露微切片新浪费:D-108 每轮只翻 2~3 处文案(拖到 34 步),且纯前端改动每轮跑全量 cargo test。按用户定调落地:①鞭挞默认提示词规则 2 改为「一轮一个完整条目,同构批量改动一轮吃完整类别」,旧默认进 LEGACY_CONTINUE_PROMPTS 静默升级;②conventions §1.3 增粒度与「验证匹配改动面」规范;③dev 提示词同步测试选择规则。生效需重装 kzapp(前端与提示词打包在二进制内)。
 
 - 标签: 流程
-
 
 ## D-124 应用内更新不先退出自身,安装必败且僵尸安装器锁死后续重试 [open] (high)
 - 复现: 2026-08-08 0:17 实录:app 运行中点「下载并安装」→ 安装器无法替换正在运行的 kzapp.exe,界面报 "另一个程序正在使用此文件。(os error 32)";失败的 kanzei-setup.exe 进程(%TEMP%,PID 15036)不退出,持续握着 kzapp.exe 句柄;用户重启 app 后重试仍报同一错误,直到手动杀掉僵尸安装器。

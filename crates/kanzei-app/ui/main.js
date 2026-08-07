@@ -3520,18 +3520,27 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     if ((kind === "req" || kind === "defect") && !entry.closed) {
       const editBox = document.createElement("div");
       editBox.className = "doc-edit";
-      const titleInput = document.createElement("input");
-      titleInput.value = entry.title;
-      titleInput.setAttribute("aria-label", `${entry.id} ${t("标题")}`);
-      titleInput.title = t("编辑标题");
+      // 每格都带可见字段名:字段集是自由的,只靠顺序或 tooltip 认不出改的是哪一条。
+      // 段落型字段(内容/验收/复现/进展)按值长度自动升级为 textarea——不硬编码字段名。
+      const addRow = (label, value, hint) => {
+        const row = document.createElement("label");
+        row.className = "doc-edit-row";
+        const name = document.createElement("span");
+        name.className = "doc-edit-key";
+        name.textContent = label;
+        const multiline = value.length > 60 || value.includes("\n");
+        const control = document.createElement(multiline ? "textarea" : "input");
+        control.value = value;
+        control.title = hint;
+        if (multiline) control.rows = Math.min(10, Math.max(3, Math.ceil(value.length / 42)));
+        row.append(name, control);
+        editBox.appendChild(row);
+        return control;
+      };
+      const titleInput = addRow(t("标题"), entry.title, t("编辑标题"));
       const fieldInputs = [];
       for (const [key, value] of entry.fields ?? []) {
-        const fieldInput = document.createElement("input");
-        fieldInput.value = value;
-        fieldInput.setAttribute("aria-label", `${key}`);
-        fieldInput.title = `${t("编辑字段")}: ${key}`;
-        fieldInputs.push([key, fieldInput]);
-        editBox.appendChild(fieldInput);
+        fieldInputs.push([key, addRow(key, value, `${t("编辑字段")}: ${key}`)]);
       }
       const save = document.createElement("button");
       save.type = "button";
@@ -3554,8 +3563,10 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           toastError(`记录保存失败:${error}`);
         }
       });
-      editBox.prepend(titleInput);
-      editBox.appendChild(save);
+      const editActions = document.createElement("div");
+      editActions.className = "doc-edit-actions";
+      editActions.appendChild(save);
+      editBox.appendChild(editActions);
       editBox.addEventListener("click", (event) => event.stopPropagation());
       detail.appendChild(editBox);
     }

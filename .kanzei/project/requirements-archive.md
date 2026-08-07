@@ -662,3 +662,21 @@
 - 进展: 已完成：继续按钮旁新增 SOP 入口与弹出列表，读取 project/global 已沉淀 sop 记忆；选择后将 SOP body 填入输入框，自动停止鞭挞并强制使用 queue 交付调用既有 sendText/run_prompt 链路。空 body 保留空输入并提示，不执行空命令。调用方：ui/index.html 的 sop-picker→ui/main.js openSopPicker→memory_entries→sendText→run_prompt。验证：ui-runtime-smoke 新增 SOP 读取、run_prompt、打断鞭挞回归；node --check、四项 UI smoke 通过。
 - 阻塞: 一键执行 SOP（尤其发版）缺少命令白名单、权限、确认和回滚方案，需用户确认。
 - 验证: crates/kanzei-app/ui/index.html/main.js/style.css；scripts/ui-runtime-smoke.mjs；node --check；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke
+
+## R-087 工具与协议层的数据完整性收口 [done]
+- 复杂度: 大
+- 优先级: P1
+- 来源: 2026-08-07 审计;D-053、D-054、D-060 的共同性质
+- 内容: 三处会造成不可逆数据损坏或会话不可用,且都涉及跨层契约,需统一设计而非各自打补丁:①docstore 解析丢弃一切非 `- k: v` 行,而 tracker 每次写操作整文件重写,用户手改内容被静默销毁(D-060)——需要 parse 保留未识别行的原文与位置并在 save 时原样回写;②上下文压缩重试在工具循环中段会留下孤儿 tool_result 致 API 400,使超限恢复在最常见场景失效(D-053);③用户拒绝权限时丢弃同批已执行工具的结果,历史留下未配对 ToolCall,后续每次请求都 400 且模型不知道已发生的副作用(D-054)。②③同属"消息历史必须始终保持 tool_use/tool_result 配对"这一不变量。
+- 验收: 手写自由文本经任意 tracker 写操作后完整保留;压缩重试与权限拒绝两条路径产出的历史均满足工具调用配对不变量,并有针对性回归测试;超限恢复在工具循环中段可用。
+- refs: D-053 D-054 D-060 D-042 D-082 D-084
+- 阶段: 1
+- 证据等级: E2
+- 设计定位: 工具配对和协议数据完整性
+
+- 标签: 核心
+
+- 进展: 本轮完成数据完整性收口：1) crates/kanzei-core/src/runner.rs:492 首次请求前清洗 prior，避免未触发压缩时发送孤儿工具结果；2) 既有能力 crates/kanzei-core/src/runner.rs:compact_messages_for_retry/aggressively 将工具轨迹压缩为文本并去除孤儿，既有回归覆盖；3) 既有能力 append_declined_tool_results 在权限拒绝时补齐已执行/拒绝/取消结果，既有回归覆盖；4) 既有能力 DocStore/Tracker 模板原样回写自由文本，docstore/tracker 回归覆盖。验证：cargo test -p kanzei-core、cargo test -p kanzei-tools、cargo test --workspace 全部通过。
+
+- 验收证据: 验收① crates/kanzei-tools/src/docstore.rs:TemplateLine::Raw/render_with_template + tracker::tests::add_preserves_handwritten_free_text_and_unknown_blocks；验收② crates/kanzei-core/src/runner.rs:492、554-590、1119-1162 + history.rs:7-71及回归；验收③ runner.rs:913-1003 + declined_tool_batch_keeps_real_and_placeholder_results_paired；调用方为 run_once_with_parts 的生产运行链路。
+
