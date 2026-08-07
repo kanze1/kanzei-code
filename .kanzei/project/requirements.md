@@ -60,6 +60,7 @@
 
 
 
+
 ## R-093 可靠性、可用性与自举质量收口 [doing]
 - 复杂度: 大
 - 归属: kanzei
@@ -143,6 +144,7 @@
 
 
 
+
 ## R-085 需求验收标准与完成判定的执行约束 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -218,9 +220,10 @@
 
 
 
+
 ## R-083 修复 codex 批次遗留的高危缺陷 [doing]
 - 复杂度: 大
-- 优先级: P2
+- 优先级: P3
 - 来源: 2026-08-07 全项目审计(5 个分区并行审计 + 3 组验收核查)
 - 内容: 本轮审计共记录 D-048~D-096 共 49 条缺陷,其中 P0 级 9 条集中在三条主线:①前端渲染崩溃与会话事件路由(D-048、D-055、D-056);②权限硬门禁被路径变体与命令泛化击穿(D-050、D-051);③队列与会话 ID 一致性(D-057、D-058)。另有数据丢失类 D-060(手改内容被销毁)、D-053/D-054(上下文与拒绝路径毒化会话)。
 - 验收: 9 条 P0 缺陷全部修复并有回归测试;修复后 cargo test --workspace 全绿;前端补最低限度的运行时冒烟检查(能捕获 ReferenceError 一类问题)。
@@ -296,6 +299,7 @@
 
 
 
+
 ## R-087 工具与协议层的数据完整性收口 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -336,6 +340,7 @@
 - 标签: data_integrity,tool_pairing,context_recovery
 - 类型: epic
 - 领域: protocol,storage,runner
+
 
 
 
@@ -447,6 +452,7 @@
 
 
 
+
 ## R-088 凭证与 provider 协议的健壮性 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -489,6 +495,7 @@
 - 标签: oauth,protocol,rate_limit,forward_compatibility
 - 类型: epic
 - 领域: auth,provider,concurrency
+
 
 
 
@@ -565,6 +572,7 @@
 - 标签: runtime_smoke,webview,console_error
 - 类型: quality
 - 领域: testing,ui,e2e
+
 
 
 
@@ -675,6 +683,7 @@
 
 
 
+
 ## R-076 鞭挞模式触发异常 bug 修复 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -723,6 +732,7 @@
 - 标签: brake,backlog,anti_spin
 - 类型: quality
 - 领域: runner,auto_run,state_machine
+
 
 
 
@@ -829,6 +839,7 @@
 
 
 
+
 ## R-090 对话内容可读性与操作反馈可恢复 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -876,6 +887,7 @@
 - 标签: markdown,recovery,persistence,history
 - 类型: quality
 - 领域: ui,message,feedback
+
 
 
 
@@ -952,6 +964,7 @@
 - 标签: keyboard,focus,aria,e2e
 - 类型: quality
 - 领域: ui,a11y,testing
+
 
 
 
@@ -1057,6 +1070,7 @@
 
 
 
+
 ## R-069 关于我们及引导文案的多语化支持 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -1109,6 +1123,7 @@
 - 标签: dynamic_text,language,about
 - 类型: capability
 - 领域: ui,i18n,content
+
 
 
 
@@ -1208,6 +1223,7 @@
 
 
 
+
 ## R-070 来源引用的文档解析与记忆保存 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -1260,6 +1276,7 @@
 - 标签: source_parse,reference,memory_write
 - 类型: capability
 - 领域: research,memory,citation
+
 
 
 
@@ -1361,6 +1378,7 @@
 
 
 
+
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
 - 优先级: P3
@@ -1439,6 +1457,7 @@
 
 
 
+
 ## R-095 活动窗口终端和工具管理呈现优化 [todo]
 - 原始描述: 优化活动窗口的终端和工具管理还有呈现
 - 归属: kanzei
@@ -1488,6 +1507,7 @@
 - 标签: activity,terminal,presentation
 - 类型: capability
 - 领域: ui,tools,terminal
+
 
 
 
@@ -1583,6 +1603,7 @@
 
 
 
+
 ## R-099 自举轨迹冗余度量与基线对比 [todo]
 - 复杂度: 中
 - 优先级: P2
@@ -1636,6 +1657,7 @@
 - 标签: trace,baseline,telemetry
 - 类型: quality
 - 领域: testing,metrics,agent
+
 
 
 
@@ -1725,6 +1747,7 @@
 
 
 
+
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [todo]
 - 复杂度: 大
 - 优先级: P0
@@ -1760,6 +1783,7 @@
 - 标签: tauri,webview,harness,延期e2e
 - 类型: quality
 - 领域: testing,ui,e2e
+
 
 
 
@@ -1812,6 +1836,7 @@
 - 标签: readonly,profile,zero_config
 - 类型: capability
 - 领域: cli,permission,safety
+
 
 
 
@@ -1882,6 +1907,7 @@
 
 
 
+
 ## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [doing]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -1936,7 +1962,8 @@
 
 
 
-## R-106 Memory M3:注入改造与上下文账单 [todo]
+
+## R-106 Memory M3:注入改造与上下文账单 [doing]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 中
 - 优先级: P2
@@ -1947,6 +1974,7 @@
 - 阶段: 4
 - 设计定位: 上下文管理精准化的数据与机制
 - 依赖: R-104 R-105
+- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。剩余:上下文溢出时先压 episode 再重置(D-088 联动)。
 
 
 
@@ -1989,6 +2017,7 @@
 
 
 
+
 ## R-107 Memory M4:独立 Memory 页与空闲整理 [todo]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -2014,6 +2043,7 @@
 
 
 
+
 ## R-108 建立AI设计/技术选型沉淀机制 [todo]
 - priority: P2
 - 原始描述: 加一个大的需求，我们现在已经沉淀了需求和缺陷，但是少了一个沉淀，就是我们和AI沟通出来的设计方向和技术选择，这个应该也要落一下沉淀
@@ -2028,9 +2058,41 @@
 
 
 
+
 ## R-109 侧边栏设计语言一致性规范 [todo]
 - priority: P0
 - 原始描述: 所有的侧边栏设计语言要一致，包括筛选排序显示等
 - 复杂度: 中
 - 归属: kanzei
 - 验收: 所有侧边栏(筛选/排序显示)使用统一的设计语言与视觉风格
+
+## R-110 讨论与设计沉淀为决策条目 [done]
+- 复杂度: 中
+- 优先级: P1
+- 归属: kanzei
+- 来源: 2026-08-08 用户:讨论的思路和设计应该也要像需求和缺陷一样沉淀
+- 内容: 新增 DECISIONS 文档类型(.kanzei/project/decisions.md,前缀 A-,draft→accepted→superseded/rejected,superseded/rejected 归档);decision 工具进 DevProfile 与 kz CLI;accepted 决策作为常驻约束注入每轮上下文,禁止重复争论;设计文档仍放 docs/design/,决策条目引用之。
+- 验收: decision add/update/close/archive 全链路可用;accepted 条目出现在注入上下文;已用 A-001~A-005 沉淀近两日全部用户定调作为种子。
+- 进展: 1a8a81b 交付(用户直营);种子条目 decisions.md A-001~A-005 已落。
+- refs: R-103
+- 阶段: 4
+
+## R-111 需求缺陷依赖的组织与可视化 [todo]
+- 复杂度: 中
+- 优先级: P2
+- 归属: kanzei
+- 来源: 2026-08-08 用户:依赖设计合理,但求更好的组织形式与可视化
+- 内容: 现状 refs/依赖 是自由文本,无校验无方向语义。改造:①字段语义分立——`依赖:`(阻塞关系,本条完成前置)与 `refs:`(关联参考,不阻塞)在引擎侧校验 ID 存在且区分方向;②tracker 输出条目时附带反向链接(谁依赖我);③独立文档页给依赖视图:按依赖拓扑分层的列表(可做层/被阻塞层),点击条目高亮其依赖链;暂不做图形化 DAG 画布(重,收益存疑,列表+高亮已覆盖主要场景)。
+- 验收: 依赖引用不存在时工具告警;条目详情含正反向链接;文档页有"被谁阻塞/阻塞谁"视图且切换流畅;循环依赖检测告警。
+- refs: R-054 D-112
+- 阶段: 4
+
+## R-112 需求缺陷分类体系标准化 [todo]
+- 复杂度: 中
+- 优先级: P2
+- 归属: kanzei
+- 来源: 2026-08-08 用户:需求和缺陷应该要分类
+- 内容: 现状标签(标签/类型/领域)是自由文本,同义词发散不可聚合。改造:①收敛为两级受控词表——`领域`(单选:engine/provider/session/permission/tracker/memory/ui/release/process)与 `类型`(单选:功能/质量/性能/安全/体验/流程),词表在 conventions 定义、引擎枚举校验,自由 `标签` 保留但降为辅助;②既有条目批量归一(同义词映射表);③文档页按领域/类型双维筛选与计数。
+- 验收: 词表外的领域/类型被引擎拒绝并提示合法值;存量条目 100% 归一;文档页双维筛选可用;quick capture 自动建议分类。
+- refs: R-054
+- 阶段: 4
