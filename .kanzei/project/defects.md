@@ -14,6 +14,8 @@
 
 
 
+
+
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [fixing] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
 - 根因: 首轮修复仅用 8 个字符 `; & | 换行 \` $ (` 做黑名单(config.rs:232-247;permission.rs:100-112),仍把任意无这些字符的命令泛化为 `首词 *`。Shell 与各 CLI 的执行语义无法用有限字符黑名单穷举。
@@ -28,82 +30,6 @@
 - 进展: 桌面真实 UI E2 因无前端测试 harness 暂缓；本轮完成旧裸 bash 规则的只读识别与可见提示：KanzeiConfig::legacy_bash_rules 仅识别 action=bash 且非 command/workdir JSON 的旧规则，不改写配置；CLI 启动时 stderr 提示其将降级逐次询问，桌面 run_task 通过现有 kz:status 展示同样提示。新增配置检测回归；cargo test -p kanzei-harness -p kanzei -p kanzei-app 全部通过（29/3/9）。仍缺桌面真实 UI E2、正式迁移方案与并发写入证据。
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixed] (high)
-- 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
-- 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
-- 影响: 弹窗永不出现,该运行卡在权限等待直到手动停止,用户毫无感知(无日志无提示)。R-030/R-078 主打的多进程/多项目并行在任何需要审批的场景实际不可用,只有 yolo/自动放行才真并行。
-- 验收: ask/done/error/stopped 等控制类事件按 sessionId 路由到对应进程状态而非丢弃;切回进程时补发 pending ask;后端提供 pending asks 查询以支持重建。
-- 优先级: P0
-- refs: R-030 R-078
-- 阶段: 1
-- 不变量: 会话控制:控制事件按 session_id 收敛到终态
-- 证据等级: E2+E3
-- 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:功能路径完整且有回归,前端 UI E2 转 R-101。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [fixed] (high)
-- 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。
-- 根因: 项目点击 handler 不调 setRunning(ui/main.js:1942-1955);renderProcesses 把 activeSessionId 换成 B 的会话(1802-1810),A 的 kz:done 带 A 的 sessionId 被 on() 过滤丢弃(894-905),setRunning(false)(905)永不执行;此时 B 的进程 tab 就是 activeProcessId,点它命中 1833-1834 早退也无法修复,唯一出路是点停止(仅本地复位)。
-- 影响: 多项目并行的基本操作(运行时切项目)导致 UI 状态永久错乱。反向情况:若 B 的 session_id 为空,过滤条件 `sessionId && activeSessionId` 不成立,A 的 kz:text 会直接串流渲染进 B 的对话区。
-- 验收: 运行状态按会话维度保存并在切换项目/进程时按目标会话重算;控制类事件不因非活动会话被丢弃;补切项目后运行结束能正确复位的验证。
-- 优先级: P0
-- refs: D-055 R-078
-- 进展: 侧栏与工作区项目切换均已补 setRunning(false)+refreshProcesses，node --check 通过；剩余真实运行中切项目→终态 E2 阻塞于同一前端 UI harness 缺口，且控制事件架构归 D-055/R-086。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:切换即复位的功能路径完整,切项目 E2 转 R-101,控制事件架构归 R-086。
-- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
-- 阶段: 1
-- 不变量: 界面状态:前端展示是后端会话状态的投影
-- 证据等级: E2+E3
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixed] (high)
-- 复现: 在 requirements.md 手写一条无冒号 bullet(如 `- 就是个备注`)或自由段落/### 子标题/代码块,随后让模型执行任意一次 req/defect 写操作(哪怕改的是别的条目),手改内容消失。
-- 根因: kanzei-tools/src/docstore.rs:225-242 的 parse 只保留 `## ` 标题和 `- key: value` 形式 bullet(`bullet.split_once(':')` 无 else 分支),其余一律丢弃;render(301-318)只写回保留部分。而 tracker.rs:76-82/153/227/268 的每一个写操作(add/update/close/reorder)都是 load → 改内存 → save 整文件重写。
-- 影响: 数据静默丢失,无任何提示;与 docstore 模块头"用户可任意编辑器手改"及"文档永远写不坏"的设计承诺直接相反——引擎恰恰是唯一会删内容的一方。当前仓库文件全部合规是因为都由引擎生成,掩盖了该缺陷。
-- 验收: parse 保留未识别行的原文与位置,save 时原样回写;补"手写自由文本 + 一次 add 后内容不丢"的回归测试。
-- 优先级: P0
-- 阶段: 1
-- 不变量: 配置与文档:写入保留未知字段和用户自由内容
-- 证据等级: E2
-- 进展: 已补 archive_terminal 模板转移：终态条目的 EntryTemplate 按 ID 合并到归档模板，归档不会丢自由段落、无冒号 bullet、### 子标题或代码块；新增 tracker::tests::archive_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req archive 并断言手写内容进入 requirements-archive.md、活动文档保留进行中条目。cargo test -p kanzei-tools 21 项通过。当前改动位置 crates/kanzei-tools/src/docstore.rs:222-250、crates/kanzei-tools/src/tracker.rs:467-499。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:parse 保留+模板回写机制覆盖全部 save 路径且本会话手写恢复内容经引擎多次重写无损(实测);update/close/reorder 覆盖与并发写入回归转 R-101。
 
 
 
@@ -144,58 +70,6 @@
 
 
 
-## D-064 SQLite 并发修复只加 WAL/busy_timeout,sequence 竞争与收尾假失败仍未解决 [fixed] (medium)
-- 复现: 两个连接并发向同一 session append_event;两边的 DEFERRED 事务都可能读取相同 `MAX(sequence)+1`,后提交方撞 UNIQUE(session_id,sequence)。busy_timeout 只等待锁,不会重新计算已经读出的 sequence。
-- 根因: append_event_tx 仍采用 `SELECT MAX(sequence)+1` 后 INSERT(store.rs:527-544),没有 immediate transaction/原子计数器/唯一冲突重试;run_task 收尾的 set_status/append_event/conversation.updated 仍用 `?` 把落库失败提升为整轮失败(main.rs:3085-3104)。
-- 已完成部分: SessionStore::open 已设置 WAL、5 秒 busy_timeout 和 synchronous=NORMAL,普通读写锁冲突显著减少。
-- 未完成风险: 高并发下仍可能丢本轮终态或把已完成任务报告为失败;原验收中的 UNIQUE 重试和“收尾落库失败降级为可见告警”均未实现。
-- 验收: sequence 分配与插入对同一 session 原子化或有限重试;并发测试稳定产出连续且唯一的 sequence;收尾持久化失败保留模型结果并发出明确告警,不伪装成模型运行失败。
-- 优先级: P1
-- refs: R-083 D-065
-- 阶段: 1
-- 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
-- 证据等级: E2
-- 进展: 生产代码已隔离收尾落库失败(d3b94fa),sequence 分配已在 BEGIN IMMEDIATE 事务内原子化并有并发回归(d1dc702,4 连接 80 通知 sequence 连续唯一)。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:功能验收两项均落地有测试,注入故障的 run_task E2 夹具转 R-101。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixed] (medium)
-- 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
-- 根因: 首轮修复补了 lifecycle 锁、idle 状态和 pending 清理,没有实现原验收的“回收 promoted 未执行输入”;session_inputs 状态机也没有 promoted→cancelled/pending 的停止迁移。
-- 已完成部分: 手动停止后会话状态不再永久卡 running,stop 与普通 admit/drain 的大部分交错已串行化。
-- 未完成风险: 极窄但真实的轮次交界窗口仍会永久丢一条用户输入,事件日志保留 prompt.promoted 却没有执行/取消终态。
-- 验收: promote 与下一轮执行建立可恢复交接;停止时把尚未开始的 promoted 输入明确取消或退回 pending,并补“promote 后、run_task 前停止”的确定性测试。
-- 优先级: P1
-- refs: D-024 R-083
-- 阶段: 1
-- 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
-- 证据等级: E2
-- 进展: 本轮补齐 app 层确定性生命周期回归：新增 stop_runtime_and_finalize，保持 lifecycle 锁覆盖 abort/running 复位/数据库收尾，并沿用 SessionStore::finalize_interrupt 原子写 idle、stopped_by_user 事件及 pending/promoted 取消；stop_run 已改用该 helper。新增 update_tests::stopping_after_promote_cancels_promoted_and_pending_inputs_atomically，验证 promote 后停止时两条输入均取消、会话 idle、事件原因可见。cargo test -p kanzei-app 16 项通过。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:promoted 回收的功能验收已实现且有确定性测试,真实 Tauri Window/provider E2 转 R-101。
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ## D-068 错误分类忽略 kind,限流可被误判为上下文超限触发破坏性压缩 [fixing] (medium)
@@ -208,7 +82,7 @@
 - 阶段: 1
 - 不变量: Provider:错误分类不改变原始错误事实
 - 证据等级: E2+E4
-- 进展: 完成第二个最小步骤：新增 LlmError::RateLimited，classify_provider 对限流 kind 保留原始 kind/message；HTTP 429/529 识别为 RateLimited 并保留 retry_after。LlmClient 在流建立前对 429/529 按 Retry-After（最多 30 秒）进行最多 2 次有界退避重试，流建立后不重放。新增分类、限流不触发 overflow、Retry-After 截断与默认退避测试；cargo test -p kanzei-llm 28 项通过。尚未补真实 HTTP 429/529 服务端 E2，保持 fixing。
+- 进展: 补齐真实本地 HTTP E2：client 测试启动 127.0.0.1 临时服务，连续返回两次 429 + Retry-After: 0，第三次返回真实 OpenAI SSE；断言收到 3 次 POST、触发 2 次重试且最终 TextDelta 为 ok。测试位置 crates/kanzei-llm/src/client.rs::rate_limit_http_retries_with_retry_after_then_returns_stream。cargo test -p kanzei-llm 29 项通过。HTTP E2 已覆盖，仍未覆盖流内 SSE rate_limit_error 的 provider 边界，保持 fixing。
 
 
 
@@ -217,29 +91,6 @@
 
 
 
-
-
-
-
-
-
-
-## D-086 task 子代理不继承用户权限规则,read deny 可被旁路 [fixed] (medium)
-- 复现: 在 kanzei.toml 配置 `action="read", resource="*/.env", effect="deny"`;主代理读被拦后,让模型用 task 子代理读同一文件,内容照常回传。
-- 根因: task 调用明确跳过权限门禁(kanzei-core/src/runner.rs:478-480,"硬门禁在构造,不在评估"),但构造处只 add(SubagentBase)(kanzei/src/main.rs:233-236),ConfigComponent 不在内,用户规则不进入子代理快照;而 SubagentBase 给 read/glob/grep 一律 Allow *(kanzei-tools/src/subagent.rs:14-24)。
-- 影响: "read deny 保护敏感文件"这一用户可表达的规则存在系统性旁路。"只读所以免检"的前提只对写安全成立,对读的保密性不成立。
-- 验收: 子代理装配时叠加用户规则中 read/glob/grep 的 deny 条目(ask 可降为 deny,因子代理无人应答);补子代理读被拦截的测试。
-- 优先级: P2
-- 阶段: 1
-- 不变量: 权限:子代理不得旁路用户规则
-- 证据等级: E2
-
-
-
-
-
-
-- 进展: 已复核最小权限快照回归：subagent_snapshot_applies_user_read_deny 与只读工具范围测试通过；cargo test -p kanzei-tools subagent 2 项、cargo test -p kanzei-core 37 项通过。生产路径仍已在 CLI/桌面 SubagentBase 后叠加 ConfigComponent。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:用户 read deny 已进入子代理快照且有快照级测试,runner 级实际执行回归与 CLI/桌面 E2 转 R-101。
 
 
 
@@ -274,6 +125,8 @@
 
 
 
+
+
 ## D-080 markdown agent 默认 steps=40 与既定默认 0 冲突 [open] (low)
 - 复现: 在 ~/.kanzei/agents/ 下定义 agent 但不写 steps 字段,长任务在第 40 轮被强制收尾。
 - 根因: kanzei-harness/src/markdown.rs:102 用 `unwrap_or(40)`,而 AgentDef 的 serde 默认是 default_steps()=0 且注释明言"0 = 无轮数上限(用户定调)"(defs.rs:69-75),内置 dev/research agent 也都显式 steps: 0(profiles.rs:143/262)。
@@ -283,6 +136,8 @@
 - 阶段: 1
 - 不变量: 配置与文档:默认值在各入口一致
 - 证据等级: E1
+
+
 
 
 
@@ -323,6 +178,8 @@
 
 
 
+
+
 ## D-105 主导航与多类可点击容器没有键盘/可访问语义 [open] (medium)
 - 复现: 只用 Tab/Enter 操作桌面端。activity-item、project-item、workspace-card、doc-row 等用 div + click 实现,没有统一 role/tabindex/键盘处理;自动放行/鞭挞的真实 checkbox 被 `display:none`;大量图标按钮的可访问名称只剩 `＋/↗/✎/🗑`。
 - 根因: 交互由 3200 行原生 JS 零散绑定,只对 sidebar section title 补了 role/tabindex/aria-expanded,没有组件级可访问性约束。浏览器 accessibility snapshot 中活动栏项表现为 generic,图标按钮名称是符号本身。
@@ -333,6 +190,8 @@
 - 阶段: 3
 - 不变量: 界面状态:仅键盘可完成核心流程
 - 证据等级: E3
+
+
 
 
 
@@ -373,6 +232,8 @@
 
 
 
+
+
 ## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [open] (medium)
 - 复现: 设置语言为 English,创建/切换项目、运行任务、打开文档/设置并触发 toast;静态导航的一部分变英文,动态生成的状态、日志、错误、按钮和 300 余处中文字符串仍保持中文。再切回中文还会触发 D-092 的属性不可逆问题。
 - 根因: applyLanguage 只遍历当前 DOM 文本节点和少量 title/placeholder,I18N_EN 仅覆盖有限字典;后续 JS 动态生成的文本不会经过翻译函数,也没有以 key 为中心的统一文案层。
@@ -383,6 +244,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:文案进入统一 i18n 资源
 - 证据等级: E3
+
+
 
 
 
@@ -423,6 +286,8 @@
 
 
 
+
+
 ## D-110 todo 与活动两个右栏可同时占宽,最小窗口会把主对话区压到近乎不可用 [open] (medium)
 - 复现: 打开活动面板,再让 todowrite 显示当前计划;todo-panel 与 bg-panel 均为独立 300px 固定右栏且可同时显示。在 1280px 默认侧栏下主区只剩约 352px;800px 最小窗口下两右栏与左栏总宽已超过窗口。
 - 根因: 两个面板没有互斥、tab 合并或窄屏 overlay 策略,宽度都以 flex-shrink:0 的侧栏语义参与主布局;设置的可调最小宽度仍为 240px。
@@ -433,6 +298,8 @@
 - 阶段: 3
 - 不变量: 界面状态:多面板不挤压主对话区
 - 证据等级: E3
+
+
 
 
 
@@ -475,6 +342,8 @@
 
 
 
+
+
 ## D-088 CLI 会话历史无限累积且无清理入口 [open] (medium)
 - 复现: 在同一项目里正常使用若干次 kz run,上下文与耗时持续增长,最终撞上下文上限。
 - 根因: 每次 kz run 无条件取最新 conversation.updated 全量作为 prior(kanzei/src/main.rs:145-153),runner 以 prior.to_vec() 开局(runner.rs:206),运行结束又把累积后的完整 messages 写回(277-281);usage(47-52)中不存在 reset/new/continue 任何选项。
@@ -484,6 +353,8 @@
 - 阶段: 3
 - 不变量: 会话控制:上下文增长有清理入口
 - 证据等级: E2
+
+
 
 
 
@@ -524,6 +395,8 @@
 
 
 
+
+
 ## D-075 上下文成分浮层是死功能,状态栏承诺的点击查看无法打开 [open] (low)
 - 复现: 运行一轮后点状态栏 token 文字(title 写着"点击查看上下文成分"),浮层永不出现。
 - 根因: renderContextDetail 只写 innerHTML 从不移除 hidden 类(ui/main.js:811-825),而 `.hidden { display:none !important }`(style.css:329);全项目无其他代码碰 #context-detail(index.html:339)。
@@ -532,6 +405,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:承诺的入口必须可达
 - 证据等级: E3
+
+
 
 
 
@@ -571,6 +446,8 @@
 
 
 
+
+
 ## D-079 运行中发送按钮禁用但排队功能存在,鼠标用户不可达 [open] (low)
 - 复现: 运行中在输入框打字并选好"插入 steer",发送按钮是灰的点不动;但按 Ctrl+Enter 却能成功排队。
 - 根因: setRunning(true) 禁用发送按钮(ui/main.js:287),而 sendText 专门实现了运行中的 queue/steer 投递分支(1277-1296),交付方式下拉也常驻可选;键盘路径直接调 send() 完全绕过按钮禁用(1571-1573)。
@@ -580,6 +457,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:按钮状态与实际能力一致
 - 证据等级: E3
+
+
 
 
 
@@ -619,6 +498,8 @@
 
 
 
+
+
 ## D-090 bgEntries/diffSummary 不随 DOM 修剪,长时间运行内存与定时器负载无界增长 [open] (low)
 - 复现: 一晚上鞭挞连跑数千次工具调用且不切项目/进程。
 - 根因: ui/main.js:490-492 的修剪只删 DOM(`list.firstElementChild.remove()`),bgEntries Map(452)与 diffSummary 仅在 bgClear()(切项目/进程)时清空;687-691 的每秒 interval 遍历全 Map,对已脱离 DOM 的 detached 节点持续更新。
@@ -628,6 +509,8 @@
 - 阶段: 3
 - 不变量: 界面状态:长跑不产生无界增长
 - 证据等级: E3
+
+
 
 
 
@@ -666,6 +549,8 @@
 
 
 
+
+
 ## D-093 标题 🔔 提示只在 visibilitychange 复位,窗口可见时失焦回焦不清除 [open] (low)
 - 复现: 双屏使用,kanzei 一直可见但焦点在别处,任务完成后回到窗口,标题仍是"🔔 运行完成 · kanzei"。
 - 根因: ui/main.js:173-187 设置条件是 `!document.hasFocus() || document.hidden`(失焦即设),但复位只挂在 visibilitychange 上;窗口未被遮挡时失焦→回焦不产生该事件,缺一个 window focus 监听。
@@ -674,6 +559,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:提示状态不陈旧
 - 证据等级: E3
+
+
 
 
 
@@ -713,6 +600,8 @@
 
 
 
+
+
 ## D-095 refs 跳转在独立文档页失效,特殊字符还会抛异常 [open] (low)
 - 复现: 在独立文档页展开带 `refs: R-054` 的条目并点击该链接,页面无反应。
 - 根因: ui/main.js:2188-2194 用全局 `document.querySelector([data-doc-id="..."])`,同一条目在侧栏与独立页各渲染一份且侧栏在前,而独立视图激活时侧栏副本被 `display:none` 隐藏 → scrollIntoView 对隐藏元素无效、高亮不可见;另 ref 值来自自由文本,含 `"` 或 `]` 时选择器语法错误直接抛未捕获异常。
@@ -722,6 +611,8 @@
 - 阶段: 3
 - 不变量: 界面状态:关联跳转在当前视图内生效
 - 证据等级: E3
+
+
 
 
 
@@ -747,6 +638,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:长结果持久可见可复制
 - 证据等级: E3
+
+
 
 
 

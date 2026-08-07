@@ -214,7 +214,15 @@ impl LlmClient {
 
 #[cfg(test)]
 mod tests {
-    use super::{rate_limit_retry_delay, transport_retry_delay, MAX_RATE_LIMIT_RETRIES, MAX_TRANSPORT_RETRIES};
+    use super::{
+        rate_limit_retry_delay, transport_retry_delay, LlmClient, Route, MAX_RATE_LIMIT_RETRIES,
+        MAX_TRANSPORT_RETRIES,
+    };
+    use crate::proxy::ProxyConfig;
+    use crate::request::{LlmRequest, Message, ReasoningEffort};
+    use futures::StreamExt;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[test]
     fn transport_retry_is_bounded_and_uses_backoff() {
@@ -229,5 +237,63 @@ mod tests {
         assert_eq!(rate_limit_retry_delay(Some("7"), 1).as_secs(), 7);
         assert_eq!(rate_limit_retry_delay(Some("999"), 1).as_secs(), 30);
         assert_eq!(rate_limit_retry_delay(Some("bad"), 2).as_secs(), 2);
+    }
+
+    #[tokio::test]
+    async fn rate_limit_http_retries_with_retry_after_then_returns_stream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let requests = Arc::new(Mutex::new(0usize));
+        let server_requests = requests.clone();
+        let server = tokio::spawn(async move {
+            for attempt in 1..=3 {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = vec![0u8; 4096];
+                let _ = socket.read(&mut request).await.unwrap();
+                *server_requests.lock().unwrap() += 1;
+                let response = if attempt < 3 {
+                    "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 0\r\nContent-Length: 9\r\nConnection: close\r\n\r\ntry later"
+                        .to_string()
+                } else {
+                    let body = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n";
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(), body
+                    )
+                };
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+
+        let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
+        let route = Route::openai_at(&format!("http://{address}/v1"), None);
+        let request = LlmRequest {
+            model: "mock".into(),
+            system: vec![],
+            messages: vec![Message::user_text("hello")],
+            tools: vec![],
+            max_tokens: 32,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+        };
+        let retries = Arc::new(Mutex::new(Vec::new()));
+        let retry_log = retries.clone();
+        let mut stream = client
+            .stream_with_retry_notice(&route, &request, move |attempt, delay| {
+                retry_log.lock().unwrap().push((attempt, delay));
+            })
+            .await
+            .unwrap();
+        let mut text = String::new();
+        while let Some(event) = stream.next().await {
+            if let crate::event::LlmEvent::TextDelta { text: delta, .. } = event.unwrap() {
+                text.push_str(&delta);
+            }
+        }
+        server.await.unwrap();
+
+        assert_eq!(*requests.lock().unwrap(), 3);
+        assert_eq!(retries.lock().unwrap().len(), 2);
+        assert_eq!(text, "ok");
     }
 }
