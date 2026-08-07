@@ -57,6 +57,7 @@ const I18N_EN = {
   "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
   "外部阻塞": "Externally blocked", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
   "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
+  "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -3394,7 +3395,7 @@ function renderPermissionRules(data) {
   tbody.replaceChildren();
   const rules = data?.rules ?? [];
   $("permission-rules-empty").classList.toggle("hidden", rules.length > 0);
-  $("permission-rules-path").textContent = data?.path ? `配置: ${data.path}` : "";
+  $("permission-rules-path").textContent = data?.path ? `${t("配置")}: ${data.path}` : "";
   for (const rule of rules) {
     const row = document.createElement("tr");
     const action = document.createElement("td");
@@ -3404,7 +3405,7 @@ function renderPermissionRules(data) {
     const controls = document.createElement("td");
     const remove = document.createElement("button");
     remove.className = "icon-btn";
-    remove.title = "删除规则";
+    remove.title = t("删除规则");
     remove.setAttribute("aria-label", `删除权限规则 ${rule.action} ${rule.resource}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
@@ -3435,7 +3436,7 @@ async function loadSettings() {
     s = await invoke("settings_get");
   } catch (err) {
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
-    $("settings-path").textContent = "配置读取失败";
+    $("settings-path").textContent = t("配置读取失败");
     toastError(`设置读取失败:${err}`, { retry: loadSettings });
     return;
   }
@@ -3476,7 +3477,7 @@ $("mobile-service-start").addEventListener("click", async () => {
 $("mobile-service-stop").addEventListener("click", async () => {
   try {
     await invoke("mobile_service_stop");
-    $("mobile-service-status").textContent = "已停止并撤销设备 token";
+    $("mobile-service-status").textContent = t("已停止并撤销设备 token");
     $("mobile-service-start").classList.remove("hidden");
     $("mobile-service-stop").classList.add("hidden");
   } catch (error) {
@@ -3509,19 +3510,19 @@ $("providers-test").addEventListener("click", async () => {
   const button = $("providers-test");
   const result = $("providers-test-result");
   if (!settingsProviders.length) {
-    result.textContent = "没有可测试的 provider";
+    result.textContent = t("没有可测试的 provider");
     return;
   }
   button.disabled = true;
-  result.textContent = `测试中(0/${settingsProviders.length})…`;
+  result.textContent = `${t("测试中")}(0/${settingsProviders.length})…`;
   try {
     let passed = 0;
     for (const [index, provider] of settingsProviders.entries()) {
       const status = await testProvider(provider);
       if (status.startsWith("✓")) passed += 1;
-      result.textContent = `测试中(${index + 1}/${settingsProviders.length})…`;
+      result.textContent = `${t("测试中")}(${index + 1}/${settingsProviders.length})…`;
     }
-    result.textContent = `连通性检查完成: ${passed}/${settingsProviders.length} 可用`;
+    result.textContent = `${t("连通性检查完成")}: ${passed}/${settingsProviders.length} ${t("可用")}`;
   } finally {
     button.disabled = false;
   }
