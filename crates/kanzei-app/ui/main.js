@@ -83,7 +83,7 @@ const I18N_EN = {
   "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source",
-  "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory",
+  "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory", "找不到": "Not found:",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -3339,6 +3339,35 @@ async function commitDocOrder(listEl, kind) {
   }
 }
 
+// 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
+// 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
+// 也没有任何提示,看起来就是"引用是死链"(D-150)。
+function jumpToEntry(ref) {
+  const matches = [...document.querySelectorAll("[data-doc-id]")].filter(
+    (item) => item.dataset.docId === ref,
+  );
+  if (!matches.length) {
+    toast(`${t("找不到")} ${ref}`);
+    return;
+  }
+  // 同一条目可能同时存在于侧栏和独立文档页:优先跳当前视图里那个,都不可见就取第一个
+  // 并把挡住它的容器逐层打开。
+  const target = matches.find((item) => item.offsetParent) ?? matches[0];
+  if (sidebarCollapsed && target.closest("#sidebar")) {
+    sidebarCollapsed = false;
+    localStorage.setItem("kz-sidebar-collapsed", "0");
+    syncSidebar();
+  }
+  // 只掀开确实会藏住条目的两类容器,不对任意祖先去 hidden——那会顺手展开整个视图。
+  for (let node = target; node; node = node.parentElement) {
+    if (node.classList?.contains("doc-archive-list")) node.classList.remove("hidden");
+    if (node.classList?.contains("sidebar-section")) node.classList.remove("collapsed");
+  }
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.classList.add("ref-highlight");
+  setTimeout(() => target.classList.remove("ref-highlight"), 1200);
+}
+
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
   if (kind === "defect") {
@@ -3618,11 +3647,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           link.textContent = ref;
           link.addEventListener("click", (event) => {
             event.stopPropagation();
-            const target = [...document.querySelectorAll("[data-doc-id]")]
-              .find((item) => item.dataset.docId === ref && item.offsetParent !== null);
-            target?.scrollIntoView({ behavior: "smooth", block: "center" });
-            target?.classList.add("ref-highlight");
-            setTimeout(() => target?.classList.remove("ref-highlight"), 1200);
+            jumpToEntry(ref);
           });
           f.appendChild(link);
           f.append(" ");
@@ -3734,6 +3759,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     for (const entry of archivedEntries) {
       const row = document.createElement("div");
       row.className = "archived-entry";
+      // 归档条目也要挂 id:被引用的条目多半正是已经做完归档的那些,没有它跳转必然落空。
+      row.dataset.docId = entry.id;
       row.textContent = `${entry.id} ${entry.title} [${entry.status}]`;
       archive.appendChild(row);
     }

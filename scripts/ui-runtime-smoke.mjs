@@ -425,6 +425,23 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
+// D-150:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
+const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
+assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");
+assert(archivedRow.parentElement.classList.contains("hidden"), "归档区应默认折叠");
+assert(typeof sandbox.jumpToEntry === "function", "jumpToEntry 未定义(引用跳转入口丢失)");
+sandbox.jumpToEntry("R-000");
+assert(
+  !archivedRow.parentElement.classList.contains("hidden"),
+  "跳转到归档条目时未掀开归档折叠区",
+);
+assert(archivedRow.classList.contains("ref-highlight"), "跳转后未高亮目标条目");
+sandbox.jumpToEntry("R-999");
+assert(
+  listText("toast").includes("R-999"),
+  `跳转到不存在的条目时应给出提示而不是静默失败,实得 toast: "${listText("toast")}"`,
+);
+
 const reqEditor = document.querySelector("#req-list .doc-edit");
 assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "需求侧栏未提供标题/字段编辑控件");
 // D-148:曾经只给 aria-label,渲染成一片无标题输入框,改哪格全靠猜;长字段用单行 input 还会把值截没。
