@@ -486,11 +486,18 @@
 - 进展: 阻塞：现有 `activity-toggle`/右侧活动面板已提供工具进度与最近活动展示，但条目没有明确新增入口位置、子代理数据字段或与现有面板的差异，直接实现会重复既有能力。解除条件：确认要展示的子代理字段、按钮位置和与现有活动面板的边界；下一步：按确认契约补真实数据调用与回归。
 - 阻塞: 现有活动面板已覆盖部分验收，但新增范围与数据契约不明确，疑似重复申报。
 
-## R-118 设置界面与选项配置及导出口径支持 [todo]
+## R-118 设置界面与选项配置及导出口径支持 [done]
 - 复杂度: 中
 - 验收: 实现可配置的设置UI，提供导出功能并显示路径
 - 优先级: P1
 
-- 进展: 阻塞：验收只写“可配置的设置 UI、提供导出功能并显示路径”，未指定配置项、导出格式、保存位置、调用入口和权限边界；不能自行扩展设置数据模型。解除条件：确认配置项、导出格式/位置及 UI 入口；下一步：按完整设置链路实施并补 UI/运行时验证。
-- 阻塞: 设置项、导出契约和调用入口缺失，实施边界不清。
+- 进展: 已完成（沿用既有实现）：R-119 的设置页工作资料导出已满足本条验收，包含可配置导出项、目录选择、真实 `export_project_data` Tauri 调用和实际路径显示。位置：crates/kanzei-app/src/main.rs 的 export_pick_dir/export_project_data；ui/index.html 与 ui/main.js 的工作资料导出区。验证：export_project_data_copies_selected_work_materials、node --check、ui-runtime-smoke、ui-i18n-smoke。
+- 阻塞: 
 
+- 验证: 沿用 R-119 实现；cargo test -p kanzei-app export_project_data_copies_selected_work_materials；node --check；ui-runtime-smoke；ui-i18n-smoke
+
+## R-120 侧边栏直接修改记录和缺陷功能 [todo]
+- 复杂度: 中
+- 归属: kanzei
+- 验收: U能在侧边栏查看并编辑需求和缺陷记录
+- 优先级: P1
