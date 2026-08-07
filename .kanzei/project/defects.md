@@ -349,12 +349,14 @@
 - 验收: 修剪 DOM 时同步删除对应 Map 条目;定时器只遍历在册条目。
 - 优先级: P3
 
-## D-091 CSS 变量 --muted/--danger 未定义,失败状态失去红色语义 [open] (low)
+## D-091 CSS 变量 --muted/--danger 未定义,失败状态失去红色语义 [fixed] (low)
 - 复现: 侧栏出现 failed 测试记录或工作区失败状态,颜色与普通文字相同。
 - 根因: style.css:144/153/154/174/657 使用 var(--danger)/var(--muted),而 :root 定义块(5-15)只有 --dim/--err,未定义的 var 使 color 回退为 inherit。
 - 影响: 失败态失去颜色语义,红色警示恰恰在最需要的地方缺席。
 - 验收: 补齐变量定义或改用既有 --err/--dim。
 - 优先级: P3
+- 修复: :root 补齐 --danger(映射 --err)与 --muted(映射 --dim);失败测试与工作区失败态恢复红色语义。
+- 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
 
 ## D-092 语言切回中文时 title/placeholder 属性停留在英文 [open] (low)
 - 复现: 设置页语言 zh→en→zh,悬停活动栏图标,tooltip 仍是英文,需重启才恢复。
