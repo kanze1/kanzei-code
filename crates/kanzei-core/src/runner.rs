@@ -122,6 +122,15 @@ pub enum RunEvent {
     },
 }
 
+fn drain_task_events(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<RunEvent>,
+    on_event: &mut dyn FnMut(RunEvent),
+) {
+    while let Ok(event) = rx.try_recv() {
+        on_event(event);
+    }
+}
+
 pub struct RunSummary {
     pub text: String,
     pub usage: Usage,
@@ -519,7 +528,10 @@ pub fn run_once_with_parts<'a>(
                                 });
                                 task_results.insert(id, output);
                             }
-                            None => break,
+                            None => {
+                                drain_task_events(&mut rx, on_event);
+                                break;
+                            }
                         },
                         Some(event) = rx.recv() => on_event(event),
                     }
@@ -922,9 +934,28 @@ fn preview(content: &str) -> String {
 mod tests {
     use super::{
         append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
-        MAX_STREAM_RESTARTS,
+        drain_task_events, RunEvent, MAX_STREAM_RESTARTS,
     };
     use kanzei_llm::{LlmError, Message, Part};
+
+    #[test]
+    fn 子代理完成前的缓冲事件会被排空() {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        tx.send(RunEvent::TaskProgress {
+            id: "task-1".into(),
+            text: "收尾".into(),
+            trace: None,
+        })
+        .unwrap();
+        drop(tx);
+        let mut drained = 0;
+        drain_task_events(&mut rx, &mut |event| {
+            if matches!(event, RunEvent::TaskProgress { .. }) {
+                drained += 1;
+            }
+        });
+        assert_eq!(drained, 1);
+    }
 
     /// 流中途断开只对传输层错误重放:协议错误重放只会原样复现,白烧钱。
     /// 这里锁住 runner 里那条判定用的变体匹配语义。
