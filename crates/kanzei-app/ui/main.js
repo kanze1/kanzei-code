@@ -2970,7 +2970,7 @@ $("conv-init").addEventListener("click", async () => {
     toast(`规范文件已就绪:${path}`);
     refreshDocs();
   } catch (err) {
-    toast(String(err));
+    toastError(String(err), { retry: () => $("conv-init").click() });
   }
 });
 $("conv-open").addEventListener("click", () => openDocViewer("conventions"));
@@ -2993,7 +2993,7 @@ async function openDocViewer(kind) {
     body.scrollTop = 0;
     $("viewer-overlay").classList.remove("hidden");
   } catch (err) {
-    toast(String(err));
+    toastError(String(err), { retry: () => openDocViewer(kind) });
   }
 }
 $("viewer-close").addEventListener("click", () => $("viewer-overlay").classList.add("hidden"));
@@ -3513,7 +3513,7 @@ $("settings-save").addEventListener("click", async () => {
   }
 });
 
-$("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toast(String(e))));
+$("settings-open").addEventListener("click", () => invoke("settings_open").catch((e) => toastError(String(e), { retry: () => $("settings-open").click() })));
 
 // ---------- 版本与更新(GitHub Releases 为源) ----------
 let updateUrl = null;
