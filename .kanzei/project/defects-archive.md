@@ -1472,3 +1472,17 @@
 - 优先级: P1
 - 进展: 修复已验证完成。
 - 验收证据: crates/kanzei-app/ui/style.css:#continue-panel 双列/窄屏单列；scripts/ui-a11y-smoke.mjs 新增布局与操作层级回归；四项 UI smoke 与 node --check 全部通过。
+
+## D-150 权限与文档查看弹窗缺少 dialog 语义及 Escape 键盘关闭 [fixed] (medium)
+- 不变量: 键盘用户可通过稳定焦点、Enter/Space/Escape 完成主导航、权限/问题处理和弹窗关闭；弹窗在可访问性树中明确为 dialog。
+- 复现: 静态核查 crates/kanzei-app/ui/index.html：#ask-overlay 与 #viewer-overlay 没有 role=dialog/aria-modal/aria-labelledby；main.js 仅为查看器点击关闭和问题 Enter 应答，缺少弹窗 Escape 关闭/权限弹窗键盘关闭路径，权限弹窗打开时也不主动聚焦按钮。
+- 来源: R-091
+- 标签: 前端
+- 根因: 弹窗结构和关闭行为只按鼠标点击实现，未建立统一键盘/ARIA 契约。
+- 证据等级: E2
+- 阶段: 3
+- 验收: ask/viewer 弹窗补 dialog 语义、ARIA 关联、Escape 关闭；打开权限弹窗时焦点落到可操作控件；新增 UI a11y smoke 断言并通过 node --check 与四项 UI smoke。
+- refs: R-091
+- 优先级: P1
+- 进展: 修复验证完成。
+- 验收证据: crates/kanzei-app/ui/index.html:454,483 dialog 语义；crates/kanzei-app/ui/main.js:1839、1882、4349 键盘焦点与 Escape；scripts/ui-a11y-smoke.mjs:18-23 断言；node --check 与四项 UI smoke 全部通过。

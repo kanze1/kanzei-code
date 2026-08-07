@@ -15,6 +15,12 @@ assert.equal(
   "静态 icon-btn 必须有 aria-label"
 );
 
+assert.match(html, /id="ask-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="ask-title"/);
+assert.match(html, /id="viewer-overlay"[^>]*role="dialog"[^>]*aria-modal="true"[^>]*aria-labelledby="viewer-title"/);
+assert.match(js, /if \(event\.key !== "Escape"\) return/);
+assert.match(js, /answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
+assert.match(js, /\$\("viewer-close"\)\.focus\(\)/);
+assert.match(js, /if \(event\.key !== "Enter" && event\.key !== " "\) return/);
 for (const selector of ["activity-item", "sidebar-toggle", "auto-continue", "auto-allow"]) {
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
 }

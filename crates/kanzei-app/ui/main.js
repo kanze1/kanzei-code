@@ -1836,6 +1836,7 @@ function pumpAsk() {
     $("ask-action").textContent = askActive.action;
     $("ask-resource").textContent = askActive.resource;
     $("ask-remember").textContent = `${askActive.action} ${askActive.remember ?? askActive.resource}`;
+    setTimeout(() => $("ask-allow").focus(), 0);
   }
   $("ask-overlay").classList.remove("hidden");
   updateAskQueueStatus();
@@ -1876,6 +1877,14 @@ $("ask-cancel").addEventListener("click", () => answerAsk("cancel"));
 $("ask-submit").addEventListener("click", () => answerAsk($("ask-answer").value.trim()));
 $("ask-answer").addEventListener("keydown", (event) => {
   if (event.key === "Enter") answerAsk($("ask-answer").value.trim());
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!$('ask-overlay').classList.contains("hidden") && askActive) {
+    answerAsk(askActive.kind === "question" ? "cancel" : "deny");
+    return;
+  }
+  if (!$('viewer-overlay').classList.contains("hidden")) $("viewer-close").click();
 });
 
 // ---------- 阅读辅助 ----------
@@ -3570,24 +3579,35 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       editBox.addEventListener("click", (event) => event.stopPropagation());
       detail.appendChild(editBox);
     }
+    // 编辑表单已经把每个字段连名带值摆出来了,再渲染一遍只读列表就是同一份内容显示两遍;
+    // 「阻塞字段: X」这条理由更是直接重复 阻塞 字段的原文(D-149)。有编辑表单时:
+    // 阻塞原因只留调度器推导出来的理由(依赖/阶段/循环),只读列表只留 refs(它是可跳转的链接)。
+    const hasEditor = (kind === "req" || kind === "defect") && !entry.closed;
     if (blocked || externalBlocked) {
-      const blockBox = document.createElement("div");
-      blockBox.className = "doc-blocked-detail";
-      const blockTitle = document.createElement("strong");
-      blockTitle.textContent = t("阻塞原因");
-      blockBox.appendChild(blockTitle);
-      const reasons = blockedReasons.length ? blockedReasons : [t("缺少阻塞原因")];
-      for (const reason of reasons) {
-        const line = document.createElement("div");
-        line.textContent = `• ${reason}`;
-        blockBox.appendChild(line);
+      const reasons = hasEditor
+        ? blockedReasons.filter((reason) => !String(reason).startsWith("阻塞字段:"))
+        : blockedReasons;
+      const shown = reasons.length ? reasons : hasEditor ? [] : [t("缺少阻塞原因")];
+      if (shown.length) {
+        const blockBox = document.createElement("div");
+        blockBox.className = "doc-blocked-detail";
+        const blockTitle = document.createElement("strong");
+        blockTitle.textContent = t("阻塞原因");
+        blockBox.appendChild(blockTitle);
+        for (const reason of shown) {
+          const line = document.createElement("div");
+          line.textContent = `• ${reason}`;
+          blockBox.appendChild(line);
+        }
+        detail.appendChild(blockBox);
       }
-      detail.appendChild(blockBox);
     }
     for (const [key, value] of entry.fields ?? []) {
+      const isRefs = key.toLowerCase() === "refs";
+      if (hasEditor && !isRefs) continue;
       const f = document.createElement("div");
       f.className = "doc-field";
-      if (key.toLowerCase() === "refs") {
+      if (isRefs) {
         f.append(`${key}: `);
         for (const ref of String(value).split(/[\s,]+/).filter(Boolean)) {
           const link = document.createElement("button");
@@ -4338,6 +4358,7 @@ async function openDocViewer(kind) {
     }
     body.scrollTop = 0;
     $("viewer-overlay").classList.remove("hidden");
+    $("viewer-close").focus();
   } catch (err) {
     toastError(String(err), { retry: () => openDocViewer(kind) });
   }

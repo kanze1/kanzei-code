@@ -698,3 +698,20 @@
 
 - 验收证据: 验收① ui-markdown-smoke.mjs 列表/表格/链接/代码/XSS；验收② main.js:addErrorMessage、reportPersistentError、log-retry、copyReadable、renderDiff；验收③ main.js:4433-4447 历史恢复链与 4477-4480 running guard；调用方为实时事件订阅、历史对话点击和错误/diff UI 事件。
 
+## R-091 键盘与可访问性形成完整验收门槛 [done]
+- 复杂度: 中
+- 优先级: P2
+- 来源: 浏览器 accessibility snapshot 与 DOM 事件审计
+- 内容: 现有快捷键只覆盖少数命令,无法弥补 activity/project/workspace/doc 等 div-click 控件的不可达。建立组件级规则:原生语义优先、稳定可访问名称、可见焦点、合理 Tab 顺序、状态用 aria 表达。
+- 验收: 仅键盘可完成选项目、切主视图、切进程、发送/排队/停止、打开需求缺陷、处理权限与关闭弹窗;所有图标按钮有可读名称;无 display:none 的唯一控制入口;浏览器可访问性树不再把主导航呈现为 generic;自动化冒烟覆盖 Tab/Enter/Space/Escape 与焦点回归。
+- refs: D-105 R-040 R-084
+- 阶段: 3
+- 证据等级: E3
+- 设计定位: 键盘与可访问性
+
+- 标签: 前端
+
+- 进展: 完成：沿用原生 button/nav/select/input 语义；动态 project/workspace/doc 行保留 tabindex、aria-label 与 Enter/Space 处理；主导航使用 activity-item button 并维护 aria-current；权限/问题与查看器弹窗补 role=dialog、aria-modal、aria-labelledby、Escape 关闭及打开后焦点落点。scripts/ui-a11y-smoke.mjs 覆盖 icon-btn 名称、focus-visible、Enter/Space、Escape、dialog 语义与焦点断言。验证：node --check、ui-runtime/i18n/a11y/markdown 四项 UI smoke 全部通过。
+
+- 验收证据: 主导航 index.html:10-19；动态可选控件 main.js:3110-3168、3762-3799、3406-3690；权限/查看器 index.html:454-494，main.js:1834-1887、4349；自动化 scripts/ui-a11y-smoke.mjs:10-29。
+
