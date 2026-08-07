@@ -904,6 +904,22 @@ function renderDiff(display) {
   render();
   return block;
 }
+function appendDisplayBlock(parent, display) {
+  if (!display) return;
+  if (display.kind === "diff") {
+    parent.appendChild(renderDiff(display));
+  } else if (display.kind === "terminal") {
+    const block = document.createElement("div");
+    block.className = "tool-display term";
+    block.textContent = `$ ${display.command}\n${display.output}`;
+    parent.appendChild(block);
+  } else if (display.kind === "create") {
+    const block = document.createElement("div");
+    block.className = "tool-display term";
+    block.textContent = `新建 ${display.path}(${display.bytes} bytes)\n${display.preview}`;
+    parent.appendChild(block);
+  }
+}
 function bgProgress(id, text, trace) {
   const entry = bgEntries.get(id);
   if (!entry) return;
@@ -952,18 +968,8 @@ function bgEnd(id, ok, preview, display) {
       deletions: d.deletions || 0,
     });
     renderDiffSummary();
-    entry.detail.appendChild(renderDiff(d));
-  } else if (d?.kind === "terminal") {
-    const block = document.createElement("div");
-    block.className = "tool-display term";
-    block.textContent = `$ ${d.command}\n${d.output}`;
-    entry.detail.appendChild(block);
-  } else if (d?.kind === "create") {
-    const block = document.createElement("div");
-    block.className = "tool-display term";
-    block.textContent = `新建 ${d.path}(${d.bytes} bytes)\n${d.preview}`;
-    entry.detail.appendChild(block);
   }
+  appendDisplayBlock(entry.detail, d);
   if (!ok && preview) {
     const err = document.createElement("div");
     err.className = "tool-display term";
