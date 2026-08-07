@@ -532,6 +532,13 @@ impl MemoryStore {
         Ok(path)
     }
 
+    /// 同一失败指纹是否已投递过草稿(跨轮去重:同一个坑不该每轮都投)。
+    /// inbox 被 manager 清空后指纹随之失效——那时该坑要么已入库、要么被判 NOOP,
+    /// 再次复现时重新投递是正确行为。
+    pub fn note_fingerprint_seen(&self, fingerprint: &str) -> bool {
+        self.read_inbox().contains(fingerprint)
+    }
+
     pub fn pending_notes(&self) -> usize {
         std::fs::read_to_string(self.root.join("inbox.md"))
             .map(|t| t.lines().filter(|l| l.starts_with("## note ")).count())

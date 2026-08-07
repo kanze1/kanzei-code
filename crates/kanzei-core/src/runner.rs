@@ -145,6 +145,8 @@ pub struct RunSummary {
 }
 
 /// 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
+/// 注意:传入 `&summary.messages` 会把 prior 全历史一起统计;要本轮画像请传
+/// `&summary.messages[prior_len..]`。
 pub fn summarize_tools(messages: &[Message]) -> std::collections::BTreeMap<String, usize> {
     let mut counts = std::collections::BTreeMap::new();
     for message in messages {
@@ -155,6 +157,252 @@ pub fn summarize_tools(messages: &[Message]) -> std::collections::BTreeMap<Strin
         }
     }
     counts
+}
+
+/// 一条失败信号:同一 (工具 × 错误类) 在本轮的聚合。
+#[derive(Debug, Clone, PartialEq)]
+pub struct FailureSignal {
+    pub tool: String,
+    /// 归一化错误指纹(抹掉路径与数字后的错误首行),用于聚合与跨轮去重。
+    pub kind: String,
+    /// 错误原文首段,给 manager 判断用。
+    pub sample: String,
+    /// 涉及的目标(路径/命令首词),最多 3 个。
+    pub targets: Vec<String>,
+    pub count: usize,
+    /// 同目标后续成功的调用:「X 不行、Y 可以」是最值得记的形状。
+    pub recovered_by: Option<String>,
+}
+
+/// 从本轮轨迹提炼失败信号(R-105 机械触发):失败数据本来就在 messages 里,
+/// 引擎不额外采集,只做一次线性扫描 + 指纹聚合。纯函数,可单测。
+///
+/// 只传本轮切片(`&summary.messages[prior_len..]`),否则会把历史失败重复上报。
+pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
+    // call_id → (工具名, 目标):ToolResult 只有 call_id,工具名要回溯 ToolCall。
+    let mut calls: std::collections::HashMap<String, (String, String)> =
+        std::collections::HashMap::new();
+    let mut raw_inputs: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    // 指纹 → 信号;另记每个目标最近一次失败,便于配对后续成功。
+    let mut signals: Vec<FailureSignal> = Vec::new();
+    let mut failed_targets: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+
+    for message in messages {
+        for part in &message.parts {
+            match part {
+                Part::ToolCall { id, name, input } => {
+                    // 同时留原始输入:判定恢复对时要看"失败的目标是否出现在后续成功调用里"
+                    // (edit main.rs 失败 → bash 用脚本改 main.rs 成功,是同一个目标)。
+                    calls.insert(id.clone(), (name.clone(), failure_target(input)));
+                    raw_inputs.insert(id.clone(), input.to_string().to_lowercase());
+                }
+                Part::ToolResult { call_id, content, is_error } => {
+                    let Some((tool, target)) = calls.get(call_id).cloned() else {
+                        continue;
+                    };
+                    if *is_error {
+                        let kind = failure_kind(content);
+                        let position = match signals
+                            .iter()
+                            .position(|s| s.tool == tool && s.kind == kind)
+                        {
+                            Some(index) => {
+                                signals[index].count += 1;
+                                if !signals[index].targets.contains(&target)
+                                    && signals[index].targets.len() < 3
+                                {
+                                    signals[index].targets.push(target.clone());
+                                }
+                                index
+                            }
+                            None => {
+                                signals.push(FailureSignal {
+                                    tool: tool.clone(),
+                                    kind,
+                                    sample: content.chars().take(240).collect(),
+                                    targets: if target.is_empty() {
+                                        Vec::new()
+                                    } else {
+                                        vec![target.clone()]
+                                    },
+                                    count: 1,
+                                    recovered_by: None,
+                                });
+                                signals.len() - 1
+                            }
+                        };
+                        if !target.is_empty() {
+                            failed_targets.insert(target, position);
+                        }
+                    } else {
+                        // 恢复对:失败过的目标出现在后续某次成功调用的输入里。工具不必相同——
+                        // 「edit 不行、改用 bash 脚本可以」正是最值得记的形状。
+                        let haystack = raw_inputs.get(call_id).cloned().unwrap_or_default();
+                        let recovered: Vec<String> = failed_targets
+                            .keys()
+                            .filter(|failed| haystack.contains(failed.as_str()))
+                            .cloned()
+                            .collect();
+                        for failed in recovered {
+                            if let Some(position) = failed_targets.remove(&failed) {
+                                if signals[position].recovered_by.is_none() {
+                                    signals[position].recovered_by = Some(tool.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // 机械闸门:一次性失败不入库(搜索空间无限的负面事实没有记忆价值);
+    // 重复 ≥2 次说明是稳定的坑,或带恢复对说明有现成解药——两者才值得记。
+    signals.retain(|s| s.count >= 2 || s.recovered_by.is_some());
+    signals
+}
+
+/// 错误指纹:首行小写 → 抹掉含路径分隔符的 token 与全部数字 → 折叠空白 → 截 80。
+/// 目的是让「13 次 CRLF 未命中」塌成同一条,而不是 13 条。
+fn failure_kind(content: &str) -> String {
+    let first_line = content.lines().next().unwrap_or("").to_lowercase();
+    let scrubbed: Vec<String> = first_line
+        .split_whitespace()
+        .filter(|token| !token.contains('/') && !token.contains('\\'))
+        .map(|token| {
+            token
+                .chars()
+                .filter(|c| !c.is_ascii_digit())
+                .collect::<String>()
+        })
+        .filter(|token| !token.is_empty())
+        .collect();
+    scrubbed.join(" ").chars().take(80).collect()
+}
+
+/// 目标键:路径类取最后一段(跨平台分隔符都算),命令取首词,其余取 id。
+fn failure_target(input: &serde_json::Value) -> String {
+    for key in ["path", "file_path", "file", "id", "command"] {
+        if let Some(value) = input.get(key).and_then(|v| v.as_str()) {
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            if key == "command" {
+                return value.split_whitespace().next().unwrap_or("").to_lowercase();
+            }
+            return value
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(value)
+                .to_lowercase();
+        }
+    }
+    String::new()
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+    use kanzei_llm::{Message, Part};
+
+    fn call(id: &str, name: &str, target_key: &str, target: &str) -> Message {
+        Message::assistant(vec![Part::ToolCall {
+            id: id.into(),
+            name: name.into(),
+            input: serde_json::json!({ target_key: target }),
+        }])
+    }
+    fn result(call_id: &str, content: &str, is_error: bool) -> Message {
+        Message::tool_results(vec![Part::ToolResult {
+            call_id: call_id.into(),
+            content: content.into(),
+            is_error,
+        }])
+    }
+
+    #[test]
+    fn 一次性失败不上报_重复失败才成为信号() {
+        // 搜索空间无限的负面事实(猜错一次文件名)没有记忆价值,必须被闸掉。
+        let once = vec![
+            call("c1", "read", "path", "src/nope.rs"),
+            result("c1", "cannot access src/nope.rs: not found", true),
+        ];
+        assert!(summarize_failures(&once).is_empty());
+
+        // 同一坑重复两次 = 稳定问题,值得记。
+        let twice = vec![
+            call("c1", "edit", "path", "C:/p/main.rs"),
+            result("c1", "old_string not found in C:/p/main.rs — it must match exactly", true),
+            call("c2", "edit", "path", "C:/p/other.rs"),
+            result("c2", "old_string not found in C:/p/other.rs — it must match exactly", true),
+        ];
+        let signals = summarize_failures(&twice);
+        assert_eq!(signals.len(), 1, "同类错误必须塌成一条: {signals:?}");
+        assert_eq!(signals[0].tool, "edit");
+        assert_eq!(signals[0].count, 2);
+        // 指纹抹掉了路径,两次不同文件仍归一类
+        assert!(!signals[0].kind.contains("main.rs"), "指纹不该含路径: {}", signals[0].kind);
+        assert_eq!(signals[0].targets, vec!["main.rs", "other.rs"]);
+    }
+
+    #[test]
+    fn 失败后换工具成功构成恢复对_单次也上报() {
+        // 「X 不行、Y 可以」自带解药,是最值得记的形状,阈值降到 1。
+        let messages = vec![
+            call("c1", "edit", "path", "C:/p/main.rs"),
+            result("c1", "old_string not found in C:/p/main.rs", true),
+            call("c2", "bash", "command", "python fix.py C:/p/main.rs"),
+            result("c2", "exit code: 0", false),
+        ];
+        let signals = summarize_failures(&messages);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0].recovered_by.as_deref(), Some("bash"));
+        assert_eq!(signals[0].count, 1, "有恢复对时单次失败即上报");
+    }
+
+    #[test]
+    fn tdd_噪声不被误报为信号() {
+        // 先写测试→失败→实现→通过:这是正常节奏,不是可复用知识。
+        // 单次失败被阈值闸掉;目标不同(测试命令 vs 源文件)也不构成恢复对。
+        let messages = vec![
+            call("c1", "bash", "command", "cargo test新增用例"),
+            result("c1", "exit code: 101\ntest failed", true),
+            call("c2", "edit", "path", "C:/p/impl.rs"),
+            result("c2", "replaced 1 occurrence(s)", false),
+        ];
+        assert!(
+            summarize_failures(&messages).is_empty(),
+            "TDD 的一次预期失败不该进记忆"
+        );
+    }
+
+    #[test]
+    fn 本轮统计不含历史_调用方须传切片() {
+        // summarize_tools/summarize_failures 都按传入切片统计;
+        // 调用方传 &messages[prior_len..] 才是本轮画像(否则历史被重复计入)。
+        let history = vec![
+            call("h1", "edit", "path", "old.rs"),
+            result("h1", "old_string not found in old.rs", true),
+            call("h2", "edit", "path", "old2.rs"),
+            result("h2", "old_string not found in old2.rs", true),
+        ];
+        let mut all = history.clone();
+        all.extend(vec![
+            call("n1", "read", "path", "new.rs"),
+            result("n1", "ok", false),
+        ]);
+        assert_eq!(summarize_failures(&all).len(), 1, "全量含历史失败");
+        assert!(
+            summarize_failures(&all[history.len()..]).is_empty(),
+            "本轮切片不该带出历史失败"
+        );
+        assert_eq!(summarize_tools(&all[history.len()..]).get("read"), Some(&1));
+        assert_eq!(summarize_tools(&all[history.len()..]).get("edit"), None);
+    }
 }
 
 /// 权限询问的用户决定。AlwaysAllow 的持久化由 UI 层负责(写入项目配置),

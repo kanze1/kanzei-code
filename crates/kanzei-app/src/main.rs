@@ -3894,6 +3894,15 @@ async fn run_task(
                 ) {
                     report_persistence_failure(window, &session_id, "写入完成事件", error);
                 }
+                // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
+                // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
+                let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
+                // 轮末失败提炼与机械投递(R-105):不依赖模型自觉调用 memory_note。
+                let signals = kanzei_core::summarize_failures(this_run);
+                if !signals.is_empty() {
+                    let memory = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
+                    kanzei_tools::memory::harvest_failures(&memory, &signals);
+                }
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
                 let _ = store.append_episode(
                     &session_id,
@@ -3902,7 +3911,7 @@ async fn run_task(
                     summary.steps,
                     summary.usage.input,
                     summary.usage.output,
-                    &serde_json::to_string(&kanzei_core::summarize_tools(&summary.messages))
+                    &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
                         .unwrap_or_default(),
                     &serde_json::to_string(&summary.context_report).unwrap_or_default(),
                 );

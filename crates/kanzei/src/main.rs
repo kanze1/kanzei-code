@@ -391,10 +391,24 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         summary.context_report.len(),
         context_total
     );
+    // 本轮切片:summary.messages = prior + 本轮。统计与失败提炼都只看本轮,
+    // 否则历史失败会被反复上报、工具计数也会累计全历史(R-099 基线失真)。
+    let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
+    // 轮末失败提炼与机械投递(R-105):不依赖模型自觉调用 memory_note。
+    {
+        let signals = kanzei_core::summarize_failures(this_run);
+        if !signals.is_empty() {
+            let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
+            let delivered = kanzei_tools::memory::harvest_failures(&store, &signals);
+            if delivered > 0 {
+                eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
+            }
+        }
+    }
     // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
     {
         let outcome = if summary.halted_by_user { "halted" } else { "completed" };
-        let tools = kanzei_core::summarize_tools(&summary.messages);
+        let tools = kanzei_core::summarize_tools(this_run);
         let store = kanzei_core::SessionStore::open(&state_path)?;
         let _ = store.append_episode(
             &session_id,

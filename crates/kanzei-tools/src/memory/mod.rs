@@ -182,6 +182,63 @@ pub fn render_entry(entry: &MemoryEntry) -> String {
     out
 }
 
+/// 每轮最多投递的失败草稿条数:防止一轮异常把 inbox 灌爆、manager 被撑死。
+const MAX_FAILURE_NOTES_PER_RUN: usize = 3;
+
+/// 轮末机械投递(R-105 核心):把引擎提炼的失败信号写进 inbox 草稿箱。
+///
+/// 这是"记忆生产"从模型自觉改为引擎机械采集的落点——投完之后既有的
+/// `pending_notes() > 0` 触发条件自然成立,轮末 manager 照常消化,
+/// 无需改动任何触发链路。返回实际投递条数。
+///
+/// 闸门(全部是代码强制,conventions §4):
+/// 1. 信号本身已过 `summarize_failures` 的"重复≥2 或有恢复对"闸;
+/// 2. 同指纹在当前 inbox 里已存在则跳过(同一个坑不重复投);
+/// 3. 每轮上限 MAX_FAILURE_NOTES_PER_RUN 条。
+/// 值不值得写成记忆条目仍由 memory-manager 判定——引擎不做语义判断。
+pub fn harvest_failures(
+    store: &MemoryStore,
+    signals: &[kanzei_core::FailureSignal],
+) -> usize {
+    let mut delivered = 0usize;
+    for signal in signals {
+        if delivered >= MAX_FAILURE_NOTES_PER_RUN {
+            break;
+        }
+        let fingerprint = format!("[fp:{}|{}]", signal.tool, signal.kind);
+        if store.note_fingerprint_seen(&fingerprint) {
+            continue;
+        }
+        let summary = match &signal.recovered_by {
+            Some(by) if by == &signal.tool => format!(
+                "{} 反复失败后重试成功({} 次){}",
+                signal.tool, signal.count, fingerprint
+            ),
+            Some(by) => format!(
+                "{} 失败({} 次)、改用 {} 成功{}",
+                signal.tool, signal.count, by, fingerprint
+            ),
+            None => format!(
+                "{} 本轮重复失败 {} 次{}",
+                signal.tool, signal.count, fingerprint
+            ),
+        };
+        let detail = format!(
+            "- 错误原文: {}\n- 涉及目标: {}\n- 判断要点: 这是环境/工具契约类的可复用知识,还是本次任务内的一次性噪声(例如 TDD 里预期的测试失败、自己写错又立刻改对的编译错误)?是前者才建条目,后者判 NOOP。",
+            signal.sample.replace('\n', " "),
+            if signal.targets.is_empty() {
+                "(无)".to_string()
+            } else {
+                signal.targets.join(", ")
+            },
+        );
+        if store.append_note(&summary, &detail, "fact").is_ok() {
+            delivered += 1;
+        }
+    }
+    delivered
+}
+
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
 pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
