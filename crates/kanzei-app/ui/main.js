@@ -67,6 +67,7 @@ const I18N_EN = {
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
+  "展开或收起工具详情": "Toggle tool detail",
   "展开筛选与排序": "Show filters and sort", "展开需求筛选与排序": "Show requirement filters",
   "展开筛选": "Show filters", "展开缺陷筛选": "Show defect filters",
   "按标签分组显示": "Group by tag", "切换需求分组显示": "Toggle requirement grouping",
@@ -746,6 +747,64 @@ function appendAssistant(text) {
   scrollBottom();
 }
 
+// ---------- 主对话内联工具块(R-090):运行细节进对话流,主对话不再贫乏 ----------
+// 与活动面板并存:面板是全量后台视图,对话流是当轮叙事;共用 appendDisplayBlock 渲染 diff/终端。
+const chatToolBlocks = new Map();
+const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
+function chatToolStart(id, name, summary) {
+  if (!id || chatToolBlocks.has(id)) return;
+  clearEmptyState();
+  const wrap = document.createElement("div");
+  wrap.className = "msg tool-msg running";
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "tool-msg-head";
+  head.setAttribute("aria-expanded", "false");
+  head.setAttribute("aria-label", `${name} ${t("展开或收起工具详情")}`);
+  const icon = document.createElement("span");
+  icon.className = "tool-msg-status";
+  icon.textContent = "●";
+  const label = document.createElement("span");
+  label.className = "tool-msg-name";
+  label.textContent = name;
+  const sum = document.createElement("span");
+  sum.className = "tool-msg-summary dim";
+  sum.textContent = summary;
+  head.append(icon, label, sum);
+  const detail = document.createElement("div");
+  detail.className = "tool-msg-detail hidden";
+  head.addEventListener("click", () => {
+    if (!detail.children.length) return;
+    detail.classList.toggle("hidden");
+    head.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+  });
+  wrap.append(head, detail);
+  messages.appendChild(wrap);
+  chatToolBlocks.set(id, { wrap, head, icon, sum, detail });
+  if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
+    chatToolBlocks.delete(chatToolBlocks.keys().next().value);
+  }
+  scrollBottom();
+}
+function chatToolEnd(id, ok, preview, display) {
+  const block = chatToolBlocks.get(id);
+  if (!block) return;
+  block.wrap.classList.remove("running");
+  block.wrap.classList.add(ok ? "ok" : "err");
+  block.icon.textContent = ok ? "✓" : "✗";
+  if (preview) {
+    block.sum.textContent = `${block.sum.textContent} — ${preview.split("\n")[0].slice(0, 120)}`;
+  }
+  appendDisplayBlock(block.detail, display);
+  if (!ok && preview) {
+    const err = document.createElement("div");
+    err.className = "tool-display term";
+    err.textContent = preview;
+    block.detail.appendChild(err);
+  }
+  if (block.detail.children.length) block.wrap.classList.add("has-detail");
+}
+
 let currentReasoningHead = null;
 function appendReasoning(text) {
   if (!currentReasoning) {
@@ -1226,6 +1285,7 @@ on("kz:tool-start", (e) => {
   log(`${t("工具")} ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
   currentReasoning = null;
+  chatToolStart(e.payload.id, e.payload.name, e.payload.summary);
   bgAdd(e.payload.id, e.payload.name, e.payload.summary);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
@@ -1247,6 +1307,7 @@ on("kz:tool-end", (e) => {
   if (p.display?.kind === "todo") {
     renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
+  chatToolEnd(p.id, p.ok, p.preview, p.display);
   bgEnd(p.id, p.ok, p.preview, p.display);
   setStatus(t("运行中"), true);
 });

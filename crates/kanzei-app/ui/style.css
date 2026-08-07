@@ -830,3 +830,22 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 6px 2px;
 }
 .filter-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+/* ---------- 主对话内联工具块(R-090) ---------- */
+.msg.tool-msg { padding: 0; margin: 2px 0; background: transparent; }
+.tool-msg-head {
+  display: flex; gap: 6px; align-items: baseline; width: 100%;
+  background: transparent; border: none; color: var(--fg);
+  font-size: 12px; padding: 2px 4px; cursor: default; text-align: left;
+  border-left: 2px solid var(--border);
+}
+.tool-msg.has-detail .tool-msg-head { cursor: pointer; }
+.tool-msg.has-detail .tool-msg-head:hover { border-left-color: var(--accent); }
+.tool-msg-head:focus-visible { outline: 1px solid var(--accent); }
+.tool-msg-status { width: 14px; text-align: center; }
+.tool-msg.running .tool-msg-status { color: var(--accent); }
+.tool-msg.ok .tool-msg-status { color: var(--ok, #9ece6a); }
+.tool-msg.err .tool-msg-status { color: var(--err, #f7768e); }
+.tool-msg-name { font-weight: 600; font-family: var(--mono, monospace); }
+.tool-msg-summary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.tool-msg-detail { margin: 2px 0 6px 20px; }
