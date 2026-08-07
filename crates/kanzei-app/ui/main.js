@@ -3424,7 +3424,7 @@ $("mobile-service-start").addEventListener("click", async () => {
     $("mobile-service-stop").classList.remove("hidden");
     toast("移动端本机桥接已启动");
   } catch (error) {
-    toastError(`启动移动端桥接失败:${error}`);
+    toastError(`启动移动端桥接失败:${error}`, { retry: () => $("mobile-service-start").click() });
   }
 });
 $("mobile-service-stop").addEventListener("click", async () => {
@@ -3434,7 +3434,7 @@ $("mobile-service-stop").addEventListener("click", async () => {
     $("mobile-service-start").classList.remove("hidden");
     $("mobile-service-stop").classList.add("hidden");
   } catch (error) {
-    toastError(`停止移动端桥接失败:${error}`);
+    toastError(`停止移动端桥接失败:${error}`, { retry: () => $("mobile-service-stop").click() });
   }
 });
 async function agentContainerAction(action) {
@@ -3506,7 +3506,7 @@ $("settings-save").addEventListener("click", async () => {
     toast("已保存");
     loadSettings();
   } catch (err) {
-    toastError(`保存失败: ${err}`);
+    toastError(`保存失败: ${err}`, { retry: () => $("settings-save").click() });
   }
 });
 
