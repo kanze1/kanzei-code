@@ -290,7 +290,8 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 #[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_path, process_session_id, runtime_for, take_pending_ask,
+        default_process_id, pending_path, persist_always_allow, process_session_id, runtime_for,
+        take_pending_ask,
         with_session_id, AppState, PendingAsk,
     };
     use std::path::{Path, PathBuf};
@@ -378,6 +379,21 @@ mod update_tests {
         assert!(second.asks.lock().unwrap().is_empty());
     }
 
+    #[test]
+    fn persist_always_allow_failure_returns_deny_path() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-app-always-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::write(root.join(".kanzei/kanzei.toml"), "[invalid\n").unwrap();
+        assert!(persist_always_allow(&root, "bash", "git status").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 fn main() {
@@ -2158,6 +2174,17 @@ async fn summarize_chat(
 
 // ---------- 运行 ----------
 
+fn persist_always_allow(
+    project_root: &Path,
+    action: &str,
+    resource: &str,
+) -> Result<(kanzei_core::AskReply, PathBuf), String> {
+    let pattern = kanzei_harness::config::generalize_resource(action, resource);
+    let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern)
+        .map_err(|error| error.to_string())?;
+    Ok((kanzei_core::AskReply::AlwaysAllow, path))
+}
+
 /// reply: "deny" | "once" | "always"。always 先把泛化规则写进项目配置再放行。
 #[tauri::command]
 fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
@@ -2177,31 +2204,32 @@ fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String
         "always" => {
             let pattern =
                 kanzei_harness::config::generalize_resource(&pending.action, &pending.resource);
-            match kanzei_harness::config::append_allow_rule(
+            match persist_always_allow(
                 &pending.project_root,
                 &pending.action,
-                &pattern,
+                &pending.resource,
             ) {
-                Ok(path) => {
+                Ok((reply, path)) => {
                     let _ = window.emit("kz:status", with_session_id(json!({
                         "stage": "权限",
                         "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()),
                     }), &pending.session_id));
+                    reply
                 }
-                Err(e) => {
+                Err(error) => {
                     let _ = window.emit(
                         "kz:status",
                         with_session_id(
                             json!({
                                 "stage": "权限",
-                                "detail": format!("规则保存失败:{e}(本次仍放行)"),
+                                "detail": format!("规则保存失败:{error};本次拒绝"),
                             }),
                             &pending.session_id,
                         ),
                     );
+                    kanzei_core::AskReply::Deny
                 }
             }
-            kanzei_core::AskReply::AlwaysAllow
         }
         "once" => kanzei_core::AskReply::AllowOnce,
         _ => kanzei_core::AskReply::Deny,

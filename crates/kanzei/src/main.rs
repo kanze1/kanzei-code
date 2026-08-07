@@ -221,11 +221,13 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 let reply = if std::io::stdin().read_line(&mut line).is_ok() {
                     match line.trim() {
                         "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
-                        "a" | "A" | "always" => {
-                            let pattern = kanzei_harness::config::generalize_resource(&action, &resource);
-                            let _ = kanzei_harness::config::append_allow_rule(&ask_root, &action, &pattern);
-                            kanzei_core::AskReply::AlwaysAllow
-                        }
+                        "a" | "A" | "always" => match persist_always_allow(&ask_root, &action, &resource) {
+                            Ok(reply) => reply,
+                            Err(error) => {
+                                eprintln!("\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m");
+                                kanzei_core::AskReply::Deny
+                            }
+                        },
                         _ => kanzei_core::AskReply::Deny,
                     }
                 } else { kanzei_core::AskReply::Deny };
@@ -316,6 +318,16 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn persist_always_allow(
+    project_root: &std::path::Path,
+    action: &str,
+    resource: &str,
+) -> anyhow::Result<kanzei_core::AskReply> {
+    let pattern = kanzei_harness::config::generalize_resource(action, resource);
+    kanzei_harness::config::append_allow_rule(project_root, action, &pattern)?;
+    Ok(kanzei_core::AskReply::AlwaysAllow)
+}
+
 /// 人用直通:不经 LLM,直接调 tracker 工具。
 async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     use kanzei_tools::docstore::{DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
@@ -379,4 +391,43 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     }
     println!("{}", output.content);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::persist_always_allow;
+    use kanzei_core::AskReply;
+
+    #[test]
+    fn persist_always_allow_returns_always_only_after_successful_write() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-cli-always-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let result = persist_always_allow(&root, "bash", "git status").unwrap();
+        assert_eq!(result, AskReply::AlwaysAllow);
+        assert!(root.join(".kanzei/kanzei.toml").is_file());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn persist_always_allow_does_not_grant_when_config_write_fails() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-cli-always-fail-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::write(root.join(".kanzei/kanzei.toml"), "[invalid\n").unwrap();
+        assert!(persist_always_allow(&root, "bash", "git status").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

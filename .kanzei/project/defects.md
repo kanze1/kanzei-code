@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 新增历史规则安全迁移行为：resource_match_for_action 对 bash 结构化资源拒绝匹配旧裸命令规则，只有显式整体 `*` 仍保持 yolo 语义；因此旧 `git status` 不会因资源格式升级而意外继续放行，而是重新 Ask。新增 legacy_bash_rules_do_not_authorize_structured_resources；cargo test -p kanzei-harness -p kanzei-tools -p kanzei-core 全部通过（harness 28、tools 19、core 28）。仍缺 CLI/桌面真实 AlwaysAllow→bash E2、旧规则提示/正式迁移、append_allow_rule 失败与并发链路。
+- 进展: D-051 本轮已收口 AlwaysAllow 持久化失败的安全分支：CLI persist_always_allow 只有 append_allow_rule 成功才返回 AlwaysAllow，失败打印可见错误并返回 Deny；桌面 answer_ask 同样改为成功 AlwaysAllow、失败 Deny，并提示“本次拒绝”。新增 CLI 成功/失败单测、桌面坏配置失败单测；cargo test -p kanzei -p kanzei-app 2/8 通过。D-051 仍缺 CLI/桌面真实 bash 执行 E2、旧规则提示/正式迁移、并发写入证据。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
@@ -142,16 +142,17 @@
 - 不变量: 配置与文档:写入保留未知字段
 - 证据等级: E2
 
-## D-083 「总是允许」持久化失败被静默吞掉,成功时抹掉配置注释 [open] (medium)
+## D-083 「总是允许」持久化失败被静默吞掉,成功时抹掉配置注释 [fixing] (medium)
 - 复现: 项目 kanzei.toml 含未知字段或磁盘只读时按「总是允许」,本次运行生效但下次运行又弹窗,无任何提示;正常情况下保存后配置文件的注释与排版丢失。
 - 根因: kanzei/src/main.rs:220 用 `let _ = append_allow_rule(...)` 吞掉错误;而 append_allow_rule 内部要求项目配置能被本二进制的严格 schema 解析(kanzei-harness/src/config.rs:216),失败即 Err;成功路径是整文件反序列化后 `toml::to_string_pretty` 重写(228),用户手写的注释、排版、键序全部丢失。
 - 影响: 表现为"总是允许时灵时不灵"且无从排查;配置文件被引擎重排。
 - 验收: 持久化失败时明确告知原因;改为文本级追加规则片段,不做整文件 round-trip。
 - 优先级: P2
-- refs: D-007
+- refs: D-051
 - 阶段: 1
 - 不变量: 权限+配置:授权持久化失败必须可见
 - 证据等级: E2
+- 进展: D-051 的本轮修复同步覆盖本缺陷：CLI 与桌面 AlwaysAllow 持久化失败不再静默吞掉或继续放行，失败现在返回 Deny；新增 CLI 成功/失败持久化测试与桌面坏配置回归。完整 answer_ask UI 事件到权限响应 E2 仍待补，保持 fixing。
 
 ## D-084 配置结构体全量 deny_unknown_fields,新增字段会让旧二进制拒绝启动 [open] (medium)
 - 复现: 桌面端升级后写入新配置节,再用旧版 kz 运行任意项目,直接报 "unknown field" 退出。
