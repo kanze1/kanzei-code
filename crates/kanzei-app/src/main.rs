@@ -33,6 +33,33 @@ struct PromptAttachment {
     media_type: String,
     data: String,
 }
+
+fn prompt_attachment_parts(
+    attachments: Vec<PromptAttachment>,
+) -> anyhow::Result<Vec<kanzei_llm::Part>> {
+    attachments
+        .into_iter()
+        .map(|attachment| {
+            anyhow::ensure!(
+                !attachment.data.is_empty(),
+                "附件数据为空: {}",
+                attachment.file_name
+            );
+            let part = match attachment.media_type.as_str() {
+                "application/pdf" => kanzei_llm::Part::Document {
+                    media_type: attachment.media_type,
+                    data: attachment.data,
+                },
+                media_type if media_type.starts_with("image/") => kanzei_llm::Part::Image {
+                    media_type: attachment.media_type,
+                    data: attachment.data,
+                },
+                _ => anyhow::bail!("不支持的附件类型: {}", attachment.media_type),
+            };
+            Ok(part)
+        })
+        .collect()
+}
 /// 悬挂中的权限询问:除通道外携带上下文,支持"总是允许"落盘。
 struct PendingAsk {
     sender: oneshot::Sender<kanzei_core::AskResponse>,
@@ -337,6 +364,32 @@ mod update_tests {
     use std::sync::{Arc, Mutex};
     use tokio::sync::oneshot;
 
+    #[test]
+    fn prompt_attachments_become_image_and_document_parts() {
+        let parts = super::prompt_attachment_parts(vec![
+            super::PromptAttachment {
+                file_name: "screen.png".into(),
+                media_type: "image/png".into(),
+                data: "PNGDATA".into(),
+            },
+            super::PromptAttachment {
+                file_name: "notes.pdf".into(),
+                media_type: "application/pdf".into(),
+                data: "PDFDATA".into(),
+            },
+        ])
+        .unwrap();
+        assert!(matches!(
+            &parts[0],
+            kanzei_llm::Part::Image { media_type, data }
+                if media_type == "image/png" && data == "PNGDATA"
+        ));
+        assert!(matches!(
+            &parts[1],
+            kanzei_llm::Part::Document { media_type, data }
+                if media_type == "application/pdf" && data == "PDFDATA"
+        ));
+    }
     #[test]
     fn project_root_normalizes_equivalent_paths() {
         let current = std::env::current_dir().unwrap();
@@ -3462,29 +3515,26 @@ async fn run_task(
         None
     };
 
-    let initial_parts = attachments
-        .unwrap_or_default()
-        .into_iter()
-        .map(|attachment| {
-            anyhow::ensure!(
-                !attachment.data.is_empty(),
-                "附件数据为空: {}",
-                attachment.file_name
-            );
-            let part = match attachment.media_type.as_str() {
-                "application/pdf" => kanzei_llm::Part::Document {
-                    media_type: attachment.media_type,
-                    data: attachment.data,
-                },
-                media_type if media_type.starts_with("image/") => kanzei_llm::Part::Image {
-                    media_type: attachment.media_type,
-                    data: attachment.data,
-                },
-                _ => anyhow::bail!("不支持的附件类型: {}", attachment.media_type),
-            };
-            Ok(part)
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let initial_parts = prompt_attachment_parts(attachments.unwrap_or_default())?;
+    if !initial_parts.is_empty() {
+        let image_count = initial_parts
+            .iter()
+            .filter(|part| matches!(part, kanzei_llm::Part::Image { .. }))
+            .count();
+        let document_count = initial_parts
+            .iter()
+            .filter(|part| matches!(part, kanzei_llm::Part::Document { .. }))
+            .count();
+        stage(
+            "附件",
+            format!(
+                "已接收 {} 个附件，转换为 {} 个图片、{} 个文档输入，准备发送给 agent",
+                initial_parts.len(),
+                image_count,
+                document_count
+            ),
+        );
+    }
 
     let run_result = run_once_with_parts(
         &client,

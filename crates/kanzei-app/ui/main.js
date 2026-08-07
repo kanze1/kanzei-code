@@ -658,6 +658,23 @@ function addMessage(cls, text) {
   return el;
 }
 
+function addUserMessage(text, promptAttachments = []) {
+  const el = addMessage("user", text);
+  if (promptAttachments.length === 0) return el;
+  const body = el.querySelector(".message-body");
+  const attachments = document.createElement("div");
+  attachments.className = "message-attachments";
+  for (const attachment of promptAttachments) {
+    const item = document.createElement("span");
+    item.className = "message-attachment";
+    const kind = attachment.media_type?.startsWith("image/") ? "图片" : "PDF";
+    item.textContent = `📎 ${attachment.file_name} · ${kind} · 已发送给 agent`;
+    attachments.appendChild(item);
+  }
+  body.appendChild(attachments);
+  return el;
+}
+
 function addErrorMessage(message, { retryable = false } = {}) {
   const el = addMessage("error", "");
   const body = el.querySelector(".message-body");
@@ -1842,8 +1859,11 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   ctxTokens = 0;
   outputChars = 0;
   renderTokens();
-  addMessage("user", auto ? `(鞭挞 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt);
-  setRunning(true, auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中");
+  const attachmentStatus = promptAttachments.length > 0
+    ? `${auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · ` : ""}正在发送 ${promptAttachments.length} 个附件 · 准备中`
+    : auto ? `鞭挞 ${autoRounds}/${autoContinueMax()} · 准备中` : "准备中";
+  addUserMessage(auto ? `(鞭挞 ${autoRounds}/${autoContinueMax()})${prompt}` : prompt, promptAttachments);
+  setRunning(true, attachmentStatus);
   startElapsed();
   log(`${auto ? "鞭挞" : "发送"}:${prompt.slice(0, 80)}`);
   try {
