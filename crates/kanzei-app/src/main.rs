@@ -653,6 +653,12 @@ fn main() {
             update_check,
             update_install,
             quick_req,
+            memory_overview,
+            memory_entries,
+            memory_entry_save,
+            memory_search_page,
+            memory_context_bill,
+            memory_consolidate,
             app_info,
             models_list,
             docs_update,
@@ -1870,6 +1876,182 @@ async fn quick_req(
         }
     }
     Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
+}
+
+// ---------- Memory 页(R-107):透明化——分级概览/条目/账单/检索/整理 ----------
+
+fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore> {
+    let cwd = PathBuf::from(project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let mut stores = vec![kanzei_tools::memory::MemoryStore::project(&root)];
+    stores.extend(kanzei_tools::memory::MemoryStore::global());
+    stores
+}
+
+#[tauri::command]
+fn memory_overview(project_dir: String) -> serde_json::Value {
+    let mut scopes = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        let entries = store.load_all();
+        let hits = store.hits_map();
+        let mut categories = serde_json::Map::new();
+        for cat in kanzei_tools::memory::CATEGORIES {
+            let of_cat: Vec<_> = entries.iter().filter(|(_, e)| e.category == *cat).collect();
+            let active = of_cat.iter().filter(|(_, e)| e.status == "active").count();
+            let bytes: usize = of_cat
+                .iter()
+                .map(|(_, e)| e.body.len() + e.title.len() + e.description.len())
+                .sum();
+            let last = of_cat
+                .iter()
+                .map(|(_, e)| e.updated.clone())
+                .max()
+                .unwrap_or_default();
+            categories.insert(
+                cat.to_string(),
+                json!({
+                    "active": active,
+                    "stale": of_cat.len() - active,
+                    "bytes": bytes,
+                    "last": last,
+                }),
+            );
+        }
+        scopes.push(json!({
+            "scope": store.scope.label(),
+            "root": store.root.display().to_string(),
+            "total": entries.len(),
+            "hitsTotal": hits.values().sum::<u64>(),
+            "categories": categories,
+            "inboxPending": store.pending_notes(),
+            "integrity": store.integrity_issues(),
+        }));
+    }
+    json!({ "scopes": scopes })
+}
+
+#[tauri::command]
+fn memory_entries(
+    project_dir: String,
+    scope: String,
+    category: Option<String>,
+) -> Result<serde_json::Value, String> {
+    for store in memory_stores_for(&project_dir) {
+        if store.scope.label() == scope {
+            let hits = store.hits_map();
+            let list: Vec<serde_json::Value> = store
+                .load_all()
+                .into_iter()
+                .filter(|(_, e)| category.as_deref().is_none_or(|c| e.category == c))
+                .map(|(path, e)| {
+                    json!({
+                        "id": e.id,
+                        "category": e.category,
+                        "title": e.title,
+                        "description": e.description,
+                        "status": e.status,
+                        "updated": e.updated,
+                        "source": e.source,
+                        "hits": hits.get(&e.id).copied().unwrap_or(0),
+                        "path": path.display().to_string(),
+                        "body": e.body,
+                    })
+                })
+                .collect();
+            return Ok(json!(list));
+        }
+    }
+    Err(format!("未知记忆域: {scope}"))
+}
+
+#[tauri::command]
+fn memory_entry_save(
+    project_dir: String,
+    scope: String,
+    id: String,
+    title: Option<String>,
+    description: Option<String>,
+    body: Option<String>,
+    status: Option<String>,
+) -> Result<(), String> {
+    for store in memory_stores_for(&project_dir) {
+        if store.scope.label() == scope {
+            store
+                .update(
+                    &id,
+                    title.as_deref(),
+                    description.as_deref(),
+                    body.as_deref(),
+                    status.as_deref(),
+                )
+                .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+    Err(format!("未知记忆域: {scope}"))
+}
+
+#[tauri::command]
+fn memory_search_page(project_dir: String, query: String) -> serde_json::Value {
+    let mut out = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        if let Ok(found) = store.search(&query, None, None, 8) {
+            for h in found {
+                out.push(json!({
+                    "id": h.entry.id,
+                    "scope": h.entry.scope,
+                    "category": h.entry.category,
+                    "title": h.entry.title,
+                    "description": h.entry.description,
+                    "status": h.entry.status,
+                    "snippet": h.snippet,
+                    "hits": h.hits,
+                }));
+            }
+        }
+    }
+    json!(out)
+}
+
+#[tauri::command]
+fn memory_context_bill(project_dir: String) -> serde_json::Value {
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let state = kanzei_core::project_state_path(&root);
+    let session = kanzei_core::project_session_id(&root);
+    let Ok(store) = kanzei_core::SessionStore::open(&state) else {
+        return json!({ "bill": [], "episodes": [] });
+    };
+    let bill: serde_json::Value = store
+        .latest_episode_context(&session)
+        .ok()
+        .flatten()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| json!([]));
+    let episodes: Vec<serde_json::Value> = store
+        .list_episodes(&session, 8)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(at, prompt, outcome, steps, tools)| {
+            json!({
+                "at": at,
+                "prompt": prompt,
+                "outcome": outcome,
+                "steps": steps,
+                "tools": serde_json::from_str::<serde_json::Value>(&tools).unwrap_or(json!({})),
+            })
+        })
+        .collect();
+    json!({ "bill": bill, "episodes": episodes })
+}
+
+#[tauri::command]
+async fn memory_consolidate(project_dir: String) -> Result<serde_json::Value, String> {
+    consolidate_memory_inbox(project_dir.clone()).await;
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let store = kanzei_tools::memory::MemoryStore::project(&root);
+    Ok(json!({ "pending": store.pending_notes() }))
 }
 
 /// 轮末记忆整理(R-105):把 inbox 草稿交给 memory-manager 迷你 run 消化。

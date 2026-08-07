@@ -13,6 +13,7 @@
       </button>
       <button type="button" class="activity-item" data-view="workspace" title="工作区" aria-label="切换到工作区">⌂</button>
       <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷" aria-label="切换到需求与工作和缺陷">☷</button>
+      <button type="button" class="activity-item" data-view="memory" title="记忆" aria-label="切换到记忆">❖</button>
       <button type="button" class="activity-item" data-view="settings" title="设置" aria-label="切换到设置">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -248,6 +249,30 @@
           </div>
           <div id="documents-req-list" class="doc-list documents-list"></div>
           <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
+        </div>
+      </div>
+
+      <div id="view-memory" class="view">
+        <div id="memory-scroll">
+          <h1>记忆</h1>
+          <p class="dim">文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。</p>
+          <div class="memory-toolbar">
+            <input id="memory-search-input" type="search" placeholder="检索全部记忆(FTS)" aria-label="检索记忆" />
+            <button type="button" id="memory-consolidate-btn" title="立即让 memory-manager 消化 inbox 草稿">整理 inbox</button>
+            <span id="memory-inbox-badge" class="dim"></span>
+          </div>
+          <div id="memory-arch" class="memory-arch" aria-label="记忆架构总览"></div>
+          <div class="memory-columns">
+            <div id="memory-list" class="memory-list" aria-label="记忆条目列表"></div>
+            <div id="memory-side">
+              <div id="memory-detail" class="memory-detail hidden"></div>
+              <h2>上下文账单</h2>
+              <p class="dim">最近一轮 system 注入的各来源字符数。</p>
+              <div id="memory-bill" class="memory-bill"></div>
+              <h2>最近轮次</h2>
+              <div id="memory-episodes" class="memory-episodes"></div>
+            </div>
+          </div>
         </div>
       </div>
 

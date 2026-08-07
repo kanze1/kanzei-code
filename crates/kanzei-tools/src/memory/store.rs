@@ -446,6 +446,23 @@ impl MemoryStore {
         Ok(merged)
     }
 
+    /// 命中统计(UI 展示):id → hits。库缺失返回空表(派生物语义)。
+    pub fn hits_map(&self) -> std::collections::BTreeMap<String, u64> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(conn) = self.open_db() else {
+            return out;
+        };
+        let Ok(mut statement) = conn.prepare("SELECT id, hits FROM memory_hits") else {
+            return out;
+        };
+        if let Ok(rows) = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+            for row in rows.flatten() {
+                out.insert(row.0, row.1.max(0) as u64);
+            }
+        }
+        out
+    }
+
     pub fn read_inbox(&self) -> String {
         std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
     }

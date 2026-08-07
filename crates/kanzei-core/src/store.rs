@@ -662,6 +662,19 @@ impl SessionStore {
         Ok(())
     }
 
+    /// 最近一轮的上下文账单(context_json 原文),无 episode 时 None。
+    pub fn latest_episode_context(&self, session_id: &str) -> Result<Option<String>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT context_json FROM episodes WHERE session_id = ?1
+                 ORDER BY created_at DESC LIMIT 1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// 最近 N 条 episode(新→旧):(created_at, prompt_head, outcome, steps, tools_json)。
     pub fn list_episodes(
         &self,

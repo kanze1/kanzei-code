@@ -66,6 +66,19 @@ const I18N_EN = {
   "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
+  "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
+  "文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。":
+    "File-first layered memory: every entry is a hand-editable markdown file under .kanzei/memory; this page mirrors the files.",
+  "上下文账单": "Context bill", "最近一轮 system 注入的各来源字符数。": "Characters injected per source in the latest run.",
+  "最近轮次": "Recent rounds", "全局记忆": "Global memory", "项目记忆": "Project memory",
+  "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
+  "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
+  "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source",
+  "保存修改": "Save changes", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory",
+  "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
+  "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
+  "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
+  "暂无账单数据(跑一轮后生成)": "No bill yet (generated after a run)", "暂无轮次记录": "No rounds recorded",
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
@@ -226,6 +239,7 @@ document.querySelectorAll(".activity-item").forEach((item) => {
     if (view === "settings") loadSettings();
     if (view === "workspace") refreshWorkspace();
     if (view === "documents") refreshDocs();
+    if (view === "memory") refreshMemory();
   });
 });
 
@@ -3207,6 +3221,218 @@ function renderDocsSnapshot(snapshot) {
   renderConventions(snapshot.conventions);
   applyLanguage();
 }
+
+// ---------- 记忆页(R-107):透明化——架构总览/条目/账单/检索/整理 ----------
+let memorySelection = null;
+async function refreshMemory() {
+  if (!currentProject) {
+    $("memory-arch").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
+    return;
+  }
+  try {
+    const [overview, billData] = await Promise.all([
+      invoke("memory_overview", { projectDir: currentProject }),
+      invoke("memory_context_bill", { projectDir: currentProject }),
+    ]);
+    renderMemoryArch(overview);
+    renderMemoryBill(billData);
+    if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
+  } catch (err) {
+    toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+  }
+}
+
+function renderMemoryArch(overview) {
+  const arch = $("memory-arch");
+  arch.innerHTML = "";
+  let inboxPending = 0;
+  for (const scope of overview.scopes || []) {
+    inboxPending += scope.inboxPending || 0;
+    const card = document.createElement("div");
+    card.className = "memory-scope-card";
+    const head = document.createElement("div");
+    head.className = "memory-scope-head";
+    const label = scope.scope === "global" ? t("全局记忆") : t("项目记忆");
+    head.innerHTML = `<strong>${label}</strong> <span class="dim">${scope.total} ${t("条")} · ${t("命中")} ${scope.hitsTotal} · ${escapeHtml(scope.root)}</span>`;
+    card.appendChild(head);
+    const grid = document.createElement("div");
+    grid.className = "memory-cat-grid";
+    for (const [cat, info] of Object.entries(scope.categories || {})) {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "memory-cat-cell";
+      cell.setAttribute("aria-label", `${label} ${cat}`);
+      const staleNote = info.stale ? `${info.stale} stale` : "";
+      cell.innerHTML = `<span class="memory-cat-name">${escapeHtml(cat)}</span><span class="memory-cat-count">${info.active}</span><span class="dim">${staleNote} ${escapeHtml(info.last || "")}</span>`;
+      cell.addEventListener("click", () => {
+        memorySelection = { scope: scope.scope, category: cat };
+        loadMemoryList(scope.scope, cat);
+      });
+      grid.appendChild(cell);
+    }
+    card.appendChild(grid);
+    if ((scope.integrity || []).length) {
+      const warn = document.createElement("p");
+      warn.className = "memory-warn";
+      warn.textContent = `⚠ ${scope.integrity.join("; ")}`;
+      card.appendChild(warn);
+    }
+    arch.appendChild(card);
+  }
+  $("memory-inbox-badge").textContent = inboxPending ? `inbox ${inboxPending} ${t("条待整理")}` : "";
+}
+
+async function loadMemoryList(scope, category) {
+  try {
+    const list = await invoke("memory_entries", { projectDir: currentProject, scope, category });
+    const container = $("memory-list");
+    container.innerHTML = "";
+    if (!list.length) {
+      container.innerHTML = `<p class="dim">${t("该分类暂无记忆")}</p>`;
+      return;
+    }
+    for (const entry of list) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}`;
+      row.innerHTML = `<span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(entry.title)}</span><span class="dim">${escapeHtml(entry.description)}</span><span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits} · ${escapeHtml(entry.updated)}</span>`;
+      row.addEventListener("click", () => showMemoryDetail(scope, entry));
+      container.appendChild(row);
+    }
+  } catch (err) {
+    toastError(`${t("记忆条目加载失败")}:${err}`);
+  }
+}
+
+function showMemoryDetail(scope, entry) {
+  const box = $("memory-detail");
+  box.classList.remove("hidden");
+  box.innerHTML = "";
+  const meta = document.createElement("p");
+  meta.className = "dim";
+  meta.textContent = `${entry.id} · ${entry.status} · ${t("来源")} ${entry.source} · ${entry.path}`;
+  const title = document.createElement("input");
+  title.value = entry.title;
+  title.setAttribute("aria-label", t("记忆标题"));
+  const desc = document.createElement("input");
+  desc.value = entry.description;
+  desc.setAttribute("aria-label", t("召回钩子"));
+  const body = document.createElement("textarea");
+  body.value = entry.body;
+  body.rows = 8;
+  body.setAttribute("aria-label", t("记忆正文"));
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "primary";
+  save.textContent = t("保存修改");
+  save.addEventListener("click", async () => {
+    try {
+      await invoke("memory_entry_save", {
+        projectDir: currentProject,
+        scope,
+        id: entry.id,
+        title: title.value,
+        description: desc.value,
+        body: body.value,
+        status: null,
+      });
+      toast(t("记忆已保存"));
+      refreshMemory();
+    } catch (err) {
+      toastError(`${t("记忆保存失败")}:${err}`);
+    }
+  });
+  const staleBtn = document.createElement("button");
+  staleBtn.type = "button";
+  staleBtn.className = "ghost";
+  staleBtn.textContent = entry.status === "active" ? t("标记失效") : t("恢复启用");
+  staleBtn.addEventListener("click", async () => {
+    try {
+      await invoke("memory_entry_save", {
+        projectDir: currentProject,
+        scope,
+        id: entry.id,
+        title: null,
+        description: null,
+        body: null,
+        status: entry.status === "active" ? "stale" : "active",
+      });
+      box.classList.add("hidden");
+      refreshMemory();
+    } catch (err) {
+      toastError(`${t("记忆保存失败")}:${err}`);
+    }
+  });
+  const actions = document.createElement("div");
+  actions.className = "memory-detail-actions";
+  actions.append(save, staleBtn);
+  box.append(meta, title, desc, body, actions);
+}
+
+function renderMemoryBill(data) {
+  const bill = $("memory-bill");
+  bill.innerHTML = "";
+  const entries = Array.isArray(data.bill) ? data.bill : [];
+  if (!entries.length) {
+    bill.innerHTML = `<p class="dim">${t("暂无账单数据(跑一轮后生成)")}</p>`;
+  } else {
+    const total = entries.reduce((sum, item) => sum + (item[1] || 0), 0);
+    for (const [name, chars] of entries) {
+      const pct = total ? Math.round((chars / total) * 100) : 0;
+      const row = document.createElement("div");
+      row.className = "memory-bill-row";
+      row.innerHTML = `<span class="memory-bill-name">${escapeHtml(name)}</span><span class="dim">${chars} · ${pct}%</span><span class="memory-bill-bar" style="width:${Math.max(pct, 2)}%"></span>`;
+      bill.appendChild(row);
+    }
+  }
+  const eps = $("memory-episodes");
+  eps.innerHTML = "";
+  const episodes = data.episodes || [];
+  if (!episodes.length) {
+    eps.innerHTML = `<p class="dim">${t("暂无轮次记录")}</p>`;
+    return;
+  }
+  for (const ep of episodes) {
+    const tools = Object.entries(ep.tools || {})
+      .map(([name, count]) => `${name}×${count}`)
+      .join(" ");
+    const row = document.createElement("div");
+    row.className = "memory-episode";
+    row.innerHTML = `<span class="memory-episode-prompt">${escapeHtml(ep.prompt)}</span><span class="dim">${escapeHtml(ep.outcome)} · ${ep.steps} steps${tools ? " · " + escapeHtml(tools) : ""}</span>`;
+    eps.appendChild(row);
+  }
+}
+
+$("memory-search-input").addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  const query = event.target.value.trim();
+  if (!query || !currentProject) return;
+  try {
+    const hits = await invoke("memory_search_page", { projectDir: currentProject, query });
+    memorySelection = null;
+    const container = $("memory-list");
+    container.innerHTML = hits.length ? "" : `<p class="dim">${t("没有命中的记忆")}</p>`;
+    for (const hit of hits) {
+      const row = document.createElement("div");
+      row.className = "memory-row";
+      row.innerHTML = `<span class="memory-row-id">${escapeHtml(hit.id)}</span><span class="memory-row-title">${escapeHtml(hit.title)}</span><span class="dim">${escapeHtml(hit.snippet)}</span><span class="memory-row-meta dim">${escapeHtml(hit.scope)}/${escapeHtml(hit.category)} · ${t("命中")} ${hit.hits}</span>`;
+      container.appendChild(row);
+    }
+  } catch (err) {
+    toastError(`${t("记忆检索失败")}:${err}`);
+  }
+});
+
+$("memory-consolidate-btn").addEventListener("click", async () => {
+  if (!currentProject) return;
+  try {
+    const result = await invoke("memory_consolidate", { projectDir: currentProject });
+    toast(result.pending ? t("inbox 尚有草稿未消化") : t("inbox 已整理完毕"));
+    refreshMemory();
+  } catch (err) {
+    toastError(`${t("整理失败")}:${err}`);
+  }
+});
 
 async function refreshDocs() {
   if (!currentProject) return;
