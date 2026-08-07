@@ -21,7 +21,16 @@ body {
   overflow: hidden; user-select: none;
 }
 #messages, #prompt, input, textarea, .doc-item, code { user-select: text; }
-#app { display: flex; }
+#app { display: flex; position: relative; min-width: 0; }
+@media (max-width: 1400px) {
+  #app { --right-drawer-width: min(360px, 42vw); }
+  #todo-panel, #bg-panel {
+    position: absolute; top: 0; right: 0; bottom: 24px; z-index: 20;
+    width: var(--right-drawer-width); max-height: none;
+    box-shadow: -5px 0 18px #0008;
+  }
+  #todo-panel:not(.hidden) ~ #bg-panel:not(.hidden) { right: var(--right-drawer-width); }
+}
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #383838; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; background-clip: content-box; border: 2px solid transparent; }
