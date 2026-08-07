@@ -8,9 +8,15 @@ import vm from "node:vm";
 const root = resolve(import.meta.dirname, "..");
 const html = await readFile(resolve(root, "crates/kanzei-app/ui/index.html"), "utf8");
 const source = await readFile(resolve(root, "crates/kanzei-app/ui/main.js"), "utf8");
+const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
 const issues = [];
 const fail = (msg) => issues.push(msg);
+const documentsScrollRules = [...style.matchAll(/#documents-scroll\s*\{([^}]*)\}/g)];
+const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-bottom:\s*(\d+)px/);
+if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
+  fail("独立文档页滚动容器未预留状态栏安全间距");
+}
 const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), source.indexOf("const I18N_ZH = new WeakMap"));
 const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
 const translationCalls = [...source.matchAll(/\bt\(\"((?:\\.|[^\"])*)\"\)/g)].map((match) => match[1]);
