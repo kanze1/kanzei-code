@@ -425,6 +425,29 @@ impl TrackerTool {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ScheduledEntry {
+    pub entry: Entry,
+    pub block_reasons: Vec<String>,
+}
+
+/// 为桌面端文档快照提供与 req/defect list 相同的阻塞判断和稳定后置顺序。
+pub fn schedule_for_display(
+    ctx: &ToolCtx,
+    kind: &'static DocKind,
+    entries: &[Entry],
+) -> Result<Vec<ScheduledEntry>, String> {
+    let states = dependency_states(ctx, kind, entries)?;
+    let scheduled = schedule_entries(entries, &states);
+    Ok(scheduled
+        .into_iter()
+        .map(|(entry, block_reasons)| ScheduledEntry {
+            entry: entry.clone(),
+            block_reasons,
+        })
+        .collect())
+}
+
 type DependencyStates = BTreeMap<String, bool>;
 
 fn dependency_states(

@@ -611,3 +611,16 @@
 
 - 验证: crates/kanzei-tools/src/tracker.rs；cargo test -p kanzei-tools 56 passed
 
+## R-114 需求与缺陷前端显示阻塞状态和调整原因 [done]
+- 内容: 需求与缺陷文档页及条目详情必须显式展示阻塞状态、阻塞原因、未完成依赖、解除条件和下一步；队列被自动后置时显示“因何后置”，避免用户只能看到标题和状态而误以为系统没有继续推进。
+- 来源: 2026-08-08 用户反馈：现有需求和缺陷的阻塞没有在前端显示
+- 标签: 前端
+- 设计定位: 需求/缺陷阻塞透明度与调度反馈
+- 进展: 已完成：crates/kanzei-tools/src/tracker.rs 新增 schedule_for_display，桌面 docs_snapshot 复用与 req/defect list 相同的阻塞判断和稳定后置顺序，并返回 blocked/block_reasons。crates/kanzei-app/ui/index.html 新增需求、缺陷、独立文档页的阻塞/可执行筛选；ui/main.js 的 renderDocList 展示阻塞徽标、原因、依赖及条目字段中的解除条件/下一步，详情对缺少原因的阻塞给出提示。调用方为既有 docs_snapshot→renderDocsSnapshot→renderDocList 链路。验证：docs_snapshot_exposes_block_reasons_and_scheduler_order；node --check；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke；cargo test --workspace 全绿。
+- 阶段: 0
+- 验收: ①列表有清晰阻塞标识；②详情展示阻塞原因、依据、解除条件、下一步及依赖；③阻塞条目与可执行条目可筛选；④自动后置顺序与页面显示一致；⑤缺少阻塞说明的条目有可见提示；⑥补前端运行时冒烟与数据展示回归。
+
+- 阻塞: 
+
+- 验证: crates/kanzei-app/src/main.rs:update_tests::docs_snapshot_exposes_block_reasons_and_scheduler_order；crates/kanzei-app/ui/index.html；crates/kanzei-app/ui/main.js；cargo test --workspace；4 个 UI smoke
+

@@ -55,7 +55,7 @@ const I18N_EN = {
   "运行事件": "run event", "当前对话": "Current chat", "暂无": "None",
   "最近活动": "Recent activity", "排队": "Queued", "条": "items", "更新于": "Updated", "已归档": "archived",
   "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
-  "外部阻塞": "Externally blocked", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
+  "外部阻塞": "Externally blocked", "阻塞": "Blocked", "可执行": "Ready", "阻塞原因": "Blocking reasons", "缺少阻塞原因": "Blocking reason missing", "解除条件": "Release condition", "下一步": "Next step", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
   "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
   "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
   "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
@@ -3148,8 +3148,8 @@ $("project-add").addEventListener("click", async () => {
 });
 
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
-const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", sort: localStorage.getItem("kz-req-sort") || "manual", grouped: localStorage.getItem("kz-grouped-req") !== "0" };
-const defectFilters = { status: "all", priority: "all", tag: "all", grouped: localStorage.getItem("kz-grouped-defect") !== "0" };
+const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: localStorage.getItem("kz-req-sort") || "manual", grouped: localStorage.getItem("kz-grouped-req") !== "0" };
+const defectFilters = { status: "all", priority: "all", tag: "all", blocked: "all", grouped: localStorage.getItem("kz-grouped-defect") !== "0" };
 // 标签受控词表(conventions §1.35,用户定调):分组顺序即展示顺序。
 const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];
 function docGroupTag(entry) {
@@ -3178,11 +3178,18 @@ function selectedOptions(select, selected) {
   return [...select.options].some((option) => option.value === selected) ? selected : "all";
 }
 
+function entryBlocked(entry) {
+  return Boolean(entry?.blocked);
+}
+function matchesBlockedFilter(entry, value) {
+  return value === "all" || (value === "blocked" ? entryBlocked(entry) : !entryBlocked(entry));
+}
 function filterRequirements(entries, filters = reqFilters) {
   const filtered = entries
     .filter((entry) => filters.status === "all" || entry.status === filters.status)
     .filter((entry) => filters.priority === "all" || entry.priority === filters.priority)
-    .filter((entry) => filters.tag === "all" || entryTags(entry).includes(filters.tag));
+    .filter((entry) => filters.tag === "all" || entryTags(entry).includes(filters.tag))
+    .filter((entry) => matchesBlockedFilter(entry, filters.blocked ?? "all"));
   const complexityValue = (entry) => entry.complexity || "unassessed";
   const complexityFiltered = filtered.filter((entry) => filters.complexity === "all" || complexityValue(entry) === filters.complexity);
   // 手动模式(R-054 默认):文件顺序即开发顺序,不做任何排序。
@@ -3204,7 +3211,7 @@ function filterRequirements(entries, filters = reqFilters) {
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
 let dragReqId = null;
 function reqDragEnabled(filters = reqFilters) {
-  return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all";
+  return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all" && (filters.blocked ?? "all") === "all";
 }
 function docDragEnabled(kind, listEl, filterState) {
   if (kind === "req") return reqDragEnabled(filterState);
@@ -3238,7 +3245,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     entries = entries
       .filter((entry) => reqFilterState.status === "all" || entry.status === reqFilterState.status)
       .filter((entry) => reqFilterState.priority === "all" || entry.priority === reqFilterState.priority)
-      .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag));
+      .filter((entry) => reqFilterState.tag === "all" || entryTags(entry).includes(reqFilterState.tag))
+      .filter((entry) => matchesBlockedFilter(entry, reqFilterState.blocked ?? "all"));
   }
   // 分组视图(用户定调):按受控词表分组展示;组内保持文件顺序。
   // 分组改变了视觉顺序≠文件顺序,拖拽在分组视图下必须禁用(否则会提交错乱顺序)。
@@ -3294,12 +3302,14 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     const item = document.createElement("div");
     // 优先级着色(pri-P0 红 / P1 黄 / P2 蓝 / P3 灰):扫一眼就知道轻重。
     const pri = (entry.priority || "").toUpperCase();
-    // 外部阻塞:等待项目外部条件,取活时应跳过(字段来自条目自身,不能提到循环外)。
+    // 阻塞状态由后端调度器计算,前端只负责展示,保证列表顺序与 agent 取活一致。
+    const blockedReasons = Array.isArray(entry.block_reasons) ? entry.block_reasons : [];
+    const blocked = entryBlocked(entry);
     const externalBlocked = (entry.fields ?? []).some(([key, value]) =>
       ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
       && /外部|external|blocked/i.test(String(value))
     );
-    item.className = `doc-item${entry.closed ? " closed" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
+    item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
     item.dataset.docId = entry.id;
 
     const row = document.createElement("div");
@@ -3342,12 +3352,12 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       }
       row.appendChild(meter);
     }
-    if (externalBlocked) {
-      const blocked = document.createElement("span");
-      blocked.className = "blocked-badge";
-      blocked.textContent = t("外部阻塞");
-      blocked.title = t("等待项目外部条件、负责人或服务解除");
-      row.appendChild(blocked);
+    if (blocked || externalBlocked) {
+      const blockedBadge = document.createElement("span");
+      blockedBadge.className = "blocked-badge";
+      blockedBadge.textContent = t("阻塞");
+      blockedBadge.title = blockedReasons.length ? blockedReasons.join("；") : t("阻塞原因");
+      row.appendChild(blockedBadge);
     }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
     // 分组视图下禁用(视觉顺序≠文件顺序);关掉分组开关即恢复拖拽。
@@ -3419,6 +3429,20 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
     full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
+    if (blocked || externalBlocked) {
+      const blockBox = document.createElement("div");
+      blockBox.className = "doc-blocked-detail";
+      const blockTitle = document.createElement("strong");
+      blockTitle.textContent = t("阻塞原因");
+      blockBox.appendChild(blockTitle);
+      const reasons = blockedReasons.length ? blockedReasons : [t("缺少阻塞原因")];
+      for (const reason of reasons) {
+        const line = document.createElement("div");
+        line.textContent = `• ${reason}`;
+        blockBox.appendChild(line);
+      }
+      detail.appendChild(blockBox);
+    }
     for (const [key, value] of entry.fields ?? []) {
       const f = document.createElement("div");
       f.className = "doc-field";
@@ -3646,8 +3670,8 @@ async function refreshWorkspace() {
 let documentsKind = "req";
 let latestDocsSnapshot = null;
 const documentFilters = {
-  req: { status: "all", priority: "all", complexity: "all", tag: "all", sort: "manual", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
-  defect: { status: "all", priority: "all", tag: "all", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
+  req: { status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: "manual", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
+  defect: { status: "all", priority: "all", tag: "all", blocked: "all", grouped: localStorage.getItem("kz-grouped-docs") !== "0" },
 };
 const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
@@ -3657,11 +3681,13 @@ function syncDocumentFilters(snapshot) {
   const statusFilter = $("documents-status-filter");
   const priorityFilter = $("documents-priority-filter");
   const tagFilter = $("documents-tag-filter");
+  const blockedFilter = $("documents-blocked-filter");
   const filters = documentFilters[documentsKind];
   const entries = documentsKind === "req" ? (snapshot.requirements ?? []) : (snapshot.defects ?? []);
   statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`).join("");
   statusFilter.value = filters.status;
   priorityFilter.value = filters.priority ?? "all";
+  blockedFilter.value = filters.blocked ?? "all";
   syncTagFilter(tagFilter, entries, filters.tag ?? "all");
 }
 function renderDocuments(snapshot) {
@@ -3674,7 +3700,8 @@ function renderDocuments(snapshot) {
   const defects = (snapshot.defects ?? [])
     .filter((entry) => documentFilters.defect.status === "all" || entry.status === documentFilters.defect.status)
     .filter((entry) => documentFilters.defect.priority === "all" || entry.priority === documentFilters.defect.priority)
-    .filter((entry) => documentFilters.defect.tag === "all" || entryTags(entry).includes(documentFilters.defect.tag));
+    .filter((entry) => documentFilters.defect.tag === "all" || entryTags(entry).includes(documentFilters.defect.tag))
+    .filter((entry) => matchesBlockedFilter(entry, documentFilters.defect.blocked ?? "all"));
   renderDocList(defectList, defects, "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
   reqList.classList.toggle("hidden", documentsKind !== "req");
   defectList.classList.toggle("hidden", documentsKind !== "defect");
@@ -3960,6 +3987,10 @@ $("documents-tag-filter").addEventListener("change", (event) => {
   documentFilters[documentsKind].tag = event.target.value;
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 });
+$("documents-blocked-filter").addEventListener("change", (event) => {
+  documentFilters[documentsKind].blocked = event.target.value;
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+});
 // 分组开关(用户定调:按受控标签分组展示,含侧边栏):关掉即回纯开发顺序+拖拽。
 function bindGroupToggle(id, storageKey, apply) {
   const btn = $(id);
@@ -4012,7 +4043,7 @@ for (const [btnId, rowId, storageKey] of [
     apply(open);
   });
 }
-for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-sort", "sort"]]) {
+for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-blocked-filter", "blocked"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
     if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
@@ -4021,6 +4052,10 @@ for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter"
 }
 $("defect-tag-filter").addEventListener("change", (event) => {
   defectFilters.tag = event.target.value;
+  refreshDocs();
+});
+$("defect-blocked-filter").addEventListener("change", (event) => {
+  defectFilters.blocked = event.target.value;
   refreshDocs();
 });
 

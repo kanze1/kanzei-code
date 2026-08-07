@@ -25,6 +25,7 @@ use kanzei_harness::{
 };
 use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use kanzei_tools::tracker::schedule_for_display;
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -363,6 +364,7 @@ mod update_tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::oneshot;
 
     #[test]
@@ -397,6 +399,34 @@ mod update_tests {
             Some("2026-08-09T00:00:00Z")
         ));
         assert!(!super::release_is_newer("local", "build-remote", Some("2026-08-09T00:00:00Z")));
+    }
+
+    #[test]
+    fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-docs-blocked-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 被阻塞 [todo]\n- 阻塞: 等待确认\n\n## R-002 可执行 [todo]\n",
+        )
+        .unwrap();
+        let snapshot = super::docs_snapshot(root.display().to_string());
+        let requirements = snapshot["requirements"].as_array().unwrap();
+        assert_eq!(requirements[0]["id"], "R-002");
+        assert_eq!(requirements[1]["id"], "R-001");
+        assert_eq!(requirements[1]["blocked"], true);
+        assert!(requirements[1]["block_reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("等待确认"));
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
@@ -1239,11 +1269,24 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
             .collect()
     };
     let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
-        DocStore::open(&root, kind)
-            .load()
-            .unwrap_or_default()
-            .iter()
-            .map(|e| {
+        let store = DocStore::open(&root, kind);
+        let entries = store.load().unwrap_or_default();
+        let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
+            if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
+                schedule_for_display(&ToolCtx::new(root.clone()), kind, &entries)
+                    .map(|items| {
+                        items
+                            .into_iter()
+                            .map(|item| (item.entry, item.block_reasons))
+                            .collect()
+                    })
+                    .unwrap_or_else(|_| entries.iter().cloned().map(|entry| (entry, Vec::new())).collect())
+            } else {
+                entries.iter().cloned().map(|entry| (entry, Vec::new())).collect()
+            };
+        scheduled
+            .into_iter()
+            .map(|(e, block_reasons)| {
                 json!({
                     "id": e.id,
                     "title": e.title,
@@ -1257,6 +1300,8 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
                         .find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity"))
                         .map(|(_, value)| value),
                     "closed": kind.terminal.contains(&e.status.as_str()),
+                    "blocked": !block_reasons.is_empty(),
+                    "block_reasons": block_reasons,
                     "fields": e.fields,
                     // 展开面板需要:合法的下一步状态(硬门禁同款规则)。
                     "nextStatuses": kind.statuses.iter()
