@@ -58,6 +58,8 @@
 
 
 
+
+
 ## R-093 可靠性、可用性与自举质量收口 [doing]
 - 复杂度: 大
 - 归属: kanzei
@@ -139,6 +141,8 @@
 
 
 
+
+
 ## R-085 需求验收标准与完成判定的执行约束 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -177,6 +181,8 @@
 - 标签: acceptance,transition_guard,evidence
 - 类型: governance
 - 领域: process,verification
+
+
 
 
 
@@ -288,6 +294,8 @@
 - 暂缓: 用户决定本阶段先做体验完善，暂缓 D-061 OAuth 共享凭证并发锁/原子替换；D-068 已 fixed/archived，后续恢复时先确认 Windows 锁与跨进程方案。
 
 
+
+
 ## R-087 工具与协议层的数据完整性收口 [todo]
 - 复杂度: 大
 - 优先级: P1
@@ -328,6 +336,8 @@
 - 标签: data_integrity,tool_pairing,context_recovery
 - 类型: epic
 - 领域: protocol,storage,runner
+
+
 
 
 
@@ -435,6 +445,8 @@
 
 
 
+
+
 ## R-088 凭证与 provider 协议的健壮性 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -477,6 +489,8 @@
 - 标签: oauth,protocol,rate_limit,forward_compatibility
 - 类型: epic
 - 领域: auth,provider,concurrency
+
+
 
 
 
@@ -551,6 +565,8 @@
 - 标签: runtime_smoke,webview,console_error
 - 类型: quality
 - 领域: testing,ui,e2e
+
+
 
 
 
@@ -657,6 +673,8 @@
 
 
 
+
+
 ## R-076 鞭挞模式触发异常 bug 修复 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -705,6 +723,8 @@
 - 标签: brake,backlog,anti_spin
 - 类型: quality
 - 领域: runner,auto_run,state_machine
+
+
 
 
 
@@ -807,6 +827,8 @@
 
 
 
+
+
 ## R-090 对话内容可读性与操作反馈可恢复 [todo]
 - 复杂度: 中
 - 优先级: P1
@@ -854,6 +876,8 @@
 - 标签: markdown,recovery,persistence,history
 - 类型: quality
 - 领域: ui,message,feedback
+
+
 
 
 
@@ -928,6 +952,8 @@
 - 标签: keyboard,focus,aria,e2e
 - 类型: quality
 - 领域: ui,a11y,testing
+
+
 
 
 
@@ -1029,6 +1055,8 @@
 
 
 
+
+
 ## R-069 关于我们及引导文案的多语化支持 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -1104,7 +1132,9 @@
 
 
 
-## R-092 缺陷自动审查按钮触发 [todo]
+
+
+## R-092 缺陷自动审查按钮触发 [doing]
 - 原始描述: 缺陷自动审查作为一个按钮触发
 - 复杂度: 小
 - 归属: kanzei
@@ -1154,6 +1184,8 @@
 - 标签: review_button,findings,verification_run
 - 类型: capability
 - 领域: ui,defect_review,automation
+
+
 
 
 
@@ -1228,6 +1260,8 @@
 - 标签: source_parse,reference,memory_write
 - 类型: capability
 - 领域: research,memory,citation
+
+
 
 
 
@@ -1325,6 +1359,8 @@
 
 
 
+
+
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
 - 优先级: P3
@@ -1401,6 +1437,8 @@
 
 
 
+
+
 ## R-095 活动窗口终端和工具管理呈现优化 [todo]
 - 原始描述: 优化活动窗口的终端和工具管理还有呈现
 - 归属: kanzei
@@ -1450,6 +1488,8 @@
 - 标签: activity,terminal,presentation
 - 类型: capability
 - 领域: ui,tools,terminal
+
+
 
 
 
@@ -1541,6 +1581,8 @@
 
 
 
+
+
 ## R-099 自举轨迹冗余度量与基线对比 [todo]
 - 复杂度: 中
 - 优先级: P2
@@ -1594,6 +1636,8 @@
 - 标签: trace,baseline,telemetry
 - 类型: quality
 - 领域: testing,metrics,agent
+
+
 
 
 
@@ -1679,6 +1723,8 @@
 
 
 
+
+
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [todo]
 - 复杂度: 大
 - 优先级: P0
@@ -1714,6 +1760,8 @@
 - 标签: tauri,webview,harness,延期e2e
 - 类型: quality
 - 领域: testing,ui,e2e
+
+
 
 
 
@@ -1764,6 +1812,8 @@
 - 标签: readonly,profile,zero_config
 - 类型: capability
 - 领域: cli,permission,safety
+
+
 
 
 
@@ -1830,60 +1880,9 @@
 
 
 
-## R-104 Memory M1:分级存储、引擎门禁与检索工具 [done]
-- 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
-- 复杂度: 大
-- 优先级: P1
-- 归属: kanzei
-- 内容: 一条记忆一个 markdown 文件+frontmatter(id/scope/category/title/description/status/hits/source);global(~/.kanzei/memory/)与 project(.kanzei/memory/)两级;引擎强制:ID 分配、枚举校验、description 必填、INDEX.md 维护、完整性门禁(INDEX↔文件一致、缺号告警,同 D-112);删除=归档带墓碑;SQLite FTS5 全文索引(可重建);memory_search(query,scope,category,status)按相关度×新近度×hits 排序;memory_stats;迁移现有 M-条目为 fact 文件。
-- 验收: 检索命中率在真实轨迹可观测;INDEX 完整性门禁有回归测试;删库后 FTS 索引可全量重建;现有 M-条目迁移无损。
-- refs: R-103
-- 阶段: 4
-- 设计定位: 记忆的存储真源与检索地基
-- 依赖: R-103
-- 进展: 已交付(919473d):memory 模块(mod/store/tools 共 1200+ 行);frontmatter 宽容读严格写未知键保留;U-/M- 双序列 ID 扫活跃+归档不复用;INDEX.md+FTS5 均可重建,tmp+rename 原子写;CJK 单字切分+短语匹配解 unicode61 整词问题(拍板点③首个实证);bm25×log(1+hits) 排序与命中计数;精确标题去重门禁;完整性缺号/重复检测;legacy memory.md 幂等迁移;主 agent 挂 search/note/stats,注入源改索引常驻,.kanzei/memory 硬 deny。12 项回归,工作区 177 项全绿。
-- 验证: cargo test -p kanzei-tools memory(12 项);检索命中率可观测性依赖发版后真实轨迹,属 R-105 验收闭环。
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- 标签: fts,index,integrity,migration
-- 类型: capability
-- 领域: memory,storage,search
-
-
-
-
-
-
-
-
-
-
-
-## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [todo]
+## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [doing]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
 - 优先级: P1
@@ -1894,6 +1893,7 @@
 - 阶段: 4
 - 设计定位: 记忆管理的执行者与节律
 - 依赖: R-104
+- 进展: 48a1b3f 交付核心:全套写工具+MemoryManagerComponent(无 shell,快照测试守护)+引擎去重门禁+merge 墓碑链接+CLI/桌面轮末 inbox 消化触发(fast→primary,判据只看箱)。剩余:条目关闭触发的根因→fact 蒸馏(并入轮末简报,与 R-106 episode 一起做);「写入→命中→避免重复探索」闭环实证待发版后真实轨迹。
 
 
 
@@ -1924,6 +1924,8 @@
 - 标签: memory_manager,dedup,tombstone
 - 类型: capability
 - 领域: memory,agent,tools
+
+
 
 
 
@@ -1985,6 +1987,8 @@
 
 
 
+
+
 ## R-107 Memory M4:独立 Memory 页与空闲整理 [todo]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
@@ -2008,12 +2012,16 @@
 
 
 
+
+
 ## R-108 建立AI设计/技术选型沉淀机制 [todo]
 - priority: P2
 - 原始描述: 加一个大的需求，我们现在已经沉淀了需求和缺陷，但是少了一个沉淀，就是我们和AI沟通出来的设计方向和技术选择，这个应该也要落一下沉淀
 - 复杂度: 中
 - 归属: kanzei
 - 验收: 定义规范记录与团队共享 AI 讨论的设计方案、技术方案变更及决策过程，形成可追溯的知识资产
+
+
 
 
 
