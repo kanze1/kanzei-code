@@ -186,6 +186,11 @@
 
 
 
+
+
+
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -384,6 +389,11 @@
 
 
 
+
+
+
+
+
 ## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [fixing] (medium)
 - 复现: 设置语言为 English,创建/切换项目、运行任务、打开文档/设置并触发 toast;静态导航的一部分变英文,动态生成的状态、日志、错误、按钮和 300 余处中文字符串仍保持中文。再切回中文还会触发 D-092 的属性不可逆问题。
 - 根因: applyLanguage 只遍历当前 DOM 文本节点和少量 title/placeholder,I18N_EN 仅覆盖有限字典;后续 JS 动态生成的文本不会经过翻译函数,也没有以 key 为中心的统一文案层。
@@ -455,7 +465,7 @@
 
 
 
-- 进展: 已进入 fixing（本次仅建立取活边界，尚未修改代码）：后续收口运行事件/完成与停止反馈动态文案，覆盖 main.js 运行事件订阅(kz:tool-start/tool-end/step/error/stream-restart/compacted/stopped/done)及上下文详情面板；完成后跑动态 key 缺失检查与 UI 冒烟验证。设置/工作区/文档及真实双语快照仍是后续范围。
+- 进展: 本轮已完成第 1 批（运行态与反馈动态文案）：新增 I18N_DYNAMIC_EN 与 localizeDynamic；setStatus/liveSet/liveIdle/liveTurn 保存 source 并在切换语言时重算；覆盖 kz:status/meta/turn/text/reasoning/tool/error/stream-restart/compacted/stopped/done 的状态、toast/log、上下文详情、自动推进提示、文档页动态筛选选项/受控标签；补 scripts/ui-runtime-smoke.mjs 的 t key 缺失检查、English↔中文切换和 kz:error 可逆回归。D-129 已单独记录并 fixed。批次边界：设置/工作区/文档详情/历史/权限/provider 生成内容及真实双语操作快照仍未收口，D-108 保持 fixing。
 
 
 
@@ -582,6 +592,12 @@
 
 
 
+
+
+
+
+
+- 验证: node --check crates/kanzei-app/ui/main.js；node scripts/ui-runtime-smoke.mjs：I18N_EN t key 缺失检查、初始化 15 次 invoke、需求/缺陷/目标/测试/历史列表渲染、English↔中文 document.lang、kz:error 动态状态可逆、0 运行时错误。
 
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
@@ -707,6 +723,11 @@
 
 
 
+
+
+
+
+
 ## D-121 kz run 被权限拦停后退出码仍为 0,自动化调用方无法感知失败 [open] (medium)
 - 复现: 非交互终端执行 kz run(stdin 为管道),agent 首个 bash 调用触发权限询问,read_line 读到 EOF 判 Deny,输出 "(stopped: permission declined)" 后进程 exit 0。
 - 根因: run_cli 的 halted_by_user 分支只打印提示即正常返回 Ok(crates/kanzei/src/main.rs:343-345),权限拦停与正常完成共用同一退出语义。
@@ -728,6 +749,11 @@
 
 
 - 标签: 核心
+
+
+
+
+
 
 
 
@@ -779,6 +805,11 @@
 
 
 
+
+
+
+
+
 ## D-123 usage 与 --help 不展示 agent/模型/profile 选择方式,能力不可发现 [open] (low)
 - 复现: kz --help 只列出 run 与 tracker 子命令及一行 env 提示;KANZEI_AGENT 可选值(dev/dev-pair/research)、KANZEI_MODEL 语法、profile 档位含义均无从查起。
 - 根因: usage() 是 5 行手写文本(crates/kanzei/src/main.rs:55-60),agent 清单在 harness 快照里,帮助文本不读取它。
@@ -801,6 +832,11 @@
 
 
 - 标签: 核心
+
+
+
+
+
 
 
 
@@ -850,6 +886,11 @@
 
 
 
+
+
+
+
+
 ## D-125 独立文档页列表末尾与底部状态栏重叠,末行被遮挡不可读 [open] (low)
 - 复现: 打开「需求与工作/缺陷」独立管理页,列表滚到底:最后一行(截图中为 P0 的 E2 harness 条目)与底部状态栏重叠,文字被状态栏盖住;列表容器无底部安全间距。
 - 影响: 排在末尾的条目(常是新加的)难以阅读与点击;用户 2026-08-08 截图反馈。
@@ -865,6 +906,8 @@
 
 
 - 标签: 前端
+
+
 
 
 

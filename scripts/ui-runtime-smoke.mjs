@@ -11,6 +11,10 @@ const source = await readFile(resolve(root, "crates/kanzei-app/ui/main.js"), "ut
 
 const issues = [];
 const fail = (msg) => issues.push(msg);
+const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), source.indexOf("const I18N_ZH = new WeakMap"));
+const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
+const translationCalls = [...source.matchAll(/\bt\(\"((?:\\.|[^\"])*)\"\)/g)].map((match) => match[1]);
+for (const key of new Set(translationCalls)) if (!dictionaryKeys.has(key)) fail(`I18N_EN 缺少 t key: ${key}`);
 const pendingTimers = new Set();
 
 // ---------- DOM harness:真实节点关系(parent/children/dataset/classList),样式与布局按 noop ----------
@@ -337,6 +341,21 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
+
+// ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
+const languageControl = byId.get("language-select");
+languageControl.value = "en";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(document.documentElement.lang === "en", "切换 English 后 document.lang 未更新");
+handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
+await flush();
+assert(listText("live-turn").includes("Error"), `英文动态错误状态未翻译: "${listText("live-turn")}"`);
+languageControl.value = "zh";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(document.documentElement.lang === "zh-CN", "切回中文后 document.lang 未更新");
+assert(listText("live-turn").includes("出错"), `中文动态错误状态未恢复: "${listText("live-turn")}"`);
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
 for (const item of document.querySelectorAll(".activity-item")) item.click();

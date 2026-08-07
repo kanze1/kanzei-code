@@ -89,8 +89,95 @@ const I18N_EN = {
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
   "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "回答": "Answer", "权限": "Permission", "拒绝": "Denied", "总是允许": "Always allow", "自动放行失败": "Auto-allow failed", "权限应答失败": "Permission response failed", "已开启自动放行(本会话所有权限询问直接通过)": "Auto-allow enabled (all permission requests in this session pass automatically)", "已关闭自动放行": "Auto-allow disabled", "需求": "requirement", "缺陷": "defect", "自然语言描述": "Describe in natural language", "先写点描述": "Write a description first", "记录中": "Recording", "独立子代理后台进行": "independent subagent working in background", "已记录": "Recorded", "记录失败(内容已保留,可重试)": "Recording failed (content kept; retry available)", "提交": "Submit", "取消": "Cancel", "目标描述,回车创建(Esc 取消)": "Goal description, press Enter to create (Esc to cancel)", "未创建,点 ＋ 生成模板;agent 会自动遵守此文件": "Not created; click + to generate a template; the agent will follow it", "打开开发规范": "Open conventions", "个章节": " sections", "点击查看": "click to view", "规范文件已就绪": "Conventions file ready", "空": "Empty", "按 Enter 展开详情": "Press Enter to expand details", "点击展开": "click to expand", "点击循环调整优先级": "Click to cycle priority", "优先级已调整为": "Priority changed to", "转": "Move to", "记录状态/调整方向,回车保存": "Record status/adjustment, press Enter to save", "需求与缺陷已清空，自动推进已停止": "Requirements and defects are clear; Auto-run stopped", "自动推进停止:需求与缺陷已清空": "Auto-run stopped: requirements and defects are clear", "检查需求/缺陷是否清空失败": "Failed to check whether requirements/defects are clear", "移除附件": "Remove attachment", "不支持的附件类型": "Unsupported attachment type", "鞭挞已暂停": "Auto-run paused", "鞭挞已恢复": "Auto-run resumed", "本轮结束后将停止鞭挞": "Auto-run will stop after this round", "已取消本轮后停": "Stop-after-round cancelled", "鞭挞上限已设为": "Auto-run limit set to", "鞭挞仅适用于自主推进模式，请先切换模式": "Auto-run only works in Self-directed progress mode; switch modes first", "鞭挞未开启:结伴开发模式不支持自动续跑": "Auto-run not enabled: paired development mode does not support continuation", "鞭挞已开启:每轮结束自动推进目标": "Auto-run enabled: advance the goal after each round", "鞭挞已关闭": "Auto-run disabled", "鞭挞启动,2 秒后开始…": "Auto-run starting in 2 seconds…", "当前模式不支持鞭挞，已自动关闭": "The current mode does not support Auto-run; it was disabled", "鞭挞已关闭：当前进程不是自主推进模式": "Auto-run disabled: the current process is not Self-directed progress", "复制": "Copy", "复制消息": "Copy message", "可压缩重试": "Retry after compaction", "可重试错误": "Retryable error", "致命错误": "Fatal error", "重试上一次请求": "Retry last request", "正在重试…": "Retrying…", "思考中…": "Thinking…", "拖动调整面板宽度": "Drag to adjust panel width", "调整面板宽度": "Adjust panel width", "展开或收起思考过程": "Expand or collapse reasoning", "切换差异并排或统一视图": "Toggle split or unified diff view", "已复制": "Copied", "继续文案已升级到新版(含【阻塞】刹车约定)": "Continue prompt upgraded to the new version (with the blocked brake rule)", "已请求停止(本地已复位)": "Stop requested (local state reset)", "模型:agent 默认": "Model: agent default", "暂无排队输入": "No queued input", "任务运行中,先停止再开新对话": "Stop the running task before starting a new conversation", "先选择一个项目": "Select a project first", "开始总结当前对话…": "Starting conversation summary…", "轮": "rounds", "耗时": "duration"
 };
+const I18N_DYNAMIC_EN = {
+  "完成提示音不可用": "Completion sound unavailable",
+  "系统通知不可用": "System notification unavailable",
+  "展开左侧栏": "Expand left sidebar",
+  "折叠左侧栏": "Collapse left sidebar",
+  "仍在等待模型首个响应": "Still waiting for the model's first response",
+  "模型开始响应": "Model started responding",
+  "模型": "Model",
+  "上下文上限": "Context limit",
+  "上下文成分": "Context components",
+  "输入上下文(系统/历史/工具结果)": "Input context (system/history/tool results)",
+  "缓存读取(已复用上下文)": "Cache read (reused context)",
+  "本轮输出": "Output this round",
+  "最近一次压缩纪要已收进活动面板": "The latest compaction summary is in the activity panel",
+  "合计": "Total",
+  "出错": "Error",
+  "出错中止": "Stopped after error",
+  "已请求停止": "Stop requested",
+  "运行中插入": "Steered while running",
+  "运行中排队": "Queued while running",
+  "已插入当前会话，将优先执行": "Inserted into the current session and will run first",
+  "已加入队列，将按顺序执行": "Added to the queue and will run in order",
+  "已存档": "Archived",
+  "连续推进上限": "Continuous progress limit",
+  "已切换为需求优先": "Switched to requirement-first",
+  "已切换为缺陷优先": "Switched to defect-first",
+  "停止指令失败": "Stop command failed",
+  "未选择项目": "No project selected",
+  "项目文档刷新失败": "Failed to refresh project documents",
+  "读取附件失败": "Failed to read attachment",
+  "复制运行日志失败": "Failed to copy runtime log",
+  "复制上下文失败": "Failed to copy context",
+  "状态流转失败": "Status transition failed",
+  "连接中断,正在重新请求本轮": "Connection interrupted; requesting this round again",
+  "连接中断,重放本轮": "Connection interrupted; replaying this round",
+  "等待": "waiting",
+  "本轮完成": "Round completed",
+  "运行事件": "run event",
+  "需求与工作": "Work items",
+  "缺陷": "Defects",
+  "核心": "Core",
+  "后端": "Backend",
+  "前端": "Frontend",
+  "模型": "Model",
+  "发布": "Release",
+  "流程": "Process",
+  "其他": "Other",
+  "排序保存失败": "Failed to save order",
+  "优先级保存失败": "Failed to save priority",
+  "复杂度保存失败": "Failed to save complexity",
+  "状态流转失败": "Status transition failed",
+  "测试记录刷新失败": "Failed to refresh test records",
+  "项目列表刷新失败": "Failed to refresh project list",
+  "模型列表刷新失败": "Failed to refresh model list",
+  "历史消息恢复失败": "Failed to restore history",
+  "项目文档刷新失败": "Failed to refresh project documents",
+  "切换项目失败": "Failed to switch project",
+  "工作区刷新失败": "Failed to refresh workspace",
+  "记忆页加载失败": "Failed to load memory page",
+  "记忆条目加载失败": "Failed to load memory entries",
+  "记忆保存失败": "Failed to save memory",
+  "记忆检索失败": "Memory search failed",
+  "项目初始化失败": "Failed to initialize project",
+  "创建进程失败": "Failed to create process",
+  "更新进程能力失败": "Failed to update process capability",
+  "进程模式保存失败": "Failed to save process mode",
+  "思考强度保存失败": "Failed to save reasoning effort",
+  "进程模型保存失败": "Failed to save process model",
+  "停止指令失败": "Stop command failed",
+  "读取附件失败": "Failed to read attachment",
+  "复制上下文失败": "Failed to copy context",
+  "全部状态": "All statuses",
+  "全部优先级": "All priorities",
+  "全部标签": "All tags",
+  "全部复杂度": "All complexity",
+  "手动": "Manual",
+  "优先级": "Priority",
+  "编号": "ID"
+};
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
+function localizeDynamic(value) {
+  let text = String(value ?? "");
+  if (!languageIsEnglish()) return text;
+  for (const [source, translated] of Object.entries(I18N_DYNAMIC_EN).sort(([a], [b]) => b.length - a.length)) {
+    text = text.replaceAll(source, translated);
+  }
+  return text;
+}
 function languageIsEnglish() {
   return (localStorage.getItem("kz-language") || "zh") === "en";
 }
@@ -136,7 +223,7 @@ languageSelect.value = localStorage.getItem("kz-language") || "zh";
 languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
   applyLanguage();
-  setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
+  syncDynamicUiLanguage();
   if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
   $("status-tokens").title = t("点击查看上下文成分");
   if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
@@ -254,7 +341,8 @@ let errorRetry = null;
 function toast(text) {
   const el = $("toast");
   const source = String(text);
-  el.textContent = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
+  const translated = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
+  el.textContent = localizeDynamic(translated);
   el.classList.remove("hidden");
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
@@ -371,7 +459,7 @@ function syncSidebar() {
   sidebar.classList.toggle("collapsed", sidebarCollapsed);
   toggle.classList.toggle("active", sidebarCollapsed);
   toggle.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
-  toggle.title = sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏";
+  toggle.title = localizeDynamic(sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏");
 }
 $("sidebar-toggle").addEventListener("click", () => {
   sidebarCollapsed = !sidebarCollapsed;
@@ -387,7 +475,7 @@ function log(text, cls = "") {
   const line = document.createElement("div");
   line.className = `log-line ${cls}`;
   const time = new Date().toTimeString().slice(0, 8);
-  line.textContent = `${time}  ${text}`;
+  line.textContent = `${time}  ${localizeDynamic(text)}`;
   lines.appendChild(line);
   while (lines.childElementCount > LOG_MAX) lines.firstElementChild.remove();
   lines.scrollTop = lines.scrollHeight;
@@ -419,11 +507,15 @@ $("log-copy").addEventListener("click", async () => {
 $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
 
 // ---------- 状态栏 ----------
+let statusTextSource = "";
+let statusRunning = false;
 function setStatus(text, isRunning) {
-  $("status-text").textContent = text;
-  $("status-mode").textContent = isRunning ? t("运行中") : t("空闲");
-  $("status-dot").className = `dot ${isRunning ? "run" : "idle"}`;
-  $("statusbar").classList.toggle("running", !!isRunning);
+  statusTextSource = String(text ?? "");
+  statusRunning = !!isRunning;
+  $("status-text").textContent = localizeDynamic(statusTextSource);
+  $("status-mode").textContent = statusRunning ? t("运行中") : t("空闲");
+  $("status-dot").className = `dot ${statusRunning ? "run" : "idle"}`;
+  $("statusbar").classList.toggle("running", statusRunning);
 }
 
 // 运行计时 + 首响应看门狗:等太久时把"卡在哪"讲清楚。
@@ -1118,25 +1210,44 @@ setInterval(() => {
 }, 1000);
 
 // ---------- 当前进展:侧边栏实时状态卡(把握 agent 进度,不用等它汇报) ----------
+const liveTextSources = new Map();
+function syncDynamicUiLanguage() {
+  if (statusTextSource) setStatus(statusTextSource, statusRunning);
+  for (const [id, source] of liveTextSources) {
+    const el = $(id);
+    if (!el) continue;
+    el.textContent = localizeDynamic(source);
+    el.title = localizeDynamic(source);
+  }
+  if (!$("context-detail")?.classList.contains("hidden")) renderContextDetail();
+  renderAutoStatus(autoStopReason);
+}
 function liveSet(id, text) {
   const el = $(id);
-  if (!text) {
+  const source = String(text ?? "");
+  if (!source) {
+    liveTextSources.delete(id);
     el.classList.add("hidden");
     return;
   }
+  liveTextSources.set(id, source);
   el.classList.remove("hidden");
-  el.textContent = text;
-  el.title = text;
+  el.textContent = localizeDynamic(source);
+  el.title = localizeDynamic(source);
 }
 function liveIdle(label) {
   const turn = $("live-turn");
-  turn.textContent = label;
+  const source = String(label ?? "");
+  liveTextSources.set("live-turn", source);
+  turn.textContent = localizeDynamic(source);
   turn.classList.add("dim");
   liveSet("live-action", "");
 }
 function liveTurn(text) {
   const turn = $("live-turn");
-  turn.textContent = text;
+  const source = String(text ?? "");
+  liveTextSources.set("live-turn", source);
+  turn.textContent = localizeDynamic(source);
   turn.classList.remove("dim");
 }
 
@@ -1162,8 +1273,9 @@ on("kz:turn", (e) => {
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
-  liveTurn(p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`);
-  if (running) setStatus(`${languageIsEnglish() ? "Round" : "第"} ${p.step}${languageIsEnglish() ? "" : "轮"} · ${t("等待模型")}`, true);
+  const roundLabel = languageIsEnglish() ? `Round ${p.step}${p.maxSteps > 0 ? `/${p.maxSteps}` : ""}` : p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
+  liveTurn(roundLabel);
+  if (running) setStatus(`${roundLabel} · ${t("等待模型")}`, true);
 });
 on("kz:text", (e) => {
   markFirstSignal();
@@ -1251,7 +1363,7 @@ function renderContextDetail() {
   const detail = $("context-detail");
   const t = runTokens;
   const total = t.input + t.cacheRead + t.output;
-  detail.innerHTML = `<strong>上下文成分</strong><br>输入上下文(系统/历史/工具结果): ${t.input.toLocaleString()} tokens<br>缓存读取(已复用上下文): ${t.cacheRead.toLocaleString()} tokens<br>本轮输出: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? "<br>最近一次压缩纪要已收进活动面板" : ""}<br>合计: ${total.toLocaleString()} tokens`;
+  detail.innerHTML = `<strong>${localizeDynamic("上下文成分")}</strong><br>${localizeDynamic("输入上下文(系统/历史/工具结果)")}: ${t.input.toLocaleString()} tokens<br>${localizeDynamic("缓存读取(已复用上下文)")}: ${t.cacheRead.toLocaleString()} tokens<br>${localizeDynamic("本轮输出")}: ${t.output.toLocaleString()} tokens${lastCompactionSummary ? `<br>${localizeDynamic("最近一次压缩纪要已收进活动面板")}` : ""}<br>${localizeDynamic("合计")}: ${total.toLocaleString()} tokens`;
   detail.classList.remove("hidden");
   $("status-tokens").setAttribute("aria-expanded", "true");
   if (lastCompactionEntry) {
@@ -1327,9 +1439,9 @@ on("kz:error", (e) => {
   const message = e.payload.message;
   reportError(message);
   stopElapsed();
-  setRunning(false, "出错");
-  bgAbortRunning("(出错中止)");
-  liveIdle("出错");
+  setRunning(false, t("出错"));
+  bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+  liveIdle(t("出错"));
   notifyRunState("failed", message);
   $("log-panel").classList.remove("hidden");
   refreshProcesses();
@@ -1345,8 +1457,8 @@ on("kz:stream-restart", (e) => {
   currentReasoning = null;
   currentReasoningHead = null;
   outputChars = 0;
-  addMessage("notice", `⟳ 连接中断,正在重新请求本轮(${p.attempt}/${p.max})`);
-  log(`连接中断,重放本轮 ${p.attempt}/${p.max},等待 ${p.delayMs}ms`, "warn");
+  addMessage("notice", `⟳ ${localizeDynamic("连接中断,正在重新请求本轮")}(${p.attempt}/${p.max})`);
+  log(`${localizeDynamic("连接中断,重放本轮")} ${p.attempt}/${p.max},${localizeDynamic("等待")} ${p.delayMs}ms`, "warn");
   setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
 });
 on("kz:compacted", (e) => {
@@ -1792,7 +1904,7 @@ function renderAutoStatus(text = autoStopReason) {
   const el = $("auto-status");
   if (!el) return;
   const max = autoContinueMax();
-  el.textContent = text || `连续推进上限 ${max}`;
+  el.textContent = localizeDynamic(text || `连续推进上限 ${max}`);
 }
 function continuePrompt() {
   const base = $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
@@ -1920,7 +2032,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         attachments: promptAttachments,
         processId: activeProcessId,
       });
-      toast(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行");
+      toast(localizeDynamic(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行"));
       await refreshPendingInputs();
     } catch (err) {
       reportError(String(err), { retryable: false });
@@ -2130,7 +2242,7 @@ autoStopAfterRound = false;
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   $("auto-pause").classList.toggle("active", autoPaused);
-  $("auto-pause").textContent = autoPaused ? "继续鞭挞" : "暂停鞭挞";
+  $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
   if (autoPaused) cancelAutoContinueTimer();
   // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
   if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
@@ -2211,7 +2323,7 @@ $("profile-select").addEventListener("change", () => {
 $("work-priority-select").addEventListener("change", () => {
   const value = selectedWorkPriority();
   localStorage.setItem(workPriorityStorageKey(), value);
-  log(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先");
+  log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
 });
 $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
@@ -2220,7 +2332,7 @@ $("stop").addEventListener("click", () => {
   invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`停止指令失败:${err}`));
   hideAsk();
   stopElapsed();
-  setRunning(false, "已停止");
+  setRunning(false, t("已停止"));
   log(t("已请求停止(本地已复位)"));
 });
 promptBox.addEventListener("keydown", (e) => {
@@ -2725,7 +2837,7 @@ function renderProjects(prefs) {
     });
     list.appendChild(item);
   }
-  $("project-label").textContent = prefs.current ?? "(未选择项目)";
+  $("project-label").textContent = prefs.current ?? `(${localizeDynamic("未选择项目")})`;
   syncDocumentsProjectSelect(prefs);
   refreshProcesses();
 }
@@ -2800,8 +2912,8 @@ function tagOptions(entries) {
   return [...DOC_TAG_ORDER.filter((tag) => seen.has(tag)), ...extras];
 }
 function syncTagFilter(select, entries, selected = "all") {
-  select.replaceChildren(new Option("全部标签", "all"));
-  for (const tag of tagOptions(entries)) select.appendChild(new Option(tag, tag));
+  select.replaceChildren(new Option(localizeDynamic("全部标签"), "all"));
+  for (const tag of tagOptions(entries)) select.appendChild(new Option(localizeDynamic(tag), tag));
   select.value = selectedOptions(select, selected);
 }
 function selectedOptions(select, selected) {
@@ -2916,7 +3028,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     if (groupHeaders.has(position)) {
       const head = document.createElement("div");
       head.className = "doc-group-head";
-      head.textContent = groupHeaders.get(position);
+      const [groupTag, groupCount] = groupHeaders.get(position).split(" · ");
+      head.textContent = `${localizeDynamic(groupTag)} · ${groupCount}`;
       el.appendChild(head);
     }
     position += 1;
@@ -3288,7 +3401,7 @@ function syncDocumentFilters(snapshot) {
   const tagFilter = $("documents-tag-filter");
   const filters = documentFilters[documentsKind];
   const entries = documentsKind === "req" ? (snapshot.requirements ?? []) : (snapshot.defects ?? []);
-  statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  statusFilter.innerHTML = documentStatusOptions[documentsKind].map(([value, label]) => `<option value="${value}">${localizeDynamic(label)}</option>`).join("");
   statusFilter.value = filters.status;
   priorityFilter.value = filters.priority ?? "all";
   syncTagFilter(tagFilter, entries, filters.tag ?? "all");
