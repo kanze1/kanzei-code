@@ -536,7 +536,7 @@ pub fn run_once_with_parts<'a>(
             let action = tool.action();
             let mut gate_result = Gate::Pass;
             let mut pending_ask: Vec<String> = Vec::new();
-            for resource in tool.resources(&input) {
+            for resource in tool.resources_with_ctx(&input, ctx) {
                 // 统一正斜杠 + 消解 . / ..,权限 pattern 不用关心平台,也不能被路径变体绕过:
                 // `.kanzei/research/../../src/main.rs` 会被 `*.kanzei/research/*` 判为放行,
                 // 而落盘时 join 会消解 ..,实际写到项目任意位置(D-050)。

@@ -65,6 +65,10 @@ pub trait Tool: Send + Sync {
     fn resources(&self, _input: &Value) -> Vec<String> {
         vec!["*".into()]
     }
+    /// 需要把执行上下文纳入权限资源时覆写；默认保持旧工具契约。
+    fn resources_with_ctx(&self, input: &Value, _ctx: &ToolCtx) -> Vec<String> {
+        self.resources(input)
+    }
     async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput;
 }
 

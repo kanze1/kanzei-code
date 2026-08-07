@@ -68,6 +68,27 @@ impl Tool for BashTool {
         .to_string()]
     }
 
+    fn resources_with_ctx(
+        &self,
+        input: &serde_json::Value,
+        ctx: &ToolCtx,
+    ) -> Vec<String> {
+        let command = input["command"].as_str().unwrap_or("*");
+        let workdir = input["workdir"].as_str().filter(|dir| !dir.is_empty());
+        let effective_workdir = ctx.cwd.join(
+            workdir
+                .map(kanzei_harness::permission::normalize_resource)
+                .unwrap_or_else(|| ".".into()),
+        );
+        vec![serde_json::json!({
+            "command": command,
+            "workdir": kanzei_harness::permission::normalize_resource(
+                &effective_workdir.display().to_string(),
+            ),
+        })
+        .to_string()]
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: BashInput = match crate::parse_input(self, input) {
             Ok(v) => v,
@@ -239,7 +260,8 @@ async fn read_capped(
 #[cfg(test)]
 mod tests {
     use super::BashTool;
-    use kanzei_harness::Tool;
+    use kanzei_harness::{Tool, ToolCtx};
+    use std::path::PathBuf;
 
     #[test]
     fn resources_keep_the_complete_command_without_prefix_generalization() {
@@ -252,5 +274,33 @@ mod tests {
         let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
         assert_eq!(resource["command"], "git status > .kanzei/project/requirements.md");
         assert_eq!(resource["workdir"], "subdir");
+        let resource: serde_json::Value = serde_json::from_str(
+            &BashTool.resources_with_ctx(
+                &serde_json::json!({"command": "git status", "workdir": "subdir"}),
+                &ToolCtx {
+                    cwd: PathBuf::from("C:/project"),
+                    project_root: PathBuf::from("C:/project"),
+                },
+            )[0],
+        )
+        .unwrap();
+        assert_eq!(
+            resource["workdir"],
+            kanzei_harness::permission::normalize_resource("C:/project/subdir")
+        );
+        let resource: serde_json::Value = serde_json::from_str(
+            &BashTool.resources_with_ctx(
+                &serde_json::json!({"command": "git status"}),
+                &ToolCtx {
+                    cwd: PathBuf::from("C:/project"),
+                    project_root: PathBuf::from("C:/project"),
+                },
+            )[0],
+        )
+        .unwrap();
+        assert_eq!(
+            resource["workdir"],
+            kanzei_harness::permission::normalize_resource("C:/project")
+        );
     }
 }
