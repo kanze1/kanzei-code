@@ -22,7 +22,7 @@
 - 阶段: 1
 - 不变量: 消息历史:拒绝与取消也必须配对
 - 证据等级: E2
-- 进展: 将 CLI E2 扩展为“拒绝后继续对话”：第一次真实 kz 运行同批执行 Write、拒绝 Bash，断言 conversation.updated 中两个 ToolResult 配对；随后重启真实 kz，使用新的本地 SSE mock 返回普通文本，断言基于该历史恢复成功、输出 recovered after denial，未再触发未配对 tool_use 400。cargo test -p kanzei --test always_allow_bash 两项通过；D-054 仍待桌面端 recover_messages_at / conversation_get 过滤回归。
+- 进展: 完成历史恢复清洗：新增 kanzei-core::filter_message_history，共享按 ToolCall.id/ToolResult.call_id 一对一配对，保留合法工具对与普通文本，移除孤儿调用/孤儿结果；CLI prior 恢复与桌面 recover_messages_at/conversation_get 均复用。新增 core 3 项过滤回归、桌面坏快照 recover_messages_at 回归；cargo test -p kanzei-core -p kanzei -p kanzei-app 通过（core 32、CLI 2 单元+2 E2、桌面 10）。仍需核验桌面真实运行中内存 conversation 与历史恢复交界，以及旧损坏快照的完整 CLI E2。
 
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。

@@ -157,9 +157,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let prior = store
         .latest_event(&session_id, "conversation.updated")?
         .map(|event| {
-            serde_json::from_value::<Vec<kanzei_llm::Message>>(
+            let messages = serde_json::from_value::<Vec<kanzei_llm::Message>>(
                 event.payload.get("messages").cloned().unwrap_or_default(),
-            )
+            )?;
+            Ok::<_, anyhow::Error>(kanzei_core::filter_message_history(&messages))
         })
         .transpose()?
         .unwrap_or_default();

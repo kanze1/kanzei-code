@@ -290,8 +290,8 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 #[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_path, persist_always_allow, process_session_id, runtime_for,
-        take_pending_ask,
+        default_process_id, pending_path, persist_always_allow, process_session_id, recover_messages_at,
+        runtime_for, take_pending_ask,
         with_session_id, AppState, PendingAsk,
     };
     use std::path::{Path, PathBuf};
@@ -378,6 +378,42 @@ mod update_tests {
         assert!(take_pending_ask(&state, 7).is_none());
         assert!(second.asks.lock().unwrap().is_empty());
     }
+
+    #[test]
+    fn recover_messages_filters_orphan_tool_calls_from_persisted_snapshot() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-app-history-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
+        store.create_session("ses_history", &root.display().to_string(), None).unwrap();
+        let messages = vec![
+            kanzei_llm::Message::user_text("保留文本"),
+            kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
+                id: "orphan".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "echo orphan"}),
+            }]),
+        ];
+        store
+            .append_event(
+                "ses_history",
+                "conversation.updated",
+                &serde_json::json!({"messages": messages}),
+            )
+            .unwrap();
+        let recovered = recover_messages_at(&store, "ses_history", None).unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert!(matches!(recovered[0].parts[0], kanzei_llm::Part::Text { ref text } if text == "保留文本"));
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
 
     #[test]
     fn persist_always_allow_success_returns_always_allow_and_path() {
@@ -2848,7 +2884,8 @@ fn recover_messages_at(
         .get("messages")
         .cloned()
         .unwrap_or_else(|| json!([]));
-    Ok(serde_json::from_value(messages)?)
+    let messages: Vec<kanzei_llm::Message> = serde_json::from_value(messages)?;
+    Ok(kanzei_core::filter_message_history(&messages))
 }
 
 async fn run_task(

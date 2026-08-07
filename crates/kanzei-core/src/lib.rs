@@ -2,11 +2,13 @@
 //! M0:内存态一次性 runner;M2 起换成 SQLite 事件溯源 + steer/queue 调度。
 
 pub mod assemble;
+pub mod history;
 pub mod notification;
 pub mod runner;
 pub mod store;
 
 pub use assemble::build_route;
+pub use history::filter_message_history;
 pub use notification::{
     AgentMessage, AgentNotification, InMemoryBroker, NotificationSubscription, PublishMessage,
 };
