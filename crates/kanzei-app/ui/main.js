@@ -139,9 +139,34 @@ function setupResize(elementId, key, side, min, max) {
   const handle = document.createElement("div");
   handle.className = "resize-handle";
   handle.title = "拖动调整面板宽度";
+  handle.tabIndex = 0;
+  handle.setAttribute("role", "separator");
+  handle.setAttribute("aria-orientation", "vertical");
+  handle.setAttribute("aria-label", "调整面板宽度");
   element.appendChild(handle);
+  const syncHandle = () => {
+    const rect = element.getBoundingClientRect();
+    handle.style.top = `${rect.top}px`;
+    handle.style.height = `${rect.height}px`;
+    handle.style.left = `${(side === "right" ? rect.right : rect.left) - 2}px`;
+  };
+  const setWidth = (width) => {
+    const next = Math.min(max, Math.max(min, Math.round(width)));
+    element.style.width = `${next}px`;
+    localStorage.setItem(key, String(next));
+    syncHandle();
+  };
+  const resetWidth = () => {
+    localStorage.removeItem(key);
+    element.style.width = "";
+    syncHandle();
+  };
+  syncHandle();
+  if ("ResizeObserver" in window) new ResizeObserver(syncHandle).observe(element);
+  window.addEventListener("resize", syncHandle);
   let dragging = false;
   handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
     dragging = true;
     handle.classList.add("dragging");
     handle.setPointerCapture(event.pointerId);
@@ -150,11 +175,17 @@ function setupResize(elementId, key, side, min, max) {
   handle.addEventListener("pointermove", (event) => {
     if (!dragging) return;
     const rect = element.getBoundingClientRect();
-    const width = side === "right" ? event.clientX - rect.left : rect.right - event.clientX;
-    const next = Math.min(max, Math.max(min, Math.round(width)));
-    element.style.width = `${next}px`;
-    localStorage.setItem(key, String(next));
+    setWidth(side === "right" ? event.clientX - rect.left : rect.right - event.clientX);
   });
+  handle.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === "Home") return resetWidth();
+    const rect = element.getBoundingClientRect();
+    const delta = side === "right" ? (event.key === "ArrowRight" ? 8 : -8) : (event.key === "ArrowLeft" ? 8 : -8);
+    setWidth(rect.width + delta);
+  });
+  handle.addEventListener("dblclick", resetWidth);
   const stop = () => {
     dragging = false;
     handle.classList.remove("dragging");
@@ -162,6 +193,7 @@ function setupResize(elementId, key, side, min, max) {
   };
   handle.addEventListener("pointerup", stop);
   handle.addEventListener("pointercancel", stop);
+  handle.addEventListener("lostpointercapture", stop);
 }
 setupResize("sidebar", "kz-sidebar-width", "right", 220, 460);
 setupResize("todo-panel", "kz-todo-width", "left", 240, 520);

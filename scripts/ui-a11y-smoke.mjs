@@ -33,5 +33,8 @@ assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.cla
 assert.match(css, /@media \(max-width: 1400px\)[\s\S]*#todo-panel, #bg-panel[\s\S]*position: absolute/);
 assert.match(css, /#todo-panel:not\(\.hidden\) ~ #bg-panel:not\(\.hidden\)/);
 assert.match(css, /#app \{[^}]*position: relative/);
+assert.match(css, /\.resize-handle \{ position: fixed/);
+assert.match(js, /handle\.setAttribute\("role", "separator"\)/);
+assert.match(js, /handle\.addEventListener\("keydown"/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
