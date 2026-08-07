@@ -57,7 +57,15 @@ impl Tool for BashTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["command"].as_str().unwrap_or("*").to_string()]
+        let command = input["command"].as_str().unwrap_or("*");
+        let Some(workdir) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else {
+            return vec![command.to_string()];
+        };
+        vec![serde_json::json!({
+            "command": command,
+            "workdir": kanzei_harness::permission::normalize_resource(workdir),
+        })
+        .to_string()]
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -72,7 +80,9 @@ impl Tool for BashTool {
                 .min(MAX_TIMEOUT_MS),
         );
         let workdir = match &input.workdir {
-            Some(dir) => ctx.cwd.join(dir),
+            Some(dir) => ctx
+                .cwd
+                .join(kanzei_harness::permission::normalize_resource(dir)),
             None => ctx.cwd.clone(),
         };
         if !workdir.is_dir() {
@@ -237,9 +247,10 @@ mod tests {
             "command": "git status > .kanzei/project/requirements.md",
             "workdir": "subdir"
         });
-        assert_eq!(
-            BashTool.resources(&input),
-            vec!["git status > .kanzei/project/requirements.md"]
-        );
+        let resources = BashTool.resources(&input);
+        assert_eq!(resources.len(), 1);
+        let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
+        assert_eq!(resource["command"], "git status > .kanzei/project/requirements.md");
+        assert_eq!(resource["workdir"], "subdir");
     }
 }

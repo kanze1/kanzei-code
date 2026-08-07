@@ -48,13 +48,13 @@ impl Ruleset {
     /// 硬 deny 优先；普通规则保持 last-match-wins，无匹配 → Ask。
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
         if self.hard_denies.iter().any(|r| {
-            wildcard_match(&r.action, action) && resource_match(&r.resource, resource)
+            wildcard_match(&r.action, action) && resource_match_for_action(action, &r.resource, resource)
         }) {
             return Effect::Deny;
         }
         let matched =
             self.rules.iter().rev().find(|r| {
-                wildcard_match(&r.action, action) && resource_match(&r.resource, resource)
+                wildcard_match(&r.action, action) && resource_match_for_action(action, &r.resource, resource)
             });
         let Some(rule) = matched else {
             return Effect::Ask;
@@ -144,6 +144,15 @@ fn is_windows_drive_path(resource: &str) -> bool {
     resource.len() >= 2
         && resource.as_bytes()[1] == b':'
         && resource.as_bytes()[0].is_ascii_alphabetic()
+}
+
+/// 按 action 选择资源语义；bash 命令是 shell 语法文本，不能因其中出现 `/` 就走文件路径规范化。
+pub fn resource_match_for_action(action: &str, pattern: &str, value: &str) -> bool {
+    if action == "bash" {
+        wildcard_match(pattern, value)
+    } else {
+        resource_match(pattern, value)
+    }
 }
 
 /// 按资源类型匹配权限规则；路径资源先经过统一规范化，避免会话规则
@@ -399,6 +408,23 @@ mod tests {
         assert_eq!(rs.evaluate("bash", "git status; rm -rf ~"), Effect::Allow);
     }
 
+    #[test]
+    fn bash_resources_keep_shell_text_opaque_during_matching() {
+        let resource = r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"subdir"}"#;
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: resource.into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(rs.evaluate("bash", resource), Effect::Allow);
+        assert_eq!(
+            rs.evaluate(
+                "bash",
+                r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"other"}"#
+            ),
+            Effect::Ask
+        );
+    }
     #[test]
     fn hard_deny_cannot_be_overridden_by_later_normal_rules() {
         let mut rs = Ruleset::new(vec![Rule {

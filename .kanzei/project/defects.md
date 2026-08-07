@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 完成本轮最小步骤：crates/kanzei-tools/src/bash.rs 新增 resources_keep_the_complete_command_without_prefix_generalization，验证包含重定向与 workdir 输入时权限资源仍保留完整命令，不恢复首词通配。cargo test -p kanzei-tools bash::tests::resources_keep_the_complete_command_without_prefix_generalization 通过。尚未推进 workdir 绑定、CLI/桌面真实 AlwaysAllow→bash E2、历史规则迁移与持久化失败链路，保持 fixing。
+- 进展: 完成下一最小步骤：bash 明确 workdir 时，BashTool.resources 现在把 command+规范化 workdir 编成结构化资源；execute 同样复用 normalize_resource 解析 workdir。Ruleset/runner 会按 action 使用 resource_match_for_action，bash 命令作为 shell 文本匹配，不再因命令内 `/` 被误当文件路径规范化；不同 workdir 的同一命令不会复用同一会话 AlwaysAllow。新增 bash 资源回归与 harness opaque matching 回归；cargo test -p kanzei-harness -p kanzei-tools -p kanzei-core 全部通过（26/19/28）。仍缺：默认 cwd 的绝对绑定、CLI/桌面真实 AlwaysAllow→bash E2、历史规则迁移及持久化失败链路。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
