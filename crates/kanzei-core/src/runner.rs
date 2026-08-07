@@ -478,7 +478,7 @@ pub fn run_once_with_parts<'a>(
         }
 
         let mut results = Vec::new();
-        for (id, name, input, raw_input) in calls {
+        for (call_index, (id, name, input, raw_input)) in calls.iter().cloned().enumerate() {
             // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
             // ToolEnd 已在并行阶段按完成顺序上报过,这里只归位结果。
             if name == "task" && subagent.is_some() {
@@ -593,6 +593,8 @@ pub fn run_once_with_parts<'a>(
                         preview: "(user declined)".into(),
                         display: None,
                     });
+                    append_declined_tool_results(&mut results, &calls, call_index);
+                    messages.push(Message::tool_results(results));
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
@@ -648,12 +650,30 @@ pub fn run_once_with_parts<'a>(
     })
 }
 
+fn append_declined_tool_results(
+    results: &mut Vec<Part>,
+    calls: &[(String, String, serde_json::Value, String)],
+    declined_index: usize,
+) {
+    for (index, (id, _, _, _)) in calls.iter().enumerate().skip(declined_index) {
+        let content = if index == declined_index {
+            "permission request declined by user"
+        } else {
+            "tool call cancelled because a previous permission request was declined"
+        };
+        results.push(Part::ToolResult {
+            call_id: id.clone(),
+            content: content.into(),
+            is_error: true,
+        });
+    }
+}
+
 enum Gate {
     Pass,
     Deny(String),
     UserDeclined,
 }
-
 /// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
 /// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
@@ -850,7 +870,9 @@ fn preview(content: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{compact_messages_aggressively, compact_messages_for_retry};
+    use super::{
+        append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
+    };
     use kanzei_llm::{Message, Part};
 
     #[test]
@@ -918,5 +940,36 @@ mod tests {
         assert!(!aggressive.iter().flat_map(|message| &message.parts).any(|part| {
             matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
         }));
+    }
+    #[test]
+    fn declined_tool_batch_keeps_real_and_placeholder_results_paired() {
+        let calls = vec![
+            ("call_done".into(), "write".into(), serde_json::json!({}), "{}".into()),
+            ("call_declined".into(), "edit".into(), serde_json::json!({}), "{}".into()),
+            ("call_pending".into(), "bash".into(), serde_json::json!({}), "{}".into()),
+        ];
+        let mut results = vec![Part::ToolResult {
+            call_id: "call_done".into(),
+            content: "真实写入结果".into(),
+            is_error: false,
+        }];
+        append_declined_tool_results(&mut results, &calls, 1);
+
+        assert_eq!(results.len(), 3);
+        assert!(matches!(
+            &results[0],
+            Part::ToolResult { call_id, content, is_error: false }
+                if call_id == "call_done" && content == "真实写入结果"
+        ));
+        assert!(matches!(
+            &results[1],
+            Part::ToolResult { call_id, is_error: true, content }
+                if call_id == "call_declined" && content.contains("declined")
+        ));
+        assert!(matches!(
+            &results[2],
+            Part::ToolResult { call_id, is_error: true, content }
+                if call_id == "call_pending" && content.contains("cancelled")
+        ));
     }
 }
