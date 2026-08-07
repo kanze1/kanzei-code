@@ -246,6 +246,19 @@ function log(text, cls = "") {
   lines.scrollTop = lines.scrollHeight;
 }
 $("log-toggle").addEventListener("click", () => $("log-panel").classList.toggle("hidden"));
+$("log-copy").addEventListener("click", async () => {
+  const text = $("log-lines").innerText.trim();
+  if (!text) {
+    toast("暂无可复制的运行日志");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("运行日志已复制");
+  } catch (error) {
+    toastError(`复制运行日志失败:${error}`);
+  }
+});
 $("log-clear").addEventListener("click", () => ($("log-lines").innerHTML = ""));
 
 // ---------- 状态栏 ----------
