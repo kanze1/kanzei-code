@@ -200,14 +200,14 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
-function reportError(text, { retry = null } = {}) {
+function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
   errorRetry = retry;
   $("log-retry").classList.toggle("hidden", typeof retry !== "function");
   $("log-panel").classList.remove("hidden");
 }
 function toastError(text, options = {}) {
-  reportError(text, options);
+  reportPersistentError(text, options);
 }
 
 let completionAudioContext = null;

@@ -27,5 +27,8 @@ assert.match(js, /rename\.setAttribute\("aria-label"/);
 assert.match(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{[\s\S]*opacity: 0/);
 assert.doesNotMatch(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{\s*display:\s*none/);
 assert.match(css, /:focus-visible/);
+assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
+assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
+assert.match(js, /function reportPersistentError\([\s\S]*?\$\("log-panel"\)\.classList\.remove\("hidden"\)/);
 
 console.log(`UI 无障碍静态冒烟通过：${static_icon_buttons.length} 个静态 icon-btn，核心键盘语义与焦点规则已覆盖`);
