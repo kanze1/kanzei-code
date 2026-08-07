@@ -210,8 +210,7 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     drop(stdin);
     let output = child.wait_with_output().await.unwrap();
     server.await.unwrap();
-
-    assert!(output.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.status.code(), Some(3), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
     assert_eq!(std::fs::read_to_string(project.join("allowed.md")).unwrap(), "executed");
     assert!(!project.join("refused-marker.txt").exists());
 

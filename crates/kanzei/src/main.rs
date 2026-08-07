@@ -52,6 +52,10 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+fn cli_exit_code(halted_by_user: bool) -> i32 {
+    if halted_by_user { 3 } else { 0 }
+}
+
 fn usage() {
     eprintln!("usage: kz run \"<prompt>\"");
     eprintln!("       kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始");
@@ -401,6 +405,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx).await;
+    let exit_code = cli_exit_code(summary.halted_by_user);
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
     Ok(())
 }
 
@@ -554,9 +562,14 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_run_args, persist_always_allow};
+    use super::{cli_exit_code, parse_run_args, persist_always_allow};
     use kanzei_core::AskReply;
 
+    #[test]
+    fn halted_run_uses_nonzero_exit_code_but_completed_run_stays_zero() {
+        assert_eq!(cli_exit_code(true), 3);
+        assert_eq!(cli_exit_code(false), 0);
+    }
     #[test]
     fn run_new_flag_is_removed_from_prompt() {
         let args = vec!["--new".to_string(), "开始".to_string(), "新会话".to_string()];
