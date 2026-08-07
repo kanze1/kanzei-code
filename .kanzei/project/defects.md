@@ -23,7 +23,7 @@
 - 阶段: 1
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
-- 进展: 继续补齐切回重建：新增 Tauri command pending_asks_get(project_dir, process_id)，按 session 返回可直接重建 kz:ask 的 payload；注册进 invoke_handler。UI switchProcess 在切换后调用 pending_asks_get，按 session 去重合并队列并 pump；新增 pending_ask_payload Rust 回归。node --check ui/main.js、cargo test -p kanzei-app 12 项通过。仍缺 done/error/stopped 控制事件按 session 路由和真实前端 UI E2。
+- 进展: 完成控制事件最小路由：ui/main.js 的 on() 对后台 session 的 kz:done/kz:error/kz:stopped 不再静默丢弃，改为刷新 process_list 并记录已路由日志；活动 session 继续走原有 done/error/stopped UI handler，kz:ask 继续进入按 session 队列。node --check ui/main.js 与 cargo test -p kanzei-app 12 项通过。仍缺真实前端 UI E2、控制事件按 session 的更细粒度状态投影验证。
 
 ## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [open] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。

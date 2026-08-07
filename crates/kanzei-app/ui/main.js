@@ -6,8 +6,13 @@ const { listen } = window.__TAURI__.event;
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
-    const controlEvent = event === "kz:ask";
+    const controlEvent = event === "kz:ask" || event === "kz:done" || event === "kz:error" || event === "kz:stopped";
     if (!controlEvent && sessionId && activeSessionId && sessionId !== activeSessionId) return;
+    if (controlEvent && event !== "kz:ask" && sessionId && activeSessionId && sessionId !== activeSessionId) {
+      refreshProcesses();
+      log(`后台会话控制事件已路由:${event} ${sessionId}`);
+      return;
+    }
     handler(eventPayload);
   }).catch((err) => {
     log(`事件订阅失败 ${event}: ${err} — 界面将收不到运行事件,请反馈`, "err");
