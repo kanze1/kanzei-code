@@ -96,6 +96,9 @@ pub enum RunEvent {
         id: String,
         name: String,
         summary: String,
+        /// 结构化入参原文。summary 是给人看的一行摘要,信息量不足以复核"它到底
+        /// 拿什么参数调的";活动面板要能展开完整入参,只能从这里拿(R-095)。
+        input: serde_json::Value,
     },
     ToolEnd {
         id: String,
@@ -737,6 +740,7 @@ pub fn run_once_with_parts<'a>(
                         id: id.clone(),
                         name: "task".into(),
                         summary: summarize_input(input, raw),
+                        input: input.clone(),
                     });
                 }
                 for (id, input, raw) in &overflow {
@@ -744,6 +748,7 @@ pub fn run_once_with_parts<'a>(
                         id: id.clone(),
                         name: "task".into(),
                         summary: summarize_input(input, raw),
+                        input: input.clone(),
                     });
                     let output = kanzei_harness::ToolOutput::error(format!(
                         "too many parallel subagent tasks; maximum per turn is {}",
@@ -843,6 +848,7 @@ pub fn run_once_with_parts<'a>(
                 id: id.clone(),
                 name: name.clone(),
                 summary: summarize_input(&input, &raw_input),
+                input: input.clone(),
             });
 
             // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
@@ -1055,7 +1061,7 @@ async fn run_subagent(
             _ => None,
         };
         let trace = match event {
-            RunEvent::ToolStart { id, name, summary } => Some(TaskTrace {
+            RunEvent::ToolStart { id, name, summary, .. } => Some(TaskTrace {
                 child_id: id,
                 phase: "start".into(),
                 name,

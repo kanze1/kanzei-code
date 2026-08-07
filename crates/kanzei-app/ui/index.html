@@ -462,7 +462,24 @@
     </aside>
 
     <aside id="bg-panel" class="hidden">
-      <div class="bg-head">活动 <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
+      <div class="bg-head">活动 <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
+      <div class="bg-filters">
+        <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选">
+          <option value="all">全部类型</option>
+          <option value="terminal">终端</option>
+          <option value="file">文件</option>
+          <option value="tracker">追踪</option>
+          <option value="agent">子代理</option>
+          <option value="memory">记忆</option>
+          <option value="other">其他</option>
+        </select>
+        <select id="bg-status-filter" class="doc-filter" title="按成败状态筛选">
+          <option value="all">全部状态</option>
+          <option value="running">运行中</option>
+          <option value="ok">成功</option>
+          <option value="err">失败</option>
+        </select>
+      </div>
       <div id="diff-summary" class="diff-summary hidden"></div>
       <div id="bg-list"></div>
     </aside>

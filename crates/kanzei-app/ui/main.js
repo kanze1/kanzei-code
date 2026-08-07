@@ -86,6 +86,11 @@ const I18N_EN = {
   "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory", "找不到": "Not found:",
   "选择": "Select", "已选": "Selected", "改状态…": "Change status…", "混选类型,仅可改标签": "Mixed types — tags only",
   "先选择要改的状态或标签": "Pick a status or tag to apply first", "批量操作完成": "Bulk update done", "批量操作部分失败": "Bulk update partly failed",
+  "内部调用": "inner calls", "只停这一条,不影响本轮其它工具": "Stop just this one; other tools in this round keep running",
+  "已停止该后台进程": "Background process stopped", "停止失败": "Failed to stop", "重跑": "Re-run",
+  "把这次调用的参数填回输入框,确认后再执行": "Put this call's arguments back in the input box for you to confirm",
+  "已填入输入框,确认后发送": "Filled into the input box — review, then send", "复制完整输出": "Copy full output",
+  "导出": "Export", "把完整输出存成文件": "Save the full output to a file", "已导出": "Exported",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -1134,10 +1139,56 @@ function renderDiffSummary() {
 function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
+  applyBgFilters();
 }
-// 活动面板只承载不适合占据主对话的后台轨迹：记忆写入与子代理；普通工具调用已在主对话内联展示。
-function isActivityTool(name) {
-  return name === "task" || name === "memory_note";
+// R-095:活动面板此前只收 task 与 memory_note,绝大多数轮次里它是空的——"打开也没啥用"。
+// 现在它是完整的活动流水,靠筛选控制噪音;主对话仍保留内联工具块,两者定位不同:
+// 主对话是叙事,活动面板是可检索的执行记录。
+function isActivityTool() {
+  return true;
+}
+
+const BG_TOOL_TYPES = {
+  bash: "terminal", process: "terminal",
+  read: "file", write: "file", edit: "file", multiedit: "file", glob: "file", grep: "file",
+  req: "tracker", defect: "tracker", goal: "tracker", source: "tracker", finding: "tracker", decision: "tracker",
+  task: "agent",
+  memory_note: "memory", memory_search: "memory", memory_stats: "memory",
+};
+function bgToolType(name) {
+  return BG_TOOL_TYPES[name] ?? "other";
+}
+// 终端类输出才提供复制/导出:diff 与追踪结果在主对话里已有更好的呈现。
+function bgIsTerminal(name) {
+  return bgToolType(name) === "terminal";
+}
+
+const bgFilters = {
+  type: localStorage.getItem("kz-bg-type") || "all",
+  status: localStorage.getItem("kz-bg-status") || "all",
+};
+function bgEntryStatus(entry) {
+  if (!entry.done) return "running";
+  return entry.el.classList.contains("err") ? "err" : "ok";
+}
+function applyBgFilters() {
+  let shown = 0;
+  for (const entry of bgEntries.values()) {
+    const typeOk = bgFilters.type === "all" || entry.type === bgFilters.type;
+    const statusOk = bgFilters.status === "all" || bgEntryStatus(entry) === bgFilters.status;
+    const visible = typeOk && statusOk;
+    entry.el.classList.toggle("hidden", !visible);
+    if (visible) shown += 1;
+  }
+  const count = $("bg-count");
+  // 有筛选时同时给出"筛出/总数",否则看到 3 条会以为本轮只跑了 3 个工具。
+  if (count) {
+    count.textContent = bgEntries.size
+      ? shown === bgEntries.size
+        ? `· ${bgEntries.size}`
+        : `· ${shown}/${bgEntries.size}`
+      : "";
+  }
 }
 
 /// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
@@ -1152,32 +1203,52 @@ function recordDiffSummary(display) {
   renderDiffSummary();
 }
 
-function bgAdd(id, name, summary) {
+function bgAdd(id, name, summary, input) {
   if (!id || bgEntries.has(id)) return;
+  const type = bgToolType(name);
   const el = document.createElement("div");
-  el.className = "bg-entry running";
+  el.className = `bg-entry running bg-type-${type}`;
   el.dataset.bgId = id;
+  el.dataset.bgTool = name;
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
   title.setAttribute("aria-label", t("展开或收起后台任务详情"));
   title.setAttribute("aria-expanded", "false");
-  title.textContent = `${name} ${summary}`;
+  // 工具名与目标分开呈现:此前拼成一行长文本被 ellipsis 截断,看不出改的是哪个文件、
+  // 跑的是哪条命令——"打开也没啥用"的直接原因(R-095 验收 ⑤)。
+  const toolName = document.createElement("span");
+  toolName.className = "bg-tool";
+  toolName.textContent = name;
+  const target = document.createElement("span");
+  target.className = "bg-target";
+  target.textContent = summary;
+  title.append(toolName, target);
   title.title = summary;
   const prog = document.createElement("div");
   prog.className = "bg-prog";
   prog.textContent = name === "task" ? `… ${t("子代理启动中")}` : "…";
   const meta = document.createElement("div");
   meta.className = "bg-meta";
+  const actions = document.createElement("div");
+  actions.className = "bg-actions";
   const detail = document.createElement("div");
   detail.className = "bg-detail hidden";
+  // 完整入参永远可展开:summary 是一行摘要,复核"到底拿什么参数调的"要看原文。
+  if (input && Object.keys(input).length) {
+    const args = document.createElement("pre");
+    args.className = "tool-display term bg-args";
+    args.textContent = JSON.stringify(input, null, 2);
+    detail.appendChild(args);
+    el.classList.add("has-detail");
+  }
   title.addEventListener("click", () => {
     if (detail.children.length) {
       detail.classList.toggle("hidden");
       title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
     }
   });
-  el.append(title, prog, meta, detail);
+  el.append(title, prog, meta, actions, detail);
   const list = $("bg-list");
   list.appendChild(el);
   while (list.children.length > BG_MAX) {
@@ -1186,9 +1257,85 @@ function bgAdd(id, name, summary) {
     bgEntries.delete(first.dataset.bgId);
     first.remove();
   }
-  bgEntries.set(id, { el, title, prog, meta, detail, children: new Map(), startedAt: Date.now(), done: false });
+  const entry = {
+    el, title, prog, meta, detail, actions, type, name, summary, input,
+    children: new Map(), startedAt: Date.now(), done: false,
+  };
+  bgEntries.set(id, entry);
+  bgRenderActions(id, entry);
   bgSync();
   list.scrollTop = list.scrollHeight;
+}
+
+// 每条的可操作项。运行中的后台进程/子代理能单独停;结束后能重跑;
+// 终端类输出能复制与导出——这三样是"面板能干活"与"面板只是日志"的分界。
+function bgRenderActions(id, entry) {
+  entry.actions.innerHTML = "";
+  const add = (label, title, handler) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost mini";
+    btn.textContent = label;
+    btn.title = title;
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      handler();
+    });
+    entry.actions.appendChild(btn);
+    return btn;
+  };
+  if (!entry.done && (entry.type === "agent" || entry.type === "terminal")) {
+    add(t("停止"), t("只停这一条,不影响本轮其它工具"), async () => {
+      try {
+        // 后台进程有独立句柄可单独停;子代理没有单条停止通道,只能停整轮。
+        if (entry.name === "bash" || entry.name === "process") {
+          const pid = entry.input?.process_id ?? entry.input?.processId;
+          if (pid) {
+            await invoke("run_tool_process_stop", { projectDir: currentProject, processId: String(pid) });
+            toast(t("已停止该后台进程"));
+            return;
+          }
+        }
+        await invoke("stop_run", { sessionId: activeSessionId });
+        toast(t("已请求停止"));
+      } catch (error) {
+        toastError(`${t("停止失败")}:${error}`);
+      }
+    });
+  }
+  if (entry.done) {
+    add(t("重跑"), t("把这次调用的参数填回输入框,确认后再执行"), () => {
+      // 不直接重放:工具调用有副作用,必须经用户确认。填回输入框是最轻的确认方式。
+      const text = `重跑这次调用:${entry.name} ${entry.summary}\n参数:\n${JSON.stringify(entry.input ?? {}, null, 2)}`;
+      $("prompt").value = text;
+      $("prompt").focus();
+      toast(t("已填入输入框,确认后发送"));
+    });
+  }
+  if (bgIsTerminal(entry.name)) {
+    add(t("复制"), t("复制完整输出"), async () => {
+      await navigator.clipboard.writeText(bgPlainText(entry));
+      toast(t("已复制"));
+    });
+    add(t("导出"), t("把完整输出存成文件"), () => {
+      const blob = new Blob([bgPlainText(entry)], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${entry.name}-${id}.txt`.replace(/[^\w.-]/g, "_");
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(t("已导出"));
+    });
+  }
+}
+
+function bgPlainText(entry) {
+  return [
+    `# ${entry.name} ${entry.summary}`,
+    entry.input ? `\n## 入参\n${JSON.stringify(entry.input, null, 2)}` : "",
+    `\n## 输出\n${entry.detail.textContent || entry.prog.textContent || ""}`,
+  ].join("\n");
 }
 function highlightLine(container, text, language) {
   const pattern = /("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\/\/.*|#.*|\b\d+(?:\.\d+)?\b|\b(?:fn|let|const|function|class|return|if|else|for|while|pub|struct|use|import|from|true|false|null|None|async|await)\b)/g;
@@ -1333,7 +1480,13 @@ function bgEnd(id, ok, preview, display) {
   entry.el.classList.remove("running");
   entry.el.classList.add(ok ? "ok" : "err");
   entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
-  entry.meta.textContent = `${Math.round((Date.now() - entry.startedAt) / 1000)}s`;
+  // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
+  // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
+  const ms = Date.now() - entry.startedAt;
+  const elapsed = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+  const bits = [ok ? `✓ ${t("成功")}` : `✕ ${t("失败")}`, elapsed];
+  if (entry.type === "agent") bits.push(`${t("内部调用")} ${entry.children.size}`);
+  entry.meta.textContent = bits.join(" · ");
   // 结构化详情进面板内展开区(diff/终端/新建/todo)。
   const d = display;
   if (d?.kind === "diff") {
@@ -1347,6 +1500,8 @@ function bgEnd(id, ok, preview, display) {
     entry.detail.appendChild(err);
   }
   if (entry.detail.children.length) entry.el.classList.add("has-detail");
+  bgRenderActions(id, entry);
+  bgSync();
 }
 function renderRecoveredTraces(payloads) {
   const ids = new Set();
@@ -1581,8 +1736,8 @@ on("kz:tool-start", (e) => {
   log(`${t("工具")} ${e.payload.name} ${e.payload.summary}`);
   currentAssistant = null;
   currentReasoning = null;
-  chatToolStart(e.payload.id, e.payload.name, e.payload.summary);
-  if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary);
+  chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -4275,6 +4430,19 @@ $("documents-project-select").addEventListener("change", (event) => {
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("bg-type-filter").addEventListener("change", (e) => {
+  bgFilters.type = e.target.value;
+  localStorage.setItem("kz-bg-type", bgFilters.type);
+  applyBgFilters();
+});
+$("bg-status-filter").addEventListener("change", (e) => {
+  bgFilters.status = e.target.value;
+  localStorage.setItem("kz-bg-status", bgFilters.status);
+  applyBgFilters();
+});
+$("bg-type-filter").value = bgFilters.type;
+$("bg-status-filter").value = bgFilters.status;
+
 $("documents-batch-apply").addEventListener("click", applyBatch);
 $("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 // 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。

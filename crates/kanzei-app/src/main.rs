@@ -4145,9 +4145,14 @@ async fn run_task(
             }
             RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
             RunEvent::Reasoning(text) => emit_event("kz:reasoning", json!({ "text": text })),
-            RunEvent::ToolStart { id, name, summary } => emit_event(
+            RunEvent::ToolStart {
+                id,
+                name,
+                summary,
+                input,
+            } => emit_event(
                 "kz:tool-start",
-                json!({ "id": id, "name": name, "summary": summary }),
+                json!({ "id": id, "name": name, "summary": summary, "input": input }),
             ),
             RunEvent::ToolEnd {
                 id,

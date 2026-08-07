@@ -555,6 +555,19 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-entry.ok .bg-title::before { content: "✓ "; color: var(--ok); }
 .bg-entry.err .bg-title::before { content: "✗ "; color: var(--err); }
 .bg-entry.has-detail .bg-title { cursor: pointer; }
+/* R-095:工具名与目标分列——拼成一行长文本会被 ellipsis 从尾部截掉,
+   而"改的是哪个文件/跑的哪条命令"恰恰在尾部。 */
+.bg-entry .bg-title { display: flex; gap: 6px; align-items: baseline; white-space: normal; }
+.bg-entry .bg-tool { flex-shrink: 0; font-family: var(--mono); font-size: 11px; color: var(--fg-strong); }
+.bg-entry .bg-target { flex: 1; min-width: 0; color: var(--info); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-entry.hidden { display: none; }
+.bg-filters { display: flex; gap: 6px; padding: 0 10px 6px; }
+.bg-filters .doc-filter { flex: 1; min-width: 0; height: 24px; font-size: 11px; }
+.bg-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 3px; }
+.bg-actions:empty { display: none; }
+/* 长输出折叠:展开区给上界,超出部分内部滚动,不让一条日志把面板撑到底 */
+.bg-detail { max-height: 320px; overflow: auto; }
+.bg-args { max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 .bg-entry.has-detail .bg-title:hover { color: var(--fg-strong); }
 .bg-detail { margin-top: 4px; max-height: 320px; overflow-y: auto; user-select: text; }
 .bg-child { margin: 3px 0 0 8px; padding: 4px 6px; border-left: 2px solid var(--border); background: var(--panel); font-size: 10.5px; }

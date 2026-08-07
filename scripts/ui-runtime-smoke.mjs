@@ -204,9 +204,19 @@ function matchesOne(el, selector) {
   if (selector.startsWith(".")) return el.classList.contains(selector.slice(1));
   if (selector.startsWith("#")) return el.id === selector.slice(1);
   if (selector.startsWith("[")) {
-    const name = selector.slice(1, -1).split("=")[0].trim();
-    if (name === "data-doc-id") return "docId" in el.dataset;
-    return el.hasAttribute(name);
+    // 属性选择器要支持带值比较,并且 data-* 得查 dataset —— main.js 写的是
+    // `el.dataset.bgTool = ...`,不会落到 _attributes 里;早期版本只按属性名
+    // 存在性判断,于是 `[data-bg-tool=bash]` 这类选择恒不命中。
+    const body = selector.slice(1, -1);
+    const eq = body.indexOf("=");
+    const name = (eq < 0 ? body : body.slice(0, eq)).trim();
+    const want = eq < 0 ? null : body.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
+    const dataKey = name.startsWith("data-")
+      ? name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+      : null;
+    const actual = dataKey && dataKey in el.dataset ? el.dataset[dataKey] : el.getAttribute(name);
+    if (actual == null) return false;
+    return want === null || String(actual) === want;
   }
   return el.tagName === selector.toUpperCase();
 }
@@ -552,6 +562,68 @@ await flush();
 assert(!byId.get("auto-continue").checked, "选择 SOP 后未打断自动推进");
 assert(invokeLog.includes("memory_entries"), "SOP 入口未读取已沉淀 SOP");
 assert(invokeLog.includes("run_prompt"), "选择 SOP 后未进入输入执行链路");
+
+// ---------- R-095 活动面板：完整流水 + 筛选 + 信息量 + 可操作 ----------
+const toolStart = handlers.get("kz:tool-start");
+const toolEnd = handlers.get("kz:tool-end");
+assert(toolStart && toolEnd, "工具事件未订阅");
+toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." } } });
+toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" } } });
+toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" } } });
+await flush();
+assert(
+  document.querySelectorAll("#bg-list .bg-entry").length >= 3,
+  "活动面板未收录普通工具调用(面板只有 task/memory 时几乎恒空,等于没用)",
+);
+const bashEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=bash]");
+assert(bashEntry, "活动面板缺少终端类条目");
+assert(
+  bashEntry.querySelector(".bg-tool")?.textContent === "bash"
+    && bashEntry.querySelector(".bg-target")?.textContent.includes("cargo test"),
+  "条目未把工具名与目标分列(拼成一行会被截断,看不出跑的是哪条命令)",
+);
+assert(bashEntry.querySelector(".bg-args")?.textContent.includes("workdir"), "条目未提供可展开的完整入参");
+assert(
+  bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "复制")
+    && bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "导出"),
+  "终端类条目缺少复制/导出",
+);
+assert(
+  bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "停止"),
+  "运行中的终端条目缺少单独停止入口",
+);
+toolEnd({ payload: { id: "T1", name: "bash", ok: true, preview: "test result: ok", display: null } });
+toolEnd({ payload: { id: "T3", name: "task", ok: false, preview: "子代理失败", display: null } });
+await flush();
+assert(bashEntry.querySelector(".bg-meta")?.textContent.includes("成功"), "结束后未在元信息里给出成败");
+assert(/\d+(\.\d+)?(ms|s)/.test(bashEntry.querySelector(".bg-meta")?.textContent ?? ""), "结束后未给出耗时");
+const taskEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=task]");
+assert(taskEntry.querySelector(".bg-meta")?.textContent.includes("内部调用"), "子代理条目未给出内部调用数");
+assert(
+  taskEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
+  "结束的条目缺少重跑入口",
+);
+// 筛选:按类型与成败收敛,且计数要能看出"筛出/总数",否则会误以为本轮只跑了这几个工具。
+const typeFilter = byId.get("bg-type-filter");
+typeFilter.value = "terminal";
+typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
+assert(
+  document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden")).length === 1,
+  "按类型筛选未生效",
+);
+assert(listText("bg-count").includes("/"), "筛选后未同时给出筛出数与总数");
+const statusFilter = byId.get("bg-status-filter");
+typeFilter.value = "all";
+typeFilter._listeners.change?.forEach((fn) => fn({ target: typeFilter }));
+statusFilter.value = "err";
+statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+assert(
+  document.querySelectorAll("#bg-list .bg-entry").filter((n) => !n.classList.contains("hidden"))
+    .every((n) => n.dataset.bgTool === "task"),
+  "按失败状态筛选未生效",
+);
+statusFilter.value = "all";
+statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
 // ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
 const languageControl = byId.get("language-select");
