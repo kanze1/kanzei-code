@@ -34,6 +34,14 @@ async fn main() -> anyhow::Result<()> {
             );
             Ok(())
         }
+        Some("-h" | "--help" | "help") => {
+            usage();
+            Ok(())
+        }
+        Some(arg) if arg.starts_with('-') => {
+            usage();
+            anyhow::bail!("未知参数: {arg}");
+        }
         Some("req" | "defect" | "source" | "finding" | "goal") => tracker_cli(&args).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,

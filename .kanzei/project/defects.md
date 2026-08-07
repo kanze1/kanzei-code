@@ -6,6 +6,8 @@
 
 
 
+
+
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [fixing] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
 - 根因: 首轮修复仅用 8 个字符 `; & | 换行 \` $ (` 做黑名单(config.rs:232-247;permission.rs:100-112),仍把任意无这些字符的命令泛化为 `首词 *`。Shell 与各 CLI 的执行语义无法用有限字符黑名单穷举。
@@ -25,6 +27,8 @@
 
 
 
+
+
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixing] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
 - 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
@@ -36,6 +40,8 @@
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
 - 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录；先跳过 UI E2，继续下一条可做缺陷。
+
+
 
 
 
@@ -62,6 +68,8 @@
 
 
 
+
+
 ## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixing] (high)
 - 复现: 在 requirements.md 手写一条无冒号 bullet(如 `- 就是个备注`)或自由段落/### 子标题/代码块,随后让模型执行任意一次 req/defect 写操作(哪怕改的是别的条目),手改内容消失。
 - 根因: kanzei-tools/src/docstore.rs:225-242 的 parse 只保留 `## ` 标题和 `- key: value` 形式 bullet(`bullet.split_once(':')` 无 else 分支),其余一律丢弃;render(301-318)只写回保留部分。而 tracker.rs:76-82/153/227/268 的每一个写操作(add/update/close/reorder)都是 load → 改内存 → save 整文件重写。
@@ -79,6 +87,8 @@
 
 
 
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -89,6 +99,8 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
+
 
 
 
@@ -115,6 +127,8 @@
 
 
 
+
+
 ## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixing] (medium)
 - 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
 - 根因: 首轮修复补了 lifecycle 锁、idle 状态和 pending 清理,没有实现原验收的“回收 promoted 未执行输入”;session_inputs 状态机也没有 promoted→cancelled/pending 的停止迁移。
@@ -127,6 +141,8 @@
 - 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
 - 证据等级: E2
 - 进展: 当前代码已回收 promoted 输入并有 store 状态测试，但真实 run_task 生命周期 E2 仍缺测试夹具；保持 fixing，继续按文档顺序处理 D-067。
+
+
 
 
 
@@ -152,6 +168,8 @@
 
 
 
+
+
 ## D-083 「总是允许」持久化失败被静默吞掉,成功时抹掉配置注释 [fixing] (medium)
 - 复现: 项目 kanzei.toml 含未知字段或磁盘只读时按「总是允许」,本次运行生效但下次运行又弹窗,无任何提示;正常情况下保存后配置文件的注释与排版丢失。
 - 根因: kanzei/src/main.rs:220 用 `let _ = append_allow_rule(...)` 吞掉错误;而 append_allow_rule 内部要求项目配置能被本二进制的严格 schema 解析(kanzei-harness/src/config.rs:216),失败即 Err;成功路径是整文件反序列化后 `toml::to_string_pretty` 重写(228),用户手写的注释、排版、键序全部丢失。
@@ -163,6 +181,8 @@
 - 不变量: 权限+配置:授权持久化失败必须可见
 - 证据等级: E2
 - 进展: D-051 的本轮修复同步覆盖本缺陷：CLI 与桌面 AlwaysAllow 持久化失败不再静默吞掉或继续放行，失败现在返回 Deny；新增 CLI 成功/失败持久化测试与桌面坏配置回归。完整 answer_ask UI 事件到权限响应 E2 仍待补，保持 fixing。
+
+
 
 
 
@@ -187,6 +207,8 @@
 
 
 
+
+
 ## D-086 task 子代理不继承用户权限规则,read deny 可被旁路 [fixing] (medium)
 - 复现: 在 kanzei.toml 配置 `action="read", resource="*/.env", effect="deny"`;主代理读被拦后,让模型用 task 子代理读同一文件,内容照常回传。
 - 根因: task 调用明确跳过权限门禁(kanzei-core/src/runner.rs:478-480,"硬门禁在构造,不在评估"),但构造处只 add(SubagentBase)(kanzei/src/main.rs:233-236),ConfigComponent 不在内,用户规则不进入子代理快照;而 SubagentBase 给 read/glob/grep 一律 Allow *(kanzei-tools/src/subagent.rs:14-24)。
@@ -203,6 +225,8 @@
 
 
 - 进展: 已完成最小权限快照修复：CLI crates/kanzei/src/main.rs:subagent_rt 与桌面 crates/kanzei-app/src/main.rs:run_task 均在 SubagentBase 后叠加 ConfigComponent，利用既有 last-match-wins 使用户 read/glob/grep 规则覆盖默认 Allow；新增 crates/kanzei-tools/src/subagent.rs::subagent_snapshot_applies_user_read_deny，验证 read */.env 被 Deny、普通路径仍 Allow。cargo test --workspace 全绿。仍缺 runner 级 task→subagent read 实际执行回归及真实 CLI/桌面 E2，暂保 fixing。
+
+
 
 ## D-078 进程切换把自主推进降级为结伴开发,鞭挞静默失效 [open] (medium)
 - 复现: 选"自主推进"并勾上鞭挞,切一次进程再切回来——模式变成"结伴开发",鞭挞胶囊仍亮着,但本轮结束后不再续跑,无任何提示。
@@ -221,6 +245,8 @@
 
 
 
+
+
 ## D-080 markdown agent 默认 steps=40 与既定默认 0 冲突 [open] (low)
 - 复现: 在 ~/.kanzei/agents/ 下定义 agent 但不写 steps 字段,长任务在第 40 轮被强制收尾。
 - 根因: kanzei-harness/src/markdown.rs:102 用 `unwrap_or(40)`,而 AgentDef 的 serde 默认是 default_steps()=0 且注释明言"0 = 无轮数上限(用户定调)"(defs.rs:69-75),内置 dev/research agent 也都显式 steps: 0(profiles.rs:143/262)。
@@ -230,6 +256,8 @@
 - 阶段: 1
 - 不变量: 配置与文档:默认值在各入口一致
 - 证据等级: E1
+
+
 
 
 
@@ -254,6 +282,8 @@
 
 
 
+
+
 ## D-105 主导航与多类可点击容器没有键盘/可访问语义 [open] (medium)
 - 复现: 只用 Tab/Enter 操作桌面端。activity-item、project-item、workspace-card、doc-row 等用 div + click 实现,没有统一 role/tabindex/键盘处理;自动放行/鞭挞的真实 checkbox 被 `display:none`;大量图标按钮的可访问名称只剩 `＋/↗/✎/🗑`。
 - 根因: 交互由 3200 行原生 JS 零散绑定,只对 sidebar section title 补了 role/tabindex/aria-expanded,没有组件级可访问性约束。浏览器 accessibility snapshot 中活动栏项表现为 generic,图标按钮名称是符号本身。
@@ -264,6 +294,8 @@
 - 阶段: 3
 - 不变量: 界面状态:仅键盘可完成核心流程
 - 证据等级: E3
+
+
 
 
 
@@ -288,6 +320,8 @@
 
 
 
+
+
 ## D-108 英文模式只翻译少量静态节点,动态状态与操作反馈长期中英混杂 [open] (medium)
 - 复现: 设置语言为 English,创建/切换项目、运行任务、打开文档/设置并触发 toast;静态导航的一部分变英文,动态生成的状态、日志、错误、按钮和 300 余处中文字符串仍保持中文。再切回中文还会触发 D-092 的属性不可逆问题。
 - 根因: applyLanguage 只遍历当前 DOM 文本节点和少量 title/placeholder,I18N_EN 仅覆盖有限字典;后续 JS 动态生成的文本不会经过翻译函数,也没有以 key 为中心的统一文案层。
@@ -298,6 +332,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:文案进入统一 i18n 资源
 - 证据等级: E3
+
+
 
 
 
@@ -322,6 +358,8 @@
 
 
 
+
+
 ## D-110 todo 与活动两个右栏可同时占宽,最小窗口会把主对话区压到近乎不可用 [open] (medium)
 - 复现: 打开活动面板,再让 todowrite 显示当前计划;todo-panel 与 bg-panel 均为独立 300px 固定右栏且可同时显示。在 1280px 默认侧栏下主区只剩约 352px;800px 最小窗口下两右栏与左栏总宽已超过窗口。
 - 根因: 两个面板没有互斥、tab 合并或窄屏 overlay 策略,宽度都以 flex-shrink:0 的侧栏语义参与主布局;设置的可调最小宽度仍为 240px。
@@ -332,6 +370,8 @@
 - 阶段: 3
 - 不变量: 界面状态:多面板不挤压主对话区
 - 证据等级: E3
+
+
 
 
 
@@ -358,6 +398,8 @@
 
 
 
+
+
 ## D-088 CLI 会话历史无限累积且无清理入口 [open] (medium)
 - 复现: 在同一项目里正常使用若干次 kz run,上下文与耗时持续增长,最终撞上下文上限。
 - 根因: 每次 kz run 无条件取最新 conversation.updated 全量作为 prior(kanzei/src/main.rs:145-153),runner 以 prior.to_vec() 开局(runner.rs:206),运行结束又把累积后的完整 messages 写回(277-281);usage(47-52)中不存在 reset/new/continue 任何选项。
@@ -367,6 +409,8 @@
 - 阶段: 3
 - 不变量: 会话控制:上下文增长有清理入口
 - 证据等级: E2
+
+
 
 
 
@@ -391,6 +435,8 @@
 
 
 
+
+
 ## D-075 上下文成分浮层是死功能,状态栏承诺的点击查看无法打开 [open] (low)
 - 复现: 运行一轮后点状态栏 token 文字(title 写着"点击查看上下文成分"),浮层永不出现。
 - 根因: renderContextDetail 只写 innerHTML 从不移除 hidden 类(ui/main.js:811-825),而 `.hidden { display:none !important }`(style.css:329);全项目无其他代码碰 #context-detail(index.html:339)。
@@ -399,6 +445,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:承诺的入口必须可达
 - 证据等级: E3
+
+
 
 
 
@@ -422,6 +470,8 @@
 
 
 
+
+
 ## D-079 运行中发送按钮禁用但排队功能存在,鼠标用户不可达 [open] (low)
 - 复现: 运行中在输入框打字并选好"插入 steer",发送按钮是灰的点不动;但按 Ctrl+Enter 却能成功排队。
 - 根因: setRunning(true) 禁用发送按钮(ui/main.js:287),而 sendText 专门实现了运行中的 queue/steer 投递分支(1277-1296),交付方式下拉也常驻可选;键盘路径直接调 send() 完全绕过按钮禁用(1571-1573)。
@@ -433,20 +483,6 @@
 - 证据等级: E3
 
 
-
-
-
-
-
-## D-087 kz --help 与拼错的子命令被当作 prompt 发给模型 [open] (low)
-- 复现: 执行 `kz --help` 或 `kz -h`,或把 tracker 子命令打错一个字母。
-- 根因: kanzei/src/main.rs:28-44 的顶层 match 只识别版本、五个 tracker 名词和 run,`Some(_) => run_cli(&args)` 把其余一切拼成 prompt 进入完整 agent 循环。
-- 影响: 用户期待帮助文本,得到的是模型对字符串 "--help" 的自由发挥,外加 token 花费;该 prompt 还被写入 conversation.updated 持久化,后续每次运行都携带。
-- 验收: 显式处理 -h/--help/help 并输出用法;以 `-` 开头的未知参数报错退出而非当 prompt。
-- 优先级: P3
-- 阶段: 3
-- 不变量: 操作反馈:参数错误不得进入模型循环
-- 证据等级: E1
 
 
 
@@ -470,6 +506,8 @@
 
 
 
+
+
 ## D-090 bgEntries/diffSummary 不随 DOM 修剪,长时间运行内存与定时器负载无界增长 [open] (low)
 - 复现: 一晚上鞭挞连跑数千次工具调用且不切项目/进程。
 - 根因: ui/main.js:490-492 的修剪只删 DOM(`list.firstElementChild.remove()`),bgEntries Map(452)与 diffSummary 仅在 bgClear()(切项目/进程)时清空;687-691 的每秒 interval 遍历全 Map,对已脱离 DOM 的 detached 节点持续更新。
@@ -479,6 +517,8 @@
 - 阶段: 3
 - 不变量: 界面状态:长跑不产生无界增长
 - 证据等级: E3
+
+
 
 
 
@@ -501,6 +541,8 @@
 
 
 
+
+
 ## D-093 标题 🔔 提示只在 visibilitychange 复位,窗口可见时失焦回焦不清除 [open] (low)
 - 复现: 双屏使用,kanzei 一直可见但焦点在别处,任务完成后回到窗口,标题仍是"🔔 运行完成 · kanzei"。
 - 根因: ui/main.js:173-187 设置条件是 `!document.hasFocus() || document.hidden`(失焦即设),但复位只挂在 visibilitychange 上;窗口未被遮挡时失焦→回焦不产生该事件,缺一个 window focus 监听。
@@ -509,6 +551,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:提示状态不陈旧
 - 证据等级: E3
+
+
 
 
 
@@ -532,6 +576,8 @@
 
 
 
+
+
 ## D-095 refs 跳转在独立文档页失效,特殊字符还会抛异常 [open] (low)
 - 复现: 在独立文档页展开带 `refs: R-054` 的条目并点击该链接,页面无反应。
 - 根因: ui/main.js:2188-2194 用全局 `document.querySelector([data-doc-id="..."])`,同一条目在侧栏与独立页各渲染一份且侧栏在前,而独立视图激活时侧栏副本被 `display:none` 隐藏 → scrollIntoView 对隐藏元素无效、高亮不可见;另 ref 值来自自由文本,含 `"` 或 `]` 时选择器语法错误直接抛未捕获异常。
@@ -541,6 +587,8 @@
 - 阶段: 3
 - 不变量: 界面状态:关联跳转在当前视图内生效
 - 证据等级: E3
+
+
 
 
 
