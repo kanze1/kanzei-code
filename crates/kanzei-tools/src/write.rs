@@ -40,7 +40,9 @@ impl Tool for WriteTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        let path = ctx.cwd.join(&input.path);
+        let path = ctx
+            .cwd
+            .join(kanzei_harness::permission::normalize_resource(&input.path));
         if let Some(parent) = path.parent() {
             if let Err(e) = tokio::fs::create_dir_all(parent).await {
                 return ToolOutput::error(format!("cannot create {}: {e}", parent.display()));
@@ -140,7 +142,13 @@ pub(crate) fn diff_display(path: &str, old: &str, new: &str) -> serde_json::Valu
 }
 
 fn diff_language(path: &str) -> &'static str {
-    match path.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
+    match path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "rs" => "rust",
         "js" | "jsx" => "javascript",
         "ts" | "tsx" => "typescript",
@@ -176,7 +184,11 @@ mod tests {
 
     #[test]
     fn diff_display_exposes_language_counts_and_line_numbers() {
-        let display = diff_display("src/main.rs", "fn main() {\nold();\n}\n", "fn main() {\nnew();\n}\n");
+        let display = diff_display(
+            "src/main.rs",
+            "fn main() {\nold();\n}\n",
+            "fn main() {\nnew();\n}\n",
+        );
         assert_eq!(display["kind"], "diff");
         assert_eq!(display["language"], "rust");
         assert_eq!(display["additions"], 1);

@@ -55,7 +55,9 @@ impl Tool for ReadTool {
             Ok(v) => v,
             Err(out) => return out,
         };
-        let path = ctx.cwd.join(&input.path);
+        let path = ctx
+            .cwd
+            .join(kanzei_harness::permission::normalize_resource(&input.path));
         let result = tokio::task::spawn_blocking(move || read_sync(&path, &input)).await;
         match result {
             Ok(Ok(text)) => ToolOutput::ok(text),

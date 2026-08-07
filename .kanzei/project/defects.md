@@ -11,6 +11,9 @@
 - 阶段: 1
 - 不变量: 权限:决策对象与实际执行对象经同一套规范化
 - 证据等级: E2
+- 缺口: 尚未达到原验收 E2：缺少真实工具调用跨权限门禁与文件系统落点的集成/故障注入测试；bash workdir/命令内部路径仍未纳入同一落点契约。保持 open。
+- 证据: E1：cargo test -p kanzei-harness -p kanzei-tools -p kanzei-core 全部通过（21+15+27 项）；代码位置 permission.rs normalize_resource/resource_match，runner.rs 权限门禁，read.rs/write.rs/edit.rs 路径落点。
+- 进展: 本轮完成最小步骤：permission::normalize_resource 统一处理反斜杠、盘符、UNC、`.`/`..`，Windows 下大小写折叠；Ruleset 匹配同时规范化规则与资源；runner 与 read/write/edit 执行落点复用同一规范化函数。新增 Windows 盘符/UNC/大小写变体回归测试。
 
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [open] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。

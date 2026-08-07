@@ -541,7 +541,7 @@ pub fn run_once_with_parts<'a>(
                 // `.kanzei/research/../../src/main.rs` 会被 `*.kanzei/research/*` 判为放行,
                 // 而落盘时 join 会消解 ..,实际写到项目任意位置(D-050)。
                 let normalized =
-                    kanzei_harness::permission::normalize_resource(&resource.replace('\\', "/"));
+                    kanzei_harness::permission::normalize_resource(&resource);
                 match snapshot.evaluate(action, &normalized) {
                     Effect::Deny => {
                         gate_result = Gate::Deny(normalized);

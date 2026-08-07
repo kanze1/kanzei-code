@@ -58,7 +58,9 @@ impl Tool for EditTool {
                 "old_string must not be empty (use the write tool to create files)",
             );
         }
-        let path = ctx.cwd.join(&input.path);
+        let path = ctx
+            .cwd
+            .join(kanzei_harness::permission::normalize_resource(&input.path));
         match tokio::fs::metadata(&path).await {
             Ok(meta) if meta.len() > MAX_FILE_BYTES => {
                 return ToolOutput::error(format!(
