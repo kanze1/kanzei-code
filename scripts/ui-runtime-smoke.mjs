@@ -12,6 +12,21 @@ const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "u
 
 const issues = [];
 const fail = (msg) => issues.push(msg);
+
+// CSS 结构完整性:浏览器对花括号错配是静默容错的,一个被吃掉的 `@media ... {`
+// 会让整段响应式规则无条件生效而没有任何报错(c65c80e 就这样把 D-148 带上了线)。
+const cssNoComments = style.replace(/\/\*[\s\S]*?\*\//g, "");
+let cssDepth = 0;
+let cssStray = 0;
+for (const ch of cssNoComments) {
+  if (ch === "{") cssDepth += 1;
+  else if (ch === "}") {
+    if (cssDepth === 0) cssStray += 1;
+    else cssDepth -= 1;
+  }
+}
+if (cssStray) fail(`style.css 有 ${cssStray} 个多余的 }(很可能某条规则或 @media 的开括号被覆盖删除了)`);
+if (cssDepth) fail(`style.css 有 ${cssDepth} 个未闭合的 {`);
 const documentsScrollRules = [...style.matchAll(/#documents-scroll\s*\{([^}]*)\}/g)];
 const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-bottom:\s*(\d+)px/);
 if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
@@ -253,7 +268,7 @@ const payloads = {
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"]] }), docEntry("R-002", "冒烟需求二", "todo")],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
     goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
     sources: [],
@@ -397,6 +412,14 @@ assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
 const reqEditor = document.querySelector("#req-list .doc-edit");
 assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "需求侧栏未提供标题/字段编辑控件");
+// D-148:曾经只给 aria-label,渲染成一片无标题输入框,改哪格全靠猜;长字段用单行 input 还会把值截没。
+const reqEditRows = reqEditor.querySelectorAll(".doc-edit-row");
+assert(reqEditRows.length >= 3, `编辑表单未按字段分行(应有 标题/备注/验收),实得 ${reqEditRows.length}`);
+assert(
+  reqEditRows.every((row) => (row.querySelector(".doc-edit-key")?.textContent ?? "").trim()),
+  "编辑表单存在没有可见字段名的输入框",
+);
+assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
 reqEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.includes("docs_update"), "需求侧栏编辑未调用 docs_update");
