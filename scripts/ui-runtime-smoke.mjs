@@ -35,6 +35,21 @@ if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
 if (!source.includes('if (isActivityTool(e.payload.name)) bgAdd')) {
   fail("活动面板仍会接收全部工具调用");
 }
+if (!source.includes("function reportPersistentError(text, { retry = null } = {})") || !html.includes('id="log-retry"') || !source.includes("function copyReadable(el)")) {
+  fail("错误反馈缺少持久详情、恢复入口或复制能力");
+}
+if (!source.includes("function renderRecoveredMessages(items)") || !source.includes("if (running) {")) {
+  fail("历史回放或运行中隔离护栏缺失");
+}
+const errorRenderer = source.slice(source.indexOf("function addErrorMessage"), source.indexOf("function isRetryableError"));
+if (errorRenderer.includes("setTimeout")) fail("长错误反馈不应由短 toast 定时移除");
+if (!source.includes("function renderMarkdown(raw)") || !source.includes("function renderDiff(display)")) {
+  fail("对话 Markdown 或 diff 详情渲染入口缺失");
+}
+// 历史消息只进入恢复渲染器，实时事件继续使用 currentAssistant，不应把运行输出写入历史快照。
+if (!source.includes('const history = await invoke("conversation_get"') || !source.includes("renderRecoveredMessages(history)")) {
+  fail("历史消息未通过只读恢复渲染链路");
+}
 // 历史回放必须保留完整调用与结果:调用与结果按 call_id 配对成一块(buildToolBlock/
 // fillToolBlock),详情里同时给出完整输出与完整入参 JSON。
 if (

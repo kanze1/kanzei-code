@@ -680,3 +680,21 @@
 
 - 验收证据: 验收① crates/kanzei-tools/src/docstore.rs:TemplateLine::Raw/render_with_template + tracker::tests::add_preserves_handwritten_free_text_and_unknown_blocks；验收② crates/kanzei-core/src/runner.rs:492、554-590、1119-1162 + history.rs:7-71及回归；验收③ runner.rs:913-1003 + declined_tool_batch_keeps_real_and_placeholder_results_paired；调用方为 run_once_with_parts 的生产运行链路。
 
+## R-090 对话内容可读性与操作反馈可恢复 [done]
+- 进展(用户直营部分): 7679746 交付运行中主对话内联工具块(状态/摘要/预览/可展开 diff·终端详情,D-090 同款上界);b9e1594 侧边栏整理(历史对话上移/排队条入 composer/筛选折叠)。剩余:历史对话视图的工具块结构化回放、Markdown 子集与 XSS 回归(原验收),归自举承接。
+- 复杂度: 中
+- 优先级: P2
+- 来源: 当前最高频交互链路审计
+- 内容: 把“模型输出阅读”和“操作结果反馈”作为同一信息消费链治理。对话支持安全的列表/表格/链接/代码语义和长回复导航;toast 只做短确认,错误、diff、长结果进入可复制、可追溯的详情面板;历史回看明确标记只读并与实时运行隔离。
+- 验收: 常见 Agent Markdown 渲染正确且通过 XSS 测试;链接与代码块可操作;长错误/diff 不因 2.6 秒消失且可复制;每个失败反馈包含操作、原因、最终状态和可用恢复入口;运行中打开历史不会把实时输出追加到历史快照。
+- refs: D-094 D-096 D-106 D-109
+- 阶段: 3
+- 证据等级: E3
+- 设计定位: 内容可读性和持久反馈
+
+- 标签: 前端
+
+- 进展: 完成：沿用既有生产调用链并补充验收护栏。Markdown/XSS 与链接/代码渲染位于 crates/kanzei-app/ui/main.js:708-816，已有 ui-markdown-smoke 覆盖；错误通过 addErrorMessage/reportPersistentError 持久展示，log-retry、copyReadable 提供恢复与复制；diff 通过 renderDiff 展开详情；历史通过 loadConversation → conversation_get → renderRecoveredMessages 只读恢复，运行中点击历史被明确拦截。scripts/ui-runtime-smoke.mjs 新增上述不变量检查。验证：node --check、ui-runtime/i18n/a11y/markdown 四项 smoke 全部通过。
+
+- 验收证据: 验收① ui-markdown-smoke.mjs 列表/表格/链接/代码/XSS；验收② main.js:addErrorMessage、reportPersistentError、log-retry、copyReadable、renderDiff；验收③ main.js:4433-4447 历史恢复链与 4477-4480 running guard；调用方为实时事件订阅、历史对话点击和错误/diff UI 事件。
+
