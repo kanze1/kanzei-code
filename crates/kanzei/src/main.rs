@@ -371,7 +371,76 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         summary.usage.cache_write,
         summary.usage.output
     );
+    // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
+    consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx).await;
     Ok(())
+}
+
+/// memory-manager 迷你 run:消化 inbox 草稿(写读分离的写端)。
+/// fast 失败升级 primary;成功判据只看箱——清空才算消化完成。
+async fn consolidate_memory_inbox(
+    config: &KanzeiConfig,
+    proxy: &ProxyConfig,
+    client: &LlmClient,
+    rctx: &ResolveCtx,
+    ctx: &ToolCtx,
+) {
+    let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
+    if store.pending_notes() == 0 {
+        return;
+    }
+    let inbox = store.read_inbox();
+    let mut harness = Harness::default();
+    harness.add(kanzei_tools::memory::MemoryManagerComponent);
+    let Ok(snapshot) = harness.resolve(rctx) else {
+        return;
+    };
+    let agent = kanzei_tools::memory::manager_agent();
+    let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
+    for role in ["fast", "primary"] {
+        let Ok(resolved) = config.resolve_model(role) else {
+            continue;
+        };
+        let Ok(route) = kanzei_core::build_route(&resolved, proxy).await else {
+            continue;
+        };
+        let runner_config = RunnerConfig {
+            model: resolved.model.clone(),
+            max_tokens: 4096,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+        };
+        let mut on_event = |_event: RunEvent| {};
+        let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
+            Box::pin(async move {
+                match request {
+                    // 快照里只有 memory_* 工具,放行安全;问题一律取消(无人应答)。
+                    kanzei_core::AskRequest::Permission { .. } => {
+                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
+                    }
+                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+                }
+            })
+        };
+        let _ = run_once(
+            client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            ctx,
+            &prompt,
+            &[],
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await;
+        if store.pending_notes() == 0 {
+            eprintln!("\x1b[90m(memory: inbox 已整理入库)\x1b[0m");
+            return;
+        }
+    }
+    eprintln!("\x1b[90m(memory: inbox 未消化,留待下轮)\x1b[0m");
 }
 
 fn persist_always_allow(

@@ -1872,6 +1872,91 @@ async fn quick_req(
     Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
 }
 
+/// 轮末记忆整理(R-105):把 inbox 草稿交给 memory-manager 迷你 run 消化。
+/// 与主会话完全并行(quick_req 同款模式);失败留箱下轮再试,成功判据只看箱。
+async fn consolidate_memory_inbox(project_dir: String) {
+    let cwd = PathBuf::from(&project_dir);
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let store = kanzei_tools::memory::MemoryStore::project(&project_root);
+    if store.pending_notes() == 0 {
+        return;
+    }
+    let inbox = store.read_inbox();
+    let Ok(config) = KanzeiConfig::load(&cwd) else {
+        return;
+    };
+    let config = Arc::new(config);
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
+    let mut harness = Harness::default();
+    harness.add(kanzei_tools::memory::MemoryManagerComponent);
+    let Ok(snapshot) = harness.resolve(&rctx) else {
+        return;
+    };
+    let agent = kanzei_tools::memory::manager_agent();
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
+    let Ok(client) = LlmClient::new(&proxy) else {
+        return;
+    };
+    let tool_ctx = ToolCtx {
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+    };
+    let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
+    for role in ["fast", "primary"] {
+        let Ok(resolved) = config.resolve_model(role) else {
+            continue;
+        };
+        let Ok(route) = kanzei_core::build_route(&resolved, &proxy).await else {
+            continue;
+        };
+        let runner_config = RunnerConfig {
+            model: resolved.model.clone(),
+            max_tokens: 4096,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+        };
+        let mut on_event = |_event: RunEvent| {};
+        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
+            Box::pin(async move {
+                match request {
+                    // 快照里只有 memory_* 工具,放行安全;问题一律取消(无人应答)。
+                    kanzei_core::AskRequest::Permission { .. } => {
+                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
+                    }
+                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+                }
+            })
+        };
+        let _ = run_once_with_parts(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &tool_ctx,
+            &prompt,
+            &[],
+            None,
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await;
+        if store.pending_notes() == 0 {
+            return;
+        }
+    }
+}
+
 /// 应用内检查更新:比对 GitHub Releases 最新 build 标签与当前构建号。
 #[tauri::command]
 async fn update_check() -> Result<serde_json::Value, String> {
@@ -3592,6 +3677,8 @@ async fn run_task(
                 ) {
                     report_persistence_failure(window, &session_id, "写入完成通知", error);
                 }
+                // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
+                tauri::async_runtime::spawn(consolidate_memory_inbox(project_dir.clone()));
             }
             Err(error) => {
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {

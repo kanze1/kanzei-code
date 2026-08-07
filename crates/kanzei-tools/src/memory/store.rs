@@ -406,6 +406,59 @@ impl MemoryStore {
         issues
     }
 
+    /// 合并重复:并入首个 id(保住最老引用),其余 stale 并留 superseded_by 墓碑链接。
+    pub fn merge(
+        &self,
+        primary: &str,
+        duplicates: &[String],
+        title: Option<&str>,
+        description: Option<&str>,
+        body: Option<&str>,
+    ) -> anyhow::Result<MemoryEntry> {
+        if duplicates.is_empty() {
+            anyhow::bail!("merge needs at least one duplicate id");
+        }
+        if duplicates.iter().any(|d| d == primary) {
+            anyhow::bail!("primary id cannot appear in duplicates");
+        }
+        let entries = self.load_all();
+        for id in std::iter::once(&primary.to_string()).chain(duplicates.iter()) {
+            if !entries.iter().any(|(_, e)| &e.id == id) {
+                anyhow::bail!("unknown memory id `{id}`");
+            }
+        }
+        let merged = self.update(primary, title, description, body, None)?;
+        for id in duplicates {
+            let (path, mut entry) = self
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| &e.id == id)
+                .expect("checked above");
+            entry.status = "stale".into();
+            entry.updated = today();
+            entry
+                .extras
+                .retain(|(k, _)| !k.eq_ignore_ascii_case("superseded_by"));
+            entry.extras.push(("superseded_by".into(), primary.to_string()));
+            self.write_entry(&entry, Some(&path))?;
+        }
+        self.refresh_derived()?;
+        Ok(merged)
+    }
+
+    pub fn read_inbox(&self) -> String {
+        std::fs::read_to_string(self.root.join("inbox.md")).unwrap_or_default()
+    }
+
+    /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
+    pub fn clear_inbox(&self) -> anyhow::Result<()> {
+        let path = self.root.join("inbox.md");
+        if path.is_file() {
+            atomic_write(&path, "# Memory Inbox\n")?;
+        }
+        Ok(())
+    }
+
     /// inbox 草稿箱:主 agent 的唯一写入口(memory_note),manager 在 M2 消化。
     pub fn append_note(&self, summary: &str, detail: &str, category_hint: &str) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
@@ -648,6 +701,38 @@ mod tests {
         std::fs::write(&path, text).unwrap();
         let issues = store.integrity_issues();
         assert!(issues.iter().any(|i| i.contains("M-002")), "{issues:?}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn merge_keeps_primary_and_tombstones_duplicates() {
+        let (dir, store) = temp_store();
+        let a = add(&store, "habit", "gh 走代理", "gh 网络问题必读", "端口 12000");
+        let b = add(&store, "habit", "gh 需要 HTTPS_PROXY", "gh 超时必读", "同上");
+        let merged = store
+            .merge(&a.id, &[b.id.clone()], None, Some("gh 网络失败/超时必读"), Some("HTTPS_PROXY=http://127.0.0.1:12000"))
+            .unwrap();
+        assert_eq!(merged.id, a.id);
+        assert_eq!(merged.description, "gh 网络失败/超时必读");
+        let entries = store.load_all();
+        let (_, dup) = entries.iter().find(|(_, e)| e.id == b.id).unwrap();
+        assert_eq!(dup.status, "stale");
+        assert!(dup.extras.iter().any(|(k, v)| k == "superseded_by" && v == &a.id));
+        // 未知 id 与自我合并都拒绝
+        assert!(store.merge(&a.id, &[a.id.clone()], None, None, None).is_err());
+        assert!(store.merge("M-999", &[b.id.clone()], None, None, None).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn inbox_roundtrip_and_clear() {
+        let (dir, store) = temp_store();
+        store.append_note("纯 ui 改动只跑 node 检查", "细节", "habit").unwrap();
+        store.append_note("发版走两条通道", "", "sop").unwrap();
+        assert_eq!(store.pending_notes(), 2);
+        assert!(store.read_inbox().contains("纯 ui 改动只跑 node 检查"));
+        store.clear_inbox().unwrap();
+        assert_eq!(store.pending_notes(), 0);
         std::fs::remove_dir_all(dir).ok();
     }
 
