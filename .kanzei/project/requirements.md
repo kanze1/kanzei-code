@@ -801,4 +801,61 @@
 - 设计定位: 让"问问题/做分析"成为 kz 的零门槛入口
 - 阶段: 4
 
+## R-103 Memory 系统总纲:文件优先、分级、子代理管理 [todo]
+- 复杂度: 大
+- 优先级: P1
+- 归属: kanzei
+- 来源: 2026-08-08 用户定调的下一个大规划(用户为记忆研究方向,taste 已对齐)
+- 内容: 以 docs/design/memory-system.md 为设计基线。五个目标:提高易用性、上下文管理更精准、用户个性化持久化、常用轨迹效率提高、agent 工作效率提高。核心决策(不再重议):文件优先(markdown 真源,可编辑可透明,git 可恢复);不用向量库/知识图谱/Mem0 类框架,给 agent 好的搜索工具(FTS5+结构化过滤);记忆写读分离,写路径由 memory-manager 子代理专管;分级 = scope(global/project) × category(preference/habit/fact/sop/episode);agent 既是用户,验收全部取自举轨迹实证。
+- 验收: R-104~R-107 四期全部落地;连续自举轮次中出现"写入→检索命中→避免重复探索"的闭环实证;记忆内容全部可 git 恢复;SQLite 仅存可重建派生物(FTS 索引/hits/episode 表)。
+- 设计: docs/design/memory-system.md
+- refs: R-098 R-099 D-088 D-114
+- 阶段: 4
+- 设计定位: 记忆作为 first-class primitive 的总纲与门禁
+- 依赖: R-104 R-105 R-106 R-107
+
+## R-104 Memory M1:分级存储、引擎门禁与检索工具 [todo]
+- 复杂度: 大
+- 优先级: P1
+- 归属: kanzei
+- 内容: 一条记忆一个 markdown 文件+frontmatter(id/scope/category/title/description/status/hits/source);global(~/.kanzei/memory/)与 project(.kanzei/memory/)两级;引擎强制:ID 分配、枚举校验、description 必填、INDEX.md 维护、完整性门禁(INDEX↔文件一致、缺号告警,同 D-112);删除=归档带墓碑;SQLite FTS5 全文索引(可重建);memory_search(query,scope,category,status)按相关度×新近度×hits 排序;memory_stats;迁移现有 M-条目为 fact 文件。
+- 验收: 检索命中率在真实轨迹可观测;INDEX 完整性门禁有回归测试;删库后 FTS 索引可全量重建;现有 M-条目迁移无损。
+- refs: R-103
+- 阶段: 4
+- 设计定位: 记忆的存储真源与检索地基
+- 依赖: R-103
+
+## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [todo]
+- 复杂度: 大
+- 优先级: P1
+- 归属: kanzei
+- 内容: memory-manager 子代理(fast 档,复用 SubagentRuntime)持有 memory_add/update/merge/stale 全套写工具;add 有近似去重门禁,merge 自动 stale 被并条目并留墓碑链接,stale 必填 reason;主 agent 只有 memory_search 与 memory_note(草稿投递),写路径全走管理子代理(写读分离)。触发点:轮末收尾复盘(episode 生成+ADD/UPDATE/NOOP)、条目关闭(根因→fact、重复操作序列→sop 候选)、用户显式「记住」。
+- 验收: 连续自举轮次出现完整闭环实证(轮末写入→后续轮命中→避免重复探索,以轨迹为证);去重门禁拦截重复写入用例;主 agent 无直接写入路径(权限快照测试)。
+- refs: R-103 R-098
+- 阶段: 4
+- 设计定位: 记忆管理的执行者与节律
+- 依赖: R-104
+
+## R-106 Memory M3:注入改造与上下文账单 [todo]
+- 复杂度: 中
+- 优先级: P2
+- 归属: kanzei
+- 内容: 注入改为"索引常驻(预算封顶)+正文按需检索";sop 按 description 与任务匹配给出加载提示;harness 逐 context source 记录注入 token 数并落库,形成可查询的上下文账单;上下文溢出时先压缩为 episode 再重置(D-088 联动)。
+- 验收: 同类任务每轮注入 token 较基线下降且无因信息缺失导致的返工;账单可按会话/轮查询;溢出路径不再无声丢弃轨迹。
+- refs: R-103 D-088 R-099
+- 阶段: 4
+- 设计定位: 上下文管理精准化的数据与机制
+- 依赖: R-104 R-105
+
+## R-107 Memory M4:独立 Memory 页与空闲整理 [todo]
+- 复杂度: 大
+- 优先级: P2
+- 归属: kanzei
+- 内容: 活动栏与设置同级的 Memory 页:scope×category 动态架构图(条数/体积/最近写入/本轮注入 token)、条目视图(正文/来源轨迹跳转/hits/stale 开关/直接编辑)、上下文账单面板、全局检索框;sleep-time 空闲整理(合并重复/低命中降级提示/stale 归档/INDEX 校验),整理动作全部有墓碑与日志。
+- 验收: 800/1024/1280 三档可用;整理无静默删除(全部可追溯);账单面板与 R-106 数据一致;键盘可达(承接 D-105 门槛)。
+- refs: R-103 R-091
+- 阶段: 4
+- 设计定位: 记忆的可视化与自维护
+- 依赖: R-106
+
 
