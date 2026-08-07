@@ -1,4 +1,4 @@
-# kanzei 发包流程:测试 → release 构建 → 安装到 ~/.cargo/bin(已在 PATH)。
+# kanzei 发包流程:测试 → release 构建 → 安装到实际桌面端目录与 ~/.cargo/bin(kz) CLI。
 # 用法:  .\scripts\release.ps1            # 完整流程
 #        .\scripts\release.ps1 -SkipTests # 跳过测试快速装
 param([switch]$SkipTests)
@@ -31,11 +31,16 @@ cargo build --release -p kanzei-app
 if ($LASTEXITCODE -ne 0) { throw "app build failed" }
 
 $app_source = "$root\target\release\kzapp.exe"
-$app_destination = "$env:USERPROFILE\.cargo\bin\kzapp.exe"
+$app_dir = "$env:LOCALAPPDATA\kanzei"
+$app_destination = "$app_dir\kzapp.exe"
+New-Item -ItemType Directory -Force $app_dir | Out-Null
 try {
     Copy-Item $app_source $app_destination -Force -ErrorAction Stop
     # 本次直接安装成功时清理旧 pending，避免下次启动重复回滚/覆盖。
     Remove-Item "$app_destination.pending" -Force -ErrorAction SilentlyContinue
+    # 桌面端统一由 LocalAppData 运行；cargo bin 只保留 kz CLI，清理历史桌面副本。
+    Remove-Item "$env:USERPROFILE\.cargo\bin\kzapp.exe" -Force -ErrorAction SilentlyContinue
+    Remove-Item "$env:USERPROFILE\.cargo\bin\kzapp.exe.pending" -Force -ErrorAction SilentlyContinue
 } catch {
     # Windows 不允许覆盖正在运行的 exe。保留待安装副本，避免构建成功但新版本丢失。
     $pending_destination = "$app_destination.pending"
@@ -47,4 +52,4 @@ try {
 
 Write-Host "==> installed:" -ForegroundColor Green
 kz --version
-"kzapp.exe $((Get-Item $app_destination).Length / 1MB -as [int]) MB -> 桌面端,任意终端输入 kzapp 启动"
+"kzapp.exe $((Get-Item $app_destination).Length / 1MB -as [int]) MB -> $app_destination"

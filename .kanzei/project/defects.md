@@ -46,3 +46,13 @@
 
 - 阻塞: 涉及应用自退出、NSIS 安装器交接、残留进程/临时文件清理和失败恢复，属于发布/部署流程高影响改动；按规范需先确认退出时序、安装器参数、重启接力、残留清理安全边界及 Windows 测试方案，当前未确认。依据: 验收同时改变应用生命周期和安装物行为。解除条件: 确认发布交接状态机、NSIS 参数与回滚/清理策略；下一步: 方案确认后先补可观测状态机测试，再实现退出交接。
 
+## D-145 发布脚本安装到错误的 kzapp 路径导致运行旧版本 [fixing] (medium)
+- 不变量: 发布:构建、安装和实际启动路径必须一致
+- 复现: scripts/release.ps1 将 release 构建复制到 %USERPROFILE%\.cargo\bin\kzapp.exe，但实际运行的桌面端位于 %LOCALAPPDATA%\kanzei\kzapp.exe，发布后 UI 仍显示旧构建 hash 91e8d22。
+- 影响: 发布成功但用户继续运行旧版本，版本号/hash 与代码 HEAD 不一致，容易误判发布失败。
+- 标签: 发布
+- 根因: 发布脚本固定使用 cargo bin 作为桌面端安装目标，而实际桌面启动器/更新链使用 LocalAppData\kanzei。
+- 证据等级: E3
+- 进展: 方案已确定并实现：桌面端目标统一为 %LOCALAPPDATA%\kanzei\kzapp.exe；~\.cargo\bin 仅保留 kz CLI，并在发布时清理历史 kzapp.exe/pending 副本。待重新发布并核对运行实例 app_info。
+- 阶段: 1
+- 验收: release.ps1 将 kzapp 安装到实际运行路径；旧 cargo bin\kzapp.exe 被安全清理；重新发布后运行实例 app_info 显示当前 HEAD hash；kz CLI 仍保留在 cargo bin。
