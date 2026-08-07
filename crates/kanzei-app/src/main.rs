@@ -2741,22 +2741,14 @@ fn append_run_notification(
     summary: impl Into<String>,
     requires_action: bool,
 ) -> anyhow::Result<()> {
-    let sequence = store.next_notification_sequence(session_id)?;
-    let notification = kanzei_core::AgentNotification {
-        event_id: format!("mobile_{session_id}_{sequence}"),
-        thread_id: session_id.to_string(),
-        agent_id: "primary".into(),
-        kind: "agent_status_changed".into(),
-        status: status.into(),
-        summary: summary.into(),
+    store.append_notification_atomic(
+        session_id,
+        status,
+        &summary.into(),
         requires_action,
-        sequence,
-        created_at: SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as i64,
-    };
-    store.append_notification(&notification)?;
+    )?;
     Ok(())
 }
-
 fn admit_input(
     project_dir: &str,
     session_id: &str,

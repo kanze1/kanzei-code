@@ -105,8 +105,10 @@ impl SessionStore {
     }
 
     pub fn open_in_memory() -> Result<Self, StoreError> {
+        let mut connection = Connection::open_in_memory()?;
+        connection.set_transaction_behavior(TransactionBehavior::Immediate);
         let store = Self {
-            connection: Connection::open_in_memory()?,
+            connection,
         };
         store.migrate()?;
         Ok(store)
@@ -182,12 +184,13 @@ impl SessionStore {
         notification: &crate::notification::AgentNotification,
     ) -> Result<(), StoreError> {
         self.connection.execute(
-            "INSERT OR IGNORE INTO agent_notifications
+            "INSERT INTO agent_notifications
              (event_id, thread_id, sequence, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(event_id) DO NOTHING",
             params![
-                notification.event_id,
-                notification.thread_id,
+                &notification.event_id,
+                &notification.thread_id,
                 notification.sequence as i64,
                 serde_json::to_string(notification)?,
                 notification.created_at,
@@ -196,6 +199,47 @@ impl SessionStore {
         Ok(())
     }
 
+    /// 在同一写事务内分配线程序号并插入通知，避免调用方组合读写造成竞态。
+    pub fn append_notification_atomic(
+        &self,
+        thread_id: &str,
+        status: &str,
+        summary: &str,
+        requires_action: bool,
+    ) -> Result<crate::notification::AgentNotification, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        let sequence: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sequence), 0) + 1
+             FROM agent_notifications WHERE thread_id = ?1",
+            params![thread_id],
+            |row| row.get(0),
+        )?;
+        let notification = crate::notification::AgentNotification {
+            event_id: format!("mobile_{thread_id}_{sequence}"),
+            thread_id: thread_id.to_string(),
+            agent_id: "primary".into(),
+            kind: "agent_status_changed".into(),
+            status: status.to_string(),
+            summary: summary.to_string(),
+            requires_action,
+            sequence: sequence.max(1) as u64,
+            created_at: now_ms(),
+        };
+        tx.execute(
+            "INSERT INTO agent_notifications
+             (event_id, thread_id, sequence, payload_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                &notification.event_id,
+                &notification.thread_id,
+                notification.sequence as i64,
+                serde_json::to_string(&notification)?,
+                notification.created_at,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(notification)
+    }
     pub fn next_notification_sequence(&self, thread_id: &str) -> Result<u64, StoreError> {
         let sequence: i64 = self.connection.query_row(
             "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_notifications WHERE thread_id = ?1",
@@ -905,5 +949,89 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("db-wal"));
         let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }    #[test]
+    fn 并发原子追加通知的_sequence_连续且不丢失() {
+        use std::sync::{Arc, Barrier};
+
+        let path = std::env::temp_dir().join(format!(
+            "kz-notification-concurrency-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        let stores = (0..4)
+            .map(|_| SessionStore::open(&path).unwrap())
+            .collect::<Vec<_>>();
+        let barrier = Arc::new(Barrier::new(stores.len()));
+        let handles = stores
+            .into_iter()
+            .enumerate()
+            .map(|(worker, store)| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    (0..20)
+                        .map(|index| {
+                            store
+                                .append_notification_atomic(
+                                    "thread_concurrent",
+                                    "succeeded",
+                                    &format!("worker={worker},index={index}"),
+                                    false,
+                                )
+                                .unwrap()
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let notifications = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        let mut sequences = notifications
+            .iter()
+            .map(|notification| notification.sequence)
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (1..=80).collect::<Vec<_>>());
+        assert_eq!(
+            SessionStore::open(&path)
+                .unwrap()
+                .replay_notifications("thread_concurrent", 0, 100)
+                .unwrap()
+                .len(),
+            80
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+
+    #[test]
+    fn 通知的_sequence_冲突不会被静默忽略() {
+        let store = store();
+        let first = crate::AgentNotification {
+            event_id: "notification_first".into(),
+            thread_id: "thread_conflict".into(),
+            agent_id: "primary".into(),
+            kind: "agent_status_changed".into(),
+            status: "succeeded".into(),
+            summary: "first".into(),
+            requires_action: false,
+            sequence: 1,
+            created_at: now_ms(),
+        };
+        let mut second = first.clone();
+        second.event_id = "notification_second".into();
+        store.append_notification(&first).unwrap();
+        assert!(store.append_notification(&second).is_err());
+        assert_eq!(
+            store
+                .replay_notifications("thread_conflict", 0, 10)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

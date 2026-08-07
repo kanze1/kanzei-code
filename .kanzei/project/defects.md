@@ -71,17 +71,7 @@
 - 阶段: 1
 - 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
 - 证据等级: E2
-- 进展: 第二最小步骤已完成：run_task 在模型结果产生后把 SessionStore 打开、状态/事件/通知、run.trace 与 conversation.updated 的失败全部隔离为可见持久化告警，不再用落库错误覆盖模型成功/原始失败；成功结果仍更新内存 conversation 并发送 kz:done。新增 report_persistence_failure，告警包含操作名与错误；cargo test -p kanzei-app 12 项通过，cargo test -p kanzei-core 33 项通过。仍缺注入 SQLite 收尾失败的 E2 回归（当前仅有静态调用链证据），暂保持 fixing。改动位置 crates/kanzei-app/src/main.rs:2724-2737、3302-3452。
-
-## D-065 通知 sequence 分配与插入非原子,INSERT OR IGNORE 吞掉冲突静默丢通知 [open] (medium)
-- 复现: 同一会话/线程有两个并发通知源(如运行结束通知与状态通知同时落库)。
-- 根因: kanzei-core/src/store.rs:192-199 的 next_notification_sequence(MAX+1 读取)与 173-190 的 append_notification 是两个独立公开方法,中间无事务包裹(调用方 kanzei-app/src/main.rs:2528-2540 先取后插);两个并发写入方对同一 thread_id 取到相同 sequence,而 INSERT OR IGNORE(178)会忽略任何约束冲突——既包括预期幂等的 event_id 主键,也包括 UNIQUE(thread_id, sequence)(502),第二条通知被静默丢弃,无错误无日志。
-- 影响: 通知永久丢失且不可观测,移动端按 cursor 回放永远看不到。
-- 验收: 在单个事务内完成 MAX+1 与插入;OR IGNORE 只用于 event_id 幂等重放,(thread_id, sequence) 冲突需报错或重算;补并发写入不丢通知的测试。
-- 优先级: P1
-- 阶段: 1
-- 不变量: 持久化:序号分配与业务写入同事务
-- 证据等级: E2
+- 进展: 当前生产路径已完成第一轮隔离，但原验收仍要求注入收尾持久化失败的 E2；现有 app 测试没有 run_task 的 provider/存储故障注入夹具。先保留 fixing，按缺陷顺序继续检查下一个可做条目 D-065，后续补可控注入。
 
 ## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [open] (medium)
 - 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
