@@ -22,7 +22,7 @@
 - 阶段: 1
 - 不变量: 消息历史:拒绝与取消也必须配对
 - 证据等级: E2
-- 进展: 完成历史恢复清洗：新增 kanzei-core::filter_message_history，共享按 ToolCall.id/ToolResult.call_id 一对一配对，保留合法工具对与普通文本，移除孤儿调用/孤儿结果；CLI prior 恢复与桌面 recover_messages_at/conversation_get 均复用。新增 core 3 项过滤回归、桌面坏快照 recover_messages_at 回归；cargo test -p kanzei-core -p kanzei -p kanzei-app 通过（core 32、CLI 2 单元+2 E2、桌面 10）。仍需核验桌面真实运行中内存 conversation 与历史恢复交界，以及旧损坏快照的完整 CLI E2。
+- 进展: 补充桌面运行内存/持久化交界：抽出 conversation_prior 统一实现“空内存时采用已过滤 persisted；已有内存快照时不被最新持久化覆盖”，run_task 已接入；新增桌面单测覆盖两种状态；recover_messages_at 孤儿过滤测试继续通过。cargo test -p kanzei-app 11 项通过。D-054 剩余仅完整旧损坏快照 CLI/桌面 E2 与停止/恢复边界，保持 fixing。
 
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。

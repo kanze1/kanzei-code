@@ -291,11 +291,12 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 mod update_tests {
     use super::{
         default_process_id, pending_path, persist_always_allow, process_session_id, recover_messages_at,
-        runtime_for, take_pending_ask,
+        conversation_prior, runtime_for, take_pending_ask,
         with_session_id, AppState, PendingAsk,
     };
+    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use tokio::sync::oneshot;
 
     #[test]
@@ -377,6 +378,21 @@ mod update_tests {
         assert_eq!(take_pending_ask(&state, 7).unwrap().session_id, "ses_a");
         assert!(take_pending_ask(&state, 7).is_none());
         assert!(second.asks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn conversation_prior_prefers_existing_memory_over_persisted_snapshot() {
+        let conversation = Arc::new(Mutex::new(HashMap::new()));
+        let persisted = vec![kanzei_llm::Message::user_text("恢复快照")];
+        assert_eq!(conversation_prior(&conversation, "ses", persisted.clone())[0].parts, persisted[0].parts);
+        let existing = vec![kanzei_llm::Message::user_text("内存旧快照")];
+        conversation.lock().unwrap().insert("ses".into(), existing.clone());
+        let selected = conversation_prior(
+            &conversation,
+            "ses",
+            vec![kanzei_llm::Message::user_text("最新持久化")],
+        );
+        assert_eq!(selected[0].parts, existing[0].parts);
     }
 
     #[test]
@@ -2888,6 +2904,19 @@ fn recover_messages_at(
     Ok(kanzei_core::filter_message_history(&messages))
 }
 
+fn conversation_prior(
+    conversation: &Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    session_id: &str,
+    persisted: Vec<kanzei_llm::Message>,
+) -> Vec<kanzei_llm::Message> {
+    let mut conversations = conversation.lock().unwrap();
+    let conv = conversations.entry(session_id.to_string()).or_default();
+    if conv.is_empty() && !persisted.is_empty() {
+        *conv = persisted;
+    }
+    conv.clone()
+}
+
 async fn run_task(
     window: &Window,
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
@@ -3131,14 +3160,7 @@ async fn run_task(
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
     let persisted = recover_messages(&store, &session_id)?;
-    let prior: Vec<kanzei_llm::Message> = {
-        let mut conversations = conversation.lock().unwrap();
-        let conv = conversations.entry(session_id.clone()).or_default();
-        if conv.is_empty() && !persisted.is_empty() {
-            *conv = persisted;
-        }
-        conv.clone()
-    };
+    let prior = conversation_prior(&conversation, &session_id, persisted);
     if !prior.is_empty() {
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
     }
