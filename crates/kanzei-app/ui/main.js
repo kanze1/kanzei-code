@@ -3217,6 +3217,7 @@ function renderProviders() {
       const testBtn = document.createElement("button");
       testBtn.className = "ghost mini";
       testBtn.textContent = "测试";
+      testBtn.setAttribute("aria-label", `测试 ${p.name || "provider"} 连接`);
       const result = document.createElement("div");
       result.className = "key-test-result";
       testBtn.addEventListener("click", async () => {
@@ -3247,6 +3248,7 @@ function renderProviders() {
     const removeBtn = document.createElement("button");
     removeBtn.className = "icon-btn";
     removeBtn.textContent = "×";
+    removeBtn.setAttribute("aria-label", `移除 provider ${p.name || index + 1}`);
     removeBtn.addEventListener("click", () => {
       settingsProviders.splice(index, 1);
       renderProviders();
@@ -3274,6 +3276,7 @@ function renderPermissionRules(data) {
     const remove = document.createElement("button");
     remove.className = "icon-btn";
     remove.title = "删除规则";
+    remove.setAttribute("aria-label", `删除权限规则 ${rule.action} ${rule.resource}`);
     remove.textContent = "×";
     remove.addEventListener("click", async () => {
       if (!confirm(`删除 ${rule.action} / ${rule.resource}？`)) return;
