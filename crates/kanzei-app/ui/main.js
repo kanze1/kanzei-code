@@ -59,6 +59,7 @@ const I18N_EN = {
   "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
   "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
   "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
+  "自动压缩": "automatic compaction", "上下文": "Context", "点击查看上下文成分": "Click to view context details",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -109,6 +110,7 @@ languageSelect.addEventListener("change", () => {
   applyLanguage();
   setStatus($("status-text").textContent, $("statusbar").classList.contains("running"));
   if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
+  $("status-tokens").title = t("点击查看上下文成分");
   if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
   if (document.body.classList.contains("documents-active")) refreshDocs();
   if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
@@ -375,7 +377,7 @@ function renderTokens() {
       bar.classList.remove("hidden");
       bar.classList.toggle("warn", pct >= 70);
       $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
-      bar.title = `上下文 ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% 自动压缩)`;
+      bar.title = `${t("上下文")} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%,≥70% ${t("自动压缩")})`;
     } else {
       text += `${text ? " · " : ""}ctx ${k}k`;
       bar.classList.add("hidden");
@@ -390,7 +392,7 @@ function setRunning(value, statusText) {
   running = value;
   $("send").disabled = value;
   $("stop").classList.toggle("hidden", !value);
-  setStatus(statusText ?? (value ? "运行中" : "空闲"), value);
+  setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
 }
 
 // ---------- markdown-lite(无依赖:代码围栏/行内码/加粗/标题;先转义再渲染,安全) ----------
@@ -955,7 +957,7 @@ function renderContextDetail() {
   }
 }
 
-$("status-tokens").title = "点击查看上下文成分";
+$("status-tokens").title = t("点击查看上下文成分");
 $("status-tokens").classList.add("context-clickable");
 $("status-tokens").addEventListener("click", renderContextDetail);
 on("kz:tool-start", (e) => {

@@ -30,6 +30,8 @@ const required = [
   ["let lastWorkspaceSnapshot = null", "工作区语言刷新缓存"],
   ["if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot)", "语言切换刷新工作区"],
   ["if (document.body.classList.contains(\"documents-active\")) refreshDocs()", "语言切换刷新文档"],
+  ["setStatus(statusText ?? (value ? t(\"运行中\") : t(\"空闲\")), value)", "运行状态翻译入口"],
+  ["点击查看上下文成分\": \"Click to view context details", "上下文属性翻译键"],
   ["环境变量名(可选)\": \"Environment variable name (optional)", "Provider 表单翻译键"],
   ["订阅登录态\": \"Subscription login", "Provider 登录态翻译键"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
