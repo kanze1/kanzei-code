@@ -3001,7 +3001,7 @@ $("viewer-overlay").addEventListener("click", (e) => {
   if (e.target === $("viewer-overlay")) $("viewer-overlay").classList.add("hidden");
 });
 $("viewer-external").addEventListener("click", () => {
-  if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toast(String(e)));
+  if (viewerKind) invoke("docs_open", { projectDir: currentProject, kind: viewerKind }).catch((e) => toastError(String(e), { retry: () => $("viewer-external").click() }));
 });
 
 // ---------- git 状态 ----------
@@ -3199,8 +3199,7 @@ $("summarize-btn").addEventListener("click", async () => {
     toast("小总结已收纳到活动面板");
     log(`总结完成,已收纳并存档:${r.path}`);
   } catch (err) {
-    toast(`总结失败:${err}`);
-    log(`总结失败:${err}`, "err");
+    toastError(`总结失败:${err}`, { retry: () => $("summarize-btn").click() });
   } finally {
     $("summarize-btn").disabled = false;
     setStatus(running ? "运行中" : "空闲", running);
