@@ -266,6 +266,11 @@ class OptionShim extends Element {
 class FileReaderShim {
   readAsDataURL() { fail("FileReader.readAsDataURL 在冒烟桩中未实现"); }
 }
+class MutationObserverShim {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+}
 class ResizeObserverShim {
   constructor(callback) { this.callback = callback; }
   observe() {}
@@ -289,6 +294,7 @@ const sandbox = {
   Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 },
   Option: OptionShim,
   FileReader: FileReaderShim,
+  MutationObserver: MutationObserverShim,
   ResizeObserver: ResizeObserverShim,
   setTimeout: (fn, ms) => { const h = { fn }; pendingTimers.add(h); return h; },
   clearTimeout: (h) => pendingTimers.delete(h),

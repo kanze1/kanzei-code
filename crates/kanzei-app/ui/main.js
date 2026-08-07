@@ -166,7 +166,56 @@ const I18N_DYNAMIC_EN = {
   "全部复杂度": "All complexity",
   "手动": "Manual",
   "优先级": "Priority",
-  "编号": "ID"
+  "编号": "ID",
+  "模型列表已刷新": "Model list refreshed",
+  "模型列表获取失败": "Failed to load model list",
+  "撤销失败": "Failed to cancel",
+  "队列刷新失败": "Failed to refresh queue",
+  "测试记录刷新失败": "Failed to refresh test records",
+  "进程列表刷新失败": "Failed to refresh process list",
+  "待处理权限询问恢复失败": "Failed to restore pending permission requests",
+  "项目初始化完成": "Project initialization complete",
+  "已初始化并切换到新项目": "Initialized and switched to the new project",
+  "已切换到进程": "Switched to process",
+  "更新进程能力失败": "Failed to update process capability",
+  "新项目目录路径(不存在时会创建)": "New project directory (created if missing)",
+  "项目显示名(可留空)": "Project display name (optional)",
+  "已初始化并切换到新项目": "Initialized and switched to the new project",
+  "文件补全失败": "Failed to complete file suggestions",
+  "继续文案已升级到新版(含【阻塞】刹车约定)": "Continue prompt upgraded (with the blocked brake rule)",
+  "鞭挞已暂停": "Auto-run paused",
+  "鞭挞已恢复": "Auto-run resumed",
+  "本轮结束后将停止鞭挞": "Auto-run will stop after this round",
+  "已取消本轮后停": "Stop-after-round cancelled",
+  "鞭挞上限已设为": "Auto-run limit set to",
+  "鞭挞仅适用于自主推进模式，请先切换模式": "Auto-run only works in self-directed progress mode; switch modes first",
+  "鞭挞未开启:结伴开发模式不支持自动续跑": "Auto-run is disabled: paired development does not support continuation",
+  "鞭挞已开启:每轮结束自动推进目标": "Auto-run enabled: advance the goal after each round",
+  "鞭挞已关闭": "Auto-run disabled",
+  "鞭挞启动,2 秒后开始…": "Auto-run starts in 2 seconds…",
+  "当前模式不支持鞭挞，已自动关闭": "Auto-run disabled: current mode does not support it",
+  "鞭挞已关闭：当前进程不是自主推进模式": "Auto-run disabled: current process is not self-directed",
+  "已请求停止(本地已复位)": "Stop requested (local state reset)",
+  "队列刷新失败": "Failed to refresh queue",
+  "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; details written to runtime log",
+  "创建工作树失败": "Failed to create worktree",
+  "工作树已不可用": "Worktree unavailable",
+  "进程列表刷新失败": "Failed to refresh process list",
+  "规范文件已就绪": "Conventions file ready",
+  "删除失败": "Delete failed",
+  "读取权限规则失败": "Failed to read permission rules",
+  "设置读取失败": "Failed to read settings",
+  "启动移动端桥接失败": "Failed to start mobile bridge",
+  "停止移动端桥接失败": "Failed to stop mobile bridge",
+  "保存失败": "Save failed",
+  "检查中": "Checking",
+  "发现新版本": "New version found",
+  "已是最新": "Already up to date",
+  "检查失败": "Check failed",
+  "下载中": "Downloading",
+  "获取版本失败": "Failed to get version",
+  "启动步骤": "Startup step",
+  "加载失败": "Failed to load"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -189,34 +238,43 @@ function localizedDocStatus(status) {
   const labels = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped", fixing: "Fixing", fixed: "Fixed", open: "Open", wontfix: "Won't fix" };
   return languageIsEnglish() ? (labels[status] || status) : status;
 }
+let applyingLanguage = false;
 function applyLanguage() {
-  const language = localStorage.getItem("kz-language") || "zh";
-  document.documentElement.lang = language === "en" ? "en" : "zh-CN";
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) {
-    const node = walker.currentNode;
-    if (!I18N_ZH.has(node)) I18N_ZH.set(node, node.nodeValue);
-    const source = I18N_ZH.get(node);
-    const key = source.trim();
-    if (!key) continue;
-    const translated = language === "en" ? (I18N_EN[key] || source) : source;
-    node.nodeValue = source.replace(key, translated);
-  }
-  document.querySelectorAll("[title], [placeholder]").forEach((element) => {
-    let originals = I18N_ATTR_ZH.get(element);
-    if (!originals) {
-      originals = new Map();
-      I18N_ATTR_ZH.set(element, originals);
-    }
-    for (const attribute of ["title", "placeholder"]) {
-      const value = element.getAttribute(attribute);
-      if (!value) continue;
-      if (!originals.has(attribute)) originals.set(attribute, value);
-      const source = originals.get(attribute);
+  if (applyingLanguage) return;
+  applyingLanguage = true;
+  try {
+    const language = localStorage.getItem("kz-language") || "zh";
+    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (!I18N_ZH.has(node)) I18N_ZH.set(node, node.nodeValue);
+      const source = I18N_ZH.get(node);
       const key = source.trim();
-      if (I18N_EN[key]) element.setAttribute(attribute, language === "en" ? I18N_EN[key] : source);
+      if (!key) continue;
+      const translated = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
+      const next = source.replace(key, translated);
+      if (node.nodeValue !== next) node.nodeValue = next;
     }
-  });
+    document.querySelectorAll("[title], [placeholder]").forEach((element) => {
+      let originals = I18N_ATTR_ZH.get(element);
+      if (!originals) {
+        originals = new Map();
+        I18N_ATTR_ZH.set(element, originals);
+      }
+      for (const attribute of ["title", "placeholder"]) {
+        const value = element.getAttribute(attribute);
+        if (!value) continue;
+        if (!originals.has(attribute)) originals.set(attribute, value);
+        const source = originals.get(attribute);
+        const key = source.trim();
+        const translated = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
+        if (translated !== source || language !== "en") element.setAttribute(attribute, language === "en" ? translated : source);
+      }
+    });
+  } finally {
+    applyingLanguage = false;
+  }
 }
 const languageSelect = $("language-select");
 languageSelect.value = localStorage.getItem("kz-language") || "zh";
@@ -236,6 +294,8 @@ languageSelect.addEventListener("change", () => {
   updateAskQueueStatus();
 });
 applyLanguage();
+const languageObserver = new MutationObserver(() => applyLanguage());
+languageObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
 function setupResize(elementId, key, side, min, max) {
   const element = $(elementId);
   if (!element) return;
