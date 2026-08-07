@@ -18,9 +18,10 @@ if (-not $SkipTests) {
     if ($LASTEXITCODE -ne 0) { throw "tests failed" }
 }
 
-# 版本信息:git 短 hash + 构建日期,注入 kz --version。
+# 版本信息:git 短 hash + UTC 构建时间,注入 kz --version。
 $hash = (git rev-parse --short HEAD 2>$null); if (-not $hash) { $hash = "nogit" }
-$env:KANZEI_BUILD_INFO = "$hash $(Get-Date -Format yyyy-MM-dd)"
+$build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$env:KANZEI_BUILD_INFO = "$hash $build_at"
 
 Write-Host "==> cargo install --path crates/kanzei" -ForegroundColor Cyan
 cargo install --path crates/kanzei --force

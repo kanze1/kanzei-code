@@ -1,18 +1,5 @@
 # Defects
 
-## D-146 应用内更新按 hash 不相等判定,会把本地较新的开发构建降级回上一个 release [open] (high)
-- 复现: 用 scripts/release.ps1 装一个尚未发布的开发构建(如 e5c8555),启动桌面端;3 秒后的静默检查发现最新 release 标签是 build-91e8d22,与本地 KANZEI_BUILD_INFO 的 hash 不相等,于是判定"有新版"并安装——本地被回滚到更旧的已发布版本。
-- 证据: 2026-08-08 实录。5:15 release.ps1 把 21,270,016B 的构建装进 %LOCALAPPDATA%\kanzei;5:22:21 uninstall.exe 时间戳显示 NSIS 安装器运行;此后安装位变成 21,332,480B/04:37(build-91e8d22 的载荷),哈希与本次构建不一致。用户随后打开看到的仍是旧版。
-- 根因: update_check 只比较 `tag_name` 与当前 build hash 是否相等,把"不相等"当作"有新版";开发构建天然领先于最新 release,因此必然被判定为需要更新。
-- 影响: 自举机上"装了新版→它自己滚回旧版"静默发生,排查方向完全错误(以为发布没生效);且与 D-145 叠加时更难定位。
-- 验收: 判定改为"仅当 release 确实更新才提示"(比较发布时间与本地构建日期,或在构建信息里带上可比较的序号);本地构建领先于最新 release 时不提示更新;补该场景的判定单测。
-- 优先级: P1
-- refs: D-124 D-145
-- 标签: 发布
-- 阶段: 1
-- 不变量: 版本与更新:更新只前进不后退
-- 证据等级: E3
-
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。

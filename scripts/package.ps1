@@ -8,7 +8,8 @@ if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 
 $hash = (git -C $root rev-parse --short HEAD).Trim()
 $date = Get-Date -Format "yyyy-MM-dd"
-$env:KANZEI_BUILD_INFO = "$hash $date"
+$build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
+$env:KANZEI_BUILD_INFO = "$hash $build_at"
 
 Write-Host "==> cargo tauri build ($hash)" -ForegroundColor Cyan
 Push-Location "$root\crates\kanzei-app"

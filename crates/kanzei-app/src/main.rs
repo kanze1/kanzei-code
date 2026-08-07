@@ -366,6 +366,40 @@ mod update_tests {
     use tokio::sync::oneshot;
 
     #[test]
+    fn release_check_never_downgrades_a_newer_local_build() {
+        assert!(!super::release_is_newer(
+            "local 20260809120000",
+            "build-remote",
+            Some("2026-08-08T23:00:00Z")
+        ));
+        assert!(super::release_is_newer(
+            "local 20260808120000",
+            "build-remote",
+            Some("2026-08-09T00:00:00Z")
+        ));
+        assert!(!super::release_is_newer(
+            "local 20260808120000",
+            "build-local",
+            Some("2026-08-10T00:00:00Z")
+        ));
+    }
+
+    #[test]
+    fn legacy_date_only_build_requires_a_later_release_day() {
+        assert!(!super::release_is_newer(
+            "local 2026-08-08",
+            "build-remote",
+            Some("2026-08-08T23:00:00Z")
+        ));
+        assert!(super::release_is_newer(
+            "local 2026-08-08",
+            "build-remote",
+            Some("2026-08-09T00:00:00Z")
+        ));
+        assert!(!super::release_is_newer("local", "build-remote", Some("2026-08-09T00:00:00Z")));
+    }
+
+    #[test]
     fn prompt_attachments_become_image_and_document_parts() {
         let parts = super::prompt_attachment_parts(vec![
             super::PromptAttachment {
@@ -2193,6 +2227,46 @@ async fn consolidate_memory_inbox(project_dir: String) {
     }
 }
 
+/// 仅当 release 的发布时间晚于本地构建时间时才允许提示更新。
+/// `KANZEI_BUILD_INFO` 的旧格式只有 yyyy-MM-dd,对旧构建采用“必须晚一天”
+/// 的保守判定；新格式使用 UTC 的 yyyyMMddHHmmss，避免开发构建被同日 release 覆盖。
+fn release_is_newer(current_info: &str, tag: &str, published_at: Option<&str>) -> bool {
+    let current_hash = current_info.split_whitespace().next().unwrap_or("dev");
+    if current_hash == "dev" || tag.is_empty() || tag.contains(current_hash) {
+        return false;
+    }
+    let Some((local_stamp, date_only)) = build_stamp(current_info) else {
+        return false;
+    };
+    let Some(release_stamp) = published_at.and_then(timestamp_digits) else {
+        // 没有可信发布时间时宁可不装，避免把未知版本当成升级。
+        return false;
+    };
+    if date_only {
+        release_stamp[..8] > local_stamp[..8]
+    } else {
+        release_stamp > local_stamp
+    }
+}
+
+fn build_stamp(info: &str) -> Option<(String, bool)> {
+    let token = info.split_whitespace().nth(1)?;
+    let digits = timestamp_digits(token)?;
+    Some((digits, token.chars().filter(|c| c.is_ascii_digit()).count() < 14))
+}
+
+fn timestamp_digits(value: &str) -> Option<String> {
+    let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() < 8 {
+        return None;
+    }
+    if digits.len() >= 14 {
+        Some(digits[..14].to_string())
+    } else {
+        Some(format!("{digits:0<14}"))
+    }
+}
+
 /// 应用内检查更新:比对 GitHub Releases 最新 build 标签与当前构建号。
 #[tauri::command]
 async fn update_check() -> Result<serde_json::Value, String> {
@@ -2228,9 +2302,11 @@ async fn update_check() -> Result<serde_json::Value, String> {
         .and_then(|a| a["browser_download_url"].as_str())
         .unwrap_or("")
         .to_string();
-    // dev 构建没有注入 build hash,与任何 release tag 都"不相等";若据此判有新版,
-    // 每次启动都会误报并诱导用户用 release 覆盖本地 dev 版(D-081)。
-    let newer = !tag.is_empty() && current_hash != "dev" && !tag.contains(&current_hash);
+    let published_at = body["published_at"]
+        .as_str()
+        .or_else(|| body["created_at"].as_str());
+    // 只在 release 确实晚于本地构建时提示，禁止 hash 不相等就把本地较新构建降级。
+    let newer = release_is_newer(current, &tag, published_at);
     Ok(json!({
         "current": current_hash,
         "latest": tag,
