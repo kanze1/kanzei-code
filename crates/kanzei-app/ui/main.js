@@ -62,6 +62,7 @@ const I18N_EN = {
   "自动压缩": "automatic compaction", "上下文": "Context", "点击查看上下文成分": "Click to view context details",
   "连接中断": "Connection interrupted", "重放本轮": "Replaying round", "总结中": "Summarizing", "当前没有可总结的对话": "No conversation to summarize", "小总结已收纳到活动面板": "Summary added to activity panel",
   "自主推进": "Self-directed progress", "等待下一轮": "Waiting for next round", "鞭挞恢复": "Auto-run resumed", "秒后继续": "seconds until continuing",
+  "已停止": "Stopped", "完成": "Completed", "用户拒绝后停止": "Stopped after user rejection", "本轮完成": "Round completed", "按你的拒绝停止": "Stopped after your rejection",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1041,23 +1042,23 @@ on("kz:stopped", (e) => {
   cancelAutoContinueTimer();
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
-  addMessage("notice", cancelled > 0 ? `已停止,已取消 ${cancelled} 条排队输入` : "已停止");
+  addMessage("notice", cancelled > 0 ? `${t("已停止" )},已取消 ${cancelled} 条排队输入` : t("已停止"));
   log(cancelled > 0 ? `已手动停止并取消 ${cancelled} 条排队输入` : "已手动停止");
   stopElapsed();
-  setRunning(false, "已停止");
-  bgAbortRunning("(已停止)");
-  liveIdle("已停止");
+  setRunning(false, t("已停止"));
+  bgAbortRunning(`(${t("已停止")})`);
+  liveIdle(t("已停止"));
   notifyRunState("stopped", cancelled > 0 ? `已停止并取消 ${cancelled} 条排队输入` : "已停止");
   refreshPendingInputs();
   refreshProcesses();
 });
 on("kz:done", async (e) => {
   const p = e.payload;
-  setAutoStopReason(p.halted ? "用户拒绝后停止" : "本轮完成");
+  setAutoStopReason(p.halted ? t("用户拒绝后停止") : t("本轮完成"));
 
   addMessage(
     "notice",
-    `完成 · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? " · 已按你的拒绝停止" : ""}`
+    `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按你的拒绝停止")}` : ""}`
   );
   log(`运行完成:${p.steps} 轮,耗时 ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
