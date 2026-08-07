@@ -211,6 +211,22 @@ fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRuntime> {
         .clone()
 }
 
+fn stop_runtime_and_finalize(
+    runtime: &SessionRuntime,
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+) -> Result<usize, kanzei_core::StoreError> {
+    // 生命周期锁必须覆盖 abort、running=false 与数据库收尾，阻止 promote 在
+    // 两者之间插入；finalize_interrupt 再原子取消 pending/promoted 输入。
+    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+        handle.abort();
+    }
+    runtime.asks.lock().unwrap().clear();
+    runtime.running.store(false, Ordering::SeqCst);
+    store.finalize_interrupt(session_id)
+}
+
 fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {
     state
         .runtimes
@@ -311,11 +327,12 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 mod update_tests {
     use super::{
         default_process_id, pending_ask_payload, pending_path, persist_always_allow, process_session_id, recover_messages_at,
-        conversation_prior, runtime_for, take_pending_ask,
-        with_session_id, AppState, PendingAsk,
+        conversation_prior, runtime_for, stop_runtime_and_finalize, take_pending_ask,
+        with_session_id, AppState, PendingAsk, SessionRuntime,
     };
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
     use tokio::sync::oneshot;
 
@@ -368,6 +385,50 @@ mod update_tests {
     fn session_id_does_not_change_non_object_payload() {
         let payload = with_session_id(serde_json::json!(null), "ses_test");
         assert_eq!(payload, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn stopping_after_promote_cancels_promoted_and_pending_inputs_atomically() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-app-stop-promoted-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
+        let session_id = "session_stop_promoted";
+        store
+            .create_session(session_id, &root.display().to_string(), None)
+            .unwrap();
+        store
+            .admit_input(session_id, "promoted", "先执行", kanzei_core::Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input(session_id, "pending", "后执行", kanzei_core::Delivery::Queue)
+            .unwrap();
+        assert_eq!(
+            store.promote_next_input(session_id).unwrap().unwrap().input_id,
+            "promoted"
+        );
+
+        let runtime = SessionRuntime::default();
+        runtime.running.store(true, Ordering::SeqCst);
+        let cancelled = stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
+
+        assert_eq!(cancelled, 2);
+        assert!(!runtime.running.load(Ordering::SeqCst));
+        assert!(store.list_pending_inputs(session_id).unwrap().is_empty());
+        assert_eq!(store.get_session(session_id).unwrap().unwrap().status, "idle");
+        let event = store
+            .latest_event(session_id, "session.status_changed")
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.payload["reason"], "stopped_by_user");
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2757,33 +2818,17 @@ fn stop_run(
     }
     let mut cancelled = None;
     for runtime in runtimes {
-        // 取 lifecycle 锁再动手并保持到数据库清理结束:否则 promote 可能插入
-        // pending->promoted 的窗口,随后只取消 pending 会留下孤儿(D-066)。
-        let _lifecycle = runtime.lifecycle.lock().unwrap();
-        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
-            handle.abort();
-        }
-        runtime.asks.lock().unwrap().clear();
-        runtime.running.store(false, Ordering::SeqCst);
-
-        cancelled = target_project.clone().map(|root| {
+        let result = target_project.clone().map(|root| {
             let session_id = target_session
                 .clone()
                 .unwrap_or_else(|| kanzei_core::project_session_id(&root));
             let state_path = kanzei_core::project_state_path(&root);
-            // abort 会在下一个 await 点杀死任务,写 idle/failed 的收尾分支永远执行不到,
-            // 会话状态会永久卡在 running,工作区显示幽灵运行(D-066)。
-            kanzei_core::SessionStore::open(&state_path).and_then(|store| {
-                let _ = store.set_status(&session_id, "idle");
-                let _ = store.append_event(
-                    &session_id,
-                    "session.status_changed",
-                    &json!({ "status": "idle", "reason": "stopped_by_user" }),
-                );
-                store.cancel_unfinished_inputs(&session_id)
-            })
+            kanzei_core::SessionStore::open(&state_path)
+                .and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
         });
-    }    match cancelled.transpose() {
+        cancelled = result;
+    }
+    match cancelled.transpose() {
         Ok(Some(count)) => {
             let _ = window.emit(
                 "kz:stopped",
