@@ -24,6 +24,10 @@ pub struct RunnerConfig {
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
 pub const MAX_TASKS_PER_TURN: usize = 8;
 
+/// 流中途断开后重放本步请求的上限。工具在流结束后才执行,所以此时重放零副作用;
+/// 但每次重放都要重新生成已产出的 token,必须有界。
+pub const MAX_STREAM_RESTARTS: u32 = 2;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 pub struct SubagentRuntime {
@@ -109,6 +113,9 @@ pub enum RunEvent {
     },
     /// 流建立前的临时网络错误重试,不会重放已建立流或工具副作用。
     Retry { attempt: u32, max: u32, delay_ms: u128 },
+    /// 流中途断开后重放本步请求。本步工具尚未执行,零副作用;
+    /// UI 收到后应丢弃本步已渲染的残缺输出,等待重新生成。
+    StreamRestart { attempt: u32, max: u32, delay_ms: u128 },
     StepEnd {
         usage: Usage,
         reason: FinishReason,
@@ -263,6 +270,13 @@ pub fn run_once_with_parts<'a>(
         // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
         // 请求尚未建立时可以安全压缩本轮的旧工具轨迹并重试一次；重试上限
         // 是硬限制，避免超限错误造成死循环。流已经建立后不做重放，防止工具副作用重复执行。
+        // 流中途断开(网络抖动、代理重连、provider 掐流)时:本步的工具尚未执行——
+        // 工具在流结束后才跑——因此重放整个请求不会重复任何副作用,只损失已生成的
+        // 部分 token。有界重放,并通知 UI 丢弃本步已渲染的残缺输出(D-112)。
+        // 注意与"流建立后不重放"的既有约束不冲突:那条约束针对的是工具已执行的情况。
+        let mut stream_restarts: u32 = 0;
+        let (parts, calls, finish) = loop {
+        let request = request.clone();
         let mut stream = match client
             .stream_with_retry_notice(route, &request, |attempt, delay| {
                 on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
@@ -306,9 +320,17 @@ pub fn run_once_with_parts<'a>(
         let mut parts: Vec<Part> = Vec::new();
         let mut calls: Vec<(String, String, serde_json::Value, String)> = Vec::new();
         let mut finish = FinishReason::EndTurn;
+        let mut stream_error: Option<kanzei_llm::LlmError> = None;
 
         while let Some(event) = stream.next().await {
-            match event? {
+            let event = match event {
+                Ok(event) => event,
+                Err(error) => {
+                    stream_error = Some(error);
+                    break;
+                }
+            };
+            match event {
                 LlmEvent::TextDelta { index, text } => {
                     on_event(RunEvent::Text(text.clone()));
                     text_buffers.entry(index).or_default().push_str(&text);
@@ -361,9 +383,37 @@ pub fn run_once_with_parts<'a>(
                 _ => {}
             }
         }
-        for (_, text) in std::mem::take(&mut text_buffers) {
-            parts.push(Part::Text { text });
+
+        match stream_error {
+            None => {
+                for (_, text) in std::mem::take(&mut text_buffers) {
+                    parts.push(Part::Text { text });
+                }
+                break (parts, calls, finish);
+            }
+            // 只重放传输层中断:协议错误重放只会原样复现,白烧钱。
+            Some(error)
+                if matches!(error, kanzei_llm::LlmError::Transport(_))
+                    && stream_restarts < MAX_STREAM_RESTARTS =>
+            {
+                stream_restarts += 1;
+                let delay = std::time::Duration::from_millis(500 * stream_restarts as u64);
+                tracing::warn!(
+                    attempt = stream_restarts,
+                    delay_ms = delay.as_millis(),
+                    error = %error,
+                    "stream broke mid-flight, re-requesting step"
+                );
+                on_event(RunEvent::StreamRestart {
+                    attempt: stream_restarts,
+                    max: MAX_STREAM_RESTARTS,
+                    delay_ms: delay.as_millis(),
+                });
+                tokio::time::sleep(delay).await;
+            }
+            Some(error) => return Err(error.into()),
         }
+        };
 
         final_text = parts
             .iter()
@@ -872,8 +922,31 @@ fn preview(content: &str) -> String {
 mod tests {
     use super::{
         append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
+        MAX_STREAM_RESTARTS,
     };
-    use kanzei_llm::{Message, Part};
+    use kanzei_llm::{LlmError, Message, Part};
+
+    /// 流中途断开只对传输层错误重放:协议错误重放只会原样复现,白烧钱。
+    /// 这里锁住 runner 里那条判定用的变体匹配语义。
+    #[test]
+    fn 只有传输层中断才重放本步() {
+        let transport = LlmError::Config("placeholder".into());
+        assert!(!matches!(transport, LlmError::Transport(_)));
+        assert!(!matches!(
+            LlmError::Protocol("bad SSE".into()),
+            LlmError::Transport(_)
+        ));
+        assert!(!matches!(
+            LlmError::ContextOverflow { message: "x".into() },
+            LlmError::Transport(_)
+        ));
+        assert!(!matches!(
+            LlmError::Provider { kind: "rate_limit_error".into(), message: "x".into() },
+            LlmError::Transport(_)
+        ));
+        // 重放次数必须有界:每次重放都要重新生成已产出的 token。
+        assert_eq!(MAX_STREAM_RESTARTS, 2);
+    }
 
     #[test]
     fn compact_retry_keeps_prompt_and_bounded_tool_history() {

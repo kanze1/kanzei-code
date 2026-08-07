@@ -3191,6 +3191,16 @@ async fn run_task(
                 "kz:status",
                 json!({ "stage": "重试", "detail": format!("网络请求暂时失败,第 {attempt}/{max} 次重试,等待 {delay_ms}ms") }),
             ),
+            // 本步工具尚未执行,重放零副作用;前端需丢弃本步已渲染的残缺输出。
+            RunEvent::StreamRestart { attempt, max, delay_ms } => emit_event(
+                "kz:stream-restart",
+                json!({
+                    "attempt": attempt,
+                    "max": max,
+                    "delayMs": delay_ms,
+                    "detail": format!("连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms"),
+                }),
+            ),
             RunEvent::StepEnd { usage, .. } => emit_event(
                 "kz:step",
                 json!({

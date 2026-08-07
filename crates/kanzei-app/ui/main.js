@@ -881,6 +881,21 @@ on("kz:error", (e) => {
   $("log-panel").classList.remove("hidden");
   refreshProcesses();
 });
+// 流中途断开后重放本轮:后端会把本轮从头重新生成,已渲染的残缺输出必须丢掉,
+// 否则重放出的文本会接在半截内容后面变成重复段落。本轮工具尚未执行,无副作用。
+on("kz:stream-restart", (e) => {
+  const p = e.payload ?? {};
+  if (currentAssistant) {
+    currentAssistant.remove();
+    currentAssistant = null;
+  }
+  currentReasoning = null;
+  currentReasoningHead = null;
+  outputChars = 0;
+  addMessage("notice", `⟳ 连接中断,正在重新请求本轮(${p.attempt}/${p.max})`);
+  log(`连接中断,重放本轮 ${p.attempt}/${p.max},等待 ${p.delayMs}ms`, "warn");
+  setStatus(`连接中断 · 重放本轮 ${p.attempt}/${p.max}`, true);
+});
 on("kz:compacted", (e) => {
   lastCompactionSummary = e.payload?.summary ?? "";
   addMessage("notice", "🗜 上下文占用过高,已自动压缩为纪要并延续对话");

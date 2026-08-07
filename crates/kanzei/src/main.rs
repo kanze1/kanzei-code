@@ -197,6 +197,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::Retry { attempt, max, delay_ms } => {
             let _ = writeln!(stdout, "\x1b[33m重试 {attempt}/{max},等待 {delay_ms}ms\x1b[0m");
         }
+        RunEvent::StreamRestart { attempt, max, delay_ms } => {
+            let _ = writeln!(
+                stdout,
+                "\x1b[33m连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms(本轮工具尚未执行,不会重复副作用)\x1b[0m"
+            );
+        }
         RunEvent::ToolEnd { ok, preview, .. } => {
             let mark = if ok {
                 "\x1b[32m✓\x1b[0m"
@@ -266,20 +272,33 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }
     };
 
-    let run_result = run_once(
-        &client,
-        &route,
-        &snapshot,
-        &agent,
-        &runner_config,
-        &ctx,
-        &prompt,
-        &prior,
-        Some(&subagent_rt),
-        &mut on_event,
-        &mut ask,
-    )
-    .await;
+    let run_result = tokio::select! {
+        result = run_once(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &ctx,
+            &prompt,
+            &prior,
+            Some(&subagent_rt),
+            &mut on_event,
+            &mut ask,
+        ) => result,
+        _ = tokio::signal::ctrl_c() => {
+            let store = kanzei_core::SessionStore::open(&state_path)?;
+            store.set_status(&session_id, "idle")?;
+            store.append_event(
+                &session_id,
+                "session.status_changed",
+                &serde_json::json!({ "status": "idle", "reason": "stopped_by_user" }),
+            )?;
+            store.cancel_unfinished_inputs(&session_id)?;
+            eprintln!("\n\x1b[33m(stopped by Ctrl+C)\x1b[0m");
+            return Ok(());
+        }
+    };
     let store = kanzei_core::SessionStore::open(&state_path)?;
     match &run_result {
         Ok(summary) => {
