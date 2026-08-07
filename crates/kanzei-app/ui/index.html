@@ -23,8 +23,8 @@
         <div class="section-title">
           <span>项目</span>
           <span>
-            <button id="project-init" class="icon-btn" title="初始化新项目目录">✦</button>
-            <button id="project-add" class="icon-btn" title="添加项目目录">＋</button>
+            <button id="project-init" class="icon-btn" title="初始化新项目目录" aria-label="初始化新项目目录">✦</button>
+            <button id="project-add" class="icon-btn" title="添加项目目录" aria-label="添加项目目录">＋</button>
           </span>
         </div>
         <div id="project-list" class="project-list"></div>
@@ -43,19 +43,19 @@
         <div id="queue-list" class="queue-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="tests" id="tests-section">
-        <div class="section-title"><span>测试记录 <em id="test-count"></em></span><button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试">↻</button></div>
+        <div class="section-title"><span>测试记录 <em id="test-count"></em></span><button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试">↻</button></div>
         <div id="test-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
-        <div class="section-title"><span>隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异">↻</button></div>
+        <div class="section-title"><span>隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" aria-label="刷新工作树差异">↻</button></div>
         <div id="worktree-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="goals">
         <div class="section-title">
           <span>目标 <em id="goal-count"></em></span>
           <span>
-            <button id="goal-add" class="icon-btn" title="新建目标">＋</button>
-            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)">↗</button>
+            <button id="goal-add" class="icon-btn" title="新建目标" aria-label="新建目标">＋</button>
+            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" aria-label="打开 goals.md">↗</button>
           </span>
         </div>
         <div id="goal-list" class="doc-list"></div>
@@ -63,7 +63,7 @@
       <div class="sidebar-section" data-collapse-key="conversations">
         <div class="section-title">
           <span>历史对话 <em id="conversation-count"></em></span>
-          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话">🗑</button></span>
+          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话" aria-label="删除勾选的对话">🗑</button></span>
         </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
@@ -94,8 +94,8 @@
               <option value="status">状态</option>
               <option value="id">编号</option>
             </select>
-            <button id="req-quick" class="icon-btn" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话">✎</button>
-            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文">↗</button>
+            <button id="req-quick" class="icon-btn" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录需求">✎</button>
+            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文">↗</button>
           </span>
         </div>
         <div id="req-list" class="doc-list"></div>
@@ -104,8 +104,8 @@
         <div class="section-title">
           <span>缺陷 <em id="defect-count"></em></span>
           <span>
-            <button id="defect-quick" class="icon-btn" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话">✎</button>
-            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文">↗</button>
+            <button id="defect-quick" class="icon-btn" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录缺陷">✎</button>
+            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
           </span>
         </div>
         <div id="defect-list" class="doc-list"></div>
@@ -113,7 +113,7 @@
       <div class="sidebar-section" data-collapse-key="research" id="research-section">
         <div class="section-title">
           <span>研究 <em id="research-count"></em></span>
-          <button id="report-open" class="icon-btn" title="打开 research/report.md">↗</button>
+          <button id="report-open" class="icon-btn" title="打开 research/report.md" aria-label="打开 research/report.md">↗</button>
         </div>
         <div class="research-subtitle">来源</div>
         <div id="source-list" class="doc-list"></div>
@@ -124,8 +124,8 @@
         <div class="section-title">
           <span>开发规范</span>
           <span>
-            <button id="conv-init" class="icon-btn" title="创建规范模板">＋</button>
-            <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)">↗</button>
+            <button id="conv-init" class="icon-btn" title="创建规范模板" aria-label="创建规范模板">＋</button>
+            <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)" aria-label="打开 conventions.md">↗</button>
           </span>
         </div>
         <div id="conv-list" class="doc-list"></div>
@@ -138,8 +138,8 @@
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
           <nav id="process-tabs" aria-label="项目进程"></nav>
-          <button id="process-add" class="icon-btn" title="为当前项目新建独立进程">＋</button>
-          <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程">⑂</button>
+          <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
+          <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
           <label id="process-subagent-wrap" title="只对当前进程启用/关闭只读子代理"><input type="checkbox" id="process-subagent" /> 子代理</label>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板">活动</button>
           <button id="sidebar-toggle" class="ghost" title="折叠/展开左侧栏" aria-expanded="true">侧栏</button>
@@ -339,7 +339,7 @@
       <div id="log-panel" class="hidden">
         <div class="log-head">
           <span>运行日志</span>
-          <button id="log-clear" class="icon-btn" title="清空">⌫</button>
+          <button id="log-clear" class="icon-btn" title="清空" aria-label="清空日志">⌫</button>
         </div>
         <div id="log-lines"></div>
       </div>
@@ -409,8 +409,8 @@
       <div class="viewer-head">
         <span id="viewer-title"></span>
         <span>
-          <button id="viewer-external" class="icon-btn" title="在外部编辑器打开">↗</button>
-          <button id="viewer-close" class="icon-btn" title="关闭">✕</button>
+          <button id="viewer-external" class="icon-btn" title="在外部编辑器打开" aria-label="在外部编辑器打开">↗</button>
+          <button id="viewer-close" class="icon-btn" title="关闭" aria-label="关闭查看器">✕</button>
         </span>
       </div>
       <div id="viewer-body"></div>
