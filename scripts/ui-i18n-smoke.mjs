@@ -17,6 +17,9 @@ const required = [
   ["需要你的回答\": \"Your answer is needed", "问题弹窗翻译键"],
   ["权限请求\": \"Permission request", "权限弹窗翻译键"],
   ["function updateAskQueueStatus()", "权限队列动态入口"],
+  ["当前对话\": \"Current chat", "工作区对话翻译键"],
+  ["最近活动\": \"Recent activity", "工作区活动翻译键"],
+  ["function renderWorkspace(snapshot)", "工作区动态入口"],
   ["思考中\": \"Thinking", "思考状态翻译键"],
   ["status-mode\").textContent = isRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
 ];

@@ -52,6 +52,9 @@ const I18N_EN = {
   "需要你的回答": "Your answer is needed", "权限请求": "Permission request",
   "当前请求": "Current request", "还有": "remaining", "条待处理": "pending requests",
   "当前无其他待处理请求": "No other pending requests",
+  "运行事件": "run event", "当前对话": "Current chat", "暂无": "None",
+  "最近活动": "Recent activity", "排队": "Queued", "条": "items", "更新于": "Updated", "已归档": "archived",
+  "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -2683,10 +2686,10 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     const foot = document.createElement("button");
     foot.type = "button";
     foot.className = "doc-archive-toggle";
-    foot.setAttribute("aria-label", `展开已归档条目，共 ${archivedCount} 条`);
+    foot.setAttribute("aria-label", `${t("展开已归档条目")}，共 ${archivedCount} ${t("条")}`);
     foot.setAttribute("aria-expanded", "false");
-    foot.title = "展开已归档条目;双击打开归档文件";
-    foot.textContent = `${archivedCount} 条已归档 ▸`;
+    foot.title = `${t("展开已归档条目")};${t("双击打开归档文件")}`;
+    foot.textContent = `${archivedCount} ${t("条")} ${t("已归档")} ▸`;
     const archive = document.createElement("div");
     archive.className = "doc-archive-list hidden";
     for (const entry of archivedEntries) {
@@ -2699,7 +2702,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       archive.classList.toggle("hidden");
       const expanded = !archive.classList.contains("hidden");
       foot.setAttribute("aria-expanded", String(expanded));
-      foot.textContent = `${archivedCount} 条已归档 ${expanded ? "▾" : "▸"}`;
+      foot.textContent = `${archivedCount} ${t("条")} ${t("已归档")} ${expanded ? "▾" : "▸"}`;
     });
     foot.addEventListener("dblclick", () => openDocViewer(`${kind}-archive`));
     el.append(foot, archive);
@@ -2707,7 +2710,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
 }
 
 function formatWorkspaceTime(value) {
-  if (!value) return "暂无时间";
+  if (!value) return t("暂无时间");
   return new Date(Number(value)).toLocaleString();
 }
 
@@ -2749,7 +2752,7 @@ function renderWorkspace(snapshot) {
     title.textContent = project.name;
     const status = document.createElement("span");
     status.className = `workspace-status ${project.status}`;
-    status.textContent = project.status === "running" ? "运行中" : project.status === "failed" ? "失败" : "空闲";
+    status.textContent = project.status === "running" ? t("运行中") : project.status === "failed" ? t("失败") : t("空闲");
     head.append(title, status);
     const path = document.createElement("div");
     path.className = "dim workspace-path";
@@ -2758,17 +2761,17 @@ function renderWorkspace(snapshot) {
     const summary = document.createElement("div");
     summary.className = "workspace-summary";
     summary.textContent = conversation
-      ? `当前对话: ${conversation.title} · ${conversation.message_count} 条`
-      : "当前对话: 暂无";
+      ? `${t("当前对话")}: ${conversation.title} · ${conversation.message_count} ${t("条")}`
+      : `${t("当前对话")}: ${t("暂无")}`;
     const activity = document.createElement("div");
     activity.className = "workspace-activity dim";
     const trace = (project.recent_activity ?? []).flatMap((item) => item.events ?? []);
     activity.textContent = trace.length
-      ? `最近活动: ${trace.slice(0, 3).map((item) => item.text || item.name || "运行事件").join(" · ")}`
-      : "最近活动: 暂无";
+      ? `${t("最近活动")}: ${trace.slice(0, 3).map((item) => item.text || item.name || t("运行事件")).join(" · ")}`
+      : `${t("最近活动")}: ${t("暂无")}`;
     const queue = document.createElement("div");
     queue.className = "workspace-meta dim";
-    queue.textContent = `排队 ${project.pending_count ?? 0} 条 · 更新于 ${formatWorkspaceTime(project.updated_at)}`;
+    queue.textContent = `${t("排队")} ${project.pending_count ?? 0} ${t("条")} · ${t("更新于")} ${formatWorkspaceTime(project.updated_at)}`;
     card.append(head, path, summary, activity, queue);
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;

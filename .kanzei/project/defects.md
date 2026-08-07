@@ -64,6 +64,7 @@
 
 
 
+
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [fixing] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
 - 根因: 首轮修复仅用 8 个字符 `; & | 换行 \` $ (` 做黑名单(config.rs:232-247;permission.rs:100-112),仍把任意无这些字符的命令泛化为 `首词 *`。Shell 与各 CLI 的执行语义无法用有限字符黑名单穷举。
@@ -141,6 +142,7 @@
 
 
 
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -151,6 +153,7 @@
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
 - 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+
 
 
 
@@ -292,6 +295,7 @@
 
 
 
+
 ## D-104 最小支持窗口下顶栏折成三行,固定侧栏持续挤压核心对话区 [fixing] (medium)
 - 复现: 按 tauri.conf.json 声明的最小窗口 800x500 打开桌面端。静态浏览器验收在 1024px 时 topbar 已为两行(约 69px 高),800px 时为三行(约 101px 高);活动栏 48px + 侧栏默认 280px 后主区仅 472px。
 - 根因: #topbar 使用 `flex-wrap:wrap`,把进程、鞭挞、上下文、搜索、模型、模式等低高频控件全部常驻;侧栏只支持 220-460px 调宽,没有折叠/断点策略。D-029 只避免了竖排与横向溢出,没有解决信息层级和主区保底宽度。
@@ -326,6 +330,7 @@
 
 
 - 进展: 本轮最小步骤已完成但条目保持 fixing：index.html:144-145 新增真实 sidebar-toggle 调用方；main.js:211-226 以 localStorage 持久化折叠状态并同步 aria-expanded/title；style.css:52-55 提供 collapsed 布局，折叠后主区释放侧栏宽度。验证：node --check crates/kanzei-app/ui/main.js、git diff --check、cargo test --workspace 全部通过。缺口：顶栏低频动作溢出菜单、800/1024/1280 真实视觉回归尚未完成。
+
 
 
 
@@ -445,6 +450,7 @@
 
 
 
+
 ## D-106 错误与长结果普遍依赖 2.6 秒 toast,用户无法追溯、复制或恢复 [fixing] (medium)
 - 复现: 触发项目初始化失败、设置保存失败、权限规则删除失败、工作树操作结果等;多数路径只调用 toast(String(error/result)),2.6 秒后消失。长文本被塞入同一浮层,body 又默认 user-select:none。
 - 根因: toast 同时承担轻提示、错误报告、长结果查看三种职责,没有按严重度/可操作性分流;部分路径虽写 log,但并非统一契约,也没有“查看详情/重试”入口。
@@ -497,6 +503,7 @@
 
 
 - 进展: 完成第十八步：新增 reportError 统一持久错误反馈入口，错误写入可复制的运行日志并打开日志面板，不再依赖 2.6 秒 toast；toastError 改为复用该入口。已迁移进程创建/能力更新、项目移除/重命名/初始化/选择、文档排序/状态/复杂度/目标进度、快记失败、附件读取、队列撤销、启动步骤及复制失败等路径。既有重试入口与最终态刷新调用方保留。验证：node --check crates/kanzei-app/ui/main.js、node scripts/ui-a11y-smoke.mjs、git diff --check 通过。仍缺其他失败路径全面迁移及真实 UI 运行验证。
+
 
 
 
@@ -592,7 +599,8 @@
 
 
 
-- 进展: 完成第二十二步：权限/问题弹窗的动态标题和队列状态接入 t(key)，覆盖“需要你的回答”“权限请求”“当前请求/待处理”等文案；语言切换时若弹窗已打开，会即时刷新标题和队列状态。ui-i18n-smoke 扩展至 17 项资源与入口契约。验证：node --check、node scripts/ui-i18n-smoke.mjs、node scripts/ui-a11y-smoke.mjs、git diff --check 通过。仍未覆盖动态选项外围按钮、文档/工作区文案和真实双语快照。
+- 进展: 完成第二十三步：工作区卡片状态、当前对话、最近活动、排队/更新时间、归档入口标题/按钮文案接入 t(key)，用户项目名、路径、对话标题、工具活动内容仍保留原始数据。ui-i18n-smoke 扩展至 20 项资源与入口契约。验证：node --check、node scripts/ui-i18n-smoke.mjs、node scripts/ui-a11y-smoke.mjs、git diff --check 通过。仍未覆盖文档筛选/状态按钮、设置页动态文案和真实双语快照。
+
 
 
 
@@ -672,6 +680,7 @@
 
 
 
+
 ## D-110 todo 与活动两个右栏可同时占宽,最小窗口会把主对话区压到近乎不可用 [open] (medium)
 - 复现: 打开活动面板,再让 todowrite 显示当前计划;todo-panel 与 bg-panel 均为独立 300px 固定右栏且可同时显示。在 1280px 默认侧栏下主区只剩约 352px;800px 最小窗口下两右栏与左栏总宽已超过窗口。
 - 根因: 两个面板没有互斥、tab 合并或窄屏 overlay 策略,宽度都以 flex-shrink:0 的侧栏语义参与主布局;设置的可调最小宽度仍为 240px。
@@ -682,6 +691,7 @@
 - 阶段: 3
 - 不变量: 界面状态:多面板不挤压主对话区
 - 证据等级: E3
+
 
 
 
@@ -824,6 +834,7 @@
 
 
 
+
 ## D-088 CLI 会话历史无限累积且无清理入口 [open] (medium)
 - 复现: 在同一项目里正常使用若干次 kz run,上下文与耗时持续增长,最终撞上下文上限。
 - 根因: 每次 kz run 无条件取最新 conversation.updated 全量作为 prior(kanzei/src/main.rs:145-153),runner 以 prior.to_vec() 开局(runner.rs:206),运行结束又把累积后的完整 messages 写回(277-281);usage(47-52)中不存在 reset/new/continue 任何选项。
@@ -833,6 +844,7 @@
 - 阶段: 3
 - 不变量: 会话控制:上下文增长有清理入口
 - 证据等级: E2
+
 
 
 
@@ -973,6 +985,7 @@
 
 
 
+
 ## D-075 上下文成分浮层是死功能,状态栏承诺的点击查看无法打开 [open] (low)
 - 复现: 运行一轮后点状态栏 token 文字(title 写着"点击查看上下文成分"),浮层永不出现。
 - 根因: renderContextDetail 只写 innerHTML 从不移除 hidden 类(ui/main.js:811-825),而 `.hidden { display:none !important }`(style.css:329);全项目无其他代码碰 #context-detail(index.html:339)。
@@ -981,6 +994,7 @@
 - 阶段: 3
 - 不变量: 操作反馈:承诺的入口必须可达
 - 证据等级: E3
+
 
 
 
@@ -1120,6 +1134,7 @@
 
 
 
+
 ## D-079 运行中发送按钮禁用但排队功能存在,鼠标用户不可达 [open] (low)
 - 复现: 运行中在输入框打字并选好"插入 steer",发送按钮是灰的点不动;但按 Ctrl+Enter 却能成功排队。
 - 根因: setRunning(true) 禁用发送按钮(ui/main.js:287),而 sendText 专门实现了运行中的 queue/steer 投递分支(1277-1296),交付方式下拉也常驻可选;键盘路径直接调 send() 完全绕过按钮禁用(1571-1573)。
@@ -1129,6 +1144,7 @@
 - 阶段: 3
 - 不变量: 操作反馈:按钮状态与实际能力一致
 - 证据等级: E3
+
 
 
 
@@ -1268,6 +1284,7 @@
 
 
 
+
 ## D-090 bgEntries/diffSummary 不随 DOM 修剪,长时间运行内存与定时器负载无界增长 [open] (low)
 - 复现: 一晚上鞭挞连跑数千次工具调用且不切项目/进程。
 - 根因: ui/main.js:490-492 的修剪只删 DOM(`list.firstElementChild.remove()`),bgEntries Map(452)与 diffSummary 仅在 bgClear()(切项目/进程)时清空;687-691 的每秒 interval 遍历全 Map,对已脱离 DOM 的 detached 节点持续更新。
@@ -1277,6 +1294,7 @@
 - 阶段: 3
 - 不变量: 界面状态:长跑不产生无界增长
 - 证据等级: E3
+
 
 
 
@@ -1415,6 +1433,7 @@
 
 
 
+
 ## D-093 标题 🔔 提示只在 visibilitychange 复位,窗口可见时失焦回焦不清除 [open] (low)
 - 复现: 双屏使用,kanzei 一直可见但焦点在别处,任务完成后回到窗口,标题仍是"🔔 运行完成 · kanzei"。
 - 根因: ui/main.js:173-187 设置条件是 `!document.hasFocus() || document.hidden`(失焦即设),但复位只挂在 visibilitychange 上;窗口未被遮挡时失焦→回焦不产生该事件,缺一个 window focus 监听。
@@ -1423,6 +1442,7 @@
 - 阶段: 3
 - 不变量: 操作反馈:提示状态不陈旧
 - 证据等级: E3
+
 
 
 
@@ -1562,6 +1582,7 @@
 
 
 
+
 ## D-095 refs 跳转在独立文档页失效,特殊字符还会抛异常 [open] (low)
 - 复现: 在独立文档页展开带 `refs: R-054` 的条目并点击该链接,页面无反应。
 - 根因: ui/main.js:2188-2194 用全局 `document.querySelector([data-doc-id="..."])`,同一条目在侧栏与独立页各渲染一份且侧栏在前,而独立视图激活时侧栏副本被 `display:none` 隐藏 → scrollIntoView 对隐藏元素无效、高亮不可见;另 ref 值来自自由文本,含 `"` 或 `]` 时选择器语法错误直接抛未捕获异常。
@@ -1571,6 +1592,7 @@
 - 阶段: 3
 - 不变量: 界面状态:关联跳转在当前视图内生效
 - 证据等级: E3
+
 
 
 
@@ -1703,6 +1725,7 @@
 
 
 
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -1714,6 +1737,7 @@
 - 不变量: 工具:每次调用都有信息增量
 - 证据等级: E2
 - 进展: a7892e1 已在 dev 提示词加入验证节奏纪律(git 检查按里程碑并合并查询、先定向测试后全量、无变化不重测)与子代理适用边界(已知文件+函数直接读);1d5e294 的 edit/bash 门禁已消除编辑连败与整文件重写两类根源。剩余闭环依赖 R-099 的度量数据,机械化提醒按 R-100 决策。
+
 
 
 
