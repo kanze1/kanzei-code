@@ -149,8 +149,6 @@
           <nav id="process-tabs" aria-label="项目进程"></nav>
           <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
           <button id="new-chat" class="primary topbar-new-chat" title="清空多轮对话历史,开一段新会话">新对话</button>
-          <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
-          <label id="process-subagent-wrap" title="只对当前进程启用/关闭只读子代理"><input type="checkbox" id="process-subagent" /> 子代理</label>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板">活动</button>
           <button id="sidebar-toggle" class="ghost" title="折叠/展开左侧栏" aria-expanded="true">侧栏</button>
           <span class="spacer"></span>
@@ -169,6 +167,8 @@
               <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
                 <input type="checkbox" id="auto-allow" /> 自动放行
               </label>
+              <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
+              <label id="process-subagent-wrap" title="只对当前进程启用/关闭只读子代理"><input type="checkbox" id="process-subagent" /> 子代理</label>
               <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
               <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI">复制上下文</button>
               <button id="chat-search-toggle" class="ghost" title="搜索当前对话">搜索</button>
