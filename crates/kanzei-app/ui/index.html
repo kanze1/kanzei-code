@@ -147,38 +147,43 @@
           <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」">
             <input type="checkbox" id="auto-continue" /> 鞭挞
           </label>
-          <button id="auto-pause" class="ghost" title="暂停/恢复自动鞭挞">暂停鞭挞</button>
-          <label id="auto-stop-round-wrap" title="当前轮完成后停止鞭挞">
-            <input type="checkbox" id="auto-stop-round" /> 本轮后停
-          </label>
-          <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" />
           <span id="auto-status" class="dim"></span>
-          <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
-          <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
-            <input type="checkbox" id="auto-allow" /> 自动放行
-          </label>
-          <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
-          <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI">复制上下文</button>
-          <button id="chat-search-toggle" class="ghost" title="搜索当前对话">搜索</button>
-          <span id="chat-search" class="hidden">
-            <input id="chat-search-input" placeholder="搜索对话" />
-            <span id="chat-search-count"></span>
-            <button id="chat-search-prev" class="ghost" title="上一个匹配">↑</button>
-            <button id="chat-search-next" class="ghost" title="下一个匹配">↓</button>
-          </span>
-          <select id="model-select" title="模型(agent 默认或直选)"></select>
-          <select id="reasoning-select" title="思考强度(仅推理模型有效;越高越慢越贵)">
-            <option value="">思考:默认</option>
-            <option value="off">思考:关闭</option>
-            <option value="low">思考:低</option>
-            <option value="medium">思考:中</option>
-            <option value="high">思考:高</option>
-          </select>
-          <select id="profile-select" title="模式">
-            <option value="dev-pair">结伴开发</option>
-            <option value="dev-auto">自主推进</option>
-            <option value="research">research 研究</option>
-          </select>
+          <details id="topbar-more">
+            <summary class="ghost" title="打开低频操作菜单">更多</summary>
+            <div class="topbar-menu-panel">
+              <button id="auto-pause" class="ghost" title="暂停/恢复自动鞭挞">暂停鞭挞</button>
+              <label id="auto-stop-round-wrap" title="当前轮完成后停止鞭挞">
+                <input type="checkbox" id="auto-stop-round" /> 本轮后停
+              </label>
+              <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" />
+              <button id="new-chat" class="ghost" title="清空多轮对话历史,开一段新会话">新对话</button>
+              <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
+                <input type="checkbox" id="auto-allow" /> 自动放行
+              </label>
+              <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
+              <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI">复制上下文</button>
+              <button id="chat-search-toggle" class="ghost" title="搜索当前对话">搜索</button>
+              <span id="chat-search" class="hidden">
+                <input id="chat-search-input" placeholder="搜索对话" />
+                <span id="chat-search-count"></span>
+                <button id="chat-search-prev" class="ghost" title="上一个匹配">↑</button>
+                <button id="chat-search-next" class="ghost" title="下一个匹配">↓</button>
+              </span>
+              <select id="model-select" title="模型(agent 默认或直选)"></select>
+              <select id="reasoning-select" title="思考强度(仅推理模型有效;越高越慢越贵)">
+                <option value="">思考:默认</option>
+                <option value="off">思考:关闭</option>
+                <option value="low">思考:低</option>
+                <option value="medium">思考:中</option>
+                <option value="high">思考:高</option>
+              </select>
+              <select id="profile-select" title="模式">
+                <option value="dev-pair">结伴开发</option>
+                <option value="dev-auto">自主推进</option>
+                <option value="research">research 研究</option>
+              </select>
+            </div>
+          </details>
         </header>
         <section id="messages">
           <div id="empty-state">
