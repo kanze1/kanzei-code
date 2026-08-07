@@ -1,7 +1,7 @@
 //! 通用追踪工具:req / defect / source / finding 共用一套 CRUD。
 //! 硬门禁:ID 引擎分配、状态机受限、格式引擎序列化、引用必须存在——模型只提供字段值。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};
@@ -112,10 +112,16 @@ impl Tool for TrackerTool {
                     Err(e) => return ToolOutput::error(format!("cannot read scheduler dependencies: {e}")),
                 };
                 let scheduled = schedule_entries(&entries, &dependency_states);
-                let lines: Vec<String> = scheduled
+                let mut lines: Vec<String> = scheduled
                     .iter()
                     .map(|(entry, reasons)| render_scheduled_line(entry, reasons))
                     .collect();
+                // 饥饿保护:一条可执行都没有是队列的异常状态,不是"没活干"。不加这条横幅时
+                // agent 只看到满屏 [blocked:...] 就会判定无可推进项并停住,而阻塞理由多半是
+                // 它自己历轮写下的"需先确认方案"(D-147)。
+                if scheduled.iter().all(|(_, reasons)| !reasons.is_empty()) {
+                    lines.insert(0, deadlock_banner(scheduled.len(), self.noun));
+                }
                 ToolOutput::ok(lines.join("\n"))
             }
             "get" => {
@@ -448,14 +454,63 @@ pub fn schedule_for_display(
         .collect())
 }
 
-type DependencyStates = BTreeMap<String, bool>;
+#[derive(Default)]
+struct DependencyStates {
+    terminal: BTreeMap<String, bool>,
+    deps: BTreeMap<String, Vec<String>>,
+}
+
+impl DependencyStates {
+    fn get(&self, id: &str) -> Option<&bool> {
+        self.terminal.get(id)
+    }
+
+    fn is_terminal(&self, id: &str) -> bool {
+        self.terminal.get(id).copied().unwrap_or(false)
+    }
+
+    /// 沿**未完成**依赖从 start 出发,能走回 start 就返回环路径。已归档依赖不构成
+    /// 阻塞,自然也不参与成环。返回的路径首尾都是 start,方便直接打印。
+    fn cycle_from(&self, start: &str) -> Option<Vec<String>> {
+        let mut path = vec![start.to_string()];
+        let mut visited = BTreeSet::new();
+        self.walk(start, start, &mut path, &mut visited)
+            .then_some(path)
+    }
+
+    fn walk(
+        &self,
+        node: &str,
+        start: &str,
+        path: &mut Vec<String>,
+        visited: &mut BTreeSet<String>,
+    ) -> bool {
+        let Some(deps) = self.deps.get(node) else {
+            return false;
+        };
+        for dep in deps {
+            if self.is_terminal(dep) {
+                continue;
+            }
+            path.push(dep.clone());
+            if dep == start {
+                return true;
+            }
+            if visited.insert(dep.clone()) && self.walk(dep, start, path, visited) {
+                return true;
+            }
+            path.pop();
+        }
+        false
+    }
+}
 
 fn dependency_states(
     ctx: &ToolCtx,
     current_kind: &DocKind,
     current_entries: &[Entry],
 ) -> Result<DependencyStates, String> {
-    let mut states = BTreeMap::new();
+    let mut states = DependencyStates::default();
     for kind in [&REQUIREMENTS, &DEFECTS] {
         let active = if kind.rel_path == current_kind.rel_path {
             current_entries.to_vec()
@@ -468,7 +523,18 @@ fn dependency_states(
             .load_archive()
             .map_err(|e| format!("{} archive: {e}", kind.rel_path))?;
         for entry in active.into_iter().chain(archived) {
-            states.insert(entry.id, kind.terminal.contains(&entry.status.as_str()));
+            let deps: Vec<String> = entry
+                .fields
+                .iter()
+                .filter(|(key, _)| is_dependency_key(key))
+                .flat_map(|(_, value)| tracker_ids(value))
+                .collect();
+            states
+                .terminal
+                .insert(entry.id.clone(), kind.terminal.contains(&entry.status.as_str()));
+            if !deps.is_empty() {
+                states.deps.insert(entry.id, deps);
+            }
         }
     }
     Ok(states)
@@ -496,11 +562,14 @@ fn schedule_entries<'a>(
 
 fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
     let mut reasons = Vec::new();
+    // 环上的条目永远等不到依赖完成。只报"未完成依赖"会让 agent 一轮轮空等一个
+    // 不可能到来的前置,所以直接点出环并要求断边(D-147)。
+    let cycle = states.cycle_from(&entry.id);
     for (key, value) in &entry.fields {
         if is_blocker_key(key) && is_present_blocker(value) {
             reasons.push(format!("阻塞字段: {}", value.trim()));
         }
-        if is_dependency_key(key) {
+        if is_dependency_key(key) && cycle.is_none() {
             for id in tracker_ids(value) {
                 match states.get(&id) {
                     Some(true) => {}
@@ -513,7 +582,25 @@ fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
             reasons.push(format!("阶段门槛: {}", value.trim()));
         }
     }
+    if let Some(path) = cycle {
+        reasons.push(format!(
+            "循环依赖: {} —— 环上没有条目能先完成,必须断掉其中一条边(把不成立的依赖移入 refs)",
+            path.join(" → ")
+        ));
+    }
     reasons
+}
+
+/// 全部条目被判阻塞时置顶的横幅。措辞是刻意的:先要求复核既有阻塞(多数是自记的),
+/// 复核后仍全阻塞才允许升级给用户,并且必须点名缺哪个决策——"无可执行条目"不是合格收尾。
+fn deadlock_banner(total: usize, noun: &str) -> String {
+    format!(
+        "[调度死锁] {total} 条{noun}全部带阻塞标记,可执行数为 0。这是队列异常,不是没活干。\n\
+         1. 先逐条复核阻塞是否仍成立:依赖已归档、条件已满足、方案其实早已确认的,\
+         清空该条的「阻塞」字段再取活——自己历轮写下的「需先确认方案」不算外部阻塞。\n\
+         2. 复核后仍全阻塞,才回复用户,并逐条点名缺的是哪一个具体决策。\n\
+         禁止以「没有可执行条目」「本轮停止」之类的纯文本收尾。"
+    )
 }
 
 fn render_scheduled_line(entry: &Entry, reasons: &[String]) -> String {
@@ -922,6 +1009,115 @@ mod tests {
         assert!(lines[1].starts_with("R-002"), "{}", out.content);
         assert!(lines[2].starts_with("R-003"), "{}", out.content);
         assert!(lines[3].contains("R-004") && lines[3].contains("阶段门槛"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn list_banners_deadlock_when_nothing_is_executable() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-deadlock-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut first = entry("R-001");
+        first.fields.push(("阻塞".into(), "等待用户确认方案".into()));
+        let mut second = entry("R-002");
+        second.fields.push(("阻塞".into(), "依赖外部服务".into()));
+        store.save(&[first, second]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.starts_with("[调度死锁] 2 条requirement"), "{}", out.content);
+        // 横幅必须堵死"没有可执行条目"这条收尾话术,否则鞭挞照旧静默停。
+        assert!(out.content.contains("禁止以「没有可执行条目」"), "{}", out.content);
+        assert!(out.content.contains("R-001") && out.content.contains("R-002"));
+
+        // 只要有一条恢复可执行,横幅就消失——它只在真死锁时出现,不构成日常噪音。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"阻塞": ""}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(!out.content.contains("[调度死锁]"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn list_names_dependency_cycles_instead_of_endless_waiting() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-cycle-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut a = entry("R-001");
+        a.fields.push(("依赖".into(), "R-002".into()));
+        let mut b = entry("R-002");
+        b.fields.push(("依赖".into(), "R-001".into()));
+        // 环外的普通未完成依赖仍应照旧报"未完成依赖",不被环检测吞掉。
+        let mut c = entry("R-003");
+        c.fields.push(("依赖".into(), "R-004".into()));
+        store.save(&[a, b, c, entry("R-004")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        let cycle_line = out
+            .content
+            .lines()
+            .find(|l| l.starts_with("R-001"))
+            .unwrap_or_default();
+        assert!(
+            cycle_line.contains("循环依赖: R-001 → R-002 → R-001"),
+            "{}",
+            out.content
+        );
+        assert!(cycle_line.contains("断掉其中一条边"), "{}", out.content);
+        let plain = out
+            .content
+            .lines()
+            .find(|l| l.starts_with("R-003"))
+            .unwrap_or_default();
+        assert!(plain.contains("未完成依赖: R-004"), "{}", out.content);
+        assert!(!plain.contains("循环依赖"), "{}", out.content);
+
+        // 断边后环消失,两条都回到可执行。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-002", "fields": {"依赖": ""}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(!out.content.contains("循环依赖"), "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 }
