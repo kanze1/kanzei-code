@@ -80,7 +80,7 @@ const I18N_EN = {
   "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source",
-  "保存修改": "Save changes", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory",
+  "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -3429,6 +3429,48 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     // 行内不显示需求 ID(R-054),身份收进展开详情——这里必须给全。
     full.textContent = kind === "req" ? `${entry.id} · ${entry.title}` : entry.title;
     detail.appendChild(full);
+    if ((kind === "req" || kind === "defect") && !entry.closed) {
+      const editBox = document.createElement("div");
+      editBox.className = "doc-edit";
+      const titleInput = document.createElement("input");
+      titleInput.value = entry.title;
+      titleInput.setAttribute("aria-label", `${entry.id} ${t("标题")}`);
+      titleInput.title = t("编辑标题");
+      const fieldInputs = [];
+      for (const [key, value] of entry.fields ?? []) {
+        const fieldInput = document.createElement("input");
+        fieldInput.value = value;
+        fieldInput.setAttribute("aria-label", `${key}`);
+        fieldInput.title = `${t("编辑字段")}: ${key}`;
+        fieldInputs.push([key, fieldInput]);
+        editBox.appendChild(fieldInput);
+      }
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "primary mini";
+      save.textContent = t("保存修改");
+      save.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await invoke("docs_update", {
+            projectDir: currentProject,
+            kind,
+            action: "update",
+            id: entry.id,
+            title: titleInput.value,
+            fields: Object.fromEntries(fieldInputs.map(([key, input]) => [key, input.value])),
+          });
+          toast(t("已保存"));
+          refreshDocs();
+        } catch (error) {
+          toastError(`记录保存失败:${error}`);
+        }
+      });
+      editBox.prepend(titleInput);
+      editBox.appendChild(save);
+      editBox.addEventListener("click", (event) => event.stopPropagation());
+      detail.appendChild(editBox);
+    }
     if (blocked || externalBlocked) {
       const blockBox = document.createElement("div");
       blockBox.className = "doc-blocked-detail";

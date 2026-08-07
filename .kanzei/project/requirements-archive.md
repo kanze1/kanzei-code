@@ -643,3 +643,13 @@
 
 - 验证: 沿用 R-119 实现；cargo test -p kanzei-app export_project_data_copies_selected_work_materials；node --check；ui-runtime-smoke；ui-i18n-smoke
 
+## R-120 侧边栏直接修改记录和缺陷功能 [done]
+- 复杂度: 中
+- 归属: kanzei
+- 验收: U能在侧边栏查看并编辑需求和缺陷记录
+- 优先级: P1
+
+- 进展: 已完成：沿用既有 renderDocList→docs_update 调用链，在需求与缺陷侧栏详情新增标题及全部字段编辑控件和保存按钮；保存后调用 `docs_update` 并刷新列表，原有状态/优先级/复杂度编辑保持不变。调用方：crates/kanzei-app/ui/main.js 的侧栏详情保存按钮→Tauri `docs_update`→TrackerTool。验证：ui-runtime-smoke 新增需求与缺陷编辑调用回归，node --check、ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke 全部通过。
+
+- 验证: crates/kanzei-app/ui/main.js:renderDocList 编辑控件；scripts/ui-runtime-smoke.mjs 需求/缺陷 docs_update 回归；4 个 UI smoke
+

@@ -253,8 +253,8 @@ const payloads = {
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中" }), docEntry("R-002", "冒烟需求二", "todo")],
-    defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium" })],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"]] }), docEntry("R-002", "冒烟需求二", "todo")],
+    defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
     goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
     sources: [],
     findings: [],
@@ -393,6 +393,16 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
+const reqEditor = document.querySelector("#req-list .doc-edit");
+assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "需求侧栏未提供标题/字段编辑控件");
+reqEditor.querySelector("button").click();
+await flush();
+assert(invokeLog.includes("docs_update"), "需求侧栏编辑未调用 docs_update");
+const defectEditor = document.querySelector("#defect-list .doc-edit");
+assert(defectEditor?.querySelector("input") && defectEditor?.querySelector("button"), "缺陷侧栏未提供标题/字段编辑控件");
+defectEditor.querySelector("button").click();
+await flush();
+assert(invokeLog.filter((cmd) => cmd === "docs_update").length >= 2, "缺陷侧栏编辑未调用 docs_update");
 
 // ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
 const languageControl = byId.get("language-select");
