@@ -88,6 +88,19 @@ pub const MEMORY: DocKind = DocKind {
     bidirectional: true,
 };
 
+/// 设计决策(R-110):讨论与设计的沉淀——像需求/缺陷一样可追踪、可引用、可检索。
+/// accepted 是常驻态(决策生效中);被新决策取代时 superseded 并归档,拒绝即 rejected。
+pub const DECISIONS: DocKind = DocKind {
+    rel_path: ".kanzei/project/decisions.md",
+    heading: "Decisions",
+    prefix: "A",
+    statuses: &["draft", "accepted", "superseded", "rejected"],
+    terminal: &["superseded", "rejected"],
+    severities: None,
+    priorities: None,
+    bidirectional: false,
+};
+
 /// 长期目标(R-019):agent 每次运行注入活跃目标,无明确任务时自主推进。
 pub const GOALS: DocKind = DocKind {
     rel_path: ".kanzei/project/goals.md",

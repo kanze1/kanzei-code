@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
             usage();
             anyhow::bail!("未知参数: {arg}");
         }
-        Some("req" | "defect" | "source" | "finding" | "goal") => tracker_cli(&args).await,
+        Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => tracker_cli(&args).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
         None => {
@@ -306,6 +306,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }
     };
 
+    // 开跑预检索(R-106):prompt 命中既有记忆时前置提示块(只给索引行)。
+    // 队列里存的仍是用户原文;提示块只进本次运行。
+    let run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
+        Some(hints) => format!("{hints}\n\n{prompt}"),
+        None => prompt.clone(),
+    };
     let run_result = tokio::select! {
         result = run_once(
             &client,
@@ -314,7 +320,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             &agent,
             &runner_config,
             &ctx,
-            &prompt,
+            &run_prompt,
             &prior,
             Some(&subagent_rt),
             &mut on_event,
@@ -371,6 +377,28 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         summary.usage.cache_write,
         summary.usage.output
     );
+    let context_total: usize = summary.context_report.iter().map(|(_, n)| n).sum();
+    println!(
+        "\x1b[90m— context {} 源 {} 字符\x1b[0m",
+        summary.context_report.len(),
+        context_total
+    );
+    // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
+    {
+        let outcome = if summary.halted_by_user { "halted" } else { "completed" };
+        let tools = kanzei_core::summarize_tools(&summary.messages);
+        let store = kanzei_core::SessionStore::open(&state_path)?;
+        let _ = store.append_episode(
+            &session_id,
+            &prompt,
+            outcome,
+            summary.steps,
+            summary.usage.input,
+            summary.usage.output,
+            &serde_json::to_string(&tools).unwrap_or_default(),
+            &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+        );
+    }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx).await;
     Ok(())
@@ -455,7 +483,7 @@ fn persist_always_allow(
 
 /// 人用直通:不经 LLM,直接调 tracker 工具。
 async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
-    use kanzei_tools::docstore::{DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+    use kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
     use kanzei_tools::tracker::TrackerTool;
 
     let tool = match args[0].as_str() {
@@ -463,6 +491,12 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
             tool_name: "goal",
             noun: "goal",
             kind: &GOALS,
+            requires_refs: None,
+        },
+        "decision" => TrackerTool {
+            tool_name: "decision",
+            noun: "decision",
+            kind: &DECISIONS,
             requires_refs: None,
         },
         "req" => TrackerTool {

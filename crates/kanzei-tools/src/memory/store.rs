@@ -582,15 +582,57 @@ fn unsegment_cjk(text: &str) -> String {
     out
 }
 
-/// FTS5 MATCH 表达式:每个用户词 → 引号短语(内部 CJK 已单字切分),防语法注入。
+/// FTS5 MATCH 表达式(防语法注入,词间 OR 靠 bm25 排相关度):
+/// ASCII 词原样引号;CJK 段 ≤4 字整段短语(短查询保精度),
+/// >4 字拆 bigram 短语(整句 prompt 也能命中"发版"这类子串)。封顶 24 词。
 fn fts_query(query: &str) -> String {
-    query
-        .split_whitespace()
-        .map(|t| segment_cjk(&t.replace('"', "")))
-        .filter(|t| !t.is_empty())
-        .map(|t| format!("\"{t}\""))
-        .collect::<Vec<_>>()
-        .join(" OR ")
+    let mut terms: Vec<String> = Vec::new();
+    for token in query.split_whitespace() {
+        let token = token.replace('"', "");
+        let mut ascii = String::new();
+        let mut cjk: Vec<char> = Vec::new();
+        for ch in token.chars() {
+            if is_cjk(ch) {
+                flush_ascii(&mut ascii, &mut terms);
+                cjk.push(ch);
+            } else if ch.is_alphanumeric() || ch == '-' || ch == '_' || ch == '.' {
+                flush_cjk(&mut cjk, &mut terms);
+                ascii.push(ch);
+            } else {
+                flush_ascii(&mut ascii, &mut terms);
+                flush_cjk(&mut cjk, &mut terms);
+            }
+        }
+        flush_ascii(&mut ascii, &mut terms);
+        flush_cjk(&mut cjk, &mut terms);
+    }
+    let mut seen = std::collections::HashSet::new();
+    terms.retain(|t| seen.insert(t.clone()));
+    terms.truncate(24);
+    terms.join(" OR ")
+}
+
+fn flush_ascii(ascii: &mut String, terms: &mut Vec<String>) {
+    if !ascii.is_empty() {
+        terms.push(format!("\"{ascii}\""));
+        ascii.clear();
+    }
+}
+
+fn flush_cjk(cjk: &mut Vec<char>, terms: &mut Vec<String>) {
+    match cjk.len() {
+        0 => {}
+        1..=4 => {
+            let phrase: Vec<String> = cjk.iter().map(|c| c.to_string()).collect();
+            terms.push(format!("\"{}\"", phrase.join(" ")));
+        }
+        _ => {
+            for pair in cjk.windows(2) {
+                terms.push(format!("\"{} {}\"", pair[0], pair[1]));
+            }
+        }
+    }
+    cjk.clear();
 }
 
 /// tmp+rename 原子替换(std::fs::rename 在 Windows 用 MOVEFILE_REPLACE_EXISTING)。

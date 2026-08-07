@@ -127,16 +127,24 @@ impl HarnessSnapshot {
 
     /// 渲染 system baseline:各 Context Source 依注册顺序拼接。
     pub fn system_baseline(&self) -> String {
+        self.system_baseline_with_report().0
+    }
+
+    /// baseline + 上下文账单(R-106):每个 source 注入了多少字符,
+    /// "本轮上下文里有什么、各占多少"从此是数据而不是猜测。
+    pub fn system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
         let mut sections = Vec::new();
-        for (_, src) in self.draft.context.iter() {
+        let mut report = Vec::new();
+        for (name, src) in self.draft.context.iter() {
             if let Some(text) = src.baseline(&self.ctx) {
                 let text = text.trim();
                 if !text.is_empty() {
+                    report.push((name.to_string(), text.chars().count()));
                     sections.push(text.to_string());
                 }
             }
         }
-        sections.join("\n\n")
+        (sections.join("\n\n"), report)
     }
 
     /// 权限评估入口(拦截器在 core 侧调用)。

@@ -182,6 +182,37 @@ pub fn render_entry(entry: &MemoryEntry) -> String {
     out
 }
 
+/// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
+/// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
+pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut stores = vec![MemoryStore::project(project_root)];
+    stores.extend(MemoryStore::global());
+    for store in &stores {
+        if let Ok(found) = store.search(prompt, None, Some("active"), 3) {
+            hits.extend(found);
+        }
+    }
+    if hits.is_empty() {
+        return None;
+    }
+    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.truncate(3);
+    let lines: Vec<String> = hits
+        .iter()
+        .map(|h| {
+            format!(
+                "{} [{}/{}] {} — {}",
+                h.entry.id, h.entry.scope, h.entry.category, h.entry.title, h.entry.description
+            )
+        })
+        .collect();
+    Some(format!(
+        "<memory-hints>\n与本任务可能相关的既有记忆(memory_search 或 read 返回的 file 查看正文):\n{}\n</memory-hints>",
+        lines.join("\n")
+    ))
+}
+
 /// 今天的日期(YYYY-MM-DD,UTC)。civil-from-days 算法,不引 chrono。
 pub fn today() -> String {
     let ms = std::time::SystemTime::now()
@@ -248,6 +279,32 @@ mod tests {
         assert_eq!(slugify("发版 SOP: 两条通道"), "发版-sop-两条通道");
         assert_eq!(slugify("!!!"), "");
         assert!(slugify(&"字".repeat(100)).chars().count() <= 40);
+    }
+
+    #[test]
+    fn prompt_hints_only_fire_on_real_matches() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-hints-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        match store
+            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", false)
+            .unwrap()
+        {
+            AddOutcome::Added(_) => {}
+            _ => panic!("expected add"),
+        }
+        let hit = prompt_hints(&dir, "帮我把这一批发版出去");
+        assert!(hit.is_some());
+        assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
+        assert!(prompt_hints(&dir, "完全无关的宇宙话题").is_none());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

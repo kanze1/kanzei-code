@@ -10,7 +10,8 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-const SCHEMA_VERSION: i64 = 2;
+// v3:episodes 表(R-106,轮次情景摘要;回滚 = DROP TABLE episodes 并把版本改回 2)。
+const SCHEMA_VERSION: i64 = 3;
 
 pub fn project_state_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("state.db")
@@ -608,11 +609,80 @@ impl SessionStore {
                  updated_at INTEGER NOT NULL,
                  PRIMARY KEY(device_id, thread_id)
              );
-             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '2')
+             CREATE TABLE IF NOT EXISTS episodes (
+                 episode_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 session_id TEXT NOT NULL,
+                 created_at INTEGER NOT NULL,
+                 prompt_head TEXT NOT NULL,
+                 outcome TEXT NOT NULL,
+                 steps INTEGER NOT NULL,
+                 input_tokens INTEGER NOT NULL,
+                 output_tokens INTEGER NOT NULL,
+                 tools_json TEXT NOT NULL,
+                 context_json TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS episodes_session_created
+                 ON episodes(session_id, created_at);
+             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '3')
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// 轮次情景摘要(R-106):机械生成的轨迹画像,R-099 度量与记忆系统共用。
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_episode(
+        &self,
+        session_id: &str,
+        prompt_head: &str,
+        outcome: &str,
+        steps: u32,
+        input_tokens: u64,
+        output_tokens: u64,
+        tools_json: &str,
+        context_json: &str,
+    ) -> Result<(), StoreError> {
+        self.connection.execute(
+            "INSERT INTO episodes(session_id, created_at, prompt_head, outcome, steps,
+                                  input_tokens, output_tokens, tools_json, context_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                session_id,
+                now_ms(),
+                prompt_head.chars().take(200).collect::<String>(),
+                outcome,
+                steps,
+                input_tokens as i64,
+                output_tokens as i64,
+                tools_json,
+                context_json
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// 最近 N 条 episode(新→旧):(created_at, prompt_head, outcome, steps, tools_json)。
+    pub fn list_episodes(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String, u32, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT created_at, prompt_head, outcome, steps, tools_json
+             FROM episodes WHERE session_id = ?1
+             ORDER BY created_at DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![session_id, limit as i64], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 }
 
@@ -782,6 +852,32 @@ mod tests {
         store.set_delivery_cursor("device_a", "thread_a", 1).unwrap();
         assert_eq!(store.delivery_cursor("device_a", "thread_a").unwrap(), 1);
         assert!(store.replay_notifications("thread_a", 1, 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn episode_落库并按时间倒序回放() {
+        let store = store();
+        store
+            .append_episode(
+                "ses_test",
+                "修复 D-068 限流分类",
+                "completed",
+                12,
+                50_000,
+                3_000,
+                r#"{"bash":5,"edit":3}"#,
+                r#"[["agent/system",1200],["dev/memory",800]]"#,
+            )
+            .unwrap();
+        store
+            .append_episode("ses_test", "第二轮", "halted", 3, 1_000, 100, "{}", "[]")
+            .unwrap();
+        let episodes = store.list_episodes("ses_test", 10).unwrap();
+        assert_eq!(episodes.len(), 2);
+        assert_eq!(episodes[0].1, "第二轮");
+        assert_eq!(episodes[1].3, 12);
+        assert!(episodes[1].4.contains("bash"));
+        assert!(store.list_episodes("missing", 10).unwrap().is_empty());
     }
 
     #[test]

@@ -3621,6 +3621,11 @@ async fn run_task(
         );
     }
 
+    // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
+    let run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
+        Some(hints) => format!("{hints}\n\n{prompt}"),
+        None => prompt.clone(),
+    };
     let run_result = run_once_with_parts(
         &client,
         &route,
@@ -3628,7 +3633,7 @@ async fn run_task(
         &agent,
         &runner_config,
         &ctx,
-        &prompt,
+        &run_prompt,
         &prior,
         (!initial_parts.is_empty()).then_some(initial_parts.as_slice()),
         subagent_rt.as_ref(),
@@ -3664,10 +3669,24 @@ async fn run_task(
                         "halted_by_user": summary.halted_by_user,
                         "input": summary.usage.input,
                         "output": summary.usage.output,
+                        // 上下文账单(R-106):各注入源字符数,UI 与度量共用。
+                        "context": summary.context_report,
                     }),
                 ) {
                     report_persistence_failure(window, &session_id, "写入完成事件", error);
                 }
+                // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
+                let _ = store.append_episode(
+                    &session_id,
+                    &prompt,
+                    if summary.halted_by_user { "halted" } else { "completed" },
+                    summary.steps,
+                    summary.usage.input,
+                    summary.usage.output,
+                    &serde_json::to_string(&kanzei_core::summarize_tools(&summary.messages))
+                        .unwrap_or_default(),
+                    &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+                );
                 if let Err(error) = append_run_notification(
                     store,
                     &session_id,

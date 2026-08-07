@@ -140,6 +140,21 @@ pub struct RunSummary {
     /// 本次运行结束时的完整消息历史(含本次),调用方保存后可作为下次 prior 传入,
     /// 实现跨消息连续对话(M2 落盘前的内存态方案)。
     pub messages: Vec<Message>,
+    /// 上下文账单(R-106):system 各注入源的字符数(agent/system 在首位)。
+    pub context_report: Vec<(String, usize)>,
+}
+
+/// 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
+pub fn summarize_tools(messages: &[Message]) -> std::collections::BTreeMap<String, usize> {
+    let mut counts = std::collections::BTreeMap::new();
+    for message in messages {
+        for part in &message.parts {
+            if let Part::ToolCall { name, .. } = part {
+                *counts.entry(name.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
 }
 
 /// 权限询问的用户决定。AlwaysAllow 的持久化由 UI 层负责(写入项目配置),
@@ -217,7 +232,11 @@ pub fn run_once_with_parts<'a>(
     }
 
     // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
-    let system: Vec<String> = [agent.system.clone(), snapshot.system_baseline()]
+    let (baseline, mut context_report) = snapshot.system_baseline_with_report();
+    if !agent.system.trim().is_empty() {
+        context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
+    }
+    let system: Vec<String> = [agent.system.clone(), baseline]
         .into_iter()
         .filter(|s| !s.trim().is_empty())
         .collect();
@@ -444,6 +463,7 @@ pub fn run_once_with_parts<'a>(
                 steps: step,
                 halted_by_user: false,
                 messages,
+                context_report: context_report.clone(),
             });
         }
 
@@ -663,6 +683,7 @@ pub fn run_once_with_parts<'a>(
                         steps: step,
                         halted_by_user: true,
                         messages,
+                        context_report: context_report.clone(),
                     });
                 }
                 Gate::Pass => {
@@ -695,6 +716,7 @@ pub fn run_once_with_parts<'a>(
                 steps: step,
                 halted_by_user: false,
                 messages,
+                context_report: context_report.clone(),
             });
         }
         if last_step {
@@ -708,6 +730,7 @@ pub fn run_once_with_parts<'a>(
         steps: step,
         halted_by_user: false,
         messages,
+        context_report,
     })
     })
 }

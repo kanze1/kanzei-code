@@ -8,7 +8,7 @@ use kanzei_harness::{
     ResolveCtx,
 };
 
-use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 
 /// 索引注入的预算上限(条数;超出折叠为计数)。
@@ -50,6 +50,17 @@ impl Component for DevProfile {
                 requires_refs: None,
             }),
         );
+        // 设计决策沉淀(R-110):讨论定下的方案与取舍像需求/缺陷一样落条目。
+        draft.tools.insert(
+            "decision",
+            Arc::new(TrackerTool {
+                tool_name: "decision",
+                noun: "decision",
+                kind: &DECISIONS,
+                requires_refs: None,
+            }),
+        );
+
         // Memory 系统(R-104,文件优先分级记忆):主 agent 只有 检索/草稿投递/概览,
         // 写路径(add/update/merge/stale)属 M2 的 memory-manager 子代理。
         draft
@@ -181,6 +192,27 @@ impl Component for DevProfile {
                      notes later. Facts only — next steps belong in req/defect.\n</memory-index>",
                 );
                 Some(out)
+            }),
+        );
+
+        draft.context.insert(
+            "dev/decisions",
+            source("dev/decisions", |ctx: &ResolveCtx| {
+                let entries = DocStore::open(&ctx.project_root, &DECISIONS).load().ok()?;
+                let standing: Vec<String> = entries
+                    .iter()
+                    .filter(|e| e.status == "accepted")
+                    .map(|e| format!("{} {}", e.id, e.title))
+                    .collect();
+                if standing.is_empty() {
+                    return None;
+                }
+                Some(format!(
+                    "<decisions>\n{}\nAccepted decisions are standing constraints — do not \
+                     re-litigate them; `decision get <id>` for rationale. Record newly agreed \
+                     designs/tradeoffs with `decision add` (status draft until the user accepts).\n</decisions>",
+                    standing.join("\n")
+                ))
             }),
         );
 
