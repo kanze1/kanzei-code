@@ -1164,7 +1164,7 @@ on("kz:ask", (e) => {
   if (e.payload.kind !== "question" && $("auto-allow").checked) {
     log(`自动放行:${e.payload.action} ${e.payload.resource}`);
     invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
-      log(`自动放行失败:${err}`, "err")
+      reportPersistentError(`自动放行失败:${err}`)
     );
     return;
   }
@@ -1255,7 +1255,7 @@ async function answerAsk(reply) {
   try {
     await invoke("answer_ask", { id, reply });
   } catch (err) {
-    log(`权限应答失败:${err}`, "err");
+    reportPersistentError(`权限应答失败:${err}`);
   }
   pumpAsk();
 }
@@ -1317,8 +1317,7 @@ $("copy-context").addEventListener("click", async () => {
     await navigator.clipboard.writeText(parts.join("\n\n"));
     toast(`已复制上下文(${parts.length} 段)`);
   } catch (err) {
-    log(`复制上下文失败:${err}`, "err");
-    toast("复制失败,请检查剪贴板权限");
+    toastError(`复制上下文失败:${err}`);
   }
 });
 
@@ -1863,7 +1862,7 @@ $("profile-select").addEventListener("change", () => {
     processProfileUi.set(activeProcessId, $("profile-select").value);
     const profile = $("profile-select").value === "research" ? "research" : "dev";
     invoke("process_update", { processId: activeProcessId, profile })
-      .catch((error) => log(`进程模式保存失败:${error}`, "warn"));
+      .catch((error) => reportPersistentError(`进程模式保存失败:${error}`));
   }
   syncAutoContinueWithProfile();
 });
@@ -1871,7 +1870,7 @@ $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
   cancelAutoContinueTimer();
   autoRounds = 0;
-  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => log(`停止指令失败:${err}`, "err"));
+  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`停止指令失败:${err}`));
   hideAsk();
   stopElapsed();
   setRunning(false, "已停止");
@@ -1948,7 +1947,7 @@ async function loadModels() {
     }
     log(`模型列表已刷新(${models.length} 个可选)`);
   } catch (err) {
-    log(`模型列表获取失败:${err}`, "warn");
+    reportPersistentError(`模型列表获取失败:${err}`);
   }
 }
 // 思考强度:空值=用配置默认档,其余为本进程覆盖。
@@ -1957,7 +1956,7 @@ $("reasoning-select").addEventListener("change", () => {
   localStorage.setItem("kz-reasoning", value);
   if (activeProcessId) {
     invoke("process_update", { processId: activeProcessId, reasoning: value })
-      .catch((error) => log(`进程思考强度保存失败:${error}`, "warn"));
+      .catch((error) => reportPersistentError(`进程思考强度保存失败:${error}`));
   }
 });
 
@@ -1966,7 +1965,7 @@ $("model-select").addEventListener("change", () => {
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
     invoke("process_update", { processId: activeProcessId, model: $("model-select").value })
-      .catch((error) => log(`进程模型保存失败:${error}`, "warn"));
+      .catch((error) => reportPersistentError(`进程模型保存失败:${error}`));
   }
 });
 
