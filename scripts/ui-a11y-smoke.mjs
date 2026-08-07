@@ -53,7 +53,7 @@ assert.match(js, /function renderRecoveredTraces\(payloads\)/);
 assert.match(js, /className = `complexity-meter complexity-level-\$\{level\}`/);
 assert.match(js, /el\.id === "req-list"/);
 assert.match(js, /className = `complexity-cell\$\{i <= level \? " filled" : ""\}`/);
-assert.match(css, /#req-list \.doc-item\.pri-P2 \.complexity-cell\.filled \{ background: var\(--info\)/);
+assert.match(css, /#req-list \.doc-item::before \{ display: none; \}/);
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);
 assert.match(js, /document\.querySelectorAll\("\[data-doc-id\]"\)[\s\S]*item\.dataset\.docId === ref[\s\S]*offsetParent/);
