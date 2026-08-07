@@ -380,6 +380,23 @@ mod update_tests {
     }
 
     #[test]
+    fn persist_always_allow_success_returns_always_allow_and_path() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-app-always-ok-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
+        assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
+        assert_eq!(path, root.join(".kanzei/kanzei.toml"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn persist_always_allow_failure_returns_deny_path() {
         let root = std::env::temp_dir().join(format!(
             "kanzei-app-always-fail-{}-{}",

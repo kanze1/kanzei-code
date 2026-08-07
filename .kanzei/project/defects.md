@@ -11,7 +11,7 @@
 - 阶段: 1
 - 不变量: 权限:授权范围精确可解释
 - 证据等级: E2
-- 进展: 完成 CLI 真实 E2：新增 crates/kanzei/tests/always_allow_bash.rs，隔离 HOME/USERPROFILE 与项目目录，启动真实 `kz` binary，使用本地 OpenAI SSE mock 产生 bash tool call，stdin 输入 `a`，断言：进程成功、marker.txt 由 BashTool 实际执行生成、项目配置保存包含 command+绝对 workdir 的结构化 bash Allow 规则。cargo test -p kanzei --test always_allow_bash 通过；cargo test -p kanzei -p kanzei-app 全部通过（CLI 2 单元+1 E2，桌面 8）。仍缺桌面真实 UI→answer_ask→bash E2、旧规则提示/正式迁移、并发写入证据。
+- 进展: 补充桌面 AlwaysAllow 持久化成功回归：persist_always_allow 成功时断言返回 AlwaysAllow 且返回项目配置路径；失败路径继续断言返回 Err。cargo test -p kanzei-app 9 项通过。桌面真实 UI→answer_ask→runner→bash E2 仍未完成，当前局部 helper 测试仅覆盖真实配置写入决策。
 
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [open] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
