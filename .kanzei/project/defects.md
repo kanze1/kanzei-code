@@ -71,9 +71,9 @@
 - 阶段: 1
 - 不变量: 持久化:序号分配、业务写入和幂等记录在同一事务语义内
 - 证据等级: E2
-- 进展: 当前生产路径已完成第一轮隔离，但原验收仍要求注入收尾持久化失败的 E2；现有 app 测试没有 run_task 的 provider/存储故障注入夹具。先保留 fixing，按缺陷顺序继续检查下一个可做条目 D-065，后续补可控注入。
+- 进展: 生产代码已隔离收尾落库失败，但注入故障的 run_task E2 夹具仍未补齐；保持 fixing，不重复扩大本轮范围，继续按文档顺序处理 D-066。
 
-## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [open] (medium)
+## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixing] (medium)
 - 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
 - 根因: 首轮修复补了 lifecycle 锁、idle 状态和 pending 清理,没有实现原验收的“回收 promoted 未执行输入”;session_inputs 状态机也没有 promoted→cancelled/pending 的停止迁移。
 - 已完成部分: 手动停止后会话状态不再永久卡 running,stop 与普通 admit/drain 的大部分交错已串行化。
@@ -84,6 +84,7 @@
 - 阶段: 1
 - 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
 - 证据等级: E2
+- 进展: 已完成第一最小修复：stop_run 现在在持有 runtime.lifecycle 锁期间执行数据库清理，且调用新增 SessionStore::cancel_unfinished_inputs，将 pending 与已 promoted 但尚未完成的输入统一标记 cancelled；这样 stop 与 promote 不再交错，promoted 输入不会静默遗留。新增 store::tests::停止时取消_pending_和已_promoted_输入，验证两类输入均进入明确终态；cargo test -p kanzei-core -p kanzei-app 36/12 项通过。仍待补 app 层“promote 后、run_task 前 stop”真实生命周期 E2，保持 fixing。改动位置 crates/kanzei-app/src/main.rs:2650-2680、crates/kanzei-core/src/store.rs:407-435、约 860 行测试。
 
 ## D-067 anthropic 协议遇未知 content_block 类型直接杀流 [open] (medium)
 - 复现: Anthropic 侧响应中出现新的 block 类型(已有先例:server_tool_use、web_search_tool_result),或 OAuth beta 通道服务端注入新块。

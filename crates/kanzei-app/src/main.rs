@@ -2647,35 +2647,35 @@ fn stop_run(
         );
         return;
     }
+    let mut cancelled = None;
     for runtime in runtimes {
-        // 取 lifecycle 锁再动手:否则可能与 drain 收尾/队列 admit 交错,
-        // 造成已 promote 的输入无人执行或 pending 输入变成孤儿(D-066)。
+        // 取 lifecycle 锁再动手并保持到数据库清理结束:否则 promote 可能插入
+        // pending->promoted 的窗口,随后只取消 pending 会留下孤儿(D-066)。
         let _lifecycle = runtime.lifecycle.lock().unwrap();
         if let Some(handle) = runtime.current_run.lock().unwrap().take() {
             handle.abort();
         }
         runtime.asks.lock().unwrap().clear();
         runtime.running.store(false, Ordering::SeqCst);
-    }
 
-    let cancelled = target_project.map(|root| {
-        let session_id = target_session
-            .clone()
-            .unwrap_or_else(|| kanzei_core::project_session_id(&root));
-        let state_path = kanzei_core::project_state_path(&root);
-        // abort 会在下一个 await 点杀死任务,写 idle/failed 的收尾分支永远执行不到,
-        // 会话状态会永久卡在 running,工作区显示幽灵运行(D-066)。
-        kanzei_core::SessionStore::open(&state_path).and_then(|store| {
-            let _ = store.set_status(&session_id, "idle");
-            let _ = store.append_event(
-                &session_id,
-                "session.status_changed",
-                &json!({ "status": "idle", "reason": "stopped_by_user" }),
-            );
-            store.cancel_pending_inputs(&session_id)
-        })
-    });
-    match cancelled.transpose() {
+        cancelled = target_project.clone().map(|root| {
+            let session_id = target_session
+                .clone()
+                .unwrap_or_else(|| kanzei_core::project_session_id(&root));
+            let state_path = kanzei_core::project_state_path(&root);
+            // abort 会在下一个 await 点杀死任务,写 idle/failed 的收尾分支永远执行不到,
+            // 会话状态会永久卡在 running,工作区显示幽灵运行(D-066)。
+            kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+                let _ = store.set_status(&session_id, "idle");
+                let _ = store.append_event(
+                    &session_id,
+                    "session.status_changed",
+                    &json!({ "status": "idle", "reason": "stopped_by_user" }),
+                );
+                store.cancel_unfinished_inputs(&session_id)
+            })
+        });
+    }    match cancelled.transpose() {
         Ok(Some(count)) => {
             let _ = window.emit(
                 "kz:stopped",

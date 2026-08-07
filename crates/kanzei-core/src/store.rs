@@ -414,6 +414,15 @@ impl SessionStore {
     }
 
     /// 取消会话中全部尚未提升的输入，供停止运行时清理 queue。
+    /// 停止运行时取消尚未完成的输入，包括已提升但尚未完成执行的输入。
+    pub fn cancel_unfinished_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE session_inputs SET status = 'cancelled'
+             WHERE session_id = ?1 AND status IN ('pending', 'promoted')",
+            params![session_id],
+        )?;
+        Ok(changed)
+    }
     pub fn cancel_pending_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
         let changed = self.connection.execute(
             "UPDATE session_inputs SET status = 'cancelled'
@@ -844,6 +853,22 @@ mod tests {
         store.promote_next_queue("ses_test").unwrap();
         assert!(!store.cancel_input("ses_test", "promoted").unwrap());
         assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+    }
+
+    #[test]
+    fn 停止时取消_pending_和已_promoted_输入() {
+        let store = store();
+        store
+            .admit_input("ses_test", "pending", "待执行", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "promoted", "已提升未完成", Delivery::Queue)
+            .unwrap();
+        let promoted = store.promote_next_input("ses_test").unwrap().unwrap();
+        assert_eq!(promoted.input_id, "pending");
+        assert_eq!(store.cancel_unfinished_inputs("ses_test").unwrap(), 2);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(!store.cancel_input("ses_test", "promoted").unwrap());
     }
 
     #[test]
