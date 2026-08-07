@@ -95,10 +95,11 @@ async fn refresh(
         }
     }
     auth["last_refresh"] = json!(chrono::Utc::now().to_rfc3339());
-    let serialized = serde_json::to_string_pretty(auth)
-        .map_err(|e| LlmError::Config(format!("serialize auth.json: {e}")))?;
-    std::fs::write(path, serialized)
-        .map_err(|e| LlmError::Config(format!("write {}: {e}", path.display())))?;
+    // 原子替换 + 写前重读:刷新期间 Codex CLI 可能已抢先刷过并轮换了 refresh_token,
+    // 此时采纳磁盘那份而不是覆盖回去(D-061)。commit 返回的才是最终生效的凭证。
+    *auth = crate::auth::store::commit(path, auth, |disk, mine| {
+        crate::auth::store::newer_by_rfc3339(disk, mine, "/last_refresh")
+    })?;
     tracing::info!("codex token refreshed");
     Ok(())
 }

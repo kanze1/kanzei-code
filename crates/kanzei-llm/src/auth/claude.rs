@@ -89,10 +89,11 @@ async fn refresh_if_needed(
     }
     credentials["claudeAiOauth"]["expiresAt"] =
         json!(chrono::Utc::now().timestamp_millis() + expires_in * 1000);
-    let serialized = serde_json::to_string_pretty(credentials)
-        .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
-    std::fs::write(path, serialized)
-        .map_err(|e| LlmError::Config(format!("write {}: {e}", path.display())))?;
+    // 原子替换 + 写前重读:刷新期间 Claude Code CLI 可能已抢先刷过并轮换了 refresh_token,
+    // 此时采纳磁盘那份而不是覆盖回去(D-061)。commit 返回的才是最终生效的凭证。
+    *credentials = crate::auth::store::commit(path, credentials, |disk, mine| {
+        crate::auth::store::newer_by_millis(disk, mine, "/claudeAiOauth/expiresAt")
+    })?;
     tracing::info!("claude OAuth token refreshed");
     Ok(())
 }

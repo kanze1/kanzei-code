@@ -1,6 +1,6 @@
 # Defects
 
-## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
+## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [fixed] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
 - 影响: 双方各自用同一 refresh_token 刷新,而 OAuth 轮换 refresh token,后到者 invalid_grant,且先到者写入的新 token 可能被并发方以旧内容覆盖回去,登录态永久失效并殃及官方 CLI,需手动重新登录;truncate-then-write 中途崩溃会留下半截 JSON,下次解析直接报"请重新登录"。access token 约 1 小时一刷,窗口频繁。
@@ -9,7 +9,10 @@
 - 阶段: 1
 - 不变量: 配置与文档:多文件变更原子提交
 - 证据等级: E2
-- 阻塞: 涉及与 Claude Code/Codex 官方 CLI 共享 OAuth 凭证文件的并发写入、文件锁与原子替换，属于第三方集成/凭证高影响改动；依据 conventions.md 第 1 节需先提交方案并等待用户确认。解除条件：确认锁实现、跨进程协作与 Windows 原子替换策略。下一步：暂跳过，继续 D-059。
+- 方案定调: 2026-08-08 用户选定「原子替换 + 写前重读」,明确不加跨进程文件锁——官方 CLI 不参与任何锁协议,锁只能拦住 kanzei 自己的多进程,收益有限还多一份卡死风险。
+- 修复: 新增 crates/kanzei-llm/src/auth/store.rs:①`atomic_write` 写同目录带 pid 的临时文件再 rename 覆盖(跨卷不原子,故不用系统 temp),rename 被占用时重试 5 次,彻底失败则删临时文件并保持原文件不动,绝不退回 truncate-then-write;②`commit` 落盘前重读磁盘,若对方已抢先刷新(Claude 比 `claudeAiOauth.expiresAt`、Codex 比 `last_refresh`)就采纳对方结果并返回,调用方改用返回值构造请求头——因为自己手里的 refresh_token 可能已被轮换作废。claude.rs 与 codex.rs 的 `std::fs::write` 全部改走 commit。
+- 验证: 4 项定向回归——并发刷新不用旧令牌覆盖新令牌、自己更新时正常落盘且不留临时文件、磁盘半截 JSON 时照常恢复写入、Codex 按 last_refresh 判新旧;cargo test -p kanzei-llm 37 项通过。
+- 残余: 两个 kanzei 进程同时刷新仍可能各自发一次刷新请求(先到者成功、后到者拿 invalid_grant 后重试即可恢复),这属于请求冗余而非数据损坏,不再单开条目。
 
 - 标签: 模型
 
@@ -28,7 +31,7 @@
 
 - 标签: 流程
 
-## D-124 应用内更新不先退出自身,安装必败且僵尸安装器锁死后续重试 [open] (high)
+## D-124 应用内更新不先退出自身,安装必败且僵尸安装器锁死后续重试 [fixed] (high)
 - 复现: 2026-08-08 0:17 实录:app 运行中点「下载并安装」→ 安装器无法替换正在运行的 kzapp.exe,界面报 "另一个程序正在使用此文件。(os error 32)";失败的 kanzei-setup.exe 进程(%TEMP%,PID 15036)不退出,持续握着 kzapp.exe 句柄;用户重启 app 后重试仍报同一错误,直到手动杀掉僵尸安装器。
 - 根因: 更新流程是"下载 setup → 直接运行",没有"退出自身再交给安装器"的交接;NSIS 遇文件占用时挂在隐藏对话框而非失败退出,进程成为僵尸;重试路径也不检测/清理既有安装器进程与 %TEMP% 残件。
 - 影响: 应用内更新在最常见场景(app 开着点更新)必然失败,且首次失败后连关闭重开都救不回,普通用户会卡死在 os error 32,只能求助或手杀进程。
@@ -42,5 +45,8 @@
 
 - 标签: 发布
 
-- 阻塞: 涉及应用自退出、NSIS 安装器交接、残留进程/临时文件清理和失败恢复，属于发布/部署流程高影响改动；按规范需先确认退出时序、安装器参数、重启接力、残留清理安全边界及 Windows 测试方案，当前未确认。依据: 验收同时改变应用生命周期和安装物行为。解除条件: 确认发布交接状态机、NSIS 参数与回滚/清理策略；下一步: 方案确认后先补可观测状态机测试，再实现退出交接。
+- 方案定调: 2026-08-08 用户拍板按验收完整实现退出交接。
+- 修复: crates/kanzei-app/src/main.rs。①`validate_installer` 校验下载物(≥1 MB 且以 MZ 开头),挡住代理返回的 HTML 错误页与截断响应——否则要等 app 已经退出才发现装不上;②`clear_stale_installer` 更新前 taskkill 残留 kanzei-setup.exe 并删 %TEMP% 旧包,清理结果并入返回提示;③新增 `--kz-install-helper` 模式(与既有 `--kz-update-helper` 同一套路):helper 轮询等发起方进程真正退出(上限 30 秒)再多让 600ms,然后以 `/S` 静默运行安装器,成功后拉起新 kzapp 并删安装包,失败则保留安装包供手动执行并打印退出码;④`update_install` 派生 helper 后调用 `app.exit(0)` 立刻让出镜像句柄。
+- 验证: 2 项定向回归——安装包校验拒绝截断与非 PE 载荷、helper 在发起方未退出时绝不放安装器出去(实测等满 30 秒且不删安装包);cargo test -p kanzei-app 23 项通过。
+- 残余: helper 等待上限 30 秒后仍会继续(而非放弃),因为发起方极端情况下可能卡住不退;此时安装器自身的占用检测会兜底失败并保留安装包,不会产生僵尸。
 

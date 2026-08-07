@@ -303,6 +303,16 @@ fn startup_update() -> bool {
         }
         return true;
     }
+    // 应用内更新的交接 helper:发起方 kzapp 派生它之后立刻退出,让出镜像文件句柄。
+    if args.get(1).map(String::as_str) == Some("--kz-install-helper") {
+        let installer = args.get(2).map(PathBuf::from);
+        let exe = args.get(3).map(PathBuf::from);
+        let parent = args.get(4).and_then(|p| p.parse::<u32>().ok());
+        if let (Some(installer), Some(exe), Some(parent)) = (installer, exe, parent) {
+            run_install_helper(&installer, &exe, parent);
+        }
+        return true;
+    }
     let Ok(exe) = std::env::current_exe() else { return false };
     // 上次更新的备份因镜像锁删不掉,会残留一份 .previous:启动时清理。
     let _ = std::fs::remove_file(exe.with_extension("exe.previous"));
@@ -320,6 +330,90 @@ fn startup_update() -> bool {
             false
         }
     }
+}
+
+/// 安装器交接:%TEMP% 里的 kanzei-setup.exe。集中一处,清理与写入用的是同一个路径。
+fn installer_path() -> PathBuf {
+    std::env::temp_dir().join("kanzei-setup.exe")
+}
+
+/// 下载的安装器必须是像样的 Windows 可执行文件。代理返回的 HTML 错误页、被截断的
+/// 响应都会被这里挡下——否则要等交接完、app 已经退出了才发现装不上(D-124)。
+fn validate_installer(bytes: &[u8]) -> Result<(), String> {
+    const MIN_BYTES: usize = 1 << 20;
+    if bytes.len() < MIN_BYTES {
+        return Err(format!(
+            "安装包只有 {} KB,不完整(可能是代理返回了错误页)。检查网络或代理后重试。",
+            bytes.len() / 1024
+        ));
+    }
+    if !bytes.starts_with(b"MZ") {
+        return Err("下载到的不是 Windows 可执行文件,已放弃安装。检查网络或代理后重试。".into());
+    }
+    Ok(())
+}
+
+/// 清理上一次失败留下的僵尸安装器与临时文件。不清的话 NSIS 会一直握着 kzapp.exe
+/// 的句柄,后续每次重试都撞同一个 os error 32,关闭重开也救不回来(D-124)。
+fn clear_stale_installer() -> Vec<String> {
+    let mut notes = Vec::new();
+    let killed = Command::new("taskkill")
+        .args(["/F", "/IM", "kanzei-setup.exe"])
+        .output()
+        .ok()
+        .is_some_and(|out| out.status.success());
+    if killed {
+        notes.push("已清理残留的安装器进程".to_string());
+        // taskkill 返回后句柄释放还需要一小会,否则紧接着的 remove_file 仍会失败。
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+    let path = installer_path();
+    if path.exists() && std::fs::remove_file(&path).is_err() {
+        notes.push("旧安装包仍被占用,将直接覆盖".to_string());
+    }
+    notes
+}
+
+/// helper 进程:等发起更新的 kzapp 退出 → 静默安装 → 拉起新版本 → 删安装包。
+/// 必须由独立进程做,因为安装器要替换的正是调用方自己的镜像文件。
+fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
+    // 等父进程真正退出。NSIS 在文件被占用时会挂在隐藏对话框而不是失败退出,
+    // 所以宁可多等,也不能在父进程还活着时就把安装器放出去。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline && process_alive(parent_pid) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    // 句柄释放晚于进程退出,再让一手。
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    match Command::new(installer).arg("/S").status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!("kzapp:安装器退出码 {status},不重启,保留安装包供手动执行");
+            return;
+        }
+        Err(error) => {
+            eprintln!("kzapp:启动安装器失败: {error}");
+            return;
+        }
+    }
+    if let Err(error) = Command::new(exe).spawn() {
+        eprintln!("kzapp:安装完成但拉起新版本失败: {error}(手动启动即可)");
+    }
+    let _ = std::fs::remove_file(installer);
+}
+
+#[cfg(windows)]
+fn process_alive(pid: u32) -> bool {
+    Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+        .ok()
+        .is_some_and(|out| String::from_utf8_lossy(&out.stdout).contains(&pid.to_string()))
+}
+
+#[cfg(not(windows))]
+fn process_alive(_pid: u32) -> bool {
+    false
 }
 
 fn apply_pending_update(exe: &Path, pending: &Path) {
@@ -366,6 +460,47 @@ mod update_tests {
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::oneshot;
+
+    #[test]
+    fn installer_validation_rejects_truncated_and_non_executable_payloads() {
+        // 代理返回的 HTML 错误页:有内容但不是 PE。
+        let html = format!("<html>{}</html>", "x".repeat(2 << 20));
+        let error = super::validate_installer(html.as_bytes()).unwrap_err();
+        assert!(error.contains("不是 Windows 可执行文件"), "{error}");
+
+        // 截断的下载:是 PE 但远不够一个安装包。
+        let mut short = b"MZ".to_vec();
+        short.extend(std::iter::repeat_n(0u8, 4096));
+        let error = super::validate_installer(&short).unwrap_err();
+        assert!(error.contains("不完整"), "{error}");
+
+        let mut good = b"MZ".to_vec();
+        good.extend(std::iter::repeat_n(0u8, 2 << 20));
+        assert!(super::validate_installer(&good).is_ok());
+    }
+
+    #[test]
+    fn install_helper_waits_for_the_caller_to_exit_before_installing() {
+        // 交接的核心不变量:发起方还活着时绝不放安装器出去,否则必撞 os error 32。
+        // 用当前进程冒充"还没退出的父进程",helper 应当一直等到超时也不动安装器。
+        let dir = std::env::temp_dir().join(format!("kz-helper-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let installer = dir.join("kanzei-setup.exe");
+        std::fs::write(&installer, b"MZ not-a-real-installer").unwrap();
+        let missing_exe = dir.join("kzapp-does-not-exist.exe");
+
+        let started = std::time::Instant::now();
+        super::run_install_helper(&installer, &missing_exe, std::process::id());
+        let waited = started.elapsed();
+
+        assert!(
+            waited >= std::time::Duration::from_secs(30),
+            "helper 没有等待发起方退出就往下走了(实等 {waited:?})",
+        );
+        // 安装器没跑成功 → 不删安装包,留给用户手动执行。
+        assert!(installer.is_file(), "安装失败时不应删除安装包");
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn release_check_never_downgrades_a_newer_local_build() {
@@ -2503,9 +2638,11 @@ async fn update_check() -> Result<serde_json::Value, String> {
     }))
 }
 
-/// 下载并启动安装器(只接受本仓库 release 资源);安装器负责替换与重启。
+/// 下载校验 → 清理残留 → 静默启动安装器 → 立即退出自身,由 helper 装完拉起新版本。
+/// 不能只是 spawn 安装器就返回:安装器要替换的就是本进程的镜像,自己不退出必然
+/// 撞 os error 32,而 NSIS 遇占用会挂成僵尸把后续重试也锁死(D-124)。
 #[tauri::command]
-async fn update_install(url: String) -> Result<String, String> {
+async fn update_install(app: tauri::AppHandle, url: String) -> Result<String, String> {
     if !url.starts_with("https://github.com/kanze1/kanzei-code/") {
         return Err("仅允许本仓库 release 资源".into());
     }
@@ -2528,10 +2665,26 @@ async fn update_install(url: String) -> Result<String, String> {
         .bytes()
         .await
         .map_err(|e| e.to_string())?;
-    let path = std::env::temp_dir().join("kanzei-setup.exe");
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    Command::new(&path).spawn().map_err(|e| format!("启动安装器失败:{e}"))?;
-    Ok(format!("安装器已启动({} MB),按向导完成后重新打开 kanzei", bytes.len() / 1_048_576))
+    validate_installer(&bytes)?;
+    let notes = clear_stale_installer();
+    let path = installer_path();
+    std::fs::write(&path, &bytes)
+        .map_err(|e| format!("写入安装包失败:{e}(检查 %TEMP% 是否可写或被杀软占用)"))?;
+    let exe = std::env::current_exe().map_err(|e| format!("无法定位自身路径:{e}"))?;
+    Command::new(&exe)
+        .arg("--kz-install-helper")
+        .arg(&path)
+        .arg(&exe)
+        .arg(std::process::id().to_string())
+        .spawn()
+        .map_err(|e| {
+            format!("启动更新交接失败:{e}。可手动运行 {} 完成安装。", path.display())
+        })?;
+    let mb = bytes.len() / 1_048_576;
+    let prefix = if notes.is_empty() { String::new() } else { format!("{};", notes.join(";")) };
+    // helper 已接管,退出让出镜像句柄;装完由 helper 拉起新版本。
+    app.exit(0);
+    Ok(format!("{prefix}已下载 {mb} MB,正在退出并静默安装,装完会自动重新打开"))
 }
 
 /// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。
