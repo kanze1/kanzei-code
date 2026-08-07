@@ -356,7 +356,7 @@ select {
 .msg.error .retry-btn:disabled { opacity: .6; cursor: wait; }
 .msg.notice { color: var(--dim); font-size: 11.5px; text-align: center; }
 
-#composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; }
+#composer { border-top: 1px solid var(--border-soft); padding: 12px 14px; flex-shrink: 0; position: relative; }
 .attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 7px; }
 .attachment-chip { background: var(--accent-soft); color: var(--fg-strong); border: 1px solid var(--accent); border-radius: 4px; padding: 3px 7px; cursor: pointer; font-size: 11px; font: inherit; }
 .attachment-chip:hover { background: var(--accent); }
@@ -747,11 +747,17 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   font-size: 11px;
 }
 #continue-panel label { white-space: nowrap; }
-#continue-prompt {
-  width: 100%; min-height: 34px; max-height: 140px;
-  resize: vertical; font-size: 12px;
+#sop-picker-panel {
+  position: absolute; right: 14px; bottom: 58px; z-index: 20;
+  width: min(420px, calc(100vw - 28px)); max-height: 320px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.35); padding: 10px;
 }
-@media (max-width: 700px) {
+.sop-picker-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sop-list { display: flex; flex-direction: column; gap: 6px; }
+.sop-entry { display: flex; flex-direction: column; gap: 3px; text-align: left; background: var(--input); color: var(--fg); border: 1px solid var(--border-soft); }
+.sop-entry:hover, .sop-entry:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+
   #continue-panel { grid-template-columns: 1fr; gap: 4px; }
 }
 .goal-add-form input, .doc-progress input {

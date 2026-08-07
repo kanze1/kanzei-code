@@ -28,7 +28,7 @@ const I18N_EN = {
   "测试记录": "Test runs", "目标": "Goals", "历史对话": "Chat history", "需求与工作": "Work items",
   "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions",
   "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
-  "鞭挞": "Auto-run", "鞭挞已触发": "Auto-run triggered", "收到手动输入，鞭挞已停止": "Manual input received; auto-run stopped", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
+  "鞭挞": "Auto-run", "SOP": "SOP", "选择 SOP": "Choose SOP", "关闭 SOP 列表": "Close SOP list", "暂无可调用的 SOP": "No callable SOPs", "SOP 加载失败": "Failed to load SOPs", "SOP 已填入继续输入": "SOP inserted into the prompt", "SOP 内容为空": "This SOP has no executable content", "鞭挞已触发": "Auto-run triggered", "收到手动输入，鞭挞已停止": "Manual input received; auto-run stopped", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
   "自动放行": "Auto-allow", "总结": "Summarize", "复制上下文": "Copy context", "新对话": "New chat",
   "附件": "Attach", "停止": "Stop", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
   "模型角色": "Model roles", "网络与默认": "Network & defaults", "默认模式": "Default mode",
@@ -2449,6 +2449,73 @@ function send() {
 
 $("send").addEventListener("click", send);
 $("continue-btn").addEventListener("click", () => sendText(continuePrompt()));
+
+async function openSopPicker() {
+  if (!currentProject) {
+    toast(t("先在左侧「项目」里添加并选择一个目录"));
+    return;
+  }
+  const panel = $("sop-picker-panel");
+  const list = $("sop-list");
+  panel.classList.remove("hidden");
+  list.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "dim";
+  loading.textContent = `${t("选择 SOP")}…`;
+  list.appendChild(loading);
+  try {
+    const scopes = await Promise.all(["project", "global"].map((scope) =>
+      invoke("memory_entries", { projectDir: currentProject, scope, category: "sop" })
+    ));
+    const entries = scopes.flat().filter((entry) => entry.status === "active");
+    list.replaceChildren();
+    if (!entries.length) {
+      const empty = document.createElement("p");
+      empty.className = "dim";
+      empty.textContent = t("暂无可调用的 SOP");
+      list.appendChild(empty);
+      return;
+    }
+    for (const entry of entries) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "sop-entry";
+      const title = document.createElement("strong");
+      title.textContent = entry.title;
+      const description = document.createElement("span");
+      description.className = "dim";
+      description.textContent = entry.description || entry.body?.slice(0, 120) || "";
+      button.append(title, description);
+      button.addEventListener("click", () => {
+        const content = String(entry.body || "").trim();
+        promptBox.value = content;
+        panel.classList.add("hidden");
+        stopAutoForManualInput();
+        promptBox.focus();
+        if (!content) {
+          toast(t("SOP 内容为空"));
+          return;
+        }
+        rememberPrompt(content);
+        const delivery = $("delivery-select");
+        const previous = delivery.value;
+        delivery.value = "queue";
+        void sendText(content).finally(() => { delivery.value = previous; });
+        toast(t("SOP 已填入继续输入"));
+      });
+      list.appendChild(button);
+    }
+  } catch (error) {
+    list.replaceChildren();
+    const failed = document.createElement("p");
+    failed.className = "dim";
+    failed.textContent = `${t("SOP 加载失败")}: ${error}`;
+    list.appendChild(failed);
+  }
+}
+$("sop-picker").addEventListener("click", openSopPicker);
+$("sop-picker-close").addEventListener("click", () => $("sop-picker-panel").classList.add("hidden"));
+
 $("continue-toggle").addEventListener("click", () => {
   const panel = $("continue-panel");
   const open = panel.classList.toggle("hidden") === false;

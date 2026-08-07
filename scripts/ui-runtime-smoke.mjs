@@ -274,6 +274,7 @@ const payloads = {
   settings_get: { language: "zh", profiles: {}, providers: [], permissions: [] },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
+  memory_entries: [{ id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务" }],
   memory_context_bill: { turns: [] },
   workspace_snapshot: {},
 };
@@ -287,6 +288,7 @@ async function listen(event, handler) { handlers.set(event, handler); }
 const handlers = new Map();
 
 const storage = new Map();
+storage.set("kz-auto-continue", "1");
 const localStorageShim = {
   getItem: (k) => (storage.has(k) ? storage.get(k) : null),
   setItem: (k, v) => storage.set(k, String(v)),
@@ -403,6 +405,15 @@ assert(defectEditor?.querySelector("input") && defectEditor?.querySelector("butt
 defectEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.filter((cmd) => cmd === "docs_update").length >= 2, "缺陷侧栏编辑未调用 docs_update");
+byId.get("sop-picker").click();
+await flush();
+const sopEntry = document.querySelector("#sop-list .sop-entry");
+assert(sopEntry, "继续按钮旁未展示可调用 SOP");
+sopEntry.click();
+await flush();
+assert(!byId.get("auto-continue").checked, "选择 SOP 后未打断自动推进");
+assert(invokeLog.includes("memory_entries"), "SOP 入口未读取已沉淀 SOP");
+assert(invokeLog.includes("run_prompt"), "选择 SOP 后未进入输入执行链路");
 
 // ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
 const languageControl = byId.get("language-select");

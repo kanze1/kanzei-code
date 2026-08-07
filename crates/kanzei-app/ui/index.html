@@ -213,6 +213,10 @@
             <label for="continue-prompt">继续文案</label>
             <textarea id="continue-prompt" rows="2" spellcheck="false"></textarea>
           </div>
+          <div id="sop-picker-panel" class="sop-picker-panel hidden" role="dialog" aria-label="选择 SOP">
+            <div class="sop-picker-head"><strong>选择 SOP</strong><button id="sop-picker-close" class="icon-btn" type="button" aria-label="关闭 SOP 列表">×</button></div>
+            <div id="sop-list" class="sop-list"></div>
+          </div>
           <div id="file-suggestions" class="file-suggestions hidden" role="listbox"></div>
           <div id="composer-queue" class="composer-queue hidden">
             <span class="dim">排队输入 <em id="queue-count"></em></span>
@@ -222,6 +226,7 @@
             <span id="hint" class="dim"></span>
             <div class="composer-actions">
               <button id="continue-toggle" class="ghost" type="button" aria-expanded="false" title="展开或收起继续文案编辑">继续文案</button>
+              <button id="sop-picker" class="ghost" type="button" title="选择已沉淀的 SOP">SOP</button>
               <button id="continue-btn" class="ghost" title="按当前文案继续推进">继续</button>
               <button id="attach" class="ghost" title="添加图片或 PDF">附件</button>
               <select id="delivery-select" title="输入交付方式">

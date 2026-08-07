@@ -653,3 +653,12 @@
 
 - 验证: crates/kanzei-app/ui/main.js:renderDocList 编辑控件；scripts/ui-runtime-smoke.mjs 需求/缺陷 docs_update 回归；4 个 UI smoke
 
+## R-121 继续按钮旁一键调用已沉淀SOP [done]
+- priority: P1
+- 原始描述: 沉淀好的SOP应该支持我一键调用，这个SOP放到继续按钮旁边，然后弹窗选择可以调用SOP，比如一键发版等等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 在继续按钮旁新增SOP入口,点击弹窗展示可选SOP列表(如一键发版),选择后可一键调用执行
+- 进展: 已完成：继续按钮旁新增 SOP 入口与弹出列表，读取 project/global 已沉淀 sop 记忆；选择后将 SOP body 填入输入框，自动停止鞭挞并强制使用 queue 交付调用既有 sendText/run_prompt 链路。空 body 保留空输入并提示，不执行空命令。调用方：ui/index.html 的 sop-picker→ui/main.js openSopPicker→memory_entries→sendText→run_prompt。验证：ui-runtime-smoke 新增 SOP 读取、run_prompt、打断鞭挞回归；node --check、四项 UI smoke 通过。
+- 阻塞: 一键执行 SOP（尤其发版）缺少命令白名单、权限、确认和回滚方案，需用户确认。
+- 验证: crates/kanzei-app/ui/index.html/main.js/style.css；scripts/ui-runtime-smoke.mjs；node --check；ui-runtime-smoke、ui-i18n-smoke、ui-a11y-smoke、ui-markdown-smoke
