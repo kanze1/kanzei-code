@@ -208,6 +208,22 @@ $("activity-toggle").addEventListener("click", () => {
 });
 syncActivityPanel();
 
+let sidebarCollapsed = localStorage.getItem("kz-sidebar-collapsed") === "1";
+function syncSidebar() {
+  const sidebar = $("sidebar");
+  const toggle = $("sidebar-toggle");
+  sidebar.classList.toggle("collapsed", sidebarCollapsed);
+  toggle.classList.toggle("active", sidebarCollapsed);
+  toggle.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
+  toggle.title = sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏";
+}
+$("sidebar-toggle").addEventListener("click", () => {
+  sidebarCollapsed = !sidebarCollapsed;
+  localStorage.setItem("kz-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  syncSidebar();
+});
+syncSidebar();
+
 // ---------- 运行日志面板 ----------
 const LOG_MAX = 300;
 function log(text, cls = "") {

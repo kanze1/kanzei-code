@@ -48,8 +48,10 @@ body {
 }
 .resize-handle { position: absolute; top: 0; bottom: 0; width: 5px; z-index: 5; cursor: col-resize; }
 .resize-handle:hover, .resize-handle.dragging { background: var(--accent); opacity: .65; }
-#sidebar > .resize-handle { right: -2px; }
-.sidebar-section { padding-top: 10px; }
+#sidebar.collapsed { width: 0; padding: 0; border-right: 0; overflow: hidden; }
+#sidebar.collapsed > * { display: none; }
+#sidebar-toggle.active { color: var(--fg-strong); border-color: var(--accent); background: var(--accent-soft); }
+
 .section-title {
   padding: 4px 14px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--dim); display: flex; align-items: center; justify-content: space-between;
