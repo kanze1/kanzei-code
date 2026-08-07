@@ -67,6 +67,8 @@ const I18N_EN = {
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
   "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
+  "展开筛选与排序": "Show filters and sort", "展开需求筛选与排序": "Show requirement filters",
+  "展开筛选": "Show filters", "展开缺陷筛选": "Show defect filters",
   "按标签分组显示": "Group by tag", "切换需求分组显示": "Toggle requirement grouping",
   "切换缺陷分组显示": "Toggle defect grouping", "切换文档页分组显示": "Toggle documents grouping", "其他": "Other",
   "文件优先的分级记忆:所有条目都是 .kanzei/memory 下可手改的 markdown,此页与文件实时同步。":
@@ -2257,6 +2259,8 @@ $("model-select").addEventListener("change", () => {
 function renderPendingInputs(items) {
   const list = $("queue-list");
   const count = $("queue-count");
+  // 排队条挂在 composer(用户定调:排队输入放到排队按钮那里),空队列整条隐藏。
+  $("composer-queue")?.classList.toggle("hidden", !items.length);
   list.innerHTML = "";
   count.textContent = items.length ? `(${items.length})` : "";
   if (!items.length) {
@@ -3556,6 +3560,26 @@ bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
   }
   return documentFilters.req.grouped;
 });
+// 筛选折叠(用户定调:侧边栏筛选再收一层):默认收起,状态持久化。
+for (const [btnId, rowId, storageKey] of [
+  ["req-filter-toggle", "req-filter-row", "kz-filters-req"],
+  ["defect-filter-toggle", "defect-filter-row", "kz-filters-defect"],
+]) {
+  const btn = $(btnId);
+  const row = $(rowId);
+  if (!btn || !row) continue;
+  const apply = (open) => {
+    row.classList.toggle("hidden", !open);
+    btn.setAttribute("aria-expanded", String(open));
+    btn.classList.toggle("active", open);
+  };
+  apply(localStorage.getItem(storageKey) === "1");
+  btn.addEventListener("click", () => {
+    const open = row.classList.contains("hidden");
+    localStorage.setItem(storageKey, open ? "1" : "0");
+    apply(open);
+  });
+}
 for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-sort", "sort"]]) {
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;

@@ -819,3 +819,14 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   background: var(--bg); z-index: 1;
 }
 .group-toggle.active { color: var(--accent); border-color: var(--accent); }
+
+/* ---------- 排队条(composer)与筛选折叠 ---------- */
+.composer-queue {
+  display: flex; flex-direction: column; gap: 4px;
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 8px; margin-bottom: 6px; font-size: 12px; background: var(--panel);
+}
+.doc-filter-row {
+  display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 6px 2px;
+}
+.filter-toggle.active { color: var(--accent); border-color: var(--accent); }

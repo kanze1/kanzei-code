@@ -30,6 +30,13 @@
         </div>
         <div id="project-list" class="project-list"></div>
       </div>
+      <div class="sidebar-section" data-collapse-key="conversations">
+        <div class="section-title">
+          <span>历史对话 <em id="conversation-count"></em></span>
+          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话" aria-label="删除勾选的对话">🗑</button></span>
+        </div>
+        <div id="conversation-list" class="doc-list"></div>
+      </div>
       <div class="sidebar-section" data-collapse-key="live" id="live-section">
         <div class="section-title"><span>当前状态</span></div>
         <div id="live-status">
@@ -38,10 +45,6 @@
           <div id="live-action" class="live-row hidden"></div>
           <div id="live-note" class="live-row hidden"></div>
         </div>
-      </div>
-      <div class="sidebar-section" data-collapse-key="queue" id="queue-section">
-        <div class="section-title"><span>排队输入 <em id="queue-count"></em></span></div>
-        <div id="queue-list" class="queue-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="tests" id="tests-section">
         <div class="section-title"><span>测试记录 <em id="test-count"></em></span><button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试">↻</button></div>
@@ -61,45 +64,41 @@
         </div>
         <div id="goal-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section" data-collapse-key="conversations">
-        <div class="section-title">
-          <span>历史对话 <em id="conversation-count"></em></span>
-          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话" aria-label="删除勾选的对话">🗑</button></span>
-        </div>
-        <div id="conversation-list" class="doc-list"></div>
-      </div>
       <div class="sidebar-section" data-collapse-key="requirements" id="req-section">
         <div class="section-title">
           <span>需求与工作 <em id="req-count"></em></span>
           <span>
-            <select id="req-status-filter" class="doc-filter" title="按状态筛选">
-              <option value="all">全部状态</option>
-              <option value="doing">doing</option>
-              <option value="todo">todo</option>
-              <option value="done">done</option>
-              <option value="dropped">dropped</option>
-            </select>
-            <select id="req-complexity-filter" class="doc-filter" title="按复杂度筛选">
-              <option value="all">全部复杂度</option>
-              <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
-            </select>
-            <select id="req-priority-filter" class="doc-filter" title="按优先级筛选">
-              <option value="all">全部优先级</option>
-              <option value="P0">P0</option><option value="P1">P1</option>
-              <option value="P2">P2</option><option value="P3">P3</option>
-            </select>
+            <button id="req-filter-toggle" class="icon-btn filter-toggle" title="展开筛选与排序" aria-label="展开需求筛选与排序" aria-expanded="false">▽</button>
             <button id="req-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换需求分组显示" aria-pressed="true">☰</button>
-            <select id="req-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
-            <select id="req-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
-              <option value="manual">手动</option>
-              <option value="priority">优先级</option>
-              <option value="complexity">复杂度</option>
-              <option value="status">状态</option>
-              <option value="id">编号</option>
-            </select>
             <button id="req-quick" class="icon-btn" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录需求">✎</button>
             <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文">↗</button>
           </span>
+        </div>
+        <div id="req-filter-row" class="doc-filter-row hidden">
+          <select id="req-status-filter" class="doc-filter" title="按状态筛选">
+            <option value="all">全部状态</option>
+            <option value="doing">doing</option>
+            <option value="todo">todo</option>
+            <option value="done">done</option>
+            <option value="dropped">dropped</option>
+          </select>
+          <select id="req-complexity-filter" class="doc-filter" title="按复杂度筛选">
+            <option value="all">全部复杂度</option>
+            <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
+          </select>
+          <select id="req-priority-filter" class="doc-filter" title="按优先级筛选">
+            <option value="all">全部优先级</option>
+            <option value="P0">P0</option><option value="P1">P1</option>
+            <option value="P2">P2</option><option value="P3">P3</option>
+          </select>
+          <select id="req-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
+          <select id="req-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
+            <option value="manual">手动</option>
+            <option value="priority">优先级</option>
+            <option value="complexity">复杂度</option>
+            <option value="status">状态</option>
+            <option value="id">编号</option>
+          </select>
         </div>
         <div id="req-list" class="doc-list"></div>
       </div>
@@ -107,11 +106,14 @@
         <div class="section-title">
           <span>缺陷 <em id="defect-count"></em></span>
           <span>
+            <button id="defect-filter-toggle" class="icon-btn filter-toggle" title="展开筛选" aria-label="展开缺陷筛选" aria-expanded="false">▽</button>
             <button id="defect-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换缺陷分组显示" aria-pressed="true">☰</button>
-            <select id="defect-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
             <button id="defect-quick" class="icon-btn" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录缺陷">✎</button>
             <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
           </span>
+        </div>
+        <div id="defect-filter-row" class="doc-filter-row hidden">
+          <select id="defect-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
         </div>
         <div id="defect-list" class="doc-list"></div>
       </div>
@@ -210,6 +212,10 @@
             <textarea id="continue-prompt" rows="2" spellcheck="false"></textarea>
           </div>
           <div id="file-suggestions" class="file-suggestions hidden" role="listbox"></div>
+          <div id="composer-queue" class="composer-queue hidden">
+            <span class="dim">排队输入 <em id="queue-count"></em></span>
+            <div id="queue-list" class="queue-list"></div>
+          </div>
           <div id="composer-bar">
             <span id="hint" class="dim"></span>
             <div class="composer-actions">
