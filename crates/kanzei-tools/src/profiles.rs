@@ -8,7 +8,7 @@ use kanzei_harness::{
     ResolveCtx,
 };
 
-use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES};
+use crate::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 
 /// 索引注入的预算上限(条数;超出折叠为计数)。
@@ -50,23 +50,30 @@ impl Component for DevProfile {
                 requires_refs: None,
             }),
         );
-        // 跨会话记忆(R-098):复用 TrackerTool 的 ID 分配、状态机与格式强制。
-        draft.tools.insert(
-            "memory",
-            Arc::new(TrackerTool {
-                tool_name: "memory",
-                noun: "memory entry",
-                kind: &MEMORY,
-                requires_refs: None,
-            }),
-        );
+        // Memory 系统(R-104,文件优先分级记忆):主 agent 只有 检索/草稿投递/概览,
+        // 写路径(add/update/merge/stale)属 M2 的 memory-manager 子代理。
+        draft
+            .tools
+            .insert("memory_search", Arc::new(crate::memory::MemorySearchTool));
+        draft
+            .tools
+            .insert("memory_note", Arc::new(crate::memory::MemoryNoteTool));
+        draft
+            .tools
+            .insert("memory_stats", Arc::new(crate::memory::MemoryStatsTool));
+        for tool in ["memory_search", "memory_note", "memory_stats"] {
+            draft.permissions.push(rule(tool, "*", Effect::Allow));
+        }
         draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
 
-        // 硬 deny:项目文档只能走专用工具(用户手改不受此限——这是模型的门禁)。
+        // 硬 deny:项目文档与记忆文件只能走专用工具(用户手改不受此限——这是模型的门禁)。
         for action in ["write", "edit"] {
             draft
                 .permissions
                 .push_hard_deny(rule(action, "*.kanzei/project/*", Effect::Deny));
+            draft
+                .permissions
+                .push_hard_deny(rule(action, "*.kanzei/memory/*", Effect::Deny));
         }
 
         // 长期目标(R-019):活跃目标全文注入——"没有明确任务时推进目标"的信息基础。
@@ -126,48 +133,52 @@ impl Component for DevProfile {
             }),
         );
 
-        // 跨会话记忆(R-098):只注入 active 条目。追踪文档回答"要做什么",
-        // 记忆回答"已经查清楚了什么"——避免同一个坑在多条缺陷的进展字段里反复重写。
+        // Memory 索引常驻(R-104):只注入 INDEX 行(id+category+title+description),
+        // 正文按需 memory_search——description 的质量就是触发器的质量。
         draft.context.insert(
             "dev/memory",
             source("dev/memory", |ctx: &ResolveCtx| {
-                let entries = DocStore::open(&ctx.project_root, &MEMORY).load().ok()?;
-                let active: Vec<&crate::docstore::Entry> =
-                    entries.iter().filter(|e| e.status == "active").collect();
-                if active.is_empty() {
+                let mut lines: Vec<String> = Vec::new();
+                let mut stores = vec![crate::memory::MemoryStore::project(&ctx.project_root)];
+                stores.extend(crate::memory::MemoryStore::global());
+                for store in &stores {
+                    for (_, e) in store.load_all() {
+                        if e.status == "active" {
+                            lines.push(format!(
+                                "{} [{}/{}] {} — {}",
+                                e.id, e.scope, e.category, e.title, e.description
+                            ));
+                        }
+                    }
+                }
+                if lines.is_empty() {
                     return None;
                 }
-                let mut out = String::from("<memory>\n");
+                let mut out = String::from("<memory-index>\n");
                 let mut budget = MEMORY_CONTEXT_BUDGET;
                 let mut shown = 0usize;
-                for item in &active {
-                    let mut block = format!("{} {}\n", item.id, item.title);
-                    for (key, value) in &item.fields {
-                        let v: String = value.chars().take(200).collect();
-                        block.push_str(&format!("  - {key}: {v}\n"));
-                    }
-                    // 预算用尽就停,并把丢掉的条数说出来——静默截断会让模型
-                    // 以为自己看到的就是全部(研究侧 memory.md 的老毛病)。
-                    if block.chars().count() > budget {
+                for line in &lines {
+                    let cost = line.chars().count() + 1;
+                    if cost > budget {
                         break;
                     }
-                    budget -= block.chars().count();
-                    out.push_str(&block);
+                    budget -= cost;
+                    out.push_str(line);
+                    out.push('\n');
                     shown += 1;
                 }
-                if shown < active.len() {
+                if shown < lines.len() {
                     out.push_str(&format!(
-                        "(还有 {} 条 active 记忆未注入,`memory list` 可见)\n",
-                        active.len() - shown
+                        "(还有 {} 条未列出,memory_search 可检索)\n",
+                        lines.len() - shown
                     ));
                 }
                 out.push_str(
-                    "These are confirmed facts and pitfalls from earlier sessions — trust them \
-                     over re-deriving. When you confirm something reusable (a root cause, an \
-                     environment constraint, a dead end), record it with `memory add`; when a \
-                     stored conclusion turns out wrong or obsolete, `memory update <id> stale` \
-                     instead of leaving it to mislead later runs. Keep entries about FACTS, not \
-                     about what to do next — that belongs in req/defect.\n</memory>",
+                    "Index only — fetch bodies with `memory_search` (or read the file it \
+                     returns) BEFORE re-deriving anything listed above. When you confirm \
+                     something reusable (root cause, environment constraint, user decision, \
+                     dead end), drop it via `memory_note`; the memory manager consolidates \
+                     notes later. Facts only — next steps belong in req/defect.\n</memory-index>",
                 );
                 Some(out)
             }),
@@ -236,11 +247,12 @@ impl Component for DevProfile {
                          file is still mid-edit, and never re-run a suite that nothing \
                          changed since. Editing files: use \
                          `edit`; if it misses twice it shows the file's real content — align \
-                         to that, never rewrite whole files via shell. Memory: facts you \
-                         confirmed that future sessions would \
-                         otherwise re-derive (root causes, environment constraints, dead ends) \
-                         go into `memory add`; do NOT bury them in req/defect progress fields. \
-                         When a stored memory turns out wrong, `memory update <id> stale`. \
+                         to that, never rewrite whole files via shell. Memory: BEFORE \
+                         exploring a problem the memory index hints at, `memory_search` it; \
+                         facts you confirmed that future sessions would otherwise re-derive \
+                         (root causes, environment constraints, user decisions, dead ends) \
+                         go into `memory_note`; do NOT bury them in req/defect progress \
+                         fields — the memory manager consolidates notes into durable entries. \
                          For codebase exploration (finding files, call sites, \
                          usages), prefer the `task` subagent: several task calls in one turn run \
                          in parallel and keep your context clean. But when the defect or \

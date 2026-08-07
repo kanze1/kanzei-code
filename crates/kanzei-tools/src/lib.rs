@@ -4,6 +4,7 @@ mod background;
 mod base;
 mod bash;
 pub mod docstore;
+pub mod memory;
 mod edit;
 mod glob;
 mod grep;

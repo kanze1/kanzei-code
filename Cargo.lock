@@ -2258,6 +2258,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "dirs 5.0.1",
  "globset",
  "grep-regex",
  "grep-searcher",
@@ -2266,6 +2267,7 @@ dependencies = [
  "kanzei-harness",
  "kanzei-llm",
  "reqwest 0.12.28",
+ "rusqlite",
  "schemars 0.8.22",
  "serde",
  "serde_json",
