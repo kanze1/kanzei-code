@@ -67,7 +67,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     }
 
     let cwd = std::env::current_dir()?;
-    let config = Arc::new(KanzeiConfig::load(&cwd)?);
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    let config = Arc::new(config);
+    for warning in &config_warnings {
+        eprintln!("\x1b[33m{warning}\x1b[0m");
+    }
     let legacy_bash_count = config.legacy_bash_rules().len();
     if legacy_bash_count > 0 {
         eprintln!(

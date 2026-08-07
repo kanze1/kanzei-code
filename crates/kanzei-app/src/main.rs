@@ -1422,51 +1422,152 @@ struct ProviderPayload {
     context_limit: Option<u64>,
 }
 
+/// 设置标量并保留原值上的空白/行尾注释装饰(注释挂在值上,直接赋值会连注释一起换掉)。
+fn settings_set_value(table: &mut toml_edit::Table, key: &str, value: impl Into<toml_edit::Value>) {
+    let mut value: toml_edit::Value = value.into();
+    if let Some(existing) = table.get(key).and_then(|item| item.as_value()) {
+        *value.decor_mut() = existing.decor().clone();
+    }
+    table[key] = toml_edit::Item::Value(value);
+}
+
+/// 表单键写入:Some 设置,None 移除(默认值不写进文件,保持配置精简)。
+fn settings_set_or_remove(table: &mut toml_edit::Table, key: &str, value: Option<String>) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None => {
+            table.remove(key);
+        }
+    }
+}
+
+/// "缺省即默认"的键(proxy/reasoning/profile.default):回落默认时若键已存在,
+/// 写显式默认值而不是删除——toml_edit 删键会连带删掉挂在键上的用户注释。
+fn settings_set_or_reset(
+    table: &mut toml_edit::Table,
+    key: &str,
+    value: Option<String>,
+    default_value: &str,
+) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None if table.contains_key(key) => {
+            settings_set_value(table, key, default_value.to_string());
+        }
+        None => {}
+    }
+}
+
+fn settings_table<'a>(
+    doc: &'a mut toml_edit::DocumentMut,
+    name: &str,
+) -> Result<&'a mut toml_edit::Table, String> {
+    doc.entry(name)
+        .or_insert(toml_edit::table())
+        .as_table_mut()
+        .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
+}
+
 fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    // 以现有配置为底,只覆盖设置页管理的字段,保留手写权限规则等非表单内容。
-    let mut config: KanzeiConfig = std::fs::read_to_string(path)
-        .ok()
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default();
-    config.models.primary = Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty());
-    config.models.fast = Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty());
-    // off 是默认值,不写进文件,保持配置精简。
-    config.models.reasoning = payload
-        .reasoning
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| ["low", "medium", "high"].contains(&value.as_str()));
-    config.proxy = match payload.proxy.trim() {
-        "" | "env" => None,
-        other => Some(other.to_string()),
+    // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
+    // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("读取配置失败 {}: {e}", path.display())),
     };
-    config.profile.default = payload
-        .profile_default
-        .or(payload.profile)
-        .filter(|p| p == "dev" || p == "research");
+    toml::from_str::<KanzeiConfig>(&text)
+        .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
+
+    let models = settings_table(&mut doc, "models")?;
+    settings_set_or_remove(
+        models,
+        "primary",
+        Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty()),
+    );
+    settings_set_or_remove(
+        models,
+        "fast",
+        Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
+    );
+    settings_set_or_reset(
+        models,
+        "reasoning",
+        payload
+            .reasoning
+            .map(|value| value.trim().to_ascii_lowercase())
+            .filter(|value| ["low", "medium", "high"].contains(&value.as_str())),
+        "off",
+    );
+
+    settings_set_or_reset(
+        doc.as_table_mut(),
+        "proxy",
+        match payload.proxy.trim() {
+            "" | "env" => None,
+            other => Some(other.to_string()),
+        },
+        "env",
+    );
+
+    let profile = settings_table(&mut doc, "profile")?;
+    profile.set_implicit(true);
+    settings_set_or_reset(
+        profile,
+        "default",
+        payload
+            .profile_default
+            .or(payload.profile)
+            .filter(|p| p == "dev" || p == "research"),
+        "dev",
+    );
+
+    let providers = settings_table(&mut doc, "providers")?;
+    providers.set_implicit(true);
     for p in payload.providers {
         let name = p.name.trim().to_string();
         if name.is_empty() {
             continue;
         }
-        config.providers.insert(
-            name,
-            kanzei_harness::config::ProviderConfig {
-                protocol: p.protocol.trim().to_string(),
-                base_url: p.base_url.trim().trim_end_matches('/').to_string(),
-                api_key_env: p
-                    .api_key_env
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty()),
-                api_key: p
-                    .api_key
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty()),
-                auth: p.auth.filter(|s| !s.is_empty()),
-                context_limit: p.context_limit,
-            },
+        let Some(provider) = providers
+            .entry(&name)
+            .or_insert(toml_edit::table())
+            .as_table_mut()
+        else {
+            return Err(format!("配置节 `providers.{name}` 不是表,无法保存设置"));
+        };
+        settings_set_value(provider, "protocol", p.protocol.trim().to_string());
+        settings_set_value(
+            provider,
+            "base_url",
+            p.base_url.trim().trim_end_matches('/').to_string(),
         );
+        settings_set_or_remove(
+            provider,
+            "api_key_env",
+            p.api_key_env.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        );
+        settings_set_or_remove(
+            provider,
+            "api_key",
+            p.api_key.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+        );
+        settings_set_or_remove(provider, "auth", p.auth.filter(|s| !s.is_empty()));
+        match p.context_limit {
+            Some(limit) => settings_set_value(provider, "context_limit", limit as i64),
+            None => {
+                provider.remove("context_limit");
+            }
+        }
     }
-    let text = toml::to_string_pretty(&config).map_err(|e| e.to_string())?;
+
+    let text = doc.to_string();
+    // 写盘前自校验:引擎绝不产出自己读不回来的配置。
+    toml::from_str::<KanzeiConfig>(&text)
+        .map_err(|e| format!("保存结果自校验失败,已放弃写入: {e}"))?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -3034,7 +3135,11 @@ async fn run_task(
     anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
 
     stage("配置", format!("加载 {}", cwd.display()));
-    let config = Arc::new(KanzeiConfig::load(&cwd)?);
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    let config = Arc::new(config);
+    for warning in &config_warnings {
+        stage("配置", warning.clone());
+    }
     let legacy_bash_count = config.legacy_bash_rules().len();
     if legacy_bash_count > 0 {
         stage(
@@ -3530,6 +3635,76 @@ effect = \"allow\"
         assert_eq!(config.permissions.rules.len(), 1);
         assert_eq!(config.permissions.rules[0].action, "bash");
         assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn settings_save_preserves_comments_and_unknown_fields() {
+        // D-082 完整不变量:保存不得破坏注释、排版与 schema 未知的字段。
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-preserve-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            "# 顶部注释:手写配置\nproxy = \"http://127.0.0.1:7890\"\n\n[models]\nprimary = \"anthropic:claude-sonnet-5\" # 主模型\n\n[future_section]\nnew_field = \"来自新版本\"\n\n[[permissions.rules]]\naction = \"read\"\nresource = \"*/.env\"\neffect = \"deny\"\n",
+        )
+        .unwrap();
+        settings_save_at_path(
+            SettingsPayload {
+                primary: "anthropic:claude-opus-5".into(),
+                fast: "ollama:qwen3.5:4b".into(),
+                proxy: "env".into(),
+                reasoning: Some("high".into()),
+                profile_default: Some("dev".into()),
+                profile: None,
+                providers: vec![],
+            },
+            &path,
+        )
+        .unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        for expected in [
+            "# 顶部注释:手写配置",
+            "# 主模型",
+            "[future_section]",
+            "new_field = \"来自新版本\"",
+        ] {
+            assert!(saved.contains(expected), "missing preserved text: {expected}\n---\n{saved}");
+        }
+        // proxy 回落默认:已存在的键写显式 "env" 而不是删除(删除会连带删掉挂在键上的注释)。
+        assert!(saved.contains("proxy = \"env\""), "proxy should reset to env:\n{saved}");
+        let config: KanzeiConfig = toml::from_str(&saved).unwrap();
+        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-opus-5"));
+        assert_eq!(config.models.reasoning.as_deref(), Some("high"));
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].resource, "*/.env");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn settings_save_refuses_to_overwrite_unparseable_config() {
+        // 解析失败绝不允许"回退默认值再覆写"——那等于销毁用户配置(D-082 的事故路径)。
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-broken-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let broken = "[models\nprimary = 不是合法 toml";
+        std::fs::write(&path, broken).unwrap();
+        let result = settings_save_at_path(
+            SettingsPayload {
+                primary: "anthropic:claude-sonnet-5".into(),
+                fast: String::new(),
+                proxy: "env".into(),
+                reasoning: None,
+                profile_default: None,
+                profile: None,
+                providers: vec![],
+            },
+            &path,
+        );
+        assert!(result.is_err(), "saving over a broken config must fail");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "file must be untouched");
         let _ = std::fs::remove_file(path);
     }
 }

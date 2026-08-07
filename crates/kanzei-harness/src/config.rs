@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::permission::Rule;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct KanzeiConfig {
     #[serde(default)]
     pub models: ModelRoles,
@@ -25,7 +24,6 @@ pub struct KanzeiConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ModelRoles {
     pub primary: Option<String>,
     pub fast: Option<String>,
@@ -36,7 +34,6 @@ pub struct ModelRoles {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProviderConfig {
     /// "anthropic" | "openai" | "openai-responses"
     pub protocol: String,
@@ -55,13 +52,11 @@ pub struct ProviderConfig {
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ProfileSection {
     pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct PermissionsSection {
     #[serde(default)]
     pub rules: Vec<Rule>,
@@ -76,17 +71,28 @@ pub struct ResolvedModel {
 }
 
 impl KanzeiConfig {
-    /// 全局 + 项目层叠加载。任一文件解析失败返回错误(配置错误要炸在启动,不能静默)。
+    /// 全局 + 项目层叠加载。语法/类型错误返回错误(配置错误要炸在启动,不能静默);
+    /// 未知字段宽容忽略但产生告警(D-084:schema 向后兼容,新旧二进制可共用同一文件)。
     pub fn load(cwd: &Path) -> anyhow::Result<KanzeiConfig> {
+        let (config, warnings) = Self::load_with_warnings(cwd)?;
+        for warning in &warnings {
+            tracing::warn!("{warning}");
+        }
+        Ok(config)
+    }
+
+    /// 同 load,但把未知字段告警交给调用方展示(CLI stderr / 桌面 kz:status)。
+    pub fn load_with_warnings(cwd: &Path) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
         let mut config = KanzeiConfig::default();
+        let mut warnings = Vec::new();
         if let Some(home) = dirs::home_dir() {
-            merge_file(&mut config, &home.join(".kanzei").join("kanzei.toml"))?;
+            merge_file(&mut config, &home.join(".kanzei").join("kanzei.toml"), &mut warnings)?;
         }
         if let Some(project) = discover_project_config(cwd) {
-            merge_file(&mut config, &project)?;
+            merge_file(&mut config, &project, &mut warnings)?;
         }
         config.fill_defaults();
-        Ok(config)
+        Ok((config, warnings))
     }
 
     /// 找出升级到结构化 bash 资源前遗留的裸命令规则；只读，不修改配置。
@@ -194,7 +200,11 @@ impl KanzeiConfig {
     }
 }
 
-fn merge_file(config: &mut KanzeiConfig, path: &Path) -> anyhow::Result<()> {
+fn merge_file(
+    config: &mut KanzeiConfig,
+    path: &Path,
+    warnings: &mut Vec<String>,
+) -> anyhow::Result<()> {
     if !path.is_file() {
         return Ok(());
     }
@@ -202,8 +212,73 @@ fn merge_file(config: &mut KanzeiConfig, path: &Path) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", path.display()))?;
     let layer: KanzeiConfig = toml::from_str(&text)
         .map_err(|e| anyhow::anyhow!("invalid config {}: {e}", path.display()))?;
+    // 未知键宽容忽略但必须可见:拼错的键静默失效比报错更难排查。
+    if let Ok(raw) = toml::from_str::<toml::Value>(&text) {
+        for key in unknown_keys(&raw) {
+            warnings.push(format!(
+                "{}: 未知配置项 `{key}` 已忽略(可能是拼写错误,或来自更新版本的 kanzei)",
+                path.display()
+            ));
+        }
+    }
     merge(config, layer);
     Ok(())
+}
+
+/// 列出 schema 未识别的键路径。schema 变更时同步维护;
+/// `unknown_keys_schema_matches_struct` 测试守护两者不漂移。
+fn unknown_keys(value: &toml::Value) -> Vec<String> {
+    fn check(table: &toml::Value, path: &str, known: &[&str], out: &mut Vec<String>) {
+        let Some(table) = table.as_table() else {
+            return;
+        };
+        for key in table.keys() {
+            if !known.contains(&key.as_str()) {
+                out.push(if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                });
+            }
+        }
+    }
+    let mut out = Vec::new();
+    check(
+        value,
+        "",
+        &["models", "providers", "proxy", "profile", "permissions"],
+        &mut out,
+    );
+    if let Some(models) = value.get("models") {
+        check(models, "models", &["primary", "fast", "reasoning"], &mut out);
+    }
+    if let Some(providers) = value.get("providers").and_then(|p| p.as_table()) {
+        for (name, provider) in providers {
+            check(
+                provider,
+                &format!("providers.{name}"),
+                &["protocol", "base_url", "api_key_env", "api_key", "auth", "context_limit"],
+                &mut out,
+            );
+        }
+    }
+    if let Some(profile) = value.get("profile") {
+        check(profile, "profile", &["default"], &mut out);
+    }
+    if let Some(permissions) = value.get("permissions") {
+        check(permissions, "permissions", &["rules"], &mut out);
+        if let Some(rules) = permissions.get("rules").and_then(|r| r.as_array()) {
+            for (index, rule) in rules.iter().enumerate() {
+                check(
+                    rule,
+                    &format!("permissions.rules[{index}]"),
+                    &["action", "resource", "effect"],
+                    &mut out,
+                );
+            }
+        }
+    }
+    out
 }
 
 /// 标量覆盖、map 合并、规则追加(后层排后 → last-match-wins 自然让后层优先)。
@@ -225,27 +300,44 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
 }
 
 /// "总是允许"的持久化:向项目配置追加 allow 规则(后来的规则 last-match-wins)。
+/// 文本级追加(D-083):toml_edit 保留注释、排版与未知字段,不做整文件 round-trip。
 pub fn append_allow_rule(
     project_root: &Path,
     action: &str,
     resource: &str,
 ) -> anyhow::Result<PathBuf> {
     let path = project_root.join(".kanzei").join("kanzei.toml");
-    let mut config = if path.is_file() {
-        let text = std::fs::read_to_string(&path)?;
-        toml::from_str(&text).map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?
+    let text = if path.is_file() {
+        std::fs::read_to_string(&path)?
     } else {
-        KanzeiConfig::default()
+        String::new()
     };
-    config.permissions.rules.push(Rule {
-        action: action.to_string(),
-        resource: resource.to_string(),
-        effect: crate::permission::Effect::Allow,
-    });
+    // 语义预检:类型错误在这里明确报出,而不是把规则追进一个坏文件。
+    toml::from_str::<KanzeiConfig>(&text)
+        .map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?;
+    let mut doc: toml_edit::DocumentMut = text
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid {}: {e}", path.display()))?;
+    let permissions = doc.entry("permissions").or_insert(toml_edit::table());
+    let Some(permissions) = permissions.as_table_mut() else {
+        anyhow::bail!("{}: `permissions` 不是表,无法追加规则", path.display());
+    };
+    permissions.set_implicit(true);
+    let rules = permissions.entry("rules").or_insert(toml_edit::Item::ArrayOfTables(
+        toml_edit::ArrayOfTables::new(),
+    ));
+    let Some(rules) = rules.as_array_of_tables_mut() else {
+        anyhow::bail!("{}: `permissions.rules` 不是数组表,无法追加规则", path.display());
+    };
+    let mut rule = toml_edit::Table::new();
+    rule.insert("action", toml_edit::value(action));
+    rule.insert("resource", toml_edit::value(resource));
+    rule.insert("effect", toml_edit::value("allow"));
+    rules.push(rule);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, toml::to_string_pretty(&config)?)?;
+    std::fs::write(&path, doc.to_string())?;
     Ok(path)
 }
 
@@ -303,6 +395,86 @@ mod tests {
     fn bash_always_allow_keeps_exact_command() {
         assert_eq!(generalize_resource("bash", "git status"), "git status");
         assert_eq!(generalize_resource("write", "notes.md"), "notes.md");
+    }
+
+    #[test]
+    fn unknown_fields_are_tolerated_and_reported() {
+        // D-084:新版本写入的配置节不能炸掉旧二进制;未知键忽略但可见。
+        let text = r#"
+[models]
+primary = "anthropic:claude-sonnet-5"
+new_feature_field = "from-a-newer-kanzei"
+
+[future_section]
+whatever = 1
+
+[providers.kimi]
+protocol = "openai"
+base_url = "https://api.moonshot.cn/v1"
+typo_fielt = true
+"#;
+        let config: KanzeiConfig = toml::from_str(text).unwrap();
+        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        assert!(config.providers.contains_key("kimi"));
+        let raw: toml::Value = toml::from_str(text).unwrap();
+        let mut unknown = unknown_keys(&raw);
+        unknown.sort();
+        assert_eq!(
+            unknown,
+            vec!["future_section", "models.new_feature_field", "providers.kimi.typo_fielt"]
+        );
+    }
+
+    #[test]
+    fn unknown_keys_schema_matches_struct() {
+        // 守护 unknown_keys 的手写清单与结构体不漂移:全量序列化后必须零告警。
+        let mut config = KanzeiConfig::default();
+        config.fill_defaults();
+        config.models.reasoning = Some("high".into());
+        config.proxy = Some("http://127.0.0.1:7890".into());
+        config.profile.default = Some("dev".into());
+        config.permissions.rules.push(Rule {
+            action: "bash".into(),
+            resource: "git status".into(),
+            effect: crate::permission::Effect::Allow,
+        });
+        let raw: toml::Value =
+            toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
+        assert_eq!(unknown_keys(&raw), Vec::<String>::new());
+    }
+
+    #[test]
+    fn append_allow_rule_preserves_comments_and_unknown_fields() {
+        // D-083:追加规则不得抹掉用户手写的注释、排版与未知字段。
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-d083-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        let path = root.join(".kanzei").join("kanzei.toml");
+        std::fs::write(
+            &path,
+            "# 我的配置,别动我的注释\n[models]\nprimary = \"anthropic:claude-sonnet-5\" # 行尾注释\n\n[future_section]\nkeep_me = true\n",
+        )
+        .unwrap();
+        append_allow_rule(&root, "bash", "git status").unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        for expected in [
+            "# 我的配置,别动我的注释",
+            "# 行尾注释",
+            "[future_section]",
+            "keep_me = true",
+        ] {
+            assert!(saved.contains(expected), "missing preserved text: {expected}\n---\n{saved}");
+        }
+        let config: KanzeiConfig = toml::from_str(&saved).unwrap();
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].resource, "git status");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
