@@ -69,7 +69,7 @@ const I18N_EN = {
   "暂无隔离工作树": "No isolated worktrees", "干净": "Clean", "项改动": "changed files", "差异": "Diff", "合并": "Merge", "放弃": "Discard",
   "工作树干净,没有未提交差异": "Worktree is clean; there are no uncommitted changes", "工作树差异已写入运行日志": "Worktree diff was written to the runtime log", "工作树操作完成，详细结果已写入运行日志": "Worktree operation completed; detailed results were written to the runtime log", "隔离工作树已创建": "Isolated worktree created", "放弃工作树": "Discard worktree", "未提交改动会阻止删除并保留现场": "Uncommitted changes will prevent deletion and be preserved",
   "历史消息恢复失败": "Failed to restore conversation history", "已恢复": "Restored", "历史消息": "historical messages", "组工具轨迹": "tool traces", "暂无历史对话": "No conversation history", "点击打开 · 勾选后点 🗑 批量删除": "Click to open · select then click 🗑 to delete in bulk", "已打开历史对话": "Opened historical conversation", "先勾选要删除的历史对话": "Select conversations to delete first", "已删除": "Deleted", "份对话快照": " conversation snapshots", "历史对话加载失败": "Failed to load conversation history", "已开启新对话(历史已清空)": "New conversation started (history cleared)", "新对话:多轮历史已清空": "New conversation: multi-turn history cleared",
-  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "回答": "Answer", "权限": "Permission", "拒绝": "Denied", "总是允许": "Always allow", "自动放行失败": "Auto-allow failed", "权限应答失败": "Permission response failed", "已开启自动放行(本会话所有权限询问直接通过)": "Auto-allow enabled (all permission requests in this session pass automatically)", "已关闭自动放行": "Auto-allow disabled", "轮": "rounds", "耗时": "duration"
+  "上下文占用过高,已自动压缩为纪要并延续对话": "Context was too large; it was compacted into a summary and the conversation continued", "自动压缩完成:多轮历史已替换为纪要": "Automatic compaction complete: multi-turn history replaced by a summary", "已手动停止": "Stopped manually", "已手动停止并取消": "Stopped manually and cancelled", "已取消": "cancelled", "上轮": "last round", "鞭挞停止": "Auto-run stopped", "处于暂停中,点顶栏「继续鞭挞」恢复": "paused; click \"Resume auto-run\" in the top bar to continue", "已自动取消勾选,再点鞭挞即可继续": "automatically unchecked; click Auto-run to continue", "已达连上限,点继续或重开鞭挞": "maximum consecutive rounds reached; click Continue or restart Auto-run", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)": "The previous round made no substantive progress; one concrete nudge was added (it stops if the next round is also inactive)", "连续两轮没有实质动作(可能目标已达成或确实无可推进项)": "Two consecutive rounds made no substantive progress (the goal may be complete or nothing can be advanced)", "连续两轮无动作,鞭挞停止": "No action for two consecutive rounds; Auto-run stopped", "无动作 · 追加推进指令": "No action · added nudge", "系统通知权限已拒绝，请在系统设置中允许后重试": "System notification permission was denied; allow it in system settings and try again", "系统通知权限未授予，完成提示将保留在应用内": "System notification permission was not granted; completion notices will remain in the app", "当前环境不支持系统通知，完成提示将保留在应用内": "System notifications are not supported here; completion notices will remain in the app", "系统通知权限请求失败": "Failed to request system notification permission", "运行中可插入或排队，按交付方式发送": "While running, send to steer or queue according to Delivery", "运行中请先完成或停止当前任务，再打开历史对话": "Finish or stop the current task before opening conversation history", "文件列表": "Files", "实际差异": "Diff", "未跟踪文件尚未包含在 git diff 中": "Untracked files are not included in git diff", "子代理启动中": "subagent starting", "历史子代理轨迹": "historical subagent trace", "历史轨迹": "historical trace", "回放": "replay", "文件": "file", "并排": "Split", "统一": "Unified", "展开或收起后台任务详情": "Expand or collapse background task details", "测试失败": "Test failed", "移除 provider": "Remove provider", "已删除权限规则": "Permission rule deleted", "删除权限规则": "Delete permission rule", "删除": "Delete", "移动端本机桥接已启动": "Local mobile bridge started", "先填写 agent id": "Enter an agent id first", "代理容器": "Agent container", "创建": "created", "升级": "upgraded", "回滚": "rolled back", "已保存": "Saved", "检查中…": "Checking…", "发现新版本": "New version found", "已是最新": "Already up to date", "检查失败": "Check failed", "下载中…(安装器就绪后会自动弹出)": "Downloading… (the installer will open when ready)", "工具": "Tool", "工具结果": "Tool result", "移动端本机桥接已停止": "Local mobile bridge stopped", "选择项目": "Select project", "移除(不删除文件)": "Remove (do not delete files)", "移除项目": "Remove project", "只解除登记,不会删除磁盘文件。": "Only unregister it; files on disk will not be deleted.", "重命名项目(只修改显示名)": "Rename project (display name only)", "重命名项目": "Rename project", "项目显示名": "Project display name", "新项目目录路径(不存在时会创建)": "New project directory (created if missing)", "项目显示名(可留空)": "Project display name (optional)", "已初始化并切换到新项目": "Initialized and switched to the new project", "项目初始化完成": "Project initialization complete", "创建进程失败": "Failed to create process", "更新进程能力失败": "Failed to update process capability", "进程模式保存失败": "Failed to save process mode", "进程思考强度保存失败": "Failed to save reasoning effort", "进程模型保存失败": "Failed to save process model", "进程列表刷新失败": "Failed to refresh process list", "待处理权限询问恢复失败": "Failed to restore pending permission requests", "已切换到进程": "Switched to process", "回答": "Answer", "权限": "Permission", "拒绝": "Denied", "总是允许": "Always allow", "自动放行失败": "Auto-allow failed", "权限应答失败": "Permission response failed", "已开启自动放行(本会话所有权限询问直接通过)": "Auto-allow enabled (all permission requests in this session pass automatically)", "已关闭自动放行": "Auto-allow disabled", "需求": "requirement", "缺陷": "defect", "自然语言描述": "Describe in natural language", "先写点描述": "Write a description first", "记录中": "Recording", "独立子代理后台进行": "independent subagent working in background", "已记录": "Recorded", "记录失败(内容已保留,可重试)": "Recording failed (content kept; retry available)", "提交": "Submit", "取消": "Cancel", "目标描述,回车创建(Esc 取消)": "Goal description, press Enter to create (Esc to cancel)", "未创建,点 ＋ 生成模板;agent 会自动遵守此文件": "Not created; click + to generate a template; the agent will follow it", "打开开发规范": "Open conventions", "个章节": " sections", "点击查看": "click to view", "规范文件已就绪": "Conventions file ready", "轮": "rounds", "耗时": "duration"
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -3156,28 +3156,28 @@ function quickCaptureForm(kind, sectionId, noun) {
   form.className = "goal-add-form quickreq-form";
   const input = document.createElement("textarea");
   input.rows = 3;
-  input.placeholder = `自然语言描述${noun};Ctrl+Enter 或点提交,Esc 取消。子代理后台结构化落库,不打断当前对话。`;
+  input.placeholder = `${t("自然语言描述")}${t(noun)};Ctrl+Enter 或点${t("提交")},Esc ${t("取消")}。${t("独立子代理后台进行")},不打断当前对话。`;
   const submit = async () => {
     const text = input.value.trim();
     if (!text) {
-      toast("先写点描述");
+      toast(t("先写点描述"));
       return;
     }
     // 失败时表单必须还在:提交前销毁会让用户写的描述无处可寻。
     submitBtn.disabled = true;
     cancelBtn.disabled = true;
     input.disabled = true;
-    toast(`记${noun}中…(独立子代理后台进行)`);
+    toast(`${t("记录中")}${t(noun)}…(${t("独立子代理后台进行")})`);
     try {
       const msg = await invoke("quick_req", { projectDir: currentProject, description: text, kind });
       form.remove();
-      toast(`已记录:${msg}`);
+      toast(`${t("已记录")}:${msg}`);
       refreshDocs();
     } catch (err) {
       submitBtn.disabled = false;
       cancelBtn.disabled = false;
       input.disabled = false;
-      toastError(`记${noun}失败(内容已保留,可重试):${err}`);
+      toastError(`${t("记录失败(内容已保留,可重试)")}:${err}`);
     }
   };
   input.addEventListener("keydown", (e) => {
@@ -3188,11 +3188,11 @@ function quickCaptureForm(kind, sectionId, noun) {
   bar.className = "quickreq-bar";
   const cancelBtn = document.createElement("button");
   cancelBtn.className = "ghost mini";
-  cancelBtn.textContent = "取消";
+  cancelBtn.textContent = t("取消");
   cancelBtn.addEventListener("click", () => form.remove());
   const submitBtn = document.createElement("button");
   submitBtn.className = "primary mini";
-  submitBtn.textContent = "提交";
+  submitBtn.textContent = t("提交");
   submitBtn.addEventListener("click", submit);
   bar.append(cancelBtn, submitBtn);
   form.append(input, bar);
@@ -3208,7 +3208,7 @@ function renderConventions(conv) {
   if (!conv || !conv.exists) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
-    empty.textContent = "(未创建,点 ＋ 生成模板;agent 会自动遵守此文件)";
+    empty.textContent = t("未创建,点 ＋ 生成模板;agent 会自动遵守此文件");
     el.appendChild(empty);
     return;
   }
@@ -3216,8 +3216,8 @@ function renderConventions(conv) {
   const item = document.createElement("button");
   item.type = "button";
   item.className = "doc-item conv-entry";
-  item.setAttribute("aria-label", `打开开发规范，${conv.headings.length} 个章节`);
-  item.textContent = `${conv.headings.length} 个章节 · 点击查看`;
+  item.setAttribute("aria-label", `${t("打开开发规范")}，${conv.headings.length}${t("个章节")}`);
+  item.textContent = `${conv.headings.length}${t("个章节")} · ${t("点击查看")}`;
   item.title = conv.headings.slice(0, 12).join("\n");
   item.addEventListener("click", () => openDocViewer("conventions"));
   el.appendChild(item);
@@ -3230,7 +3230,7 @@ $("goal-add").addEventListener("click", () => {
   const form = document.createElement("div");
   form.className = "goal-add-form";
   const input = document.createElement("input");
-  input.placeholder = "目标描述,回车创建(Esc 取消)";
+  input.placeholder = t("目标描述,回车创建(Esc 取消)");
   input.addEventListener("keydown", async (e) => {
     if (e.key === "Escape") {
       form.remove();
