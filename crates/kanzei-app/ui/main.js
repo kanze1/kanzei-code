@@ -2845,9 +2845,10 @@ function renderConventions(conv) {
     return;
   }
   // 规范不再铺开章节列表占满侧边栏:一行入口,点开进应用内 MD 查看器。
-  const item = document.createElement("div");
-  item.className = "doc-item";
-  item.style.cursor = "pointer";
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "doc-item conv-entry";
+  item.setAttribute("aria-label", `打开开发规范，${conv.headings.length} 个章节`);
   item.textContent = `${conv.headings.length} 个章节 · 点击查看`;
   item.title = conv.headings.slice(0, 12).join("\n");
   item.addEventListener("click", () => openDocViewer("conventions"));
