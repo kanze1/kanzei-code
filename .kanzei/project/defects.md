@@ -90,6 +90,8 @@
 
 
 
+
+
 ## D-061 OAuth 凭证无锁读改写且非原子覆盖,与官方 CLI 共享文件可致登录态失效 [open] (high)
 - 复现: 两个 kanzei 进程(或 kanzei 与 Claude Code CLI)在令牌过期窗口内并发发起请求。
 - 根因: kanzei-llm/src/auth/claude.rs:28-95、auth/codex.rs:20-101 的流程是 read_to_string → 判断过期 → POST 刷新 → `std::fs::write` 覆盖,无文件锁、无 tmp+rename 原子替换、无写前重读。这两个文件(~/.claude/.credentials.json、~/.codex/auth.json)同时被官方 CLI 读写。
@@ -142,107 +144,6 @@
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-## D-105 主导航与多类可点击容器没有键盘/可访问语义 [fixing] (medium)
-- 复现: 只用 Tab/Enter 操作桌面端。activity-item、project-item、workspace-card、doc-row 等用 div + click 实现,没有统一 role/tabindex/键盘处理;自动放行/鞭挞的真实 checkbox 被 `display:none`;大量图标按钮的可访问名称只剩 `＋/↗/✎/🗑`。
-- 根因: 交互由 3200 行原生 JS 零散绑定,只对 sidebar section title 补了 role/tabindex/aria-expanded,没有组件级可访问性约束。浏览器 accessibility snapshot 中活动栏项表现为 generic,图标按钮名称是符号本身。
-- 影响: 键盘用户无法完成项目/视图/文档切换,屏幕阅读器无法理解按钮用途;R-040 的少量全局快捷键不能替代完整焦点顺序。
-- 验收: 所有可点击对象使用原生 button/a/input 或完整 role/tabindex/键盘语义;图标按钮有稳定 aria-label;焦点可见;仅键盘可完成核心路径并形成自动化冒烟记录。
-- 优先级: P1
-- refs: R-040 R-091
-- 阶段: 3
-- 不变量: 界面状态:仅键盘可完成核心流程
-- 证据等级: E3
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- 进展: 继续拆分完成第十四步：main.js:557-564 差异视图切换按钮补 type、aria-label、aria-pressed 并在 unified/split 切换同步；1419-1427 附件移除 chip 改为原生 button，补文件名级 aria-label；style.css:315-317 增加附件按钮重置与 focus-visible。既有 diff render 与附件移除调用方保留。验证：node --check、node scripts/ui-a11y-smoke.mjs、git diff --check、cargo test --workspace 全部通过。D-105 仍 fixing，真实浏览器键盘冒烟仍待完成。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- 阻塞: 真实浏览器键盘冒烟仍缺运行环境：工作区无 Playwright/Chromium/Edge 命令或前端 harness；scripts/ui-a11y-smoke.mjs 仅静态契约检查，无法证明运行时 Tab/Enter 路径。解除条件：R-101 提供前端 E2 harness 或可用浏览器自动化依赖。当前已完成代码与静态验证，暂跳过真实 E3，继续下一条。
 
 
 
@@ -396,6 +297,8 @@
 
 
 
+
+
 ## D-109 对话 Markdown 不支持列表、表格与链接,Agent 核心输出退化为纯文本 [open] (medium)
 - 复现: 让 agent 输出有序/无序列表、Markdown 表格和 `[label](url)`;renderMarkdown 只转换代码围栏、行内码、加粗和标题(ui/main.js:292-310),列表与表格没有结构,链接不可点击。
 - 根因: 自研 markdown-lite 覆盖面与 coding agent 的真实输出形态不匹配,也没有测试定义支持子集。
@@ -497,6 +400,8 @@
 
 
 
+
+
 ## D-110 todo 与活动两个右栏可同时占宽,最小窗口会把主对话区压到近乎不可用 [open] (medium)
 - 复现: 打开活动面板,再让 todowrite 显示当前计划;todo-panel 与 bg-panel 均为独立 300px 固定右栏且可同时显示。在 1280px 默认侧栏下主区只剩约 352px;800px 最小窗口下两右栏与左栏总宽已超过窗口。
 - 根因: 两个面板没有互斥、tab 合并或窄屏 overlay 策略,宽度都以 flex-shrink:0 的侧栏语义参与主布局;设置的可调最小宽度仍为 240px。
@@ -507,6 +412,8 @@
 - 阶段: 3
 - 不变量: 界面状态:多面板不挤压主对话区
 - 证据等级: E3
+
+
 
 
 
@@ -701,6 +608,8 @@
 
 
 
+
+
 ## D-088 CLI 会话历史无限累积且无清理入口 [open] (medium)
 - 复现: 在同一项目里正常使用若干次 kz run,上下文与耗时持续增长,最终撞上下文上限。
 - 根因: 每次 kz run 无条件取最新 conversation.updated 全量作为 prior(kanzei/src/main.rs:145-153),runner 以 prior.to_vec() 开局(runner.rs:206),运行结束又把累积后的完整 messages 写回(277-281);usage(47-52)中不存在 reset/new/continue 任何选项。
@@ -710,6 +619,8 @@
 - 阶段: 3
 - 不变量: 会话控制:上下文增长有清理入口
 - 证据等级: E2
+
+
 
 
 
@@ -902,6 +813,8 @@
 
 
 
+
+
 ## D-075 上下文成分浮层是死功能,状态栏承诺的点击查看无法打开 [open] (low)
 - 复现: 运行一轮后点状态栏 token 文字(title 写着"点击查看上下文成分"),浮层永不出现。
 - 根因: renderContextDetail 只写 innerHTML 从不移除 hidden 类(ui/main.js:811-825),而 `.hidden { display:none !important }`(style.css:329);全项目无其他代码碰 #context-detail(index.html:339)。
@@ -910,6 +823,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:承诺的入口必须可达
 - 证据等级: E3
+
+
 
 
 
@@ -1101,6 +1016,8 @@
 
 
 
+
+
 ## D-079 运行中发送按钮禁用但排队功能存在,鼠标用户不可达 [open] (low)
 - 复现: 运行中在输入框打字并选好"插入 steer",发送按钮是灰的点不动;但按 Ctrl+Enter 却能成功排队。
 - 根因: setRunning(true) 禁用发送按钮(ui/main.js:287),而 sendText 专门实现了运行中的 queue/steer 投递分支(1277-1296),交付方式下拉也常驻可选;键盘路径直接调 send() 完全绕过按钮禁用(1571-1573)。
@@ -1110,6 +1027,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:按钮状态与实际能力一致
 - 证据等级: E3
+
+
 
 
 
@@ -1301,6 +1220,8 @@
 
 
 
+
+
 ## D-090 bgEntries/diffSummary 不随 DOM 修剪,长时间运行内存与定时器负载无界增长 [open] (low)
 - 复现: 一晚上鞭挞连跑数千次工具调用且不切项目/进程。
 - 根因: ui/main.js:490-492 的修剪只删 DOM(`list.firstElementChild.remove()`),bgEntries Map(452)与 diffSummary 仅在 bgClear()(切项目/进程)时清空;687-691 的每秒 interval 遍历全 Map,对已脱离 DOM 的 detached 节点持续更新。
@@ -1310,6 +1231,8 @@
 - 阶段: 3
 - 不变量: 界面状态:长跑不产生无界增长
 - 证据等级: E3
+
+
 
 
 
@@ -1500,6 +1423,8 @@
 
 
 
+
+
 ## D-093 标题 🔔 提示只在 visibilitychange 复位,窗口可见时失焦回焦不清除 [open] (low)
 - 复现: 双屏使用,kanzei 一直可见但焦点在别处,任务完成后回到窗口,标题仍是"🔔 运行完成 · kanzei"。
 - 根因: ui/main.js:173-187 设置条件是 `!document.hasFocus() || document.hidden`(失焦即设),但复位只挂在 visibilitychange 上;窗口未被遮挡时失焦→回焦不产生该事件,缺一个 window focus 监听。
@@ -1508,6 +1433,8 @@
 - 阶段: 3
 - 不变量: 操作反馈:提示状态不陈旧
 - 证据等级: E3
+
+
 
 
 
@@ -1699,6 +1626,8 @@
 
 
 
+
+
 ## D-095 refs 跳转在独立文档页失效,特殊字符还会抛异常 [open] (low)
 - 复现: 在独立文档页展开带 `refs: R-054` 的条目并点击该链接,页面无反应。
 - 根因: ui/main.js:2188-2194 用全局 `document.querySelector([data-doc-id="..."])`,同一条目在侧栏与独立页各渲染一份且侧栏在前,而独立视图激活时侧栏副本被 `display:none` 隐藏 → scrollIntoView 对隐藏元素无效、高亮不可见;另 ref 值来自自由文本,含 `"` 或 `]` 时选择器语法错误直接抛未捕获异常。
@@ -1708,6 +1637,8 @@
 - 阶段: 3
 - 不变量: 界面状态:关联跳转在当前视图内生效
 - 证据等级: E3
+
+
 
 
 
@@ -1892,6 +1823,8 @@
 
 
 
+
+
 ## D-114 自举运行验证节奏低效:git 查询过密、全量测试时机不当、已知位置缺陷仍派子代理 [fixing] (low)
 - 复现: 2026-08-07 完整落库轨迹:30 次终端调用中约 13 组 git status/diff/show 密集重复且常一次塞多条;文件仍处换行损坏时跑过全工作区测试;D-082 单文件已知函数缺陷启动子代理,28 次内部读查后因网络错误失败返回,主 agent 重查一遍。
 - 根因: dev 提示词无验证节奏与子代理适用边界约束;runner/工具层对重复查询、无变化重测、已知位置探索无任何检测。
@@ -1904,6 +1837,8 @@
 - 证据等级: E2
 - 进展: a7892e1 已在 dev 提示词加入验证节奏纪律(git 检查按里程碑并合并查询、先定向测试后全量、无变化不重测)与子代理适用边界(已知文件+函数直接读);1d5e294 的 edit/bash 门禁已消除编辑连败与整文件重写两类根源。剩余闭环依赖 R-099 的度量数据,机械化提醒按 R-100 决策。
 - 进展(追加): 鞭挞 14~17 轮暴露微切片新浪费:D-108 每轮只翻 2~3 处文案(拖到 34 步),且纯前端改动每轮跑全量 cargo test。按用户定调落地:①鞭挞默认提示词规则 2 改为「一轮一个完整条目,同构批量改动一轮吃完整类别」,旧默认进 LEGACY_CONTINUE_PROMPTS 静默升级;②conventions §1.3 增粒度与「验证匹配改动面」规范;③dev 提示词同步测试选择规则。生效需重装 kzapp(前端与提示词打包在二进制内)。
+
+
 
 
 

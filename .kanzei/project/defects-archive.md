@@ -9,7 +9,9 @@
 
 
 
+
 ## D-001 docstore 标题末尾括号被误剥为 severity [fixed] (medium)
+
 
 
 
@@ -31,7 +33,9 @@
 
 
 
+
 ## D-003 LLM 请求无超时,网络不通时永久挂起且无提示 [fixed] (medium)
+
 
 
 
@@ -53,7 +57,9 @@
 
 
 
+
 ## D-005 Tauri 缺 capabilities,前端 event.listen 被 ACL 静默拒绝,所有运行事件收不到 [fixed] (medium)
+
 
 
 
@@ -80,7 +86,9 @@
 
 
 
+
 ## D-007 总是允许只对后续运行生效,当前运行内换个命令仍反复弹窗 [fixed] (medium)
+
 
 
 
@@ -109,6 +117,7 @@
 
 
 
+
 ## D-009 SQLite 事件 ID 可能在不同会话间碰撞 [fixed] (medium)
 - 发现: SessionStore::append_event 使用时间戳和会话内 sequence 生成 event_id；不同 session 在同一毫秒首次写入会生成相同主键。
 - 影响: 一个会话的事件写入可能因全局 event_id 主键冲突失败。
@@ -125,12 +134,14 @@
 
 
 
+
 ## D-011 桌面端启动时短暂弹出黑色终端窗口 [fixed] (medium)
 - 复现: 启动桌面端 kzapp（尤其通过发版脚本或安装后的启动方式）时，短暂出现黑色终端窗口，随后自动关闭。
 - 影响: 桌面端启动体验异常，用户误以为同时启动了命令行程序。
 - 验收: 从发版安装入口启动 kzapp，全程不出现可见黑色终端窗口；若确有后台命令需要执行，应使用隐藏窗口方式。
 - 修复: 桌面端 app 的 cmd/git 外部进程统一通过 hidden_command 设置 Windows CREATE_NO_WINDOW(0x08000000)，避免外部命令创建控制台窗口。
 - 验证: cargo test --workspace 全绿；cargo build --release -p kanzei-app 成功。需关闭当前 kzapp 后重新安装 pending 并实机启动验证。
+
 
 
 
@@ -158,6 +169,7 @@
 
 
 
+
 ## D-013 桌面端编辑 diff 默认展开导致对话过长 [fixed] (low)
 - 修复计划: diff 内容块默认添加 hidden 类，仅保留头部的文件路径与增删统计；沿用现有工具头部点击切换逻辑。
 - 发现: 桌面端 ui/main.js 在收到 diff 展示时直接创建可见 diff 内容，点击工具头部才收起。
@@ -165,6 +177,7 @@
 - 验收: 编辑操作后 diff 默认不可见但摘要可见；点击工具头部展开，再次点击收起。
 - 修复内容: ui/main.js 中 diff 详情块默认使用 hidden 类，保留头部文件路径与增删统计，复用现有头部点击切换展开/收起。
 - 验证: node --check crates/kanzei-app/ui/main.js 通过；cargo build -p kanzei-app 通过。
+
 
 
 
@@ -192,6 +205,7 @@
 
 
 
+
 ## D-015 设置页保存丢失 provider 的 context_limit(表单无此列,保存后 ctx 百分比失效) [fixed] (medium)
 
 
@@ -203,7 +217,9 @@
 
 
 
+
 ## D-016 agent 完成工作后从不 git 提交,多波改动堆积在工作区无法追溯回滚 [fixed] (medium)
+
 
 
 
@@ -230,12 +246,14 @@
 
 
 
+
 ## D-018 steer drain 单测补充造成 store 测试模块语法错误 [fixed] (medium)
 - 复现: 补充 steer drain 单测时误删重复 admission 测试函数声明，cargo fmt/cargo test 报 store.rs unexpected closing delimiter。
 - 影响: 核心 crate 暂时无法编译。
 - 验收: 恢复测试函数结构后 cargo test -p kanzei-core 与 workspace 全部通过。
 - 修复: 恢复并补充 steer drain 测试，SessionStore 测试模块结构正常。新增 promote_next_input：优先提升 pending steer，无 steer 时按 FIFO 提升 queue。
 - 验证: cargo test --workspace 全部通过：kanzei-core 9 tests passed；node --check crates/kanzei-app/ui/main.js 通过。
+
 
 
 
@@ -261,11 +279,13 @@
 
 
 
+
 ## D-020 插入 latest_event 测试误删相邻事件 ID 测试声明 [fixed] (medium)
 - 复现: 插入 latest_event 回归测试时匹配并替换了“不同会话的事件_id_保持唯一”测试声明，仅保留函数体，cargo test 报测试模块 unexpected closing delimiter。
 - 影响: 核心测试模块无法编译。
 - 验收: 恢复不同会话事件 ID 测试声明后，store 与 workspace 测试全部通过。
 - 验证: 恢复相邻事件 ID 测试声明后，cargo test --workspace 全部通过。
+
 
 
 
@@ -292,12 +312,14 @@
 
 
 
+
 ## D-022 桌面端事件恢复读取使用已 drop 的 SessionStore [fixed] (medium)
 - 复现: 事件恢复代码在 run_task 中先 drop 初始 SessionStore，再调用 recover_messages(&store, ...)，cargo test --workspace 编译报 borrow of moved value: store。
 - 影响: 桌面端事件恢复代码无法编译。
 - 验收: 调整 store 生命周期后 cargo test --workspace 与 node --check 全部通过。
 - 修复: 恢复 run_task 中 SessionStore 生命周期，事件恢复读取与最终 conversation.updated 写入共用有效 store。
 - 验证: cargo test --workspace 与 node --check crates/kanzei-app/ui/main.js 全部通过。
+
 
 
 
@@ -323,7 +345,9 @@
 
 
 
+
 ## D-025 并行 task 的 tool-end 靠全局 currentTool 配对,多块并行时结果张冠李戴、后续 end 事件被丢弃,task 块永远停在 running(看似卡死);且子代理运行全程无状态反馈 [fixed] (medium)
+
 
 
 
@@ -339,6 +363,7 @@
 - 复现: worker 在 promote_next_input 返回 None 后、running.store(false) 前，run_prompt 观察到 running=true 并写入 pending；worker 随后退出，pending 输入无人提升。
 - 影响: 运行结束边界提交的输入可能永久停留 pending，用户看到任务结束但输入未执行。
 - 验证: run_prompt 的运行中 admission 与 drain 尾部 promote_next_input/running=false 统一由 lifecycle 锁串行化；错误路径也在锁内释放 running。cargo test -p kanzei-app 与 cargo test --workspace 全部通过，且同步更新 M2 调度文档。
+
 
 
 
@@ -366,11 +391,13 @@
 
 
 
+
 ## D-026 R-014 多模态运行入口未导出新 runner API 导致桌面端编译失败 [fixed] (medium)
 - 修复: 补充 pub use 导出并回归测试
 - 原因: kanzei-app 引用了 run_once_with_parts，但 kanzei-core lib.rs 未公开导出
 - 复现: cargo test -p kanzei-core -p kanzei-app
 - 优先级: P1
+
 
 
 
@@ -392,6 +419,7 @@
 
 
 
+
 ## D-028 openai 协议图片部件类型误写为 image(规范为 image_url),moonshot 等严格 provider 400 拒收含图历史 [fixed] (medium)
 
 
@@ -403,7 +431,9 @@
 
 
 
+
 ## D-029 顶栏不自适应:窄窗口按钮挤成竖排文字、右侧控件溢出;开发规范章节铺满侧边栏 [fixed] (medium)
+
 
 
 
@@ -432,6 +462,7 @@
 
 
 
+
 ## D-035 需求与缺陷菜单长标题遮挡状态信息 [fixed] (high)
 - 原始描述: 需求菜单状态图标/状态标签让实际标题看不见，缺陷菜单存在同样问题。
 - 复现: 1. 在需求或缺陷中准备较长标题；2. 打开侧栏菜单或独立文档页；3. 观察状态标签、优先级/复杂度和标题区域。
@@ -440,6 +471,7 @@
 - 优先级: P0
 - 修复: 为 .doc-row 增加横向 flex 布局与 min-width:0，为标题增加 flex:1/min-width:0/省略号；需求与缺陷侧栏及独立文档列表共用该布局。
 - 验证: node --check crates/kanzei-app/ui/main.js、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -468,6 +500,7 @@
 
 
 
+
 ## D-036 独立需求/缺陷页面共用状态筛选导致切换页签空列表 [fixed] (medium)
 - 原始描述: 独立文档页的状态筛选选项同时包含需求状态和缺陷状态，但需求与缺陷共用一个筛选器。
 - 复现: 1. 打开独立需求/缺陷页面；2. 在需求页选择 todo 或 doing；3. 切换到缺陷页；4. 观察缺陷列表。反向从缺陷状态切到需求页同理。
@@ -486,6 +519,7 @@
 
 
 
+
 ## D-032 需求和缺陷拖拽未正确实现 [fixed] (medium)
 - 原始描述: 需求和缺陷的拖拽行为与用户预期不一致。当前代码仅在需求处于手动排序且无筛选时启用拖拽，缺陷列表没有拖拽实现。
 - 复现: 在需求和缺陷菜单分别尝试拖拽条目；再对需求启用筛选或切换非手动排序后尝试拖拽。
@@ -493,6 +527,7 @@
 - 验收: 产品明确需求/缺陷是否都支持排序；若支持，拖拽、禁用条件、放置反馈和保存失败提示一致；若不支持，界面不暗示可拖拽。
 - 修复: 将需求拖拽提交抽象为按文档类型的通用 reorder；缺陷侧栏列表现在支持拖拽，独立缺陷页仅在全部状态时允许拖拽，避免提交筛选后的不完整顺序；统一使用 data-doc-id 并按实际 kind 提交。
 - 验证: node --check crates/kanzei-app/ui/main.js、git diff --check、cargo test -p kanzei-app 通过。
+
 
 
 
@@ -521,6 +556,7 @@
 
 
 
+
 ## D-039 R-059 broker 线程隔离测试未匹配发布后 sequence [fixed] (low)
 - 原始描述: R-059 内存 broker 线程隔离测试复用了未注入 sequence 的通知构造器，导致发布后返回 sequence=1 而期望仍为 0。
 - 复现: 执行 cargo test -p kanzei-core；notification::tests::thread_replay_does_not_leak_notifications_between_threads 失败，left 为已发布 sequence=1，right 为构造器默认 sequence=0。
@@ -529,6 +565,7 @@
 - 优先级: P2
 - 修复: 调整线程隔离测试的期望值，显式设置 broker 发布后的 sequence（thread_a=1、thread_b=2），保留对跨线程不泄漏的断言。
 - 验证: cargo test -p kanzei-core 19 项通过；cargo test -p kanzei-app 1 项通过；scripts/r050-poc-check.ps1、git diff --check 通过。
+
 
 
 
@@ -557,6 +594,7 @@
 
 
 
+
 ## D-041 R-059 通知 sequence 未按 thread_id 隔离 [fixed] (medium)
 - 原始描述: R-059 通知 broker 的 sequence 当前全局递增，不同 thread_id 的通知交错时，单线程订阅会看到其他线程造成的跳号。
 - 复现: 1. 发布 thread_a 通知；2. 发布 thread_b 通知；3. 再发布 thread_a 通知；4. 以 thread_a cursor replay，观察 sequence 不连续。
@@ -565,6 +603,7 @@
 - 优先级: P1
 - 修复: 将通知 sequence 从 broker 全局计数改为按 thread_id 独立计数；补充交错发布 A1/B1/A2 时 A=1/2、B=1 的回归测试，thread cursor 不再受其他线程影响。
 - 验证: cargo test -p kanzei-core 21 项通过；cargo test -p kanzei-app 1 项通过；scripts/r050-poc-check.ps1、git diff --check 通过。
+
 
 
 
@@ -593,7 +632,9 @@
 
 
 
+
 ## D-044 鞭挞触发两缺陷:空闲勾选不启动第一轮(需手点继续);阻塞时写日记提交绕过无实质动作刹车,连烧20+空转轮 [fixed] (medium)
+
 
 
 
@@ -620,12 +661,14 @@
 
 
 
+
 ## D-045 需求列表字段过长导致展开渲染异常 [fixed] (low)
 - 原始描述: 需求列表字段长度长了之后，展开渲染有问题
 - 复现: 需求列表字段内容长度增加超过阈值时，展开渲染出现异常
 - 优先级: medium
 - 修复: 允许条目容器换行，将展开详情设置为完整行并限制最小宽度；长标题和字段按单词边界换行，不再撑坏列表布局。
 - 验证: node --check crates/kanzei-app/ui/main.js；手工流程为展开带超长标题/字段的需求，详情在条目下方完整换行显示。
+
 
 
 
@@ -654,11 +697,13 @@
 
 
 
+
 ## D-033 子代理调用慢 - 可能未启用并发导致？ [fixed] (medium)
 - 原始描述: 主要模型调用的子代理似乎比较慢，是因为没启用并发吗？
 - 复现: 观察主模型调用时，检查是否启用了并发机制。
 - 修复: 核实 runner 同轮通过 FuturesUnordered 并行执行 task；增加每轮最多 8 个子代理的硬上限，避免过量并发拖慢本地模型或耗尽连接资源。
 - 验证: cargo test -p kanzei-core 26 项通过；代码路径确认同轮 task 使用 FuturesUnordered，超出上限返回明确工具错误。
+
 
 
 
@@ -684,6 +729,7 @@
 
 
 
+
 ## D-043 缺陷评估请求(无具体描述) [wontfix] (low)
 - 原始描述: 评估一下缺陷
 - 复现: 无法推断:原文未提供具体缺陷现象、环境或步骤
@@ -699,11 +745,13 @@
 
 
 
+
 ## D-047 需求优先级调整功能存在大量bug [fixed] (high)
 - 原始描述: 需求优先级的调整现在很多bug，然后缺陷一样有优先级和复杂度评估
 - 复现: 在系统中对需求进行优先级调整操作时会出现多种bug（具体操作步骤未说明）
 - 修复: 统一需求与缺陷的 P0-P3 优先级 schema，前端两类文档均支持优先级调整/筛选和复杂度编辑；更新已有 priority 英文字段时原位修改，避免重复字段。
 - 验证: cargo test -p kanzei-tools 13 项通过（含英文 priority 原位更新回归）；node --check crates/kanzei-app/ui/main.js；git diff --check。
+
 
 
 
@@ -734,6 +782,7 @@
 
 
 
+
 ## D-052 CRLF 文件 frontmatter 偏移算错,自定义 agent 提示词被污染或整体清空 [fixed] (high)
 - 复现: 在 Windows 上创建 CRLF 编码的 `~/.kanzei/agents/*.md`(git autocrlf 检出、记事本/VSCode 默认均为 CRLF),加载该 agent 后观察 system prompt。
 - 根因: kanzei-harness/src/markdown.rs:44-68 用 `line.len() + 1` 逐行累加 body_start,但 `str::lines()` 剥掉的是 `\r\n` 两个字节,每行少算 1 字节;n 个 frontmatter 键累计欠 n+2 字节,落点回退进收尾 `---` 行甚至上一行。n=1 正文变 `-\r\n正文`,n=3~5 整个分隔符混入正文;落点若切在多字节 UTF-8 字符中间(frontmatter 值含中文时常见),`text.get(body_start..)` 返回 None,:66 的 `.unwrap_or("")` 让 body 直接变空。
@@ -752,6 +801,7 @@
 
 
 
+
 ## D-057 队列 drain 循环变量遮蔽导致排队输入顺序反转并重复入库 [fixed] (high)
 - 复现: 运行中排队两条输入 X(先)、Y(后);本轮结束进入 drain,状态栏提示"开始执行排队输入(X)",实际执行的是 Y,X 的内容延后到再下一轮。
 - 根因: kanzei-app/src/main.rs:2685 用 `let next_input = {...}` 新建绑定遮蔽了 2643 行的外层变量,promote 出的输入被丢弃;2707 只做 `next_prompt = input.prompt.clone()`(clone 暗示本想存回)。下一轮 run_task 收到 promoted_input=None → is_new_input=true → 以相同文本重新 admit(2852-2876),而 store 的 promote_next_input 按 FIFO 弹出最早的 pending(store.rs:400-427),弹出的是 Y 而非刚 admit 的 X'。
@@ -760,6 +810,7 @@
 - 优先级: P0
 - 修复: main.rs:2685 改为写回外层 next_input(去掉遮蔽的 let),取用处改 next_input.clone();promote 出的输入不再被丢弃,队列按提交顺序执行且不重复 admit。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -790,6 +841,7 @@
 
 
 
+
 ## D-062 bash 超时丢弃全部已捕获输出且标记为成功 [fixed] (high)
 - 复现: 执行一条会超时的命令(如测试跑到 119s 已打印几百行失败详情后卡住),观察工具返回。
 - 根因: kanzei-tools/src/bash.rs:102-159 把 out_buf/err_buf 声明在 capture async 块内部(104),`tokio::time::timeout` 超时走 Err 分支(150)时整个 future 连同两个缓冲一起 drop,只返回一句 "timeout: true"(155),而超时前进程可能已产出接近 1 MiB 输出。
@@ -798,6 +850,7 @@
 - 优先级: P1
 - 修复: stdout/stderr 缓冲移到 capture future 外,超时时回传已捕获的部分输出并标注 [partial stdout/stderr before timeout];超时改为 ToolOutput::error(不再标记为成功),display 增加 timeout 字段。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -827,6 +880,7 @@
 
 
 
+
 ## D-069 websearch snippet 偏移链丢失一级基址,产出脏文本且可能 panic [fixed] (medium)
 - 复现: 任意一次 websearch,观察返回的 snippet 内容。
 - 根因: kanzei-tools/src/websearch.rs:143-153 的第三个闭包中 offset 是 shadowing 后的 G,但切片基址写成 `title_end + 4 + G + 1`,丢掉了第一级基址 A,起点比正确位置提前 A 字节,落在 `<a class="result__snippet"...>` 开标签内部。
@@ -835,6 +889,7 @@
 - 优先级: P2
 - 修复: snippet 抽取改为逐级把基址累进 rest,不再丢失 result__snippet 一级偏移;补断言 snippet 内容的测试与中文摘要不 panic 的测试。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -863,6 +918,7 @@
 
 
 
+
 ## D-071 grep/glob 默认跳过隐藏文件,项目核心文档搜不到 [fixed] (medium)
 - 复现: 在项目根用 grep 搜索 defects.md 中的原文,或用 glob 匹配 `.kanzei/**`,均返回无结果。
 - 根因: kanzei-tools/src/grep.rs:92 与 glob.rs:75 使用 `ignore::WalkBuilder::new(base).build()` 默认配置,默认 hidden(true) 过滤所有点开头目录/文件。另 grep.rs:112 的 `let _ = searcher.search_path(...)` 把搜索错误整个吞掉,该文件剩余部分静默缺失。
@@ -871,6 +927,7 @@
 - 优先级: P2
 - 修复: grep 与 glob 的 WalkBuilder 均设 hidden(false),仍尊重 .gitignore;.kanzei/、.github/、.claude/ 下内容可被检索。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -900,6 +957,7 @@
 
 
 
+
 ## D-073 模型下拉跨进程串值,每进程独立模型选择在 UI 上泄漏 [fixed] (medium)
 - 复现: 在进程 p2 选模型 X,切回默认进程,下拉仍显示 X 且发送时直接传 X。
 - 根因: ui/main.js:1618-1624 把选择同时写入全局 localStorage `kz-model`;switchProcess(1847)只在目标进程显式设过 model 时才覆盖下拉,否则保留上一个进程的显示值。
@@ -909,6 +967,7 @@
 - refs: R-030 D-072
 - 修复: switchProcess 改为 `$("model-select").value = target.model || ""`,未设覆盖时回到 agent 默认,不再保留上一个进程的选择。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -937,6 +996,7 @@
 
 
 
+
 ## D-081 update_check 对 dev 构建恒判有新版本,启动每次误报 [fixed] (low)
 - 复现: 运行 dev 构建(未注入 KANZEI_BUILD_INFO)且仓库存在任意 release,启动 3 秒后必弹"发现新版本"。
 - 根因: kanzei-app/src/main.rs:1498-1499 中 current_hash 对 dev 构建为 "dev",1530 的 `newer = !tag.is_empty() && !tag.contains("dev")` 恒为 true;前端启动静默检查(ui/main.js:3150-3155)据此弹 toast。
@@ -944,6 +1004,7 @@
 - 优先级: P3
 - 修复: update_check 增加 current_hash != "dev" 判定,dev 构建不再恒判有新版本。
 - 验证: cargo test --workspace 全绿(87 项);node --check crates/kanzei-app/ui/main.js。
+
 
 
 
@@ -972,11 +1033,13 @@
 
 
 
+
 ## D-049 快记按钮不应依赖展示展开按钮 [fixed] (medium)
 - 原始描述: 快速记录需求和缺陷的按钮不应该依赖于展开按钮
 - 复现: 检查快速记录和缺陷记录的UI，确认它们是否直接可用而无需先展开
 - 修复: 快记表单改为挂载到对应分区的 section-title 内，并在标题中独占一行；折叠分区只隐藏标题之外的子节点，需求/缺陷快记不再依赖先展开分区。
 - 验证: node --check crates/kanzei-app/ui/main.js；cargo test -p kanzei-app（7 项通过）；手工验收：折叠需求或缺陷分区后点击 ✎，表单仍可见、可输入、可取消/提交。
+
 
 
 
@@ -1007,6 +1070,7 @@
 
 
 
+
 ## D-098 运行中文档变更不刷新侧栏,状态与状态流转按钮全程陈旧 [fixed] (medium)
 - 原始描述: 用户反馈"各类状态按钮得调整似乎不是实时刷新"
 - 复现: 开始一次运行,让 agent 通过 req/defect/goal 工具改条目状态;侧栏列表、计数与展开后的状态流转按钮保持开跑前的样子,直到本轮结束才更新。
@@ -1016,6 +1080,7 @@
 - 优先级: P1
 - 修复: 拆出 renderDocsSnapshot(只重绘文档列表与计数),新增 refreshDocsSoon/refreshGitSoon 两个防抖刷新(400ms/600ms);kz:tool-end 在 req/defect/goal/source/finding 成功后触发文档刷新,在 write/edit/multiedit/bash 成功后触发 git 徽章刷新。同时修掉重绘的两个副作用:renderDocList 跨重绘保留展开状态(此前重绘会把用户刚展开的条目弹回收起),快记表单打开或拖拽进行中时推迟刷新(避免 innerHTML 清空正在输入的内容)。
 - 验证: node --check crates/kanzei-app/ui/main.js;cargo build -p kanzei-app 通过。
+
 
 
 
@@ -1048,6 +1113,7 @@
 
 
 
+
 ## D-053 上下文压缩重试在工具循环中段产生孤儿 tool_result,恢复请求被 API 400 拒绝 [fixed] (high)
 - 复现: 长工具循环(大文件读取、grep 结果堆积)中触发上下文超限,step ≥ 2 时进入压缩重试。
 - 根因: compact_messages_for_retry 用 `rposition(|m| m.role == Role::User)` 找"当前用户消息"并原样保留(kanzei-core/src/runner.rs:757-787),但工具结果按 Anthropic 语义也是 User 角色(kanzei-llm/src/request.rs:72-78),工具循环中最后一条 User 消息正是 tool_results。压缩后对应的 assistant ToolCall 消息已被清空,留下无配对 tool_use 的 tool_result;build_body 原样透传不做配对修复(protocol/anthropic.rs:93-104),API 返回 400 invalid_request,该错误不含超限关键词故不被 is_overflow_message 识别,直接上抛导致整次运行失败。compact_messages_aggressively(789-798)同样问题。
@@ -1060,6 +1126,7 @@
 - 证据等级: E2
 - 进展: 已修复并提交（8696f18）：压缩与激进压缩只回找包含 Part::Text 的 User 消息，工具循环尾部的 tool_results 不再被当作当前提示保留；新增 compact_retry_drops_orphan_tool_results_in_tool_loop，断言压缩结果不含 ToolCall/ToolResult。cargo test -p kanzei-core 全部 28 项通过（仅保留既有 final_text unused_assignments 警告）。
 - 验收证据: crates/kanzei-core/src/runner.rs: compact_messages_for_retry、compact_messages_aggressively、is_text_user_message；runner::tests::compact_retry_drops_orphan_tool_results_in_tool_loop。
+
 
 
 
@@ -1095,6 +1162,7 @@
 
 
 
+
 ## D-054 用户拒绝权限时丢弃同批已执行工具结果,历史留未配对 ToolCall 永久毒化会话 [fixed] (high)
 - 复现: 一次运行中对任意权限询问点「拒绝」,随后在同一会话继续对话。
 - 根因: 工具批次结果累积在局部 results,全部执行完才 push(kanzei-core/src/runner.rs:476-618);Gate::UserDeclined 分支在 runner.rs:589 直接 return,results 被整体丢弃,包括同批排在前面、已实际执行且有副作用的工具结果。返回的 messages 最后一条是含 Part::ToolCall 的 assistant 消息且无 tool_results 跟随,而调用方无条件把该历史当 prior 复用(kanzei-app/src/main.rs:3097-3101/2984/3052、kanzei/src/main.rs:280/145/262)。
@@ -1106,6 +1174,7 @@
 - 证据等级: E2
 - 进展: 验收已满足并关闭：runner 拒绝权限时为当前/后续每个 ToolCall 补 ToolResult，已执行工具保留真实结果；新增 CLI 真实同批 Write 成功+Bash 拒绝 E2、拒绝后第二次对话恢复 E2、旧损坏 conversation.updated 启动过滤 E2；新增 kanzei-core history filter，接入 CLI prior 与桌面 recover_messages_at/conversation_get；桌面 conversation_prior 与坏快照恢复单测通过。cargo test -p kanzei-core -p kanzei-app -p kanzei --test always_allow_bash 通过（CLI 3 项 E2，桌面既有 11 项，core 历史/runner回归已通过）。停止/promoted 输入属于 D-066，不作为本条关闭阻塞；桌面真实 UI harness 缺口已记录在 D-051。
 - 验收证据: crates/kanzei-core/src/runner.rs: Gate::UserDeclined、append_declined_tool_results；crates/kanzei-core/src/history.rs: filter_message_history；crates/kanzei/src/tests/always_allow_bash.rs: 同批拒绝、拒绝后恢复、旧孤儿快照三项 CLI E2；crates/kanzei-app/src/main.rs: recover_messages_at、conversation_prior 与恢复单测。
+
 
 
 
@@ -1136,6 +1205,7 @@
 
 
 
+
 ## D-065 通知 sequence 分配与插入非原子,INSERT OR IGNORE 吞掉冲突静默丢通知 [fixed] (medium)
 - 复现: 同一会话/线程有两个并发通知源(如运行结束通知与状态通知同时落库)。
 - 根因: kanzei-core/src/store.rs:192-199 的 next_notification_sequence(MAX+1 读取)与 173-190 的 append_notification 是两个独立公开方法,中间无事务包裹(调用方 kanzei-app/src/main.rs:2528-2540 先取后插);两个并发写入方对同一 thread_id 取到相同 sequence,而 INSERT OR IGNORE(178)会忽略任何约束冲突——既包括预期幂等的 event_id 主键,也包括 UNIQUE(thread_id, sequence)(502),第二条通知被静默丢弃,无错误无日志。
@@ -1146,6 +1216,7 @@
 - 不变量: 持久化:序号分配与业务写入同事务
 - 证据等级: E2
 - 进展: 已修复：新增 SessionStore::append_notification_atomic，在 BEGIN IMMEDIATE 事务内读取 thread sequence、生成通知并插入；append_notification 改为 `ON CONFLICT(event_id) DO NOTHING`，不再吞掉 `(thread_id, sequence)` 冲突。app 的 append_run_notification 已切换到原子入口，不再组合 next_notification_sequence + append_notification。新增 4 连接共 80 条通知并发回归，断言 sequence 1..=80 且回放完整；新增相同 thread/sequence 不同 event_id 冲突可见测试。无需 schema 迁移；cargo test -p kanzei-core -p kanzei-app 35/12 项通过。改动位置 crates/kanzei-core/src/store.rs:107-116、182-261、923-1020、crates/kanzei-app/src/main.rs:2737-2753。
+
 
 
 
@@ -1176,6 +1247,7 @@
 
 
 
+
 ## D-087 kz --help 与拼错的子命令被当作 prompt 发给模型 [fixed] (low)
 - 复现: 执行 `kz --help` 或 `kz -h`,或把 tracker 子命令打错一个字母。
 - 根因: kanzei/src/main.rs:28-44 的顶层 match 只识别版本、五个 tracker 名词和 run,`Some(_) => run_cli(&args)` 把其余一切拼成 prompt 进入完整 agent 循环。
@@ -1184,6 +1256,7 @@
 - 优先级: P3
 - 进展: 已修复(7364448):顶层 match 显式处理 -h/--help/help 输出用法,`-` 开头未知参数 usage 后报错退出;当前 crates/kanzei/src/main.rs:37-44 可见。
 - 备注: 条目在 7364448 归档后归档文件遭回滚而丢失,2026-08-07 自 git 历史(880aeec)恢复至归档(见 D-112)。
+
 
 
 
@@ -1206,8 +1279,10 @@
 
 
 
+
 ## D-100 条目内容已丢失,无法恢复 [wontfix]
 - 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
+
 
 
 
@@ -1230,8 +1305,10 @@
 
 
 
+
 ## D-102 条目内容已丢失,无法恢复 [wontfix]
 - 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
+
 
 
 
@@ -1253,6 +1330,7 @@
 
 
 
+
 ## D-082 settings_save 以默认值重建全局配置,表单外字段静默丢失 [fixed] (medium)
 - 复现: 手工编辑 ~/.kanzei/kanzei.toml 加入 [permissions] 规则,随后在设置页点一次保存,规则消失。
 - 根因: kanzei-app/src/main.rs:1282-1323 用 `KanzeiConfig::default()` 起底,仅回填表单字段(models/proxy/profile.default/providers)后整体覆写全局配置文件,无备份。
@@ -1265,6 +1343,7 @@
 - 进展: 首轮修复(5d52281)完成表单字段合并;46a461a 补完全部缺口:settings_save_at_path 改 toml_edit 文本级修改,只动表单管理的键,注释/排版/未知字段/手写规则原样保留;现有配置解析失败时拒绝覆盖保存并报错,不再回退默认值销毁配置;行尾注释随值装饰保留;"缺省即默认"键(proxy/reasoning/profile.default)回落时写显式默认值,避免删键连带删注释;配合 D-084 宽容 schema,未知字段不再触发整份回退。
 - 验证: settings_save_preserves_handwritten_permission_rules、settings_save_preserves_comments_and_unknown_fields、settings_save_refuses_to_overwrite_unparseable_config 三项回归;cargo test --workspace 152 项全绿。
 - 备注: 本条目曾在 b8698e7 被归档后归档文件遭回滚,从两份文档中同时消失;2026-08-07 自 git 历史恢复(见 D-112)。
+
 
 
 
@@ -1318,6 +1397,7 @@
 
 
 
+
 ## D-084 配置结构体全量 deny_unknown_fields,新增字段会让旧二进制拒绝启动 [fixed] (medium)
 - 复现: 桌面端升级后写入新配置节,再用旧版 kz 运行任意项目,直接报 "unknown field" 退出。
 - 根因: kanzei-harness/src/config.rs:12/28/35/54/61 全部标注 deny_unknown_fields;load() 对全局与项目配置任一解析失败即返回错误(76-86),kz run 在 main.rs:62 直接 `?` 退出。
@@ -1333,6 +1413,7 @@
 - 阻塞: (已解除)用户 2026-08-07 在会话中确认按"告警并忽略"处理,告警通道为 CLI stderr 与桌面 kz:status。
 - 进展: 已修复(46a461a):移除全部 5 处 deny_unknown_fields;未知键经 load_with_warnings 收集告警(CLI stderr 黄字/桌面 run_task kz:status;load() 兜底 tracing::warn),语法与类型错误仍炸启动;unknown_keys 手写 schema 清单由 unknown_keys_schema_matches_struct 测试守护不漂移。
 - 验证: unknown_fields_are_tolerated_and_reported 覆盖"含新版本字段的配置在旧 schema 下仍可解析且告警"场景;cargo test --workspace 152 项全绿。
+
 
 
 
@@ -1379,6 +1460,7 @@
 
 
 
+
 ## D-112 tracker 归档条目在"仅提交活动文档+回滚归档"后从两份文档同时消失 [fixed] (high)
 - 复现: agent 对终态缺陷执行 defect archive(条目移入 defects-archive.md),随后只提交 defects.md 并把归档文件 checkout 回滚——条目在活动与归档文档中都不存在,requirements.md 的依赖引用悬空。
 - 根因: archive 是"活动文件删除+归档文件追加"的两文件操作,引擎无法阻止后续 git 操作只保留其一;工具输出未列出被移动的 ID 与两个必须同行提交的文件;tracker 无删除操作、ID 顺序分配,因此活动∪归档中的缺号即数据丢失,但没有任何检查暴露它。
@@ -1391,6 +1473,7 @@
 - 证据等级: E2
 - 进展: 已修复。数据恢复(a31efba):D-082/D-085/D-087 自 git 历史恢复,D-099~D-103 立墓碑,缺陷 ID 空间重归完整。门禁落地(1d5e294):tracker 每次调用对活动∪归档做缺号/重复检测并在输出告警(DocStore::integrity_issues);archive 动作回读校验移动的 ID 确实落在归档文件,输出列出移动 ID 并要求两文件同一提交;bash 在 git commit 成功后自动附带 HEAD --stat 实际提交文件清单;dev 提示词禁止 checkout 引擎管理的 tracker 文件。
 - 验证: integrity_detects_missing_and_duplicated_ids、integrity_warning_surfaces_in_tool_output、archive_reports_moved_ids_and_requires_paired_commit、git_commit_detection 四项回归;cargo test --workspace 152 项全绿。
+
 
 
 
@@ -1425,6 +1508,7 @@
 
 
 
+
 ## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixed] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
 - 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
@@ -1436,6 +1520,7 @@
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
 - 进展: 当前代码路径已完成 ask 按 session 保留、pending_asks_get 重建、后台控制事件刷新；剩余真实前端 UI E2 阻塞：仓库无 package.json、无浏览器测试 harness，无法在当前测试基座安全启动真实 Tauri UI。依据已由 task 调查记录。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:功能路径完整且有回归,前端 UI E2 转 R-101。
+
 
 
 
@@ -1494,6 +1579,7 @@
 
 
 
+
 ## D-060 docstore 解析丢弃非规范行,tracker 整文件重写会静默销毁用户手改内容 [fixed] (high)
 - 复现: 在 requirements.md 手写一条无冒号 bullet(如 `- 就是个备注`)或自由段落/### 子标题/代码块,随后让模型执行任意一次 req/defect 写操作(哪怕改的是别的条目),手改内容消失。
 - 根因: kanzei-tools/src/docstore.rs:225-242 的 parse 只保留 `## ` 标题和 `- key: value` 形式 bullet(`bullet.split_once(':')` 无 else 分支),其余一律丢弃;render(301-318)只写回保留部分。而 tracker.rs:76-82/153/227/268 的每一个写操作(add/update/close/reorder)都是 load → 改内存 → save 整文件重写。
@@ -1504,6 +1590,7 @@
 - 不变量: 配置与文档:写入保留未知字段和用户自由内容
 - 证据等级: E2
 - 进展: 已补 archive_terminal 模板转移：终态条目的 EntryTemplate 按 ID 合并到归档模板，归档不会丢自由段落、无冒号 bullet、### 子标题或代码块；新增 tracker::tests::archive_preserves_handwritten_free_text_and_unknown_blocks，真实执行 req archive 并断言手写内容进入 requirements-archive.md、活动文档保留进行中条目。cargo test -p kanzei-tools 21 项通过。当前改动位置 crates/kanzei-tools/src/docstore.rs:222-250、crates/kanzei-tools/src/tracker.rs:467-499。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:parse 保留+模板回写机制覆盖全部 save 路径且本会话手写恢复内容经引擎多次重写无损(实测);update/close/reorder 覆盖与并发写入回归转 R-101。
+
 
 
 
@@ -1562,6 +1649,7 @@
 
 
 
+
 ## D-066 stop_run 未回收已 promoted 输入,轮次交界仍可静默丢队列消息 [fixed] (medium)
 - 复现: drain 在 lifecycle 锁内 promote 下一条输入后释放锁(run_prompt main.rs:2708-2726),尚未进入下一次 run_task 前点击停止;stop_run 随后取得锁并 abort 整个任务,但只 cancel `pending` 输入(store.rs:372-378),刚提升的输入保持 `promoted` 且没有恢复入口。
 - 根因: 首轮修复补了 lifecycle 锁、idle 状态和 pending 清理,没有实现原验收的“回收 promoted 未执行输入”;session_inputs 状态机也没有 promoted→cancelled/pending 的停止迁移。
@@ -1574,6 +1662,7 @@
 - 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
 - 证据等级: E2
 - 进展: 本轮补齐 app 层确定性生命周期回归：新增 stop_runtime_and_finalize，保持 lifecycle 锁覆盖 abort/running 复位/数据库收尾，并沿用 SessionStore::finalize_interrupt 原子写 idle、stopped_by_user 事件及 pending/promoted 取消；stop_run 已改用该 helper。新增 update_tests::stopping_after_promote_cancels_promoted_and_pending_inputs_atomically，验证 promote 后停止时两条输入均取消、会话 idle、事件原因可见。cargo test -p kanzei-app 16 项通过。按 conventions §1.2「可用即关闭」(2026-08-07)关闭:promoted 回收的功能验收已实现且有确定性测试,真实 Tauri Window/provider E2 转 R-101。
+
 
 
 
@@ -1629,6 +1718,7 @@
 
 
 
+
 ## D-078 进程切换把自主推进降级为结伴开发,鞭挞静默失效 [fixed] (medium)
 - 复现: 选"自主推进"并勾上鞭挞,切一次进程再切回来——模式变成"结伴开发",鞭挞胶囊仍亮着,但本轮结束后不再续跑,无任何提示。
 - 根因: process_update 保存 profile 时只存 "dev"/"research" 丢掉了 dev-auto 档位(ui/main.js:1521-1523);switchProcess 回显时 `else if (target.profile === "dev") $("profile-select").value = "dev-pair"`(1846-1849),且以编程方式赋值不触发 change 监听器 → localStorage kz-profile 不更新、鞭挞兼容性检查不执行;此后 kz:done 处的 autoContinueAllowed() 不满足,整个鞭挞分支被跳过且无提示(916)。启动时 1457 直接恢复勾选也可能出现"鞭挞勾着但模式不允许"的死态。
@@ -1657,6 +1747,7 @@
 
 
 - 进展: 已完成验收：crates/kanzei-app/ui/main.js:1688-1696 在切换到不兼容模式时复位鞭挞并 toast 明确提示；2055-2065 切换前按进程保存前端 dev-auto/dev-pair 档位，结合既有 1697-1702 回显逻辑，回切 dev-auto 不再降级。既有 1704-1712 change 调用 process_update，真实调用方仍在。验证：node --check crates/kanzei-app/ui/main.js；cargo test --workspace 全部通过。未补真实桌面 E2 harness，留待 R-101。
+
 
 
 
@@ -1695,6 +1786,7 @@
 
 
 - 进展: 已完成验收：crates/kanzei-harness/src/markdown.rs:113 缺省 steps 统一为 0，与 defs.rs:61-75 的 serde 默认一致；188-210 新增未填写 steps 的 markdown agent 扫描回归测试，确认注册结果为 0。验证：cargo test -p kanzei-harness markdown::tests::agent_without_steps_uses_unlimited_default；cargo test --workspace 全部通过。
+
 
 
 
@@ -1797,6 +1889,7 @@
 
 
 
+
 ## D-051 bash「总是允许」仍按首个可执行词泛化,重定向和程序自身执行入口可绕过 [fixed] (high)
 - 复现: 先对 `git status` 选择「总是允许」得到 `git *`,随后执行 `git status > .kanzei/project/requirements.md`;当前 SHELL_CHAINING 不含 `>`/`<`,命令直接命中 Allow 并可覆盖硬保护文档。`git -c alias.x=!calc x`、`python -c ...`、`pwsh -Command ...` 等也说明“同一首词”本身不等于同一权限范围。
 - 根因: 首轮修复仅用 8 个字符 `; & | 换行 \` $ (` 做黑名单(config.rs:232-247;permission.rs:100-112),仍把任意无这些字符的命令泛化为 `首词 *`。Shell 与各 CLI 的执行语义无法用有限字符黑名单穷举。
@@ -1890,6 +1983,7 @@
 
 
 - 改动位置: 首词泛化取消与旧规则隔离：crates/kanzei-harness/src/config.rs::generalize_resource、legacy_bash_rules；结构化 bash 资源：crates/kanzei-tools/src/bash.rs::resources_with_ctx；匹配门禁：crates/kanzei-harness/src/permission.rs::command_chaining_escapes/resource_match_for_action；CLI/桌面 AlwaysAllow 调用方：crates/kanzei/src/main.rs、crates/kanzei-app/src/main.rs。
+
 
 
 
@@ -1993,6 +2087,7 @@
 
 
 
+
 ## D-116 D-106 持久错误反馈被重复 reportError 定义覆盖 [fixed] (medium)
 - 复现: 触发任意 toastError(error, { retry }) 路径，例如文档查看失败或工作树操作失败；错误消息进入对话错误块，但日志面板不打开且重试按钮不出现。
 - 根因: crates/kanzei-app/ui/main.js:203 与 :501 各定义一次 reportError；函数声明后者覆盖前者，toastError 传入的 retry 参数被后者忽略。
@@ -2000,6 +2095,7 @@
 - 验收: 统一 reportError 实现，使 toastError 错误进入持久日志面板并保留可用 retry；补静态/自动化契约验证防止重复定义与 retry 丢失。
 - refs: D-106
 - 优先级: P1
+
 
 ## D-106 错误与长结果普遍依赖 2.6 秒 toast,用户无法追溯、复制或恢复 [fixed] (medium)
 - 复现: 触发项目初始化失败、设置保存失败、权限规则删除失败、工作树操作结果等;多数路径只调用 toast(String(error/result)),2.6 秒后消失。长文本被塞入同一浮层,body 又默认 user-select:none。
@@ -2053,6 +2149,111 @@
 
 
 - 进展: 完成本轮剩余用户可见失败反馈迁移：权限自动放行/应答、复制上下文、停止指令、进程模式/思考强度/模型保存、模型列表加载失败统一进入持久日志面板；错误日志带时间，已有重试入口继续保留。验证：node --check crates/kanzei-app/ui/main.js、node scripts/ui-a11y-smoke.mjs、node scripts/ui-i18n-smoke.mjs、git diff --check 通过。按“可用即关闭”口径收口；真实 UI 运行验证与剩余背景刷新告警的 E2 质量增强转由 R-101 跟进。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## D-105 主导航与多类可点击容器没有键盘/可访问语义 [fixed] (medium)
+- 复现: 只用 Tab/Enter 操作桌面端。activity-item、project-item、workspace-card、doc-row 等用 div + click 实现,没有统一 role/tabindex/键盘处理;自动放行/鞭挞的真实 checkbox 被 `display:none`;大量图标按钮的可访问名称只剩 `＋/↗/✎/🗑`。
+- 根因: 交互由 3200 行原生 JS 零散绑定,只对 sidebar section title 补了 role/tabindex/aria-expanded,没有组件级可访问性约束。浏览器 accessibility snapshot 中活动栏项表现为 generic,图标按钮名称是符号本身。
+- 影响: 键盘用户无法完成项目/视图/文档切换,屏幕阅读器无法理解按钮用途;R-040 的少量全局快捷键不能替代完整焦点顺序。
+- 验收: 所有可点击对象使用原生 button/a/input 或完整 role/tabindex/键盘语义;图标按钮有稳定 aria-label;焦点可见;仅键盘可完成核心路径并形成自动化冒烟记录。
+- 优先级: P1
+- refs: R-040 R-091
+- 阶段: 3
+- 不变量: 界面状态:仅键盘可完成核心流程
+- 证据等级: E3
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 进展: 代码与静态自动化已完成：主导航、项目/工作区/文档等核心容器已补键盘语义，图标按钮有稳定 aria-label，焦点规则已覆盖；node --check、ui-a11y-smoke、ui-i18n-smoke、cargo test --workspace 已通过。按“可用即关闭”口径收口；真实浏览器 Tab/Enter E2 仍缺 harness，转由 R-101 的延期 E2 清单跟进。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+- 阻塞: 真实浏览器键盘冒烟仍缺运行环境：工作区无 Playwright/Chromium/Edge 命令或前端 harness；scripts/ui-a11y-smoke.mjs 仅静态契约检查，无法证明运行时 Tab/Enter 路径。解除条件：R-101 提供前端 E2 harness 或可用浏览器自动化依赖。当前已完成代码与静态验证，暂跳过真实 E3，继续下一条。
+
+
+
 
 
 
