@@ -64,6 +64,7 @@ const I18N_EN = {
   "自主推进": "Self-directed progress", "等待下一轮": "Waiting for next round", "鞭挞恢复": "Auto-run resumed", "秒后继续": "seconds until continuing",
   "已停止": "Stopped", "完成": "Completed", "用户拒绝后停止": "Stopped after user rejection", "本轮完成": "Round completed", "按你的拒绝停止": "Stopped after your rejection",
   "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
+  "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
 };
 const I18N_ZH = new WeakMap();
 const I18N_ATTR_ZH = new WeakMap();
@@ -1544,11 +1545,11 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   if (!prompt) return;
   const delivery = $("delivery-select").value;
   if (running && auto) {
-    toast("当前任务还在运行，自动鞭挞将在本轮完成后继续");
+    toast(t("当前任务还在运行，自动鞭挞将在本轮完成后继续"));
     return;
   }
   if (!currentProject) {
-    toast("先在左侧「项目」里添加并选择一个目录");
+    toast(t("先在左侧「项目」里添加并选择一个目录"));
     return;
   }
   if (running) {
