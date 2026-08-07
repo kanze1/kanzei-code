@@ -170,6 +170,26 @@
 
 
 
+## D-082 settings_save 以默认值重建全局配置,表单外字段静默丢失 [fixing] (medium)
+- 复现: 手工编辑 ~/.kanzei/kanzei.toml 加入 [permissions] 规则,随后在设置页点一次保存,规则消失。
+- 根因: kanzei-app/src/main.rs:1282-1323 用 `KanzeiConfig::default()` 起底,仅回填表单字段(models/proxy/profile.default/providers)后整体覆写全局配置文件,无备份。
+- 影响: 用户手写的权限规则等非表单管理内容被静默抹掉;与"kanzei.toml schema 变更必须向后兼容、设置页表单必须透传新字段、禁止保存时丢字段"的项目规范直接冲突。
+- 验收: 保存前先 load 现有配置再按字段合并;补"手写字段在保存后仍存在"的测试。
+- 优先级: P1
+- 阶段: 1
+- 不变量: 配置与文档:写入保留未知字段
+- 证据等级: E2
+- 进展: 首轮修复(5d52281)已让 settings_save_at_path 先读旧配置再按字段合并,schema 已知的手写规则可保留并有测试;但含未知字段的配置仍因 deny_unknown_fields 解析失败被 .ok()/unwrap_or_default() 吞掉,整份配置回退默认后覆写,注释与排版也在 to_string_pretty 重写中丢失——原不变量"保留未知字段"未完成,标记 fixed 过早。
+- 备注: 本条目曾在 b8698e7 被归档后归档文件遭回滚,从两份文档中同时消失;2026-08-07 自 git 历史恢复(见 D-112)。
+
+
+
+
+
+
+
+
+
 ## D-083 「总是允许」持久化失败被静默吞掉,成功时抹掉配置注释 [fixing] (medium)
 - 复现: 项目 kanzei.toml 含未知字段或磁盘只读时按「总是允许」,本次运行生效但下次运行又弹窗,无任何提示;正常情况下保存后配置文件的注释与排版丢失。
 - 根因: kanzei/src/main.rs:220 用 `let _ = append_allow_rule(...)` 吞掉错误;而 append_allow_rule 内部要求项目配置能被本二进制的严格 schema 解析(kanzei-harness/src/config.rs:216),失败即 Err;成功路径是整文件反序列化后 `toml::to_string_pretty` 重写(228),用户手写的注释、排版、键序全部丢失。
@@ -203,6 +223,21 @@
 
 
 - 阻塞: 涉及全局/项目配置 schema 兼容与启动错误语义的高影响改动；依据 conventions.md 第 1、4 节，需先确认未知字段处理策略（静默忽略还是告警输出）及 CLI/桌面端告警通道。解除条件：确认方案。下一步：跳过 D-084，继续扫描后续可做缺陷。
+
+
+
+
+## D-085 无 Ctrl+C 处理,CLI 中断后会话状态永久卡 running [fixing] (medium)
+- 复现: 用 Ctrl+C 中断 kz run(CLI 唯一的停止手段),之后在桌面端查看该项目——显示为正在运行的幽灵会话。
+- 根因: kanzei/src/main.rs:139 在 LLM 循环前 set_status("running"),复位只存在于 run_once 正常返回后的 Ok/Err 分支(268-296),Ctrl+C 直接杀进程两个分支都到不了;create_session 是 ON CONFLICT DO NOTHING(store.rs:118),下次运行不会先复位。CLI 与桌面端共用同一 project session id。
+- 影响: state.db 中该会话永远 running,桌面端渲染成正在运行;本次对话的 conversation.updated 也未落库,中断轮次的历史丢失。
+- 验收: 监听 ctrl_c 后落状态再退出,或启动时对 status=running 且无活跃进程的会话做陈旧性复位。
+- 优先级: P2
+- 阶段: 1
+- 不变量: 会话控制:进程崩溃或中断后能恢复或明确终止
+- 证据等级: E2
+- 进展: 96955b0 已实现 tokio::select! 监听 ctrl_c:恢复 idle、写 stopped_by_user 事件、取消未完成输入,方向正确;但该收尾路径没有任何针对性测试,cargo test --workspace 只证明未破坏既有回归;且实现混在"网络断流重放"提交中,cc3f0a4 名为修复实际只提交了 defects.md,提交语义与内容不一致。
+- 备注: 本条目曾在 58cde12 被归档后归档文件遭回滚,从两份文档中同时消失;2026-08-07 自 git 历史恢复(见 D-112)。
 
 
 
@@ -606,3 +641,25 @@
 - 阶段: 3
 - 不变量: 操作反馈:长结果持久可见可复制
 - 证据等级: E3
+
+## D-112 tracker 归档条目在"仅提交活动文档+回滚归档"后从两份文档同时消失 [fixing] (high)
+- 复现: agent 对终态缺陷执行 defect archive(条目移入 defects-archive.md),随后只提交 defects.md 并把归档文件 checkout 回滚——条目在活动与归档文档中都不存在,requirements.md 的依赖引用悬空。
+- 根因: archive 是"活动文件删除+归档文件追加"的两文件操作,引擎无法阻止后续 git 操作只保留其一;工具输出未列出被移动的 ID 与两个必须同行提交的文件;tracker 无删除操作、ID 顺序分配,因此活动∪归档中的缺号即数据丢失,但没有任何检查暴露它。
+- 影响: 已确认丢失 8 个 ID:D-082/D-085/D-087(自 git 历史恢复)与 D-099~D-103(内容不可恢复,归档中已立墓碑);"缺陷已闭环"的记录被静默销毁,审计链断裂。
+- 验收: tracker 每次调用对活动∪归档做缺号/重复检测并在输出中告警;archive 动作后回读校验移动的 ID 确实落在归档文件并列出两个待提交文件;bash 工具在 git commit 成功后自动附带实际提交文件清单供核对。
+- 优先级: P0
+- refs: D-060
+- 阶段: 1
+- 不变量: 配置与文档:追踪条目不因归档流程丢失
+- 证据等级: E2
+
+## D-113 edit 连续失败后 agent 转用 Set-Content 全文件重写,产生大规模意外差异 [fixing] (medium)
+- 复现: edit 的 old_string 因 CRLF/空白差异连续未命中,agent 改用 PowerShell Set-Content 重写整个 main.rs,产生约 3461 行意外差异,只能 git checkout 恢复重做。
+- 根因: edit 未命中时的纠错反馈不含文件实际内容,模型只能盲目重试;对 \r\n 与 \n 的差异既不容忍也不指出;bash 工具对 Set-Content/Out-File 整文件覆写毫无拦截,为绕过 edit 的语法校验敞开大门。
+- 影响: 单次修复膨胀出 10+ 次可避免的终端调用;全文件重写绕过 edit/write 的语法校验与 diff 展示,极易静默破坏文件。
+- 验收: edit 对换行符差异自动容忍;同一文件连续 2 次未命中后在错误反馈中附带文件实际片段(强制对齐);bash 拦截 Set-Content/Out-File 并指引 edit/write;单文件已知函数的缺陷不启动子代理(提示词门禁)。
+- 优先级: P1
+- refs: D-112
+- 阶段: 1
+- 不变量: 工具:编辑失败反馈可操作,不诱导整文件重写
+- 证据等级: E2

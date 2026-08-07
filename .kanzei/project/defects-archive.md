@@ -527,3 +527,27 @@
 - 不变量: Provider:保留原始错误,按结构化状态分类
 - 证据等级: E2
 - 进展: 已修复：AnthropicState 新增 ignored_blocks，未知 content_block_start 仅记录 debug 并登记索引，不再返回协议错误；该索引的 delta/stop 全部忽略，后续同索引出现已知 block 时可恢复正常。新增 unknown_content_block_is_ignored_without_poisoning_following_blocks，验证未知 block 生命周期不产事件且后续已知文本仍完整；cargo test -p kanzei-llm 24 项通过。改动位置 crates/kanzei-llm/src/protocol/anthropic.rs:5、128-133、151-223、306-342。
+
+## D-087 kz --help 与拼错的子命令被当作 prompt 发给模型 [fixed] (low)
+- 复现: 执行 `kz --help` 或 `kz -h`,或把 tracker 子命令打错一个字母。
+- 根因: kanzei/src/main.rs:28-44 的顶层 match 只识别版本、五个 tracker 名词和 run,`Some(_) => run_cli(&args)` 把其余一切拼成 prompt 进入完整 agent 循环。
+- 影响: 用户期待帮助文本,得到的是模型对字符串 "--help" 的自由发挥,外加 token 花费;该 prompt 还被写入 conversation.updated 持久化,后续每次运行都携带。
+- 验收: 显式处理 -h/--help/help 并输出用法;以 `-` 开头的未知参数报错退出而非当 prompt。
+- 优先级: P3
+- 进展: 已修复(7364448):顶层 match 显式处理 -h/--help/help 输出用法,`-` 开头未知参数 usage 后报错退出;当前 crates/kanzei/src/main.rs:37-44 可见。
+- 备注: 条目在 7364448 归档后归档文件遭回滚而丢失,2026-08-07 自 git 历史(880aeec)恢复至归档(见 D-112)。
+
+## D-099 条目内容已丢失,无法恢复 [wontfix]
+- 说明: 该 ID 曾被引擎分配(D-104 分配时活动∪归档最大编号已达 103),但内容从未进入任何 git 提交,state.db 事件中亦无踪迹。墓碑条目用于恢复 ID 空间完整性,丢失机制见 D-112。
+
+## D-100 条目内容已丢失,无法恢复 [wontfix]
+- 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
+
+## D-101 条目内容已丢失,无法恢复 [wontfix]
+- 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
+
+## D-102 条目内容已丢失,无法恢复 [wontfix]
+- 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
+
+## D-103 条目内容已丢失,无法恢复 [wontfix]
+- 说明: 同 D-099,内容不可恢复,墓碑条目,见 D-112。
