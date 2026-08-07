@@ -2358,6 +2358,9 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
 
     const row = document.createElement("div");
     row.className = "doc-row";
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.setAttribute("aria-label", `${entry.id} ${entry.title}，按 Enter 展开详情`);
     row.title = `${entry.id} ${entry.title}(点击展开)`;
     const id = document.createElement("span");
     id.className = "id";
@@ -2550,7 +2553,17 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       detail.appendChild(actions);
     }
     item.appendChild(detail);
-    row.addEventListener("click", () => detail.classList.toggle("hidden"));
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      detail.classList.toggle("hidden");
+      row.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+    });
+    row.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+    row.addEventListener("click", () => {
+      detail.classList.toggle("hidden");
+      row.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
+    });
     el.appendChild(item);
   }
   // 已完成项归档在 *-archive.md,不占侧边栏;一行入口可翻历史。
