@@ -323,9 +323,11 @@ function notifyRunState(kind, text) {
   }
 }
 
-document.addEventListener("visibilitychange", () => {
+function resetTitleOnFocus() {
   if (!document.hidden && document.hasFocus()) document.title = baseTitle;
-});
+}
+document.addEventListener("visibilitychange", resetTitleOnFocus);
+window.addEventListener("focus", resetTitleOnFocus);
 let activityPanelOpen = localStorage.getItem("kz-activity-panel") === "1";
 
 function syncActivityPanel() {
