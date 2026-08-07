@@ -2044,7 +2044,7 @@ $("worktree-add").addEventListener("click", async () => {
     toast(`隔离工作树已创建:${item.path}`);
     await refreshWorktrees();
   } catch (error) {
-    toast(`创建工作树失败:${error}`);
+    toastError(`创建工作树失败:${error}`);
   }
 });
 
@@ -2657,7 +2657,7 @@ async function selectWorkspaceProject(path) {
     }
     refreshWorkspace();
   } catch (error) {
-    toast(`切换项目失败:${error}`);
+    toastError(`切换项目失败:${error}`);
   }
 }
 
