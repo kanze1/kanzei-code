@@ -84,17 +84,7 @@
 - 阶段: 1
 - 不变量: 输入队列:input_id 只被接纳一次并最终进入终态
 - 证据等级: E2
-- 进展: 已完成第一最小修复：stop_run 现在在持有 runtime.lifecycle 锁期间执行数据库清理，且调用新增 SessionStore::cancel_unfinished_inputs，将 pending 与已 promoted 但尚未完成的输入统一标记 cancelled；这样 stop 与 promote 不再交错，promoted 输入不会静默遗留。新增 store::tests::停止时取消_pending_和已_promoted_输入，验证两类输入均进入明确终态；cargo test -p kanzei-core -p kanzei-app 36/12 项通过。仍待补 app 层“promote 后、run_task 前 stop”真实生命周期 E2，保持 fixing。改动位置 crates/kanzei-app/src/main.rs:2650-2680、crates/kanzei-core/src/store.rs:407-435、约 860 行测试。
-
-## D-067 anthropic 协议遇未知 content_block 类型直接杀流 [open] (medium)
-- 复现: Anthropic 侧响应中出现新的 block 类型(已有先例:server_tool_use、web_search_tool_result),或 OAuth beta 通道服务端注入新块。
-- 根因: kanzei-llm/src/protocol/anthropic.rs:169-173 的 content_block_start 对未知 type 兜底返回 `Err(LlmError::Protocol)`;而同文件 262-264 对未知 SSE 事件只 tracing::debug 忽略——同一宽容原则没有贯彻到 block 类型。官方明确要求客户端忽略未知类型。
-- 影响: 响应流中途报错,本轮已生成内容作废。属前向兼容炸弹,服务端一旦推新类型即"所有请求全挂"。
-- 验收: 未知 block 类型改为记录并忽略;补含未知 block 的流解析测试,断言不中断且已知内容完整。
-- 优先级: P1
-- 阶段: 1
-- 不变量: Provider:保留原始错误,按结构化状态分类
-- 证据等级: E2
+- 进展: 当前代码已回收 promoted 输入并有 store 状态测试，但真实 run_task 生命周期 E2 仍缺测试夹具；保持 fixing，继续按文档顺序处理 D-067。
 
 ## D-068 错误分类忽略 kind,限流可被误判为上下文超限触发破坏性压缩 [open] (medium)
 - 复现: provider 在流内返回带 token 字样的限流/配额错误;或任何 429/529。

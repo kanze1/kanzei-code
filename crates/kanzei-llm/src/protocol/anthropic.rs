@@ -2,7 +2,7 @@
 //! 参照 docs/reference/src/anthropic-messages.ts 与官方流式事件序列:
 //! message_start → content_block_start/delta/stop* → message_delta → message_stop。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
@@ -127,6 +127,7 @@ enum Block {
 #[derive(Default)]
 pub struct AnthropicState {
     blocks: HashMap<usize, Block>,
+    ignored_blocks: HashSet<usize>,
     usage: Usage,
     stop_reason: Option<FinishReason>,
 }
@@ -153,15 +154,18 @@ impl ProtocolState for AnthropicState {
                 let block = &data["content_block"];
                 match block["type"].as_str().unwrap_or("") {
                     "text" => {
+                        self.ignored_blocks.remove(&index);
                         self.blocks.insert(index, Block::Text);
                         out.push(LlmEvent::TextStart { index });
                     }
                     "thinking" | "redacted_thinking" => {
+                        self.ignored_blocks.remove(&index);
                         self.blocks
                             .insert(index, Block::Thinking { signature: None });
                         out.push(LlmEvent::ReasoningStart { index });
                     }
                     "tool_use" => {
+                        self.ignored_blocks.remove(&index);
                         let id = block["id"].as_str().unwrap_or("").to_string();
                         let name = block["name"].as_str().unwrap_or("").to_string();
                         self.blocks.insert(
@@ -175,14 +179,16 @@ impl ProtocolState for AnthropicState {
                         out.push(LlmEvent::ToolInputStart { index, id, name });
                     }
                     other => {
-                        return Err(LlmError::Protocol(format!(
-                            "unknown content block: {other}"
-                        )))
+                        tracing::debug!(kind = other, index, "ignoring unknown content block");
+                        self.ignored_blocks.insert(index);
                     }
                 }
             }
             "content_block_delta" => {
                 let index = data["index"].as_u64().unwrap_or(0) as usize;
+                if self.ignored_blocks.contains(&index) {
+                    return Ok(out);
+                }
                 let delta = &data["delta"];
                 match delta["type"].as_str().unwrap_or("") {
                     "text_delta" => out.push(LlmEvent::TextDelta {
@@ -215,6 +221,7 @@ impl ProtocolState for AnthropicState {
             }
             "content_block_stop" => {
                 let index = data["index"].as_u64().unwrap_or(0) as usize;
+                self.ignored_blocks.remove(&index);
                 match self.blocks.remove(&index) {
                     Some(Block::Text) => out.push(LlmEvent::TextEnd { index }),
                     Some(Block::Thinking { signature }) => {
@@ -300,6 +307,44 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn unknown_content_block_is_ignored_without_poisoning_following_blocks() {
+        let mut state = AnthropicState::default();
+        assert!(feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_future_block"}}"#,
+        )
+        .is_empty());
+        assert!(feed(
+            &mut state,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hidden"}}"#,
+        )
+        .is_empty());
+        assert!(feed(
+            &mut state,
+            "content_block_stop",
+            r#"{"type":"content_block_stop","index":0}"#,
+        )
+        .is_empty());
+
+        let events = feed(
+            &mut state,
+            "content_block_start",
+            r#"{"type":"content_block_start","index":1,"content_block":{"type":"text"}}"#,
+        );
+        assert!(matches!(events.as_slice(), [LlmEvent::TextStart { index: 1 }]));
+        let events = feed(
+            &mut state,
+            "content_block_delta",
+            r#"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"visible"}}"#,
+        );
+        assert!(matches!(
+            events.as_slice(),
+            [LlmEvent::TextDelta { index: 1, text }] if text == "visible"
+        ));
+    }
     #[test]
     fn full_tool_call_stream() {
         let mut s = AnthropicState::default();
