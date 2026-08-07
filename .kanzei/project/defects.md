@@ -13,7 +13,7 @@
 - 证据等级: E2
 - 进展: 桌面真实 UI E2 因无前端测试 harness 暂缓；本轮完成旧裸 bash 规则的只读识别与可见提示：KanzeiConfig::legacy_bash_rules 仅识别 action=bash 且非 command/workdir JSON 的旧规则，不改写配置；CLI 启动时 stderr 提示其将降级逐次询问，桌面 run_task 通过现有 kz:status 展示同样提示。新增配置检测回归；cargo test -p kanzei-harness -p kanzei -p kanzei-app 全部通过（29/3/9）。仍缺桌面真实 UI E2、正式迁移方案与并发写入证据。
 
-## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [open] (high)
+## D-055 后台进程的权限询问被前端会话过滤器丢弃,运行永久挂死 [fixing] (high)
 - 复现: 项目 A 进程 1 为当前活动会话并正在运行;进程 2(或另一项目)的后台运行触发权限询问。
 - 根因: 前端 on() 对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),kz:ask 也在其中(main.js:950);后端 emit 后即 `receiver.await` 挂起等答复(src/main.rs:2973-2979),answer_ask(2132-2135)是唯一消费路径,无重发机制,切回页签时也不重放 pending asks,后端亦无"列出 pending asks"命令。自动放行逻辑位于过滤器之后同样救不了。
 - 影响: 弹窗永不出现,该运行卡在权限等待直到手动停止,用户毫无感知(无日志无提示)。R-030/R-078 主打的多进程/多项目并行在任何需要审批的场景实际不可用,只有 yolo/自动放行才真并行。
@@ -23,6 +23,7 @@
 - 阶段: 1
 - 不变量: 会话控制:控制事件按 session_id 收敛到终态
 - 证据等级: E2+E3
+- 进展: 完成 D-055 最小解锁步骤：ui/main.js 仅豁免 kz:ask 不受 activeSessionId 过滤；askQueue 改为按 sessionId 的 Map，后台 ask 事件保留在对应队列；切换进程前保留当前 ask，切换后 pump 目标 session；renderProcesses 切换活动 session 时也触发 pump。node --check crates/kanzei-app/ui/main.js 通过。尚缺后端 pending ask 查询/切回重建，以及 done/error/stopped 的完整会话路由验收。
 
 ## D-056 运行中切换项目后 running 永不复位,UI 永久卡在运行中 [open] (high)
 - 复现: 项目 A 运行中(running=true)→ 点击侧栏切到项目 B → B 显示"运行中"、发送按钮禁用、状态栏金色,永久卡住。

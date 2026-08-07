@@ -6,7 +6,8 @@ const { listen } = window.__TAURI__.event;
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
-    if (sessionId && activeSessionId && sessionId !== activeSessionId) return;
+    const controlEvent = event === "kz:ask";
+    if (!controlEvent && sessionId && activeSessionId && sessionId !== activeSessionId) return;
     handler(eventPayload);
   }).catch((err) => {
     log(`事件订阅失败 ${event}: ${err} — 界面将收不到运行事件,请反馈`, "err");
@@ -983,11 +984,26 @@ on("kz:done", async (e) => {
 });
 
 // ---------- 权限弹窗 ----------
-const askQueue = [];
+const askQueues = new Map();
 let askActive = null;
 
+function askSessionId(payload) {
+  return payload?.sessionId || activeSessionId || "__default__";
+}
+
+function askQueueFor(sessionId) {
+  let queue = askQueues.get(sessionId);
+  if (!queue) {
+    queue = [];
+    askQueues.set(sessionId, queue);
+  }
+  return queue;
+}
+
 on("kz:ask", (e) => {
-  // 自动放行(yolo):不弹窗,直接允许并留日志。
+  const sessionId = askSessionId(e.payload);
+  e.payload.sessionId = sessionId;
+  // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
   if (e.payload.kind !== "question" && $("auto-allow").checked) {
     log(`自动放行:${e.payload.action} ${e.payload.resource}`);
     invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
@@ -995,8 +1011,8 @@ on("kz:ask", (e) => {
     );
     return;
   }
-  askQueue.push(e.payload);
-  pumpAsk();
+  askQueueFor(sessionId).push(e.payload);
+  if (sessionId === activeSessionId) pumpAsk();
 });
 
 $("auto-allow").checked = localStorage.getItem("kz-auto-allow") === "1";
@@ -1006,11 +1022,12 @@ $("auto-allow").addEventListener("change", () => {
 });
 
 function updateAskQueueStatus() {
-  const total = (askActive ? 1 : 0) + askQueue.length;
+  const queue = activeSessionId ? askQueueFor(activeSessionId) : [];
+  const total = (askActive ? 1 : 0) + queue.length;
   const status = $("ask-queue-status");
   const preview = $("ask-queue-preview");
   status.textContent = total > 1 ? `当前请求 1/${total} · 还有 ${total - 1} 条待处理` : "当前无其他待处理请求";
-  const lines = askQueue.slice(0, 4).map((item, index) => {
+  const lines = queue.slice(0, 4).map((item, index) => {
     const text = item.kind === "question" ? item.question : `${item.action} · ${item.resource}`;
     return `${index + 2}. ${text}`;
   });
@@ -1019,11 +1036,16 @@ function updateAskQueueStatus() {
 }
 
 function pumpAsk() {
-  if (askActive || askQueue.length === 0) {
+  if (askActive || !activeSessionId) {
     updateAskQueueStatus();
     return;
   }
-  askActive = askQueue.shift();
+  const queue = askQueueFor(activeSessionId);
+  if (queue.length === 0) {
+    updateAskQueueStatus();
+    return;
+  }
+  askActive = queue.shift();
   const question = askActive.kind === "question";
   $("ask-title").textContent = question ? "需要你的回答" : "权限请求";
   $("permission-fields").classList.toggle("hidden", question);
@@ -1052,13 +1074,16 @@ function pumpAsk() {
   updateAskQueueStatus();
 }
 
-function hideAsk() {
-  askQueue.length = 0;
+function hideAsk(preserveActive = false) {
+  if (preserveActive && askActive) {
+    askQueueFor(askActive.sessionId).unshift(askActive);
+  } else if (activeSessionId) {
+    askQueueFor(activeSessionId).length = 0;
+  }
   askActive = null;
   $("ask-overlay").classList.add("hidden");
   updateAskQueueStatus();
 }
-
 async function answerAsk(reply) {
   if (!askActive) return;
   const id = askActive.id;
@@ -1954,6 +1979,7 @@ function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   activeSessionId = active?.session_id ?? null;
+  pumpAsk();
   // 活动进程换人时按后端真实状态重算运行态(切项目/进程后旧会话的 kz:done 收不到)。
   // 只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
   if (activeProcessId !== syncedRunningProcessId) {
@@ -1987,8 +2013,10 @@ async function switchProcess(processId) {
   if (processId === activeProcessId) return;
   const target = processItems.find((item) => item.id === processId);
   if (!target) return;
+  hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
+  pumpAsk();
   setRunning(target.running, target.running ? "运行中" : "空闲");
   renderProcesses(processItems);
   clearChat();
