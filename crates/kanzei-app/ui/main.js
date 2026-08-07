@@ -147,12 +147,14 @@ function toast(text) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.add("hidden"), 2600);
 }
-function toastError(text, { retry = null } = {}) {
-  toast(text);
+function reportError(text, { retry = null } = {}) {
   log(text, "err");
   errorRetry = retry;
   $("log-retry").classList.toggle("hidden", typeof retry !== "function");
   $("log-panel").classList.remove("hidden");
+}
+function toastError(text, options = {}) {
+  reportError(text, options);
 }
 
 let completionAudioContext = null;
@@ -1224,8 +1226,7 @@ async function copyReadable(el) {
     await navigator.clipboard.writeText(text);
     toast("已复制");
   } catch (err) {
-    log(`复制失败:${err}`, "err");
-    toast("复制失败，请检查剪贴板权限");
+    toastError(`复制失败:${err}`);
   }
 }
 messages.addEventListener("click", (event) => {
@@ -1471,7 +1472,7 @@ function addFiles(files) {
       attachments.push({ file_name: file.name, media_type: file.type || "application/pdf", data: dataUrl.split(",", 2)[1] || "" });
       renderAttachments();
     };
-    reader.onerror = () => toast(`读取附件失败: ${file.name}`);
+    reader.onerror = () => toastError(`读取附件失败: ${file.name}`);
     reader.readAsDataURL(file);
   }
 }
@@ -1940,7 +1941,7 @@ function renderPendingInputs(items) {
         }
       } catch (err) {
         cancel.disabled = false;
-        toast(`撤销失败:${err}`);
+        toastError(`撤销失败:${err}`);
       }
     });
     entry.append(prompt, delivery, cancel);
@@ -2185,7 +2186,7 @@ $("process-add").addEventListener("click", async () => {
     await refreshProcesses();
     await switchProcess(item.id);
   } catch (err) {
-    toast(`创建进程失败:${err}`);
+    toastError(`创建进程失败:${err}`);
   }
 });
 
@@ -2196,7 +2197,7 @@ $("process-subagent").addEventListener("change", async (event) => {
     await refreshProcesses();
   } catch (err) {
     event.target.checked = !event.target.checked;
-    toast(`更新进程能力失败:${err}`);
+    toastError(`更新进程能力失败:${err}`);
   }
 });
 
@@ -2250,7 +2251,7 @@ function renderProjects(prefs) {
           await refreshPendingInputs();
         }
       } catch (err) {
-        toast(String(err));
+        toastError(String(err));
       }
     });
     const rename = document.createElement("button");
@@ -2265,7 +2266,7 @@ function renderProjects(prefs) {
       try {
         renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }));
       } catch (err) {
-        toast(String(err));
+        toastError(String(err));
       }
     });
     item.append(name, pathEl, rename, remove);
@@ -2316,7 +2317,7 @@ $("project-init").addEventListener("click", async () => {
     await refreshPendingInputs();
     toast("项目初始化完成");
   } catch (err) {
-    toast(String(err));
+    toastError(String(err));
   }
 });
 
@@ -2340,7 +2341,7 @@ $("project-add").addEventListener("click", async () => {
       }
     }
   } catch (err) {
-    toast(String(err));
+    toastError(String(err));
   }
 });
 
@@ -2395,7 +2396,7 @@ async function commitDocOrder(listEl, kind) {
     log(msg);
     refreshDocs();
   } catch (err) {
-    toast(`排序保存失败:${err}`);
+    toastError(`排序保存失败:${err}`);
     refreshDocs();
   }
 }
@@ -2504,7 +2505,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           toast(`${entry.id} 优先级已调整为 ${next}`);
           refreshDocs();
         } catch (error) {
-          toast(`优先级保存失败:${error}`);
+          toastError(`优先级保存失败:${error}`);
         }
       });
       row.appendChild(badge);
@@ -2570,7 +2571,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           toast("复杂度已保存");
           refreshDocs();
         } catch (error) {
-          toast(`复杂度保存失败:${error}`);
+          toastError(`复杂度保存失败:${error}`);
         }
       });
       complexityRow.append("复杂度: ", complexitySelect);
@@ -2596,7 +2597,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
           log(msg);
           refreshDocs();
         } catch (err) {
-          toast(String(err));
+          toastError(String(err));
         }
       });
       progressRow.appendChild(input);
@@ -2622,7 +2623,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
             log(msg);
             refreshDocs();
           } catch (err) {
-            toast(String(err));
+            toastError(String(err));
             log(`状态流转失败:${err}`, "warn");
           }
         });
@@ -2884,7 +2885,7 @@ function quickCaptureForm(kind, sectionId, noun) {
       submitBtn.disabled = false;
       cancelBtn.disabled = false;
       input.disabled = false;
-      toast(`记${noun}失败(内容已保留,可重试):${err}`);
+      toastError(`记${noun}失败(内容已保留,可重试):${err}`);
     }
   };
   input.addEventListener("keydown", (e) => {
@@ -2956,7 +2957,7 @@ $("goal-add").addEventListener("click", () => {
       form.remove();
       refreshDocs();
     } catch (err) {
-      toast(String(err));
+      toastError(String(err));
     }
   });
   form.appendChild(input);
@@ -3113,7 +3114,7 @@ function renderConversationList(items) {
         await loadConversation(item.sequence);
         addMessage("notice", `已打开历史对话 #${item.sequence}`);
       } catch (err) {
-        toast(String(err));
+        toastError(String(err));
       }
     });
     el.appendChild(row);
@@ -3146,6 +3147,7 @@ async function refreshConversationList() {
     renderConversationList(await invoke("conversation_list", { projectDir: currentProject, processId: activeProcessId }));
   } catch (err) {
     $("conversation-list").textContent = `历史对话加载失败:${err}`;
+    toastError(`历史对话加载失败:${err}`, { retry: refreshConversationList });
   }
 }
 
@@ -3171,7 +3173,7 @@ $("new-chat").addEventListener("click", async () => {
     await refreshConversationList();
     log("新对话:多轮历史已清空");
   } catch (err) {
-    toast(String(err));
+    toastError(String(err), { retry: () => $("new-chat").click() });
   }
 });
 
@@ -3608,7 +3610,7 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
       await step();
     } catch (err) {
       log(`启动步骤「${label}」失败:${err}`, "err");
-      toast(`${label}加载失败:${err}`);
+      toastError(`${label}加载失败:${err}`);
     }
   }
   setStatus("空闲", false);
