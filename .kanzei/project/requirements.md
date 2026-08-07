@@ -1830,7 +1830,7 @@
 
 
 
-## R-104 Memory M1:分级存储、引擎门禁与检索工具 [doing]
+## R-104 Memory M1:分级存储、引擎门禁与检索工具 [done]
 - 阻塞: 用户直营开发中(Claude 会话负责实现),自举循环跳过本条;解除条件:用户宣布移交。
 - 复杂度: 大
 - 优先级: P1
@@ -1841,6 +1841,8 @@
 - 阶段: 4
 - 设计定位: 记忆的存储真源与检索地基
 - 依赖: R-103
+- 进展: 已交付(919473d):memory 模块(mod/store/tools 共 1200+ 行);frontmatter 宽容读严格写未知键保留;U-/M- 双序列 ID 扫活跃+归档不复用;INDEX.md+FTS5 均可重建,tmp+rename 原子写;CJK 单字切分+短语匹配解 unicode61 整词问题(拍板点③首个实证);bm25×log(1+hits) 排序与命中计数;精确标题去重门禁;完整性缺号/重复检测;legacy memory.md 幂等迁移;主 agent 挂 search/note/stats,注入源改索引常驻,.kanzei/memory 硬 deny。12 项回归,工作区 177 项全绿。
+- 验证: cargo test -p kanzei-tools memory(12 项);检索命中率可观测性依赖发版后真实轨迹,属 R-105 验收闭环。
 
 
 
