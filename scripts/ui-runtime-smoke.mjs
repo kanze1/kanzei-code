@@ -835,6 +835,31 @@ assert(
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
+// ---------- D-156 手填模型：探测不到不等于用不了 ----------
+const modelSelect = byId.get("model-select");
+const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
+assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");
+sandbox.window.prompt = () => "deepseek:deepseek-chat";
+modelSelect.value = "__manual__";
+modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+await flush();
+const manualKey = [...storage.keys()].find((k) => k.startsWith("kz-manual-models"));
+assert(manualKey, "手填模型未落盘(下次重开又要再填一遍)");
+assert(JSON.parse(storage.get(manualKey)).includes("deepseek:deepseek-chat"), "手填模型落盘值不对");
+assert(
+  [...byId.get("model-select").options].some((o) => o.value === "deepseek:deepseek-chat"),
+  "手填后模型未回到下拉列表里",
+);
+// 格式不对要挡住:provider 名对不上配置键时后端 resolve_model 会直接失败。
+sandbox.window.prompt = () => "随便写的";
+modelSelect.value = "__manual__";
+modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+await flush();
+assert(
+  !JSON.parse(storage.get(manualKey)).includes("随便写的"),
+  "非 provider:model 格式不应被接受",
+);
+
 // ---------- R-115 偏好持久化：写了必须能读回 ----------
 // 「写了却从不读回」是这块最容易出的问题:kz-reasoning 曾经全仓零处 getItem,
 // 看起来存了,重启后照样回默认档。这里逐项验"改一次 → 落盘 → 能回填"。

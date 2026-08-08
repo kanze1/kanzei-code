@@ -129,6 +129,8 @@ const I18N_EN = {
   "已交给记忆管理子代理提炼": "Handed to the memory-manager subagent", "提炼失败": "Distillation failed",
   "直接移出候选箱,不再进入提炼范围": "Remove from the candidate box; it will not be distilled",
   "已丢弃": "Discarded", "丢弃失败": "Discard failed",
+  "＋ 手填模型…": "+ Enter a model…", "填 provider:model,例如 deepseek:deepseek-chat": "Enter provider:model, e.g. deepseek:deepseek-chat",
+  "格式应为 provider:model": "Format must be provider:model",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -3233,6 +3235,7 @@ async function loadModels() {
   select.appendChild(def);
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
+    const ids = new Set(models.map((m) => m.id));
     for (const m of models) {
       const opt = document.createElement("option");
       opt.value = m.id;
@@ -3240,10 +3243,37 @@ async function loadModels() {
       if (m.id === saved) opt.selected = true;
       select.appendChild(opt);
     }
+    // D-156:探测不到不等于用不了——端点可能没实现 /models,key 也可能还没配好。
+    // 手填过的模型要留在列表里,否则下次重开又得再填一遍。
+    for (const id of manualModels()) {
+      if (ids.has(id)) continue;
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `${id}(手填)`;
+      if (id === saved) opt.selected = true;
+      select.appendChild(opt);
+    }
+    const custom = document.createElement("option");
+    custom.value = MANUAL_MODEL_SENTINEL;
+    custom.textContent = t("＋ 手填模型…");
+    select.appendChild(custom);
     log(`模型列表已刷新(${models.length} 个可选)`);
   } catch (err) {
     reportPersistentError(`模型列表获取失败:${err}`);
   }
+}
+
+// 手填模型:provider:model 直指。有些 OpenAI 兼容端点不提供 /models,
+// 或者 key 尚未配好导致探测为空,这条通道保证配了 provider 就一定能用。
+const MANUAL_MODEL_SENTINEL = "__manual__";
+function manualModels() {
+  const list = readJson(prefKey("manual-models"), []);
+  return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
+}
+function addManualModel(id) {
+  const list = manualModels();
+  if (!list.includes(id)) list.push(id);
+  writeJson(prefKey("manual-models"), list);
 }
 // R-115:模型与思考强度按项目记——不同项目常配不同模型,共用一个全局键会互相打架。
 // 思考强度此前只写不读(kz-reasoning 全仓零处 getItem),等于每次重启都回默认档。
@@ -3276,7 +3306,27 @@ $("reasoning-select").addEventListener("change", () => {
 });
 
 $("model-select").addEventListener("change", () => {
-  localStorage.setItem(prefKey("model"), $("model-select").value);
+  const select = $("model-select");
+  if (select.value === MANUAL_MODEL_SENTINEL) {
+    const input = (window.prompt(t("填 provider:model,例如 deepseek:deepseek-chat")) || "").trim();
+    // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
+    if (!/^[\w.-]+:.+$/.test(input)) {
+      if (input) toast(t("格式应为 provider:model"));
+      select.value = localStorage.getItem(prefKey("model")) || "";
+      return;
+    }
+    addManualModel(input);
+    localStorage.setItem(prefKey("model"), input);
+    loadModels().then(() => {
+      $("model-select").value = input;
+    });
+    if (activeProcessId) {
+      invoke("process_update", { processId: activeProcessId, model: input })
+        .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
+    }
+    return;
+  }
+  localStorage.setItem(prefKey("model"), select.value);
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
     invoke("process_update", { processId: activeProcessId, model: $("model-select").value })

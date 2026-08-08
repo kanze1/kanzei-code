@@ -3883,30 +3883,79 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
             ] {
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
-        } else if p.base_url.contains("11434") {
-            let tags_url = format!("{}/api/tags", p.base_url.trim_end_matches("/v1"));
-            let client = reqwest::Client::builder()
-                .no_proxy()
-                .timeout(std::time::Duration::from_secs(2))
-                .build()
-                .map_err(|e| e.to_string())?;
-            if let Ok(resp) = client.get(&tags_url).send().await {
+        } else if p.protocol == "openai" || p.protocol == "openai-responses" {
+            // D-156:任何 OpenAI 兼容端点(DeepSeek/OpenRouter/Kimi/自建 vLLM…)都走标准
+            // GET {base_url}/models。早期这里只硬编码了 codex/claude/ollama 三种,别的
+            // provider 加进配置后一个模型都列不出来,等于配了也用不了。
+            // Ollama 例外:它的 /v1/models 不全,原生 /api/tags 才是真源。
+            if p.base_url.contains("11434") {
+                push_ollama_models(&mut items, name, &p.base_url).await;
+                continue;
+            }
+            let key = p
+                .api_key
+                .clone()
+                .filter(|k| !k.trim().is_empty())
+                .or_else(|| p.api_key_env.as_deref().and_then(|e| std::env::var(e).ok()));
+            let url = format!("{}/models", p.base_url.trim_end_matches('/'));
+            let proxy = match config.proxy.as_deref() {
+                Some("off") => ProxyConfig::Disabled,
+                Some("env") | None => ProxyConfig::Env,
+                Some(custom) => ProxyConfig::Explicit(custom.to_string()),
+            };
+            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else {
+                continue;
+            };
+            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6));
+            if let Some(k) = &key {
+                request = request.bearer_auth(k);
+            }
+            // 探测失败不算错误:端点可能没实现 /models,或 key 还没配好。
+            // 手填入口(前端的「＋ 手填模型…」)始终可用,所以这里静默跳过即可。
+            if let Ok(resp) = request.send().await {
                 if let Ok(v) = resp.json::<serde_json::Value>().await {
-                    if let Some(models) = v["models"].as_array() {
-                        for m in models {
-                            if let Some(n) = m["name"].as_str() {
-                                items.push(json!({
-                                    "id": format!("{name}:{n}"),
-                                    "label": format!("{name}:{n}"),
-                                }));
-                            }
+                    for m in v["data"].as_array().unwrap_or(&Vec::new()) {
+                        if let Some(id) = m["id"].as_str() {
+                            items.push(json!({
+                                "id": format!("{name}:{id}"),
+                                "label": format!("{name}:{id}"),
+                            }));
                         }
                     }
                 }
             }
+        } else if p.base_url.contains("11434") {
+            push_ollama_models(&mut items, name, &p.base_url).await;
         }
     }
     Ok(json!(items))
+}
+
+/// Ollama 的模型清单走原生 /api/tags:它的 /v1/models 不完整。
+/// 本机服务不走代理——挂了代理反而连不上 127.0.0.1。
+async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name: &str, base_url: &str) {
+    let tags_url = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
+    let Ok(client) = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    else {
+        return;
+    };
+    let Ok(resp) = client.get(&tags_url).send().await else {
+        return;
+    };
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return;
+    };
+    for m in v["models"].as_array().unwrap_or(&Vec::new()) {
+        if let Some(n) = m["name"].as_str() {
+            items.push(json!({
+                "id": format!("{name}:{n}"),
+                "label": format!("{name}:{n}"),
+            }));
+        }
+    }
 }
 
 /// 开新对话:清空会话内多轮历史,并写入空的持久化投影。
