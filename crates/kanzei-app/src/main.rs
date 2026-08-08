@@ -592,6 +592,80 @@ mod update_tests {
     }
 
     #[test]
+    fn defect_review_snapshot_is_strictly_read_only() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-defect-review-tools-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let rctx = kanzei_harness::ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(kanzei_harness::KanzeiConfig::default()),
+        };
+        let snapshot = super::defect_review_snapshot(&rctx).unwrap();
+        let mut names: Vec<String> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["glob", "grep", "read"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn defect_review_rejects_empty_model_report() {
+        let empty = kanzei_core::RunSummary {
+            text: "  ".into(),
+            usage: kanzei_llm::Usage::default(),
+            steps: 1,
+            halted_by_user: false,
+            messages: vec![],
+            context_report: vec![],
+        };
+        assert!(super::defect_review_report(&empty).is_err());
+
+        let report = kanzei_core::RunSummary {
+            text: "# 缺陷审查\n\n有可复核证据".into(),
+            usage: kanzei_llm::Usage::default(),
+            steps: 1,
+            halted_by_user: false,
+            messages: vec![],
+            context_report: vec![],
+        };
+        assert!(super::defect_review_report(&report)
+            .unwrap()
+            .contains("可复核证据"));
+    }
+
+    #[tokio::test]
+    async fn defect_review_empty_state_returns_without_model_call() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-defect-review-empty-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join(".kanzei/project/defects.md"), "# Defects\n").unwrap();
+        let result = super::defect_review(root.display().to_string())
+            .await
+            .unwrap();
+        assert!(result.empty);
+        assert_eq!(result.defect_count, 0);
+        assert!(result.report.contains("没有活动缺陷"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
         let root = std::env::temp_dir().join(format!(
             "kanzei-docs-blocked-{}-{}",
@@ -962,6 +1036,7 @@ fn main() {
             update_check,
             update_install,
             quick_req,
+            defect_review,
             memory_overview,
             memory_entries,
             memory_recalls,
@@ -2317,6 +2392,146 @@ impl kanzei_harness::Component for QuickCaptureComponent {
             .push(kanzei_harness::rule(name, "*", kanzei_harness::Effect::Allow));
         Ok(())
     }
+}
+
+const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \
+Read .kanzei/project/defects.md first, then verify every active defect against relevant code, tests, and design documents. \
+Reply in Chinese Markdown with: 1. summary and active defect count; 2. categories; 3. likely duplicates with IDs; \
+4. impact of each defect; 5. suggested priority with reasons; 6. verifiable evidence using exact file paths, functions, \
+and line numbers; 7. concrete next steps. Do not modify files, run commands, update trackers, or claim unverified facts.";
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DefectReviewResult {
+    empty: bool,
+    report: String,
+    defect_count: usize,
+}
+
+fn defect_review_snapshot(
+    rctx: &ResolveCtx,
+) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
+    let mut harness = Harness::default();
+    harness
+        .add(kanzei_tools::SubagentBase)
+        .add(ConfigComponent);
+    harness.resolve(rctx)
+}
+
+fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
+    let report = summary.text.trim();
+    if report.is_empty() {
+        Err("审查模型没有返回报告".into())
+    } else {
+        Ok(report.to_string())
+    }
+}
+
+/// R-092:独立只读缺陷审查。它不进入主 conversation/queue，也不持有任何写工具；
+/// fast 失败后回退 primary，结果直接返回前端的 Markdown 查看器。
+#[tauri::command]
+async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String> {
+    let cwd = PathBuf::from(&project_dir);
+    let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let defects = DocStore::open(&project_root, &DEFECTS)
+        .load()
+        .map_err(|e| e.to_string())?;
+    if defects.is_empty() {
+        return Ok(DefectReviewResult {
+            empty: true,
+            report: "当前没有活动缺陷。".into(),
+            defect_count: 0,
+        });
+    }
+
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
+    let snapshot = defect_review_snapshot(&rctx).map_err(|e| e.to_string())?;
+    let mut agent = kanzei_tools::explore_agent();
+    agent.name = "defect-review".into();
+    agent.system = DEFECT_REVIEW_SYSTEM.into();
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(value) => ProxyConfig::Explicit(value.to_string()),
+    };
+    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let tool_ctx = ToolCtx {
+        cwd,
+        project_root,
+    };
+    let prompt = format!(
+        "审查当前项目 defects.md 中的 {} 条活动缺陷。逐条核对真实代码、测试和调用方，输出约定的 Markdown 报告。",
+        defects.len()
+    );
+    let mut last_error = "没有可用的 fast 或 primary 模型".to_string();
+    for role in ["fast", "primary"] {
+        let resolved = match config.resolve_model(role) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error.to_string();
+                continue;
+            }
+        };
+        let route = match kanzei_core::build_route(&resolved, &proxy).await {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error.to_string();
+                continue;
+            }
+        };
+        let runner_config = RunnerConfig {
+            model: resolved.model,
+            max_tokens: 8192,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+        };
+        let mut on_event = |_event: RunEvent| {};
+        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
+            Box::pin(async move {
+                match request {
+                    kanzei_core::AskRequest::Permission { .. } => {
+                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)
+                    }
+                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+                }
+            })
+        };
+        match run_once_with_parts(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &tool_ctx,
+            &prompt,
+            &[],
+            None,
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await
+        {
+            Ok(summary) => match defect_review_report(&summary) {
+                Ok(report) => {
+                    return Ok(DefectReviewResult {
+                        empty: false,
+                        report,
+                        defect_count: defects.len(),
+                    });
+                }
+                Err(error) => last_error = error,
+            },
+            Err(error) => last_error = error.to_string(),
+        }
+    }
+    Err(format!("缺陷自动审查失败:{last_error}"))
 }
 
 /// R-053:自然语言描述 → 独立子代理结构化落库。与主对话完全并行,

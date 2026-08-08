@@ -56,6 +56,8 @@ const I18N_EN = {
   "项目": "Projects", "当前状态": "Current status", "空闲": "Idle", "排队输入": "Queued input",
   "测试记录": "Test runs", "目标": "Goals", "历史对话": "Chat history", "需求与工作": "Work items",
   "缺陷": "Defects", "研究": "Research", "来源": "Sources", "发现": "Findings", "开发规范": "Conventions",
+  "自动审查缺陷": "Review defects", "使用只读子代理审查活动缺陷，不修改项目文件": "Review active defects with a read-only subagent without modifying project files",
+  "正在审查缺陷…": "Reviewing defects…", "当前没有活动缺陷": "There are no active defects", "审查完成": "Review complete", "审查失败": "Review failed", "缺陷自动审查报告": "Automated defect review report",
   "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
   "鞭挞": "Auto-run", "SOP": "SOP", "选择 SOP": "Choose SOP", "关闭 SOP 列表": "Close SOP list", "暂无可调用的 SOP": "No callable SOPs", "SOP 加载失败": "Failed to load SOPs", "SOP 已填入继续输入": "SOP inserted into the prompt", "SOP 内容为空": "This SOP has no executable content", "鞭挞已触发": "Auto-run triggered", "收到手动输入，鞭挞已停止": "Manual input received; auto-run stopped", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
   "自动放行": "Auto-allow", "总结": "Summarize", "复制上下文": "Copy context", "新对话": "New chat",
@@ -5136,6 +5138,34 @@ $("documents-project-select").addEventListener("change", (event) => {
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+
+async function runDefectReview() {
+  if (!currentProject) {
+    toast(t("先在左侧「项目」里添加并选择一个目录"));
+    return;
+  }
+  const button = $("defect-review");
+  const status = $("defect-review-status");
+  button.disabled = true;
+  status.textContent = t("正在审查缺陷…");
+  try {
+    const result = await invoke("defect_review", { projectDir: currentProject });
+    if (result.empty) {
+      status.textContent = t("当前没有活动缺陷");
+      toast(t("当前没有活动缺陷"));
+      return;
+    }
+    status.textContent = t("审查完成");
+    openRuntimeMarkdown(t("缺陷自动审查报告"), result.report);
+  } catch (err) {
+    status.textContent = t("审查失败");
+    toastError(`${t("审查失败")}:${err}`, { retry: runDefectReview });
+  } finally {
+    button.disabled = false;
+  }
+}
+$("defect-review").addEventListener("click", runDefectReview);
+
 $("bg-type-filter").addEventListener("change", (e) => {
   bgFilters.type = e.target.value;
   localStorage.setItem("kz-bg-type", bgFilters.type);
@@ -5359,10 +5389,22 @@ $("conv-open").addEventListener("click", () => openDocViewer("conventions"));
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
 let viewerKind = null;
+function openRuntimeMarkdown(title, content) {
+  viewerKind = null;
+  $("viewer-title").textContent = title;
+  const body = $("viewer-body");
+  body.className = "md";
+  body.innerHTML = renderMarkdown(content ?? "");
+  body.scrollTop = 0;
+  $("viewer-external").classList.add("hidden");
+  $("viewer-overlay").classList.remove("hidden");
+  $("viewer-close").focus();
+}
 async function openDocViewer(kind) {
   try {
     const doc = await invoke("docs_read", { projectDir: currentProject, kind });
     viewerKind = kind;
+    $("viewer-external").classList.remove("hidden");
     $("viewer-title").textContent = doc.name;
     const body = $("viewer-body");
     if (doc.name.endsWith(".md")) {

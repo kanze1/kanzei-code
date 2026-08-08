@@ -261,6 +261,8 @@
             <select id="documents-project-select" title="切换当前项目"></select>
             <button id="documents-tab-req" class="primary">需求与工作</button>
             <button id="documents-tab-defect" class="ghost">缺陷</button>
+            <button id="defect-review" class="ghost" type="button" title="使用只读子代理审查活动缺陷，不修改项目文件">自动审查缺陷</button>
+            <span id="defect-review-status" class="dim" role="status" aria-live="polite"></span>
             <button id="documents-tab-both" class="ghost" title="需求与缺陷并排对照，便于核对互相引用的条目">对照</button>
             <select id="documents-status-filter" class="doc-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
             <select id="documents-priority-filter" class="doc-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>

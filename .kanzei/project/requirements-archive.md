@@ -977,3 +977,19 @@
 - 本轮交付说明: 既有能力：语言选择器、I18N_EN 基础资源、title/placeholder 缓存、动态状态 source map，以及上一批设置页 About 真实入口/两段内容。本轮新增并一次性完成剩余 i18n 类别：补齐全部 HTML 可见文本/title/placeholder/aria-label 资源；统一静态/动态资源处理复合文案；t() 可消费动态资源；aria-label 与动态属性进入观察；英文创建的动态节点可恢复中文源文案；权限 action/resource/question 等用户数据显式 data-i18n-raw；修复 D-160 MutationObserver 下空白指数膨胀。
 - 验收逐条对照: ①“中英文双语，所有产品/功能文案、导向文案、动态状态、错误与权限说明”：main.js:52-475 共696个资源key；scripts/ui-i18n-smoke.mjs:4-35 自动读取 index.html，262项可见文本及 title/placeholder/aria-label 必须全部进入资源表，英文值含中文即失败；main.js:477-515 静态与动态资源统一处理复合文案，534-537 的 t() 同时消费两表。runtime smoke:905-957 真实驱动动态错误和两条权限请求，精确断言英文错误等级、权限标题/队列/按钮，并保持 action/resource 用户数据原样。②“语言来回切换可逆且无乱码/混杂”：main.js:518-531 从英文译文恢复中文源文案；543-599 的文本/属性 WeakMap 会区分缓存原文、译文和业务新值，覆盖 aria-label；620-631 MutationObserver 同时观察节点、文本和属性；runtime smoke 在真实异步 MutationObserver 下执行 zh→en→zh→en，静态 title/aria、动态错误、权限队列均两次往返；D-160 的空白膨胀回归已转为通过。③“关于我们真实入口与内容”：index.html:20 的 settings 活动入口真实切换 #view-settings，330-334 的 #about-kanzei 含标题与两段产品/操作引导；i18n smoke:32-35 绑定检查入口、设置视图层级、About标题及两段正文，真实 ui_dom 亦确认内容渲染。最终 node --check、runtime/i18n/a11y/markdown smoke 全绿：runtime 65次invoke、0运行时错误；i18n覆盖696资源key/262项HTML文案/61项动态契约；真实DOM正常且console无错误。
 
+## R-092 缺陷自动审查按钮触发 [done]
+- 原始描述: 缺陷自动审查作为一个按钮触发
+- 复杂度: 小
+- 归属: kanzei
+- 验收: 界面上存在触发按钮，点击后启动缺陷自动审查流程并反馈结果
+- 优先级: P1
+- 阶段: 4
+- 证据等级: E2
+- 设计定位: 候选缺陷自动发现入口
+
+- 标签: 后端
+
+- refs: R-085 R-093
+
+- 进展: 验收逐项证据：①界面按钮：crates/kanzei-app/ui/index.html 的 documents-toolbar 新增 #defect-review 与 aria-live #defect-review-status，中英资源登记在 ui/main.js::I18N_EN；②真实调用方：ui/main.js::runDefectReview 点击后 invoke("defect_review")，后端 crates/kanzei-app/src/main.rs::defect_review 已注册 Tauri handler，读取当前活动 defects，启动 fast→primary 独立审查；③安全与流程：defect_review_snapshot 沿用既有 SubagentBase/read/glob/grep 与 explore_agent，但本次新增专用审查 prompt、独立命令和空状态，代码层无写工具且不进入主 conversation/queue；④结果反馈：按钮处理中/完成/失败/空状态均写入 status，成功结果由本次新增 openRuntimeMarkdown 在应用内 Markdown 查看器展示；⑤自动化：kanzei-app 新增严格只读工具集、空报告、无缺陷免模型测试，ui-runtime-smoke 真实点击并断言 invoke/状态/报告渲染，i18n/a11y/markdown smoke 与 node --check 通过，cargo test --workspace 全绿。运行中已用 ui_dom/ui_console 检查文档工具栏与控制台；当前安装进程仍是旧构建，故新按钮的真实窗口 DOM 需在本提交构建更新后出现，运行时渲染由 smoke 实际执行覆盖。
+

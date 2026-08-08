@@ -413,6 +413,11 @@ const payloads = {
     archived_entries: { req: [docEntry("R-000", "已归档需求", "done")], defect: [docEntry("D-000", "已归档缺陷", "fixed")], goal: [], source: [], finding: [] },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  defect_review: {
+    empty: false,
+    defectCount: 1,
+    report: "# 缺陷自动审查报告\n\n- D-001: `src/main.rs:10` 有可复核证据",
+  },
   // R-125:召回明细。一轮里既有被拉取的(算采纳)也有没拉的,才能验证两种状态都渲染得出来。
   memory_recalls: {
     rounds: [{
@@ -652,6 +657,19 @@ assert(defectEditor?.querySelector("input") && defectEditor?.querySelector("butt
 defectEditor.querySelector("button").click();
 await flush();
 assert(invokeLog.filter((cmd) => cmd === "docs_update").length >= 2, "独立文档页缺陷编辑未调用 docs_update");
+
+// R-092:缺陷自动审查必须是一个真实按钮调用，不是静态报告链接或展示壳。
+const reviewButton = byId.get("defect-review");
+reviewButton.click();
+assert(listText("defect-review-status").includes("正在审查缺陷"), "点击审查按钮后未立即反馈处理中状态");
+await flush();
+assert(invokeLog.includes("defect_review"), "缺陷自动审查按钮未调用后端 defect_review");
+assert(listText("defect-review-status").includes("审查完成"), "缺陷自动审查成功后未反馈完成状态");
+assert(!byId.get("viewer-overlay").classList.contains("hidden"), "缺陷自动审查报告未在应用内打开");
+assert(listText("viewer-body").includes("D-001") && listText("viewer-body").includes("可复核证据"), "审查报告查看器未渲染后端结果");
+assert(byId.get("viewer-external").classList.contains("hidden"), "运行时审查报告不应显示无效的外部文件按钮");
+assert(!reviewButton.disabled, "缺陷审查完成后按钮仍处于禁用状态");
+byId.get("viewer-close").click();
 
 // 批量操作:选中后操作条出现,应用后逐条提交。
 const pick = document.querySelector("#documents-req-list .doc-pick");
