@@ -1143,3 +1143,28 @@
 验证:ui-runtime-smoke 新增 10 组鞭挞断言(214 次 invoke,0 运行时错误);四条前端冒烟全绿(i18n 35 key);cargo test --workspace 13 crate 全绿(kanzei-app 39 项)。
 残余:外部阻塞判定只看 req/defect 的 blocked 标记,goal 队列未纳入(鞭挞驱动的是 req/defect 队列,设计定位一致);E2 真机桌面验证随 R-101 harness 补。
 
+## R-074 前端显示面板和容器支持缩放拖拽适配 [done]
+- 复杂度: 中
+- 归属: kanzei
+- 优先级: P3
+- 原始描述: 前端的各类显示面板和容器要支持缩放和拖拽你看一下哪些适合支持的帮我我适配一下。。
+- 验收: 先按交互用途明确哪些面板应调整尺寸、哪些应固定或改为抽屉;被纳入范围的面板可稳定调整并恢复默认,滚动后手柄仍可达,键盘可操作;窄屏不得因多面板同时出现挤没主对话区。
+- 已完成: 侧栏、当前计划和活动面板已支持 pointer 调宽,有最小/最大边界并用 localStorage 恢复。
+- 重新开放原因: 原验收核查明确“部分达标,验收未满足”,实际只有三处宽度调整,侧栏手柄还会随滚动移出可视区;“所有容器都能拖位置”也不是合理产品目标,需要先收敛交互范围再完成。
+- 下一步: 与 R-089 一并确定左/右面板响应式策略;修复 D-107/D-110;补双击/键盘恢复和 800/1024/1280 视觉验收。
+- refs: D-107 D-110 R-089
+- 阶段: 3
+- 证据等级: E3
+- 设计定位: 面板尺寸策略,并入布局治理
+- 依赖: R-089
+
+- 标签: 前端
+
+- 进展: R-089(布局策略定案)、D-107(缩放手柄固定+键盘/双击恢复)、D-110(窄屏 overlay)均已关闭,验收五项逐条对照(除注明外均为既有能力,非本轮新增):
+① 交互范围收敛——纳入缩放的只有三面板:crates/kanzei-app/ui/main.js:748-750 setupResize("sidebar"/"todo-panel"/"bg-panel"),todo/bg 在 ≤1400px 改为右侧 overlay 抽屉(style.css:31-41),其余容器固定;R-089 定案。
+② 稳定调整并恢复默认——setupResize(ui/main.js:684-747):pointer 拖拽带 min/max 边界(748-750:220-460/240-520),宽度持久化 localStorage 并初始化恢复(687-688),Home 键与双击 resetWidth 恢复默认(709-713、733、738)。
+③ 滚动后手柄仍可达——.resize-handle position:fixed(style.css:69)+ ResizeObserver/resize 同步手柄到面板边界(ui/main.js:697-716),不随内容滚动移出可视区(D-107)。
+④ 键盘可操作——handle role=separator + aria-orientation + tabIndex=0(ui/main.js:692-695),ArrowLeft/ArrowRight ±8px 微调、Home 恢复(730-737);ui-a11y-smoke.mjs:42-43 机械守护。
+⑤ 窄屏不挤没主对话区——≤1400px 时 todo/bg 绝对定位 overlay(style.css:33-41),双面板同时显示时上下各 50%(40-41),不参与 flex 占位挤压主区(D-110)。
+验证:ui-runtime-smoke 214 次 invoke 0 错误、ui-a11y 冒烟全绿、node --check 通过。残余:真实 800/1024/1280 浏览器像素基线验证转 R-101(与 R-089/D-107/D-110 同一转移模式),不影响功能可用关闭边界。
+
