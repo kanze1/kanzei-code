@@ -4,7 +4,7 @@
 范围：`crates/kanzei-harness`、`crates/kanzei-core`、`crates/kanzei-tools` 的权限门禁、工具资源声明、agent 选择、子代理和 runner 调度。
 
 > **时效声明与发现落地映射(2026-08-08 整理时补)**:
-> 本报告是 2026-08-08 的一次性静态快照,只记录发现、不保证后续实现状态。以下为已确认落地的映射(以 `.kanzei/project/defects.md` 为准);未列出的发现请按 `subagent-management.md` 的 P0 实施顺序核对是否已登记缺陷:
+> 本报告是 2026-08-08 的一次性静态快照,只记录发现、不保证后续实现状态。以下为已确认落地的映射(以 `.kanzei/project/defects.md` 为准);未列出的发现请按 `subagent_management.md` 的 P0 实施顺序核对是否已登记缺陷:
 >
 > | 本报告发现 | 对应缺陷 | 状态 |
 > |---|---|---|
