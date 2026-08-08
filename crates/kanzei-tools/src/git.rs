@@ -145,6 +145,8 @@ fn normalize_files(
                 "invalid Git path `{raw}`; use an explicit repository-relative file path"
             ));
         }
+        // 安全校验：normalize_resource 折叠 ..、清理 .，Windows 上还会小写化整个路径——
+        // 只用于逃逸与目录判定，不用于传给 git 的路径。
         let normalized = kanzei_harness::permission::normalize_resource(raw);
         if normalized == "."
             || normalized == ".."
@@ -160,9 +162,36 @@ fn normalize_files(
                 "Git path `{raw}` is a directory; list its files individually"
             ));
         }
-        seen.insert(normalized);
+        // 传给 git 的路径必须保留原始大小写：normalize_resource 在 Windows 上 to_lowercase
+        // 整个路径，而 git pathspec 大小写敏感，小写化会让含大写字母的文件（INDEX.md、
+        // Cargo.lock 等）匹配不到，stage 静默失败（D-178）。
+        seen.insert(preserve_case_path(raw));
     }
     Ok(seen.into_iter().collect())
+}
+
+/// 轻量路径清理：统一分隔符、折叠 `.`/`..`，但**不**小写化。
+/// 与 `kanzei_harness::permission::normalize_resource` 的区别正在于此——后者在
+/// Windows 上会破坏大小写敏感路径（D-178 根因）。
+fn preserve_case_path(raw: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    // 先绑定再借用:`raw.replace(..)` 是临时值,直接在 for 头里 split 会在
+    // 迭代开始前被丢弃(E0716)。
+    let unified = raw.replace('\\', "/");
+    for segment in unified.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if matches!(segments.last(), Some(&last) if last != "..") {
+                    segments.pop();
+                } else {
+                    segments.push("..");
+                }
+            }
+            other => segments.push(other),
+        }
+    }
+    segments.join("/")
 }
 
 async fn staged_paths(cwd: &Path) -> Result<Vec<String>, String> {
@@ -377,6 +406,60 @@ mod tests {
             normalize_files(&root, &["src/main.rs".into()], true).unwrap(),
             vec!["src/main.rs"]
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-178:normalize_resource 在 Windows 上把整条路径 to_lowercase,而 git pathspec
+    /// 大小写敏感——小写化会让含大写字母的文件(INDEX.md、Cargo.lock)匹配不到,
+    /// stage 静默失败。传给 git 的路径必须保留原始大小写,安全校验照常生效。
+    #[test]
+    fn paths_keep_original_case_while_still_escaping_check() {
+        let root = temp_repo("case");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        // 大小写必须原样保留。
+        assert_eq!(
+            normalize_files(&root, &["INDEX.md".into()], true).unwrap(),
+            vec!["INDEX.md"]
+        );
+        assert_eq!(
+            normalize_files(&root, &["src/MyFile.rs".into()], true).unwrap(),
+            vec!["src/MyFile.rs"]
+        );
+        // `..` 折叠等安全语义不受影响。
+        assert_eq!(
+            normalize_files(&root, &["./src/../INDEX.md".into()], true).unwrap(),
+            vec!["INDEX.md"]
+        );
+        assert!(normalize_files(&root, &["../escape.txt".into()], true).is_err());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn stage_uppercase_paths_and_verify_index() {
+        let root = temp_repo("case");
+        std::fs::write(root.join("INDEX.md"), "# index\n").unwrap();
+        std::fs::write(root.join("Cargo.lock"), "lock\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let staged = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["INDEX.md","Cargo.lock"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!staged.is_error, "{}", staged.content);
+        assert!(
+            staged.content.contains("staged_hash: "),
+            "{}",
+            staged.content
+        );
+        // 暂存区里必须是原始大小写的路径,而不是被小写化的 index.md。
+        let index = staged_paths(&root).await.unwrap();
+        assert!(index.contains(&"INDEX.md".to_string()), "{index:?}");
+        assert!(index.contains(&"Cargo.lock".to_string()), "{index:?}");
+        assert!(!index.contains(&"index.md".to_string()), "{index:?}");
         std::fs::remove_dir_all(root).ok();
     }
 

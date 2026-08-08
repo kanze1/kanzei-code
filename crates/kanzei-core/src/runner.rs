@@ -42,6 +42,161 @@ pub const CONTEXT_BUDGET_RATIO: f64 = 0.7;
 /// 轮内主动压缩的次数上限。压缩后仍超线说明单条消息本身就过大,再压无益,
 /// 交给撞墙后的被动恢复,别在这里空转。
 const MAX_PROACTIVE_COMPACTIONS: u32 = 3;
+/// 主动压缩后,最近这部分历史逐字保留的预算占比(相对 context_limit)。
+/// 主动压缩发生在还有余量的时候,没理由像应急路径那样推倒重来——保住近期
+/// 工作区,模型才知道自己刚做了什么,不会压完就原地重做。
+const RECENT_VERBATIM_RATIO: f64 = 0.35;
+/// 交给 fast 模型做纪要的原文上限(字符)。超出时取**最近**的部分:
+/// 中段越靠后越相关。
+const DIGEST_SOURCE_CHARS: usize = 24_000;
+
+/// 把消息渲染成给"纪要模型"看的文本。工具调用必须带上工具名与关键入参——
+/// 只留工具输出而不知道是谁产生的,压缩完等于一堆无主的结果(D-181)。
+fn render_for_digest(messages: &[Message]) -> String {
+    let mut out = String::new();
+    for message in messages {
+        let role = match message.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        };
+        for part in &message.parts {
+            match part {
+                Part::Text { text } => {
+                    out.push_str(&format!("[{role}] {}\n", clip(text, 2_000)));
+                }
+                Part::ToolCall { name, input, .. } => {
+                    out.push_str(&format!(
+                        "[tool-call] {name} {}\n",
+                        clip(&input.to_string(), 400)
+                    ));
+                }
+                Part::ToolResult { content, is_error, .. } => {
+                    out.push_str(&format!(
+                        "[tool-result{}] {}\n",
+                        if *is_error { " ERROR" } else { "" },
+                        clip(content, 1_200)
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+    // 超长时保留末尾(最近的)。
+    let chars: Vec<char> = out.chars().collect();
+    if chars.len() > DIGEST_SOURCE_CHARS {
+        return chars[chars.len() - DIGEST_SOURCE_CHARS..].iter().collect();
+    }
+    out
+}
+
+/// 按**字符**截断。原实现用字节余额去 take 字符数,中文场景下实际长度会超出
+/// 三倍,那个上限名不副实(D-181)。
+fn clip(text: &str, max_chars: usize) -> String {
+    let mut out: String = text.chars().take(max_chars).collect();
+    if text.chars().count() > max_chars {
+        out.push_str("…[截断]");
+    }
+    out
+}
+
+/// 主动压缩:保住任务定义与近期工作区,只把中段交给 fast 模型出纪要。
+///
+/// 与应急路径 `compact_messages_for_retry` 的分工是刻意的:那条路发生在
+/// provider 已经拒绝请求之后,粗暴但必须成功;这条路发生在还有三成余量时,
+/// 有时间也有理由做得体面。实测旧实现把主动路径直接接到应急函数上,一次从
+/// 89.6k 预算砍到约 2k(97%),而且保留的是**最旧**的 8000 字节、丢掉刚做完的
+/// 工作——压完模型不知道自己在干什么,大概率原地重做。
+async fn compact_with_digest(
+    client: &LlmClient,
+    subagent: Option<&SubagentRuntime>,
+    messages: &mut Vec<Message>,
+    budget: u64,
+    overflow_traces: &mut Vec<String>,
+) -> usize {
+    // 任务定义:第一条纯文本用户消息。丢了它模型会跑偏。
+    let head_index = messages.iter().position(is_text_user_message);
+    // 近期工作区:从末尾往前收,收到占满 RECENT_VERBATIM_RATIO 为止。
+    let recent_budget = (budget as f64 * RECENT_VERBATIM_RATIO) as u64;
+    let mut tail_start = messages.len();
+    let mut tail_tokens = 0u64;
+    while tail_start > 0 {
+        let candidate = &messages[tail_start - 1];
+        let cost = serde_json::to_string(candidate).map_or(0, |t| t.len()) as u64 / 4;
+        if tail_tokens + cost > recent_budget && tail_start < messages.len() {
+            break;
+        }
+        tail_tokens += cost;
+        tail_start -= 1;
+    }
+    let middle_end = tail_start;
+    let middle_start = head_index.map_or(0, |index| index + 1);
+    if middle_end <= middle_start {
+        // 中段是空的:说明超线来自 head/tail 本身,主动压缩无从下手,
+        // 交给应急路径去做取舍,别在这里假装压过。
+        return 0;
+    }
+
+    let middle: Vec<Message> = messages[middle_start..middle_end].to_vec();
+    overflow_traces.push(dropped_trace(&middle));
+    let digest = match subagent {
+        Some(rt) => digest_segment(client, rt, &render_for_digest(&middle)).await,
+        None => None,
+    };
+    let replacement = match digest {
+        Some(text) => format!("(系统:此前 {} 条消息已压缩为纪要,基于它继续)\n{text}", middle.len()),
+        // 纪要拿不到(未启用子代理/模型失败)时回落到截断,但**只截中段**,
+        // head 与近期工作区照样保住——比旧实现整段推倒仍然好得多。
+        None => format!(
+            "(系统:此前 {} 条消息已压缩为节选,纪要模型不可用)\n{}",
+            middle.len(),
+            clip(&render_for_digest(&middle), 3_000)
+        ),
+    };
+
+    let mut rebuilt: Vec<Message> = Vec::with_capacity(messages.len() - middle.len() + 1);
+    if let Some(index) = head_index {
+        rebuilt.push(messages[index].clone());
+    }
+    rebuilt.push(Message::user_text(replacement));
+    rebuilt.extend_from_slice(&messages[middle_end..]);
+    // 中段被抽走后,尾段里可能出现指向已消失调用的孤儿工具结果。
+    *messages = crate::history::filter_message_history(&rebuilt);
+    middle.len()
+}
+
+/// 用 fast 模型把一段协作记录压成纪要。失败返回 None,调用方回落到截断。
+async fn digest_segment(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    transcript: &str,
+) -> Option<String> {
+    if transcript.trim().is_empty() {
+        return None;
+    }
+    let request = LlmRequest {
+        model: rt.fast.1.clone(),
+        system: vec![
+            "把下面的人机协作记录压成中文纪要,供同一个 agent 继续这项工作。必须保留:\
+             目标、已完成的改动(具体文件/函数/标识符原样写出)、失败与其根因、\
+             已确认不可行的方向、下一步。不要泛化成'进行了一些修改'。\
+             markdown 列表,600 字以内。"
+                .into(),
+        ],
+        messages: vec![Message::user_text(transcript.to_string())],
+        tools: vec![],
+        max_tokens: 1024,
+        temperature: None,
+        reasoning: ReasoningEffort::Off,
+    };
+    let mut stream = client.stream(&rt.fast.0, &request).await.ok()?;
+    let mut summary = String::new();
+    while let Some(event) = stream.next().await {
+        if let Ok(LlmEvent::TextDelta { text, .. }) = event {
+            summary.push_str(&text);
+        }
+    }
+    (!summary.trim().is_empty()).then(|| summary.trim().to_string())
+}
 
 /// 本步请求的 token 粗估:system + 历史 + **工具 schema**。
 ///
@@ -874,17 +1029,26 @@ pub fn run_once_with_parts<'a>(
                 && proactive_compactions < MAX_PROACTIVE_COMPACTIONS
                 && messages.len() > 1
             {
-                let dropped_messages = messages.len();
-                compact_messages_for_retry(&mut messages, &mut overflow_traces);
-                proactive_compactions += 1;
-                let after = estimate_prompt_tokens(&system, &messages, &specs);
-                on_event(RunEvent::ContextCompacted {
-                    before_tokens: before,
-                    after_tokens: after,
-                    budget_tokens: budget,
-                    limit_tokens: limit,
-                    dropped_messages: dropped_messages.saturating_sub(messages.len()),
-                });
+                let dropped_messages = compact_with_digest(
+                    client,
+                    subagent,
+                    &mut messages,
+                    budget,
+                    &mut overflow_traces,
+                )
+                .await;
+                // 中段为空时不算压过:否则会白白吃掉重试额度,还骗 UI 说压了。
+                if dropped_messages > 0 {
+                    proactive_compactions += 1;
+                    let after = estimate_prompt_tokens(&system, &messages, &specs);
+                    on_event(RunEvent::ContextCompacted {
+                        before_tokens: before,
+                        after_tokens: after,
+                        budget_tokens: budget,
+                        limit_tokens: limit,
+                        dropped_messages,
+                    });
+                }
             }
         }
 
@@ -1761,26 +1925,36 @@ fn compact_messages_for_retry(messages: &mut Vec<Message>, overflow_traces: &mut
     if !dropped.is_empty() {
         overflow_traces.push(dropped_trace(&dropped));
     }
-    let mut history = String::new();
-    for (index, message) in messages.iter().enumerate() {
+    // 应急路径仍然粗暴(此刻 provider 已经拒过一次请求,必须一次成功),但两处
+    // 缺陷该修:①原实现从**最旧**的消息开始收,攒够就停,于是留下开场白、丢掉
+    // 刚做完的工作;近期内容才是继续任务所必需的,改为从最近往回收。②预算按
+    // 字节算却用 chars().take() 取,中文场景实际长度超出三倍(D-181)。
+    const EMERGENCY_KEEP_CHARS: usize = 4_000;
+    let mut recent: Vec<String> = Vec::new();
+    let mut kept = 0usize;
+    'outer: for (index, message) in messages.iter().enumerate().rev() {
         if index == current_index {
             continue;
         }
-        for part in &message.parts {
-            let text = match part {
-                Part::Text { text } => text,
-                Part::ToolResult { content, .. } => content,
+        for part in message.parts.iter().rev() {
+            let line = match part {
+                Part::Text { text } => text.clone(),
+                Part::ToolCall { name, input, .. } => {
+                    format!("[tool-call] {name} {}", clip(&input.to_string(), 200))
+                }
+                Part::ToolResult { content, .. } => content.clone(),
                 _ => continue,
             };
-            if history.len() >= 8_000 {
-                break;
+            if kept >= EMERGENCY_KEEP_CHARS {
+                break 'outer;
             }
-            let remaining = 8_000 - history.len();
-            let snippet: String = text.chars().take(remaining).collect();
-            history.push_str(&snippet);
-            history.push('\n');
+            let snippet = clip(&line, EMERGENCY_KEEP_CHARS - kept);
+            kept += snippet.chars().count();
+            recent.push(snippet);
         }
     }
+    recent.reverse();
+    let history = recent.join("\n");
     messages.clear();
     if !history.trim().is_empty() {
         messages.push(Message::user_text(format!(
@@ -1854,10 +2028,10 @@ fn preview(content: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
-        drain_task_events, estimate_prompt_tokens, execute_prepared_tools,
-        recover_context_overflow, PreparedToolCall, RunEvent, CONTEXT_BUDGET_RATIO,
-        MAX_STREAM_RESTARTS,
+        append_declined_tool_results, clip, compact_messages_aggressively,
+        compact_messages_for_retry, drain_task_events, estimate_prompt_tokens,
+        execute_prepared_tools, recover_context_overflow, PreparedToolCall, RunEvent,
+        CONTEXT_BUDGET_RATIO, MAX_STREAM_RESTARTS,
     };
     use async_trait::async_trait;
     use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
@@ -1895,6 +2069,83 @@ mod tests {
             estimate_prompt_tokens(&system, &[Message::user_text("短")], &[]) < budget,
             "小请求不该越线"
         );
+    }
+
+    /// D-181:主动压缩必须保住**任务定义**与**近期工作区**,只压中段。
+    /// 旧实现直接复用应急函数,一次从预算线砍到约 2k(97%),而且留下的是最旧的
+    /// 内容——压完模型不知道自己刚做了什么。
+    #[tokio::test]
+    async fn 主动压缩保住任务定义与近期工作并只压中段() {
+        let mut messages = vec![Message::user_text("任务定义:修复 D-123 的空指针")];
+        for i in 0..60 {
+            messages.push(Message::user_text(format!("中段第 {i} 条 {}", "x".repeat(400))));
+        }
+        messages.push(Message::user_text("最近工作:正在改 store.rs 的 migrate"));
+        messages.push(Message::user_text("最近工作:刚跑完 cargo test"));
+
+        let before = estimate_prompt_tokens(&[], &messages, &[]);
+        let mut traces = Vec::new();
+        // subagent=None → 纪要模型不可用,走截断回落;即便如此也必须保住首尾。
+        let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+        let dropped =
+            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces).await;
+
+        assert!(dropped > 0, "中段应当被压掉");
+        let text: String = messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(|p| match p {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("任务定义:修复 D-123"), "任务定义必须逐字保留:\n{text}");
+        assert!(text.contains("刚跑完 cargo test"), "最近一条必须逐字保留");
+        assert!(text.contains("正在改 store.rs"), "近期工作区必须逐字保留");
+        assert!(!traces.is_empty(), "被压掉的中段要留轨迹");
+
+        let after = estimate_prompt_tokens(&[], &messages, &[]);
+        assert!(after < before, "压缩要见效: {before} -> {after}");
+        // 不该像旧实现那样推倒重来:保住的内容必须显著多于应急路径的残留。
+        assert!(
+            messages.len() >= 3,
+            "首条任务定义 + 纪要 + 近期若干条都要在,实得 {}",
+            messages.len()
+        );
+    }
+
+    /// 应急路径保留的应当是**最近**的内容,而不是开场白。
+    #[test]
+    fn 应急压缩保留最近内容而非最旧内容() {
+        let mut messages: Vec<Message> = (0..30)
+            .map(|i| Message::user_text(format!("第 {i} 条 {}", "y".repeat(600))))
+            .collect();
+        messages.push(Message::user_text("当前指令"));
+        let mut traces = Vec::new();
+        compact_messages_for_retry(&mut messages, &mut traces);
+
+        let text: String = messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(|p| match p {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("当前指令"), "当前用户消息必须留下");
+        assert!(text.contains("第 29 条"), "最近的历史要留下:\n{}", clip(&text, 300));
+        assert!(!text.contains("第 0 条"), "最旧的历史不该占满配额");
+    }
+
+    /// 中文场景下 clip 的上限必须是字符数,而不是被字节余额放大三倍。
+    #[test]
+    fn clip按字符截断且中文不超额() {
+        let chinese = "上下文压缩".repeat(100); // 500 字,1500 字节
+        let clipped = clip(&chinese, 50);
+        assert_eq!(clipped.chars().count(), 50 + "…[截断]".chars().count());
+        assert_eq!(clip("短", 50), "短", "未超长不加省略标记");
     }
 
     /// 压缩后必须真的变小,而且当前用户消息要留下——否则模型会丢掉正在做的事。

@@ -132,6 +132,99 @@ struct SessionRuntime {
     running: Arc<AtomicBool>,
     lifecycle: Arc<Mutex<()>>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    /// 在飞轮次的实时画像(D-179)。必须挂在 runtime 上而不是 run_task 的局部,
+    /// 否则停止路径 `handle.abort()` 之后再也够不着它。
+    live: Arc<Mutex<LiveRun>>,
+}
+
+/// 一轮跑到当前时刻为止已知的事实。停止时靠它把轨迹与 episode 补落库——
+/// 原先这些全写在被 abort 的那个 task 里,于是**最值得复盘的运行(长到不得不停)
+/// 反而一个字节都不留**:实测一次 41 分钟的运行只剩一条 stopped_by_user(D-179)。
+#[derive(Default)]
+struct LiveRun {
+    run_id: String,
+    input_id: String,
+    prompt_head: String,
+    provider: String,
+    model: String,
+    started_at: Option<std::time::Instant>,
+    steps: u32,
+    input_tokens: u64,
+    output_tokens: u64,
+    trace: Vec<serde_json::Value>,
+    /// 轨迹与 episode 已经落过库。正常收尾与停止路径都会写,用它防重。
+    flushed: bool,
+}
+
+impl LiveRun {
+    fn begin(
+        &mut self,
+        run_id: &str,
+        input_id: &str,
+        prompt_head: &str,
+        provider: &str,
+        model: &str,
+    ) {
+        *self = LiveRun {
+            run_id: run_id.into(),
+            input_id: input_id.into(),
+            prompt_head: prompt_head.chars().take(200).collect(),
+            provider: provider.into(),
+            model: model.into(),
+            started_at: Some(std::time::Instant::now()),
+            ..LiveRun::default()
+        };
+    }
+
+    fn duration_ms(&self) -> u64 {
+        self.started_at
+            .map(|at| at.elapsed().as_millis() as u64)
+            .unwrap_or_default()
+    }
+}
+
+/// 把在飞画像落库(轨迹 + episode)。正常收尾与停止路径共用,幂等。
+/// 返回是否真的写了——调用方据此避免重复写。
+fn flush_live_run(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    live: &Arc<Mutex<LiveRun>>,
+    outcome: &str,
+) -> bool {
+    let mut live = live.lock().unwrap();
+    if live.flushed || live.started_at.is_none() {
+        return false;
+    }
+    live.flushed = true;
+    if !live.trace.is_empty() {
+        let _ = store.append_event(
+            session_id,
+            "run.trace",
+            &json!({ "events": live.trace, "outcome": outcome }),
+        );
+    }
+    let _ = store.append_episode(&kanzei_core::EpisodeRecord {
+        session_id,
+        prompt_head: &live.prompt_head,
+        outcome,
+        steps: live.steps,
+        input_tokens: live.input_tokens,
+        output_tokens: live.output_tokens,
+        // 被中断的轮次没有完整消息历史可统计,工具画像留给轨迹里的
+        // tool.completed 记录——那份是逐次记的,不依赖收尾。
+        tools_json: "{}",
+        context_json: "[]",
+        metrics_json: "{}",
+        // 被裁剪段的沉淀在 RunSummary 里,中断路径拿不到;轨迹里的
+        // context.compacted 记录仍在,不会无声丢失。
+        overflow_json: "[]",
+        provider: &live.provider,
+        model: &live.model,
+        run_id: &live.run_id,
+        input_id: &live.input_id,
+        duration_ms: live.duration_ms(),
+    });
+    true
 }
 
 #[derive(Debug, Clone)]
@@ -198,6 +291,7 @@ impl Default for SessionRuntime {
             running: Arc::new(AtomicBool::new(false)),
             lifecycle: Arc::new(Mutex::new(())),
             conversation: Arc::new(Mutex::new(HashMap::new())),
+            live: Arc::new(Mutex::new(LiveRun::default())),
         }
     }
 }
@@ -296,6 +390,9 @@ fn stop_runtime_and_finalize(
     // 生命周期锁必须覆盖 abort、running=false 与数据库收尾，阻止 promote 在
     // 两者之间插入；finalize_interrupt 再原子取消 pending/promoted 输入。
     let _lifecycle = runtime.lifecycle.lock().unwrap();
+    // 先落库再 abort(D-179):收尾代码全在被 abort 的那个 task 里,先杀后写等于
+    // 什么都不写。顺序反过来,长轮被停止时轨迹与 episode 才留得下来。
+    flush_live_run(store, session_id, &runtime.live, "halted");
     if let Some(handle) = runtime.current_run.lock().unwrap().take() {
         handle.abort();
     }
@@ -1189,6 +1286,58 @@ mod update_tests {
             .unwrap()
             .unwrap();
         assert_eq!(event.payload["reason"], "stopped_by_user");
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-179:停止不得再吃掉整轮轨迹。收尾代码全在被 abort 的 task 里,
+    /// 先杀后写等于什么都不写——实测一次 41 分钟的运行只剩一条 stopped_by_user。
+    #[test]
+    fn 停止时在飞轨迹与episode先落库再abort() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-stop-flush-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
+        let session_id = "session_stop_flush";
+        store
+            .create_session(session_id, &root.display().to_string(), None)
+            .unwrap();
+
+        let runtime = SessionRuntime::default();
+        runtime.running.store(true, Ordering::SeqCst);
+        {
+            let mut live = runtime.live.lock().unwrap();
+            live.begin("run_x", "input_x", "很长的一轮", "deepseek", "deepseek-v4-flash");
+            live.steps = 37;
+            live.input_tokens = 210_000;
+            live.output_tokens = 14_000;
+            live.trace.push(serde_json::json!({"kind": "tool.completed", "name": "bash"}));
+        }
+
+        stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
+
+        let trace = store
+            .latest_event(session_id, "run.trace")
+            .unwrap()
+            .expect("停止必须留下轨迹");
+        assert_eq!(trace.payload["outcome"], "halted");
+        assert_eq!(trace.payload["events"][0]["name"], "bash");
+
+        let episodes = store.list_episodes(session_id, 5).unwrap();
+        assert_eq!(episodes.len(), 1, "停止必须留下 episode");
+        assert_eq!(episodes[0].2, "halted");
+        assert_eq!(episodes[0].3, 37, "步数要取在飞画像的真实值");
+        let identity = store.recent_episode_identities(session_id, 5).unwrap();
+        assert_eq!(identity[0].1, "deepseek");
+        assert_eq!(identity[0].3, "run_x");
+
+        // 幂等:同一轮不会被写第二遍(正常收尾与停止路径都会调用)。
+        stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
+        assert_eq!(store.list_episodes(session_id, 5).unwrap().len(), 1);
+
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -5121,6 +5270,7 @@ async fn run_prompt(
     let running = runtime.running.clone();
     let lifecycle = runtime.lifecycle.clone();
     let conversation = runtime.conversation.clone();
+    let live_run = runtime.live.clone();
 
     let runtime_for_task = runtime.clone();
     let handle = tauri::async_runtime::spawn(async move {
@@ -5143,6 +5293,7 @@ async fn run_prompt(
                 work_priority.clone(),
                 reasoning.clone(),
                 conversation.clone(),
+                live_run.clone(),
                 delivery,
                 next_input.take(),
             )
@@ -5284,6 +5435,7 @@ async fn run_task(
     work_priority: Option<String>,
     reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    live_run: Arc<Mutex<LiveRun>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
@@ -5459,8 +5611,16 @@ async fn run_task(
     let emit_event = move |name: &str, payload: serde_json::Value| {
         event_window.emit(name, with_session_id(payload, &session_id_for_events))
     };
-    let run_trace = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
-    let trace_log = run_trace.clone();
+    // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
+    let live = live_run.clone();
+    live.lock().unwrap().begin(
+        &run_id,
+        &promoted_input_id,
+        &prompt,
+        &resolved.provider_name,
+        &resolved.model,
+    );
+    let trace_log = live.clone();
     // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
     // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
     // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
@@ -5476,9 +5636,13 @@ async fn run_task(
         };
         let _ = match event {
             RunEvent::TurnStart { step, max_steps } => {
-                trace_log.lock().unwrap().push(json!({
-                    "kind": "turn.started", "step": step, "at": now_ms(),
-                }));
+                {
+                    let mut live = trace_log.lock().unwrap();
+                    live.steps = live.steps.max(step);
+                    live.trace.push(json!({
+                        "kind": "turn.started", "step": step, "at": now_ms(),
+                    }));
+                }
                 emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
             }
             RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
@@ -5493,7 +5657,7 @@ async fn run_task(
                     .lock()
                     .unwrap()
                     .insert(id.clone(), std::time::Instant::now());
-                trace_log.lock().unwrap().push(json!({
+                trace_log.lock().unwrap().trace.push(json!({
                     "kind": "tool.started", "id": id, "name": name,
                     "summary": summary, "at": now_ms(),
                 }));
@@ -5509,7 +5673,7 @@ async fn run_task(
                 preview,
                 display,
             } => {
-                trace_log.lock().unwrap().push(json!({
+                trace_log.lock().unwrap().trace.push(json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
                     "durationMs": elapsed_ms(&id), "at": now_ms(),
                     // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
@@ -5529,7 +5693,7 @@ async fn run_task(
                 limit_tokens,
                 dropped_messages,
             } => {
-                trace_log.lock().unwrap().push(json!({
+                trace_log.lock().unwrap().trace.push(json!({
                     "kind": "context.compacted", "before": before_tokens, "after": after_tokens,
                     "budget": budget_tokens, "limit": limit_tokens,
                     "dropped": dropped_messages, "at": now_ms(),
@@ -5553,7 +5717,7 @@ async fn run_task(
                 decision,
                 source,
             } => {
-                trace_log.lock().unwrap().push(json!({
+                trace_log.lock().unwrap().trace.push(json!({
                     "kind": "permission.resolved", "id": tool_call_id, "action": action,
                     "resource": resource, "decision": decision, "source": source, "at": now_ms(),
                 }));
@@ -5574,7 +5738,7 @@ async fn run_task(
                         "display": item.display,
                     })),
                 });
-                trace_log.lock().unwrap().push(payload.clone());
+                trace_log.lock().unwrap().trace.push(payload.clone());
                 emit_event("kz:task-progress", payload)
             },
             RunEvent::Retry { attempt, max, delay_ms } => emit_event(
@@ -5591,13 +5755,21 @@ async fn run_task(
                     "detail": format!("连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms"),
                 }),
             ),
-            RunEvent::StepEnd { usage, .. } => emit_event(
-                "kz:step",
-                json!({
-                    "input": usage.input, "output": usage.output,
-                    "cacheRead": usage.cache_read, "cacheWrite": usage.cache_write,
-                }),
-            ),
+            // 每步累计:停止时 episode 才有真实 token 数,而不是写个 0 冒充。
+            RunEvent::StepEnd { usage, .. } => {
+                {
+                    let mut live = trace_log.lock().unwrap();
+                    live.input_tokens += usage.input;
+                    live.output_tokens += usage.output;
+                }
+                emit_event(
+                    "kz:step",
+                    json!({
+                        "input": usage.input, "output": usage.output,
+                        "cacheRead": usage.cache_read, "cacheWrite": usage.cache_write,
+                    }),
+                )
+            }
         };
     };
 
@@ -5789,6 +5961,9 @@ async fn run_task(
                         .unwrap_or_default(),
                 });
                 let _ = store.finish_input(&promoted_input_id, true);
+                // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
+                // flush_live_run 不该再补一条信息量更少的(D-179)。
+                live.lock().unwrap().flushed = true;
                 if let Err(error) = append_run_notification(
                     store,
                     &session_id,
@@ -5829,6 +6004,10 @@ async fn run_task(
                 ) {
                     report_persistence_failure(window, &session_id, "写入失败事件", persistence_error);
                 }
+                // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
+                // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
+                flush_live_run(store, &session_id, &live, "failed");
+                let _ = store.finish_input(&promoted_input_id, false);
                 if let Err(persistence_error) = append_run_notification(
                     store,
                     &session_id,
@@ -5897,7 +6076,7 @@ async fn run_task(
         .get(&session_id)
         .cloned()
         .unwrap_or_default();
-    let trace = run_trace.lock().unwrap().clone();
+    let trace = live.lock().unwrap().trace.clone();
     if let Some(store) = store.as_ref() {
         if !trace.is_empty() {
             if let Err(error) = store.append_event(&session_id, "run.trace", &json!({ "events": trace })) {

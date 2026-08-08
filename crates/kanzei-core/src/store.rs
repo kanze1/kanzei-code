@@ -13,7 +13,11 @@ use serde_json::Value;
 // v3:episodes 表(R-106,轮次情景摘要;回滚 = DROP TABLE episodes 并把版本改回 2)。
 // v5:session_inputs 补 running/completed/failed 终态 + finished_at;
 //     episodes 补 provider/model/run_id/input_id/duration_ms(D-173 可观测性)。
-const SCHEMA_VERSION: i64 = 5;
+// v6:回填 v5 之前遗留的 promoted 输入(D-180)。
+const SCHEMA_VERSION: i64 = 6;
+/// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
+/// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
+const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
 
 pub fn project_state_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("state.db")
@@ -767,7 +771,7 @@ impl SessionStore {
              );
              CREATE INDEX IF NOT EXISTS episodes_session_created
                  ON episodes(session_id, created_at);
-             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '5')
+             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '6')
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -814,6 +818,24 @@ impl SessionStore {
                  CREATE INDEX IF NOT EXISTS session_inputs_pending
                      ON session_inputs(session_id, delivery, status, created_at);",
             )?;
+        }
+        // v6 回填(D-180):v5 之前没有 running/completed,跑完的输入永远停在
+        // promoted。这些存量不回填的话,用户下一次按停止仍会被 finalize_interrupt
+        // 一并改写成 cancelled——新记录不再被污染,存量却还在被反复追认。
+        //
+        // completed 是**迁移推断值**,不是观测值:v5 之前根本没有记录结局的地方,
+        // 只能按"被提升了就说明当时确实执行过"来判定。保护窗内(可能正被另一个
+        // 进程执行)的一律不动,宁可漏回填也不误判在飞的输入。
+        let backfilled = tx.execute(
+            "UPDATE session_inputs SET status = 'completed'
+             WHERE status = 'promoted' AND (promoted_at IS NULL OR promoted_at < ?1)",
+            params![now_ms() - LEGACY_PROMOTED_GRACE_MS],
+        )?;
+        if backfilled > 0 {
+            tracing::info!(
+                backfilled,
+                "v6 迁移:遗留 promoted 输入按迁移推断回填为 completed"
+            );
         }
         tx.commit()?;
         Ok(())
@@ -1194,6 +1216,73 @@ mod tests {
     /// D-175:迁移是单向的,升级前必须留下可回退的完整副本;
     /// 遇到更新版本的库时,报错要说清该升哪个程序,而不是让人去删库。
     /// D-176:桌面端(canonicalize 带 `\\?\`)与 CLI(裸路径)必须落到同一个会话。
+    /// D-180:v5 之前跑完的输入永远停在 promoted,不回填的话下一次停止仍会把它们
+    /// 追认为 cancelled。回填是迁移推断值,但保护窗内的在飞输入绝不能被误判。
+    #[test]
+    fn 迁移把遗留promoted回填为completed但不动可能在飞的输入() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-legacy-promoted-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.create_session("ses_legacy", "C:/p", None).unwrap();
+            for id in ["old_a", "old_b", "just_now", "still_pending"] {
+                store
+                    .admit_input("ses_legacy", id, id, Delivery::Queue)
+                    .unwrap();
+            }
+            let old = now_ms() - LEGACY_PROMOTED_GRACE_MS - 60_000;
+            for (id, promoted_at) in [
+                ("old_a", Some(old)),
+                ("old_b", None),
+                ("just_now", Some(now_ms())),
+            ] {
+                store
+                    .connection
+                    .execute(
+                        "UPDATE session_inputs SET status='promoted', promoted_at=?1 WHERE input_id=?2",
+                        params![promoted_at, id],
+                    )
+                    .unwrap();
+            }
+            // 退回 v5,让下次 open 触发 v6 迁移。
+            store
+                .connection
+                .execute(
+                    "UPDATE schema_meta SET value='5' WHERE key='schema_version'",
+                    [],
+                )
+                .unwrap();
+        }
+
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(store.input_status("old_a").unwrap().unwrap(), "completed");
+        assert_eq!(
+            store.input_status("old_b").unwrap().unwrap(),
+            "completed",
+            "promoted_at 缺失的老记录同样是存量,要回填"
+        );
+        assert_eq!(
+            store.input_status("just_now").unwrap().unwrap(),
+            "promoted",
+            "保护窗内的输入可能正被另一个进程执行,不得回填"
+        );
+        assert_eq!(store.input_status("still_pending").unwrap().unwrap(), "pending");
+
+        // 回填之后再停止,已回填的历史输入不再被追认为 cancelled。
+        store.set_status("ses_legacy", "running").unwrap();
+        store.finalize_interrupt("ses_legacy").unwrap();
+        assert_eq!(store.input_status("old_a").unwrap().unwrap(), "completed");
+        assert_eq!(store.input_status("just_now").unwrap().unwrap(), "cancelled");
+        assert_eq!(store.input_status("still_pending").unwrap().unwrap(), "cancelled");
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+    }
+
     #[test]
     fn 同一目录的各种路径写法收敛到同一个会话id() {
         let bare = Path::new(r"C:\Users\kanzei\Documents\kanzei code");

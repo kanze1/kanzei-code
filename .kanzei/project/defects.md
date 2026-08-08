@@ -70,3 +70,46 @@
 - 优先级: P0
 - 标签: 核心
 - refs: D-176
+
+## D-178 git 工具 stage 静默失败:normalize_resource Windows 小写化破坏大小写敏感路径 [fixing] (high)
+- 复现: git stage .kanzei/memory/INDEX.md 返回 "nothing is staged after this request"。根因: git.rs:148 normalize_files 用 kanzei_harness::permission::normalize_resource(raw) 规范化路径, 该函数在 Windows 上 to_lowercase 整个路径(permission.rs:167-168), git pathspec 大小写敏感, 转小写后匹配不到磁盘上的 INDEX.md/M-016-*.md/Cargo.lock 等含大写字母的文件, git add 成功但零暂存, stage 报 nothing staged。对照: probe-test.txt(全小写) 可正常暂存。
+- 影响: 任何含大写字母的路径(INDEX.md、M-016/M-017 记忆文件、Cargo.lock)都无法通过 git 工具暂存, memory 文件提交被卡; 用户直接用 bash git add 不受影响。
+- 验收: git stage 对含大写字母路径能正常暂存并返回 staged_hash; 保留 normalize_resource 的安全校验(逃逸/目录检查)但传给 git 的路径保持原始大小写; 补大小写路径回归测试。
+- 严重程度: high
+- 优先级: P2
+- severity: high
+
+## D-179 停止运行时 abort 先于收尾,整轮轨迹与 episode 全部丢失 [fixing] (high)
+- 复现: 2026-08-08 一次 41 分钟的运行(事件流 seq 1073-1076)被用户停止后,该会话只留下一条 `session.status_changed {"reason":"stopped_by_user"}`——没有 run.trace、没有 episode、输入状态也没有结局。对照正常结束的轮次(seq 1084-1086)三者齐全。
+- 根因: `stop_runtime_and_finalize`(crates/kanzei-app/src/main.rs)先 `handle.abort()` 再收尾,而写 run.trace / append_episode / finish_input 的代码全在被 abort 的那个 task 里,先杀后写等于什么都不写。失败轮次同理:`let summary = run_result?;` 在写轨迹之前提前返回,`run.failed` 之外一样什么都不留。
+- 影响: ①最值得复盘的运行(长到不得不停)恰恰一个字节都不留,D-173 补的运行审计在这类轮次上等于没做;②工具耗时、权限决策、token 统计全丢,"时间花在哪"仍然只能靠猜;③D-177 的轮内压缩是否真的触发,在被停止的轮次里无法验证。
+- 验收: ①停止时先把在飞轨迹与 episode 落库再 abort;②失败轮次同样落库;③episode 的步数与 token 取自逐步累计的真实值,不是补零;④正常收尾与停止路径不重复写(幂等);⑤有测试锁住"停止后 run.trace 与 episode 都在,且再停一次不产生第二条"。
+- 修复进展(2026-08-08): SessionRuntime 增 `live: Arc<Mutex<LiveRun>>` 在飞画像(run_id/input_id/provider/model/步数/token/轨迹),挂在 runtime 上而不是 run_task 局部,停止路径才够得着;`flush_live_run` 幂等落库,停止路径在 abort **之前**调用,失败分支也调用;TurnStart/StepEnd 逐步累计步数与 token。
+- 验证(2026-08-08): kzapp 新增「停止时在飞轨迹与episode先落库再abort」,断言 outcome=halted、步数取真实值、归属列齐全、重复停止不产生第二条 episode;kzapp 34 项通过。真实桌面端停止验证待发版后进行,故保持 fixing。
+- 优先级: P0
+- 标签: 后端
+- refs: D-173、D-177
+
+## D-180 v5 之前遗留的 promoted 输入未回填,仍会被后续停止追认为 cancelled [fixing] (high)
+- 复现: 装上 v5 后查本机 state.db:`promoted 195 / cancelled 187 / running 1`。那 195 条是 v5 之前跑完的输入——当时没有 completed 终态,它们永远停在 promoted。而 `finalize_interrupt` 取消 `pending/promoted/running`,所以用户下一次按停止,这 195 条历史上早已跑完的输入仍会被一并改写成 cancelled。
+- 根因: v5 只加了新状态与新写入路径,没有回填存量。新记录不再被污染,存量却仍在被反复追认——修了一半。
+- 影响: 历史输入的状态位不可信,按状态做的任何统计(完成率、取消率)都失真;且每停止一次就再污染一次,不是一次性损失。
+- 验收: ①迁移把存量 promoted 回填为 completed;②保护窗内(可能正被另一个进程执行)的 promoted 不回填;③promoted_at 缺失的老记录同样视为存量;④回填后再停止,已回填的记录不再被改写;⑤有测试锁住上述四条。
+- 修复进展(2026-08-08): SCHEMA_VERSION 提到 6,迁移中回填 `promoted → completed`,保护窗 5 分钟(桌面端与 CLI 共用同一个库,可能有另一进程正在执行)。completed 是**迁移推断值**不是观测值:v5 之前根本没有记录结局的地方,只能按"被提升了就说明当时确实执行过"判定,已在代码注释与本条目写明。
+- 验证(2026-08-08): kanzei-core 新增「迁移把遗留promoted回填为completed但不动可能在飞的输入」,含回填后再停止不被改写的断言;store 24 项通过。
+- 优先级: P1
+- 标签: 后端
+- refs: D-173
+- 备注: 回填口径(推断为 completed 而非保持现状)由用户 2026-08-08 定调。
+- 迁移与回滚: v5→v6 只有一条 UPDATE,无表结构变更;回滚把 SCHEMA_VERSION 改回 5 即可,已回填的 completed 对 v5 代码是合法值(v5 的 CHECK 已含 completed),不会打不开库。
+
+## D-181 主动上下文压缩复用应急截断:一次砍掉 97% 且保留的是最旧内容 [fixing] (high)
+- 复现: D-177 把主动预算线接到了应急函数 `compact_messages_for_retry` 上。该函数把除当前用户消息外的全部历史拍成一个 8000 字节文本块:deepseek 128k 的预算线是 89,600 token,触发后掉到约 2,000 token,一次砍掉 97%。且其累积循环从 index 0 正序、攒够即停,保留的是开场白,丢掉的是刚做完的工作。
+- 根因: 应急路径与主动路径的定位被混为一谈。应急发生在 provider 已经拒绝请求之后,粗暴但必须一次成功,合理;主动发生在还有三成余量、也有时间的时候,没有任何理由推倒重来。另有两个附带缺陷:①`remaining = 8_000 - history.len()` 按字节算却用 `chars().take(remaining)` 取字符,中文实际超额约三倍,那个上限名不副实;②`Part::ToolCall` 被整个 skip,只留下工具输出而不知道是哪个工具、什么入参产生的。
+- 影响: ①压完模型不知道自己刚做了什么,长轮大概率原地重做,压缩反而放大成本;②轮末那条像样的 `fast_summarize` 已确认长轮轮不到,于是形成"好的不跑、跑的不好";③`MAX_PROACTIVE_COMPACTIONS=3` 是假的——第一次就压成一个块,后两次只是重复截同一个块。
+- 验收: ①主动压缩保住首条用户消息(任务定义)与最近工作区逐字不动,只压中段;②中段交 fast 模型出结构化纪要,要求写出具体文件/函数/标识符而非泛化;③纪要不可用时回落到截断,但只截中段;④中段为空时不计入压缩次数,不吃重试额度;⑤应急路径改为保留最近内容而非最旧;⑥按字符截断,中文不超额;⑦保留内容含工具名与关键入参;⑧有测试锁住上述各条。
+- 修复进展(2026-08-08): 新增 `compact_with_digest`(三段式:head 逐字 / 中段纪要 / 近期 RECENT_VERBATIM_RATIO=0.35 逐字),抽走中段后用 `filter_message_history` 清孤儿工具部件;`digest_segment` 走 SubagentRuntime.fast 那条 route,失败回落只截中段;`clip` 统一按字符截断;应急路径改为从最近往回收并纳入 ToolCall。fast 模型调用由用户 2026-08-08 明确批准。
+- 验证(2026-08-08): kanzei-core 新增「主动压缩保住任务定义与近期工作并只压中段」「应急压缩保留最近内容而非最旧内容」「clip按字符截断且中文不超额」;workspace 266 项通过。**纪要质量未经真实模型验证**——测试里 subagent=None 走的是截断回落,而 fast 是本地小模型 ollama:qwen3.5:4b,能否保住标识符待实测,故保持 fixing。
+- 优先级: P0
+- 标签: 核心
+- refs: D-177
