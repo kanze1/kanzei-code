@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: 本轮完成 R-089 桌面端核心布局治理：复核时发现并修复 D-156（800px 顶栏常驻控件超宽）、D-158（todo/活动双抽屉横向覆盖84%主区）和 D-157（停止状态缺英文资源）。≤1024px 顶栏隐藏次要长状态并收紧进程区，≤900px 侧栏改为最多320px抽屉；todo/活动同时显示时共享一个右侧宽度并上下分区。node --check、runtime/a11y/i18n/markdown smoke、CSS结构检查与真实DOM/console均通过，R-089已done，提交00f43de。另发现 memory-manager 将前置pathspec失败误归因为“忘记git add”，已记录D-159并投递M-013更正说明。
+- 进展: 本轮完成 R-069 桌面端双语闭环：补齐696个中英资源key，ui-i18n-smoke机械覆盖262项HTML可见文本/title/placeholder/aria-label与61项动态契约；静态/动态资源统一处理复合文案，t()可消费两表，aria-label进入属性缓存与MutationObserver。英文创建的动态节点可恢复中文源文案，权限action/resource/question用data-i18n-raw保持用户数据原样；runtime smoke真实执行zh→en→zh→en、动态错误和双权限队列。增强MutationObserver时发现并修复D-160空白二次replace指数膨胀（修前超过1MB，修后65次invoke、0运行时错误）。About设置入口与两段内容经静态结构和真实DOM确认。node check及runtime/i18n/a11y/markdown smoke全绿，R-069已done，提交e4b45f2。D-159错误M-013仍未提交并等待memory-manager因果提炼修复。
 - 当前判断: 距离"日常主力开发工具"的差距不在功能数量而在可靠性与验收质量——上一轮的验证手段几乎清一色是语法检查,导致带病能力被判定为完成。近期重心应是 R-083(收口 P0 缺陷)、R-084(建立能捕获运行时错误的验收手段)、R-085(完成判定的执行约束),之后再谈新能力。
 
 ## G-002 可靠性、可用性与自举质量的长期基线 [active]
