@@ -578,14 +578,23 @@ fn update_helper_path() -> PathBuf {
     std::env::temp_dir().join("kanzei-update-helper.exe")
 }
 
+/// 更新交接日志的生产落点(固定,便于用户/诊断时捞取)。
+fn update_log_path() -> PathBuf {
+    std::env::temp_dir().join("kanzei-update.log")
+}
+
 /// 更新交接日志。GUI 进程没有可见的 stderr,原实现只 `eprintln!`,
 /// 于是"检查更新没反应"永远查不出原因——这才是真正卡住诊断的地方(D-182)。
 fn update_log(line: &str) {
+    update_log_at(&update_log_path(), line);
+}
+
+/// D-188:日志路径显式传入,测试写独立临时文件,不再污染生产日志。
+fn update_log_at(path: &Path, line: &str) {
     use std::io::Write as _;
-    let path = std::env::temp_dir().join("kanzei-update.log");
     // 有界:超过 256 KiB 从头重来,日志本身不该变成垃圾。
-    if std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 256 * 1024) {
-        let _ = std::fs::remove_file(&path);
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > 256 * 1024) {
+        let _ = std::fs::remove_file(path);
     }
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -594,7 +603,7 @@ fn update_log(line: &str) {
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
     {
         let _ = writeln!(file, "[{stamp}] {line}");
     }
@@ -1400,11 +1409,25 @@ mod update_tests {
             helper.file_name().and_then(|n| n.to_str()),
             Some("kzapp.exe")
         );
-        // 日志落点固定且与 helper 同目录,出问题时用户捞得到。
-        super::update_log("单测探针");
-        let log = temp.join("kanzei-update.log");
-        assert!(log.is_file(), "交接日志必须落盘: {}", log.display());
-        assert!(std::fs::read_to_string(&log).unwrap().contains("单测探针"));
+        // D-188:探针写独立临时文件(pid 隔离),不得碰生产日志;断言落盘内容,
+        // 并反向断言生产日志没有被这次写入污染。
+        let test_log = temp.join(format!(
+            "kanzei-update-test-{}-{}.log",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let probe_marker = format!("单测探针-{}", std::process::id());
+        super::update_log_at(&test_log, &probe_marker);
+        assert!(test_log.is_file(), "交接日志必须落盘: {}", test_log.display());
+        assert!(std::fs::read_to_string(&test_log).unwrap().contains(&probe_marker));
+        let _ = std::fs::remove_file(&test_log);
+        let prod_log = super::update_log_path();
+        if prod_log.is_file() {
+            assert!(
+                !std::fs::read_to_string(&prod_log).unwrap().contains(&probe_marker),
+                "生产更新日志被测试探针污染(D-188)"
+            );
+        }
     }
 
     /// D-179:停止不得再吃掉整轮轨迹。收尾代码全在被 abort 的 task 里,

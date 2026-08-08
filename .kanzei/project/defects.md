@@ -56,7 +56,7 @@
 - 优先级: P3
 - 标签: 核心
 
-## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [open] (low)
+## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [fixed] (low)
 - 复现: `%TEMP%\kanzei-update.log` 当前全部内容是 5 条"单测探针",时间 2026-08-08 23:08 与 2026-08-09 00:28——测试与生产用同一个绝对路径(crates/kanzei-app/src/main.rs:1367 附近的 update_log 测试)。
 - 影响: `update_log` 超 256 KiB 是整文件删,测试写入会稀释乃至挤掉真实的更新交接记录;而这个日志正是 D-182 为"更新过程无从复盘"专门建的入口,现在打开看到的全是测试噪声。
 - 根因: 日志路径写死为 `%TEMP%\kanzei-update.log`,测试没有走可注入的路径参数。
@@ -64,6 +64,8 @@
 - 证据等级: E1(本机日志内容实证)
 - 优先级: P3
 - 标签: 后端
+
+- 进展: 修复(2026-08-09):update_log 抽出显式路径版本 update_log_at(path,line)(crates/kanzei-app/src/main.rs:583 附近),生产 update_log 委托 update_log_path() 不变;测试改走 pid+nanos 隔离的独立临时文件,并新增反向断言——本次探针标记若出现在生产日志即失败(防回归)。旧探针日志已手动清理。kanzei-app 39 项测试全绿。
 
 ## D-159 memory-manager 忽略前置 pathspec fatal 并把 commit 症状误记为根因 [open] (medium)
 - refs: R-105
