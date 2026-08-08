@@ -98,6 +98,17 @@ const autoNoticeIndex = source.indexOf('addMessage("notice", `${t("鞭挞已触�
 if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
   fail("自动续轮仍把内部提示词重复展示为用户消息");
 }
+  if (!source.includes("逐条对照验收原文") || !source.includes("每项给出精确代码位置证据")) {
+    fail("自动续跑提示缺少逐条验收与精确代码位置证据约束");
+  }
+  if (
+    !source.includes("真实调用方或消费者") ||
+    !source.includes("显式标注为既有能力而非本次交付") ||
+    !source.includes("不得缩小验收里的平台或范围限定词")
+  ) {
+    fail("自动续跑提示缺少真实调用方、既有能力标注或平台/范围保持约束");
+  }
+
 const pendingTimers = new Set();
 
 // ---------- DOM harness:真实节点关系(parent/children/dataset/classList),样式与布局按 noop ----------

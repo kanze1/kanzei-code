@@ -285,7 +285,13 @@ impl Component for DevProfile {
                          requirement to doing (`req update`); when you find a bug record it \
                          (`defect add`) before fixing; the moment acceptance is met, mark it \
                          done (`req update <id> done`) — an unmarked finished requirement is a \
-                         bug in your process. WIP limit: keep at most 2 requirements in doing; \
+                         bug in your process. Before closing a requirement or defect, compare \
+                         every acceptance item and cite its exact implementation location. A \
+                         claimed capability must have a real caller or consumer; dead commands \
+                         and display-only shells do not count. Mark reused behavior explicitly as \
+                         existing capability rather than this delivery, and never narrow platform \
+                         or scope qualifiers from the original acceptance text. If any item lacks \
+                         evidence, keep it active and record the gap. WIP limit: keep at most 2 requirements in doing; \
                          finish and close existing doing items before starting new ones. \
                          Pick work according to the selected work-priority mode appended for this run: \
                          scan the selected first queue top-down, then the other queue only when the \
@@ -490,6 +496,35 @@ mod tests {
     };
     use std::path::PathBuf;
     use std::sync::Arc;
+
+    #[test]
+    fn dev_system_prompt_enforces_acceptance_evidence_contract() {
+        let root = PathBuf::from("C:/kanzei-r085-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(DevProfile).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let system = &snapshot.select_agent(Some("dev")).unwrap().system;
+
+        for required in [
+            "compare every acceptance item",
+            "exact implementation location",
+            "real caller or consumer",
+            "existing capability rather than this delivery",
+            "never narrow platform or scope qualifiers",
+            "keep it active and record the gap",
+        ] {
+            assert!(
+                system.contains(required),
+                "dev system prompt 缺少 R-085 完成判定约束: {required}"
+            );
+        }
+    }
 
     #[test]
     fn dev_project_document_deny_survives_later_user_rules() {
