@@ -1052,3 +1052,36 @@
 
 - 标签: 核心
 
+## R-097 终端工具能力补齐:后台进程与批内并行 [done]
+- 复杂度: 大
+- 优先级: P1
+- 归属: kanzei
+- 原始描述: 终端工具现在足够了吗?是否需要优化,并行还有回调agent对话等进阶功能
+- 现状核查(2026-08-07): bash 工具已具备 pwsh/cmd/sh 自适应描述、超时(默认 120s/上限 600s)、workdir、双流各 1MiB 有界捕获、超时 kill_tree 并回传部分输出(D-062)。三处缺口影响自举:①无后台/长驻进程:每条命令必须在超时内结束,无法起 dev server 再对其发请求,也无法跑长任务的同时继续别的事;②批内串行:runner 对普通工具是 `for` 循环逐个执行(runner.rs:531),同一轮的多条 bash 只能排队跑,只有 task 子代理走 FuturesUnordered 并行;③无交互回调:命令需要 stdin 输入时只能挂到超时,模型无法在命令运行中与之交互。
+- 验收: ①支持后台启动进程并返回句柄,可查询输出、探活与终止,进程随会话停止而回收;②同一轮内互不冲突的工具可并行执行,冲突判定有明确规则(同一工作树的写操作不并行)且失败不互相污染;③需要 stdin 的命令有明确的不可用提示而非静默超时;④以上均有并发与超时的回归覆盖。
+- 边界: 并行执行涉及工具副作用顺序与权限询问路由,属跨层改动;后台进程涉及生命周期与会话绑定。二者都需先出方案再实现,不可就地扩 bash 工具参数。
+- 阶段: 3
+- 证据等级: E2
+- 拆批(2026-08-08 用户定调「拆出能先做的部分」): 验收 ② 拆成两批。**本轮可做**:批内并行的执行框架与冲突判定规则——runner 把同一轮互不冲突的普通工具改为并发执行(同一工作树的写操作串行化),规则用代码强制并补并发/失败隔离回归;这部分只动 runner 与工具契约,不碰会话事件层。**留待 R-086**:并行工具各自触发权限询问时的询问路由与应答顺序,须等会话状态机就位,否则并发 ask 会串会话。批一交付即可关闭本条,批二并入 R-086 验收。
+- 进展: 2026-08-08 拆批定调「批一交付即可关闭本条」。本轮验收核查(逐条对照验收原文,证据为本次实测):①后台进程——background.rs 进程托管(注册/轮询/停止)实现与闭环测试通过(kanzei-tools background 4 项,含「后台进程可托管_可读输出_可停止」);但存在 .kanzei 项目经 Bash 启动后台的入口因 D-174 安全回退被拒(bash.rs 测试「background_shell_is_refused_in_managed_projects」通过),该验收项按安全回退重新开放,待 D-174 隔离/写入归因落地后恢复验证。②批内并行——runner.rs:1706-1726 build_tool_execution_waves(冲突判定+MAX_PARALLEL_TOOLS_PER_WAVE=8 限流)、1728-1770 execute_prepared_tools(FuturesUnordered 真并发+按 index 归位);冲突规则代码强制于 kanzei-harness/src/tool.rs:34-60 ToolConcurrency::conflicts_with(同 worktree 写操作串行、异 worktree 并行、Exclusive 全互斥);回归实测通过:runner.rs:2251「普通只读工具真实并发_失败隔离且结果按调用顺序归位」(max_in_flight>=2 证真重叠、快失败与慢成功不互相污染)、runner.rs:2296「同一工作树读写与写写冲突严格串行」、tool.rs:142-153 冲突矩阵单测;批二(并发 ask 路由与应答顺序)按拆批并入 R-086 验收。③stdin 不可用提示——bash.rs:63 描述明确「stdin is closed: interactive prompts get EOF instead of hanging」,测试 bash.rs:788 断言描述含该句,实测通过。④回归覆盖——并发(上述 3 组)+超时(bash.rs timeout_kills_command_and_returns_explicit_error)+后台进程闭环,本次 cargo test -p kanzei-core(普通/同一工作树)、-p kanzei-harness(42 项)、-p kanzei-tools(bash 9/background 4)全部通过。残余缺口:验收①的 Bash 后台入口待 D-174;验收②批二并入 R-086。两者均已在对应条目跟踪,不滞留本条。
+- 验证: cargo test -p kanzei-tools 26 项通过,含真实 spawn 的后台进程闭环测试(托管→捕获输出→登记在册→停止);cargo test --workspace 全绿(125 项)。
+- 安全回退(2026-08-08): 为修复托管文档可被异步 Bash 绕过的问题,当前在存在 `.kanzei` 的项目中拒绝后台 Bash。后台进程注册、轮询和停止实现仍保留,但本需求的“通过 Bash 启动后台任务”验收项重新开放,待 D-174 的隔离或写入归因方案完成后恢复。
+- 当前验证(2026-08-08): 后台进程底层测试与 Bash 拒绝路径包含在 `kanzei-tools` 80 项通过测试中;尚未完成隔离后的真实长驻进程验收。
+
+- 标签: 核心
+
+## R-088 凭证与 provider 协议的健壮性 [done]
+- 复杂度: 中
+- 优先级: P1
+- 来源: 2026-08-07 审计
+- 内容: ①OAuth 凭证无锁读改写且非原子覆盖,与 Claude Code/Codex 官方 CLI 共享同一文件,并发刷新会因 refresh token 轮换导致登录态永久失效并殃及官方 CLI(D-061);②anthropic 协议遇未知 content_block 类型直接杀流,官方明确要求忽略未知类型,属前向兼容炸弹(D-067);③错误分类忽略 kind,限流可被误判为上下文超限从而触发破坏性压缩,且缺少限流/过载分类与 retry-after 退避(D-068)。
+- 验收: 凭证刷新加锁并原子替换,补并发不互相覆盖的测试;未知 block 类型记录并忽略;限流单独分类并按 retry-after 退避,不再触发压缩。
+- refs: D-061 D-067 D-068 D-065
+- 阶段: 1
+- 证据等级: E2+E4
+- 设计定位: 凭证原子性与 provider 错误语义
+
+- 标签: 模型
+
+- 进展: 验收核查收尾(2026-08-08,实现均来自 D-061/D-067/D-068 修复,本次为逐条证据核查 + kanzei-llm 全包实测)。逐条对照验收原文:①凭证刷新「加锁并原子替换」——按 D-061 方案定调(用户明确不加跨进程文件锁:官方 CLI 不参与锁协议,锁只能拦 kanzei 自身进程)实现为「原子替换+写前重读」:kanzei-llm/src/auth/store.rs:22-38 commit 落盘前重读、磁盘更新则采纳对方不覆盖,45-72 atomic_write 同目录带 pid 临时文件 + rename 原子替换(失败重试 5 次,绝不退回 truncate-then-write);真实消费者 claude.rs:94-95、codex.rs:100-101 用返回值构造请求头;并发不覆盖测试 store.rs:116/139/166/184 四项。②未知 block 记录并忽略——anthropic.rs:181-184 未知 content_block 类型 debug 记录并登记 ignored_blocks,不再 Err;187-191 delta 命中 ignored 索引直接跳过;测试 anthropic.rs:311「unknown_content_block_is_ignored_without_poisoning_following_blocks」。③限流单独分类并按 retry-after 退避、不再触发压缩——error.rs:60-85 classify_provider_with_code 按 kind 优先(限流/过载先于 token 类文案匹配),RateLimited 变体 error.rs:10-15;client.rs:151-194 建流前 429/529 按 Retry-After 退避重试并最终归类 RateLimited;压缩触发只认 runner.rs:1110/1196 的 is_context_overflow(),RateLimited 走不到压缩分支;测试 error.rs:122/137/152 + 三协议回归 anthropic.rs:470/483、openai.rs:458/470/484、openai_responses.rs:409/421(限流不触发压缩、真 overflow 仍触发)。本轮实测 cargo test -p kanzei-llm 39 项全绿。
+
