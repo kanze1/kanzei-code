@@ -608,8 +608,11 @@ function applyLanguage() {
         }
         const source = originals.get(attribute);
         const key = source.trim();
-        const translated = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
-        if (translated !== source || language !== "en") element.setAttribute(attribute, language === "en" ? translated : source);
+        const next = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
+        // 同值也调 setAttribute 会照常入 MutationObserver 队列(DOM 规范如此),而 observer
+        // 正监听这三个属性:无条件写 = observer→applyLanguage→写 的微任务死循环,主线程
+        // 饿死、永不绘制,表现为启动黑屏(D-172)。写属性前必须比对,值没变绝不写。
+        if (value !== next) element.setAttribute(attribute, next);
       }
     });
   } finally {

@@ -112,12 +112,25 @@ if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
 const pendingTimers = new Set();
 const mutationObservers = new Set();
 let mutationQueued = false;
+// observer 回调里的 DOM 写入若再次唤醒 observer 自己,真机上是微任务死循环:主线程
+// 饿死、永不绘制,表现为启动黑屏(D-172)。冒烟里这种循环会让进程挂死而非报错,
+// 所以数连续自触发轮数,超限就断开 observer 并判失败,把挂死变成可读的失败。
+let observerCascade = 0;
 function notifyMutation() {
   if (!mutationObservers.size || mutationQueued) return;
   mutationQueued = true;
   Promise.resolve().then(() => {
     mutationQueued = false;
     for (const observer of mutationObservers) observer.callback([]);
+    if (mutationQueued) {
+      observerCascade += 1;
+      if (observerCascade > 25) {
+        mutationObservers.clear();
+        fail("MutationObserver 连续自触发超过 25 轮:回调内的 DOM 写入又唤醒了 observer(真机=微任务死循环→主线程饿死→黑屏,D-172)");
+      }
+    } else {
+      observerCascade = 0;
+    }
   });
 }
 
@@ -228,7 +241,9 @@ class Element {
   setAttribute(name, value) {
     if (name === "class") { this.className = value; return; }
     const next = String(value);
-    if (this._attributes[name] === next) return;
+    // 同值也必须通知 observer:DOM 规范里 setAttribute 无条件入 mutation 队列,
+    // 早退吞通知会让"observer 回调里无条件写属性"的死循环在冒烟里隐形(D-172)。
+    if (this._attributes[name] === next) { notifyMutation(); return; }
     this._attributes[name] = next;
     if (name === "id") this.id = next;
     notifyMutation();
