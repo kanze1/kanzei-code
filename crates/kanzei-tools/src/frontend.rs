@@ -25,35 +25,44 @@ pub struct RuleSite {
 /// 而且行号正是 agent 定位要的东西。
 pub fn find_rule_sites(css: &str, needle: &str) -> Vec<RuleSite> {
     let mut sites = Vec::new();
-    let mut stack: Vec<String> = Vec::new();
+    // 条件块栈:(名字, 它内部内容所在的花括号深度)。记深度而不是"见到 } 就弹一层"
+    // 是 D-197 的根因所在——旧写法只在"整行没有新开块"时弹一次,于是两头都错:
+    // `@media { .a {\n…\n} }` 里 `.a` 的收尾 } 会把 @media 提前弹掉(块内后续规则
+    // 被报成顶层);而单行写完的 `@keyframes x { … }` 永远等不到那一次弹栈,
+    // 于是它**之后**的顶层规则全被报成在这个块里。实测本仓库 style.css 576 条规则
+    // 里 15 条 context 是错的,两种形态都有。
+    let mut stack: Vec<(String, usize)> = Vec::new();
+    let mut depth = 0usize;
     for (index, raw) in css.lines().enumerate() {
         let line = strip_line_comment(raw).trim().to_string();
         if line.is_empty() {
             continue;
         }
-        // 收尾的 } 逐个弹栈:一行里可能既开又闭(`.a { color: red; }`)。
+        // 一行里可能既开又闭(`.a { color: red; }`),按计数净变化算深度。
         let opens = line.matches('{').count();
         let closes = line.matches('}').count();
-        if line.starts_with('@') && opens > 0 {
-            stack.push(line.trim_end_matches('{').trim().to_string());
-            continue;
-        }
-        if opens > 0 {
+        let conditional = line.starts_with('@') && opens > 0;
+        if conditional {
+            stack.push((line.trim_end_matches('{').trim().to_string(), depth + opens));
+        } else if opens > 0 {
+            // context 取"这个选择器开括号那一刻"的栈,所以记录早于本行深度更新。
             let selector = line.split('{').next().unwrap_or("").trim().to_string();
             if !selector.is_empty() && (needle.is_empty() || selector.contains(needle)) {
                 sites.push(RuleSite {
                     line: index + 1,
                     selector,
-                    context: stack.join(" > "),
+                    context: stack
+                        .iter()
+                        .map(|(name, _)| name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" > "),
                 });
             }
         }
-        for _ in 0..closes.saturating_sub(opens.min(closes).saturating_sub(1).min(closes)) {
-            // 只在这一行没有新开块时才认为是在关闭外层条件块。
-            if opens == 0 && !stack.is_empty() {
-                stack.pop();
-            }
-            break;
+        depth = (depth + opens).saturating_sub(closes);
+        // 深度退回到某个条件块之外,它就结束了——单行写完的块在本行当场出栈。
+        while stack.last().is_some_and(|(_, inner)| *inner > depth) {
+            stack.pop();
         }
     }
     sites
@@ -263,6 +272,51 @@ mod tests {
             sites[1].context.contains("max-width: 700px"),
             "响应式覆盖必须标出所在 @media,否则改了基础规则还以为改完了: {:?}",
             sites[1],
+        );
+    }
+
+    /// D-197:条件块的进出必须按花括号深度算,不能"见到收尾行就弹一层"。
+    /// 两种形态在本仓库 style.css 上都真实发生过。
+    #[test]
+    fn 条件块上下文不被多行规则提前关闭也不泄漏到块外() {
+        // ① 块内多行规则的收尾 } 不得把 @media 提前弹掉。
+        let css = "\
+@media (max-width: 700px) {
+  .a {
+    color: blue;
+  }
+  .b { color: red; }
+}
+.c { color: green; }
+";
+        let sites = find_rule_sites(css, "");
+        let by_selector = |name: &str| {
+            sites
+                .iter()
+                .find(|s| s.selector == name)
+                .unwrap_or_else(|| panic!("没找到 {name}: {sites:?}"))
+                .context
+                .clone()
+        };
+        assert!(by_selector(".a").contains("max-width: 700px"));
+        assert!(
+            by_selector(".b").contains("max-width: 700px"),
+            "多行规则的收尾 }} 把 @media 提前弹掉了,块内后续规则被报成顶层"
+        );
+        assert!(by_selector(".c").is_empty(), "块外规则不该带上下文");
+
+        // ② 单行写完的条件块必须当场出栈,不能糊到它之后的顶层规则上。
+        //    这一种更糟:它把顶层规则报成在一个根本不包含它的块里。
+        let css = "\
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.msg { color: red; }
+";
+        let sites = find_rule_sites(css, ".msg");
+        assert_eq!(sites.len(), 1, "{sites:?}");
+        assert!(
+            sites[0].context.is_empty(),
+            "单行 @keyframes 泄漏到了它之后的顶层规则上: {:?}",
+            sites[0]
         );
     }
 

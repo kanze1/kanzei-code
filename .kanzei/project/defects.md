@@ -1,5 +1,16 @@
 # Defects
 
+## D-197 frontend_locate 的 @media 上下文两头都算错,还是个 deny 级 lint [fixed] (high)
+- refs: D-164 R-126
+- 复现: `find_rule_sites`(crates/kanzei-tools/src/frontend.rs)用"整行没有新开块时弹一层栈"判断条件块结束。两种真实形态都错:①`@media { .a {\n…\n} }` 里 `.a` 的收尾 `}` 会把 @media 提前弹掉,块内后续规则被报成顶层(style.css 行 40/41);②单行写完的 `@keyframes x { … }` 等不到那一次弹栈,于是它**之后**的顶层规则全被报成在这个块里(行 367/390/753/754)。实测本仓库 style.css 576 条规则里 **15 条 context 是错的**。另外这段的写法是 `for _ in 0..… { …; break; }`,clippy 的 `never_loop` 是 deny 级,`cargo clippy --workspace` 一直红着编译不过。
+- 影响: 这个工具存在的理由就是 D-164——"响应式覆盖必须标出所在 @media,否则改了基础规则还以为改完了"。形态①正是它该防住却没防住的;形态②更糟,它把顶层规则报成在一个根本不包含它的条件块里,agent 据此判断"这条只在窄屏生效"就会漏改。dev 提示词还明确要求改 style.css 前先跑 `frontend_locate`。
+- 根因: 用"这一行是不是只有收尾括号"近似"条件块结束",而块的结束本质是花括号深度退回;单行块与多行规则这两种情形都不满足那个近似。
+- 修复: 栈元素改成 `(名字, 该块内部内容所在深度)`,逐行按 `depth = (depth + opens) - closes` 更新,深度退回到某块之外就出栈(单行块在本行当场出栈)。site 的 context 仍取"选择器开括号那一刻"的栈。顺带消掉 never_loop。
+- 验收: 新增 `条件块上下文不被多行规则提前关闭也不泄漏到块外` 覆盖两种形态;对真实 style.css 实测(临时探针)行 40/41 现在标出 `@media (max-width: 1400px)`,行 367/390/753/754 现在为空,规则总数 576 不变;`cargo clippy --workspace --all-targets` exit=0。
+- 证据等级: E1(真实 style.css 逐行比对)
+- 优先级: P1
+- 标签: 核心
+
 ## D-194 HOME 判断用裸路径相等,且在 HOME 里直接开跑那条路没堵 [fixed] (high)
 - refs: D-189 D-186
 - 复现: 两处。①`discover_project_root_with_home` 用 `h == d` 逐字节比较判 HOME,而 `dirs::home_dir()` 给的是 `C:\Users\kanzei`——走上来的祖先只要是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize 的产物),`is_home` 就是 false,D-189 的排除当场失效。②HOME 自己当 cwd 时:向上找不到任何标记,兜底 `Some(cwd)` 原样返回,cwd 就是 HOME。`kz run` 与 `kz req/defect/...` 在 HOME 里都会以 HOME 为项目根跑起来。
@@ -108,13 +119,14 @@
 - 优先级: P2
 - 标签: 核心
 
-## D-186 `~/.kanzei` 下已有项目级产物,D-170 的自动隔离对 HOME 这条路径失效 [open] (high)
+## D-186 `~/.kanzei` 下已有项目级产物,D-170 的自动隔离对 HOME 这条路径失效 [fixed] (high)
 - 复现: 本机 `~/.kanzei/` 下存在 `state.db`(86 KB)、`project/defects.md`、`project/defects-archive.md`——这些是项目级产物,只该出现在项目根。成因是 D-183 修复前的 `discover_project_root`:撞到任何 `.kanzei` 就返回,而 `~/.kanzei` 作为全局配置根必然存在,于是 HOME 下所有无标记目录的项目根都解析成了 HOME。
 - 影响: `ensure_project_isolated` 的规则是"祖先没数据就静默补 `.kanzei`,有数据就不动、等用户拍板"。`root_has_data(HOME)` 因这些残留为真,于是往 `C:\Users\kanzei\` 下新增项目不再被自动隔离,而是静默并进 HOME 项目,直到用户发现条目串了。自愈路径当前是关着的。
 - 根因: 解析缺陷(已在 discover_project_root 修复:最近的 `.git` 赢过更远的 `.kanzei`,且 HOME 自己的 `.kanzei` 不算项目标记)之外,**已经写出去的残留数据**没有清理路径。
 - 修复: 解析侧已修。残留侧需要人拍板:`~/.kanzei/project/` 与 `~/.kanzei/state.db` 属删除操作,必须用户确认后再动(可先备份到 `~/.kanzei/.orphan-backup/`)。
-- 验收: 清理后 `root_has_data(HOME)` 为假;在 `C:\Users\kanzei\` 下新建目录跑一次,能被自动隔离出自己的 `.kanzei`;补一条回归覆盖"HOME 不被当项目根"。
-- 进展: 2026-08-09 复核。①残留已被移走(不是删除):`~/.kanzei/{project/,state.db}` 现在在 `~/.kanzei/.orphan-backup/20260809/` 下,`~/.kanzei` 只剩 kanzei.toml、app.json、memory/。②验收①按现在的写法**永远满足不了**:`root_has_data` 把 `.kanzei/memory` 算作项目数据,而对 HOME 来说那正是**全局**记忆根(inbox.md、index.db),合法且非空——判据没区分"HOME 的 memory 是全局的"。③但验收②已由 D-189 从另一条路满足:HOME 下无标记目录现在解析成它自己,`ensure_project_isolated` 里 `resolved == dir` 直接早返回,自动隔离这条路已经用不上了。④验收③由 D-194 的四种路径写法回归覆盖。结论:要么改判据(HOME 的 memory 不计入 `root_has_data`),要么按②③重写验收后关闭——留给用户拍板。
+- 验收(2026-08-09 用户定调按实际收口路径重写,原验收①作废): ①`~/.kanzei` 下不再有项目级产物(`project/`、`state.db`);②HOME 下的无标记目录不再解析到 HOME,`ensure_project_isolated` 对它们无事可做(`resolved == dir` 早返回),即自动隔离这条路不再是必需品;③有回归覆盖"HOME 不被当项目根",且覆盖到路径的不同写法。
+- 关闭依据: ①残留已移走(不是删除):`~/.kanzei/{project/,state.db}` 在 `~/.kanzei/.orphan-backup/20260809/` 下,`~/.kanzei` 只剩 kanzei.toml、app.json、memory/。②由 D-189 满足:最近的标记谁先出现谁赢 + HOME 的 `.kanzei` 不算项目标记,HOME 下无标记目录现在解析成它自己。③由 D-194 满足:`home_marker_exclusion_survives_path_form_differences`(四种路径写法)与 `is_home_root_recognizes_real_home_in_any_form`,并在 CLI 两个入口加了拒绝。
+- 作废原因(原验收①"清理后 `root_has_data(HOME)` 为假"): 这条按现在的判据**永远满足不了**,而且不该满足。`root_has_data` 把 `.kanzei/memory` 算作项目数据,可对 HOME 来说那正是**全局**记忆根(inbox.md、index.db),合法且必须非空。真正的问题不是"HOME 有数据",而是"HOME 会被解析成项目根"——那一条已在 D-189/D-194 从源头堵死,`root_has_data` 这个判据对 HOME 已经走不到了,不必为它改判据。
 - 证据等级: E1(本机文件实证)
 - 优先级: P1
 - 标签: 核心
