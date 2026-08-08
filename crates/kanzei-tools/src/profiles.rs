@@ -228,6 +228,19 @@ impl Component for DevProfile {
         );
 
         // 开发规范(用户手写,agent 只读遵守;write/edit 对 project 目录本就硬 deny)。
+        //
+        // **全量注入,不设字符预算**(D-201)。原实现只取前 3000 字符,而本仓库的
+        // conventions.md 是 151 行 / 14944 字符——只有 16% 送达,截断点正好切在
+        // `## 1.2 关闭边界:可用即关闭` 这个标题上。后果可测,而且是同一份文件的
+        // 前后对照:§1.25「关闭前逐条对照验收、给精确代码位置」因为**同时也写进了
+        // dev 的 system prompt** 而被严格遵守(近期条目的验收证据都很详实);
+        // §1.2「不因缺 E2 夹具等验证增强项长期滞留 fixing」只存在于被截断的部分,
+        // 于是 11 条 high 缺陷带着**已经发布的修复**卡在 fixing。被投喂的规则被
+        // 遵守,被截断的没有——这不是纪律问题,是投递问题。
+        //
+        // 规范是用户的常驻定调,不是可按预算取舍的参考资料;口径对齐 CLAUDE.md
+        // (全量进上下文,不做字符截断)。要控成本请去精简规范本身,而不是让引擎
+        // 悄悄替用户决定哪几条不算数。
         draft.context.insert(
             "dev/conventions",
             source("dev/conventions", |ctx: &ResolveCtx| {
@@ -237,16 +250,7 @@ impl Component for DevProfile {
                 if text.is_empty() {
                     return None;
                 }
-                let capped: String = text.chars().take(3000).collect();
-                let truncated = capped.len() < text.len();
-                Some(format!(
-                    "<conventions>\n{capped}{}\n</conventions>",
-                    if truncated {
-                        "\n…(规范过长已截断,完整内容 read .kanzei/project/conventions.md)"
-                    } else {
-                        ""
-                    }
-                ))
+                Some(format!("<conventions>\n{text}\n</conventions>"))
             }),
         );
 
@@ -706,6 +710,49 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// D-201:规范必须全量送达。原实现取前 3000 字符,而真实 conventions.md 有
+    /// 14944 字符——「1.2 关闭边界」正好落在截断线之外,于是 11 条 high 缺陷带着
+    /// 已发布的修复卡在 fixing。送不到的规则等于不存在,所以这条守的是"不截断",
+    /// 不是"截得优雅"。
+    #[test]
+    fn 开发规范全量注入不做字符截断() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-d201-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        // 尾部这条规则只有全量注入才看得见——它正是被旧上限切掉的那一类。
+        let tail = "## 关闭边界:可用即关闭,不因验证增强项长期滞留 fixing";
+        let filler = "- 填充行,单纯为了越过旧的 3000 字符上限,内容本身不重要。\n".repeat(200);
+        let body = format!("# 开发规范\n\n{filler}\n{tail}\n");
+        assert!(body.chars().count() > 3000, "夹具没超过旧上限,测不出截断");
+        std::fs::write(root.join(".kanzei/project/conventions.md"), &body).unwrap();
+
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(DevProfile).add(ConfigComponent);
+        let baseline = harness.resolve(&ctx).unwrap().system_baseline();
+
+        assert!(
+            baseline.contains(tail),
+            "规范尾部没进上下文——又被截断了。送不到的规则等于不存在。"
+        );
+        assert!(
+            !baseline.contains("规范过长已截断"),
+            "不该再出现截断提示:全量注入之后它没有意义"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
