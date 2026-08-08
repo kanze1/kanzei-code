@@ -16,22 +16,6 @@
 
 - 进展: 状态权威定为「每会话一个前端状态机 + 后端 running 为真值源」：控制事件按 sessionId 先更新状态机再决定是否投影视图，视图只投影活动会话。本轮交付：①前端 sessionStates 状态机与 kz:ask 的按会话入队/切回重放；②后端补会话级终态事件 kz:idle（run_prompt 的 run loop 退出时发，reason 区分 completed/failed），前端只认 kz:idle/kz:stopped 收敛 converged、并用每轮必发的 kz:turn 自愈——修掉了「kz:done 其实是轮末事件却被当会话终态」引入的回归：排队输入的多轮运行从第二轮起标签页熄灯、切回显示空闲并解禁发送键，且 converged 屏蔽了轮询校正再也纠不回来；③pending_asks_get 接进 renderProcesses 的首次渲染（按会话去重），界面重载后后端仍在 await 的挂起询问能被重建，此前该查询全仓只有 switchProcess 一个调用点。验证：ui-runtime-smoke 新增「多轮不熄灯 / kz:idle 才收敛 / 切回可见可答复不串会话 / 重载后从后端重建」四组断言，cargo test --workspace 269 项全绿。剩余：控制事件仍未带运行代次（run_id），停止后紧接重发这类极窄竞态下旧事件仍可能错配，需要时再上代次方案；验收整体待桌面端双进程真机实测（E2/E3）。
 
-## R-080 测试记录展示并自动归档 [todo]
-- 复杂度: 中
-- 优先级: P3
-- 原始描述: 左侧栏展示当前拥有的测试,每个测试都要归档
-- 验收: 左侧栏以清晰形式列出所有已获取测试结果,每条记录需触发/完成归档动作
-- 退回原因: 2026-08-07 验收核查发现写入端是死路,展示壳与归档逻辑永不触发。test_run_record(kanzei-app/src/main.rs:998-1122)全仓零调用者——前端从不 invoke,agent 侧没有对应工具,且 dev profile 对 `*.kanzei/project/*` write/edit 硬 deny(profiles.rs:54-57)模型也无法直接写 tests.md;`.kanzei/project/tests.md` 至今不存在,左侧栏永远显示"暂无测试记录",tests-archive.md 归档分支(main.rs:1047-1072)永远不会执行。
-- 下一步: 补上产生数据的一环——agent 跑完测试后记录,或 bash 工具识别测试命令自动记录;打通后再验收展示与归档。
-- 遗留质量问题: parse_test_blocks 无单元测试。
-- 备注: R-076 的验收硬指标"鞭挞流程在 test 中标记通过"依赖本需求落地,当前无法满足。
-- refs: R-076 R-085 R-093
-- 阶段: 2
-- 证据等级: E2
-- 设计定位: VerificationRun 的人类投影、测试记录入口和归档
-
-- 标签: 后端
-
 ## R-076 鞭挞模式触发异常 bug 修复 [todo]
 - 复杂度: 中
 - 归属: kanzei

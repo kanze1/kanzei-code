@@ -1085,3 +1085,21 @@
 
 - 进展: 验收核查收尾(2026-08-08,实现均来自 D-061/D-067/D-068 修复,本次为逐条证据核查 + kanzei-llm 全包实测)。逐条对照验收原文:①凭证刷新「加锁并原子替换」——按 D-061 方案定调(用户明确不加跨进程文件锁:官方 CLI 不参与锁协议,锁只能拦 kanzei 自身进程)实现为「原子替换+写前重读」:kanzei-llm/src/auth/store.rs:22-38 commit 落盘前重读、磁盘更新则采纳对方不覆盖,45-72 atomic_write 同目录带 pid 临时文件 + rename 原子替换(失败重试 5 次,绝不退回 truncate-then-write);真实消费者 claude.rs:94-95、codex.rs:100-101 用返回值构造请求头;并发不覆盖测试 store.rs:116/139/166/184 四项。②未知 block 记录并忽略——anthropic.rs:181-184 未知 content_block 类型 debug 记录并登记 ignored_blocks,不再 Err;187-191 delta 命中 ignored 索引直接跳过;测试 anthropic.rs:311「unknown_content_block_is_ignored_without_poisoning_following_blocks」。③限流单独分类并按 retry-after 退避、不再触发压缩——error.rs:60-85 classify_provider_with_code 按 kind 优先(限流/过载先于 token 类文案匹配),RateLimited 变体 error.rs:10-15;client.rs:151-194 建流前 429/529 按 Retry-After 退避重试并最终归类 RateLimited;压缩触发只认 runner.rs:1110/1196 的 is_context_overflow(),RateLimited 走不到压缩分支;测试 error.rs:122/137/152 + 三协议回归 anthropic.rs:470/483、openai.rs:458/470/484、openai_responses.rs:409/421(限流不触发压缩、真 overflow 仍触发)。本轮实测 cargo test -p kanzei-llm 39 项全绿。
 
+## R-080 测试记录展示并自动归档 [done]
+- 复杂度: 中
+- 优先级: P3
+- 原始描述: 左侧栏展示当前拥有的测试,每个测试都要归档
+- 验收: 左侧栏以清晰形式列出所有已获取测试结果,每条记录需触发/完成归档动作
+- 退回原因: 2026-08-07 验收核查发现写入端是死路,展示壳与归档逻辑永不触发。test_run_record(kanzei-app/src/main.rs:998-1122)全仓零调用者——前端从不 invoke,agent 侧没有对应工具,且 dev profile 对 `*.kanzei/project/*` write/edit 硬 deny(profiles.rs:54-57)模型也无法直接写 tests.md;`.kanzei/project/tests.md` 至今不存在,左侧栏永远显示"暂无测试记录",tests-archive.md 归档分支(main.rs:1047-1072)永远不会执行。
+- 下一步: 补上产生数据的一环——agent 跑完测试后记录,或 bash 工具识别测试命令自动记录;打通后再验收展示与归档。
+- 遗留质量问题: parse_test_blocks 无单元测试。
+- 备注: R-076 的验收硬指标"鞭挞流程在 test 中标记通过"依赖本需求落地,当前无法满足。
+- refs: R-076 R-085 R-093
+- 阶段: 2
+- 证据等级: E2
+- 设计定位: VerificationRun 的人类投影、测试记录入口和归档
+
+- 标签: 后端
+
+- 进展: 写入端打通(2026-08-08):此前 test_run_record 全仓零调用,tests.md 永不产生,左侧栏永远空、归档永不执行。本轮按 architecture.rs 的 D-173 先例——权限严了就得配专用工具——新增 agent 工具 test_record 作为 .kanzei/project/tests.md 唯一合法写通道(kanzei-tools/src/test_record.rs:TestRecordTool),并把解析/快照/自动归档逻辑从 kanzei-app main.rs 下沉到 kanzei-tools(parse_test_blocks/test_runs_snapshot/append_test_run),app 的 test_runs_snapshot 与 test_run_record 改为薄封装调用同一实现,消除两套格式解析漂移。DevProfile 注册 test_record 并把 *.kanzei/project/tests* 加入 write/edit 硬 deny(替代工具 test_record,profiles.rs)。验证:新增 6 个单测(解析、running 留存、终态自动归档、非法状态拒绝、工具端到端),kanzei-tools 94 项、kanzei-app 36 项、workspace 全量全绿;ui-runtime-smoke 展示端既有断言通过(桩数据渲染)。逐条对照验收:①「左侧栏以清晰形式列出所有已获取测试结果」——展示端为既有能力(main.js:3480 renderTestRuns 渲染 active+archived/状态符号/悬浮字段,main.js:3507 invoke test_runs_snapshot,ui-runtime-smoke.mjs:646 断言),数据产生通道为本轮交付(test_record 工具);②「每条记录需触发/完成归档动作」——test_runs_snapshot 自动把终态记录移入 tests-archive.md(test_record.rs 快照逻辑),单测 append_then_snapshot_archives_terminal_status / running_status_stays_active_until_terminal 覆盖;遗留质量问题 parse_test_blocks 无单测已补齐。
+
