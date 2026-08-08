@@ -1,5 +1,16 @@
 # Defects
 
+## D-203 trim_tail 用未校准估算够校准过的预算线,校准越准洞越大 [fixed] (medium)
+- refs: D-181
+- 复现: a119eeb 同时引入估算校准(calibration,EMA 逼近真实 usage/估算比)与 trim_tail(压缩后兜底砍尾)。三个预算比较调用点都乘了 calibration,trim_tail 内部(runner.rs)却用原始 `estimate_prompt_tokens` 够同一条 budget。calibration 为修正"真实 token 高于估算"(中文 \uXXXX 转义)而生,典型值 >1:trim_tail 按原始口径够线即收手,调用方校准视角仍超线。
+- 影响: 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量重算(cache_write 双倍),恰是 trim_tail 存在的理由;两个修复写在同一个提交里互相拆台,校准越准,提前收手的缺口越大。
+- 根因: "预算比较必须走校准口径"只是散落在三个调用点的乘法,没有收敛成一个入口;新加的第四个比较点(trim_tail 内部)自然漏掉。
+- 修复: 新增 `budgeted_tokens(system, messages, specs, calibration)` 作为预算比较唯一入口,三个调用点与 trim_tail 全部走它;trim_tail 增收 calibration 参数。update_calibration 的输入仍是原始估算(last_estimated)——乘了校准就是拿自己的输出当输入,EMA 会发散,两个函数分开命名即为此。
+- 验收: 新增单测 `trimTail按校准口径收线_调用方视角不再超预算`:预算选在"原始口径已达标、校准口径仍超线"的区间,断言收完后校准视角 ≤ budget,并断言 calibration=1.0 时退化为老行为。反向验证:把 trim_tail 内部改回原始估算,该测试立即红。workspace 300 项全绿。
+- 证据等级: E1(反向注入验证护栏会红)
+- 优先级: P2
+- 标签: 核心
+
 ## D-201 开发规范只注入前 3000 字符:16% 送达,「关闭边界」整节被截 [fixed] (high)
 - refs: D-191
 - 复现: `dev/conventions` 注入源(crates/kanzei-tools/src/profiles.rs)`text.chars().take(3000)`,而本仓库 conventions.md 是 151 行 / 14944 字符——只送达前 24 行(16%),截断点正好落在 `## 1.2 关闭边界:可用即关闭` 的标题上,§1.2 起全部规则从未进过上下文。

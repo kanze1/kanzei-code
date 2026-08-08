@@ -233,6 +233,27 @@ fn update_calibration(current: f64, estimated: u64, actual: u64) -> f64 {
     current * 0.7 + ratio * 0.3
 }
 
+/// 预算比较专用:原始估算 × 校准因子(D-203)。
+///
+/// **所有跟 budget 比大小的地方只准走这个**,散落的 `raw × calibration` 乘法会漏——
+/// a119eeb 就漏了 trim_tail:调用方三处都乘了校准,trim_tail 内部却用未校准的原始值
+/// 去够同一条 budget。calibration 为修正"真实 token 高于估算"(中文 \uXXXX 转义)
+/// 而生,典型值 >1,于是 trim_tail 提前收手、调用方视角仍超线,下一步预算检查
+/// 立刻再压——而"避免连续两次压缩(缓存前缀双倍重算)"恰恰是 trim_tail 存在的
+/// 理由。校准越准,这个洞越大。
+///
+/// 注意 update_calibration 的输入必须是 estimate_prompt_tokens 的**原始**值
+/// (last_estimated),不能走这里——乘了校准就是拿自己的输出当输入,EMA 会发散。
+/// 两个函数分开命名就是为了让这两种用途一眼分得开。
+fn budgeted_tokens(
+    system: &[String],
+    messages: &[Message],
+    specs: &[ToolSpec],
+    calibration: f64,
+) -> u64 {
+    (estimate_prompt_tokens(system, messages, specs) as f64 * calibration).round() as u64
+}
+
 /// 主动压缩后仍超预算线:tail 太大或 head 太大。从 tail 最旧端往回收,删到
 /// 不超线为止;任务定义、纪要与当前用户消息一律不动。否则下一步预算检查
 /// 立刻再压——连续两次压缩 = 缓存前缀两次全量重算(cache_write 双倍),
@@ -242,10 +263,13 @@ fn trim_tail(
     system: &[String],
     specs: &[ToolSpec],
     budget: u64,
+    calibration: f64,
     overflow_traces: &mut Vec<String>,
 ) {
     loop {
-        if estimate_prompt_tokens(system, messages, specs) <= budget {
+        // 校准口径,与调用方判"是否仍超线"同源(D-203):这里用原始估算的话,
+        // calibration>1 时会提前收手,调用方视角仍超线,下一步立刻再压。
+        if budgeted_tokens(system, messages, specs, calibration) <= budget {
             break;
         }
         let Some(head_index) = messages.iter().position(is_text_user_message) else {
@@ -1486,8 +1510,7 @@ pub fn run_once_with_parts<'a>(
         // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
         if let Some(limit) = config.context_limit {
             let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
-            let before_raw = estimate_prompt_tokens(&system, &messages, &specs);
-            let before = (before_raw as f64 * calibration).round() as u64;
+            let before = budgeted_tokens(&system, &messages, &specs, calibration);
             if before > budget
                 && proactive_compactions < MAX_PROACTIVE_COMPACTIONS
                 && messages.len() > 1
@@ -1506,12 +1529,19 @@ pub fn run_once_with_parts<'a>(
                     // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
                     // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
                     // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
-                    let after_raw = estimate_prompt_tokens(&system, &messages, &specs);
-                    if (after_raw as f64 * calibration).round() as u64 > budget {
-                        trim_tail(&mut messages, &system, &specs, budget, &mut overflow_traces);
+                    // trim_tail 拿同一个 calibration:两边必须用同一把尺子量同一条
+                    // 预算线,否则它按原始口径够线就收手,这里看还超线(D-203)。
+                    if budgeted_tokens(&system, &messages, &specs, calibration) > budget {
+                        trim_tail(
+                            &mut messages,
+                            &system,
+                            &specs,
+                            budget,
+                            calibration,
+                            &mut overflow_traces,
+                        );
                     }
-                    let after_raw = estimate_prompt_tokens(&system, &messages, &specs);
-                    let after = (after_raw as f64 * calibration).round() as u64;
+                    let after = budgeted_tokens(&system, &messages, &specs, calibration);
                     on_event(RunEvent::ContextCompacted {
                         before_tokens: before,
                         after_tokens: after,
@@ -2509,7 +2539,7 @@ mod tests {
     use super::{
         append_declined_tool_results, clip, compact_messages_aggressively,
         compact_messages_for_retry, digest_plausible, drain_task_events,
-        estimate_prompt_tokens, execute_prepared_tools, extract_file_names,
+        budgeted_tokens, estimate_prompt_tokens, execute_prepared_tools, extract_file_names,
         recover_context_overflow, trim_tail, update_calibration, PreparedToolCall, RunEvent,
         CONTEXT_BUDGET_RATIO, MAX_STREAM_RESTARTS,
     };
@@ -2661,7 +2691,7 @@ mod tests {
         }
         messages.push(Message::user_text("当前指令:继续修"));
         let mut traces = Vec::new();
-        trim_tail(&mut messages, &system, &[], 1_200, &mut traces);
+        trim_tail(&mut messages, &system, &[], 1_200, 1.0, &mut traces);
 
         let text: String = messages
             .iter()
@@ -2682,6 +2712,44 @@ mod tests {
         assert!(text.contains("tail 第 29 条"), "最近的 tail 要优先保住");
         assert!(!text.contains("tail 第 0 条"), "最旧的 tail 先被回收");
         assert!(!traces.is_empty(), "回收的 tail 要留轨迹");
+    }
+
+    /// D-203:trim_tail 必须用**校准口径**够预算线,与调用方同一把尺子。
+    /// a119eeb 把校准乘在了三个调用点上,trim_tail 内部却用原始估算——
+    /// calibration>1 时它提前收手,调用方视角仍超线,下一步立刻再压,
+    /// 缓存前缀两次全量重算,恰是它要防的事。谁把 budgeted_tokens 改回
+    /// 原始估算,这条立刻红。
+    #[test]
+    fn trimTail按校准口径收线_调用方视角不再超预算() {
+        let calibration = 1.6; // 中文密集轨迹的真实形态:估算系统性偏低
+        let system = vec![String::new()];
+        let build = || {
+            let mut messages = vec![Message::user_text("任务定义:修复 D-123")];
+            for i in 0..40 {
+                messages.push(Message::user_text(format!("tail 第 {i} 条 {}", "x".repeat(300))));
+            }
+            messages.push(Message::user_text("当前指令:继续修"));
+            messages
+        };
+        // 预算选在"原始口径已达标、校准口径仍超线"的区间,专门打那个提前收手。
+        let mut messages = build();
+        let budget = estimate_prompt_tokens(&system, &messages, &[]) - 500;
+        assert!(
+            budgeted_tokens(&system, &messages, &[], calibration) > budget,
+            "夹具无效:校准口径必须超线"
+        );
+
+        let mut traces = Vec::new();
+        trim_tail(&mut messages, &system, &[], budget, calibration, &mut traces);
+        assert!(
+            budgeted_tokens(&system, &messages, &[], calibration) <= budget,
+            "trim_tail 收完后调用方的校准视角必须在预算内,否则下一步立刻再压"
+        );
+        // calibration = 1.0 时退化为原始口径,老行为不变。
+        let mut plain = build();
+        let mut plain_traces = Vec::new();
+        trim_tail(&mut plain, &system, &[], budget, 1.0, &mut plain_traces);
+        assert!(estimate_prompt_tokens(&system, &plain, &[]) <= budget);
     }
 
     /// 纪要质量:泛化纪要(一个文件都不提)判定不可信、回落到原文节选;
