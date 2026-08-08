@@ -509,6 +509,75 @@ fn process_alive(_pid: u32) -> bool {
     false
 }
 
+/// 安装器随包发的 kz CLI 同步到 `~\.cargo\bin\kz.exe`(D-175)。
+///
+/// 桌面端与 CLI 是两个独立安装通道,却共用同一个 `.kanzei/state.db`,而 schema
+/// 迁移是单向的:只更新 kzapp 的话,一次 schema 变更就让机器上的旧 kz 直接
+/// 打不开库(UnsupportedSchema)。安装器现在把 kz 一起装到应用目录,由这里
+/// 搬到 CLI 该在的位置——安装器之后唯一会运行的东西就是本程序。
+///
+/// 三条约束:①只升不降,开发者手动 cargo install 的更新版本不会被安装包里的
+/// 旧版盖掉;②标记文件让常态启动只读一个几十字节的文件,不起子进程;
+/// ③任何一步失败都只记日志,绝不阻断启动——CLI 落后是退化,启动不了是事故。
+fn sync_bundled_cli() {
+    let Some(cargo_bin) = dirs::home_dir().map(|home| home.join(".cargo").join("bin")) else {
+        return;
+    };
+    let ours = option_env!("KANZEI_BUILD_INFO").unwrap_or("dev");
+    if ours == "dev" {
+        return;
+    }
+    let marker = cargo_bin.join(".kz-synced");
+    if std::fs::read_to_string(&marker).is_ok_and(|synced| synced.trim() == ours) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let Some(sidecar) = exe.parent().map(|dir| dir.join("kz.exe")) else {
+        return;
+    };
+    // 开发构建(cargo build,未过 bundler)没有这个 sidecar,直接跳过。
+    if !sidecar.is_file() {
+        return;
+    }
+    let target = cargo_bin.join("kz.exe");
+    if target.is_file() && !cli_is_older(&target, ours) {
+        let _ = std::fs::write(&marker, ours);
+        return;
+    }
+    if let Err(error) = std::fs::create_dir_all(&cargo_bin).and_then(|()| {
+        std::fs::copy(&sidecar, &target)?;
+        std::fs::write(&marker, ours)
+    }) {
+        // kz 正在运行时会锁住镜像文件;不重试也不报错,下次启动自然会再来一遍。
+        eprintln!("kzapp:同步 kz CLI 失败(下次启动重试): {error}");
+    }
+}
+
+/// 已安装的 kz 是否比我们旧。跑不起来就保守判为旧,让安装包里的已知版本覆盖上去。
+fn cli_is_older(target: &Path, ours: &str) -> bool {
+    let Ok(output) = Command::new(target).arg("--version").output() else {
+        return true;
+    };
+    installed_cli_is_older(&String::from_utf8_lossy(&output.stdout), ours)
+}
+
+/// `kz --version` 的输出形如 `kanzei 0.1.0 (0c9f903 20260808120442)`。
+/// 解析不出构建戳(旧格式、被截断、根本不是 kz)时保守判为旧——两个二进制
+/// 版本对不上本身就是要修的状态,让出厂版本覆盖上去比放着不管安全。
+fn installed_cli_is_older(version_output: &str, ours: &str) -> bool {
+    let Some(installed) = version_output
+        .split('(')
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+    else {
+        return true;
+    };
+    match (build_stamp(installed), build_stamp(ours)) {
+        (Some((installed_stamp, _)), Some((our_stamp, _))) => installed_stamp < our_stamp,
+        _ => true,
+    }
+}
+
 fn apply_pending_update(exe: &Path, pending: &Path) {
     // 给父进程释放 Windows 映像文件锁留出时间；后续 rename 仍以重试为准。
     std::thread::sleep(std::time::Duration::from_millis(250));
@@ -1010,6 +1079,32 @@ mod update_tests {
         );
     }
 
+    /// D-175:同步只升不降。开发者刚手动 cargo install 的新 CLI 不能被
+    /// 安装包里的旧版盖回去——那会把"修好的机器"重新弄坏。
+    #[test]
+    fn cli同步只升不降且识别不出版本时按旧处理() {
+        let ours = "0c9f903 20260808120442";
+        // 装着的更旧 → 需要覆盖。
+        assert!(super::installed_cli_is_older(
+            "kanzei 0.1.0 (430d6d6 20260808015943)\n",
+            ours
+        ));
+        // 装着的更新(开发者刚 cargo install)→ 绝不能downgrade。
+        assert!(!super::installed_cli_is_older(
+            "kanzei 0.1.0 (abcdef1 20260809090000)\n",
+            ours
+        ));
+        // 同一次构建 → 无需动作。
+        assert!(!super::installed_cli_is_older(
+            "kanzei 0.1.0 (0c9f903 20260808120442)\n",
+            ours
+        ));
+        // 认不出来的输出一律按旧处理。
+        for unknown in ["", "kanzei 0.1.0\n", "garbage", "kanzei 0.1.0 (dev)\n"] {
+            assert!(super::installed_cli_is_older(unknown, ours), "{unknown:?}");
+        }
+    }
+
     #[test]
     fn pending_path_uses_executable_sibling() {
         assert_eq!(
@@ -1242,6 +1337,8 @@ mod update_tests {
 
 fn main() {
     if startup_update() { return; }
+    // 安装器只装得了 kzapp,CLI 得由这里搬到位——两者共用一个库,版本必须同步(D-175)。
+    sync_bundled_cli();
     // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
     // msedgewebview2 会锁住数据目录,不清的话本次启动必黑屏。
     cleanup_orphan_webviews();

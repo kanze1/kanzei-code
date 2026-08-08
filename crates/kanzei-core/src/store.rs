@@ -35,8 +35,15 @@ pub enum StoreError {
     Sqlite(#[from] rusqlite::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("数据库 schema 版本不兼容: {0}")]
-    UnsupportedSchema(i64),
+    /// 库比本二进制新。文案必须给出出路:光说"不兼容"会让人以为库坏了而去删库,
+    /// 而删库丢的是全部会话历史——正确动作是把这个二进制升到同一版本。
+    #[error(
+        "数据库 schema 版本 {found} 高于本程序支持的 {supported}:这个 .kanzei/state.db \
+         是更新版本的 kanzei 创建的。请把当前这个程序升到同一版本(桌面端用设置页「检查更新」;\
+         CLI 用 cargo install --path crates/kanzei --force),不要删库——降级会丢掉全部会话历史。\
+         升级前的库已自动备份为 state.db.v<n>.bak。"
+    )]
+    UnsupportedSchema { found: i64, supported: i64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -107,6 +114,8 @@ pub struct EpisodeRecord<'a> {
 
 pub struct SessionStore {
     connection: Connection,
+    /// 落盘路径;内存库为 None。迁移前的备份要用它。
+    path: Option<PathBuf>,
 }
 
 impl SessionStore {
@@ -123,7 +132,10 @@ impl SessionStore {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         connection.set_transaction_behavior(TransactionBehavior::Immediate);
-        let store = Self { connection };
+        let store = Self {
+            connection,
+            path: Some(path.to_path_buf()),
+        };
         store.migrate()?;
         Ok(store)
     }
@@ -133,6 +145,7 @@ impl SessionStore {
         connection.set_transaction_behavior(TransactionBehavior::Immediate);
         let store = Self {
             connection,
+            path: None,
         };
         store.migrate()?;
         Ok(store)
@@ -591,6 +604,33 @@ impl SessionStore {
         Ok(inputs)
     }
 
+    /// 迁移前的整库备份:`state.db.v<旧版本>.bak`。
+    ///
+    /// 用 `VACUUM INTO` 而不是复制文件——库跑在 WAL 模式下,单独拷 .db 会漏掉
+    /// -wal 里尚未 checkpoint 的事务,拷出来的是个残缺快照。VACUUM INTO 由
+    /// SQLite 自己生成一致副本。内存库无需备份。
+    fn backup_before_upgrade(&self, from_version: i64) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let backup = path.with_extension(format!("db.v{from_version}.bak"));
+        // 上一次升级尝试留下的同名备份直接覆盖:它描述的是同一个旧版本。
+        // VACUUM INTO 要求目标不存在,所以必须先删。
+        let _ = std::fs::remove_file(&backup);
+        self.connection
+            .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
+        Ok(())
+    }
+
+    /// 已存在的迁移前备份路径(供调用方提示用户如何回退)。
+    pub fn backup_path(&self, from_version: i64) -> Option<PathBuf> {
+        let backup = self
+            .path
+            .as_ref()?
+            .with_extension(format!("db.v{from_version}.bak"));
+        backup.is_file().then_some(backup)
+    }
+
     fn migrate(&self) -> Result<(), StoreError> {
         self.connection.execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -610,11 +650,18 @@ impl SessionStore {
             .map(|value| value.parse().unwrap_or_default());
         if let Some(version) = current {
             if version > SCHEMA_VERSION {
-                return Err(StoreError::UnsupportedSchema(version));
+                return Err(StoreError::UnsupportedSchema {
+                    found: version,
+                    supported: SCHEMA_VERSION,
+                });
             }
             if version == SCHEMA_VERSION {
                 return Ok(());
             }
+            // 升级前先留一份旧版本的完整副本。迁移是单向的:一旦升上去,旧二进制
+            // 就再也打不开这个库(上面那条 UnsupportedSchema),而桌面端与 CLI 是
+            // 两个独立安装通道、可能一新一旧,回退也就无路可走。备份是那条退路。
+            self.backup_before_upgrade(version)?;
         }
         let tx = self.connection.unchecked_transaction()?;
         tx.execute_batch(
@@ -1089,6 +1136,82 @@ mod tests {
         assert_eq!(identities[1].3, "run_a");
         assert_eq!(identities[1].4, "input_a");
         assert_eq!(identities[1].5, 708_000);
+    }
+
+    /// D-175:迁移是单向的,升级前必须留下可回退的完整副本;
+    /// 遇到更新版本的库时,报错要说清该升哪个程序,而不是让人去删库。
+    #[test]
+    fn 升级前留下整库备份且更高版本给出可执行指引() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-migrate-backup-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        // 造一个 v4 库:建到当前版本后把版本号改回去,再塞一条可验证的数据。
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.create_session("ses_old", "C:/project", None).unwrap();
+            store
+                .append_event("ses_old", "conversation.updated", &serde_json::json!({"v": 1}))
+                .unwrap();
+            store
+                .connection
+                .execute(
+                    "UPDATE schema_meta SET value = '4' WHERE key = 'schema_version'",
+                    [],
+                )
+                .unwrap();
+        }
+
+        let store = SessionStore::open(&path).unwrap();
+        let backup = store.backup_path(4).expect("升级前必须留下 v4 备份");
+        assert!(backup.is_file(), "{}", backup.display());
+        // 备份必须是能打开的一致副本(WAL 下直接拷 .db 会拿到残缺快照)。
+        let restored = Connection::open(&backup).unwrap();
+        let version: String = restored
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "4", "备份必须保留迁移前的版本号");
+        let events: i64 = restored
+            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(events, 1, "备份必须含有迁移前的数据");
+        drop(restored);
+        // 迁移本身照常完成。
+        assert!(store.get_session("ses_old").unwrap().is_some());
+        drop(store);
+
+        // 更新版本的库:旧程序必须拒绝打开,并且文案要给出出路。
+        {
+            let connection = Connection::open(&path).unwrap();
+            connection
+                .execute(
+                    "UPDATE schema_meta SET value = ?1 WHERE key = 'schema_version'",
+                    params![SCHEMA_VERSION + 1],
+                )
+                .unwrap();
+        }
+        let error = match SessionStore::open(&path) {
+            Ok(_) => panic!("更高版本的库必须拒绝打开"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(error, StoreError::UnsupportedSchema { found, supported }
+                if found == SCHEMA_VERSION + 1 && supported == SCHEMA_VERSION)
+        );
+        let text = error.to_string();
+        assert!(text.contains("cargo install"), "要告诉 CLI 怎么升: {text}");
+        assert!(text.contains("检查更新"), "要告诉桌面端怎么升: {text}");
+        assert!(text.contains("不要删库"), "必须堵死删库这条错误动作: {text}");
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
+        }
+        let _ = std::fs::remove_file(&backup);
     }
 
     #[test]

@@ -11,6 +11,8 @@
 .kanzei/memory/inbox.md
 # shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
 .kanzei/quarantine/
+# 打包时由 package.ps1 从 target/release 复制进来的 kz sidecar,是构建产物。
+crates/kanzei-app/binaries/
 /dist
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/
