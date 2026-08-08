@@ -1,6 +1,8 @@
 //! bash(shell)工具。设计红线 6:按实际检测到的 shell 动态生成描述,
 //! 让模型知道自己面对的是 pwsh/cmd 还是 POSIX sh;超时返回结构化结果而非报错。
 
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
@@ -15,6 +17,13 @@ use crate::shell::{detected_shell, kill_tree};
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
+
+/// 托管目录:write/edit 对它们硬 deny,shell 也不许绕过去改(D-173)。
+const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
+/// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
+const MANAGED_SNAPSHOT_FILE_LIMIT: u64 = 4 * 1024 * 1024;
+/// 镜像文件数上限,防止有人往托管目录塞进一整棵大树把每次 bash 拖垮。
+const MANAGED_SNAPSHOT_MAX_FILES: usize = 2000;
 
 #[derive(Deserialize, JsonSchema)]
 struct BashInput {
@@ -74,11 +83,7 @@ impl Tool for BashTool {
         .to_string()]
     }
 
-    fn resources_with_ctx(
-        &self,
-        input: &serde_json::Value,
-        ctx: &ToolCtx,
-    ) -> Vec<String> {
+    fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
         let command = input["command"].as_str().unwrap_or("*");
         let workdir = input["workdir"].as_str().filter(|dir| !dir.is_empty());
         let effective_workdir = ctx.cwd.join(
@@ -128,6 +133,40 @@ impl Tool for BashTool {
         };
         if !workdir.is_dir() {
             return ToolOutput::error(format!("workdir does not exist: {}", workdir.display()));
+        }
+
+        // Git 写操作必须走结构化 git 工具。只拦截写子命令，status/diff/log/show 等读操作
+        // 仍可在 shell 中执行；这样权限和暂存区 CAS 不会被 `git add/commit` 文本旁路。
+        if let Some(form) = git_mutation_form(&input.command) {
+            return ToolOutput::error(format!(
+                "`{form}` is blocked in bash: Git mutations must use the structured `git` tool. \
+                 Use `git stage` with explicit files, review its staged_hash/diff, then `git commit` \
+                 with that hash. Branch/index mutations not covered by that tool require the user \
+                 to run them directly; do not route them through another shell spelling."
+            ));
+        }
+
+        // D-173 硬围栏:托管文档只能走专用工具,而"能不能绕过"绝不能靠猜命令文本。
+        // [System.IO.File]::WriteAllText、重定向、python/node 一行流、git checkout 单文件
+        // 都能避开任何字符串匹配,所以这里改成**结果侧**判定:跑之前拍下托管目录的镜像,
+        // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
+        let managed_before = ManagedSnapshot::capture(&ctx.project_root);
+        if !managed_before.is_complete() {
+            return ToolOutput::error(format!(
+                "bash refused before execution: the managed-document snapshot is incomplete \
+                 (more than {MANAGED_SNAPSHOT_MAX_FILES} files or a file over \
+                 {MANAGED_SNAPSHOT_FILE_LIMIT} bytes). A shell command cannot run when its \
+                 protected-path effects cannot be fully rolled back."
+            ));
+        }
+        // 后台 shell 在本次工具返回后仍可写盘，无法把副作用可靠归因于某次调用；
+        // 事后轮询还会把用户/专用工具的合法并发写误判为越权。安全隔离落地前明确禁用。
+        if input.background && managed_scope_exists(&ctx.project_root) {
+            return ToolOutput::error(
+                "background bash is unavailable in a managed project: asynchronous writes cannot \
+                 be fenced without misclassifying later user/dedicated-tool edits. Run the command \
+                 in the foreground, or ask the user to start the long-lived service directly.",
+            );
         }
 
         let shell = detected_shell();
@@ -220,15 +259,10 @@ impl Tool for BashTool {
                     "exit code: {}\n{text}",
                     code.map_or("unknown".into(), |c| c.to_string())
                 );
-                // D-112 门禁:提交成功后附带实际提交的文件清单——模型必须核对
-                // 它与计划一致(尤其 tracker 归档文件必须与活动文档同行)。
-                if ok && looks_like_git_commit(&input.command) {
-                    if let Some(stat) = git_head_stat(&workdir).await {
-                        rendered.push_str(
-                            "\n[committed files — VERIFY this matches what you planned to commit]\n",
-                        );
-                        rendered.push_str(&stat);
-                    }
+                let breach = enforce_managed_files(&ctx.project_root, managed_before);
+                if let Some(report) = &breach {
+                    rendered.push_str("\n");
+                    rendered.push_str(report);
                 }
                 let display = serde_json::json!({
                     "kind": "terminal",
@@ -236,7 +270,7 @@ impl Tool for BashTool {
                     "exitCode": code,
                     "output": text.chars().take(4000).collect::<String>(),
                 });
-                let output = if ok {
+                let output = if ok && breach.is_none() {
                     ToolOutput::ok(rendered)
                 } else {
                     ToolOutput::error(rendered)
@@ -265,6 +299,11 @@ impl Tool for BashTool {
                         text.push_str("\n[partial stderr before timeout]\n");
                         text.push_str(&partial_err);
                     }
+                }
+                // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑。
+                if let Some(report) = enforce_managed_files(&ctx.project_root, managed_before) {
+                    text.push('\n');
+                    text.push_str(&report);
                 }
                 let display = serde_json::json!({
                     "kind": "terminal",
@@ -301,35 +340,214 @@ fn full_file_write_cmdlet(command: &str) -> Option<&'static str> {
     None
 }
 
-fn looks_like_git_commit(command: &str) -> bool {
-    let lower = command.to_ascii_lowercase();
-    lower.contains("git") && lower.contains("commit")
+/// shell 中的 Git 写子命令。读命令仍放行；写命令统一走结构化 `git` 工具。
+fn git_mutation_form(command: &str) -> Option<String> {
+    for segment in command.split(|c| matches!(c, ';' | '\n' | '|' | '&')) {
+        let tokens: Vec<&str> = segment.split_whitespace().collect();
+        let Some(git_at) = tokens.iter().position(|t| {
+            let t = t.trim_matches(['"', '\'']);
+            t.eq_ignore_ascii_case("git") || t.to_ascii_lowercase().ends_with("/git")
+        }) else {
+            continue;
+        };
+        let rest = &tokens[git_at + 1..];
+        // 跳过 `-C <dir>` / `-c k=v` 之类的全局开关,找到真正的子命令。
+        let mut index = 0usize;
+        while index < rest.len() && rest[index].starts_with('-') {
+            index += if matches!(rest[index], "-C" | "-c" | "--git-dir" | "--work-tree") {
+                2
+            } else {
+                1
+            };
+        }
+        let Some(subcommand) = rest.get(index).map(|s| s.to_ascii_lowercase()) else {
+            continue;
+        };
+        if matches!(
+            subcommand.as_str(),
+            "add"
+                | "stage"
+                | "commit"
+                | "checkout"
+                | "switch"
+                | "reset"
+                | "restore"
+                | "merge"
+                | "rebase"
+                | "pull"
+                | "cherry-pick"
+                | "revert"
+                | "clean"
+                | "rm"
+                | "mv"
+        ) {
+            return Some(format!("git {subcommand}"));
+        }
+    }
+    None
 }
 
-/// 提交后的实际文件清单(git show --stat HEAD);失败静默返回 None,不影响主结果。
-async fn git_head_stat(workdir: &std::path::Path) -> Option<String> {
-    let mut command = tokio::process::Command::new("git");
-    command
-        .args(["show", "--stat", "--no-color", "--format=%h %s", "HEAD"])
-        .current_dir(workdir)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    hide_console_window(&mut command);
-    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
-        .await
-        .ok()?
-        .ok()?;
-    if !output.status.success() {
+/// 托管目录的执行前镜像。`None` 内容 = 文件超过镜像上限,只能检测不能回滚。
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct ManagedSnapshot {
+    files: BTreeMap<String, Option<Vec<u8>>>,
+    /// 目录规模超限时放弃镜像:此时既不检测也不回滚,并在输出里如实说明。
+    truncated: bool,
+}
+
+impl ManagedSnapshot {
+    pub(crate) fn capture(project_root: &Path) -> Self {
+        let mut snapshot = ManagedSnapshot::default();
+        for root in MANAGED_ROOTS {
+            collect_files(&project_root.join(root), project_root, &mut snapshot);
+            if snapshot.truncated {
+                break;
+            }
+        }
+        snapshot
+    }
+
+    fn is_complete(&self) -> bool {
+        !self.truncated && self.files.values().all(Option::is_some)
+    }
+}
+
+fn managed_scope_exists(project_root: &Path) -> bool {
+    project_root.join(".kanzei").is_dir()
+}
+
+fn collect_files(dir: &Path, project_root: &Path, snapshot: &mut ManagedSnapshot) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if snapshot.files.len() >= MANAGED_SNAPSHOT_MAX_FILES {
+            snapshot.truncated = true;
+            return;
+        }
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => collect_files(&path, project_root, snapshot),
+            Ok(kind) if kind.is_file() => {
+                let Ok(relative) = path.strip_prefix(project_root) else {
+                    continue;
+                };
+                let key = relative.display().to_string().replace('\\', "/");
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
+                let content = (size <= MANAGED_SNAPSHOT_FILE_LIMIT)
+                    .then(|| std::fs::read(&path).ok())
+                    .flatten();
+                snapshot.files.insert(key, content);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 比对执行前后的托管目录镜像。有改动就隔离留证 + 整体回滚,并生成回喂模型的报告。
+fn enforce_managed_files(project_root: &Path, before: ManagedSnapshot) -> Option<String> {
+    let after = ManagedSnapshot::capture(project_root);
+    if after == before {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let text = text.trim();
-    if text.is_empty() {
+    let after_incomplete = !after.is_complete();
+    let mut modified: Vec<String> = Vec::new();
+    let mut created: Vec<String> = Vec::new();
+    let mut deleted: Vec<String> = Vec::new();
+    for (path, content) in &after.files {
+        match before.files.get(path) {
+            None => created.push(path.clone()),
+            Some(old) if old != content => modified.push(path.clone()),
+            Some(_) => {}
+        }
+    }
+    for path in before.files.keys() {
+        if !after.files.contains_key(path) {
+            deleted.push(path.clone());
+        }
+    }
+    if modified.is_empty() && created.is_empty() && deleted.is_empty() {
         return None;
     }
-    Some(text.chars().take(2000).collect())
+
+    let touched: Vec<&String> = modified
+        .iter()
+        .chain(created.iter())
+        .chain(deleted.iter())
+        .collect();
+    let listed = touched
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    // 先隔离再回滚:哪怕这次改动其实来自用户手改,内容也一份不丢,可原样取回。
+    let quarantine = project_root.join(".kanzei/quarantine").join(format!(
+        "shell-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default()
+    ));
+    let mut restored = 0usize;
+    for path in modified.iter().chain(created.iter()) {
+        let absolute = project_root.join(path);
+        let saved = quarantine.join(path);
+        if let Some(parent) = saved.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::copy(&absolute, &saved);
+        match before.files.get(path) {
+            // 执行前存在:写回原内容(内容超限没镜像的只能保持现状,下面单独点名)。
+            Some(Some(original)) => {
+                if std::fs::write(&absolute, original).is_ok() {
+                    restored += 1;
+                }
+            }
+            Some(None) => {}
+            // 执行前不存在:删掉新建的。
+            None => {
+                if std::fs::remove_file(&absolute).is_ok() {
+                    restored += 1;
+                }
+            }
+        }
+    }
+    for path in &deleted {
+        if let Some(Some(original)) = before.files.get(path) {
+            let absolute = project_root.join(path);
+            if let Some(parent) = absolute.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::write(&absolute, original).is_ok() {
+                restored += 1;
+            }
+        }
+    }
+
+    let incomplete = if after_incomplete {
+        format!(
+            "\nWARNING: the post-command snapshot exceeded its safety bound. Known changes were \
+             rolled back, but the managed tree must be inspected manually before any further shell \
+             command (limit: {MANAGED_SNAPSHOT_MAX_FILES} files / {MANAGED_SNAPSHOT_FILE_LIMIT} bytes per file)."
+        )
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
+         paths are policy-managed and the shell is not a write channel for them, no matter which \
+         mechanism is used (redirect, Set-Content/Out-File, [System.IO.File]::WriteAllText, \
+         python/node one-liner, git checkout of a single file).\n\
+         touched: {listed}\n\
+         restored {restored} file(s) to their pre-command contents; your versions were kept at \
+         {} so nothing is lost.\n\
+         Redo the change through the dedicated tool (`req`/`defect`/`goal`/`decision` for tracker \
+         entries, `architecture` for the architecture index, `memory_note` for memory). If no \
+         tool covers what you need, that is an unimplemented capability: record it and tell the \
+         user — do not look for another shell route.{incomplete}",
+        MANAGED_ROOTS.join(" and "),
+        quarantine.display(),
+    ))
 }
 
 #[cfg(windows)]
@@ -369,9 +587,149 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::{full_file_write_cmdlet, looks_like_git_commit, BashTool};
+    use super::{full_file_write_cmdlet, git_mutation_form, BashTool};
     use kanzei_harness::{Tool, ToolCtx};
     use std::path::PathBuf;
+
+    fn temp_project(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-bash-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        dir
+    }
+
+    /// D-173:托管文件的 shell 写入必须被检测、隔离、回滚——不靠匹配命令文本,
+    /// 所以 [System.IO.File]::WriteAllText 这类没人预料到的写法一样拦得住。
+    #[tokio::test]
+    async fn shell_writes_to_managed_docs_are_rolled_back() {
+        let root = temp_project("fence");
+        let managed = root.join(".kanzei/project/defects.md");
+        std::fs::write(&managed, "# Defects\n\n## D-001 原始内容 [open]\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let target = managed.display().to_string().replace('\\', "/");
+        let command = match super::detected_shell().name {
+            "pwsh" | "powershell" => {
+                format!("[System.IO.File]::WriteAllText('{target}', 'BYPASSED')")
+            }
+            "cmd" => format!("echo BYPASSED> \"{target}\""),
+            _ => format!("printf BYPASSED > '{target}'"),
+        };
+
+        let out = BashTool
+            .execute(serde_json::json!({ "command": command }), &ctx)
+            .await;
+        assert!(out.is_error, "越权写入必须按错误回喂: {}", out.content);
+        assert!(out.content.contains("[managed-files]"), "{}", out.content);
+        assert!(out.content.contains("defects.md"), "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(&managed).unwrap(),
+            "# Defects\n\n## D-001 原始内容 [open]\n",
+            "文件必须被回滚到执行前内容"
+        );
+        // 改后的版本留在隔离区,万一那其实是用户手改也不丢。
+        let quarantine = root.join(".kanzei/quarantine");
+        assert!(quarantine.is_dir(), "改后的内容必须留证");
+
+        // 非托管路径照常放行,围栏不误伤。
+        let plain = root
+            .join("scratch.txt")
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let command = match super::detected_shell().name {
+            "pwsh" | "powershell" => format!("[System.IO.File]::WriteAllText('{plain}', 'ok')"),
+            "cmd" => format!("echo ok> \"{plain}\""),
+            _ => format!("printf ok > '{plain}'"),
+        };
+        let out = BashTool
+            .execute(serde_json::json!({ "command": command }), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(root.join("scratch.txt").is_file());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn git_mutations_are_blocked_without_false_positives() {
+        let blocked = [
+            "git add -A",
+            "git add src/main.rs",
+            "git commit -m x",
+            "git status --short; git add .kanzei/project",
+            "git checkout other-branch",
+            "git reset --hard HEAD~1",
+            "git pull --ff-only",
+        ];
+        for command in blocked {
+            assert!(git_mutation_form(command).is_some(), "应拦截: {command}");
+        }
+        let allowed = [
+            "git log --all --oneline",
+            "git diff --stat",
+            "git status --short",
+            "git show HEAD",
+            "cargo add serde",
+        ];
+        for command in allowed {
+            assert!(git_mutation_form(command).is_none(), "不该拦截: {command}");
+        }
+    }
+
+    #[tokio::test]
+    async fn empty_managed_directory_is_still_fenced() {
+        let root = temp_project("empty-fence");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let target = root
+            .join(".kanzei/project/new.md")
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        let command = match super::detected_shell().name {
+            "pwsh" | "powershell" => format!("[System.IO.File]::WriteAllText('{target}', 'x')"),
+            "cmd" => format!("echo x> \"{target}\""),
+            _ => format!("printf x > '{target}'"),
+        };
+        let out = BashTool
+            .execute(serde_json::json!({"command": command}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(!root.join(".kanzei/project/new.md").exists());
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[tokio::test]
+    async fn background_shell_is_refused_in_managed_projects() {
+        let root = temp_project("background-fence");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let out = BashTool
+            .execute(
+                serde_json::json!({"command":"echo ok","background":true}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("background bash is unavailable"),
+            "{}",
+            out.content
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
 
     #[test]
     fn whole_file_write_cmdlets_are_detected_with_word_boundaries() {
@@ -434,14 +792,6 @@ mod tests {
     }
 
     #[test]
-    fn git_commit_detection() {
-        assert!(looks_like_git_commit("git commit -m 'x'"));
-        assert!(looks_like_git_commit("git add a.rs; git commit -m fix"));
-        assert!(!looks_like_git_commit("git status"));
-        assert!(!looks_like_git_commit("cargo test"));
-    }
-
-    #[test]
     fn resources_keep_the_complete_command_without_prefix_generalization() {
         let input = serde_json::json!({
             "command": "git status > .kanzei/project/requirements.md",
@@ -450,7 +800,10 @@ mod tests {
         let resources = BashTool.resources(&input);
         assert_eq!(resources.len(), 1);
         let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
-        assert_eq!(resource["command"], "git status > .kanzei/project/requirements.md");
+        assert_eq!(
+            resource["command"],
+            "git status > .kanzei/project/requirements.md"
+        );
         assert_eq!(resource["workdir"], "subdir");
         let resource: serde_json::Value = serde_json::from_str(
             &BashTool.resources_with_ctx(

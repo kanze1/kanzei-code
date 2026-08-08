@@ -9,6 +9,8 @@
 .kanzei/state.db-wal
 .kanzei/memory/index.db
 .kanzei/memory/inbox.md
+# shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
+.kanzei/quarantine/
 /dist
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/
