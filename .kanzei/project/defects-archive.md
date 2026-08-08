@@ -1628,3 +1628,40 @@
 - 验收: G-002 只保留符合当前长期 active 状态的一份；goal 工具完整性恢复，可成功更新 G-001；增加或确认 tracker 完整性覆盖。
 - 修复: 新增专用 `repair_reused_id` 动作：DocStore 在 crates/kanzei-tools/src/docstore.rs:239-318 仅对活动/归档语义不同的复用 ID 改写历史归档项，保留活动项，并同步归档模板、字段与手写自由文本；相同内容的未完成归档拒绝自动改号。TrackerTool 在 tracker.rs:88-162 允许该修复动作穿过完整性写保护，CLI 在 crates/kanzei/src/main.rs:563 接入。
 - 验收证据: ① 实际执行后 .kanzei/project/goals.md:9 保留长期 G-002 active，goals-archive.md:10 的旧短期目标迁为 G-004；② goal update G-001 已成功，goals.md:6 已落盘新进展，证明普通写操作恢复；③ tracker.rs:885-940 回归覆盖改号、自由内容/字段内自引用同步、修复后普通 update 与完整性全绿；定向测试和 cargo test --workspace 全绿。
+
+## D-157 停止动作动态文案缺少英文 i18n 资源导致界面混杂 [fixed] (medium)
+- refs: R-069 R-089
+- 优先级: P1
+- 复现: 执行 `node scripts/ui-i18n-smoke.mjs` 失败：动态 i18n key `已请求停止` 未进入 I18N_EN。
+- 影响: 英文界面触发停止动作时会回落中文，语言混杂；同时阻断所有前端条目的完整 smoke 验收。
+- 标签: 前端
+- 根因: main.js 新增或改为 `t("已请求停止")` 的动态状态文案，但 I18N_EN 字典未同步添加对应英文资源；i18n smoke 的动态 key 完整性门禁正确捕获。
+- 证据等级: E2
+- 验收: I18N_EN 补齐该动态状态文案；中英文切换后状态文本对应显示且可逆；ui-i18n-smoke 与 runtime smoke 通过。
+- 修复: crates/kanzei-app/ui/main.js:143 将 `已请求停止` 补入 I18N_EN，保留既有 I18N_DYNAMIC_EN 源文案映射；`toast(t("已请求停止"))` 的真实调用方现在可直接取得英文且切回中文仍以源 key 重算。
+- 验收证据: scripts/ui-i18n-smoke.mjs 动态 t() key 完整性检查通过（52 项资源/动态入口）；node --check、ui-runtime-smoke（main.js 全量执行，62 次 invoke，0 运行时错误）、ui-a11y、ui-markdown smoke 全部通过；真实 UI DOM 正常且 console 无错误。
+
+## D-156 最小 800px 窗口下 nowrap 顶栏常驻控件总宽仍超过主区 [fixed] (medium)
+- refs: R-089 D-104
+- 优先级: P1
+- 复现: 在当前 1407px 窗口中 #topbar 前五个子项已占约 442px，连同 4 个 gap 与左右 padding 约 502px；最小 800px 窗口保留 48px 活动栏和默认 280px 侧栏后，#main 仅 472px，尚未计入侧栏按钮、鞭挞状态和“更多”，因此 nowrap 顶栏必然向右溢出/裁切。
+- 影响: R-089 明确要求 800x500、1024x720、1280x840 三档顶栏单行且无控件裁切；当前 800px 档不满足，不能关闭 R-089。
+- 标签: 前端
+- 根因: D-104 仅把 flex-wrap 改为 nowrap 并收纳部分低频动作，但没有给 800/1024 断点下的项目路径、进程区、自动状态与高频按钮设置压缩/隐藏层级；默认展开侧栏时可用主区宽度远小于常驻控件总宽。
+- 证据等级: E3
+- 验收: 800px 总窗口、默认展开侧栏时顶栏保持单行且所有高频动作可达：项目路径可收缩至零或隐藏，进程标签保留可操作宽度，新对话/活动/侧栏/鞭挞/更多不裁切；1024/1280 不退化；加入可机械计算最小宽度预算或等价运行时断言。
+
+- 修复: crates/kanzei-app/ui/style.css:293-312 新增两级响应式预算：≤1024px 隐藏可舍弃的完整项目路径与自动轮次长文案、收紧 topbar 间距并把进程区限制为 40–120px 横向滚动；≤900px 将展开侧栏改为绝对定位抽屉，max-width 320px，不再参与主区 flex 宽度计算。800px 时活动栏外主区为 752px，侧栏抽屉最多覆盖 320px，仍留下 432px 对话/composer 可读区；1024px 默认侧栏下主区约 696px；1280px 保持原布局。
+- 验收证据: scripts/ui-a11y-smoke.mjs:64-69 新增 1024px 顶栏压缩、进程区宽度与 900px 侧栏抽屉机械契约；frontend_check 确认 CSS 结构完整；node --check、runtime/a11y/i18n/markdown smoke 全部通过；真实 1407px 运行界面 topbar 1079×38 保持单行、DOM 控件完整、console 无错误。
+
+## D-158 todo 与活动双抽屉在 800px 横向覆盖 84% 主区 [fixed] (medium)
+- refs: R-089 D-110
+- 优先级: P1
+- 复现: style.css:31-39 在 ≤1400px 将 todo/bg 都设为宽度 `min(360px,42vw)`，并在两者同时显示时把 bg-panel 右移一个完整 drawer 宽度。800px 时两个抽屉总覆盖约 672px，而活动栏外主区仅 752px，只剩约 80px 对话可见；同时仍然是两个并排右栏。
+- 影响: R-089 的“todo/活动同时有数据时不重复占两栏”与“主对话/composer 始终可读”均未满足；D-110 虽避免 flex 挤压，却改成大面积 overlay 遮挡。
+- 标签: 前端
+- 根因: D-110 把两个 flex 侧栏改成绝对定位后，仍沿用横向双列思路，通过 `right: var(--right-drawer-width)` 并排两个 42vw 抽屉，没有约束合计覆盖宽度。
+- 证据等级: E3
+- 验收: todo 与活动同时显示时共享同一右侧抽屉宽度，可垂直分区或切换，不得横向占两个栏位；800px 下主对话至少保留约 400px 可见宽度；单面板行为不退化；加入 CSS 机械契约并通过完整前端 smoke。
+- 修复: crates/kanzei-app/ui/style.css:38-41 将 ≤1400px 的双面板从横向并排改为同一右侧抽屉宽度内上下各 50%：todo 通过 `:has` 收短 bottom，bg 保持 right:0 并从 top:50% 开始。800px 时抽屉合计宽度仍仅 42vw（约336px），活动栏外 752px 主区保留约416px可见宽度，不再只剩约80px。
+- 验收证据: scripts/ui-a11y-smoke.mjs:67-68 机械断言 todo `bottom:50%` 与 bg `top:50%;right:0` 的共享宽度契约；frontend_check 结构完整；node --check、runtime/a11y/i18n/markdown smoke 全部通过；真实 UI 中单活动面板正常渲染、DOM 内容完整且 console 无错误。

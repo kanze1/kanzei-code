@@ -35,7 +35,10 @@ body {
     width: var(--right-drawer-width); max-height: none;
     box-shadow: -5px 0 18px #0008;
   }
-  #todo-panel:not(.hidden) ~ #bg-panel:not(.hidden) { right: var(--right-drawer-width); }
+  /* 两个面板同时有数据时共享同一右侧栏宽度并上下分区，不能再横向并排
+     覆盖 84% 的 800px 主区。单面板仍使用完整抽屉高度。 */
+  #todo-panel:not(.hidden):has(~ #bg-panel:not(.hidden)) { bottom: 50%; }
+  #todo-panel:not(.hidden) ~ #bg-panel:not(.hidden) { top: 50%; right: 0; }
 }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #383838; border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
@@ -290,6 +293,24 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 #topbar-more > summary::-webkit-details-marker { display: none; }
 #topbar-more > summary::after { content: " ▾"; color: var(--dim); }
 #topbar-more[open] > summary { color: var(--fg-strong); background: var(--accent-soft); }
+/* 800/1024 宽度预算:默认侧栏展开时主区最窄约 472px。项目完整路径和
+   自动轮次文案都是状态补充,窄屏收起后保留进程、新对话、活动、侧栏、鞭挞、更多。
+   进程区自身可横向滚动,不能靠整条 topbar 溢出来假装“单行”。 */
+@media (max-width: 1024px) {
+  #topbar { gap: 4px; padding-left: 8px; padding-right: 8px; }
+  #topbar .crumb, #auto-status { display: none; }
+  #process-tabs { flex: 1 1 80px; min-width: 40px; max-width: 120px; }
+  #topbar .spacer { display: none; }
+}
+/* 最小窗口把侧栏改为抽屉:它不再参与 flex 宽度计算,主对话和 composer
+   始终拥有活动栏之外的整段宽度;展开时仍留出至少 432px 可读主区。 */
+@media (max-width: 900px) {
+  #sidebar:not(.collapsed) {
+    position: absolute; left: 48px; top: 0; bottom: 24px; z-index: 19;
+    max-width: min(320px, calc(100vw - 360px));
+    box-shadow: 5px 0 18px #0008;
+  }
+}
 .topbar-menu-panel {
   position: absolute; top: calc(100% + 6px); right: 0; width: min(360px, calc(100vw - 28px));
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px;
