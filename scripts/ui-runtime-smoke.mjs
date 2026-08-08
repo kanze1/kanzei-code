@@ -403,6 +403,9 @@ const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
+  // 所选目录没有 .kanzei,实际根落在上级 —— 这正是需求串项目的形态。
+  project_root_info: { selected: PROJECT, resolved: "C:/smoke/parent", shared: true },
+  project_detach: null,
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
@@ -854,6 +857,18 @@ assert(
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+
+// ---------- D-170 项目隔离失效必须报出来 ----------
+assert(invokeLog.includes("project_root_info"), "切项目时未检查项目根是否与所选目录一致");
+const sharedWarn = byId.get("project-shared-warn");
+assert(sharedWarn, "缺少项目隔离告警位");
+assert(!sharedWarn.classList.contains("hidden"), "所选目录与实际根不一致却没有告警(需求会在项目间串)");
+assert(listText("project-shared-warn").includes("C:/smoke/parent"), "告警未给出实际生效的根");
+const detachBtn = sharedWarn.querySelector("button");
+assert(detachBtn, "缺少一键建立独立空间");
+detachBtn.click();
+await flush();
+assert(invokeLog.includes("project_detach"), "点了建立独立空间却没调后端");
 
 // ---------- D-169 列表被筛空必须说破，不能留一片空白 ----------
 // 持久化的标签在当前项目可能不存在:下拉回落成"全部"而状态没跟着回落,

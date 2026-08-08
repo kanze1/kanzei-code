@@ -134,6 +134,9 @@ const I18N_EN = {
   "以下项被项目级配置覆盖,本页的改动不会生效": "Overridden by the project config — changes here will not take effect",
   "(未设 · 用内置默认)": "(unset · use built-in default)", "已重新探测": "Re-probed",
   "条被当前筛选隐藏": "hidden by the current filter", "清除筛选": "Clear filters",
+  "本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)": "This project has no space of its own and is reading a parent directory's data — shared with any other project under the same parent",
+  "在此建立独立空间": "Create its own space here", "只在本目录创建 .kanzei,不搬动上级目录的既有条目": "Creates .kanzei here only; existing entries in the parent are left untouched",
+  "已建立独立空间": "Own space created", "建立独立空间失败": "Failed to create its own space",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -3658,6 +3661,42 @@ function syncDocumentsProjectSelect(prefs) {
   select.disabled = !(prefs.projects ?? []).length;
 }
 
+// D-170:所选目录若没有 .kanzei,后端会一路向上找,落到祖先目录上——
+// 于是共用同一祖先的几个项目读的是同一份 requirements.md,需求在项目之间串。
+// 存量项目改根会让会话 id 变化(历史看起来消失),所以不静默迁移:如实报出来,
+// 给一键分离,由用户决定。
+async function checkProjectIsolation() {
+  const box = $("project-shared-warn");
+  if (!box || !currentProject) return;
+  let info;
+  try {
+    info = await invoke("project_root_info", { projectDir: currentProject });
+  } catch {
+    return;
+  }
+  box.classList.toggle("hidden", !info.shared);
+  if (!info.shared) return;
+  box.innerHTML = "";
+  const text = document.createElement("div");
+  text.textContent = `${t("本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)")}:${info.resolved}`;
+  const act = document.createElement("button");
+  act.type = "button";
+  act.className = "ghost mini";
+  act.textContent = t("在此建立独立空间");
+  act.title = t("只在本目录创建 .kanzei,不搬动上级目录的既有条目");
+  act.addEventListener("click", async () => {
+    try {
+      await invoke("project_detach", { projectDir: currentProject });
+      toast(t("已建立独立空间"));
+      await refreshDocs();
+      checkProjectIsolation();
+    } catch (err) {
+      toastError(`${t("建立独立空间失败")}:${err}`);
+    }
+  });
+  box.append(text, act);
+}
+
 function renderProjects(prefs) {
   const previousProject = currentProject;
   currentProject = prefs.current;
@@ -3665,6 +3704,7 @@ function renderProjects(prefs) {
   // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
   restoreProjectPrefs();
+  checkProjectIsolation();
   if (previousProject !== currentProject) {
     activeProcessId = null;
     activeSessionId = null;

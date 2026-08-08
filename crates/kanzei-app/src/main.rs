@@ -512,6 +512,59 @@ mod update_tests {
     use tokio::sync::oneshot;
 
     #[test]
+    fn 同一上级下的两个项目必须各自独立不串数据() {
+        let base = std::env::temp_dir().join(format!(
+            "kz-iso-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        // 上级目录本身是个项目(有 .kanzei)——这正是串数据的前提条件。
+        std::fs::create_dir_all(base.join(".kanzei/project")).unwrap();
+        std::fs::write(base.join(".kanzei/project/requirements.md"), "# Requirements\n\n## R-900 上级的需求 [todo]\n").unwrap();
+        let a = base.join("projA");
+        let b = base.join("projB");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+
+        // 未初始化时:两个子目录都向上解析到同一个根 = 共用同一份需求。
+        let root_a = kanzei_harness::config::discover_project_root(&a).unwrap();
+        let root_b = kanzei_harness::config::discover_project_root(&b).unwrap();
+        assert_eq!(root_a, root_b, "前提:未初始化时两者确实会落到同一个根");
+        assert!(
+            super::project_root_info(a.display().to_string())["shared"]
+                .as_bool()
+                .unwrap(),
+            "共用上级时必须报出来,不能静默",
+        );
+
+        // 分离后:各自成根,互不可见。
+        super::project_detach(a.display().to_string()).unwrap();
+        let root_a = kanzei_harness::config::discover_project_root(&a).unwrap();
+        assert_eq!(root_a, a, "分离后应以自身为根");
+        assert_ne!(
+            root_a,
+            kanzei_harness::config::discover_project_root(&b).unwrap(),
+            "分离后两个项目不得再共用同一个根",
+        );
+        assert!(
+            !super::project_root_info(a.display().to_string())["shared"]
+                .as_bool()
+                .unwrap(),
+            "分离后不该再报共用",
+        );
+        // 分离只建空间,不搬上级的既有条目——那些属于上级项目。
+        assert!(
+            !a.join(".kanzei/project/requirements.md").exists(),
+            "分离不应把上级的需求复制过来",
+        );
+        assert!(
+            base.join(".kanzei/project/requirements.md").exists(),
+            "上级的需求不得被动到",
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
     fn 保存前拦住指向不存在_provider_的模型角色() {
         let payload = |primary: &str, providers: Vec<(&str, &str)>| super::SettingsPayload {
             primary: primary.into(),
@@ -1090,6 +1143,8 @@ fn main() {
             memory_note_candidates,
             memory_note_discard,
             run_metrics,
+            project_root_info,
+            project_detach,
             memory_entry_save,
             memory_search_page,
             memory_context_bill,
@@ -1475,6 +1530,11 @@ fn projects_add(path: String) -> Result<AppPrefs, String> {
     if !dir.is_dir() {
         return Err(format!("目录不存在: {path}"));
     }
+    // D-170:必须就地建 `.kanzei`,否则 discover_project_root 会一路向上找,
+    // 落到祖先目录(或最近的 .git)上——两个新加的项目就共用同一份
+    // requirements.md/defects.md,需求在项目之间串。用户显式选的目录就是根。
+    std::fs::create_dir_all(dir.join(".kanzei"))
+        .map_err(|error| format!("创建项目配置目录失败: {error}"))?;
     let canonical = dir
         .canonicalize()
         .map(strip_verbatim)
@@ -1486,6 +1546,34 @@ fn projects_add(path: String) -> Result<AppPrefs, String> {
     prefs.current = Some(canonical);
     save_prefs(&prefs);
     Ok(projects_get())
+}
+
+/// D-170:所选目录与实际生效的项目根是否一致。不一致 = 这个项目的需求/缺陷/会话
+/// 其实存在祖先目录里,和共用同一祖先的其它项目**混在一起**。存量项目改根会让
+/// 会话 id 变化(历史看起来消失),所以不静默迁移——只如实报出来,由用户决定。
+#[tauri::command]
+fn project_root_info(project_dir: String) -> serde_json::Value {
+    let selected = PathBuf::from(&project_dir);
+    let resolved = kanzei_harness::config::discover_project_root(&selected)
+        .unwrap_or_else(|| selected.clone());
+    let same = std::fs::canonicalize(&selected).ok() == std::fs::canonicalize(&resolved).ok();
+    json!({
+        "selected": selected.display().to_string(),
+        "resolved": resolved.display().to_string(),
+        "shared": !same,
+    })
+}
+
+/// 在所选目录就地建 `.kanzei`,把它从祖先项目里分离出来。
+/// 只建目录,不搬数据:祖先那边的条目属于祖先项目,搬过来等于替用户做决定。
+#[tauri::command]
+fn project_detach(project_dir: String) -> Result<(), String> {
+    let dir = PathBuf::from(&project_dir);
+    if !dir.is_dir() {
+        return Err(format!("目录不存在: {project_dir}"));
+    }
+    std::fs::create_dir_all(dir.join(".kanzei").join("project"))
+        .map_err(|e| format!("创建项目空间失败: {e}"))
 }
 
 #[tauri::command]
