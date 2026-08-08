@@ -102,6 +102,9 @@ body {
   width: 20px; height: 20px; border-radius: 4px; font-size: 14px; line-height: 1; padding: 0;
 }
 .icon-btn:hover { background: var(--panel2); color: var(--fg-strong); }
+/* 图标按钮里的 SVG 与文字字形等高:整套图标必须是单色描边,彩色 emoji 混在
+   ⌂ ☷ ❖ ＋ ↻ 这些字形中间会突兀得像贴上去的。 */
+.icon-btn svg { width: 14px; height: 14px; display: block; margin: 0 auto; }
 
 .project-list { display: flex; flex-direction: column; }
 .project-item {

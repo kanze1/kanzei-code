@@ -27,6 +27,21 @@ for (const ch of cssNoComments) {
 }
 if (cssStray) fail(`style.css 有 ${cssStray} 个多余的 }(很可能某条规则或 @media 的开括号被覆盖删除了)`);
 if (cssDepth) fail(`style.css 有 ${cssDepth} 个未闭合的 {`);
+// 图标一致性:活动栏与 .icon-btn 是一整套单色描边字形/SVG(⌂ ☷ ❖ ＋ ↻ ↗ ✎ …),
+// 混进一个彩色 emoji 会突兀得像贴上去的。靠眼睛发现太晚——机械挡住。
+// 只管图标位,正文里的 💬/⚠ 之类语义标记不在此列。
+const ICON_MARKUP = [
+  ...html.matchAll(/<button[^>]*class="[^"]*\b(?:activity-item|icon-btn)\b[^"]*"[^>]*>([\s\S]*?)<\/button>/g),
+];
+const COLOR_EMOJI = /[\u{1F000}-\u{1FAFF}]/u;
+for (const [, inner] of ICON_MARKUP) {
+  const glyphs = inner.replace(/<[^>]*>/g, "").trim();
+  if (COLOR_EMOJI.test(glyphs)) {
+    fail(`图标位出现彩色 emoji「${glyphs}」:活动栏与 icon-btn 必须是单色字形或描边 SVG`);
+  }
+}
+if (ICON_MARKUP.length < 10) fail("图标一致性检查没扫到足够的图标按钮,正则可能已与标记脱节");
+
 const documentsScrollRules = [...style.matchAll(/#documents-scroll\s*\{([^}]*)\}/g)];
 const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-bottom:\s*(\d+)px/);
 if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
