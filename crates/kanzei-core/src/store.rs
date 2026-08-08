@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // v3:episodes 表(R-106,轮次情景摘要;回滚 = DROP TABLE episodes 并把版本改回 2)。
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 pub fn project_state_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("state.db")
@@ -619,13 +619,22 @@ impl SessionStore {
                  input_tokens INTEGER NOT NULL,
                  output_tokens INTEGER NOT NULL,
                  tools_json TEXT NOT NULL,
-                 context_json TEXT NOT NULL
+                 context_json TEXT NOT NULL,
+                 -- v4(R-099):调用画像。旧库靠下面的 ALTER 补列;默认空对象代表
+                 -- 那一轮还没开始度量,与度量出来全是零必须区分得开。
+                 metrics_json TEXT NOT NULL DEFAULT '{}'
              );
              CREATE INDEX IF NOT EXISTS episodes_session_created
                  ON episodes(session_id, created_at);
-             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '3')
+             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '4')
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
+        // 已存在的 v3 库:episodes 表不会被上面的 CREATE IF NOT EXISTS 改动,补列。
+        // 列已存在时报错,忽略即可——这是幂等迁移的常规写法。
+        let _ = tx.execute(
+            "ALTER TABLE episodes ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'",
+            [],
+        );
         tx.commit()?;
         Ok(())
     }
@@ -642,11 +651,12 @@ impl SessionStore {
         output_tokens: u64,
         tools_json: &str,
         context_json: &str,
+        metrics_json: &str,
     ) -> Result<(), StoreError> {
         self.connection.execute(
             "INSERT INTO episodes(session_id, created_at, prompt_head, outcome, steps,
-                                  input_tokens, output_tokens, tools_json, context_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                                  input_tokens, output_tokens, tools_json, context_json, metrics_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 session_id,
                 now_ms(),
@@ -656,10 +666,40 @@ impl SessionStore {
                 input_tokens as i64,
                 output_tokens as i64,
                 tools_json,
-                context_json
+                context_json,
+                metrics_json
             ],
         )?;
         Ok(())
+    }
+
+    /// 最近若干轮的完整画像(R-099/R-127):按时间倒序。
+    /// 返回原始 JSON 字符串,解析交给调用方——存储层不该关心画像的字段构成。
+    #[allow(clippy::type_complexity)]
+    pub fn recent_episodes(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String, u32, u64, u64, String, String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT created_at, prompt_head, outcome, steps, input_tokens, output_tokens,
+                    tools_json, context_json, metrics_json
+             FROM episodes WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![session_id, limit as i64], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get::<_, i64>(3)? as u32,
+                row.get::<_, i64>(4)? as u64,
+                row.get::<_, i64>(5)? as u64,
+                row.get(6)?,
+                row.get(7)?,
+                row.get(8)?,
+            ))
+        })?;
+        Ok(rows.flatten().collect())
     }
 
     /// 最近一轮的上下文账单(context_json 原文),无 episode 时 None。
@@ -880,10 +920,11 @@ mod tests {
                 3_000,
                 r#"{"bash":5,"edit":3}"#,
                 r#"[["agent/system",1200],["dev/memory",800]]"#,
+                r#"{"terminal_calls":5,"edit_calls":3,"edit_misses":1}"#,
             )
             .unwrap();
         store
-            .append_episode("ses_test", "第二轮", "halted", 3, 1_000, 100, "{}", "[]")
+            .append_episode("ses_test", "第二轮", "halted", 3, 1_000, 100, "{}", "[]", "{}")
             .unwrap();
         let episodes = store.list_episodes("ses_test", 10).unwrap();
         assert_eq!(episodes.len(), 2);
@@ -891,6 +932,13 @@ mod tests {
         assert_eq!(episodes[1].3, 12);
         assert!(episodes[1].4.contains("bash"));
         assert!(store.list_episodes("missing", 10).unwrap().is_empty());
+
+        // R-099:调用画像随轮次落库,并能按时间倒序取回。空对象要与"度量为零"区分开。
+        let recent = store.recent_episodes("ses_test", 10).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].1, "第二轮");
+        assert_eq!(recent[0].8, "{}", "未度量的轮次应保持空对象");
+        assert!(recent[1].8.contains("edit_misses"), "画像未随轮次落库: {}", recent[1].8);
     }
 
     #[test]

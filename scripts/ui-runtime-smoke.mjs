@@ -356,6 +356,23 @@ const payloads = {
     fingerprint: "[sop:R-123]",
   }],
   memory_note_discard: true,
+  // R-099/R-127:一轮有画像、一轮早于度量落地,验证两者区分得开。
+  run_metrics: {
+    rounds: [
+      {
+        at: 1_760_000_000_000, prompt: "收口 R-123", outcome: "completed", steps: 12,
+        inputTokens: 48_000, outputTokens: 3_200,
+        tools: { edit: 6, bash: 4, req: 2 },
+        context: [["agent/system", 4000], ["memory", 800]],
+        metrics: { terminal_calls: 4, git_calls: 2, git_groups: 1, edit_calls: 6, edit_misses: 1, subagent_calls: 0, total_calls: 12, failed_calls: 1 },
+        measured: true,
+      },
+      {
+        at: 1_759_000_000_000, prompt: "更早的一轮", outcome: "completed", steps: 5,
+        inputTokens: 10_000, outputTokens: 900, tools: {}, context: [], metrics: {}, measured: false,
+      },
+    ],
+  },
   conversation_get: [{ role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] }],
   conversation_trace_get: [],
   conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
@@ -718,6 +735,25 @@ assert(
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+
+// ---------- R-099/R-127 运行画像面板 ----------
+const metricsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "metrics");
+assert(metricsTab, "活动栏缺少运行画像入口");
+metricsTab.click();
+await flush();
+assert(invokeLog.includes("run_metrics"), "运行画像页未拉取度量");
+const metricRounds = document.querySelectorAll("#metrics-rounds .metrics-round");
+assert(metricRounds.length === 2, `逐轮画像未渲染,实得 ${metricRounds.length}`);
+const metricsText = listText("metrics-rounds");
+assert(metricsText.includes("edit 1/6"), `未给出 edit 未命中比,实得: ${metricsText.slice(0, 100)}`);
+assert(metricsText.includes("git 2"), "未给出 git 查询次数与组数");
+assert(metricsText.includes("edit×6"), "未给出工具分布");
+assert(metricsText.includes("4800"), "未汇总上下文占用");
+// 未度量的轮次要明说,不能显示成"全零"——那会让人误判冗余在下降。
+assert(metricsText.includes("该轮早于度量落地"), "未区分「没度量」与「度量为零」");
+const trendText = listText("metrics-trend");
+assert(trendText.includes("1 ") && trendText.includes("轮均值"), "趋势未按已度量轮次统计");
+assert(trendText.includes("17%"), `均值应只算已度量轮次(1/6≈17%),实得: ${trendText}`);
 
 // ---------- R-126 UI 自查探针：在真实窗口里取样并回传 ----------
 const probe = handlers.get("kz:ui-probe");

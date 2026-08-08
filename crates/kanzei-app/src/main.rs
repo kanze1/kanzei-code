@@ -953,6 +953,7 @@ fn main() {
             memory_entry_delete,
             memory_note_candidates,
             memory_note_discard,
+            run_metrics,
             memory_entry_save,
             memory_search_page,
             memory_context_bill,
@@ -2508,6 +2509,41 @@ fn memory_entries(
         }
     }
     Err(format!("未知记忆域: {scope}"))
+}
+
+/// R-099 + R-127:最近若干轮的运行画像,供调试面板按轮次展示与跨轮对比。
+/// 与冗余度量共用 `summarize_metrics` 的同一份口径,不另算一套。
+#[tauri::command]
+fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
+    let root = PathBuf::from(&project_dir);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    let session_id = kanzei_core::project_session_id(&root);
+    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let rows = store
+        .recent_episodes(&session_id, limit)
+        .map_err(|e| e.to_string())?;
+    let rounds: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(at, prompt, outcome, steps, input, output, tools, context, metrics)| {
+            let parse = |text: &str| serde_json::from_str::<serde_json::Value>(text).unwrap_or(json!({}));
+            let metrics_value = parse(&metrics);
+            json!({
+                "at": at,
+                "prompt": prompt,
+                "outcome": outcome,
+                "steps": steps,
+                "inputTokens": input,
+                "outputTokens": output,
+                "tools": parse(&tools),
+                "context": parse(&context),
+                "metrics": metrics_value,
+                // 空对象代表那一轮早于度量落地,前端要能与"全零"区分开。
+                "measured": metrics.trim() != "{}" && !metrics.trim().is_empty(),
+            })
+        })
+        .collect();
+    Ok(json!({ "rounds": rounds }))
 }
 
 /// R-124:待用户处置的草稿候选(重点是 SOP —— 它是用户的常用模板,
@@ -4626,6 +4662,9 @@ async fn run_task(
                     &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
                         .unwrap_or_default(),
                     &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+                    // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
+                    &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
+                        .unwrap_or_default(),
                 );
                 if let Err(error) = append_run_notification(
                     store,

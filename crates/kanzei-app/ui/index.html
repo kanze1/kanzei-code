@@ -14,6 +14,7 @@
       <button type="button" class="activity-item" data-view="workspace" title="工作区" aria-label="切换到工作区">⌂</button>
       <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷" aria-label="切换到需求与工作和缺陷">☷</button>
       <button type="button" class="activity-item" data-view="memory" title="记忆" aria-label="切换到记忆">❖</button>
+      <button type="button" class="activity-item" data-view="metrics" title="运行画像" aria-label="切换到运行画像">📊</button>
       <button type="button" class="activity-item" data-view="settings" title="设置" aria-label="切换到设置">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -307,6 +308,15 @@
               <div id="memory-episodes" class="memory-episodes"></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div id="view-metrics" class="view">
+        <div id="metrics-scroll">
+          <h1>运行画像</h1>
+          <p class="dim">每轮的上下文占用、token、工具分布与冗余指标。统计口径与 R-099 的冗余治理度量同源，不各算各的。</p>
+          <div id="metrics-trend" class="metrics-trend" aria-label="跨轮趋势"></div>
+          <div id="metrics-rounds" class="metrics-rounds" aria-label="逐轮画像"></div>
         </div>
       </div>
 

@@ -181,6 +181,97 @@ pub struct FailureSignal {
 /// 引擎不额外采集,只做一次线性扫描 + 指纹聚合。纯函数,可单测。
 ///
 /// 只传本轮切片(`&summary.messages[prior_len..]`),否则会把历史失败重复上报。
+/// 一轮的调用画像(R-099):判断"冗余治理有没有效"所需的最小可比量。
+/// 全部来自本轮消息切片,不含历史——混进 prior 会让基线一路虚高。
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RunMetrics {
+    /// 终端调用次数(bash / process)。
+    pub terminal_calls: usize,
+    /// 其中被判定为 git 查询的次数(status/diff/log/show)。
+    pub git_calls: usize,
+    /// git 查询"组"数:连续的 git 查询算一组。同样是 6 次查询,
+    /// 分散在 6 处比挤成 1 组糟得多——组数才反映节奏问题。
+    pub git_groups: usize,
+    /// edit / multiedit 调用次数与其中失败(未命中)次数。
+    pub edit_calls: usize,
+    pub edit_misses: usize,
+    /// 子代理调用次数。
+    pub subagent_calls: usize,
+    /// 工具调用总次数与失败次数。
+    pub total_calls: usize,
+    pub failed_calls: usize,
+}
+
+impl RunMetrics {
+    /// edit 未命中率(无 edit 调用时为 0)。
+    pub fn edit_miss_rate(&self) -> f64 {
+        if self.edit_calls == 0 {
+            0.0
+        } else {
+            self.edit_misses as f64 / self.edit_calls as f64
+        }
+    }
+}
+
+/// 统计本轮调用画像。传 `&summary.messages[prior_len..]`,不要传全历史。
+pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
+    let mut metrics = RunMetrics::default();
+    let mut calls: std::collections::HashMap<String, (String, bool)> =
+        std::collections::HashMap::new();
+    // 上一次调用是否是 git 查询:用来把连续的 git 查询并成一组。
+    let mut prev_was_git = false;
+
+    for message in messages {
+        for part in &message.parts {
+            match part {
+                Part::ToolCall { id, name, input } => {
+                    let is_git = name == "bash" && is_git_query(input);
+                    calls.insert(id.clone(), (name.clone(), is_git));
+                    metrics.total_calls += 1;
+                    match name.as_str() {
+                        "bash" | "process" => {
+                            metrics.terminal_calls += 1;
+                            if is_git {
+                                metrics.git_calls += 1;
+                                if !prev_was_git {
+                                    metrics.git_groups += 1;
+                                }
+                            }
+                        }
+                        "edit" | "multiedit" => metrics.edit_calls += 1,
+                        "task" => metrics.subagent_calls += 1,
+                        _ => {}
+                    }
+                    prev_was_git = is_git;
+                }
+                Part::ToolResult { call_id, is_error, .. } => {
+                    if !*is_error {
+                        continue;
+                    }
+                    metrics.failed_calls += 1;
+                    if let Some((name, _)) = calls.get(call_id) {
+                        if name == "edit" || name == "multiedit" {
+                            metrics.edit_misses += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    metrics
+}
+
+fn is_git_query(input: &serde_json::Value) -> bool {
+    const QUERIES: &[&str] = &["git status", "git diff", "git log", "git show", "git blame"];
+    let command = input
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_lowercase();
+    QUERIES.iter().any(|q| command.contains(q))
+}
+
 /// 本轮完成的条目(R-124 SOP 提炼的触发闸门)。
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompletedEntry {
@@ -410,6 +501,49 @@ mod failure_tests {
             name: tool.into(),
             input: serde_json::json!({ "action": "update", "id": entry, "status": status }),
         }])
+    }
+
+    fn bash(id: &str, command: &str) -> Message {
+        Message::assistant(vec![Part::ToolCall {
+            id: id.into(),
+            name: "bash".into(),
+            input: serde_json::json!({ "command": command }),
+        }])
+    }
+
+    #[test]
+    fn 调用画像把连续_git_查询并成一组() {
+        let messages = vec![
+            // 一组:三条连着的 git 查询
+            bash("g1", "git status --porcelain"),
+            result("g1", "", false),
+            bash("g2", "git diff --stat"),
+            result("g2", "", false),
+            bash("g3", "git log --oneline -3"),
+            result("g3", "", false),
+            // 中间插入真正的工作,后面的 git 查询另起一组
+            call("e1", "edit", "path", "src/lib.rs"),
+            result("e1", "no match", true),
+            call("e2", "edit", "path", "src/lib.rs"),
+            result("e2", "ok", false),
+            bash("g4", "git status"),
+            result("g4", "", false),
+            bash("b1", "cargo test"),
+            result("b1", "ok", false),
+        ];
+        let m = summarize_metrics(&messages);
+        assert_eq!(m.terminal_calls, 5, "bash 调用总数");
+        assert_eq!(m.git_calls, 4);
+        assert_eq!(m.git_groups, 2, "连续查询应并成一组,分散才是节奏问题");
+        assert_eq!(m.edit_calls, 2);
+        assert_eq!(m.edit_misses, 1);
+        assert!((m.edit_miss_rate() - 0.5).abs() < 1e-9);
+        assert_eq!(m.failed_calls, 1);
+        assert_eq!(m.total_calls, 7);
+        assert_eq!(m.subagent_calls, 0);
+
+        // 无 edit 时未命中率是 0 而不是除零。
+        assert_eq!(summarize_metrics(&[]).edit_miss_rate(), 0.0);
     }
 
     #[test]

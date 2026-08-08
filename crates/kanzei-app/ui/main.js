@@ -127,6 +127,11 @@ const I18N_EN = {
   "已交给记忆管理子代理提炼": "Handed to the memory-manager subagent", "提炼失败": "Distillation failed",
   "直接移出候选箱,不再进入提炼范围": "Remove from the candidate box; it will not be distilled",
   "已丢弃": "Discarded", "丢弃失败": "Discard failed",
+  "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
+  "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
+  "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
+  "步": "steps", "终端": "terminal", "组": "groups", "未命中": "missed", "子代理": "subagents",
+  "失败": "failed", "上下文": "context", "该轮早于度量落地,无画像": "This round predates metrics collection — no profile",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -476,6 +481,7 @@ document.querySelectorAll(".activity-item").forEach((item) => {
     if (view === "workspace") refreshWorkspace();
     if (view === "documents") refreshDocs();
     if (view === "memory") refreshMemory();
+    if (view === "metrics") refreshMetrics();
   });
 });
 
@@ -4234,6 +4240,81 @@ async function refreshMemory() {
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+  }
+}
+
+// ---------- R-127 运行画像面板 ----------
+// 判断 agent 跑得好不好此前全靠翻轨迹。数据源早就有(RunSummary 的 context_report、
+// summarize_tools、summarize_metrics),缺的只是把它们汇到一处。
+async function refreshMetrics() {
+  if (!currentProject) {
+    $("metrics-rounds").innerHTML = `<p class="dim">${t("先在左侧「项目」里添加并选择一个目录")}</p>`;
+    return;
+  }
+  try {
+    const data = await invoke("run_metrics", { projectDir: currentProject, limit: 20 });
+    renderMetrics(data?.rounds ?? []);
+  } catch (err) {
+    toastError(`${t("运行画像加载失败")}:${err}`, { retry: refreshMetrics });
+  }
+}
+
+function renderMetrics(rounds) {
+  const trend = $("metrics-trend");
+  const list = $("metrics-rounds");
+  trend.innerHTML = "";
+  list.innerHTML = "";
+  if (!rounds.length) {
+    list.innerHTML = `<p class="dim">${t("还没有轮次记录:跑一轮后这里会出现画像")}</p>`;
+    return;
+  }
+  // 趋势:只统计确实度量过的轮次。把"早于度量落地"的轮次算成 0 会把趋势整体压低,
+  // 得出"冗余在下降"的假结论。
+  const measured = rounds.filter((r) => r.measured);
+  if (measured.length) {
+    const avg = (pick) => measured.reduce((sum, r) => sum + (pick(r) || 0), 0) / measured.length;
+    const cells = [
+      [t("平均终端调用"), avg((r) => r.metrics.terminal_calls).toFixed(1)],
+      [t("平均 git 查询组"), avg((r) => r.metrics.git_groups).toFixed(1)],
+      [t("edit 未命中率"), `${(avg((r) => (r.metrics.edit_calls ? r.metrics.edit_misses / r.metrics.edit_calls : 0)) * 100).toFixed(0)}%`],
+      [t("平均步数"), avg((r) => r.steps).toFixed(1)],
+      [t("平均输出 token"), Math.round(avg((r) => r.outputTokens))],
+    ];
+    trend.innerHTML =
+      `<div class="metrics-trend-head dim">${t("近")} ${measured.length} ${t("轮均值")}</div>` +
+      cells
+        .map(([name, value]) => `<div class="metrics-cell"><span class="dim">${escapeHtml(name)}</span><strong>${escapeHtml(String(value))}</strong></div>`)
+        .join("");
+  }
+  for (const round of rounds) {
+    const item = document.createElement("div");
+    item.className = `metrics-round${round.outcome === "halted" ? " halted" : ""}`;
+    const m = round.metrics || {};
+    const contextTotal = Object.values(round.context || {}).reduce(
+      (sum, entry) => sum + (Array.isArray(entry) ? entry[1] : Number(entry) || 0),
+      0,
+    );
+    const head = document.createElement("div");
+    head.className = "metrics-round-head";
+    head.innerHTML =
+      `<span>${escapeHtml(new Date(round.at).toLocaleString())}</span>` +
+      `<span class="dim">${escapeHtml(round.outcome)} · ${round.steps} ${t("步")} · ↑${round.inputTokens} ↓${round.outputTokens}</span>`;
+    const prompt = document.createElement("div");
+    prompt.className = "metrics-round-prompt dim";
+    prompt.textContent = round.prompt;
+    const stats = document.createElement("div");
+    stats.className = "metrics-round-stats dim";
+    stats.textContent = round.measured
+      ? `${t("终端")} ${m.terminal_calls ?? 0} · git ${m.git_calls ?? 0}(${m.git_groups ?? 0} ${t("组")}) · edit ${m.edit_misses ?? 0}/${m.edit_calls ?? 0} ${t("未命中")} · ${t("子代理")} ${m.subagent_calls ?? 0} · ${t("失败")} ${m.failed_calls ?? 0}/${m.total_calls ?? 0} · ${t("上下文")} ${contextTotal}`
+      : t("该轮早于度量落地,无画像");
+    const tools = document.createElement("div");
+    tools.className = "metrics-round-tools dim";
+    tools.textContent = Object.entries(round.tools || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => `${name}×${count}`)
+      .join("  ");
+    item.append(head, prompt, stats, tools);
+    list.appendChild(item);
   }
 }
 

@@ -419,6 +419,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             summary.usage.output,
             &serde_json::to_string(&tools).unwrap_or_default(),
             &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+            // R-099 调用画像:CLI 与桌面端落同一份口径,基线才可比。
+            &serde_json::to_string(&kanzei_core::summarize_metrics(this_run)).unwrap_or_default(),
         );
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。

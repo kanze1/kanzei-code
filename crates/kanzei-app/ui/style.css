@@ -569,6 +569,24 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-detail { max-height: 320px; overflow: auto; }
 .bg-args { max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 
+/* R-127:运行画像面板 */
+#metrics-scroll { padding: 18px 22px 30px; overflow-y: auto; width: 100%; }
+.metrics-trend {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch;
+  margin: 12px 0 16px; padding: 10px 12px;
+  background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--radius);
+}
+.metrics-trend-head { flex-basis: 100%; font-size: 11px; }
+.metrics-cell { display: flex; flex-direction: column; gap: 2px; min-width: 120px; font-size: 11px; }
+.metrics-cell strong { font-size: 16px; color: var(--fg-strong); font-family: var(--mono); }
+.metrics-rounds { display: flex; flex-direction: column; gap: 8px; }
+.metrics-round { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 4px; padding: 8px 10px; }
+.metrics-round.halted { border-left: 2px solid var(--warn); }
+.metrics-round-head { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; }
+.metrics-round-prompt { font-size: 11.5px; margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metrics-round-stats { font-size: 11px; font-family: var(--mono); }
+.metrics-round-tools { font-size: 10.5px; font-family: var(--mono); margin-top: 3px; white-space: normal; word-break: break-word; }
+
 /* R-124:待确认候选 */
 .memory-candidates { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
 .memory-candidate { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 8px; }
