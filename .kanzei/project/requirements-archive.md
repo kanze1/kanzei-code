@@ -993,3 +993,19 @@
 
 - 进展: 验收逐项证据：①界面按钮：crates/kanzei-app/ui/index.html 的 documents-toolbar 新增 #defect-review 与 aria-live #defect-review-status，中英资源登记在 ui/main.js::I18N_EN；②真实调用方：ui/main.js::runDefectReview 点击后 invoke("defect_review")，后端 crates/kanzei-app/src/main.rs::defect_review 已注册 Tauri handler，读取当前活动 defects，启动 fast→primary 独立审查；③安全与流程：defect_review_snapshot 沿用既有 SubagentBase/read/glob/grep 与 explore_agent，但本次新增专用审查 prompt、独立命令和空状态，代码层无写工具且不进入主 conversation/queue；④结果反馈：按钮处理中/完成/失败/空状态均写入 status，成功结果由本次新增 openRuntimeMarkdown 在应用内 Markdown 查看器展示；⑤自动化：kanzei-app 新增严格只读工具集、空报告、无缺陷免模型测试，ui-runtime-smoke 真实点击并断言 invoke/状态/报告渲染，i18n/a11y/markdown smoke 与 node --check 通过，cargo test --workspace 全绿。运行中已用 ui_dom/ui_console 检查文档工具栏与控制台；当前安装进程仍是旧构建，故新按钮的真实窗口 DOM 需在本提交构建更新后出现，运行时渲染由 smoke 实际执行覆盖。
 
+## R-136 fast 子代理模型基于 Ollama 一键安装与自动配置 [done]
+- 复杂度: 中
+- 优先级: P1
+- 归属: kanzei
+- 来源: 2026-08-08 用户定调:"子代理要能自动安装,基于 ollama,然后自动配置"
+- 内容: fast 角色(记忆整理、快速记录等子代理杂活)默认 `ollama:qwen3.5:4b`,但此前要用户手工装 Ollama、手工 pull、手工确认配置——三步断任何一步,这些杂活就**静默失效**,界面毫无线索。
+- 验收逐条对照(2026-08-08): ①设置页 fast 行下方常驻就绪状态:`✓ 子代理就绪(模型名)` 或 `⚠ 缺哪一环 — 子代理杂活暂不可用`,缺环精确到 未安装/服务未运行/模型未拉取;②「一键就绪子代理」按顺序自动完成 winget 静默装 Ollama → 起服务(轮询就绪,上限 20 秒) → `/api/pull` 流式拉模型,每步幂等、失败停在哪步说清下一步;③拉取进度实时刷到状态行与日志(百分比 + 已下/总量 MB),同句状态去重不刷屏;④配置零写盘——`fill_defaults` 已内置 ollama provider 与 fast 默认,拉完即解析可用;⑤fast 指向非本地 Ollama 的 provider 时明确拒绝托管,不替用户改他指定的外部模型;⑥无 winget 或安装失败时给出手动下载地址,不留死路。
+- 设计取舍: 一键触发而非启动时全自动——Ollama 安装包数百 MB、模型以 GB 计,未经确认的后台大流量下载不可接受;点一次之后全程自动即满足"能自动安装"。回环探测一律 no_proxy(挂系统代理反而连不上 127.0.0.1,与 models_list 同因)。
+- 验证: Rust 2 项(拉取进度行解析、服务探测对未监听端口快速返回不悬挂);冒烟 6 项(状态检测、缺环文案、后果说明、按钮显隐、一键调用、进度上屏);实机验证本机 Ollama 0.32.6 + qwen3.5:4b 判定为就绪。
+- 阶段: 3
+- 证据等级: E2+E4
+- 设计定位: 子代理杂活的开箱即用
+- refs: R-105 D-167
+
+- 标签: 核心
+

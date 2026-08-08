@@ -622,6 +622,9 @@ button:disabled { opacity: .45; cursor: default; }
   padding: 6px 10px; margin: 6px 0 10px; border-radius: 0 4px 4px 0;
 }
 .settings-effective.hidden { display: none; }
+/* R-136:fast 子代理就绪状态。缺哪一环要显眼——子代理杂活静默失效最难察觉 */
+.fast-setup-row { align-items: center; gap: 8px; }
+.warn-text { color: var(--warn); }
 
 /* R-127:运行画像面板 */
 #metrics-scroll { padding: 18px 22px 30px; overflow-y: auto; width: 100%; }

@@ -406,6 +406,9 @@ const payloads = {
   // 所选目录没有 .kanzei,实际根落在上级 —— 这正是需求串项目的形态。
   project_root_info: { selected: PROJECT, resolved: "C:/smoke/parent", shared: true },
   project_detach: null,
+  // R-136:Ollama 装了但服务没起 —— 最常见的"子代理静默失效"形态。
+  fast_model_status: { managed: true, model: "qwen3.5:4b", installed: true, serviceUp: false, modelPresent: false, ready: false },
+  fast_model_setup: "fast 子代理已就绪:qwen3.5:4b",
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
@@ -944,6 +947,25 @@ assert(
   !byId.get("settings-dirty").classList.contains("hidden"),
   "改了表单却没有「未保存」提示(界面显示 A、运行用 B 就是这么来的)",
 );
+
+// ---------- R-136 子代理模型一键就绪 ----------
+assert(invokeLog.includes("fast_model_status"), "设置页未检测子代理模型就绪状态");
+assert(
+  listText("fast-status").includes("服务未运行"),
+  `子代理不可用却没说清缺哪一环,实得: "${listText("fast-status")}"`,
+);
+assert(
+  listText("fast-status").includes("暂不可用"),
+  "未说明后果(记忆整理/快速记录这类杂活会静默失效)",
+);
+const fastSetupBtn = byId.get("fast-setup");
+assert(!fastSetupBtn.classList.contains("hidden"), "未就绪时应显示一键安装按钮");
+fastSetupBtn.click();
+await flush();
+assert(invokeLog.includes("fast_model_setup"), "点了一键就绪却没调后端");
+// 安装进度事件要能刷到状态行。
+handlers.get("kz:fast-setup")?.({ payload: { text: "pulling 50%(1500/3000 MB)" } });
+assert(listText("fast-status").includes("50%"), "安装进度未反映到界面");
 
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
 const modelSelect = byId.get("model-select");

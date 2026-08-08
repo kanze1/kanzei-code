@@ -138,6 +138,10 @@ const I18N_EN = {
   "在此建立独立空间": "Create its own space here", "只在本目录创建 .kanzei,不搬动上级目录的既有条目": "Creates .kanzei here only; existing entries in the parent are left untouched",
   "已建立独立空间": "Own space created", "建立独立空间失败": "Failed to create its own space",
   "已为本项目建立独立空间": "Gave this project its own space", "以下项目仍与上级目录共用数据,切过去可一键分离": "These projects still share a parent directory's data — switch to one to separate it",
+  "fast 指向外部 provider,不由本机托管": "fast points at an external provider — not managed locally",
+  "子代理就绪": "Subagent ready", "Ollama 未安装": "Ollama is not installed", "Ollama 服务未运行": "Ollama service is not running",
+  "模型未拉取": "Model not pulled", "子代理杂活(记忆整理/快速记录)暂不可用": "subagent chores (memory consolidation, quick capture) are unavailable",
+  "子代理安装": "Subagent setup", "子代理安装失败": "Subagent setup failed",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -6113,6 +6117,60 @@ $("models-refresh")?.addEventListener("click", async () => {
   toast(`${t("已重新探测")}:${knownModelIds.length}`);
 });
 
+// R-136:fast 子代理模型的就绪状态与一键安装。此前要用户手工装 Ollama、
+// 手工 pull、手工配置——三步里断任何一步,记忆整理/快速记录这些子代理杂活
+// 就全部静默失效,而界面上毫无线索。
+async function refreshFastStatus() {
+  const status = $("fast-status");
+  const btn = $("fast-setup");
+  if (!status || !btn) return;
+  let s;
+  try {
+    s = await invoke("fast_model_status");
+  } catch {
+    return;
+  }
+  if (!s.managed) {
+    status.textContent = t("fast 指向外部 provider,不由本机托管");
+    btn.classList.add("hidden");
+    return;
+  }
+  if (s.ready) {
+    status.textContent = `✓ ${t("子代理就绪")}(${s.model})`;
+    status.classList.remove("warn-text");
+    btn.classList.add("hidden");
+    return;
+  }
+  const missing = !s.installed
+    ? t("Ollama 未安装")
+    : !s.serviceUp
+      ? t("Ollama 服务未运行")
+      : `${t("模型未拉取")}(${s.model})`;
+  status.textContent = `⚠ ${missing} — ${t("子代理杂活(记忆整理/快速记录)暂不可用")}`;
+  status.classList.add("warn-text");
+  btn.classList.remove("hidden");
+}
+on("kz:fast-setup", (event) => {
+  const text = event.payload?.text;
+  if (!text) return;
+  $("fast-status").textContent = text;
+  log(`${t("子代理安装")}:${text}`);
+});
+$("fast-setup")?.addEventListener("click", async () => {
+  const btn = $("fast-setup");
+  btn.disabled = true;
+  try {
+    const done = await invoke("fast_model_setup");
+    toast(done);
+    await fillKnownModels();
+  } catch (err) {
+    toastError(`${t("子代理安装失败")}:${err}`);
+  } finally {
+    btn.disabled = false;
+    refreshFastStatus();
+  }
+});
+
 async function loadSettings() {
   let s;
   try {
@@ -6145,6 +6203,7 @@ async function loadSettings() {
   settingsProviders = s.providers;
   renderProviders();
   renderEffectiveNotice(s);
+  refreshFastStatus();
   // 刚从磁盘读回来 = 干净态,以此为基准比对后续改动。
   markSettingsSaved();
   loadPermissionRules();

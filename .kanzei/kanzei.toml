@@ -83,3 +83,13 @@ effect = "allow"
 action = "bash"
 resource = '{"command":"git status --short --branch","workdir":"c:/users/kanzei/documents/kanzei code"}'
 effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git add .kanzei/project; git commit -m /"整理发版前需求与缺陷追踪/"","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git log --format=/"%h %an <%ae> | %s/" -1; git log --format=/"%h %an <%ae> | %s/" origin/dev..dev","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
