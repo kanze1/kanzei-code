@@ -2077,3 +2077,25 @@
 - 优先级: P1
 - 标签: 核心
 
+## D-187 KANZEI_HOME 只有 memory 认,配置与 markdown 组件仍走真实 HOME [fixed] (medium)
+- 复现: `crates/kanzei-tools/src/memory/mod.rs` 读 `KANZEI_HOME` 决定记忆根;而 `crates/kanzei-harness/src/config.rs`(全局 kanzei.toml)与 `crates/kanzei-harness/src/markdown.rs`(agents/commands/skills)直接用 `dirs::home_dir()`。设了这个变量之后,记忆搬走了、配置与组件还在真 HOME。
+- 影响: 半个覆盖比不覆盖更容易骗人——用它做隔离测试或多实例并存时,会以为整个 kanzei 目录都换了位置,实际只换了记忆;两处根不一致导致的现象很难归因。
+- 根因: KANZEI_HOME 是记忆模块单独引入的,没有提升为全局 home 解析入口。
+- 验收: 要么全局统一(所有 `~/.kanzei` 消费点走同一个 `kanzei_home()` 函数,含 config/markdown/app.json/agent-containers),要么去掉 KANZEI_HOME 只保留 memory 内部用途并改名;不留"只覆盖一半"的状态。有测试覆盖。
+- 证据等级: E2
+- 优先级: P3
+- 标签: 核心
+
+- 进展: 修复(2026-08-09):新增 kanzei_harness::home::kanzei_home()(crates/kanzei-harness/src/home.rs)——KANZEI_HOME 优先、dirs::home_dir()/.kanzei 兜底,并 re-export 为 kanzei_harness::kanzei_home。全部 ~/.kanzei 消费点统一改走它:config.rs:159(全局 kanzei.toml)、markdown.rs:15(agents/commands/skills)、memory/mod.rs global_memory_root、app main.rs prefs_path/global_config_path/agent_container_path。语义不同的 home 消费点(dirs::home_dir 的 is_home_root/discover_project_root 用户边界、~/.cargo/bin、llm 凭证)保持 dirs 不变。新增单测两条(env 优先/默认回落)。workspace 304 项全绿。注:cargo test 期间发现某集成测试会把项目根 tracker 文件(D-207 进展字段)写脏,已按 git diff 恢复;污染源排查留 D-159/后续。
+
+## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [fixed] (low)
+- 复现: `%TEMP%\kanzei-update.log` 当前全部内容是 5 条"单测探针",时间 2026-08-08 23:08 与 2026-08-09 00:28——测试与生产用同一个绝对路径(crates/kanzei-app/src/main.rs:1367 附近的 update_log 测试)。
+- 影响: `update_log` 超 256 KiB 是整文件删,测试写入会稀释乃至挤掉真实的更新交接记录;而这个日志正是 D-182 为"更新过程无从复盘"专门建的入口,现在打开看到的全是测试噪声。
+- 根因: 日志路径写死为 `%TEMP%\kanzei-update.log`,测试没有走可注入的路径参数。
+- 验收: 测试写到独立临时文件(路径可注入或按 pid 隔离),生产日志里不再出现"单测探针";补一条断言防回归。
+- 证据等级: E1(本机日志内容实证)
+- 优先级: P3
+- 标签: 后端
+
+- 进展: 修复(2026-08-09):update_log 抽出显式路径版本 update_log_at(path,line)(crates/kanzei-app/src/main.rs:583 附近),生产 update_log 委托 update_log_path() 不变;测试改走 pid+nanos 隔离的独立临时文件,并新增反向断言——本次探针标记若出现在生产日志即失败(防回归)。旧探针日志已手动清理。kanzei-app 39 项测试全绿。
+
