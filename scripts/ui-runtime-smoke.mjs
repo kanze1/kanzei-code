@@ -855,6 +855,43 @@ assert(
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
+// ---------- D-169 列表被筛空必须说破，不能留一片空白 ----------
+// 持久化的标签在当前项目可能不存在:下拉回落成"全部"而状态没跟着回落,
+// 列表就被一个看不见的条件筛空——用户看到的是"需求凭空掉了"。
+// 走真实持久化路径:把一个当前项目里不存在的标签写进偏好,再触发恢复与重绘。
+const filtersKey = [...storage.keys()].find((k) => k.startsWith("kz-filters")) ?? "kz-filters:C:/smoke/project";
+storage.set(filtersKey, JSON.stringify({ req: { tag: "这个标签不存在", status: "all", priority: "all", complexity: "all", blocked: "all", sort: "manual" } }));
+sandbox.restoreDocFilters();
+await sandbox.refreshDocs();
+await flush();
+// 不变量:列表不得"无声变空"。要么标签回落后条目照常显示,要么明说被筛掉了多少。
+assert(
+  document.querySelectorAll("#req-list .doc-item").length > 0
+    || document.querySelector("#req-list .doc-filtered-empty"),
+  "不存在的标签把列表筛空了,且界面没有任何说明——看起来就是需求凭空掉了",
+);
+assert(
+  document.querySelectorAll("#req-list .doc-item").length > 0,
+  "当前项目没有这个标签,筛选状态应回落成「全部」而不是筛空",
+);
+
+// 真实存在但无匹配的筛选:验证"被筛空"的提示与一键清除。
+const statusFilterEl = byId.get("req-status-filter");
+statusFilterEl.value = "dropped";
+statusFilterEl._listeners.change?.forEach((fn) => fn({ target: statusFilterEl }));
+await flush();
+const filteredEmpty = document.querySelector("#req-list .doc-filtered-empty");
+assert(filteredEmpty, "列表被筛空却没有任何说明(一片空白最容易被当成数据丢失)");
+assert(/\d/.test(filteredEmpty.textContent), "未给出被隐藏的条数");
+const clearFiltersBtn = filteredEmpty.querySelector("button");
+assert(clearFiltersBtn, "被筛空时缺少一键清除筛选");
+clearFiltersBtn.click();
+await flush();
+assert(
+  document.querySelectorAll("#req-list .doc-item").length > 0,
+  "点了清除筛选,条目没有回来",
+);
+
 // ---------- D-168 设置页模型角色：可选、不丢已存值、被覆盖时明示 ----------
 const settingsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "settings");
 settingsTab?.click();

@@ -133,6 +133,7 @@ const I18N_EN = {
   "格式应为 provider:model": "Format must be provider:model",
   "以下项被项目级配置覆盖,本页的改动不会生效": "Overridden by the project config — changes here will not take effect",
   "(未设 · 用内置默认)": "(unset · use built-in default)", "已重新探测": "Re-probed",
+  "条被当前筛选隐藏": "hidden by the current filter", "清除筛选": "Clear filters",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -3868,10 +3869,14 @@ function tagOptions(entries) {
   const extras = [...seen].filter((tag) => !DOC_TAG_ORDER.includes(tag)).sort((a, b) => a.localeCompare(b));
   return [...DOC_TAG_ORDER.filter((tag) => seen.has(tag)), ...extras];
 }
+// 返回实际生效的值:保存的标签在当前项目里可能根本不存在,那时下拉会回落成
+// "全部",但**筛选状态必须跟着回落**——否则状态里还留着那个标签,列表被筛空,
+// 而界面显示"没有筛选",看起来就是"条目凭空掉了"(D-169)。
 function syncTagFilter(select, entries, selected = "all") {
   select.replaceChildren(new Option(localizeDynamic("全部标签"), "all"));
   for (const tag of tagOptions(entries)) select.appendChild(new Option(localizeDynamic(tag), tag));
   select.value = selectedOptions(select, selected);
+  return select.value;
 }
 function selectedOptions(select, selected) {
   return [...select.options].some((option) => option.value === selected) ? selected : "all";
@@ -4030,6 +4035,9 @@ function jumpToEntry(ref) {
 
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
   const surface = docSurface(el);
+  // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
+  // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。
+  const totalBeforeFilter = entries.length;
   // 筛选一律在这里做,调用方不得再预筛一遍——两处口径必须同源,否则侧栏与文档页
   // 会在同一筛选条件下给出不同的条目集合(R-123 验收 ④)。
   if (kind === "req") entries = filterRequirements(entries, reqFilterState);
@@ -4074,6 +4082,27 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       .map((item) => item.dataset.docId)
   );
   el.innerHTML = "";
+  // 被筛空:必须说清"有多少条被藏起来了"并给一键清除。此前这种情况下如果还有
+  // 归档条目,连"(空)"都不显示——纯一片空白,看起来就是需求全没了。
+  if (entries.length === 0 && totalBeforeFilter > 0) {
+    const hint = document.createElement("div");
+    hint.className = "doc-empty doc-filtered-empty";
+    hint.append(`${totalBeforeFilter} ${t("条被当前筛选隐藏")} · `);
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "ghost mini";
+    clear.textContent = t("清除筛选");
+    clear.addEventListener("click", () => {
+      for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
+        if (key in reqFilterState) reqFilterState[key] = "all";
+      }
+      saveDocFilters();
+      refreshDocs();
+    });
+    hint.appendChild(clear);
+    el.appendChild(hint);
+    return;
+  }
   if (entries.length === 0 && archivedCount === 0) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
@@ -4578,7 +4607,8 @@ function syncDocumentFilters(snapshot) {
   statusFilter.value = documentsKind === "both" ? "all" : filters.status;
   priorityFilter.value = filters.priority ?? "all";
   blockedFilter.value = filters.blocked ?? "all";
-  syncTagFilter(tagFilter, entries, filters.tag ?? "all");
+  // 回落必须写回状态,不能只改下拉的显示值。
+  filters.tag = syncTagFilter(tagFilter, entries, filters.tag ?? "all");
 }
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
@@ -4603,8 +4633,8 @@ function renderDocuments(snapshot) {
 }
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
-  syncTagFilter($("req-tag-filter"), snapshot.requirements ?? [], reqFilters.tag);
-  syncTagFilter($("defect-tag-filter"), snapshot.defects ?? [], defectFilters.tag);
+  reqFilters.tag = syncTagFilter($("req-tag-filter"), snapshot.requirements ?? [], reqFilters.tag);
+  defectFilters.tag = syncTagFilter($("defect-tag-filter"), snapshot.defects ?? [], defectFilters.tag);
   renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);
   renderDocList($("defect-list"), snapshot.defects, "defect", snapshot.archived?.defect ?? 0, defectFilters, snapshot.archived_entries?.defect ?? []);
   renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, reqFilters, snapshot.archived_entries?.goal ?? []);
