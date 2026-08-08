@@ -461,6 +461,8 @@ fn startup_update() -> bool {
     let Ok(exe) = std::env::current_exe() else { return false };
     // 上次更新的备份因镜像锁删不掉,会残留一份 .previous:启动时清理。
     let _ = std::fs::remove_file(exe.with_extension("exe.previous"));
+    // helper 副本自己删不掉自己(运行中锁着),由下一次启动回收(D-182)。
+    let _ = std::fs::remove_file(update_helper_path());
     let pending = pending_path(&exe);
     if !pending.is_file() { return false; }
     match Command::new(&exe)
@@ -568,26 +570,80 @@ Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" |
     let _ = cmd.output();
 }
 
+/// 更新交接用的 helper 副本。**必须**是安装目录之外的一份拷贝(D-182):
+/// 原实现直接 `Command::new(current_exe())` 起 helper,而那就是安装器要替换的
+/// `kzapp.exe`——父进程退出后 helper 仍在跑同一个镜像,Windows 一直锁着它,
+/// NSIS 覆盖不了,更新就此静默失败。
+fn update_helper_path() -> PathBuf {
+    std::env::temp_dir().join("kanzei-update-helper.exe")
+}
+
+/// 更新交接日志。GUI 进程没有可见的 stderr,原实现只 `eprintln!`,
+/// 于是"检查更新没反应"永远查不出原因——这才是真正卡住诊断的地方(D-182)。
+fn update_log(line: &str) {
+    use std::io::Write as _;
+    let path = std::env::temp_dir().join("kanzei-update.log");
+    // 有界:超过 256 KiB 从头重来,日志本身不该变成垃圾。
+    if std::fs::metadata(&path).is_ok_and(|meta| meta.len() > 256 * 1024) {
+        let _ = std::fs::remove_file(&path);
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(file, "[{stamp}] {line}");
+    }
+    eprintln!("kzapp:update {line}");
+}
+
 fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
-    wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
+    update_log(&format!(
+        "helper 启动 installer={} exe={} parent={parent_pid}",
+        installer.display(),
+        exe.display()
+    ));
+    let exited = wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
+    update_log(&format!("父进程退出={exited}"));
     // 句柄释放晚于进程退出,再让一手。
     std::thread::sleep(std::time::Duration::from_millis(600));
     // 交接前清孤儿 webview:发起方退出后它的 WebView2 子进程可能存活,
     // 既碍安装器替换文件,又会让新实例黑屏(D-171)。
     cleanup_orphan_webviews();
-    match Command::new(installer).arg("/S").status() {
-        Ok(status) if status.success() => {}
-        Ok(status) => {
-            eprintln!("kzapp:安装器退出码 {status},不重启,保留安装包供手动执行");
+    // 用 output() 而不是 status():安装器的 stdout/stderr 是唯一能说明
+    // "为什么没装上"的东西,丢掉它等于把诊断入口关死。
+    match Command::new(installer).arg("/S").output() {
+        Ok(out) if out.status.success() => {
+            update_log("安装器 exit=0");
+        }
+        Ok(out) => {
+            update_log(&format!(
+                "安装器失败 exit={:?} stdout={} stderr={}",
+                out.status.code(),
+                String::from_utf8_lossy(&out.stdout).trim(),
+                String::from_utf8_lossy(&out.stderr).trim(),
+            ));
+            update_log("保留安装包供手动执行,不重启");
             return;
         }
         Err(error) => {
-            eprintln!("kzapp:启动安装器失败: {error}");
+            update_log(&format!("启动安装器失败: {error}"));
             return;
         }
     }
-    if let Err(error) = Command::new(exe).spawn() {
-        eprintln!("kzapp:安装完成但拉起新版本失败: {error}(手动启动即可)");
+    // 装完核对:安装目录的镜像必须真的变新了。NSIS 在目标被占用时也可能
+    // 报 exit=0 而什么都没换,只信退出码会把"静默没装上"当成成功。
+    match std::fs::metadata(exe).and_then(|meta| meta.modified()) {
+        Ok(modified) => update_log(&format!("安装后 exe mtime={modified:?}")),
+        Err(error) => update_log(&format!("安装后读不到 exe: {error}")),
+    }
+    match Command::new(exe).spawn() {
+        Ok(_) => update_log("已拉起新版本"),
+        Err(error) => update_log(&format!("拉起新版本失败: {error}(手动启动即可)")),
     }
     let _ = std::fs::remove_file(installer);
 }
@@ -1288,6 +1344,30 @@ mod update_tests {
         assert_eq!(event.payload["reason"], "stopped_by_user");
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-182:更新交接的 helper 必须是安装目录**之外**的副本。原实现用
+    /// `current_exe()` 起 helper,而那正是安装器要替换的 kzapp.exe——父进程退出后
+    /// helper 仍锁着同一个镜像,NSIS 换不掉,更新静默失败。
+    #[test]
+    fn 更新交接helper跑在安装目录之外() {
+        let helper = super::update_helper_path();
+        let temp = std::env::temp_dir();
+        assert!(
+            helper.starts_with(&temp),
+            "helper 必须落在 TEMP,实得 {}",
+            helper.display()
+        );
+        // 名字也不能叫 kzapp.exe:同名会被安装器的"关闭运行实例"逻辑连带处理。
+        assert_ne!(
+            helper.file_name().and_then(|n| n.to_str()),
+            Some("kzapp.exe")
+        );
+        // 日志落点固定且与 helper 同目录,出问题时用户捞得到。
+        super::update_log("单测探针");
+        let log = temp.join("kanzei-update.log");
+        assert!(log.is_file(), "交接日志必须落盘: {}", log.display());
+        assert!(std::fs::read_to_string(&log).unwrap().contains("单测探针"));
     }
 
     /// D-179:停止不得再吃掉整轮轨迹。收尾代码全在被 abort 的 task 里,
@@ -4076,7 +4156,16 @@ async fn update_install(app: tauri::AppHandle, url: String) -> Result<String, St
     std::fs::write(&path, &bytes)
         .map_err(|e| format!("写入安装包失败:{e}(检查 %TEMP% 是否可写或被杀软占用)"))?;
     let exe = std::env::current_exe().map_err(|e| format!("无法定位自身路径:{e}"))?;
-    Command::new(&exe)
+    // helper 必须跑安装目录**之外**的副本(D-182):直接用 exe 起 helper 时,
+    // 父进程退出后 helper 仍锁着同一个 kzapp.exe 镜像,NSIS 替换不了,
+    // 于是安装静默失败——下载成功、文件一个没换,正是实测到的现象。
+    let helper = update_helper_path();
+    let _ = std::fs::remove_file(&helper);
+    std::fs::copy(&exe, &helper).map_err(|e| {
+        format!("准备更新交接程序失败:{e}。可手动运行 {} 完成安装。", path.display())
+    })?;
+    update_log(&format!("交接:helper={} 安装包={}", helper.display(), path.display()));
+    Command::new(&helper)
         .arg("--kz-install-helper")
         .arg(&path)
         .arg(&exe)

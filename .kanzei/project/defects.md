@@ -113,3 +113,17 @@
 - 优先级: P0
 - 标签: 核心
 - refs: D-177
+
+## D-182 应用内更新静默失败:交接 helper 就是安装器要替换的 kzapp.exe,镜像被锁 [fixing] (high)
+- 复现: 2026-08-08 22:43 用户点设置页「检查更新」升 build-ea6d058。安装包完整落到 `%TEMP%\kanzei-setup.exe`(9,564,216 字节),但 `%LOCALAPPDATA%\kanzei` 三个文件的时间戳仍停在 21:35,一个都没换,界面上也没有任何失败提示。
+- 排除项: ①安装包本身没问题——同一个文件指定目录能完整装出 kzapp+kz(exit 0);②下载没问题——字节数与 release 资产一致;③不是权限问题——kzapp 未运行时同一个包装得进去。
+- 根因: `update_install` 用 `Command::new(current_exe())` 起交接 helper,而 `current_exe()` 就是安装器要替换的 `%LOCALAPPDATA%\kanzei\kzapp.exe`。父进程 `app.exit(0)` 之后 helper 仍在跑同一个镜像文件,Windows 全程锁着它,NSIS 覆盖不了。`run_install_helper` 里安装器非 0 退出就 `return` 且**不删安装包**——TEMP 里那个文件还在,与这条路径吻合。
+- 诊断为何困难: helper 只用 `eprintln!` 报错,而 GUI 进程没有可见 stderr,失败原因无处可查。这是本缺陷真正卡住排查的地方,与根因同等重要。
+- 影响: 应用内更新整条通道失效,只能靠手工静默安装;且失败无声,用户以为装上了,实际仍在旧版——本次正是如此。
+- 验收: ①helper 跑安装目录之外的副本,安装目录内无任何被本进程锁住的文件;②helper 名字不同于 kzapp.exe(避免被安装器的关闭运行实例逻辑连带处理);③交接全过程写入 `%TEMP%\kanzei-update.log`,含父进程退出与否、安装器退出码与 stdout/stderr、安装后 exe 时间戳、拉起结果;④安装器报 exit=0 也要回读 exe 时间戳核对,不能只信退出码;⑤helper 副本由下次启动回收;⑥有测试锁住 helper 落点与日志落盘。
+- 修复进展(2026-08-08): 新增 `update_helper_path()`(`%TEMP%\kanzei-update-helper.exe`),`update_install` 先复制再起该副本;`run_install_helper` 改用 `output()` 捕获安装器 stdout/stderr,全程 `update_log` 落盘,并在安装后回读 exe mtime;`startup_update` 顺手回收残留的 helper 副本。
+- 验证(2026-08-08): kzapp 新增「更新交接helper跑在安装目录之外」,断言落点在 TEMP、名字不叫 kzapp.exe、日志真的落盘;kzapp 35 项通过。真实「检查更新」验证待本版发出后由用户执行,故保持 fixing。
+- 优先级: P0
+- 标签: 发布
+- refs: D-175
+- 备注: 排查期间我用 `/D=<临时目录>` 做探针,误以为它只影响本次安装;NSIS 会把该路径写成新的 InstallLocation,导致随后一次 `/S` 装到了临时目录、看起来像"exit 0 却什么都没换"。已用 `/D=%LOCALAPPDATA%\kanzei` 装回并核对注册表。该探针也毁掉了 22:43 当时注册表值这条证据。
