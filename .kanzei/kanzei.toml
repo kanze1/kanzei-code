@@ -98,3 +98,23 @@ effect = "allow"
 action = "bash"
 resource = '{"command":"get-childitem -path /"docs/" -recurse -file | select-object fullname, length, lastwritetime | format-table -autosize","workdir":"c:/users/kanzei/documents/kanzei code"}'
 effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"write-host /"=== temp update log ===/"; if (test-path /"$env:temp/kanzei-update.log/") { get-content /"$env:temp/kanzei-update.log/" } else { write-host /"(不存在)/" }; write-host /"=== temp helper/installer ===/"; get-childitem /"$env:temp/" -filter /"kanzei-*/" -erroraction silentlycontinue | select-object name, length, lastwritetime; write-host /"=== localappdata kanzei ===/"; get-childitem /"$env:localappdata/kanzei/" -erroraction silentlycontinue | select-object name, length, lastwritetime; write-host /"=== running kzapp ===/"; get-process kzapp -erroraction silentlycontinue | select-object id, starttime, path","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"./scripts/release.ps1 -skiptests 2>&1 | foreach-object { $_ }","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"write-host /"=== 安装位版本 ===/"; (get-item /"$env:localappdata/kanzei/kzapp.exe/").versioninfo | select-object productversion, fileversion | format-list; write-host /"=== 文件时间 ===/"; get-item /"$env:localappdata/kanzei/kzapp.exe/" | select-object lastwritetime, length | format-list; write-host /"=== 进程 ===/"; get-process -name /"kzapp/",/"msedgewebview2/" -erroraction silentlycontinue | select-object id, processname, starttime | format-table; write-host /"=== kz cli ===/"; kz --version 2>&1; write-host /"=== pending ===/"; test-path /"$env:localappdata/kanzei/kzapp.exe.pending/"","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git grep -n /"cleanup_orphan_webviews/" -- crates/kanzei-app/src/main.rs","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
