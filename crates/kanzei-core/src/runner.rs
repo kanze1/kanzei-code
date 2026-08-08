@@ -20,6 +20,8 @@ pub struct RunnerConfig {
     pub max_tokens: u32,
     /// 思考强度;由调用方(CLI/桌面端)按配置或运行时选择传入。
     pub reasoning: ReasoningEffort,
+    /// 该模型的上下文窗口。None = 未知,轮内不做主动预算(只保留撞墙后的被动恢复)。
+    pub context_limit: Option<u64>,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
@@ -34,6 +36,30 @@ pub const MAX_STREAM_RESTARTS: u32 = 2;
 /// Provider 上下文计算可能比本地估算更严格。首次超限保留有界历史摘要，
 /// 第二次超限只保留当前用户消息；再失败就把真实错误交给调用方。
 pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
+
+/// 轮内主动压缩的触发线(占 context_limit 的比例)。
+pub const CONTEXT_BUDGET_RATIO: f64 = 0.7;
+/// 轮内主动压缩的次数上限。压缩后仍超线说明单条消息本身就过大,再压无益,
+/// 交给撞墙后的被动恢复,别在这里空转。
+const MAX_PROACTIVE_COMPACTIONS: u32 = 3;
+
+/// 本步请求的 token 粗估:system + 历史 + **工具 schema**。
+///
+/// 工具 schema 必须计入——它每一步都整份重发,在工具多的 profile 下是常驻大头,
+/// 漏算就会让预算长期偏低、该压的时候不压。粒度沿用 len/4,与既有压缩预检同源。
+fn estimate_prompt_tokens(system: &[String], messages: &[Message], specs: &[ToolSpec]) -> u64 {
+    let system_bytes: usize = system.iter().map(String::len).sum();
+    let message_bytes = serde_json::to_string(messages).map_or(0, |text| text.len());
+    let spec_bytes: usize = specs
+        .iter()
+        .map(|spec| {
+            spec.name.len()
+                + spec.description.len()
+                + spec.input_schema.to_string().len()
+        })
+        .sum();
+    ((system_bytes + message_bytes + spec_bytes) / 4) as u64
+}
 
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
@@ -138,6 +164,15 @@ pub enum RunEvent {
     /// 流中途断开后重放本步请求。本步工具尚未执行,零副作用;
     /// UI 收到后应丢弃本步已渲染的残缺输出,等待重新生成。
     StreamRestart { attempt: u32, max: u32, delay_ms: u128 },
+    /// 轮内主动压缩:到达上下文预算线,就地裁剪历史(D-176)。
+    /// 与撞墙后的被动恢复区分开——这条是"没撞墙就先让了路"。
+    ContextCompacted {
+        before_tokens: u64,
+        after_tokens: u64,
+        budget_tokens: u64,
+        limit_tokens: u64,
+        dropped_messages: usize,
+    },
     StepEnd {
         usage: Usage,
         reason: FinishReason,
@@ -814,6 +849,8 @@ pub fn run_once_with_parts<'a>(
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
     let mut overflow_recoveries = 0;
+    // 主动压缩与撞墙后的被动恢复各记各的:主动让路不该吃掉被动恢复的重试额度。
+    let mut proactive_compactions = 0u32;
     let mut overflow_traces: Vec<String> = Vec::new();
 
     let mut step = 0u32;
@@ -825,6 +862,31 @@ pub fn run_once_with_parts<'a>(
         // "不盘点"。到第 20/40 步各插一次检查点,只要求当轮盘一次剩余范围,
         // 不强制中止——实测长轮的成本失控几乎都始于无人察觉的目标漂移。
         let budget_checkpoint = matches!(step, 20 | 40 | 80);
+
+        // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
+        // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
+        // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
+        // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
+        if let Some(limit) = config.context_limit {
+            let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
+            let before = estimate_prompt_tokens(&system, &messages, &specs);
+            if before > budget
+                && proactive_compactions < MAX_PROACTIVE_COMPACTIONS
+                && messages.len() > 1
+            {
+                let dropped_messages = messages.len();
+                compact_messages_for_retry(&mut messages, &mut overflow_traces);
+                proactive_compactions += 1;
+                let after = estimate_prompt_tokens(&system, &messages, &specs);
+                on_event(RunEvent::ContextCompacted {
+                    before_tokens: before,
+                    after_tokens: after,
+                    budget_tokens: budget,
+                    limit_tokens: limit,
+                    dropped_messages: dropped_messages.saturating_sub(messages.len()),
+                });
+            }
+        }
 
         // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
         // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
@@ -1565,6 +1627,9 @@ async fn run_subagent(
         max_tokens: rt.max_tokens,
         // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。
         reasoning: ReasoningEffort::Off,
+        // 子代理跑的是 fast 模型,窗口未必与主模型同源;这里不传上限,
+        // 让它继续走撞墙后的被动恢复,不按主模型的预算误压。
+        context_limit: None,
     };
     let mut on_event = |event: RunEvent| {
         let text = match &event {
@@ -1790,14 +1855,74 @@ fn preview(content: &str) -> String {
 mod tests {
     use super::{
         append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
-        drain_task_events, execute_prepared_tools, recover_context_overflow, PreparedToolCall,
-        RunEvent, MAX_STREAM_RESTARTS,
+        drain_task_events, estimate_prompt_tokens, execute_prepared_tools,
+        recover_context_overflow, PreparedToolCall, RunEvent, CONTEXT_BUDGET_RATIO,
+        MAX_STREAM_RESTARTS,
     };
     use async_trait::async_trait;
     use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
     use kanzei_llm::{LlmError, Message, Part};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+
+    /// D-176:轮内预算必须把**工具 schema** 算进去。它每步整份重发,在工具多的
+    /// profile 下是常驻大头;漏算会让预算长期偏低,该压的时候不压。
+    #[test]
+    fn 上下文估算把工具schema计入并按预算线判定() {
+        let system = vec!["s".repeat(400)];
+        let messages = vec![Message::user_text("m".repeat(4_000))];
+        let specs = vec![kanzei_llm::ToolSpec {
+            name: "bash".into(),
+            description: "d".repeat(2_000),
+            input_schema: serde_json::json!({ "blob": "x".repeat(4_000) }),
+        }];
+
+        let without_tools = estimate_prompt_tokens(&system, &messages, &[]);
+        let with_tools = estimate_prompt_tokens(&system, &messages, &specs);
+        assert!(
+            with_tools >= without_tools + 1_400,
+            "工具 schema 必须计入预算: {without_tools} -> {with_tools}"
+        );
+
+        // 预算线的语义:超过 limit*ratio 才动手,没超不动。
+        let limit = 3_000u64;
+        let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
+        assert_eq!(budget, 2_100);
+        assert!(with_tools > budget, "构造的样本应当越线: {with_tools}");
+        // 同一个样本在不计工具 schema 时并不越线——这正是漏算会漏压的场景。
+        assert!(without_tools < budget, "{without_tools}");
+        assert!(
+            estimate_prompt_tokens(&system, &[Message::user_text("短")], &[]) < budget,
+            "小请求不该越线"
+        );
+    }
+
+    /// 压缩后必须真的变小,而且当前用户消息要留下——否则模型会丢掉正在做的事。
+    #[test]
+    fn 主动压缩显著缩小上下文且保留当前用户消息() {
+        let system = vec![String::new()];
+        let mut messages: Vec<Message> = (0..40)
+            .map(|i| Message::user_text(format!("历史第 {i} 条 {}", "x".repeat(500))))
+            .collect();
+        messages.push(Message::user_text("当前这条必须留下"));
+        let before = estimate_prompt_tokens(&system, &messages, &[]);
+
+        let mut traces = Vec::new();
+        compact_messages_for_retry(&mut messages, &mut traces);
+        let after = estimate_prompt_tokens(&system, &messages, &[]);
+
+        assert!(after * 2 < before, "压缩要真的见效: {before} -> {after}");
+        assert!(!traces.is_empty(), "被裁掉的段必须留下轨迹");
+        let text: String = messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(|p| match p {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(text.contains("当前这条必须留下"), "当前用户消息不能被裁掉");
+    }
 
     struct ProbeTool {
         name: &'static str,

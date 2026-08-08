@@ -3223,6 +3223,7 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
             model: resolved.model,
             max_tokens: 8192,
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -3348,6 +3349,7 @@ async fn quick_req(
             max_tokens: 2048,
             // 快记是机械结构化,不开思考。
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -3768,6 +3770,7 @@ async fn consolidate_memory_inbox(project_dir: String) {
             model: resolved.model.clone(),
             max_tokens: 4096,
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -5387,6 +5390,9 @@ async fn run_task(
             .or(config.models.reasoning.as_deref())
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
+        // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
+        // 根本轮不到它,真正起作用的是这条。
+        context_limit: resolved.provider.context_limit,
     };
     let ctx = ToolCtx { cwd, project_root };
 
@@ -5512,6 +5518,32 @@ async fn run_task(
                 emit_event(
                     "kz:tool-end",
                     json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
+                )
+            }
+            // 轮内主动压缩:UI 要看得见"什么时候让的路、让掉了多少",
+            // 否则历史突然变短只会被当成 bug(D-176)。
+            RunEvent::ContextCompacted {
+                before_tokens,
+                after_tokens,
+                budget_tokens,
+                limit_tokens,
+                dropped_messages,
+            } => {
+                trace_log.lock().unwrap().push(json!({
+                    "kind": "context.compacted", "before": before_tokens, "after": after_tokens,
+                    "budget": budget_tokens, "limit": limit_tokens,
+                    "dropped": dropped_messages, "at": now_ms(),
+                }));
+                emit_event(
+                    "kz:status",
+                    json!({
+                        "stage": "压缩",
+                        "detail": format!(
+                            "上下文约 {}k 已达 {}k 预算线(上限 {}k),就地压缩为 {}k,裁掉 {dropped_messages} 条历史",
+                            before_tokens / 1000, budget_tokens / 1000,
+                            limit_tokens / 1000, after_tokens / 1000
+                        ),
+                    }),
                 )
             }
             RunEvent::PermissionResolved {

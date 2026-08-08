@@ -150,6 +150,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             .as_deref()
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
+        // 轮内主动压缩的预算基准(D-176)。
+        context_limit: resolved.provider.context_limit,
     };
     let ctx = ToolCtx { cwd, project_root };
 
@@ -256,6 +258,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 "\x1b[31m✗\x1b[0m"
             };
             let _ = writeln!(stdout, "  {mark} {preview}");
+        }
+        RunEvent::ContextCompacted { before_tokens, after_tokens, limit_tokens, dropped_messages, .. } => {
+            let _ = writeln!(
+                stdout,
+                "\x1b[90m上下文到线,已压缩:约 {before_tokens} → {after_tokens} token(上限 {limit_tokens},裁掉 {dropped_messages} 条)\x1b[0m"
+            );
         }
         // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
         RunEvent::PermissionResolved { action, resource, decision, source, .. } => {
@@ -503,6 +511,7 @@ async fn consolidate_memory_inbox(
             model: resolved.model.clone(),
             max_tokens: 4096,
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {

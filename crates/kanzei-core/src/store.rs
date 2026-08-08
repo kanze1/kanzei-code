@@ -22,11 +22,31 @@ pub fn project_state_path(project_root: &Path) -> PathBuf {
 pub fn project_session_id(project_root: &Path) -> String {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    project_root
-        .to_string_lossy()
-        .to_lowercase()
-        .hash(&mut hasher);
+    session_identity(project_root).hash(&mut hasher);
     format!("ses_project_{:016x}", hasher.finish())
+}
+
+/// 会话身份用的路径形态(D-176)。
+///
+/// 同一个目录必须只有一个会话 id。桌面端走 `normalized_project_root`,里面的
+/// `std::fs::canonicalize` 在 Windows 上会返回 `\\?\C:\...` 扩展长度前缀;CLI 走
+/// 裸 `discover_project_root`,拿到的是 `C:\...`。两者只做 lowercase 后哈希,于是
+/// 同一个项目裂成两条会话线,历史与队列互相看不见——实测本仓库就同时存在
+/// `ses_project_c0b8d63…`(裸)与 `ses_project_ce2fce9…`(canonical)两条。
+///
+/// 这里剥掉 `\\?\` / `\\?\UNC\` 前缀并去掉末尾分隔符。**分隔符刻意不做统一**:
+/// 裸路径形态的哈希必须与历史保持一致,否则所有既有会话会一次性全部改名、
+/// 历史集体失联。代价是 `C:/x` 这种正斜杠写法仍算另一个 id,但实际调用方
+/// (discover_project_root / canonicalize / PathBuf::display)在 Windows 上一律
+/// 产出反斜杠,这条路径不会被走到。
+fn session_identity(project_root: &Path) -> String {
+    let raw = project_root.to_string_lossy();
+    let stripped = raw
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or_else(|| raw.to_string());
+    stripped.trim_end_matches(['\\', '/']).to_lowercase()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -1173,6 +1193,37 @@ mod tests {
 
     /// D-175:迁移是单向的,升级前必须留下可回退的完整副本;
     /// 遇到更新版本的库时,报错要说清该升哪个程序,而不是让人去删库。
+    /// D-176:桌面端(canonicalize 带 `\\?\`)与 CLI(裸路径)必须落到同一个会话。
+    #[test]
+    fn 同一目录的各种路径写法收敛到同一个会话id() {
+        let bare = Path::new(r"C:\Users\kanzei\Documents\kanzei code");
+        let canonical = Path::new(r"\\?\C:\Users\kanzei\Documents\kanzei code");
+        assert_eq!(project_session_id(bare), project_session_id(canonical));
+        // 大小写与末尾分隔符同样不该分裂会话。
+        assert_eq!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\Kanzei\Documents\KANZEI CODE\"))
+        );
+        // UNC 的扩展长度前缀映射回普通 UNC 写法。
+        assert_eq!(
+            project_session_id(Path::new(r"\\?\UNC\server\share\proj")),
+            project_session_id(Path::new(r"\\server\share\proj"))
+        );
+        // 不同目录仍然是不同会话。
+        assert_ne!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\kanzei\Documents\other"))
+        );
+
+        // 向后兼容的硬约束:裸路径的身份串必须仍是"原样小写",否则既有会话
+        // 会被一次性改名、全部历史失联。这里不断言哈希字面量——DefaultHasher
+        // 跨 Rust 版本不保证稳定,断言身份串才是真正的不变量。
+        assert_eq!(
+            super::session_identity(bare),
+            r"c:\users\kanzei\documents\kanzei code"
+        );
+    }
+
     #[test]
     fn 升级前留下整库备份且更高版本给出可执行指引() {
         let path = std::env::temp_dir().join(format!(
