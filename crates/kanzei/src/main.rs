@@ -560,7 +560,7 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     let action = args.get(1).map(String::as_str).unwrap_or("list");
     let mut input = serde_json::json!({ "action": action });
     match action {
-        "get" | "close" | "update" => {
+        "get" | "close" | "update" | "repair_reused_id" => {
             if let Some(id) = args.get(2) {
                 input["id"] = serde_json::json!(id);
             }

@@ -20,7 +20,7 @@ pub struct TrackerTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
-    /// list | get | add | update | close | archive | reorder
+    /// list | get | add | update | close | archive | reorder | repair_reused_id
     action: String,
     /// reorder 用:完整的 ID 新顺序(必须恰好覆盖当前全部条目)
     #[serde(default)]
@@ -54,7 +54,7 @@ impl Tool for TrackerTool {
 
     fn description(&self) -> String {
         let mut d = format!(
-            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file), reorder(order: complete id list — file order IS the user's dev order). Statuses: {}.",
+            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file), reorder(order: complete id list — file order IS the user's dev order), repair_reused_id(id) (renumber a semantically different archived entry when its ID was reused by an active entry). Statuses: {}.",
             self.noun,
             self.kind.statuses.join("→"),
         );
@@ -85,18 +85,26 @@ impl Tool for TrackerTool {
         // 实测 R-104/107/108/110 从活动与归档同时消失后,告警连响 5 个提交无人处理,
         // 最后靠旧副本偶然捞回。改为:发现缺号/重复时**拒绝一切写操作**,读操作照常放行,
         // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
-        const WRITE_ACTIONS: &[&str] = &["add", "update", "close", "archive", "reorder"];
-        if WRITE_ACTIONS.contains(&input.action.as_str()) {
+        const WRITE_ACTIONS: &[&str] = &[
+            "add",
+            "update",
+            "close",
+            "archive",
+            "reorder",
+            "repair_reused_id",
+        ];
+        if WRITE_ACTIONS.contains(&input.action.as_str()) && input.action != "repair_reused_id" {
             let issues = store.integrity_issues(&entries);
             if !issues.is_empty() {
                 return ToolOutput::error(format!(
                     "REFUSING to write {}: tracker integrity is broken.\n{}\n\
-                     Fix it first (reads still work): find the lost entries with \
+                     Fix it first (reads still work): for a reused ID whose active/archive entries have different meanings, call `{} repair_reused_id <id>`; otherwise find lost entries with \
                      `git log -S \"## <id>\" -- {}` and restore them, or add an explicit \
                      tombstone entry for ids that are genuinely unrecoverable. \
                      Writing now would bury the loss under unrelated changes.",
                     self.kind.rel_path,
                     issues.join("\n"),
+                    self.tool_name,
                     self.kind.rel_path,
                 ));
             }
@@ -139,6 +147,18 @@ impl Tool for TrackerTool {
                         Some(e) => ToolOutput::ok(format!("{} (archived)", render_full(&e))),
                         None => ToolOutput::error(unknown_id(id, &entries)),
                     },
+                }
+            }
+            "repair_reused_id" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for repair_reused_id");
+                };
+                match store.repair_reused_archived_id(id) {
+                    Ok(new_id) => ToolOutput::ok(format!(
+                        "repaired reused ID: archived {id} → {new_id}; active {id} kept unchanged. Commit `{}` and its archive file together.",
+                        self.kind.rel_path,
+                    )),
+                    Err(e) => ToolOutput::error(format!("repair_reused_id failed: {e}")),
                 }
             }
             "archive" => match store.archive_terminal() {
@@ -700,7 +720,7 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::TrackerTool;
-    use crate::docstore::{DocStore, Entry, REQUIREMENTS};
+    use crate::docstore::{DocStore, Entry, GOALS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
 
@@ -860,6 +880,61 @@ mod tests {
         let out = tool.execute(json!({"action": "add", "title": "恢复后可写"}), &ctx).await;
         assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 复用历史_id_可改号修复且不会丢归档自由内容() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-reused-id-repair-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let project = dir.join(".kanzei/project");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("goals.md"),
+            "# Goals\n\n## G-001 长期目标 [active]\n- 进展: 旧\n\n## G-002 新长期目标 [active]\n- 来源: R-093\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project.join("goals-archive.md"),
+            "# Goals Archive\n\n## G-002 旧短期目标 [achieved]\n- 验收: 达成即 `goal update G-002 achieved`\n\n手写归档说明 G-002 不能丢\n\n## G-003 另一目标 [achieved]\n",
+        )
+        .unwrap();
+        let tool = TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        let repaired = tool
+            .execute(json!({"action": "repair_reused_id", "id": "G-002"}), &ctx)
+            .await;
+        assert!(!repaired.is_error, "{}", repaired.content);
+        assert!(repaired.content.contains("G-004"), "{}", repaired.content);
+        let active = std::fs::read_to_string(project.join("goals.md")).unwrap();
+        let archive = std::fs::read_to_string(project.join("goals-archive.md")).unwrap();
+        assert!(active.contains("## G-002 新长期目标 [active]"));
+        assert!(archive.contains("## G-004 旧短期目标 [achieved]"));
+        assert!(archive.contains("goal update G-004 achieved"));
+        assert!(archive.contains("手写归档说明 G-004 不能丢"));
+
+        let updated = tool
+            .execute(
+                json!({"action": "update", "id": "G-001", "fields": {"进展": "新"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!updated.is_error, "修复后普通写操作应恢复: {}", updated.content);
+        let store = DocStore::open(&dir, &GOALS);
+        let entries = store.load().unwrap();
+        assert!(store.integrity_issues(&entries).is_empty());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

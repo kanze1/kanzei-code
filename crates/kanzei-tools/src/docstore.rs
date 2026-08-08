@@ -237,6 +237,76 @@ impl DocStore {
         }
     }
 
+    /// 修复“历史归档 ID 被后来的活动条目复用”：保留活动条目的当前 ID，
+    /// 把语义不同的历史归档条目迁到下一个未使用 ID。若两份内容相同，说明更像
+    /// 归档半途而废，不能靠改号掩盖，应人工判断哪一份才该保留。
+    pub fn repair_reused_archived_id(&self, id: &str) -> std::io::Result<String> {
+        let active = self.load()?;
+        let mut archived = self.load_archive()?;
+        let Some(active_entry) = active.iter().find(|entry| entry.id == id) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{id} 不在活动文档中"),
+            ));
+        };
+        let Some(archived_pos) = archived.iter().position(|entry| entry.id == id) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{id} 不在归档文档中"),
+            ));
+        };
+        if active_entry == &archived[archived_pos] {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{id} 的活动与归档内容相同，疑似未完成归档，拒绝自动改号"),
+            ));
+        }
+        let issues = self.integrity_issues(&active);
+        if issues.len() != 1 || !issues[0].contains(id) || issues[0].contains(',') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("除 {id} 复用外仍有其他完整性问题: {}", issues.join("; ")),
+            ));
+        }
+
+        let new_id = self.next_id(&active);
+        let archived_entry = &mut archived[archived_pos];
+        archived_entry.id = new_id.clone();
+        archived_entry.title = archived_entry.title.replace(id, &new_id);
+        for (_, value) in &mut archived_entry.fields {
+            *value = value.replace(id, &new_id);
+        }
+
+        let mut template = self.preserved_archive.lock().unwrap().clone().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "归档模板未加载")
+        })?;
+        let entry_template = template
+            .entries
+            .iter_mut()
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("归档模板中找不到 {id}"),
+                )
+            })?;
+        entry_template.id = new_id.clone();
+        for line in &mut entry_template.lines {
+            if let TemplateLine::Raw(text) = line {
+                *text = text.replace(id, &new_id);
+            }
+        }
+
+        let text = render_with_template(self.kind, &archived, &template).replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        std::fs::write(self.archive_file(), text)?;
+        *self.preserved_archive.lock().unwrap() = Some(template);
+        Ok(new_id)
+    }
+
     /// 终态条目移入归档文件(追加,幂等):活跃文件只留进行中的,前端与
     /// 上下文注入都不再被完成项干扰;历史仍可随时翻(get 会回落到归档)。
     /// 返回被移动的条目 ID——调用方必须能告知"哪些条目去了哪个文件"(D-112)。

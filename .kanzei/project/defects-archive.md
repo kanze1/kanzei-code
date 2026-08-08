@@ -1579,3 +1579,52 @@
 - 备注: 落地位置 scripts/ui-runtime-smoke.mjs(节点构造正则、setAttribute、matchesCompound)。这类"护栏形同虚设"与 D-138 同源,属同一类问题的第二次发作。
 - 标签: 流程
 
+## D-152 单元测试在开发机上执行伪造安装器,弹出「与 64 位 Windows 不兼容」 [fixed] (high)
+- 原标题: Windows 安装包在 64 位 Windows 上提示不兼容(误判,见下)
+- 复现: 跑 `cargo test -p kanzei-app` 时 Windows 弹出"由于与64位版本的Windows不兼容，此程序或功能无法运行"，路径 `AppData\Local\Temp\kz-helper-*\kanzei-setup.exe`。
+- 标签: 发布
+- 误判澄清: **发布产物本身没有问题**。①报错路径里的 `kz-helper-<pid>` 是 `install_helper_waits_for_the_caller_to_exit_before_installing` 这条单测建的临时目录,不是真安装包所在的 `%TEMP%\kanzei-setup.exe`;②实测 dist/kanzei-setup-430d6d6.exe 的 PE 头 machine=0x14c(32 位),这是 NSIS 的常规形态——32 位安装器在 64 位 Windows 上经 WoW64 正常运行,并负责安装 64 位负载,产物名里的 x64 指的是负载架构而非安装器自身;③本会话已用该安装包成功静默安装四次(exit 0,安装后构建号逐次核验一致)。
+- 真实根因: 上述单测为了验证"helper 必须等发起方退出",让 `run_install_helper` 跑完整流程,而它写进临时目录的是一个 23 字节的假 exe(`MZ not-a-real-installer`);等待结束后 helper 真的去 `Command::new(installer).arg("/S")` 执行它,Windows 无法把它当作有效映像加载,于是报架构不兼容。**测试不该在开发机上启动伪造可执行文件**。
+- 修复: 抽出 `wait_for_parent_exit(pid, timeout)` 纯时序函数,单测只验这条不变量(父进程活着时等满超时、父进程不存在时立即放行),不再触碰执行环节;整条 helper 的执行分支不进单测。副作用:该测试从 30 秒降到约 1 秒。
+- 验收: cargo test -p kanzei-app 通过且不再弹出任何 Windows 对话框;发布安装包架构核验记录在案。
+- 优先级: P0
+- 证据等级: E2
+- 不变量: 测试:不得在开发机上产生真实副作用
+- refs: D-124
+
+## D-153 图标位混入彩色 emoji,与单色图标集不成套 [fixed] (low)
+- 复现: 2026-08-08 用户截图两处。①活动栏「运行画像」是 📊,而同栏的对话/设置是描边 SVG、工作区/文档/记忆是 ⌂ ☷ ❖ 单色字形,彩色 emoji 夹在中间像贴上去的;②历史对话标题栏的批量删除是 🗑,而同排的 ＋ ↻ ↗ ✎ 全是单色字形。
+- 根因: 整套图标词汇本是单色描边字形/SVG(⌂ ☷ ❖ ✦ ＋ ↻ ↗ ▽ ☰ ✎ ⑂ ⧉ ⌫ ✕),但没有任何机制约束"图标位只能用单色"。R-127 加运行画像入口时顺手用了 📊,🗑 则是更早就在的。彩色 emoji 由系统字体渲染,颜色、粗细、基线都与其余图标对不齐。
+- 影响: 纯观感,但正是这类细节让界面显得没收拾过;且无人拦截,后续每加一个入口都可能再犯。
+- 验收: ①两处换成同风格描边 SVG(fill=none, stroke=currentColor, stroke-width=1.6),`.icon-btn svg` 与文字字形等高;②tooltip 文案里引用 🗑 的表述改为「标题栏的删除图标」,中英文同步;③冒烟机械挡住——扫 `activity-item` 与 `icon-btn` 的内容,出现 U+1F000–U+1FAFF 即失败,并对扫描到的按钮数设下限,防止正则与标记脱节后变成空跑。
+- 边界: 只管图标位。正文里的语义标记(💬 实时提示、⚠ 完整性告警、🔔 窗口标题提醒、📎 附件)不在此列——那些是行内文字标记,emoji 在那里是合理的。
+- 优先级: P3
+- 阶段: 3
+- 不变量: 前端:图标位只用单色字形或描边 SVG
+- 证据等级: E3
+- 备注: 护栏已反验:把 📊 塞回活动栏,冒烟报「图标位出现彩色 emoji」并失败,还原后通过。
+- refs: R-127 R-123
+- 标签: 前端
+
+## D-154 深色界面里原生勾选框是白底 [fixed] (low)
+- 复现: 2026-08-08 用户截图。历史对话标题栏的「全选」勾选框在深色背景上是一块刺眼的白底方块;设置页导出区的四个勾选框、独立文档页的批量选择框同理。
+- 根因: `:root` 从未声明 `color-scheme`,浏览器按浅色渲染全部原生控件(勾选框、单选、下拉弹层、日期选择、文本光标)。此前只有 `.conv-row input[type="checkbox"]` 单独设过 `accent-color`——那只改选中色,改不了未选中态的底色,而且逐个覆盖既漏又难维护:本次新增的 `.doc-pick` 和更早的导出勾选框就都漏了。
+- 影响: 纯观感,但白底方块在深色界面里格外扎眼;且每加一个勾选框就会再犯一次。
+- 验收: ①`:root` 声明 `color-scheme: dark`,一次性覆盖所有原生控件;②勾选/单选统一 `accent-color: var(--accent)`,选中态用界面强调色而非系统蓝;③冒烟静态检查这两条——计算样式里看不出"浏览器用了哪套控件配色",只能查声明。
+- 优先级: P3
+- 阶段: 3
+- 不变量: 前端:原生控件必须跟随深色主题
+- 证据等级: E3
+- 备注: 护栏已反验:删掉 `color-scheme: dark` 冒烟失败,还原后通过。既有的 `::-webkit-scrollbar` 与各 input 的显式背景优先级更高,不受影响。
+- refs: D-153
+- 标签: 前端
+
+## D-155 G-002 同时存在于目标活动与归档文件导致 goal 工具全写保护 [fixed] (high)
+- 优先级: P1
+- 复现: goal update G-001 写入长期目标进展时被拒：tracker integrity is broken，G-002 同时存在于 goals.md 与 goals-archive.md。
+- 标签: 流程
+- 根因: 目标条目 G-002 在活动文件与归档文件重复，违反 tracker ID 唯一性；写保护因此拒绝所有 goal 写操作。
+- 证据等级: E1
+- 验收: G-002 只保留符合当前长期 active 状态的一份；goal 工具完整性恢复，可成功更新 G-001；增加或确认 tracker 完整性覆盖。
+- 修复: 新增专用 `repair_reused_id` 动作：DocStore 在 crates/kanzei-tools/src/docstore.rs:239-318 仅对活动/归档语义不同的复用 ID 改写历史归档项，保留活动项，并同步归档模板、字段与手写自由文本；相同内容的未完成归档拒绝自动改号。TrackerTool 在 tracker.rs:88-162 允许该修复动作穿过完整性写保护，CLI 在 crates/kanzei/src/main.rs:563 接入。
+- 验收证据: ① 实际执行后 .kanzei/project/goals.md:9 保留长期 G-002 active，goals-archive.md:10 的旧短期目标迁为 G-004；② goal update G-001 已成功，goals.md:6 已落盘新进展，证明普通写操作恢复；③ tracker.rs:885-940 回归覆盖改号、自由内容/字段内自引用同步、修复后普通 update 与完整性全绿；定向测试和 cargo test --workspace 全绿。
