@@ -24,7 +24,13 @@ $env:KANZEI_BUILD_INFO = "$hash $build_at"
 # 数目对不上就中止。多出来一个提交就是一次强制停顿。
 $lastTag = (git -C $root tag --list "build-*" --sort=-creatordate | Select-Object -First 1)
 $range = if ($lastTag) { "$lastTag..HEAD" } else { "HEAD~10..HEAD" }
+# git log 输出 UTF-8 提交信息;PowerShell 默认按系统代码页捕获,会把含多字节
+# 的行尾吞掉、相邻行合并(实测 6 个提交被判成 5,发布被误拦)。先切到 UTF-8
+# 捕获,行边界才精确——提交数判据错了,D-183 门禁就形同虚设。
+$prevEncoding = [Console]::OutputEncoding
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $commits = @(git -C $root log $range --format="%h|%an|%s")
+[Console]::OutputEncoding = $prevEncoding
 Write-Host "==> 发布范围 $range —— $($commits.Count) 个提交" -ForegroundColor Cyan
 foreach ($line in $commits) {
     $parts = $line -split '\|', 3
@@ -84,8 +90,12 @@ if ($Publish) {
     $tag = "build-$hash"
     Write-Host "==> publishing GitHub release $tag" -ForegroundColor Cyan
     # 变更日志复用上面已核对过的同一个区间,不再另算一遍——两处口径必须一致,
-    # 否则 release notes 说的和实际发出去的可能不是一回事。
+    # 否则 release notes 说的和实际发出去的可能不是一回事。同样在 UTF-8 捕获下
+    # 取,否则中文提交信息吞行会让 notes 与清单差一行。
+    $prevEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $log = git -C $root log $range --format="- %s"
+    [Console]::OutputEncoding = $prevEncoding
     $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date),范围 $range 共 $($commits.Count) 个提交(已核对)。应用内「检查更新」以此为源。"
     $notesFile = Join-Path $env:TEMP "kanzei-release-notes.md"
     Set-Content $notesFile $notes -Encoding UTF8
