@@ -632,8 +632,12 @@ const instrumented = source
     "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
   );
 if (instrumented === source) fail("注入初始化异常探针失败:main.js 启动序列的 catch 形态已变化,请同步冒烟脚本");
+// R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。
+const instrumentedWithHooks =
+  instrumented +
+  "\n;globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };";
 try {
-  vm.runInContext(instrumented, sandbox, { filename: "main.js" });
+  vm.runInContext(instrumentedWithHooks, sandbox, { filename: "main.js" });
 } catch (err) {
   fail(`main.js 顶层执行抛异常: ${err.stack ?? err}`);
 }
@@ -1236,6 +1240,109 @@ sandbox.renderProcesses([
 ]);
 await flush();
 assert(document.querySelector(".process-tab.active")?.textContent.includes("主会话"), "重建用例收尾后活动进程未回到主会话");
+
+// ---------- R-076 鞭挞状态机:防空转硬化与外部阻塞刹车 ----------
+// 前置:切回中文(前面 i18n 段把界面留在英文,刹车原因文案断言按中文写),
+// 切到 dev-auto(鞭挞仅此档位可跑),把计数拨到已知状态。
+assert(sandbox.__kzTest, "未注入鞭挞状态测试钩子");
+const savedProfileForWhip = byId.get("profile-select").value;
+const savedAutoCheck = byId.get("auto-continue").checked;
+const savedLangForWhip = languageControl.value;
+languageControl.value = "zh";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+byId.get("profile-select").value = "dev-auto";
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.reset();
+// ① 实质进展轮(edit 等非只读工具):计入推进轮次,不刹车。
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { read: 2, edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 1, `实质进展轮应计入推进轮次,实得 ${sandbox.__kzTest.rounds()}`);
+assert(byId.get("auto-continue").checked, "实质进展轮不应关掉自动推进");
+// ② 只有 memory_note 的轮次(写日记):第一次只追加推进指令,第二次刹车。
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.noAction() === 1, "写日记轮次第一次应记为无动作并追加推进指令");
+assert(sandbox.__kzTest.rounds() === 2, "追加推进指令也应占推进轮次");
+assert(byId.get("auto-continue").checked, "写日记轮次第一次不应立即刹车");
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 0, "连续两轮无实质动作后推进计数应清零");
+assert(sandbox.__kzTest.stopReason().includes("连续两轮无动作"), `刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+assert(byId.get("auto-status").textContent.includes("连续两轮无动作"), `#auto-status 未显示刹车原因: ${byId.get("auto-status")?.textContent}`);
+// ③ 真实改动轮(bash/edit)不触发无动作,也不被记成空转。
+sandbox.__kzTest.reset();
+handlers.get("kz:done")?.({ payload: { steps: 4, halted: false, tools: { bash: 1, edit: 2 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 1, "真实改动轮应继续推进");
+assert(sandbox.__kzTest.noAction() === 0, "真实改动轮不得计为无动作");
+// ④ 外部阻塞刹车:需求/缺陷全部带 blocked 标记 → 无可推进项,停并给出阻塞原因。
+const savedDocsSnapshot = structuredClone(payloads.docs_snapshot);
+payloads.docs_snapshot = {
+  requirements: [docEntry("R-001", "被阻塞需求", "doing", { blocked: true })],
+  defects: [docEntry("D-001", "被阻塞缺陷", "open", { blocked: true })],
+};
+sandbox.__kzTest.setRounds(3); // 模拟鞭挞进行中
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(!byId.get("auto-continue").checked, "需求/缺陷全部被阻塞时自动推进应停止");
+assert(sandbox.__kzTest.rounds() === 0, "阻塞刹车后推进计数应清零");
+assert(sandbox.__kzTest.stopReason().includes("全部被阻塞"), `阻塞刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+payloads.docs_snapshot = savedDocsSnapshot;
+// ⑤ 恢复桩数据后,存在可推进条目时不得误刹车。
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.setRounds(1);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(byId.get("auto-continue").checked, "存在可推进条目时不得因阻塞刹车");
+// ⑥ backlog 清空(无任何活动条目):停止,原因与阻塞区分。
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.setRounds(2);
+payloads.docs_snapshot = { requirements: [], defects: [] };
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(!byId.get("auto-continue").checked, "需求/缺陷清空时自动推进应停止");
+assert(sandbox.__kzTest.stopReason().includes("已清空"), `清空刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+payloads.docs_snapshot = savedDocsSnapshot;
+// ⑦ 本轮后停:本轮完成后停,开关自动取消勾选。
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.setRounds(1);
+sandbox.__kzTest.setStopAfterRound(true);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(!byId.get("auto-stop-round").checked, "本轮后停后开关应自动取消勾选");
+assert(sandbox.__kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${sandbox.__kzTest.stopReason()}`);
+// ⑧ 达到上限:推进轮数等于上限即停,原因明确。
+byId.get("auto-continue").checked = true;
+const autoMaxWhip = Number.parseInt(byId.get("auto-max").value, 10) || 10;
+sandbox.__kzTest.setRounds(autoMaxWhip);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 0, "达到上限后推进计数应清零");
+assert(sandbox.__kzTest.stopReason().includes("已达连上限"), `上限刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+// ⑨ 暂停:暂停中完成本轮 → 停;恢复后再推进轮次照常增长。
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.setPaused(true);
+sandbox.__kzTest.setRounds(1);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.stopReason().includes("已暂停"), `暂停刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
+sandbox.__kzTest.setPaused(false);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 2, `恢复后推进轮次应继续增长,实得 ${sandbox.__kzTest.rounds()}`);
+// ⑩ 用户拒绝(halted):整段鞭挞分支不进入,推进计数原地不动(不续也不清零)。
+sandbox.__kzTest.setRounds(4);
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+await flush();
+assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
+// 收尾:恢复冒烟前置环境(语言/档位/开关/计数)。
+byId.get("profile-select").value = savedProfileForWhip;
+byId.get("auto-continue").checked = savedAutoCheck;
+languageControl.value = savedLangForWhip;
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+sandbox.__kzTest.reset();
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
 const activityItems = document.querySelectorAll(".activity-item");

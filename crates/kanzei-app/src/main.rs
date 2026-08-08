@@ -6065,6 +6065,10 @@ async fn run_task(
     let summary = run_result?;
 
     let history_len = summary.messages.len();
+    // R-076:本轮工具画像随 kz:done 带给前端,鞭挞据此判定「实质进展」——
+    // 只算本轮切片,不含 prior,否则历史工具调用让每一轮都看着像有动作。
+    let this_run_tools =
+        kanzei_core::summarize_tools(&summary.messages[prior.len().min(summary.messages.len())..]);
     conversation
         .lock()
         .unwrap()
@@ -6143,6 +6147,7 @@ async fn run_task(
             "output": summary.usage.output,
             "cacheRead": summary.usage.cache_read,
             "cacheWrite": summary.usage.cache_write,
+            "tools": this_run_tools,
         }), &session_id),
     );
     Ok(())

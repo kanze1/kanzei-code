@@ -1119,3 +1119,27 @@
 
 - 进展: 状态权威定为「每会话一个前端状态机 + 后端 running 为真值源」：控制事件按 sessionId 先更新状态机再决定是否投影视图，视图只投影活动会话。本轮交付：①前端 sessionStates 状态机与 kz:ask 的按会话入队/切回重放；②后端补会话级终态事件 kz:idle（run_prompt 的 run loop 退出时发，reason 区分 completed/failed），前端只认 kz:idle/kz:stopped 收敛 converged、并用每轮必发的 kz:turn 自愈——修掉了「kz:done 其实是轮末事件却被当会话终态」引入的回归：排队输入的多轮运行从第二轮起标签页熄灯、切回显示空闲并解禁发送键，且 converged 屏蔽了轮询校正再也纠不回来；③pending_asks_get 接进 renderProcesses 的首次渲染（按会话去重），界面重载后后端仍在 await 的挂起询问能被重建，此前该查询全仓只有 switchProcess 一个调用点。验证：ui-runtime-smoke 新增「多轮不熄灯 / kz:idle 才收敛 / 切回可见可答复不串会话 / 重载后从后端重建」四组断言，cargo test --workspace 269 项全绿。剩余：控制事件仍未带运行代次（run_id），停止后紧接重发这类极窄竞态下旧事件仍可能错配，需要时再上代次方案；验收整体待桌面端双进程真机实测（E2/E3）。
 
+## R-076 鞭挞模式触发异常 bug 修复 [done]
+- 复杂度: 中
+- 归属: kanzei
+- 优先级: P2
+- 原始描述: 鞭挞模式现在的触发有BUG
+- 验收: 冷启动、暂停恢复、本轮后停、达到上限、用户拒绝、backlog 清空与外部阻塞场景均有确定状态迁移;无实质进展时不会靠写日记/无关工具绕过刹车;完整流程写入 tests.md 并在 UI 测试记录中可查看。
+- 已完成: 冷启动勾选会调度第一轮,暂停恢复会在轮间重新调度;最大连数、用户拒绝、需求/缺陷清空能停止。
+- 重新开放原因: 原验收明确要求“在 test 中标记通过”,当前 tests.md 和真实记录入口尚未打通(R-080);防空转仍以 steps>1 软判断,一次无意义工具调用即可继续;blocked-but-open backlog 也不会停。
+- 下一步: 先完成 R-080 的测试记录供给链,再把“实质进展/阻塞”变为可判定状态并覆盖状态机测试。
+- refs: D-044 R-085 R-080
+- 阶段: 2
+- 证据等级: E2
+- 设计定位: 鞭挞状态机可判定化,依赖测试记录供给链
+- 依赖: R-080
+
+- 标签: 核心
+
+- 进展: R-080 已关闭,测试记录供给链(R-080 交付的 test_record + UI test_runs_snapshot 展示)不再阻塞。本轮补齐两块可判定化并覆盖状态机测试,验收逐条对照:
+① 七种场景确定状态迁移——全部落在 ui/main.js kz:done 鞭挞分支与 stopAutoWhenBacklogEmpty:冷启动(勾选后首轮调度,2206-2267 + scheduleAutoContinue 2706-2716,冒烟场景① rounds 0→1)、暂停恢复(2207-2210 停 + 恢复后续跑,冒烟⑨)、本轮后停(2212-2221,冒烟⑦)、达到上限(2225-2231,冒烟⑧)、用户拒绝(2206 !p.halted 整段跳过,冒烟⑩ rounds 原地不动)、backlog 清空(2718+ stopAutoWhenBacklogEmpty,冒烟⑥ 原因「已清空」)、外部阻塞(新增:active 全部 blocked 即停,原因「全部被阻塞」,冒烟④)。
+② 防空转硬化——后端 kz:done payload 新增本轮工具画像(crates/kanzei-app/src/main.rs:6068-6071 计算 this_run_tools=summarize_tools(本轮切片)、6150 行 "tools" 字段);前端 NON_PROGRESS_TOOLS 非进展工具集 + hasProgressTools(ui/main.js:2511-2523),noAction = steps<=1 || !hasProgressTools(p.tools)(2237)。只有 memory_note/read/grep 等纯读·写日记·探测工具的轮次不再靠 steps>1 蒙混:第一次追加推进指令、第二次刹车(冒烟②);真实改动轮 bash/edit 正常推进(冒烟③)。工具名粒度分不出 git status/commit,bash/git 留在进展侧,误判成空转的代价(真干活被打断)高于漏判,设计取舍记录于此。
+③ 完整流程写入 tests.md 并可在 UI 测试记录查看——test_record T-1786221328(命令+摘要)已落盘归档,tests.md/tests-archive.md 由 R-080 供给链自动接入 UI 测试记录列表(既有能力)。
+验证:ui-runtime-smoke 新增 10 组鞭挞断言(214 次 invoke,0 运行时错误);四条前端冒烟全绿(i18n 35 key);cargo test --workspace 13 crate 全绿(kanzei-app 39 项)。
+残余:外部阻塞判定只看 req/defect 的 blocked 标记,goal 队列未纳入(鞭挞驱动的是 req/defect 队列,设计定位一致);E2 真机桌面验证随 R-101 harness 补。
+
