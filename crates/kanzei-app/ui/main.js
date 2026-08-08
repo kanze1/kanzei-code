@@ -80,6 +80,11 @@ const $ = (id) => document.getElementById(id);
 const messages = $("messages");
 const promptBox = $("prompt");
 const I18N_EN = {
+  "agent 正在做这一条": "The agent is working on this item",
+  "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
+  "分组视图下不可拖拽调序——点上方分组开关关闭后可拖": "Reordering is disabled in grouped view — turn off grouping above to drag",
+  "当前为排序视图,顺序仅供查看——切回「手动」排序后可拖拽调整取活顺序": "This sorted view is display-only — switch back to Manual sort to drag and change the work order",
+  "有筛选时不可拖拽(顺序不完整)——清除筛选后可拖": "Reordering is disabled while filters are active (order would be incomplete) — clear filters to drag",
   "关于 kanzei": "About kanzei",
   "kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。": "kanzei is a file-first daily development tool that makes context, permissions, memory, and work traces visible, replayable, and verifiable.",
   "从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。": "Select a project on the left and enter a task in the conversation. For permission requests, choose allow, deny, or always allow. Results, errors, and tool details stay in the current session.",
@@ -4310,6 +4315,23 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     el.appendChild(empty);
     return;
   }
+  // 拖不动必须说出原因(D-207):拖拽禁用是对的(分组/筛选/排序视图下视觉顺序≠
+  // 文件顺序,提交会错乱),静默禁用是错的——用户只看到"拖不动",不知道差哪一步。
+  // 逐项报第一个命中的原因,并给出解法。
+  if ((kind === "req" || kind === "defect") && entries.length > 1) {
+    const dragOk = !isGrouped && docDragEnabled(kind, el, reqFilterState);
+    if (!dragOk) {
+      const reason = isGrouped
+        ? t("分组视图下不可拖拽调序——点上方分组开关关闭后可拖")
+        : kind === "req" && reqFilterState.sort !== "manual"
+          ? t("当前为排序视图,顺序仅供查看——切回「手动」排序后可拖拽调整取活顺序")
+          : t("有筛选时不可拖拽(顺序不完整)——清除筛选后可拖");
+      const dragHint = document.createElement("div");
+      dragHint.className = "drag-hint";
+      dragHint.textContent = `🔒 ${reason}`;
+      el.appendChild(dragHint);
+    }
+  }
   let position = 0;
   for (const entry of entries) {
     if (groupHeaders.has(position)) {
@@ -4330,7 +4352,13 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
       && /外部|external|blocked/i.test(String(value))
     );
-    item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}`;
+    // 取活焦点标记(D-207):在做的高亮呼吸,下一个次亮。基于数据而非视图计算,
+    // 任何排序/分组/筛选下都标同一批条目——用户随便调视图,仍知道 agent 会怎么走。
+    const isAgentActive = !entry.closed && agentFocus.active.has(entry.id);
+    const isAgentNext = !entry.closed && agentFocus.next === entry.id;
+    item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}${isAgentNext ? " agent-next" : ""}`;
+    if (isAgentActive) item.title = t("agent 正在做这一条");
+    else if (isAgentNext) item.title = t("agent 下一个会拿这一条(按取活顺序)");
     item.dataset.docId = entry.id;
 
     const row = document.createElement("div");
@@ -4812,6 +4840,8 @@ function syncDocumentFilters(snapshot) {
 }
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
+  // tab 直调不经 renderDocsSnapshot,work-priority 可能刚切过——重算一次,幂等。
+  agentFocus = computeAgentFocus(snapshot);
   const reqList = $("documents-req-list");
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
@@ -4831,8 +4861,43 @@ function renderDocuments(snapshot) {
   if (compareTab) compareTab.className = both ? "primary" : "ghost";
   syncBatchBar();
 }
+// 取活焦点(D-207):在做的条目与 agent 下一个会拿的条目。数据取 scheduler 序的
+// snapshot(可执行在前+block_reasons),按当前 work-priority 跨需求/缺陷两队计算——
+// 这就是 agent 实际会走的顺序。结果只依赖数据,与视图排序/分组/筛选无关,
+// 所以无论用户怎么调整视图,标记始终落在同一批条目上:所见即取活。
+let agentFocus = { active: new Set(), next: null };
+function computeAgentFocus(snapshot) {
+  const focus = { active: new Set(), next: null };
+  if (!snapshot) return focus;
+  const reqs = snapshot.requirements ?? [];
+  const defs = snapshot.defects ?? [];
+  for (const entry of reqs) if (entry.status === "doing") focus.active.add(entry.id);
+  for (const entry of defs) if (entry.status === "fixing") focus.active.add(entry.id);
+  // 下一个 = 取活序里第一个可开工且还没在做的条目。WIP 规则下 agent 会先做完
+  // 高亮的那些;这一条是它们之后第一个被拿起的。
+  const firstWorkable = (list, openStatus) =>
+    list.find(
+      (entry) =>
+        entry.status === openStatus &&
+        !(Array.isArray(entry.block_reasons) && entry.block_reasons.length)
+    );
+  const queues =
+    selectedWorkPriority() === "requirement-first"
+      ? [[reqs, "todo"], [defs, "open"]]
+      : [[defs, "open"], [reqs, "todo"]];
+  for (const [list, openStatus] of queues) {
+    const hit = firstWorkable(list, openStatus);
+    if (hit) {
+      focus.next = hit.id;
+      break;
+    }
+  }
+  return focus;
+}
+
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
+  agentFocus = computeAgentFocus(snapshot);
   reqFilters.tag = syncTagFilter($("req-tag-filter"), snapshot.requirements ?? [], reqFilters.tag);
   defectFilters.tag = syncTagFilter($("defect-tag-filter"), snapshot.defects ?? [], defectFilters.tag);
   renderDocList($("req-list"), snapshot.requirements, "req", snapshot.archived?.req ?? 0, reqFilters, snapshot.archived_entries?.req ?? []);

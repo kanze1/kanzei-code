@@ -649,6 +649,17 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
+// D-207:取活焦点标记——在做的(doing/fixing)高亮,取活序下一个(defect-first 下
+// 第一个无阻塞的 open 缺陷)次亮。基于数据计算,与视图排序/分组无关。
+{
+  const active = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
+  assert(active?.classList.contains("agent-active"), "doing 条目 R-001 未标记 agent-active(在做高亮丢失)");
+  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  assert(next?.classList.contains("agent-next"), "defect-first 下首个可开工缺陷 D-001 未标记 agent-next(取活预览丢失)");
+  assert(!next.classList.contains("agent-active"), "open 条目不该被标成在做");
+  const notNext = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
+  assert(!notNext?.classList.contains("agent-next"), "缺陷队列有可开工项时,需求 R-002 不该被标为下一个");
+}
 // D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
 const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
 assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");

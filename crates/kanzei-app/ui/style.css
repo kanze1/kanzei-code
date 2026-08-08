@@ -147,6 +147,25 @@ body {
 .project-shared-warn.hidden { display: none; }
 .doc-item { padding: 3px 14px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--panel2); }
+/* 取活焦点(D-207):在做的高亮呼吸,下一个次亮。基于数据计算,任何视图下都标同一批。 */
+.doc-item.agent-active {
+  border-left: 3px solid var(--ok);
+  padding-left: 11px;
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  animation: agent-pulse 2.4s ease-in-out infinite;
+}
+.doc-item.agent-next {
+  border-left: 3px solid var(--info);
+  padding-left: 11px;
+  background: color-mix(in srgb, var(--info) 6%, transparent);
+}
+@keyframes agent-pulse {
+  0%, 100% { border-left-color: var(--ok); }
+  50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+}
+/* 拖拽禁用原因(D-207):低调常驻,hover 列表时加深——静默禁用是错的,提示不该抢戏。 */
+.drag-hint { padding: 2px 14px; font-size: 11px; color: var(--dim); opacity: .65; }
+.doc-list:hover .drag-hint { opacity: 1; }
 .doc-item .id { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; }
 /* R-054:需求行内只显示位置序号,ID 收进展开详情 */
 .doc-item .pos { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; min-width: 22px; }
