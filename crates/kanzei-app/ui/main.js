@@ -2464,7 +2464,7 @@ const DEFAULT_CONTINUE_PROMPT =
 // 否则鞭挞的刹车契约会和提示词对不上(用户自定义过的文案不动)。
 const LEGACY_CONTINUE_PROMPTS = [
   // 开发重心版:规则 3 只说"在条目里记一句原因",模型把它落成「阻塞」字段,
-  // 而调度器把该字段当永久压制 → 31/35 条目被自记阻塞锁死(D-147)。
+  // 而调度器把该字段当永久压制 → 31/35 条目被自记阻塞锁死(D-163)。
   "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
     "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
     "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
@@ -3245,7 +3245,7 @@ async function loadModels() {
       if (m.id === saved) opt.selected = true;
       select.appendChild(opt);
     }
-    // D-156:探测不到不等于用不了——端点可能没实现 /models,key 也可能还没配好。
+    // D-167:探测不到不等于用不了——端点可能没实现 /models,key 也可能还没配好。
     // 手填过的模型要留在列表里,否则下次重开又得再填一遍。
     for (const id of manualModels()) {
       if (ids.has(id)) continue;
@@ -4001,7 +4001,7 @@ async function commitDocOrder(listEl, kind) {
 
 // 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
 // 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
-// 也没有任何提示,看起来就是"引用是死链"(D-150)。
+// 也没有任何提示,看起来就是"引用是死链"(D-166)。
 function jumpToEntry(ref) {
   const matches = [...document.querySelectorAll("[data-doc-id]")].filter(
     (item) => item.dataset.docId === ref,
@@ -4293,7 +4293,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       detail.appendChild(editBox);
     }
     // 编辑表单已经把每个字段连名带值摆出来了,再渲染一遍只读列表就是同一份内容显示两遍;
-    // 「阻塞字段: X」这条理由更是直接重复 阻塞 字段的原文(D-149)。有编辑表单时:
+    // 「阻塞字段: X」这条理由更是直接重复 阻塞 字段的原文(D-165)。有编辑表单时:
     // 阻塞原因只留调度器推导出来的理由(依赖/阶段/循环),只读列表只留 refs(它是可跳转的链接)。
     const hasEditor = deepManage;
     if (blocked || externalBlocked) {
@@ -5914,7 +5914,7 @@ function markSettingsSaved() {
 }
 
 // 生效值与全局值不一致 = 项目级 kanzei.toml 覆盖了。必须明说,否则用户会
-// 一直在改一个不生效的值(D-158)。
+// 一直在改一个不生效的值(D-168)。
 function renderEffectiveNotice(s) {
   const box = $("settings-effective");
   if (!box) return;

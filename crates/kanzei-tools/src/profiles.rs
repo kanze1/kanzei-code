@@ -325,7 +325,7 @@ impl Component for DevProfile {
                          mis-laid-out. Before editing style.css run `frontend_locate` (the same \
                          class is often defined twice — base rule plus a responsive override) \
                          and after editing run `frontend_check` (a clobbered `@media ... {` \
-                         breaks the cascade silently, D-148). \
+                         breaks the cascade silently, D-164). \
                          when crates/ changed, run the TARGETED test first and the full \
                          workspace suite ONCE right before committing — never while a \
                          file is still mid-edit, and never re-run a suite that nothing \

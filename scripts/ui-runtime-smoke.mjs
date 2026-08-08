@@ -14,7 +14,7 @@ const issues = [];
 const fail = (msg) => issues.push(msg);
 
 // CSS 结构完整性:浏览器对花括号错配是静默容错的,一个被吃掉的 `@media ... {`
-// 会让整段响应式规则无条件生效而没有任何报错(c65c80e 就这样把 D-148 带上了线)。
+// 会让整段响应式规则无条件生效而没有任何报错(c65c80e 就这样把 D-164 带上了线)。
 const cssNoComments = style.replace(/\/\*[\s\S]*?\*\//g, "");
 let cssDepth = 0;
 let cssStray = 0;
@@ -619,7 +619,7 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
-// D-150:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
+// D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
 const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
 assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");
 assert(archivedRow.parentElement.classList.contains("hidden"), "归档区应默认折叠");
@@ -652,7 +652,7 @@ assert(document.querySelector("#req-list .doc-actions button"), "侧栏详情缺
 
 const reqEditor = document.querySelector("#documents-req-list .doc-edit");
 assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "独立文档页未提供标题/字段编辑控件");
-// D-148:曾经只给 aria-label,渲染成一片无标题输入框,改哪格全靠猜;长字段用单行 input 还会把值截没。
+// D-164:曾经只给 aria-label,渲染成一片无标题输入框,改哪格全靠猜;长字段用单行 input 还会把值截没。
 const reqEditRows = reqEditor.querySelectorAll(".doc-edit-row");
 assert(reqEditRows.length >= 3, `编辑表单未按字段分行(应有 标题/备注/验收),实得 ${reqEditRows.length}`);
 assert(
@@ -660,7 +660,7 @@ assert(
   "编辑表单存在没有可见字段名的输入框",
 );
 assert(reqEditor.querySelector("textarea"), "长字段未升级为多行文本域,值会被单行输入框截断");
-// D-149:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
+// D-165:编辑表单已连名带值列出每个字段,只读 .doc-field 列表若同时渲染就是同一份内容显示两遍。
 const duplicatedFields = document
   .querySelector("#documents-req-list .doc-detail")
   .querySelectorAll(".doc-field")
@@ -855,7 +855,7 @@ assert(
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
-// ---------- D-158 设置页模型角色：可选、不丢已存值、被覆盖时明示 ----------
+// ---------- D-168 设置页模型角色：可选、不丢已存值、被覆盖时明示 ----------
 const settingsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "settings");
 settingsTab?.click();
 await flush();
@@ -893,7 +893,7 @@ assert(
   "改了表单却没有「未保存」提示(界面显示 A、运行用 B 就是这么来的)",
 );
 
-// ---------- D-156 手填模型：探测不到不等于用不了 ----------
+// ---------- D-167 手填模型：探测不到不等于用不了 ----------
 const modelSelect = byId.get("model-select");
 const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
 assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");

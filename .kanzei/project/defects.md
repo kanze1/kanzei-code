@@ -1,6 +1,6 @@
 # Defects
 
-## D-158 配置页与实际生效的配置之间有三处静默不一致 [fixed] (high)
+## D-168 配置页与实际生效的配置之间有三处静默不一致 [fixed] (high)
 - 复现: 2026-08-08 用户配 DeepSeek 全过程暴露。设置页 primary 明明显示 `deepseek:deepseek-chat`,发消息时日志却是 `[鉴权] anthropic:claude-sonnet-5` + `provider 'anthropic' 需要环境变量 ANTHROPIC_API_KEY`——界面显示的和实际跑的是两份东西,而且没有任何线索指向"你改的那个没生效"。
 - 根因: 四处叠加,都是"看得见的"与"生效的"脱节。
   ①**表单不保存不生效,却无提示**:设置页是一张普通表单,填完不点保存只活在 DOM 里;运行时读的是磁盘。用户以为改了。
@@ -17,7 +17,7 @@
 - refs: D-156 D-157 R-115
 - 标签: 模型
 
-## D-156 加了 OpenAI 兼容 provider 却选不出任何模型 [fixed] (high)
+## D-167 加了 OpenAI 兼容 provider 却选不出任何模型 [fixed] (high)
 - 复现: 2026-08-08 用户按指引在设置页添加 deepseek(protocol=openai, base_url=https://api.deepseek.com/v1, api_key_env=DEEPSEEK_API_KEY),顶栏「模型」下拉里一个 deepseek 模型都没有,只有 primary/fast 两个角色项。
 - 根因: `models_list` 只硬编码枚举四种情况——primary/fast 角色、`auth="codex"`(3 个写死型号)、`auth="claude"`(3 个写死型号)、`base_url` 含 11434 的 Ollama(查 /api/tags)。**其余 provider 直接落到分支尾部,贡献 0 个模型**。而配置层是完全开放的:任何 OpenAI 兼容端点都能配进去。于是"能配 provider"与"能用 provider"之间断了一环,DeepSeek/OpenRouter/Kimi/自建 vLLM 全中招。
 - 影响: provider 配置形同虚设——配好了、连通性测试也过,就是没法在界面上选中它的模型。用户只能去改 kanzei.toml 的 `[models]` 硬指,顶栏下拉这条主路径不通。

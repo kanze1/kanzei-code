@@ -1419,7 +1419,7 @@
 
 - 验证: crates/kanzei-app/src/main.rs:update_tests::release_check_never_downgrades_a_newer_local_build、legacy_date_only_build_requires_a_later_release_day；cargo test -p kanzei-app update_tests 16 项；cargo test --workspace 全绿；PowerShell Parser 检查 scripts/package.ps1 与 scripts/release.ps1
 
-## D-147 自记阻塞只进不出,鞭挞把整个队列锁死后静默停机 [fixed] (high)
+## D-163 自记阻塞只进不出,鞭挞把整个队列锁死后静默停机 [fixed] (high)
 - 复现: 2026-08-08 用户实测:侧边栏需求/缺陷仍有大量条目,鞭挞却连续两轮回复"当前没有可执行条目...本轮停止"。核对数据:requirements.md 32 条中 28 条、defects.md 3 条全部带 `阻塞:` 字段,`req list` 可执行数为 0。
 - 影响: 自举完全停摆且表现为"没活干"这一无害假象,用户看不出是 bug;单靠提示词纪律无法自愈,因为下一轮读到的仍是满屏 [blocked]。
 - 标签: 流程
@@ -1446,7 +1446,7 @@
 - 进展: 实现已完成：run_once_with_parts 在首次请求前统一调用 filter_message_history 清洗 prior。cargo test -p kanzei-core、cargo test -p kanzei-tools、cargo test --workspace 全部通过；配对与孤儿清洗回归覆盖。
 - 验收证据: crates/kanzei-core/src/runner.rs:492；crates/kanzei-core/src/history.rs:7-71及其三项单测；cargo test --workspace
 
-## D-148 侧栏条目编辑表单无字段名且截断长值,继续文案框只露两行 [fixed] (medium)
+## D-164 侧栏条目编辑表单无字段名且截断长值,继续文案框只露两行 [fixed] (medium)
 - 不变量: 前端:可编辑控件必须能看出改的是什么
 - 复现: 2026-08-08 用户实测截图。①展开 R-097 → 编辑区是一片没有任何标题的输入框,默认 inline-block 两两成行像张表格,「大」「P2」「kanzei」「E2」这些值看不出属于哪个字段;`内容`/`验收`/`进展` 这类段落字段被塞进单行 input,只能看到开头十几个字,等于盲改;「保存修改」直接贴在最后一格右侧压住内容。②底部「继续文案」textarea 是 rows=2,而默认继续提示词有十几行,只能看到最后两行。
 - 标签: 前端
@@ -1487,7 +1487,7 @@
 - 进展: 修复验证完成。
 - 验收证据: crates/kanzei-app/ui/index.html:454,483 dialog 语义；crates/kanzei-app/ui/main.js:1839、1882、4349 键盘焦点与 Escape；scripts/ui-a11y-smoke.mjs:18-23 断言；node --check 与四项 UI smoke 全部通过。
 
-## D-149 条目展开详情把每个字段渲染两遍,阻塞字段三遍 [fixed] (medium)
+## D-165 条目展开详情把每个字段渲染两遍,阻塞字段三遍 [fixed] (medium)
 - 不变量: 前端:同一份数据只呈现一次
 - 复现: 2026-08-08 用户实测截图,展开 R-095:先是编辑表单(标签/阻塞…带值),接着「阻塞原因」框里一条 `• 阻塞字段: 验收仅写"优化终端和工具体验…"`,再往下只读字段列表又把 `原始描述/归属/验收/优先级/标签/阻塞` 全列一遍——`阻塞` 那段长文出现三次,整个面板要滚很久才看得完。
 - 标签: 前端
@@ -1552,7 +1552,7 @@
 
 - 标签: 流程
 
-## D-150 条目引用点击跳转静默失败,归档条目永远跳不到 [fixed] (medium)
+## D-166 条目引用点击跳转静默失败,归档条目永远跳不到 [fixed] (medium)
 - 不变量: 前端:可点击的东西必须有反馈
 - 复现: 2026-08-08 用户实测"点击跳转的连通性要修复"。展开任一条目详情,点 refs 里的引用链接:目标若被筛选掉、所在分区折叠、侧栏整体收起、或已经归档,点击后**没有任何反应**——不滚动、不高亮、不提示,看起来就是死链。归档条目是重灾区:被引用的条目多半正是已完成归档的那些。
 - 标签: 前端

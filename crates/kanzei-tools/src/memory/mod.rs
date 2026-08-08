@@ -443,7 +443,7 @@ mod tests {
 
         // 换一个条目仍应正常投递。
         let other = kanzei_core::CompletedEntry {
-            id: "D-150".into(),
+            id: "D-166".into(),
             status: "fixed".into(),
             tools: vec!["edit".into()],
         };
@@ -456,7 +456,7 @@ mod tests {
         assert!(store.discard_note("[sop:R-123]").unwrap(), "丢弃应生效");
         let after = store.pending_note_list();
         assert_eq!(after.len(), 1, "丢弃后应只剩另一条");
-        assert!(after[0].1.contains("D-150"));
+        assert!(after[0].1.contains("D-166"));
         assert!(
             !store.read_inbox().contains("read → edit → bash → req"),
             "丢弃只删了摘要行,明细成了孤儿",

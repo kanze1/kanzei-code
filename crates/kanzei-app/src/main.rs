@@ -73,7 +73,7 @@ struct PendingAsk {
 
 /// R-126:UI 自查桥。工具在后端发起请求 → 前端在**真实运行中的窗口**里取样 →
 /// 结果经 oneshot 回到工具。不另起无头浏览器:那样看到的是空白页,和用户眼前的
-/// 界面没有关系,查不出 D-148/D-149 那类"语法全对但渲染成一团"的问题。
+/// 界面没有关系,查不出 D-164/D-165 那类"语法全对但渲染成一团"的问题。
 static UI_PROBES: std::sync::LazyLock<Mutex<HashMap<u64, oneshot::Sender<serde_json::Value>>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 static UI_PROBE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -1910,7 +1910,7 @@ fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             })
         })
         .collect();
-    // D-158:本页编辑的是全局文件,但运行时用的是 全局+项目 合并的结果。
+    // D-168:本页编辑的是全局文件,但运行时用的是 全局+项目 合并的结果。
     // 项目级 kanzei.toml 一旦也设了 models,这张表单显示的值就不生效——
     // 而此前完全没有提示,表现为"我改了保存了,跑起来还是旧的"。
     let effective = project_dir
@@ -2069,7 +2069,7 @@ fn settings_table<'a>(
 
 /// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
 /// 拼错一个字母,此前要到真正发消息时才炸一句 "unknown provider",
-/// 而那时用户早已离开设置页,根本联系不到是刚才填错了(D-158)。
+/// 而那时用户早已离开设置页,根本联系不到是刚才填错了(D-168)。
 fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
     let mut probe = KanzeiConfig::default();
     for p in &payload.providers {
@@ -2340,7 +2340,7 @@ fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, Stri
 }
 
 /// R-126:让 agent 能自查真实运行中的界面。改完前端只跑 node --check 检不出
-/// 渲染问题——D-148(编辑表单渲染成一片无标题输入框)、D-149(同一字段渲染两遍)
+/// 渲染问题——D-164(编辑表单渲染成一片无标题输入框)、D-165(同一字段渲染两遍)
 /// 都是语法完全正确却明显不对的例子,只有看真实渲染结果才发现得了。
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 struct UiProbeInput {
@@ -3986,7 +3986,7 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
                 items.push(json!({"id": format!("{name}:{m}"), "label": format!("{name}:{m}")}));
             }
         } else if p.protocol == "openai" || p.protocol == "openai-responses" {
-            // D-156:任何 OpenAI 兼容端点(DeepSeek/OpenRouter/Kimi/自建 vLLM…)都走标准
+            // D-167:任何 OpenAI 兼容端点(DeepSeek/OpenRouter/Kimi/自建 vLLM…)都走标准
             // GET {base_url}/models。早期这里只硬编码了 codex/claude/ollama 三种,别的
             // provider 加进配置后一个模型都列不出来,等于配了也用不了。
             // Ollama 例外:它的 /v1/models 不全,原生 /api/tags 才是真源。

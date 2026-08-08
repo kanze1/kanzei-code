@@ -1,7 +1,7 @@
 //! 前端专用定位工具(R-126)。
 //!
 //! agent 改前端时的两个具体痛处:①编辑锚点撞车——c65c80e 把 `@media (max-width: 700px) {`
-//! 整行替换成了别的规则,CSS 结构静默损坏(D-148),浏览器对花括号错配是容错的,没有任何
+//! 整行替换成了别的规则,CSS 结构静默损坏(D-164),浏览器对花括号错配是容错的,没有任何
 //! 报错;②改一个 class 时不知道它在哪几处定义,漏改一处就出现"只在某些状态下才错"。
 //!
 //! 这三个工具都是只读的:定位与检查,不改文件。
@@ -67,7 +67,7 @@ fn strip_line_comment(line: &str) -> &str {
 }
 
 /// CSS 结构完整性:花括号配对。浏览器对错配是静默容错的,一个被吃掉的
-/// `@media ... {` 会让整段规则无条件生效而没有任何报错(D-148 就这样上的线)。
+/// `@media ... {` 会让整段规则无条件生效而没有任何报错(D-164 就这样上的线)。
 pub fn css_structure_issues(css: &str) -> Vec<String> {
     let without_comments = strip_block_comments(css);
     let mut depth = 0usize;
@@ -268,7 +268,7 @@ mod tests {
 
     #[test]
     fn 结构检查抓得住被吃掉的开括号() {
-        // D-148 的真实形态:@media 那一行被别的规则替换掉,留下孤儿规则与多余的 }
+        // D-164 的真实形态:@media 那一行被别的规则替换掉,留下孤儿规则与多余的 }
         let broken = "\
 .a { color: red; }
   .b { color: blue; }

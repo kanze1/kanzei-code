@@ -126,7 +126,7 @@ impl Tool for TrackerTool {
                     .collect();
                 // 饥饿保护:一条可执行都没有是队列的异常状态,不是"没活干"。不加这条横幅时
                 // agent 只看到满屏 [blocked:...] 就会判定无可推进项并停住,而阻塞理由多半是
-                // 它自己历轮写下的"需先确认方案"(D-147)。
+                // 它自己历轮写下的"需先确认方案"(D-163)。
                 if scheduled.iter().all(|(_, reasons)| !reasons.is_empty()) {
                     lines.insert(0, deadlock_banner(scheduled.len(), self.noun));
                 }
@@ -583,7 +583,7 @@ fn schedule_entries<'a>(
 fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
     let mut reasons = Vec::new();
     // 环上的条目永远等不到依赖完成。只报"未完成依赖"会让 agent 一轮轮空等一个
-    // 不可能到来的前置,所以直接点出环并要求断边(D-147)。
+    // 不可能到来的前置,所以直接点出环并要求断边(D-163)。
     let cycle = states.cycle_from(&entry.id);
     for (key, value) in &entry.fields {
         if is_blocker_key(key) && is_present_blocker(value) {

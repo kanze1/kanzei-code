@@ -604,7 +604,7 @@ button:disabled { opacity: .45; cursor: default; }
   color: var(--warn); font-size: 11.5px; margin-right: auto;
 }
 .settings-dirty.hidden { display: none; }
-/* D-158:被项目级配置覆盖的提示。不说破的话,用户会一直改一个不生效的值 */
+/* D-168:被项目级配置覆盖的提示。不说破的话,用户会一直改一个不生效的值 */
 .settings-effective {
   color: var(--warn); font-size: 11.5px; line-height: 1.5;
   background: rgba(224, 171, 58, .08); border-left: 2px solid var(--warn);
@@ -750,7 +750,7 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 
 /* 条目编辑表单:每个字段都要有可见字段名。早期版本只给 aria-label,渲染出来是
    一片无标题输入框(默认 inline-block 还会两两成行像张表),改哪格全靠猜;
-   段落型字段(内容/验收/复现/进展)用单行 input 更是直接把值截没(D-148)。 */
+   段落型字段(内容/验收/复现/进展)用单行 input 更是直接把值截没(D-164)。 */
 .doc-edit { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .doc-edit-row { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .doc-edit-key { color: var(--dim); font-size: 11px; }

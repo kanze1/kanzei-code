@@ -282,7 +282,7 @@ fn is_git_query(input: &serde_json::Value) -> bool {
 /// 本轮完成的条目(R-124 SOP 提炼的触发闸门)。
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompletedEntry {
-    /// 条目 id,如 R-123 / D-150。
+    /// 条目 id,如 R-123 / D-166。
     pub id: String,
     /// 落到的终态:done / fixed / dropped / wontfix。
     pub status: String,
