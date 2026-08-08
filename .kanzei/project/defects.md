@@ -1,5 +1,94 @@
 # Defects
 
+## D-189 `~/.kanzei` 是项目根磁铁:`.kanzei` 无视距离压过更近的 `.git` [fixed] (high)
+- refs: D-186
+- 复现: `discover_project_root`(crates/kanzei-harness/src/config.rs)撞到任何 `.kanzei` 目录就立即返回,`.git` 只记 fallback 且要等循环走完才用。于是 `C:\Users\kanzei\Documents\某仓库`(有 `.git`、无 `.kanzei`)解析出的项目根是 `C:\Users\kanzei`——仓库自己的 `.git` 被丢掉,因为 `~/.kanzei` 作为全局配置根必然存在。
+- 影响: HOME 下所有无标记目录共用同一个项目根:state.db、project/ 追踪文件、记忆全部串到一起;且 HOME 当项目根时 `global_memory_root()` 与 `project_memory_root(HOME)` 是同一个目录,两个 scope 的 INDEX.md/index.db/inbox.md 静默合流。函数注释一直写的是"向上**最近**的含 .kanzei/ 或 .git/ 的目录",实现与注释不符。
+- 根因: `.kanzei` 命中即返回 + `.git` 仅作 fallback 的两段式写法,让"距离"这个判据在 `.kanzei` 面前失效;同时没有把 `~/.kanzei`(全局配置根)与项目级 `.kanzei` 区分开。
+- 修复: 改为单次向上扫描,最近的 `.kanzei` 或 `.git` 谁先出现谁赢;并把 HOME 自己的 `.kanzei` 排除出项目标记(HOME 的 `.git`——dotfiles 仓库——仍算)。拆出 `discover_project_root_with_home(cwd, home)` 供测试注入。
+- 验收: 单测 `nearest_git_wins_over_a_farther_kanzei`(更近的 .git 赢)与 `home_global_config_dir_is_not_a_project_marker`(同一棵树只切换"是否认 HOME"的前后对照)覆盖;workspace 271 项全绿。
+- 证据等级: E1
+- 优先级: P1
+- 标签: 核心
+
+## D-190 dev 提示词点名 5 个只有桌面端注册的工具,CLI 侧被指向不可达能力 [fixed] (high)
+- 复现: dev agent 的 system prompt 里点名 `ui_dom` / `ui_console` / `ui_style` / `frontend_locate` / `frontend_check`(crates/kanzei-tools/src/profiles.rs),而这 5 个只由桌面端的 FrontendToolsComponent 注册(crates/kanzei-app/src/main.rs)。`kz` 跑 dev agent 时提示词照发,工具不在 specs 里。
+- 影响: 正是 D-173 的失效模式——指令指向不可达的能力,模型试完失败就转去找旁路。resolve 末尾的覆盖校验只查硬 deny 声明的 `required_tool`,管不到提示词点名的工具,所以这类错配没有任何护栏。
+- 根因: 前端自查段写死在 dev 的基础提示词里,而工具注册是按装配线分的(桌面 5 条组件、CLI 4 条),提示词与装配不同源。
+- 修复: 抽成 `kanzei_tools::frontend_inspection_guidance()`,由注册了这些工具的装配方(桌面端,紧邻 work-priority 追加处)append;dev 基础提示词不再点名它们。
+- 验收: CLI dev 的 system 里不出现这 5 个工具名;桌面 dev 仍带该段。workspace 271 项全绿。
+- 备注: 同类残留一条(未修):work-priority 段也只有桌面端 append,CLI 永远不追加,提示词里"the selected work-priority mode"指向不存在的内容,靠后半句 "When no mode is supplied, use defect-first" 兜住。能跑,但属同一类不同源问题。
+- 证据等级: E2
+- 优先级: P1
+- 标签: 核心
+
+## D-191 记忆注入预算截断用 break,一条超长条目挡死其后全部 [fixed] (medium)
+- 复现: crates/kanzei-tools/src/profiles.rs 的 standing directives 与 known facts 两个注入循环都是 `if cost > budget { break; }`。一条超长 preference 或长 description 卡在中间,后面所有更短的条目全部不注入。
+- 影响: 提示只说"还有 N 条未列出",不说是被挡住的——用户与模型都看不出预算是被一条长条目吃干净还是自然填满;高价值短条目可能因为排在一条长条目之后而永远不进上下文。
+- 根因: 把"预算用尽"与"这一条放不下"混为一谈。
+- 修复: 两处 `break` 改 `continue`——放不下的跳过,继续填后面的;`shown` 计数不变,折叠提示仍准确。
+- 验收: workspace 271 项全绿。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-192 上下文账单漏掉最大的一块:工具 schema [fixed] (medium)
+- refs: R-145
+- 复现: `context_report` 只有 `agent/system` + 各 context source 的字符数,而 `estimate_prompt_tokens`(crates/kanzei-core/src/runner.rs)明确把 tool specs 算进 prompt。桌面 dev 档是 26 个工具的完整 JSON Schema,账单里一个字节都没有。
+- 影响: R-106 说账单要回答"本轮上下文里有什么、各占多少",漏掉工具 schema 就答不了最大的那一项;按这份账单做注入瘦身会一直在小头上使劲。
+- 根因: 账单在 `system_baseline_with_report()` 里组装,而 specs 是在 runner 侧另行构建的,两者没有汇合。
+- 修复: runner 组装 specs 后按 name+description+input_schema 的字符数追加一行 `tools/schema` 到 context_report,与 estimate_prompt_tokens 的口径一致。
+- 验收: CLI 摘要与桌面 run.completed 事件的 context 里出现 `tools/schema` 行;workspace 271 项全绿。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-184 commands / skills 两张注册表是死的:解析注册后无人消费 [open] (medium)
+- 复现: 在 `~/.kanzei/commands/` 或 `~/.kanzei/skills/`(及项目同名目录)放 markdown,MarkdownComponent 会扫描、解析并注册(crates/kanzei-harness/src/markdown.rs:22);但全仓库对 `snapshot.commands()` / `snapshot.skills()`(crates/kanzei-harness/src/harness.rs:110、114)**零调用**——文件进了注册表就地消失,既不进提示词也不成为工具。
+- 影响: 六张注册表实际在跑的只有四张。用户按目录约定放了命令/技能文件,界面与模型都不会有任何反应,也没有一行提示说"注册了但没人用",属于静默无效功能。
+- 根因: 注册表与消费端分两步落地,消费端(注入提示词或转成工具 spec)始终没接。
+- 验收: 要么接上消费端(commands 进提示词可调用清单、skills 按 description 与任务匹配给出加载提示,与 R-106 的 sop 匹配同源),要么显式移除这两张注册表与扫描逻辑;二选一,不留"解析了但没人读"的中间态。有测试覆盖所选方向。
+- 证据等级: E2(读代码确认零调用点)
+- 优先级: P2
+- 标签: 核心
+
+## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
+- 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
+- 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
+- 根因: 提示块拼在 prompt 字符串上而不是作为一次性 system/context 段落,持久化路径对它无感知。
+- 验收: hint 块不进 conversations 快照(或落库前剥离),连跑 3 轮后历史里最多一个块;注入 token 账单能看出 hint 段的独立占比。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-186 `~/.kanzei` 下已有项目级产物,D-170 的自动隔离对 HOME 这条路径失效 [open] (high)
+- 复现: 本机 `~/.kanzei/` 下存在 `state.db`(86 KB)、`project/defects.md`、`project/defects-archive.md`——这些是项目级产物,只该出现在项目根。成因是 D-183 修复前的 `discover_project_root`:撞到任何 `.kanzei` 就返回,而 `~/.kanzei` 作为全局配置根必然存在,于是 HOME 下所有无标记目录的项目根都解析成了 HOME。
+- 影响: `ensure_project_isolated` 的规则是"祖先没数据就静默补 `.kanzei`,有数据就不动、等用户拍板"。`root_has_data(HOME)` 因这些残留为真,于是往 `C:\Users\kanzei\` 下新增项目不再被自动隔离,而是静默并进 HOME 项目,直到用户发现条目串了。自愈路径当前是关着的。
+- 根因: 解析缺陷(已在 discover_project_root 修复:最近的 `.git` 赢过更远的 `.kanzei`,且 HOME 自己的 `.kanzei` 不算项目标记)之外,**已经写出去的残留数据**没有清理路径。
+- 修复: 解析侧已修。残留侧需要人拍板:`~/.kanzei/project/` 与 `~/.kanzei/state.db` 属删除操作,必须用户确认后再动(可先备份到 `~/.kanzei/.orphan-backup/`)。
+- 验收: 清理后 `root_has_data(HOME)` 为假;在 `C:\Users\kanzei\` 下新建目录跑一次,能被自动隔离出自己的 `.kanzei`;补一条回归覆盖"HOME 不被当项目根"。
+- 证据等级: E1(本机文件实证)
+- 优先级: P1
+- 标签: 核心
+
+## D-187 KANZEI_HOME 只有 memory 认,配置与 markdown 组件仍走真实 HOME [open] (medium)
+- 复现: `crates/kanzei-tools/src/memory/mod.rs` 读 `KANZEI_HOME` 决定记忆根;而 `crates/kanzei-harness/src/config.rs`(全局 kanzei.toml)与 `crates/kanzei-harness/src/markdown.rs`(agents/commands/skills)直接用 `dirs::home_dir()`。设了这个变量之后,记忆搬走了、配置与组件还在真 HOME。
+- 影响: 半个覆盖比不覆盖更容易骗人——用它做隔离测试或多实例并存时,会以为整个 kanzei 目录都换了位置,实际只换了记忆;两处根不一致导致的现象很难归因。
+- 根因: KANZEI_HOME 是记忆模块单独引入的,没有提升为全局 home 解析入口。
+- 验收: 要么全局统一(所有 `~/.kanzei` 消费点走同一个 `kanzei_home()` 函数,含 config/markdown/app.json/agent-containers),要么去掉 KANZEI_HOME 只保留 memory 内部用途并改名;不留"只覆盖一半"的状态。有测试覆盖。
+- 证据等级: E2
+- 优先级: P3
+- 标签: 核心
+
+## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [open] (low)
+- 复现: `%TEMP%\kanzei-update.log` 当前全部内容是 5 条"单测探针",时间 2026-08-08 23:08 与 2026-08-09 00:28——测试与生产用同一个绝对路径(crates/kanzei-app/src/main.rs:1367 附近的 update_log 测试)。
+- 影响: `update_log` 超 256 KiB 是整文件删,测试写入会稀释乃至挤掉真实的更新交接记录;而这个日志正是 D-182 为"更新过程无从复盘"专门建的入口,现在打开看到的全是测试噪声。
+- 根因: 日志路径写死为 `%TEMP%\kanzei-update.log`,测试没有走可注入的路径参数。
+- 验收: 测试写到独立临时文件(路径可注入或按 pid 隔离),生产日志里不再出现"单测探针";补一条断言防回归。
+- 证据等级: E1(本机日志内容实证)
+- 优先级: P3
+- 标签: 后端
+
 ## D-171 启动黑屏:孤儿 msedgewebview2 进程锁住 WebView2 数据目录 [fixing] (high)
 - 复现: 父 kzapp 被强杀(更新交接、任务管理器、崩溃)时 WebView2 子进程存活,继续握着 `dev.kanzei.app/EBWebView` 数据目录的目录锁;下一个实例的 WebView 初始化失败,窗口就是一块黑。实测本机曾积累 6 个存活 7 小时的孤儿 msedgewebview2。
 - 根因: 强杀父进程不会自动回收 WebView2 子进程;新实例启动时 WebView 初始化被孤儿进程的目录锁挡住,与 D-172(i18n 死循环)是两个独立的黑屏根因。

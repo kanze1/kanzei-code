@@ -972,6 +972,20 @@ pub fn run_once_with_parts<'a>(
     if !agent.system.trim().is_empty() {
         context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
     }
+    // 工具 schema 是每轮上下文里最大的一块之一(桌面 dev 档 26 个工具的完整 JSON
+    // Schema),estimate_prompt_tokens 也把它算进 prompt。账单要回答"本轮上下文里
+    // 有什么、各占多少",漏掉它等于漏掉最大的那一项(R-106)。
+    let spec_chars: usize = specs
+        .iter()
+        .map(|spec| {
+            spec.name.chars().count()
+                + spec.description.chars().count()
+                + spec.input_schema.to_string().chars().count()
+        })
+        .sum();
+    if spec_chars > 0 {
+        context_report.push(("tools/schema".into(), spec_chars));
+    }
     let system: Vec<String> = [agent.system.clone(), baseline]
         .into_iter()
         .filter(|s| !s.trim().is_empty())

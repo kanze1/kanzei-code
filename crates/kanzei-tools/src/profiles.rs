@@ -11,6 +11,20 @@ use kanzei_harness::{
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
 
+/// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
+/// (ui_dom / ui_console / ui_style / frontend_locate / frontend_check)只由桌面端的
+/// FrontendToolsComponent 注册,CLI 侧根本不存在。提示词指向不可达的能力正是 D-173
+/// 的失效模式——模型试完失败就转去找旁路,而 resolve 末尾的覆盖校验只查 deny 声明的
+/// required_tool,管不到提示词点名的工具。装配方注册了这些工具才 append。
+pub fn frontend_inspection_guidance() -> &'static str {
+    "After touching ui/, inspect what actually rendered: `ui_dom` on the region you \
+     changed, `ui_console` for errors the page swallowed, `ui_style` when something is \
+     invisible or mis-laid-out. Before editing style.css run `frontend_locate` (the same \
+     class is often defined twice — base rule plus a responsive override) and after \
+     editing run `frontend_check` (a clobbered `@media ... {` breaks the cascade \
+     silently, D-164)."
+}
+
 /// 索引注入的预算上限(条数;超出折叠为计数)。
 const INDEX_LIMIT: usize = 30;
 /// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
@@ -243,8 +257,10 @@ impl Component for DevProfile {
                     let mut budget = MEMORY_CONTEXT_BUDGET;
                     for directive in &directives {
                         let cost = directive.chars().count() + 1;
+                        // continue 而非 break:放不下的跳过、继续填后面的。break 会让
+                        // 一条超长条目把它之后**全部**更短的条目一起挡在外面。
                         if cost > budget {
-                            break;
+                            continue;
                         }
                         budget -= cost;
                         out.push_str(directive);
@@ -258,8 +274,9 @@ impl Component for DevProfile {
                 let mut shown = 0usize;
                 for line in &lines {
                     let cost = line.chars().count() + 1;
+                    // 同上:一条超长索引行不该顺带埋掉它后面所有放得下的条目。
                     if cost > budget {
-                        break;
+                        continue;
                     }
                     budget -= cost;
                     out.push_str(line);
@@ -368,14 +385,8 @@ impl Component for DevProfile {
                          selection matches the change surface: frontend-only diffs (ui/) \
                          need node --check plus the smoke scripts, NOT the cargo suite; \
                          `node --check` alone is NEVER sufficient evidence for a frontend \
-                         change — it only parses. After touching ui/, inspect what actually \
-                         rendered: `ui_dom` on the region you changed, `ui_console` for errors \
-                         the page swallowed, `ui_style` when something is invisible or \
-                         mis-laid-out. Before editing style.css run `frontend_locate` (the same \
-                         class is often defined twice — base rule plus a responsive override) \
-                         and after editing run `frontend_check` (a clobbered `@media ... {` \
-                         breaks the cascade silently, D-164). \
-                         when crates/ changed, run the TARGETED test first and the full \
+                         change — it only parses. \
+                         When crates/ changed, run the TARGETED test first and the full \
                          workspace suite ONCE right before committing — never while a \
                          file is still mid-edit, and never re-run a suite that nothing \
                          changed since. Editing files: use \

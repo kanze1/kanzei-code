@@ -528,20 +528,30 @@ pub fn discover_project_config(cwd: &Path) -> Option<PathBuf> {
     discover_project_root(cwd).map(|root| root.join(".kanzei").join("kanzei.toml"))
 }
 
-/// 项目根 = 向上最近的含 `.kanzei/` 或 `.git/` 的目录;都没有则 cwd 本身。
+/// 项目根 = 向上**最近**的含 `.kanzei/` 或 `.git/` 的目录;都没有则 cwd 本身。
+///
+/// 两条约束都是踩出来的,别再退回去:
+/// ① `.kanzei` 不许无视距离压过 `.git`。原实现撞到任何 `.kanzei` 就立即返回,`.git`
+///    只记 fallback 且要等循环走完才用,于是 `~/Documents/某仓库`(有 .git、没 .kanzei)
+///    会一路走到 HOME,仓库自己的 `.git` 被丢掉。
+/// ② HOME 自己的 `.kanzei` 不算项目标记——它是**全局**配置根(kanzei.toml、memory、
+///    app.json),必然存在,于是成了 HOME 下所有无标记目录的磁铁。实测后果:`~/.kanzei`
+///    里已经躺着 `project/` 与 `state.db` 这类只该出现在项目里的产物。
+///    HOME 的 `.git`(dotfiles 仓库)仍然算标记,那是货真价实的仓库。
 pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
+    discover_project_root_with_home(cwd, dirs::home_dir().as_deref())
+}
+
+fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
     let mut dir = Some(cwd);
-    let mut fallback = None;
     while let Some(d) = dir {
-        if d.join(".kanzei").is_dir() {
+        let is_home = home.is_some_and(|h| h == d);
+        if (!is_home && d.join(".kanzei").is_dir()) || d.join(".git").is_dir() {
             return Some(d.to_path_buf());
-        }
-        if fallback.is_none() && d.join(".git").is_dir() {
-            fallback = Some(d.to_path_buf());
         }
         dir = d.parent();
     }
-    fallback.or_else(|| Some(cwd.to_path_buf()))
+    Some(cwd.to_path_buf())
 }
 
 #[cfg(test)]
@@ -692,6 +702,68 @@ typo_fielt = true
         let config: KanzeiConfig = toml::from_str(&saved).unwrap();
         assert_eq!(config.permissions.rules.len(), 1);
         assert_eq!(config.permissions.rules[0].resource, "git status");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 造一棵 `<tmp>/home/{.kanzei, projects/repo/{.git, src}}`,用来验证项目根解析。
+    fn project_root_fixture(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("home").join(".kanzei")).unwrap();
+        std::fs::create_dir_all(root.join("home").join("projects").join("repo").join(".git"))
+            .unwrap();
+        std::fs::create_dir_all(root.join("home").join("projects").join("repo").join("src"))
+            .unwrap();
+        root
+    }
+
+    #[test]
+    fn nearest_git_wins_over_a_farther_kanzei() {
+        // 更近的 `.git` 必须赢过更远的 `.kanzei`,否则仓库自己的根被丢掉、
+        // 一路解析到 HOME(注释一直写的是"最近",实现却不是)。
+        let root = project_root_fixture("project-root-nearest");
+        let home = root.join("home");
+        let repo = home.join("projects").join("repo");
+        assert_eq!(
+            discover_project_root_with_home(&repo.join("src"), Some(&home)),
+            Some(repo.clone())
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn home_global_config_dir_is_not_a_project_marker() {
+        // `~/.kanzei` 是全局配置根、必然存在。它若算项目标记,HOME 下所有无标记目录
+        // 都会解析到 HOME,项目级产物(project/、state.db)就会漏进全局目录。
+        let root = project_root_fixture("project-root-home");
+        let home = root.join("home");
+        let plain = home.join("scratch");
+        std::fs::create_dir_all(&plain).unwrap();
+        // 一对前后对照:同一棵目录树,只有"这个目录是不是 HOME"这一个变量。
+        // (不断言具体落点——临时目录本身就在真实 HOME 之下,再往上必然还有标记。)
+        assert_eq!(
+            discover_project_root_with_home(&plain, None),
+            Some(home.clone()),
+            "不认 HOME 时,~/.kanzei 就是把 HOME 变成项目根的那块磁铁"
+        );
+        assert_ne!(
+            discover_project_root_with_home(&plain, Some(&home)),
+            Some(home.clone()),
+            "HOME 的 .kanzei 是全局配置根,不该被当成项目标记"
+        );
+        // 但 HOME 之外的 `.kanzei` 仍然是标记。
+        let marked = home.join("projects");
+        std::fs::create_dir_all(marked.join(".kanzei")).unwrap();
+        assert_eq!(
+            discover_project_root_with_home(&marked.join("nested"), Some(&home)),
+            Some(marked)
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

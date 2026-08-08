@@ -5591,6 +5591,11 @@ async fn run_task(
         _ => "defect-first",
     };
     if profile == ProfileKind::Dev {
+        // 前端自查段跟着 FrontendToolsComponent 走:注册了这 5 个工具的装配线才追加。
+        // 写死在 dev 基础提示词里的话,CLI 侧会被指向 5 个根本不存在的工具。
+        agent.system.push('\n');
+        agent.system.push('\n');
+        agent.system.push_str(kanzei_tools::frontend_inspection_guidance());
         let (first, second) = if work_priority == "requirement-first" {
             ("requirements.md", "defects.md")
         } else {
