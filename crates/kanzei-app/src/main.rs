@@ -5366,6 +5366,8 @@ async fn run_prompt(
         let mut next_input = None;
         let mut next_prompt = prompt;
         let mut next_attachments = attachments;
+        // 会话是否因失败而停:只影响 kz:idle 的 reason,前端据此区分"跑完了"与"崩了"。
+        let mut idle_reason = "completed";
         loop {
             let result = run_task(
                 &window,
@@ -5406,6 +5408,7 @@ async fn run_prompt(
             if result.is_err() {
                 let _lifecycle = lifecycle.lock().unwrap();
                 running.store(false, Ordering::SeqCst);
+                idle_reason = "failed";
                 break;
             }
             // 必须写回外层 next_input:此处若新建绑定,promote 出来的输入会被丢弃,
@@ -5425,6 +5428,7 @@ async fn run_prompt(
                             with_session_id(json!({ "message": error.to_string() }), &session_id),
                         );
                         running.store(false, Ordering::SeqCst);
+                        idle_reason = "failed";
                         None
                     }
                 }
@@ -5441,6 +5445,15 @@ async fn run_prompt(
                 ),
             );
         }
+        // 会话级终态(R-086)。kz:done 是**一轮**的终点:排队输入会让上面这个 loop
+        // 接着跑下一轮,期间 runtime.running 一直是 true。前端若拿 kz:done 判空闲,
+        // 多轮运行会在第一轮后就显示成已结束。只有 loop 真正退出后发的 kz:idle
+        // 才代表"这个会话停了",UI 的会话状态机只认它收敛终态。
+        // 被 stop_run abort 时这里不会执行——那条路径自己发 kz:stopped。
+        let _ = window.emit(
+            "kz:idle",
+            with_session_id(json!({ "reason": idle_reason }), &session_id),
+        );
         // 自然完成/失败时释放会话容器中的句柄;stop_run abort 后则由 stop 路径取走。
         runtime_for_task.current_run.lock().unwrap().take();
     });

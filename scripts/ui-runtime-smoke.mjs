@@ -492,7 +492,12 @@ const payloads = {
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]] }], archived: [] },
-  process_list: [{ id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false }],
+  process_list: [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
+    // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
+    // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true },
+  ],
   pending_asks_get: [],
   // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
   // effective 与全局不同 = 项目级覆盖,界面要明说。
@@ -1145,6 +1150,92 @@ languageControl.value = "en";
 languageControl.dispatchEvent({ type: "change" });
 await flush();
 assert(listText("ask-title") === "Permission request", "权限标题二次切英文失败");
+
+// ---------- R-086 多会话并发:控制事件按 sessionId 收敛,切回可见可答复、不丢不串 ----------
+// 前置:清空上面语言切换测试留下的主会话 ask(91/92 仍在队列,askActive=91)。
+if (byId.get("ask-allow")) byId.get("ask-allow").click();
+await flush();
+if (!byId.get("ask-overlay").classList.contains("hidden") && byId.get("ask-allow")) byId.get("ask-allow").click();
+await flush();
+assert(byId.get("ask-overlay").classList.contains("hidden"), "R-086 前置:主会话 ask 未清空");
+// 场景:主会话(sess-smoke)活动;后台会话(sess-bg)初始 running=true(桩里故意给旧值,
+// 模拟"事件已收敛但轮询采样发生在事件之前"的竞态)。
+const activeTab = document.querySelector(".process-tab.active");
+assert(activeTab?.textContent.includes("主会话"), `冒烟前置:主会话应为活动进程(实际:${activeTab?.textContent})`);
+// 后台会话的权限询问到达:不弹当前窗口,但进入该会话自己的待答队列。
+askHandler?.({
+  payload: { id: 501, sessionId: "sess-bg", kind: "permission", action: "后台进程要写文件", resource: "后台/路径", remember: "后台/路径" },
+});
+await flush();
+assert(byId.get("ask-overlay").classList.contains("hidden"), "后台会话的 ask 不应在活动会话弹窗");
+// 后台会话第一轮结束(kz:done)。kz:done 只是**一轮**的终点:后端 run loop 会 promote
+// 排队输入接着跑,runtime.running 仍是 true。拿它收敛会让多轮运行从第二轮起全程显示
+// 空闲且再也纠不回来(converged 屏蔽了轮询校正),所以这里必须仍然是运行中。
+handlers.get("kz:done")?.({ payload: { steps: 1, halted: false, history: 3, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, sessionId: "sess-bg" } });
+await flush();
+const bgState = sandbox.sessionState("sess-bg");
+assert(bgState.converged === false, "kz:done 是轮末事件,不得收敛会话终态(排队输入还要继续跑)");
+assert(bgState.running === true, `kz:done 后会话仍在跑,运行态被误清: ${bgState.running}`);
+const bgTabAfterDone = [...document.querySelectorAll(".process-tab")].find((tab) => tab.textContent.includes("后台会话"));
+assert(bgTabAfterDone?.textContent.includes("●"), `多轮运行第一轮结束后标签页熄灯(实际:${bgTabAfterDone?.textContent})`);
+assert(byId.get("stop").classList.contains("hidden"), "后台会话结束不应改变主会话视图的运行态");
+// 第二轮开跑:kz:turn 是每轮开头必发的自愈信号,把状态机拨回运行中并解除 converged。
+handlers.get("kz:turn")?.({ payload: { step: 1, maxSteps: 30, sessionId: "sess-bg" } });
+await flush();
+assert(sandbox.sessionState("sess-bg").running === true, "后台会话第二轮 kz:turn 未把状态机拨回运行中");
+assert(sandbox.sessionState("sess-bg").converged === false, "kz:turn 未解除 converged,状态机会被上一轮终态焊死");
+// 会话真正转空闲(后端 run loop 退出)才收敛终态。
+handlers.get("kz:idle")?.({ payload: { reason: "completed", sessionId: "sess-bg" } });
+await flush();
+assert(sandbox.sessionState("sess-bg").running === false, "kz:idle 未收敛运行态");
+assert(sandbox.sessionState("sess-bg").converged === true, "kz:idle 未标记 converged");
+const bgTabAfterIdle = [...document.querySelectorAll(".process-tab")].find((tab) => tab.textContent.includes("后台会话"));
+assert(!bgTabAfterIdle?.textContent.includes("●"), "会话已空闲但标签页仍亮着运行标记");
+// 切回后台会话:权限询问可见可答复,运行态显示空闲(converged 挡住桩里的旧 running=true)。
+await sandbox.switchProcess("p|bg");
+await flush();
+const bgTab = document.querySelector(".process-tab.active");
+assert(bgTab?.textContent.includes("后台会话"), "切换到后台会话后活动进程 tab 未更新");
+assert(!byId.get("ask-overlay").classList.contains("hidden"), "切回后台会话后权限询问不可见");
+assert(listText("ask-action") === "后台进程要写文件", "切回后弹出的不是该会话自己的 ask(串会话)");
+assert(byId.get("stop").classList.contains("hidden"), "后台会话已收敛终态但切回后仍显示运行中(converged 未生效)");
+// 可答复:点允许后 invoke answer_ask,弹窗关闭,队列清空。
+byId.get("ask-allow").click();
+await flush();
+assert(invokeLog.includes("answer_ask"), "切回后台会话后权限询问无法答复(answer_ask 未调用)");
+assert(byId.get("ask-overlay").classList.contains("hidden"), "答复后权限弹窗未关闭");
+// 再切回主会话:不串台,无残留弹窗。
+await sandbox.switchProcess("d|smoke");
+await flush();
+const backTab = document.querySelector(".process-tab.active");
+assert(backTab?.textContent.includes("主会话"), "切回主会话后活动进程 tab 未更新");
+assert(byId.get("ask-overlay").classList.contains("hidden"), "切回主会话后残留后台 ask 弹窗");
+
+// 重建路径:后端 asks 表活得比 webview 久,界面重载后首次拿到进程列表必须补拉回来,
+// 否则重载前挂起的权限询问再也不出现,而后端还在 await 它的答复(验收:后端提供
+// pending asks 查询以支持重建)。这里用一个从未见过的会话模拟"重载后的第一次渲染"。
+payloads.pending_asks_get = [
+  { id: 601, sessionId: "sess-reload", kind: "permission", action: "重载前挂起的询问", resource: "重载/路径", remember: "重载/路径" },
+];
+const asksPullsBefore = invokeLog.filter((cmd) => cmd === "pending_asks_get").length;
+sandbox.renderProcesses([{ id: "r|reload", label: "重载会话", session_id: "sess-reload", running: false }]);
+await flush();
+assert(
+  invokeLog.filter((cmd) => cmd === "pending_asks_get").length > asksPullsBefore,
+  "首次拿到进程列表未向后端补拉待答队列(重载后挂起的 ask 会永久失联)"
+);
+assert(!byId.get("ask-overlay").classList.contains("hidden"), "重载后未从后端重建待答权限询问");
+assert(listText("ask-action") === "重载前挂起的询问", `重建出的不是后端返回的那条 ask:${listText("ask-action")}`);
+byId.get("ask-allow").click();
+await flush();
+// 收尾:恢复原进程列表(活动进程回到主会话),后续用例不受影响。
+payloads.pending_asks_get = [];
+sandbox.renderProcesses([
+  { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
+  { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true },
+]);
+await flush();
+assert(document.querySelector(".process-tab.active")?.textContent.includes("主会话"), "重建用例收尾后活动进程未回到主会话");
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
 const activityItems = document.querySelectorAll(".activity-item");

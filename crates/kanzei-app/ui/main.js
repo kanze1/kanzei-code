@@ -32,12 +32,42 @@ window.addEventListener("unhandledrejection", (event) => {
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
-    const controlEvent = event === "kz:ask" || event === "kz:done" || event === "kz:error" || event === "kz:stopped";
+    // R-086:kz:turn 是每轮开头必发的信号,拿它把会话状态机拨回运行中并解除
+    // converged。后端一次运行可以跨多轮(排队输入 promote 后接着跑),轮末的
+    // kz:done 之后会话仍在跑,只有这条能把被前一轮 idle 焊住的状态解开。
+    // 必须写在下面那句非活动会话 early-return 之前,否则后台会话永远收不到。
+    if (event === "kz:turn" && sessionId) {
+      const state = sessionState(sessionId);
+      state.running = true;
+      state.converged = false;
+    }
+    const controlEvent =
+      event === "kz:ask" ||
+      event === "kz:done" ||
+      event === "kz:error" ||
+      event === "kz:stopped" ||
+      event === "kz:idle";
     if (!controlEvent && sessionId && activeSessionId && sessionId !== activeSessionId) return;
-    if (controlEvent && event !== "kz:ask" && sessionId && activeSessionId && sessionId !== activeSessionId) {
-      refreshProcesses();
-      log(`后台会话控制事件已路由:${event} ${sessionId}`);
-      return;
+    if (controlEvent) {
+      // R-086:控制事件先按 sessionId 更新对应会话状态机,再决定是否投影视图——
+      // 后台会话的终态也必须收敛,不能只靠 refreshProcesses 间接拉后端
+      // (事件丢失时切回会卡在错误运行态)。
+      // 只有**会话级**终态才收敛:kz:done 是一轮的终点,kz:error 也可能只是本轮
+      // 失败(后端随后仍会发 kz:idle),拿它们收敛会让排队输入的第二轮起全程显示空闲。
+      if (sessionId && (event === "kz:idle" || event === "kz:stopped")) {
+        const state = sessionState(sessionId);
+        state.running = false;
+        // 终态一经收敛,后续轮询的旧值(发出事件前采样的 running=true)不得把它
+        // 翻回——这是"不依赖当前视图"的最后一环;下一轮的 kz:turn 才能解除。
+        state.converged = true;
+      }
+      // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
+      // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
+      if (event !== "kz:ask" && sessionId && activeSessionId && sessionId !== activeSessionId) {
+        refreshProcesses();
+        log(`后台会话控制事件已路由:${event} ${sessionId}`);
+        return;
+      }
     }
     handler(eventPayload);
   }).catch((err) => {
@@ -717,6 +747,19 @@ setupResize("bg-panel", "kz-activity-width", "left", 240, 520);
 let activeProcessId = null;
 let activeSessionId = null;
 let processItems = [];
+
+// R-086:每个会话独立的运行状态机。控制事件按 sessionId 更新对应状态机,视图只
+// 投影活动会话的状态——后台会话的 idle/stopped 先落这里,切回时从状态机重建,
+// 而不是依赖事件在"恰好活动"时才会被处理。待答队列另有 askQueues,不放这里。
+const sessionStates = new Map();
+function sessionState(sessionId) {
+  let state = sessionStates.get(sessionId);
+  if (!state) {
+    state = { running: false, converged: false };
+    sessionStates.set(sessionId, state);
+  }
+  return state;
+}
 
 let running = false;
 let currentProject = null;
@@ -2127,6 +2170,13 @@ on("kz:stopped", (e) => {
   refreshPendingInputs();
   refreshProcesses();
 });
+// R-086:会话真正转空闲(后端 run loop 退出,排队输入已跑完或失败中断)。
+// 视图的收尾归 kz:done/kz:error/kz:stopped,这里只把标签页按状态机重画一次——
+// 订阅本身也是必需的:on() 里的会话状态机收敛逻辑挂在订阅回调上。
+on("kz:idle", () => {
+  renderProcesses(processItems);
+});
+
 on("kz:done", async (e) => {
   const p = e.payload;
   setAutoStopReason(p.halted ? t("用户拒绝后停止") : t("本轮完成"));
@@ -2778,6 +2828,13 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     addUserMessage(prompt, promptAttachments);
   }
   setRunning(true, attachmentStatus);
+  // R-086:本轮运行开始,活动会话状态机同步为运行中——控制事件与状态机同源。
+  // converged 复位:新一轮可以覆盖旧终态。
+  if (activeSessionId) {
+    const state = sessionState(activeSessionId);
+    state.running = true;
+    state.converged = false;
+  }
   startElapsed();
   log(`${auto ? t("鞭挞") : t("发送")}:${prompt.slice(0, 80)}`);
   try {
@@ -3182,6 +3239,12 @@ $("stop").addEventListener("click", () => {
   hideAsk();
   stopElapsed();
   setRunning(false, "已停止");
+  // R-086:本地复位同样收敛到该会话状态机,不依赖后端事件回执。
+  if (activeSessionId) {
+    const state = sessionState(activeSessionId);
+    state.running = false;
+    state.converged = true;
+  }
   log(t("已请求停止(本地已复位)"));
 });
 promptBox.addEventListener("keydown", (e) => {
@@ -3540,28 +3603,49 @@ $("worktree-add").addEventListener("click", async () => {
 
 // ---------- R-030:项目内独立进程 ----------
 let syncedRunningProcessId = null;
+// 已向后端补拉过待答队列的会话,防止每次进程列表刷新都打一次 pending_asks_get。
+let askSyncedSession = null;
 function renderProcesses(items) {
   processItems = items ?? [];
+  // R-086:后端是运行态权威,先把返回的 running 校正进各会话状态机(事件可能
+  // 丢失),视图只投影活动会话的状态机,而不是直接信某一次轮询的瞬时值。
+  // 已收敛终态(converged)的会话不被旧轮询值翻回——事件在轮询采样之后才发
+  // 出是正常时序,此刻 process_list 里仍是 running=true,但会话实际已结束。
+  for (const item of processItems) {
+    const state = sessionState(item.session_id);
+    if (!state.converged) state.running = Boolean(item.running);
+  }
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
     const preferred = processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
     activeProcessId = preferred?.id ?? null;
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   activeSessionId = active?.session_id ?? null;
+  // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
+  // 补拉一次待答队列。后端 asks 表活得比 webview 久,不补拉的话重载前挂起的
+  // 权限询问再也不会出现,而后端还在 await 它的答复。按会话去重,只拉一次。
+  if (activeSessionId && activeSessionId !== askSyncedSession) {
+    askSyncedSession = activeSessionId;
+    refreshPendingAsks();
+  }
   pumpAsk();
-  // 活动进程换人时按后端真实状态重算运行态(切项目/进程后旧会话的 kz:done 收不到)。
-  // 只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
+  // 活动进程换人时按状态机重算运行态(切项目/进程后旧会话的终态也经状态机
+  // 收敛,不会丢)。只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
+  const activeRunning = activeSessionId ? sessionState(activeSessionId).running : false;
   if (activeProcessId !== syncedRunningProcessId) {
     syncedRunningProcessId = activeProcessId;
-    setRunning(Boolean(active?.running), active?.running ? t("运行中") : t("空闲"));
+    setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
   }
   const tabs = $("process-tabs");
   tabs.replaceChildren();
   for (const item of processItems) {
     const tab = document.createElement("button");
     tab.type = "button";
-    tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${item.running ? " running" : ""}`;
-    tab.textContent = `${item.label}${item.running ? " ●" : ""}`;
+    // R-086:标签的 ● 从该会话状态机取——后台会话的 done 已收敛终态,不依赖
+    // 这次轮询是否恰好拉到了最新 running。
+    const itemRunning = sessionState(item.session_id).running;
+    tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${itemRunning ? " running" : ""}`;
+    tab.textContent = `${item.label}${itemRunning ? " ●" : ""}`;
     tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}`;
     tab.addEventListener("click", () => switchProcess(item.id));
     tabs.appendChild(tab);
@@ -3611,8 +3695,16 @@ async function switchProcess(processId) {
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
+  // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
+  // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。
+  askSyncedSession = target.session_id;
   pumpAsk();
-  setRunning(target.running, target.running ? t("运行中") : t("空闲"));
+  // R-086:运行态投影自该会话的状态机(后台终态已收敛),不直接信 processItems
+  // 的瞬时轮询值——事件先到状态机,切回时看到的才是准的。
+  setRunning(
+    sessionState(target.session_id).running,
+    sessionState(target.session_id).running ? t("运行中") : t("空闲")
+  );
   renderProcesses(processItems);
   clearChat();
   bgClear();

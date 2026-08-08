@@ -1,6 +1,6 @@
 # Requirements
 
-## R-086 控制类事件按会话路由与 pending ask 重建 [todo]
+## R-086 控制类事件按会话路由与 pending ask 重建 [doing]
 - 复杂度: 大
 - 优先级: P1
 - 来源: 2026-08-07 审计;D-055、D-056 的共同根因
@@ -14,7 +14,7 @@
 
 - 标签: 后端
 
-- 进展: R-086 属架构级会话状态改动，需先确认状态权威与 pending ask 生命周期方案；本轮按队列转入下一条可执行的前端完整需求 R-089。
+- 进展: 状态权威定为「每会话一个前端状态机 + 后端 running 为真值源」：控制事件按 sessionId 先更新状态机再决定是否投影视图，视图只投影活动会话。本轮交付：①前端 sessionStates 状态机与 kz:ask 的按会话入队/切回重放；②后端补会话级终态事件 kz:idle（run_prompt 的 run loop 退出时发，reason 区分 completed/failed），前端只认 kz:idle/kz:stopped 收敛 converged、并用每轮必发的 kz:turn 自愈——修掉了「kz:done 其实是轮末事件却被当会话终态」引入的回归：排队输入的多轮运行从第二轮起标签页熄灯、切回显示空闲并解禁发送键，且 converged 屏蔽了轮询校正再也纠不回来；③pending_asks_get 接进 renderProcesses 的首次渲染（按会话去重），界面重载后后端仍在 await 的挂起询问能被重建，此前该查询全仓只有 switchProcess 一个调用点。验证：ui-runtime-smoke 新增「多轮不熄灯 / kz:idle 才收敛 / 切回可见可答复不串会话 / 重载后从后端重建」四组断言，cargo test --workspace 269 项全绿。剩余：控制事件仍未带运行代次（run_id），停止后紧接重发这类极窄竞态下旧事件仍可能错配，需要时再上代次方案；验收整体待桌面端双进程真机实测（E2/E3）。
 
 ## R-088 凭证与 provider 协议的健壮性 [todo]
 - 复杂度: 中
@@ -193,38 +193,11 @@
 - refs: R-098 R-099 D-088 D-114 R-104 R-107
 - 阶段: 4
 - 设计定位: 记忆作为 first-class primitive 的总纲与门禁
-- 依赖: R-105 R-106
+- 依赖: 
 
 - 标签: 核心
 
-## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [doing]
-- 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
-- 复杂度: 大
-- 优先级: P1
-- 归属: kanzei
-- 内容: memory-manager 子代理(fast 档,复用 SubagentRuntime)持有 memory_add/update/merge/stale 全套写工具;add 有近似去重门禁,merge 自动 stale 被并条目并留墓碑链接,stale 必填 reason;主 agent 只有 memory_search 与 memory_note(草稿投递),写路径全走管理子代理(写读分离)。触发点:轮末收尾复盘(episode 生成+ADD/UPDATE/NOOP)、条目关闭(根因→fact、重复操作序列→sop 候选)、用户显式「记住」。
-- 验收: 连续自举轮次出现完整闭环实证(轮末写入→后续轮命中→避免重复探索,以轨迹为证);去重门禁拦截重复写入用例;主 agent 无直接写入路径(权限快照测试)。
-- refs: R-103 R-098 R-104
-- 阶段: 4
-- 设计定位: 记忆管理的执行者与节律
-- 进展: 48a1b3f 交付核心:全套写工具+MemoryManagerComponent(无 shell,快照测试守护)+引擎去重门禁+merge 墓碑链接+CLI/桌面轮末 inbox 消化触发(fast→primary,判据只看箱)。本轮(f0a1e45)完成剩余代码项「条目关闭触发的根因→fact 蒸馏」:completed_entry 命中时新增 harvest_entry_fact 把根因原料(触发任务+工具顺序+本轮失败信号)投项目 inbox 由 manager 提炼成 fact,指纹 [fact:{id}] 判重同条目只投一次,CLI 与桌面端轮末都接线;单测覆盖投递/判重/无失败信号路径,workspace 256 项全绿。剩余:验收①「连续自举轮次出现完整闭环实证(轮末写入→后续轮命中→避免重复探索,以轨迹为证)」需发版后真实轨迹,不可本机验证;代码项已全部落地,去重门禁与主 agent 无写路径测试均已在 48a1b3f 交付。
-
-- 标签: 核心
-
-## R-106 Memory M3:注入改造与上下文账单 [doing]
-- 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
-- 复杂度: 中
-- 优先级: P2
-- 归属: kanzei
-- 内容: 注入改为"索引常驻(预算封顶)+正文按需检索";sop 按 description 与任务匹配给出加载提示;harness 逐 context source 记录注入 token 数并落库,形成可查询的上下文账单;上下文溢出时先压缩为 episode 再重置(D-088 联动)。
-- 验收: 同类任务每轮注入 token 较基线下降且无因信息缺失导致的返工;账单可按会话/轮查询;溢出路径不再无声丢弃轨迹。
-- refs: R-103 D-088 R-099 R-104
-- 阶段: 4
-- 设计定位: 上下文管理精准化的数据与机制
-- 依赖: R-105
-- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。D-161/D-162:建流前与 HTTP 200 SSE 流内 context overflow 统一执行有界压缩→仅当前消息两级重试,每次从压缩后 messages 重建请求并在成功后持久化;OpenAI SSE 同时识别 error.type/code 与 'input exceeds the context window' 文案,限流优先级不回归。本轮(d6af32a)完成剩余代码项「被裁剪段先沉淀 episode 再重置」:压缩时把被丢弃段生成轨迹摘要(工具画像+失败信号+文本预览)收集进 RunSummary.overflow_traces,CLI/桌面端随 episode 落库(episodes.overflow_json 新列 v6,幂等 ALTER 迁移),新增 recent_overflow_traces 查询;runner 单测(两级压缩轨迹断言)、store 单测(overflow_json 回放)、集成测试(真实 CLI 溢出恢复后 episode 可查,两级压缩两条轨迹)覆盖,workspace 255 项全绿。剩余:验收①「同类任务每轮注入 token 较基线下降且无信息缺失返工」需发版后真实轨迹对比,与 R-105 闭环实证同属外部实证,不可本机验证;代码项已全部落地。
-
-- 标签: 核心
+- 进展: 依赖复核:R-105(M2)、R-106(M3)均已关闭,依赖已满足移入 refs,阻塞字段清空。R-103 总纲本身的推进依赖子代理/写工具现状的重新盘点,下一轮接手时以 docs/design/memory_system.md §0 品味决策为准。
 
 ## R-111 需求缺陷依赖的组织与可视化 [todo]
 - 标签: 后端
@@ -378,3 +351,11 @@
 - 阶段: 2
 - 验收: 鞭挞/自主推进每关闭 N 条(可配)自动插入一轮只读核查(复用 SubagentBase read/glob/grep):核对已完成条目的验收证据与真实调用方;发现问题时生成候选缺陷或退回依据;核查不进入主 conversation/queue;触发频率与 N 可配置。
 - 优先级: P2
+
+## R-145 Memory 闭环实证:发版后轨迹命中与 token 基线对比 [todo]
+- 优先级: P2
+- 内容: 承接 R-105 验收①(连续自举轮次完整闭环实证:轮末写入→后续轮命中→避免重复探索,以轨迹为证)与 R-106 验收①(同类任务每轮注入 token 较基线下降且无因信息缺失导致的返工)。两者均需发版后在真实自举循环中取轨迹对比,不可本机验证;代码项已随 R-105/R-106 交付,本条目只跟踪实证落地。
+- 复杂度: 小
+- 标签: 流程
+- 阶段: 5
+- 验收: 自举循环发版运行 N 轮后,提供轨迹证据:①轮末记忆写入被后续轮检索命中且避免重复探索;②同类任务注入 token 较基线下降且无信息缺失返工。证据形式:episodes 落库记录、context_report 账单查询结果、轨迹摘录。

@@ -1023,3 +1023,32 @@
 
 - 进展: 逐条对照验收:①「.kanzei/project/* 受保护路径识别并硬 deny」——双保险实现:crates/kanzei-tools/src/bash.rs:323-388 执行前静态拦截(full_file_write_cmdlet 词边界识别 Set-Content/Out-File、git_mutation_form 解析命令片段拦 git 写子命令);bash.rs:399-551 执行前 ManagedSnapshot 镜像托管目录、执行后 enforce_managed_files 比对,任何改动隔离留证(.kanzei/quarantine)并整体回滚,回喂 [managed-files] BLOCKED。②「含重定向、管道、解释器、脚本路径」——测试逐一覆盖:bash.rs:610 重定向+[System.IO.File]::WriteAllText(.NET 解释器)、:735 管道形态($lines | out-file)、:662 git 脚本形态。③「deny 不依赖首词泛化」——快照比对完全不解析命令文本,「没人预料到的写法」一样拦(bash.rs:607 注释);git_mutation_form 定位命令中的 git 位置而非首词。④「补 bash 路径逃逸回归测试」——6 个测试:shell_writes_to_managed_docs_are_rolled_back(610)、git_mutations_are_blocked_without_false_positives(662)、empty_managed_directory_is_still_fenced(688)、background_shell_is_refused_in_managed_projects(713)、whole_file_write_cmdlets_are_detected_with_word_boundaries(735)、set_content_command_is_blocked_before_spawn(751)。验证:cargo test -p kanzei-tools 80/80、kanzei-harness 37/37、kanzei-core --lib 50/50(2026-08-08);本轮 workspace 256 项全绿。残余验证「桌面端真实模型工具调用 E2」不在验收条款内,已转移至 R-101 延期 E2 清单。
 
+## R-105 Memory M2:memory-manager 子代理、写工具集与触发策略 [done]
+- 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
+- 复杂度: 大
+- 优先级: P1
+- 归属: kanzei
+- 内容: memory-manager 子代理(fast 档,复用 SubagentRuntime)持有 memory_add/update/merge/stale 全套写工具;add 有近似去重门禁,merge 自动 stale 被并条目并留墓碑链接,stale 必填 reason;主 agent 只有 memory_search 与 memory_note(草稿投递),写路径全走管理子代理(写读分离)。触发点:轮末收尾复盘(episode 生成+ADD/UPDATE/NOOP)、条目关闭(根因→fact、重复操作序列→sop 候选)、用户显式「记住」。
+- 验收: ①闭环实证→转移 R-145;②去重门禁拦截测试:48a1b3f(engine 去重门禁+单测);③主 agent 无写路径权限快照测试:48a1b3f(权限快照测试)
+- refs: R-103 R-098 R-104
+- 阶段: 4
+- 设计定位: 记忆管理的执行者与节律
+- 进展: 关闭证据——验收②去重门禁拦截重复写入用例:48a1b3f 交付引擎去重门禁及拦截测试;验收③主 agent 无直接写入路径:48a1b3f 交付权限快照测试(主 agent 仅 memory_search/memory_note,写路径全走 manager 子代理);验收①「连续自举轮次完整闭环实证(轮末写入→后续轮命中→避免重复探索)」需发版后真实轨迹,不可本机验证,实证项已转移至新开条目 R-145;f0a1e45 补 harvest_entry_fact 根因蒸馏,workspace 256 项全绿。
+
+- 标签: 核心
+
+## R-106 Memory M3:注入改造与上下文账单 [done]
+- 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
+- 复杂度: 中
+- 优先级: P2
+- 归属: kanzei
+- 内容: 注入改为"索引常驻(预算封顶)+正文按需检索";sop 按 description 与任务匹配给出加载提示;harness 逐 context source 记录注入 token 数并落库,形成可查询的上下文账单;上下文溢出时先压缩为 episode 再重置(D-088 联动)。
+- 验收: ①token 基线对比→转移 R-145;②账单可按会话/轮查询:1a8a81b(RunSummary.context_report+CLI 摘要/桌面事件+store 回放测试);③溢出轨迹不丢:d6af32a(overflow_traces+episodes.overflow_json v6+recent_overflow_traces 查询+两级压缩断言测试)
+- refs: R-103 D-088 R-099 R-104
+- 阶段: 4
+- 设计定位: 上下文管理精准化的数据与机制
+- 依赖: R-105
+- 进展: 关闭证据——验收②账单可按会话/轮查询:1a8a81b 交付 RunSummary.context_report(逐 source 字符账单)+ CLI 摘要打印/桌面 run.completed 事件,store 单测覆盖回放;验收③溢出路径不再无声丢弃轨迹:d6af32a 交付被裁段沉淀 episode(overflow_traces 收集+episodes.overflow_json 落库 v6 幂等迁移+recent_overflow_traces 查询),runner 两级压缩轨迹断言/集成测试覆盖,workspace 255 项全绿;验收①「同类任务每轮注入 token 较基线下降且无信息缺失返工」需发版后真实轨迹对比,不可本机验证,实证项已转移至 R-145。代码项已全部落地。
+
+- 标签: 核心
+
