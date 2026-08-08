@@ -569,6 +569,16 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-detail { max-height: 320px; overflow: auto; }
 .bg-args { max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 
+/* R-124:待确认候选 */
+.memory-candidates { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; }
+.memory-candidate { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 8px; }
+.memory-candidate.sop { border-left: 2px solid var(--info); }
+.memory-candidate-head { display: flex; gap: 6px; align-items: baseline; font-size: 11.5px; }
+.memory-candidate-hint { font-family: var(--mono); font-size: 10px; color: var(--info); flex-shrink: 0; }
+.memory-candidate-summary { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-candidate-detail { font-size: 10.5px; margin: 4px 0; max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.memory-candidate-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
 /* R-125:召回明细与效果画像 */
 .memory-recalls { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow: auto; }
 .memory-recall { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 8px; }

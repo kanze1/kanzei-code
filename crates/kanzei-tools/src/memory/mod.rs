@@ -239,6 +239,39 @@ pub fn harvest_failures(
     delivered
 }
 
+/// SOP 提炼(R-124):完成一个完整条目后,把这轮的流程投进候选箱等用户拍板。
+///
+/// 与 `harvest_failures` 的关键差别:失败笔记进 inbox 由 manager 自行消化,
+/// 而 SOP 是**用户的常用模板**,不能由 agent 自己决定入库——它只产候选,
+/// 采纳与否是用户一键的事(R-124 验收 ③)。
+pub fn harvest_sop(
+    store: &MemoryStore,
+    entry: &kanzei_core::CompletedEntry,
+    prompt: &str,
+) -> bool {
+    // 同一条目只投一次候选:同一轮反复触发或重跑不该堆出一摞一样的模板。
+    let fingerprint = format!("[sop:{}]", entry.id);
+    if store.note_fingerprint_seen(&fingerprint) {
+        return false;
+    }
+    // 工具序列是提炼步骤的原料;它同时也是判重依据——流程一样的条目应当合并而非新增。
+    let flow = entry.tools.join(" → ");
+    let summary = format!(
+        "候选 SOP:完成 {}({})的流程{}",
+        entry.id, entry.status, fingerprint
+    );
+    let detail = format!(
+        "- 触发任务: {}\n\
+         - 实际工具顺序: {}\n\
+         - 请提炼成可复用步骤(祈使句、按顺序、每步说清做什么与判断依据),写进 category=sop、scope=global 的候选。\n\
+         - 判重: 若已有 SOP 的步骤实质相同,合并进那一条并补充差异,不要新增。\n\
+         - 若这段流程只对本条目成立(一次性排查、与具体 id 强绑定),判 NOOP 不要产出。",
+        prompt.chars().take(200).collect::<String>(),
+        if flow.is_empty() { "(无)".to_string() } else { flow },
+    );
+    store.append_note(&summary, &detail, "sop").is_ok()
+}
+
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
 pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
@@ -375,6 +408,60 @@ mod tests {
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
         assert!(prompt_hints(&dir, "完全无关的宇宙话题").is_none());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn sop_候选只投一次且给足提炼原料() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-sop-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        let entry = kanzei_core::CompletedEntry {
+            id: "R-123".into(),
+            status: "done".into(),
+            tools: vec!["read".into(), "edit".into(), "bash".into(), "req".into()],
+        };
+
+        assert!(harvest_sop(&store, &entry, "把侧栏与文档页的职责分开"), "首次应投出候选");
+        let inbox = store.read_inbox();
+        assert!(inbox.contains("R-123"), "候选未记录来源条目");
+        assert!(inbox.contains("read → edit → bash → req"), "候选未给出工具顺序(提炼没有原料)");
+        assert!(inbox.contains("把侧栏与文档页的职责分开"), "候选未记录触发任务");
+        assert!(inbox.contains("合并进那一条"), "候选未要求与既有 SOP 判重合并");
+        assert!(inbox.contains("判 NOOP"), "候选未给出「一次性流程不该产出」的出口");
+
+        // 同一条目重复触发(重跑、同轮多次收口)不该堆出一摞一样的模板。
+        assert!(!harvest_sop(&store, &entry, "再来一次"), "同一条目不应重复投候选");
+        assert_eq!(store.read_inbox().matches("[sop:R-123]").count(), 1);
+
+        // 换一个条目仍应正常投递。
+        let other = kanzei_core::CompletedEntry {
+            id: "D-150".into(),
+            status: "fixed".into(),
+            tools: vec!["edit".into()],
+        };
+        assert!(harvest_sop(&store, &other, "修跳转"), "不同条目应各投一次");
+
+        // 候选可逐条查看,并按指纹整块丢弃——只删摘要行会留下孤儿明细。
+        let list = store.pending_note_list();
+        assert_eq!(list.len(), 2, "候选列表应逐条可见");
+        assert!(list.iter().all(|(hint, _, _)| hint == "sop"), "分类提示未解析出来");
+        assert!(store.discard_note("[sop:R-123]").unwrap(), "丢弃应生效");
+        let after = store.pending_note_list();
+        assert_eq!(after.len(), 1, "丢弃后应只剩另一条");
+        assert!(after[0].1.contains("D-150"));
+        assert!(
+            !store.read_inbox().contains("read → edit → bash → req"),
+            "丢弃只删了摘要行,明细成了孤儿",
+        );
+        assert!(!store.discard_note("[sop:R-123]").unwrap(), "重复丢弃应返回 false");
         std::fs::remove_dir_all(dir).ok();
     }
 

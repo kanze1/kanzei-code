@@ -902,6 +902,8 @@ fn main() {
             memory_entries,
             memory_recalls,
             memory_entry_delete,
+            memory_note_candidates,
+            memory_note_discard,
             memory_entry_save,
             memory_search_page,
             memory_context_bill,
@@ -2331,6 +2333,40 @@ fn memory_entries(
                 })
                 .collect();
             return Ok(json!(list));
+        }
+    }
+    Err(format!("未知记忆域: {scope}"))
+}
+
+/// R-124:待用户处置的草稿候选(重点是 SOP —— 它是用户的常用模板,
+/// 不能由 agent 自己决定入库)。两级记忆合并返回。
+#[tauri::command]
+fn memory_note_candidates(project_dir: String) -> serde_json::Value {
+    let mut out = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        for (hint, summary, detail) in store.pending_note_list() {
+            // 指纹是丢弃时的定位键,从摘要里原样取出。
+            let fingerprint = summary
+                .rfind('[')
+                .and_then(|i| summary[i..].find(']').map(|j| summary[i..i + j + 1].to_string()))
+                .unwrap_or_default();
+            out.push(json!({
+                "scope": store.scope.label(),
+                "hint": hint,
+                "summary": summary,
+                "detail": detail,
+                "fingerprint": fingerprint,
+            }));
+        }
+    }
+    json!(out)
+}
+
+#[tauri::command]
+fn memory_note_discard(project_dir: String, scope: String, fingerprint: String) -> Result<bool, String> {
+    for store in memory_stores_for(&project_dir) {
+        if store.scope.label() == scope {
+            return store.discard_note(&fingerprint).map_err(|e| e.to_string());
         }
     }
     Err(format!("未知记忆域: {scope}"))
@@ -4395,6 +4431,14 @@ async fn run_task(
                 if !signals.is_empty() {
                     let memory = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
                     kanzei_tools::memory::harvest_failures(&memory, &signals);
+                }
+                // SOP 提炼(R-124):只在本轮确实完成了一个完整条目时触发,闸门在
+                // completed_entry 里用代码强制。SOP 是用户的常用模板,所以只产候选,
+                // 落到 global 候选箱等用户一键采纳——agent 不能自己决定入库。
+                if let Some(done) = kanzei_core::completed_entry(this_run) {
+                    if let Some(global) = kanzei_tools::memory::MemoryStore::global() {
+                        kanzei_tools::memory::harvest_sop(&global, &done, &prompt);
+                    }
                 }
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
                 let _ = store.append_episode(

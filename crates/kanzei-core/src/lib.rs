@@ -13,8 +13,9 @@ pub use notification::{
     AgentMessage, AgentNotification, InMemoryBroker, NotificationSubscription, PublishMessage,
 };
 pub use runner::{
-    run_once, run_once_with_parts, summarize_failures, summarize_tools, AskFuture, AskReply,
-    AskRequest, AskResponse, FailureSignal, RunEvent, RunSummary, RunnerConfig, SubagentRuntime,
+    completed_entry, run_once, run_once_with_parts, summarize_failures, summarize_tools, AskFuture,
+    AskReply, AskRequest, AskResponse, CompletedEntry, FailureSignal, RunEvent, RunSummary,
+    RunnerConfig, SubagentRuntime,
 };
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, Session, SessionStore,

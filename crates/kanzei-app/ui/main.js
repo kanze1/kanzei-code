@@ -96,6 +96,11 @@ const I18N_EN = {
   "最近命中": "Last hit", "从未命中": "Never hit", "长期零命中": "Never recalled", "累计命中": "Total hits",
   "从磁盘删除该记忆文件,不可撤销": "Delete this memory file from disk — cannot be undone",
   "确认删除": "Delete", "此操作不可撤销": " — this cannot be undone.", "已删除": "Deleted", "删除失败": "Delete failed",
+  "暂无待确认候选": "No candidates awaiting your decision", "采纳": "Adopt", "丢弃": "Discard",
+  "交给记忆管理子代理提炼成条目": "Hand to the memory-manager subagent to distill into an entry",
+  "已交给记忆管理子代理提炼": "Handed to the memory-manager subagent", "提炼失败": "Distillation failed",
+  "直接移出候选箱,不再进入提炼范围": "Remove from the candidate box; it will not be distilled",
+  "已丢弃": "Discarded", "丢弃失败": "Discard failed",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -4190,17 +4195,86 @@ async function refreshMemory() {
     return;
   }
   try {
-    const [overview, billData, recallData] = await Promise.all([
+    const [overview, billData, recallData, candidates] = await Promise.all([
       invoke("memory_overview", { projectDir: currentProject }),
       invoke("memory_context_bill", { projectDir: currentProject }),
       invoke("memory_recalls", { projectDir: currentProject, limit: 20 }),
+      invoke("memory_note_candidates", { projectDir: currentProject }),
     ]);
     renderMemoryArch(overview);
     renderMemoryBill(billData);
     renderMemoryRecalls(recallData);
+    renderMemoryCandidates(candidates);
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+  }
+}
+
+// R-124:待确认候选。SOP 是用户的常用模板,不能由 agent 自己决定入库——
+// 所以候选只停在这里,采纳/丢弃都是用户一键的事。
+function renderMemoryCandidates(list) {
+  const box = $("memory-candidates");
+  const count = $("memory-candidate-count");
+  if (!box) return;
+  box.innerHTML = "";
+  const items = Array.isArray(list) ? list : [];
+  count.textContent = items.length ? `· ${items.length}` : "";
+  if (!items.length) {
+    box.innerHTML = `<p class="dim">${t("暂无待确认候选")}</p>`;
+    return;
+  }
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.className = `memory-candidate${item.hint === "sop" ? " sop" : ""}`;
+    row.dataset.fingerprint = item.fingerprint || "";
+    const head = document.createElement("div");
+    head.className = "memory-candidate-head";
+    head.innerHTML =
+      `<span class="memory-candidate-hint">${escapeHtml(item.hint || "note")}</span>` +
+      `<span class="memory-candidate-summary">${escapeHtml(item.summary || "")}</span>`;
+    const detail = document.createElement("pre");
+    detail.className = "memory-candidate-detail dim";
+    detail.textContent = item.detail || "";
+    const actions = document.createElement("div");
+    actions.className = "memory-candidate-actions";
+    const adopt = document.createElement("button");
+    adopt.type = "button";
+    adopt.className = "primary mini";
+    adopt.textContent = t("采纳");
+    adopt.title = t("交给记忆管理子代理提炼成条目");
+    adopt.addEventListener("click", async () => {
+      adopt.disabled = true;
+      try {
+        await invoke("memory_consolidate", { projectDir: currentProject });
+        toast(t("已交给记忆管理子代理提炼"));
+        refreshMemory();
+      } catch (err) {
+        adopt.disabled = false;
+        toastError(`${t("提炼失败")}:${err}`);
+      }
+    });
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "ghost mini danger";
+    drop.textContent = t("丢弃");
+    drop.title = t("直接移出候选箱,不再进入提炼范围");
+    drop.addEventListener("click", async () => {
+      try {
+        await invoke("memory_note_discard", {
+          projectDir: currentProject,
+          scope: item.scope,
+          fingerprint: item.fingerprint,
+        });
+        toast(t("已丢弃"));
+        refreshMemory();
+      } catch (err) {
+        toastError(`${t("丢弃失败")}:${err}`);
+      }
+    });
+    actions.append(adopt, drop);
+    row.append(head, detail, actions);
+    box.appendChild(row);
   }
 }
 

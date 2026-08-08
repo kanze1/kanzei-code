@@ -181,6 +181,83 @@ pub struct FailureSignal {
 /// 引擎不额外采集,只做一次线性扫描 + 指纹聚合。纯函数,可单测。
 ///
 /// 只传本轮切片(`&summary.messages[prior_len..]`),否则会把历史失败重复上报。
+/// 本轮完成的条目(R-124 SOP 提炼的触发闸门)。
+#[derive(Debug, Clone, PartialEq)]
+pub struct CompletedEntry {
+    /// 条目 id,如 R-123 / D-150。
+    pub id: String,
+    /// 落到的终态:done / fixed / dropped / wontfix。
+    pub status: String,
+    /// 本轮实际动过手的工具(去重、按首次出现排序),提炼步骤的原料。
+    pub tools: Vec<String>,
+}
+
+/// 判定"本轮是否确实完成了一个完整条目"。只有成立时才允许提炼 SOP——
+/// 否则失败轮、空转轮、纯查询轮都会产出垃圾模板,把 SOP 库淹掉(R-124 验收 ②)。
+///
+/// 成立条件全部满足:
+/// 1. 有一次 **成功** 的 req/defect update,且目标状态是终态;
+/// 2. 本轮存在实质动作(改文件或跑命令)——只把条目一勾并不构成可复用流程;
+/// 3. 该次 update 之前就有实质动作,顺序不能反(先勾再干活不是同一件事)。
+///
+/// 判定用代码强制而非写进提示词:提示词约束不住"这轮到底算不算完成"。
+pub fn completed_entry(messages: &[Message]) -> Option<CompletedEntry> {
+    const TERMINAL: &[&str] = &["done", "fixed", "dropped", "wontfix"];
+    const SUBSTANTIVE: &[&str] = &["write", "edit", "multiedit", "bash"];
+
+    let mut calls: std::collections::HashMap<String, (String, serde_json::Value)> =
+        std::collections::HashMap::new();
+    let mut tools: Vec<String> = Vec::new();
+    let mut substantive_before = false;
+    let mut found: Option<CompletedEntry> = None;
+
+    for message in messages {
+        for part in &message.parts {
+            match part {
+                Part::ToolCall { id, name, input } => {
+                    calls.insert(id.clone(), (name.clone(), input.clone()));
+                }
+                Part::ToolResult { call_id, is_error, .. } => {
+                    let Some((name, input)) = calls.get(call_id) else { continue };
+                    if *is_error {
+                        continue;
+                    }
+                    if !tools.iter().any(|t| t == name) {
+                        tools.push(name.clone());
+                    }
+                    if SUBSTANTIVE.contains(&name.as_str()) {
+                        substantive_before = true;
+                    }
+                    if !matches!(name.as_str(), "req" | "defect") {
+                        continue;
+                    }
+                    let action = input.get("action").and_then(|v| v.as_str()).unwrap_or("");
+                    let status = input.get("status").and_then(|v| v.as_str()).unwrap_or("");
+                    if action != "update" || !TERMINAL.contains(&status) {
+                        continue;
+                    }
+                    // 先干活后收口才算完成一件事;顺序反了(先勾再改)不构成可复用流程。
+                    if !substantive_before {
+                        continue;
+                    }
+                    let Some(id) = input.get("id").and_then(|v| v.as_str()) else { continue };
+                    found = Some(CompletedEntry {
+                        id: id.to_string(),
+                        status: status.to_string(),
+                        tools: tools.clone(),
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    // tools 要含收口那一刻之后的全貌:取最终列表,保证提炼看得到完整流程。
+    found.map(|mut entry| {
+        entry.tools = tools;
+        entry
+    })
+}
+
 pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
     // call_id → (工具名, 目标):ToolResult 只有 call_id,工具名要回溯 ToolCall。
     let mut calls: std::collections::HashMap<String, (String, String)> =
@@ -325,6 +402,67 @@ mod failure_tests {
             content: content.into(),
             is_error,
         }])
+    }
+
+    fn tracker_call(id: &str, tool: &str, entry: &str, status: &str) -> Message {
+        Message::assistant(vec![Part::ToolCall {
+            id: id.into(),
+            name: tool.into(),
+            input: serde_json::json!({ "action": "update", "id": entry, "status": status }),
+        }])
+    }
+
+    #[test]
+    fn sop_提炼只在真正完成一个条目时触发() {
+        // 正例:先改文件再收口到终态 —— 这才是一段可复用的流程。
+        let done = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            call("c2", "bash", "command", "cargo test"),
+            result("c2", "test result: ok", false),
+            tracker_call("c3", "req", "R-123", "done"),
+            result("c3", "updated", false),
+        ];
+        let entry = completed_entry(&done).expect("完成一个完整条目时应触发");
+        assert_eq!(entry.id, "R-123");
+        assert_eq!(entry.status, "done");
+        assert!(entry.tools.contains(&"edit".to_string()) && entry.tools.contains(&"bash".to_string()));
+
+        // 反例一:纯查询轮 —— 没有任何实质动作,不构成可复用流程。
+        let read_only = vec![
+            call("c1", "read", "path", "src/lib.rs"),
+            result("c1", "...", false),
+            tracker_call("c2", "req", "R-124", "done"),
+            result("c2", "updated", false),
+        ];
+        assert!(completed_entry(&read_only).is_none(), "纯查询轮不该提炼 SOP");
+
+        // 反例二:先勾完成再干活 —— 顺序反了,勾的那一刻并没有完成什么。
+        let out_of_order = vec![
+            tracker_call("c1", "req", "R-125", "done"),
+            result("c1", "updated", false),
+            call("c2", "edit", "path", "src/lib.rs"),
+            result("c2", "ok", false),
+        ];
+        assert!(completed_entry(&out_of_order).is_none(), "先收口后干活不该提炼 SOP");
+
+        // 反例三:收口调用本身失败 —— 条目根本没进终态。
+        let failed_close = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            tracker_call("c2", "req", "R-126", "done"),
+            result("c2", "cannot move backward", true),
+        ];
+        assert!(completed_entry(&failed_close).is_none(), "收口失败不该提炼 SOP");
+
+        // 反例四:只是把状态推到 doing —— 不是终态。
+        let in_progress = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            tracker_call("c2", "req", "R-127", "doing"),
+            result("c2", "updated", false),
+        ];
+        assert!(completed_entry(&in_progress).is_none(), "推进到 doing 不是完成");
     }
 
     #[test]

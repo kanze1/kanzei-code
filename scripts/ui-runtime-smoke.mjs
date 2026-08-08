@@ -347,6 +347,15 @@ const payloads = {
     rounds_total: 1,
     rounds_with_fetch: 1,
   },
+  // R-124:SOP 候选(带指纹,用于丢弃定位)。
+  memory_note_candidates: [{
+    scope: "global",
+    hint: "sop",
+    summary: "候选 SOP:完成 R-123(done)的流程[sop:R-123]",
+    detail: "- 实际工具顺序: read → edit → bash → req",
+    fingerprint: "[sop:R-123]",
+  }],
+  memory_note_discard: true,
   conversation_get: [{ role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] }],
   conversation_trace_get: [],
   conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
@@ -601,6 +610,21 @@ assert(memoryTab, "活动栏缺少记忆入口");
 memoryTab.click();
 await flush();
 assert(invokeLog.includes("memory_recalls"), "记忆页未拉取召回明细(没有召回明细就没有评估手段)");
+
+// R-124:SOP 候选必须停在用户面前,不能自己入库。
+assert(invokeLog.includes("memory_note_candidates"), "记忆页未拉取待确认候选");
+const candidate = document.querySelector("#memory-candidates .memory-candidate");
+assert(candidate, "SOP 候选未渲染");
+assert(candidate.classList.contains("sop"), "SOP 候选未按分类标记");
+assert(listText("memory-candidates").includes("read → edit → bash → req"), "候选未展示提炼原料(工具顺序)");
+const candidateButtons = document.querySelectorAll("#memory-candidates .memory-candidate-actions button");
+assert(
+  candidateButtons.some((b) => b.textContent === "采纳") && candidateButtons.some((b) => b.textContent === "丢弃"),
+  "候选缺少采纳/丢弃入口(候选一旦自动入库就违背「用户的模板由用户定」)",
+);
+candidateButtons.find((b) => b.textContent === "丢弃").click();
+await flush();
+assert(invokeLog.includes("memory_note_discard"), "丢弃候选未调用后端");
 const recallHits = document.querySelectorAll("#memory-recalls .memory-recall-hit");
 assert(recallHits.length === 2, `召回明细未渲染命中条目,实得 ${recallHits.length}`);
 assert(
