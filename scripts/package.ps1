@@ -86,7 +86,11 @@ if ($Publish) {
     $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date),范围 $range 共 $($commits.Count) 个提交(已核对)。应用内「检查更新」以此为源。"
     $notesFile = Join-Path $env:TEMP "kanzei-release-notes.md"
     Set-Content $notesFile $notes -Encoding UTF8
-    gh release create $tag $out --repo kanze1/kanzei-code --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
+    # --target 是必需的,不是可选优化:tag 不存在时 gh 会在**远端默认分支(main)**的
+    # HEAD 上建它,而我们从 dev 发版。实测 build-ecdab96 因此指向了 5dcf469——发布 tag
+    # 对不上真正构建的提交,更要命的是上面那段 D-183 区间判据从此一直从 main 起算,
+    # 每次发版都把同一批 dev 提交重新数一遍,守卫的精度就没了。
+    gh release create $tag $out --repo kanze1/kanzei-code --target $hash --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
 }

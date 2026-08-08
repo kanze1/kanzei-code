@@ -1,5 +1,17 @@
 # Defects
 
+## D-193 发布 tag 建在 main 的 HEAD 上,既对不上产物也架空了 D-183 的区间判据 [fixed] (high)
+- refs: D-183
+- 复现: `gh release create build-<hash> ...` 不带 `--target`。tag 不存在时 gh 在**远端默认分支(main)**的 HEAD 上创建它,而发版是从 `dev` 打的。实证:`git rev-parse build-ecdab96` = `5dcf469`(= origin/main),不是它命名的 `ecdab96`;`build-5dcf469` 同样指向 5dcf469。
+- 影响: ①发布页上的 tag 指向的树与安装包里的二进制不是同一个提交,产物无从追溯——恰好是 package.ps1 里"工作区必须干净"那段注释想避免的事;②更隐蔽的是 D-183 的护栏被架空:区间取 `最近的 build-* 标签..HEAD`,而这些标签全钉在 main 上不动,于是每次发版都把同一批 dev 提交重新数一遍,-Ack 数字越滚越大,"多出来一个提交就强制停顿"的精度归零。本轮实测:刚发过一次,下一次的区间仍是 3 个提交。
+- 根因: gh release create 的默认 target 是远端默认分支,而本仓库的发布分支是 dev;脚本没显式指定 target。
+- 修复: `gh release create` 加 `--target $hash`,tag 落在真正构建的那个提交上。
+- 验收: 下一次发版后 `git rev-parse build-<hash>` 等于 `<hash>`;再下一次的发布区间只包含该次之后的新提交。
+- 备注: 已发布的 build-ecdab96 / build-5dcf469 仍指向 5dcf469。挪动已发布的 tag 属改写已公开的引用,留给用户拍板,不擅自动。
+- 证据等级: E1(rev-parse 实证)
+- 优先级: P1
+- 标签: 流程
+
 ## D-189 `~/.kanzei` 是项目根磁铁:`.kanzei` 无视距离压过更近的 `.git` [fixed] (high)
 - refs: D-186
 - 复现: `discover_project_root`(crates/kanzei-harness/src/config.rs)撞到任何 `.kanzei` 目录就立即返回,`.git` 只记 fallback 且要等循环走完才用。于是 `C:\Users\kanzei\Documents\某仓库`(有 `.git`、无 `.kanzei`)解析出的项目根是 `C:\Users\kanzei`——仓库自己的 `.git` 被丢掉,因为 `~/.kanzei` 作为全局配置根必然存在。
