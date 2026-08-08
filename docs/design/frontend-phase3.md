@@ -95,6 +95,8 @@ R-050 是架构级改动，不能用“多开两个前端 Tab”替代。线程�
 
 ## 八、R-050 只读 POC 前置设计（2026-08-09）
 
+> **R-050 双源标注(2026-08-08/09 整理时加)**:本节约 2026-08-09 追加,是 R-050 定案前的过渡设计;R-050 的现行方案以 [`deep-parallel-dev.md`](deep-parallel-dev.md) 为准(该文 D1~D7 决策点定案后动工)。本节保留为历史决策记录,内容若与 deep-parallel-dev.md 冲突,以后者为准。
+
 R-050 在 R-030 的进程/session 隔离契约落地前，只推进设计和只读验证，不创建 worktree、不执行并行写入或自动合并。
 
 ### 线程—项目—session—worktree 关系
@@ -144,16 +146,6 @@ created/idle -> closed
 
 ### POC 验收入口
 
-使用 `.scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
-
-1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
-2. `cargo test -p kanzei-app`：桌面端回归；
-3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
-
-该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。
-
-### POC 验收入口
-
 使用 `.\scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
 
 1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
@@ -161,3 +153,4 @@ created/idle -> closed
 3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
 
 该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。
+

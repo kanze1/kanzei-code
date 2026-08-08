@@ -1,5 +1,7 @@
 # M2 SQLite 会话存储
 
+> **文档状态(2026-08-08 整理):历史记录。** 对应 R-003 已 done(SQLite 存储层与 steer/queue 调度已实现)。本文记录 Schema v1 的初始设计;当前 schema 版本以 `kanzei-core` 的 migration 代码为准。
+
 ## 范围
 
 R-003 的第一步在 `kanzei-core` 引入项目级 SQLite 存储层，默认数据库路径为：
