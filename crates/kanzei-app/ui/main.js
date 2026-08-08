@@ -2835,7 +2835,34 @@ if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
 }
 // 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的鞭挞档位,按进程单独记住,
 // 否则切换进程回显时自主推进会被静默降级成结伴开发。
-const processProfileUi = new Map();
+// R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
+// 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
+const PROCESS_PROFILE_KEY = "kz-process-profile";
+const processProfileUi = new Map(
+  Object.entries(readJson(PROCESS_PROFILE_KEY, {})).filter(([, v]) =>
+    ["dev-pair", "dev-auto", "research"].includes(v),
+  ),
+);
+function persistProcessProfiles() {
+  writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));
+}
+// localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
+// 把整个初始化带崩。
+function readJson(key, fallback) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "null");
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function writeJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* 配额满等情况:偏好丢失可以接受,不该打断当前操作 */
+  }
+}
 function syncAutoContinueWithProfile() {
   if (autoContinueAllowed() || !$("auto-continue").checked) return;
   $("auto-continue").checked = false;
@@ -2848,8 +2875,12 @@ function syncAutoContinueWithProfile() {
 }
 function applyProfileValue(backendProfile) {
   const remembered = activeProcessId ? processProfileUi.get(activeProcessId) : null;
+  // 回退顺序:本进程的记忆 → 全局上次选择 → dev-pair。少了中间这一档,
+  // 新进程与重启后的旧进程都会被静默降级成结伴开发。
+  const globalChoice = localStorage.getItem(PROFILE_STORAGE_KEY);
+  const fallback = ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
   if (backendProfile === "research") $("profile-select").value = "research";
-  else $("profile-select").value = remembered && remembered !== "research" ? remembered : "dev-pair";
+  else $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
   localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
   syncAutoContinueWithProfile();
 }
@@ -2857,6 +2888,7 @@ $("profile-select").addEventListener("change", () => {
   localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
   if (activeProcessId) {
     processProfileUi.set(activeProcessId, $("profile-select").value);
+    persistProcessProfiles();
     const profile = $("profile-select").value === "research" ? "research" : "dev";
     invoke("process_update", { processId: activeProcessId, profile })
       .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
@@ -2946,7 +2978,7 @@ window.addEventListener("keydown", (e) => {
 // ---------- 模型直选 ----------
 async function loadModels() {
   const select = $("model-select");
-  const saved = localStorage.getItem("kz-model") ?? "";
+  const saved = localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
   select.innerHTML = "";
   const def = document.createElement("option");
   def.value = "";
@@ -2966,10 +2998,30 @@ async function loadModels() {
     reportPersistentError(`模型列表获取失败:${err}`);
   }
 }
+// R-115:模型与思考强度按项目记——不同项目常配不同模型,共用一个全局键会互相打架。
+// 思考强度此前只写不读(kz-reasoning 全仓零处 getItem),等于每次重启都回默认档。
+function prefKey(name) {
+  return `kz-${name}:${currentProject || "default"}`;
+}
+function restoreProjectPrefs() {
+  const reasoning = localStorage.getItem(prefKey("reasoning"));
+  const select = $("reasoning-select");
+  // 选项不存在时不要硬塞:赋一个无效值会让 select 落到空串,反而清掉配置默认档。
+  if (reasoning !== null && [...select.options].some((o) => o.value === reasoning)) {
+    select.value = reasoning;
+  }
+  const delivery = localStorage.getItem("kz-delivery");
+  const deliverySelect = $("delivery-select");
+  if (delivery && [...deliverySelect.options].some((o) => o.value === delivery)) {
+    deliverySelect.value = delivery;
+  }
+  restoreDocFilters();
+}
+
 // 思考强度:空值=用配置默认档,其余为本进程覆盖。
 $("reasoning-select").addEventListener("change", () => {
   const value = $("reasoning-select").value;
-  localStorage.setItem("kz-reasoning", value);
+  localStorage.setItem(prefKey("reasoning"), value);
   if (activeProcessId) {
     invoke("process_update", { processId: activeProcessId, reasoning: value })
       .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
@@ -2977,7 +3029,7 @@ $("reasoning-select").addEventListener("change", () => {
 });
 
 $("model-select").addEventListener("change", () => {
-  localStorage.setItem("kz-model", $("model-select").value);
+  localStorage.setItem(prefKey("model"), $("model-select").value);
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
     invoke("process_update", { processId: activeProcessId, model: $("model-select").value })
@@ -3310,6 +3362,9 @@ function renderProjects(prefs) {
   const previousProject = currentProject;
   currentProject = prefs.current;
   syncWorkPriorityControl();
+  // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
+  // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
+  restoreProjectPrefs();
   if (previousProject !== currentProject) {
     activeProcessId = null;
     activeSessionId = null;
@@ -3449,6 +3504,52 @@ $("project-add").addEventListener("click", async () => {
 // ---------- 侧边栏文档(可展开 + 状态流转) ----------
 const reqFilters = { status: "all", priority: "all", complexity: "all", tag: "all", blocked: "all", sort: localStorage.getItem("kz-req-sort") || "manual", grouped: localStorage.getItem("kz-grouped-req") !== "0" };
 const defectFilters = { status: "all", priority: "all", tag: "all", blocked: "all", grouped: localStorage.getItem("kz-grouped-defect") !== "0" };
+
+// R-115:筛选条件按项目持久化。此前只有 sort 与 grouped 落盘,状态/优先级/复杂度/
+// 标签/阻塞五项每次重启都回"全部"——盯着某一类条目做事时,重开一次全白设。
+// 只回填已知字段:localStorage 里的旧结构或手改内容不该污染筛选状态。
+const FILTER_FIELDS = {
+  req: ["status", "priority", "complexity", "tag", "blocked", "sort"],
+  defect: ["status", "priority", "tag", "blocked"],
+};
+function saveDocFilters() {
+  const pick = (state, fields) => Object.fromEntries(fields.map((f) => [f, state[f]]));
+  writeJson(prefKey("filters"), {
+    req: pick(reqFilters, FILTER_FIELDS.req),
+    defect: pick(defectFilters, FILTER_FIELDS.defect),
+    docReq: pick(documentFilters.req, FILTER_FIELDS.req),
+    docDefect: pick(documentFilters.defect, FILTER_FIELDS.defect),
+  });
+}
+function restoreDocFilters() {
+  const saved = readJson(prefKey("filters"), {});
+  const apply = (state, data, fields) => {
+    if (!data || typeof data !== "object") return;
+    for (const field of fields) {
+      if (typeof data[field] === "string") state[field] = data[field];
+    }
+  };
+  apply(reqFilters, saved.req, FILTER_FIELDS.req);
+  apply(defectFilters, saved.defect, FILTER_FIELDS.defect);
+  apply(documentFilters.req, saved.docReq, FILTER_FIELDS.req);
+  apply(documentFilters.defect, saved.docDefect, FILTER_FIELDS.defect);
+  syncDocFilterControls();
+}
+// 状态回填到控件上,否则下拉显示"全部"而实际在筛选,看起来就像列表丢了条目。
+function syncDocFilterControls() {
+  const pairs = [
+    ["req-status-filter", reqFilters.status],
+    ["req-complexity-filter", reqFilters.complexity],
+    ["req-priority-filter", reqFilters.priority],
+    ["req-blocked-filter", reqFilters.blocked],
+    ["req-sort", reqFilters.sort],
+    ["defect-blocked-filter", defectFilters.blocked],
+  ];
+  for (const [id, value] of pairs) {
+    const el = $(id);
+    if (el && [...el.options].some((o) => o.value === value)) el.value = value;
+  }
+}
 // 标签受控词表(conventions §1.35,用户定调):分组顺序即展示顺序。
 const DOC_TAG_ORDER = ["核心", "后端", "前端", "模型", "发布", "流程"];
 function docGroupTag(entry) {
@@ -4808,8 +4909,13 @@ $("documents-batch-clear").addEventListener("click", () => { batchSelection.clea
 // 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。
 function applyDocFilter(field, value) {
   for (const kind of docFilterTargets()) documentFilters[kind][field] = value;
+  saveDocFilters();
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 }
+// 交付方式(插入/排队)是个人习惯,全局记一份即可,不按项目分。
+$("delivery-select").addEventListener("change", (event) => {
+  localStorage.setItem("kz-delivery", event.target.value);
+});
 $("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
 $("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
 $("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
@@ -4870,15 +4976,18 @@ for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter"
   $(id).addEventListener("change", (event) => {
     reqFilters[key] = event.target.value;
     if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
+    saveDocFilters();
     refreshDocs();
   });
 }
 $("defect-tag-filter").addEventListener("change", (event) => {
   defectFilters.tag = event.target.value;
+  saveDocFilters();
   refreshDocs();
 });
 $("defect-blocked-filter").addEventListener("change", (event) => {
   defectFilters.blocked = event.target.value;
+  saveDocFilters();
   refreshDocs();
 });
 

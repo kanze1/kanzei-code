@@ -761,6 +761,45 @@ assert(
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
+// ---------- R-115 偏好持久化：写了必须能读回 ----------
+// 「写了却从不读回」是这块最容易出的问题:kz-reasoning 曾经全仓零处 getItem,
+// 看起来存了,重启后照样回默认档。这里逐项验"改一次 → 落盘 → 能回填"。
+const reasoningSelect = byId.get("reasoning-select");
+reasoningSelect.value = "high";
+reasoningSelect._listeners.change?.forEach((fn) => fn({ target: reasoningSelect }));
+const reasoningKey = [...storage.keys()].find((k) => k.startsWith("kz-reasoning"));
+assert(reasoningKey, "思考强度未落盘");
+assert(storage.get(reasoningKey) === "high", `思考强度落盘值不对: ${storage.get(reasoningKey)}`);
+assert(reasoningKey.includes(":"), "思考强度应按项目分键,不同项目常配不同模型");
+
+const deliverySelect = byId.get("delivery-select");
+deliverySelect.value = "steer";
+deliverySelect._listeners.change?.forEach((fn) => fn({ target: deliverySelect }));
+assert(storage.get("kz-delivery") === "steer", "交付方式未落盘");
+
+const reqStatusFilter = byId.get("req-status-filter");
+reqStatusFilter.value = "doing";
+reqStatusFilter._listeners.change?.forEach((fn) => fn({ target: reqStatusFilter }));
+await flush();
+const filterKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
+assert(filterKey, "需求筛选未落盘(重启后会回到「全部」)");
+assert(JSON.parse(storage.get(filterKey)).req.status === "doing", "筛选落盘值不对");
+
+// 模式回退链:本进程记忆 → 全局上次选择 → dev-pair。中间那档缺了就会静默降级。
+assert(typeof sandbox.applyProfileValue === "function", "applyProfileValue 未定义");
+storage.set("kz-profile", "dev-auto");
+sandbox.applyProfileValue("dev");
+assert(
+  byId.get("profile-select").value === "dev-auto",
+  `无进程记忆时应回退到全局上次选择,实得 ${byId.get("profile-select").value}(重启后自主推进会被降级成结伴开发)`,
+);
+storage.set("kz-profile", "research");
+sandbox.applyProfileValue("dev");
+assert(
+  byId.get("profile-select").value === "dev-pair",
+  "全局值与后端 profile 冲突时应回落 dev-pair,不能把 research 塞进 dev 进程",
+);
+
 // ---------- R-099/R-127 运行画像面板 ----------
 const metricsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "metrics");
 assert(metricsTab, "活动栏缺少运行画像入口");
