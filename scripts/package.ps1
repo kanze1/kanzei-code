@@ -39,9 +39,14 @@ if ($Ack -ne $commits.Count) {
 }
 
 # 源码工作区必须干净:否则构建出来的二进制与 $hash 标签不对应,发布物无从追溯。
-$dirty = @(git -C $root status --porcelain -- crates scripts ui) | Where-Object { $_ }
-if ($dirty.Count -gt 0) {
-    throw "发布树源码未提交($($dirty.Count) 处),构建产物将与标签 $hash 不一致:`n$($dirty -join "`n")"
+# 判据用 `git diff --name-only HEAD` 而不是 `status --porcelain`:后者会把纯行尾
+# 差异(CRLF/LF)也报成 M,而那类文件内容与 HEAD 完全一致,拦下来纯属误伤。
+# 另单独查未跟踪的源码文件——新加的 .rs 忘了 git add 同样会让产物对不上标签。
+$dirty = @(git -C $root diff --name-only HEAD -- crates scripts ui) | Where-Object { $_ }
+$untracked = @(git -C $root ls-files --others --exclude-standard -- crates scripts ui) | Where-Object { $_ }
+$unclean = @($dirty) + @($untracked)
+if ($unclean.Count -gt 0) {
+    throw "发布树源码未提交($($unclean.Count) 处),构建产物将与标签 $hash 不一致:`n$($unclean -join "`n")"
 }
 
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
