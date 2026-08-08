@@ -34,6 +34,31 @@ if ($LASTEXITCODE -ne 0) { throw "app build failed" }
 $app_source = "$root\target\release\kzapp.exe"
 $app_dir = "$env:LOCALAPPDATA\kanzei"
 $app_destination = "$app_dir\kzapp.exe"
+
+# ---- 容器重定向检测(D-198)----
+# 下面那个 Get-FileHash 硬校验有个它自己看不见的前提:写进去的和读回来的是同一个
+# 真实文件。在 AppContainer 里(Claude 桌面端的会话进程就是)对 %LOCALAPPDATA% 的写入
+# 被重定向到 ...\Packages\<pkg>\LocalCache\Local\,读回也走影子——于是校验在沙箱里
+# 跟自己对账、逐字节通过,而用户开始菜单指向的真实 kzapp.exe 一个字节没变。
+# 实测 2026-08-09:ccfecff 发版后用户版本卡在 4ad666c,脚本全程报成功。
+# 校验不出这种情况,只能在动手之前把它判出来并拒绝——装不上要当场说,不能事后骗。
+$probe_name = ".kanzei-install-probe-$PID"
+$probe = Join-Path $env:LOCALAPPDATA $probe_name
+Set-Content $probe "probe" -Encoding ASCII
+$shadow = @(Get-ChildItem "$env:LOCALAPPDATA\Packages\*\LocalCache\Local\$probe_name" -ErrorAction SilentlyContinue)
+Remove-Item $probe -Force -ErrorAction SilentlyContinue
+foreach ($s in $shadow) { Remove-Item $s.FullName -Force -ErrorAction SilentlyContinue }
+if ($shadow.Count -gt 0) {
+    Write-Host "kz CLI 已安装到 ~\.cargo\bin(不受重定向影响),仅桌面端这一步无法在此环境完成。" -ForegroundColor Yellow
+    throw @"
+%LOCALAPPDATA% 的写入被容器重定向到 $($shadow[0].DirectoryName)
+在这里装桌面端只会装进影子目录,而且本脚本的 hash 校验会读回同一份影子、自洽通过——
+安装看起来成功,用户真正运行的 $app_destination 不会变(D-198)。
+请在容器外的终端里装,例如:
+  Start-Process (Resolve-Path "$root\dist\kanzei-setup-<hash>.exe").Path -ArgumentList "/S" -Wait
+"@
+}
+
 New-Item -ItemType Directory -Force $app_dir | Out-Null
 
 # 终端 `kzapp` 必须与快捷方式启动同一个二进制:删掉 cargo bin 的副本后,

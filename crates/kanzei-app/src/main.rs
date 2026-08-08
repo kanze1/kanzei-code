@@ -601,12 +601,37 @@ fn update_log(line: &str) {
     eprintln!("kzapp:update {line}");
 }
 
+/// 镜像的身份指纹(修改时间 + 大小):用来判断安装器到底换没换文件。
+fn image_stamp(path: &Path) -> Option<(SystemTime, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+/// 安装器跑完之后,镜像到底换没换(D-199)。
+///
+/// 原实现只把安装**后**的 mtime 打进日志,从来没跟安装前的比过——于是
+/// "安装器 exit=0 但一个字节没换"照样被记成"已拉起新版本"。这恰恰是调用处
+/// 注释担心的那种情形(NSIS 在目标被占用时也可能报 exit=0 而什么都没换),
+/// 护栏写了一半等于没写。实测 2026-08-09:两次「检查更新」都 exit=0、都写了
+/// "已拉起新版本",而两次记录的 mtime 是同一个值(134306860100000000,
+/// 即上一版的构建时间)——文件从未被替换,用户版本卡在旧版查不出原因。
+///
+/// 任一侧读不到就判为"没换":宁可多报一次可疑,也不要把静默失败说成成功。
+fn image_replaced(before: Option<(SystemTime, u64)>, after: Option<(SystemTime, u64)>) -> bool {
+    match (before, after) {
+        (Some(before), Some(after)) => before != after,
+        _ => false,
+    }
+}
+
 fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
     update_log(&format!(
         "helper 启动 installer={} exe={} parent={parent_pid}",
         installer.display(),
         exe.display()
     ));
+    // 安装前留指纹:装完拿它比对,这是"到底换没换"的唯一判据。
+    let before = image_stamp(exe);
     let exited = wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
     update_log(&format!("父进程退出={exited}"));
     // 句柄释放晚于进程退出,再让一手。
@@ -637,9 +662,21 @@ fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
     }
     // 装完核对:安装目录的镜像必须真的变新了。NSIS 在目标被占用时也可能
     // 报 exit=0 而什么都没换,只信退出码会把"静默没装上"当成成功。
-    match std::fs::metadata(exe).and_then(|meta| meta.modified()) {
-        Ok(modified) => update_log(&format!("安装后 exe mtime={modified:?}")),
-        Err(error) => update_log(&format!("安装后读不到 exe: {error}")),
+    let after = image_stamp(exe);
+    update_log(&format!("安装前 exe={before:?} 安装后 exe={after:?}"));
+    if !image_replaced(before, after) {
+        // 到这里说明:退出码说成功,文件却没动。两种已知成因——目标被占用
+        // (WebView2 子进程、另一个实例),或安装位与运行位根本不是同一个文件
+        // (容器/重定向环境,D-198)。安装包**不删**,留给用户手动执行。
+        update_log(
+            "安装器 exit=0 但 exe 未被替换(mtime/大小不变):目标可能被占用,\
+             或安装位与运行位不是同一个文件。保留安装包供手动执行。",
+        );
+        match Command::new(exe).spawn() {
+            Ok(_) => update_log("已拉起——仍是旧版本,更新未生效"),
+            Err(error) => update_log(&format!("拉起失败: {error}(手动启动即可)")),
+        }
+        return;
     }
     match Command::new(exe).spawn() {
         Ok(_) => update_log("已拉起新版本"),
@@ -6111,6 +6148,56 @@ async fn run_task(
     Ok(())
 }
 
+
+#[cfg(test)]
+mod install_verify_tests {
+    use super::image_replaced;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    /// D-199:"退出码成功"不等于"文件换了"。这条判据是唯一能把
+    /// 静默没装上与真更新分开的东西,它必须对每一种"没换"都判 false。
+    #[test]
+    fn 未替换的镜像一律不算更新成功() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
+        let stamp = Some((t, 22_449_664_u64));
+
+        // 实测形态:两次「检查更新」都 exit=0,前后 mtime 与大小一模一样。
+        assert!(!image_replaced(stamp, stamp), "前后完全相同必须判为未替换");
+        // 任一侧读不到:宁可多报可疑,也不能说成成功。
+        assert!(!image_replaced(None, stamp));
+        assert!(!image_replaced(stamp, None));
+        assert!(!image_replaced(None, None));
+    }
+
+    #[test]
+    fn 时间或大小任一变化都算替换成功() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
+        let stamp = Some((t, 22_449_664_u64));
+        // 新构建通常两者都变;但只变一个也是真的换了,不能漏判成失败——
+        // 漏判会让用户看到"更新未生效"却其实已经生效,比不报更让人不敢信。
+        assert!(image_replaced(stamp, Some((t + Duration::from_secs(1), 22_449_664))));
+        assert!(image_replaced(stamp, Some((t, 22_449_665))));
+    }
+
+    /// 真实文件上跑一遍:touch 之后指纹必须变。纯比较函数测不到
+    /// `image_stamp` 取的字段对不对,而取错字段的话上面两条全绿也没用。
+    #[test]
+    fn image_stamp_跟得上真实文件改动() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-d199-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&path, b"old").unwrap();
+        let before = super::image_stamp(&path);
+        assert!(before.is_some());
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&path, b"replaced-with-longer-content").unwrap();
+        let after = super::image_stamp(&path);
+        assert!(image_replaced(before, after), "{before:?} -> {after:?}");
+        std::fs::remove_file(&path).unwrap();
+    }
+}
 
 #[cfg(test)]
 mod assembly_tests {
