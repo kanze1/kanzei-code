@@ -159,7 +159,6 @@ struct ParsedDocument {
     template: DocumentTemplate,
 }
 
-
 pub struct DocStore {
     pub kind: &'static DocKind,
     pub path: PathBuf,
@@ -200,7 +199,7 @@ impl DocStore {
         std::fs::write(&self.path, text)
     }
 
-    /// ID 分配扫活跃 + 归档两个文件:归档移走条目后编号绝不复用。
+    /// ID 分配扫活跃 + 归档 + 废弃账本:归档移走或主动废弃过的编号都绝不复用。
     pub fn next_id(&self, entries: &[Entry]) -> String {
         let archived = self.load_archive().unwrap_or_default();
         let max = entries
@@ -212,6 +211,7 @@ impl DocStore {
                     .parse::<u32>()
                     .ok()
             })
+            .chain(self.voided_ids().keys().copied())
             .max()
             .unwrap_or(0);
         format!("{}-{:03}", self.kind.prefix, max + 1)
@@ -277,9 +277,14 @@ impl DocStore {
             *value = value.replace(id, &new_id);
         }
 
-        let mut template = self.preserved_archive.lock().unwrap().clone().ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "归档模板未加载")
-        })?;
+        let mut template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "归档模板未加载")
+            })?;
         let entry_template = template
             .entries
             .iter_mut()
@@ -321,14 +326,27 @@ impl DocStore {
         let mut archived = self.load_archive()?;
         let moved: Vec<String> = terminal.iter().map(|e| e.id.clone()).collect();
         let active_template = self.preserved.lock().unwrap().clone();
-        let mut archive_template = self.preserved_archive.lock().unwrap().clone().unwrap_or(DocumentTemplate {
-            preamble: Vec::new(),
-            entries: Vec::new(),
-        });
+        let mut archive_template =
+            self.preserved_archive
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(DocumentTemplate {
+                    preamble: Vec::new(),
+                    entries: Vec::new(),
+                });
         if let Some(active_template) = active_template {
             for entry in &terminal {
-                if archive_template.entries.iter().all(|template| template.id != entry.id) {
-                    if let Some(template) = active_template.entries.iter().find(|template| template.id == entry.id) {
+                if archive_template
+                    .entries
+                    .iter()
+                    .all(|template| template.id != entry.id)
+                {
+                    if let Some(template) = active_template
+                        .entries
+                        .iter()
+                        .find(|template| template.id == entry.id)
+                    {
                         archive_template.entries.push(template.clone());
                     }
                 }
@@ -349,9 +367,130 @@ impl DocStore {
         Ok(moved)
     }
 
-    /// 数据完整性检测(D-112):ID 由引擎顺序分配且无删除操作,因此
-    /// 活动∪归档中的缺号即数据丢失;同一 ID 出现在两份文档中即归档半途而废。
-    /// 任何一种都值得在每次工具调用时向模型告警。
+    /// 编号账本:`<stem>-ids.md`,记录被**主动废弃**的编号及理由。
+    ///
+    /// 缺号本身只说明"这个号现在没有条目",不等于数据丢失——分配后又撤销、
+    /// 手工整理时合并掉重复条目,都会留下合法空洞。把两者混为一谈的后果实测过
+    /// (D-173 复盘):完整性门禁把合法空洞判成丢失,又不提供安全的交代通道,
+    /// 模型只好伪造一个 `[wontfix]` 墓碑去骗过门禁,反而污染了真实缺陷统计。
+    pub fn ledger_file(&self) -> PathBuf {
+        match self.path.file_stem().and_then(|s| s.to_str()) {
+            Some(stem) => self.path.with_file_name(format!("{stem}-ids.md")),
+            None => self.path.with_extension("ids.md"),
+        }
+    }
+
+    /// 已废弃编号 → 理由。解析宽容:`- D-171: 理由` 形式,认不出的行忽略。
+    pub fn voided_ids(&self) -> std::collections::BTreeMap<u32, String> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(text) = std::fs::read_to_string(self.ledger_file()) else {
+            return out;
+        };
+        for line in text.lines() {
+            let Some(body) = line.trim().strip_prefix("- ") else {
+                continue;
+            };
+            let Some((id, reason)) = body.split_once(':') else {
+                continue;
+            };
+            if let Some(number) = self.id_number(id.trim()) {
+                out.insert(number, reason.trim().to_string());
+            }
+        }
+        out
+    }
+
+    /// 主动废弃一个编号。理由必填,且该编号当前必须真的不存在于活动/归档——
+    /// 拿它去"清掉"一个还活着的条目是删数据,不是记账。
+    pub fn void_id(&self, id: &str, reason: &str) -> std::io::Result<()> {
+        let invalid =
+            |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
+        let reason = reason.trim();
+        if reason.len() < 4 {
+            return Err(invalid(
+                "废弃编号必须写明理由(为什么这个号不该有条目、依据是什么)".into(),
+            ));
+        }
+        let Some(number) = self.id_number(id) else {
+            return Err(invalid(format!(
+                "`{id}` 不是 {} 前缀的合法编号",
+                self.kind.prefix
+            )));
+        };
+        if self.load()?.iter().any(|entry| entry.id == id)
+            || self.load_archive()?.iter().any(|entry| entry.id == id)
+        {
+            return Err(invalid(format!(
+                "{id} 仍存在于活动或归档文档中,不能作为空洞注销;要终结它请用 close/archive"
+            )));
+        }
+        if self.voided_ids().contains_key(&number) {
+            return Ok(());
+        }
+        let path = self.ledger_file();
+        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+            format!(
+                "# {} ID Ledger\n\n引擎维护:记录被主动废弃的编号及理由。\n\
+                 缺号只有登记在此才算已交代;其余缺号 = 账实不符,必须查清。\n",
+                self.kind.heading
+            )
+        });
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("- {id}: {reason}\n"));
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, text)
+    }
+
+    /// 在指定编号处补回一条丢失的条目(从 git 历史捞回来后落盘)。
+    /// 只允许补真正的空洞,并且按编号插回原位——ID 顺序即分配顺序。
+    pub fn restore_entry(&self, entry: Entry) -> std::io::Result<()> {
+        let invalid =
+            |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
+        let Some(number) = self.id_number(&entry.id) else {
+            return Err(invalid(format!(
+                "`{}` 不是 {} 前缀的合法编号",
+                entry.id, self.kind.prefix
+            )));
+        };
+        let mut entries = self.load()?;
+        if entries.iter().any(|e| e.id == entry.id)
+            || self.load_archive()?.iter().any(|e| e.id == entry.id)
+        {
+            return Err(invalid(format!("{} 已存在,不是空洞", entry.id)));
+        }
+        if self.voided_ids().contains_key(&number) {
+            return Err(invalid(format!(
+                "{} 已登记为主动废弃,先从 {} 里删掉那一行再补条目",
+                entry.id,
+                self.ledger_file().display()
+            )));
+        }
+        let position = entries
+            .iter()
+            .position(|e| self.id_number(&e.id).is_some_and(|n| n > number))
+            .unwrap_or(entries.len());
+        entries.insert(position, entry);
+        self.save(&entries)
+    }
+
+    fn id_number(&self, id: &str) -> Option<u32> {
+        id.strip_prefix(self.kind.prefix)?
+            .strip_prefix('-')?
+            .parse::<u32>()
+            .ok()
+    }
+
+    /// 数据完整性检测(D-112 / D-173):同一 ID 同时出现在活动与归档 = 归档半途而废;
+    /// 活动∪归档∪废弃账本之外的缺号 = **账实不符**,必须查清后二选一交代掉。
+    ///
+    /// 注意措辞:缺号不等于"已确认的数据丢失"。ID 由引擎顺序分配,缺号说明这个号
+    /// 曾被分配却没有条目,可能是丢了,也可能是合法撤销——工具无法从文件本身分辨,
+    /// 所以只报"未交代",并同时给出两条**结构化**的合法出路(补回 / 注销),
+    /// 而不是逼模型伪造一个墓碑条目来消音。
     pub fn integrity_issues(&self, active: &[Entry]) -> Vec<String> {
         let archived = self.load_archive().unwrap_or_default();
         let parse_num = |id: &str| {
@@ -363,6 +502,7 @@ impl DocStore {
             active.iter().filter_map(|e| parse_num(&e.id)).collect();
         let archive_ids: std::collections::BTreeSet<u32> =
             archived.iter().filter_map(|e| parse_num(&e.id)).collect();
+        let voided = self.voided_ids();
         let mut issues = Vec::new();
         let both: Vec<u32> = active_ids.intersection(&archive_ids).copied().collect();
         if !both.is_empty() {
@@ -371,16 +511,43 @@ impl DocStore {
                 format_ids(self.kind.prefix, &both)
             ));
         }
-        let Some(max) = active_ids.iter().chain(archive_ids.iter()).max().copied() else {
+        // 账本里登记为废弃、却又真的存在条目:账实不符的另一半,同样要报。
+        let resurrected: Vec<u32> = voided
+            .keys()
+            .filter(|n| active_ids.contains(n) || archive_ids.contains(n))
+            .copied()
+            .collect();
+        if !resurrected.is_empty() {
+            issues.push(format!(
+                "recorded as voided in {} but an entry exists: {} — delete the ledger line or renumber the entry",
+                self.ledger_file().display(),
+                format_ids(self.kind.prefix, &resurrected)
+            ));
+        }
+        let Some(max) = active_ids
+            .iter()
+            .chain(archive_ids.iter())
+            .chain(voided.keys())
+            .max()
+            .copied()
+        else {
             return issues;
         };
         let missing: Vec<u32> = (1..=max)
-            .filter(|n| !active_ids.contains(n) && !archive_ids.contains(n))
+            .filter(|n| {
+                !active_ids.contains(n) && !archive_ids.contains(n) && !voided.contains_key(n)
+            })
             .collect();
         if !missing.is_empty() {
             issues.push(format!(
-                "MISSING from both active and archive — likely data loss, restore from git history: {}",
-                format_ids(self.kind.prefix, &missing)
+                "UNACCOUNTED ids — absent from the active file, the archive AND the void ledger: {}. \
+                 An engine-allocated id with no entry is either lost data or a withdrawn allocation, \
+                 and this file cannot tell which. Settle each one: recover it \
+                 (`git log -S \"## <id>\" -- {}` then `repair_missing_id`), or record why it was \
+                 withdrawn (`void_id` with a reason). Do NOT invent a placeholder entry to silence \
+                 this — that corrupts the real statistics.",
+                format_ids(self.kind.prefix, &missing),
+                self.kind.rel_path,
             ));
         }
         issues
@@ -450,9 +617,7 @@ fn parse_document(kind: &DocKind, text: &str) -> ParsedDocument {
             if let Some(bullet) = trimmed.trim_start().strip_prefix("- ") {
                 if let Some((key, value)) = bullet.split_once(':') {
                     let key = key.trim().to_string();
-                    entry
-                        .fields
-                        .push((key.clone(), value.trim().to_string()));
+                    entry.fields.push((key.clone(), value.trim().to_string()));
                     template.lines.push(TemplateLine::Field(key));
                 } else {
                     template.lines.push(TemplateLine::Raw(line.to_string()));
@@ -553,11 +718,7 @@ pub fn render(kind: &DocKind, entries: &[Entry]) -> String {
     out
 }
 
-fn render_with_template(
-    kind: &DocKind,
-    entries: &[Entry],
-    template: &DocumentTemplate,
-) -> String {
+fn render_with_template(kind: &DocKind, entries: &[Entry], template: &DocumentTemplate) -> String {
     let mut out = String::new();
     if template.preamble.is_empty() {
         out.push_str(&format!("# {}\n", kind.heading));
@@ -568,7 +729,10 @@ fn render_with_template(
         }
     }
     for entry in entries {
-        let entry_template = template.entries.iter().find(|candidate| candidate.id == entry.id);
+        let entry_template = template
+            .entries
+            .iter()
+            .find(|candidate| candidate.id == entry.id);
         if let Some(entry_template) = entry_template {
             render_entry_with_template(&mut out, entry, entry_template);
         } else {
@@ -593,13 +757,14 @@ fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryT
                 out.push('\n');
             }
             TemplateLine::Field(key) => {
-                if let Some((index, (current_key, value))) = entry
-                    .fields
-                    .iter()
-                    .enumerate()
-                    .find(|(index, (current_key, _))| {
-                        !used[*index] && current_key.eq_ignore_ascii_case(key)
-                    })
+                if let Some((index, (current_key, value))) =
+                    entry
+                        .fields
+                        .iter()
+                        .enumerate()
+                        .find(|(index, (current_key, _))| {
+                            !used[*index] && current_key.eq_ignore_ascii_case(key)
+                        })
                 {
                     used[index] = true;
                     out.push_str(&format!("- {current_key}: {value}\n"));
@@ -779,7 +944,11 @@ mod tests {
             fields: vec![],
         };
         store
-            .save(&[mk("R-001", "done"), mk("R-002", "doing"), mk("R-003", "dropped")])
+            .save(&[
+                mk("R-001", "done"),
+                mk("R-002", "doing"),
+                mk("R-003", "dropped"),
+            ])
             .unwrap();
 
         assert_eq!(store.archive_terminal().unwrap(), vec!["R-001", "R-003"]);
@@ -816,7 +985,9 @@ mod tests {
             severity: None,
             fields: vec![("验收".into(), "略".into())],
         };
-        store.save(&[mk("R-001"), mk("R-002"), mk("R-003")]).unwrap();
+        store
+            .save(&[mk("R-001"), mk("R-002"), mk("R-003")])
+            .unwrap();
 
         let mut sizes = Vec::new();
         for _ in 0..6 {
@@ -851,7 +1022,8 @@ mod tests {
         store.save(&entries).unwrap();
         let text = std::fs::read_to_string(&store.path).unwrap();
         assert!(!text.contains("\n\n\n"), "条目内也不该留连续空行:\n{text}");
-        for keep in ["手写说明不能丢", "### 子标题", "- 备注: 保留", "- 验收: 略"] {
+        for keep in ["手写说明不能丢", "### 子标题", "- 备注: 保留", "- 验收: 略"]
+        {
             assert!(text.contains(keep), "自由内容丢失: {keep}\n{text}");
         }
         std::fs::remove_dir_all(&dir).ok();
@@ -878,7 +1050,9 @@ mod tests {
             fields: vec![],
         };
         // 活动: D-001 D-004;归档: D-002 D-004 → 缺 D-003,重复 D-004。
-        store.save(&[mk("D-001", "open"), mk("D-004", "open")]).unwrap();
+        store
+            .save(&[mk("D-001", "open"), mk("D-004", "open")])
+            .unwrap();
         std::fs::write(
             store.archive_file(),
             "# Defects Archive\n\n## D-002 done [fixed]\n\n## D-004 dup [fixed]\n",
@@ -888,11 +1062,24 @@ mod tests {
         assert_eq!(issues.len(), 2, "{issues:?}");
         assert!(issues[0].contains("D-004"), "{issues:?}");
         assert!(issues[1].contains("D-003"), "{issues:?}");
-        assert!(issues[1].contains("MISSING"), "{issues:?}");
+        assert!(issues[1].contains("UNACCOUNTED"), "{issues:?}");
+        // 措辞不能再断言"数据丢失",也必须给出两条结构化出路(D-173)。
+        assert!(issues[1].contains("void_id"), "{issues:?}");
+        assert!(issues[1].contains("repair_missing_id"), "{issues:?}");
 
         // 完整状态:无告警。
-        store.save(&[mk("D-001", "open"), mk("D-003", "open"), mk("D-004", "open")]).unwrap();
-        std::fs::write(store.archive_file(), "# Defects Archive\n\n## D-002 done [fixed]\n").unwrap();
+        store
+            .save(&[
+                mk("D-001", "open"),
+                mk("D-003", "open"),
+                mk("D-004", "open"),
+            ])
+            .unwrap();
+        std::fs::write(
+            store.archive_file(),
+            "# Defects Archive\n\n## D-002 done [fixed]\n",
+        )
+        .unwrap();
         assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }

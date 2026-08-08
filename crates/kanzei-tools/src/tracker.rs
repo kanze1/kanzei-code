@@ -18,24 +18,41 @@ pub struct TrackerTool {
     pub requires_refs: Option<&'static DocKind>,
 }
 
+/// 可在完整性破损时执行的修复动作:它们的存在就是为了修复完整性,
+/// 用完整性门禁挡住它们会形成死锁。
+const REPAIR_ACTIONS: &[&str] = &["repair_reused_id", "repair_missing_id", "void_id"];
+
+const WRITE_ACTIONS: &[&str] = &[
+    "add",
+    "update",
+    "close",
+    "archive",
+    "reorder",
+    "repair_reused_id",
+    "repair_missing_id",
+    "void_id",
+];
+
 #[derive(Deserialize, JsonSchema)]
 struct TrackerInput {
-    /// list | get | add | update | close | archive | reorder | repair_reused_id
+    /// 动作(取值见 enum)
     action: String,
     /// reorder 用:完整的 ID 新顺序(必须恰好覆盖当前全部条目)
     #[serde(default)]
     order: Vec<String>,
-    /// get/update/close 必填,如 "R-012"
+    /// get/update/close/repair_*/void_id 必填,如 "R-012"
     #[serde(default)]
     id: Option<String>,
     /// add 必填
     #[serde(default)]
     title: Option<String>,
-    /// update 用;close 可指定终态
+    /// 生命周期状态(取值见 enum),与 priority/severity 是三个不同维度
     #[serde(default)]
     status: Option<String>,
+    /// 影响程度(取值见 enum);与 priority 不是一回事,别互相代填
     #[serde(default)]
     severity: Option<String>,
+    /// 排期优先级(取值见 enum);与 severity 不是一回事,别互相代填
     #[serde(default)]
     priority: Option<String>,
     /// 自由字段,如 {"验收": "...", "复现": "..."}
@@ -44,6 +61,9 @@ struct TrackerInput {
     /// 引用的条目 ID(finding 必须引用 source)
     #[serde(default)]
     refs: Vec<String>,
+    /// void_id 必填:这个编号为什么不该有条目、依据是什么
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[async_trait]
@@ -53,19 +73,87 @@ impl Tool for TrackerTool {
     }
 
     fn description(&self) -> String {
+        // 三个维度必须在描述里一次说清:实测模型会把 severity 的值填进 priority
+        // (`priority: high`),失败一次、再补一个只改字段的提交,纯粹是描述没写全的代价。
         let mut d = format!(
-            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), update(id, status/fields), close(id), archive (move terminal entries to the archive file), reorder(order: complete id list — file order IS the user's dev order), repair_reused_id(id) (renumber a semantically different archived entry when its ID was reused by an active entry). Statuses: {}.",
+            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), \
+             update(id, status/fields), close(id), archive (move terminal entries to the archive \
+             file), reorder(order: complete id list — file order IS the user's dev order), \
+             repair_reused_id(id), repair_missing_id(id, title, ...) (put back an entry recovered \
+             from git history at its original id), void_id(id, reason) (record that an allocated \
+             id legitimately has no entry — the ONLY sanctioned way to settle a gap; never \
+             fabricate a placeholder entry). status: {}.",
             self.noun,
-            self.kind.statuses.join("→"),
+            self.kind.statuses.join(" → "),
         );
+        if let Some(severities) = self.kind.severities {
+            d.push_str(&format!(" severity (impact): {}.", severities.join(" | ")));
+        }
+        if let Some(priorities) = self.kind.priorities {
+            d.push_str(&format!(
+                " priority (scheduling, a SEPARATE field from severity): {}.",
+                priorities.join(" | ")
+            ));
+        }
         if self.requires_refs.is_some() {
             d.push_str(" `refs` (source IDs) is REQUIRED on add.");
         }
         d
     }
 
+    /// schema 按文档类型动态收窄:action/status/severity/priority 全部给 enum。
+    /// 合法取值只写在描述里是不够的——provider 不会据此校验,模型猜错就是一次
+    /// 失败调用加一个补丁提交。放进 schema 才有约束力。
     fn input_schema(&self) -> serde_json::Value {
-        serde_json::to_value(schemars::schema_for!(TrackerInput)).unwrap()
+        let mut schema = serde_json::to_value(schemars::schema_for!(TrackerInput)).unwrap();
+        let mut actions = vec![
+            "list", "get", "add", "update", "close", "archive", "reorder",
+        ];
+        actions.extend_from_slice(REPAIR_ACTIONS);
+        let enums: [(&str, Option<Vec<String>>); 4] = [
+            (
+                "action",
+                Some(actions.iter().map(|s| s.to_string()).collect()),
+            ),
+            (
+                "status",
+                Some(self.kind.statuses.iter().map(|s| s.to_string()).collect()),
+            ),
+            (
+                "severity",
+                self.kind
+                    .severities
+                    .map(|values| values.iter().map(|s| s.to_string()).collect()),
+            ),
+            (
+                "priority",
+                self.kind
+                    .priorities
+                    .map(|values| values.iter().map(|s| s.to_string()).collect()),
+            ),
+        ];
+        for (field, values) in enums {
+            let Some(values) = values else {
+                // 该文档类型没有这个维度:直接从 schema 里删掉,别让模型以为可以填。
+                if let Some(properties) = schema
+                    .pointer_mut("/properties")
+                    .and_then(|v| v.as_object_mut())
+                {
+                    properties.remove(field);
+                }
+                continue;
+            };
+            if let Some(slot) = schema
+                .pointer_mut(&format!("/properties/{field}"))
+                .and_then(|v| v.as_object_mut())
+            {
+                // Option<String> 会渲染成 anyOf/type 数组,直接盖掉更稳。
+                slot.remove("anyOf");
+                slot.remove("type");
+                slot.insert("enum".into(), serde_json::json!(values));
+            }
+        }
+        schema
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -85,27 +173,26 @@ impl Tool for TrackerTool {
         // 实测 R-104/107/108/110 从活动与归档同时消失后,告警连响 5 个提交无人处理,
         // 最后靠旧副本偶然捞回。改为:发现缺号/重复时**拒绝一切写操作**,读操作照常放行,
         // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
-        const WRITE_ACTIONS: &[&str] = &[
-            "add",
-            "update",
-            "close",
-            "archive",
-            "reorder",
-            "repair_reused_id",
-        ];
-        if WRITE_ACTIONS.contains(&input.action.as_str()) && input.action != "repair_reused_id" {
+        if WRITE_ACTIONS.contains(&input.action.as_str())
+            && !REPAIR_ACTIONS.contains(&input.action.as_str())
+        {
             let issues = store.integrity_issues(&entries);
             if !issues.is_empty() {
                 return ToolOutput::error(format!(
                     "REFUSING to write {}: tracker integrity is broken.\n{}\n\
-                     Fix it first (reads still work): for a reused ID whose active/archive entries have different meanings, call `{} repair_reused_id <id>`; otherwise find lost entries with \
-                     `git log -S \"## <id>\" -- {}` and restore them, or add an explicit \
-                     tombstone entry for ids that are genuinely unrecoverable. \
-                     Writing now would bury the loss under unrelated changes.",
+                     Fix it first (reads still work) with one of the repair actions — all three \
+                     stay available while the gate is closed:\n\
+                     · `{tool} repair_reused_id <id>` — the same id means different things in the \
+                     active and archive files;\n\
+                     · `{tool} repair_missing_id <id> …` — you recovered the lost entry from git \
+                     history and are putting it back at its original id;\n\
+                     · `{tool} void_id <id> reason=…` — the id was allocated but legitimately \
+                     never carried an entry.\n\
+                     Do NOT fabricate a placeholder entry to get past this gate: it silences the \
+                     alarm by corrupting the very statistics the gate protects.",
                     self.kind.rel_path,
                     issues.join("\n"),
-                    self.tool_name,
-                    self.kind.rel_path,
+                    tool = self.tool_name,
                 ));
             }
         }
@@ -117,7 +204,11 @@ impl Tool for TrackerTool {
                 }
                 let dependency_states = match dependency_states(ctx, self.kind, &entries) {
                     Ok(states) => states,
-                    Err(e) => return ToolOutput::error(format!("cannot read scheduler dependencies: {e}")),
+                    Err(e) => {
+                        return ToolOutput::error(format!(
+                            "cannot read scheduler dependencies: {e}"
+                        ))
+                    }
                 };
                 let scheduled = schedule_entries(&entries, &dependency_states);
                 let mut lines: Vec<String> = scheduled
@@ -161,6 +252,83 @@ impl Tool for TrackerTool {
                     Err(e) => ToolOutput::error(format!("repair_reused_id failed: {e}")),
                 }
             }
+            // 补回从 git 历史里捞回来的条目:只允许补真空洞,并插回原编号位置。
+            "repair_missing_id" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for repair_missing_id");
+                };
+                let Some(title) = input.title.as_deref().filter(|t| !t.trim().is_empty()) else {
+                    return ToolOutput::error(
+                        "`title` is required for repair_missing_id — restore the entry's real \
+                         title from git history, do not invent one",
+                    );
+                };
+                if let Some(sev_err) = self.check_severity(&input.severity) {
+                    return ToolOutput::error(sev_err);
+                }
+                if let Some(priority_err) = self.check_priority(&input.priority) {
+                    return ToolOutput::error(priority_err);
+                }
+                let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
+                if !input.refs.is_empty() {
+                    fields.push(("refs".into(), input.refs.join(" ")));
+                }
+                if let Some(priority) = input.priority {
+                    fields.push(("优先级".into(), priority));
+                }
+                let status = input
+                    .status
+                    .clone()
+                    .unwrap_or_else(|| self.kind.statuses[0].to_string());
+                if !self.kind.statuses.contains(&status.as_str()) {
+                    return ToolOutput::error(format!(
+                        "unknown status `{status}`; valid: {}",
+                        self.kind.statuses.join(" | ")
+                    ));
+                }
+                let entry = Entry {
+                    id: id.clone(),
+                    title: title.trim().to_string(),
+                    status,
+                    severity: if self.kind.severities.is_some() {
+                        input.severity
+                    } else {
+                        None
+                    },
+                    fields,
+                };
+                match store.restore_entry(entry) {
+                    Ok(()) => ToolOutput::ok(format!(
+                        "restored {id} into {} at its original position. Verify it against the \
+                         git-history version you recovered before committing.",
+                        self.kind.rel_path,
+                    )),
+                    Err(e) => ToolOutput::error(format!("repair_missing_id failed: {e}")),
+                }
+            }
+            // 主动注销一个编号:唯一合法的"缺号交代"通道,理由必填、留档可审计。
+            "void_id" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for void_id");
+                };
+                let Some(reason) = input.reason.as_deref().filter(|r| !r.trim().is_empty()) else {
+                    return ToolOutput::error(
+                        "`reason` is required for void_id — state why this allocated id \
+                         legitimately has no entry, and what evidence says so (e.g. which commit \
+                         range you searched). An unexplained void is indistinguishable from \
+                         hiding data loss.",
+                    );
+                };
+                match store.void_id(id, reason) {
+                    Ok(()) => ToolOutput::ok(format!(
+                        "voided {id} in {}. It will never be reallocated. Commit the ledger \
+                         together with {}.",
+                        store.ledger_file().display(),
+                        self.kind.rel_path,
+                    )),
+                    Err(e) => ToolOutput::error(format!("void_id failed: {e}")),
+                }
+            }
             "archive" => match store.archive_terminal() {
                 Ok(moved) if moved.is_empty() => {
                     ToolOutput::ok("nothing to archive (no terminal entries)")
@@ -176,7 +344,10 @@ impl Tool for TrackerTool {
                         return ToolOutput::error(format!(
                             "archive verification FAILED: {} missing from {} after the move — \
                              do NOT commit; the entries may be lost, investigate immediately",
-                            lost.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "),
+                            lost.iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", "),
                             store.archive_file().display()
                         ));
                     }
@@ -282,9 +453,11 @@ impl Tool for TrackerTool {
                     entry.severity = input.severity;
                 }
                 if let Some(priority) = input.priority {
-                    match entry.fields.iter_mut().find(|(key, _)| {
-                        key == "优先级" || key.eq_ignore_ascii_case("priority")
-                    }) {
+                    match entry
+                        .fields
+                        .iter_mut()
+                        .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
+                    {
                         Some((_, value)) => *value = priority,
                         None => entry.fields.push(("优先级".into(), priority)),
                     }
@@ -358,7 +531,9 @@ impl Tool for TrackerTool {
                 ))
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: list | get | add | update | close | archive | reorder"
+                "unknown action `{other}`; valid: list | get | add | update | close | archive | \
+                 reorder | {}",
+                REPAIR_ACTIONS.join(" | ")
             )),
         };
         // D-112 门禁:每次调用后对活动∪归档做缺号/重复检测,数据丢失立刻可见,
@@ -549,9 +724,10 @@ fn dependency_states(
                 .filter(|(key, _)| is_dependency_key(key))
                 .flat_map(|(_, value)| tracker_ids(value))
                 .collect();
-            states
-                .terminal
-                .insert(entry.id.clone(), kind.terminal.contains(&entry.status.as_str()));
+            states.terminal.insert(
+                entry.id.clone(),
+                kind.terminal.contains(&entry.status.as_str()),
+            );
             if !deps.is_empty() {
                 states.deps.insert(entry.id, deps);
             }
@@ -752,7 +928,10 @@ mod tests {
 
         // 完整置换:成功且文件顺序改变。
         let out = tool
-            .execute(json!({"action": "reorder", "order": ["R-003", "R-001", "R-002"]}), &ctx)
+            .execute(
+                json!({"action": "reorder", "order": ["R-003", "R-001", "R-002"]}),
+                &ctx,
+            )
             .await;
         assert!(!out.is_error, "{}", out.content);
         let ids: Vec<String> = store.load().unwrap().iter().map(|e| e.id.clone()).collect();
@@ -785,11 +964,19 @@ mod tests {
             requires_refs: None,
         };
         let output = tool
-            .execute(json!({"action": "add", "title": "新条目"}), &ToolCtx::new(dir.clone()))
+            .execute(
+                json!({"action": "add", "title": "新条目"}),
+                &ToolCtx::new(dir.clone()),
+            )
             .await;
         assert!(!output.is_error, "{}", output.content);
         let saved = std::fs::read_to_string(path).unwrap();
-        for line in ["手写说明: 不应被引擎删除", "- 就是个备注", "### 子标题", "用户代码块"] {
+        for line in [
+            "手写说明: 不应被引擎删除",
+            "- 就是个备注",
+            "### 子标题",
+            "用户代码块",
+        ] {
             assert!(saved.contains(line), "missing preserved line: {line}");
         }
         std::fs::remove_dir_all(dir).ok();
@@ -816,11 +1003,14 @@ mod tests {
             .await;
         assert!(!output.is_error, "{}", output.content);
 
-        let archive = std::fs::read_to_string(
-            dir.join(".kanzei/project/requirements-archive.md"),
-        )
-        .unwrap();
-        for line in ["终态说明: 归档时也不能丢", "- 手写备注", "### 归档子标题", "归档代码块"] {
+        let archive =
+            std::fs::read_to_string(dir.join(".kanzei/project/requirements-archive.md")).unwrap();
+        for line in [
+            "终态说明: 归档时也不能丢",
+            "- 手写备注",
+            "### 归档子标题",
+            "归档代码块",
+        ] {
             assert!(archive.contains(line), "missing preserved line: {line}");
         }
         let active = std::fs::read_to_string(path).unwrap();
@@ -870,14 +1060,24 @@ mod tests {
             let action = input["action"].as_str().unwrap().to_string();
             let out = tool.execute(input, &ctx).await;
             assert!(out.is_error, "写操作必须被拒: {action}");
-            assert!(out.content.contains("R-002"), "要指名缺失的 id: {}", out.content);
-            assert!(out.content.contains("git log -S"), "要给恢复路径: {}", out.content);
+            assert!(
+                out.content.contains("R-002"),
+                "要指名缺失的 id: {}",
+                out.content
+            );
+            assert!(
+                out.content.contains("git log -S"),
+                "要给恢复路径: {}",
+                out.content
+            );
         }
         // 补齐缺号后写操作恢复正常。
         store
             .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
             .unwrap();
-        let out = tool.execute(json!({"action": "add", "title": "恢复后可写"}), &ctx).await;
+        let out = tool
+            .execute(json!({"action": "add", "title": "恢复后可写"}), &ctx)
+            .await;
         assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -930,11 +1130,165 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(!updated.is_error, "修复后普通写操作应恢复: {}", updated.content);
+        assert!(
+            !updated.is_error,
+            "修复后普通写操作应恢复: {}",
+            updated.content
+        );
         let store = DocStore::open(&dir, &GOALS);
         let entries = store.load().unwrap();
         assert!(store.integrity_issues(&entries).is_empty());
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-173:缺号有两条**结构化**出路,不必再靠伪造 `[wontfix]` 墓碑骗过门禁。
+    #[tokio::test]
+    async fn 缺号可注销或补回_两条修复通道都在门禁关闭时可用() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-id-ledger-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        // 两个空洞:R-002 其实是撤销的分配,R-003 是真丢了。
+        store.save(&[entry("R-001"), entry("R-004")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        // 门禁关闭:普通写被拒,且措辞点名三条修复通道、并禁止伪造墓碑。
+        let out = tool
+            .execute(json!({"action": "add", "title": "x"}), &ctx)
+            .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("void_id"), "{}", out.content);
+        assert!(out.content.contains("repair_missing_id"), "{}", out.content);
+        assert!(out.content.contains("fabricate"), "{}", out.content);
+
+        // 注销必须给理由。
+        let out = tool
+            .execute(json!({"action": "void_id", "id": "R-002"}), &ctx)
+            .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("reason"), "{}", out.content);
+        // 不能拿它注销一个还活着的条目。
+        let out = tool
+            .execute(
+                json!({"action": "void_id", "id": "R-001", "reason": "想清掉它"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+
+        let out = tool
+            .execute(
+                json!({"action": "void_id", "id": "R-002", "reason": "分配后当场撤销,git log -S 全历史无此条目"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        // 补回:必须给真实标题,并插回原编号位置。
+        let out = tool
+            .execute(
+                json!({"action": "repair_missing_id", "id": "R-003", "title": "从 git 捞回的条目", "status": "doing"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let ids: Vec<String> = store.load().unwrap().iter().map(|e| e.id.clone()).collect();
+        assert_eq!(ids, vec!["R-001", "R-003", "R-004"], "必须插回原位");
+
+        // 两个空洞都交代完 → 完整性恢复,普通写放行,且注销过的号不再被复用。
+        assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
+        let out = tool
+            .execute(json!({"action": "add", "title": "恢复后可写"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("R-005"), "{}", out.content);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 已注销的编号后来又冒出条目 = 账实不符的另一半,同样要报。
+    #[test]
+    fn 注销后又出现条目会被报为账实不符() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-ledger-conflict-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[entry("R-001")]).unwrap();
+        store.void_id("R-002", "撤销的分配,有据可查").unwrap();
+        store.save(&[entry("R-001"), entry("R-002")]).unwrap();
+        let issues = store.integrity_issues(&store.load().unwrap());
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("voided"), "{issues:?}");
+        assert!(issues[0].contains("R-002"), "{issues:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// priority 与 severity 是两个维度,合法取值必须进 schema 而不是只写在描述里。
+    #[test]
+    fn schema_gives_real_enums_for_each_document_kind() {
+        use crate::docstore::DEFECTS;
+        let defects = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let schema = defects.input_schema();
+        assert_eq!(
+            schema["properties"]["severity"]["enum"],
+            json!(["high", "medium", "low"])
+        );
+        assert_eq!(
+            schema["properties"]["priority"]["enum"],
+            json!(["P0", "P1", "P2", "P3"])
+        );
+        assert_eq!(
+            schema["properties"]["status"]["enum"],
+            json!(["open", "fixing", "fixed", "wontfix"])
+        );
+        let actions = schema["properties"]["action"]["enum"].as_array().unwrap();
+        for expected in ["list", "add", "void_id", "repair_missing_id"] {
+            assert!(
+                actions.iter().any(|a| a == expected),
+                "action enum 缺 {expected}: {actions:?}"
+            );
+        }
+        let description = defects.description();
+        assert!(
+            description.contains("severity (impact): high | medium | low"),
+            "{description}"
+        );
+        assert!(description.contains("P0 | P1 | P2 | P3"), "{description}");
+
+        // 需求没有 severity 维度:schema 里根本不该出现这个字段。
+        let requirements = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let schema = requirements.input_schema();
+        assert!(schema["properties"].get("severity").is_none(), "{schema}");
+        assert_eq!(
+            schema["properties"]["priority"]["enum"],
+            json!(["P0", "P1", "P2", "P3"])
+        );
     }
 
     #[tokio::test]
@@ -1100,7 +1454,9 @@ mod tests {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let store = DocStore::open(&dir, &REQUIREMENTS);
         let mut first = entry("R-001");
-        first.fields.push(("阻塞".into(), "等待用户确认方案".into()));
+        first
+            .fields
+            .push(("阻塞".into(), "等待用户确认方案".into()));
         let mut second = entry("R-002");
         second.fields.push(("阻塞".into(), "依赖外部服务".into()));
         store.save(&[first, second]).unwrap();
@@ -1114,9 +1470,17 @@ mod tests {
 
         let out = tool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(out.content.starts_with("[调度死锁] 2 条requirement"), "{}", out.content);
+        assert!(
+            out.content.starts_with("[调度死锁] 2 条requirement"),
+            "{}",
+            out.content
+        );
         // 横幅必须堵死"没有可执行条目"这条收尾话术,否则鞭挞照旧静默停。
-        assert!(out.content.contains("禁止以「没有可执行条目」"), "{}", out.content);
+        assert!(
+            out.content.contains("禁止以「没有可执行条目」"),
+            "{}",
+            out.content
+        );
         assert!(out.content.contains("R-001") && out.content.contains("R-002"));
 
         // 只要有一条恢复可执行,横幅就消失——它只在真死锁时出现,不构成日常噪音。
