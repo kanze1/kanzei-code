@@ -87,7 +87,7 @@ const I18N_EN = {
   "最近活动": "Recent activity", "排队": "Queued", "条": "items", "更新于": "Updated", "已归档": "archived",
   "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
   "外部阻塞": "Externally blocked", "阻塞": "Blocked", "可执行": "Ready", "阻塞原因": "Blocking reasons", "缺少阻塞原因": "Blocking reason missing", "解除条件": "Release condition", "下一步": "Next step", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service",
-  "复杂度": "Complexity", "未评估": "Not assessed", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
+  "复杂度": "Complexity", "未评估": "Not assessed", "未设": "Unset", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
   "配置读取失败": "Failed to read configuration", "配置": "Config", "删除规则": "Delete rule", "已停止并撤销设备 token": "Stopped and revoked device token", "没有可测试的 provider": "No provider to test", "测试中": "Testing", "连通性检查完成": "Connectivity check complete", "可用": "available",
   "订阅登录态": "Subscription login", "环境变量名(可选)": "Environment variable name (optional)", "读取该环境变量作为 key": "Use this environment variable as the key", "或直接粘贴 key": "Or paste a key directly", "直填优先于环境变量;明文存 kanzei.toml": "Direct value takes precedence; stored in kanzei.toml", "已设": "Set", "缺失": "Missing", "测试": "Test", "连接": "connection", "不限": "Unlimited",
   "自动压缩": "automatic compaction", "上下文": "Context", "点击查看上下文成分": "Click to view context details",
@@ -4310,7 +4310,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     if (kind === "req" || kind === "defect") {
       const badge = document.createElement("button");
       badge.className = `pri-badge ${/^P[0-3]$/.test(pri) ? pri : "unset"}`;
-      badge.textContent = /^P[0-3]$/.test(pri) ? pri : "P?";
+      badge.textContent = /^P[0-3]$/.test(pri) ? pri : t("未设");
       badge.title = t("点击循环调整优先级");
       badge.addEventListener("click", async (event) => {
         event.stopPropagation();
