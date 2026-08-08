@@ -66,7 +66,8 @@
 - 优先级: P3
 - 标签: 后端
 
-## D-171 启动黑屏:孤儿 msedgewebview2 进程锁住 WebView2 数据目录 [fixing] (high)
+## D-171 启动黑屏:孤儿 msedgewebview2 进程锁住 WebView2 数据目录 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 代码 743d4e4 在库(启动/交接前清孤儿);今天多次 kzapp 重启无黑屏,正常退出后 kanzei webview 全清(实测 0 残留)。验收②的"他实例存活不误杀"由实现的存活检查覆盖。残余:强杀场景无定向复现,黑屏若复发按新缺陷报。
 - 复现: 父 kzapp 被强杀(更新交接、任务管理器、崩溃)时 WebView2 子进程存活,继续握着 `dev.kanzei.app/EBWebView` 数据目录的目录锁;下一个实例的 WebView 初始化失败,窗口就是一块黑。实测本机曾积累 6 个存活 7 小时的孤儿 msedgewebview2。
 - 根因: 强杀父进程不会自动回收 WebView2 子进程;新实例启动时 WebView 初始化被孤儿进程的目录锁挡住,与 D-172(i18n 死循环)是两个独立的黑屏根因。
 - 修复: `cleanup_orphan_webviews()`(crates/kanzei-app/src/main.rs)——只杀命令行带 `dev.kanzei.app` 的 msedgewebview2.exe,且只在**没有其他 kzapp 实例存活**时动手(别的实例在,它的 webview 就不是孤儿);在主流程窗口创建前与安装交接前调用。
@@ -95,6 +96,7 @@
 - 验收: ①提供可用的架构索引维护通道:要么新增专用命令/工具(如 `kz doc index` 或 tracker 工具扩展),要么把索引改为从 docs/design 自动生成(如 docs_snapshot 系),agent 更新 docs/design 后索引自动同步;②补 R-139 的 bash 级 .kanzei 路径硬门禁,使受保护文档不能经 bash 旁路写入;③验收时新增/重命名一个 docs/design 文档后,索引可被 agent 直接维护且无需 bash 旁路。
 - 修复进展(2026-08-08): 已新增 `architecture` 专用工具及固定路径、`expected_hash` 并发保护、同目录临时文件与可恢复替换;Harness 已把架构文档纳入托管资源并要求通过专用工具访问;通用 Bash 已在执行前后对托管资源做快照并回滚越界写入。
 - 验证(2026-08-08): `kanzei-tools` 80 项、`kanzei-harness` 37 项、`kanzei-core` 50 项测试通过。尚未在已安装桌面端中完成一次真实模型调用与工具交互验收,因此保持 `fixing`。
+- 收口核对(2026-08-09): 本轮 fixing 批量收口时**刻意不关**这条。episodes 实证:48 个轮次里 `architecture` 工具 **0 次真实调用**(同期 req 196 次、defect 95 次)——验收③"agent 直接维护索引且无需 bash 旁路"不是没测到,是从未发生。工具注册、权限、D-195 的提示词同源测试都在,但按 §1.25"声称完成的能力必须有真实调用方",一个零调用的通道不能算闭合。下一次自举改动 docs/design 后用 architecture 工具更新索引成功,即可关闭。
 - 优先级: P1
 
 ## D-174 托管项目后台 Shell 缺少可归因的文件隔离 [open] (high)
@@ -105,7 +107,8 @@
 - 优先级: P1
 - 关联需求: R-097、R-139
 
-## D-175 安装器只发 kzapp 不发 kz CLI:schema 迁移后旧 CLI 直接打不开 state.db [fixing] (high)
+## D-175 安装器只发 kzapp 不发 kz CLI:schema 迁移后旧 CLI 直接打不开 state.db [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 验收⑤今天实证:53bb8e7 真实安装后 kzapp 首启同步 CLI,.kz-synced=ccfecff、~/.cargo/bin/kz.exe 版本随包前进;只升不降实测生效(未覆盖手装的更新构建)。①sidecar 打包②同步③v4/v5/v6.bak 真实存在④文案断言⑤自动化测试均齐。
 - 复现: 2026-08-08 发布 build-0c9f903(含 store schema v4→v5)。静默装完 setup.exe 后,`kz --version` 仍是 430d6d6(SCHEMA_VERSION=4);一旦启动新 kzapp 把 `.kanzei/state.db` 迁到 v5,旧 kz 在 `SessionStore::open` → `migrate` 处命中 `version > SCHEMA_VERSION` 直接返回 UnsupportedSchema,`kz run` 完全不可用。本次靠手动 `cargo install --path crates/kanzei --force` 救回,安装器缺口未变。
 - 根因: 桌面端与 CLI 是两个独立安装通道(NSIS → %LOCALAPPDATA%\kanzei;cargo install → ~\.cargo\bin),却共用同一个 `.kanzei/state.db`;package.ps1 只打包 kzapp,没有任何机制让安装器更新 CLI。以前 CLI 落后只是"旧",引入 schema 迁移后变成硬失败。
 - 影响: ①任何 schema 变更发版即弄坏机器上的 kz,而 kz 是自举循环的入口;②迁移单向且此前无备份,回退到上一版 kzapp 同样打不开库,发布事实上不可回滚;③UnsupportedSchema 文案只说"不兼容",不给出路,容易诱导用户删库,而删库丢的是全部会话历史。
@@ -115,7 +118,8 @@
 - 优先级: P0
 - 标签: 发布
 
-## D-176 同一目录裂成两个会话 id(扩展长度路径前缀),历史与队列互相看不见 [fixing] (high)
+## D-176 同一目录裂成两个会话 id(扩展长度路径前缀),历史与队列互相看不见 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 真实库实证:修复(08-07 09:06)之后零新增 \?\ 形态会话,全部收敛到 ses_project_c0b8d633…;带前缀的仅剩 2 条历史孤儿。验收⑤测试在。残余:2 条历史孤儿会话不迁移(改名=历史失联,正是验收④禁止的)。
 - 复现: 本仓库的 state.db 里同一个目录有两条会话:`ses_project_c0b8d633186c2464`(project_root `C:\Users\kanzei\Documents\kanzei code`)与 `ses_project_ce2fce953a5e4103`(project_root `\\?\C:\Users\kanzei\Documents\kanzei code`)。桌面端的运行落在后者(1090 条事件),CLI 落在前者,同一项目的历史互相看不见。
 - 根因: 桌面端 `normalized_project_root` 内含 `std::fs::canonicalize`,Windows 上返回带 `\\?\` 扩展长度前缀的路径;CLI 走裸 `discover_project_root` 不做 canonicalize。而 `project_session_id` 只做 `to_lowercase()` 后哈希原字符串,不做任何路径规范化,于是两种写法哈希出两个 id。代码里 5 处 Tauri 命令带着"会话 ID 必须与运行/写入侧同源(D-058)"的注释,说明此坑踩过一次,但当时只靠"都记得调 normalized_project_root"的约定对齐,CLI 侧没跟上——约定而非门禁。
 - 影响: ①历史对话在桌面端与 CLI 之间不复用,表现为"历史时有时无";②队列、输入状态、episode 画像同样分裂,跨端度量失真;③会话越多,state.db 里同一项目的孤儿会话线越多。
@@ -126,7 +130,8 @@
 - 标签: 后端
 - 备注: 采用向后兼容方案后,桌面端会切回裸路径 id,`ce2fce953a5e4103` 那条线的 1090 条事件成为孤儿(数据仍在 state.db 中,未删除)。
 
-## D-177 上下文压缩只在轮末检查,长轮与被停止的运行一次也轮不到 [fixing] (high)
+## D-177 上下文压缩只在轮末检查,长轮与被停止的运行一次也轮不到 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 每步开跑前预算检查在主循环;估算含 system/历史/工具 schema(D-192 补齐),D-203 又收敛为 budgeted_tokens 单口径;ContextCompacted 事件 UI/CLI 可见;主动/被动额度分记;测试锁住。
 - 复现: 事件流 seq 1073-1076:18:35:55 提升输入并 running,19:17:04 用户停止,`reason=stopped_by_user`,**没有 run.completed**。而压缩检查写在 run.completed 之后那一段(`estimate > limit*7/10` 才调 fast_summarize),整整 41 分钟里检查点执行 0 次。
 - 根因: 上下文预算只在一轮**结束之后**评估,而长轮与自动续跑恰恰是最需要它的场景——一轮不结束就一次也轮不到,中途停止更是直接跳过收尾。轮内唯一的上下文管理是 runner 的 `recover_context_overflow`,它只在 provider 已经报 overflow 之后才动,于是实际行为是"一路涨到撞墙,撞了才被动裁剪"。另:轮末估算漏算工具 schema,而 schema 每步整份重发,在工具多的 profile 下是常驻大头。
 - 影响: ①长轮的上下文成本不受控,只能靠撞墙兜底,而撞墙那次请求本身已经浪费;②被动裁剪发生在错误路径上,裁剪力度不可选;③用户观感是"跑了一大波压缩从没触发"。
@@ -137,7 +142,8 @@
 - 标签: 核心
 - refs: D-176
 
-## D-178 git 工具 stage 静默失败:normalize_resource Windows 小写化破坏大小写敏感路径 [fixing] (high)
+## D-178 git 工具 stage 静默失败:normalize_resource Windows 小写化破坏大小写敏感路径 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 回归测试在 git.rs:413(大小写敏感路径 stage);normalize_resource 安全校验保留、传 git 原始大小写。
 - 复现: git stage .kanzei/memory/INDEX.md 返回 "nothing is staged after this request"。根因: git.rs:148 normalize_files 用 kanzei_harness::permission::normalize_resource(raw) 规范化路径, 该函数在 Windows 上 to_lowercase 整个路径(permission.rs:167-168), git pathspec 大小写敏感, 转小写后匹配不到磁盘上的 INDEX.md/M-016-*.md/Cargo.lock 等含大写字母的文件, git add 成功但零暂存, stage 报 nothing staged。对照: probe-test.txt(全小写) 可正常暂存。
 - 影响: 任何含大写字母的路径(INDEX.md、M-016/M-017 记忆文件、Cargo.lock)都无法通过 git 工具暂存, memory 文件提交被卡; 用户直接用 bash git add 不受影响。
 - 验收: git stage 对含大写字母路径能正常暂存并返回 staged_hash; 保留 normalize_resource 的安全校验(逃逸/目录检查)但传给 git 的路径保持原始大小写; 补大小写路径回归测试。
@@ -145,7 +151,8 @@
 - 优先级: P2
 - severity: high
 
-## D-179 停止运行时 abort 先于收尾,整轮轨迹与 episode 全部丢失 [fixing] (high)
+## D-179 停止运行时 abort 先于收尾,整轮轨迹与 episode 全部丢失 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 6852d82 交付:停止先落库再 abort,失败轮同样落库,幂等;验收⑤测试锁住。今天自举多轮停止/续跑无轨迹丢失报告。
 - 复现: 2026-08-08 一次 41 分钟的运行(事件流 seq 1073-1076)被用户停止后,该会话只留下一条 `session.status_changed {"reason":"stopped_by_user"}`——没有 run.trace、没有 episode、输入状态也没有结局。对照正常结束的轮次(seq 1084-1086)三者齐全。
 - 根因: `stop_runtime_and_finalize`(crates/kanzei-app/src/main.rs)先 `handle.abort()` 再收尾,而写 run.trace / append_episode / finish_input 的代码全在被 abort 的那个 task 里,先杀后写等于什么都不写。失败轮次同理:`let summary = run_result?;` 在写轨迹之前提前返回,`run.failed` 之外一样什么都不留。
 - 影响: ①最值得复盘的运行(长到不得不停)恰恰一个字节都不留,D-173 补的运行审计在这类轮次上等于没做;②工具耗时、权限决策、token 统计全丢,"时间花在哪"仍然只能靠猜;③D-177 的轮内压缩是否真的触发,在被停止的轮次里无法验证。
@@ -156,7 +163,8 @@
 - 标签: 后端
 - refs: D-173、D-177
 
-## D-180 v5 之前遗留的 promoted 输入未回填,仍会被后续停止追认为 cancelled [fixing] (high)
+## D-180 v5 之前遗留的 promoted 输入未回填,仍会被后续停止追认为 cancelled [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 96acfdf(v7)从迁移前备份捞回状态位;保护窗、缺 promoted_at 视为存量、回填后不再改写均有测试。
 - 复现: 装上 v5 后查本机 state.db:`promoted 195 / cancelled 187 / running 1`。那 195 条是 v5 之前跑完的输入——当时没有 completed 终态,它们永远停在 promoted。而 `finalize_interrupt` 取消 `pending/promoted/running`,所以用户下一次按停止,这 195 条历史上早已跑完的输入仍会被一并改写成 cancelled。
 - 根因: v5 只加了新状态与新写入路径,没有回填存量。新记录不再被污染,存量却仍在被反复追认——修了一半。
 - 影响: 历史输入的状态位不可信,按状态做的任何统计(完成率、取消率)都失真;且每停止一次就再污染一次,不是一次性损失。
@@ -171,7 +179,8 @@
 - 验证(2026-08-08): kanzei-core 新增「v7从备份恢复被抹掉的输入状态位且不误伤真取消」「v7在没有备份时安静通过」,含幂等性断言;workspace 269 项通过。
 - 迁移与回滚: v5→v6 只有一条 UPDATE,无表结构变更;回滚把 SCHEMA_VERSION 改回 5 即可,已回填的 completed 对 v5 代码是合法值(v5 的 CHECK 已含 completed),不会打不开库。
 
-## D-181 主动上下文压缩复用应急截断:一次砍掉 97% 且保留的是最旧内容 [fixing] (high)
+## D-181 主动上下文压缩复用应急截断:一次砍掉 97% 且保留的是最旧内容 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): a119eeb 三段式(head/纪要/近期工作区)+digest_plausible 质量门槛+回落节选;D-203 补齐校准口径。验收各条有测试;反向验证过纪要拒泛化。
 - 复现: D-177 把主动预算线接到了应急函数 `compact_messages_for_retry` 上。该函数把除当前用户消息外的全部历史拍成一个 8000 字节文本块:deepseek 128k 的预算线是 89,600 token,触发后掉到约 2,000 token,一次砍掉 97%。且其累积循环从 index 0 正序、攒够即停,保留的是开场白,丢掉的是刚做完的工作。
 - 根因: 应急路径与主动路径的定位被混为一谈。应急发生在 provider 已经拒绝请求之后,粗暴但必须一次成功,合理;主动发生在还有三成余量、也有时间的时候,没有任何理由推倒重来。另有两个附带缺陷:①`remaining = 8_000 - history.len()` 按字节算却用 `chars().take(remaining)` 取字符,中文实际超额约三倍,那个上限名不副实;②`Part::ToolCall` 被整个 skip,只留下工具输出而不知道是哪个工具、什么入参产生的。
 - 影响: ①压完模型不知道自己刚做了什么,长轮大概率原地重做,压缩反而放大成本;②轮末那条像样的 `fast_summarize` 已确认长轮轮不到,于是形成"好的不跑、跑的不好";③`MAX_PROACTIVE_COMPACTIONS=3` 是假的——第一次就压成一个块,后两次只是重复截同一个块。
@@ -182,7 +191,8 @@
 - 标签: 核心
 - refs: D-177
 
-## D-182 应用内更新静默失败:交接 helper 就是安装器要替换的 kzapp.exe,镜像被锁 [fixing] (high)
+## D-182 应用内更新静默失败:交接 helper 就是安装器要替换的 kzapp.exe,镜像被锁 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 今天 update.log 实证两次完整交接:helper=%TEMP%\kanzei-update-helper.exe(安装目录外、名字不同),全程落盘含父进程退出/exit=0/mtime/拉起结果。验收④"回读核对"当时只记不比——该缺口已拆为 D-199 单独修复(image_stamp 前后比对)。
 - 复现: 2026-08-08 22:43 用户点设置页「检查更新」升 build-ea6d058。安装包完整落到 `%TEMP%\kanzei-setup.exe`(9,564,216 字节),但 `%LOCALAPPDATA%\kanzei` 三个文件的时间戳仍停在 21:35,一个都没换,界面上也没有任何失败提示。
 - 排除项: ①安装包本身没问题——同一个文件指定目录能完整装出 kzapp+kz(exit 0);②下载没问题——字节数与 release 资产一致;③不是权限问题——kzapp 未运行时同一个包装得进去。
 - 根因: `update_install` 用 `Command::new(current_exe())` 起交接 helper,而 `current_exe()` 就是安装器要替换的 `%LOCALAPPDATA%\kanzei\kzapp.exe`。父进程 `app.exit(0)` 之后 helper 仍在跑同一个镜像文件,Windows 全程锁着它,NSIS 覆盖不了。`run_install_helper` 里安装器非 0 退出就 `return` 且**不删安装包**——TEMP 里那个文件还在,与这条路径吻合。
@@ -196,7 +206,8 @@
 - refs: D-175
 - 备注: 排查期间我用 `/D=<临时目录>` 做探针,误以为它只影响本次安装;NSIS 会把该路径写成新的 InstallLocation,导致随后一次 `/S` 装到了临时目录、看起来像"exit 0 却什么都没换"。已用 `/D=%LOCALAPPDATA%\kanzei` 装回并核对注册表。该探针也毁掉了 22:43 当时注册表值这条证据。
 
-## D-183 发版不核对提交区间:并发运行的提交被夹带发布且无人察觉 [fixing] (high)
+## D-183 发版不核对提交区间:并发运行的提交被夹带发布且无人察觉 [fixed] (high)
+- 关闭核对(2026-08-09,按 §1.2 可用即关闭收口): 此后每次发版都走 -Ack 门禁(本轮 build-4ad666c/ccfecff/53bb8e7 三次);"数不符必中止"有天然实测——中文提交信息数错那次(6 判成 5)门禁真的拦了发布,ccfecff 修掉解码问题。D-193 又补上 tag 落点,区间起点不再漂移。
 - 复现: 2026-08-08 发布 build-ea6d058 与 build-96acfdf 时,`49634b7..HEAD` 区间里含 f73ae6c(21:41)与 5223dc6(21:52)两个并发自举运行的提交。发布流程照常 `merge --ff-only` + `package.ps1 -Publish`,全程无任何提示,发布说明里也只是把它们混在变更列表里,没人核对过。事后靠用户追问才发现。
 - 根因: 发布流程只认 HEAD,不看区间。本仓库有并发自举运行提交到同一分支,而它的提交作者、邮箱与人手动提交完全一致,git 元数据分辨不出来——没有任何自动信号,只能靠发布者主动核对,而"靠记得"不是门禁。
 - 影响: ①发出去的内容可能包含未经审阅的改动,发布说明失真;②本次两个提交只碰 `.kanzei/` 文档没动 crates/,二进制未受影响,但同一条路径下一次就可能夹带源码;③与 D-173 系列建立的"提交范围可核对"原则自相矛盾——工具层拦住了提交夹带,发布层却没有对应门禁。
