@@ -1,5 +1,14 @@
 # Defects
 
+## D-171 启动黑屏:孤儿 msedgewebview2 进程锁住 WebView2 数据目录 [fixing] (high)
+- 复现: 父 kzapp 被强杀(更新交接、任务管理器、崩溃)时 WebView2 子进程存活,继续握着 `dev.kanzei.app/EBWebView` 数据目录的目录锁;下一个实例的 WebView 初始化失败,窗口就是一块黑。实测本机曾积累 6 个存活 7 小时的孤儿 msedgewebview2。
+- 根因: 强杀父进程不会自动回收 WebView2 子进程;新实例启动时 WebView 初始化被孤儿进程的目录锁挡住,与 D-172(i18n 死循环)是两个独立的黑屏根因。
+- 修复: `cleanup_orphan_webviews()`(crates/kanzei-app/src/main.rs)——只杀命令行带 `dev.kanzei.app` 的 msedgewebview2.exe,且只在**没有其他 kzapp 实例存活**时动手(别的实例在,它的 webview 就不是孤儿);在主流程窗口创建前与安装交接前调用。
+- 验收: ①强杀 kzapp 后残留孤儿 webview,重启 kzapp 不再黑屏;②有其他 kzapp 实例存活时不误杀其 webview;③更新交接路径(install helper)也清孤儿,避免新实例黑屏。
+- 证据等级: E1(逻辑自洽 + 注释记录实测 6 个孤儿)
+- 优先级: P0
+- 备注: 2026-08-08 并行环节已写好修复代码(工作区未提交),本条目补登记;此前被误判为编号空洞补过 tombstone,已撤销纠正。
+
 ## D-159 memory-manager 忽略前置 pathspec fatal 并把 commit 症状误记为根因 [open] (medium)
 - refs: R-105
 - 优先级: P2
@@ -11,18 +20,6 @@
 - 验收: M-013 被更正或标 stale，不再声称本次根因是忘记暂存；失败提炼能优先保留同一 bash 调用中更早的 fatal/pathspec 根因，或在无法判定时只记录症状不下根因结论；有回归覆盖。
 
 - 进展: 错误 M-013 仍处于未提交状态；已向 memory inbox 投递具名更正说明，后续修复需让 failure harvest 保留同批前置 `fatal: pathspec` 根因并补回归。本轮不把错误记忆混入 R-069 提交。
-
-## D-172 启动黑屏:i18n MutationObserver 微任务死循环饿死渲染主线程 [fixed] (critical)
-- refs: D-136 458af450 e4b45f21
-- 优先级: P0
-- 复现: build-2c999d4(含 e4b45f21)启动即整窗黑屏。CDP 观测:浏览器进程命令(Browser.getVersion)秒回,所有需渲染进程处理的命令(Runtime.evaluate/Runtime.enable/Page.enable/冷附加 Debugger.enable)永不响应;渲染进程 10 分钟烧掉 380s CPU。重启后在 about:blank 阶段先挂 Debugger 再 pause,栈定格在 applyLanguage(main.js:569)← MutationObserver 回调(main.js:639)。
-- 影响: 桌面端完全不可用;且症状组合(黑屏+无 console+CDP 无响应+PrintWindow 抓黑)极易误判为 WebView2/GPU/截图伪影问题,本次调查一度走偏。
-- 标签: 核心
-- 根因: 两笔提交叠加成环。458af450 的属性翻译在 zh(默认)模式下对每个带 title/placeholder/aria-label 的元素**无条件 setAttribute**(判据 `translated !== source || language !== "en"` 恒真);e4b45f21 给 languageObserver 补 `attributes:true + attributeFilter:[title,placeholder,aria-label]`。DOM 规范规定 setAttribute 同值也入 mutation 队列,于是 observer→applyLanguage→setAttribute→observer 微任务无限循环,事件循环永远轮不到绘制与输入。`applyingLanguage` 标志只防同步重入,防不了跨微任务自触发。冒烟测不出是因为 harness 的 setAttribute 同值早退不通知 observer,与规范语义相反。
-- 证据等级: E1(冒烟护栏红绿双验)+ 真机 CDP 断点栈与修复前后渲染进程 CPU/响应实证
-- 验收: ①main.js 属性写入前比对,同值不写;②冒烟 harness setAttribute 同值也通知 observer(对齐 DOM 规范),并加「observer 连续自触发>25 轮判失败」护栏,把挂死变成可读失败;③bug 复位冒烟必红、修复后必绿,已双验;④修复构建真机验证:Runtime.evaluate 即时响应、页面完整渲染、渲染进程存活 53s 仅耗 1s CPU。
-
-- 进展: 已修复并双侧验证(2026-08-08)。遗留:发布版(用户机器)仍是坏 build,需走发版 SOP 推送修复。
 
 ## D-173 架构索引 architecture/README.md 无专用工具可写:edit 被 ruleset 拒绝,agent 只能 bash 旁路维护 [open] (high)
 - 备注: 本轮已用 bash 旁路一次性补齐索引(946742f),内容正确;本缺陷登记的是通道缺失本身,不撤回已完成的补全。关联 D-171(编号空洞 tombstone,同轮解除门禁时补记)。

@@ -431,10 +431,45 @@ fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
     !process_alive(parent_pid)
 }
 
+/// D-171:清掉锁着我们 WebView2 数据目录的孤儿 msedgewebview2 进程。
+///
+/// 父 kzapp 被强杀(更新交接、任务管理器、崩溃)时 WebView2 子进程会存活,
+/// 继续握着 `dev.kanzei.app/EBWebView` 的目录锁——下一个实例的 WebView 初始化
+/// 失败,窗口就是一块黑。实测本机曾积累 6 个存活 7 小时的孤儿。
+///
+/// 安全边界:只杀**命令行里带我们数据目录**的 webview,且只在**没有别的 kzapp
+/// 实例活着**时动手——别的实例还在,它的 webview 就不是孤儿。
+fn cleanup_orphan_webviews() {
+    // pid 直接嵌进脚本文本:`-Command` 模式下尾随参数不会成为 $args,
+    // 会被拼进命令串导致解析错误(实测踩过)。
+    let script = format!(
+        r#"
+$mine = {}
+$others = @(Get-Process kzapp -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $mine }})
+if ($others.Count -gt 0) {{ exit 0 }}
+Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" |
+  Where-Object {{ $_.CommandLine -match 'dev\.kanzei\.app' }} |
+  ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}
+"#,
+        std::process::id()
+    );
+    let mut cmd = Command::new("powershell");
+    cmd.args(["-NoProfile", "-Command", &script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    let _ = cmd.output();
+}
+
 fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
     wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
     // 句柄释放晚于进程退出,再让一手。
     std::thread::sleep(std::time::Duration::from_millis(600));
+    // 交接前清孤儿 webview:发起方退出后它的 WebView2 子进程可能存活,
+    // 既碍安装器替换文件,又会让新实例黑屏(D-171)。
+    cleanup_orphan_webviews();
     match Command::new(installer).arg("/S").status() {
         Ok(status) if status.success() => {}
         Ok(status) => {
@@ -1199,6 +1234,9 @@ mod update_tests {
 
 fn main() {
     if startup_update() { return; }
+    // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
+    // msedgewebview2 会锁住数据目录,不清的话本次启动必黑屏。
+    cleanup_orphan_webviews();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
