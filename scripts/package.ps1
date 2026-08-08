@@ -1,6 +1,9 @@
 # kanzei 安装包构建:cargo tauri build → NSIS setup.exe → dist/
-# 用法: .\scripts\package.ps1 [-Publish]   (-Publish = 同时发到 GitHub Releases,应用内"检查更新"即以此为源)
-param([switch]$Publish)
+# 用法: .\scripts\package.ps1 -Ack <本次要发的提交数> [-Publish]
+#       -Publish = 同时发到 GitHub Releases,应用内"检查更新"即以此为源
+#       -Ack     = 你认为自上个 build-* 标签以来应当发出去的提交条数。
+#                  实际条数不符就中止(D-183)。
+param([switch]$Publish, [int]$Ack = -1)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
@@ -10,6 +13,36 @@ $hash = (git -C $root rev-parse --short HEAD).Trim()
 $date = Get-Date -Format "yyyy-MM-dd"
 $build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
+
+# ---- 发布范围核对(D-183)----
+# 本仓库会有并发自举运行提交到同一分支,作者与人手动提交完全一样,git 元数据
+# 分辨不出来。实测 build-ea6d058/96acfdf 就夹带了两个我没审过的提交而无人察觉。
+# 这里不做猜测,只做一件事:把区间摊开,并要求发布者用 -Ack 明确说出条数——
+# 数目对不上就中止。多出来一个提交就是一次强制停顿。
+$lastTag = (git -C $root tag --list "build-*" --sort=-creatordate | Select-Object -First 1)
+$range = if ($lastTag) { "$lastTag..HEAD" } else { "HEAD~10..HEAD" }
+$commits = @(git -C $root log $range --format="%h|%an|%s")
+Write-Host "==> 发布范围 $range —— $($commits.Count) 个提交" -ForegroundColor Cyan
+foreach ($line in $commits) {
+    $parts = $line -split '\|', 3
+    # 标出是否触碰源码:只动 .kanzei/ 文档的提交不影响二进制,但仍然会被发出去。
+    $touched = @(git -C $root show --stat --format="" --name-only $parts[0]) | Where-Object { $_ }
+    $code = @($touched | Where-Object { $_ -like "crates/*" -or $_ -like "scripts/*" -or $_ -like "ui/*" }).Count
+    $mark = if ($code -gt 0) { "[源码]" } else { "[文档]" }
+    Write-Host "    $mark $($parts[0]) $($parts[2])"
+}
+if ($Ack -lt 0) {
+    throw "发布范围未确认:核对上面 $($commits.Count) 个提交,确认都属于本次交付后,加 -Ack $($commits.Count) 重跑"
+}
+if ($Ack -ne $commits.Count) {
+    throw "发布范围不符:你确认的是 $Ack 个提交,实际区间里有 $($commits.Count) 个。逐条核对上面的清单——多出来的很可能是并发运行提交的,不该跟着这次发出去"
+}
+
+# 源码工作区必须干净:否则构建出来的二进制与 $hash 标签不对应,发布物无从追溯。
+$dirty = @(git -C $root status --porcelain -- crates scripts ui) | Where-Object { $_ }
+if ($dirty.Count -gt 0) {
+    throw "发布树源码未提交($($dirty.Count) 处),构建产物将与标签 $hash 不一致:`n$($dirty -join "`n")"
+}
 
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz
@@ -42,10 +75,10 @@ Write-Host "==> installer: $out ($([math]::Round((Get-Item $out).Length/1MB)) MB
 if ($Publish) {
     $tag = "build-$hash"
     Write-Host "==> publishing GitHub release $tag" -ForegroundColor Cyan
-    # 变更日志:自上一个 release 标签以来的提交(引流物料,顺手生成)。
-    $lastTag = (git -C $root tag --list "build-*" --sort=-creatordate | Select-Object -First 1)
-    $log = if ($lastTag) { git -C $root log "$lastTag..HEAD" --format="- %s" } else { git -C $root log -10 --format="- %s" }
-    $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date)。应用内「检查更新」以此为源。"
+    # 变更日志复用上面已核对过的同一个区间,不再另算一遍——两处口径必须一致,
+    # 否则 release notes 说的和实际发出去的可能不是一回事。
+    $log = git -C $root log $range --format="- %s"
+    $notes = "## 变更`n$($log -join "`n")`n`n---`n构建 $hash($date),范围 $range 共 $($commits.Count) 个提交(已核对)。应用内「检查更新」以此为源。"
     $notesFile = Join-Path $env:TEMP "kanzei-release-notes.md"
     Set-Content $notesFile $notes -Encoding UTF8
     gh release create $tag $out --repo kanze1/kanzei-code --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
