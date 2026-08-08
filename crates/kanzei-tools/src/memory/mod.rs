@@ -10,7 +10,7 @@ mod store;
 mod tools;
 
 pub use manager::{manager_agent, MemoryManagerComponent};
-pub use store::{AddOutcome, MemoryStore, SearchHit};
+pub use store::{AddOutcome, MemoryStore, RecallHit, RecallRound, SearchHit};
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
@@ -264,10 +264,24 @@ pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<Stri
             )
         })
         .collect();
-    Some(format!(
+    let block = format!(
         "<memory-hints>\n与本任务可能相关的既有记忆(memory_search 或 read 返回的 file 查看正文):\n{}\n</memory-hints>",
         lines.join("\n")
-    ))
+    );
+    // R-125:召回明细落库,记的是"召回了什么、得分多少、注入了多少字节"。
+    // 没有这一步就没有任何评估手段——只能凭感觉判断记忆有没有用。
+    // 按条目所属 scope 分别落到各自的 index.db,查询时再合并。
+    for store in &stores {
+        let own: Vec<SearchHit> = hits
+            .iter()
+            .filter(|h| h.entry.scope == store.scope.label())
+            .cloned()
+            .collect();
+        if !own.is_empty() {
+            store.record_recall(prompt, &own, block.len());
+        }
+    }
+    Some(block)
 }
 
 /// 今天的日期(YYYY-MM-DD,UTC)。civil-from-days 算法,不引 chrono。

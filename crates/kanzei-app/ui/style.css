@@ -568,6 +568,28 @@ button:disabled { opacity: .45; cursor: default; }
 /* 长输出折叠:展开区给上界,超出部分内部滚动,不让一条日志把面板撑到底 */
 .bg-detail { max-height: 320px; overflow: auto; }
 .bg-args { max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+
+/* R-125:召回明细与效果画像 */
+.memory-recalls { display: flex; flex-direction: column; gap: 8px; max-height: 340px; overflow: auto; }
+.memory-recall { background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 8px; }
+.memory-recall-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.memory-recall-when { color: var(--fg-strong); }
+.memory-recall-prompt { font-size: 11px; margin: 2px 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.memory-recall-hit {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px; align-items: baseline;
+  font-size: 11.5px; padding: 3px 0; border-top: 1px solid var(--border-soft);
+}
+.memory-recall-id { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+.memory-recall-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-recall-flag { color: var(--dim); font-size: 10.5px; }
+.memory-recall-hit.adopted .memory-recall-flag { color: var(--ok); }
+.memory-recall-snippet { grid-column: 1 / -1; font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 长期零命中:淡出 + 标记,一眼看出哪些记忆从没被用到过 */
+.memory-row.dormant { opacity: .68; }
+.memory-dormant-flag { font-style: normal; color: var(--warn); }
+.memory-profile { font-size: 11px; margin-bottom: 4px; }
+button.ghost.danger { color: var(--err); }
+button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .bg-entry.has-detail .bg-title:hover { color: var(--fg-strong); }
 .bg-detail { margin-top: 4px; max-height: 320px; overflow-y: auto; user-select: text; }
 .bg-child { margin: 3px 0 0 8px; padding: 4px 6px; border-left: 2px solid var(--border); background: var(--panel); font-size: 10.5px; }

@@ -153,14 +153,26 @@ class Element {
   get className() { return this._attributes.class ?? ""; }
   set className(value) { this.classList = new ClassList(this); this.classList.add(...String(value).split(/\s+/).filter(Boolean)); }
   get textContent() {
-    if (!this.childNodes.length) return this._textContent;
-    return this.childNodes.map((c) => (c instanceof Element ? c.textContent : c.nodeValue)).join("");
+    // innerHTML 写入的文本与后续 appendChild 的子节点会共存(先设 innerHTML 再追加是
+    // main.js 的常见写法);只读子节点会把前者整段丢掉,断言就看不见它。
+    const own = this._textContent;
+    if (!this.childNodes.length) return own;
+    return own + this.childNodes.map((c) => (c instanceof Element ? c.textContent : c.nodeValue)).join("");
   }
   set textContent(value) { this.childNodes = []; this._innerHTML = ""; this._textContent = String(value); }
   get innerText() { return this.textContent; }
   set innerText(value) { this.textContent = value; }
   get innerHTML() { return this._innerHTML; }
-  set innerHTML(value) { this._innerHTML = String(value); if (value === "") { this.childNodes = []; this._textContent = ""; } }
+  // innerHTML 写入要同步出可读文本:main.js 里大量行是 innerHTML 拼的,若 textContent
+  // 读不到它们,所有基于文本的断言对这些内容都是瞎的(和 D-151 同一类盲区)。
+  // 只做去标签的近似,不实现真正的解析——冒烟要的是"文字在不在",不是 DOM 树。
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    this.childNodes = [];
+    this._textContent = String(value)
+      .replace(/<[^>]*>/g, "")
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+  }
   get value() { return this._value ?? ""; }
   set value(v) { this._value = String(v); }
   getAttribute(name) { return this._attributes[name] ?? null; }
@@ -320,6 +332,21 @@ const payloads = {
     archived_entries: { req: [docEntry("R-000", "已归档需求", "done")], defect: [docEntry("D-000", "已归档缺陷", "fixed")], goal: [], source: [], finding: [] },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  // R-125:召回明细。一轮里既有被拉取的(算采纳)也有没拉的,才能验证两种状态都渲染得出来。
+  memory_recalls: {
+    rounds: [{
+      recall_id: "1-M",
+      at: 1_760_000_000_000,
+      prompt_head: "这轮要发版",
+      injected_bytes: 512,
+      hits: [
+        { id: "M-002", title: "发版 SOP", scope: "project", category: "sop", score: 3.25, snippet: "package.ps1 -Publish", fetched: true },
+        { id: "M-001", title: "CRLF 未命中", scope: "project", category: "fact", score: 1.1, snippet: "edit 换行", fetched: false },
+      ],
+    }],
+    rounds_total: 1,
+    rounds_with_fetch: 1,
+  },
   conversation_get: [{ role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] }],
   conversation_trace_get: [],
   conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
@@ -332,7 +359,11 @@ const payloads = {
   settings_get: { language: "zh", profiles: {}, providers: [], permissions: [] },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
-  memory_entries: [{ id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务" }],
+  // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
+  memory_entries: [
+    { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, updated: "2026-08-01" },
+    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, updated: "2026-01-01" },
+  ],
   memory_context_bill: { turns: [] },
   workspace_snapshot: {},
 };
@@ -562,6 +593,42 @@ await flush();
 assert(!byId.get("auto-continue").checked, "选择 SOP 后未打断自动推进");
 assert(invokeLog.includes("memory_entries"), "SOP 入口未读取已沉淀 SOP");
 assert(invokeLog.includes("run_prompt"), "选择 SOP 后未进入输入执行链路");
+
+// ---------- R-125 记忆召回可视化：召回了什么、为什么召回、是否被采纳 ----------
+// 走真实路径:点活动栏的「记忆」进入该视图,由它触发 refreshMemory。
+const memoryTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "memory");
+assert(memoryTab, "活动栏缺少记忆入口");
+memoryTab.click();
+await flush();
+assert(invokeLog.includes("memory_recalls"), "记忆页未拉取召回明细(没有召回明细就没有评估手段)");
+const recallHits = document.querySelectorAll("#memory-recalls .memory-recall-hit");
+assert(recallHits.length === 2, `召回明细未渲染命中条目,实得 ${recallHits.length}`);
+assert(
+  listText("memory-recalls").includes("M-002") && listText("memory-recalls").includes("3.25"),
+  "召回明细未给出条目 id 与检索得分(看不出为什么召回这几条)",
+);
+assert(listText("memory-recalls").includes("package.ps1"), "召回明细未给出命中片段");
+assert(listText("memory-recalls").includes("512B"), "召回明细未给出注入字节数(上下文账单无从算起)");
+assert(
+  recallHits.filter((n) => n.classList.contains("adopted")).length === 1,
+  "采纳标记未按 fetched 区分:召回了但没拉正文不能算起了作用",
+);
+assert(listText("memory-recall-rate").includes("1/1"), "标题未给出采纳率");
+// 效果画像:零命中要在列表里看得出来,且能直接删。
+// 列表只在选中某个 scope/category 后渲染,冒烟里直接驱动该入口。
+await sandbox.loadMemoryList("project", null);
+await flush();
+const dormantRow = document.querySelector("#memory-list .memory-row.dormant");
+assert(dormantRow, "长期零命中的记忆未被标记(无从判断哪些记忆该清理)");
+assert(listText("memory-list").includes("从未命中"), "记忆列表未给出最近命中时间");
+dormantRow.click();
+await flush();
+const detailButtons = document.querySelectorAll("#memory-detail .memory-detail-actions button");
+assert(
+  detailButtons.some((b) => b.textContent === "删除"),
+  "记忆详情缺少删除入口(stale 只是降权,仍占索引)",
+);
+assert(listText("memory-detail").includes("累计命中"), "记忆详情未给出效果画像");
 
 // ---------- R-095 活动面板：完整流水 + 筛选 + 信息量 + 可操作 ----------
 const toolStart = handlers.get("kz:tool-start");

@@ -900,6 +900,8 @@ fn main() {
             quick_req,
             memory_overview,
             memory_entries,
+            memory_recalls,
+            memory_entry_delete,
             memory_entry_save,
             memory_search_page,
             memory_context_bill,
@@ -2305,12 +2307,13 @@ fn memory_entries(
 ) -> Result<serde_json::Value, String> {
     for store in memory_stores_for(&project_dir) {
         if store.scope.label() == scope {
-            let hits = store.hits_map();
+            let profile = store.hit_profile();
             let list: Vec<serde_json::Value> = store
                 .load_all()
                 .into_iter()
                 .filter(|(_, e)| category.as_deref().is_none_or(|c| e.category == c))
                 .map(|(path, e)| {
+                    let (hits, last_hit_at) = profile.get(&e.id).copied().unwrap_or((0, 0));
                     json!({
                         "id": e.id,
                         "category": e.category,
@@ -2319,7 +2322,9 @@ fn memory_entries(
                         "status": e.status,
                         "updated": e.updated,
                         "source": e.source,
-                        "hits": hits.get(&e.id).copied().unwrap_or(0),
+                        "hits": hits,
+                        // R-125 效果画像:最近命中时间为 0 表示从未命中过。
+                        "lastHitAt": last_hit_at,
                         "path": path.display().to_string(),
                         "body": e.body,
                     })
@@ -2329,6 +2334,30 @@ fn memory_entries(
         }
     }
     Err(format!("未知记忆域: {scope}"))
+}
+
+/// R-125:最近若干轮的召回明细(两级记忆合并,新的在前)。
+#[tauri::command]
+fn memory_recalls(project_dir: String, limit: Option<usize>) -> serde_json::Value {
+    let limit = limit.unwrap_or(20).clamp(1, 200);
+    let mut rounds: Vec<kanzei_tools::memory::RecallRound> = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        rounds.extend(store.recalls(limit));
+    }
+    rounds.sort_by(|a, b| b.at.cmp(&a.at));
+    rounds.truncate(limit);
+    let total: usize = rounds.len();
+    let with_fetch = rounds
+        .iter()
+        .filter(|r| r.hits.iter().any(|h| h.fetched))
+        .count();
+    json!({
+        "rounds": rounds,
+        // 采纳率 = 至少有一条召回内容被真正拉取的轮次占比。这是「记忆有没有用」
+        // 唯一机械可判的口径:只注入索引行,不拉正文就等于没用上。
+        "rounds_total": total,
+        "rounds_with_fetch": with_fetch,
+    })
 }
 
 #[tauri::command]
@@ -2352,6 +2381,23 @@ fn memory_entry_save(
                     status.as_deref(),
                 )
                 .map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+    }
+    Err(format!("未知记忆域: {scope}"))
+}
+
+/// R-125:删除一条记忆。stale 只是降权,仍占索引与列表;长期零命中的条目要能真正清掉。
+/// 文件是真源,删文件后重建派生索引即可——不做软删除,避免"删了还在"的困惑。
+#[tauri::command]
+fn memory_entry_delete(project_dir: String, scope: String, id: String) -> Result<(), String> {
+    for store in memory_stores_for(&project_dir) {
+        if store.scope.label() == scope {
+            let Some((path, _)) = store.load_all().into_iter().find(|(_, e)| e.id == id) else {
+                return Err(format!("记忆 {id} 不存在(可能已被删除)"));
+            };
+            std::fs::remove_file(&path).map_err(|e| format!("删除 {} 失败: {e}", path.display()))?;
+            store.refresh_derived().map_err(|e| e.to_string())?;
             return Ok(());
         }
     }

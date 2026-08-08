@@ -21,6 +21,35 @@ pub struct SearchHit {
     pub score: f64,
 }
 
+/// 一次开跑预检索的完整明细(R-125):召回了什么、为什么召回、注入了多少。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecallRound {
+    pub recall_id: String,
+    pub at: i64,
+    pub prompt_head: String,
+    pub injected_bytes: usize,
+    pub hits: Vec<RecallHit>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecallHit {
+    pub id: String,
+    pub title: String,
+    pub scope: String,
+    pub category: String,
+    pub score: f64,
+    pub snippet: String,
+    /// 召回之后正文是否真的被拉取过——「是否产生作用」的机械判据。
+    pub fetched: bool,
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 /// add 的去重门禁结果。
 pub enum AddOutcome {
     Added(MemoryEntry),
@@ -275,9 +304,118 @@ impl MemoryStore {
              CREATE TABLE IF NOT EXISTS memory_hits(
                  id TEXT PRIMARY KEY,
                  hits INTEGER NOT NULL DEFAULT 0,
-                 last_hit_at INTEGER NOT NULL DEFAULT 0);",
+                 last_hit_at INTEGER NOT NULL DEFAULT 0);
+             -- R-125 召回明细。和 hits 一样是派生日志:丢了只丢历史,不丢事实,
+             -- 所以放在可重建的 index.db 而不是记忆文件里。
+             CREATE TABLE IF NOT EXISTS memory_recalls(
+                 recall_id TEXT NOT NULL,
+                 at INTEGER NOT NULL,
+                 prompt_head TEXT NOT NULL,
+                 injected_bytes INTEGER NOT NULL DEFAULT 0,
+                 entry_id TEXT NOT NULL,
+                 title TEXT NOT NULL DEFAULT '',
+                 scope TEXT NOT NULL DEFAULT '',
+                 category TEXT NOT NULL DEFAULT '',
+                 score REAL NOT NULL DEFAULT 0,
+                 snippet TEXT NOT NULL DEFAULT '',
+                 -- 「是否产生作用」的判定证据:prompt_hints 只注入索引行,
+                 -- 模型要用内容就必须再拉一次正文(memory_search / read file)。
+                 -- 拉过 = 采纳,没拉 = 召回了但没用上。这是机械可判的,不靠猜。
+                 fetched INTEGER NOT NULL DEFAULT 0,
+                 PRIMARY KEY(recall_id, entry_id));
+             CREATE INDEX IF NOT EXISTS memory_recalls_at ON memory_recalls(at DESC);",
         )?;
         Ok(conn)
+    }
+
+    /// 落一次召回明细,返回 recall_id。注入字节数由调用方给(它才知道最终注入了多长)。
+    pub fn record_recall(&self, prompt: &str, hits: &[SearchHit], injected_bytes: usize) -> String {
+        let at = now_ms();
+        let recall_id = format!("{at}-{}", self.scope.prefix());
+        let Ok(conn) = self.open_db() else { return recall_id };
+        let head: String = prompt.chars().take(160).collect();
+        for hit in hits {
+            let _ = conn.execute(
+                "INSERT OR REPLACE INTO memory_recalls
+                 (recall_id, at, prompt_head, injected_bytes, entry_id, title, scope, category, score, snippet, fetched)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+                     COALESCE((SELECT fetched FROM memory_recalls WHERE recall_id = ?1 AND entry_id = ?5), 0))",
+                params![
+                    recall_id,
+                    at,
+                    head,
+                    injected_bytes as i64,
+                    hit.entry.id,
+                    hit.entry.title,
+                    hit.entry.scope,
+                    hit.entry.category,
+                    hit.score,
+                    hit.snippet,
+                ],
+            );
+        }
+        recall_id
+    }
+
+    /// 标记某条记忆的正文在召回之后确实被拉取过 = 这次召回起了作用。
+    /// 只回填最近一次召回:更早的那次已经有自己的结论,不能被后来的行为追认。
+    pub fn mark_recall_fetched(&self, entry_id: &str) {
+        let Ok(conn) = self.open_db() else { return };
+        let _ = conn.execute(
+            "UPDATE memory_recalls SET fetched = 1
+             WHERE entry_id = ?1 AND recall_id = (
+                 SELECT recall_id FROM memory_recalls WHERE entry_id = ?1 ORDER BY at DESC LIMIT 1)",
+            params![entry_id],
+        );
+    }
+
+    /// 最近若干次召回,按轮次聚合(新的在前)。
+    pub fn recalls(&self, limit: usize) -> Vec<RecallRound> {
+        let Ok(conn) = self.open_db() else { return Vec::new() };
+        let Ok(mut statement) = conn.prepare(
+            "SELECT recall_id, at, prompt_head, injected_bytes, entry_id, title, scope, category, score, snippet, fetched
+             FROM memory_recalls ORDER BY at DESC, entry_id ASC",
+        ) else {
+            return Vec::new();
+        };
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                RecallHit {
+                    id: row.get(4)?,
+                    title: row.get(5)?,
+                    scope: row.get(6)?,
+                    category: row.get(7)?,
+                    score: row.get(8)?,
+                    snippet: row.get(9)?,
+                    fetched: row.get::<_, i64>(10)? != 0,
+                },
+            ))
+        });
+        let Ok(rows) = rows else { return Vec::new() };
+        let mut rounds: Vec<RecallRound> = Vec::new();
+        for row in rows.flatten() {
+            let (recall_id, at, prompt_head, injected, hit) = row;
+            match rounds.iter_mut().find(|r| r.recall_id == recall_id) {
+                Some(round) => round.hits.push(hit),
+                None => {
+                    if rounds.len() >= limit {
+                        break;
+                    }
+                    rounds.push(RecallRound {
+                        recall_id,
+                        at,
+                        prompt_head,
+                        injected_bytes: injected as usize,
+                        hits: vec![hit],
+                    });
+                }
+            }
+        }
+        rounds
     }
 
     /// FTS 检索:bm25 取 topN 后按 log(1+hits) 与 active 加权在 Rust 侧重排。
@@ -483,6 +621,24 @@ impl MemoryStore {
         match self.add("preference", title, description, body, "user", true)? {
             AddOutcome::Added(entry) | AddOutcome::Duplicate(entry) => Ok(entry),
         }
+    }
+
+    /// 效果画像(R-125):id → (累计命中, 最近命中时间毫秒)。最近命中时间为 0 = 从未命中,
+    /// 前端据此标"长期零命中",这是判断某条记忆该不该留的直接依据。
+    pub fn hit_profile(&self) -> std::collections::BTreeMap<String, (u64, i64)> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(conn) = self.open_db() else { return out };
+        let Ok(mut statement) = conn.prepare("SELECT id, hits, last_hit_at FROM memory_hits") else {
+            return out;
+        };
+        if let Ok(rows) =
+            statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)))
+        {
+            for (id, hits, last) in rows.flatten() {
+                out.insert(id, (hits.max(0) as u64, last));
+            }
+        }
+        out
     }
 
     /// 命中统计(UI 展示):id → hits。库缺失返回空表(派生物语义)。
@@ -775,6 +931,42 @@ mod tests {
         store.refresh_derived().unwrap();
         let rebuilt = store.search("CRLF", None, None, 5).unwrap();
         assert_eq!(rebuilt[0].entry.id, "M-001");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn 召回明细可回看且采纳与否可机械判定() {
+        let (dir, store) = temp_store();
+        add(&store, "fact", "CRLF 是 edit 未命中主因", "处理 edit 替换失败必读", "自动容忍已落地");
+        add(&store, "sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish");
+        let hits = store.search("发版 更新", None, Some("active"), 5).unwrap();
+        assert!(!hits.is_empty());
+
+        let recall_id = store.record_recall("这轮要发版", &hits, 512);
+        let rounds = store.recalls(10);
+        assert_eq!(rounds.len(), 1, "召回明细未落库");
+        assert_eq!(rounds[0].recall_id, recall_id);
+        assert_eq!(rounds[0].injected_bytes, 512, "未记录注入字节数,上下文账单无从算起");
+        assert!(rounds[0].prompt_head.contains("发版"), "未记录触发本次召回的 prompt");
+        assert!(rounds[0].hits.iter().all(|h| h.score != 0.0), "未记录检索得分,看不出为什么召回这几条");
+        // 关键:召回但没拉正文 = 没起作用,不能默认算数。
+        assert!(
+            rounds[0].hits.iter().all(|h| !h.fetched),
+            "刚召回还没拉正文就被判为已采纳,评估口径失真",
+        );
+
+        // 拉了正文才算采纳,而且只回填最近一次召回。
+        let target = rounds[0].hits[0].id.clone();
+        store.mark_recall_fetched(&target);
+        let after = store.recalls(10);
+        assert!(
+            after[0].hits.iter().find(|h| h.id == target).unwrap().fetched,
+            "拉取正文后未标记为已采纳",
+        );
+        assert!(
+            after[0].hits.iter().filter(|h| h.fetched).count() == 1,
+            "采纳标记不应扩散到同轮未被拉取的条目",
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

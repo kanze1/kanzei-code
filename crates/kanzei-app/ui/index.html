@@ -294,6 +294,9 @@
             <div id="memory-list" class="memory-list" aria-label="记忆条目列表"></div>
             <div id="memory-side">
               <div id="memory-detail" class="memory-detail hidden"></div>
+              <h2>召回评估 <span id="memory-recall-rate" class="dim"></span></h2>
+              <p class="dim">每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。</p>
+              <div id="memory-recalls" class="memory-recalls"></div>
               <h2>上下文账单</h2>
               <p class="dim">最近一轮 system 注入的各来源字符数。</p>
               <div id="memory-bill" class="memory-bill"></div>

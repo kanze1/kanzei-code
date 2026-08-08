@@ -91,6 +91,11 @@ const I18N_EN = {
   "把这次调用的参数填回输入框,确认后再执行": "Put this call's arguments back in the input box for you to confirm",
   "已填入输入框,确认后发送": "Filled into the input box — review, then send", "复制完整输出": "Copy full output",
   "导出": "Export", "把完整输出存成文件": "Save the full output to a file", "已导出": "Exported",
+  "采纳": "adopted", "已采纳": "Adopted", "未拉取": "Not fetched", "条命中": "hits", "注入": "injected",
+  "还没有召回记录:开跑时若无记忆命中,这里就是空的": "No recall records yet — if nothing matches at run start, this stays empty",
+  "最近命中": "Last hit", "从未命中": "Never hit", "长期零命中": "Never recalled", "累计命中": "Total hits",
+  "从磁盘删除该记忆文件,不可撤销": "Delete this memory file from disk — cannot be undone",
+  "确认删除": "Delete", "此操作不可撤销": " — this cannot be undone.", "已删除": "Deleted", "删除失败": "Delete failed",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
   "inbox 已整理完毕": "Inbox consolidated", "整理失败": "Consolidation failed",
@@ -4185,15 +4190,66 @@ async function refreshMemory() {
     return;
   }
   try {
-    const [overview, billData] = await Promise.all([
+    const [overview, billData, recallData] = await Promise.all([
       invoke("memory_overview", { projectDir: currentProject }),
       invoke("memory_context_bill", { projectDir: currentProject }),
+      invoke("memory_recalls", { projectDir: currentProject, limit: 20 }),
     ]);
     renderMemoryArch(overview);
     renderMemoryBill(billData);
+    renderMemoryRecalls(recallData);
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+  }
+}
+
+// R-125:召回明细。没有这块界面就没有任何评估手段——记忆有没有用只能凭感觉。
+function renderMemoryRecalls(data) {
+  const box = $("memory-recalls");
+  const rate = $("memory-recall-rate");
+  if (!box) return;
+  box.innerHTML = "";
+  const rounds = data?.rounds ?? [];
+  const total = data?.rounds_total ?? rounds.length;
+  const used = data?.rounds_with_fetch ?? 0;
+  // 采纳率放在标题上:一眼就能看出"召回了但没人用"是不是常态。
+  rate.textContent = total ? `· ${t("采纳")} ${used}/${total}` : "";
+  if (!rounds.length) {
+    box.innerHTML = `<p class="dim">${t("还没有召回记录:开跑时若无记忆命中,这里就是空的")}</p>`;
+    return;
+  }
+  for (const round of rounds) {
+    const item = document.createElement("div");
+    item.className = "memory-recall";
+    const head = document.createElement("div");
+    head.className = "memory-recall-head";
+    const when = new Date(round.at).toLocaleString();
+    const adopted = round.hits.filter((h) => h.fetched).length;
+    head.innerHTML =
+      `<span class="memory-recall-when">${escapeHtml(when)}</span>` +
+      `<span class="dim">${round.hits.length} ${t("条命中")} · ${t("已采纳")} ${adopted} · ${t("注入")} ${round.injected_bytes}B</span>`;
+    const prompt = document.createElement("div");
+    prompt.className = "memory-recall-prompt dim";
+    prompt.textContent = round.prompt_head;
+    prompt.title = round.prompt_head;
+    item.append(head, prompt);
+    for (const hit of round.hits) {
+      const row = document.createElement("div");
+      row.className = `memory-recall-hit${hit.fetched ? " adopted" : ""}`;
+      // 得分与片段一起给:「为什么召回这一条」必须能看出来,否则调不了检索。
+      row.innerHTML =
+        `<span class="memory-recall-id">${escapeHtml(hit.id)}</span>` +
+        `<span class="memory-recall-title">${escapeHtml(hit.title)}</span>` +
+        `<span class="dim">${hit.score.toFixed(2)}</span>` +
+        `<span class="memory-recall-flag">${hit.fetched ? t("已采纳") : t("未拉取")}</span>`;
+      const snip = document.createElement("div");
+      snip.className = "memory-recall-snippet dim";
+      snip.textContent = hit.snippet.replace(/\n/g, " ");
+      row.appendChild(snip);
+      item.appendChild(row);
+    }
+    box.appendChild(item);
   }
 }
 
@@ -4249,8 +4305,21 @@ async function loadMemoryList(scope, category) {
     for (const entry of list) {
       const row = document.createElement("button");
       row.type = "button";
-      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}`;
-      row.innerHTML = `<span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(entry.title)}</span><span class="dim">${escapeHtml(entry.description)}</span><span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits} · ${escapeHtml(entry.updated)}</span>`;
+      // R-125:零命中要一眼看得出来——这是判断某条记忆该不该留的直接依据。
+      // 只在条目有一定年纪时才标,刚写下来还没被检索过不算"没用"。
+      const ageDays = memoryAgeDays(entry.updated);
+      const dormant = (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
+      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}`;
+      row.dataset.memoryId = entry.id;
+      const lastHit = entry.lastHitAt
+        ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}`
+        : t("从未命中");
+      row.innerHTML =
+        `<span class="memory-row-id">${escapeHtml(entry.id)}</span>` +
+        `<span class="memory-row-title">${escapeHtml(entry.title)}</span>` +
+        `<span class="dim">${escapeHtml(entry.description)}</span>` +
+        `<span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits} · ${lastHit} · ${escapeHtml(entry.updated)}` +
+        `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}</span>`;
       row.addEventListener("click", () => showMemoryDetail(scope, entry));
       container.appendChild(row);
     }
@@ -4318,10 +4387,39 @@ function showMemoryDetail(scope, entry) {
       toastError(`${t("记忆保存失败")}:${err}`);
     }
   });
+  // 零命中的条目要能直接删掉,不能只有"标记失效"——stale 仍占索引与列表。
+  const deleteBtn = document.createElement("button");
+  deleteBtn.type = "button";
+  deleteBtn.className = "ghost danger";
+  deleteBtn.textContent = t("删除");
+  deleteBtn.title = t("从磁盘删除该记忆文件,不可撤销");
+  deleteBtn.addEventListener("click", async () => {
+    if (!window.confirm(`${t("确认删除")} ${entry.id}?${t("此操作不可撤销")}`)) return;
+    try {
+      await invoke("memory_entry_delete", { projectDir: currentProject, scope, id: entry.id });
+      toast(t("已删除"));
+      box.classList.add("hidden");
+      refreshMemory();
+    } catch (err) {
+      toastError(`${t("删除失败")}:${err}`);
+    }
+  });
+  // 效果画像:这条到底被用过没有,直接摆在详情里,不用去列表里对。
+  const profile = document.createElement("p");
+  profile.className = "dim memory-profile";
+  const lastHit = entry.lastHitAt ? new Date(entry.lastHitAt).toLocaleString() : t("从未命中");
+  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0} · ${t("最近命中")} ${lastHit}`;
   const actions = document.createElement("div");
   actions.className = "memory-detail-actions";
-  actions.append(save, staleBtn);
-  box.append(meta, title, desc, body, actions);
+  actions.append(save, staleBtn, deleteBtn);
+  box.append(meta, profile, title, desc, body, actions);
+}
+
+// 条目"年纪":用于零命中判定——刚写下来还没被检索过不算没用。
+function memoryAgeDays(updated) {
+  const stamp = Date.parse(`${updated}T00:00:00Z`);
+  if (Number.isNaN(stamp)) return 0;
+  return Math.max(0, Math.floor((Date.now() - stamp) / 86_400_000));
 }
 
 function renderMemoryBill(data) {
