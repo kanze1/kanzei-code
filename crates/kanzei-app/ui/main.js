@@ -1859,24 +1859,46 @@ function bgEnd(id, ok, preview, display) {
   bgRenderActions(id, entry);
   bgSync();
 }
+// 历史轨迹回放(D-208)。run.trace 事件本来就带 name/summary/ok/durationMs,
+// 旧实现读的却是不存在的 event.text/event.trace,name 硬编码 "task"、标题硬编码
+// "历史子代理轨迹"——上百条同名条目,类型筛选也跟着失真;而且标终态后没重渲染
+// 动作区,停止按钮残留在早已结束的历史轨迹上。回放条目一律终态、无停止按钮。
 function renderRecoveredTraces(payloads) {
-  const ids = new Set();
   for (const payload of payloads || []) {
     for (const event of payload.events || []) {
-      ids.add(event.id);
-      if (!bgEntries.has(event.id)) bgAdd(event.id, "task", t("历史子代理轨迹"));
-      bgProgress(event.id, event.text, event.trace);
+      if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
+      if (event.kind === "tool.started") {
+        if (!bgEntries.has(event.id)) {
+          bgAdd(event.id, event.name || "task", event.summary || t("历史子代理轨迹"));
+        }
+      } else if (event.kind === "tool.completed") {
+        const entry = bgEntries.get(event.id);
+        if (!entry) continue;
+        entry.done = true;
+        entry.el.classList.remove("running");
+        const failed = event.ok === false;
+        entry.el.classList.add(failed ? "err" : "ok");
+        entry.prog.textContent = failed && event.error ? String(event.error) : t("历史轨迹");
+        const seconds = Number(event.durationMs);
+        entry.meta.textContent =
+          Number.isFinite(seconds) && seconds >= 1000
+            ? `${t("回放")} · ${Math.round(seconds / 1000)}s`
+            : t("回放");
+        bgRenderActions(event.id, entry);
+      }
     }
   }
-  for (const id of ids) {
-    const entry = bgEntries.get(id);
-    if (!entry) continue;
+  // 只 started 没 completed 的(轮次中断):同样收敛终态,不留假 running 与停止按钮。
+  for (const [id, entry] of bgEntries) {
+    if (entry.done) continue;
     entry.done = true;
     entry.el.classList.remove("running");
-    entry.el.classList.add("ok");
+    entry.el.classList.add("err");
     entry.prog.textContent = t("历史轨迹");
-    entry.meta.textContent = t("回放");
+    entry.meta.textContent = `${t("回放")} · ${t("无结果(轮次中断)")}`;
+    bgRenderActions(id, entry);
   }
+  bgSync();
 }
 
 function bgClear() {

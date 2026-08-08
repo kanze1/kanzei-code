@@ -1,5 +1,25 @@
 # Defects
 
+## D-208 历史轨迹回放字段断链:百条同名条目带无效停止按钮,git 工具缺 log [fixed] (medium)
+- refs: R-095 D-182
+- 复现: 2026-08-09 用户截图。①打开历史对话后活动栏出现 120 条完全相同的条目("task 历史子代理轨迹/历史轨迹/回放"),每条还带「停止」按钮——历史轨迹的子代理早已结束,按钮不可能有效;②模型调 `git {"action":"log"}` 被拒 "unknown action"。
+- 根因: ①`renderRecoveredTraces`(ui/main.js)读的是不存在的 `event.text/event.trace` 字段,name 硬编码 "task"、标题硬编码"历史子代理轨迹"——而 run.trace 事件本来就带 name/summary/ok/durationMs(后端 tool.started/tool.completed),数据在库里,前端没接;类型筛选(R-095)也因 name 失真全归 task 类。②标终态后没重新 `bgRenderActions`,停止按钮残留(该函数对 done 条目本就不渲染停止)。③git 工具只有 status/diff/stage/commit 四个 action,"最近改了什么"这一高频只读查询没有合法通道,模型只能转投 bash(每次 ask)或瞎猜。
+- 修复: ①回放按 kind 分发:tool.started 用真实 name+summary 建条目,tool.completed 收敛终态(ok/err、失败原因、耗时进 meta)并重渲染动作区;只 started 没 completed 的(轮次中断)同样收敛,不留假 running;②git 新增只读 log action(--format 单行、count 默认 20 封顶 200、files 路径过滤复用 normalize_files),并发按只读共享,base 权限 Allow(与 status/diff 同级)。
+- 验收: 单测 `log_returns_recent_commits_and_honors_path_filter`(全量/count=1/路径过滤三断言);前端 node --check + 运行时冒烟 0 错误;workspace 305 项全绿。回放条目显示真实工具名与目标、无停止按钮,待用户复查。
+- 证据等级: E1(用户截图 + 后端字段与前端读取逐一比对)
+- 优先级: P1
+- 标签: 前端
+
+## D-209 对话落库粒度太粗(用户反馈,具体维度待澄清) [open] (medium)
+- refs: D-208 D-185
+- 原始描述: 用户 2026-08-09 原话"落库对话粒度太粗"(与活动栏回放问题同时反馈)。
+- 机制现状(供收敛方向): ①对话持久化是 `conversation.updated` 事件整份 messages 快照替换,轮内不落盘,恢复只能回到轮边界;②工具轨迹 run.trace 只在收尾 flush 一次(D-179 补了停止路径,但仍是整轮一包);③episodes 是轮级摘要。三层都是"轮"粒度,轮内的中间态(改到一半、流式输出中断点)不可恢复、不可检索。
+- 待澄清: 用户所指的具体痛点——候选:a) 历史恢复丢轮内进度;b) 回放时一整轮的工具轨迹糊成一批看不出先后;c) 检索/引用历史时只能按整轮拿、拿不到单条消息;d) 其他。按 D-205 教训不代用户猜死,取活前先确认。
+- 验收: 待澄清后按维度改写;暂置:对话落库粒度支持轮内增量(或用户确认的等价目标),恢复/回放/检索三条消费路径至少一条受益并有实测。
+- 证据等级: E2(用户反馈,机制已核实)
+- 优先级: P2
+- 标签: 后端
+
 ## D-207 取活顺序所见非所得:视图排序与优先级徽章都不参与取活,界面零提示 [open] (medium)
 - refs: R-054 R-111
 - 复现: 2026-08-09 用户反馈"取需求和缺陷的顺序看不懂了,因为侧边栏可以调整顺序"。机制现状:①取活真序 = md 文件物理顺序从上到下(dev prompt "Scan from top to bottom",schedule_entries 只后置阻塞项、不改文件);②侧栏拖拽(manual 排序+无筛选时)经 docs_update reorder **写回文件**,真的改变取活顺序;③侧栏另有 id/状态/复杂度/优先级四种视图排序(main.js filterRequirements),**只改显示**;④优先级徽章 P0~P3 完全不参与取活(prompt 明言 "Priority labels are background info, not the ordering")。
@@ -48,28 +68,6 @@
 - 证据等级: E2
 - 优先级: P2
 - 标签: 核心
-
-## D-187 KANZEI_HOME 只有 memory 认,配置与 markdown 组件仍走真实 HOME [fixed] (medium)
-- 复现: `crates/kanzei-tools/src/memory/mod.rs` 读 `KANZEI_HOME` 决定记忆根;而 `crates/kanzei-harness/src/config.rs`(全局 kanzei.toml)与 `crates/kanzei-harness/src/markdown.rs`(agents/commands/skills)直接用 `dirs::home_dir()`。设了这个变量之后,记忆搬走了、配置与组件还在真 HOME。
-- 影响: 半个覆盖比不覆盖更容易骗人——用它做隔离测试或多实例并存时,会以为整个 kanzei 目录都换了位置,实际只换了记忆;两处根不一致导致的现象很难归因。
-- 根因: KANZEI_HOME 是记忆模块单独引入的,没有提升为全局 home 解析入口。
-- 验收: 要么全局统一(所有 `~/.kanzei` 消费点走同一个 `kanzei_home()` 函数,含 config/markdown/app.json/agent-containers),要么去掉 KANZEI_HOME 只保留 memory 内部用途并改名;不留"只覆盖一半"的状态。有测试覆盖。
-- 证据等级: E2
-- 优先级: P3
-- 标签: 核心
-
-- 进展: 修复(2026-08-09):新增 kanzei_harness::home::kanzei_home()(crates/kanzei-harness/src/home.rs)——KANZEI_HOME 优先、dirs::home_dir()/.kanzei 兜底,并 re-export 为 kanzei_harness::kanzei_home。全部 ~/.kanzei 消费点统一改走它:config.rs:159(全局 kanzei.toml)、markdown.rs:15(agents/commands/skills)、memory/mod.rs global_memory_root、app main.rs prefs_path/global_config_path/agent_container_path。语义不同的 home 消费点(dirs::home_dir 的 is_home_root/discover_project_root 用户边界、~/.cargo/bin、llm 凭证)保持 dirs 不变。新增单测两条(env 优先/默认回落)。workspace 304 项全绿。注:cargo test 期间发现某集成测试会把项目根 tracker 文件(D-207 进展字段)写脏,已按 git diff 恢复;污染源排查留 D-159/后续。
-
-## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [fixed] (low)
-- 复现: `%TEMP%\kanzei-update.log` 当前全部内容是 5 条"单测探针",时间 2026-08-08 23:08 与 2026-08-09 00:28——测试与生产用同一个绝对路径(crates/kanzei-app/src/main.rs:1367 附近的 update_log 测试)。
-- 影响: `update_log` 超 256 KiB 是整文件删,测试写入会稀释乃至挤掉真实的更新交接记录;而这个日志正是 D-182 为"更新过程无从复盘"专门建的入口,现在打开看到的全是测试噪声。
-- 根因: 日志路径写死为 `%TEMP%\kanzei-update.log`,测试没有走可注入的路径参数。
-- 验收: 测试写到独立临时文件(路径可注入或按 pid 隔离),生产日志里不再出现"单测探针";补一条断言防回归。
-- 证据等级: E1(本机日志内容实证)
-- 优先级: P3
-- 标签: 后端
-
-- 进展: 修复(2026-08-09):update_log 抽出显式路径版本 update_log_at(path,line)(crates/kanzei-app/src/main.rs:583 附近),生产 update_log 委托 update_log_path() 不变;测试改走 pid+nanos 隔离的独立临时文件,并新增反向断言——本次探针标记若出现在生产日志即失败(防回归)。旧探针日志已手动清理。kanzei-app 39 项测试全绿。
 
 ## D-159 memory-manager 忽略前置 pathspec fatal 并把 commit 症状误记为根因 [open] (medium)
 - refs: R-105

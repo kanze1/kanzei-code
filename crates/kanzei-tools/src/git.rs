@@ -17,14 +17,17 @@ const MAX_OUTPUT: usize = 1024 * 1024;
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
-    /// status | diff | stage | commit
+    /// status | diff | log | stage | commit
     action: String,
-    /// diff/stage 用的逐文件相对路径；stage 禁止目录和通配符。
+    /// diff/log 按路径过滤;stage 的逐文件相对路径(禁止目录和通配符)。
     #[serde(default)]
     files: Vec<String>,
     /// diff=true 查看暂存区，否则查看工作树。
     #[serde(default)]
     staged: bool,
+    /// log 返回的条数(默认 20,封顶 200)。
+    #[serde(default)]
+    count: Option<u32>,
     /// commit 必填。
     #[serde(default)]
     message: Option<String>,
@@ -42,7 +45,7 @@ impl Tool for GitTool {
     }
 
     fn description(&self) -> String {
-        "Safe Git status/diff/stage/commit. stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. Do not use bash for git add/commit.".into()
+        "Safe Git status/diff/log/stage/commit. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. Do not use bash for git add/commit.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -53,7 +56,7 @@ impl Tool for GitTool {
         {
             action.insert(
                 "enum".into(),
-                serde_json::json!(["status", "diff", "stage", "commit"]),
+                serde_json::json!(["status", "diff", "log", "stage", "commit"]),
             );
         }
         schema
@@ -65,7 +68,7 @@ impl Tool for GitTool {
 
     fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         match input["action"].as_str() {
-            Some("status" | "diff") => ToolConcurrency::shared_worktree(ctx),
+            Some("status" | "diff" | "log") => ToolConcurrency::shared_worktree(ctx),
             _ => ToolConcurrency::write_worktree(ctx),
         }
     }
@@ -113,10 +116,37 @@ impl Tool for GitTool {
                     Err(error) => ToolOutput::error(error),
                 }
             }
+            // 只读查询,模型排查"最近改了什么/某文件何时动过"的高频入口——
+            // 没有它模型只能转投 bash(每次 ask)或干脆瞎猜(D-208 实测被拒)。
+            "log" => {
+                let files = match normalize_files(&ctx.cwd, &input.files, false) {
+                    Ok(files) => files,
+                    Err(error) => return ToolOutput::error(error),
+                };
+                let count = input.count.unwrap_or(20).clamp(1, 200);
+                let mut args = vec![
+                    "log".to_string(),
+                    format!("--format=%h %ad %an | %s"),
+                    "--date=format:%m-%d %H:%M".into(),
+                    format!("-{count}"),
+                ];
+                if !files.is_empty() {
+                    args.push("--".into());
+                    args.extend(files);
+                }
+                match run_git_owned(&ctx.cwd, &args).await {
+                    Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
+                        "(no commits)".into()
+                    } else {
+                        text
+                    }),
+                    Err(error) => ToolOutput::error(error),
+                }
+            }
             "stage" => stage(&ctx.cwd, &input.files).await,
             "commit" => commit(&ctx.cwd, input.message, input.expected_hash).await,
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: status | diff | stage | commit"
+                "unknown action `{other}`; valid: status | diff | log | stage | commit"
             )),
         }
     }
@@ -460,6 +490,55 @@ mod tests {
         assert!(index.contains(&"INDEX.md".to_string()), "{index:?}");
         assert!(index.contains(&"Cargo.lock".to_string()), "{index:?}");
         assert!(!index.contains(&"index.md".to_string()), "{index:?}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-208:log 是只读查询,模型排查"最近改了什么"的高频入口——此前没有这个
+    /// action,实测模型直接调 `{"action":"log"}` 被拒,只能转投 bash(每次 ask)。
+    #[tokio::test]
+    async fn log_returns_recent_commits_and_honors_path_filter() {
+        let root = temp_repo("log");
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "a.txt"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-q", "-m", "第一条:加入 a.txt"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "b.txt"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-q", "-m", "第二条:加入 b.txt"])
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let all = GitTool
+            .execute(serde_json::json!({"action": "log"}), &ctx)
+            .await;
+        assert!(!all.is_error, "{}", all.content);
+        assert!(all.content.contains("第一条") && all.content.contains("第二条"), "{}", all.content);
+        // count 生效:只要最近 1 条。
+        let one = GitTool
+            .execute(serde_json::json!({"action": "log", "count": 1}), &ctx)
+            .await;
+        assert!(one.content.contains("第二条") && !one.content.contains("第一条"), "{}", one.content);
+        // 路径过滤:只看 a.txt 的历史。
+        let filtered = GitTool
+            .execute(serde_json::json!({"action": "log", "files": ["a.txt"]}), &ctx)
+            .await;
+        assert!(filtered.content.contains("第一条") && !filtered.content.contains("第二条"), "{}", filtered.content);
         std::fs::remove_dir_all(root).ok();
     }
 

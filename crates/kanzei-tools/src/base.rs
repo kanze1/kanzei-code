@@ -41,6 +41,7 @@ impl Component for BaseComponent {
             rule("grep", "*", Effect::Allow),
             rule("git", "status", Effect::Allow),
             rule("git", "diff", Effect::Allow),
+            rule("git", "log", Effect::Allow),
             rule("question", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
