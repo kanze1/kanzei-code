@@ -44,13 +44,9 @@ impl MemoryScope {
 pub const CATEGORIES: &[&str] = &["preference", "habit", "fact", "sop"];
 pub const STATUSES: &[&str] = &["active", "stale"];
 
-/// global scope 根目录;KANZEI_HOME 供测试与多环境覆盖。
+/// global scope 根目录;KANZEI_HOME 供测试与多环境覆盖(D-187 提升为全局统一入口)。
 pub fn global_memory_root() -> Option<PathBuf> {
-    let home = std::env::var("KANZEI_HOME")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|h| h.join(".kanzei")))?;
-    Some(home.join("memory"))
+    Some(kanzei_harness::kanzei_home()?.join("memory"))
 }
 
 pub fn project_memory_root(project_root: &std::path::Path) -> PathBuf {

@@ -156,8 +156,8 @@ impl KanzeiConfig {
     pub fn load_with_warnings(cwd: &Path) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
         let mut config = KanzeiConfig::default();
         let mut warnings = Vec::new();
-        if let Some(home) = dirs::home_dir() {
-            merge_file(&mut config, &home.join(".kanzei").join("kanzei.toml"), &mut warnings)?;
+        if let Some(home) = crate::home::kanzei_home() {
+            merge_file(&mut config, &home.join("kanzei.toml"), &mut warnings)?;
         }
         if let Some(project) = discover_project_config(cwd) {
             merge_file(&mut config, &project, &mut warnings)?;

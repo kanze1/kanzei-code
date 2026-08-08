@@ -1761,9 +1761,8 @@ struct AppPrefs {
 }
 
 fn prefs_path() -> PathBuf {
-    dirs::home_dir()
+    kanzei_harness::kanzei_home()
         .unwrap_or_default()
-        .join(".kanzei")
         .join("app.json")
 }
 
@@ -2708,9 +2707,8 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
 // ---------- 设置(全局 kanzei.toml 表单) ----------
 
 fn global_config_path() -> PathBuf {
-    dirs::home_dir()
+    kanzei_harness::kanzei_home()
         .unwrap_or_default()
-        .join(".kanzei")
         .join("kanzei.toml")
 }
 
@@ -4548,9 +4546,8 @@ fn agent_container_path(agent_id: &str) -> Result<PathBuf, String> {
     if safe.is_empty() {
         return Err("agent_id 不能为空".into());
     }
-    Ok(dirs::home_dir()
+    Ok(kanzei_harness::kanzei_home()
         .unwrap_or_default()
-        .join(".kanzei")
         .join("agent-containers")
         .join(safe)
         .join("manifest.json"))

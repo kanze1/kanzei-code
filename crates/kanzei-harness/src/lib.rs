@@ -6,6 +6,7 @@ pub mod config;
 pub mod context;
 pub mod defs;
 pub mod harness;
+pub mod home;
 pub mod markdown;
 pub mod permission;
 pub mod registry;
@@ -15,6 +16,7 @@ pub mod tool;
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{source, ContextSource};
 pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
+pub use home::kanzei_home;
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };

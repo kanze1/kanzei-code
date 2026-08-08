@@ -7,9 +7,10 @@
 - 根因: R-054 定了"文件顺序即开发顺序"的单一真源,后续视图排序与优先级徽章叠上去时,没有同步交代它们与真源的关系;取活规则只写在 prompt 里,UI 侧无任何投影。
 - 验收: ①非 manual 排序视图下,侧栏显式提示"当前显示顺序≠取活顺序"(或等价视觉语言);②有一处能看到真序:取活预览(下一条会被拿的条目有标记,阻塞项显示跳过原因)或一键切回文件序;③优先级二选一——要么参与取活(prompt 与 schedule 同步改,并写清与文件序的优先关系),要么在 UI 上明示"仅参考,不影响取活";④用户复查确认能看懂"agent 下一个会拿哪条、为什么"。
 - 证据等级: E1(代码四处机制实证 + 用户反馈)
-- 进展(2026-08-09 部分交付,用户点名两项): ①取活焦点可视化——computeAgentFocus 按 scheduler 序 snapshot 与当前 work-priority 计算「在做」(doing/fixing,绿色呼吸高亮)与「下一个」(取活序首个可开工,蓝色次亮),渲染于 doc-item,基于数据计算故任何排序/分组/筛选下标同一批条目,tooltip 说明语义;②拖拽禁用不再静默——分组/排序视图/有筛选三种原因分别给出提示行与解法。冒烟新增 4 断言(doing 标 active、defect-first 下首个 open 缺陷标 next、open 不误标、次队列不抢标)。验收①②已落,③(优先级语义二选一)与④(用户复查)未做。
 - 优先级: P1
 - 标签: 前端
+
+- 进展: 2026-08-09 部分交付,用户点名两项): ①取活焦点可视化——computeAgentFocus 按 scheduler 序 snapshot 与当前 work-priority 计算「在做」(doing/fixing,绿色呼吸高亮)与「下一个」(取活序首个可开工,蓝色次亮),渲染于 doc-item,基于数据计算故任何排序/分组/筛选下标同一批条目,tooltip 说明语义;②拖拽禁用不再静默——分组/排序视图/有筛选三种原因分别给出提示行与解法。冒烟新增 4 断言(doing 标 active、defect-first 下首个 open 缺陷标 next、open 不误标、次队列不抢标)。验收①②已落,③(优先级语义二选一)与④(用户复查)未做。(注:2026-08-09 cargo test 期间本进展字段被测试污染删除,已按 git diff 原样恢复)
 
 ## D-205 快记通道无信息保真门槛:模糊输入被编造复现后落库,关键限定词丢失 [open] (medium)
 - refs: D-204
@@ -48,7 +49,7 @@
 - 优先级: P2
 - 标签: 核心
 
-## D-187 KANZEI_HOME 只有 memory 认,配置与 markdown 组件仍走真实 HOME [open] (medium)
+## D-187 KANZEI_HOME 只有 memory 认,配置与 markdown 组件仍走真实 HOME [fixed] (medium)
 - 复现: `crates/kanzei-tools/src/memory/mod.rs` 读 `KANZEI_HOME` 决定记忆根;而 `crates/kanzei-harness/src/config.rs`(全局 kanzei.toml)与 `crates/kanzei-harness/src/markdown.rs`(agents/commands/skills)直接用 `dirs::home_dir()`。设了这个变量之后,记忆搬走了、配置与组件还在真 HOME。
 - 影响: 半个覆盖比不覆盖更容易骗人——用它做隔离测试或多实例并存时,会以为整个 kanzei 目录都换了位置,实际只换了记忆;两处根不一致导致的现象很难归因。
 - 根因: KANZEI_HOME 是记忆模块单独引入的,没有提升为全局 home 解析入口。
@@ -56,6 +57,8 @@
 - 证据等级: E2
 - 优先级: P3
 - 标签: 核心
+
+- 进展: 修复(2026-08-09):新增 kanzei_harness::home::kanzei_home()(crates/kanzei-harness/src/home.rs)——KANZEI_HOME 优先、dirs::home_dir()/.kanzei 兜底,并 re-export 为 kanzei_harness::kanzei_home。全部 ~/.kanzei 消费点统一改走它:config.rs:159(全局 kanzei.toml)、markdown.rs:15(agents/commands/skills)、memory/mod.rs global_memory_root、app main.rs prefs_path/global_config_path/agent_container_path。语义不同的 home 消费点(dirs::home_dir 的 is_home_root/discover_project_root 用户边界、~/.cargo/bin、llm 凭证)保持 dirs 不变。新增单测两条(env 优先/默认回落)。workspace 304 项全绿。注:cargo test 期间发现某集成测试会把项目根 tracker 文件(D-207 进展字段)写脏,已按 git diff 恢复;污染源排查留 D-159/后续。
 
 ## D-188 单元测试探针写进生产更新日志,稀释 D-182 的诊断入口 [fixed] (low)
 - 复现: `%TEMP%\kanzei-update.log` 当前全部内容是 5 条"单测探针",时间 2026-08-08 23:08 与 2026-08-09 00:28——测试与生产用同一个绝对路径(crates/kanzei-app/src/main.rs:1367 附近的 update_log 测试)。

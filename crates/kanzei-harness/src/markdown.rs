@@ -12,8 +12,8 @@ pub struct MarkdownComponent;
 impl Component for MarkdownComponent {
     fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
         let mut bases = Vec::new();
-        if let Some(home) = dirs::home_dir() {
-            bases.push(home.join(".kanzei"));
+        if let Some(home) = crate::home::kanzei_home() {
+            bases.push(home);
         }
         bases.push(ctx.project_root.join(".kanzei"));
 
