@@ -2,6 +2,32 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
+// R-126:自加载起累积 console 错误与未捕获异常,供 ui_console 工具取样。
+// 必须在最前面装:晚一步就漏掉初始化阶段的错误,而那正是最要命的一段。
+const uiConsoleLog = [];
+const UI_CONSOLE_MAX = 200;
+function recordConsole(level, args) {
+  if (uiConsoleLog.length >= UI_CONSOLE_MAX) uiConsoleLog.shift();
+  uiConsoleLog.push({
+    level,
+    at: Date.now(),
+    text: args.map((a) => (a instanceof Error ? `${a.message}\n${a.stack ?? ""}` : String(a))).join(" "),
+  });
+}
+for (const level of ["error", "warn"]) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    recordConsole(level, args);
+    original(...args);
+  };
+}
+window.addEventListener("error", (event) => {
+  recordConsole("uncaught", [event.message, event.filename ? `${event.filename}:${event.lineno}` : ""]);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  recordConsole("unhandled-rejection", [event.reason]);
+});
+
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
 function on(event, handler) {
   listen(event, (eventPayload) => {
@@ -4210,6 +4236,87 @@ async function refreshMemory() {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
   }
 }
+
+// ---------- R-126 UI 自查探针:在真实运行中的窗口里取样 ----------
+// 后端工具发 kz:ui-probe,这里取样后用 ui_probe_result 回传。取的是用户眼前这个
+// 窗口的实际渲染结果——不是重新起一个空白页,那样查不出任何真实的渲染问题。
+const UI_PROBE_NODE_LIMIT = 60;
+
+function describeNode(el, depth) {
+  const indent = "  ".repeat(depth);
+  const cls = el.className && typeof el.className === "string" ? `.${el.className.trim().split(/\s+/).join(".")}` : "";
+  const id = el.id ? `#${el.id}` : "";
+  // 只取本节点的直接文本,不含子节点——否则每层都把整棵子树的文字重复一遍。
+  const own = [...el.childNodes]
+    .filter((n) => n.nodeType === 3)
+    .map((n) => n.nodeValue.trim())
+    .filter(Boolean)
+    .join(" ")
+    .slice(0, 80);
+  const box = el.getBoundingClientRect?.();
+  const hidden = box && box.width === 0 && box.height === 0 ? " [不可见]" : "";
+  return `${indent}<${el.tagName.toLowerCase()}${id}${cls}>${hidden}${own ? ` "${own}"` : ""}`;
+}
+
+function probeDom(selector) {
+  const roots = [...document.querySelectorAll(selector)];
+  if (!roots.length) return `没有匹配 \`${selector}\` 的元素(选择器写错,或该区域此刻未渲染)。`;
+  const lines = [];
+  let truncated = false;
+  const walk = (el, depth) => {
+    if (lines.length >= UI_PROBE_NODE_LIMIT) {
+      truncated = true;
+      return;
+    }
+    lines.push(describeNode(el, depth));
+    for (const child of el.children) walk(child, depth + 1);
+  };
+  for (const root of roots.slice(0, 5)) walk(root, 0);
+  const head = `匹配 ${roots.length} 个${roots.length > 5 ? "(只展开前 5 个)" : ""}:`;
+  // 截断必须可见:静默截断会让 agent 以为看到了全部(既有 conventions 的教训)。
+  return `${head}\n${lines.join("\n")}${truncated ? `\n… 已截断(上限 ${UI_PROBE_NODE_LIMIT} 个节点)` : ""}`;
+}
+
+function probeConsole() {
+  if (!uiConsoleLog.length) return "自加载以来没有 console 错误或警告。";
+  return uiConsoleLog
+    .map((e) => `[${e.level}] ${new Date(e.at).toLocaleTimeString()} ${e.text}`)
+    .join("\n");
+}
+
+function probeStyle(selector) {
+  const els = [...document.querySelectorAll(selector)].slice(0, 5);
+  if (!els.length) return `没有匹配 \`${selector}\` 的元素。`;
+  // 只给与"为什么没显示/为什么挤成一团"相关的属性,不倾倒整个 computed style。
+  const keys = [
+    "display", "position", "visibility", "opacity", "overflow",
+    "flexDirection", "gridTemplateColumns", "width", "height", "maxHeight",
+    "margin", "padding", "whiteSpace", "textOverflow", "zIndex",
+  ];
+  return els
+    .map((el, index) => {
+      const style = window.getComputedStyle(el);
+      const box = el.getBoundingClientRect();
+      const props = keys.map((k) => `${k}=${style[k]}`).join(" ");
+      return `#${index + 1} ${describeNode(el, 0).trim()}\n  盒模型: ${Math.round(box.width)}×${Math.round(box.height)} @ (${Math.round(box.left)},${Math.round(box.top)})\n  ${props}`;
+    })
+    .join("\n");
+}
+
+on("kz:ui-probe", (event) => {
+  const { id, kind, arg } = event.payload ?? {};
+  let result;
+  try {
+    if (kind === "dom") result = probeDom(arg);
+    else if (kind === "console") result = probeConsole();
+    else if (kind === "style") result = probeStyle(arg);
+    else result = `未知探针类型: ${kind}`;
+  } catch (err) {
+    // 探针自身出错也要如实回传,不能让后端悬到超时。
+    result = `探针执行失败: ${err}`;
+  }
+  invoke("ui_probe_result", { id, result }).catch(() => {});
+});
 
 // R-124:待确认候选。SOP 是用户的常用模板,不能由 agent 自己决定入库——
 // 所以候选只停在这里,采纳/丢弃都是用户一键的事。

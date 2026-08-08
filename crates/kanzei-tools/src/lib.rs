@@ -6,6 +6,7 @@ mod bash;
 pub mod docstore;
 pub mod memory;
 mod edit;
+pub mod frontend;
 mod glob;
 mod grep;
 mod todowrite;

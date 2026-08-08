@@ -377,8 +377,11 @@ const payloads = {
   workspace_snapshot: {},
 };
 const invokeLog = [];
+// 探针回传要看具体参数(id 配对、取样内容),所以单独留一份带参日志。
+const probeResults = [];
 async function invoke(cmd, args) {
   invokeLog.push(cmd);
+  if (cmd === "ui_probe_result") probeResults.push(args);
   if (cmd in payloads) return structuredClone(payloads[cmd]);
   return null;
 }
@@ -715,6 +718,33 @@ assert(
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+
+// ---------- R-126 UI 自查探针：在真实窗口里取样并回传 ----------
+const probe = handlers.get("kz:ui-probe");
+assert(probe, "未订阅 UI 探针事件(agent 无法自查界面)");
+probe({ payload: { id: 1, kind: "dom", arg: "#req-list" } });
+await flush();
+assert(probeResults.length === 1, "DOM 探针未回传结果");
+assert(probeResults[0].id === 1, "探针回传未带上请求 id(后端无法配对)");
+assert(probeResults[0].result.includes("doc-item"), `DOM 探针未给出真实渲染结构: ${probeResults[0].result.slice(0, 80)}`);
+probe({ payload: { id: 2, kind: "dom", arg: "#nonexistent-xyz" } });
+await flush();
+assert(
+  probeResults[1].result.includes("没有匹配"),
+  "选择器无匹配时应明确说明,而不是回空串让人以为渲染了空内容",
+);
+// 用 warn 验证捕获链路:sandbox 的 console.error 本身就是冒烟的失败护栏,
+// 拿它当样本会把这条测试变成自失败。捕获逻辑对 error/warn 是同一条。
+sandbox.console.warn("smoke probe marker");
+probe({ payload: { id: 3, kind: "console", arg: "" } });
+await flush();
+assert(
+  probeResults[2].result.includes("smoke probe marker"),
+  `console 探针未捕获(ReferenceError 一类问题就是这样漏过去的),实得: ${probeResults[2]?.result?.slice(0, 60)}`,
+);
+probe({ payload: { id: 4, kind: "unknown-kind", arg: "" } });
+await flush();
+assert(probeResults[3].result.includes("未知探针类型"), "未知探针类型应回传说明而不是静默");
 
 // ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
 const languageControl = byId.get("language-select");

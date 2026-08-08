@@ -2181,6 +2181,7 @@ name = "kanzei-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "dirs 5.0.1",
  "futures",
  "kanzei-core",
@@ -2189,6 +2190,7 @@ dependencies = [
  "kanzei-tools",
  "reqwest 0.12.28",
  "rfd",
+ "schemars 0.8.22",
  "serde",
  "serde_json",
  "tauri",

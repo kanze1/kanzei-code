@@ -71,6 +71,46 @@ struct PendingAsk {
     session_id: String,
 }
 
+/// R-126:UI 自查桥。工具在后端发起请求 → 前端在**真实运行中的窗口**里取样 →
+/// 结果经 oneshot 回到工具。不另起无头浏览器:那样看到的是空白页,和用户眼前的
+/// 界面没有关系,查不出 D-148/D-149 那类"语法全对但渲染成一团"的问题。
+static UI_PROBES: std::sync::LazyLock<Mutex<HashMap<u64, oneshot::Sender<serde_json::Value>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static UI_PROBE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+/// 发起 UI 探针的通道:由 setup 时装入,工具侧只认这个函数。
+static UI_PROBE_EMIT: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value, String> {
+    let Some(emit) = UI_PROBE_EMIT.get() else {
+        return Err("UI 探针不可用:桌面窗口未就绪(CLI 环境下没有可自查的界面)".into());
+    };
+    let id = UI_PROBE_SEQ.fetch_add(1, Ordering::SeqCst);
+    let (tx, rx) = oneshot::channel();
+    UI_PROBES.lock().unwrap().insert(id, tx);
+    emit(json!({ "id": id, "kind": kind, "arg": arg }));
+    // 前端可能正忙或没挂监听;超时要明确报出来,不能让工具悬着。
+    match tokio::time::timeout(std::time::Duration::from_secs(8), rx).await {
+        Ok(Ok(value)) => Ok(value),
+        Ok(Err(_)) => {
+            UI_PROBES.lock().unwrap().remove(&id);
+            Err("UI 探针通道已关闭".into())
+        }
+        Err(_) => {
+            UI_PROBES.lock().unwrap().remove(&id);
+            Err("UI 探针超时(8s):窗口可能正忙或未加载完成".into())
+        }
+    }
+}
+
+/// 前端把取样结果送回来。
+#[tauri::command]
+fn ui_probe_result(id: u64, result: serde_json::Value) {
+    if let Some(sender) = UI_PROBES.lock().unwrap().remove(&id) {
+        let _ = sender.send(result);
+    }
+}
+
 fn with_session_id(mut payload: serde_json::Value, session_id: &str) -> serde_json::Value {
     if let Some(object) = payload.as_object_mut() {
         object.insert("sessionId".into(), serde_json::Value::String(session_id.into()));
@@ -873,7 +913,16 @@ fn main() {
         .init();
     tauri::Builder::default()
         .manage(AppState::default())
+        // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
+                let _ = handle.emit("kz:ui-probe", payload);
+            }));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            ui_probe_result,
             projects_get,
             projects_add,
             projects_init,
@@ -2095,6 +2144,129 @@ fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, Stri
     }
     files.sort();
     Ok(json!({ "path": destination.display().to_string(), "files": files }))
+}
+
+/// R-126:让 agent 能自查真实运行中的界面。改完前端只跑 node --check 检不出
+/// 渲染问题——D-148(编辑表单渲染成一片无标题输入框)、D-149(同一字段渲染两遍)
+/// 都是语法完全正确却明显不对的例子,只有看真实渲染结果才发现得了。
+#[derive(serde::Deserialize, schemars::JsonSchema)]
+struct UiProbeInput {
+    /// CSS 选择器,如 `#req-list .doc-item`。dom / style 需要,console 忽略。
+    #[serde(default)]
+    selector: Option<String>,
+}
+
+struct UiDomTool;
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for UiDomTool {
+    fn name(&self) -> &'static str {
+        "ui_dom"
+    }
+    fn description(&self) -> String {
+        "读取当前运行中窗口里匹配选择器的 DOM 子树(标签、class、可见文本、层级)。\
+         改完前端用它确认渲染结果——node --check 只查语法,查不出渲染成什么样。只读。"
+            .into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(UiProbeInput)).unwrap()
+    }
+    async fn execute(&self, input: serde_json::Value, _ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        let input: UiProbeInput = match serde_json::from_value(input) {
+            Ok(value) => value,
+            Err(e) => return kanzei_harness::ToolOutput::error(format!("invalid input: {e}")),
+        };
+        let Some(selector) = input.selector.as_deref().filter(|s| !s.trim().is_empty()) else {
+            return kanzei_harness::ToolOutput::error("需要 selector");
+        };
+        match ui_probe("dom", selector).await {
+            Ok(value) => kanzei_harness::ToolOutput::ok(
+                value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()),
+            ),
+            Err(e) => kanzei_harness::ToolOutput::error(e),
+        }
+    }
+}
+
+struct UiConsoleTool;
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for UiConsoleTool {
+    fn name(&self) -> &'static str {
+        "ui_console"
+    }
+    fn description(&self) -> String {
+        "读取当前窗口自加载以来累积的 console 错误与警告(含未捕获异常)。\
+         前端改动后必查:ReferenceError 一类问题不会让页面白屏,只会让某一块悄悄失效。只读。"
+            .into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(UiProbeInput)).unwrap()
+    }
+    async fn execute(&self, _input: serde_json::Value, _ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        match ui_probe("console", "").await {
+            Ok(value) => kanzei_harness::ToolOutput::ok(
+                value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()),
+            ),
+            Err(e) => kanzei_harness::ToolOutput::error(e),
+        }
+    }
+}
+
+struct UiStyleTool;
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for UiStyleTool {
+    fn name(&self) -> &'static str {
+        "ui_style"
+    }
+    fn description(&self) -> String {
+        "读取匹配元素的计算样式与盒模型(display/位置/尺寸/关键布局属性)。\
+         用来判断「为什么它没显示出来」「为什么挤成一团」,比猜 CSS 快得多。只读。"
+            .into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(UiProbeInput)).unwrap()
+    }
+    async fn execute(&self, input: serde_json::Value, _ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
+        let input: UiProbeInput = match serde_json::from_value(input) {
+            Ok(value) => value,
+            Err(e) => return kanzei_harness::ToolOutput::error(format!("invalid input: {e}")),
+        };
+        let Some(selector) = input.selector.as_deref().filter(|s| !s.trim().is_empty()) else {
+            return kanzei_harness::ToolOutput::error("需要 selector");
+        };
+        match ui_probe("style", selector).await {
+            Ok(value) => kanzei_harness::ToolOutput::ok(
+                value.as_str().map(str::to_owned).unwrap_or_else(|| value.to_string()),
+            ),
+            Err(e) => kanzei_harness::ToolOutput::error(e),
+        }
+    }
+}
+
+/// 前端自查与定位工具集(R-126)。全部只读,受既有权限契约约束。
+struct FrontendToolsComponent;
+impl kanzei_harness::Component for FrontendToolsComponent {
+    fn contribute(
+        &self,
+        draft: &mut kanzei_harness::HarnessDraft,
+        _ctx: &ResolveCtx,
+    ) -> anyhow::Result<()> {
+        draft.tools.insert("ui_dom", Arc::new(UiDomTool));
+        draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
+        draft.tools.insert("ui_style", Arc::new(UiStyleTool));
+        draft
+            .tools
+            .insert("frontend_locate", Arc::new(kanzei_tools::frontend::FrontendLocateTool));
+        draft
+            .tools
+            .insert("frontend_check", Arc::new(kanzei_tools::frontend::FrontendCheckTool));
+        // 只读工具无需逐次确认;它们不写任何东西,权限风险为零。
+        for name in ["ui_dom", "ui_console", "ui_style", "frontend_locate", "frontend_check"] {
+            draft
+                .permissions
+                .push(kanzei_harness::rule(name, "*", kanzei_harness::Effect::Allow));
+        }
+        Ok(())
+    }
 }
 
 /// R-053 快速记录:只挂单个 tracker 工具的最小组件(独立迷你 run 专用)。
@@ -4102,6 +4274,9 @@ async fn run_task(
         .add(BaseComponent)
         .add(DevProfile)
         .add(ResearchProfile)
+        // 前端自查与定位工具只在桌面端有意义(需要真实运行中的窗口);
+        // 顺序在 profile 之后、Config 之前,用户配置仍可覆盖。
+        .add(FrontendToolsComponent)
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;

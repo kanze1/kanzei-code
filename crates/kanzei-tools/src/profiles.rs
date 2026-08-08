@@ -312,6 +312,14 @@ impl Component for DevProfile {
                          mechanical step; batch related git queries into one call. Test \
                          selection matches the change surface: frontend-only diffs (ui/) \
                          need node --check plus the smoke scripts, NOT the cargo suite; \
+                         `node --check` alone is NEVER sufficient evidence for a frontend \
+                         change — it only parses. After touching ui/, inspect what actually \
+                         rendered: `ui_dom` on the region you changed, `ui_console` for errors \
+                         the page swallowed, `ui_style` when something is invisible or \
+                         mis-laid-out. Before editing style.css run `frontend_locate` (the same \
+                         class is often defined twice — base rule plus a responsive override) \
+                         and after editing run `frontend_check` (a clobbered `@media ... {` \
+                         breaks the cascade silently, D-148). \
                          when crates/ changed, run the TARGETED test first and the full \
                          workspace suite ONCE right before committing — never while a \
                          file is still mid-edit, and never re-run a suite that nothing \
