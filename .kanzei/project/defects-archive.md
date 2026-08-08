@@ -1910,3 +1910,13 @@
 - 优先级: P1
 - 标签: 发布
 
+## D-200 设置页模型角色与脏标记静态文案未登记 i18n 资源表,英文界面残留中文且冒烟恒红 [fixed] (medium)
+- 优先级: P1
+- 修复: 在 I18N_EN 补齐 6 条英译,重跑 ui-i18n-smoke 至绿。
+- 复现: crates/kanzei-app/ui/index.html 有 6 处静态中文 title/按钮文案未登记进 main.js 的 I18N_EN 资源表:①#set-primary/#set-fast 的 title「从已探测到的模型中选择;端点不提供列表时可手填」(348/352 行)②#models-refresh 的 title「重新向各 provider 探测可用模型」与按钮文本「重新探测模型」(356 行)③#fast-setup 的 title「自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型」与按钮文本「一键就绪子代理」(361 行)④#settings-dirty 的文本「未保存 — 改动要点『保存』才会写入配置并生效」(453 行)。i18n 冒烟断言 node scripts/ui-i18n-smoke.mjs 报 ERR_ASSERTION「HTML 静态文案未进入资源表」,列出这 6 条。
+- 影响: 英文界面下模型角色区与设置脏标记残留中文,且违反 M-014(HTML 静态文案必须登记资源表),ui-i18n-smoke 恒红,后续任何前端改动都会带着这条失败验收。
+- 标签: 前端
+- 根因: R-136(2c999d4,一键就绪子代理 UI)与 D-158(548fe5f,settings-dirty 提示)加 HTML 时只写了中文静态文案,没同步登记 I18N_EN。applyLanguage 对文本节点与 title 属性只认 I18N_EN/I18N_DYNAMIC_EN 整串翻译,缺登记时英文模式下这两处界面残留中文(localizeDynamic 短语级兜底覆盖不到整串)。
+- 证据等级: E1(冒烟断言实测失败/修复后通过)
+- 验收: node scripts/ui-i18n-smoke.mjs 通过(不再报 HTML 静态文案未进入资源表);英文模式切换后这 6 处显示英文(applyLanguage 整串命中)。
+- 状态: fixing

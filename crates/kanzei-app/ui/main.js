@@ -96,6 +96,10 @@ const I18N_EN = {
   "已记住的权限": "Saved permissions", "版本与更新": "Version & updates", "保存": "Save",
   "检查更新": "Check for updates", "下载并安装": "Download and install", "打开配置原文": "Open config", "工作资料导出": "Export work materials", "默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。": "Memory, requirements, defects, and project config are selected by default; the result path is shown.", "导出目录": "Export directory", "选择导出目录": "Choose an export directory", "选择目录": "Choose directory", "记忆": "Memory", "需求": "Requirements", "缺陷": "Defects", "项目配置": "Project config", "导出工作资料": "Export work materials", "导出完成": "Export completed",
   "测试全部连通性": "Test connectivity", "+ 添加 provider": "+ Add provider", "跟随环境变量": "Environment",
+  "从已探测到的模型中选择;端点不提供列表时可手填": "Choose from detected models; type manually if the endpoint lists none",
+  "重新向各 provider 探测可用模型": "Re-detect available models from all providers", "重新探测模型": "Re-detect models",
+  "自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型": "One-click setup: install Ollama (winget) → start service → pull the fast model", "一键就绪子代理": "One-click subagent setup",
+  "未保存 — 改动要点「保存」才会写入配置并生效": "Unsaved — changes only take effect after clicking Save",
   "直连": "Direct", "指定地址": "Custom", "dev 开发": "dev development", "research 研究": "research",
   "日志": "Logs", "当前计划": "Current plan", "回到最新": "Jump to latest", "继续文案": "Continue prompt",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
