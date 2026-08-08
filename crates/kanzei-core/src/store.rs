@@ -14,7 +14,9 @@ use serde_json::Value;
 // v5:session_inputs 补 running/completed/failed 终态 + finished_at;
 //     episodes 补 provider/model/run_id/input_id/duration_ms(D-173 可观测性)。
 // v6:回填 v5 之前遗留的 promoted 输入(D-180)。
-const SCHEMA_VERSION: i64 = 6;
+// v7:v6 回填晚了一步——存量 promoted 已被 v5 期间的停止抹成 cancelled,
+//     改从迁移前备份里把状态位捞回来(D-180 续)。
+const SCHEMA_VERSION: i64 = 7;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -657,6 +659,88 @@ impl SessionStore {
         backup.is_file().then_some(backup)
     }
 
+    /// 从迁移前备份里把被抹掉的输入状态位捞回来(D-180 续)。
+    ///
+    /// v6 的回填来晚了一步:它要修的那批 `promoted`,在 v5 期间的两次停止里已经
+    /// 被 `finalize_interrupt` 抹成 `cancelled`,于是回填在真实机器上扑了个空。
+    /// 唯一还留着原始状态的地方,是升级时 `VACUUM INTO` 出来的那份备份。
+    ///
+    /// 判定刻意用备份当权威,而不是猜:备份里是 `promoted` 的,说明它在 v5 之前
+    /// **被提升执行过**却没有终态可记(那时根本没有 completed);备份里已经是
+    /// `cancelled` 的,是用户当年真的取消过,不动。备份里根本没有的(升级之后
+    /// 才产生的输入),更不动——这台机器上 21:40 那条就属于此类,它是真被停掉的。
+    fn recover_legacy_input_status(&self) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let Some(parent) = path.parent() else {
+            return Ok(());
+        };
+        let stem = path
+            .file_name()
+            .map(|name| format!("{}.v", name.to_string_lossy()))
+            .unwrap_or_default();
+        let mut backups: Vec<PathBuf> = std::fs::read_dir(parent)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|candidate| {
+                let name = candidate.file_name().map(|n| n.to_string_lossy().into_owned());
+                name.is_some_and(|name| name.starts_with(&stem) && name.ends_with(".bak"))
+            })
+            .collect();
+        backups.sort();
+        let mut recovered = 0usize;
+        for backup in backups {
+            // 备份可能来自更旧的 schema、也可能损坏;单个失败不该阻断迁移。
+            let attached = self
+                .connection
+                .execute_batch(&format!(
+                    "ATTACH DATABASE '{}' AS legacy",
+                    backup.to_string_lossy().replace('\'', "''")
+                ))
+                .is_ok();
+            if !attached {
+                continue;
+            }
+            let updated = self.connection.execute(
+                "UPDATE session_inputs SET status = 'completed'
+                 WHERE status = 'cancelled'
+                   AND input_id IN (
+                       SELECT input_id FROM legacy.session_inputs WHERE status = 'promoted'
+                   )",
+                [],
+            );
+            recovered += updated.unwrap_or(0);
+            let _ = self.connection.execute_batch("DETACH DATABASE legacy");
+        }
+        if recovered > 0 {
+            tracing::info!(recovered, "v7 迁移:从备份恢复了被抹掉的输入状态位");
+        }
+        // 落一个可回查的痕迹:回填是推断值,事后要能知道动过多少条。
+        self.connection.execute(
+            "INSERT INTO schema_meta(key, value) VALUES ('legacy_inputs_recovered', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![recovered.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// v7 从备份恢复的输入条数(事后核对用)。
+    pub fn legacy_inputs_recovered(&self) -> Option<usize> {
+        self.connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'legacy_inputs_recovered'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok())
+    }
+
     fn migrate(&self) -> Result<(), StoreError> {
         self.connection.execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -688,6 +772,11 @@ impl SessionStore {
             // 就再也打不开这个库(上面那条 UnsupportedSchema),而桌面端与 CLI 是
             // 两个独立安装通道、可能一新一旧,回退也就无路可走。备份是那条退路。
             self.backup_before_upgrade(version)?;
+            // v7:从备份里把被抹掉的输入状态位捞回来。ATTACH 不能在事务里执行,
+            // 所以放在主迁移事务之前单独做。
+            if version < 7 {
+                self.recover_legacy_input_status()?;
+            }
         }
         let tx = self.connection.unchecked_transaction()?;
         tx.execute_batch(
@@ -771,7 +860,7 @@ impl SessionStore {
              );
              CREATE INDEX IF NOT EXISTS episodes_session_created
                  ON episodes(session_id, created_at);
-             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '6')
+             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '7')
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -1281,6 +1370,106 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
         }
+    }
+
+    /// D-180 续:v6 的回填晚了一步,存量 promoted 已被 v5 期间的停止抹成
+    /// cancelled。v7 从迁移前备份里把状态位捞回来,且只捞备份里确实是 promoted 的。
+    #[test]
+    fn v7从备份恢复被抹掉的输入状态位且不误伤真取消() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-recover-legacy-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+
+        // 备份:v4 时代的快照——ran_a/ran_b 当年被提升执行过,really_cancelled 是真取消。
+        {
+            let backup = SessionStore::open(&dir.join("backup-seed.db")).unwrap();
+            backup.create_session("ses", "C:/p", None).unwrap();
+            for id in ["ran_a", "ran_b", "really_cancelled"] {
+                backup.admit_input("ses", id, id, Delivery::Queue).unwrap();
+            }
+            backup
+                .connection
+                .execute(
+                    "UPDATE session_inputs SET status='promoted' WHERE input_id IN ('ran_a','ran_b')",
+                    [],
+                )
+                .unwrap();
+            backup
+                .connection
+                .execute(
+                    "UPDATE session_inputs SET status='cancelled' WHERE input_id='really_cancelled'",
+                    [],
+                )
+                .unwrap();
+        }
+        std::fs::copy(dir.join("backup-seed.db"), dir.join("state.db.v4.bak")).unwrap();
+
+        // 现库:v5 期间的停止把三条全抹成了 cancelled,另有一条备份里没有的新输入。
+        {
+            let live = SessionStore::open(&path).unwrap();
+            live.create_session("ses", "C:/p", None).unwrap();
+            for id in ["ran_a", "ran_b", "really_cancelled", "after_backup"] {
+                live.admit_input("ses", id, id, Delivery::Queue).unwrap();
+            }
+            live.connection
+                .execute("UPDATE session_inputs SET status='cancelled'", [])
+                .unwrap();
+            live.connection
+                .execute("UPDATE schema_meta SET value='6' WHERE key='schema_version'", [])
+                .unwrap();
+        }
+
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(store.input_status("ran_a").unwrap().unwrap(), "completed");
+        assert_eq!(store.input_status("ran_b").unwrap().unwrap(), "completed");
+        assert_eq!(
+            store.input_status("really_cancelled").unwrap().unwrap(),
+            "cancelled",
+            "备份里就是 cancelled 的,是用户当年真取消,不得复活"
+        );
+        assert_eq!(
+            store.input_status("after_backup").unwrap().unwrap(),
+            "cancelled",
+            "备份之后才产生的输入无从判断,只能不动"
+        );
+        assert_eq!(store.legacy_inputs_recovered(), Some(2), "恢复条数要可回查");
+
+        // 幂等:再开一次不重复恢复,也不改写已恢复的记录。
+        drop(store);
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(store.input_status("ran_a").unwrap().unwrap(), "completed");
+        drop(store);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 没有任何备份时 v7 必须安静地什么都不做,而不是报错挡住迁移。
+    #[test]
+    fn v7在没有备份时安静通过() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-recover-nobackup-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.create_session("ses", "C:/p", None).unwrap();
+            store.admit_input("ses", "a", "a", Delivery::Queue).unwrap();
+            store
+                .connection
+                .execute("UPDATE schema_meta SET value='6' WHERE key='schema_version'", [])
+                .unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        assert_eq!(store.input_status("a").unwrap().unwrap(), "pending");
+        assert_eq!(store.legacy_inputs_recovered(), Some(0));
+        drop(store);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
