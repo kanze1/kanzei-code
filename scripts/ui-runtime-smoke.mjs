@@ -42,6 +42,16 @@ for (const [, inner] of ICON_MARKUP) {
 }
 if (ICON_MARKUP.length < 10) fail("图标一致性检查没扫到足够的图标按钮,正则可能已与标记脱节");
 
+// 深色主题下原生控件必须跟着深色渲染,否则勾选框会是一块白底(D-154)。
+// 这条只能静态查:计算样式里看不出"浏览器用了哪套控件配色"。
+const rootRule = style.match(/:root\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+if (!/color-scheme:\s*dark/.test(rootRule)) {
+  fail(":root 未声明 color-scheme: dark,原生勾选框/下拉在深色界面里会是白底");
+}
+if (!/input\[type="checkbox"\][^{]*\{[^}]*accent-color/.test(style)) {
+  fail("勾选框未统一 accent-color,选中态会用系统蓝而不是界面强调色");
+}
+
 const documentsScrollRules = [...style.matchAll(/#documents-scroll\s*\{([^}]*)\}/g)];
 const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-bottom:\s*(\d+)px/);
 if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {

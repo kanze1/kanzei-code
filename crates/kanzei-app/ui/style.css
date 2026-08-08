@@ -13,7 +13,13 @@
   --statusbar: #181818; --statusbar-run: #4a3a12;
   --mono: "Cascadia Code", Consolas, "Courier New", monospace;
   --radius: 6px;
+  /* 原生控件(勾选框、下拉弹层、日期选择、文本光标)默认按浅色渲染,在深色界面里
+     会是一块刺眼的白底。声明配色让浏览器用深色变体——这是全局一次性的解法,
+     逐个 input 去覆盖既漏且难维护(D-154)。 */
+  color-scheme: dark;
 }
+/* 勾选/单选的选中色统一走强调色,不用系统蓝。 */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 html, body, #app { height: 100%; }
 body {
   background: var(--bg); color: var(--fg);
