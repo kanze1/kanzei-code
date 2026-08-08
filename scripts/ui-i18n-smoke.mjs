@@ -2,19 +2,55 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync("crates/kanzei-app/ui/main.js", "utf8");
+const htmlSource = readFileSync("crates/kanzei-app/ui/index.html", "utf8");
 const dictionaryBody = source.match(/const I18N_EN = \{([\s\S]*?)\n\};/)?.[1] ?? "";
-const dictionaryKeys = new Set([...dictionaryBody.matchAll(/"((?:\\.|[^"])*)"\s*:/g)].map(([, key]) => key));
+const dynamicDictionaryBody = source.match(/const I18N_DYNAMIC_EN = \{([\s\S]*?)\n\};/)?.[1] ?? "";
+const dictionaryKeys = new Set(
+  [...`${dictionaryBody}\n${dynamicDictionaryBody}`.matchAll(/"((?:\\.|[^"])*)"\s*:/g)].map(([, key]) => key)
+);
 const dynamicKeys = [...source.matchAll(/\bt\("([^"]+)"\)/g)].map(([, key]) => key);
 const missingKeys = [...new Set(dynamicKeys)].filter((key) => !dictionaryKeys.has(key));
-assert.deepEqual(missingKeys, [], `动态 i18n key 未进入 I18N_EN: ${missingKeys.join(", ")}`);
+assert.deepEqual(missingKeys, [], `动态 i18n key 未进入资源表: ${missingKeys.join(", ")}`);
+
+const han = /[\u3400-\u9fff]/;
+const htmlCandidates = [];
+for (const match of htmlSource.matchAll(/\b(?:title|placeholder|aria-label)="([^"]*[\u3400-\u9fff][^"]*)"/g)) {
+  htmlCandidates.push(match[1].replace(/\s+/g, " ").trim());
+}
+for (const match of htmlSource.matchAll(/>([^<>]*[\u3400-\u9fff][^<>]*)</g)) {
+  const value = match[1].replace(/\s+/g, " ").trim();
+  if (value) htmlCandidates.push(value);
+}
+const htmlAllowlist = new Set(["简体中文", "English"]);
+const missingHtmlKeys = [...new Set(htmlCandidates)]
+  .filter((key) => han.test(key) && !htmlAllowlist.has(key) && !dictionaryKeys.has(key));
+assert.deepEqual(missingHtmlKeys, [], `HTML 静态文案未进入资源表: ${missingHtmlKeys.join(" | ")}`);
+const untranslatedValues = [...`${dictionaryBody}\n${dynamicDictionaryBody}`.matchAll(/"((?:\\.|[^"])*)"\s*:\s*"((?:\\.|[^"])*)"/g)]
+  .filter(([, key, value]) => han.test(value) || (han.test(key) && key === value))
+  .map(([, key]) => key);
+assert.deepEqual(untranslatedValues, [], `英文资源仍含中文或等于源文案: ${untranslatedValues.join(" | ")}`);
+assert.match(htmlSource, /class="activity-item[^>]*data-view="settings"/, "缺少设置页真实入口");
+assert.match(htmlSource, /id="view-settings"[\s\S]*id="about-kanzei"[\s\S]*<h2[^>]*>关于 kanzei<\/h2>[\s\S]*<p[^>]*>[\s\S]*<p[^>]*>/, "关于页面缺少设置页内的真实标题与两段内容");
+for (const id of ["ask-queue-preview", "ask-action", "ask-resource", "ask-remember", "ask-question", "ask-options"]) {
+  assert.match(htmlSource, new RegExp(`id="${id}"[^>]*data-i18n-raw`), `${id} 未保护权限/用户原始数据`);
+}
 const required = [
   ["关于 kanzei", "关于页面英文标题"],
   ["kanzei 是文件优先的日常开发工具", "关于页面英文正文"],
   ["const I18N_EN", "英文资源"],
   ["function t(key)", "动态翻译入口"],
+  ["I18N_DYNAMIC_EN[key]", "动态资源可由 t 直接消费"],
   ["function applyLanguage()", "静态节点翻译入口"],
+  ["function sourceFromLocalized(value)", "英文动态节点恢复中文源文案"],
+  ["I18N_LOCALIZE_ENTRIES", "静态与动态资源统一处理复合文案"],
+  ["parent?.closest?.(\"[data-i18n-raw]\")", "用户与权限数据跳过产品翻译"],
+  ["I18N_ZH.set(node, sourceFromLocalized(node.nodeValue))", "动态文本源文案缓存"],
+  ["node.nodeValue !== cached && node.nodeValue !== cachedTranslation", "动态文本源文案跟随业务更新"],
+  ["exact ? source.replace(key, exact) : localizeDynamic(source)", "fallback 不二次替换扩张"],
   ["const I18N_ATTR_ZH = new WeakMap()", "属性原文缓存"],
-  ["originals.set(attribute, value)", "属性原文稳定保存"],
+  ["[title], [placeholder], [aria-label]", "可访问属性翻译入口"],
+  ["attributeFilter: [\"title\", \"placeholder\", \"aria-label\"]", "动态属性翻译观察"],
+  ["originals.set(attribute, sourceFromLocalized(value))", "属性原文稳定保存"],
   ["运行中\": \"Running", "运行中翻译键"],
   ["运行完成\": \"Run completed", "运行完成翻译键"],
   ["运行失败\": \"Run failed", "运行失败翻译键"],
@@ -68,4 +104,6 @@ const missing = required.filter(([needle]) => !source.includes(needle));
 if (missing.length) {
   throw new Error(`UI i18n 静态契约缺失: ${missing.map(([, label]) => label).join(", ")}`);
 }
-console.log(`UI i18n 静态冒烟通过：${required.length} 项资源与动态入口契约已覆盖`);
+console.log(
+  `UI i18n 静态冒烟通过：${dictionaryKeys.size} 个资源 key、${new Set(htmlCandidates).size} 项 HTML 文案、${required.length} 项动态契约已覆盖`
+);

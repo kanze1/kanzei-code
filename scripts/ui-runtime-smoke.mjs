@@ -110,6 +110,16 @@ if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
   }
 
 const pendingTimers = new Set();
+const mutationObservers = new Set();
+let mutationQueued = false;
+function notifyMutation() {
+  if (!mutationObservers.size || mutationQueued) return;
+  mutationQueued = true;
+  Promise.resolve().then(() => {
+    mutationQueued = false;
+    for (const observer of mutationObservers) observer.callback([]);
+  });
+}
 
 // ---------- DOM harness:真实节点关系(parent/children/dataset/classList),样式与布局按 noop ----------
 let idSeed = 0;
@@ -151,7 +161,7 @@ class Element {
     this.scrollTop = 0;
     this.scrollHeight = 0;
   }
-  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); return node; }
+  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); notifyMutation(); return node; }
   appendChild(node) { node.remove(); return this._adopt(node); }
   append(...nodes) { for (const n of nodes) this.appendChild(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n); }
   prepend(...nodes) { for (const n of nodes.reverse()) this.insertBefore(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n, this.childNodes[0] ?? null); }
@@ -195,7 +205,7 @@ class Element {
     if (!this.childNodes.length) return own;
     return own + this.childNodes.map((c) => (c instanceof Element ? c.textContent : c.nodeValue)).join("");
   }
-  set textContent(value) { this.childNodes = []; this._innerHTML = ""; this._textContent = String(value); }
+  set textContent(value) { this.childNodes = []; this._innerHTML = ""; this._textContent = String(value); notifyMutation(); }
   get innerText() { return this.textContent; }
   set innerText(value) { this.textContent = value; }
   get innerHTML() { return this._innerHTML; }
@@ -208,6 +218,7 @@ class Element {
     this._textContent = String(value)
       .replace(/<[^>]*>/g, "")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
+    notifyMutation();
   }
   get value() { return this._value ?? ""; }
   set value(v) { this._value = String(v); }
@@ -216,8 +227,11 @@ class Element {
   // 写死的 class 不进集合,第一次 classList.toggle() 回写就把它们整体抹掉了。
   setAttribute(name, value) {
     if (name === "class") { this.className = value; return; }
-    this._attributes[name] = String(value);
-    if (name === "id") this.id = String(value);
+    const next = String(value);
+    if (this._attributes[name] === next) return;
+    this._attributes[name] = next;
+    if (name === "id") this.id = next;
+    notifyMutation();
   }
   removeAttribute(name) { delete this._attributes[name]; }
   hasAttribute(name) { return name in this._attributes; }
@@ -301,7 +315,22 @@ const document = {
   createTreeWalker: () => {
     const texts = [];
     const walk = (el) => {
-      if (el._textContent && !el.childNodes.length) texts.push({ nodeValue: el._textContent, currentNode: true });
+      if (el._textContent && !el.childNodes.length) {
+        if (!el._textNodeProxy) {
+          const text = { parentNode: el, parentElement: el };
+          Object.defineProperty(text, "nodeValue", {
+            get: () => el._textContent,
+            set: (value) => {
+              const next = String(value);
+              if (el._textContent === next) return;
+              el._textContent = next;
+              notifyMutation();
+            },
+          });
+          el._textNodeProxy = text;
+        }
+        texts.push(el._textNodeProxy);
+      }
       for (const c of el.childNodes) {
         if (c instanceof TextNode) { if (c.nodeValue) texts.push(c); } else walk(c);
       }
@@ -332,8 +361,17 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   const el = document.createElement(tag);
   el.id = id;
   el._attributes.id = id;
-  const className = `${before} ${after}`.match(/\bclass="([^"]*)"/)?.[1];
+  const attributes = `${before} ${after}`;
+  const className = attributes.match(/\bclass="([^"]*)"/)?.[1];
   if (className) el.className = className;
+  for (const attribute of ["title", "placeholder", "aria-label"]) {
+    const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  if (/\bdata-i18n-raw\b/.test(attributes)) el.setAttribute("data-i18n-raw", "");
+  const tail = html.slice(match.index + match[0].length);
+  const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
+  if (directText) el.textContent = directText;
   byId.set(id, el);
   body.appendChild(el);
   // 后代选择器需要真实嵌套:按 id 造出来的节点是扁平的,`#providers-table tbody`
@@ -347,6 +385,13 @@ for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*da
   const el = document.createElement("button");
   el.className = "activity-item";
   el.dataset.view = match[1];
+  for (const attribute of ["title", "aria-label"]) {
+    const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  const tail = html.slice(match.index + match[0].length);
+  const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
+  if (directText) el.textContent = directText;
   body.appendChild(el);
 }
 
@@ -470,8 +515,8 @@ class FileReaderShim {
 }
 class MutationObserverShim {
   constructor(callback) { this.callback = callback; }
-  observe() {}
-  disconnect() {}
+  observe() { mutationObservers.add(this); }
+  disconnect() { mutationObservers.delete(this); }
 }
 class ResizeObserverShim {
   constructor(callback) { this.callback = callback; }
@@ -857,20 +902,59 @@ probe({ payload: { id: 4, kind: "unknown-kind", arg: "" } });
 await flush();
 assert(probeResults[3].result.includes("未知探针类型"), "未知探针类型应回传说明而不是静默");
 
-// ---------- 语言切换：验证动态文案路径可来回切换且不抛运行时异常 ----------
+// ---------- 语言切换：静态文本/属性与动态错误必须 zh→en→zh→en 可逆 ----------
 const languageControl = byId.get("language-select");
+const projectInit = byId.get("project-init");
+const chatActivity = document.querySelectorAll(".activity-item")[0];
+assert(projectInit.getAttribute("title") === "初始化新项目目录", "HTML title 未进入真实冒烟 DOM");
+assert(chatActivity.getAttribute("aria-label") === "切换到对话", "HTML aria-label 未进入真实冒烟 DOM");
 languageControl.value = "en";
 languageControl.dispatchEvent({ type: "change" });
 await flush();
 assert(document.documentElement.lang === "en", "切换 English 后 document.lang 未更新");
+assert(storage.get("kz-language") === "en", "English 选择未持久化");
+assert(projectInit.getAttribute("title") === "Initialize a new project directory", "静态 title 未翻译");
+assert(chatActivity.getAttribute("aria-label") === "Switch to chat", "静态 aria-label 未翻译");
 handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
 await flush();
 assert(listText("live-turn").includes("Error"), `英文动态错误状态未翻译: "${listText("live-turn")}"`);
+assert(document.querySelector(".error-level")?.textContent === "Fatal error", "英文错误等级未翻译");
 languageControl.value = "zh";
 languageControl.dispatchEvent({ type: "change" });
 await flush();
 assert(document.documentElement.lang === "zh-CN", "切回中文后 document.lang 未更新");
+assert(storage.get("kz-language") === "zh", "中文选择未持久化");
 assert(listText("live-turn").includes("出错"), `中文动态错误状态未恢复: "${listText("live-turn")}"`);
+assert(
+  document.querySelector(".error-level")?.textContent === "致命错误",
+  `动态错误等级切回中文失败:${document.querySelector(".error-level")?.textContent}`,
+);
+assert(projectInit.getAttribute("title") === "初始化新项目目录", "静态 title 切回中文失败");
+assert(chatActivity.getAttribute("aria-label") === "切换到对话", "静态 aria-label 切回中文失败");
+languageControl.value = "en";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(projectInit.getAttribute("title") === "Initialize a new project directory", "静态 title 二次切英文失败");
+assert(chatActivity.getAttribute("aria-label") === "Switch to chat", "静态 aria-label 二次切英文失败");
+assert(document.querySelector(".error-level")?.textContent === "Fatal error", "动态错误等级二次切英文失败");
+const askHandler = handlers.get("kz:ask");
+askHandler?.({ payload: { id: 91, sessionId: "sess-smoke", kind: "permission", action: "执行用户动作 Ω", resource: "用户/路径甲", remember: "用户/路径甲" } });
+askHandler?.({ payload: { id: 92, sessionId: "sess-smoke", kind: "permission", action: "写入用户数据 Ω", resource: "用户/路径乙", remember: "用户/路径乙" } });
+await flush();
+assert(listText("ask-title") === "Permission request", `英文权限标题未翻译:${listText("ask-title")}`);
+assert(listText("ask-queue-status").includes("1 pending"), `英文权限队列说明未翻译:${listText("ask-queue-status")}`);
+assert(listText("ask-action") === "执行用户动作 Ω", "权限 action 用户数据被翻译或改写");
+assert(byId.get("ask-deny").textContent === "Deny", "英文权限拒绝按钮未翻译");
+languageControl.value = "zh";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(listText("ask-title") === "权限请求", "权限标题切回中文失败");
+assert(listText("ask-queue-status").includes("还有 1 条待处理"), "权限队列说明切回中文失败");
+assert(byId.get("ask-deny").textContent === "拒绝", "权限拒绝按钮切回中文失败");
+languageControl.value = "en";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(listText("ask-title") === "Permission request", "权限标题二次切英文失败");
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
 const activityItems = document.querySelectorAll(".activity-item");

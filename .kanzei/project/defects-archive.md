@@ -1665,3 +1665,15 @@
 - 验收: todo 与活动同时显示时共享同一右侧抽屉宽度，可垂直分区或切换，不得横向占两个栏位；800px 下主对话至少保留约 400px 可见宽度；单面板行为不退化；加入 CSS 机械契约并通过完整前端 smoke。
 - 修复: crates/kanzei-app/ui/style.css:38-41 将 ≤1400px 的双面板从横向并排改为同一右侧抽屉宽度内上下各 50%：todo 通过 `:has` 收短 bottom，bg 保持 right:0 并从 top:50% 开始。800px 时抽屉合计宽度仍仅 42vw（约336px），活动栏外 752px 主区保留约416px可见宽度，不再只剩约80px。
 - 验收证据: scripts/ui-a11y-smoke.mjs:67-68 机械断言 todo `bottom:50%` 与 bg `top:50%;right:0` 的共享宽度契约；frontend_check 结构完整；node --check、runtime/a11y/i18n/markdown smoke 全部通过；真实 UI 中单活动面板正常渲染、DOM 内容完整且 console 无错误。
+
+## D-160 applyLanguage 对带空白动态文案二次 replace 导致指数膨胀 [fixed] (high)
+- refs: R-069 D-136
+- 优先级: P1
+- 复现: 增强 MutationObserver 运行时冒烟后，英文切换触发 `applyLanguage` 对带缩进/换行的动态文本反复扩张，最终 source 超过 1,048,580 字符并抛 Invalid string length；最小 key 为“复杂度:”。
+- 影响: 真实浏览器 MutationObserver 会在翻译写回后再次触发；使用 localizeDynamic fallback 的带空白文本会不断膨胀，造成页面卡死或崩溃。旧 smoke 的 MutationObserver 是空实现，因此此前完全漏检。
+- 标签: 前端
+- 根因: applyLanguage 先对含原始空白的 `source` 调用 localizeDynamic，得到已经包含同样空白的完整译文；随后又执行 `source.replace(source.trim(), translated)`，把完整译文塞回原空白中，空白每轮翻倍。缓存比较因此把膨胀结果误判为新源文案。
+- 证据等级: E2
+- 验收: exact key 翻译只替换 trimmed key；localizeDynamic fallback 直接作为完整 next 值，不再二次 replace；MutationObserver 冒烟真实触发且 zh→en→zh→en 不发生扩张或异常；加入回归断言。
+- 修复: crates/kanzei-app/ui/main.js:547-568 将 exact 与 fallback 分流：exact 资源只替换 trimmed key，localizeDynamic fallback 直接作为完整 next，不再把含原空白的完整译文二次塞回 source；保留 1MB 扩张硬门禁。scripts/ui-runtime-smoke.mjs 的 MutationObserver 从空实现改为真实异步回调，并让 TreeWalker 文本代理稳定复用，能复现浏览器二次观察。
+- 验收证据: runtime smoke 在修复前稳定复现 source=1,048,580、key=复杂度: 的扩张失败；修复后真实 MutationObserver 下完成 zh→en→zh→en、动态错误与权限队列切换，65次invoke、0运行时错误。node --check、i18n/a11y/markdown smoke 全部通过。
