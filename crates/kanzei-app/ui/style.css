@@ -599,6 +599,19 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-detail { max-height: 320px; overflow: auto; }
 .bg-args { max-height: 160px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 
+/* D-157:设置页脏状态。表单不点保存不生效,没有提示就会出现"界面显示 A、运行用 B" */
+.settings-dirty {
+  color: var(--warn); font-size: 11.5px; margin-right: auto;
+}
+.settings-dirty.hidden { display: none; }
+/* D-158:被项目级配置覆盖的提示。不说破的话,用户会一直改一个不生效的值 */
+.settings-effective {
+  color: var(--warn); font-size: 11.5px; line-height: 1.5;
+  background: rgba(224, 171, 58, .08); border-left: 2px solid var(--warn);
+  padding: 6px 10px; margin: 6px 0 10px; border-radius: 0 4px 4px 0;
+}
+.settings-effective.hidden { display: none; }
+
 /* R-127:运行画像面板 */
 #metrics-scroll { padding: 18px 22px 30px; overflow-y: auto; width: 100%; }
 .metrics-trend {

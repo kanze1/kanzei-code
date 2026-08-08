@@ -1,5 +1,22 @@
 # Defects
 
+## D-158 配置页与实际生效的配置之间有三处静默不一致 [fixed] (high)
+- 复现: 2026-08-08 用户配 DeepSeek 全过程暴露。设置页 primary 明明显示 `deepseek:deepseek-chat`,发消息时日志却是 `[鉴权] anthropic:claude-sonnet-5` + `provider 'anthropic' 需要环境变量 ANTHROPIC_API_KEY`——界面显示的和实际跑的是两份东西,而且没有任何线索指向"你改的那个没生效"。
+- 根因: 四处叠加,都是"看得见的"与"生效的"脱节。
+  ①**表单不保存不生效,却无提示**:设置页是一张普通表单,填完不点保存只活在 DOM 里;运行时读的是磁盘。用户以为改了。
+  ②**settings_get 只读全局文件**:而运行时是 `全局 + 项目` 合并。项目级 kanzei.toml 一旦也设了 models,设置页显示的就是个不生效的值,同样零提示。
+  ③**模型角色是自由文本框**:手打 `provider:model`,拼错一个字母要到真正发消息时才炸,那时早已离开设置页,联系不到是刚才填错的。保存路径不做任何校验。
+  ④**merge() 漏了 models.reasoning**:primary/fast/providers/proxy/profile/permissions 都合了,唯独 reasoning 没有——同一个 `[models]` 表里有的键管用有的不管用,是最难查的那类不一致。
+- 影响: 配置这条链路整体不可信。用户按文档一步步配完、连通性测试还过了,一发消息用的还是旧 provider,且报错完全指不到原因。
+- 验收: ①表单与磁盘不一致时显示「未保存」;②settings_get 同时返回合并后的生效值与项目配置路径,不一致时界面明示"被项目级配置覆盖,本页改动不会生效";③模型角色改为下拉,选项来自各 provider 的探测结果,保留手填兜底,且**探测不到的已存值必须原样保留**(否则一进设置页就被悄悄改掉,保存一次配置就坏了);④保存前用 `resolve_model` 校验 provider 确实存在,不存在直接拒绝并说明格式;⑤merge 补上 reasoning;⑥鉴权失败的报错带上本次解析到的模型,并提示检查保存与项目级覆盖。
+- 优先级: P1
+- 阶段: 3
+- 不变量: 配置:界面显示的必须等于实际生效的,不等就要说破
+- 证据等级: E2
+- 备注: 落地位置 kanzei-harness/config.rs(merge reasoning)、kanzei-core/assemble.rs(错误带模型)、kanzei-app/main.rs(settings_get 返回 effective、validate_model_roles)、ui(下拉、未保存徽标、覆盖提示)。回归:Rust 侧 2 项(保存前校验、models 全字段合并),冒烟 8 项。「已存值不被下拉吃掉」已反验:去掉保留分支即失败。
+- refs: D-156 D-157 R-115
+- 标签: 模型
+
 ## D-156 加了 OpenAI 兼容 provider 却选不出任何模型 [fixed] (high)
 - 复现: 2026-08-08 用户按指引在设置页添加 deepseek(protocol=openai, base_url=https://api.deepseek.com/v1, api_key_env=DEEPSEEK_API_KEY),顶栏「模型」下拉里一个 deepseek 模型都没有,只有 primary/fast 两个角色项。
 - 根因: `models_list` 只硬编码枚举四种情况——primary/fast 角色、`auth="codex"`(3 个写死型号)、`auth="claude"`(3 个写死型号)、`base_url` 含 11434 的 Ollama(查 /api/tags)。**其余 provider 直接落到分支尾部,贡献 0 个模型**。而配置层是完全开放的:任何 OpenAI 兼容端点都能配进去。于是"能配 provider"与"能用 provider"之间断了一环,DeepSeek/OpenRouter/Kimi/自建 vLLM 全中招。

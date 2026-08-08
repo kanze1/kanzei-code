@@ -131,6 +131,8 @@ const I18N_EN = {
   "已丢弃": "Discarded", "丢弃失败": "Discard failed",
   "＋ 手填模型…": "+ Enter a model…", "填 provider:model,例如 deepseek:deepseek-chat": "Enter provider:model, e.g. deepseek:deepseek-chat",
   "格式应为 provider:model": "Format must be provider:model",
+  "以下项被项目级配置覆盖,本页的改动不会生效": "Overridden by the project config — changes here will not take effect",
+  "(未设 · 用内置默认)": "(unset · use built-in default)", "已重新探测": "Re-probed",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -5885,10 +5887,132 @@ async function loadPermissionRules() {
     toastError(`读取权限规则失败: ${err}`, { retry: loadPermissionRules });
   }
 }
+// D-157:设置页是一张表单,填了不点保存不生效。此前没有任何提示,于是界面显示
+// deepseek、运行却用 anthropic,而报错只说"provider anthropic 需要环境变量",
+// 完全看不出"你以为改了的那个根本没生效"。这里做脏状态可见。
+const SETTINGS_FORM_IDS = [
+  "set-primary", "set-fast", "set-profile", "set-reasoning",
+  "set-proxy-mode", "set-proxy-url",
+];
+let settingsSnapshot = "";
+function settingsFingerprint() {
+  // provider 表格是动态行,单独序列化;它和标量字段一起构成"这张表单当前的样子"。
+  const scalars = SETTINGS_FORM_IDS.map((id) => `${id}=${$(id)?.value ?? ""}`).join("|");
+  const providers = JSON.stringify(
+    settingsProviders.map((p) => [p.name, p.protocol, p.baseUrl, p.apiKeyEnv, p.apiKey, p.contextLimit]),
+  );
+  return `${scalars}||${providers}`;
+}
+function syncSettingsDirty() {
+  const badge = $("settings-dirty");
+  if (!badge) return;
+  badge.classList.toggle("hidden", settingsFingerprint() === settingsSnapshot);
+}
+function markSettingsSaved() {
+  settingsSnapshot = settingsFingerprint();
+  syncSettingsDirty();
+}
+
+// 生效值与全局值不一致 = 项目级 kanzei.toml 覆盖了。必须明说,否则用户会
+// 一直在改一个不生效的值(D-158)。
+function renderEffectiveNotice(s) {
+  const box = $("settings-effective");
+  if (!box) return;
+  const diffs = [];
+  for (const [key, label] of [["primary", "primary"], ["fast", "fast"], ["reasoning", "思考强度"]]) {
+    const global = key === "reasoning" ? (s.reasoning === "off" ? null : s.reasoning) : s[key];
+    const eff = s.effective?.[key] ?? null;
+    if (s.effective && (eff ?? null) !== (global ?? null)) {
+      diffs.push(`${label}:本页 ${global ?? "(未设)"} → 实际生效 ${eff ?? "(未设)"}`);
+    }
+  }
+  box.classList.toggle("hidden", diffs.length === 0);
+  if (diffs.length) {
+    box.textContent =
+      `${t("以下项被项目级配置覆盖,本页的改动不会生效")}:${diffs.join("；")}` +
+      (s.projectConfig ? `(${s.projectConfig})` : "");
+  }
+}
+
+// 模型角色改成真下拉:自由文本框要手打 `provider:model`,拼错一个字母要到运行时
+// 才炸,而那时人早已离开设置页。这里从各 provider 探测到的清单里选,手填只作兜底。
+let knownModelIds = [];
+async function fillKnownModels(preserve = true) {
+  const roles = [$("set-primary"), $("set-fast")].filter(Boolean);
+  if (!roles.length) return;
+  const current = roles.map((el) => el.value);
+  try {
+    const models = await invoke("models_list", { projectDir: currentProject });
+    // 角色不能再指向角色(primary → primary 会绕成死循环)。
+    knownModelIds = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast");
+  } catch {
+    knownModelIds = [];
+  }
+  roles.forEach((select, index) => {
+    const keep = preserve ? current[index] : select.value;
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = t("(未设 · 用内置默认)");
+    select.appendChild(none);
+    for (const id of knownModelIds) {
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = id;
+      select.appendChild(opt);
+    }
+    // 已保存的值可能来自探测不到的端点(没实现 /models、key 未配):必须保留,
+    // 否则一进设置页就被下拉悄悄改成别的值,保存一次就把配置改坏了。
+    if (keep && !knownModelIds.includes(keep)) {
+      const opt = document.createElement("option");
+      opt.value = keep;
+      opt.textContent = `${keep}(手填)`;
+      select.appendChild(opt);
+    }
+    const manual = document.createElement("option");
+    manual.value = MANUAL_MODEL_SENTINEL;
+    manual.textContent = t("＋ 手填模型…");
+    select.appendChild(manual);
+    select.value = keep ?? "";
+  });
+}
+
+// 手填分支:两个角色下拉共用。选中哨兵值时弹输入,校验格式后插回列表。
+function wireManualModelRole(id) {
+  const select = $(id);
+  if (!select) return;
+  let last = select.value;
+  select.addEventListener("change", () => {
+    if (select.value !== MANUAL_MODEL_SENTINEL) {
+      last = select.value;
+      return;
+    }
+    const input = (window.prompt(t("填 provider:model,例如 deepseek:deepseek-chat")) || "").trim();
+    if (!/^[\w.-]+:.+$/.test(input)) {
+      if (input) toast(t("格式应为 provider:model"));
+      select.value = last;
+      return;
+    }
+    const opt = document.createElement("option");
+    opt.value = input;
+    opt.textContent = `${input}(手填)`;
+    select.insertBefore(opt, select.lastElementChild);
+    select.value = input;
+    last = input;
+    syncSettingsDirty();
+  });
+}
+wireManualModelRole("set-primary");
+wireManualModelRole("set-fast");
+$("models-refresh")?.addEventListener("click", async () => {
+  await fillKnownModels();
+  toast(`${t("已重新探测")}:${knownModelIds.length}`);
+});
+
 async function loadSettings() {
   let s;
   try {
-    s = await invoke("settings_get");
+    s = await invoke("settings_get", { projectDir: currentProject });
   } catch (err) {
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
     $("settings-path").textContent = t("配置读取失败");
@@ -5896,6 +6020,11 @@ async function loadSettings() {
     return;
   }
   $("settings-path").textContent = s.path;
+  // 先把已保存的值塞进去,再让 fillKnownModels 以它为基准建选项:
+  // 顺序反了的话,探测不到的已存值会在建表时丢失,一保存就把配置改坏。
+  $("set-primary").value = s.primary ?? "";
+  $("set-fast").value = s.fast ?? "";
+  await fillKnownModels();
   $("set-primary").value = s.primary ?? "";
   $("set-fast").value = s.fast ?? "";
   $("set-profile").value = s.profileDefault;
@@ -5911,7 +6040,20 @@ async function loadSettings() {
   }
   settingsProviders = s.providers;
   renderProviders();
+  renderEffectiveNotice(s);
+  // 刚从磁盘读回来 = 干净态,以此为基准比对后续改动。
+  markSettingsSaved();
   loadPermissionRules();
+}
+for (const id of SETTINGS_FORM_IDS) {
+  $(id)?.addEventListener("input", syncSettingsDirty);
+  $(id)?.addEventListener("change", syncSettingsDirty);
+}
+// provider 表格是动态重建的,逐行绑会随重绘丢失;在容器上做事件委托一次覆盖全表。
+// 委托要在捕获阶段之后跑——行内的 input 监听器先把值写回 settingsProviders,
+// 我们才比对得到新指纹。
+for (const event of ["input", "change"]) {
+  $("providers-table")?.addEventListener(event, () => setTimeout(syncSettingsDirty, 0));
 }
 
 $("set-proxy-mode").addEventListener("change", () => {

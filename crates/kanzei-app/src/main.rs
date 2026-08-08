@@ -512,6 +512,52 @@ mod update_tests {
     use tokio::sync::oneshot;
 
     #[test]
+    fn 保存前拦住指向不存在_provider_的模型角色() {
+        let payload = |primary: &str, providers: Vec<(&str, &str)>| super::SettingsPayload {
+            primary: primary.into(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            profile_default: None,
+            profile: None,
+            providers: providers
+                .into_iter()
+                .map(|(name, base)| super::ProviderPayload {
+                    name: name.into(),
+                    protocol: "openai".into(),
+                    base_url: base.into(),
+                    api_key_env: None,
+                    api_key: None,
+                    auth: None,
+                    context_limit: None,
+                })
+                .collect(),
+        };
+
+        // provider 拼错 —— 此前要到真正发消息时才炸,那时早已离开设置页。
+        let error =
+            super::validate_model_roles(&payload("deepsek:deepseek-chat", vec![("deepseek", "https://api.deepseek.com/v1")]))
+                .unwrap_err();
+        assert!(error.contains("primary"), "{error}");
+        assert!(error.contains("deepsek:deepseek-chat"), "错误里要带上填错的原文: {error}");
+
+        // 少了冒号也不行。
+        let error = super::validate_model_roles(&payload("deepseek-chat", vec![("deepseek", "x")])).unwrap_err();
+        assert!(error.contains("provider:model"), "{error}");
+
+        // 正确的放行;内置 provider(fill_defaults 补的 anthropic/ollama…)同样认。
+        assert!(super::validate_model_roles(&payload(
+            "deepseek:deepseek-chat",
+            vec![("deepseek", "https://api.deepseek.com/v1")]
+        ))
+        .is_ok());
+        assert!(super::validate_model_roles(&payload("anthropic:claude-sonnet-5", vec![])).is_ok());
+
+        // 留空 = 用内置默认,不该被当成错误挡下。
+        assert!(super::validate_model_roles(&payload("", vec![])).is_ok());
+    }
+
+    #[test]
     fn installer_validation_rejects_truncated_and_non_executable_payloads() {
         // 代理返回的 HTML 错误页:有内容但不是 PE。
         let html = format!("<html>{}</html>", "x".repeat(2 << 20));
@@ -1833,7 +1879,7 @@ fn global_config_path() -> PathBuf {
 }
 
 #[tauri::command]
-fn settings_get() -> serde_json::Value {
+fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = global_config_path();
     let mut config: KanzeiConfig = std::fs::read_to_string(&path)
         .ok()
@@ -1864,6 +1910,21 @@ fn settings_get() -> serde_json::Value {
             })
         })
         .collect();
+    // D-158:本页编辑的是全局文件,但运行时用的是 全局+项目 合并的结果。
+    // 项目级 kanzei.toml 一旦也设了 models,这张表单显示的值就不生效——
+    // 而此前完全没有提示,表现为"我改了保存了,跑起来还是旧的"。
+    let effective = project_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .and_then(|root| KanzeiConfig::load(&root).ok())
+        .map(|merged| {
+            json!({
+                "primary": merged.models.primary,
+                "fast": merged.models.fast,
+                "reasoning": merged.models.reasoning,
+            })
+        });
     json!({
         "path": path.display().to_string(),
         "primary": config.models.primary,
@@ -1872,6 +1933,12 @@ fn settings_get() -> serde_json::Value {
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "providers": providers,
+        // 合并后的实际生效值;与上面的全局值不同就说明被项目级覆盖了。
+        "effective": effective,
+        "projectConfig": project_dir
+            .as_deref()
+            .and_then(|d| kanzei_harness::config::discover_project_root(Path::new(d)))
+            .map(|root| root.join(".kanzei").join("kanzei.toml").display().to_string()),
     })
 }
 
@@ -2000,7 +2067,42 @@ fn settings_table<'a>(
         .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
 }
 
+/// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
+/// 拼错一个字母,此前要到真正发消息时才炸一句 "unknown provider",
+/// 而那时用户早已离开设置页,根本联系不到是刚才填错了(D-158)。
+fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
+    let mut probe = KanzeiConfig::default();
+    for p in &payload.providers {
+        probe.providers.insert(
+            p.name.trim().to_string(),
+            kanzei_harness::config::ProviderConfig {
+                protocol: p.protocol.clone(),
+                base_url: p.base_url.clone(),
+                api_key_env: p.api_key_env.clone(),
+                api_key: p.api_key.clone(),
+                auth: p.auth.clone(),
+                context_limit: p.context_limit,
+            },
+        );
+    }
+    probe.fill_defaults();
+    for (role, value) in [("primary", &payload.primary), ("fast", &payload.fast)] {
+        let spec = value.trim();
+        if spec.is_empty() {
+            continue;
+        }
+        probe.resolve_model(spec).map_err(|e| {
+            format!(
+                "{role} 的模型 `{spec}` 无法解析:{e}。格式应为 provider:model,\
+                 且 provider 必须是下面 Provider 表里的名称。"
+            )
+        })?;
+    }
+    Ok(())
+}
+
 fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+    validate_model_roles(&payload)?;
     // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
     let text = match std::fs::read_to_string(path) {

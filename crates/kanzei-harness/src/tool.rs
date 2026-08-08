@@ -15,6 +15,46 @@ impl ToolCtx {
             crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
         ToolCtx { cwd, project_root }
     }
+
+    pub fn worktree_concurrency_key(&self) -> String {
+        format!(
+            "worktree:{}",
+            self.project_root
+                .display()
+                .to_string()
+                .replace('\\', "/")
+                .to_lowercase()
+        )
+    }
+}
+
+/// 工具调用的并发契约，独立于权限资源。默认 Exclusive：旧工具未显式审计前
+/// 绝不自动并行；Shared/WorktreeWrite 只有 key 相同且至少一方写时才冲突。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolConcurrency {
+    Shared(String),
+    WorktreeWrite(String),
+    Exclusive,
+}
+
+impl ToolConcurrency {
+    pub fn shared_worktree(ctx: &ToolCtx) -> Self {
+        Self::Shared(ctx.worktree_concurrency_key())
+    }
+
+    pub fn write_worktree(ctx: &ToolCtx) -> Self {
+        Self::WorktreeWrite(ctx.worktree_concurrency_key())
+    }
+
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exclusive, _) | (_, Self::Exclusive) => true,
+            (Self::Shared(_), Self::Shared(_)) => false,
+            (Self::Shared(left), Self::WorktreeWrite(right))
+            | (Self::WorktreeWrite(left), Self::Shared(right))
+            | (Self::WorktreeWrite(left), Self::WorktreeWrite(right)) => left == right,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +109,10 @@ pub trait Tool: Send + Sync {
     fn resources_with_ctx(&self, input: &Value, _ctx: &ToolCtx) -> Vec<String> {
         self.resources(input)
     }
+    /// 批内执行冲突声明。权限资源不能兼任锁键；未审计工具默认全局独占。
+    fn concurrency(&self, _input: &Value, _ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::Exclusive
+    }
     async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput;
 }
 
@@ -86,5 +130,26 @@ fn truncate(s: &str, max: usize) -> &str {
     match s.char_indices().nth(max) {
         Some((idx, _)) => &s[..idx],
         None => s,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolConcurrency;
+
+    #[test]
+    fn concurrency_conflicts_are_keyed_and_conservative() {
+        let read_a = ToolConcurrency::Shared("worktree:a".into());
+        let read_b = ToolConcurrency::Shared("worktree:b".into());
+        let write_a = ToolConcurrency::WorktreeWrite("worktree:a".into());
+        let write_b = ToolConcurrency::WorktreeWrite("worktree:b".into());
+        assert!(!read_a.conflicts_with(&read_a));
+        assert!(!read_a.conflicts_with(&read_b));
+        assert!(read_a.conflicts_with(&write_a));
+        assert!(!read_a.conflicts_with(&write_b));
+        assert!(write_a.conflicts_with(&write_a));
+        assert!(!write_a.conflicts_with(&write_b));
+        assert!(ToolConcurrency::Exclusive.conflicts_with(&read_a));
+        assert!(write_a.conflicts_with(&ToolConcurrency::Exclusive));
     }
 }

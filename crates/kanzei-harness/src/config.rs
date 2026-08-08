@@ -362,6 +362,11 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     if layer.models.fast.is_some() {
         base.models.fast = layer.models.fast;
     }
+    // reasoning 曾被漏掉:项目级设的思考强度会被静默忽略,而 primary/fast 却生效,
+    // 表现为"同一份配置里有的键管用有的不管用"——最难查的那种。
+    if layer.models.reasoning.is_some() {
+        base.models.reasoning = layer.models.reasoning;
+    }
     base.providers.extend(layer.providers);
     if layer.proxy.is_some() {
         base.proxy = layer.proxy;
@@ -686,5 +691,32 @@ effect = "deny"
         assert_eq!(base.models.primary.as_deref(), Some("kimi:kimi-k2"));
         assert_eq!(base.permissions.rules.len(), 2);
         assert!(base.providers.contains_key("kimi"));
+    }
+
+    #[test]
+    fn 合并覆盖全部_models_字段_未设的键不清空() {
+        // reasoning 曾被漏掉:同一个 [models] 表里 primary 生效而 reasoning 不生效,
+        // 是最难查的那类不一致。
+        let mut base: KanzeiConfig = toml::from_str(
+            r#"
+[models]
+primary = "anthropic:claude-sonnet-5"
+fast = "ollama:qwen3"
+reasoning = "low"
+"#,
+        )
+        .unwrap();
+        let layer: KanzeiConfig = toml::from_str(
+            r#"
+[models]
+reasoning = "high"
+"#,
+        )
+        .unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.models.reasoning.as_deref(), Some("high"), "项目级思考强度未生效");
+        // 层里没设的键不得被清空——空 [models] 表不该抹掉全局配置。
+        assert_eq!(base.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        assert_eq!(base.models.fast.as_deref(), Some("ollama:qwen3"));
     }
 }

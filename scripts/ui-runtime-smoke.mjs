@@ -462,13 +462,33 @@ const payloads = {
   conversation_get: [{ role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] }],
   conversation_trace_get: [],
   conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
-  models_list: [{ id: "claude-smoke", label: "Claude Smoke" }],
+  // 角色项 + 一个真实模型:角色不该出现在设置页的角色下拉里(会绕成自指)。
+  models_list: [
+    { id: "primary", label: "primary → anthropic:claude-sonnet-5" },
+    { id: "anthropic:claude-sonnet-5", label: "anthropic:claude-sonnet-5" },
+    { id: "ollama:qwen3", label: "ollama:qwen3" },
+  ],
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]] }], archived: [] },
   process_list: [{ id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false }],
   pending_asks_get: [],
-  settings_get: { language: "zh", profiles: {}, providers: [], permissions: [] },
+  // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
+  // effective 与全局不同 = 项目级覆盖,界面要明说。
+  settings_get: {
+    language: "zh",
+    path: "C:/smoke/.kanzei/kanzei.toml",
+    primary: "deepseek:deepseek-chat",
+    fast: "ollama:qwen3",
+    proxy: "env",
+    profileDefault: "dev",
+    reasoning: "off",
+    profiles: {},
+    providers: [],
+    permissions: [],
+    effective: { primary: "anthropic:claude-sonnet-5", fast: "ollama:qwen3", reasoning: null },
+    projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
+  },
   permission_rules_get: [],
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
   // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
@@ -834,6 +854,44 @@ assert(
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+
+// ---------- D-158 设置页模型角色：可选、不丢已存值、被覆盖时明示 ----------
+const settingsTab = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "settings");
+settingsTab?.click();
+await flush();
+const primarySelect = byId.get("set-primary");
+assert(primarySelect.tagName === "SELECT", "模型角色仍是自由文本框(手打 provider:model 太容易拼错)");
+const primaryValues = [...primarySelect.options].map((o) => o.value);
+assert(primaryValues.includes(""), "缺少「未设」选项(不该强迫用户必须指定一个模型)");
+assert(primaryValues.includes("__manual__"), "缺少手填兜底");
+assert(
+  primaryValues.some((v) => v.includes(":")),
+  `未把探测到的模型灌进下拉,实得: ${primaryValues.join(",")}`,
+);
+// 已保存的值若探测不到,必须原样保留 —— 否则一进设置页就被悄悄改掉,保存一次配置就坏了。
+assert(
+  primarySelect.value === "deepseek:deepseek-chat",
+  `已保存的模型未被保留,实得 "${primarySelect.value}"`,
+);
+assert(
+  primaryValues.includes("deepseek:deepseek-chat"),
+  "探测不到的已存值未补进选项列表",
+);
+// 项目级覆盖必须明说。
+assert(
+  !byId.get("settings-effective").classList.contains("hidden"),
+  "项目级覆盖了 primary,但设置页没有任何提示",
+);
+assert(listText("settings-effective").includes("实际生效"), "覆盖提示未说明实际生效值");
+// 表单脏状态:改一下就该出现「未保存」。
+assert(byId.get("settings-dirty").classList.contains("hidden"), "刚载入时不该显示未保存");
+const fastSelect = byId.get("set-fast");
+fastSelect.value = "";
+fastSelect.dispatchEvent({ type: "change" });
+assert(
+  !byId.get("settings-dirty").classList.contains("hidden"),
+  "改了表单却没有「未保存」提示(界面显示 A、运行用 B 就是这么来的)",
+);
 
 // ---------- D-156 手填模型：探测不到不等于用不了 ----------
 const modelSelect = byId.get("model-select");

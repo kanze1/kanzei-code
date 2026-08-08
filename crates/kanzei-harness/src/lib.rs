@@ -22,4 +22,4 @@ pub use markdown::MarkdownComponent;
 pub use permission::{Effect, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
-pub use tool::{Tool, ToolCtx, ToolOutput};
+pub use tool::{Tool, ToolConcurrency, ToolCtx, ToolOutput};

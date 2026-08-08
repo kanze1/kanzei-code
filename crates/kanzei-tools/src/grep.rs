@@ -2,7 +2,7 @@
 //! 命中数够了立即停止,绝不全仓扫完再排序(设计红线 3,Kimi Code 反面教材)。
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -41,6 +41,10 @@ impl Tool for GrepTool {
 
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(GrepInput)).unwrap()
+    }
+
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {

@@ -39,14 +39,20 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
     match resolved.provider.protocol.as_str() {
         "anthropic" => {
             let key = api_key.ok_or_else(|| {
+                // 带上实际解析到的模型:用户常常以为自己已经换了 provider,而配置没生效
+                // (设置页表单没保存,或项目级 kanzei.toml 覆盖了全局)。只报 provider
+                // 名的话,看不出"这跟我设的那个不是一回事"(D-157)。
                 anyhow::anyhow!(
-                    "provider `{}` 需要环境变量 {}",
+                    "provider `{}` 需要环境变量 {};本次解析到的模型是 `{}:{}`——若与你设置的不符,\
+                     检查设置页是否已保存,以及项目级 .kanzei/kanzei.toml 是否覆盖了全局",
                     resolved.provider_name,
                     resolved
                         .provider
                         .api_key_env
                         .as_deref()
-                        .unwrap_or("<api_key_env>")
+                        .unwrap_or("<api_key_env>"),
+                    resolved.provider_name,
+                    resolved.model,
                 )
             })?;
             Ok(Route::anthropic_at(&resolved.provider.base_url, &key))

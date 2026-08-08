@@ -341,13 +341,18 @@
           </div>
 
           <h2>模型角色</h2>
+          <p id="settings-effective" class="settings-effective hidden" role="status"></p>
           <div class="form-row">
             <label>primary <span class="dim">主循环</span></label>
-            <input id="set-primary" placeholder="anthropic:claude-sonnet-5" spellcheck="false" />
+            <select id="set-primary" title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
           </div>
           <div class="form-row">
             <label>fast <span class="dim">子代理/杂活(本地模型)</span></label>
-            <input id="set-fast" placeholder="ollama:qwen3" spellcheck="false" />
+            <select id="set-fast" title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
+          </div>
+          <div class="form-row">
+            <label></label>
+            <button id="models-refresh" class="ghost" type="button" title="重新向各 provider 探测可用模型">重新探测模型</button>
           </div>
 
           <h2>Provider</h2>
@@ -439,6 +444,7 @@
           </div>
 
           <div class="settings-actions">
+            <span id="settings-dirty" class="settings-dirty hidden" role="status">未保存 — 改动要点「保存」才会写入配置并生效</span>
             <button id="settings-open" class="ghost">打开配置原文</button>
             <button id="settings-save" class="primary">保存</button>
           </div>

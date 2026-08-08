@@ -5,7 +5,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
@@ -93,6 +93,11 @@ impl Tool for BashTool {
             ),
         })
         .to_string()]
+    }
+
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        // Shell 命令可产生任意副作用，不能靠解析命令文本猜测“只读”。
+        ToolConcurrency::write_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -397,6 +402,35 @@ mod tests {
             .await;
         assert!(out.is_error);
         assert!(out.content.contains("edit"), "{}", out.content);
+    }
+
+    #[tokio::test]
+    async fn timeout_kills_command_and_returns_explicit_error() {
+        let command = match super::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 5",
+            "cmd" => "ping 127.0.0.1 -n 6 > nul",
+            _ => "sleep 5",
+        };
+        let started = std::time::Instant::now();
+        let out = BashTool
+            .execute(
+                serde_json::json!({"command": command, "timeout_ms": 50}),
+                &ToolCtx {
+                    cwd: std::env::temp_dir(),
+                    project_root: std::env::temp_dir(),
+                },
+            )
+            .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("timeout: true"), "{}", out.content);
+        assert!(started.elapsed() < std::time::Duration::from_secs(4));
+    }
+
+    #[test]
+    fn description_explicitly_says_interactive_stdin_is_unavailable() {
+        let description = BashTool.description();
+        assert!(description.contains("stdin is closed"));
+        assert!(description.contains("EOF"));
     }
 
     #[test]

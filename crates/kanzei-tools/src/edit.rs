@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -57,6 +57,10 @@ impl Tool for EditTool {
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
         vec![input["path"].as_str().unwrap_or("*").to_string()]
+    }
+
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::write_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
