@@ -28,6 +28,14 @@ use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, S
 use kanzei_tools::tracker::schedule_for_display;
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
+/// 运行轨迹的时间戳(Unix 毫秒)。
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct PromptAttachment {
     file_name: String,
@@ -5312,6 +5320,18 @@ async fn run_task(
         )?;
     }
     let prompt = promoted.prompt;
+    // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
+    // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
+    let promoted_input_id = promoted.input_id.clone();
+    store.start_input(&promoted_input_id)?;
+    let run_id = format!(
+        "run_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default()
+    );
+    let run_started = std::time::Instant::now();
     store.set_status(&session_id, "running")?;
     append_run_notification(&store, &session_id, "running", "任务已开始", false)?;
     store.append_event(
@@ -5336,9 +5356,24 @@ async fn run_task(
     };
     let run_trace = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
     let trace_log = run_trace.clone();
+    // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
+    // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
+    // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
+    let tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     let mut on_event = move |event: RunEvent| {
+        let elapsed_ms = |id: &str| -> Option<u128> {
+            tool_started
+                .lock()
+                .unwrap()
+                .remove(id)
+                .map(|at| at.elapsed().as_millis())
+        };
         let _ = match event {
             RunEvent::TurnStart { step, max_steps } => {
+                trace_log.lock().unwrap().push(json!({
+                    "kind": "turn.started", "step": step, "at": now_ms(),
+                }));
                 emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
             }
             RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
@@ -5348,20 +5383,51 @@ async fn run_task(
                 name,
                 summary,
                 input,
-            } => emit_event(
-                "kz:tool-start",
-                json!({ "id": id, "name": name, "summary": summary, "input": input }),
-            ),
+            } => {
+                tool_started
+                    .lock()
+                    .unwrap()
+                    .insert(id.clone(), std::time::Instant::now());
+                trace_log.lock().unwrap().push(json!({
+                    "kind": "tool.started", "id": id, "name": name,
+                    "summary": summary, "at": now_ms(),
+                }));
+                emit_event(
+                    "kz:tool-start",
+                    json!({ "id": id, "name": name, "summary": summary, "input": input }),
+                )
+            }
             RunEvent::ToolEnd {
                 id,
                 name,
                 ok,
                 preview,
                 display,
-            } => emit_event(
-                "kz:tool-end",
-                json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
-            ),
+            } => {
+                trace_log.lock().unwrap().push(json!({
+                    "kind": "tool.completed", "id": id, "name": name, "ok": ok,
+                    "durationMs": elapsed_ms(&id), "at": now_ms(),
+                    // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
+                    "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
+                }));
+                emit_event(
+                    "kz:tool-end",
+                    json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
+                )
+            }
+            RunEvent::PermissionResolved {
+                tool_call_id,
+                action,
+                resource,
+                decision,
+                source,
+            } => {
+                trace_log.lock().unwrap().push(json!({
+                    "kind": "permission.resolved", "id": tool_call_id, "action": action,
+                    "resource": resource, "decision": decision, "source": source, "at": now_ms(),
+                }));
+                Ok(())
+            }
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
             RunEvent::TaskProgress { id, text, trace } => {
                 let payload = json!({
@@ -5557,20 +5623,29 @@ async fn run_task(
                     }
                 }
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
-                let _ = store.append_episode(
-                    &session_id,
-                    &prompt,
-                    if summary.halted_by_user { "halted" } else { "completed" },
-                    summary.steps,
-                    summary.usage.input,
-                    summary.usage.output,
-                    &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
+                let _ = store.append_episode(&kanzei_core::EpisodeRecord {
+                    session_id: &session_id,
+                    prompt_head: &prompt,
+                    outcome: if summary.halted_by_user { "halted" } else { "completed" },
+                    steps: summary.steps,
+                    input_tokens: summary.usage.input,
+                    output_tokens: summary.usage.output,
+                    tools_json: &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
                         .unwrap_or_default(),
-                    &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+                    context_json: &serde_json::to_string(&summary.context_report)
+                        .unwrap_or_default(),
                     // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
-                    &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
+                    metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
                         .unwrap_or_default(),
-                );
+                    // D-173:轮次归属与墙钟。缺了它们,复盘只能从"当前配置"反推模型,
+                    // 而配置随时会变——最基本的事实都无法证伪。
+                    provider: &resolved.provider_name,
+                    model: &resolved.model,
+                    run_id: &run_id,
+                    input_id: &promoted_input_id,
+                    duration_ms: run_started.elapsed().as_millis() as u64,
+                });
+                let _ = store.finish_input(&promoted_input_id, true);
                 if let Err(error) = append_run_notification(
                     store,
                     &session_id,

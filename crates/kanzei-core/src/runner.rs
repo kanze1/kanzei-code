@@ -121,6 +121,18 @@ pub enum RunEvent {
         text: String,
         trace: Option<TaskTrace>,
     },
+    /// 权限判定结果(D-173 可观测性)。没有这条事件时,"这一轮用户到底点了几次
+    /// 权限、哪些是规则直接放行的"事后完全无从查证——而这恰恰是判断硬门禁
+    /// 有没有真正生效、用户被打扰了多少次的唯一依据。
+    PermissionResolved {
+        tool_call_id: String,
+        action: String,
+        resource: String,
+        /// allow | deny | allow_once | always_allow | declined
+        decision: &'static str,
+        /// ruleset | session_approved | session_rule | user
+        source: &'static str,
+    },
     /// 流建立前的临时网络错误重试,不会重放已建立流或工具副作用。
     Retry { attempt: u32, max: u32, delay_ms: u128 },
     /// 流中途断开后重放本步请求。本步工具尚未执行,零副作用;
@@ -804,6 +816,10 @@ pub fn run_once_with_parts<'a>(
         step += 1;
         on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = max_steps > 0 && step == max_steps;
+        // 步数软预算(D-173):步数上限是 0(不设人为天花板),但"不封顶"不等于
+        // "不盘点"。到第 20/40 步各插一次检查点,只要求当轮盘一次剩余范围,
+        // 不强制中止——实测长轮的成本失控几乎都始于无人察觉的目标漂移。
+        let budget_checkpoint = matches!(step, 20 | 40 | 80);
 
         // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
         // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
@@ -821,6 +837,15 @@ pub fn run_once_with_parts<'a>(
                  attempt any tool call and do NOT emit JSON — reply in plain text only, \
                  summarizing what was completed and what remains.",
             ));
+        } else if budget_checkpoint {
+            request_messages.push(Message::user_text(format!(
+                "(system) Budget checkpoint — you are {step} steps into this run. This is not a \
+                 stop signal and not a nudge to hurry: keep going. Before your next tool call, \
+                 state in one or two lines what is DONE, what REMAINS, and whether the remaining \
+                 work still belongs to the task you were given. If it has drifted into unrelated \
+                 work, finish the original task first. If what remains needs a decision only the \
+                 user can make, say so now in plain text instead of exploring further."
+            )));
         }
         let request = LlmRequest {
             model: config.model.clone(),
@@ -1151,9 +1176,16 @@ pub fn run_once_with_parts<'a>(
                     .map(|resource| kanzei_harness::permission::normalize_resource(&resource))
                     .find(|resource| snapshot.evaluate(action, resource) == Effect::Deny);
                 if let Some(resource) = denied {
+                    on_event(RunEvent::PermissionResolved {
+                        tool_call_id: id.clone(),
+                        action: action.to_string(),
+                        resource: resource.clone(),
+                        decision: "deny",
+                        source: "ruleset",
+                    });
                     let output = kanzei_harness::ToolOutput::error(format!(
-                        "permission denied by ruleset: {action} on `{resource}`. \
-                         This resource is policy-managed; use the dedicated tool for it."
+                        "permission denied by ruleset: {action} on `{resource}`.\n{}",
+                        snapshot.denial_hint(action, &resource),
                     ));
                     on_event(RunEvent::ToolEnd {
                         id: id.clone(),
@@ -1253,36 +1285,62 @@ pub fn run_once_with_parts<'a>(
                 // 而落盘时 join 会消解 ..,实际写到项目任意位置(D-050)。
                 let normalized =
                     kanzei_harness::permission::normalize_resource(&resource);
+                let mut resolved = |decision, source| {
+                    on_event(RunEvent::PermissionResolved {
+                        tool_call_id: id.clone(),
+                        action: action.to_string(),
+                        resource: normalized.clone(),
+                        decision,
+                        source,
+                    });
+                };
                 match snapshot.evaluate(action, &normalized) {
                     Effect::Deny => {
+                        resolved("deny", "ruleset");
                         gate_result = Gate::Deny(normalized);
                         break;
                     }
                     Effect::Ask => pending_ask.push(normalized),
-                    Effect::Allow => {}
+                    Effect::Allow => {
+                        resolved("allow", "ruleset");
+                    }
                 }
             }
             if matches!(gate_result, Gate::Pass) {
                 for resource in pending_ask {
                     let key = (action.to_string(), resource.clone());
+                    let mut resolved = |decision, source| {
+                        on_event(RunEvent::PermissionResolved {
+                            tool_call_id: id.clone(),
+                            action: action.to_string(),
+                            resource: resource.clone(),
+                            decision,
+                            source,
+                        });
+                    };
                     if session_approved.contains(&key) {
+                        resolved("allow", "session_approved");
                         continue;
                     }
                     if session_rules.iter().any(|(a, pattern)| {
                         a == action
                             && kanzei_harness::permission::resource_match_for_action(a, pattern, &resource)
                     }) {
+                        resolved("allow", "session_rule");
                         continue;
                     }
                     match ask(AskRequest::Permission { action: action.to_string(), resource: resource.clone() }).await {
                         AskResponse::Permission(AskReply::Deny) | AskResponse::Cancelled | AskResponse::Answer(_) => {
+                            resolved("declined", "user");
                             gate_result = Gate::UserDeclined;
                             break;
                         }
                         AskResponse::Permission(AskReply::AllowOnce) => {
+                            resolved("allow_once", "user");
                             session_approved.insert(key);
                         }
                         AskResponse::Permission(AskReply::AlwaysAllow) => {
+                            resolved("always_allow", "user");
                             session_rules.push((
                                 action.to_string(),
                                 kanzei_harness::config::generalize_resource(action, &resource),
@@ -1292,9 +1350,11 @@ pub fn run_once_with_parts<'a>(
                 }
             }
             let output = match gate_result {
+                // D-173:拒绝理由必须由实际注册的托管族推导,不能固定说
+                // "use the dedicated tool"——那个工具可能根本不存在。
                 Gate::Deny(resource) => kanzei_harness::ToolOutput::error(format!(
-                    "permission denied by ruleset: {action} on `{resource}`. \
-                     This resource is policy-managed; use the dedicated tool for it.",
+                    "permission denied by ruleset: {action} on `{resource}`.\n{}",
+                    snapshot.denial_hint(action, &resource),
                 )),
                 Gate::UserDeclined => {
                     on_event(RunEvent::ToolEnd {

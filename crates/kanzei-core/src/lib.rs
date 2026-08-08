@@ -18,6 +18,6 @@ pub use runner::{
     RunEvent, RunMetrics, RunSummary, RunnerConfig, SubagentRuntime,
 };
 pub use store::{
-    project_session_id, project_state_path, AdmittedInput, Delivery, Session, SessionStore,
-    StoreError, StoredEvent,
+    project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, Session,
+    SessionStore, StoreError, StoredEvent,
 };

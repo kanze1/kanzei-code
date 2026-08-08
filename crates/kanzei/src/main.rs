@@ -188,6 +188,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         "prompt.promoted",
         &serde_json::json!({ "input_id": promoted.input_id, "delivery": "queue" }),
     )?;
+    // promoted → running:输入的生命周期必须有"开始执行"这一步,否则跑完的输入
+    // 永远停在 promoted,以后任何一次停止都会把它追认为 cancelled(D-173)。
+    store.start_input(&promoted.input_id)?;
+    // 本轮身份与墙钟:episode 落库时要能回答"哪一轮、跑了多久、用的什么模型"。
+    let run_id = format!("run_{}", SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos());
+    let run_started = std::time::Instant::now();
     store.set_status(&session_id, "running")?;
     store.append_event(
         &session_id,
@@ -250,6 +256,15 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 "\x1b[31m✗\x1b[0m"
             };
             let _ = writeln!(stdout, "  {mark} {preview}");
+        }
+        // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
+        RunEvent::PermissionResolved { action, resource, decision, source, .. } => {
+            if source != "ruleset" || decision == "deny" {
+                let _ = writeln!(
+                    stdout,
+                    "  \x1b[90m权限 {action} {resource} → {decision}({source})\x1b[0m"
+                );
+            }
         }
         RunEvent::StepEnd { .. } => {}
     };
@@ -410,18 +425,27 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         let outcome = if summary.halted_by_user { "halted" } else { "completed" };
         let tools = kanzei_core::summarize_tools(this_run);
         let store = kanzei_core::SessionStore::open(&state_path)?;
-        let _ = store.append_episode(
-            &session_id,
-            &prompt,
+        let _ = store.append_episode(&kanzei_core::EpisodeRecord {
+            session_id: &session_id,
+            prompt_head: &prompt,
             outcome,
-            summary.steps,
-            summary.usage.input,
-            summary.usage.output,
-            &serde_json::to_string(&tools).unwrap_or_default(),
-            &serde_json::to_string(&summary.context_report).unwrap_or_default(),
+            steps: summary.steps,
+            input_tokens: summary.usage.input,
+            output_tokens: summary.usage.output,
+            tools_json: &serde_json::to_string(&tools).unwrap_or_default(),
+            context_json: &serde_json::to_string(&summary.context_report).unwrap_or_default(),
             // R-099 调用画像:CLI 与桌面端落同一份口径,基线才可比。
-            &serde_json::to_string(&kanzei_core::summarize_metrics(this_run)).unwrap_or_default(),
-        );
+            metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
+                .unwrap_or_default(),
+            // D-173:轮次归属。没有这几列时,"这一轮跑的哪个模型"只能靠当前配置反推。
+            provider: &resolved.provider_name,
+            model: &resolved.model,
+            run_id: &run_id,
+            input_id: &promoted.input_id,
+            duration_ms: run_started.elapsed().as_millis() as u64,
+        });
+        // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
+        let _ = store.finish_input(&promoted.input_id, true);
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx).await;

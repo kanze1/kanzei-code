@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 // v3:episodes 表(R-106,轮次情景摘要;回滚 = DROP TABLE episodes 并把版本改回 2)。
-const SCHEMA_VERSION: i64 = 4;
+// v5:session_inputs 补 running/completed/failed 终态 + finished_at;
+//     episodes 补 provider/model/run_id/input_id/duration_ms(D-173 可观测性)。
+const SCHEMA_VERSION: i64 = 5;
 
 pub fn project_state_path(project_root: &Path) -> PathBuf {
     project_root.join(".kanzei").join("state.db")
@@ -80,6 +82,27 @@ pub struct AdmittedInput {
     pub prompt: String,
     pub delivery: Delivery,
     pub created_at: i64,
+}
+
+/// 一轮的情景摘要。参数从 9 个涨到 14 个之后位置参数已经不可读了(错位一个
+/// 就把 provider 写进 model 也编译得过),所以收成具名结构。
+#[derive(Debug, Clone, Default)]
+pub struct EpisodeRecord<'a> {
+    pub session_id: &'a str,
+    pub prompt_head: &'a str,
+    pub outcome: &'a str,
+    pub steps: u32,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub tools_json: &'a str,
+    pub context_json: &'a str,
+    pub metrics_json: &'a str,
+    /// 这一轮实际使用的 provider/model —— 事后复盘不能靠"当前配置"反推。
+    pub provider: &'a str,
+    pub model: &'a str,
+    pub run_id: &'a str,
+    pub input_id: &'a str,
+    pub duration_ms: u64,
 }
 
 pub struct SessionStore {
@@ -443,24 +466,57 @@ impl SessionStore {
             "session.status_changed",
             &serde_json::json!({ "status": "idle", "reason": "stopped_by_user" }),
         )?;
+        // 只回收**还没有结局**的输入。completed/failed 是终态,任何一次停止都
+        // 不得回头改写它们——否则历史上早已跑完的输入会被追认为 cancelled。
         let cancelled = tx.execute(
-            "UPDATE session_inputs SET status = 'cancelled'
-             WHERE session_id = ?1 AND status IN ('pending', 'promoted')",
-            params![session_id],
+            "UPDATE session_inputs SET status = 'cancelled', finished_at = ?1
+             WHERE session_id = ?2 AND status IN ('pending', 'promoted', 'running')",
+            params![now_ms(), session_id],
         )?;
         tx.commit()?;
         Ok(cancelled)
     }
 
-    /// 取消会话中全部尚未提升的输入，供停止运行时清理 queue。
-    /// 停止运行时取消尚未完成的输入，包括已提升但尚未完成执行的输入。
+    /// 取消会话中尚无结局的输入，供停止运行时清理 queue。
     pub fn cancel_unfinished_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
         let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = 'cancelled'
-             WHERE session_id = ?1 AND status IN ('pending', 'promoted')",
-            params![session_id],
+            "UPDATE session_inputs SET status = 'cancelled', finished_at = ?1
+             WHERE session_id = ?2 AND status IN ('pending', 'promoted', 'running')",
+            params![now_ms(), session_id],
         )?;
         Ok(changed)
+    }
+
+    /// promoted → running:输入真的开始执行了。
+    pub fn start_input(&self, input_id: &str) -> Result<bool, StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE session_inputs SET status = 'running'
+             WHERE input_id = ?1 AND status = 'promoted'",
+            params![input_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// running → completed | failed:给输入一个结局,此后任何停止都不再改写它。
+    pub fn finish_input(&self, input_id: &str, ok: bool) -> Result<bool, StoreError> {
+        let changed = self.connection.execute(
+            "UPDATE session_inputs SET status = ?1, finished_at = ?2
+             WHERE input_id = ?3 AND status IN ('promoted', 'running')",
+            params![if ok { "completed" } else { "failed" }, now_ms(), input_id],
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// 输入的当前状态(审计与测试用)。
+    pub fn input_status(&self, input_id: &str) -> Result<Option<String>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT status FROM session_inputs WHERE input_id = ?1",
+                params![input_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
     }
     pub fn cancel_pending_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
         let changed = self.connection.execute(
@@ -581,14 +637,20 @@ impl SessionStore {
              );
              CREATE INDEX IF NOT EXISTS session_events_session_sequence
                  ON session_events(session_id, sequence);
+             -- v5 状态机:pending → promoted → running → completed | failed | cancelled。
+             -- 少了 running/completed/failed 时,跑完的输入会永远停在 promoted,于是
+             -- 用户之后任何一次停止都会把历史上已经成功完成的输入一并改成
+             -- cancelled(finalize_interrupt 按 promoted 一刀切),审计语义被彻底破坏。
              CREATE TABLE IF NOT EXISTS session_inputs (
                  input_id TEXT PRIMARY KEY NOT NULL,
                  session_id TEXT NOT NULL REFERENCES sessions(session_id),
                  prompt TEXT NOT NULL,
                  delivery TEXT NOT NULL CHECK(delivery IN ('steer', 'queue')),
-                 status TEXT NOT NULL CHECK(status IN ('pending', 'promoted', 'cancelled')),
+                 status TEXT NOT NULL CHECK(status IN
+                     ('pending', 'promoted', 'running', 'completed', 'failed', 'cancelled')),
                  created_at INTEGER NOT NULL,
-                 promoted_at INTEGER
+                 promoted_at INTEGER,
+                 finished_at INTEGER
              );
              CREATE INDEX IF NOT EXISTS session_inputs_pending
                  ON session_inputs(session_id, delivery, status, created_at);
@@ -622,55 +684,119 @@ impl SessionStore {
                  context_json TEXT NOT NULL,
                  -- v4(R-099):调用画像。旧库靠下面的 ALTER 补列;默认空对象代表
                  -- 那一轮还没开始度量,与度量出来全是零必须区分得开。
-                 metrics_json TEXT NOT NULL DEFAULT '{}'
+                 metrics_json TEXT NOT NULL DEFAULT '{}',
+                 -- v5:轮次归属。没有这几列时,连本轮实际模型都只能
+                 -- 从当前配置反推,而配置随时会变——事后复盘因此无法证伪。
+                 provider TEXT NOT NULL DEFAULT '',
+                 model TEXT NOT NULL DEFAULT '',
+                 run_id TEXT NOT NULL DEFAULT '',
+                 input_id TEXT NOT NULL DEFAULT '',
+                 duration_ms INTEGER NOT NULL DEFAULT 0
              );
              CREATE INDEX IF NOT EXISTS episodes_session_created
                  ON episodes(session_id, created_at);
-             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '4')
+             INSERT INTO schema_meta(key, value) VALUES ('schema_version', '5')
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
-        // 已存在的 v3 库:episodes 表不会被上面的 CREATE IF NOT EXISTS 改动,补列。
+        // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
         // 列已存在时报错,忽略即可——这是幂等迁移的常规写法。
-        let _ = tx.execute(
-            "ALTER TABLE episodes ADD COLUMN metrics_json TEXT NOT NULL DEFAULT '{}'",
-            [],
-        );
+        for column in [
+            "metrics_json TEXT NOT NULL DEFAULT '{}'",
+            "provider TEXT NOT NULL DEFAULT ''",
+            "model TEXT NOT NULL DEFAULT ''",
+            "run_id TEXT NOT NULL DEFAULT ''",
+            "input_id TEXT NOT NULL DEFAULT ''",
+            "duration_ms INTEGER NOT NULL DEFAULT 0",
+        ] {
+            let _ = tx.execute(&format!("ALTER TABLE episodes ADD COLUMN {column}"), []);
+        }
+        // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
+        // 只在旧约束still生效时做,重建是幂等的:新库建出来就已经含 running。
+        let legacy_check: Option<String> = tx
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'session_inputs'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if legacy_check.is_some_and(|sql| !sql.contains("running")) {
+            tx.execute_batch(
+                "ALTER TABLE session_inputs RENAME TO session_inputs_v4;
+                 CREATE TABLE session_inputs (
+                     input_id TEXT PRIMARY KEY NOT NULL,
+                     session_id TEXT NOT NULL REFERENCES sessions(session_id),
+                     prompt TEXT NOT NULL,
+                     delivery TEXT NOT NULL CHECK(delivery IN ('steer', 'queue')),
+                     status TEXT NOT NULL CHECK(status IN
+                         ('pending', 'promoted', 'running', 'completed', 'failed', 'cancelled')),
+                     created_at INTEGER NOT NULL,
+                     promoted_at INTEGER,
+                     finished_at INTEGER
+                 );
+                 INSERT INTO session_inputs
+                     (input_id, session_id, prompt, delivery, status, created_at, promoted_at, finished_at)
+                 SELECT input_id, session_id, prompt, delivery, status, created_at, promoted_at, NULL
+                 FROM session_inputs_v4;
+                 DROP TABLE session_inputs_v4;
+                 CREATE INDEX IF NOT EXISTS session_inputs_pending
+                     ON session_inputs(session_id, delivery, status, created_at);",
+            )?;
+        }
         tx.commit()?;
         Ok(())
     }
 
     /// 轮次情景摘要(R-106):机械生成的轨迹画像,R-099 度量与记忆系统共用。
-    #[allow(clippy::too_many_arguments)]
-    pub fn append_episode(
-        &self,
-        session_id: &str,
-        prompt_head: &str,
-        outcome: &str,
-        steps: u32,
-        input_tokens: u64,
-        output_tokens: u64,
-        tools_json: &str,
-        context_json: &str,
-        metrics_json: &str,
-    ) -> Result<(), StoreError> {
+    pub fn append_episode(&self, episode: &EpisodeRecord<'_>) -> Result<(), StoreError> {
         self.connection.execute(
             "INSERT INTO episodes(session_id, created_at, prompt_head, outcome, steps,
-                                  input_tokens, output_tokens, tools_json, context_json, metrics_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                                  input_tokens, output_tokens, tools_json, context_json, metrics_json,
+                                  provider, model, run_id, input_id, duration_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
-                session_id,
+                episode.session_id,
                 now_ms(),
-                prompt_head.chars().take(200).collect::<String>(),
-                outcome,
-                steps,
-                input_tokens as i64,
-                output_tokens as i64,
-                tools_json,
-                context_json,
-                metrics_json
+                episode.prompt_head.chars().take(200).collect::<String>(),
+                episode.outcome,
+                episode.steps,
+                episode.input_tokens as i64,
+                episode.output_tokens as i64,
+                episode.tools_json,
+                episode.context_json,
+                episode.metrics_json,
+                episode.provider,
+                episode.model,
+                episode.run_id,
+                episode.input_id,
+                episode.duration_ms as i64,
             ],
         )?;
         Ok(())
+    }
+
+    /// 最近若干轮的运行归属(D-173):provider/model/run_id/input_id/duration_ms。
+    /// 与 `recent_episodes` 分开取,免得那个本已臃肿的元组再长五格。
+    #[allow(clippy::type_complexity)]
+    pub fn recent_episode_identities(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(i64, String, String, String, String, u64)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT created_at, provider, model, run_id, input_id, duration_ms
+             FROM episodes WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![session_id, limit as i64], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get::<_, i64>(5)? as u64,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
     /// 最近若干轮的完整画像(R-099/R-127):按时间倒序。
@@ -911,20 +1037,34 @@ mod tests {
     fn episode_落库并按时间倒序回放() {
         let store = store();
         store
-            .append_episode(
-                "ses_test",
-                "修复 D-068 限流分类",
-                "completed",
-                12,
-                50_000,
-                3_000,
-                r#"{"bash":5,"edit":3}"#,
-                r#"[["agent/system",1200],["dev/memory",800]]"#,
-                r#"{"terminal_calls":5,"edit_calls":3,"edit_misses":1}"#,
-            )
+            .append_episode(&EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "修复 D-068 限流分类",
+                outcome: "completed",
+                steps: 12,
+                input_tokens: 50_000,
+                output_tokens: 3_000,
+                tools_json: r#"{"bash":5,"edit":3}"#,
+                context_json: r#"[["agent/system",1200],["dev/memory",800]]"#,
+                metrics_json: r#"{"terminal_calls":5,"edit_calls":3,"edit_misses":1}"#,
+                provider: "deepseek",
+                model: "deepseek-v4-flash",
+                run_id: "run_a",
+                input_id: "input_a",
+                duration_ms: 708_000,
+            })
             .unwrap();
         store
-            .append_episode("ses_test", "第二轮", "halted", 3, 1_000, 100, "{}", "[]", "{}")
+            .append_episode(&EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "第二轮",
+                outcome: "halted",
+                steps: 3,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                ..EpisodeRecord::default()
+            })
             .unwrap();
         let episodes = store.list_episodes("ses_test", 10).unwrap();
         assert_eq!(episodes.len(), 2);
@@ -939,6 +1079,52 @@ mod tests {
         assert_eq!(recent[0].1, "第二轮");
         assert_eq!(recent[0].8, "{}", "未度量的轮次应保持空对象");
         assert!(recent[1].8.contains("edit_misses"), "画像未随轮次落库: {}", recent[1].8);
+
+        // D-173:轮次归属必须落库。之前只能从"当前配置"反推这一轮跑的哪个模型,
+        // 而配置随时会变——复盘时连最基本的事实都无法证伪。
+        let identities = store.recent_episode_identities("ses_test", 10).unwrap();
+        assert_eq!(identities.len(), 2);
+        assert_eq!(identities[1].1, "deepseek");
+        assert_eq!(identities[1].2, "deepseek-v4-flash");
+        assert_eq!(identities[1].3, "run_a");
+        assert_eq!(identities[1].4, "input_a");
+        assert_eq!(identities[1].5, 708_000);
+    }
+
+    #[test]
+    fn 已完成的输入不会被后来的停止追认为取消() {
+        // D-173:少了 completed 终态时,跑完的输入永远停在 promoted,
+        // 于是任何一次停止都会把历史成功输入一并改写成 cancelled。
+        let store = store();
+        store
+            .admit_input("ses_test", "done_earlier", "上一轮已完成", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        assert!(store.start_input("done_earlier").unwrap());
+        assert_eq!(store.input_status("done_earlier").unwrap().unwrap(), "running");
+        assert!(store.finish_input("done_earlier", true).unwrap());
+        assert_eq!(store.input_status("done_earlier").unwrap().unwrap(), "completed");
+
+        store
+            .admit_input("ses_test", "in_flight", "本轮被打断", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        store.start_input("in_flight").unwrap();
+        store
+            .admit_input("ses_test", "queued", "还没轮到", Delivery::Queue)
+            .unwrap();
+
+        store.set_status("ses_test", "running").unwrap();
+        assert_eq!(store.finalize_interrupt("ses_test").unwrap(), 2);
+        assert_eq!(
+            store.input_status("done_earlier").unwrap().unwrap(),
+            "completed",
+            "已完成的输入必须保持 completed"
+        );
+        assert_eq!(store.input_status("in_flight").unwrap().unwrap(), "cancelled");
+        assert_eq!(store.input_status("queued").unwrap().unwrap(), "cancelled");
+        // 终态不可回退:再次 finish 不改写既有结局。
+        assert!(!store.finish_input("in_flight", true).unwrap());
     }
 
     #[test]

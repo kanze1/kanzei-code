@@ -51,6 +51,77 @@ pub struct ProviderConfig {
     pub context_limit: Option<u64>,
 }
 
+#[cfg(test)]
+mod context_limit_tests {
+    use super::*;
+
+    /// D-173:`entry().or_insert()` 只在整条 provider 缺失时生效,用户配了同名
+    /// provider 却漏写 context_limit 时补不上——实测用户的 deepseek/codex/anthropic
+    /// 全都没有上限值,UI 占用比例与压缩预检因此全部失去基准。
+    #[test]
+    fn 用户配置里缺失的上下文上限会被按已知值回填() {
+        let mut config = KanzeiConfig::default();
+        for (name, base_url) in [
+            ("deepseek", "https://api.deepseek.com"),
+            ("codex", "https://chatgpt.com/backend-api/codex"),
+            ("anthropic", "https://api.anthropic.com"),
+        ] {
+            config.providers.insert(
+                name.into(),
+                ProviderConfig {
+                    protocol: "openai".into(),
+                    base_url: base_url.into(),
+                    api_key_env: None,
+                    api_key: None,
+                    auth: None,
+                    context_limit: None,
+                },
+            );
+        }
+        // 用户显式写死的值不能被覆盖。
+        config.providers.insert(
+            "kimi".into(),
+            ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "https://api.moonshot.cn/v1".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: Some(1_000_000),
+            },
+        );
+        config.fill_defaults();
+
+        assert_eq!(config.providers["deepseek"].context_limit, Some(128_000));
+        assert_eq!(config.providers["codex"].context_limit, Some(272_000));
+        assert_eq!(config.providers["anthropic"].context_limit, Some(200_000));
+        assert_eq!(config.providers["kimi"].context_limit, Some(1_000_000));
+        // 认不出来的 provider 保持 None——宁可显示"未知",也不编一个预算基准。
+        assert_eq!(known_context_limit("mystery", "https://example.test"), None);
+    }
+}
+
+/// 已知 provider 的上下文窗口。名字优先,其次看 base_url 主机名(用户可能改名)。
+/// 认不出来就返回 None——宁可让 UI 显示"未知",也不编一个数字当预算基准。
+fn known_context_limit(name: &str, base_url: &str) -> Option<u64> {
+    let name = name.to_ascii_lowercase();
+    for (needle, limit) in [
+        ("anthropic", 200_000u64),
+        ("claude", 200_000),
+        ("codex", 272_000),
+        ("openai", 272_000),
+        ("deepseek", 128_000),
+        ("moonshot", 128_000),
+        ("kimi", 128_000),
+        ("ollama", 32_000),
+    ] {
+        if name.contains(needle) || base_url.contains(needle) {
+            return Some(limit);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct ProfileSection {
     pub default: Option<String>,
@@ -222,6 +293,31 @@ impl KanzeiConfig {
                 auth: Some("claude".into()),
                 context_limit: Some(200_000),
             });
+        // DeepSeek 直连(OpenAI 兼容)。
+        self.providers
+            .entry("deepseek".into())
+            .or_insert(ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "https://api.deepseek.com".into(),
+                api_key_env: Some("DEEPSEEK_API_KEY".into()),
+                api_key: None,
+                auth: None,
+                context_limit: Some(128_000),
+            });
+        // context_limit 逐字段兜底(D-173)。
+        //
+        // 上面全是 `entry().or_insert()`:用户只要在 kanzei.toml 里写了同名 provider,
+        // 整条默认就不再生效,**单个缺失字段也补不上**。实测后果是用户配置里的
+        // deepseek/codex/anthropic 全都没有 context_limit,于是 UI 的占用比例、
+        // 运行器的压缩预检统统失去基准,只能等 provider 报 overflow 才被动补救。
+        // 这里按 provider 名与 base_url 主机名回填一个已知值;用户显式写了就不动。
+        for (name, provider) in self.providers.iter_mut() {
+            if provider.context_limit.is_some() {
+                continue;
+            }
+            let host = provider.base_url.to_ascii_lowercase();
+            provider.context_limit = known_context_limit(name, &host);
+        }
         if self.models.primary.is_none() {
             self.models.primary = Some("anthropic:claude-sonnet-5".into());
         }
