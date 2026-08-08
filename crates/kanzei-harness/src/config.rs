@@ -542,10 +542,44 @@ pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
     discover_project_root_with_home(cwd, dirs::home_dir().as_deref())
 }
 
+/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、去尾分隔符,Windows 上再小写。
+///
+/// 裸 `==` 比较不够(D-194):`dirs::home_dir()` 给 `C:\Users\kanzei`,而走上来的祖先
+/// 可能是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize
+/// 的产物)——任一形态对不上,HOME 判断就静默失效,`~/.kanzei` 立刻变回项目根磁铁。
+/// 同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线)。
+/// 这里是纯比较、不进哈希,所以可以比那边更狠:分隔符也一并统一。
+fn dir_key(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    let stripped = raw
+        .strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or_else(|| raw.to_string());
+    // 分隔符与大小写只在 Windows 上等价;Linux 下 `a\b` 是个合法文件名、`C:` 与 `c:`
+    // 是两个目录,归一过头会把不同路径判成同一个。
+    #[cfg(windows)]
+    let key = stripped.replace('/', "\\").to_lowercase();
+    #[cfg(not(windows))]
+    let key = stripped;
+    key.trim_end_matches(['\\', '/']).to_string()
+}
+
+/// 解析出的项目根是不是 HOME 本身。
+///
+/// D-189 让 HOME 的 `.kanzei` 不再把子目录吸上去,但在 HOME 里**直接**开跑这条路还通着:
+/// 一路向上找不到任何标记时兜底返回 cwd,而 cwd 就是 HOME。此时项目级产物(state.db、
+/// project/、memory/)会落进 `~/.kanzei`——那是全局配置根,两边数据就此混在一起
+/// (D-186 的残留正是这么来的)。调用方拿这个判据在开跑前拦下来。
+pub fn is_home_root(root: &Path) -> bool {
+    dirs::home_dir().is_some_and(|home| dir_key(&home) == dir_key(root))
+}
+
 fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
+    let home_key = home.map(dir_key);
     let mut dir = Some(cwd);
     while let Some(d) = dir {
-        let is_home = home.is_some_and(|h| h == d);
+        let is_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
         if (!is_home && d.join(".kanzei").is_dir()) || d.join(".git").is_dir() {
             return Some(d.to_path_buf());
         }
@@ -765,6 +799,56 @@ typo_fielt = true
             Some(marked)
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-194:HOME 判断必须扛得住同一目录的不同写法,否则 D-189 的排除等于没做。
+    #[test]
+    fn home_marker_exclusion_survives_path_form_differences() {
+        let root = project_root_fixture("project-root-home-forms");
+        let home = root.join("home");
+        let plain = home.join("scratch");
+        std::fs::create_dir_all(&plain).unwrap();
+
+        // 这些写法在 Windows 上指的是同一个目录:扩展长度前缀(canonicalize 的产物)、
+        // 正斜杠、末尾分隔符、不同大小写(shell 里键入的)。任何一种没被归一,
+        // `~/.kanzei` 就重新变回项目根磁铁。
+        let mut variants = vec![PathBuf::from(format!(r"\\?\{}", home.display()))];
+        #[cfg(windows)]
+        variants.extend([
+            PathBuf::from(home.display().to_string().replace('\\', "/")),
+            PathBuf::from(format!("{}\\", home.display())),
+            PathBuf::from(home.display().to_string().to_lowercase()),
+        ]);
+        for variant in variants {
+            assert_ne!(
+                discover_project_root_with_home(&plain, Some(&variant)),
+                Some(home.clone()),
+                "HOME 写成 {} 时排除失效",
+                variant.display()
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-194:真实 HOME 必须被 `is_home_root` 认出来——CLI 靠它在开跑前拦下
+    /// "项目级产物落进全局配置根"。
+    #[test]
+    fn is_home_root_recognizes_real_home_in_any_form() {
+        let Some(home) = dirs::home_dir() else {
+            return; // 无 HOME 的环境跳过,不是被测行为。
+        };
+        assert!(is_home_root(&home));
+        #[cfg(windows)]
+        {
+            assert!(is_home_root(&PathBuf::from(format!("{}\\", home.display()))));
+            assert!(is_home_root(&PathBuf::from(
+                home.display().to_string().replace('\\', "/")
+            )));
+            assert!(is_home_root(&PathBuf::from(
+                home.display().to_string().to_uppercase()
+            )));
+        }
+        assert!(!is_home_root(&home.join("projects")));
     }
 
     #[test]

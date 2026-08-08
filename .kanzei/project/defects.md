@@ -1,5 +1,39 @@
 # Defects
 
+## D-194 HOME 判断用裸路径相等,且在 HOME 里直接开跑那条路没堵 [fixed] (high)
+- refs: D-189 D-186
+- 复现: 两处。①`discover_project_root_with_home` 用 `h == d` 逐字节比较判 HOME,而 `dirs::home_dir()` 给的是 `C:\Users\kanzei`——走上来的祖先只要是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize 的产物),`is_home` 就是 false,D-189 的排除当场失效。②HOME 自己当 cwd 时:向上找不到任何标记,兜底 `Some(cwd)` 原样返回,cwd 就是 HOME。`kz run` 与 `kz req/defect/...` 在 HOME 里都会以 HOME 为项目根跑起来。
+- 影响: 项目级产物(state.db、project/ 追踪文件、memory/)落进 `~/.kanzei`——那是全局配置根,和 kanzei.toml、全局记忆、app.json 混在一起;且此时 `project_memory_root(HOME)` 与 `global_memory_root()` 是同一个目录,两个 scope 的 INDEX.md/index.db/inbox.md 静默合流。D-189 拆掉了磁铁(子目录被吸上去),直连这条路仍然通着,本机 `~/.kanzei/project/defects.md` 正是这么留下的。
+- 根因: ①路径比较没归一。同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线,注释里写着),D-189 没沿用那套归一。②D-189 只改了"标记识别",没管"兜底返回 cwd"这条出口。
+- 修复: `config.rs` 新增 `dir_key()`(剥 `\\?\`/`\\?\UNC\` 前缀、去尾分隔符,Windows 上再统一分隔符并小写;Linux 保持大小写与分隔符敏感)供 HOME 判断使用,并暴露 `is_home_root(root)`。CLI 两个入口(`run_cli` 与 `tracker_cli`)开跑前调 `reject_home_as_project_root` 拒绝并给出下一步。桌面端不拦:那里选 HOME 是显式动作,不是误撞。
+- 验收: 单测 `home_marker_exclusion_survives_path_form_differences`(`\\?\`/正斜杠/末尾分隔符/大小写四种写法逐一断言排除仍生效)、`is_home_root_recognizes_real_home_in_any_form`;实测 `kz req list` 与 `kz run` 在 `C:\Users\kanzei` 下均 exit=1 并给出提示,`~/.kanzei` 未被写入,项目仓库内 `kz req list` 不受影响。workspace 276 项全绿。
+- 证据等级: E1(真实 HOME 下的 CLI 实测)
+- 优先级: P1
+- 标签: 核心
+
+## D-195 提示词与装配"同源"只是约定,没有任何机制保证同进同退 [fixed] (high)
+- refs: D-190 D-173
+- 复现: D-190 把前端自查段抽成 `frontend_inspection_guidance()`,但组件注册(crates/kanzei-app/src/main.rs 的 `FrontendToolsComponent`)与提示词追加(同文件 work-priority 旁)是两处各写各的。摘掉组件而留下追加、或把这段写回 dev 基础提示词,都不会有任何东西报错——和 D-190 修之前是同一种失效方式。
+- 影响: D-190 这类错配没有护栏就必然回归,而它的后果是模型被指向不可达的能力,试完失败转去找旁路(D-173 的失效模式)。resolve 末尾的覆盖校验只查硬 deny 声明的 `required_tool`,管不到提示词点名的工具。
+- 根因: 修 D-190 时只搬了位置,没把"提示词点名的工具必须在同一条装配线上注册"变成可执行的判据。
+- 修复: `kanzei_tools::prompt_tool_mentions(prompt)` 提取反引号内的标识符首词(两侧共用一套规则,不各写一份);两条测试各守一半——kanzei-tools 侧遍历 CLI 装配线上每个 agent 的 system,点名的工具必须在 `materialize_tools()` 里(非工具词只有 `node`/`task` 两个白名单项,各自写明理由);kanzei-app 侧断言桌面装配线注册了前端自查段点名的全部 5 个工具。
+- 验收: 反向验证——临时把 `ui_dom` 写回 dev 基础提示词,CLI 侧测试立即失败并指名 "Dev 档的 agent `dev` 提示词点名了 `ui_dom`,但这条装配线没注册它";还原后 workspace 276 项全绿。另有 `prompt_tool_mentions_只取反引号里的标识符首词` 守提取规则本身(防止提取不出东西造成的假绿)。
+- 备注: 同类未修残留一条(D-190 备注里已记):work-priority 段也只有桌面端 append,CLI 提示词里"the selected work-priority mode"永远指向不存在的内容。它不点名工具,所以现有护栏抓不到。
+- 证据等级: E1(反向注入验证护栏会红)
+- 优先级: P1
+- 标签: 核心
+
+## D-196 standing directives 被预算丢弃时不报数,违反自身注释的不变量 [fixed] (medium)
+- refs: D-191
+- 复现: crates/kanzei-tools/src/profiles.rs 的 `dev/memory` 注入,known facts 那半边超预算会补一行"(还有 N 条未列出)",standing directives 那半边一条计数都没有。`MEMORY_CONTEXT_BUDGET` 的注释写的却是"超预算必须显式说明丢了多少,不做静默截断"。
+- 影响: D-191 把 `break` 改成 `continue` 之后更要紧——丢的不再是尾巴而是从中间挑着丢,而 directives 正是标着 "obey these; they are the user's own words" 的用户原话(preference 全文)。模型完全看不出少了哪条,用户也无从察觉自己的常驻指令没进上下文。
+- 根因: D-191 只改了截断方式,没补上它引用的那条不变量;计数只在 known facts 那半边实现过。
+- 修复: directives 循环记 `directives_shown`,少于总数时补一行"(另有 N 条常驻指令因预算未列出,memory_search category=preference 可取全文)",给出可达的取全文路径。
+- 验收: workspace 276 项全绿。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
 ## D-193 发布 tag 建在 main 的 HEAD 上,既对不上产物也架空了 D-183 的区间判据 [fixed] (high)
 - refs: D-183
 - 复现: `gh release create build-<hash> ...` 不带 `--target`。tag 不存在时 gh 在**远端默认分支(main)**的 HEAD 上创建它,而发版是从 `dev` 打的。实证:`git rev-parse build-ecdab96` = `5dcf469`(= origin/main),不是它命名的 `ecdab96`;`build-5dcf469` 同样指向 5dcf469。
@@ -49,8 +83,9 @@
 - 复现: `context_report` 只有 `agent/system` + 各 context source 的字符数,而 `estimate_prompt_tokens`(crates/kanzei-core/src/runner.rs)明确把 tool specs 算进 prompt。桌面 dev 档是 26 个工具的完整 JSON Schema,账单里一个字节都没有。
 - 影响: R-106 说账单要回答"本轮上下文里有什么、各占多少",漏掉工具 schema 就答不了最大的那一项;按这份账单做注入瘦身会一直在小头上使劲。
 - 根因: 账单在 `system_baseline_with_report()` 里组装,而 specs 是在 runner 侧另行构建的,两者没有汇合。
-- 修复: runner 组装 specs 后按 name+description+input_schema 的字符数追加一行 `tools/schema` 到 context_report,与 estimate_prompt_tokens 的口径一致。
+- 修复: runner 组装 specs 后按 name+description+input_schema 的字符数追加一行 `tools/schema` 到 context_report。
 - 验收: CLI 摘要与桌面 run.completed 事件的 context 里出现 `tools/schema` 行;workspace 271 项全绿。
+- 备注: 修复原文写的"与 estimate_prompt_tokens 的口径一致"不成立——新行用 `chars().count()`,而 `estimate_prompt_tokens` 用 `len()` 字节再 /4。**选字符是对的**(账单其余行全是字符,内部自洽才要紧),只是说法要改成"与账单其余行同为字符口径";工具描述里现有 7 处中文,CJK 部分两者差三倍。另一处已知局限:这是单条聚合,26 个工具合成一个数字,能回答"占多少"、回答不了"谁占的",而账单的用处正是拿它砍——按工具分行成本几乎为零,留作后续。
 - 证据等级: E2
 - 优先级: P2
 - 标签: 核心
@@ -79,6 +114,7 @@
 - 根因: 解析缺陷(已在 discover_project_root 修复:最近的 `.git` 赢过更远的 `.kanzei`,且 HOME 自己的 `.kanzei` 不算项目标记)之外,**已经写出去的残留数据**没有清理路径。
 - 修复: 解析侧已修。残留侧需要人拍板:`~/.kanzei/project/` 与 `~/.kanzei/state.db` 属删除操作,必须用户确认后再动(可先备份到 `~/.kanzei/.orphan-backup/`)。
 - 验收: 清理后 `root_has_data(HOME)` 为假;在 `C:\Users\kanzei\` 下新建目录跑一次,能被自动隔离出自己的 `.kanzei`;补一条回归覆盖"HOME 不被当项目根"。
+- 进展: 2026-08-09 复核。①残留已被移走(不是删除):`~/.kanzei/{project/,state.db}` 现在在 `~/.kanzei/.orphan-backup/20260809/` 下,`~/.kanzei` 只剩 kanzei.toml、app.json、memory/。②验收①按现在的写法**永远满足不了**:`root_has_data` 把 `.kanzei/memory` 算作项目数据,而对 HOME 来说那正是**全局**记忆根(inbox.md、index.db),合法且非空——判据没区分"HOME 的 memory 是全局的"。③但验收②已由 D-189 从另一条路满足:HOME 下无标记目录现在解析成它自己,`ensure_project_isolated` 里 `resolved == dir` 直接早返回,自动隔离这条路已经用不上了。④验收③由 D-194 的四种路径写法回归覆盖。结论:要么改判据(HOME 的 memory 不计入 `root_has_data`),要么按②③重写验收后关闭——留给用户拍板。
 - 证据等级: E1(本机文件实证)
 - 优先级: P1
 - 标签: 核心

@@ -25,7 +25,7 @@ pub mod profiles;
 pub mod subagent;
 
 pub use base::BaseComponent;
-pub use profiles::{frontend_inspection_guidance, DevProfile, ResearchProfile};
+pub use profiles::{frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ResearchProfile};
 pub use subagent::{explore_agent, SubagentBase};
 pub use shell::detected_shell;
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。

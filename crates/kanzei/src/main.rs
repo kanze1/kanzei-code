@@ -82,6 +82,26 @@ fn parse_run_args(args: &[String]) -> (bool, String) {
     (new_session, prompt)
 }
 
+/// D-194:HOME 不能当项目根。
+///
+/// `~/.kanzei` 是**全局**配置根(kanzei.toml、memory、app.json)。HOME 一旦成为项目根,
+/// 项目级产物(state.db、project/ 追踪文件)就落进同一个目录和全局数据混在一起,而且
+/// `project_memory_root(HOME)` 与 `global_memory_root()` 会是同一个目录——两个 scope
+/// 的 INDEX.md/index.db/inbox.md 静默合流。D-189 已经堵住"子目录被吸上去";在 HOME 里
+/// 直接开跑这条路要在入口拦:它是误撞(忘了 cd),不是用户的选择,宁可拒绝也不要静默
+/// 写脏全局目录。本机 `~/.kanzei/project/defects.md` 就是这么留下的。
+fn reject_home_as_project_root(project_root: &std::path::Path) -> anyhow::Result<()> {
+    if !kanzei_harness::config::is_home_root(project_root) {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "项目根解析成了 HOME({}),而 ~/.kanzei 是全局配置根:项目数据落进去会和\
+         全局配置、全局记忆混在一起。\n\
+         先 cd 到具体项目目录再跑;确实想把某个目录当项目,就在它下面 mkdir .kanzei。",
+        project_root.display()
+    );
+}
+
 async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let (new_session, prompt) = parse_run_args(args);
     if prompt.trim().is_empty() {
@@ -104,6 +124,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     };
     let project_root =
         kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    reject_home_as_project_root(&project_root)?;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -618,7 +639,9 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
         }
         _ => {}
     }
+    // 追踪类子命令写的正是 .kanzei/project/*.md,和 run 一样不能落进 HOME(D-194)。
     let ctx = ToolCtx::new(std::env::current_dir()?);
+    reject_home_as_project_root(&ctx.project_root)?;
     let output = tool.execute(input, &ctx).await;
     if output.is_error {
         eprintln!("{}", output.content);

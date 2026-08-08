@@ -25,6 +25,35 @@ pub fn frontend_inspection_guidance() -> &'static str {
      silently, D-164)."
 }
 
+/// 提示词里被反引号点名的工具候选:取每段反引号内的第一个词。
+///
+/// D-190 抽出 `frontend_inspection_guidance()` 只是把那段挪了个地方,组件注册与提示词
+/// 追加仍是两处各写各的;真正让它们同进同退的是以此为基础的两条测试(本文件的
+/// CLI 装配线、kanzei-app 的桌面装配线)。提取规则抽成函数是为了两侧共用一套,
+/// 不让它们各写一份慢慢漂开。
+///
+/// 只认 ASCII 标识符形态,所以 `类型: 短期`、`@media ... {`、`{tool}` 这类反引号内容
+/// 自然被滤掉;`req update <id> done` 取首词 `req`。
+pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = prompt;
+    while let Some((_, after)) = rest.split_once('`') {
+        let Some((span, tail)) = after.split_once('`') else {
+            break;
+        };
+        rest = tail;
+        let Some(first) = span.split_whitespace().next() else {
+            continue;
+        };
+        let identifier = first.starts_with(|c: char| c.is_ascii_alphabetic())
+            && first.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if identifier && !out.iter().any(|seen| seen == first) {
+            out.push(first.to_string());
+        }
+    }
+    out
+}
+
 /// 索引注入的预算上限(条数;超出折叠为计数)。
 const INDEX_LIMIT: usize = 30;
 /// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
@@ -255,6 +284,7 @@ impl Component for DevProfile {
                         "STANDING DIRECTIVES (obey these; they are the user's own words):\n",
                     );
                     let mut budget = MEMORY_CONTEXT_BUDGET;
+                    let mut directives_shown = 0usize;
                     for directive in &directives {
                         let cost = directive.chars().count() + 1;
                         // continue 而非 break:放不下的跳过、继续填后面的。break 会让
@@ -263,8 +293,19 @@ impl Component for DevProfile {
                             continue;
                         }
                         budget -= cost;
+                        directives_shown += 1;
                         out.push_str(directive);
                         out.push_str("\n\n");
+                    }
+                    // D-196:被丢掉的必须报数。预算注释写的是"超预算必须显式说明丢了
+                    // 多少,不做静默截断",而这半边一直没有——改成 continue 之后更要紧:
+                    // 丢的不再是尾巴而是中间挑着丢,丢掉的又是标着"obey these; they are
+                    // the user's own words"的用户原话,模型完全看不出少了东西。
+                    if directives_shown < directives.len() {
+                        out.push_str(&format!(
+                            "(另有 {} 条常驻指令因预算未列出,memory_search category=preference 可取全文)\n\n",
+                            directives.len() - directives_shown
+                        ));
                     }
                 }
                 if !lines.is_empty() {
@@ -585,6 +626,73 @@ mod tests {
                 "dev system prompt 缺少 R-085 完成判定约束: {required}"
             );
         }
+    }
+
+    /// D-195:提示词点名的工具必须在同一条装配线上注册。
+    ///
+    /// D-190 把前端自查段抽成函数,但组件注册(桌面端 5583 行)与提示词追加(5596 行)
+    /// 仍是两处各写各的,没有任何东西保证同进同退——这条测试就是那个机制。它守的是
+    /// CLI 装配线:谁把前端段(或任何点名工具的文字)写回 dev 基础提示词,这里立刻红。
+    /// 桌面装配线由 kanzei-app 侧的同名测试守另一半。
+    #[test]
+    fn 提示词点名的工具必须在同一条装配线上注册() {
+        use super::prompt_tool_mentions;
+
+        // 反引号里不是工具的词。每条都要说得出理由,不许为了让测试变绿往里塞。
+        const NOT_TOOLS: &[&str] = &[
+            // shell 命令(`node --check`),不是工具。
+            "node",
+            // 子代理入口:由 runner 在 SubagentRuntime 就位时 push task_spec,
+            // 不进 draft.tools,所以 materialize_tools() 里查不到它。
+            "task",
+        ];
+
+        for profile in [ProfileKind::Dev, ProfileKind::Research] {
+            let root = PathBuf::from("C:/kanzei-d195-test");
+            let ctx = ResolveCtx {
+                profile,
+                cwd: root.clone(),
+                project_root: root,
+                config: Arc::new(KanzeiConfig::default()),
+            };
+            // CLI 的装配线,但不加 MarkdownComponent:它读真实 ~/.kanzei,
+            // 会让这条测试的结果取决于跑测试的机器上放了什么。
+            let mut harness = Harness::default();
+            harness
+                .add(crate::BaseComponent)
+                .add(DevProfile)
+                .add(super::ResearchProfile)
+                .add(ConfigComponent);
+            let snapshot = harness.resolve(&ctx).unwrap();
+            let tools: Vec<String> = snapshot
+                .materialize_tools()
+                .iter()
+                .map(|t| t.name().to_string())
+                .collect();
+
+            for (name, agent) in snapshot.agents().iter() {
+                for mentioned in prompt_tool_mentions(&agent.system) {
+                    if NOT_TOOLS.contains(&mentioned.as_str()) {
+                        continue;
+                    }
+                    assert!(
+                        tools.contains(&mentioned),
+                        "{profile:?} 档的 agent `{name}` 提示词点名了 `{mentioned}`,\
+                         但这条装配线没注册它——模型试完失败就会转去找旁路(D-173/D-190)。\
+                         已注册: {tools:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn prompt_tool_mentions_只取反引号里的标识符首词() {
+        let mentions = super::prompt_tool_mentions(
+            "use `req update <id> done` and `git commit`, not `node --check`; \
+             `类型: 短期` and `@media ... {` and `{tool}` are not tools; `req` repeats",
+        );
+        assert_eq!(mentions, vec!["req", "git", "node"]);
     }
 
     /// D-173:硬 deny 与专用工具必须闭合。
