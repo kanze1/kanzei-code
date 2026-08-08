@@ -1103,3 +1103,19 @@
 
 - 进展: 写入端打通(2026-08-08):此前 test_run_record 全仓零调用,tests.md 永不产生,左侧栏永远空、归档永不执行。本轮按 architecture.rs 的 D-173 先例——权限严了就得配专用工具——新增 agent 工具 test_record 作为 .kanzei/project/tests.md 唯一合法写通道(kanzei-tools/src/test_record.rs:TestRecordTool),并把解析/快照/自动归档逻辑从 kanzei-app main.rs 下沉到 kanzei-tools(parse_test_blocks/test_runs_snapshot/append_test_run),app 的 test_runs_snapshot 与 test_run_record 改为薄封装调用同一实现,消除两套格式解析漂移。DevProfile 注册 test_record 并把 *.kanzei/project/tests* 加入 write/edit 硬 deny(替代工具 test_record,profiles.rs)。验证:新增 6 个单测(解析、running 留存、终态自动归档、非法状态拒绝、工具端到端),kanzei-tools 94 项、kanzei-app 36 项、workspace 全量全绿;ui-runtime-smoke 展示端既有断言通过(桩数据渲染)。逐条对照验收:①「左侧栏以清晰形式列出所有已获取测试结果」——展示端为既有能力(main.js:3480 renderTestRuns 渲染 active+archived/状态符号/悬浮字段,main.js:3507 invoke test_runs_snapshot,ui-runtime-smoke.mjs:646 断言),数据产生通道为本轮交付(test_record 工具);②「每条记录需触发/完成归档动作」——test_runs_snapshot 自动把终态记录移入 tests-archive.md(test_record.rs 快照逻辑),单测 append_then_snapshot_archives_terminal_status / running_status_stays_active_until_terminal 覆盖;遗留质量问题 parse_test_blocks 无单测已补齐。
 
+## R-086 控制类事件按会话路由与 pending ask 重建 [done]
+- 复杂度: 大
+- 优先级: P1
+- 来源: 2026-08-07 审计;D-055、D-056 的共同根因
+- 内容: 前端 on() 目前对非活动会话的所有事件一刀切丢弃(ui/main.js:6-15),把"哪个会话该看到"与"哪个会话该记账"混为一谈。ask/done/error/stopped 这类控制事件承载的是状态迁移而非展示内容,被丢弃后:后台进程的权限询问永久挂死(后端 receiver.await 无重发)、运行结束状态永不复位。当前只做了症状级修复(按进程身份重算 running),真正的解法是把会话状态与视图渲染分离:每个会话维护独立的运行/待答状态机,控制事件按 sessionId 更新对应状态机,视图只订阅活动会话的展示事件。
+- 验收: 后台会话的权限询问在切回该进程时可见并可答复;后端提供 pending asks 查询以支持重建;任意会话运行结束后其状态正确复位而不依赖当前视图;补多会话并发下 ask/done 不丢不串的验证。
+- 备注: 属架构级改动,涉及前端事件层、会话状态容器与后端 ask 生命周期,不可按普通 bug 就地打补丁。
+- refs: D-055 D-056 R-030 R-078 D-078 D-085
+- 阶段: 1
+- 证据等级: E2+E3
+- 设计定位: 会话状态权威、控制事件路由和 pending ask 重建
+
+- 标签: 后端
+
+- 进展: 状态权威定为「每会话一个前端状态机 + 后端 running 为真值源」：控制事件按 sessionId 先更新状态机再决定是否投影视图，视图只投影活动会话。本轮交付：①前端 sessionStates 状态机与 kz:ask 的按会话入队/切回重放；②后端补会话级终态事件 kz:idle（run_prompt 的 run loop 退出时发，reason 区分 completed/failed），前端只认 kz:idle/kz:stopped 收敛 converged、并用每轮必发的 kz:turn 自愈——修掉了「kz:done 其实是轮末事件却被当会话终态」引入的回归：排队输入的多轮运行从第二轮起标签页熄灯、切回显示空闲并解禁发送键，且 converged 屏蔽了轮询校正再也纠不回来；③pending_asks_get 接进 renderProcesses 的首次渲染（按会话去重），界面重载后后端仍在 await 的挂起询问能被重建，此前该查询全仓只有 switchProcess 一个调用点。验证：ui-runtime-smoke 新增「多轮不熄灯 / kz:idle 才收敛 / 切回可见可答复不串会话 / 重载后从后端重建」四组断言，cargo test --workspace 269 项全绿。剩余：控制事件仍未带运行代次（run_id），停止后紧接重发这类极窄竞态下旧事件仍可能错配，需要时再上代次方案；验收整体待桌面端双进程真机实测（E2/E3）。
+
