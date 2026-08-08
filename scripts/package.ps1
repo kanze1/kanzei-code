@@ -10,6 +10,9 @@ $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 
 $hash = (git -C $root rev-parse --short HEAD).Trim()
+# 全 SHA 单独留一份:GitHub 的 target_commitish 只认 40 位 SHA 或分支名,
+# 短 hash 会被 422 Validation Failed 挡回来(实测 build-84f843e)。
+$full_hash = (git -C $root rev-parse HEAD).Trim()
 $date = Get-Date -Format "yyyy-MM-dd"
 $build_at = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
 $env:KANZEI_BUILD_INFO = "$hash $build_at"
@@ -90,7 +93,7 @@ if ($Publish) {
     # HEAD 上建它,而我们从 dev 发版。实测 build-ecdab96 因此指向了 5dcf469——发布 tag
     # 对不上真正构建的提交,更要命的是上面那段 D-183 区间判据从此一直从 main 起算,
     # 每次发版都把同一批 dev 提交重新数一遍,守卫的精度就没了。
-    gh release create $tag $out --repo kanze1/kanzei-code --target $hash --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
+    gh release create $tag $out --repo kanze1/kanzei-code --target $full_hash --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
     if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
 }
