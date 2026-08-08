@@ -918,3 +918,23 @@
 
 - 进展: 验收逐条对照完成：① conventions.md:32-38 新增“完成判定与验收证据”，明确每项验收须给精确位置证据；② conventions.md:35 与 DevProfile 系统提示 crates/kanzei-tools/src/profiles.rs:288-294 明确真实调用方/消费者门槛，且 profiles.rs:501-525 有机械回归；③ conventions.md:36 与 profiles.rs:292 明确既有能力必须标注、不得冒充本次交付；④ conventions.md:37 与 profiles.rs:292-294 明确不得缩小平台/端/环境/用户范围，证据不足保持活动态。真实消费者同时覆盖桌面自动续跑提示 crates/kanzei-app/ui/main.js:2205-2207，scripts/ui-runtime-smoke.mjs:99-110 留有回归断言。验证：定向 cargo test -p kanzei-tools dev_system_prompt_enforces_acceptance_evidence_contract、node --check、ui-runtime-smoke、cargo test --workspace 全绿；真实运行页面 DOM 正常且 console 无错误。cargo fmt --all -- --check 因仓库既有多文件未格式化失败，未扩大为无关格式化。
 
+## R-083 修复 codex 批次遗留的高危缺陷 [done]
+- 复杂度: 大
+- 优先级: P3
+- 来源: 2026-08-07 全项目审计(5 个分区并行审计 + 3 组验收核查)
+- 内容: 本轮审计共记录 D-048~D-096 共 49 条缺陷,其中 P0 级 9 条集中在三条主线:①前端渲染崩溃与会话事件路由(D-048、D-055、D-056);②权限硬门禁被路径变体与命令泛化击穿(D-050、D-051);③队列与会话 ID 一致性(D-057、D-058)。另有数据丢失类 D-060(手改内容被销毁)、D-053/D-054(上下文与拒绝路径毒化会话)。
+- 验收: 9 条 P0 缺陷全部修复并有回归测试;修复后 cargo test --workspace 全绿;前端补最低限度的运行时冒烟检查(能捕获 ReferenceError 一类问题)。
+- 进展: D-068 已 fixed/archived；按用户决定暂缓剩余高影响依赖 D-061，本轮转向体验类缺陷。
+- 备注: 按项目规范先处理缺陷再做需求,本需求作为该批次的收口凭据。
+- 阶段: 1
+- 证据等级: E2
+- 设计定位: 高危缺陷收口与全局质量基线
+
+- 标签: 核心
+
+- 暂缓: 用户决定本阶段先做体验完善，暂缓 D-061 OAuth 共享凭证并发锁/原子替换；D-068 已 fixed/archived，后续恢复时先确认 Windows 锁与跨进程方案。
+- refs: D-050 D-051 D-053 D-054 D-055 D-056 D-060 D-064 D-066 D-068 D-061
+
+- 本轮交付说明: 本条是 codex 审计批次的收口凭据；上述修复均为此前各 D 条目的既有交付，本轮没有冒充为新增代码。本轮新增产出是按 R-085 规则逐项复核范围、执行最新全量 Rust/UI 运行时验收并关闭已满足的 doing 条目。D-061 也已按用户定调完成“原子替换+写前重读”并 fixed，不再构成暂缓项。
+- 验收逐条对照: ①“9 条 P0 缺陷全部修复并有回归测试”：验收正文点名的全部高危项均已 fixed/archived——D-048（main.js:3802-4001，runtime smoke 实际执行渲染）、D-050（write.rs:257 runner 硬门禁真实调用测试）、D-051（结构化 bash 作用域与 always_allow_bash CLI E2）、D-053（runner.rs:1559 工具循环压缩无孤儿结果）、D-054（runner.rs:1206/1266 拒绝批次补齐 ToolResult及 CLI 续聊 E2）、D-055（app main.rs:3622 pending_asks_get；ui/main.js:3274 重建消费者）、D-056（ui/main.js:1879/2539 切换时按目标会话复位）、D-057（app main.rs:4049-4414 promoted 输入直接交接）、D-058（app main.rs:205 及 conversation/workspace 全读写路径统一 normalized_project_root）、D-060（tracker.rs:772/799 手写自由内容 add/archive 回归）。原文计数写“9 条”但实际点名十项，按不得缩小范围原则十项全部核对。② cargo test --workspace 本轮全绿：214 项（5+3+1+23+47+34+37+64）。③ scripts/ui-runtime-smoke.mjs:2 明确覆盖 ReferenceError/初始化崩坏，本轮 main.js 全量执行、62 次 invoke、文档列表和 6 个主视图渲染，0 运行时错误；真实运行页面 #req-list 已渲染，ui_console 无错误或警告。
+
