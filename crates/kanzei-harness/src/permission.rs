@@ -17,10 +17,28 @@ pub struct Rule {
     pub effect: Effect,
 }
 
+/// 硬 deny 的资源族与它的合法替代路径(D-173)。
+///
+/// 硬 deny 只说"不准这样写",不说"那该怎么写"。缺了后半句就是能力死区:
+/// 模型确认没有合法通道后不会停手,而是去找旁路(shell 重定向、.NET
+/// WriteAllText、另起解释器),于是安全边界形同虚设。因此每一条硬 deny
+/// 都必须显式声明它对应的专用工具;确实还没实现的,也必须显式声明为
+/// `required_tool: None`,让拒绝理由如实说成"能力未实现"而不是编一个不存在的工具。
+#[derive(Debug, Clone)]
+pub struct ManagedResource {
+    pub action: String,
+    pub resource: String,
+    /// 合法写通道的工具名;None = 该资源族目前没有任何合法写通道。
+    pub required_tool: Option<String>,
+    /// 给模型的一句话说明(为什么托管、该怎么做)。
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Ruleset {
     rules: Vec<Rule>,
     hard_denies: Vec<Rule>,
+    managed: Vec<ManagedResource>,
 }
 
 impl Ruleset {
@@ -28,6 +46,7 @@ impl Ruleset {
         Ruleset {
             rules,
             hard_denies: Vec::new(),
+            managed: Vec::new(),
         }
     }
 
@@ -41,6 +60,34 @@ impl Ruleset {
         self.hard_denies.push(rule);
     }
 
+    /// 硬 deny + 合法替代路径声明。resolve 时会校验 required_tool 真的注册了。
+    pub fn push_managed_hard_deny(
+        &mut self,
+        rule: Rule,
+        required_tool: Option<&str>,
+        note: Option<&str>,
+    ) {
+        self.managed.push(ManagedResource {
+            action: rule.action.clone(),
+            resource: rule.resource.clone(),
+            required_tool: required_tool.map(str::to_string),
+            note: note.map(str::to_string),
+        });
+        self.push_hard_deny(rule);
+    }
+
+    pub fn managed_resources(&self) -> &[ManagedResource] {
+        &self.managed
+    }
+
+    /// 命中的托管资源族(用于把拒绝理由换成"该走哪个工具")。
+    pub fn managed_for(&self, action: &str, resource: &str) -> Option<&ManagedResource> {
+        self.managed.iter().find(|m| {
+            wildcard_match(&m.action, action)
+                && resource_match_for_action(action, &m.resource, resource)
+        })
+    }
+
     pub fn extend(&mut self, rules: impl IntoIterator<Item = Rule>) {
         self.rules.extend(rules);
     }
@@ -48,14 +95,15 @@ impl Ruleset {
     /// 硬 deny 优先；普通规则保持 last-match-wins，无匹配 → Ask。
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
         if self.hard_denies.iter().any(|r| {
-            wildcard_match(&r.action, action) && resource_match_for_action(action, &r.resource, resource)
+            wildcard_match(&r.action, action)
+                && resource_match_for_action(action, &r.resource, resource)
         }) {
             return Effect::Deny;
         }
-        let matched =
-            self.rules.iter().rev().find(|r| {
-                wildcard_match(&r.action, action) && resource_match_for_action(action, &r.resource, resource)
-            });
+        let matched = self.rules.iter().rev().find(|r| {
+            wildcard_match(&r.action, action)
+                && resource_match_for_action(action, &r.resource, resource)
+        });
         let Some(rule) = matched else {
             return Effect::Ask;
         };
@@ -405,7 +453,11 @@ mod tests {
             "python -c open_secret",
             "pwsh -Command Set-Content secret x",
         ] {
-            assert_eq!(rs.evaluate("bash", command), Effect::Ask, "command={command}");
+            assert_eq!(
+                rs.evaluate("bash", command),
+                Effect::Ask,
+                "command={command}"
+            );
         }
     }
 
@@ -422,7 +474,8 @@ mod tests {
 
     #[test]
     fn bash_resources_keep_shell_text_opaque_during_matching() {
-        let resource = r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"subdir"}"#;
+        let resource =
+            r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"subdir"}"#;
         let rs = Ruleset::new(vec![Rule {
             action: "bash".into(),
             resource: resource.into(),
@@ -490,6 +543,47 @@ mod tests {
             rs.evaluate("write", ".kanzei/project/requirements.md"),
             Effect::Deny
         );
+    }
+
+    #[test]
+    fn managed_hard_deny_carries_its_legal_alternative() {
+        // D-173:硬 deny 必须同时回答"那该走哪条路",否则模型会去找旁路。
+        let mut rs = Ruleset::default();
+        rs.push_managed_hard_deny(
+            Rule {
+                action: "write".into(),
+                resource: "*.kanzei/project/defects.md".into(),
+                effect: Effect::Deny,
+            },
+            Some("defect"),
+            Some("缺陷条目由引擎分配 ID"),
+        );
+        rs.push_managed_hard_deny(
+            Rule {
+                action: "write".into(),
+                resource: "*.kanzei/project/*".into(),
+                effect: Effect::Deny,
+            },
+            None,
+            None,
+        );
+        assert_eq!(
+            rs.evaluate("write", ".kanzei/project/defects.md"),
+            Effect::Deny
+        );
+        let managed = rs
+            .managed_for("write", &normalize_resource(".kanzei/project/defects.md"))
+            .expect("命中托管族");
+        assert_eq!(managed.required_tool.as_deref(), Some("defect"));
+        // 只被兜底族命中的资源:必须如实说成"没有专用工具",不能编一个。
+        let fallback = rs
+            .managed_for(
+                "write",
+                &normalize_resource(".kanzei/project/architecture/README.md"),
+            )
+            .expect("命中兜底族");
+        assert_eq!(fallback.required_tool, None);
+        assert!(rs.managed_for("write", "src/main.rs").is_none());
     }
 
     #[test]

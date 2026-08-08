@@ -53,10 +53,30 @@ impl Harness {
     }
 
     /// 组件按注册顺序贡献;后注册的组件对同名条目 last-wins。
+    ///
+    /// 装配末尾做**能力覆盖校验**(D-173):声明了 required_tool 的托管资源族,
+    /// 那个工具必须真的在注册表里,否则拒绝理由会指向一个不存在的工具,
+    /// 模型照做失败后就会转去找旁路。这是装配期的编程错误,直接炸在启动。
     pub fn resolve(&self, ctx: &ResolveCtx) -> anyhow::Result<Arc<HarnessSnapshot>> {
         let mut draft = HarnessDraft::default();
         for component in &self.components {
             component.contribute(&mut draft, ctx)?;
+        }
+        let missing: Vec<String> = draft
+            .permissions
+            .managed_resources()
+            .iter()
+            .filter_map(|managed| {
+                let tool = managed.required_tool.as_deref()?;
+                (draft.tools.get(tool).is_none())
+                    .then(|| format!("{} {} → `{tool}`", managed.action, managed.resource))
+            })
+            .collect();
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "harness 装配错误:以下硬 deny 资源族声明的专用工具没有注册,拒绝理由会指向不存在的工具:\n{}",
+                missing.join("\n")
+            );
         }
         Ok(Arc::new(HarnessSnapshot {
             ctx: ctx.clone(),
@@ -150,6 +170,43 @@ impl HarnessSnapshot {
     /// 权限评估入口(拦截器在 core 侧调用)。
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
         self.draft.permissions.evaluate(action, resource)
+    }
+
+    /// 被硬门禁拒绝时回喂模型的下一步指引(D-173)。
+    ///
+    /// 三种情形必须说三种话:有专用工具就点名它;声明为"暂无专用工具"的资源族
+    /// 必须如实说成能力未实现,并明确堵死绕行;不属于任何托管族的普通 deny
+    /// 保持原样。旧文案一律说 "use the dedicated tool for it",在架构索引这类
+    /// 没有工具的资源上就是假信息——模型照做失败后转而用 shell 绕过。
+    pub fn denial_hint(&self, action: &str, resource: &str) -> String {
+        match self.draft.permissions.managed_for(action, resource) {
+            Some(managed) => {
+                let note = managed
+                    .note
+                    .as_deref()
+                    .map(|n| format!(" ({n})"))
+                    .unwrap_or_default();
+                match managed.required_tool.as_deref() {
+                    Some(tool) => format!(
+                        "This resource is policy-managed{note}. The ONLY legal write channel is \
+                         the `{tool}` tool — use it instead. Do not route around this gate."
+                    ),
+                    None => format!(
+                        "This resource is policy-managed{note} and NO dedicated tool exists for \
+                         it yet — this is an unimplemented capability, not a permission you can \
+                         work around. Do NOT reach it through the shell (redirects, \
+                         Set-Content/Out-File, [System.IO.File]::WriteAllText, python/node \
+                         one-liners, git checkout of a crafted blob): shell writes to this path \
+                         are detected and rolled back. Record the capability gap (`defect add`) \
+                         and tell the user, then move on."
+                    ),
+                }
+            }
+            None => format!(
+                "`{action}` on this resource is denied by the ruleset. If you believe it should \
+                 be allowed, say so to the user — do not look for another route to the same effect."
+            ),
+        }
     }
 }
 

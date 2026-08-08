@@ -75,16 +75,68 @@ impl Component for DevProfile {
         for tool in ["memory_search", "memory_note", "memory_stats"] {
             draft.permissions.push(rule(tool, "*", Effect::Allow));
         }
-        draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
+        draft
+            .tools
+            .insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
+
+        // 架构索引的专用写通道(D-173):原先这个资源族只有硬 deny 没有工具,
+        // 合法路径不可达,模型就去找 shell 旁路。读/校验放行,写仍逐次询问。
+        draft.tools.insert(
+            "architecture",
+            Arc::new(crate::architecture::ArchitectureTool),
+        );
+        for read_only in ["get", "check", "regenerate"] {
+            draft
+                .permissions
+                .push(rule("architecture", read_only, Effect::Allow));
+        }
 
         // 硬 deny:项目文档与记忆文件只能走专用工具(用户手改不受此限——这是模型的门禁)。
+        // 每条 deny 都必须挂上它的合法替代路径:resolve 会校验那个工具真的注册了,
+        // 拒绝理由也由此推导,不会再固定说一句不存在的 "use the dedicated tool"。
+        // 顺序=特化在前、兜底在后;managed_for 取首个命中。
         for action in ["write", "edit"] {
-            draft
-                .permissions
-                .push_hard_deny(rule(action, "*.kanzei/project/*", Effect::Deny));
-            draft
-                .permissions
-                .push_hard_deny(rule(action, "*.kanzei/memory/*", Effect::Deny));
+            for (resource, tool, note) in [
+                (
+                    "*.kanzei/project/architecture/*",
+                    Some("architecture"),
+                    "架构索引:链接与命名由引擎校验",
+                ),
+                (
+                    "*.kanzei/project/requirements*",
+                    Some("req"),
+                    "需求条目:ID 由引擎分配、状态机受限",
+                ),
+                (
+                    "*.kanzei/project/defects*",
+                    Some("defect"),
+                    "缺陷条目:ID 由引擎分配、状态机受限",
+                ),
+                (
+                    "*.kanzei/project/goals*",
+                    Some("goal"),
+                    "长期目标:ID 由引擎分配、状态机受限",
+                ),
+                (
+                    "*.kanzei/project/decisions*",
+                    Some("decision"),
+                    "设计决策:ID 由引擎分配、状态机受限",
+                ),
+                (
+                    "*.kanzei/memory/*",
+                    Some("memory_note"),
+                    "记忆库:写路径属 memory-manager 子代理,主 agent 只投草稿",
+                ),
+                // 兜底族:.kanzei/project 下其余文件(conventions.md 等)是用户手写资产,
+                // 模型没有任何合法写通道——如实说成"能力未实现",不要编一个工具名。
+                ("*.kanzei/project/*", None, "用户手写的项目资产,模型只读"),
+            ] {
+                draft.permissions.push_managed_hard_deny(
+                    rule(action, resource, Effect::Deny),
+                    tool,
+                    Some(note),
+                );
+            }
         }
 
         // 长期目标(R-019):活跃目标全文注入——"没有明确任务时推进目标"的信息基础。
@@ -162,12 +214,7 @@ impl Component for DevProfile {
                         }
                         if e.category == "preference" {
                             let body: String = e.body.chars().take(600).collect();
-                            directives.push(format!(
-                                "{} {}\n{}",
-                                e.id,
-                                e.title,
-                                body.trim()
-                            ));
+                            directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
                         } else {
                             lines.push(format!(
                                 "{} [{}/{}] {} — {}",
@@ -190,7 +237,9 @@ impl Component for DevProfile {
                 }
                 let mut out = String::from("<memory-index>\n");
                 if !directives.is_empty() {
-                    out.push_str("STANDING DIRECTIVES (obey these; they are the user's own words):\n");
+                    out.push_str(
+                        "STANDING DIRECTIVES (obey these; they are the user's own words):\n",
+                    );
                     let mut budget = MEMORY_CONTEXT_BUDGET;
                     for directive in &directives {
                         let cost = directive.chars().count() + 1;
@@ -387,10 +436,9 @@ impl Component for ResearchProfile {
                 requires_refs: None,
             }),
         );
-        draft.tools.insert(
-            "websearch",
-            Arc::new(crate::websearch::WebSearchTool),
-        );
+        draft
+            .tools
+            .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
         draft.tools.insert(
             "finding",
             Arc::new(TrackerTool {
@@ -411,7 +459,9 @@ impl Component for ResearchProfile {
         // 研究模式下 bash 全程 ask(默认即 ask,这里显式声明意图);联网抓取放行(主力工具)。
         draft.permissions.push(rule("bash", "*", Effect::Ask));
         draft.permissions.push(rule("webfetch", "*", Effect::Allow));
-        draft.permissions.push(rule("websearch", "*", Effect::Allow));
+        draft
+            .permissions
+            .push(rule("websearch", "*", Effect::Allow));
 
         draft.context.insert(
             "research/docs",
@@ -526,19 +576,95 @@ mod tests {
         }
     }
 
+    /// D-173:硬 deny 与专用工具必须闭合。
+    /// 有工具的资源族要点名工具;没工具的要如实说"能力未实现"并堵死 shell 绕行。
+    #[test]
+    fn 每个硬deny资源族都给出真实可达的下一步() {
+        let root = PathBuf::from("C:/kanzei-d173-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(crate::BaseComponent).add(DevProfile).add(ConfigComponent);
+        // resolve 本身就是覆盖校验:声明的 required_tool 没注册会直接 bail。
+        let snapshot = harness.resolve(&ctx).unwrap();
+
+        for (path, tool) in [
+            (".kanzei/project/requirements.md", "req"),
+            (".kanzei/project/defects-archive.md", "defect"),
+            (".kanzei/project/goals.md", "goal"),
+            (".kanzei/project/architecture/README.md", "architecture"),
+            (".kanzei/memory/M-001-x.md", "memory_note"),
+        ] {
+            let normalized = kanzei_harness::permission::normalize_resource(path);
+            assert_eq!(snapshot.evaluate("write", &normalized), Effect::Deny, "{path}");
+            let hint = snapshot.denial_hint("write", &normalized);
+            assert!(hint.contains(&format!("`{tool}`")), "{path} 的指引没点名 {tool}: {hint}");
+        }
+
+        // 没有专用工具的资源族:必须如实说能力未实现,并明确堵死 shell 绕行。
+        let conventions =
+            kanzei_harness::permission::normalize_resource(".kanzei/project/conventions.md");
+        assert_eq!(snapshot.evaluate("write", &conventions), Effect::Deny);
+        let hint = snapshot.denial_hint("write", &conventions);
+        assert!(hint.contains("unimplemented capability"), "{hint}");
+        assert!(hint.contains("WriteAllText"), "{hint}");
+        assert!(!hint.contains("use the dedicated tool"), "不得编造不存在的工具: {hint}");
+
+        // 架构索引现在有了合法通道,而且读/校验默认放行。
+        assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("architecture", "check"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("architecture", "update"), Effect::Ask);
+    }
+
+    /// 覆盖校验必须真的会炸:声明了不存在的工具就不该装配成功。
+    #[test]
+    fn 声明了未注册的专用工具时装配直接失败() {
+        struct BrokenComponent;
+        impl kanzei_harness::Component for BrokenComponent {
+            fn contribute(
+                &self,
+                draft: &mut kanzei_harness::HarnessDraft,
+                _ctx: &ResolveCtx,
+            ) -> anyhow::Result<()> {
+                draft.permissions.push_managed_hard_deny(
+                    rule("write", "*.kanzei/ledger/*", Effect::Deny),
+                    Some("ledger"),
+                    None,
+                );
+                Ok(())
+            }
+        }
+        let root = PathBuf::from("C:/kanzei-d173-gap");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(BrokenComponent);
+        let error = match harness.resolve(&ctx) {
+            Ok(_) => panic!("覆盖校验没生效:声明了不存在的工具却装配成功"),
+            Err(error) => error.to_string(),
+        };
+        assert!(error.contains("ledger"), "{error}");
+    }
+
     #[test]
     fn dev_project_document_deny_survives_later_user_rules() {
         let mut config = KanzeiConfig::default();
-        config.permissions.rules.push(rule(
-            "write",
-            "*.kanzei/project/*",
-            Effect::Ask,
-        ));
-        config.permissions.rules.push(rule(
-            "write",
-            "*.kanzei/project/*",
-            Effect::Allow,
-        ));
+        config
+            .permissions
+            .rules
+            .push(rule("write", "*.kanzei/project/*", Effect::Ask));
+        config
+            .permissions
+            .rules
+            .push(rule("write", "*.kanzei/project/*", Effect::Allow));
         let root = PathBuf::from("C:/kanzei-d050-test");
         let ctx = ResolveCtx {
             profile: ProfileKind::Dev,

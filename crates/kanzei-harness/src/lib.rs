@@ -19,7 +19,7 @@ pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };
 pub use markdown::MarkdownComponent;
-pub use permission::{Effect, Rule, Ruleset};
+pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
 pub use tool::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
