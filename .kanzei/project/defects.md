@@ -1,12 +1,11 @@
 # Defects
 
-## D-210 拖拽锁提示不点名具体筛选,持久化残留筛选让"没筛选也拖不了"无从定位 [fixed] (medium)
-- refs: D-207 R-115 D-169
-- 复现: 2026-08-09 用户实测(c8be9ac):关闭分组后提示变成"有筛选时不可拖拽——清除筛选后可拖",但用户"没筛选也拖不了"。根因:R-115 之后状态/优先级/复杂度/标签/阻塞五项筛选**按项目持久化**,某天设过的筛选重启后仍生效而下拉不显眼;第一版提示(da6c380)只笼统说"有筛选",不点名是哪一项,用户无从定位。另用户反馈提示行样式丑(🔒+长句挤在列表顶)。
-- 附带发现: `docDragEnabled` 的 defect 分支只查 status/priority——tag/blocked 筛选下列表同样不完整,commitDocOrder 提交缺条目的顺序会被引擎拒绝,属漏判。
-- 修复: ①锁因点名:逐项列出具体条件(如「拖拽调序已锁: 分组视图 · 复杂度=中」),定位不再靠猜;②一键「解锁」按钮:关分组(走现有开关按钮,复用持久化与按钮态)、切回手动排序、五项筛选清为 all,saveDocFilters+syncDocFilterControls+refreshDocs 一步到位;③样式重做成轻卡片(边框圆角、溢出省略、去 emoji);④defect 拖拽守卫补全 tag/blocked,与锁因清单同口径。
-- 验收: 四条前端冒烟全绿(a11y 断言更新为钉新守卫形态);用户复查:残留筛选场景下提示能点名到具体项,点解锁后可拖。
-- 证据等级: E1(用户截图两张 + R-115 持久化机制实证)
+## D-211 拖拽解锁后条目可选中但仍拖不动 [open] (medium)
+- refs: D-210 D-207 R-054
+- 复现: 2026-08-09 用户实测(f2f72fb):点「解锁」后锁提示消失、条目可选中,但拖拽仍然不生效("能选但是依然拖不动")。
+- 排查线索(给取活者): ①`item.draggable = true` 只在 renderDocList 的 `if (!isGrouped && docDragEnabled(...))` 分支设置——解锁后 refreshDocs 重渲染,确认该分支真的走到(isGrouped 的判定用的是 `reqFilterState.grouped`,解锁走 toggle 按钮 click,状态是否在重渲染前生效?);②dragstart handler 要求 `filters.sort === "manual"` 等条件在 `reqDragEnabled` 里二次判定,两处口径是否一致;③documents 页与侧栏的 filters 对象不同(documentFilters vs reqFilters),解锁按钮改的是传入的 reqFilterState 引用,确认改到的是当前列表用的那份;④浏览器层面:doc-item 内部的 doc-row 有 role=button+tabIndex,click/drag 事件可能被行内可交互元素抢占;⑤D-202 的主线程卡顿也可能吞 drag 事件,复现时注意会话长度。
+- 验收: 解锁后(或本就无锁时)侧栏与文档页的需求/缺陷列表均可拖拽并成功落库(docs_update reorder 返回成功、md 文件顺序变化);冒烟或 E2 覆盖"解锁→拖拽→落库"链路;用户复查可拖。
+- 证据等级: E1(用户实测)
 - 优先级: P1
 - 标签: 前端
 
