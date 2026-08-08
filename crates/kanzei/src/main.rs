@@ -419,6 +419,14 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
             }
         }
+        // 条目关闭触发的根因→fact(R-105):完成条目的同时把根因原料投 inbox,
+        // 由 memory-manager 提炼成 fact。闸门在 completed_entry 里用代码强制。
+        if let Some(done) = kanzei_core::completed_entry(this_run) {
+            let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
+            if kanzei_tools::memory::harvest_entry_fact(&store, &done, &prompt, &signals) {
+                eprintln!("\x1b[90m(memory: 已投递 {} 的根因候选待整理)\x1b[0m", done.id);
+            }
+        }
     }
     // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
     {

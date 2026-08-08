@@ -5716,10 +5716,18 @@ async fn run_task(
                 // SOP 提炼(R-124):只在本轮确实完成了一个完整条目时触发,闸门在
                 // completed_entry 里用代码强制。SOP 是用户的常用模板,所以只产候选,
                 // 落到 global 候选箱等用户一键采纳——agent 不能自己决定入库。
+                // 根因→fact(R-105):同一次收口把根因原料投项目 inbox,由 manager
+                // 提炼成 fact——SOP 判 NOOP 时根因仍有记忆价值。
                 if let Some(done) = kanzei_core::completed_entry(this_run) {
                     if let Some(global) = kanzei_tools::memory::MemoryStore::global() {
                         kanzei_tools::memory::harvest_sop(&global, &done, &prompt);
                     }
+                    kanzei_tools::memory::harvest_entry_fact(
+                        &kanzei_tools::memory::MemoryStore::project(&ctx.project_root),
+                        &done,
+                        &prompt,
+                        &signals,
+                    );
                 }
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
                 let _ = store.append_episode(&kanzei_core::EpisodeRecord {

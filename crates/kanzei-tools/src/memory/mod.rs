@@ -272,6 +272,55 @@ pub fn harvest_sop(
     store.append_note(&summary, &detail, "sop").is_ok()
 }
 
+/// 根因→fact 蒸馏(R-105):完成一个完整条目的同时,把这条目的根因原料
+/// (触发任务 + 工具顺序 + 本轮失败信号)投进 inbox,由 memory-manager 提炼成
+/// fact。与 `harvest_sop` 的差别:SOP 是"怎么做"的可复用模板,这里要的是
+/// "为什么/是什么坑"——条目修完但失败信号可能为空(没重复失败),SOP 也可能
+/// 判 NOOP(流程不通用),根因本身仍有记忆价值,是「写入→命中→避免重复探索」
+/// 闭环的一环。值不值得记、归哪类仍由 manager 判定,引擎只投原料。
+pub fn harvest_entry_fact(
+    store: &MemoryStore,
+    entry: &kanzei_core::CompletedEntry,
+    prompt: &str,
+    failures: &[kanzei_core::FailureSignal],
+) -> bool {
+    // 同一条目只投一次:同一轮反复触发或重跑不该堆出一摞一样的原料。
+    let fingerprint = format!("[fact:{}]", entry.id);
+    if store.note_fingerprint_seen(&fingerprint) {
+        return false;
+    }
+    let flow = entry.tools.join(" → ");
+    let failures_text = if failures.is_empty() {
+        "(无失败信号)".to_string()
+    } else {
+        failures
+            .iter()
+            .map(|f| {
+                format!(
+                    "- {} ×{} ({}): {}",
+                    f.tool,
+                    f.count,
+                    f.kind,
+                    f.sample.replace('\n', " ")
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let summary = format!("完成 {}({})的根因候选{}", entry.id, entry.status, fingerprint);
+    let detail = format!(
+        "- 触发任务: {}\n\
+         - 实际工具顺序: {}\n\
+         - 本轮失败信号:\n{}\n\
+         - 请提炼成 fact(scope=project, category=fact):这条目的根因是什么?根因若是可复用知识(环境约束、工具契约、架构决策、平台限制),写成一条精炼 fact;若是本条目的具体 bug 且无外推价值,判 NOOP 不要产出。\n\
+         - 判重: 若已有 fact 已描述同一根因,合并或跳过,不要新增。",
+        prompt.chars().take(200).collect::<String>(),
+        if flow.is_empty() { "(无)".to_string() } else { flow },
+        failures_text,
+    );
+    store.append_note(&summary, &detail, "fact").is_ok()
+}
+
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
 pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
@@ -462,6 +511,63 @@ mod tests {
             "丢弃只删了摘要行,明细成了孤儿",
         );
         assert!(!store.discard_note("[sop:R-123]").unwrap(), "重复丢弃应返回 false");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn entry_fact_候选只投一次且带上根因原料() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-entryfact-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        let entry = kanzei_core::CompletedEntry {
+            id: "D-166".into(),
+            status: "fixed".into(),
+            tools: vec!["read".into(), "edit".into(), "defect".into()],
+        };
+        let failures = vec![kanzei_core::FailureSignal {
+            tool: "edit".into(),
+            kind: "old_string not found".into(),
+            sample: "edit 报 old_string 未命中".into(),
+            targets: vec!["runner.rs".into()],
+            count: 2,
+            recovered_by: Some("read".into()),
+        }];
+
+        assert!(
+            harvest_entry_fact(&store, &entry, "修 D-166 编辑表单渲染", &failures),
+            "首次应投出根因候选"
+        );
+        let inbox = store.read_inbox();
+        assert!(inbox.contains("D-166"), "候选未记录来源条目");
+        assert!(inbox.contains("read → edit → defect"), "候选未给出工具顺序");
+        assert!(inbox.contains("修 D-166 编辑表单渲染"), "候选未记录触发任务");
+        assert!(inbox.contains("edit ×2"), "候选未带上失败信号原料");
+        assert!(inbox.contains("old_string not found"), "候选未带上错误指纹");
+        assert!(inbox.contains("scope=project, category=fact"), "候选未指明 fact 落位");
+        assert!(inbox.contains("判 NOOP"), "候选未给出「一次性 bug 不产出」的出口");
+
+        // 同一条目重复触发不该堆出第二份原料。
+        assert!(
+            !harvest_entry_fact(&store, &entry, "再来一次", &[]),
+            "同一条目不应重复投候选"
+        );
+        assert_eq!(store.read_inbox().matches("[fact:D-166]").count(), 1);
+
+        // 无失败信号也照常投递(修完但没重复失败的条目,根因仍有记忆价值)。
+        let other = kanzei_core::CompletedEntry {
+            id: "R-124".into(),
+            status: "done".into(),
+            tools: vec!["edit".into(), "req".into()],
+        };
+        assert!(harvest_entry_fact(&store, &other, "收口 R-124", &[]), "不同条目应各投一次");
+        assert!(store.read_inbox().contains("(无失败信号)"));
         std::fs::remove_dir_all(dir).ok();
     }
 
