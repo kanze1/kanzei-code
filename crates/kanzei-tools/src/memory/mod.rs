@@ -1,6 +1,6 @@
 //! Memory 系统(R-103/R-104):文件优先的分级记忆。
 //! 真源是 markdown 文件(一条一文件+平铺 frontmatter),人可编辑、git 可恢复;
-//! SQLite 只存可重建派生物(FTS 索引/hits)。设计基线 docs/design/memory-system.md。
+//! SQLite 只存可重建派生物(FTS 索引/hits)。设计基线 docs/design/memory_system.md。
 //!
 //! 分级:scope(Global=~/.kanzei/memory, Project=<root>/.kanzei/memory)
 //!     × category(preference/habit/fact/sop;episode 走 state.db 不落文件)。

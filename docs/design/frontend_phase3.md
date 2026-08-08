@@ -17,7 +17,7 @@
 | 多模态协议(image/document) | 无上传入口 | R-014/R-024 |
 | git 集成 | 状态栏一行 | 无提交列表;agent 现在会自动提交,"它提交了什么"要去终端看 |
 | 上下文占用计量 | 状态栏百分比 | 无成分拆解(system/工具/历史各占多少) |
-| 多进程并行(R-030 设计完) | 单运行位 | 见 r030-process-decoupling.md |
+| 多进程并行(R-030 设计完) | 单运行位 | 见 r030_process_decoupling.md |
 
 ## 二、纯前端易用性债务
 
@@ -95,62 +95,5 @@ R-050 是架构级改动，不能用“多开两个前端 Tab”替代。线程�
 
 ## 八、R-050 只读 POC 前置设计（2026-08-09）
 
-> **R-050 双源标注(2026-08-08/09 整理时加)**:本节约 2026-08-09 追加,是 R-050 定案前的过渡设计;R-050 的现行方案以 [`deep-parallel-dev.md`](deep-parallel-dev.md) 为准(该文 D1~D7 决策点定案后动工)。本节保留为历史决策记录,内容若与 deep-parallel-dev.md 冲突,以后者为准。
-
-R-050 在 R-030 的进程/session 隔离契约落地前，只推进设计和只读验证，不创建 worktree、不执行并行写入或自动合并。
-
-### 线程—项目—session—worktree 关系
-
-- `project` 是共享文档、规范和权限规则的资源边界。
-- `process` 由 R-030 提供，是绑定项目的独立运行容器；同一项目可拥有多个 process。
-- `thread` 是用户可见的并行对话线程，必须绑定一个 process，并拥有独立消息投影、运行句柄、停止边界、权限队列、输入队列和活动轨迹。
-- `session_id` 是事件、队列和历史恢复的唯一归属键；线程不得只用 `project_dir` 路由事件。
-- `worktree` 仅在只读 POC 之后启用：主线程可使用默认工作树，写线程必须绑定独立 worktree/分支；合并前只能生成 diff，不得自动覆盖主工作树。
-
-### 线程状态机与边界
-
-```text
-created -> idle -> running -> stopping -> idle
-                         └-> failed -> idle
-created/idle -> closed
-```
-
-- `stop(thread_id)` 只取消该线程的 runner、pending ask、steer 和 queue，不得影响同项目其他线程。
-- `closed` 线程拒绝新输入；运行中的线程必须先进入 `stopping`，等待句柄收尾后再释放资源。
-- 崩溃恢复按 `session_id` 重放最后一致事件：未完成运行恢复为 `failed/recoverable`，不得伪造为成功；待处理权限询问默认失效并要求重新发起。
-
-### 锁顺序与并发规则
-
-锁顺序固定为：`thread lifecycle -> session admission -> project write lock -> git/worktree lock`；禁止反向获取。
-
-- 只读线程不得持有项目写锁，允许并行读取。
-- 需求/缺陷/目标整文件重写和 git 操作必须经过项目写锁；检测到版本/哈希变化时拒绝静默覆盖并返回冲突。
-- worktree 创建、合并和清理必须在 git/worktree 锁内完成，失败时保留双方分支和恢复入口。
-- POC 阶段只验证消息、权限、队列、活动事件和停止隔离，不写项目文件、不提交 git。
-
-### 双线程只读 POC 验收矩阵
-
-| 场景 | 线程 A | 线程 B | 通过条件 |
-|---|---|---|---|
-| 消息隔离 | 发送 prompt A | 发送 prompt B | 两侧只出现自己的 user/assistant 消息，历史恢复不串线 |
-| 运行隔离 | running + stop A | 持续运行 B | stop A 后 B 仍运行，事件只路由到对应线程 |
-| 权限隔离 | 产生 ask A | 产生 ask B | 回答 A 不改变 B 的 ask；关闭 A 只清理 A |
-| 队列隔离 | admission/steer A | admission/queue B | FIFO、取消和 drain 只作用于对应 session_id |
-| 活动隔离 | task/工具轨迹 A | task/工具轨迹 B | 面板可按线程过滤，轨迹和失败状态不互相覆盖 |
-| 崩溃恢复 | 中断 A | B 正常结束 | A 恢复为 failed/recoverable，B 保持成功，均可继续操作 |
-| 只读门禁 | 请求写文件/git | 正常读取 | POC 拒绝写入并保持主工作树与项目文档无变化 |
-
-### 后续入口
-
-待 R-030 确定 `process_id/session_id` 命令与事件契约后，先实现上述 POC 的内存态双线程测试，再接入 worktree、diff 审查和冲突合并；在此之前不得实现 R-050 的并行写入流程。
-
-### POC 验收入口
-
-使用 `.\scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
-
-1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
-2. `cargo test -p kanzei-app`：桌面端回归；
-3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
-
-该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。
+> **2026-08-08 文档整理:R-050 的方案已由 [`deep_parallel_dev.md`](deep_parallel_dev.md) 唯一承载**(该文 §6 决策点 D1~D7 定案后动工)。本节早期的 thread 级只读 POC 设计(线程—项目—session—worktree 关系、线程状态机、锁顺序与并发规则、双线程只读验收矩阵、`scripts/r050-poc-check.ps1` 验收入口)已整体移入 deep_parallel_dev.md **附录**作为历史决策记录,此处不再重复。
 

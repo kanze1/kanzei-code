@@ -70,7 +70,7 @@ kz --version
 
 日常开发由 kanzei 自举完成(dev agent 按 backlog 连跑),需求/缺陷全录在 `.kanzei/project/`。
 
-设计规格参照:`docs/design/harness-m1.md` 与 `docs/reference/`(拷自 opencode 的 CONTEXT.md 与 specs/v2)。
+设计规格参照:`docs/design/harness_m1.md` 与 `docs/reference/`(拷自 opencode 的 CONTEXT.md 与 specs/v2)。
 
 ---
 

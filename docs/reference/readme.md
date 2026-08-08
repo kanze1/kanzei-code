@@ -9,16 +9,16 @@
 | 文件 | 主题 | 与 kanzei 的关系 |
 |---|---|---|
 | `CONTEXT.md` | Session Runtime 术语与契约 | 术语参考(kanzei 参考其 context/epoch 概念) |
-| `specs-v2/tools.md` | V2 工具 API 与输出边界 | 参考工具注册/权限/输出截断思想(见 `docs/design/harness-m1.md`) |
-| `specs-v2/session.md` | Session API / Context Epoch / 自动压缩 | 参考会话调度与压缩思想(见 `docs/design/m2-sqlite-store.md`) |
+| `specs-v2/tools.md` | V2 工具 API 与输出边界 | 参考工具注册/权限/输出截断思想(见 `docs/design/harness_m1.md`) |
+| `specs-v2/session.md` | Session API / Context Epoch / 自动压缩 | 参考会话调度与压缩思想(见 `docs/design/m2_sqlite_store.md`) |
 | `specs-v2/provider-policy.md` | provider 策略 allow/deny | 参考 last-match-wins 规则(kanzei 权限 Ruleset 同源) |
-| `specs-v2/provider-model.md` | provider/model catalog | 参考模型分层与解析链思路(见 `docs/design/deep-parallel-dev.md`) |
+| `specs-v2/provider-model.md` | provider/model catalog | 参考模型分层与解析链思路(见 `docs/design/deep_parallel_dev.md`) |
 | `specs-v2/config.md` | V2 配置评审 | 参考配置分层与字段取舍 |
 | `specs-v2/catalog-config-plugin-lifecycle.md` | catalog/config/plugin 生命周期 | 参考插件与热更新思路 |
-| `specs-v2/schema-changelog.md` | 上游 schema 变更日志 | 仅上游历史,kanzei schema 独立 |
-| `specs-v2/instructions.md` | opencode V2 core 开发指引 | 仅上游开发规范,非 kanzei 规范 |
-| `specs-v2/todo.md` | opencode V2 内部待办 | 纯上游内部笔记,kanzei 无执行价值 |
-| `tui-package.md` | 上游 TUI 包抽取计划 | 与 kanzei(Tauri 桌面)无直接关系 |
+| `specs-v2/schema-changelog.md` | 上游 schema 变更日志 | 仅上游历史,kanzei schema 独立(已归档至 `opencode-archive/`) |
+| `specs-v2/instructions.md` | opencode V2 core 开发指引 | 仅上游开发规范,非 kanzei 规范(已归档至 `opencode-archive/`) |
+| `specs-v2/todo.md` | opencode V2 内部待办 | 纯上游内部笔记,kanzei 无执行价值(已归档至 `opencode-archive/`) |
+| `tui-package.md` | 上游 TUI 包抽取计划 | 与 kanzei(Tauri 桌面)无直接关系(已归档至 `opencode-archive/`) |
 
 ## 维护约定
 
