@@ -10,8 +10,28 @@
 
 ## 当前索引
 
-- [`r030-process-decoupling.md`](../../../docs/design/r030-process-decoupling.md)：项目进程、会话和运行句柄隔离。
-- [`r059-mobile-agent-communication.md`](../../../docs/design/r059-mobile-agent-communication.md)：主代理/子代理消息与通知演进设计。
-- [`frontend-phase3.md`](../../../docs/design/frontend-phase3.md)：前端与后端能力对齐记录。
-- [`interaction-modes.md`](../../../docs/design/interaction-modes.md)：交互模式与自动推进边界。
-- [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量的统一不变量、验证证据和阶段门禁。
+### 现行基线（设计真源）
+
+- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线——可替代区复刻优先、创新只投护城河;取活与验收判据。
+- [`memory_system.md`](../../../docs/design/memory_system.md)：Memory 系统设计基线(R-103~R-107,现行实施依据)。
+- [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量不变量、验证证据和阶段门禁。
+- [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 六注册表 + 拦截器链 + dev/research 双 profile 架构基线。
+- [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(进行中)。
+
+### 评审中（决策门禁未过）
+
+- [`deep_parallel_dev.md`](../../../docs/design/deep_parallel_dev.md)：深度并行开发与模型选择隔离设计;§6 D1~D7 未定案前不得动工。
+
+### 历史记录（对应条目已 done / 已被取代）
+
+- [`r030_process_decoupling.md`](../../../docs/design/r030_process_decoupling.md)：多进程解耦设计(R-030 done,残余 P3 并入 deep_parallel_dev P2)。
+- [`interaction_modes.md`](../../../docs/design/interaction_modes.md)：双人格与对话为主布局设计(R-036 done)。
+- [`m2_sqlite_store.md`](../../../docs/design/m2_sqlite_store.md)：SQLite 会话存储 Schema v1(R-003 done)。
+- [`subagent_management.md`](../../../docs/design/subagent_management.md)：子代理管理四层方案(R-058 done,策略层未实施)。
+- [`app_icon.md`](../../../docs/design/app_icon.md)：图标设计规范与资产清单(R-061 done,规范仍有效)。
+- [`frontend_phase3.md`](../../../docs/design/frontend_phase3.md)：前端能力差距与需求整理记录(R-031~R-051 系列)。
+
+### 规范与示例
+
+- [`readme.md`](../../../docs/design/readme.md)：docs/design 的记录规范与文档模板。
+- [`r108_ai_design_decision_records.md`](../../../docs/design/r108_ai_design_decision_records.md)：设计记录规范的真实示例(R-108 done)。
