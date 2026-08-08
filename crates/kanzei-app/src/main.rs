@@ -416,13 +416,23 @@ fn clear_stale_installer() -> Vec<String> {
 
 /// helper 进程:等发起更新的 kzapp 退出 → 静默安装 → 拉起新版本 → 删安装包。
 /// 必须由独立进程做,因为安装器要替换的正是调用方自己的镜像文件。
-fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
-    // 等父进程真正退出。NSIS 在文件被占用时会挂在隐藏对话框而不是失败退出,
-    // 所以宁可多等,也不能在父进程还活着时就把安装器放出去。
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while std::time::Instant::now() < deadline && process_alive(parent_pid) {
+/// 等发起更新的进程退出。NSIS 在文件被占用时会挂在隐藏对话框而不是失败退出,
+/// 所以宁可多等,也不能在父进程还活着时就把安装器放出去。
+/// 返回是否等到了退出(false = 等到超时它还活着)。
+/// 单独成函数是为了能直接测这条时序不变量——测整个 helper 就得真去执行一个安装器。
+fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if !process_alive(parent_pid) {
+            return true;
+        }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    !process_alive(parent_pid)
+}
+
+fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
+    wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30));
     // 句柄释放晚于进程退出,再让一手。
     std::thread::sleep(std::time::Duration::from_millis(600));
     match Command::new(installer).arg("/S").status() {
@@ -522,24 +532,29 @@ mod update_tests {
     #[test]
     fn install_helper_waits_for_the_caller_to_exit_before_installing() {
         // 交接的核心不变量:发起方还活着时绝不放安装器出去,否则必撞 os error 32。
-        // 用当前进程冒充"还没退出的父进程",helper 应当一直等到超时也不动安装器。
-        let dir = std::env::temp_dir().join(format!("kz-helper-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let installer = dir.join("kanzei-setup.exe");
-        std::fs::write(&installer, b"MZ not-a-real-installer").unwrap();
-        let missing_exe = dir.join("kzapp-does-not-exist.exe");
-
+        // 只测这条时序,不碰真正的执行环节——早期版本让 helper 跑完整流程,于是往
+        // %TEMP% 写了个 23 字节假 exe 再真的去执行它,Windows 弹出"与 64 位版本
+        // 不兼容",还被误记成安装包缺陷 D-152。测试不该在开发机上启动伪造可执行文件。
         let started = std::time::Instant::now();
-        super::run_install_helper(&installer, &missing_exe, std::process::id());
-        let waited = started.elapsed();
-
-        assert!(
-            waited >= std::time::Duration::from_secs(30),
-            "helper 没有等待发起方退出就往下走了(实等 {waited:?})",
+        let exited = super::wait_for_parent_exit(
+            std::process::id(),
+            std::time::Duration::from_millis(600),
         );
-        // 安装器没跑成功 → 不删安装包,留给用户手动执行。
-        assert!(installer.is_file(), "安装失败时不应删除安装包");
-        std::fs::remove_dir_all(&dir).ok();
+        let waited = started.elapsed();
+        assert!(!exited, "当前进程显然活着,不该判定为已退出");
+        assert!(
+            waited >= std::time::Duration::from_millis(600),
+            "helper 没有等满超时就往下走了(实等 {waited:?})",
+        );
+
+        // 父进程已不存在时应立刻返回,不空等满超时。用一个几乎不可能存在的 pid。
+        let started = std::time::Instant::now();
+        let exited = super::wait_for_parent_exit(0xFFFF_FFF0, std::time::Duration::from_secs(30));
+        assert!(exited, "父进程已退出时应立即放行");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "父进程已退出却仍在空等",
+        );
     }
 
     #[test]
