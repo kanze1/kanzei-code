@@ -12,3 +12,7 @@
 ## T-1786223647 R-070 refs 来源契约硬校验 + 截断可见 + 记忆页展示 [passed]
 - 命令: cargo test -p kanzei-tools memory::; cargo test --workspace; node scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs
 - 摘要: R-070 refs 来源契约:memory 模块 26 项(含 5 个新测试:refs frontmatter 往返、validate_source_refs 接受/拒绝、add/note 携带 refs、memory_add 硬校验、memory_note 硬校验);workspace 13 crate 全绿;前端 i18n 36 key(新增「引用来源」)、runtime 214 invoke 0 错误。
+
+## T-1786226007 R-100 冗余机械门禁:就地提醒 + 三类计数进入度量 [passed]
+- 命令: cargo test -p kanzei-core --lib runner; cargo test --workspace; node scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: R-100 冗余机械门禁:runner 26 项(新增 4 个:重复 git status 就地提醒、全量测试工作树未变提醒、task 引用已知缺陷路径提醒、提醒按类别计数);workspace 13 crate 全绿(kanzei-core 68);前端 i18n 37 key(新增「冗余提醒」)、runtime 214 invoke 0 错误。

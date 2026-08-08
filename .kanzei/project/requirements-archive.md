@@ -1187,3 +1187,20 @@
 验证:memory 模块 26 项测试(含 5 个新测试)全绿,workspace 13 crate 全绿,前端 i18n 36 key / runtime 214 invoke 0 错误,node --check 通过;测试记录 T-1786223647。
 残余:refs 是溯源标注,记忆页不提供跳转(需求页 refs 有跳转);全局 scope 条目的 refs 只按项目 docstore 校验(全局条目引用项目条目语义上成立,不校跨项目);这两点不影响验收核心「引用溯源与上下文一致性」,如需可再开条目。
 
+## R-100 runner 层调用模式机械门禁 [done]
+- 复杂度: 中
+- 优先级: P3
+- 归属: kanzei
+- 背景: 提示词纪律对子代理误用与验证节奏无强制力(D-114);若 R-099 数据显示未收敛,需要 runner 层就地检测。
+- 验收: 对可机械识别的冗余模式在工具结果中就地提醒(不阻断,先观察后升级):同一工作树无变化时的重复 git status/diff、无文件变更的重复全量测试、缺陷 fields 已含文件路径时的 task 子代理调用;每类触发计数进入 R-099 度量。
+- 依赖: 
+- 阶段: 1
+
+- 标签: 核心
+
+- refs: D-114 R-099
+
+- 进展: 依赖 R-099 已关闭,满足。2026-08-08 交付,验收逐条对照:① 就地提醒不阻断——crates/kanzei-core/src/runner.rs 新增 RedundancyWatch(默认构造,按单次运行持有、跨轮清零),在整步工具结果回喂前调用 note_step(回喂点 1778 附近),只向工具结果文本追加 [冗余提醒] 前缀、不改 is_error:三种模式——(a)同一工作树无变化时的重复 git status/diff:以上一次同类的原始结果内容为工作树指纹(提醒文本不污染指纹,先取 original 再比较),内容一致即提醒;全量测试判定 is_full_test_command(cargo test/nextest 带 --workspace/--all/--all-targets,或工作区根不带 -p 的 cargo test);(b)无文件变更的重复全量测试:两次全量测试之间 git 指纹未变即提醒;(c)缺陷 fields 已含路径仍调 task:defect_known_path_hint 纯文本解析 defects.md/defects-archive.md(不依赖 docstore——runner 不能反向依赖 kanzei-tools,机械门禁取舍),prompt 引用 D-xxx 且该缺陷段落已含的路径也出现在 prompt 里即提醒。② 每类触发计数进入 R-099 度量——RunMetrics 新增 redundant_git/redundant_test/redundant_task(#[serde(default)] 兼容旧 metrics_json),summarize_metrics 按 [冗余提醒] 前缀分类计数(只计本轮切片,失败结果不计);R-127 运行画像行新增 redundantLine 展示(ui/main.js,仅在有触发时显示,i18n 键「冗余提醒」)。
+验证:4 个新单元测试(重复 git status 提醒/内容变化不误报、全量测试提醒/定向测试不触发、task 已知路径提醒/未知路径不触发、计数归类+失败不计)全绿,runner 26 项;cargo test --workspace 13 crate 全绿(kanzei-core 68 项);前端 i18n 37 key、runtime 214 invoke 0 错误、node --check 通过;测试记录 T-1786226007。
+残余:模式 (c) 依赖 prompt 里带 D-xxx 引用(不带 ID 无法机械定位缺陷段落);模式 (b) 依赖先有 git status/diff 提供指纹(无任何 git 查询时无法判定变更);提醒是观察档,后续如需升级为阻断(如 R-144 验收核查)再单独开条目。
+
