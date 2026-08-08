@@ -1,12 +1,12 @@
 # Defects
 
-## D-208 历史轨迹回放字段断链:百条同名条目带无效停止按钮,git 工具缺 log [fixed] (medium)
-- refs: R-095 D-182
-- 复现: 2026-08-09 用户截图。①打开历史对话后活动栏出现 120 条完全相同的条目("task 历史子代理轨迹/历史轨迹/回放"),每条还带「停止」按钮——历史轨迹的子代理早已结束,按钮不可能有效;②模型调 `git {"action":"log"}` 被拒 "unknown action"。
-- 根因: ①`renderRecoveredTraces`(ui/main.js)读的是不存在的 `event.text/event.trace` 字段,name 硬编码 "task"、标题硬编码"历史子代理轨迹"——而 run.trace 事件本来就带 name/summary/ok/durationMs(后端 tool.started/tool.completed),数据在库里,前端没接;类型筛选(R-095)也因 name 失真全归 task 类。②标终态后没重新 `bgRenderActions`,停止按钮残留(该函数对 done 条目本就不渲染停止)。③git 工具只有 status/diff/stage/commit 四个 action,"最近改了什么"这一高频只读查询没有合法通道,模型只能转投 bash(每次 ask)或瞎猜。
-- 修复: ①回放按 kind 分发:tool.started 用真实 name+summary 建条目,tool.completed 收敛终态(ok/err、失败原因、耗时进 meta)并重渲染动作区;只 started 没 completed 的(轮次中断)同样收敛,不留假 running;②git 新增只读 log action(--format 单行、count 默认 20 封顶 200、files 路径过滤复用 normalize_files),并发按只读共享,base 权限 Allow(与 status/diff 同级)。
-- 验收: 单测 `log_returns_recent_commits_and_honors_path_filter`(全量/count=1/路径过滤三断言);前端 node --check + 运行时冒烟 0 错误;workspace 305 项全绿。回放条目显示真实工具名与目标、无停止按钮,待用户复查。
-- 证据等级: E1(用户截图 + 后端字段与前端读取逐一比对)
+## D-210 拖拽锁提示不点名具体筛选,持久化残留筛选让"没筛选也拖不了"无从定位 [fixed] (medium)
+- refs: D-207 R-115 D-169
+- 复现: 2026-08-09 用户实测(c8be9ac):关闭分组后提示变成"有筛选时不可拖拽——清除筛选后可拖",但用户"没筛选也拖不了"。根因:R-115 之后状态/优先级/复杂度/标签/阻塞五项筛选**按项目持久化**,某天设过的筛选重启后仍生效而下拉不显眼;第一版提示(da6c380)只笼统说"有筛选",不点名是哪一项,用户无从定位。另用户反馈提示行样式丑(🔒+长句挤在列表顶)。
+- 附带发现: `docDragEnabled` 的 defect 分支只查 status/priority——tag/blocked 筛选下列表同样不完整,commitDocOrder 提交缺条目的顺序会被引擎拒绝,属漏判。
+- 修复: ①锁因点名:逐项列出具体条件(如「拖拽调序已锁: 分组视图 · 复杂度=中」),定位不再靠猜;②一键「解锁」按钮:关分组(走现有开关按钮,复用持久化与按钮态)、切回手动排序、五项筛选清为 all,saveDocFilters+syncDocFilterControls+refreshDocs 一步到位;③样式重做成轻卡片(边框圆角、溢出省略、去 emoji);④defect 拖拽守卫补全 tag/blocked,与锁因清单同口径。
+- 验收: 四条前端冒烟全绿(a11y 断言更新为钉新守卫形态);用户复查:残留筛选场景下提示能点名到具体项,点解锁后可拖。
+- 证据等级: E1(用户截图两张 + R-115 持久化机制实证)
 - 优先级: P1
 - 标签: 前端
 

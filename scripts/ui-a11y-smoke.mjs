@@ -46,7 +46,9 @@ assert.match(js, /function hideContextDetail\(\)/);
 assert.match(js, /function toggleContextDetail\(\)/);
 assert.match(js, /event\.key === "Escape"/);
 assert.match(js, /function docDragEnabled\(kind, listEl, filterState\)/);
-assert.match(js, /filterState\.priority === "all"/);
+// D-210:缺陷拖拽守卫覆盖全部四项筛选(旧断言只钉 status/priority 的字面量,
+// tag/blocked 筛选下列表不完整,提交的顺序会被引擎拒绝)。
+assert.match(js, /\["status", "priority", "tag", "blocked"\]\.every/);
 assert.match(js, /renderDocList\(defectList,[\s\S]*documentFilters\.defect/);
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /运行中可插入或排队，按交付方式发送/);

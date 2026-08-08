@@ -163,9 +163,27 @@ body {
   0%, 100% { border-left-color: var(--ok); }
   50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
 }
-/* 拖拽禁用原因(D-207):低调常驻,hover 列表时加深——静默禁用是错的,提示不该抢戏。 */
-.drag-hint { padding: 2px 14px; font-size: 11px; color: var(--dim); opacity: .65; }
-.doc-list:hover .drag-hint { opacity: 1; }
+/* 拖拽锁提示(D-207/D-210):点名具体条件 + 一键解锁。轻卡片形态,不抢列表的戏。 */
+.drag-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 3px 10px 5px;
+  padding: 3px 6px 3px 10px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.drag-hint span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drag-hint button { flex-shrink: 0; }
 .doc-item .id { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; }
 /* R-054:需求行内只显示位置序号,ID 收进展开详情 */
 .doc-item .pos { color: var(--dim); font-family: var(--mono); font-size: 11px; flex-shrink: 0; min-width: 22px; }

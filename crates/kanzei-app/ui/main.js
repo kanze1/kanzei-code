@@ -82,9 +82,12 @@ const promptBox = $("prompt");
 const I18N_EN = {
   "agent 正在做这一条": "The agent is working on this item",
   "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
-  "分组视图下不可拖拽调序——点上方分组开关关闭后可拖": "Reordering is disabled in grouped view — turn off grouping above to drag",
-  "当前为排序视图,顺序仅供查看——切回「手动」排序后可拖拽调整取活顺序": "This sorted view is display-only — switch back to Manual sort to drag and change the work order",
-  "有筛选时不可拖拽(顺序不完整)——清除筛选后可拖": "Reordering is disabled while filters are active (order would be incomplete) — clear filters to drag",
+  "拖拽调序已锁": "Reordering locked",
+  "分组视图": "grouped view",
+  "排序": "sort",
+  "标签": "tag",
+  "解锁": "Unlock",
+  "关闭分组、切回手动排序并清除全部筛选,恢复拖拽调序": "Turn off grouping, switch to manual sort and clear all filters to re-enable drag reordering",
   "关于 kanzei": "About kanzei",
   "kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。": "kanzei is a file-first daily development tool that makes context, permissions, memory, and work traces visible, replayable, and verifiable.",
   "从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。": "Select a project on the left and enter a task in the conversation. For permission requests, choose allow, deny, or always allow. Results, errors, and tool details stay in the current session.",
@@ -4211,7 +4214,11 @@ function docDragEnabled(kind, listEl, filterState) {
   if (docSurface(listEl) !== "documents") return false;
   if (kind === "req") return reqDragEnabled(filterState);
   if (kind !== "defect") return false;
-  return filterState.status === "all" && filterState.priority === "all";
+  // tag/blocked 同样让列表不完整——commitDocOrder 提交的是完整 ID 序,
+  // 缺条目的顺序会被引擎拒绝,不能只查 status/priority。
+  return ["status", "priority", "tag", "blocked"].every(
+    (key) => (filterState[key] ?? "all") === "all"
+  );
 }
 async function commitDocOrder(listEl, kind) {
   const order = [...listEl.querySelectorAll(".doc-item[data-doc-id]")].map((el) => el.dataset.docId);
@@ -4337,20 +4344,57 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     el.appendChild(empty);
     return;
   }
-  // 拖不动必须说出原因(D-207):拖拽禁用是对的(分组/筛选/排序视图下视觉顺序≠
-  // 文件顺序,提交会错乱),静默禁用是错的——用户只看到"拖不动",不知道差哪一步。
-  // 逐项报第一个命中的原因,并给出解法。
+  // 拖不动必须说出原因(D-207/D-210):拖拽禁用是对的(分组/筛选/排序视图下视觉
+  // 顺序≠文件顺序,提交会错乱),静默禁用是错的。第一版只笼统说"有筛选"——
+  // R-115 之后五项筛选按项目持久化,某天设过的复杂度/阻塞筛选重启后还挂着,
+  // 用户实测"我没筛选也拖不了"却无从定位。必须**点名到具体条件**并给一键解锁。
   if ((kind === "req" || kind === "defect") && entries.length > 1) {
-    const dragOk = !isGrouped && docDragEnabled(kind, el, reqFilterState);
-    if (!dragOk) {
-      const reason = isGrouped
-        ? t("分组视图下不可拖拽调序——点上方分组开关关闭后可拖")
-        : kind === "req" && reqFilterState.sort !== "manual"
-          ? t("当前为排序视图,顺序仅供查看——切回「手动」排序后可拖拽调整取活顺序")
-          : t("有筛选时不可拖拽(顺序不完整)——清除筛选后可拖");
+    const locks = [];
+    if (isGrouped) locks.push(t("分组视图"));
+    if (kind === "req" && reqFilterState.sort !== "manual") {
+      const sortNames = { id: "ID", complexity: t("复杂度"), status: t("状态"), priority: t("优先级") };
+      locks.push(`${t("排序")}=${sortNames[reqFilterState.sort] ?? reqFilterState.sort}`);
+    }
+    const filterNames = { status: t("状态"), priority: t("优先级"), complexity: t("复杂度"), tag: t("标签"), blocked: t("阻塞") };
+    for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
+      if (key in reqFilterState && (reqFilterState[key] ?? "all") !== "all") {
+        locks.push(`${filterNames[key]}=${reqFilterState[key]}`);
+      }
+    }
+    if (locks.length) {
       const dragHint = document.createElement("div");
       dragHint.className = "drag-hint";
-      dragHint.textContent = `🔒 ${reason}`;
+      const text = document.createElement("span");
+      text.textContent = `${t("拖拽调序已锁")}: ${locks.join(" · ")}`;
+      text.title = text.textContent;
+      const unlock = document.createElement("button");
+      unlock.type = "button";
+      unlock.className = "ghost mini";
+      unlock.textContent = t("解锁");
+      unlock.title = t("关闭分组、切回手动排序并清除全部筛选,恢复拖拽调序");
+      unlock.addEventListener("click", () => {
+        if (isGrouped) {
+          // 走现有开关按钮:持久化、按钮 active 态、重渲染全在它的 handler 里。
+          const toggleId =
+            surface === "documents"
+              ? "documents-group-toggle"
+              : kind === "req"
+                ? "req-group-toggle"
+                : "defect-group-toggle";
+          $(toggleId)?.click();
+        }
+        if ("sort" in reqFilterState && reqFilterState.sort !== "manual") {
+          reqFilterState.sort = "manual";
+          if (reqFilterState === reqFilters) localStorage.setItem("kz-req-sort", "manual");
+        }
+        for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
+          if (key in reqFilterState) reqFilterState[key] = "all";
+        }
+        saveDocFilters();
+        syncDocFilterControls();
+        refreshDocs();
+      });
+      dragHint.append(text, unlock);
       el.appendChild(dragHint);
     }
   }
