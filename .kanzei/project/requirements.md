@@ -288,7 +288,7 @@
 - 验收: 实现需求/缺陷记录的类型区分机制
 
 ## R-135 开发与缺陷修复进度动画显示 [todo]
-- 优先级: P1
+- 优先级: P0
 
 ## R-137 Anthropic thinking 块协议回放:signature 原样回传,多轮工具不再 400 [todo]
 - 背景: direction_taste 复刻清单·高:CC 按协议要求回放 thinking 块;kanzei 现状 anthropic.rs:97 Part::Reasoning => None 丢弃全部 Reasoning,thinking+工具第二轮必 400(R-094 只做了请求侧思考强度,未做响应侧回放)。
@@ -297,7 +297,7 @@
 - 阶段: 1
 - 验收: anthropic 通道多轮工具调用时:①thinking 块的 signature 在后续请求中原样回传;②thinking+工具第二轮不再 400;③非 thinking 模型的 reasoning 文本以可见 assistant 文本保留(与 R-094 结论一致);④补 anthropic 多轮含 thinking 的协议契约测试。
 
-- 优先级: P1
+- 优先级: P0
 
 ## R-138 docstore 原子写与跨进程文件锁:tmp+rename + 独占句柄,并发写不丢不撞 [todo]
 - 背景: direction_taste §5.2 地基债:docstore 整文件重写无原子替换与跨进程锁,D-064 类 lost-update 真实存在;deep_parallel_dev §3.3 P4 也要求 docstore 进程级文件锁收口主根 .kanzei 的最后一个共享写点。
@@ -306,7 +306,7 @@
 - 阶段: 1
 - 验收: docstore save 改 tmp+rename 原子替换(临时文件与目标同目录);跨进程文件锁(Windows std::fs 独占句柄,毫秒级持有);并发写 tracker 的压测不丢条目不撞 ID;失败时保留现场可重试。
 
-- 优先级: P1
+- 优先级: P0
 
 ## R-140 i18n 架构迁移:chrome/content 分离、t(key) 渲染点翻译、MutationObserver 退役 [todo]
 - 背景: direction_taste 定调二(用户明确):i18n 保留换架构。现行词典+MutationObserver 已产出 8 条缺陷家族(D-092/D-108/D-129/D-135/D-136/D-142/D-157/D-160)并篡改模型输出显示;D-172 只修了死循环,未换架构。四铁律:chrome/content 分离、翻译发生在渲染点 t(key)、模型输出语言是 prompt 问题、漏译可机械检出。
@@ -315,7 +315,7 @@
 - 阶段: 1
 - 验收: ①消息容器子树整体豁免词典替换(立即止血,终结数据篡改);②静态 DOM 改 data-i18n 一次性应用、JS 动态字符串经 t(key,params) 产出,禁止事后全文档扫描改写;③MutationObserver 退役;④漏译回落中文原文,冒烟脚本加 key 覆盖率断言;⑤按 A-003 粒度一轮吃一个界面域直至词典机制退役。
 
-- 优先级: P1
+- 优先级: P0
 
 ## R-141 ToolCtx 显式主根绑定:消除发现式取根与 worktree 锁键歧义 [todo]
 - 背景: direction_taste §5.4 与 D-170 教训:ToolCtx::new 仍发现式取根(harness/src/tool.rs:13-17),worktree 线若命中 worktree 内 .kanzei 副本会拿到过期身份;并发锁键语义(tool.rs:19-28)只拼 project_root,两棵树同路径会撞锁。deep_parallel_dev §3.2 明确选 A:显式主根、不做根发现。
@@ -324,7 +324,7 @@
 - 阶段: 1
 - 验收: ToolCtx 构造支持显式传入 project_root(不再无条件 discover);线路径全程显式传根;补断言测试:worktree 内运行时 project_root 必须等于主根;并发锁键区分 worktree 实例。
 
-- 优先级: P1
+- 优先级: P0
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。
@@ -333,7 +333,7 @@
 - 阶段: 1
 - 验收: 引入最低配 ESLint(flat config,只开 recommended+browser env 的 no-undef 类规则),不引入构建步骤;main.js 无未定义变量错误;新增/修改前端文件后 lint 可跑且纳入冒烟脚本。
 
-- 优先级: P2
+- 优先级: P0
 
 ## R-143 自举循环定期自动 push:完成批提交后自动推送,失败可见不阻断 [todo]
 - 背景: direction_taste §5.2 地基债:自举循环完成工作后依赖 agent 自觉 push,工作树长期不推风险堆积;定期自动 push 作为基线保障。
@@ -342,7 +342,7 @@
 - 阶段: 1
 - 验收: 自举循环每完成一批提交后自动 git push(或提供周期性的 push 时机),push 失败可见且不阻断后续轮次;与既有手动 push 流程共存不冲突。
 
-- 优先级: P2
+- 优先级: P0
 
 ## R-144 验收核查周期化:鞭挞每关 N 条自动插入只读核查回合 [todo]
 - 背景: direction_taste §5.5:08-07 式事件性审计(R-092 手动按钮)应变成常驻节律——鞭挞每关 N 条自动插入一轮只读核查回合,复用现有只读子代理,把验收打假从人工触发变为自动循环的一部分。
@@ -350,7 +350,7 @@
 - 证据等级: E1
 - 阶段: 2
 - 验收: 鞭挞/自主推进每关闭 N 条(可配)自动插入一轮只读核查(复用 SubagentBase read/glob/grep):核对已完成条目的验收证据与真实调用方;发现问题时生成候选缺陷或退回依据;核查不进入主 conversation/queue;触发频率与 N 可配置。
-- 优先级: P2
+- 优先级: P0
 
 ## R-145 Memory 闭环实证:发版后轨迹命中与 token 基线对比 [todo]
 - 优先级: P2

@@ -1761,7 +1761,6 @@
 - refs: R-115
 - 标签: 模型
 
-
 ## D-172 启动黑屏:i18n MutationObserver 微任务死循环饿死渲染主线程 [fixed] (critical)
 - refs: D-136 458af450 e4b45f21
 - 优先级: P0
@@ -1773,4 +1772,117 @@
 - 验收: ①main.js 属性写入前比对,同值不写;②冒烟 harness setAttribute 同值也通知 observer(对齐 DOM 规范),并加「observer 连续自触发>25 轮判失败」护栏,把挂死变成可读失败;③bug 复位冒烟必红、修复后必绿,已双验;④修复构建真机验证:Runtime.evaluate 即时响应、页面完整渲染、渲染进程存活 53s 仅耗 1s CPU。
 
 - 进展: 已修复并双侧验证(2026-08-08)。遗留:发布版(用户机器)仍是坏 build,需走发版 SOP 推送修复。
+
+## D-197 frontend_locate 的 @media 上下文两头都算错,还是个 deny 级 lint [fixed] (high)
+- refs: D-164 R-126
+- 复现: `find_rule_sites`(crates/kanzei-tools/src/frontend.rs)用"整行没有新开块时弹一层栈"判断条件块结束。两种真实形态都错:①`@media { .a {\n…\n} }` 里 `.a` 的收尾 `}` 会把 @media 提前弹掉,块内后续规则被报成顶层(style.css 行 40/41);②单行写完的 `@keyframes x { … }` 等不到那一次弹栈,于是它**之后**的顶层规则全被报成在这个块里(行 367/390/753/754)。实测本仓库 style.css 576 条规则里 **15 条 context 是错的**。另外这段的写法是 `for _ in 0..… { …; break; }`,clippy 的 `never_loop` 是 deny 级,`cargo clippy --workspace` 一直红着编译不过。
+- 影响: 这个工具存在的理由就是 D-164——"响应式覆盖必须标出所在 @media,否则改了基础规则还以为改完了"。形态①正是它该防住却没防住的;形态②更糟,它把顶层规则报成在一个根本不包含它的条件块里,agent 据此判断"这条只在窄屏生效"就会漏改。dev 提示词还明确要求改 style.css 前先跑 `frontend_locate`。
+- 根因: 用"这一行是不是只有收尾括号"近似"条件块结束",而块的结束本质是花括号深度退回;单行块与多行规则这两种情形都不满足那个近似。
+- 修复: 栈元素改成 `(名字, 该块内部内容所在深度)`,逐行按 `depth = (depth + opens) - closes` 更新,深度退回到某块之外就出栈(单行块在本行当场出栈)。site 的 context 仍取"选择器开括号那一刻"的栈。顺带消掉 never_loop。
+- 验收: 新增 `条件块上下文不被多行规则提前关闭也不泄漏到块外` 覆盖两种形态;对真实 style.css 实测(临时探针)行 40/41 现在标出 `@media (max-width: 1400px)`,行 367/390/753/754 现在为空,规则总数 576 不变;`cargo clippy --workspace --all-targets` exit=0。
+- 证据等级: E1(真实 style.css 逐行比对)
+- 优先级: P1
+- 标签: 核心
+
+## D-194 HOME 判断用裸路径相等,且在 HOME 里直接开跑那条路没堵 [fixed] (high)
+- refs: D-189 D-186
+- 复现: 两处。①`discover_project_root_with_home` 用 `h == d` 逐字节比较判 HOME,而 `dirs::home_dir()` 给的是 `C:\Users\kanzei`——走上来的祖先只要是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize 的产物),`is_home` 就是 false,D-189 的排除当场失效。②HOME 自己当 cwd 时:向上找不到任何标记,兜底 `Some(cwd)` 原样返回,cwd 就是 HOME。`kz run` 与 `kz req/defect/...` 在 HOME 里都会以 HOME 为项目根跑起来。
+- 影响: 项目级产物(state.db、project/ 追踪文件、memory/)落进 `~/.kanzei`——那是全局配置根,和 kanzei.toml、全局记忆、app.json 混在一起;且此时 `project_memory_root(HOME)` 与 `global_memory_root()` 是同一个目录,两个 scope 的 INDEX.md/index.db/inbox.md 静默合流。D-189 拆掉了磁铁(子目录被吸上去),直连这条路仍然通着,本机 `~/.kanzei/project/defects.md` 正是这么留下的。
+- 根因: ①路径比较没归一。同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线,注释里写着),D-189 没沿用那套归一。②D-189 只改了"标记识别",没管"兜底返回 cwd"这条出口。
+- 修复: `config.rs` 新增 `dir_key()`(剥 `\\?\`/`\\?\UNC\` 前缀、去尾分隔符,Windows 上再统一分隔符并小写;Linux 保持大小写与分隔符敏感)供 HOME 判断使用,并暴露 `is_home_root(root)`。CLI 两个入口(`run_cli` 与 `tracker_cli`)开跑前调 `reject_home_as_project_root` 拒绝并给出下一步。桌面端不拦:那里选 HOME 是显式动作,不是误撞。
+- 验收: 单测 `home_marker_exclusion_survives_path_form_differences`(`\\?\`/正斜杠/末尾分隔符/大小写四种写法逐一断言排除仍生效)、`is_home_root_recognizes_real_home_in_any_form`;实测 `kz req list` 与 `kz run` 在 `C:\Users\kanzei` 下均 exit=1 并给出提示,`~/.kanzei` 未被写入,项目仓库内 `kz req list` 不受影响。workspace 276 项全绿。
+- 证据等级: E1(真实 HOME 下的 CLI 实测)
+- 优先级: P1
+- 标签: 核心
+
+## D-195 提示词与装配"同源"只是约定,没有任何机制保证同进同退 [fixed] (high)
+- refs: D-190 D-173
+- 复现: D-190 把前端自查段抽成 `frontend_inspection_guidance()`,但组件注册(crates/kanzei-app/src/main.rs 的 `FrontendToolsComponent`)与提示词追加(同文件 work-priority 旁)是两处各写各的。摘掉组件而留下追加、或把这段写回 dev 基础提示词,都不会有任何东西报错——和 D-190 修之前是同一种失效方式。
+- 影响: D-190 这类错配没有护栏就必然回归,而它的后果是模型被指向不可达的能力,试完失败转去找旁路(D-173 的失效模式)。resolve 末尾的覆盖校验只查硬 deny 声明的 `required_tool`,管不到提示词点名的工具。
+- 根因: 修 D-190 时只搬了位置,没把"提示词点名的工具必须在同一条装配线上注册"变成可执行的判据。
+- 修复: `kanzei_tools::prompt_tool_mentions(prompt)` 提取反引号内的标识符首词(两侧共用一套规则,不各写一份);两条测试各守一半——kanzei-tools 侧遍历 CLI 装配线上每个 agent 的 system,点名的工具必须在 `materialize_tools()` 里(非工具词只有 `node`/`task` 两个白名单项,各自写明理由);kanzei-app 侧断言桌面装配线注册了前端自查段点名的全部 5 个工具。
+- 验收: 反向验证——临时把 `ui_dom` 写回 dev 基础提示词,CLI 侧测试立即失败并指名 "Dev 档的 agent `dev` 提示词点名了 `ui_dom`,但这条装配线没注册它";还原后 workspace 276 项全绿。另有 `prompt_tool_mentions_只取反引号里的标识符首词` 守提取规则本身(防止提取不出东西造成的假绿)。
+- 备注: 同类未修残留一条(D-190 备注里已记):work-priority 段也只有桌面端 append,CLI 提示词里"the selected work-priority mode"永远指向不存在的内容。它不点名工具,所以现有护栏抓不到。
+- 证据等级: E1(反向注入验证护栏会红)
+- 优先级: P1
+- 标签: 核心
+
+## D-196 standing directives 被预算丢弃时不报数,违反自身注释的不变量 [fixed] (medium)
+- refs: D-191
+- 复现: crates/kanzei-tools/src/profiles.rs 的 `dev/memory` 注入,known facts 那半边超预算会补一行"(还有 N 条未列出)",standing directives 那半边一条计数都没有。`MEMORY_CONTEXT_BUDGET` 的注释写的却是"超预算必须显式说明丢了多少,不做静默截断"。
+- 影响: D-191 把 `break` 改成 `continue` 之后更要紧——丢的不再是尾巴而是从中间挑着丢,而 directives 正是标着 "obey these; they are the user's own words" 的用户原话(preference 全文)。模型完全看不出少了哪条,用户也无从察觉自己的常驻指令没进上下文。
+- 根因: D-191 只改了截断方式,没补上它引用的那条不变量;计数只在 known facts 那半边实现过。
+- 修复: directives 循环记 `directives_shown`,少于总数时补一行"(另有 N 条常驻指令因预算未列出,memory_search category=preference 可取全文)",给出可达的取全文路径。
+- 验收: workspace 276 项全绿。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-193 发布 tag 建在 main 的 HEAD 上,既对不上产物也架空了 D-183 的区间判据 [fixed] (high)
+- refs: D-183
+- 复现: `gh release create build-<hash> ...` 不带 `--target`。tag 不存在时 gh 在**远端默认分支(main)**的 HEAD 上创建它,而发版是从 `dev` 打的。实证:`git rev-parse build-ecdab96` = `5dcf469`(= origin/main),不是它命名的 `ecdab96`;`build-5dcf469` 同样指向 5dcf469。
+- 影响: ①发布页上的 tag 指向的树与安装包里的二进制不是同一个提交,产物无从追溯——恰好是 package.ps1 里"工作区必须干净"那段注释想避免的事;②更隐蔽的是 D-183 的护栏被架空:区间取 `最近的 build-* 标签..HEAD`,而这些标签全钉在 main 上不动,于是每次发版都把同一批 dev 提交重新数一遍,-Ack 数字越滚越大,"多出来一个提交就强制停顿"的精度归零。本轮实测:刚发过一次,下一次的区间仍是 3 个提交。
+- 根因: gh release create 的默认 target 是远端默认分支,而本仓库的发布分支是 dev;脚本没显式指定 target。
+- 修复: `gh release create` 加 `--target`,tag 落在真正构建的那个提交上。**必须传 40 位全 SHA**:GitHub 的 `target_commitish` 不认短 hash,传 `$hash` 会被 `HTTP 422 Validation Failed: Release.target_commitish is invalid` 挡回来(实测 build-84f843e 一次),脚本因此单独留了 `$full_hash`。
+- 验收: 下一次发版后 `git rev-parse build-<hash>` 等于 `<hash>`;再下一次的发布区间只包含该次之后的新提交。
+- 备注: 已发布的 build-ecdab96 / build-5dcf469 仍指向 5dcf469。挪动已发布的 tag 属改写已公开的引用,留给用户拍板,不擅自动。
+- 证据等级: E1(rev-parse 实证)
+- 优先级: P1
+- 标签: 流程
+
+## D-189 `~/.kanzei` 是项目根磁铁:`.kanzei` 无视距离压过更近的 `.git` [fixed] (high)
+- refs: D-186
+- 复现: `discover_project_root`(crates/kanzei-harness/src/config.rs)撞到任何 `.kanzei` 目录就立即返回,`.git` 只记 fallback 且要等循环走完才用。于是 `C:\Users\kanzei\Documents\某仓库`(有 `.git`、无 `.kanzei`)解析出的项目根是 `C:\Users\kanzei`——仓库自己的 `.git` 被丢掉,因为 `~/.kanzei` 作为全局配置根必然存在。
+- 影响: HOME 下所有无标记目录共用同一个项目根:state.db、project/ 追踪文件、记忆全部串到一起;且 HOME 当项目根时 `global_memory_root()` 与 `project_memory_root(HOME)` 是同一个目录,两个 scope 的 INDEX.md/index.db/inbox.md 静默合流。函数注释一直写的是"向上**最近**的含 .kanzei/ 或 .git/ 的目录",实现与注释不符。
+- 根因: `.kanzei` 命中即返回 + `.git` 仅作 fallback 的两段式写法,让"距离"这个判据在 `.kanzei` 面前失效;同时没有把 `~/.kanzei`(全局配置根)与项目级 `.kanzei` 区分开。
+- 修复: 改为单次向上扫描,最近的 `.kanzei` 或 `.git` 谁先出现谁赢;并把 HOME 自己的 `.kanzei` 排除出项目标记(HOME 的 `.git`——dotfiles 仓库——仍算)。拆出 `discover_project_root_with_home(cwd, home)` 供测试注入。
+- 验收: 单测 `nearest_git_wins_over_a_farther_kanzei`(更近的 .git 赢)与 `home_global_config_dir_is_not_a_project_marker`(同一棵树只切换"是否认 HOME"的前后对照)覆盖;workspace 271 项全绿。
+- 证据等级: E1
+- 优先级: P1
+- 标签: 核心
+
+## D-190 dev 提示词点名 5 个只有桌面端注册的工具,CLI 侧被指向不可达能力 [fixed] (high)
+- 复现: dev agent 的 system prompt 里点名 `ui_dom` / `ui_console` / `ui_style` / `frontend_locate` / `frontend_check`(crates/kanzei-tools/src/profiles.rs),而这 5 个只由桌面端的 FrontendToolsComponent 注册(crates/kanzei-app/src/main.rs)。`kz` 跑 dev agent 时提示词照发,工具不在 specs 里。
+- 影响: 正是 D-173 的失效模式——指令指向不可达的能力,模型试完失败就转去找旁路。resolve 末尾的覆盖校验只查硬 deny 声明的 `required_tool`,管不到提示词点名的工具,所以这类错配没有任何护栏。
+- 根因: 前端自查段写死在 dev 的基础提示词里,而工具注册是按装配线分的(桌面 5 条组件、CLI 4 条),提示词与装配不同源。
+- 修复: 抽成 `kanzei_tools::frontend_inspection_guidance()`,由注册了这些工具的装配方(桌面端,紧邻 work-priority 追加处)append;dev 基础提示词不再点名它们。
+- 验收: CLI dev 的 system 里不出现这 5 个工具名;桌面 dev 仍带该段。workspace 271 项全绿。
+- 备注: 同类残留一条(未修):work-priority 段也只有桌面端 append,CLI 永远不追加,提示词里"the selected work-priority mode"指向不存在的内容,靠后半句 "When no mode is supplied, use defect-first" 兜住。能跑,但属同一类不同源问题。
+- 证据等级: E2
+- 优先级: P1
+- 标签: 核心
+
+## D-191 记忆注入预算截断用 break,一条超长条目挡死其后全部 [fixed] (medium)
+- 复现: crates/kanzei-tools/src/profiles.rs 的 standing directives 与 known facts 两个注入循环都是 `if cost > budget { break; }`。一条超长 preference 或长 description 卡在中间,后面所有更短的条目全部不注入。
+- 影响: 提示只说"还有 N 条未列出",不说是被挡住的——用户与模型都看不出预算是被一条长条目吃干净还是自然填满;高价值短条目可能因为排在一条长条目之后而永远不进上下文。
+- 根因: 把"预算用尽"与"这一条放不下"混为一谈。
+- 修复: 两处 `break` 改 `continue`——放不下的跳过,继续填后面的;`shown` 计数不变,折叠提示仍准确。
+- 验收: workspace 271 项全绿。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-192 上下文账单漏掉最大的一块:工具 schema [fixed] (medium)
+- refs: R-145
+- 复现: `context_report` 只有 `agent/system` + 各 context source 的字符数,而 `estimate_prompt_tokens`(crates/kanzei-core/src/runner.rs)明确把 tool specs 算进 prompt。桌面 dev 档是 26 个工具的完整 JSON Schema,账单里一个字节都没有。
+- 影响: R-106 说账单要回答"本轮上下文里有什么、各占多少",漏掉工具 schema 就答不了最大的那一项;按这份账单做注入瘦身会一直在小头上使劲。
+- 根因: 账单在 `system_baseline_with_report()` 里组装,而 specs 是在 runner 侧另行构建的,两者没有汇合。
+- 修复: runner 组装 specs 后按 name+description+input_schema 的字符数追加一行 `tools/schema` 到 context_report。
+- 验收: CLI 摘要与桌面 run.completed 事件的 context 里出现 `tools/schema` 行;workspace 271 项全绿。
+- 备注: 修复原文写的"与 estimate_prompt_tokens 的口径一致"不成立——新行用 `chars().count()`,而 `estimate_prompt_tokens` 用 `len()` 字节再 /4。**选字符是对的**(账单其余行全是字符,内部自洽才要紧),只是说法要改成"与账单其余行同为字符口径";工具描述里现有 7 处中文,CJK 部分两者差三倍。另一处已知局限:这是单条聚合,26 个工具合成一个数字,能回答"占多少"、回答不了"谁占的",而账单的用处正是拿它砍——按工具分行成本几乎为零,留作后续。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-186 `~/.kanzei` 下已有项目级产物,D-170 的自动隔离对 HOME 这条路径失效 [fixed] (high)
+- 复现: 本机 `~/.kanzei/` 下存在 `state.db`(86 KB)、`project/defects.md`、`project/defects-archive.md`——这些是项目级产物,只该出现在项目根。成因是 D-183 修复前的 `discover_project_root`:撞到任何 `.kanzei` 就返回,而 `~/.kanzei` 作为全局配置根必然存在,于是 HOME 下所有无标记目录的项目根都解析成了 HOME。
+- 影响: `ensure_project_isolated` 的规则是"祖先没数据就静默补 `.kanzei`,有数据就不动、等用户拍板"。`root_has_data(HOME)` 因这些残留为真,于是往 `C:\Users\kanzei\` 下新增项目不再被自动隔离,而是静默并进 HOME 项目,直到用户发现条目串了。自愈路径当前是关着的。
+- 根因: 解析缺陷(已在 discover_project_root 修复:最近的 `.git` 赢过更远的 `.kanzei`,且 HOME 自己的 `.kanzei` 不算项目标记)之外,**已经写出去的残留数据**没有清理路径。
+- 修复: 解析侧已修。残留侧需要人拍板:`~/.kanzei/project/` 与 `~/.kanzei/state.db` 属删除操作,必须用户确认后再动(可先备份到 `~/.kanzei/.orphan-backup/`)。
+- 验收(2026-08-09 用户定调按实际收口路径重写,原验收①作废): ①`~/.kanzei` 下不再有项目级产物(`project/`、`state.db`);②HOME 下的无标记目录不再解析到 HOME,`ensure_project_isolated` 对它们无事可做(`resolved == dir` 早返回),即自动隔离这条路不再是必需品;③有回归覆盖"HOME 不被当项目根",且覆盖到路径的不同写法。
+- 关闭依据: ①残留已移走(不是删除):`~/.kanzei/{project/,state.db}` 在 `~/.kanzei/.orphan-backup/20260809/` 下,`~/.kanzei` 只剩 kanzei.toml、app.json、memory/。②由 D-189 满足:最近的标记谁先出现谁赢 + HOME 的 `.kanzei` 不算项目标记,HOME 下无标记目录现在解析成它自己。③由 D-194 满足:`home_marker_exclusion_survives_path_form_differences`(四种路径写法)与 `is_home_root_recognizes_real_home_in_any_form`,并在 CLI 两个入口加了拒绝。
+- 作废原因(原验收①"清理后 `root_has_data(HOME)` 为假"): 这条按现在的判据**永远满足不了**,而且不该满足。`root_has_data` 把 `.kanzei/memory` 算作项目数据,可对 HOME 来说那正是**全局**记忆根(inbox.md、index.db),合法且必须非空。真正的问题不是"HOME 有数据",而是"HOME 会被解析成项目根"——那一条已在 D-189/D-194 从源头堵死,`root_has_data` 这个判据对 HOME 已经走不到了,不必为它改判据。
+- 证据等级: E1(本机文件实证)
+- 优先级: P1
+- 标签: 核心
 
