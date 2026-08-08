@@ -122,6 +122,12 @@ impl Component for DevProfile {
             .tools
             .insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
 
+        // 测试记录专用写通道(R-080):tests.md 是托管文件,bash 会回滚、write/edit
+        // 硬 deny,agent 没有别的合法路径;写仍是写操作,按默认 ask 逐次询问。
+        draft
+            .tools
+            .insert("test_record", Arc::new(crate::test_record::TestRecordTool));
+
         // 架构索引的专用写通道(D-173):原先这个资源族只有硬 deny 没有工具,
         // 合法路径不可达,模型就去找 shell 旁路。读/校验放行,写仍逐次询问。
         draft.tools.insert(
@@ -164,6 +170,11 @@ impl Component for DevProfile {
                     "*.kanzei/project/decisions*",
                     Some("decision"),
                     "设计决策:ID 由引擎分配、状态机受限",
+                ),
+                (
+                    "*.kanzei/project/tests*",
+                    Some("test_record"),
+                    "测试记录:终态自动归档,由 test_record 追加",
                 ),
                 (
                     "*.kanzei/memory/*",
@@ -716,6 +727,8 @@ mod tests {
             (".kanzei/project/defects-archive.md", "defect"),
             (".kanzei/project/goals.md", "goal"),
             (".kanzei/project/architecture/README.md", "architecture"),
+            (".kanzei/project/tests.md", "test_record"),
+            (".kanzei/project/tests-archive.md", "test_record"),
             (".kanzei/memory/M-001-x.md", "memory_note"),
         ] {
             let normalized = kanzei_harness::permission::normalize_resource(path);

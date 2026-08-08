@@ -18,6 +18,7 @@ mod question;
 mod process;
 mod read;
 mod shell;
+pub mod test_record;
 pub mod tracker;
 mod write;
 

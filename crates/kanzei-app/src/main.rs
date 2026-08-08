@@ -2573,95 +2573,10 @@ fn docs_snapshot(project_dir: String) -> serde_json::Value {
     })
 }
 
-const TEST_RUNS_REL: &str = ".kanzei/project/tests.md";
-const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
-
-fn parse_test_blocks(text: &str) -> Vec<(String, serde_json::Value)> {
-    text.split("\n## ")
-        .filter_map(|raw| {
-            let block = if raw.starts_with("## ") {
-                raw.to_string()
-            } else {
-                format!("## {raw}")
-            };
-            let header = block.lines().next()?.trim_start_matches("## ").trim();
-            let status_start = header.rfind('[')?;
-            let status_end = header[status_start..].find(']')? + status_start;
-            let status = header[status_start + 1..status_end].trim();
-            let before = header[..status_start].trim();
-            let (id, title) = before
-                .split_once(' ')
-                .map(|(id, title)| (id.to_string(), title.to_string()))
-                .unwrap_or_else(|| (before.to_string(), String::new()));
-            let fields = block
-                .lines()
-                .skip(1)
-                .filter_map(|line| line.trim().strip_prefix("- "))
-                .filter_map(|line| line.split_once(':'))
-                .map(|(key, value)| json!({ "key": key.trim(), "value": value.trim() }))
-                .collect::<Vec<_>>();
-            Some((
-                block.trim_end().to_string(),
-                json!({ "id": id, "title": title, "status": status, "fields": fields }),
-            ))
-        })
-        .collect()
-}
-
-fn read_test_records(path: &Path) -> Vec<(String, serde_json::Value)> {
-    std::fs::read_to_string(path)
-        .map(|text| parse_test_blocks(&text))
-        .unwrap_or_default()
-}
-
 #[tauri::command]
 fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    let active_path = root.join(TEST_RUNS_REL);
-    let archive_path = root.join(TEST_RUNS_ARCHIVE_REL);
-    let active = read_test_records(&active_path);
-    let mut live_blocks = Vec::new();
-    let mut archived_blocks = Vec::new();
-    for (block, record) in active {
-        let status = record["status"].as_str().unwrap_or_default();
-        if matches!(status, "passed" | "failed" | "skipped") {
-            archived_blocks.push(block);
-        } else {
-            live_blocks.push(block);
-        }
-    }
-    if !archived_blocks.is_empty() {
-        let mut archived_text = std::fs::read_to_string(&archive_path)
-            .unwrap_or_else(|_| "# Test Runs Archive\n".into());
-        for block in archived_blocks {
-            archived_text.push_str("\n\n");
-            archived_text.push_str(&block);
-        }
-        if let Some(parent) = archive_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&archive_path, archived_text).map_err(|e| e.to_string())?;
-        let active_text = if live_blocks.is_empty() {
-            "# Test Runs\n".to_string()
-        } else {
-            format!("# Test Runs\n\n{}\n", live_blocks.join("\n\n"))
-        };
-        std::fs::write(&active_path, active_text).map_err(|e| e.to_string())?;
-    }
-    let live = read_test_records(&active_path)
-        .into_iter()
-        .map(|(_, record)| record)
-        .collect::<Vec<_>>();
-    let archived = read_test_records(&archive_path)
-        .into_iter()
-        .map(|(_, record)| record)
-        .collect::<Vec<_>>();
-    Ok(json!({
-        "active": live,
-        "archived": archived,
-        "path": active_path.display().to_string(),
-        "archive_path": archive_path.display().to_string(),
-    }))
+    kanzei_tools::test_record::test_runs_snapshot(&root)
 }
 
 #[tauri::command]
@@ -2672,31 +2587,14 @@ fn test_run_record(
     command: Option<String>,
     summary: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    if !matches!(status.as_str(), "running" | "passed" | "failed" | "skipped") {
-        return Err("测试状态必须是 running、passed、failed 或 skipped".into());
-    }
     let root = normalized_project_root(Path::new(&project_dir));
-    let path = root.join(TEST_RUNS_REL);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let id = format!(
-        "T-{}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs()
-    );
-    let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Test Runs\n".into());
-    text.push_str(&format!("\n\n## {id} {} [{status}]\n", title.trim()));
-    if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
-        text.push_str(&format!("- 命令: {}\n", command.trim()));
-    }
-    if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
-        text.push_str(&format!("- 摘要: {}\n", summary.trim()));
-    }
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
-    test_runs_snapshot(project_dir)
+    kanzei_tools::test_record::append_test_run(
+        &root,
+        &title,
+        &status,
+        command.as_deref(),
+        summary.as_deref(),
+    )
 }
 
 fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
