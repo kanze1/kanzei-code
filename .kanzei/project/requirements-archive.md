@@ -1009,3 +1009,17 @@
 
 - 标签: 核心
 
+## R-139 bash 级 .kanzei 路径硬门禁:受保护文档不被 bash 旁路 [done]
+- 背景: direction_taste §5.2 地基债:模型 write/edit 对 .kanzei/project/* 已 hard deny,但 bash 工具可绕过(rm/git checkout/Set-Content 等直接操作保护文件);现有 push_hard_deny 机制未挂到 bash 工具。
+- 设计定位: bash 工具路径级硬门禁,与 write/edit 同等级保护
+- 证据等级: E2
+- 阶段: 1
+- 验收: bash 命令中出现的 .kanzei/project/* 受保护路径在解析后的命令结构中识别并硬 deny(含重定向、管道、解释器、脚本路径);deny 不依赖首词泛化;补 bash 路径逃逸回归测试。
+- 实现进展(2026-08-08): Harness 已统一声明托管资源与 `required_tool`;架构文档已具备专用工具;Bash 改为执行前后快照比对和自动回滚,覆盖空托管目录、绝对路径、重定向与 .NET/Provider 等无法可靠静态枚举的写法;Git 变更从 Bash 中剥离为 `git status/diff/stage/commit` 结构化工具,其中 stage 仅接受显式相对文件,commit 通过暂存区哈希做 CAS 校验。
+- 当前边界: 托管基线超过 2,000 个文件或单文件超过 4 MiB 时会拒绝通用 Bash;托管项目后台 Bash 暂停开放,隔离缺口记录为 D-174。
+- 验证(2026-08-08): `cargo test -p kanzei-tools -- --test-threads=1` 80/80、`cargo test -p kanzei-harness -- --test-threads=1` 37/37、`cargo test -p kanzei-core --lib -- --test-threads=1` 50/50 通过;桌面端真实模型工具调用仍待验收。
+
+- 优先级: P1
+
+- 进展: 逐条对照验收:①「.kanzei/project/* 受保护路径识别并硬 deny」——双保险实现:crates/kanzei-tools/src/bash.rs:323-388 执行前静态拦截(full_file_write_cmdlet 词边界识别 Set-Content/Out-File、git_mutation_form 解析命令片段拦 git 写子命令);bash.rs:399-551 执行前 ManagedSnapshot 镜像托管目录、执行后 enforce_managed_files 比对,任何改动隔离留证(.kanzei/quarantine)并整体回滚,回喂 [managed-files] BLOCKED。②「含重定向、管道、解释器、脚本路径」——测试逐一覆盖:bash.rs:610 重定向+[System.IO.File]::WriteAllText(.NET 解释器)、:735 管道形态($lines | out-file)、:662 git 脚本形态。③「deny 不依赖首词泛化」——快照比对完全不解析命令文本,「没人预料到的写法」一样拦(bash.rs:607 注释);git_mutation_form 定位命令中的 git 位置而非首词。④「补 bash 路径逃逸回归测试」——6 个测试:shell_writes_to_managed_docs_are_rolled_back(610)、git_mutations_are_blocked_without_false_positives(662)、empty_managed_directory_is_still_fenced(688)、background_shell_is_refused_in_managed_projects(713)、whole_file_write_cmdlets_are_detected_with_word_boundaries(735)、set_content_command_is_blocked_before_spawn(751)。验证:cargo test -p kanzei-tools 80/80、kanzei-harness 37/37、kanzei-core --lib 50/50(2026-08-08);本轮 workspace 256 项全绿。残余验证「桌面端真实模型工具调用 E2」不在验收条款内,已转移至 R-101 延期 E2 清单。
+

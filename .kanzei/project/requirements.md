@@ -138,6 +138,8 @@
 - 拆批(2026-08-08 用户定调「拆出能先做的部分」): 验收 ② 拆成两批。**本轮可做**:批内并行的执行框架与冲突判定规则——runner 把同一轮互不冲突的普通工具改为并发执行(同一工作树的写操作串行化),规则用代码强制并补并发/失败隔离回归;这部分只动 runner 与工具契约,不碰会话事件层。**留待 R-086**:并行工具各自触发权限询问时的询问路由与应答顺序,须等会话状态机就位,否则并发 ask 会串会话。批一交付即可关闭本条,批二并入 R-086 验收。
 - 进展: 已交付后台进程与 stdin 两项。①bash 新增 `background=true`:立刻返回 process_id,不受 timeout 约束;新增 `process` 工具(list/output/stop),输出保留尾部 256KiB 并标注截断;运行停止时 stop_run 调 kill_background_processes 回收本项目进程,避免孤儿 dev server 占端口。②核查发现 stdin 早已是 Stdio::null(),交互命令收到 EOF 而非挂到超时,原判断有误,已在工具描述里写明。③批内并行未做:runner 对普通工具仍是 for 循环串行(runner.rs:531),只有 task 子代理并行;并行涉及工具副作用顺序与权限询问路由,依赖 R-086 的会话事件路由先落地,不在本轮范围。
 - 验证: cargo test -p kanzei-tools 26 项通过,含真实 spawn 的后台进程闭环测试(托管→捕获输出→登记在册→停止);cargo test --workspace 全绿(125 项)。
+- 安全回退(2026-08-08): 为修复托管文档可被异步 Bash 绕过的问题,当前在存在 `.kanzei` 的项目中拒绝后台 Bash。后台进程注册、轮询和停止实现仍保留,但本需求的“通过 Bash 启动后台任务”验收项重新开放,待 D-174 的隔离或写入归因方案完成后恢复。
+- 当前验证(2026-08-08): 后台进程底层测试与 Bash 拒绝路径包含在 `kanzei-tools` 80 项通过测试中;尚未完成隔离后的真实长驻进程验收。
 
 - 标签: 核心
 
@@ -159,7 +161,7 @@
 - 优先级: P0
 - 归属: kanzei
 - 背景: 多条缺陷按 conventions §1.2「可用即关闭」关闭,其验证增强项收拢至此,不再阻塞缺陷与需求推进;此前反复出现的阻塞原因是仓库无 package.json、无浏览器测试 harness,无法安全启动真实 Tauri UI。
-- 验收: 建立可在测试基座安全启动真实 Tauri UI(或等价 WebView 驱动)的 E2 harness;逐项补齐延期 E2:D-051 桌面权限弹窗真实 UI E2;D-055 切回进程补发 pending ask 前端 E2;D-056 运行中切项目→终态复位 E2;D-060 update/close/reorder 手写内容保留与并发写入回归;D-064 注入故障的 run_task 收尾 E2;D-066 真实 Tauri Window/provider 停止 E2;D-086 runner 级 task→subagent read 拦截执行回归。
+- 验收: 建立可在测试基座安全启动真实 Tauri UI(或等价 WebView 驱动)的 E2 harness;逐项补齐延期 E2:D-051 桌面权限弹窗真实 UI E2;D-055 切回进程补发 pending ask 前端 E2;D-056 运行中切项目→终态复位 E2;D-060 update/close/reorder 手写内容保留与并发写入回归;D-064 注入故障的 run_task 收尾 E2;D-066 真实 Tauri Window/provider 停止 E2;D-086 runner 级 task→subagent read 拦截执行回归;R-139 bash 硬门禁桌面端真实模型工具调用 E2(2026-08-08 R-139 关闭时转入,验收条款外残余验证)。
 - 拆批(2026-08-08 用户定调「拆出能先做的部分」): **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。**留待 R-086**——依赖会话事件路由的三条:D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位。基座 + 四条 E2 交付即可关闭本条,剩余三条并入 R-086 验收。
 - refs: R-086
 - 阶段: 3
@@ -205,7 +207,7 @@
 - refs: R-103 R-098 R-104
 - 阶段: 4
 - 设计定位: 记忆管理的执行者与节律
-- 进展: 48a1b3f 交付核心:全套写工具+MemoryManagerComponent(无 shell,快照测试守护)+引擎去重门禁+merge 墓碑链接+CLI/桌面轮末 inbox 消化触发(fast→primary,判据只看箱)。剩余:条目关闭触发的根因→fact 蒸馏(并入轮末简报,与 R-106 episode 一起做);「写入→命中→避免重复探索」闭环实证待发版后真实轨迹。
+- 进展: 48a1b3f 交付核心:全套写工具+MemoryManagerComponent(无 shell,快照测试守护)+引擎去重门禁+merge 墓碑链接+CLI/桌面轮末 inbox 消化触发(fast→primary,判据只看箱)。本轮(f0a1e45)完成剩余代码项「条目关闭触发的根因→fact 蒸馏」:completed_entry 命中时新增 harvest_entry_fact 把根因原料(触发任务+工具顺序+本轮失败信号)投项目 inbox 由 manager 提炼成 fact,指纹 [fact:{id}] 判重同条目只投一次,CLI 与桌面端轮末都接线;单测覆盖投递/判重/无失败信号路径,workspace 256 项全绿。剩余:验收①「连续自举轮次出现完整闭环实证(轮末写入→后续轮命中→避免重复探索,以轨迹为证)」需发版后真实轨迹,不可本机验证;代码项已全部落地,去重门禁与主 agent 无写路径测试均已在 48a1b3f 交付。
 
 - 标签: 核心
 
@@ -220,7 +222,7 @@
 - 阶段: 4
 - 设计定位: 上下文管理精准化的数据与机制
 - 依赖: R-105
-- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。本轮修复 D-161/D-162：建流前与 HTTP 200 SSE 流内 context overflow 统一执行有界压缩→仅当前消息两级重试，每次从压缩后 messages 重建请求并在成功后持久化；OpenAI SSE 同时识别 error.type/code 与用户实测 'input exceeds the context window' 文案，限流优先级不回归；CLI/mock SSE 集成覆盖两级恢复，workspace 全绿。剩余:被裁剪段先沉淀 episode 再重置，避免激进压缩无声丢弃轨迹。
+- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。D-161/D-162:建流前与 HTTP 200 SSE 流内 context overflow 统一执行有界压缩→仅当前消息两级重试,每次从压缩后 messages 重建请求并在成功后持久化;OpenAI SSE 同时识别 error.type/code 与 'input exceeds the context window' 文案,限流优先级不回归。本轮(d6af32a)完成剩余代码项「被裁剪段先沉淀 episode 再重置」:压缩时把被丢弃段生成轨迹摘要(工具画像+失败信号+文本预览)收集进 RunSummary.overflow_traces,CLI/桌面端随 episode 落库(episodes.overflow_json 新列 v6,幂等 ALTER 迁移),新增 recent_overflow_traces 查询;runner 单测(两级压缩轨迹断言)、store 单测(overflow_json 回放)、集成测试(真实 CLI 溢出恢复后 episode 可查,两级压缩两条轨迹)覆盖,workspace 255 项全绿。剩余:验收①「同类任务每轮注入 token 较基线下降且无信息缺失返工」需发版后真实轨迹对比,与 R-105 闭环实证同属外部实证,不可本机验证;代码项已全部落地。
 
 - 标签: 核心
 
@@ -330,15 +332,6 @@
 - 证据等级: E2
 - 阶段: 1
 - 验收: docstore save 改 tmp+rename 原子替换(临时文件与目标同目录);跨进程文件锁(Windows std::fs 独占句柄,毫秒级持有);并发写 tracker 的压测不丢条目不撞 ID;失败时保留现场可重试。
-
-- 优先级: P1
-
-## R-139 bash 级 .kanzei 路径硬门禁:受保护文档不被 bash 旁路 [todo]
-- 背景: direction_taste §5.2 地基债:模型 write/edit 对 .kanzei/project/* 已 hard deny,但 bash 工具可绕过(rm/git checkout/Set-Content 等直接操作保护文件);现有 push_hard_deny 机制未挂到 bash 工具。
-- 设计定位: bash 工具路径级硬门禁,与 write/edit 同等级保护
-- 证据等级: E2
-- 阶段: 1
-- 验收: bash 命令中出现的 .kanzei/project/* 受保护路径在解析后的命令结构中识别并硬 deny(含重定向、管道、解释器、脚本路径);deny 不依赖首词泛化;补 bash 路径逃逸回归测试。
 
 - 优先级: P1
 
