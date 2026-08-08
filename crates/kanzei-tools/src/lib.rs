@@ -9,6 +9,7 @@ mod edit;
 pub mod frontend;
 mod glob;
 mod grep;
+mod git;
 mod todowrite;
 mod webfetch;
 mod websearch;

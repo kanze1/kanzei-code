@@ -82,10 +82,14 @@ fn which(name: &str) -> Option<PathBuf> {
 pub async fn kill_tree(pid: u32) {
     #[cfg(windows)]
     {
-        let _ = tokio::process::Command::new("taskkill")
+        // taskkill 本身也可能因 WMI/进程枚举异常永久挂住。它只是超时清理路径，
+        // 不能反过来让 bash 的 timeout 永远不返回；两秒后丢弃并依赖 child 的
+        // kill_on_drop 兜住直接子进程。
+        let mut command = tokio::process::Command::new("taskkill");
+        command
             .args(["/pid", &pid.to_string(), "/t", "/f"])
-            .output()
-            .await;
+            .kill_on_drop(true);
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), command.output()).await;
     }
     #[cfg(not(windows))]
     {

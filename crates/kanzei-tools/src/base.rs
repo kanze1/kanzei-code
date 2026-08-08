@@ -14,12 +14,22 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("write", Arc::new(crate::write::WriteTool));
-        draft.tools.insert("edit", Arc::new(crate::edit::EditTool::default()));
+        draft
+            .tools
+            .insert("edit", Arc::new(crate::edit::EditTool::default()));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
-        draft.tools.insert("process", Arc::new(crate::process::ProcessTool));
+        draft
+            .tools
+            .insert("process", Arc::new(crate::process::ProcessTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
-        draft.tools.insert("question", Arc::new(crate::question::QuestionTool));
-        draft.tools.insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
+        draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        draft.tools.insert("git", Arc::new(crate::git::GitTool));
+        draft
+            .tools
+            .insert("question", Arc::new(crate::question::QuestionTool));
+        draft
+            .tools
+            .insert("todowrite", Arc::new(crate::todowrite::TodoWriteTool));
         draft
             .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
@@ -29,6 +39,8 @@ impl Component for BaseComponent {
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
+            rule("git", "status", Effect::Allow),
+            rule("git", "diff", Effect::Allow),
             rule("question", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
@@ -50,5 +62,41 @@ impl Component for BaseComponent {
             }),
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanzei_harness::{Harness, KanzeiConfig, ProfileKind};
+
+    #[test]
+    fn primary_base_exposes_structured_search_and_git() {
+        let root = std::env::temp_dir();
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: std::sync::Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(BaseComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| tool.name())
+            .collect();
+        assert!(
+            names.contains(&"grep"),
+            "primary agent must not fall back to bash for search"
+        );
+        assert!(
+            names.contains(&"git"),
+            "Git mutations need a structured channel"
+        );
+        assert_eq!(snapshot.evaluate("grep", "anything"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("git", "status"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("git", "stage"), Effect::Ask);
     }
 }
