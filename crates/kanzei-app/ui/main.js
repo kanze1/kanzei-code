@@ -137,6 +137,7 @@ const I18N_EN = {
   "本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)": "This project has no space of its own and is reading a parent directory's data — shared with any other project under the same parent",
   "在此建立独立空间": "Create its own space here", "只在本目录创建 .kanzei,不搬动上级目录的既有条目": "Creates .kanzei here only; existing entries in the parent are left untouched",
   "已建立独立空间": "Own space created", "建立独立空间失败": "Failed to create its own space",
+  "已为本项目建立独立空间": "Gave this project its own space", "以下项目仍与上级目录共用数据,切过去可一键分离": "These projects still share a parent directory's data — switch to one to separate it",
   "运行画像加载失败": "Failed to load run metrics", "还没有轮次记录:跑一轮后这里会出现画像": "No rounds recorded yet — run once and metrics will appear here",
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
@@ -3665,6 +3666,30 @@ function syncDocumentsProjectSelect(prefs) {
 // 于是共用同一祖先的几个项目读的是同一份 requirements.md,需求在项目之间串。
 // 存量项目改根会让会话 id 变化(历史看起来消失),所以不静默迁移:如实报出来,
 // 给一键分离,由用户决定。
+// 隔离问题往往一次影响多个项目(它们共用同一个祖先)。只在当前项目上提示会让
+// 用户切一个发现一个,修到一半以为修完了。这里一次报全,只报一次。
+let isolationReported = false;
+async function reportIsolationAcrossProjects() {
+  if (isolationReported) return;
+  isolationReported = true;
+  try {
+    const report = await invoke("projects_isolation_report");
+    for (const path of report.autoRepaired ?? []) {
+      log(`${t("已为本项目建立独立空间")}:${path}`);
+    }
+    const shared = report.shared ?? [];
+    if (shared.length) {
+      log(
+        `${t("以下项目仍与上级目录共用数据,切过去可一键分离")}:` +
+          shared.map((s) => `${s.project} → ${s.resolved}`).join("；"),
+        "warn",
+      );
+    }
+  } catch {
+    /* 体检失败不影响主流程 */
+  }
+}
+
 async function checkProjectIsolation() {
   const box = $("project-shared-warn");
   if (!box || !currentProject) return;
@@ -3674,8 +3699,14 @@ async function checkProjectIsolation() {
   } catch {
     return;
   }
+  // 无损修复过就只留一行日志,不打扰——用户看到的内容没有任何变化。
+  if (info.autoRepaired) log(`${t("已为本项目建立独立空间")}:${info.selected}`);
   box.classList.toggle("hidden", !info.shared);
-  if (!info.shared) return;
+  if (!info.shared) {
+    // 顺带体检一次全部项目:受影响的往往不止当前这个,切一个发现一个太慢。
+    reportIsolationAcrossProjects();
+    return;
+  }
   box.innerHTML = "";
   const text = document.createElement("div");
   text.textContent = `${t("本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)")}:${info.resolved}`;
@@ -3688,7 +3719,10 @@ async function checkProjectIsolation() {
     try {
       await invoke("project_detach", { projectDir: currentProject });
       toast(t("已建立独立空间"));
+      // 分离改变了项目根:文档、会话、记忆都要按新根重取,否则界面还停在旧根的数据上。
       await refreshDocs();
+      await loadConversation();
+      isolationReported = false; // 允许再体检一次,看还有没有别的项目共用
       checkProjectIsolation();
     } catch (err) {
       toastError(`${t("建立独立空间失败")}:${err}`);

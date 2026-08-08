@@ -511,6 +511,84 @@ mod update_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
     use tokio::sync::oneshot;
 
+    /// 建一个"上级是项目、下面挂两个子目录"的现场,`with_data` 决定上级有没有数据。
+    fn isolation_fixture(tag: &str, with_data: bool) -> (PathBuf, PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "kz-iso-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(base.join(".kanzei/project")).unwrap();
+        if with_data {
+            std::fs::write(
+                base.join(".kanzei/project/requirements.md"),
+                "# Requirements\n\n## R-900 上级的需求 [todo]\n",
+            )
+            .unwrap();
+        }
+        let a = base.join("projA");
+        let b = base.join("projB");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        (base, a, b)
+    }
+
+    #[test]
+    fn 祖先无数据时静默自动隔离_有数据时绝不擅自改根() {
+        // 情形一:祖先是空项目 —— 补 .kanzei 前后用户看到的都是空,无损,应静默修。
+        let (base, a, _b) = isolation_fixture("auto", false);
+        assert!(super::ensure_project_isolated(&a), "祖先无数据时应自动隔离");
+        assert_eq!(
+            kanzei_harness::config::discover_project_root(&a).unwrap(),
+            a,
+            "自动隔离后应以自身为根",
+        );
+        // 幂等:已经自成一根就不该再"修"一次。
+        assert!(!super::ensure_project_isolated(&a), "重复调用不应重复修复");
+        std::fs::remove_dir_all(&base).ok();
+
+        // 情形二:祖先有需求数据 —— 改根会让这个项目从"看得到那批条目"变成空,
+        // 属于可见变化,必须留给用户确认,引擎不得擅自动手。
+        let (base, a, _b) = isolation_fixture("manual", true);
+        assert!(
+            !super::ensure_project_isolated(&a),
+            "祖先有数据时不得自动改根(会让用户以为条目丢了)",
+        );
+        assert_ne!(
+            kanzei_harness::config::discover_project_root(&a).unwrap(),
+            a,
+            "未确认前应保持原样",
+        );
+        let info = super::project_root_info(a.display().to_string());
+        assert!(info["shared"].as_bool().unwrap(), "必须如实报出共用状态");
+        assert!(!info["autoRepaired"].as_bool().unwrap(), "这种情形不该声称已自动修复");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn 隔离体检一次报完全部共用项目() {
+        // 一次性看清所有受影响的项目,而不是切一个发现一个。
+        let (base, a, b) = isolation_fixture("report", true);
+        let shared: Vec<String> = [&a, &b]
+            .iter()
+            .filter(|dir| {
+                let resolved = kanzei_harness::config::discover_project_root(dir).unwrap();
+                std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(dir).ok()
+            })
+            .map(|d| d.display().to_string())
+            .collect();
+        assert_eq!(shared.len(), 2, "两个子目录此时都共用上级");
+        // 分离其中一个,另一个不受影响。
+        super::project_detach(a.display().to_string()).unwrap();
+        assert_eq!(kanzei_harness::config::discover_project_root(&a).unwrap(), a);
+        assert_ne!(
+            kanzei_harness::config::discover_project_root(&b).unwrap(),
+            b,
+            "分离 A 不该顺手改动 B",
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
     #[test]
     fn 同一上级下的两个项目必须各自独立不串数据() {
         let base = std::env::temp_dir().join(format!(
@@ -1145,6 +1223,7 @@ fn main() {
             run_metrics,
             project_root_info,
             project_detach,
+            projects_isolation_report,
             memory_entry_save,
             memory_search_page,
             memory_context_bill,
@@ -1548,12 +1627,50 @@ fn projects_add(path: String) -> Result<AppPrefs, String> {
     Ok(projects_get())
 }
 
+/// 某个根下是否已经存在"这个项目的东西"。判断依据是**用户可见的产物**:
+/// 追踪文档、记忆、会话库。只有这些存在时,改根才会改变用户看到的内容。
+fn root_has_data(root: &Path) -> bool {
+    let k = root.join(".kanzei");
+    ["project", "memory"]
+        .iter()
+        .any(|sub| k.join(sub).read_dir().map(|mut d| d.next().is_some()).unwrap_or(false))
+        || k.join("state.db").is_file()
+}
+
+/// D-170 核心规则:**能无损修就自动修,会改变可见内容的才问用户**。
+///
+/// 未初始化的项目目录会被 `discover_project_root` 一路向上解析到祖先,于是共用
+/// 同一祖先的几个项目读写同一份数据。要根治就得让每个注册项目自成一根,但对
+/// 存量项目直接改根会让 `project_session_id` 变化、历史对话看起来消失。
+///
+/// 分两种情形:
+/// - 祖先那边**没有任何项目数据** → 补 `.kanzei` 前后用户看到的都是空,无损,静默修;
+/// - 祖先那边**有数据** → 不动。改了会让这个项目从"看得到那批条目"变成"空的",
+///   属于可见变化,必须由用户在界面上确认(project_detach)。
+///
+/// 返回是否做了自动修复。
+fn ensure_project_isolated(dir: &Path) -> bool {
+    if dir.join(".kanzei").is_dir() {
+        return false; // 已经自成一根
+    }
+    let Some(resolved) = kanzei_harness::config::discover_project_root(dir) else {
+        return false;
+    };
+    if std::fs::canonicalize(&resolved).ok() == std::fs::canonicalize(dir).ok() {
+        return false; // 解析结果就是自己
+    }
+    if root_has_data(&resolved) {
+        return false; // 有数据,改根会改变所见,交给用户拍板
+    }
+    std::fs::create_dir_all(dir.join(".kanzei")).is_ok()
+}
+
 /// D-170:所选目录与实际生效的项目根是否一致。不一致 = 这个项目的需求/缺陷/会话
-/// 其实存在祖先目录里,和共用同一祖先的其它项目**混在一起**。存量项目改根会让
-/// 会话 id 变化(历史看起来消失),所以不静默迁移——只如实报出来,由用户决定。
+/// 其实存在祖先目录里,和共用同一祖先的其它项目**混在一起**。
 #[tauri::command]
 fn project_root_info(project_dir: String) -> serde_json::Value {
     let selected = PathBuf::from(&project_dir);
+    let repaired = ensure_project_isolated(&selected);
     let resolved = kanzei_harness::config::discover_project_root(&selected)
         .unwrap_or_else(|| selected.clone());
     let same = std::fs::canonicalize(&selected).ok() == std::fs::canonicalize(&resolved).ok();
@@ -1561,7 +1678,37 @@ fn project_root_info(project_dir: String) -> serde_json::Value {
         "selected": selected.display().to_string(),
         "resolved": resolved.display().to_string(),
         "shared": !same,
+        // 无损自动修复过:界面无需打扰用户,但日志里要留痕。
+        "autoRepaired": repaired,
     })
+}
+
+/// 全部注册项目的隔离体检:一次报完,而不是切一个发现一个。
+/// 顺带对可无损修复的静默补齐。
+#[tauri::command]
+fn projects_isolation_report() -> serde_json::Value {
+    let prefs = load_prefs();
+    let mut shared = Vec::new();
+    let mut repaired = Vec::new();
+    for path in &prefs.projects {
+        let dir = PathBuf::from(path);
+        if !dir.is_dir() {
+            continue;
+        }
+        if ensure_project_isolated(&dir) {
+            repaired.push(path.clone());
+            continue;
+        }
+        let resolved = kanzei_harness::config::discover_project_root(&dir)
+            .unwrap_or_else(|| dir.clone());
+        if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
+            shared.push(json!({
+                "project": path,
+                "resolved": resolved.display().to_string(),
+            }));
+        }
+    }
+    json!({ "shared": shared, "autoRepaired": repaired })
 }
 
 /// 在所选目录就地建 `.kanzei`,把它从祖先项目里分离出来。
@@ -1573,7 +1720,18 @@ fn project_detach(project_dir: String) -> Result<(), String> {
         return Err(format!("目录不存在: {project_dir}"));
     }
     std::fs::create_dir_all(dir.join(".kanzei").join("project"))
-        .map_err(|e| format!("创建项目空间失败: {e}"))
+        .map_err(|e| format!("创建项目空间失败: {e}"))?;
+    // 回读校验:建完必须确实以自身为根,否则等于什么都没做却报了成功。
+    let resolved = kanzei_harness::config::discover_project_root(&dir)
+        .unwrap_or_else(|| dir.clone());
+    if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
+        return Err(format!(
+            "已创建 {}/.kanzei,但项目根仍解析为 {} —— 请检查目录权限",
+            dir.display(),
+            resolved.display()
+        ));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1601,6 +1759,9 @@ fn projects_remove(path: String) -> AppPrefs {
 fn projects_select(path: String) -> AppPrefs {
     let mut prefs = load_prefs();
     if prefs.projects.contains(&path) {
+        // 切进来时顺手做无损隔离修复:未初始化且祖先无数据的项目在这里自成一根,
+        // 用户完全无感。有数据的仍不动,由界面告警引导。
+        ensure_project_isolated(Path::new(&path));
         prefs.current = Some(path);
     }
     save_prefs(&prefs);
