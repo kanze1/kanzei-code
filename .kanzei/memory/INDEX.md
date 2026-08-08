@@ -10,3 +10,5 @@
 - M-008 [fact] runner 首次请求统一清洗 prior 历史(filter_message_history) — 调试 runner 首请求消息构造、prior 历史孤儿 ToolCall/ToolResult、上下文压缩相关问题时必读
 - M-009 [sop] edit 报 old_string not found 时须先 read 重读文件再精确匹配 — 处理 edit 替换失败(old_string not found / must match exactly including whitespace)时必读:先 read 重读磁盘实际内容再构造 old_string
 - M-010 [sop] edit 报 old/new 相同是 no-op 拒绝而非失败 — 处理 edit 报 "old_string and new_string are identical — nothing to do" 时必读:这是 no-op 拒绝而非真失败,说明目标内容已是期望状态或 old/new 复制成同一段,不要改用 bash 绕过
+- M-011 [sop] 活动/归档同 ID 语义不同时用 repair_reused_id 修复,勿直接编辑托管文档 — 处理 tracker 完整性门禁报 present in BOTH active and archive / 活动与归档同 ID 语义不同的修复时必读
+- M-012 [fact] ID 同现于活动与归档时完整性门禁拒绝所有 tracker 写操作 — goal/defect/req 写操作报 tracker integrity is broken / present in BOTH active and archive 时必读
