@@ -186,6 +186,19 @@ async fn sse_context_overflow_compacts_history_and_persists_recovered_summary() 
     assert!(persisted_json.contains("压缩记录"));
     assert!(persisted_json.contains("压缩恢复成功"));
     assert!(!persisted_json.contains(TAIL_MARKER));
+
+    // R-106:被裁剪段先沉淀 episode 再重置——压缩丢弃的历史有迹可查,
+    // 而不是被静默丢弃。CLI 轮末把 summary.overflow_traces 写入 episodes.overflow_json。
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+    let traces = store
+        .recent_overflow_traces(&kanzei_core::project_session_id(&project), 10)
+        .unwrap();
+    assert_eq!(traces.len(), 1, "一次有界压缩应留下一条溢出轨迹 episode");
+    assert!(traces[0].1.contains("dropped_messages"), "轨迹应含丢弃段画像: {}", traces[0].1);
+    assert!(traces[0].1.contains("preview"), "轨迹应含文本预览: {}", traces[0].1);
+    drop(store);
+
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
 }
 
@@ -225,5 +238,21 @@ async fn second_sse_context_overflow_retries_with_only_current_user_message() {
     assert!(!persisted_json.contains(OLD_MARKER));
     assert!(persisted_json.contains("只保留这个当前任务"));
     assert!(persisted_json.contains("激进压缩恢复成功"));
+
+    // R-106:两级压缩各沉淀一条轨迹(有界 + 激进),episode 可查回。
+    // 一次运行只落一条 episode,两条轨迹在 overflow_json 的同一个 JSON 数组里。
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+    let traces = store
+        .recent_overflow_traces(&kanzei_core::project_session_id(&project), 10)
+        .unwrap();
+    assert_eq!(traces.len(), 1, "一次运行应只落一条带轨迹的 episode");
+    let parsed: serde_json::Value = serde_json::from_str(&traces[0].1).unwrap();
+    let entries = parsed.as_array().expect("overflow_json 应为 JSON 数组");
+    assert_eq!(entries.len(), 2, "两次压缩应沉淀两条轨迹: {}", traces[0].1);
+    assert!(traces[0].1.contains(OLD_MARKER),
+        "被丢弃的旧历史应出现在轨迹里: {}", traces[0].1);
+    drop(store);
+
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
 }

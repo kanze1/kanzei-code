@@ -164,6 +164,10 @@ pub struct RunSummary {
     pub messages: Vec<Message>,
     /// 上下文账单(R-106):system 各注入源的字符数(agent/system 在首位)。
     pub context_report: Vec<(String, usize)>,
+    /// 上下文溢出压缩时被丢弃的轨迹摘要(R-106):每次压缩产生一条,
+    /// 由调用方随 episode 沉淀(episodes.overflow_json),避免激进压缩
+    /// 无声丢弃轨迹——D-088 的溢出路径可复盘。
+    pub overflow_traces: Vec<String>,
 }
 
 /// 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
@@ -182,7 +186,7 @@ pub fn summarize_tools(messages: &[Message]) -> std::collections::BTreeMap<Strin
 }
 
 /// 一条失败信号:同一 (工具 × 错误类) 在本轮的聚合。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct FailureSignal {
     pub tool: String,
     /// 归一化错误指纹(抹掉路径与数字后的错误首行),用于聚合与跨轮去重。
@@ -810,6 +814,7 @@ pub fn run_once_with_parts<'a>(
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
     let mut overflow_recoveries = 0;
+    let mut overflow_traces: Vec<String> = Vec::new();
 
     let mut step = 0u32;
     loop {
@@ -863,7 +868,7 @@ pub fn run_once_with_parts<'a>(
             .await
         {
             Err(error) if error.is_context_overflow() => {
-                if recover_context_overflow(&mut messages, &mut overflow_recoveries) {
+                if recover_context_overflow(&mut messages, &mut overflow_recoveries, &mut overflow_traces) {
                     continue;
                 }
                 return Err(error.into());
@@ -949,7 +954,7 @@ pub fn run_once_with_parts<'a>(
             // Provider 也可能在 HTTP 200 的 SSE error 事件里报告上下文超限。
             // 此时本步工具尚未执行，压缩 messages 后安全地从头重放请求。
             Some(error) if error.is_context_overflow() => {
-                if recover_context_overflow(&mut messages, &mut overflow_recoveries) {
+                if recover_context_overflow(&mut messages, &mut overflow_recoveries, &mut overflow_traces) {
                     continue;
                 }
                 return Err(error.into());
@@ -999,6 +1004,7 @@ pub fn run_once_with_parts<'a>(
                 halted_by_user: false,
                 messages,
                 context_report: context_report.clone(),
+                overflow_traces: overflow_traces.clone(),
             });
         }
 
@@ -1373,6 +1379,7 @@ pub fn run_once_with_parts<'a>(
                         halted_by_user: true,
                         messages,
                         context_report: context_report.clone(),
+                        overflow_traces: overflow_traces.clone(),
                     });
                 }
                 Gate::Pass => {
@@ -1408,6 +1415,7 @@ pub fn run_once_with_parts<'a>(
                 halted_by_user: false,
                 messages,
                 context_report: context_report.clone(),
+                overflow_traces: overflow_traces.clone(),
             });
         }
         if last_step {
@@ -1422,6 +1430,7 @@ pub fn run_once_with_parts<'a>(
         halted_by_user: false,
         messages,
         context_report,
+        overflow_traces: overflow_traces.clone(),
     })
     })
 }
@@ -1634,10 +1643,14 @@ async fn run_subagent(
     }
 }
 
-fn recover_context_overflow(messages: &mut Vec<Message>, recoveries: &mut u32) -> bool {
+fn recover_context_overflow(
+    messages: &mut Vec<Message>,
+    recoveries: &mut u32,
+    overflow_traces: &mut Vec<String>,
+) -> bool {
     match *recoveries {
-        0 => compact_messages_for_retry(messages),
-        1 => compact_messages_aggressively(messages),
+        0 => compact_messages_for_retry(messages, overflow_traces),
+        1 => compact_messages_aggressively(messages, overflow_traces),
         _ => return false,
     }
     *recoveries += 1;
@@ -1649,11 +1662,40 @@ fn recover_context_overflow(messages: &mut Vec<Message>, recoveries: &mut u32) -
     true
 }
 
-fn compact_messages_for_retry(messages: &mut Vec<Message>) {
+/// 被压缩丢弃的消息段的轨迹摘要(R-106):工具画像 + 失败信号 + 文本预览,
+/// 随 episode 沉淀,让激进压缩不再无声丢弃轨迹。
+fn dropped_trace(messages: &[Message]) -> String {
+    let preview: String = messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .find_map(|part| match part {
+            Part::Text { text } => Some(text.chars().take(120).collect()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    serde_json::json!({
+        "dropped_messages": messages.len(),
+        "tools": summarize_tools(messages),
+        "failures": summarize_failures(messages),
+        "preview": preview,
+    })
+    .to_string()
+}
+
+fn compact_messages_for_retry(messages: &mut Vec<Message>, overflow_traces: &mut Vec<String>) {
     let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
         return;
     };
     let current = messages[current_index].clone();
+    let dropped: Vec<Message> = messages
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != current_index)
+        .map(|(_, message)| message.clone())
+        .collect();
+    if !dropped.is_empty() {
+        overflow_traces.push(dropped_trace(&dropped));
+    }
     let mut history = String::new();
     for (index, message) in messages.iter().enumerate() {
         if index == current_index {
@@ -1684,15 +1726,22 @@ fn compact_messages_for_retry(messages: &mut Vec<Message>) {
     messages.push(current);
 }
 
-fn compact_messages_aggressively(messages: &mut Vec<Message>) {
-    if let Some(current) = messages
+fn compact_messages_aggressively(messages: &mut Vec<Message>, overflow_traces: &mut Vec<String>) {
+    let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
+        return;
+    };
+    let current = messages[current_index].clone();
+    let dropped: Vec<Message> = messages
         .iter()
-        .rfind(|message| is_text_user_message(message))
-        .cloned()
-    {
-        messages.clear();
-        messages.push(current);
+        .enumerate()
+        .filter(|(index, _)| *index != current_index)
+        .map(|(_, message)| message.clone())
+        .collect();
+    if !dropped.is_empty() {
+        overflow_traces.push(dropped_trace(&dropped));
     }
+    messages.clear();
+    messages.push(current);
 }
 fn is_text_user_message(message: &Message) -> bool {
     message.role == Role::User
@@ -1741,8 +1790,8 @@ fn preview(content: &str) -> String {
 mod tests {
     use super::{
         append_declined_tool_results, compact_messages_aggressively, compact_messages_for_retry,
-        drain_task_events, execute_prepared_tools, PreparedToolCall, RunEvent,
-        MAX_STREAM_RESTARTS,
+        drain_task_events, execute_prepared_tools, recover_context_overflow, PreparedToolCall,
+        RunEvent, MAX_STREAM_RESTARTS,
     };
     use async_trait::async_trait;
     use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
@@ -1946,8 +1995,9 @@ mod tests {
             }]),
             Message::user_text("当前任务"),
         ];
+        let mut traces = Vec::new();
 
-        compact_messages_for_retry(&mut messages);
+        compact_messages_for_retry(&mut messages, &mut traces);
 
         assert_eq!(messages.len(), 2);
         assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果")));
@@ -1969,8 +2019,9 @@ mod tests {
                 is_error: false,
             }]),
         ];
+        let mut traces = Vec::new();
 
-        compact_messages_for_retry(&mut messages);
+        compact_messages_for_retry(&mut messages, &mut traces);
         assert!(messages.iter().any(|message| {
             message.parts.iter().any(
                 |part| matches!(part, Part::Text { text } if text == "当前任务")
@@ -1998,10 +2049,63 @@ mod tests {
                 is_error: false,
             }]),
         ];
-        compact_messages_aggressively(&mut aggressive);
+        let mut aggressive_traces = Vec::new();
+        compact_messages_aggressively(&mut aggressive, &mut aggressive_traces);
         assert!(!aggressive.iter().flat_map(|message| &message.parts).any(|part| {
             matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
         }));
+    }
+
+    #[test]
+    fn compaction_records_dropped_segments_as_overflow_traces() {
+        // R-106:被裁剪段先沉淀轨迹摘要再重置,激进压缩不再无声丢弃轨迹。
+        // 失败信号要走 summarize_failures 的机械闸门(count>=2 或带恢复对),
+        // 所以同一失败放两次,信号才会保留。
+        let mut messages = vec![
+            Message::user_text("原始任务"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "call_1".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "cargo test"}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "call_1".into(),
+                content: "构建失败".into(),
+                is_error: true,
+            }]),
+            Message::assistant(vec![Part::ToolCall {
+                id: "call_2".into(),
+                name: "bash".into(),
+                input: serde_json::json!({"command": "cargo test"}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "call_2".into(),
+                content: "构建失败".into(),
+                is_error: true,
+            }]),
+            Message::user_text("当前任务"),
+        ];
+        let mut recoveries = 0;
+        let mut traces = Vec::new();
+
+        // 第一级:有界压缩。被丢弃的是除当前消息外的整段历史。
+        assert!(recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert_eq!(traces.len(), 1, "第一次压缩应产生一条轨迹摘要");
+        let first: serde_json::Value = serde_json::from_str(&traces[0]).unwrap();
+        assert_eq!(first["dropped_messages"], 5);
+        assert_eq!(first["tools"]["bash"], 2, "被丢弃段的工具画像应被沉淀");
+        assert_eq!(first["failures"][0]["tool"], "bash", "失败信号应随轨迹沉淀");
+        assert_eq!(first["failures"][0]["count"], 2);
+        assert!(first["preview"].as_str().is_some_and(|s| s.contains("原始任务")));
+
+        // 第二级:激进压缩。当前消息外的整段(含上一级压缩记录)再次沉淀。
+        assert!(recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert_eq!(traces.len(), 2, "第二次压缩应追加一条轨迹摘要");
+        assert_eq!(messages.len(), 1, "激进压缩后只剩当前消息");
+
+        // 第三级:超过有界上限,拒绝继续恢复且不新增轨迹。
+        assert!(!recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert_eq!(traces.len(), 2);
     }
     #[test]
     fn declined_tool_batch_keeps_real_and_placeholder_results_paired() {

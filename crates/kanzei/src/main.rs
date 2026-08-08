@@ -443,6 +443,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             run_id: &run_id,
             input_id: &promoted.input_id,
             duration_ms: run_started.elapsed().as_millis() as u64,
+            // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
+            // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
+            overflow_json: &serde_json::to_string(&summary.overflow_traces).unwrap_or_default(),
         });
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
         let _ = store.finish_input(&promoted.input_id, true);
