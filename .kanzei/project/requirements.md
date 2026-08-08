@@ -234,7 +234,7 @@
 - 阶段: 4
 - 设计定位: 上下文管理精准化的数据与机制
 - 依赖: R-105
-- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。剩余:上下文溢出时先压 episode 再重置(D-088 联动)。
+- 进展: 1a8a81b 交付:逐 source 字符账单进 RunSummary.context_report(CLI 摘要打印/桌面写 run.completed 事件);state.db v3 episodes 表轮末机械落库(prompt 头/结局/步数/token/工具画像/账单);开跑预检索 prompt_hints 命中注入索引提示行,fts_query 重写支持整句中文(ASCII 词+短 CJK 短语+长 CJK bigram)。本轮修复 D-161/D-162：建流前与 HTTP 200 SSE 流内 context overflow 统一执行有界压缩→仅当前消息两级重试，每次从压缩后 messages 重建请求并在成功后持久化；OpenAI SSE 同时识别 error.type/code 与用户实测 'input exceeds the context window' 文案，限流优先级不回归；CLI/mock SSE 集成覆盖两级恢复，workspace 全绿。剩余:被裁剪段先沉淀 episode 再重置，避免激进压缩无声丢弃轨迹。
 
 - 标签: 核心
 

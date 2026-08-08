@@ -1677,3 +1677,22 @@
 - 验收: exact key 翻译只替换 trimmed key；localizeDynamic fallback 直接作为完整 next 值，不再二次 replace；MutationObserver 冒烟真实触发且 zh→en→zh→en 不发生扩张或异常；加入回归断言。
 - 修复: crates/kanzei-app/ui/main.js:547-568 将 exact 与 fallback 分流：exact 资源只替换 trimmed key，localizeDynamic fallback 直接作为完整 next，不再把含原空白的完整译文二次塞回 source；保留 1MB 扩张硬门禁。scripts/ui-runtime-smoke.mjs 的 MutationObserver 从空实现改为真实异步回调，并让 TreeWalker 文本代理稳定复用，能复现浏览器二次观察。
 - 验收证据: runtime smoke 在修复前稳定复现 source=1,048,580、key=复杂度: 的扩张失败；修复后真实 MutationObserver 下完成 zh→en→zh→en、动态错误与权限队列切换，65次invoke、0运行时错误。node --check、i18n/a11y/markdown smoke 全部通过。
+
+## D-161 流内 context overflow 绕过压缩恢复并保留超长会话历史 [fixed] (high)
+- 复现: 长对话触发 provider 在 HTTP 200 SSE 流内返回 context overflow；runner 仅记录 stream_error 后直接失败，桌面端因 run_result? 提前返回，下一轮继续加载原超长 conversation，用户反复收到“Your input exceeds the context window”。
+- 标签: 核心
+- 根因: crates/kanzei-core/src/runner.rs 的 overflow 恢复仅包围 stream_with_retry_notice(...).await 建流错误；消费 SSE 时产生的 LlmError::ContextOverflow 在 stream_error 分支未进入 compact_messages_for_retry/compact_messages_aggressively。
+- 验收: 建流前与流内 context overflow 都执行同一套两级压缩重试；恢复成功后的 summary.messages 为压缩后历史且被调用方持久化；自动化测试覆盖流内 overflow→压缩→成功以及二次 overflow→激进压缩→成功；全工作区测试通过。
+- refs: R-106
+- 优先级: P1
+
+- 进展: 验收逐项证据：①建流前与 HTTP 200 SSE 流内超限统一由 crates/kanzei-core/src/runner.rs::recover_context_overflow 驱动两级恢复，run_once_with_parts 每次重试都从改写后的 messages 重建 LlmRequest；② crates/kanzei/tests/context_overflow_recovery.rs::sse_context_overflow_compacts_history_and_persists_recovered_summary 真实启动 CLI/mock SSE，断言首次流内超限后第二请求为有界压缩历史，成功 summary 写回 conversation.updated；③同文件 second_sse_context_overflow_retries_with_only_current_user_message 断言二次超限后第三请求只保留当前用户消息并持久化；④ cargo test --workspace 全部通过。
+
+## D-162 OpenAI SSE 忽略 context_length_exceeded code 且漏识别实际超限文案 [fixed] (high)
+- 复现: OpenAI 兼容 provider 以 SSE error 返回 type=invalid_request_error、code=context_length_exceeded、message='Your input exceeds the context window of this model'；协议层只把 type 传给 classify_provider，message 词表也不含 'exceeds the context window'，因此错误被归为普通 Provider，runner 不会压缩重试。
+- 标签: 模型
+- 根因: crates/kanzei-llm/src/protocol/openai.rs 在 error.type 存在时忽略 error.code；crates/kanzei-llm/src/error.rs 的 overflow 文案词表未覆盖实际 'input exceeds the context window' 表达。
+- 验收: OpenAI SSE 的 type/code 任一明确为 context_length_exceeded 时均分类为 ContextOverflow；实际 'input exceeds the context window' 文案有回归；不得把 rate_limit_error 中含 token/limit 的文案误判为 overflow；相关协议测试与工作区测试通过。
+- refs: D-161 R-106
+- 优先级: P1
+- 进展: 验收逐项证据：① crates/kanzei-llm/src/protocol/openai.rs 的 OpenAiState 同时传入 error.type 与 error.code，不再由通用 type 遮蔽 context_length_exceeded；② crates/kanzei-llm/src/error.rs::classify_provider_with_code 对 type/code 分别识别，词表补入真实 'exceeds the context window'，同时保持限流 kind 优先；③ openai 协议新增 context_length_code_is_not_hidden_by_generic_error_type 与 rate_limit_type_still_wins_when_code_is_more_specific 回归；④ CLI SSE 集成测试复现用户原始英文文案并恢复成功；⑤ cargo test --workspace 全部通过。

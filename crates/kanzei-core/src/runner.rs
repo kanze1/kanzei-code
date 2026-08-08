@@ -28,6 +28,10 @@ pub const MAX_TASKS_PER_TURN: usize = 8;
 /// 但每次重放都要重新生成已产出的 token,必须有界。
 pub const MAX_STREAM_RESTARTS: u32 = 2;
 
+/// Provider 上下文计算可能比本地估算更严格。首次超限保留有界历史摘要，
+/// 第二次超限只保留当前用户消息；再失败就把真实错误交给调用方。
+pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 pub struct SubagentRuntime {
@@ -790,26 +794,31 @@ pub fn run_once_with_parts<'a>(
     // 本次运行读不到——泛化 pattern 记在这里,同类资源当场不再询问。
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
-    let mut overflow_recovered = false;
+    let mut overflow_recoveries = 0;
 
     let mut step = 0u32;
     loop {
         step += 1;
         on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = max_steps > 0 && step == max_steps;
+
+        // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
+        // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
+        // 有界恢复；本步工具要等流完整结束才执行，因此流内超限重放不会重复副作用。
+        let mut stream_restarts: u32 = 0;
+        let (parts, calls, finish) = loop {
+        // 每次恢复都会改写 messages，请求必须在重试循环内重建；否则即使压缩了
+        // 内存历史，发给 provider 的仍会是第一次克隆出的超长请求。
+        let mut request_messages = messages.clone();
         // 最后一步收走工具强制收敛;必须同时明确告知(D-027:只收走不告知,
         // codex 仍试图调用工具,把调用 JSON 当纯文本狂喷并在思考里反复自我纠正)。
-        let request_messages = if last_step {
-            let mut wrapped = messages.clone();
-            wrapped.push(Message::user_text(
+        if last_step {
+            request_messages.push(Message::user_text(
                 "(system) Final step of this run: tools are no longer available. Do NOT \
                  attempt any tool call and do NOT emit JSON — reply in plain text only, \
                  summarizing what was completed and what remains.",
             ));
-            wrapped
-        } else {
-            messages.clone()
-        };
+        }
         let request = LlmRequest {
             model: config.model.clone(),
             system: system.clone(),
@@ -819,52 +828,17 @@ pub fn run_once_with_parts<'a>(
             temperature: None,
             reasoning: config.reasoning,
         };
-
-        // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
-        // 请求尚未建立时可以安全压缩本轮的旧工具轨迹并重试一次；重试上限
-        // 是硬限制，避免超限错误造成死循环。流已经建立后不做重放，防止工具副作用重复执行。
-        // 流中途断开(网络抖动、代理重连、provider 掐流)时:本步的工具尚未执行——
-        // 工具在流结束后才跑——因此重放整个请求不会重复任何副作用,只损失已生成的
-        // 部分 token。有界重放,并通知 UI 丢弃本步已渲染的残缺输出(D-112)。
-        // 注意与"流建立后不重放"的既有约束不冲突:那条约束针对的是工具已执行的情况。
-        let mut stream_restarts: u32 = 0;
-        let (parts, calls, finish) = loop {
-        let request = request.clone();
         let mut stream = match client
             .stream_with_retry_notice(route, &request, |attempt, delay| {
                 on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
             })
             .await
         {
-            Err(error) if error.is_context_overflow() && !overflow_recovered => {
-                overflow_recovered = true;
-                compact_messages_for_retry(&mut messages);
-                let retry_request = LlmRequest {
-                    messages: messages.clone(),
-                    ..request
-                };
-                match client
-                    .stream_with_retry_notice(route, &retry_request, |attempt, delay| {
-                        on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
-                    })
-                    .await
-                {
-                    Err(error) if error.is_context_overflow() => {
-                        // 第一次压缩仍可能被超大的 system/tool schema 或当前输入
-                        // 拒绝；第二次只保留当前用户消息，且不再继续重试。
-                        compact_messages_aggressively(&mut messages);
-                        let final_request = LlmRequest {
-                            messages: messages.clone(),
-                            ..retry_request
-                        };
-                        client
-                            .stream_with_retry_notice(route, &final_request, |attempt, delay| {
-                                on_event(RunEvent::Retry { attempt, max: kanzei_llm::client::MAX_TRANSPORT_RETRIES, delay_ms: delay.as_millis() });
-                            })
-                            .await?
-                    }
-                    result => result?,
+            Err(error) if error.is_context_overflow() => {
+                if recover_context_overflow(&mut messages, &mut overflow_recoveries) {
+                    continue;
                 }
+                return Err(error.into());
             }
             result => result?,
         };
@@ -943,6 +917,14 @@ pub fn run_once_with_parts<'a>(
                     parts.push(Part::Text { text });
                 }
                 break (parts, calls, finish);
+            }
+            // Provider 也可能在 HTTP 200 的 SSE error 事件里报告上下文超限。
+            // 此时本步工具尚未执行，压缩 messages 后安全地从头重放请求。
+            Some(error) if error.is_context_overflow() => {
+                if recover_context_overflow(&mut messages, &mut overflow_recoveries) {
+                    continue;
+                }
+                return Err(error.into());
             }
             // 只重放传输层中断:协议错误重放只会原样复现,白烧钱。
             Some(error)
@@ -1394,6 +1376,21 @@ async fn run_subagent(
         }
         Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
     }
+}
+
+fn recover_context_overflow(messages: &mut Vec<Message>, recoveries: &mut u32) -> bool {
+    match *recoveries {
+        0 => compact_messages_for_retry(messages),
+        1 => compact_messages_aggressively(messages),
+        _ => return false,
+    }
+    *recoveries += 1;
+    tracing::warn!(
+        attempt = *recoveries,
+        max = MAX_CONTEXT_OVERFLOW_RECOVERIES,
+        "provider context overflow, retrying with compacted history"
+    );
+    true
 }
 
 fn compact_messages_for_retry(messages: &mut Vec<Message>) {

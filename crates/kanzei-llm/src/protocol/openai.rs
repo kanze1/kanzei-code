@@ -197,12 +197,9 @@ impl ProtocolState for OpenAiState {
             .map_err(|e| LlmError::Protocol(format!("bad SSE data: {e}")))?;
 
         if let Some(err) = data.get("error").filter(|e| !e.is_null()) {
-            return Err(LlmError::classify_provider(
-                err["type"]
-                    .as_str()
-                    .or(err["code"].as_str())
-                    .unwrap_or("unknown")
-                    .to_string(),
+            return Err(LlmError::classify_provider_with_code(
+                err["type"].as_str().unwrap_or("unknown").to_string(),
+                err["code"].as_str().map(str::to_string),
                 err["message"]
                     .as_str()
                     .unwrap_or(&err.to_string())
@@ -455,6 +452,32 @@ mod tests {
             .step(&SseEvent {
                 event: String::new(),
                 data: r#"{"error":{"type":"rate_limit_error","message":"token limit reached for this minute"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_rate_limited());
+        assert!(!err.is_context_overflow());
+    }
+
+    #[test]
+    fn context_length_code_is_not_hidden_by_generic_error_type() {
+        let mut s = OpenAiState::default();
+        let err = s
+            .step(&SseEvent {
+                event: String::new(),
+                data: r#"{"error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"Your input exceeds the context window of this model"}}"#.into(),
+            })
+            .unwrap_err();
+        assert!(err.is_context_overflow());
+        assert!(!err.is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limit_type_still_wins_when_code_is_more_specific() {
+        let mut s = OpenAiState::default();
+        let err = s
+            .step(&SseEvent {
+                event: String::new(),
+                data: r#"{"error":{"type":"rate_limit_error","code":"insufficient_quota","message":"token limit reached for this minute"}}"#.into(),
             })
             .unwrap_err();
         assert!(err.is_rate_limited());

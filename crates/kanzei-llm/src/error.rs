@@ -54,9 +54,17 @@ impl LlmError {
     }
 
     pub(crate) fn classify_provider(kind: String, message: String) -> Self {
+        Self::classify_provider_with_code(kind, None, message)
+    }
+
+    pub(crate) fn classify_provider_with_code(
+        kind: String,
+        code: Option<String>,
+        message: String,
+    ) -> Self {
         // 限流/过载的 kind 优先于消息文本：配额文案可能包含 token/limit，
         // 但这类错误不能触发会破坏历史的上下文压缩重试。
-        if is_rate_limit_kind(&kind) {
+        if is_rate_limit_kind(&kind) || code.as_deref().is_some_and(is_rate_limit_kind) {
             return LlmError::RateLimited {
                 status: 0,
                 kind: Some(kind),
@@ -64,10 +72,16 @@ impl LlmError {
                 retry_after: None,
             };
         }
-        if is_overflow_message(&kind) || is_overflow_message(&message) {
+        if is_overflow_message(&kind)
+            || code.as_deref().is_some_and(is_overflow_message)
+            || is_overflow_message(&message)
+        {
             return LlmError::ContextOverflow { message };
         }
-        LlmError::Provider { kind, message }
+        LlmError::Provider {
+            kind: code.unwrap_or(kind),
+            message,
+        }
     }
 }
 
@@ -89,6 +103,7 @@ fn is_overflow_message(message: &str) -> bool {
         "context length",
         "maximum context",
         "context_length_exceeded",
+        "exceeds the context window",
         "input is too long",
         "maximum prompt",
         "too many tokens",
