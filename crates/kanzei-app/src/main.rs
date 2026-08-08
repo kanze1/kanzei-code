@@ -1623,6 +1623,24 @@ fn main() {
             let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
                 let _ = handle.emit("kz:ui-probe", payload);
             }));
+            // 窗口从 tauri.conf.json 自动创建改为这里手动创建(R-101 E2 harness):
+            // 配置里 `"create": false`,由 from_config 按同一份配置建窗口,生产路径
+            // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
+            // 打开 WebView2 DevTools 协议,供 E2 脚本通过 CDP 驱动真实 UI。
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .cloned()
+                .ok_or_else(|| "tauri.conf.json 未配置任何窗口".to_string())?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
+            if let Ok(port) = std::env::var("KANZEI_E2E_CDP") {
+                if !port.trim().is_empty() {
+                    builder = builder.additional_browser_args(&format!("--remote-debugging-port={}", port.trim()));
+                }
+            }
+            builder.build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -3462,11 +3480,17 @@ async fn quick_req(
     harness.add(QuickCaptureComponent { capture });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
     let system = if capture == "defect" {
+        // D-205:复现字段禁止编造。旧文案只说 "if inferable",推断不出时模型的默认
+        // 行为就是硬挤一个伪复现(实例 D-204:「复现: 查看 SOP 时」),伪复现看起来
+        // 像真的,下游拿着它开工只会猜错或空转,还没人知道该回去问用户。
         "You capture ONE defect from the user's natural-language description. Call the \
          `defect` tool exactly once with action \"add\": a concise title (<=40 chars, \
-         Chinese preferred), severity high|medium|low, fields = {\"复现\": how to reproduce \
-         if inferable, \"原始描述\": the user's original text verbatim}. Then reply with \
-         only the new id."
+         Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), \
+         severity high|medium|low, fields = {\"复现\": concrete reproduction steps ONLY \
+         if the description actually contains them — NEVER invent or pad one; when not \
+         reproducible from the text, write \"待澄清: \" followed by the specific \
+         questions the user must answer, \"原始描述\": the user's original text \
+         verbatim}. Then reply with only the new id."
     } else {
         "You capture ONE requirement from the user's natural-language description. Call \
          the `req` tool exactly once with action \"add\": a concise title (<=40 chars, \
