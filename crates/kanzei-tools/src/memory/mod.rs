@@ -15,6 +15,9 @@ pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
 
+use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES};
+use kanzei_harness::ToolCtx;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
     Global,
@@ -81,6 +84,16 @@ impl MemoryEntry {
         } else {
             format!("{}-{}", self.id, slug)
         }
+    }
+
+    /// R-070 来源引用:frontmatter `refs: R-012 D-044`(空格分隔)读取。
+    /// 写入侧(memory_add/memory_note)代码强制校验存在性,读取侧宽容。
+    pub fn refs(&self) -> Vec<String> {
+        self.extras
+            .iter()
+            .find(|(k, _)| k == "refs")
+            .map(|(_, v)| v.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default()
     }
 }
 
@@ -182,6 +195,60 @@ pub fn render_entry(entry: &MemoryEntry) -> String {
     out
 }
 
+/// R-070 来源 ID 契约(硬校验,先例:tracker.rs check_refs):
+/// 每个 ref 必须是项目内真实存在的引用——`[RDAMGSF]-<数字>` 命中对应 doc 的
+/// 活跃或归档条目;否则按相对文件路径,须真实存在于项目根下。
+/// 任一 ref 非法即整体拒绝,不在提示词层面兜底。
+pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String> {
+    let kind_of = |id: &str| match id.as_bytes().first() {
+        Some(b'R') => Some(&REQUIREMENTS),
+        Some(b'D') => Some(&DEFECTS),
+        Some(b'A') => Some(&DECISIONS),
+        Some(b'G') => Some(&GOALS),
+        Some(b'S') => Some(&SOURCES),
+        Some(b'F') => Some(&FINDINGS),
+        Some(b'M') => Some(&MEMORY),
+        _ => None,
+    };
+    let mut bad: Vec<String> = Vec::new();
+    for raw in refs {
+        let id = raw.trim();
+        if id.is_empty() {
+            continue;
+        }
+        let bytes = id.as_bytes();
+        let looks_like_id = bytes.len() > 2
+            && matches!(bytes[0], b'R' | b'D' | b'A' | b'G' | b'S' | b'F' | b'M')
+            && bytes[1] == b'-'
+            && id[2..].chars().all(|c| c.is_ascii_digit());
+        if looks_like_id {
+            let Some(kind) = kind_of(id) else {
+                bad.push(format!("{id}: unknown doc kind"));
+                continue;
+            };
+            let store = DocStore::open(&ctx.project_root, kind);
+            let exists = store
+                .load()
+                .map(|entries| entries.iter().any(|e| e.id == id))
+                .unwrap_or(false)
+                || store
+                    .load_archive()
+                    .map(|entries| entries.iter().any(|e| e.id == id))
+                    .unwrap_or(false);
+            if !exists {
+                bad.push(format!("{id}: no such {} entry (active or archived)", kind.heading));
+            }
+        } else if !ctx.project_root.join(id).exists() {
+            bad.push(format!("{id}: no such file under project root"));
+        }
+    }
+    if bad.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("invalid refs: {}", bad.join("; ")))
+    }
+}
+
 /// 每轮最多投递的失败草稿条数:防止一轮异常把 inbox 灌爆、manager 被撑死。
 const MAX_FAILURE_NOTES_PER_RUN: usize = 3;
 
@@ -232,7 +299,7 @@ pub fn harvest_failures(
                 signal.targets.join(", ")
             },
         );
-        if store.append_note(&summary, &detail, "fact").is_ok() {
+        if store.append_note(&summary, &detail, "fact", &[]).is_ok() {
             delivered += 1;
         }
     }
@@ -269,7 +336,7 @@ pub fn harvest_sop(
         prompt.chars().take(200).collect::<String>(),
         if flow.is_empty() { "(无)".to_string() } else { flow },
     );
-    store.append_note(&summary, &detail, "sop").is_ok()
+    store.append_note(&summary, &detail, "sop", &[]).is_ok()
 }
 
 /// 根因→fact 蒸馏(R-105):完成一个完整条目的同时,把这条目的根因原料
@@ -318,7 +385,7 @@ pub fn harvest_entry_fact(
         if flow.is_empty() { "(无)".to_string() } else { flow },
         failures_text,
     );
-    store.append_note(&summary, &detail, "fact").is_ok()
+    store.append_note(&summary, &detail, "fact", &[]).is_ok()
 }
 
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
@@ -428,6 +495,61 @@ mod tests {
     }
 
     #[test]
+    fn refs_frontmatter_roundtrips_and_reads_back() {
+        // R-070:refs 走 extras 宽容读,render/parse 往返不丢。
+        let entry = MemoryEntry {
+            id: "M-020".into(),
+            scope: "project".into(),
+            category: "fact".into(),
+            title: "取活顺序".into(),
+            description: "取活/排优先级时必读".into(),
+            status: "active".into(),
+            created: "2026-08-08".into(),
+            updated: "2026-08-08".into(),
+            source: "user".into(),
+            extras: vec![("refs".into(), "R-070 D-200".into())],
+            body: "先扫描 requirements.md".into(),
+        };
+        let text = render_entry(&entry);
+        assert!(text.contains("refs: R-070 D-200"));
+        let parsed = parse_entry(&text);
+        assert_eq!(parsed.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
+    }
+
+    #[test]
+    fn validate_source_refs_accepts_existing_doc_and_file_rejects_unknown() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-refs-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // 造一个活跃需求 + 一个归档缺陷 + 一个真实文件。
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(dir.join(".kanzei/project/requirements.md"), "# Requirements\n\n## R-001 示例 [todo]\n- 验收: 略\n").unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/defects-archive.md"),
+            "# Defects Archive\n\n## D-099 已修 [fixed]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("notes.md"), "手工笔记").unwrap();
+        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+
+        assert!(validate_source_refs(&ctx, &["R-001".into()]).is_ok());
+        assert!(validate_source_refs(&ctx, &["D-099".into()]).is_ok());
+        assert!(validate_source_refs(&ctx, &["notes.md".into()]).is_ok());
+        assert!(validate_source_refs(&ctx, &[]).is_ok());
+        assert!(validate_source_refs(&ctx, &["R-999".into()]).is_err());
+        assert!(validate_source_refs(&ctx, &["M-042".into()]).is_err());
+        assert!(validate_source_refs(&ctx, &["不存在的文件.md".into()]).is_err());
+        assert!(validate_source_refs(&ctx, &["R-001".into(), "R-999".into()]).is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn slug_keeps_cjk_and_caps_length() {
         assert_eq!(slugify("发版 SOP: 两条通道"), "发版-sop-两条通道");
         assert_eq!(slugify("!!!"), "");
@@ -447,7 +569,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::project(&dir);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", false)
+            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", &[], false)
             .unwrap()
         {
             AddOutcome::Added(_) => {}

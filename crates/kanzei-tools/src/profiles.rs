@@ -533,7 +533,18 @@ impl Component for ResearchProfile {
                 let fnd = index_of(ctx, &FINDINGS, "Findings");
                 let memory = std::fs::read_to_string(ctx.project_root.join(".kanzei/research/memory.md"))
                     .ok()
-                    .map(|text| text.chars().take(5000).collect::<String>());
+                    .map(|text| {
+                        let capped: String = text.chars().take(5000).collect();
+                        let truncated = capped.chars().count() < text.chars().count();
+                        format!(
+                            "{capped}{}",
+                            if truncated {
+                                "\n…(来源过长已截断,完整内容 read .kanzei/research/memory.md)"
+                            } else {
+                                ""
+                            }
+                        )
+                    });
                 Some(format!(
                     "<research-docs>\n{}{}{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Persist reusable conclusions in .kanzei/research/memory.md and include source IDs next to each claim.\n</research-docs>",
                     src.map(|s| s + "\n").unwrap_or_default(),

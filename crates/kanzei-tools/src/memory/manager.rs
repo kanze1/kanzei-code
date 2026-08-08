@@ -38,6 +38,10 @@ struct AddInput {
     /// 溯源标注,如 run:<session> 或 user
     #[serde(default)]
     source: Option<String>,
+    /// R-070 来源引用:必须真实存在(R-/D-/A-/G-/S-/F-/M- 条目或项目内文件),
+    /// 硬校验不通过整体拒绝,防止记忆与来源脱钩。
+    #[serde(default)]
+    refs: Vec<String>,
     /// 与既有条目标题精确重复时仍强制新增
     #[serde(default)]
     force: bool,
@@ -52,7 +56,7 @@ impl Tool for MemoryAddTool {
     }
 
     fn description(&self) -> String {
-        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, force.".into()
+        "Create a durable memory entry. ALWAYS memory_search first. Params: scope(global|project), category, title, description (retrieval hook), body; optional source, refs (source IDs that must exist), force.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -68,12 +72,16 @@ impl Tool for MemoryAddTool {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
+        if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
+            return ToolOutput::error(e);
+        }
         match store.add(
             &input.category,
             &input.title,
             &input.description,
             input.body.as_deref().unwrap_or(""),
             input.source.as_deref().unwrap_or("memory-manager"),
+            &input.refs,
             input.force,
         ) {
             Ok(AddOutcome::Added(e)) => ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title)),
@@ -355,7 +363,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
         let store = MemoryStore::project(&dir);
-        store.append_note("发版要走两条通道", "package.ps1 -Publish + 静默装", "sop").unwrap();
+        store.append_note("发版要走两条通道", "package.ps1 -Publish + 静默装", "sop", &[]).unwrap();
 
         // 模拟 manager 的一轮决策:add → inbox_clear。
         let added = MemoryAddTool
@@ -387,6 +395,50 @@ mod tests {
         assert!(no_reason.is_error);
         std::fs::remove_dir_all(dir).ok();
     }
+
+    #[tokio::test]
+    async fn memory_add_validates_source_refs_hard() {
+        // R-070:refs 必须真实存在——未知 ID 整体拒绝;合法 ID 写入条目 frontmatter。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-refs-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-070 示例 [todo]\n- 验收: 略\n",
+        )
+        .unwrap();
+        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+
+        let bad = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "假引用",
+                       "description": "测试", "body": "x", "refs": ["R-999"]}),
+                &ctx,
+            )
+            .await;
+        assert!(bad.is_error);
+        assert!(bad.content.contains("invalid refs"), "{}", bad.content);
+
+        let good = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "真引用",
+                       "description": "测试", "body": "x", "refs": ["R-070"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!good.is_error, "{}", good.content);
+        assert!(good.content.contains("M-001"), "{}", good.content);
+        let store = MemoryStore::project(&dir);
+        let (_, entry) = store.load_all().into_iter().find(|(_, e)| e.id == "M-001").unwrap();
+        assert_eq!(entry.refs(), vec!["R-070".to_string()]);
+        std::fs::remove_dir_all(dir).ok();
+    }
 }
 
 /// manager 迷你 run 的 agent 定义(fast 档,调用方 fast 失败可升级 primary)。
@@ -404,6 +456,9 @@ pub fn manager_agent() -> AgentDef {
                  Write `description` as a retrieval hook: WHEN should a future agent recall \
                  this (e.g. \"处理 edit 替换失败/换行符问题时必读\"). Keep entries about \
                  durable facts, not next steps. \
+                 Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
+                 memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
+                 rejected by the engine). \
                  A failure COUNT is signal strength, never content: \"edit failed 7 times\" \
                  means the same mistake recurred — it does NOT mean \"7 retries are needed\". \
                  Record the underlying constraint (quote the actual error text), not the \

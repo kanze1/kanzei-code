@@ -155,7 +155,7 @@ impl MemoryStore {
         format!("{}-{:03}", prefix, max + 1)
     }
 
-    /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)。
+    /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约。
     pub fn add(
         &self,
         category: &str,
@@ -163,6 +163,7 @@ impl MemoryStore {
         description: &str,
         body: &str,
         source: &str,
+        refs: &[String],
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
         if !CATEGORIES.contains(&category) {
@@ -188,6 +189,14 @@ impl MemoryStore {
             }
         }
         let now = today();
+        let extras = {
+            let refs: Vec<&str> = refs.iter().map(|r| r.trim()).filter(|r| !r.is_empty()).collect();
+            if refs.is_empty() {
+                Vec::new()
+            } else {
+                vec![("refs".to_string(), refs.join(" "))]
+            }
+        };
         let entry = MemoryEntry {
             id: self.next_id(&entries),
             scope: self.scope.label().into(),
@@ -198,7 +207,7 @@ impl MemoryStore {
             created: now.clone(),
             updated: now,
             source: source.into(),
-            extras: Vec::new(),
+            extras,
             body: body.trim().to_string(),
         };
         self.write_entry(&entry, None)?;
@@ -618,7 +627,7 @@ impl MemoryStore {
             self.refresh_derived()?;
             return Ok(entry);
         }
-        match self.add("preference", title, description, body, "user", true)? {
+        match self.add("preference", title, description, body, "user", &[], true)? {
             AddOutcome::Added(entry) | AddOutcome::Duplicate(entry) => Ok(entry),
         }
     }
@@ -672,17 +681,27 @@ impl MemoryStore {
     }
 
     /// inbox 草稿箱:主 agent 的唯一写入口(memory_note),manager 在 M2 消化。
-    pub fn append_note(&self, summary: &str, detail: &str, category_hint: &str) -> anyhow::Result<PathBuf> {
+    /// refs 为来源引用(R-070):以 `- refs: R-012 D-044` 行写入草稿,
+    /// manager 消化时经 memory_add 的 refs 参数把引用带进正式条目。
+    pub fn append_note(&self, summary: &str, detail: &str, category_hint: &str, refs: &[String]) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
         let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
+        let refs_line = {
+            let refs: Vec<&str> = refs.iter().map(|r| r.trim()).filter(|r| !r.is_empty()).collect();
+            if refs.is_empty() {
+                String::new()
+            } else {
+                format!("- refs: {}\n", refs.join(" "))
+            }
+        };
         text.push_str(&format!(
             "\n## note {} {}\n- summary: {}\n{}{}",
             today(),
             if category_hint.is_empty() { "".to_string() } else { format!("[{category_hint}]") },
             summary.trim(),
+            refs_line,
             if detail.trim().is_empty() { String::new() } else { format!("{}\n", detail.trim()) },
-            "",
         ));
         atomic_write(&path, &text)?;
         Ok(path)
@@ -956,7 +975,7 @@ mod tests {
     }
 
     fn add(store: &MemoryStore, category: &str, title: &str, desc: &str, body: &str) -> MemoryEntry {
-        match store.add(category, title, desc, body, "user", false).unwrap() {
+        match store.add(category, title, desc, body, "user", &[], false).unwrap() {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
         }
@@ -979,11 +998,11 @@ mod tests {
         let (dir, store) = temp_store();
         add(&store, "habit", "gh 要走本地代理", "gh 网络失败时必读", "HTTPS_PROXY=127.0.0.1:12000");
         let outcome = store
-            .add("habit", "gh 要走本地代理!", "重复", "x", "user", false)
+            .add("habit", "gh 要走本地代理!", "重复", "x", "user", &[], false)
             .unwrap();
         assert!(matches!(outcome, AddOutcome::Duplicate(ref e) if e.id == "U-001" || e.id == "M-001"));
         let forced = store
-            .add("habit", "gh 要走本地代理!", "强制新增", "x", "user", true)
+            .add("habit", "gh 要走本地代理!", "强制新增", "x", "user", &[], true)
             .unwrap();
         assert!(matches!(forced, AddOutcome::Added(_)));
         std::fs::remove_dir_all(dir).ok();
@@ -1126,12 +1145,48 @@ mod tests {
     #[test]
     fn inbox_roundtrip_and_clear() {
         let (dir, store) = temp_store();
-        store.append_note("纯 ui 改动只跑 node 检查", "细节", "habit").unwrap();
-        store.append_note("发版走两条通道", "", "sop").unwrap();
+        store.append_note("纯 ui 改动只跑 node 检查", "细节", "habit", &[]).unwrap();
+        store.append_note("发版走两条通道", "", "sop", &[]).unwrap();
         assert_eq!(store.pending_notes(), 2);
         assert!(store.read_inbox().contains("纯 ui 改动只跑 node 检查"));
         store.clear_inbox().unwrap();
         assert_eq!(store.pending_notes(), 0);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn add_and_note_carry_refs_contract() {
+        // R-070:add 带 refs 写入 frontmatter,读取方 refs() 还原;草稿带 refs 贯通到候选列表。
+        let (dir, store) = temp_store();
+        let entry = match store
+            .add("fact", "CRLF 是 edit 未命中主因", "换行符问题必读", "正文", "user", &["R-070".into(), "D-200".into()], false)
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            AddOutcome::Duplicate(e) => panic!("unexpected duplicate {}", e.id),
+        };
+        assert_eq!(entry.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
+        // 落盘文件里真能看到 refs 键,重读后仍还原。
+        let (path, _) = store.load_all().into_iter().find(|(_, e)| e.id == entry.id).unwrap();
+        let file_text = std::fs::read_to_string(&path).unwrap();
+        assert!(file_text.contains("refs: R-070 D-200"), "{file_text}");
+        let reloaded = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .unwrap()
+            .1;
+        assert_eq!(reloaded.refs(), entry.refs());
+        // 无 refs 时不写键。
+        let plain = add(&store, "fact", "无来源条目", "普通", "x");
+        assert!(plain.refs().is_empty());
+        // 草稿贯通:refs 行进入 inbox,候选列表 detail 可见。
+        store
+            .append_note("踩坑", "细节说明", "fact", &["R-070".into()])
+            .unwrap();
+        let (_, summary, detail) = store.pending_note_list().pop().unwrap();
+        assert_eq!(summary, "踩坑");
+        assert!(detail.contains("refs: R-070"), "{detail}");
         std::fs::remove_dir_all(dir).ok();
     }
 

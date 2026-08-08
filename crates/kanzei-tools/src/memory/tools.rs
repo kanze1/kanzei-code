@@ -126,6 +126,10 @@ struct NoteInput {
     /// 建议分类:preference | habit | fact | sop(manager 最终裁定)
     #[serde(default)]
     category_hint: Option<String>,
+    /// R-070 来源引用:必须真实存在(R-/D-/A-/G-/S-/F-/M- 条目或项目内文件),
+    /// 随草稿写入,manager 消化时带进正式条目。
+    #[serde(default)]
+    refs: Vec<String>,
 }
 
 pub struct MemoryNoteTool;
@@ -137,7 +141,7 @@ impl Tool for MemoryNoteTool {
     }
 
     fn description(&self) -> String {
-        "Drop a draft note into the memory inbox (confirmed facts, pitfalls, user decisions worth remembering). The memory manager will consolidate it. Params: summary; optional detail, category_hint.".into()
+        "Drop a draft note into the memory inbox (confirmed facts, pitfalls, user decisions worth remembering). The memory manager will consolidate it. Params: summary; optional detail, category_hint, refs (source IDs that must exist).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -152,11 +156,15 @@ impl Tool for MemoryNoteTool {
         if input.summary.trim().is_empty() {
             return ToolOutput::error("summary must not be empty");
         }
+        if let Err(e) = super::validate_source_refs(ctx, &input.refs) {
+            return ToolOutput::error(e);
+        }
         let store = MemoryStore::project(&ctx.project_root);
         match store.append_note(
             &input.summary,
             input.detail.as_deref().unwrap_or(""),
             input.category_hint.as_deref().unwrap_or(""),
+            &input.refs,
         ) {
             Ok(path) => ToolOutput::ok(format!(
                 "noted → {} (pending notes: {})",
@@ -250,7 +258,7 @@ mod tests {
         let (dir, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish", "user", false)
+            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish", "user", &[], false)
             .unwrap()
         {
             crate::memory::AddOutcome::Added(_) => {}
@@ -293,6 +301,34 @@ mod tests {
             .execute(json!({"query": "x", "scope": "银河系"}), &ctx)
             .await;
         assert!(bad.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_note_validates_refs_and_carries_them_into_inbox() {
+        // R-070:memory_note 的 refs 也走硬校验,非法整体拒绝;合法引用写进草稿行。
+        let (dir, ctx) = ctx();
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-070 示例 [todo]\n- 验收: 略\n",
+        )
+        .unwrap();
+        let bad = MemoryNoteTool
+            .execute(json!({"summary": "假引用", "refs": ["D-999"]}), &ctx)
+            .await;
+        assert!(bad.is_error);
+        assert!(bad.content.contains("invalid refs"), "{}", bad.content);
+        let ok = MemoryNoteTool
+            .execute(json!({"summary": "真引用", "refs": ["R-070"], "category_hint": "fact"}), &ctx)
+            .await;
+        assert!(!ok.is_error, "{}", ok.content);
+        let store = MemoryStore::project(&ctx.project_root);
+        let inbox = store.read_inbox();
+        assert!(inbox.contains("- refs: R-070"), "{inbox}");
+        let (hint, summary, detail) = store.pending_note_list().pop().unwrap();
+        assert_eq!((hint.as_str(), summary.as_str()), ("fact", "真引用"));
+        assert!(detail.contains("refs: R-070"), "{detail}");
         std::fs::remove_dir_all(dir).ok();
     }
 }

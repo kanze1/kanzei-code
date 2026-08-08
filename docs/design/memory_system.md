@@ -46,6 +46,7 @@ created: 2026-08-07
 updated: 2026-08-08
 hits: 14                # 引擎维护:被检索命中次数
 source: run:ses_xxx/42  # 可溯源:哪次运行的哪一步写入
+refs: R-070 D-200       # R-070 来源引用(可选):空格分隔的引用 ID 或项目内文件路径
 ---
 
 (正文,自由 markdown)
@@ -53,6 +54,7 @@ source: run:ses_xxx/42  # 可溯源:哪次运行的哪一步写入
 
 硬门禁(复用 tracker 哲学:结构在写入侧强制,文档永远写不坏):
 - ID 引擎分配,scope/category/status 枚举校验,description 必填(它是检索与触发的钩子);
+- **refs 来源契约(R-070)**:memory_add/memory_note 的 `refs` 参数代码强制校验——`[RDAMGSF]-<数字>` 必须命中对应 doc 的活跃或归档条目,否则按相对文件路径必须真实存在于项目根;任一非法整体拒绝,不在提示词层面兜底(先例:tracker.rs check_refs)。frontmatter 宽容读,refs 存 `extras` 键,`MemoryEntry::refs()` 还原;
 - 每 scope 一份引擎维护的 `INDEX.md`(一行一条:id/category/title/description),人可读,损坏可由文件重建;
 - 完整性检测:INDEX ↔ 文件集合一致性、ID 缺号告警(同 D-112 门禁);
 - 删除 = 归档:`stale` 后由整理流程移入 `memory-archive/`,带墓碑,绝不静默消失。

@@ -1168,3 +1168,22 @@
 ⑤ 窄屏不挤没主对话区——≤1400px 时 todo/bg 绝对定位 overlay(style.css:33-41),双面板同时显示时上下各 50%(40-41),不参与 flex 占位挤压主区(D-110)。
 验证:ui-runtime-smoke 214 次 invoke 0 错误、ui-a11y 冒烟全绿、node --check 通过。残余:真实 800/1024/1280 浏览器像素基线验证转 R-101(与 R-089/D-107/D-110 同一转移模式),不影响功能可用关闭边界。
 
+## R-070 来源引用的文档解析与记忆保存 [done]
+- 复杂度: 大
+- 优先级: P2
+- 原始描述: 来源引用的文档解析和相关的记忆保存机制。这个也比较复杂。
+- 验收: 实现引用溯源的文档解析链路及内存持久化机制,保证上下文完整性与一致性
+- 退回原因: 2026-08-07 验收核查判定为"既有功能换措辞重新申报"。全部新代码约 10 行(kanzei-tools/src/profiles.rs:242-250):读 .kanzei/research/memory.md 前 5000 字符注入 <memory> 块 + 一句提示词。①"文档解析链路"是既有 TrackerTool/docstore 能力,归档记录自己写的是"继续作为引用真源",承认零新增;②"记忆保存机制"不存在:没有保存代码、没有专用工具、没有格式校验,保存全靠提示词让模型自己 write;③"保留来源 ID"零代码校验,而 finding 工具的 refs 校验就是代码强制的现成先例,违反项目规范"任何规则能用代码强制的绝不只写进提示词";④`.chars().take(5000)` 静默截断无提示(同文件 conventions 加载反而有截断提示,双标);⑤memory.md 是同 commit 塞入的空模板,零条结论。
+- 下一步: 先定义 memory 条目的结构与来源 ID 契约,再实现写入工具与硬校验,截断需可见。
+- 遗留质量问题: 无任何新测试;复杂度标"大"实际交付约 10 行。
+- 阶段: 5
+- 证据等级: E2
+- 设计定位: 功能需求(2026-08-08 用户定调:R-093 的"质量先行"阶段门槛作废,按普通优先级参与取活)
+
+- 标签: 核心
+
+- 进展: 2026-08-08 重新交付,逐条对照 2026-08-07 审计的退回归纳:①「文档解析链路」——既有能力(TrackerTool/docstore 引用真源、source add + finding refs 校验),本轮不重复申报,只补记忆写入侧的来源契约;②「记忆保存机制」——既有能力(memory_add 写入工具 R-105、MemoryStore 文件优先存储、memory_note 草稿箱),标注既有;③「保留来源 ID 零代码校验」——本轮补齐,这是本次交付核心:memory/mod.rs 新增 validate_source_refs,memory_add 与 memory_note 的 refs 参数代码强制校验([RDAMGSF]-<数字> 命中对应 doc 活跃或归档条目,否则按相对文件路径须真实存在),任一非法整体拒绝,先例 tracker.rs check_refs;④「截断可见」——profiles.rs research/docs 的 <memory> 块 5000 字符截断补可见提示(与 conventions 块一致);⑤「memory.md 空模板」——已被 R-104/R-105 MemoryStore 体系取代(legacy 迁移有测试),既有能力。
+新增交付:docs/design/memory_system.md §2 文件格式补 refs 契约;MemoryEntry::refs() 读取助手(mod.rs);store.add 把 refs 写入 frontmatter extras、render/parse 往返保留(store.rs);append_note 写 - refs: 行、pending_note_list detail 带出(store.rs),manager system prompt 指示透传 refs 给 memory_add(manager.rs);UI 消费者:memory_entries 快照带 refs(kanzei-app/src/main.rs),记忆详情页显示「引用来源」(ui/main.js 5229 行 + i18n 键)。
+验证:memory 模块 26 项测试(含 5 个新测试)全绿,workspace 13 crate 全绿,前端 i18n 36 key / runtime 214 invoke 0 错误,node --check 通过;测试记录 T-1786223647。
+残余:refs 是溯源标注,记忆页不提供跳转(需求页 refs 有跳转);全局 scope 条目的 refs 只按项目 docstore 校验(全局条目引用项目条目语义上成立,不校跨项目);这两点不影响验收核心「引用溯源与上下文一致性」,如需可再开条目。
+

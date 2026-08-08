@@ -3626,6 +3626,7 @@ fn memory_entries(
                         "status": e.status,
                         "updated": e.updated,
                         "source": e.source,
+                        "refs": e.refs(),
                         "hits": hits,
                         // R-125 效果画像:最近命中时间为 0 表示从未命中过。
                         "lastHitAt": last_hit_at,
