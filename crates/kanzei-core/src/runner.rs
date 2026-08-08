@@ -2,7 +2,7 @@
 //! 每次工具调用过硬门禁(deny 回喂模型 / ask 问用户,用户拒绝则整轮停,与 V2 语义一致)。
 //! steer/queue/持久化调度在 M2 引入。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -139,7 +139,13 @@ async fn compact_with_digest(
     let middle: Vec<Message> = messages[middle_start..middle_end].to_vec();
     overflow_traces.push(dropped_trace(&middle));
     let digest = match subagent {
-        Some(rt) => digest_segment(client, rt, &render_for_digest(&middle)).await,
+        Some(rt) => {
+            let raw = digest_segment(client, rt, &render_for_digest(&middle)).await;
+            // 纪要质量门槛:fast 模型纪要可能泛化成"进行了一些修改"、丢光关键
+            // 文件,压完模型不知道自己在干什么,原地重做。机械校验文件保留率,
+            // 不合格回落到原文节选——节选是原文,不可能丢(D-181 遗留)。
+            raw.filter(|d| digest_plausible(&middle, d))
+        }
         None => None,
     };
     let replacement = match digest {
@@ -214,6 +220,110 @@ fn estimate_prompt_tokens(system: &[String], messages: &[Message], specs: &[Tool
         })
         .sum();
     ((system_bytes + message_bytes + spec_bytes) / 4) as u64
+}
+
+/// 用 provider 返回的真实 input token 数做滑动校准,修正 len/4 估算的
+/// 系统性偏差(中文 \uXXXX 转义、工具输出密集等)。EMA 收敛,单步比值限幅
+/// 在 [0.5, 2.0],防止异常记账值(如缓存命中的特殊计费)把校准一次带飞。
+fn update_calibration(current: f64, estimated: u64, actual: u64) -> f64 {
+    if estimated == 0 || actual == 0 {
+        return current;
+    }
+    let ratio = (actual as f64 / estimated as f64).clamp(0.5, 2.0);
+    current * 0.7 + ratio * 0.3
+}
+
+/// 主动压缩后仍超预算线:tail 太大或 head 太大。从 tail 最旧端往回收,删到
+/// 不超线为止;任务定义、纪要与当前用户消息一律不动。否则下一步预算检查
+/// 立刻再压——连续两次压缩 = 缓存前缀两次全量重算(cache_write 双倍),
+/// 省下的 token 不够补缓存成本。
+fn trim_tail(
+    messages: &mut Vec<Message>,
+    system: &[String],
+    specs: &[ToolSpec],
+    budget: u64,
+    overflow_traces: &mut Vec<String>,
+) {
+    loop {
+        if estimate_prompt_tokens(system, messages, specs) <= budget {
+            break;
+        }
+        let Some(head_index) = messages.iter().position(is_text_user_message) else {
+            break;
+        };
+        let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
+            break;
+        };
+        // head 之后、当前用户消息之前最靠前的一条 = tail 最旧端。纪要消息
+        // (以 "(系统:" 开头)是中段的替代品,不是可回收物,跳过。
+        let target = (head_index + 1..current_index).find(|&i| {
+            !messages[i].parts.iter().any(|p| {
+                matches!(p, Part::Text { text } if text.starts_with("(系统:"))
+            })
+        });
+        let Some(i) = target else { break; };
+        let dropped_msg = messages.remove(i);
+        overflow_traces.push(dropped_trace(std::slice::from_ref(&dropped_msg)));
+    }
+}
+
+/// 从文本中提取常见源码/文档文件 basename(如 runner.rs、style.css)。
+/// 用于纪要质量校验:纪要必须保留中段出现过的关键文件,否则判定不可信。
+fn extract_file_names(text: &str) -> HashSet<String> {
+    const EXTS: &[&str] = &[
+        "rs", "md", "toml", "json", "js", "ts", "css", "html", "mjs", "ps1", "sql", "db", "yml",
+        "yaml", "lock", "txt", "tsx", "vue", "cjs", "snap",
+    ];
+    let mut out = HashSet::new();
+    for token in text.split(|c: char| {
+        c.is_whitespace() || matches!(c, '"' | '\'' | '`' | ',' | '(' | ')' | '[' | ']' | ':' | ';')
+    }) {
+        let t = token
+            .trim_start_matches(['.', '/', '\\'])
+            .trim_end_matches(['.', ',', ';', ':', '、', '，', ')']);
+        let Some((_, ext)) = t.rsplit_once('.') else {
+            continue;
+        };
+        if !EXTS.contains(&ext) {
+            continue;
+        }
+        let base = t.rsplit(['/', '\\']).next().unwrap_or(t);
+        if base.len() >= 4 && !base.starts_with('.') {
+            out.insert(base.to_string());
+        }
+    }
+    out
+}
+
+/// 纪要质量门槛:长度下限 + 关键文件保留率。
+///
+/// fast 模型纪要最常见的失败是泛化成"进行了一些修改",一个文件都不提——
+/// 压完模型不知道自己在干什么,原地重做。机械校验:中段里出现过 ≥2 个文件
+/// 而纪要一个都没提 → 不可信,调用方回落到原文节选(节选是原文,不可能丢)。
+fn digest_plausible(middle: &[Message], digest: &str) -> bool {
+    if digest.chars().count() < 60 {
+        return false;
+    }
+    let mut source = String::new();
+    for message in middle {
+        for part in &message.parts {
+            match part {
+                Part::Text { text } => source.push_str(text),
+                Part::ToolCall { name, input, .. } => {
+                    source.push_str(name);
+                    source.push_str(&input.to_string());
+                }
+                Part::ToolResult { content, .. } => source.push_str(content),
+                _ => {}
+            }
+        }
+        source.push('\n');
+    }
+    let files = extract_file_names(&source);
+    if files.len() < 2 {
+        return true; // 没几个文件可校验,长度门槛兜底。
+    }
+    files.iter().any(|f| digest.contains(f.as_str()))
 }
 
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
@@ -1021,6 +1131,11 @@ pub fn run_once_with_parts<'a>(
     // 主动压缩与撞墙后的被动恢复各记各的:主动让路不该吃掉被动恢复的重试额度。
     let mut proactive_compactions = 0u32;
     let mut overflow_traces: Vec<String> = Vec::new();
+    // 估算校准:len/4 粗估对中文 \uXXXX 转义、工具输出密集的会话有系统性偏差,
+    // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
+    // 每步拿到 provider 真实 input tokens 后 EMA 更新。
+    let mut calibration = 1.0f64;
+    let mut last_estimated = 0u64;
 
     let mut step = 0u32;
     loop {
@@ -1038,7 +1153,8 @@ pub fn run_once_with_parts<'a>(
         // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
         if let Some(limit) = config.context_limit {
             let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
-            let before = estimate_prompt_tokens(&system, &messages, &specs);
+            let before_raw = estimate_prompt_tokens(&system, &messages, &specs);
+            let before = (before_raw as f64 * calibration).round() as u64;
             if before > budget
                 && proactive_compactions < MAX_PROACTIVE_COMPACTIONS
                 && messages.len() > 1
@@ -1054,7 +1170,15 @@ pub fn run_once_with_parts<'a>(
                 // 中段为空时不算压过:否则会白白吃掉重试额度,还骗 UI 说压了。
                 if dropped_messages > 0 {
                     proactive_compactions += 1;
-                    let after = estimate_prompt_tokens(&system, &messages, &specs);
+                    // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
+                    // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
+                    // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
+                    let after_raw = estimate_prompt_tokens(&system, &messages, &specs);
+                    if (after_raw as f64 * calibration).round() as u64 > budget {
+                        trim_tail(&mut messages, &system, &specs, budget, &mut overflow_traces);
+                    }
+                    let after_raw = estimate_prompt_tokens(&system, &messages, &specs);
+                    let after = (after_raw as f64 * calibration).round() as u64;
                     on_event(RunEvent::ContextCompacted {
                         before_tokens: before,
                         after_tokens: after,
@@ -1092,11 +1216,16 @@ pub fn run_once_with_parts<'a>(
                  user can make, say so now in plain text instead of exploring further."
             )));
         }
+        // 请求构造前记录本次估算:StepFinish 用真实 input tokens 反推校准因子,
+        // 下一次预算判断就按校准后的口径来。tools 随 last_step 变化,估算必须
+        // 与实际发出的请求同口径,否则校准因子被系统性偏差污染。
+        let req_tools: &[ToolSpec] = if last_step { &[] } else { &specs };
+        last_estimated = estimate_prompt_tokens(&system, &request_messages, req_tools);
         let request = LlmRequest {
             model: config.model.clone(),
             system: system.clone(),
             messages: request_messages,
-            tools: if last_step { vec![] } else { specs.clone() },
+            tools: req_tools.to_vec(),
             max_tokens: config.max_tokens,
             temperature: None,
             reasoning: config.reasoning,
@@ -1176,6 +1305,7 @@ pub fn run_once_with_parts<'a>(
                     calls.push((id, name, input, raw_input));
                 }
                 LlmEvent::StepFinish { usage, reason } => {
+                    calibration = update_calibration(calibration, last_estimated, usage.input);
                     total_usage = add_usage(total_usage, usage);
                     finish = reason.clone();
                     on_event(RunEvent::StepEnd { usage, reason });
@@ -2043,8 +2173,9 @@ fn preview(content: &str) -> String {
 mod tests {
     use super::{
         append_declined_tool_results, clip, compact_messages_aggressively,
-        compact_messages_for_retry, drain_task_events, estimate_prompt_tokens,
-        execute_prepared_tools, recover_context_overflow, PreparedToolCall, RunEvent,
+        compact_messages_for_retry, digest_plausible, drain_task_events,
+        estimate_prompt_tokens, execute_prepared_tools, extract_file_names,
+        recover_context_overflow, trim_tail, update_calibration, PreparedToolCall, RunEvent,
         CONTEXT_BUDGET_RATIO, MAX_STREAM_RESTARTS,
     };
     use async_trait::async_trait;
@@ -2160,6 +2291,110 @@ mod tests {
         let clipped = clip(&chinese, 50);
         assert_eq!(clipped.chars().count(), 50 + "…[截断]".chars().count());
         assert_eq!(clip("短", 50), "短", "未超长不加省略标记");
+    }
+
+    /// 校准因子:中文 \uXXXX 转义/工具输出密集场景下 len/4 估算偏高,真实 usage
+    /// 应把它拉回;单步异常比值被限幅,不会一次带飞;拿不到 usage 时不更新。
+    #[test]
+    fn 校准因子按真实usage收敛且单步限幅() {
+        // 估算偏高 1 倍(实际只有一半),EMA 向下收敛。
+        let mut c = update_calibration(1.0, 10_000, 5_000);
+        assert!((c - 0.85).abs() < 1e-9, "第一次应得 1.0*0.7+0.5*0.3=0.85,实得 {c}");
+        c = update_calibration(c, 10_000, 5_000);
+        assert!((c - 0.745).abs() < 1e-9, "第二次应得 0.85*0.7+0.5*0.3=0.745,实得 {c}");
+        // 实际远超估算(3 倍)被限幅在 2 倍,单步最多 +0.3。
+        let c3 = update_calibration(1.0, 10_000, 30_000);
+        assert!((c3 - 1.3).abs() < 1e-9, "限幅后应得 1.0*0.7+2.0*0.3=1.3,实得 {c3}");
+        // 零值保护:估算为 0 或拿不到真实值时不更新。
+        assert_eq!(update_calibration(0.9, 0, 100), 0.9);
+        assert_eq!(update_calibration(0.9, 100, 0), 0.9);
+        // 估算恰好命中时不漂移。
+        assert!((update_calibration(1.0, 8_000, 8_000) - 1.0).abs() < 1e-9);
+    }
+
+    /// trim_tail:压缩后仍超线时只收 tail 最旧端,任务定义、纪要、当前用户
+    /// 消息一律不动——否则下一步预算检查立刻再压,缓存前缀两次全量重算。
+    #[test]
+    fn trimTail只收最旧端且不动首尾与纪要() {
+        let system = vec![String::new()];
+        let mut messages = vec![Message::user_text("任务定义:修复 D-123 的空指针")];
+        messages.push(Message::user_text(
+            "(系统:此前 40 条消息已压缩为纪要,基于它继续)\n改动了 runner.rs 的压缩逻辑,store.rs 待处理",
+        ));
+        for i in 0..30 {
+            messages.push(Message::user_text(format!("tail 第 {i} 条 {}", "x".repeat(300))));
+        }
+        messages.push(Message::user_text("当前指令:继续修"));
+        let mut traces = Vec::new();
+        trim_tail(&mut messages, &system, &[], 1_200, &mut traces);
+
+        let text: String = messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(|p| match p {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            estimate_prompt_tokens(&system, &messages, &[]) <= 1_200,
+            "必须收到预算线内"
+        );
+        assert!(text.contains("任务定义:修复 D-123"), "任务定义不能动");
+        assert!(text.contains("runner.rs 的压缩逻辑"), "纪要不能动");
+        assert!(text.contains("当前指令:继续修"), "当前用户消息不能动");
+        assert!(text.contains("tail 第 29 条"), "最近的 tail 要优先保住");
+        assert!(!text.contains("tail 第 0 条"), "最旧的 tail 先被回收");
+        assert!(!traces.is_empty(), "回收的 tail 要留轨迹");
+    }
+
+    /// 纪要质量:泛化纪要(一个文件都不提)判定不可信、回落到原文节选;
+    /// 保留了关键文件的纪要放行;太短同样不可信。
+    #[test]
+    fn 纪要质量校验拒绝泛化纪要() {
+        let middle = vec![
+            Message::user_text("改了 crates/kanzei-core/src/runner.rs 的压缩逻辑"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "t1".into(),
+                name: "grep".into(),
+                input: serde_json::json!({ "pattern": "trim_tail", "path": "src/store.rs" }),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "t1".into(),
+                content: "src/store.rs:12: fn trim_tail".into(),
+                is_error: false,
+            }]),
+        ];
+        // 泛化纪要:一个文件都不提 → 不可信。
+        assert!(!digest_plausible(
+            &middle,
+            "对项目进行了若干修改,修复了多个问题,下一步继续推进。"
+        ));
+        // 提到任一关键文件 → 可信(长度也要过门槛,真实纪要约数百字)。
+        assert!(digest_plausible(
+            &middle,
+            "本次改动集中在 runner.rs 的上下文压缩路径:新增 trim_tail 与纪要质量校验,\
+             store.rs 的迁移逻辑尚未处理,下一步补上对应测试并跑全量回归。"
+        ));
+        // 太短 → 不可信。
+        assert!(!digest_plausible(&middle, "修了 bug。"));
+        // 中段几乎没文件 → 长度门槛兜底,不误杀(纪要足够具体)。
+        let bare = vec![Message::user_text("纯对话轮次,没有文件操作")];
+        assert!(digest_plausible(
+            &bare,
+            "讨论了方案 A 与方案 B 的取舍,结论是 A 优于 B:改动面最小、风险可控,且与既有抽象保持一致;\
+             下一步与用户确认接口约定后再动手实现。"
+        ));
+
+        // 路径提取边界:扩展名白名单外的不算,没有点号的普通词不算。
+        let files = extract_file_names(
+            "crates/kanzei-core/src/runner.rs 与 style.css 与 foo.exe 与 一个普通词",
+        );
+        assert!(files.contains("runner.rs"));
+        assert!(files.contains("style.css"));
+        assert!(!files.contains("foo.exe"), "exe 不在白名单");
+        assert!(!files.contains("普通词"), "没有点号的不算文件");
     }
 
     /// 压缩后必须真的变小,而且当前用户消息要留下——否则模型会丢掉正在做的事。
