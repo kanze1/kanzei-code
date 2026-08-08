@@ -39,9 +39,27 @@ pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
 
 /// 轮内主动压缩的触发线(占 context_limit 的比例)。
 pub const CONTEXT_BUDGET_RATIO: f64 = 0.7;
-/// 轮内主动压缩的次数上限。压缩后仍超线说明单条消息本身就过大,再压无益,
-/// 交给撞墙后的被动恢复,别在这里空转。
-const MAX_PROACTIVE_COMPACTIONS: u32 = 3;
+/// 主动压缩的**连续无效**刹车,不是总次数配额(D-206)。
+///
+/// 旧常量 MAX_PROACTIVE_COMPACTIONS=3 把注释里的"压缩后仍超线再压无益"实现成了
+/// 总量计数——**成功的压缩也扣配额**。对无步数上限的自举 run,压缩是常规运营动作:
+/// 上下文反复涨到预算线本来就该反复压。实测第 58 步的长 run 里三次**成功**压缩把
+/// 配额吃光,之后放飞,上下文一路涨向 context_limit,prefill 慢到单步等待 863s,
+/// 只能等 provider 报 overflow 走被动恢复——主动压缩在最需要它的场景下提前退场。
+///
+/// 正确判据与注释原意一致:压完低于线 = 在正常工作,清零计数、不限次数;
+/// 压完仍超线 / 中段为空压不动 = 无进展,连续两次就停(head+当前消息本身超线,
+/// trim_tail 都救不了,交给被动恢复,别空转)。
+const MAX_FUTILE_COMPACTIONS: u32 = 2;
+/// 盘点检查点:第 20/40 步,之后每 40 步一次(80/120/160…)。
+///
+/// 旧实现 `matches!(step, 20 | 40 | 80)` 是有限清单——第 80 步之后的长 run 永不再
+/// 盘点,而无步数上限的自举 run 恰恰是最需要盘点的(D-206 顺带修:与压缩总量配额
+/// 同型,把"周期性动作"写成了"有限次动作")。
+fn is_budget_checkpoint(step: u32) -> bool {
+    step == 20 || (step >= 40 && step % 40 == 0)
+}
+
 /// 主动压缩后,最近这部分历史逐字保留的预算占比(相对 context_limit)。
 /// 主动压缩发生在还有余量的时候,没理由像应急路径那样推倒重来——保住近期
 /// 工作区,模型才知道自己刚做了什么,不会压完就原地重做。
@@ -1483,8 +1501,9 @@ pub fn run_once_with_parts<'a>(
     let mut session_rules: Vec<(String, String)> = Vec::new();
 
     let mut overflow_recoveries = 0;
-    // 主动压缩与撞墙后的被动恢复各记各的:主动让路不该吃掉被动恢复的重试额度。
-    let mut proactive_compactions = 0u32;
+    // 主动压缩的连续无效计数(D-206),与被动恢复各记各的。只数"压了没用",
+    // 成功的压缩清零——压缩是常规运营动作,不设总量配额。
+    let mut futile_compactions = 0u32;
     let mut overflow_traces: Vec<String> = Vec::new();
     // 估算校准:len/4 粗估对中文 \uXXXX 转义、工具输出密集的会话有系统性偏差,
     // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
@@ -1500,9 +1519,9 @@ pub fn run_once_with_parts<'a>(
         on_event(RunEvent::TurnStart { step, max_steps });
         let last_step = max_steps > 0 && step == max_steps;
         // 步数软预算(D-173):步数上限是 0(不设人为天花板),但"不封顶"不等于
-        // "不盘点"。到第 20/40 步各插一次检查点,只要求当轮盘一次剩余范围,
-        // 不强制中止——实测长轮的成本失控几乎都始于无人察觉的目标漂移。
-        let budget_checkpoint = matches!(step, 20 | 40 | 80);
+        // "不盘点"。检查点只要求当轮盘一次剩余范围,不强制中止——实测长轮的
+        // 成本失控几乎都始于无人察觉的目标漂移。
+        let budget_checkpoint = is_budget_checkpoint(step);
 
         // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
         // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
@@ -1512,7 +1531,7 @@ pub fn run_once_with_parts<'a>(
             let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
             let before = budgeted_tokens(&system, &messages, &specs, calibration);
             if before > budget
-                && proactive_compactions < MAX_PROACTIVE_COMPACTIONS
+                && futile_compactions < MAX_FUTILE_COMPACTIONS
                 && messages.len() > 1
             {
                 let dropped_messages = compact_with_digest(
@@ -1523,9 +1542,7 @@ pub fn run_once_with_parts<'a>(
                     &mut overflow_traces,
                 )
                 .await;
-                // 中段为空时不算压过:否则会白白吃掉重试额度,还骗 UI 说压了。
                 if dropped_messages > 0 {
-                    proactive_compactions += 1;
                     // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
                     // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
                     // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
@@ -1542,6 +1559,14 @@ pub fn run_once_with_parts<'a>(
                         );
                     }
                     let after = budgeted_tokens(&system, &messages, &specs, calibration);
+                    // D-206:只按"有没有用"记账。压回线内 = 压缩在正常工作,清零、
+                    // 下次照压;压完(连 trim_tail 都上了)仍超线 = head+当前消息
+                    // 本身超线,连续两次就停,交给撞墙后的被动恢复,别空转。
+                    if after <= budget {
+                        futile_compactions = 0;
+                    } else {
+                        futile_compactions += 1;
+                    }
                     on_event(RunEvent::ContextCompacted {
                         before_tokens: before,
                         after_tokens: after,
@@ -1549,6 +1574,10 @@ pub fn run_once_with_parts<'a>(
                         limit_tokens: limit,
                         dropped_messages,
                     });
+                } else {
+                    // 中段为空压不动:不发事件(没骗 UI),但要计无效——否则每步
+                    // 白跑一次 compact,同样是注释里说的空转。
+                    futile_compactions += 1;
                 }
             }
         }
@@ -2712,6 +2741,48 @@ mod tests {
         assert!(text.contains("tail 第 29 条"), "最近的 tail 要优先保住");
         assert!(!text.contains("tail 第 0 条"), "最旧的 tail 先被回收");
         assert!(!traces.is_empty(), "回收的 tail 要留轨迹");
+    }
+
+    /// D-206:检查点是周期性动作,不是有限清单。旧实现 20|40|80 之后永不盘点,
+    /// 无步数上限的自举 run 后半程恰恰最需要。
+    #[test]
+    fn 盘点检查点长跑不熄火() {
+        use super::is_budget_checkpoint;
+        for step in [20, 40, 80, 120, 160, 400] {
+            assert!(is_budget_checkpoint(step), "第 {step} 步应盘点");
+        }
+        for step in [1, 19, 21, 39, 41, 79, 81, 119, 399] {
+            assert!(!is_budget_checkpoint(step), "第 {step} 步不该盘点");
+        }
+    }
+
+    /// D-206:主动压缩不设总量配额。等价类断言写在常量语义上:
+    /// 刹车常量只允许"连续无效"语义存在——谁把总量配额加回来,先得删这条测试。
+    #[test]
+    fn 压缩刹车只认连续无效不设总量配额() {
+        // 常量本身:连续无效两次即停(压不动了),而不是"一共只能压 N 次"。
+        assert_eq!(super::MAX_FUTILE_COMPACTIONS, 2);
+        // 语义锚点:成功压缩必须能无限次发生。模拟 58 步长 run 的记账序列——
+        // 三次成功压缩(after<=budget → 清零)后计数仍为 0,第四次照样允许;
+        // 旧实现(每次成功 +1、上限 3)在同一序列后是 3,第四次被拒。
+        let budget = 100u64;
+        let mut futile = 0u32;
+        for _ in 0..3 {
+            let after = 90u64; // 压回线内
+            if after <= budget { futile = 0 } else { futile += 1 }
+        }
+        assert_eq!(futile, 0, "成功的压缩不得累计任何配额");
+        assert!(futile < super::MAX_FUTILE_COMPACTIONS, "第四次压缩必须仍被允许");
+        // 连续压不动(after>budget)两次后停——这才是注释里"再压无益"的原意。
+        for _ in 0..2 {
+            let after = 120u64;
+            if after <= budget { futile = 0 } else { futile += 1 }
+        }
+        assert!(futile >= super::MAX_FUTILE_COMPACTIONS, "连续无效两次后必须刹车");
+        // 中间只要成功一次就复位,不是一杆子打死。
+        let after = 90u64;
+        if after <= budget { futile = 0 } else { futile += 1 }
+        assert_eq!(futile, 0);
     }
 
     /// D-203:trim_tail 必须用**校准口径**够预算线,与调用方同一把尺子。
