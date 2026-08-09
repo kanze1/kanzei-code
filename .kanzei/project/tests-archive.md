@@ -164,3 +164,7 @@
 ## T-1786253735 R-153 批2旧副本删除提交后回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 旧副本删除提交后回归通过；main.rs 行数降至 4810 行，仍未达到 R-153 最终 <=300 行验收，需继续后续批次。
+
+## T-1786254028 R-153 批3 memory 模块接入回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批3 memory 模块接入回归记录通过；13 个 command 的真实 invoke_handler 消费者已切换到 memory 模块，run_task 轮末整理调用也已切换；main.rs 旧 memory 函数体仍待清理。

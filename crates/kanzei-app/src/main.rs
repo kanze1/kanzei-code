@@ -25,6 +25,7 @@ mod files_view;
 mod agent_container;
 mod fast_model;
 mod update;
+mod memory;
 
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
@@ -519,24 +520,24 @@ fn main() {
             update::update_install_command,
             quick_req,
             defect_review,
-            memory_overview,
-            memory_entries,
-            memory_recalls,
-            memory_entry_delete,
-            memory_note_candidates,
-            memory_note_discard,
+            memory::memory_overview,
+            memory::memory_entries,
+            memory::memory_recalls,
+            memory::memory_entry_delete,
+            memory::memory_note_candidates,
+            memory::memory_note_discard,
             run_metrics,
             project_root_info,
             project_detach,
             projects_isolation_report,
             fast_model::fast_model_status,
             fast_model::fast_model_setup,
-            memory_entry_save,
-            memory_search_page,
-            memory_context_bill,
-            memory_consolidate,
-            memory_focus_get,
-            memory_focus_set,
+            memory::memory_entry_save,
+            memory::memory_search_page,
+            memory::memory_context_bill,
+            memory::memory_consolidate,
+            memory::memory_focus_get,
+            memory::memory_focus_set,
             app_info,
             models_list,
             docs_update,
@@ -4462,7 +4463,7 @@ async fn run_task(
                     report_persistence_failure(window, &session_id, "写入完成通知", error);
                 }
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
-                tauri::async_runtime::spawn(consolidate_memory_inbox(project_dir.clone()));
+                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(project_dir.clone()));
             }
             Err(error) => {
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {

@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批2收口完成并已提交：`main.rs` 不再定义 update 启动/helper/CLI/pending 函数；grep 仅剩 main.rs:453/455/458 的 `update::startup_update/sync_bundled_cli/cleanup_orphan_webviews` 调用及 main.rs:518-519 的两个 command 注册。`main.rs` 当前 4810 行；批2回归 T-1786253735 通过。R-153 总验收仍缺批3~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟和拆前后行数对照。
+- 进展: 批3 memory 模块已接入：新增 `crates/kanzei-app/src/memory.rs`，承接 13 个 memory command 与 `consolidate_memory_inbox`；main.rs 新增 `mod memory`，invoke_handler 的 memory command 全部切换为 `memory::...`，run_task 轮末整理切换为 `memory::consolidate_memory_inbox`。回归记录 T-1786254028。当前 main.rs 仍保留旧 memory 函数副本，下一步物理删除旧域并保留 run_metrics 在 main.rs。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

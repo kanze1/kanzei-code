@@ -107,3 +107,7 @@
 ## T-1786253732 R-153 批2旧副本删除提交后回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证 R-153 批2旧副本物理删除后的编译与测试行为；同时确认 main.rs 只保留 update 模块调用，旧 update 函数定义已无匹配。
+
+## T-1786254023 R-153 批3 memory 模块接入回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证批3 memory.rs 接入：13 个 memory command 经模块全路径注册，run_task 轮末整理改由 memory::consolidate_memory_inbox 调用；当前 main.rs 旧 memory 副本尚待物理删除。
