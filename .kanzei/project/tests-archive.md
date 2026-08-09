@@ -941,3 +941,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: R-154 B8 前端冒烟全绿:runtime 16 文件按序 + 222 invoke + 列表渲染;markdown 切片相邻正常
 - 收尾: 1786304007
+
+## T-1786304315 R-154 B9 ui 冒烟(01-core/02-i18n/03-shell 最终拆分) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B9 前端冒烟全绿:18 文件按序 + 222 invoke + batch-meter 断言;根因:行 98 promptBox 定义被切分区间跳过,已补回 01-core.js
+- 收尾: 1786304315
