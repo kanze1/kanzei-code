@@ -36,3 +36,7 @@
 ## T-1786245754 D-218 test_record fixture 项目标记修复回归 [passed]
 - 命令: cargo test -p kanzei-tools test_record::tests --lib; cargo test --workspace
 - 摘要: 修复 CI 干净 checkout 的项目根 fixture 后，test_record 6 项定向测试与 workspace 全量全部通过。
+
+## T-1786247356 R-152 License metadata 与 verify 脏树门禁 [passed]
+- 命令: cargo metadata --no-deps --format-version 1；当前脏树运行 scripts/verify.ps1
+- 摘要: 6 个 workspace crate 的 license 全为 PolyForm-Noncommercial-1.0.0；verify 在源码变更未提交时拒绝并报告“工作树不干净，证据无法绑定 commit”。
