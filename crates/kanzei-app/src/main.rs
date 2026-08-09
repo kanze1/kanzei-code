@@ -143,7 +143,7 @@ fn main() {
             workspace_snapshot,
             docs::docs_snapshot,
 run::run_prompt,
-            stop_run,
+            run::stop_run,
             answer_ask,
             pending_asks_get,
             settings::settings_get,
@@ -926,108 +926,6 @@ fn app_info() -> serde_json::Value {
         "version": env!("CARGO_PKG_VERSION"),
         "build": option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"),
     })
-}
-
-#[tauri::command]
-fn stop_run(
-    window: Window,
-    state: State<'_, AppState>,
-    project_dir: Option<String>,
-    process_id: Option<String>,
-) {
-    let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| {
-        normalized_project_root(&cwd)
-    });
-    let target_session = target_project
-        .as_ref()
-        .map(|root| process_session_id(root, process_id.as_deref()));
-    let runtimes: Vec<Arc<SessionRuntime>> = state
-        .runtimes
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(session_id, runtime)| {
-            target_session.as_ref().map_or(true, |target| target == *session_id)
-                && runtime.running.load(Ordering::SeqCst)
-        })
-        .map(|(_, runtime)| runtime.clone())
-        .collect();
-    if runtimes.is_empty() {
-        let _ = window.emit(
-            "kz:error",
-            with_session_id(
-                json!({ "message": "目标项目当前没有可停止的运行" }),
-                target_session.as_deref().unwrap_or(""),
-            ),
-        );
-        return;
-    }
-    let mut cancelled = None;
-    for runtime in runtimes {
-        let result = target_project.clone().map(|root| {
-            let session_id = target_session
-                .clone()
-                .unwrap_or_else(|| kanzei_core::project_session_id(&root));
-            let state_path = kanzei_core::project_state_path(&root);
-            kanzei_core::SessionStore::open(&state_path)
-                .and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
-        });
-        cancelled = result;
-    }
-    match cancelled.transpose() {
-        Ok(Some(count)) => {
-            let _ = window.emit(
-                "kz:stopped",
-                with_session_id(
-                    json!({ "cancelled_queue": count }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
-        }
-        Ok(None) => {
-            let _ = window.emit(
-                "kz:stopped",
-                with_session_id(
-                    json!({ "cancelled_queue": 0 }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
-        }
-        Err(error) => {
-            let _ = window.emit(
-                "kz:error",
-                with_session_id(
-                    json!({ "message": format!("停止时清理排队输入失败: {error}") }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
-            let _ = window.emit(
-                "kz:stopped",
-                with_session_id(
-                    json!({ "cancelled_queue": 0 }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
-        }
-    }
-
-    // 后台进程不随 abort 结束:不回收会留下孤儿 dev server 占端口(R-097)。
-    if let Some(root) = target_project {
-        let window = window.clone();
-        let session = target_session.clone().unwrap_or_default();
-        tauri::async_runtime::spawn(async move {
-            let killed = kanzei_tools::kill_background_processes(&root).await;
-            if killed > 0 {
-                let _ = window.emit(
-                    "kz:status",
-                    with_session_id(
-                        json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台进程") }),
-                        &session,
-                    ),
-                );
-            }
-        });
-    }
 }
 
 async fn run_task_impl(

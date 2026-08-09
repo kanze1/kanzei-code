@@ -1,14 +1,50 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
-use tauri::{Emitter, State, Window};
+use crate::{ensure_default_process, process_session_id, runtime_for, stop_runtime_and_finalize, with_session_id, AppState, PendingAsk, PromptAttachment, SessionRuntime};
 
 pub(crate) use crate::run_task_impl as run_task;
 
+
+#[tauri::command]
+pub(crate) fn stop_run(
+    window: Window,
+    state: State<'_, AppState>,
+    project_dir: Option<String>,
+    process_id: Option<String>,
+) {
+    let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| crate::normalized_project_root(&cwd));
+    let target_session = target_project.as_ref().map(|root| process_session_id(root, process_id.as_deref()));
+    let runtimes: Vec<Arc<SessionRuntime>> = state.runtimes.lock().unwrap().iter().filter(|(session_id, runtime)| target_session.as_ref().map_or(true, |target| target == *session_id) && runtime.running.load(Ordering::SeqCst)).map(|(_, runtime)| runtime.clone()).collect();
+    if runtimes.is_empty() {
+        let _ = window.emit("kz:error", with_session_id(json!({ "message": "目标项目当前没有可停止的运行" }), target_session.as_deref().unwrap_or("")));
+        return;
+    }
+    let mut cancelled = None;
+    for runtime in runtimes {
+        let result = target_project.clone().map(|root| {
+            let session_id = target_session.clone().unwrap_or_else(|| kanzei_core::project_session_id(&root));
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
+        });
+        cancelled = result;
+    }
+    match cancelled.transpose() {
+        Ok(Some(count)) | Ok(None) => { let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": count.unwrap_or(0) }), target_session.as_deref().unwrap_or(""))); }
+        Err(error) => { let _ = window.emit("kz:error", with_session_id(json!({ "message": format!("停止时清理排队输入失败: {error}") }), target_session.as_deref().unwrap_or(""))); let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": 0 }), target_session.as_deref().unwrap_or(""))); }
+    }
+    if let Some(root) = target_project {
+        let window = window.clone();
+        let session = target_session.clone().unwrap_or_default();
+        tauri::async_runtime::spawn(async move {
+            let killed = kanzei_tools::kill_background_processes(&root).await;
+            if killed > 0 { let _ = window.emit("kz:status", with_session_id(json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台进程") }), &session)); }
+        });
+    }
+}
 
 fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
     match value.unwrap_or("queue") { "steer" => Ok(kanzei_core::Delivery::Steer), "queue" => Ok(kanzei_core::Delivery::Queue), other => Err(anyhow::anyhow!("未知输入交付模式: {other}")) }

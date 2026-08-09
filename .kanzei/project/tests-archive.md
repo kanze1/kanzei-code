@@ -360,3 +360,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: report_persistence_failure 与 append_run_notification 已迁入 run.rs，main.rs 的 run_task_impl 调用点均改为 run:: 模块路径。
 - 收尾: 1786288579
+
+## T-1786288724 R-153 run.rs stop_run 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: stop_run 已迁入 run.rs 并由 invoke_handler 使用 run::stop_run；无可停止状态、队列取消、停止事件和后台进程回收保持。
+- 收尾: 1786288730
