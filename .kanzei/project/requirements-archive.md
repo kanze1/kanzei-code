@@ -1228,6 +1228,14 @@
 - 进展: 逐项验收证据（实现位置与实测）：① `Cargo.toml:12-15` 的 `[workspace.package].license` 为 `PolyForm-Noncommercial-1.0.0`；`cargo metadata --no-deps --format-version 1` 实测 6 个 workspace crate 全部一致。② `.github/workflows/ci.yml:3-42` 配置 windows-latest、dev/main push、main PR、workspace test、UI 语法与四冒烟；首跑链接 https://github.com/kanze1/kanzei-code/actions/runs/31291964471，D-218 修复后 runs 31292345597/31292710503/31292885059 连续全绿。③ `scripts/verify.ps1:7-14` 脏树门禁实测原文“工作树不干净，证据无法绑定 commit: .github/workflows/ci.yml scripts/verify.ps1”；`scripts/verify.ps1:16-44` 全绿态实测通过 workspace test、ui_syntax、ui_runtime、ui_a11y、ui_i18n、ui_markdown，并写出 `dist/verification.json`，commit=`c0ea88db9f89546d69d430065bc0e46da67143af`、`all_pass=true`。④ `scripts/package.ps1:61-70` 位于 D-183 Ack/脏树检查之后、构建之前，实测无证据拦截（原文“缺验证证据 …:先跑 scripts/verify.ps1”）、commit 漂移拦截（原文“验证证据绑定旧 commit,HEAD 是新 commit:commit 变了就要重新 verify——这正是本门禁存在的原因”），证据齐全经 `-VerificationPath` 放行至构建并发布 build-cd85360（release 链接：https://github.com/kanze1/kanzei-code/releases/tag/build-cd85360）；`package.ps1:70` 未全绿也硬拦。⑤ `.github/workflows/ci.yml:27` 与 `scripts/verify.ps1:24-25` 互相注明 R-156/R-146 启用/禁用必须同步；两处当前均按设计保留注释。既有 D-218 修复与之前的 CI/package 实测属于本条已有实现证据，本次交付仅补齐同步说明与本轮 metadata/verify 证据。
 - 进展(2026-08-09 发版放行实测): D-218 修复后 Actions 连续三跑全绿(runs 31292345597/31292710503/31292885059);ci.yml checkout/setup-node 升 v5 消除 Node 20 弃用警告(cd85360)。验收④第三拦「证据齐全放行」实测完成:verify.ps1 产出绑定 cd85360 的全绿证据,发布树 package.ps1 -Ack 9 -Publish -VerificationPath 证据核对通过、放行至构建并发布 build-cd85360——证据链首个完整走通的 release:https://github.com/kanze1/kanzei-code/releases/tag/build-cd85360 。至此验收②④证据齐全,可逐条核对关闭。
 
+## R-159 运行上限进配置与设置页,设置页按组折叠 [done]
+- 类型: 后端+前端
+- 来源: 2026-08-09 用户"很多可设置参数都加到设置里,并优化设置页排版"。普查后纠正了一个预期:KanzeiConfig 既有字段(primary/fast/reasoning/codex_fast_mode/providers/proxy/profile.default/permissions)本来就全在设置页,真正缺入口的是散在各 crate 的硬编码常量。
+- 内容: 新增 [limits] 节 10 项(主对话/子代理输出上限、子代理墙钟、单轮子代理数、压缩触发线、近期逐字比例、单波并行工具数、流重放次数、传输/限流重试),经 RunnerConfig.limits 与 SubagentRuntime.limits 下发;设置页新增「运行上限」组并把 8 个分区改为 details/summary 折叠。
+- 验收对照: ①全字段 Option,None=内置默认且与改造前常量逐值一致(测试锁);②层叠合并逐字段覆盖,项目层只写一个键不打回其余(测试锁);③设置页留空=默认、占位符显示内置默认、保存只写填了的键、清空即删键(Rust 测试 + 冒烟三条断言);④新字段进 SETTINGS_FORM_IDS,脏状态可见;⑤cargo test --workspace 全绿 + 四条 UI 冒烟全绿。
+- 未纳入: bash 默认超时、测试记录悬空阈值、edit 净删除阈值三项仍是常量——它们在工具层,需要给 ToolCtx 加字段并改 52 处构造点,收益不抵本次改动的风险;宁可不做,也不放"设置页有键但运行不认"的死键。
+- 优先级: P1
+
 ## R-158 Codex 支持同模型 Fast mode 优先服务档位 [done]
 - 类型: 后端
 - 背景: Codex 的 fast mode 不是另一模型，而是对同一 Codex 模型启用更高消耗、更快响应的 priority 服务档位。当前 Responses 请求未发送该参数。
