@@ -1021,3 +1021,15 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: R-157 批1 提交前重新验证:kanzei-app 43 passed(settings cadence 透传 + 08-compose 文案参数化编译链)
 - 收尾: 1786307641
+
+## T-1786310290 cargo test -p kanzei-tools (D-234 git 推导) [passed]
+- 摘要: D-234:kanzei-tools 125 passed,含 git_batches 推导解析测试、tracker 收口门禁「关闭时拒绝手写批次与 git 提交真源不一致」、批次没走完不能关闭
+- 收尾: 1786310331
+
+## T-1786310331 cargo test -p kanzei-app (D-234 docs_snapshot git 推导) [passed]
+- 摘要: D-234:kanzei-app 44 passed,含 docs_snapshot_uses_git_commits_for_live_batch_progress(字段 0/3 + git B1/B2 → done=2;无提交标记条目回退字段 2/3)
+- 收尾: 1786310419
+
+## T-1786310446 D-234 前端冒烟(node --check + 四条 smoke) [passed]
+- 摘要: D-234:node --check 07-events.js + 四条冒烟全过;ui-runtime-smoke 含 D-234 段——git 提交(tool-end)与子代理提交(task-progress)后立即多一次 docs_snapshot 调用
+- 收尾: 1786310446

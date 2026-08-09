@@ -2232,3 +2232,17 @@
 - 标签: 后端
 - 进展: 已修复：`crates/kanzei-app/src/settings.rs:415-416` 的 `#[cfg(test)] mod tests` 增加 `use kanzei_harness::KanzeiConfig;`，解决迁移后测试模块作用域缺失。复核证据：T-1786297996 `cargo test -p kanzei-app` 43 项全绿，四个迁移后的 settings::tests 均通过。
 - 优先级: P1
+
+## D-234 批次进度字段靠模型自觉更新,长 run 连做多批时停摆:实际 14/16 显示 2/16 [fixed] (medium)
+- 优先级: P2
+- 标签: 核心
+- refs: R-155 D-207
+- 复现: 2026-08-10 04:16 实测:R-155 自举 run 从 03:44 起以 3~7 分钟一批的速度连续提交 B1→B8 + S1→S6(14 批,提交信息齐全),而 requirements.md 的「批次: 2/16」「进展: …下一批 B3」停在 03:52——桌面端批次进度格照此渲染,用户看到的进度停摆 12 批。
+- 根因(机制实证,三层): ①`批次`/`进展` 字段没有任何引擎写入方,全靠 agent 自觉调 `req update`;②即便自觉更新也天然滞后一拍——agent 先提交代码再改 tracker,tracker 改动躺在工作树里被**下一批**的提交顺带带走(B3 的提交里装的是 B2 的进展);③conventions 只有软要求(「在进展里写明批次边界」),无机械门禁,长 run 里模型注意力全在代码上,B3 之后就断更了。与 D-207 同病:真源(提交信息里的「R-155 B7:…」)机器可读且从不缺席,UI 却去读靠自觉维护的副本。
+- 影响: 批次进度格的存在价值就是让用户实时看到多批大条目走到哪了,停摆 12 批等于功能失效;且「进展」字段是收口对照验收⑤(拆前后行数对照)的载体,断更意味着收口时要靠翻 git log 补账。
+- 修复方向(derive, don't duplicate 优先): ①批次格改为从 git log 推导——引擎解析该条目区间内提交信息的 `R-xxx [BS]\d+` 模式,实时数完成批次,`批次` 字段降级为展示兜底或直接退役;②或提交侧机械 bump:agent 的 git 提交经引擎路径时,信息匹配批次模式即自动更新对应条目的批次字段(与 harvest_failures 同哲学:引擎采集,不靠自觉);③「进展」叙事字段保留人写,但收口门禁校验:批次型条目关闭时进展里的批次数须与 git log 推导一致,不一致拒关。三选一或组合,禁止再加一条"记得更新进度"的提示词了事。
+- 验收: ①长 run 连做多批时,批次进度格与 git log 推导的完成数实时一致(实测一次多批 run);②无需模型任何 req update 调用即可正确显示;③若保留字段,收口时字段与推导不一致有机械拦截;④冒烟或单测覆盖推导解析(B/S 混编、乱序提交、无批次模式的普通提交不误判)。
+- 证据等级: E1(时间线+提交触碰记录+字段现值三方对照)
+- 修复进展(2026-08-10): 文档快照现以当前 HEAD 的提交标题为批次真源（一次快照只读取一次 Git 历史），解析 `R-xxx Bn`、`Sn` 与 `S5-S6`/`S7+S8` 并去重；成功的主 agent 或子 agent `git commit` 会立即刷新快照。手写 `批次` 仅在 Git 不可用或尚无批次标记时回退，关闭时若与 Git 推导不一致会被拒绝。`write` 的 JSON 修复同时补齐未转义换行/制表符，避免本次修复过程中的大段源码写入失败。
+- 验证(2026-08-10): `cargo check -p kanzei-app`；Harness JSON 修复 7 项通过；Git 解析、快照真源、关闭不一致门禁各有回归测试通过；`node scripts/ui-sources.mjs` 与 `node scripts/ui-runtime-smoke.mjs` 通过。待重新启动桌面端后，以一次真实多批 agent run 记录最终 E2 交互证据。
+- 进展: 修复已由 e108613 落地(提交时间线:批次格停摆缺陷修复实现 commit)。验收逐条对照:①实时一致——docs.rs:92-100 每次 docs_snapshot 只跑一次 git log(completed_batches_for_entries)推导全部条目;docstore.rs:155-168 batch_progress_with_derived_done 让推导值覆盖手写字段;07-events.js:152-164/174-177 isBatchCommit(git 提交成功)→refreshDocsSoon,直连 agent 的 tool-end 与子代理的 task-progress 双路即时刷新;state_tests.rs::docs_snapshot_uses_git_commits_for_live_batch_progress 机械验证(R-001 字段 0/3+git B1/B2→done=2;R-002 无提交标记→回退字段 2/3);实测本仓库 R-155 提交历史 B1-B8+S1-S4+S5-S6+S7+S8 推导 16/16。②无需模型 req update——推导来自 git log,前端 11-docs-list.js:333-356 只渲染后端 entry.batches,不读手写字段。③收口机械拦截——tracker.rs:440-453 close 时 declared vs derived 不一致直接拒绝,单测「关闭时拒绝手写批次与_git_提交真源不一致」验证。④推导解析覆盖——git_batches.rs 单测 parses_mixed_out_of_order_and_compact_batch_markers(B/S 混编、乱序、B1-2 压缩、R-1550 相邻 ID 不误判、无批次普通提交不误判);ui-runtime-smoke.mjs D-234 段断言提交后 docs_snapshot 调用数增加。验证:T-1786310290 kanzei-tools 125 passed;T-1786310331 kanzei-app 44 passed;T-1786310446 前端四条冒烟 passed。遗留观察:非 B/S 风格提交信息(如「R-157 批1」)推导为 0 回退字段显示,不误判。
