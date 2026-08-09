@@ -1262,3 +1262,17 @@
 
 - 进展: 验收逐项完成：①`crates/kanzei-app/src/main.rs:1-195` 仅保留模块声明、跨模块导出装配、`main()` 与 Tauri Builder，PowerShell 行数核对为 195 ≤ 300；②每批均有独立提交，当前批提交 `085e488`，`T-1786299143` 的 `cargo test --workspace` 全绿；③`main.rs:102-181` 的 `tauri::generate_handler!` 脚本核对得到 78 项，迁移后的 `projects::workspace_snapshot` 与全部既有域注册均保留；④四条 UI 冒烟分别由 `T-1786299153` i18n、`T-1786299156` a11y、`T-1786299162` Markdown、`T-1786299165` runtime 记录，全部通过。既有 UI 能力沿用，本次交付仅改变 Rust 模块归属与入口装配，未改 UI 行为。
 
+## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 前端
+- 来源: 2026-08-09 用户定调;不引 ES modules 的机制论证与文件清单已落设计文档 §B(行号基准 c339b58)。
+- 内容: B0 使能批**只改四个冒烟脚本**:从 index.html 解析 `<script src>` 清单按序读入,runtime 冒烟逐文件 vm.runInContext(与浏览器多 script 语义一致含 TDZ,拼接执行会掩盖前向引用 bug),静态断言用 join 串,探针注入按累计命中≥2 判定——此批 main.js 一字不动、四冒烟必须仍绿;随后 B1~B9 从尾部往前切出 18 文件(01-core…18-startup):readJson/writeJson 上提 01(现存唯一前向引用硬风险 L3244)、启动 IIFE 锁死末位、04/05 相邻保 markdown 冒烟切片边界;index.html 仅 script 标签区改为按序 18 个 `<script defer>`;同步 deep_parallel_dev.md:283 的 node --check 改遍历。设计: docs/design/monolith_decomposition.md §B。
+- 边界: 不引 ES modules/打包器/框架(A-008);style.css 零改动;tauri.conf.json 无需改(frontendDist 整目录);拆解批与其他前端条目不得并发。
+- 验收: ①B0 后单文件形态四冒烟仍全绿(机制改造零行为变化);②每批 node --check(遍历 ui/*.js)+四条冒烟全绿;③最终 main.js 消失,18 文件按 index.html 顺序加载,单文件 ≤1000 行;④发版后真机复查主视图/发送/设置页可用(E3 残余,不阻塞关闭,进展注明);⑤拆前后行数对照记入进展。
+- refs: A-008
+- 依赖: R-152
+
+- 批次: 10/10
+- 进展: B0-B9 全部完成。B4 完成:main.js(5171→3732)切出 12-docs-pages(199)+11-docs-list(667)+10-docs-core(108),index 按序 main→04…12。B5:切出 09-sessions(462),main.js 3732→2683(实际 2666+readJson/writeJson)。B6 提交 b1a5d2e:切出 08-compose(1049),readJson/writeJson 上提 01 区(82/90 行),main.js 2683。B7 提交 d318f46:切出 06-activity(491)+07-events(556),main.js 1636。B8 提交 0c3af9a:切出 05-chat-render(342)+04-markdown(136)相邻落位,main.js 1156。B9 提交 f34f28a:切出 01-core(98)/02-i18n(694)/03-shell(364),删除 main.js,index.html 01..18 按序;发现并修复切分漏行——第 98 行 `const promptBox=$("prompt")` 被区间跳过导致 08 顶层 dragover 绑定 ReferenceError(runtime 冒烟 723 行 batch-meter 断言崩即此因)。08→09 行数收敛提交 717de61:08 达 1049 行超验收③上限,队列输入+测试记录(renderPendingInputs/refreshTests/renderTestRuns 等 100 行)移入 09-sessions(会话历史域),08=949、09=562。行数对照:拆分前 main.js 7212 行(c339b58 基准 7020 + 后续新增 D-202/鞭挞/模型直选等),拆分后 18 文件合计 7200 行,单文件 35–949 行全部 ≤1000。验收④(发版后真机复查主视图/发送/设置页 E3 残余)不阻塞关闭,已注明待发版后执行。
+

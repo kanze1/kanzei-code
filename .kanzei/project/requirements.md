@@ -1,19 +1,5 @@
 # Requirements
 
-## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [doing]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 前端
-- 来源: 2026-08-09 用户定调;不引 ES modules 的机制论证与文件清单已落设计文档 §B(行号基准 c339b58)。
-- 内容: B0 使能批**只改四个冒烟脚本**:从 index.html 解析 `<script src>` 清单按序读入,runtime 冒烟逐文件 vm.runInContext(与浏览器多 script 语义一致含 TDZ,拼接执行会掩盖前向引用 bug),静态断言用 join 串,探针注入按累计命中≥2 判定——此批 main.js 一字不动、四冒烟必须仍绿;随后 B1~B9 从尾部往前切出 18 文件(01-core…18-startup):readJson/writeJson 上提 01(现存唯一前向引用硬风险 L3244)、启动 IIFE 锁死末位、04/05 相邻保 markdown 冒烟切片边界;index.html 仅 script 标签区改为按序 18 个 `<script defer>`;同步 deep_parallel_dev.md:283 的 node --check 改遍历。设计: docs/design/monolith_decomposition.md §B。
-- 边界: 不引 ES modules/打包器/框架(A-008);style.css 零改动;tauri.conf.json 无需改(frontendDist 整目录);拆解批与其他前端条目不得并发。
-- 验收: ①B0 后单文件形态四冒烟仍全绿(机制改造零行为变化);②每批 node --check(遍历 ui/*.js)+四条冒烟全绿;③最终 main.js 消失,18 文件按 index.html 顺序加载,单文件 ≤1000 行;④发版后真机复查主视图/发送/设置页可用(E3 残余,不阻塞关闭,进展注明);⑤拆前后行数对照记入进展。
-- refs: A-008
-- 依赖: R-152
-
-- 批次: 3/10
-- 进展: B0(使能批)完成并提交 ac5d647;四条冒烟改按 index.html script 清单加载(共享 helper scripts/ui-sources.mjs),runtime 逐文件 vm.runInContext,node --check 改遍历。B1 完成并提交 98d7af5:main.js(7212→6918)切出 17-files.js(256)+ 18-startup.js(35),index.html 按序 3 个 defer。B2 完成并提交 ffb9b09:main.js(6918→5881)切出 15-views-misc.js(393)+ 16-settings.js(642),index.html 按序 5 个 defer。B3 完成:main.js(5881→5171)切出 13-memory.js(记忆页/R-127 运行画像/R-126 探针/R-124 候选/R-125 召回/账单/检索/整理,540 行)+ 14-docs-actions.js(refreshDocs/标签页/缺陷审查/筛选/分组/批量,168 行),index.html 按序 7 个 defer(main→13→14→15→16→17→18),四条冒烟全绿(runtime 确认 7 文件按序执行,222 次 invoke 不变),node --check 遍历 7 文件全绿,真实窗口 DOM 验证 memory-consolidate-btn/defect-review 渲染。下一批 B4:12-docs-pages、11-docs-list、10-docs-core。
-
 ## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
 - 优先级: P1
 - 复杂度: 大
