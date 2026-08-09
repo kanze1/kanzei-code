@@ -388,3 +388,15 @@
 - 内容: 占位。方向:轮末由引擎对本轮用户消息做机械提取(候选形态:祈使+否定/「以后」「必须」「不要」类定调句),投 preference/habit 候选进 inbox,由 manager 判 NOOP/ADD——引擎只采集不判语义,与 harvest_failures 同哲学。是否立项取决于 R-150 遥测:若真实轨迹里出现「用户说过但没进记忆、后续违反」的实例,则升优先级动工;若 memory_note 自觉率足够,关闭本条。
 - 验收: 先出判定报告(基于 R-150 遥测与轨迹实证,给出做/不做结论与依据);若做,再补机械提取的功能验收。
 - refs: R-149 R-105
+
+## R-158 Codex 支持同模型 Fast mode 优先服务档位 [done]
+- 类型: 后端
+- 背景: Codex 的 fast mode 不是另一模型，而是对同一 Codex 模型启用更高消耗、更快响应的 priority 服务档位。当前 Responses 请求未发送该参数。
+- 范围: 桌面端设置、kanzei.toml [models]、Runner/LlmRequest、Codex Responses 请求体；不更换 Codex 模型，不影响 fast 角色。
+- 验收: ①设置页提供 Codex Fast mode 开关，明确说明仍使用当前 Codex 模型且可能增加额度消耗；②配置保存/读取支持该开关，旧配置缺字段时默认关闭且不丢其他字段；③启用后仅对 auth=codex 的 Responses 请求发送 service_tier=priority，未启用或非 Codex 请求不发送；④主对话真实调用链透传该设置，仍可使用现有 luna 模型；⑤补充协议与配置回归测试并通过。
+- 优先级: P1
+- 进展: 实现已覆盖：crates/kanzei-app/ui/index.html 设置页开关；ui/main.js loadSettings/settings-save 透传；kanzei-harness::ModelRoles 的 codex_fast_mode 向后兼容；kanzei-app::run_task 与 kanzei CLI 主运行链按 auth=codex 生成 priority；kanzei-core::RunnerConfig/LlmRequest 透传；kanzei-llm::openai_responses::build_body 写入 service_tier。协议测试已补。验证：node --check + ui-runtime-smoke 通过；Rust cargo check 仍被工作树既有 R-153 的 mobile.rs 语法错误与 processes.rs 重复 command 阻断，不能关闭。
+- 收尾(2026-08-09): 交付时夹带两处误替换，已一并修回——①openai_responses::build_body 里写 reasoning effort 的整段被 service_tier 顶掉，Codex 从此不发思考档位；②设置页思考强度说明段落被删。另 R-153 批4/5 迁出后 state_tests/process_tests 仍从 super 导入，dev HEAD 一直编译不过，同批修好(改从 projects/state 模块导入 + 两个 helper 提 pub(crate))。默认 primary 改 codex:gpt-5.6-luna 且该默认下 Fast mode 自动开启，harness 默认值测试同步更新。
+- 验证: cargo test --workspace 322 项全绿；verify.ps1 六项门禁(test/ui_syntax/ui_runtime/ui_a11y/ui_i18n/ui_markdown)全绿，证据绑定 3e4c744。
+- 发版: build-3e4c744（https://github.com/kanze1/kanzei-code/releases/tag/build-3e4c744），范围 build-cd85360..HEAD 共 36 个提交。
+- 未纳入本次提交: R-153 批6 的 mobile.rs/processes.rs 仍是未跟踪的半成品(mobile.rs 有语法错误)，留给自举继续。
