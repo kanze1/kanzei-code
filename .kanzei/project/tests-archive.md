@@ -1061,3 +1061,8 @@
 - 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: computeAgentFocus active 排除 blocked 后,四条前端冒烟全绿:ui-runtime 237 invoke(含新增「阻塞 doing 保留 blocked 但不标 agent-active、不挡 next」断言)、ui-i18n 306 key、ui-markdown、ui-a11y 0 错误。
 - 收尾: 1786314914
+
+## T-1786315161 前端冒烟:D-207 active 退化为单条(computeAgentFocus 单线程语义) [passed]
+- 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/11-docs-list.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: active 从集合退化为单条(取活序第一个可执行 doing/fixing)后,四条前端冒烟全绿:ui-runtime 243 invoke(含新增「多条 doing 只标取活序第一条」断言)、ui-i18n 306 key、ui-markdown、ui-a11y 0 错误。
+- 收尾: 1786315161

@@ -149,34 +149,43 @@ function renderDocuments(snapshot) {
 // snapshot(可执行在前+block_reasons),按当前 work-priority 跨需求/缺陷两队计算——
 // 这就是 agent 实际会走的顺序。结果只依赖数据,与视图排序/分组/筛选无关,
 // 所以无论用户怎么调整视图,标记始终落在同一批条目上:所见即取活。
-// 口径:active 只标「可执行的 doing/fixing」——blocked 条目不计 WIP、不占运行焦点;
-// next 是 active 之后取活序第一个可开工条目(requirement-first 先需求后缺陷)。
-let agentFocus = { active: new Set(), next: null };
+// 口径:active 是取活序第一个可执行的 doing/fixing(单条)——单线程下 agent 一次只推
+// 一条,多余的可执行 doing/fixing 只是"已取未动"的历史状态,不是正在做;blocked
+// 条目不计 WIP、不占运行焦点。next 是取活序第一个可开工条目(requirement-first
+// 先需求后缺陷)。
+let agentFocus = { active: null, next: null };
 function computeAgentFocus(snapshot) {
-  const focus = { active: new Set(), next: null };
+  const focus = { active: null, next: null };
   if (!snapshot) return focus;
   const reqs = snapshot.requirements ?? [];
   const defs = snapshot.defects ?? [];
-  // 在做的 = 可执行的 doing/fixing。blocked doing 不计:§1.1 阻塞项不进 WIP、
-  // 不占运行焦点——agent 会跳过它继续取下一个可开工条目,渲染必须与取活一致
-  // (否则 R-157 类阻塞 doing 会被标成「agent 正在做」,而实际它推不动)。
-  for (const entry of reqs)
-    if (entry.status === "doing" && !entry?.blocked) focus.active.add(entry.id);
-  for (const entry of defs)
-    if (entry.status === "fixing" && !entry?.blocked) focus.active.add(entry.id);
-  // 下一个 = 取活序里第一个可开工且还没在做的条目。WIP 规则下 agent 会先做完
-  // 高亮的那些;这一条是它们之后第一个被拿起的。
+  const queues =
+    selectedWorkPriority() === "requirement-first"
+      ? [[reqs, "doing"], [defs, "fixing"]]
+      : [[defs, "fixing"], [reqs, "doing"]];
+  // 正在做 = 取活序里第一个可执行的 doing/fixing(单条)。blocked 不计:§1.1 阻塞项
+  // 不进 WIP、不占运行焦点——agent 会跳过它继续取下一个可开工条目,渲染必须与
+  // 取活一致(否则 R-157 类阻塞 doing 会被标成「agent 正在做」,而实际它推不动)。
+  for (const [list, status] of queues) {
+    const hit = list.find((entry) => entry.status === status && !entry?.blocked);
+    if (hit) {
+      focus.active = hit.id;
+      break;
+    }
+  }
+  // 下一个 = 取活序里第一个可开工的 open/todo。状态与 active(doing/fixing)不重叠,
+  // 无需跳过 active 本身;它就是 agent 完成当前条目后下一个会拿起的。
   const firstWorkable = (list, openStatus) =>
     list.find(
       (entry) =>
         entry.status === openStatus &&
         !(Array.isArray(entry.block_reasons) && entry.block_reasons.length)
     );
-  const queues =
+  const nextQueues =
     selectedWorkPriority() === "requirement-first"
       ? [[reqs, "todo"], [defs, "open"]]
       : [[defs, "open"], [reqs, "todo"]];
-  for (const [list, openStatus] of queues) {
+  for (const [list, openStatus] of nextQueues) {
     const hit = firstWorkable(list, openStatus);
     if (hit) {
       focus.next = hit.id;

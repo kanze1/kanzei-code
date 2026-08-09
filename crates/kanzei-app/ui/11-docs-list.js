@@ -280,7 +280,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     );
     // 取活焦点标记(D-207):在做的高亮呼吸,下一个次亮。基于数据而非视图计算,
     // 任何排序/分组/筛选下都标同一批条目——用户随便调视图,仍知道 agent 会怎么走。
-    const isAgentActive = !entry.closed && agentFocus.active.has(entry.id);
+    const isAgentActive = !entry.closed && agentFocus.active === entry.id;
     const isAgentNext = !entry.closed && agentFocus.next === entry.id;
     item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}${isAgentNext ? " agent-next" : ""}`;
     if (isAgentActive) item.title = t("agent 正在做这一条");

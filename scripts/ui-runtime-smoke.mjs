@@ -800,6 +800,24 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
   const notNext = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
   assert(!notNext?.classList.contains("agent-next"), "缺陷队列有可开工项时,需求 R-002 不该被标为下一个");
 }
+// D-207 单线程语义:active 是单条(取活序第一个可执行 doing/fixing),不是集合。
+// 多条 doing/fixing 只是"已取未动"的历史状态,只有取活序第一条才是 agent 正在推的。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    requirements: [docEntry("R-001", "第一条 doing", "doing", {}), docEntry("R-002", "第二条 doing", "doing", {})],
+    defects: [docEntry("D-001", "可开工缺陷", "open", {})],
+  };
+  await sandbox.refreshDocs();
+  const firstDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
+  const secondDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
+  assert(firstDoing?.classList.contains("agent-active"), "取活序第一条 doing 应标 agent-active(当前正在做)");
+  assert(!secondDoing.classList.contains("agent-active"), "第二条 doing 只是已取未动,不该标 agent-active(active 是单条)");
+  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  assert(next?.classList.contains("agent-next"), "active 之后取活序第一个可开工缺陷 D-001 仍应为下一个");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
 // D-207 补:blocked doing 不计入运行焦点。R-157 类阻塞 doing 曾被标成
 // 「agent 正在做这一条」,而 §1.1 阻塞项不进 WIP、取活会跳过它——渲染必须与
 // 取活一致:保留 blocked 标记但不标 agent-active,且 next 不被它挡住。
