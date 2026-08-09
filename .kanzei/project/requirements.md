@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 eed0bfc：run_prompt 已新增至 run.rs，invoke_handler 改用 run::run_prompt；后台任务、队列 admission/promote、事件转发和句柄清理逻辑保持。run_metrics 同模块保留。当前 main.rs 的 run_prompt 旧副本尚未物理删除，下一批先清理该副本，再继续迁移 run_task 整体实现。定向测试 T-1786288152 已登记通过。
+- 进展: 已提交 a6cb4c2：main.rs 中 run_prompt 旧副本已物理删除，run::run_prompt 为唯一命令实现，main.rs 减少 167 行；定向验证 T-1786288264 已登记通过。下一步继续搬迁 run_task 整体实现。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
