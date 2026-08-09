@@ -330,3 +330,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: defect_review 已整体迁入 subagents.rs，空缺陷短路、只读 SubagentBase/ConfigComponent 快照、fast/primary 回退和 Markdown 报告返回保持；invoke_handler 已使用 subagents::defect_review。
 - 收尾: 1786287960
+
+## T-1786288041 R-153 run.rs run_metrics 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_metrics 已迁入 run.rs，invoke_handler 改用 run::run_metrics，返回字段和 measured 语义保持。
+- 收尾: 1786288045

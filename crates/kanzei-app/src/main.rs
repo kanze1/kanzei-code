@@ -33,6 +33,7 @@ mod docs;
 mod settings;
 mod conversation;
 mod harness_ext;
+mod run;
 mod subagents;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
@@ -163,7 +164,7 @@ fn main() {
             memory::memory_entry_delete,
             memory::memory_note_candidates,
             memory::memory_note_discard,
-            run_metrics,
+            run::run_metrics,
             projects::project_root_info,
             projects::project_detach,
             projects::projects_isolation_report,
@@ -571,41 +572,6 @@ fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, Stri
     }
     files.sort();
     Ok(json!({ "path": destination.display().to_string(), "files": files }))
-}
-
-/// R-099 + R-127:最近若干轮的运行画像,供调试面板按轮次展示与跨轮对比。/// R-099 + R-127:最近若干轮的运行画像,供调试面板按轮次展示与跨轮对比。
-/// 与冗余度量共用 `summarize_metrics` 的同一份口径,不另算一套。
-#[tauri::command]
-fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
-    let root = PathBuf::from(&project_dir);
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
-        .map_err(|e| e.to_string())?;
-    let session_id = kanzei_core::project_session_id(&root);
-    let limit = limit.unwrap_or(20).clamp(1, 200);
-    let rows = store
-        .recent_episodes(&session_id, limit)
-        .map_err(|e| e.to_string())?;
-    let rounds: Vec<serde_json::Value> = rows
-        .into_iter()
-        .map(|(at, prompt, outcome, steps, input, output, tools, context, metrics)| {
-            let parse = |text: &str| serde_json::from_str::<serde_json::Value>(text).unwrap_or(json!({}));
-            let metrics_value = parse(&metrics);
-            json!({
-                "at": at,
-                "prompt": prompt,
-                "outcome": outcome,
-                "steps": steps,
-                "inputTokens": input,
-                "outputTokens": output,
-                "tools": parse(&tools),
-                "context": parse(&context),
-                "metrics": metrics_value,
-                // 空对象代表那一轮早于度量落地,前端要能与"全零"区分开。
-                "measured": metrics.trim() != "{}" && !metrics.trim().is_empty(),
-            })
-        })
-        .collect();
-    Ok(json!({ "rounds": rounds }))
 }
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
