@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 4c0b5a3：配置文件读取、KanzeiConfig 解析与 DocumentMut 构造已迁入 settings.rs:123-133，settings_save_at_path_impl 通过 crate::settings_read_document 获取文档；字段写入与最终写盘仍在 main.rs，下一批继续迁移。cargo check -p kanzei-app --tests 通过，T-1786285299 已登记通过。
+- 进展: 已提交 dd9480a：最终配置序列化、自校验、父目录创建与写盘已迁入 settings.rs:134-143，main.rs 保存实现仅保留字段写入；cargo check -p kanzei-app --tests 通过，T-1786285394 已登记通过。settings_save_at_path 的字段写入主体仍在 main.rs，下一批继续搬迁。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
