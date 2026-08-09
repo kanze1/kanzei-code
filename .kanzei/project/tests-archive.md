@@ -310,3 +310,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: UiProbeInput、UiDomTool、UiConsoleTool、UiStyleTool 四个 main.rs 旧副本已删除，真实调用继续由 harness_ext 模块提供。
 - 收尾: 1786287095
+
+## T-1786287179 R-153 harness_ext 组件旧副本清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: FrontendToolsComponent 与 QuickCaptureComponent 的 main.rs 旧副本已删除，harness_ext:: 两处真实装配保持不变。
+- 收尾: 1786287183

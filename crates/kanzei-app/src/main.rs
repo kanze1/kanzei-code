@@ -572,67 +572,6 @@ fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, Stri
     Ok(json!({ "path": destination.display().to_string(), "files": files }))
 }
 
-/// 前端自查与定位工具集(R-126)。全部只读,受既有权限契约约束。
-struct FrontendToolsComponent;
-impl kanzei_harness::Component for FrontendToolsComponent {
-    fn contribute(
-        &self,
-        draft: &mut kanzei_harness::HarnessDraft,
-        _ctx: &ResolveCtx,
-    ) -> anyhow::Result<()> {
-        draft.tools.insert("ui_dom", Arc::new(UiDomTool));
-        draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
-        draft.tools.insert("ui_style", Arc::new(UiStyleTool));
-        draft
-            .tools
-            .insert("frontend_locate", Arc::new(kanzei_tools::frontend::FrontendLocateTool));
-        draft
-            .tools
-            .insert("frontend_check", Arc::new(kanzei_tools::frontend::FrontendCheckTool));
-        // 只读工具无需逐次确认;它们不写任何东西,权限风险为零。
-        for name in ["ui_dom", "ui_console", "ui_style", "frontend_locate", "frontend_check"] {
-            draft
-                .permissions
-                .push(kanzei_harness::rule(name, "*", kanzei_harness::Effect::Allow));
-        }
-        Ok(())
-    }
-}
-
-/// R-053 快速记录:只挂单个 tracker 工具的最小组件(独立迷你 run 专用)。
-struct QuickCaptureComponent {
-    capture: &'static str, // "req" | "defect"
-}
-impl kanzei_harness::Component for QuickCaptureComponent {
-    fn contribute(
-        &self,
-        draft: &mut kanzei_harness::HarnessDraft,
-        _ctx: &ResolveCtx,
-    ) -> anyhow::Result<()> {
-        let tool = if self.capture == "defect" {
-            kanzei_tools::tracker::TrackerTool {
-                tool_name: "defect",
-                noun: "defect",
-                kind: &DEFECTS,
-                requires_refs: None,
-            }
-        } else {
-            kanzei_tools::tracker::TrackerTool {
-                tool_name: "req",
-                noun: "requirement",
-                kind: &REQUIREMENTS,
-                requires_refs: None,
-            }
-        };
-        let name = tool.tool_name;
-        draft.tools.insert(name, Arc::new(tool));
-        draft
-            .permissions
-            .push(kanzei_harness::rule(name, "*", kanzei_harness::Effect::Allow));
-        Ok(())
-    }
-}
-
 const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \
 Read .kanzei/project/defects.md first, then verify every active defect against relevant code, tests, and design documents. \
 Reply in Chinese Markdown with: 1. summary and active defect count; 2. categories; 3. likely duplicates with IDs; \
