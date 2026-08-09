@@ -756,3 +756,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: assembly_tests 迁移至 run::assembly_tests 后，kanzei-app 43 项全部通过；运行装配线测试在新模块中真实执行。
 - 收尾: 1786295729
+
+## T-1786295870 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 设置测试迁移尝试未改动生产代码；复核后 kanzei-app 43 项全部通过，确认此前 run/update 测试模块边界稳定。
+- 收尾: 1786295870
