@@ -9,6 +9,15 @@ $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 
+# 步进标注:发版全程 6~7 步,每步一行 [N/M],配合活动面板的实时输出流,
+# 长静默段(tauri build 数分钟)之前先说清"现在在哪一步、一共几步"。
+$script:stepTotal = if ($Publish) { 7 } else { 6 }
+$script:stepIndex = 0
+function Step([string]$label) {
+    $script:stepIndex += 1
+    Write-Host "[$script:stepIndex/$script:stepTotal] $label" -ForegroundColor Cyan
+}
+
 $hash = (git -C $root rev-parse --short HEAD).Trim()
 # 全 SHA 单独留一份:GitHub 的 target_commitish 只认 40 位 SHA 或分支名,
 # 短 hash 会被 422 Validation Failed 挡回来(实测 build-84f843e)。
@@ -31,7 +40,7 @@ $prevEncoding = [Console]::OutputEncoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $commits = @(git -C $root log $range --format="%h|%an|%s")
 [Console]::OutputEncoding = $prevEncoding
-Write-Host "==> 发布范围 $range —— $($commits.Count) 个提交" -ForegroundColor Cyan
+Step "发布范围核对:$range —— $($commits.Count) 个提交"
 foreach ($line in $commits) {
     $parts = $line -split '\|', 3
     # 标出是否触碰源码:只动 .kanzei/ 文档的提交不影响二进制,但仍然会被发出去。
@@ -47,6 +56,7 @@ if ($Ack -ne $commits.Count) {
     throw "发布范围不符:你确认的是 $Ack 个提交,实际区间里有 $($commits.Count) 个。逐条核对上面的清单——多出来的很可能是并发运行提交的,不该跟着这次发出去"
 }
 
+Step "发布树干净检查"
 # 源码工作区必须干净:否则构建出来的二进制与 $hash 标签不对应,发布物无从追溯。
 # 判据用 `git diff --name-only HEAD` 而不是 `status --porcelain`:后者会把纯行尾
 # 差异(CRLF/LF)也报成 M,而那类文件内容与 HEAD 完全一致,拦下来纯属误伤。
@@ -59,6 +69,7 @@ if ($unclean.Count -gt 0) {
 }
 
 # ---- 验证证据门禁(R-152/A-009):无绑定 HEAD 的全绿证据不打包 ----
+Step "验证证据门禁"
 $verification = if ($VerificationPath) { $VerificationPath } else { Join-Path $root "dist\verification.json" }
 if (-not (Test-Path $verification)) {
     throw "缺验证证据 ${verification}:先跑 scripts\verify.ps1。发布树打包时可用 -VerificationPath 指向 dev 树产出的证据(ff 合并后两树 HEAD 相同)"
@@ -73,7 +84,7 @@ Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc))" -Foregro
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz
 # 直接打不开库。两个二进制必须同版本出厂,由 kzapp 启动时同步到 ~\.cargo\bin。
-Write-Host "==> cargo build --release -p kanzei (sidecar kz)" -ForegroundColor Cyan
+Step "cargo build --release -p kanzei(sidecar kz)"
 cargo build --release -p kanzei --manifest-path "$root\Cargo.toml"
 if ($LASTEXITCODE -ne 0) { throw "kz build failed" }
 $triple = (rustc -vV | Select-String '^host:').Line.Split(' ')[1].Trim()
@@ -86,11 +97,12 @@ Copy-Item "$root\target\release\kz.exe" "$sidecar_dir\kz-$triple.exe" -Force
 $bundle_config = Join-Path $env:TEMP "kanzei-bundle-config.json"
 Set-Content $bundle_config '{"bundle":{"externalBin":["binaries/kz"]}}' -Encoding UTF8
 
-Write-Host "==> cargo tauri build ($hash)" -ForegroundColor Cyan
+Step "cargo tauri build($hash)—— 最长的一步,输出会持续滚动"
 Push-Location "$root\crates\kanzei-app"
 try { cargo tauri build --config $bundle_config 2>&1 | ForEach-Object { $_ } } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
 
+Step "收集安装包产物"
 $setup = Get-ChildItem "$root\target\release\bundle\nsis\*-setup.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
 if (-not $setup) { throw "installer not found under target\release\bundle\nsis" }
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
@@ -100,7 +112,7 @@ Write-Host "==> installer: $out ($([math]::Round((Get-Item $out).Length/1MB)) MB
 
 if ($Publish) {
     $tag = "build-$hash"
-    Write-Host "==> publishing GitHub release $tag" -ForegroundColor Cyan
+    Step "发布 GitHub release $tag"
     # 变更日志复用上面已核对过的同一个区间,不再另算一遍——两处口径必须一致,
     # 否则 release notes 说的和实际发出去的可能不是一回事。同样在 UTF-8 捕获下
     # 取,否则中文提交信息吞行会让 notes 与清单差一行。
