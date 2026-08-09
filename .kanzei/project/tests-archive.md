@@ -956,3 +956,8 @@
 - 命令: cargo test -p kanzei-core
 - 摘要: R-155 B1 runner/event.rs 拆解:cargo test -p kanzei-core 71 passed,下游三 crate check 通过,lib.rs 零改动
 - 收尾: 1786304674
+
+## T-1786304968 R-155 B2 runner/metrics.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 B2 runner/metrics.rs 拆解:cargo test -p kanzei-core 71 passed,下游三 crate check 通过;修正 B2 段1 起点(433,首版误从 426 切进 task_spec json!)
+- 收尾: 1786304968

@@ -11,8 +11,8 @@
 - refs: A-008
 - 依赖: R-152
 
-- 批次: 0/16
-- 进展: 首轮定批次表:R-155 实际批数 16(runner 8 批 B1 event→B2 metrics→B3 redundancy→B4 context→B5 compaction→B6 tool_exec→B7 subagent→B8 drive;store 8 批 S1 拆壳→S2 episodes→S3 notifications→S4 events→S5 inbox→S6 session→S7 schema→S8 测试分域),照实写 0/16。每批提交 + cargo test -p kanzei-core + cargo check -p kanzei -p kanzei-app -p kanzei-tools,关闭前全量。下一批 B1:runner.rs event 子模块拆出。
+- 批次: 1/16
+- 进展: B1 完成提交 2e52179:runner.rs(3259)→runner/mod.rs(3125)+runner/event.rs(150),event 域(TaskTrace/RunEvent/RunSummary/Ask*/preview)拆出,preview/drain_task_events 提 pub(super),mod.rs mod event + pub use event::* 平铺,lib.rs 与外部三 crate 零改动,cargo test -p kanzei-core 71 passed + 下游 check 通过。下一批 B2:runner/metrics.rs(FailureSignal/RunMetrics/summarize_metrics/is_git_query/completed_entry/summarize_failures/summarize_tools)。
 
 ## R-156 全仓 fmt 收敛并启用 fmt 闸门 [todo]
 - 优先级: P2
