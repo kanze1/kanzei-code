@@ -28,3 +28,7 @@
 ## T-1786244948 R-152 verify.ps1 全绿生成 commit 证据 [passed]
 - 命令: scripts/verify.ps1
 - 摘要: 提交 580f310 上 test、ui_syntax、ui_runtime、ui_a11y、ui_i18n、ui_markdown 全部通过，生成绑定全 SHA 的 dist/verification.json。
+
+## T-1786244998 R-152 package.ps1 commit 漂移拦截 [passed]
+- 命令: scripts/package.ps1 -Ack 5
+- 摘要: 在 verify 产证后提交 83905c3，重跑 package.ps1 在 cargo build 前因证据绑定旧 commit 而中止。
