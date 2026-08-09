@@ -295,3 +295,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: conversation 恢复原文、过滤历史与 prior 缓存 helper 已迁入 conversation.rs，main.rs 调用已改为 conversation:: 全路径。
 - 收尾: 1786286768
+
+## T-1786286871 R-153 conversation 旧副本清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: conversation 四个旧命令副本已从 main.rs 删除，invoke_handler 保留 conversation:: 全路径消费者。
+- 收尾: 1786286877
