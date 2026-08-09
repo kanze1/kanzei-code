@@ -766,3 +766,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: test_runs_snapshot/test_run_record 迁入 docs.rs 后，kanzei-app 43 项全部通过；Tauri command 宏与 docs:: invoke_handler 注册正常。
 - 收尾: 1786296031
+
+## T-1786296180 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: project_files 及递归过滤 helper 迁移至 projects.rs 后，kanzei-app 43 项全部通过；projects::project_files 注册与查询行为正常。
+- 收尾: 1786296180

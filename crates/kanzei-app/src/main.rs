@@ -183,7 +183,7 @@ run::run_prompt,
             conversation::conversation_list,
             list_pending_inputs,
             cancel_input,
-            project_files,
+            projects::project_files,
             processes::process_list,
             processes::process_create,
             processes::process_update,
@@ -391,36 +391,6 @@ pub(crate) fn docs_snapshot(project_dir: String) -> serde_json::Value {
     })
 }
 
-fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
-    if results.len() >= 50 { return; }
-    let Ok(entries) = std::fs::read_dir(dir) else { return; };
-    let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
-    entries.sort_by_key(|entry| entry.file_name());
-    for entry in entries {
-        if results.len() >= 50 { break; }
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-        if path.is_dir() {
-            if matches!(name.as_str(), ".git" | ".kanzei" | "target" | "node_modules") { continue; }
-            collect_project_files(root, &path, query, results);
-        } else if path.is_file() {
-            let relative = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
-            if query.is_empty() || relative.to_ascii_lowercase().contains(&query.to_ascii_lowercase()) {
-                results.push(relative);
-            }
-        }
-    }
-}
-
-#[tauri::command]
-fn project_files(project_dir: String, query: String) -> Result<Vec<String>, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    if !root.is_dir() { return Err(format!("项目目录不存在: {}", root.display())); }
-    let mut results = Vec::new();
-    collect_project_files(&root, &root, query.trim(), &mut results);
-    Ok(results)
-}
 // ---------- 设置(全局 kanzei.toml 表单) ----------
 
 pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {

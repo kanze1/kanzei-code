@@ -34,6 +34,37 @@ pub fn project_detach(project_dir: String) -> Result<(), String> { let dir = Pat
 #[tauri::command]
 pub async fn projects_pick() -> Result<Option<AppPrefs>, String> { let picked = rfd::AsyncFileDialog::new().pick_folder().await; match picked { Some(handle) => projects_add(handle.path().display().to_string()).map(Some), None => Ok(None) } }
 
+fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
+    if results.len() >= 50 { return; }
+    let Ok(entries) = std::fs::read_dir(dir) else { return; };
+    let mut entries = entries.filter_map(Result::ok).collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        if results.len() >= 50 { break; }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if matches!(name.as_str(), ".git" | ".kanzei" | "target" | "node_modules") { continue; }
+            collect_project_files(root, &path, query, results);
+        } else if path.is_file() {
+            let relative = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+            if query.is_empty() || relative.to_ascii_lowercase().contains(&query.to_ascii_lowercase()) {
+                results.push(relative);
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn project_files(project_dir: String, query: String) -> Result<Vec<String>, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    if !root.is_dir() { return Err(format!("项目目录不存在: {}", root.display())); }
+    let mut results = Vec::new();
+    collect_project_files(&root, &root, query.trim(), &mut results);
+    Ok(results)
+}
+
 #[tauri::command]
 pub fn projects_remove(path: String) -> AppPrefs { let mut prefs = load_prefs(); prefs.projects.retain(|p| p != &path); prefs.names.remove(&path); if prefs.current.as_deref() == Some(path.as_str()) { prefs.current = prefs.projects.first().cloned(); } save_prefs(&prefs); projects_get() }
 #[tauri::command]
