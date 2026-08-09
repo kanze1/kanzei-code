@@ -178,6 +178,62 @@ fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
 }
 
 #[test]
+fn docs_snapshot_uses_git_commits_for_live_batch_progress() {
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-docs-git-batches-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+    std::fs::write(
+        root.join(".kanzei/project/requirements.md"),
+        "# Requirements\n\n## R-001 Git 真源进度 [doing]\n- 批次: 0/3\n\n## R-002 尚无提交标记 [doing]\n- 批次: 2/3\n",
+    )
+    .unwrap();
+    for args in [
+        vec!["init", "-q"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "Kanzei Test"],
+        vec!["add", ".kanzei/project/requirements.md"],
+        vec!["commit", "-q", "-m", "R-001 B2: second batch"],
+        vec![
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "R-001 B1: first batch",
+        ],
+    ] {
+        assert!(std::process::Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success());
+    }
+    let requirements = docs_snapshot(root.display().to_string())["requirements"].clone();
+    let git_backed = requirements
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "R-001")
+        .unwrap();
+    assert_eq!(git_backed["batches"]["done"], 2);
+    assert_eq!(git_backed["batches"]["total"], 3);
+    let fallback = requirements
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "R-002")
+        .unwrap();
+    assert_eq!(fallback["batches"]["done"], 2);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn export_project_data_copies_selected_work_materials() {
     let base = std::env::temp_dir().join(format!("kanzei-export-{}", std::process::id()));
     let project = base.join("project");

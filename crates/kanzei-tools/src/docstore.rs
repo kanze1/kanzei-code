@@ -144,16 +144,29 @@ pub fn batch_progress(entry: &Entry) -> (u32, u32) {
         .find(|(k, _)| k == "复杂度" || k.eq_ignore_ascii_case("complexity"))
         .map(|(_, v)| v.as_str())
         .unwrap_or("");
-    let declared = entry
-        .fields
-        .iter()
-        .find(|(k, _)| k == "批次" || k.eq_ignore_ascii_case("batches"))
-        .and_then(|(_, v)| parse_batches(v));
+    let declared = declared_batch_progress(entry);
     match declared {
         // 显式声明优先:总数为 0 视为没声明,避免除零与"0/0 格"这种空表达。
         Some((done, total)) if total > 0 => (done.min(total), total),
         _ => (0, default_batches(complexity)),
     }
+}
+
+/// 从条目字段读取手写的批次副本。`None` 表示未声明或格式无效。
+pub fn declared_batch_progress(entry: &Entry) -> Option<(u32, u32)> {
+    entry
+        .fields
+        .iter()
+        .find(|(k, _)| k == "批次" || k.eq_ignore_ascii_case("batches"))
+        .and_then(|(_, v)| parse_batches(v))
+        .filter(|(_, total)| *total > 0)
+}
+
+/// Git 提交历史可用时，以它的已完成数覆盖手写副本；总批数仍由条目声明或复杂度决定。
+pub fn batch_progress_with_derived_done(entry: &Entry, derived_done: Option<u32>) -> (u32, u32) {
+    let (declared_done, total) = batch_progress(entry);
+    let done = derived_done.unwrap_or(declared_done).min(total);
+    (done, total)
 }
 
 /// 解析 `3/11`;宽容对待空格与全角斜杠(手写文档常见)。

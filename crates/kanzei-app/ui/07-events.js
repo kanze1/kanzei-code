@@ -149,7 +149,19 @@ on("kz:tool-start", (e) => {
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
-on("kz:task-progress", (e) => bgProgress(e.payload.id, e.payload.text, e.payload.trace));
+function isBatchCommit(event) {
+  return event?.name === "git"
+    && event.ok
+    && /^committed verified staged set\b/.test(event.preview || "");
+}
+
+on("kz:task-progress", (e) => {
+  const payload = e.payload;
+  bgProgress(payload.id, payload.text, payload.trace);
+  // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
+  // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
+  if (isBatchCommit(payload.trace)) refreshDocsSoon();
+});
 on("kz:tool-end", (e) => {
   const p = e.payload;
   log(`${t("工具结果")} ${p.name}: ${p.ok ? t("成功") : t("失败")} — ${p.preview}`, p.ok ? "" : "warn");
@@ -159,6 +171,8 @@ on("kz:tool-end", (e) => {
     // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
     refreshDocsSoon();
   }
+  // Git 提交标题是批次进度的真源，成功提交后立即重拉文档快照。
+  if (isBatchCommit(p)) refreshDocsSoon();
   // 测试记录同理:跑完测试后左侧应立即出现结果。
   if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
   // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。

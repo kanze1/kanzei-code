@@ -40,15 +40,28 @@ fn repair(raw: &str) -> String {
                 i += 1;
                 while i < chars.len() {
                     let c = chars[i];
-                    out.push(c);
                     i += 1;
                     if c == '\\' {
+                        out.push(c);
                         if i < chars.len() {
                             out.push(chars[i]);
                             i += 1;
                         }
                     } else if c == '"' {
+                        out.push(c);
                         break;
+                    } else if c == '\n' {
+                        out.push_str("\\n");
+                    } else if c == '\r' {
+                        out.push_str("\\r");
+                    } else if c == '\t' {
+                        out.push_str("\\t");
+                    } else if c == '\u{08}' {
+                        out.push_str("\\b");
+                    } else if c == '\u{0c}' {
+                        out.push_str("\\f");
+                    } else {
+                        out.push(c);
                     }
                 }
             }
@@ -66,6 +79,15 @@ fn repair(raw: &str) -> String {
                         break;
                     } else if c == '"' {
                         out.push_str("\\\"");
+                        i += 1;
+                    } else if c == '\n' {
+                        out.push_str("\\n");
+                        i += 1;
+                    } else if c == '\r' {
+                        out.push_str("\\r");
+                        i += 1;
+                    } else if c == '\t' {
+                        out.push_str("\\t");
                         i += 1;
                     } else {
                         out.push(c);
@@ -165,6 +187,18 @@ mod tests {
         assert_eq!(
             tolerant_parse(r#"{"note": "keys: stay, True None ',' "}"#),
             Some(json!({"note": "keys: stay, True None ',' "}))
+        );
+    }
+
+    #[test]
+    fn fixes_unescaped_control_characters_in_large_tool_content() {
+        assert_eq!(
+            tolerant_parse("{path: 'git_batches.rs', content: 'line one\nline two\tindent'}"),
+            Some(json!({"path": "git_batches.rs", "content": "line one\nline two\tindent"}))
+        );
+        assert_eq!(
+            tolerant_parse("{\"path\": \"git_batches.rs\", \"content\": \"line one\nline two\"}"),
+            Some(json!({"path": "git_batches.rs", "content": "line one\nline two"}))
         );
     }
 

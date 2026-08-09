@@ -9,6 +9,7 @@ mod edit;
 pub mod files;
 pub mod frontend;
 mod git;
+pub mod git_batches;
 mod glob;
 mod grep;
 pub mod memory;

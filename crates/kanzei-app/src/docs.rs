@@ -89,6 +89,14 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
     for kind in [&REQUIREMENTS, &DEFECTS, &GOALS] {
         let _ = DocStore::open(&root, kind).archive_terminal();
     }
+    // 一次快照只读取一次提交历史。按条目多次起 Git 会把“即时刷新”反过来变成卡顿源。
+    let batch_ids = [&REQUIREMENTS, &DEFECTS]
+        .into_iter()
+        .flat_map(|kind| DocStore::open(&root, kind).load().unwrap_or_default())
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    let derived_batch_done =
+        kanzei_tools::git_batches::completed_batches_for_entries(&root, batch_ids).ok();
     let archived = |kind: &'static kanzei_tools::docstore::DocKind| -> usize {
         DocStore::open(&root, kind)
             .load_archive()
@@ -139,12 +147,18 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     .collect()
             };
         scheduled.into_iter().map(|(e, block_reasons)| {
-        let (batch_done, batch_total) = kanzei_tools::docstore::batch_progress(&e);
+        // 提交标题是批次完成时产生的真源；字段只保留为 Git 不可用时的回退与收口校验。
+        let derived_done = derived_batch_done
+            .as_ref()
+            .and_then(|counts| counts.get(&e.id))
+            .copied();
+        let (batch_done, batch_total) =
+            kanzei_tools::docstore::batch_progress_with_derived_done(&e, derived_done);
         json!({
             "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
             "priority": e.fields.iter().find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority")).map(|(_, value)| value),
             "complexity": e.fields.iter().find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity")).map(|(_, value)| value),
-            // 批次进度:格数与已填格由后端算,前端只渲染(映射表只此一份,见 docstore::batch_progress)。
+            // 批次进度:格数与已填格由后端算,前端只渲染；Git 可用时已填格来自提交历史。
             "batches": { "done": batch_done, "total": batch_total },
             "closed": kind.terminal.contains(&e.status.as_str()), "blocked": !block_reasons.is_empty(),
             "block_reasons": block_reasons, "fields": e.fields,

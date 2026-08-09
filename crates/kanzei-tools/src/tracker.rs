@@ -437,7 +437,21 @@ impl Tool for TrackerTool {
                         }
                         probe
                     };
-                    let (done, total) = crate::docstore::batch_progress(&merged);
+                    let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
+                        .ok()
+                        .filter(|done| *done > 0);
+                    if let (Some((declared_done, declared_total)), Some(derived_done)) = (
+                        crate::docstore::declared_batch_progress(&merged),
+                        derived_done,
+                    ) {
+                        if declared_done != derived_done {
+                            return ToolOutput::error(format!(
+                                "{id} 的手写批次是 {declared_done}/{declared_total},但 Git 提交历史标记数为 {derived_done};请先核对并更新批次字段后再关闭。"
+                            ));
+                        }
+                    }
+                    let (done, total) =
+                        crate::docstore::batch_progress_with_derived_done(&merged, derived_done);
                     if total > 1 && done < total {
                         return ToolOutput::error(format!(
                             "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
@@ -935,6 +949,7 @@ mod tests {
     use crate::docstore::{DocStore, Entry, GOALS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
+    use std::process::Command;
 
     fn entry(id: &str) -> Entry {
         Entry {
@@ -981,6 +996,64 @@ mod tests {
         assert!(!out.is_error, "总数改成实际批数后应放行: {}", out.content);
         let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(saved[0].status, "done");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 关闭时拒绝手写批次与_git_提交真源不一致() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-batch-git-close-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "test@example.com"],
+            vec!["config", "user.name", "Kanzei Test"],
+            vec![
+                "commit",
+                "--allow-empty",
+                "-q",
+                "-m",
+                "R-001 B1: first batch",
+            ],
+        ] {
+            assert!(Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .status()
+                .unwrap()
+                .success());
+        }
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![("批次".into(), "2/2".into())];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(
+            out.is_error,
+            "Git 与字段不一致必须拒绝关闭: {}",
+            out.content
+        );
+        assert!(
+            out.content.contains("Git 提交历史标记数为 1"),
+            "{}",
+            out.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

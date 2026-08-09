@@ -969,7 +969,9 @@ assert(listText("memory-detail").includes("累计命中"), "记忆详情未给�
 // ---------- R-095 活动面板：完整流水 + 筛选 + 信息量 + 可操作 ----------
 const toolStart = handlers.get("kz:tool-start");
 const toolEnd = handlers.get("kz:tool-end");
+const taskProgress = handlers.get("kz:task-progress");
 assert(toolStart && toolEnd, "工具事件未订阅");
+assert(taskProgress, "子代理进度事件未订阅");
 toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." } } });
 toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" } } });
 toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" } } });
@@ -1005,6 +1007,22 @@ assert(taskEntry.querySelector(".bg-meta")?.textContent.includes("内部调用")
 assert(
   taskEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "重跑"),
   "结束的条目缺少重跑入口",
+);
+// D-234:批次格由 Git 提交标题推导。直接 agent 与子 agent 提交都必须立即刷新快照，
+// 不能等整轮结束才看到进度变化。
+const docsBeforeBatchCommit = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+toolEnd({ payload: { id: "T4", name: "git", ok: true, preview: "committed verified staged set (abc123)", display: null } });
+await flush();
+assert(
+  invokeLog.filter((cmd) => cmd === "docs_snapshot").length > docsBeforeBatchCommit,
+  "agent 提交后未即时刷新 Git 推导的批次进度",
+);
+const docsBeforeChildBatchCommit = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+taskProgress({ payload: { id: "T3", text: "子代理已提交", trace: { name: "git", phase: "end", ok: true, preview: "committed verified staged set (def456)" } } });
+await flush();
+assert(
+  invokeLog.filter((cmd) => cmd === "docs_snapshot").length > docsBeforeChildBatchCommit,
+  "子代理提交后未即时刷新 Git 推导的批次进度",
 );
 // 筛选:按类型与成败收敛,且计数要能看出"筛出/总数",否则会误以为本轮只跑了这几个工具。
 const typeFilter = byId.get("bg-type-filter");
