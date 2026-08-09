@@ -884,28 +884,6 @@ mod update_tests {
     }
 
     #[cfg(any())]
-    #[tokio::test]
-    async fn defect_review_empty_state_returns_without_model_call() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-defect-review-empty-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
-        std::fs::write(root.join(".kanzei/project/defects.md"), "# Defects\n").unwrap();
-        let result = super::defect_review(root.display().to_string())
-            .await
-            .unwrap();
-        assert!(result.empty);
-        assert_eq!(result.defect_count, 0);
-        assert!(result.report.contains("没有活动缺陷"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(any())]
     #[test]
     fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
         let root = std::env::temp_dir().join(format!(
