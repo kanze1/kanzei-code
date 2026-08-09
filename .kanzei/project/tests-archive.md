@@ -260,3 +260,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；保存入口校验已由 settings.rs 执行，main 实现不再重复校验。
 - 收尾: 1786285216
+
+## T-1786285299 R-153 设置配置读取迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；配置文件读取、解析与 DocumentMut 构造已迁入 settings.rs。
+- 收尾: 1786285302

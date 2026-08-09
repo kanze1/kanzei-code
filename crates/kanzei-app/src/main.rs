@@ -34,7 +34,7 @@ mod settings;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
-    global_config_path, settings_save_at_path, settings_set_or_remove, settings_set_or_remove_num,
+    global_config_path, settings_read_document, settings_save_at_path, settings_set_or_remove, settings_set_or_remove_num,
     settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
 };
 
@@ -454,16 +454,7 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
 pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {
     // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(format!("读取配置失败 {}: {e}", path.display())),
-    };
-    toml::from_str::<KanzeiConfig>(&text)
-        .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
-    let mut doc: toml_edit::DocumentMut = text
-        .parse()
-        .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
+    let mut doc = crate::settings_read_document(path)?;
 
     let models = settings_table(&mut doc, "models")?;
     settings_set_or_remove(

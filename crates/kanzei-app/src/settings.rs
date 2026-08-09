@@ -120,6 +120,17 @@ pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), Stri
     Ok(())
 }
 
+pub(crate) fn settings_read_document(path: &Path) -> Result<toml_edit::DocumentMut, String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("读取配置失败 {}: {e}", path.display())),
+    };
+    toml::from_str::<kanzei_harness::KanzeiConfig>(&text)
+        .map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))?;
+    text.parse().map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();
