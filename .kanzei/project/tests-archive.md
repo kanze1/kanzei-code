@@ -911,3 +911,8 @@
 - 命令: node --check ui/*.js && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
 - 摘要: B2 切分后 5 文件 node --check 全绿;四条冒烟全绿:runtime 确认 5 个 ui/*.js 按序执行 + 222 次 invoke + 7 视图切换 0 错误;i18n 790 key 覆盖;a11y 22 静态 icon-btn;markdown XSS 用例通过
 - 收尾: 1786303022
+
+## T-1786303269 R-154 B3 冒烟(node --check 遍历 + ui-* smoke ×4) [passed]
+- 命令: Get-ChildItem crates/kanzei-app/ui/*.js | ForEach-Object { node --check $_.FullName }; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: B3:main.js(5881→5171)切出 13-memory.js(540)+14-docs-actions.js(168),index.html 按序 7 个 defer;node --check 遍历 7 文件全绿 + 四条冒烟全绿,runtime 确认 7 文件按序执行(222 次 invoke 不变)
+- 收尾: 1786303269

@@ -11,8 +11,8 @@
 - refs: A-008
 - 依赖: R-152
 
-- 批次: 2/10
-- 进展: B0(使能批)完成并提交 ac5d647;四条冒烟改按 index.html script 清单加载(共享 helper scripts/ui-sources.mjs),runtime 逐文件 vm.runInContext,node --check 改遍历。B1 完成并提交 98d7af5:从 main.js(7212→6918 行)切出 17-files.js(文件导览 256 行)+ 18-startup.js(启动 IIFE 35 行,锁死末位),index.html 按序 3 个 defer,四条冒烟全绿(runtime 冒烟确认 3 文件按序执行,222 次 invoke 与拆分前一致)。B2 完成:从 main.js(6918→5881 行)切出 15-views-misc.js(快速记录/文档查看器/git 状态/会话恢复/新对话/对话总结,393 行)+ 16-settings.js(设置页/版本更新/侧边栏折叠,642 行),index.html 按序 5 个 defer(main→15→16→17→18),四条冒烟全绿(runtime 冒烟确认 5 文件按序执行,222 次 invoke 不变),node --check 遍历 5 文件全绿,真实窗口 DOM 验证 req-quick/settings-save/providers-table/fast-status 均渲染。下一批 B3:14-docs-actions、13-sidebar。
+- 批次: 3/10
+- 进展: B0(使能批)完成并提交 ac5d647;四条冒烟改按 index.html script 清单加载(共享 helper scripts/ui-sources.mjs),runtime 逐文件 vm.runInContext,node --check 改遍历。B1 完成并提交 98d7af5:main.js(7212→6918)切出 17-files.js(256)+ 18-startup.js(35),index.html 按序 3 个 defer。B2 完成并提交 ffb9b09:main.js(6918→5881)切出 15-views-misc.js(393)+ 16-settings.js(642),index.html 按序 5 个 defer。B3 完成:main.js(5881→5171)切出 13-memory.js(记忆页/R-127 运行画像/R-126 探针/R-124 候选/R-125 召回/账单/检索/整理,540 行)+ 14-docs-actions.js(refreshDocs/标签页/缺陷审查/筛选/分组/批量,168 行),index.html 按序 7 个 defer(main→13→14→15→16→17→18),四条冒烟全绿(runtime 确认 7 文件按序执行,222 次 invoke 不变),node --check 遍历 7 文件全绿,真实窗口 DOM 验证 memory-consolidate-btn/defect-review 渲染。下一批 B4:12-docs-pages、11-docs-list、10-docs-core。
 
 ## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
 - 优先级: P1
