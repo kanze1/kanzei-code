@@ -267,6 +267,7 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .doc-item.closed .title { text-decoration: line-through; }
 .doc-item.external-blocked { border-left: 2px solid var(--warn); }
 .blocked-badge { color: var(--warn); border: 1px solid currentColor; border-radius: 3px; padding: 1px 4px; font-size: 10px; white-space: nowrap; }
+.clarify-badge { color: var(--accent); border: 1px solid currentColor; border-radius: 3px; padding: 1px 4px; font-size: 10px; white-space: nowrap; }
 .doc-archive-toggle { color: var(--ok); padding: 5px 14px; font-size: 11px; background: transparent; border: 0; width: 100%; text-align: left; cursor: pointer; }
 .doc-archive-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .doc-archive-list { border-left: 2px solid var(--ok); margin: 0 14px 5px; padding-left: 8px; }

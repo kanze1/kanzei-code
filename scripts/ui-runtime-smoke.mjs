@@ -439,7 +439,7 @@ const payloads = {
   },
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
-    defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
+    defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
     sources: [],
     findings: [],
@@ -728,6 +728,14 @@ assert(
   assert(priFilter?.getAttribute("title").includes("仅参考"), `侧栏优先级筛选未明示"仅参考,不影响取活": "${priFilter?.getAttribute("title")}"`);
   const badge = document.querySelector("#req-list .pri-badge");
   assert(badge?.title.includes("仅参考"), `优先级徽章未明示"仅参考,不影响取活": "${badge?.title}"`);
+}
+// D-205 验收③:带「待澄清」复现的缺陷在侧栏可辨识——用户能一眼看到哪些条目等他补话,
+// 不会把"待澄清"当真实复现拿去开工。
+{
+  const clarifyBadge = document.querySelector("#defect-list .clarify-badge");
+  assert(clarifyBadge, "带「待澄清」复现的缺陷未渲染待澄清徽标(D-205)");
+  assert(clarifyBadge.title.includes("待澄清"), `待澄清徽标未带具体问题提示: "${clarifyBadge.title}"`);
+  assert(!document.querySelector("#req-list .clarify-badge"), "需求列表误渲染待澄清徽标(仅缺陷快记有此形态)");
 }
 // 侧栏移除编辑后必须仍能读到字段,否则等于把信息一起删了。
 const sidebarFields = document.querySelectorAll("#req-list .doc-detail .doc-field");
