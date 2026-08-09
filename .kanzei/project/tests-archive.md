@@ -901,3 +901,13 @@
 - 命令: Get-ChildItem crates/kanzei-app/ui/*.js | ForEach-Object { node --check $_.FullName }; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-runtime-smoke.mjs
 - 摘要: B0 使能批:四条冒烟按 index.html script 清单加载;node --check 遍历 ui/*.js + i18n/a11y/markdown/runtime 全绿;runtime 逐文件 vm.runInContext 单文件退化形态下正常执行(222 次 invoke)
 - 收尾: 1786302256
+
+## T-1786302476 R-154 B1: node --check 遍历 + 四条冒烟(3 文件按序) [passed]
+- 命令: Get-ChildItem crates/kanzei-app/ui/*.js | ForEach-Object { node --check $_.FullName }; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: B1:main.js(7211→6918 行)切出 17-files.js(文件导览段)+18-startup.js(启动 IIFE,锁死末位),index.html 按序 3 个 defer;node --check 遍历 + 四条冒烟全绿,runtime 冒烟确认 3 文件按序执行(222 次 invoke 与拆分前一致)
+- 收尾: 1786302476
+
+## T-1786303022 R-154 B2 冒烟(node --check + ui-* smoke ×4) [passed]
+- 命令: node --check ui/*.js && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
+- 摘要: B2 切分后 5 文件 node --check 全绿;四条冒烟全绿:runtime 确认 5 个 ui/*.js 按序执行 + 222 次 invoke + 7 视图切换 0 错误;i18n 790 key 覆盖;a11y 22 静态 icon-btn;markdown XSS 用例通过
+- 收尾: 1786303022

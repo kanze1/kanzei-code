@@ -11,8 +11,8 @@
 - refs: A-008
 - 依赖: R-152
 
-- 批次: 0/10
-- 进展: 首轮按设计 §B 建立批次表：B0 先改四条冒烟脚本验证按 index.html 多 script 顺序执行；B1~B9 再切出最终 18 个 classic script 文件。当前进入 B0，main.js 与生产行为暂不改。
+- 批次: 2/10
+- 进展: B0(使能批)完成并提交 ac5d647;四条冒烟改按 index.html script 清单加载(共享 helper scripts/ui-sources.mjs),runtime 逐文件 vm.runInContext,node --check 改遍历。B1 完成并提交 98d7af5:从 main.js(7212→6918 行)切出 17-files.js(文件导览 256 行)+ 18-startup.js(启动 IIFE 35 行,锁死末位),index.html 按序 3 个 defer,四条冒烟全绿(runtime 冒烟确认 3 文件按序执行,222 次 invoke 与拆分前一致)。B2 完成:从 main.js(6918→5881 行)切出 15-views-misc.js(快速记录/文档查看器/git 状态/会话恢复/新对话/对话总结,393 行)+ 16-settings.js(设置页/版本更新/侧边栏折叠,642 行),index.html 按序 5 个 defer(main→15→16→17→18),四条冒烟全绿(runtime 冒烟确认 5 文件按序执行,222 次 invoke 不变),node --check 遍历 5 文件全绿,真实窗口 DOM 验证 req-quick/settings-save/providers-table/fast-status 均渲染。下一批 B3:14-docs-actions、13-sidebar。
 
 ## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
 - 优先级: P1
