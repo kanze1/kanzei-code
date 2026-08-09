@@ -340,3 +340,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_prompt 已迁入 run.rs 并通过 run::run_prompt 注册；后台任务、排队 admission、promote、事件和句柄清理路径保持。run_metrics 同模块保留。
 - 收尾: 1786288158
+
+## T-1786288264 R-153 run_prompt 旧副本清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: main.rs run_prompt 旧副本已删除，run::run_prompt 为唯一注册实现，run_task 调用仍由后续 run.rs 迁移承接。
+- 收尾: 1786288271
