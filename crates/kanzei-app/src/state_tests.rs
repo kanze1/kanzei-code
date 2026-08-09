@@ -100,6 +100,7 @@ fn 保存前拦住指向不存在_provider_的模型角色() {
         profile_default: None,
         profile: None,
         limits: Default::default(),
+        cadence: None,
         providers: vec![ProviderPayload {
             name: "deepseek".into(),
             protocol: "openai".into(),

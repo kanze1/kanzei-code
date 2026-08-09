@@ -24,6 +24,25 @@ pub(crate) struct SettingsPayload {
     pub(crate) providers: Vec<ProviderPayload>,
     #[serde(default)]
     pub(crate) limits: LimitsPayload,
+    #[serde(default)]
+    pub(crate) cadence: Option<CadencePayload>,
+}
+
+/// 设置页节奏表单载荷:留空(None)即"用内置默认",保存时该键从 [cadence] 移除,
+/// 回落 serde default(conventions §1.4 当前值)。键名与 settings_get 返回的
+/// Cadence 序列化一致(snake_case),前后端只此一份映射。
+#[derive(Deserialize, Default)]
+pub(crate) struct CadencePayload {
+    #[serde(default)]
+    pub(crate) full_test: Option<String>,
+    #[serde(default)]
+    pub(crate) full_test_batches: Option<u32>,
+    #[serde(default)]
+    pub(crate) targeted_test: Option<String>,
+    #[serde(default)]
+    pub(crate) commit: Option<String>,
+    #[serde(default)]
+    pub(crate) push: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -287,6 +306,61 @@ pub(crate) fn settings_apply_limits(
     Ok(())
 }
 
+/// [cadence] 节:载荷带节奏节时按表单落盘——枚举值按 serde snake_case 校名,
+/// 非法值不写(配置保持干净,坏值交给加载侧报错);全空 = 清空既有键,回落
+/// serde default(conventions §1.4 当前默认);载荷不带 cadence(旧前端)则整节不动。
+pub(crate) fn settings_apply_cadence(
+    doc: &mut toml_edit::DocumentMut,
+    payload: &SettingsPayload,
+) -> Result<(), String> {
+    let Some(cadence) = &payload.cadence else {
+        return Ok(());
+    };
+    let entries: [(&str, Option<&str>); 4] = [
+        (
+            "full_test",
+            cadence
+                .full_test
+                .as_deref()
+                .filter(|v| matches!(*v, "entry_close" | "every_commit" | "every_n_batches" | "release_only")),
+        ),
+        (
+            "targeted_test",
+            cadence
+                .targeted_test
+                .as_deref()
+                .filter(|v| matches!(*v, "every_commit" | "off")),
+        ),
+        (
+            "commit",
+            cadence
+                .commit
+                .as_deref()
+                .filter(|v| matches!(*v, "per_batch" | "per_entry")),
+        ),
+        (
+            "push",
+            cadence
+                .push
+                .as_deref()
+                .filter(|v| matches!(*v, "per_entry" | "per_commit" | "periodic")),
+        ),
+    ];
+    let table = settings_table(doc, "cadence")?;
+    for (key, value) in entries {
+        settings_set_or_remove(table, key, value.map(str::to_string));
+    }
+    settings_set_or_remove_num(
+        table,
+        "full_test_batches",
+        cadence.full_test_batches.map(i64::from),
+    );
+    if table.is_empty() {
+        doc.remove("cadence");
+    }
+    Ok(())
+}
+
 pub(crate) fn settings_apply_providers(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
@@ -426,6 +500,7 @@ pub(crate) fn settings_save_at_path_impl(
     settings_apply_scalar_fields(&mut doc, &payload)?;
     settings_apply_limits(&mut doc, &payload)?;
     settings_apply_providers(&mut doc, &payload)?;
+    settings_apply_cadence(&mut doc, &payload)?;
     settings_write_document(doc, path)
 }
 
@@ -452,6 +527,7 @@ pub fn settings_open() -> Result<(), String> {
             profile: None,
             limits: Default::default(),
             providers: vec![],
+            cadence: None,
         })?;
     }
     crate::state::hidden_command("cmd")
@@ -571,6 +647,7 @@ fn _state_type_marker(_: Option<State<'_, AppState>>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanzei_harness::config::{CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence};
     use kanzei_harness::KanzeiConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -593,6 +670,7 @@ mod tests {
             profile: None,
             limits,
             providers: vec![],
+            cadence: None,
         };
         settings_save_at_path(
             payload(LimitsPayload {
@@ -643,6 +721,7 @@ mod tests {
                 profile: None,
                 limits: Default::default(),
                 providers: vec![],
+                cadence: None,
             },
             &path,
         )
@@ -682,6 +761,7 @@ mod tests {
                 profile: None,
                 limits: Default::default(),
                 providers: vec![],
+                cadence: None,
             },
             &path,
         )
@@ -736,6 +816,7 @@ mod tests {
                 profile: None,
                 limits: Default::default(),
                 providers: vec![],
+                cadence: None,
             },
             &path,
         );
@@ -744,6 +825,79 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             broken,
             "file must be untouched"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn 节奏字段_写入读回_清空移除_不串改其他键() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-cadence-{}.toml",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let payload = |cadence: Option<CadencePayload>| SettingsPayload {
+            primary: String::new(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits: Default::default(),
+            providers: vec![],
+            cadence,
+        };
+        // 写满全部字段 → 读回一致。
+        settings_save_at_path(
+            payload(Some(CadencePayload {
+                full_test: Some("every_n_batches".into()),
+                full_test_batches: Some(3),
+                targeted_test: Some("every_commit".into()),
+                commit: Some("per_entry".into()),
+                push: Some("periodic".into()),
+            })),
+            &path,
+        )
+        .unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.cadence.full_test, kanzei_harness::config::FullTestCadence::EveryNBatches);
+        assert_eq!(saved.cadence.full_test_batches, Some(3));
+        assert_eq!(
+            saved.cadence.targeted_test,
+            kanzei_harness::config::TargetedTestCadence::EveryCommit
+        );
+        assert_eq!(saved.cadence.commit, kanzei_harness::config::CommitCadence::PerEntry);
+        assert_eq!(saved.cadence.push, kanzei_harness::config::PushCadence::Periodic);
+
+        // 清空(cadence 节带全空字段)→ 键从文件移除,回落 §1.4 默认。
+        settings_save_at_path(
+            payload(Some(CadencePayload {
+                full_test: None,
+                full_test_batches: None,
+                targeted_test: None,
+                commit: None,
+                push: None,
+            })),
+            &path,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("[cadence]"), "清空后仍留 [cadence] 节:\n{text}");
+        let saved: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(saved.cadence.full_test, kanzei_harness::config::FullTestCadence::EntryClose);
+        assert_eq!(saved.cadence.push, kanzei_harness::config::PushCadence::PerEntry);
+
+        // 载荷不带 cadence(旧前端/其他调用方)→ 既有节原样保留,不删不改。
+        std::fs::write(&path, "[cadence]\nfull_test = \"release_only\"\n").unwrap();
+        settings_save_at_path(payload(None), &path).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            saved.cadence.full_test,
+            kanzei_harness::config::FullTestCadence::ReleaseOnly,
+            "载荷缺 cadence 时不得动既有节"
         );
         let _ = std::fs::remove_file(path);
     }

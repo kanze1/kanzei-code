@@ -474,6 +474,45 @@
 
           </details>
           <details class="settings-group">
+            <summary>验证与提交节奏</summary>
+          <p class="dim">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],下次注入的继续文案按新节奏渲染;发版门禁与 CI 全量不受参数影响。</p>
+          <div class="form-row">
+            <label>全量测试</label>
+            <select id="set-cadence-full-test">
+              <option value="">默认</option>
+              <option value="entry_close">条目关闭前</option>
+              <option value="every_commit">每次提交前</option>
+              <option value="every_n_batches">每 N 批</option>
+              <option value="release_only">仅发版前</option>
+            </select>
+            <input id="set-cadence-full-test-batches" type="number" min="1" step="1" placeholder="N" title="每 N 批的间隔" />
+          </div>
+          <div class="form-row">
+            <label>定向测试</label>
+            <select id="set-cadence-targeted-test">
+              <option value="">默认</option>
+              <option value="every_commit">每次提交前</option>
+              <option value="off">关闭</option>
+            </select>
+            <label>提交粒度</label>
+            <select id="set-cadence-commit">
+              <option value="">默认</option>
+              <option value="per_batch">每批一提交</option>
+              <option value="per_entry">每条目一提交</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>push 频率</label>
+            <select id="set-cadence-push">
+              <option value="">默认</option>
+              <option value="per_entry">条目完成后</option>
+              <option value="per_commit">每提交后</option>
+              <option value="periodic">定期自动</option>
+            </select>
+          </div>
+
+          </details>
+          <details class="settings-group">
             <summary>移动端桥接</summary>
           <p class="dim">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
           <div class="form-row">

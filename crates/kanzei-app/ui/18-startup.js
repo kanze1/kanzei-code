@@ -23,6 +23,8 @@
     ["模型列表", loadModels],
     ["git 状态", refreshGit],
     ["排队输入", refreshPendingInputs],
+    // R-157:启动即拉生效节奏,继续文案(未自定义时)随 kanzei.toml [cadence] 渲染。
+    ["节奏配置", async () => applyCadenceSettings(await invoke("settings_get", { projectDir: currentProject }))],
   ]) {
     try {
       await step();

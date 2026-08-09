@@ -184,6 +184,9 @@ const SETTINGS_FORM_IDS = [
   "set-max-tokens", "set-subagent-max-tokens", "set-subagent-timeout", "set-max-tasks",
   "set-context-ratio", "set-verbatim-ratio", "set-max-parallel", "set-stream-restarts",
   "set-transport-retries", "set-rate-retries",
+  // 节奏(R-157):与运行上限同规——漏登记就会出现"改了却没未保存提示"。
+  "set-cadence-full-test", "set-cadence-full-test-batches",
+  "set-cadence-targeted-test", "set-cadence-commit", "set-cadence-push",
 ];
 let settingsSnapshot = "";
 function settingsFingerprint() {
@@ -369,6 +372,27 @@ const LIMIT_FIELDS = [
   ["set-rate-retries", "rateLimitRetries"],
 ];
 
+// 节奏(R-157):id ↔ settings_get 返回的 cadence snake_case 键。
+// 留空 = None,保存时该键从 [cadence] 移除,回落 §1.4 默认。
+const CADENCE_FIELDS = [
+  ["set-cadence-full-test", "full_test"],
+  ["set-cadence-targeted-test", "targeted_test"],
+  ["set-cadence-commit", "commit"],
+  ["set-cadence-push", "push"],
+];
+
+function collectCadence() {
+  const out = {};
+  for (const [id, key] of CADENCE_FIELDS) {
+    const value = $(id).value.trim();
+    out[key] = value === "" ? null : value;
+  }
+  const batchesRaw = $("set-cadence-full-test-batches").value.trim();
+  const batches = batchesRaw === "" ? null : Number(batchesRaw);
+  out.full_test_batches = batches === null || Number.isNaN(batches) ? null : batches;
+  return out;
+}
+
 /// 空 → null(后端据此删掉该键,回落内置默认);非法输入也当空,不把 NaN 写进配置。
 function collectLimits() {
   const out = {};
@@ -419,6 +443,20 @@ async function loadSettings() {
     $("set-proxy-url").value = proxy;
     $("set-proxy-url").classList.remove("hidden");
   }
+  // 节奏:已存值回填下拉;空 = 用默认。间隔输入框占位显示默认 N。
+  const cd = s.cadence ?? {};
+  const cdDefaults = s.cadenceDefaults ?? {};
+  for (const [id, key] of CADENCE_FIELDS) {
+    const value = cd[key];
+    $(id).value = value === null || value === undefined || value === "" ? "" : String(value);
+  }
+  const batchesEl = $("set-cadence-full-test-batches");
+  const batches = cd.full_test_batches;
+  batchesEl.value = batches === null || batches === undefined ? "" : String(batches);
+  const defaultBatches = cdDefaults.full_test_batches;
+  batchesEl.placeholder = defaultBatches === undefined || defaultBatches === null ? "" : `${t("默认")} ${defaultBatches}`;
+  // 设置页是最权威的节奏来源:继续文案随它渲染(未自定义时)。
+  applyCadenceSettings(s);
   settingsProviders = s.providers;
   renderProviders();
   renderEffectiveNotice(s);
@@ -521,6 +559,7 @@ $("settings-save").addEventListener("click", async () => {
         reasoning: $("set-reasoning").value,
         codexFastMode: $("set-codex-fast-mode").checked,
         limits: collectLimits(),
+        cadence: collectCadence(),
         providers: settingsProviders.map((p) => ({
           name: p.name,
           protocol: p.protocol,

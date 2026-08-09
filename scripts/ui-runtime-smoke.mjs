@@ -559,6 +559,9 @@ const payloads = {
       contextBudgetRatio: 0.7, recentVerbatimRatio: 0.35, maxTasksPerTurn: 8,
       maxParallelTools: 8, transportRetries: 2, rateLimitRetries: 2, streamRestarts: 2,
     },
+    // R-157:生效节奏(项目配置覆盖)+ 内置默认。继续文案应渲染 "全量测试每 3 批跑一次"。
+    cadence: { full_test: "every_n_batches", full_test_batches: 3, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
+    cadenceDefaults: { full_test: "entry_close", full_test_batches: null, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
     profiles: {},
     providers: [],
     permissions: [],
@@ -576,10 +579,12 @@ const payloads = {
   workspace_snapshot: {},
 };
 const invokeLog = [];
+const savedPayloads = new Map();
 // 探针回传要看具体参数(id 配对、取样内容),所以单独留一份带参日志。
 const probeResults = [];
 async function invoke(cmd, args) {
   invokeLog.push(cmd);
+  if (cmd === "settings_save") savedPayloads.set(cmd, args);
   if (cmd === "ui_probe_result") probeResults.push(args);
   if (cmd in payloads) return structuredClone(payloads[cmd]);
   return null;
@@ -589,6 +594,30 @@ const handlers = new Map();
 
 const storage = new Map();
 storage.set("kz-auto-continue", "1");
+// R-157 批2:预置旧版默认继续文案(镜像 08-compose.js LEGACY_CONTINUE_PROMPTS[0]),
+// 启动块应把它静默升级为新默认并写入 localStorage。夹具若与 LEGACY 列表脱节,
+// 升级不再命中,下面断言会失败——那是提醒同步夹具,不是误报。
+storage.set(
+  "kz-continue-prompt",
+  "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
+    "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
+    "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
+    "2. 粒度 = 一轮一个完整条目:以做完当前这一条缺陷/需求为本轮目标;" +
+    "同构批量改动(i18n、重命名、迁移这类)一轮吃掉完整类别,不要按两三处微切片。" +
+    "确实超出单轮容量才按验收子项分轮,并在进展里写明批次边界。" +
+    "「工作量大」「要改多个文件」都是正常工作,不是停下的理由。\n" +
+    "3. 卡住就换一条:某条一时推不动,在「进展」里记一句原因,直接跳到下一条继续,不要停下来等。\n" +
+    "「阻塞」字段只写解除权不在你手里的事(已问过用户在等回复/缺凭据/依赖外部服务/用户直营)," +
+    "且要写出具名解除人;「涉及多文件」「跨层改动」「需先确认方案(但没真问过)」都不是阻塞,写进展。" +
+    "顺手复核碰到的条目:阻塞条件已满足的当场清空「阻塞」字段。看到 [调度死锁] 横幅时按横幅执行。\n" +
+    "4. 关闭条目前逐条对照验收原文,每项给出精确代码位置证据;声称完成的能力必须有真实调用方或消费者," +
+    "没有消费者的命令、死代码或只展示不接数据源的壳不算完成;沿用既有实现要显式标注为既有能力而非本次交付;" +
+    "不得缩小验收里的平台或范围限定词。任一项证据不足就保留活动态写清缺口,不要打勾。\n" +
+    "5. doing 最多 2 个;已满就继续推进这两项。标着「阶段 5 后」的功能需求暂不启动。\n" +
+    "6. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+    "验证选择与改动面匹配:纯 ui/ 改动跑 node 检查与冒烟脚本,动了 crates/ 才跑 cargo test。\n" +
+    "一直做下去,不要用纯文本收尾。"
+);
 const localStorageShim = {
   getItem: (k) => (storage.has(k) ? storage.get(k) : null),
   setItem: (k, v) => storage.set(k, String(v)),
@@ -715,6 +744,24 @@ assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启�
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
 assert(listText("req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("req-list").slice(0, 60)}"`);
 assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
+// R-157 批2:预置的 LEGACY 默认文案必须被静默升级,且 18-startup「节奏配置」步骤把
+// mock 的生效节奏(every_n_batches/3)渲染进继续文案——证明参数化真的到达注入提示词。
+{
+  const storedPrompt = storage.get("kz-continue-prompt") ?? "";
+  const textareaPrompt = (byId.get("continue-prompt")?.value ?? "").trim();
+  assert(
+    !storedPrompt.includes("粒度 = 一轮一个完整条目"),
+    "LEGACY 旧默认文案未被升级:仍留在 localStorage"
+  );
+  assert(
+    storedPrompt.includes("全量测试每 3 批跑一次") && storedPrompt.includes("继续推进"),
+    `继续文案未按生效节奏渲染(应含「全量测试每 3 批跑一次」): ${storedPrompt.slice(0, 120)}`
+  );
+  assert(
+    textareaPrompt === storedPrompt,
+    "textarea 与 localStorage 的默认文案不一致(升级/节奏渲染不同步)"
+  );
+}
 // 批次进度格(R-160):格数与已填格必须来自后端算好的 entry.batches,前端不得另存
 // 一份复杂度→格数的映射;总数为 1 的条目不画格(一轮做完的东西不需要进度条)。
 {
@@ -1167,6 +1214,42 @@ function SETTINGS_FORM_IDS_IN_SOURCE(src, id) {
 }
 assert(source.includes('$("set-codex-fast-mode").checked = s.codexFastMode === true'), "设置页未恢复 Codex Fast mode 状态");
 assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "保存设置未透传 Codex Fast mode");
+
+// 节奏([cadence],R-157):读、存、脏状态三条线,与运行上限同一套防线。
+{
+  const cadenceIds = ["set-cadence-full-test", "set-cadence-full-test-batches",
+    "set-cadence-targeted-test", "set-cadence-commit", "set-cadence-push"];
+  for (const id of cadenceIds) {
+    assert(html.includes(`id="${id}"`), `设置页缺少节奏表单 ${id}`);
+    assert(SETTINGS_FORM_IDS_IN_SOURCE(source, id), `main.js 没有登记节奏字段 ${id}(改了没未保存提示)`);
+  }
+  assert(
+    byId.get("set-cadence-full-test")?.value === "every_n_batches",
+    `节奏下拉未回填生效值,实得: ${byId.get("set-cadence-full-test")?.value}`,
+  );
+  assert(
+    byId.get("set-cadence-full-test-batches")?.value === "3",
+    "每 N 批间隔未回填已存值",
+  );
+  assert(
+    byId.get("set-cadence-targeted-test")?.value === "every_commit",
+    "定向测试下拉未回填",
+  );
+  // 存一次:载荷必须带上 cadence(camelCase 外壳里嵌套 snake_case 键)。
+  byId.get("set-cadence-full-test").value = "release_only";
+  byId.get("set-cadence-full-test-batches").value = "";
+  byId.get("set-cadence-full-test").dispatchEvent({ type: "change" });
+  byId.get("settings-save")?.click();
+  await flush();
+  const saveArgs = invokeLog.includes("settings_save")
+    ? savedPayloads.get("settings_save")
+    : null;
+  assert(saveArgs, "点保存未调 settings_save");
+  assert(
+    saveArgs?.payload?.cadence?.full_test === "release_only" && saveArgs?.payload?.cadence?.full_test_batches === null,
+    `保存载荷未透传 cadence: ${JSON.stringify(saveArgs?.payload?.cadence)}`,
+  );
+}
 
 // ---------- R-136 子代理模型一键就绪 ----------
 assert(invokeLog.includes("fast_model_status"), "设置页未检测子代理模型就绪状态");

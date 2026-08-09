@@ -33,8 +33,22 @@ const DEFAULT_CADENCE = {
   push: "per_entry",
 };
 let cadenceSettings = null; // 异步加载;未就绪时按 DEFAULT_CADENCE 渲染(与 §1.4 一致)
+let lastRenderedPrompt = null; // 最近一次渲染给用户的默认文案;用于判断"用户是否自定义过"
 function effectiveCadence() {
   return cadenceSettings && typeof cadenceSettings === "object" ? cadenceSettings : DEFAULT_CADENCE;
+}
+// R-157:设置页(或启动)拿到 settings_get 后调用——把生效节奏存下来,并让
+// continue-prompt 文案跟着重渲染(仅当用户没自定义过文案;自定义的绝不覆盖)。
+function applyCadenceSettings(s) {
+  if (!s || typeof s.cadence !== "object" || !s.cadence) return;
+  cadenceSettings = s.cadence;
+  const textarea = $("continue-prompt");
+  const current = (textarea.value || "").trim();
+  if (!current || current === lastRenderedPrompt) {
+    lastRenderedPrompt = buildContinuePrompt(effectiveCadence());
+    textarea.value = lastRenderedPrompt;
+    localStorage.setItem("kz-continue-prompt", lastRenderedPrompt);
+  }
 }
 function cadenceVerificationText(c) {
   const ft = c.full_test || "entry_close";
@@ -678,10 +692,13 @@ renderAutoStatus();
   const stored = (localStorage.getItem("kz-continue-prompt") || "").trim();
   const isLegacyDefault = LEGACY_CONTINUE_PROMPTS.some((old) => old.trim() === stored);
   if (!stored || isLegacyDefault) {
+    // 默认态标记为"未自定义":applyCadenceSettings 拿到配置后据此重渲染。
+    lastRenderedPrompt = DEFAULT_CONTINUE_PROMPT;
     localStorage.setItem("kz-continue-prompt", DEFAULT_CONTINUE_PROMPT);
     $("continue-prompt").value = DEFAULT_CONTINUE_PROMPT;
     if (isLegacyDefault) log(t("继续文案已升级到新版(含【阻塞】刹车约定)"));
   } else {
+    lastRenderedPrompt = null; // 用户自定义过:后续节奏变化不覆盖。
     $("continue-prompt").value = stored;
   }
 }
