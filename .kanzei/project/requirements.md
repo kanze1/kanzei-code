@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: harness_ext 清理尾批已在提交 45cb9dc 完成：FrontendToolsComponent 与 QuickCaptureComponent 旧副本已删除，定向验证 T-1786287179 已登记通过。下一步进入 subagents 域，先评估 defect_review/quick_req 与 main.rs 共享依赖后再做整体剪切迁移。
+- 进展: 已提交 85ca254：quick_req 已整体迁入 subagents.rs，invoke_handler 改为 subagents::quick_req；保留 fast/primary 回退、tracker 快照、原始描述字段和真实落库判据。main.rs 减少 129 行。定向测试 T-1786287805 已登记通过。下一步迁移 defect_review。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
