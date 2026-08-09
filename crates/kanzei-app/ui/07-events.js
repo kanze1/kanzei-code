@@ -145,7 +145,9 @@ on("kz:tool-start", (e) => {
   currentAssistant = null;
   currentReasoning = null;
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  // 小工具降噪:静默工具先挂起,成功则不进活动流,失败在 tool-end 补建(用户定调)。
+  if (bgQuiet(e.payload.name)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  else if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -155,6 +157,10 @@ function isBatchCommit(event) {
     && /^committed verified staged set\b/.test(event.preview || "");
 }
 
+// 工具执行中的增量输出(bash 等):活动面板对应条目实时追加。
+on("kz:tool-progress", (e) => {
+  bgStream(e.payload.id, e.payload.chunk);
+});
 on("kz:task-progress", (e) => {
   const payload = e.payload;
   bgProgress(payload.id, payload.text, payload.trace);
@@ -182,6 +188,8 @@ on("kz:tool-end", (e) => {
   }
   chatToolEnd(p.id, p.ok, p.preview, p.display);
   recordDiffSummary(p.display);
+  // 静默工具成功→无声丢弃;失败→bgFinishQuiet 已补建条目,bgEnd 接着画错误详情。
+  bgFinishQuiet(p.id, p.ok);
   bgEnd(p.id, p.ok, p.preview, p.display);
   setStatus("运行中", true);
 });

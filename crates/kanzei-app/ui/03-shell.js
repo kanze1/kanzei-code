@@ -91,9 +91,10 @@ let lastRequest = null;
 let runTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 // ---------- 视图切换 ----------
-document.querySelectorAll(".activity-item").forEach((item) => {
+// 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
+document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
   item.addEventListener("click", () => {
-    document.querySelectorAll(".activity-item").forEach((i) => {
+    document.querySelectorAll(".activity-item[data-view]").forEach((i) => {
       i.classList.remove("active");
       i.removeAttribute("aria-current");
     });
@@ -237,10 +238,33 @@ function syncSidebar() {
   toggle.classList.toggle("active", sidebarCollapsed);
   toggle.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
   toggle.title = localizeDynamic(sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏");
+  // rail 上的常驻开关与顶栏按钮同步同一状态:窄视口下侧栏悬浮盖住顶栏时,
+  // rail 是唯一还能点到的开关(用户实测缩放后"没有关闭和打开")。
+  const rail = $("rail-sidebar-toggle");
+  if (rail) {
+    rail.classList.toggle("active", !sidebarCollapsed);
+    rail.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
+    rail.title = localizeDynamic(sidebarCollapsed ? "打开侧栏" : "收起侧栏");
+  }
 }
-$("sidebar-toggle").addEventListener("click", () => {
+function toggleSidebar() {
   sidebarCollapsed = !sidebarCollapsed;
   localStorage.setItem("kz-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  syncSidebar();
+}
+$("sidebar-toggle").addEventListener("click", toggleSidebar);
+$("rail-sidebar-toggle")?.addEventListener("click", toggleSidebar);
+// 悬浮模式(≤900px,缩放放大同样会触发)下侧栏盖在主区上:点侧栏外的任意
+// 位置就收起,不再需要先找到被盖住的开关。
+// matchMedia 在冒烟 harness 里不存在:回退成"永不悬浮",真实浏览器不受影响。
+const sidebarOverlayQuery = typeof window.matchMedia === "function"
+  ? window.matchMedia("(max-width: 900px)")
+  : { matches: false };
+document.addEventListener("pointerdown", (event) => {
+  if (sidebarCollapsed || !sidebarOverlayQuery.matches) return;
+  if (event.target.closest("#sidebar, #activitybar, #sidebar-toggle")) return;
+  sidebarCollapsed = true;
+  localStorage.setItem("kz-sidebar-collapsed", "1");
   syncSidebar();
 });
 syncSidebar();

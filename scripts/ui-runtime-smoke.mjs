@@ -59,8 +59,9 @@ const documentsBottomPadding = documentsScrollRules.at(-1)?.[1].match(/padding-b
 if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
   fail("独立文档页滚动容器未预留状态栏安全间距");
 }
-if (!source.includes('if (isActivityTool(e.payload.name)) bgAdd')) {
-  fail("活动面板仍会接收全部工具调用");
+// 小工具降噪后,非静默工具仍需全量入列(R-095 的"完整流水"只对有信息量的调用成立)。
+if (!source.includes('else if (isActivityTool(e.payload.name)) bgAdd')) {
+  fail("活动面板仍会接收全部工具调用(或降噪分流被移除)");
 }
 if (!source.includes("function reportPersistentError(text, { retry = null } = {})") || !html.includes('id="log-retry"') || !source.includes("function copyReadable(el)")) {
   fail("错误反馈缺少持久详情、恢复入口或复制能力");
@@ -1152,6 +1153,45 @@ assert(
   "bash 展开区未使用完整输出(full),仍停留在 4000 截断版",
 );
 
+// ---------- 小工具降噪 + bash 实时输出 + rail 侧栏开合(用户定调) ----------
+// ① 静默工具成功不进活动流,失败补建条目——活动面板只回答"哪里不对"。
+const quietBefore = document.querySelectorAll("#bg-list .bg-entry").length;
+toolStart({ payload: { id: "Q1", name: "read", summary: "crates/kanzei/src/main.rs", input: { path: "crates/kanzei/src/main.rs" } } });
+toolEnd({ payload: { id: "Q1", name: "read", ok: true, preview: "1 //! kz", display: null } });
+await flush();
+assert(
+  document.querySelectorAll("#bg-list .bg-entry").length === quietBefore,
+  "成功的 read 仍进了活动流(小工具降噪未生效)",
+);
+toolStart({ payload: { id: "Q2", name: "req", summary: "update R-999", input: { action: "update" } } });
+toolEnd({ payload: { id: "Q2", name: "req", ok: false, preview: "找不到 R-999", display: null } });
+await flush();
+const quietErrEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "Q2");
+assert(quietErrEntry, "失败的静默工具没有补建条目(错误被吞掉)");
+assert(quietErrEntry.classList.contains("err"), "补建的静默条目未标失败态");
+// ② bash 增量输出:执行中逐段追加,收起时进度行跟到最后一行,结束后让位终态输出。
+const toolProgress = handlers.get("kz:tool-progress");
+assert(toolProgress, "工具增量输出事件未订阅");
+toolStart({ payload: { id: "S1", name: "bash", summary: "scripts/package.ps1", input: { command: "powershell scripts/package.ps1" } } });
+toolProgress({ payload: { id: "S1", chunk: "[1/6] 发布范围核对\n" } });
+toolProgress({ payload: { id: "S1", chunk: "[4/6] cargo tauri build\n" } });
+await flush();
+const streamEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "S1");
+assert(streamEntry?.querySelector(".bg-live")?.textContent.includes("[4/6]"), "bash 执行中未实时追加输出");
+assert(streamEntry?.querySelector(".bg-prog")?.textContent.includes("[4/6]"), "收起状态的进度行未跟到最后一行");
+toolEnd({ payload: { id: "S1", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "powershell scripts/package.ps1", output: "全部完成", full: "全部完成" } } });
+await flush();
+assert(!streamEntry.querySelector(".bg-live"), "结束后实时流未让位给终态输出(同一份输出双份并存)");
+// ③ rail 上的常驻侧栏开合:窄视口悬浮模式下顶栏开关会被盖住,rail 开关必须存在且可切换。
+const railToggle = byId.get("rail-sidebar-toggle");
+assert(railToggle, "activitybar 缺少常驻侧栏开合按钮");
+const sidebarEl = byId.get("sidebar");
+const collapsedBefore = sidebarEl.classList.contains("collapsed");
+railToggle.click();
+assert(sidebarEl.classList.contains("collapsed") !== collapsedBefore, "rail 开关没有切换侧栏");
+railToggle.click();
+assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开关未能再次切换回来");
+
 // ---------- D-170 项目隔离失效必须报出来 ----------
 assert(invokeLog.includes("project_root_info"), "切项目时未检查项目根是否与所选目录一致");
 const sharedWarn = byId.get("project-shared-warn");
@@ -1442,7 +1482,8 @@ assert(probeResults[3].result.includes("未知探针类型"), "未知探针类�
 // ---------- 语言切换：静态文本/属性与动态错误必须 zh→en→zh→en 可逆 ----------
 const languageControl = byId.get("language-select");
 const projectInit = byId.get("project-init");
-const chatActivity = document.querySelectorAll(".activity-item")[0];
+// rail 上还有侧栏开合(无 data-view),对话按钮要按 data-view 精确取。
+const chatActivity = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat");
 assert(projectInit.getAttribute("title") === "初始化新项目目录", "HTML title 未进入真实冒烟 DOM");
 assert(chatActivity.getAttribute("aria-label") === "切换到对话", "HTML aria-label 未进入真实冒烟 DOM");
 languageControl.value = "en";
@@ -1683,7 +1724,8 @@ await flush();
 sandbox.__kzTest.reset();
 
 // ---------- 视图切换:真实驱动 activity-item 的监听,抓初始化后才触发的运行时错误 ----------
-const activityItems = document.querySelectorAll(".activity-item");
+// rail 上的侧栏开合不是视图,统计与点击都只认带 data-view 的按钮。
+const activityItems = document.querySelectorAll(".activity-item[data-view]");
 // 覆盖为零必须判失败,不能像以前那样打印「0 个主视图切换」还报通过(D-138)——
 // 与本文件对初始化探针的自守卫同一标准:护栏没生效比没有护栏更危险。
 const expectedViews = new Set([...html.matchAll(/data-view="([\w-]+)"/g)].map((m) => m[1]));
@@ -1778,5 +1820,5 @@ if (issues.length) {
 }
 console.log(
   `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
-  `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item").length} 个主视图切换,0 运行时错误`
+  `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item[data-view]").length} 个主视图切换,0 运行时错误`
 );

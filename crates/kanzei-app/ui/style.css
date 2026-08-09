@@ -59,6 +59,12 @@ body {
 .activity-item svg { width: 22px; height: 22px; }
 .activity-item:hover { color: var(--fg-strong); }
 .activity-item.active { color: #ffffff; border-left-color: #ffffff; }
+/* 侧栏开合是布局开关不是视图切换:与视图按钮隔开,active(=侧栏展开)用
+   accent 而不是视图态的白色,避免和 aria-current 的视觉语义混在一起。 */
+.rail-toggle { height: 38px; margin-bottom: 4px; border-bottom: 1px solid var(--border-soft); }
+.rail-toggle.active { color: var(--accent); border-left-color: transparent; }
+/* 工具执行中的实时输出流:限高滚动,自动跟到尾部。 */
+.bg-live { max-height: 220px; overflow-y: auto; }
 
 /* ---------- 侧边栏 ---------- */
 #sidebar {

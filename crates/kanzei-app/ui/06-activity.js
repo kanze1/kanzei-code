@@ -34,6 +34,35 @@ const BG_TOOL_TYPES = {
   task: "agent",
   memory_note: "memory", memory_search: "memory", memory_stats: "memory",
 };
+// 小工具降噪(用户定调):高频查询/登记类调用**成功时不进活动流**,失败才补建条目。
+// 活动面板要回答的是"跑得怎么样"——成功的 read/req/files 千篇一律没有信息量,
+// 错误才是信号;bash/task/write/edit/git 等有实质副作用或长耗时的仍然全量入列。
+const BG_QUIET_TOOLS = new Set([
+  "read", "glob", "grep", "files", "req", "defect", "goal", "source",
+  "finding", "decision", "test_record", "memory_search", "memory_stats",
+]);
+const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
+function bgQuiet(name) {
+  return BG_QUIET_TOOLS.has(name);
+}
+function bgStartQuiet(id, name, summary, input) {
+  if (!id) return;
+  bgPending.set(id, { name, summary, input, startedAt: Date.now() });
+  // 悬挂上限:异常中断的静默调用不该无限累积。
+  if (bgPending.size > BG_MAX) bgPending.delete(bgPending.keys().next().value);
+}
+// 收尾一条静默调用。成功→无声丢弃返回 true;失败→补建条目返回 false,
+// 让调用方继续走 bgEnd 把错误详情画出来。
+function bgFinishQuiet(id, ok) {
+  const pending = bgPending.get(id);
+  if (!pending) return false;
+  bgPending.delete(id);
+  if (ok) return true;
+  bgAdd(id, pending.name, pending.summary, pending.input);
+  const entry = bgEntries.get(id);
+  if (entry) entry.startedAt = pending.startedAt;
+  return false;
+}
 function bgToolType(name) {
   return BG_TOOL_TYPES[name] ?? "other";
 }
@@ -324,6 +353,26 @@ function appendDisplayBlock(parent, display) {
     parent.appendChild(block);
   }
 }
+// 工具执行中的增量输出(kz:tool-progress,bash 等长任务):展开区里逐段追加,
+// 收起状态下进度行显示最后一行——装依赖/发版这类长命令"跑到哪了"一眼可见。
+// 只保留末尾 16k 字符:进度要的是尾部,完整输出等 ToolEnd 的终态块。
+const BG_STREAM_MAX = 16000;
+function bgStream(id, chunk) {
+  const entry = bgEntries.get(id);
+  if (!entry || entry.done || !chunk) return;
+  if (!entry.live) {
+    entry.live = document.createElement("pre");
+    entry.live.className = "tool-display term bg-live";
+    entry.detail.appendChild(entry.live);
+    entry.el.classList.add("has-detail");
+  }
+  const text = (entry.live.textContent + chunk).slice(-BG_STREAM_MAX);
+  entry.live.textContent = text;
+  const lastLine = text.trimEnd().split("\n").pop() || "";
+  if (lastLine) entry.prog.textContent = lastLine.slice(0, 160);
+  if (!entry.detail.classList.contains("hidden")) entry.live.scrollTop = entry.live.scrollHeight;
+}
+
 function bgProgress(id, text, trace) {
   const entry = bgEntries.get(id);
   if (!entry) return;
@@ -357,6 +406,11 @@ function bgProgress(id, text, trace) {
 function bgEnd(id, ok, preview, display) {
   const entry = bgEntries.get(id);
   if (!entry) return;
+  // 实时流是执行期的临时视图,终态由 display 的完整输出接管,避免同一份输出双份并存。
+  if (entry.live) {
+    entry.live.remove();
+    entry.live = null;
+  }
   entry.done = true;
   entry.el.classList.remove("running");
   entry.el.classList.add(ok ? "ok" : "err");
@@ -393,10 +447,14 @@ function renderRecoveredTraces(payloads) {
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
       if (event.kind === "tool.started") {
-        if (!bgEntries.has(event.id)) {
+        // 回放同样遵守小工具降噪:成功的静默调用不进列表,失败的照常补建。
+        if (bgQuiet(event.name)) {
+          bgStartQuiet(event.id, event.name, event.summary || "", null);
+        } else if (!bgEntries.has(event.id)) {
           bgAdd(event.id, event.name || "task", event.summary || t("历史子代理轨迹"));
         }
       } else if (event.kind === "tool.completed") {
+        if (bgFinishQuiet(event.id, event.ok !== false)) continue;
         const entry = bgEntries.get(event.id);
         if (!entry) continue;
         entry.done = true;
@@ -423,12 +481,15 @@ function renderRecoveredTraces(payloads) {
     entry.meta.textContent = `${t("回放")} · ${t("无结果(轮次中断)")}`;
     bgRenderActions(id, entry);
   }
+  // 回放里没等到 completed 的静默调用直接丢弃,不让残留 id 污染后续实时判定。
+  bgPending.clear();
   bgSync();
 }
 
 function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
+  bgPending.clear();
   diffSummary.clear();
   $("bg-list").innerHTML = "";
   renderDiffSummary();
