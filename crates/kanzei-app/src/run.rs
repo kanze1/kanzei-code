@@ -7,7 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
 
-use crate::{ensure_default_process, process_session_id, runtime_for, with_session_id, AppState, PendingAsk, PromptAttachment};
+pub(crate) use crate::run_task_impl as run_task;
+
 
 fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
     match value.unwrap_or("queue") { "steer" => Ok(kanzei_core::Delivery::Steer), "queue" => Ok(kanzei_core::Delivery::Queue), other => Err(anyhow::anyhow!("未知输入交付模式: {other}")) }
@@ -81,7 +82,7 @@ pub(crate) async fn run_prompt(
         let mut next_attachments = attachments;
         let mut idle_reason = "completed";
         loop {
-            let result = crate::run_task(&window, asks.clone(), ask_seq.clone(), next_prompt, next_attachments.take(), project_dir.clone(), session_id.clone(), subagent_enabled, profile.clone(), agent.clone(), model.clone(), work_priority.clone(), reasoning.clone(), conversation.clone(), live_run.clone(), delivery, next_input.take()).await;
+            let result = run_task(&window, asks.clone(), ask_seq.clone(), next_prompt, next_attachments.take(), project_dir.clone(), session_id.clone(), subagent_enabled, profile.clone(), agent.clone(), model.clone(), work_priority.clone(), reasoning.clone(), conversation.clone(), live_run.clone(), delivery, next_input.take()).await;
             if let Err(e) = &result {
                 let message = e.to_string();
                 let lower = message.to_lowercase();

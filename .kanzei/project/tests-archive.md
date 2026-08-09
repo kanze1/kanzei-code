@@ -350,3 +350,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: parse_delivery、admit_input、promote_next_input 已迁入 run.rs，run_prompt 使用模块内 helper，main.rs 旧 helper 已删除。
 - 收尾: 1786288419
+
+## T-1786288501 R-153 run_task 模块入口迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_prompt 通过 run.rs 的 run_task 模块入口调用；main.rs 的实现已命名为 run_task_impl，行为保持，主体剪切待下一批。
+- 收尾: 1786288505
