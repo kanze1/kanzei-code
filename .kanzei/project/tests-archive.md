@@ -32,3 +32,7 @@
 ## T-1786244998 R-152 package.ps1 commit 漂移拦截 [passed]
 - 命令: scripts/package.ps1 -Ack 5
 - 摘要: 在 verify 产证后提交 83905c3，重跑 package.ps1 在 cargo build 前因证据绑定旧 commit 而中止。
+
+## T-1786245754 D-218 test_record fixture 项目标记修复回归 [passed]
+- 命令: cargo test -p kanzei-tools test_record::tests --lib; cargo test --workspace
+- 摘要: 修复 CI 干净 checkout 的项目根 fixture 后，test_record 6 项定向测试与 workspace 全量全部通过。

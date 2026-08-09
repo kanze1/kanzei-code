@@ -10,7 +10,7 @@
 - 验收: ①cargo metadata --no-deps 全部 crate license 为 PolyForm-Noncommercial-1.0.0;②push dev 后 GitHub Actions 首跑全绿(进展里留链接);③verify.ps1 实测两态:脏树拒跑、全绿产出 JSON;④package.ps1 实测三拦:无证据拦、commit 不符拦(verify 后再提交一个 commit 重跑必须中止)、证据齐全放行至构建——各拦截报错原文记入进展;⑤ci.yml 与 verify.ps1 两处门禁清单互相注明同步义务。
 - refs: A-009 R-146 R-156
 
-- 进展: 提交 83905c3 是 verify 后新增的已提交变更；重跑 package.ps1 -Ack 5 原文："验证证据绑定 580f310b4f40e58d31adf4ca5fc2a7de2438ee4d,HEAD 是 83905c39a87482a4cb9c1642751ceea93f37e2c4:commit 变了就要重新 verify——这正是本门禁存在的原因"，在进入 cargo build 前中止。三次 package 拦截还差最终的证据齐全放行实测；之后 push dev 获取 Actions 首跑。
+- 进展: Actions 首跑链接已记录：https://github.com/kanze1/kanzei-code/actions/runs/31291964471；首跑失败原因为 D-218（test_record fixture 未固定 project_root）。已登记 D-218 并修复 `crates/kanzei-tools/src/test_record.rs:251-254`，新增 `.kanzei` 标记隔离 fixture。定向 test_record 6/6 与 cargo test --workspace 全量通过；修复提交后需重新 push，等待 Actions 全绿再关闭。
 
 ## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
 - 优先级: P1

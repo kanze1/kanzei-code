@@ -249,6 +249,9 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        // ToolCtx::new discovers the nearest project marker; keep the fixture
+        // isolated from CI runners whose temp directory may sit below a checkout.
+        std::fs::create_dir(dir.join(".kanzei")).unwrap();
         dir
     }
 
