@@ -184,9 +184,24 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub fn settings_save(payload: SettingsPayload) -> Result<(), String> { crate::settings_save(payload) }
+pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
+    crate::settings_save_at_path(payload, &global_config_path())
+}
 #[tauri::command]
-pub fn settings_open() -> Result<(), String> { crate::settings_open() }
+pub fn settings_open() -> Result<(), String> {
+    let path = global_config_path();
+    if !path.is_file() {
+        settings_save(SettingsPayload {
+            primary: String::new(), fast: String::new(), proxy: "env".into(),
+            reasoning: None, codex_fast_mode: false, profile_default: None, profile: None,
+            limits: Default::default(), providers: vec![],
+        })?;
+    }
+    crate::hidden_command("cmd")
+        .args(["/c", "start", "", &path.display().to_string()])
+        .spawn().map_err(|e| e.to_string())?;
+    Ok(())
+}
 fn project_permission_config(project_dir: &str) -> PathBuf {
     kanzei_harness::config::discover_project_root(Path::new(project_dir))
         .unwrap_or_else(|| PathBuf::from(project_dir))

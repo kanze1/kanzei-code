@@ -245,3 +245,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；validate_model_roles 已迁移并保留 state_tests 调用路径。
 - 收尾: 1786284970
+
+## T-1786285056 R-153 settings 命令实现迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；settings_save/settings_open 已接管真实 Tauri 命令实现。
+- 收尾: 1786285060
