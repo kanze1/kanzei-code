@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 pub enum ProfileKind {
     Dev,
     Research,
+    /// 只读分析档位(R-102):read/glob/grep/task 放行,写与命令硬拒绝。
+    Readonly,
 }
 
 impl std::str::FromStr for ProfileKind {
@@ -15,7 +17,8 @@ impl std::str::FromStr for ProfileKind {
         match s {
             "dev" => Ok(ProfileKind::Dev),
             "research" => Ok(ProfileKind::Research),
-            other => Err(format!("unknown profile `{other}` (dev|research)")),
+            "readonly" => Ok(ProfileKind::Readonly),
+            other => Err(format!("unknown profile `{other}` (dev|research|readonly)")),
         }
     }
 }

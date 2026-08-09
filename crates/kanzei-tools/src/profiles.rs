@@ -563,6 +563,38 @@ impl Component for ResearchProfile {
     }
 }
 
+pub struct ReadonlyProfile;
+
+impl Component for ReadonlyProfile {
+    fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
+        if ctx.profile != ProfileKind::Readonly {
+            return Ok(());
+        }
+        // 只读档位(R-102):分析类任务免配权限直接跑。
+        // 工具集 = Base 的只读族(read/glob/grep/files/git 只读子命令) + webfetch;
+        // 权限强制(read/write/edit 硬 deny、bash 禁用提示替代)在批2 落码,
+        // 批1 只建档位概念与 agent,装配必须能解析出这个 profile。
+        draft.agents.insert(
+            "readonly",
+            AgentDef {
+                name: "readonly".into(),
+                profile: ProfileScope::All,
+                model: "primary".into(),
+                mode: AgentMode::Primary,
+                steps: 0,
+                system: "You are the read-only analysis agent. You may READ, SEARCH and \
+                         EXPLORE the repository (read/glob/grep/files/git status/diff/log, \
+                         webfetch), but you MUST NOT modify anything: no write, no edit, no \
+                         bash. Answer the user's question from what you can observe; if an \
+                         answer requires writing or running commands, say exactly what would \
+                         need to change and let the user do it."
+                    .into(),
+            },
+        );
+        Ok(())
+    }
+}
+
 /// 文档索引:非终态条目一行一个,预算封顶。
 fn index_of(
     ctx: &ResolveCtx,
@@ -869,5 +901,46 @@ mod tests {
             snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
             Effect::Deny
         );
+    }
+
+    /// R-102 批1:readonly 档位能装配出只读 agent,且权限快照可见。
+    #[test]
+    fn readonly_profile_resolves_readonly_agent() {
+        let root = PathBuf::from("C:/kanzei-r102-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Readonly,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(super::ResearchProfile)
+            .add(super::ReadonlyProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+
+        let agent = snapshot.select_agent(Some("readonly")).unwrap();
+        assert_eq!(agent.name, "readonly");
+        assert!(agent.system.contains("MUST NOT modify"));
+        assert!(agent.system.contains("read/glob/grep"));
+        // 档位缺省选 agent:readonly 档位下默认选中 readonly(dev/research 不匹配)。
+        let default_agent = snapshot.select_agent(None).unwrap();
+        assert_eq!(default_agent.name, "readonly");
+
+        // 权限快照(批1 交付):只读档位下读/检索类默认放行。
+        let snap = snapshot.permission_snapshot();
+        let read = snap
+            .iter()
+            .find(|s| s.action == "read")
+            .expect("快照里应有 read");
+        assert_eq!(read.effect, Effect::Allow);
+        let glob = snap
+            .iter()
+            .find(|s| s.action == "glob")
+            .expect("快照里应有 glob");
+        assert_eq!(glob.effect, Effect::Allow);
     }
 }

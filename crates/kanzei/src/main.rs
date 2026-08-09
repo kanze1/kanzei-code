@@ -13,7 +13,7 @@ use kanzei_harness::{
     ToolCtx,
 };
 use kanzei_llm::{LlmClient, ProxyConfig};
-use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
+use kanzei_tools::{BaseComponent, DevProfile, ReadonlyProfile, ResearchProfile};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -65,10 +65,11 @@ fn cli_exit_code(halted_by_user: bool) -> i32 {
 fn usage_text() -> &'static str {
     "usage: kz run \"<prompt>\"\n\
        kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始\n\
+       kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
 agent: dev(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
-profile: KANZEI_PROFILE=dev|research；KANZEI_AGENT=dev|dev-pair|research\n\
+profile: KANZEI_PROFILE=dev|research|readonly；KANZEI_AGENT=dev|dev-pair|research|readonly\n\
 model: KANZEI_MODEL=<role|provider:model>，例如 primary、fast、ollama:qwen3.5:4b\n\
 proxy: KANZEI_PROXY=off|env|<proxy-url>\n"
 }
@@ -77,15 +78,16 @@ fn usage() {
     eprint!("{}", usage_text());
 }
 
-fn parse_run_args(args: &[String]) -> (bool, String) {
+fn parse_run_args(args: &[String]) -> (bool, bool, String) {
     let new_session = args.iter().any(|arg| arg == "--new");
+    let readonly = args.iter().any(|arg| arg == "--readonly");
     let prompt = args
         .iter()
-        .filter(|arg| arg.as_str() != "--new")
+        .filter(|arg| arg.as_str() != "--new" && arg.as_str() != "--readonly")
         .cloned()
         .collect::<Vec<_>>()
         .join(" ");
-    (new_session, prompt)
+    (new_session, readonly, prompt)
 }
 
 /// D-194:HOME 不能当项目根。
@@ -109,7 +111,7 @@ fn reject_home_as_project_root(project_root: &std::path::Path) -> anyhow::Result
 }
 
 async fn run_cli(args: &[String]) -> anyhow::Result<()> {
-    let (new_session, prompt) = parse_run_args(args);
+    let (new_session, readonly, prompt) = parse_run_args(args);
     if prompt.trim().is_empty() {
         usage();
         std::process::exit(2);
@@ -125,7 +127,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         eprintln!("\x1b[33m{warning}\x1b[0m");
     }
     let profile: ProfileKind = match std::env::var("KANZEI_PROFILE") {
+        Ok(_) if readonly => ProfileKind::Readonly,
         Ok(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
+        Err(_) if readonly => ProfileKind::Readonly,
         Err(_) => config.default_profile(),
     };
     let project_root =
@@ -144,6 +148,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         .add(BaseComponent)
         .add(DevProfile)
         .add(ResearchProfile)
+        .add(ReadonlyProfile)
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
@@ -733,6 +738,27 @@ mod tests {
         assert!(usage.contains("KANZEI_MODEL=<role|provider:model>"));
         assert!(usage.contains("ollama:qwen3.5:4b"));
     }
+
+    #[test]
+    fn usage_lists_readonly_mode() {
+        let usage = usage_text();
+        assert!(usage.contains("--readonly"));
+        assert!(usage.contains("KANZEI_PROFILE=dev|research|readonly"));
+        assert!(usage.contains("KANZEI_AGENT=dev|dev-pair|research|readonly"));
+    }
+
+    #[test]
+    fn readonly_flag_is_parsed_and_stripped_from_prompt() {
+        let args = vec![
+            "--readonly".to_string(),
+            "分析".to_string(),
+            "代码".to_string(),
+        ];
+        assert_eq!(
+            parse_run_args(&args),
+            (false, true, "分析 代码".to_string())
+        );
+    }
     #[test]
     fn halted_run_uses_nonzero_exit_code_but_completed_run_stays_zero() {
         assert_eq!(cli_exit_code(true), 3);
@@ -745,7 +771,7 @@ mod tests {
             "开始".to_string(),
             "新会话".to_string(),
         ];
-        assert_eq!(parse_run_args(&args), (true, "开始 新会话".to_string()));
+        assert_eq!(parse_run_args(&args), (true, false, "开始 新会话".to_string()));
     }
 
     #[test]

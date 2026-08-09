@@ -32,6 +32,7 @@ pub use background::kill_project as kill_background_processes;
 pub use base::BaseComponent;
 pub use profiles::{
     frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ResearchProfile,
+    ReadonlyProfile,
 };
 pub use shell::detected_shell;
 pub use subagent::{explore_agent, SubagentBase};

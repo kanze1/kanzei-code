@@ -172,6 +172,15 @@ impl HarnessSnapshot {
         self.draft.permissions.evaluate(action, resource)
     }
 
+    /// 档位权限快照(R-102):列出每个已注册工具的整体决策。
+    ///
+    /// 快照语义 = 该工具在 `*` 资源上的最终效果(Allow/Deny/Ask),以及它是否被
+    /// 整体摘除(硬 deny 会让模型根本看不见这个工具)。批3 的档位权限快照测试
+    /// 用它做断言:readonly 档位下 write/edit/bash 必须是 Deny,read/glob/grep/task 放行。
+    pub fn permission_snapshot(&self) -> Vec<PermissionSnapshot> {
+        permission_snapshot_of(&self.draft)
+    }
+
     /// 被硬门禁拒绝时回喂模型的下一步指引(D-173)。
     ///
     /// 三种情形必须说三种话:有专用工具就点名它;声明为"暂无专用工具"的资源族
@@ -228,5 +237,96 @@ pub fn rule(action: &str, resource: &str, effect: Effect) -> Rule {
         action: action.into(),
         resource: resource.into(),
         effect,
+    }
+}
+
+/// 档位权限快照的一项(R-102):某工具在 `*` 资源上的整体决策。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionSnapshot {
+    pub action: String,
+    pub effect: Effect,
+    /// 硬 deny 会让工具整体摘除——模型根本看不见它。
+    pub fully_denied: bool,
+}
+
+/// 快照遍历逻辑:HarnessSnapshot::permission_snapshot 与测试共用同一实现。
+fn permission_snapshot_of(draft: &HarnessDraft) -> Vec<PermissionSnapshot> {
+    let mut names: Vec<String> = draft.tools.iter().map(|(n, _)| n.to_string()).collect();
+    // task 是 runner 内建子代理工具,不在工具注册表里;补进快照让只读档位的
+    // "task 放行" 可被同一条断言覆盖。
+    names.push("task".into());
+    names.sort();
+    names
+        .into_iter()
+        .map(|action| {
+            let fully_denied = draft.permissions.action_fully_denied(&action);
+            let effect = if fully_denied {
+                Effect::Deny
+            } else {
+                draft.permissions.evaluate(&action, "*")
+            };
+            PermissionSnapshot {
+                action,
+                effect,
+                fully_denied,
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Harness, KanzeiConfig, ProfileKind};
+
+    #[test]
+    fn permission_snapshot_reflects_ruleset_and_hard_denies() {
+        let mut draft = HarnessDraft::default();
+        // 普通规则:read 放行、bash ask。
+        draft
+            .permissions
+            .push(rule("read", "*", Effect::Allow));
+        draft.permissions.push(rule("bash", "*", Effect::Ask));
+        // 硬 deny:write 整体摘除。
+        draft
+            .permissions
+            .push_hard_deny(rule("write", "*", Effect::Deny));
+        // 模拟已注册工具(快照遍历的是 tools 注册表)。
+        struct DummyTool;
+        #[async_trait::async_trait]
+        impl Tool for DummyTool {
+            fn name(&self) -> &'static str {
+                "read"
+            }
+            fn description(&self) -> String {
+                String::new()
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+            async fn execute(
+                &self,
+                _input: serde_json::Value,
+                _ctx: &crate::ToolCtx,
+            ) -> crate::ToolOutput {
+                unimplemented!()
+            }
+        }
+        draft.tools.insert("read", Arc::new(DummyTool));
+        draft.tools.insert("bash", Arc::new(DummyTool));
+        draft.tools.insert("write", Arc::new(DummyTool));
+
+        let snap = permission_snapshot_of(&draft);
+        let read = snap.iter().find(|s| s.action == "read").unwrap();
+        assert_eq!(read.effect, Effect::Allow);
+        assert!(!read.fully_denied);
+        let bash = snap.iter().find(|s| s.action == "bash").unwrap();
+        assert_eq!(bash.effect, Effect::Ask);
+        let write = snap.iter().find(|s| s.action == "write").unwrap();
+        assert_eq!(write.effect, Effect::Deny);
+        assert!(write.fully_denied);
+        // task 不在注册表但快照补了它(只读档位的 task 放行断言依赖它)。
+        let task = snap.iter().find(|s| s.action == "task").unwrap();
+        assert_eq!(task.effect, Effect::Ask);
     }
 }
