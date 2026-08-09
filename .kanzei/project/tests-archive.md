@@ -781,3 +781,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: conventions_init 迁入 docs.rs 并改为 docs:: 注册后，kanzei-app 43 项全部通过。
 - 收尾: 1786296540
+
+## T-1786296646 R-153 git 状态 command 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: git_status 迁入 docs.rs 并改为 docs:: 注册后，kanzei-app 43 项全部通过。
+- 收尾: 1786296646

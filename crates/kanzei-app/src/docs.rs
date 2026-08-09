@@ -9,6 +9,33 @@ use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, S
 
 use crate::{hidden_command, CONVENTIONS_REL};
 
+/// git 概览:分支 + 未提交改动数(状态栏显示)。
+#[tauri::command]
+pub async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    tokio::task::spawn_blocking(move || {
+        let run = |args: &[&str]| -> Option<String> {
+            let out = hidden_command("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .ok()?;
+            out.status
+                .success()
+                .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+        let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        let changes = run(&["status", "--porcelain"])
+            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+            .unwrap_or(0);
+        let last = run(&["log", "-1", "--format=%h %s"]);
+        json!({ "branch": branch, "changes": changes, "last": last })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
 #[tauri::command]
 pub fn conventions_init(project_dir: String) -> Result<String, String> {

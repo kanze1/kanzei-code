@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本批完成规范初始化 command 迁移：`conventions_init` 已从 main.rs 移入 crates/kanzei-app/src/docs.rs，并由 invoke_handler 的 `docs::conventions_init` 真实注册；保留项目根发现、目录创建、模板写入和已存在文件直接返回行为。T-1786296540 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
+- 进展: 本批完成 git 状态 command 迁移：`git_status` 已从 main.rs 移入 crates/kanzei-app/src/docs.rs，并由 invoke_handler 的 `docs::git_status` 真实注册；保留分支、未提交改动数、最新提交查询及 Windows 隐藏命令行为。T-1786296646 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

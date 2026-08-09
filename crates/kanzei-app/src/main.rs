@@ -172,7 +172,7 @@ run::run_prompt,
             docs::docs_update,
             docs::docs_open,
             run::summarize_chat,
-            git_status,
+            docs::git_status,
             docs::conventions_init,
             conversation::conversation_clear,
             conversation::conversation_delete,
@@ -495,33 +495,6 @@ fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, Stri
     }
     files.sort();
     Ok(json!({ "path": destination.display().to_string(), "files": files }))
-}
-
-/// git 概览:分支 + 未提交改动数(状态栏显示)。
-#[tauri::command]
-async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    tokio::task::spawn_blocking(move || {
-        let run = |args: &[&str]| -> Option<String> {
-            let out = hidden_command("git")
-                .args(args)
-                .current_dir(&root)
-                .output()
-                .ok()?;
-            out.status
-                .success()
-                .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-        };
-        let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]);
-        let changes = run(&["status", "--porcelain"])
-            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
-            .unwrap_or(0);
-        let last = run(&["log", "-1", "--format=%h %s"]);
-        json!({ "branch": branch, "changes": changes, "last": last })
-    })
-    .await
-    .map_err(|e| e.to_string())
 }
 
 const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
