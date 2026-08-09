@@ -212,3 +212,7 @@
 ## T-1786277806 R-153 批7 settings command 边界定向测试 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: settings.rs command boundary compiles conceptually with real invoke_handler consumers; underlying settings behavior remains delegated to existing main.rs implementation. Full physical extraction remains pending.
+
+## T-1786277883 R-153 settings_get 物理搬迁定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: settings_get 已从 main.rs 物理移除并由 settings.rs 提供真实 invoke_handler 消费者；其余 settings functions 仍待后续同批清理。

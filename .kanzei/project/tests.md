@@ -155,3 +155,7 @@
 ## T-1786277788 R-153 批7 settings command 边界定向测试 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批7 settings command 边界接入：新增 settings.rs 作为真实 Tauri command consumer，invoke_handler 切换为 settings:: 全路径；底层行为暂沿用 main.rs 实现。
+
+## T-1786277880 R-153 settings_get 物理搬迁定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: settings_get 已物理搬入 settings.rs，其他 settings command 暂保留委托边界；本阶段验证注册路径与设置读取实现。
