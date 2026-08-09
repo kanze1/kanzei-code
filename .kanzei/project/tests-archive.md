@@ -410,3 +410,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: models_list 主体已复制到 run.rs 并通过定向编译验证；配置角色、Codex/Claude、OpenAI /models、Ollama 分支与返回字段保持。旧 main 实现待下一步删除。
 - 收尾: 1786289497
+
+## T-1786289561 R-153 models_list 旧副本清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: main.rs models_list_impl 旧副本已删除；run.rs models_list 为唯一实现，command 注册、OpenAI /models、Ollama helper 和模型载荷定向验证通过。
+- 收尾: 1786289565
