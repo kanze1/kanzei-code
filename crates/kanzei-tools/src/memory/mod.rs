@@ -248,6 +248,66 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
 /// 每轮最多投递的失败草稿条数:防止一轮异常把 inbox 灌爆、manager 被撑死。
 const MAX_FAILURE_NOTES_PER_RUN: usize = 3;
 
+/// dev/memory 常驻注入与开跑预检索共用的字符预算。
+pub const MEMORY_CONTEXT_BUDGET: usize = 3000;
+
+/// 从正文提取复发检测指纹标记(R-149):`[fp:...]` 精确子串,排序去重。
+/// update/merge 的引擎兜底(D-215)靠它判断指纹是否被弄丢。
+pub fn fp_markers(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("[fp:") {
+        let tail = &rest[start..];
+        let Some(end) = tail.find(']') else { break };
+        out.push(tail[..=end].to_string());
+        rest = &tail[end + 1..];
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// 常驻索引的预算走查(D-216):dev/memory 注入与 prompt_hints 必须对同一份口径,
+/// 否则 hints 会重复注入常驻索引里已有的行。返回 (预算内的行, 预算内 id 集, 折叠条数)。
+/// 与注入侧同规则:continue 跳过放不下的、不 break,超长行不得埋掉后面的短行。
+pub fn resident_index(
+    project_root: &std::path::Path,
+    budget: usize,
+) -> (Vec<String>, std::collections::HashSet<String>, usize) {
+    let mut all: Vec<(String, String)> = Vec::new();
+    let mut stores = vec![MemoryStore::project(project_root)];
+    stores.extend(MemoryStore::global());
+    for store in &stores {
+        for (_, e) in store.load_all() {
+            if e.status != "active" || e.category == "preference" {
+                continue;
+            }
+            all.push((
+                e.id.clone(),
+                format!(
+                    "{} [{}/{}] {} — {}",
+                    e.id, e.scope, e.category, e.title, e.description
+                ),
+            ));
+        }
+    }
+    let mut lines = Vec::new();
+    let mut ids = std::collections::HashSet::new();
+    let mut remaining = budget;
+    let mut folded = 0usize;
+    for (id, line) in all {
+        let cost = line.chars().count() + 1;
+        if cost > remaining {
+            folded += 1;
+            continue;
+        }
+        remaining -= cost;
+        ids.insert(id);
+        lines.push(line);
+    }
+    (lines, ids, folded)
+}
+
 /// 轮末机械投递(R-105 核心):把引擎提炼的失败信号写进 inbox 草稿箱。
 ///
 /// 这是"记忆生产"从模型自觉改为引擎机械采集的落点——投完之后既有的
@@ -411,6 +471,15 @@ pub fn harvest_entry_fact(
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
 pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
+    prompt_hints_with_budget(project_root, prompt, MEMORY_CONTEXT_BUDGET)
+}
+
+/// budget 与常驻注入同源,决定「哪些条目已在 memory-index 里」的判定口径。
+fn prompt_hints_with_budget(
+    project_root: &std::path::Path,
+    prompt: &str,
+    budget: usize,
+) -> Option<String> {
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut stores = vec![MemoryStore::project(project_root)];
     stores.extend(MemoryStore::global());
@@ -419,18 +488,28 @@ pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<Stri
             hits.extend(found);
         }
     }
+    // D-216:preference 正文全文常驻(STANDING DIRECTIVES),hints 再提是零信息,
+    // 还会污染召回遥测(实证:M-002 召回 22 次全是噪声)。
+    hits.retain(|h| h.entry.category != "preference");
     if hits.is_empty() {
         return None;
     }
     hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     hits.truncate(3);
+    // D-216:已在常驻索引里的条目只给指向不重复整行(重复的大头是 description);
+    // 被预算折叠掉的条目才值得在这里给全行。
+    let (_, resident_ids, _) = resident_index(project_root, budget);
     let lines: Vec<String> = hits
         .iter()
         .map(|h| {
-            format!(
-                "{} [{}/{}] {} — {}",
-                h.entry.id, h.entry.scope, h.entry.category, h.entry.title, h.entry.description
-            )
+            if resident_ids.contains(&h.entry.id) {
+                format!("{} {}(见 memory-index)", h.entry.id, h.entry.title)
+            } else {
+                format!(
+                    "{} [{}/{}] {} — {}",
+                    h.entry.id, h.entry.scope, h.entry.category, h.entry.title, h.entry.description
+                )
+            }
         })
         .collect();
     let block = format!(
@@ -717,6 +796,61 @@ mod tests {
     fn civil_date_is_correct() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20_672), (2026, 8, 7));
+    }
+
+    #[test]
+    fn fp_markers_提取排序去重且容忍残缺() {
+        assert_eq!(
+            fp_markers("前文 [fp:edit|not found] 中间 [fp:bash|timeout] 再来一遍 [fp:edit|not found]"),
+            vec!["[fp:bash|timeout]".to_string(), "[fp:edit|not found]".to_string()],
+        );
+        assert!(fp_markers("没有指纹的正文").is_empty());
+        // 未闭合的标记不炸也不误报。
+        assert!(fp_markers("残缺 [fp:edit|截断了").is_empty());
+    }
+
+    #[test]
+    fn hints_不重复常驻索引_折叠条目才给全行_preference_不进提示() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-hintdedup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        let add = |cat: &str, title: &str, desc: &str| match store
+            .add(cat, title, desc, "正文", "user", &[], None, false)
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("expected add"),
+        };
+        add("sop", "发版短条目", "发版发布安装更新必读"); // M-001
+        add("fact", "发版长条目", &"发版流程细节".repeat(20)); // M-002,索引行显著更长
+        add("preference", "发版定调", "发版发布安装更新必读"); // M-003
+
+        // 预算恰好只装得下 M-001 的行:M-002 被折叠。
+        let (lines, ids, folded) = resident_index(&dir, 80);
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(ids.contains("M-001"), "{ids:?}");
+        assert_eq!(folded, 1);
+
+        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80).unwrap();
+        // 常驻条目只给指向,不再重复 description 整行。
+        assert!(block.contains("M-001 发版短条目(见 memory-index)"), "{block}");
+        assert!(!block.contains("M-001 [project/sop]"), "常驻条目不该给全行: {block}");
+        // 被折叠的条目在 hints 里给全行(description 在这才有信息量)。
+        assert!(block.contains("M-002 [project/fact] 发版长条目 — "), "{block}");
+        // preference 全文常驻,hints 不提、遥测不记。
+        assert!(!block.contains("M-003"), "preference 不该进 hints: {block}");
+        assert!(
+            store.recalls(10).iter().all(|r| r.hits.iter().all(|h| h.id != "M-003")),
+            "preference 不该进召回遥测",
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

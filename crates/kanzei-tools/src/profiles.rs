@@ -57,7 +57,8 @@ pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
 /// 索引注入的预算上限(条数;超出折叠为计数)。
 const INDEX_LIMIT: usize = 30;
 /// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
-const MEMORY_CONTEXT_BUDGET: usize = 3000;
+// dev/memory 注入预算移入 memory 模块与 prompt_hints 共用(D-216:同一口径)。
+use crate::memory::MEMORY_CONTEXT_BUDGET;
 
 pub struct DevProfile;
 
@@ -259,7 +260,6 @@ impl Component for DevProfile {
         draft.context.insert(
             "dev/memory",
             source("dev/memory", |ctx: &ResolveCtx| {
-                let mut lines: Vec<String> = Vec::new();
                 // preference = 常驻定调(开发重心、验收口径…),必须全文注入才有约束力;
                 // fact/sop 只给索引行,正文按需检索(否则预算爆掉)。
                 let mut directives: Vec<String> = Vec::new();
@@ -267,23 +267,20 @@ impl Component for DevProfile {
                 stores.extend(crate::memory::MemoryStore::global());
                 for store in &stores {
                     for (_, e) in store.load_all() {
-                        if e.status != "active" {
+                        if e.status != "active" || e.category != "preference" {
                             continue;
                         }
-                        if e.category == "preference" {
-                            let body: String = e.body.chars().take(600).collect();
-                            directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
-                        } else {
-                            lines.push(format!(
-                                "{} [{}/{}] {} — {}",
-                                e.id, e.scope, e.category, e.title, e.description
-                            ));
-                        }
+                        let body: String = e.body.chars().take(600).collect();
+                        directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
                     }
                 }
+                // 索引行预算走查与 prompt_hints 共用同一实现(D-216):
+                // 两边口径一致,hints 才知道哪些条目已经在这里、不必重复整行。
+                let (lines, _, folded) =
+                    crate::memory::resident_index(&ctx.project_root, MEMORY_CONTEXT_BUDGET);
                 // 冷启动(D-127):零条目时也必须留声明,否则模型根本不知道记忆系统存在,
                 // 于是永不写入 → 永远零条目 → 注入永远为空,自锁成死环。
-                if lines.is_empty() && directives.is_empty() {
+                if lines.is_empty() && folded == 0 && directives.is_empty() {
                     return Some(
                         "<memory-index>\n(记忆库为空)\nYou have a long-term memory system: \
                          `memory_search` to recall, `memory_note` to record what would change \
@@ -323,27 +320,15 @@ impl Component for DevProfile {
                         ));
                     }
                 }
-                if !lines.is_empty() {
+                if !lines.is_empty() || folded > 0 {
                     out.push_str("KNOWN FACTS (index only — fetch bodies with `memory_search`):\n");
                 }
-                let mut budget = MEMORY_CONTEXT_BUDGET;
-                let mut shown = 0usize;
                 for line in &lines {
-                    let cost = line.chars().count() + 1;
-                    // 同上:一条超长索引行不该顺带埋掉它后面所有放得下的条目。
-                    if cost > budget {
-                        continue;
-                    }
-                    budget -= cost;
                     out.push_str(line);
                     out.push('\n');
-                    shown += 1;
                 }
-                if shown < lines.len() {
-                    out.push_str(&format!(
-                        "(还有 {} 条未列出,memory_search 可检索)\n",
-                        lines.len() - shown
-                    ));
+                if folded > 0 {
+                    out.push_str(&format!("(还有 {folded} 条未列出,memory_search 可检索)\n"));
                 }
                 out.push_str(
                     "Search a listed fact BEFORE re-deriving it. Record via `memory_note` \

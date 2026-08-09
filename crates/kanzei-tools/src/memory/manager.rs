@@ -145,6 +145,26 @@ impl Tool for MemoryUpdateTool {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
+        // D-215 引擎兜底:manager 改正文时不许弄丢复发指纹(它是引擎的检测键,
+        // 丢了「记了但没用」就再也看不见)。只闸 manager 写路径——UI 用户直写
+        // (memory_entry_save)不受此限,用户有权删任何东西(A-005)。
+        if let Some(new_body) = input.body.as_deref() {
+            if let Some((_, existing)) =
+                store.load_all().into_iter().find(|(_, e)| e.id == input.id)
+            {
+                let lost: Vec<String> = super::fp_markers(&existing.body)
+                    .into_iter()
+                    .filter(|marker| !new_body.contains(marker.as_str()))
+                    .collect();
+                if !lost.is_empty() {
+                    return ToolOutput::error(format!(
+                        "body update would drop recurrence marker(s) {} — they are engine \
+                         keys for recurrence detection; keep them verbatim in the new body",
+                        lost.join(" ")
+                    ));
+                }
+            }
+        }
         match store.update(
             &input.id,
             input.title.as_deref(),
@@ -406,6 +426,56 @@ mod tests {
             .execute(json!({"scope": "project", "id": "M-001", "reason": "  "}), &ctx)
             .await;
         assert!(no_reason.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn memory_update_不许弄丢正文里的复发指纹() {
+        // D-215:manager 修订条目时把 [fp:...] 弄丢会让复发检测静默失效,引擎拒绝。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-fpgate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let added = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "edit 未命中先 read",
+                       "description": "edit 失败必读", "body": "判据 [fp:edit|not found]"}),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+
+        let dropped = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": "M-001", "body": "重写后的判据(忘了带指纹)"}),
+                &ctx,
+            )
+            .await;
+        assert!(dropped.is_error, "{}", dropped.content);
+        assert!(dropped.content.contains("[fp:edit|not found]"), "{}", dropped.content);
+
+        // 带着指纹改正文、或只改 description 都放行。
+        let kept = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": "M-001",
+                       "body": "更锋利的判据 [fp:edit|not found]"}),
+                &ctx,
+            )
+            .await;
+        assert!(!kept.is_error, "{}", kept.content);
+        let desc_only = MemoryUpdateTool
+            .execute(
+                json!({"scope": "project", "id": "M-001", "description": "edit 替换失败必读:先 read 再改"}),
+                &ctx,
+            )
+            .await;
+        assert!(!desc_only.is_error, "{}", desc_only.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

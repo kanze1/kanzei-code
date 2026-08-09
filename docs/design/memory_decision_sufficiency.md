@@ -100,6 +100,7 @@
 - 2026-08-09 草案:依据用户提供的 Control-Sufficient Memory 研究文档完成 gap 分析与 P1/P2 分期;边界确认前不动代码。
 - 2026-08-09 边界拍板:用户逐项确认上述四点,转设计基线,当日实施 P1。
 - 2026-08-09 实证修正:真实召回数据(37 轮)显示 preference 走 prompt_hints 召回路径且采纳率结构性无意义,search() 豁免 preference 的 decision_weight;同批发现 D-214(SOP 候选滞留全局 inbox)与「read 不计采纳」遥测缺口(挂 R-150)。
+- 2026-08-09 全环节评审后硬化(D-215/D-216 当日修复):①update/merge 引擎兜底指纹与 refs(fp_markers 提取、update 丢指纹拒绝、merge 自动搬运);②注入与 hints 统一口径(resident_index 共用预算走查,常驻条目短指向、折叠条目全行、preference 不进 hints 与遥测);③登记 D-217(stale 归档搬运不存在)与 hits 因子去留(并入 R-150 复核)。
 
 ## 验证证据
 

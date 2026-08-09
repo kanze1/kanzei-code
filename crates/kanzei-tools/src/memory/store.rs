@@ -613,7 +613,44 @@ impl MemoryStore {
                 anyhow::bail!("unknown memory id `{id}`");
             }
         }
-        let merged = self.update(primary, title, description, body, None)?;
+        let mut merged = self.update(primary, title, description, body, None)?;
+        // D-215 引擎兜底:被并条目的复发指纹与来源引用不许静默蒸发——
+        // 指纹丢了复发检测就瞎了,refs 丢了记忆与来源脱钩,这两样不能赌 manager 记得带。
+        let mut carried_fps: Vec<String> = Vec::new();
+        let mut union_refs: Vec<String> = merged.refs();
+        for id in duplicates {
+            let (_, dup) = self
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| &e.id == id)
+                .expect("checked above");
+            for marker in super::fp_markers(&dup.body) {
+                if !merged.body.contains(&marker) && !carried_fps.contains(&marker) {
+                    carried_fps.push(marker);
+                }
+            }
+            for r in dup.refs() {
+                if !union_refs.contains(&r) {
+                    union_refs.push(r);
+                }
+            }
+        }
+        if !carried_fps.is_empty() || union_refs != merged.refs() {
+            let (path, mut entry) = self
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| e.id == merged.id)
+                .expect("primary exists");
+            if !carried_fps.is_empty() {
+                entry.body.push_str(&format!("\n\n(并入指纹: {})", carried_fps.join(" ")));
+            }
+            if !union_refs.is_empty() {
+                entry.extras.retain(|(k, _)| k != "refs");
+                entry.extras.push(("refs".into(), union_refs.join(" ")));
+            }
+            self.write_entry(&entry, Some(&path))?;
+            merged = entry;
+        }
         for id in duplicates {
             let (path, mut entry) = self
                 .load_all()
@@ -1368,6 +1405,35 @@ mod tests {
         // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
         let ranked = store.search("发版", None, Some("active"), 5).unwrap();
         assert_eq!(ranked[0].entry.id, b, "{:?}", ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn merge_自动搬运被并条目的指纹与refs() {
+        // D-215:合并不许静默丢掉复发检测键与来源链——这不能赌 manager 记得带。
+        let (dir, store) = temp_store();
+        let a = add(&store, "fact", "edit 未命中主因", "edit 失败必读", "判据 A");
+        let b = match store
+            .add("fact", "edit 未命中另一坑", "edit 失败必读 2", "判据 B [fp:edit|not found]", "user", &["R-001".into()], None, false)
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("expected add"),
+        };
+        let merged = store
+            .merge(&a.id, &[b.id.clone()], None, None, Some("合并后的正文(manager 忘了带指纹)"))
+            .unwrap();
+        // 指纹被引擎兜底并入 primary 正文,复发检测继续可用。
+        assert!(merged.body.contains("[fp:edit|not found]"), "{}", merged.body);
+        assert_eq!(
+            store.find_active_by_marker("[fp:edit|not found]").map(|e| e.id),
+            Some(a.id.clone()),
+        );
+        // refs 并集进 primary。
+        assert_eq!(merged.refs(), vec!["R-001".to_string()]);
+        // 墓碑语义不变。
+        let (_, dup) = store.load_all().into_iter().find(|(_, e)| e.id == b.id).unwrap();
+        assert_eq!(dup.status, "stale");
         std::fs::remove_dir_all(dir).ok();
     }
 

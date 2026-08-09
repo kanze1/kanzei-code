@@ -2151,3 +2151,15 @@
 - 状态: fixed
 - 进展: 2026-08-09 取活(需求队列 doing 均推不动:R-101 挂起等缺陷前置、R-148 剩用户复查,故转缺陷队列文档序首位 D-211)。根因定位:docDragEnabled(main.js)首行 `docSurface(listEl) !== "documents"` 拒绝侧栏——侧栏照常渲染锁提示+解锁按钮(renderDocList 4375-4423 无 surface 限制),但 draggable 只在 `!isGrouped && docDragEnabled(...)` 分支设置,侧栏永不设置:解锁后锁提示消失、条目"能选"却拖不动,与用户实测完全吻合;R-123 曾把排序收进文档页,但 D-211 验收要求两侧一致,更新定调覆盖。修复:docDragEnabled 去掉 surface 限制,侧栏与文档页一致可拖(手动+无筛选+非分组时 draggable 设置,拖拽链路 dragstart/dragover/dragend → commitDocOrder → docs_update reorder 为既有实现);docSurface 注释同步修订。冒烟:新增 D-211 块——侧栏解锁→锁提示消失→draggable=true→dragstart/dragover/dragend→docs_update reorder 被调;反向验证(临时恢复旧限制)断言 2 处立即命中,恢复后全绿(222 invoke)。验收③用户复查可拖:待发版安装后用户确认,与 D-210/D-213 同惯例。
 
+## D-215 memory update/merge 可静默丢失复发指纹与 refs,复发检测会瞎 [fixed]
+- 现象: R-149 复发检测依赖条目正文里的 [fp:...] 标记,但 memory_update 全量替换 body、memory_merge 不搬运被并条目的指纹与 refs——manager 修订/合并时弄丢标记,引擎从此看不见「记了但没用」,且无任何报错。
+- 修复: ①MemoryUpdateTool 加引擎闸:新 body 丢失旧 body 任一 [fp:...] 标记即拒绝并点名(只闸 manager 写路径,UI memory_entry_save 用户直写不受限,A-005);②store.merge 自动搬运:被并条目的指纹追加进 primary 正文「(并入指纹: ...)」,refs 取并集写回;③fp_markers() 提取器排序去重、容忍未闭合标记。
+- 进展(2026-08-09 修复): manager.rs MemoryUpdateTool 指纹闸+测试 memory_update_不许弄丢正文里的复发指纹(丢弃拒绝/保留放行/只改 description 放行);store.rs merge 搬运+测试 merge_自动搬运被并条目的指纹与refs(指纹并入后 find_active_by_marker 命中 primary、refs 并集、墓碑语义不变);mod.rs fp_markers+测试(排序去重/无指纹/残缺容忍)。workspace 全量绿。
+- refs: R-149 (medium)
+
+## D-216 prompt_hints 与常驻 memory-index 双重注入,preference 召回是纯遥测噪声 [fixed]
+- 现象: 常驻 memory-index 已含全部预算内 active 索引行,prompt_hints 再重复其中 top3 整行(37 轮实证:M-003 被"召回"23 次但每次本就在常驻索引里);preference 正文全文常驻,hints 再提是零信息,却占召回遥测(M-002 召回 22 次全是噪声)。
+- 修复: ①索引行预算走查抽成 memory::resident_index(),注入侧与 hints 共用同一口径(MEMORY_CONTEXT_BUDGET 移入 memory 模块);②hints 对常驻条目只给「id 标题(见 memory-index)」短指向,被预算折叠的条目才给全行;③preference 整类不进 hints、不记召回遥测。
+- 进展(2026-08-09 修复): mod.rs resident_index+prompt_hints_with_budget;profiles.rs dev/memory 消费 resident_index(冷启动判定改为 lines 空且 folded=0);测试 hints_不重复常驻索引_折叠条目才给全行_preference_不进提示(短行断言/全行断言/遥测无 preference)。workspace 全量绿。
+- refs: R-149 R-125 (medium)
+
