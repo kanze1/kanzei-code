@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 529003b：conversation_get、conversation_trace_get、conversation_list、conversation_delete 四个 main.rs 旧副本已删除，main.rs 减少 145 行；invoke_handler 仍由 conversation:: 模块提供真实消费者。定向验证 T-1786286871 已登记通过。conversation 批次完成，下一批进入 harness_ext/subagents。
+- 进展: 已提交 c9b00f6：新增 harness_ext.rs，FrontendToolsComponent 与 QuickCaptureComponent 已通过 harness_ext:: 真实调用接入；UI probe 三工具、frontend_locate/check 和快速 tracker 权限语义保持不变。main.rs 旧定义暂留，下一批删除旧副本后再进入 subagents。定向测试 T-1786287002 已登记通过。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
