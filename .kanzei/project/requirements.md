@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本轮承接现有批次：先定位 provider_test/SettingsPayload 当前拆解边界，保持零行为变更；工作树已有记忆系统托管变更，提交时不纳入。
+- 进展: 已提交 2e89534：SettingsPayload、LimitsPayload、ProviderPayload 的定义从 main.rs 迁入 settings.rs（settings.rs:10-55），main.rs 通过 pub(crate) use settings::{...} 保持 settings_tests/state_tests 现有调用路径。cargo check -p kanzei-app 与 cargo check -p kanzei-app --tests 通过；提交前定向测试记录 T-1786284711 已通过。保存实现(settings_set_*、validate_model_roles、settings_save_at_path)仍在 main.rs:453-约740，下一批继续物理迁入 settings.rs；R-153 验收尚未满足。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
