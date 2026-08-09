@@ -67,3 +67,15 @@
 ## T-1786251670 R-153 批1 kanzei-app 定向测试（修复后） [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: D-221 已修复：update 测试改从 fast_model 模块导入辅助函数，并将跨测试模块辅助提升为 pub(crate)。
+
+## T-1786252111 R-153 批2 update 模块边界回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证批2新增 update 模块入口、启动调用和 command 全路径注册不破坏现有行为；当前实现仍保留旧函数体作为兼容转发目标。
+
+## T-1786252149 R-153 批2 update 模块边界回归（修复后） [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-222 修复：wrapper 改为 update_check_command/update_install_command 并用 tauri command rename 保持外部命令名；验证宏符号冲突消失。
+
+## T-1786252297 R-153 批2 update command 宏迁移回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 update command 宏已从 main.rs 移除、模块 command wrapper 调用改名后的实现，避免重复宏符号。

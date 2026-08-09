@@ -24,6 +24,7 @@ use kanzei_core::{run_once_with_parts, AskFuture, RunEvent, RunnerConfig};
 mod files_view;
 mod agent_container;
 mod fast_model;
+mod update;
 
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
@@ -819,12 +820,12 @@ mod process_tests;
 mod update_tests_update;
 
 fn main() {
-    if startup_update() { return; }
+    if update::startup_update() { return; }
     // 安装器只装得了 kzapp,CLI 得由这里搬到位——两者共用一个库,版本必须同步(D-175)。
-    sync_bundled_cli();
+    update::sync_bundled_cli();
     // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
     // msedgewebview2 会锁住数据目录,不清的话本次启动必黑屏。
-    cleanup_orphan_webviews();
+    update::cleanup_orphan_webviews();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
@@ -884,8 +885,8 @@ fn main() {
             permission_rules_get,
             permission_rule_delete,
             provider_test,
-            update_check,
-            update_install,
+            update::update_check_command,
+            update::update_install_command,
             quick_req,
             defect_review,
             memory_overview,
@@ -3043,8 +3044,7 @@ fn timestamp_digits(value: &str) -> Option<String> {
 }
 
 /// 应用内检查更新:比对 GitHub Releases 最新 build 标签与当前构建号。
-#[tauri::command]
-async fn update_check() -> Result<serde_json::Value, String> {
+async fn update_check_impl() -> Result<serde_json::Value, String> {
     let current = option_env!("KANZEI_BUILD_INFO").unwrap_or("dev");
     let current_hash = current.split_whitespace().next().unwrap_or("dev").to_string();
     let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
@@ -3094,8 +3094,7 @@ async fn update_check() -> Result<serde_json::Value, String> {
 /// 下载校验 → 清理残留 → 静默启动安装器 → 立即退出自身,由 helper 装完拉起新版本。
 /// 不能只是 spawn 安装器就返回:安装器要替换的就是本进程的镜像,自己不退出必然
 /// 撞 os error 32,而 NSIS 遇占用会挂成僵尸把后续重试也锁死(D-124)。
-#[tauri::command]
-async fn update_install(app: tauri::AppHandle, url: String) -> Result<String, String> {
+async fn update_install_impl(app: tauri::AppHandle, url: String) -> Result<String, String> {
     if !url.starts_with("https://github.com/kanze1/kanzei-code/") {
         return Err("仅允许本仓库 release 资源".into());
     }

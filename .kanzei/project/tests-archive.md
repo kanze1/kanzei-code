@@ -124,3 +124,15 @@
 ## T-1786251753 R-153 批1 kanzei-app 定向测试（修复后） [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 42 项测试全部通过；覆盖模块编译、Tauri command 宏注册、原 update/permission/conversation/process/state/settings/assembly 测试。仅有既存 kanzei-core/tools 警告，无失败。
+
+## T-1786252124 R-153 批2 update 模块边界回归 [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批2暂存模块入口方案失败：update.rs command wrapper 与 main.rs 原 tauri command 宏生成同名符号冲突；未提交，需改为完整剪切函数而非 wrapper。
+
+## T-1786252264 R-153 批2 update 模块边界回归（修复后） [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项全部通过；修复 D-222 后 update command wrapper 的宏名冲突消失。注意：本次仅验证模块入口/转发边界，update 实现仍待完整剪切，不能作为 R-153 批2完成证据。
+
+## T-1786252367 R-153 批2 update command 宏迁移回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项全部通过；update_check/update_install 的 tauri command 宏已由 update.rs 承接并通过模块全路径注册。旧实现已改名为 impl 供转发，完整函数剪切仍未完成。
