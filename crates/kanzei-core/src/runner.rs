@@ -24,6 +24,8 @@ pub struct RunnerConfig {
     pub service_tier: Option<String>,
     /// 该模型的上下文窗口。None = 未知,轮内不做主动预算(只保留撞墙后的被动恢复)。
     pub context_limit: Option<u64>,
+    /// 可调上限([limits] 节)。全 None = 内置默认,与改造前的硬编码常量逐值一致。
+    pub limits: kanzei_harness::config::Limits,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
@@ -132,11 +134,12 @@ async fn compact_with_digest(
     messages: &mut Vec<Message>,
     budget: u64,
     overflow_traces: &mut Vec<String>,
+    recent_verbatim_ratio: f64,
 ) -> usize {
     // 任务定义:第一条纯文本用户消息。丢了它模型会跑偏。
     let head_index = messages.iter().position(is_text_user_message);
     // 近期工作区:从末尾往前收,收到占满 RECENT_VERBATIM_RATIO 为止。
-    let recent_budget = (budget as f64 * RECENT_VERBATIM_RATIO) as u64;
+    let recent_budget = (budget as f64 * recent_verbatim_ratio) as u64;
     let mut tail_start = messages.len();
     let mut tail_tokens = 0u64;
     while tail_start > 0 {
@@ -387,6 +390,8 @@ pub struct SubagentRuntime {
     pub max_tokens: u32,
     /// 单个子代理的墙钟上限(秒):本地模型多轮可能极慢,必须有界。
     pub timeout_secs: u64,
+    /// 可调上限,随主运行链一起传下来。
+    pub limits: kanzei_harness::config::Limits,
 }
 
 fn task_spec() -> ToolSpec {
@@ -1535,7 +1540,7 @@ pub fn run_once_with_parts<'a>(
         // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
         // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
         if let Some(limit) = config.context_limit {
-            let budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
+            let budget = (limit as f64 * config.limits.context_budget_ratio()) as u64;
             let before = budgeted_tokens(&system, &messages, &specs, calibration);
             if before > budget
                 && futile_compactions < MAX_FUTILE_COMPACTIONS
@@ -1547,6 +1552,7 @@ pub fn run_once_with_parts<'a>(
                     &mut messages,
                     budget,
                     &mut overflow_traces,
+                    config.limits.recent_verbatim_ratio(),
                 )
                 .await;
                 if dropped_messages > 0 {
@@ -1732,7 +1738,7 @@ pub fn run_once_with_parts<'a>(
             // 只重放传输层中断:协议错误重放只会原样复现,白烧钱。
             Some(error)
                 if matches!(error, kanzei_llm::LlmError::Transport(_))
-                    && stream_restarts < MAX_STREAM_RESTARTS =>
+                    && stream_restarts < config.limits.stream_restarts() =>
             {
                 stream_restarts += 1;
                 let delay = std::time::Duration::from_millis(500 * stream_restarts as u64);
@@ -1744,7 +1750,7 @@ pub fn run_once_with_parts<'a>(
                 );
                 on_event(RunEvent::StreamRestart {
                     attempt: stream_restarts,
-                    max: MAX_STREAM_RESTARTS,
+                    max: config.limits.stream_restarts(),
                     delay_ms: delay.as_millis(),
                 });
                 tokio::time::sleep(delay).await;
@@ -1788,8 +1794,9 @@ pub fn run_once_with_parts<'a>(
                 .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
                 .collect();
             if !task_calls.is_empty() {
-                let overflow = if task_calls.len() > MAX_TASKS_PER_TURN {
-                    task_calls.split_off(MAX_TASKS_PER_TURN)
+                let max_tasks = config.limits.max_tasks_per_turn();
+                let overflow = if task_calls.len() > max_tasks {
+                    task_calls.split_off(max_tasks)
                 } else {
                     Vec::new()
                 };
@@ -1810,7 +1817,7 @@ pub fn run_once_with_parts<'a>(
                     });
                     let output = kanzei_harness::ToolOutput::error(format!(
                         "too many parallel subagent tasks; maximum per turn is {}",
-                        MAX_TASKS_PER_TURN
+                        max_tasks
                     ));
                     on_event(RunEvent::ToolEnd {
                         id: id.clone(),
@@ -1987,7 +1994,7 @@ pub fn run_once_with_parts<'a>(
                     concurrency,
                 });
             }
-            for (index, result) in execute_prepared_tools(prepared, ctx, on_event).await {
+            for (index, result) in execute_prepared_tools(prepared, ctx, config.limits.max_parallel_tools(), on_event).await {
                 slots[index] = Some(result);
             }
             slots
@@ -2235,7 +2242,8 @@ struct PreparedToolCall {
     concurrency: ToolConcurrency,
 }
 
-fn build_tool_execution_waves(
+fn build_tool_execution_waves_with(
+    max_parallel: usize,
     calls: Vec<PreparedToolCall>,
 ) -> Vec<Vec<PreparedToolCall>> {
     let mut waves = Vec::new();
@@ -2245,7 +2253,7 @@ fn build_tool_execution_waves(
             .iter()
             .any(|other| call.concurrency.conflicts_with(&other.concurrency));
         if !current.is_empty()
-            && (conflicts || current.len() >= MAX_PARALLEL_TOOLS_PER_WAVE)
+            && (conflicts || current.len() >= max_parallel)
         {
             waves.push(std::mem::take(&mut current));
         }
@@ -2260,10 +2268,11 @@ fn build_tool_execution_waves(
 async fn execute_prepared_tools(
     calls: Vec<PreparedToolCall>,
     ctx: &ToolCtx,
+    max_parallel: usize,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> Vec<(usize, Part)> {
     let mut results = Vec::new();
-    for wave in build_tool_execution_waves(calls) {
+    for wave in build_tool_execution_waves_with(max_parallel, calls) {
         let mut jobs: futures::stream::FuturesUnordered<_> = wave
             .into_iter()
             .map(|call| async move {
@@ -2338,6 +2347,7 @@ async fn run_subagent(
         // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。
         reasoning: ReasoningEffort::Off,
         service_tier: service_tier.clone(),
+        limits: rt.limits.clone(),
         // 子代理跑的是 fast 模型,窗口未必与主模型同源;这里不传上限,
         // 让它继续走撞墙后的被动恢复,不按主模型的预算误压。
         context_limit: None,
@@ -2636,7 +2646,7 @@ mod tests {
         // subagent=None → 纪要模型不可用,走截断回落;即便如此也必须保住首尾。
         let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
         let dropped =
-            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces).await;
+            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.35).await;
 
         assert!(dropped > 0, "中段应当被压掉");
         let text: String = messages
@@ -2996,7 +3006,7 @@ mod tests {
                 completed.push(id);
             }
         };
-        let results = execute_prepared_tools(calls, &ctx, &mut on_event).await;
+        let results = execute_prepared_tools(calls, &ctx, super::MAX_PARALLEL_TOOLS_PER_WAVE, &mut on_event).await;
 
         assert!(max_in_flight.load(Ordering::SeqCst) >= 2, "只读调用没有重叠执行");
         assert_eq!(completed, vec!["call_fast_fail", "call_slow"]);
@@ -3033,7 +3043,7 @@ mod tests {
         ];
         let ctx = ToolCtx::new(std::env::temp_dir());
         let mut on_event = |_event| {};
-        let results = execute_prepared_tools(calls, &ctx, &mut on_event).await;
+        let results = execute_prepared_tools(calls, &ctx, super::MAX_PARALLEL_TOOLS_PER_WAVE, &mut on_event).await;
 
         assert_eq!(max_in_flight.load(Ordering::SeqCst), 1);
         assert_eq!(

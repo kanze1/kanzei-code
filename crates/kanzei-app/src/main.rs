@@ -467,6 +467,36 @@ pub(crate) struct SettingsPayload {
     #[serde(default)]
     profile: Option<String>,
     providers: Vec<ProviderPayload>,
+    /// 运行上限([limits] 节);每项留空 = 用内置默认,不写进配置文件。
+    #[serde(default)]
+    limits: LimitsPayload,
+}
+
+/// 设置页的 [limits] 表单。字段与 kanzei_harness::config::Limits 一一对应,但走 camelCase
+/// ——那边是 TOML 的键名,不能为了前端改掉。全 None = 表单全空 = 一个键都不写。
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LimitsPayload {
+    #[serde(default)]
+    max_tokens: Option<u32>,
+    #[serde(default)]
+    subagent_max_tokens: Option<u32>,
+    #[serde(default)]
+    subagent_timeout_secs: Option<u64>,
+    #[serde(default)]
+    context_budget_ratio: Option<f64>,
+    #[serde(default)]
+    recent_verbatim_ratio: Option<f64>,
+    #[serde(default)]
+    max_tasks_per_turn: Option<usize>,
+    #[serde(default)]
+    max_parallel_tools: Option<usize>,
+    #[serde(default)]
+    transport_retries: Option<u32>,
+    #[serde(default)]
+    rate_limit_retries: Option<u32>,
+    #[serde(default)]
+    stream_restarts: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -519,6 +549,21 @@ fn settings_set_or_reset(
             settings_set_value(table, key, default_value.to_string());
         }
         None => {}
+    }
+}
+
+/// 数值键写入:Some 设置,None 移除。留空即"用内置默认",配置文件里不留死键——
+/// 否则今后改默认值时,用户文件里那份旧数字会静默压住新默认。
+fn settings_set_or_remove_num(
+    table: &mut toml_edit::Table,
+    key: &str,
+    value: Option<impl Into<toml_edit::Value>>,
+) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None => {
+            table.remove(key);
+        }
     }
 }
 
@@ -625,6 +670,23 @@ fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), St
         "dev",
     );
 
+    let limits = settings_table(&mut doc, "limits")?;
+    let l = &payload.limits;
+    settings_set_or_remove_num(limits, "max_tokens", l.max_tokens.map(i64::from));
+    settings_set_or_remove_num(limits, "subagent_max_tokens", l.subagent_max_tokens.map(i64::from));
+    settings_set_or_remove_num(limits, "subagent_timeout_secs", l.subagent_timeout_secs.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "context_budget_ratio", l.context_budget_ratio);
+    settings_set_or_remove_num(limits, "recent_verbatim_ratio", l.recent_verbatim_ratio);
+    settings_set_or_remove_num(limits, "max_tasks_per_turn", l.max_tasks_per_turn.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "max_parallel_tools", l.max_parallel_tools.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "transport_retries", l.transport_retries.map(i64::from));
+    settings_set_or_remove_num(limits, "rate_limit_retries", l.rate_limit_retries.map(i64::from));
+    settings_set_or_remove_num(limits, "stream_restarts", l.stream_restarts.map(i64::from));
+    // 一个键都没设时不留空表,配置文件保持精简。
+    if limits.is_empty() {
+        doc.remove("limits");
+    }
+
     let providers = settings_table(&mut doc, "providers")?;
     providers.set_implicit(true);
     for p in payload.providers {
@@ -689,6 +751,7 @@ pub(crate) fn settings_open() -> Result<(), String> {
             codex_fast_mode: false,
             profile_default: None,
             profile: None,
+            limits: Default::default(),
             providers: vec![],
         })?;
     }
@@ -1054,10 +1117,11 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
             }
         };
         let runner_config = RunnerConfig {
-            max_tokens: 8192,
+            max_tokens: config.limits.max_tokens(),
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
+            limits: config.limits.clone(),
             model: resolved.model,
         };
         let mut on_event = |_event: RunEvent| {};
@@ -1192,6 +1256,7 @@ async fn quick_req(
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
+            limits: config.limits.clone(),
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -2308,7 +2373,7 @@ async fn run_task(
     let client = LlmClient::new(&proxy)?;
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
-        max_tokens: 8192,
+        max_tokens: config.limits.max_tokens(),
         // 每进程选择优先,未选则用 kanzei.toml 的 [models] reasoning 默认档。
         reasoning: reasoning_override
             .as_deref()
@@ -2319,6 +2384,7 @@ async fn run_task(
         // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
         // 根本轮不到它,真正起作用的是这条。
         context_limit: resolved.provider.context_limit,
+        limits: config.limits.clone(),
     };
     let ctx = ToolCtx { cwd, project_root };
 
@@ -2605,9 +2671,10 @@ async fn run_task(
             primary: (route.clone(), resolved.model.clone()),
             fast_service_tier: fast_tier,
             primary_service_tier: primary_tier,
-            max_tokens: 4096,
+            max_tokens: config.limits.subagent_max_tokens(),
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
-            timeout_secs: 900,
+            timeout_secs: config.limits.subagent_timeout_secs(),
+            limits: config.limits.clone(),
         })
     } else {
         None
@@ -2999,6 +3066,48 @@ mod settings_tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
+    fn 运行上限只写填了的键_留空的键从配置里移除() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-limits-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let payload = |limits: LimitsPayload| SettingsPayload {
+            primary: String::new(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits,
+            providers: vec![],
+        };
+        settings_save_at_path(
+            payload(LimitsPayload {
+                max_tokens: Some(16384),
+                subagent_timeout_secs: Some(300),
+                ..Default::default()
+            }),
+            &path,
+        )
+        .unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.limits.max_tokens, Some(16384));
+        assert_eq!(saved.limits.subagent_timeout_secs, Some(300));
+        assert_eq!(saved.limits.max_tasks_per_turn, None, "没填的键不该被写进文件");
+        assert_eq!(saved.limits.max_tasks_per_turn(), 8, "没填就走内置默认");
+
+        // 清空表单 = 回到内置默认:必须把键删掉,不能留一个写死的旧数字,
+        // 否则今后改了默认值,用户文件里那份陈旧数字会静默压住新默认。
+        settings_save_at_path(payload(LimitsPayload::default()), &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("max_tokens"), "清空后仍留着死键:\n{text}");
+        let saved: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(saved.limits.max_tokens(), 8192);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn settings_save_preserves_handwritten_permission_rules() {
         let path = std::env::temp_dir().join(format!(
             "kanzei-settings-{}.toml",
@@ -3021,6 +3130,7 @@ effect = \"allow\"
             codex_fast_mode: false,
             profile_default: None,
             profile: None,
+            limits: Default::default(),
             providers: vec![],
         }, &path).unwrap();
         let config: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -3051,6 +3161,7 @@ effect = \"allow\"
                 codex_fast_mode: true,
                 profile_default: Some("dev".into()),
                 profile: None,
+                limits: Default::default(),
                 providers: vec![],
             },
             &path,
@@ -3094,6 +3205,7 @@ effect = \"allow\"
                 codex_fast_mode: false,
                 profile_default: None,
                 profile: None,
+                limits: Default::default(),
                 providers: vec![],
             },
             &path,

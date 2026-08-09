@@ -358,6 +358,23 @@ const I18N_EN = {
   "高": "High",
   "默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效; 开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。": "Default level; the top bar can override it per process. It applies only to reasoning models. Anthropic allocates a reasoning budget and OpenAI receives reasoning effort.",
   "Codex Fast mode": "Codex Fast mode",
+  "运行上限": "Runtime limits",
+  "默认": "default",
+  "留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。":
+    "Leave blank to use the built-in default (shown as placeholder text). Only the fields you fill in are written to the config, so blanks follow future default changes.",
+  "主对话输出上限": "Main output cap",
+  "子代理输出上限": "Subagent output cap",
+  "子代理墙钟上限": "Subagent wall clock",
+  "秒": "sec",
+  "单轮子代理数上限": "Subagents per turn",
+  "压缩触发线": "Compaction trigger",
+  "占窗口比例": "share of window",
+  "压缩保留近期": "Keep recent",
+  "比例": "ratio",
+  "单波并行工具数": "Parallel tools per wave",
+  "流中断重放次数": "Stream replay attempts",
+  "传输重试次数": "Transport retries",
+  "限流重试次数": "Rate-limit retries",
   "仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。": "Codex only: keeps the current model (for example, luna) but consumes more credits for faster responses.",
   "移动端桥接": "Mobile bridge",
   "仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。": "Listens only on loopback. Starting provides a one-time pairing token; stopping revokes it.",
@@ -6400,6 +6417,11 @@ async function loadPermissionRules() {
 const SETTINGS_FORM_IDS = [
   "set-primary", "set-fast", "set-profile", "set-reasoning",
   "set-proxy-mode", "set-proxy-url",
+  // 运行上限也算表单的一部分:漏登记就会出现"改了数字却没有未保存提示",
+  // 而这正是 D-157 那条"界面显示 A、运行用 B"的复现路径。
+  "set-max-tokens", "set-subagent-max-tokens", "set-subagent-timeout", "set-max-tasks",
+  "set-context-ratio", "set-verbatim-ratio", "set-max-parallel", "set-stream-restarts",
+  "set-transport-retries", "set-rate-retries",
 ];
 let settingsSnapshot = "";
 function settingsFingerprint() {
@@ -6570,6 +6592,32 @@ $("fast-setup")?.addEventListener("click", async () => {
   }
 });
 
+// [limits] 表单:输入框 id ↔ 后端 camelCase 键。加参数时只改这一张表,
+// 读取与保存两侧都走它,不会再出现"读了没存"或"存了没读"的半边接线。
+const LIMIT_FIELDS = [
+  ["set-max-tokens", "maxTokens"],
+  ["set-subagent-max-tokens", "subagentMaxTokens"],
+  ["set-subagent-timeout", "subagentTimeoutSecs"],
+  ["set-max-tasks", "maxTasksPerTurn"],
+  ["set-context-ratio", "contextBudgetRatio"],
+  ["set-verbatim-ratio", "recentVerbatimRatio"],
+  ["set-max-parallel", "maxParallelTools"],
+  ["set-stream-restarts", "streamRestarts"],
+  ["set-transport-retries", "transportRetries"],
+  ["set-rate-retries", "rateLimitRetries"],
+];
+
+/// 空 → null(后端据此删掉该键,回落内置默认);非法输入也当空,不把 NaN 写进配置。
+function collectLimits() {
+  const out = {};
+  for (const [id, key] of LIMIT_FIELDS) {
+    const raw = $(id).value.trim();
+    const value = raw === "" ? null : Number(raw);
+    out[key] = value === null || Number.isNaN(value) ? null : value;
+  }
+  return out;
+}
+
 async function loadSettings() {
   let s;
   try {
@@ -6591,6 +6639,15 @@ async function loadSettings() {
   $("set-profile").value = s.profileDefault;
   $("set-reasoning").value = s.reasoning || "off";
   $("set-codex-fast-mode").checked = s.codexFastMode === true;
+  // 运行上限:值为空即"用内置默认",占位符显示该默认值——不写死在 HTML 里,
+  // 免得改了 Rust 默认值而界面还在展示旧数字。
+  for (const [id, key] of LIMIT_FIELDS) {
+    const el = $(id);
+    const value = s.limits?.[key];
+    el.value = value === null || value === undefined ? "" : String(value);
+    const fallback = s.limitDefaults?.[key];
+    el.placeholder = fallback === undefined ? "" : `${t("默认")} ${fallback}`;
+  }
   const proxy = s.proxy;
   if (proxy === "env" || proxy === "off") {
     $("set-proxy-mode").value = proxy;
@@ -6701,6 +6758,7 @@ $("settings-save").addEventListener("click", async () => {
         profileDefault: $("set-profile").value,
         reasoning: $("set-reasoning").value,
         codexFastMode: $("set-codex-fast-mode").checked,
+        limits: collectLimits(),
         providers: settingsProviders.map((p) => ({
           name: p.name,
           protocol: p.protocol,

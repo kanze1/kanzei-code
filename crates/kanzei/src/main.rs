@@ -164,7 +164,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let client = LlmClient::new(&proxy)?;
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
-        max_tokens: 8192,
+        max_tokens: config.limits.max_tokens(),
         reasoning: config
             .models
             .reasoning
@@ -174,6 +174,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         service_tier: config.service_tier_for(&resolved),
         // 轮内主动压缩的预算基准(D-176)。
         context_limit: resolved.provider.context_limit,
+        limits: config.limits.clone(),
     };
     let ctx = ToolCtx { cwd, project_root };
 
@@ -359,9 +360,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             primary: (route.clone(), resolved.model.clone()),
             fast_service_tier: fast_tier,
             primary_service_tier: primary_tier,
-            max_tokens: 4096,
+            max_tokens: config.limits.subagent_max_tokens(),
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
-            timeout_secs: 900,
+            timeout_secs: config.limits.subagent_timeout_secs(),
+            limits: config.limits.clone(),
         }
     };
 
@@ -541,6 +543,7 @@ async fn consolidate_memory_inbox(
             reasoning: kanzei_llm::ReasoningEffort::Off,
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
+            limits: config.limits.clone(),
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {

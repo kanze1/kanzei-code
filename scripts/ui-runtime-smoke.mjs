@@ -543,6 +543,12 @@ const payloads = {
     profileDefault: "dev",
     reasoning: "off",
     codexFastMode: false,
+    limits: { maxTokens: 4096, subagentTimeoutSecs: null },
+    limitDefaults: {
+      maxTokens: 8192, subagentMaxTokens: 4096, subagentTimeoutSecs: 900,
+      contextBudgetRatio: 0.7, recentVerbatimRatio: 0.35, maxTasksPerTurn: 8,
+      maxParallelTools: 8, transportRetries: 2, rateLimitRetries: 2, streamRestarts: 2,
+    },
     profiles: {},
     providers: [],
     permissions: [],
@@ -1060,6 +1066,37 @@ assert(
 );
 
 assert(html.includes('id="set-codex-fast-mode"'), "设置页缺少 Codex Fast mode 开关标记");
+// 运行上限([limits]):读、存、脏状态三条线缺一条就是"界面显示 A、运行用 B"(D-157)。
+{
+  const ids = ["set-max-tokens", "set-subagent-max-tokens", "set-subagent-timeout", "set-max-tasks",
+    "set-context-ratio", "set-verbatim-ratio", "set-max-parallel", "set-stream-restarts",
+    "set-transport-retries", "set-rate-retries"];
+  for (const id of ids) {
+    assert(html.includes(`id="${id}"`), `设置页缺少运行上限输入框 ${id}`);
+    assert(source.includes(id), `main.js 没有接线运行上限字段 ${id}`);
+  }
+  assert(byId.get("set-max-tokens")?.value === "4096", `已配置的上限没回填到表单:${byId.get("set-max-tokens")?.value}`);
+  assert(
+    byId.get("set-subagent-timeout")?.value === "",
+    "未配置的上限必须留空(空=用默认),不能填成默认值——否则一保存就把默认固化进配置",
+  );
+  assert(
+    (byId.get("set-subagent-timeout")?.placeholder ?? "").includes("900"),
+    `留空项要用占位符显示内置默认:${byId.get("set-subagent-timeout")?.placeholder}`,
+  );
+  assert(
+    source.includes("limits: collectLimits()"),
+    "保存设置未透传运行上限",
+  );
+  assert(
+    SETTINGS_FORM_IDS_IN_SOURCE(source, "set-max-tokens"),
+    "运行上限没登记进脏状态列表:改了数字不会提示未保存(D-157 复现路径)",
+  );
+}
+function SETTINGS_FORM_IDS_IN_SOURCE(src, id) {
+  const block = src.slice(src.indexOf("const SETTINGS_FORM_IDS"), src.indexOf("let settingsSnapshot"));
+  return block.includes(id);
+}
 assert(source.includes('$("set-codex-fast-mode").checked = s.codexFastMode === true'), "设置页未恢复 Codex Fast mode 状态");
 assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "保存设置未透传 Codex Fast mode");
 

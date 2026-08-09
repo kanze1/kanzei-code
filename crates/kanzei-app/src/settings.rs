@@ -38,6 +38,32 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "codexFastMode": config.models.codex_fast_mode.unwrap_or(false), "providers": providers,
+        // limits:发原始值(None = 表单留空),同时发一份生效默认值给占位符用——
+        // 用户要看得见"留空等于多少",否则只能去翻源码。
+        "limits": {
+            "maxTokens": config.limits.max_tokens,
+            "subagentMaxTokens": config.limits.subagent_max_tokens,
+            "subagentTimeoutSecs": config.limits.subagent_timeout_secs,
+            "contextBudgetRatio": config.limits.context_budget_ratio,
+            "recentVerbatimRatio": config.limits.recent_verbatim_ratio,
+            "maxTasksPerTurn": config.limits.max_tasks_per_turn,
+            "maxParallelTools": config.limits.max_parallel_tools,
+            "transportRetries": config.limits.transport_retries,
+            "rateLimitRetries": config.limits.rate_limit_retries,
+            "streamRestarts": config.limits.stream_restarts,
+        },
+        "limitDefaults": {
+            "maxTokens": kanzei_harness::config::Limits::default().max_tokens(),
+            "subagentMaxTokens": kanzei_harness::config::Limits::default().subagent_max_tokens(),
+            "subagentTimeoutSecs": kanzei_harness::config::Limits::default().subagent_timeout_secs(),
+            "contextBudgetRatio": kanzei_harness::config::Limits::default().context_budget_ratio(),
+            "recentVerbatimRatio": kanzei_harness::config::Limits::default().recent_verbatim_ratio(),
+            "maxTasksPerTurn": kanzei_harness::config::Limits::default().max_tasks_per_turn(),
+            "maxParallelTools": kanzei_harness::config::Limits::default().max_parallel_tools(),
+            "transportRetries": kanzei_harness::config::Limits::default().transport_retries(),
+            "rateLimitRetries": kanzei_harness::config::Limits::default().rate_limit_retries(),
+            "streamRestarts": kanzei_harness::config::Limits::default().stream_restarts(),
+        },
         "effective": effective,
         "projectConfig": project_dir.as_deref().and_then(|d| kanzei_harness::config::discover_project_root(Path::new(d)))
             .map(|root| root.join(".kanzei").join("kanzei.toml").display().to_string()),

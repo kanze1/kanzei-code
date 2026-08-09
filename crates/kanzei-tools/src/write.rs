@@ -372,6 +372,7 @@ mod tests {
             reasoning: ReasoningEffort::Off,
             service_tier: None,
             context_limit: None,
+            limits: Default::default(),
         };
         let tool_ctx = ToolCtx {
             cwd: root.clone(),

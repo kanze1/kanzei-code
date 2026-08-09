@@ -368,7 +368,8 @@
             <select id="language-select"><option value="zh">简体中文</option><option value="en">English</option></select>
           </div>
 
-          <h2>模型角色</h2>
+          <details class="settings-group" open>
+            <summary>模型角色</summary>
           <p id="settings-effective" class="settings-effective hidden" role="status"></p>
           <div class="form-row">
             <label>primary <span class="dim">主循环</span></label>
@@ -388,7 +389,9 @@
             <button id="fast-setup" class="ghost hidden" type="button" title="自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型">一键就绪子代理</button>
           </div>
 
-          <h2>Provider</h2>
+          </details>
+          <details class="settings-group" open>
+            <summary>Provider</summary>
           <div class="settings-actions" style="margin-top: 0; margin-bottom: 8px;">
             <button id="providers-test" class="ghost">测试全部连通性</button>
             <span id="providers-test-result" class="dim" role="status" aria-live="polite"></span>
@@ -399,7 +402,9 @@
           </table>
           <button id="provider-add" class="ghost">+ 添加 provider</button>
 
-          <h2>网络与默认</h2>
+          </details>
+          <details class="settings-group">
+            <summary>网络与默认</summary>
           <div class="form-row">
             <label>代理</label>
             <select id="set-proxy-mode">
@@ -432,7 +437,44 @@
           </div>
           <p class="dim">仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。</p>
 
-          <h2>移动端桥接</h2>
+          </details>
+          <details class="settings-group">
+            <summary>运行上限</summary>
+          <p class="dim">留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。</p>
+          <div class="form-row">
+            <label>主对话输出上限 <span class="dim">tokens</span></label>
+            <input id="set-max-tokens" type="number" min="256" step="256" />
+            <label>子代理输出上限 <span class="dim">tokens</span></label>
+            <input id="set-subagent-max-tokens" type="number" min="256" step="256" />
+          </div>
+          <div class="form-row">
+            <label>子代理墙钟上限 <span class="dim">秒</span></label>
+            <input id="set-subagent-timeout" type="number" min="10" step="10" />
+            <label>单轮子代理数上限</label>
+            <input id="set-max-tasks" type="number" min="1" step="1" />
+          </div>
+          <div class="form-row">
+            <label>压缩触发线 <span class="dim">占窗口比例</span></label>
+            <input id="set-context-ratio" type="number" min="0.1" max="0.95" step="0.05" />
+            <label>压缩保留近期 <span class="dim">比例</span></label>
+            <input id="set-verbatim-ratio" type="number" min="0.05" max="0.9" step="0.05" />
+          </div>
+          <div class="form-row">
+            <label>单波并行工具数</label>
+            <input id="set-max-parallel" type="number" min="1" step="1" />
+            <label>流中断重放次数</label>
+            <input id="set-stream-restarts" type="number" min="0" step="1" />
+          </div>
+          <div class="form-row">
+            <label>传输重试次数</label>
+            <input id="set-transport-retries" type="number" min="0" step="1" />
+            <label>限流重试次数</label>
+            <input id="set-rate-retries" type="number" min="0" step="1" />
+          </div>
+
+          </details>
+          <details class="settings-group">
+            <summary>移动端桥接</summary>
           <p class="dim">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
           <div class="form-row">
             <label>本机服务</label>
@@ -448,7 +490,9 @@
             <button id="agent-container-rollback" class="ghost">回滚</button>
           </div>
 
-          <h2>已记住的权限</h2>
+          </details>
+          <details class="settings-group">
+            <summary>已记住的权限</summary>
           <p class="dim">当前项目中选择“总是允许”后保存的放行规则。删除后下次匹配时会再次询问。</p>
           <table id="permission-rules-table">
             <thead><tr><th>操作</th><th>资源</th><th></th></tr></thead>
@@ -456,7 +500,9 @@
           </table>
           <p id="permission-rules-empty" class="dim">当前项目没有已记住的放行规则。</p>
           <p id="permission-rules-path" class="dim"></p>
-          <h2>工作资料导出</h2>
+          </details>
+          <details class="settings-group">
+            <summary>工作资料导出</summary>
           <p class="dim">默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。</p>
           <div class="form-row">
             <label for="export-output-dir">导出目录</label>
@@ -472,13 +518,16 @@
           </div>
           <p id="export-result" class="dim" role="status" aria-live="polite"></p>
 
-          <h2>版本与更新</h2>
+          </details>
+          <details class="settings-group">
+            <summary>版本与更新</summary>
           <div class="form-row">
             <label>当前版本 <span id="update-current" class="dim"></span></label>
             <button id="update-check" class="ghost">检查更新</button>
             <button id="update-install" class="primary hidden">下载并安装</button>
             <span id="update-result" class="dim"></span>
           </div>
+          </details>
 
           <div class="settings-actions">
             <span id="settings-dirty" class="settings-dirty hidden" role="status">未保存 — 改动要点「保存」才会写入配置并生效</span>

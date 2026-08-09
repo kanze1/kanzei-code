@@ -49,7 +49,7 @@ fn 同一上级下的两个项目必须各自独立不串数据() {
 
 #[test]
 fn 保存前拦住指向不存在_provider_的模型角色() {
-    let payload = |primary: &str| SettingsPayload { primary: primary.into(), fast: String::new(), proxy: "env".into(), reasoning: None, codex_fast_mode: false, profile_default: None, profile: None, providers: vec![ProviderPayload { name: "deepseek".into(), protocol: "openai".into(), base_url: "x".into(), api_key_env: None, api_key: None, auth: None, context_limit: None }] };
+    let payload = |primary: &str| SettingsPayload { primary: primary.into(), fast: String::new(), proxy: "env".into(), reasoning: None, codex_fast_mode: false, profile_default: None, profile: None, limits: Default::default(), providers: vec![ProviderPayload { name: "deepseek".into(), protocol: "openai".into(), base_url: "x".into(), api_key_env: None, api_key: None, auth: None, context_limit: None }] };
     assert!(validate_model_roles(&payload("deepsek:chat")).is_err());
     assert!(validate_model_roles(&payload("deepseek:chat")).is_ok());
 }

@@ -21,6 +21,81 @@ pub struct KanzeiConfig {
     pub profile: ProfileSection,
     #[serde(default)]
     pub permissions: PermissionsSection,
+    #[serde(default)]
+    pub limits: Limits,
+}
+
+/// 运行时上限与阈值。此前全部是散落在各 crate 里的硬编码常量,配置层没有任何入口——
+/// 想调一个输出预算就得改代码重编译。
+///
+/// 每个字段都是 Option:None = 用内置默认(即改造前那个常量值),所以旧配置没有
+/// `[limits]` 节时行为逐字节不变(conventions §4 向后兼容);层叠合并也照既有规矩来——
+/// 项目层只覆盖它显式写了的那几个键,不会把没写的键打回默认值。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Limits {
+    /// 主对话单次输出上限(tokens)
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// 子代理单次输出上限(tokens)
+    #[serde(default)]
+    pub subagent_max_tokens: Option<u32>,
+    /// 单个子代理的墙钟上限(秒)
+    #[serde(default)]
+    pub subagent_timeout_secs: Option<u64>,
+    /// 轮内主动压缩的触发线:占上下文窗口的比例
+    #[serde(default)]
+    pub context_budget_ratio: Option<f64>,
+    /// 压缩时末尾逐字保留的比例
+    #[serde(default)]
+    pub recent_verbatim_ratio: Option<f64>,
+    /// 单轮最多派发多少个 task 子代理
+    #[serde(default)]
+    pub max_tasks_per_turn: Option<usize>,
+    /// 单波最多并行多少个工具
+    #[serde(default)]
+    pub max_parallel_tools: Option<usize>,
+    /// 传输层重试次数
+    #[serde(default)]
+    pub transport_retries: Option<u32>,
+    /// 限流重试次数
+    #[serde(default)]
+    pub rate_limit_retries: Option<u32>,
+    /// 流中断后重放本轮的次数上限
+    #[serde(default)]
+    pub stream_restarts: Option<u32>,
+}
+
+impl Limits {
+    pub fn max_tokens(&self) -> u32 {
+        self.max_tokens.unwrap_or(8192)
+    }
+    pub fn subagent_max_tokens(&self) -> u32 {
+        self.subagent_max_tokens.unwrap_or(4096)
+    }
+    pub fn subagent_timeout_secs(&self) -> u64 {
+        self.subagent_timeout_secs.unwrap_or(900)
+    }
+    pub fn context_budget_ratio(&self) -> f64 {
+        self.context_budget_ratio.unwrap_or(0.7).clamp(0.1, 0.95)
+    }
+    pub fn recent_verbatim_ratio(&self) -> f64 {
+        self.recent_verbatim_ratio.unwrap_or(0.35).clamp(0.05, 0.9)
+    }
+    pub fn max_tasks_per_turn(&self) -> usize {
+        self.max_tasks_per_turn.unwrap_or(8).max(1)
+    }
+    pub fn max_parallel_tools(&self) -> usize {
+        self.max_parallel_tools.unwrap_or(8).max(1)
+    }
+    pub fn transport_retries(&self) -> u32 {
+        self.transport_retries.unwrap_or(2)
+    }
+    pub fn rate_limit_retries(&self) -> u32 {
+        self.rate_limit_retries.unwrap_or(2)
+    }
+    pub fn stream_restarts(&self) -> u32 {
+        self.stream_restarts.unwrap_or(2)
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -433,11 +508,19 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
     check(
         value,
         "",
-        &["models", "providers", "proxy", "profile", "permissions"],
+        &["models", "providers", "proxy", "profile", "permissions", "limits"],
         &mut out,
     );
     if let Some(models) = value.get("models") {
         check(models, "models", &["primary", "fast", "reasoning", "codex_fast_mode"], &mut out);
+    }
+    if let Some(limits) = value.get("limits") {
+        check(
+            limits,
+            "limits",
+            &["max_tokens", "subagent_max_tokens", "subagent_timeout_secs", "context_budget_ratio", "recent_verbatim_ratio", "max_tasks_per_turn", "max_parallel_tools", "transport_retries", "rate_limit_retries", "stream_restarts"],
+            &mut out,
+        );
     }
     if let Some(providers) = value.get("providers").and_then(|p| p.as_table()) {
         for (name, provider) in providers {
@@ -492,6 +575,17 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         base.profile.default = layer.profile.default;
     }
     base.permissions.rules.extend(layer.permissions.rules);
+    // [limits] 逐字段覆盖:项目层只写了哪几个键就只覆盖哪几个,没写的保持全局层的值。
+    // 整节替换会让"项目里只调一个 max_tokens"把其余全部打回默认——正是 reasoning
+    // 那次漏合并留下的教训。
+    macro_rules! overlay {
+        ($($field:ident),+ $(,)?) => {
+            $(if layer.limits.$field.is_some() { base.limits.$field = layer.limits.$field; })+
+        };
+    }
+    overlay!(
+        max_tokens, subagent_max_tokens, subagent_timeout_secs, context_budget_ratio, recent_verbatim_ratio, max_tasks_per_turn, max_parallel_tools, transport_retries, rate_limit_retries, stream_restarts,
+    );
 }
 
 /// "总是允许"的持久化:向项目配置追加 allow 规则(后来的规则 last-match-wins)。
@@ -630,6 +724,30 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    #[test]
+    fn limits_缺节等于内置默认_项目层只覆盖它写了的那几个键() {
+        // 旧配置没有 [limits] 时必须逐值等于改造前的硬编码常量。
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.limits.max_tokens(), 8192);
+        assert_eq!(empty.limits.subagent_timeout_secs(), 900);
+        assert_eq!(empty.limits.context_budget_ratio(), 0.7);
+        assert_eq!(empty.limits.max_tasks_per_turn(), 8);
+
+        // 项目层只写一个键,不能把全局层其余的键打回默认(reasoning 那次漏合并的教训)。
+        let mut base: KanzeiConfig =
+            toml::from_str("[limits]\nmax_tokens = 4096\nsubagent_timeout_secs = 300\n").unwrap();
+        let layer: KanzeiConfig = toml::from_str("[limits]\nmax_tokens = 16384\n").unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.limits.max_tokens(), 16384, "项目层写了的键要覆盖");
+        assert_eq!(base.limits.subagent_timeout_secs(), 300, "没写的键必须保住全局层的值");
+
+        // 离谱取值被夹住,不至于把运行时配崩。
+        let wild: KanzeiConfig =
+            toml::from_str("[limits]\ncontext_budget_ratio = 9.0\nmax_tasks_per_turn = 0\n").unwrap();
+        assert_eq!(wild.limits.context_budget_ratio(), 0.95);
+        assert_eq!(wild.limits.max_tasks_per_turn(), 1);
     }
 
     #[test]
