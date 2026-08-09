@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批1首次尝试已回退，未形成代码提交：仅用 `pub use` 把 tauri command 暴露到新模块会导致宏生成的 `__cmd__*`/`__tauri_command_name_*` 仍在 main 模块，出现重复定义且 `generate_handler!` 找不到模块内宏符号。失败测试已记录；当前代码恢复到批0完成后的状态。批1必须改为完整剪切函数与其 tauri 宏一起迁移，不能做 re-export 伪迁移。
+- 进展: 批1已完成代码迁移，待提交：`agent_container.rs` 承接 AgentContainerManifest 与 create/upgrade/rollback；`fast_model.rs` 承接 Ollama fast 状态/安装及私有辅助；main.rs 仅保留两个模块声明与 invoke_handler 全路径注册；update_tests_update.rs 同步改从 fast_model 导入测试辅助。修复 D-221 后 `cargo test -p kanzei-app` 42 项全绿（T-1786251753）。批0a~0e 与旧副本清理均已完成；R-153 总验收仍待批2~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟及拆前后行数对照。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
