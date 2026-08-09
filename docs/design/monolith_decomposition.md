@@ -26,8 +26,8 @@
 
 ## 执行纪律(三个条目共用)
 
-1. **每批 = 一次提交**,提交前:动了 crates/ → `cargo test --workspace` 全绿;动了 ui/ → `node --check`(遍历 ui/*.js)+ 四条冒烟全绿。测试模块要能编译,全量 `cargo test` 已覆盖(测试编译失败会红)。
-2. 每批提交后核对**外部 API 面零变更**:`crates/kanzei`、`crates/kanzei-app`、`crates/kanzei-tools` 的源码在整个拆解中一行不改仍编译(R-155 的硬验收;R-153 拆的就是 kanzei-app 自身,该断言只对另外两个 crate 成立)。
+1. **每批 = 一次提交**,提交前做**定向验证**(节奏依 conventions §1.4/A-010,2026-08-09 用户定调效率优先):R-153 → `cargo test -p kanzei-app`;R-155 → `cargo test -p kanzei-core` + `cargo check -p kanzei -p kanzei-app -p kanzei-tools`(顺带完成外部 API 面断言);R-154(ui/)→ `node --check`(遍历 ui/*.js)+ 四条冒烟(秒级,每批保持)。**全量 `cargo test --workspace` 只在条目关闭前与发版前跑**,不挂在每批提交上。
+2. 每批提交后顺手 push(带代理),CI 异步全量兜底;CI 红了先修复再开下一批。**外部 API 面零变更**以纪律 1 的三 crate `cargo check` 为每批断言(R-155 硬验收;R-153 拆的就是 kanzei-app 自身,断言只对另外两个 crate 成立)。
 3. **拆解批与任何其他源码条目不得并发**(并发自举提交会与大搬迁冲突);动手前 `git status` + 核对最新提交。
 4. 搬迁 = 剪切粘贴 + 最小可见性调整(`pub(crate)`/`pub(super)`),diff 里只允许 move + use + 可见性,出现逻辑 diff 即回退重来。
 
@@ -75,7 +75,7 @@
 3. `AppState.ask_seq` 是共享 `Arc<AtomicU64>`,不得在任何模块新建。
 4. `#[cfg(windows)]` 6 处分散:`process_alive` 成对定义(699/708)**必须成对搬**;ollama 域 2140/2227/2254 三处内联 creation_flags 没走 `hidden_command`,拆 fast_model.rs 时漏 cfg 会断非 Windows 编译。
 5. `assembly_tests` 守的是 run_task 里 FrontendToolsComponent 注册与提示词追加的双写点(D-195/D-190),这两处必须留在同一函数。
-6. `use super::*` 的测试模块(assembly/settings)拆分后只在 `cargo test` 编译时报错,`cargo build` 看不见——全量测试不可省。
+6. `use super::*` 的测试模块(assembly/settings)拆分后只在测试编译时报错,`cargo build` 看不见——每批的 `cargo test -p kanzei-app`(会编译测试)不可省,不能用 `cargo build -p` 替代。
 
 ---
 
@@ -181,6 +181,7 @@ S1 拆壳:`store.rs`→`store/mod.rs` 原样改名,`connection`/`path` 字段 `p
 ## 变更记录
 
 - 2026-08-09 初版:三份结构探查(逐文件通读+外部引用 Grep)汇总成批次计划,交自举执行。
+- 2026-08-09 节奏修订(用户定调效率优先):批内验证改定向(cargo test -p + 下游 cargo check),全量降频到条目关闭前与发版前,批提交后 push 由 CI 异步全量兜底;执行纪律 1/2 与危险点 A#6 同步,详见 conventions §1.4 与 A-010。
 
 ## 验证证据
 

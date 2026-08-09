@@ -46,8 +46,18 @@
 ## 1.3 工作粒度与验证选择(2026-08-07 用户定调)
 
 - 单轮粒度 = 一个完整条目:以做完当前这一条缺陷/需求为目标;同构批量改动(i18n、重命名、格式迁移)一轮吃掉完整类别,禁止两三处一轮的微切片;确实超出单轮容量才按验收子项分轮,并在进展里写明批次边界。
-- 验证与改动面匹配:纯 ui/(html/js/css)改动跑 node --check 与冒烟脚本即可;动了 crates/ 才跑 cargo test(先定向,提交前全量一次);与改动无关的套件不跑——无信息量的测试本身就是浪费。
+- 验证与改动面匹配:纯 ui/(html/js/css)改动跑 node --check 与冒烟脚本即可;动了 crates/ 跑**定向测试**(`cargo test -p <改动 crate>`);与改动无关的套件不跑——无信息量的测试本身就是浪费。**全量测试不再挂在每次提交上**,触发点与频率见 §1.4 节奏参数(2026-08-09 用户定调,修订本条旧细则「提交前全量一次」)。
 - **前端改动不得只以 `node --check` 作为验证证据**:它只查语法,查不出 ReferenceError、初始化崩坏和渲染错位(D-048 就是带着 [done] 出货的)。必须同时跑 `node scripts/ui-runtime-smoke.mjs`,且新增的交互要在冒烟里留下对应断言——修了什么就断言什么,否则同类回归下次照样溜过去。
+
+## 1.4 验证与提交节奏参数(2026-08-09 用户定调:效率优先,节奏可调)
+
+- 本节是验证/提交节奏的**唯一权威参数表**,改这里即全局生效;引擎化为 kanzei.toml 配置由 R-157 交付,交付后本节标注「引擎已接管」。当前默认值:
+  - **定向测试**:每次提交前必跑——`cargo test -p <改动 crate>`;改动的是被依赖 crate(如 kanzei-core)时另加 `cargo check -p` 各下游 crate;纯 ui/ 改动 = node --check + 四条冒烟(秒级,不降频)。
+  - **全量测试**(`cargo test --workspace`):默认只有两个触发点——①条目关闭前一次;②发版前(verify.ps1/release.ps1)。
+  - **提交频率**:默认一条目一提交;多批次大条目(拆解/迁移类)每批一提交作为回滚锚点——提交本身不再附带全量成本。
+  - **push 频率**:条目完成后 push;多批次条目建议每批提交后顺手 push,让 CI(R-152 落地后)对每次 push 异步跑全量兜底——CI 红了先修再开下一批,不阻塞本地节奏。
+- 不可调降的底线:发版门禁(verify.ps1 全量)与 CI 独立全量;任何全量红灯(本地或 CI)当场修复,不得带红推进。
+- 决策记录:A-010(修订 A-004 的「提交前全量一次」细则);引擎化:R-157。
 ## 2. 代码修改原则
 
 - 不要引入不必要的框架、抽象层、兜底逻辑或兼容逻辑。
@@ -130,7 +140,7 @@
 - 本仓库是 Rust workspace:`crates/kanzei-{harness,llm,core,tools,app}` + `crates/kanzei`(bin `kz`)。
 - **分支流程**:日常开发(含 agent 自举)一律提交到 `dev` 分支;`main` 只接收来自 dev 的合并,保持随时可发布。**main 常驻发布树**(`C:\Users\kanzei\Documents\kanzei-release`),主工作树里 `git checkout main` 会因分支被占而失败——合并发布一律在发布树执行:`git -C <发布树> fetch origin && git -C <发布树> merge origin/dev --ff-only && git -C <发布树> push`,再跑发布树里的 `package.ps1 -Publish`。禁止直接在 main 上做开发提交。
 - **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里,发现异常身份立即改写修正并强推。
-- 测试:`cargo test --workspace`,全绿才算改动完成;单 crate 快速检查用 `cargo build -p <crate>`。
+- 测试:批内定向(`cargo test -p <改动 crate>`),全量 `cargo test --workspace` 的触发点按 §1.4(条目关闭前 + 发版前),全量必须全绿才算条目完成;单 crate 快速检查用 `cargo build -p <crate>`。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
   - 流程 = 全量测试 → 安装 `kz` 到 `~\.cargo\bin` → release 构建桌面端 kzapp 并复制安装;
   - **桌面端只有一个安装位:`%LOCALAPPDATA%\kanzei\kzapp.exe`**(应用内更新与开始菜单都指向它)。`~\.cargo\bin` 只放 `kz` CLI 与转发启动器 `kzapp.cmd`,**绝不能再放 kzapp.exe**——两份副本各自更新就会出现"发布了但仍在跑旧版"(D-145)。判断当前跑的是哪份:`Get-Process kzapp | Select-Object Path`。
