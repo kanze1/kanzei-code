@@ -810,9 +810,12 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 }
 
 #[cfg(test)]
+mod update_tests_update;
+
+#[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_ask_payload, pending_path, persist_always_allow, process_session_id,
+        default_process_id, pending_ask_payload, persist_always_allow, process_session_id,
         recover_messages_at, recover_messages_raw,
         conversation_prior, runtime_for, stop_runtime_and_finalize, take_pending_ask,
         with_session_id, AppState, PendingAsk, SessionRuntime,
@@ -844,33 +847,6 @@ mod update_tests {
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
         (base, a, b)
-    }
-
-    #[test]
-    fn 拉取进度行解析成人话且无进度字段时只给状态() {
-        let with_progress = serde_json::json!({
-            "status": "pulling 9f3c…", "completed": 1_572_864_000u64, "total": 3_145_728_000u64
-        });
-        let text = super::pull_progress_text(&with_progress).unwrap();
-        assert!(text.contains("50%"), "{text}");
-        assert!(text.contains("1500/3000 MB"), "要给出已下/总量,证明还活着: {text}");
-
-        let plain = serde_json::json!({ "status": "verifying sha256 digest" });
-        assert_eq!(super::pull_progress_text(&plain).unwrap(), "verifying sha256 digest");
-        // 没有 status 的行(如空对象)不值得刷给用户。
-        assert!(super::pull_progress_text(&serde_json::json!({})).is_none());
-    }
-
-    #[tokio::test]
-    async fn 服务探测对未监听端口干脆返回_false_不悬挂() {
-        // 端口 1 在本机不会有监听;探测必须快速失败,不能把设置页拖住。
-        let started = std::time::Instant::now();
-        assert!(!super::ollama_service_up("http://127.0.0.1:1/v1").await);
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(5),
-            "探测未监听端口不该等这么久: {:?}",
-            started.elapsed(),
-        );
     }
 
     #[test]
@@ -1026,86 +1002,6 @@ mod update_tests {
 
         // 留空 = 用内置默认,不该被当成错误挡下。
         assert!(super::validate_model_roles(&payload("", vec![])).is_ok());
-    }
-
-    #[test]
-    fn installer_validation_rejects_truncated_and_non_executable_payloads() {
-        // 代理返回的 HTML 错误页:有内容但不是 PE。
-        let html = format!("<html>{}</html>", "x".repeat(2 << 20));
-        let error = super::validate_installer(html.as_bytes()).unwrap_err();
-        assert!(error.contains("不是 Windows 可执行文件"), "{error}");
-
-        // 截断的下载:是 PE 但远不够一个安装包。
-        let mut short = b"MZ".to_vec();
-        short.extend(std::iter::repeat_n(0u8, 4096));
-        let error = super::validate_installer(&short).unwrap_err();
-        assert!(error.contains("不完整"), "{error}");
-
-        let mut good = b"MZ".to_vec();
-        good.extend(std::iter::repeat_n(0u8, 2 << 20));
-        assert!(super::validate_installer(&good).is_ok());
-    }
-
-    #[test]
-    fn install_helper_waits_for_the_caller_to_exit_before_installing() {
-        // 交接的核心不变量:发起方还活着时绝不放安装器出去,否则必撞 os error 32。
-        // 只测这条时序,不碰真正的执行环节——早期版本让 helper 跑完整流程,于是往
-        // %TEMP% 写了个 23 字节假 exe 再真的去执行它,Windows 弹出"与 64 位版本
-        // 不兼容",还被误记成安装包缺陷 D-152。测试不该在开发机上启动伪造可执行文件。
-        let started = std::time::Instant::now();
-        let exited = super::wait_for_parent_exit(
-            std::process::id(),
-            std::time::Duration::from_millis(600),
-        );
-        let waited = started.elapsed();
-        assert!(!exited, "当前进程显然活着,不该判定为已退出");
-        assert!(
-            waited >= std::time::Duration::from_millis(600),
-            "helper 没有等满超时就往下走了(实等 {waited:?})",
-        );
-
-        // 父进程已不存在时应立刻返回,不空等满超时。用一个几乎不可能存在的 pid。
-        let started = std::time::Instant::now();
-        let exited = super::wait_for_parent_exit(0xFFFF_FFF0, std::time::Duration::from_secs(30));
-        assert!(exited, "父进程已退出时应立即放行");
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(5),
-            "父进程已退出却仍在空等",
-        );
-    }
-
-    #[test]
-    fn release_check_never_downgrades_a_newer_local_build() {
-        assert!(!super::release_is_newer(
-            "local 20260809120000",
-            "build-remote",
-            Some("2026-08-08T23:00:00Z")
-        ));
-        assert!(super::release_is_newer(
-            "local 20260808120000",
-            "build-remote",
-            Some("2026-08-09T00:00:00Z")
-        ));
-        assert!(!super::release_is_newer(
-            "local 20260808120000",
-            "build-local",
-            Some("2026-08-10T00:00:00Z")
-        ));
-    }
-
-    #[test]
-    fn legacy_date_only_build_requires_a_later_release_day() {
-        assert!(!super::release_is_newer(
-            "local 2026-08-08",
-            "build-remote",
-            Some("2026-08-08T23:00:00Z")
-        ));
-        assert!(super::release_is_newer(
-            "local 2026-08-08",
-            "build-remote",
-            Some("2026-08-09T00:00:00Z")
-        ));
-        assert!(!super::release_is_newer("local", "build-remote", Some("2026-08-09T00:00:00Z")));
     }
 
     #[test]
@@ -1282,40 +1178,6 @@ mod update_tests {
         );
     }
 
-    /// D-175:同步只升不降。开发者刚手动 cargo install 的新 CLI 不能被
-    /// 安装包里的旧版盖回去——那会把"修好的机器"重新弄坏。
-    #[test]
-    fn cli同步只升不降且识别不出版本时按旧处理() {
-        let ours = "0c9f903 20260808120442";
-        // 装着的更旧 → 需要覆盖。
-        assert!(super::installed_cli_is_older(
-            "kanzei 0.1.0 (430d6d6 20260808015943)\n",
-            ours
-        ));
-        // 装着的更新(开发者刚 cargo install)→ 绝不能downgrade。
-        assert!(!super::installed_cli_is_older(
-            "kanzei 0.1.0 (abcdef1 20260809090000)\n",
-            ours
-        ));
-        // 同一次构建 → 无需动作。
-        assert!(!super::installed_cli_is_older(
-            "kanzei 0.1.0 (0c9f903 20260808120442)\n",
-            ours
-        ));
-        // 认不出来的输出一律按旧处理。
-        for unknown in ["", "kanzei 0.1.0\n", "garbage", "kanzei 0.1.0 (dev)\n"] {
-            assert!(super::installed_cli_is_older(unknown, ours), "{unknown:?}");
-        }
-    }
-
-    #[test]
-    fn pending_path_uses_executable_sibling() {
-        assert_eq!(
-            pending_path(Path::new(r"C:\bin\kzapp.exe")),
-            Path::new(r"C:\bin\kzapp.exe.pending")
-        );
-    }
-
     #[test]
     fn pending_ask_payload_can_rebuild_permission_dialog() {
         let (sender, _receiver) = oneshot::channel();
@@ -1392,44 +1254,6 @@ mod update_tests {
         assert_eq!(event.payload["reason"], "stopped_by_user");
         drop(store);
         std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// D-182:更新交接的 helper 必须是安装目录**之外**的副本。原实现用
-    /// `current_exe()` 起 helper,而那正是安装器要替换的 kzapp.exe——父进程退出后
-    /// helper 仍锁着同一个镜像,NSIS 换不掉,更新静默失败。
-    #[test]
-    fn 更新交接helper跑在安装目录之外() {
-        let helper = super::update_helper_path();
-        let temp = std::env::temp_dir();
-        assert!(
-            helper.starts_with(&temp),
-            "helper 必须落在 TEMP,实得 {}",
-            helper.display()
-        );
-        // 名字也不能叫 kzapp.exe:同名会被安装器的"关闭运行实例"逻辑连带处理。
-        assert_ne!(
-            helper.file_name().and_then(|n| n.to_str()),
-            Some("kzapp.exe")
-        );
-        // D-188:探针写独立临时文件(pid 隔离),不得碰生产日志;断言落盘内容,
-        // 并反向断言生产日志没有被这次写入污染。
-        let test_log = temp.join(format!(
-            "kanzei-update-test-{}-{}.log",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let probe_marker = format!("单测探针-{}", std::process::id());
-        super::update_log_at(&test_log, &probe_marker);
-        assert!(test_log.is_file(), "交接日志必须落盘: {}", test_log.display());
-        assert!(std::fs::read_to_string(&test_log).unwrap().contains(&probe_marker));
-        let _ = std::fs::remove_file(&test_log);
-        let prod_log = super::update_log_path();
-        if prod_log.is_file() {
-            assert!(
-                !std::fs::read_to_string(&prod_log).unwrap().contains(&probe_marker),
-                "生产更新日志被测试探针污染(D-188)"
-            );
-        }
     }
 
     /// D-179:停止不得再吃掉整轮轨迹。收尾代码全在被 abort 的 task 里,

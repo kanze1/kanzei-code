@@ -1,6 +1,6 @@
 # Requirements
 
-## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
+## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [doing]
 - 优先级: P1
 - 复杂度: 大
 - 标签: 后端
@@ -10,6 +10,8 @@
 - 验收: ①main.rs ≤300 行且只含 mod 声明+main()+Builder 装配;②每批独立提交且 cargo test -p kanzei-app 绿,条目关闭前全量 cargo test --workspace 一次全绿(节奏见 conventions §1.4);③invoke_handler 78 项全数保留(拆前后清单 diff 核对)且按域分组加注释;④四条 UI 冒烟不受影响;⑤拆前后 wc -l 对照记入进展。
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
+
+- 进展: 本轮落地批0a（明确批次边界）：将更新/安装/CLI/模型服务相关测试从 `main.rs` 移入 `crates/kanzei-app/src/update_tests_update.rs`，新增独立 `#[cfg(test)] mod update_tests_update`；删除 main.rs 中对应重复测试并清理 pending_path 导入。`cargo test -p kanzei-app` 43 项全绿。批0剩余 state/process/conversation/permission 四模块尚未迁移，R-153 保持 doing，不能提前结项。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

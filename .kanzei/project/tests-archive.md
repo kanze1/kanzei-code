@@ -44,3 +44,7 @@
 ## T-1786247442 R-152 verify.ps1 全绿生成绑定 commit 证据 [passed]
 - 命令: scripts/verify.ps1
 - 摘要: 全量 cargo test --workspace、ui/*.js node --check、ui-runtime/a11y/i18n/markdown 四条冒烟全部通过；生成 dist/verification.json，commit=c0ea88db9f89546d69d430065bc0e46da67143af，all_pass=true。
+
+## T-1786248314 R-153 批0a update 测试迁移 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-153 批0a（update 测试迁移）：新增 update_tests_update 模块并从 main.rs 移出更新/安装/CLI/服务测试；43 项测试全部通过。批0其余 state/process/conversation/permission 模块尚未迁移。
