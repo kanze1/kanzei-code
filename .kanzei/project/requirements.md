@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 f887302：settings.rs 接管 settings_save_at_path API（settings.rs:186-189），真实 Tauri settings_save 已改为调用该模块函数；原实现暂以 main.rs 的 settings_save_at_path_impl 保留，属于本批明确的边界迁移，函数体下一批搬迁。cargo check -p kanzei-app --tests 通过，T-1786285144 已登记通过。
+- 进展: 已提交 260894e：settings_save_at_path 的校验责任已移入 settings.rs:187（validate_model_roles），main.rs 的 settings_save_at_path_impl 仅保留配置读写与序列化逻辑。cargo check -p kanzei-app --tests 通过，T-1786285213 已登记通过。保存函数体仍在 main.rs，下一批继续物理搬迁。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
