@@ -3,7 +3,7 @@ id: M-027
 scope: project
 category: fact
 title: edit 插入时必须原样保留 old_string，避免把匹配区块顶掉
-description: 处理 edit 看似插入却报“未被保留的原文”或替换后 old_string 区块被顶掉时必读：先 read 核对目标区块；要插入就把完整 old_string（含每行、缩进和上下文）原样放进 new_string 后再追加内容，只有确需删除原文才设 allow_deletion=true。
+description: 处理 edit 看似插入却报“未被保留的原文”或提示 old_string 区块被顶掉时必读：先 read 重读并逐行核对目标；若意图是插入，new_string 必须完整原样包含 old_string（每行、缩进和上下文）后再追加内容；只有确实要删除匹配原文才设 allow_deletion=true，禁止用只含新增行的 new_string 覆盖匹配区块。
 status: active
 created: 2026-08-09
 updated: 2026-08-09

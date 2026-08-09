@@ -21,10 +21,11 @@
 - M-019 [sop] bash 整文件重写(Set-Content)被环境拦截,须用 edit 做定点修改 — bash 里用 Set-Content / 重定向整文件重写被拦截(报 "whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display")时必读;也说明 edit 容忍换行符差异、连续两次 miss 后展示文件实际内容
 - M-020 [sop] req/defect close 自动归档,关闭证据须先写入进展字段 — 处理 req/defect 的 close、close 后 update 报 unknown id，或需补验收证据时必读：先把证据写入进展字段再 close；close 后若 ID 不再可见，不要反复 req 重试，改用 git/history 检查归档记录。
 - M-021 [sop] edit 报 old_string 匹配多处时先 read 定位并收窄，非批量勿设 replace_all — 处理 edit 报“old_string matches N locations”时必读：不要重复提交同一个宽泛 old_string；先 read 当前目标文件并用文件路径、函数/区块边界及邻近行构造唯一上下文，确认仅命中 1 处后再 edit。只有明确要改全部命中时才设 replace_all=true，并先核对每个命中范围。
-- M-022 [sop] 验证 Rust 测试必须用 test_record，禁止用 bash 跑 cargo test — 处理 Rust 测试验证，尤其 bash 返回 `exit code: 1` 且无有效输出时必读：停止重跑 bash，把它视为工具契约问题；改用 test_record 记录/验证，并据其结果区分工具问题与代码问题。
+- M-022 [sop] 验证 Rust 测试必须用 test_record，禁止用 bash 跑 cargo test — 处理 Rust 测试验证时必读：不要因 bash 的 exit code 1 重跑或把它当代码失败；改用 test_record 记录/验证，并据其结果区分工具问题与代码问题。若 verify.ps1/格式检查也在 bash 中返回 exit code 1，仍先切换到结构化验证工具。
 - M-023 [fact] edit 报 cannot read 拒绝访问 (os error 5) 是瞬态错误,重试即成功 — 处理 edit 报 "cannot read ... 拒绝访问 (os error 5)" 时必读:这是 Windows 瞬态访问拒绝,不是真实权限/路径问题——先 read 重读再重试 edit 即可成功,不要改 bash 绕过,也不要误判为死路而放弃。
 - M-026 [sop] test_record 请求校验缺失必补、非重试即成功可复用知识 — [fp] detection key — 处理 test_record 输入验证失败（缺少字段/重复提交）必读：补全必填字段再发，避免环境误判为死路
-- M-027 [fact] edit 插入时必须原样保留 old_string，避免把匹配区块顶掉 — 处理 edit 看似插入却报“未被保留的原文”或替换后 old_string 区块被顶掉时必读：先 read 核对目标区块；要插入就把完整 old_string（含每行、缩进和上下文）原样放进 new_string 后再追加内容，只有确需删除原文才设 allow_deletion=true。
+- M-027 [fact] edit 插入时必须原样保留 old_string，避免把匹配区块顶掉 — 处理 edit 看似插入却报“未被保留的原文”或提示 old_string 区块被顶掉时必读：先 read 重读并逐行核对目标；若意图是插入，new_string 必须完整原样包含 old_string（每行、缩进和上下文）后再追加内容；只有确实要删除匹配原文才设 allow_deletion=true，禁止用只含新增行的 new_string 覆盖匹配区块。
 - M-028 [sop] req 批次未完成时不得关闭，完成后校正批次数 — 处理 req 批次执行与关闭、尤其报“R-148 批次未走完”时必读：先完成所有批次再 close；若实际批次数与预估不同，完成后把总数改为实际值（如 `批次: 0/0`），不要用空白或错误总数绕过门禁。
+- M-029 [fact] git merge 禁止在 bash 执行，须用结构化 git 工具 — 处理合并或其他 Git 分支/索引变更时必读：不要在 bash 运行 git merge；改用结构化 git 工具，并按要求显式 stage、检查 staged_hash/diff，再用该 hash commit。
 
 (2 stale 条待归档)
