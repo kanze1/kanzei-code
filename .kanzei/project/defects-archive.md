@@ -2163,3 +2163,20 @@
 - 进展(2026-08-09 修复): mod.rs resident_index+prompt_hints_with_budget;profiles.rs dev/memory 消费 resident_index(冷启动判定改为 lines 空且 folded=0);测试 hints_不重复常驻索引_折叠条目才给全行_preference_不进提示(短行断言/全行断言/遥测无 preference)。workspace 全量绿。
 - refs: R-149 R-125 (medium)
 
+## D-218 GitHub Actions 干净 checkout 缺少 .kanzei/project/tests.md 导致 test_record 测试失败 [fixed] (high)
+- 复现: Actions run 31291964471；cargo test --workspace；test_record::tests::tool_records_and_returns_snapshot_text 在 crates/kanzei-tools/src/test_record.rs:336 断言 root.join(TEST_RUNS_REL).exists() 失败。
+- 影响: CI 独立验证在干净 checkout 失败，R-152 无法满足首跑全绿。
+- 来源: R-152 GitHub Actions 首跑
+- 标签: 流程
+- 进展: 已修复 `crates/kanzei-tools/src/test_record.rs:251-254`：temp_project fixture 创建 `.kanzei` 标记，使 ToolCtx::new 的 project_root 稳定为 fixture 根；未改生产逻辑。定向 `cargo test -p kanzei-tools test_record::tests --lib` 6/6 通过，`cargo test --workspace` 全量通过。待修复提交后的 GitHub Actions 复跑全绿后，逐条核对验收并关闭。
+- 关闭核对(2026-08-09): 验收逐条满足——①干净 checkout 全绿:修复提交起 Actions 连续三跑 success(runs 31292345597 f2b5323 / 31292710503 fe0c8f2 / 31292885059 cd85360);②未 skip/忽略任何测试:修复是 fixture 加 `.kanzei` 标记(test_record.rs:251-254),测试契约不变;③本地与 CI 同一契约:本地 verify.ps1 与 CI 跑同一 `cargo test --workspace`。转 fixed。
+- 验收: 干净 GitHub Actions checkout 上 cargo test --workspace 全绿；不通过 skip/忽略测试解决；本地与 CI 仍使用同一测试契约。
+- refs: R-152
+- 优先级: P0
+
+## D-220 R-153 批0b process 测试临时目录固定 PID 导致并行争用 [fixed] (medium)
+- 复现: cargo test -p kanzei-app；process_tests 两个停止测试并行运行时共享同一 PID 目录，Windows 报 Os error 32。
+- 标签: 后端
+- 进展: 已修复：`crates/kanzei-app/src/process_tests.rs:10-18,38-46` 临时目录改为 PID+纳秒唯一值；`process_tests.rs:32,65` 在删除目录前显式 drop SQLite store。`cargo test -p kanzei-app process_tests` 5/5 通过，Windows 并行 error 32 不再复现。
+- 验收: 两个 process_tests 停止测试可在 cargo test -p kanzei-app 并行运行且不争用 SQLite 文件。
+- 优先级: P1

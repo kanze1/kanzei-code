@@ -52,3 +52,7 @@
 ## T-1786248454 R-153 批0a回归复测（托管文件保护拦截） [failed]
 - 命令: cargo test -p kanzei-app
 - 摘要: Rust 测试本身 42/42 全部通过；命令结束时仓库托管文件保护检测到测试运行期间触碰 .kanzei/.kanzei/memory 并回滚，工具因此将本次运行标为失败。未产生代码修改。
+
+## T-1786248673 R-153 批0b process 测试迁移回归 [passed]
+- 命令: cargo test -p kanzei-app process_tests
+- 摘要: process_tests 5 项全部通过；临时目录使用 PID+纳秒唯一值，并在删除目录前显式 drop SQLite store，Windows 并行测试不再发生 error 32。

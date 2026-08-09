@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批0a回归复测：`cargo test -p kanzei-app` 的 42 项 Rust 测试全部通过，但命令收尾被托管文件保护拦截（测试运行期间触碰 `.kanzei/memory`，已自动回滚），因此该次测试记录为 failed；未修改代码。批0b 尚未开始。
+- 进展: 本轮落地批0b：新增 `crates/kanzei-app/src/process_tests.rs` 并注册 `#[cfg(test)] mod process_tests`，迁移进程/会话/停止收尾 5 项测试；新增测试先暴露固定 PID 临时目录并发争用（D-220），修复为 PID+纳秒目录并显式 drop store。`cargo test -p kanzei-app process_tests` 5/5 通过。批0剩余 state/conversation/permission 三组。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
