@@ -15,12 +15,13 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      # v5 起跑在 Node 24 上;v4 目标 Node 20 已被 GitHub 弃用(Actions 面板黄条警告)
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       # fmt 闸门由 R-156(全仓 fmt 收敛)交付时取消注释；当前仓库启用会失败。
