@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 d21372a：全局配置路径与 settings_set_value/settings_set_or_remove/settings_set_or_reset/settings_set_or_remove_num/settings_table 已从 main.rs 迁入 settings.rs（settings.rs:56-96），main.rs 仅通过 pub(crate) re-export 供当前保存实现调用。cargo check -p kanzei-app --tests 通过，提交前记录 T-1786284890 已通过。剩余 validate_model_roles、settings_save_at_path、settings_save/settings_open 仍在 main.rs，下一批继续迁移。
+- 进展: 已提交 65a0f1a：validate_model_roles 已迁入 settings.rs:96-121，main.rs 通过 re-export 保持 state_tests 与 settings_save_at_path 调用路径不变；cargo check -p kanzei-app --tests 通过，T-1786284967 已登记通过。剩余 settings_save_at_path、settings_save/settings_open 仍在 main.rs，继续迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
