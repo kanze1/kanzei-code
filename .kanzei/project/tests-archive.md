@@ -420,3 +420,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的阶段闭包已改用 run::emit_stage，状态事件仍发送 kz:status，包含 stage/detail 和 session_id。
 - 收尾: 1786289654
+
+## T-1786289718 R-153 run_task 配置告警 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的配置告警和 bash 权限告警已由 run::report_config_warnings 统一发送，配置/权限 stage 与 session_id 保持。
+- 收尾: 1786289722

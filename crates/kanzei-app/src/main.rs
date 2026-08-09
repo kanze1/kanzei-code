@@ -674,12 +674,7 @@ async fn run_task_impl(
     stage("配置", format!("加载 {}", cwd.display()));
     let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
     let config = Arc::new(config);
-    for warning in &config_warnings {
-        stage("配置", warning.clone());
-    }
-    for warning in config.bash_permission_warnings() {
-        stage("权限", warning);
-    }
+    run::report_config_warnings(window, &session_id, &config, &config_warnings);
     let profile: ProfileKind = match profile.as_deref().filter(|p| !p.is_empty()) {
         Some(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
         None => config.default_profile(),
