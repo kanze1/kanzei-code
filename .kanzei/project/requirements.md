@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 0e1dcd4：settings_save/settings_open 的真实命令实现已迁入 settings.rs:213-233，Tauri 调用路径保持 settings::settings_save/settings_open 不变；main.rs 已删除两个包装实现，仅保留 pub(crate) settings_save_at_path 供命令调用。cargo check -p kanzei-app --tests 通过，T-1786285056 已登记通过。下一批迁移 settings_save_at_path。
+- 进展: 已提交 f887302：settings.rs 接管 settings_save_at_path API（settings.rs:186-189），真实 Tauri settings_save 已改为调用该模块函数；原实现暂以 main.rs 的 settings_save_at_path_impl 保留，属于本批明确的边界迁移，函数体下一批搬迁。cargo check -p kanzei-app --tests 通过，T-1786285144 已登记通过。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
