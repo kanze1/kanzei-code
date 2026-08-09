@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批2旧副本清理完成：main.rs 已删除 startup_update、wait_for_parent_exit、cleanup_orphan_webviews、run_install_helper、process_alive、sync_bundled_cli、cli_is_older、installed_cli_is_older、apply_pending_update；main() 仍通过 update 模块调用，测试引用通过 main.rs:29-34 的 pub(crate) 兼容导出收口。回归记录 T-1786253687。批2 update 域实现与旧副本清理完成，下一步做批2前后行数/command 清单核对；R-153 总验收仍未满足。
+- 进展: 批2收口完成并已提交：`main.rs` 不再定义 update 启动/helper/CLI/pending 函数；grep 仅剩 main.rs:453/455/458 的 `update::startup_update/sync_bundled_cli/cleanup_orphan_webviews` 调用及 main.rs:518-519 的两个 command 注册。`main.rs` 当前 4810 行；批2回归 T-1786253735 通过。R-153 总验收仍缺批3~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟和拆前后行数对照。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

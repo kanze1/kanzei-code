@@ -160,3 +160,7 @@
 ## T-1786253687 R-153 批2 update 旧副本清理回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: update 旧副本清理回归通过：main.rs 不再定义 startup_update、wait_for_parent_exit、cleanup_orphan_webviews、run_install_helper、process_alive、sync_bundled_cli、cli_is_older、installed_cli_is_older、apply_pending_update；测试兼容符号由 update 模块导出。
+
+## T-1786253735 R-153 批2旧副本删除提交后回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 旧副本删除提交后回归通过；main.rs 行数降至 4810 行，仍未达到 R-153 最终 <=300 行验收，需继续后续批次。

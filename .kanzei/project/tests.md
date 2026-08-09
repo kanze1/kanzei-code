@@ -103,3 +103,7 @@
 ## T-1786253682 R-153 批2 update 旧副本清理回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证 main.rs 已删除 update 启动/helper/CLI/pending 旧实现，测试通过 main.rs 的兼容导出访问 update 模块实现。
+
+## T-1786253732 R-153 批2旧副本删除提交后回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 R-153 批2旧副本物理删除后的编译与测试行为；同时确认 main.rs 只保留 update 模块调用，旧 update 函数定义已无匹配。
