@@ -365,3 +365,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: stop_run 已迁入 run.rs 并由 invoke_handler 使用 run::stop_run；无可停止状态、队列取消、停止事件和后台进程回收保持。
 - 收尾: 1786288730
+
+## T-1786288777 R-153 run.rs 运行链路回归定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 当前 run.rs 运行链路回归通过：run_prompt、run_metrics、stop_run、队列 helper、持久化 helper 和 run_task 模块入口均可编译验证。
+- 收尾: 1786288782
