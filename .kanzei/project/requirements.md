@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 补充 UI 验收证据：T-1786297655 的 i18n、a11y、Markdown、runtime 四条冒烟均通过；runtime 覆盖 main.js 全量执行、222 次 invoke、7 个主视图切换及需求/缺陷/目标/测试/历史列表渲染，0 运行时错误。注意四条记录曾并行生成同一时间戳 ID，已记录 D-227，故证据内容可用但记录唯一性待修复。R-153 仍保持 doing、批次 10/11，run_task_impl 整体搬迁和 main.rs ≤300 行缺口未变。
+- 进展: 继续复核批10/11结构：除 `main.rs:367-1010` 的 run_task_impl 尚未搬迁外，当前 `main.rs:208-348` 的 workspace_snapshot/docs_snapshot、`main.rs:350-363` 的 hidden_command、`main.rs:1013-1167` 的 settings_tests 也仍在入口文件；按验收①“只含 mod 声明+main()+Builder 装配”与设计 §A 目标，整体迁入 run.rs 后还需把这些残留按域归位，不能仅删除 run_task_impl 就宣称 ≤300 行。当前未改行为，保持 doing、批次 10/11。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
