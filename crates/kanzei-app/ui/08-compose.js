@@ -23,7 +23,50 @@ function hasProgressTools(tools) {
   if (!tools || typeof tools !== "object") return false;
   return Object.keys(tools).some((name) => !NON_PROGRESS_TOOLS.has(name));
 }
-const DEFAULT_CONTINUE_PROMPT =
+// R-157:节奏配置渲染规则 6。默认值 = conventions §1.4(entry_close/every_commit/
+// per_batch/per_entry),settings_get 异步填充后继续文案随配置变化。
+const DEFAULT_CADENCE = {
+  full_test: "entry_close",
+  full_test_batches: null,
+  targeted_test: "every_commit",
+  commit: "per_batch",
+  push: "per_entry",
+};
+let cadenceSettings = null; // 异步加载;未就绪时按 DEFAULT_CADENCE 渲染(与 §1.4 一致)
+function effectiveCadence() {
+  return cadenceSettings && typeof cadenceSettings === "object" ? cadenceSettings : DEFAULT_CADENCE;
+}
+function cadenceVerificationText(c) {
+  const ft = c.full_test || "entry_close";
+  const full =
+    ft === "every_commit" ? "全量测试每次提交前跑" :
+    ft === "every_n_batches" ? `全量测试每 ${c.full_test_batches || 3} 批跑一次` :
+    ft === "release_only" ? "全量测试只在发版前跑(本地不跑)" :
+    "全量测试条目关闭前跑一次";
+  const tt = c.targeted_test || "every_commit";
+  const targeted = tt === "off" ? "定向测试关闭:验证按改动面自选" :
+    "动了 crates/ 每次提交前跑定向 cargo test -p <改动 crate>";
+  const cm = c.commit || "per_batch";
+  const commit = cm === "per_entry" ? "每条目一提交" : "多批大条目每批一提交(回滚锚点)";
+  const pu = c.push || "per_entry";
+  const push =
+    pu === "per_commit" ? "每提交后 push" :
+    pu === "periodic" ? "定期自动 push(引擎自动,失败可见不阻断)" :
+    "条目完成后 push";
+  return `${full};${targeted};${commit};${push}`;
+}
+function buildContinuePrompt(c) {
+  return (
+    CONTINUE_PROMPT_HEAD +
+    "6. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+    "验证选择与改动面匹配:纯 ui/ 改动跑 node 检查与冒烟脚本;" +
+    cadenceVerificationText(c) +
+    "。\n" +
+    CONTINUE_PROMPT_TAIL
+  );
+}
+
+const CONTINUE_PROMPT_HEAD =
   "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
   "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
   "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
@@ -41,10 +84,10 @@ const DEFAULT_CONTINUE_PROMPT =
   "4. 关闭条目前逐条对照验收原文,每项给出精确代码位置证据;声称完成的能力必须有真实调用方或消费者," +
   "没有消费者的命令、死代码或只展示不接数据源的壳不算完成;沿用既有实现要显式标注为既有能力而非本次交付;" +
   "不得缩小验收里的平台或范围限定词。任一项证据不足就保留活动态写清缺口,不要打勾。\n" +
-  "5. doing 最多 2 个;已满就继续推进这两项。标着「阶段 5 后」的功能需求暂不启动。\n" +
-  "6. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
-  "验证选择与改动面匹配:纯 ui/ 改动跑 node 检查与冒烟脚本,动了 crates/ 才跑 cargo test。\n" +
-  "一直做下去,不要用纯文本收尾。";
+  "5. doing 最多 2 个;已满就继续推进这两项。标着「阶段 5 后」的功能需求暂不启动。\n";
+const CONTINUE_PROMPT_TAIL = "一直做下去,不要用纯文本收尾。";
+// 默认文案(未自定义时兜底,= 默认节奏渲染)。
+const DEFAULT_CONTINUE_PROMPT = buildContinuePrompt(DEFAULT_CADENCE);
 
 // 旧版默认文案:用户没改过(存的就是某个旧默认)时静默升级到新默认,
 // 否则鞭挞的刹车契约会和提示词对不上(用户自定义过的文案不动)。
@@ -221,7 +264,7 @@ function renderAutoStatus(text = autoStopReason) {
   el.textContent = localizeDynamic(text || `连续推进上限 ${max}`);
 }
 function continuePrompt() {
-  const base = $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
+  const base = $("continue-prompt").value.trim() || buildContinuePrompt(effectiveCadence());
   // 重心正文优先取记忆(用户可手写细度);记忆缺失时回落到下拉框预设。
   const focus = workFocusMemory?.body?.trim() || WORK_FOCUS_PRESETS[selectedWorkPriority()].body;
   const from = workFocusMemory?.id ? `记忆 ${workFocusMemory.id}` : "当前选择";

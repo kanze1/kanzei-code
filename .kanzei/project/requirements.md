@@ -1,6 +1,6 @@
 # Requirements
 
-## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [todo]
+## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [doing]
 - 优先级: P1
 - 复杂度: 中
 - 标签: 核心
@@ -10,6 +10,9 @@
 - 验收: ①full_test 各档在注入文案里可见且实测生效(轨迹证据);②旧 kanzei.toml 无节奏节时行为与 §1.4 默认一致(serde default 单测);③设置页改参数→保存→重开生效且不丢字段;④鞭挞文案参数化后 LEGACY 升级路径有测试;⑤conventions §1.4 标注「引擎已接管,改参数走设置页/kanzei.toml」。
 - refs: R-143 A-010 R-152
 - 依赖: R-153 R-154
+
+- 批次: 1/3
+- 进展: 批1: kanzei.toml [cadence] 配置结构 + serde default + 加载接线 + 旧配置默认行为单测。批2: 注入提示词参数化(DEFAULT_CONTINUE_PROMPT 规则 6 + LEGACY 静默升级)+ 测试。批3: 设置页透传字段(保存不丢)+ 收口。依赖 R-153/R-154 已关闭移入 refs。
 
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
 - 复杂度: 大

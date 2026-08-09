@@ -405,6 +405,11 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             "rateLimitRetries": kanzei_harness::config::Limits::default().rate_limit_retries(),
             "streamRestarts": kanzei_harness::config::Limits::default().stream_restarts(),
         },
+        // 节奏(R-157):原值 + 生效默认值。前端把它渲染进继续文案规则 6,
+        // 让"全量什么时候跑/定向跑不跑/提交与 push 频率"随配置变化而非硬化在提示词里。
+        "cadence": serde_json::to_value(&config.cadence).unwrap_or_else(|_| serde_json::json!({})),
+        "cadenceDefaults": serde_json::to_value(&kanzei_harness::config::Cadence::default())
+            .unwrap_or_else(|_| serde_json::json!({})),
         "effective": effective,
         "projectConfig": project_dir.as_deref().and_then(|d| kanzei_harness::config::discover_project_root(Path::new(d)))
             .map(|root| root.join(".kanzei").join("kanzei.toml").display().to_string()),

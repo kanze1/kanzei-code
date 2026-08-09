@@ -1011,3 +1011,13 @@
 - 命令: cargo test --workspace
 - 摘要: R-156 全仓 cargo fmt --all 后全量验证:所有 crate 测试数与格式化前完全一致(kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43),佐证格式化提交零逻辑变更。
 - 收尾: 1786307168
+
+## T-1786307345 cargo test -p kanzei-harness (R-157 批1) [passed]
+- 命令: cargo test -p kanzei-harness + cargo check -p kanzei-core -p kanzei-tools -p kanzei -p kanzei-app
+- 摘要: R-157 批1:kanzei-harness 48 passed(含 cadence 缺节默认/各档位解析两个新测试 + unknown_keys schema 白名单同步),下游四 crate check 绿。
+- 收尾: 1786307345
+
+## T-1786307623 cargo test -p kanzei-app (R-157 批1 重新验证) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-157 批1 提交前重新验证:kanzei-app 43 passed(settings cadence 透传 + 08-compose 文案参数化编译链)
+- 收尾: 1786307641
