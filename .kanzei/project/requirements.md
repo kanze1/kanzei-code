@@ -11,6 +11,7 @@
 - refs: A-009 R-146 R-156
 
 - 进展: Actions 首跑链接已记录：https://github.com/kanze1/kanzei-code/actions/runs/31291964471；首跑失败原因为 D-218（test_record fixture 未固定 project_root）。已登记 D-218 并修复 `crates/kanzei-tools/src/test_record.rs:251-254`，新增 `.kanzei` 标记隔离 fixture。定向 test_record 6/6 与 cargo test --workspace 全量通过；修复提交后需重新 push，等待 Actions 全绿再关闭。
+- 进展(2026-08-09 发版放行实测): D-218 修复后 Actions 连续三跑全绿(runs 31292345597/31292710503/31292885059);ci.yml checkout/setup-node 升 v5 消除 Node 20 弃用警告(cd85360)。验收④第三拦「证据齐全放行」实测完成:verify.ps1 产出绑定 cd85360 的全绿证据,发布树 package.ps1 -Ack 9 -Publish -VerificationPath 证据核对通过、放行至构建并发布 build-cd85360——证据链首个完整走通的 release:https://github.com/kanze1/kanzei-code/releases/tag/build-cd85360 。至此验收②④证据齐全,可逐条核对关闭。
 
 ## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
 - 优先级: P1

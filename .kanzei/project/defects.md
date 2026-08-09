@@ -116,12 +116,13 @@
 - 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
 - refs: R-150 R-107 (medium)
 
-## D-218 GitHub Actions 干净 checkout 缺少 .kanzei/project/tests.md 导致 test_record 测试失败 [fixing] (high)
+## D-218 GitHub Actions 干净 checkout 缺少 .kanzei/project/tests.md 导致 test_record 测试失败 [fixed] (high)
 - 复现: Actions run 31291964471；cargo test --workspace；test_record::tests::tool_records_and_returns_snapshot_text 在 crates/kanzei-tools/src/test_record.rs:336 断言 root.join(TEST_RUNS_REL).exists() 失败。
 - 影响: CI 独立验证在干净 checkout 失败，R-152 无法满足首跑全绿。
 - 来源: R-152 GitHub Actions 首跑
 - 标签: 流程
 - 进展: 已修复 `crates/kanzei-tools/src/test_record.rs:251-254`：temp_project fixture 创建 `.kanzei` 标记，使 ToolCtx::new 的 project_root 稳定为 fixture 根；未改生产逻辑。定向 `cargo test -p kanzei-tools test_record::tests --lib` 6/6 通过，`cargo test --workspace` 全量通过。待修复提交后的 GitHub Actions 复跑全绿后，逐条核对验收并关闭。
+- 关闭核对(2026-08-09): 验收逐条满足——①干净 checkout 全绿:修复提交起 Actions 连续三跑 success(runs 31292345597 f2b5323 / 31292710503 fe0c8f2 / 31292885059 cd85360);②未 skip/忽略任何测试:修复是 fixture 加 `.kanzei` 标记(test_record.rs:251-254),测试契约不变;③本地与 CI 同一契约:本地 verify.ps1 与 CI 跑同一 `cargo test --workspace`。转 fixed。
 - 验收: 干净 GitHub Actions checkout 上 cargo test --workspace 全绿；不通过 skip/忽略测试解决；本地与 CI 仍使用同一测试契约。
 - refs: R-152
 - 优先级: P0
