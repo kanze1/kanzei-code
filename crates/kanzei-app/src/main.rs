@@ -676,7 +676,7 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
             // provider 加进配置后一个模型都列不出来,等于配了也用不了。
             // Ollama 例外:它的 /v1/models 不全,原生 /api/tags 才是真源。
             if p.base_url.contains("11434") {
-                push_ollama_models(&mut items, name, &p.base_url).await;
+                run::push_ollama_models(&mut items, name, &p.base_url).await;
                 continue;
             }
             let key = p
@@ -712,37 +712,10 @@ async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, S
                 }
             }
         } else if p.base_url.contains("11434") {
-            push_ollama_models(&mut items, name, &p.base_url).await;
+            run::push_ollama_models(&mut items, name, &p.base_url).await;
         }
     }
     Ok(json!(items))
-}
-
-/// Ollama 的模型清单走原生 /api/tags:它的 /v1/models 不完整。
-/// 本机服务不走代理——挂了代理反而连不上 127.0.0.1。
-async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name: &str, base_url: &str) {
-    let tags_url = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Ok(client) = reqwest::Client::builder()
-        .no_proxy()
-        .timeout(std::time::Duration::from_secs(2))
-        .build()
-    else {
-        return;
-    };
-    let Ok(resp) = client.get(&tags_url).send().await else {
-        return;
-    };
-    let Ok(v) = resp.json::<serde_json::Value>().await else {
-        return;
-    };
-    for m in v["models"].as_array().unwrap_or(&Vec::new()) {
-        if let Some(n) = m["name"].as_str() {
-            items.push(json!({
-                "id": format!("{name}:{n}"),
-                "label": format!("{name}:{n}"),
-            }));
-        }
-    }
 }
 
 #[tauri::command]

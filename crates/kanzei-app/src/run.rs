@@ -12,6 +12,14 @@ pub(crate) use crate::run_task_impl as run_task;
 
 use crate::take_pending_ask;
 
+pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name: &str, base_url: &str) {
+    let tags_url = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
+    let Ok(client) = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(2)).build() else { return; };
+    let Ok(resp) = client.get(&tags_url).send().await else { return; };
+    let Ok(v) = resp.json::<serde_json::Value>().await else { return; };
+    for m in v["models"].as_array().unwrap_or(&Vec::new()) { if let Some(n) = m["name"].as_str() { items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") })); } }
+}
+
 #[tauri::command]
 pub(crate) fn pending_asks_get(state: tauri::State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));

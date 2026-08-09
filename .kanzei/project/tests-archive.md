@@ -385,3 +385,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: pending_asks_get 已迁入 run.rs，按项目/session 从 runtime 读取 pending asks 并通过真实载荷函数返回；main.rs 旧副本已删除。
 - 收尾: 1786289114
+
+## T-1786289238 R-153 run.rs Ollama 模型 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: Ollama 模型发现 helper 已迁入 run.rs，models_list 的全部 Ollama 分支通过 run::push_ollama_models，原 /api/tags、no_proxy 和返回字段保持。
+- 收尾: 1786289242
