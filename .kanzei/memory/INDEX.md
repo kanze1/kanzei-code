@@ -21,9 +21,9 @@
 - M-019 [sop] bash 整文件重写(Set-Content)被环境拦截,须用 edit 做定点修改 — bash 里用 Set-Content / 重定向整文件重写被拦截(报 "whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display")时必读;也说明 edit 容忍换行符差异、连续两次 miss 后展示文件实际内容
 - M-020 [sop] req/defect close 自动归档,关闭证据须先写入进展字段 — 处理 req/defect 的 close 动作、close 后 update 报 unknown id、或需补验收证据(convention §1.25 逐项验收)时必读:证据必须在 close 前写入进展
 - M-021 [sop] edit 报 old_string 匹配多处时先 read 定位并收窄，非批量勿设 replace_all — 处理 edit 报“old_string matches N locations”时必读：不要重复提交同一个宽泛 old_string；先 read 当前目标文件并用文件路径、函数/区块边界及邻近行构造唯一上下文，确认仅命中 1 处后再 edit。只有明确要改全部命中时才设 replace_all=true，并先核对每个命中范围。
-- M-022 [sop] 验证 Rust 测试必须用 test_record，禁止用 bash 跑 cargo test — 处理 Rust 测试验证、尤其 bash 返回 `exit code: 1` 或 stderr 只有编译 warning/测试结果不明时必读：不要再用 bash 执行 cargo test；改用 test_record 记录并验证结果，先区分工具契约与代码诊断，避免把 warning 门禁输出当成普通命令失败。
+- M-022 [sop] 验证 Rust 测试必须用 test_record，禁止用 bash 跑 cargo test — 处理 Rust 测试验证、尤其 bash 返回 `exit code: 1` 且 stderr 只有编译 warning/结果不明时必读：不要把 bash 失败当作测试诊断或重跑；改用 test_record 记录并验证结果，先区分工具契约与代码问题。
 - M-023 [fact] edit 报 cannot read 拒绝访问 (os error 5) 是瞬态错误,重试即成功 — 处理 edit 报 "cannot read ... 拒绝访问 (os error 5)" 时必读:这是 Windows 瞬态访问拒绝,不是真实权限/路径问题——先 read 重读再重试 edit 即可成功,不要改 bash 绕过,也不要误判为死路而放弃。
 - M-026 [sop] test_record 请求校验缺失必补、非重试即成功可复用知识 — [fp] detection key — 处理 test_record 输入验证失败（缺少字段/重复提交）必读：补全必填字段再发，避免环境误判为死路
-- M-027 [fact] edit 插入时必须原样保留 old_string，避免把匹配区块顶掉 — 处理 edit 报“净删除 N 行”或插入式修改未保留 old_string 时必读：先 read 重读目标区块；若意图是插入，new_string 必须逐字包含完整 old_string 并仅在其前后追加内容，提交前核对关键原文仍在；只有确需删除时才设 allow_deletion=true。
+- M-027 [fact] edit 插入时必须原样保留 old_string，避免把匹配区块顶掉 — 处理 edit 插入式修改报“未保留 old_string”或“净删除 N 行”时必读：先 read 重读并缩小唯一匹配区块；若是插入，new_string 逐字保留完整 old_string 后再追加内容，只有确需删除才设 allow_deletion=true。
 
 (2 stale 条待归档)
