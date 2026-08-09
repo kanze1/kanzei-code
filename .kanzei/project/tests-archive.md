@@ -926,3 +926,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: R-154 B5 前端冒烟全绿:runtime 11 文件按序 + 222 invoke + 列表渲染;i18n/markdown/a11y 同绿
 - 收尾: 1786303812
+
+## T-1786303916 R-154 B6 ui 冒烟(08-compose 拆分 + readJson/writeJson 上提) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B6 前端冒烟全绿:runtime 12 文件按序 + 222 invoke + 列表渲染;i18n/markdown/a11y 同绿
+- 收尾: 1786303916
