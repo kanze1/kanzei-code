@@ -946,3 +946,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: R-154 B9 前端冒烟全绿:18 文件按序 + 222 invoke + batch-meter 断言;根因:行 98 promptBox 定义被切分区间跳过,已补回 01-core.js
 - 收尾: 1786304315
+
+## T-1786304415 R-154 08/09 行数收敛后四条冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B9 修正:08-compose 队列输入+测试记录移入 09-sessions,18 文件均 ≤1000 行,四条冒烟全绿
+- 收尾: 1786304415
