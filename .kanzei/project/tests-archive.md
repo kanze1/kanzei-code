@@ -435,3 +435,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的 profile 解析与 project root 发现已提取到 run::resolve_profile_and_root，默认 profile 与显式 profile 解析行为保持。
 - 收尾: 1786289873
+
+## T-1786289946 R-153 run_task 装配提示 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task 装配段的工作优先级提示已提取为 run::work_priority_guidance，前端检查提示、队列文件顺序与原文保持。
+- 收尾: 1786289952

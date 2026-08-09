@@ -702,14 +702,7 @@ async fn run_task_impl(
         agent.system.push('\n');
         agent.system.push('\n');
         agent.system.push_str(kanzei_tools::frontend_inspection_guidance());
-        let (first, second) = if work_priority == "requirement-first" {
-            ("requirements.md", "defects.md")
-        } else {
-            ("defects.md", "requirements.md")
-        };
-        agent.system.push_str(&format!(
-            "\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context."
-        ));
+        agent.system.push_str(&run::work_priority_guidance(work_priority));
     }
     stage(
         "装配",
