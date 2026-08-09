@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 1d63451：run.rs 暴露 run_task 模块入口，run_prompt 通过该入口调用；main.rs 的主体暂重命名为 run_task_impl，功能行为不变。定向测试 T-1786288501 已登记通过。明确缺口：run_task 函数体仍在 main.rs，下一批必须完成主体剪切而非继续停留在 re-export。
+- 进展: 已提交 d22ddfb：run_task 相关的 report_persistence_failure、append_run_notification 已迁入 run.rs，main.rs 所有调用点改用 run:: 路径，main.rs 减少 46 行。定向测试 T-1786288574 已登记通过。run_task 主体仍在 main.rs，下一步继续迁移其余主体依赖/函数体。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
