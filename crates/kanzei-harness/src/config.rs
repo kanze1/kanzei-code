@@ -23,6 +23,8 @@ pub struct KanzeiConfig {
     pub permissions: PermissionsSection,
     #[serde(default)]
     pub limits: Limits,
+    #[serde(default)]
+    pub cadence: Cadence,
 }
 
 /// 运行时上限与阈值。此前全部是散落在各 crate 里的硬编码常量,配置层没有任何入口——
@@ -96,6 +98,75 @@ impl Limits {
     pub fn stream_restarts(&self) -> u32 {
         self.stream_restarts.unwrap_or(2)
     }
+}
+
+/// 验证与提交节奏(R-157):把 conventions §1.4 的节奏参数从提示词硬化成可调配置。
+/// 每个字段都带 serde default,旧配置没有 `[cadence]` 节时行为与 §1.4 当前默认
+/// 逐项一致(conventions §4 向后兼容);层叠合并照既有规矩——项目层只覆盖显式写的键。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct Cadence {
+    /// 全量测试触发档位。默认 EntryClose:条目关闭前一次(发版前 verify.ps1 是
+    /// 独立硬门禁,不受本参数影响,见 A-010)。
+    #[serde(default)]
+    pub full_test: FullTestCadence,
+    /// full_test == EveryNBatches 时的批次间隔 n。
+    #[serde(default)]
+    pub full_test_batches: Option<u32>,
+    /// 定向测试:每次提交前必跑(默认)| off。
+    #[serde(default)]
+    pub targeted_test: TargetedTestCadence,
+    /// 提交粒度:每条目一提交 | 每批一提交(默认,多批大条目按批提交)。
+    #[serde(default)]
+    pub commit: CommitCadence,
+    /// push 频率:条目完成后 push(默认)| 每提交后 push | 定期(与 R-143 并轨)。
+    #[serde(default)]
+    pub push: PushCadence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FullTestCadence {
+    /// 条目关闭前一次(§1.4 默认)。
+    #[default]
+    EntryClose,
+    /// 每次提交前全量。
+    EveryCommit,
+    /// 每 n 批全量一次,间隔见 Cadence::full_test_batches。
+    EveryNBatches,
+    /// 只发版前跑(verify.ps1 硬门禁,本地开发不跑全量)。
+    ReleaseOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetedTestCadence {
+    /// 每次提交前必跑(§1.4 默认)。
+    #[default]
+    EveryCommit,
+    /// 关闭定向测试(不推荐;改动面与验证匹配的判断交给模型)。
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitCadence {
+    /// 多批大条目每批一提交(§1.4 默认)。
+    #[default]
+    PerBatch,
+    /// 整条目一提交(复杂度小的条目适用)。
+    PerEntry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PushCadence {
+    /// 条目完成后 push(§1.4 默认)。
+    #[default]
+    PerEntry,
+    /// 每提交后顺手 push。
+    PerCommit,
+    /// 定期自动 push(与 R-143 自举循环自动 push 并轨)。
+    Periodic,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -515,6 +586,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
             "profile",
             "permissions",
             "limits",
+            "cadence",
         ],
         &mut out,
     );
@@ -564,6 +636,20 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
     }
     if let Some(profile) = value.get("profile") {
         check(profile, "profile", &["default"], &mut out);
+    }
+    if let Some(cadence) = value.get("cadence") {
+        check(
+            cadence,
+            "cadence",
+            &[
+                "full_test",
+                "full_test_batches",
+                "targeted_test",
+                "commit",
+                "push",
+            ],
+            &mut out,
+        );
     }
     if let Some(permissions) = value.get("permissions") {
         check(permissions, "permissions", &["rules"], &mut out);
@@ -1216,5 +1302,56 @@ reasoning = "high"
             Some("anthropic:claude-sonnet-5")
         );
         assert_eq!(base.models.fast.as_deref(), Some("ollama:qwen3"));
+    }
+
+    #[test]
+    fn cadence_缺节等于_conventions_1_4_默认() {
+        // 验收②:旧 kanzei.toml 没有 [cadence] 节时,行为必须与 conventions §1.4
+        // 当前默认逐项一致(serde default 兜底)。
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.cadence.full_test, FullTestCadence::EntryClose);
+        assert_eq!(empty.cadence.full_test_batches, None);
+        assert_eq!(empty.cadence.targeted_test, TargetedTestCadence::EveryCommit);
+        assert_eq!(empty.cadence.commit, CommitCadence::PerBatch);
+        assert_eq!(empty.cadence.push, PushCadence::PerEntry);
+
+        // 只写 [models] 的旧配置同样不引入 cadence 行为变化。
+        let old: KanzeiConfig = toml::from_str("[models]\nprimary = \"anthropic:claude-sonnet-5\"\n")
+            .unwrap();
+        assert_eq!(old.cadence.full_test, FullTestCadence::EntryClose);
+        assert_eq!(old.cadence.targeted_test, TargetedTestCadence::EveryCommit);
+        assert_eq!(old.cadence.push, PushCadence::PerEntry);
+    }
+
+    #[test]
+    fn cadence_各档位解析与序列化() {
+        // 验收①的配置侧:所有档位都能从 toml 解析并 round-trip 回原样。
+        let config: KanzeiConfig = toml::from_str(
+            "[cadence]\nfull_test = \"every_n_batches\"\nfull_test_batches = 3\n\
+             targeted_test = \"off\"\ncommit = \"per_entry\"\npush = \"periodic\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.cadence.full_test, FullTestCadence::EveryNBatches);
+        assert_eq!(config.cadence.full_test_batches, Some(3));
+        assert_eq!(config.cadence.targeted_test, TargetedTestCadence::Off);
+        assert_eq!(config.cadence.commit, CommitCadence::PerEntry);
+        assert_eq!(config.cadence.push, PushCadence::Periodic);
+
+        // release_only / every_commit 两种极端档位。
+        let config: KanzeiConfig =
+            toml::from_str("[cadence]\nfull_test = \"release_only\"\n").unwrap();
+        assert_eq!(config.cadence.full_test, FullTestCadence::ReleaseOnly);
+        let config: KanzeiConfig =
+            toml::from_str("[cadence]\nfull_test = \"every_commit\"\n").unwrap();
+        assert_eq!(config.cadence.full_test, FullTestCadence::EveryCommit);
+
+        // 序列化 round-trip:设置页保存后重读不丢字段。
+        let round: KanzeiConfig =
+            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        assert_eq!(round.cadence.full_test, FullTestCadence::EveryCommit);
+        assert_eq!(round.cadence.targeted_test, TargetedTestCadence::EveryCommit);
+
+        // 非法档位要报错,不能静默吞成默认——否则设置页拼错字用户还以为是默认生效。
+        assert!(toml::from_str::<KanzeiConfig>("[cadence]\nfull_test = \"daily\"\n").is_err());
     }
 }
