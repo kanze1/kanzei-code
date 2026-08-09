@@ -445,3 +445,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的 Harness 组件装配已迁移到 run::build_run_harness，保留 Base/Dev/Research/FrontendTools/Markdown/Config 顺序与真实调用链。
 - 收尾: 1786290033
+
+## T-1786290105 R-153 run_task agent 提示 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的 Dev profile 提示追加已迁移到 run::append_dev_guidance，保留前端检查提示和 work_priority 提示；非 Dev profile 不追加。
+- 收尾: 1786290109

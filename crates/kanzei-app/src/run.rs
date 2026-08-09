@@ -24,6 +24,14 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn append_dev_guidance(system: &mut String, profile: kanzei_harness::ProfileKind, work_priority: &str) {
+    if profile != kanzei_harness::ProfileKind::Dev { return; }
+    system.push('\n');
+    system.push('\n');
+    system.push_str(kanzei_tools::frontend_inspection_guidance());
+    system.push_str(&work_priority_guidance(work_priority));
+}
+
 pub(crate) fn build_run_harness() -> kanzei_harness::Harness {
     let mut harness = kanzei_harness::Harness::default();
     harness
