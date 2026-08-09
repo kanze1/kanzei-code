@@ -827,12 +827,9 @@ mod update_tests_update;
 #[cfg(test)]
 mod update_tests {
     use super::{
-        default_process_id, pending_ask_payload, persist_always_allow, process_session_id,
-        recover_messages_at, recover_messages_raw,
-        conversation_prior, runtime_for, stop_runtime_and_finalize, take_pending_ask,
-        with_session_id, AppState, PendingAsk, SessionRuntime,
+        default_process_id, process_session_id, runtime_for, stop_runtime_and_finalize, take_pending_ask,
+        AppState, PendingAsk, SessionRuntime,
     };
-    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::Ordering;
     use std::sync::{Arc, Mutex};
@@ -1251,148 +1248,8 @@ mod update_tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[test]
-    fn process_sessions_are_isolated_but_default_keeps_legacy_id() {
-        let root = Path::new(r"C:\project");
-        let default_id = default_process_id(root);
-        assert_eq!(process_session_id(root, None), kanzei_core::project_session_id(root));
-        assert_eq!(
-            process_session_id(root, Some(&default_id)),
-            kanzei_core::project_session_id(root)
-        );
-        assert_ne!(
-            process_session_id(root, Some("p1|C:\\project")),
-            process_session_id(root, Some("p2|C:\\project"))
-        );
-    }
-
-    #[test]
-    fn session_runtime_is_reused_per_session_and_isolated_between_sessions() {
-        let state = AppState::default();
-        let first = runtime_for(&state, "ses_a");
-        let same = runtime_for(&state, "ses_a");
-        let other = runtime_for(&state, "ses_b");
-        assert!(Arc::ptr_eq(&first, &same));
-        assert!(!Arc::ptr_eq(&first, &other));
-    }
-
-    #[test]
-    fn pending_ask_lookup_stays_with_its_runtime_container() {
-        let state = AppState::default();
-        let first = runtime_for(&state, "ses_a");
-        let second = runtime_for(&state, "ses_b");
-        let (sender, _receiver) = oneshot::channel();
-        first.asks.lock().unwrap().insert(
-            7,
-            PendingAsk {
-                sender,
-                request: kanzei_core::AskRequest::Question {
-                    question: "继续?".into(),
-                    options: Vec::new(),
-                    default: None,
-                },
-                action: "question".into(),
-                resource: "继续?".into(),
-                project_root: PathBuf::from("project-a"),
-                session_id: "ses_a".into(),
-            },
-        );
-        assert_eq!(take_pending_ask(&state, 7).unwrap().session_id, "ses_a");
-        assert!(take_pending_ask(&state, 7).is_none());
-        assert!(second.asks.lock().unwrap().is_empty());
-    }
-
-    #[test]
-    fn conversation_prior_prefers_existing_memory_over_persisted_snapshot() {
-        let conversation = Arc::new(Mutex::new(HashMap::new()));
-        let persisted = vec![kanzei_llm::Message::user_text("恢复快照")];
-        assert_eq!(conversation_prior(&conversation, "ses", persisted.clone())[0].parts, persisted[0].parts);
-        let existing = vec![kanzei_llm::Message::user_text("内存旧快照")];
-        conversation.lock().unwrap().insert("ses".into(), existing.clone());
-        let selected = conversation_prior(
-            &conversation,
-            "ses",
-            vec![kanzei_llm::Message::user_text("最新持久化")],
-        );
-        assert_eq!(selected[0].parts, existing[0].parts);
-    }
-
-    #[test]
-    fn recover_messages_filters_orphan_tool_calls_from_persisted_snapshot() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-app-history-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
-        store.create_session("ses_history", &root.display().to_string(), None).unwrap();
-        let messages = vec![
-            kanzei_llm::Message::user_text("保留文本"),
-            kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
-                id: "orphan".into(),
-                name: "bash".into(),
-                input: serde_json::json!({"command": "echo orphan"}),
-            }]),
-        ];
-        store
-            .append_event(
-                "ses_history",
-                "conversation.updated",
-                &serde_json::json!({"messages": messages}),
-            )
-            .unwrap();
-        let recovered = recover_messages_at(&store, "ses_history", None).unwrap();
-        assert_eq!(recovered.len(), 1);
-        assert!(matches!(recovered[0].parts[0], kanzei_llm::Part::Text { ref text } if text == "保留文本"));
-        // 展示路径不过滤:未配对的工具部件对人仍然可见,否则历史"看不全"。
-        let raw = recover_messages_raw(&store, "ses_history", None).unwrap();
-        let raw_parts: usize = raw.iter().map(|m| m.parts.len()).sum();
-        let filtered_parts: usize = recovered.iter().map(|m| m.parts.len()).sum();
-        assert!(
-            raw_parts > filtered_parts,
-            "原文应含被过滤掉的孤儿工具部件: raw={raw_parts} filtered={filtered_parts}"
-        );
-        drop(store);
-        std::fs::remove_dir_all(root).unwrap();
-    }
 
 
-    #[test]
-    fn persist_always_allow_success_returns_always_allow_and_path() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-app-always-ok-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-        let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
-        assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
-        assert_eq!(path, root.join(".kanzei/kanzei.toml"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn persist_always_allow_failure_returns_deny_path() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-app-always-fail-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
-        std::fs::write(root.join(".kanzei/kanzei.toml"), "[invalid\n").unwrap();
-        assert!(persist_always_allow(&root, "bash", "git status").is_err());
-        std::fs::remove_dir_all(root).unwrap();
-    }
 }
 
 fn main() {

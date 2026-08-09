@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批0旧副本清理阶段已完成部分迁移：删除 main.rs 中 permission 的 payload/session_id 旧测试及 conversation 的附件/project_root 旧测试；新增模块与旧模块共存部分仍含 state/process/conversation 副本，故尚未宣称批0完成。`cargo test -p kanzei-app` 60/60 通过；main.rs 当前仅有 pending_ask_payload/with_session_id 未使用导入警告，待剩余旧副本删除后一并清理。
+- 进展: 继续清理批0旧副本：删除 update_tests 中 process 会话三项、conversation_prior、历史恢复、permission Always Allow 两项旧测试，并清理已无用的相关导入；保留 state 测试与停止收尾两项旧测试待下一批删除。`cargo test -p kanzei-app` 53/53 通过。批0仍未完成，当前残余是 state 10 项与 process 停止收尾 2 项旧副本及少量未使用导入警告。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

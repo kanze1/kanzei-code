@@ -72,3 +72,7 @@
 ## T-1786249406 R-153 批0旧测试副本清理回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批0旧副本清理阶段回归：60 项 kanzei-app Rust 测试全部通过；当前仍存在 update_tests 中 state/process/conversation 的旧副本，重复测试待继续删除。
+
+## T-1786249621 R-153 批0旧测试副本继续清理回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 继续清理旧测试副本后的完整 kanzei-app 回归：53 项通过、0 失败。仍保留 state 与停止收尾旧测试，且 update_tests 有未使用导入警告，批0尚未完成。
