@@ -761,3 +761,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 设置测试迁移尝试未改动生产代码；复核后 kanzei-app 43 项全部通过，确认此前 run/update 测试模块边界稳定。
 - 收尾: 1786295870
+
+## T-1786296031 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: test_runs_snapshot/test_run_record 迁入 docs.rs 后，kanzei-app 43 项全部通过；Tauri command 宏与 docs:: invoke_handler 注册正常。
+- 收尾: 1786296031

@@ -8,6 +8,32 @@ use tauri::State;
 use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 
 use crate::{hidden_command, CONVENTIONS_REL};
+use crate::normalized_project_root;
+
+#[tauri::command]
+pub fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    kanzei_tools::test_record::test_runs_snapshot(&root)
+}
+
+#[tauri::command]
+pub fn test_run_record(
+    project_dir: String,
+    title: String,
+    status: String,
+    command: Option<String>,
+    summary: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    kanzei_tools::test_record::append_test_run(
+        &root,
+        &title,
+        &status,
+        command.as_deref(),
+        summary.as_deref(),
+    )
+}
+
 
 #[tauri::command]
 pub fn docs_snapshot(project_dir: String) -> serde_json::Value {

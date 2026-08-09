@@ -192,8 +192,8 @@ run::run_prompt,
             processes::worktree_diff,
             processes::worktree_merge,
             processes::worktree_discard,
-            test_runs_snapshot,
-            test_run_record,
+            docs::test_runs_snapshot,
+            docs::test_run_record,
             mobile::mobile_service_start,
             mobile::mobile_service_stop,
             agent_container::agent_container_create,
@@ -389,30 +389,6 @@ pub(crate) fn docs_snapshot(project_dir: String) -> serde_json::Value {
             "finding": archived_entries(&FINDINGS),
         },
     })
-}
-
-#[tauri::command]
-fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    kanzei_tools::test_record::test_runs_snapshot(&root)
-}
-
-#[tauri::command]
-fn test_run_record(
-    project_dir: String,
-    title: String,
-    status: String,
-    command: Option<String>,
-    summary: Option<String>,
-) -> Result<serde_json::Value, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    kanzei_tools::test_record::append_test_run(
-        &root,
-        &title,
-        &status,
-        command.as_deref(),
-        summary.as_deref(),
-    )
 }
 
 fn collect_project_files(root: &Path, dir: &Path, query: &str, results: &mut Vec<String>) {
