@@ -64,3 +64,7 @@
 ## T-1786248852 R-153 批0d permission 测试迁移回归 [passed]
 - 命令: cargo test -p kanzei-app permission_tests
 - 摘要: permission_tests 3 项全部通过；新增权限对话框 payload 与 Always Allow 持久化测试模块可编译运行。
+
+## T-1786249009 R-153 批0e state 测试迁移回归 [passed]
+- 命令: cargo test -p kanzei-app state_tests
+- 摘要: state_tests 10 项全部通过；新增 state 测试模块可编译运行。此前两次编译错误已修正（PathBuf 比较与临时数组借用）。
