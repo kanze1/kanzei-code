@@ -192,8 +192,3 @@
 - 影响: R-157 验收⑤(文档标注)无法由 agent 完成,条目不能按 §1.25 关闭;同类缺口将来还会卡住所有需要改 conventions.md 的条目(如引擎化交付后的标注、新决策的 §1.x 更新)。
 - 优先级: P2
 
-## D-238 桌面端外部进程调用未隐藏控制台窗口:git/cargo/taskkill 弹黑窗 [fixing] (medium)
-- 复现: 桌面端(GUI 进程,无控制台)触发以下操作时,Windows 弹出黑色 cmd 窗口:①打开文件视图(files_snapshot→git_file_list 调 `git ls-files`);②打开需求/缺陷文档页(git_batches::commit_subjects 调 `git log`);③提交(compile_gate 调 `cargo check`);④process stop(kill_tree 调 taskkill)。用户反馈:git 工具会弹黑色终端。
-- 根因: Windows 上子进程默认继承父进程控制台;父进程无控制台时系统新建一个控制台窗口。kanzei-tools 里 files.rs::git_file_list、git_batches.rs::commit_subjects、git.rs::compile_gate(cargo)、shell.rs::kill_tree(taskkill) 四处 spawn 未设 CREATE_NO_WINDOW(0x0800_0000)。bash.rs 与 git.rs::run_git_owned 已设,kanzei-app 的 hidden_command 也设了,唯独这四处遗漏。
-- 证据等级: E1(代码路径实证)
-- 验收: ①files.rs::git_file_list、git_batches.rs::commit_subjects、git.rs::compile_gate、shell.rs::kill_tree 四处子进程全部设置 CREATE_NO_WINDOW(std/tokio creation_flags);②共享辅助函数收敛,不与 bash.rs/git.rs 既有隐藏逻辑重复;③cargo test -p kanzei-tools 全绿。
