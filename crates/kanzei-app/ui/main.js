@@ -82,6 +82,28 @@ const promptBox = $("prompt");
 const I18N_EN = {
   "agent 正在做这一条": "The agent is working on this item",
   "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
+  "文件树加载失败": "Failed to load file tree",
+  "文件导览": "File explorer",
+  "切换到文件导览": "Switch to file explorer",
+  "切换排序:名称 / 行数": "Toggle sort: name / lines",
+  "用 fast 模型为文件生成一句话用途标注(增量,只标新增或已变化的文件)": "Generate one-line purpose annotations with the fast model (incremental; only new or changed files)",
+  "重新扫描": "Rescan",
+  "重新扫描文件树": "Rescan file tree",
+  "项目文件树": "Project file tree",
+  "选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明": "Select a file on the left to view it · directory rows show aggregates · \"Annotate\" generates purpose notes with the fast model",
+  "个文件": "files",
+  "行": "lines",
+  "字": "chars",
+  "标注": "Annotate",
+  "标注中": "Annotating",
+  "标注完成": "Annotation complete",
+  "标注失败": "Annotation failed",
+  "过大未计": "too large, not measured",
+  "二进制文件": "Binary file",
+  "已截断预览前 4MB": "preview truncated to first 4MB",
+  "预览失败": "Preview failed",
+  "按名称": "By name",
+  "按行数": "By lines",
   "拖拽调序已锁": "Reordering locked",
   "分组视图": "grouped view",
   "排序": "sort",
@@ -799,6 +821,7 @@ document.querySelectorAll(".activity-item").forEach((item) => {
     if (view === "documents") refreshDocs();
     if (view === "memory") refreshMemory();
     if (view === "metrics") refreshMetrics();
+    if (view === "files") refreshFiles();
   });
 });
 
@@ -6719,3 +6742,250 @@ document.querySelectorAll(".sidebar-section").forEach((section) => {
   }
   setStatus("空闲", false);
 })();
+
+// ---------- 文件导览(R-148):树 + 度量 + Monaco 只读预览 + AI 用途标注 ----------
+let filesSnapshotData = null;
+let filesSortByLines = false;
+const filesExpanded = new Set([""]);
+let filesActivePath = null;
+let monacoLoadPromise = null;
+let filesEditor = null;
+
+async function refreshFiles() {
+  if (!currentProject) return;
+  try {
+    filesSnapshotData = await invoke("files_snapshot", { projectDir: currentProject });
+    renderFilesTree();
+  } catch (err) {
+    toastError(`${t("文件树加载失败")}:${err}`);
+  }
+}
+
+function humanSize(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${bytes}B`;
+}
+
+// 平面清单 → 嵌套树。目录节点带聚合与目录标注。
+function buildFilesTree(snapshot) {
+  const root = { name: "", path: "", dirs: new Map(), files: [] };
+  for (const file of snapshot.files) {
+    const parts = file.path.split("/");
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const dirPath = parts.slice(0, i + 1).join("/");
+      if (!node.dirs.has(parts[i])) {
+        node.dirs.set(parts[i], { name: parts[i], path: dirPath, dirs: new Map(), files: [] });
+      }
+      node = node.dirs.get(parts[i]);
+    }
+    node.files.push(file);
+  }
+  return root;
+}
+
+function renderFilesTree() {
+  const snapshot = filesSnapshotData;
+  if (!snapshot) return;
+  const tree = $("files-tree");
+  tree.innerHTML = "";
+  const total = snapshot.dirs?.[""] ?? { files: snapshot.files.length, size: 0, lines: 0 };
+  $("files-summary").textContent = `${total.files} ${t("个文件")} · ${humanSize(total.size)} · ${total.lines} ${t("行")}`;
+  const annotateBtn = $("files-annotate");
+  if (!annotateBtn.disabled) {
+    annotateBtn.textContent = snapshot.unannotated > 0 ? `${t("标注")}(${snapshot.unannotated})` : t("标注");
+  }
+  renderFilesDir(tree, buildFilesTree(snapshot), 0, snapshot);
+}
+
+function filesDirSorted(node, snapshot) {
+  const dirs = [...node.dirs.values()];
+  const files = [...node.files];
+  if (filesSortByLines) {
+    dirs.sort((a, b) => (snapshot.dirs?.[b.path]?.lines ?? 0) - (snapshot.dirs?.[a.path]?.lines ?? 0));
+    files.sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || b.size - a.size);
+  } else {
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    files.sort((a, b) => a.path.localeCompare(b.path));
+  }
+  return { dirs, files };
+}
+
+function renderFilesDir(container, node, depth, snapshot) {
+  const { dirs, files } = filesDirSorted(node, snapshot);
+  for (const dir of dirs) {
+    const stat = snapshot.dirs?.[dir.path] ?? { files: 0, size: 0, lines: 0 };
+    const row = document.createElement("div");
+    const open = filesExpanded.has(dir.path);
+    row.className = "files-row files-dir";
+    row.style.paddingLeft = `${8 + depth * 14}px`;
+    row.setAttribute("role", "treeitem");
+    row.setAttribute("aria-expanded", String(open));
+    row.tabIndex = 0;
+    const arrow = document.createElement("span");
+    arrow.className = "files-arrow";
+    arrow.textContent = open ? "▾" : "▸";
+    const name = document.createElement("span");
+    name.className = "files-name";
+    name.textContent = `${dir.name}/`;
+    const measure = document.createElement("span");
+    measure.className = "files-measure";
+    measure.textContent = `${stat.files} · ${humanSize(stat.size)} · ${stat.lines} ${t("行")}`;
+    row.append(arrow, name, measure);
+    const dirNote = snapshot.dirNotes?.[dir.path];
+    if (dirNote) {
+      const note = document.createElement("span");
+      note.className = "files-note";
+      note.textContent = dirNote;
+      note.title = dirNote;
+      row.appendChild(note);
+    }
+    const toggleDir = () => {
+      if (filesExpanded.has(dir.path)) filesExpanded.delete(dir.path);
+      else filesExpanded.add(dir.path);
+      renderFilesTree();
+    };
+    row.addEventListener("click", toggleDir);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDir(); }
+    });
+    container.appendChild(row);
+    if (open) renderFilesDir(container, dir, depth + 1, snapshot);
+  }
+  for (const file of files) {
+    const row = document.createElement("div");
+    row.className = `files-row files-file${file.path === filesActivePath ? " active" : ""}`;
+    row.style.paddingLeft = `${8 + depth * 14 + 14}px`;
+    row.setAttribute("role", "treeitem");
+    row.tabIndex = 0;
+    const name = document.createElement("span");
+    name.className = "files-name";
+    name.textContent = file.path.split("/").pop();
+    const measure = document.createElement("span");
+    measure.className = "files-measure";
+    measure.textContent = file.oversized
+      ? `${humanSize(file.size)} ${t("过大未计")}`
+      : file.lines != null
+        ? `${humanSize(file.size)} · ${file.lines} ${t("行")}`
+        : file.chars != null
+          ? `${humanSize(file.size)} · ${file.chars} ${t("字")}`
+          : humanSize(file.size);
+    row.append(name, measure);
+    if (file.note) {
+      const note = document.createElement("span");
+      note.className = "files-note";
+      note.textContent = file.note;
+      note.title = file.note;
+      row.appendChild(note);
+    }
+    const openFile = () => openFilePreview(file);
+    row.addEventListener("click", openFile);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") openFile();
+    });
+    container.appendChild(row);
+  }
+}
+
+// Monaco 懒加载:切到文件页并首次打开文件才拉起,不拖慢主界面启动。
+function loadMonaco() {
+  if (monacoLoadPromise) return monacoLoadPromise;
+  monacoLoadPromise = new Promise((resolve, reject) => {
+    const boot = () => {
+      const script = document.createElement("script");
+      script.src = "vendor/monaco/loader.js";
+      script.onload = () => {
+        window.require.config({ paths: { vs: "vendor/monaco" } });
+        window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject);
+      };
+      script.onerror = () => reject(new Error("monaco loader load failed"));
+      document.head.appendChild(script);
+    };
+    if (!languageIsEnglish()) {
+      // nls 必须先于 loader 注入,Monaco 启动时读全局翻译表。
+      const nls = document.createElement("script");
+      nls.src = "vendor/monaco/nls.messages.zh-cn.js";
+      nls.onload = boot;
+      nls.onerror = boot; // 翻译丢了退回英文界面,不挡功能
+      document.head.appendChild(nls);
+    } else {
+      boot();
+    }
+  });
+  return monacoLoadPromise;
+}
+
+async function openFilePreview(file) {
+  filesActivePath = file.path;
+  renderFilesTree();
+  const head = $("files-preview-head");
+  head.classList.remove("hidden");
+  $("files-preview-path").textContent = file.path;
+  $("files-preview-meta").textContent = "";
+  const placeholder = $("files-placeholder");
+  try {
+    const preview = await invoke("file_preview", { projectDir: currentProject, path: file.path });
+    if (preview.binary) {
+      placeholder.textContent = `${t("二进制文件")} · ${humanSize(preview.size)}`;
+      placeholder.classList.remove("hidden");
+      $("files-editor").classList.add("hidden");
+      return;
+    }
+    placeholder.classList.add("hidden");
+    $("files-editor").classList.remove("hidden");
+    const monaco = await loadMonaco();
+    if (!filesEditor) {
+      filesEditor = monaco.editor.create($("files-editor"), {
+        readOnly: true,
+        automaticLayout: true,
+        theme: "vs-dark",
+        minimap: { enabled: true },
+        fontSize: 13,
+        scrollBeyondLastLine: false,
+      });
+    }
+    const uri = monaco.Uri.file(file.path);
+    let model = monaco.editor.getModel(uri);
+    if (model) {
+      model.setValue(preview.content);
+    } else {
+      model = monaco.editor.createModel(preview.content, undefined, uri);
+    }
+    const old = filesEditor.getModel();
+    filesEditor.setModel(model);
+    if (old && old !== model) old.dispose();
+    $("files-preview-meta").textContent = `${humanSize(preview.size)}${preview.truncated ? ` · ${t("已截断预览前 4MB")}` : ""}`;
+  } catch (err) {
+    placeholder.textContent = `${t("预览失败")}:${err}`;
+    placeholder.classList.remove("hidden");
+  }
+}
+
+$("files-refresh").addEventListener("click", refreshFiles);
+$("files-sort").addEventListener("click", () => {
+  filesSortByLines = !filesSortByLines;
+  $("files-sort").textContent = filesSortByLines ? t("按名称") : t("按行数");
+  renderFilesTree();
+});
+$("files-annotate").addEventListener("click", async () => {
+  const btn = $("files-annotate");
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = `${t("标注中")}…`;
+  try {
+    const result = await invoke("files_annotate", { projectDir: currentProject });
+    toast(`${t("标注完成")}:${result.annotated}/${result.total}${result.failed ? ` · ${result.failed} ${t("失败")}` : ""}`);
+    await refreshFiles();
+  } catch (err) {
+    toastError(`${t("标注失败")}:${err}`);
+  } finally {
+    btn.disabled = false;
+    renderFilesTree();
+  }
+});
+listen("kz:annotate-progress", (e) => {
+  const p = e.payload;
+  const btn = $("files-annotate");
+  if (btn.disabled) btn.textContent = `${t("标注中")} ${p.done + p.failed}/${p.total}`;
+}).catch(() => {});

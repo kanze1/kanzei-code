@@ -424,6 +424,19 @@ const payloads = {
   // R-136:Ollama 装了但服务没起 —— 最常见的"子代理静默失效"形态。
   fast_model_status: { managed: true, model: "qwen3.5:4b", installed: true, serviceUp: false, modelPresent: false, ready: false },
   fast_model_setup: "fast 子代理已就绪:qwen3.5:4b",
+  files_snapshot: {
+    files: [
+      { path: "src/lib.rs", size: 2048, lines: 120, oversized: false, note: "冒烟样例:库入口" },
+      { path: "docs/note.md", size: 512, chars: 300, oversized: false },
+    ],
+    dirs: {
+      "": { files: 2, size: 2560, lines: 120 },
+      "src": { files: 1, size: 2048, lines: 120 },
+      "docs": { files: 1, size: 512, lines: 0 },
+    },
+    dirNotes: { "src": "源码目录" },
+    unannotated: 1,
+  },
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待更新"]] })],
@@ -1378,6 +1391,22 @@ assert(
     activityItems.length === 0,
   "视图切换未真正驱动:最后一个视图应处于 active"
 );
+
+// ---------- 文件导览(R-148):树渲染出目录聚合、文件度量与标注 ----------
+{
+  const tree = byId.get("files-tree");
+  let treeText = tree?.textContent ?? "";
+  assert(treeText.includes("src/"), `文件树缺目录行: "${treeText.slice(0, 80)}"`);
+  assert(treeText.includes("源码目录"), "目录用途标注未渲染");
+  assert((byId.get("files-summary")?.textContent ?? "").includes("2"), "汇总行缺文件计数");
+  // 目录默认折叠(VSCode 同款):点开后文件行才出现,顺带验证展开交互本身。
+  for (const row of [...tree.querySelectorAll(".files-dir")]) row.click();
+  await flush();
+  treeText = tree.textContent;
+  assert(treeText.includes("lib.rs") && treeText.includes("120"), "展开后文件行缺行数度量");
+  assert(treeText.includes("note.md") && treeText.includes("300"), "展开后 md 文件缺字数度量");
+  assert(treeText.includes("冒烟样例:库入口"), "文件用途标注未渲染");
+}
 
 if (issues.length) {
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

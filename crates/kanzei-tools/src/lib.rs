@@ -1,6 +1,7 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
 pub mod architecture;
+pub mod files;
 mod background;
 mod base;
 mod bash;

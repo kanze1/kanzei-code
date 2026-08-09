@@ -20,6 +20,8 @@ use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
 
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent, RunnerConfig};
+
+mod files_view;
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
@@ -1668,6 +1670,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             ui_probe_result,
+            files_view::files_snapshot,
+            files_view::file_preview,
+            files_view::files_annotate,
             projects_get,
             projects_add,
             projects_init,

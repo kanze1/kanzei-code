@@ -23,6 +23,7 @@ impl Component for BaseComponent {
             .insert("process", Arc::new(crate::process::ProcessTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        draft.tools.insert("files", Arc::new(crate::files::FilesTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         draft
             .tools
@@ -39,6 +40,7 @@ impl Component for BaseComponent {
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
+            rule("files", "*", Effect::Allow),
             rule("git", "status", Effect::Allow),
             rule("git", "diff", Effect::Allow),
             rule("git", "log", Effect::Allow),
