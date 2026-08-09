@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 ee8ab00：run_task_impl 的鉴权阶段详情格式化已提取到 run::auth_stage_detail，保留 provider/model 与订阅登录态文案，main.rs 减少 13 行。定向测试 T-1786290381 已登记通过。下一步继续提取 RunnerConfig 构造辅助逻辑。
+- 进展: 已提交 5487ebb：run_task_impl 的 LlmClient 创建已提取到 run::new_llm_client，保持 ProxyConfig 透传与构造错误传播，main.rs 调用边界完成迁移。定向测试 T-1786290449 已登记通过。下一步继续提取 RunnerConfig 构造辅助逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
