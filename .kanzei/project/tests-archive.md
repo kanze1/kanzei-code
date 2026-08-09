@@ -305,3 +305,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: harness_ext 模块已接入，FrontendToolsComponent 与 QuickCaptureComponent 通过真实装配调用，前端只读工具与快速 tracker 权限保持原语义。
 - 收尾: 1786287012
+
+## T-1786287089 R-153 harness_ext 工具旧副本清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: UiProbeInput、UiDomTool、UiConsoleTool、UiStyleTool 四个 main.rs 旧副本已删除，真实调用继续由 harness_ext 模块提供。
+- 收尾: 1786287095
