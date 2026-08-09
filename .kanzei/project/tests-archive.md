@@ -370,3 +370,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 当前 run.rs 运行链路回归通过：run_prompt、run_metrics、stop_run、队列 helper、持久化 helper 和 run_task 模块入口均可编译验证。
 - 收尾: 1786288782
+
+## T-1786288890 R-153 run.rs 对话总结链路迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: summarize_chat、fast_summarize、render_transcript 已迁入 run.rs，invoke_handler 与 run_task 内压缩调用已切换到 run:: 路径。
+- 收尾: 1786288894

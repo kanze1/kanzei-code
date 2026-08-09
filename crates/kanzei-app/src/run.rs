@@ -10,6 +10,40 @@ use crate::{ensure_default_process, process_session_id, runtime_for, stop_runtim
 pub(crate) use crate::run_task_impl as run_task;
 
 
+async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> {
+    use futures::StreamExt;
+    let config = kanzei_harness::config::KanzeiConfig::load(cwd).map_err(|e| e.to_string())?;
+    let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
+    let proxy = match config.proxy.as_deref() { Some("off") => kanzei_llm::ProxyConfig::Disabled, Some("env") | None => kanzei_llm::ProxyConfig::Env, Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()) };
+    let route = kanzei_core::build_route(&resolved, &proxy).await.map_err(|e| e.to_string())?;
+    let client = kanzei_llm::LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let request = kanzei_llm::LlmRequest { model: resolved.model.clone(), system: vec!["把下面的人机协作对话记录总结成简洁的中文纪要:做了什么、改了哪些文件、结论、遗留问题/下一步。markdown 列表,300 字以内。".into()], messages: vec![kanzei_llm::Message::user_text(transcript)], tools: vec![], max_tokens: 2048, temperature: None, reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved) };
+    let mut stream = client.stream(&route, &request).await.map_err(|e| e.to_string())?;
+    let mut summary = String::new();
+    while let Some(event) = stream.next().await { if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? { summary.push_str(&text); } }
+    if summary.trim().is_empty() { return Err("模型没有产出总结(fast 模型是否在运行?)".into()); }
+    Ok(summary)
+}
+
+fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
+    let mut out = String::new();
+    'outer: for message in messages { for part in &message.parts { match part { kanzei_llm::Part::Text { text } => { out.push_str(match message.role { kanzei_llm::Role::User => "[用户] ", kanzei_llm::Role::Assistant => "[助手] " }); out.push_str(text); out.push('\n'); }, kanzei_llm::Part::ToolCall { name, input, .. } => out.push_str(&format!("[工具调用] {name} {input}\n")), kanzei_llm::Part::ToolResult { content, .. } => { let snippet: String = content.chars().take(1500).collect(); out.push_str(&format!("[工具结果] {snippet}\n")); }, _ => {} } if out.len() > 100_000 { break 'outer; } } }
+    out
+}
+
+#[tauri::command]
+pub(crate) async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde_json::Value, String> {
+    let cwd = PathBuf::from(&project_dir);
+    let summary = fast_summarize(&cwd, &transcript).await?;
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    let dir = root.join(".kanzei").join("summaries");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let path = dir.join(format!("summary-{secs}.md"));
+    std::fs::write(&path, &summary).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "summary": summary, "path": path.display().to_string() }))
+}
+
 #[tauri::command]
 pub(crate) fn stop_run(
     window: Window,
