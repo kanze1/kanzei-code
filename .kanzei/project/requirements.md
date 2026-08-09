@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 65a0f1a：validate_model_roles 已迁入 settings.rs:96-121，main.rs 通过 re-export 保持 state_tests 与 settings_save_at_path 调用路径不变；cargo check -p kanzei-app --tests 通过，T-1786284967 已登记通过。剩余 settings_save_at_path、settings_save/settings_open 仍在 main.rs，继续迁移。
+- 进展: 已提交 0e1dcd4：settings_save/settings_open 的真实命令实现已迁入 settings.rs:213-233，Tauri 调用路径保持 settings::settings_save/settings_open 不变；main.rs 已删除两个包装实现，仅保留 pub(crate) settings_save_at_path 供命令调用。cargo check -p kanzei-app --tests 通过，T-1786285056 已登记通过。下一批迁移 settings_save_at_path。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
