@@ -319,10 +319,12 @@ pub(crate) fn settings_apply_cadence(
     let entries: [(&str, Option<&str>); 4] = [
         (
             "full_test",
-            cadence
-                .full_test
-                .as_deref()
-                .filter(|v| matches!(*v, "entry_close" | "every_commit" | "every_n_batches" | "release_only")),
+            cadence.full_test.as_deref().filter(|v| {
+                matches!(
+                    *v,
+                    "entry_close" | "every_commit" | "every_n_batches" | "release_only"
+                )
+            }),
         ),
         (
             "targeted_test",
@@ -647,7 +649,9 @@ fn _state_type_marker(_: Option<State<'_, AppState>>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanzei_harness::config::{CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence};
+    use kanzei_harness::config::{
+        CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence,
+    };
     use kanzei_harness::KanzeiConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -863,14 +867,23 @@ mod tests {
         )
         .unwrap();
         let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(saved.cadence.full_test, kanzei_harness::config::FullTestCadence::EveryNBatches);
+        assert_eq!(
+            saved.cadence.full_test,
+            kanzei_harness::config::FullTestCadence::EveryNBatches
+        );
         assert_eq!(saved.cadence.full_test_batches, Some(3));
         assert_eq!(
             saved.cadence.targeted_test,
             kanzei_harness::config::TargetedTestCadence::EveryCommit
         );
-        assert_eq!(saved.cadence.commit, kanzei_harness::config::CommitCadence::PerEntry);
-        assert_eq!(saved.cadence.push, kanzei_harness::config::PushCadence::Periodic);
+        assert_eq!(
+            saved.cadence.commit,
+            kanzei_harness::config::CommitCadence::PerEntry
+        );
+        assert_eq!(
+            saved.cadence.push,
+            kanzei_harness::config::PushCadence::Periodic
+        );
 
         // 清空(cadence 节带全空字段)→ 键从文件移除,回落 §1.4 默认。
         settings_save_at_path(
@@ -885,10 +898,19 @@ mod tests {
         )
         .unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
-        assert!(!text.contains("[cadence]"), "清空后仍留 [cadence] 节:\n{text}");
+        assert!(
+            !text.contains("[cadence]"),
+            "清空后仍留 [cadence] 节:\n{text}"
+        );
         let saved: KanzeiConfig = toml::from_str(&text).unwrap();
-        assert_eq!(saved.cadence.full_test, kanzei_harness::config::FullTestCadence::EntryClose);
-        assert_eq!(saved.cadence.push, kanzei_harness::config::PushCadence::PerEntry);
+        assert_eq!(
+            saved.cadence.full_test,
+            kanzei_harness::config::FullTestCadence::EntryClose
+        );
+        assert_eq!(
+            saved.cadence.push,
+            kanzei_harness::config::PushCadence::PerEntry
+        );
 
         // 载荷不带 cadence(旧前端/其他调用方)→ 既有节原样保留,不删不改。
         std::fs::write(&path, "[cadence]\nfull_test = \"release_only\"\n").unwrap();

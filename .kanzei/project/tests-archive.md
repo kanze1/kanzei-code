@@ -1066,3 +1066,8 @@
 - 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node --check crates/kanzei-app/ui/11-docs-list.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: active 从集合退化为单条(取活序第一个可执行 doing/fixing)后,四条前端冒烟全绿:ui-runtime 243 invoke(含新增「多条 doing 只标取活序第一条」断言)、ui-i18n 306 key、ui-markdown、ui-a11y 0 错误。
 - 收尾: 1786315161
+
+## T-1786315421 cargo test -p kanzei-app(settings.rs fmt 修复) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: settings.rs fmt 修复后 kanzei-app 定向测试 45 passed 全绿(发版门禁格式化修复背书)。
+- 收尾: 1786315421
