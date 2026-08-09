@@ -184,6 +184,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
 }
 
 pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+    validate_model_roles(&payload)?;
     crate::settings_save_at_path_impl(payload, path)
 }
 

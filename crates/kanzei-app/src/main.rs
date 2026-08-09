@@ -452,7 +452,6 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
 // ---------- 设置(全局 kanzei.toml 表单) ----------
 
 pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    validate_model_roles(&payload)?;
     // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
     let text = match std::fs::read_to_string(path) {

@@ -255,3 +255,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；settings_save_at_path 由 settings.rs 接管 API，现有测试调用路径保持不变。
 - 收尾: 1786285147
+
+## T-1786285213 R-153 设置保存校验责任迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；保存入口校验已由 settings.rs 执行，main 实现不再重复校验。
+- 收尾: 1786285216
