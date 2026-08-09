@@ -931,3 +931,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: R-154 B6 前端冒烟全绿:runtime 12 文件按序 + 222 invoke + 列表渲染;i18n/markdown/a11y 同绿
 - 收尾: 1786303916
+
+## T-1786303972 R-154 B7 ui 冒烟(06-activity/07-events 拆分) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B7 前端冒烟全绿:runtime 14 文件按序 + 222 invoke + 列表渲染;i18n/markdown/a11y 同绿
+- 收尾: 1786303972
