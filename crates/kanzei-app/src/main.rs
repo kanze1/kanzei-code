@@ -884,34 +884,6 @@ mod update_tests {
     }
 
     #[cfg(any())]
-    #[test]
-    fn defect_review_rejects_empty_model_report() {
-        let empty = kanzei_core::RunSummary {
-            text: "  ".into(),
-            usage: kanzei_llm::Usage::default(),
-            steps: 1,
-            halted_by_user: false,
-            messages: vec![],
-            context_report: vec![],
-            overflow_traces: vec![],
-        };
-        assert!(super::defect_review_report(&empty).is_err());
-
-        let report = kanzei_core::RunSummary {
-            text: "# 缺陷审查\n\n有可复核证据".into(),
-            usage: kanzei_llm::Usage::default(),
-            steps: 1,
-            halted_by_user: false,
-            messages: vec![],
-            context_report: vec![],
-            overflow_traces: vec![],
-        };
-        assert!(super::defect_review_report(&report)
-            .unwrap()
-            .contains("可复核证据"));
-    }
-
-    #[cfg(any())]
     #[tokio::test]
     async fn defect_review_empty_state_returns_without_model_call() {
         let root = std::env::temp_dir().join(format!(

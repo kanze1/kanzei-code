@@ -92,3 +92,7 @@
 ## T-1786250180 R-153 批0删除 defect_review 旧测试回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 物理删除 defect_review_snapshot 旧测试后，kanzei-app 42 项全部通过。剩余 4 项 state 旧测试与 2 项 process 停止旧测试待删除。
+
+## T-1786250305 R-153 批0删除 defect_review 空报告旧测试回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 物理删除 defect_review_rejects_empty_model_report 旧测试后，kanzei-app 42 项全部通过。剩余 defect_review 空状态、docs_snapshot、export 及 process 停止旧测试。
