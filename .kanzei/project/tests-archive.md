@@ -56,3 +56,7 @@
 ## T-1786248673 R-153 批0b process 测试迁移回归 [passed]
 - 命令: cargo test -p kanzei-app process_tests
 - 摘要: process_tests 5 项全部通过；临时目录使用 PID+纳秒唯一值，并在删除目录前显式 drop SQLite store，Windows 并行测试不再发生 error 32。
+
+## T-1786248761 R-153 批0c conversation 测试迁移回归 [passed]
+- 命令: cargo test -p kanzei-app conversation_tests
+- 摘要: 新增 conversation_tests 模块，5 项会话消息/历史恢复测试全部通过。旧 update_tests 中对应原测试尚待删除，批0仍未完成。

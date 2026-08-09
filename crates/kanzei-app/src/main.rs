@@ -810,6 +810,9 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
 }
 
 #[cfg(test)]
+mod conversation_tests;
+
+#[cfg(test)]
 mod process_tests;
 
 #[cfg(test)]
