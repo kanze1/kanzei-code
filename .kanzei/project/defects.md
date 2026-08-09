@@ -116,13 +116,14 @@
 - 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
 - refs: R-150 R-107 (medium)
 
-## D-218 GitHub Actions 干净 checkout 缺少 .kanzei/project/tests.md 导致 test_record 测试失败 [fixed] (high)
-- 复现: Actions run 31291964471；cargo test --workspace；test_record::tests::tool_records_and_returns_snapshot_text 在 crates/kanzei-tools/src/test_record.rs:336 断言 root.join(TEST_RUNS_REL).exists() 失败。
-- 影响: CI 独立验证在干净 checkout 失败，R-152 无法满足首跑全绿。
-- 来源: R-152 GitHub Actions 首跑
-- 标签: 流程
-- 进展: 已修复 `crates/kanzei-tools/src/test_record.rs:251-254`：temp_project fixture 创建 `.kanzei` 标记，使 ToolCtx::new 的 project_root 稳定为 fixture 根；未改生产逻辑。定向 `cargo test -p kanzei-tools test_record::tests --lib` 6/6 通过，`cargo test --workspace` 全量通过。待修复提交后的 GitHub Actions 复跑全绿后，逐条核对验收并关闭。
-- 关闭核对(2026-08-09): 验收逐条满足——①干净 checkout 全绿:修复提交起 Actions 连续三跑 success(runs 31292345597 f2b5323 / 31292710503 fe0c8f2 / 31292885059 cd85360);②未 skip/忽略任何测试:修复是 fixture 加 `.kanzei` 标记(test_record.rs:251-254),测试契约不变;③本地与 CI 同一契约:本地 verify.ps1 与 CI 跑同一 `cargo test --workspace`。转 fixed。
-- 验收: 干净 GitHub Actions checkout 上 cargo test --workspace 全绿；不通过 skip/忽略测试解决；本地与 CI 仍使用同一测试契约。
-- refs: R-152
-- 优先级: P0
+
+## D-219 WIP 准入把阻塞 doing 计入配额,鞭挞提示词与 §1.1 新口径不同步 [open] (medium)
+- 复现: 2026-08-09 实测:R-101(用户挂起)+R-148(仅剩等用户复查)占满 2 个 doing 名额,循环以「WIP 约束不能并发开启」拒开 R-153——两个不可执行条目把新工作准入整体锁死。
+- 根因: 旧 §1.1 规则「blocked doing 不占可执行槽,但仍计入 doing 总数」自相矛盾——计入总数即占用准入;DEFAULT_CONTINUE_PROMPT 规则 5「doing 最多 2 个;已满就继续推进这两项」把旧口径写死在注入文案里,且不区分可执行/阻塞。
+- 已做(规则层,2026-08-09): conventions §1.1 改为「非阻塞 doing 最多 2;阻塞/挂起 doing 不计入准入配额;含阻塞总数 >4 必须先收敛存量」;R-101 转回 todo(用户挂起,不在推进中),R-148 补①类阻塞字段(等用户复查)——名额已释放,R-153 可开。
+- 待修(机制层): DEFAULT_CONTINUE_PROMPT 规则 5 文案按新口径改写(区分可执行/阻塞 doing),旧默认加入 LEGACY_CONTINUE_PROMPTS 静默升级(D-163 同族,防用户存的旧默认与新契约错位);调度器/取活预览若有同口径判断(D-207 系)一并同步。
+- 验收: ①注入文案与 §1.1 新口径一致,LEGACY 升级路径有测试;②构造「2 个阻塞 doing + 可做 todo」场景,循环能开新条目不再误拒;③冒烟断言防回归。
+- 边界: 改动集中在 main.js 文案与 LEGACY 数组,与 R-154 拆解撞文件——微小改动,安排在 R-154 批次间隙或 08-compose 批落位后做,不与拆解批同轮;R-157 参数化规则 6 时顺路复核本条。
+- refs: D-163 R-157 D-207
+- 优先级: P1
+- 标签: 前端
