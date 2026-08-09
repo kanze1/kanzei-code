@@ -966,3 +966,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 B3 runner/redundancy.rs 拆解:71 passed;修复首版剪切 slice 起点差 1 导致 3 个测试缺 #[test] 属性(调用画像/sop_提炼/重复_git),补齐后 71 全绿
 - 收尾: 1786305166
+
+## T-1786305476 R-155 B4 runner/context.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 B4 runner/context.rs 拆解:71 passed;pub use 改 pub(crate) use 修正 glob re-export 警告;清理 mod.rs HashSet import;CONTEXT_BUDGET_RATIO/RECENT_VERBATIM_RATIO 标测试锚点
+- 收尾: 1786305476
