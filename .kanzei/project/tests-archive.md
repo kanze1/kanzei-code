@@ -395,3 +395,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 当前 run.rs helper 迁移后定向回归通过，models_list 的 run::push_ollama_models 调用链保持可用。
 - 收尾: 1786289333
+
+## T-1786289358 R-153 models_list 调用边界基线定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: models_list 当前调用边界回归通过：OpenAI/Ollama 模型发现路径与 run::push_ollama_models 连接正常，为下一步迁移 models_list 主体保留基线。
+- 收尾: 1786289362
