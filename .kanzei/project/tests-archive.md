@@ -475,3 +475,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的 LlmClient 创建已迁移到 run::new_llm_client，ProxyConfig 透传及构造错误传播保持。
 - 收尾: 1786290453
+
+## T-1786290534 R-153 run_task RunnerConfig helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的 RunnerConfig 完整构造已迁移到 run::build_runner_config，保留 model/max_tokens/reasoning/service_tier/context_limit/limits 字段语义。
+- 收尾: 1786290541

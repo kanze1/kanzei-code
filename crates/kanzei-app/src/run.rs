@@ -24,6 +24,21 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn build_runner_config(
+    resolved: &kanzei_harness::config::ResolvedModel,
+    config: &kanzei_harness::config::KanzeiConfig,
+    reasoning_override: Option<&str>,
+) -> kanzei_core::RunnerConfig {
+    kanzei_core::RunnerConfig {
+        model: resolved.model.clone(),
+        max_tokens: config.limits.max_tokens(),
+        reasoning: resolve_reasoning_override(reasoning_override, config.models.reasoning.as_deref()),
+        service_tier: config.service_tier_for(resolved),
+        context_limit: resolved.provider.context_limit,
+        limits: config.limits.clone(),
+    }
+}
+
 pub(crate) fn new_llm_client(proxy: &kanzei_llm::ProxyConfig) -> anyhow::Result<kanzei_llm::LlmClient> {
     Ok(kanzei_llm::LlmClient::new(proxy)?)
 }

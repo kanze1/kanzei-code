@@ -712,20 +712,11 @@ async fn run_task_impl(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = run::new_llm_client(&proxy)?;
-    let runner_config = RunnerConfig {
-        model: resolved.model.clone(),
-        max_tokens: config.limits.max_tokens(),
-        // 每进程选择优先,未选则用 kanzei.toml 的 [models] reasoning 默认档。
-        reasoning: run::resolve_reasoning_override(
-            reasoning_override.as_deref(),
-            config.models.reasoning.as_deref(),
-        ),
-        service_tier: config.service_tier_for(&resolved),
-        // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
-        // 根本轮不到它,真正起作用的是这条。
-        context_limit: resolved.provider.context_limit,
-        limits: config.limits.clone(),
-    };
+    let runner_config = run::build_runner_config(
+        &resolved,
+        &config,
+        reasoning_override.as_deref(),
+    );
     let ctx = ToolCtx { cwd, project_root };
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
