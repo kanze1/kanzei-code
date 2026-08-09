@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 99d5cf0：删除 main.rs 中 models_list_impl 旧副本，run.rs 成为唯一实现；models_list 的配置角色、Codex/Claude、OpenAI /models、Ollama 分支均由 run.rs 承载。定向测试 T-1786289561 已登记通过。下一步继续 run_task_impl 主体迁移。
+- 进展: 已提交 ad1bbe1：run_task_impl 的阶段状态发送已抽为 run::emit_stage，保留 kz:status、stage/detail 和 session_id 语义，main.rs 减少 5 行。定向测试 T-1786289650 已登记通过。models_list 旧副本已清理，下一步继续从 run_task_impl 首段配置/装配逻辑提取可复用 helper。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
