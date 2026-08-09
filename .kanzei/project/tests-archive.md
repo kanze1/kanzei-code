@@ -345,3 +345,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: main.rs run_prompt 旧副本已删除，run::run_prompt 为唯一注册实现，run_task 调用仍由后续 run.rs 迁移承接。
 - 收尾: 1786288271
+
+## T-1786288413 R-153 run.rs 队列 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: parse_delivery、admit_input、promote_next_input 已迁入 run.rs，run_prompt 使用模块内 helper，main.rs 旧 helper 已删除。
+- 收尾: 1786288419
