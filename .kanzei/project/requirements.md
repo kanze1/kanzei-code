@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 ad1bbe1：run_task_impl 的阶段状态发送已抽为 run::emit_stage，保留 kz:status、stage/detail 和 session_id 语义，main.rs 减少 5 行。定向测试 T-1786289650 已登记通过。models_list 旧副本已清理，下一步继续从 run_task_impl 首段配置/装配逻辑提取可复用 helper。
+- 进展: 已提交 5ca6b37：run_task_impl 配置告警与 bash 权限告警已提取到 run::report_config_warnings，统一通过 emit_stage 发送，main.rs 减少 7 行。定向测试 T-1786289718 已登记通过。下一步继续提取 run_task 首段配置/装配逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
