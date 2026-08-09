@@ -9,7 +9,7 @@ use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, S
 
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
-use crate::{hidden_command, normalized_project_root};
+use crate::{normalized_project_root, state::hidden_command};
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
 #[tauri::command]

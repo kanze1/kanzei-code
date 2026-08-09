@@ -856,3 +856,18 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 提交前复测 43 项全绿；docs_snapshot 位于 docs.rs，state_tests 从 crate::docs 调用，主入口删除重复实现。
 - 收尾: 1786298325
+
+## T-1786298957 R-153 批10 run_task 与入口清理定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-153 批10 run_task 整体迁移、workspace_snapshot/hidden_command 入口清理后，kanzei-app 43 项测试全绿。
+- 收尾: 1786298957
+
+## T-1786299039 R-153 批10 run_task 原实现复原后定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 修复 Git 历史函数提取的 UTF-8 解码后，run_task 原实现完整迁移，kanzei-app 43 项全绿。
+- 收尾: 1786299039
+
+## T-1786299078 R-153 批10 最终提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 最终提交前定向复测 43 项全绿；仅清理 settings.rs 未使用导入后无行为变化。
+- 收尾: 1786299078

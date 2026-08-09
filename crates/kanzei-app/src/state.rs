@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -92,6 +93,17 @@ pub(crate) struct MobileServiceInfo { pub(crate) address: String, pub(crate) tok
 pub(crate) struct WorktreeInfo { pub(crate) path: String, pub(crate) branch: String, pub(crate) files: Vec<String>, pub(crate) clean: bool, pub(crate) diff: String }
 
 impl Default for SessionRuntime { fn default() -> Self { Self { asks: Arc::new(Mutex::new(HashMap::new())), current_run: Arc::new(Mutex::new(None)), running: Arc::new(AtomicBool::new(false)), lifecycle: Arc::new(Mutex::new(())), conversation: Arc::new(Mutex::new(HashMap::new())), live: Arc::new(Mutex::new(LiveRun::default())) } } }
+/// 桌面端调用外部程序时禁止创建控制台窗口(Windows GUI 应用不应闪出黑框)。
+pub(crate) fn hidden_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command
+}
+
 #[derive(Default)]
 pub(crate) struct AppState { pub(crate) runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>, pub(crate) ask_seq: Arc<AtomicU64>, pub(crate) processes: Arc<Mutex<HashMap<String, ProcessHandle>>>, pub(crate) mobile_service: Arc<Mutex<Option<MobileService>>> }
 

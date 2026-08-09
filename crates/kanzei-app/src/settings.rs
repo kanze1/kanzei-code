@@ -289,7 +289,7 @@ pub fn settings_open() -> Result<(), String> {
             limits: Default::default(), providers: vec![],
         })?;
     }
-    crate::hidden_command("cmd")
+    crate::state::hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
         .spawn().map_err(|e| e.to_string())?;
     Ok(())

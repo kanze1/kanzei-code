@@ -8,9 +8,10 @@ use tauri::State;
 use serde_json::json;
 
 use crate::{
-    ensure_default_process, hidden_command, normalized_project_root, process_info, process_session_id,
+    ensure_default_process, normalized_project_root, process_info, process_session_id,
     AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
 };
+use crate::state::hidden_command;
 
 #[tauri::command]
 pub fn list_pending_inputs(

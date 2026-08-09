@@ -3,7 +3,7 @@
 ## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [doing]
 - 优先级: P1
 - 复杂度: 大
-- 批次: 10/11
+- 批次: 11/11
 - 标签: 后端
 - 来源: 2026-08-09 用户定调巨石拆解;结构地图与批次表已落设计文档 §A(行号基准 c339b58,执行以符号名定位)。
 - 内容: 照 files_view.rs 先例(command 加 pub、invoke_handler 全路径注册、低耦合模块零依赖 main)把 75 个 command 按域拆为 state/update/fast_model/agent_container/mobile/memory/prefs/projects/processes/settings/docs/conversation/harness_ext/subagents/run 等模块;批0 先把 818 行 update_tests 按域切开(解锁全部后续批),批1 零依赖叶子起步,批4 落 state.rs 枢纽,批10 收 run.rs,共 11 批,每批一提交。设计: docs/design/monolith_decomposition.md §A。
@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续完成入口域迁移：`docs_snapshot` 已归入 `crates/kanzei-app/src/docs.rs:90-140`，现有 `state_tests` 改从 `crate::docs::docs_snapshot` 调用；重复定义与导入问题已修复。T-1786298115 `cargo test -p kanzei-app` 43 项全绿。`settings_tests` 已在上一批迁出；main.rs 当前约 900 行，仍剩 workspace_snapshot、hidden_command、run_task_impl，批次保持 10/11。
+- 进展: 完成入口收敛批：`run_task` 整体迁入 `crates/kanzei-app/src/run.rs:17-155`，真实调用由 `run::run_prompt` 通过 `run::run_task` 触发；`workspace_snapshot` 迁入 `projects.rs` 并保留 `#[tauri::command]`/invoke_handler 全路径注册；`hidden_command` 迁入 `state.rs`，docs/processes/settings 均改从 state 调用。`main.rs` 当前 195 行，仅保留模块声明、导出装配、main 与 Builder。T-1786298957 `cargo test -p kanzei-app` 43 项全绿。待关闭前证据：逐项核对 78 项 invoke_handler、四条 UI 冒烟与 `cargo test --workspace`。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
