@@ -1204,3 +1204,14 @@
 验证:4 个新单元测试(重复 git status 提醒/内容变化不误报、全量测试提醒/定向测试不触发、task 已知路径提醒/未知路径不触发、计数归类+失败不计)全绿,runner 26 项;cargo test --workspace 13 crate 全绿(kanzei-core 68 项);前端 i18n 37 key、runtime 214 invoke 0 错误、node --check 通过;测试记录 T-1786226007。
 残余:模式 (c) 依赖 prompt 里带 D-xxx 引用(不带 ID 无法机械定位缺陷段落);模式 (b) 依赖先有 git status/diff 提供指纹(无任何 git 查询时无法判定变更);提醒是观察档,后续如需升级为阻断(如 R-144 验收核查)再单独开条目。
 
+## R-149 记忆判据决策充分性改造 P1:反事实写入闸+subject 状态门禁+复发检测+采纳率排序+观测面 [done]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 阶段: 2
+- 来源: 2026-08-09 用户提供 Control-Sufficient Memory 研究文档并要求按其重设计记忆系统;边界经 4 项逐条拍板(引擎硬门禁/manager 带指纹/温和降权/六项全做),当前会话直接交付,不走自举。
+- 内容: 把记忆四操作(写入/遗忘/合并/检索)的判据从语义显著度换成决策价值,全部机械代理量实现:①manager 写入闸改反事实判据(说不出「不记会做错哪个动作」就 NOOP),description 双钩子;②memory_add 增可选 subject,引擎强制同 scope+category+subject 至多一条 active,冲突拒绝指路 memory_update,force 不可绕;③复发检测:失败笔记 [fp:tool|kind] 指纹由 manager 带进条目正文,轮末采集发现指纹在 active 记忆里仍复发则投修订笔记点名条目;④检索排序折入召回→采纳率(召回≥3 生效,×0.6~×1.3 温和降权,参数待实证复核);⑤memory_stats 增召回/采纳汇总与零采纳候选;⑥dev/memory 注入文案改决策判据表述。设计: docs/design/memory_decision_sufficiency.md。
+- 验收: ①subject 状态不变量有单测(冲突返回既有条目、force 不可绕、stale 后可重建、subject 落 frontmatter);②复发检测有单测(指纹命中投修订笔记点名条目 id、正常笔记要求保留指纹、同轮去重仍生效);③排序有单测(decision_weight 边界+零采纳条目沉底高采纳浮上的排序翻转);④stats 有单测(召回/采纳汇总+零采纳候选点名);⑤manager 工具端到端单测(subject 冲突报错指路 memory_update);⑥workspace 全量测试不回归。
+- 进展(2026-08-09 当日交付,全部有单测): ①subject 状态不变量:store.rs add() 冲突先于标题去重且不受 force 影响,subject 落 frontmatter extras(测试 subject_状态不变量_同主题至多一条_active_且_force_不可绕:冲突/force/跨 category/stale 重建四路);②复发检测:mod.rs harvest_failures 先查 project+global 指纹(find_active_by_marker 精确子串),命中投修订笔记点名条目,正常笔记新增「指纹放进正文」指引(测试 失败笔记要求保留指纹_复发时改投修订笔记);③排序:store.rs decision_weight(召回<3 不动分,0.6+0.7×采纳率,脏数据截断)+recall_profile 聚合 memory_recalls,search() 折入(测试 decision_weight_边界与单调性、零采纳条目在检索里沉底_高采纳浮上);④观测:tools.rs memory_stats 增「召回 N/采纳 M」与零采纳候选点名≤3 条(测试 stats_reports_recall_adoption_and_flags_zero_adoption_candidates);⑤manager:memory_add 增 subject 入参,SubjectConflict 报错指路 memory_update 并注明 force 不可绕(测试 memory_add_subject_conflict_points_to_update_and_ignores_force),系统提示词换反事实判据+subject 规则+指纹保留;⑥profiles.rs dev/memory 空库声明与收尾指引改决策判据表述。cargo test --workspace 全绿(kanzei-tools 110 项含 6 项新增)。降权参数(0.6/0.7/阈值3)按拍板留待真实召回数据复核,挂 R-150 验收③。
+- refs: R-103 R-125 R-145
+

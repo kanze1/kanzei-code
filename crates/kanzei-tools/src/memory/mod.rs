@@ -263,6 +263,7 @@ pub fn harvest_failures(
     store: &MemoryStore,
     signals: &[kanzei_core::FailureSignal],
 ) -> usize {
+    let global = MemoryStore::global();
     let mut delivered = 0usize;
     for signal in signals {
         if delivered >= MAX_FAILURE_NOTES_PER_RUN {
@@ -270,6 +271,28 @@ pub fn harvest_failures(
         }
         let fingerprint = format!("[fp:{}|{}]", signal.tool, signal.kind);
         if store.note_fingerprint_seen(&fingerprint) {
+            continue;
+        }
+        // 复发检测(R-149):指纹已在某条 active 记忆正文里,同类失败却仍出现——
+        // 记忆在、坑还在 = 它没进决策。投修订笔记点名该条目,而不是原坑重投。
+        let existing = store
+            .find_active_by_marker(&fingerprint)
+            .or_else(|| global.as_ref().and_then(|g| g.find_active_by_marker(&fingerprint)));
+        if let Some(entry) = existing {
+            let summary = format!(
+                "已有记忆 {} 但 {} 同类失败本轮仍复发({} 次){}",
+                entry.id, signal.tool, signal.count, fingerprint
+            );
+            let detail = format!(
+                "- 既有条目: {}《{}》\n- 错误原文: {}\n- 判断要点: 记忆存在但没拦住复发,说明它没进决策。用 memory_update 修订该条(补判据/改 description 召回钩子,正文里的 {} 标记必须保留);只有确认这是另一个坑才新增,不要原样再记一遍。",
+                entry.id,
+                entry.title,
+                signal.sample.replace('\n', " "),
+                fingerprint,
+            );
+            if store.append_note(&summary, &detail, "fact", &[]).is_ok() {
+                delivered += 1;
+            }
             continue;
         }
         let summary = match &signal.recovered_by {
@@ -287,13 +310,14 @@ pub fn harvest_failures(
             ),
         };
         let detail = format!(
-            "- 错误原文: {}\n- 涉及目标: {}\n- 判断要点: 这是环境/工具契约类的可复用知识,还是本次任务内的一次性噪声(例如 TDD 里预期的测试失败、自己写错又立刻改对的编译错误)?是前者才建条目,后者判 NOOP。",
+            "- 错误原文: {}\n- 涉及目标: {}\n- 判断要点: 这是环境/工具契约类的可复用知识,还是本次任务内的一次性噪声(例如 TDD 里预期的测试失败、自己写错又立刻改对的编译错误)?是前者才建条目,后者判 NOOP。\n- 指纹: 建条目时把 {} 原样放进正文——它是复发检测的键,丢了引擎就看不见「记了但没用」。",
             signal.sample.replace('\n', " "),
             if signal.targets.is_empty() {
                 "(无)".to_string()
             } else {
                 signal.targets.join(", ")
             },
+            fingerprint,
         );
         if store.append_note(&summary, &detail, "fact", &[]).is_ok() {
             delivered += 1;
@@ -565,7 +589,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::project(&dir);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", &[], false)
+            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", &[], None, false)
             .unwrap()
         {
             AddOutcome::Added(_) => {}
@@ -693,5 +717,59 @@ mod tests {
     fn civil_date_is_correct() {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20_672), (2026, 8, 7));
+    }
+
+    #[test]
+    fn 失败笔记要求保留指纹_复发时改投修订笔记() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-recur-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        // kind 里带测试专属噪声,避免撞上真实 global 记忆库里的同名指纹。
+        let kind = format!("old_string not found #{}", std::process::id());
+        let signal = kanzei_core::FailureSignal {
+            tool: "edit".into(),
+            kind: kind.clone(),
+            sample: "edit 报 old_string 未命中".into(),
+            targets: vec!["runner.rs".into()],
+            count: 3,
+            recovered_by: Some("read".into()),
+        };
+        let fingerprint = format!("[fp:edit|{kind}]");
+
+        // 第一次:库里没有该指纹 → 正常失败笔记,且要求把指纹带进条目正文。
+        assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
+        let inbox = store.read_inbox();
+        assert!(inbox.contains("改用 read 成功"), "{inbox}");
+        assert!(inbox.contains("原样放进正文"), "正常笔记未要求保留指纹: {inbox}");
+
+        // manager 按要求建了条目(指纹在正文里),inbox 已清。
+        store.clear_inbox().unwrap();
+        match store
+            .add("fact", "edit 未命中先 read 重读", "edit 替换失败时必读:先 read 再改", &format!("判据……{fingerprint}"), "memory-manager", &[], None, false)
+            .unwrap()
+        {
+            AddOutcome::Added(_) => {}
+            _ => panic!("expected add"),
+        }
+
+        // 第二次同类失败:必须改投修订笔记,点名既有条目,不再原坑重投。
+        assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
+        let inbox = store.read_inbox();
+        assert!(inbox.contains("已有记忆 M-001"), "复发未点名既有条目: {inbox}");
+        assert!(inbox.contains("仍复发"), "{inbox}");
+        assert!(inbox.contains("memory_update"), "修订笔记未指路 update: {inbox}");
+        assert!(!inbox.contains("改用 read 成功"), "复发时不该再投原始失败笔记: {inbox}");
+
+        // 同一轮内指纹去重照旧生效:再采集不新增笔记。
+        assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 0);
+        assert_eq!(store.pending_notes(), 1);
+        std::fs::remove_dir_all(dir).ok();
     }
 }

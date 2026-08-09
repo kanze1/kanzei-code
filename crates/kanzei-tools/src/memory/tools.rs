@@ -218,12 +218,34 @@ impl Tool for MemoryStatsTool {
             for (category, (active, stale)) in &by_category {
                 out.push_str(&format!(" · {category} {active}a/{stale}s"));
             }
+            // R-149 决策价值观测:召回→采纳转化是「记忆是否真进了决策」的机械口径。
+            let profile = store.recall_profile();
+            if !profile.is_empty() {
+                let recalled: u64 = profile.values().map(|(r, _)| r).sum();
+                let fetched: u64 = profile.values().map(|(_, f)| f).sum();
+                out.push_str(&format!(" · 召回 {recalled}/采纳 {fetched}"));
+            }
             let pending = store.pending_notes();
             if pending > 0 {
                 out.push_str(&format!(" · inbox {pending} pending"));
             }
             for issue in store.integrity_issues() {
                 out.push_str(&format!("\n  ⚠ {issue}"));
+            }
+            // 零采纳候选:召回≥3 从未拉正文 = 语义显著但决策无关的头号嫌疑,
+            // 供空闲整理与 UI 消费;这里只报不删(淘汰决定留给人,墓碑可逆)。
+            let mut flagged = 0usize;
+            for (id, (recalled, fetched)) in &profile {
+                if *recalled < 3 || *fetched > 0 || flagged >= 3 {
+                    continue;
+                }
+                if let Some((_, e)) = entries.iter().find(|(_, e)| &e.id == id && e.status == "active") {
+                    out.push_str(&format!(
+                        "\n  ⚠ 零采纳候选 {}《{}》召回 {} 次未被采纳",
+                        id, e.title, recalled
+                    ));
+                    flagged += 1;
+                }
             }
             out.push('\n');
         }
@@ -258,7 +280,7 @@ mod tests {
         let (dir, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish", "user", &[], false)
+            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish", "user", &[], None, false)
             .unwrap()
         {
             crate::memory::AddOutcome::Added(_) => {}
@@ -286,6 +308,32 @@ mod tests {
         assert!(stats.content.contains("[project]"), "{}", stats.content);
         assert!(stats.content.contains("sop 1a/0s"), "{}", stats.content);
         assert!(stats.content.contains("inbox 1 pending"), "{}", stats.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn stats_reports_recall_adoption_and_flags_zero_adoption_candidates() {
+        // R-149:召回≥3 从未拉正文的条目要在 stats 里被点名(只报不删)。
+        let (dir, ctx) = ctx();
+        let store = MemoryStore::project(&ctx.project_root);
+        match store
+            .add("fact", "发版通道甲", "发版发布安装更新必读", "正文", "user", &[], None, false)
+            .unwrap()
+        {
+            crate::memory::AddOutcome::Added(_) => {}
+            _ => panic!("expected add"),
+        }
+        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        assert!(!hits.is_empty());
+        for _ in 0..3 {
+            store.record_recall("要发版了", &hits, 128);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
+        assert!(!stats.is_error);
+        assert!(stats.content.contains("召回 3/采纳 0"), "{}", stats.content);
+        assert!(stats.content.contains("零采纳候选 M-001"), "{}", stats.content);
+        assert!(stats.content.contains("召回 3 次未被采纳"), "{}", stats.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

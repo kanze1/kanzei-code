@@ -109,6 +109,10 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 
 向量嵌入检索、知识图谱、外部记忆框架(Mem0/Zep/Letta 直接接入)、参数化记忆。若未来重议,须新开设计文档引用本节说明变更理由。
 
+## 8.5 判据层扩展(2026-08-09):决策充分性
+
+写入/遗忘/合并/检索四个操作的判据从「语义显著度」升级为「决策价值」(反事实写入闸、subject 状态语义、复发检测、召回→采纳率排序),设计与边界拍板见 [memory_decision_sufficiency.md](memory_decision_sufficiency.md)。本文 §0 品味决策与存储形态不变。
+
 ## 9. 具体工程决策(2026-08-08 用户逐条拍板)
 
 1. **代码落位**:`kanzei_tools::memory` 模块(mod/store/tools),kanzei-tools 加 rusqlite(bundled,锁内已有);不开新 crate。

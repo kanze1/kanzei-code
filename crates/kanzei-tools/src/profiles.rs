@@ -286,8 +286,8 @@ impl Component for DevProfile {
                 if lines.is_empty() && directives.is_empty() {
                     return Some(
                         "<memory-index>\n(记忆库为空)\nYou have a long-term memory system: \
-                         `memory_search` to recall, `memory_note` to record anything reusable \
-                         you confirm this run (root causes, environment constraints, user \
+                         `memory_search` to recall, `memory_note` to record what would change \
+                         a future agent's ACTION (root causes, environment constraints, user \
                          decisions, dead ends). Recording costs one call and saves future runs \
                          from re-deriving it.\n</memory-index>"
                             .into(),
@@ -346,10 +346,11 @@ impl Component for DevProfile {
                     ));
                 }
                 out.push_str(
-                    "Search a listed fact BEFORE re-deriving it. When you confirm something \
-                     reusable this run (root cause, environment constraint, user decision, \
-                     dead end), drop it via `memory_note`; the memory manager consolidates \
-                     notes later. Facts only — next steps belong in req/defect.\n</memory-index>",
+                    "Search a listed fact BEFORE re-deriving it. Record via `memory_note` \
+                     ONLY what would change a future agent's action (root cause, environment \
+                     constraint, user decision, dead end); narration that changes no future \
+                     action is noise — skip it. The memory manager consolidates notes later. \
+                     Next steps belong in req/defect, not memory.\n</memory-index>",
                 );
                 Some(out)
             }),

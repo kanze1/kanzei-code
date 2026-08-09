@@ -42,6 +42,11 @@ struct AddInput {
     /// 硬校验不通过整体拒绝,防止记忆与来源脱钩。
     #[serde(default)]
     refs: Vec<String>,
+    /// 状态型事实的稳定主题键(R-149,如「安装通道」「当前开发分支」):
+    /// 同 scope+category+subject 至多一条 active,冲突须 memory_update 既有条目——
+    /// 状态就地覆盖,绝不并存,force 不可绕。
+    #[serde(default)]
+    subject: Option<String>,
     /// 与既有条目标题精确重复时仍强制新增
     #[serde(default)]
     force: bool,
@@ -82,12 +87,20 @@ impl Tool for MemoryAddTool {
             input.body.as_deref().unwrap_or(""),
             input.source.as_deref().unwrap_or("memory-manager"),
             &input.refs,
+            input.subject.as_deref(),
             input.force,
         ) {
             Ok(AddOutcome::Added(e)) => ToolOutput::ok(format!("added {} [{}] {}", e.id, e.category, e.title)),
             Ok(AddOutcome::Duplicate(e)) => ToolOutput::error(format!(
                 "duplicate of existing {} `{}` — use memory_update/memory_merge instead, or retry with force=true if genuinely distinct",
                 e.id, e.title
+            )),
+            Ok(AddOutcome::SubjectConflict(e)) => ToolOutput::error(format!(
+                "subject `{}` is already held by active {} `{}` — state supersedes in place: memory_update {} with the new state (force cannot bypass this)",
+                input.subject.as_deref().unwrap_or(""),
+                e.id,
+                e.title,
+                e.id
             )),
             Err(e) => ToolOutput::error(e.to_string()),
         }
@@ -397,6 +410,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn memory_add_subject_conflict_points_to_update_and_ignores_force() {
+        // R-149:状态型事实同 subject 至多一条 active,冲突指路 memory_update,force 不可绕。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-subject-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+
+        let first = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "安装通道:NSIS 安装版",
+                       "description": "查安装/更新通道时必读", "body": "AppData 下",
+                       "subject": "安装通道"}),
+                &ctx,
+            )
+            .await;
+        assert!(!first.is_error, "{}", first.content);
+        // subject 落进 frontmatter。
+        let store = MemoryStore::project(&dir);
+        let (_, entry) = store.load_all().into_iter().find(|(_, e)| e.id == "M-001").unwrap();
+        assert!(entry.extras.iter().any(|(k, v)| k == "subject" && v == "安装通道"));
+
+        let conflict = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "安装通道改为便携版",
+                       "description": "查安装通道必读", "body": "新状态",
+                       "subject": "安装通道", "force": true}),
+                &ctx,
+            )
+            .await;
+        assert!(conflict.is_error, "{}", conflict.content);
+        assert!(conflict.content.contains("memory_update M-001"), "{}", conflict.content);
+        assert!(conflict.content.contains("force cannot bypass"), "{}", conflict.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
     async fn memory_add_validates_source_refs_hard() {
         // R-070:refs 必须真实存在——未知 ID 整体拒绝;合法 ID 写入条目 frontmatter。
         let dir = std::env::temp_dir().join(format!(
@@ -450,21 +505,34 @@ pub fn manager_agent() -> AgentDef {
         mode: AgentMode::Subagent,
         steps: 10,
         system: "You are the memory manager. Input: draft notes from the inbox. For EACH \
-                 note decide NOOP (transient/junk/already known), ADD, UPDATE, or MERGE. \
+                 note decide NOOP, ADD, UPDATE, or MERGE. The single criterion is DECISION \
+                 VALUE, not semantic richness: keep a note only if a future agent would ACT \
+                 DIFFERENTLY for lack of it (wrong command, repeated dead end, violated \
+                 user constraint). If you cannot name the concrete action it changes, judge \
+                 NOOP — never invent one. \
+                 Write `description` as retrieval hook PLUS decision: WHEN to recall it AND \
+                 what to do differently (e.g. \"处理 edit 替换失败/换行符问题时必读:先 \
+                 read 重读再改\"). \
                  ALWAYS memory_search before memory_add — the engine rejects exact-title \
                  duplicates. Scope rules: preference/habit → global, fact/sop → project. \
-                 Write `description` as a retrieval hook: WHEN should a future agent recall \
-                 this (e.g. \"处理 edit 替换失败/换行符问题时必读\"). Keep entries about \
-                 durable facts, not next steps. \
+                 STATEFUL facts describing the CURRENT world (当前安装通道/当前分支/当前 \
+                 版本…) must pass `subject` (a stable topic key, e.g. \"安装通道\"); the \
+                 engine keeps at most one active entry per subject — on conflict \
+                 memory_update the existing entry: state supersedes in place, never \
+                 accumulates. \
+                 Failure notes carry a `[fp:tool|kind]` marker: copy it VERBATIM into the \
+                 entry body — it is the engine's recurrence-detection key. A note saying an \
+                 entry 已有记忆但仍复发 means that memory failed to enter decisions: \
+                 memory_update that entry with a sharper 判据/description (keep the marker \
+                 in the body); only ADD if it is truly a different pitfall. \
                  Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
                  memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
                  rejected by the engine). \
                  A failure COUNT is signal strength, never content: \"edit failed 7 times\" \
                  means the same mistake recurred — it does NOT mean \"7 retries are needed\". \
                  Record the underlying constraint (quote the actual error text), not the \
-                 retry count. If a note does not let you state a durable fact you could \
-                 verify, judge it NOOP rather than inventing one. After processing ALL notes \
-                 call memory_inbox_clear, then reply with one summary line."
+                 retry count. After processing ALL notes call memory_inbox_clear, then \
+                 reply with one summary line."
             .into(),
     }
 }

@@ -55,6 +55,20 @@ pub enum AddOutcome {
     Added(MemoryEntry),
     /// 精确标题重复:拒绝写入并返回既有条目(要求转 update 或 force)。
     Duplicate(MemoryEntry),
+    /// 状态不变量(R-149):同 scope+category+subject 至多一条 active。
+    /// 冲突返回既有条目,force 不可绕——状态就地覆盖(memory_update),绝不并存。
+    SubjectConflict(MemoryEntry),
+}
+
+/// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
+/// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
+/// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
+pub fn decision_weight(recalled: u64, fetched: u64) -> f64 {
+    if recalled < 3 {
+        return 1.0;
+    }
+    let rate = fetched.min(recalled) as f64 / recalled as f64;
+    0.6 + 0.7 * rate
 }
 
 pub struct MemoryStore {
@@ -155,7 +169,8 @@ impl MemoryStore {
         format!("{}-{:03}", prefix, max + 1)
     }
 
-    /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约。
+    /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约
+    /// + subject 状态不变量(同 category+subject 至多一条 active,force 不可绕,R-149)。
     pub fn add(
         &self,
         category: &str,
@@ -164,6 +179,7 @@ impl MemoryStore {
         body: &str,
         source: &str,
         refs: &[String],
+        subject: Option<&str>,
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
         if !CATEGORIES.contains(&category) {
@@ -177,7 +193,18 @@ impl MemoryStore {
         if description.is_empty() {
             anyhow::bail!("description must not be empty — it is the retrieval hook");
         }
+        let subject = subject.map(str::trim).filter(|s| !s.is_empty());
         let entries = self.load_all();
+        // 状态不变量先于标题去重,且不受 force 影响:状态就地覆盖,绝不并存。
+        if let Some(subject) = subject {
+            if let Some((_, existing)) = entries.iter().find(|(_, e)| {
+                e.status == "active"
+                    && e.category == category
+                    && e.extras.iter().any(|(k, v)| k == "subject" && v == subject)
+            }) {
+                return Ok(AddOutcome::SubjectConflict(existing.clone()));
+            }
+        }
         if !force {
             let normalized = normalize_title(title);
             if let Some((_, existing)) = entries.iter().find(|(_, e)| {
@@ -190,12 +217,15 @@ impl MemoryStore {
         }
         let now = today();
         let extras = {
+            let mut extras: Vec<(String, String)> = Vec::new();
             let refs: Vec<&str> = refs.iter().map(|r| r.trim()).filter(|r| !r.is_empty()).collect();
-            if refs.is_empty() {
-                Vec::new()
-            } else {
-                vec![("refs".to_string(), refs.join(" "))]
+            if !refs.is_empty() {
+                extras.push(("refs".to_string(), refs.join(" ")));
             }
+            if let Some(subject) = subject {
+                extras.push(("subject".to_string(), subject.to_string()));
+            }
+            extras
         };
         let entry = MemoryEntry {
             id: self.next_id(&entries),
@@ -463,6 +493,7 @@ impl MemoryStore {
                 .collect::<Result<_, _>>()?,
         };
         let entries = self.load_all();
+        let recall_stats = self.recall_profile();
         let mut hits_out: Vec<SearchHit> = Vec::new();
         for (id, snippet, bm25) in rows {
             let Some((path, entry)) = entries.iter().find(|(_, e)| e.id == id) else {
@@ -483,6 +514,10 @@ impl MemoryStore {
             // bm25 越小越相关(fts5 返回负值);取负得正相关度。
             let mut score = -bm25;
             score *= 1.0 + (1.0 + hit_count as f64).ln() * 0.2;
+            // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
+            if let Some(&(recalled, fetched)) = recall_stats.get(&id) {
+                score *= decision_weight(recalled, fetched);
+            }
             if entry.status != "active" {
                 score *= 0.5;
             }
@@ -627,9 +662,41 @@ impl MemoryStore {
             self.refresh_derived()?;
             return Ok(entry);
         }
-        match self.add("preference", title, description, body, "user", &[], true)? {
-            AddOutcome::Added(entry) | AddOutcome::Duplicate(entry) => Ok(entry),
+        match self.add("preference", title, description, body, "user", &[], None, true)? {
+            AddOutcome::Added(entry)
+            | AddOutcome::Duplicate(entry)
+            | AddOutcome::SubjectConflict(entry) => Ok(entry),
         }
+    }
+
+    /// 召回→采纳画像(R-149):id → (被开跑预检索召回次数, 其中正文被拉取次数)。
+    /// 遗忘成本 F(m) 的经验代理:反复召回却从不采纳 = 语义显著但决策无关的头号嫌疑。
+    pub fn recall_profile(&self) -> std::collections::BTreeMap<String, (u64, u64)> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(conn) = self.open_db() else { return out };
+        let Ok(mut statement) = conn.prepare(
+            "SELECT entry_id, COUNT(*), COALESCE(SUM(fetched), 0)
+             FROM memory_recalls GROUP BY entry_id",
+        ) else {
+            return out;
+        };
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+        }) {
+            for (id, recalled, fetched) in rows.flatten() {
+                out.insert(id, (recalled.max(0) as u64, fetched.max(0) as u64));
+            }
+        }
+        out
+    }
+
+    /// 精确子串查找 active 条目正文里的指纹标记(复发检测,R-149)。
+    /// 不用 FTS 相似度:弱模型只需原样复制标记,引擎侧零阈值、可单测。
+    pub fn find_active_by_marker(&self, marker: &str) -> Option<MemoryEntry> {
+        self.load_all()
+            .into_iter()
+            .map(|(_, e)| e)
+            .find(|e| e.status == "active" && e.body.contains(marker))
     }
 
     /// 效果画像(R-125):id → (累计命中, 最近命中时间毫秒)。最近命中时间为 0 = 从未命中,
@@ -975,9 +1042,10 @@ mod tests {
     }
 
     fn add(store: &MemoryStore, category: &str, title: &str, desc: &str, body: &str) -> MemoryEntry {
-        match store.add(category, title, desc, body, "user", &[], false).unwrap() {
+        match store.add(category, title, desc, body, "user", &[], None, false).unwrap() {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
+            AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
         }
     }
 
@@ -998,11 +1066,11 @@ mod tests {
         let (dir, store) = temp_store();
         add(&store, "habit", "gh 要走本地代理", "gh 网络失败时必读", "HTTPS_PROXY=127.0.0.1:12000");
         let outcome = store
-            .add("habit", "gh 要走本地代理!", "重复", "x", "user", &[], false)
+            .add("habit", "gh 要走本地代理!", "重复", "x", "user", &[], None, false)
             .unwrap();
         assert!(matches!(outcome, AddOutcome::Duplicate(ref e) if e.id == "U-001" || e.id == "M-001"));
         let forced = store
-            .add("habit", "gh 要走本地代理!", "强制新增", "x", "user", &[], true)
+            .add("habit", "gh 要走本地代理!", "强制新增", "x", "user", &[], None, true)
             .unwrap();
         assert!(matches!(forced, AddOutcome::Added(_)));
         std::fs::remove_dir_all(dir).ok();
@@ -1159,11 +1227,12 @@ mod tests {
         // R-070:add 带 refs 写入 frontmatter,读取方 refs() 还原;草稿带 refs 贯通到候选列表。
         let (dir, store) = temp_store();
         let entry = match store
-            .add("fact", "CRLF 是 edit 未命中主因", "换行符问题必读", "正文", "user", &["R-070".into(), "D-200".into()], false)
+            .add("fact", "CRLF 是 edit 未命中主因", "换行符问题必读", "正文", "user", &["R-070".into(), "D-200".into()], None, false)
             .unwrap()
         {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate {}", e.id),
+            AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
         };
         assert_eq!(entry.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
         // 落盘文件里真能看到 refs 键,重读后仍还原。
@@ -1220,6 +1289,81 @@ mod tests {
         assert!(legacy.contains("已迁移"));
         let again = MemoryStore::project(&dir);
         assert_eq!(again.load_all().len(), 2);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn subject_状态不变量_同主题至多一条_active_且_force_不可绕() {
+        let (dir, store) = temp_store();
+        let first = match store
+            .add("fact", "安装通道:NSIS 安装版", "查安装/更新通道时必读", "AppData 下", "user", &[], Some("安装通道"), false)
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("expected add"),
+        };
+        // subject 写进 frontmatter,重读还原。
+        let (path, _) = store.load_all().into_iter().find(|(_, e)| e.id == first.id).unwrap();
+        assert!(std::fs::read_to_string(&path).unwrap().contains("subject: 安装通道"));
+
+        // 标题不同、subject 相同 → 冲突,返回既有条目。
+        let conflict = store
+            .add("fact", "安装通道改为便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), false)
+            .unwrap();
+        assert!(matches!(conflict, AddOutcome::SubjectConflict(ref e) if e.id == first.id));
+        // force 不可绕:状态不变量不是风格偏好。
+        let forced = store
+            .add("fact", "安装通道改为便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), true)
+            .unwrap();
+        assert!(matches!(forced, AddOutcome::SubjectConflict(ref e) if e.id == first.id));
+        // 不同 category 同 subject 不冲突(键含 category)。
+        assert!(matches!(
+            store.add("sop", "安装通道切换 SOP", "切换安装通道时必读", "步骤", "user", &[], Some("安装通道"), false).unwrap(),
+            AddOutcome::Added(_)
+        ));
+        // 旧状态 stale 后,同 subject 可重新建立(active 才占键)。
+        store.update(&first.id, None, None, None, Some("stale")).unwrap();
+        assert!(matches!(
+            store.add("fact", "安装通道:便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), false).unwrap(),
+            AddOutcome::Added(_)
+        ));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn decision_weight_边界与单调性() {
+        // 样本不足(召回<3)不动分。
+        assert_eq!(decision_weight(0, 0), 1.0);
+        assert_eq!(decision_weight(2, 0), 1.0);
+        // 零采纳沉到下限 0.6,全采纳升到 1.3,中间线性。
+        assert!((decision_weight(3, 0) - 0.6).abs() < 1e-9);
+        assert!((decision_weight(4, 4) - 1.3).abs() < 1e-9);
+        assert!((decision_weight(10, 5) - 0.95).abs() < 1e-9);
+        // 脏数据防御:fetched > recalled 按全采纳截断。
+        assert!((decision_weight(3, 9) - 1.3).abs() < 1e-9);
+    }
+
+    #[test]
+    fn 零采纳条目在检索里沉底_高采纳浮上() {
+        let (dir, store) = temp_store();
+        // 两条在 bm25 上等价的条目(标题仅一字之差,description/body 同构)。
+        add(&store, "fact", "发版通道甲", "发版发布安装更新必读", "正文等长条目一");
+        add(&store, "fact", "发版通道乙", "发版发布安装更新必读", "正文等长条目二");
+        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        assert_eq!(hits.len(), 2);
+        let (a, b) = ("M-001".to_string(), "M-002".to_string());
+        // 各召回 3 轮:甲从未被拉正文,乙每轮都被拉。recall_id 以毫秒为键,轮间隔 2ms。
+        for _ in 0..3 {
+            store.record_recall("要发版了", &hits, 256);
+            store.mark_recall_fetched(&b);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let profile = store.recall_profile();
+        assert_eq!(profile.get(&a), Some(&(3, 0)), "{profile:?}");
+        assert_eq!(profile.get(&b), Some(&(3, 3)), "{profile:?}");
+        // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
+        let ranked = store.search("发版", None, Some("active"), 5).unwrap();
+        assert_eq!(ranked[0].entry.id, b, "{:?}", ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>());
         std::fs::remove_dir_all(dir).ok();
     }
 }
