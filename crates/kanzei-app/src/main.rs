@@ -168,7 +168,7 @@ run::run_prompt,
             memory::memory_consolidate,
             memory::memory_focus_get,
             memory::memory_focus_set,
-            app_info,
+            run::app_info,
             run::models_list,
             docs::docs_update,
             docs::docs_open,
@@ -627,14 +627,6 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 }
 
 // ---------- 运行 ----------
-
-#[tauri::command]
-fn app_info() -> serde_json::Value {
-    json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "build": option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"),
-    })
-}
 
 async fn run_task_impl(
     window: &Window,

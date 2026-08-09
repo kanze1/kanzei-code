@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已完成本批可验证落地：运行轨迹 now_ms 从 main.rs 移入 run::now_ms，6 处真实调用改走模块边界；cargo test -p kanzei-app（T-1786295161）43 项全绿。R-153 总体仍未完成，批次保持 10/11；剩余 main.rs 中 run_task_impl 与少量跨域辅助需继续物理迁移，不能结项。
+- 进展: 本批继续完成 app_info 物理迁移：实现位于 crates/kanzei-app/src/run.rs:14-20，真实注册消费者为 main.rs invoke_handler:171 的 run::app_info；同步保留 #[tauri::command]。第一次测试暴露宏标注遗漏，已修复；T-1786295392 定向测试 43 项通过。R-153 仍为 10/11，run_task_impl 整体搬迁和 main.rs ≤300 行验收仍未满足。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

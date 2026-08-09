@@ -736,3 +736,13 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 提交前复测：kanzei-app 43 项全部通过；now_ms 模块迁移后的工作树与验证记录一致。保留既有编译警告，未发现失败。
 - 收尾: 1786295246
+
+## T-1786295330 R-153 批次 11/11 kanzei-app 定向测试 [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: app_info 已移入 run.rs 但遗漏 #[tauri::command]，generate_handler! 无法找到宏生成符号；已定位并修复，需复测。
+- 收尾: 1786295330
+
+## T-1786295392 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 修复 app_info 漏失 #[tauri::command] 后，kanzei-app 43 项全部通过；run::app_info 注册宏与真实 invoke_handler 消费者均正常。
+- 收尾: 1786295392

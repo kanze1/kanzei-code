@@ -11,6 +11,14 @@ use crate::{ensure_default_process, process_session_id, runtime_for, stop_runtim
 
 pub(crate) use crate::run_task_impl as run_task;
 
+#[tauri::command]
+pub(crate) fn app_info() -> serde_json::Value {
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "build": option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"),
+    })
+}
+
 pub(crate) fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
