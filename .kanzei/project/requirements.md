@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 a0f33c9：新增 conversation.rs，接入五个 conversation 命令的模块实现并将 invoke_handler 改为 conversation:: 全路径；conversation_clear 已从 main.rs 物理迁出，conversation 其余旧副本暂留待下一批清理。定向测试 T-1786286664 已登记通过。
+- 进展: 已提交 5e861eb：recover_messages、recover_messages_raw、recover_messages_at、conversation_prior 已迁入 conversation.rs，run_task 与旧 conversation_get 调用已改为 conversation::；main.rs 删除 63 行旧 helper。定向验证 T-1786286765 已登记通过。conversation 命令旧副本仍待清理，随后进入 harness_ext/subagents 批次。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
