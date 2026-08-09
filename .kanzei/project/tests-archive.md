@@ -796,3 +796,13 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 导出资料链路整体迁入 projects.rs，并修复 state_tests 兼容 re-export 后，kanzei-app 43 项全部通过。
 - 收尾: 1786297087
+
+## T-1786297207 R-153 进程输入 command 迁移编译验证 [skipped]
+- 命令: cargo check -p kanzei-app
+- 摘要: 按 M-022 SOP 未用 bash 执行 cargo test；改用 cargo check -p kanzei-app 编译验证通过（仅既有 unused/dead_code warnings）。
+- 收尾: 1786297207
+
+## T-1786297333 R-153 进程输入 command 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: list_pending_inputs/cancel_input 迁入 processes.rs 后，kanzei-app 43 项全部通过；进程输入 command 注册与 workspace_snapshot 调用正常。
+- 收尾: 1786297333

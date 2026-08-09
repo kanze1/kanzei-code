@@ -182,8 +182,8 @@ run::run_prompt,
             conversation::conversation_get,
             conversation::conversation_trace_get,
             conversation::conversation_list,
-            list_pending_inputs,
-            cancel_input,
+            processes::list_pending_inputs,
+            processes::cancel_input,
             projects::project_files,
             processes::process_list,
             processes::process_create,
@@ -206,51 +206,6 @@ run::run_prompt,
 }
 
 #[tauri::command]
-fn list_pending_inputs(
-    project_dir: String,
-    process_id: Option<String>,
-) -> Result<Vec<kanzei_core::AdmittedInput>, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let state_path = kanzei_core::project_state_path(&root);
-    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-    let session_id = process_session_id(&root, process_id.as_deref());
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
-    store
-        .list_pending_inputs(&session_id)
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-fn cancel_input(
-    project_dir: String,
-    input_id: String,
-    process_id: Option<String>,
-) -> Result<bool, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let state_path = kanzei_core::project_state_path(&root);
-    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-    let session_id = process_session_id(&root, process_id.as_deref());
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
-    let cancelled = store
-        .cancel_input(&session_id, &input_id)
-        .map_err(|error| error.to_string())?;
-    if cancelled {
-        store
-            .append_event(
-                &session_id,
-                "prompt.cancelled",
-                &json!({ "input_id": input_id }),
-            )
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(cancelled)
-}
-
-#[tauri::command]
 fn workspace_snapshot() -> Result<serde_json::Value, String> {
     let prefs = projects::projects_get();
     let mut projects = Vec::new();
@@ -263,7 +218,7 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
         let session = store.create_session(&session_id, &root.display().to_string(), None)
             .map_err(|e| e.to_string())?;
         let conversations = conversation::conversation_list(path.clone(), None).unwrap_or_default();
-        let pending = list_pending_inputs(path.clone(), None).unwrap_or_default();
+        let pending = processes::list_pending_inputs(path.clone(), None).unwrap_or_default();
         let recent = conversation::conversation_trace_get(path.clone(), None, None).unwrap_or_default();
         projects.push(json!({
             "path": path,

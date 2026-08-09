@@ -5,11 +5,44 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::State;
+use serde_json::json;
 
 use crate::{
     ensure_default_process, hidden_command, normalized_project_root, process_info, process_session_id,
     AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
 };
+
+#[tauri::command]
+pub fn list_pending_inputs(
+    project_dir: String,
+    process_id: Option<String>,
+) -> Result<Vec<kanzei_core::AdmittedInput>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, process_id.as_deref());
+    store.create_session(&session_id, &root.display().to_string(), None).map_err(|e| e.to_string())?;
+    store.list_pending_inputs(&session_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn cancel_input(
+    project_dir: String,
+    input_id: String,
+    process_id: Option<String>,
+) -> Result<bool, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let session_id = process_session_id(&root, process_id.as_deref());
+    store.create_session(&session_id, &root.display().to_string(), None).map_err(|e| e.to_string())?;
+    let cancelled = store.cancel_input(&session_id, &input_id).map_err(|error| error.to_string())?;
+    if cancelled {
+        store.append_event(&session_id, "prompt.cancelled", &json!({ "input_id": input_id }))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(cancelled)
+}
 
 #[tauri::command]
 pub fn process_list(state: State<'_, AppState>, project_dir: String) -> Result<Vec<ProcessInfo>, String> {

@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本批完成导出资料链路迁移：`ExportOptions`、`copy_export_file`、`copy_export_tree`、`export_project_data` 已整体移入 crates/kanzei-app/src/projects.rs，invoke_handler 改为 `projects::export_project_data`；为保留 state_tests 的真实调用边界增加 crate 内 re-export，迁移遗漏已登记 D-226 并修复。T-1786297087 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
+- 进展: 本批完成进程输入 command 迁移：`list_pending_inputs` 与 `cancel_input` 已从 main.rs 移入 crates/kanzei-app/src/processes.rs，invoke_handler 与 workspace_snapshot 调用均改走 `processes::`；保留 SessionStore 会话创建、取消事件写入和返回契约。T-1786297333 的 cargo test -p kanzei-app 43 项全绿（另有 T-1786297207 cargo check 编译记录）。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
