@@ -20,3 +20,7 @@
 ## T-1786238330 D-211 侧栏拖拽修复——ui-runtime-smoke [passed]
 - 命令: node --check crates/kanzei-app/ui/main.js; node scripts/ui-runtime-smoke.mjs
 - 摘要: D-211 修复后冒烟全绿(222 次 invoke):新增"侧栏解锁→锁提示消失→draggable=true→dragstart/dragover/dragend→docs_update reorder"链路断言;反向验证(临时恢复旧限制)断言 2 处立即命中,证明断言真实有效。
+
+## T-1786244824 R-152 本地 License、workspace 与 UI 门禁 [passed]
+- 命令: cargo metadata --no-deps --format-version 1; cargo test --workspace; node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 6 个 crate license 元数据均为 PolyForm-Noncommercial-1.0.0；workspace 及四条 UI 冒烟全部通过。

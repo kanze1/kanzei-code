@@ -3,7 +3,7 @@
 #       -Publish = 同时发到 GitHub Releases,应用内"检查更新"即以此为源
 #       -Ack     = 你认为自上个 build-* 标签以来应当发出去的提交条数。
 #                  实际条数不符就中止(D-183)。
-param([switch]$Publish, [int]$Ack = -1)
+param([switch]$Publish, [int]$Ack = -1, [string]$VerificationPath)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
@@ -57,6 +57,18 @@ $unclean = @($dirty) + @($untracked)
 if ($unclean.Count -gt 0) {
     throw "发布树源码未提交($($unclean.Count) 处),构建产物将与标签 $hash 不一致:`n$($unclean -join "`n")"
 }
+
+# ---- 验证证据门禁(R-152/A-009):无绑定 HEAD 的全绿证据不打包 ----
+$verification = if ($VerificationPath) { $VerificationPath } else { Join-Path $root "dist\verification.json" }
+if (-not (Test-Path $verification)) {
+    throw "缺验证证据 ${verification}:先跑 scripts\verify.ps1。发布树打包时可用 -VerificationPath 指向 dev 树产出的证据(ff 合并后两树 HEAD 相同)"
+}
+$evidence = Get-Content $verification -Raw | ConvertFrom-Json
+if ($evidence.commit -ne $full_hash) {
+    throw "验证证据绑定 $($evidence.commit),HEAD 是 ${full_hash}:commit 变了就要重新 verify——这正是本门禁存在的原因"
+}
+if (-not $evidence.all_pass) { throw "验证证据未全绿,不得打包" }
+Write-Host "==> 验证证据核对通过($($evidence.verified_at_utc))" -ForegroundColor Green
 
 # kz CLI 随安装包一起发(D-175)。桌面端与 CLI 共用同一个 .kanzei/state.db,
 # 而 schema 迁移是单向的:只发 kzapp 的话,一次 schema 变更就会让机器上的旧 kz

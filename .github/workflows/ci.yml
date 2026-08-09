@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # fmt 闸门由 R-156(全仓 fmt 收敛)交付时取消注释；当前仓库启用会失败。
+      # - name: fmt
+      #   run: cargo fmt --all -- --check
+      # clippy 闸门由 R-146(warning 清零)交付时取消注释。
+      # - name: clippy
+      #   run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: ui smoke
+        shell: bash
+        run: |
+          for f in crates/kanzei-app/ui/*.js; do node --check "$f"; done
+          node scripts/ui-runtime-smoke.mjs
+          node scripts/ui-a11y-smoke.mjs
+          node scripts/ui-i18n-smoke.mjs
+          node scripts/ui-markdown-smoke.mjs
