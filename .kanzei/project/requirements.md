@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 1355976：providers 表创建、provider 字段规范化、空名称跳过、非法配置表错误与 context_limit 清理已迁入 settings.rs:176-198，main.rs 通过 settings_apply_providers 调用。定向验证记录 T-1786285722 已登记通过；settings_save_at_path 的字段写入主体已全部离开 main.rs，本批 settings 保存迁移完成。
+- 进展: 已提交 a0f33c9：新增 conversation.rs，接入五个 conversation 命令的模块实现并将 invoke_handler 改为 conversation:: 全路径；conversation_clear 已从 main.rs 物理迁出，conversation 其余旧副本暂留待下一批清理。定向测试 T-1786286664 已登记通过。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
