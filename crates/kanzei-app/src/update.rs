@@ -157,7 +157,7 @@ Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object
     #[cfg(windows)] { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
     let _ = cmd.output();
 }
-fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
+pub(crate) fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;
     while std::time::Instant::now() < deadline { if !process_alive(parent_pid) { return true; } std::thread::sleep(std::time::Duration::from_millis(200)); }
     !process_alive(parent_pid)

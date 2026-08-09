@@ -99,3 +99,7 @@
 ## T-1786253446 R-153 批2 update 启动与 helper 迁移回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证 update.rs 已承接启动接棒、WebView 清理、安装 helper、进程探测、CLI 同步和 pending 替换实现；当前 main.rs 旧实现尚待物理删除。
+
+## T-1786253682 R-153 批2 update 旧副本清理回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 main.rs 已删除 update 启动/helper/CLI/pending 旧实现，测试通过 main.rs 的兼容导出访问 update 模块实现。
