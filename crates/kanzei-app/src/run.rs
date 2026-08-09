@@ -24,6 +24,13 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn resolve_reasoning_override(override_value: Option<&str>, configured_value: Option<&str>) -> kanzei_llm::ReasoningEffort {
+    override_value
+        .or(configured_value)
+        .map(kanzei_llm::ReasoningEffort::parse)
+        .unwrap_or_default()
+}
+
 pub(crate) fn resolve_proxy(config: &kanzei_harness::config::KanzeiConfig) -> kanzei_llm::ProxyConfig {
     match config.proxy.as_deref() {
         Some("off") => kanzei_llm::ProxyConfig::Disabled,

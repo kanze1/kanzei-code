@@ -455,3 +455,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的代理配置解析已迁移到 run::resolve_proxy，off/env/explicit 分支行为与原实现一致。
 - 收尾: 1786290200
+
+## T-1786290260 R-153 run_task reasoning helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: RunnerConfig 的 reasoning 解析已迁移到 run::resolve_reasoning_override，进程 override 优先于配置默认并保留空值默认行为。
+- 收尾: 1786290264

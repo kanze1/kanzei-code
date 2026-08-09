@@ -723,11 +723,10 @@ async fn run_task_impl(
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
         // 每进程选择优先,未选则用 kanzei.toml 的 [models] reasoning 默认档。
-        reasoning: reasoning_override
-            .as_deref()
-            .or(config.models.reasoning.as_deref())
-            .map(kanzei_llm::ReasoningEffort::parse)
-            .unwrap_or_default(),
+        reasoning: run::resolve_reasoning_override(
+            reasoning_override.as_deref(),
+            config.models.reasoning.as_deref(),
+        ),
         service_tier: config.service_tier_for(&resolved),
         // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
         // 根本轮不到它,真正起作用的是这条。
