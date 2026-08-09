@@ -320,3 +320,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 新增 subagents.rs 并迁移 DefectReviewResult；defect_review 的返回类型和构造点均改为 subagents::DefectReviewResult。
 - 收尾: 1786287274
+
+## T-1786287805 R-153 subagents quick_req 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: quick_req 已整体迁入 subagents.rs，invoke_handler 使用 subagents::quick_req，fast/primary 回退与真实落库判据保持。
+- 收尾: 1786287814
