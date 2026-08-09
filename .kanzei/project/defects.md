@@ -127,10 +127,3 @@
 - 优先级: P1
 - 标签: 前端
 
-## D-222 R-153 批2 update command wrapper 与旧宏符号重复 [fixing] (medium)
-- 复现: 新增 update.rs 仅做 update_check/update_install command wrapper，main.rs 仍保留同名 tauri command；cargo test -p kanzei-app 报 __cmd__update_check/__cmd__update_install 重复定义。
-- 标签: 后端
-- 根因: tauri::command 宏生成的辅助符号按 Rust 函数名进入父模块宏命名空间，转发 wrapper 与旧函数同名会冲突。
-- 进展: 已修复宏冲突：`update.rs:6-18` 改用 `update_check_command/update_install_command` 并以 `rename` 保持外部 command 名；`cargo test -p kanzei-app` 42 项通过（T-1786252264）。但本缺陷验收还要求最终完整剪切旧实现，当前仅为过渡入口，保持 fixing。
-- 验收: 不再出现宏辅助符号重复定义，且最终批2需删除 main.rs 原 update command 实现。
-- 优先级: P1

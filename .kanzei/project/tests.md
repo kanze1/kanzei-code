@@ -87,3 +87,7 @@
 ## T-1786252614 R-153 批2版本判断 helper 迁移回归（提交前） [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 移除未使用的 timestamp_digits 根导出后，提交前复跑 kanzei-app 定向测试并确认无新增警告。
+
+## T-1786252916 R-153 批2更新 command 完整迁移回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 update_check/update_install 生产实现已从 main.rs 完整剪切到 update.rs，保留既有 helper 调用与 command 名称。

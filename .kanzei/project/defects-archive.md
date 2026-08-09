@@ -2189,3 +2189,12 @@
 - 验收: 测试模块改为从 fast_model 导入，cargo test -p kanzei-app 通过。
 - 优先级: P1
 - 验收证据: 唯一验收项“测试模块改为从 fast_model 导入，cargo test -p kanzei-app 通过”：实现位置为 update_tests_update.rs:3、fast_model.rs:169/175；验证记录 T-1786251753，42 passed。
+
+## D-222 R-153 批2 update command wrapper 与旧宏符号重复 [fixed] (medium)
+- 复现: 新增 update.rs 仅做 update_check/update_install command wrapper，main.rs 仍保留同名 tauri command；cargo test -p kanzei-app 报 __cmd__update_check/__cmd__update_install 重复定义。
+- 标签: 后端
+- 根因: tauri::command 宏生成的辅助符号按 Rust 函数名进入父模块宏命名空间，转发 wrapper 与旧函数同名会冲突。
+- 进展: 已完成修复：`crates/kanzei-app/src/update.rs:32-91` 承接 `update_check_command/update_install_command` 完整实现；`main.rs:3008-3111` 原实现已删除；`main.rs:885-886` 通过模块 command 注册。`cargo test -p kanzei-app` 42 项通过，宏重复问题已消失。
+- 验收: 不再出现宏辅助符号重复定义，且最终批2需删除 main.rs 原 update command 实现。
+- 优先级: P1
+- 验收证据: ①“不再出现宏辅助符号重复定义”：实现位置 update.rs:32-75 的唯一两个 Tauri command 宏，验证记录 T-1786252959；②“删除 main.rs 原 update command 实现”：main.rs 原 3008-3111 区间已移除，唯一实现位于 update.rs:32-91；定向测试 T-1786252959 42 passed。

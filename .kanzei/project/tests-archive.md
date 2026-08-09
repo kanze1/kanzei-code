@@ -144,3 +144,7 @@
 ## T-1786252673 R-153 批2版本判断 helper 迁移回归（提交前） [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 42 项全部通过；去除未使用导出后无 kanzei-app 新增警告，仅保留既有 kanzei-core/tools 警告。
+
+## T-1786252959 R-153 批2更新 command 完整迁移回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项全部通过；update_check/update_install 实现已移入 update.rs，命令仍由真实 invoke_handler 调用；仅保留既有 core/tools 警告。
