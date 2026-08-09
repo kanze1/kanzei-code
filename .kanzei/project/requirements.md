@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 c0bda55：RunnerConfig 的 reasoning 选择逻辑已提取到 run::resolve_reasoning_override，保持进程 override 优先、配置默认回退和空值默认行为；定向测试 T-1786290260 已登记通过。下一步继续提取 RunnerConfig 的构造辅助逻辑。
+- 进展: 已提交 9ef0a94：run_task_impl 的模型引用解析已提取到 run::resolve_model_ref，非空 override 优先、空白 override 回退 agent 模型，main.rs 减少 4 行。定向测试 T-1786290316 已登记通过。下一步继续提取 RunnerConfig 构造辅助逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
