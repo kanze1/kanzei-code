@@ -60,3 +60,7 @@
 ## T-1786248761 R-153 批0c conversation 测试迁移回归 [passed]
 - 命令: cargo test -p kanzei-app conversation_tests
 - 摘要: 新增 conversation_tests 模块，5 项会话消息/历史恢复测试全部通过。旧 update_tests 中对应原测试尚待删除，批0仍未完成。
+
+## T-1786248852 R-153 批0d permission 测试迁移回归 [passed]
+- 命令: cargo test -p kanzei-app permission_tests
+- 摘要: permission_tests 3 项全部通过；新增权限对话框 payload 与 Always Allow 持久化测试模块可编译运行。

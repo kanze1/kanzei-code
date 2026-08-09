@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本轮落地批0c：新增 `crates/kanzei-app/src/conversation_tests.rs` 并注册 `#[cfg(test)] mod conversation_tests`，迁移附件、session_id、conversation_prior、历史恢复 5 项测试；`cargo test -p kanzei-app conversation_tests` 5/5 通过。为控制批次边界，旧 `update_tests` 中对应原测试尚待删除；批0仍未完成，剩 state/permission 及旧测试清理。
+- 进展: 本轮落地批0d：新增 `crates/kanzei-app/src/permission_tests.rs` 并注册 `#[cfg(test)] mod permission_tests`，迁移权限对话框 payload 与 Always Allow 成功/失败 3 项测试；`cargo test -p kanzei-app permission_tests` 3/3 通过。批0剩 state 测试及 state/conversation/permission 旧副本清理。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
