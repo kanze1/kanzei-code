@@ -40,3 +40,7 @@
 ## T-1786247356 R-152 License metadata 与 verify 脏树门禁 [passed]
 - 命令: cargo metadata --no-deps --format-version 1；当前脏树运行 scripts/verify.ps1
 - 摘要: 6 个 workspace crate 的 license 全为 PolyForm-Noncommercial-1.0.0；verify 在源码变更未提交时拒绝并报告“工作树不干净，证据无法绑定 commit”。
+
+## T-1786247442 R-152 verify.ps1 全绿生成绑定 commit 证据 [passed]
+- 命令: scripts/verify.ps1
+- 摘要: 全量 cargo test --workspace、ui/*.js node --check、ui-runtime/a11y/i18n/markdown 四条冒烟全部通过；生成 dist/verification.json，commit=c0ea88db9f89546d69d430065bc0e46da67143af，all_pass=true。

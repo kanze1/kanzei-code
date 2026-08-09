@@ -1,18 +1,5 @@
 # Requirements
 
-## R-152 CI/发布证据链:GitHub Actions 独立验证 + verification.json 绑定 commit 门禁 [doing]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 发布
-- 来源: 2026-08-09 用户定调(仓库工程评审 P0 三项:License 元数据冲突、CI 缺失、release gate 机械化——正确性不应依赖"应该先跑过测试"的约定),方案已落设计文档,交自举执行。
-- 内容: ①License:workspace Cargo.toml `license = "MIT"` → `"PolyForm-Noncommercial-1.0.0"`(与 LICENSE.md 统一);②新增 .github/workflows/ci.yml:windows-latest,push(dev/main)+PR 触发,cargo test --workspace + 四条 UI 冒烟;**fmt/clippy 两闸注释着落地**(现存 435 处 fmt diff 与 23 条 clippy warning,首日启用必红),分别由 R-156/R-146 启用;③新增 scripts/verify.ps1:脏树拒跑,门禁全绿后写 dist/verification.json(HEAD 全 SHA + 各检查结果);④package.ps1 在 D-183 Ack 核对后加证据门禁:证据缺失、commit 不符或未全绿一律中止,新增 -VerificationPath 参数供发布树指向 dev 树证据(ff 合并后两树 HEAD 同 commit)。参考实现已写入设计文档,可直接落盘。设计: docs/design/ci_release_evidence_chain.md。
-- 边界: 不做多平台矩阵/签名/SBOM/CI 直发;verification.json 落 dist/ 不入库;release.ps1(开发通道)不动;CI 首跑暴露的环境相关红测按缺陷登记修复,不许 skip。
-- 验收: ①cargo metadata --no-deps 全部 crate license 为 PolyForm-Noncommercial-1.0.0;②push dev 后 GitHub Actions 首跑全绿(进展里留链接);③verify.ps1 实测两态:脏树拒跑、全绿产出 JSON;④package.ps1 实测三拦:无证据拦、commit 不符拦(verify 后再提交一个 commit 重跑必须中止)、证据齐全放行至构建——各拦截报错原文记入进展;⑤ci.yml 与 verify.ps1 两处门禁清单互相注明同步义务。
-- refs: A-009 R-146 R-156
-
-- 进展: 按设计文档逐项核对并补齐验收证据。验收①：2026-08-09 执行 `cargo metadata --no-deps --format-version 1`，6 个 workspace crate 的 license 全为 `PolyForm-Noncommercial-1.0.0`。验收②：Actions 首跑链接 https://github.com/kanze1/kanzei-code/actions/runs/31291964471；首跑因 D-218 失败，修复后连续三跑全绿 runs 31292345597/31292710503/31292885059。验收③脏树态：源码变更未提交时执行 `scripts/verify.ps1`，原文“工作树不干净，证据无法绑定 commit: .github/workflows/ci.yml scripts/verify.ps1”；全绿产出态待本次提交后执行并回填。验收④三拦与放行已有实测：无证据拦、commit 漂移拦、证据齐全放行至构建并发布 build-cd85360，原文已记录于后续进展。验收⑤：`.github/workflows/ci.yml:27` 与 `scripts/verify.ps1:24` 明确注明 R-156/R-146 门禁必须同步启用/禁用。
-- 进展(2026-08-09 发版放行实测): D-218 修复后 Actions 连续三跑全绿(runs 31292345597/31292710503/31292885059);ci.yml checkout/setup-node 升 v5 消除 Node 20 弃用警告(cd85360)。验收④第三拦「证据齐全放行」实测完成:verify.ps1 产出绑定 cd85360 的全绿证据,发布树 package.ps1 -Ack 9 -Publish -VerificationPath 证据核对通过、放行至构建并发布 build-cd85360——证据链首个完整走通的 release:https://github.com/kanze1/kanzei-code/releases/tag/build-cd85360 。至此验收②④证据齐全,可逐条核对关闭。
-
 ## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
 - 优先级: P1
 - 复杂度: 大
