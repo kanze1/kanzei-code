@@ -806,3 +806,13 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: list_pending_inputs/cancel_input 迁入 processes.rs 后，kanzei-app 43 项全部通过；进程输入 command 注册与 workspace_snapshot 调用正常。
 - 收尾: 1786297333
+
+## T-1786297527 cargo test -p kanzei-app（R-153 批10/11） [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 43 项测试全绿；确认当前批次代码可编译，但 main.rs 仍含 run_task_impl，R-153 验收尚未满足。
+- 收尾: 1786297527
+
+## T-1786297581 cargo test --workspace（R-153 关闭前全量验证） [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量测试通过：各 crate 单测、集成测试与 doc-tests 全绿；R-153 仍不能关闭，因为 main.rs 仍含 run_task_impl，未满足 ≤300 行/装配入口验收。
+- 收尾: 1786297581

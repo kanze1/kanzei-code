@@ -118,3 +118,8 @@ effect = "allow"
 action = "bash"
 resource = '{"command":"git grep -n /"cleanup_orphan_webviews/" -- crates/kanzei-app/src/main.rs","workdir":"c:/users/kanzei/documents/kanzei code"}'
 effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"(get-content 'crates/kanzei-app/src/main.rs').count","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"

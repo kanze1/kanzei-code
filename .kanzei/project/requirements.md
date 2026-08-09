@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本批完成进程输入 command 迁移：`list_pending_inputs` 与 `cancel_input` 已从 main.rs 移入 crates/kanzei-app/src/processes.rs，invoke_handler 与 workspace_snapshot 调用均改走 `processes::`；保留 SessionStore 会话创建、取消事件写入和返回契约。T-1786297333 的 cargo test -p kanzei-app 43 项全绿（另有 T-1786297207 cargo check 编译记录）。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
+- 进展: 本轮完成并记录验证：T-1786297527 `cargo test -p kanzei-app` 43 项全绿；T-1786297581 `cargo test --workspace` 全绿。精确缺口复核：`crates/kanzei-app/src/main.rs:367-1010` 仍保留 `run_task_impl`，`crates/kanzei-app/src/run.rs:12` 仍是 `pub(crate) use crate::run_task_impl as run_task`，因此 main.rs 仍约 1168 行，尚未满足验收①“≤300 行且只含 mod 声明+main()+Builder 装配”；本批迁移尚不能标记 done，下一动作是把 run_task_impl 整体搬入 run.rs 后再定向复测。验收②测试证据已具备；验收③ invoke_handler 位于 main.rs:124-约200，现有 command 注册测试通过；验收④需补四条 UI 冒烟证据。批次保持 10/11，避免把未完成的 run.rs 整体搬迁误标为完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

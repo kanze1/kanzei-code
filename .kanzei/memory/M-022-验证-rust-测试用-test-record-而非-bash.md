@@ -2,13 +2,14 @@
 id: M-022
 scope: project
 category: sop
-title: 验证 Rust 测试用 test_record 而非 bash — 任何涉及 cargo test 的动作第一步必读
-description: 任何涉及 cargo test / run test / 验证 Rust 测试的动作第一步必读——即使已有本条记忆、即使只差一步验证,验证通道唯一是 test_record,bash 不在候选集(不是"优先",是"唯一");若已误开 bash 跑 cargo test 且 stderr 报 exit code: 1 或任何编译警告/error,立即停手换 test_record,不要继续在 bash 里排查或为警告改代码。
+title: 验证 Rust 测试必须用 test_record，禁止用 bash 跑 cargo test
+description: 处理 Rust 测试验证、尤其 bash 返回 `exit code: 1` 或 stderr 只有编译 warning/测试结果不明时必读：不要再用 bash 执行 cargo test；改用 test_record 记录并验证结果，先区分工具契约与代码诊断，避免把 warning 门禁输出当成普通命令失败。
 status: active
 created: 2026-08-09
 updated: 2026-08-09
 source: inbox:2026-08-09
 ---
 
-[fp:bash|exit code:]
-验证 Rust 测试的唯一通道是 test_record,bash 不在候选集(不是"优先",是"唯一")。判据不依赖认出具体警告文本:只要动作涉及 cargo test / run test / 验证 Rust 测试,第一步直接选 test_record;若已误开 bash 跑 cargo test 且报 exit code: 1、stderr 出现任何编译警告/error(本轮 2026-08-09 复发:crates\kanzei-core\src\runner.rs:1492:26 "warning: value assigned to `final_text` is never read",与此前同类),立即停手换 test_record,不要继续在 bash 里排查或为警告改代码。本坑已多次复发(即使已有本条记忆仍复发),动手前先自问"我要验证 Rust 测试吗",是则第一步直接选 test_record。
+验证 Rust 测试必须使用 test_record，禁止用 bash 直接跑 cargo test。遇到 bash 的 `exit code: 1`，即使 stderr 只有 `warning: value assigned to `final_text` is never read`（crates\kanzei-core\src\runner.rs:1504:26），也不要重复 bash；改用 test_record，并分别记录/判断测试结果与编译 warning。
+
+本条失败复发检测标记：[fp:bash|exit code:]
