@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本批新增同构迁移：main.rs 的 install_verify_tests 已整体移入 update.rs 的 update::install_verify_tests；main.rs 移除对应 image helper 导入。测试消费者随更新模块真实存在，T-1786295555 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
+- 进展: 本批已完成 run 域测试归属迁移：main.rs 的 assembly_tests 整体移入 run.rs 的 run::assembly_tests，保留真实 Harness/FrontendToolsComponent 装配断言。T-1786295729 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体物理搬迁及 main.rs ≤300 行仍未完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

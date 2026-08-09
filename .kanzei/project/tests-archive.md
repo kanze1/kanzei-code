@@ -751,3 +751,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 更新安装校验测试迁移至 update::install_verify_tests 后，kanzei-app 43 项全部通过；更新逻辑及测试消费者边界正常。
 - 收尾: 1786295555
+
+## T-1786295729 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: assembly_tests 迁移至 run::assembly_tests 后，kanzei-app 43 项全部通过；运行装配线测试在新模块中真实执行。
+- 收尾: 1786295729

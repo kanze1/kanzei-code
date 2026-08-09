@@ -1275,57 +1275,6 @@ async fn run_task_impl(
 
 
 #[cfg(test)]
-mod assembly_tests {
-    use super::*;
-
-    /// D-195 的桌面这一半:追加前端自查段的装配线,必须真的注册了那段点名的每个工具。
-    /// CLI 那一半在 kanzei-tools::profiles 的同名测试里(它守的是"别把这段写回基础
-    /// 提示词")。两条合起来才是机制——D-190 只把文字挪了个地方,组件注册(run_task
-    /// 里的 FrontendToolsComponent)与提示词追加(紧邻 work-priority 那几行)仍是两处
-    /// 各写各的,没有任何东西保证同进同退。谁摘掉组件而留下追加,这里立刻红。
-    #[test]
-    fn 桌面装配线必须注册前端自查段点名的每个工具() {
-        let root = PathBuf::from("C:/kanzei-d195-app-test");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        // run_task 的装配线,但不加 MarkdownComponent:它读真实 ~/.kanzei,
-        // 会让这条测试的结果取决于跑测试的机器上放了什么。
-        let mut harness = Harness::default();
-        harness
-            .add(BaseComponent)
-            .add(DevProfile)
-            .add(ResearchProfile)
-            .add(harness_ext::FrontendToolsComponent)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let tools: Vec<String> = snapshot
-            .materialize_tools()
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect();
-
-        let mentioned =
-            kanzei_tools::prompt_tool_mentions(kanzei_tools::frontend_inspection_guidance());
-        // 提取不出名字说明提取规则坏了,不是装配对了——那种绿是假的。
-        assert_eq!(
-            mentioned.len(),
-            5,
-            "前端自查段应点名 5 个工具,实际提取到 {mentioned:?}"
-        );
-        for tool in mentioned {
-            assert!(
-                tools.contains(&tool),
-                "桌面装配线追加了点名 `{tool}` 的提示词,却没注册它;已注册: {tools:?}"
-            );
-        }
-    }
-}
-
-#[cfg(test)]
 mod settings_tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};

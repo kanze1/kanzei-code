@@ -402,3 +402,43 @@ pub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<s
     }).collect();
     Ok(serde_json::json!({ "rounds": rounds }))
 }
+
+#[cfg(test)]
+mod assembly_tests {
+    use super::*;
+    use kanzei_harness::{ConfigComponent, Harness, ProfileKind, ResolveCtx, KanzeiConfig};
+    use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    /// D-195:运行装配线必须注册前端自查段点名的每个工具。
+    #[test]
+    fn 桌面装配线必须注册前端自查段点名的每个工具() {
+        let root = PathBuf::from("C:/kanzei-d195-app-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(BaseComponent)
+            .add(DevProfile)
+            .add(ResearchProfile)
+            .add(crate::harness_ext::FrontendToolsComponent)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let tools: Vec<String> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect();
+        let mentioned =
+            kanzei_tools::prompt_tool_mentions(kanzei_tools::frontend_inspection_guidance());
+        assert_eq!(mentioned.len(), 5);
+        for tool in mentioned {
+            assert!(tools.contains(&tool), "缺少前端自查工具 `{tool}`;已注册: {tools:?}");
+        }
+    }
+}
