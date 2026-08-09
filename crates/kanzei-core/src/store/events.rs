@@ -139,3 +139,143 @@ pub(crate) fn append_event_tx(
             created_at,
         })
     }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::testutil::store;
+
+    #[test]
+    fn 事件序列按会话递增并可回放() {
+        let store = store();
+        let first = store
+            .append_event(
+                "ses_test",
+                "session.created",
+                &serde_json::json!({"ok": true}),
+            )
+            .unwrap();
+        let second = store
+            .append_event("ses_test", "turn.started", &serde_json::json!({"step": 1}))
+            .unwrap();
+        assert_eq!((first.sequence, second.sequence), (1, 2));
+        assert_eq!(store.list_events("ses_test", 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn latest_event_按类型返回最新事件() {
+        let store = store();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 1}))
+            .unwrap();
+        store
+            .append_event("ses_test", "run.completed", &serde_json::json!({}))
+            .unwrap();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 2}))
+            .unwrap();
+        let latest = store
+            .latest_event("ses_test", "conversation.updated")
+            .unwrap()
+            .unwrap();
+        assert_eq!(latest.payload["v"], 2);
+        assert!(store.latest_event("ses_test", "missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn clear_conversation_只删除对话快照() {
+        let store = store();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"v": 1}))
+            .unwrap();
+        store
+            .append_event("ses_test", "session.status_changed", &serde_json::json!({"status": "idle"}))
+            .unwrap();
+        assert_eq!(store.clear_conversation("ses_test").unwrap(), 1);
+        assert!(store.latest_event("ses_test", "conversation.updated").unwrap().is_none());
+        assert!(store.latest_event("ses_test", "session.status_changed").unwrap().is_some());
+    }
+
+    #[test]
+    fn 不同会话的事件_id_保持唯一() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        let first = store
+            .append_event("ses_test", "turn.started", &serde_json::json!({}))
+            .unwrap();
+        let second = store
+            .append_event("ses_other", "turn.started", &serde_json::json!({}))
+            .unwrap();
+        assert_ne!(first.event_id, second.event_id);
+    }
+
+    #[test]
+    fn r050_poc_不同会话事件回放互不串线() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store
+            .append_event("ses_test", "conversation.updated", &serde_json::json!({"thread": "a"}))
+            .unwrap();
+        store
+            .append_event("ses_other", "conversation.updated", &serde_json::json!({"thread": "b"}))
+            .unwrap();
+
+        let a = store.list_events("ses_test", 0).unwrap();
+        let b = store.list_events("ses_other", 0).unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+        assert_eq!(a[0].payload["thread"], "a");
+        assert_eq!(b[0].payload["thread"], "b");
+        assert_eq!(a[0].sequence, 1);
+        assert_eq!(b[0].sequence, 1);
+    }
+
+    #[test]
+    fn 并发追加事件的_sequence_连续且唯一() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-store-concurrency-{}-{}.db",
+            std::process::id(),
+            now_ms()
+        ));
+        let initializer = SessionStore::open(&path).unwrap();
+        initializer
+            .create_session("ses_concurrent", "C:/project", None)
+            .unwrap();
+        drop(initializer);
+
+        let stores = (0..4)
+            .map(|_| SessionStore::open(&path).unwrap())
+            .collect::<Vec<_>>();
+        let handles = stores
+            .into_iter()
+            .enumerate()
+            .map(|(worker, store)| {
+                std::thread::spawn(move || {
+                    (0..20)
+                        .map(|index| {
+                            store
+                                .append_event(
+                                    "ses_concurrent",
+                                    "test.concurrent",
+                                    &serde_json::json!({"worker": worker, "index": index}),
+                                )
+                                .unwrap()
+                                .sequence
+                        })
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut sequences = handles
+            .into_iter()
+            .flat_map(|handle| handle.join().unwrap())
+            .collect::<Vec<_>>();
+        sequences.sort_unstable();
+        assert_eq!(sequences, (1..=80).collect::<Vec<_>>());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("db-wal"));
+        let _ = std::fs::remove_file(path.with_extension("db-shm"));
+    }
+}
+

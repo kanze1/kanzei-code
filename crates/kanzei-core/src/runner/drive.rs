@@ -1,6 +1,9 @@
 //! 驱动域(R-155 B8):run_once / run_once_with_parts 整体搬迁,不动内部。
 //! 设计 §C B8:本批只搬主体,任何抽函数动作都不在本条目做;
 //! calls[i]↔results[i] 下标对齐不变式跨 tool_exec/redundancy/drive 三文件。
+//! 设计 §C 要点 1:run_once 是动态分发边界——驱动、subagent、tool_exec 的所有
+//! 异步递归都经它(子代理递归经 dyn Box 断开无限类型,见 subagent.rs)。
+//! 签名即锁:改动必须同步 mod.rs 的导出与全部调用方。
 
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
@@ -515,6 +518,8 @@ pub fn run_once_with_parts<'a>(
             ready && ordinary_count >= 2
         };
 
+        // 并行 wave:results[i] 与 calls[i] 按下标对齐(R-155 设计要点 3),
+        // 与串行路径共用同一对齐约定,note_step 里的 debug_assert 兜底锁住。
         let mut results = if can_parallel_tools {
             let mut slots: Vec<Option<Part>> =
                 std::iter::repeat_with(|| None).take(calls.len()).collect();
@@ -593,6 +598,8 @@ pub fn run_once_with_parts<'a>(
                 .collect()
         } else {
             let mut results = Vec::new();
+        // 串行路径:按 calls 的原始顺序逐个执行并 push,results 与 calls 下标对齐
+        // (R-155 设计要点 3)。calls.len() == results.len() 由 note_step 的 debug_assert 兜底。
         for (call_index, (id, name, input, raw_input)) in calls.iter().cloned().enumerate() {
             // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
             // ToolEnd 已在并行阶段按完成顺序上报过,这里只归位结果。
@@ -773,6 +780,7 @@ pub fn run_once_with_parts<'a>(
             results
         };
         // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
+        // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
         redundancy.note_step(&ctx.project_root, &calls, &mut results);
         messages.push(Message::tool_results(results));
 

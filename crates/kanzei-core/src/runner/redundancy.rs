@@ -35,6 +35,10 @@ impl RedundancyWatch {
         calls: &[(String, String, serde_json::Value, String)],
         results: &mut [Part],
     ) {
+        // calls[i]↔results[i] 下标对齐不变式(R-155 设计要点 3):
+        // 不变式跨 tool_exec/redundancy/drive 三文件,这里锁住调用方必须保持对齐,
+        // 否则 results.get_mut(index) 会静默配错工具结果。
+        debug_assert_eq!(calls.len(), results.len(), "工具调用与结果按下标一一对应");
         for (index, (_, name, input, _)) in calls.iter().enumerate() {
             let Some(Part::ToolResult { content, is_error, .. }) = results.get_mut(index) else {
                 continue;

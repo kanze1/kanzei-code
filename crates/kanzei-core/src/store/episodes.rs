@@ -144,3 +144,75 @@ impl SessionStore {
         }
 }
 
+#[cfg(test)]
+mod tests {
+    use crate::store::*;
+    use crate::store::testutil::store;
+
+    #[test]
+    fn episode_落库并按时间倒序回放() {
+        let store = store();
+        store
+            .append_episode(&EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "修复 D-068 限流分类",
+                outcome: "completed",
+                steps: 12,
+                input_tokens: 50_000,
+                output_tokens: 3_000,
+                tools_json: r#"{"bash":5,"edit":3}"#,
+                context_json: r#"[["agent/system",1200],["dev/memory",800]]"#,
+                metrics_json: r#"{"terminal_calls":5,"edit_calls":3,"edit_misses":1}"#,
+                provider: "deepseek",
+                model: "deepseek-v4-flash",
+                run_id: "run_a",
+                input_id: "input_a",
+                duration_ms: 708_000,
+                overflow_json: r#"[{"dropped_messages":3,"tools":{"bash":2},"failures":[],"preview":"旧任务"}]"#,
+            })
+            .unwrap();
+        store
+            .append_episode(&EpisodeRecord {
+                session_id: "ses_test",
+                prompt_head: "第二轮",
+                outcome: "halted",
+                steps: 3,
+                tools_json: "{}",
+                context_json: "[]",
+                metrics_json: "{}",
+                ..EpisodeRecord::default()
+            })
+            .unwrap();
+        let episodes = store.list_episodes("ses_test", 10).unwrap();
+        assert_eq!(episodes.len(), 2);
+        assert_eq!(episodes[0].1, "第二轮");
+        assert_eq!(episodes[1].3, 12);
+        assert!(episodes[1].4.contains("bash"));
+        assert!(store.list_episodes("missing", 10).unwrap().is_empty());
+
+        // R-099:调用画像随轮次落库,并能按时间倒序取回。空对象要与"度量为零"区分开。
+        let recent = store.recent_episodes("ses_test", 10).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].1, "第二轮");
+        assert_eq!(recent[0].8, "{}", "未度量的轮次应保持空对象");
+        assert!(recent[1].8.contains("edit_misses"), "画像未随轮次落库: {}", recent[1].8);
+
+        // D-173:轮次归属必须落库。之前只能从"当前配置"反推这一轮跑的哪个模型,
+        // 而配置随时会变——复盘时连最基本的事实都无法证伪。
+        let identities = store.recent_episode_identities("ses_test", 10).unwrap();
+        assert_eq!(identities.len(), 2);
+        assert_eq!(identities[1].1, "deepseek");
+        assert_eq!(identities[1].2, "deepseek-v4-flash");
+        assert_eq!(identities[1].3, "run_a");
+        assert_eq!(identities[1].4, "input_a");
+        assert_eq!(identities[1].5, 708_000);
+
+        // R-106:上下文压缩时被丢弃的轨迹随 episode 落库,并可查询回放。
+        let traces = store.recent_overflow_traces("ses_test", 10).unwrap();
+        assert_eq!(traces.len(), 1, "只有第一条 episode 带溢出轨迹");
+        assert!(traces[0].1.contains("dropped_messages"));
+        assert!(traces[0].1.contains("\"bash\":2"), "工具画像应随轨迹沉淀: {}", traces[0].1);
+        assert!(store.recent_overflow_traces("missing", 10).unwrap().is_empty());
+    }
+}
+

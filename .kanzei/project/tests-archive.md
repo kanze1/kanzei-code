@@ -1001,3 +1001,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 S5/S6 store 拆解:inbox.rs + session.rs;71 passed;修段边界(S5 误卷 backup_before_upgrade doc、S6 误卷 StoreError derive)、backup/recover/session_identity 提 pub(crate)、mod.rs/tests import 归属清理
 - 收尾: 1786306577
+
+## T-1786307001 cargo test --workspace (R-155 S7/S8) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-155 S7+S8 后全量:kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43 等全部绿。store 26 个测试已分域下沉到 episodes/events/inbox/notifications/schema/session + testutil 共享辅助。
+- 收尾: 1786307001

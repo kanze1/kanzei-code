@@ -238,4 +238,54 @@ pub(crate) fn session_identity(project_root: &Path) -> String {
     stripped.trim_end_matches(['\\', '/']).to_lowercase()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::*;
+    use crate::store::testutil::store;
+    use std::path::Path;
 
+    #[test]
+    fn 会话状态更新并刷新时间() {
+        let store = store();
+        let before = store.get_session("ses_test").unwrap().unwrap();
+        store.set_status("ses_test", "running").unwrap();
+        let after = store.get_session("ses_test").unwrap().unwrap();
+        assert_eq!(after.status, "running");
+        assert!(after.updated_at >= before.updated_at);
+        assert!(matches!(
+            store.set_status("missing", "running"),
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ));
+    }
+
+    #[test]
+    fn 同一目录的各种路径写法收敛到同一个会话id() {
+        let bare = Path::new(r"C:\Users\kanzei\Documents\kanzei code");
+        let canonical = Path::new(r"\\?\C:\Users\kanzei\Documents\kanzei code");
+        assert_eq!(project_session_id(bare), project_session_id(canonical));
+        // 大小写与末尾分隔符同样不该分裂会话。
+        assert_eq!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\Kanzei\Documents\KANZEI CODE\"))
+        );
+        // UNC 的扩展长度前缀映射回普通 UNC 写法。
+        assert_eq!(
+            project_session_id(Path::new(r"\\?\UNC\server\share\proj")),
+            project_session_id(Path::new(r"\\server\share\proj"))
+        );
+        // 不同目录仍然是不同会话。
+        assert_ne!(
+            project_session_id(bare),
+            project_session_id(Path::new(r"C:\Users\kanzei\Documents\other"))
+        );
+
+        // 向后兼容的硬约束:裸路径的身份串必须仍是"原样小写",否则既有会话
+        // 会被一次性改名、全部历史失联。这里不断言哈希字面量——DefaultHasher
+        // 跨 Rust 版本不保证稳定,断言身份串才是真正的不变量。
+        assert_eq!(
+            super::session_identity(bare),
+            r"c:\users\kanzei\documents\kanzei code"
+        );
+    }
+}

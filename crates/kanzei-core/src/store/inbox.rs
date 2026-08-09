@@ -224,5 +224,235 @@ fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
             created_at: row.get(4)?,
         })
     }
-    
+
+#[cfg(test)]
+mod tests {
+    use crate::store::*;
+    use crate::store::testutil::store;
+
+    #[test]
+    fn 中断收尾恢复空闲并原子取消未完成输入() {
+        // D-085:Ctrl+C 收尾必须一次做全——状态复位、事件落库、输入取消。
+        let store = store();
+        store.set_status("ses_test", "running").unwrap();
+        store
+            .admit_input("ses_test", "input_promoted", "运行中的输入", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        store
+            .admit_input("ses_test", "input_queued", "排队中的输入", Delivery::Queue)
+            .unwrap();
+
+        let cancelled = store.finalize_interrupt("ses_test").unwrap();
+        assert_eq!(cancelled, 2, "promoted 与 pending 输入都要取消");
+        assert_eq!(store.get_session("ses_test").unwrap().unwrap().status, "idle");
+        let event = store
+            .latest_event("ses_test", "session.status_changed")
+            .unwrap()
+            .unwrap();
+        assert_eq!(event.payload["status"], "idle");
+        assert_eq!(event.payload["reason"], "stopped_by_user");
+        assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
+        // 不存在的会话必须报错而不是静默成功。
+        assert!(matches!(
+            store.finalize_interrupt("missing"),
+            Err(StoreError::Sqlite(rusqlite::Error::QueryReturnedNoRows))
+        ));
+    }
+
+    #[test]
+    fn 已完成的输入不会被后来的停止追认为取消() {
+        // D-173:少了 completed 终态时,跑完的输入永远停在 promoted,
+        // 于是任何一次停止都会把历史成功输入一并改写成 cancelled。
+        let store = store();
+        store
+            .admit_input("ses_test", "done_earlier", "上一轮已完成", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        assert!(store.start_input("done_earlier").unwrap());
+        assert_eq!(store.input_status("done_earlier").unwrap().unwrap(), "running");
+        assert!(store.finish_input("done_earlier", true).unwrap());
+        assert_eq!(store.input_status("done_earlier").unwrap().unwrap(), "completed");
+
+        store
+            .admit_input("ses_test", "in_flight", "本轮被打断", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+        store.start_input("in_flight").unwrap();
+        store
+            .admit_input("ses_test", "queued", "还没轮到", Delivery::Queue)
+            .unwrap();
+
+        store.set_status("ses_test", "running").unwrap();
+        assert_eq!(store.finalize_interrupt("ses_test").unwrap(), 2);
+        assert_eq!(
+            store.input_status("done_earlier").unwrap().unwrap(),
+            "completed",
+            "已完成的输入必须保持 completed"
+        );
+        assert_eq!(store.input_status("in_flight").unwrap().unwrap(), "cancelled");
+        assert_eq!(store.input_status("queued").unwrap().unwrap(), "cancelled");
+        // 终态不可回退:再次 finish 不改写既有结局。
+        assert!(!store.finish_input("in_flight", true).unwrap());
+    }
+
+    #[test]
+    fn steer_合并且_queue_保持_fifo() {
+        let store = store();
+        store
+            .admit_input("ses_test", "i1", "s1", Delivery::Steer)
+            .unwrap();
+        store
+            .admit_input("ses_test", "i2", "q1", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "i3", "s2", Delivery::Steer)
+            .unwrap();
+        let steers = store.promote_steers("ses_test").unwrap();
+        assert_eq!(
+            steers.iter().map(|x| x.prompt.as_str()).collect::<Vec<_>>(),
+            ["s1", "s2"]
+        );
+        assert_eq!(
+            store
+                .promote_next_queue("ses_test")
+                .unwrap()
+                .unwrap()
+                .prompt,
+            "q1"
+        );
+        assert!(!store.has_pending("ses_test", Delivery::Steer).unwrap());
+    }
+
+    #[test]
+    fn drain_优先提升_steer_再取_queue() {
+        let store = store();
+        store
+            .admit_input("ses_test", "q1", "队列", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s1", "插入", Delivery::Steer)
+            .unwrap();
+        assert_eq!(
+            store
+                .promote_next_input("ses_test")
+                .unwrap()
+                .unwrap()
+                .delivery,
+            Delivery::Steer
+        );
+        assert_eq!(
+            store
+                .promote_next_input("ses_test")
+                .unwrap()
+                .unwrap()
+                .delivery,
+            Delivery::Queue
+        );
+    }
+
+    #[test]
+    fn drain_依次提升全部_steer_再取_queue() {
+        let store = store();
+        store
+            .admit_input("ses_test", "s1", "插入一", Delivery::Steer)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s2", "插入二", Delivery::Steer)
+            .unwrap();
+        store
+            .admit_input("ses_test", "q1", "队列", Delivery::Queue)
+            .unwrap();
+
+        let prompts = (0..3)
+            .map(|_| store.promote_next_input("ses_test").unwrap().unwrap().prompt)
+            .collect::<Vec<_>>();
+        assert_eq!(prompts, ["插入一", "插入二", "队列"]);
+        assert!(!store.has_pending("ses_test", Delivery::Steer).unwrap());
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+    }
+
+    #[test]
+    fn 重复_admission_是幂等的() {
+        let store = store();
+        let first = store
+            .admit_input("ses_test", "same", "prompt", Delivery::Queue)
+            .unwrap();
+        let second = store
+            .admit_input("ses_test", "same", "other", Delivery::Steer)
+            .unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn 只能取消尚未提升的输入() {
+        let store = store();
+        store
+            .admit_input("ses_test", "pending", "待取消", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "promoted", "已提升", Delivery::Queue)
+            .unwrap();
+        assert!(store.cancel_input("ses_test", "pending").unwrap());
+        assert!(!store.cancel_input("ses_test", "pending").unwrap());
+        assert!(!store.cancel_input("ses_test", "missing").unwrap());
+        assert!(store.has_pending("ses_test", Delivery::Queue).unwrap());
+
+        store.promote_next_queue("ses_test").unwrap();
+        assert!(!store.cancel_input("ses_test", "promoted").unwrap());
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+    }
+
+    #[test]
+    fn 停止时取消_pending_和已_promoted_输入() {
+        let store = store();
+        store
+            .admit_input("ses_test", "pending", "待执行", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "promoted", "已提升未完成", Delivery::Queue)
+            .unwrap();
+        let promoted = store.promote_next_input("ses_test").unwrap().unwrap();
+        assert_eq!(promoted.input_id, "pending");
+        assert_eq!(store.cancel_unfinished_inputs("ses_test").unwrap(), 2);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(!store.cancel_input("ses_test", "promoted").unwrap());
+    }
+
+    #[test]
+    fn 停止运行时只取消本会话的_pending_输入() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store
+            .admit_input("ses_test", "q1", "当前会话", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_other", "q2", "其他会话", Delivery::Queue)
+            .unwrap();
+        store
+            .admit_input("ses_test", "s1", "已提升", Delivery::Queue)
+            .unwrap();
+        store.promote_next_queue("ses_test").unwrap();
+
+        assert_eq!(store.cancel_pending_inputs("ses_test").unwrap(), 1);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(store.has_pending("ses_other", Delivery::Queue).unwrap());
+        assert!(!store.cancel_input("ses_test", "s1").unwrap());
+    }
+
+    #[test]
+    fn r050_poc_停止一个会话不影响另一个会话队列() {
+        let store = store();
+        store.create_session("ses_other", "C:/other", None).unwrap();
+        store.admit_input("ses_test", "a-pending", "A", Delivery::Queue).unwrap();
+        store.admit_input("ses_other", "b-pending", "B", Delivery::Queue).unwrap();
+        store.admit_input("ses_other", "b-steer", "B steer", Delivery::Steer).unwrap();
+
+        assert_eq!(store.cancel_pending_inputs("ses_test").unwrap(), 1);
+        assert!(!store.has_pending("ses_test", Delivery::Queue).unwrap());
+        assert!(store.has_pending("ses_other", Delivery::Queue).unwrap());
+        assert_eq!(store.promote_next_input("ses_other").unwrap().unwrap().prompt, "B steer");
+        assert_eq!(store.promote_next_input("ses_other").unwrap().unwrap().prompt, "B");
+    }
+}
 
