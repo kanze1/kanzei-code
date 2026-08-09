@@ -27,6 +27,8 @@ mod fast_model;
 mod update;
 mod memory;
 mod state;
+mod prefs;
+mod projects;
 
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
@@ -119,13 +121,13 @@ fn main() {
             files_view::files_snapshot,
             files_view::file_preview,
             files_view::files_annotate,
-            projects_get,
-            projects_add,
-            projects_init,
-            projects_rename,
-            projects_pick,
-            projects_remove,
-            projects_select,
+            projects::projects_get,
+            projects::projects_add,
+            projects::projects_init,
+            projects::projects_rename,
+            projects::projects_pick,
+            projects::projects_remove,
+            projects::projects_select,
             workspace_snapshot,
             docs_snapshot,
             run_prompt,
@@ -151,9 +153,9 @@ fn main() {
             memory::memory_note_candidates,
             memory::memory_note_discard,
             run_metrics,
-            project_root_info,
-            project_detach,
-            projects_isolation_report,
+            projects::project_root_info,
+            projects::project_detach,
+            projects::projects_isolation_report,
             fast_model::fast_model_status,
             fast_model::fast_model_setup,
             memory::memory_entry_save,
@@ -196,43 +198,6 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
-}
-
-// ---------- 多项目管理(~/.kanzei/app.json) ----------
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct AppPrefs {
-    #[serde(default)]
-    projects: Vec<String>,
-    #[serde(default)]
-    current: Option<String>,
-    /// 项目显示名映射;旧版 app.json 没有此字段时回退为目录名。
-    #[serde(default)]
-    names: HashMap<String, String>,
-}
-
-fn prefs_path() -> PathBuf {
-    kanzei_harness::kanzei_home()
-        .unwrap_or_default()
-        .join("app.json")
-}
-
-fn load_prefs() -> AppPrefs {
-    std::fs::read_to_string(prefs_path())
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
-}
-
-fn save_prefs(prefs: &AppPrefs) {
-    let path = prefs_path();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(
-        &path,
-        serde_json::to_string_pretty(prefs).unwrap_or_default(),
-    );
 }
 
 #[tauri::command]
@@ -463,249 +428,6 @@ fn worktree_discard(project_dir: String, worktree_path: String) -> Result<String
 }
 
 #[tauri::command]
-fn projects_get() -> AppPrefs {
-    let mut prefs = load_prefs();
-    prefs.projects.retain(|p| Path::new(p).is_dir());
-    prefs.names.retain(|path, _| prefs.projects.contains(path));
-    if prefs.projects.is_empty() {
-        if let Ok(cwd) = std::env::current_dir() {
-            prefs.projects.push(cwd.display().to_string());
-        }
-    }
-    if prefs
-        .current
-        .as_deref()
-        .map(|c| !Path::new(c).is_dir())
-        .unwrap_or(true)
-    {
-        prefs.current = prefs.projects.first().cloned();
-    }
-    save_prefs(&prefs);
-    prefs
-}
-
-#[tauri::command]
-fn projects_init(path: String, name: Option<String>) -> Result<AppPrefs, String> {
-    let dir = PathBuf::from(&path);
-    std::fs::create_dir_all(&dir).map_err(|error| format!("创建项目目录失败: {error}"))?;
-    std::fs::create_dir_all(dir.join(".kanzei"))
-        .map_err(|error| format!("创建项目配置目录失败: {error}"))?;
-    let canonical = dir
-        .canonicalize()
-        .map(strip_verbatim)
-        .unwrap_or(path.clone());
-    let mut prefs = load_prefs();
-    if !prefs.projects.contains(&canonical) {
-        prefs.projects.push(canonical.clone());
-    }
-    let display_name = name
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| base_name(&canonical));
-    prefs.names.insert(canonical.clone(), display_name);
-    prefs.current = Some(canonical);
-    save_prefs(&prefs);
-    Ok(projects_get())
-}
-
-#[tauri::command]
-fn projects_rename(path: String, name: String) -> Result<AppPrefs, String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("项目名称不能为空".into());
-    }
-    let mut prefs = load_prefs();
-    if !prefs.projects.iter().any(|project| project == &path) {
-        return Err("项目不在项目列表中".into());
-    }
-    prefs.names.insert(path, name.to_owned());
-    save_prefs(&prefs);
-    Ok(projects_get())
-}
-
-fn base_name(path: &str) -> String {
-    Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .filter(|name| !name.is_empty())
-        .unwrap_or(path)
-        .to_owned()
-}
-
-#[tauri::command]
-fn projects_add(path: String) -> Result<AppPrefs, String> {
-    let dir = PathBuf::from(&path);
-    if !dir.is_dir() {
-        return Err(format!("目录不存在: {path}"));
-    }
-    // D-170:必须就地建 `.kanzei`,否则 discover_project_root 会一路向上找,
-    // 落到祖先目录(或最近的 .git)上——两个新加的项目就共用同一份
-    // requirements.md/defects.md,需求在项目之间串。用户显式选的目录就是根。
-    std::fs::create_dir_all(dir.join(".kanzei"))
-        .map_err(|error| format!("创建项目配置目录失败: {error}"))?;
-    let canonical = dir
-        .canonicalize()
-        .map(strip_verbatim)
-        .unwrap_or(path.clone());
-    let mut prefs = load_prefs();
-    if !prefs.projects.contains(&canonical) {
-        prefs.projects.push(canonical.clone());
-    }
-    prefs.current = Some(canonical);
-    save_prefs(&prefs);
-    Ok(projects_get())
-}
-
-/// 某个根下是否已经存在"这个项目的东西"。判断依据是**用户可见的产物**:
-/// 追踪文档、记忆、会话库。只有这些存在时,改根才会改变用户看到的内容。
-fn root_has_data(root: &Path) -> bool {
-    let k = root.join(".kanzei");
-    ["project", "memory"]
-        .iter()
-        .any(|sub| k.join(sub).read_dir().map(|mut d| d.next().is_some()).unwrap_or(false))
-        || k.join("state.db").is_file()
-}
-
-/// D-170 核心规则:**能无损修就自动修,会改变可见内容的才问用户**。
-///
-/// 未初始化的项目目录会被 `discover_project_root` 一路向上解析到祖先,于是共用
-/// 同一祖先的几个项目读写同一份数据。要根治就得让每个注册项目自成一根,但对
-/// 存量项目直接改根会让 `project_session_id` 变化、历史对话看起来消失。
-///
-/// 分两种情形:
-/// - 祖先那边**没有任何项目数据** → 补 `.kanzei` 前后用户看到的都是空,无损,静默修;
-/// - 祖先那边**有数据** → 不动。改了会让这个项目从"看得到那批条目"变成"空的",
-///   属于可见变化,必须由用户在界面上确认(project_detach)。
-///
-/// 返回是否做了自动修复。
-fn ensure_project_isolated(dir: &Path) -> bool {
-    if dir.join(".kanzei").is_dir() {
-        return false; // 已经自成一根
-    }
-    let Some(resolved) = kanzei_harness::config::discover_project_root(dir) else {
-        return false;
-    };
-    if std::fs::canonicalize(&resolved).ok() == std::fs::canonicalize(dir).ok() {
-        return false; // 解析结果就是自己
-    }
-    if root_has_data(&resolved) {
-        return false; // 有数据,改根会改变所见,交给用户拍板
-    }
-    std::fs::create_dir_all(dir.join(".kanzei")).is_ok()
-}
-
-/// D-170:所选目录与实际生效的项目根是否一致。不一致 = 这个项目的需求/缺陷/会话
-/// 其实存在祖先目录里,和共用同一祖先的其它项目**混在一起**。
-#[tauri::command]
-fn project_root_info(project_dir: String) -> serde_json::Value {
-    let selected = PathBuf::from(&project_dir);
-    let repaired = ensure_project_isolated(&selected);
-    let resolved = kanzei_harness::config::discover_project_root(&selected)
-        .unwrap_or_else(|| selected.clone());
-    let same = std::fs::canonicalize(&selected).ok() == std::fs::canonicalize(&resolved).ok();
-    json!({
-        "selected": selected.display().to_string(),
-        "resolved": resolved.display().to_string(),
-        "shared": !same,
-        // 无损自动修复过:界面无需打扰用户,但日志里要留痕。
-        "autoRepaired": repaired,
-    })
-}
-
-/// 全部注册项目的隔离体检:一次报完,而不是切一个发现一个。
-/// 顺带对可无损修复的静默补齐。
-#[tauri::command]
-fn projects_isolation_report() -> serde_json::Value {
-    let prefs = load_prefs();
-    let mut shared = Vec::new();
-    let mut repaired = Vec::new();
-    for path in &prefs.projects {
-        let dir = PathBuf::from(path);
-        if !dir.is_dir() {
-            continue;
-        }
-        if ensure_project_isolated(&dir) {
-            repaired.push(path.clone());
-            continue;
-        }
-        let resolved = kanzei_harness::config::discover_project_root(&dir)
-            .unwrap_or_else(|| dir.clone());
-        if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
-            shared.push(json!({
-                "project": path,
-                "resolved": resolved.display().to_string(),
-            }));
-        }
-    }
-    json!({ "shared": shared, "autoRepaired": repaired })
-}
-
-/// 在所选目录就地建 `.kanzei`,把它从祖先项目里分离出来。
-/// 只建目录,不搬数据:祖先那边的条目属于祖先项目,搬过来等于替用户做决定。
-#[tauri::command]
-fn project_detach(project_dir: String) -> Result<(), String> {
-    let dir = PathBuf::from(&project_dir);
-    if !dir.is_dir() {
-        return Err(format!("目录不存在: {project_dir}"));
-    }
-    std::fs::create_dir_all(dir.join(".kanzei").join("project"))
-        .map_err(|e| format!("创建项目空间失败: {e}"))?;
-    // 回读校验:建完必须确实以自身为根,否则等于什么都没做却报了成功。
-    let resolved = kanzei_harness::config::discover_project_root(&dir)
-        .unwrap_or_else(|| dir.clone());
-    if std::fs::canonicalize(&resolved).ok() != std::fs::canonicalize(&dir).ok() {
-        return Err(format!(
-            "已创建 {}/.kanzei,但项目根仍解析为 {} —— 请检查目录权限",
-            dir.display(),
-            resolved.display()
-        ));
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn projects_pick() -> Result<Option<AppPrefs>, String> {
-    let picked = rfd::AsyncFileDialog::new().pick_folder().await;
-    match picked {
-        Some(handle) => projects_add(handle.path().display().to_string()).map(Some),
-        None => Ok(None),
-    }
-}
-
-#[tauri::command]
-fn projects_remove(path: String) -> AppPrefs {
-    let mut prefs = load_prefs();
-    prefs.projects.retain(|p| p != &path);
-    prefs.names.remove(&path);
-    if prefs.current.as_deref() == Some(path.as_str()) {
-        prefs.current = prefs.projects.first().cloned();
-    }
-    save_prefs(&prefs);
-    projects_get()
-}
-
-#[tauri::command]
-fn projects_select(path: String) -> AppPrefs {
-    let mut prefs = load_prefs();
-    if prefs.projects.contains(&path) {
-        // 切进来时顺手做无损隔离修复:未初始化且祖先无数据的项目在这里自成一根,
-        // 用户完全无感。有数据的仍不动,由界面告警引导。
-        ensure_project_isolated(Path::new(&path));
-        prefs.current = Some(path);
-    }
-    save_prefs(&prefs);
-    prefs
-}
-
-/// Windows canonicalize 会带 \\?\ 前缀,展示前剥掉。
-fn strip_verbatim(p: PathBuf) -> String {
-    let s = p.display().to_string();
-    s.strip_prefix(r"\\?\").map(str::to_string).unwrap_or(s)
-}
-
-#[tauri::command]
 fn list_pending_inputs(
     project_dir: String,
     process_id: Option<String>,
@@ -752,7 +474,7 @@ fn cancel_input(
 
 #[tauri::command]
 fn workspace_snapshot() -> Result<serde_json::Value, String> {
-    let prefs = projects_get();
+    let prefs = projects::projects_get();
     let mut projects = Vec::new();
     for path in &prefs.projects {
         // 与运行侧同源的项目根,否则工作区卡片的状态/历史与实际运行会话对不上(D-058)。
@@ -767,7 +489,7 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
         let recent = conversation_trace_get(path.clone(), None, None).unwrap_or_default();
         projects.push(json!({
             "path": path,
-            "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name(path)),
+            "name": prefs.names.get(path).cloned().unwrap_or_else(|| projects::base_name_for_snapshot(path)),
             "current": prefs.current.as_deref() == Some(path.as_str()),
             "status": session.status,
             "updated_at": session.updated_at,

@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批4 state 模块完成：新增 `state.rs`，承接 PromptAttachment、AppState/SessionRuntime/LiveRun、PendingAsk、Process/Mobile/Worktree 状态、UI probe 与全部跨域辅助；main.rs 通过 state re-export 兼容既有调用，已删除 state 旧实现，setup/invoke_handler 真实调用保持。回归 T-1786254660 通过。R-153 总验收仍待批5~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟与拆前后行数对照。
+- 进展: 批5 prefs/projects 完成：新增 `prefs.rs` 承接 AppPrefs/load_prefs/save_prefs；新增 `projects.rs` 承接项目注册、初始化、重命名、添加、选择、删除、隔离体检/分离和根信息 command。invoke_handler 已切换为 `projects::...` 全路径，workspace_snapshot 已使用 projects 模块项目数据消费者。回归 T-1786255065 通过。R-153 总验收仍待批6~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟与拆前后行数对照。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

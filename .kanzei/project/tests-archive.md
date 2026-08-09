@@ -176,3 +176,7 @@
 ## T-1786254660 R-153 批4 state 模块接入回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批4 state 模块接入与 main.rs state 旧副本清理回归记录通过；state.rs 已提供状态类型、UI probe、运行时与跨域辅助，main 仅保留装配。
+
+## T-1786255065 R-153 批5 prefs/projects 模块迁移回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批5 prefs/projects 迁移回归记录通过；prefs.rs 与 projects.rs 已接入，项目命令真实 invoke_handler 消费者和 workspace_snapshot 项目数据消费者已切换。
