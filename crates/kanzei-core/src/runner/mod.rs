@@ -19,7 +19,9 @@ mod event;
 pub use event::*;
 mod metrics;
 pub use metrics::*;
-use metrics::is_git_query;
+mod redundancy;
+pub use redundancy::*;
+
 
 use event::{drain_task_events, preview};
 
@@ -435,518 +437,47 @@ fn task_spec() -> ToolSpec {
 
 
 
-/// R-100 机械门禁:对可机械识别的冗余模式在工具结果中就地处提醒(不阻断,
-/// 先观察后升级)。状态按单次运行持有——轮与轮之间不复用,避免跨轮误报。
-///
-/// 三种模式(全在工具结果文本追加 `[冗余提醒]` 前缀,summarize_metrics 按前缀计数):
-/// 1. 同一工作树无变化时的重复 git status/diff:以上一次同类的工具结果内容为
-///    工作树指纹,内容一致即判无变化;
-/// 2. 无文件变更的重复全量测试:以上一次 git status/diff 的结果内容为指纹,
-///    全量测试之间指纹未变即判白跑;
-/// 3. 缺陷记录已含文件路径仍调 task:task prompt 里引用 D-xxx 且该缺陷条目
-///    字段已含的路径也出现在 prompt 里,说明是在让子代理重新探索已知位置。
-#[derive(Default)]
-pub(crate) struct RedundancyWatch {
-    /// 上一次 git status/diff 的结果内容(工作树指纹,None = 尚未见过)。
-    last_git_content: Option<String>,
-    /// 最近一次全量测试时的指纹。
-    last_full_test_tree: Option<String>,
-    /// 本轮是否已跑过全量测试。
-    full_test_ran: bool,
-}
-
-impl RedundancyWatch {
-    /// 在整步工具结果回喂前调用:`results` 与 `calls` 按下标一一对应
-    /// (并行 wave 与串行路径都保持该对齐)。只追加、不改 is_error。
-    pub(crate) fn note_step(
-        &mut self,
-        project_root: &std::path::Path,
-        calls: &[(String, String, serde_json::Value, String)],
-        results: &mut [Part],
-    ) {
-        for (index, (_, name, input, _)) in calls.iter().enumerate() {
-            let Some(Part::ToolResult { content, is_error, .. }) = results.get_mut(index) else {
-                continue;
-            };
-            if *is_error || content.is_empty() {
-                continue;
-            }
-            match name.as_str() {
-                "bash" => {
-                    // 先取原始内容再比较:提醒文本不能污染指纹,否则下次比较恒不相等。
-                    let original = content.clone();
-                    if is_git_query(input) {
-                        if let Some(prev) = &self.last_git_content {
-                            if prev == &original {
-                                content.push_str(
-                                    "\n[冗余提醒] 工作树与上次 git status/diff 无变化,这次查询可省",
-                                );
-                            }
-                        }
-                        self.last_git_content = Some(original);
-                    } else {
-                        let command = input
-                            .get("command")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-                        if is_full_test_command(&command) {
-                            if self.full_test_ran {
-                                if let (Some(cur), Some(prev)) =
-                                    (&self.last_git_content, &self.last_full_test_tree)
-                                {
-                                    if cur == prev {
-                                        content.push_str(
-                                            "\n[冗余提醒] 自上次全量测试以来工作树无变更,这次测试可省",
-                                        );
-                                    }
-                                }
-                            }
-                            self.last_full_test_tree = self.last_git_content.clone();
-                            self.full_test_ran = true;
-                        }
-                    }
-                }
-                "task" => {
-                    let prompt = input
-                        .get("prompt")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if let Some(note) = defect_known_path_hint(project_root, prompt) {
-                        content.push_str(&format!("\n[冗余提醒] {note}"));
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-}
-
-/// 全量测试判定:覆盖整个 workspace 的 cargo 测试命令。
-/// `cargo test --workspace` 系列显式全量;不带 `-p` 的 `cargo test` 在工作区根
-/// 跑的就是全量(把 -p 定向测试排除在外,定向不算全量)。
-fn is_full_test_command(command: &str) -> bool {
-    let c = command.to_lowercase();
-    if !(c.contains("cargo test") || c.contains("cargo nextest")) {
-        return false;
-    }
-    const FULL_FLAGS: &[&str] = &["--workspace", "--all", "--all-targets"];
-    FULL_FLAGS.iter().any(|f| c.contains(f)) || !c.contains(" -p ")
-}
-
-/// R-100 模式 3:task prompt 引用缺陷 D-xxx 且该缺陷记录字段已含的路径也出现在
-/// prompt 里 → 让子代理重新探索已知位置,就地提醒。纯文本解析,不依赖 docstore
-/// (runner 层不能反向依赖 kanzei-tools,这是机械门禁的取舍)。
-fn defect_known_path_hint(project_root: &std::path::Path, prompt: &str) -> Option<String> {
-    if prompt.trim().is_empty() {
-        return None;
-    }
-    let ids: Vec<&str> = prompt
-        .split_whitespace()
-        .filter(|w| {
-            w.len() > 2
-                && w.starts_with("D-")
-                && w[2..].chars().all(|c| c.is_ascii_digit())
-        })
-        .collect();
-    if ids.is_empty() {
-        return None;
-    }
-    for name in ["defects.md", "defects-archive.md"] {
-        let path = project_root.join(".kanzei/project").join(name);
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        for id in &ids {
-            let marker = format!("## {id} ");
-            let Some(start) = text.find(&marker) else {
-                continue;
-            };
-            let rest = &text[start..];
-            let end = rest
-                .find("\n## ")
-                .map(|i| start + i)
-                .unwrap_or(text.len());
-            let section = &text[start..end];
-            let known: Vec<&str> = section
-                .split_whitespace()
-                .map(trim_path_token)
-                .filter(|w| is_path_like(w))
-                .collect();
-            for known_path in known {
-                if prompt.contains(known_path) {
-                    return Some(format!(
-                        "缺陷 {id} 记录已含文件路径 {known_path},直接 read 该文件即可,无需 task 重新探索"
-                    ));
-                }
-            }
-        }
-    }
-    None
-}
-
-/// 去掉路径 token 首尾的标点(截断、括号、分号等)。
-fn trim_path_token(token: &str) -> &str {
-    let mut s = token.trim();
-    while let Some(last) = s.chars().last() {
-        if ".,;:!?)]}、。；：」』》".contains(last) {
-            s = &s[..s.len() - last.len_utf8()];
-        } else {
-            break;
-        }
-    }
-    s
-}
-
-/// 路径样子:含目录分隔符且含点(代码文件/相对路径),排除纯 URL。
-fn is_path_like(token: &str) -> bool {
-    let has_sep = token.contains('/') || token.contains('\\');
-    let has_dot = token.contains('.');
-    let not_url = !token.contains("://");
-    has_sep && has_dot && not_url
-}
-
 #[cfg(test)]
-mod failure_tests {
-    use super::*;
+pub(crate) mod testutil {
     use kanzei_llm::{Message, Part};
 
-    fn call(id: &str, name: &str, target_key: &str, target: &str) -> Message {
+    pub fn call(id: &str, name: &str, target_key: &str, target: &str) -> Message {
         Message::assistant(vec![Part::ToolCall {
             id: id.into(),
             name: name.into(),
             input: serde_json::json!({ target_key: target }),
         }])
     }
-    fn result(call_id: &str, content: &str, is_error: bool) -> Message {
+    pub fn result(call_id: &str, content: &str, is_error: bool) -> Message {
         Message::tool_results(vec![Part::ToolResult {
             call_id: call_id.into(),
             content: content.into(),
             is_error,
         }])
     }
-
-    fn tracker_call(id: &str, tool: &str, entry: &str, status: &str) -> Message {
+    pub fn tracker_call(id: &str, tool: &str, entry: &str, status: &str) -> Message {
         Message::assistant(vec![Part::ToolCall {
             id: id.into(),
             name: tool.into(),
             input: serde_json::json!({ "action": "update", "id": entry, "status": status }),
         }])
     }
-
-    fn bash(id: &str, command: &str) -> Message {
+    pub fn bash(id: &str, command: &str) -> Message {
         Message::assistant(vec![Part::ToolCall {
             id: id.into(),
             name: "bash".into(),
             input: serde_json::json!({ "command": command }),
         }])
     }
-
-    /// 取 ToolResult 内容(测试断言用)。
-    fn result_content(part: &Part) -> String {
+    pub fn result_content(part: &Part) -> String {
         match part {
             Part::ToolResult { content, .. } => content.clone(),
             _ => String::new(),
         }
     }
-
-    #[test]
-    fn 调用画像把连续_git_查询并成一组() {
-        let messages = vec![
-            // 一组:三条连着的 git 查询
-            bash("g1", "git status --porcelain"),
-            result("g1", "", false),
-            bash("g2", "git diff --stat"),
-            result("g2", "", false),
-            bash("g3", "git log --oneline -3"),
-            result("g3", "", false),
-            // 中间插入真正的工作,后面的 git 查询另起一组
-            call("e1", "edit", "path", "src/lib.rs"),
-            result("e1", "no match", true),
-            call("e2", "edit", "path", "src/lib.rs"),
-            result("e2", "ok", false),
-            bash("g4", "git status"),
-            result("g4", "", false),
-            bash("b1", "cargo test"),
-            result("b1", "ok", false),
-        ];
-        let m = summarize_metrics(&messages);
-        assert_eq!(m.terminal_calls, 5, "bash 调用总数");
-        assert_eq!(m.git_calls, 4);
-        assert_eq!(m.git_groups, 2, "连续查询应并成一组,分散才是节奏问题");
-        assert_eq!(m.edit_calls, 2);
-        assert_eq!(m.edit_misses, 1);
-        assert!((m.edit_miss_rate() - 0.5).abs() < 1e-9);
-        assert_eq!(m.failed_calls, 1);
-        assert_eq!(m.total_calls, 7);
-        assert_eq!(m.subagent_calls, 0);
-
-        // 无 edit 时未命中率是 0 而不是除零。
-        assert_eq!(summarize_metrics(&[]).edit_miss_rate(), 0.0);
-    }
-
-    #[test]
-    fn 冗余提醒_按类别计数进度量() {
-        // R-100:summarize_metrics 按 [冗余提醒] 前缀归类计数。
-        let messages = vec![
-            bash("g1", "git status"),
-            result("g1", "nothing to commit", false),
-            bash("g2", "git status"),
-            result(
-                "g2",
-                "nothing to commit\n[冗余提醒] 工作树与上次 git status/diff 无变化,这次查询可省",
-                false,
-            ),
-            bash("b1", "cargo test --workspace"),
-            result(
-                "b1",
-                "ok\n[冗余提醒] 自上次全量测试以来工作树无变更,这次测试可省",
-                false,
-            ),
-            call("t1", "task", "prompt", "看 D-001,读 crates/app/main.rs"),
-            result("t1", "done\n[冗余提醒] 缺陷 D-001 记录已含文件路径 crates/app/main.rs,直接 read 该文件即可,无需 task 重新探索", false),
-        ];
-        let m = summarize_metrics(&messages);
-        assert_eq!(m.redundant_git, 1);
-        assert_eq!(m.redundant_test, 1);
-        assert_eq!(m.redundant_task, 1);
-        assert_eq!(m.redundant_total(), 3);
-        // 失败结果里即使带提醒字样也不计数。
-        let failed = vec![result("x", "[冗余提醒] 缺陷", true)];
-        assert_eq!(summarize_metrics(&failed).redundant_total(), 0);
-    }
-
-    #[test]
-    fn 重复_git_status_无变化时_就地提醒() {
-        let mut watch = RedundancyWatch::default();
-        let dir = std::env::temp_dir().join(format!("kz-red-git-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).ok();
-
-        let calls = vec![
-            ("g1".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("g2".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-        ];
-        let mut results = vec![
-            Part::ToolResult { call_id: "g1".into(), content: " M src/lib.rs".into(), is_error: false },
-            Part::ToolResult { call_id: "g2".into(), content: " M src/lib.rs".into(), is_error: false },
-        ];
-        watch.note_step(&dir, &calls, &mut results);
-        assert!(!result_content(&results[0]).contains("[冗余提醒]"));
-        assert!(result_content(&results[1]).contains("[冗余提醒]"), "{}", result_content(&results[1]));
-        // 内容变了(工作树有改动)就不再提醒。
-        let mut watch2 = RedundancyWatch::default();
-        let mut results2 = vec![
-            Part::ToolResult { call_id: "g1".into(), content: " M src/lib.rs".into(), is_error: false },
-            Part::ToolResult { call_id: "g2".into(), content: " M src/lib.rs\n M src/app.rs".into(), is_error: false },
-        ];
-        watch2.note_step(&dir, &calls, &mut results2);
-        assert!(!result_content(&results2[1]).contains("[冗余提醒]"));
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn 全量测试_工作树未变时_就地提醒() {
-        let mut watch = RedundancyWatch::default();
-        let dir = std::env::temp_dir().join(format!("kz-red-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).ok();
-
-        let tree = " M crates/kanzei-app/ui/main.js";
-        let calls1 = vec![
-            ("g1".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("b1".into(), "bash".into(), serde_json::json!({"command": "cargo test --workspace"}), "".into()),
-        ];
-        let mut results1 = vec![
-            Part::ToolResult { call_id: "g1".into(), content: tree.into(), is_error: false },
-            Part::ToolResult { call_id: "b1".into(), content: "test result: ok. 200 passed".into(), is_error: false },
-        ];
-        watch.note_step(&dir, &calls1, &mut results1);
-        assert!(!result_content(&results1[1]).contains("[冗余提醒]"), "首次全量测试不该提醒");
-
-        // 第二次:git status 内容一致,再跑全量 → 提醒。
-        let calls2 = vec![
-            ("g2".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("b2".into(), "bash".into(), serde_json::json!({"command": "cargo test --workspace"}), "".into()),
-        ];
-        let mut results2 = vec![
-            Part::ToolResult { call_id: "g2".into(), content: tree.into(), is_error: false },
-            Part::ToolResult { call_id: "b2".into(), content: "test result: ok. 200 passed".into(), is_error: false },
-        ];
-        watch.note_step(&dir, &calls2, &mut results2);
-        assert!(result_content(&results2[1]).contains("[冗余提醒]"), "{}", result_content(&results2[1]));
-        // 定向测试不算全量,不触发。
-        let mut watch3 = RedundancyWatch::default();
-        let calls3 = vec![("b3".into(), "bash".into(), serde_json::json!({"command": "cargo test -p kanzei-core"}), "".into())];
-        let mut results3 = vec![Part::ToolResult { call_id: "b3".into(), content: "ok".into(), is_error: false }];
-        watch3.note_step(&dir, &calls3, &mut results3);
-        assert!(!result_content(&results3[0]).contains("[冗余提醒]"));
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn task_引用已知缺陷路径时_就地提醒() {
-        let dir = std::env::temp_dir().join(format!("kz-red-task-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
-        std::fs::write(
-            dir.join(".kanzei/project/defects.md"),
-            "# Defects\n\n## D-001 启动黑屏 [open]\n- 复现: crates/kanzei-app/ui/main.js 初始化\n",
-        )
-        .unwrap();
-        let mut watch = RedundancyWatch::default();
-        let calls = vec![(
-            "t1".into(),
-            "task".into(),
-            serde_json::json!({"prompt": "D-001 启动黑屏,找 crates/kanzei-app/ui/main.js 的初始化位置"}),
-            "".into(),
-        )];
-        let mut results = vec![Part::ToolResult { call_id: "t1".into(), content: "done".into(), is_error: false }];
-        watch.note_step(&dir, &calls, &mut results);
-        assert!(result_content(&results[0]).contains("[冗余提醒] 缺陷 D-001"), "{}", result_content(&results[0]));
-        // 路径不在缺陷记录里 → 不提醒。
-        let calls2 = vec![(
-            "t2".into(),
-            "task".into(),
-            serde_json::json!({"prompt": "D-001 启动黑屏,找 crates/kanzei-app/src/main.rs 的逻辑"}),
-            "".into(),
-        )];
-        let mut results2 = vec![Part::ToolResult { call_id: "t2".into(), content: "done".into(), is_error: false }];
-        watch.note_step(&dir, &calls2, &mut results2);
-        assert!(!result_content(&results2[0]).contains("[冗余提醒]"));
-        std::fs::remove_dir_all(dir).ok();
-    }
-
-    #[test]
-    fn sop_提炼只在真正完成一个条目时触发() {
-        // 正例:先改文件再收口到终态 —— 这才是一段可复用的流程。
-        let done = vec![
-            call("c1", "edit", "path", "src/lib.rs"),
-            result("c1", "ok", false),
-            call("c2", "bash", "command", "cargo test"),
-            result("c2", "test result: ok", false),
-            tracker_call("c3", "req", "R-123", "done"),
-            result("c3", "updated", false),
-        ];
-        let entry = completed_entry(&done).expect("完成一个完整条目时应触发");
-        assert_eq!(entry.id, "R-123");
-        assert_eq!(entry.status, "done");
-        assert!(entry.tools.contains(&"edit".to_string()) && entry.tools.contains(&"bash".to_string()));
-
-        // 反例一:纯查询轮 —— 没有任何实质动作,不构成可复用流程。
-        let read_only = vec![
-            call("c1", "read", "path", "src/lib.rs"),
-            result("c1", "...", false),
-            tracker_call("c2", "req", "R-124", "done"),
-            result("c2", "updated", false),
-        ];
-        assert!(completed_entry(&read_only).is_none(), "纯查询轮不该提炼 SOP");
-
-        // 反例二:先勾完成再干活 —— 顺序反了,勾的那一刻并没有完成什么。
-        let out_of_order = vec![
-            tracker_call("c1", "req", "R-125", "done"),
-            result("c1", "updated", false),
-            call("c2", "edit", "path", "src/lib.rs"),
-            result("c2", "ok", false),
-        ];
-        assert!(completed_entry(&out_of_order).is_none(), "先收口后干活不该提炼 SOP");
-
-        // 反例三:收口调用本身失败 —— 条目根本没进终态。
-        let failed_close = vec![
-            call("c1", "edit", "path", "src/lib.rs"),
-            result("c1", "ok", false),
-            tracker_call("c2", "req", "R-126", "done"),
-            result("c2", "cannot move backward", true),
-        ];
-        assert!(completed_entry(&failed_close).is_none(), "收口失败不该提炼 SOP");
-
-        // 反例四:只是把状态推到 doing —— 不是终态。
-        let in_progress = vec![
-            call("c1", "edit", "path", "src/lib.rs"),
-            result("c1", "ok", false),
-            tracker_call("c2", "req", "R-127", "doing"),
-            result("c2", "updated", false),
-        ];
-        assert!(completed_entry(&in_progress).is_none(), "推进到 doing 不是完成");
-    }
-
-    #[test]
-    fn 一次性失败不上报_重复失败才成为信号() {
-        // 搜索空间无限的负面事实(猜错一次文件名)没有记忆价值,必须被闸掉。
-        let once = vec![
-            call("c1", "read", "path", "src/nope.rs"),
-            result("c1", "cannot access src/nope.rs: not found", true),
-        ];
-        assert!(summarize_failures(&once).is_empty());
-
-        // 同一坑重复两次 = 稳定问题,值得记。
-        let twice = vec![
-            call("c1", "edit", "path", "C:/p/main.rs"),
-            result("c1", "old_string not found in C:/p/main.rs — it must match exactly", true),
-            call("c2", "edit", "path", "C:/p/other.rs"),
-            result("c2", "old_string not found in C:/p/other.rs — it must match exactly", true),
-        ];
-        let signals = summarize_failures(&twice);
-        assert_eq!(signals.len(), 1, "同类错误必须塌成一条: {signals:?}");
-        assert_eq!(signals[0].tool, "edit");
-        assert_eq!(signals[0].count, 2);
-        // 指纹抹掉了路径,两次不同文件仍归一类
-        assert!(!signals[0].kind.contains("main.rs"), "指纹不该含路径: {}", signals[0].kind);
-        assert_eq!(signals[0].targets, vec!["main.rs", "other.rs"]);
-    }
-
-    #[test]
-    fn 失败后换工具成功构成恢复对_单次也上报() {
-        // 「X 不行、Y 可以」自带解药,是最值得记的形状,阈值降到 1。
-        let messages = vec![
-            call("c1", "edit", "path", "C:/p/main.rs"),
-            result("c1", "old_string not found in C:/p/main.rs", true),
-            call("c2", "bash", "command", "python fix.py C:/p/main.rs"),
-            result("c2", "exit code: 0", false),
-        ];
-        let signals = summarize_failures(&messages);
-        assert_eq!(signals.len(), 1);
-        assert_eq!(signals[0].recovered_by.as_deref(), Some("bash"));
-        assert_eq!(signals[0].count, 1, "有恢复对时单次失败即上报");
-    }
-
-    #[test]
-    fn tdd_噪声不被误报为信号() {
-        // 先写测试→失败→实现→通过:这是正常节奏,不是可复用知识。
-        // 单次失败被阈值闸掉;目标不同(测试命令 vs 源文件)也不构成恢复对。
-        let messages = vec![
-            call("c1", "bash", "command", "cargo test新增用例"),
-            result("c1", "exit code: 101\ntest failed", true),
-            call("c2", "edit", "path", "C:/p/impl.rs"),
-            result("c2", "replaced 1 occurrence(s)", false),
-        ];
-        assert!(
-            summarize_failures(&messages).is_empty(),
-            "TDD 的一次预期失败不该进记忆"
-        );
-    }
-
-    #[test]
-    fn 本轮统计不含历史_调用方须传切片() {
-        // summarize_tools/summarize_failures 都按传入切片统计;
-        // 调用方传 &messages[prior_len..] 才是本轮画像(否则历史被重复计入)。
-        let history = vec![
-            call("h1", "edit", "path", "old.rs"),
-            result("h1", "old_string not found in old.rs", true),
-            call("h2", "edit", "path", "old2.rs"),
-            result("h2", "old_string not found in old2.rs", true),
-        ];
-        let mut all = history.clone();
-        all.extend(vec![
-            call("n1", "read", "path", "new.rs"),
-            result("n1", "ok", false),
-        ]);
-        assert_eq!(summarize_failures(&all).len(), 1, "全量含历史失败");
-        assert!(
-            summarize_failures(&all[history.len()..]).is_empty(),
-            "本轮切片不该带出历史失败"
-        );
-        assert_eq!(summarize_tools(&all[history.len()..]).get("read"), Some(&1));
-        assert_eq!(summarize_tools(&all[history.len()..]).get("edit"), None);
-    }
 }
+
+
 
 
 #[allow(clippy::too_many_arguments)]

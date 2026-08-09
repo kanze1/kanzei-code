@@ -961,3 +961,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 B2 runner/metrics.rs 拆解:cargo test -p kanzei-core 71 passed,下游三 crate check 通过;修正 B2 段1 起点(433,首版误从 426 切进 task_spec json!)
 - 收尾: 1786304968
+
+## T-1786305166 R-155 B3 runner/redundancy.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 B3 runner/redundancy.rs 拆解:71 passed;修复首版剪切 slice 起点差 1 导致 3 个测试缺 #[test] 属性(调用画像/sop_提炼/重复_git),补齐后 71 全绿
+- 收尾: 1786305166

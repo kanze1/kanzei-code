@@ -352,3 +352,207 @@ fn failure_target(input: &serde_json::Value) -> String {
     String::new()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runner::testutil::{bash, call, result, tracker_call};
+
+    #[test]
+    fn 调用画像把连续_git_查询并成一组() {
+        let messages = vec![
+            // 一组:三条连着的 git 查询
+            bash("g1", "git status --porcelain"),
+            result("g1", "", false),
+            bash("g2", "git diff --stat"),
+            result("g2", "", false),
+            bash("g3", "git log --oneline -3"),
+            result("g3", "", false),
+            // 中间插入真正的工作,后面的 git 查询另起一组
+            call("e1", "edit", "path", "src/lib.rs"),
+            result("e1", "no match", true),
+            call("e2", "edit", "path", "src/lib.rs"),
+            result("e2", "ok", false),
+            bash("g4", "git status"),
+            result("g4", "", false),
+            bash("b1", "cargo test"),
+            result("b1", "ok", false),
+        ];
+        let m = summarize_metrics(&messages);
+        assert_eq!(m.terminal_calls, 5, "bash 调用总数");
+        assert_eq!(m.git_calls, 4);
+        assert_eq!(m.git_groups, 2, "连续查询应并成一组,分散才是节奏问题");
+        assert_eq!(m.edit_calls, 2);
+        assert_eq!(m.edit_misses, 1);
+        assert!((m.edit_miss_rate() - 0.5).abs() < 1e-9);
+        assert_eq!(m.failed_calls, 1);
+        assert_eq!(m.total_calls, 7);
+        assert_eq!(m.subagent_calls, 0);
+
+        // 无 edit 时未命中率是 0 而不是除零。
+        assert_eq!(summarize_metrics(&[]).edit_miss_rate(), 0.0);
+    }
+
+    #[test]
+    fn 冗余提醒_按类别计数进度量() {
+        // R-100:summarize_metrics 按 [冗余提醒] 前缀归类计数。
+        let messages = vec![
+            bash("g1", "git status"),
+            result("g1", "nothing to commit", false),
+            bash("g2", "git status"),
+            result(
+                "g2",
+                "nothing to commit\n[冗余提醒] 工作树与上次 git status/diff 无变化,这次查询可省",
+                false,
+            ),
+            bash("b1", "cargo test --workspace"),
+            result(
+                "b1",
+                "ok\n[冗余提醒] 自上次全量测试以来工作树无变更,这次测试可省",
+                false,
+            ),
+            call("t1", "task", "prompt", "看 D-001,读 crates/app/main.rs"),
+            result("t1", "done\n[冗余提醒] 缺陷 D-001 记录已含文件路径 crates/app/main.rs,直接 read 该文件即可,无需 task 重新探索", false),
+        ];
+        let m = summarize_metrics(&messages);
+        assert_eq!(m.redundant_git, 1);
+        assert_eq!(m.redundant_test, 1);
+        assert_eq!(m.redundant_task, 1);
+        assert_eq!(m.redundant_total(), 3);
+        // 失败结果里即使带提醒字样也不计数。
+        let failed = vec![result("x", "[冗余提醒] 缺陷", true)];
+        assert_eq!(summarize_metrics(&failed).redundant_total(), 0);
+    }
+
+    #[test]
+    fn sop_提炼只在真正完成一个条目时触发() {
+        // 正例:先改文件再收口到终态 —— 这才是一段可复用的流程。
+        let done = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            call("c2", "bash", "command", "cargo test"),
+            result("c2", "test result: ok", false),
+            tracker_call("c3", "req", "R-123", "done"),
+            result("c3", "updated", false),
+        ];
+        let entry = completed_entry(&done).expect("完成一个完整条目时应触发");
+        assert_eq!(entry.id, "R-123");
+        assert_eq!(entry.status, "done");
+        assert!(entry.tools.contains(&"edit".to_string()) && entry.tools.contains(&"bash".to_string()));
+
+        // 反例一:纯查询轮 —— 没有任何实质动作,不构成可复用流程。
+        let read_only = vec![
+            call("c1", "read", "path", "src/lib.rs"),
+            result("c1", "...", false),
+            tracker_call("c2", "req", "R-124", "done"),
+            result("c2", "updated", false),
+        ];
+        assert!(completed_entry(&read_only).is_none(), "纯查询轮不该提炼 SOP");
+
+        // 反例二:先勾完成再干活 —— 顺序反了,勾的那一刻并没有完成什么。
+        let out_of_order = vec![
+            tracker_call("c1", "req", "R-125", "done"),
+            result("c1", "updated", false),
+            call("c2", "edit", "path", "src/lib.rs"),
+            result("c2", "ok", false),
+        ];
+        assert!(completed_entry(&out_of_order).is_none(), "先收口后干活不该提炼 SOP");
+
+        // 反例三:收口调用本身失败 —— 条目根本没进终态。
+        let failed_close = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            tracker_call("c2", "req", "R-126", "done"),
+            result("c2", "cannot move backward", true),
+        ];
+        assert!(completed_entry(&failed_close).is_none(), "收口失败不该提炼 SOP");
+
+        // 反例四:只是把状态推到 doing —— 不是终态。
+        let in_progress = vec![
+            call("c1", "edit", "path", "src/lib.rs"),
+            result("c1", "ok", false),
+            tracker_call("c2", "req", "R-127", "doing"),
+            result("c2", "updated", false),
+        ];
+        assert!(completed_entry(&in_progress).is_none(), "推进到 doing 不是完成");
+    }
+
+    #[test]
+    fn 一次性失败不上报_重复失败才成为信号() {
+        // 搜索空间无限的负面事实(猜错一次文件名)没有记忆价值,必须被闸掉。
+        let once = vec![
+            call("c1", "read", "path", "src/nope.rs"),
+            result("c1", "cannot access src/nope.rs: not found", true),
+        ];
+        assert!(summarize_failures(&once).is_empty());
+
+        // 同一坑重复两次 = 稳定问题,值得记。
+        let twice = vec![
+            call("c1", "edit", "path", "C:/p/main.rs"),
+            result("c1", "old_string not found in C:/p/main.rs — it must match exactly", true),
+            call("c2", "edit", "path", "C:/p/other.rs"),
+            result("c2", "old_string not found in C:/p/other.rs — it must match exactly", true),
+        ];
+        let signals = summarize_failures(&twice);
+        assert_eq!(signals.len(), 1, "同类错误必须塌成一条: {signals:?}");
+        assert_eq!(signals[0].tool, "edit");
+        assert_eq!(signals[0].count, 2);
+        // 指纹抹掉了路径,两次不同文件仍归一类
+        assert!(!signals[0].kind.contains("main.rs"), "指纹不该含路径: {}", signals[0].kind);
+        assert_eq!(signals[0].targets, vec!["main.rs", "other.rs"]);
+    }
+
+    #[test]
+    fn 失败后换工具成功构成恢复对_单次也上报() {
+        // 「X 不行、Y 可以」自带解药,是最值得记的形状,阈值降到 1。
+        let messages = vec![
+            call("c1", "edit", "path", "C:/p/main.rs"),
+            result("c1", "old_string not found in C:/p/main.rs", true),
+            call("c2", "bash", "command", "python fix.py C:/p/main.rs"),
+            result("c2", "exit code: 0", false),
+        ];
+        let signals = summarize_failures(&messages);
+        assert_eq!(signals.len(), 1);
+        assert_eq!(signals[0].recovered_by.as_deref(), Some("bash"));
+        assert_eq!(signals[0].count, 1, "有恢复对时单次失败即上报");
+    }
+
+    #[test]
+    fn tdd_噪声不被误报为信号() {
+        // 先写测试→失败→实现→通过:这是正常节奏,不是可复用知识。
+        // 单次失败被阈值闸掉;目标不同(测试命令 vs 源文件)也不构成恢复对。
+        let messages = vec![
+            call("c1", "bash", "command", "cargo test新增用例"),
+            result("c1", "exit code: 101\ntest failed", true),
+            call("c2", "edit", "path", "C:/p/impl.rs"),
+            result("c2", "replaced 1 occurrence(s)", false),
+        ];
+        assert!(
+            summarize_failures(&messages).is_empty(),
+            "TDD 的一次预期失败不该进记忆"
+        );
+    }
+
+    #[test]
+    fn 本轮统计不含历史_调用方须传切片() {
+        // summarize_tools/summarize_failures 都按传入切片统计;
+        // 调用方传 &messages[prior_len..] 才是本轮画像(否则历史被重复计入)。
+        let history = vec![
+            call("h1", "edit", "path", "old.rs"),
+            result("h1", "old_string not found in old.rs", true),
+            call("h2", "edit", "path", "old2.rs"),
+            result("h2", "old_string not found in old2.rs", true),
+        ];
+        let mut all = history.clone();
+        all.extend(vec![
+            call("n1", "read", "path", "new.rs"),
+            result("n1", "ok", false),
+        ]);
+        assert_eq!(summarize_failures(&all).len(), 1, "全量含历史失败");
+        assert!(
+            summarize_failures(&all[history.len()..]).is_empty(),
+            "本轮切片不该带出历史失败"
+        );
+        assert_eq!(summarize_tools(&all[history.len()..]).get("read"), Some(&1));
+        assert_eq!(summarize_tools(&all[history.len()..]).get("edit"), None);
+    }
+}

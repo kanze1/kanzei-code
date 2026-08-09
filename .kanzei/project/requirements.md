@@ -11,8 +11,8 @@
 - refs: A-008
 - 依赖: R-152
 
-- 批次: 1/16
-- 进展: B1 完成提交 2e52179:runner.rs(3259)→runner/mod.rs(3125)+runner/event.rs(150),event 域(TaskTrace/RunEvent/RunSummary/Ask*/preview)拆出,preview/drain_task_events 提 pub(super),mod.rs mod event + pub use event::* 平铺,lib.rs 与外部三 crate 零改动,cargo test -p kanzei-core 71 passed + 下游 check 通过。下一批 B2:runner/metrics.rs(FailureSignal/RunMetrics/summarize_metrics/is_git_query/completed_entry/summarize_failures/summarize_tools)。
+- 批次: 2/16
+- 进展: B1 完成 2e52179(event.rs)。B2 完成 2ab49b3:metrics.rs 拆出(354 行),is_git_query pub(crate),mod.rs 2781 行;首版段1 误从 426 行切进 task_spec json! 致编译失败,git show 定位后段1 从 433 起修复。71 passed + 下游 check 绿,lib.rs 零改动。下一批 B3:redundancy.rs(RedundancyWatch + failure_tests 下沉 + 共享测试辅助 testutil)。
 
 ## R-156 全仓 fmt 收敛并启用 fmt 闸门 [todo]
 - 优先级: P2
