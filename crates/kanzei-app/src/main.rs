@@ -35,7 +35,7 @@ mod settings;
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
     global_config_path, settings_set_or_remove, settings_set_or_remove_num,
-    settings_set_or_reset, settings_set_value, settings_table,
+    settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
 };
 
 pub(crate) use update::{
@@ -450,40 +450,6 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
     Ok(results)
 }
 // ---------- 设置(全局 kanzei.toml 表单) ----------
-
-/// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
-/// 拼错一个字母,此前要到真正发消息时才炸一句 "unknown provider",
-/// 而那时用户早已离开设置页,根本联系不到是刚才填错了(D-168)。
-fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
-    let mut probe = KanzeiConfig::default();
-    for p in &payload.providers {
-        probe.providers.insert(
-            p.name.trim().to_string(),
-            kanzei_harness::config::ProviderConfig {
-                protocol: p.protocol.clone(),
-                base_url: p.base_url.clone(),
-                api_key_env: p.api_key_env.clone(),
-                api_key: p.api_key.clone(),
-                auth: p.auth.clone(),
-                context_limit: p.context_limit,
-            },
-        );
-    }
-    probe.fill_defaults();
-    for (role, value) in [("primary", &payload.primary), ("fast", &payload.fast)] {
-        let spec = value.trim();
-        if spec.is_empty() {
-            continue;
-        }
-        probe.resolve_model(spec).map_err(|e| {
-            format!(
-                "{role} 的模型 `{spec}` 无法解析:{e}。格式应为 provider:model,\
-                 且 provider 必须是下面 Provider 表里的名称。"
-            )
-        })?;
-    }
-    Ok(())
-}
 
 fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
     validate_model_roles(&payload)?;

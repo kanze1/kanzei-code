@@ -93,6 +93,33 @@ pub(crate) fn settings_table<'a>(doc: &'a mut toml_edit::DocumentMut, name: &str
         .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
 }
 
+/// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
+pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), String> {
+    let mut probe = kanzei_harness::KanzeiConfig::default();
+    for p in &payload.providers {
+        probe.providers.insert(
+            p.name.trim().to_string(),
+            kanzei_harness::config::ProviderConfig {
+                protocol: p.protocol.clone(),
+                base_url: p.base_url.clone(),
+                api_key_env: p.api_key_env.clone(),
+                api_key: p.api_key.clone(),
+                auth: p.auth.clone(),
+                context_limit: p.context_limit,
+            },
+        );
+    }
+    probe.fill_defaults();
+    for (role, value) in [("primary", &payload.primary), ("fast", &payload.fast)] {
+        let spec = value.trim();
+        if spec.is_empty() { continue; }
+        probe.resolve_model(spec).map_err(|e| format!(
+            "{role} 的模型 `{spec}` 无法解析:{e}。格式应为 provider:model,且 provider 必须是下面 Provider 表里的名称。"
+        ))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();

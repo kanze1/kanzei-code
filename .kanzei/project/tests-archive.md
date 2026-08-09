@@ -240,3 +240,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 提交前最终结构检查通过：cargo check -p kanzei-app --tests；settings 辅助函数迁移无编译错误。
 - 收尾: 1786284893
+
+## T-1786284967 R-153 validate_model_roles 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；validate_model_roles 已迁移并保留 state_tests 调用路径。
+- 收尾: 1786284970
