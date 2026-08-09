@@ -285,3 +285,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: providers 字段写入 helper 已迁入 settings.rs，保持名称清理、字段规范化、空名称跳过与非法配置表错误语义。
 - 收尾: 1786285726
+
+## T-1786286664 R-153 conversation 批次定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: conversation 模块已接入，conversation_clear 已从 main.rs 物理迁出，invoke_handler 已改为 conversation:: 全路径注册；历史命令模块其余函数已完成模块实现，后续批次继续清理 main 旧副本。
+- 收尾: 1786286669

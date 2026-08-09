@@ -31,6 +31,7 @@ mod processes;
 mod mobile;
 mod docs;
 mod settings;
+mod conversation;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
@@ -179,12 +180,12 @@ fn main() {
             summarize_chat,
             git_status,
             conventions_init,
-            conversation_clear,
-            conversation_delete,
+            conversation::conversation_clear,
+            conversation::conversation_delete,
             docs::docs_read,
-            conversation_get,
-            conversation_trace_get,
-            conversation_list,
+            conversation::conversation_get,
+            conversation::conversation_trace_get,
+            conversation::conversation_list,
             list_pending_inputs,
             cancel_input,
             project_files,
@@ -1376,33 +1377,6 @@ async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name: &str, base
             }));
         }
     }
-}
-
-/// 开新对话:清空会话内多轮历史,并写入空的持久化投影。
-#[tauri::command]
-fn conversation_clear(state: State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<(), String> {
-    // 会话 ID 必须与运行/写入侧同源:裸 discover 不做 canonicalize,算出的 session_id
-    // 与运行侧不同,历史恢复、清空、删除会落到另一个会话上(D-058)。
-    let root = normalized_project_root(Path::new(&project_dir));
-    let session_id = process_session_id(&root, process_id.as_deref());
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
-        .map_err(|e| e.to_string())?;
-    store
-        .create_session(&session_id, &root.display().to_string(), None)
-        .map_err(|e| e.to_string())?;
-    store
-        .append_event(
-            &session_id,
-            "conversation.updated",
-            &json!({ "messages": [] }),
-        )
-        .map_err(|e| e.to_string())?;
-    runtime_for(&state, &session_id)
-        .conversation
-        .lock()
-        .unwrap()
-        .insert(session_id.clone(), Vec::new());
-    Ok(())
 }
 
 #[tauri::command]
