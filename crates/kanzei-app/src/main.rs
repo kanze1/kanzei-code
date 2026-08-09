@@ -56,14 +56,6 @@ use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, S
 use kanzei_tools::tracker::schedule_for_display;
 use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
-/// 运行轨迹的时间戳(Unix 毫秒)。
-fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
-}
-
 pub(crate) use state::{
     normalized_project_root, pending_ask_payload, process_info, process_session_id,
     prompt_attachment_parts, runtime_for, stop_runtime_and_finalize, take_pending_ask, ui_probe,
@@ -811,7 +803,7 @@ async fn run_task_impl(
                     let mut live = trace_log.lock().unwrap();
                     live.steps = live.steps.max(step);
                     live.trace.push(json!({
-                        "kind": "turn.started", "step": step, "at": now_ms(),
+                        "kind": "turn.started", "step": step, "at": run::now_ms(),
                     }));
                 }
                 emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
@@ -830,7 +822,7 @@ async fn run_task_impl(
                     .insert(id.clone(), std::time::Instant::now());
                 trace_log.lock().unwrap().trace.push(json!({
                     "kind": "tool.started", "id": id, "name": name,
-                    "summary": summary, "at": now_ms(),
+                    "summary": summary, "at": run::now_ms(),
                 }));
                 emit_event(
                     "kz:tool-start",
@@ -846,7 +838,7 @@ async fn run_task_impl(
             } => {
                 trace_log.lock().unwrap().trace.push(json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
-                    "durationMs": elapsed_ms(&id), "at": now_ms(),
+                    "durationMs": elapsed_ms(&id), "at": run::now_ms(),
                     // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
                     "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
                 }));
@@ -867,7 +859,7 @@ async fn run_task_impl(
                 trace_log.lock().unwrap().trace.push(json!({
                     "kind": "context.compacted", "before": before_tokens, "after": after_tokens,
                     "budget": budget_tokens, "limit": limit_tokens,
-                    "dropped": dropped_messages, "at": now_ms(),
+                    "dropped": dropped_messages, "at": run::now_ms(),
                 }));
                 emit_event(
                     "kz:status",
@@ -890,7 +882,7 @@ async fn run_task_impl(
             } => {
                 trace_log.lock().unwrap().trace.push(json!({
                     "kind": "permission.resolved", "id": tool_call_id, "action": action,
-                    "resource": resource, "decision": decision, "source": source, "at": now_ms(),
+                    "resource": resource, "decision": decision, "source": source, "at": run::now_ms(),
                 }));
                 Ok(())
             }

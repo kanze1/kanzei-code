@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 301942c：run_task_impl 的 RunnerConfig 完整构造已提取到 run::build_runner_config，保留 model、max_tokens、reasoning、service_tier、context_limit、limits 字段语义，main.rs 减少 19 行。定向测试 T-1786290534 已登记通过。下一步继续迁移模型路由准备或会话初始化逻辑。
+- 进展: 已完成本批可验证落地：运行轨迹 now_ms 从 main.rs 移入 run::now_ms，6 处真实调用改走模块边界；cargo test -p kanzei-app（T-1786295161）43 项全绿。R-153 总体仍未完成，批次保持 10/11；剩余 main.rs 中 run_task_impl 与少量跨域辅助需继续物理迁移，不能结项。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

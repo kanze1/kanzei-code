@@ -11,6 +11,13 @@ use crate::{ensure_default_process, process_session_id, runtime_for, stop_runtim
 
 pub(crate) use crate::run_task_impl as run_task;
 
+pub(crate) fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default()
+}
+
 
 use crate::take_pending_ask;
 
