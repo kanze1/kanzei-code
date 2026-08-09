@@ -21,7 +21,24 @@ pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name:
 }
 
 pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
-    crate::models_list_impl(project_dir).await
+    let cwd = project_dir.map(PathBuf::from).filter(|p| p.is_dir()).or_else(|| std::env::current_dir().ok()).ok_or("no working dir")?;
+    let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
+    let mut items = Vec::new();
+    for role in ["primary", "fast"] { if let Ok(resolved) = config.resolve_model(role) { items.push(json!({ "id": role, "label": format!("{role} → {}:{}", resolved.provider_name, resolved.model) })); } }
+    for (name, provider) in &config.providers {
+        if provider.auth.as_deref() == Some("codex") { for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] { items.push(json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") })); } }
+        else if provider.auth.as_deref() == Some("claude") { for model in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"] { items.push(json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") })); } }
+        else if provider.protocol == "openai" || provider.protocol == "openai-responses" {
+            if provider.base_url.contains("11434") { push_ollama_models(&mut items, name, &provider.base_url).await; continue; }
+            let key = provider.api_key.clone().filter(|key| !key.trim().is_empty()).or_else(|| provider.api_key_env.as_deref().and_then(|env| std::env::var(env).ok()));
+            let url = format!("{}/models", provider.base_url.trim_end_matches('/'));
+            let proxy = match config.proxy.as_deref() { Some("off") => kanzei_llm::ProxyConfig::Disabled, Some("env") | None => kanzei_llm::ProxyConfig::Env, Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()) };
+            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else { continue; };
+            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6)); if let Some(key) = &key { request = request.bearer_auth(key); }
+            if let Ok(response) = request.send().await { if let Ok(value) = response.json::<serde_json::Value>().await { for model in value["data"].as_array().unwrap_or(&Vec::new()) { if let Some(id) = model["id"].as_str() { items.push(json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") })); } } } }
+        } else if provider.base_url.contains("11434") { push_ollama_models(&mut items, name, &provider.base_url).await; }
+    }
+    Ok(json!(items))
 }
 
 #[tauri::command]

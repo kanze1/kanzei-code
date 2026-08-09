@@ -405,3 +405,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: models_list command 已切换为 run::models_list，run.rs wrapper 真实调用 main.rs 的 models_list_impl；模型列表行为与既有基线保持。
 - 收尾: 1786289417
+
+## T-1786289491 R-153 models_list 主体迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: models_list 主体已复制到 run.rs 并通过定向编译验证；配置角色、Codex/Claude、OpenAI /models、Ollama 分支与返回字段保持。旧 main 实现待下一步删除。
+- 收尾: 1786289497
