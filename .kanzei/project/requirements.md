@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 599e25d：run_task_impl 的 Dev profile 系统提示追加已提取到 run::append_dev_guidance，保留 FrontendTools 和 work_priority 提示语义，main.rs 减少 9 行。定向测试 T-1786290105 已登记通过。下一步继续提取 agent snapshot/select 或模型路由准备逻辑。
+- 进展: 已提交 20e74c3：run_task_impl 的代理配置分支已提取到 run::resolve_proxy，保持 off/env/explicit 三种语义，main.rs 减少 6 行。定向测试 T-1786290196 已登记通过。下一步继续提取模型引用解析或 RunnerConfig 构造逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
