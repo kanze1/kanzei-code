@@ -171,9 +171,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             .as_deref()
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
-        service_tier: (config.models.codex_fast_mode.unwrap_or(false)
-            && resolved.provider.auth.as_deref() == Some("codex"))
-            .then(|| "priority".to_string()),
+        service_tier: config.service_tier_for(&resolved),
         // 轮内主动压缩的预算基准(D-176)。
         context_limit: resolved.provider.context_limit,
     };
@@ -347,14 +345,20 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         let fast = match config.resolve_model("fast") {
             Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
                 .ok()
-                .map(|fr| (fr, r.model.clone())),
+                .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
             Err(_) => None,
         };
+        let primary_tier = config.service_tier_for(&resolved);
+        let fast_tier = fast.as_ref().map(|(_, _, tier)| tier.clone()).unwrap_or_else(|| primary_tier.clone());
         kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
-            fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
+            fast: fast
+                .map(|(r, m, _)| (r, m))
+                .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
             primary: (route.clone(), resolved.model.clone()),
+            fast_service_tier: fast_tier,
+            primary_service_tier: primary_tier,
             max_tokens: 4096,
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: 900,
@@ -535,7 +539,7 @@ async fn consolidate_memory_inbox(
             model: resolved.model.clone(),
             max_tokens: 4096,
             reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: None,
+            service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};

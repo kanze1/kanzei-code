@@ -335,6 +335,16 @@ impl KanzeiConfig {
     }
 
     /// "primary"/"fast"(角色)或 "provider:model"(直指)→ ResolvedModel。
+    /// Codex Fast mode 的唯一判据:开关打开 **且** 本次真正解析到的供应商是 codex。
+    /// 判据只有这一份——此前 11 个 RunnerConfig 构造点里 9 个硬写 None,于是"用 codex
+    /// 就该生效"在子代理、压缩纪要、记忆整理、文件标注这些路径上全部失效(用户实测提出)。
+    /// 任何新增的构造点都必须调它,不要再就地抄条件。
+    pub fn service_tier_for(&self, resolved: &ResolvedModel) -> Option<String> {
+        (self.models.codex_fast_mode.unwrap_or(false)
+            && resolved.provider.auth.as_deref() == Some("codex"))
+        .then(|| "priority".to_string())
+    }
+
     pub fn resolve_model(&self, reference: &str) -> anyhow::Result<ResolvedModel> {
         let spec = match reference {
             "primary" => self.models.primary.as_deref().unwrap_or_default(),
@@ -620,6 +630,36 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    #[test]
+    fn fast_mode_只看开关与本次解析到的供应商() {
+        // R-158 验收③的判据此前只是两处就地抄写的表达式,一个测试都没有,
+        // 于是另外 9 个构造点硬写 None 也没人发现(用户实测提出)。
+        let mut c = KanzeiConfig::default();
+        c.fill_defaults();
+        c.providers.insert(
+            "mock".into(),
+            ProviderConfig {
+                protocol: "openai".into(),
+                base_url: "x".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            },
+        );
+        let codex = c.resolve_model("codex:gpt-5.6-luna").unwrap();
+        let other = c.resolve_model("mock:whatever").unwrap();
+
+        c.models.codex_fast_mode = Some(true);
+        assert_eq!(c.service_tier_for(&codex).as_deref(), Some("priority"));
+        assert_eq!(c.service_tier_for(&other), None, "非 codex 供应商一律不发");
+
+        c.models.codex_fast_mode = Some(false);
+        assert_eq!(c.service_tier_for(&codex), None, "开关关掉就不发");
+        c.models.codex_fast_mode = None;
+        assert_eq!(c.service_tier_for(&codex), None, "缺字段按关闭处理");
     }
 
     #[test]

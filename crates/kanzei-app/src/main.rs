@@ -277,8 +277,7 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
 }
 // ---------- 项目文档 ----------
 
-#[tauri::command]
-fn docs_snapshot(project_dir: String) -> serde_json::Value {
+pub(crate) fn docs_snapshot(project_dir: String) -> serde_json::Value {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
     // 自动归档:终态条目移入 *-archive.md,侧边栏与 agent 上下文只剩进行中的。
@@ -675,13 +674,11 @@ fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), St
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn settings_save(payload: SettingsPayload) -> Result<(), String> {
+pub(crate) fn settings_save(payload: SettingsPayload) -> Result<(), String> {
     settings_save_at_path(payload, &global_config_path())
 }
 
-#[tauri::command]
-fn settings_open() -> Result<(), String> {
+pub(crate) fn settings_open() -> Result<(), String> {
     let path = global_config_path();
     if !path.is_file() {
         settings_save(SettingsPayload {
@@ -1057,11 +1054,11 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
             }
         };
         let runner_config = RunnerConfig {
-            model: resolved.model,
             max_tokens: 8192,
             reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: None,
+            service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
+            model: resolved.model,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -1193,7 +1190,7 @@ async fn quick_req(
             max_tokens: 2048,
             // 快记是机械结构化,不开思考。
             reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: None,
+            service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
@@ -1265,68 +1262,6 @@ fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::
         })
         .collect();
     Ok(json!({ "rounds": rounds }))
-}
-
-/// 开发重心偏好条目的标题前缀:切换与手改共用同一条记忆,不新增。/// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。/// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。/// 设置页"测试"按钮:按当前表单值直接探测 provider(不落盘),401/超时给出可操作提示。
-#[tauri::command]
-async fn provider_test(
-    protocol: String,
-    base_url: String,
-    api_key_env: Option<String>,
-    api_key: Option<String>,
-    auth: Option<String>,
-    proxy: Option<String>,
-) -> Result<String, String> {
-    if matches!(auth.as_deref(), Some("codex") | Some("claude")) {
-        return Ok("订阅登录态通道,无需 key 测试".into());
-    }
-    let key = api_key
-        .filter(|k| !k.trim().is_empty())
-        .or_else(|| api_key_env.as_deref().and_then(|e| std::env::var(e).ok()))
-        .filter(|k| !k.trim().is_empty());
-    let config = KanzeiConfig::load(Path::new(".")).unwrap_or_default();
-    let proxy_value = proxy.or(config.proxy);
-    let proxy = match proxy_value.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(p) => ProxyConfig::Explicit(p.to_string()),
-    };
-    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
-    let base = base_url.trim_end_matches('/');
-    let request = match protocol.as_str() {
-        "anthropic" => {
-            let mut r = client
-                .get(format!("{base}/v1/models"))
-                .header("anthropic-version", "2023-06-01");
-            if let Some(k) = &key {
-                r = r.header("x-api-key", k);
-            }
-            r
-        }
-        _ => {
-            let mut r = client.get(format!("{base}/models"));
-            if let Some(k) = &key {
-                r = r.bearer_auth(k);
-            }
-            r
-        }
-    };
-    match request.timeout(std::time::Duration::from_secs(15)).send().await {
-        Ok(resp) => {
-            let status = resp.status().as_u16();
-            Ok(match status {
-                200 => format!("✓ 可用(HTTP 200{})", if key.is_some() { ",key 有效" } else { ",无鉴权" }),
-                401 | 403 => format!(
-                    "✗ key 无效(HTTP {status})——检查 key 是否过期/复制完整;moonshot 注意 .cn 与 .ai 的 key 不通用"
-                ),
-                404 => "✗ 端点 404——base_url 可能不对(需要以 /v1 结尾?)".into(),
-                _ => format!("? HTTP {status}——通道可达但响应异常"),
-            })
-        }
-        Err(e) if e.is_timeout() => Ok("✗ 超时——检查网络/代理设置(本地服务不走代理)".into()),
-        Err(e) if e.is_connect() => Ok("✗ 连接失败——服务未启动或代理不通".into()),
-        Err(e) => Ok(format!("✗ 请求失败:{e}")),
-    }
 }
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
@@ -1417,7 +1352,7 @@ async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> 
         temperature: None,
         // 纪要总结不需要思考预算。
         reasoning: kanzei_llm::ReasoningEffort::Off,
-        service_tier: None,
+        service_tier: config.service_tier_for(&resolved),
     };
     let mut stream = client
         .stream(&route, &request)
@@ -2380,9 +2315,7 @@ async fn run_task(
             .or(config.models.reasoning.as_deref())
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
-        service_tier: (config.models.codex_fast_mode.unwrap_or(false)
-            && resolved.provider.auth.as_deref() == Some("codex"))
-            .then(|| "priority".to_string()),
+        service_tier: config.service_tier_for(&resolved),
         // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
         // 根本轮不到它,真正起作用的是这条。
         context_limit: resolved.provider.context_limit,
@@ -2658,14 +2591,20 @@ async fn run_task(
         let fast = match config.resolve_model("fast") {
             Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
                 .ok()
-                .map(|fr| (fr, r.model.clone())),
+                .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
             Err(_) => None,
         };
+        let primary_tier = config.service_tier_for(&resolved);
+        let fast_tier = fast.as_ref().map(|(_, _, tier)| tier.clone()).unwrap_or_else(|| primary_tier.clone());
         Some(kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
-            fast: fast.unwrap_or_else(|| (route.clone(), resolved.model.clone())),
+            fast: fast
+                .map(|(r, m, _)| (r, m))
+                .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
             primary: (route.clone(), resolved.model.clone()),
+            fast_service_tier: fast_tier,
+            primary_service_tier: primary_tier,
             max_tokens: 4096,
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: 900,

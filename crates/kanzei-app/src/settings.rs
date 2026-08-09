@@ -83,8 +83,55 @@ pub fn permission_rule_delete(project_dir: String, index: usize) -> Result<(), S
     std::fs::write(&path, text).map_err(|error| format!("写入权限规则失败: {error}"))
 }
 #[tauri::command]
-pub async fn provider_test(protocol: String, base_url: String, api_key_env: Option<String>, api_key: Option<String>, auth: Option<String>, proxy: Option<String>) -> Result<String, String> {
-    crate::provider_test(protocol, base_url, api_key_env, api_key, auth, proxy).await
+pub async fn provider_test(
+    protocol: String,
+    base_url: String,
+    api_key_env: Option<String>,
+    api_key: Option<String>,
+    auth: Option<String>,
+    proxy: Option<String>,
+) -> Result<String, String> {
+    if matches!(auth.as_deref(), Some("codex") | Some("claude")) {
+        return Ok("订阅登录态通道,无需 key 测试".into());
+    }
+    let key = api_key.filter(|k| !k.trim().is_empty())
+        .or_else(|| api_key_env.as_deref().and_then(|e| std::env::var(e).ok()))
+        .filter(|k| !k.trim().is_empty());
+    let config = kanzei_harness::KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    let proxy_value = proxy.or(config.proxy);
+    let proxy = match proxy_value.as_deref() {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()),
+    };
+    let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
+    let base = base_url.trim_end_matches('/');
+    let request = match protocol.as_str() {
+        "anthropic" => {
+            let mut request = client.get(format!("{base}/v1/models")).header("anthropic-version", "2023-06-01");
+            if let Some(key) = &key { request = request.header("x-api-key", key); }
+            request
+        }
+        _ => {
+            let mut request = client.get(format!("{base}/models"));
+            if let Some(key) = &key { request = request.bearer_auth(key); }
+            request
+        }
+    };
+    match request.timeout(std::time::Duration::from_secs(15)).send().await {
+        Ok(response) => {
+            let status = response.status().as_u16();
+            Ok(match status {
+                200 => format!("✓ 可用(HTTP 200{})", if key.is_some() { ",key 有效" } else { ",无鉴权" }),
+                401 | 403 => format!("✗ key 无效(HTTP {status})——检查 key 是否过期/复制完整;moonshot 注意 .cn 与 .ai 的 key 不通用"),
+                404 => "✗ 端点 404——base_url 可能不对(需要以 /v1 结尾?)".into(),
+                _ => format!("? HTTP {status}——通道可达但响应异常"),
+            })
+        }
+        Err(error) if error.is_timeout() => Ok("✗ 超时——检查网络/代理设置(本地服务不走代理)".into()),
+        Err(error) if error.is_connect() => Ok("✗ 连接失败——服务未启动或代理不通".into()),
+        Err(error) => Ok(format!("✗ 请求失败:{error}")),
+    }
 }
 
 #[allow(dead_code)]

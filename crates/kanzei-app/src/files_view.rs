@@ -237,7 +237,7 @@ const ANNOTATE_SYSTEM: &str =
 /// 走标准 LlmClient(云模型思考可控)。
 enum AnnotateBackend {
     OllamaNative { base: String, model: String },
-    Llm { client: LlmClient, route: kanzei_llm::Route, model: String },
+    Llm { client: LlmClient, route: kanzei_llm::Route, model: String, service_tier: Option<String> },
 }
 
 async fn annotate_backend(cwd: &Path) -> Result<AnnotateBackend, String> {
@@ -259,7 +259,8 @@ async fn annotate_backend(cwd: &Path) -> Result<AnnotateBackend, String> {
         .await
         .map_err(|e| e.to_string())?;
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    Ok(AnnotateBackend::Llm { client, route, model: resolved.model })
+    let service_tier = config.service_tier_for(&resolved);
+    Ok(AnnotateBackend::Llm { client, route, model: resolved.model, service_tier })
 }
 
 impl AnnotateBackend {
@@ -295,7 +296,7 @@ impl AnnotateBackend {
                 }
                 value["message"]["content"].as_str().unwrap_or("").to_string()
             }
-            AnnotateBackend::Llm { client, route, model } => {
+            AnnotateBackend::Llm { client, route, model, service_tier } => {
                 use futures::StreamExt;
                 let request = kanzei_llm::LlmRequest {
                     model: model.clone(),
@@ -306,7 +307,7 @@ impl AnnotateBackend {
                     max_tokens: 1024,
                     temperature: None,
                     reasoning: kanzei_llm::ReasoningEffort::Off,
-                    service_tier: None,
+                    service_tier: service_tier.clone(),
                 };
                 let mut stream =
                     client.stream(route, &request).await.map_err(|e| e.to_string())?;

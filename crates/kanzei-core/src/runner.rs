@@ -213,7 +213,7 @@ async fn digest_segment(
         max_tokens: 1024,
         temperature: None,
         reasoning: ReasoningEffort::Off,
-        service_tier: None,
+        service_tier: rt.fast_service_tier.clone(),
     };
     let mut stream = client.stream(&rt.fast.0, &request).await.ok()?;
     let mut summary = String::new();
@@ -380,6 +380,10 @@ pub struct SubagentRuntime {
     pub fast: (Route, String),
     /// primary = 主模型,给需要理解代码的任务。
     pub primary: (Route, String),
+    /// 两条路由各自的服务档位(Codex Fast mode)。fast 与 primary 未必是同一供应商,
+    /// 所以不能共用一个值——用哪条路由就带哪条的档位。
+    pub fast_service_tier: Option<String>,
+    pub primary_service_tier: Option<String>,
     pub max_tokens: u32,
     /// 单个子代理的墙钟上限(秒):本地模型多轮可能极慢,必须有界。
     pub timeout_secs: u64,
@@ -2324,16 +2328,16 @@ async fn run_subagent(
             "task requires a `prompt` string: a self-contained exploration instruction",
         );
     }
-    let (route, model) = match input.get("model").and_then(|v| v.as_str()) {
-        Some("primary") => (&rt.primary.0, &rt.primary.1),
-        _ => (&rt.fast.0, &rt.fast.1),
+    let (route, model, service_tier) = match input.get("model").and_then(|v| v.as_str()) {
+        Some("primary") => (&rt.primary.0, &rt.primary.1, &rt.primary_service_tier),
+        _ => (&rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
     };
     let config = RunnerConfig {
         model: model.clone(),
         max_tokens: rt.max_tokens,
         // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。
         reasoning: ReasoningEffort::Off,
-        service_tier: None,
+        service_tier: service_tier.clone(),
         // 子代理跑的是 fast 模型,窗口未必与主模型同源;这里不传上限,
         // 让它继续走撞墙后的被动恢复,不按主模型的预算误压。
         context_limit: None,
