@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 99662f9：parse_delivery、admit_input、promote_next_input 已迁入 run.rs，run_prompt 使用模块内 helper，main.rs 减少 48 行；交付模式、prompt.admitted/prompt.promoted 事件与队列提升语义保持。定向测试 T-1786288413 已登记通过。下一步继续 run_task 整体搬迁。
+- 进展: 已提交 1d63451：run.rs 暴露 run_task 模块入口，run_prompt 通过该入口调用；main.rs 的主体暂重命名为 run_task_impl，功能行为不变。定向测试 T-1786288501 已登记通过。明确缺口：run_task 函数体仍在 main.rs，下一批必须完成主体剪切而非继续停留在 re-export。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
