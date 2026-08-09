@@ -557,8 +557,7 @@ fn enforce_managed_files(project_root: &Path, before: ManagedSnapshot) -> Option
 
 #[cfg(windows)]
 fn hide_console_window(command: &mut tokio::process::Command) {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
+    crate::hide_console_async(command);
 }
 
 #[cfg(not(windows))]

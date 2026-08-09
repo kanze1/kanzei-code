@@ -168,11 +168,12 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
 }
 
 fn git_file_list(root: &Path) -> Option<Vec<String>> {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    command
         .args(["ls-files", "--cached", "--others", "--exclude-standard"])
-        .current_dir(root)
-        .output()
-        .ok()?;
+        .current_dir(root);
+    crate::hide_console(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }

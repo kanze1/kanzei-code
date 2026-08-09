@@ -324,11 +324,12 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
     if !cwd.join("Cargo.toml").is_file() {
         return Ok(());
     }
-    let output = tokio::process::Command::new("cargo")
+    let mut command = tokio::process::Command::new("cargo");
+    command
         .args(["check", "--workspace", "--all-targets", "--quiet"])
-        .current_dir(cwd)
-        .output()
-        .await;
+        .current_dir(cwd);
+    crate::hide_console_async(&mut command);
+    let output = command.output().await;
     match output {
         Ok(out) if out.status.success() => Ok(()),
         Ok(out) => {
@@ -505,8 +506,7 @@ async fn run_git_owned(cwd: &Path, args: &[String]) -> Result<String, String> {
 
 #[cfg(windows)]
 fn hide_console_window(command: &mut tokio::process::Command) {
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
+    crate::hide_console_async(command);
 }
 
 #[cfg(not(windows))]

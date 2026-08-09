@@ -33,9 +33,12 @@ pub fn completed_batches_for_entries(
 }
 
 fn commit_subjects(project_root: &Path) -> Result<String, String> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args(["log", "HEAD", "--format=%s"])
-        .current_dir(project_root)
+        .current_dir(project_root);
+    crate::hide_console(&mut command);
+    let output = command
         .output()
         .map_err(|error| format!("无法读取 Git 提交历史: {error}"))?;
     if !output.status.success() {

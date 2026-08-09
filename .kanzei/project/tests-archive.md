@@ -1048,3 +1048,7 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
 - 摘要: 四条 ui 冒烟全绿;kanzei-tools 定向测试 126 全绿
 - 收尾: 1786312144
+
+## T-1786312997 cargo test -p kanzei-tools (D-238 隐藏控制台窗口) [passed]
+- 摘要: 126 passed;0 failed。新增 lib.rs hide_console/hide_console_async 共享辅助,四处缺失调用点(files.rs git_file_list、git_batches.rs commit_subjects、git.rs compile_gate、shell.rs kill_tree)全部接入 CREATE_NO_WINDOW,bash.rs/git.rs 私有函数收敛委托共享实现。下游 kanzei-core/kanzei-app cargo check 通过(仅既有警告)。
+- 收尾: 1786312997

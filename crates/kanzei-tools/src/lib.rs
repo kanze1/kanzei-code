@@ -47,3 +47,27 @@ pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
     serde_json::from_value(input)
         .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
 }
+
+/// Windows 上禁止外部子进程新建控制台窗口(D-238)。
+///
+/// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
+/// spawn git/cargo/taskkill 等外部程序都会闪出一个黑色 cmd 窗口。std 与
+/// tokio 两种 Command 各自有 creation_flags,统一收敛到这里,避免各处重复。
+#[cfg(windows)]
+pub(crate) fn hide_console(command: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console(_command: &mut std::process::Command) {}
+
+#[cfg(windows)]
+pub(crate) fn hide_console_async(command: &mut tokio::process::Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+pub(crate) fn hide_console_async(_command: &mut tokio::process::Command) {}

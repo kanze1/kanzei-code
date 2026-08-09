@@ -89,6 +89,7 @@ pub async fn kill_tree(pid: u32) {
         command
             .args(["/pid", &pid.to_string(), "/t", "/f"])
             .kill_on_drop(true);
+        crate::hide_console_async(&mut command);
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), command.output()).await;
     }
     #[cfg(not(windows))]
