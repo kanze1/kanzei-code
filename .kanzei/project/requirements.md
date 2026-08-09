@@ -1,6 +1,6 @@
 # Requirements
 
-## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
+## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [doing]
 - 优先级: P1
 - 复杂度: 大
 - 标签: 前端
@@ -10,6 +10,9 @@
 - 验收: ①B0 后单文件形态四冒烟仍全绿(机制改造零行为变化);②每批 node --check(遍历 ui/*.js)+四条冒烟全绿;③最终 main.js 消失,18 文件按 index.html 顺序加载,单文件 ≤1000 行;④发版后真机复查主视图/发送/设置页可用(E3 残余,不阻塞关闭,进展注明);⑤拆前后行数对照记入进展。
 - refs: A-008
 - 依赖: R-152
+
+- 批次: 0/10
+- 进展: 首轮按设计 §B 建立批次表：B0 先改四条冒烟脚本验证按 index.html 多 script 顺序执行；B1~B9 再切出最终 18 个 classic script 文件。当前进入 B0，main.js 与生产行为暂不改。
 
 ## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
 - 优先级: P1
@@ -382,3 +385,79 @@
 - 复杂度: 中
 - 归属: kanzei
 - 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
+
+## R-161 记忆漏斗遥测:召回到结果的 A→R→E→U→Y 全链路落库 [todo]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 阶段: 2
+- 来源: 2026-08-10 memory 深度调研后用户拍板「Memory 是控制系统不是 RAG」,设计基线 docs/design/memory_control_plane.md;本条是全系列的前提——没有遥测无法区分「真变好」与「感觉变好」。
+- 内容: ①三张新表进 state.db(与 episodes 同库可 join):recall_events(触发/动作/query/候选/注入/分段延迟)、memory_sources(条目→episode 区间溯源)、memory_eval(回放臂结果);②五段漏斗判定 AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,各段机械可判;③修采纳盲区:read 工具读 .kanzei/memory/ 文件路径时回填采纳(现只有 memory_search 回填,R-150 已点名);④index.db 的 memory_recalls 停写留读;⑤CLI 与桌面端同源接线。
+- 验收: ①三表落库,CLI/桌面端写同一口径且能 join episodes 查询;②read 记忆文件回填采纳有单测;③memory_stats 可见五段漏斗计数;④漏斗各段判定有单测覆盖。
+- refs: R-103 R-125 R-150 docs/design/memory_control_plane.md
+
+## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-161
+- 来源: 同 R-161。「记了但没进决策」的结构性根因:召回时机只有开跑一次,M-009 类条目该在 edit 失败的瞬间被想起。文献锚点 MemCon(memory 操作是序列决策)、Memory in the Loop(存了≠读了)。
+- 内容: ①RecallWatch 挂 runner 工具结果回喂钩位(先例 R-100 RedundancyWatch,runner.rs 的 note_step 同款,主循环零架构改动);②错误分类在线化:抽出 summarize_failures 的 (tool,kind) 分类为共享函数;③Tier0 fingerprint 精确匹配(内存索引,p95<5ms)→ miss 则 Tier1 BM25(错误原文+文件+符号构 query,p95<10ms),超时降级不阻塞;④重复失败(同 tool+kind ≥2)走 ReRetrieve 换 query,禁止原 top-k 重塞;⑤Memory Packet 注入格式:触发原因/行动/状态/来源,同轮同条目只注入一次;⑥frontmatter 扩展 fingerprint/trigger/valid_from/supersedes/version 一等字段(宽容读零迁移),引擎维护 fingerprint→id 内存索引。
+- 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
+- refs: R-103 M-009 docs/design/memory_control_plane.md
+
+## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-161
+- 来源: 同 R-161。episodes/events 已存完整轨迹与 overflow,回放原料在库里,缺的是评估协议。
+- 内容: ①回放模块:取历史 episode,ToolResult 走录制回放(不真执行外部工具),LLM 真调(fast 档跑批),固定 repo commit/model/prompt 版本;②六臂:NoMemory(下界)/Current/Candidate(新策略)/Oracle(人工标定,上界)/Leave-One-Out(单条消融)/CompressionCF(合并前后对照);③J 用可执行判据分层:terminal 成功→工具失败数→重试→重复动作→步数→token,LLM judge 仅评软性 SOP 质量;④首批 30–50 case 从 M-009/M-010/M-019/M-021/M-022/M-023/M-026 的触发历史提取;⑤结果落 memory_eval。
+- 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
+- refs: R-103 docs/design/memory_control_plane.md
+
+## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [todo]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-162 R-163
+- 来源: A-011 向量翻案(废止「不要向量库」,用户 2026-08-10 拍板)。向量是第二通道:coding memory 里 exact token(错误码/符号/命令)信息密度高于 embedding,fingerprint/BM25 优先。
+- 内容: ①trait MemoryIndex(search_lexical/dense/hybrid/upsert/remove/rebuild)+ SqliteMemoryIndex 默认实现;②trait Embedder,第一实现走 provider 体系 openai 兼容 /embeddings(含本地 ollama,用户拍板),进程内模型只做后续 challenger 不 bundle;③sqlite-vec brute-force 起步(不依赖 experimental ANN),向量列在 index.db(派生物可重建);④RRF 融合(k=60,BM25 top10+dense top10→top5),禁止线性加权;⑤reranker 默认关闭;⑥无 embedder 时 hybrid 自动退化 lexical,功能完整。
+- 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
+- refs: A-011 R-163 docs/design/memory_control_plane.md
+
+## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-162
+- 来源: 同 R-161。范式反转:evidence 不可被 LLM 持续改写(文献:持续 consolidation 使记忆效用先升后降),manager 从 CRUD 升级为编译语义。
+- 内容: ①动词升级 OBSERVE/PROPOSE/VERIFY/PROMOTE/SUPERSEDE/DEPRECATE,evidence(state.db events/episodes)对自治流程 append-only;②novelty gate 三档:明显新→PROPOSE、明显重复→NOOP、不确定→才起 LLM 判断;③转换三问检查:coverage/preservation/faithfulness;④后台触发扩展(现只有轮末):compaction 边界、recurrence(第 2 次才 candidate、第 3 次+修复成功才 promote)、idle debounce、memory pressure;⑤lifecycle 轻量四态 candidate→active→deprecated|invalid(stale 兼容映射 deprecated,shadow 留给 R-166);⑥provenance 硬约束:PROMOTE 必须带 memory_sources 行,无来源不入 active;⑦归档落地修 D-231;⑧merge 保守闸:评估器落地前只合并同 fingerprint 或用户确认的。
+- 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
+- refs: R-105 D-231 docs/design/memory_control_plane.md
+
+## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [todo]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-163 R-165
+- 来源: 同 R-161。理论锚点 DeMem(决策失真,安全合并=存在共同近优动作,而非文本相似);kanzei 有可执行 verifier,J 不靠 LLM judge。
+- 内容: ①F(m)=E[J(e;M)−J(e;M∖{m})] 离线定向回放,绝不在线算;②每条 memory 维护 Q(m)=触发匹配 episode+near-miss+negative control;③周期性 with/without 回放,memory_eval 维护 effect_mean/effect_ci/eval_n/last_eval;④merge 由 D(S→m')<ε 把关,压缩变成有测试的行为等价变换;⑤shadow 态引入(五态齐):可被评估、不注入生产;⑥只有 low value+high confidence 进 deprecate 候选,age 不作为独立淘汰判据。
+- 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
+- refs: R-149 R-150 docs/design/memory_control_plane.md
+
+## R-167 学习型召回控制器占位:bandit 调度 recall 动作 [todo]
+- 优先级: P3
+- 复杂度: 中
+- 标签: 核心
+- 阶段: 2
+- 依赖: R-161 R-162 R-163
+- 来源: 同 R-161,MemCon 方向。占位:确定性 RecallPolicy 数据积累后才评估是否值得上 contextual bandit(state:goal/tool/error/stuck 计数;reward:任务成功−失败成本−token−延迟)。
+- 内容: 占位。是否立项取决于 R-162 落地后的 trigger_precision/recall 实证——确定性规则已够好则关闭本条,不硬上学习组件。
+- 验收: 先出判定报告(基于 R-161/R-163 数据,给出做/不做结论与依据);若做,再补功能验收。
+- refs: R-162 docs/design/memory_control_plane.md

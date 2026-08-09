@@ -69,3 +69,11 @@
 - 日期: 2026-08-09
 - refs: R-157 R-152 A-004
 - 备注: conventions §1.3/§1.4、§9 已按此修订;monolith_decomposition.md 执行纪律与 R-153/R-155 验收同步。
+
+## A-011 向量检索翻案:废止「不要向量库」,向量作为第二检索通道引入 [draft]
+- 日期: 2026-08-10
+- 决策: 废止 memory_system.md §0「不要向量库」条款(2026-08-08 的早期取舍,用户明示已不合适)。向量检索引入,但定位为**第二通道**:fingerprint 与 BM25 优先,dense 只在语义模糊/无精确命中时触发;无 embedder 时系统必须完整可用。
+- 技术边界(用户拍板): ①Embedder 第一实现走 provider 体系 openai 兼容 /embeddings(含本地 ollama),进程内模型只做 benchmark challenger 绝不 bundle;②sqlite-vec brute-force 起步,不依赖 experimental ANN;③融合用 RRF,禁止拍脑袋线性加权;④默认启用须先过 R-163 回放台三臂对比门禁(lexical/dense/hybrid),不默认相信 dense。
+- 依据: 2026-08-10 deep research——Mem0 V3 从 semantic-only 转 hybrid(semantic+BM25+entity);Qdrant Edge 出现使嵌入式 hybrid 不再需要自拼引擎(但 v1 仍 SQLite-first);DeMem 证明语义相似≠决策等价,故向量不得作为 merge 判据。coding memory 的 exact token(错误码/符号/命令)信息密度高于 embedding,lexical 降级路径必须始终完整。
+- refs: R-164 R-103 A-001 docs/design/memory_control_plane.md
+- 备注: 部分推翻 A-001(仅其「不用向量」子句;文件优先/不要知识图谱引擎/不用外部框架/子代理管记忆均不动)。memory_system.md §0 对应条款随本决策废止。
