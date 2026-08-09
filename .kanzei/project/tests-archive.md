@@ -951,3 +951,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
 - 摘要: R-154 B9 修正:08-compose 队列输入+测试记录移入 09-sessions,18 文件均 ≤1000 行,四条冒烟全绿
 - 收尾: 1786304415
+
+## T-1786304666 R-155 B1 runner/event.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-155 B1 runner/event.rs 拆解:cargo test -p kanzei-core 71 passed,下游三 crate check 通过,lib.rs 零改动
+- 收尾: 1786304674
