@@ -440,3 +440,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task 装配段的工作优先级提示已提取为 run::work_priority_guidance，前端检查提示、队列文件顺序与原文保持。
 - 收尾: 1786289952
+
+## T-1786290029 R-153 run_task harness 装配 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的 Harness 组件装配已迁移到 run::build_run_harness，保留 Base/Dev/Research/FrontendTools/Markdown/Config 顺序与真实调用链。
+- 收尾: 1786290033

@@ -24,12 +24,24 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn build_run_harness() -> kanzei_harness::Harness {
+    let mut harness = kanzei_harness::Harness::default();
+    harness
+        .add(kanzei_tools::BaseComponent)
+        .add(kanzei_tools::DevProfile)
+        .add(kanzei_tools::ResearchProfile)
+        .add(crate::harness_ext::FrontendToolsComponent)
+        .add(kanzei_harness::MarkdownComponent)
+        .add(kanzei_harness::ConfigComponent);
+    harness
+}
+
 pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
     let (first, second) = if work_priority == "requirement-first" { ("requirements.md", "defects.md") } else { ("defects.md", "requirements.md") };
     format!("\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context.")
 }
 
-pub(crate) fn resolve_profile_and_root {
+pub(crate) fn resolve_profile_and_root(profile: Option<&str>, config: &kanzei_harness::config::KanzeiConfig, cwd: &Path) -> anyhow::Result<(kanzei_harness::ProfileKind, PathBuf)> {
     let profile = match profile.filter(|profile| !profile.is_empty()) {
         Some(profile) => profile.parse().map_err(|error: String| anyhow::anyhow!(error))?,
         None => config.default_profile(),

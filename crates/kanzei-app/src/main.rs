@@ -683,16 +683,7 @@ async fn run_task_impl(
         config: config.clone(),
     };
 
-    let mut harness = Harness::default();
-    harness
-        .add(BaseComponent)
-        .add(DevProfile)
-        .add(ResearchProfile)
-        // 前端自查与定位工具只在桌面端有意义(需要真实运行中的窗口);
-        // 顺序在 profile 之后、Config 之前,用户配置仍可覆盖。
-        .add(harness_ext::FrontendToolsComponent)
-        .add(MarkdownComponent)
-        .add(ConfigComponent);
+    let mut harness = run::build_run_harness();
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = run::normalize_work_priority(work_priority.as_deref());
