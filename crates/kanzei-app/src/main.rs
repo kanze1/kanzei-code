@@ -34,7 +34,8 @@ mod settings;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
-    global_config_path, settings_read_document, settings_save_at_path, settings_set_or_remove, settings_set_or_remove_num,
+    global_config_path, settings_read_document, settings_save_at_path, settings_set_or_remove,
+    settings_write_document, settings_set_or_remove_num,
     settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
 };
 
@@ -556,14 +557,7 @@ pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) 
         }
     }
 
-    let text = doc.to_string();
-    // 写盘前自校验:引擎绝不产出自己读不回来的配置。
-    toml::from_str::<KanzeiConfig>(&text)
-        .map_err(|e| format!("保存结果自校验失败,已放弃写入: {e}"))?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, text).map_err(|e| e.to_string())
+    crate::settings_write_document(doc, path)
 }
 
 #[derive(Debug, Deserialize)]

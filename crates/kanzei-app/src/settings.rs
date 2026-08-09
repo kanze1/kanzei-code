@@ -131,6 +131,16 @@ pub(crate) fn settings_read_document(path: &Path) -> Result<toml_edit::DocumentM
     text.parse().map_err(|e| format!("现有配置无法解析,拒绝覆盖保存 {}: {e}", path.display()))
 }
 
+pub(crate) fn settings_write_document(doc: toml_edit::DocumentMut, path: &Path) -> Result<(), String> {
+    let text = doc.to_string();
+    toml::from_str::<kanzei_harness::KanzeiConfig>(&text)
+        .map_err(|e| format!("保存结果自校验失败,已放弃写入: {e}"))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, text).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();

@@ -265,3 +265,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；配置文件读取、解析与 DocumentMut 构造已迁入 settings.rs。
 - 收尾: 1786285302
+
+## T-1786285394 R-153 设置配置写盘迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；最终配置自校验、父目录创建与写盘已迁入 settings.rs。
+- 收尾: 1786285397
