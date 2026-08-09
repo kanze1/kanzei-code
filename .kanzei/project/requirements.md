@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 e982713：run_task 装配段的 work priority/队列选择提示已提取到 run::work_priority_guidance，保留前端检查提示与 requirements/defects 顺序语义，main.rs 减少 9 行。定向测试 T-1786289946 已登记通过。下一步继续提取 run_task harness/agent 装配逻辑。
+- 进展: 已提交 6284005：run_task_impl 的 Harness 组件装配已迁移到 run::build_run_harness，保留 Base/Dev/Research/FrontendTools/Markdown/Config 顺序与真实调用链，main.rs 减少 11 行。定向测试 T-1786290029 已登记通过。下一步继续提取 agent snapshot/select 装配逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
