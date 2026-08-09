@@ -786,3 +786,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: git_status 迁入 docs.rs 并改为 docs:: 注册后，kanzei-app 43 项全部通过。
 - 收尾: 1786296646
+
+## T-1786296793 R-153 项目导出目录 command 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: export_pick_dir 迁移至 projects.rs，修复误删 project_files/重复 command 属性后，kanzei-app 43 项全部通过。
+- 收尾: 1786296793

@@ -2198,3 +2198,21 @@
 - 验收: 不再出现宏辅助符号重复定义，且最终批2需删除 main.rs 原 update command 实现。
 - 优先级: P1
 - 验收证据: ①“不再出现宏辅助符号重复定义”：实现位置 update.rs:32-75 的唯一两个 Tauri command 宏，验证记录 T-1786252959；②“删除 main.rs 原 update command 实现”：main.rs 原 3008-3111 区间已移除，唯一实现位于 update.rs:32-91；定向测试 T-1786252959 42 passed。
+
+## D-224 R-153 设置保存实现迁移后仍引用 main crate 的配置文档 helper [fixed] (medium)
+- 复现: 将 settings_save_at_path_impl 迁入 settings.rs 并移除 main.rs 对 settings_read_document/settings_write_document 的 re-export 后，cargo test -p kanzei-app 编译失败 E0425。
+- 标签: 后端
+- 根因: 迁移函数仍使用 crate::settings_read_document 与 crate::settings_write_document，模块内 helper 实际位于 settings.rs。
+- 验收: settings.rs 内 settings_save_at_path_impl 通过模块内 helper 编译，cargo test -p kanzei-app 全绿。
+- 优先级: P1
+- 修复: settings_save_at_path_impl 已移入 crates/kanzei-app/src/settings.rs:263 附近，并将配置文档 helper 改为模块内 settings_read_document/settings_write_document；main.rs 不再错误依赖 crate 根 re-export。T-1786296386 cargo test -p kanzei-app 43 项全绿。
+- 验收证据: crates/kanzei-app/src/settings.rs:263-272 为实现与模块内 helper 调用；T-1786296386 全部通过。
+
+## D-225 R-153 项目 command 迁移误删 project_files 并重复 Tauri command 属性 [fixed] (medium)
+- 复现: 迁移 export_pick_dir 到 projects.rs 后，cargo test -p kanzei-app 编译失败：projects.rs 出现重复 #[tauri::command]，且 project_files 函数被替换操作误删，generate_handler 找不到 projects::__cmd__project_files。
+- 标签: 后端
+- 根因: 向 projects.rs 末尾插入 export_pick_dir 时 old_string 包含 project_files 函数，但 new_string 未保留该函数；同时保留了原有 command 属性并重复添加。
+- 验收: projects.rs 同时保留唯一 project_files command 与唯一 export_pick_dir command，cargo test -p kanzei-app 全绿。
+- 优先级: P1
+- 修复: 恢复 crates/kanzei-app/src/projects.rs 中唯一的 `project_files` command，并保留唯一的 `export_pick_dir` `#[tauri::command]` 属性；generate_handler 重新解析 projects::__cmd__project_files。T-1786296789 的 cargo test -p kanzei-app 43 项全绿。
+- 验收证据: crates/kanzei-app/src/projects.rs:37-67 同时包含 project_files 与 export_pick_dir，各一个 command 属性；T-1786296789 全部通过。

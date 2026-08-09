@@ -66,6 +66,14 @@ pub fn project_files(project_dir: String, query: String) -> Result<Vec<String>, 
 }
 
 #[tauri::command]
+pub async fn export_pick_dir() -> Result<Option<String>, String> {
+    Ok(rfd::AsyncFileDialog::new()
+        .pick_folder()
+        .await
+        .map(|handle| handle.path().display().to_string()))
+}
+
+#[tauri::command]
 pub fn projects_remove(path: String) -> AppPrefs { let mut prefs = load_prefs(); prefs.projects.retain(|p| p != &path); prefs.names.remove(&path); if prefs.current.as_deref() == Some(path.as_str()) { prefs.current = prefs.projects.first().cloned(); } save_prefs(&prefs); projects_get() }
 #[tauri::command]
 pub fn projects_select(path: String) -> AppPrefs { let mut prefs = load_prefs(); if prefs.projects.contains(&path) { ensure_project_isolated(Path::new(&path)); prefs.current = Some(path); } save_prefs(&prefs); prefs }

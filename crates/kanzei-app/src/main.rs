@@ -140,7 +140,7 @@ run::run_prompt,
             settings::settings_get,
             settings::settings_save,
             settings::settings_open,
-            export_pick_dir,
+            projects::export_pick_dir,
             export_project_data,
             settings::permission_rules_get,
             settings::permission_rule_delete,
@@ -438,14 +438,6 @@ fn copy_export_tree(source: &Path, destination: &Path, relative: &str, files: &m
         }
     }
     Ok(())
-}
-
-#[tauri::command]
-async fn export_pick_dir() -> Result<Option<String>, String> {
-    Ok(rfd::AsyncFileDialog::new()
-        .pick_folder()
-        .await
-        .map(|handle| handle.path().display().to_string()))
 }
 
 #[tauri::command]
