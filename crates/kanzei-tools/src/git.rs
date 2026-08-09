@@ -144,7 +144,7 @@ impl Tool for GitTool {
                 }
             }
             "stage" => stage(&ctx.cwd, &input.files).await,
-            "commit" => commit(&ctx.cwd, input.message, input.expected_hash).await,
+            "commit" => commit(ctx, input.message, input.expected_hash).await,
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: status | diff | log | stage | commit"
             )),
@@ -295,7 +295,74 @@ async fn stage(cwd: &Path, raw_files: &[String]) -> ToolOutput {
     }))
 }
 
-async fn commit(cwd: &Path, message: Option<String>, expected_hash: Option<String>) -> ToolOutput {
+/// 提交里算「源码」的路径。改这两棵树就要有测试背书;`.kanzei/` 下的文档不算。
+fn is_source_path(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    (path.starts_with("crates/") || path.starts_with("scripts/")) && !path.contains("/.kanzei/")
+}
+
+fn modified_secs(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+}
+
+/// 源码提交的硬门禁:必须存在**改完之后**才收尾的 passed 测试记录。
+///
+/// 这条纪律此前只写在提示词里,实测一天里被绕过三次(R-158 顶掉 reasoning effort、
+/// 批4/5 让 HEAD 编译不过、批6 漏 use Path),每次都是"跑了 cargo check 就提交"。
+/// 判据放在工具层,提示词说什么都绕不过去。
+fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result<(), String> {
+    let sources: Vec<&String> = paths.iter().filter(|p| is_source_path(p)).collect();
+    if sources.is_empty() {
+        return Ok(());
+    }
+    // 删除的文件取不到 mtime,跳过;全是删除时没有可比的时间点,放行。
+    let Some(newest_change) = sources.iter().filter_map(|p| modified_secs(&cwd.join(p))).max() else {
+        return Ok(());
+    };
+    let listed = sources
+        .iter()
+        .take(5)
+        .map(|p| format!("  - {p}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let remedy = format!(
+        "本次暂存的源码:\n{listed}{}\n\
+         做法:跑 `cargo test --workspace`(或本次改动的定向 `cargo test -p <crate>`),\
+         再用 test_record 记一条 status=passed(带上命令与摘要),然后重新 commit。\
+         cargo check 不算——它编译不了测试目标,R-158 那处被顶掉的 reasoning effort 就是这么漏过去的。",
+        if sources.len() > 5 { format!("\n  - …还有 {} 个文件", sources.len() - 5) } else { String::new() }
+    );
+    match crate::test_record::last_passed_at(project_root) {
+        None => Err(format!("提交被拦下:没有任何 passed 的测试记录。\n{remedy}")),
+        Some(passed_at) if passed_at < newest_change => Err(format!(
+            "提交被拦下:最近一条 passed 测试记录收尾于 {} 秒前,而暂存的源码在那之后又改过\
+             ({} 秒前)——这条记录背书的不是要提交的这份代码。\n{remedy}",
+            now_secs().saturating_sub(passed_at),
+            now_secs().saturating_sub(newest_change)
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+async fn commit(
+    ctx: &ToolCtx,
+    message: Option<String>,
+    expected_hash: Option<String>,
+) -> ToolOutput {
+    let cwd = &ctx.cwd;
     let message = message.unwrap_or_default();
     if message.trim().is_empty() {
         return ToolOutput::error("`message` is required for commit");
@@ -316,6 +383,9 @@ async fn commit(cwd: &Path, message: Option<String>, expected_hash: Option<Strin
         return ToolOutput::error(format!(
             "staged content changed: expected `{expected_hash}`, current `{current_hash}`. Re-run stage/diff and review the new index before committing."
         ));
+    }
+    if let Err(error) = source_test_gate(&ctx.project_root, cwd, &paths) {
+        return ToolOutput::error(error);
     }
     if let Err(error) = run_git_owned(cwd, &["commit".into(), "-m".into(), message]).await {
         return ToolOutput::error(error);

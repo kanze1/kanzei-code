@@ -425,6 +425,22 @@ impl Tool for TrackerTool {
                     return ToolOutput::error(e);
                 }
                 let target_status = if input.action == "close" {
+                    // 关闭前必须先收尾该条目名下的测试记录:一条挂着的 running 与"根本没跑"
+                    // 无法区分,带着它关闭等于把未验证当成已验证入账。
+                    let unclosed = crate::test_record::unclosed_running_for(&ctx.project_root, id);
+                    if !unclosed.is_empty() {
+                        return ToolOutput::error(format!(
+                            "{id} 名下还有 {} 条 running 测试记录没收尾,不能关闭:\n{}\n\
+                             跑完就用 test_record 带上对应 id 记终态(passed/failed/skipped);\
+                             确实不跑了记 skipped 并写明原因。",
+                            unclosed.len(),
+                            unclosed
+                                .iter()
+                                .map(|(rid, title)| format!("  - {rid} {title}"))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        ));
+                    }
                     let status = input
                         .status
                         .clone()

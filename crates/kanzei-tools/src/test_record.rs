@@ -39,6 +39,26 @@ struct TestRecordInput {
     /// 结果摘要(可选)
     #[serde(default)]
     summary: Option<String>,
+    /// 要收尾的既有记录 id(如 "T-1786254656");省略时按标题自动认领同名 running 记录
+    #[serde(default)]
+    id: Option<String>,
+}
+
+/// running 记录多久没收尾就算悬空。自举一轮的定向测试通常几分钟内出结果,
+/// 半小时还挂着基本等于"跑完忘了登记"或"根本没跑"。
+pub const STALE_RUNNING_SECS: u64 = 1800;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 记录 id 里带着创建时刻(T-<epoch>),据此算悬空时长。
+fn running_age_secs(id: &str) -> Option<u64> {
+    let stamp: u64 = id.strip_prefix("T-")?.parse().ok()?;
+    now_secs().checked_sub(stamp)
 }
 
 pub struct TestRecordTool;
@@ -74,7 +94,7 @@ impl Tool for TestRecordTool {
             Err(out) => return out,
         };
         let root = ctx.project_root.clone();
-        match append_test_run(&root, &input.title, &input.status, input.command.as_deref(), input.summary.as_deref()) {
+        match record_test_run(&root, input.id.as_deref(), &input.title, &input.status, input.command.as_deref(), input.summary.as_deref()) {
             Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
             Err(err) => ToolOutput::error(err),
         }
@@ -156,7 +176,17 @@ pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
     }
     let live = read_test_records(&active_path)
         .into_iter()
-        .map(|(_, record)| record)
+        .map(|(_, mut record)| {
+            // 悬空标记:running 挂太久要在快照里看得见,否则"没跑"和"跑完忘了记"
+            // 在界面和 agent 眼里长得一模一样。
+            if record["status"].as_str() == Some("running") {
+                if let Some(age) = running_age_secs(record["id"].as_str().unwrap_or_default()) {
+                    record["age_secs"] = json!(age);
+                    record["stale"] = json!(age >= STALE_RUNNING_SECS);
+                }
+            }
+            record
+        })
         .collect::<Vec<_>>();
     let archived = read_test_records(&archive_path)
         .into_iter()
@@ -168,6 +198,81 @@ pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
         "path": active_path.display().to_string(),
         "archive_path": archive_path.display().to_string(),
     }))
+}
+
+/// 登记一条测试记录。终态优先**就地收尾**已有的同名 running 记录,而不是再追加一条。
+///
+/// 此前工具只有 append 一条路径:agent 先记 running、跑完再记 passed,于是每跑一次测试
+/// 就留下一条永远关不掉的 running——实测一天累积 41 条。悬空的 running 与"根本没跑过"
+/// 在数据上完全一样,A-009/R-152 那条证据链就是被这个洞掏空的。
+pub fn record_test_run(
+    root: &Path,
+    id: Option<&str>,
+    title: &str,
+    status: &str,
+    command: Option<&str>,
+    summary: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    if !VALID_STATUS.contains(&status) {
+        return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
+    }
+    let path = root.join(TEST_RUNS_REL);
+    let existing = read_test_records(&path);
+    // 认领目标:显式 id 优先;否则终态自动认领同标题的 running 记录(最新的一条)。
+    let target = existing.iter().rev().find(|(_, record)| {
+        let record_id = record["id"].as_str().unwrap_or_default();
+        let record_status = record["status"].as_str().unwrap_or_default();
+        match id {
+            Some(wanted) => record_id == wanted,
+            None => {
+                record_status == "running"
+                    && record["title"].as_str().unwrap_or_default().trim() == title.trim()
+                    && status != "running"
+            }
+        }
+    });
+    let Some((old_block, record)) = target else {
+        if let Some(wanted) = id {
+            return Err(format!(
+                "找不到测试记录 {wanted};省略 id 可新登记一条,或先用 test_record 列表核对 id"
+            ));
+        }
+        return append_test_run(root, title, status, command, summary);
+    };
+    let record_id = record["id"].as_str().unwrap_or_default().to_string();
+    let mut block = format!("## {record_id} {} [{status}]\n", title.trim());
+    // 命令/摘要:本次没给就沿用原记录的,不要把已有信息覆盖成空。
+    let inherited = |key: &str| -> Option<String> {
+        record["fields"]
+            .as_array()?
+            .iter()
+            .find(|f| f["key"].as_str() == Some(key))
+            .and_then(|f| f["value"].as_str())
+            .map(|v| v.to_string())
+    };
+    if let Some(command) = command
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_string())
+        .or_else(|| inherited("命令"))
+    {
+        block.push_str(&format!("- 命令: {command}\n"));
+    }
+    if let Some(summary) = summary
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_string())
+        .or_else(|| inherited("摘要"))
+    {
+        block.push_str(&format!("- 摘要: {summary}\n"));
+    }
+    if status != "running" {
+        // 收尾时刻:记录 id 是**开始**时间,而提交门禁要问的是"测试跑完在改完代码之后吗"。
+        // 必须单独落一个终点时间,否则先起 running 再改代码就能骗过门禁。
+        block.push_str(&format!("- 收尾: {}\n", now_secs()));
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let updated = text.replace(old_block.as_str(), block.trim_end());
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    test_runs_snapshot(root)
 }
 
 /// 追加一条测试记录并返回最新快照(等价于 app 侧 test_run_record)。
@@ -203,8 +308,63 @@ pub fn append_test_run(
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
         text.push_str(&format!("- 摘要: {}\n", summary.trim()));
     }
+    if status != "running" {
+        text.push_str(&format!("- 收尾: {}\n", now_secs()));
+    }
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     test_runs_snapshot(root)
+}
+
+/// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。active + archive 一起看。
+///
+/// 取收尾时刻而不是记录 id:id 是测试**开始**的时间,先起 running 再改代码就能骗过门禁。
+pub fn last_passed_at(root: &Path) -> Option<u64> {
+    let mut newest = None;
+    for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
+        for (_, record) in read_test_records(&root.join(rel)) {
+            if record["status"].as_str() != Some("passed") {
+                continue;
+            }
+            let finished = record["fields"]
+                .as_array()
+                .and_then(|fields| {
+                    fields
+                        .iter()
+                        .find(|f| f["key"].as_str() == Some("收尾"))
+                        .and_then(|f| f["value"].as_str())
+                        .and_then(|v| v.trim().parse::<u64>().ok())
+                })
+                .or_else(|| {
+                    record["id"]
+                        .as_str()
+                        .and_then(|id| id.strip_prefix("T-"))
+                        .and_then(|s| s.parse::<u64>().ok())
+                });
+            if let Some(at) = finished {
+                newest = Some(newest.map_or(at, |cur: u64| cur.max(at)));
+            }
+        }
+    }
+    newest
+}
+
+/// 某条目(R-xxx/D-xxx)名下仍未收尾的 running 测试记录。
+///
+/// 判据是标题里是否出现该 id:测试记录本身没有结构化的 refs 字段,而实践中标题一律
+/// 以条目号开头("R-153 批6 …")。宁可用这个朴素判据,也好过关闭时对未收尾的验证一无所知。
+pub fn unclosed_running_for(root: &Path, entry_id: &str) -> Vec<(String, String)> {
+    read_test_records(&root.join(TEST_RUNS_REL))
+        .into_iter()
+        .filter_map(|(_, record)| {
+            if record["status"].as_str() != Some("running") {
+                return None;
+            }
+            let title = record["title"].as_str().unwrap_or_default();
+            title
+                .contains(entry_id)
+                .then(|| (record["id"].as_str().unwrap_or_default().to_string(), title.to_string()))
+        })
+        .collect()
 }
 
 /// 快照渲染成工具可读文本。
@@ -215,12 +375,28 @@ fn render_snapshot(snapshot: &serde_json::Value) -> String {
         "recorded. active: {active}, archived: {archived} (path: {})",
         snapshot["path"].as_str().unwrap_or_default()
     )];
+    let mut stale = 0;
     for record in snapshot["active"].as_array().into_iter().flatten() {
+        let is_stale = record["stale"].as_bool().unwrap_or(false);
+        if is_stale {
+            stale += 1;
+        }
         lines.push(format!(
-            "● {} {} [{}]",
+            "● {} {} [{}]{}",
             record["id"].as_str().unwrap_or_default(),
             record["title"].as_str().unwrap_or_default(),
             record["status"].as_str().unwrap_or_default(),
+            if is_stale {
+                format!(" ⚠ 悬空 {} 分钟未收尾", record["age_secs"].as_u64().unwrap_or(0) / 60)
+            } else {
+                String::new()
+            },
+        ));
+    }
+    if stale > 0 {
+        lines.push(format!(
+            "⚠ {stale} 条 running 记录已悬空:跑完请用 test_record 带上该条 id 收尾(status=passed/failed/skipped),\
+             同标题的终态记录会自动认领。悬空记录会挡住相关条目的 close。"
         ));
     }
     for record in snapshot["archived"].as_array().into_iter().flatten() {
@@ -253,6 +429,68 @@ mod tests {
         // isolated from CI runners whose temp directory may sit below a checkout.
         std::fs::create_dir(dir.join(".kanzei")).unwrap();
         dir
+    }
+
+    #[test]
+    fn 终态就地收尾同名running而不是再追加一条() {
+        let root = temp_project("claim");
+        record_test_run(&root, None, "R-999 定向回归", "running", Some("cargo test"), None).unwrap();
+        let snapshot =
+            record_test_run(&root, None, "R-999 定向回归", "passed", None, Some("全绿")).unwrap();
+        assert_eq!(
+            snapshot["active"].as_array().unwrap().len(),
+            0,
+            "收尾后不该再有 running 挂着:{snapshot:#?}"
+        );
+        let archived = snapshot["archived"].as_array().unwrap();
+        assert_eq!(archived.len(), 1, "只应归档一条,而不是 running/passed 各一条");
+        assert_eq!(archived[0]["status"], "passed");
+        let fields = archived[0]["fields"].as_array().unwrap();
+        assert!(
+            fields.iter().any(|f| f["key"] == "命令" && f["value"] == "cargo test"),
+            "收尾时没给命令就该沿用原记录的,不能覆盖成空:{fields:#?}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 悬空的running记录会被标记并能按条目号查出来() {
+        let root = temp_project("stale");
+        // 直接写一条 20 天前的 running 记录:id 里的时间戳就是判据。
+        let old_id = now_secs() - 20 * 86_400;
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!("# Test Runs\n\n## T-{old_id} R-153 批6 回归 [running]\n- 命令: cargo test\n"),
+        )
+        .unwrap();
+        let snapshot = test_runs_snapshot(&root).unwrap();
+        let active = &snapshot["active"].as_array().unwrap()[0];
+        assert_eq!(active["stale"], true, "20 天前的 running 必须判悬空:{active:#?}");
+        assert_eq!(unclosed_running_for(&root, "R-153").len(), 1);
+        assert_eq!(unclosed_running_for(&root, "R-158").len(), 0, "不该误伤别的条目");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn last_passed_at_取收尾时刻而不是开始时刻() {
+        let root = temp_project("passedat");
+        // 先起 running(id 时刻在很久以前),再收尾:门禁要认收尾那一刻。
+        let started = now_secs() - 3600;
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!("# Test Runs\n\n## T-{started} R-1 回归 [running]\n- 命令: cargo test\n"),
+        )
+        .unwrap();
+        assert_eq!(last_passed_at(&root), None, "只有 running 时不该有背书");
+        record_test_run(&root, None, "R-1 回归", "passed", None, Some("全绿")).unwrap();
+        let at = last_passed_at(&root).expect("收尾后必须有时间戳");
+        assert!(
+            at >= started + 3000,
+            "取的必须是收尾时刻({at})而不是开始时刻({started})——否则先起 running 再改代码就能骗过提交门禁"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

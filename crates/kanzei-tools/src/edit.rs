@@ -33,6 +33,50 @@ struct EditInput {
     /// 替换所有出现(默认 false:要求唯一命中)
     #[serde(default)]
     replace_all: bool,
+    /// 明确承认这次替换是要删掉内容(净删除超过阈值时必须显式置 true)
+    #[serde(default)]
+    allow_deletion: bool,
+}
+
+/// 净删除多少行就要求显式确认。设 3 而不是 1:一两行的收缩在正常改写里太常见,
+/// 每次都要确认会把门禁变成噪音,反而被无脑加 flag 绕过。
+const NET_DELETE_CONFIRM_LINES: usize = 3;
+
+/// old_string 里有、new_string 里没有的非空行(按 trim 后的多重集差)。
+/// 这是「替换顺手吃掉邻居」的直接信号:R-158 那两处回退(Responses 的 reasoning
+/// effort 整段、设置页思考强度说明段)净行数分别是 0 和 +2,靠行数门禁一个都拦不住,
+/// 但两次都在这个列表里明明白白。
+fn dropped_lines(old: &str, new: &str) -> Vec<String> {
+    let mut kept: HashMap<&str, usize> = HashMap::new();
+    for line in new.lines() {
+        *kept.entry(line.trim()).or_insert(0) += 1;
+    }
+    let mut out = Vec::new();
+    for line in old.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match kept.get_mut(trimmed) {
+            Some(remaining) if *remaining > 0 => *remaining -= 1,
+            _ => out.push(trimmed.to_string()),
+        }
+    }
+    out
+}
+
+fn preview_lines(lines: &[String]) -> String {
+    let shown = lines
+        .iter()
+        .take(5)
+        .map(|l| format!("  - {}", if l.chars().count() > 100 { format!("{}…", l.chars().take(100).collect::<String>()) } else { l.clone() }))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if lines.len() > 5 {
+        format!("{shown}\n  - …还有 {} 行", lines.len() - 5)
+    } else {
+        shown
+    }
 }
 
 #[derive(Default)]
@@ -48,7 +92,7 @@ impl Tool for EditTool {
     }
 
     fn description(&self) -> String {
-        "Replace an exact string in a file. Params: path, old_string (must match exactly and uniquely), new_string; optional replace_all. Line-ending differences (\\r\\n vs \\n) are tolerated automatically.".into()
+        "Replace an exact string in a file. Params: path, old_string (must match exactly and uniquely), new_string; optional replace_all, allow_deletion (required when the replacement removes 3+ net lines). Line-ending differences (\\r\\n vs \\n) are tolerated automatically. The result lists any line present in old_string but absent from new_string — read it: that is how a replacement silently eats the block next to your target.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -132,6 +176,23 @@ impl Tool for EditTool {
             ));
         }
 
+        // 净删除门禁:替换掉的行数明显多于写回的行数,多半不是"改写"而是"顺手删掉了
+        // 一段"。要删可以,但必须说出来——allow_deletion=true。
+        let old_line_count = old_string.lines().count();
+        let new_line_count = new_string.lines().count();
+        let occurrences = if input.replace_all { count } else { 1 };
+        let net_deleted = old_line_count.saturating_sub(new_line_count) * occurrences;
+        let dropped = dropped_lines(&old_string, &new_string);
+        if net_deleted >= NET_DELETE_CONFIRM_LINES && !input.allow_deletion {
+            return ToolOutput::error(format!(
+                "这次替换净删除 {net_deleted} 行({old_line_count} 行换成 {new_line_count} 行{})。\
+                 确实要删就把 allow_deletion 置 true 重来;若本意是新增内容,\
+                 说明 old_string 匹配到了不该动的位置——缩小 old_string 或改成插入式替换\
+                 (把原文原样包含在 new_string 里)。\n将被删掉的内容:\n{}",
+                if occurrences > 1 { format!(",共 {occurrences} 处") } else { String::new() },
+                preview_lines(&dropped)
+            ));
+        }
         let updated = if input.replace_all {
             haystack.replace(&old_string, &new_string)
         } else {
@@ -151,6 +212,15 @@ impl Tool for EditTool {
             "replaced {count} occurrence(s) in {}{ending_note}",
             path.display()
         );
+        // 没到拦截线也要把丢掉的行报出来:替换吃掉邻居时净行数往往不减反增,
+        // 唯一能立刻看见的信号就是"old_string 里有、new_string 里没有"的那几行。
+        if !dropped.is_empty() {
+            message.push_str(&format!(
+                "\nNOTE: 本次替换未保留下面 {} 行(若非本意,立刻改回来):\n{}",
+                dropped.len(),
+                preview_lines(&dropped)
+            ));
+        }
         if let Some(warning) = crate::write::validate_syntax(&path, &updated) {
             message.push_str(&format!("\nWARNING: {warning}"));
         }
@@ -243,6 +313,55 @@ mod tests {
         std::fs::write(dir.join("target.txt"), content).unwrap();
         let ctx = ToolCtx::new(dir.clone());
         (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn 净删除超阈值必须显式确认且不落盘() {
+        let (dir, ctx) = setup("netdel", "keep\na\nb\nc\nd\ntail\n");
+        let del = json!({"path": "target.txt", "old_string": "a\nb\nc\nd", "new_string": "a"});
+        let out = EditTool::default().execute(del.clone(), &ctx).await;
+        assert!(out.is_error, "净删除 3 行必须先拦下来: {}", out.content);
+        assert!(out.content.contains("allow_deletion"), "{}", out.content);
+        assert!(out.content.contains("- b"), "要列出将被删掉的内容: {}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+            "keep\na\nb\nc\nd\ntail\n",
+            "被拦下时文件必须一字未动"
+        );
+        let mut ack = del.as_object().unwrap().clone();
+        ack.insert("allow_deletion".into(), json!(true));
+        let out = EditTool::default().execute(serde_json::Value::Object(ack), &ctx).await;
+        assert!(!out.is_error, "显式确认后应放行: {}", out.content);
+        assert_eq!(std::fs::read_to_string(dir.join("target.txt")).unwrap(), "keep\na\ntail\n");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 等量替换吃掉邻居时必须把丢失的行报出来() {
+        // R-158 实况:写 reasoning effort 的整段被 service_tier 顶掉,净行数为 0,
+        // 行数门禁一个都拦不住——唯一的信号就是"old 里有、new 里没有"的那几行。
+        let (dir, ctx) = setup(
+            "clobber",
+            "if request.reasoning.enabled() {\n    body[\"effort\"] = x;\n}\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "if request.reasoning.enabled() {\n    body[\"effort\"] = x;",
+                    "new_string": "if let Some(tier) = t {\n    body[\"service_tier\"] = tier;"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("NOTE"), "等量替换也要报丢失行: {}", out.content);
+        assert!(
+            out.content.contains("body[\"effort\"] = x;"),
+            "被顶掉的那行必须出现在提示里: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
