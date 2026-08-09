@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 ecf15d2：Ollama 模型发现 helper 已迁入 run.rs，models_list 通过 run::push_ollama_models 使用原生 /api/tags、no_proxy 和原有模型载荷，main.rs 减少 30 行。定向测试 T-1786289238 已登记通过。run_task_impl 主体仍待物理迁移。
+- 进展: 已提交 9497e19：models_list command 已迁入 run.rs 边界，invoke_handler 使用 run::models_list；run.rs wrapper 真实调用 main.rs 的 models_list_impl，既有模型发现逻辑保持。定向测试 T-1786289414 已登记通过。下一步继续把 models_list_impl 函数体从 main.rs 物理迁入 run.rs，再处理 run_task_impl 主体。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
