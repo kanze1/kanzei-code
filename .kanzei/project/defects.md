@@ -142,3 +142,4 @@
 - 验收: SettingsPayload 同时包含 profile_default 与 codex_fast_mode；设置保存/打开相关构造点可编译。
 - 优先级: P1
 - 进展: 已恢复 crates/kanzei-app/src/main.rs::SettingsPayload.profile_default，并保留 codex_fast_mode；后续 cargo check 未再报告 profile_default 缺失。整体 kanzei-app 仍被 R-153 既有 mobile.rs/processes.rs 编译错误阻断，待上游迁移稳定后复测。
+

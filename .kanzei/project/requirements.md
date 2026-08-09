@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本批完成项目文件查询迁移：`collect_project_files` 与 `project_files` 已物理移入 crates/kanzei-app/src/projects.rs；main.rs invoke_handler 改为 `projects::project_files`，保留 50 项上限、目录排除、相对路径和大小写不敏感查询规则。T-1786296180 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
+- 进展: 本批完成设置保存实现迁移：`settings_save_at_path_impl` 已从 main.rs 移入 crates/kanzei-app/src/settings.rs，并改用模块内 `settings_read_document`/`settings_write_document`；迁移后发现的 crate 根 helper 引用问题已登记 D-224 并修复。T-1786296386 的 cargo test -p kanzei-app 43 项全绿。R-153 仍为 10/11，run_task_impl 整体搬迁及 main.rs ≤300 行仍未完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

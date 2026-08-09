@@ -771,3 +771,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: project_files 及递归过滤 helper 迁移至 projects.rs 后，kanzei-app 43 项全部通过；projects::project_files 注册与查询行为正常。
 - 收尾: 1786296180
+
+## T-1786296386 R-153 设置保存实现迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: settings_save_at_path_impl 迁移至 settings.rs 并改用模块内 settings_read_document/settings_write_document 后，kanzei-app 43 项全部通过。
+- 收尾: 1786296386

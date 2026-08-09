@@ -260,9 +260,19 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     })
 }
 
+pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+    // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
+    // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
+    let mut doc = settings_read_document(path)?;
+    settings_apply_scalar_fields(&mut doc, &payload)?;
+    settings_apply_limits(&mut doc, &payload)?;
+    settings_apply_providers(&mut doc, &payload)?;
+    settings_write_document(doc, path)
+}
+
 pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
     validate_model_roles(&payload)?;
-    crate::settings_save_at_path_impl(payload, path)
+    settings_save_at_path_impl(payload, path)
 }
 
 #[tauri::command]

@@ -38,8 +38,7 @@ mod subagents;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
-    global_config_path, settings_read_document, settings_save_at_path,
-    settings_write_document, settings_apply_limits, settings_apply_providers, settings_apply_scalar_fields,
+    global_config_path, settings_save_at_path,
 };
 
 pub(crate) use update::{
@@ -392,20 +391,6 @@ pub(crate) fn docs_snapshot(project_dir: String) -> serde_json::Value {
 }
 
 // ---------- 设置(全局 kanzei.toml 表单) ----------
-
-pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {
-    // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
-    // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
-    let mut doc = crate::settings_read_document(path)?;
-
-    settings_apply_scalar_fields(&mut doc, &payload)?;
-
-    settings_apply_limits(&mut doc, &payload)?;
-
-    settings_apply_providers(&mut doc, &payload)?;
-
-    crate::settings_write_document(doc, path)
-}
 
 #[derive(Debug, Deserialize)]
 struct ExportOptions {
