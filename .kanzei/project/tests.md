@@ -79,3 +79,11 @@
 ## T-1786252297 R-153 批2 update command 宏迁移回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证 update command 宏已从 main.rs 移除、模块 command wrapper 调用改名后的实现，避免重复宏符号。
+
+## T-1786252559 R-153 批2版本判断 helper 迁移回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证版本判断 helpers 已从 main.rs 迁移到 update.rs，测试兼容导出与 update command 入口保持行为。
+
+## T-1786252614 R-153 批2版本判断 helper 迁移回归（提交前） [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 移除未使用的 timestamp_digits 根导出后，提交前复跑 kanzei-app 定向测试并确认无新增警告。

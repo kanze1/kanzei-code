@@ -26,6 +26,8 @@ mod agent_container;
 mod fast_model;
 mod update;
 
+pub(crate) use update::{build_stamp, release_is_newer};
+
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
 };
@@ -3000,46 +3002,6 @@ async fn consolidate_memory_inbox(project_dir: String) {
         if store.pending_notes() == 0 {
             return;
         }
-    }
-}
-
-/// 仅当 release 的发布时间晚于本地构建时间时才允许提示更新。
-/// `KANZEI_BUILD_INFO` 的旧格式只有 yyyy-MM-dd,对旧构建采用“必须晚一天”
-/// 的保守判定；新格式使用 UTC 的 yyyyMMddHHmmss，避免开发构建被同日 release 覆盖。
-fn release_is_newer(current_info: &str, tag: &str, published_at: Option<&str>) -> bool {
-    let current_hash = current_info.split_whitespace().next().unwrap_or("dev");
-    if current_hash == "dev" || tag.is_empty() || tag.contains(current_hash) {
-        return false;
-    }
-    let Some((local_stamp, date_only)) = build_stamp(current_info) else {
-        return false;
-    };
-    let Some(release_stamp) = published_at.and_then(timestamp_digits) else {
-        // 没有可信发布时间时宁可不装，避免把未知版本当成升级。
-        return false;
-    };
-    if date_only {
-        release_stamp[..8] > local_stamp[..8]
-    } else {
-        release_stamp > local_stamp
-    }
-}
-
-fn build_stamp(info: &str) -> Option<(String, bool)> {
-    let token = info.split_whitespace().nth(1)?;
-    let digits = timestamp_digits(token)?;
-    Some((digits, token.chars().filter(|c| c.is_ascii_digit()).count() < 14))
-}
-
-fn timestamp_digits(value: &str) -> Option<String> {
-    let digits: String = value.chars().filter(|c| c.is_ascii_digit()).collect();
-    if digits.len() < 8 {
-        return None;
-    }
-    if digits.len() >= 14 {
-        Some(digits[..14].to_string())
-    } else {
-        Some(format!("{digits:0<14}"))
     }
 }
 

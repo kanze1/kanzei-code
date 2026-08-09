@@ -136,3 +136,11 @@
 ## T-1786252367 R-153 批2 update command 宏迁移回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 42 项全部通过；update_check/update_install 的 tauri command 宏已由 update.rs 承接并通过模块全路径注册。旧实现已改名为 impl 供转发，完整函数剪切仍未完成。
+
+## T-1786252610 R-153 批2版本判断 helper 迁移回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项全部通过；版本判断 helper 已从 main.rs 移入 update.rs，测试兼容导出有效。随后移除未使用的 timestamp_digits 根导出，待提交前复跑定向测试。
+
+## T-1786252673 R-153 批2版本判断 helper 迁移回归（提交前） [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项全部通过；去除未使用导出后无 kanzei-app 新增警告，仅保留既有 kanzei-core/tools 警告。

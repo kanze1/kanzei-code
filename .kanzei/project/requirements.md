@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批2继续推进：`update.rs:6-18` 已承接 `update_check/update_install` 的 Tauri command 宏，main.rs 中原函数改为 `update_check_impl/update_install_impl`，启动三调用与 command 注册均经 update 模块；42 项 `cargo test -p kanzei-app` 全绿（T-1786252367）。批2尚未完成：启动/安装/版本检查的生产辅助函数体仍在 main.rs，不能关闭或宣称批2完成，下一步继续完整剪切。
+- 进展: 批2继续推进：`update.rs:7-42` 已完整承接 `release_is_newer/build_stamp/timestamp_digits`，main.rs 中对应生产函数已删除；为保持既有 update_tests_update.rs 调用路径，main.rs:29 保留 `build_stamp/release_is_newer` 的 pub(crate) 再导出。`cargo test -p kanzei-app` 42 项全绿（T-1786252673），无 kanzei-app 新增警告。启动交接、安装校验及剩余更新辅助函数仍在 main.rs，批2尚未完成。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
