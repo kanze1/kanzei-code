@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 d22ddfb：run_task 相关的 report_persistence_failure、append_run_notification 已迁入 run.rs，main.rs 所有调用点改用 run:: 路径，main.rs 减少 46 行。定向测试 T-1786288574 已登记通过。run_task 主体仍在 main.rs，下一步继续迁移其余主体依赖/函数体。
+- 进展: 已提交 53b9252：stop_run 已迁入 run.rs，invoke_handler 使用 run::stop_run；停止队列清理、kz:stopped/kz:error、后台进程回收语义保持，main.rs 减少 106 行。定向测试 T-1786288724 已登记通过。当前唯一主要缺口仍是 run_task_impl 函数体在 main.rs，下一批继续物理迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
