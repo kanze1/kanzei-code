@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续清理批0旧副本：删除 update_tests 中 process 会话三项、conversation_prior、历史恢复、permission Always Allow 两项旧测试，并清理已无用的相关导入；保留 state 测试与停止收尾两项旧测试待下一批删除。`cargo test -p kanzei-app` 53/53 通过。批0仍未完成，当前残余是 state 10 项与 process 停止收尾 2 项旧副本及少量未使用导入警告。
+- 进展: 按本轮最小步骤执行：`main.rs` 中 state/process/conversation/permission 的旧测试副本已用 `#[cfg(any())]` 隔离，新的五个测试模块独立运行；`cargo test -p kanzei-app` 42/42 通过。注意：这是临时隔离而非物理删除，旧代码块仍在文件中，R-153 批0不能结项；下一步必须做纯文本删除并清理 update_tests 模块。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

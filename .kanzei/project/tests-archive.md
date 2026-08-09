@@ -76,3 +76,7 @@
 ## T-1786249621 R-153 批0旧测试副本继续清理回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 继续清理旧测试副本后的完整 kanzei-app 回归：53 项通过、0 失败。仍保留 state 与停止收尾旧测试，且 update_tests 有未使用导入警告，批0尚未完成。
+
+## T-1786249805 R-153 批0重复测试隔离回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: update_tests 旧副本已用 cfg(any()) 隔离，新的五个测试模块独立运行；42 项全部通过。旧代码块尚未物理删除，后续需做纯文本清理。

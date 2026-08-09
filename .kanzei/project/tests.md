@@ -15,3 +15,7 @@
 ## T-1786249557 R-153 批0旧测试副本继续清理回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证删除 state/process/conversation/permission 旧测试副本后的 kanzei-app 测试。
+
+## T-1786249737 R-153 批0重复测试隔离回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证 update_tests 旧副本禁用后，仅新五个测试模块参与的 kanzei-app 回归。
