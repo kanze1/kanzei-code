@@ -1,5 +1,14 @@
 # Defects
 
+## D-212 文件导览叠进对话页:裸 #view-files 的 ID 特异性压过 .view 隐藏规则 [fixed] (medium)
+- refs: R-148
+- 复现: 2026-08-09 用户实测(2a2a26f):文件树+Monaco 与对话页的 composer 同屏显示,"不应该显示在主页,我说了独立页管理"。根因:视图显隐由 `.view { display:none }` / `.view.active { display:flex }` 控制,而 R-148 首发写了 `#view-files { display:flex }`——ID 选择器特异性(1,0,0)无条件压过类选择器(0,1,0),文件视图永远渲染、叠进当前 active 视图。
+- 修复: 改为 `#view-files.active { display:flex }`,显隐归还 .view 体系;a11y 冒烟新增静态断言——剥注释后扫描,任何裸 `#view-*` 规则设置非 none 的 display 即失败(反向验证:塞回坏规则断言立即命中)。
+- 验收: 切到文件页时对话 composer 不可见,切走后文件页完全隐藏;冒烟断言防回归;用户复查。
+- 证据等级: E1(用户截图 + CSS 特异性实证 + 反向验证)
+- 优先级: P1
+- 标签: 前端
+
 ## D-211 拖拽解锁后条目可选中但仍拖不动 [open] (medium)
 - refs: D-210 D-207 R-054
 - 复现: 2026-08-09 用户实测(f2f72fb):点「解锁」后锁提示消失、条目可选中,但拖拽仍然不生效("能选但是依然拖不动")。

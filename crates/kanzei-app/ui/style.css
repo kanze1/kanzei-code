@@ -1094,7 +1094,10 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .tool-msg-raw.args { opacity: 0.75; }
 
 /* ---------- 文件导览(R-148) ---------- */
-#view-files { display: flex; min-height: 0; }
+/* D-212:不得写 `#view-files { display:flex }`——ID 特异性会无条件压过 `.view` 的
+   display:none,文件页永远渲染、叠进对话页。显隐一律交给 .view/.view.active。 */
+#view-files.active { display: flex; }
+#view-files { min-height: 0; }
 #files-layout { display: flex; flex: 1; min-height: 0; min-width: 0; }
 #files-side {
   width: 340px;

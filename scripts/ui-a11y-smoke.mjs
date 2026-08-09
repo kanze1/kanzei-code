@@ -50,6 +50,16 @@ assert.match(js, /function docDragEnabled\(kind, listEl, filterState\)/);
 // tag/blocked 筛选下列表不完整,提交的顺序会被引擎拒绝)。
 assert.match(js, /\["status", "priority", "tag", "blocked"\]\.every/);
 assert.match(js, /renderDocList\(defectList,[\s\S]*documentFilters\.defect/);
+// D-212:视图容器的显隐只归 .view/.view.active 管。裸 `#view-xxx { display:… }`
+// 的 ID 特异性会无条件压过 .view 的 display:none,该视图永远渲染、叠进对话页
+// (文件导览页首发就这么翻的车)。带 .active 的规则合法。
+const cssNoComments = css.replace(/\/\*[\s\S]*?\*\//g, "");
+for (const match of cssNoComments.matchAll(/#view-[\w-]+\s*\{([^}]*)\}/g)) {
+  assert.ok(
+    !/display\s*:\s*(?!none)/.test(match[1]),
+    `裸 #view-* 规则不得设置 display(用 .active 变体): ${match[0].slice(0, 60)}`
+  );
+}
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /运行中可插入或排队，按交付方式发送/);
 assert.ok(html.includes('id="req-tag-filter"'), "缺少需求标签筛选");
