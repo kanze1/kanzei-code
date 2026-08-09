@@ -83,6 +83,7 @@ const I18N_EN = {
   "agent 正在做这一条": "The agent is working on this item",
   "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
   "文件树加载失败": "Failed to load file tree",
+  "已标注": "annotated",
   "文件导览": "File explorer",
   "切换到文件导览": "Switch to file explorer",
   "切换排序:名称 / 行数": "Toggle sort: name / lines",
@@ -6791,7 +6792,12 @@ function renderFilesTree() {
   const tree = $("files-tree");
   tree.innerHTML = "";
   const total = snapshot.dirs?.[""] ?? { files: snapshot.files.length, size: 0, lines: 0 };
-  $("files-summary").textContent = `${total.files} ${t("个文件")} · ${humanSize(total.size)} · ${total.lines} ${t("行")}`;
+  // 已标注量/全量(D-213 用户点名):分母只数可标注的(代码/md),不含二进制。
+  const annotatedPart =
+    snapshot.annotatable > 0
+      ? ` · ${t("已标注")} ${snapshot.annotated}/${snapshot.annotatable}`
+      : "";
+  $("files-summary").textContent = `${total.files} ${t("个文件")} · ${humanSize(total.size)} · ${total.lines} ${t("行")}${annotatedPart}`;
   const annotateBtn = $("files-annotate");
   if (!annotateBtn.disabled) {
     annotateBtn.textContent = snapshot.unannotated > 0 ? `${t("标注")}(${snapshot.unannotated})` : t("标注");
@@ -6975,7 +6981,12 @@ $("files-annotate").addEventListener("click", async () => {
   btn.textContent = `${t("标注中")}…`;
   try {
     const result = await invoke("files_annotate", { projectDir: currentProject });
-    toast(`${t("标注完成")}:${result.annotated}/${result.total}${result.failed ? ` · ${result.failed} ${t("失败")}` : ""}`);
+    if (result.failed && result.firstError) {
+      // 失败原因必须可见:全 failed 只报数字没有原因,排查无从下手(D-213)。
+      toastError(`${t("标注完成")}:${result.annotated}/${result.total} · ${result.failed} ${t("失败")} · ${result.firstError}`);
+    } else {
+      toast(`${t("标注完成")}:${result.annotated}/${result.total}${result.failed ? ` · ${result.failed} ${t("失败")}` : ""}`);
+    }
     await refreshFiles();
   } catch (err) {
     toastError(`${t("标注失败")}:${err}`);

@@ -57,14 +57,19 @@ pub fn save_annotations(project_root: &Path, store: &AnnotationStore) -> std::io
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
+    // 序列化失败必须报错——旧实现 unwrap_or_default 会把空字符串写进缓存,
+    // 下次 load 解析失败回落 Default,整库标注静默清零(D-213 一类)。
+    let text = serde_json::to_string_pretty(store)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_string_pretty(store).unwrap_or_default())?;
+    std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, &path)?;
     Ok(())
 }
 
-/// 内容指纹:大小 + mtime 纳秒。比读全文 hash 便宜三个量级,误判窗口
-/// (同大小同 mtime 的替换)在本用途下可忽略——标注过期只是显示旧一句话。
+/// 内容指纹。凡是标注会覆盖的文件(代码/md)扫描时本来就读了全文,顺手 FNV-1a——
+/// **真内容 hash**,mtime 免疫:git checkout/触碰时间戳不会让标注大面积假失效
+/// (D-213 教训:mtime 版指纹太脆)。只有 oversized 文件退化为大小+mtime。
 pub fn content_stamp(meta: &std::fs::Metadata) -> String {
     let mtime = meta
         .modified()
@@ -73,6 +78,19 @@ pub fn content_stamp(meta: &std::fs::Metadata) -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{}-{}", meta.len(), mtime)
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+pub fn content_hash(bytes: &[u8]) -> String {
+    format!("fnv-{:016x}", fnv1a(bytes))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -113,28 +131,32 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
         let oversized = meta.len() > MAX_MEASURE_BYTES;
-        let (lines, chars) = if oversized {
-            (None, None)
-        } else if ext == "md" {
-            let chars = std::fs::read_to_string(&abs)
-                .map(|t| t.chars().count() as u64)
-                .ok();
-            (None, chars)
-        } else if CODE_EXTS.contains(&ext.as_str()) {
-            let lines = std::fs::read(&abs)
-                .map(|bytes| bytes.iter().filter(|b| **b == b'\n').count() as u64 + 1)
-                .ok();
-            (lines, None)
-        } else {
-            (None, None)
+        let measurable = !oversized && (ext == "md" || CODE_EXTS.contains(&ext.as_str()));
+        let bytes = if measurable { std::fs::read(&abs).ok() } else { None };
+        let (lines, chars) = match (&bytes, ext.as_str()) {
+            (Some(bytes), "md") => (
+                None,
+                Some(String::from_utf8_lossy(bytes).chars().count() as u64),
+            ),
+            (Some(bytes), _) => (
+                Some(bytes.iter().filter(|b| **b == b'\n').count() as u64 + 1),
+                None,
+            ),
+            (None, _) => (None, None),
         };
+        // 读到内容的用真 hash(mtime 免疫);其余(二进制/过大)退化为大小+mtime——
+        // 它们本来也不会被标注,指纹只用于展示层的粗判。
+        let stamp = bytes
+            .as_deref()
+            .map(content_hash)
+            .unwrap_or_else(|| content_stamp(&meta));
         out.push(FileEntry {
             path: rel_slash,
             size: meta.len(),
             lines,
             chars,
             oversized,
-            stamp: content_stamp(&meta),
+            stamp,
         });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
@@ -458,8 +480,15 @@ mod tests {
         let loaded = load_annotations(&root);
         assert_eq!(loaded.files.get("src/lib.rs").unwrap().note, "工具函数集合");
 
-        // 内容变化 → stamp 变 → 旧标注失效。
+        // mtime 免疫(D-213):重写**相同内容**,mtime 变而指纹不变——git checkout/
+        // 触碰时间戳不得让标注大面积假失效。
         std::thread::sleep(std::time::Duration::from_millis(30));
+        std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn b() {}\nfn c() {}\n").unwrap();
+        let same = scan(&root);
+        let lib_same = same.iter().find(|e| e.path == "src/lib.rs").unwrap();
+        assert_eq!(lib.stamp, lib_same.stamp, "内容没变,指纹不得因 mtime 漂移");
+
+        // 内容变化 → stamp 变 → 旧标注失效。
         std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn changed() {}\n").unwrap();
         let rescanned = scan(&root);
         let lib2 = rescanned.iter().find(|e| e.path == "src/lib.rs").unwrap();

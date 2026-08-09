@@ -1,5 +1,16 @@
 # Defects
 
+## D-213 标注全军覆没且空库覆盖缓存:思考模型吃光 token 预算,三层缺陷叠加 [fixed] (high)
+- refs: R-148
+- 复现: 2026-08-09 用户实测:标注跑到 20/231 后重启,"标注过的很多文件标注就没了"。实证:.kanzei/file-annotations.json 存在但为空 store(31 字节);直接 curl ollama 复现——qwen3.5:4b 是思考模型,标注调用 max_tokens=128 全被思考吃光(finish=length,content 空,思考进 message.reasoning 字段);提到 1024 仍然想不完;/no_think 软开关与 openai 兼容层的 think:false 均无效;**只有原生 /api/chat 的 think:false 生效**(thinking 空,正常收尾)。
+- 根因: 三层叠加。①fast_one_line max_tokens=128 对思考模型必然产出空正文 → 每个文件都判"空标注"失败,用户看到的 20/231 全是失败计数,**从来没有一条标注成功过**;②全失败的运行照样每 8 个 save 一次——把 load 时的空 store 反复覆盖写盘;③失败原因被吞(annotate Err 丢弃),UI 只报数字不报原因,排查无从下手。另有隐患:save 的 serde 序列化 unwrap_or_default 会把空字符串写进缓存(load 解析失败回落 Default,整库静默清零);指纹用 mtime(git checkout 会大面积假失效)。
+- 修复: ①标注后端分流:探测到 ollama(provider 名或 base_url 11434)直连原生 /api/chat + think:false + num_predict 256;其他 provider 走 LlmClient,max_tokens 提到 1024;两侧共用 clean_note 清洗(剥 <think> 块、取最后一个非空行、去引号、封顶 60 字,捞不出正文报错而非产出空标注);②保存纪律:只有真的写入过标注(dirty)才落盘,全失败一个字节不碰缓存;目录标注也只在 dirty 时做;③错误上浮:首个失败原因进返回值,前端 toast 显示;④save 序列化失败报错不写空串;⑤指纹从 size+mtime 换成内容 FNV-1a(扫描本就读全文,零成本;mtime 免疫——重写相同内容指纹不变有单测;oversized 退化 size+mtime);⑥汇总行显示「已标注 X/Y」(分母只数可标注文件,用户点名)。
+- 验收: 单测:clean_note 七形态(剥思考/末行正文/引号/空拒绝/截断)、指纹 mtime 免疫+内容敏感;curl 实证 ollama 原生通道产出非空正文;workspace 311 项全绿。真实标注跑通与「已标注 X/Y」显示待发版用户复查。
+- 备注: 失效标注不进上下文(用户同轮要求)为既有行为:files 工具与 snapshot 都按 hash 过滤,单测「过期标注不得注入」覆盖。质量注意:qwen3.5:4b 关思考后产出偏弱(实测短片段会复读代码),prompt 已加"不要复述代码";若实测质量不满意,fast 角色换更大模型即可,通道无需改。
+- 证据等级: E1(缓存文件实证 + curl 三连复现 + 原生通道验证)
+- 优先级: P1
+- 标签: 后端
+
 ## D-212 文件导览叠进对话页:裸 #view-files 的 ID 特异性压过 .view 隐藏规则 [fixed] (medium)
 - refs: R-148
 - 复现: 2026-08-09 用户实测(2a2a26f):文件树+Monaco 与对话页的 composer 同屏显示,"不应该显示在主页,我说了独立页管理"。根因:视图显隐由 `.view { display:none }` / `.view.active { display:flex }` 控制,而 R-148 首发写了 `#view-files { display:flex }`——ID 选择器特异性(1,0,0)无条件压过类选择器(0,1,0),文件视图永远渲染、叠进当前 active 视图。
