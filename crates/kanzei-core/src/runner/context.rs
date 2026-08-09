@@ -4,7 +4,7 @@
 //! is_text_user_message 三归属(compact_with_digest/trim_tail/drive),提 pub(super);
 //! MAX_FUTILE_COMPACTIONS 留 mod.rs(pub(super))。
 
-use super::dropped_trace;
+use crate::runner::compaction::dropped_trace;
 use kanzei_llm::{Message, Part, Role, ToolSpec};
 use std::collections::HashSet;
 

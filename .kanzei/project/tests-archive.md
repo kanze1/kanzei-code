@@ -971,3 +971,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 B4 runner/context.rs 拆解:71 passed;pub use 改 pub(crate) use 修正 glob re-export 警告;清理 mod.rs HashSet import;CONTEXT_BUDGET_RATIO/RECENT_VERBATIM_RATIO 标测试锚点
 - 收尾: 1786305476
+
+## T-1786305698 R-155 B5 runner/compaction.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 B5 runner/compaction.rs 拆解:71 passed;修复段C 误删 ProbeTool struct、dropped_trace pub(crate)、MAX_CONTEXT_OVERFLOW_RECOVERIES 导入、async fn pub(crate) 放置、多余 use 清理
+- 收尾: 1786305698
