@@ -99,6 +99,7 @@
 
 - 2026-08-09 草案:依据用户提供的 Control-Sufficient Memory 研究文档完成 gap 分析与 P1/P2 分期;边界确认前不动代码。
 - 2026-08-09 边界拍板:用户逐项确认上述四点,转设计基线,当日实施 P1。
+- 2026-08-09 实证修正:真实召回数据(37 轮)显示 preference 走 prompt_hints 召回路径且采纳率结构性无意义,search() 豁免 preference 的 decision_weight;同批发现 D-214(SOP 候选滞留全局 inbox)与「read 不计采纳」遥测缺口(挂 R-150)。
 
 ## 验证证据
 
@@ -112,5 +113,6 @@
 ## TODO 与后续风险
 
 - TODO:边界拍板后登记落地需求(P1/P2 两条),P2 移交自举;空闲整理消费零采纳/复发清单;UI 展示;R-145 轨迹实证。
-- 风险:采纳率信号在 preference(全文常驻、无需拉正文)上无意义——已排除:preference 不走索引行召回路径;
+- ~~风险:采纳率信号在 preference 上无意义——已排除:preference 不走索引行召回路径~~ **2026-08-09 数据分析证伪**:prompt_hints 不过滤 category,preference 会被召回(实证 M-002 召回 22 次)且其正文全文常驻、采纳率结构性无意义 → 已在 search() 对 category=preference 豁免 decision_weight(有单测);
+- 遥测口径缺口(挂 R-150 复核):只有 memory_search 会标记「已采纳」,直接 read 记忆文件不计入——采纳率被低估的第二个通道(第一个是「看索引行即用」),复核降权参数时须一并考虑;
 - 风险:旧条目无指纹,复发检测对存量坑不生效——接受:随 manager 增量补齐,检测退化为现状而非变坏。

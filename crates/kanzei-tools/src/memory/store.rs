@@ -515,8 +515,12 @@ impl MemoryStore {
             let mut score = -bm25;
             score *= 1.0 + (1.0 + hit_count as f64).ln() * 0.2;
             // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
-            if let Some(&(recalled, fetched)) = recall_stats.get(&id) {
-                score *= decision_weight(recalled, fetched);
+            // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
+            // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
+            if entry.category != "preference" {
+                if let Some(&(recalled, fetched)) = recall_stats.get(&id) {
+                    score *= decision_weight(recalled, fetched);
+                }
             }
             if entry.status != "active" {
                 score *= 0.5;
@@ -1364,6 +1368,30 @@ mod tests {
         // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
         let ranked = store.search("发版", None, Some("active"), 5).unwrap();
         assert_eq!(ranked[0].entry.id, b, "{:?}", ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn preference_豁免采纳率降权() {
+        // preference 正文全文常驻,永远不需要拉正文——采纳率对它结构性无意义,
+        // 同样的「召回 3 采纳 0」不得让定调条目在检索里被降权。
+        let (dir, store) = temp_store();
+        add(&store, "preference", "发版定调甲", "发版发布安装更新必读", "正文等长条目一");
+        add(&store, "fact", "发版通道乙", "发版发布安装更新必读", "正文等长条目二");
+        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        assert_eq!(hits.len(), 2);
+        for _ in 0..3 {
+            store.record_recall("要发版了", &hits, 256);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        // 两条同为召回 3/采纳 0:fact 吃 ×0.6,preference 保持 ×1.0 → 严格高分在前。
+        let ranked = store.search("发版", None, Some("active"), 5).unwrap();
+        assert_eq!(ranked[0].entry.category, "preference", "{:?}", ranked.iter().map(|h| (&h.entry.id, h.score)).collect::<Vec<_>>());
+        assert!(
+            ranked[0].score > ranked[1].score,
+            "豁免缺失时两条同权重打平,必须是严格大于: {:?}",
+            ranked.iter().map(|h| (&h.entry.id, h.score)).collect::<Vec<_>>()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }
