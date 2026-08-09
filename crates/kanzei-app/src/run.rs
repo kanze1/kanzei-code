@@ -24,6 +24,10 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn new_llm_client(proxy: &kanzei_llm::ProxyConfig) -> anyhow::Result<kanzei_llm::LlmClient> {
+    Ok(kanzei_llm::LlmClient::new(proxy)?)
+}
+
 pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool) -> String {
     format!(
         "{}:{}{}",

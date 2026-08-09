@@ -470,3 +470,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的鉴权阶段详情已迁移到 run::auth_stage_detail，provider/model 与订阅登录态提示保持。
 - 收尾: 1786290385
+
+## T-1786290449 R-153 run_task LLM client helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的 LlmClient 创建已迁移到 run::new_llm_client，ProxyConfig 透传及构造错误传播保持。
+- 收尾: 1786290453

@@ -711,7 +711,7 @@ async fn run_task_impl(
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
-    let client = LlmClient::new(&proxy)?;
+    let client = run::new_llm_client(&proxy)?;
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
