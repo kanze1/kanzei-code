@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 5d5288d：run_task_impl 的 profile 解析与 project root 发现已提取到 run::resolve_profile_and_root，默认 profile/显式 profile 与 root 发现语义保持，main.rs 减少 7 行。定向测试 T-1786289866 已登记通过。下一步继续提取 run_task 首段 harness/agent 装配逻辑。
+- 进展: 已提交 e982713：run_task 装配段的 work priority/队列选择提示已提取到 run::work_priority_guidance，保留前端检查提示与 requirements/defects 顺序语义，main.rs 减少 9 行。定向测试 T-1786289946 已登记通过。下一步继续提取 run_task harness/agent 装配逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
