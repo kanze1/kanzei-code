@@ -143,3 +143,7 @@
 ## T-1786276079 R-153 批6 kanzei-app 定向测试（原样搬迁修正后） [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 修正批6模块内容为从 main.rs 原样搬迁后的等价实现，重新执行定向验证记录。
+
+## T-1786277657 R-153 批7 docs 域搬迁定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批7文档域搬迁阶段：docs.rs 已承接 docs_snapshot/docs_update/docs_open/docs_read，invoke_handler 已改用模块路径；settings 域仍待本批完成。

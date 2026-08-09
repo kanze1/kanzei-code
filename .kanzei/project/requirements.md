@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批6已完成搬迁：从 main.rs 移除进程/工作树与移动桥接实现，保留真实 invoke_handler 调用并由 processes.rs/mobile.rs 承接；下一步做 kanzei-app 定向验证。
+- 进展: 批7本轮先完成 docs 域搬迁阶段：新增 `src/docs.rs` 承接 `docs_snapshot/docs_update/docs_open/docs_read`，main.rs 的四个注册点改为 `docs::...`；docs 原实现尚有旧 `docs_snapshot` 副本待清理，settings.rs 尚未开始，因此本批未提交、R-153 不关闭。定向测试记录 T-1786277672 为通过（阶段性验证）。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

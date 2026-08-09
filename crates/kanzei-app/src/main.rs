@@ -29,6 +29,7 @@ mod prefs;
 mod projects;
 mod processes;
 mod mobile;
+mod docs;
 
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
@@ -129,7 +130,7 @@ fn main() {
             projects::projects_remove,
             projects::projects_select,
             workspace_snapshot,
-            docs_snapshot,
+            docs::docs_snapshot,
             run_prompt,
             stop_run,
             answer_ask,
@@ -166,14 +167,14 @@ fn main() {
             memory::memory_focus_set,
             app_info,
             models_list,
-            docs_update,
-            docs_open,
+            docs::docs_update,
+            docs::docs_open,
             summarize_chat,
             git_status,
             conventions_init,
             conversation_clear,
             conversation_delete,
-            docs_read,
+            docs::docs_read,
             conversation_get,
             conversation_trace_get,
             conversation_list,
@@ -1440,118 +1441,6 @@ async fn provider_test(
     }
 }
 
-/// 侧边栏直接改状态/关闭(走同一套 TrackerTool 硬门禁,不绕过状态机)。
-#[tauri::command]
-async fn docs_update(
-    project_dir: String,
-    kind: String,
-    action: String,
-    id: String,
-    status: Option<String>,
-    title: Option<String>,
-    priority: Option<String>,
-    fields: Option<serde_json::Value>,
-    order: Option<Vec<String>>,
-) -> Result<String, String> {
-    use kanzei_harness::Tool as _;
-    use kanzei_tools::docstore::{DEFECTS as D, FINDINGS as F, REQUIREMENTS as R, SOURCES as S};
-    use kanzei_tools::tracker::TrackerTool;
-    let tool = match kind.as_str() {
-        "req" => TrackerTool {
-            tool_name: "req",
-            noun: "requirement",
-            kind: &R,
-            requires_refs: None,
-        },
-        "defect" => TrackerTool {
-            tool_name: "defect",
-            noun: "defect",
-            kind: &D,
-            requires_refs: None,
-        },
-        "source" => TrackerTool {
-            tool_name: "source",
-            noun: "source",
-            kind: &S,
-            requires_refs: None,
-        },
-        "finding" => TrackerTool {
-            tool_name: "finding",
-            noun: "finding",
-            kind: &F,
-            requires_refs: Some(&S),
-        },
-        "goal" => TrackerTool {
-            tool_name: "goal",
-            noun: "goal",
-            kind: &GOALS,
-            requires_refs: None,
-        },
-        other => return Err(format!("unknown kind `{other}`")),
-    };
-    let mut input = json!({ "action": action, "id": id });
-    if let Some(order) = order.filter(|o| !o.is_empty()) {
-        input["order"] = json!(order);
-    }
-    if let Some(status) = status {
-        input["status"] = json!(status);
-    }
-    if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
-        input["title"] = json!(title);
-    }
-    if let Some(priority) = priority.filter(|p| !p.trim().is_empty()) {
-        input["priority"] = json!(priority);
-    }
-    if let Some(fields) = fields.filter(|f| f.is_object()) {
-        input["fields"] = fields;
-    }
-    let ctx = kanzei_harness::ToolCtx::new(PathBuf::from(&project_dir));
-    let output = tool.execute(input, &ctx).await;
-    if output.is_error {
-        Err(output.content)
-    } else {
-        Ok(output.content)
-    }
-}
-
-/// kind → 文档路径(docs_open / docs_read 共用)。
-fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(project_dir))
-        .unwrap_or_else(|| PathBuf::from(project_dir));
-    let path = match kind {
-        "req" => root.join(kanzei_tools::docstore::REQUIREMENTS.rel_path),
-        "defect" => root.join(kanzei_tools::docstore::DEFECTS.rel_path),
-        "goal" => root.join(kanzei_tools::docstore::GOALS.rel_path),
-        "conventions" => root.join(CONVENTIONS_REL),
-        "architecture" => root.join(".kanzei/project/architecture/README.md"),
-        // 归档文件:req-archive / defect-archive / goal-archive
-        "req-archive" => DocStore::open(&root, &REQUIREMENTS).archive_file(),
-        "defect-archive" => DocStore::open(&root, &DEFECTS).archive_file(),
-        "goal-archive" => DocStore::open(&root, &GOALS).archive_file(),
-        "source" => root.join(kanzei_tools::docstore::SOURCES.rel_path),
-        "finding" => root.join(kanzei_tools::docstore::FINDINGS.rel_path),
-        "report" => root.join(".kanzei/research/report.md"),
-        "source-archive" => DocStore::open(&root, &SOURCES).archive_file(),
-        "finding-archive" => DocStore::open(&root, &FINDINGS).archive_file(),
-        other => return Err(format!("unknown kind `{other}`")),
-    };
-    if !path.is_file() {
-        return Err(format!("文档还不存在:{}", path.display()));
-    }
-    Ok(path)
-}
-
-/// 用系统默认程序打开文档原文(应用内查看器的"外部打开"兜底)。
-#[tauri::command]
-fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
-    let path = docs_path(&project_dir, &kind)?;
-    hidden_command("cmd")
-        .args(["/c", "start", "", &path.display().to_string()])
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
 #[tauri::command]
 async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
@@ -2067,18 +1956,6 @@ fn conversation_delete(project_dir: String, sequences: Vec<i64>, process_id: Opt
     store
         .delete_events_by_sequence(&session_id, "conversation.updated", &sequences)
         .map_err(|e| e.to_string())
-}
-
-/// 应用内查看文档:返回原文,前端直接渲染(markdown/代码),不再强制跳外部工具。
-#[tauri::command]
-fn docs_read(project_dir: String, kind: String) -> Result<serde_json::Value, String> {
-    let path = docs_path(&project_dir, &kind)?;
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
-    Ok(json!({
-        "path": path.display().to_string(),
-        "name": path.file_name().and_then(|n| n.to_str()).unwrap_or(&kind),
-        "content": content,
-    }))
 }
 
 #[tauri::command]
