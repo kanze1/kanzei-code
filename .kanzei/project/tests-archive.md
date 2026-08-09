@@ -776,3 +776,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: settings_save_at_path_impl 迁移至 settings.rs 并改用模块内 settings_read_document/settings_write_document 后，kanzei-app 43 项全部通过。
 - 收尾: 1786296386
+
+## T-1786296540 R-153 规范初始化 command 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: conventions_init 迁入 docs.rs 并改为 docs:: 注册后，kanzei-app 43 项全部通过。
+- 收尾: 1786296540

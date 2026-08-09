@@ -173,7 +173,7 @@ run::run_prompt,
             docs::docs_open,
             run::summarize_chat,
             git_status,
-            conventions_init,
+            docs::conventions_init,
             conversation::conversation_clear,
             conversation::conversation_delete,
             docs::docs_read,
@@ -535,26 +535,6 @@ pub(crate) fn hidden_command(program: &str) -> Command {
         command.creation_flags(0x0800_0000);
     }
     command
-}
-
-/// 开发规范模板(不存在时一键创建;用户手写维护,agent 只读注入)。
-#[tauri::command]
-fn conventions_init(project_dir: String) -> Result<String, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let path = root.join(CONVENTIONS_REL);
-    if path.is_file() {
-        return Ok(path.display().to_string());
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(
-        &path,
-        "# 开发规范\n\n## 代码风格\n- \n\n## 提交规范\n- \n\n## 测试要求\n- \n\n## 禁止事项\n- \n",
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(path.display().to_string())
 }
 
 // ---------- 运行 ----------
