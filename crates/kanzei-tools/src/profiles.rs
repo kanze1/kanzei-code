@@ -574,6 +574,31 @@ impl Component for ReadonlyProfile {
         // 工具集 = Base 的只读族(read/glob/grep/files/git 只读子命令) + webfetch;
         // 权限强制(read/write/edit 硬 deny、bash 禁用提示替代)在批2 落码,
         // 批1 只建档位概念与 agent,装配必须能解析出这个 profile。
+        // 权限强制(批2):write/edit/bash 硬 deny(带替代指引),只读族显式放行。
+        for action in ["read", "glob", "grep", "files"] {
+            draft.permissions.push(rule(action, "*", Effect::Allow));
+        }
+        // git 只读子命令放行;状态/差异/日志是分析任务的主干工具。
+        for subcommand in ["status", "diff", "log"] {
+            draft
+                .permissions
+                .push(rule("git", subcommand, Effect::Allow));
+        }
+        // 只读档位下联网抓取放行(分析"外部事实"时的主要只读通道)。
+        draft
+            .permissions
+            .push(rule("webfetch", "*", Effect::Allow));
+        // 写与命令:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
+        // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
+        // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
+        for action in ["write", "edit", "bash"] {
+            draft.permissions.push_managed_hard_deny(
+                rule(action, "*", Effect::Deny),
+                None,
+                Some("只读档位:write/edit/bash 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
+            );
+        }
+        // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。
         draft.agents.insert(
             "readonly",
             AgentDef {
@@ -942,5 +967,67 @@ mod tests {
             .find(|s| s.action == "glob")
             .expect("快照里应有 glob");
         assert_eq!(glob.effect, Effect::Allow);
+    }
+
+    /// R-102 批2:readonly 档位权限强制——写与命令硬 deny 且带替代指引。
+    #[test]
+    fn readonly_profile_hard_denies_write_and_bash() {
+        let root = PathBuf::from("C:/kanzei-r102-deny");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Readonly,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(super::ResearchProfile)
+            .add(super::ReadonlyProfile)
+            .add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+
+        // 写与命令:整体 deny(工具会被摘除,模型看不见)。
+        for action in ["write", "edit", "bash"] {
+            assert_eq!(
+                snapshot.evaluate(action, "*"),
+                Effect::Deny,
+                "{action} 在只读档位必须硬 deny"
+            );
+            let hint = snapshot.denial_hint(action, "anything");
+            assert!(
+                hint.contains("read/glob/grep"),
+                "{action} 的拒绝理由要点名替代工具: {hint}"
+            );
+        }
+        // 只读族放行。
+        for action in ["read", "glob", "grep", "files", "webfetch"] {
+            assert_eq!(
+                snapshot.evaluate(action, "*"),
+                Effect::Allow,
+                "{action} 在只读档位必须放行"
+            );
+        }
+        // git 只读子命令放行,其余子命令维持默认 ask。
+        for subcommand in ["status", "diff", "log"] {
+            assert_eq!(
+                snapshot.evaluate("git", subcommand),
+                Effect::Allow,
+                "git {subcommand} 应放行"
+            );
+        }
+        // 工具物化:write/edit/bash 从工具表摘除,模型根本拿不到。
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|t| t.name())
+            .collect();
+        for gone in ["write", "edit", "bash"] {
+            assert!(
+                !names.contains(&gone),
+                "{gone} 应被整体摘除,实际工具表: {names:?}"
+            );
+        }
     }
 }
