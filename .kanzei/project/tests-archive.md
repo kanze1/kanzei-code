@@ -981,3 +981,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 B6 runner/tool_exec.rs 拆解:71 passed;修复段C/段D 边界(ProbeTool 区与孤立 #[test] 遗留)、B6 项提 pub(crate)、mod.rs tests use 清理
 - 收尾: 1786305886
+
+## T-1786305996 R-155 B7 runner/subagent.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-155 B7 runner/subagent.rs 拆解:71 passed;SubagentRuntime pub 平铺(pub use subagent::* + 显式 pub(crate) use run_subagent/task_spec,修 E0365)、AskFuture import 补全、ToolOutput 全限定引用清理
+- 收尾: 1786305996
