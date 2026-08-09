@@ -382,3 +382,141 @@ pub async fn provider_test(
 
 #[allow(dead_code)]
 fn _state_type_marker(_: Option<State<'_, AppState>>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanzei_harness::KanzeiConfig;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn 运行上限只写填了的键_留空的键从配置里移除() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-limits-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let payload = |limits: LimitsPayload| SettingsPayload {
+            primary: String::new(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits,
+            providers: vec![],
+        };
+        settings_save_at_path(
+            payload(LimitsPayload {
+                max_tokens: Some(16384),
+                subagent_timeout_secs: Some(300),
+                ..Default::default()
+            }),
+            &path,
+        )
+        .unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.limits.max_tokens, Some(16384));
+        assert_eq!(saved.limits.subagent_timeout_secs, Some(300));
+        assert_eq!(saved.limits.max_tasks_per_turn, None, "没填的键不该被写进文件");
+        assert_eq!(saved.limits.max_tasks_per_turn(), 8, "没填就走内置默认");
+        settings_save_at_path(payload(LimitsPayload::default()), &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("max_tokens"), "清空后仍留着死键:\n{text}");
+        let saved: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(saved.limits.max_tokens(), 8192);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn settings_save_preserves_handwritten_permission_rules() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            "[permissions]\n[[permissions.rules]]\naction = \"bash\"\nresource = \"{\\\"command\\\":\\\"git status\\\",\\\"workdir\\\":\\\".\\\"}\"\neffect = \"allow\"\n",
+        ).unwrap();
+        settings_save_at_path(SettingsPayload {
+            primary: "anthropic:claude-sonnet-5".into(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits: Default::default(),
+            providers: vec![],
+        }, &path).unwrap();
+        let config: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].action, "bash");
+        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn settings_save_preserves_comments_and_unknown_fields() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-preserve-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            "# 顶部注释:手写配置\nproxy = \"http://127.0.0.1:7890\"\n\n[models]\nprimary = \"anthropic:claude-sonnet-5\" # 主模型\n\n[future_section]\nnew_field = \"来自新版本\"\n\n[[permissions.rules]]\naction = \"read\"\nresource = \"*/.env\"\neffect = \"deny\"\n",
+        ).unwrap();
+        settings_save_at_path(SettingsPayload {
+            primary: "anthropic:claude-opus-5".into(),
+            fast: "ollama:qwen3.5:4b".into(),
+            proxy: "env".into(),
+            reasoning: Some("high".into()),
+            codex_fast_mode: true,
+            profile_default: Some("dev".into()),
+            profile: None,
+            limits: Default::default(),
+            providers: vec![],
+        }, &path).unwrap();
+        let saved = std::fs::read_to_string(&path).unwrap();
+        for expected in [
+            "# 顶部注释:手写配置",
+            "# 主模型",
+            "[future_section]",
+            "new_field = \"来自新版本\"",
+        ] {
+            assert!(saved.contains(expected), "missing preserved text: {expected}\n---\n{saved}");
+        }
+        assert!(saved.contains("proxy = \"env\""), "proxy should reset to env:\n{saved}");
+        let config: KanzeiConfig = toml::from_str(&saved).unwrap();
+        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-opus-5"));
+        assert_eq!(config.models.reasoning.as_deref(), Some("high"));
+        assert_eq!(config.models.codex_fast_mode, Some(true));
+        assert_eq!(config.permissions.rules.len(), 1);
+        assert_eq!(config.permissions.rules[0].resource, "*/.env");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn settings_save_refuses_to_overwrite_unparseable_config() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-settings-broken-{}.toml",
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let broken = "[models\nprimary = 不是合法 toml";
+        std::fs::write(&path, broken).unwrap();
+        let result = settings_save_at_path(SettingsPayload {
+            primary: "anthropic:claude-sonnet-5".into(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits: Default::default(),
+            providers: vec![],
+        }, &path);
+        assert!(result.is_err(), "saving over a broken config must fail");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), broken, "file must be untouched");
+        let _ = std::fs::remove_file(path);
+    }
+}

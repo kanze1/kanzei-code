@@ -836,3 +836,13 @@
 - 命令: node scripts/ui-runtime-smoke.mjs
 - 摘要: main.js 全量执行、初始化 222 次 invoke、7 个主视图切换与需求/缺陷/目标/测试/历史列表渲染通过，0 运行时错误。
 - 收尾: 1786297655
+
+## T-1786297934 R-153 settings_tests 迁移定向测试 [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 首次迁移编译失败：settings.rs 测试作用域缺少 KanzeiConfig 导入，已登记 D-228 并修复。
+- 收尾: 1786297955
+
+## T-1786297996 R-153 settings_tests 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 修复 settings.rs 测试显式导入 KanzeiConfig 后，43 项测试全绿；四个设置测试均在 settings::tests 下通过。
+- 收尾: 1786297996

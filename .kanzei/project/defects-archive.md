@@ -2225,3 +2225,10 @@
 - 优先级: P1
 - 修复: projects.rs 的 ExportOptions 已公开为 crate 内可用并公开字段；main.rs 增加 `pub(crate) use projects::{export_project_data, ExportOptions}` 兼容 state_tests，command 实际实现仍位于 projects::export_project_data。T-1786296941 cargo test -p kanzei-app 43 项全绿。
 - 验收证据: crates/kanzei-app/src/projects.rs:80-88 为 payload；main.rs 模块 re-export；state_tests 导入并调用真实 export_project_data；T-1786296941 全绿。
+
+## D-228 settings_tests 迁移后缺少 KanzeiConfig 测试导入导致编译失败 [fixed] (medium)
+- 复现: 将 settings_tests 从 main.rs 移入 settings.rs 后运行 `cargo test -p kanzei-app`，settings.rs 测试作用域无法解析 KanzeiConfig，编译报 4 处 E0425。
+- 影响: R-153 的测试迁移无法编译，阻断定向回归。
+- 标签: 后端
+- 进展: 已修复：`crates/kanzei-app/src/settings.rs:415-416` 的 `#[cfg(test)] mod tests` 增加 `use kanzei_harness::KanzeiConfig;`，解决迁移后测试模块作用域缺失。复核证据：T-1786297996 `cargo test -p kanzei-app` 43 项全绿，四个迁移后的 settings::tests 均通过。
+- 优先级: P1

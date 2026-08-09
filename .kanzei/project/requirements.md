@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续复核批10/11结构：除 `main.rs:367-1010` 的 run_task_impl 尚未搬迁外，当前 `main.rs:208-348` 的 workspace_snapshot/docs_snapshot、`main.rs:350-363` 的 hidden_command、`main.rs:1013-1167` 的 settings_tests 也仍在入口文件；按验收①“只含 mod 声明+main()+Builder 装配”与设计 §A 目标，整体迁入 run.rs 后还需把这些残留按域归位，不能仅删除 run_task_impl 就宣称 ≤300 行。当前未改行为，保持 doing、批次 10/11。
+- 进展: 本轮实际迁移 `settings_tests`：原 `main.rs:1013-1167` 的四个设置测试已移入 `crates/kanzei-app/src/settings.rs:415-514`，测试断言与真实 settings_save_at_path 调用保持；迁移初次暴露 KanzeiConfig 作用域缺失，已登记并修复 D-228。T-1786297996 `cargo test -p kanzei-app` 43 项全绿。main.rs 当前约 1013 行；run_task_impl、workspace_snapshot/docs_snapshot、hidden_command 仍待按域搬迁，批次保持 10/11。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
