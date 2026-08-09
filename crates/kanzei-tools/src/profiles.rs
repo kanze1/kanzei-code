@@ -1029,5 +1029,29 @@ mod tests {
                 "{gone} 应被整体摘除,实际工具表: {names:?}"
             );
         }
+
+        // R-102 验收③:档位权限快照测试。快照语义 = 每个工具在 `*` 资源上的
+        // 最终决策 + 是否整体摘除。只读档位快照必须反映全部强制规则。
+        let snap = snapshot.permission_snapshot();
+        let by_action = |action: &str| {
+            snap.iter()
+                .find(|s| s.action == action)
+                .unwrap_or_else(|| panic!("快照里缺少 {action}"))
+        };
+        // 写/命令:Deny 且 fully_denied(工具整体摘除)。
+        for action in ["write", "edit", "bash"] {
+            let item = by_action(action);
+            assert_eq!(item.effect, Effect::Deny, "{action} 快照应为 Deny");
+            assert!(item.fully_denied, "{action} 快照应标记 fully_denied");
+        }
+        // 只读族:Allow 且不摘除。
+        for action in ["read", "glob", "grep", "files", "webfetch"] {
+            let item = by_action(action);
+            assert_eq!(item.effect, Effect::Allow, "{action} 快照应为 Allow");
+            assert!(!item.fully_denied, "{action} 不应被摘除");
+        }
+        // task 补进快照(runner 内建只读子代理),档位下默认 ask 即放行无副作用。
+        let task = by_action("task");
+        assert!(!task.fully_denied, "task 在只读档位不应被摘除");
     }
 }
