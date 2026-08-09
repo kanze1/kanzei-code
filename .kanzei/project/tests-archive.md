@@ -300,3 +300,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: conversation 四个旧命令副本已从 main.rs 删除，invoke_handler 保留 conversation:: 全路径消费者。
 - 收尾: 1786286877
+
+## T-1786287002 R-153 harness_ext 模块接入定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: harness_ext 模块已接入，FrontendToolsComponent 与 QuickCaptureComponent 通过真实装配调用，前端只读工具与快速 tracker 权限保持原语义。
+- 收尾: 1786287012

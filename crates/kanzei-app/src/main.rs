@@ -32,6 +32,7 @@ mod mobile;
 mod docs;
 mod settings;
 mod conversation;
+mod harness_ext;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
@@ -898,7 +899,7 @@ async fn quick_req(
         config: config.clone(),
     };
     let mut harness = Harness::default();
-    harness.add(QuickCaptureComponent { capture });
+    harness.add(harness_ext::QuickCaptureComponent { capture });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
     let system = if capture == "defect" {
         // D-205:复现字段禁止编造。旧文案只说 "if inferable",推断不出时模型的默认
@@ -1788,7 +1789,7 @@ async fn run_task(
         .add(ResearchProfile)
         // 前端自查与定位工具只在桌面端有意义(需要真实运行中的窗口);
         // 顺序在 profile 之后、Config 之前,用户配置仍可覆盖。
-        .add(FrontendToolsComponent)
+        .add(harness_ext::FrontendToolsComponent)
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
@@ -2510,7 +2511,7 @@ mod assembly_tests {
             .add(BaseComponent)
             .add(DevProfile)
             .add(ResearchProfile)
-            .add(FrontendToolsComponent)
+            .add(harness_ext::FrontendToolsComponent)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
         let tools: Vec<String> = snapshot
