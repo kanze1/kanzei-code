@@ -145,7 +145,7 @@ fn main() {
 run::run_prompt,
             run::stop_run,
             run::answer_ask,
-            pending_asks_get,
+            run::pending_asks_get,
             settings::settings_get,
             settings::settings_save,
             settings::settings_open,
@@ -635,22 +635,6 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 }
 
 // ---------- 运行 ----------
-
-#[tauri::command]
-fn pending_asks_get(
-    state: State<'_, AppState>,
-    project_dir: String,
-    process_id: Option<String>,
-) -> Result<Vec<serde_json::Value>, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let session_id = process_session_id(&root, process_id.as_deref());
-    let runtime = runtime_for(&state, &session_id);
-    let asks = runtime.asks.lock().unwrap();
-    Ok(asks
-        .iter()
-        .map(|(id, pending)| pending_ask_payload(*id, pending))
-        .collect())
-}
 
 /// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。
 #[tauri::command]

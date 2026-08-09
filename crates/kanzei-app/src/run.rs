@@ -12,6 +12,15 @@ pub(crate) use crate::run_task_impl as run_task;
 
 use crate::take_pending_ask;
 
+#[tauri::command]
+pub(crate) fn pending_asks_get(state: tauri::State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    let session_id = process_session_id(&root, process_id.as_deref());
+    let runtime = runtime_for(&state, &session_id);
+    let asks = runtime.asks.lock().unwrap();
+    Ok(asks.iter().map(|(id, pending)| crate::pending_ask_payload(*id, pending)).collect())
+}
+
 fn persist_always_allow(project_root: &Path, action: &str, resource: &str) -> Result<(kanzei_core::AskReply, PathBuf), String> {
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
     let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern).map_err(|error| error.to_string())?;
