@@ -1329,3 +1329,70 @@
 
 - n: 0/0
 
+## R-102 CLI 只读运行档位:分析类任务免配权限直接跑 [done]
+- 复杂度: 中
+- 优先级: P2
+- 归属: kanzei
+- 背景: 2026-08-07 用 kz 做只读前端分析:agent 首选 bash 触发询问,非交互场景直接拦停;唯一出路是给沙盒放行 `bash *`,权限粒度与"只是分析别动文件"的意图之间缺一层表达。
+- 验收: 提供只读档位(如 `kz run --readonly` 或 profile):read/glob/grep/task 放行,write/edit 硬 deny,bash 限制为无副作用或直接禁用并提示替代工具;非交互终端下只读任务可零配置完整跑完;补档位权限快照测试。
+- 设计定位: 让"问问题/做分析"成为 kz 的零门槛入口
+- 阶段: 4
+
+- 标签: 核心
+
+- refs: D-121
+
+- 批次: 3/3
+- 进展: 2026-08-10 批次规划(复杂度中→3批):批1=只读档位概念落码——CLI 参数/配置接入(readonly 档位解析 + profile 合并 + 权限快照函数),批2=权限强制(read/write/edit 硬 deny、bash 禁用提示替代、read/glob/grep/task 放行)+ 非交互零配置路径打通,批3=档位权限快照测试 + 文档。
+2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。
+2026-08-10 批2 完成(4d00537):ReadonlyProfile 权限强制——write/edit/bash 硬 deny(managed 替代指引点 read/glob/grep/files/git status|diff|log/webfetch)、只读族与 git 只读子命令放行、工具物化摘除写命令。真实冒烟:kz run --readonly 用 ollama 非交互零配置跑完,read 放行、零权限询问。
+2026-08-10 批3 完成(55c6c82):档位权限快照断言(快照 write/edit/bash=Deny+fully_denied、read/glob/grep/files/webfetch=Allow、task 不摘除)。文档:usage 已含 --readonly 行。
+批次 3/3 走满,三批提交 b2e6947/4d00537/55c6c82,定向测试全绿,待全量测试后关闭。
+2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。kz --help 实测展示 --readonly;harness 130 + kz bin 7 测试全绿,workspace check 通过。批2 开始:ReadonlyProfile 权限强制(write/edit/bash 硬 deny)。
+
+- 状态: doing
+
+## R-103 Memory 系统总纲:文件优先、分级、子代理管理 [done]
+- 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。
+- 复杂度: 大
+- 优先级: P0
+- 归属: kanzei
+- 来源: 2026-08-08 用户定调的下一个大规划(用户为记忆研究方向,taste 已对齐)
+- 内容: 以 docs/design/memory_system.md 为设计基线。五个目标:提高易用性、上下文管理更精准、用户个性化持久化、常用轨迹效率提高、agent 工作效率提高。核心决策(不再重议):文件优先(markdown 真源,可编辑可透明,git 可恢复);不用向量库/知识图谱/Mem0 类框架,给 agent 好的搜索工具(FTS5+结构化过滤);记忆写读分离,写路径由 memory-manager 子代理专管;分级 = scope(global/project) × category(preference/habit/fact/sop/episode);agent 既是用户,验收全部取自举轨迹实证。
+- 验收: R-104~R-107 四期全部落地;连续自举轮次中出现"写入→检索命中→避免重复探索"的闭环实证;记忆内容全部可 git 恢复;SQLite 仅存可重建派生物(FTS 索引/hits/episode 表)。
+- 设计: docs/design/memory_system.md
+- refs: R-098 R-099 D-088 D-114 R-104 R-107
+- 阶段: 4
+- 设计定位: 记忆作为 first-class primitive 的总纲与门禁
+- 依赖: 
+
+- 标签: 核心
+
+- 进展: 2026-08-10 接手:R-104~R-107 四期均已 done,总纲验收逐项盘点——①四期落地✓;③记忆文件全部被 git 跟踪(29 条 M- + INDEX + inbox)✓;④index.db 未被 git 跟踪(仅存 FTS 索引等可重建派生物)✓;②闭环实证已显式转移至 R-145(仅跟踪实证,不发版不可本机验证)。
+批次 1/7 完成:子代理/写路径现状盘点——主 agent 工具表(profiles.rs:110-121)只含 memory_search/note/stats;写路径 add/update/merge/stale 定义在 manager.rs(57-294)且只注册进 manager_agent 专属工具表(manager.rs:331-350);memory-manager 子代理 AgentDef(manager.rs:628-666)= fast/Subagent/steps10/无 shell;.kanzei/memory/* 硬 deny 指向 memory_note 草稿投递(profiles.rs:180-184)。写读分离设计 §3 完全落地。
+批次 2/7 完成:设计基线 §9 工程决策逐项核对——§9.1 memory 模块结构✓;§9.2 U-/M- 前缀+slug 文件名+frontmatter 平铺✓;§9.3 episode 存 state.db 不落文件✓(mod.rs:6/45);§9.4 FTS5 unicode61+bm25 topN+log(1+hits) 重排✓(store.rs:347/469/524);§9.5 tmp+rename 原子替换+可整体重建✓(store.rs:1119-1123);§9.6 工具集主 agent 三件套+add 去重去噪 force✓;§9.7 INDEX 预注入常驻✓(profiles.rs:258-286)。
+批次 3/7 完成:memory 模块完整性核验——派生全量重建 rebuild_all(store.rs:299-370)、归档目录 archive/(store.rs:98-99)供 load_archived_ids 保 ID 不复用、merge 合并自动 stale+superseded_by 墓碑(store.rs:608/675)、integrity 缺号/重复检测(store.rs:566/1347)、stale 降权不出 active(store.rs:1331)。缺口:stale→archive/ 搬运流程未实现,已由 D-217/D-231 独立跟踪(R-165 承接),不影响本总纲验收项。
+批次 4/7 完成:Memory UI 页与设计 §6 一致性——refreshMemory(13-memory.js:3)、memory_context_bill(11)、架构图 renderMemoryArch(307-342 scope 卡片+category 格+integrity 警告)、条目视图 loadMemoryList(347, stale/dormant 标记)、命中/注入统计(259-305)、整理 inbox 按钮(html:303)。设计 §6 全部落地。
+批次 5/7 完成:注入注册与 §5 一致性——resident_index 常驻注入(profiles.rs:258-286)、prompt_hints 按任务描述匹配触发(mod.rs:476-523)、sop 提炼候选箱 harvest_sop(mod.rs:398-419)、预算口径统一 D-216(mod.rs:275-276)。§5 注入机制全部落地。
+批次 6/7 完成:git 恢复实证——项目记忆 30 文件全部被 git 跟踪且 git log 可见演进历史(4fa7c23/0f91e21 等);inbox.md(草稿暂存)与 index.db(派生物)在 .gitignore 不入库,符合设计(真源 md 可恢复、派生物可重建)。
+批次 7/7 完成:验收证据整理与收口——①R-104~R-107 四期 done(requirements-archive 关闭记录+提交哈希)✓;②闭环实证→R-145 跟踪(R-105/R-106 同口径)✓;③记忆文件全 git 跟踪+历史可恢复✓;④index.db 未跟踪仅存派生物(store.rs rebuild_all 可重建)✓。三项已证、一项转移。总纲本身无新增代码(全部代码由 R-104~R-107 交付),本轮为核验收口。
+批次 1/8 完成:子代理/写路径现状盘点——主 agent 工具表(profiles.rs:110-121)只含 memory_search/note/stats;写路径 add/update/merge/stale 定义在 manager.rs(57-294)且只注册进 manager_agent 专属工具表(manager.rs:331-350);memory-manager 子代理 AgentDef(manager.rs:628-666)= fast/Subagent/steps10/无 shell;.kanzei/memory/* 硬 deny 指向 memory_note 草稿投递(profiles.rs:180-184)。写读分离设计 §3 完全落地。
+批次 2/8 完成:设计基线 §9 工程决策逐项核对——§9.1 memory 模块结构✓;§9.2 U-/M- 前缀+slug 文件名+frontmatter 平铺✓;§9.3 episode 存 state.db 不落文件✓(mod.rs:6/45);§9.4 FTS5 unicode61+bm25 topN+log(1+hits) 重排✓(store.rs:347/469/524);§9.5 tmp+rename 原子替换+可整体重建✓(store.rs:1119-1123);§9.6 工具集主 agent 三件套+add 去重去噪 force✓;§9.7 INDEX 预注入常驻✓(profiles.rs:258-286)。
+批次 3/8 完成:memory 模块完整性核验——派生全量重建 rebuild_all(store.rs:299-370)、归档目录 archive/(store.rs:98-99)供 load_archived_ids 保 ID 不复用、merge 合并自动 stale+superseded_by 墓碑(store.rs:608/675)、integrity 缺号/重复检测(store.rs:566/1347)、stale 降权不出 active(store.rs:1331)。缺口:stale→archive/ 搬运流程未实现,已由 D-217/D-231 独立跟踪(R-165 承接),不影响本总纲验收项。
+批次 4/8 完成:Memory UI 页与设计 §6 一致性——refreshMemory(13-memory.js:3)、memory_context_bill(11)、架构图 renderMemoryArch(307-342 scope 卡片+category 格+integrity 警告)、条目视图 loadMemoryList(347, stale/dormant 标记)、命中/注入统计(259-305)、整理 inbox 按钮(html:303)。设计 §6 全部落地。
+批次 5/8 完成:注入注册与 §5 一致性——resident_index 常驻注入(profiles.rs:258-286)、prompt_hints 按任务描述匹配触发(mod.rs:476-523)、sop 提炼候选箱 harvest_sop(mod.rs:398-419)、预算口径统一 D-216(mod.rs:275-276)。§5 注入机制全部落地。
+批次 6/8 完成:git 恢复实证——项目记忆 30 文件全部被 git 跟踪且 git log 可见演进历史(4fa7c23/0f91e21 等);inbox.md(草稿暂存)与 index.db(派生物)在 .gitignore 不入库,符合设计(真源 md 可恢复、派生物可重建)。
+批次 7/8:验收证据逐项整理——①R-104~R-107 四期 done(requirements-archive 关闭记录+提交证据);②闭环实证→R-145 跟踪;③记忆文件全 git 跟踪+历史可恢复;④index.db 未跟踪仅存派生物(store.rs rebuild_all 可重建)。三项已证、一项转移。
+批次 8/8:收口。
+批次 1/8 完成:子代理/写路径现状盘点——主 agent 工具表(profiles.rs:110-121)只含 memory_search/note/stats;写路径 add/update/merge/stale 定义在 manager.rs(57-294)且只注册进 manager_agent 专属工具表(manager.rs:331-350);memory-manager 子代理 AgentDef(manager.rs:628-666)= fast/Subagent/steps10/无 shell;.kanzei/memory/* 硬 deny 指向 memory_note 草稿投递(profiles.rs:180-184)。写读分离设计 §3 完全落地。
+批次 2/8 完成:设计基线 §9 工程决策逐项核对——§9.1 memory 模块结构✓;§9.2 U-/M- 前缀+slug 文件名+frontmatter 平铺✓;§9.3 episode 存 state.db 不落文件✓(mod.rs:6/45);§9.4 FTS5 unicode61+bm25 topN+log(1+hits) 重排✓(store.rs:347/469/524);§9.5 tmp+rename 原子替换+可整体重建✓(store.rs:1119-1123);§9.6 工具集主 agent 三件套+add 去重去噪 force✓;§9.7 INDEX 预注入常驻✓(profiles.rs:258-286)。
+批次 3/8 完成:memory 模块完整性核验——派生全量重建 rebuild_all(store.rs:299-370)、归档目录 archive/(store.rs:98-99)供 load_archived_ids 保 ID 不复用、merge 合并自动 stale+superseded_by 墓碑(store.rs:608/675)、integrity 缺号/重复检测(store.rs:566/1347)、stale 降权不出 active(store.rs:1331)。发现缺口:stale→archive/ 搬运流程未实现,已由 D-217/D-231 独立跟踪(R-165 Memory Compiler 承接),不影响本总纲验收项(git 可恢复/SQLite 派生物),收口时标注。
+批次 0/8 已写批次表。继续批4:Memory UI 页与设计 §6 一致性核对。
+批次 1/8 完成:子代理/写路径现状盘点——主 agent 工具表(profiles.rs:110-121)只含 memory_search/note/stats;写路径 add/update/merge/stale 定义在 manager.rs(57-294)且只注册进 manager_agent 专属工具表(manager.rs:331-350);memory-manager 子代理 AgentDef(manager.rs:628-666)= fast/Subagent/steps10/无 shell;.kanzei/memory/* 硬 deny 指向 memory_note 草稿投递(profiles.rs:180-184)。写读分离设计 §3 完全落地。
+批次 2/8 完成:设计基线 §9 工程决策逐项核对——§9.1 memory 模块结构✓(kanzei-tools/src/memory/{mod,store,tools,manager}.rs);§9.2 U-/M- 前缀+slug 文件名+frontmatter 平铺✓(store.rs:284 slug 终身不改、U-001/M-001 测试);§9.3 episode 存 state.db 不落文件✓(mod.rs:6/45);§9.4 FTS5 unicode61+bm25 topN+log(1+hits) 重排✓(store.rs:347/469/524);§9.5 tmp+rename 原子替换+可整体重建✓(store.rs:1119-1123);§9.6 工具集主 agent 三件套+add 去重去噪 force✓(profiles.rs:110-121, manager.rs:97);§9.7 INDEX 预注入常驻✓(profiles.rs:258-286 resident_index 预算注入)。
+批次 0/8 已写批次表。继续批3:memory 模块完整性核验。
+批次规划(8批):批1=子代理/写路径现状盘点(memory-manager 是否专管写路径、主 agent 是否只有 search/note/stats);批2=设计基线 §9 工程决策核对(episode 存 state.db、FTS tokenizer、安全模型、注入注册);批3=memory 模块完整性核验(去重去噪/归档/INDEX 重建);批4=Memory UI 页与设计 §6 一致性核对;批5=注入注册与 §5 一致性核对;批6=记忆内容 git 恢复实证;批7=验收证据逐项整理;批8=收口关闭(实证去向标注 R-145)。
+批次 0/8:开始批1。
+
+- 批次: 7/7
+
