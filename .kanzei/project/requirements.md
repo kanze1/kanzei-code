@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 260894e：settings_save_at_path 的校验责任已移入 settings.rs:187（validate_model_roles），main.rs 的 settings_save_at_path_impl 仅保留配置读写与序列化逻辑。cargo check -p kanzei-app --tests 通过，T-1786285213 已登记通过。保存函数体仍在 main.rs，下一批继续物理搬迁。
+- 进展: 已提交 4c0b5a3：配置文件读取、KanzeiConfig 解析与 DocumentMut 构造已迁入 settings.rs:123-133，settings_save_at_path_impl 通过 crate::settings_read_document 获取文档；字段写入与最终写盘仍在 main.rs，下一批继续迁移。cargo check -p kanzei-app --tests 通过，T-1786285299 已登记通过。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
