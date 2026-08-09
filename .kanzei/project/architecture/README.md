@@ -14,6 +14,7 @@
 
 - [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线——可替代区复刻优先、创新只投护城河;取活与验收判据。
 - [`memory_system.md`](../../../docs/design/memory_system.md)：Memory 系统设计基线(R-103~R-107,现行实施依据)。
+- [`memory_decision_sufficiency.md`](../../../docs/design/memory_decision_sufficiency.md)：Memory 判据层升级——决策充分性(R-149 done/R-150,含边界拍板与实证修正记录)。
 - [`reliability_usability_self_hosting_quality.md`](../../../docs/design/reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量不变量、验证证据和阶段门禁。
 - [`harness_m1.md`](../../../docs/design/harness_m1.md)：Harness 六注册表 + 拦截器链 + dev/research 双 profile 架构基线。
 - [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(进行中)。
