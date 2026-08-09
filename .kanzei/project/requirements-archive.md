@@ -1276,3 +1276,19 @@
 - 批次: 10/10
 - 进展: B0-B9 全部完成。B4 完成:main.js(5171→3732)切出 12-docs-pages(199)+11-docs-list(667)+10-docs-core(108),index 按序 main→04…12。B5:切出 09-sessions(462),main.js 3732→2683(实际 2666+readJson/writeJson)。B6 提交 b1a5d2e:切出 08-compose(1049),readJson/writeJson 上提 01 区(82/90 行),main.js 2683。B7 提交 d318f46:切出 06-activity(491)+07-events(556),main.js 1636。B8 提交 0c3af9a:切出 05-chat-render(342)+04-markdown(136)相邻落位,main.js 1156。B9 提交 f34f28a:切出 01-core(98)/02-i18n(694)/03-shell(364),删除 main.js,index.html 01..18 按序;发现并修复切分漏行——第 98 行 `const promptBox=$("prompt")` 被区间跳过导致 08 顶层 dragover 绑定 ReferenceError(runtime 冒烟 723 行 batch-meter 断言崩即此因)。08→09 行数收敛提交 717de61:08 达 1049 行超验收③上限,队列输入+测试记录(renderPendingInputs/refreshTests/renderTestRuns 等 100 行)移入 09-sessions(会话历史域),08=949、09=562。行数对照:拆分前 main.js 7212 行(c339b58 基准 7020 + 后续新增 D-202/鞭挞/模型直选等),拆分后 18 文件合计 7200 行,单文件 35–949 行全部 ≤1000。验收④(发版后真机复查主视图/发送/设置页 E3 残余)不阻塞关闭,已注明待发版后执行。
 
+## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 来源: 2026-08-09 用户定调;外部 API 面已 Grep 核实(外部三 crate 零处使用模块路径,全走顶层再导出),划分与危险点清单已落设计文档 §C(行号基准 c339b58)。
+- 内容: runner/ 按 B1 event→B2 metrics→B3 redundancy→B4 context→B5 compaction→B6 tool_exec→B7 subagent→B8 drive 八批;store/ 按 S1 拆壳(connection/path 转 pub(crate))→S2 episodes→S3 notifications→S4 events→S5 inbox→S6 session→S7 schema(migrate 原样搬不重构)→S8 测试分域八批;mod.rs pub use 平铺保持 kanzei_core:: 顶层再导出零变更;测试随域下沉不建大 tests.rs,共享测试辅助建 #[cfg(test)] pub(crate) mod testutil。设计: docs/design/monolith_decomposition.md §C。
+- 边界: 零行为变更;run_once 保持 boxed 签名(与 run_subagent 递归的断点,改 async fn 立刻 E0072,两处加注释锁死);run_once_with_parts(778 行)只整体搬迁;不删零调用 pub 方法;唯一允许的非 move 改动是给 RedundancyWatch::note_step 加 debug_assert_eq!(calls.len(), results.len()) 与三处下标不变式注释。
+- 验收: ①每批独立提交且定向绿(cargo test -p kanzei-core + cargo check -p kanzei -p kanzei-app -p kanzei-tools),条目关闭前全量 cargo test --workspace 一次全绿(节奏见 conventions §1.4);②lib.rs 与外部三 crate(kanzei/kanzei-app/kanzei-tools)全程零改动仍编译(以①的 cargo check 为每批断言);③runner.rs/store.rs 单文件消失,各子文件 ≤900 行;④下标不变式 debug_assert 与注释落位;⑤拆前后行数对照记入进展。
+- refs: A-008
+- 依赖: 
+
+- 批次: 16/16
+- 进展: 16 批全部完成并提交:B1 event.rs 2e52179 / B2 metrics.rs 2ab49b3 / B3 redundancy.rs+testutil 26e802e / B4 context.rs 7c77194 / B5 compaction.rs 07297ff / B6 tool_exec.rs 219fd94 / B7 subagent.rs 15f857c / B8 drive.rs 2f4d449(每批独立提交+定向绿);store 域按锚点 4 提交:S1-S4 拆壳+episodes/notifications/events 2fd36cf / S5-S6 inbox/session d4fd6ad / S7-S8 schema+测试分域 c4faded(S1 拆壳无独立编译意义、同域连续小批按 §1.3 合并,每锚点前 cargo test -p kanzei-core 71 passed + cargo check 下游三 crate 绿)。
+验收⑤拆前后行数对照:runner.rs 3240 行→runner/ 3417 行(mod.rs 308 + event 151 + metrics 559 + redundancy 284 + context 428 + compaction 394 + tool_exec 303 + subagent 180 + drive 810);store.rs 1972 行→store/ 2106 行(mod.rs 139 + schema 451 + session 292 + events 282 + inbox 459 + notifications 250 + episodes 219 + testutil 14);最大子文件 drive.rs 810 行(≤900)。差值为拆解模块头注释与平铺 use,主体零行为变更。
+关闭前全量 cargo test --workspace 全绿(T-1786307001):kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43。lib.rs 与外部三 crate 全程零改动(各批 diff 均只含 store/runner 内文件)。
+

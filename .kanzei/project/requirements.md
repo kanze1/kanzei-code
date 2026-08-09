@@ -1,19 +1,5 @@
 # Requirements
 
-## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 核心
-- 来源: 2026-08-09 用户定调;外部 API 面已 Grep 核实(外部三 crate 零处使用模块路径,全走顶层再导出),划分与危险点清单已落设计文档 §C(行号基准 c339b58)。
-- 内容: runner/ 按 B1 event→B2 metrics→B3 redundancy→B4 context→B5 compaction→B6 tool_exec→B7 subagent→B8 drive 八批;store/ 按 S1 拆壳(connection/path 转 pub(crate))→S2 episodes→S3 notifications→S4 events→S5 inbox→S6 session→S7 schema(migrate 原样搬不重构)→S8 测试分域八批;mod.rs pub use 平铺保持 kanzei_core:: 顶层再导出零变更;测试随域下沉不建大 tests.rs,共享测试辅助建 #[cfg(test)] pub(crate) mod testutil。设计: docs/design/monolith_decomposition.md §C。
-- 边界: 零行为变更;run_once 保持 boxed 签名(与 run_subagent 递归的断点,改 async fn 立刻 E0072,两处加注释锁死);run_once_with_parts(778 行)只整体搬迁;不删零调用 pub 方法;唯一允许的非 move 改动是给 RedundancyWatch::note_step 加 debug_assert_eq!(calls.len(), results.len()) 与三处下标不变式注释。
-- 验收: ①每批独立提交且定向绿(cargo test -p kanzei-core + cargo check -p kanzei -p kanzei-app -p kanzei-tools),条目关闭前全量 cargo test --workspace 一次全绿(节奏见 conventions §1.4);②lib.rs 与外部三 crate(kanzei/kanzei-app/kanzei-tools)全程零改动仍编译(以①的 cargo check 为每批断言);③runner.rs/store.rs 单文件消失,各子文件 ≤900 行;④下标不变式 debug_assert 与注释落位;⑤拆前后行数对照记入进展。
-- refs: A-008
-- 依赖: R-152
-
-- 批次: 2/16
-- 进展: B1 完成 2e52179(event.rs)。B2 完成 2ab49b3:metrics.rs 拆出(354 行),is_git_query pub(crate),mod.rs 2781 行;首版段1 误从 426 行切进 task_spec json! 致编译失败,git show 定位后段1 从 433 起修复。71 passed + 下游 check 绿,lib.rs 零改动。下一批 B3:redundancy.rs(RedundancyWatch + failure_tests 下沉 + 共享测试辅助 testutil)。
-
 ## R-156 全仓 fmt 收敛并启用 fmt 闸门 [todo]
 - 优先级: P2
 - 复杂度: 小
