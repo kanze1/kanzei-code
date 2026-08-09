@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批2继续推进：`update.rs` 已完整承接路径/安装包校验/残留清理/更新日志/镜像判定 helpers：`pending_path`、`installer_path`、`validate_installer`、`clear_stale_installer`、`update_helper_path`、`update_log_path/update_log/update_log_at`、`image_stamp/image_replaced`；main.rs 对应函数已删除，main.rs 保留 pub(crate) 测试兼容导出。`cargo test -p kanzei-app` 回归记录 T-1786253319。启动流程、helper 进程、CLI 版本同步仍待迁移。
+- 进展: 批2继续推进：update.rs 已新增启动接棒、WebView 孤儿清理、安装 helper、进程存活探测、CLI 同步、CLI 版本比较、pending 替换实现；真实启动入口仍是 main.rs:718-723 的 update 模块调用。回归记录 T-1786253463。当前 main.rs 仍保留这些函数的旧副本，尚未物理删除，因此批2和 R-153 均保持 doing，下一步先清理旧副本并收口测试引用。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

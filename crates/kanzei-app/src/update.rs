@@ -130,6 +130,61 @@ pub(crate) async fn update_install_command(app: tauri::AppHandle, url: String) -
     Ok(format!("{prefix}已下载 {mb} MB,正在退出并静默安装,装完会自动重新打开"))
 }
 
-pub(crate) fn startup_update() -> bool { super::startup_update() }
-pub(crate) fn sync_bundled_cli() { super::sync_bundled_cli() }
-pub(crate) fn cleanup_orphan_webviews() { super::cleanup_orphan_webviews() }
+pub(crate) fn startup_update() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--kz-update-helper") {
+        if let (Some(exe), Some(pending)) = (args.get(2), args.get(3)) { apply_pending_update(Path::new(exe), Path::new(pending)); }
+        return true;
+    }
+    if args.get(1).map(String::as_str) == Some("--kz-install-helper") {
+        if let (Some(installer), Some(exe), Some(parent)) = (args.get(2), args.get(3), args.get(4).and_then(|p| p.parse().ok())) { run_install_helper(Path::new(installer), Path::new(exe), parent); }
+        return true;
+    }
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let _ = std::fs::remove_file(exe.with_extension("exe.previous"));
+    let _ = std::fs::remove_file(update_helper_path());
+    let pending = pending_path(&exe);
+    if !pending.is_file() { return false; }
+    match Command::new(&exe).arg("--kz-update-helper").arg(&exe).arg(&pending).spawn() { Ok(_) => true, Err(error) => { eprintln!("kzapp:无法启动自更新 helper: {error}"); false } }
+}
+
+pub(crate) fn cleanup_orphan_webviews() {
+    let script = format!(r#"$mine = {}
+$others = @(Get-Process kzapp -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $mine }})
+if ($others.Count -gt 0) {{ exit 0 }}
+Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object {{ $_.CommandLine -match 'dev\.kanzei\.app' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"#, std::process::id());
+    let mut cmd = Command::new("powershell"); cmd.args(["-NoProfile", "-Command", &script]);
+    #[cfg(windows)] { use std::os::windows::process::CommandExt; cmd.creation_flags(0x0800_0000); }
+    let _ = cmd.output();
+}
+fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline { if !process_alive(parent_pid) { return true; } std::thread::sleep(std::time::Duration::from_millis(200)); }
+    !process_alive(parent_pid)
+}
+fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
+    update_log(&format!("helper 启动 installer={} exe={} parent={parent_pid}", installer.display(), exe.display()));
+    let before = image_stamp(exe); let exited = wait_for_parent_exit(parent_pid, std::time::Duration::from_secs(30)); update_log(&format!("父进程退出={exited}"));
+    std::thread::sleep(std::time::Duration::from_millis(600)); cleanup_orphan_webviews();
+    match Command::new(installer).arg("/S").output() { Ok(out) if out.status.success() => update_log("安装器 exit=0"), Ok(out) => { update_log(&format!("安装器失败 exit={:?} stdout={} stderr={}", out.status.code(), String::from_utf8_lossy(&out.stdout).trim(), String::from_utf8_lossy(&out.stderr).trim())); return; }, Err(error) => { update_log(&format!("启动安装器失败: {error}")); return; } }
+    let after = image_stamp(exe); update_log(&format!("安装前 exe={before:?} 安装后 exe={after:?}"));
+    if !image_replaced(before, after) { update_log("安装器 exit=0 但 exe 未被替换(mtime/大小不变):目标可能被占用,或安装位与运行位不是同一个文件。保留安装包供手动执行。"); let _ = Command::new(exe).spawn(); return; }
+    let _ = Command::new(exe).spawn(); let _ = std::fs::remove_file(installer);
+}
+#[cfg(windows)] fn process_alive(pid: u32) -> bool { Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).output().ok().is_some_and(|out| String::from_utf8_lossy(&out.stdout).contains(&pid.to_string())) }
+#[cfg(not(windows))] fn process_alive(_pid: u32) -> bool { false }
+pub(crate) fn sync_bundled_cli() {
+    let Some(cargo_bin) = dirs::home_dir().map(|home| home.join(".cargo").join("bin")) else { return };
+    let ours = option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"); if ours == "dev" { return; }
+    let marker = cargo_bin.join(".kz-synced"); if std::fs::read_to_string(&marker).is_ok_and(|synced| synced.trim() == ours) { return; }
+    let Ok(exe) = std::env::current_exe() else { return }; let Some(sidecar) = exe.parent().map(|dir| dir.join("kz.exe")) else { return }; if !sidecar.is_file() { return; }
+    let target = cargo_bin.join("kz.exe"); if target.is_file() && !cli_is_older(&target, ours) { let _ = std::fs::write(&marker, ours); return; }
+    if let Err(error) = std::fs::create_dir_all(&cargo_bin).and_then(|()| { std::fs::copy(&sidecar, &target)?; std::fs::write(&marker, ours) }) { eprintln!("kzapp:同步 kz CLI 失败(下次启动重试): {error}"); }
+}
+fn cli_is_older(target: &Path, ours: &str) -> bool { let Ok(output) = Command::new(target).arg("--version").output() else { return true }; installed_cli_is_older(&String::from_utf8_lossy(&output.stdout), ours) }
+pub(crate) fn installed_cli_is_older(version_output: &str, ours: &str) -> bool { let Some(installed) = version_output.split('(').nth(1).and_then(|rest| rest.split(')').next()) else { return true }; match (build_stamp(installed), build_stamp(ours)) { (Some((a, _)), Some((b, _))) => a < b, _ => true } }
+fn apply_pending_update(exe: &Path, pending: &Path) {
+    std::thread::sleep(std::time::Duration::from_millis(250)); let backup = exe.with_extension("exe.previous"); let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while std::time::Instant::now() < deadline { let _ = std::fs::remove_file(&backup); if std::fs::rename(exe, &backup).is_ok() { match std::fs::rename(pending, exe) { Ok(()) => { if Command::new(exe).spawn().is_ok() { let _ = std::fs::remove_file(&backup); } else { let _ = std::fs::remove_file(exe); let _ = std::fs::rename(&backup, exe); } return; }, Err(_) => { let _ = std::fs::rename(&backup, exe); } } } std::thread::sleep(std::time::Duration::from_millis(250)); }
+    eprintln!("kzapp:pending 更新失败,保留旧版本与 pending 文件");
+}

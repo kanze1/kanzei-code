@@ -152,3 +152,7 @@
 ## T-1786253319 R-153 批2 update 基础 helper 完整迁移回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: update 基础 helper 迁移回归通过：路径、安装包校验、残留清理、日志、镜像指纹/替换判断均由 update.rs 提供，main.rs 测试兼容导出保持有效。
+
+## T-1786253463 R-153 批2 update 启动与 helper 迁移回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: update 启动/helper 迁移回归记录：update.rs 已提供启动接棒、清理、安装 helper、进程探测、CLI 同步和 pending 替换实现；main.rs 旧实现副本仍待后续物理删除。
