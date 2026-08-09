@@ -33,6 +33,7 @@ mod docs;
 mod settings;
 mod conversation;
 mod harness_ext;
+mod subagents;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
@@ -578,14 +579,6 @@ Reply in Chinese Markdown with: 1. summary and active defect count; 2. categorie
 4. impact of each defect; 5. suggested priority with reasons; 6. verifiable evidence using exact file paths, functions, \
 and line numbers; 7. concrete next steps. Do not modify files, run commands, update trackers, or claim unverified facts.";
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DefectReviewResult {
-    empty: bool,
-    report: String,
-    defect_count: usize,
-}
-
 fn defect_review_snapshot(
     rctx: &ResolveCtx,
 ) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
@@ -608,7 +601,7 @@ fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, Str
 /// R-092:独立只读缺陷审查。它不进入主 conversation/queue，也不持有任何写工具；
 /// fast 失败后回退 primary，结果直接返回前端的 Markdown 查看器。
 #[tauri::command]
-async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String> {
+async fn defect_review(project_dir: String) -> Result<subagents::DefectReviewResult, String> {
     let cwd = PathBuf::from(&project_dir);
     let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
     let project_root =
@@ -617,7 +610,7 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
         .load()
         .map_err(|e| e.to_string())?;
     if defects.is_empty() {
-        return Ok(DefectReviewResult {
+        return Ok(subagents::DefectReviewResult {
             empty: true,
             report: "当前没有活动缺陷。".into(),
             defect_count: 0,
@@ -701,7 +694,7 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
         {
             Ok(summary) => match defect_review_report(&summary) {
                 Ok(report) => {
-                    return Ok(DefectReviewResult {
+                    return Ok(subagents::DefectReviewResult {
                         empty: false,
                         report,
                         defect_count: defects.len(),

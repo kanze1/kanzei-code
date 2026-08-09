@@ -315,3 +315,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: FrontendToolsComponent 与 QuickCaptureComponent 的 main.rs 旧副本已删除，harness_ext:: 两处真实装配保持不变。
 - 收尾: 1786287183
+
+## T-1786287270 R-153 subagents 返回载荷迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 新增 subagents.rs 并迁移 DefectReviewResult；defect_review 的返回类型和构造点均改为 subagents::DefectReviewResult。
+- 收尾: 1786287274
