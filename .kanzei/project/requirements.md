@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 547360a：defect_review 的系统提示、DefectReviewResult、只读快照构造、报告解析和 command 已迁入 subagents.rs；空缺陷短路、fast/primary 回退、只读工具约束及 Markdown 返回保持。invoke_handler 改为 subagents::defect_review，main.rs 减少 137 行。定向测试 T-1786287956 已登记通过。subagents 批次完成，准备进入 R-153 最后 run.rs 整体迁移。
+- 进展: 已提交 ea0a6c6：新增 run.rs 并迁移 run_metrics，invoke_handler 使用 run::run_metrics；运行画像字段、历史读取和 measured 判定保持。main.rs 减少 38 行。定向测试 T-1786288041 已登记通过。run.rs 批次继续迁移运行主链路与相关辅助。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
