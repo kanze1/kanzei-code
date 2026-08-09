@@ -159,3 +159,7 @@
 ## T-1786277880 R-153 settings_get 物理搬迁定向测试 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: settings_get 已物理搬入 settings.rs，其他 settings command 暂保留委托边界；本阶段验证注册路径与设置读取实现。
+
+## T-1786277939 R-153 permission settings 物理搬迁定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: project_permission_config、permission_rules_get、permission_rule_delete 已物理搬入 settings.rs，并继续由 settings:: command 注册。

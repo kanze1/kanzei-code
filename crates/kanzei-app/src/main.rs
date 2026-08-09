@@ -452,53 +452,6 @@ fn global_config_path() -> PathBuf {
         .join("kanzei.toml")
 }
 
-fn project_permission_config(project_dir: &str) -> PathBuf {
-    kanzei_harness::config::discover_project_root(Path::new(project_dir))
-        .unwrap_or_else(|| PathBuf::from(project_dir))
-        .join(".kanzei")
-        .join("kanzei.toml")
-}
-
-#[tauri::command]
-fn permission_rules_get(project_dir: String) -> Result<serde_json::Value, String> {
-    let path = project_permission_config(&project_dir);
-    let config: KanzeiConfig = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| toml::from_str(&text).ok())
-        .unwrap_or_default();
-    let rules = config
-        .permissions
-        .rules
-        .iter()
-        .enumerate()
-        .filter(|(_, rule)| rule.effect == kanzei_harness::permission::Effect::Allow)
-        .map(|(index, rule)| json!({
-            "index": index,
-            "action": rule.action,
-            "resource": rule.resource,
-            "effect": rule.effect,
-        }))
-        .collect::<Vec<_>>();
-    Ok(json!({ "path": path.display().to_string(), "rules": rules }))
-}
-
-#[tauri::command]
-fn permission_rule_delete(project_dir: String, index: usize) -> Result<(), String> {
-    let path = project_permission_config(&project_dir);
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("读取权限规则失败: {error}"))?;
-    let mut config: KanzeiConfig = toml::from_str(&text)
-        .map_err(|error| format!("配置格式错误: {error}"))?;
-    let Some(rule) = config.permissions.rules.get(index) else {
-        return Err("权限规则不存在或已被删除".into());
-    };
-    if rule.effect != kanzei_harness::permission::Effect::Allow {
-        return Err("只能删除已记住的放行规则".into());
-    }
-    config.permissions.rules.remove(index);
-    let text = toml::to_string_pretty(&config).map_err(|error| error.to_string())?;
-    std::fs::write(&path, text).map_err(|error| format!("写入权限规则失败: {error}"))
-}
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsPayload {

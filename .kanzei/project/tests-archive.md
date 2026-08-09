@@ -216,3 +216,7 @@
 ## T-1786277883 R-153 settings_get 物理搬迁定向测试 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: settings_get 已从 main.rs 物理移除并由 settings.rs 提供真实 invoke_handler 消费者；其余 settings functions 仍待后续同批清理。
+
+## T-1786277942 R-153 permission settings 物理搬迁定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 权限配置路径与两个权限规则 command 已物理移入 settings.rs，保持 Allow 规则筛选、索引删除与错误信息不变。
