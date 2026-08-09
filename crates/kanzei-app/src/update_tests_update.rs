@@ -1,6 +1,6 @@
 //! 更新、安装校验与模型服务测试。
 
-use super::{ollama_service_up, pull_progress_text};
+use super::fast_model::{ollama_service_up, pull_progress_text};
 
 #[test]
 fn 拉取进度行解析成人话且无进度字段时只给状态() {

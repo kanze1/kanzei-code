@@ -2180,3 +2180,12 @@
 - 进展: 已修复：`crates/kanzei-app/src/process_tests.rs:10-18,38-46` 临时目录改为 PID+纳秒唯一值；`process_tests.rs:32,65` 在删除目录前显式 drop SQLite store。`cargo test -p kanzei-app process_tests` 5/5 通过，Windows 并行 error 32 不再复现。
 - 验收: 两个 process_tests 停止测试可在 cargo test -p kanzei-app 并行运行且不争用 SQLite 文件。
 - 优先级: P1
+
+## D-221 R-153 批1迁移后 update 测试仍从 main 根导入 fast_model 辅助 [fixed] (medium)
+- 复现: 将 fast_model 辅助完整迁移到 fast_model.rs 后运行 cargo test -p kanzei-app，update_tests_update.rs 的 super::ollama_service_up/pull_progress_text 导入失败。
+- 标签: 后端
+- 根因: 批0 update 测试模块仍按旧 main.rs 私有符号路径引用，模块迁移后测试未同步收窄到 fast_model 模块。
+- 进展: 已修复并验证：`crates/kanzei-app/src/update_tests_update.rs:3` 改为从 `super::fast_model` 导入；`crates/kanzei-app/src/fast_model.rs` 中两个辅助函数以 `pub(crate)` 暴露给测试模块。
+- 验收: 测试模块改为从 fast_model 导入，cargo test -p kanzei-app 通过。
+- 优先级: P1
+- 验收证据: 唯一验收项“测试模块改为从 fast_model 导入，cargo test -p kanzei-app 通过”：实现位置为 update_tests_update.rs:3、fast_model.rs:169/175；验证记录 T-1786251753，42 passed。

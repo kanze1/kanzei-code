@@ -59,3 +59,11 @@
 ## T-1786251209 R-153 批1 agent_container 与 fast_model 拆解回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证 R-153 批1 agent_container/fast_model 域模块注册与现有行为回归。
+
+## T-1786251634 R-153 批1 kanzei-app 定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 agent_container.rs 与 fast_model.rs 的完整 command 搬迁、宏注册及测试编译。
+
+## T-1786251670 R-153 批1 kanzei-app 定向测试（修复后） [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-221 已修复：update 测试改从 fast_model 模块导入辅助函数，并将跨测试模块辅助提升为 pub(crate)。

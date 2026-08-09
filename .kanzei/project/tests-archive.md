@@ -116,3 +116,11 @@
 ## T-1786251226 R-153 批1 agent_container 与 fast_model 拆解回归 [failed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批1尝试仅通过 pub use 将 tauri command 暴露到新模块失败：tauri 命令宏生成的辅助符号仍定义在 main 模块，导致重复定义与模块内找不到宏符号。尚未提交，需回退这次错误尝试后按完整函数迁移实施。
+
+## T-1786251667 R-153 批1 kanzei-app 定向测试 [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 编译失败：update_tests_update.rs 仍从 super 根导入已迁移至 fast_model 模块的 ollama_service_up/pull_progress_text；已记录 D-221，修复后重跑。
+
+## T-1786251753 R-153 批1 kanzei-app 定向测试（修复后） [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 42 项测试全部通过；覆盖模块编译、Tauri command 宏注册、原 update/permission/conversation/process/state/settings/assembly 测试。仅有既存 kanzei-core/tools 警告，无失败。
