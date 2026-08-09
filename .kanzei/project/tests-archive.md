@@ -48,3 +48,7 @@
 ## T-1786248314 R-153 批0a update 测试迁移 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: R-153 批0a（update 测试迁移）：新增 update_tests_update 模块并从 main.rs 移出更新/安装/CLI/服务测试；43 项测试全部通过。批0其余 state/process/conversation/permission 模块尚未迁移。
+
+## T-1786248454 R-153 批0a回归复测（托管文件保护拦截） [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: Rust 测试本身 42/42 全部通过；命令结束时仓库托管文件保护检测到测试运行期间触碰 .kanzei/.kanzei/memory 并回滚，工具因此将本次运行标为失败。未产生代码修改。
