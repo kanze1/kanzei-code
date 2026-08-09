@@ -1081,3 +1081,18 @@
 - 命令: cargo test -p kanzei-harness -p kanzei-tools; cargo test -p kanzei --bin kz; cargo check --workspace
 - 摘要: R-102 批1 落码:ProfileKind::Readonly 档位 + ReadonlyProfile(只读 agent)+ CLI --readonly 解析与 profile 合并 + permission_snapshot 快照函数。harness 130 passed、tools 通过、kz bin 7 passed(含新增 readonly 解析/usage 断言)、workspace check 通过。kz --help 实测展示 --readonly。
 - 收尾: 1786318872
+
+## T-1786319023 R-102 批2 权限强制 + 真实只读冒烟 [passed]
+- 命令: cargo test -p kanzei-tools readonly_profile; cargo build -p kanzei; "" | kz run --readonly "用 read 读 crates/kanzei/src/main.rs 前5行并回答" (KANZEI_MODEL=ollama:qwen3.5:4b)
+- 摘要: R-102 批2 权限强制落码 + 真实只读冒烟:ReadonlyProfile 对 write/edit/bash 硬 deny(managed 替代指引)、read/glob/grep/files/webfetch/git status|diff|log 放行、工具物化摘除写命令。tools 131 passed(含新增 readonly_profile_hard_denies_write_and_bash)。真实 kz run --readonly 用 ollama 非交互跑完:read 放行、模型只读作答、全程零权限询问。
+- 收尾: 1786319023
+
+## T-1786319084 R-102 批3 档位权限快照测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-102 批3 档位权限快照测试:readonly_profile_hard_denies_write_and_bash 扩展快照断言——write/edit/bash 快照为 Deny+fully_denied、read/glob/grep/files/webfetch 为 Allow 不摘除、task 不摘除。tools 131 passed。文档:usage 已在批1 更新(--readonly 行),无专门设计文档需要。
+- 收尾: 1786319084
+
+## T-1786319498 cargo test --workspace (R-102 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-102 关闭前全量验证:13 个测试目标全绿(45+71+51+39+131+7+3+2+1)。首次全量曾遇 update_tests_update::install_helper_waits flaky(296s,进程存活探测竞态),单独重跑 2s 通过,二次全量全绿——与本次改动无关(update.rs 未触碰),已另行登记。
+- 收尾: 1786319498

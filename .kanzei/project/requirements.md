@@ -73,7 +73,7 @@
 
 - 阻塞: 用户: 2026-08-09 挂起——先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)。解除动作: D-185/D-184 修复后用户确认恢复推进(或用户主动解除挂起),恢复时状态转 doing。解除人: 用户。
 
-## R-102 CLI 只读运行档位:分析类任务免配权限直接跑 [todo]
+## R-102 CLI 只读运行档位:分析类任务免配权限直接跑 [doing]
 - 复杂度: 中
 - 优先级: P2
 - 归属: kanzei
@@ -86,8 +86,15 @@
 
 - refs: D-121
 
-- 批次: 0/3
-- 进展: 2026-08-10 批次规划(复杂度中→3批):批1=只读档位概念落码——CLI 参数/配置接入(readonly 档位解析 + profile 合并 + 权限快照函数),批2=权限强制(read/write/edit 硬 deny、bash 禁用提示替代、read/glob/grep/task 放行)+ 非交互零配置路径打通,批3=档位权限快照测试 + 文档。本轮开始批1。
+- 批次: 3/3
+- 进展: 2026-08-10 批次规划(复杂度中→3批):批1=只读档位概念落码——CLI 参数/配置接入(readonly 档位解析 + profile 合并 + 权限快照函数),批2=权限强制(read/write/edit 硬 deny、bash 禁用提示替代、read/glob/grep/task 放行)+ 非交互零配置路径打通,批3=档位权限快照测试 + 文档。
+2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。
+2026-08-10 批2 完成(4d00537):ReadonlyProfile 权限强制——write/edit/bash 硬 deny(managed 替代指引点 read/glob/grep/files/git status|diff|log/webfetch)、只读族与 git 只读子命令放行、工具物化摘除写命令。真实冒烟:kz run --readonly 用 ollama 非交互零配置跑完,read 放行、零权限询问。
+2026-08-10 批3 完成(55c6c82):档位权限快照断言(快照 write/edit/bash=Deny+fully_denied、read/glob/grep/files/webfetch=Allow、task 不摘除)。文档:usage 已含 --readonly 行。
+批次 3/3 走满,三批提交 b2e6947/4d00537/55c6c82,定向测试全绿,待全量测试后关闭。
+2026-08-10 批1 完成(b2e6947):ProfileKind::Readonly 档位(defs.rs:7-10)、ReadonlyProfile 组件注册只读 agent(profiles.rs)、CLI --readonly 解析与 profile 合并(main.rs parse_run_args/run_cli)、permission_snapshot 快照函数(harness.rs)。kz --help 实测展示 --readonly;harness 130 + kz bin 7 测试全绿,workspace check 通过。批2 开始:ReadonlyProfile 权限强制(write/edit/bash 硬 deny)。
+
+- 状态: doing
 
 ## R-103 Memory 系统总纲:文件优先、分级、子代理管理 [todo]
 - 移交: 2026-08-08 用户宣布移交自举循环。M1~M4 已落地并在实测中,后续完善由循环承接;设计基线见 docs/design/memory_system.md,改动不得偏离其 §0 品味决策(文件优先、不引向量库/图谱、读写分离)。

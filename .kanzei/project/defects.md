@@ -198,3 +198,11 @@
 - 进展: 2026-08-10 已修当前三条:R-101 补挂起阻塞字段(解除人=用户);R-157 补合法阻塞(⑤依赖 D-235,解除人=修 D-235 的 kanzei 或用户手写);R-151/R-162~R-167 清空伪阻塞依赖字段,依赖关系写进各条进展。
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
+
+## D-240 update_tests_update 进程存活探测 flaky:tasklist 竞态偶发误判自身已退出 [open] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 复现: cargo test -p kanzei-app 全量并行时,update_tests_update::install_helper_waits_for_the_caller_to_exit_before_installing 偶发失败(296s):wait_for_parent_exit(自身 PID,600ms) 判定"当前进程已退出"。单独重跑 2s 通过,二次全量通过。
+- 标签: 后端
+- 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
+- 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
