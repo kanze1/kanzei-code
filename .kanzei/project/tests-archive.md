@@ -24,3 +24,7 @@
 ## T-1786244824 R-152 本地 License、workspace 与 UI 门禁 [passed]
 - 命令: cargo metadata --no-deps --format-version 1; cargo test --workspace; node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
 - 摘要: 6 个 crate license 元数据均为 PolyForm-Noncommercial-1.0.0；workspace 及四条 UI 冒烟全部通过。
+
+## T-1786244948 R-152 verify.ps1 全绿生成 commit 证据 [passed]
+- 命令: scripts/verify.ps1
+- 摘要: 提交 580f310 上 test、ui_syntax、ui_runtime、ui_a11y、ui_i18n、ui_markdown 全部通过，生成绑定全 SHA 的 dist/verification.json。

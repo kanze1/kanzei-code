@@ -10,7 +10,7 @@
 - 验收: ①cargo metadata --no-deps 全部 crate license 为 PolyForm-Noncommercial-1.0.0;②push dev 后 GitHub Actions 首跑全绿(进展里留链接);③verify.ps1 实测两态:脏树拒跑、全绿产出 JSON;④package.ps1 实测三拦:无证据拦、commit 不符拦(verify 后再提交一个 commit 重跑必须中止)、证据齐全放行至构建——各拦截报错原文记入进展;⑤ci.yml 与 verify.ps1 两处门禁清单互相注明同步义务。
 - refs: A-009 R-146 R-156
 
-- 进展: 已落地 Cargo.toml:15 License、.github/workflows/ci.yml:1（push dev/main + PR main；test/UI 四冒烟；fmt/clippy 按 R-156/R-146 注释并注明同步义务）、scripts/verify.ps1:1（脏树检查、test/UI 门禁、全 SHA verification.json）、scripts/package.ps1:6,61-74（VerificationPath 与构建前证据门禁）。本地 cargo metadata 6 个 crate 全为 PolyForm-Noncommercial-1.0.0；cargo test --workspace 及 node --check/四条 UI 冒烟全绿。verify 脏树实测原文："工作树不干净，证据无法绑定 commit: Cargo.toml scripts/package.ps1 .github/workflows/ci.yml scripts/verify.ps1"（终端当前代码页显示乱码但异常内容完整）。待提交后实测 verify 产证、package 三拦，并 push dev 获取 Actions 首跑链接。
+- 进展: 提交 580f310 上运行 verify.ps1 全绿，生成 dist/verification.json：commit=580f310b4f40e58d31adf4ca5fc2a7de2438ee4d，checks=test/ui_syntax/ui_runtime/ui_a11y/ui_i18n/ui_markdown 全为 pass，all_pass=true。package 无证据拦截实测（-VerificationPath 指向不存在临时文件）原文："缺验证证据 C:\Users\kanzei\AppData\Local\Temp\kanzei-r152-missing-verification.json:先跑 scripts\verify.ps1。发布树打包时可用 -VerificationPath 指向 dev 树产出的证据(ff 合并后两树 HEAD 相同)"。下一步新增一个已提交变更验证 commit 不符拦截。
 
 ## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
 - 优先级: P1
