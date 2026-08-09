@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续物理删除 state 旧副本：已删除 `保存前拦住指向不存在_provider_的模型角色` 旧测试；`cargo test -p kanzei-app` 42/42 通过。当前仍待删除 5 项 defect/docs/export state 旧测试、2 项 process 停止旧测试，以及整个废弃 update_tests 模块。
+- 进展: 继续物理删除 state 旧副本：已删除 `defect_review_snapshot_is_strictly_read_only` 旧测试；`cargo test -p kanzei-app` 42/42 通过。当前仍待删除 defect_review 空报告/空状态、docs_snapshot、export 4 项 state 旧测试，以及 process 停止收尾 2 项和废弃 update_tests 模块。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

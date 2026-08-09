@@ -885,35 +885,6 @@ mod update_tests {
 
     #[cfg(any())]
     #[test]
-    fn defect_review_snapshot_is_strictly_read_only() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-defect-review-tools-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let rctx = kanzei_harness::ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(kanzei_harness::KanzeiConfig::default()),
-        };
-        let snapshot = super::defect_review_snapshot(&rctx).unwrap();
-        let mut names: Vec<String> = snapshot
-            .materialize_tools()
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect();
-        names.sort();
-        assert_eq!(names, vec!["glob", "grep", "read"]);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(any())]
-    #[test]
     fn defect_review_rejects_empty_model_report() {
         let empty = kanzei_core::RunSummary {
             text: "  ".into(),

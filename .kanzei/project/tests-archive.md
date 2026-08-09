@@ -88,3 +88,7 @@
 ## T-1786250031 R-153 批0继续删除 state 旧测试回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 继续物理删除一个 state 旧测试函数后，kanzei-app 42 项全部通过。剩余 state 旧副本与 update_tests 废弃模块仍待清理。
+
+## T-1786250180 R-153 批0删除 defect_review 旧测试回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 物理删除 defect_review_snapshot 旧测试后，kanzei-app 42 项全部通过。剩余 4 项 state 旧测试与 2 项 process 停止旧测试待删除。
