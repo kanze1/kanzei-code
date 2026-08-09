@@ -32,8 +32,37 @@ fn promote_next_input(project_dir: &str, session_id: &str) -> anyhow::Result<Opt
     Ok(Some(input))
 }
 
-#[tauri::command]
-pub(crate) async fn run_prompt(
+pub(crate) fn report_persistence_failure(
+    window: &Window,
+    session_id: &str,
+    operation: &str,
+    error: impl std::fmt::Display,
+) {
+    let message = format!("运行结果已保留，但{operation}失败: {error}");
+    tracing::warn!("{message}");
+    let _ = window.emit(
+        "kz:error",
+        with_session_id(json!({ "message": message }), session_id),
+    );
+}
+
+pub(crate) fn append_run_notification(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    status: &str,
+    summary: impl Into<String>,
+    requires_action: bool,
+) -> anyhow::Result<()> {
+    store.append_notification_atomic(
+        session_id,
+        status,
+        &summary.into(),
+        requires_action,
+    )?;
+    Ok(())
+}
+
+(
     window: Window,
     state: State<'_, AppState>,
     prompt: String,
@@ -104,7 +133,7 @@ pub(crate) async fn run_prompt(
 }
 
 #[tauri::command]
-pub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
+pub(crate) async fn run_promptpub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&project_dir);
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).map_err(|e| e.to_string())?;
     let session_id = kanzei_core::project_session_id(&root);

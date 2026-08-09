@@ -355,3 +355,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_prompt 通过 run.rs 的 run_task 模块入口调用；main.rs 的实现已命名为 run_task_impl，行为保持，主体剪切待下一批。
 - 收尾: 1786288505
+
+## T-1786288574 R-153 run.rs 持久化 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: report_persistence_failure 与 append_run_notification 已迁入 run.rs，main.rs 的 run_task_impl 调用点均改为 run:: 模块路径。
+- 收尾: 1786288579

@@ -1030,34 +1030,6 @@ fn stop_run(
     }
 }
 
-fn report_persistence_failure(
-    window: &Window,
-    session_id: &str,
-    operation: &str,
-    error: impl std::fmt::Display,
-) {
-    let message = format!("运行结果已保留，但{operation}失败: {error}");
-    tracing::warn!("{message}");
-    let _ = window.emit(
-        "kz:error",
-        with_session_id(json!({ "message": message }), session_id),
-    );
-}
-fn append_run_notification(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-    status: &str,
-    summary: impl Into<String>,
-    requires_action: bool,
-) -> anyhow::Result<()> {
-    store.append_notification_atomic(
-        session_id,
-        status,
-        &summary.into(),
-        requires_action,
-    )?;
-    Ok(())
-}
 async fn run_task_impl(
     window: &Window,
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
@@ -1235,7 +1207,7 @@ async fn run_task_impl(
     );
     let run_started = std::time::Instant::now();
     store.set_status(&session_id, "running")?;
-    append_run_notification(&store, &session_id, "running", "任务已开始", false)?;
+    run::append_run_notification(&store, &session_id, "running", "任务已开始", false)?;
     store.append_event(
         &session_id,
         "session.status_changed",
@@ -1529,7 +1501,7 @@ async fn run_task_impl(
     let store = match kanzei_core::SessionStore::open(&state_path) {
         Ok(store) => Some(store),
         Err(error) => {
-            report_persistence_failure(window, &session_id, "打开会话数据库", error);
+            run::report_persistence_failure(window, &session_id, "打开会话数据库", error);
             None
         }
     };
@@ -1537,14 +1509,14 @@ async fn run_task_impl(
         match &run_result {
             Ok(summary) => {
                 if let Err(error) = store.set_status(&session_id, "idle") {
-                    report_persistence_failure(window, &session_id, "写入 idle 状态", error);
+                    run::report_persistence_failure(window, &session_id, "写入 idle 状态", error);
                 }
                 if let Err(error) = store.append_event(
                     &session_id,
                     "session.status_changed",
                     &json!({ "status": "idle" }),
                 ) {
-                    report_persistence_failure(window, &session_id, "写入完成状态事件", error);
+                    run::report_persistence_failure(window, &session_id, "写入完成状态事件", error);
                 }
                 if let Err(error) = store.append_event(
                     &session_id,
@@ -1558,7 +1530,7 @@ async fn run_task_impl(
                         "context": summary.context_report,
                     }),
                 ) {
-                    report_persistence_failure(window, &session_id, "写入完成事件", error);
+                    run::report_persistence_failure(window, &session_id, "写入完成事件", error);
                 }
                 // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
                 // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
@@ -1616,21 +1588,21 @@ async fn run_task_impl(
                 // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
                 // flush_live_run 不该再补一条信息量更少的(D-179)。
                 live.lock().unwrap().flushed = true;
-                if let Err(error) = append_run_notification(
+                if let Err(error) = run::append_run_notification(
                     store,
                     &session_id,
                     "succeeded",
                     "任务完成",
                     false,
                 ) {
-                    report_persistence_failure(window, &session_id, "写入完成通知", error);
+                    run::report_persistence_failure(window, &session_id, "写入完成通知", error);
                 }
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
                 tauri::async_runtime::spawn(memory::consolidate_memory_inbox(project_dir.clone()));
             }
             Err(error) => {
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {
-                    report_persistence_failure(
+                    run::report_persistence_failure(
                         window,
                         &session_id,
                         "写入失败状态",
@@ -1642,7 +1614,7 @@ async fn run_task_impl(
                     "session.status_changed",
                     &json!({ "status": "failed" }),
                 ) {
-                    report_persistence_failure(
+                    run::report_persistence_failure(
                         window,
                         &session_id,
                         "写入失败状态事件",
@@ -1654,20 +1626,20 @@ async fn run_task_impl(
                     "run.failed",
                     &json!({ "error": error.to_string() }),
                 ) {
-                    report_persistence_failure(window, &session_id, "写入失败事件", persistence_error);
+                    run::report_persistence_failure(window, &session_id, "写入失败事件", persistence_error);
                 }
                 // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
                 // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
                 flush_live_run(store, &session_id, &live, "failed");
                 let _ = store.finish_input(&promoted_input_id, false);
-                if let Err(persistence_error) = append_run_notification(
+                if let Err(persistence_error) = run::append_run_notification(
                     store,
                     &session_id,
                     "failed",
                     error.to_string(),
                     false,
                 ) {
-                    report_persistence_failure(window, &session_id, "写入失败通知", persistence_error);
+                    run::report_persistence_failure(window, &session_id, "写入失败通知", persistence_error);
                 }
             }
         }
@@ -1736,7 +1708,7 @@ async fn run_task_impl(
     if let Some(store) = store.as_ref() {
         if !trace.is_empty() {
             if let Err(error) = store.append_event(&session_id, "run.trace", &json!({ "events": trace })) {
-                report_persistence_failure(window, &session_id, "写入运行轨迹", error);
+                run::report_persistence_failure(window, &session_id, "写入运行轨迹", error);
             }
         }
         if let Err(error) = store.append_event(
@@ -1744,7 +1716,7 @@ async fn run_task_impl(
             "conversation.updated",
             &json!({ "messages": messages }),
         ) {
-            report_persistence_failure(window, &session_id, "写入对话历史", error);
+            run::report_persistence_failure(window, &session_id, "写入对话历史", error);
         }
     }
     let _ = window.emit(
