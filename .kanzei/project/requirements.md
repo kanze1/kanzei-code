@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续物理删除 process 旧副本：已删除 `stopping_after_promote_cancels_promoted_and_pending_inputs_atomically` 旧测试；`cargo test -p kanzei-app` 42/42 通过。当前只剩 `停止时在飞轨迹与episode先落库再abort` 旧测试及废弃 update_tests 模块。
+- 进展: 批0已完成：物理删除最后一个 process 停止旧测试，并整体删除废弃 `update_tests` 模块；五个迁移模块成为唯一测试归属。批0最终 `cargo test -p kanzei-app` 42/42 通过。下一步按设计文档进入批1零依赖叶子模块拆解；R-153 尚未结项，仍需按批次继续。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

@@ -51,3 +51,7 @@
 ## T-1786250847 R-153 批0删除首个 process 停止旧测试回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证物理删除 stopping_after_promote 旧测试后的 kanzei-app 回归。
+
+## T-1786250999 R-153 批0最终旧测试清理回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证删除最后一个 process 停止旧测试及废弃 update_tests 模块后的批0回归。
