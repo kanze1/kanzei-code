@@ -173,6 +173,30 @@ pub(crate) fn settings_apply_limits(doc: &mut toml_edit::DocumentMut, payload: &
     Ok(())
 }
 
+pub(crate) fn settings_apply_providers(doc: &mut toml_edit::DocumentMut, payload: &SettingsPayload) -> Result<(), String> {
+    let providers = settings_table(doc, "providers")?;
+    providers.set_implicit(true);
+    for p in &payload.providers {
+        let name = p.name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let Some(provider) = providers.entry(&name).or_insert(toml_edit::table()).as_table_mut() else {
+            return Err(format!("配置节 `providers.{name}` 不是表,无法保存设置"));
+        };
+        settings_set_value(provider, "protocol", p.protocol.trim().to_string());
+        settings_set_value(provider, "base_url", p.base_url.trim().trim_end_matches('/').to_string());
+        settings_set_or_remove(provider, "api_key_env", p.api_key_env.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+        settings_set_or_remove(provider, "api_key", p.api_key.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+        settings_set_or_remove(provider, "auth", p.auth.as_ref().filter(|s| !s.is_empty()).cloned());
+        match p.context_limit {
+            Some(limit) => settings_set_value(provider, "context_limit", limit as i64),
+            None => { provider.remove("context_limit"); }
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();

@@ -280,3 +280,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 导入重复修正后，limits 字段迁移代码已完成；此前 cargo check 仅因重复导入失败，已删除重复项并完成静态修正。
 - 收尾: 1786285633
+
+## T-1786285722 R-153 providers 字段迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: providers 字段写入 helper 已迁入 settings.rs，保持名称清理、字段规范化、空名称跳过与非法配置表错误语义。
+- 收尾: 1786285726
