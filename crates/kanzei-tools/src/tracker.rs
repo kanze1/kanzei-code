@@ -786,6 +786,43 @@ fn dependency_states(
     Ok(states)
 }
 
+/// 反向依赖图(R-111 验收②「条目详情含正反向链接」):id → 依赖它的条目 id 列表。
+/// 与 dependency_states 共用同一份「依赖:」字段解析(依赖=阻塞关系,refs 不在此列),
+/// 供桌面端 docs_snapshot 输出反向链接与文档页依赖视图使用。
+/// 返回 (正向图 id→deps, 反向图 id→dependents)。
+pub fn dependents_map(
+    ctx: &ToolCtx,
+    current_kind: &DocKind,
+    current_entries: &[Entry],
+) -> Result<
+    (
+        std::collections::BTreeMap<String, Vec<String>>,
+        std::collections::BTreeMap<String, Vec<String>>,
+    ),
+    String,
+> {
+    let states = dependency_states(ctx, current_kind, current_entries)?;
+    let mut dependents: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (from, deps) in &states.deps {
+        for dep in deps {
+            dependents
+                .entry(dep.clone())
+                .or_default()
+                .push(from.clone());
+        }
+    }
+    let mut deps_map: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (from, deps) in &states.deps {
+        deps_map.insert(from.clone(), deps.clone());
+    }
+    for list in dependents.values_mut().chain(deps_map.values_mut()) {
+        list.sort();
+        list.dedup();
+    }
+    Ok((deps_map, dependents))
+}
+
+
 fn schedule_entries<'a>(
     entries: &'a [Entry],
     states: &DependencyStates,
@@ -1704,6 +1741,57 @@ mod tests {
         let out = tool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
         assert!(!out.content.contains("循环依赖"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn dependents_map_reports_forward_and_reverse_links() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-dependents-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut a = entry("R-001");
+        a.fields.push(("依赖".into(), "R-002 R-003".into()));
+        let b = entry("R-002");
+        let mut c = entry("R-003");
+        c.fields.push(("依赖".into(), "R-002".into()));
+        store.save(&[a, b, c]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let loaded = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+
+        let (deps, dependents) = super::dependents_map(&ctx, &REQUIREMENTS, &loaded).unwrap();
+        // 正向:R-001 → [R-002, R-003],R-003 → [R-002],R-002 无依赖。
+        assert_eq!(deps.get("R-001").unwrap(), &vec!["R-002".to_string(), "R-003".to_string()]);
+        assert_eq!(deps.get("R-003").unwrap(), &vec!["R-002".to_string()]);
+        assert!(deps.get("R-002").is_none());
+        // 反向:R-002 被 R-001 与 R-003 依赖;R-003 只被 R-001 依赖;R-001 无人依赖。
+        assert_eq!(
+            dependents.get("R-002").unwrap(),
+            &vec!["R-001".to_string(), "R-003".to_string()]
+        );
+        assert_eq!(dependents.get("R-003").unwrap(), &vec!["R-001".to_string()]);
+        assert!(dependents.get("R-001").is_none());
+
+        // 去重:同一依赖写两遍只出现一次。
+        let mut dup = entry("R-004");
+        dup.fields.push(("依赖".into(), "R-002 R-002".into()));
+        let mut a2 = entry("R-001");
+        a2.fields.push(("依赖".into(), "R-002 R-003".into()));
+        let mut c2 = entry("R-003");
+        c2.fields.push(("依赖".into(), "R-002".into()));
+        store.save(&[a2, entry("R-002"), c2, dup]).unwrap();
+        let loaded = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        let (_, dependents) = super::dependents_map(&ctx, &REQUIREMENTS, &loaded).unwrap();
+        assert_eq!(
+            dependents.get("R-002").unwrap(),
+            &vec!["R-001".to_string(), "R-003".to_string(), "R-004".to_string()]
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

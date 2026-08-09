@@ -119,6 +119,20 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
     let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
         let store = DocStore::open(&root, kind);
         let entries = store.load().unwrap_or_default();
+        // 反向依赖图(R-111):跨 req/defect 构建「谁依赖我」。放在快照入口算一次,
+        // 两个 kind 共用,避免每个 kind 重复读盘。仅对 req/defect 输出(其它 kind 无依赖语义)。
+        let (dependents_deps, dependents) = if kind.rel_path == REQUIREMENTS.rel_path
+            || kind.rel_path == DEFECTS.rel_path
+        {
+            kanzei_tools::tracker::dependents_map(
+                &kanzei_harness::ToolCtx::new(root.clone()),
+                kind,
+                &entries,
+            )
+            .unwrap_or_default()
+        } else {
+            Default::default()
+        };
         let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
             if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
                 kanzei_tools::tracker::schedule_for_display(
@@ -162,6 +176,9 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
             "batches": { "done": batch_done, "total": batch_total },
             "closed": kind.terminal.contains(&e.status.as_str()), "blocked": !block_reasons.is_empty(),
             "block_reasons": block_reasons, "fields": e.fields,
+            // 正向依赖(dependencies)与反向链接(dependents,R-111):均来自「依赖:」字段解析。
+            "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
+            "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
             "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),
         })}).collect()
     };
