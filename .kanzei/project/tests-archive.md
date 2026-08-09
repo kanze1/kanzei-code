@@ -986,3 +986,8 @@
 - 命令: cargo test -p kanzei-core
 - 摘要: R-155 B7 runner/subagent.rs 拆解:71 passed;SubagentRuntime pub 平铺(pub use subagent::* + 显式 pub(crate) use run_subagent/task_spec,修 E0365)、AskFuture import 补全、ToolOutput 全限定引用清理
 - 收尾: 1786305996
+
+## T-1786306105 R-155 B8 runner/drive.rs 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 B8 runner/drive.rs 拆解:71 passed;run_once/run_once_with_parts 整体搬迁,符号经 super::* 平铺(删显式 use 时误删 super::* 本身,加回),mod.rs 留 RunnerConfig/常量/testutil/tests,307 行
+- 收尾: 1786306105
