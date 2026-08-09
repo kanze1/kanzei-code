@@ -24,11 +24,20 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
-pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
+pub(crate) fn resolve_profile_and_root(profile: Option<&str>, config: &kanzei_harness::config::KanzeiConfig, cwd: &Path) -> anyhow::Result<(kanzei_harness::ProfileKind, PathBuf)> {
+    let profile = match profile.filter(|profile| !profile.is_empty()) {
+        Some(profile) => profile.parse().map_err(|error: String| anyhow::anyhow!(error))?,
+        None => config.default_profile(),
+    };
+    let project_root = kanzei_harness::config::discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    Ok((profile, project_root))
+}
+
+pub(crate) fn normalize_work_priority {
     match value { Some("requirement-first") => "requirement-first", _ => "defect-first" }
 }
 
-pub(crate) fn report_config_warnings {
+pub(crate) fn report_config_warnings(window: &Window, session_id: &str, config: &kanzei_harness::config::KanzeiConfig, config_warnings: &[String]) {
     for warning in config_warnings { emit_stage(window, session_id, "配置", warning.clone()); }
     for warning in config.bash_permission_warnings() { emit_stage(window, session_id, "权限", warning); }
 }

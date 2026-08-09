@@ -430,3 +430,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的 work_priority 归一化已抽为 run::normalize_work_priority，保留 requirement-first 与 defect-first 默认规则。
 - 收尾: 1786289787
+
+## T-1786289866 R-153 run_task profile/root helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的 profile 解析与 project root 发现已提取到 run::resolve_profile_and_root，默认 profile 与显式 profile 解析行为保持。
+- 收尾: 1786289873

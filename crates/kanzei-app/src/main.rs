@@ -675,12 +675,7 @@ async fn run_task_impl(
     let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
     let config = Arc::new(config);
     run::report_config_warnings(window, &session_id, &config, &config_warnings);
-    let profile: ProfileKind = match profile.as_deref().filter(|p| !p.is_empty()) {
-        Some(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
-        None => config.default_profile(),
-    };
-    let project_root =
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let (profile, project_root) = run::resolve_profile_and_root(profile.as_deref(), &config, &cwd)?;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
