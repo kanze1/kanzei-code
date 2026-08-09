@@ -896,3 +896,8 @@
 - 命令: node scripts/ui-runtime-smoke.mjs
 - 摘要: main.js 全量执行、222 次 invoke 初始化、7 个主视图切换与列表渲染通过，0 运行时错误。
 - 收尾: 1786299165
+
+## T-1786302256 R-154 B0: node --check 遍历 + 四条冒烟 [passed]
+- 命令: Get-ChildItem crates/kanzei-app/ui/*.js | ForEach-Object { node --check $_.FullName }; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: B0 使能批:四条冒烟按 index.html script 清单加载;node --check 遍历 ui/*.js + i18n/a11y/markdown/runtime 全绿;runtime 逐文件 vm.runInContext 单文件退化形态下正常执行(222 次 invoke)
+- 收尾: 1786302256
