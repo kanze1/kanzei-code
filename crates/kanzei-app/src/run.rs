@@ -20,7 +20,11 @@ pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name:
     for m in v["models"].as_array().unwrap_or(&Vec::new()) { if let Some(n) = m["name"].as_str() { items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") })); } }
 }
 
-pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
+pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
+    let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
+}
+
+pub(crate) async fn models_list {
     let cwd = project_dir.map(PathBuf::from).filter(|p| p.is_dir()).or_else(|| std::env::current_dir().ok()).ok_or("no working dir")?;
     let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
     let mut items = Vec::new();

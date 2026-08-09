@@ -665,10 +665,7 @@ async fn run_task_impl(
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
-        let _ = window.emit(
-            "kz:status",
-            with_session_id(json!({ "stage": name, "detail": detail }), &session_id),
-        );
+        run::emit_stage(window, &session_id, name, detail);
     };
 
     let cwd = PathBuf::from(&project_dir);

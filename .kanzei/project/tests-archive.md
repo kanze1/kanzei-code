@@ -415,3 +415,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: main.rs models_list_impl 旧副本已删除；run.rs models_list 为唯一实现，command 注册、OpenAI /models、Ollama helper 和模型载荷定向验证通过。
 - 收尾: 1786289565
+
+## T-1786289650 R-153 run_task 阶段事件 helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的阶段闭包已改用 run::emit_stage，状态事件仍发送 kz:status，包含 stage/detail 和 session_id。
+- 收尾: 1786289654
