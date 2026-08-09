@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 aaa1f54：answer_ask 与 persist_always_allow 已迁入 run.rs，invoke_handler 使用 run::answer_ask；问题回答、权限 always/once/deny、规则持久化与状态反馈保持，main.rs 减少 66 行。定向测试 T-1786289008 已登记通过。run_task_impl 主体仍待物理迁移。
+- 进展: 已提交 42eac94：pending_asks_get 已迁入 run.rs，按项目/session 读取 runtime pending asks 并使用真实载荷函数，invoke_handler 使用 run::pending_asks_get，main.rs 减少 18 行。定向测试 T-1786289107 已登记通过。run_task_impl 主体仍待物理迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
