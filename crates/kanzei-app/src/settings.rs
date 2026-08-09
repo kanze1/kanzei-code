@@ -53,6 +53,45 @@ pub(crate) struct ProviderPayload {
     #[serde(default)] pub(crate) context_limit: Option<u64>,
 }
 
+pub(crate) fn global_config_path() -> PathBuf {
+    kanzei_harness::kanzei_home().unwrap_or_default().join("kanzei.toml")
+}
+
+/// 设置标量并保留原值上的空白/行尾注释装饰。
+pub(crate) fn settings_set_value(table: &mut toml_edit::Table, key: &str, value: impl Into<toml_edit::Value>) {
+    let mut value: toml_edit::Value = value.into();
+    if let Some(existing) = table.get(key).and_then(|item| item.as_value()) {
+        *value.decor_mut() = existing.decor().clone();
+    }
+    table[key] = toml_edit::Item::Value(value);
+}
+
+pub(crate) fn settings_set_or_remove(table: &mut toml_edit::Table, key: &str, value: Option<String>) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None => { table.remove(key); }
+    }
+}
+
+pub(crate) fn settings_set_or_reset(table: &mut toml_edit::Table, key: &str, value: Option<String>, default_value: &str) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None if table.contains_key(key) => settings_set_value(table, key, default_value.to_string()),
+        None => {}
+    }
+}
+
+pub(crate) fn settings_set_or_remove_num(table: &mut toml_edit::Table, key: &str, value: Option<impl Into<toml_edit::Value>>) {
+    match value {
+        Some(v) => settings_set_value(table, key, v),
+        None => { table.remove(key); }
+    }
+}
+
+pub(crate) fn settings_table<'a>(doc: &'a mut toml_edit::DocumentMut, name: &str) -> Result<&'a mut toml_edit::Table, String> {
+    doc.entry(name).or_insert(toml_edit::table()).as_table_mut()
+        .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
+}
 
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {

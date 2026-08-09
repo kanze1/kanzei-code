@@ -33,6 +33,10 @@ mod docs;
 mod settings;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
+pub(crate) use settings::{
+    global_config_path, settings_set_or_remove, settings_set_or_remove_num,
+    settings_set_or_reset, settings_set_value, settings_table,
+};
 
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
@@ -446,73 +450,6 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
     Ok(results)
 }
 // ---------- 设置(全局 kanzei.toml 表单) ----------
-
-fn global_config_path() -> PathBuf {
-    kanzei_harness::kanzei_home()
-        .unwrap_or_default()
-        .join("kanzei.toml")
-}
-
-/// 设置标量并保留原值上的空白/行尾注释装饰(注释挂在值上,直接赋值会连注释一起换掉)。
-fn settings_set_value(table: &mut toml_edit::Table, key: &str, value: impl Into<toml_edit::Value>) {
-    let mut value: toml_edit::Value = value.into();
-    if let Some(existing) = table.get(key).and_then(|item| item.as_value()) {
-        *value.decor_mut() = existing.decor().clone();
-    }
-    table[key] = toml_edit::Item::Value(value);
-}
-
-/// 表单键写入:Some 设置,None 移除(默认值不写进文件,保持配置精简)。
-fn settings_set_or_remove(table: &mut toml_edit::Table, key: &str, value: Option<String>) {
-    match value {
-        Some(v) => settings_set_value(table, key, v),
-        None => {
-            table.remove(key);
-        }
-    }
-}
-
-/// "缺省即默认"的键(proxy/reasoning/profile.default):回落默认时若键已存在,
-/// 写显式默认值而不是删除——toml_edit 删键会连带删掉挂在键上的用户注释。
-fn settings_set_or_reset(
-    table: &mut toml_edit::Table,
-    key: &str,
-    value: Option<String>,
-    default_value: &str,
-) {
-    match value {
-        Some(v) => settings_set_value(table, key, v),
-        None if table.contains_key(key) => {
-            settings_set_value(table, key, default_value.to_string());
-        }
-        None => {}
-    }
-}
-
-/// 数值键写入:Some 设置,None 移除。留空即"用内置默认",配置文件里不留死键——
-/// 否则今后改默认值时,用户文件里那份旧数字会静默压住新默认。
-fn settings_set_or_remove_num(
-    table: &mut toml_edit::Table,
-    key: &str,
-    value: Option<impl Into<toml_edit::Value>>,
-) {
-    match value {
-        Some(v) => settings_set_value(table, key, v),
-        None => {
-            table.remove(key);
-        }
-    }
-}
-
-fn settings_table<'a>(
-    doc: &'a mut toml_edit::DocumentMut,
-    name: &str,
-) -> Result<&'a mut toml_edit::Table, String> {
-    doc.entry(name)
-        .or_insert(toml_edit::table())
-        .as_table_mut()
-        .ok_or_else(|| format!("配置节 `{name}` 不是表,无法保存设置"))
-}
 
 /// 保存前校验模型角色:`provider:model` 里的 provider 必须确实配了。
 /// 拼错一个字母,此前要到真正发消息时才炸一句 "unknown provider",

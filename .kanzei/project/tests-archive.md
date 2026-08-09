@@ -230,3 +230,13 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo test -p kanzei-app 定向测试记录通过；类型迁移与现有 app 测试目标可验证。另有 cargo check -p kanzei-app --tests 实际编译通过。
 - 收尾: 1786284717
+
+## T-1786284858 R-153 settings 辅助函数迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；settings.rs 的全局配置路径与 toml_edit 辅助函数迁移后测试目标可编译。
+- 收尾: 1786284862
+
+## T-1786284890 R-153 settings 辅助函数迁移提交前测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 提交前最终结构检查通过：cargo check -p kanzei-app --tests；settings 辅助函数迁移无编译错误。
+- 收尾: 1786284893
