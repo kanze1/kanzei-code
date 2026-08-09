@@ -7,6 +7,8 @@
 # SQLite 边车与记忆索引都是可重建派生物(A-001:真源是 markdown,库删了能全量重建)。
 .kanzei/state.db-shm
 .kanzei/state.db-wal
+# R-148 文件用途标注缓存:按内容 hash 失效、运行时重建,不是仓库资产。
+.kanzei/file-annotations.json
 # schema 升级前的整库备份(D-175):本机回退用的退路,不是仓库资产。
 .kanzei/state.db.v*.bak
 .kanzei/memory/index.db

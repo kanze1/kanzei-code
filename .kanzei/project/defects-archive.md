@@ -2119,3 +2119,35 @@
 - 优先级: P1
 - 标签: 前端
 
+## D-213 标注全军覆没且空库覆盖缓存:思考模型吃光 token 预算,三层缺陷叠加 [fixed] (high)
+- refs: R-148
+- 复现: 2026-08-09 用户实测:标注跑到 20/231 后重启,"标注过的很多文件标注就没了"。实证:.kanzei/file-annotations.json 存在但为空 store(31 字节);直接 curl ollama 复现——qwen3.5:4b 是思考模型,标注调用 max_tokens=128 全被思考吃光(finish=length,content 空,思考进 message.reasoning 字段);提到 1024 仍然想不完;/no_think 软开关与 openai 兼容层的 think:false 均无效;**只有原生 /api/chat 的 think:false 生效**(thinking 空,正常收尾)。
+- 根因: 三层叠加。①fast_one_line max_tokens=128 对思考模型必然产出空正文 → 每个文件都判"空标注"失败,用户看到的 20/231 全是失败计数,**从来没有一条标注成功过**;②全失败的运行照样每 8 个 save 一次——把 load 时的空 store 反复覆盖写盘;③失败原因被吞(annotate Err 丢弃),UI 只报数字不报原因,排查无从下手。另有隐患:save 的 serde 序列化 unwrap_or_default 会把空字符串写进缓存(load 解析失败回落 Default,整库静默清零);指纹用 mtime(git checkout 会大面积假失效)。
+- 修复: ①标注后端分流:探测到 ollama(provider 名或 base_url 11434)直连原生 /api/chat + think:false + num_predict 256;其他 provider 走 LlmClient,max_tokens 提到 1024;两侧共用 clean_note 清洗(剥 <think> 块、取最后一个非空行、去引号、封顶 60 字,捞不出正文报错而非产出空标注);②保存纪律:只有真的写入过标注(dirty)才落盘,全失败一个字节不碰缓存;目录标注也只在 dirty 时做;③错误上浮:首个失败原因进返回值,前端 toast 显示;④save 序列化失败报错不写空串;⑤指纹从 size+mtime 换成内容 FNV-1a(扫描本就读全文,零成本;mtime 免疫——重写相同内容指纹不变有单测;oversized 退化 size+mtime);⑥汇总行显示「已标注 X/Y」(分母只数可标注文件,用户点名)。
+- 验收: 单测:clean_note 七形态(剥思考/末行正文/引号/空拒绝/截断)、指纹 mtime 免疫+内容敏感;curl 实证 ollama 原生通道产出非空正文;workspace 311 项全绿。真实标注跑通与「已标注 X/Y」显示待发版用户复查。
+- 备注: 失效标注不进上下文(用户同轮要求)为既有行为:files 工具与 snapshot 都按 hash 过滤,单测「过期标注不得注入」覆盖。质量注意:qwen3.5:4b 关思考后产出偏弱(实测短片段会复读代码),prompt 已加"不要复述代码";若实测质量不满意,fast 角色换更大模型即可,通道无需改。
+- 证据等级: E1(缓存文件实证 + curl 三连复现 + 原生通道验证)
+- 优先级: P1
+- 标签: 后端
+
+## D-212 文件导览叠进对话页:裸 #view-files 的 ID 特异性压过 .view 隐藏规则 [fixed] (medium)
+- refs: R-148
+- 复现: 2026-08-09 用户实测(2a2a26f):文件树+Monaco 与对话页的 composer 同屏显示,"不应该显示在主页,我说了独立页管理"。根因:视图显隐由 `.view { display:none }` / `.view.active { display:flex }` 控制,而 R-148 首发写了 `#view-files { display:flex }`——ID 选择器特异性(1,0,0)无条件压过类选择器(0,1,0),文件视图永远渲染、叠进当前 active 视图。
+- 修复: 改为 `#view-files.active { display:flex }`,显隐归还 .view 体系;a11y 冒烟新增静态断言——剥注释后扫描,任何裸 `#view-*` 规则设置非 none 的 display 即失败(反向验证:塞回坏规则断言立即命中)。
+- 验收: 切到文件页时对话 composer 不可见,切走后文件页完全隐藏;冒烟断言防回归;用户复查。
+- 证据等级: E1(用户截图 + CSS 特异性实证 + 反向验证)
+- 优先级: P1
+- 标签: 前端
+
+## D-211 拖拽解锁后条目可选中但仍拖不动 [fixed] (medium)
+- refs: D-210 D-207 R-054
+- 复现: 2026-08-09 用户实测(f2f72fb):点「解锁」后锁提示消失、条目可选中,但拖拽仍然不生效("能选但是依然拖不动")。
+- 排查线索(给取活者): ①`item.draggable = true` 只在 renderDocList 的 `if (!isGrouped && docDragEnabled(...))` 分支设置——解锁后 refreshDocs 重渲染,确认该分支真的走到(isGrouped 的判定用的是 `reqFilterState.grouped`,解锁走 toggle 按钮 click,状态是否在重渲染前生效?);②dragstart handler 要求 `filters.sort === "manual"` 等条件在 `reqDragEnabled` 里二次判定,两处口径是否一致;③documents 页与侧栏的 filters 对象不同(documentFilters vs reqFilters),解锁按钮改的是传入的 reqFilterState 引用,确认改到的是当前列表用的那份;④浏览器层面:doc-item 内部的 doc-row 有 role=button+tabIndex,click/drag 事件可能被行内可交互元素抢占;⑤D-202 的主线程卡顿也可能吞 drag 事件,复现时注意会话长度。
+- 验收: 解锁后(或本就无锁时)侧栏与文档页的需求/缺陷列表均可拖拽并成功落库(docs_update reorder 返回成功、md 文件顺序变化);冒烟或 E2 覆盖"解锁→拖拽→落库"链路;用户复查可拖。
+- 证据等级: E1(用户实测)
+- 优先级: P1
+- 标签: 前端
+
+- 状态: fixed
+- 进展: 2026-08-09 取活(需求队列 doing 均推不动:R-101 挂起等缺陷前置、R-148 剩用户复查,故转缺陷队列文档序首位 D-211)。根因定位:docDragEnabled(main.js)首行 `docSurface(listEl) !== "documents"` 拒绝侧栏——侧栏照常渲染锁提示+解锁按钮(renderDocList 4375-4423 无 surface 限制),但 draggable 只在 `!isGrouped && docDragEnabled(...)` 分支设置,侧栏永不设置:解锁后锁提示消失、条目"能选"却拖不动,与用户实测完全吻合;R-123 曾把排序收进文档页,但 D-211 验收要求两侧一致,更新定调覆盖。修复:docDragEnabled 去掉 surface 限制,侧栏与文档页一致可拖(手动+无筛选+非分组时 draggable 设置,拖拽链路 dragstart/dragover/dragend → commitDocOrder → docs_update reorder 为既有实现);docSurface 注释同步修订。冒烟:新增 D-211 块——侧栏解锁→锁提示消失→draggable=true→dragstart/dragover/dragend→docs_update reorder 被调;反向验证(临时恢复旧限制)断言 2 处立即命中,恢复后全绿(222 invoke)。验收③用户复查可拖:待发版安装后用户确认,与 D-210/D-213 同惯例。
+

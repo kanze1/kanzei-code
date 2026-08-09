@@ -690,14 +690,37 @@ assert(
   `跳转到不存在的条目时应给出提示而不是静默失败,实得 toast: "${listText("toast")}"`,
 );
 
-// R-123 职责分离:侧栏只读(浏览与取活),独立文档页承担深度管理(编辑/排序/批量)。
+// R-123 职责分离(侧栏只读浏览、文档页深度管理)经 D-211 修订:拖拽改序两侧一致——
+// 侧栏照常渲染"解锁"按钮,解锁后就必须能拖,否则是承诺与能力脱节(D-211)。
 assert(!document.querySelector("#req-list .doc-edit"), "侧栏仍在渲染字段编辑表单(应只在独立文档页)");
 assert(!document.querySelector("#defect-list .doc-edit"), "缺陷侧栏仍在渲染字段编辑表单");
 assert(!document.querySelector("#req-list .doc-pick"), "侧栏出现批量选择框(批量操作应只在文档页)");
 assert(
   !document.querySelectorAll("#req-list .doc-item").some((n) => n.draggable),
-  "侧栏条目仍可拖拽改序(排序应只在文档页)",
+  "分组锁状态下侧栏条目不应可拖(解锁后才设置 draggable)",
 );
+// D-211 修复链路:侧栏解锁 → 锁提示消失 → draggable=true → 拖拽 → reorder 落库。
+{
+  const sidebarReq = document.querySelector("#req-list");
+  const hint = sidebarReq.querySelector(".drag-hint");
+  assert(hint, "侧栏默认分组视图未渲染锁提示");
+  const unlockBtn = [...hint.querySelectorAll("button")].find((b) => b.textContent.includes("解锁"));
+  assert(unlockBtn, "锁提示缺少一键解锁按钮(D-210 能力丢失)");
+  unlockBtn.click();
+  await flush();
+  assert(!sidebarReq.querySelector(".drag-hint"), "解锁后锁提示未消失");
+  const items = [...sidebarReq.querySelectorAll(".doc-item[data-doc-id]")];
+  assert(items.length >= 2, `解锁后侧栏需求条目不足(无法验证拖拽落库): ${items.length}`);
+  assert(items.every((n) => n.draggable), "侧栏解锁后条目未设置 draggable(D-211:解锁了却拖不动)");
+  const before = invokeLog.filter((c) => c === "docs_update").length;
+  const [a, b] = items;
+  a.dispatchEvent({ type: "dragstart", dataTransfer: { effectAllowed: "", setData() {} } });
+  b.dispatchEvent({ type: "dragover", clientY: 0, preventDefault() {} });
+  a.dispatchEvent({ type: "dragend" });
+  await flush();
+  const after = invokeLog.filter((c) => c === "docs_update").length;
+  assert(after > before, `侧栏拖拽未提交 docs_update(reorder 落库缺失),增量=${after - before}`);
+}
 // 侧栏移除编辑后必须仍能读到字段,否则等于把信息一起删了。
 const sidebarFields = document.querySelectorAll("#req-list .doc-detail .doc-field");
 assert(sidebarFields.length > 0, "侧栏详情既无编辑表单也无只读字段,信息被一起删掉了");

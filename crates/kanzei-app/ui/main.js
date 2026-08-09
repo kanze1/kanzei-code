@@ -4171,8 +4171,10 @@ let dragReqId = null;
 function reqDragEnabled(filters = reqFilters) {
   return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all" && (filters.blocked ?? "all") === "all";
 }
-// R-123 职责分离:侧边栏 = 浏览与取活(只读详情 + 切状态),独立文档页 = 深度管理
-// (排序、字段编辑、批量操作)。同一份 renderDocList 服务两处,靠这个判断分流。
+// R-123 职责分离 + D-211 修订:侧边栏 = 浏览与取活(只读详情 + 切状态 + 拖拽改序),
+// 独立文档页 = 深度管理(字段编辑、批量操作、对照);排序不再独属文档页——侧栏的
+// 锁提示/解锁按钮照常渲染,拖拽能力必须两侧一致,否则"解锁了却拖不动"(D-211)。
+// 编辑表单与批量操作仍只在文档页(deepManage 门控)。
 function docSurface(listEl) {
   return String(listEl?.id ?? "").startsWith("documents-") ? "documents" : "sidebar";
 }
@@ -4234,8 +4236,9 @@ async function applyBatch() {
 }
 
 function docDragEnabled(kind, listEl, filterState) {
-  // 拖拽改序属深度管理,只在独立文档页提供:侧栏因此不再承担改序,行也轻了。
-  if (docSurface(listEl) !== "documents") return false;
+  // 拖拽改序(手动+无筛选限定):侧栏与独立文档页一致提供(D-211——锁提示与解锁按钮
+  // 两侧都渲染,但 R-123 曾把排序收进文档页,侧栏 draggable 永不设置:解锁后锁提示
+  // 消失、条目"能选"却拖不动。用户实测复现,验收要求两侧均可拖,承诺与实际必须一致)。
   if (kind === "req") return reqDragEnabled(filterState);
   if (kind !== "defect") return false;
   // tag/blocked 同样让列表不完整——commitDocOrder 提交的是完整 ID 序,
