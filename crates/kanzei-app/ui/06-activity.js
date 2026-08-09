@@ -8,9 +8,11 @@ function renderDiffSummary() {
   const files = [...diffSummary.values()];
   const additions = files.reduce((sum, item) => sum + item.additions, 0);
   const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
-  label.textContent = files.length ? `· ${files.length} ${t("文件")} +${additions}/−${deletions}` : "";
+  label.innerHTML = files.length
+    ? `· ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
+    : "";
   panel.classList.toggle("hidden", files.length === 0);
-  panel.innerHTML = files.map((item) => `<div class="diff-summary-row"><span>${escapeHtml(item.path)}</span><span>+${item.additions}/−${item.deletions}</span></div>`).join("");
+  panel.innerHTML = files.map((item) => `<div class="diff-summary-row"><span>${escapeHtml(item.path)}</span><span class="diff-summary-counts"><span class="diff-add">+${item.additions}</span><span class="diff-del">−${item.deletions}</span></span></div>`).join("");
 }
 
 function bgSync() {
@@ -311,7 +313,9 @@ function appendDisplayBlock(parent, display) {
   } else if (display.kind === "terminal") {
     const block = document.createElement("div");
     block.className = "tool-display term";
-    block.textContent = `$ ${display.command}\n${display.output}`;
+    // D-237:活动面板展开区优先展示完整输出(full),而不是 4000 截断的 output。
+    const out = display.full ?? display.output ?? "";
+    block.textContent = `$ ${display.command}\n${out}`;
     parent.appendChild(block);
   } else if (display.kind === "create") {
     const block = document.createElement("div");

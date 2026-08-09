@@ -269,6 +269,10 @@ impl Tool for BashTool {
                     "command": input.command,
                     "exitCode": code,
                     "output": text.chars().take(4000).collect::<String>(),
+                    // D-237:活动面板要能看到 bash 的"实际内容",4000 截断对长输出
+                    // (cargo test 等)直接丢后半段。完整输出随 display 透传,
+                    // 前端 detail 展开区消费;上限 200k 防事件体被单条输出打爆。
+                    "full": text.chars().take(200_000).collect::<String>(),
                 });
                 let output = if ok && breach.is_none() {
                     ToolOutput::ok(rendered)
@@ -311,6 +315,7 @@ impl Tool for BashTool {
                     "exitCode": serde_json::Value::Null,
                     "timeout": true,
                     "output": text.chars().take(4000).collect::<String>(),
+                    "full": text.chars().take(200_000).collect::<String>(),
                 });
                 // 超时不是成功:按错误返回,上层不再把它计入正常完成。
                 ToolOutput::error(text).with_display(display)

@@ -1043,3 +1043,8 @@
 - 命令: cargo test --workspace
 - 摘要: 全 workspace 通过:kanzei-app 45 + kanzei-tools 126 + 其余 crate 全绿;D-236 中文「批N」解析修复 + 真实仓库 R-157 推导 3 批实证
 - 收尾: 1786311460
+
+## T-1786312096 D-237 活动面板修复验证:四条 ui 冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: 四条 ui 冒烟全绿;kanzei-tools 定向测试 126 全绿
+- 收尾: 1786312144

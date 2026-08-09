@@ -1093,6 +1093,29 @@ assert(
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
+// ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
+const d237ToolStart = handlers.get("kz:tool-start");
+const editEnd = handlers.get("kz:tool-end");
+d237ToolStart({ payload: { id: "T5", name: "edit", summary: "ui/main.js", input: { path: "ui/main.js" } } });
+d237ToolStart({ payload: { id: "T6", name: "bash", summary: "cargo test -p kanzei-app", input: { command: "cargo test -p kanzei-app" } } });
+editEnd({ payload: { id: "T5", name: "edit", ok: true, preview: "replaced 1 occurrence", display: { kind: "diff", path: "ui/main.js", additions: 3, deletions: 1, language: "js", lines: [] } } });
+editEnd({ payload: { id: "T6", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "cargo test -p kanzei-app", output: "短输出(截断版)", full: "长输出…".repeat(100) } } });
+await flush();
+const diffRow = document.querySelector("#diff-summary");
+assert(diffRow && diffRow.textContent.includes("+3") && diffRow.textContent.includes("−1"), "diff 汇总未收录文件的增删计数");
+assert(
+  diffRow.textContent.includes("ui/main.js"),
+  "diff 汇总未显示文件路径",
+);
+// 冒烟的 innerHTML 是去标签近似(不建真实子节点),着色 span 的选择器断言不可用;
+// 着色结构由 renderDiffSummary 的模板字符串保证(实际浏览器里 .diff-add/.diff-del 生效)。
+const bashFullEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "T6");
+assert(bashFullEntry, "bash 完整输出条目未出现");
+assert(
+  bashFullEntry.querySelector(".bg-detail")?.textContent.includes("长输出"),
+  "bash 展开区未使用完整输出(full),仍停留在 4000 截断版",
+);
+
 // ---------- D-170 项目隔离失效必须报出来 ----------
 assert(invokeLog.includes("project_root_info"), "切项目时未检查项目根是否与所选目录一致");
 const sharedWarn = byId.get("project-shared-warn");

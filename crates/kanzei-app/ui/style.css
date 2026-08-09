@@ -952,6 +952,10 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .diff-summary-label { color: var(--dim); font-size: 11px; margin-left: 8px; }
 .diff-summary { margin: 0 8px 8px; border: 1px solid var(--border-soft); border-radius: 4px; background: #0d0d0d; max-height: 120px; overflow-y: auto; }
 .diff-summary-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; color: var(--dim); font-family: var(--mono); font-size: 11px; }
+/* D-237:汇总区 +/− 与 diff 行同色系,增删一眼可辨(纯文本灰看不出改了啥)。 */
+.diff-summary-counts { display: inline-flex; gap: 6px; }
+.diff-add { color: #a5c98f; }
+.diff-del { color: #dd8d72; }
 .dl { padding: 0 10px; white-space: pre; }
 .dl.add { background: rgba(143, 184, 122, .13); color: #a5c98f; }
 .dl.del { background: rgba(208, 104, 78, .12); color: #dd8d72; }
