@@ -816,3 +816,23 @@
 - 命令: cargo test --workspace
 - 摘要: workspace 全量测试通过：各 crate 单测、集成测试与 doc-tests 全绿；R-153 仍不能关闭，因为 main.rs 仍含 run_task_impl，未满足 ≤300 行/装配入口验收。
 - 收尾: 1786297581
+
+## T-1786297655 R-153 UI i18n 冒烟 [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 摘要: 790 个资源 key、296 项 HTML 文案、61 项动态契约覆盖通过。
+- 收尾: 1786297655
+
+## T-1786297655 R-153 UI a11y 冒烟 [passed]
+- 命令: node scripts/ui-a11y-smoke.mjs
+- 摘要: 22 个静态 icon-btn 及核心键盘语义、焦点规则覆盖通过。
+- 收尾: 1786297655
+
+## T-1786297655 R-153 UI Markdown 冒烟 [passed]
+- 命令: node scripts/ui-markdown-smoke.mjs
+- 摘要: 列表、表格、代码语言、安全外链与 XSS 用例覆盖通过。
+- 收尾: 1786297655
+
+## T-1786297655 R-153 UI runtime 冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: main.js 全量执行、初始化 222 次 invoke、7 个主视图切换与需求/缺陷/目标/测试/历史列表渲染通过，0 运行时错误。
+- 收尾: 1786297655

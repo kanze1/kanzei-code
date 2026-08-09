@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本轮完成并记录验证：T-1786297527 `cargo test -p kanzei-app` 43 项全绿；T-1786297581 `cargo test --workspace` 全绿。精确缺口复核：`crates/kanzei-app/src/main.rs:367-1010` 仍保留 `run_task_impl`，`crates/kanzei-app/src/run.rs:12` 仍是 `pub(crate) use crate::run_task_impl as run_task`，因此 main.rs 仍约 1168 行，尚未满足验收①“≤300 行且只含 mod 声明+main()+Builder 装配”；本批迁移尚不能标记 done，下一动作是把 run_task_impl 整体搬入 run.rs 后再定向复测。验收②测试证据已具备；验收③ invoke_handler 位于 main.rs:124-约200，现有 command 注册测试通过；验收④需补四条 UI 冒烟证据。批次保持 10/11，避免把未完成的 run.rs 整体搬迁误标为完成。
+- 进展: 补充 UI 验收证据：T-1786297655 的 i18n、a11y、Markdown、runtime 四条冒烟均通过；runtime 覆盖 main.js 全量执行、222 次 invoke、7 个主视图切换及需求/缺陷/目标/测试/历史列表渲染，0 运行时错误。注意四条记录曾并行生成同一时间戳 ID，已记录 D-227，故证据内容可用但记录唯一性待修复。R-153 仍保持 doing、批次 10/11，run_task_impl 整体搬迁和 main.rs ≤300 行缺口未变。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

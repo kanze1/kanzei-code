@@ -143,3 +143,9 @@
 - 优先级: P1
 - 进展: 已恢复 crates/kanzei-app/src/main.rs::SettingsPayload.profile_default，并保留 codex_fast_mode；后续 cargo check 未再报告 profile_default 缺失。整体 kanzei-app 仍被 R-153 既有 mobile.rs/processes.rs 编译错误阻断，待上游迁移稳定后复测。
 
+## D-227 并行 test_record 自动生成相同时间戳 ID，四条 UI 记录互相覆盖 [open] (medium)
+- 复现: 并行调用四个同秒 test_record，均省略 id；结果生成相同 T-1786297655，archive 中标题不同但 ID 相同。
+- 影响: 测试证据无法一一引用，可能破坏测试记录唯一性与归档完整性。
+- 标签: 流程
+- 进展: 本轮发现；后续需用串行记录或显式唯一 id 认领，先核对 tests-archive 的实际条目。
+- 优先级: P2
