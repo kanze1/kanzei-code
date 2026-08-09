@@ -1311,13 +1311,16 @@ reasoning = "high"
         let empty: KanzeiConfig = toml::from_str("").unwrap();
         assert_eq!(empty.cadence.full_test, FullTestCadence::EntryClose);
         assert_eq!(empty.cadence.full_test_batches, None);
-        assert_eq!(empty.cadence.targeted_test, TargetedTestCadence::EveryCommit);
+        assert_eq!(
+            empty.cadence.targeted_test,
+            TargetedTestCadence::EveryCommit
+        );
         assert_eq!(empty.cadence.commit, CommitCadence::PerBatch);
         assert_eq!(empty.cadence.push, PushCadence::PerEntry);
 
         // 只写 [models] 的旧配置同样不引入 cadence 行为变化。
-        let old: KanzeiConfig = toml::from_str("[models]\nprimary = \"anthropic:claude-sonnet-5\"\n")
-            .unwrap();
+        let old: KanzeiConfig =
+            toml::from_str("[models]\nprimary = \"anthropic:claude-sonnet-5\"\n").unwrap();
         assert_eq!(old.cadence.full_test, FullTestCadence::EntryClose);
         assert_eq!(old.cadence.targeted_test, TargetedTestCadence::EveryCommit);
         assert_eq!(old.cadence.push, PushCadence::PerEntry);
@@ -1346,10 +1349,12 @@ reasoning = "high"
         assert_eq!(config.cadence.full_test, FullTestCadence::EveryCommit);
 
         // 序列化 round-trip:设置页保存后重读不丢字段。
-        let round: KanzeiConfig =
-            toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        let round: KanzeiConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
         assert_eq!(round.cadence.full_test, FullTestCadence::EveryCommit);
-        assert_eq!(round.cadence.targeted_test, TargetedTestCadence::EveryCommit);
+        assert_eq!(
+            round.cadence.targeted_test,
+            TargetedTestCadence::EveryCommit
+        );
 
         // 非法档位要报错,不能静默吞成默认——否则设置页拼错字用户还以为是默认生效。
         assert!(toml::from_str::<KanzeiConfig>("[cadence]\nfull_test = \"daily\"\n").is_err());
