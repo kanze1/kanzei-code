@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 5ca6b37：run_task_impl 配置告警与 bash 权限告警已提取到 run::report_config_warnings，统一通过 emit_stage 发送，main.rs 减少 7 行。定向测试 T-1786289718 已登记通过。下一步继续提取 run_task 首段配置/装配逻辑。
+- 进展: 已提交 8954bd5：run_task_impl 的 work_priority 归一化已提取到 run::normalize_work_priority，requirement-first 与默认 defect-first 语义保持，main.rs 减少 5 行。定向测试 T-1786289784 已登记通过。下一步继续提取 run_task 首段 profile/项目根目录解析逻辑。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
