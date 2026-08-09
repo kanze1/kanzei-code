@@ -111,6 +111,11 @@ assert.match(js, /meter\.setAttribute\("role", "img"\)/);
 assert.match(js, /const label = `\$\{t\("批次"\)\} \$\{done\}\/\$\{total\}/);
 assert.match(js, /meter\.setAttribute\("aria-label", label\)/);
 assert.match(js, /cell\.setAttribute\("aria-hidden", "true"\)/);
+// 轨道总长固定、列数随批次数走。写死列数会把 11 个格子折成多行糊成一坨(实测),
+// 不固定总长则列表会因条目批次多寡而参差——两条都盯住。
+assert.match(js, /meter\.style\.setProperty\("--cells"/);
+assert.match(css, /grid-template-columns: repeat\(var\(--cells/);
+assert.match(css, /\.doc-row \.complexity-meter \{ flex: 0 0 \d+px; width: \d+px; \}/);
 assert.match(css, /#req-list \.doc-item::before \{ display: none; \}/);
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);

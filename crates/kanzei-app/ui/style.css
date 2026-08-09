@@ -237,13 +237,16 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .workspace-path, .workspace-summary, .workspace-activity, .workspace-meta { margin-top: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .complexity-badge { color: var(--dim); font-size: 10px; font-family: var(--mono); flex-shrink: 0; }
 #req-list .doc-item::before { display: none; }
-#req-list .doc-row .complexity-meter {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px;
+/* 批次进度格:轨道总长固定,再按批次数等分——格子多少只改变每格宽度,不改变
+   这一列占的位置,列表才不会因为条目批次多寡而参差。列数由 JS 写 --cells,
+   写死 repeat(3, 1fr) 会把 11 个格子折成 4 行(实测就是这么糊成一坨的)。 */
+.doc-row .complexity-meter {
+  display: grid; grid-template-columns: repeat(var(--cells, 3), 1fr); gap: 1px;
   align-items: center; height: 14px; padding: 2px 0;
 }
-#req-list .complexity-cell {
-  display: block; height: 9px; border: 1px solid var(--border); border-radius: 2px;
-  background: transparent;
+.complexity-cell {
+  display: block; height: 9px; min-width: 0; border: 1px solid var(--border);
+  border-radius: 2px; background: transparent;
 }
 #req-list .doc-item.pri-P0 .complexity-cell.filled { background: var(--err); border-color: var(--err); }
 #req-list .doc-item.pri-P1 .complexity-cell.filled { background: var(--warn); border-color: var(--warn); }
@@ -802,16 +805,11 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .doc-row .id, .doc-row .pos { flex: 0 0 34px; }
 .doc-row .st { flex: 0 0 72px; white-space: nowrap; }
 .doc-row .pri-badge { flex: 0 0 36px; text-align: center; }
-.doc-row .complexity-meter { flex: 0 0 48px; }
 /* 批次进度格:格数随条目批次总数变(最多 12 格),固定总宽,格子自己压窄——
    宽度恒定,列表才不会因为条目批次多少而参差。 */
-.batch-meter { display: inline-flex; gap: 1px; width: 48px; flex: 0 0 48px; }
-/* 基础格样式不再只挂 #req-list:缺陷列表也画批次格,scope 少一处就会在那边变成裸 span */
-.batch-meter .complexity-cell {
-  display: block; height: 9px; border: 1px solid var(--border); border-radius: 2px;
-  background: transparent; flex: 1 1 auto; min-width: 2px;
-}
-.batch-meter .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
+.doc-row .complexity-meter { flex: 0 0 56px; width: 56px; }
+/* 未着色的默认填充:缺陷列表没有 pri-* 类,少这一条那边的已完成格就是透明的 */
+.complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 .doc-row .complexity-badge { flex: 0 0 68px; text-align: center; white-space: nowrap; }
 .doc-row .title { flex: 1 1 auto; min-width: 0; }
 @media (max-width: 760px) { .documents-list .doc-row .complexity-badge { flex-basis: 58px; } .documents-list .doc-row .st { flex-basis: 60px; } }

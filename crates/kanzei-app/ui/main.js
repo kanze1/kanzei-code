@@ -4644,6 +4644,8 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
         const filled = total <= cells ? done : Math.round((done / total) * cells);
         const meter = document.createElement("span");
         meter.className = "complexity-meter batch-meter";
+        // 轨道等分成几格由这里决定,CSS 只管固定总长(见 style.css 的 --cells)。
+        meter.style.setProperty("--cells", String(cells));
         meter.setAttribute("role", "img");
         const label = `${t("批次")} ${done}/${total}${cx ? ` · ${t("复杂度")}:${t(cx)}` : ""}`;
         meter.setAttribute("aria-label", label);

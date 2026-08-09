@@ -171,7 +171,15 @@ class Element {
     this.ownerDocument = null;
     this.parentNode = null;
     this.childNodes = [];
-    this.style = {};
+    // style 不能只是空对象:main.js 用 setProperty 写 CSS 变量(批次格的列数就靠它),
+    // 缺这个 API 会在渲染中途抛异常,整张列表消失——而这种崩法在冒烟里表现为
+    // "元素找不到",看不出真因。
+    this.style = {
+      _props: {},
+      setProperty(name, value) { this._props[name] = String(value); },
+      getPropertyValue(name) { return this._props[name] ?? ""; },
+      removeProperty(name) { delete this._props[name]; },
+    };
     this.dataset = {};
     this.classList = new ClassList(this);
     this._attributes = {};
@@ -699,6 +707,10 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
   assert(
     cells.filter((c) => c.className.includes("filled")).length === 3,
     "已完成 3 批就该填 3 格",
+  );
+  assert(
+    meter.style.getPropertyValue("--cells") === "11",
+    `轨道要按批次数等分,--cells 实际为 ${meter.style.getPropertyValue("--cells")}`,
   );
   assert(
     (meter.getAttribute("aria-label") ?? "").includes("3/11"),
