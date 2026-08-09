@@ -2,10 +2,57 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Deserialize;
 use serde_json::json;
 use tauri::State;
 
-use crate::{AppState, SettingsPayload};
+use crate::AppState;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SettingsPayload {
+    pub(crate) primary: String,
+    pub(crate) fast: String,
+    pub(crate) proxy: String,
+    #[serde(default)]
+    pub(crate) reasoning: Option<String>,
+    #[serde(default)]
+    pub(crate) codex_fast_mode: bool,
+    pub(crate) profile_default: Option<String>,
+    #[serde(default)]
+    pub(crate) profile: Option<String>,
+    pub(crate) providers: Vec<ProviderPayload>,
+    #[serde(default)]
+    pub(crate) limits: LimitsPayload,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct LimitsPayload {
+    #[serde(default)] pub(crate) max_tokens: Option<u32>,
+    #[serde(default)] pub(crate) subagent_max_tokens: Option<u32>,
+    #[serde(default)] pub(crate) subagent_timeout_secs: Option<u64>,
+    #[serde(default)] pub(crate) context_budget_ratio: Option<f64>,
+    #[serde(default)] pub(crate) recent_verbatim_ratio: Option<f64>,
+    #[serde(default)] pub(crate) max_tasks_per_turn: Option<usize>,
+    #[serde(default)] pub(crate) max_parallel_tools: Option<usize>,
+    #[serde(default)] pub(crate) transport_retries: Option<u32>,
+    #[serde(default)] pub(crate) rate_limit_retries: Option<u32>,
+    #[serde(default)] pub(crate) stream_restarts: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderPayload {
+    pub(crate) name: String,
+    pub(crate) protocol: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key_env: Option<String>,
+    #[serde(default)] pub(crate) api_key: Option<String>,
+    #[serde(default)] pub(crate) auth: Option<String>,
+    #[serde(default)] pub(crate) context_limit: Option<u64>,
+}
+
 
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {

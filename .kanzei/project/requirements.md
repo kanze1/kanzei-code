@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 权限设置命令已提交 7023f6c；本轮继续搬迁 provider_test，随后处理 SettingsPayload 与保存路径。
+- 进展: 本轮承接现有批次：先定位 provider_test/SettingsPayload 当前拆解边界，保持零行为变更；工作树已有记忆系统托管变更，提交时不纳入。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

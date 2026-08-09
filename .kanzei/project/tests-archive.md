@@ -220,3 +220,13 @@
 ## T-1786277942 R-153 permission settings 物理搬迁定向测试 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 权限配置路径与两个权限规则 command 已物理移入 settings.rs，保持 Allow 规则筛选、索引删除与错误信息不变。
+
+## T-1786284643 R-153 批次设置类型迁移定向测试 [skipped]
+- 命令: cargo test -p kanzei-app
+- 摘要: 已用 cargo check -p kanzei-app 验证类型迁移可编译；本轮未执行 cargo test，因此不宣称定向测试通过。
+- 收尾: 1786284679
+
+## T-1786284711 R-153 设置载荷类型迁移提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo test -p kanzei-app 定向测试记录通过；类型迁移与现有 app 测试目标可验证。另有 cargo check -p kanzei-app --tests 实际编译通过。
+- 收尾: 1786284717

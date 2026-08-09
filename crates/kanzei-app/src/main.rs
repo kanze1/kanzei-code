@@ -32,6 +32,8 @@ mod mobile;
 mod docs;
 mod settings;
 
+pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
+
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
     pending_path, release_is_newer, update_helper_path, update_log_at, validate_installer,
@@ -449,71 +451,6 @@ fn global_config_path() -> PathBuf {
     kanzei_harness::kanzei_home()
         .unwrap_or_default()
         .join("kanzei.toml")
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SettingsPayload {
-    primary: String,
-    fast: String,
-    proxy: String,
-    /// 思考强度默认档:off/low/medium/high;缺省视为 off。
-    #[serde(default)]
-    reasoning: Option<String>,
-    /// Codex Fast mode 开关;同一模型使用 priority 服务档位,默认关闭。
-    #[serde(default)]
-    codex_fast_mode: bool,
-    profile_default: Option<String>,
-    #[serde(default)]
-    profile: Option<String>,
-    providers: Vec<ProviderPayload>,
-    /// 运行上限([limits] 节);每项留空 = 用内置默认,不写进配置文件。
-    #[serde(default)]
-    limits: LimitsPayload,
-}
-
-/// 设置页的 [limits] 表单。字段与 kanzei_harness::config::Limits 一一对应,但走 camelCase
-/// ——那边是 TOML 的键名,不能为了前端改掉。全 None = 表单全空 = 一个键都不写。
-#[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct LimitsPayload {
-    #[serde(default)]
-    max_tokens: Option<u32>,
-    #[serde(default)]
-    subagent_max_tokens: Option<u32>,
-    #[serde(default)]
-    subagent_timeout_secs: Option<u64>,
-    #[serde(default)]
-    context_budget_ratio: Option<f64>,
-    #[serde(default)]
-    recent_verbatim_ratio: Option<f64>,
-    #[serde(default)]
-    max_tasks_per_turn: Option<usize>,
-    #[serde(default)]
-    max_parallel_tools: Option<usize>,
-    #[serde(default)]
-    transport_retries: Option<u32>,
-    #[serde(default)]
-    rate_limit_retries: Option<u32>,
-    #[serde(default)]
-    stream_restarts: Option<u32>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderPayload {
-    name: String,
-    protocol: String,
-    base_url: String,
-    api_key_env: Option<String>,
-    /// 直填 key(优先于 env;明文存 toml)。
-    #[serde(default)]
-    api_key: Option<String>,
-    /// 特殊认证透传(codex);表单只读展示,不丢字段。
-    #[serde(default)]
-    auth: Option<String>,
-    #[serde(default)]
-    context_limit: Option<u64>,
 }
 
 /// 设置标量并保留原值上的空白/行尾注释装饰(注释挂在值上,直接赋值会连注释一起换掉)。
