@@ -916,3 +916,13 @@
 - 命令: Get-ChildItem crates/kanzei-app/ui/*.js | ForEach-Object { node --check $_.FullName }; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
 - 摘要: B3:main.js(5881→5171)切出 13-memory.js(540)+14-docs-actions.js(168),index.html 按序 7 个 defer;node --check 遍历 7 文件全绿 + 四条冒烟全绿,runtime 确认 7 文件按序执行(222 次 invoke 不变)
 - 收尾: 1786303269
+
+## T-1786303709 R-154 B4 ui 冒烟(10-docs-core/11-docs-list/12-docs-pages 拆分) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B4 前端冒烟全绿:runtime 10 文件按序 + 222 invoke + 列表渲染;i18n 790 key/296 HTML/61 动态契约;markdown XSS;22 个 icon-btn a11y
+- 收尾: 1786303709
+
+## T-1786303812 R-154 B5 ui 冒烟(09-sessions 拆分) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: R-154 B5 前端冒烟全绿:runtime 11 文件按序 + 222 invoke + 列表渲染;i18n/markdown/a11y 同绿
+- 收尾: 1786303812
