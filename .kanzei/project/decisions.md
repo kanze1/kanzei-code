@@ -49,12 +49,12 @@
 - 日期: 2026-08-08
 - refs: R-108
 
-## A-008 巨石拆解:文件级模块化,前端用有序 classic script,不引入 ES modules [draft]
+## A-008 巨石拆解:文件级模块化,前端用有序 classic script,不引入 ES modules [accepted]
 - 决定: 四个巨石(app/main.rs、ui/main.js、core/runner.rs、core/store.rs)只做文件级拆分与可见性收窄——零行为变更、外部 API 面零变更;前端拆为 index.html 按序加载的多个 classic script(顶层 let/const 走共享全局词法环境,与单文件语义一致),不引入 ES modules、打包器或框架;四个冒烟脚本改为从 index.html 解析脚本清单,runtime 冒烟逐文件 vm.runInContext(与浏览器多 script 语义一致,含 TDZ)。
 - 依据: 2026-08-09 仓库工程评审定调拆解。评审原文建议 ES modules,勘察后偏离:①runtime 冒烟是 vm 单串执行,ES modules 须重写整套 harness(experimental vm modules 或全局注入+原生 import);②模块不建全局绑定,数百处跨文件引用须显式化,零行为变更承诺无法机械保证;③classic 多脚本方案冒烟机制逐文件等价可验证,弱模型可按行号地图机械执行。文件级模块化的收益(agent 检索粒度/patch locality)两方案相同。
 - 日期: 2026-08-09
 - refs: R-153 R-154 R-155
-- 备注: 完整方案 docs/design/monolith_decomposition.md。与评审建议有方案偏差,待用户确认后转 accepted;日后若要 ES modules 化,须新开设计文档并重写冒烟 harness,本条转 superseded。
+- 备注: 完整方案 docs/design/monolith_decomposition.md。与评审建议(ES modules)有方案偏差,已向用户说明偏离理由,2026-08-09 用户认可转 accepted;日后若要 ES modules 化,须新开设计文档并重写冒烟 harness,本条转 superseded。
 
 ## A-009 发布证据链:无绑定 commit 的验证证据不得打包发布 [accepted]
 - 决定: 公开发布(package.ps1)前必须存在 dist/verification.json:其 commit 与 HEAD 全 SHA 一致且全部检查通过,否则中止;证据由 scripts/verify.ps1 在干净工作树上产出;GitHub Actions 对每次 push 在独立环境复跑同套门禁。"Agent 说 done"不作为发布依据,只认独立、绑定 commit 的证据。

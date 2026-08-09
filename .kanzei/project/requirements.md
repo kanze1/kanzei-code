@@ -1,5 +1,59 @@
 # Requirements
 
+## R-152 CI/发布证据链:GitHub Actions 独立验证 + verification.json 绑定 commit 门禁 [todo]
+- 优先级: P0
+- 复杂度: 中
+- 标签: 发布
+- 来源: 2026-08-09 用户定调(仓库工程评审 P0 三项:License 元数据冲突、CI 缺失、release gate 机械化——正确性不应依赖"应该先跑过测试"的约定),方案已落设计文档,交自举执行。
+- 内容: ①License:workspace Cargo.toml `license = "MIT"` → `"PolyForm-Noncommercial-1.0.0"`(与 LICENSE.md 统一);②新增 .github/workflows/ci.yml:windows-latest,push(dev/main)+PR 触发,cargo test --workspace + 四条 UI 冒烟;**fmt/clippy 两闸注释着落地**(现存 435 处 fmt diff 与 23 条 clippy warning,首日启用必红),分别由 R-156/R-146 启用;③新增 scripts/verify.ps1:脏树拒跑,门禁全绿后写 dist/verification.json(HEAD 全 SHA + 各检查结果);④package.ps1 在 D-183 Ack 核对后加证据门禁:证据缺失、commit 不符或未全绿一律中止,新增 -VerificationPath 参数供发布树指向 dev 树证据(ff 合并后两树 HEAD 同 commit)。参考实现已写入设计文档,可直接落盘。设计: docs/design/ci_release_evidence_chain.md。
+- 边界: 不做多平台矩阵/签名/SBOM/CI 直发;verification.json 落 dist/ 不入库;release.ps1(开发通道)不动;CI 首跑暴露的环境相关红测按缺陷登记修复,不许 skip。
+- 验收: ①cargo metadata --no-deps 全部 crate license 为 PolyForm-Noncommercial-1.0.0;②push dev 后 GitHub Actions 首跑全绿(进展里留链接);③verify.ps1 实测两态:脏树拒跑、全绿产出 JSON;④package.ps1 实测三拦:无证据拦、commit 不符拦(verify 后再提交一个 commit 重跑必须中止)、证据齐全放行至构建——各拦截报错原文记入进展;⑤ci.yml 与 verify.ps1 两处门禁清单互相注明同步义务。
+- refs: A-009 R-146 R-156
+
+## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 后端
+- 来源: 2026-08-09 用户定调巨石拆解;结构地图与批次表已落设计文档 §A(行号基准 c339b58,执行以符号名定位)。
+- 内容: 照 files_view.rs 先例(command 加 pub、invoke_handler 全路径注册、低耦合模块零依赖 main)把 75 个 command 按域拆为 state/update/fast_model/agent_container/mobile/memory/prefs/projects/processes/settings/docs/conversation/harness_ext/subagents/run 等模块;批0 先把 818 行 update_tests 按域切开(解锁全部后续批),批1 零依赖叶子起步,批4 落 state.rs 枢纽,批10 收 run.rs,共 11 批,每批一提交。设计: docs/design/monolith_decomposition.md §A。
+- 边界: 零行为变更,diff 只允许 move+use+可见性;run_task(695 行)只整体搬迁不拆内部(内部拆分另立条目);main() 开头三调用顺序、UI_PROBE 三 static 同模块、ask_seq 共享、cfg(windows) 成对搬迁等危险点清单见设计文档;拆解批与其他源码条目不得并发。
+- 验收: ①main.rs ≤300 行且只含 mod 声明+main()+Builder 装配;②每批独立提交且 cargo test --workspace 全绿;③invoke_handler 78 项全数保留(拆前后清单 diff 核对)且按域分组加注释;④四条 UI 冒烟不受影响;⑤拆前后 wc -l 对照记入进展。
+- refs: A-008 R-148(先例 files_view.rs)
+- 依赖: R-152
+
+## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 前端
+- 来源: 2026-08-09 用户定调;不引 ES modules 的机制论证与文件清单已落设计文档 §B(行号基准 c339b58)。
+- 内容: B0 使能批**只改四个冒烟脚本**:从 index.html 解析 `<script src>` 清单按序读入,runtime 冒烟逐文件 vm.runInContext(与浏览器多 script 语义一致含 TDZ,拼接执行会掩盖前向引用 bug),静态断言用 join 串,探针注入按累计命中≥2 判定——此批 main.js 一字不动、四冒烟必须仍绿;随后 B1~B9 从尾部往前切出 18 文件(01-core…18-startup):readJson/writeJson 上提 01(现存唯一前向引用硬风险 L3244)、启动 IIFE 锁死末位、04/05 相邻保 markdown 冒烟切片边界;index.html 仅 script 标签区改为按序 18 个 `<script defer>`;同步 deep_parallel_dev.md:283 的 node --check 改遍历。设计: docs/design/monolith_decomposition.md §B。
+- 边界: 不引 ES modules/打包器/框架(A-008);style.css 零改动;tauri.conf.json 无需改(frontendDist 整目录);拆解批与其他前端条目不得并发。
+- 验收: ①B0 后单文件形态四冒烟仍全绿(机制改造零行为变化);②每批 node --check(遍历 ui/*.js)+四条冒烟全绿;③最终 main.js 消失,18 文件按 index.html 顺序加载,单文件 ≤1000 行;④发版后真机复查主视图/发送/设置页可用(E3 残余,不阻塞关闭,进展注明);⑤拆前后行数对照记入进展。
+- refs: A-008
+- 依赖: R-152
+
+## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 来源: 2026-08-09 用户定调;外部 API 面已 Grep 核实(外部三 crate 零处使用模块路径,全走顶层再导出),划分与危险点清单已落设计文档 §C(行号基准 c339b58)。
+- 内容: runner/ 按 B1 event→B2 metrics→B3 redundancy→B4 context→B5 compaction→B6 tool_exec→B7 subagent→B8 drive 八批;store/ 按 S1 拆壳(connection/path 转 pub(crate))→S2 episodes→S3 notifications→S4 events→S5 inbox→S6 session→S7 schema(migrate 原样搬不重构)→S8 测试分域八批;mod.rs pub use 平铺保持 kanzei_core:: 顶层再导出零变更;测试随域下沉不建大 tests.rs,共享测试辅助建 #[cfg(test)] pub(crate) mod testutil。设计: docs/design/monolith_decomposition.md §C。
+- 边界: 零行为变更;run_once 保持 boxed 签名(与 run_subagent 递归的断点,改 async fn 立刻 E0072,两处加注释锁死);run_once_with_parts(778 行)只整体搬迁;不删零调用 pub 方法;唯一允许的非 move 改动是给 RedundancyWatch::note_step 加 debug_assert_eq!(calls.len(), results.len()) 与三处下标不变式注释。
+- 验收: ①每批独立提交 cargo test --workspace 全绿;②lib.rs 与外部三 crate(kanzei/kanzei-app/kanzei-tools)全程零改动仍编译(每批断言);③runner.rs/store.rs 单文件消失,各子文件 ≤900 行;④下标不变式 debug_assert 与注释落位;⑤拆前后行数对照记入进展。
+- refs: A-008
+- 依赖: R-152
+
+## R-156 全仓 fmt 收敛并启用 fmt 闸门 [todo]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 流程
+- 来源: 2026-08-09 实测 cargo fmt --all -- --check 有 435 处 diff——fmt 闸门首日启用 CI 必红;且全仓格式化会使拆解设计文档的行号地图漂移,故单列一条排在拆解之后。
+- 内容: ①`cargo fmt --all` 单独一个纯格式化提交(不混任何业务/重构改动);②取消 ci.yml 与 scripts/verify.ps1 里注释着的 fmt 步骤(两处同启);③实测闸门会拦:临时引入一处格式漂移验证非零退出后撤销。
+- 边界: 与 R-146(clippy)同理必须避开在飞的源码工作;两条可同轮或相邻轮做,均在 R-153~R-155 完成之后。
+- 验收: ①cargo fmt --all -- --check exit=0;②ci.yml 与 verify.ps1 的 fmt 步骤启用且 CI 全绿;③拦截实测记入进展;④格式化提交 diff 零逻辑变更(全量测试全绿佐证)。
+- refs: R-152 R-146
+- 依赖: R-153 R-154 R-155
+
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -318,60 +372,6 @@
 - 内容: 消费 R-149 产出的决策价值信号:①空闲整理(sleep-time)把「零采纳候选」(召回≥3 采纳=0)与「复发告警」纳入整理清单,处置走既有墓碑机制(降级/修订/归档),不静默删;②Memory UI 页展示每条目的召回/采纳率与复发告警,零采纳候选有显式标记;③与 R-145 并轨:发版后取自举轨迹验证「写入→命中→避免重复探索」闭环,并复核 R-149 降权参数(0.6/0.7/阈值 3)是否合适——复核须计入两个采纳率低估通道:「看索引行即用」与「直接 read 记忆文件不经 memory_search 不计采纳」(后者可考虑给 read 加记忆目录钩子回填 mark_recall_fetched);同批决定 hits 因子去留——hits 奖励「常被搜到」(自增强)与采纳率权重惩罚「召回未采纳」方向冲突,候选处置:退役或降为平局破除器。
 - 验收: ①空闲整理清单包含零采纳与复发两类候选且处置有墓碑;②Memory 页可见召回/采纳数据(800/1024/1280 三档可用);③降权参数复核结论落回 docs/design/memory_decision_sufficiency.md 变更记录。
 - refs: R-103 R-107 R-125 R-145
-
-## R-152 CI/发布证据链:GitHub Actions 独立验证 + verification.json 绑定 commit 门禁 [todo]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 发布
-- 来源: 2026-08-09 用户定调(仓库工程评审 P0 三项:License 元数据冲突、CI 缺失、release gate 机械化——正确性不应依赖"应该先跑过测试"的约定),方案已落设计文档,交自举执行。
-- 内容: ①License:workspace Cargo.toml `license = "MIT"` → `"PolyForm-Noncommercial-1.0.0"`(与 LICENSE.md 统一);②新增 .github/workflows/ci.yml:windows-latest,push(dev/main)+PR 触发,cargo test --workspace + 四条 UI 冒烟;**fmt/clippy 两闸注释着落地**(现存 435 处 fmt diff 与 23 条 clippy warning,首日启用必红),分别由 R-156/R-146 启用;③新增 scripts/verify.ps1:脏树拒跑,门禁全绿后写 dist/verification.json(HEAD 全 SHA + 各检查结果);④package.ps1 在 D-183 Ack 核对后加证据门禁:证据缺失、commit 不符或未全绿一律中止,新增 -VerificationPath 参数供发布树指向 dev 树证据(ff 合并后两树 HEAD 同 commit)。参考实现已写入设计文档,可直接落盘。设计: docs/design/ci_release_evidence_chain.md。
-- 边界: 不做多平台矩阵/签名/SBOM/CI 直发;verification.json 落 dist/ 不入库;release.ps1(开发通道)不动;CI 首跑暴露的环境相关红测按缺陷登记修复,不许 skip。
-- 验收: ①cargo metadata --no-deps 全部 crate license 为 PolyForm-Noncommercial-1.0.0;②push dev 后 GitHub Actions 首跑全绿(进展里留链接);③verify.ps1 实测两态:脏树拒跑、全绿产出 JSON;④package.ps1 实测三拦:无证据拦、commit 不符拦(verify 后再提交一个 commit 重跑必须中止)、证据齐全放行至构建——各拦截报错原文记入进展;⑤ci.yml 与 verify.ps1 两处门禁清单互相注明同步义务。
-- refs: A-009 R-146 R-156
-
-## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [todo]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 后端
-- 来源: 2026-08-09 用户定调巨石拆解;结构地图与批次表已落设计文档 §A(行号基准 c339b58,执行以符号名定位)。
-- 内容: 照 files_view.rs 先例(command 加 pub、invoke_handler 全路径注册、低耦合模块零依赖 main)把 75 个 command 按域拆为 state/update/fast_model/agent_container/mobile/memory/prefs/projects/processes/settings/docs/conversation/harness_ext/subagents/run 等模块;批0 先把 818 行 update_tests 按域切开(解锁全部后续批),批1 零依赖叶子起步,批4 落 state.rs 枢纽,批10 收 run.rs,共 11 批,每批一提交。设计: docs/design/monolith_decomposition.md §A。
-- 边界: 零行为变更,diff 只允许 move+use+可见性;run_task(695 行)只整体搬迁不拆内部(内部拆分另立条目);main() 开头三调用顺序、UI_PROBE 三 static 同模块、ask_seq 共享、cfg(windows) 成对搬迁等危险点清单见设计文档;拆解批与其他源码条目不得并发。
-- 验收: ①main.rs ≤300 行且只含 mod 声明+main()+Builder 装配;②每批独立提交且 cargo test --workspace 全绿;③invoke_handler 78 项全数保留(拆前后清单 diff 核对)且按域分组加注释;④四条 UI 冒烟不受影响;⑤拆前后 wc -l 对照记入进展。
-- refs: A-008 R-148(先例 files_view.rs)
-- 依赖: R-152
-
-## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 前端
-- 来源: 2026-08-09 用户定调;不引 ES modules 的机制论证与文件清单已落设计文档 §B(行号基准 c339b58)。
-- 内容: B0 使能批**只改四个冒烟脚本**:从 index.html 解析 `<script src>` 清单按序读入,runtime 冒烟逐文件 vm.runInContext(与浏览器多 script 语义一致含 TDZ,拼接执行会掩盖前向引用 bug),静态断言用 join 串,探针注入按累计命中≥2 判定——此批 main.js 一字不动、四冒烟必须仍绿;随后 B1~B9 从尾部往前切出 18 文件(01-core…18-startup):readJson/writeJson 上提 01(现存唯一前向引用硬风险 L3244)、启动 IIFE 锁死末位、04/05 相邻保 markdown 冒烟切片边界;index.html 仅 script 标签区改为按序 18 个 `<script defer>`;同步 deep_parallel_dev.md:283 的 node --check 改遍历。设计: docs/design/monolith_decomposition.md §B。
-- 边界: 不引 ES modules/打包器/框架(A-008);style.css 零改动;tauri.conf.json 无需改(frontendDist 整目录);拆解批与其他前端条目不得并发。
-- 验收: ①B0 后单文件形态四冒烟仍全绿(机制改造零行为变化);②每批 node --check(遍历 ui/*.js)+四条冒烟全绿;③最终 main.js 消失,18 文件按 index.html 顺序加载,单文件 ≤1000 行;④发版后真机复查主视图/发送/设置页可用(E3 残余,不阻塞关闭,进展注明);⑤拆前后行数对照记入进展。
-- refs: A-008
-- 依赖: R-152
-
-## R-155 拆解 kanzei-core runner.rs(3240 行)与 store.rs(1972 行)为子模块目录 [todo]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 核心
-- 来源: 2026-08-09 用户定调;外部 API 面已 Grep 核实(外部三 crate 零处使用模块路径,全走顶层再导出),划分与危险点清单已落设计文档 §C(行号基准 c339b58)。
-- 内容: runner/ 按 B1 event→B2 metrics→B3 redundancy→B4 context→B5 compaction→B6 tool_exec→B7 subagent→B8 drive 八批;store/ 按 S1 拆壳(connection/path 转 pub(crate))→S2 episodes→S3 notifications→S4 events→S5 inbox→S6 session→S7 schema(migrate 原样搬不重构)→S8 测试分域八批;mod.rs pub use 平铺保持 kanzei_core:: 顶层再导出零变更;测试随域下沉不建大 tests.rs,共享测试辅助建 #[cfg(test)] pub(crate) mod testutil。设计: docs/design/monolith_decomposition.md §C。
-- 边界: 零行为变更;run_once 保持 boxed 签名(与 run_subagent 递归的断点,改 async fn 立刻 E0072,两处加注释锁死);run_once_with_parts(778 行)只整体搬迁;不删零调用 pub 方法;唯一允许的非 move 改动是给 RedundancyWatch::note_step 加 debug_assert_eq!(calls.len(), results.len()) 与三处下标不变式注释。
-- 验收: ①每批独立提交 cargo test --workspace 全绿;②lib.rs 与外部三 crate(kanzei/kanzei-app/kanzei-tools)全程零改动仍编译(每批断言);③runner.rs/store.rs 单文件消失,各子文件 ≤900 行;④下标不变式 debug_assert 与注释落位;⑤拆前后行数对照记入进展。
-- refs: A-008
-- 依赖: R-152
-
-## R-156 全仓 fmt 收敛并启用 fmt 闸门 [todo]
-- 优先级: P2
-- 复杂度: 小
-- 标签: 流程
-- 来源: 2026-08-09 实测 cargo fmt --all -- --check 有 435 处 diff——fmt 闸门首日启用 CI 必红;且全仓格式化会使拆解设计文档的行号地图漂移,故单列一条排在拆解之后。
-- 内容: ①`cargo fmt --all` 单独一个纯格式化提交(不混任何业务/重构改动);②取消 ci.yml 与 scripts/verify.ps1 里注释着的 fmt 步骤(两处同启);③实测闸门会拦:临时引入一处格式漂移验证非零退出后撤销。
-- 边界: 与 R-146(clippy)同理必须避开在飞的源码工作;两条可同轮或相邻轮做,均在 R-153~R-155 完成之后。
-- 验收: ①cargo fmt --all -- --check exit=0;②ci.yml 与 verify.ps1 的 fmt 步骤启用且 CI 全绿;③拦截实测记入进展;④格式化提交 diff 零逻辑变更(全量测试全绿佐证)。
-- refs: R-152 R-146
-- 依赖: R-153 R-154 R-155
 
 ## R-151 用户约束的机械捕获通道:对话定调不再靠主 agent 自觉投 note [todo]
 - 优先级: P3
