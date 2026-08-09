@@ -1006,3 +1006,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-155 S7+S8 后全量:kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43 等全部绿。store 26 个测试已分域下沉到 episodes/events/inbox/notifications/schema/session + testutil 共享辅助。
 - 收尾: 1786307001
+
+## T-1786307168 cargo test --workspace (R-156 格式化后全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-156 全仓 cargo fmt --all 后全量验证:所有 crate 测试数与格式化前完全一致(kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43),佐证格式化提交零逻辑变更。
+- 收尾: 1786307168

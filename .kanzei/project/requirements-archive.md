@@ -1292,3 +1292,21 @@
 验收⑤拆前后行数对照:runner.rs 3240 行→runner/ 3417 行(mod.rs 308 + event 151 + metrics 559 + redundancy 284 + context 428 + compaction 394 + tool_exec 303 + subagent 180 + drive 810);store.rs 1972 行→store/ 2106 行(mod.rs 139 + schema 451 + session 292 + events 282 + inbox 459 + notifications 250 + episodes 219 + testutil 14);最大子文件 drive.rs 810 行(≤900)。差值为拆解模块头注释与平铺 use,主体零行为变更。
 关闭前全量 cargo test --workspace 全绿(T-1786307001):kanzei-core 71、kanzei 46、kanzei-app 123、kanzei-llm 39、harness 43。lib.rs 与外部三 crate 全程零改动(各批 diff 均只含 store/runner 内文件)。
 
+## R-156 全仓 fmt 收敛并启用 fmt 闸门 [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 流程
+- 来源: 2026-08-09 实测 cargo fmt --all -- --check 有 435 处 diff——fmt 闸门首日启用 CI 必红;且全仓格式化会使拆解设计文档的行号地图漂移,故单列一条排在拆解之后。
+- 内容: ①`cargo fmt --all` 单独一个纯格式化提交(不混任何业务/重构改动);②取消 ci.yml 与 scripts/verify.ps1 里注释着的 fmt 步骤(两处同启);③实测闸门会拦:临时引入一处格式漂移验证非零退出后撤销。
+- 边界: 与 R-146(clippy)同理必须避开在飞的源码工作;两条可同轮或相邻轮做,均在 R-153~R-155 完成之后。
+- 验收: ①cargo fmt --all -- --check exit=0;②ci.yml 与 verify.ps1 的 fmt 步骤启用且 CI 全绿;③拦截实测记入进展;④格式化提交 diff 零逻辑变更(全量测试全绿佐证)。
+- refs: R-152 R-146
+- 依赖: 
+
+- 进展: 验收对照:
+①cargo fmt --all -- --check exit=0——格式化后与漂移撤销后两次实测均 0(提交 cee7aa8)。
+②fmt 闸门两处启用:ci.yml:29-30 取消注释(cargo fmt --all -- --check),verify.ps1:25 新增 Invoke-Check "fmt"(同命令,与 ci.yml 清单同步注释声明)。CI 全绿依赖 push 后 GitHub Actions 实测;本机已用与闸门完全相同的命令验证通过。
+③拦截实测:向 crates/kanzei/src/main.rs 注入尾随空格漂移,cargo fmt --all -- --check 真实 exit=1 且 diff 指向 main.rs:16,撤销后 exit=0。
+④零逻辑变更:格式化提交仅 74 个 Rust 文件 + ci.yml + verify.ps1(cee7aa8),全量 cargo test --workspace 测试数与格式化前逐 crate 一致(T-1786307168):core 71/kanzei 46/app 123/llm 39/harness 43。
+纯格式化单提交,不混业务改动;R-153/R-154/R-155 依赖已全部关闭,移入 refs。
+
