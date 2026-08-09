@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批3 memory 旧副本清理完成：main.rs 中 memory_stores_for、13 个 memory command、FOCUS_TITLE_PREFIX、consolidate_memory_inbox 均已删除；run_metrics 保留在 main.rs。`memory.rs` 是唯一实现，invoke_handler 及 run_task 真实调用已接入。回归记录 T-1786254237。R-153 总验收仍待批4~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟、拆前后行数对照。
+- 进展: 批4 state 模块完成：新增 `state.rs`，承接 PromptAttachment、AppState/SessionRuntime/LiveRun、PendingAsk、Process/Mobile/Worktree 状态、UI probe 与全部跨域辅助；main.rs 通过 state re-export 兼容既有调用，已删除 state 旧实现，setup/invoke_handler 真实调用保持。回归 T-1786254660 通过。R-153 总验收仍待批5~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟与拆前后行数对照。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

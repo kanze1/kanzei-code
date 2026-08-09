@@ -172,3 +172,7 @@
 ## T-1786254237 R-153 批3 memory 旧副本清理回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: main.rs memory 旧副本清理回归记录通过：memory command/consolidation 定义已无匹配，run_metrics 保留；memory.rs 成为唯一实现文件。
+
+## T-1786254660 R-153 批4 state 模块接入回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批4 state 模块接入与 main.rs state 旧副本清理回归记录通过；state.rs 已提供状态类型、UI probe、运行时与跨域辅助，main 仅保留装配。

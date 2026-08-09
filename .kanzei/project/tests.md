@@ -115,3 +115,7 @@
 ## T-1786254227 R-153 批3 memory 旧副本清理回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证批3 memory 旧副本物理删除：main.rs 保留 run_metrics，memory command 与 consolidate 仅由 memory.rs 提供，invoke_handler 和 run_task 调用保持真实。
+
+## T-1786254656 R-153 批4 state 模块接入回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证批4 state.rs 接入与 main.rs state 旧副本清理：AppState/运行时/UI probe/跨域辅助由 state 模块提供，main 保留 setup 与 invoke_handler 装配。
