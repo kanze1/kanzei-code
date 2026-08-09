@@ -144,7 +144,7 @@ fn main() {
             docs::docs_snapshot,
 run::run_prompt,
             run::stop_run,
-            answer_ask,
+            run::answer_ask,
             pending_asks_get,
             settings::settings_get,
             settings::settings_save,
@@ -635,69 +635,6 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 }
 
 // ---------- 运行 ----------
-
-fn persist_always_allow(
-    project_root: &Path,
-    action: &str,
-    resource: &str,
-) -> Result<(kanzei_core::AskReply, PathBuf), String> {
-    let pattern = kanzei_harness::config::generalize_resource(action, resource);
-    let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern)
-        .map_err(|error| error.to_string())?;
-    Ok((kanzei_core::AskReply::AlwaysAllow, path))
-}
-
-/// reply: "deny" | "once" | "always"。always 先把泛化规则写进项目配置再放行。
-#[tauri::command]
-fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
-    let Some(pending) = take_pending_ask(&state, id) else {
-        return;
-    };
-    if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
-        let response = if reply.trim().is_empty() || reply == "cancel" {
-            kanzei_core::AskResponse::Cancelled
-        } else {
-            kanzei_core::AskResponse::Answer(reply)
-        };
-        let _ = pending.sender.send(response);
-        return;
-    }
-    let decision = match reply.as_str() {
-        "always" => {
-            let pattern =
-                kanzei_harness::config::generalize_resource(&pending.action, &pending.resource);
-            match persist_always_allow(
-                &pending.project_root,
-                &pending.action,
-                &pending.resource,
-            ) {
-                Ok((reply, path)) => {
-                    let _ = window.emit("kz:status", with_session_id(json!({
-                        "stage": "权限",
-                        "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()),
-                    }), &pending.session_id));
-                    reply
-                }
-                Err(error) => {
-                    let _ = window.emit(
-                        "kz:status",
-                        with_session_id(
-                            json!({
-                                "stage": "权限",
-                                "detail": format!("规则保存失败:{error};本次拒绝"),
-                            }),
-                            &pending.session_id,
-                        ),
-                    );
-                    kanzei_core::AskReply::Deny
-                }
-            }
-        }
-        "once" => kanzei_core::AskReply::AllowOnce,
-        _ => kanzei_core::AskReply::Deny,
-    };
-    let _ = pending.sender.send(kanzei_core::AskResponse::Permission(decision));
-}
 
 #[tauri::command]
 fn pending_asks_get(

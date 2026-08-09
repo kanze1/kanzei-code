@@ -375,3 +375,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: summarize_chat、fast_summarize、render_transcript 已迁入 run.rs，invoke_handler 与 run_task 内压缩调用已切换到 run:: 路径。
 - 收尾: 1786288894
+
+## T-1786289008 R-153 run.rs answer_ask 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: answer_ask 与 persist_always_allow 已迁入 run.rs；权限 always/once/deny、问题回答、配置落盘和 kz:status 反馈保持，main.rs 旧实现已删除。
+- 收尾: 1786289012
