@@ -325,3 +325,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: quick_req 已整体迁入 subagents.rs，invoke_handler 使用 subagents::quick_req，fast/primary 回退与真实落库判据保持。
 - 收尾: 1786287814
+
+## T-1786287956 R-153 subagents defect_review 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: defect_review 已整体迁入 subagents.rs，空缺陷短路、只读 SubagentBase/ConfigComponent 快照、fast/primary 回退和 Markdown 报告返回保持；invoke_handler 已使用 subagents::defect_review。
+- 收尾: 1786287960

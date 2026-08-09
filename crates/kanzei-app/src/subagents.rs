@@ -54,3 +54,55 @@ pub(crate) async fn quick_req(
     }
     Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
 }
+
+const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \\
+Read .kanzei/project/defects.md first, then verify every active defect against relevant code, tests, and design documents. \\
+Reply in Chinese Markdown with: 1. summary and active defect count; 2. categories; 3. likely duplicates with IDs; \\
+4. impact of each defect; 5. suggested priority with reasons; 6. verifiable evidence using exact file paths, functions, \\
+and line numbers; 7. concrete next steps. Do not modify files, run commands, update trackers, or claim unverified facts.";
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DefectReviewResult { pub(crate) empty: bool, pub(crate) report: String, pub(crate) defect_count: usize }
+
+fn defect_review_snapshot(rctx: &ResolveCtx) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
+    let mut harness = Harness::default();
+    harness.add(kanzei_tools::SubagentBase).add(crate::ConfigComponent);
+    harness.resolve(rctx)
+}
+
+fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
+    let report = summary.text.trim();
+    if report.is_empty() { Err("审查模型没有返回报告".into()) } else { Ok(report.to_string()) }
+}
+
+#[tauri::command]
+pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String> {
+    let cwd = PathBuf::from(&project_dir);
+    let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
+    let project_root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let defects = DocStore::open(&project_root, &DEFECTS).load().map_err(|e| e.to_string())?;
+    if defects.is_empty() { return Ok(DefectReviewResult { empty: true, report: "当前没有活动缺陷。".into(), defect_count: 0 }); }
+    let rctx = ResolveCtx { profile: ProfileKind::Dev, cwd: cwd.clone(), project_root: project_root.clone(), config: config.clone() };
+    let snapshot = defect_review_snapshot(&rctx).map_err(|e| e.to_string())?;
+    let mut agent = kanzei_tools::explore_agent();
+    agent.name = "defect-review".into();
+    agent.system = DEFECT_REVIEW_SYSTEM.into();
+    let proxy = match config.proxy.as_deref() { Some("off") => ProxyConfig::Disabled, Some("env") | None => ProxyConfig::Env, Some(value) => ProxyConfig::Explicit(value.to_string()) };
+    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let tool_ctx = ToolCtx { cwd, project_root };
+    let prompt = format!("审查当前项目 defects.md 中的 {} 条活动缺陷。逐条核对真实代码、测试和调用方，输出约定的 Markdown 报告。", defects.len());
+    let mut last_error = "没有可用的 fast 或 primary 模型".to_string();
+    for role in ["fast", "primary"] {
+        let resolved = match config.resolve_model(role) { Ok(value) => value, Err(error) => { last_error = error.to_string(); continue; } };
+        let route = match kanzei_core::build_route(&resolved, &proxy).await { Ok(value) => value, Err(error) => { last_error = error.to_string(); continue; } };
+        let runner_config = RunnerConfig { max_tokens: config.limits.max_tokens(), reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved), context_limit: resolved.provider.context_limit, limits: config.limits.clone(), model: resolved.model };
+        let mut on_event = |_event: RunEvent| {};
+        let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture { Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) }) };
+        match run_once_with_parts(&client, &route, &snapshot, &agent, &runner_config, &tool_ctx, &prompt, &[], None, None, &mut on_event, &mut ask).await {
+            Ok(summary) => match defect_review_report(&summary) { Ok(report) => return Ok(DefectReviewResult { empty: false, report, defect_count: defects.len() }), Err(error) => last_error = error },
+            Err(error) => last_error = error.to_string(),
+        }
+    }
+    Err(format!("缺陷自动审查失败:{last_error}"))
+}
