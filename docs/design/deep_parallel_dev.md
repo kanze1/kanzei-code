@@ -280,6 +280,6 @@ created/idle -> closed
 
 1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
 2. `cargo test -p kanzei-app`：桌面端回归；
-3. `node --check crates/kanzei-app/ui/main.js`：前端语法检查。
+3. `node --check` 遍历 `crates/kanzei-app/ui/*.js`：前端语法检查。
 
 该脚本明确不创建 worktree、不调用真实 LLM、不写项目文件、不执行 git 操作。通过只代表 SessionStore 隔离不变量和回归测试通过，不代表 R-050 并行运行或 R-030 进程契约已经完成。

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { loadUiSources } from "./ui-sources.mjs";
 
-const source = readFileSync("crates/kanzei-app/ui/main.js", "utf8");
+const { joined: source } = loadUiSources();
 const start = source.indexOf("function escapeHtml");
 const end = source.indexOf("// ---------- 消息渲染 ----------", start);
 assert.ok(start >= 0 && end > start, "找不到 Markdown 渲染器源码边界");

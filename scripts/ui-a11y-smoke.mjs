@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { loadUiSources } from "./ui-sources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const html = await readFile(resolve(root, "crates/kanzei-app/ui/index.html"), "utf8");
-const js = await readFile(resolve(root, "crates/kanzei-app/ui/main.js"), "utf8");
+const { html, joined: js } = loadUiSources();
 const css = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
 const static_icon_buttons = [...html.matchAll(/<button[^>]*class="icon-btn"[^>]*>/g)];

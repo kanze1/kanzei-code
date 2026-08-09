@@ -4,10 +4,12 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import vm from "node:vm";
+import { loadUiSources } from "./ui-sources.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const html = await readFile(resolve(root, "crates/kanzei-app/ui/index.html"), "utf8");
-const source = await readFile(resolve(root, "crates/kanzei-app/ui/main.js"), "utf8");
+// B0:按 index.html 的 <script src> 清单按序读入全部脚本(单文件 = 清单的退化情形)。
+// 后续 R-154 批次把 main.js 拆成 18 个文件时,冒烟对文件形态透明,无需再改。
+const { html, scriptSrcs, sources, joined: source } = loadUiSources();
 const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
 const issues = [];
@@ -670,27 +672,43 @@ async function flush(rounds = 12) {
 function assert(condition, message) { if (!condition) fail(message); }
 const listText = (id) => byId.get(id)?.textContent ?? "";
 
-// ---------- 执行 main.js ----------
+// ---------- 执行 ui/*.js ----------
 // 诊断:main.js 的初始化 IIFE 逐步 catch 只 toast 不抛出,冒烟里 toast 不可见;
 // 注入 reporter 把"吞掉的初始化异常"变成冒烟失败(同时保持生产行为不变)。
-const instrumented = source
-  .replace(
-    /toastError\(`\$\{label\}加载失败:\$\{err\}`\);/,
-    "toastError(`${label}加载失败:${err}`); __reportInitError?.(label, err);"
-  )
-  .replace(
-    /function reportPersistentError\(text, \{ retry = null \} = \{\}\) \{/,
-    "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
-  );
-if (instrumented === source) fail("注入初始化异常探针失败:main.js 启动序列的 catch 形态已变化,请同步冒烟脚本");
-// R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。
-const instrumentedWithHooks =
-  instrumented +
-  "\n;globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };";
+// 逐文件 vm.runInContext(与浏览器多 <script> 语义一致,含 TDZ):拼接后一次执行会把
+// 函数声明提升到整串顶部,浏览器多脚本下会炸的 ReferenceError 在 vm 里反而跑通。
+const PROBE_INIT = /toastError\(`\$\{label\}加载失败:\$\{err\}`\);/;
+const PROBE_PERSIST = /function reportPersistentError\(text, \{ retry = null \} = \{\}\) \{/;
+let probeHits = 0;
 try {
-  vm.runInContext(instrumentedWithHooks, sandbox, { filename: "main.js" });
+  for (let i = 0; i < sources.length; i += 1) {
+    let instrumented = sources[i].replace(
+      PROBE_INIT,
+      "toastError(`${label}加载失败:${err}`); __reportInitError?.(label, err);"
+    );
+    if (instrumented !== sources[i]) probeHits += 1;
+    const beforePersist = instrumented;
+    instrumented = instrumented.replace(
+      PROBE_PERSIST,
+      "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
+    );
+    if (instrumented !== beforePersist) probeHits += 1;
+    vm.runInContext(instrumented, sandbox, { filename: scriptSrcs[i] });
+  }
 } catch (err) {
-  fail(`main.js 顶层执行抛异常: ${err.stack ?? err}`);
+  fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);
+}
+if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeHits}/2,启动序列的 catch 或错误上报形态已变化,请同步冒烟脚本`);
+// R-076:追加鞭挞状态测试钩子(访问模块级 let 状态,冒烟外部拿不到)。hook 单独最后执行,
+// 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
+try {
+  vm.runInContext(
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };",
+    sandbox,
+    { filename: "__kzTest-hook.js" }
+  );
+} catch (err) {
+  fail(`__kzTest hook 执行抛异常: ${err.stack ?? err}`);
 }
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
@@ -1599,6 +1617,6 @@ if (issues.length) {
   process.exit(1);
 }
 console.log(
-  `UI 运行时冒烟通过:main.js 全量执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
+  `UI 运行时冒烟通过:${sources.length} 个 ui/*.js 按序执行 + 初始化序列(${invokeLog.length} 次 invoke) + ` +
   `需求/缺陷/目标/测试/历史列表渲染 + ${document.querySelectorAll(".activity-item").length} 个主视图切换,0 运行时错误`
 );

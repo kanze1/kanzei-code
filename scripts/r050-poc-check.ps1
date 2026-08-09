@@ -12,8 +12,10 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "kanzei-app 测试失败" }
 
   Write-Host "==> 验证前端语法" -ForegroundColor Cyan
-  node --check crates/kanzei-app/ui/main.js
-  if ($LASTEXITCODE -ne 0) { throw "前端语法检查失败" }
+  Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
+    node --check $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "前端语法检查失败: $($_.Name)" }
+  }
 
   Write-Host "R-050 只读 POC 验收通过；未创建 worktree，未执行项目文件或 git 写入。" -ForegroundColor Green
 }

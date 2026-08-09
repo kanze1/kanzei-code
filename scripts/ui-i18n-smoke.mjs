@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { loadUiSources } from "./ui-sources.mjs";
 
-const source = readFileSync("crates/kanzei-app/ui/main.js", "utf8");
-const htmlSource = readFileSync("crates/kanzei-app/ui/index.html", "utf8");
+const { html: htmlSource, joined: source } = loadUiSources();
 const dictionaryBody = source.match(/const I18N_EN = \{([\s\S]*?)\n\};/)?.[1] ?? "";
 const dynamicDictionaryBody = source.match(/const I18N_DYNAMIC_EN = \{([\s\S]*?)\n\};/)?.[1] ?? "";
 const dictionaryKeys = new Set(
