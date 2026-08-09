@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批5 prefs/projects 完成：新增 `prefs.rs` 承接 AppPrefs/load_prefs/save_prefs；新增 `projects.rs` 承接项目注册、初始化、重命名、添加、选择、删除、隔离体检/分离和根信息 command。invoke_handler 已切换为 `projects::...` 全路径，workspace_snapshot 已使用 projects 模块项目数据消费者。回归 T-1786255065 通过。R-153 总验收仍待批6~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟与拆前后行数对照。
+- 进展: 批6已完成搬迁：从 main.rs 移除进程/工作树与移动桥接实现，保留真实 invoke_handler 调用并由 processes.rs/mobile.rs 承接；下一步做 kanzei-app 定向验证。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
@@ -389,14 +389,3 @@
 - 验收: 先出判定报告(基于 R-150 遥测与轨迹实证,给出做/不做结论与依据);若做,再补机械提取的功能验收。
 - refs: R-149 R-105
 
-## R-158 Codex 支持同模型 Fast mode 优先服务档位 [done]
-- 类型: 后端
-- 背景: Codex 的 fast mode 不是另一模型，而是对同一 Codex 模型启用更高消耗、更快响应的 priority 服务档位。当前 Responses 请求未发送该参数。
-- 范围: 桌面端设置、kanzei.toml [models]、Runner/LlmRequest、Codex Responses 请求体；不更换 Codex 模型，不影响 fast 角色。
-- 验收: ①设置页提供 Codex Fast mode 开关，明确说明仍使用当前 Codex 模型且可能增加额度消耗；②配置保存/读取支持该开关，旧配置缺字段时默认关闭且不丢其他字段；③启用后仅对 auth=codex 的 Responses 请求发送 service_tier=priority，未启用或非 Codex 请求不发送；④主对话真实调用链透传该设置，仍可使用现有 luna 模型；⑤补充协议与配置回归测试并通过。
-- 优先级: P1
-- 进展: 实现已覆盖：crates/kanzei-app/ui/index.html 设置页开关；ui/main.js loadSettings/settings-save 透传；kanzei-harness::ModelRoles 的 codex_fast_mode 向后兼容；kanzei-app::run_task 与 kanzei CLI 主运行链按 auth=codex 生成 priority；kanzei-core::RunnerConfig/LlmRequest 透传；kanzei-llm::openai_responses::build_body 写入 service_tier。协议测试已补。验证：node --check + ui-runtime-smoke 通过；Rust cargo check 仍被工作树既有 R-153 的 mobile.rs 语法错误与 processes.rs 重复 command 阻断，不能关闭。
-- 收尾(2026-08-09): 交付时夹带两处误替换，已一并修回——①openai_responses::build_body 里写 reasoning effort 的整段被 service_tier 顶掉，Codex 从此不发思考档位；②设置页思考强度说明段落被删。另 R-153 批4/5 迁出后 state_tests/process_tests 仍从 super 导入，dev HEAD 一直编译不过，同批修好(改从 projects/state 模块导入 + 两个 helper 提 pub(crate))。默认 primary 改 codex:gpt-5.6-luna 且该默认下 Fast mode 自动开启，harness 默认值测试同步更新。
-- 验证: cargo test --workspace 322 项全绿；verify.ps1 六项门禁(test/ui_syntax/ui_runtime/ui_a11y/ui_i18n/ui_markdown)全绿，证据绑定 3e4c744。
-- 发版: build-3e4c744（https://github.com/kanze1/kanzei-code/releases/tag/build-3e4c744），范围 build-cd85360..HEAD 共 36 个提交。
-- 未纳入本次提交: R-153 批6 的 mobile.rs/processes.rs 仍是未跟踪的半成品(mobile.rs 有语法错误)，留给自举继续。

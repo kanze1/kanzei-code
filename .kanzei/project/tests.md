@@ -123,3 +123,19 @@
 ## T-1786255061 R-153 批5 prefs/projects 模块迁移回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证批5 prefs/projects 模块接入：项目 command 全路径注册，AppPrefs 持久化与项目隔离逻辑迁移，workspace_snapshot 改用 projects 模块消费者。
+
+## T-1786255398 R-153 批6 processes/mobile 模块接入回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证批6 processes/mobile 模块接入：8 个 process/worktree command 与 2 个 mobile command 切换至模块全路径，mobile HTTP bridge 真实线程消费者保留。
+
+## T-1786273837 R-158 Codex Fast mode 定向 Rust 测试 [running]
+- 命令: cargo test -p kanzei-llm -p kanzei-core -p kanzei-app
+- 摘要: 验证 Codex Fast mode 的请求字段、Runner 透传、桌面设置配置与既有构造点是否完整编译。
+
+## T-1786274446 R-158 Luna 默认 Fast mode 编译检查 [running]
+- 命令: cargo check -p kanzei-harness -p kanzei-llm -p kanzei-core
+- 摘要: 验证 Luna 默认模型与 Codex Fast mode 的可选配置、merge/fill_defaults、请求协议和 Runner 透传。
+
+## T-1786275923 R-153 批6 kanzei-app 定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批6代码搬迁后开始定向 Rust 测试；按 M-022 使用 test_record 作为唯一测试记录通道。

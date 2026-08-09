@@ -39,7 +39,12 @@
 - 复现: 2026-08-09 用户实测(53bb8e7 桌面端):自举循环长会话(几百轮,含大量工具调用块/diff/markdown)期间,侧栏条目展开、筛选等点击**完全无反应**(无按压反馈,像点在空气上);发送等主操作路径尚可。用户自判"上下文太多卡住了"。初步排查已排除:①初始化崩坏(53bb8e7 的 main.js 在 ui-runtime-smoke 全量执行 0 错误);②ask 遮罩挡点击(全屏 overlay 会挡住所有东西,与"主操作正常"不符);③R-086 状态机焊死(那只禁用运行态控件,不吞侧栏点击)。
 - 疑似根因(待复现证实): 长对话 DOM 巨大(消息、工具块、diff 逐条渲染,无虚拟化/窗口化),流式事件持续追加触发重排,主线程长期忙碌,点击事件延迟到秒级等价于无反应。若成立,与 D-013(diff 默认展开导致对话过长)、D-046(重绘防抖)是同一性能债的延续:此前只做了"少画",没做"画不下就不画"。
 - 验收: ①可复现实证:构造或回放长会话,量化点击响应延迟(如 Event Timing / 长任务计数),定位耗时大头;②修复后同样场景侧栏点击在人可感知阈值内响应(<200ms);③对话渲染有上限策略(虚拟化、折叠历史或分页任一),DOM 节点数有界;④冒烟加长会话性能断言防回归。
-- 证据等级: E2(用户实测现象 + 排除法,根因待复现)
+- 根因(2026-08-09 定位,代码实证): 主因是 **i18n 的全局 MutationObserver 把每一次 DOM 变动都放大成一次全文档重扫**。main.js:711 `new MutationObserver(() => applyLanguage())` 监听 `document.body` 且 `childList+subtree+characterData+attributes`;而 applyLanguage(main.js:627)每次执行都 `createTreeWalker(document.body, SHOW_TEXT)` 走**整页每一个文本节点**(每个节点还做一次 `parent.closest("[data-i18n-raw]")` 祖先回溯),之后再 `querySelectorAll("[title],[placeholder],[aria-label])` 扫一遍全页。它不按语言短路——中文模式下同样全量走。于是单次成本 ∝ 全文档文本节点数 ≈ 对话长度,而触发频率 = 每个流式 delta 一次(appendAssistant 的 `innerHTML=` 必然产生 childList 变动)⇒ 一轮对话的渲染开销对会话长度成平方增长,轮次越多主线程越被占满,点击排在长任务后面就等于"没反应"。
+  次因(同一热路径上的三处放大,都在 appendAssistant,main.js:1320-1335):①每个 delta 重新 `renderMarkdown(整条消息)` 并整块 `innerHTML=`,单条消息内部就是 O(n²);②每个 delta 把整条 raw `split("\n").map(正则).filter()` 一遍,只为取"最近在说"的最后一行;③每个 delta `scrollBottom()` 读 `messages.scrollHeight`,强制同步重排整个消息列表(这一项随轮次增长)。全文件 `requestAnimationFrame` 出现 0 次,没有任何合帧/节流。
+  另:对话 DOM 从不裁剪(只有切会话时 `messages.innerHTML=""`),所以**上下文压缩不会缓解卡顿**——压缩只减少发给模型的 token,渲染侧一个节点都没少。用户"上下文太多卡住了"的直觉方向对,但机制不在上下文,在渲染。
+- 量化(2026-08-09,ui-runtime-smoke 的 DOM harness 内测,只证明标度不代表真机绝对值): applyLanguage 单次耗时随文本节点数线性上升——95 节点 0.54ms / 295 节点 1.11ms / 895 节点 3.61ms;renderMarkdown 每 delta 均摊耗时随消息长度线性上升——2850 字 0.035ms → 45600 字 0.169ms(单条消息累计 135ms,纯解析、不含 DOM)。真机 WebView 的 TreeWalker/重排成本远高于 harness,几百轮会话的文本节点数在万级,单次 applyLanguage 已足以吃满一帧。
+- 修复方向(建议按序,每步独立可验): ①observer 回调改为只处理 `mutations` 里的 addedNodes 子树(新进节点才本地化),不再全文档重扫——单点改动,收益最大;②applyLanguage 用 rAF 合帧,一帧最多一次;③appendAssistant 流式期间只追加纯文本(`textContent +=`),消息收尾时再整条 renderMarkdown 一次;④"最近在说"从 delta 增量算,不扫整条 raw;⑤scrollBottom 合帧,或改 CSS `overflow-anchor` / 底部哨兵 + IntersectionObserver,去掉每 delta 读 scrollHeight;⑥最后才做验收③的 DOM 上限(窗口化/折叠历史)——前五步做完可能已不需要。
+- 证据等级: E1(代码路径实证 + harness 标度量化;真机 Event Timing 数据待补,对应验收①)
 - 优先级: P1
 - 标签: 前端
 
@@ -127,3 +132,10 @@
 - 优先级: P1
 - 标签: 前端
 
+## D-223 R-158 新增设置字段误删 profile_default 导致编译失败 [fixing] (medium)
+- 修复范围: 恢复 SettingsPayload.profile_default 字段；Codex Fast mode 仍保持独立字段。
+- 复现: 在本次 Codex Fast mode 改动后运行 `cargo check -p kanzei-app`，SettingsPayload 编译报 profile_default 不存在；设置打开构造体也报该字段未定义。
+- 根因: 新增 codex_fast_mode 字段时的精确替换遗漏了既有 profile_default 字段。
+- 验收: SettingsPayload 同时包含 profile_default 与 codex_fast_mode；设置保存/打开相关构造点可编译。
+- 优先级: P1
+- 进展: 已恢复 crates/kanzei-app/src/main.rs::SettingsPayload.profile_default，并保留 codex_fast_mode；后续 cargo check 未再报告 profile_default 缺失。整体 kanzei-app 仍被 R-153 既有 mobile.rs/processes.rs 编译错误阻断，待上游迁移稳定后复测。

@@ -2,19 +2,16 @@
 id: M-009
 scope: project
 category: sop
-title: edit 报 old_string not found 时须先 read 重读文件再精确匹配
-description: 处理 edit 替换失败(old_string not found / must match exactly including whitespace)时必读:先 read 重读磁盘实际内容再构造 old_string
+title: edit old_string not found：先读盘再按报错提示的精确内容重造
+description: 处理 edit 替换失败(old_string not found/whitespace mismatch)必读：先读盘重读再按报错精确匹配，别凭记忆或 bypass
 status: active
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-09
 source: inbox 2026-08-07
 ---
 
-错误原文: `old_string not found in <path> — it must match exactly, including whitespace.`
+Edit 替换失败(old_string not found)。工具报 "it must match exactly, including whitespace"，Closest line in file: `        reasoning: ReasoningEffort::Off,`。
 
-实例(2026-08-07):对 scripts/ui-runtime-smoke.mjs 执行 edit 时因 old_string 与磁盘内容不一致而失败;工具提示最接近行 `if (!source.includes('if (isActivityTool(e.payload.name)) bgAdd')) {`。改用 read 重读该文件、按实际内容重建 old_string 后 edit 成功。
+判据升级：不要凭记忆、不要改 bash/其他绕过；必须第一步 read 重读文件实际内容(含缩进换行格式)，严格照报错给出的 Closest line + 上下文重造 old_string，逐字精确匹配编辑目标串——否则必然不命中。
 
-处置 SOP:
-1. edit 报 old_string not found 时,不要用记忆中的内容重试——文件可能已被外部(格式化工具、其他会话、生成脚本)修改。
-2. 先 read 目标文件的相关区段,复制磁盘上的确切文本(含缩进/引号/换行)作为 old_string 再 edit。
-3. 注意失败计数本身不是知识;约束是"old_string 必须与磁盘逐字节一致"。
+错误指纹 (关键检测码): [fp:edit|old_string not found in — it must match exactly, including whitespace.]

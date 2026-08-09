@@ -180,3 +180,19 @@
 ## T-1786255065 R-153 批5 prefs/projects 模块迁移回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批5 prefs/projects 迁移回归记录通过；prefs.rs 与 projects.rs 已接入，项目命令真实 invoke_handler 消费者和 workspace_snapshot 项目数据消费者已切换。
+
+## T-1786274126 R-158 Codex Fast mode Rust 编译检查 [failed]
+- 命令: cargo check -p kanzei-llm -p kanzei-core -p kanzei-app -p kanzei
+- 摘要: 本次新增设置字段误删 profile_default，已登记 D-223；同时发现工作树中 R-153 的 mobile.rs/processes.rs 既有迁移语法/重复 command 错误，阻断 kanzei-app 编译。kanzei-llm/core 已通过检查，仅有既有 warning。
+
+## T-1786274163 R-158 Codex Fast mode 前端冒烟 [passed]
+- 命令: node --check crates/kanzei-app/ui/main.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs
+- 摘要: main.js 与 ui-runtime-smoke 语法检查通过；全量执行初始化、222 次 invoke、需求/缺陷/目标/测试/历史列表渲染、7 个主视图切换，0 运行时错误；新增 Codex Fast mode HTML 标记、设置恢复与保存透传断言通过。
+
+## T-1786274457 R-158 Luna 默认 Fast mode 编译检查 [passed]
+- 命令: cargo check -p kanzei-harness -p kanzei-llm -p kanzei-core
+- 摘要: Luna 默认值、Codex Fast mode 的可选配置合并、Responses service_tier 映射与 Runner 透传编译通过；仅有既有 kanzei-core warning。
+
+## T-1786275939 R-153 批6 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批6 processes.rs/mobile.rs 已接入；main.rs 删除对应旧实现，invoke_handler 使用模块全路径。定向验证记录完成。
