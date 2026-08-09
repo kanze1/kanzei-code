@@ -390,3 +390,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: Ollama 模型发现 helper 已迁入 run.rs，models_list 的全部 Ollama 分支通过 run::push_ollama_models，原 /api/tags、no_proxy 和返回字段保持。
 - 收尾: 1786289242
+
+## T-1786289329 R-153 run.rs helper 迁移后定向回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 当前 run.rs helper 迁移后定向回归通过，models_list 的 run::push_ollama_models 调用链保持可用。
+- 收尾: 1786289333
