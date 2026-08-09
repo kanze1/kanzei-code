@@ -450,3 +450,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的 Dev profile 提示追加已迁移到 run::append_dev_guidance，保留前端检查提示和 work_priority 提示；非 Dev profile 不追加。
 - 收尾: 1786290109
+
+## T-1786290196 R-153 run_task proxy helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的代理配置解析已迁移到 run::resolve_proxy，off/env/explicit 分支行为与原实现一致。
+- 收尾: 1786290200

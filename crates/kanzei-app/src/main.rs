@@ -702,11 +702,7 @@ async fn run_task_impl(
         .filter(|m| !m.trim().is_empty())
         .unwrap_or_else(|| agent.model.clone());
     let resolved = config.resolve_model(&model_ref)?;
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(p) => ProxyConfig::Explicit(p.to_string()),
-    };
+    let proxy = run::resolve_proxy(&config);
     stage(
         "鉴权",
         format!(

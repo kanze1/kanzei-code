@@ -24,6 +24,14 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn resolve_proxy(config: &kanzei_harness::config::KanzeiConfig) -> kanzei_llm::ProxyConfig {
+    match config.proxy.as_deref() {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(proxy) => kanzei_llm::ProxyConfig::Explicit(proxy.to_string()),
+    }
+}
+
 pub(crate) fn append_dev_guidance(system: &mut String, profile: kanzei_harness::ProfileKind, work_priority: &str) {
     if profile != kanzei_harness::ProfileKind::Dev { return; }
     system.push('\n');
