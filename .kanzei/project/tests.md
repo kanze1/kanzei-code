@@ -55,3 +55,7 @@
 ## T-1786250999 R-153 批0最终旧测试清理回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证删除最后一个 process 停止旧测试及废弃 update_tests 模块后的批0回归。
+
+## T-1786251209 R-153 批1 agent_container 与 fast_model 拆解回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证 R-153 批1 agent_container/fast_model 域模块注册与现有行为回归。

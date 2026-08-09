@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批0已完成：物理删除最后一个 process 停止旧测试，并整体删除废弃 `update_tests` 模块；五个迁移模块成为唯一测试归属。批0最终 `cargo test -p kanzei-app` 42/42 通过。下一步按设计文档进入批1零依赖叶子模块拆解；R-153 尚未结项，仍需按批次继续。
+- 进展: 批1首次尝试已回退，未形成代码提交：仅用 `pub use` 把 tauri command 暴露到新模块会导致宏生成的 `__cmd__*`/`__tauri_command_name_*` 仍在 main 模块，出现重复定义且 `generate_handler!` 找不到模块内宏符号。失败测试已记录；当前代码恢复到批0完成后的状态。批1必须改为完整剪切函数与其 tauri 宏一起迁移，不能做 re-export 伪迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

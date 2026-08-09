@@ -112,3 +112,7 @@
 ## T-1786251056 R-153 批0最终旧测试清理回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批0最终旧测试清理回归：删除最后 process 停止旧测试及整个废弃 update_tests 模块后，42 项全部通过。
+
+## T-1786251226 R-153 批1 agent_container 与 fast_model 拆解回归 [failed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批1尝试仅通过 pub use 将 tauri command 暴露到新模块失败：tauri 命令宏生成的辅助符号仍定义在 main 模块，导致重复定义与模块内找不到宏符号。尚未提交，需回退这次错误尝试后按完整函数迁移实施。
