@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -140,10 +140,19 @@ pub struct EpisodeRecord<'a> {
     pub overflow_json: &'a str,
 }
 
+mod episodes;
+mod notifications;
+mod events;
+use events::append_event_tx;
+
+
+
 pub struct SessionStore {
-    connection: Connection,
+    /// 仅限 store::* 子模块使用(S1 拆壳后本字段 pub(crate))。
+    pub(crate) connection: Connection,
     /// 落盘路径;内存库为 None。迁移前的备份要用它。
-    path: Option<PathBuf>,
+    /// 仅限 store::* 子模块使用(S1 拆壳后本字段 pub(crate))。
+    pub(crate) path: Option<PathBuf>,
 }
 
 impl SessionStore {
@@ -230,208 +239,6 @@ impl SessionStore {
             return Err(rusqlite::Error::QueryReturnedNoRows.into());
         }
         Ok(())
-    }
-
-    pub fn append_event(
-        &self,
-        session_id: &str,
-        event_type: &str,
-        payload: &Value,
-    ) -> Result<StoredEvent, StoreError> {
-        let tx = self.connection.unchecked_transaction()?;
-        let event = append_event_tx(&tx, session_id, event_type, payload)?;
-        tx.commit()?;
-        Ok(event)
-    }
-
-    pub fn append_notification(
-        &self,
-        notification: &crate::notification::AgentNotification,
-    ) -> Result<(), StoreError> {
-        self.connection.execute(
-            "INSERT INTO agent_notifications
-             (event_id, thread_id, sequence, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(event_id) DO NOTHING",
-            params![
-                &notification.event_id,
-                &notification.thread_id,
-                notification.sequence as i64,
-                serde_json::to_string(notification)?,
-                notification.created_at,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// 在同一写事务内分配线程序号并插入通知，避免调用方组合读写造成竞态。
-    pub fn append_notification_atomic(
-        &self,
-        thread_id: &str,
-        status: &str,
-        summary: &str,
-        requires_action: bool,
-    ) -> Result<crate::notification::AgentNotification, StoreError> {
-        let tx = self.connection.unchecked_transaction()?;
-        let sequence: i64 = tx.query_row(
-            "SELECT COALESCE(MAX(sequence), 0) + 1
-             FROM agent_notifications WHERE thread_id = ?1",
-            params![thread_id],
-            |row| row.get(0),
-        )?;
-        let notification = crate::notification::AgentNotification {
-            event_id: format!("mobile_{thread_id}_{sequence}"),
-            thread_id: thread_id.to_string(),
-            agent_id: "primary".into(),
-            kind: "agent_status_changed".into(),
-            status: status.to_string(),
-            summary: summary.to_string(),
-            requires_action,
-            sequence: sequence.max(1) as u64,
-            created_at: now_ms(),
-        };
-        tx.execute(
-            "INSERT INTO agent_notifications
-             (event_id, thread_id, sequence, payload_json, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                &notification.event_id,
-                &notification.thread_id,
-                notification.sequence as i64,
-                serde_json::to_string(&notification)?,
-                notification.created_at,
-            ],
-        )?;
-        tx.commit()?;
-        Ok(notification)
-    }
-    pub fn next_notification_sequence(&self, thread_id: &str) -> Result<u64, StoreError> {
-        let sequence: i64 = self.connection.query_row(
-            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_notifications WHERE thread_id = ?1",
-            params![thread_id],
-            |row| row.get(0),
-        )?;
-        Ok(sequence.max(1) as u64)
-    }
-
-    pub fn replay_notifications(
-        &self,
-        thread_id: &str,
-        after_sequence: u64,
-        limit: usize,
-    ) -> Result<Vec<crate::notification::AgentNotification>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT payload_json FROM agent_notifications
-             WHERE thread_id = ?1 AND sequence > ?2 ORDER BY sequence LIMIT ?3",
-        )?;
-        let rows = statement.query_map(
-            params![thread_id, after_sequence as i64, limit as i64],
-            |row| {
-                let payload: String = row.get(0)?;
-                serde_json::from_str(&payload).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
-                })
-            },
-        )?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-
-    pub fn delivery_cursor(&self, device_id: &str, thread_id: &str) -> Result<u64, StoreError> {
-        let cursor = self
-            .connection
-            .query_row(
-                "SELECT cursor FROM delivery_cursors WHERE device_id = ?1 AND thread_id = ?2",
-                params![device_id, thread_id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-            .map(|cursor| cursor.max(0) as u64)
-            .unwrap_or(0);
-        Ok(cursor)
-    }
-
-    pub fn set_delivery_cursor(
-        &self,
-        device_id: &str,
-        thread_id: &str,
-        cursor: u64,
-    ) -> Result<(), StoreError> {
-        self.connection.execute(
-            "INSERT INTO delivery_cursors(device_id, thread_id, cursor, updated_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(device_id, thread_id) DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at",
-            params![device_id, thread_id, cursor as i64, now_ms()],
-        )?;
-        Ok(())
-    }
-
-    pub fn list_events(
-        &self,
-        session_id: &str,
-        after_sequence: i64,
-    ) -> Result<Vec<StoredEvent>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
-             FROM session_events WHERE session_id = ?1 AND sequence > ?2 ORDER BY sequence",
-        )?;
-        let rows = statement.query_map(params![session_id, after_sequence], event_from_row)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-
-    /// 按 sequence 删除指定类型的事件(类型限定防止误删调度事件)。返回删除数。
-    /// 用途:历史对话管理——快照删除不影响 prompt/session 生命周期事件。
-    pub fn delete_events_by_sequence(
-        &self,
-        session_id: &str,
-        event_type: &str,
-        sequences: &[i64],
-    ) -> Result<usize, StoreError> {
-        let tx = self.connection.unchecked_transaction()?;
-        let mut deleted = 0usize;
-        {
-            let mut statement = tx.prepare(
-                "DELETE FROM session_events
-                 WHERE session_id = ?1 AND event_type = ?2 AND sequence = ?3",
-            )?;
-            for sequence in sequences {
-                deleted += statement.execute(params![session_id, event_type, sequence])?;
-            }
-        }
-        tx.commit()?;
-        Ok(deleted)
-    }
-
-    /// 清理当前会话的对话快照，保留 session、调度和权限事件。
-    /// CLI 的 `kz run --new` 使用此入口开始新上下文，避免手动删除整个 state.db。
-    pub fn clear_conversation(&self, session_id: &str) -> Result<usize, StoreError> {
-        self.connection
-            .execute(
-                "DELETE FROM session_events WHERE session_id = ?1 AND event_type = 'conversation.updated'",
-                params![session_id],
-            )
-            .map_err(Into::into)
-    }
-
-    pub fn latest_event(
-        &self,
-        session_id: &str,
-        event_type: &str,
-    ) -> Result<Option<StoredEvent>, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
-                 FROM session_events
-                 WHERE session_id = ?1 AND event_type = ?2
-                 ORDER BY sequence DESC LIMIT 1",
-                params![session_id, event_type],
-                event_from_row,
-            )
-            .optional()
-            .map_err(Into::into)
     }
 
     pub fn admit_input(
@@ -930,193 +737,8 @@ impl SessionStore {
         Ok(())
     }
 
-    /// 轮次情景摘要(R-106):机械生成的轨迹画像,R-099 度量与记忆系统共用。
-    pub fn append_episode(&self, episode: &EpisodeRecord<'_>) -> Result<(), StoreError> {
-        self.connection.execute(
-            "INSERT INTO episodes(session_id, created_at, prompt_head, outcome, steps,
-                                  input_tokens, output_tokens, tools_json, context_json, metrics_json,
-                                  provider, model, run_id, input_id, duration_ms, overflow_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
-            params![
-                episode.session_id,
-                now_ms(),
-                episode.prompt_head.chars().take(200).collect::<String>(),
-                episode.outcome,
-                episode.steps,
-                episode.input_tokens as i64,
-                episode.output_tokens as i64,
-                episode.tools_json,
-                episode.context_json,
-                episode.metrics_json,
-                episode.provider,
-                episode.model,
-                episode.run_id,
-                episode.input_id,
-                episode.duration_ms as i64,
-                episode.overflow_json,
-            ],
-        )?;
-        Ok(())
-    }
-
-    /// 最近若干轮的运行归属(D-173):provider/model/run_id/input_id/duration_ms。
-    /// 与 `recent_episodes` 分开取,免得那个本已臃肿的元组再长五格。
-    #[allow(clippy::type_complexity)]
-    pub fn recent_episode_identities(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<(i64, String, String, String, String, u64)>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT created_at, provider, model, run_id, input_id, duration_ms
-             FROM episodes WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
-        )?;
-        let rows = statement.query_map(params![session_id, limit as i64], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get::<_, i64>(5)? as u64,
-            ))
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-
-    /// 最近若干轮的完整画像(R-099/R-127):按时间倒序。
-    /// 返回原始 JSON 字符串,解析交给调用方——存储层不该关心画像的字段构成。
-    #[allow(clippy::type_complexity)]
-    pub fn recent_episodes(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<(i64, String, String, u32, u64, u64, String, String, String)>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT created_at, prompt_head, outcome, steps, input_tokens, output_tokens,
-                    tools_json, context_json, metrics_json
-             FROM episodes WHERE session_id = ?1 ORDER BY created_at DESC LIMIT ?2",
-        )?;
-        let rows = statement.query_map(params![session_id, limit as i64], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get::<_, i64>(3)? as u32,
-                row.get::<_, i64>(4)? as u64,
-                row.get::<_, i64>(5)? as u64,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-            ))
-        })?;
-        Ok(rows.flatten().collect())
-    }
-
-    /// 最近一轮的上下文账单(context_json 原文),无 episode 时 None。
-    pub fn latest_episode_context(&self, session_id: &str) -> Result<Option<String>, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT context_json FROM episodes WHERE session_id = ?1
-                 ORDER BY created_at DESC LIMIT 1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    }
-
-    /// 最近 N 条 episode(新→旧):(created_at, prompt_head, outcome, steps, tools_json)。
-    pub fn list_episodes(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<(i64, String, String, u32, String)>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT created_at, prompt_head, outcome, steps, tools_json
-             FROM episodes WHERE session_id = ?1
-             ORDER BY created_at DESC LIMIT ?2",
-        )?;
-        let rows = statement.query_map(params![session_id, limit as i64], |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-            ))
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-
-    /// 最近含溢出轨迹的 episode(R-106):(created_at, overflow_json)。只返回
-    /// 真正发生过上下文压缩的轮次,空的 `[]` 不占行——溢出路径有迹可查。
-    pub fn recent_overflow_traces(
-        &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<(i64, String)>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT created_at, overflow_json FROM episodes
-             WHERE session_id = ?1 AND overflow_json != '' AND overflow_json != '[]'
-             ORDER BY created_at DESC LIMIT ?2",
-        )?;
-        let rows = statement.query_map(params![session_id, limit as i64], |row| {
-            Ok((row.get(0)?, row.get(1)?))
-        })?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
 }
 
-fn append_event_tx(
-    tx: &Transaction<'_>,
-    session_id: &str,
-    event_type: &str,
-    payload: &Value,
-) -> Result<StoredEvent, StoreError> {
-    let sequence: i64 = tx.query_row(
-        "SELECT COALESCE(MAX(sequence), 0) + 1 FROM session_events WHERE session_id = ?1",
-        params![session_id],
-        |row| row.get(0),
-    )?;
-    let created_at = now_ms();
-    let event_id = format!("evt_{}_{}", session_id, sequence);
-    tx.execute(
-        "INSERT INTO session_events(event_id, session_id, sequence, event_type, payload_json, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![event_id, session_id, sequence, event_type, serde_json::to_string(payload)?, created_at],
-    )?;
-    tx.execute(
-        "UPDATE sessions SET updated_at = ?1 WHERE session_id = ?2",
-        params![created_at, session_id],
-    )?;
-    Ok(StoredEvent {
-        event_id,
-        session_id: session_id.to_string(),
-        sequence,
-        event_type: event_type.to_string(),
-        payload: payload.clone(),
-        created_at,
-    })
-}
-
-fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEvent> {
-    let payload_json: String = row.get(4)?;
-    Ok(StoredEvent {
-        event_id: row.get(0)?,
-        session_id: row.get(1)?,
-        sequence: row.get(2)?,
-        event_type: row.get(3)?,
-        payload: serde_json::from_str(&payload_json).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?,
-        created_at: row.get(5)?,
-    })
-}
 
 fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
     let delivery: String = row.get(3)?;

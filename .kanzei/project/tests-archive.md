@@ -991,3 +991,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 B8 runner/drive.rs 拆解:71 passed;run_once/run_once_with_parts 整体搬迁,符号经 super::* 平铺(删显式 use 时误删 super::* 本身,加回),mod.rs 留 RunnerConfig/常量/testutil/tests,307 行
 - 收尾: 1786306105
+
+## T-1786306347 R-155 S1-S4 store 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 store 域 S1-S4:拆壳 + episodes/notifications/events 三子模块;71 passed;修段边界(notifications set_delivery_cursor 缺 }、events 多一层 })、Value/Transaction import
+- 收尾: 1786306347
