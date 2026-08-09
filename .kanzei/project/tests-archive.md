@@ -335,3 +335,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_metrics 已迁入 run.rs，invoke_handler 改用 run::run_metrics，返回字段和 measured 语义保持。
 - 收尾: 1786288045
+
+## T-1786288152 R-153 run.rs run_prompt 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_prompt 已迁入 run.rs 并通过 run::run_prompt 注册；后台任务、排队 admission、promote、事件和句柄清理路径保持。run_metrics 同模块保留。
+- 收尾: 1786288158

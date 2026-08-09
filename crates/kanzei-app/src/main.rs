@@ -142,7 +142,7 @@ fn main() {
             projects::projects_select,
             workspace_snapshot,
             docs::docs_snapshot,
-            run_prompt,
+run::run_prompt,
             stop_run,
             answer_ask,
             pending_asks_get,
