@@ -871,3 +871,28 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 最终提交前定向复测 43 项全绿；仅清理 settings.rs 未使用导入后无行为变化。
 - 收尾: 1786299078
+
+## T-1786299143 R-153 入口收敛关闭前全量测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-153 关闭前全量验证通过；workspace 各 crate、桌面端 43 项、核心 runner/store、harness、llm、tools 测试全部通过。
+- 收尾: 1786299143
+
+## T-1786299153 R-153 UI i18n 冒烟 [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs
+- 摘要: 790 个资源 key、296 项 HTML 文案、61 项动态契约通过。
+- 收尾: 1786299153
+
+## T-1786299156 R-153 UI a11y 冒烟 [passed]
+- 命令: node scripts/ui-a11y-smoke.mjs
+- 摘要: 22 个静态 icon-btn、核心键盘语义与焦点规则通过。
+- 收尾: 1786299156
+
+## T-1786299162 R-153 UI Markdown 冒烟 [passed]
+- 命令: node scripts/ui-markdown-smoke.mjs
+- 摘要: 列表、表格、代码语言、安全外链与 XSS 用例通过。
+- 收尾: 1786299162
+
+## T-1786299165 R-153 UI runtime 冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: main.js 全量执行、222 次 invoke 初始化、7 个主视图切换与列表渲染通过，0 运行时错误。
+- 收尾: 1786299165

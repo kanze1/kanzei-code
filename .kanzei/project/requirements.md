@@ -1,19 +1,5 @@
 # Requirements
 
-## R-153 拆解 kanzei-app/src/main.rs(6413 行→约 16 模块,main.rs 收敛为装配) [doing]
-- 优先级: P1
-- 复杂度: 大
-- 批次: 11/11
-- 标签: 后端
-- 来源: 2026-08-09 用户定调巨石拆解;结构地图与批次表已落设计文档 §A(行号基准 c339b58,执行以符号名定位)。
-- 内容: 照 files_view.rs 先例(command 加 pub、invoke_handler 全路径注册、低耦合模块零依赖 main)把 75 个 command 按域拆为 state/update/fast_model/agent_container/mobile/memory/prefs/projects/processes/settings/docs/conversation/harness_ext/subagents/run 等模块;批0 先把 818 行 update_tests 按域切开(解锁全部后续批),批1 零依赖叶子起步,批4 落 state.rs 枢纽,批10 收 run.rs,共 11 批,每批一提交。设计: docs/design/monolith_decomposition.md §A。
-- 边界: 零行为变更,diff 只允许 move+use+可见性;run_task(695 行)只整体搬迁不拆内部(内部拆分另立条目);main() 开头三调用顺序、UI_PROBE 三 static 同模块、ask_seq 共享、cfg(windows) 成对搬迁等危险点清单见设计文档;拆解批与其他源码条目不得并发。
-- 验收: ①main.rs ≤300 行且只含 mod 声明+main()+Builder 装配;②每批独立提交且 cargo test -p kanzei-app 绿,条目关闭前全量 cargo test --workspace 一次全绿(节奏见 conventions §1.4);③invoke_handler 78 项全数保留(拆前后清单 diff 核对)且按域分组加注释;④四条 UI 冒烟不受影响;⑤拆前后 wc -l 对照记入进展。
-- refs: A-008 R-148(先例 files_view.rs)
-- 依赖: R-152
-
-- 进展: 完成入口收敛批：`run_task` 整体迁入 `crates/kanzei-app/src/run.rs:17-155`，真实调用由 `run::run_prompt` 通过 `run::run_task` 触发；`workspace_snapshot` 迁入 `projects.rs` 并保留 `#[tauri::command]`/invoke_handler 全路径注册；`hidden_command` 迁入 `state.rs`，docs/processes/settings 均改从 state 调用。`main.rs` 当前 195 行，仅保留模块声明、导出装配、main 与 Builder。T-1786298957 `cargo test -p kanzei-app` 43 项全绿。待关闭前证据：逐项核对 78 项 invoke_handler、四条 UI 冒烟与 `cargo test --workspace`。
-
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
 - 复杂度: 大
