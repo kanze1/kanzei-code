@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::json;
 use tauri::State;
 
-use crate::{normalized_project_root, process_session_id, recover_messages_raw, runtime_for, AppState};
+use crate::{normalized_project_root, process_session_id, runtime_for, AppState};
 
 #[tauri::command]
 pub(crate) fn conversation_clear(state: State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<(), String> {
@@ -74,4 +74,29 @@ pub(crate) fn conversation_delete(project_dir: String, sequences: Vec<i64>, proc
     let session_id = process_session_id(&root, process_id.as_deref());
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).map_err(|e| e.to_string())?;
     store.delete_events_by_sequence(&session_id, "conversation.updated", &sequences).map_err(|e| e.to_string())
+}
+
+pub(crate) fn recover_messages(store: &kanzei_core::SessionStore, session_id: &str) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    recover_messages_at(store, session_id, None)
+}
+
+pub(crate) fn recover_messages_raw(store: &kanzei_core::SessionStore, session_id: &str, sequence: Option<i64>) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    let event = match sequence {
+        Some(sequence) => store.list_events(session_id, 0)?.into_iter().find(|event| event.sequence == sequence && event.event_type == "conversation.updated"),
+        None => store.latest_event(session_id, "conversation.updated")?,
+    };
+    let Some(event) = event else { return Ok(Vec::new()); };
+    let messages = event.payload.get("messages").cloned().unwrap_or_else(|| json!([]));
+    Ok(serde_json::from_value(messages)?)
+}
+
+pub(crate) fn recover_messages_at(store: &kanzei_core::SessionStore, session_id: &str, sequence: Option<i64>) -> anyhow::Result<Vec<kanzei_llm::Message>> {
+    Ok(kanzei_core::filter_message_history(&recover_messages_raw(store, session_id, sequence)?))
+}
+
+pub(crate) fn conversation_prior(conversation: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>>, session_id: &str, persisted: Vec<kanzei_llm::Message>) -> Vec<kanzei_llm::Message> {
+    let mut conversations = conversation.lock().unwrap();
+    let conv = conversations.entry(session_id.to_string()).or_default();
+    if conv.is_empty() && !persisted.is_empty() { *conv = persisted; }
+    conv.clone()
 }

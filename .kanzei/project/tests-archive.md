@@ -290,3 +290,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: conversation 模块已接入，conversation_clear 已从 main.rs 物理迁出，invoke_handler 已改为 conversation:: 全路径注册；历史命令模块其余函数已完成模块实现，后续批次继续清理 main 旧副本。
 - 收尾: 1786286669
+
+## T-1786286765 R-153 conversation 恢复 helper 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: conversation 恢复原文、过滤历史与 prior 缓存 helper 已迁入 conversation.rs，main.rs 调用已改为 conversation:: 全路径。
+- 收尾: 1786286768

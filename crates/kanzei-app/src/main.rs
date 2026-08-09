@@ -1397,7 +1397,7 @@ fn conversation_get(
         .map_err(|e| e.to_string())?;
     // 展示给用户的是原文(未配对的工具调用也要看得见);作为下一轮 prior 的那份仍须过滤,
     // 否则孤儿 tool_result 会让 provider 直接 400(D-053/D-054)。
-    let raw = recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())?;
+    let raw = conversation::recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())?;
     runtime_for(&state, &session_id)
         .conversation
         .lock()
@@ -1873,63 +1873,6 @@ async fn run_prompt(
     Ok(())
 }
 
-fn recover_messages(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    recover_messages_at(store, session_id, None)
-}
-
-/// 落库历史原文,不做任何过滤——**展示用**。
-/// 与 recover_messages_at 的区别是后者会丢掉未配对的 tool_use/tool_result:
-/// 那是喂给 provider 的硬性要求(D-053/D-054),但对人展示时丢内容就是"会话看不全"。
-fn recover_messages_raw(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-    sequence: Option<i64>,
-) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    let event = match sequence {
-        Some(sequence) => store
-            .list_events(session_id, 0)?
-            .into_iter()
-            .find(|event| event.sequence == sequence && event.event_type == "conversation.updated"),
-        None => store.latest_event(session_id, "conversation.updated")?,
-    };
-    let Some(event) = event else {
-        return Ok(Vec::new());
-    };
-    let messages = event
-        .payload
-        .get("messages")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
-    Ok(serde_json::from_value(messages)?)
-}
-
-/// 可安全作为下一轮 prior 的历史:强制 tool_use/tool_result 配对不变量。
-fn recover_messages_at(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-    sequence: Option<i64>,
-) -> anyhow::Result<Vec<kanzei_llm::Message>> {
-    Ok(kanzei_core::filter_message_history(&recover_messages_raw(
-        store, session_id, sequence,
-    )?))
-}
-
-fn conversation_prior(
-    conversation: &Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
-    session_id: &str,
-    persisted: Vec<kanzei_llm::Message>,
-) -> Vec<kanzei_llm::Message> {
-    let mut conversations = conversation.lock().unwrap();
-    let conv = conversations.entry(session_id.to_string()).or_default();
-    if conv.is_empty() && !persisted.is_empty() {
-        *conv = persisted;
-    }
-    conv.clone()
-}
-
 async fn run_task(
     window: &Window,
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
@@ -2318,8 +2261,8 @@ async fn run_task(
     };
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
-    let persisted = recover_messages(&store, &session_id)?;
-    let prior = conversation_prior(&conversation, &session_id, persisted);
+    let persisted = conversation::recover_messages(&store, &session_id)?;
+    let prior = conversation::conversation_prior(&conversation, &session_id, persisted);
     if !prior.is_empty() {
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
     }
