@@ -17,7 +17,7 @@ const MAX_OUTPUT: usize = 1024 * 1024;
 
 #[derive(Deserialize, JsonSchema)]
 struct GitInput {
-    /// status | diff | log | stage | commit
+    /// status | diff | log | stage | commit | merge_ff
     action: String,
     /// diff/log 按路径过滤;stage 的逐文件相对路径(禁止目录和通配符)。
     #[serde(default)]
@@ -34,6 +34,13 @@ struct GitInput {
     /// commit 必填：最近一次 stage 返回的 staged_hash。
     #[serde(default)]
     expected_hash: Option<String>,
+    /// merge_ff 必填:要合入的来源分支/引用(如 `dev`)。
+    #[serde(default)]
+    from: Option<String>,
+    /// merge_ff 的目标分支(如 `main`)。目标检出在其它工作树时会去那棵树里快进;
+    /// 未检出时直接快进引用。省略 = 合入当前分支。
+    #[serde(default)]
+    into: Option<String>,
 }
 
 pub struct GitTool;
@@ -45,7 +52,7 @@ impl Tool for GitTool {
     }
 
     fn description(&self) -> String {
-        "Safe Git status/diff/log/stage/commit. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. Do not use bash for git add/commit.".into()
+        "Safe Git status/diff/log/stage/commit/merge_ff. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). Do not use bash for git add/commit/merge.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -56,7 +63,7 @@ impl Tool for GitTool {
         {
             action.insert(
                 "enum".into(),
-                serde_json::json!(["status", "diff", "log", "stage", "commit"]),
+                serde_json::json!(["status", "diff", "log", "stage", "commit", "merge_ff"]),
             );
         }
         schema
@@ -145,8 +152,9 @@ impl Tool for GitTool {
             }
             "stage" => stage(&ctx.cwd, &input.files).await,
             "commit" => commit(ctx, input.message, input.expected_hash).await,
+            "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: status | diff | log | stage | commit"
+                "unknown action `{other}`; valid: status | diff | log | stage | commit | merge_ff"
             )),
         }
     }
@@ -456,6 +464,109 @@ async fn commit(
     }
 }
 
+/// 引用名校验:只放行分支/标签的常规形态。拒绝 `-` 开头(选项注入)、区间语法
+/// (`..`)、修订运算符(`~`/`^`/`:`)与空白——merge_ff 只该拿到一个干净的名字。
+fn validate_ref(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("引用名不能为空".into());
+    }
+    if name.starts_with('-')
+        || name.contains("..")
+        || name
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '~' | '^' | ':' | '\\' | '*' | '?' | '['))
+    {
+        return Err(format!(
+            "非法引用名 `{name}`:merge_ff 只接受干净的分支/标签名"
+        ));
+    }
+    Ok(name.to_string())
+}
+
+/// 解析 `git worktree list --porcelain`,找到检出了指定分支的工作树路径。
+fn worktree_for_branch(porcelain: &str, branch: &str) -> Option<std::path::PathBuf> {
+    let want = format!("refs/heads/{branch}");
+    let mut current: Option<&str> = None;
+    for line in porcelain.lines() {
+        if let Some(path) = line.strip_prefix("worktree ") {
+            current = Some(path.trim());
+        } else if let Some(head) = line.strip_prefix("branch ") {
+            if head.trim() == want {
+                return current.map(std::path::PathBuf::from);
+            }
+        }
+    }
+    None
+}
+
+/// 快进合并:分支级变更中唯一"要么无冲突成功、要么干净失败"的形态,所以可以
+/// 开放给模型——不产生合并提交、不动索引内容、非快进直接拒绝(D-173 的边界不破)。
+/// 发版流程(kanzei-release 树 ff dev→main)此前卡在"bash 拦 merge、工具没 merge"
+/// 的空档里,只能让用户手跑,就是这个动作的由来。
+async fn merge_ff(cwd: &Path, from: Option<String>, into: Option<String>) -> ToolOutput {
+    let from = match from.as_deref().map(validate_ref) {
+        Some(Ok(name)) => name,
+        Some(Err(error)) => return ToolOutput::error(error),
+        None => return ToolOutput::error("`from` is required for merge_ff (例如 dev)"),
+    };
+    // 来源必须能解析成提交,报错要在改任何东西之前。
+    if let Err(error) = run_git(
+        cwd,
+        &["rev-parse", "--verify", &format!("{from}^{{commit}}")],
+    )
+    .await
+    {
+        return ToolOutput::error(format!("无法解析来源 `{from}`:{error}"));
+    }
+    let (target_label, merge_dir, ref_update) = match into.as_deref().map(validate_ref) {
+        Some(Err(error)) => return ToolOutput::error(error),
+        Some(Ok(into)) => {
+            let porcelain = match run_git(cwd, &["worktree", "list", "--porcelain"]).await {
+                Ok(text) => text,
+                Err(error) => return ToolOutput::error(error),
+            };
+            match worktree_for_branch(&porcelain, &into) {
+                // 分支检出在某棵工作树(可能就是当前树):去那棵树里做真正的
+                // merge --ff-only,工作区文件与 HEAD 一起前进。
+                Some(path) => (into, Some(path), None),
+                // 谁都没检出:快进纯属引用更新,`git fetch . from:into` 天然拒绝非快进。
+                None => (into.clone(), None, Some(format!("{from}:{into}"))),
+            }
+        }
+        None => (String::from("HEAD"), Some(cwd.to_path_buf()), None),
+    };
+    let before = run_git(
+        merge_dir.as_deref().unwrap_or(cwd),
+        &["rev-parse", "--short", &target_label],
+    )
+    .await
+    .unwrap_or_else(|_| "?".into());
+    let result = match (&merge_dir, &ref_update) {
+        (Some(dir), _) => run_git(dir, &["merge", "--ff-only", &from]).await,
+        (None, Some(spec)) => run_git(cwd, &["fetch", ".", spec]).await,
+        (None, None) => unreachable!("merge_ff target must be a worktree or a ref update"),
+    };
+    if let Err(error) = result {
+        return ToolOutput::error(format!(
+            "merge_ff 失败(只允许快进;历史分叉时先在 dev 侧收敛):{error}"
+        ));
+    }
+    let after = run_git(
+        merge_dir.as_deref().unwrap_or(cwd),
+        &["rev-parse", "--short", &target_label],
+    )
+    .await
+    .unwrap_or_else(|_| "?".into());
+    let where_note = match &merge_dir {
+        Some(dir) => format!("worktree {}", dir.display()),
+        None => "ref-only update (branch not checked out anywhere)".into(),
+    };
+    ToolOutput::ok(format!(
+        "fast-forwarded {target_label}: {before} -> {after} ({where_note})\nsource: {from}"
+    ))
+}
+
 async fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     let owned: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
     run_git_owned(cwd, &owned).await
@@ -674,6 +785,131 @@ mod tests {
             "{}",
             filtered.content
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    fn git_in(dir: &std::path::Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed in {}", dir.display());
+    }
+
+    fn commit_file(dir: &std::path::Path, name: &str, content: &str, message: &str) {
+        std::fs::write(dir.join(name), content).unwrap();
+        git_in(dir, &["add", name]);
+        git_in(dir, &["commit", "-q", "-m", message]);
+    }
+
+    /// 发版形态:main 检出在另一棵工作树,merge_ff 要找到那棵树并在里面快进,
+    /// 让分支引用与工作区文件一起前进——这是 bash 拦 merge 后发版流程的唯一通道。
+    #[tokio::test]
+    async fn merge_ff_fast_forwards_branch_checked_out_in_linked_worktree() {
+        let root = temp_repo("ffwt");
+        commit_file(&root, "a.txt", "v1\n", "初始提交");
+        git_in(&root, &["branch", "rel"]);
+        git_in(&root, &["switch", "-q", "-c", "dev"]);
+        let release = root.join("release-tree");
+        git_in(
+            &root,
+            &["worktree", "add", "-q", release.to_str().unwrap(), "rel"],
+        );
+        commit_file(&root, "a.txt", "v2\n", "dev 前进一步");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let out = GitTool
+            .execute(
+                serde_json::json!({"action":"merge_ff","from":"dev","into":"rel"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("fast-forwarded rel"),
+            "{}",
+            out.content
+        );
+        // 引用和工作区文件都要真的前进。
+        let dev = run_git(&root, &["rev-parse", "dev"]).await.unwrap();
+        let rel = run_git(&root, &["rev-parse", "rel"]).await.unwrap();
+        assert_eq!(dev, rel);
+        // autocrlf 环境下检出内容可能是 CRLF,断言前归一。
+        let checked_out = std::fs::read_to_string(release.join("a.txt"))
+            .unwrap()
+            .replace("\r\n", "\n");
+        assert_eq!(checked_out, "v2\n");
+        git_in(
+            &root,
+            &["worktree", "remove", "--force", release.to_str().unwrap()],
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 分支没检出在任何工作树时退化为纯引用快进;历史分叉必须干净失败。
+    #[tokio::test]
+    async fn merge_ff_updates_unchecked_branch_and_refuses_divergence() {
+        let root = temp_repo("ffref");
+        commit_file(&root, "a.txt", "v1\n", "初始提交");
+        git_in(&root, &["branch", "archive"]);
+        git_in(&root, &["switch", "-q", "-c", "dev"]);
+        commit_file(&root, "a.txt", "v2\n", "dev 前进");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        let out = GitTool
+            .execute(
+                serde_json::json!({"action":"merge_ff","from":"dev","into":"archive"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("ref-only"), "{}", out.content);
+        let dev = run_git(&root, &["rev-parse", "dev"]).await.unwrap();
+        let archive = run_git(&root, &["rev-parse", "archive"]).await.unwrap();
+        assert_eq!(dev, archive);
+        // 制造分叉:archive 上单独长一个提交,dev 再前进,快进必须被拒。
+        git_in(&root, &["switch", "-q", "archive"]);
+        commit_file(&root, "b.txt", "x\n", "archive 单独前进");
+        git_in(&root, &["switch", "-q", "dev"]);
+        commit_file(&root, "a.txt", "v3\n", "dev 再前进");
+        let rejected = GitTool
+            .execute(
+                serde_json::json!({"action":"merge_ff","from":"archive","into":"dev"}),
+                &ctx,
+            )
+            .await;
+        assert!(rejected.is_error, "{}", rejected.content);
+        assert!(rejected.content.contains("快进"), "{}", rejected.content);
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// 选项注入与区间语法要在碰 git 之前被拒掉。
+    #[tokio::test]
+    async fn merge_ff_rejects_malformed_refs() {
+        let root = temp_repo("ffbad");
+        commit_file(&root, "a.txt", "v1\n", "初始提交");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+        };
+        for bad in ["--exec=evil", "a..b", "a b", "HEAD~1", ""] {
+            let out = GitTool
+                .execute(serde_json::json!({"action":"merge_ff","from": bad}), &ctx)
+                .await;
+            assert!(out.is_error, "`{bad}` 应被拒绝:{}", out.content);
+        }
+        let out = GitTool
+            .execute(
+                serde_json::json!({"action":"merge_ff","from":"HEAD","into":"-evil"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
         std::fs::remove_dir_all(root).ok();
     }
 
