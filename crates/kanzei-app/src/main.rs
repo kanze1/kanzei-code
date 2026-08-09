@@ -722,6 +722,7 @@ fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                 "primary": merged.models.primary,
                 "fast": merged.models.fast,
                 "reasoning": merged.models.reasoning,
+                "codexFastMode": merged.models.codex_fast_mode,
             })
         });
     json!({
@@ -731,6 +732,7 @@ fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
+        "codexFastMode": config.models.codex_fast_mode.unwrap_or(false),
         "providers": providers,
         // 合并后的实际生效值;与上面的全局值不同就说明被项目级覆盖了。
         "effective": effective,
@@ -797,6 +799,9 @@ struct SettingsPayload {
     /// 思考强度默认档:off/low/medium/high;缺省视为 off。
     #[serde(default)]
     reasoning: Option<String>,
+    /// Codex Fast mode 开关;同一模型使用 priority 服务档位,默认关闭。
+    #[serde(default)]
+    codex_fast_mode: bool,
     profile_default: Option<String>,
     #[serde(default)]
     profile: Option<String>,
@@ -935,6 +940,7 @@ fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), St
             .filter(|value| ["low", "medium", "high"].contains(&value.as_str())),
         "off",
     );
+    settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
 
     settings_set_or_reset(
         doc.as_table_mut(),
@@ -1021,6 +1027,7 @@ fn settings_open() -> Result<(), String> {
             fast: String::new(),
             proxy: "env".into(),
             reasoning: None,
+            codex_fast_mode: false,
             profile_default: None,
             profile: None,
             providers: vec![],
@@ -1391,6 +1398,7 @@ async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String
             model: resolved.model,
             max_tokens: 8192,
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: None,
             context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
@@ -1523,6 +1531,7 @@ async fn quick_req(
             max_tokens: 2048,
             // 快记是机械结构化,不开思考。
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: None,
             context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};
@@ -1800,7 +1809,7 @@ async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
 const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
 /// 桌面端调用外部程序时禁止创建控制台窗口(Windows GUI 应用不应闪出黑框)。
-fn hidden_command(program: &str) -> Command {
+pub(crate) fn hidden_command(program: &str) -> Command {
     let mut command = Command::new(program);
     #[cfg(windows)]
     {
@@ -2019,6 +2028,7 @@ async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> 
         temperature: None,
         // 纪要总结不需要思考预算。
         reasoning: kanzei_llm::ReasoningEffort::Off,
+        service_tier: None,
     };
     let mut stream = client
         .stream(&route, &request)
@@ -2993,6 +3003,9 @@ async fn run_task(
             .or(config.models.reasoning.as_deref())
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
+        service_tier: (config.models.codex_fast_mode.unwrap_or(false)
+            && resolved.provider.auth.as_deref() == Some("codex"))
+            .then(|| "priority".to_string()),
         // 轮内主动压缩的预算基准(D-176)。轮末那次压缩保留作兜底,但长轮/自动续跑
         // 根本轮不到它,真正起作用的是这条。
         context_limit: resolved.provider.context_limit,
@@ -3689,6 +3702,7 @@ effect = \"allow\"
             fast: String::new(),
             proxy: "env".into(),
             reasoning: None,
+            codex_fast_mode: false,
             profile_default: None,
             profile: None,
             providers: vec![],
@@ -3718,6 +3732,7 @@ effect = \"allow\"
                 fast: "ollama:qwen3.5:4b".into(),
                 proxy: "env".into(),
                 reasoning: Some("high".into()),
+                codex_fast_mode: true,
                 profile_default: Some("dev".into()),
                 profile: None,
                 providers: vec![],
@@ -3739,6 +3754,7 @@ effect = \"allow\"
         let config: KanzeiConfig = toml::from_str(&saved).unwrap();
         assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-opus-5"));
         assert_eq!(config.models.reasoning.as_deref(), Some("high"));
+        assert_eq!(config.models.codex_fast_mode, Some(true));
         assert_eq!(config.permissions.rules.len(), 1);
         assert_eq!(config.permissions.rules[0].resource, "*/.env");
         let _ = std::fs::remove_file(path);
@@ -3759,6 +3775,7 @@ effect = \"allow\"
                 fast: String::new(),
                 proxy: "env".into(),
                 reasoning: None,
+                codex_fast_mode: false,
                 profile_default: None,
                 profile: None,
                 providers: vec![],

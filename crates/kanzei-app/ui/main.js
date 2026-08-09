@@ -357,6 +357,8 @@ const I18N_EN = {
   "低": "Low",
   "高": "High",
   "默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效; 开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。": "Default level; the top bar can override it per process. It applies only to reasoning models. Anthropic allocates a reasoning budget and OpenAI receives reasoning effort.",
+  "Codex Fast mode": "Codex Fast mode",
+  "仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。": "Codex only: keeps the current model (for example, luna) but consumes more credits for faster responses.",
   "移动端桥接": "Mobile bridge",
   "仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。": "Listens only on loopback. Starting provides a one-time pairing token; stopping revokes it.",
   "本机服务": "Local service",
@@ -6497,6 +6499,7 @@ async function loadSettings() {
   $("set-fast").value = s.fast ?? "";
   $("set-profile").value = s.profileDefault;
   $("set-reasoning").value = s.reasoning || "off";
+  $("set-codex-fast-mode").checked = s.codexFastMode === true;
   const proxy = s.proxy;
   if (proxy === "env" || proxy === "off") {
     $("set-proxy-mode").value = proxy;
@@ -6606,6 +6609,7 @@ $("settings-save").addEventListener("click", async () => {
         proxy,
         profileDefault: $("set-profile").value,
         reasoning: $("set-reasoning").value,
+        codexFastMode: $("set-codex-fast-mode").checked,
         providers: settingsProviders.map((p) => ({
           name: p.name,
           protocol: p.protocol,

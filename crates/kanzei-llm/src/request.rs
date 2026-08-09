@@ -138,6 +138,8 @@ pub struct LlmRequest {
     pub temperature: Option<f32>,
     /// 思考强度;Off 时各协议不发任何思考相关参数。
     pub reasoning: ReasoningEffort,
+    /// 服务档位;仅 Responses 协议在设置为 priority 时发送。
+    pub service_tier: Option<String>,
 }
 
 #[cfg(test)]

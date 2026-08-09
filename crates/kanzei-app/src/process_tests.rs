@@ -1,6 +1,8 @@
 //! 进程、会话运行时与停止收尾测试。
 
-use super::{default_process_id, process_session_id, runtime_for, stop_runtime_and_finalize, take_pending_ask, AppState, PendingAsk, SessionRuntime};
+use super::{process_session_id, runtime_for, stop_runtime_and_finalize, take_pending_ask, AppState, PendingAsk, SessionRuntime};
+// R-153 批4:default_process_id 已迁到 state 模块。
+use crate::state::default_process_id;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

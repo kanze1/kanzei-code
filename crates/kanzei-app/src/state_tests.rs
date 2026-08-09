@@ -1,6 +1,8 @@
 //! 项目状态、配置、文档快照与缺陷审查测试。
 
-use super::{defect_review, defect_review_report, defect_review_snapshot, docs_snapshot, ensure_project_isolated, export_project_data, normalized_project_root, project_detach, validate_model_roles, ExportOptions, ProviderPayload, SettingsPayload};
+use super::{defect_review, defect_review_report, defect_review_snapshot, docs_snapshot, export_project_data, normalized_project_root, validate_model_roles, ExportOptions, ProviderPayload, SettingsPayload};
+// R-153 批5:项目隔离/分离已迁到 projects 模块,测试跟着改从模块导入。
+use crate::projects::{ensure_project_isolated, project_detach};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -47,7 +49,7 @@ fn 同一上级下的两个项目必须各自独立不串数据() {
 
 #[test]
 fn 保存前拦住指向不存在_provider_的模型角色() {
-    let payload = |primary: &str| SettingsPayload { primary: primary.into(), fast: String::new(), proxy: "env".into(), reasoning: None, profile_default: None, profile: None, providers: vec![ProviderPayload { name: "deepseek".into(), protocol: "openai".into(), base_url: "x".into(), api_key_env: None, api_key: None, auth: None, context_limit: None }] };
+    let payload = |primary: &str| SettingsPayload { primary: primary.into(), fast: String::new(), proxy: "env".into(), reasoning: None, codex_fast_mode: false, profile_default: None, profile: None, providers: vec![ProviderPayload { name: "deepseek".into(), protocol: "openai".into(), base_url: "x".into(), api_key_env: None, api_key: None, auth: None, context_limit: None }] };
     assert!(validate_model_roles(&payload("deepsek:chat")).is_err());
     assert!(validate_model_roles(&payload("deepseek:chat")).is_ok());
 }

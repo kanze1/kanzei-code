@@ -306,6 +306,7 @@ impl AnnotateBackend {
                     max_tokens: 1024,
                     temperature: None,
                     reasoning: kanzei_llm::ReasoningEffort::Off,
+                    service_tier: None,
                 };
                 let mut stream =
                     client.stream(route, &request).await.map_err(|e| e.to_string())?;

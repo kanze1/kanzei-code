@@ -506,6 +506,7 @@ mod tests {
             max_tokens: 100,
             temperature: None,
             reasoning: ReasoningEffort::Off,
+            service_tier: None,
         };
         let body = build_body(&req);
         assert_eq!(body["messages"][0]["role"], "system");
@@ -529,6 +530,7 @@ mod tests {
             max_tokens: 100,
             temperature: None,
             reasoning: effort,
+            service_tier: None,
         };
         assert!(build_body(&base(ReasoningEffort::Off))
             .get("reasoning_effort")

@@ -20,6 +20,8 @@ pub struct RunnerConfig {
     pub max_tokens: u32,
     /// 思考强度;由调用方(CLI/桌面端)按配置或运行时选择传入。
     pub reasoning: ReasoningEffort,
+    /// Responses 服务档位;仅 Codex Fast mode 使用 priority。
+    pub service_tier: Option<String>,
     /// 该模型的上下文窗口。None = 未知,轮内不做主动预算(只保留撞墙后的被动恢复)。
     pub context_limit: Option<u64>,
 }
@@ -211,6 +213,7 @@ async fn digest_segment(
         max_tokens: 1024,
         temperature: None,
         reasoning: ReasoningEffort::Off,
+        service_tier: None,
     };
     let mut stream = client.stream(&rt.fast.0, &request).await.ok()?;
     let mut summary = String::new();
@@ -1621,6 +1624,7 @@ pub fn run_once_with_parts<'a>(
             max_tokens: config.max_tokens,
             temperature: None,
             reasoning: config.reasoning,
+            service_tier: config.service_tier.clone(),
         };
         let mut stream = match client
             .stream_with_retry_notice(route, &request, |attempt, delay| {
@@ -2329,6 +2333,7 @@ async fn run_subagent(
         max_tokens: rt.max_tokens,
         // 子代理是机械检索,不开思考:省钱且避免本地小模型不认该参数。
         reasoning: ReasoningEffort::Off,
+        service_tier: None,
         // 子代理跑的是 fast 模型,窗口未必与主模型同源;这里不传上限,
         // 让它继续走撞墙后的被动恢复,不按主模型的预算误压。
         context_limit: None,

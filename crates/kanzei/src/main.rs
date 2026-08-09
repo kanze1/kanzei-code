@@ -171,6 +171,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             .as_deref()
             .map(kanzei_llm::ReasoningEffort::parse)
             .unwrap_or_default(),
+        service_tier: (config.models.codex_fast_mode.unwrap_or(false)
+            && resolved.provider.auth.as_deref() == Some("codex"))
+            .then(|| "priority".to_string()),
         // 轮内主动压缩的预算基准(D-176)。
         context_limit: resolved.provider.context_limit,
     };
@@ -532,6 +535,7 @@ async fn consolidate_memory_inbox(
             model: resolved.model.clone(),
             max_tokens: 4096,
             reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: None,
             context_limit: resolved.provider.context_limit,
         };
         let mut on_event = |_event: RunEvent| {};

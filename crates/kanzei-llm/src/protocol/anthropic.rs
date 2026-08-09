@@ -497,6 +497,7 @@ mod tests {
             max_tokens: 1024,
             temperature: None,
             reasoning: ReasoningEffort::Off,
+            service_tier: None,
         };
         let body = build_body(&req);
         assert!(body["system"][0].get("cache_control").is_none());
@@ -522,6 +523,7 @@ mod tests {
             max_tokens,
             temperature,
             reasoning: effort,
+            service_tier: None,
         };
 
         // 关闭:不发 thinking,temperature 照常透传

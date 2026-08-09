@@ -275,6 +275,7 @@ mod tests {
             max_tokens: 32,
             temperature: None,
             reasoning: ReasoningEffort::Off,
+            service_tier: None,
         };
         let retries = Arc::new(Mutex::new(Vec::new()));
         let retry_log = retries.clone();

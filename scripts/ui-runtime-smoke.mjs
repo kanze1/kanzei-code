@@ -522,6 +522,7 @@ const payloads = {
     proxy: "env",
     profileDefault: "dev",
     reasoning: "off",
+    codexFastMode: false,
     profiles: {},
     providers: [],
     permissions: [],
@@ -1034,6 +1035,10 @@ assert(
   !byId.get("settings-dirty").classList.contains("hidden"),
   "改了表单却没有「未保存」提示(界面显示 A、运行用 B 就是这么来的)",
 );
+
+assert(html.includes('id="set-codex-fast-mode"'), "设置页缺少 Codex Fast mode 开关标记");
+assert(source.includes('$("set-codex-fast-mode").checked = s.codexFastMode === true'), "设置页未恢复 Codex Fast mode 状态");
+assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "保存设置未透传 Codex Fast mode");
 
 // ---------- R-136 子代理模型一键就绪 ----------
 assert(invokeLog.includes("fast_model_status"), "设置页未检测子代理模型就绪状态");

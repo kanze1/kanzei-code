@@ -119,6 +119,10 @@ pub fn build_body(request: &LlmRequest) -> Value {
     if request.reasoning.enabled() {
         body["reasoning"]["effort"] = json!(request.reasoning.as_str());
     }
+    // Codex Fast mode:同一模型走 priority 服务档位,未开启时不带该字段。
+    if let Some(service_tier) = request.service_tier.as_deref() {
+        body["service_tier"] = json!(service_tier);
+    }
     body
 }
 
@@ -462,6 +466,7 @@ mod tests {
             max_tokens: 100,
             temperature: None,
             reasoning: ReasoningEffort::Off,
+            service_tier: None,
         };
         let body = build_body(&req);
         assert_eq!(body["input"][0]["type"], "reasoning");
@@ -481,6 +486,7 @@ mod tests {
             max_tokens: 100,
             temperature: None,
             reasoning: effort,
+            service_tier: None,
         };
         let body = build_body(&base(ReasoningEffort::Off));
         assert_eq!(body["reasoning"]["summary"], "auto");
@@ -489,5 +495,9 @@ mod tests {
         let body = build_body(&base(ReasoningEffort::Medium));
         assert_eq!(body["reasoning"]["summary"], "auto");
         assert_eq!(body["reasoning"]["effort"], "medium");
+
+        let mut fast = base(ReasoningEffort::Off);
+        fast.service_tier = Some("priority".into());
+        assert_eq!(build_body(&fast)["service_tier"], "priority");
     }
 }

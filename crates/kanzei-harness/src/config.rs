@@ -31,6 +31,9 @@ pub struct ModelRoles {
     /// 运行时可被桌面端的每进程选择覆盖;未配置时保持 off,行为与既有一致。
     #[serde(default)]
     pub reasoning: Option<String>,
+    /// Codex Fast mode:同一模型使用更高消耗的 priority 服务档位。
+    #[serde(default)]
+    pub codex_fast_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -319,10 +322,15 @@ impl KanzeiConfig {
             provider.context_limit = known_context_limit(name, &host);
         }
         if self.models.primary.is_none() {
-            self.models.primary = Some("anthropic:claude-sonnet-5".into());
+            self.models.primary = Some("codex:gpt-5.6-luna".into());
         }
         if self.models.fast.is_none() {
             self.models.fast = Some("ollama:qwen3.5:4b".into());
+        }
+        if self.models.codex_fast_mode.is_none()
+            && self.models.primary.as_deref() == Some("codex:gpt-5.6-luna")
+        {
+            self.models.codex_fast_mode = Some(true);
         }
     }
 
@@ -419,7 +427,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         &mut out,
     );
     if let Some(models) = value.get("models") {
-        check(models, "models", &["primary", "fast", "reasoning"], &mut out);
+        check(models, "models", &["primary", "fast", "reasoning", "codex_fast_mode"], &mut out);
     }
     if let Some(providers) = value.get("providers").and_then(|p| p.as_table()) {
         for (name, provider) in providers {
@@ -462,6 +470,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     // 表现为"同一份配置里有的键管用有的不管用"——最难查的那种。
     if layer.models.reasoning.is_some() {
         base.models.reasoning = layer.models.reasoning;
+    }
+    if layer.models.codex_fast_mode.is_some() {
+        base.models.codex_fast_mode = layer.models.codex_fast_mode;
     }
     base.providers.extend(layer.providers);
     if layer.proxy.is_some() {
@@ -597,8 +608,10 @@ mod tests {
         let mut c = KanzeiConfig::default();
         c.fill_defaults();
         let m = c.resolve_model("primary").unwrap();
-        assert_eq!(m.provider_name, "anthropic");
-        assert_eq!(m.model, "claude-sonnet-5");
+        assert_eq!(m.provider_name, "codex");
+        assert_eq!(m.model, "gpt-5.6-luna");
+        // 默认 primary 是 Luna 时,Codex Fast mode 默认开启(R-158)。
+        assert_eq!(c.models.codex_fast_mode, Some(true));
         let claude = c.resolve_model("claude:claude-sonnet-4-6").unwrap();
         assert_eq!(claude.provider.protocol, "anthropic");
         assert_eq!(claude.provider.auth.as_deref(), Some("claude"));

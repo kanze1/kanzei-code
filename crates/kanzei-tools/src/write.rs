@@ -370,6 +370,7 @@ mod tests {
             model: "mock".into(),
             max_tokens: 128,
             reasoning: ReasoningEffort::Off,
+            service_tier: None,
             context_limit: None,
         };
         let tool_ctx = ToolCtx {
