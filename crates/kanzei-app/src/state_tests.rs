@@ -1,6 +1,7 @@
 //! 项目状态、配置、文档快照与缺陷审查测试。
 
-use super::{docs_snapshot, export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload};
+use super::{export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload};
+use crate::docs::docs_snapshot;
 // R-153 批10:缺陷审查迁到 subagents、模型角色校验迁到 settings。
 use crate::subagents::{defect_review, defect_review_report, defect_review_snapshot};
 use crate::settings::validate_model_roles;

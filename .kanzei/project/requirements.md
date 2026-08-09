@@ -12,7 +12,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本轮实际迁移 `settings_tests`：原 `main.rs:1013-1167` 的四个设置测试已移入 `crates/kanzei-app/src/settings.rs:415-514`，测试断言与真实 settings_save_at_path 调用保持；迁移初次暴露 KanzeiConfig 作用域缺失，已登记并修复 D-228。T-1786297996 `cargo test -p kanzei-app` 43 项全绿。main.rs 当前约 1013 行；run_task_impl、workspace_snapshot/docs_snapshot、hidden_command 仍待按域搬迁，批次保持 10/11。
+- 进展: 继续完成入口域迁移：`docs_snapshot` 已归入 `crates/kanzei-app/src/docs.rs:90-140`，现有 `state_tests` 改从 `crate::docs::docs_snapshot` 调用；重复定义与导入问题已修复。T-1786298115 `cargo test -p kanzei-app` 43 项全绿。`settings_tests` 已在上一批迁出；main.rs 当前约 900 行，仍剩 workspace_snapshot、hidden_command、run_task_impl，批次保持 10/11。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

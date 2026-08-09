@@ -7,7 +7,9 @@ use tauri::State;
 
 use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 
-use crate::{hidden_command, CONVENTIONS_REL};
+pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
+
+use crate::{hidden_command, normalized_project_root};
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
 #[tauri::command]
@@ -55,7 +57,6 @@ pub fn conventions_init(project_dir: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
 }
-use crate::normalized_project_root;
 
 #[tauri::command]
 pub fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {

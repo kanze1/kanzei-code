@@ -846,3 +846,13 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 修复 settings.rs 测试显式导入 KanzeiConfig 后，43 项测试全绿；四个设置测试均在 settings::tests 下通过。
 - 收尾: 1786297996
+
+## T-1786298115 R-153 docs_snapshot 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: docs_snapshot 迁移并修复重复定义/导入后，kanzei-app 43 项测试全绿；state_tests 已改从 crate::docs::docs_snapshot 调用。
+- 收尾: 1786298228
+
+## T-1786298325 R-153 docs_snapshot 迁移提交前定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 提交前复测 43 项全绿；docs_snapshot 位于 docs.rs，state_tests 从 crate::docs 调用，主入口删除重复实现。
+- 收尾: 1786298325
