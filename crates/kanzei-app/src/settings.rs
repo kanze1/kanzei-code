@@ -183,9 +183,13 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     })
 }
 
+pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+    crate::settings_save_at_path_impl(payload, path)
+}
+
 #[tauri::command]
 pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
-    crate::settings_save_at_path(payload, &global_config_path())
+    settings_save_at_path(payload, &global_config_path())
 }
 #[tauri::command]
 pub fn settings_open() -> Result<(), String> {

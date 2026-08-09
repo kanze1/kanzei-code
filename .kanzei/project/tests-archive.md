@@ -250,3 +250,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；settings_save/settings_open 已接管真实 Tauri 命令实现。
 - 收尾: 1786285060
+
+## T-1786285144 R-153 settings_save_at_path API 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: cargo check -p kanzei-app --tests 通过；settings_save_at_path 由 settings.rs 接管 API，现有测试调用路径保持不变。
+- 收尾: 1786285147

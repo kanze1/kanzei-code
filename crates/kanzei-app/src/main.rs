@@ -34,7 +34,7 @@ mod settings;
 
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
-    global_config_path, settings_set_or_remove, settings_set_or_remove_num,
+    global_config_path, settings_save_at_path, settings_set_or_remove, settings_set_or_remove_num,
     settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
 };
 
@@ -451,7 +451,7 @@ fn project_files(project_dir: String, query: String) -> Result<Vec<String>, Stri
 }
 // ---------- 设置(全局 kanzei.toml 表单) ----------
 
-pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Result<(), String> {
+pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) -> Result<(), String> {
     validate_model_roles(&payload)?;
     // 以现有配置文本为底,只改设置页管理的键:注释、排版、未知字段原样保留(D-082)。
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
