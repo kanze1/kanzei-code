@@ -2253,3 +2253,10 @@
 - 优先级: P2
 - 状态: fixing
 - 进展: 修复:git_batches.rs collect_marked_batches 扩展中文「批N」风格——「批」后直接跟数字时归入 B 命名空间(与 "R-157 B3" 语义等价自然去重);「批次」判为字段叙事(「批次: 3/3」)跳过不识别;修复过程中一并纠正 parse_number 失败时的 index 推进(原写法有死循环风险)。验收对照:①长 run 实时一致——解析入口 completed_batches_for_entries 不变,中文风格提交('R-157 批3:…')现在命中推导,不再回退字段;真实仓库实证 git log 推导 R-157 = 3 批(B1/B2/B3),A-010 标题含「R-157」但无批号不误计。②无需 req update——推导仍纯来自 git log。③收口拦截——tracker.rs 关闭门禁复用同一推导(此前中文风格推导 0 致拦截空转,现已命中)。④解析覆盖——新增单测 parses_chinese_pi_batch_markers_without_misjudging:批1/批2/批3 混编、批3 与 B3 去重、R-1570 相邻 ID 不误判、R-156 其他条目不误判、「批」后非数字(审批流程)不构成批次、「批次 3/3」叙事不构成批次、无批次普通提交不误计;旧测试 parses_mixed_out_of_order_and_compact_batch_markers 保持绿。
+
+## D-237 活动面板 diff 汇总无增删颜色, bash 完整输出/错误详情不可展开(R-095 追溯价值打折) [fixed] (medium)
+- 复现: ①活动面板顶部 diff-summary 汇总区渲染为 `<span>+8/−8</span>` 纯文本,样式 .diff-summary-row 全 dim 灰,无增绿删红——右侧活动面板的 diff 颜色显示缺失。②活动面板 bash 条目点击展开后:bgAdd 只有入参 JSON,bgEnd 只 append display(后端 output 截断 4000 字符),完整命令输出丢失;主对话 chatToolEnd→fillToolBlock 会追加完整 content(8000 截断),活动面板无对应处理——同一工具调用在主对话能看全,活动面板只能看 4000 截断版。③错误工具调用:bgEnd 里 !ok && preview 追加 preview 文本(可展开,但成功路径的完整内容不可达)。
+- 影响: 活动面板定位是"可检索的执行记录"(R-095),diff 无颜色让增删难以一眼区分;bash 完整输出不可展开让活动面板失去追溯价值——用户原话"这才是活动的意义"。
+- 验收: ①diff-summary 汇总行 +N 显示增色(绿)、−N 显示删色(红),文件路径保持 dim;②活动面板 bash 条目展开后能看到完整命令与输出(与主对话同等完整度,超出 display 4000 截断的部分也可见);③错误工具调用展开后能看到完整错误内容;④node --check + ui-runtime-smoke 冒烟断言新增行为;⑤活动面板 diff 块(renderDiff)颜色保持现状不受破坏。
+- 优先级: P2
+- 进展: 修复完成,逐项验收:①diff-summary 汇总行 +N/−N 已分色——renderDiffSummary(crates/kanzei-app/ui/06-activity.js)用 <span class="diff-add">+N</span>/<span class="diff-del">−N</span> 渲染,style.css 新增 .diff-add(#a5c98f 绿)/.diff-del(#dd8d72 红)两条规则,文件路径 span 无 class 继承 .diff-summary-row 的 dim。②bash 完整输出可展开——后端 bash.rs 的 display 增加 full 字段(成功分支与超时分支均透传,上限 200k 字符),前端 appendDisplayBlock 改为 display.full ?? display.output 优先渲染完整输出。③错误工具调用展开完整错误——既有行为(bgEnd !ok && preview 追加)保持不变,且错误路径的 display 同样带 full。④验证——ui-runtime-smoke.mjs 新增 D-237 断言段(T5 diff 事件断言 #diff-summary 含 +3/−1 与文件路径;T6 bash 事件先 tool-start 建条目再 tool-end,断言展开区含完整输出),四条 ui 冒烟全绿,node --check 通过,cargo test -p kanzei-tools 126 全绿,frontend_check 花括号配对正常。⑤renderDiff 未改动,仅新增样式类,颜色不受影响。
