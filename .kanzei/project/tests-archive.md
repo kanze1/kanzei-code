@@ -16,3 +16,7 @@
 ## T-1786226007 R-100 冗余机械门禁:就地提醒 + 三类计数进入度量 [passed]
 - 命令: cargo test -p kanzei-core --lib runner; cargo test --workspace; node scripts/ui-i18n-smoke.mjs; node scripts/ui-runtime-smoke.mjs
 - 摘要: R-100 冗余机械门禁:runner 26 项(新增 4 个:重复 git status 就地提醒、全量测试工作树未变提醒、task 引用已知缺陷路径提醒、提醒按类别计数);workspace 13 crate 全绿(kanzei-core 68);前端 i18n 37 key(新增「冗余提醒」)、runtime 214 invoke 0 错误。
+
+## T-1786238330 D-211 侧栏拖拽修复——ui-runtime-smoke [passed]
+- 命令: node --check crates/kanzei-app/ui/main.js; node scripts/ui-runtime-smoke.mjs
+- 摘要: D-211 修复后冒烟全绿(222 次 invoke):新增"侧栏解锁→锁提示消失→draggable=true→dragstart/dragover/dragend→docs_update reorder"链路断言;反向验证(临时恢复旧限制)断言 2 处立即命中,证明断言真实有效。

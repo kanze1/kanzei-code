@@ -20,7 +20,7 @@
 - 优先级: P1
 - 标签: 前端
 
-- 进展: 2026-08-09 部分交付,用户点名两项): ①取活焦点可视化——computeAgentFocus 按 scheduler 序 snapshot 与当前 work-priority 计算「在做」(doing/fixing,绿色呼吸高亮)与「下一个」(取活序首个可开工,蓝色次亮),渲染于 doc-item,基于数据计算故任何排序/分组/筛选下标同一批条目,tooltip 说明语义;②拖拽禁用不再静默——分组/排序视图/有筛选三种原因分别给出提示行与解法。冒烟新增 4 断言(doing 标 active、defect-first 下首个 open 缺陷标 next、open 不误标、次队列不抢标)。验收①②已落,③(优先级语义二选一)与④(用户复查)未做。(注:2026-08-09 cargo test 期间本进展字段被测试污染删除,已按 git diff 原样恢复)
+- 进展: 2026-08-09 部分交付(①取活焦点可视化、②拖拽禁用提示)基础上,本轮补验收③:优先级语义二选一选 B(UI 明示)——按 M-002 用户定调 priority 只是背景信息不参与取活,不改 prompt/schedule。实现:①侧栏优先级筛选下拉 title 改为「按优先级筛选(仅参考,不影响取活顺序)」(index.html);②需求/缺陷行内优先级徽章 title 追加「(仅参考,不影响取活)」(main.js renderDocList badge.title);③i18n 新增两条词条(I18N_EN),ui-i18n-smoke 770 key 全绿;④冒烟新增断言:筛选 title 与徽章 title 均含「仅参考」,ui-runtime-smoke 222 invoke 全绿。验收④用户复查(能否看懂 agent 下一个会拿哪条)待发版安装后用户确认,与 D-210/D-211 同惯例。
 
 ## D-205 快记通道无信息保真门槛:模糊输入被编造复现后落库,关键限定词丢失 [open] (medium)
 - refs: D-204

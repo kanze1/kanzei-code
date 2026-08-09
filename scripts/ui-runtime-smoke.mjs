@@ -721,6 +721,14 @@ assert(
   const after = invokeLog.filter((c) => c === "docs_update").length;
   assert(after > before, `侧栏拖拽未提交 docs_update(reorder 落库缺失),增量=${after - before}`);
 }
+// D-207 验收③:优先级语义 UI 明示——priority 只是背景信息,不参与取活(用户定调),
+// 避免满屏 P0~P3 徽章让人按优先级猜取活序。
+{
+  const priFilter = document.querySelector("#req-priority-filter");
+  assert(priFilter?.getAttribute("title").includes("仅参考"), `侧栏优先级筛选未明示"仅参考,不影响取活": "${priFilter?.getAttribute("title")}"`);
+  const badge = document.querySelector("#req-list .pri-badge");
+  assert(badge?.title.includes("仅参考"), `优先级徽章未明示"仅参考,不影响取活": "${badge?.title}"`);
+}
 // 侧栏移除编辑后必须仍能读到字段,否则等于把信息一起删了。
 const sidebarFields = document.querySelectorAll("#req-list .doc-detail .doc-field");
 assert(sidebarFields.length > 0, "侧栏详情既无编辑表单也无只读字段,信息被一起删掉了");

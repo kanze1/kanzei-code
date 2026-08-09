@@ -242,6 +242,8 @@ const I18N_EN = {
   "按状态筛选": "Filter by status",
   "按复杂度筛选": "Filter by complexity",
   "按优先级筛选": "Filter by priority",
+  "按优先级筛选(仅参考,不影响取活顺序)": "Filter by priority (reference only; does not affect work order)",
+  "点击循环调整优先级(仅参考,不影响取活)": "Click to cycle priority (reference only; does not affect work order)",
   "按标签筛选": "Filter by tag",
   "按阻塞状态筛选": "Filter by blocked state",
   "需求排序(手动=拖拽定开发顺序,agent 按此取活)": "Requirement order (Manual means drag to set the agent's work order)",
@@ -4551,7 +4553,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       const badge = document.createElement("button");
       badge.className = `pri-badge ${/^P[0-3]$/.test(pri) ? pri : "unset"}`;
       badge.textContent = /^P[0-3]$/.test(pri) ? pri : t("未设");
-      badge.title = t("点击循环调整优先级");
+      badge.title = t("点击循环调整优先级(仅参考,不影响取活)");
       badge.addEventListener("click", async (event) => {
         event.stopPropagation();
         const order = ["P0", "P1", "P2", "P3"];
