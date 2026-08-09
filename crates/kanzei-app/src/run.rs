@@ -208,6 +208,11 @@ pub(crate) async fn run_task(
                     json!({ "id": id, "name": name, "summary": summary, "input": input }),
                 )
             }
+            // 执行中的增量输出:只转发给 UI 实时追加,不进 trace——回放时
+            // ToolEnd 的完整输出就是终态,逐段进度落盘只会把轨迹撑爆。
+            RunEvent::ToolProgress { id, chunk } => {
+                emit_event("kz:tool-progress", json!({ "id": id, "chunk": chunk }))
+            }
             RunEvent::ToolEnd {
                 id,
                 name,

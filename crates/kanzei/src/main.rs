@@ -274,6 +274,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::TaskProgress { text, .. } => {
             let _ = writeln!(stdout, "  \x1b[90m… {text}\x1b[0m");
         }
+        // CLI 不逐段转印工具输出:ToolEnd 的预览已够,逐段会与正文流互相穿插。
+        RunEvent::ToolProgress { .. } => {}
         RunEvent::Retry {
             attempt,
             max,

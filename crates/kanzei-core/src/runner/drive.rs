@@ -847,7 +847,34 @@ pub fn run_once_with_parts<'a>(
                                     "tool input was not valid JSON",
                                 )
                             } else {
-                                tool.execute(input, ctx).await
+                                // 串行路径同样接进度旁路:bash 常因权限询问走到这里,
+                                // 长命令(装依赖/发版)的增量输出边执行边转发给 UI。
+                                let (progress_tx, mut progress_rx) =
+                                    tokio::sync::mpsc::unbounded_channel::<
+                                        kanzei_harness::progress::ProgressChunk,
+                                    >();
+                                let handle = kanzei_harness::progress::ProgressHandle::new(
+                                    id.clone(),
+                                    progress_tx,
+                                );
+                                let exec = kanzei_harness::progress::scope(
+                                    handle,
+                                    tool.execute(input, ctx),
+                                );
+                                tokio::pin!(exec);
+                                let output = loop {
+                                    tokio::select! {
+                                        biased;
+                                        Some((pid, chunk)) = progress_rx.recv() => {
+                                            on_event(RunEvent::ToolProgress { id: pid, chunk });
+                                        }
+                                        output = &mut exec => break output,
+                                    }
+                                };
+                                while let Ok((pid, chunk)) = progress_rx.try_recv() {
+                                    on_event(RunEvent::ToolProgress { id: pid, chunk });
+                                }
+                                output
                             }
                         }
                     };

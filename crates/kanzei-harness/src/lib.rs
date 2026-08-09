@@ -9,6 +9,7 @@ pub mod harness;
 pub mod home;
 pub mod markdown;
 pub mod permission;
+pub mod progress;
 pub mod registry;
 pub mod repair;
 pub mod tool;

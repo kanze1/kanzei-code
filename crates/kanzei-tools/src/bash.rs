@@ -141,8 +141,10 @@ impl Tool for BashTool {
             return ToolOutput::error(format!(
                 "`{form}` is blocked in bash: Git mutations must use the structured `git` tool. \
                  Use `git stage` with explicit files, review its staged_hash/diff, then `git commit` \
-                 with that hash. Branch/index mutations not covered by that tool require the user \
-                 to run them directly; do not route them through another shell spelling."
+                 with that hash. Fast-forward merges go through `git merge_ff` (from/into; it finds \
+                 the worktree where `into` is checked out). Other branch/index mutations not covered \
+                 by that tool require the user to run them directly; do not route them through \
+                 another shell spelling."
             ));
         }
 
@@ -573,6 +575,10 @@ async fn read_capped(
         match reader.read(&mut chunk).await {
             Ok(0) => break,
             Ok(n) => {
+                // 进度旁路:每读到一段就上报(runner 注入通道时才生效)。长命令
+                // (装依赖/发版脚本)的输出因此能边跑边出现在活动面板,而不是
+                // 结束后一次性砸出来。截断上限只约束回喂模型的缓冲,不约束进度流。
+                kanzei_harness::progress::emit(&String::from_utf8_lossy(&chunk[..n]));
                 if buffer.len() < MAX_CAPTURE_BYTES {
                     let take = n.min(MAX_CAPTURE_BYTES - buffer.len());
                     buffer.extend_from_slice(&chunk[..take]);

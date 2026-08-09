@@ -70,38 +70,61 @@ pub(crate) async fn execute_prepared_tools(
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> Vec<(usize, Part)> {
     let mut results = Vec::new();
+    // 进度旁路:每个调用带自己 id 的 ProgressHandle,共用一条通道;
+    // 收集循环里边等完成边转发增量输出,UI 才能在长任务执行中看到"跑到哪了"。
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::unbounded_channel::<kanzei_harness::progress::ProgressChunk>();
     for wave in build_tool_execution_waves_with(max_parallel, calls) {
         let mut jobs: futures::stream::FuturesUnordered<_> = wave
             .into_iter()
-            .map(|call| async move {
-                let PreparedToolCall {
-                    index,
-                    id,
-                    name,
-                    input,
-                    tool,
-                    concurrency: _,
-                } = call;
-                let output = tool.execute(input, ctx).await;
-                (index, id, name, output)
+            .map(|call| {
+                let progress_tx = progress_tx.clone();
+                async move {
+                    let PreparedToolCall {
+                        index,
+                        id,
+                        name,
+                        input,
+                        tool,
+                        concurrency: _,
+                    } = call;
+                    let handle =
+                        kanzei_harness::progress::ProgressHandle::new(id.clone(), progress_tx);
+                    let output =
+                        kanzei_harness::progress::scope(handle, tool.execute(input, ctx)).await;
+                    (index, id, name, output)
+                }
             })
             .collect();
-        while let Some((index, id, name, output)) = jobs.next().await {
-            on_event(RunEvent::ToolEnd {
-                id: id.clone(),
-                name,
-                ok: !output.is_error,
-                preview: preview(&output.content),
-                display: output.display.clone(),
-            });
-            results.push((
-                index,
-                Part::ToolResult {
-                    call_id: id,
-                    content: output.content,
-                    is_error: output.is_error,
-                },
-            ));
+        loop {
+            tokio::select! {
+                // 先清进度再收终态:同一调用的增量输出必须排在它的 ToolEnd 之前。
+                biased;
+                Some((id, chunk)) = progress_rx.recv() => {
+                    on_event(RunEvent::ToolProgress { id, chunk });
+                }
+                job = jobs.next() => {
+                    let Some((index, id, name, output)) = job else { break };
+                    while let Ok((pid, chunk)) = progress_rx.try_recv() {
+                        on_event(RunEvent::ToolProgress { id: pid, chunk });
+                    }
+                    on_event(RunEvent::ToolEnd {
+                        id: id.clone(),
+                        name,
+                        ok: !output.is_error,
+                        preview: preview(&output.content),
+                        display: output.display.clone(),
+                    });
+                    results.push((
+                        index,
+                        Part::ToolResult {
+                            call_id: id,
+                            content: output.content,
+                            is_error: output.is_error,
+                        },
+                    ));
+                }
+            }
         }
     }
     results.sort_by_key(|(index, _)| *index);

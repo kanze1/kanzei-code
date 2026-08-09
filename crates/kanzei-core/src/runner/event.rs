@@ -33,6 +33,12 @@ pub enum RunEvent {
         /// 拿什么参数调的";活动面板要能展开完整入参,只能从这里拿(R-095)。
         input: serde_json::Value,
     },
+    /// 工具执行中的增量输出(bash 等长任务上报),UI 实时追加显示。
+    /// 只在执行期有意义,不进历史轨迹——回放看 ToolEnd 的完整输出即可。
+    ToolProgress {
+        id: String,
+        chunk: String,
+    },
     ToolEnd {
         id: String,
         name: String,
