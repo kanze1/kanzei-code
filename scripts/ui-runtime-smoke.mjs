@@ -800,6 +800,24 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
   const notNext = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
   assert(!notNext?.classList.contains("agent-next"), "缺陷队列有可开工项时,需求 R-002 不该被标为下一个");
 }
+// D-207 补:blocked doing 不计入运行焦点。R-157 类阻塞 doing 曾被标成
+// 「agent 正在做这一条」,而 §1.1 阻塞项不进 WIP、取活会跳过它——渲染必须与
+// 取活一致:保留 blocked 标记但不标 agent-active,且 next 不被它挡住。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    requirements: [docEntry("R-001", "阻塞的 doing", "doing", { blocked: true })],
+    defects: [docEntry("D-001", "可开工缺陷", "open", {})],
+  };
+  await sandbox.refreshDocs();
+  const blockedDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
+  assert(blockedDoing?.classList.contains("blocked"), "阻塞 doing 应保留 blocked 标记(阻塞展示不受影响)");
+  assert(!blockedDoing.classList.contains("agent-active"), "阻塞 doing 不该标 agent-active(运行焦点只标可执行条目)");
+  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  assert(next?.classList.contains("agent-next"), "blocked doing 不应挡住 next:可开工缺陷 D-001 仍应为下一个");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
 // D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
 const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
 assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");

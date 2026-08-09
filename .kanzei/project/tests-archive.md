@@ -1056,3 +1056,8 @@
 ## T-1786313371 cargo test --workspace (发版前全量) [passed]
 - 摘要: 发版前全量门禁:cargo test --workspace 全绿(kanzei-app 45、kanzei-tools 126、kanzei-harness 71、kanzei-core 49、kanzei-llm 39 等,0 failed)
 - 收尾: 1786313371
+
+## T-1786314914 前端冒烟:D-207 blocked doing 不标 agent-active(computeAgentFocus 修复后) [passed]
+- 命令: node --check crates/kanzei-app/ui/12-docs-pages.js; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: computeAgentFocus active 排除 blocked 后,四条前端冒烟全绿:ui-runtime 237 invoke(含新增「阻塞 doing 保留 blocked 但不标 agent-active、不挡 next」断言)、ui-i18n 306 key、ui-markdown、ui-a11y 0 错误。
+- 收尾: 1786314914
