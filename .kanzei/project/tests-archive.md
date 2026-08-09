@@ -168,3 +168,7 @@
 ## T-1786254028 R-153 批3 memory 模块接入回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批3 memory 模块接入回归记录通过；13 个 command 的真实 invoke_handler 消费者已切换到 memory 模块，run_task 轮末整理调用也已切换；main.rs 旧 memory 函数体仍待清理。
+
+## T-1786254237 R-153 批3 memory 旧副本清理回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: main.rs memory 旧副本清理回归记录通过：memory command/consolidation 定义已无匹配，run_metrics 保留；memory.rs 成为唯一实现文件。

@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批3 memory 模块已接入：新增 `crates/kanzei-app/src/memory.rs`，承接 13 个 memory command 与 `consolidate_memory_inbox`；main.rs 新增 `mod memory`，invoke_handler 的 memory command 全部切换为 `memory::...`，run_task 轮末整理切换为 `memory::consolidate_memory_inbox`。回归记录 T-1786254028。当前 main.rs 仍保留旧 memory 函数副本，下一步物理删除旧域并保留 run_metrics 在 main.rs。
+- 进展: 批3 memory 旧副本清理完成：main.rs 中 memory_stores_for、13 个 memory command、FOCUS_TITLE_PREFIX、consolidate_memory_inbox 均已删除；run_metrics 保留在 main.rs。`memory.rs` 是唯一实现，invoke_handler 及 run_task 真实调用已接入。回归记录 T-1786254237。R-153 总验收仍待批4~10、main.rs≤300 行、全量 workspace、四条 UI 冒烟、拆前后行数对照。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

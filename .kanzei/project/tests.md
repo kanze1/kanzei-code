@@ -111,3 +111,7 @@
 ## T-1786254023 R-153 批3 memory 模块接入回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证批3 memory.rs 接入：13 个 memory command 经模块全路径注册，run_task 轮末整理改由 memory::consolidate_memory_inbox 调用；当前 main.rs 旧 memory 副本尚待物理删除。
+
+## T-1786254227 R-153 批3 memory 旧副本清理回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证批3 memory 旧副本物理删除：main.rs 保留 run_metrics，memory command 与 consolidate 仅由 memory.rs 提供，invoke_handler 和 run_task 调用保持真实。
