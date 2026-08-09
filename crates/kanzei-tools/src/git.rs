@@ -311,6 +311,45 @@ fn modified_secs(path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
+/// 编译门禁:提交源码前由工具**亲自**跑一次 `cargo check --workspace --all-targets`。
+///
+/// 为什么不能只看测试记录:记录是 agent 自己写的。实测 2026-08-09 夜里,run.rs 里连续
+/// 混入四处「插入却把签名吃掉」的破损(`async fn fast_summarize -> ...` 少了参数、
+/// `pub(crate) async fn run_promptpub(crate) fn run_metrics(` 两个签名黏在一起),
+/// 而每个提交都配着一条 passed 记录——记录的时间戳比改动新,时序门禁完全满意,
+/// 但 kanzei-app 根本编译不过。时序判据防的是「改完没重跑」,防不住「没跑却说跑了」。
+/// 编译这条底线必须由工具亲自验。
+async fn compile_gate(cwd: &Path) -> Result<(), String> {
+    // 非 Rust 仓库不做这件事:门禁要么真的能验,要么不装样子。
+    if !cwd.join("Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let output = tokio::process::Command::new("cargo")
+        .args(["check", "--workspace", "--all-targets", "--quiet"])
+        .current_dir(cwd)
+        .output()
+        .await;
+    match output {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let head: Vec<&str> = stderr
+                .lines()
+                .filter(|l| l.starts_with("error") || l.trim_start().starts_with("-->"))
+                .take(12)
+                .collect();
+            Err(format!(
+                "提交被拦下:`cargo check --workspace --all-targets` 不过,这份代码编译不了。\n{}",
+                head.join("\n")
+            ))
+        }
+        // cargo 跑不起来就说清楚,不要静默放行——放行等于门禁在说谎。
+        Err(error) => Err(format!(
+            "提交被拦下:无法执行 cargo check({error})。装好 cargo 或在非 Rust 仓库里提交。"
+        )),
+    }
+}
+
 /// 源码提交的硬门禁:必须存在**改完之后**才收尾的 passed 测试记录。
 ///
 /// 这条纪律此前只写在提示词里,实测一天里被绕过三次(R-158 顶掉 reasoning effort、
@@ -383,6 +422,13 @@ async fn commit(
         return ToolOutput::error(format!(
             "staged content changed: expected `{expected_hash}`, current `{current_hash}`. Re-run stage/diff and review the new index before committing."
         ));
+    }
+    if paths.iter().any(|p| is_source_path(p)) {
+        // 顺序有讲究:先验编译(机械真值),再看测试记录(自报证据)。编译不过时
+        // 报编译错误比报"没有测试背书"有用得多。
+        if let Err(error) = compile_gate(cwd).await {
+            return ToolOutput::error(error);
+        }
     }
     if let Err(error) = source_test_gate(&ctx.project_root, cwd, &paths) {
         return ToolOutput::error(error);

@@ -1,6 +1,8 @@
 //! 权限请求与 Always Allow 持久化测试。
 
-use super::{pending_ask_payload, persist_always_allow, PendingAsk};
+use super::{pending_ask_payload, PendingAsk};
+// R-153 批10:总是允许的落库迁到 run 模块。
+use crate::run::persist_always_allow;
 use tokio::sync::oneshot;
 
 #[test]

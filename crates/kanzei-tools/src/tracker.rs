@@ -425,6 +425,26 @@ impl Tool for TrackerTool {
                     return ToolOutput::error(e);
                 }
                 let target_status = if input.action == "close" {
+                    // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
+                    // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
+                    let merged = {
+                        let mut probe = entries[pos].clone();
+                        for (key, value) in &input.fields {
+                            match probe.fields.iter_mut().find(|(k, _)| k == key) {
+                                Some((_, slot)) => *slot = value.clone(),
+                                None => probe.fields.push((key.clone(), value.clone())),
+                            }
+                        }
+                        probe
+                    };
+                    let (done, total) = crate::docstore::batch_progress(&merged);
+                    if total > 1 && done < total {
+                        return ToolOutput::error(format!(
+                            "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
+                             (`批次: {done}/{done}`——当初估多了是正常的,改它比留着空格诚实);\
+                             还有批次没做就先做完再关。"
+                        ));
+                    }
                     // 关闭前必须先收尾该条目名下的测试记录:一条挂着的 running 与"根本没跑"
                     // 无法区分,带着它关闭等于把未验证当成已验证入账。
                     let unclosed = crate::test_record::unclosed_running_for(&ctx.project_root, id);
@@ -924,6 +944,39 @@ mod tests {
             severity: None,
             fields: vec![],
         }
+    }
+
+    #[tokio::test]
+    async fn 批次没走完不能关闭_改小总数或做完都放行() {
+        let dir = std::env::temp_dir().join(format!("kz-batch-close-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![("复杂度".into(), "大".into()), ("批次".into(), "3/11".into())];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        let out = tool.execute(json!({"action": "close", "id": "R-001"}), &ctx).await;
+        assert!(out.is_error, "还剩 8 格空着就该拦下来: {}", out.content);
+        assert!(out.content.contains("3/11"), "{}", out.content);
+
+        // 当初估多了:把总数改成实际批数即可关闭——比留着空格诚实。
+        let out = tool
+            .execute(
+                json!({"action": "close", "id": "R-001", "fields": {"批次": "3/3"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "总数改成实际批数后应放行: {}", out.content);
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(saved[0].status, "done");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

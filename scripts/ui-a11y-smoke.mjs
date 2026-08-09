@@ -102,9 +102,15 @@ assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled 
 assert.match(js, /已发送给 agent/);
 assert.match(js, /bgProgress\([\s\S]*appendDisplayBlock\(child\.row, trace\.display\)/);
 assert.match(js, /function renderRecoveredTraces\(payloads\)/);
-assert.match(js, /className = `complexity-meter complexity-level-\$\{level\}`/);
-assert.match(js, /el\.id === "req-list"/);
-assert.match(js, /className = `complexity-cell\$\{i <= level \? " filled" : ""\}`/);
+// 批次进度格(R-160):格子是纯装饰(aria-hidden),真正给读屏的是 meter 上的 role=img
+// 与带准确数字的 aria-label——盯住这条契约,别再锁实现字符串(旧断言锁死了
+// `complexity-level-${level}`,把静态复杂度换成批次进度时它是第一个红的,而无障碍性质
+// 其实一点没变)。
+assert.match(js, /meter\.className = "complexity-meter batch-meter"/);
+assert.match(js, /meter\.setAttribute\("role", "img"\)/);
+assert.match(js, /const label = `\$\{t\("批次"\)\} \$\{done\}\/\$\{total\}/);
+assert.match(js, /meter\.setAttribute\("aria-label", label\)/);
+assert.match(js, /cell\.setAttribute\("aria-hidden", "true"\)/);
 assert.match(css, /#req-list \.doc-item::before \{ display: none; \}/);
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);

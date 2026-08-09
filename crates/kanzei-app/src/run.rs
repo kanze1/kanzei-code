@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::json;
+use tauri::{Emitter, State, Window};
+use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 use crate::{ensure_default_process, process_session_id, runtime_for, stop_runtime_and_finalize, with_session_id, AppState, PendingAsk, PromptAttachment, SessionRuntime};
 
 pub(crate) use crate::run_task_impl as run_task;
@@ -22,6 +24,13 @@ pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name:
 
 pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
+}
+
+pub(crate) async fn build_model_route(
+    resolved: &kanzei_harness::config::ResolvedModel,
+    proxy: &kanzei_llm::ProxyConfig,
+) -> anyhow::Result<kanzei_llm::Route> {
+    kanzei_core::build_route(resolved, proxy).await
 }
 
 pub(crate) fn build_runner_config(
@@ -116,6 +125,7 @@ pub(crate) fn report_config_warnings(window: &Window, session_id: &str, config: 
     for warning in config.bash_permission_warnings() { emit_stage(window, session_id, "权限", warning); }
 }
 
+#[tauri::command]
 pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
     let cwd = project_dir.map(PathBuf::from).filter(|p| p.is_dir()).or_else(|| std::env::current_dir().ok()).ok_or("no working dir")?;
     let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
@@ -146,7 +156,7 @@ pub(crate) fn pending_asks_get(state: tauri::State<'_, AppState>, project_dir: S
     Ok(asks.iter().map(|(id, pending)| crate::pending_ask_payload(*id, pending)).collect())
 }
 
-fn persist_always_allow(project_root: &Path, action: &str, resource: &str) -> Result<(kanzei_core::AskReply, PathBuf), String> {
+pub(crate) fn persist_always_allow(project_root: &Path, action: &str, resource: &str) -> Result<(kanzei_core::AskReply, PathBuf), String> {
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
     let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern).map_err(|error| error.to_string())?;
     Ok((kanzei_core::AskReply::AlwaysAllow, path))
@@ -171,7 +181,7 @@ pub(crate) fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, re
     let _ = pending.sender.send(kanzei_core::AskResponse::Permission(decision));
 }
 
-async fn fast_summarize -> Result<String, String> {
+pub(crate) async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> {
     use futures::StreamExt;
     let config = kanzei_harness::config::KanzeiConfig::load(cwd).map_err(|e| e.to_string())?;
     let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
@@ -186,7 +196,7 @@ async fn fast_summarize -> Result<String, String> {
     Ok(summary)
 }
 
-fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
+pub(crate) fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
     let mut out = String::new();
     'outer: for message in messages { for part in &message.parts { match part { kanzei_llm::Part::Text { text } => { out.push_str(match message.role { kanzei_llm::Role::User => "[用户] ", kanzei_llm::Role::Assistant => "[助手] " }); out.push_str(text); out.push('\n'); }, kanzei_llm::Part::ToolCall { name, input, .. } => out.push_str(&format!("[工具调用] {name} {input}\n")), kanzei_llm::Part::ToolResult { content, .. } => { let snippet: String = content.chars().take(1500).collect(); out.push_str(&format!("[工具结果] {snippet}\n")); }, _ => {} } if out.len() > 100_000 { break 'outer; } } }
     out
@@ -228,7 +238,7 @@ pub(crate) fn stop_run(
         cancelled = result;
     }
     match cancelled.transpose() {
-        Ok(Some(count)) | Ok(None) => { let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": count.unwrap_or(0) }), target_session.as_deref().unwrap_or(""))); }
+        Ok(count) => { let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": count.unwrap_or(0) }), target_session.as_deref().unwrap_or(""))); }
         Err(error) => { let _ = window.emit("kz:error", with_session_id(json!({ "message": format!("停止时清理排队输入失败: {error}") }), target_session.as_deref().unwrap_or(""))); let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": 0 }), target_session.as_deref().unwrap_or(""))); }
     }
     if let Some(root) = target_project {
@@ -293,7 +303,8 @@ pub(crate) fn append_run_notification(
     Ok(())
 }
 
-(
+#[tauri::command]
+pub(crate) async fn run_prompt(
     window: Window,
     state: State<'_, AppState>,
     prompt: String,
@@ -364,7 +375,7 @@ pub(crate) fn append_run_notification(
 }
 
 #[tauri::command]
-pub(crate) async fn run_promptpub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
+pub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&project_dir);
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).map_err(|e| e.to_string())?;
     let session_id = kanzei_core::project_session_id(&root);

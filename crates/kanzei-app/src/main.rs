@@ -269,9 +269,9 @@ fn workspace_snapshot() -> Result<serde_json::Value, String> {
             .map_err(|e| e.to_string())?;
         let session = store.create_session(&session_id, &root.display().to_string(), None)
             .map_err(|e| e.to_string())?;
-        let conversations = conversation_list(path.clone(), None).unwrap_or_default();
+        let conversations = conversation::conversation_list(path.clone(), None).unwrap_or_default();
         let pending = list_pending_inputs(path.clone(), None).unwrap_or_default();
-        let recent = conversation_trace_get(path.clone(), None, None).unwrap_or_default();
+        let recent = conversation::conversation_trace_get(path.clone(), None, None).unwrap_or_default();
         projects.push(json!({
             "path": path,
             "name": prefs.names.get(path).cloned().unwrap_or_else(|| projects::base_name_for_snapshot(path)),

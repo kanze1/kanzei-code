@@ -183,6 +183,22 @@ impl Tool for EditTool {
         let occurrences = if input.replace_all { count } else { 1 };
         let net_deleted = old_line_count.saturating_sub(new_line_count) * occurrences;
         let dropped = dropped_lines(&old_string, &new_string);
+        // 「本想插入,却把锚点吃掉了」:新文本比原文更长(明显是在加东西),却没保住
+        // 匹配到的原文行。三次实测都是这个形状——R-158 顶掉 Responses 的 reasoning
+        // effort、删掉设置页思考强度说明,以及 R-153 批10 把 `pub(crate) fn
+        // build_runner_config(` 换成了新函数的开头(净 +6 行,纯行数门禁拦不住)。
+        // 要插入就把原文原样含进 new_string;确实是替换就显式说一声。
+        let insertion_shaped_clobber = new_line_count > old_line_count && !dropped.is_empty();
+        if insertion_shaped_clobber && !input.allow_deletion {
+            return ToolOutput::error(format!(
+                "这次替换看着像插入(新文本多了 {} 行),却没保住 old_string 里的原文——\
+                 十有八九是想在附近加内容,结果把匹配到的那段顶掉了。\
+                 要插入就把下面这些行原样写进 new_string;确实是要替换掉它们,就置 allow_deletion=true。\
+                 \n未被保留的原文:\n{}",
+                new_line_count - old_line_count,
+                preview_lines(&dropped)
+            ));
+        }
         if net_deleted >= NET_DELETE_CONFIRM_LINES && !input.allow_deletion {
             return ToolOutput::error(format!(
                 "这次替换净删除 {net_deleted} 行({old_line_count} 行换成 {new_line_count} 行{})。\
@@ -313,6 +329,41 @@ mod tests {
         std::fs::write(dir.join("target.txt"), content).unwrap();
         let ctx = ToolCtx::new(dir.clone());
         (dir, ctx)
+    }
+
+    #[tokio::test]
+    async fn 插入形状却顶掉锚点必须拦下来() {
+        // R-153 批10 实况:想在 build_runner_config 前面插一个新函数,new_string 却
+        // 没带上被匹配的那行签名,结果文件里只剩一个孤零零的 `(`,整个 crate 编译不过。
+        // 净行数 +6,纯行数门禁拦不住,只能靠"长了却没保住原文"这个形状。
+        let (dir, ctx) = setup("anchor", "fn a() {}\n\npub(crate) fn build(\n    x: u8,\n) {}\n");
+        let call = json!({
+            "path": "target.txt",
+            "old_string": "pub(crate) fn build(",
+            "new_string": "pub(crate) async fn route(\n    y: u8,\n) -> u8 { y }\n\n("
+        });
+        let out = EditTool::default().execute(call.clone(), &ctx).await;
+        assert!(out.is_error, "插入却吃掉锚点必须拦下: {}", out.content);
+        assert!(out.content.contains("pub(crate) fn build("), "要指出丢了哪一行: {}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+            "fn a() {}\n\npub(crate) fn build(\n    x: u8,\n) {}\n",
+            "被拦下时文件必须一字未动"
+        );
+
+        // 正确的插入写法:把原文原样含进 new_string,直接放行。
+        let ok = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "pub(crate) fn build(",
+                    "new_string": "pub(crate) async fn route(y: u8) -> u8 { y }\n\npub(crate) fn build("
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!ok.is_error, "保住原文的插入不该被拦: {}", ok.content);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

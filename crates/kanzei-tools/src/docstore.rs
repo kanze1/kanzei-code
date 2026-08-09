@@ -123,6 +123,46 @@ pub struct Entry {
     pub fields: Vec<(String, String)>,
 }
 
+/// 复杂度 → 默认批次数。条目可用 `- 批次: 3/11` 显式覆盖总数(拆解类天然不止 8 批)。
+/// 小 = 一轮做完,不分批;中/大才有推进格。
+pub fn default_batches(complexity: &str) -> u32 {
+    match complexity.trim() {
+        "中" => 3,
+        "大" => 8,
+        _ => 1,
+    }
+}
+
+/// 条目的批次进度 (已完成, 总数)。
+///
+/// 判据只有这一份:UI 的格子、关闭门禁、提示词渲染都从这里取,不要在前端再抄一张
+/// 复杂度→格数的表——两份映射迟早会漂。
+pub fn batch_progress(entry: &Entry) -> (u32, u32) {
+    let complexity = entry
+        .fields
+        .iter()
+        .find(|(k, _)| k == "复杂度" || k.eq_ignore_ascii_case("complexity"))
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
+    let declared = entry
+        .fields
+        .iter()
+        .find(|(k, _)| k == "批次" || k.eq_ignore_ascii_case("batches"))
+        .and_then(|(_, v)| parse_batches(v));
+    match declared {
+        // 显式声明优先:总数为 0 视为没声明,避免除零与"0/0 格"这种空表达。
+        Some((done, total)) if total > 0 => (done.min(total), total),
+        _ => (0, default_batches(complexity)),
+    }
+}
+
+/// 解析 `3/11`;宽容对待空格与全角斜杠(手写文档常见)。
+fn parse_batches(raw: &str) -> Option<(u32, u32)> {
+    let normalized = raw.replace('／', "/");
+    let (done, total) = normalized.trim().split_once('/')?;
+    Some((done.trim().parse().ok()?, total.trim().parse().ok()?))
+}
+
 impl Entry {
     pub fn refs(&self) -> Vec<String> {
         self.fields
@@ -819,6 +859,31 @@ fn render_heading(out: &mut String, entry: &Entry) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 批次进度_显式声明优先_否则按复杂度给默认格数() {
+        let make = |fields: Vec<(&str, &str)>| Entry {
+            id: "R-999".into(),
+            title: "t".into(),
+            status: "doing".into(),
+            severity: None,
+            fields: fields.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        };
+        // 没写批次:格数来自复杂度,一格未填。
+        assert_eq!(batch_progress(&make(vec![("复杂度", "大")])), (0, 8));
+        assert_eq!(batch_progress(&make(vec![("复杂度", "中")])), (0, 3));
+        assert_eq!(batch_progress(&make(vec![("复杂度", "小")])), (0, 1));
+        assert_eq!(batch_progress(&make(vec![])), (0, 1), "没评估复杂度按一轮做完算");
+
+        // 写了就以它为准:拆解类天然不止 8 批,默认值不能压住实际批次表。
+        assert_eq!(batch_progress(&make(vec![("复杂度", "大"), ("批次", "3/11")])), (3, 11));
+        // 手写文档的宽容:空格与全角斜杠。
+        assert_eq!(batch_progress(&make(vec![("批次", " 2 ／ 5 ")])), (2, 5));
+        // 已完成不会超过总数;0/0 视为没声明,回落复杂度而不是画 0 个格。
+        assert_eq!(batch_progress(&make(vec![("批次", "9/5")])), (5, 5));
+        assert_eq!(batch_progress(&make(vec![("复杂度", "中"), ("批次", "0/0")])), (0, 3));
+        assert_eq!(batch_progress(&make(vec![("批次", "乱写")])), (0, 1));
+    }
 
     #[test]
     fn roundtrip() {

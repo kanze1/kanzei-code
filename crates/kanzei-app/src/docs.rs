@@ -34,14 +34,18 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
                     .map(|items| items.into_iter().map(|item| (item.entry, item.block_reasons)).collect())
                     .unwrap_or_else(|_| entries.iter().cloned().map(|entry| (entry, Vec::new())).collect())
             } else { entries.iter().cloned().map(|entry| (entry, Vec::new())).collect() };
-        scheduled.into_iter().map(|(e, block_reasons)| json!({
+        scheduled.into_iter().map(|(e, block_reasons)| {
+        let (batch_done, batch_total) = kanzei_tools::docstore::batch_progress(&e);
+        json!({
             "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
             "priority": e.fields.iter().find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority")).map(|(_, value)| value),
             "complexity": e.fields.iter().find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity")).map(|(_, value)| value),
+            // 批次进度:格数与已填格由后端算,前端只渲染(映射表只此一份,见 docstore::batch_progress)。
+            "batches": { "done": batch_done, "total": batch_total },
             "closed": kind.terminal.contains(&e.status.as_str()), "blocked": !block_reasons.is_empty(),
             "block_reasons": block_reasons, "fields": e.fields,
             "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),
-        })).collect()
+        })}).collect()
     };
     let conventions_path = root.join(CONVENTIONS_REL);
     let conventions = match std::fs::read_to_string(&conventions_path) {

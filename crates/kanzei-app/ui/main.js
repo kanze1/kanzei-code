@@ -358,6 +358,7 @@ const I18N_EN = {
   "高": "High",
   "默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效; 开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。": "Default level; the top bar can override it per process. It applies only to reasoning models. Anthropic allocates a reasoning budget and OpenAI receives reasoning effort.",
   "Codex Fast mode": "Codex Fast mode",
+  "批次": "Batches",
   "运行上限": "Runtime limits",
   "默认": "default",
   "留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。":
@@ -2692,9 +2693,12 @@ const DEFAULT_CONTINUE_PROMPT =
   "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
   "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
   "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
-  "2. 粒度 = 一轮一个完整条目:以做完当前这一条缺陷/需求为本轮目标;" +
+  "2. 粒度 = 一轮一个批次。复杂度「小」的条目一轮做完,不分批;" +
+  "复杂度「中」「大」的条目,**第一轮的落地动作就是定出批次表并写入 `批次: 0/N`**——" +
+  "N 是侧栏那排格子的格数,默认由复杂度给(中 3、大 8),实际批数不止就照实写(如 `批次: 0/11`)。" +
+  "此后每做完一个批次就改成 `批次: k/N`:这是外部唯一看得见推进的地方,不填格等于没推进。" +
+  "关闭时批次必须走满;当初估多了就把总数改成实际批数(`批次: 5/5`)——改它比留着空格诚实。" +
   "同构批量改动(i18n、重命名、迁移这类)一轮吃掉完整类别,不要按两三处微切片。" +
-  "确实超出单轮容量才按验收子项分轮,并在进展里写明批次边界。" +
   "「工作量大」「要改多个文件」都是正常工作,不是停下的理由。\n" +
   "3. 卡住就换一条:某条一时推不动,在「进展」里记一句原因,直接跳到下一条继续,不要停下来等。\n" +
   "「阻塞」字段只写解除权不在你手里的事(已问过用户在等回复/缺凭据/依赖外部服务/用户直营)," +
@@ -2711,6 +2715,27 @@ const DEFAULT_CONTINUE_PROMPT =
 // 旧版默认文案:用户没改过(存的就是某个旧默认)时静默升级到新默认,
 // 否则鞭挞的刹车契约会和提示词对不上(用户自定义过的文案不动)。
 const LEGACY_CONTINUE_PROMPTS = [
+  // 一轮一条目版:大条目从头到尾只有一个 doing,进展字段单行覆写,外部看不出推进
+  // (R-153 一天 36 个提交、8 个批次,界面上始终是一条不动的 doing)。改为一轮一批次 +
+  // 侧栏格子计数。
+  "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
+    "两个队列内部都按文档顺序自上而下拿第一个可做的,列表已按阶段排好,不要自行挑看起来容易的。\n" +
+    "1. 本轮必须产生落地动作:改代码或跑测试。先做再说明,不要只做判断。\n" +
+    "2. 粒度 = 一轮一个完整条目:以做完当前这一条缺陷/需求为本轮目标;" +
+    "同构批量改动(i18n、重命名、迁移这类)一轮吃掉完整类别,不要按两三处微切片。" +
+    "确实超出单轮容量才按验收子项分轮,并在进展里写明批次边界。" +
+    "「工作量大」「要改多个文件」都是正常工作,不是停下的理由。\n" +
+    "3. 卡住就换一条:某条一时推不动,在「进展」里记一句原因,直接跳到下一条继续,不要停下来等。\n" +
+    "「阻塞」字段只写解除权不在你手里的事(已问过用户在等回复/缺凭据/依赖外部服务/用户直营)," +
+    "且要写出具名解除人;「涉及多文件」「跨层改动」「需先确认方案(但没真问过)」都不是阻塞,写进展。" +
+    "顺手复核碰到的条目:阻塞条件已满足的当场清空「阻塞」字段。看到 [调度死锁] 横幅时按横幅执行。\n" +
+    "4. 关闭条目前逐条对照验收原文,每项给出精确代码位置证据;声称完成的能力必须有真实调用方或消费者," +
+    "没有消费者的命令、死代码或只展示不接数据源的壳不算完成;沿用既有实现要显式标注为既有能力而非本次交付;" +
+    "不得缩小验收里的平台或范围限定词。任一项证据不足就保留活动态写清缺口,不要打勾。\n" +
+    "5. doing 最多 2 个;已满就继续推进这两项。标着「阶段 5 后」的功能需求暂不启动。\n" +
+    "6. 已通过测试的未提交改动,先按规范 §6 用 git 提交(不带署名)再继续。" +
+    "验证选择与改动面匹配:纯 ui/ 改动跑 node 检查与冒烟脚本,动了 crates/ 才跑 cargo test。\n" +
+    "一直做下去,不要用纯文本收尾。",
   // 开发重心版:规则 3 只说"在条目里记一句原因",模型把它落成「阻塞」字段,
   // 而调度器把该字段当永久压制 → 31/35 条目被自记阻塞锁死(D-163)。
   "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
@@ -4605,21 +4630,32 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       item.classList.add(`cx-${cx === "小" ? "s" : cx === "中" ? "m" : "l"}`);
       row.title = `${row.title} · ${t("复杂度")}:${t(cx)}`;
     }
-    if (kind === "req" && el.id === "req-list") {
-      const levels = { "小": 1, "中": 2, "大": 3 };
-      const meter = document.createElement("span");
-      const level = levels[cx] || 0;
-      meter.className = `complexity-meter complexity-level-${level}`;
-      meter.setAttribute("role", "img");
-      meter.setAttribute("aria-label", `${t("复杂度")}:${cx ? t(cx) : t("未评估")}`);
-      meter.title = `${t("复杂度")}:${cx ? t(cx) : t("未评估")}`;
-      for (let i = 1; i <= 3; i += 1) {
-        const cell = document.createElement("span");
-        cell.className = `complexity-cell${i <= level ? " filled" : ""}`;
-        cell.setAttribute("aria-hidden", "true");
-        meter.appendChild(cell);
+    // 批次进度格(R-160):格数 = 该条目的批次总数(复杂度给默认,条目可显式声明),
+    // 已填 = 做完的批次。此前这里画的是"复杂度等级"——一个从头到尾不会变的静态值,
+    // 于是一条大条目干一整天,界面上一格都不动,看着就像没推进。
+    // 格数与已填一律取后端算好的 entry.batches,不在前端另存一份复杂度→格数的映射。
+    if ((kind === "req" || kind === "defect") && !entry.closed) {
+      const total = entry.batches?.total ?? 1;
+      const done = Math.min(entry.batches?.done ?? 0, total);
+      if (total > 1) {
+        // 批次很多时不逐格画(11 格在侧栏里每格只剩几像素),按比例压到 12 格,
+        // 精确数字放进 title/aria——图形给概览,文字给准数。
+        const cells = Math.min(total, 12);
+        const filled = total <= cells ? done : Math.round((done / total) * cells);
+        const meter = document.createElement("span");
+        meter.className = "complexity-meter batch-meter";
+        meter.setAttribute("role", "img");
+        const label = `${t("批次")} ${done}/${total}${cx ? ` · ${t("复杂度")}:${t(cx)}` : ""}`;
+        meter.setAttribute("aria-label", label);
+        meter.title = label;
+        for (let i = 1; i <= cells; i += 1) {
+          const cell = document.createElement("span");
+          cell.className = `complexity-cell${i <= filled ? " filled" : ""}`;
+          cell.setAttribute("aria-hidden", "true");
+          meter.appendChild(cell);
+        }
+        row.appendChild(meter);
       }
-      row.appendChild(meter);
     }
     if (blocked || externalBlocked) {
       const blockedBadge = document.createElement("span");

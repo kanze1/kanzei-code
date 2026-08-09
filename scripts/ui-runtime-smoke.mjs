@@ -458,7 +458,7 @@ const payloads = {
     unannotated: 1,
   },
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo")],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 } })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
     sources: [],
@@ -689,6 +689,26 @@ assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启�
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
 assert(listText("req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("req-list").slice(0, 60)}"`);
 assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
+// 批次进度格(R-160):格数与已填格必须来自后端算好的 entry.batches,前端不得另存
+// 一份复杂度→格数的映射;总数为 1 的条目不画格(一轮做完的东西不需要进度条)。
+{
+  const meter = document.querySelector('#req-list .doc-item[data-doc-id="R-001"] .batch-meter');
+  assert(meter, "批次进度格没渲染出来");
+  const cells = meter.querySelectorAll(".complexity-cell");
+  assert(cells.length === 11, `11 批应画 11 格,实际 ${cells.length}`);
+  assert(
+    cells.filter((c) => c.className.includes("filled")).length === 3,
+    "已完成 3 批就该填 3 格",
+  );
+  assert(
+    (meter.getAttribute("aria-label") ?? "").includes("3/11"),
+    `读屏标签要带准确批次数:${meter.getAttribute("aria-label")}`,
+  );
+  assert(
+    !document.querySelector('#req-list .doc-item[data-doc-id="R-002"] .batch-meter'),
+    "总数为 1 的条目不该画进度格(一轮做完的东西没有进度可言)",
+  );
+}
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");

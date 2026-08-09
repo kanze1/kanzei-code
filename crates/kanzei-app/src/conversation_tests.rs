@@ -1,6 +1,8 @@
 //! 会话内容、历史恢复与消息负载测试。
 
-use super::{conversation_prior, prompt_attachment_parts, recover_messages_at, recover_messages_raw, with_session_id, PromptAttachment};
+use super::{prompt_attachment_parts, with_session_id, PromptAttachment};
+// R-153 批10:会话恢复相关已迁到 conversation 模块。
+use crate::conversation::{conversation_prior, recover_messages_at, recover_messages_raw};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

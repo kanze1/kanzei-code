@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{run_once_with_parts, AskFuture};
-use kanzei_core::{AskRequest, ProxyConfig, RunEvent, RunnerConfig};
+use kanzei_core::{AskRequest, RunEvent, RunnerConfig};
+use kanzei_llm::ProxyConfig;
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::LlmClient;
+use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 
 #[tauri::command]
 pub(crate) async fn quick_req(
@@ -65,13 +67,13 @@ and line numbers; 7. concrete next steps. Do not modify files, run commands, upd
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DefectReviewResult { pub(crate) empty: bool, pub(crate) report: String, pub(crate) defect_count: usize }
 
-fn defect_review_snapshot(rctx: &ResolveCtx) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
+pub(crate) fn defect_review_snapshot(rctx: &ResolveCtx) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
     let mut harness = Harness::default();
     harness.add(kanzei_tools::SubagentBase).add(crate::ConfigComponent);
     harness.resolve(rctx)
 }
 
-fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
+pub(crate) fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
     let report = summary.text.trim();
     if report.is_empty() { Err("审查模型没有返回报告".into()) } else { Ok(report.to_string()) }
 }
