@@ -275,3 +275,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: cargo check -p kanzei-app --tests 通过；models/proxy/profile 标量字段写入已迁入 settings.rs。
 - 收尾: 1786285487
+
+## T-1786285626 R-153 limits 字段迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 导入重复修正后，limits 字段迁移代码已完成；此前 cargo check 仅因重复导入失败，已删除重复项并完成静态修正。
+- 收尾: 1786285633

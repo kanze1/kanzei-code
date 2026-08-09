@@ -35,8 +35,8 @@ mod settings;
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
     global_config_path, settings_read_document, settings_save_at_path, settings_set_or_remove,
-    settings_write_document, settings_apply_scalar_fields, settings_set_or_remove_num,
-    settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
+    settings_write_document, settings_apply_limits, settings_apply_scalar_fields,
+    settings_set_value, settings_table, validate_model_roles,
 };
 
 pub(crate) use update::{
@@ -459,22 +459,7 @@ pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) 
 
     settings_apply_scalar_fields(&mut doc, &payload)?;
 
-    let limits = settings_table(&mut doc, "limits")?;
-    let l = &payload.limits;
-    settings_set_or_remove_num(limits, "max_tokens", l.max_tokens.map(i64::from));
-    settings_set_or_remove_num(limits, "subagent_max_tokens", l.subagent_max_tokens.map(i64::from));
-    settings_set_or_remove_num(limits, "subagent_timeout_secs", l.subagent_timeout_secs.map(|v| v as i64));
-    settings_set_or_remove_num(limits, "context_budget_ratio", l.context_budget_ratio);
-    settings_set_or_remove_num(limits, "recent_verbatim_ratio", l.recent_verbatim_ratio);
-    settings_set_or_remove_num(limits, "max_tasks_per_turn", l.max_tasks_per_turn.map(|v| v as i64));
-    settings_set_or_remove_num(limits, "max_parallel_tools", l.max_parallel_tools.map(|v| v as i64));
-    settings_set_or_remove_num(limits, "transport_retries", l.transport_retries.map(i64::from));
-    settings_set_or_remove_num(limits, "rate_limit_retries", l.rate_limit_retries.map(i64::from));
-    settings_set_or_remove_num(limits, "stream_restarts", l.stream_restarts.map(i64::from));
-    // 一个键都没设时不留空表,配置文件保持精简。
-    if limits.is_empty() {
-        doc.remove("limits");
-    }
+    settings_apply_limits(&mut doc, &payload)?;
 
     let providers = settings_table(&mut doc, "providers")?;
     providers.set_implicit(true);

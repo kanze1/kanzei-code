@@ -154,6 +154,25 @@ pub(crate) fn settings_apply_scalar_fields(doc: &mut toml_edit::DocumentMut, pay
     Ok(())
 }
 
+pub(crate) fn settings_apply_limits(doc: &mut toml_edit::DocumentMut, payload: &SettingsPayload) -> Result<(), String> {
+    let limits = settings_table(doc, "limits")?;
+    let l = &payload.limits;
+    settings_set_or_remove_num(limits, "max_tokens", l.max_tokens.map(i64::from));
+    settings_set_or_remove_num(limits, "subagent_max_tokens", l.subagent_max_tokens.map(i64::from));
+    settings_set_or_remove_num(limits, "subagent_timeout_secs", l.subagent_timeout_secs.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "context_budget_ratio", l.context_budget_ratio);
+    settings_set_or_remove_num(limits, "recent_verbatim_ratio", l.recent_verbatim_ratio);
+    settings_set_or_remove_num(limits, "max_tasks_per_turn", l.max_tasks_per_turn.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "max_parallel_tools", l.max_parallel_tools.map(|v| v as i64));
+    settings_set_or_remove_num(limits, "transport_retries", l.transport_retries.map(i64::from));
+    settings_set_or_remove_num(limits, "rate_limit_retries", l.rate_limit_retries.map(i64::from));
+    settings_set_or_remove_num(limits, "stream_restarts", l.stream_restarts.map(i64::from));
+    if limits.is_empty() {
+        doc.remove("limits");
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();
