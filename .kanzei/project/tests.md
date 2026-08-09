@@ -147,3 +147,11 @@
 ## T-1786277657 R-153 批7 docs 域搬迁定向测试 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批7文档域搬迁阶段：docs.rs 已承接 docs_snapshot/docs_update/docs_open/docs_read，invoke_handler 已改用模块路径；settings 域仍待本批完成。
+
+## T-1786277730 R-153 批7 settings 搬迁前基线定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 继续 R-153 批7前置回归：确认已提交的 docs 域拆解在 settings 域搬迁前仍保持可验证基线。
+
+## T-1786277788 R-153 批7 settings command 边界定向测试 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批7 settings command 边界接入：新增 settings.rs 作为真实 Tauri command consumer，invoke_handler 切换为 settings:: 全路径；底层行为暂沿用 main.rs 实现。

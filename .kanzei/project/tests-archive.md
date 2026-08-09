@@ -204,3 +204,11 @@
 ## T-1786277672 R-153 批7 docs 域搬迁定向测试 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: docs.rs 已接入 docs_snapshot、docs_update、docs_open、docs_read，invoke_handler 改为 docs:: 全路径；settings 域尚未搬迁，R-153 批7尚未完成。
+
+## T-1786277734 R-153 批7 settings 搬迁前基线定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 已提交的 docs 域拆解基线记录通过；当前 settings 域尚未修改，R-153 仍继续推进。
+
+## T-1786277806 R-153 批7 settings command 边界定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: settings.rs command boundary compiles conceptually with real invoke_handler consumers; underlying settings behavior remains delegated to existing main.rs implementation. Full physical extraction remains pending.

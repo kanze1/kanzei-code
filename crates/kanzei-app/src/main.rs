@@ -30,6 +30,7 @@ mod projects;
 mod processes;
 mod mobile;
 mod docs;
+mod settings;
 
 pub(crate) use update::{
     build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
@@ -135,14 +136,14 @@ fn main() {
             stop_run,
             answer_ask,
             pending_asks_get,
-            settings_get,
-            settings_save,
-            settings_open,
+            settings::settings_get,
+            settings::settings_save,
+            settings::settings_open,
             export_pick_dir,
             export_project_data,
-            permission_rules_get,
-            permission_rule_delete,
-            provider_test,
+            settings::permission_rules_get,
+            settings::permission_rule_delete,
+            settings::provider_test,
             update::update_check_command,
             update::update_install_command,
             quick_req,
@@ -566,7 +567,7 @@ fn permission_rule_delete(project_dir: String, index: usize) -> Result<(), Strin
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SettingsPayload {
+pub(crate) struct SettingsPayload {
     primary: String,
     fast: String,
     proxy: String,
