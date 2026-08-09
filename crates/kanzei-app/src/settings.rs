@@ -141,6 +141,19 @@ pub(crate) fn settings_write_document(doc: toml_edit::DocumentMut, path: &Path) 
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
+pub(crate) fn settings_apply_scalar_fields(doc: &mut toml_edit::DocumentMut, payload: &SettingsPayload) -> Result<(), String> {
+    let models = settings_table(doc, "models")?;
+    settings_set_or_remove(models, "primary", Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty()));
+    settings_set_or_remove(models, "fast", Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()));
+    settings_set_or_reset(models, "reasoning", payload.reasoning.as_ref().map(|v| v.trim().to_ascii_lowercase()).filter(|v| ["low", "medium", "high"].contains(&v.as_str())), "off");
+    settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
+    settings_set_or_reset(doc.as_table_mut(), "proxy", match payload.proxy.trim() { "" | "env" => None, other => Some(other.to_string()) }, "env");
+    let profile = settings_table(doc, "profile")?;
+    profile.set_implicit(true);
+    settings_set_or_reset(profile, "default", payload.profile_default.as_ref().or(payload.profile.as_ref()).filter(|p| p.as_str() == "dev" || p.as_str() == "research").cloned(), "dev");
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
     let path = crate::global_config_path();

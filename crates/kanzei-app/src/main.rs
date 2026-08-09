@@ -35,7 +35,7 @@ mod settings;
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
     global_config_path, settings_read_document, settings_save_at_path, settings_set_or_remove,
-    settings_write_document, settings_set_or_remove_num,
+    settings_write_document, settings_apply_scalar_fields, settings_set_or_remove_num,
     settings_set_or_reset, settings_set_value, settings_table, validate_model_roles,
 };
 
@@ -457,49 +457,7 @@ pub(crate) fn settings_save_at_path_impl(payload: SettingsPayload, path: &Path) 
     // 文件存在但解析失败必须报错——静默回退默认值再覆写等于销毁用户配置。
     let mut doc = crate::settings_read_document(path)?;
 
-    let models = settings_table(&mut doc, "models")?;
-    settings_set_or_remove(
-        models,
-        "primary",
-        Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty()),
-    );
-    settings_set_or_remove(
-        models,
-        "fast",
-        Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
-    );
-    settings_set_or_reset(
-        models,
-        "reasoning",
-        payload
-            .reasoning
-            .map(|value| value.trim().to_ascii_lowercase())
-            .filter(|value| ["low", "medium", "high"].contains(&value.as_str())),
-        "off",
-    );
-    settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
-
-    settings_set_or_reset(
-        doc.as_table_mut(),
-        "proxy",
-        match payload.proxy.trim() {
-            "" | "env" => None,
-            other => Some(other.to_string()),
-        },
-        "env",
-    );
-
-    let profile = settings_table(&mut doc, "profile")?;
-    profile.set_implicit(true);
-    settings_set_or_reset(
-        profile,
-        "default",
-        payload
-            .profile_default
-            .or(payload.profile)
-            .filter(|p| p == "dev" || p == "research"),
-        "dev",
-    );
+    settings_apply_scalar_fields(&mut doc, &payload)?;
 
     let limits = settings_table(&mut doc, "limits")?;
     let l = &payload.limits;
