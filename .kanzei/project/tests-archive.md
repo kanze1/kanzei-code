@@ -460,3 +460,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: RunnerConfig 的 reasoning 解析已迁移到 run::resolve_reasoning_override，进程 override 优先于配置默认并保留空值默认行为。
 - 收尾: 1786290264
+
+## T-1786290316 R-153 run_task model ref helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的模型引用解析已迁移到 run::resolve_model_ref，非空 override 优先、空白 override 回退 agent 模型的行为保持。
+- 收尾: 1786290322

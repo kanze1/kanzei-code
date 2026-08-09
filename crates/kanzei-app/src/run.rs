@@ -24,6 +24,12 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn resolve_model_ref(model_override: Option<String>, agent_model: &str) -> String {
+    model_override
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or_else(|| agent_model.to_string())
+}
+
 pub(crate) fn resolve_reasoning_override(override_value: Option<&str>, configured_value: Option<&str>) -> kanzei_llm::ReasoningEffort {
     override_value
         .or(configured_value)

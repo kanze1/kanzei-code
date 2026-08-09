@@ -698,9 +698,7 @@ async fn run_task_impl(
     );
 
     // 界面模型下拉直选优先于 agent 定义。
-    let model_ref = model_override
-        .filter(|m| !m.trim().is_empty())
-        .unwrap_or_else(|| agent.model.clone());
+    let model_ref = run::resolve_model_ref(model_override, &agent.model);
     let resolved = config.resolve_model(&model_ref)?;
     let proxy = run::resolve_proxy(&config);
     stage(
