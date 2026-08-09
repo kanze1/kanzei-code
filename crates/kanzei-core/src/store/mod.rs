@@ -3,10 +3,10 @@
 //! 存储层只负责持久化事实，不负责 runner 的执行策略。事件序列按 session
 //! 独立递增；输入先进入 inbox，只有 runner 在安全边界提升后才成为可见消息。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,40 +20,6 @@ const SCHEMA_VERSION: i64 = 7;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
-
-pub fn project_state_path(project_root: &Path) -> PathBuf {
-    project_root.join(".kanzei").join("state.db")
-}
-
-pub fn project_session_id(project_root: &Path) -> String {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    session_identity(project_root).hash(&mut hasher);
-    format!("ses_project_{:016x}", hasher.finish())
-}
-
-/// 会话身份用的路径形态(D-176)。
-///
-/// 同一个目录必须只有一个会话 id。桌面端走 `normalized_project_root`,里面的
-/// `std::fs::canonicalize` 在 Windows 上会返回 `\\?\C:\...` 扩展长度前缀;CLI 走
-/// 裸 `discover_project_root`,拿到的是 `C:\...`。两者只做 lowercase 后哈希,于是
-/// 同一个项目裂成两条会话线,历史与队列互相看不见——实测本仓库就同时存在
-/// `ses_project_c0b8d63…`(裸)与 `ses_project_ce2fce9…`(canonical)两条。
-///
-/// 这里剥掉 `\\?\` / `\\?\UNC\` 前缀并去掉末尾分隔符。**分隔符刻意不做统一**:
-/// 裸路径形态的哈希必须与历史保持一致,否则所有既有会话会一次性全部改名、
-/// 历史集体失联。代价是 `C:/x` 这种正斜杠写法仍算另一个 id,但实际调用方
-/// (discover_project_root / canonicalize / PathBuf::display)在 Windows 上一律
-/// 产出反斜杠,这条路径不会被走到。
-fn session_identity(project_root: &Path) -> String {
-    let raw = project_root.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
-    stripped.trim_end_matches(['\\', '/']).to_lowercase()
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -100,7 +66,8 @@ pub enum Delivery {
 }
 
 impl Delivery {
-    fn as_str(self) -> &'static str {
+    /// 仅限 store::* 子模块使用(S5 拆解后提 pub(super))。
+    pub(super) fn as_str(self) -> &'static str {
         match self {
             Self::Steer => "steer",
             Self::Queue => "queue",
@@ -143,7 +110,10 @@ pub struct EpisodeRecord<'a> {
 mod episodes;
 mod notifications;
 mod events;
-use events::append_event_tx;
+mod inbox;
+mod session;
+pub use session::{project_session_id, project_state_path};
+
 
 
 
@@ -156,398 +126,6 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn open(path: &Path) -> Result<Self, StoreError> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-        }
-        let mut connection = Connection::open(path)?;
-        // 同一个 state.db 会被大量短命连接并发读写(每个 Tauri 命令、每次运行、移动端线程各开一条)。
-        // 默认 rollback journal + busy_timeout=0 会让并发写直接 SQLITE_BUSY,
-        // 表现为运行成功却报失败、事件丢失、入队被拒(D-064)。
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
-        connection.pragma_update(None, "journal_mode", "WAL")?;
-        connection.pragma_update(None, "synchronous", "NORMAL")?;
-        connection.set_transaction_behavior(TransactionBehavior::Immediate);
-        let store = Self {
-            connection,
-            path: Some(path.to_path_buf()),
-        };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    pub fn open_in_memory() -> Result<Self, StoreError> {
-        let mut connection = Connection::open_in_memory()?;
-        connection.set_transaction_behavior(TransactionBehavior::Immediate);
-        let store = Self {
-            connection,
-            path: None,
-        };
-        store.migrate()?;
-        Ok(store)
-    }
-
-    pub fn create_session(
-        &self,
-        session_id: &str,
-        project_root: &str,
-        title: Option<&str>,
-    ) -> Result<Session, StoreError> {
-        let now = now_ms();
-        self.connection.execute(
-            "INSERT INTO sessions(session_id, project_root, title, status, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'idle', ?4, ?4)
-             ON CONFLICT(session_id) DO NOTHING",
-            params![session_id, project_root, title, now],
-        )?;
-        self.get_session(session_id)?
-            .ok_or_else(|| rusqlite::Error::QueryReturnedNoRows.into())
-    }
-
-    pub fn get_session(&self, session_id: &str) -> Result<Option<Session>, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT session_id, project_root, title, status, created_at, updated_at
-                 FROM sessions WHERE session_id = ?1",
-                params![session_id],
-                |row| {
-                    Ok(Session {
-                        session_id: row.get(0)?,
-                        project_root: row.get(1)?,
-                        title: row.get(2)?,
-                        status: row.get(3)?,
-                        created_at: row.get(4)?,
-                        updated_at: row.get(5)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(Into::into)
-    }
-
-    /// 更新会话生命周期状态，并同步更新时间。
-    ///
-    /// 状态值由 runner 约定为 `idle`、`running`、`failed`；存储层不限制
-    /// 未来新增的状态，以便迁移时保持向后兼容。
-    pub fn set_status(&self, session_id: &str, status: &str) -> Result<(), StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE session_id = ?3",
-            params![status, now_ms(), session_id],
-        )?;
-        if changed == 0 {
-            return Err(rusqlite::Error::QueryReturnedNoRows.into());
-        }
-        Ok(())
-    }
-
-    pub fn admit_input(
-        &self,
-        session_id: &str,
-        input_id: &str,
-        prompt: &str,
-        delivery: Delivery,
-    ) -> Result<AdmittedInput, StoreError> {
-        let now = now_ms();
-        self.connection.execute(
-            "INSERT INTO session_inputs(input_id, session_id, prompt, delivery, status, created_at)
-             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)
-             ON CONFLICT(input_id) DO NOTHING",
-            params![input_id, session_id, prompt, delivery.as_str(), now],
-        )?;
-        self.connection
-            .query_row(
-                "SELECT input_id, session_id, prompt, delivery, created_at
-                 FROM session_inputs WHERE input_id = ?1",
-                params![input_id],
-                input_from_row,
-            )
-            .map_err(Into::into)
-    }
-
-    pub fn has_pending(&self, session_id: &str, delivery: Delivery) -> Result<bool, StoreError> {
-        let count: i64 = self.connection.query_row(
-            "SELECT COUNT(*) FROM session_inputs WHERE session_id = ?1 AND delivery = ?2 AND status = 'pending'",
-            params![session_id, delivery.as_str()],
-            |row| row.get(0),
-        )?;
-        Ok(count > 0)
-    }
-
-    /// 取消尚未提升的输入。已提升或已取消的输入不会被回收，避免篡改调度事实。
-    /// 返回尚未提升的输入,按 admission 顺序展示给前端队列面板。
-    pub fn list_pending_inputs(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
-        let mut statement = self.connection.prepare(
-            "SELECT input_id, session_id, prompt, delivery, created_at
-             FROM session_inputs
-             WHERE session_id = ?1 AND status = 'pending'
-             ORDER BY created_at, rowid",
-        )?;
-        let rows = statement.query_map(params![session_id], input_from_row)?;
-        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
-    }
-
-    pub fn cancel_input(&self, session_id: &str, input_id: &str) -> Result<bool, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = 'cancelled'
-             WHERE session_id = ?1 AND input_id = ?2 AND status = 'pending'",
-            params![session_id, input_id],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// Ctrl+C/停止的统一收尾(D-085):恢复 idle、记录 stopped_by_user、
-    /// 取消未完成输入,三步在同一事务内原子提交——中断路径不能再留下
-    /// 永久 running 的幽灵会话,也不能只做一半。返回被取消的输入数。
-    pub fn finalize_interrupt(&self, session_id: &str) -> Result<usize, StoreError> {
-        let tx = self.connection.unchecked_transaction()?;
-        let changed = tx.execute(
-            "UPDATE sessions SET status = 'idle', updated_at = ?1 WHERE session_id = ?2",
-            params![now_ms(), session_id],
-        )?;
-        if changed == 0 {
-            return Err(rusqlite::Error::QueryReturnedNoRows.into());
-        }
-        append_event_tx(
-            &tx,
-            session_id,
-            "session.status_changed",
-            &serde_json::json!({ "status": "idle", "reason": "stopped_by_user" }),
-        )?;
-        // 只回收**还没有结局**的输入。completed/failed 是终态,任何一次停止都
-        // 不得回头改写它们——否则历史上早已跑完的输入会被追认为 cancelled。
-        let cancelled = tx.execute(
-            "UPDATE session_inputs SET status = 'cancelled', finished_at = ?1
-             WHERE session_id = ?2 AND status IN ('pending', 'promoted', 'running')",
-            params![now_ms(), session_id],
-        )?;
-        tx.commit()?;
-        Ok(cancelled)
-    }
-
-    /// 取消会话中尚无结局的输入，供停止运行时清理 queue。
-    pub fn cancel_unfinished_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = 'cancelled', finished_at = ?1
-             WHERE session_id = ?2 AND status IN ('pending', 'promoted', 'running')",
-            params![now_ms(), session_id],
-        )?;
-        Ok(changed)
-    }
-
-    /// promoted → running:输入真的开始执行了。
-    pub fn start_input(&self, input_id: &str) -> Result<bool, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = 'running'
-             WHERE input_id = ?1 AND status = 'promoted'",
-            params![input_id],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// running → completed | failed:给输入一个结局,此后任何停止都不再改写它。
-    pub fn finish_input(&self, input_id: &str, ok: bool) -> Result<bool, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = ?1, finished_at = ?2
-             WHERE input_id = ?3 AND status IN ('promoted', 'running')",
-            params![if ok { "completed" } else { "failed" }, now_ms(), input_id],
-        )?;
-        Ok(changed > 0)
-    }
-
-    /// 输入的当前状态(审计与测试用)。
-    pub fn input_status(&self, input_id: &str) -> Result<Option<String>, StoreError> {
-        self.connection
-            .query_row(
-                "SELECT status FROM session_inputs WHERE input_id = ?1",
-                params![input_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    }
-    pub fn cancel_pending_inputs(&self, session_id: &str) -> Result<usize, StoreError> {
-        let changed = self.connection.execute(
-            "UPDATE session_inputs SET status = 'cancelled'
-             WHERE session_id = ?1 AND status = 'pending'",
-            params![session_id],
-        )?;
-        Ok(changed)
-    }
-
-    pub fn promote_steers(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
-        self.promote_where(session_id, "steer", false)
-    }
-
-    pub fn promote_next_queue(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<AdmittedInput>, StoreError> {
-        Ok(self
-            .promote_where(session_id, "queue", true)?
-            .into_iter()
-            .next())
-    }
-
-    fn promote_next_steer(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<AdmittedInput>, StoreError> {
-        Ok(self
-            .promote_where(session_id, "steer", true)?
-            .into_iter()
-            .next())
-    }
-
-    /// 优先提升一条 steer；没有 steer 时再提升一条 queue，供运行边界 drain 使用。
-    pub fn promote_next_input(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<AdmittedInput>, StoreError> {
-        if let Some(input) = self.promote_next_steer(session_id)? {
-            return Ok(Some(input));
-        }
-        self.promote_next_queue(session_id)
-    }
-
-    fn promote_where(
-        &self,
-        session_id: &str,
-        delivery: &str,
-        one: bool,
-    ) -> Result<Vec<AdmittedInput>, StoreError> {
-        let tx = self.connection.unchecked_transaction()?;
-        let limit = if one { " LIMIT 1" } else { "" };
-        let sql = format!(
-            "SELECT input_id, session_id, prompt, delivery, created_at
-             FROM session_inputs WHERE session_id = ?1 AND delivery = ?2 AND status = 'pending'
-             ORDER BY created_at, rowid{limit}"
-        );
-        let inputs = {
-            let mut statement = tx.prepare(&sql)?;
-            let rows = statement.query_map(params![session_id, delivery], input_from_row)?;
-            rows.collect::<Result<Vec<_>, _>>()?
-        };
-        for input in &inputs {
-            tx.execute(
-                "UPDATE session_inputs SET status = 'promoted', promoted_at = ?1
-                 WHERE input_id = ?2 AND status = 'pending'",
-                params![now_ms(), input.input_id],
-            )?;
-        }
-        tx.commit()?;
-        Ok(inputs)
-    }
-
-    /// 迁移前的整库备份:`state.db.v<旧版本>.bak`。
-    ///
-    /// 用 `VACUUM INTO` 而不是复制文件——库跑在 WAL 模式下,单独拷 .db 会漏掉
-    /// -wal 里尚未 checkpoint 的事务,拷出来的是个残缺快照。VACUUM INTO 由
-    /// SQLite 自己生成一致副本。内存库无需备份。
-    fn backup_before_upgrade(&self, from_version: i64) -> Result<(), StoreError> {
-        let Some(path) = &self.path else {
-            return Ok(());
-        };
-        let backup = path.with_extension(format!("db.v{from_version}.bak"));
-        // 上一次升级尝试留下的同名备份直接覆盖:它描述的是同一个旧版本。
-        // VACUUM INTO 要求目标不存在,所以必须先删。
-        let _ = std::fs::remove_file(&backup);
-        self.connection
-            .execute("VACUUM INTO ?1", params![backup.to_string_lossy()])?;
-        Ok(())
-    }
-
-    /// 已存在的迁移前备份路径(供调用方提示用户如何回退)。
-    pub fn backup_path(&self, from_version: i64) -> Option<PathBuf> {
-        let backup = self
-            .path
-            .as_ref()?
-            .with_extension(format!("db.v{from_version}.bak"));
-        backup.is_file().then_some(backup)
-    }
-
-    /// 从迁移前备份里把被抹掉的输入状态位捞回来(D-180 续)。
-    ///
-    /// v6 的回填来晚了一步:它要修的那批 `promoted`,在 v5 期间的两次停止里已经
-    /// 被 `finalize_interrupt` 抹成 `cancelled`,于是回填在真实机器上扑了个空。
-    /// 唯一还留着原始状态的地方,是升级时 `VACUUM INTO` 出来的那份备份。
-    ///
-    /// 判定刻意用备份当权威,而不是猜:备份里是 `promoted` 的,说明它在 v5 之前
-    /// **被提升执行过**却没有终态可记(那时根本没有 completed);备份里已经是
-    /// `cancelled` 的,是用户当年真的取消过,不动。备份里根本没有的(升级之后
-    /// 才产生的输入),更不动——这台机器上 21:40 那条就属于此类,它是真被停掉的。
-    fn recover_legacy_input_status(&self) -> Result<(), StoreError> {
-        let Some(path) = &self.path else {
-            return Ok(());
-        };
-        let Some(parent) = path.parent() else {
-            return Ok(());
-        };
-        let stem = path
-            .file_name()
-            .map(|name| format!("{}.v", name.to_string_lossy()))
-            .unwrap_or_default();
-        let mut backups: Vec<PathBuf> = std::fs::read_dir(parent)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|candidate| {
-                let name = candidate.file_name().map(|n| n.to_string_lossy().into_owned());
-                name.is_some_and(|name| name.starts_with(&stem) && name.ends_with(".bak"))
-            })
-            .collect();
-        backups.sort();
-        let mut recovered = 0usize;
-        for backup in backups {
-            // 备份可能来自更旧的 schema、也可能损坏;单个失败不该阻断迁移。
-            let attached = self
-                .connection
-                .execute_batch(&format!(
-                    "ATTACH DATABASE '{}' AS legacy",
-                    backup.to_string_lossy().replace('\'', "''")
-                ))
-                .is_ok();
-            if !attached {
-                continue;
-            }
-            let updated = self.connection.execute(
-                "UPDATE session_inputs SET status = 'completed'
-                 WHERE status = 'cancelled'
-                   AND input_id IN (
-                       SELECT input_id FROM legacy.session_inputs WHERE status = 'promoted'
-                   )",
-                [],
-            );
-            recovered += updated.unwrap_or(0);
-            let _ = self.connection.execute_batch("DETACH DATABASE legacy");
-        }
-        if recovered > 0 {
-            tracing::info!(recovered, "v7 迁移:从备份恢复了被抹掉的输入状态位");
-        }
-        // 落一个可回查的痕迹:回填是推断值,事后要能知道动过多少条。
-        self.connection.execute(
-            "INSERT INTO schema_meta(key, value) VALUES ('legacy_inputs_recovered', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![recovered.to_string()],
-        )?;
-        Ok(())
-    }
-
-    /// v7 从备份恢复的输入条数(事后核对用)。
-    pub fn legacy_inputs_recovered(&self) -> Option<usize> {
-        self.connection
-            .query_row(
-                "SELECT value FROM schema_meta WHERE key = 'legacy_inputs_recovered'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .ok()
-            .flatten()
-            .and_then(|value| value.parse().ok())
-    }
-
     fn migrate(&self) -> Result<(), StoreError> {
         self.connection.execute_batch(
             "PRAGMA foreign_keys = ON;
@@ -740,22 +318,6 @@ impl SessionStore {
 }
 
 
-fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
-    let delivery: String = row.get(3)?;
-    let delivery = match delivery.as_str() {
-        "steer" => Delivery::Steer,
-        "queue" => Delivery::Queue,
-        _ => return Err(rusqlite::Error::InvalidQuery),
-    };
-    Ok(AdmittedInput {
-        input_id: row.get(0)?,
-        session_id: row.get(1)?,
-        prompt: row.get(2)?,
-        delivery,
-        created_at: row.get(4)?,
-    })
-}
-
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -766,6 +328,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn store() -> SessionStore {
         let store = SessionStore::open_in_memory().unwrap();
@@ -1119,7 +682,7 @@ mod tests {
         // 会被一次性改名、全部历史失联。这里不断言哈希字面量——DefaultHasher
         // 跨 Rust 版本不保证稳定,断言身份串才是真正的不变量。
         assert_eq!(
-            super::session_identity(bare),
+            super::session::session_identity(bare),
             r"c:\users\kanzei\documents\kanzei code"
         );
     }

@@ -996,3 +996,8 @@
 - 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
 - 摘要: R-155 store 域 S1-S4:拆壳 + episodes/notifications/events 三子模块;71 passed;修段边界(notifications set_delivery_cursor 缺 }、events 多一层 })、Value/Transaction import
 - 收尾: 1786306347
+
+## T-1786306577 R-155 S5-S6 store 拆解定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo check -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: R-155 S5/S6 store 拆解:inbox.rs + session.rs;71 passed;修段边界(S5 误卷 backup_before_upgrade doc、S6 误卷 StoreError derive)、backup/recover/session_identity 提 pub(crate)、mod.rs/tests import 归属清理
+- 收尾: 1786306577
