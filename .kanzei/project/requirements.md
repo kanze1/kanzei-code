@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 ea0a6c6：新增 run.rs 并迁移 run_metrics，invoke_handler 使用 run::run_metrics；运行画像字段、历史读取和 measured 判定保持。main.rs 减少 38 行。定向测试 T-1786288041 已登记通过。run.rs 批次继续迁移运行主链路与相关辅助。
+- 进展: 已提交 eed0bfc：run_prompt 已新增至 run.rs，invoke_handler 改用 run::run_prompt；后台任务、队列 admission/promote、事件转发和句柄清理逻辑保持。run_metrics 同模块保留。当前 main.rs 的 run_prompt 旧副本尚未物理删除，下一批先清理该副本，再继续迁移 run_task 整体实现。定向测试 T-1786288152 已登记通过。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
@@ -389,3 +389,9 @@
 - 验收: 先出判定报告(基于 R-150 遥测与轨迹实证,给出做/不做结论与依据);若做,再补机械提取的功能验收。
 - refs: R-149 R-105
 
+## R-160 README添加项目设计目标说明 [todo]
+- priority: P2
+- 原始描述: readme里加一些设计目标，比如专为永久工作设计等等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
