@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 本轮落地批0e：新增 `crates/kanzei-app/src/state_tests.rs` 并注册 `#[cfg(test)] mod state_tests`，迁移项目隔离、模型角色校验、缺陷审查、文档快照、导出与项目根规范化 10 项测试；修正两处迁移测试编译问题后，`cargo test -p kanzei-app state_tests` 10/10 通过。批0五组模块均已建立，下一步删除 main.rs 中 state/conversation/permission 旧副本并做批0整体回归。
+- 进展: 批0旧副本清理阶段已完成部分迁移：删除 main.rs 中 permission 的 payload/session_id 旧测试及 conversation 的附件/project_root 旧测试；新增模块与旧模块共存部分仍含 state/process/conversation 副本，故尚未宣称批0完成。`cargo test -p kanzei-app` 60/60 通过；main.rs 当前仅有 pending_ask_payload/with_session_id 未使用导入警告，待剩余旧副本删除后一并清理。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

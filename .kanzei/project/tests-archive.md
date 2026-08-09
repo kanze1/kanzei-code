@@ -68,3 +68,7 @@
 ## T-1786249009 R-153 批0e state 测试迁移回归 [passed]
 - 命令: cargo test -p kanzei-app state_tests
 - 摘要: state_tests 10 项全部通过；新增 state 测试模块可编译运行。此前两次编译错误已修正（PathBuf 比较与临时数组借用）。
+
+## T-1786249406 R-153 批0旧测试副本清理回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批0旧副本清理阶段回归：60 项 kanzei-app Rust 测试全部通过；当前仍存在 update_tests 中 state/process/conversation 的旧副本，重复测试待继续删除。
