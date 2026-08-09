@@ -703,15 +703,10 @@ async fn run_task_impl(
     let proxy = run::resolve_proxy(&config);
     stage(
         "鉴权",
-        format!(
-            "{}:{}{}",
-            resolved.provider_name,
-            resolved.model,
-            if resolved.provider.auth.is_some() {
-                "(订阅登录态,可能刷新令牌)"
-            } else {
-                ""
-            }
+        run::auth_stage_detail(
+            &resolved.provider_name,
+            &resolved.model,
+            resolved.provider.auth.is_some(),
         ),
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;

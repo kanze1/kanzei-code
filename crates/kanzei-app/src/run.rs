@@ -24,6 +24,15 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
+pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool) -> String {
+    format!(
+        "{}:{}{}",
+        provider_name,
+        model,
+        if has_auth { "(订阅登录态,可能刷新令牌)" } else { "" }
+    )
+}
+
 pub(crate) fn resolve_model_ref(model_override: Option<String>, agent_model: &str) -> String {
     model_override
         .filter(|model| !model.trim().is_empty())

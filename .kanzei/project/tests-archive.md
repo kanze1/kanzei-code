@@ -465,3 +465,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: run_task_impl 的模型引用解析已迁移到 run::resolve_model_ref，非空 override 优先、空白 override 回退 agent 模型的行为保持。
 - 收尾: 1786290322
+
+## T-1786290381 R-153 run_task auth stage helper 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: run_task_impl 的鉴权阶段详情已迁移到 run::auth_stage_detail，provider/model 与订阅登录态提示保持。
+- 收尾: 1786290385
