@@ -19,3 +19,7 @@
 ## T-1786249737 R-153 批0重复测试隔离回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证 update_tests 旧副本禁用后，仅新五个测试模块参与的 kanzei-app 回归。
+
+## T-1786249861 R-153 批0 state 旧副本物理删除回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证继续物理删除 state 旧测试函数后的 kanzei-app 回归。

@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 按本轮最小步骤执行：`main.rs` 中 state/process/conversation/permission 的旧测试副本已用 `#[cfg(any())]` 隔离，新的五个测试模块独立运行；`cargo test -p kanzei-app` 42/42 通过。注意：这是临时隔离而非物理删除，旧代码块仍在文件中，R-153 批0不能结项；下一步必须做纯文本删除并清理 update_tests 模块。
+- 进展: 按最小步骤继续物理删除 state 旧副本：已删除 `祖先无数据时静默自动隔离_有数据时绝不擅自改根` 与 `同一上级下的两个项目必须各自独立不串数据` 两项旧测试；`cargo test -p kanzei-app` 42/42 通过。其余被 `cfg(any())` 隔离的 state 旧函数及 update_tests 模块仍待物理清理。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

@@ -860,39 +860,6 @@ mod update_tests {
 
     #[cfg(any())]
     #[test]
-    fn 祖先无数据时静默自动隔离_有数据时绝不擅自改根() {
-        // 情形一:祖先是空项目 —— 补 .kanzei 前后用户看到的都是空,无损,应静默修。
-        let (base, a, _b) = isolation_fixture("auto", false);
-        assert!(super::ensure_project_isolated(&a), "祖先无数据时应自动隔离");
-        assert_eq!(
-            kanzei_harness::config::discover_project_root(&a).unwrap(),
-            a,
-            "自动隔离后应以自身为根",
-        );
-        // 幂等:已经自成一根就不该再"修"一次。
-        assert!(!super::ensure_project_isolated(&a), "重复调用不应重复修复");
-        std::fs::remove_dir_all(&base).ok();
-
-        // 情形二:祖先有需求数据 —— 改根会让这个项目从"看得到那批条目"变成空,
-        // 属于可见变化,必须留给用户确认,引擎不得擅自动手。
-        let (base, a, _b) = isolation_fixture("manual", true);
-        assert!(
-            !super::ensure_project_isolated(&a),
-            "祖先有数据时不得自动改根(会让用户以为条目丢了)",
-        );
-        assert_ne!(
-            kanzei_harness::config::discover_project_root(&a).unwrap(),
-            a,
-            "未确认前应保持原样",
-        );
-        let info = super::project_root_info(a.display().to_string());
-        assert!(info["shared"].as_bool().unwrap(), "必须如实报出共用状态");
-        assert!(!info["autoRepaired"].as_bool().unwrap(), "这种情形不该声称已自动修复");
-        std::fs::remove_dir_all(&base).ok();
-    }
-
-    #[cfg(any())]
-    #[test]
     fn 隔离体检一次报完全部共用项目() {
         // 一次性看清所有受影响的项目,而不是切一个发现一个。
         let (base, a, b) = isolation_fixture("report", true);
@@ -912,60 +879,6 @@ mod update_tests {
             kanzei_harness::config::discover_project_root(&b).unwrap(),
             b,
             "分离 A 不该顺手改动 B",
-        );
-        std::fs::remove_dir_all(&base).ok();
-    }
-
-    #[cfg(any())]
-    #[test]
-    fn 同一上级下的两个项目必须各自独立不串数据() {
-        let base = std::env::temp_dir().join(format!(
-            "kz-iso-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        // 上级目录本身是个项目(有 .kanzei)——这正是串数据的前提条件。
-        std::fs::create_dir_all(base.join(".kanzei/project")).unwrap();
-        std::fs::write(base.join(".kanzei/project/requirements.md"), "# Requirements\n\n## R-900 上级的需求 [todo]\n").unwrap();
-        let a = base.join("projA");
-        let b = base.join("projB");
-        std::fs::create_dir_all(&a).unwrap();
-        std::fs::create_dir_all(&b).unwrap();
-
-        // 未初始化时:两个子目录都向上解析到同一个根 = 共用同一份需求。
-        let root_a = kanzei_harness::config::discover_project_root(&a).unwrap();
-        let root_b = kanzei_harness::config::discover_project_root(&b).unwrap();
-        assert_eq!(root_a, root_b, "前提:未初始化时两者确实会落到同一个根");
-        assert!(
-            super::project_root_info(a.display().to_string())["shared"]
-                .as_bool()
-                .unwrap(),
-            "共用上级时必须报出来,不能静默",
-        );
-
-        // 分离后:各自成根,互不可见。
-        super::project_detach(a.display().to_string()).unwrap();
-        let root_a = kanzei_harness::config::discover_project_root(&a).unwrap();
-        assert_eq!(root_a, a, "分离后应以自身为根");
-        assert_ne!(
-            root_a,
-            kanzei_harness::config::discover_project_root(&b).unwrap(),
-            "分离后两个项目不得再共用同一个根",
-        );
-        assert!(
-            !super::project_root_info(a.display().to_string())["shared"]
-                .as_bool()
-                .unwrap(),
-            "分离后不该再报共用",
-        );
-        // 分离只建空间,不搬上级的既有条目——那些属于上级项目。
-        assert!(
-            !a.join(".kanzei/project/requirements.md").exists(),
-            "分离不应把上级的需求复制过来",
-        );
-        assert!(
-            base.join(".kanzei/project/requirements.md").exists(),
-            "上级的需求不得被动到",
         );
         std::fs::remove_dir_all(&base).ok();
     }

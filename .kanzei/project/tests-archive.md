@@ -80,3 +80,7 @@
 ## T-1786249805 R-153 批0重复测试隔离回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: update_tests 旧副本已用 cfg(any()) 隔离，新的五个测试模块独立运行；42 项全部通过。旧代码块尚未物理删除，后续需做纯文本清理。
+
+## T-1786249904 R-153 批0 state 旧副本物理删除回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 物理删除 state 旧测试中的两项后，kanzei-app 42 项全部通过。剩余旧 state 函数仍被 cfg(any()) 隔离，尚需继续物理删除。
