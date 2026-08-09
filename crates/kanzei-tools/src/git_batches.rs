@@ -84,19 +84,30 @@ fn collect_marked_batches(subject: &str, batches: &mut BTreeSet<(char, u32)>) {
     let chars: Vec<char> = subject.chars().collect();
     let mut index = 0;
     while index < chars.len() {
-        let kind = chars[index];
-        if !matches!(kind, 'B' | 'S') {
+        // 中文「批N」(如 "R-157 批3:")归入 B 命名空间:与 "R-157 B3" 语义等价,
+        // 混用时自然去重。B/S 两个命名空间照旧保留(S = store 域拆分)。
+        // 「批次」多为字段叙事(「批次: 3/3」),不是提交批次标记,跳过不识别。
+        let (kind, number_start) = if chars[index] == '批' {
+            let s = index + 1;
+            if chars.get(s) == Some(&'次') {
+                index = s + 1;
+                continue;
+            }
+            ('B', s)
+        } else if matches!(chars[index], 'B' | 'S') {
+            (chars[index], index + 1)
+        } else {
             index += 1;
             continue;
-        }
-        let Some((first, after_first)) = parse_number(&chars, index + 1) else {
-            index += 1;
+        };
+        let Some((first, after_first)) = parse_number(&chars, number_start) else {
+            index = number_start;
             continue;
         };
         batches.insert((kind, first));
 
-        // 同一标题常把连续批次压缩成 `S5-S6` 或 `S7+S8`。第二个
-        // marker 可省略（`B1-2`）也可保留，两个写法都展开到独立批次。
+        // 同一标题常把连续批次压缩成 `S5-S6`、`S7+S8` 或 `B1-2`(含「批1-3」)。
+        // 第二个 marker 可省略也可保留,两个写法都展开到独立批次。
         let mut cursor = skip_whitespace(&chars, after_first);
         if matches!(chars.get(cursor), Some('-' | '–' | '~' | '+')) {
             cursor = skip_whitespace(&chars, cursor + 1);
@@ -156,5 +167,22 @@ R-155 关闭: 批次 16/16\n\
 R-1550 B9: 相邻 ID 不得误判\n\
 R-154 B9: 其他条目不得误判\n";
         assert_eq!(completed_batches_from_subjects(subjects, "R-155"), 7);
+    }
+
+    #[test]
+    fn parses_chinese_pi_batch_markers_without_misjudging() {
+        // 当前实际提交风格:「R-157 批3:…」;「批次N」同义。归入 B 命名空间,
+        // 与 "R-157 B3" 混用时自然去重(同一批只计一次)。
+        let subjects = "\
+R-157 批3: 设置页节奏参数透传 + 批2 接线修复\n\
+R-157 批1: cadence 配置结构\n\
+R-157 批2: 注入提示词参数化\n\
+R-157 收口: 批次 3/3(「批」「次」是叙事词,不构成新批次)\n\
+R-157 B3: 与「批3」同批,重复不重复计数\n\
+R-1570 批1: 相邻 ID 不得误判\n\
+R-156 批次2: 其他条目不得误判\n\
+R-157 审批流程第二版: 「批」后不是数字,不构成批次\n\
+普通提交: R-157 的日常改动(无批次标记)\n";
+        assert_eq!(completed_batches_from_subjects(subjects, "R-157"), 3);
     }
 }

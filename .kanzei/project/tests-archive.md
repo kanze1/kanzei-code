@@ -1033,3 +1033,13 @@
 ## T-1786310446 D-234 前端冒烟(node --check + 四条 smoke) [passed]
 - 摘要: D-234:node --check 07-events.js + 四条冒烟全过;ui-runtime-smoke 含 D-234 段——git 提交(tool-end)与子代理提交(task-progress)后立即多一次 docs_snapshot 调用
 - 收尾: 1786310446
+
+## T-1786311116 cargo test -p kanzei-app (R-157 批3) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 45 通过(含新增「节奏字段_写入读回_清空移除_不串改其他键」与全部 settings 测试);R-157 批3 后端 cadence 载荷/应用/往返验证
+- 收尾: 1786311116
+
+## T-1786311460 cargo test --workspace (D-236 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全 workspace 通过:kanzei-app 45 + kanzei-tools 126 + 其余 crate 全绿;D-236 中文「批N」解析修复 + 真实仓库 R-157 推导 3 批实证
+- 收尾: 1786311460
