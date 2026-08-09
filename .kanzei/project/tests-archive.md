@@ -1076,3 +1076,8 @@
 - 命令: cargo fmt --check && cargo test --workspace;node scripts/ui-sources.mjs + ui-runtime-smoke.mjs + ui-a11y-smoke.mjs + ui-i18n-smoke.mjs;package.ps1 无参步进冒烟
 - 摘要: workspace 13 个测试目标全绿(含新增 git merge_ff 3 测、harness progress 1 测、tool_exec 并发回归);UI 四冒烟通过,新增小工具降噪/bash 实时流/rail 侧栏开合断言;package.ps1 打出 [1/6] 步进后按预期被 Ack 门禁拦截。
 - 收尾: 1786317697
+
+## T-1786318872 R-102 批1 定向测试(harness/tools/kz CLI) [passed]
+- 命令: cargo test -p kanzei-harness -p kanzei-tools; cargo test -p kanzei --bin kz; cargo check --workspace
+- 摘要: R-102 批1 落码:ProfileKind::Readonly 档位 + ReadonlyProfile(只读 agent)+ CLI --readonly 解析与 profile 合并 + permission_snapshot 快照函数。harness 130 passed、tools 通过、kz bin 7 passed(含新增 readonly 解析/usage 断言)、workspace check 通过。kz --help 实测展示 --readonly。
+- 收尾: 1786318872
