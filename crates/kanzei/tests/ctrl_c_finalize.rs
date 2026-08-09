@@ -22,7 +22,9 @@ fn 中断后重开数据库看到空闲态与取消的输入() {
     // 复刻 run_cli 的启动序列(crates/kanzei/src/main.rs:run_cli)。
     {
         let store = SessionStore::open(&state_path).unwrap();
-        store.create_session(session_id, "C:/project", None).unwrap();
+        store
+            .create_session(session_id, "C:/project", None)
+            .unwrap();
         store
             .admit_input(session_id, "input_1", "修复缺陷", Delivery::Queue)
             .unwrap();

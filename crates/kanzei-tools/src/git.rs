@@ -361,7 +361,11 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
         return Ok(());
     }
     // 删除的文件取不到 mtime,跳过;全是删除时没有可比的时间点,放行。
-    let Some(newest_change) = sources.iter().filter_map(|p| modified_secs(&cwd.join(p))).max() else {
+    let Some(newest_change) = sources
+        .iter()
+        .filter_map(|p| modified_secs(&cwd.join(p)))
+        .max()
+    else {
         return Ok(());
     };
     let listed = sources
@@ -644,17 +648,32 @@ mod tests {
             .execute(serde_json::json!({"action": "log"}), &ctx)
             .await;
         assert!(!all.is_error, "{}", all.content);
-        assert!(all.content.contains("第一条") && all.content.contains("第二条"), "{}", all.content);
+        assert!(
+            all.content.contains("第一条") && all.content.contains("第二条"),
+            "{}",
+            all.content
+        );
         // count 生效:只要最近 1 条。
         let one = GitTool
             .execute(serde_json::json!({"action": "log", "count": 1}), &ctx)
             .await;
-        assert!(one.content.contains("第二条") && !one.content.contains("第一条"), "{}", one.content);
+        assert!(
+            one.content.contains("第二条") && !one.content.contains("第一条"),
+            "{}",
+            one.content
+        );
         // 路径过滤:只看 a.txt 的历史。
         let filtered = GitTool
-            .execute(serde_json::json!({"action": "log", "files": ["a.txt"]}), &ctx)
+            .execute(
+                serde_json::json!({"action": "log", "files": ["a.txt"]}),
+                &ctx,
+            )
             .await;
-        assert!(filtered.content.contains("第一条") && !filtered.content.contains("第二条"), "{}", filtered.content);
+        assert!(
+            filtered.content.contains("第一条") && !filtered.content.contains("第二条"),
+            "{}",
+            filtered.content
+        );
         std::fs::remove_dir_all(root).ok();
     }
 

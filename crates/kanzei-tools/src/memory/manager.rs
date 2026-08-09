@@ -17,7 +17,9 @@ use super::{AddOutcome, MemoryStore};
 fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
     match scope {
         "project" => Ok(MemoryStore::project(&ctx.project_root)),
-        "global" => MemoryStore::global().ok_or_else(|| anyhow::anyhow!("no home dir for global scope")),
+        "global" => {
+            MemoryStore::global().ok_or_else(|| anyhow::anyhow!("no home dir for global scope"))
+        }
         other => anyhow::bail!("invalid scope `{other}`; valid: global | project"),
     }
 }
@@ -298,7 +300,8 @@ impl Tool for MemoryInboxClearTool {
     }
 
     fn description(&self) -> String {
-        "Clear the inbox after ALL notes are processed (added/updated/merged or judged NOOP).".into()
+        "Clear the inbox after ALL notes are processed (added/updated/merged or judged NOOP)."
+            .into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -319,12 +322,22 @@ pub struct MemoryManagerComponent;
 
 impl Component for MemoryManagerComponent {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
-        draft.tools.insert("memory_search", Arc::new(super::MemorySearchTool));
-        draft.tools.insert("memory_stats", Arc::new(super::MemoryStatsTool));
+        draft
+            .tools
+            .insert("memory_search", Arc::new(super::MemorySearchTool));
+        draft
+            .tools
+            .insert("memory_stats", Arc::new(super::MemoryStatsTool));
         draft.tools.insert("memory_add", Arc::new(MemoryAddTool));
-        draft.tools.insert("memory_update", Arc::new(MemoryUpdateTool));
-        draft.tools.insert("memory_merge", Arc::new(MemoryMergeTool));
-        draft.tools.insert("memory_stale", Arc::new(MemoryStaleTool));
+        draft
+            .tools
+            .insert("memory_update", Arc::new(MemoryUpdateTool));
+        draft
+            .tools
+            .insert("memory_merge", Arc::new(MemoryMergeTool));
+        draft
+            .tools
+            .insert("memory_stale", Arc::new(MemoryStaleTool));
         draft
             .tools
             .insert("memory_inbox_clear", Arc::new(MemoryInboxClearTool));
@@ -394,9 +407,19 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
         let store = MemoryStore::project(&dir);
-        store.append_note("发版要走两条通道", "package.ps1 -Publish + 静默装", "sop", &[]).unwrap();
+        store
+            .append_note(
+                "发版要走两条通道",
+                "package.ps1 -Publish + 静默装",
+                "sop",
+                &[],
+            )
+            .unwrap();
 
         // 模拟 manager 的一轮决策:add → inbox_clear。
         let added = MemoryAddTool
@@ -423,7 +446,10 @@ mod tests {
         assert_eq!(store.pending_notes(), 0);
         // stale 需要 reason
         let no_reason = MemoryStaleTool
-            .execute(json!({"scope": "project", "id": "M-001", "reason": "  "}), &ctx)
+            .execute(
+                json!({"scope": "project", "id": "M-001", "reason": "  "}),
+                &ctx,
+            )
             .await;
         assert!(no_reason.is_error);
         std::fs::remove_dir_all(dir).ok();
@@ -441,7 +467,10 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
         let added = MemoryAddTool
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "edit 未命中先 read",
@@ -458,7 +487,11 @@ mod tests {
             )
             .await;
         assert!(dropped.is_error, "{}", dropped.content);
-        assert!(dropped.content.contains("[fp:edit|not found]"), "{}", dropped.content);
+        assert!(
+            dropped.content.contains("[fp:edit|not found]"),
+            "{}",
+            dropped.content
+        );
 
         // 带着指纹改正文、或只改 description 都放行。
         let kept = MemoryUpdateTool
@@ -491,7 +524,10 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
 
         let first = MemoryAddTool
             .execute(
@@ -504,8 +540,15 @@ mod tests {
         assert!(!first.is_error, "{}", first.content);
         // subject 落进 frontmatter。
         let store = MemoryStore::project(&dir);
-        let (_, entry) = store.load_all().into_iter().find(|(_, e)| e.id == "M-001").unwrap();
-        assert!(entry.extras.iter().any(|(k, v)| k == "subject" && v == "安装通道"));
+        let (_, entry) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == "M-001")
+            .unwrap();
+        assert!(entry
+            .extras
+            .iter()
+            .any(|(k, v)| k == "subject" && v == "安装通道"));
 
         let conflict = MemoryAddTool
             .execute(
@@ -516,8 +559,16 @@ mod tests {
             )
             .await;
         assert!(conflict.is_error, "{}", conflict.content);
-        assert!(conflict.content.contains("memory_update M-001"), "{}", conflict.content);
-        assert!(conflict.content.contains("force cannot bypass"), "{}", conflict.content);
+        assert!(
+            conflict.content.contains("memory_update M-001"),
+            "{}",
+            conflict.content
+        );
+        assert!(
+            conflict.content.contains("force cannot bypass"),
+            "{}",
+            conflict.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -538,7 +589,10 @@ mod tests {
             "# Requirements\n\n## R-070 示例 [todo]\n- 验收: 略\n",
         )
         .unwrap();
-        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
 
         let bad = MemoryAddTool
             .execute(
@@ -560,7 +614,11 @@ mod tests {
         assert!(!good.is_error, "{}", good.content);
         assert!(good.content.contains("M-001"), "{}", good.content);
         let store = MemoryStore::project(&dir);
-        let (_, entry) = store.load_all().into_iter().find(|(_, e)| e.id == "M-001").unwrap();
+        let (_, entry) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == "M-001")
+            .unwrap();
         assert_eq!(entry.refs(), vec!["R-070".to_string()]);
         std::fs::remove_dir_all(dir).ok();
     }

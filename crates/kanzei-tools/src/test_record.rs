@@ -94,7 +94,14 @@ impl Tool for TestRecordTool {
             Err(out) => return out,
         };
         let root = ctx.project_root.clone();
-        match record_test_run(&root, input.id.as_deref(), &input.title, &input.status, input.command.as_deref(), input.summary.as_deref()) {
+        match record_test_run(
+            &root,
+            input.id.as_deref(),
+            &input.title,
+            &input.status,
+            input.command.as_deref(),
+            input.summary.as_deref(),
+        ) {
             Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
             Err(err) => ToolOutput::error(err),
         }
@@ -284,10 +291,7 @@ pub fn append_test_run(
     summary: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
-        return Err(format!(
-            "测试状态必须是 {} 之一",
-            VALID_STATUS.join("、")
-        ));
+        return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
     let path = root.join(TEST_RUNS_REL);
     if let Some(parent) = path.parent() {
@@ -360,9 +364,12 @@ pub fn unclosed_running_for(root: &Path, entry_id: &str) -> Vec<(String, String)
                 return None;
             }
             let title = record["title"].as_str().unwrap_or_default();
-            title
-                .contains(entry_id)
-                .then(|| (record["id"].as_str().unwrap_or_default().to_string(), title.to_string()))
+            title.contains(entry_id).then(|| {
+                (
+                    record["id"].as_str().unwrap_or_default().to_string(),
+                    title.to_string(),
+                )
+            })
         })
         .collect()
 }
@@ -387,7 +394,10 @@ fn render_snapshot(snapshot: &serde_json::Value) -> String {
             record["title"].as_str().unwrap_or_default(),
             record["status"].as_str().unwrap_or_default(),
             if is_stale {
-                format!(" ⚠ 悬空 {} 分钟未收尾", record["age_secs"].as_u64().unwrap_or(0) / 60)
+                format!(
+                    " ⚠ 悬空 {} 分钟未收尾",
+                    record["age_secs"].as_u64().unwrap_or(0) / 60
+                )
             } else {
                 String::new()
             },
@@ -434,7 +444,15 @@ mod tests {
     #[test]
     fn 终态就地收尾同名running而不是再追加一条() {
         let root = temp_project("claim");
-        record_test_run(&root, None, "R-999 定向回归", "running", Some("cargo test"), None).unwrap();
+        record_test_run(
+            &root,
+            None,
+            "R-999 定向回归",
+            "running",
+            Some("cargo test"),
+            None,
+        )
+        .unwrap();
         let snapshot =
             record_test_run(&root, None, "R-999 定向回归", "passed", None, Some("全绿")).unwrap();
         assert_eq!(
@@ -443,11 +461,17 @@ mod tests {
             "收尾后不该再有 running 挂着:{snapshot:#?}"
         );
         let archived = snapshot["archived"].as_array().unwrap();
-        assert_eq!(archived.len(), 1, "只应归档一条,而不是 running/passed 各一条");
+        assert_eq!(
+            archived.len(),
+            1,
+            "只应归档一条,而不是 running/passed 各一条"
+        );
         assert_eq!(archived[0]["status"], "passed");
         let fields = archived[0]["fields"].as_array().unwrap();
         assert!(
-            fields.iter().any(|f| f["key"] == "命令" && f["value"] == "cargo test"),
+            fields
+                .iter()
+                .any(|f| f["key"] == "命令" && f["value"] == "cargo test"),
             "收尾时没给命令就该沿用原记录的,不能覆盖成空:{fields:#?}"
         );
         std::fs::remove_dir_all(root).ok();
@@ -466,9 +490,16 @@ mod tests {
         .unwrap();
         let snapshot = test_runs_snapshot(&root).unwrap();
         let active = &snapshot["active"].as_array().unwrap()[0];
-        assert_eq!(active["stale"], true, "20 天前的 running 必须判悬空:{active:#?}");
+        assert_eq!(
+            active["stale"], true,
+            "20 天前的 running 必须判悬空:{active:#?}"
+        );
         assert_eq!(unclosed_running_for(&root, "R-153").len(), 1);
-        assert_eq!(unclosed_running_for(&root, "R-158").len(), 0, "不该误伤别的条目");
+        assert_eq!(
+            unclosed_running_for(&root, "R-158").len(),
+            0,
+            "不该误伤别的条目"
+        );
         std::fs::remove_dir_all(root).ok();
     }
 
@@ -522,7 +553,14 @@ mod tests {
     #[test]
     fn append_then_snapshot_archives_terminal_status() {
         let root = temp_project("archive");
-        let snapshot = append_test_run(&root, "cargo test", "passed", Some("cargo test"), Some("全绿")).unwrap();
+        let snapshot = append_test_run(
+            &root,
+            "cargo test",
+            "passed",
+            Some("cargo test"),
+            Some("全绿"),
+        )
+        .unwrap();
         assert_eq!(snapshot["active"].as_array().unwrap().len(), 0);
         assert_eq!(snapshot["archived"].as_array().unwrap().len(), 1);
         let archived = &snapshot["archived"][0];
@@ -572,8 +610,16 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(out.content.contains("active: 0, archived: 1"), "{}", out.content);
-        assert!(out.content.contains("cargo test -p kanzei-llm [passed]"), "{}", out.content);
+        assert!(
+            out.content.contains("active: 0, archived: 1"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("cargo test -p kanzei-llm [passed]"),
+            "{}",
+            out.content
+        );
         assert!(root.join(TEST_RUNS_REL).exists());
         std::fs::remove_dir_all(&root).ok();
     }

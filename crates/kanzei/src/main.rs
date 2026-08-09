@@ -42,7 +42,9 @@ async fn main() -> anyhow::Result<()> {
             usage();
             anyhow::bail!("未知参数: {arg}");
         }
-        Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => tracker_cli(&args).await,
+        Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => {
+            tracker_cli(&args).await
+        }
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
         None => {
@@ -53,7 +55,11 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn cli_exit_code(halted_by_user: bool) -> i32 {
-    if halted_by_user { 3 } else { 0 }
+    if halted_by_user {
+        3
+    } else {
+        0
+    }
 }
 
 fn usage_text() -> &'static str {
@@ -217,7 +223,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 永远停在 promoted,以后任何一次停止都会把它追认为 cancelled(D-173)。
     store.start_input(&promoted.input_id)?;
     // 本轮身份与墙钟:episode 落库时要能回答"哪一轮、跑了多久、用的什么模型"。
-    let run_id = format!("run_{}", SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos());
+    let run_id = format!(
+        "run_{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
     let run_started = std::time::Instant::now();
     store.set_status(&session_id, "running")?;
     store.append_event(
@@ -265,10 +274,21 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::TaskProgress { text, .. } => {
             let _ = writeln!(stdout, "  \x1b[90m… {text}\x1b[0m");
         }
-        RunEvent::Retry { attempt, max, delay_ms } => {
-            let _ = writeln!(stdout, "\x1b[33m重试 {attempt}/{max},等待 {delay_ms}ms\x1b[0m");
+        RunEvent::Retry {
+            attempt,
+            max,
+            delay_ms,
+        } => {
+            let _ = writeln!(
+                stdout,
+                "\x1b[33m重试 {attempt}/{max},等待 {delay_ms}ms\x1b[0m"
+            );
         }
-        RunEvent::StreamRestart { attempt, max, delay_ms } => {
+        RunEvent::StreamRestart {
+            attempt,
+            max,
+            delay_ms,
+        } => {
             let _ = writeln!(
                 stdout,
                 "\x1b[33m连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms(本轮工具尚未执行,不会重复副作用)\x1b[0m"
@@ -282,14 +302,26 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             };
             let _ = writeln!(stdout, "  {mark} {preview}");
         }
-        RunEvent::ContextCompacted { before_tokens, after_tokens, limit_tokens, dropped_messages, .. } => {
+        RunEvent::ContextCompacted {
+            before_tokens,
+            after_tokens,
+            limit_tokens,
+            dropped_messages,
+            ..
+        } => {
             let _ = writeln!(
                 stdout,
                 "\x1b[90m上下文到线,已压缩:约 {before_tokens} → {after_tokens} token(上限 {limit_tokens},裁掉 {dropped_messages} 条)\x1b[0m"
             );
         }
         // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
-        RunEvent::PermissionResolved { action, resource, decision, source, .. } => {
+        RunEvent::PermissionResolved {
+            action,
+            resource,
+            decision,
+            source,
+            ..
+        } => {
             if source != "ruleset" || decision == "deny" {
                 let _ = writeln!(
                     stdout,
@@ -302,10 +334,18 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let ask_root = ctx.project_root.clone();
     let mut ask = move |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
         let response = match request {
-            kanzei_core::AskRequest::Question { question, options, default } => {
+            kanzei_core::AskRequest::Question {
+                question,
+                options,
+                default,
+            } => {
                 eprint!("\x1b[33m? {question}");
-                if !options.is_empty() { eprint!(" [{}]", options.join(" / ")); }
-                if let Some(default) = default { eprint!(" (默认: {default})"); }
+                if !options.is_empty() {
+                    eprint!(" [{}]", options.join(" / "));
+                }
+                if let Some(default) = default {
+                    eprint!(" (默认: {default})");
+                }
                 eprint!("\x1b[0m ");
                 let mut line = String::new();
                 if std::io::stdin().read_line(&mut line).is_ok() && !line.trim().is_empty() {
@@ -320,16 +360,22 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 let reply = if std::io::stdin().read_line(&mut line).is_ok() {
                     match line.trim() {
                         "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
-                        "a" | "A" | "always" => match persist_always_allow(&ask_root, &action, &resource) {
-                            Ok(reply) => reply,
-                            Err(error) => {
-                                eprintln!("\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m");
-                                kanzei_core::AskReply::Deny
+                        "a" | "A" | "always" => {
+                            match persist_always_allow(&ask_root, &action, &resource) {
+                                Ok(reply) => reply,
+                                Err(error) => {
+                                    eprintln!(
+                                        "\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m"
+                                    );
+                                    kanzei_core::AskReply::Deny
+                                }
                             }
-                        },
+                        }
                         _ => kanzei_core::AskReply::Deny,
                     }
-                } else { kanzei_core::AskReply::Deny };
+                } else {
+                    kanzei_core::AskReply::Deny
+                };
                 kanzei_core::AskResponse::Permission(reply)
             }
         };
@@ -350,7 +396,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             Err(_) => None,
         };
         let primary_tier = config.service_tier_for(&resolved);
-        let fast_tier = fast.as_ref().map(|(_, _, tier)| tier.clone()).unwrap_or_else(|| primary_tier.clone());
+        let fast_tier = fast
+            .as_ref()
+            .map(|(_, _, tier)| tier.clone())
+            .unwrap_or_else(|| primary_tier.clone());
         kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
@@ -462,13 +511,20 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         if let Some(done) = kanzei_core::completed_entry(this_run) {
             let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
             if kanzei_tools::memory::harvest_entry_fact(&store, &done, &prompt, &signals) {
-                eprintln!("\x1b[90m(memory: 已投递 {} 的根因候选待整理)\x1b[0m", done.id);
+                eprintln!(
+                    "\x1b[90m(memory: 已投递 {} 的根因候选待整理)\x1b[0m",
+                    done.id
+                );
             }
         }
     }
     // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
     {
-        let outcome = if summary.halted_by_user { "halted" } else { "completed" };
+        let outcome = if summary.halted_by_user {
+            "halted"
+        } else {
+            "completed"
+        };
         let tools = kanzei_core::summarize_tools(this_run);
         let store = kanzei_core::SessionStore::open(&state_path)?;
         let _ = store.append_episode(&kanzei_core::EpisodeRecord {
@@ -682,7 +738,11 @@ mod tests {
     }
     #[test]
     fn run_new_flag_is_removed_from_prompt() {
-        let args = vec!["--new".to_string(), "开始".to_string(), "新会话".to_string()];
+        let args = vec![
+            "--new".to_string(),
+            "开始".to_string(),
+            "新会话".to_string(),
+        ];
         assert_eq!(parse_run_args(&args), (true, "开始 新会话".to_string()));
     }
 

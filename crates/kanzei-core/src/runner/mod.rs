@@ -18,13 +18,13 @@ mod event;
 pub use event::*;
 mod metrics;
 pub use metrics::*;
-mod redundancy;
 mod context;
+mod redundancy;
 pub(crate) use context::*;
 mod compaction;
-mod tool_exec;
-mod subagent;
 mod drive;
+mod subagent;
+mod tool_exec;
 pub use drive::{run_once, run_once_with_parts};
 
 pub use subagent::*;
@@ -34,9 +34,7 @@ pub(crate) use tool_exec::*;
 
 pub(crate) use compaction::*;
 
-
 pub(crate) use redundancy::*;
-
 
 use event::{drain_task_events, preview};
 
@@ -76,10 +74,6 @@ pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
 /// 压完仍超线 / 中段为空压不动 = 无进展,连续两次就停(head+当前消息本身超线,
 /// trim_tail 都救不了,交给被动恢复,别空转)。
 pub(super) const MAX_FUTILE_COMPACTIONS: u32 = 2;
-
-
-
-
 
 #[cfg(test)]
 pub(crate) mod testutil {
@@ -121,21 +115,14 @@ pub(crate) mod testutil {
     }
 }
 
-
-
-
 #[allow(clippy::too_many_arguments)]
 #[cfg(test)]
 mod tests {
     use super::{
-        compact_messages_aggressively,
-        compact_messages_for_retry, drain_task_events,
-        recover_context_overflow, RunEvent,
-        MAX_STREAM_RESTARTS,
+        compact_messages_aggressively, compact_messages_for_retry, drain_task_events,
+        recover_context_overflow, RunEvent, MAX_STREAM_RESTARTS,
     };
     use kanzei_llm::{LlmError, Message, Part};
-
-
 
     #[test]
     fn 子代理完成前的缓冲事件会被排空() {
@@ -167,11 +154,16 @@ mod tests {
             LlmError::Transport(_)
         ));
         assert!(!matches!(
-            LlmError::ContextOverflow { message: "x".into() },
+            LlmError::ContextOverflow {
+                message: "x".into()
+            },
             LlmError::Transport(_)
         ));
         assert!(!matches!(
-            LlmError::Provider { kind: "rate_limit_error".into(), message: "x".into() },
+            LlmError::Provider {
+                kind: "rate_limit_error".into(),
+                message: "x".into()
+            },
             LlmError::Transport(_)
         ));
         // 重放次数必须有界:每次重放都要重新生成已产出的 token。
@@ -197,7 +189,9 @@ mod tests {
         compact_messages_for_retry(&mut messages, &mut traces);
 
         assert_eq!(messages.len(), 2);
-        assert!(matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果")));
+        assert!(
+            matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果"))
+        );
         assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text == "当前任务"));
     }
 
@@ -220,17 +214,20 @@ mod tests {
 
         compact_messages_for_retry(&mut messages, &mut traces);
         assert!(messages.iter().any(|message| {
-            message.parts.iter().any(
-                |part| matches!(part, Part::Text { text } if text == "当前任务")
-            )
+            message
+                .parts
+                .iter()
+                .any(|part| matches!(part, Part::Text { text } if text == "当前任务"))
         }));
-        assert!(!messages.iter().flat_map(|message| &message.parts).any(|part| {
-            matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
-        }));
+        assert!(!messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .any(|part| { matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. }) }));
         assert!(messages.iter().any(|message| {
-            message.parts.iter().any(
-                |part| matches!(part, Part::Text { text } if text.contains("工具结果"))
-            )
+            message
+                .parts
+                .iter()
+                .any(|part| matches!(part, Part::Text { text } if text.contains("工具结果")))
         }));
 
         let mut aggressive = vec![
@@ -248,9 +245,10 @@ mod tests {
         ];
         let mut aggressive_traces = Vec::new();
         compact_messages_aggressively(&mut aggressive, &mut aggressive_traces);
-        assert!(!aggressive.iter().flat_map(|message| &message.parts).any(|part| {
-            matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. })
-        }));
+        assert!(!aggressive
+            .iter()
+            .flat_map(|message| &message.parts)
+            .any(|part| { matches!(part, Part::ToolResult { .. } | Part::ToolCall { .. }) }));
     }
 
     #[test]
@@ -286,22 +284,36 @@ mod tests {
         let mut traces = Vec::new();
 
         // 第一级:有界压缩。被丢弃的是除当前消息外的整段历史。
-        assert!(recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert!(recover_context_overflow(
+            &mut messages,
+            &mut recoveries,
+            &mut traces
+        ));
         assert_eq!(traces.len(), 1, "第一次压缩应产生一条轨迹摘要");
         let first: serde_json::Value = serde_json::from_str(&traces[0]).unwrap();
         assert_eq!(first["dropped_messages"], 5);
         assert_eq!(first["tools"]["bash"], 2, "被丢弃段的工具画像应被沉淀");
         assert_eq!(first["failures"][0]["tool"], "bash", "失败信号应随轨迹沉淀");
         assert_eq!(first["failures"][0]["count"], 2);
-        assert!(first["preview"].as_str().is_some_and(|s| s.contains("原始任务")));
+        assert!(first["preview"]
+            .as_str()
+            .is_some_and(|s| s.contains("原始任务")));
 
         // 第二级:激进压缩。当前消息外的整段(含上一级压缩记录)再次沉淀。
-        assert!(recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert!(recover_context_overflow(
+            &mut messages,
+            &mut recoveries,
+            &mut traces
+        ));
         assert_eq!(traces.len(), 2, "第二次压缩应追加一条轨迹摘要");
         assert_eq!(messages.len(), 1, "激进压缩后只剩当前消息");
 
         // 第三级:超过有界上限,拒绝继续恢复且不新增轨迹。
-        assert!(!recover_context_overflow(&mut messages, &mut recoveries, &mut traces));
+        assert!(!recover_context_overflow(
+            &mut messages,
+            &mut recoveries,
+            &mut traces
+        ));
         assert_eq!(traces.len(), 2);
     }
 }

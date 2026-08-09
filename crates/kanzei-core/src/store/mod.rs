@@ -108,16 +108,13 @@ pub struct EpisodeRecord<'a> {
 }
 
 mod episodes;
-mod notifications;
 mod events;
 mod inbox;
-mod session;
+mod notifications;
 mod schema;
+mod session;
 
 pub use session::{project_session_id, project_state_path};
-
-
-
 
 pub struct SessionStore {
     /// 仅限 store::* 子模块使用(S1 拆壳后本字段 pub(crate))。

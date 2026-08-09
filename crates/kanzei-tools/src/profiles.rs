@@ -762,7 +762,10 @@ mod tests {
             config: Arc::new(KanzeiConfig::default()),
         };
         let mut harness = Harness::default();
-        harness.add(crate::BaseComponent).add(DevProfile).add(ConfigComponent);
+        harness
+            .add(crate::BaseComponent)
+            .add(DevProfile)
+            .add(ConfigComponent);
         // resolve 本身就是覆盖校验:声明的 required_tool 没注册会直接 bail。
         let snapshot = harness.resolve(&ctx).unwrap();
 
@@ -776,9 +779,16 @@ mod tests {
             (".kanzei/memory/M-001-x.md", "memory_note"),
         ] {
             let normalized = kanzei_harness::permission::normalize_resource(path);
-            assert_eq!(snapshot.evaluate("write", &normalized), Effect::Deny, "{path}");
+            assert_eq!(
+                snapshot.evaluate("write", &normalized),
+                Effect::Deny,
+                "{path}"
+            );
             let hint = snapshot.denial_hint("write", &normalized);
-            assert!(hint.contains(&format!("`{tool}`")), "{path} 的指引没点名 {tool}: {hint}");
+            assert!(
+                hint.contains(&format!("`{tool}`")),
+                "{path} 的指引没点名 {tool}: {hint}"
+            );
         }
 
         // 没有专用工具的资源族:必须如实说能力未实现,并明确堵死 shell 绕行。
@@ -788,7 +798,10 @@ mod tests {
         let hint = snapshot.denial_hint("write", &conventions);
         assert!(hint.contains("unimplemented capability"), "{hint}");
         assert!(hint.contains("WriteAllText"), "{hint}");
-        assert!(!hint.contains("use the dedicated tool"), "不得编造不存在的工具: {hint}");
+        assert!(
+            !hint.contains("use the dedicated tool"),
+            "不得编造不存在的工具: {hint}"
+        );
 
         // 架构索引现在有了合法通道,而且读/校验默认放行。
         assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);

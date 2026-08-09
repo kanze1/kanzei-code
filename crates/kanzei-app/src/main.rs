@@ -10,43 +10,39 @@ use tauri::Emitter;
 pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
 pub(crate) use kanzei_harness::ConfigComponent;
 
-mod files_view;
 mod agent_container;
-mod fast_model;
-mod update;
-mod memory;
-mod state;
-mod prefs;
-mod projects;
-mod processes;
-mod mobile;
-mod docs;
-mod settings;
 mod conversation;
+mod docs;
+mod fast_model;
+mod files_view;
 mod harness_ext;
+mod memory;
+mod mobile;
+mod prefs;
+mod processes;
+mod projects;
 mod run;
+mod settings;
+mod state;
 mod subagents;
+mod update;
 
 pub(crate) use projects::{export_project_data, ExportOptions};
 
+pub(crate) use settings::{global_config_path, settings_save_at_path};
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
-pub(crate) use settings::{
-    global_config_path, settings_save_at_path,
-};
 
 pub(crate) use update::{
-    build_stamp, clear_stale_installer, installer_path,
-    pending_path, release_is_newer, update_helper_path, update_log_at, validate_installer,
-    wait_for_parent_exit, installed_cli_is_older,
+    build_stamp, clear_stale_installer, installed_cli_is_older, installer_path, pending_path,
+    release_is_newer, update_helper_path, update_log_at, validate_installer, wait_for_parent_exit,
 };
 
 pub(crate) use state::{
-    normalized_project_root, pending_ask_payload, process_info, process_session_id,
-    prompt_attachment_parts, runtime_for, stop_runtime_and_finalize, take_pending_ask, ui_probe,
-    ui_probe_result, with_session_id,
+    ensure_default_process, flush_live_run, normalized_project_root, pending_ask_payload,
+    process_info, process_session_id, prompt_attachment_parts, runtime_for,
+    stop_runtime_and_finalize, take_pending_ask, ui_probe, ui_probe_result, with_session_id,
     AppState, LiveRun, MobileService, MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo,
-    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBE_EMIT, UI_PROBES, UI_PROBE_SEQ,
-    flush_live_run, ensure_default_process,
+    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBES, UI_PROBE_EMIT, UI_PROBE_SEQ,
 };
 
 #[cfg(test)]
@@ -65,7 +61,9 @@ mod process_tests;
 mod update_tests_update;
 
 fn main() {
-    if update::startup_update() { return; }
+    if update::startup_update() {
+        return;
+    }
     // 安装器只装得了 kzapp,CLI 得由这里搬到位——两者共用一个库,版本必须同步(D-175)。
     update::sync_bundled_cli();
     // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
@@ -95,10 +93,14 @@ fn main() {
                 .first()
                 .cloned()
                 .ok_or_else(|| "tauri.conf.json 未配置任何窗口".to_string())?;
-            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
+            let mut builder =
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
             if let Ok(port) = std::env::var("KANZEI_E2E_CDP") {
                 if !port.trim().is_empty() {
-                    builder = builder.additional_browser_args(&format!("--remote-debugging-port={}", port.trim()));
+                    builder = builder.additional_browser_args(&format!(
+                        "--remote-debugging-port={}",
+                        port.trim()
+                    ));
                 }
             }
             builder.build()?;
@@ -118,7 +120,7 @@ fn main() {
             projects::projects_select,
             projects::workspace_snapshot,
             docs::docs_snapshot,
-run::run_prompt,
+            run::run_prompt,
             run::stop_run,
             run::answer_ask,
             run::pending_asks_get,
@@ -187,9 +189,3 @@ run::run_prompt,
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
 }
-
-
-
-
-
-

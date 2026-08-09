@@ -132,7 +132,11 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
             .unwrap_or_default();
         let oversized = meta.len() > MAX_MEASURE_BYTES;
         let measurable = !oversized && (ext == "md" || CODE_EXTS.contains(&ext.as_str()));
-        let bytes = if measurable { std::fs::read(&abs).ok() } else { None };
+        let bytes = if measurable {
+            std::fs::read(&abs).ok()
+        } else {
+            None
+        };
         let (lines, chars) = match (&bytes, ext.as_str()) {
             (Some(bytes), "md") => (
                 None,
@@ -201,7 +205,9 @@ fn walk_fallback(root: &Path) -> Vec<String> {
             } else {
                 rel_dir.join(&name)
             };
-            let Ok(kind) = entry.file_type() else { continue };
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
             if kind.is_dir() {
                 if !SKIP.contains(&name.as_str()) {
                     stack.push(rel);
@@ -439,20 +445,35 @@ mod tests {
         let big = entries.iter().find(|e| e.path == "src/big.rs").unwrap();
         ann.files.insert(
             "src/big.rs".into(),
-            Annotation { hash: big.stamp.clone(), note: "大文件样例".into() },
+            Annotation {
+                hash: big.stamp.clone(),
+                note: "大文件样例".into(),
+            },
         );
         // 过期标注(hash 不匹配)不得出现。
         ann.files.insert(
             "src/lib.rs".into(),
-            Annotation { hash: "stale".into(), note: "过期标注".into() },
+            Annotation {
+                hash: "stale".into(),
+                note: "过期标注".into(),
+            },
         );
         ann.dirs.insert("src".into(), "源码目录".into());
 
         let tree = render_tree(&entries, &ann, None);
-        assert!(tree.contains("src/") && tree.contains("505 lines"), "{tree}");
+        assert!(
+            tree.contains("src/") && tree.contains("505 lines"),
+            "{tree}"
+        );
         assert!(tree.contains("big.rs") && tree.contains("501 行"), "{tree}");
-        assert!(tree.contains("大文件样例") && tree.contains("源码目录"), "{tree}");
-        assert!(!tree.contains("过期标注"), "hash 不匹配的标注必须被过滤:\n{tree}");
+        assert!(
+            tree.contains("大文件样例") && tree.contains("源码目录"),
+            "{tree}"
+        );
+        assert!(
+            !tree.contains("过期标注"),
+            "hash 不匹配的标注必须被过滤:\n{tree}"
+        );
         assert!(tree.contains("字"), "md 字数缺失:\n{tree}");
 
         let top = render_top(&entries, &ann, 2);
@@ -474,7 +495,10 @@ mod tests {
         let mut store = AnnotationStore::default();
         store.files.insert(
             "src/lib.rs".into(),
-            Annotation { hash: lib.stamp.clone(), note: "工具函数集合".into() },
+            Annotation {
+                hash: lib.stamp.clone(),
+                note: "工具函数集合".into(),
+            },
         );
         save_annotations(&root, &store).unwrap();
         let loaded = load_annotations(&root);

@@ -107,8 +107,10 @@ impl LlmClient {
         &self,
         route: &Route,
         request: &LlmRequest,
-    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError> {
-        self.stream_with_retry_notice(route, request, |_, _| {}).await
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError>
+    {
+        self.stream_with_retry_notice(route, request, |_, _| {})
+            .await
     }
 
     /// 与 [`stream`] 相同,但在流建立前发生临时网络错误时回调重试状态。
@@ -148,8 +150,9 @@ impl LlmClient {
                 .try_clone()
                 .ok_or_else(|| LlmError::Config("request not clonable for retry".into()))?;
             match rb.send().await {
-                Ok(response) if matches!(response.status().as_u16(), 429 | 529)
-                    && rate_limit_attempt < MAX_RATE_LIMIT_RETRIES =>
+                Ok(response)
+                    if matches!(response.status().as_u16(), 429 | 529)
+                        && rate_limit_attempt < MAX_RATE_LIMIT_RETRIES =>
                 {
                     rate_limit_attempt += 1;
                     let retry_after = response

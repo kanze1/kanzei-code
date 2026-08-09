@@ -97,7 +97,9 @@ mod tests {
         let messages = vec![
             Message::user_text("任务"),
             Message::assistant(vec![
-                Part::Text { text: "执行".into() },
+                Part::Text {
+                    text: "执行".into(),
+                },
                 call("ok"),
                 call("orphan"),
             ]),
@@ -125,8 +127,12 @@ mod tests {
         assert_eq!(filtered.len(), 2);
         assert_eq!(filtered[0].parts.len(), 2);
         assert_eq!(filtered[1].parts.len(), 2);
-        assert!(matches!(filtered[1].parts[0], Part::ToolResult { ref call_id, .. } if call_id == "denied"));
-        assert!(matches!(filtered[1].parts[1], Part::ToolResult { ref call_id, .. } if call_id == "cancelled"));
+        assert!(
+            matches!(filtered[1].parts[0], Part::ToolResult { ref call_id, .. } if call_id == "denied")
+        );
+        assert!(
+            matches!(filtered[1].parts[1], Part::ToolResult { ref call_id, .. } if call_id == "cancelled")
+        );
     }
 
     #[test]

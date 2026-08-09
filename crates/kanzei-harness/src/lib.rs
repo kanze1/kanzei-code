@@ -16,10 +16,10 @@ pub mod tool;
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{source, ContextSource};
 pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
-pub use home::kanzei_home;
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };
+pub use home::kanzei_home;
 pub use markdown::MarkdownComponent;
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;

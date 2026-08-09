@@ -95,7 +95,11 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
     let mut done = false;
     // 默认 hidden(true) 会把 .kanzei/(需求、缺陷、规范全在这)、.github/、.claude/ 整个跳过,
     // 模型据此得出"文件不存在"的假阴性;仍尊重 .gitignore,不会扫进 target/(D-071)。
-    for entry in ignore::WalkBuilder::new(base).hidden(false).build().flatten() {
+    for entry in ignore::WalkBuilder::new(base)
+        .hidden(false)
+        .build()
+        .flatten()
+    {
         if done {
             break;
         }
@@ -109,7 +113,11 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
             .to_string_lossy()
             .replace('\\', "/");
         if let Some(gm) = &glob_matcher {
-            let name = entry.path().file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+            let name = entry
+                .path()
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
             if !gm.is_match(&rel) && !gm.is_match(name.as_ref()) {
                 continue;
             }
@@ -142,7 +150,9 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
     }
     let mut out = lines.join("\n");
     if done {
-        out.push_str(&format!("\n... (stopped at limit {limit}; narrow the pattern or raise limit)"));
+        out.push_str(&format!(
+            "\n... (stopped at limit {limit}; narrow the pattern or raise limit)"
+        ));
     }
     Ok(out)
 }

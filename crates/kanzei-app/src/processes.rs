@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::State;
 use serde_json::json;
+use tauri::State;
 
-use crate::{
-    ensure_default_process, normalized_project_root, process_info, process_session_id,
-    AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
-};
 use crate::state::hidden_command;
+use crate::{
+    ensure_default_process, normalized_project_root, process_info, process_session_id, AppState,
+    ProcessHandle, ProcessInfo, WorktreeInfo,
+};
 
 #[tauri::command]
 pub fn list_pending_inputs(
@@ -22,8 +22,12 @@ pub fn list_pending_inputs(
     let state_path = kanzei_core::project_state_path(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
-    store.create_session(&session_id, &root.display().to_string(), None).map_err(|e| e.to_string())?;
-    store.list_pending_inputs(&session_id).map_err(|error| error.to_string())
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    store
+        .list_pending_inputs(&session_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -36,17 +40,29 @@ pub fn cancel_input(
     let state_path = kanzei_core::project_state_path(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
-    store.create_session(&session_id, &root.display().to_string(), None).map_err(|e| e.to_string())?;
-    let cancelled = store.cancel_input(&session_id, &input_id).map_err(|error| error.to_string())?;
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .map_err(|e| e.to_string())?;
+    let cancelled = store
+        .cancel_input(&session_id, &input_id)
+        .map_err(|error| error.to_string())?;
     if cancelled {
-        store.append_event(&session_id, "prompt.cancelled", &json!({ "input_id": input_id }))
+        store
+            .append_event(
+                &session_id,
+                "prompt.cancelled",
+                &json!({ "input_id": input_id }),
+            )
             .map_err(|error| error.to_string())?;
     }
     Ok(cancelled)
 }
 
 #[tauri::command]
-pub fn process_list(state: State<'_, AppState>, project_dir: String) -> Result<Vec<ProcessInfo>, String> {
+pub fn process_list(
+    state: State<'_, AppState>,
+    project_dir: String,
+) -> Result<Vec<ProcessInfo>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     let default = ensure_default_process(&state, &root);
     let processes = state.processes.lock().unwrap();
@@ -78,7 +94,15 @@ pub fn process_create(
     let next = processes
         .values()
         .filter(|process| process.project_dir == project && process.id.starts_with("p"))
-        .filter_map(|process| process.id.split('|').next()?.strip_prefix('p')?.parse::<u32>().ok())
+        .filter_map(|process| {
+            process
+                .id
+                .split('|')
+                .next()?
+                .strip_prefix('p')?
+                .parse::<u32>()
+                .ok()
+        })
         .max()
         .unwrap_or(0)
         + 1;
@@ -89,7 +113,9 @@ pub fn process_create(
         worktree_path: None,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
         profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
-        reasoning: Arc::new(Mutex::new(reasoning.filter(|value| !value.trim().is_empty()))),
+        reasoning: Arc::new(Mutex::new(
+            reasoning.filter(|value| !value.trim().is_empty()),
+        )),
         subagent_enabled: Arc::new(AtomicBool::new(subagent.unwrap_or(true))),
     };
     let info = process_info(&state, &process);
@@ -184,8 +210,8 @@ fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, S
 }
 
 fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, String> {
-    let worktree = std::fs::canonicalize(worktree_path)
-        .map_err(|e| format!("工作树不存在或无法解析: {e}"))?;
+    let worktree =
+        std::fs::canonicalize(worktree_path).map_err(|e| format!("工作树不存在或无法解析: {e}"))?;
     let parent = root
         .parent()
         .unwrap_or(root)
@@ -203,7 +229,13 @@ pub fn worktree_create(project_dir: String, name: String) -> Result<WorktreeInfo
     let safe_name: String = name
         .trim()
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') { ch } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
         .collect();
     if safe_name.is_empty() {
         return Err("工作树名称不能为空".into());
@@ -214,13 +246,27 @@ pub fn worktree_create(project_dir: String, name: String) -> Result<WorktreeInfo
         return Err(format!("工作树已存在: {}", worktree.display()));
     }
     let branch = format!("kanzei/thread-{safe_name}");
-    let output = worktree_command(&root, &[
-        "worktree", "add", "-b", &branch, &worktree.display().to_string(), "HEAD",
-    ])?;
+    let output = worktree_command(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            &branch,
+            &worktree.display().to_string(),
+            "HEAD",
+        ],
+    )?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, files: Vec::new(), clean: true, diff: String::new() })
+    Ok(WorktreeInfo {
+        path: worktree.display().to_string(),
+        branch,
+        files: Vec::new(),
+        clean: true,
+        diff: String::new(),
+    })
 }
 
 #[tauri::command]
@@ -228,7 +274,15 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
     let root = normalized_project_root(Path::new(&project_dir));
     let worktree = validate_worktree_path(&root, &worktree_path)?;
     let branch = worktree_field(&root, &worktree, "branch")?;
-    let output = worktree_command(&root, &["-C", &worktree.display().to_string(), "status", "--porcelain"])?;
+    let output = worktree_command(
+        &root,
+        &[
+            "-C",
+            &worktree.display().to_string(),
+            "status",
+            "--porcelain",
+        ],
+    )?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -237,12 +291,29 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
         .filter(|line| !line.trim().is_empty())
         .map(str::to_string)
         .collect::<Vec<_>>();
-    let diff_output = worktree_command(&root, &["-C", &worktree.display().to_string(), "diff", "--no-ext-diff", "--binary"])?;
+    let diff_output = worktree_command(
+        &root,
+        &[
+            "-C",
+            &worktree.display().to_string(),
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+        ],
+    )?;
     if !diff_output.status.success() {
-        return Err(String::from_utf8_lossy(&diff_output.stderr).trim().to_string());
+        return Err(String::from_utf8_lossy(&diff_output.stderr)
+            .trim()
+            .to_string());
     }
     let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
-    Ok(WorktreeInfo { path: worktree.display().to_string(), branch, clean: files.is_empty(), files, diff })
+    Ok(WorktreeInfo {
+        path: worktree.display().to_string(),
+        branch,
+        clean: files.is_empty(),
+        files,
+        diff,
+    })
 }
 
 #[tauri::command]
@@ -252,22 +323,39 @@ pub fn worktree_merge(project_dir: String, worktree_path: String) -> Result<Stri
     let branch = worktree_field(&root, &worktree, "branch")?;
     let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
     if !check.status.success() {
-        return Err(format!("合并前冲突检测失败,双方改动已保留:\n{}", String::from_utf8_lossy(&check.stdout)));
+        return Err(format!(
+            "合并前冲突检测失败,双方改动已保留:\n{}",
+            String::from_utf8_lossy(&check.stdout)
+        ));
     }
     let output = worktree_command(&root, &["merge", "--no-ff", &branch])?;
     if !output.status.success() {
-        return Err(format!("合并未完成,请在主项目中解决并保留工作树:\n{}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "合并未完成,请在主项目中解决并保留工作树:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    Ok(format!("已合并工作树分支 {branch};工作树仍保留,可检查后显式放弃"))
+    Ok(format!(
+        "已合并工作树分支 {branch};工作树仍保留,可检查后显式放弃"
+    ))
 }
 
 #[tauri::command]
 pub fn worktree_discard(project_dir: String, worktree_path: String) -> Result<String, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let output = worktree_command(&root, &["worktree", "remove", &worktree.display().to_string()])?;
+    let output = worktree_command(
+        &root,
+        &["worktree", "remove", &worktree.display().to_string()],
+    )?;
     if !output.status.success() {
-        return Err(format!("工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
-    Ok(format!("已放弃工作树 {} 的工作目录;分支仍保留", worktree.display()))
+    Ok(format!(
+        "已放弃工作树 {} 的工作目录;分支仍保留",
+        worktree.display()
+    ))
 }

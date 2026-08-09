@@ -69,7 +69,9 @@ impl Tool for MemorySearchTool {
             Some("any") => None,
             Some(s) if super::STATUSES.contains(&s) => Some(s),
             Some(other) => {
-                return ToolOutput::error(format!("invalid status `{other}`; valid: active | stale | any"))
+                return ToolOutput::error(format!(
+                    "invalid status `{other}`; valid: active | stale | any"
+                ))
             }
         };
         let limit = input.limit.unwrap_or(5).clamp(1, 10);
@@ -80,7 +82,11 @@ impl Tool for MemorySearchTool {
                 Err(e) => return ToolOutput::error(format!("memory search failed: {e}")),
             }
         }
-        all_hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_hits.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         all_hits.truncate(limit);
         // R-125「是否产生作用」的判据回填:开跑预检索只注入索引行,模型要真用起来
         // 就必须再拉一次正文——拉到了就说明那次召回起了作用。这里是唯一的拉取入口之一。
@@ -202,11 +208,14 @@ impl Tool for MemoryStatsTool {
             let mut by_category: std::collections::BTreeMap<&str, (usize, usize)> =
                 std::collections::BTreeMap::new();
             for (_, e) in &entries {
-                let slot = by_category.entry(super::CATEGORIES
-                    .iter()
-                    .find(|c| **c == e.category)
-                    .copied()
-                    .unwrap_or("other"))
+                let slot = by_category
+                    .entry(
+                        super::CATEGORIES
+                            .iter()
+                            .find(|c| **c == e.category)
+                            .copied()
+                            .unwrap_or("other"),
+                    )
                     .or_insert((0, 0));
                 if e.status == "active" {
                     slot.0 += 1;
@@ -214,7 +223,11 @@ impl Tool for MemoryStatsTool {
                     slot.1 += 1;
                 }
             }
-            out.push_str(&format!("[{}] {} entries", store.scope.label(), entries.len()));
+            out.push_str(&format!(
+                "[{}] {} entries",
+                store.scope.label(),
+                entries.len()
+            ));
             for (category, (active, stale)) in &by_category {
                 out.push_str(&format!(" · {category} {active}a/{stale}s"));
             }
@@ -239,7 +252,10 @@ impl Tool for MemoryStatsTool {
                 if *recalled < 3 || *fetched > 0 || flagged >= 3 {
                     continue;
                 }
-                if let Some((_, e)) = entries.iter().find(|(_, e)| &e.id == id && e.status == "active") {
+                if let Some((_, e)) = entries
+                    .iter()
+                    .find(|(_, e)| &e.id == id && e.status == "active")
+                {
                     out.push_str(&format!(
                         "\n  ⚠ 零采纳候选 {}《{}》召回 {} 次未被采纳",
                         id, e.title, recalled
@@ -272,7 +288,13 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        (dir.clone(), ToolCtx { cwd: dir.clone(), project_root: dir })
+        (
+            dir.clone(),
+            ToolCtx {
+                cwd: dir.clone(),
+                project_root: dir,
+            },
+        )
     }
 
     #[tokio::test]
@@ -280,7 +302,16 @@ mod tests {
         let (dir, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish", "user", &[], None, false)
+            .add(
+                "sop",
+                "发版 SOP 两条通道",
+                "发版发布安装更新必读",
+                "package.ps1 -Publish",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap()
         {
             crate::memory::AddOutcome::Added(_) => {}
@@ -301,13 +332,21 @@ mod tests {
             )
             .await;
         assert!(!note.is_error, "{}", note.content);
-        assert!(note.content.contains("pending notes: 1"), "{}", note.content);
+        assert!(
+            note.content.contains("pending notes: 1"),
+            "{}",
+            note.content
+        );
 
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
         assert!(stats.content.contains("[project]"), "{}", stats.content);
         assert!(stats.content.contains("sop 1a/0s"), "{}", stats.content);
-        assert!(stats.content.contains("inbox 1 pending"), "{}", stats.content);
+        assert!(
+            stats.content.contains("inbox 1 pending"),
+            "{}",
+            stats.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -317,7 +356,16 @@ mod tests {
         let (dir, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
-            .add("fact", "发版通道甲", "发版发布安装更新必读", "正文", "user", &[], None, false)
+            .add(
+                "fact",
+                "发版通道甲",
+                "发版发布安装更新必读",
+                "正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap()
         {
             crate::memory::AddOutcome::Added(_) => {}
@@ -332,8 +380,16 @@ mod tests {
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
         assert!(stats.content.contains("召回 3/采纳 0"), "{}", stats.content);
-        assert!(stats.content.contains("零采纳候选 M-001"), "{}", stats.content);
-        assert!(stats.content.contains("召回 3 次未被采纳"), "{}", stats.content);
+        assert!(
+            stats.content.contains("零采纳候选 M-001"),
+            "{}",
+            stats.content
+        );
+        assert!(
+            stats.content.contains("召回 3 次未被采纳"),
+            "{}",
+            stats.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -368,7 +424,10 @@ mod tests {
         assert!(bad.is_error);
         assert!(bad.content.contains("invalid refs"), "{}", bad.content);
         let ok = MemoryNoteTool
-            .execute(json!({"summary": "真引用", "refs": ["R-070"], "category_hint": "fact"}), &ctx)
+            .execute(
+                json!({"summary": "真引用", "refs": ["R-070"], "category_hint": "fact"}),
+                &ctx,
+            )
             .await;
         assert!(!ok.is_error, "{}", ok.content);
         let store = MemoryStore::project(&ctx.project_root);

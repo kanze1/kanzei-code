@@ -82,7 +82,6 @@ pub fn test_run_record(
     )
 }
 
-
 #[tauri::command]
 pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
@@ -91,23 +90,54 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
         let _ = DocStore::open(&root, kind).archive_terminal();
     }
     let archived = |kind: &'static kanzei_tools::docstore::DocKind| -> usize {
-        DocStore::open(&root, kind).load_archive().map_or(0, |a| a.len())
+        DocStore::open(&root, kind)
+            .load_archive()
+            .map_or(0, |a| a.len())
     };
-    let archived_entries = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
-        DocStore::open(&root, kind).load_archive().unwrap_or_default().into_iter().map(|e| json!({
-            "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
-            "fields": e.fields, "closed": true,
-        })).collect()
-    };
+    let archived_entries =
+        |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
+            DocStore::open(&root, kind)
+                .load_archive()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| {
+                    json!({
+                        "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
+                        "fields": e.fields, "closed": true,
+                    })
+                })
+                .collect()
+        };
     let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
         let store = DocStore::open(&root, kind);
         let entries = store.load().unwrap_or_default();
         let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
             if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
-                kanzei_tools::tracker::schedule_for_display(&kanzei_harness::ToolCtx::new(root.clone()), kind, &entries)
-                    .map(|items| items.into_iter().map(|item| (item.entry, item.block_reasons)).collect())
-                    .unwrap_or_else(|_| entries.iter().cloned().map(|entry| (entry, Vec::new())).collect())
-            } else { entries.iter().cloned().map(|entry| (entry, Vec::new())).collect() };
+                kanzei_tools::tracker::schedule_for_display(
+                    &kanzei_harness::ToolCtx::new(root.clone()),
+                    kind,
+                    &entries,
+                )
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| (item.entry, item.block_reasons))
+                        .collect()
+                })
+                .unwrap_or_else(|_| {
+                    entries
+                        .iter()
+                        .cloned()
+                        .map(|entry| (entry, Vec::new()))
+                        .collect()
+                })
+            } else {
+                entries
+                    .iter()
+                    .cloned()
+                    .map(|entry| (entry, Vec::new()))
+                    .collect()
+            };
         scheduled.into_iter().map(|(e, block_reasons)| {
         let (batch_done, batch_total) = kanzei_tools::docstore::batch_progress(&e);
         json!({
@@ -123,7 +153,9 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
     };
     let conventions_path = root.join(CONVENTIONS_REL);
     let conventions = match std::fs::read_to_string(&conventions_path) {
-        Ok(text) => json!({ "exists": true, "headings": text.lines().filter(|l| l.starts_with('#')).map(|l| l.trim_start_matches('#').trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>() }),
+        Ok(text) => {
+            json!({ "exists": true, "headings": text.lines().filter(|l| l.starts_with('#')).map(|l| l.trim_start_matches('#').trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>() })
+        }
         Err(_) => json!({ "exists": false, "headings": [] }),
     };
     json!({
@@ -150,22 +182,61 @@ pub async fn docs_update(
     use kanzei_harness::Tool as _;
     use kanzei_tools::tracker::TrackerTool;
     let tool = match kind.as_str() {
-        "req" => TrackerTool { tool_name: "req", noun: "requirement", kind: &REQUIREMENTS, requires_refs: None },
-        "defect" => TrackerTool { tool_name: "defect", noun: "defect", kind: &DEFECTS, requires_refs: None },
-        "source" => TrackerTool { tool_name: "source", noun: "source", kind: &SOURCES, requires_refs: None },
-        "finding" => TrackerTool { tool_name: "finding", noun: "finding", kind: &FINDINGS, requires_refs: Some(&SOURCES) },
-        "goal" => TrackerTool { tool_name: "goal", noun: "goal", kind: &GOALS, requires_refs: None },
+        "req" => TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        },
+        "defect" => TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        },
+        "source" => TrackerTool {
+            tool_name: "source",
+            noun: "source",
+            kind: &SOURCES,
+            requires_refs: None,
+        },
+        "finding" => TrackerTool {
+            tool_name: "finding",
+            noun: "finding",
+            kind: &FINDINGS,
+            requires_refs: Some(&SOURCES),
+        },
+        "goal" => TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        },
         other => return Err(format!("unknown kind `{other}`")),
     };
     let mut input = json!({ "action": action, "id": id });
-    if let Some(order) = order.filter(|o| !o.is_empty()) { input["order"] = json!(order); }
-    if let Some(status) = status { input["status"] = json!(status); }
-    if let Some(title) = title.filter(|t| !t.trim().is_empty()) { input["title"] = json!(title); }
-    if let Some(priority) = priority.filter(|p| !p.trim().is_empty()) { input["priority"] = json!(priority); }
-    if let Some(fields) = fields.filter(|f| f.is_object()) { input["fields"] = fields; }
+    if let Some(order) = order.filter(|o| !o.is_empty()) {
+        input["order"] = json!(order);
+    }
+    if let Some(status) = status {
+        input["status"] = json!(status);
+    }
+    if let Some(title) = title.filter(|t| !t.trim().is_empty()) {
+        input["title"] = json!(title);
+    }
+    if let Some(priority) = priority.filter(|p| !p.trim().is_empty()) {
+        input["priority"] = json!(priority);
+    }
+    if let Some(fields) = fields.filter(|f| f.is_object()) {
+        input["fields"] = fields;
+    }
     let ctx = kanzei_harness::ToolCtx::new(PathBuf::from(&project_dir));
     let output = tool.execute(input, &ctx).await;
-    if output.is_error { Err(output.content) } else { Ok(output.content) }
+    if output.is_error {
+        Err(output.content)
+    } else {
+        Ok(output.content)
+    }
 }
 
 fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
@@ -187,14 +258,19 @@ fn docs_path(project_dir: &str, kind: &str) -> Result<PathBuf, String> {
         "finding-archive" => DocStore::open(&root, &FINDINGS).archive_file(),
         other => return Err(format!("unknown kind `{other}`")),
     };
-    if !path.is_file() { return Err(format!("文档还不存在:{}", path.display())); }
+    if !path.is_file() {
+        return Err(format!("文档还不存在:{}", path.display()));
+    }
     Ok(path)
 }
 
 #[tauri::command]
 pub fn docs_open(project_dir: String, kind: String) -> Result<(), String> {
     let path = docs_path(&project_dir, &kind)?;
-    hidden_command("cmd").args(["/c", "start", "", &path.display().to_string()]).spawn().map_err(|e| e.to_string())?;
+    hidden_command("cmd")
+        .args(["/c", "start", "", &path.display().to_string()])
+        .spawn()
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 

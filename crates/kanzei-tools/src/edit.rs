@@ -69,7 +69,16 @@ fn preview_lines(lines: &[String]) -> String {
     let shown = lines
         .iter()
         .take(5)
-        .map(|l| format!("  - {}", if l.chars().count() > 100 { format!("{}…", l.chars().take(100).collect::<String>()) } else { l.clone() }))
+        .map(|l| {
+            format!(
+                "  - {}",
+                if l.chars().count() > 100 {
+                    format!("{}…", l.chars().take(100).collect::<String>())
+                } else {
+                    l.clone()
+                }
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     if lines.len() > 5 {
@@ -205,7 +214,11 @@ impl Tool for EditTool {
                  确实要删就把 allow_deletion 置 true 重来;若本意是新增内容,\
                  说明 old_string 匹配到了不该动的位置——缩小 old_string 或改成插入式替换\
                  (把原文原样包含在 new_string 里)。\n将被删掉的内容:\n{}",
-                if occurrences > 1 { format!(",共 {occurrences} 处") } else { String::new() },
+                if occurrences > 1 {
+                    format!(",共 {occurrences} 处")
+                } else {
+                    String::new()
+                },
                 preview_lines(&dropped)
             ));
         }
@@ -257,7 +270,10 @@ impl EditTool {
     /// (等于替模型重读),并明确禁止转向整文件重写。
     fn miss_feedback(&self, path: &Path, old_string: &str, content: &str) -> ToolOutput {
         let miss_count = self.record_miss(path);
-        let first_line = old_string.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
+        let first_line = old_string
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
         let mut message = format!(
             "old_string not found in {} — it must match exactly, including whitespace.",
             path.display()
@@ -288,10 +304,7 @@ fn excerpt_around(content: &str, anchor: &str) -> String {
     let center = if anchor.is_empty() {
         0
     } else {
-        lines
-            .iter()
-            .position(|l| l.contains(anchor))
-            .unwrap_or(0)
+        lines.iter().position(|l| l.contains(anchor)).unwrap_or(0)
     };
     let start = center.saturating_sub(EXCERPT_LINES / 2);
     let end = (start + EXCERPT_LINES).min(lines.len());
@@ -336,7 +349,10 @@ mod tests {
         // R-153 批10 实况:想在 build_runner_config 前面插一个新函数,new_string 却
         // 没带上被匹配的那行签名,结果文件里只剩一个孤零零的 `(`,整个 crate 编译不过。
         // 净行数 +6,纯行数门禁拦不住,只能靠"长了却没保住原文"这个形状。
-        let (dir, ctx) = setup("anchor", "fn a() {}\n\npub(crate) fn build(\n    x: u8,\n) {}\n");
+        let (dir, ctx) = setup(
+            "anchor",
+            "fn a() {}\n\npub(crate) fn build(\n    x: u8,\n) {}\n",
+        );
         let call = json!({
             "path": "target.txt",
             "old_string": "pub(crate) fn build(",
@@ -344,7 +360,11 @@ mod tests {
         });
         let out = EditTool::default().execute(call.clone(), &ctx).await;
         assert!(out.is_error, "插入却吃掉锚点必须拦下: {}", out.content);
-        assert!(out.content.contains("pub(crate) fn build("), "要指出丢了哪一行: {}", out.content);
+        assert!(
+            out.content.contains("pub(crate) fn build("),
+            "要指出丢了哪一行: {}",
+            out.content
+        );
         assert_eq!(
             std::fs::read_to_string(dir.join("target.txt")).unwrap(),
             "fn a() {}\n\npub(crate) fn build(\n    x: u8,\n) {}\n",
@@ -373,7 +393,11 @@ mod tests {
         let out = EditTool::default().execute(del.clone(), &ctx).await;
         assert!(out.is_error, "净删除 3 行必须先拦下来: {}", out.content);
         assert!(out.content.contains("allow_deletion"), "{}", out.content);
-        assert!(out.content.contains("- b"), "要列出将被删掉的内容: {}", out.content);
+        assert!(
+            out.content.contains("- b"),
+            "要列出将被删掉的内容: {}",
+            out.content
+        );
         assert_eq!(
             std::fs::read_to_string(dir.join("target.txt")).unwrap(),
             "keep\na\nb\nc\nd\ntail\n",
@@ -381,9 +405,14 @@ mod tests {
         );
         let mut ack = del.as_object().unwrap().clone();
         ack.insert("allow_deletion".into(), json!(true));
-        let out = EditTool::default().execute(serde_json::Value::Object(ack), &ctx).await;
+        let out = EditTool::default()
+            .execute(serde_json::Value::Object(ack), &ctx)
+            .await;
         assert!(!out.is_error, "显式确认后应放行: {}", out.content);
-        assert_eq!(std::fs::read_to_string(dir.join("target.txt")).unwrap(), "keep\na\ntail\n");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+            "keep\na\ntail\n"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -406,7 +435,11 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(out.content.contains("NOTE"), "等量替换也要报丢失行: {}", out.content);
+        assert!(
+            out.content.contains("NOTE"),
+            "等量替换也要报丢失行: {}",
+            out.content
+        );
         assert!(
             out.content.contains("body[\"effort\"] = x;"),
             "被顶掉的那行必须出现在提示里: {}",
@@ -428,7 +461,10 @@ mod tests {
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("normalized"), "{}", out.content);
         let saved = std::fs::read_to_string(dir.join("target.txt")).unwrap();
-        assert_eq!(saved, "fn main() {\r\n    new();\r\n}\r\n", "必须保持文件原有 CRLF 风格");
+        assert_eq!(
+            saved, "fn main() {\r\n    new();\r\n}\r\n",
+            "必须保持文件原有 CRLF 风格"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -436,23 +472,46 @@ mod tests {
     async fn second_consecutive_miss_includes_file_excerpt() {
         let (dir, ctx) = setup("miss", "line one\nline two has anchor\nline three\n");
         let tool = EditTool::default();
-        let miss = json!({"path": "target.txt", "old_string": "has anchor but wrong", "new_string": "x"});
+        let miss =
+            json!({"path": "target.txt", "old_string": "has anchor but wrong", "new_string": "x"});
         let first = tool.execute(miss.clone(), &ctx).await;
         assert!(first.is_error);
-        assert!(!first.content.contains("line three"), "首次未命中不附全文: {}", first.content);
+        assert!(
+            !first.content.contains("line three"),
+            "首次未命中不附全文: {}",
+            first.content
+        );
         let second = tool.execute(miss, &ctx).await;
         assert!(second.is_error);
-        assert!(second.content.contains("line two has anchor"), "第二次必须附文件实际内容: {}", second.content);
-        assert!(second.content.contains("Set-Content"), "必须明确禁止整文件重写兜底: {}", second.content);
+        assert!(
+            second.content.contains("line two has anchor"),
+            "第二次必须附文件实际内容: {}",
+            second.content
+        );
+        assert!(
+            second.content.contains("Set-Content"),
+            "必须明确禁止整文件重写兜底: {}",
+            second.content
+        );
         // 成功一次后计数清零。
         let ok = tool
-            .execute(json!({"path": "target.txt", "old_string": "line three", "new_string": "line 3"}), &ctx)
+            .execute(
+                json!({"path": "target.txt", "old_string": "line three", "new_string": "line 3"}),
+                &ctx,
+            )
             .await;
         assert!(!ok.is_error, "{}", ok.content);
         let third = tool
-            .execute(json!({"path": "target.txt", "old_string": "nope nope", "new_string": "x"}), &ctx)
+            .execute(
+                json!({"path": "target.txt", "old_string": "nope nope", "new_string": "x"}),
+                &ctx,
+            )
             .await;
-        assert!(!third.content.contains("ACTUAL content"), "成功后计数应清零: {}", third.content);
+        assert!(
+            !third.content.contains("ACTUAL content"),
+            "成功后计数应清零: {}",
+            third.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

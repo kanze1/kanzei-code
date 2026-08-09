@@ -4,49 +4,49 @@
 
 use rusqlite::{params, OptionalExtension};
 
-use super::{now_ms, LEGACY_PROMOTED_GRACE_MS, SCHEMA_VERSION, SessionStore, StoreError};
+use super::{now_ms, SessionStore, StoreError, LEGACY_PROMOTED_GRACE_MS, SCHEMA_VERSION};
 
 impl SessionStore {
-        pub(crate) fn migrate(&self) -> Result<(), StoreError> {
-            self.connection.execute_batch(
-                "PRAGMA foreign_keys = ON;
+    pub(crate) fn migrate(&self) -> Result<(), StoreError> {
+        self.connection.execute_batch(
+            "PRAGMA foreign_keys = ON;
                  CREATE TABLE IF NOT EXISTS schema_meta (
                      key TEXT PRIMARY KEY NOT NULL,
                      value TEXT NOT NULL
                  );",
-            )?;
-            let current: Option<i64> = self
-                .connection
-                .query_row(
-                    "SELECT value FROM schema_meta WHERE key = 'schema_version'",
-                    [],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?
-                .map(|value| value.parse().unwrap_or_default());
-            if let Some(version) = current {
-                if version > SCHEMA_VERSION {
-                    return Err(StoreError::UnsupportedSchema {
-                        found: version,
-                        supported: SCHEMA_VERSION,
-                    });
-                }
-                if version == SCHEMA_VERSION {
-                    return Ok(());
-                }
-                // 升级前先留一份旧版本的完整副本。迁移是单向的:一旦升上去,旧二进制
-                // 就再也打不开这个库(上面那条 UnsupportedSchema),而桌面端与 CLI 是
-                // 两个独立安装通道、可能一新一旧,回退也就无路可走。备份是那条退路。
-                self.backup_before_upgrade(version)?;
-                // v7:从备份里把被抹掉的输入状态位捞回来。ATTACH 不能在事务里执行,
-                // 所以放在主迁移事务之前单独做。
-                if version < 7 {
-                    self.recover_legacy_input_status()?;
-                }
+        )?;
+        let current: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| value.parse().unwrap_or_default());
+        if let Some(version) = current {
+            if version > SCHEMA_VERSION {
+                return Err(StoreError::UnsupportedSchema {
+                    found: version,
+                    supported: SCHEMA_VERSION,
+                });
             }
-            let tx = self.connection.unchecked_transaction()?;
-            tx.execute_batch(
-                "CREATE TABLE IF NOT EXISTS sessions (
+            if version == SCHEMA_VERSION {
+                return Ok(());
+            }
+            // 升级前先留一份旧版本的完整副本。迁移是单向的:一旦升上去,旧二进制
+            // 就再也打不开这个库(上面那条 UnsupportedSchema),而桌面端与 CLI 是
+            // 两个独立安装通道、可能一新一旧,回退也就无路可走。备份是那条退路。
+            self.backup_before_upgrade(version)?;
+            // v7:从备份里把被抹掉的输入状态位捞回来。ATTACH 不能在事务里执行,
+            // 所以放在主迁移事务之前单独做。
+            if version < 7 {
+                self.recover_legacy_input_status()?;
+            }
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sessions (
                      session_id TEXT PRIMARY KEY NOT NULL,
                      project_root TEXT NOT NULL,
                      title TEXT,
@@ -128,31 +128,31 @@ impl SessionStore {
                      ON episodes(session_id, created_at);
                  INSERT INTO schema_meta(key, value) VALUES ('schema_version', '7')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
-            )?;
-            // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
-            // 列已存在时报错,忽略即可——这是幂等迁移的常规写法。
-            for column in [
-                "metrics_json TEXT NOT NULL DEFAULT '{}'",
-                "provider TEXT NOT NULL DEFAULT ''",
-                "model TEXT NOT NULL DEFAULT ''",
-                "run_id TEXT NOT NULL DEFAULT ''",
-                "input_id TEXT NOT NULL DEFAULT ''",
-                "duration_ms INTEGER NOT NULL DEFAULT 0",
-                "overflow_json TEXT NOT NULL DEFAULT ''",
-            ] {
-                let _ = tx.execute(&format!("ALTER TABLE episodes ADD COLUMN {column}"), []);
-            }
-            // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
-            // 只在旧约束still生效时做,重建是幂等的:新库建出来就已经含 running。
-            let legacy_check: Option<String> = tx
-                .query_row(
-                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'session_inputs'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if legacy_check.is_some_and(|sql| !sql.contains("running")) {
-                tx.execute_batch(
+        )?;
+        // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
+        // 列已存在时报错,忽略即可——这是幂等迁移的常规写法。
+        for column in [
+            "metrics_json TEXT NOT NULL DEFAULT '{}'",
+            "provider TEXT NOT NULL DEFAULT ''",
+            "model TEXT NOT NULL DEFAULT ''",
+            "run_id TEXT NOT NULL DEFAULT ''",
+            "input_id TEXT NOT NULL DEFAULT ''",
+            "duration_ms INTEGER NOT NULL DEFAULT 0",
+            "overflow_json TEXT NOT NULL DEFAULT ''",
+        ] {
+            let _ = tx.execute(&format!("ALTER TABLE episodes ADD COLUMN {column}"), []);
+        }
+        // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
+        // 只在旧约束still生效时做,重建是幂等的:新库建出来就已经含 running。
+        let legacy_check: Option<String> = tx
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'session_inputs'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if legacy_check.is_some_and(|sql| !sql.contains("running")) {
+            tx.execute_batch(
                     "ALTER TABLE session_inputs RENAME TO session_inputs_v4;
                      CREATE TABLE session_inputs (
                          input_id TEXT PRIMARY KEY NOT NULL,
@@ -173,29 +173,29 @@ impl SessionStore {
                      CREATE INDEX IF NOT EXISTS session_inputs_pending
                          ON session_inputs(session_id, delivery, status, created_at);",
                 )?;
-            }
-            // v6 回填(D-180):v5 之前没有 running/completed,跑完的输入永远停在
-            // promoted。这些存量不回填的话,用户下一次按停止仍会被 finalize_interrupt
-            // 一并改写成 cancelled——新记录不再被污染,存量却还在被反复追认。
-            //
-            // completed 是**迁移推断值**,不是观测值:v5 之前根本没有记录结局的地方,
-            // 只能按"被提升了就说明当时确实执行过"来判定。保护窗内(可能正被另一个
-            // 进程执行)的一律不动,宁可漏回填也不误判在飞的输入。
-            let backfilled = tx.execute(
-                "UPDATE session_inputs SET status = 'completed'
-                 WHERE status = 'promoted' AND (promoted_at IS NULL OR promoted_at < ?1)",
-                params![now_ms() - LEGACY_PROMOTED_GRACE_MS],
-            )?;
-            if backfilled > 0 {
-                tracing::info!(
-                    backfilled,
-                    "v6 迁移:遗留 promoted 输入按迁移推断回填为 completed"
-                );
-            }
-            tx.commit()?;
-            Ok(())
         }
+        // v6 回填(D-180):v5 之前没有 running/completed,跑完的输入永远停在
+        // promoted。这些存量不回填的话,用户下一次按停止仍会被 finalize_interrupt
+        // 一并改写成 cancelled——新记录不再被污染,存量却还在被反复追认。
+        //
+        // completed 是**迁移推断值**,不是观测值:v5 之前根本没有记录结局的地方,
+        // 只能按"被提升了就说明当时确实执行过"来判定。保护窗内(可能正被另一个
+        // 进程执行)的一律不动,宁可漏回填也不误判在飞的输入。
+        let backfilled = tx.execute(
+            "UPDATE session_inputs SET status = 'completed'
+                 WHERE status = 'promoted' AND (promoted_at IS NULL OR promoted_at < ?1)",
+            params![now_ms() - LEGACY_PROMOTED_GRACE_MS],
+        )?;
+        if backfilled > 0 {
+            tracing::info!(
+                backfilled,
+                "v6 迁移:遗留 promoted 输入按迁移推断回填为 completed"
+            );
+        }
+        tx.commit()?;
+        Ok(())
     }
+}
 
 #[cfg(test)]
 mod tests {
@@ -259,14 +259,23 @@ mod tests {
             "promoted",
             "保护窗内的输入可能正被另一个进程执行,不得回填"
         );
-        assert_eq!(store.input_status("still_pending").unwrap().unwrap(), "pending");
+        assert_eq!(
+            store.input_status("still_pending").unwrap().unwrap(),
+            "pending"
+        );
 
         // 回填之后再停止,已回填的历史输入不再被追认为 cancelled。
         store.set_status("ses_legacy", "running").unwrap();
         store.finalize_interrupt("ses_legacy").unwrap();
         assert_eq!(store.input_status("old_a").unwrap().unwrap(), "completed");
-        assert_eq!(store.input_status("just_now").unwrap().unwrap(), "cancelled");
-        assert_eq!(store.input_status("still_pending").unwrap().unwrap(), "cancelled");
+        assert_eq!(
+            store.input_status("just_now").unwrap().unwrap(),
+            "cancelled"
+        );
+        assert_eq!(
+            store.input_status("still_pending").unwrap().unwrap(),
+            "cancelled"
+        );
 
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
@@ -320,7 +329,10 @@ mod tests {
                 .execute("UPDATE session_inputs SET status='cancelled'", [])
                 .unwrap();
             live.connection
-                .execute("UPDATE schema_meta SET value='6' WHERE key='schema_version'", [])
+                .execute(
+                    "UPDATE schema_meta SET value='6' WHERE key='schema_version'",
+                    [],
+                )
                 .unwrap();
         }
 
@@ -363,7 +375,10 @@ mod tests {
             store.admit_input("ses", "a", "a", Delivery::Queue).unwrap();
             store
                 .connection
-                .execute("UPDATE schema_meta SET value='6' WHERE key='schema_version'", [])
+                .execute(
+                    "UPDATE schema_meta SET value='6' WHERE key='schema_version'",
+                    [],
+                )
                 .unwrap();
         }
         let store = SessionStore::open(&path).unwrap();
@@ -385,7 +400,11 @@ mod tests {
             let store = SessionStore::open(&path).unwrap();
             store.create_session("ses_old", "C:/project", None).unwrap();
             store
-                .append_event("ses_old", "conversation.updated", &serde_json::json!({"v": 1}))
+                .append_event(
+                    "ses_old",
+                    "conversation.updated",
+                    &serde_json::json!({"v": 1}),
+                )
                 .unwrap();
             store
                 .connection
@@ -439,7 +458,10 @@ mod tests {
         let text = error.to_string();
         assert!(text.contains("cargo install"), "要告诉 CLI 怎么升: {text}");
         assert!(text.contains("检查更新"), "要告诉桌面端怎么升: {text}");
-        assert!(text.contains("不要删库"), "必须堵死删库这条错误动作: {text}");
+        assert!(
+            text.contains("不要删库"),
+            "必须堵死删库这条错误动作: {text}"
+        );
 
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
@@ -447,4 +469,3 @@ mod tests {
         let _ = std::fs::remove_file(&backup);
     }
 }
-

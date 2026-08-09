@@ -50,7 +50,10 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("kanzei-cli-bash-e2-{}-{suffix}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-cli-bash-e2-{}-{suffix}",
+        std::process::id()
+    ));
     let home = root.join("home");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
@@ -117,8 +120,18 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
     let output = child.wait_with_output().await.unwrap();
     server.await.unwrap();
 
-    assert!(output.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert_eq!(std::fs::read_to_string(project.join("marker.txt")).unwrap().trim(), "kz-e2");
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.join("marker.txt"))
+            .unwrap()
+            .trim(),
+        "kz-e2"
+    );
 
     let config_text = std::fs::read_to_string(project.join(".kanzei/kanzei.toml")).unwrap();
     let saved: KanzeiConfig = toml::from_str(&config_text).unwrap();
@@ -144,7 +157,8 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("kanzei-cli-d054-{}-{suffix}", std::process::id()));
+    let root =
+        std::env::temp_dir().join(format!("kanzei-cli-d054-{}-{suffix}", std::process::id()));
     let home = root.join("home");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
@@ -210,11 +224,21 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     drop(stdin);
     let output = child.wait_with_output().await.unwrap();
     server.await.unwrap();
-    assert_eq!(output.status.code(), Some(3), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    assert_eq!(std::fs::read_to_string(project.join("allowed.md")).unwrap(), "executed");
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.join("allowed.md")).unwrap(),
+        "executed"
+    );
     assert!(!project.join("refused-marker.txt").exists());
 
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
     let session_id = kanzei_core::project_session_id(&project);
     let event = store
         .list_events(&session_id, 0)
@@ -223,15 +247,20 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .rev()
         .find(|event| event.event_type == "conversation.updated")
         .expect("declined run should persist conversation");
-    let messages: Vec<kanzei_llm::Message> = serde_json::from_value(event.payload["messages"].clone()).unwrap();
+    let messages: Vec<kanzei_llm::Message> =
+        serde_json::from_value(event.payload["messages"].clone()).unwrap();
     let results: Vec<&kanzei_llm::Part> = messages
         .iter()
         .flat_map(|message| &message.parts)
         .filter(|part| matches!(part, kanzei_llm::Part::ToolResult { .. }))
         .collect();
     assert_eq!(results.len(), 2);
-    assert!(matches!(results[0], kanzei_llm::Part::ToolResult { call_id, is_error: false, .. } if call_id == "call_write_d054"));
-    assert!(matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined")));
+    assert!(
+        matches!(results[0], kanzei_llm::Part::ToolResult { call_id, is_error: false, .. } if call_id == "call_write_d054")
+    );
+    assert!(
+        matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined"))
+    );
 
     let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address2 = listener2.local_addr().unwrap();
@@ -267,7 +296,12 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .await
         .unwrap();
     server2.await.unwrap();
-    assert!(output2.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output2.stdout), String::from_utf8_lossy(&output2.stderr));
+    assert!(
+        output2.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output2.stdout),
+        String::from_utf8_lossy(&output2.stderr)
+    );
     assert!(String::from_utf8_lossy(&output2.stdout).contains("recovered after denial"));
 
     drop(store);
@@ -280,7 +314,10 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = std::env::temp_dir().join(format!("kanzei-cli-legacy-d054-{}-{suffix}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-cli-legacy-d054-{}-{suffix}",
+        std::process::id()
+    ));
     let home = root.join("home");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
@@ -289,7 +326,9 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
     let state_path = kanzei_core::project_state_path(&project);
     let store = kanzei_core::SessionStore::open(&state_path).unwrap();
     let session_id = kanzei_core::project_session_id(&project);
-    store.create_session(&session_id, &project.display().to_string(), None).unwrap();
+    store
+        .create_session(&session_id, &project.display().to_string(), None)
+        .unwrap();
     let damaged = vec![
         kanzei_llm::Message::user_text("旧任务"),
         kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
@@ -343,7 +382,12 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
         .unwrap();
     let request = server.await.unwrap();
 
-    assert!(output.status.success(), "stdout={} stderr={}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(String::from_utf8_lossy(&output.stdout).contains("recovered legacy snapshot"));
     assert!(!String::from_utf8_lossy(&request).contains("legacy_orphan"));
     std::fs::remove_dir_all(root).unwrap();

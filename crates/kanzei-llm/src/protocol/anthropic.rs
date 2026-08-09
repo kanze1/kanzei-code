@@ -334,7 +334,10 @@ mod tests {
             "content_block_start",
             r#"{"type":"content_block_start","index":1,"content_block":{"type":"text"}}"#,
         );
-        assert!(matches!(events.as_slice(), [LlmEvent::TextStart { index: 1 }]));
+        assert!(matches!(
+            events.as_slice(),
+            [LlmEvent::TextStart { index: 1 }]
+        ));
         let events = feed(
             &mut state,
             "content_block_delta",

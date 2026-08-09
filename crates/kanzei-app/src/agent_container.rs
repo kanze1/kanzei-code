@@ -18,7 +18,13 @@ fn agent_container_path(agent_id: &str) -> Result<PathBuf, String> {
     let safe: String = agent_id
         .trim()
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') { ch } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
         .collect();
     if safe.is_empty() {
         return Err("agent_id 不能为空".into());
@@ -51,15 +57,24 @@ pub fn agent_container_create(agent_id: String) -> Result<AgentContainerManifest
         version: "1".into(),
         status: "ready".into(),
         permissions: vec!["read".into()],
-        updated_at: SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs() as i64,
+        updated_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs() as i64,
     };
-    std::fs::write(&path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     Ok(manifest)
 }
 
 #[tauri::command]
-pub fn agent_container_upgrade(agent_id: String, version: String) -> Result<AgentContainerManifest, String> {
+pub fn agent_container_upgrade(
+    agent_id: String,
+    version: String,
+) -> Result<AgentContainerManifest, String> {
     let (path, mut manifest) = read_agent_container(&agent_id)?;
     let version = version.trim();
     if version.is_empty() {
@@ -68,9 +83,15 @@ pub fn agent_container_upgrade(agent_id: String, version: String) -> Result<Agen
     let backup = path.with_extension("json.previous");
     std::fs::copy(&path, &backup).map_err(|e| format!("保存升级回滚点失败: {e}"))?;
     manifest.version = version.to_owned();
-    manifest.updated_at = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs() as i64;
-    std::fs::write(&path, serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("写入升级清单失败: {e}"))?;
+    manifest.updated_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs() as i64;
+    std::fs::write(
+        &path,
+        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("写入升级清单失败: {e}"))?;
     Ok(manifest)
 }
 
@@ -79,7 +100,8 @@ pub fn agent_container_rollback(agent_id: String) -> Result<AgentContainerManife
     let (path, _) = read_agent_container(&agent_id)?;
     let backup = path.with_extension("json.previous");
     let text = std::fs::read_to_string(&backup).map_err(|e| format!("没有可用回滚点: {e}"))?;
-    let manifest: AgentContainerManifest = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let manifest: AgentContainerManifest =
+        serde_json::from_str(&text).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
     Ok(manifest)
 }

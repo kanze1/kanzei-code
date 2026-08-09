@@ -22,7 +22,9 @@ pub struct QuestionTool;
 
 #[async_trait]
 impl Tool for QuestionTool {
-    fn name(&self) -> &'static str { "question" }
+    fn name(&self) -> &'static str {
+        "question"
+    }
 
     fn description(&self) -> String {
         "Ask the user a structured question. Params: question; optional options and default. Use for clarification instead of guessing.".into()
@@ -32,7 +34,9 @@ impl Tool for QuestionTool {
         serde_json::to_value(schemars::schema_for!(QuestionInput)).unwrap()
     }
 
-    fn resources(&self, _input: &serde_json::Value) -> Vec<String> { vec![] }
+    fn resources(&self, _input: &serde_json::Value) -> Vec<String> {
+        vec![]
+    }
 
     async fn execute(&self, _input: serde_json::Value, _ctx: &ToolCtx) -> ToolOutput {
         ToolOutput::error("question must be handled by the interactive runner")

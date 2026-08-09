@@ -867,21 +867,34 @@ mod tests {
             title: "t".into(),
             status: "doing".into(),
             severity: None,
-            fields: fields.into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
         };
         // 没写批次:格数来自复杂度,一格未填。
         assert_eq!(batch_progress(&make(vec![("复杂度", "大")])), (0, 8));
         assert_eq!(batch_progress(&make(vec![("复杂度", "中")])), (0, 3));
         assert_eq!(batch_progress(&make(vec![("复杂度", "小")])), (0, 1));
-        assert_eq!(batch_progress(&make(vec![])), (0, 1), "没评估复杂度按一轮做完算");
+        assert_eq!(
+            batch_progress(&make(vec![])),
+            (0, 1),
+            "没评估复杂度按一轮做完算"
+        );
 
         // 写了就以它为准:拆解类天然不止 8 批,默认值不能压住实际批次表。
-        assert_eq!(batch_progress(&make(vec![("复杂度", "大"), ("批次", "3/11")])), (3, 11));
+        assert_eq!(
+            batch_progress(&make(vec![("复杂度", "大"), ("批次", "3/11")])),
+            (3, 11)
+        );
         // 手写文档的宽容:空格与全角斜杠。
         assert_eq!(batch_progress(&make(vec![("批次", " 2 ／ 5 ")])), (2, 5));
         // 已完成不会超过总数;0/0 视为没声明,回落复杂度而不是画 0 个格。
         assert_eq!(batch_progress(&make(vec![("批次", "9/5")])), (5, 5));
-        assert_eq!(batch_progress(&make(vec![("复杂度", "中"), ("批次", "0/0")])), (0, 3));
+        assert_eq!(
+            batch_progress(&make(vec![("复杂度", "中"), ("批次", "0/0")])),
+            (0, 3)
+        );
         assert_eq!(batch_progress(&make(vec![("批次", "乱写")])), (0, 1));
     }
 

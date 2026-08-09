@@ -84,7 +84,10 @@ async fn refresh_if_needed(
         .ok_or_else(|| LlmError::Config("Claude OAuth 刷新响应缺少 access_token".into()))?;
     let expires_in = body["expires_in"].as_i64().unwrap_or(3600);
     credentials["claudeAiOauth"]["accessToken"] = json!(access_token);
-    if let Some(token) = body["refresh_token"].as_str().filter(|token| !token.is_empty()) {
+    if let Some(token) = body["refresh_token"]
+        .as_str()
+        .filter(|token| !token.is_empty())
+    {
         credentials["claudeAiOauth"]["refreshToken"] = json!(token);
     }
     credentials["claudeAiOauth"]["expiresAt"] =
@@ -106,7 +109,12 @@ fn headers_from_credentials(
     let access_token = oauth["accessToken"]
         .as_str()
         .filter(|token| !token.is_empty())
-        .ok_or_else(|| LlmError::Config(format!("{} 缺少 claudeAiOauth.accessToken，请重新登录", path.display())))?;
+        .ok_or_else(|| {
+            LlmError::Config(format!(
+                "{} 缺少 claudeAiOauth.accessToken，请重新登录",
+                path.display()
+            ))
+        })?;
     if let Some(expires_at) = oauth["expiresAt"].as_i64() {
         if expires_at <= chrono::Utc::now().timestamp_millis() {
             return Err(LlmError::Config(format!(
@@ -141,9 +149,12 @@ mod tests {
                 "expiresAt": 4_000_000_000_000i64
             }
         });
-        let headers = headers_from_credentials(&credentials, std::path::Path::new("credentials"))
-            .unwrap();
-        assert_eq!(headers[0], ("authorization".into(), "Bearer access-token".into()));
+        let headers =
+            headers_from_credentials(&credentials, std::path::Path::new("credentials")).unwrap();
+        assert_eq!(
+            headers[0],
+            ("authorization".into(), "Bearer access-token".into())
+        );
         assert!(!headers.iter().any(|(name, _)| name == "x-api-key"));
     }
 

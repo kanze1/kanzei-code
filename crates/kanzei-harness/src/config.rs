@@ -508,17 +508,40 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
     check(
         value,
         "",
-        &["models", "providers", "proxy", "profile", "permissions", "limits"],
+        &[
+            "models",
+            "providers",
+            "proxy",
+            "profile",
+            "permissions",
+            "limits",
+        ],
         &mut out,
     );
     if let Some(models) = value.get("models") {
-        check(models, "models", &["primary", "fast", "reasoning", "codex_fast_mode"], &mut out);
+        check(
+            models,
+            "models",
+            &["primary", "fast", "reasoning", "codex_fast_mode"],
+            &mut out,
+        );
     }
     if let Some(limits) = value.get("limits") {
         check(
             limits,
             "limits",
-            &["max_tokens", "subagent_max_tokens", "subagent_timeout_secs", "context_budget_ratio", "recent_verbatim_ratio", "max_tasks_per_turn", "max_parallel_tools", "transport_retries", "rate_limit_retries", "stream_restarts"],
+            &[
+                "max_tokens",
+                "subagent_max_tokens",
+                "subagent_timeout_secs",
+                "context_budget_ratio",
+                "recent_verbatim_ratio",
+                "max_tasks_per_turn",
+                "max_parallel_tools",
+                "transport_retries",
+                "rate_limit_retries",
+                "stream_restarts",
+            ],
             &mut out,
         );
     }
@@ -527,7 +550,14 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
             check(
                 provider,
                 &format!("providers.{name}"),
-                &["protocol", "base_url", "api_key_env", "api_key", "auth", "context_limit"],
+                &[
+                    "protocol",
+                    "base_url",
+                    "api_key_env",
+                    "api_key",
+                    "auth",
+                    "context_limit",
+                ],
                 &mut out,
             );
         }
@@ -584,7 +614,16 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         };
     }
     overlay!(
-        max_tokens, subagent_max_tokens, subagent_timeout_secs, context_budget_ratio, recent_verbatim_ratio, max_tasks_per_turn, max_parallel_tools, transport_retries, rate_limit_retries, stream_restarts,
+        max_tokens,
+        subagent_max_tokens,
+        subagent_timeout_secs,
+        context_budget_ratio,
+        recent_verbatim_ratio,
+        max_tasks_per_turn,
+        max_parallel_tools,
+        transport_retries,
+        rate_limit_retries,
+        stream_restarts,
     );
 }
 
@@ -612,11 +651,16 @@ pub fn append_allow_rule(
         anyhow::bail!("{}: `permissions` 不是表,无法追加规则", path.display());
     };
     permissions.set_implicit(true);
-    let rules = permissions.entry("rules").or_insert(toml_edit::Item::ArrayOfTables(
-        toml_edit::ArrayOfTables::new(),
-    ));
+    let rules = permissions
+        .entry("rules")
+        .or_insert(toml_edit::Item::ArrayOfTables(
+            toml_edit::ArrayOfTables::new(),
+        ));
     let Some(rules) = rules.as_array_of_tables_mut() else {
-        anyhow::bail!("{}: `permissions.rules` 不是数组表,无法追加规则", path.display());
+        anyhow::bail!(
+            "{}: `permissions.rules` 不是数组表,无法追加规则",
+            path.display()
+        );
     };
     let mut rule = toml_edit::Table::new();
     rule.insert("action", toml_edit::value(action));
@@ -741,11 +785,16 @@ mod tests {
         let layer: KanzeiConfig = toml::from_str("[limits]\nmax_tokens = 16384\n").unwrap();
         merge(&mut base, layer);
         assert_eq!(base.limits.max_tokens(), 16384, "项目层写了的键要覆盖");
-        assert_eq!(base.limits.subagent_timeout_secs(), 300, "没写的键必须保住全局层的值");
+        assert_eq!(
+            base.limits.subagent_timeout_secs(),
+            300,
+            "没写的键必须保住全局层的值"
+        );
 
         // 离谱取值被夹住,不至于把运行时配崩。
         let wild: KanzeiConfig =
-            toml::from_str("[limits]\ncontext_budget_ratio = 9.0\nmax_tasks_per_turn = 0\n").unwrap();
+            toml::from_str("[limits]\ncontext_budget_ratio = 9.0\nmax_tasks_per_turn = 0\n")
+                .unwrap();
         assert_eq!(wild.limits.context_budget_ratio(), 0.95);
         assert_eq!(wild.limits.max_tasks_per_turn(), 1);
     }
@@ -847,14 +896,21 @@ base_url = "https://api.moonshot.cn/v1"
 typo_fielt = true
 "#;
         let config: KanzeiConfig = toml::from_str(text).unwrap();
-        assert_eq!(config.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        assert_eq!(
+            config.models.primary.as_deref(),
+            Some("anthropic:claude-sonnet-5")
+        );
         assert!(config.providers.contains_key("kimi"));
         let raw: toml::Value = toml::from_str(text).unwrap();
         let mut unknown = unknown_keys(&raw);
         unknown.sort();
         assert_eq!(
             unknown,
-            vec!["future_section", "models.new_feature_field", "providers.kimi.typo_fielt"]
+            vec![
+                "future_section",
+                "models.new_feature_field",
+                "providers.kimi.typo_fielt"
+            ]
         );
     }
 
@@ -871,8 +927,7 @@ typo_fielt = true
             resource: "git status".into(),
             effect: crate::permission::Effect::Allow,
         });
-        let raw: toml::Value =
-            toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
+        let raw: toml::Value = toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
         assert_eq!(unknown_keys(&raw), Vec::<String>::new());
     }
 
@@ -902,7 +957,10 @@ typo_fielt = true
             "[future_section]",
             "keep_me = true",
         ] {
-            assert!(saved.contains(expected), "missing preserved text: {expected}\n---\n{saved}");
+            assert!(
+                saved.contains(expected),
+                "missing preserved text: {expected}\n---\n{saved}"
+            );
         }
         let config: KanzeiConfig = toml::from_str(&saved).unwrap();
         assert_eq!(config.permissions.rules.len(), 1);
@@ -1011,7 +1069,10 @@ typo_fielt = true
         assert!(is_home_root(&home));
         #[cfg(windows)]
         {
-            assert!(is_home_root(&PathBuf::from(format!("{}\\", home.display()))));
+            assert!(is_home_root(&PathBuf::from(format!(
+                "{}\\",
+                home.display()
+            ))));
             assert!(is_home_root(&PathBuf::from(
                 home.display().to_string().replace('\\', "/")
             )));
@@ -1033,13 +1094,17 @@ typo_fielt = true
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let resource = r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"C:/project"}"#;
+        let resource =
+            r#"{"command":"git status > .kanzei/project/requirements.md","workdir":"C:/project"}"#;
         let path = append_allow_rule(&root, "bash", resource).unwrap();
         let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(saved.permissions.rules.len(), 1);
         assert_eq!(saved.permissions.rules[0].action, "bash");
         assert_eq!(saved.permissions.rules[0].resource, resource);
-        assert_eq!(saved.permissions.rules[0].effect, crate::permission::Effect::Allow);
+        assert_eq!(
+            saved.permissions.rules[0].effect,
+            crate::permission::Effect::Allow
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -1079,7 +1144,10 @@ typo_fielt = true
             !warnings.iter().any(|line| line.contains("将逐次询问")),
             "实际全量放行时不得声称会询问: {warnings:?}"
         );
-        assert!(warnings[1].contains("不生效"), "应说明 legacy 被覆盖: {warnings:?}");
+        assert!(
+            warnings[1].contains("不生效"),
+            "应说明 legacy 被覆盖: {warnings:?}"
+        );
         assert_eq!(config.permissions.rules.len(), 4);
     }
     #[test]
@@ -1137,9 +1205,16 @@ reasoning = "high"
         )
         .unwrap();
         merge(&mut base, layer);
-        assert_eq!(base.models.reasoning.as_deref(), Some("high"), "项目级思考强度未生效");
+        assert_eq!(
+            base.models.reasoning.as_deref(),
+            Some("high"),
+            "项目级思考强度未生效"
+        );
         // 层里没设的键不得被清空——空 [models] 表不该抹掉全局配置。
-        assert_eq!(base.models.primary.as_deref(), Some("anthropic:claude-sonnet-5"));
+        assert_eq!(
+            base.models.primary.as_deref(),
+            Some("anthropic:claude-sonnet-5")
+        );
         assert_eq!(base.models.fast.as_deref(), Some("ollama:qwen3"));
     }
 }

@@ -29,7 +29,8 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> String {
-        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars.".into()
+        "Fetch a URL and return readable text (HTML stripped). Params: url; optional max_chars."
+            .into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -62,7 +63,10 @@ impl Tool for WebFetchTool {
 
         let response = match client
             .get(&input.url)
-            .header("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kanzei/0.1")
+            .header(
+                "user-agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) kanzei/0.1",
+            )
             .header("accept", "text/html,application/xhtml+xml,text/plain,*/*")
             .timeout(std::time::Duration::from_secs(30))
             .send()
@@ -107,7 +111,12 @@ impl Tool for WebFetchTool {
         if rendered.chars().count() > cap {
             out.push_str("\n…(截断)");
         }
-        ToolOutput::ok(format!("HTTP {} · {}\n\n{}", status.as_u16(), input.url, out.trim()))
+        ToolOutput::ok(format!(
+            "HTTP {} · {}\n\n{}",
+            status.as_u16(),
+            input.url,
+            out.trim()
+        ))
     }
 }
 

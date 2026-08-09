@@ -3,11 +3,10 @@
 
 use super::SessionStore;
 
-    pub(crate) fn store() -> SessionStore {
-        let store = SessionStore::open_in_memory().unwrap();
-        store
-            .create_session("ses_test", "C:/project", None)
-            .unwrap();
-        store
-    }
-
+pub(crate) fn store() -> SessionStore {
+    let store = SessionStore::open_in_memory().unwrap();
+    store
+        .create_session("ses_test", "C:/project", None)
+        .unwrap();
+    store
+}

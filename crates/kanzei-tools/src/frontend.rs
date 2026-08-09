@@ -164,7 +164,8 @@ impl Tool for FrontendLocateTool {
     fn description(&self) -> String {
         "定位一个 CSS 选择器片段的全部定义点:返回每处的行号、完整选择器与所在 @media 条件块。\
          改样式前先跑一次——同一个 class 常在多处定义(基础规则 + 响应式覆盖),漏改一处就会\
-         出现「只在某些宽度下才错」。只读,不改文件。".into()
+         出现「只在某些宽度下才错」。只读,不改文件。"
+            .into()
     }
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendLocateInput)).unwrap()
@@ -195,7 +196,10 @@ impl Tool for FrontendLocateTool {
                 if site.context.is_empty() {
                     format!("{}:{}  {}", rel, site.line, site.selector)
                 } else {
-                    format!("{}:{}  {}   [{}]", rel, site.line, site.selector, site.context)
+                    format!(
+                        "{}:{}  {}   [{}]",
+                        rel, site.line, site.selector, site.context
+                    )
                 }
             })
             .collect();
@@ -221,7 +225,8 @@ impl Tool for FrontendCheckTool {
     fn description(&self) -> String {
         "检查 CSS 结构完整性:花括号是否配对、有没有多余的 `}`。浏览器对花括号错配是静默\
          容错的——被吃掉一个 `@media ... {` 会让整段响应式规则无条件生效且不报任何错。\
-         改完 CSS 必须跑一次。只读,不改文件。".into()
+         改完 CSS 必须跑一次。只读,不改文件。"
+            .into()
     }
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendCheckInput)).unwrap()
@@ -331,7 +336,11 @@ mod tests {
         let issues = css_structure_issues(broken);
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("多余"), "{}", issues[0]);
-        assert!(issues[0].contains("行 3"), "要给出行号才好定位: {}", issues[0]);
+        assert!(
+            issues[0].contains("行 3"),
+            "要给出行号才好定位: {}",
+            issues[0]
+        );
 
         assert!(css_structure_issues(".a { color: red; }\n").is_empty());
         assert!(

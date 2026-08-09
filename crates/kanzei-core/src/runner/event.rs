@@ -4,7 +4,6 @@
 
 use kanzei_llm::{FinishReason, Message, Usage};
 
-
 #[derive(Clone, Debug)]
 pub struct TaskTrace {
     pub child_id: String,
@@ -61,10 +60,18 @@ pub enum RunEvent {
         source: &'static str,
     },
     /// 流建立前的临时网络错误重试,不会重放已建立流或工具副作用。
-    Retry { attempt: u32, max: u32, delay_ms: u128 },
+    Retry {
+        attempt: u32,
+        max: u32,
+        delay_ms: u128,
+    },
     /// 流中途断开后重放本步请求。本步工具尚未执行,零副作用;
     /// UI 收到后应丢弃本步已渲染的残缺输出,等待重新生成。
-    StreamRestart { attempt: u32, max: u32, delay_ms: u128 },
+    StreamRestart {
+        attempt: u32,
+        max: u32,
+        delay_ms: u128,
+    },
     /// 轮内主动压缩:到达上下文预算线,就地裁剪历史(D-176)。
     /// 与撞墙后的被动恢复区分开——这条是"没撞墙就先让了路"。
     ContextCompacted {
@@ -121,8 +128,15 @@ pub enum AskReply {
 /// 权限询问回调的返回值:异步等待用户决定(CLI 同步问、桌面端走事件+oneshot)。
 #[derive(Clone, Debug)]
 pub enum AskRequest {
-    Permission { action: String, resource: String },
-    Question { question: String, options: Vec<String>, default: Option<String> },
+    Permission {
+        action: String,
+        resource: String,
+    },
+    Question {
+        question: String,
+        options: Vec<String>,
+        default: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -147,4 +161,3 @@ pub(super) fn preview(content: &str) -> String {
     }
     p
 }
-

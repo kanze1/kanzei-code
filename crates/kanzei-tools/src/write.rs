@@ -185,11 +185,16 @@ pub(crate) fn validate_syntax(path: &std::path::Path, content: &str) -> Option<S
 #[cfg(test)]
 mod tests {
     use super::{diff_display, WriteTool};
-    use kanzei_core::{AskFuture, AskRequest, AskReply, AskResponse, RunnerConfig};
-    use kanzei_harness::{rule, ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
     use crate::{BaseComponent, DevProfile};
+    use kanzei_core::{AskFuture, AskReply, AskRequest, AskResponse, RunnerConfig};
+    use kanzei_harness::{
+        rule, ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
+    };
     use kanzei_llm::{LlmClient, ProxyConfig, ReasoningEffort, Route};
-    use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[test]
     fn diff_display_exposes_language_counts_and_line_numbers() {
@@ -317,7 +322,9 @@ mod tests {
                     let count = stream.read(&mut chunk).await.unwrap();
                     assert!(count > 0);
                     request.extend_from_slice(&chunk[..count]);
-                    if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                    if let Some(position) =
+                        request.windows(4).position(|window| window == b"\r\n\r\n")
+                    {
                         break position + 4;
                     }
                 };

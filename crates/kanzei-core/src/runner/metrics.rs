@@ -112,7 +112,12 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
                     }
                     prev_was_git = is_git;
                 }
-                Part::ToolResult { call_id, is_error, content, .. } => {
+                Part::ToolResult {
+                    call_id,
+                    is_error,
+                    content,
+                    ..
+                } => {
                     if !*is_error {
                         // R-100:机械提醒以 [冗余提醒] 前缀进入结果文本,按类别计数。
                         // 只统计本轮切片,不统计历史(历史提醒早已入库,重复统计会虚高)。
@@ -185,8 +190,12 @@ pub fn completed_entry(messages: &[Message]) -> Option<CompletedEntry> {
                 Part::ToolCall { id, name, input } => {
                     calls.insert(id.clone(), (name.clone(), input.clone()));
                 }
-                Part::ToolResult { call_id, is_error, .. } => {
-                    let Some((name, input)) = calls.get(call_id) else { continue };
+                Part::ToolResult {
+                    call_id, is_error, ..
+                } => {
+                    let Some((name, input)) = calls.get(call_id) else {
+                        continue;
+                    };
                     if *is_error {
                         continue;
                     }
@@ -208,7 +217,9 @@ pub fn completed_entry(messages: &[Message]) -> Option<CompletedEntry> {
                     if !substantive_before {
                         continue;
                     }
-                    let Some(id) = input.get("id").and_then(|v| v.as_str()) else { continue };
+                    let Some(id) = input.get("id").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
                     found = Some(CompletedEntry {
                         id: id.to_string(),
                         status: status.to_string(),
@@ -246,7 +257,11 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
                     calls.insert(id.clone(), (name.clone(), failure_target(input)));
                     raw_inputs.insert(id.clone(), input.to_string().to_lowercase());
                 }
-                Part::ToolResult { call_id, content, is_error } => {
+                Part::ToolResult {
+                    call_id,
+                    content,
+                    is_error,
+                } => {
                     let Some((tool, target)) = calls.get(call_id).cloned() else {
                         continue;
                     };
@@ -437,7 +452,9 @@ mod tests {
         let entry = completed_entry(&done).expect("完成一个完整条目时应触发");
         assert_eq!(entry.id, "R-123");
         assert_eq!(entry.status, "done");
-        assert!(entry.tools.contains(&"edit".to_string()) && entry.tools.contains(&"bash".to_string()));
+        assert!(
+            entry.tools.contains(&"edit".to_string()) && entry.tools.contains(&"bash".to_string())
+        );
 
         // 反例一:纯查询轮 —— 没有任何实质动作,不构成可复用流程。
         let read_only = vec![
@@ -446,7 +463,10 @@ mod tests {
             tracker_call("c2", "req", "R-124", "done"),
             result("c2", "updated", false),
         ];
-        assert!(completed_entry(&read_only).is_none(), "纯查询轮不该提炼 SOP");
+        assert!(
+            completed_entry(&read_only).is_none(),
+            "纯查询轮不该提炼 SOP"
+        );
 
         // 反例二:先勾完成再干活 —— 顺序反了,勾的那一刻并没有完成什么。
         let out_of_order = vec![
@@ -455,7 +475,10 @@ mod tests {
             call("c2", "edit", "path", "src/lib.rs"),
             result("c2", "ok", false),
         ];
-        assert!(completed_entry(&out_of_order).is_none(), "先收口后干活不该提炼 SOP");
+        assert!(
+            completed_entry(&out_of_order).is_none(),
+            "先收口后干活不该提炼 SOP"
+        );
 
         // 反例三:收口调用本身失败 —— 条目根本没进终态。
         let failed_close = vec![
@@ -464,7 +487,10 @@ mod tests {
             tracker_call("c2", "req", "R-126", "done"),
             result("c2", "cannot move backward", true),
         ];
-        assert!(completed_entry(&failed_close).is_none(), "收口失败不该提炼 SOP");
+        assert!(
+            completed_entry(&failed_close).is_none(),
+            "收口失败不该提炼 SOP"
+        );
 
         // 反例四:只是把状态推到 doing —— 不是终态。
         let in_progress = vec![
@@ -473,7 +499,10 @@ mod tests {
             tracker_call("c2", "req", "R-127", "doing"),
             result("c2", "updated", false),
         ];
-        assert!(completed_entry(&in_progress).is_none(), "推进到 doing 不是完成");
+        assert!(
+            completed_entry(&in_progress).is_none(),
+            "推进到 doing 不是完成"
+        );
     }
 
     #[test]
@@ -488,16 +517,28 @@ mod tests {
         // 同一坑重复两次 = 稳定问题,值得记。
         let twice = vec![
             call("c1", "edit", "path", "C:/p/main.rs"),
-            result("c1", "old_string not found in C:/p/main.rs — it must match exactly", true),
+            result(
+                "c1",
+                "old_string not found in C:/p/main.rs — it must match exactly",
+                true,
+            ),
             call("c2", "edit", "path", "C:/p/other.rs"),
-            result("c2", "old_string not found in C:/p/other.rs — it must match exactly", true),
+            result(
+                "c2",
+                "old_string not found in C:/p/other.rs — it must match exactly",
+                true,
+            ),
         ];
         let signals = summarize_failures(&twice);
         assert_eq!(signals.len(), 1, "同类错误必须塌成一条: {signals:?}");
         assert_eq!(signals[0].tool, "edit");
         assert_eq!(signals[0].count, 2);
         // 指纹抹掉了路径,两次不同文件仍归一类
-        assert!(!signals[0].kind.contains("main.rs"), "指纹不该含路径: {}", signals[0].kind);
+        assert!(
+            !signals[0].kind.contains("main.rs"),
+            "指纹不该含路径: {}",
+            signals[0].kind
+        );
         assert_eq!(signals[0].targets, vec!["main.rs", "other.rs"]);
     }
 

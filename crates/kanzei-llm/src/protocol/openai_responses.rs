@@ -424,7 +424,9 @@ mod tests {
             .unwrap_err();
         assert!(err.is_context_overflow());
         assert!(!err.is_rate_limited());
-        assert!(err.to_string().contains("Your input exceeds the context window"));
+        assert!(err
+            .to_string()
+            .contains("Your input exceeds the context window"));
     }
 
     #[test]

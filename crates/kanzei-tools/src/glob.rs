@@ -77,7 +77,11 @@ fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<Strin
     let mut scanned = 0usize;
     let mut capped = false;
     // 与 grep 保持一致:不跳过点开头的目录,否则 .kanzei/** 这类模式永远匹配不到(D-071)。
-    for entry in ignore::WalkBuilder::new(base).hidden(false).build().flatten() {
+    for entry in ignore::WalkBuilder::new(base)
+        .hidden(false)
+        .build()
+        .flatten()
+    {
         if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
             continue;
         }
@@ -108,7 +112,10 @@ fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<Strin
     let total = hits.len();
     let mut out: Vec<String> = hits.into_iter().take(limit).map(|(_, p)| p).collect();
     if total > limit {
-        out.push(format!("... ({} more; raise limit or narrow pattern)", total - limit));
+        out.push(format!(
+            "... ({} more; raise limit or narrow pattern)",
+            total - limit
+        ));
     }
     if capped {
         out.push(format!("(scan capped at {SCAN_CAP} files)"));

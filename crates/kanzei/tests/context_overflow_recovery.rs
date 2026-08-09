@@ -195,8 +195,16 @@ async fn sse_context_overflow_compacts_history_and_persists_recovered_summary() 
         .recent_overflow_traces(&kanzei_core::project_session_id(&project), 10)
         .unwrap();
     assert_eq!(traces.len(), 1, "一次有界压缩应留下一条溢出轨迹 episode");
-    assert!(traces[0].1.contains("dropped_messages"), "轨迹应含丢弃段画像: {}", traces[0].1);
-    assert!(traces[0].1.contains("preview"), "轨迹应含文本预览: {}", traces[0].1);
+    assert!(
+        traces[0].1.contains("dropped_messages"),
+        "轨迹应含丢弃段画像: {}",
+        traces[0].1
+    );
+    assert!(
+        traces[0].1.contains("preview"),
+        "轨迹应含文本预览: {}",
+        traces[0].1
+    );
     drop(store);
 
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
@@ -250,8 +258,11 @@ async fn second_sse_context_overflow_retries_with_only_current_user_message() {
     let parsed: serde_json::Value = serde_json::from_str(&traces[0].1).unwrap();
     let entries = parsed.as_array().expect("overflow_json 应为 JSON 数组");
     assert_eq!(entries.len(), 2, "两次压缩应沉淀两条轨迹: {}", traces[0].1);
-    assert!(traces[0].1.contains(OLD_MARKER),
-        "被丢弃的旧历史应出现在轨迹里: {}", traces[0].1);
+    assert!(
+        traces[0].1.contains(OLD_MARKER),
+        "被丢弃的旧历史应出现在轨迹里: {}",
+        traces[0].1
+    );
     drop(store);
 
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();

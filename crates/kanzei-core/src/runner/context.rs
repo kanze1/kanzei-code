@@ -50,7 +50,9 @@ pub(crate) fn render_for_digest(messages: &[Message]) -> String {
                         clip(&input.to_string(), 400)
                     ));
                 }
-                Part::ToolResult { content, is_error, .. } => {
+                Part::ToolResult {
+                    content, is_error, ..
+                } => {
                     out.push_str(&format!(
                         "[tool-result{}] {}\n",
                         if *is_error { " ERROR" } else { "" },
@@ -81,16 +83,16 @@ pub(crate) fn clip(text: &str, max_chars: usize) -> String {
 ///
 /// 工具 schema 必须计入——它每一步都整份重发,在工具多的 profile 下是常驻大头,
 /// 漏算就会让预算长期偏低、该压的时候不压。粒度沿用 len/4,与既有压缩预检同源。
-pub(crate) fn estimate_prompt_tokens(system: &[String], messages: &[Message], specs: &[ToolSpec]) -> u64 {
+pub(crate) fn estimate_prompt_tokens(
+    system: &[String],
+    messages: &[Message],
+    specs: &[ToolSpec],
+) -> u64 {
     let system_bytes: usize = system.iter().map(String::len).sum();
     let message_bytes = serde_json::to_string(messages).map_or(0, |text| text.len());
     let spec_bytes: usize = specs
         .iter()
-        .map(|spec| {
-            spec.name.len()
-                + spec.description.len()
-                + spec.input_schema.to_string().len()
-        })
+        .map(|spec| spec.name.len() + spec.description.len() + spec.input_schema.to_string().len())
         .sum();
     ((system_bytes + message_bytes + spec_bytes) / 4) as u64
 }
@@ -154,11 +156,14 @@ pub(crate) fn trim_tail(
         // head 之后、当前用户消息之前最靠前的一条 = tail 最旧端。纪要消息
         // (以 "(系统:" 开头)是中段的替代品,不是可回收物,跳过。
         let target = (head_index + 1..current_index).find(|&i| {
-            !messages[i].parts.iter().any(|p| {
-                matches!(p, Part::Text { text } if text.starts_with("(系统:"))
-            })
+            !messages[i]
+                .parts
+                .iter()
+                .any(|p| matches!(p, Part::Text { text } if text.starts_with("(系统:")))
         });
-        let Some(i) = target else { break; };
+        let Some(i) = target else {
+            break;
+        };
         let dropped_msg = messages.remove(i);
         overflow_traces.push(dropped_trace(std::slice::from_ref(&dropped_msg)));
     }
@@ -173,7 +178,11 @@ pub(crate) fn extract_file_names(text: &str) -> HashSet<String> {
     ];
     let mut out = HashSet::new();
     for token in text.split(|c: char| {
-        c.is_whitespace() || matches!(c, '"' | '\'' | '`' | ',' | '(' | ')' | '[' | ']' | ':' | ';')
+        c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\'' | '`' | ',' | '(' | ')' | '[' | ']' | ':' | ';'
+            )
     }) {
         let t = token
             .trim_start_matches(['.', '/', '\\'])
@@ -279,12 +288,21 @@ mod tests {
     fn 校准因子按真实usage收敛且单步限幅() {
         // 估算偏高 1 倍(实际只有一半),EMA 向下收敛。
         let mut c = update_calibration(1.0, 10_000, 5_000);
-        assert!((c - 0.85).abs() < 1e-9, "第一次应得 1.0*0.7+0.5*0.3=0.85,实得 {c}");
+        assert!(
+            (c - 0.85).abs() < 1e-9,
+            "第一次应得 1.0*0.7+0.5*0.3=0.85,实得 {c}"
+        );
         c = update_calibration(c, 10_000, 5_000);
-        assert!((c - 0.745).abs() < 1e-9, "第二次应得 0.85*0.7+0.5*0.3=0.745,实得 {c}");
+        assert!(
+            (c - 0.745).abs() < 1e-9,
+            "第二次应得 0.85*0.7+0.5*0.3=0.745,实得 {c}"
+        );
         // 实际远超估算(3 倍)被限幅在 2 倍,单步最多 +0.3。
         let c3 = update_calibration(1.0, 10_000, 30_000);
-        assert!((c3 - 1.3).abs() < 1e-9, "限幅后应得 1.0*0.7+2.0*0.3=1.3,实得 {c3}");
+        assert!(
+            (c3 - 1.3).abs() < 1e-9,
+            "限幅后应得 1.0*0.7+2.0*0.3=1.3,实得 {c3}"
+        );
         // 零值保护:估算为 0 或拿不到真实值时不更新。
         assert_eq!(update_calibration(0.9, 0, 100), 0.9);
         assert_eq!(update_calibration(0.9, 100, 0), 0.9);
@@ -301,7 +319,10 @@ mod tests {
             "(系统:此前 40 条消息已压缩为纪要,基于它继续)\n改动了 runner.rs 的压缩逻辑,store.rs 待处理",
         ));
         for i in 0..30 {
-            messages.push(Message::user_text(format!("tail 第 {i} 条 {}", "x".repeat(300))));
+            messages.push(Message::user_text(format!(
+                "tail 第 {i} 条 {}",
+                "x".repeat(300)
+            )));
         }
         messages.push(Message::user_text("当前指令:继续修"));
         let mut traces = Vec::new();
@@ -351,7 +372,10 @@ mod tests {
         let build = || {
             let mut messages = vec![Message::user_text("任务定义:修复 D-123")];
             for i in 0..40 {
-                messages.push(Message::user_text(format!("tail 第 {i} 条 {}", "x".repeat(300))));
+                messages.push(Message::user_text(format!(
+                    "tail 第 {i} 条 {}",
+                    "x".repeat(300)
+                )));
             }
             messages.push(Message::user_text("当前指令:继续修"));
             messages
@@ -365,7 +389,14 @@ mod tests {
         );
 
         let mut traces = Vec::new();
-        trim_tail(&mut messages, &system, &[], budget, calibration, &mut traces);
+        trim_tail(
+            &mut messages,
+            &system,
+            &[],
+            budget,
+            calibration,
+            &mut traces,
+        );
         assert!(
             budgeted_tokens(&system, &messages, &[], calibration) <= budget,
             "trim_tail 收完后调用方的校准视角必须在预算内,否则下一步立刻再压"
@@ -424,4 +455,3 @@ mod tests {
         assert!(!files.contains("普通词"), "没有点号的不算文件");
     }
 }
-

@@ -9,10 +9,16 @@ fn 拉取进度行解析成人话且无进度字段时只给状态() {
     });
     let text = pull_progress_text(&with_progress).unwrap();
     assert!(text.contains("50%"), "{text}");
-    assert!(text.contains("1500/3000 MB"), "要给出已下/总量,证明还活着: {text}");
+    assert!(
+        text.contains("1500/3000 MB"),
+        "要给出已下/总量,证明还活着: {text}"
+    );
 
     let plain = serde_json::json!({ "status": "verifying sha256 digest" });
-    assert_eq!(pull_progress_text(&plain).unwrap(), "verifying sha256 digest");
+    assert_eq!(
+        pull_progress_text(&plain).unwrap(),
+        "verifying sha256 digest"
+    );
     assert!(pull_progress_text(&serde_json::json!({})).is_none());
 }
 
@@ -44,7 +50,8 @@ fn installer_validation_rejects_truncated_and_non_executable_payloads() {
 #[test]
 fn install_helper_waits_for_the_caller_to_exit_before_installing() {
     let started = std::time::Instant::now();
-    let exited = super::wait_for_parent_exit(std::process::id(), std::time::Duration::from_millis(600));
+    let exited =
+        super::wait_for_parent_exit(std::process::id(), std::time::Duration::from_millis(600));
     let waited = started.elapsed();
     assert!(!exited, "当前进程显然活着,不该判定为已退出");
     assert!(waited >= std::time::Duration::from_millis(600));
@@ -56,24 +63,57 @@ fn install_helper_waits_for_the_caller_to_exit_before_installing() {
 
 #[test]
 fn release_check_never_downgrades_a_newer_local_build() {
-    assert!(!super::release_is_newer("local 20260809120000", "build-remote", Some("2026-08-08T23:00:00Z")));
-    assert!(super::release_is_newer("local 20260808120000", "build-remote", Some("2026-08-09T00:00:00Z")));
-    assert!(!super::release_is_newer("local 20260808120000", "build-local", Some("2026-08-10T00:00:00Z")));
+    assert!(!super::release_is_newer(
+        "local 20260809120000",
+        "build-remote",
+        Some("2026-08-08T23:00:00Z")
+    ));
+    assert!(super::release_is_newer(
+        "local 20260808120000",
+        "build-remote",
+        Some("2026-08-09T00:00:00Z")
+    ));
+    assert!(!super::release_is_newer(
+        "local 20260808120000",
+        "build-local",
+        Some("2026-08-10T00:00:00Z")
+    ));
 }
 
 #[test]
 fn legacy_date_only_build_requires_a_later_release_day() {
-    assert!(!super::release_is_newer("local 2026-08-08", "build-remote", Some("2026-08-08T23:00:00Z")));
-    assert!(super::release_is_newer("local 2026-08-08", "build-remote", Some("2026-08-09T00:00:00Z")));
-    assert!(!super::release_is_newer("local", "build-remote", Some("2026-08-09T00:00:00Z")));
+    assert!(!super::release_is_newer(
+        "local 2026-08-08",
+        "build-remote",
+        Some("2026-08-08T23:00:00Z")
+    ));
+    assert!(super::release_is_newer(
+        "local 2026-08-08",
+        "build-remote",
+        Some("2026-08-09T00:00:00Z")
+    ));
+    assert!(!super::release_is_newer(
+        "local",
+        "build-remote",
+        Some("2026-08-09T00:00:00Z")
+    ));
 }
 
 #[test]
 fn cli同步只升不降且识别不出版本时按旧处理() {
     let ours = "0c9f903 20260808120442";
-    assert!(super::installed_cli_is_older("kanzei 0.1.0 (430d6d6 20260808015943)\n", ours));
-    assert!(!super::installed_cli_is_older("kanzei 0.1.0 (abcdef1 20260809090000)\n", ours));
-    assert!(!super::installed_cli_is_older("kanzei 0.1.0 (0c9f903 20260808120442)\n", ours));
+    assert!(super::installed_cli_is_older(
+        "kanzei 0.1.0 (430d6d6 20260808015943)\n",
+        ours
+    ));
+    assert!(!super::installed_cli_is_older(
+        "kanzei 0.1.0 (abcdef1 20260809090000)\n",
+        ours
+    ));
+    assert!(!super::installed_cli_is_older(
+        "kanzei 0.1.0 (0c9f903 20260808120442)\n",
+        ours
+    ));
     for unknown in ["", "kanzei 0.1.0\n", "garbage", "kanzei 0.1.0 (dev)\n"] {
         assert!(super::installed_cli_is_older(unknown, ours), "{unknown:?}");
     }
@@ -92,11 +132,22 @@ fn 更新交接helper跑在安装目录之外() {
     let helper = super::update_helper_path();
     let temp = std::env::temp_dir();
     assert!(helper.starts_with(&temp));
-    assert_ne!(helper.file_name().and_then(|n| n.to_str()), Some("kzapp.exe"));
-    let test_log = temp.join(format!("kanzei-update-test-{}-{}.log", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    assert_ne!(
+        helper.file_name().and_then(|n| n.to_str()),
+        Some("kzapp.exe")
+    );
+    let test_log = temp.join(format!(
+        "kanzei-update-test-{}-{}.log",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
     let probe_marker = format!("单测探针-{}", std::process::id());
     super::update_log_at(&test_log, &probe_marker);
-    assert!(std::fs::read_to_string(&test_log).unwrap().contains(&probe_marker));
+    assert!(std::fs::read_to_string(&test_log)
+        .unwrap()
+        .contains(&probe_marker));
     let _ = std::fs::remove_file(&test_log);
 }
-

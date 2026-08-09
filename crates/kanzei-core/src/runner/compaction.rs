@@ -4,13 +4,11 @@
 //! 依赖 B2(metrics:summarize_tools/failures)+ B4(context:clip/digest_plausible/
 //! estimate_prompt_tokens/is_text_user_message/render_for_digest)。
 
-use futures::StreamExt;
-use super::MAX_CONTEXT_OVERFLOW_RECOVERIES;
 use super::SubagentRuntime;
-use crate::runner::context::{
-    clip, digest_plausible, is_text_user_message, render_for_digest,
-};
+use super::MAX_CONTEXT_OVERFLOW_RECOVERIES;
+use crate::runner::context::{clip, digest_plausible, is_text_user_message, render_for_digest};
 use crate::runner::metrics::{summarize_failures, summarize_tools};
+use futures::StreamExt;
 use kanzei_llm::{LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Usage};
 
 /// 主动压缩:保住任务定义与近期工作区,只把中段交给 fast 模型出纪要。
@@ -64,7 +62,10 @@ pub(crate) async fn compact_with_digest(
         None => None,
     };
     let replacement = match digest {
-        Some(text) => format!("(系统:此前 {} 条消息已压缩为纪要,基于它继续)\n{text}", middle.len()),
+        Some(text) => format!(
+            "(系统:此前 {} 条消息已压缩为纪要,基于它继续)\n{text}",
+            middle.len()
+        ),
         // 纪要拿不到(未启用子代理/模型失败)时回落到截断,但**只截中段**,
         // head 与近期工作区照样保住——比旧实现整段推倒仍然好得多。
         None => format!(
@@ -159,7 +160,10 @@ pub(crate) fn dropped_trace(messages: &[Message]) -> String {
     .to_string()
 }
 
-pub(crate) fn compact_messages_for_retry(messages: &mut Vec<Message>, overflow_traces: &mut Vec<String>) {
+pub(crate) fn compact_messages_for_retry(
+    messages: &mut Vec<Message>,
+    overflow_traces: &mut Vec<String>,
+) {
     let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
         return;
     };
@@ -213,7 +217,10 @@ pub(crate) fn compact_messages_for_retry(messages: &mut Vec<Message>, overflow_t
     messages.push(current);
 }
 
-pub(crate) fn compact_messages_aggressively(messages: &mut Vec<Message>, overflow_traces: &mut Vec<String>) {
+pub(crate) fn compact_messages_aggressively(
+    messages: &mut Vec<Message>,
+    overflow_traces: &mut Vec<String>,
+) {
     let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
         return;
     };
@@ -266,7 +273,10 @@ mod tests {
     async fn 主动压缩保住任务定义与近期工作并只压中段() {
         let mut messages = vec![Message::user_text("任务定义:修复 D-123 的空指针")];
         for i in 0..60 {
-            messages.push(Message::user_text(format!("中段第 {i} 条 {}", "x".repeat(400))));
+            messages.push(Message::user_text(format!(
+                "中段第 {i} 条 {}",
+                "x".repeat(400)
+            )));
         }
         messages.push(Message::user_text("最近工作:正在改 store.rs 的 migrate"));
         messages.push(Message::user_text("最近工作:刚跑完 cargo test"));
@@ -276,7 +286,8 @@ mod tests {
         // subagent=None → 纪要模型不可用,走截断回落;即便如此也必须保住首尾。
         let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
         let dropped =
-            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.35).await;
+            super::compact_with_digest(&client, None, &mut messages, 2_000, &mut traces, 0.35)
+                .await;
 
         assert!(dropped > 0, "中段应当被压掉");
         let text: String = messages
@@ -288,7 +299,10 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(text.contains("任务定义:修复 D-123"), "任务定义必须逐字保留:\n{text}");
+        assert!(
+            text.contains("任务定义:修复 D-123"),
+            "任务定义必须逐字保留:\n{text}"
+        );
         assert!(text.contains("刚跑完 cargo test"), "最近一条必须逐字保留");
         assert!(text.contains("正在改 store.rs"), "近期工作区必须逐字保留");
         assert!(!traces.is_empty(), "被压掉的中段要留轨迹");
@@ -323,13 +337,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("当前指令"), "当前用户消息必须留下");
-        assert!(text.contains("第 29 条"), "最近的历史要留下:\n{}", clip(&text, 300));
+        assert!(
+            text.contains("第 29 条"),
+            "最近的历史要留下:\n{}",
+            clip(&text, 300)
+        );
         assert!(!text.contains("第 0 条"), "最旧的历史不该占满配额");
     }
-
-
-
-
 
     /// D-206:主动压缩不设总量配额。等价类断言写在常量语义上:
     /// 刹车常量只允许"连续无效"语义存在——谁把总量配额加回来,先得删这条测试。
@@ -344,23 +358,39 @@ mod tests {
         let mut futile = 0u32;
         for _ in 0..3 {
             let after = 90u64; // 压回线内
-            if after <= budget { futile = 0 } else { futile += 1 }
+            if after <= budget {
+                futile = 0
+            } else {
+                futile += 1
+            }
         }
         assert_eq!(futile, 0, "成功的压缩不得累计任何配额");
-        assert!(futile < crate::runner::MAX_FUTILE_COMPACTIONS, "第四次压缩必须仍被允许");
+        assert!(
+            futile < crate::runner::MAX_FUTILE_COMPACTIONS,
+            "第四次压缩必须仍被允许"
+        );
         // 连续压不动(after>budget)两次后停——这才是注释里"再压无益"的原意。
         for _ in 0..2 {
             let after = 120u64;
-            if after <= budget { futile = 0 } else { futile += 1 }
+            if after <= budget {
+                futile = 0
+            } else {
+                futile += 1
+            }
         }
-        assert!(futile >= crate::runner::MAX_FUTILE_COMPACTIONS, "连续无效两次后必须刹车");
+        assert!(
+            futile >= crate::runner::MAX_FUTILE_COMPACTIONS,
+            "连续无效两次后必须刹车"
+        );
         // 中间只要成功一次就复位,不是一杆子打死。
         let after = 90u64;
-        if after <= budget { futile = 0 } else { futile += 1 }
+        if after <= budget {
+            futile = 0
+        } else {
+            futile += 1
+        }
         assert_eq!(futile, 0);
     }
-
-
 
     /// 压缩后必须真的变小,而且当前用户消息要留下——否则模型会丢掉正在做的事。
     #[test]
@@ -388,6 +418,4 @@ mod tests {
             .collect();
         assert!(text.contains("当前这条必须留下"), "当前用户消息不能被裁掉");
     }
-
 }
-

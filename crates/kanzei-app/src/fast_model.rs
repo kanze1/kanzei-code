@@ -1,8 +1,8 @@
 //! fast 模型就绪检查与 Ollama 一键安装。
 
+use serde_json::json;
 use std::path::Path;
 use std::process::Command;
-use serde_json::json;
 use tauri::Emitter;
 
 use kanzei_harness::KanzeiConfig;
@@ -47,8 +47,12 @@ pub async fn fast_model_setup(window: tauri::Window) -> Result<String, String> {
         stage("正在通过 winget 安装 Ollama(首次约数百 MB,取决于网速)…");
         let mut cmd = Command::new("winget");
         cmd.args([
-            "install", "--id", "Ollama.Ollama", "--silent",
-            "--accept-package-agreements", "--accept-source-agreements",
+            "install",
+            "--id",
+            "Ollama.Ollama",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
         ]);
         #[cfg(windows)]
         {
@@ -80,8 +84,10 @@ pub async fn fast_model_setup(window: tauri::Window) -> Result<String, String> {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x0800_0000);
         }
-        cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
-        cmd.spawn().map_err(|e| format!("启动 ollama serve 失败:{e}"))?;
+        cmd.stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        cmd.spawn()
+            .map_err(|e| format!("启动 ollama serve 失败:{e}"))?;
         let mut up = false;
         for _ in 0..40 {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -133,7 +139,9 @@ pub async fn fast_model_setup(window: tauri::Window) -> Result<String, String> {
             }
         }
         if !ollama_model_present(&base_url, &model).await {
-            return Err(format!("拉取流结束但 {model} 仍不在本地模型列表里,重试一次看看。"));
+            return Err(format!(
+                "拉取流结束但 {model} 仍不在本地模型列表里,重试一次看看。"
+            ));
         }
         stage(&format!("模型 {model} 已就绪"));
     }
@@ -173,18 +181,38 @@ fn ollama_cli_installed() -> bool {
 
 pub(crate) async fn ollama_service_up(base_url: &str) -> bool {
     let tags = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Some(client) = loopback_client(2) else { return false };
-    client.get(&tags).send().await.map(|r| r.status().is_success()).unwrap_or(false)
+    let Some(client) = loopback_client(2) else {
+        return false;
+    };
+    client
+        .get(&tags)
+        .send()
+        .await
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
 }
 
 async fn ollama_model_present(base_url: &str, model: &str) -> bool {
     let tags = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Some(client) = loopback_client(3) else { return false };
-    let Ok(resp) = client.get(&tags).send().await else { return false };
-    let Ok(v) = resp.json::<serde_json::Value>().await else { return false };
-    v["models"].as_array().map(|models| models.iter().any(|m| {
-        m["name"].as_str().is_some_and(|n| n == model || n.trim_end_matches(":latest") == model)
-    })).unwrap_or(false)
+    let Some(client) = loopback_client(3) else {
+        return false;
+    };
+    let Ok(resp) = client.get(&tags).send().await else {
+        return false;
+    };
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return false;
+    };
+    v["models"]
+        .as_array()
+        .map(|models| {
+            models.iter().any(|m| {
+                m["name"]
+                    .as_str()
+                    .is_some_and(|n| n == model || n.trim_end_matches(":latest") == model)
+            })
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn pull_progress_text(line: &serde_json::Value) -> Option<String> {
@@ -192,7 +220,11 @@ pub(crate) fn pull_progress_text(line: &serde_json::Value) -> Option<String> {
     match (line["completed"].as_u64(), line["total"].as_u64()) {
         (Some(done), Some(total)) if total > 0 => {
             let pct = done * 100 / total;
-            Some(format!("{status} {pct}%({}/{} MB)", done >> 20, total >> 20))
+            Some(format!(
+                "{status} {pct}%({}/{} MB)",
+                done >> 20,
+                total >> 20
+            ))
         }
         _ => Some(status.to_string()),
     }

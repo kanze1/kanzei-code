@@ -1,37 +1,39 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
 pub mod architecture;
-pub mod files;
 mod background;
 mod base;
 mod bash;
 pub mod docstore;
-pub mod memory;
 mod edit;
+pub mod files;
 pub mod frontend;
+mod git;
 mod glob;
 mod grep;
-mod git;
-mod todowrite;
-mod webfetch;
-mod websearch;
-mod question;
+pub mod memory;
 mod process;
+mod question;
 mod read;
 mod shell;
 pub mod test_record;
+mod todowrite;
 pub mod tracker;
+mod webfetch;
+mod websearch;
 mod write;
 
 pub mod profiles;
 pub mod subagent;
 
-pub use base::BaseComponent;
-pub use profiles::{frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ResearchProfile};
-pub use subagent::{explore_agent, SubagentBase};
-pub use shell::detected_shell;
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。
 pub use background::kill_project as kill_background_processes;
+pub use base::BaseComponent;
+pub use profiles::{
+    frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ResearchProfile,
+};
+pub use shell::detected_shell;
+pub use subagent::{explore_agent, SubagentBase};
 
 use kanzei_harness::Tool;
 

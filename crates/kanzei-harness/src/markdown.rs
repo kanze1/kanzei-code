@@ -203,10 +203,8 @@ mod tests {
 
     #[test]
     fn agent_without_steps_uses_unlimited_default() {
-        let dir = std::env::temp_dir().join(format!(
-            "kanzei-markdown-agent-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("kanzei-markdown-agent-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -240,12 +238,12 @@ mod tests {
             assert_eq!(a.get("键0"), Some("中文值0"));
             assert_eq!(b.get("键0"), Some("中文值0"));
             assert_eq!(a.body, "正文第一行\n正文第二行", "LF body keys={keys}");
-            assert_eq!(
-                b.body, "正文第一行\r\n正文第二行",
-                "CRLF body keys={keys}"
-            );
+            assert_eq!(b.body, "正文第一行\r\n正文第二行", "CRLF body keys={keys}");
             assert!(!b.body.is_empty(), "CRLF body 不得为空 keys={keys}");
-            assert!(!b.body.starts_with('-'), "CRLF body 不得残留分隔符 keys={keys}");
+            assert!(
+                !b.body.starts_with('-'),
+                "CRLF body 不得残留分隔符 keys={keys}"
+            );
         }
     }
 }

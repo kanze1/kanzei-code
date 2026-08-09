@@ -58,11 +58,6 @@ pub(crate) fn task_spec() -> ToolSpec {
     }
 }
 
-
-
-
-
-
 /// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
 /// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
@@ -114,7 +109,9 @@ pub(crate) async fn run_subagent(
             _ => None,
         };
         let trace = match event {
-            RunEvent::ToolStart { id, name, summary, .. } => Some(TaskTrace {
+            RunEvent::ToolStart {
+                id, name, summary, ..
+            } => Some(TaskTrace {
                 child_id: id,
                 phase: "start".into(),
                 name,
@@ -123,7 +120,13 @@ pub(crate) async fn run_subagent(
                 preview: None,
                 display: None,
             }),
-            RunEvent::ToolEnd { id, name, ok, preview, display } => Some(TaskTrace {
+            RunEvent::ToolEnd {
+                id,
+                name,
+                ok,
+                preview,
+                display,
+            } => Some(TaskTrace {
                 child_id: id,
                 phase: "end".into(),
                 name,
@@ -147,7 +150,8 @@ pub(crate) async fn run_subagent(
                 trace,
             });
         }
-    };    let mut ask = |_request: AskRequest| -> AskFuture {
+    };
+    let mut ask = |_request: AskRequest| -> AskFuture {
         Box::pin(async { AskResponse::Permission(AskReply::Deny) })
     };
     // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
@@ -176,4 +180,3 @@ pub(crate) async fn run_subagent(
         Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
     }
 }
-

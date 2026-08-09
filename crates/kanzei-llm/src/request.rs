@@ -160,7 +160,11 @@ mod tests {
         assert!(!ReasoningEffort::Off.enabled());
         assert!(ReasoningEffort::Low.enabled());
         // 预算必须满足 Anthropic 的 1024 下限
-        for effort in [ReasoningEffort::Low, ReasoningEffort::Medium, ReasoningEffort::High] {
+        for effort in [
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+        ] {
             assert!(effort.budget_tokens().unwrap() >= 1024);
         }
         assert!(ReasoningEffort::Off.budget_tokens().is_none());

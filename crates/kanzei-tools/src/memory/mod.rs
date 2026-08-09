@@ -15,7 +15,9 @@ pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
 
-use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES};
+use crate::docstore::{
+    DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES,
+};
 use kanzei_harness::ToolCtx;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,7 +234,10 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
                     .map(|entries| entries.iter().any(|e| e.id == id))
                     .unwrap_or(false);
             if !exists {
-                bad.push(format!("{id}: no such {} entry (active or archived)", kind.heading));
+                bad.push(format!(
+                    "{id}: no such {} entry (active or archived)",
+                    kind.heading
+                ));
             }
         } else if !ctx.project_root.join(id).exists() {
             bad.push(format!("{id}: no such file under project root"));
@@ -319,10 +324,7 @@ pub fn resident_index(
 /// 2. 同指纹在当前 inbox 里已存在则跳过(同一个坑不重复投);
 /// 3. 每轮上限 MAX_FAILURE_NOTES_PER_RUN 条。
 /// 值不值得写成记忆条目仍由 memory-manager 判定——引擎不做语义判断。
-pub fn harvest_failures(
-    store: &MemoryStore,
-    signals: &[kanzei_core::FailureSignal],
-) -> usize {
+pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSignal]) -> usize {
     let global = MemoryStore::global();
     let mut delivered = 0usize;
     for signal in signals {
@@ -335,9 +337,11 @@ pub fn harvest_failures(
         }
         // 复发检测(R-149):指纹已在某条 active 记忆正文里,同类失败却仍出现——
         // 记忆在、坑还在 = 它没进决策。投修订笔记点名该条目,而不是原坑重投。
-        let existing = store
-            .find_active_by_marker(&fingerprint)
-            .or_else(|| global.as_ref().and_then(|g| g.find_active_by_marker(&fingerprint)));
+        let existing = store.find_active_by_marker(&fingerprint).or_else(|| {
+            global
+                .as_ref()
+                .and_then(|g| g.find_active_by_marker(&fingerprint))
+        });
         if let Some(entry) = existing {
             let summary = format!(
                 "已有记忆 {} 但 {} 同类失败本轮仍复发({} 次){}",
@@ -391,11 +395,7 @@ pub fn harvest_failures(
 /// 与 `harvest_failures` 的关键差别:失败笔记进 inbox 由 manager 自行消化,
 /// 而 SOP 是**用户的常用模板**,不能由 agent 自己决定入库——它只产候选,
 /// 采纳与否是用户一键的事(R-124 验收 ③)。
-pub fn harvest_sop(
-    store: &MemoryStore,
-    entry: &kanzei_core::CompletedEntry,
-    prompt: &str,
-) -> bool {
+pub fn harvest_sop(store: &MemoryStore, entry: &kanzei_core::CompletedEntry, prompt: &str) -> bool {
     // 同一条目只投一次候选:同一轮反复触发或重跑不该堆出一摞一样的模板。
     let fingerprint = format!("[sop:{}]", entry.id);
     if store.note_fingerprint_seen(&fingerprint) {
@@ -454,7 +454,10 @@ pub fn harvest_entry_fact(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let summary = format!("完成 {}({})的根因候选{}", entry.id, entry.status, fingerprint);
+    let summary = format!(
+        "完成 {}({})的根因候选{}",
+        entry.id, entry.status, fingerprint
+    );
     let detail = format!(
         "- 触发任务: {}\n\
          - 实际工具顺序: {}\n\
@@ -494,7 +497,11 @@ fn prompt_hints_with_budget(
     if hits.is_empty() {
         return None;
     }
-    hits.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     hits.truncate(3);
     // D-216:已在常驻索引里的条目只给指向不重复整行(重复的大头是 description);
     // 被预算折叠掉的条目才值得在这里给全行。
@@ -612,7 +619,10 @@ mod tests {
         let text = render_entry(&entry);
         assert!(text.contains("refs: R-070 D-200"));
         let parsed = parse_entry(&text);
-        assert_eq!(parsed.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
+        assert_eq!(
+            parsed.refs(),
+            vec!["R-070".to_string(), "D-200".to_string()]
+        );
     }
 
     #[test]
@@ -628,14 +638,21 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // 造一个活跃需求 + 一个归档缺陷 + 一个真实文件。
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
-        std::fs::write(dir.join(".kanzei/project/requirements.md"), "# Requirements\n\n## R-001 示例 [todo]\n- 验收: 略\n").unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 示例 [todo]\n- 验收: 略\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.join(".kanzei/project/defects-archive.md"),
             "# Defects Archive\n\n## D-099 已修 [fixed]\n",
         )
         .unwrap();
         std::fs::write(dir.join("notes.md"), "手工笔记").unwrap();
-        let ctx = ToolCtx { cwd: dir.clone(), project_root: dir.clone() };
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
 
         assert!(validate_source_refs(&ctx, &["R-001".into()]).is_ok());
         assert!(validate_source_refs(&ctx, &["D-099".into()]).is_ok());
@@ -668,7 +685,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let store = MemoryStore::project(&dir);
         match store
-            .add("sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1", "user", &[], None, false)
+            .add(
+                "sop",
+                "发版 SOP 两条通道",
+                "发版发布安装更新必读",
+                "package.ps1",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap()
         {
             AddOutcome::Added(_) => {}
@@ -699,16 +725,34 @@ mod tests {
             tools: vec!["read".into(), "edit".into(), "bash".into(), "req".into()],
         };
 
-        assert!(harvest_sop(&store, &entry, "把侧栏与文档页的职责分开"), "首次应投出候选");
+        assert!(
+            harvest_sop(&store, &entry, "把侧栏与文档页的职责分开"),
+            "首次应投出候选"
+        );
         let inbox = store.read_inbox();
         assert!(inbox.contains("R-123"), "候选未记录来源条目");
-        assert!(inbox.contains("read → edit → bash → req"), "候选未给出工具顺序(提炼没有原料)");
-        assert!(inbox.contains("把侧栏与文档页的职责分开"), "候选未记录触发任务");
-        assert!(inbox.contains("合并进那一条"), "候选未要求与既有 SOP 判重合并");
-        assert!(inbox.contains("判 NOOP"), "候选未给出「一次性流程不该产出」的出口");
+        assert!(
+            inbox.contains("read → edit → bash → req"),
+            "候选未给出工具顺序(提炼没有原料)"
+        );
+        assert!(
+            inbox.contains("把侧栏与文档页的职责分开"),
+            "候选未记录触发任务"
+        );
+        assert!(
+            inbox.contains("合并进那一条"),
+            "候选未要求与既有 SOP 判重合并"
+        );
+        assert!(
+            inbox.contains("判 NOOP"),
+            "候选未给出「一次性流程不该产出」的出口"
+        );
 
         // 同一条目重复触发(重跑、同轮多次收口)不该堆出一摞一样的模板。
-        assert!(!harvest_sop(&store, &entry, "再来一次"), "同一条目不应重复投候选");
+        assert!(
+            !harvest_sop(&store, &entry, "再来一次"),
+            "同一条目不应重复投候选"
+        );
         assert_eq!(store.read_inbox().matches("[sop:R-123]").count(), 1);
 
         // 换一个条目仍应正常投递。
@@ -722,7 +766,10 @@ mod tests {
         // 候选可逐条查看,并按指纹整块丢弃——只删摘要行会留下孤儿明细。
         let list = store.pending_note_list();
         assert_eq!(list.len(), 2, "候选列表应逐条可见");
-        assert!(list.iter().all(|(hint, _, _)| hint == "sop"), "分类提示未解析出来");
+        assert!(
+            list.iter().all(|(hint, _, _)| hint == "sop"),
+            "分类提示未解析出来"
+        );
         assert!(store.discard_note("[sop:R-123]").unwrap(), "丢弃应生效");
         let after = store.pending_note_list();
         assert_eq!(after.len(), 1, "丢弃后应只剩另一条");
@@ -731,7 +778,10 @@ mod tests {
             !store.read_inbox().contains("read → edit → bash → req"),
             "丢弃只删了摘要行,明细成了孤儿",
         );
-        assert!(!store.discard_note("[sop:R-123]").unwrap(), "重复丢弃应返回 false");
+        assert!(
+            !store.discard_note("[sop:R-123]").unwrap(),
+            "重复丢弃应返回 false"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -768,11 +818,20 @@ mod tests {
         let inbox = store.read_inbox();
         assert!(inbox.contains("D-166"), "候选未记录来源条目");
         assert!(inbox.contains("read → edit → defect"), "候选未给出工具顺序");
-        assert!(inbox.contains("修 D-166 编辑表单渲染"), "候选未记录触发任务");
+        assert!(
+            inbox.contains("修 D-166 编辑表单渲染"),
+            "候选未记录触发任务"
+        );
         assert!(inbox.contains("edit ×2"), "候选未带上失败信号原料");
         assert!(inbox.contains("old_string not found"), "候选未带上错误指纹");
-        assert!(inbox.contains("scope=project, category=fact"), "候选未指明 fact 落位");
-        assert!(inbox.contains("判 NOOP"), "候选未给出「一次性 bug 不产出」的出口");
+        assert!(
+            inbox.contains("scope=project, category=fact"),
+            "候选未指明 fact 落位"
+        );
+        assert!(
+            inbox.contains("判 NOOP"),
+            "候选未给出「一次性 bug 不产出」的出口"
+        );
 
         // 同一条目重复触发不该堆出第二份原料。
         assert!(
@@ -787,7 +846,10 @@ mod tests {
             status: "done".into(),
             tools: vec!["edit".into(), "req".into()],
         };
-        assert!(harvest_entry_fact(&store, &other, "收口 R-124", &[]), "不同条目应各投一次");
+        assert!(
+            harvest_entry_fact(&store, &other, "收口 R-124", &[]),
+            "不同条目应各投一次"
+        );
         assert!(store.read_inbox().contains("(无失败信号)"));
         std::fs::remove_dir_all(dir).ok();
     }
@@ -801,8 +863,13 @@ mod tests {
     #[test]
     fn fp_markers_提取排序去重且容忍残缺() {
         assert_eq!(
-            fp_markers("前文 [fp:edit|not found] 中间 [fp:bash|timeout] 再来一遍 [fp:edit|not found]"),
-            vec!["[fp:bash|timeout]".to_string(), "[fp:edit|not found]".to_string()],
+            fp_markers(
+                "前文 [fp:edit|not found] 中间 [fp:bash|timeout] 再来一遍 [fp:edit|not found]"
+            ),
+            vec![
+                "[fp:bash|timeout]".to_string(),
+                "[fp:edit|not found]".to_string()
+            ],
         );
         assert!(fp_markers("没有指纹的正文").is_empty());
         // 未闭合的标记不炸也不误报。
@@ -840,14 +907,26 @@ mod tests {
 
         let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80).unwrap();
         // 常驻条目只给指向,不再重复 description 整行。
-        assert!(block.contains("M-001 发版短条目(见 memory-index)"), "{block}");
-        assert!(!block.contains("M-001 [project/sop]"), "常驻条目不该给全行: {block}");
+        assert!(
+            block.contains("M-001 发版短条目(见 memory-index)"),
+            "{block}"
+        );
+        assert!(
+            !block.contains("M-001 [project/sop]"),
+            "常驻条目不该给全行: {block}"
+        );
         // 被折叠的条目在 hints 里给全行(description 在这才有信息量)。
-        assert!(block.contains("M-002 [project/fact] 发版长条目 — "), "{block}");
+        assert!(
+            block.contains("M-002 [project/fact] 发版长条目 — "),
+            "{block}"
+        );
         // preference 全文常驻,hints 不提、遥测不记。
         assert!(!block.contains("M-003"), "preference 不该进 hints: {block}");
         assert!(
-            store.recalls(10).iter().all(|r| r.hits.iter().all(|h| h.id != "M-003")),
+            store
+                .recalls(10)
+                .iter()
+                .all(|r| r.hits.iter().all(|h| h.id != "M-003")),
             "preference 不该进召回遥测",
         );
         std::fs::remove_dir_all(dir).ok();
@@ -881,12 +960,24 @@ mod tests {
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
         let inbox = store.read_inbox();
         assert!(inbox.contains("改用 read 成功"), "{inbox}");
-        assert!(inbox.contains("原样放进正文"), "正常笔记未要求保留指纹: {inbox}");
+        assert!(
+            inbox.contains("原样放进正文"),
+            "正常笔记未要求保留指纹: {inbox}"
+        );
 
         // manager 按要求建了条目(指纹在正文里),inbox 已清。
         store.clear_inbox().unwrap();
         match store
-            .add("fact", "edit 未命中先 read 重读", "edit 替换失败时必读:先 read 再改", &format!("判据……{fingerprint}"), "memory-manager", &[], None, false)
+            .add(
+                "fact",
+                "edit 未命中先 read 重读",
+                "edit 替换失败时必读:先 read 再改",
+                &format!("判据……{fingerprint}"),
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
             .unwrap()
         {
             AddOutcome::Added(_) => {}
@@ -896,10 +987,19 @@ mod tests {
         // 第二次同类失败:必须改投修订笔记,点名既有条目,不再原坑重投。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
         let inbox = store.read_inbox();
-        assert!(inbox.contains("已有记忆 M-001"), "复发未点名既有条目: {inbox}");
+        assert!(
+            inbox.contains("已有记忆 M-001"),
+            "复发未点名既有条目: {inbox}"
+        );
         assert!(inbox.contains("仍复发"), "{inbox}");
-        assert!(inbox.contains("memory_update"), "修订笔记未指路 update: {inbox}");
-        assert!(!inbox.contains("改用 read 成功"), "复发时不该再投原始失败笔记: {inbox}");
+        assert!(
+            inbox.contains("memory_update"),
+            "修订笔记未指路 update: {inbox}"
+        );
+        assert!(
+            !inbox.contains("改用 read 成功"),
+            "复发时不该再投原始失败笔记: {inbox}"
+        );
 
         // 同一轮内指纹去重照旧生效:再采集不新增笔记。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 0);

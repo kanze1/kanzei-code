@@ -49,7 +49,10 @@ mod tests {
     #[test]
     fn subagent_snapshot_applies_user_read_deny() {
         let mut config = KanzeiConfig::default();
-        config.permissions.rules.push(rule("read", "*/.env", Effect::Deny));
+        config
+            .permissions
+            .rules
+            .push(rule("read", "*/.env", Effect::Deny));
         let ctx = ResolveCtx {
             profile: ProfileKind::Dev,
             cwd: std::env::temp_dir(),
@@ -60,7 +63,10 @@ mod tests {
         harness.add(SubagentBase).add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
         assert_eq!(snapshot.evaluate("read", "project/.env"), Effect::Deny);
-        assert_eq!(snapshot.evaluate("read", "project/src/main.rs"), Effect::Allow);
+        assert_eq!(
+            snapshot.evaluate("read", "project/src/main.rs"),
+            Effect::Allow
+        );
     }
 
     #[test]

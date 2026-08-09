@@ -40,7 +40,10 @@ impl RedundancyWatch {
         // 否则 results.get_mut(index) 会静默配错工具结果。
         debug_assert_eq!(calls.len(), results.len(), "工具调用与结果按下标一一对应");
         for (index, (_, name, input, _)) in calls.iter().enumerate() {
-            let Some(Part::ToolResult { content, is_error, .. }) = results.get_mut(index) else {
+            let Some(Part::ToolResult {
+                content, is_error, ..
+            }) = results.get_mut(index)
+            else {
                 continue;
             };
             if *is_error || content.is_empty() {
@@ -83,10 +86,7 @@ impl RedundancyWatch {
                     }
                 }
                 "task" => {
-                    let prompt = input
-                        .get("prompt")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                     if let Some(note) = defect_known_path_hint(project_root, prompt) {
                         content.push_str(&format!("\n[冗余提醒] {note}"));
                     }
@@ -119,9 +119,7 @@ fn defect_known_path_hint(project_root: &std::path::Path, prompt: &str) -> Optio
     let ids: Vec<&str> = prompt
         .split_whitespace()
         .filter(|w| {
-            w.len() > 2
-                && w.starts_with("D-")
-                && w[2..].chars().all(|c| c.is_ascii_digit())
+            w.len() > 2 && w.starts_with("D-") && w[2..].chars().all(|c| c.is_ascii_digit())
         })
         .collect();
     if ids.is_empty() {
@@ -138,10 +136,7 @@ fn defect_known_path_hint(project_root: &std::path::Path, prompt: &str) -> Optio
                 continue;
             };
             let rest = &text[start..];
-            let end = rest
-                .find("\n## ")
-                .map(|i| start + i)
-                .unwrap_or(text.len());
+            let end = rest.find("\n## ").map(|i| start + i).unwrap_or(text.len());
             let section = &text[start..end];
             let known: Vec<&str> = section
                 .split_whitespace()
@@ -193,21 +188,51 @@ mod tests {
         std::fs::create_dir_all(&dir).ok();
 
         let calls = vec![
-            ("g1".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("g2".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
+            (
+                "g1".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
+            (
+                "g2".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
         ];
         let mut results = vec![
-            Part::ToolResult { call_id: "g1".into(), content: " M src/lib.rs".into(), is_error: false },
-            Part::ToolResult { call_id: "g2".into(), content: " M src/lib.rs".into(), is_error: false },
+            Part::ToolResult {
+                call_id: "g1".into(),
+                content: " M src/lib.rs".into(),
+                is_error: false,
+            },
+            Part::ToolResult {
+                call_id: "g2".into(),
+                content: " M src/lib.rs".into(),
+                is_error: false,
+            },
         ];
         watch.note_step(&dir, &calls, &mut results);
         assert!(!result_content(&results[0]).contains("[冗余提醒]"));
-        assert!(result_content(&results[1]).contains("[冗余提醒]"), "{}", result_content(&results[1]));
+        assert!(
+            result_content(&results[1]).contains("[冗余提醒]"),
+            "{}",
+            result_content(&results[1])
+        );
         // 内容变了(工作树有改动)就不再提醒。
         let mut watch2 = RedundancyWatch::default();
         let mut results2 = vec![
-            Part::ToolResult { call_id: "g1".into(), content: " M src/lib.rs".into(), is_error: false },
-            Part::ToolResult { call_id: "g2".into(), content: " M src/lib.rs\n M src/app.rs".into(), is_error: false },
+            Part::ToolResult {
+                call_id: "g1".into(),
+                content: " M src/lib.rs".into(),
+                is_error: false,
+            },
+            Part::ToolResult {
+                call_id: "g2".into(),
+                content: " M src/lib.rs\n M src/app.rs".into(),
+                is_error: false,
+            },
         ];
         watch2.note_step(&dir, &calls, &mut results2);
         assert!(!result_content(&results2[1]).contains("[冗余提醒]"));
@@ -222,31 +247,83 @@ mod tests {
 
         let tree = " M crates/kanzei-app/ui/main.js";
         let calls1 = vec![
-            ("g1".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("b1".into(), "bash".into(), serde_json::json!({"command": "cargo test --workspace"}), "".into()),
+            (
+                "g1".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
+            (
+                "b1".into(),
+                "bash".into(),
+                serde_json::json!({"command": "cargo test --workspace"}),
+                "".into(),
+            ),
         ];
         let mut results1 = vec![
-            Part::ToolResult { call_id: "g1".into(), content: tree.into(), is_error: false },
-            Part::ToolResult { call_id: "b1".into(), content: "test result: ok. 200 passed".into(), is_error: false },
+            Part::ToolResult {
+                call_id: "g1".into(),
+                content: tree.into(),
+                is_error: false,
+            },
+            Part::ToolResult {
+                call_id: "b1".into(),
+                content: "test result: ok. 200 passed".into(),
+                is_error: false,
+            },
         ];
         watch.note_step(&dir, &calls1, &mut results1);
-        assert!(!result_content(&results1[1]).contains("[冗余提醒]"), "首次全量测试不该提醒");
+        assert!(
+            !result_content(&results1[1]).contains("[冗余提醒]"),
+            "首次全量测试不该提醒"
+        );
 
         // 第二次:git status 内容一致,再跑全量 → 提醒。
         let calls2 = vec![
-            ("g2".into(), "bash".into(), serde_json::json!({"command": "git status --porcelain"}), "".into()),
-            ("b2".into(), "bash".into(), serde_json::json!({"command": "cargo test --workspace"}), "".into()),
+            (
+                "g2".into(),
+                "bash".into(),
+                serde_json::json!({"command": "git status --porcelain"}),
+                "".into(),
+            ),
+            (
+                "b2".into(),
+                "bash".into(),
+                serde_json::json!({"command": "cargo test --workspace"}),
+                "".into(),
+            ),
         ];
         let mut results2 = vec![
-            Part::ToolResult { call_id: "g2".into(), content: tree.into(), is_error: false },
-            Part::ToolResult { call_id: "b2".into(), content: "test result: ok. 200 passed".into(), is_error: false },
+            Part::ToolResult {
+                call_id: "g2".into(),
+                content: tree.into(),
+                is_error: false,
+            },
+            Part::ToolResult {
+                call_id: "b2".into(),
+                content: "test result: ok. 200 passed".into(),
+                is_error: false,
+            },
         ];
         watch.note_step(&dir, &calls2, &mut results2);
-        assert!(result_content(&results2[1]).contains("[冗余提醒]"), "{}", result_content(&results2[1]));
+        assert!(
+            result_content(&results2[1]).contains("[冗余提醒]"),
+            "{}",
+            result_content(&results2[1])
+        );
         // 定向测试不算全量,不触发。
         let mut watch3 = RedundancyWatch::default();
-        let calls3 = vec![("b3".into(), "bash".into(), serde_json::json!({"command": "cargo test -p kanzei-core"}), "".into())];
-        let mut results3 = vec![Part::ToolResult { call_id: "b3".into(), content: "ok".into(), is_error: false }];
+        let calls3 = vec![(
+            "b3".into(),
+            "bash".into(),
+            serde_json::json!({"command": "cargo test -p kanzei-core"}),
+            "".into(),
+        )];
+        let mut results3 = vec![Part::ToolResult {
+            call_id: "b3".into(),
+            content: "ok".into(),
+            is_error: false,
+        }];
         watch3.note_step(&dir, &calls3, &mut results3);
         assert!(!result_content(&results3[0]).contains("[冗余提醒]"));
         std::fs::remove_dir_all(dir).ok();
@@ -268,9 +345,17 @@ mod tests {
             serde_json::json!({"prompt": "D-001 启动黑屏,找 crates/kanzei-app/ui/main.js 的初始化位置"}),
             "".into(),
         )];
-        let mut results = vec![Part::ToolResult { call_id: "t1".into(), content: "done".into(), is_error: false }];
+        let mut results = vec![Part::ToolResult {
+            call_id: "t1".into(),
+            content: "done".into(),
+            is_error: false,
+        }];
         watch.note_step(&dir, &calls, &mut results);
-        assert!(result_content(&results[0]).contains("[冗余提醒] 缺陷 D-001"), "{}", result_content(&results[0]));
+        assert!(
+            result_content(&results[0]).contains("[冗余提醒] 缺陷 D-001"),
+            "{}",
+            result_content(&results[0])
+        );
         // 路径不在缺陷记录里 → 不提醒。
         let calls2 = vec![(
             "t2".into(),
@@ -278,10 +363,13 @@ mod tests {
             serde_json::json!({"prompt": "D-001 启动黑屏,找 crates/kanzei-app/src/main.rs 的逻辑"}),
             "".into(),
         )];
-        let mut results2 = vec![Part::ToolResult { call_id: "t2".into(), content: "done".into(), is_error: false }];
+        let mut results2 = vec![Part::ToolResult {
+            call_id: "t2".into(),
+            content: "done".into(),
+            is_error: false,
+        }];
         watch.note_step(&dir, &calls2, &mut results2);
         assert!(!result_content(&results2[0]).contains("[冗余提醒]"));
         std::fs::remove_dir_all(dir).ok();
     }
 }
-

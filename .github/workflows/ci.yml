@@ -25,9 +25,9 @@ jobs:
         with:
           node-version: 22
       # 本清单必须与 scripts/verify.ps1 同步维护；两处启用/禁用 fmt、clippy 时必须一起变更。
-      # fmt 闸门由 R-156(全仓 fmt 收敛)交付时取消注释；当前仓库启用会失败。
-      # - name: fmt
-      #   run: cargo fmt --all -- --check
+      # fmt 闸门(R-156 交付启用)：全仓格式化收敛完成。
+      - name: fmt
+        run: cargo fmt --all -- --check
       # clippy 闸门由 R-146(warning 清零)交付时取消注释。
       # - name: clippy
       #   run: cargo clippy --workspace --all-targets -- -D warnings

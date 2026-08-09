@@ -7,9 +7,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
 
-use super::{
-    parse_entry, render_entry, today, MemoryEntry, MemoryScope, CATEGORIES, STATUSES,
-};
+use super::{parse_entry, render_entry, today, MemoryEntry, MemoryScope, CATEGORIES, STATUSES};
 
 /// 检索结果(含派生指标)。
 #[derive(Debug, Clone)]
@@ -183,7 +181,10 @@ impl MemoryStore {
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
         if !CATEGORIES.contains(&category) {
-            anyhow::bail!("invalid category `{category}`; valid: {}", CATEGORIES.join(" | "));
+            anyhow::bail!(
+                "invalid category `{category}`; valid: {}",
+                CATEGORIES.join(" | ")
+            );
         }
         let title = title.trim();
         let description = description.trim();
@@ -218,7 +219,11 @@ impl MemoryStore {
         let now = today();
         let extras = {
             let mut extras: Vec<(String, String)> = Vec::new();
-            let refs: Vec<&str> = refs.iter().map(|r| r.trim()).filter(|r| !r.is_empty()).collect();
+            let refs: Vec<&str> = refs
+                .iter()
+                .map(|r| r.trim())
+                .filter(|r| !r.is_empty())
+                .collect();
             if !refs.is_empty() {
                 extras.push(("refs".to_string(), refs.join(" ")));
             }
@@ -371,7 +376,9 @@ impl MemoryStore {
     pub fn record_recall(&self, prompt: &str, hits: &[SearchHit], injected_bytes: usize) -> String {
         let at = now_ms();
         let recall_id = format!("{at}-{}", self.scope.prefix());
-        let Ok(conn) = self.open_db() else { return recall_id };
+        let Ok(conn) = self.open_db() else {
+            return recall_id;
+        };
         let head: String = prompt.chars().take(160).collect();
         for hit in hits {
             let _ = conn.execute(
@@ -410,7 +417,9 @@ impl MemoryStore {
 
     /// 最近若干次召回,按轮次聚合(新的在前)。
     pub fn recalls(&self, limit: usize) -> Vec<RecallRound> {
-        let Ok(conn) = self.open_db() else { return Vec::new() };
+        let Ok(conn) = self.open_db() else {
+            return Vec::new();
+        };
         let Ok(mut statement) = conn.prepare(
             "SELECT recall_id, at, prompt_head, injected_bytes, entry_id, title, scope, category, score, snippet, fetched
              FROM memory_recalls ORDER BY at DESC, entry_id ASC",
@@ -533,7 +542,11 @@ impl MemoryStore {
                 score,
             });
         }
-        hits_out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        hits_out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         hits_out.truncate(limit);
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -642,7 +655,9 @@ impl MemoryStore {
                 .find(|(_, e)| e.id == merged.id)
                 .expect("primary exists");
             if !carried_fps.is_empty() {
-                entry.body.push_str(&format!("\n\n(并入指纹: {})", carried_fps.join(" ")));
+                entry
+                    .body
+                    .push_str(&format!("\n\n(并入指纹: {})", carried_fps.join(" ")));
             }
             if !union_refs.is_empty() {
                 entry.extras.retain(|(k, _)| k != "refs");
@@ -662,7 +677,9 @@ impl MemoryStore {
             entry
                 .extras
                 .retain(|(k, _)| !k.eq_ignore_ascii_case("superseded_by"));
-            entry.extras.push(("superseded_by".into(), primary.to_string()));
+            entry
+                .extras
+                .push(("superseded_by".into(), primary.to_string()));
             self.write_entry(&entry, Some(&path))?;
         }
         self.refresh_derived()?;
@@ -671,12 +688,9 @@ impl MemoryStore {
 
     /// 按标题前缀找一条 active 偏好条目(开发重心这类"随时会改的定调")。
     pub fn find_preference(&self, title_prefix: &str) -> Option<MemoryEntry> {
-        self.load_all()
-            .into_iter()
-            .map(|(_, e)| e)
-            .find(|e| {
-                e.category == "preference" && e.status == "active" && e.title.starts_with(title_prefix)
-            })
+        self.load_all().into_iter().map(|(_, e)| e).find(|e| {
+            e.category == "preference" && e.status == "active" && e.title.starts_with(title_prefix)
+        })
     }
 
     /// 用户直写的偏好 upsert:标题前缀命中就改,否则新增。
@@ -703,7 +717,16 @@ impl MemoryStore {
             self.refresh_derived()?;
             return Ok(entry);
         }
-        match self.add("preference", title, description, body, "user", &[], None, true)? {
+        match self.add(
+            "preference",
+            title,
+            description,
+            body,
+            "user",
+            &[],
+            None,
+            true,
+        )? {
             AddOutcome::Added(entry)
             | AddOutcome::Duplicate(entry)
             | AddOutcome::SubjectConflict(entry) => Ok(entry),
@@ -722,7 +745,11 @@ impl MemoryStore {
             return out;
         };
         if let Ok(rows) = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
         }) {
             for (id, recalled, fetched) in rows.flatten() {
                 out.insert(id, (recalled.max(0) as u64, fetched.max(0) as u64));
@@ -745,12 +772,17 @@ impl MemoryStore {
     pub fn hit_profile(&self) -> std::collections::BTreeMap<String, (u64, i64)> {
         let mut out = std::collections::BTreeMap::new();
         let Ok(conn) = self.open_db() else { return out };
-        let Ok(mut statement) = conn.prepare("SELECT id, hits, last_hit_at FROM memory_hits") else {
+        let Ok(mut statement) = conn.prepare("SELECT id, hits, last_hit_at FROM memory_hits")
+        else {
             return out;
         };
-        if let Ok(rows) =
-            statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)))
-        {
+        if let Ok(rows) = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        }) {
             for (id, hits, last) in rows.flatten() {
                 out.insert(id, (hits.max(0) as u64, last));
             }
@@ -767,7 +799,9 @@ impl MemoryStore {
         let Ok(mut statement) = conn.prepare("SELECT id, hits FROM memory_hits") else {
             return out;
         };
-        if let Ok(rows) = statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))) {
+        if let Ok(rows) =
+            statement.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+        {
             for row in rows.flatten() {
                 out.insert(row.0, row.1.max(0) as u64);
             }
@@ -791,12 +825,22 @@ impl MemoryStore {
     /// inbox 草稿箱:主 agent 的唯一写入口(memory_note),manager 在 M2 消化。
     /// refs 为来源引用(R-070):以 `- refs: R-012 D-044` 行写入草稿,
     /// manager 消化时经 memory_add 的 refs 参数把引用带进正式条目。
-    pub fn append_note(&self, summary: &str, detail: &str, category_hint: &str, refs: &[String]) -> anyhow::Result<PathBuf> {
+    pub fn append_note(
+        &self,
+        summary: &str,
+        detail: &str,
+        category_hint: &str,
+        refs: &[String],
+    ) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
         let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
         let refs_line = {
-            let refs: Vec<&str> = refs.iter().map(|r| r.trim()).filter(|r| !r.is_empty()).collect();
+            let refs: Vec<&str> = refs
+                .iter()
+                .map(|r| r.trim())
+                .filter(|r| !r.is_empty())
+                .collect();
             if refs.is_empty() {
                 String::new()
             } else {
@@ -806,10 +850,18 @@ impl MemoryStore {
         text.push_str(&format!(
             "\n## note {} {}\n- summary: {}\n{}{}",
             today(),
-            if category_hint.is_empty() { "".to_string() } else { format!("[{category_hint}]") },
+            if category_hint.is_empty() {
+                "".to_string()
+            } else {
+                format!("[{category_hint}]")
+            },
             summary.trim(),
             refs_line,
-            if detail.trim().is_empty() { String::new() } else { format!("{}\n", detail.trim()) },
+            if detail.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{}\n", detail.trim())
+            },
         ));
         atomic_write(&path, &text)?;
         Ok(path)
@@ -906,7 +958,10 @@ impl MemoryStore {
     /// legacy 迁移:R-098 的 .kanzei/project/memory.md(tracker M-条目)→ 一条一文件。
     /// 幂等:legacy 文件不存在即跳过;迁移后原文件改写为指路牌。
     fn migrate_legacy(&self, project_root: &Path) {
-        let legacy = project_root.join(".kanzei").join("project").join("memory.md");
+        let legacy = project_root
+            .join(".kanzei")
+            .join("project")
+            .join("memory.md");
         if !legacy.is_file() {
             return;
         }
@@ -933,7 +988,12 @@ impl MemoryStore {
                 category: "fact".into(),
                 title: legacy_entry.title.clone(),
                 description: format!("{}(迁移自 memory.md)", legacy_entry.title),
-                status: if legacy_entry.status == "stale" { "stale" } else { "active" }.into(),
+                status: if legacy_entry.status == "stale" {
+                    "stale"
+                } else {
+                    "active"
+                }
+                .into(),
                 created: now.clone(),
                 updated: now.clone(),
                 source: "migration".into(),
@@ -1082,8 +1142,17 @@ mod tests {
         (dir, store)
     }
 
-    fn add(store: &MemoryStore, category: &str, title: &str, desc: &str, body: &str) -> MemoryEntry {
-        match store.add(category, title, desc, body, "user", &[], None, false).unwrap() {
+    fn add(
+        store: &MemoryStore,
+        category: &str,
+        title: &str,
+        desc: &str,
+        body: &str,
+    ) -> MemoryEntry {
+        match store
+            .add(category, title, desc, body, "user", &[], None, false)
+            .unwrap()
+        {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
@@ -1093,8 +1162,20 @@ mod tests {
     #[test]
     fn add_assigns_ids_and_builds_derived_index() {
         let (dir, store) = temp_store();
-        let a = add(&store, "fact", "CRLF 是 edit 未命中主因", "换行符问题必读", "正文 A");
-        let b = add(&store, "sop", "发版 SOP", "做发版相关任务必读", "1. 测试 2. 推送 3. 发布");
+        let a = add(
+            &store,
+            "fact",
+            "CRLF 是 edit 未命中主因",
+            "换行符问题必读",
+            "正文 A",
+        );
+        let b = add(
+            &store,
+            "sop",
+            "发版 SOP",
+            "做发版相关任务必读",
+            "1. 测试 2. 推送 3. 发布",
+        );
         assert_eq!((a.id.as_str(), b.id.as_str()), ("M-001", "M-002"));
         let index = std::fs::read_to_string(store.root.join("INDEX.md")).unwrap();
         assert!(index.contains("M-001 [fact] CRLF 是 edit 未命中主因 — 换行符问题必读"));
@@ -1105,13 +1186,39 @@ mod tests {
     #[test]
     fn exact_duplicate_title_is_rejected_unless_forced() {
         let (dir, store) = temp_store();
-        add(&store, "habit", "gh 要走本地代理", "gh 网络失败时必读", "HTTPS_PROXY=127.0.0.1:12000");
+        add(
+            &store,
+            "habit",
+            "gh 要走本地代理",
+            "gh 网络失败时必读",
+            "HTTPS_PROXY=127.0.0.1:12000",
+        );
         let outcome = store
-            .add("habit", "gh 要走本地代理!", "重复", "x", "user", &[], None, false)
+            .add(
+                "habit",
+                "gh 要走本地代理!",
+                "重复",
+                "x",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        assert!(matches!(outcome, AddOutcome::Duplicate(ref e) if e.id == "U-001" || e.id == "M-001"));
+        assert!(
+            matches!(outcome, AddOutcome::Duplicate(ref e) if e.id == "U-001" || e.id == "M-001")
+        );
         let forced = store
-            .add("habit", "gh 要走本地代理!", "强制新增", "x", "user", &[], None, true)
+            .add(
+                "habit",
+                "gh 要走本地代理!",
+                "强制新增",
+                "x",
+                "user",
+                &[],
+                None,
+                true,
+            )
             .unwrap();
         assert!(matches!(forced, AddOutcome::Added(_)));
         std::fs::remove_dir_all(dir).ok();
@@ -1120,11 +1227,32 @@ mod tests {
     #[test]
     fn search_ranks_and_records_hits_and_rebuilds_after_db_loss() {
         let (dir, store) = temp_store();
-        add(&store, "fact", "CRLF 是 edit 未命中主因", "处理 edit 替换失败换行符问题必读", "自动容忍已落地");
-        add(&store, "sop", "发版 SOP 两条通道", "发版发布安装更新相关必读", "package.ps1 -Publish 后静默装 setup");
+        add(
+            &store,
+            "fact",
+            "CRLF 是 edit 未命中主因",
+            "处理 edit 替换失败换行符问题必读",
+            "自动容忍已落地",
+        );
+        add(
+            &store,
+            "sop",
+            "发版 SOP 两条通道",
+            "发版发布安装更新相关必读",
+            "package.ps1 -Publish 后静默装 setup",
+        );
         let hits = store.search("发版 更新", None, Some("active"), 5).unwrap();
-        assert_eq!(hits[0].entry.id, "M-002", "{:?}", hits.iter().map(|h| &h.entry.id).collect::<Vec<_>>());
-        assert!(hits[0].snippet.contains('['), "snippet 高亮: {}", hits[0].snippet);
+        assert_eq!(
+            hits[0].entry.id,
+            "M-002",
+            "{:?}",
+            hits.iter().map(|h| &h.entry.id).collect::<Vec<_>>()
+        );
+        assert!(
+            hits[0].snippet.contains('['),
+            "snippet 高亮: {}",
+            hits[0].snippet
+        );
         // 命中计数生效
         let again = store.search("发版", None, None, 5).unwrap();
         assert!(again[0].hits >= 1);
@@ -1140,8 +1268,20 @@ mod tests {
     #[test]
     fn 召回明细可回看且采纳与否可机械判定() {
         let (dir, store) = temp_store();
-        add(&store, "fact", "CRLF 是 edit 未命中主因", "处理 edit 替换失败必读", "自动容忍已落地");
-        add(&store, "sop", "发版 SOP 两条通道", "发版发布安装更新必读", "package.ps1 -Publish");
+        add(
+            &store,
+            "fact",
+            "CRLF 是 edit 未命中主因",
+            "处理 edit 替换失败必读",
+            "自动容忍已落地",
+        );
+        add(
+            &store,
+            "sop",
+            "发版 SOP 两条通道",
+            "发版发布安装更新必读",
+            "package.ps1 -Publish",
+        );
         let hits = store.search("发版 更新", None, Some("active"), 5).unwrap();
         assert!(!hits.is_empty());
 
@@ -1149,9 +1289,18 @@ mod tests {
         let rounds = store.recalls(10);
         assert_eq!(rounds.len(), 1, "召回明细未落库");
         assert_eq!(rounds[0].recall_id, recall_id);
-        assert_eq!(rounds[0].injected_bytes, 512, "未记录注入字节数,上下文账单无从算起");
-        assert!(rounds[0].prompt_head.contains("发版"), "未记录触发本次召回的 prompt");
-        assert!(rounds[0].hits.iter().all(|h| h.score != 0.0), "未记录检索得分,看不出为什么召回这几条");
+        assert_eq!(
+            rounds[0].injected_bytes, 512,
+            "未记录注入字节数,上下文账单无从算起"
+        );
+        assert!(
+            rounds[0].prompt_head.contains("发版"),
+            "未记录触发本次召回的 prompt"
+        );
+        assert!(
+            rounds[0].hits.iter().all(|h| h.score != 0.0),
+            "未记录检索得分,看不出为什么召回这几条"
+        );
         // 关键:召回但没拉正文 = 没起作用,不能默认算数。
         assert!(
             rounds[0].hits.iter().all(|h| !h.fetched),
@@ -1163,7 +1312,12 @@ mod tests {
         store.mark_recall_fetched(&target);
         let after = store.recalls(10);
         assert!(
-            after[0].hits.iter().find(|h| h.id == target).unwrap().fetched,
+            after[0]
+                .hits
+                .iter()
+                .find(|h| h.id == target)
+                .unwrap()
+                .fetched,
             "拉取正文后未标记为已采纳",
         );
         assert!(
@@ -1197,7 +1351,9 @@ mod tests {
         // 手工制造缺号:把 M-002 位空出来(改 id 为 M-003)
         store.update(&b.id, None, None, None, None).unwrap();
         let path = store.root.join(format!("{}.md", b.file_stem()));
-        let text = std::fs::read_to_string(&path).unwrap().replace("id: M-002", "id: M-003");
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("id: M-002", "id: M-003");
         std::fs::write(&path, text).unwrap();
         let issues = store.integrity_issues();
         assert!(issues.iter().any(|i| i.contains("M-002")), "{issues:?}");
@@ -1207,20 +1363,45 @@ mod tests {
     #[test]
     fn merge_keeps_primary_and_tombstones_duplicates() {
         let (dir, store) = temp_store();
-        let a = add(&store, "habit", "gh 走代理", "gh 网络问题必读", "端口 12000");
-        let b = add(&store, "habit", "gh 需要 HTTPS_PROXY", "gh 超时必读", "同上");
+        let a = add(
+            &store,
+            "habit",
+            "gh 走代理",
+            "gh 网络问题必读",
+            "端口 12000",
+        );
+        let b = add(
+            &store,
+            "habit",
+            "gh 需要 HTTPS_PROXY",
+            "gh 超时必读",
+            "同上",
+        );
         let merged = store
-            .merge(&a.id, &[b.id.clone()], None, Some("gh 网络失败/超时必读"), Some("HTTPS_PROXY=http://127.0.0.1:12000"))
+            .merge(
+                &a.id,
+                &[b.id.clone()],
+                None,
+                Some("gh 网络失败/超时必读"),
+                Some("HTTPS_PROXY=http://127.0.0.1:12000"),
+            )
             .unwrap();
         assert_eq!(merged.id, a.id);
         assert_eq!(merged.description, "gh 网络失败/超时必读");
         let entries = store.load_all();
         let (_, dup) = entries.iter().find(|(_, e)| e.id == b.id).unwrap();
         assert_eq!(dup.status, "stale");
-        assert!(dup.extras.iter().any(|(k, v)| k == "superseded_by" && v == &a.id));
+        assert!(dup
+            .extras
+            .iter()
+            .any(|(k, v)| k == "superseded_by" && v == &a.id));
         // 未知 id 与自我合并都拒绝
-        assert!(store.merge(&a.id, &[a.id.clone()], None, None, None).is_err());
-        assert!(store.merge("M-999", &[b.id.clone()], None, None, None).is_err());
+        assert!(store
+            .merge(&a.id, &[a.id.clone()], None, None, None)
+            .is_err());
+        assert!(store
+            .merge("M-999", &[b.id.clone()], None, None, None)
+            .is_err());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1229,11 +1410,21 @@ mod tests {
         // 开发重心会被反复切换:必须复用同一条目,否则索引被同类定调撑爆、历史也无从对照。
         let (dir, store) = temp_store();
         let first = store
-            .upsert_preference("开发重心", "开发重心:缺陷优先", "取活时必读", "先扫 defects.md")
+            .upsert_preference(
+                "开发重心",
+                "开发重心:缺陷优先",
+                "取活时必读",
+                "先扫 defects.md",
+            )
             .unwrap();
         assert_eq!(first.category, "preference");
         let second = store
-            .upsert_preference("开发重心", "开发重心:需求优先", "取活时必读", "先扫 requirements.md")
+            .upsert_preference(
+                "开发重心",
+                "开发重心:需求优先",
+                "取活时必读",
+                "先扫 requirements.md",
+            )
             .unwrap();
         assert_eq!(second.id, first.id, "切换必须改同一条,不能新增");
         assert_eq!(second.body, "先扫 requirements.md");
@@ -1244,17 +1435,28 @@ mod tests {
         );
         // 与其它偏好条目互不干扰
         store
-            .upsert_preference("提交署名", "提交署名:不带 Co-Authored-By", "提交时必读", "只署用户本人")
+            .upsert_preference(
+                "提交署名",
+                "提交署名:不带 Co-Authored-By",
+                "提交时必读",
+                "只署用户本人",
+            )
             .unwrap();
         assert_eq!(store.load_all().len(), 2);
-        assert!(store.find_preference("开发重心").unwrap().title.contains("需求优先"));
+        assert!(store
+            .find_preference("开发重心")
+            .unwrap()
+            .title
+            .contains("需求优先"));
         std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]
     fn inbox_roundtrip_and_clear() {
         let (dir, store) = temp_store();
-        store.append_note("纯 ui 改动只跑 node 检查", "细节", "habit", &[]).unwrap();
+        store
+            .append_note("纯 ui 改动只跑 node 检查", "细节", "habit", &[])
+            .unwrap();
         store.append_note("发版走两条通道", "", "sop", &[]).unwrap();
         assert_eq!(store.pending_notes(), 2);
         assert!(store.read_inbox().contains("纯 ui 改动只跑 node 检查"));
@@ -1268,7 +1470,16 @@ mod tests {
         // R-070:add 带 refs 写入 frontmatter,读取方 refs() 还原;草稿带 refs 贯通到候选列表。
         let (dir, store) = temp_store();
         let entry = match store
-            .add("fact", "CRLF 是 edit 未命中主因", "换行符问题必读", "正文", "user", &["R-070".into(), "D-200".into()], None, false)
+            .add(
+                "fact",
+                "CRLF 是 edit 未命中主因",
+                "换行符问题必读",
+                "正文",
+                "user",
+                &["R-070".into(), "D-200".into()],
+                None,
+                false,
+            )
             .unwrap()
         {
             AddOutcome::Added(e) => e,
@@ -1277,7 +1488,11 @@ mod tests {
         };
         assert_eq!(entry.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
         // 落盘文件里真能看到 refs 键,重读后仍还原。
-        let (path, _) = store.load_all().into_iter().find(|(_, e)| e.id == entry.id).unwrap();
+        let (path, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .unwrap();
         let file_text = std::fs::read_to_string(&path).unwrap();
         assert!(file_text.contains("refs: R-070 D-200"), "{file_text}");
         let reloaded = store
@@ -1337,35 +1552,92 @@ mod tests {
     fn subject_状态不变量_同主题至多一条_active_且_force_不可绕() {
         let (dir, store) = temp_store();
         let first = match store
-            .add("fact", "安装通道:NSIS 安装版", "查安装/更新通道时必读", "AppData 下", "user", &[], Some("安装通道"), false)
+            .add(
+                "fact",
+                "安装通道:NSIS 安装版",
+                "查安装/更新通道时必读",
+                "AppData 下",
+                "user",
+                &[],
+                Some("安装通道"),
+                false,
+            )
             .unwrap()
         {
             AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
         // subject 写进 frontmatter,重读还原。
-        let (path, _) = store.load_all().into_iter().find(|(_, e)| e.id == first.id).unwrap();
-        assert!(std::fs::read_to_string(&path).unwrap().contains("subject: 安装通道"));
+        let (path, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == first.id)
+            .unwrap();
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("subject: 安装通道"));
 
         // 标题不同、subject 相同 → 冲突,返回既有条目。
         let conflict = store
-            .add("fact", "安装通道改为便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), false)
+            .add(
+                "fact",
+                "安装通道改为便携版",
+                "查安装通道必读",
+                "新状态",
+                "user",
+                &[],
+                Some("安装通道"),
+                false,
+            )
             .unwrap();
         assert!(matches!(conflict, AddOutcome::SubjectConflict(ref e) if e.id == first.id));
         // force 不可绕:状态不变量不是风格偏好。
         let forced = store
-            .add("fact", "安装通道改为便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), true)
+            .add(
+                "fact",
+                "安装通道改为便携版",
+                "查安装通道必读",
+                "新状态",
+                "user",
+                &[],
+                Some("安装通道"),
+                true,
+            )
             .unwrap();
         assert!(matches!(forced, AddOutcome::SubjectConflict(ref e) if e.id == first.id));
         // 不同 category 同 subject 不冲突(键含 category)。
         assert!(matches!(
-            store.add("sop", "安装通道切换 SOP", "切换安装通道时必读", "步骤", "user", &[], Some("安装通道"), false).unwrap(),
+            store
+                .add(
+                    "sop",
+                    "安装通道切换 SOP",
+                    "切换安装通道时必读",
+                    "步骤",
+                    "user",
+                    &[],
+                    Some("安装通道"),
+                    false
+                )
+                .unwrap(),
             AddOutcome::Added(_)
         ));
         // 旧状态 stale 后,同 subject 可重新建立(active 才占键)。
-        store.update(&first.id, None, None, None, Some("stale")).unwrap();
+        store
+            .update(&first.id, None, None, None, Some("stale"))
+            .unwrap();
         assert!(matches!(
-            store.add("fact", "安装通道:便携版", "查安装通道必读", "新状态", "user", &[], Some("安装通道"), false).unwrap(),
+            store
+                .add(
+                    "fact",
+                    "安装通道:便携版",
+                    "查安装通道必读",
+                    "新状态",
+                    "user",
+                    &[],
+                    Some("安装通道"),
+                    false
+                )
+                .unwrap(),
             AddOutcome::Added(_)
         ));
         std::fs::remove_dir_all(dir).ok();
@@ -1388,8 +1660,20 @@ mod tests {
     fn 零采纳条目在检索里沉底_高采纳浮上() {
         let (dir, store) = temp_store();
         // 两条在 bm25 上等价的条目(标题仅一字之差,description/body 同构)。
-        add(&store, "fact", "发版通道甲", "发版发布安装更新必读", "正文等长条目一");
-        add(&store, "fact", "发版通道乙", "发版发布安装更新必读", "正文等长条目二");
+        add(
+            &store,
+            "fact",
+            "发版通道甲",
+            "发版发布安装更新必读",
+            "正文等长条目一",
+        );
+        add(
+            &store,
+            "fact",
+            "发版通道乙",
+            "发版发布安装更新必读",
+            "正文等长条目二",
+        );
         let hits = store.search("发版", None, Some("active"), 5).unwrap();
         assert_eq!(hits.len(), 2);
         let (a, b) = ("M-001".to_string(), "M-002".to_string());
@@ -1404,7 +1688,12 @@ mod tests {
         assert_eq!(profile.get(&b), Some(&(3, 3)), "{profile:?}");
         // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
         let ranked = store.search("发版", None, Some("active"), 5).unwrap();
-        assert_eq!(ranked[0].entry.id, b, "{:?}", ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>());
+        assert_eq!(
+            ranked[0].entry.id,
+            b,
+            "{:?}",
+            ranked.iter().map(|h| &h.entry.id).collect::<Vec<_>>()
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1414,25 +1703,50 @@ mod tests {
         let (dir, store) = temp_store();
         let a = add(&store, "fact", "edit 未命中主因", "edit 失败必读", "判据 A");
         let b = match store
-            .add("fact", "edit 未命中另一坑", "edit 失败必读 2", "判据 B [fp:edit|not found]", "user", &["R-001".into()], None, false)
+            .add(
+                "fact",
+                "edit 未命中另一坑",
+                "edit 失败必读 2",
+                "判据 B [fp:edit|not found]",
+                "user",
+                &["R-001".into()],
+                None,
+                false,
+            )
             .unwrap()
         {
             AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
         let merged = store
-            .merge(&a.id, &[b.id.clone()], None, None, Some("合并后的正文(manager 忘了带指纹)"))
+            .merge(
+                &a.id,
+                &[b.id.clone()],
+                None,
+                None,
+                Some("合并后的正文(manager 忘了带指纹)"),
+            )
             .unwrap();
         // 指纹被引擎兜底并入 primary 正文,复发检测继续可用。
-        assert!(merged.body.contains("[fp:edit|not found]"), "{}", merged.body);
+        assert!(
+            merged.body.contains("[fp:edit|not found]"),
+            "{}",
+            merged.body
+        );
         assert_eq!(
-            store.find_active_by_marker("[fp:edit|not found]").map(|e| e.id),
+            store
+                .find_active_by_marker("[fp:edit|not found]")
+                .map(|e| e.id),
             Some(a.id.clone()),
         );
         // refs 并集进 primary。
         assert_eq!(merged.refs(), vec!["R-001".to_string()]);
         // 墓碑语义不变。
-        let (_, dup) = store.load_all().into_iter().find(|(_, e)| e.id == b.id).unwrap();
+        let (_, dup) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == b.id)
+            .unwrap();
         assert_eq!(dup.status, "stale");
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1442,8 +1756,20 @@ mod tests {
         // preference 正文全文常驻,永远不需要拉正文——采纳率对它结构性无意义,
         // 同样的「召回 3 采纳 0」不得让定调条目在检索里被降权。
         let (dir, store) = temp_store();
-        add(&store, "preference", "发版定调甲", "发版发布安装更新必读", "正文等长条目一");
-        add(&store, "fact", "发版通道乙", "发版发布安装更新必读", "正文等长条目二");
+        add(
+            &store,
+            "preference",
+            "发版定调甲",
+            "发版发布安装更新必读",
+            "正文等长条目一",
+        );
+        add(
+            &store,
+            "fact",
+            "发版通道乙",
+            "发版发布安装更新必读",
+            "正文等长条目二",
+        );
         let hits = store.search("发版", None, Some("active"), 5).unwrap();
         assert_eq!(hits.len(), 2);
         for _ in 0..3 {
@@ -1452,11 +1778,22 @@ mod tests {
         }
         // 两条同为召回 3/采纳 0:fact 吃 ×0.6,preference 保持 ×1.0 → 严格高分在前。
         let ranked = store.search("发版", None, Some("active"), 5).unwrap();
-        assert_eq!(ranked[0].entry.category, "preference", "{:?}", ranked.iter().map(|h| (&h.entry.id, h.score)).collect::<Vec<_>>());
+        assert_eq!(
+            ranked[0].entry.category,
+            "preference",
+            "{:?}",
+            ranked
+                .iter()
+                .map(|h| (&h.entry.id, h.score))
+                .collect::<Vec<_>>()
+        );
         assert!(
             ranked[0].score > ranked[1].score,
             "豁免缺失时两条同权重打平,必须是严格大于: {:?}",
-            ranked.iter().map(|h| (&h.entry.id, h.score)).collect::<Vec<_>>()
+            ranked
+                .iter()
+                .map(|h| (&h.entry.id, h.score))
+                .collect::<Vec<_>>()
         );
         std::fs::remove_dir_all(dir).ok();
     }

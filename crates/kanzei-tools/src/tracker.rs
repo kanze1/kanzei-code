@@ -952,7 +952,10 @@ mod tests {
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let mut e = entry("R-001");
         e.status = "doing".into();
-        e.fields = vec![("复杂度".into(), "大".into()), ("批次".into(), "3/11".into())];
+        e.fields = vec![
+            ("复杂度".into(), "大".into()),
+            ("批次".into(), "3/11".into()),
+        ];
         DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
         let ctx = ToolCtx::new(dir.clone());
         let tool = TrackerTool {
@@ -962,7 +965,9 @@ mod tests {
             requires_refs: None,
         };
 
-        let out = tool.execute(json!({"action": "close", "id": "R-001"}), &ctx).await;
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
         assert!(out.is_error, "还剩 8 格空着就该拦下来: {}", out.content);
         assert!(out.content.contains("3/11"), "{}", out.content);
 

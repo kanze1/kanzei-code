@@ -118,7 +118,8 @@ mod tests {
         // 官方 CLI 抢先刷新并写盘。
         std::fs::write(
             &path,
-            json!({ "claudeAiOauth": { "accessToken": "theirs", "expiresAt": 3_000i64 } }).to_string(),
+            json!({ "claudeAiOauth": { "accessToken": "theirs", "expiresAt": 3_000i64 } })
+                .to_string(),
         )
         .unwrap();
         // 我们手里这份是同一轮开始前读到的,刷完只到更早的过期时间。
@@ -130,8 +131,12 @@ mod tests {
         .unwrap();
 
         assert_eq!(adopted["claudeAiOauth"]["accessToken"], "theirs");
-        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(on_disk["claudeAiOauth"]["accessToken"], "theirs", "不该把对方的新令牌覆盖回旧的");
+        let on_disk: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            on_disk["claudeAiOauth"]["accessToken"], "theirs",
+            "不该把对方的新令牌覆盖回旧的"
+        );
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
@@ -151,7 +156,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(written["claudeAiOauth"]["accessToken"], "new");
-        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let on_disk: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(on_disk["claudeAiOauth"]["accessToken"], "new");
         let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
             .unwrap()
@@ -167,7 +173,8 @@ mod tests {
         // 旧版 truncate-then-write 崩溃留下的残骸:读不出来就当没有,直接以我们这份为准。
         let path = temp_file("corrupt");
         std::fs::write(&path, "{\"claudeAiOauth\": {\"accessTok").unwrap();
-        let mine = json!({ "claudeAiOauth": { "accessToken": "recovered", "expiresAt": 5_000i64 } });
+        let mine =
+            json!({ "claudeAiOauth": { "accessToken": "recovered", "expiresAt": 5_000i64 } });
 
         let written = commit(&path, &mine, |disk, mine| {
             newer_by_millis(disk, mine, "/claudeAiOauth/expiresAt")
@@ -175,7 +182,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(written["claudeAiOauth"]["accessToken"], "recovered");
-        let on_disk: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let on_disk: Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(on_disk["claudeAiOauth"]["accessToken"], "recovered");
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }

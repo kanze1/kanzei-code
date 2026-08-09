@@ -88,11 +88,7 @@ impl LlmError {
 fn is_rate_limit_kind(kind: &str) -> bool {
     matches!(
         kind.to_ascii_lowercase().as_str(),
-        "rate_limit_error"
-            | "rate_limit"
-            | "too_many_requests"
-            | "overloaded_error"
-            | "overloaded"
+        "rate_limit_error" | "rate_limit" | "too_many_requests" | "overloaded_error" | "overloaded"
     )
 }
 

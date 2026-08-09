@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
+use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
-use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
-use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
 
 use crate::{
     conversation, ensure_default_process, flush_live_run, memory, process_session_id,
@@ -84,11 +84,7 @@ pub(crate) async fn run_task(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
-    let runner_config = build_runner_config(
-        &resolved,
-        &config,
-        reasoning_override.as_deref(),
-    );
+    let runner_config = build_runner_config(&resolved, &config, reasoning_override.as_deref());
     let ctx = ToolCtx { cwd, project_root };
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
@@ -141,12 +137,15 @@ pub(crate) async fn run_task(
     )?;
     let _ = window.emit(
         "kz:meta",
-        with_session_id(json!({
-            "profile": format!("{profile:?}").to_lowercase(),
-            "agent": agent.name,
-            "model": format!("{}:{}", resolved.provider_name, resolved.model),
-            "contextLimit": resolved.provider.context_limit,
-        }), &session_id),
+        with_session_id(
+            json!({
+                "profile": format!("{profile:?}").to_lowercase(),
+                "agent": agent.name,
+                "model": format!("{}:{}", resolved.provider_name, resolved.model),
+                "contextLimit": resolved.provider.context_limit,
+            }),
+            &session_id,
+        ),
     );
 
     let event_window = window.clone();
@@ -283,13 +282,21 @@ pub(crate) async fn run_task(
                 });
                 trace_log.lock().unwrap().trace.push(payload.clone());
                 emit_event("kz:task-progress", payload)
-            },
-            RunEvent::Retry { attempt, max, delay_ms } => emit_event(
+            }
+            RunEvent::Retry {
+                attempt,
+                max,
+                delay_ms,
+            } => emit_event(
                 "kz:status",
                 json!({ "stage": "重试", "detail": format!("网络请求暂时失败,第 {attempt}/{max} 次重试,等待 {delay_ms}ms") }),
             ),
             // 本步工具尚未执行,重放零副作用;前端需丢弃本步已渲染的残缺输出。
-            RunEvent::StreamRestart { attempt, max, delay_ms } => emit_event(
+            RunEvent::StreamRestart {
+                attempt,
+                max,
+                delay_ms,
+            } => emit_event(
                 "kz:stream-restart",
                 json!({
                     "attempt": attempt,
@@ -328,7 +335,11 @@ pub(crate) async fn run_task(
                 resource.clone(),
                 json!({ "kind": "permission", "id": id, "action": action, "resource": resource, "remember": kanzei_harness::config::generalize_resource(action, resource) }),
             ),
-            kanzei_core::AskRequest::Question { question, options, default } => (
+            kanzei_core::AskRequest::Question {
+                question,
+                options,
+                default,
+            } => (
                 "question".into(),
                 question.clone(),
                 json!({ "kind": "question", "id": id, "question": question, "options": options, "default": default }),
@@ -337,10 +348,21 @@ pub(crate) async fn run_task(
         let payload = with_session_id(payload, &ask_session_id);
         asks.lock().unwrap().insert(
             id,
-            PendingAsk { sender, request, action, resource, project_root: ask_root.clone(), session_id: ask_session_id.clone() },
+            PendingAsk {
+                sender,
+                request,
+                action,
+                resource,
+                project_root: ask_root.clone(),
+                session_id: ask_session_id.clone(),
+            },
         );
         let _ = ask_window.emit("kz:ask", payload);
-        Box::pin(async move { receiver.await.unwrap_or(kanzei_core::AskResponse::Cancelled) })
+        Box::pin(async move {
+            receiver
+                .await
+                .unwrap_or(kanzei_core::AskResponse::Cancelled)
+        })
     };
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
@@ -364,7 +386,10 @@ pub(crate) async fn run_task(
             Err(_) => None,
         };
         let primary_tier = config.service_tier_for(&resolved);
-        let fast_tier = fast.as_ref().map(|(_, _, tier)| tier.clone()).unwrap_or_else(|| primary_tier.clone());
+        let fast_tier = fast
+            .as_ref()
+            .map(|(_, _, tier)| tier.clone())
+            .unwrap_or_else(|| primary_tier.clone());
         Some(kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
@@ -487,7 +512,11 @@ pub(crate) async fn run_task(
                 let _ = store.append_episode(&kanzei_core::EpisodeRecord {
                     session_id: &session_id,
                     prompt_head: &prompt,
-                    outcome: if summary.halted_by_user { "halted" } else { "completed" },
+                    outcome: if summary.halted_by_user {
+                        "halted"
+                    } else {
+                        "completed"
+                    },
                     steps: summary.steps,
                     input_tokens: summary.usage.input,
                     output_tokens: summary.usage.output,
@@ -514,13 +543,9 @@ pub(crate) async fn run_task(
                 // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
                 // flush_live_run 不该再补一条信息量更少的(D-179)。
                 live.lock().unwrap().flushed = true;
-                if let Err(error) = append_run_notification(
-                    store,
-                    &session_id,
-                    "succeeded",
-                    "任务完成",
-                    false,
-                ) {
+                if let Err(error) =
+                    append_run_notification(store, &session_id, "succeeded", "任务完成", false)
+                {
                     report_persistence_failure(window, &session_id, "写入完成通知", error);
                 }
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
@@ -552,20 +577,26 @@ pub(crate) async fn run_task(
                     "run.failed",
                     &json!({ "error": error.to_string() }),
                 ) {
-                    report_persistence_failure(window, &session_id, "写入失败事件", persistence_error);
+                    report_persistence_failure(
+                        window,
+                        &session_id,
+                        "写入失败事件",
+                        persistence_error,
+                    );
                 }
                 // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
                 // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
                 flush_live_run(store, &session_id, &live, "failed");
                 let _ = store.finish_input(&promoted_input_id, false);
-                if let Err(persistence_error) = append_run_notification(
-                    store,
-                    &session_id,
-                    "failed",
-                    error.to_string(),
-                    false,
-                ) {
-                    report_persistence_failure(window, &session_id, "写入失败通知", persistence_error);
+                if let Err(persistence_error) =
+                    append_run_notification(store, &session_id, "failed", error.to_string(), false)
+                {
+                    report_persistence_failure(
+                        window,
+                        &session_id,
+                        "写入失败通知",
+                        persistence_error,
+                    );
                 }
             }
         }
@@ -633,7 +664,9 @@ pub(crate) async fn run_task(
     let trace = live.lock().unwrap().trace.clone();
     if let Some(store) = store.as_ref() {
         if !trace.is_empty() {
-            if let Err(error) = store.append_event(&session_id, "run.trace", &json!({ "events": trace })) {
+            if let Err(error) =
+                store.append_event(&session_id, "run.trace", &json!({ "events": trace }))
+            {
                 report_persistence_failure(window, &session_id, "写入运行轨迹", error);
             }
         }
@@ -647,16 +680,19 @@ pub(crate) async fn run_task(
     }
     let _ = window.emit(
         "kz:done",
-        with_session_id(json!({
-            "steps": summary.steps,
-            "halted": summary.halted_by_user,
-            "history": history_len,
-            "input": summary.usage.input,
-            "output": summary.usage.output,
-            "cacheRead": summary.usage.cache_read,
-            "cacheWrite": summary.usage.cache_write,
-            "tools": this_run_tools,
-        }), &session_id),
+        with_session_id(
+            json!({
+                "steps": summary.steps,
+                "halted": summary.halted_by_user,
+                "history": history_len,
+                "input": summary.usage.input,
+                "output": summary.usage.output,
+                "cacheRead": summary.usage.cache_read,
+                "cacheWrite": summary.usage.cache_write,
+                "tools": this_run_tools,
+            }),
+            &session_id,
+        ),
     );
     Ok(())
 }
@@ -675,17 +711,37 @@ pub(crate) fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-
-pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name: &str, base_url: &str) {
+pub(crate) async fn push_ollama_models(
+    items: &mut Vec<serde_json::Value>,
+    name: &str,
+    base_url: &str,
+) {
     let tags_url = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Ok(client) = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(2)).build() else { return; };
-    let Ok(resp) = client.get(&tags_url).send().await else { return; };
-    let Ok(v) = resp.json::<serde_json::Value>().await else { return; };
-    for m in v["models"].as_array().unwrap_or(&Vec::new()) { if let Some(n) = m["name"].as_str() { items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") })); } }
+    let Ok(client) = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    else {
+        return;
+    };
+    let Ok(resp) = client.get(&tags_url).send().await else {
+        return;
+    };
+    let Ok(v) = resp.json::<serde_json::Value>().await else {
+        return;
+    };
+    for m in v["models"].as_array().unwrap_or(&Vec::new()) {
+        if let Some(n) = m["name"].as_str() {
+            items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") }));
+        }
+    }
 }
 
 pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: String) {
-    let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
+    let _ = window.emit(
+        "kz:status",
+        with_session_id(json!({ "stage": name, "detail": detail }), session_id),
+    );
 }
 
 pub(crate) async fn build_model_route(
@@ -703,14 +759,19 @@ pub(crate) fn build_runner_config(
     kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
-        reasoning: resolve_reasoning_override(reasoning_override, config.models.reasoning.as_deref()),
+        reasoning: resolve_reasoning_override(
+            reasoning_override,
+            config.models.reasoning.as_deref(),
+        ),
         service_tier: config.service_tier_for(resolved),
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
     }
 }
 
-pub(crate) fn new_llm_client(proxy: &kanzei_llm::ProxyConfig) -> anyhow::Result<kanzei_llm::LlmClient> {
+pub(crate) fn new_llm_client(
+    proxy: &kanzei_llm::ProxyConfig,
+) -> anyhow::Result<kanzei_llm::LlmClient> {
     Ok(kanzei_llm::LlmClient::new(proxy)?)
 }
 
@@ -719,7 +780,11 @@ pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool
         "{}:{}{}",
         provider_name,
         model,
-        if has_auth { "(订阅登录态,可能刷新令牌)" } else { "" }
+        if has_auth {
+            "(订阅登录态,可能刷新令牌)"
+        } else {
+            ""
+        }
     )
 }
 
@@ -729,14 +794,19 @@ pub(crate) fn resolve_model_ref(model_override: Option<String>, agent_model: &st
         .unwrap_or_else(|| agent_model.to_string())
 }
 
-pub(crate) fn resolve_reasoning_override(override_value: Option<&str>, configured_value: Option<&str>) -> kanzei_llm::ReasoningEffort {
+pub(crate) fn resolve_reasoning_override(
+    override_value: Option<&str>,
+    configured_value: Option<&str>,
+) -> kanzei_llm::ReasoningEffort {
     override_value
         .or(configured_value)
         .map(kanzei_llm::ReasoningEffort::parse)
         .unwrap_or_default()
 }
 
-pub(crate) fn resolve_proxy(config: &kanzei_harness::config::KanzeiConfig) -> kanzei_llm::ProxyConfig {
+pub(crate) fn resolve_proxy(
+    config: &kanzei_harness::config::KanzeiConfig,
+) -> kanzei_llm::ProxyConfig {
     match config.proxy.as_deref() {
         Some("off") => kanzei_llm::ProxyConfig::Disabled,
         Some("env") | None => kanzei_llm::ProxyConfig::Env,
@@ -744,8 +814,14 @@ pub(crate) fn resolve_proxy(config: &kanzei_harness::config::KanzeiConfig) -> ka
     }
 }
 
-pub(crate) fn append_dev_guidance(system: &mut String, profile: kanzei_harness::ProfileKind, work_priority: &str) {
-    if profile != kanzei_harness::ProfileKind::Dev { return; }
+pub(crate) fn append_dev_guidance(
+    system: &mut String,
+    profile: kanzei_harness::ProfileKind,
+    work_priority: &str,
+) {
+    if profile != kanzei_harness::ProfileKind::Dev {
+        return;
+    }
     system.push('\n');
     system.push('\n');
     system.push_str(kanzei_tools::frontend_inspection_guidance());
@@ -765,113 +841,264 @@ pub(crate) fn build_run_harness() -> kanzei_harness::Harness {
 }
 
 pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
-    let (first, second) = if work_priority == "requirement-first" { ("requirements.md", "defects.md") } else { ("defects.md", "requirements.md") };
+    let (first, second) = if work_priority == "requirement-first" {
+        ("requirements.md", "defects.md")
+    } else {
+        ("defects.md", "requirements.md")
+    };
     format!("\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context.")
 }
 
-pub(crate) fn resolve_profile_and_root(profile: Option<&str>, config: &kanzei_harness::config::KanzeiConfig, cwd: &Path) -> anyhow::Result<(kanzei_harness::ProfileKind, PathBuf)> {
+pub(crate) fn resolve_profile_and_root(
+    profile: Option<&str>,
+    config: &kanzei_harness::config::KanzeiConfig,
+    cwd: &Path,
+) -> anyhow::Result<(kanzei_harness::ProfileKind, PathBuf)> {
     let profile = match profile.filter(|profile| !profile.is_empty()) {
-        Some(profile) => profile.parse().map_err(|error: String| anyhow::anyhow!(error))?,
+        Some(profile) => profile
+            .parse()
+            .map_err(|error: String| anyhow::anyhow!(error))?,
         None => config.default_profile(),
     };
-    let project_root = kanzei_harness::config::discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let project_root =
+        kanzei_harness::config::discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
     Ok((profile, project_root))
 }
 
 pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
-    match value { Some("requirement-first") => "requirement-first", _ => "defect-first" }
+    match value {
+        Some("requirement-first") => "requirement-first",
+        _ => "defect-first",
+    }
 }
 
-pub(crate) fn report_config_warnings(window: &Window, session_id: &str, config: &kanzei_harness::config::KanzeiConfig, config_warnings: &[String]) {
-    for warning in config_warnings { emit_stage(window, session_id, "配置", warning.clone()); }
-    for warning in config.bash_permission_warnings() { emit_stage(window, session_id, "权限", warning); }
+pub(crate) fn report_config_warnings(
+    window: &Window,
+    session_id: &str,
+    config: &kanzei_harness::config::KanzeiConfig,
+    config_warnings: &[String],
+) {
+    for warning in config_warnings {
+        emit_stage(window, session_id, "配置", warning.clone());
+    }
+    for warning in config.bash_permission_warnings() {
+        emit_stage(window, session_id, "权限", warning);
+    }
 }
 
 #[tauri::command]
 pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
-    let cwd = project_dir.map(PathBuf::from).filter(|p| p.is_dir()).or_else(|| std::env::current_dir().ok()).ok_or("no working dir")?;
+    let cwd = project_dir
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .or_else(|| std::env::current_dir().ok())
+        .ok_or("no working dir")?;
     let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
     let mut items = Vec::new();
-    for role in ["primary", "fast"] { if let Ok(resolved) = config.resolve_model(role) { items.push(json!({ "id": role, "label": format!("{role} → {}:{}", resolved.provider_name, resolved.model) })); } }
+    for role in ["primary", "fast"] {
+        if let Ok(resolved) = config.resolve_model(role) {
+            items.push(json!({ "id": role, "label": format!("{role} → {}:{}", resolved.provider_name, resolved.model) }));
+        }
+    }
     for (name, provider) in &config.providers {
-        if provider.auth.as_deref() == Some("codex") { for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] { items.push(json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") })); } }
-        else if provider.auth.as_deref() == Some("claude") { for model in ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"] { items.push(json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") })); } }
-        else if provider.protocol == "openai" || provider.protocol == "openai-responses" {
-            if provider.base_url.contains("11434") { push_ollama_models(&mut items, name, &provider.base_url).await; continue; }
-            let key = provider.api_key.clone().filter(|key| !key.trim().is_empty()).or_else(|| provider.api_key_env.as_deref().and_then(|env| std::env::var(env).ok()));
+        if provider.auth.as_deref() == Some("codex") {
+            for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+                items.push(
+                    json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
+                );
+            }
+        } else if provider.auth.as_deref() == Some("claude") {
+            for model in [
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "claude-haiku-4-5-20251001",
+            ] {
+                items.push(
+                    json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
+                );
+            }
+        } else if provider.protocol == "openai" || provider.protocol == "openai-responses" {
+            if provider.base_url.contains("11434") {
+                push_ollama_models(&mut items, name, &provider.base_url).await;
+                continue;
+            }
+            let key = provider
+                .api_key
+                .clone()
+                .filter(|key| !key.trim().is_empty())
+                .or_else(|| {
+                    provider
+                        .api_key_env
+                        .as_deref()
+                        .and_then(|env| std::env::var(env).ok())
+                });
             let url = format!("{}/models", provider.base_url.trim_end_matches('/'));
-            let proxy = match config.proxy.as_deref() { Some("off") => kanzei_llm::ProxyConfig::Disabled, Some("env") | None => kanzei_llm::ProxyConfig::Env, Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()) };
-            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else { continue; };
-            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6)); if let Some(key) = &key { request = request.bearer_auth(key); }
-            if let Ok(response) = request.send().await { if let Ok(value) = response.json::<serde_json::Value>().await { for model in value["data"].as_array().unwrap_or(&Vec::new()) { if let Some(id) = model["id"].as_str() { items.push(json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") })); } } } }
-        } else if provider.base_url.contains("11434") { push_ollama_models(&mut items, name, &provider.base_url).await; }
+            let proxy = match config.proxy.as_deref() {
+                Some("off") => kanzei_llm::ProxyConfig::Disabled,
+                Some("env") | None => kanzei_llm::ProxyConfig::Env,
+                Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
+            };
+            let Ok(client) = kanzei_llm::proxy::build_http_client(&proxy) else {
+                continue;
+            };
+            let mut request = client.get(&url).timeout(std::time::Duration::from_secs(6));
+            if let Some(key) = &key {
+                request = request.bearer_auth(key);
+            }
+            if let Ok(response) = request.send().await {
+                if let Ok(value) = response.json::<serde_json::Value>().await {
+                    for model in value["data"].as_array().unwrap_or(&Vec::new()) {
+                        if let Some(id) = model["id"].as_str() {
+                            items.push(json!({ "id": format!("{name}:{id}"), "label": format!("{name}:{id}") }));
+                        }
+                    }
+                }
+            }
+        } else if provider.base_url.contains("11434") {
+            push_ollama_models(&mut items, name, &provider.base_url).await;
+        }
     }
     Ok(json!(items))
 }
 
 #[tauri::command]
-pub(crate) fn pending_asks_get(state: tauri::State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
+pub(crate) fn pending_asks_get(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+    process_id: Option<String>,
+) -> Result<Vec<serde_json::Value>, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
     let session_id = process_session_id(&root, process_id.as_deref());
     let runtime = runtime_for(&state, &session_id);
     let asks = runtime.asks.lock().unwrap();
-    Ok(asks.iter().map(|(id, pending)| crate::pending_ask_payload(*id, pending)).collect())
+    Ok(asks
+        .iter()
+        .map(|(id, pending)| crate::pending_ask_payload(*id, pending))
+        .collect())
 }
 
-pub(crate) fn persist_always_allow(project_root: &Path, action: &str, resource: &str) -> Result<(kanzei_core::AskReply, PathBuf), String> {
+pub(crate) fn persist_always_allow(
+    project_root: &Path,
+    action: &str,
+    resource: &str,
+) -> Result<(kanzei_core::AskReply, PathBuf), String> {
     let pattern = kanzei_harness::config::generalize_resource(action, resource);
-    let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern).map_err(|error| error.to_string())?;
+    let path = kanzei_harness::config::append_allow_rule(project_root, action, &pattern)
+        .map_err(|error| error.to_string())?;
     Ok((kanzei_core::AskReply::AlwaysAllow, path))
 }
 
 #[tauri::command]
 pub(crate) fn answer_ask(window: Window, state: State<'_, AppState>, id: u64, reply: String) {
-    let Some(pending) = take_pending_ask(&state, id) else { return; };
+    let Some(pending) = take_pending_ask(&state, id) else {
+        return;
+    };
     if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
-        let response = if reply.trim().is_empty() || reply == "cancel" { kanzei_core::AskResponse::Cancelled } else { kanzei_core::AskResponse::Answer(reply) };
+        let response = if reply.trim().is_empty() || reply == "cancel" {
+            kanzei_core::AskResponse::Cancelled
+        } else {
+            kanzei_core::AskResponse::Answer(reply)
+        };
         let _ = pending.sender.send(response);
         return;
     }
     let decision = match reply.as_str() {
-        "always" => { let pattern = kanzei_harness::config::generalize_resource(&pending.action, &pending.resource); match persist_always_allow(&pending.project_root, &pending.action, &pending.resource) {
-            Ok((reply, path)) => { let _ = window.emit("kz:status", with_session_id(json!({ "stage": "权限", "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()) }), &pending.session_id)); reply }
-            Err(error) => { let _ = window.emit("kz:status", with_session_id(json!({ "stage": "权限", "detail": format!("规则保存失败:{error};本次拒绝") }), &pending.session_id)); kanzei_core::AskReply::Deny }
-        } }
+        "always" => {
+            let pattern =
+                kanzei_harness::config::generalize_resource(&pending.action, &pending.resource);
+            match persist_always_allow(&pending.project_root, &pending.action, &pending.resource) {
+                Ok((reply, path)) => {
+                    let _ = window.emit("kz:status", with_session_id(json!({ "stage": "权限", "detail": format!("已记住:{} {pattern} → {}", pending.action, path.display()) }), &pending.session_id));
+                    reply
+                }
+                Err(error) => {
+                    let _ = window.emit("kz:status", with_session_id(json!({ "stage": "权限", "detail": format!("规则保存失败:{error};本次拒绝") }), &pending.session_id));
+                    kanzei_core::AskReply::Deny
+                }
+            }
+        }
         "once" => kanzei_core::AskReply::AllowOnce,
         _ => kanzei_core::AskReply::Deny,
     };
-    let _ = pending.sender.send(kanzei_core::AskResponse::Permission(decision));
+    let _ = pending
+        .sender
+        .send(kanzei_core::AskResponse::Permission(decision));
 }
 
 pub(crate) async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<String, String> {
     use futures::StreamExt;
     let config = kanzei_harness::config::KanzeiConfig::load(cwd).map_err(|e| e.to_string())?;
     let resolved = config.resolve_model("fast").map_err(|e| e.to_string())?;
-    let proxy = match config.proxy.as_deref() { Some("off") => kanzei_llm::ProxyConfig::Disabled, Some("env") | None => kanzei_llm::ProxyConfig::Env, Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()) };
-    let route = kanzei_core::build_route(&resolved, &proxy).await.map_err(|e| e.to_string())?;
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()),
+    };
+    let route = kanzei_core::build_route(&resolved, &proxy)
+        .await
+        .map_err(|e| e.to_string())?;
     let client = kanzei_llm::LlmClient::new(&proxy).map_err(|e| e.to_string())?;
     let request = kanzei_llm::LlmRequest { model: resolved.model.clone(), system: vec!["把下面的人机协作对话记录总结成简洁的中文纪要:做了什么、改了哪些文件、结论、遗留问题/下一步。markdown 列表,300 字以内。".into()], messages: vec![kanzei_llm::Message::user_text(transcript)], tools: vec![], max_tokens: 2048, temperature: None, reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved) };
-    let mut stream = client.stream(&route, &request).await.map_err(|e| e.to_string())?;
+    let mut stream = client
+        .stream(&route, &request)
+        .await
+        .map_err(|e| e.to_string())?;
     let mut summary = String::new();
-    while let Some(event) = stream.next().await { if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? { summary.push_str(&text); } }
-    if summary.trim().is_empty() { return Err("模型没有产出总结(fast 模型是否在运行?)".into()); }
+    while let Some(event) = stream.next().await {
+        if let kanzei_llm::LlmEvent::TextDelta { text, .. } = event.map_err(|e| e.to_string())? {
+            summary.push_str(&text);
+        }
+    }
+    if summary.trim().is_empty() {
+        return Err("模型没有产出总结(fast 模型是否在运行?)".into());
+    }
     Ok(summary)
 }
 
 pub(crate) fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
     let mut out = String::new();
-    'outer: for message in messages { for part in &message.parts { match part { kanzei_llm::Part::Text { text } => { out.push_str(match message.role { kanzei_llm::Role::User => "[用户] ", kanzei_llm::Role::Assistant => "[助手] " }); out.push_str(text); out.push('\n'); }, kanzei_llm::Part::ToolCall { name, input, .. } => out.push_str(&format!("[工具调用] {name} {input}\n")), kanzei_llm::Part::ToolResult { content, .. } => { let snippet: String = content.chars().take(1500).collect(); out.push_str(&format!("[工具结果] {snippet}\n")); }, _ => {} } if out.len() > 100_000 { break 'outer; } } }
+    'outer: for message in messages {
+        for part in &message.parts {
+            match part {
+                kanzei_llm::Part::Text { text } => {
+                    out.push_str(match message.role {
+                        kanzei_llm::Role::User => "[用户] ",
+                        kanzei_llm::Role::Assistant => "[助手] ",
+                    });
+                    out.push_str(text);
+                    out.push('\n');
+                }
+                kanzei_llm::Part::ToolCall { name, input, .. } => {
+                    out.push_str(&format!("[工具调用] {name} {input}\n"))
+                }
+                kanzei_llm::Part::ToolResult { content, .. } => {
+                    let snippet: String = content.chars().take(1500).collect();
+                    out.push_str(&format!("[工具结果] {snippet}\n"));
+                }
+                _ => {}
+            }
+            if out.len() > 100_000 {
+                break 'outer;
+            }
+        }
+    }
     out
 }
 
 #[tauri::command]
-pub(crate) async fn summarize_chat(project_dir: String, transcript: String) -> Result<serde_json::Value, String> {
+pub(crate) async fn summarize_chat(
+    project_dir: String,
+    transcript: String,
+) -> Result<serde_json::Value, String> {
     let cwd = PathBuf::from(&project_dir);
     let summary = fast_summarize(&cwd, &transcript).await?;
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
     let dir = root.join(".kanzei").join("summaries");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let path = dir.join(format!("summary-{secs}.md"));
     std::fs::write(&path, &summary).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({ "summary": summary, "path": path.display().to_string() }))
@@ -884,53 +1111,127 @@ pub(crate) fn stop_run(
     project_dir: Option<String>,
     process_id: Option<String>,
 ) {
-    let target_project = project_dir.as_ref().map(PathBuf::from).map(|cwd| crate::normalized_project_root(&cwd));
-    let target_session = target_project.as_ref().map(|root| process_session_id(root, process_id.as_deref()));
-    let runtimes: Vec<Arc<SessionRuntime>> = state.runtimes.lock().unwrap().iter().filter(|(session_id, runtime)| target_session.as_ref().map_or(true, |target| target == *session_id) && runtime.running.load(Ordering::SeqCst)).map(|(_, runtime)| runtime.clone()).collect();
+    let target_project = project_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .map(|cwd| crate::normalized_project_root(&cwd));
+    let target_session = target_project
+        .as_ref()
+        .map(|root| process_session_id(root, process_id.as_deref()));
+    let runtimes: Vec<Arc<SessionRuntime>> = state
+        .runtimes
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(session_id, runtime)| {
+            target_session
+                .as_ref()
+                .map_or(true, |target| target == *session_id)
+                && runtime.running.load(Ordering::SeqCst)
+        })
+        .map(|(_, runtime)| runtime.clone())
+        .collect();
     if runtimes.is_empty() {
-        let _ = window.emit("kz:error", with_session_id(json!({ "message": "目标项目当前没有可停止的运行" }), target_session.as_deref().unwrap_or("")));
+        let _ = window.emit(
+            "kz:error",
+            with_session_id(
+                json!({ "message": "目标项目当前没有可停止的运行" }),
+                target_session.as_deref().unwrap_or(""),
+            ),
+        );
         return;
     }
     let mut cancelled = None;
     for runtime in runtimes {
         let result = target_project.clone().map(|root| {
-            let session_id = target_session.clone().unwrap_or_else(|| kanzei_core::project_session_id(&root));
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
+            let session_id = target_session
+                .clone()
+                .unwrap_or_else(|| kanzei_core::project_session_id(&root));
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+                .and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
         });
         cancelled = result;
     }
     match cancelled.transpose() {
-        Ok(count) => { let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": count.unwrap_or(0) }), target_session.as_deref().unwrap_or(""))); }
-        Err(error) => { let _ = window.emit("kz:error", with_session_id(json!({ "message": format!("停止时清理排队输入失败: {error}") }), target_session.as_deref().unwrap_or(""))); let _ = window.emit("kz:stopped", with_session_id(json!({ "cancelled_queue": 0 }), target_session.as_deref().unwrap_or(""))); }
+        Ok(count) => {
+            let _ = window.emit(
+                "kz:stopped",
+                with_session_id(
+                    json!({ "cancelled_queue": count.unwrap_or(0) }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
+        }
+        Err(error) => {
+            let _ = window.emit(
+                "kz:error",
+                with_session_id(
+                    json!({ "message": format!("停止时清理排队输入失败: {error}") }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
+            let _ = window.emit(
+                "kz:stopped",
+                with_session_id(
+                    json!({ "cancelled_queue": 0 }),
+                    target_session.as_deref().unwrap_or(""),
+                ),
+            );
+        }
     }
     if let Some(root) = target_project {
         let window = window.clone();
         let session = target_session.clone().unwrap_or_default();
         tauri::async_runtime::spawn(async move {
             let killed = kanzei_tools::kill_background_processes(&root).await;
-            if killed > 0 { let _ = window.emit("kz:status", with_session_id(json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台进程") }), &session)); }
+            if killed > 0 {
+                let _ = window.emit(
+                    "kz:status",
+                    with_session_id(
+                        json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台进程") }),
+                        &session,
+                    ),
+                );
+            }
         });
     }
 }
 
 fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
-    match value.unwrap_or("queue") { "steer" => Ok(kanzei_core::Delivery::Steer), "queue" => Ok(kanzei_core::Delivery::Queue), other => Err(anyhow::anyhow!("未知输入交付模式: {other}")) }
+    match value.unwrap_or("queue") {
+        "steer" => Ok(kanzei_core::Delivery::Steer),
+        "queue" => Ok(kanzei_core::Delivery::Queue),
+        other => Err(anyhow::anyhow!("未知输入交付模式: {other}")),
+    }
 }
 
-fn admit_input(project_dir: &str, session_id: &str, prompt: &str, delivery: kanzei_core::Delivery) -> anyhow::Result<kanzei_core::AdmittedInput> {
+fn admit_input(
+    project_dir: &str,
+    session_id: &str,
+    prompt: &str,
+    delivery: kanzei_core::Delivery,
+) -> anyhow::Result<kanzei_core::AdmittedInput> {
     let project_root = crate::normalized_project_root(Path::new(project_dir));
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
     store.create_session(session_id, &project_root.display().to_string(), None)?;
-    let input_id = format!("input_{}", SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos());
+    let input_id = format!(
+        "input_{}",
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+    );
     let input = store.admit_input(session_id, &input_id, prompt, delivery)?;
     store.append_event(session_id, "prompt.admitted", &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
     Ok(input)
 }
 
-fn promote_next_input(project_dir: &str, session_id: &str) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
+fn promote_next_input(
+    project_dir: &str,
+    session_id: &str,
+) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
     let project_root = crate::normalized_project_root(Path::new(project_dir));
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
-    let Some(input) = store.promote_next_input(session_id)? else { return Ok(None); };
+    let Some(input) = store.promote_next_input(session_id)? else {
+        return Ok(None);
+    };
     store.append_event(session_id, "prompt.promoted", &json!({ "input_id": input.input_id, "delivery": if matches!(input.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
     Ok(Some(input))
 }
@@ -956,12 +1257,7 @@ pub(crate) fn append_run_notification(
     summary: impl Into<String>,
     requires_action: bool,
 ) -> anyhow::Result<()> {
-    store.append_notification_atomic(
-        session_id,
-        status,
-        &summary.into(),
-        requires_action,
-    )?;
+    store.append_notification_atomic(session_id, status, &summary.into(), requires_action)?;
     Ok(())
 }
 
@@ -982,10 +1278,20 @@ pub(crate) async fn run_prompt(
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     let project_root = crate::normalized_project_root(Path::new(&project_dir));
     let process = if let Some(process_id) = process_id.as_deref() {
-        let process = state.processes.lock().unwrap().get(process_id).cloned().ok_or_else(|| format!("进程不存在: {process_id}"))?;
-        if process.project_dir != project_root.display().to_string() { return Err("进程不属于当前项目".into()); }
+        let process = state
+            .processes
+            .lock()
+            .unwrap()
+            .get(process_id)
+            .cloned()
+            .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+        if process.project_dir != project_root.display().to_string() {
+            return Err("进程不属于当前项目".into());
+        }
         process
-    } else { ensure_default_process(&state, &project_root) };
+    } else {
+        ensure_default_process(&state, &project_root)
+    };
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
     let model = model.or_else(|| process.model.lock().unwrap().clone());
@@ -995,8 +1301,11 @@ pub(crate) async fn run_prompt(
     let _lifecycle = runtime.lifecycle.lock().unwrap();
     {
         if runtime.running.load(Ordering::SeqCst) {
-            if attachments.as_ref().is_some_and(|items| !items.is_empty()) { return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into()); }
-            let queued = admit_input(&project_dir, &session_id, &prompt, delivery).map_err(|e| e.to_string())?;
+            if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
+                return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
+            }
+            let queued = admit_input(&project_dir, &session_id, &prompt, delivery)
+                .map_err(|e| e.to_string())?;
             let _ = window.emit("kz:status", with_session_id(json!({ "stage": "排队", "detail": format!("已排队，前方输入将依次执行（{}）", queued.input_id) }), &session_id));
             return Ok(());
         }
@@ -1015,34 +1324,103 @@ pub(crate) async fn run_prompt(
         let mut next_attachments = attachments;
         let mut idle_reason = "completed";
         loop {
-            let result = run_task(&window, asks.clone(), ask_seq.clone(), next_prompt, next_attachments.take(), project_dir.clone(), session_id.clone(), subagent_enabled, profile.clone(), agent.clone(), model.clone(), work_priority.clone(), reasoning.clone(), conversation.clone(), live_run.clone(), delivery, next_input.take()).await;
+            let result = run_task(
+                &window,
+                asks.clone(),
+                ask_seq.clone(),
+                next_prompt,
+                next_attachments.take(),
+                project_dir.clone(),
+                session_id.clone(),
+                subagent_enabled,
+                profile.clone(),
+                agent.clone(),
+                model.clone(),
+                work_priority.clone(),
+                reasoning.clone(),
+                conversation.clone(),
+                live_run.clone(),
+                delivery,
+                next_input.take(),
+            )
+            .await;
             if let Err(e) = &result {
                 let message = e.to_string();
                 let lower = message.to_lowercase();
-                let hint = if ["timed out", "timeout", "connect", "dns", "connection"].iter().any(|k| lower.contains(k)) { "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。" } else { "" };
-                let _ = window.emit("kz:error", with_session_id(json!({ "message": format!("{message}{hint}") }), &session_id));
+                let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
+                    .iter()
+                    .any(|k| lower.contains(k))
+                {
+                    "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
+                } else {
+                    ""
+                };
+                let _ = window.emit(
+                    "kz:error",
+                    with_session_id(
+                        json!({ "message": format!("{message}{hint}") }),
+                        &session_id,
+                    ),
+                );
             }
-            if result.is_err() { let _lifecycle = lifecycle.lock().unwrap(); running.store(false, Ordering::SeqCst); idle_reason = "failed"; break; }
-            next_input = { let _lifecycle = lifecycle.lock().unwrap(); match promote_next_input(&project_dir, &session_id) { Ok(input) => { if input.is_none() { running.store(false, Ordering::SeqCst); } input }, Err(error) => { let _ = window.emit("kz:error", with_session_id(json!({ "message": error.to_string() }), &session_id)); running.store(false, Ordering::SeqCst); idle_reason = "failed"; None } } };
-            let Some(input) = next_input.clone() else { break; };
+            if result.is_err() {
+                let _lifecycle = lifecycle.lock().unwrap();
+                running.store(false, Ordering::SeqCst);
+                idle_reason = "failed";
+                break;
+            }
+            next_input = {
+                let _lifecycle = lifecycle.lock().unwrap();
+                match promote_next_input(&project_dir, &session_id) {
+                    Ok(input) => {
+                        if input.is_none() {
+                            running.store(false, Ordering::SeqCst);
+                        }
+                        input
+                    }
+                    Err(error) => {
+                        let _ = window.emit(
+                            "kz:error",
+                            with_session_id(json!({ "message": error.to_string() }), &session_id),
+                        );
+                        running.store(false, Ordering::SeqCst);
+                        idle_reason = "failed";
+                        None
+                    }
+                }
+            };
+            let Some(input) = next_input.clone() else {
+                break;
+            };
             next_prompt = input.prompt.clone();
             let _ = window.emit("kz:status", with_session_id(json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }), &session_id));
         }
-        let _ = window.emit("kz:idle", with_session_id(json!({ "reason": idle_reason }), &session_id));
+        let _ = window.emit(
+            "kz:idle",
+            with_session_id(json!({ "reason": idle_reason }), &session_id),
+        );
         runtime_for_task.current_run.lock().unwrap().take();
     });
     *runtime.current_run.lock().unwrap() = Some(handle);
-    if !runtime.running.load(Ordering::SeqCst) { runtime.current_run.lock().unwrap().take(); }
+    if !runtime.running.load(Ordering::SeqCst) {
+        runtime.current_run.lock().unwrap().take();
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<serde_json::Value, String> {
+pub(crate) fn run_metrics(
+    project_dir: String,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&project_dir);
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).map_err(|e| e.to_string())?;
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
     let session_id = kanzei_core::project_session_id(&root);
     let limit = limit.unwrap_or(20).clamp(1, 200);
-    let rows = store.recent_episodes(&session_id, limit).map_err(|e| e.to_string())?;
+    let rows = store
+        .recent_episodes(&session_id, limit)
+        .map_err(|e| e.to_string())?;
     let rounds: Vec<serde_json::Value> = rows.into_iter().map(|(at, prompt, outcome, steps, input, output, tools, context, metrics)| {
         let parse = |text: &str| serde_json::from_str::<serde_json::Value>(text).unwrap_or(serde_json::json!({}));
         serde_json::json!({ "at": at, "prompt": prompt, "outcome": outcome, "steps": steps, "inputTokens": input, "outputTokens": output, "tools": parse(&tools), "context": parse(&context), "metrics": parse(&metrics), "measured": metrics.trim() != "{}" && !metrics.trim().is_empty() })
@@ -1053,7 +1431,7 @@ pub(crate) fn run_metrics(project_dir: String, limit: Option<usize>) -> Result<s
 #[cfg(test)]
 mod assembly_tests {
     use super::*;
-    use kanzei_harness::{ConfigComponent, Harness, ProfileKind, ResolveCtx, KanzeiConfig};
+    use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
     use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -1085,7 +1463,10 @@ mod assembly_tests {
             kanzei_tools::prompt_tool_mentions(kanzei_tools::frontend_inspection_guidance());
         assert_eq!(mentioned.len(), 5);
         for tool in mentioned {
-            assert!(tools.contains(&tool), "缺少前端自查工具 `{tool}`;已注册: {tools:?}");
+            assert!(
+                tools.contains(&tool),
+                "缺少前端自查工具 `{tool}`;已注册: {tools:?}"
+            );
         }
     }
 }

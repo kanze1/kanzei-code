@@ -117,7 +117,10 @@ pub fn file_preview(project_dir: String, path: String) -> Result<serde_json::Val
 /// 每 8 个落一次盘(中途关掉不全丢),每个文件 emit 进度事件。
 /// 全部文件标完后再给每个目录聚合一句话。
 #[tauri::command]
-pub async fn files_annotate(window: tauri::Window, project_dir: String) -> Result<serde_json::Value, String> {
+pub async fn files_annotate(
+    window: tauri::Window,
+    project_dir: String,
+) -> Result<serde_json::Value, String> {
     const HEAD_LINES: usize = 60;
     const SAVE_EVERY: usize = 8;
     let root = resolve_root(&project_dir);
@@ -165,7 +168,13 @@ pub async fn files_annotate(window: tauri::Window, project_dir: String) -> Resul
                 // 绑旧指纹立即失效,绑新指纹会把旧内容的标注挂在新内容上。
                 let stamp_now = kanzei_tools::files::content_hash(&bytes_now);
                 if stamp_now == entry.stamp {
-                    store.files.insert(entry.path.clone(), Annotation { hash: stamp_now, note });
+                    store.files.insert(
+                        entry.path.clone(),
+                        Annotation {
+                            hash: stamp_now,
+                            note,
+                        },
+                    );
                     done += 1;
                     dirty = true;
                 } else {
@@ -236,8 +245,16 @@ const ANNOTATE_SYSTEM: &str =
 /// ollama 的原生 /api/chat 有 think:false,探测到 ollama 就直连原生;其他 provider
 /// 走标准 LlmClient(云模型思考可控)。
 enum AnnotateBackend {
-    OllamaNative { base: String, model: String },
-    Llm { client: LlmClient, route: kanzei_llm::Route, model: String, service_tier: Option<String> },
+    OllamaNative {
+        base: String,
+        model: String,
+    },
+    Llm {
+        client: LlmClient,
+        route: kanzei_llm::Route,
+        model: String,
+        service_tier: Option<String>,
+    },
 }
 
 async fn annotate_backend(cwd: &Path) -> Result<AnnotateBackend, String> {
@@ -260,13 +277,21 @@ async fn annotate_backend(cwd: &Path) -> Result<AnnotateBackend, String> {
         .map_err(|e| e.to_string())?;
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
     let service_tier = config.service_tier_for(&resolved);
-    Ok(AnnotateBackend::Llm { client, route, model: resolved.model, service_tier })
+    Ok(AnnotateBackend::Llm {
+        client,
+        route,
+        model: resolved.model,
+        service_tier,
+    })
 }
 
 impl AnnotateBackend {
     async fn annotate(&self, path: &str, head: &str) -> Result<String, String> {
-        self.annotate_raw(ANNOTATE_SYSTEM, &format!("文件: {path}\n\n开头内容:\n{head}"))
-            .await
+        self.annotate_raw(
+            ANNOTATE_SYSTEM,
+            &format!("文件: {path}\n\n开头内容:\n{head}"),
+        )
+        .await
     }
 
     async fn annotate_raw(&self, system: &str, user: &str) -> Result<String, String> {
@@ -289,14 +314,24 @@ impl AnnotateBackend {
                     .send()
                     .await
                     .map_err(|e| format!("ollama 请求失败: {e}"))?;
-                let value: serde_json::Value =
-                    response.json().await.map_err(|e| format!("ollama 响应解析失败: {e}"))?;
+                let value: serde_json::Value = response
+                    .json()
+                    .await
+                    .map_err(|e| format!("ollama 响应解析失败: {e}"))?;
                 if let Some(err) = value["error"].as_str() {
                     return Err(format!("ollama: {err}"));
                 }
-                value["message"]["content"].as_str().unwrap_or("").to_string()
+                value["message"]["content"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string()
             }
-            AnnotateBackend::Llm { client, route, model, service_tier } => {
+            AnnotateBackend::Llm {
+                client,
+                route,
+                model,
+                service_tier,
+            } => {
                 use futures::StreamExt;
                 let request = kanzei_llm::LlmRequest {
                     model: model.clone(),
@@ -309,8 +344,10 @@ impl AnnotateBackend {
                     reasoning: kanzei_llm::ReasoningEffort::Off,
                     service_tier: service_tier.clone(),
                 };
-                let mut stream =
-                    client.stream(route, &request).await.map_err(|e| e.to_string())?;
+                let mut stream = client
+                    .stream(route, &request)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let mut out = String::new();
                 while let Some(event) = stream.next().await {
                     if let kanzei_llm::LlmEvent::TextDelta { text, .. } =
@@ -322,7 +359,8 @@ impl AnnotateBackend {
                 out
             }
         };
-        clean_note(&raw).ok_or_else(|| "模型没有产出标注正文(思考模型请确认已关思考或预算充足)".to_string())
+        clean_note(&raw)
+            .ok_or_else(|| "模型没有产出标注正文(思考模型请确认已关思考或预算充足)".to_string())
     }
 }
 
@@ -357,7 +395,10 @@ mod tests {
     /// (上游转失败并上浮原因),绝不产出空/垃圾标注。
     #[test]
     fn 标注清洗剥思考块并拒绝空产出() {
-        assert_eq!(clean_note("glob 文件匹配工具"), Some("glob 文件匹配工具".into()));
+        assert_eq!(
+            clean_note("glob 文件匹配工具"),
+            Some("glob 文件匹配工具".into())
+        );
         assert_eq!(
             clean_note("<think>用户要我总结……应该说这是工具</think>\nglob 文件匹配工具"),
             Some("glob 文件匹配工具".into())
@@ -389,10 +430,10 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
         std::fs::write(root.join("ok.txt"), "fine").unwrap();
-        let outside = root.parent().unwrap().join(format!(
-            "kz-fv-outside-{}.txt",
-            std::process::id()
-        ));
+        let outside = root
+            .parent()
+            .unwrap()
+            .join(format!("kz-fv-outside-{}.txt", std::process::id()));
         std::fs::write(&outside, "secret").unwrap();
 
         let ok = file_preview(root.display().to_string(), "ok.txt".into()).unwrap();

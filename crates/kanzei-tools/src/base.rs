@@ -23,7 +23,9 @@ impl Component for BaseComponent {
             .insert("process", Arc::new(crate::process::ProcessTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
-        draft.tools.insert("files", Arc::new(crate::files::FilesTool));
+        draft
+            .tools
+            .insert("files", Arc::new(crate::files::FilesTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         draft
             .tools

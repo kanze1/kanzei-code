@@ -52,9 +52,7 @@ pub(crate) fn build_tool_execution_waves_with(
         let conflicts = current
             .iter()
             .any(|other| call.concurrency.conflicts_with(&other.concurrency));
-        if !current.is_empty()
-            && (conflicts || current.len() >= max_parallel)
-        {
+        if !current.is_empty() && (conflicts || current.len() >= max_parallel) {
             waves.push(std::mem::take(&mut current));
         }
         current.push(call);
@@ -215,9 +213,18 @@ mod tests {
                 completed.push(id);
             }
         };
-        let results = execute_prepared_tools(calls, &ctx, super::MAX_PARALLEL_TOOLS_PER_WAVE, &mut on_event).await;
+        let results = execute_prepared_tools(
+            calls,
+            &ctx,
+            super::MAX_PARALLEL_TOOLS_PER_WAVE,
+            &mut on_event,
+        )
+        .await;
 
-        assert!(max_in_flight.load(Ordering::SeqCst) >= 2, "只读调用没有重叠执行");
+        assert!(
+            max_in_flight.load(Ordering::SeqCst) >= 2,
+            "只读调用没有重叠执行"
+        );
         assert_eq!(completed, vec!["call_fast_fail", "call_slow"]);
         assert!(matches!(
             &results[0].1,
@@ -246,13 +253,24 @@ mod tests {
             max_in_flight: max_in_flight.clone(),
         });
         let calls = vec![
-            probe_call(0, "write_1", serde_json::json!({"delay_ms": 15}), writer.clone()),
+            probe_call(
+                0,
+                "write_1",
+                serde_json::json!({"delay_ms": 15}),
+                writer.clone(),
+            ),
             probe_call(1, "read_1", serde_json::json!({"delay_ms": 15}), reader),
             probe_call(2, "write_2", serde_json::json!({"delay_ms": 15}), writer),
         ];
         let ctx = ToolCtx::new(std::env::temp_dir());
         let mut on_event = |_event| {};
-        let results = execute_prepared_tools(calls, &ctx, super::MAX_PARALLEL_TOOLS_PER_WAVE, &mut on_event).await;
+        let results = execute_prepared_tools(
+            calls,
+            &ctx,
+            super::MAX_PARALLEL_TOOLS_PER_WAVE,
+            &mut on_event,
+        )
+        .await;
 
         assert_eq!(max_in_flight.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -270,9 +288,24 @@ mod tests {
     #[test]
     fn declined_tool_batch_keeps_real_and_placeholder_results_paired() {
         let calls = vec![
-            ("call_done".into(), "write".into(), serde_json::json!({}), "{}".into()),
-            ("call_declined".into(), "edit".into(), serde_json::json!({}), "{}".into()),
-            ("call_pending".into(), "bash".into(), serde_json::json!({}), "{}".into()),
+            (
+                "call_done".into(),
+                "write".into(),
+                serde_json::json!({}),
+                "{}".into(),
+            ),
+            (
+                "call_declined".into(),
+                "edit".into(),
+                serde_json::json!({}),
+                "{}".into(),
+            ),
+            (
+                "call_pending".into(),
+                "bash".into(),
+                serde_json::json!({}),
+                "{}".into(),
+            ),
         ];
         let mut results = vec![Part::ToolResult {
             call_id: "call_done".into(),
@@ -299,4 +332,3 @@ mod tests {
         ));
     }
 }
-

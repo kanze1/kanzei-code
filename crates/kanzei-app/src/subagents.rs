@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use crate::{run_once_with_parts, AskFuture};
 use kanzei_core::{AskRequest, RunEvent, RunnerConfig};
-use kanzei_llm::ProxyConfig;
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::LlmClient;
+use kanzei_llm::ProxyConfig;
 use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 
 #[tauri::command]
@@ -26,8 +26,14 @@ pub(crate) async fn quick_req(
     };
     let cwd = PathBuf::from(&project_dir);
     let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
-    let project_root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    let rctx = ResolveCtx { profile: ProfileKind::Dev, cwd: cwd.clone(), project_root: project_root.clone(), config: config.clone() };
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
     let mut harness = Harness::default();
     harness.add(crate::harness_ext::QuickCaptureComponent { capture });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
@@ -36,23 +42,82 @@ pub(crate) async fn quick_req(
     } else {
         "You capture ONE requirement from the user's natural-language description. Call the `req` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred), fields = {\"priority\": suggested P0-P3, \"复杂度\": 小|中|大, \"验收\": one draft acceptance line, \"归属\": \"kanzei\", \"原始描述\": the user's original text verbatim}. Then reply with only the new id."
     };
-    let agent = kanzei_harness::AgentDef { name: "quickcapture".into(), profile: kanzei_harness::ProfileScope::Dev, model: "fast".into(), mode: kanzei_harness::AgentMode::Subagent, steps: 4, system: system.into() };
-    let proxy = match config.proxy.as_deref() { Some("off") => ProxyConfig::Disabled, Some("env") | None => ProxyConfig::Env, Some(p) => ProxyConfig::Explicit(p.to_string()) };
+    let agent = kanzei_harness::AgentDef {
+        name: "quickcapture".into(),
+        profile: kanzei_harness::ProfileScope::Dev,
+        model: "fast".into(),
+        mode: kanzei_harness::AgentMode::Subagent,
+        steps: 4,
+        system: system.into(),
+    };
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    };
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let tool_ctx = ToolCtx { cwd: cwd.clone(), project_root: project_root.clone() };
-    let doc_kind = if capture == "defect" { &DEFECTS } else { &REQUIREMENTS };
+    let tool_ctx = ToolCtx {
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+    };
+    let doc_kind = if capture == "defect" {
+        &DEFECTS
+    } else {
+        &REQUIREMENTS
+    };
     let store = DocStore::open(&project_root, doc_kind);
-    let before: std::collections::HashSet<String> = store.load().map_err(|e| e.to_string())?.iter().map(|e| e.id.clone()).collect();
+    let before: std::collections::HashSet<String> = store
+        .load()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|e| e.id.clone())
+        .collect();
     let prompt = format!("描述(原文):\n{description}");
     for role in ["fast", "primary"] {
-        let Ok(resolved) = config.resolve_model(role) else { continue };
-        let Ok(route) = kanzei_core::build_route(&resolved, &proxy).await else { continue };
-        let runner_config = RunnerConfig { model: resolved.model.clone(), max_tokens: 2048, reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved), context_limit: resolved.provider.context_limit, limits: config.limits.clone() };
+        let Ok(resolved) = config.resolve_model(role) else {
+            continue;
+        };
+        let Ok(route) = kanzei_core::build_route(&resolved, &proxy).await else {
+            continue;
+        };
+        let runner_config = RunnerConfig {
+            model: resolved.model.clone(),
+            max_tokens: 2048,
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: config.service_tier_for(&resolved),
+            context_limit: resolved.provider.context_limit,
+            limits: config.limits.clone(),
+        };
         let mut on_event = |_event: RunEvent| {};
-        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture { Box::pin(async move { match request { kanzei_core::AskRequest::Permission { .. } => kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce), kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled } }) };
-        let _ = run_once_with_parts(&client, &route, &snapshot, &agent, &runner_config, &tool_ctx, &prompt, &[], None, None, &mut on_event, &mut ask).await;
+        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
+            Box::pin(async move {
+                match request {
+                    kanzei_core::AskRequest::Permission { .. } => {
+                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
+                    }
+                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+                }
+            })
+        };
+        let _ = run_once_with_parts(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &tool_ctx,
+            &prompt,
+            &[],
+            None,
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await;
         let after = store.load().map_err(|e| e.to_string())?;
-        if let Some(new_entry) = after.iter().find(|e| !before.contains(&e.id)) { return Ok(format!("{} {}", new_entry.id, new_entry.title)); }
+        if let Some(new_entry) = after.iter().find(|e| !before.contains(&e.id)) {
+            return Ok(format!("{} {}", new_entry.id, new_entry.title));
+        }
     }
     Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
 }
@@ -65,44 +130,119 @@ and line numbers; 7. concrete next steps. Do not modify files, run commands, upd
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DefectReviewResult { pub(crate) empty: bool, pub(crate) report: String, pub(crate) defect_count: usize }
+pub(crate) struct DefectReviewResult {
+    pub(crate) empty: bool,
+    pub(crate) report: String,
+    pub(crate) defect_count: usize,
+}
 
-pub(crate) fn defect_review_snapshot(rctx: &ResolveCtx) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
+pub(crate) fn defect_review_snapshot(
+    rctx: &ResolveCtx,
+) -> anyhow::Result<Arc<kanzei_harness::HarnessSnapshot>> {
     let mut harness = Harness::default();
-    harness.add(kanzei_tools::SubagentBase).add(crate::ConfigComponent);
+    harness
+        .add(kanzei_tools::SubagentBase)
+        .add(crate::ConfigComponent);
     harness.resolve(rctx)
 }
 
 pub(crate) fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
     let report = summary.text.trim();
-    if report.is_empty() { Err("审查模型没有返回报告".into()) } else { Ok(report.to_string()) }
+    if report.is_empty() {
+        Err("审查模型没有返回报告".into())
+    } else {
+        Ok(report.to_string())
+    }
 }
 
 #[tauri::command]
 pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewResult, String> {
     let cwd = PathBuf::from(&project_dir);
     let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
-    let project_root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    let defects = DocStore::open(&project_root, &DEFECTS).load().map_err(|e| e.to_string())?;
-    if defects.is_empty() { return Ok(DefectReviewResult { empty: true, report: "当前没有活动缺陷。".into(), defect_count: 0 }); }
-    let rctx = ResolveCtx { profile: ProfileKind::Dev, cwd: cwd.clone(), project_root: project_root.clone(), config: config.clone() };
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    let defects = DocStore::open(&project_root, &DEFECTS)
+        .load()
+        .map_err(|e| e.to_string())?;
+    if defects.is_empty() {
+        return Ok(DefectReviewResult {
+            empty: true,
+            report: "当前没有活动缺陷。".into(),
+            defect_count: 0,
+        });
+    }
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: cwd.clone(),
+        project_root: project_root.clone(),
+        config: config.clone(),
+    };
     let snapshot = defect_review_snapshot(&rctx).map_err(|e| e.to_string())?;
     let mut agent = kanzei_tools::explore_agent();
     agent.name = "defect-review".into();
     agent.system = DEFECT_REVIEW_SYSTEM.into();
-    let proxy = match config.proxy.as_deref() { Some("off") => ProxyConfig::Disabled, Some("env") | None => ProxyConfig::Env, Some(value) => ProxyConfig::Explicit(value.to_string()) };
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(value) => ProxyConfig::Explicit(value.to_string()),
+    };
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
     let tool_ctx = ToolCtx { cwd, project_root };
     let prompt = format!("审查当前项目 defects.md 中的 {} 条活动缺陷。逐条核对真实代码、测试和调用方，输出约定的 Markdown 报告。", defects.len());
     let mut last_error = "没有可用的 fast 或 primary 模型".to_string();
     for role in ["fast", "primary"] {
-        let resolved = match config.resolve_model(role) { Ok(value) => value, Err(error) => { last_error = error.to_string(); continue; } };
-        let route = match kanzei_core::build_route(&resolved, &proxy).await { Ok(value) => value, Err(error) => { last_error = error.to_string(); continue; } };
-        let runner_config = RunnerConfig { max_tokens: config.limits.max_tokens(), reasoning: kanzei_llm::ReasoningEffort::Off, service_tier: config.service_tier_for(&resolved), context_limit: resolved.provider.context_limit, limits: config.limits.clone(), model: resolved.model };
+        let resolved = match config.resolve_model(role) {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error.to_string();
+                continue;
+            }
+        };
+        let route = match kanzei_core::build_route(&resolved, &proxy).await {
+            Ok(value) => value,
+            Err(error) => {
+                last_error = error.to_string();
+                continue;
+            }
+        };
+        let runner_config = RunnerConfig {
+            max_tokens: config.limits.max_tokens(),
+            reasoning: kanzei_llm::ReasoningEffort::Off,
+            service_tier: config.service_tier_for(&resolved),
+            context_limit: resolved.provider.context_limit,
+            limits: config.limits.clone(),
+            model: resolved.model,
+        };
         let mut on_event = |_event: RunEvent| {};
-        let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture { Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) }) };
-        match run_once_with_parts(&client, &route, &snapshot, &agent, &runner_config, &tool_ctx, &prompt, &[], None, None, &mut on_event, &mut ask).await {
-            Ok(summary) => match defect_review_report(&summary) { Ok(report) => return Ok(DefectReviewResult { empty: false, report, defect_count: defects.len() }), Err(error) => last_error = error },
+        let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture {
+            Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+        };
+        match run_once_with_parts(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &runner_config,
+            &tool_ctx,
+            &prompt,
+            &[],
+            None,
+            None,
+            &mut on_event,
+            &mut ask,
+        )
+        .await
+        {
+            Ok(summary) => match defect_review_report(&summary) {
+                Ok(report) => {
+                    return Ok(DefectReviewResult {
+                        empty: false,
+                        report,
+                        defect_count: defects.len(),
+                    })
+                }
+                Err(error) => last_error = error,
+            },
             Err(error) => last_error = error.to_string(),
         }
     }
