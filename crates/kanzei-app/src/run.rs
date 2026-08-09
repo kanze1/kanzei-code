@@ -24,12 +24,16 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     let _ = window.emit("kz:status", with_session_id(json!({ "stage": name, "detail": detail }), session_id));
 }
 
-pub(crate) fn report_config_warnings(window: &Window, session_id: &str, config: &kanzei_harness::config::KanzeiConfig, config_warnings: &[String]) {
+pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
+    match value { Some("requirement-first") => "requirement-first", _ => "defect-first" }
+}
+
+pub(crate) fn report_config_warnings {
     for warning in config_warnings { emit_stage(window, session_id, "配置", warning.clone()); }
     for warning in config.bash_permission_warnings() { emit_stage(window, session_id, "权限", warning); }
 }
 
-pub(crate) async fn models_list {
+pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
     let cwd = project_dir.map(PathBuf::from).filter(|p| p.is_dir()).or_else(|| std::env::current_dir().ok()).ok_or("no working dir")?;
     let config = kanzei_harness::config::KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?;
     let mut items = Vec::new();

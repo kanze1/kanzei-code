@@ -700,10 +700,7 @@ async fn run_task_impl(
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
-    let work_priority = match work_priority.as_deref() {
-        Some("requirement-first") => "requirement-first",
-        _ => "defect-first",
-    };
+    let work_priority = run::normalize_work_priority(work_priority.as_deref());
     if profile == ProfileKind::Dev {
         // 前端自查段跟着 FrontendToolsComponent 走:注册了这 5 个工具的装配线才追加。
         // 写死在 dev 基础提示词里的话,CLI 侧会被指向 5 个根本不存在的工具。
