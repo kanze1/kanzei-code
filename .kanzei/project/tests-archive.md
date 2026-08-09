@@ -196,3 +196,7 @@
 ## T-1786275939 R-153 批6 kanzei-app 定向测试 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批6 processes.rs/mobile.rs 已接入；main.rs 删除对应旧实现，invoke_handler 使用模块全路径。定向验证记录完成。
+
+## T-1786276097 R-153 批6 kanzei-app 定向测试（原样搬迁修正后） [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 批6按原实现等价搬迁完成；process/worktree 与 mobile command 由新模块暴露，main.rs 仅保留模块注册与调用方。

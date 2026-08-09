@@ -139,3 +139,7 @@
 ## T-1786275923 R-153 批6 kanzei-app 定向测试 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 批6代码搬迁后开始定向 Rust 测试；按 M-022 使用 test_record 作为唯一测试记录通道。
+
+## T-1786276079 R-153 批6 kanzei-app 定向测试（原样搬迁修正后） [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 修正批6模块内容为从 main.rs 原样搬迁后的等价实现，重新执行定向验证记录。
