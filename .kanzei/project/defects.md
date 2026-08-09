@@ -35,7 +35,7 @@
 
 - 进展: 2026-08-09 取活:验收①prompt 层(禁止编造、写待澄清+问题清单)为既有交付(main.rs QuickCaptureComponent system 文案,3512-3519);本轮补验收③:侧栏/文档页对「复现: 待澄清: …」形态的缺陷渲染 .clarify-badge 徽标(renderDocList,只认复现字段以「待澄清」开头,title 带具体问题清单,不误标需求),i18n 词条「待澄清」,style.css .clarify-badge(accent 色);冒烟桩数据 D-001 复现改为待澄清形态并新增断言(徽标渲染+问题提示+需求不误标),ui-runtime-smoke 222 invoke 全绿,ui-i18n-smoke 771 key 全绿,frontend_check 结构完整。验收①真实快记实证与④(自举取活跳过/优先澄清待澄清条目,属调度核心改动)留后续,④记入 R-101 批次前评估。
 
-## D-202 超长对话把 webview 主线程拖死,侧栏等大片控件点击无反应 [open] (high)
+## D-202 超长对话把 webview 主线程拖死,侧栏等大片控件点击无反应 [fixing] (high)
 - 复现: 2026-08-09 用户实测(53bb8e7 桌面端):自举循环长会话(几百轮,含大量工具调用块/diff/markdown)期间,侧栏条目展开、筛选等点击**完全无反应**(无按压反馈,像点在空气上);发送等主操作路径尚可。用户自判"上下文太多卡住了"。初步排查已排除:①初始化崩坏(53bb8e7 的 main.js 在 ui-runtime-smoke 全量执行 0 错误);②ask 遮罩挡点击(全屏 overlay 会挡住所有东西,与"主操作正常"不符);③R-086 状态机焊死(那只禁用运行态控件,不吞侧栏点击)。
 - 疑似根因(待复现证实): 长对话 DOM 巨大(消息、工具块、diff 逐条渲染,无虚拟化/窗口化),流式事件持续追加触发重排,主线程长期忙碌,点击事件延迟到秒级等价于无反应。若成立,与 D-013(diff 默认展开导致对话过长)、D-046(重绘防抖)是同一性能债的延续:此前只做了"少画",没做"画不下就不画"。
 - 验收: ①可复现实证:构造或回放长会话,量化点击响应延迟(如 Event Timing / 长任务计数),定位耗时大头;②修复后同样场景侧栏点击在人可感知阈值内响应(<200ms);③对话渲染有上限策略(虚拟化、折叠历史或分页任一),DOM 节点数有界;④冒烟加长会话性能断言防回归。
@@ -44,7 +44,10 @@
   另:对话 DOM 从不裁剪(只有切会话时 `messages.innerHTML=""`),所以**上下文压缩不会缓解卡顿**——压缩只减少发给模型的 token,渲染侧一个节点都没少。用户"上下文太多卡住了"的直觉方向对,但机制不在上下文,在渲染。
 - 量化(2026-08-09,ui-runtime-smoke 的 DOM harness 内测,只证明标度不代表真机绝对值): applyLanguage 单次耗时随文本节点数线性上升——95 节点 0.54ms / 295 节点 1.11ms / 895 节点 3.61ms;renderMarkdown 每 delta 均摊耗时随消息长度线性上升——2850 字 0.035ms → 45600 字 0.169ms(单条消息累计 135ms,纯解析、不含 DOM)。真机 WebView 的 TreeWalker/重排成本远高于 harness,几百轮会话的文本节点数在万级,单次 applyLanguage 已足以吃满一帧。
 - 修复方向(建议按序,每步独立可验): ①observer 回调改为只处理 `mutations` 里的 addedNodes 子树(新进节点才本地化),不再全文档重扫——单点改动,收益最大;②applyLanguage 用 rAF 合帧,一帧最多一次;③appendAssistant 流式期间只追加纯文本(`textContent +=`),消息收尾时再整条 renderMarkdown 一次;④"最近在说"从 delta 增量算,不扫整条 raw;⑤scrollBottom 合帧,或改 CSS `overflow-anchor` / 底部哨兵 + IntersectionObserver,去掉每 delta 读 scrollHeight;⑥最后才做验收③的 DOM 上限(窗口化/折叠历史)——前五步做完可能已不需要。
-- 证据等级: E1(代码路径实证 + harness 标度量化;真机 Event Timing 数据待补,对应验收①)
+- 修复(2026-08-09,修复方向①②④⑤已落地): ①applyLanguage 拆成 localizeTextNode/localizeAttributes/localizeRoot(root),observer 回调改为只把 `records` 里的 addedNodes(childList)与 target(characterData/attributes)交给 localizeNodes,全文档重扫只留给初始化与切语言两处显式调用;②④⑤合成一处:appendAssistant/appendReasoning 的 delta 只累加文本,renderMarkdown+innerHTML+scrollBottom 压到每帧最多一次(scheduleStreamRender/flushStreamRender),上一次渲染实测 >8ms 就按实测耗时退避(上限 250ms),长消息自动降频;"最近在说"改用 lastNonEmptyLine() 只扫尾部 2000 字窗口(并丢掉被窗口截断的首行,预览不会从半个词开始)。③(流式期间只上纯文本、收尾再渲染)未采纳——合帧后已无必要,且会让正文在流式期间失去格式。⑥DOM 上限/窗口化仍未做,留待真机复测后再判是否需要。
+- 冒烟(验收④已落): ui-runtime-smoke 的 DOM harness 原先给 observer 递空 records、createTreeWalker 忽略 root、requestAnimationFrame 同步执行——三处都会让新路径在冒烟里空转,已一并补真:投递真实 MutationRecord、createTreeWalker 尊重 root(含文本节点 root)、rAF 入队由 flush 排干,并统计"从 body 起的全文档重扫"次数。新增三条行为断言:200 个 delta 触发的 renderMarkdown ≤20 次、全文档 i18n 重扫增量为 0、合帧后最后一段文本确实渲染出来;另加一条增量本地化断言(新进节点在 en 下必须被翻译),防止"少扫了也少翻了"。拦截实测:把 observer 改回 `() => applyLanguage()` → 冒烟报"触发了 2 次全文档重扫"(harness 内 200 个 delta 同步发生会被微任务合批,真机每个 delta 是独立事件、独立微任务检查点,即每 delta 一次);把渲染改回每 delta 一次 → 报"200 个 delta 触发了 200 次 renderMarkdown"。四条 UI 冒烟全绿。
+- 待验收: ②真机复测(几百轮会话下侧栏点击 <200ms)由用户在新构建上确认;①的真机 Event Timing/长任务数据仍未采;③(DOM 节点数有界)未做。三条都清了才转 fixed。
+- 证据等级: E1(代码路径实证 + harness 标度量化 + 拦截实测;真机 Event Timing 数据待补,对应验收①)
 - 优先级: P1
 - 标签: 前端
 

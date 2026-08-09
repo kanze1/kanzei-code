@@ -624,66 +624,93 @@ function localizedDocStatus(status) {
   return languageIsEnglish() ? (labels[status] || status) : status;
 }
 let applyingLanguage = false;
+// D-202:本地化一律按 root 作用域执行,全文档重扫只留给初始化与切语言。
+// 原先 observer 把**每一次** DOM 变动都放大成一次整页 TreeWalker + 整页属性扫描,
+// 而流式输出每个 delta 都在改 DOM、单次成本又 ∝ 当前对话的文本节点数——
+// 轮次越多越卡的主因就在这里(几百轮后单次重扫足以吃满一帧,点击排不上队)。
+function localizeTextNode(node, language) {
+  const parent = node.parentElement || node.parentNode;
+  if (parent?.closest?.("[data-i18n-raw]")) return;
+  if (!I18N_ZH.has(node)) {
+    I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
+  } else {
+    const cached = I18N_ZH.get(node);
+    const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
+    if (node.nodeValue !== cached && node.nodeValue !== cachedTranslation) {
+      I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
+    }
+  }
+  const source = I18N_ZH.get(node);
+  const key = source.trim();
+  if (!key) return;
+  const exact = I18N_EN[key] || I18N_DYNAMIC_EN[key];
+  const next = language === "en"
+    ? (exact ? source.replace(key, exact) : localizeDynamic(source))
+    : source;
+  if (next.length > 1_000_000) {
+    throw new Error(`i18n text expansion detected:length=${next.length},key=${key.slice(0, 80)}`);
+  }
+  if (node.nodeValue !== next) node.nodeValue = next;
+}
+function localizeAttributes(element, language) {
+  let originals = I18N_ATTR_ZH.get(element);
+  if (!originals) {
+    originals = new Map();
+    I18N_ATTR_ZH.set(element, originals);
+  }
+  for (const attribute of ["title", "placeholder", "aria-label"]) {
+    const value = element.getAttribute(attribute);
+    if (!value) continue;
+    // 原文缓存必须跟随写入方更新:只认首见值会把属性永久冻结在第一次的取值上
+    // (侧栏 tooltip 折叠后仍显示「折叠左侧栏」),状态提示从此长期说谎(D-136)。
+    // 判据:当前值既不是缓存原文也不是它的译文 ⇒ 是别处新写进来的,以新值为准。
+    const cached = originals.get(attribute);
+    if (cached === undefined) {
+      originals.set(attribute, sourceFromLocalized(value));
+    } else if (value !== cached) {
+      const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
+      if (value !== cachedTranslation) originals.set(attribute, sourceFromLocalized(value));
+    }
+    const source = originals.get(attribute);
+    const key = source.trim();
+    const next = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
+    // 同值也调 setAttribute 会照常入 MutationObserver 队列(DOM 规范如此),而 observer
+    // 正监听这三个属性:无条件写 = observer→applyLanguage→写 的微任务死循环,主线程
+    // 饿死、永不绘制,表现为启动黑屏(D-172)。写属性前必须比对,值没变绝不写。
+    if (value !== next) element.setAttribute(attribute, next);
+  }
+}
+/// 只本地化 root 这一棵子树;root 也可以是文本节点(characterData 变动的目标)。
+function localizeRoot(root, language) {
+  if (!root) return;
+  if (typeof root.querySelectorAll !== "function") {
+    if (root.nodeValue != null) localizeTextNode(root, language);
+    return;
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) localizeTextNode(walker.currentNode, language);
+  if (root.hasAttribute?.("title") || root.hasAttribute?.("placeholder") || root.hasAttribute?.("aria-label")) {
+    localizeAttributes(root, language);
+  }
+  root.querySelectorAll("[title], [placeholder], [aria-label]").forEach((element) => localizeAttributes(element, language));
+}
+function localizeNodes(nodes) {
+  if (applyingLanguage) return;
+  applyingLanguage = true;
+  try {
+    const language = localStorage.getItem("kz-language") || "zh";
+    for (const node of nodes) localizeRoot(node, language);
+  } finally {
+    applyingLanguage = false;
+  }
+}
 function applyLanguage() {
   if (applyingLanguage) return;
   applyingLanguage = true;
   try {
     const language = localStorage.getItem("kz-language") || "zh";
     document.documentElement.lang = language === "en" ? "en" : "zh-CN";
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      const parent = node.parentElement || node.parentNode;
-      if (parent?.closest?.("[data-i18n-raw]")) continue;
-      if (!I18N_ZH.has(node)) {
-        I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
-      } else {
-        const cached = I18N_ZH.get(node);
-        const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
-        if (node.nodeValue !== cached && node.nodeValue !== cachedTranslation) {
-          I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
-        }
-      }
-      const source = I18N_ZH.get(node);
-      const key = source.trim();
-      if (!key) continue;
-      const exact = I18N_EN[key] || I18N_DYNAMIC_EN[key];
-      const next = language === "en"
-        ? (exact ? source.replace(key, exact) : localizeDynamic(source))
-        : source;
-      if (next.length > 1_000_000) {
-        throw new Error(`i18n text expansion detected:length=${next.length},key=${key.slice(0, 80)}`);
-      }
-      if (node.nodeValue !== next) node.nodeValue = next;
-    }
-    document.querySelectorAll("[title], [placeholder], [aria-label]").forEach((element) => {
-      let originals = I18N_ATTR_ZH.get(element);
-      if (!originals) {
-        originals = new Map();
-        I18N_ATTR_ZH.set(element, originals);
-      }
-      for (const attribute of ["title", "placeholder", "aria-label"]) {
-        const value = element.getAttribute(attribute);
-        if (!value) continue;
-        // 原文缓存必须跟随写入方更新:只认首见值会把属性永久冻结在第一次的取值上
-        // (侧栏 tooltip 折叠后仍显示「折叠左侧栏」),状态提示从此长期说谎(D-136)。
-        // 判据:当前值既不是缓存原文也不是它的译文 ⇒ 是别处新写进来的,以新值为准。
-        const cached = originals.get(attribute);
-        if (cached === undefined) {
-          originals.set(attribute, sourceFromLocalized(value));
-        } else if (value !== cached) {
-          const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
-          if (value !== cachedTranslation) originals.set(attribute, sourceFromLocalized(value));
-        }
-        const source = originals.get(attribute);
-        const key = source.trim();
-        const next = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
-        // 同值也调 setAttribute 会照常入 MutationObserver 队列(DOM 规范如此),而 observer
-        // 正监听这三个属性:无条件写 = observer→applyLanguage→写 的微任务死循环,主线程
-        // 饿死、永不绘制,表现为启动黑屏(D-172)。写属性前必须比对,值没变绝不写。
-        if (value !== next) element.setAttribute(attribute, next);
-      }
-    });
+    localizeRoot(document.body, language);
   } finally {
     applyingLanguage = false;
   }
@@ -708,7 +735,19 @@ languageSelect.addEventListener("change", () => {
   updateAskQueueStatus();
 });
 applyLanguage();
-const languageObserver = new MutationObserver(() => applyLanguage());
+// D-202:只本地化本次变动带进来的节点。records 为空(或宿主不给 records)时不做任何事——
+// 全量本地化由初始化与切语言时的 applyLanguage() 负责,这里绝不能退回全文档重扫。
+const languageObserver = new MutationObserver((records) => {
+  const roots = [];
+  for (const record of records) {
+    if (record.type === "childList") {
+      for (const node of record.addedNodes) roots.push(node);
+    } else {
+      roots.push(record.target);
+    }
+  }
+  if (roots.length) localizeNodes(roots);
+});
 languageObserver.observe(document.body, {
   childList: true,
   subtree: true,
@@ -1317,21 +1356,68 @@ function reportError(message, { retryable = isRetryableError(message) } = {}) {
 }
 
 let outputChars = 0;
+// ---------- D-202:流式渲染合帧 ----------
+// 原先每个 delta 都要:整条 renderMarkdown + 整块 innerHTML + 把整条 raw split 一遍
+// + 读 scrollHeight(强制同步重排整个消息列表)。前三项在单条消息内是 O(n²),
+// 最后一项随轮次增长——流一开就把主线程占满。现在 delta 只累加文本,渲染压到
+// 每帧最多一次;上一次渲染实测超过 8ms 就按实测耗时退避(长消息自动降频),
+// 无论消息多长都给交互留得出时间片。
+let pendingAssistantRender = null;
+let pendingReasoningRender = null;
+let streamFlushScheduled = false;
+let streamRenderCost = 0;
+function scheduleStreamRender() {
+  if (streamFlushScheduled) return;
+  streamFlushScheduled = true;
+  const run = () => {
+    streamFlushScheduled = false;
+    flushStreamRender();
+  };
+  if (streamRenderCost > 8) setTimeout(run, Math.min(250, Math.round(streamRenderCost)));
+  else requestAnimationFrame(run);
+}
+/// 把累计到的流式文本一次性渲染出去。目标元素可能已被收尾逻辑摘掉引用(甚至已从
+/// DOM 摘除,如 stream-restart),照渲染即可——写进游离节点无害,少写一次分支。
+function flushStreamRender() {
+  const assistant = pendingAssistantRender;
+  const reasoning = pendingReasoningRender;
+  pendingAssistantRender = null;
+  pendingReasoningRender = null;
+  if (!assistant && !reasoning) return;
+  const started = Date.now();
+  if (assistant) {
+    assistant.querySelector(".message-body").innerHTML = renderMarkdown(assistant.dataset.raw);
+    // 侧边栏"最近在说":assistant 输出的最新一行。只看尾部窗口——扫整条 raw
+    // 是纯浪费,而这里只需要最后那一行。
+    const line = lastNonEmptyLine(assistant.dataset.raw);
+    if (line) liveSet("live-note", `💬 ${line.slice(0, 60)}`);
+  }
+  if (reasoning) renderReasoningBlock(reasoning);
+  streamRenderCost = Date.now() - started;
+  scrollBottom();
+}
+/// 取最后一个非空行。只在尾部窗口里找,并丢掉被窗口截断的首行,避免预览从半个词开始。
+function lastNonEmptyLine(raw, window = 2000) {
+  let tail = raw.length > window ? raw.slice(-window) : raw;
+  if (raw.length > window) {
+    const cut = tail.indexOf("\n");
+    if (cut >= 0) tail = tail.slice(cut + 1);
+  }
+  const lines = tail
+    .split("\n")
+    .map((l) => l.replace(/[#*`]/g, "").trim())
+    .filter(Boolean);
+  return lines[lines.length - 1] || "";
+}
 function appendAssistant(text) {
   if (!currentAssistant) {
     currentAssistant = addMessage("assistant md", "");
     currentAssistant.dataset.raw = "";
   }
   currentAssistant.dataset.raw += text;
-  currentAssistant.querySelector(".message-body").innerHTML = renderMarkdown(currentAssistant.dataset.raw);
   outputChars += text.length;
-  // 侧边栏"最近在说":assistant 输出的最新一行。
-  const lines = currentAssistant.dataset.raw
-    .split("\n")
-    .map((l) => l.replace(/[#*`]/g, "").trim())
-    .filter(Boolean);
-  if (lines.length) liveSet("live-note", `💬 ${lines[lines.length - 1].slice(0, 60)}`);
-  scrollBottom();
+  pendingAssistantRender = currentAssistant;
+  scheduleStreamRender();
 }
 
 // ---------- 主对话内联工具块(R-090):运行细节进对话流,主对话不再贫乏 ----------
@@ -1491,21 +1577,26 @@ function appendReasoning(text) {
     currentReasoningHead = head;
   }
   currentReasoning.dataset.raw += text;
-  currentReasoning.innerHTML = renderMarkdown(currentReasoning.dataset.raw);
-  if (currentReasoningHead) {
-    // 预览取最新的非空行:思考推进时头部跟着走,不再冻结在第一行。
-    const lines = currentReasoning.dataset.raw
-      .split("\n")
-      .map((l) => l.replace(/[#*`]/g, "").trim())
-      .filter(Boolean);
-    const preview = (lines[lines.length - 1] || "").slice(0, 60);
-    // codex 常常只给一行摘要标题:没有更多内容就不给"展开"的假承诺。
-    const expandable = lines.length > 1;
-    currentReasoningHead.textContent = `· ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
-    currentReasoningHead.classList.toggle("expandable", expandable);
-    if (!expandable) currentReasoningHead.setAttribute("aria-expanded", "false");
-  }
-  scrollBottom();
+  // D-202:与 assistant 同样合帧,头部摘要跟着渲染一起更新(见 flushStreamRender)。
+  currentReasoning._head = currentReasoningHead;
+  pendingReasoningRender = currentReasoning;
+  scheduleStreamRender();
+}
+function renderReasoningBlock(body) {
+  body.innerHTML = renderMarkdown(body.dataset.raw);
+  const head = body._head;
+  if (!head) return;
+  // 预览取最新的非空行:思考推进时头部跟着走,不再冻结在第一行。
+  const lines = body.dataset.raw
+    .split("\n")
+    .map((l) => l.replace(/[#*`]/g, "").trim())
+    .filter(Boolean);
+  const preview = (lines[lines.length - 1] || "").slice(0, 60);
+  // codex 常常只给一行摘要标题:没有更多内容就不给"展开"的假承诺。
+  const expandable = lines.length > 1;
+  head.textContent = `· ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
+  head.classList.toggle("expandable", expandable);
+  if (!expandable) head.setAttribute("aria-expanded", "false");
 }
 
 // ---------- 活动面板(R-037):全部工具调用按序入列,详情点击展开,跑完保留可回看 ----------

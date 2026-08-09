@@ -110,18 +110,32 @@ if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
   }
 
 const pendingTimers = new Set();
+const rafQueue = [];
+// D-202:统计"从 document.body 起的全文档文本节点重扫"次数。流式渲染期间它必须为 0,
+// 否则就是有人把 i18n observer 改回了全量重扫(卡顿主因)。
+let fullDocumentWalks = 0;
 const mutationObservers = new Set();
 let mutationQueued = false;
 // observer 回调里的 DOM 写入若再次唤醒 observer 自己,真机上是微任务死循环:主线程
 // 饿死、永不绘制,表现为启动黑屏(D-172)。冒烟里这种循环会让进程挂死而非报错,
 // 所以数连续自触发轮数,超限就断开 observer 并判失败,把挂死变成可读的失败。
 let observerCascade = 0;
-function notifyMutation() {
-  if (!mutationObservers.size || mutationQueued) return;
+// D-202:必须投递真实的 MutationRecord。回调只处理"本次变动带进来的节点"是修复的
+// 关键路径,若 harness 一直递空数组,这条路径在冒烟里恒为空转——既测不到本地化是否
+// 生效,也测不出有人把它改回全文档重扫。
+const mutationRecords = [];
+function notifyMutation(record) {
+  if (record) mutationRecords.push(record);
+  if (!mutationObservers.size) {
+    mutationRecords.length = 0;
+    return;
+  }
+  if (mutationQueued) return;
   mutationQueued = true;
   Promise.resolve().then(() => {
     mutationQueued = false;
-    for (const observer of mutationObservers) observer.callback([]);
+    const records = mutationRecords.splice(0);
+    for (const observer of mutationObservers) observer.callback(records);
     if (mutationQueued) {
       observerCascade += 1;
       if (observerCascade > 25) {
@@ -174,7 +188,7 @@ class Element {
     this.scrollTop = 0;
     this.scrollHeight = 0;
   }
-  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); notifyMutation(); return node; }
+  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); notifyMutation({ type: "childList", target: this, addedNodes: [node] }); return node; }
   appendChild(node) { node.remove(); return this._adopt(node); }
   append(...nodes) { for (const n of nodes) this.appendChild(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n); }
   prepend(...nodes) { for (const n of nodes.reverse()) this.insertBefore(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n, this.childNodes[0] ?? null); }
@@ -218,7 +232,9 @@ class Element {
     if (!this.childNodes.length) return own;
     return own + this.childNodes.map((c) => (c instanceof Element ? c.textContent : c.nodeValue)).join("");
   }
-  set textContent(value) { this.childNodes = []; this._innerHTML = ""; this._textContent = String(value); notifyMutation(); }
+  // harness 近似:文本节点是 createTreeWalker 里惰性造的,拿不到"新增的那个文本节点",
+  // 就把元素自身当作新进子树递出去——localizeRoot 走子树,语义是真机的超集,不会漏。
+  set textContent(value) { this.childNodes = []; this._innerHTML = ""; this._textContent = String(value); notifyMutation({ type: "childList", target: this, addedNodes: [this] }); }
   get innerText() { return this.textContent; }
   set innerText(value) { this.textContent = value; }
   get innerHTML() { return this._innerHTML; }
@@ -231,7 +247,7 @@ class Element {
     this._textContent = String(value)
       .replace(/<[^>]*>/g, "")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
-    notifyMutation();
+    notifyMutation({ type: "childList", target: this, addedNodes: [this] });
   }
   get value() { return this._value ?? ""; }
   set value(v) { this._value = String(v); }
@@ -243,10 +259,10 @@ class Element {
     const next = String(value);
     // 同值也必须通知 observer:DOM 规范里 setAttribute 无条件入 mutation 队列,
     // 早退吞通知会让"observer 回调里无条件写属性"的死循环在冒烟里隐形(D-172)。
-    if (this._attributes[name] === next) { notifyMutation(); return; }
+    if (this._attributes[name] === next) { notifyMutation({ type: "attributes", target: this, attributeName: name, addedNodes: [] }); return; }
     this._attributes[name] = next;
     if (name === "id") this.id = next;
-    notifyMutation();
+    notifyMutation({ type: "attributes", target: this, attributeName: name, addedNodes: [] });
   }
   removeAttribute(name) { delete this._attributes[name]; }
   hasAttribute(name) { return name in this._attributes; }
@@ -327,7 +343,8 @@ const document = {
   title: "",
   createElement: (tag) => { const el = new Element(tag); el.ownerDocument = document; return el; },
   createTextNode: (text) => { const n = new TextNode(text); n.ownerDocument = document; return n; },
-  createTreeWalker: () => {
+  createTreeWalker: (root = body) => {
+    if (root === body) fullDocumentWalks += 1;
     const texts = [];
     const walk = (el) => {
       if (el._textContent && !el.childNodes.length) {
@@ -339,7 +356,7 @@ const document = {
               const next = String(value);
               if (el._textContent === next) return;
               el._textContent = next;
-              notifyMutation();
+              notifyMutation({ type: "characterData", target: text, addedNodes: [] });
             },
           });
           el._textNodeProxy = text;
@@ -350,7 +367,10 @@ const document = {
         if (c instanceof TextNode) { if (c.nodeValue) texts.push(c); } else walk(c);
       }
     };
-    walk(body);
+    // 文本节点当 root:characterData 变动会把它直接递进来。
+    if (root && typeof root.querySelectorAll !== "function") {
+      if (root.nodeValue) texts.push(root);
+    } else walk(root ?? body);
     let idx = -1;
     return { nextNode() { idx += 1; return idx < texts.length ? (this.currentNode = texts[idx], true) : false; }, currentNode: null };
   },
@@ -613,7 +633,8 @@ const sandbox = {
   setInterval: (fn) => { const h = { fn, interval: true }; pendingTimers.add(h); return h; },
   clearInterval: (h) => pendingTimers.delete(h),
   structuredClone: globalThis.structuredClone,
-  requestAnimationFrame: (fn) => fn(),
+  requestAnimationFrame: (fn) => { rafQueue.push(fn); return rafQueue.length; },
+  cancelAnimationFrame: () => {},
 };
 vm.createContext(sandbox);
 
@@ -621,6 +642,8 @@ const settle = () => new Promise((r) => setImmediate(r));
 async function flush(rounds = 12) {
   for (let i = 0; i < rounds; i += 1) {
     await settle();
+    const frames = rafQueue.splice(0);
+    for (const fn of frames) await fn();
     const timers = [...pendingTimers];
     for (const h of timers) {
       if (!pendingTimers.has(h) || h.interval) continue;
@@ -1450,6 +1473,55 @@ assert(
   assert(treeText.includes("lib.rs") && treeText.includes("120"), "展开后文件行缺行数度量");
   assert(treeText.includes("note.md") && treeText.includes("300"), "展开后 md 文件缺字数度量");
   assert(treeText.includes("冒烟样例:库入口"), "文件用途标注未渲染");
+}
+
+// ---------- D-202 流式渲染性能回归 ----------
+// 卡顿的两个放大器都在"每个 delta 做一次"上:①i18n observer 全文档重扫;
+// ②整条消息重新 renderMarkdown。这里按行为断言,不认代码形态——谁把它们改回
+// 每 delta 一次,这两条就红。
+{
+  const walksBefore = fullDocumentWalks;
+  let renders = 0;
+  const realRenderMarkdown = sandbox.renderMarkdown;
+  sandbox.renderMarkdown = (raw) => { renders += 1; return realRenderMarkdown(raw); };
+  const DELTAS = 200;
+  for (let i = 0; i < DELTAS; i += 1) sandbox.appendAssistant(`stream-chunk-${i} with some filler text
+`);
+  await flush();
+  sandbox.renderMarkdown = realRenderMarkdown;
+
+  assert(renders > 0, "renderMarkdown 包装未生效,本组断言全是假通过");
+  assert(
+    renders <= DELTAS / 10,
+    `流式渲染没有合帧:${DELTAS} 个 delta 触发了 ${renders} 次 renderMarkdown(每次都整条重渲染 = 单条消息内 O(n²),D-202)`
+  );
+  assert(
+    fullDocumentWalks === walksBefore,
+    `流式 delta 触发了 ${fullDocumentWalks - walksBefore} 次全文档 i18n 重扫(单次成本 ∝ 对话长度,轮次越多越卡,D-202)`
+  );
+  const rendered = sandbox.document.querySelectorAll(".msg.assistant .message-body").at(-1);
+  assert(
+    rendered?.textContent.includes(`stream-chunk-${DELTAS - 1}`),
+    "合帧后最后一段流式文本没渲染出来(延迟渲染丢尾巴比卡顿更糟)"
+  );
+}
+
+// 增量本地化必须真的翻译新进节点:observer 不再全量重扫后,漏翻就是新的回归面。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  const probe = document.createElement("div");
+  probe.textContent = "移动端桥接";
+  document.body.appendChild(probe);
+  await flush();
+  assert(
+    probe.textContent === "Mobile bridge",
+    `新进节点未被增量本地化(实际 "${probe.textContent}"):observer 只处理变动节点后,漏翻即回归`
+  );
+  probe.remove();
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
 }
 
 if (issues.length) {
