@@ -883,51 +883,6 @@ mod update_tests {
         std::fs::remove_dir_all(&base).ok();
     }
 
-    #[cfg(any())]
-    #[test]
-    fn stopping_after_promote_cancels_promoted_and_pending_inputs_atomically() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-app-stop-promoted-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
-        let session_id = "session_stop_promoted";
-        store
-            .create_session(session_id, &root.display().to_string(), None)
-            .unwrap();
-        store
-            .admit_input(session_id, "promoted", "先执行", kanzei_core::Delivery::Queue)
-            .unwrap();
-        store
-            .admit_input(session_id, "pending", "后执行", kanzei_core::Delivery::Queue)
-            .unwrap();
-        assert_eq!(
-            store.promote_next_input(session_id).unwrap().unwrap().input_id,
-            "promoted"
-        );
-
-        let runtime = SessionRuntime::default();
-        runtime.running.store(true, Ordering::SeqCst);
-        let cancelled = stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
-
-        assert_eq!(cancelled, 2);
-        assert!(!runtime.running.load(Ordering::SeqCst));
-        assert!(store.list_pending_inputs(session_id).unwrap().is_empty());
-        assert_eq!(store.get_session(session_id).unwrap().unwrap().status, "idle");
-        let event = store
-            .latest_event(session_id, "session.status_changed")
-            .unwrap()
-            .unwrap();
-        assert_eq!(event.payload["reason"], "stopped_by_user");
-        drop(store);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     /// D-179:停止不得再吃掉整轮轨迹。收尾代码全在被 abort 的 task 里,
     /// 先杀后写等于什么都不写——实测一次 41 分钟的运行只剩一条 stopped_by_user。
     #[cfg(any())]

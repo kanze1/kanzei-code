@@ -47,3 +47,7 @@
 ## T-1786250694 R-153 批0删除 export 旧测试回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证物理删除 export_project_data 旧测试后的 kanzei-app 回归。
+
+## T-1786250847 R-153 批0删除首个 process 停止旧测试回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证物理删除 stopping_after_promote 旧测试后的 kanzei-app 回归。
