@@ -400,3 +400,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: models_list 当前调用边界回归通过：OpenAI/Ollama 模型发现路径与 run::push_ollama_models 连接正常，为下一步迁移 models_list 主体保留基线。
 - 收尾: 1786289362
+
+## T-1786289414 R-153 models_list command 边界迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: models_list command 已切换为 run::models_list，run.rs wrapper 真实调用 main.rs 的 models_list_impl；模型列表行为与既有基线保持。
+- 收尾: 1786289417

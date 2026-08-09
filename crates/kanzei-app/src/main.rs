@@ -177,7 +177,7 @@ run::run_prompt,
             memory::memory_focus_get,
             memory::memory_focus_set,
             app_info,
-            models_list,
+            run::models_list,
             docs::docs_update,
             docs::docs_open,
             run::summarize_chat,
@@ -638,7 +638,7 @@ fn conventions_init(project_dir: String) -> Result<String, String> {
 
 /// 可选模型清单:角色(primary/fast)+ codex 三型号 + ollama 已装模型(动态查询)。
 #[tauri::command]
-async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
+pub(crate) async fn models_list_impl(project_dir: Option<String>) -> Result<serde_json::Value, String> {
     let cwd = project_dir
         .map(PathBuf::from)
         .filter(|p| p.is_dir())

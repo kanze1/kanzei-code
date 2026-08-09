@@ -20,6 +20,10 @@ pub(crate) async fn push_ollama_models(items: &mut Vec<serde_json::Value>, name:
     for m in v["models"].as_array().unwrap_or(&Vec::new()) { if let Some(n) = m["name"].as_str() { items.push(json!({ "id": format!("{name}:{n}"), "label": format!("{name}:{n}") })); } }
 }
 
+pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
+    crate::models_list_impl(project_dir).await
+}
+
 #[tauri::command]
 pub(crate) fn pending_asks_get(state: tauri::State<'_, AppState>, project_dir: String, process_id: Option<String>) -> Result<Vec<serde_json::Value>, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
