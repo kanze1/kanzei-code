@@ -8,6 +8,54 @@ use serde_json::json;
 use kanzei_harness::KanzeiConfig;
 use kanzei_llm::ProxyConfig;
 
+pub(crate) fn pending_path(exe: &Path) -> std::path::PathBuf {
+    let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("kzapp.exe");
+    exe.with_file_name(format!("{name}.pending"))
+}
+
+pub(crate) fn installer_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("kanzei-setup.exe")
+}
+
+pub(crate) fn validate_installer(bytes: &[u8]) -> Result<(), String> {
+    const MIN_BYTES: usize = 1 << 20;
+    if bytes.len() < MIN_BYTES {
+        return Err(format!("安装包只有 {} KB,不完整(可能是代理返回了错误页)。检查网络或代理后重试。", bytes.len() / 1024));
+    }
+    if !bytes.starts_with(b"MZ") { return Err("下载到的不是 Windows 可执行文件,已放弃安装。检查网络或代理后重试。".into()); }
+    Ok(())
+}
+
+pub(crate) fn clear_stale_installer() -> Vec<String> {
+    let mut notes = Vec::new();
+    let killed = Command::new("taskkill").args(["/F", "/IM", "kanzei-setup.exe"]).output().ok().is_some_and(|out| out.status.success());
+    if killed { notes.push("已清理残留的安装器进程".to_string()); std::thread::sleep(std::time::Duration::from_millis(400)); }
+    let path = installer_path();
+    if path.exists() && std::fs::remove_file(&path).is_err() { notes.push("旧安装包仍被占用,将直接覆盖".to_string()); }
+    notes
+}
+
+pub(crate) fn update_helper_path() -> std::path::PathBuf { std::env::temp_dir().join("kanzei-update-helper.exe") }
+pub(crate) fn update_log_path() -> std::path::PathBuf { std::env::temp_dir().join("kanzei-update.log") }
+pub(crate) fn update_log(line: &str) { update_log_at(&update_log_path(), line); }
+
+pub(crate) fn update_log_at(path: &Path, line: &str) {
+    use std::io::Write as _;
+    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > 256 * 1024) { let _ = std::fs::remove_file(path); }
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or_default();
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) { let _ = writeln!(file, "[{stamp}] {line}"); }
+    eprintln!("kzapp:update {line}");
+}
+
+pub(crate) fn image_stamp(path: &Path) -> Option<(std::time::SystemTime, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+pub(crate) fn image_replaced(before: Option<(std::time::SystemTime, u64)>, after: Option<(std::time::SystemTime, u64)>) -> bool {
+    match (before, after) { (Some(before), Some(after)) => before != after, _ => false }
+}
+
 pub(crate) fn release_is_newer(current_info: &str, tag: &str, published_at: Option<&str>) -> bool {
     let current_hash = current_info.split_whitespace().next().unwrap_or("dev");
     if current_hash == "dev" || tag.is_empty() || tag.contains(current_hash) { return false; }
@@ -65,15 +113,15 @@ pub(crate) async fn update_install_command(app: tauri::AppHandle, url: String) -
     let client = kanzei_llm::proxy::build_http_client(&proxy).map_err(|e| e.to_string())?;
     let bytes = client.get(&url).header("user-agent", "kanzei-app").timeout(std::time::Duration::from_secs(300)).send().await
         .map_err(|e| format!("下载失败:{e}"))?.error_for_status().map_err(|e| format!("下载失败:{e}"))?.bytes().await.map_err(|e| e.to_string())?;
-    super::validate_installer(&bytes)?;
-    let notes = super::clear_stale_installer();
-    let path = super::installer_path();
+    validate_installer(&bytes)?;
+    let notes = clear_stale_installer();
+    let path = installer_path();
     std::fs::write(&path, &bytes).map_err(|e| format!("写入安装包失败:{e}(检查 %TEMP% 是否可写或被杀软占用)"))?;
     let exe = std::env::current_exe().map_err(|e| format!("无法定位自身路径:{e}"))?;
-    let helper = super::update_helper_path();
+    let helper = update_helper_path();
     let _ = std::fs::remove_file(&helper);
     std::fs::copy(&exe, &helper).map_err(|e| format!("准备更新交接程序失败:{e}。可手动运行 {} 完成安装。", path.display()))?;
-    super::update_log(&format!("交接:helper={} 安装包={}", helper.display(), path.display()));
+    update_log(&format!("交接:helper={} 安装包={}", helper.display(), path.display()));
     Command::new(&helper).arg("--kz-install-helper").arg(&path).arg(&exe).arg(std::process::id().to_string()).spawn()
         .map_err(|e| format!("启动更新交接失败:{e}。可手动运行 {} 完成安装。", path.display()))?;
     let mb = bytes.len() / 1_048_576;

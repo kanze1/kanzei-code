@@ -26,7 +26,10 @@ mod agent_container;
 mod fast_model;
 mod update;
 
-pub(crate) use update::{build_stamp, release_is_newer};
+pub(crate) use update::{
+    build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
+    pending_path, release_is_newer, update_helper_path, update_log_at, validate_installer,
+};
 
 use kanzei_harness::{
     ConfigComponent, Harness, KanzeiConfig, MarkdownComponent, ProfileKind, ResolveCtx, ToolCtx,
@@ -430,11 +433,6 @@ fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::Value {
     with_session_id(payload, &pending.session_id)
 }
 
-fn pending_path(exe: &Path) -> PathBuf {
-    let name = exe.file_name().and_then(|n| n.to_str()).unwrap_or("kzapp.exe");
-    exe.with_file_name(format!("{name}.pending"))
-}
-
 /// 启动早期处理 release.ps1 留下的 pending 文件。自身不能覆盖自身，
 /// 因此派生同一个二进制作为 helper，旧进程退出后由 helper 完成替换并重启。
 fn startup_update() -> bool {
@@ -476,48 +474,6 @@ fn startup_update() -> bool {
             false
         }
     }
-}
-
-/// 安装器交接:%TEMP% 里的 kanzei-setup.exe。集中一处,清理与写入用的是同一个路径。
-fn installer_path() -> PathBuf {
-    std::env::temp_dir().join("kanzei-setup.exe")
-}
-
-/// 下载的安装器必须是像样的 Windows 可执行文件。代理返回的 HTML 错误页、被截断的
-/// 响应都会被这里挡下——否则要等交接完、app 已经退出了才发现装不上(D-124)。
-fn validate_installer(bytes: &[u8]) -> Result<(), String> {
-    const MIN_BYTES: usize = 1 << 20;
-    if bytes.len() < MIN_BYTES {
-        return Err(format!(
-            "安装包只有 {} KB,不完整(可能是代理返回了错误页)。检查网络或代理后重试。",
-            bytes.len() / 1024
-        ));
-    }
-    if !bytes.starts_with(b"MZ") {
-        return Err("下载到的不是 Windows 可执行文件,已放弃安装。检查网络或代理后重试。".into());
-    }
-    Ok(())
-}
-
-/// 清理上一次失败留下的僵尸安装器与临时文件。不清的话 NSIS 会一直握着 kzapp.exe
-/// 的句柄,后续每次重试都撞同一个 os error 32,关闭重开也救不回来(D-124)。
-fn clear_stale_installer() -> Vec<String> {
-    let mut notes = Vec::new();
-    let killed = Command::new("taskkill")
-        .args(["/F", "/IM", "kanzei-setup.exe"])
-        .output()
-        .ok()
-        .is_some_and(|out| out.status.success());
-    if killed {
-        notes.push("已清理残留的安装器进程".to_string());
-        // taskkill 返回后句柄释放还需要一小会,否则紧接着的 remove_file 仍会失败。
-        std::thread::sleep(std::time::Duration::from_millis(400));
-    }
-    let path = installer_path();
-    if path.exists() && std::fs::remove_file(&path).is_err() {
-        notes.push("旧安装包仍被占用,将直接覆盖".to_string());
-    }
-    notes
 }
 
 /// helper 进程:等发起更新的 kzapp 退出 → 静默安装 → 拉起新版本 → 删安装包。
@@ -567,69 +523,6 @@ Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" |
         cmd.creation_flags(0x0800_0000);
     }
     let _ = cmd.output();
-}
-
-/// 更新交接用的 helper 副本。**必须**是安装目录之外的一份拷贝(D-182):
-/// 原实现直接 `Command::new(current_exe())` 起 helper,而那就是安装器要替换的
-/// `kzapp.exe`——父进程退出后 helper 仍在跑同一个镜像,Windows 一直锁着它,
-/// NSIS 覆盖不了,更新就此静默失败。
-fn update_helper_path() -> PathBuf {
-    std::env::temp_dir().join("kanzei-update-helper.exe")
-}
-
-/// 更新交接日志的生产落点(固定,便于用户/诊断时捞取)。
-fn update_log_path() -> PathBuf {
-    std::env::temp_dir().join("kanzei-update.log")
-}
-
-/// 更新交接日志。GUI 进程没有可见的 stderr,原实现只 `eprintln!`,
-/// 于是"检查更新没反应"永远查不出原因——这才是真正卡住诊断的地方(D-182)。
-fn update_log(line: &str) {
-    update_log_at(&update_log_path(), line);
-}
-
-/// D-188:日志路径显式传入,测试写独立临时文件,不再污染生产日志。
-fn update_log_at(path: &Path, line: &str) {
-    use std::io::Write as _;
-    // 有界:超过 256 KiB 从头重来,日志本身不该变成垃圾。
-    if std::fs::metadata(path).is_ok_and(|meta| meta.len() > 256 * 1024) {
-        let _ = std::fs::remove_file(path);
-    }
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or_default();
-    if let Ok(mut file) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
-        let _ = writeln!(file, "[{stamp}] {line}");
-    }
-    eprintln!("kzapp:update {line}");
-}
-
-/// 镜像的身份指纹(修改时间 + 大小):用来判断安装器到底换没换文件。
-fn image_stamp(path: &Path) -> Option<(SystemTime, u64)> {
-    let meta = std::fs::metadata(path).ok()?;
-    Some((meta.modified().ok()?, meta.len()))
-}
-
-/// 安装器跑完之后,镜像到底换没换(D-199)。
-///
-/// 原实现只把安装**后**的 mtime 打进日志,从来没跟安装前的比过——于是
-/// "安装器 exit=0 但一个字节没换"照样被记成"已拉起新版本"。这恰恰是调用处
-/// 注释担心的那种情形(NSIS 在目标被占用时也可能报 exit=0 而什么都没换),
-/// 护栏写了一半等于没写。实测 2026-08-09:两次「检查更新」都 exit=0、都写了
-/// "已拉起新版本",而两次记录的 mtime 是同一个值(134306860100000000,
-/// 即上一版的构建时间)——文件从未被替换,用户版本卡在旧版查不出原因。
-///
-/// 任一侧读不到就判为"没换":宁可多报一次可疑,也不要把静默失败说成成功。
-fn image_replaced(before: Option<(SystemTime, u64)>, after: Option<(SystemTime, u64)>) -> bool {
-    match (before, after) {
-        (Some(before), Some(after)) => before != after,
-        _ => false,
-    }
 }
 
 fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {

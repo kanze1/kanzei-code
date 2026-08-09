@@ -91,3 +91,7 @@
 ## T-1786252916 R-153 批2更新 command 完整迁移回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 验证 update_check/update_install 生产实现已从 main.rs 完整剪切到 update.rs，保留既有 helper 调用与 command 名称。
+
+## T-1786253308 R-153 批2 update 基础 helper 完整迁移回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 验证 update 域路径、安装包校验、残留清理、日志和镜像判定 helpers 完整迁移到 update.rs，兼容 main.rs 既有测试导出。

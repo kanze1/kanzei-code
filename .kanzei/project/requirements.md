@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 批2继续推进：`update.rs:32-91` 已完整承接 `update_check/update_install` 生产实现；main.rs 原实现已移除，`main.rs:885-886` 通过 invoke_handler 真实注册，版本判断 helpers 位于 update.rs:11-31。`cargo test -p kanzei-app` 42 项全绿（T-1786252959）。剩余启动交接、安装校验、日志、CLI 同步 helper 仍在 main.rs，批2尚未完成。
+- 进展: 批2继续推进：`update.rs` 已完整承接路径/安装包校验/残留清理/更新日志/镜像判定 helpers：`pending_path`、`installer_path`、`validate_installer`、`clear_stale_installer`、`update_helper_path`、`update_log_path/update_log/update_log_at`、`image_stamp/image_replaced`；main.rs 对应函数已删除，main.rs 保留 pub(crate) 测试兼容导出。`cargo test -p kanzei-app` 回归记录 T-1786253319。启动流程、helper 进程、CLI 版本同步仍待迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
