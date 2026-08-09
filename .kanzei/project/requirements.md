@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 08e67c0：models/proxy/profile 三组标量字段写入已迁入 settings.rs:145-156，main.rs 通过 settings_apply_scalar_fields 调用；cargo check -p kanzei-app --tests 通过，T-1786285481 已登记通过。剩余 limits/providers 字段写入仍在 main.rs，下一批继续迁移。
+- 进展: 已提交 866aa4f：limits 表字段写入与空表清理已迁入 settings.rs:157-175，main.rs 通过 settings_apply_limits 调用；过程中发现并修正一次重复导入编译错误。定向验证记录 T-1786285626 已登记通过；providers 字段写入仍待下一批迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
