@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 继续物理删除 state 旧副本：已删除 `defect_review_empty_state_returns_without_model_call` 旧测试；`cargo test -p kanzei-app` 42/42 通过。当前剩余 docs_snapshot、export_project_data 两项 state 旧测试，process 停止收尾两项，以及废弃 update_tests 模块。
+- 进展: 继续物理删除 state 旧副本：已删除 `export_project_data_copies_selected_work_materials` 旧测试；docs_snapshot 旧测试已在本轮前清理，`cargo test -p kanzei-app` 42/42 通过。当前只剩 process 停止收尾 2 项旧测试及废弃 update_tests 模块的物理删除。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1

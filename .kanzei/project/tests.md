@@ -39,3 +39,11 @@
 ## T-1786250389 R-153 批0删除 defect_review 空状态旧测试回归 [running]
 - 命令: cargo test -p kanzei-app
 - 摘要: 正在验证物理删除 defect_review_empty_state_returns_without_model_call 旧测试后的 kanzei-app 回归。
+
+## T-1786250504 R-153 批0删除 docs_snapshot 旧测试回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证物理删除 docs_snapshot 旧测试后的 kanzei-app 回归。
+
+## T-1786250694 R-153 批0删除 export 旧测试回归 [running]
+- 命令: cargo test -p kanzei-app
+- 摘要: 正在验证物理删除 export_project_data 旧测试后的 kanzei-app 回归。
