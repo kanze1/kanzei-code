@@ -791,3 +791,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: export_pick_dir 迁移至 projects.rs，修复误删 project_files/重复 command 属性后，kanzei-app 43 项全部通过。
 - 收尾: 1786296793
+
+## T-1786297087 R-153 项目导出资料 command 迁移定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 导出资料链路整体迁入 projects.rs，并修复 state_tests 兼容 re-export 后，kanzei-app 43 项全部通过。
+- 收尾: 1786297087

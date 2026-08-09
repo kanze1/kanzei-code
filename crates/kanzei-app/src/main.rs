@@ -36,6 +36,8 @@ mod harness_ext;
 mod run;
 mod subagents;
 
+pub(crate) use projects::{export_project_data, ExportOptions};
+
 pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
 pub(crate) use settings::{
     global_config_path, settings_save_at_path,
@@ -141,7 +143,7 @@ run::run_prompt,
             settings::settings_save,
             settings::settings_open,
             projects::export_pick_dir,
-            export_project_data,
+            projects::export_project_data,
             settings::permission_rules_get,
             settings::permission_rule_delete,
             settings::provider_test,
@@ -391,103 +393,6 @@ pub(crate) fn docs_snapshot(project_dir: String) -> serde_json::Value {
 }
 
 // ---------- 设置(全局 kanzei.toml 表单) ----------
-
-#[derive(Debug, Deserialize)]
-struct ExportOptions {
-    project_dir: String,
-    output_dir: String,
-    include_memory: bool,
-    include_requirements: bool,
-    include_defects: bool,
-    include_config: bool,
-}
-
-fn copy_export_file(root: &Path, destination: &Path, relative: &str, files: &mut Vec<String>) -> Result<(), String> {
-    let source = root.join(relative);
-    if !source.is_file() {
-        return Ok(());
-    }
-    let target = destination.join(relative);
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
-    }
-    std::fs::copy(&source, &target).map_err(|e| format!("导出 {} 失败: {e}", source.display()))?;
-    files.push(relative.replace('\\', "/"));
-    Ok(())
-}
-
-fn copy_export_tree(source: &Path, destination: &Path, relative: &str, files: &mut Vec<String>) -> Result<(), String> {
-    if !source.is_dir() {
-        return Ok(());
-    }
-    for item in std::fs::read_dir(source).map_err(|e| format!("读取导出目录失败: {e}"))? {
-        let item = item.map_err(|e| format!("读取导出条目失败: {e}"))?;
-        let child_relative = Path::new(relative).join(item.file_name());
-        let child_source = item.path();
-        if child_source.is_dir() {
-            copy_export_tree(&child_source, destination, &child_relative.display().to_string(), files)?;
-        } else if child_source.is_file() {
-            let relative_text = child_relative.display().to_string();
-            let target = destination.join(&child_relative);
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?;
-            }
-            std::fs::copy(&child_source, &target)
-                .map_err(|e| format!("导出 {} 失败: {e}", child_source.display()))?;
-            files.push(relative_text.replace('\\', "/"));
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, String> {
-    let root = normalized_project_root(Path::new(&options.project_dir));
-    let output_base = PathBuf::from(options.output_dir.trim());
-    if output_base.as_os_str().is_empty() {
-        return Err("请先选择导出目录".into());
-    }
-    std::fs::create_dir_all(&output_base).map_err(|e| format!("创建导出目录失败: {e}"))?;
-    let root_canonical = root.canonicalize().map_err(|e| format!("项目目录无法解析: {e}"))?;
-    let output_canonical = output_base
-        .canonicalize()
-        .map_err(|e| format!("导出目录无法解析: {e}"))?;
-    if output_canonical.starts_with(&root_canonical) {
-        return Err("导出目录不能位于项目目录内".into());
-    }
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs();
-    let destination = output_canonical.join(format!("kanzei-export-{stamp}"));
-    std::fs::create_dir_all(&destination).map_err(|e| format!("创建导出包目录失败: {e}"))?;
-    let mut files = Vec::new();
-    if options.include_memory {
-        copy_export_tree(&root.join(".kanzei/memory"), &destination, ".kanzei/memory", &mut files)?;
-    }
-    if options.include_requirements {
-        for relative in [
-            ".kanzei/project/requirements.md",
-            ".kanzei/project/requirements-archive.md",
-        ] {
-            copy_export_file(&root, &destination, relative, &mut files)?;
-        }
-    }
-    if options.include_defects {
-        for relative in [".kanzei/project/defects.md", ".kanzei/project/defects-archive.md"] {
-            copy_export_file(&root, &destination, relative, &mut files)?;
-        }
-    }
-    if options.include_config {
-        copy_export_file(&root, &destination, ".kanzei/kanzei.toml", &mut files)?;
-    }
-    if files.is_empty() {
-        let _ = std::fs::remove_dir_all(&destination);
-        return Err("没有可导出的工作资料".into());
-    }
-    files.sort();
-    Ok(json!({ "path": destination.display().to_string(), "files": files }))
-}
 
 const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 

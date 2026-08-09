@@ -2216,3 +2216,12 @@
 - 优先级: P1
 - 修复: 恢复 crates/kanzei-app/src/projects.rs 中唯一的 `project_files` command，并保留唯一的 `export_pick_dir` `#[tauri::command]` 属性；generate_handler 重新解析 projects::__cmd__project_files。T-1786296789 的 cargo test -p kanzei-app 43 项全绿。
 - 验收证据: crates/kanzei-app/src/projects.rs:37-67 同时包含 project_files 与 export_pick_dir，各一个 command 属性；T-1786296789 全部通过。
+
+## D-226 R-153 导出资料 command 迁移遗漏测试兼容 re-export [fixed] (medium)
+- 复现: 导出资料链路迁移至 projects.rs 后，cargo test -p kanzei-app 编译失败：state_tests.rs 从 crate 根导入 export_project_data 与 ExportOptions，但二者不再位于根模块。
+- 标签: 后端
+- 根因: 迁移 command 未同步保留 state_tests 使用的 crate 根 re-export，且 ExportOptions 仍为 projects 私有类型。
+- 验收: main.rs 保留兼容 re-export，state_tests 可继续调用真实 projects::export_project_data，cargo test -p kanzei-app 全绿。
+- 优先级: P1
+- 修复: projects.rs 的 ExportOptions 已公开为 crate 内可用并公开字段；main.rs 增加 `pub(crate) use projects::{export_project_data, ExportOptions}` 兼容 state_tests，command 实际实现仍位于 projects::export_project_data。T-1786296941 cargo test -p kanzei-app 43 项全绿。
+- 验收证据: crates/kanzei-app/src/projects.rs:80-88 为 payload；main.rs 模块 re-export；state_tests 导入并调用真实 export_project_data；T-1786296941 全绿。

@@ -1,7 +1,10 @@
 //! Project registry commands and per-project isolation checks.
 
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use serde::Deserialize;
 use serde_json::json;
+use crate::normalized_project_root;
 use crate::prefs::{load_prefs, save_prefs, AppPrefs};
 
 fn base_name(path: &str) -> String { Path::new(path).file_name().and_then(|name| name.to_str()).filter(|name| !name.is_empty()).unwrap_or(path).to_owned() }
@@ -71,6 +74,71 @@ pub async fn export_pick_dir() -> Result<Option<String>, String> {
         .pick_folder()
         .await
         .map(|handle| handle.path().display().to_string()))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ExportOptions {
+    pub(crate) project_dir: String,
+    pub(crate) output_dir: String,
+    pub(crate) include_memory: bool,
+    pub(crate) include_requirements: bool,
+    pub(crate) include_defects: bool,
+    pub(crate) include_config: bool,
+}
+
+fn copy_export_file(root: &Path, destination: &Path, relative: &str, files: &mut Vec<String>) -> Result<(), String> {
+    let source = root.join(relative);
+    if !source.is_file() { return Ok(()); }
+    let target = destination.join(relative);
+    if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?; }
+    std::fs::copy(&source, &target).map_err(|e| format!("导出 {} 失败: {e}", source.display()))?;
+    files.push(relative.replace('\\', "/"));
+    Ok(())
+}
+
+fn copy_export_tree(source: &Path, destination: &Path, relative: &str, files: &mut Vec<String>) -> Result<(), String> {
+    if !source.is_dir() { return Ok(()); }
+    for item in std::fs::read_dir(source).map_err(|e| format!("读取导出目录失败: {e}"))? {
+        let item = item.map_err(|e| format!("读取导出条目失败: {e}"))?;
+        let child_relative = Path::new(relative).join(item.file_name());
+        let child_source = item.path();
+        if child_source.is_dir() {
+            copy_export_tree(&child_source, destination, &child_relative.display().to_string(), files)?;
+        } else if child_source.is_file() {
+            let relative_text = child_relative.display().to_string();
+            let target = destination.join(&child_relative);
+            if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|e| format!("创建导出目录失败: {e}"))?; }
+            std::fs::copy(&child_source, &target).map_err(|e| format!("导出 {} 失败: {e}", child_source.display()))?;
+            files.push(relative_text.replace('\\', "/"));
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn export_project_data(options: ExportOptions) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&options.project_dir));
+    let output_base = PathBuf::from(options.output_dir.trim());
+    if output_base.as_os_str().is_empty() { return Err("请先选择导出目录".into()); }
+    std::fs::create_dir_all(&output_base).map_err(|e| format!("创建导出目录失败: {e}"))?;
+    let root_canonical = root.canonicalize().map_err(|e| format!("项目目录无法解析: {e}"))?;
+    let output_canonical = output_base.canonicalize().map_err(|e| format!("导出目录无法解析: {e}"))?;
+    if output_canonical.starts_with(&root_canonical) { return Err("导出目录不能位于项目目录内".into()); }
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+    let destination = output_canonical.join(format!("kanzei-export-{stamp}"));
+    std::fs::create_dir_all(&destination).map_err(|e| format!("创建导出包目录失败: {e}"))?;
+    let mut files = Vec::new();
+    if options.include_memory { copy_export_tree(&root.join(".kanzei/memory"), &destination, ".kanzei/memory", &mut files)?; }
+    if options.include_requirements {
+        for relative in [".kanzei/project/requirements.md", ".kanzei/project/requirements-archive.md"] { copy_export_file(&root, &destination, relative, &mut files)?; }
+    }
+    if options.include_defects {
+        for relative in [".kanzei/project/defects.md", ".kanzei/project/defects-archive.md"] { copy_export_file(&root, &destination, relative, &mut files)?; }
+    }
+    if options.include_config { copy_export_file(&root, &destination, ".kanzei/kanzei.toml", &mut files)?; }
+    if files.is_empty() { let _ = std::fs::remove_dir_all(&destination); return Err("没有可导出的工作资料".into()); }
+    files.sort();
+    Ok(json!({ "path": destination.display().to_string(), "files": files }))
 }
 
 #[tauri::command]
