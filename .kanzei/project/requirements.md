@@ -11,7 +11,7 @@
 - refs: A-008 R-148(先例 files_view.rs)
 - 依赖: R-152
 
-- 进展: 已提交 14a3de9：UiProbeInput、UiDomTool、UiConsoleTool、UiStyleTool 四个 main.rs 旧副本已删除，main.rs 减少 97 行；harness_ext:: 模块仍是真实调用方。定向验证 T-1786287089 已登记通过。下一步删除 main.rs 中 FrontendToolsComponent 与 QuickCaptureComponent 旧副本，再迁移 subagents。
+- 进展: harness_ext 清理尾批已在提交 45cb9dc 完成：FrontendToolsComponent 与 QuickCaptureComponent 旧副本已删除，定向验证 T-1786287179 已登记通过。下一步进入 subagents 域，先评估 defect_review/quick_req 与 main.rs 共享依赖后再做整体剪切迁移。
 
 ## R-154 拆解 kanzei-app/ui/main.js(7020 行→18 个有序 classic script) [todo]
 - 优先级: P1
