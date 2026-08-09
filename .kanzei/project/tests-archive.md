@@ -84,3 +84,7 @@
 ## T-1786249904 R-153 批0 state 旧副本物理删除回归 [passed]
 - 命令: cargo test -p kanzei-app
 - 摘要: 物理删除 state 旧测试中的两项后，kanzei-app 42 项全部通过。剩余旧 state 函数仍被 cfg(any()) 隔离，尚需继续物理删除。
+
+## T-1786250031 R-153 批0继续删除 state 旧测试回归 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 继续物理删除一个 state 旧测试函数后，kanzei-app 42 项全部通过。剩余 state 旧副本与 update_tests 废弃模块仍待清理。

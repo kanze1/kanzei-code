@@ -885,53 +885,6 @@ mod update_tests {
 
     #[cfg(any())]
     #[test]
-    fn 保存前拦住指向不存在_provider_的模型角色() {
-        let payload = |primary: &str, providers: Vec<(&str, &str)>| super::SettingsPayload {
-            primary: primary.into(),
-            fast: String::new(),
-            proxy: "env".into(),
-            reasoning: None,
-            profile_default: None,
-            profile: None,
-            providers: providers
-                .into_iter()
-                .map(|(name, base)| super::ProviderPayload {
-                    name: name.into(),
-                    protocol: "openai".into(),
-                    base_url: base.into(),
-                    api_key_env: None,
-                    api_key: None,
-                    auth: None,
-                    context_limit: None,
-                })
-                .collect(),
-        };
-
-        // provider 拼错 —— 此前要到真正发消息时才炸,那时早已离开设置页。
-        let error =
-            super::validate_model_roles(&payload("deepsek:deepseek-chat", vec![("deepseek", "https://api.deepseek.com/v1")]))
-                .unwrap_err();
-        assert!(error.contains("primary"), "{error}");
-        assert!(error.contains("deepsek:deepseek-chat"), "错误里要带上填错的原文: {error}");
-
-        // 少了冒号也不行。
-        let error = super::validate_model_roles(&payload("deepseek-chat", vec![("deepseek", "x")])).unwrap_err();
-        assert!(error.contains("provider:model"), "{error}");
-
-        // 正确的放行;内置 provider(fill_defaults 补的 anthropic/ollama…)同样认。
-        assert!(super::validate_model_roles(&payload(
-            "deepseek:deepseek-chat",
-            vec![("deepseek", "https://api.deepseek.com/v1")]
-        ))
-        .is_ok());
-        assert!(super::validate_model_roles(&payload("anthropic:claude-sonnet-5", vec![])).is_ok());
-
-        // 留空 = 用内置默认,不该被当成错误挡下。
-        assert!(super::validate_model_roles(&payload("", vec![])).is_ok());
-    }
-
-    #[cfg(any())]
-    #[test]
     fn defect_review_snapshot_is_strictly_read_only() {
         let root = std::env::temp_dir().join(format!(
             "kanzei-defect-review-tools-{}-{}",
