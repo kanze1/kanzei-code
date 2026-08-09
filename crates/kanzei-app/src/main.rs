@@ -43,7 +43,7 @@ pub(crate) use settings::{
 };
 
 pub(crate) use update::{
-    build_stamp, clear_stale_installer, image_replaced, image_stamp, installer_path,
+    build_stamp, clear_stale_installer, installer_path,
     pending_path, release_is_newer, update_helper_path, update_log_at, validate_installer,
     wait_for_parent_exit, installed_cli_is_older,
 };
@@ -1273,56 +1273,6 @@ async fn run_task_impl(
     Ok(())
 }
 
-
-#[cfg(test)]
-mod install_verify_tests {
-    use super::image_replaced;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-    /// D-199:"退出码成功"不等于"文件换了"。这条判据是唯一能把
-    /// 静默没装上与真更新分开的东西,它必须对每一种"没换"都判 false。
-    #[test]
-    fn 未替换的镜像一律不算更新成功() {
-        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
-        let stamp = Some((t, 22_449_664_u64));
-
-        // 实测形态:两次「检查更新」都 exit=0,前后 mtime 与大小一模一样。
-        assert!(!image_replaced(stamp, stamp), "前后完全相同必须判为未替换");
-        // 任一侧读不到:宁可多报可疑,也不能说成成功。
-        assert!(!image_replaced(None, stamp));
-        assert!(!image_replaced(stamp, None));
-        assert!(!image_replaced(None, None));
-    }
-
-    #[test]
-    fn 时间或大小任一变化都算替换成功() {
-        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
-        let stamp = Some((t, 22_449_664_u64));
-        // 新构建通常两者都变;但只变一个也是真的换了,不能漏判成失败——
-        // 漏判会让用户看到"更新未生效"却其实已经生效,比不报更让人不敢信。
-        assert!(image_replaced(stamp, Some((t + Duration::from_secs(1), 22_449_664))));
-        assert!(image_replaced(stamp, Some((t, 22_449_665))));
-    }
-
-    /// 真实文件上跑一遍:touch 之后指纹必须变。纯比较函数测不到
-    /// `image_stamp` 取的字段对不对,而取错字段的话上面两条全绿也没用。
-    #[test]
-    fn image_stamp_跟得上真实文件改动() {
-        let path = std::env::temp_dir().join(format!(
-            "kz-d199-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::write(&path, b"old").unwrap();
-        let before = super::image_stamp(&path);
-        assert!(before.is_some());
-        std::thread::sleep(Duration::from_millis(20));
-        std::fs::write(&path, b"replaced-with-longer-content").unwrap();
-        let after = super::image_stamp(&path);
-        assert!(image_replaced(before, after), "{before:?} -> {after:?}");
-        std::fs::remove_file(&path).unwrap();
-    }
-}
 
 #[cfg(test)]
 mod assembly_tests {

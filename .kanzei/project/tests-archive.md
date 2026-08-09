@@ -746,3 +746,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: 修复 app_info 漏失 #[tauri::command] 后，kanzei-app 43 项全部通过；run::app_info 注册宏与真实 invoke_handler 消费者均正常。
 - 收尾: 1786295392
+
+## T-1786295555 R-153 批次 11/11 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 更新安装校验测试迁移至 update::install_verify_tests 后，kanzei-app 43 项全部通过；更新逻辑及测试消费者边界正常。
+- 收尾: 1786295555

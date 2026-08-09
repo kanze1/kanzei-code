@@ -188,3 +188,46 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
     while std::time::Instant::now() < deadline { let _ = std::fs::remove_file(&backup); if std::fs::rename(exe, &backup).is_ok() { match std::fs::rename(pending, exe) { Ok(()) => { if Command::new(exe).spawn().is_ok() { let _ = std::fs::remove_file(&backup); } else { let _ = std::fs::remove_file(exe); let _ = std::fs::rename(&backup, exe); } return; }, Err(_) => { let _ = std::fs::rename(&backup, exe); } } } std::thread::sleep(std::time::Duration::from_millis(250)); }
     eprintln!("kzapp:pending 更新失败,保留旧版本与 pending 文件");
 }
+
+#[cfg(test)]
+mod install_verify_tests {
+    use super::image_replaced;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    /// D-199:"退出码成功"不等于"文件换了"。这条判据是唯一能把
+    /// 静默没装上与真更新分开的东西,它必须对每一种"没换"都判 false。
+    #[test]
+    fn 未替换的镜像一律不算更新成功() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
+        let stamp = Some((t, 22_449_664_u64));
+        assert!(!image_replaced(stamp, stamp), "前后完全相同必须判为未替换");
+        assert!(!image_replaced(None, stamp));
+        assert!(!image_replaced(stamp, None));
+        assert!(!image_replaced(None, None));
+    }
+
+    #[test]
+    fn 时间或大小任一变化都算替换成功() {
+        let t = UNIX_EPOCH + Duration::from_secs(1_786_212_410);
+        let stamp = Some((t, 22_449_664_u64));
+        assert!(image_replaced(stamp, Some((t + Duration::from_secs(1), 22_449_664))));
+        assert!(image_replaced(stamp, Some((t, 22_449_665))));
+    }
+
+    #[test]
+    fn image_stamp_跟得上真实文件改动() {
+        let path = std::env::temp_dir().join(format!(
+            "kz-d199-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::write(&path, b"old").unwrap();
+        let before = super::image_stamp(&path);
+        assert!(before.is_some());
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&path, b"replaced-with-longer-content").unwrap();
+        let after = super::image_stamp(&path);
+        assert!(image_replaced(before, after), "{before:?} -> {after:?}");
+        std::fs::remove_file(&path).unwrap();
+    }
+}
