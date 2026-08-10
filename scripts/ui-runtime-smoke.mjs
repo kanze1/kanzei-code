@@ -478,6 +478,17 @@ const payloads = {
     archived_entries: { req: [docEntry("R-000", "已归档需求", "done")], defect: [docEntry("D-000", "已归档缺陷", "fixed")], goal: [], source: [], finding: [] },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
+  architecture_snapshot: {
+    index_path: "C:/smoke/parent/.kanzei/project/architecture/README.md",
+    index: "# 架构索引\n\n### 现行基线\n\n- [`direction_taste.md`](../../../docs/design/direction_taste.md)：方向基线。\n",
+    design_docs: [
+      { name: "direction_taste.md", title: "方向基线", bytes: 512 },
+      { name: "memory_system.md", title: "Memory 系统设计基线", bytes: 2048 },
+    ],
+  },
+  docs_read_custom: { path: "C:/smoke/parent/docs/design/memory_system.md", name: "memory_system.md", content: "# Memory 系统设计基线\n\n冒烟内容。" },
+  docs_read: { path: "C:/smoke/parent/docs/design/readme.md", name: "readme.md", content: "# 设计与 AI 讨论记录规范\n\n冒烟内容。" },
   defect_review: {
     empty: false,
     defectCount: 1,
@@ -1798,6 +1809,31 @@ assert(
   assert(treeText.includes("lib.rs") && treeText.includes("120"), "展开后文件行缺行数度量");
   assert(treeText.includes("note.md") && treeText.includes("300"), "展开后 md 文件缺字数度量");
   assert(treeText.includes("冒烟样例:库入口"), "文件用途标注未渲染");
+}
+
+// ---------- 架构浏览(R-122):索引 + 设计文档树,未入册分组可见 ----------
+{
+  const archView = byId.get("view-arch");
+  assert(archView, "缺少 view-arch 视图容器");
+  // 上面视图切换循环已点击过 arch 按钮,refreshArch 应已拉取并渲染。
+  const tree = byId.get("arch-tree");
+  const treeText = tree?.textContent ?? "";
+  assert(treeText.includes("direction_taste.md"), `架构树缺已入册文档: "${treeText.slice(0, 80)}"`);
+  assert(treeText.includes("memory_system.md"), "架构树缺设计文档行");
+  assert(treeText.includes("未入册") || treeText.includes("not indexed"), "索引外的文档未进「未入册」分组");
+  assert(treeText.includes("现行基线") || treeText.includes("基线"), "索引章节分组未渲染");
+  assert((byId.get("arch-index-body")?.textContent ?? "").includes("方向基线"), "右侧索引原文未渲染");
+  assert((byId.get("arch-summary")?.textContent ?? "").includes("2"), "架构汇总缺文档计数");
+  // 点击文档行应经 docs_read_custom 打开应用内查看器。
+  const row = [...tree.querySelectorAll(".arch-entry")].find((r) => r.textContent.includes("memory_system.md"));
+  assert(row, "架构树缺少可点击的文档行");
+  row.click();
+  await flush();
+  assert(!byId.get("viewer-overlay").classList.contains("hidden"), "点击设计文档未打开查看器");
+  assert((byId.get("viewer-body")?.textContent ?? "").includes("Memory 系统设计基线"), "查看器未展示设计文档内容");
+  byId.get("viewer-close").click();
+  await flush();
+  assert(byId.get("viewer-overlay").classList.contains("hidden"), "查看器关闭失败");
 }
 
 // ---------- D-202 流式渲染性能回归 ----------

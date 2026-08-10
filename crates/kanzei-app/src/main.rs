@@ -164,6 +164,8 @@ fn main() {
             conversation::conversation_clear,
             conversation::conversation_delete,
             docs::docs_read,
+            docs::docs_read_custom,
+            docs::architecture_snapshot,
             conversation::conversation_get,
             conversation::conversation_trace_get,
             conversation::conversation_list,

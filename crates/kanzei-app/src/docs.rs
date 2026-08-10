@@ -315,3 +315,69 @@ pub fn docs_read(project_dir: String, kind: String) -> Result<serde_json::Value,
         "content": content,
     }))
 }
+
+/// 读取项目内任意相对路径的 Markdown(R-122 架构浏览用):只读 docs/ 前缀文件,
+/// 防止把命令变成任意文件读取通道。返回与 docs_read 同构。
+#[tauri::command]
+pub fn docs_read_custom(project_dir: String, rel_path: String) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let normalized = rel_path.replace('\\', "/");
+    if !normalized.starts_with("docs/") {
+        return Err(format!("只允许读取 docs/ 下的文件,收到 `{rel_path}`"));
+    }
+    let path = root.join(&normalized);
+    if !path.is_file() {
+        return Err(format!("文档不存在:{}", path.display()));
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("读取失败: {e}"))?;
+    Ok(json!({
+        "path": path.display().to_string(),
+        "name": path.file_name().and_then(|n| n.to_str()).unwrap_or("md"),
+        "content": content,
+    }))
+}
+
+/// 架构浏览快照(R-122):返回架构索引文本 + docs/design 文档目录清单
+/// (文件名、标题、字节数),供前端渲染「索引 + 设计文档树」的架构浏览视图。
+/// 只读;索引维护仍走 architecture 工具,本命令只做呈现数据源。
+#[tauri::command]
+pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
+    let index_path = root.join(".kanzei/project/architecture/README.md");
+    let index = std::fs::read_to_string(&index_path)
+        .map_err(|e| format!("架构索引读取失败: {e}"))?;
+    let design_dir = root.join("docs/design");
+    let mut docs: Vec<serde_json::Value> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&design_dir) {
+        let mut names: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        names.sort();
+        for name in names {
+            let path = design_dir.join(&name);
+            let meta = path.metadata().ok();
+            let title = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|text| {
+                    text.lines()
+                        .find(|l| l.starts_with('#'))
+                        .map(|l| l.trim_start_matches('#').trim().to_string())
+                })
+                .unwrap_or_default();
+            docs.push(json!({
+                "name": name,
+                "title": title,
+                "bytes": meta.map(|m| m.len()).unwrap_or(0),
+            }));
+        }
+    }
+    Ok(json!({
+        "index_path": index_path.display().to_string(),
+        "index": index,
+        "design_docs": docs,
+    }))
+}

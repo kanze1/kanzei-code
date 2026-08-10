@@ -110,6 +110,7 @@ document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
     if (view === "memory") refreshMemory();
     if (view === "metrics") refreshMetrics();
     if (view === "files") refreshFiles();
+    if (view === "arch") refreshArch();
   });
 });
 

@@ -22,6 +22,9 @@
       <button type="button" class="activity-item" data-view="files" title="文件导览" aria-label="切换到文件导览">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
+      <button type="button" class="activity-item" data-view="arch" title="架构浏览" aria-label="切换到架构浏览">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <button type="button" class="activity-item" data-view="metrics" title="运行画像" aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
@@ -355,6 +358,29 @@
             </div>
             <div id="files-editor"></div>
             <div id="files-placeholder" class="dim">选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="view-arch" class="view">
+        <div id="arch-scroll">
+          <h1>架构浏览</h1>
+          <p class="dim">设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。</p>
+          <div id="arch-layout">
+            <div id="arch-tree-wrap">
+              <div id="arch-summary" class="dim"></div>
+              <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-raw></div>
+            </div>
+            <div id="arch-index">
+              <div id="arch-index-head">
+                <span>架构索引</span>
+                <span class="arch-index-actions">
+                  <button id="arch-open-index" class="ghost mini" title="在查看器中打开架构索引">打开</button>
+                  <button id="arch-refresh" class="icon-btn" title="重新扫描" aria-label="重新扫描架构索引">⟳</button>
+                </span>
+              </div>
+              <pre id="arch-index-body"></pre>
+            </div>
           </div>
         </div>
       </div>
@@ -704,6 +730,7 @@
   <script src="15-views-misc.js" defer></script>
   <script src="16-settings.js" defer></script>
   <script src="17-files.js" defer></script>
+  <script src="19-arch.js" defer></script>
   <script src="18-startup.js" defer></script>
 </body>
 </html>

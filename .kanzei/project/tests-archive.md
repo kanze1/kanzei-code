@@ -1131,3 +1131,7 @@
 - 命令: architecture check + git diff
 - 摘要: R-122 批1 技术栈选型评估报告(docs/design/architecture_browser.md,验收③)+架构索引修复:architecture update 将新报告与 3 个未入册文档(ci_release_evidence_chain/memory_control_plane/monolith_decomposition)补入索引,validation ok(19 链接,0 issue,顺带收口 D-173 缺口)。
 - 收尾: 1786321256
+
+## T-1786321597 ui 冒烟四件套(R-122 架构浏览) [passed]
+- 摘要: runtime(8 主视图含 arch)/i18n(31 key+25 HTML)/a11y(13 icon-btn)/markdown 全过;M-014 资源表补齐「打开」「设计文档树」
+- 收尾: 1786321597
