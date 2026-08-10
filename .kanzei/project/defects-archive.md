@@ -2360,3 +2360,12 @@
 - 复现: 提交标题含 S 结尾英文词后跟数字会被误判为 S 批次。实测 R-164 关闭:R-164 B4 提交标题「...kanzei-tools 172 全绿」中 'tools' 的 S + 空格 + 172 被 collect_marked_batches(crates/kanzei-tools/src/git_batches.rs:100-110) 识别为批次 S172;同类误判:kanzei-tools 162→S162、tools 167→S167、harness 64→S64、tools 171→S171。8 个含 R-164 的提交提取出 B1-B4+S162/S167/S64/S171/S172 共 9 个标记,关闭门禁报「手写批次 4/4,但 Git 提交历史标记数为 9」拒绝关闭。根因:collect_marked_batches 对 B/S 后跟数字不要求紧邻,parse_number(crates/kanzei-tools/src/git_batches.rs:139-154) 内部 skip_whitespace 跳过空格后再 parse,于是英文单词尾字母 S + 空格 + 数字也被当作批次标记;「批」分支无此问题(中文场景批后直接跟数字)。
 - 影响: 任何提交标题里出现 S/B 结尾英文单词后跟数字(如 kanzei-tools 162、tools 167、harness 64)都会虚增 git 推导批次数,导致关闭门禁误拦正常条目(中/大条目关闭必经此门禁),且侧栏批次进度显示虚高。
 - 证据等级: E1(代码实证 + R-164 关闭实测)
+
+## D-231 stale 记忆归档流程未落地,失效条目永驻主目录 [fixed] (medium)
+- 优先级: P3
+- 依据: memory_system.md §2 承诺「stale 后由整理流程移入 archive/ 带墓碑」;store.rs 的 load_archived_ids 会读 archive/ 目录,但代码里没有任何写入方——stale 条目永驻主目录,FTS 仍索引(仅 0.5 降权),目录随时间只增不减。
+- 修复方向: 并入 R-165 Memory Compiler 的归档流程(deprecated/invalid 移入 archive/,墓碑保留,默认检索不可见);lifecycle 状态迁移时一并处理 stale→deprecated 兼容映射。
+- refs: R-165 R-103
+
+- 进展: 已修复于 R-165 批3(commit 90e4eda):archive_dead() 在 refresh_derived 开头自动把 deprecated/invalid 移入 archive/ 带墓碑,主目录只留 active/candidate;load_all/FTS/默认检索天然不含归档条目;ID 由 load_archived_ids 保留永不复用。验收③测试 deprecated_moves_to_archive_and_hidden_from_search 通过。全量 cargo test --workspace 全绿。
+

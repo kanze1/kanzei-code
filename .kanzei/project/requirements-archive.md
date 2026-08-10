@@ -1554,3 +1554,18 @@
 
 - 批次: 4/4
 
+## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: 
+- 来源: 同 R-161。范式反转:evidence 不可被 LLM 持续改写(文献:持续 consolidation 使记忆效用先升后降),manager 从 CRUD 升级为编译语义。
+- 内容: ①动词升级 OBSERVE/PROPOSE/VERIFY/PROMOTE/SUPERSEDE/DEPRECATE,evidence(state.db events/episodes)对自治流程 append-only;②novelty gate 三档:明显新→PROPOSE、明显重复→NOOP、不确定→才起 LLM 判断;③转换三问检查:coverage/preservation/faithfulness;④后台触发扩展(现只有轮末):compaction 边界、recurrence(第 2 次才 candidate、第 3 次+修复成功才 promote)、idle debounce、memory pressure;⑤lifecycle 轻量四态 candidate→active→deprecated|invalid(stale 兼容映射 deprecated,shadow 留给 R-166);⑥provenance 硬约束:PROMOTE 必须带 memory_sources 行,无来源不入 active;⑦归档落地修 D-231;⑧merge 保守闸:评估器落地前只合并同 fingerprint 或用户确认的。
+- 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
+- refs: R-105 D-231 docs/design/memory_control_plane.md
+
+- 进展: 关闭。验收对照:①provenance 硬约束=promote() 空 sources bail + promote_requires_provenance_hard_gate 测试(store.rs);②recurrence 三段=recurrence_counts 表 + bump_recurrence + recurrence_three_stage_promotion_counts 测试;③归档=archive_dead() 自动搬运 + deprecated_moves_to_archive_and_hidden_from_search 测试;④novelty 遥测=classify_novelty + novelty_events 表 + novelty_gate_three_tiers_with_telemetry 测试;⑤evidence 审计=record_memory_source 生产调用方唯一(promote 内,store.rs:358)+ promote_is_sole_evidence_writer_and_rows_land 测试。全量 cargo test --workspace 全绿。D-231 随批3修复,待 close。
+
+- 批次: 4/4
+

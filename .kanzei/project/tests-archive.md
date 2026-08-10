@@ -1293,3 +1293,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 180 passed; 0 failed. 批4: merge 保守闸+转换三问+memory pressure+验收⑤证据审计。
 - 收尾: 1786349488
+
+## T-1786349540 cargo test --workspace (R-165 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全 workspace 全绿:180 (tools) + core/app/harness 等全部通过。R-165 关闭前全量验证。
+- 收尾: 1786349540

@@ -34,12 +34,6 @@
 - 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
 - refs: R-150 R-107 (medium)
 
-## D-231 stale 记忆归档流程未落地,失效条目永驻主目录 [open] (medium)
-- 优先级: P3
-- 依据: memory_system.md §2 承诺「stale 后由整理流程移入 archive/ 带墓碑」;store.rs 的 load_archived_ids 会读 archive/ 目录,但代码里没有任何写入方——stale 条目永驻主目录,FTS 仍索引(仅 0.5 降权),目录随时间只增不减。
-- 修复方向: 并入 R-165 Memory Compiler 的归档流程(deprecated/invalid 移入 archive/,墓碑保留,默认检索不可见);lifecycle 状态迁移时一并处理 stale→deprecated 兼容映射。
-- refs: R-165 R-103
-
 ## D-209 对话落库粒度太粗(用户反馈,具体维度待澄清) [open] (medium)
 - refs: D-208 D-185
 - 原始描述: 用户 2026-08-09 原话"落库对话粒度太粗"(与活动栏回放问题同时反馈)。
