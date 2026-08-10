@@ -1680,3 +1680,29 @@
 
 - 批次: 1/1
 
+## R-128 全部阻塞时停止鞭挞的逻辑设计 [done]
+- priority: P2
+- 原始描述: 如果全部阻塞，应该要停止鞭挞，需要更多的设计鞭挞停止的逻辑
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 当全部条目处于阻塞状态时,系统自动停止鞭挞,不再触发催办;阻塞解除后可恢复
+
+- 标签: 核心
+
+- 进展: 2026-08-10 收口:R-169/R-170 引擎化已交付本条目验收的两个分支,本次补上后半段验收的直接单测后关闭。验收证据:
+①「全部条目阻塞时自动停止鞭挞、不再触发催办」——引擎状态机 kanzei-harness/src/auto_run.rs:decide() 最先检查 ctx.backlog.should_stop()(L161-168),AllBlocked → Stop(AutoStopReason::AllBlocked);单测「全部阻塞或清空_优先于其它判定停止」(L356-378,即使有动作/未暂停/未达上限也停)。backlog 单源在 kanzei-tools/src/tracker.rs:backlog_status()(L836-868:活动条目全部带阻塞原因 → AllBlocked),桌面端轮末消费 kanzei-app/src/run.rs:699-713,前端收到 Stop 后取消自动推进并提示「需求与缺陷全部被阻塞」(ui/07-events.js:356-363),CLI 轮末同源提示 kanzei/src/main.rs:587-595。
+②「阻塞解除后可恢复」——本次新增单测「阻塞解除后_恢复续跑」(auto_run.rs L380-393):AllBlocked 停止后 backlog 回到 Workable,同一状态机下一轮正常 Continue 并计数;停止仅由当轮 backlog 状态触发,不持久锁死。
+全量门禁:cargo test --workspace 全绿(T-1786368929),auto_run 13/13。设计依据:docs/design/continue_prompt_dissection.md §4(架构索引已登记)。
+
+## R-130 测试用例记录触发机制与缺陷迁移 [done]
+- 原始描述: 测试用例相关的记录似乎没有触发机制，然后是把测试移动到缺陷下面，然后需要一次性记录存性
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 实现基于事件的或手动触发的测试用例记录机制，并在系统中建立测试到缺陷的映射关系，完成现有机现有测验数据的批量导入和初始化。
+- 优先级: P2
+
+- 标签: 后端
+
+- 批次: 2/2
+- 进展: 2026-08-10 B2 完成(777cdaf):①test_runs_init_refs 接入项目级写仲裁(docs.rs,与 test_run_record 同模式,D-227 并发覆盖门禁);②initialize_refs 无变化不写盘(幂等零副作用,test_record.rs);③前端 refreshTests 每次刷新前调用 test_runs_init_refs(09-sessions.js),批量初始化获得真实消费者;④冒烟断言 init 被调用且带 projectDir(ui-runtime-smoke.mjs)。T-1786369234 定向+冒烟、T-1786369281 全量均绿。
+

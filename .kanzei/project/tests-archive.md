@@ -1420,3 +1420,9 @@
 - 摘要: B2 挂接批量初始化调用链:test_runs_init_refs 接入写仲裁+幂等不写盘,refreshTests 每次刷新前调用;tools 187/187、app 51/51、冒烟 0 错
 - 关联: R-130
 - 收尾: 1786369234
+
+## T-1786369281 cargo test --workspace (R-130 关闭门禁) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-130 关闭前全量:workspace 全绿(tools 187/app 51/harness 66/llm 103/core 40 等)
+- 关联: R-130
+- 收尾: 1786369281
