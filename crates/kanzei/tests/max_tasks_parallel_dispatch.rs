@@ -93,8 +93,10 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let project =
-        std::env::temp_dir().join(format!("kz-r174-concurrency-{}-{suffix}", std::process::id()));
+    let project = std::env::temp_dir().join(format!(
+        "kz-r174-concurrency-{}-{suffix}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
     // 验收①原文要求的就是 kanzei.toml 里配 [limits] max_tasks_per_turn = N。
     std::fs::write(
@@ -201,8 +203,19 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
     // 运行事件里挑 ToolEnd 收进记录,专门数 task 的成败。
     let event_recorder = recorder.clone();
     let mut on_event = move |event: kanzei_core::RunEvent| {
-        if let kanzei_core::RunEvent::ToolEnd { id, name, ok, preview, .. } = event {
-            event_recorder.run.lock().unwrap().push((id, name, ok, preview));
+        if let kanzei_core::RunEvent::ToolEnd {
+            id,
+            name,
+            ok,
+            preview,
+            ..
+        } = event
+        {
+            event_recorder
+                .run
+                .lock()
+                .unwrap()
+                .push((id, name, ok, preview));
         }
     };
     let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
@@ -254,9 +267,9 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         "溢出的必须是第 21 个(N+1),而不是前面的某个"
     );
     assert!(
-        overflow_events[0]
-            .1
-            .contains(&format!("too many parallel subagent tasks; maximum per turn is {MAX_TASKS}")),
+        overflow_events[0].1.contains(&format!(
+            "too many parallel subagent tasks; maximum per turn is {MAX_TASKS}"
+        )),
         "溢出 ToolEnd 的 preview 必须带 drive.rs 的溢出文案,实际: {}",
         overflow_events[0].1
     );

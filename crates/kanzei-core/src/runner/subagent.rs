@@ -21,7 +21,10 @@ pub struct TaskCancellations {
 impl TaskCancellations {
     pub fn register(&self, id: &str) -> CancellationToken {
         let token = CancellationToken::new();
-        self.inner.lock().unwrap().insert(id.to_string(), token.clone());
+        self.inner
+            .lock()
+            .unwrap()
+            .insert(id.to_string(), token.clone());
         token
     }
     /// 取消一个子代理;返回该 id 当时是否在运行(不在 = 已结束/不存在)。

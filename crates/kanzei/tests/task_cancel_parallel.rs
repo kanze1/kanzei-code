@@ -72,8 +72,8 @@ fn text_response(text: &str) -> serde_json::Value {
 struct Recorder {
     orchestration: Mutex<Vec<(String, String)>>,
     run: Mutex<Vec<(String, String, bool, String)>>, // (id, name, ok, preview)
-    usage_traces: Mutex<Vec<(String, u64)>>,        // (task_id, total_input_tokens)
-    cancelled_traces: Mutex<Vec<String>>,           // phase == "cancelled" 的 id
+    usage_traces: Mutex<Vec<(String, u64)>>,         // (task_id, total_input_tokens)
+    cancelled_traces: Mutex<Vec<String>>,            // phase == "cancelled" 的 id
 }
 
 impl PhaseObserver for Recorder {
@@ -190,32 +190,44 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
     let ctx = ToolCtx::new(project.clone(), project.clone());
 
     let event_recorder = recorder.clone();
-    let mut on_event = move |event: kanzei_core::RunEvent| {
-        match event {
-            kanzei_core::RunEvent::ToolEnd { id, name, ok, preview, .. } => {
-                event_recorder.run.lock().unwrap().push((id, name, ok, preview));
-            }
-            kanzei_core::RunEvent::TaskProgress { id, trace, .. } => {
-                if let Some(trace) = trace {
-                    match trace.phase.as_str() {
-                        "usage" => {
-                            if let Some(usage) = trace.usage {
-                                event_recorder
-                                    .usage_traces
-                                    .lock()
-                                    .unwrap()
-                                    .push((id.clone(), usage.input));
-                            }
-                        }
-                        "cancelled" => {
-                            event_recorder.cancelled_traces.lock().unwrap().push(id.clone());
-                        }
-                        _ => {}
-                    }
+    let mut on_event = move |event: kanzei_core::RunEvent| match event {
+        kanzei_core::RunEvent::ToolEnd {
+            id,
+            name,
+            ok,
+            preview,
+            ..
+        } => {
+            event_recorder
+                .run
+                .lock()
+                .unwrap()
+                .push((id, name, ok, preview));
+        }
+        kanzei_core::RunEvent::TaskProgress {
+            id,
+            trace: Some(trace),
+            ..
+        } => match trace.phase.as_str() {
+            "usage" => {
+                if let Some(usage) = trace.usage {
+                    event_recorder
+                        .usage_traces
+                        .lock()
+                        .unwrap()
+                        .push((id.clone(), usage.input));
                 }
             }
+            "cancelled" => {
+                event_recorder
+                    .cancelled_traces
+                    .lock()
+                    .unwrap()
+                    .push(id.clone());
+            }
             _ => {}
-        }
+        },
+        _ => {}
     };
     let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
         Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
@@ -224,8 +236,6 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
     // run_once_with_parts 与「子代理已挂起」信号同轮等待:先收到信号就 cancel,
     // 再等 run 收尾。run future 必须 pin 后用 &mut——tokio::select! 每次 poll 会
     // 重建分支 future,直接写 run_once_with_parts(...) 会让主轮每轮迭代都从头开始。
-    let mut on_event = on_event;
-    let mut ask = ask;
     tokio::pin!(hang_rx);
     let mut run_fut = Box::pin(kanzei_core::run_once_with_parts(
         &client,
@@ -257,7 +267,6 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
             }
         }
     }
-    let summary = summary;
     server.await.unwrap();
 
     // ① 取消分支的 phase="cancelled" trace 出现过。
@@ -272,7 +281,11 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         .iter()
         .filter(|(id, name, _, _)| name == "task" && *id == task_id)
         .collect();
-    assert_eq!(task_end.len(), 1, "task 恰好一个 ToolEnd,实际: {run_events:?}");
+    assert_eq!(
+        task_end.len(),
+        1,
+        "task 恰好一个 ToolEnd,实际: {run_events:?}"
+    );
     let (_, _, ok, preview) = task_end[0];
     assert!(!ok, "被停的 task 必须是失败终态(ok=false)");
     assert!(
@@ -286,7 +299,11 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         .filter(|(t, id)| t == "orchestration.agent_completed" && id.as_str() == task_id)
         .map(|(_, id)| id.as_str())
         .collect();
-    assert_eq!(completed.len(), 1, "取消后读槽必须回收,实际编排事件: {orch:?}");
+    assert_eq!(
+        completed.len(),
+        1,
+        "取消后读槽必须回收,实际编排事件: {orch:?}"
+    );
     // ④ 主轮正常收尾,未被整轮中止。
     assert!(!summary.text.is_empty(), "主轮应能继续完成");
     assert!(
