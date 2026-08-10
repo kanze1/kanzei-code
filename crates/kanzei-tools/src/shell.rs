@@ -128,9 +128,12 @@ pub fn process_alive(pid: u32) -> bool {
 /// 「根已消失、孙进程还在跑」的窗口(终止是异步的,`taskkill /t` 打印成功不等于此刻已没)。
 ///
 /// 与 `taskkill /t` 同口径:都按 `ParentProcessId` 认后代,所以拍到的集合就是 taskkill
-/// 会去处理的集合。两条共同的固有边界:①快照之后新生的子进程不在集合里;②pid 复用可能
-/// 把无关进程认成后代。②只会让确认结果偏保守(多报一次"没杀干净"),不会让它假绿,
-/// 而且兜底击杀只打根 pid,绝不会顺着这个集合去杀无辜进程。
+/// 会去处理的集合。两条共同的固有边界:①快照之后新生的子进程不在集合里(`kill_tree`
+/// 用"重拍几轮"来收窄这个缺口);②pid 被系统复用时,可能把无关进程认成后代。
+///
+/// ②要当真:这个集合不只是用来确认死活,`kill_tree` 会逐个终止它。但风险并不比
+/// `taskkill /t` 大——taskkill 用的是同一条 ppid 规则,而且它的快照是在自己启动**之后**
+/// 才拍的(实测启动就要 1 秒到十几秒),我们这里从拍到杀只隔微秒级,窗口反而更紧。
 #[cfg(windows)]
 fn process_tree(root: u32) -> Vec<u32> {
     #[repr(C)]
@@ -190,10 +193,14 @@ fn process_tree(root: u32) -> Vec<u32> {
     tree
 }
 
-/// 最后兜底:直接对根 pid 调 `TerminateProcess`。
+/// 终止**单个** pid。这是 D-262 之后的主击杀手段。
 ///
-/// 只在 taskkill 那条路彻底走不通时用。它**不杀树**(孙进程会变孤儿),所以绝不能
-/// 放在 taskkill 之前——`taskkill /t` 是靠父子关系找后代的,先砍根就把树砍散了。
+/// 它自己不认识"树",所以必须配 [`process_tree`] 一起用:先拍出整棵树的名单,再对名单里
+/// 每个成员各来一发。这样不依赖任何外部可执行文件——一次系统调用,微秒级,没有进程创建,
+/// 也就没有 `taskkill.exe` 那种"机器越忙越起不动"的病(实测忙时启动就要十几秒)。
+///
+/// 返回 false 的常见原因是"这一瞬间它已经自己走了"(`OpenProcess` 开不出句柄),
+/// 所以调用方不要把它当失败信号看;成败一律由随后的活性确认判定。
 #[cfg(windows)]
 fn terminate_process(pid: u32) -> bool {
     #[link(name = "kernel32")]
@@ -215,24 +222,81 @@ fn terminate_process(pid: u32) -> bool {
     }
 }
 
-/// taskkill 自身跑完的等待上限。
+/// 兜底那发 taskkill 自身跑完的等待上限。
 ///
-/// **2 秒是实测过低的**(D-262 次因实证):本机 `taskkill.exe` 光进程启动就要
-/// 1.0–4.2 秒(对一个不存在的 pid 连打三次:2907ms / 4230ms / 1071ms),2 秒这条线
-/// 正压在延迟分布中间,机器一忙就必然踩空。这里给的余量按实测尾部再翻几倍;它只是
-/// **可见性上限**,不是成功判据——判据是 `process_alive` 说目标没了(见 `kill_tree`)。
+/// **旧实现的 2 秒是实测过低的**(D-262 次因实证):本机 `taskkill.exe` 光进程启动就要
+/// 1.0–4.2 秒(对一个不存在的 pid 连打三次:2907ms / 4230ms / 1071ms),机器忙时实测
+/// 超过 15 秒。2 秒那条线正压在延迟分布中间,一忙就必然踩空。
+///
+/// 注意这个常量现在只管兜底路径:主手段是 `TerminateProcess`,不用等任何进程启动。
+/// 它也只是**可见性上限**而非成功判据——判据是 `process_alive` 说整棵树都没了(见 `kill_tree`)。
 #[cfg(windows)]
 const TASKKILL_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
-/// taskkill 返回之后再给内核多少时间收尾。
+/// 击杀之后再给内核多少时间收尾。
 ///
-/// 终止是异步的:`taskkill` 打印"成功已终止"、退出码 0,并不代表此刻进程对象已经消失。
-/// 实测抓到过根进程已消失而孙进程还在的窗口——所以确认必须是"等到没",不是"看一眼"。
+/// 终止是异步的:`TerminateProcess` 返回成功、`taskkill` 打印"成功已终止"并退出码 0,
+/// 都不代表此刻进程对象已经消失。实测抓到过根已消失而孙进程还在的窗口(第一版修复就是
+/// 在这里假绿过一次)——所以确认必须是"等到没",不是"看一眼"。
 #[cfg(windows)]
 const DEATH_CONFIRM_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[cfg(windows)]
 const ALIVE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// 每一轮击杀之后给内核的回收时间;等不到就再拍一轮名单。
+#[cfg(windows)]
+const ROUND_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// 跑一发 `taskkill /pid <pid> /t /f`,把失败信号如实记出来。
+///
+/// 不返回成败:taskkill 的退出码不是判据(128 = 找不到进程,在"目标刚好自然退出"时是
+/// 正常结果),真正的判据是调用方随后对整棵树做的活性确认。
+#[cfg(windows)]
+async fn run_taskkill(pid: u32) {
+    let mut command = tokio::process::Command::new("taskkill");
+    command
+        .args(["/pid", &pid.to_string(), "/t", "/f"])
+        // 输出无人消费就别建管道:顺手除掉"后代继承管道导致读端等不到 EOF"这一类风险。
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    // kill_on_drop 保持默认的 false:打开它正是 D-262 的根因,不要再动。
+    crate::hide_console_async(&mut command);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(err) => {
+            tracing::warn!(
+                target_pid = pid,
+                error = %err,
+                "kill_tree: taskkill 启动失败,只能靠 TerminateProcess 兜底"
+            );
+            return;
+        }
+    };
+    match tokio::time::timeout(TASKKILL_WAIT, child.wait()).await {
+        Ok(Ok(status)) if status.success() => {}
+        Ok(Ok(status)) => {
+            tracing::warn!(
+                target_pid = pid,
+                exit_code = ?status.code(),
+                "kill_tree: taskkill 非零退出"
+            );
+        }
+        Ok(Err(err)) => {
+            tracing::warn!(target_pid = pid, error = %err, "kill_tree: 等待 taskkill 失败");
+        }
+        Err(_) => {
+            // 关键:这里**只是不再等**。child 被 drop 时不会杀 taskkill(kill_on_drop=false),
+            // taskkill 会继续跑完它的活;放弃等待不等于放弃击杀。
+            tracing::warn!(
+                target_pid = pid,
+                wait_ms = TASKKILL_WAIT.as_millis(),
+                "kill_tree: taskkill 超出等待上限,不再等待(它仍在后台运行)"
+            );
+        }
+    }
+}
 
 /// 等到 `pids` 全部消失,或等到 `budget` 用尽。返回**仍然活着**的那些。
 #[cfg(windows)]
@@ -249,8 +313,9 @@ async fn await_tree_death(pids: &[u32], budget: std::time::Duration) -> Vec<u32>
 
 /// 进程树击杀(Windows 下 tokio 的 `Child::kill` 只杀直接子进程)。
 ///
-/// 返回 **true 仅当确认目标 pid 已经不在了**。调用方可以忽略返回值(现有调用点都忽略),
-/// 失败路径一律另有 `tracing::warn!`——D-262 之前失败被 `let _ =` 吞得一丝不剩。
+/// 返回 **true 仅当确认整棵树(根 + 击杀前拍到的全部后代)都已经不在了**。调用方可以忽略
+/// 返回值(现有调用点都忽略),失败路径一律另有 `tracing::warn!`——D-262 之前失败被
+/// `let _ =` 吞得一丝不剩,`process stop` 于是能一边报 stopped 一边把进程留在那儿跑。
 ///
 /// ## D-262:这里为什么不再有 `kill_on_drop` 和 `output()`
 ///
@@ -270,96 +335,81 @@ async fn await_tree_death(pids: &[u32], budget: std::time::Duration) -> Vec<u32>
 ///   `kill_on_drop` 打断,目标存活;后续热启动的几发在 2 秒内跑完,目标就死了——
 ///   这解释了这个缺陷为什么表现得像"偶尔能用"。
 ///
-/// 所以修法不是把 2 秒改成 30 秒,而是三条一起改:
+/// ## 为什么 taskkill 从"主手段"降级成"兜底"
+///
+/// 顺着上面的实测再往下量,taskkill 的启动延迟在**机器忙的时候**根本不是秒级而是十几秒:
+/// 同一台机器上跑三条并行开发线时,一次 `kill_tree` 实测 20.04 秒,其中 15 秒是 taskkill
+/// 超出等待上限、最后由 `TerminateProcess` 收尾的。这也顺带解释了缺陷证据②里那个"约 27 秒"
+/// ——它不是 taskkill 被管道挂住,就是负载下的进程创建延迟。
+///
+/// 而这正是这条路径最要命的结构问题:**需要击杀进程的时刻,往往就是机器忙得起不动新进程的
+/// 时刻**。把清理动作建立在"再 spawn 一个 exe"上,等于在最需要它的时候最不可用。
+/// 所以现在的主手段是「先拍进程树名单,再逐个 `TerminateProcess`」——一次系统调用,
+/// 微秒级,没有进程创建,没有冷启动方差,顺带也不会有 D-238 的控制台窗口问题。
+/// taskkill 只留作兜底:万一有我们开不出句柄的成员(权限/保护进程),它还有一点机会。
+///
+/// 综上,修法是这几条一起改:
 /// 1. **不再 `kill_on_drop`**。等不及了就只是停止等待,taskkill 继续在后台跑完它的活;
 ///    清理者的生命周期不再挂在等待者的耐心上。
-/// 2. **成功判据换成目标真的消失**(`process_alive`),不再看 taskkill 的退出码——
-///    退出码只用来产生可见信号。
-/// 3. 不建无人消费的管道(`stdio` 全 null),顺手把"孙进程继承管道"这一整类风险除掉,
+/// 2. **成功判据换成整棵树真的消失**(`process_tree` + `process_alive`),不再看 taskkill
+///    的退出码——退出码只用来产生可见信号。
+/// 3. 击杀主手段换成快照 + `TerminateProcess`,不再依赖 spawn。
+/// 4. 不建无人消费的管道(`stdio` 全 null),顺手把"后代继承管道"这一整类风险除掉,
 ///    虽然实测它不是本例的原因。
-/// 4. taskkill 走完还没死,再用 `TerminateProcess` 兜根 pid,并把结果如实报出去。
+///
+/// ## 为什么"根进程已经死了"不等于可以直接返回成功
+///
+/// bash 超时路径上,`tokio::time::timeout` 丢弃 capture future 的那一刻,shell child 的
+/// `kill_on_drop(true)` 已经把 shell 自己杀了——`kill_tree` 拿到的根 pid 往往**本来就不在了**。
+/// 此时若直接报成功,孙进程就永远留在那儿:这正是 D-262 影响②说的"被击杀的进程继续持有
+/// 文件与端口"。`taskkill /t` 在这种局面下也无从下手,它要从一个活着的根往下走。
+/// 快照这条路走得通:Windows 的 `PROCESSENTRY32` 保留创建者 pid,父进程死掉之后后代依然
+/// 认得出来,孤儿一样拍得到、一样收得掉。
 pub async fn kill_tree(pid: u32) -> bool {
     #[cfg(windows)]
     {
-        // 已经不在了就别去打扰 taskkill:它一次调用就是秒级开销。
-        if !process_alive(pid) {
-            return true;
-        }
-        // 先拍树:击杀之后父子关系就没了,再想确认后代已经无从下手。
-        let tree = process_tree(pid);
-        let mut command = tokio::process::Command::new("taskkill");
-        command
-            .args(["/pid", &pid.to_string(), "/t", "/f"])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        // kill_on_drop 保持默认的 false:这正是 D-262 的根因所在,不要再打开。
-        crate::hide_console_async(&mut command);
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(err) => {
-                tracing::warn!(
-                    target_pid = pid,
-                    error = %err,
-                    "kill_tree: taskkill 启动失败,改用 TerminateProcess 兜底"
-                );
-                if !terminate_process(pid) {
-                    tracing::warn!(
-                        target_pid = pid,
-                        "kill_tree: TerminateProcess 也失败,进程树未被终止"
-                    );
+        // 每轮重拍名单再杀。重拍是为了收掉上一轮击杀间隙里新生的后代——`taskkill /t`
+        // 有同样的固有缺口,区别只是它连缺口都不报。三轮足够收敛:根第一轮就没了,
+        // 之后不会再有新的分支冒出来。
+        let mut known: Vec<u32> = Vec::new();
+        for _ in 0..3 {
+            let tree = process_tree(pid);
+            for member in &tree {
+                if !known.contains(member) {
+                    known.push(*member);
                 }
-                let alive = await_tree_death(&tree, DEATH_CONFIRM_WAIT).await;
-                if !alive.is_empty() {
-                    tracing::warn!(
-                        target_pid = pid,
-                        still_alive = ?alive,
-                        "kill_tree: 无 taskkill 可用,进程树残留(TerminateProcess 只兜根进程)"
-                    );
-                }
-                return alive.is_empty();
             }
-        };
-
-        match tokio::time::timeout(TASKKILL_WAIT, child.wait()).await {
-            Ok(Ok(status)) if status.success() => {}
-            Ok(Ok(status)) => {
-                // 128 = 目标已不存在(taskkill 找不到进程),这在"进程刚好自然退出"时是正常的,
-                // 死活由下面的 await_death 判,所以这里只记一笔而不下结论。
-                tracing::warn!(
-                    target_pid = pid,
-                    exit_code = ?status.code(),
-                    "kill_tree: taskkill 非零退出"
-                );
+            let mut live: Vec<u32> = tree.into_iter().filter(|p| process_alive(*p)).collect();
+            if live.is_empty() {
+                break;
             }
-            Ok(Err(err)) => {
-                tracing::warn!(target_pid = pid, error = %err, "kill_tree: 等待 taskkill 失败");
+            // 根排到最前面:先掐掉还在继续 spawn 的那个,后代才不会边杀边生。
+            live.sort_by_key(|member| *member != pid);
+            for stray in live {
+                // 返回 false 常常只是"这一瞬间它已经自己走了",所以这里不逐个告警;
+                // 成败一律由下面的活性确认统一判定。
+                terminate_process(stray);
             }
-            Err(_) => {
-                // 关键:这里**只是不再等**。child 被 drop 时不会杀 taskkill(kill_on_drop=false),
-                // taskkill 会继续跑完;放弃等待不等于放弃击杀。
-                tracing::warn!(
-                    target_pid = pid,
-                    wait_ms = TASKKILL_WAIT.as_millis(),
-                    "kill_tree: taskkill 超出等待上限,不再等待(它仍在后台运行)"
-                );
+            if await_tree_death(&known, ROUND_SETTLE).await.is_empty() {
+                break;
             }
         }
 
-        // 成功判据只有这一条:拍下来的整棵树都不在了。taskkill 的退出码只进日志。
-        let alive = await_tree_death(&tree, DEATH_CONFIRM_WAIT).await;
+        // 成功判据只有这一条:拍下来的整棵树都不在了。
+        let alive = await_tree_death(&known, DEATH_CONFIRM_WAIT).await;
         if alive.is_empty() {
             return true;
         }
+
         tracing::warn!(
             target_pid = pid,
             still_alive = ?alive,
-            "kill_tree: taskkill 之后仍有进程存活,改用 TerminateProcess 兜底(仅根进程,不含后代)"
+            "kill_tree: TerminateProcess 未清干净,退回 taskkill 兜底"
         );
-        if alive.contains(&pid) && !terminate_process(pid) {
-            tracing::warn!(target_pid = pid, "kill_tree: TerminateProcess 兜底失败");
+        if process_alive(pid) {
+            run_taskkill(pid).await;
         }
-        let alive = await_tree_death(&tree, DEATH_CONFIRM_WAIT).await;
+        let alive = await_tree_death(&known, DEATH_CONFIRM_WAIT).await;
         if !alive.is_empty() {
             tracing::warn!(
                 target_pid = pid,
