@@ -3,8 +3,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::{run_once_with_parts, AskFuture};
+use crate::{run_once_with_parts, AskFuture, AppState};
 use kanzei_core::{RunEvent, RunnerConfig};
+use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::LlmClient;
 use kanzei_llm::ProxyConfig;
@@ -19,6 +20,7 @@ const QUICK_REQ_REQUIREMENT_SYSTEM: &str = "You capture ONE requirement from the
 
 #[tauri::command]
 pub(crate) async fn quick_req(
+    state: tauri::State<'_, AppState>,
     project_dir: String,
     description: String,
     kind: Option<String>,
@@ -35,6 +37,19 @@ pub(crate) async fn quick_req(
     let config = Arc::new(KanzeiConfig::load(&cwd).map_err(|e| e.to_string())?);
     let project_root =
         kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    // R-171 批4:quick_req 是独立写入口(直接写 requirements/defects),必须接入
+    // 项目级写仲裁——若主对话 writer run 正在写,这里排队等待,不能绕过协调器
+    // (验收⑤/设计不变量 8)。RAII:子代理跑完(或失败)即释放。
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: project_root.clone(),
+            run_id: format!("quick_req_{}", crate::run::now_ms()),
+            process_id: "quick_req".into(),
+            reason: "quick capture write".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     let rctx = ResolveCtx {
         profile: ProfileKind::Dev,
         cwd: cwd.clone(),

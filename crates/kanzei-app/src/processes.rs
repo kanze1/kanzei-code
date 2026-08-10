@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use serde_json::json;
 use tauri::State;
 
@@ -226,8 +227,23 @@ fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, S
 }
 
 #[tauri::command]
-pub fn worktree_create(project_dir: String, name: String) -> Result<WorktreeInfo, String> {
+pub async fn worktree_create(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+    name: String,
+) -> Result<WorktreeInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
+    // R-171 批4:worktree 创建是项目级写操作(新分支+工作树),接入写仲裁。
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: root.clone(),
+            run_id: format!("worktree_create_{}", crate::run::now_ms()),
+            process_id: "worktree".into(),
+            reason: "worktree create".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     let safe_name: String = name
         .trim()
         .chars()
@@ -319,8 +335,23 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
 }
 
 #[tauri::command]
-pub fn worktree_merge(project_dir: String, worktree_path: String) -> Result<String, String> {
+pub async fn worktree_merge(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+    worktree_path: String,
+) -> Result<String, String> {
     let root = normalized_project_root(Path::new(&project_dir));
+    // R-171 批4:worktree 合并是项目级写操作,接入写仲裁。
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: root.clone(),
+            run_id: format!("worktree_merge_{}", crate::run::now_ms()),
+            process_id: "worktree".into(),
+            reason: "worktree merge".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     let worktree = validate_worktree_path(&root, &worktree_path)?;
     let branch = worktree_field(&root, &worktree, "branch")?;
     let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
@@ -343,8 +374,23 @@ pub fn worktree_merge(project_dir: String, worktree_path: String) -> Result<Stri
 }
 
 #[tauri::command]
-pub fn worktree_discard(project_dir: String, worktree_path: String) -> Result<String, String> {
+pub async fn worktree_discard(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+    worktree_path: String,
+) -> Result<String, String> {
     let root = normalized_project_root(Path::new(&project_dir));
+    // R-171 批4:worktree 放弃(remove 工作树)是项目级写操作,接入写仲裁。
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: root.clone(),
+            run_id: format!("worktree_discard_{}", crate::run::now_ms()),
+            process_id: "worktree".into(),
+            reason: "worktree discard".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     let worktree = validate_worktree_path(&root, &worktree_path)?;
     let output = worktree_command(
         &root,

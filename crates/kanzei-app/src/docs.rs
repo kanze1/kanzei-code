@@ -8,6 +8,7 @@ use serde_json::json;
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
 use crate::{normalized_project_root, state::hidden_command};
+use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
 #[tauri::command]
@@ -63,7 +64,8 @@ pub fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, Stri
 }
 
 #[tauri::command]
-pub fn test_run_record(
+pub async fn test_run_record(
+    state: tauri::State<'_, crate::AppState>,
     project_dir: String,
     title: String,
     status: String,
@@ -71,6 +73,18 @@ pub fn test_run_record(
     summary: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let root = normalized_project_root(Path::new(&project_dir));
+    // R-171 批4:test_record 是独立写入口(写 tests.md),接入项目级写仲裁——
+    // 与 writer run 竞争同一租约,不能绕过协调器(D-227 并发覆盖的机械门禁)。
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: root.clone(),
+            run_id: format!("test_record_{}", crate::run::now_ms()),
+            process_id: "test_record".into(),
+            reason: "test record write".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     kanzei_tools::test_record::append_test_run(
         &root,
         &title,
