@@ -330,7 +330,9 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
 
 /// 错误指纹:首行小写 → 抹掉含路径分隔符的 token 与全部数字 → 折叠空白 → 截 80。
 /// 目的是让「13 次 CRLF 未命中」塌成同一条,而不是 13 条。
-fn failure_kind(content: &str) -> String {
+/// R-162:从 summarize_failures 抽出为共享函数,RecallWatch(事件触发召回)复用
+/// 同一 (tool, kind) 分类口径,离线度量的失败指纹与在线触发的失败指纹必须一致。
+pub(crate) fn failure_kind(content: &str) -> String {
     let first_line = content.lines().next().unwrap_or("").to_lowercase();
     let scrubbed: Vec<String> = first_line
         .split_whitespace()
@@ -347,7 +349,8 @@ fn failure_kind(content: &str) -> String {
 }
 
 /// 目标键:路径类取最后一段(跨平台分隔符都算),命令取首词,其余取 id。
-fn failure_target(input: &serde_json::Value) -> String {
+/// R-162:同 failure_kind,提为共享函数供在线召回复用。
+pub(crate) fn failure_target(input: &serde_json::Value) -> String {
     for key in ["path", "file_path", "file", "id", "command"] {
         if let Some(value) = input.get(key).and_then(|v| v.as_str()) {
             let value = value.trim();
@@ -595,5 +598,39 @@ mod tests {
         );
         assert_eq!(summarize_tools(&all[history.len()..]).get("read"), Some(&1));
         assert_eq!(summarize_tools(&all[history.len()..]).get("edit"), None);
+    }
+
+    #[test]
+    fn failure_kind_把路径与数字抹平_同坑塌成一条() {
+        // R-162 B1:共享分类函数——离线度量与在线触发必须用同一指纹口径。
+        // 路径 token 与数字抹掉后,"13 次 CRLF 未命中"与"7 次 CRLF 未命中"是同一条。
+        let a = failure_kind("old_string not found in C:/p/main.rs");
+        let b = failure_kind("old_string not found in D:/other/lib.rs");
+        assert_eq!(a, b, "不同路径的同款错误必须塌成同一指纹");
+        assert!(!a.contains('/'), "路径段必须被抹掉");
+        assert!(!a.contains('\\'), "反斜杠路径段也必须被抹掉");
+
+        let c = failure_kind("test failed: 13 assertions failed");
+        let d = failure_kind("test failed: 7 assertions failed");
+        assert_eq!(c, d, "数字差异必须抹平");
+        assert!(!c.contains('1') && !d.contains('7'), "ASCII 数字必须全部抹掉");
+
+        // 首行截断 80 字符,长错误不撑爆索引。
+        let long = failure_kind(&"x".repeat(300));
+        assert_eq!(long.chars().count(), 80);
+    }
+
+    #[test]
+    fn failure_target_路径取尾段_命令取首词() {
+        // R-162 B1:目标抽取——RecallWatch 用它做同目标去重与 ReRetrieve 的 query 拼装。
+        let path = serde_json::json!({ "path": "C:/p/main.rs" });
+        assert_eq!(failure_target(&path), "main.rs");
+        let backslash = serde_json::json!({ "file_path": "C:\\p\\lib.rs" });
+        assert_eq!(failure_target(&backslash), "lib.rs", "Windows 反斜杠路径取尾段");
+        let command = serde_json::json!({ "command": "cargo test -p foo --all-features" });
+        assert_eq!(failure_target(&command), "cargo");
+        let id = serde_json::json!({ "id": "M-001" });
+        assert_eq!(failure_target(&id), "m-001");
+        assert!(failure_target(&serde_json::json!({ "other": 1 })).is_empty());
     }
 }

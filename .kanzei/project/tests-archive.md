@@ -1173,3 +1173,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-161 关闭前全量验证:workspace 全部 crate 测试通过
 - 收尾: 1786341997
+
+## T-1786342211 cargo test -p kanzei-core runner::metrics (R-162 B1) [passed]
+- 命令: cargo test -p kanzei-core runner::metrics
+- 摘要: 9 通过:新增 failure_kind/failure_target 共享函数直接单测(批1)
+- 收尾: 1786342211

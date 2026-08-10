@@ -16,7 +16,7 @@
 
 - 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)无专用写入通道——edit 被 ruleset 拒绝,shell 旁路被检测回滚,conventions.md 为模型只读托管资产(已记 D-235)。解除动作: 修复 D-235 提供 conventions.md 专用写入工具,或用户手写 §1.4 标注;标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具)或手写标注的用户。
 
-## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [todo]
+## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -27,7 +27,9 @@
 - 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
 - refs: R-103 M-009 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 口径清理:原「依赖: R-161」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-161(记忆漏斗遥测)后推进。
+- 进展: 2026-08-10 口径清理:原「依赖: R-161」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。R-161 已完成,本条解锁。批1完成(R-162 B1, 9b255de 之后首个提交 719a53e... 实际为 metrics 提交):failure_kind/failure_target 从 summarize_failures 内部提为 pub(crate) 共享函数,RecallWatch 复用同一 (tool,kind) 分类口径;新增直接单测 failure_kind_把路径与数字抹平_同坑塌成一条 / failure_target_路径取尾段_命令取首词(路径 token 与数字抹平、Windows 反斜杠、命令首词、id 小写)。kanzei-core runner::metrics 9 全绿。批2待做:frontmatter 扩展 fingerprint/trigger/valid_from/supersedes/version 一等字段(宽容读零迁移,extras 兜底)+ 引擎维护 fingerprint→id 内存索引(tools 内)+ 单测。
+
+- 批次: 1/5
 
 ## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
 - 优先级: P0
