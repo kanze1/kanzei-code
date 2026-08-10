@@ -3642,9 +3642,36 @@ assert(
 // **旧项目**的条目里判「这标签还在不在」——判否就回落成「全部」,而落盘走的是新项目的键。
 // 用户在新项目从没动过筛选,列表却少了一批,重启也回不来。
 // 闸门把"IPC 还没回来"这段真机时序复现出来:只卡住这一次,切项目自己那次刷新照常走。
+// 切项目夹具提到块外:下面 D-250/D-251 的跨项目用例走的是同一套「甲乙两个项目 + 闸门」
+// 时序,各自再抄一份 gotoProject 只会让三处的切项目口径将来悄悄分叉。
+const PROJECT_B = "C:/smoke/project-b";
+const savedDocsPayload = structuredClone(payloads.docs_snapshot);
+const gotoProject = async (path, docs) => {
+  payloads.docs_snapshot = docs;
+  payloads.projects_select = {
+    current: path,
+    projects: [PROJECT, PROJECT_B],
+    names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
+  };
+  await sandbox.selectWorkspaceProject(path);
+  await flush();
+  assert(
+    vm.runInContext("currentProject", sandbox) === path,
+    `前置失败:切项目没走通(currentProject=${vm.runInContext("currentProject", sandbox)})`,
+  );
+};
+// 标签按项目走:甲只有「核心」,乙只有「流程」。这就是常态,触发条件一点不苛刻。
+const docsA = {
+  ...savedDocsPayload,
+  requirements: [docEntry("R-001", "甲项目需求", "doing", { fields: [["标签", "核心"]] })],
+  defects: [docEntry("D-001", "甲项目缺陷", "open", { fields: [["标签", "核心"]] })],
+};
+const docsB = {
+  ...savedDocsPayload,
+  requirements: [docEntry("R-900", "乙项目需求", "todo", { fields: [["标签", "流程"]] })],
+  defects: [docEntry("D-900", "乙项目缺陷", "open", { fields: [["标签", "流程"]] })],
+};
 {
-  const PROJECT_B = "C:/smoke/project-b";
-  const savedDocsPayload = structuredClone(payloads.docs_snapshot);
   const filtersKeyOf = (path) => `kz-filters:${path}`;
   const liveReqTag = () => JSON.parse(vm.runInContext("JSON.stringify(documentFilters.req)", sandbox)).tag;
   const savedReqTag = (path) => JSON.parse(storage.get(filtersKeyOf(path)) ?? "{}").docReq?.tag;
@@ -3655,32 +3682,6 @@ assert(
     el._listeners.change?.forEach((fn) => fn({ target: el }));
     await flush();
   };
-  const gotoProject = async (path, docs) => {
-    payloads.docs_snapshot = docs;
-    payloads.projects_select = {
-      current: path,
-      projects: [PROJECT, PROJECT_B],
-      names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
-    };
-    await sandbox.selectWorkspaceProject(path);
-    await flush();
-    assert(
-      vm.runInContext("currentProject", sandbox) === path,
-      `前置失败:切项目没走通(currentProject=${vm.runInContext("currentProject", sandbox)})`,
-    );
-  };
-  // 标签按项目走:甲只有「核心」,乙只有「流程」。这就是常态,触发条件一点不苛刻。
-  const docsA = {
-    ...savedDocsPayload,
-    requirements: [docEntry("R-001", "甲项目需求", "doing", { fields: [["标签", "核心"]] })],
-    defects: [docEntry("D-001", "甲项目缺陷", "open", { fields: [["标签", "核心"]] })],
-  };
-  const docsB = {
-    ...savedDocsPayload,
-    requirements: [docEntry("R-900", "乙项目需求", "todo", { fields: [["标签", "流程"]] })],
-    defects: [docEntry("D-900", "乙项目缺陷", "open", { fields: [["标签", "流程"]] })],
-  };
-
   byId.get("documents-tab-req").click();
   await flush();
   storage.delete(filtersKeyOf(PROJECT_B));
@@ -3770,6 +3771,227 @@ assert(
   await sandbox.refreshDocs();
   await flush();
   assert(liveReqTag() === "all", `收尾失败:标签没调回全部(${liveReqTag()})`);
+}
+
+// ---------- 旧项目的刷新失败不得作废新项目刚排的跳转高亮(D-250) ----------
+// 上一块钉的是**成功**路径按项目收敛。catch 里的 clearPendingJump() 没有同样的守卫:
+// 替旧项目发出的那次刷新若在用户切走之后才抛错,会把**新项目刚排上的**跳转高亮一并作废
+// ——用户点了条目引用跳过去,却看不出落在哪一条。同一条路径上的不对称(成功收敛、失败不收敛)
+// 正是 D-211 说的「承诺与实现脱节」。
+// 手法:替甲发出的那次 refreshDocs 卡在闸门上 → 切到乙 → 在乙里排一个跳转高亮(它自己那次
+// 刷新也卡住,免得当场被消费掉)→ 再让甲那次以**失败**落地。失败判定在闸门之后,所以顺序
+// 必须是「先注入失败、再放行闸门」。
+{
+  await gotoProject(PROJECT, docsA);
+  let releaseStaleFail;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseStaleFail = resolve; }));
+  const staleFail = sandbox.refreshDocs(); // 替项目甲发出,此刻卡在闸门上
+  await settle();
+  invokeGates.delete("docs_snapshot"); // 只卡住上面那一次
+  await gotoProject(PROJECT_B, docsB);
+  // 离开单页视图,jumpToEntry 才会走「先切视图 + 排挂起高亮」那条路。
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  assert(!byId.get("view-documents").classList.contains("active"), "前置失败:未离开单页视图");
+  assert(document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]'), "前置失败:项目乙的列表里没有 R-900");
+  let releaseJumpB;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseJumpB = resolve; }));
+  sandbox.jumpToEntry("R-900");
+  // 只推微任务:这一步要的是「乙那次刷新卡住、pendingJumpId 挂着」,不能让定时器插进来。
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeGates.delete("docs_snapshot");
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === "R-900",
+    `前置失败:项目乙没有排上跳转高亮(实得 ${JSON.stringify(vm.runInContext("pendingJumpId", sandbox))})`,
+  );
+  // 注入的刷新失败会走 toastError:那正是被测的那条 catch,不判红。
+  expectedPersistentError = "项目文档刷新失败";
+  const hitsBefore = expectedPersistentHits;
+  invokeFailures.set("docs_snapshot", "冒烟注入:旧项目的在途刷新撞上目录被删/文件被锁/解析失败");
+  releaseStaleFail();
+  await staleFail;
+  invokeFailures.delete("docs_snapshot");
+  assert(expectedPersistentHits > hitsBefore, "前置失败:注入的 docs_snapshot 失败没有走到 refreshDocs 的 catch");
+  expectedPersistentError = null;
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === "R-900",
+    "旧项目的刷新失败作废了新项目刚排的跳转高亮:refreshDocs 的 catch 里 clearPendingJump() 没有项目守卫(成功路径按项目收敛了、失败路径没有)",
+  );
+  // 高亮还得真能兑现:守卫若写成「永远不清」,上面那条断言会被另一个错误盖过去。
+  releaseJumpB();
+  for (let i = 0; i < 12; i += 1) await settle();
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]')?.classList.contains("ref-highlight"),
+    "项目乙自己那次刷新没有兑现挂起的跳转高亮(守卫收得过紧,或高亮被别处清掉了)",
+  );
+  await flush();
+}
+
+// ---------- refreshDocsSoon 的失败路径同样要按项目收敛(单独钉,D-250) ----------
+// 与上一条同病、独立出口(console.error,不是 toastError),而且更容易撞上:它由 agent 的
+// 文档变更事件驱动、自带 400ms 合并窗口,定时器落地时用户早就可能切走了。
+// 上面「悬挂高亮」那一族已经实测过一次:只修 refreshDocs 那处、留着这处,整套照样全绿。
+{
+  await gotoProject(PROJECT, docsA);
+  let releaseStaleSoon;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseStaleSoon = resolve; }));
+  // 手工点火,且**不 await**:回调此刻正卡在闸门上,drainTimersOnce 会按 300ms 超时判红。
+  // 只点火 refreshDocsSoon 自己排的那一个,不波及别处已排队的定时器。
+  const timersBefore = new Set(pendingTimers);
+  sandbox.refreshDocsSoon();
+  for (const handle of [...pendingTimers]) {
+    if (timersBefore.has(handle) || handle.interval) continue;
+    pendingTimers.delete(handle);
+    void handle.fn();
+  }
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "docs_snapshot" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:refreshDocsSoon 没有替项目甲发出在途的 docs_snapshot(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("docs_snapshot");
+  await gotoProject(PROJECT_B, docsB);
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  let releaseJumpB;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseJumpB = resolve; }));
+  sandbox.jumpToEntry("R-900");
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeGates.delete("docs_snapshot");
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === "R-900",
+    `前置失败:项目乙没有排上跳转高亮(实得 ${JSON.stringify(vm.runInContext("pendingJumpId", sandbox))})`,
+  );
+  // 被测的正是 refreshDocsSoon 那条 catch,它只 console.error —— 开窗放行,出了这段立刻收回。
+  expectedConsoleError = "冒烟注入";
+  const consoleHitsBefore = expectedConsoleHits;
+  invokeFailures.set("docs_snapshot", "冒烟注入:refreshDocsSoon 的在途刷新撞上目录被删/文件被锁/解析失败");
+  releaseStaleSoon();
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeFailures.delete("docs_snapshot");
+  assert(
+    expectedConsoleHits > consoleHitsBefore,
+    "前置失败:注入的 docs_snapshot 失败没有走到 refreshDocsSoon 的 catch(这一段根本没测到目标路径)",
+  );
+  expectedConsoleError = null;
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === "R-900",
+    "旧项目的 refreshDocsSoon 刷新失败作废了新项目刚排的跳转高亮:它那条 catch 里的 clearPendingJump() 没有项目守卫",
+  );
+  releaseJumpB();
+  for (let i = 0; i < 12; i += 1) await settle();
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]')?.classList.contains("ref-highlight"),
+    "项目乙自己那次刷新没有兑现挂起的跳转高亮",
+  );
+  await flush();
+}
+
+// ---------- 在途的工作树操作不得写进已经切走的项目的键(D-251) ----------
+// 工作树清单是纯前端 localStorage 清单,不从 `git worktree list` 发现(R-050 退回原因④):
+// 一旦把甲项目的工作树写进乙项目的键,没有任何一次刷新会把它纠回来,是长期错位。
+// 每条都配两个方向的断言,缺一不可:只断言「没写进乙」的话,一个「两边都不写」的错误实现
+// (丢弃在途写入 = 把错位换成更难恢复的丢失)照样能蒙混过关。
+{
+  const wtKeyOf = (path) => `kz-worktrees:${path}`;
+  const wtList = (path) => JSON.parse(storage.get(wtKeyOf(path)) ?? "[]");
+  const wtItem = (path, branch) => ({ path, branch, clean: true, files: [], diff: "" });
+  const WT_NEW = "C:/smoke/wt/thread-new";
+  const WT_KEEP = "C:/smoke/wt/thread-keep";
+  const WT_B = "C:/smoke/wt/thread-b";
+  // 写入去向探针。光看值有盲区:把甲的清单改动写进乙的键时,如果那次改动对乙的值恰好
+  // 等价(放弃一条乙根本没有的路径 = 过滤掉个寂寞,写回去逐字不变),值断言就看不出来
+  // ——实测过,少了这个探针 S4 那一侧恒绿。所以直接记录**写了哪些键**,错写无处可藏。
+  let wtWrites = null;
+  const rawSetItem = localStorageShim.setItem;
+  localStorageShim.setItem = (key, value) => {
+    if (wtWrites && String(key).startsWith("kz-worktrees:")) wtWrites.push(String(key));
+    return rawSetItem(key, value);
+  };
+  const startWtWriteProbe = () => { wtWrites = []; };
+  const stopWtWriteProbe = () => { const seen = wtWrites ?? []; wtWrites = null; return seen; };
+  payloads.worktree_create = wtItem(WT_NEW, "thread-new");
+  payloads.worktree_diff = wtItem(WT_NEW, "thread-new");
+  payloads.worktree_discard = "已放弃工作树";
+  storage.delete(wtKeyOf(PROJECT));
+  storage.delete(wtKeyOf(PROJECT_B));
+
+  // ① 新建:替甲发出 worktree_create,落地前切到乙。
+  await gotoProject(PROJECT, docsA);
+  let releaseCreate;
+  invokeGates.set("worktree_create", new Promise((resolve) => { releaseCreate = resolve; }));
+  byId.get("worktree-add").click();
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "worktree_create" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:worktree-add 没有替项目甲发出 worktree_create(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("worktree_create"); // 只卡住上面那一次
+  await gotoProject(PROJECT_B, docsB);
+  startWtWriteProbe();
+  releaseCreate();
+  for (let i = 0; i < 12; i += 1) await settle();
+  const createWrites = stopWtWriteProbe();
+  assert(
+    !createWrites.includes(wtKeyOf(PROJECT_B)),
+    `甲项目在途新建的工作树写进了乙项目的键(本次写了 ${createWrites.join(" / ")}):` +
+      `纯前端清单,错位不会被任何一次刷新纠回来 —— 乙的键现在是 ${storage.get(wtKeyOf(PROJECT_B))}`,
+  );
+  assert(
+    wtList(PROJECT).includes(WT_NEW),
+    `在途新建的工作树没有落进它真正所属的项目甲的键:${storage.get(wtKeyOf(PROJECT))}` +
+      "(工作树已经在磁盘上建出来了,丢弃这次写入 = 把错位换成更难恢复的丢失)",
+  );
+
+  // ② 放弃:甲有两条、乙有一条,替甲发出 worktree_discard,落地前切到乙。
+  storage.set(wtKeyOf(PROJECT), JSON.stringify([WT_NEW, WT_KEEP]));
+  storage.set(wtKeyOf(PROJECT_B), JSON.stringify([WT_B]));
+  await gotoProject(PROJECT, docsA);
+  const wtEntries = document.querySelectorAll("#worktree-list .worktree-entry");
+  assert(wtEntries.length === 2, `前置失败:项目甲的工作树清单没渲染出两条(实得 ${wtEntries.length})`);
+  // 动作按钮顺序固定为 差异/合并/放弃,取第三个 —— 按文案取会被界面语言影响。
+  const discardBtn = wtEntries[0].querySelectorAll("button")[2];
+  assert(discardBtn, "前置失败:工作树条目上没有「放弃」按钮");
+  let releaseDiscard;
+  invokeGates.set("worktree_discard", new Promise((resolve) => { releaseDiscard = resolve; }));
+  discardBtn.click();
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "worktree_discard" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:没有替项目甲发出 worktree_discard(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("worktree_discard");
+  await gotoProject(PROJECT_B, docsB);
+  startWtWriteProbe();
+  releaseDiscard();
+  for (let i = 0; i < 12; i += 1) await settle();
+  const discardWrites = stopWtWriteProbe();
+  assert(
+    !discardWrites.includes(wtKeyOf(PROJECT_B)),
+    `甲项目在途放弃的工作树改动落到了乙项目的键上(本次写了 ${discardWrites.join(" / ")}):` +
+      `乙的键现在是 ${storage.get(wtKeyOf(PROJECT_B))}`,
+  );
+  assert(
+    JSON.stringify(wtList(PROJECT_B)) === JSON.stringify([WT_B]),
+    `乙项目的工作树清单被改动了:${storage.get(wtKeyOf(PROJECT_B))}`,
+  );
+  assert(
+    JSON.stringify(wtList(PROJECT)) === JSON.stringify([WT_KEEP]),
+    `在途放弃没有从它真正所属的项目甲的键里摘掉那一条(或连带删错了别的):${storage.get(wtKeyOf(PROJECT))}`,
+  );
+
+  // 收尾:摘掉写入探针、清掉两个项目的工作树键与桩,切回项目甲并还原快照。
+  localStorageShim.setItem = rawSetItem;
+  storage.delete(wtKeyOf(PROJECT));
+  storage.delete(wtKeyOf(PROJECT_B));
+  delete payloads.worktree_create;
+  delete payloads.worktree_diff;
+  delete payloads.worktree_discard;
+  await gotoProject(PROJECT, savedDocsPayload);
+  delete payloads.projects_select;
+  payloads.docs_snapshot = savedDocsPayload;
+  await sandbox.refreshDocs();
+  await flush();
 }
 
 if (issues.length) {

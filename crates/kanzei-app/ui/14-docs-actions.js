@@ -17,7 +17,10 @@ async function refreshDocs() {
   } catch (err) {
     // 这次刷新没能走到 renderDocsSnapshot,跨视图跳转挂起的高亮就永远等不到人消费。
     // 留着它 = 悬挂高亮:之后任意一次无关刷新都会把它兑现,用户没点跳转条目却自己亮了。
-    clearPendingJump();
+    // 但只作废**属于自己那次刷新**的挂起跳转:成功路径上面已按项目收敛,失败路径必须对称
+    // (D-250)。替旧项目发出的刷新若在用户切走之后才抛错,新项目刚排上的高亮不该被它连坐。
+    if (currentProject === forProject) clearPendingJump();
+    // 报错不设项目守卫:刷新确实失败了,与用户此刻停在哪个项目无关,该看见就得看见。
     toastError(`项目文档刷新失败:${err}`, { retry: refreshDocs });
   }
 }
@@ -44,8 +47,10 @@ function refreshDocsSoon() {
       renderDocsSnapshot(snapshot);
     } catch (err) {
       // 同 refreshDocs:没重绘成 = 挂起的跳转高亮没人消费,不作废就会在下一次
-      // 无关刷新上突然亮起来。
-      clearPendingJump();
+      // 无关刷新上突然亮起来。同样只作废属于自己那次刷新的(D-250):这条路径由 agent 的
+      // 文档变更事件驱动、自带 400ms 合并窗口,定时器落地时用户早就可能切走了,
+      // 撞上的概率比 refreshDocs 更高,不能只在上面那处加守卫。
+      if (currentProject === forProject) clearPendingJump();
       console.error(err);
     }
   }, 400);
