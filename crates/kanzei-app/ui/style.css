@@ -1018,8 +1018,11 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .diff-row.del, .diff-pane.del { background: rgba(208, 104, 78, .12); color: #dd8d72; }
 .diff-row.ctx, .diff-pane.ctx { color: var(--dim); }
 .diff-split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-width: 680px; }
-.diff-pane { display: flex; min-height: 1.5em; white-space: pre; border-right: 1px solid var(--border-soft); }
+.diff-pane { display: flex; min-height: 1.5em; white-space: pre; border-right: 1px solid var(--border-soft); min-width: 0; overflow-x: auto; }
 .diff-pane.empty { background: rgba(255, 255, 255, .025); }
+/* R-133:并排视图长行在自身列内横向滚动,不溢出覆盖相邻列(grid 子项默认 min-width:auto
+   会被 pre 内容撑破;min-width:0 + overflow-x:auto 把滚动收进 pane)。 */
+.diff-pane code { flex: 1 1 auto; min-width: 0; }
 .syntax-comment { color: #6a9955; }
 .syntax-string { color: #ce9178; }
 .syntax-number { color: #b5cea8; }
@@ -1027,6 +1030,13 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .diff-summary-label { color: var(--dim); font-size: 11px; margin-left: 8px; }
 .diff-summary { margin: 0 8px 8px; border: 1px solid var(--border-soft); border-radius: 4px; background: #0d0d0d; max-height: 120px; overflow-y: auto; }
 .diff-summary-row { display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px; color: var(--dim); font-family: var(--mono); font-size: 11px; }
+/* R-133:diff 汇总目录树——目录行可折叠(▾/▸),文件行按路径层级缩进;目录名与路径
+   同色系但加粗区分,折叠态用 .hidden 收起子目录。 */
+.diff-tree { font-family: var(--mono); font-size: 11px; }
+.diff-dir-head { display: flex; align-items: center; width: 100%; background: none; border: none; color: var(--fg-strong); font-family: inherit; font-size: 11px; font-weight: 600; padding: 3px 6px; cursor: pointer; text-align: left; }
+.diff-dir-head:hover { background: rgba(255, 255, 255, .04); }
+.diff-dir-body { padding-left: 14px; }
+.diff-dir-body.hidden { display: none; }
 /* D-237:汇总区 +/− 与 diff 行同色系,增删一眼可辨(纯文本灰看不出改了啥)。 */
 .diff-summary-counts { display: inline-flex; gap: 6px; }
 .diff-add { color: #a5c98f; }

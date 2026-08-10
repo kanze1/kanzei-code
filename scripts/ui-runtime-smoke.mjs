@@ -2384,6 +2384,34 @@ assert(
   bashFullEntry.querySelector(".bg-detail")?.textContent.includes("长输出"),
   "bash 展开区未使用完整输出(full),仍停留在 4000 截断版",
 );
+// R-133:diff 汇总为目录树——多路径文件按层级归入目录,目录行可折叠。
+{
+  // 再投两个分属不同目录的文件,验证树形分组而不是平铺。
+  editEnd({ payload: { id: "T7", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-app/src/docs.rs", additions: 5, deletions: 2, language: "rust", lines: [] } } });
+  editEnd({ payload: { id: "T8", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-tools/src/tracker.rs", additions: 1, deletions: 0, language: "rust", lines: [] } } });
+  await flush();
+  const tree = document.querySelector("#diff-summary .diff-tree");
+  assert(tree, "diff 汇总未构建目录树容器");
+  const dirs = tree.querySelectorAll(".diff-dir-head");
+  assert(dirs.length >= 1, `diff 树缺少目录行(应有 crates/ 等目录),实得 ${dirs.length}`);
+  const dirTexts = [...dirs].map((d) => d.textContent);
+  assert(
+    dirTexts.some((s) => s.includes("crates")),
+    `diff 树目录未包含 crates:${dirTexts.join(",")}`,
+  );
+  const head = [...dirs].find((d) => d.textContent.includes("crates"));
+  assert(head.getAttribute("aria-expanded") === "true", "diff 目录初始应展开");
+  const fileRows = tree.querySelectorAll(".diff-summary-row");
+  assert(
+    [...fileRows].some((r) => r.textContent.includes("crates/kanzei-app/src/docs.rs")),
+    "diff 树文件行未归入目录下",
+  );
+  // 折叠交互:点目录头,子文件应隐藏。
+  head._listeners.click?.forEach((fn) => fn({ target: head }));
+  const collapsed = tree.querySelector(".diff-dir-body.hidden");
+  assert(collapsed, "点击 diff 目录头未折叠子目录");
+  assert(head.getAttribute("aria-expanded") === "false", "折叠后 aria-expanded 应为 false");
+}
 
 // ---------- 小工具降噪 + bash 实时输出 + rail 侧栏开合(用户定调) ----------
 // ① 静默工具成功不进活动流,失败补建条目——活动面板只回答"哪里不对"。

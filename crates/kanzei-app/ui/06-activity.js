@@ -12,7 +12,69 @@ function renderDiffSummary() {
     ? `· ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
     : "";
   panel.classList.toggle("hidden", files.length === 0);
-  panel.innerHTML = files.map((item) => `<div class="diff-summary-row"><span>${escapeHtml(item.path)}</span><span class="diff-summary-counts"><span class="diff-add">+${item.additions}</span><span class="diff-del">−${item.deletions}</span></span></div>`).join("");
+  panel.replaceChildren(buildDiffTree(files));
+}
+
+// R-133:diff 汇总按路径层级构成目录树,替代原来的一长串平铺路径——
+// 目录可折叠,文件行缩进在所属目录下,+/- 计数与 diff 行同色,视觉清爽不重叠。
+function buildDiffTree(files) {
+  const root = { name: "", children: new Map(), items: [] };
+  for (const item of files) {
+    const segs = item.path.split("/").filter(Boolean);
+    let node = root;
+    for (const seg of segs.slice(0, -1)) {
+      if (!node.children.has(seg)) node.children.set(seg, { name: seg, children: new Map(), items: [] });
+      node = node.children.get(seg);
+    }
+    node.items.push(item);
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "diff-tree";
+  appendDiffNode(wrap, root, 0);
+  return wrap;
+}
+
+function appendDiffNode(container, node, depth) {
+  // 目录在前、文件在后,目录可折叠(▸/▾),文件行保留增删计数。
+  for (const dir of node.children.values()) {
+    const box = document.createElement("div");
+    box.className = "diff-dir";
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "diff-dir-head";
+    head.setAttribute("aria-expanded", "true");
+    head.textContent = `▾ ${dir.name}`;
+    const body = document.createElement("div");
+    body.className = "diff-dir-body";
+    head.addEventListener("click", () => {
+      const open = !body.classList.contains("hidden");
+      body.classList.toggle("hidden", open);
+      head.textContent = `${open ? "▸" : "▾"} ${dir.name}`;
+      head.setAttribute("aria-expanded", String(!open));
+    });
+    box.append(head, body);
+    appendDiffNode(body, dir, depth + 1);
+    container.appendChild(box);
+  }
+  for (const item of node.items) {
+    const row = document.createElement("div");
+    row.className = "diff-summary-row";
+    row.style.paddingLeft = `${8 + depth * 14}px`;
+    const name = document.createElement("span");
+    name.textContent = item.path;
+    name.title = item.path;
+    const counts = document.createElement("span");
+    counts.className = "diff-summary-counts";
+    const add = document.createElement("span");
+    add.className = "diff-add";
+    add.textContent = `+${item.additions}`;
+    const del = document.createElement("span");
+    del.className = "diff-del";
+    del.textContent = `−${item.deletions}`;
+    counts.append(add, del);
+    row.append(name, counts);
+    container.appendChild(row);
+  }
 }
 
 function bgSync() {

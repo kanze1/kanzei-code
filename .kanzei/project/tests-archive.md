@@ -1426,3 +1426,9 @@
 - 摘要: R-130 关闭前全量:workspace 全绿(tools 187/app 51/harness 66/llm 103/core 40 等)
 - 关联: R-130
 - 收尾: 1786369281
+
+## T-1786369496 R-133 前端冒烟四连 [passed]
+- 命令: node --check + ui-runtime/ui-i18n/ui-a11y/ui-markdown smoke
+- 摘要: diff 汇总目录树(可折叠)+ 并排视图长行收进自身列滚动(不覆盖相邻列);四条冒烟全绿
+- 关联: R-133
+- 收尾: 1786369496
