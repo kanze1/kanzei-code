@@ -55,6 +55,9 @@ impl Tool for ProcessTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        // 与 bash 同一道收尾:上一个 run 遗留的后台任务在被观察/操作之前先收掉,
+        // 保证「后台任务生命周期 ⊆ owner run」这条不变量在每个入口都成立。
+        crate::background::finish_foreign_owners(&ctx.project_root, ctx.run_id.as_deref()).await;
         match input.action.as_str() {
             "list" => {
                 let items = crate::background::list(&ctx.project_root);
@@ -68,12 +71,22 @@ impl Tool for ProcessTool {
                         Some(Some(code)) => format!("exited({code})"),
                         Some(None) => "terminated".to_string(),
                     };
+                    // D-174:owner 与越界计数是这行的重点——没有它们,"谁起的、
+                    // 它动过托管文档没有"就只能靠猜。
+                    let breaches = p.breaches().len();
+                    let fence = if breaches == 0 {
+                        String::new()
+                    } else {
+                        format!(" managed-breaches={breaches}")
+                    };
                     out.push_str(&format!(
-                        "{} [{}] pid={} cwd={} :: {}\n",
+                        "{} [{}] pid={} owner={} cwd={}{} :: {}\n",
                         p.id,
                         state,
                         p.pid().map_or_else(|| "-".to_string(), |v| v.to_string()),
+                        p.owner.run_id,
                         p.workdir,
+                        fence,
                         p.command,
                     ));
                 }
@@ -102,7 +115,7 @@ impl Tool for ProcessTool {
                 } else {
                     format!("state: {state}\n")
                 };
-                let rendered = format!("{head}{body}");
+                let rendered = format!("{head}{body}{}", breach_report(&p));
                 ToolOutput::ok(rendered.clone()).with_display(serde_json::json!({
                     "kind": "terminal",
                     "command": p.command,
@@ -129,4 +142,40 @@ impl Tool for ProcessTool {
             )),
         }
     }
+}
+
+/// 越界写入的归因报告。空 = 该后台任务没碰过托管路径。
+///
+/// 报告必须点名 owner:后台任务的越界是异步发生的,模型看到它时早已不在当初那次
+/// 工具调用的上下文里,不写清"谁在什么时候写了什么、改后的内容留在哪"就没法追。
+fn breach_report(process: &crate::background::BackgroundProcess) -> String {
+    let breaches = process.breaches();
+    if breaches.is_empty() {
+        return String::new();
+    }
+    let mut out = format!(
+        "\n[managed-files] this background task wrote policy-managed paths {} time(s); \
+         every write was quarantined and rolled back, and the process tree was killed. \
+         owner run={} process={}, started at {}ms, command: {}\n",
+        breaches.len(),
+        process.owner.run_id,
+        process.owner.process_id,
+        process.started_at_ms,
+        process.command,
+    );
+    for breach in &breaches {
+        out.push_str(&format!(
+            "  at {}ms touched: {} — restored {} file(s), your versions kept at {}\n",
+            breach.at_ms,
+            breach.touched.join(", "),
+            breach.restored,
+            breach.quarantine,
+        ));
+    }
+    out.push_str(
+        "The shell is not a write channel for .kanzei/project or .kanzei/memory, background or \
+         not. Redo the change through the dedicated tool (`req`/`defect`/`goal`/`decision`, \
+         `architecture`, `test_record`, `memory_*`).",
+    );
+    out
 }

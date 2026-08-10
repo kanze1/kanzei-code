@@ -8,6 +8,7 @@ pub mod context;
 pub mod defs;
 pub mod harness;
 pub mod home;
+pub mod managed_fence;
 pub mod markdown;
 pub mod orchestration;
 pub mod permission;

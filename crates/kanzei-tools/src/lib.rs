@@ -14,6 +14,7 @@ mod git;
 pub mod git_batches;
 mod glob;
 mod grep;
+mod managed;
 pub mod memory;
 mod process;
 mod question;

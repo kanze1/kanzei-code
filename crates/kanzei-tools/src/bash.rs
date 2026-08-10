@@ -1,7 +1,6 @@
 //! bash(shell)工具。设计红线 6:按实际检测到的 shell 动态生成描述,
 //! 让模型知道自己面对的是 pwsh/cmd 还是 POSIX sh;超时返回结构化结果而非报错。
 
-use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -12,18 +11,15 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
+use crate::managed::{
+    enforce_managed_files, managed_scope_exists, ManagedSnapshot, MANAGED_SNAPSHOT_FILE_LIMIT,
+    MANAGED_SNAPSHOT_MAX_FILES,
+};
 use crate::shell::{detected_shell, kill_tree};
 
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
-
-/// 托管目录:write/edit 对它们硬 deny,shell 也不许绕过去改(D-173)。
-const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
-/// 单文件镜像上限:超过就只记指纹,能检测但无法回滚(会如实说明)。
-const MANAGED_SNAPSHOT_FILE_LIMIT: u64 = 4 * 1024 * 1024;
-/// 镜像文件数上限,防止有人往托管目录塞进一整棵大树把每次 bash 拖垮。
-const MANAGED_SNAPSHOT_MAX_FILES: usize = 2000;
 
 #[derive(Deserialize, JsonSchema)]
 struct BashInput {
@@ -62,7 +58,11 @@ impl Tool for BashTool {
             "Run a shell command via {} — {syntax}. Params: command; optional timeout_ms, workdir, \
              background. stdin is closed: interactive prompts get EOF instead of hanging. \
              Set background=true for long-running processes (dev server, watch): it returns a \
-             process id immediately; use the `process` tool to read output, check liveness or stop it.",
+             process id immediately; use the `process` tool to read output, check liveness or stop it. \
+             In a managed project a background task is fenced and owned by the current run: it may \
+             not write under .kanzei/project or .kanzei/memory (such writes are quarantined and \
+             rolled back), its workdir must stay inside the project and outside .kanzei/, and it is \
+             finished when the next run starts — so it cannot outlive this turn.",
             shell.name
         )
     }
@@ -161,15 +161,18 @@ impl Tool for BashTool {
                  protected-path effects cannot be fully rolled back."
             ));
         }
-        // 后台 shell 在本次工具返回后仍可写盘，无法把副作用可靠归因于某次调用；
-        // 事后轮询还会把用户/专用工具的合法并发写误判为越权。安全隔离落地前明确禁用。
+        // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
+        // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
         if input.background && managed_scope_exists(&ctx.project_root) {
-            return ToolOutput::error(
-                "background bash is unavailable in a managed project: asynchronous writes cannot \
-                 be fenced without misclassifying later user/dedicated-tool edits. Run the command \
-                 in the foreground, or ask the user to start the long-lived service directly.",
-            );
+            if let Some(breach) = background_workdir_breach(&ctx.project_root, &workdir) {
+                return ToolOutput::error(breach);
+            }
         }
+        // D-174 生命周期包含关系:上一个 run 遗留的后台任务在这里收尾。守卫把
+        // "没有专用工具窗口解释的托管变化"一律判给后台进程,这个判据只有在
+        // 「后台任务生命周期 ⊆ owner run」时才成立——跨 run 存活会让本 run 的
+        // 专用工具写入被上一个 run 的守卫误判成越界。
+        crate::background::finish_foreign_owners(&ctx.project_root, ctx.run_id.as_deref()).await;
 
         let shell = detected_shell();
         let mut command = tokio::process::Command::new(&shell.program);
@@ -190,11 +193,16 @@ impl Tool for BashTool {
 
         // 后台模式:交给注册表托管,立刻返回句柄,不等它结束也不受 timeout 约束。
         if input.background {
+            // 归因地基:owner 身份来自 ToolCtx(R-171 双键),托管基线就是本次
+            // spawn 之前刚拍下的 managed_before——后台守卫的对账起点必须是
+            // "进程还没跑起来"的那一刻,晚一点都会把自己的副作用算进基线。
             let process = crate::background::register(
                 child,
                 input.command.clone(),
                 &ctx.project_root,
                 &workdir,
+                background_owner(ctx),
+                managed_before,
             );
             let rendered = format!(
                 "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n\
@@ -394,167 +402,47 @@ fn git_mutation_form(command: &str) -> Option<String> {
     None
 }
 
-/// 托管目录的执行前镜像。`None` 内容 = 文件超过镜像上限,只能检测不能回滚。
-#[derive(Debug, Default, Clone, PartialEq)]
-pub(crate) struct ManagedSnapshot {
-    files: BTreeMap<String, Option<Vec<u8>>>,
-    /// 目录规模超限时放弃镜像:此时既不检测也不回滚,并在输出里如实说明。
-    truncated: bool,
-}
-
-impl ManagedSnapshot {
-    pub(crate) fn capture(project_root: &Path) -> Self {
-        let mut snapshot = ManagedSnapshot::default();
-        for root in MANAGED_ROOTS {
-            collect_files(&project_root.join(root), project_root, &mut snapshot);
-            if snapshot.truncated {
-                break;
-            }
-        }
-        snapshot
-    }
-
-    fn is_complete(&self) -> bool {
-        !self.truncated && self.files.values().all(Option::is_some)
-    }
-}
-
-fn managed_scope_exists(project_root: &Path) -> bool {
-    project_root.join(".kanzei").is_dir()
-}
-
-fn collect_files(dir: &Path, project_root: &Path, snapshot: &mut ManagedSnapshot) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+/// 后台任务的 workdir 结构化围栏(D-174 静态第一道)。
+///
+/// 它校验的是**参数**而不是命令文本——不存在解析歧义,与 D-173 已经证否的
+/// "猜命令文本"是两回事(命令文本层面的路径匹配挡不住 WriteAllText/重定向/
+/// 解释器一行流,那条路本文件顶部已经放弃)。因此它只是第一道:挡掉
+/// "cd 进托管目录再用相对路径写"的一整类,绝对路径写入仍由后台守卫的
+/// 结果侧对账兜住。
+fn background_workdir_breach(project_root: &Path, workdir: &Path) -> Option<String> {
+    let (root, dir) = match (
+        std::fs::canonicalize(project_root),
+        std::fs::canonicalize(workdir),
+    ) {
+        (Ok(root), Ok(dir)) => (root, dir),
+        // 任一侧无法规范化时两侧都用原样路径比,避免单边规范化造成假阳性拒绝。
+        _ => (project_root.to_path_buf(), workdir.to_path_buf()),
     };
-    for entry in entries.flatten() {
-        if snapshot.files.len() >= MANAGED_SNAPSHOT_MAX_FILES {
-            snapshot.truncated = true;
-            return;
-        }
-        let path = entry.path();
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => collect_files(&path, project_root, snapshot),
-            Ok(kind) if kind.is_file() => {
-                let Ok(relative) = path.strip_prefix(project_root) else {
-                    continue;
-                };
-                let key = relative.display().to_string().replace('\\', "/");
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(u64::MAX);
-                let content = (size <= MANAGED_SNAPSHOT_FILE_LIMIT)
-                    .then(|| std::fs::read(&path).ok())
-                    .flatten();
-                snapshot.files.insert(key, content);
-            }
-            _ => {}
-        }
+    let Ok(relative) = dir.strip_prefix(&root) else {
+        return Some(format!(
+            "background workdir must stay inside the project root: {} is outside {}",
+            workdir.display(),
+            project_root.display()
+        ));
+    };
+    let relative = relative.display().to_string().replace('\\', "/");
+    if relative == ".kanzei" || relative.starts_with(".kanzei/") {
+        return Some(format!(
+            "background workdir must not sit inside `.kanzei/`: {}",
+            workdir.display()
+        ));
     }
+    None
 }
 
-/// 比对执行前后的托管目录镜像。有改动就隔离留证 + 整体回滚,并生成回喂模型的报告。
-fn enforce_managed_files(project_root: &Path, before: ManagedSnapshot) -> Option<String> {
-    let after = ManagedSnapshot::capture(project_root);
-    if after == before {
-        return None;
+fn background_owner(ctx: &ToolCtx) -> crate::background::BackgroundOwner {
+    crate::background::BackgroundOwner {
+        // CLI 路径不调 with_identity,run_id 为 None:登记为 unowned 而不是伪造
+        // 一个 id——归因要么真实,要么如实说不知道。
+        run_id: ctx.run_id.clone().unwrap_or_else(|| "unowned".into()),
+        process_id: ctx.process_id.clone().unwrap_or_else(|| "unowned".into()),
+        write_key: ctx.project_write_key(),
     }
-    let after_incomplete = !after.is_complete();
-    let mut modified: Vec<String> = Vec::new();
-    let mut created: Vec<String> = Vec::new();
-    let mut deleted: Vec<String> = Vec::new();
-    for (path, content) in &after.files {
-        match before.files.get(path) {
-            None => created.push(path.clone()),
-            Some(old) if old != content => modified.push(path.clone()),
-            Some(_) => {}
-        }
-    }
-    for path in before.files.keys() {
-        if !after.files.contains_key(path) {
-            deleted.push(path.clone());
-        }
-    }
-    if modified.is_empty() && created.is_empty() && deleted.is_empty() {
-        return None;
-    }
-
-    let touched: Vec<&String> = modified
-        .iter()
-        .chain(created.iter())
-        .chain(deleted.iter())
-        .collect();
-    let listed = touched
-        .iter()
-        .map(|s| s.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    // 先隔离再回滚:哪怕这次改动其实来自用户手改,内容也一份不丢,可原样取回。
-    let quarantine = project_root.join(".kanzei/quarantine").join(format!(
-        "shell-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or_default()
-    ));
-    let mut restored = 0usize;
-    for path in modified.iter().chain(created.iter()) {
-        let absolute = project_root.join(path);
-        let saved = quarantine.join(path);
-        if let Some(parent) = saved.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::copy(&absolute, &saved);
-        match before.files.get(path) {
-            // 执行前存在:写回原内容(内容超限没镜像的只能保持现状,下面单独点名)。
-            Some(Some(original)) => {
-                if std::fs::write(&absolute, original).is_ok() {
-                    restored += 1;
-                }
-            }
-            Some(None) => {}
-            // 执行前不存在:删掉新建的。
-            None => {
-                if std::fs::remove_file(&absolute).is_ok() {
-                    restored += 1;
-                }
-            }
-        }
-    }
-    for path in &deleted {
-        if let Some(Some(original)) = before.files.get(path) {
-            let absolute = project_root.join(path);
-            if let Some(parent) = absolute.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            if std::fs::write(&absolute, original).is_ok() {
-                restored += 1;
-            }
-        }
-    }
-
-    let incomplete = if after_incomplete {
-        format!(
-            "\nWARNING: the post-command snapshot exceeded its safety bound. Known changes were \
-             rolled back, but the managed tree must be inspected manually before any further shell \
-             command (limit: {MANAGED_SNAPSHOT_MAX_FILES} files / {MANAGED_SNAPSHOT_FILE_LIMIT} bytes per file)."
-        )
-    } else {
-        String::new()
-    };
-    Some(format!(
-        "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
-         paths are policy-managed and the shell is not a write channel for them, no matter which \
-         mechanism is used (redirect, Set-Content/Out-File, [System.IO.File]::WriteAllText, \
-         python/node one-liner, git checkout of a single file).\n\
-         touched: {listed}\n\
-         restored {restored} file(s) to their pre-command contents; your versions were kept at \
-         {} so nothing is lost.\n\
-         Redo the change through the dedicated tool (`req`/`defect`/`goal`/`decision` for tracker \
-         entries, `architecture` for the architecture index, `memory_note` for memory). If no \
-         tool covers what you need, that is an unimplemented capability: record it and tell the \
-         user — do not look for another shell route.{incomplete}",
-        MANAGED_ROOTS.join(" and "),
-        quarantine.display(),
-    ))
 }
 
 #[cfg(windows)]
@@ -721,12 +609,73 @@ mod tests {
         std::fs::remove_dir_all(root).ok();
     }
 
+    /// D-174 静态第一道:后台 workdir 不得扎进托管树,也不得跑出项目根。
     #[tokio::test]
-    async fn background_shell_is_refused_in_managed_projects() {
+    async fn background_workdir_must_stay_outside_managed_tree_and_inside_project() {
+        let root = temp_project("bg-workdir");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        // 扎进 .kanzei/ 内:拒绝,且理由点名 .kanzei 而不是笼统的"后台不可用"。
+        let out = BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "echo ok",
+                    "background": true,
+                    "workdir": ".kanzei/project",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("must not sit inside `.kanzei/`"),
+            "{}",
+            out.content
+        );
+
+        // 跑出项目根:同样拒绝(跑出去就无从归因,守卫的对账范围也失去意义)。
+        let outside = root.parent().unwrap().join(format!(
+            "kz-bash-outside-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&outside).unwrap();
+        let out = BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "echo ok",
+                    "background": true,
+                    "workdir": outside.display().to_string(),
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("must stay inside the project root"),
+            "{}",
+            out.content
+        );
+        std::fs::remove_dir_all(&outside).ok();
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-174:托管项目里的后台启动从"一律拒绝"恢复为"受管启动"。
+    /// R-097 的后台能力因此回来了——边界是单 run 内可用、跨 run 被收尾。
+    #[tokio::test]
+    async fn background_shell_is_managed_not_refused_in_managed_projects() {
         let root = temp_project("background-fence");
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            run_id: Some("run-a".into()),
+            process_id: Some("proc-a".into()),
             ..Default::default()
         };
         let out = BashTool
@@ -735,12 +684,12 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(out.is_error);
         assert!(
-            out.content.contains("background bash is unavailable"),
-            "{}",
+            !out.is_error,
+            "托管项目里的后台启动不该再被拒绝: {}",
             out.content
         );
+        assert!(out.content.contains("process_id:"), "{}", out.content);
         std::fs::remove_dir_all(root).ok();
     }
 

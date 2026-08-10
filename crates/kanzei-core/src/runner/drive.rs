@@ -867,9 +867,15 @@ pub fn run_once_with_parts<'a>(
                                     id.clone(),
                                     progress_tx,
                                 );
-                                let exec = kanzei_harness::progress::scope(
-                                    handle,
-                                    tool.execute(input, ctx),
+                                // D-174:串行路径同样开合法写入窗口。writer 阶段
+                                // 走的就是这条,漏掉它等于让专用工具的写入没有窗口
+                                // 可归因,后台守卫会把它当成越界回滚掉。
+                                let exec = kanzei_harness::managed_fence::tool_scope(
+                                    &name,
+                                    kanzei_harness::progress::scope(
+                                        handle,
+                                        tool.execute(input, ctx),
+                                    ),
                                 );
                                 tokio::pin!(exec);
                                 let output = loop {
