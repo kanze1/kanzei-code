@@ -609,8 +609,8 @@ impl MemoryStore {
         rounds
     }
 
-    /// FTS 检索:bm25 取 topN 后按 log(1+hits) 与 active 加权在 Rust 侧重排。
-    /// 命中即计 hits(强化循环:常用记忆自然浮上来)。
+    /// FTS 检索:bm25 取 topN 后按采纳率决策权重与 active 加权在 Rust 侧重排。
+    /// 命中仍计 hits(R-125 观测),但 R-150 起 hits 不再参与排序(自增强退役)。
     pub fn search(
         &self,
         query: &str,
@@ -669,8 +669,10 @@ impl MemoryStore {
                 )
                 .unwrap_or(0);
             // bm25 越小越相关(fts5 返回负值);取负得正相关度。
+            // R-150:退役 hits 乘子——搜索命中是自增强循环(常被搜到→排更前→更常被搜到),
+            // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
+            // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
             let mut score = -bm25;
-            score *= 1.0 + (1.0 + hit_count as f64).ln() * 0.2;
             // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
             // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
             // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。

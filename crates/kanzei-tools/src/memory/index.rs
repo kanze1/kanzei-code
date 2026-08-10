@@ -229,7 +229,7 @@ impl SqliteMemoryIndex {
             .collect()
     }
 
-    /// Tier1:BM25(store.search 已做 bm25 + hits/采纳率加权 + active 排序)。
+    /// Tier1:BM25(store.search 已做 bm25 + 采纳率决策加权 + active 排序;R-150 起 hits 不参与排序)。
     fn tier1(&self, query: &str, limit: usize) -> Vec<IndexHit> {
         let mut hits: Vec<IndexHit> = Vec::new();
         let mut stores = vec![MemoryStore::project(&self.project_root)];

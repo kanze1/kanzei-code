@@ -64,8 +64,8 @@
 - 验收: ①空闲整理清单包含零采纳与复发两类候选且处置有墓碑;②Memory 页可见召回/采纳数据(800/1024/1280 三档可用);③降权参数复核结论落回 docs/design/memory_decision_sufficiency.md 变更记录。
 - refs: R-103 R-107 R-125 R-145
 
-- 批次: 1/3
-- 进展: 批1完成:memory_entries 加 recalled/fetched(采纳率),新 command memory_value_flags(零采纳 recalled≥3&fetched=0 + 复发候选 recalled≥3)注册进 invoke_handler,Memory UI 空闲整理清单区块+采纳率 meta+零采纳标记,HTML 静态文案登记 i18n 资源表。四条冒烟+app 51 全绿。剩批2(文档参数复核落文档)、批3(800/1024/1280 三档验证+关闭)。
+- 批次: 2/3
+- 进展: 批2完成:hits 因子退役(自增强与采纳率方向冲突,排序只留 bm25+采纳率决策权重,hit_count 降观测);参数 0.6/0.7/阈值 3 复核后保留(真实采纳率分布不足+低估通道未闭合,待 R-145 实证),read 钩子缺口列入 R-145;复核结论写入 docs/design/memory_decision_sufficiency.md 变更记录。tools 183 全绿。剩批3:800/1024/1280 三档验证+全量+关闭。
 
 ## R-132 mem单页手动触发整理功能 [todo]
 - priority: P1

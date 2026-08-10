@@ -1333,3 +1333,8 @@
 - 命令: node --check ui/*.js + 四条 ui 冒烟 + cargo test -p kanzei-app
 - 摘要: R-150 批1:memory_entries 召回/采纳率 + memory_value_flags 空闲整理清单(零采纳/复发)+ Memory UI 消费。node check 过、四条冒烟过(含 i18n 资源表 58 key)、app 51 全绿。
 - 收尾: 1786350433
+
+## T-1786350521 cargo test -p kanzei-tools (R-150 B2 hits 退役) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-150 批2:hits 因子退役(自增强与采纳率方向冲突),排序只留 bm25+采纳率决策权重;参数 0.6/0.7/阈值 3 保留并记录复核结论与 read 钩子缺口到文档变更记录。tools 183 全绿。
+- 收尾: 1786350521
