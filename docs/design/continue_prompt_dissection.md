@@ -1,0 +1,117 @@
+# 继续文案拆解与鞭挞引擎化——保留必要性评估
+
+- 状态：草案（待用户拍板）
+- 日期：2026-08-10
+- 关联需求：R-128 R-157 R-076
+- 关联缺陷：D-120 D-128 D-163 D-097 D-111 D-044
+- 关联决策：A-010 A-004
+
+## 一、背景与问题
+
+用户指令（2026-08-10）：「把继续文案拆解了，鞭挞相关的核心部件拆解到 harness 里，评估一下保留继续文案的必要性」。
+
+现状事实（2026-08-10 调研）：
+
+- 「继续文案」是桌面端一个可编辑 textarea（`ui/index.html:227-229`，`#continue-prompt`），存 localStorage `kz-continue-prompt`；鞭挞（dev-auto 自主推进）每轮自动续跑时把它的内容作为用户消息发给 agent（`08-compose.js:280-286 continuePrompt()`、`07-events.js:348-351 scheduleAutoContinue`）；手动「继续」按钮同源（`08-compose.js:612`）。
+- 「鞭挞」状态机**全部**在前端 JS：空转检测工具画像、全部阻塞/清空停止、连数上限、无动作 NUDGE、2 秒调度、暂停/本轮后停/停止原因。CLI（`crates/kanzei`）无任何自主循环概念——这是桌面端独占能力，状态存 localStorage/前端变量，重启丢失、跨端不一致。
+- 后端 system prompt **已全量注入**这些规则的各个真源（详见 §2 映射表）。
+
+## 二、继续文案职责构成与真源映射
+
+`08-compose.js` 中 `CONTINUE_PROMPT_HEAD`（83-101）+ `cadenceVerificationText`（53-71）+ `CONTINUE_PROMPT_TAIL`（102）+ `continuePrompt()` 拼接（280-286）+ `NUDGE_PROMPT`（215-227）+ `LEGACY_CONTINUE_PROMPTS`（108-212）合计承载 11 项职责。逐项映射真源：
+
+| # | 职责 | 当前位置 | 真源（已注入 system prompt 或已引擎化） | 冗余/独有 |
+|---|---|---|---|---|
+| 1 | 取活顺序（开发重心） | `continuePrompt()` 尾部拼接 memory focus | `run.rs:848-855 work_priority_guidance`（后端注入）+ memory preference 全文注入 `profiles.rs:258-320` | **冗余**（双源注入） |
+| 2 | 规则 1 本轮必须落地动作 | HEAD | conventions §1（`profiles.rs:245-256` 全量注入 `<conventions>`） | **冗余** |
+| 3 | 规则 2 批次粒度/批次表 | HEAD | conventions §1.3 | **冗余** |
+| 4 | 规则 3 阻塞定义/具名解除人 | HEAD | conventions §1.1 | **冗余** |
+| 5 | 规则 4 验收证据/关闭判定 | HEAD | conventions §1.25 | **冗余** |
+| 6 | 规则 5 doing WIP/阶段门禁 | HEAD | conventions §1.1 + §1.35 | **冗余** |
+| 7 | 规则 6 验证节奏 | `buildContinuePrompt(cadence)` | kanzei.toml `[cadence]`（R-157 批1-3 已引擎化） | **冗余**（配置已接管，文案只是渲染点） |
+| 8 | TAIL「不要纯文本收尾」 | 102 | 引擎机械判定（前端空转检测；引擎化后为 harness 状态机） | **冗余**（契约应落引擎） |
+| 9 | NUDGE 无动作推进指令 | 215-227 | 前端 JS 无动作检测 | **冗余**（应落引擎） |
+| 10 | LEGACY 静默升级机制 | 108-212 + `applyCadenceSettings`（42-52） | 无真源——它是双源的**维护成本** | **应删除**（规则剥离后无契约可升级） |
+| 11 | 用户自定义意图 | textarea（localStorage） | 真源就是用户本身 | **独有——保留的核心** |
+
+结论：11 项职责里 9 项（1-9）在别处已有真源，第 10 项是双源漂移的治理成本，只有第 11 项是继续文案独有的价值。
+
+### 双源漂移的前科
+
+继续文案与引擎对打不是假设，是反复发生的事故：
+
+- D-120：文案写「需求优先」，后端 system prompt 固定 defects-first，实际取活照旧。
+- D-128：文案开篇写死「先扫 defects.md」与结尾追加的取活模式行矛盾，开篇句胜出，切需求优先不生效。
+- D-163：文案规则与调度器对阻塞字段的语义不一致 → 31/35 条目被自记阻塞锁死。
+- D-111：`kz-auto-stop-round` 持久化，「本轮后停」跨重启复活，鞭挞必停。
+- D-097：提示词诱导模型过早声明阻塞 → 鞭挞一轮即刹。
+
+这些事故的共同根因：**规则写在用户可编辑的提示词里，而不是引擎代码/只读 system prompt 里**。用户改文案（或旧默认残留）与引擎行为脱节。剥离规则、把行为落引擎，正是对这些事故的结构性修复。
+
+## 三、拆解方案：职责归位
+
+### 3.1 剥离出继续文案的（9 项）
+
+| 职责 | 去向 |
+|---|---|
+| 取活顺序 | 已注入 system prompt（`run.rs work_priority_guidance` + memory preference）——文案不再拼接开发重心块 |
+| 规则 1-5 | 已注入 system prompt（conventions 全量）——文案不再复读 |
+| 规则 6 验证节奏 | 已引擎化（kanzei.toml `[cadence]`）；渲染点从文案移除，需要时改注入 system prompt |
+| TAIL/NUDGE/刹车契约 | 下沉 harness 引擎（§4），文案里不再出现 |
+| LEGACY 升级机制 | 整体删除：默认文案不再含引擎规则，不存在「历史默认需升级」的契约错位 |
+
+### 3.2 保留的（1 项）：用户意图通道
+
+textarea 只承载用户自定义的附加指令；默认态为空或极简句（如「继续推进，规则按系统提示」）。用户删空 → 回落极简默认，不再有「用户自定义过就不覆盖」的复杂状态（`lastRenderedPrompt`/`applyCadenceSettings` 分支随之简化）。
+
+## 四、鞭挞核心部件下沉 harness
+
+用户用词「harness」；结合 R-157 节奏参数已归 `kanzei-harness::config`，自主推进策略放 harness 同层、由 `kanzei-core` runner 轮末消费。
+
+下沉清单（现位置 → 引擎位置）：
+
+| 部件 | 现位置（前端） | 引擎化位置 |
+|---|---|---|
+| 空转检测工具画像 `NON_PROGRESS_TOOLS`/`hasProgressTools` | `08-compose.js:16-25` | harness 新增 auto-run 策略模块：工具画像判定谓词 |
+| 全部阻塞/清空停止 `stopAutoWhenBacklogEmpty` | `08-compose.js:316-342` | 引擎读 backlog（docs_snapshot 同源）判定（R-128 验收范围） |
+| 连数上限 `autoContinueMax` + 判定 | `08-compose.js:295-298, 307-315` | 引擎状态字段 + 判定 |
+| 无动作 NUDGE（第一次追加指令/第二次停） | `08-compose.js:321-346` | 引擎生成 NUDGE 消息 |
+| 2 秒调度 `scheduleAutoContinue` | `08-compose.js:304-314` | 引擎调度（runner 轮末续跑） |
+| 暂停/本轮后停/停止原因状态机 | `08-compose.js:6-9, 717-741`；`07-events.js:288-352` | 引擎状态机（会话级，可持久化） |
+| 刹车契约（纯文本收尾检测） | 前端 steps/tools 判定 | 引擎判定 |
+
+前端只保留：开关、连数输入、暂停/本轮后停按钮、状态回显（`auto-status`）——即 UI 壳与事件转发。
+
+收益：①规则落代码（conventions §4「能代码强制的绝不只写进提示词」）；②CLI 获得同款自主循环（D-229 已暴露「CLI 轮末缺失同款采集通道」这类桌面端独占的架构债）；③状态单源可持久化，D-111/D-078 类跨重启失效不可能再发生；④R-128 的验收（全部阻塞停止、解除后恢复）成为引擎状态机的一个判定分支，有单测可断言。
+
+## 五、保留必要性评估
+
+三个方案对比：
+
+### 方案 A：保留但降级（推荐）
+
+- 默认文案 = 极简意图句（规则全部移入 system prompt/引擎）；textarea 仅承载用户附加指令。
+- 保留「用户级持续指令」通道：手动「继续」按钮有内容可发；自动推进可注入「先做 X」这类方向意图（普通输入是一次性的，记忆 preference 是结构化受限的，均不能替代自由文本的持续模板）。
+- 删除 LEGACY/lastRenderedPrompt/applyCadenceSettings 分支，砍掉一整套双源治理代码。
+- 成本最低（一个 textarea + 一个 localStorage 键），收益最高（消除 1.2KB×每轮 的冗余注入 + 双源漂移根因）。
+
+### 方案 B：完全删除
+
+- 自动推进发引擎生成的固定短句；用户持续意图只能走记忆 preference（结构化）或每次手打（一次性）。
+- 手动「继续」按钮失去文案源（需引擎 fallback 短句）。
+- 省一个 UI 控件，但砍掉的是唯一自由文本持续指令通道，与「好用压倒一切」（G-001）冲突。
+
+### 方案 C：维持现状（不推荐）
+
+- 9 项冗余职责继续每轮重复注入；双源漂移风险持续存在（D-120/D-128/D-163 前科会继续发生）；LEGACY 表随每次文案修改继续膨胀。
+
+### 结论
+
+**保留继续文案，但把它的默认内容从「引擎规则复读」降级为「用户意图载体」**：规则归 system prompt/引擎（§3.1），用户意图留 textarea（§3.2），鞭挞状态机整体下沉 harness（§4）。保留的是第 11 项独有职责，剥离的是 1-10 项重复/治理成本。
+
+## 六、后续条目建议（待用户拍板后拆）
+
+- R-128（todo）：验收范围「全部阻塞自动停止、解除后可恢复」为引擎化方案的一个判定分支——实施时并入 §4 的引擎状态机，close 时按引擎单测证据结项。
+- 新条目 TBD-1「鞭挞状态机引擎化」：§4 下沉清单全量（harness auto-run 策略模块 + core runner 轮末消费 + 前端 UI 壳 + CLI 接入）。
+- 新条目 TBD-2「继续文案精简」：§3 剥离清单全量（极简默认、删 LEGACY/applyCadenceSettings、cadence 渲染移出文案）。
+- 依赖：TBD-2 建议在 TBD-1 之后或并行（文案精简不依赖状态机，可独立做；但「TAIL/NUDGE 移出文案」依赖 TBD-1 已接管刹车语义）。

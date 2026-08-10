@@ -1434,3 +1434,16 @@
 批次 1/3 完成(d41fff4):docstore.rs DocKind 增 tags 词表字段,REQUIREMENTS/DEFECTS 用词表、其余 None;tracker.rs 新增 check_tag(兼容 标签/tags/tag 键,按空白/逗号拆分逐词校验),接入 add/update/close/repair_missing_id 四处写入口;2 个新单测覆盖词表外拒绝/多值含非法词/词表内放行/无词表文档不受影响,tools 134 passed。
 批次 2/3:quick capture 自动建议分类。
 
+## R-122 构建可视化架构浏览与维护内存设置功能 [done]
+- priority: P2
+- 原始描述: 缺少一个架构浏览，也是要让agent维护，可视化做好一点，和设置记忆这些同级目录，要慎重选取技术栈
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 实现可视化架构图/浏览器，支持维护记忆等配置信息，并完成技术栈选型评估报告
+
+- 标签: 前端
+
+- 优先级: P2
+- 批次: 3/3
+- 进展: 2026-08-10 三批完成。批1(da809a2):技术栈选型评估报告 docs/design/architecture_browser.md(验收③,方案A=既有 classic script+目录树复用,选型理由/取舍/风险齐备),顺带修 D-173 索引缺口(3 个未入册文档补入索引,architecture check 0 issue)。批2(bad8490):可视化架构浏览器——后端新增 architecture_snapshot(读索引+docs/design 目录清单,只读)与 docs_read_custom(只读 docs/ 前缀)并注册 invoke_handler(crates/kanzei-app/src/docs.rs:309-379, main.rs 注册);前端主导航新增 view-arch(ui/index.html:25 导航按钮+367 视图容器, 19-arch.js 渲染),左侧索引章节分组+未入册分层树(data-i18n-raw 保护防 i18n 词条污染),右侧索引原文,点击文档走应用内 MD 查看器(15-views-misc.js openRuntimeMarkdown);runtime smoke 断言树渲染/未入册/查看器打开。批3(5c9e1df):架构浏览「记忆管理」入口——view-arch 顶部按钮跳转记忆页,触达既有 memory_* 命令(memory_entry_save/delete/consolidate 等,既有能力显式标注非本次交付)。
+

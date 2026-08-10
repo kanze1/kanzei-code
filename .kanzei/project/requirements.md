@@ -86,19 +86,6 @@
 - refs: R-095
 - 进展: 2026-08-10 复查:R-095 已交付(done),其验收⑤明确覆盖子代理状态观察——活动面板子代理条目给出内部调用数与当前步骤,入参/输出/成败/耗时齐备。本条原始诉求「子代理能对当前运行状态进行观察」已被 R-095 覆盖;去留按「待定」字段由用户拍板(关闭或按缺口重写验收),agent 不擅自决定。依赖 R-095 已关闭,移入 refs。
 
-## R-122 构建可视化架构浏览与维护内存设置功能 [todo]
-- priority: P2
-- 原始描述: 缺少一个架构浏览，也是要让agent维护，可视化做好一点，和设置记忆这些同级目录，要慎重选取技术栈
-- 复杂度: 中
-- 归属: kanzei
-- 验收: 实现可视化架构图/浏览器，支持维护记忆等配置信息，并完成技术栈选型评估报告
-
-- 标签: 前端
-
-- 优先级: P2
-- 批次: 0/3
-- 进展: 2026-08-10 接手。现状盘点(调研):①前端约束=A-008 已定调有序 classic script 不引入 ES modules/框架(decisions.md:52-57 + monolith_decomposition.md:171),ui/ 无 package.json/构建工具;②已有可复用渲染模式=17-files.js buildFilesTree/renderFilesDir 目录树 + 13-memory.js renderMemoryArch 卡片 + 应用内 MD 查看器 openDocViewer;③架构数据源=architecture/README.md 索引(architecture 工具维护,当前有 3 个 design doc 未入索引=D-173 缺口)+ docs/design/ 文档;④记忆维护命令齐备(memory_overview/entries/save/delete/consolidate 等 13 个)。批次规划:批1=技术栈选型评估报告(docs/design/architecture_browser.md)+修索引缺口;批2=架构浏览视图(主导航入口,树形浏览+应用内查看器);批3=记忆配置入口接入+收口验证。
-
 ## R-128 全部阻塞时停止鞭挞的逻辑设计 [todo]
 - priority: P2
 - 原始描述: 如果全部阻塞，应该要停止鞭挞，需要更多的设计鞭挞停止的逻辑
@@ -107,6 +94,8 @@
 - 验收: 当全部条目处于阻塞状态时,系统自动停止鞭挞,不再触发催办;阻塞解除后可恢复
 
 - 标签: 核心
+
+- 进展: 2026-08-10 用户指令「把继续文案拆解了，鞭挞相关的核心部件拆解到 harness 里，评估一下保留继续文案的必要性」。已完成评估:docs/design/continue_prompt_dissection.md(草案,架构索引已登记)。结论:保留继续文案但降级为「用户意图载体」——规则 1-6/TAIL/开发重心拼接/LEGACY 全部剥离(真源已在 system prompt 与 kanzei.toml cadence),鞭挞核心部件(空转检测/连数/NUDGE/调度/暂停/停止原因状态机)下沉 harness。本条目验收「全部条目阻塞时自动停止鞭挞、阻塞解除后可恢复」为引擎化方案的一个判定分支,实施并入「鞭挞状态机引擎化」新条目(待用户拍板方案后开做)。
 
 ## R-129 单页阅读信息记忆困难优化 [todo]
 - priority: P3
@@ -393,3 +382,21 @@
 - 归属: kanzei
 - 验收: 活动栏不记录 edit 等工具调用，仅记录报错和非工具的 bash 命令。
 - 优先级: P1
+
+## R-169 鞭挞状态机引擎化:自主推进核心部件下沉 harness [todo]
+- 优先级: P1
+- 内容: 按 docs/design/continue_prompt_dissection.md §4 下沉清单执行：鞭挞(自主推进)核心部件从 ui/08-compose.js + 07-events.js 下沉 kanzei-harness 新增 auto-run 策略模块，kanzei-core runner 轮末消费。下沉项：①空转检测工具画像 NON_PROGRESS_TOOLS/hasProgressTools；②全部阻塞/清空停止 stopAutoWhenBacklogEmpty；③连数上限 autoContinueMax 与判定；④无动作 NUDGE(第一次追加推进指令/第二次停)；⑤2 秒调度 scheduleAutoContinue；⑥暂停/本轮后停/停止原因状态机。前端只留 UI 壳(开关/连数输入/暂停/本轮后停按钮/状态回显)；CLI 获得同款自主循环能力。R-128 验收(全部阻塞自动停止、解除后可恢复)并入本引擎状态机作为判定分支。
+- 原始描述: 2026-08-10 用户指令：鞭挞相关的核心部件拆解到 harness 里。现状：鞭挞状态机全在前端 JS，CLI 无自主循环概念；规则落提示词导致 D-120/D-128/D-163 等双源漂移事故反复发生(conventions §4:能代码强制的绝不只写进提示词)。
+- 复杂度: 大
+- 归属: kanzei
+- 标签: 核心
+- 验收: ①空转检测/连数上限/全部阻塞停止/NUDGE 判定均有 harness 单测，断言可覆盖七种场景(与 R-076 同级别)；②桌面端鞭挞行为与现状等价：runtime smoke 断言轮末续跑、全部阻塞自动停止且解除后可恢复、无动作第一次追加 NUDGE 第二次停；③CLI 轮末具备同款自主循环或状态机单源可被 CLI 消费(D-229 类桌面端独占架构债消除)；④前端 08-compose.js/07-events.js 不再承载状态机判定逻辑(只留控件与事件转发)。
+
+## R-170 继续文案精简:默认降级为用户意图载体,引擎规则剥离 [todo]
+- 优先级: P1
+- 内容: 按 docs/design/continue_prompt_dissection.md §3 剥离清单执行：①默认文案从大段引擎规则(规则 1-6/TAIL)降级为极简意图句(如「继续推进，规则按系统提示」)；②移除开发重心拼接块(continuePrompt() 尾部)——取活顺序已由 run.rs work_priority_guidance + memory preference 注入 system prompt；③移除 cadenceVerificationText 渲染——R-157 已把节奏参数化进 kanzei.toml [cadence]，渲染点移出文案(需要时改注入 system prompt)；④删除 LEGACY_CONTINUE_PROMPTS 静默升级机制、lastRenderedPrompt/applyCadenceSettings 分支——规则剥离后不存在「历史默认需升级」的契约错位；⑤textarea 仅承载用户附加意图，删空回落极简默认。
+- 原始描述: 2026-08-10 用户指令：把继续文案拆解，评估保留必要性。评估结论(continue_prompt_dissection.md §5 方案 A)：保留但降级——11 项职责中 9 项在 system prompt/配置已有真源，LEGACY 是双源治理成本，仅「用户自定义意图」是独有价值；每轮 1.2KB 冗余注入 + 双源漂移(D-120/D-128/D-163 前科)应结构性消除。
+- 复杂度: 中
+- 归属: kanzei
+- 标签: 前端
+- 验收: ①默认文案快照断言不再包含批次粒度/阻塞定义/验收证据/验证节奏等引擎规则文本；②用户自定义文案不受影响：localStorage kz-continue-prompt 读回原样、删空回落极简默认；③LEGACY 升级代码删除后，旧默认文案不再触发覆盖(单测/冒烟断言)；④四条冒烟全绿(ui-runtime/i18n/a11y/markdown)，新增继续文案极简默认断言；⑤与 TBD-1 并行时 TAIL/NUDGE 文本移除以引擎接管为准。
