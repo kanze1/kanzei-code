@@ -53,21 +53,6 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [doing]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心
-- 阶段: 2
-- 调度顺序: 紧跟 R-161～R-167 memory system 开发序列之后；这是开发顺序，不登记为阻塞依赖，memory 序列收口后直接取活。
-- 来源: 2026-08-10 用户定调子代理计划的核心原则为「并行查，串行写」，并要求收束仓库多进程代理流接口；完整设计见 docs/design/parallel_read_serial_write_orchestration.md。
-- 内容: ①新增 `ReadParallelWriteSerial` 执行策略与项目级 `ProjectExecutionCoordinator` 接口；②勘察/复核阶段允许 task 只读子代理并行，全部进入终态后经过汇总屏障；③同一规范化 project_root 同时只允许一个 writer run，租约跨实现/集成阶段和连续工具调用持有；④writer 阶段禁用 task，普通工具强制按模型调用顺序 FIFO 串行；⑤ProcessHandle 共享项目协调器，ToolCtx 分离 worktree_key 与 project_write_key 并携带 run/process 身份；⑥quick_req、tracker、goal、memory、test_record、Git/worktree 等独立写入口全部接入同一仲裁；⑦写队列、租约、阶段、取消和恢复事件落现有 session/run 轨迹。
-- 边界: P0 覆盖当前应用内多个 ProcessHandle；不做图形化 DAG、不开放子代理通用写权限、不在本批实现跨机器调度。worktree 保留隔离、diff、恢复和交付能力，但不能绕过项目级单 writer。
-- 验收: ①至少两个只读子代理真实重叠执行且工具白名单无写入口；②汇总屏障前 writer 不启动，失败/超时都有终态；③writer 阶段普通工具 max in-flight=1 且结果按调用顺序归位；④两个 ProcessHandle 竞争写权时租约区间不重叠，同一 writer 的连续写之间不能插入第二个 writer；⑤quick_req/tracker/test_record/Git/worktree 写入无法绕过协调器；⑥停止、关闭、panic 收尾后租约可靠释放；⑦一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹。
-- refs: R-050 R-117 R-138 R-141 D-227 docs/design/parallel_read_serial_write_orchestration.md
-
-- 批次: 0/7
-- 进展: 取活。批次规划:批1 核心接口(ExecutionPolicy + ProjectExecutionCoordinator trait + ToolCtx 双键 run/process 身份 + 状态机 + 单测);批2 drive 串行强制(writer 阶段 max in-flight=1 + task 禁用 + 按序归位);批3 协调器实现挂 AppState + ProcessHandle 共享 + 租约获取/释放;批4 旁路收口(quick_req/tracker/test_record/git/worktree 接入仲裁);批5 事件落轨迹(orchestration/writer 事件进 session_events);批6 取消/停止/panic 租约可靠释放;批7 真实需求闭环轨迹 + 全量。设计文档已读,现状勘察完成(ToolCtx 仅 cwd/project_root,drive can_parallel_tools 现有 wave)。
-
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
 - 复杂度: 大
 - 优先级: P2
@@ -279,3 +264,16 @@
 - 内容: 把新建配置的注释模板补成带各节骨架的注释示例(至少覆盖 [models]、[providers.X]、[limits]、[proxy]、[cadence] 的键名与取值范围),全部以注释形式给出——**不得写成生效的显式值**,否则会被当成用户设定、绕过 fill_defaults 的默认(这正是被修掉的那个 bug 的形态)。
 - 边界: 只动模板文本;不改 settings_open 的写入时机与「留空即默认」语义;模板内容写进文件、不是界面文案,不受 ui-i18n-smoke 约束。
 - 验收: ①全新环境下 settings_open 产出的文件含各节骨架注释;②解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致);③不引入任何生效的显式值。
+
+## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [todo]
+- refs: R-171 R-117 R-050 docs/design/parallel_read_serial_write_orchestration.md
+- 优先级: P1
+- 依赖: R-171
+- 内容: R-171 验收②⑦ 转移承接:①阶段编排对象:baseline→scouting(并行只读子代理)→汇总屏障→implementation(单 writer 租约,串行)→integration(同一 writer)→review(并行只读复核)→复核屏障→fixup(重新获取写租约串行修正);②汇总屏障:scouting 全部任务进入终态(完成/失败/超时)前 writer 不得启动,失败/超时都有确定终态,屏障不永久挂起;③复核屏障:writer 释放租约后复核才启动,保证审查的是稳定快照(设计不变量 9);④真实闭环验证:一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹,事件落 session/run 轨迹(复用 R-171 批5 的 orchestration.* 事件与批6 的读槽登记)。
+- 复杂度: 大
+- 归属: kanzei
+- 来源: 2026-08-10 R-171 关闭裁决:验收②⑦ 依赖阶段编排对象,按用户选择 A 拆为本 P1 需求承接
+- 标签: 核心
+- 调度顺序: R-171 关闭后按序取活
+- 阶段: 3
+- 验收: ①至少两个只读子代理真实重叠执行,汇总屏障(最慢任务完成/失败/超时)前 writer 不启动,失败/超时都有确定终态;②一次真实需求完成并行勘察→屏障→串行实现/验证→并行复核→复核屏障→串行修正全轨迹,阶段事件落 session_events 可回放;③复核阶段在 writer 释放后启动,审查的是稳定快照;④writer 活跃时允许只读勘察继续(读写共存,复用 R-171 读槽机制)。

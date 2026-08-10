@@ -1353,3 +1353,43 @@
 - 命令: cargo test --workspace
 - 摘要: R-132 关闭前全量:cargo test --workspace 全绿(app 51 + tools 183 + core 97)。
 - 收尾: 1786350822
+
+## T-1786351484 R-171 B1 定向测试(tools/core/harness/app) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-core -p kanzei-harness -p kanzei-app
+- 摘要: R-171 B1 定向回归:core 101 / harness 64 / tools 183 / app 51 全绿(含 orchestration 4 条新单测)
+- 收尾: 1786351484
+
+## T-1786351690 R-171 B2 定向测试(core/harness/tools/app) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-harness -p kanzei-tools -p kanzei-app
+- 摘要: R-171 B2 定向回归:core 102(含 max_parallel=1 串行测试)/harness 65(含 policy 判定)/tools 183/app 51 全绿
+- 收尾: 1786351690
+
+## T-1786351826 R-171 B3 定向测试(app/core/harness) [passed]
+- 命令: cargo test -p kanzei-app -p kanzei-core -p kanzei-harness
+- 摘要: R-171 B3 定向回归:app 51 / core 102(租约排他/读槽/取消/panic 4 测)/harness 65 全绿;AppState 协调器接线编译通过
+- 收尾: 1786351826
+
+## T-1786351958 R-171 B4 定向测试(app/core/harness/tools) [passed]
+- 命令: cargo test -p kanzei-app -p kanzei-core -p kanzei-harness -p kanzei-tools
+- 摘要: R-171 B4 定向回归:app 51 / core 102 / harness 65 / tools 183 全绿;旁路写入口全部接入协调器租约
+- 收尾: 1786351958
+
+## T-1786352083 R-171 B5 事件闭环审计测试 [passed]
+- 命令: cargo test -p kanzei-core store::events
+- 摘要: R-171 B5:orchestration 写租约事件闭环测试 8 通过(queued→acquired→released 可审计回放)
+- 收尾: 1786352083
+
+## T-1786352258 R-171 B6 定向测试(app/core/harness/tools) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-harness -p kanzei-app -p kanzei-tools
+- 摘要: R-171 B6 定向回归:core 103(含读槽 RAII 释放测试)/ harness 65 / app 51 / tools 183 全绿
+- 收尾: 1786352258
+
+## T-1786352312 R-171 B6 提交前定向复测 [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-harness -p kanzei-app -p kanzei-tools
+- 摘要: R-171 B6 提交前复测:core 103 / harness 65 / app 51 / tools 183 全绿(含 CLI coordinator=None 改动)
+- 收尾: 1786352312
+
+## T-1786352440 R-171 关闭前全量测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-171 B7 关闭前全量:workspace 全绿(core 103 / harness 65 / app 51 / tools 183 / kz 等)
+- 收尾: 1786352440

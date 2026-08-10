@@ -1652,3 +1652,18 @@
 
 - 批次: 1/1
 
+## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 调度顺序: 紧跟 R-161～R-167 memory system 开发序列之后；这是开发顺序，不登记为阻塞依赖，memory 序列收口后直接取活。
+- 来源: 2026-08-10 用户定调子代理计划的核心原则为「并行查，串行写」，并要求收束仓库多进程代理流接口；完整设计见 docs/design/parallel_read_serial_write_orchestration.md。
+- 内容: ①新增 `ReadParallelWriteSerial` 执行策略与项目级 `ProjectExecutionCoordinator` 接口；②勘察/复核阶段允许 task 只读子代理并行，全部进入终态后经过汇总屏障；③同一规范化 project_root 同时只允许一个 writer run，租约跨实现/集成阶段和连续工具调用持有；④writer 阶段禁用 task，普通工具强制按模型调用顺序 FIFO 串行；⑤ProcessHandle 共享项目协调器，ToolCtx 分离 worktree_key 与 project_write_key 并携带 run/process 身份；⑥quick_req、tracker、goal、memory、test_record、Git/worktree 等独立写入口全部接入同一仲裁；⑦写队列、租约、阶段、取消和恢复事件落现有 session/run 轨迹。
+- 边界: P0 覆盖当前应用内多个 ProcessHandle；不做图形化 DAG、不开放子代理通用写权限、不在本批实现跨机器调度。worktree 保留隔离、diff、恢复和交付能力，但不能绕过项目级单 writer。
+- 验收: ①至少两个只读子代理真实重叠执行且工具白名单无写入口；②汇总屏障前 writer 不启动，失败/超时都有终态；③writer 阶段普通工具 max in-flight=1 且结果按调用顺序归位；④两个 ProcessHandle 竞争写权时租约区间不重叠，同一 writer 的连续写之间不能插入第二个 writer；⑤quick_req/tracker/test_record/Git/worktree 写入无法绕过协调器；⑥停止、关闭、panic 收尾后租约可靠释放；⑦一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹。
+- refs: R-050 R-117 R-138 R-141 D-227 docs/design/parallel_read_serial_write_orchestration.md
+
+- 批次: 6/6
+- 进展: 批6 完成并提交(b8d2b05);批7 为收口核对(无源码改动,不计批)。全量测试通过(cargo test --workspace 全绿)。逐项核对验收:①白名单无写入口=既有 SubagentBase 只读快照+task_spec 只有 read/glob/grep;③drive 串行 max in-flight=1 按序归位=批2 测试锚定;④租约不重叠+连续写不插第二 writer=批1 core 4 测;⑤旁路全部接入=批4 各 command acquire;⑥panic/取消/停止释放=批1 panic 测+RAII。②⑦ 按用户裁决 A 拆至 R-173(P1 阶段编排对象)。
+
