@@ -16,14 +16,14 @@
 - 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
 - refs: R-095 R-117 R-173 R-175 R-176
 - 依赖: 
-- 进展: 批1已提交(9179ae8)。批2(单条停止通道+TaskTrace 数据面)交付:①TaskTrace 扩展 input(子代理内部工具完整入参,transcript 数据源)与 usage(StepEnd 逐轮累计,面板 token 字段数据源),subagent.rs on_event 上抛;②TaskCancellations 注册表(kanzei-core,id→token),run_subagent 末尾 select! 挂取消分支——stop_task 命中后以「被停」终态(ok=false+was stopped by the user)收尾,读槽随 future drop RAII 释放,timeout 兜底正交;③SessionRuntime 挂注册表,新 Tauri command stop_task(project_dir, task_id) 注册进 invoke_handler;④集成测试 crates/kanzei/tests/task_cancel_parallel.rs:mock 服务器挂起子代理连接→oneshot 通知→cancel→断言 cancelled trace、被停 ToolEnd、读槽 agent_completed 回收、主轮正常收尾;⑤连带完成压缩前遗留 R-173 批7 未提交改动:phase_pipeline 开关改名 subagent→phase_pipeline(processes/state/run 同步)、run_task 参数改 phase_pipeline_enabled、subagent_rt 无条件构造(开关只管强制勘察)、start_if_enabled 装配闸门。定向:core 119/harness 82/tools 213/app 67 + 3 条 kz 并行集成测试全绿。剩余批3:前端 Running/Finished 面板;批4:单条停止按钮+transcript;批5:冒烟断言+收口。
+- 进展: 批1-3已提交(9179ae8/68ee84ec/25ea2c0),cargo test --workspace 全量全绿。验收①并发度实测✓(集成测试+轨迹)、②旧配置无键行为不变✓(serde default 测试绿)、③面板分区与六字段真实数据✓(冒烟逐字段断言)、④单条停止✓(stop_task + task_cancel_parallel.rs 实测)、⑤transcript 真实数据源✓(TaskTrace.input 渲染,冒烟断言入参)、⑥冒烟断言✓(分区切换/停止/transcript/被停终态/Clear 均有断言)。仅剩验收⑦「桌面端主对话实测面板真出现子代理条目」未闭环——需要构建新版 kzapp 安装,2026-08-11 用户定调:先不装,等下次发版一起实测。本条保持 doing 待发版,不占可执行槽位。
   ①**前置回归已解除**——「桌面端主对话根本不注册 task 工具」那条(本条与 R-175/R-176 共同记录的前置)已由 R-173 批4.5 修掉(`e933262`),验收⑦现在可以真去桌面端取证了。
   ②**验收③已部分交付**——R-173 收尾时把编排派发的勘察/复核子代理接上了活动面板(`ff287c4`):按 `input.phase` 分「勘察/复核」两组、显示角色名与**当前工具名**(取 `kz:task-progress` 的 `trace.name`)、运行时长、内部调用数,超时与失败分开成两种终态,冒烟有 6 组反证锁死。**它刻意复用 `#bg-list` 没有新建平行面板**——本条要做的独立面板应当在此之上演进,不是另起炉灶。仍缺:累计 token、Clear、Running/Finished 两区(现在是按阶段分组,不是按运行状态)。
   ③**验收④单条停止的最小改法已备**:目前 `dispatch_roles` 的 future 集合由屏障统一驱动,没有对外暴露的 per-role cancel handle。改法 = 每角色配一个 `CancellationToken` + 新 Tauri 命令按 role 触发,取消后该角色以 `ScoutOutcome::Failed("cancelled")` 进终态——屏障照常收敛,不会挂住。
   ④**两条形态决策留给本条拍**:(a) 编排派发的 8 条同时也会在**主对话**里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每个自主推进轮多 8 个块,可能偏吵;(b) 前端条目的 `id` 就是角色名,而角色跨轮复用,所以当前实现是**每角色只留最新一轮**(跨轮定格的 bug 已修成"原地复位")。要保住历史轮次得让后端给 `role@round` 之类的唯一键。
   另:验收①②的「并发度可配」部分是**既有能力**(见本条「既有能力」字段),不要重做。
 
-- 批次: 2/5
+- 批次: 3/5
 
 ## R-177 线绑 worktree 后端打通:process_create 建线、cwd/主根分离、线清单从 git 发现 [todo]
 - 优先级: P0
@@ -41,6 +41,9 @@
 - refs: R-050 R-141 R-171 R-173 R-178 R-179 D-096 D-251 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
 - 依赖: 
 - 前置(不是阻塞,解除权在 agent 手里,按 D-239 教训**不写进「依赖」字段**免得调度器整条跳过): **R-141 批2**。R-141 批1(`8574b63`)已落一半——`ToolCtx::new` 改双参不再发现式取根、`ToolCtx::discovering` 只留给进程/IPC 入口,`run_task` 已收显式 `main_root` 并令 `project_root = main_root`、`cwd = project_dir`,`run_prompt` 在 IPC 入口解析一次主根后显式传入(crates/kanzei-app/src/run.rs 已有「R-050 D1 运行时重定向主根的落点」注释)。批2(`app/run.rs` 显式传根收尾 + 双键拆开)落地后本条即可动工;R-141 未完成时先做本条的 ③(线清单从 git 发现)与 ⑤(补测试)也不受影响。
+
+- 批次: 0/6
+- 进展: 取活:前置 R-141 已关闭(8574b63+bf85fe9,批2 完成),本条第③⑤ 更不受影响。按验收拆分 6 批:批1 process_create 建线+worktree_path 真实绑定+回滚;批2 run_prompt 归属校验改 origin_project+cwd/main_root 分离;批3 线清单 git worktree list --porcelain 发现,废除 localStorage kz-worktrees;批4 session_id 后缀+一树一线查重+N3 开关;批5 配置读主根(⑧)+四个命令测试补全(⑦);批6 端到端集成测试+收口。批次表见侧栏。
 
 ## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [todo]
 - 优先级: P1
@@ -280,3 +283,17 @@
 - 边界: 不做通用的服务编排/健康检查/自动重启;不把默认档位改成长驻(D-174 的安全降级是有意为之)。子代理后台化属 R-175,两者语义相关但不是同一件事——R-175 管的是**子代理**跨轮存活,本条管的是**shell 后台进程**跨 run 存活;实现时共用注册表与终态口径,不要各造一套。
 - 验收: ①声明为长驻的后台服务在 owner run 结束后仍在跑,且能被查询到状态;默认档位的后台任务行为不变(owner run 收尾即收尾),有测试区分两档。②强杀 kzapp 后重开,注册表能列出上次未终结的长驻服务并给出确定处置,不留幽灵条目。③后台日志落盘:超过 256 KiB 的输出不再丢头,重启后仍可回看,有测试。④长驻服务写入托管路径(`.kanzei/project`、`.kanzei/memory`)仍被 D-174 的归因/回滚拦下,有回归覆盖。⑤日志落盘走 `crates/kanzei-tools/src/atomic_file.rs` 的原语,全仓不出现第二套写原语。
 - refs: D-174 R-175 R-138 R-097
+
+## R-181 跨 agent 源码写入互斥:写租约延伸到外部进程,kz lock 让外部 agent 也能入局 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(2026-08-11 真实撞车实例,有提交为证)
+- refs: R-171 R-173 R-138 D-263 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 凌晨的一次真实撞车。用户在外部 agent(Claude Code)里派了一个子代理改 `app/run.rs`/`state.rs`/`processes.rs`/`phase_pipeline.rs`,同时桌面端自举循环取活 R-174 并在同一批文件上工作。结果:自举的两次提交(`92879e2`/`25ea2c0`)把外部代理**尚未完成的改动一并扫进了自己的提交**(标题里的「含 R-173 遗留收尾」就是被裹进去的那部分),并留下 8 处 fmt + 6 条 clippy 红灯。改动没丢,但归属混了、CI 红了、两边都不知道对方在写。
+- 现状与缺口: R-171 交付的项目级单 writer 是 `AppState` 里的**进程内内存实现**(`crates/kanzei-core/src/orchestration.rs` 的 `MemoryCoordinator`)。它保护的是**kanzei 自己的 agent 之间**——主对话、task 子代理、旁路 Tauri 命令。它看不见:①外部 agent(Claude Code / Cursor / 人手动改);②`kz` CLI(`crates/kanzei/src/main.rs` 的 tracker 子命令 `coordinator: None`);③第二个 kzapp 实例。设计基线 `parallel_read_serial_write_orchestration.md` 的「TODO 与后续风险」第 5 条早就点名了这个缺口(「未来多个 OS 进程同时打开同一项目时,AppState 内存协调器不可见;P3 必须用文件锁或持久 lease 扩展同一接口」)——**2026-08-11 它不再是「未来」,已经发生了**。R-138 已交付的跨进程文件锁(`crates/kanzei-tools/src/atomic_file.rs` 的 `FileLock`,Windows `share_mode(0)` 独占句柄,零新依赖)只保护 docstore 的 tracker 文件,**保护不了 `crates/**` 源码**。
+- 内容: ①把写租约扩成**跨进程**实现:复用 `atomic_file::FileLock` 的独占句柄手法,在主根落一个持久 lease(持有者 = pid + run_id + 取得时刻 + 用途),`ProjectExecutionCoordinator` 接口不变(设计基线明写「换插不换契约」);②新增 `kz lock <acquire|release|status>` CLI,让**外部 agent 也能入局**——外部 agent 不受 kanzei 的 runner 约束,唯一可行的是给它一个能主动调用的通道,并把「动仓库前先 `kz lock acquire`」写进 conventions;③引擎侧在取活前检查外部 lease,被占时**明说谁占着、占了多久**并等待或跳过,不得静默继续(D-004 口径);④崩溃不留死锁:独占句柄随进程退出由 OS 关闭,非 Windows 走 mtime 陈旧摘除,与 `FileLock` 同一套;⑤lease 事件进 session_events,与 R-171 的 `writer.*` 同一出口。
+- 边界: 不做强制拦截外部进程的写(做不到,也不该做);本条是**协作式**互斥——提供机制 + 可见信号,让双方都能知道对方在写。真正的强隔离是 worktree(R-177),两者互补不互替。
+- 验收: ①两个 OS 进程(kzapp + kz CLI)同时申请写租约,实际持有区间不重叠且顺序可审计;②`kz lock status` 能报出当前持有者(pid/run_id/取得时刻/用途)与等待队列;③引擎取活时被外部 lease 占住,轨迹里有可见记录并说明持有者,不是静默跳过或静默继续;④强杀持有进程后 lease 自动失效,下一个申请者能立刻拿到(崩溃不留死锁,有实测);⑤`ProjectExecutionCoordinator` 的调用契约未变(现有 runner/旁路调用点零改动,有编译期证据);⑥conventions 补一节「外部 agent 动仓库前的取锁纪律」。

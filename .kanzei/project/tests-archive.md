@@ -1459,3 +1459,13 @@
 - 摘要: 批2 提交前复测:run.rs task_cancellations 引用修复后 kanzei-app 67 passed 全绿
 - 关联: R-174
 - 收尾: 1786382099
+
+## T-1786382790 R-174 批3 子代理面板前端冒烟四连 [passed]
+- 摘要: 批3 前端子代理面板:四条冒烟(runtime/i18n/a11y/markdown)全绿;kanzei-app 68 passed(含 R-173 遗留勘察复核默认关测试);frontend_check 结构完整
+- 关联: R-174
+- 收尾: 1786382790
+
+## T-1786382919 cargo test --workspace (R-174 关闭前全量) [passed]
+- 摘要: R-174 关闭前全量:cargo test --workspace 全绿(core 119/harness 82/llm 42/tools 213/app 68 + 3 条 kz 并行集成测试)
+- 关联: R-174
+- 收尾: 1786382919
