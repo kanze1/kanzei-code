@@ -2104,6 +2104,60 @@ assert(
 );
 assert(listText("memory-detail").includes("累计命中"), "记忆详情未给出效果画像");
 
+// ---------- R-129 正文分段阅读:摘要行 + 段落块 + 超长折叠 + 编辑切换 ----------
+// 用长多段正文替换载荷,走真实渲染路径(loadMemoryList → 点击条目 → showMemoryDetail),
+// 验证:摘要行取首段、分段列表按空行拆、超长段折叠可展开、编辑按钮切回 textarea。
+{
+  const savedEntries = structuredClone(payloads.memory_entries);
+  payloads.memory_entries = [
+    { id: "M-LONG-001", category: "fact", title: "长正文记忆", description: "钩子", status: "active", body: "第一段要点：这是正文摘要应展示的首段内容。\n\n第二段：拆出来的第二个段落块。\n\n第三段超长：\n" + "很长的段落文本，需要折叠。".repeat(30), hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-08-01" },
+    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-01-01" },
+  ];
+  await sandbox.loadMemoryList("project", null);
+  await flush();
+  const longRow = [...document.querySelectorAll("#memory-list .memory-row")].find((r) => r.dataset.memoryId === "M-LONG-001");
+  assert(longRow, "前置失败:长正文记忆条目未渲染");
+  longRow.click();
+  await flush();
+  const summary = document.querySelector("#memory-detail .memory-body-summary");
+  assert(summary, "记忆详情未渲染正文摘要行(R-129)");
+  assert(
+    listText("memory-detail").includes("正文摘要") && listText("memory-detail").includes("第一段要点"),
+    `摘要行未展示首段要点: "${listText("memory-detail").slice(0, 80)}"`,
+  );
+  const paras = document.querySelectorAll("#memory-detail .memory-body-para");
+  assert(paras.length === 3, `正文未按空行拆成 3 段,实得 ${paras.length}`);
+  const collapsed = document.querySelector("#memory-detail .memory-body-para.collapsed");
+  assert(collapsed, "超长段未折叠(长文仍整块糊在详情里)");
+  const toggle = collapsed.querySelector(".memory-body-toggle");
+  assert(toggle, "折叠段缺少展开按钮");
+  assert(toggle.textContent.includes("展开"), `展开按钮文案不对: "${toggle.textContent}"`);
+  toggle.click();
+  assert(
+    !collapsed.classList.contains("collapsed"),
+    "点展开后折叠类未移除(点了不展开)",
+  );
+  assert(toggle.textContent.includes("收起"), "展开后按钮未切换为「收起」");
+  const editBtn = [...document.querySelectorAll("#memory-detail .memory-body-edit-row button")].find((b) => b.textContent.includes("编辑正文"));
+  assert(editBtn, "阅读视图缺少「编辑正文」入口");
+  editBtn.click();
+  const textarea = document.querySelector("#memory-detail .memory-body-read textarea[aria-label]");
+  assert(textarea, "点编辑正文后未切换回 textarea");
+  assert(textarea.value.includes("第一段要点"), "textarea 未回填当前正文(编辑会丢内容)");
+  // 编辑态保存:改正文 → 点保存 → memory_entry_save 载荷带新值。
+  const saveBtn = [...document.querySelectorAll("#memory-detail .memory-detail-actions button")].find((b) => b.textContent === "保存修改");
+  assert(saveBtn, "前置失败:保存按钮缺失");
+  textarea.value = "改过的正文\n\n新段落";
+  saveBtn.click();
+  await flush();
+  const savedCall = invokeArgs.find(({ cmd, args }) => cmd === "memory_entry_save" && args?.id === "M-LONG-001");
+  assert(savedCall, "保存修改未提交 memory_entry_save");
+  assert(savedCall.args.body === "改过的正文\n\n新段落", `保存载荷正文不对: "${savedCall.args.body}"`);
+  payloads.memory_entries = savedEntries;
+  await sandbox.loadMemoryList("project", null);
+  await flush();
+}
+
 // ---------- R-150 空闲整理清单 + 三档宽度响应式 ----------
 assert(invokeLog.includes("memory_value_flags"), "记忆页未拉取空闲整理清单");
 const flagRows = document.querySelectorAll("#memory-value-flags .memory-flag-row");

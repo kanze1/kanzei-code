@@ -464,10 +464,12 @@ function showMemoryDetail(scope, entry) {
   const desc = document.createElement("input");
   desc.value = entry.description;
   desc.setAttribute("aria-label", t("召回钩子"));
-  const body = document.createElement("textarea");
-  body.value = entry.body;
-  body.rows = 8;
-  body.setAttribute("aria-label", t("记忆正文"));
+  // R-129:正文从单一 textarea 改为「摘要 + 分段阅读」,减少长文认知负荷;
+  // 点「编辑正文」才切换回 textarea,保存仍走既有 memory_entry_save。
+  const bodyBox = document.createElement("div");
+  bodyBox.className = "memory-body-read";
+  const bodyText = String(entry.body ?? "");
+  renderMemoryBodyRead(bodyBox, bodyText);
   const save = document.createElement("button");
   save.type = "button";
   save.className = "primary";
@@ -480,10 +482,12 @@ function showMemoryDetail(scope, entry) {
         id: entry.id,
         title: title.value,
         description: desc.value,
-        body: body.value,
+        body: readMemoryBody(bodyBox, bodyText),
         status: null,
       });
       toast(t("记忆已保存"));
+      // 就地重渲染详情:阅读视图要显示刚保存的新正文,不能停在旧值上。
+      showMemoryDetail(scope, { ...entry, title: title.value, description: desc.value, body: readMemoryBody(bodyBox, bodyText) });
       refreshMemory();
     } catch (err) {
       toastError(`${t("记忆保存失败")}:${err}`);
@@ -535,7 +539,88 @@ function showMemoryDetail(scope, entry) {
   const actions = document.createElement("div");
   actions.className = "memory-detail-actions";
   actions.append(save, staleBtn, deleteBtn);
-  box.append(meta, profile, title, desc, body, actions);
+  box.append(meta, profile, title, desc, bodyBox, actions);
+}
+
+// R-129:正文从单一 textarea 改为「摘要 + 分段阅读」。摘要行取首段去换行截 140 字,
+// 让长文先有可扫读的要点;分段列表按空行拆段,超长段折叠 + 展开按钮,一段一块不糊成整片。
+function renderMemoryBodyRead(container, bodyText) {
+  container.innerHTML = "";
+  const text = String(bodyText ?? "");
+  const paragraphs = splitMemoryParagraphs(text);
+  // 摘要行:首段(去换行)截 140 字。没有正文时明说,不给空壳。
+  const first = paragraphs[0] || "";
+  const flat = first.replace(/\s+/g, " ").trim();
+  const summary = document.createElement("div");
+  summary.className = "memory-body-summary";
+  summary.innerHTML =
+    `<span class="memory-body-summary-label">${escapeHtml(t("正文摘要"))}</span>` +
+    `<span class="memory-body-summary-text">${escapeHtml(flat ? flat.slice(0, 140) + (flat.length > 140 ? "…" : "") : t("无正文"))}</span>`;
+  container.appendChild(summary);
+  const list = document.createElement("div");
+  list.className = "memory-body-paragraphs";
+  if (paragraphs.length) {
+    for (const para of paragraphs) {
+      const block = document.createElement("div");
+      block.className = "memory-body-para";
+      // 折叠阈值:超过 6 行或超过 280 字就只露头,点开才看全——分段的意义就在
+      // 先把长文切成可扫读的小块,而不是在详情里堆一片滚动文本。
+      const tooLong = para.split("\n").length > 6 || para.length > 280;
+      if (tooLong) block.classList.add("collapsed");
+      const content = document.createElement("div");
+      content.className = "memory-body-para-text";
+      content.textContent = para;
+      block.appendChild(content);
+      if (tooLong) {
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "memory-body-toggle mini";
+        toggle.textContent = t("展开全文");
+        toggle.addEventListener("click", () => {
+          const collapsing = block.classList.toggle("collapsed");
+          toggle.textContent = collapsing ? t("展开全文") : t("收起");
+        });
+        block.appendChild(toggle);
+      }
+      list.appendChild(block);
+    }
+  } else {
+    const empty = document.createElement("p");
+    empty.className = "dim";
+    empty.textContent = t("无正文");
+    list.appendChild(empty);
+  }
+  container.appendChild(list);
+  // 编辑入口:阅读视图是默认态,想改才切回 textarea(保存仍走上方 save 按钮)。
+  const editRow = document.createElement("div");
+  editRow.className = "memory-body-edit-row";
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "ghost mini";
+  editBtn.textContent = t("编辑正文");
+  editBtn.addEventListener("click", () => {
+    const ta = document.createElement("textarea");
+    ta.rows = 8;
+    ta.value = readMemoryBody(container, text);
+    ta.setAttribute("aria-label", t("记忆正文"));
+    container.replaceChildren(ta);
+  });
+  editRow.appendChild(editBtn);
+  container.appendChild(editRow);
+}
+
+// R-129:取正文当前值——编辑模式(textarea 在场)读 textarea,阅读模式回原文。
+function readMemoryBody(container, fallback) {
+  const ta = container.querySelector("textarea[aria-label]");
+  return ta ? ta.value : String(fallback ?? "");
+}
+
+// R-129:按空行拆段(兼容 \r\n),只保留非空段。
+function splitMemoryParagraphs(text) {
+  return String(text ?? "")
+    .split(/\r?\n\s*\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 // 条目"年纪":用于零命中判定——刚写下来还没被检索过不算没用。

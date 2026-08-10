@@ -1116,6 +1116,28 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .memory-detail textarea { font-family: var(--mono, monospace); resize: vertical; }
 .memory-detail input:focus, .memory-detail textarea:focus { outline: 1px solid var(--accent); }
 .memory-detail-actions { display: flex; gap: 8px; }
+/* R-129:正文分段阅读——摘要行 + 段落块,超长段折叠。 */
+.memory-body-read { display: flex; flex-direction: column; gap: 8px; }
+.memory-body-summary {
+  display: flex; gap: 8px; align-items: baseline;
+  background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px; padding: 6px 8px;
+  font-size: 12px; line-height: 1.5;
+}
+.memory-body-summary-label { flex-shrink: 0; color: var(--accent); font-weight: 600; }
+.memory-body-summary-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-body-paragraphs { display: flex; flex-direction: column; gap: 6px; }
+.memory-body-para {
+  background: var(--panel2); border: 1px solid var(--border-soft); border-radius: 4px;
+  padding: 6px 8px; font-size: 12px; line-height: 1.55;
+}
+.memory-body-para.collapsed .memory-body-para-text {
+  max-height: 8.5em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent);
+  mask-image: linear-gradient(180deg, #000 70%, transparent);
+}
+.memory-body-para-text { white-space: pre-wrap; word-break: break-word; }
+.memory-body-toggle { margin-top: 4px; }
+.memory-body-edit-row { display: flex; justify-content: flex-end; }
 .memory-bill { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
 .memory-bill-row {
   position: relative; display: flex; justify-content: space-between; gap: 8px;

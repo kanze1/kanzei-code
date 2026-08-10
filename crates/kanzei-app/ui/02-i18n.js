@@ -135,6 +135,7 @@ const I18N_EN = {
   "条": "entries", "命中": "hits", "条待整理": "notes pending", "该分类暂无记忆": "No entries in this category",
   "记忆页加载失败": "Failed to load memory page", "记忆条目加载失败": "Failed to load entries",
   "记忆标题": "Title", "召回钩子": "Recall hook", "记忆正文": "Body", "来源": "Source", "引用来源": "Source refs", "冗余提醒": "redundancy tips",
+  "正文摘要": "Summary", "展开全文": "Expand", "收起": "Collapse", "编辑正文": "Edit body", "无正文": "No body",
   "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory", "找不到": "Not found:",
   "选择": "Select", "已选": "Selected", "改状态…": "Change status…", "混选类型,仅可改标签": "Mixed types — tags only",
   "先选择要改的状态或标签": "Pick a status or tag to apply first", "批量操作完成": "Bulk update done", "批量操作部分失败": "Bulk update partly failed",
