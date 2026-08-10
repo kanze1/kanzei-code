@@ -1064,6 +1064,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
 
         assert!(validate_source_refs(&ctx, &["R-001".into()]).is_ok());

@@ -90,6 +90,7 @@ pub(crate) async fn run_task(
     let ctx = ToolCtx {
         cwd,
         project_root: project_root.clone(),
+        ..Default::default()
     };
     let runner_config =
         build_runner_config(&resolved, &config, reasoning_override.as_deref(), &ctx.project_root);

@@ -624,6 +624,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let target = managed.display().to_string().replace('\\', "/");
         let command = match super::detected_shell().name {
@@ -700,6 +701,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let target = root
             .join(".kanzei/project/new.md")
@@ -725,6 +727,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let out = BashTool
             .execute(
@@ -765,6 +768,7 @@ mod tests {
                 &ToolCtx {
                     cwd: std::env::temp_dir(),
                     project_root: std::env::temp_dir(),
+                    ..Default::default()
                 },
             )
             .await;
@@ -786,6 +790,7 @@ mod tests {
                 &ToolCtx {
                     cwd: std::env::temp_dir(),
                     project_root: std::env::temp_dir(),
+                    ..Default::default()
                 },
             )
             .await;
@@ -821,6 +826,7 @@ mod tests {
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
                     project_root: PathBuf::from("C:/project"),
+                    ..Default::default()
                 },
             )[0],
         )
@@ -835,6 +841,7 @@ mod tests {
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
                     project_root: PathBuf::from("C:/project"),
+                    ..Default::default()
                 },
             )[0],
         )

@@ -7,24 +7,74 @@ pub struct ToolCtx {
     pub cwd: std::path::PathBuf,
     /// 项目根(.kanzei/.git 所在);工作区文档(requirements/defects/sources)挂在这下面。
     pub project_root: std::path::PathBuf,
+    /// R-171:实际代码工作树键(worktree 隔离时与 project_root 不同)。
+    /// 单写语义下 worktree_key 只用于工具内冲突,project_write_key 才是跨进程仲裁键。
+    pub worktree_key: Option<String>,
+    /// R-171:规范化项目主根(写租约仲裁键)。默认与 project_root 一致;
+    /// worktree 场景由调用方显式设置为规范化主根。
+    pub project_write_key: Option<String>,
+    /// R-171:租约归属与审计身份。
+    pub run_id: Option<String>,
+    pub process_id: Option<String>,
+}
+
+impl Default for ToolCtx {
+    fn default() -> Self {
+        ToolCtx {
+            cwd: std::path::PathBuf::new(),
+            project_root: std::path::PathBuf::new(),
+            worktree_key: None,
+            project_write_key: None,
+            run_id: None,
+            process_id: None,
+        }
+    }
 }
 
 impl ToolCtx {
     pub fn new(cwd: std::path::PathBuf) -> Self {
         let project_root =
             crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-        ToolCtx { cwd, project_root }
+        ToolCtx {
+            cwd,
+            project_root,
+            worktree_key: None,
+            project_write_key: None,
+            run_id: None,
+            process_id: None,
+        }
+    }
+
+    pub fn with_identity(
+        mut self,
+        worktree_key: String,
+        project_write_key: String,
+        run_id: String,
+        process_id: String,
+    ) -> Self {
+        self.worktree_key = Some(worktree_key);
+        self.project_write_key = Some(project_write_key);
+        self.run_id = Some(run_id);
+        self.process_id = Some(process_id);
+        self
     }
 
     pub fn worktree_concurrency_key(&self) -> String {
         format!(
             "worktree:{}",
-            self.project_root
-                .display()
-                .to_string()
+            self.worktree_key
+                .as_deref()
+                .unwrap_or(&self.project_root.display().to_string())
                 .replace('\\', "/")
                 .to_lowercase()
         )
+    }
+
+    /// 写仲裁键:缺省回退到 project_root(未显式绑定身份时与旧行为一致)。
+    pub fn project_write_key(&self) -> String {
+        self.project_write_key
+            .clone()
+            .unwrap_or_else(|| self.project_root.display().to_string())
     }
 }
 

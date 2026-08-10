@@ -252,6 +252,7 @@ mod tests {
                 &ToolCtx {
                     cwd: root.clone(),
                     project_root: root.clone(),
+                    ..Default::default()
                 },
             )
             .await;
@@ -385,6 +386,7 @@ mod tests {
         let tool_ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let mut on_event = |_event| {};
         let ask_count = Arc::new(AtomicUsize::new(0));

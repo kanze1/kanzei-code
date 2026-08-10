@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [todo]
+## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -64,6 +64,9 @@
 - 边界: P0 覆盖当前应用内多个 ProcessHandle；不做图形化 DAG、不开放子代理通用写权限、不在本批实现跨机器调度。worktree 保留隔离、diff、恢复和交付能力，但不能绕过项目级单 writer。
 - 验收: ①至少两个只读子代理真实重叠执行且工具白名单无写入口；②汇总屏障前 writer 不启动，失败/超时都有终态；③writer 阶段普通工具 max in-flight=1 且结果按调用顺序归位；④两个 ProcessHandle 竞争写权时租约区间不重叠，同一 writer 的连续写之间不能插入第二个 writer；⑤quick_req/tracker/test_record/Git/worktree 写入无法绕过协调器；⑥停止、关闭、panic 收尾后租约可靠释放；⑦一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹。
 - refs: R-050 R-117 R-138 R-141 D-227 docs/design/parallel_read_serial_write_orchestration.md
+
+- 批次: 0/7
+- 进展: 取活。批次规划:批1 核心接口(ExecutionPolicy + ProjectExecutionCoordinator trait + ToolCtx 双键 run/process 身份 + 状态机 + 单测);批2 drive 串行强制(writer 阶段 max in-flight=1 + task 禁用 + 按序归位);批3 协调器实现挂 AppState + ProcessHandle 共享 + 租约获取/释放;批4 旁路收口(quick_req/tracker/test_record/git/worktree 接入仲裁);批5 事件落轨迹(orchestration/writer 事件进 session_events);批6 取消/停止/panic 租约可靠释放;批7 真实需求闭环轨迹 + 全量。设计文档已读,现状勘察完成(ToolCtx 仅 cwd/project_root,drive can_parallel_tools 现有 wave)。
 
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
 - 复杂度: 大

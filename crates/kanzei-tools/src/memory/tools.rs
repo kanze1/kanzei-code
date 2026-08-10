@@ -353,6 +353,7 @@ mod tests {
             ToolCtx {
                 cwd: dir.clone(),
                 project_root: dir,
+                ..Default::default()
             },
         )
     }

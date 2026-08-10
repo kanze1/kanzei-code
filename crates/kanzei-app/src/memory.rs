@@ -346,6 +346,7 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String) {
     let tool_ctx = ToolCtx {
         cwd: cwd.clone(),
         project_root: project_root.clone(),
+        ..Default::default()
     };
     let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
     for role in ["primary", "fast"] {

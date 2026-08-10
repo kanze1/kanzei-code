@@ -703,6 +703,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let staged = GitTool
             .execute(
@@ -754,6 +755,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let all = GitTool
             .execute(serde_json::json!({"action": "log"}), &ctx)
@@ -820,6 +822,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let out = GitTool
             .execute(
@@ -860,6 +863,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let out = GitTool
             .execute(
@@ -896,6 +900,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         for bad in ["--exec=evil", "a..b", "a b", "HEAD~1", ""] {
             let out = GitTool
@@ -920,6 +925,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
+            ..Default::default()
         };
         let staged = GitTool
             .execute(

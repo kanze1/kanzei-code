@@ -175,7 +175,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
-    let ctx = ToolCtx { cwd, project_root };
+    let ctx = ToolCtx {
+        cwd,
+        project_root,
+        ..Default::default()
+    };
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),

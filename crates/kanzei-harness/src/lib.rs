@@ -9,6 +9,7 @@ pub mod defs;
 pub mod harness;
 pub mod home;
 pub mod markdown;
+pub mod orchestration;
 pub mod permission;
 pub mod progress;
 pub mod registry;
@@ -27,3 +28,7 @@ pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
 pub use tool::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
+pub use orchestration::{
+    CoordinatorSnapshot, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
+    ReadPermit, ReadSlotRequest, WriterLease, WriterLeaseRequest,
+};

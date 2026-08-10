@@ -515,6 +515,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
         let store = MemoryStore::project(&dir);
         store
@@ -576,6 +577,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
         let store = MemoryStore::project(&dir);
         // 建两条可合并的记忆(同 fingerprint 才能过保守闸;守恒闸在保守闸之前)。
@@ -641,6 +643,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
         let added = MemoryAddTool
             .execute(
@@ -698,6 +701,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
 
         let first = MemoryAddTool
@@ -765,6 +769,7 @@ mod tests {
         let ctx = ToolCtx {
             cwd: dir.clone(),
             project_root: dir.clone(),
+            ..Default::default()
         };
 
         let bad = MemoryAddTool

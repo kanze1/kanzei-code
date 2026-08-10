@@ -66,6 +66,7 @@ pub(crate) async fn quick_req(
     let tool_ctx = ToolCtx {
         cwd: cwd.clone(),
         project_root: project_root.clone(),
+        ..Default::default()
     };
     let doc_kind = if capture == "defect" {
         &DEFECTS
@@ -225,7 +226,11 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
         Some(value) => ProxyConfig::Explicit(value.to_string()),
     };
     let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let tool_ctx = ToolCtx { cwd, project_root };
+    let tool_ctx = ToolCtx {
+        cwd,
+        project_root,
+        ..Default::default()
+    };
     let prompt = format!("审查当前项目 defects.md 中的 {} 条活动缺陷。逐条核对真实代码、测试和调用方，输出约定的 Markdown 报告。", defects.len());
     let mut last_error = "没有可用的 fast 或 primary 模型".to_string();
     for role in ["fast", "primary"] {
