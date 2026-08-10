@@ -1,6 +1,6 @@
 # Defects
 
-## D-262 shell::kill_tree 从未真正击杀进程树:2 秒 timeout 叠加 kill_on_drop 反而先杀死 taskkill 自己 [open] (medium)
+## D-262 shell::kill_tree 从未真正击杀进程树:2 秒 timeout 叠加 kill_on_drop 反而先杀死 taskkill 自己 [fixed] (medium)
 - 优先级: P1
 - 复杂度: 中
 - 标签: 核心
@@ -15,6 +15,14 @@
 - 影响(超出 D-174 的范围): ①`process stop` 名义返回 stopped、实则进程还在跑,用户以为停了;②`bash` 工具的超时击杀同样失效,超时只是让工具调用返回,被击杀的进程继续持有文件与端口;③D-174 的后台越界处置里「回滚后 kill 进程树」这一加固项目前无效——该条已在 D-174 交付时如实标注,其验收②靠的是隔离+回滚+归因这条与 D-173 前台围栏同口径的路径,不依赖 kill。
 - 边界: `shell.rs` 在 D-174 交付时未被修改(尝试性修复未解决问题,已 `git checkout` 还原干净),本条是独立缺陷。
 - 验收: ①`kill_tree` 调用后目标进程树**真的消失**(实测断言 `alive_after == false`,不是断言函数返回);②taskkill 失败/超时不再被静默吞掉,至少有 `tracing::warn!` 级别的可见信号(D-004 口径);③`process stop` 与 `bash` 超时两条路径各有一条断言进程真的退出的回归测试——注意 D-174 交付时**刻意拆掉了两条会因为错误的原因而通过的断言**,本条修复后要把它们按正确形态补回去;④非 Windows 分支保持可编译。
+- **本条「根因」的次因猜测已被实测证伪(修复时必读)**: 原文要求「修复前必须先证实 taskkill 因 `output()` 等管道关闭而挂住」。2026-08-11 交付时按要求做了独立复现程序(std only,每档测「victim 何时死」而非「函数何时返回」,单独拍孙进程 pid),**结论是这条猜测不成立**:读管道 / 不读管道 / `status()`+`stdio(null)` 三档耗时 **1097–1139 ms,毫无差别**;拆开测量时 taskkill 进程退出与 stdout EOF 落在**同一毫秒**(1172/1172)。机制上也讲不通——taskkill 的管道是它自己 spawn 时才建的,晚于目标树,目标树继承不到。**照原文方向改(换 `status()` 或 stdio 设 null)根本治不好本缺陷。**
+  真因是 `taskkill.exe` 的**启动延迟**:对一个不存在的 pid 连打三次是 2907 / 4230 / 1071 ms,原来那条 2 秒的线本就压在延迟分布中间;负载下实测到一次 `kill_tree` 耗时 20.04 秒,其中 15 秒是 taskkill 超出等待上限、最后由 `TerminateProcess` 收尾。原文「证据②约 27 秒 + exit=128」由此得到解释:不是管道挂住,是负载下的进程创建延迟——等 taskkill 终于跑起来时,5 秒的目标已自然退出,所以报「找不到进程」。
+  这条测量还改变了修法,是本条最值钱的一句:**需要击杀进程的时刻,往往正是机器忙得起不动新进程的时刻**。所以「靠 spawn 一个新进程去杀进程」结构上就是错的。
+- 进展: **已交付并关闭**(`29e5b42`/`25c251d`,经 `merge par/d-262` 并入 dev)。2026-08-11 任务级并行实测的线 A 产出,中途被误判为已死、由人替它提交过一个 WIP(见 D-263 同族教训),它自己续跑至完成。
+  实现:主手段改为 `CreateToolhelp32Snapshot` 拍进程树名单 + 逐个 `TerminateProcess`,taskkill 降级为兜底;新增 `process_alive`(`OpenProcess`+`GetExitCodeProcess`,可对任意 pid 提问,不像 `Child::try_wait` 只能问直接子进程)与击杀**前**的进程树快照(击杀后父子关系随进程消失,再也问不出树的形状)。`kill_tree` 从 **2.008 秒(什么也没杀)** 变成 **10–12 毫秒(真杀干净)**。
+  顺带修掉交付过程中自己引入的一个坑:根 pid 已死不能短路返回成功——bash 超时路径上 shell 的 `kill_on_drop` 会先杀根,短路会把孙进程永久留下(正是本条影响②);快照能认出孤儿(Windows 保留创建者 pid),所以这条走得通。
+  验收:**①**断言 `process_alive` 对根**和孙进程**都为 false,关键反证是**把旧实现的等价体连打 5 次,5/5 恒定 2.01 秒返回且整棵树全都活着**,与原文证据①逐字吻合——证明这些测试真能抓到 D-262,不是因为错误的原因通过;**②**每条失败路径都有 `tracing::warn!`(启动失败/非零退出/超出等待/残留清单),返回值改 `bool`,调用点无需改动;**③**三条路径各有测试,`background.rs` 与 `bash.rs` **补回了 D-174 刻意拆掉的那两条断言**,命令换成 300 秒长驻 + 带孙进程(自然退出冒充不了击杀),并把孙进程排到越界写之前(否则测试会静默退化成只查根);**④**用 cfg 翻转在本机实编译了非 Windows 分支(`--all-targets` 无错),但 Linux target 的 std 未装,**未做真交叉编译**——如实标注。
+  合并后全量门禁:fmt 干净、clippy `-D warnings` 干净、`cargo test --workspace` 16 个测试目标全绿。
 
 ## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
 - 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
@@ -225,23 +233,6 @@
 - 修复方向: 无论选哪种语义,`projectDir` 都必须在进入循环**之前**认领成局部量(与 36ce685 对 refreshDocs / handleWorktreeAction 的改法同源),循环内每次 await 后比对;差异只在比对不一致时是 `break` 还是继续用认领的局部量。
 - 验收: ①批量操作进行中切项目,**不得有任何一条**写进新项目(逐条核对 docs_update 的 projectDir 实参);②有拦截实测的冒烟断言(scripts/ui-runtime-smoke.mjs 构造「await 中途改 currentProject」的桩,断言后续 invoke 的 projectDir 一律不是新项目);③所选语义在 UI 上对用户可见——选中止要给出「已切换项目,剩余 N 条未执行」之类的明确反馈,选按认领项目做完要说明这批改动落在哪个项目。
 
-## D-257 worktrees-refresh 刷新按钮全仓无监听器:addEventListener 前半段被重构吃掉,只剩 no-op 逗号表达式 [fixed] (medium)
-- 优先级: P3
-- 复杂度: 小
-- 标签: 前端
-- 证据等级: E1(按钮存在、全仓零绑定、git log -S 定位引入提交,三处独立实证)
-- refs: D-211
-- 复现: 侧栏「隔离工作树」区块标题右侧的刷新按钮(↻)**点了没反应**。
-- 依据①(按钮确实存在): crates/kanzei-app/ui/index.html:79 —— `<button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" aria-label="刷新工作树差异">↻</button>`,位于 `#worktrees-section` 的 section-title 内。**注意 id 是 `worktrees-refresh`(复数 worktrees),不是 `worktree-refresh`**:按单数形式 grep 会一无所获并误判成「元素已删除」。
-- 依据②(全仓零绑定): `grep -rn "worktrees-refresh" crates/ scripts/` 只命中 index.html:79 那一行,没有任何 JS 绑定它。
-- 依据③(破损行): crates/kanzei-app/ui/09-sessions.js:86 是 `}("click", refreshWorktrees);` —— `$("worktrees-refresh").addEventListener` 的前半段丢了。`}` 结束的是上方 `async function handleWorktreeAction(item, action)` 的函数**声明**,其后的 `("click", refreshWorktrees);` 成了一条独立的、合法但完全 no-op 的逗号表达式语句(函数声明不是表达式,不会被调用)。`node --check crates/kanzei-app/ui/09-sessions.js` **通过**——语法检查抓不到它,正是 conventions §1.3「前端改动不得只以 node --check 作为验证证据」说的那类漏网。
-- 取证: `git log -S 'worktrees-refresh").addEventListener' -- crates/kanzei-app/ui/` 与 `git log -S '}("click", refreshWorktrees);'` 共同指向 **7c5f022「增加工作树操作失败重试入口」(2026-08-07)**;`git show 7c5f022 -- crates/kanzei-app/ui/main.js` 的 diff 逐字为 `-$("worktrees-refresh").addEventListener("click", refreshWorktrees);` / `+}("click", refreshWorktrees);`——把工作树操作抽成 `handleWorktreeAction` 时,新函数的收尾 `}` 覆盖掉了下一行的 `$("worktrees-refresh").addEventListener` 前缀。R-154 B5(9349b45)切出 09-sessions.js 时原样带了过来。**HEAD 既有**(HEAD=36ce685 的 :86 仍是同一形态),不是本轮改动引入。
-- 结论(纠正勘察分歧): 按钮**没有被删**——这**不是删残留,是真正的按钮失效**,修法是恢复绑定而不是清理死代码。
-- 影响: 工作树差异清单只剩自动刷新路径(handleWorktreeAction 成功后 09-sessions.js:81、worktree-add 成功后 :99、以及 14-docs-actions.js:16 与 02-i18n.js:754 的整体刷新),用户看到过期状态时**没有手动刷新手段**。危害窄(工作树本身低频),但属于「界面承诺了能力却没有能力」,与 D-211 同族。
-- 修复方向: 把 09-sessions.js:86 还原成两行——函数声明收尾的 `}`,以及独立一行 `$("worktrees-refresh").addEventListener("click", refreshWorktrees);`。
-- 验收: 二选一,不留中间态。**优先①**——①按钮真能刷新:点击 `#worktrees-refresh` 后 refreshWorktrees 被调用且工作树清单重渲染,scripts/ui-runtime-smoke.mjs 有对应冒烟断言(断言点击后触发 worktree 相关 invoke);或②按钮与 09-sessions.js 的 no-op 残留一起清理干净(index.html 不再有该按钮、JS 不再有那条逗号表达式)。选②等于删掉用户可见的界面能力,属缩小范围,需先经用户同意。
-- 进展: **已按验收①交付并关闭**(`c3398b5`,经 `eb50db6` 并入 dev)。2026-08-11 任务级并行实测的线 B 产出,改动面只含 `crates/kanzei-app/ui/09-sessions.js`(恢复被吃掉的 `$("worktrees-refresh").addEventListener` 前缀)与 `scripts/ui-runtime-smoke.mjs`(点击后断言真打出 `worktree_diff` 且 `projectDir` 正确、清单按新数据重渲染,另加一条"按钮从 index.html 消失即判红"的前置断言防止将来滑向验收②)。**反证独立复核过**:把文件改回破损形态后 `node --check` **仍然通过**(正是依据③说的那类漏网),而冒烟精确判红两处;还原后转绿。合并后全量门禁复跑:fmt 干净、前端冒烟通过、`cargo test -p kanzei-tools` 217 全过。
-
 ## D-258 后台任务缺内核级文件隔离:归因+回滚拦不住合法写入窗口的毫秒级蒙混 [open] (medium)
 - 优先级: P2
 - 复杂度: 大
@@ -370,3 +361,16 @@
   ④PowerShell `cargo test ... | Select-Object -Last 40`;
   ⑤bash `... | head -30; echo ...`。
   **归纳**:①②④⑤ 全是**复合命令**(`&&` / `;` / `|`),③ 是**未列入允许集的单个可执行**。两类都在改成单条纯命令后放行。对本条的三点含义:(a) 修复方向里「解析成子命令序列、要求每个都命中」的形状**已有活的参照实现**,不必再论证可行性;(b) 拦截必须**点名具体是哪一段**不被允许,否则无法自我修正——这是可用性的关键,不是锦上添花;(c) R-183 内容④的基础规则模板至少要覆盖 agent 实际会用的这批 shell 动词:`echo`/`head`/`tail`/`awk`/`grep`/`ls`,以及 PowerShell 的 `Select-Object`——它们几乎只出现在管道尾部做截断,危险面低但出现频率极高,是「不放行就寸步难行、放行也没什么风险」的典型。
+
+## D-268 background.rs 围栏测试只用进程级 Mutex 串行化:两条线并行跑同一 crate 测试时毫无保护,可假绿可假红 [open] (medium)
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 证据等级: E2(读码发现,本轮未触发;可达路径已成立)
+- refs: D-262 D-227 R-182 R-184 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 任务级并行实测,线 A(D-262)在读码时发现并主动上报,**本轮未触发**——如实标注,不冒充实测。
+- 复现(尚未实际触发,但路径可达): `crates/kanzei-tools/src/background.rs` 用**进程级** `tokio::sync::Mutex` 串行化围栏敏感测试,而 `managed_fence` 的「合法写入窗口」本身也是**进程级**状态。这只在单个 `cargo test` 进程内有效。任务级并行的常态是多条线共享同一个 `CARGO_TARGET_DIR`(本机 target 已 53GB、盘剩 68GB,每树独立物理上放不下,见 R-182 与 deep_parallel_dev D6),两条线同时跑 `cargo test -p kanzei-tools` 时**两个 OS 进程的托管文件窗口可以交错**。
+- 影响: ①**假绿**——越界写入落在另一个进程打开的合法窗口里,围栏测试认为"没越界"而通过;②**假红**——自己的合法写入被另一个进程的窗口边界切断,测试报越界。两种方向都让围栏测试在并行开发下**不可信**,而围栏正是 D-174 交付时唯一没被拆掉的那条保障。与 D-227 同族(单进程内成立的不变量,跨进程不成立),与 R-182 实测「跨 worktree 的 FileLock 各锁各的、根本不互斥」是同一类错误。
+- 边界: 不是生产代码缺陷——`managed_fence` 的生产语义在单进程内是对的。本条只针对**测试在并行下的可信度**。修复不应把进程级窗口改成全局互斥而拖慢生产路径。
+- 修复方向(待定): 二选一——①测试侧用跨进程互斥(`atomic_file::FileLock` 或按 crate 取一把文件锁)把围栏敏感测试整体串起来,与 D-261 给 `test_record` 的做法同源;②让围栏窗口带上进程身份(pid/run_id),跨进程的窗口互不认账,从根上消除交错。②更彻底但改动面进生产代码,需先评估。
+- 验收: ①两个 OS 进程**同时**跑 `cargo test -p kanzei-tools` 的围栏用例,结果稳定且与单进程一致,有可重复的实测证据(不是"跑了几次没复现");②假绿方向有定向反证:构造跨进程窗口交错,确认修复前该越界写入**能**混过围栏、修复后被抓;③生产路径的 `managed_fence` 性能与语义不因本次修改而变,有测试背书。
