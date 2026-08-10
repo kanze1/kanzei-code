@@ -16,6 +16,11 @@
 .kanzei/memory/inbox.md
 # shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
 .kanzei/quarantine/
+# R-138 docstore 跨进程写锁的句柄文件:零字节、运行时产物,句柄随进程退出由 OS 关闭。
+.kanzei/**/*.lock
+# R-138 原子写(tmp+rename)的同目录临时文件。正常路径写完即改名消失;留下来的
+# 是**替换失败时保留的现场**(内含未落盘的新内容),按错误提示处理,别提交。
+.kanzei/**/*.tmp
 # 打包时由 package.ps1 从 target/release 复制进来的 kz sidecar,是构建产物。
 crates/kanzei-app/binaries/
 /dist

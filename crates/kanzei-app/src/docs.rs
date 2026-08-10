@@ -118,31 +118,69 @@ pub async fn test_runs_init_refs(
     kanzei_tools::test_record::initialize_refs(&root)
 }
 
+/// 项目文档快照。
+///
+/// **D-249:读失败绝不降级成空列表。** 这里的每一次 `load()` 都要么给出真实条目,
+/// 要么把错误抛给前端——`unwrap_or_default()` 会把「读不到」伪装成「一条都没有」,
+/// 而它长得像成功,所以下游没有任何一环会重试或报警:计数归零、列表闪空、筛选
+/// 回落全从这条通道来。抛错之后前端两处 catch(refreshDocs / refreshDocsSoon)
+/// 都不会重绘,**上一份快照原样留在屏幕上**,这正是我们要的降级方式。
+///
+/// 唯一的例外是开头那次归档:它是**写**,写不成不该让读挂掉,失败收进 `warnings`。
 #[tauri::command]
-pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
+pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // 终态条目顺手归档:幂等、且只在"真有条目刚进终态"时才写盘。它与本次快照的
+    // 读、以及 agent 那边的 tracker 写完全可能同时在飞(D-249 第④层),所以走
+    // 限时锁——拿不到就跳过,下次刷新再归档,绝不让文档面板为了一次归档卡住。
+    // 预算故意给得很短:UI 刷新的响应性优先级高于"这一轮就把归档做掉"。
+    let mut warnings: Vec<String> = Vec::new();
     for kind in [&REQUIREMENTS, &DEFECTS, &GOALS] {
-        let _ = DocStore::open(&root, kind).archive_terminal();
+        let store = DocStore::open(&root, kind);
+        match store.try_lock(std::time::Duration::from_millis(200)) {
+            // 拿到锁才归档;archive_terminal 内部同线程重入,不会自锁死。
+            Ok(Some(_lock)) => {
+                if let Err(e) = store.archive_terminal() {
+                    // 原先是 `let _ =`:归档失败连一行日志都没有。写失败可以不
+                    // 拖垮读,但不能无声无息。
+                    tracing::warn!(target: "kanzei::docs", path = %store.path.display(), error = %e, "归档终态条目失败");
+                    warnings.push(format!("{} 归档失败: {e}", kind.rel_path));
+                }
+            }
+            Ok(None) => {
+                tracing::debug!(target: "kanzei::docs", path = %store.path.display(), "归档跳过:写锁被占用")
+            }
+            Err(e) => {
+                tracing::warn!(target: "kanzei::docs", path = %store.path.display(), error = %e, "取归档写锁失败");
+                warnings.push(format!("{} 取写锁失败: {e}", kind.rel_path));
+            }
+        }
     }
+    let read_failed = |kind: &kanzei_tools::docstore::DocKind, e: std::io::Error| {
+        format!("读取 {} 失败: {e}", kind.rel_path)
+    };
     // 一次快照只读取一次提交历史。按条目多次起 Git 会把“即时刷新”反过来变成卡顿源。
-    let batch_ids = [&REQUIREMENTS, &DEFECTS]
-        .into_iter()
-        .flat_map(|kind| DocStore::open(&root, kind).load().unwrap_or_default())
-        .map(|entry| entry.id)
-        .collect::<Vec<_>>();
+    let mut batch_ids = Vec::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let entries = DocStore::open(&root, kind)
+            .load()
+            .map_err(|e| read_failed(kind, e))?;
+        batch_ids.extend(entries.into_iter().map(|entry| entry.id));
+    }
     let derived_batch_done =
         kanzei_tools::git_batches::completed_batches_for_entries(&root, batch_ids).ok();
-    let archived = |kind: &'static kanzei_tools::docstore::DocKind| -> usize {
+    let archived = |kind: &'static kanzei_tools::docstore::DocKind| -> Result<usize, String> {
         DocStore::open(&root, kind)
             .load_archive()
-            .map_or(0, |a| a.len())
+            .map(|a| a.len())
+            .map_err(|e| read_failed(kind, e))
     };
     let archived_entries =
-        |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
-            DocStore::open(&root, kind)
+        |kind: &'static kanzei_tools::docstore::DocKind| -> Result<Vec<serde_json::Value>, String> {
+            Ok(DocStore::open(&root, kind)
                 .load_archive()
-                .unwrap_or_default()
+                .map_err(|e| read_failed(kind, e))?
                 .into_iter()
                 .map(|e| {
                     json!({
@@ -150,52 +188,53 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
                         "fields": e.fields, "closed": true,
                     })
                 })
-                .collect()
+                .collect())
         };
-    let load = |kind: &'static kanzei_tools::docstore::DocKind| -> Vec<serde_json::Value> {
-        let store = DocStore::open(&root, kind);
-        let entries = store.load().unwrap_or_default();
-        // 反向依赖图(R-111):跨 req/defect 构建「谁依赖我」。放在快照入口算一次,
-        // 两个 kind 共用,避免每个 kind 重复读盘。仅对 req/defect 输出(其它 kind 无依赖语义)。
-        let (dependents_deps, dependents) =
-            if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
-                kanzei_tools::tracker::dependents_map(
-                    &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
-                    kind,
-                    &entries,
-                )
-                .unwrap_or_default()
-            } else {
-                Default::default()
-            };
-        let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
-            if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
-                kanzei_tools::tracker::schedule_for_display(
-                    &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
-                    kind,
-                    &entries,
-                )
-                .map(|items| {
-                    items
-                        .into_iter()
-                        .map(|item| (item.entry, item.block_reasons))
-                        .collect()
-                })
-                .unwrap_or_else(|_| {
+    let load =
+        |kind: &'static kanzei_tools::docstore::DocKind| -> Result<Vec<serde_json::Value>, String> {
+            let store = DocStore::open(&root, kind);
+            let entries = store.load().map_err(|e| read_failed(kind, e))?;
+            // 反向依赖图(R-111):跨 req/defect 构建「谁依赖我」。放在快照入口算一次,
+            // 两个 kind 共用,避免每个 kind 重复读盘。仅对 req/defect 输出(其它 kind 无依赖语义)。
+            let (dependents_deps, dependents) =
+                if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
+                    kanzei_tools::tracker::dependents_map(
+                        &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
+                        kind,
+                        &entries,
+                    )
+                    .unwrap_or_default()
+                } else {
+                    Default::default()
+                };
+            let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
+                if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
+                    kanzei_tools::tracker::schedule_for_display(
+                        &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
+                        kind,
+                        &entries,
+                    )
+                    .map(|items| {
+                        items
+                            .into_iter()
+                            .map(|item| (item.entry, item.block_reasons))
+                            .collect()
+                    })
+                    .unwrap_or_else(|_| {
+                        entries
+                            .iter()
+                            .cloned()
+                            .map(|entry| (entry, Vec::new()))
+                            .collect()
+                    })
+                } else {
                     entries
                         .iter()
                         .cloned()
                         .map(|entry| (entry, Vec::new()))
                         .collect()
-                })
-            } else {
-                entries
-                    .iter()
-                    .cloned()
-                    .map(|entry| (entry, Vec::new()))
-                    .collect()
-            };
-        scheduled.into_iter().map(|(e, block_reasons)| {
+                };
+            Ok(scheduled.into_iter().map(|(e, block_reasons)| {
         // 提交标题是批次完成时产生的真源；字段只保留为 Git 不可用时的回退与收口校验。
         let derived_done = derived_batch_done
             .as_ref()
@@ -215,8 +254,8 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
             "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
             "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
             "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),
-        })}).collect()
-    };
+        })}).collect())
+        };
     let conventions_path = root.join(CONVENTIONS_REL);
     let conventions = match std::fs::read_to_string(&conventions_path) {
         Ok(text) => {
@@ -224,13 +263,16 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
         }
         Err(_) => json!({ "exists": false, "headings": [] }),
     };
-    json!({
+    Ok(json!({
         "conventions": conventions, "root": root.display().to_string(),
-        "requirements": load(&REQUIREMENTS), "defects": load(&DEFECTS), "goals": load(&GOALS),
-        "sources": load(&SOURCES), "findings": load(&FINDINGS),
-        "archived": { "req": archived(&REQUIREMENTS), "defect": archived(&DEFECTS), "goal": archived(&GOALS), "source": archived(&SOURCES), "finding": archived(&FINDINGS) },
-        "archived_entries": { "req": archived_entries(&REQUIREMENTS), "defect": archived_entries(&DEFECTS), "goal": archived_entries(&GOALS), "source": archived_entries(&SOURCES), "finding": archived_entries(&FINDINGS) },
-    })
+        // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,
+        // 但顺手做的那次写没做成"这种半程状态——以前这类信息被 `let _ =` 吃掉。
+        "warnings": warnings,
+        "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "goals": load(&GOALS)?,
+        "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
+        "archived": { "req": archived(&REQUIREMENTS)?, "defect": archived(&DEFECTS)?, "goal": archived(&GOALS)?, "source": archived(&SOURCES)?, "finding": archived(&FINDINGS)? },
+        "archived_entries": { "req": archived_entries(&REQUIREMENTS)?, "defect": archived_entries(&DEFECTS)?, "goal": archived_entries(&GOALS)?, "source": archived_entries(&SOURCES)?, "finding": archived_entries(&FINDINGS)? },
+    }))
 }
 
 #[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。

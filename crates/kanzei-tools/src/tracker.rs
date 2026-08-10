@@ -176,6 +176,24 @@ impl Tool for TrackerTool {
             Err(out) => return out,
         };
         let store = DocStore::open(&ctx.project_root, self.kind);
+        // R-138:写事务的锁必须罩住 **load … next_id … save** 整段,不能只锁 save。
+        // 两个进程(kzapp / kz CLI / 自举循环)各自 load 到同一份条目、各自算出
+        // 同一个 next_id、再各自整文件写回——后写的那个把前一个的新条目连同 ID
+        // 一起覆盖掉。只在 save 里加锁挡不住这个:两次 save 本来就不重叠,
+        // 丢失发生在它们各自的读与写之间。读动作(list/get)不取锁,照常并行。
+        let _write_lock = if WRITE_ACTIONS.contains(&input.action.as_str()) {
+            match store.lock() {
+                Ok(lock) => Some(lock),
+                Err(e) => {
+                    return ToolOutput::error(format!(
+                        "cannot lock {} for writing: {e}",
+                        store.path.display()
+                    ))
+                }
+            }
+        } else {
+            None
+        };
         let mut entries = match store.load() {
             Ok(e) => e,
             Err(e) => {
@@ -2325,6 +2343,68 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-138 验收③,打在**真实写入口**上:8 个并发的 `req add` 必须落 8 条、
+    /// ID 互不相同。这是 D-064 一族 lost-update 的直接回归锁——`kz` CLI、桌面端
+    /// 与自举循环是三个各自独立的 OS 进程,谁也看不见谁的内存态协调器,
+    /// 唯一挡得住的就是 execute 顶部那把跨进程锁。
+    #[test]
+    fn 并发新建不丢条目也不撞编号() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-tracker-concurrent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        DocStore::open(&dir, &REQUIREMENTS).save(&[]).unwrap();
+
+        let 并发 = 8usize;
+        let handles: Vec<_> = (0..并发)
+            .map(|n| {
+                let dir = dir.clone();
+                // 每个线程一个独立 runtime:模拟各自跑一个进程,不共享任何内存态。
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    rt.block_on(async move {
+                        let tool = TrackerTool {
+                            tool_name: "req",
+                            noun: "requirement",
+                            kind: &REQUIREMENTS,
+                            requires_refs: None,
+                        };
+                        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+                        tool.execute(
+                            json!({"action": "add", "title": format!("并发条目 {n}")}),
+                            &ctx,
+                        )
+                        .await
+                    })
+                })
+            })
+            .collect();
+        for handle in handles {
+            let out = handle.join().unwrap();
+            assert!(!out.is_error, "并发 add 不该失败: {}", out.content);
+        }
+
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let entries = store.load().unwrap();
+        assert_eq!(entries.len(), 并发, "有条目被覆盖掉了: {entries:?}");
+        let ids: std::collections::BTreeSet<&String> = entries.iter().map(|e| &e.id).collect();
+        assert_eq!(ids.len(), 并发, "分配出了重复 ID: {ids:?}");
+        assert!(
+            store.integrity_issues(&entries).is_empty(),
+            "并发写之后完整性必须干净: {:?}",
+            store.integrity_issues(&entries)
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

@@ -172,7 +172,7 @@ fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
         "# Requirements\n\n## R-001 被阻塞 [todo]\n- 阻塞: 等待确认\n\n## R-002 可执行 [todo]\n",
     )
     .unwrap();
-    let requirements = docs_snapshot(root.display().to_string())["requirements"].clone();
+    let requirements = docs_snapshot(root.display().to_string()).unwrap()["requirements"].clone();
     assert_eq!(requirements[0]["id"], "R-002");
     assert_eq!(requirements[1]["blocked"], true);
     std::fs::remove_dir_all(root).ok();
@@ -215,7 +215,7 @@ fn docs_snapshot_uses_git_commits_for_live_batch_progress() {
             .unwrap()
             .success());
     }
-    let requirements = docs_snapshot(root.display().to_string())["requirements"].clone();
+    let requirements = docs_snapshot(root.display().to_string()).unwrap()["requirements"].clone();
     let git_backed = requirements
         .as_array()
         .unwrap()
@@ -231,6 +231,114 @@ fn docs_snapshot_uses_git_commits_for_live_batch_progress() {
         .find(|entry| entry["id"] == "R-002")
         .unwrap();
     assert_eq!(fallback["batches"]["done"], 2);
+    std::fs::remove_dir_all(root).ok();
+}
+
+fn 快照夹具(标记: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-docs-{标记}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+    root
+}
+
+/// D-249 验收②:读失败要有可见信号,不能静默降级成空列表。
+///
+/// 旧实现是 `store.load().unwrap_or_default()` —— Windows 文件占用这类读失败
+/// 会变成一份**「成功但空」**的快照:计数归零、列表闪空,而因为它长得像成功,
+/// 下游没有任何一环会重试或报警。现在读失败向上抛,前端两处 catch 都不重绘,
+/// 屏幕上留着上一份快照。
+#[cfg(windows)]
+#[test]
+fn docs_snapshot_读失败向上报错而不是空列表() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let root = 快照夹具("read-error");
+    let 需求 = root.join(".kanzei/project/requirements.md");
+    std::fs::write(&需求, "# Requirements\n\n## R-001 有条目 [todo]\n").unwrap();
+
+    // 先确认正常路径读得到,免得下面的断言因为夹具不对而假阳性。
+    let 正常 = docs_snapshot(root.display().to_string()).unwrap();
+    assert_eq!(正常["requirements"].as_array().unwrap().len(), 1);
+
+    // 独占占用 = 读不到。注意这与"文件不存在"必须区分开:后者才是"真的没有条目"。
+    let 占用 = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(0)
+        .open(&需求)
+        .unwrap();
+    let 结果 = docs_snapshot(root.display().to_string());
+    drop(占用);
+    let error = 结果.expect_err("读不到必须报错,不能返回空列表冒充成功");
+    assert!(
+        error.contains("requirements.md"),
+        "错误要点名读不到的是哪个文件: {error}"
+    );
+
+    // 占用解除后自动恢复,不留任何粘滞状态。
+    let 恢复 = docs_snapshot(root.display().to_string()).unwrap();
+    assert_eq!(恢复["requirements"].as_array().unwrap().len(), 1);
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// D-249 验收①:并发写 + 读的压测下,前端不会收到「成功但空」的快照。
+///
+/// 这条打的是完整通道:`docs_snapshot`(自己也会写——开头的 archive_terminal)
+/// 与 tracker 写并发。原来一次 refreshDocs 和一次 refreshDocsSoon 同时在飞,
+/// 一个在写一个在读,读的那个就能拿到被截断的文件。
+#[test]
+fn docs_snapshot_并发刷新不会返回成功但空的快照() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let root = 快照夹具("concurrent");
+    let 条目数 = 6usize;
+    let mut text = String::from("# Requirements\n");
+    for n in 1..=条目数 {
+        text.push_str(&format!("\n## R-{n:03} 条目 [todo]\n- 验收: 略\n"));
+    }
+    std::fs::write(root.join(".kanzei/project/requirements.md"), &text).unwrap();
+
+    let 停 = Arc::new(AtomicBool::new(false));
+    // 写线程:反复整文件重写,制造与读的重叠窗口。
+    let 写者 = {
+        let root = root.clone();
+        let 停 = Arc::clone(&停);
+        std::thread::spawn(move || {
+            let store = kanzei_tools::docstore::DocStore::open(
+                &root,
+                &kanzei_tools::docstore::REQUIREMENTS,
+            );
+            while !停.load(Ordering::Relaxed) {
+                let entries = match store.load() {
+                    Ok(entries) => entries,
+                    Err(_) => continue,
+                };
+                store.save(&entries).unwrap();
+            }
+        })
+    };
+
+    let mut 轮次 = 0usize;
+    for _ in 0..60 {
+        let snapshot = docs_snapshot(root.display().to_string())
+            .expect("并发下读失败应当罕见;真发生了也必须是错误而不是空快照");
+        let 需求 = snapshot["requirements"].as_array().unwrap();
+        assert_eq!(
+            需求.len(),
+            条目数,
+            "拿到了「成功但空/缺条目」的快照:{} 条",
+            需求.len()
+        );
+        轮次 += 1;
+    }
+    停.store(true, Ordering::Relaxed);
+    写者.join().unwrap();
+    assert!(轮次 > 0);
     std::fs::remove_dir_all(root).ok();
 }
 

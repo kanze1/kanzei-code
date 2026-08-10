@@ -294,6 +294,29 @@ impl DocStore {
         }
     }
 
+    /// 取本 kind 的跨进程写锁(R-138)。
+    ///
+    /// **一个 kind 一把锁**,键取自活动文档路径,同时罩住活动文件、归档文件与
+    /// 编号账本——这三者本来就是一笔账(`next_id` 要同时扫它们),分开锁等于没锁。
+    ///
+    /// **读路径一律不加锁**:原子写之后读者只会看到旧全量或新全量,不存在截断态;
+    /// 让读者排队只会把"文档面板刷新"变成"等 agent 写完"。
+    ///
+    /// **防死锁不变量:持锁期间永不获取第二把锁。** 写事务只锁自己的 kind,
+    /// `check_refs` 之类跨 kind 的查询走不加锁的读路径——结构上不可能循环等待。
+    /// 谁要在持锁时再去锁另一个 kind,先把这条不变量改掉并说明新的加锁序。
+    pub fn lock(&self) -> std::io::Result<crate::atomic_file::FileLock> {
+        crate::atomic_file::lock_exclusive(&self.path)
+    }
+
+    /// 限时取锁:拿不到返回 `Ok(None)`。给"做不成也无所谓"的幂等写用。
+    pub fn try_lock(
+        &self,
+        budget: std::time::Duration,
+    ) -> std::io::Result<Option<crate::atomic_file::FileLock>> {
+        crate::atomic_file::try_lock_exclusive(&self.path, budget)
+    }
+
     pub fn load(&self) -> std::io::Result<Vec<Entry>> {
         match std::fs::read_to_string(&self.path) {
             Ok(text) => {
@@ -307,6 +330,10 @@ impl DocStore {
     }
 
     pub fn save(&self, entries: &[Entry]) -> std::io::Result<()> {
+        // 自保护:直接调 save 的入口(测试、restore、外部工具)也拿得到互斥。
+        // 已在外层事务里持锁的调用方(archive_terminal / tracker 写动作)走
+        // 同线程重入,不会自锁死。
+        let _lock = self.lock()?;
         if let Some(parent) = self.path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -315,7 +342,10 @@ impl DocStore {
             .as_ref()
             .map(|template| render_with_template(self.kind, entries, template))
             .unwrap_or_else(|| render(self.kind, entries));
-        std::fs::write(&self.path, text)
+        // R-138:tmp+rename 原子替换。裸 std::fs::write 是先截断再写,并发读者
+        // 会看到零长度/半截文件,而 load() 对空文件宽容返回 Ok(vec![])——
+        // 「成功但空」的快照就是这么穿到前端的(D-249 第①层)。
+        crate::atomic_file::write_atomic(&self.path, &text)
     }
 
     /// ID 分配扫活跃 + 归档 + 废弃账本:归档移走或主动废弃过的编号都绝不复用。
@@ -360,6 +390,8 @@ impl DocStore {
     /// 把语义不同的历史归档条目迁到下一个未使用 ID。若两份内容相同，说明更像
     /// 归档半途而废，不能靠改号掩盖，应人工判断哪一份才该保留。
     pub fn repair_reused_archived_id(&self, id: &str) -> std::io::Result<String> {
+        // 改号要基于「读到的那一版」活动+归档,整段必须在锁内。
+        let _lock = self.lock()?;
         let active = self.load()?;
         let mut archived = self.load_archive()?;
         let Some(active_entry) = active.iter().find(|entry| entry.id == id) else {
@@ -426,7 +458,7 @@ impl DocStore {
             &format!("# {} Archive\n", self.kind.heading),
             1,
         );
-        std::fs::write(self.archive_file(), text)?;
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
         *self.preserved_archive.lock().unwrap() = Some(template);
         Ok(new_id)
     }
@@ -435,6 +467,9 @@ impl DocStore {
     /// 上下文注入都不再被完成项干扰;历史仍可随时翻(get 会回落到归档)。
     /// 返回被移动的条目 ID——调用方必须能告知"哪些条目去了哪个文件"(D-112)。
     pub fn archive_terminal(&self) -> std::io::Result<Vec<String>> {
+        // 事务锁必须罩住 load:两个进程各自 load 到同一份活动条目、各自算出同一批
+        // 终态条目、再各自写归档,归档里就会出现重复条目。
+        let _lock = self.lock()?;
         let entries = self.load()?;
         let (terminal, live): (Vec<Entry>, Vec<Entry>) = entries
             .into_iter()
@@ -481,7 +516,11 @@ impl DocStore {
         if let Some(parent) = self.archive_file().parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(self.archive_file(), text)?;
+        // 写序不可调换:**先写归档、再删活动**。原子写只保证单个文件不被读成半截,
+        // 保证不了两个文件之间的原子性——两步之间崩溃时,当前顺序留下的是"条目
+        // 同时在两处"(integrity_issues 已能报、可人工收口),反过来留下的是
+        // "两处都没有"= 真丢数据。谁想"顺手"把 save 提前,先看这段(D-112)。
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
         self.save(&live)?;
         Ok(moved)
     }
@@ -522,6 +561,9 @@ impl DocStore {
     /// 主动废弃一个编号。理由必填,且该编号当前必须真的不存在于活动/归档——
     /// 拿它去"清掉"一个还活着的条目是删数据,不是记账。
     pub fn void_id(&self, id: &str, reason: &str) -> std::io::Result<()> {
+        // "该编号当前不存在于活动/归档"这个前置校验,与随后的账本追加必须是
+        // 一笔原子事务:中间被别人插入一条同号条目,账本就会记下与事实相反的一行。
+        let _lock = self.lock()?;
         let invalid =
             |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
         let reason = reason.trim();
@@ -561,12 +603,16 @@ impl DocStore {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, text)
+        // 账本同样整读整写:它是缺号"已交代"的唯一凭据,读到半截等于凭据消失,
+        // 完整性门禁会立刻把合法空洞判成账实不符。
+        crate::atomic_file::write_atomic(&path, &text)
     }
 
     /// 在指定编号处补回一条丢失的条目(从 git 历史捞回来后落盘)。
     /// 只允许补真正的空洞,并且按编号插回原位——ID 顺序即分配顺序。
     pub fn restore_entry(&self, entry: Entry) -> std::io::Result<()> {
+        // 「是不是空洞」的判定与插回落盘之间不能被别人插进来。
+        let _lock = self.lock()?;
         let invalid =
             |message: String| std::io::Error::new(std::io::ErrorKind::InvalidInput, message);
         let Some(number) = self.id_number(&entry.id) else {
@@ -1327,6 +1373,219 @@ mod tests {
         )
         .unwrap();
         assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn 并发夹具(标记: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-{标记}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        dir
+    }
+
+    fn 造条目(id: &str, status: &str) -> Entry {
+        Entry {
+            id: id.into(),
+            title: "标题".into(),
+            status: status.into(),
+            severity: None,
+            fields: vec![("验收".into(), "略".into())],
+        }
+    }
+
+    /// D-249 验收③ / R-138 验收①:原子写落地后 tracker 文件不会被读到截断态。
+    ///
+    /// 旧实现 `std::fs::write` 先截断再写,并发读者能实打实读到零长度文件,
+    /// 而 `load()` 对空文件宽容返回 `Ok(vec![])`——「成功但空」的快照就从这里来。
+    /// 这条用例在旧实现下会观测到 0 条目而失败,是真回归锁。
+    #[test]
+    fn 原子写下并发读永不看到截断态() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = 并发夹具("atomic-read");
+        let 少 = 3usize;
+        let 多 = 30usize;
+        // 两种规模差距要够大:内容长度悬殊才让截断窗口足够宽、可观测。
+        let 小批: Vec<Entry> = (1..=少)
+            .map(|n| 造条目(&format!("R-{n:03}"), "todo"))
+            .collect();
+        let 大批: Vec<Entry> = (1..=多)
+            .map(|n| 造条目(&format!("R-{n:03}"), "todo"))
+            .collect();
+        DocStore::open(&dir, &REQUIREMENTS).save(&小批).unwrap();
+
+        let 停 = Arc::new(AtomicBool::new(false));
+        let 读者: Vec<_> = (0..2)
+            .map(|_| {
+                let dir = dir.clone();
+                let 停 = Arc::clone(&停);
+                std::thread::spawn(move || {
+                    let mut 观测 = Vec::new();
+                    while !停.load(Ordering::Relaxed) {
+                        // 每次新开 store:与"另一个进程来读"最接近的形态。
+                        match DocStore::open(&dir, &REQUIREMENTS).load() {
+                            Ok(entries) => 观测.push(Ok(entries.len())),
+                            Err(e) => 观测.push(Err(e.to_string())),
+                        }
+                    }
+                    观测
+                })
+            })
+            .collect();
+
+        for round in 0..200 {
+            let batch = if round % 2 == 0 { &小批 } else { &大批 };
+            DocStore::open(&dir, &REQUIREMENTS).save(batch).unwrap();
+        }
+        停.store(true, Ordering::Relaxed);
+
+        let mut 总数 = 0usize;
+        for handle in 读者 {
+            for 观测 in handle.join().unwrap() {
+                总数 += 1;
+                match 观测 {
+                    Ok(len) => assert!(
+                        len == 少 || len == 多,
+                        "读到了截断态:条目数 {len},只可能是 {少} 或 {多}"
+                    ),
+                    Err(e) => panic!("原子写之后读不该失败: {e}"),
+                }
+            }
+        }
+        assert!(总数 > 0, "读者一次也没跑到,这条用例没有证明力");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 归档是**跨两个文件**的两步写,原子写保证不了两者之间的原子性。
+    /// 但当前写序(先写归档、再删活动)保证了任一瞬间条目至少在一处可见;
+    /// 谁把 save 提到 write_atomic 前面,这条就会红。
+    #[test]
+    fn 归档过程中条目不会在两个文件里同时消失() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = 并发夹具("archive-race");
+        let 全部: Vec<String> = (1..=12).map(|n| format!("R-{n:03}")).collect();
+        let entries: Vec<Entry> = 全部
+            .iter()
+            .enumerate()
+            .map(|(i, id)| 造条目(id, if i % 2 == 0 { "done" } else { "doing" }))
+            .collect();
+        DocStore::open(&dir, &REQUIREMENTS).save(&entries).unwrap();
+
+        let 停 = Arc::new(AtomicBool::new(false));
+        let 读者 = {
+            let dir = dir.clone();
+            let 停 = Arc::clone(&停);
+            std::thread::spawn(move || {
+                let mut 缺失 = Vec::new();
+                let mut 轮次 = 0usize;
+                while !停.load(Ordering::Relaxed) {
+                    let store = DocStore::open(&dir, &REQUIREMENTS);
+                    let (Ok(active), Ok(archived)) = (store.load(), store.load_archive()) else {
+                        continue;
+                    };
+                    let 可见: std::collections::BTreeSet<String> = active
+                        .iter()
+                        .chain(archived.iter())
+                        .map(|e| e.id.clone())
+                        .collect();
+                    轮次 += 1;
+                    缺失.extend(
+                        (1..=12)
+                            .map(|n| format!("R-{n:03}"))
+                            .filter(|id| !可见.contains(id)),
+                    );
+                }
+                (轮次, 缺失)
+            })
+        };
+
+        DocStore::open(&dir, &REQUIREMENTS)
+            .archive_terminal()
+            .unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        停.store(true, Ordering::Relaxed);
+        let (轮次, 缺失) = 读者.join().unwrap();
+        assert!(轮次 > 0, "读者一次也没跑到,这条用例没有证明力");
+        assert!(
+            缺失.is_empty(),
+            "归档中途条目在两个文件里同时消失: {缺失:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-138 验收③:并发写 tracker 不丢条目、不撞 ID。
+    ///
+    /// 关键在于锁罩住的是 **load → next_id → save** 整段。只锁 save 挡不住这条:
+    /// 两次 save 本来就不重叠,丢失发生在各自的"读"与"写"之间——两个写者读到
+    /// 同一份条目、算出同一个 next_id,后写的把先写的整个覆盖掉。
+    #[test]
+    fn 并发写不丢条目也不撞编号() {
+        let dir = 并发夹具("concurrent-write");
+        DocStore::open(&dir, &REQUIREMENTS).save(&[]).unwrap();
+
+        let 写者 = 8usize;
+        let handles: Vec<_> = (0..写者)
+            .map(|_| {
+                let dir = dir.clone();
+                std::thread::spawn(move || {
+                    let store = DocStore::open(&dir, &REQUIREMENTS);
+                    let _lock = store.lock().unwrap();
+                    let mut entries = store.load().unwrap();
+                    let id = store.next_id(&entries);
+                    entries.push(造条目(&id, "todo"));
+                    store.save(&entries).unwrap();
+                    id
+                })
+            })
+            .collect();
+        let 分配: Vec<String> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+        let 落盘 = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(落盘.len(), 写者, "有写者的条目被覆盖掉了: {落盘:?}");
+        let 唯一: std::collections::BTreeSet<&String> = 分配.iter().collect();
+        assert_eq!(唯一.len(), 写者, "分配出了重复 ID: {分配:?}");
+        assert!(
+            DocStore::open(&dir, &REQUIREMENTS)
+                .integrity_issues(&落盘)
+                .is_empty(),
+            "并发写之后完整性必须干净"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-249 第②层的正面锁:`load()` 只把「文件不存在」当作"真的没有条目",
+    /// 其余读失败必须如实上报。谁把它宽容成 `Ok(vec![])`,上层就再也分不清
+    /// 「没有条目」和「读不到」——那正是这条缺陷的核心。
+    #[cfg(windows)]
+    #[test]
+    fn load_遇到真实读失败要报错而不是空列表() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let dir = 并发夹具("load-error");
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[造条目("R-001", "todo")]).unwrap();
+
+        // 文件不存在 = 真的没有条目,照旧放行。
+        let 空店 = DocStore::open(&dir, &FINDINGS);
+        assert_eq!(空店.load().unwrap().len(), 0);
+
+        // 独占占用 = 读不到,必须报错。
+        let 占用 = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&store.path)
+            .unwrap();
+        let error = DocStore::open(&dir, &REQUIREMENTS).load().unwrap_err();
+        assert_ne!(error.kind(), std::io::ErrorKind::NotFound);
+        drop(占用);
+        assert_eq!(DocStore::open(&dir, &REQUIREMENTS).load().unwrap().len(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
