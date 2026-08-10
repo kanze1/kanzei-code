@@ -5,6 +5,7 @@ pub mod assemble;
 pub mod history;
 pub mod notification;
 pub mod orchestration;
+pub mod phase;
 pub mod replay;
 pub mod runner;
 pub mod store;
@@ -14,6 +15,7 @@ pub use history::filter_message_history;
 pub use notification::{
     AgentMessage, AgentNotification, InMemoryBroker, NotificationSubscription, PublishMessage,
 };
+pub use phase::{PhaseOrchestrator, ScoutTask};
 pub use runner::{
     completed_entry, run_once, run_once_with_parts, summarize_failures, summarize_metrics,
     summarize_tools, AskFuture, AskReply, AskRequest, AskResponse, CompletedEntry, FailureSignal,
