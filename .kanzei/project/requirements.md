@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
+## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -64,7 +64,7 @@
 - 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
 - refs: R-105 D-231 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 口径清理:原「依赖: R-162」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-162 后推进。
+- 进展: 2026-08-10 取活:R-164 已阻塞待用户重启 kzapp(不占槽位),按需求优先取 R-165。依赖已满足(R-162 完成),开始推进。
 
 ## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [todo]
 - 优先级: P0
