@@ -2,8 +2,8 @@
 id: M-027
 scope: project
 category: fact
-title: edit 插入/净删除时先保留原文并核对删除意图
-description: 处理 edit 替换导致净删除或大段内容消失时必读：先 read 重读并核对 diff；若是插入，new_string 完整保留 old_string 后再追加；只有明确删除才 allow_deletion=true，否则缩小 old_string 或改插入式替换。
+title: edit 插入/净删除时先保留原文并核对删除意图 — 处理 edit替换未保住old_string内容:看新增是否含原匹配段,有则必保;明确删才allow_deletion=true
+description: 处理 edit 替换导致净删除或大段内容消失时必读：re-read target file, check if added text preserves matched old_string lines；若插入，full retain original content first; only allow_deletion=true when removal confirmed. Two failed cases share same recurrence key pattern — must keep all [fp:edit|...] markers verbatim as detection signatures
 status: active
 created: 2026-08-09
 updated: 2026-08-10

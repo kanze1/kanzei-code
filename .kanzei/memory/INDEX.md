@@ -24,11 +24,11 @@
 - M-022 [sop] Rust/验证失败勿用 bash 反复跑测试，改用结构化验证 — 处理 Rust 测试、verify.ps1 或 smoke probe 在 bash 返回 exit code 1、但输出包含具体业务断言失败时必读：不要重复 bash/cargo 重跑；先按断言定位实现问题，并用 test_record/结构化验证记录终态。
 - M-023 [fact] edit 报 cannot read 拒绝访问 (os error 5) 是瞬态错误,重试即成功 — 处理 edit 报 "cannot read ... 拒绝访问 (os error 5)" 时必读:这是 Windows 瞬态访问拒绝,不是真实权限/路径问题——先 read 重读再重试 edit 即可成功,不要改 bash 绕过,也不要误判为死路而放弃。
 - M-026 [sop] test_record 请求校验缺失必补、非重试即成功可复用知识 — [fp] detection key — 处理 test_record 输入验证失败（缺少字段/重复提交）必读：补全必填字段再发，避免环境误判为死路
-- M-027 [fact] edit 插入/净删除时先保留原文并核对删除意图 — 处理 edit 替换导致净删除或大段内容消失时必读：先 read 重读并核对 diff；若是插入，new_string 完整保留 old_string 后再追加；只有明确删除才 allow_deletion=true，否则缩小 old_string 或改插入式替换。
+- M-027 [fact] edit 插入/净删除时先保留原文并核对删除意图 — 处理 edit替换未保住old_string内容:看新增是否含原匹配段,有则必保;明确删才allow_deletion=true — 处理 edit 替换导致净删除或大段内容消失时必读：re-read target file, check if added text preserves matched old_string lines；若插入，full retain original content first; only allow_deletion=true when removal confirmed. Two failed cases share same recurrence key pattern — must keep all [fp:edit|...] markers verbatim as detection signatures
 - M-028 [sop] req 批次未完成时不得关闭，完成后校正批次数 — 处理 req 批次执行与关闭、尤其报“R-148 批次未走完”时必读：先完成所有批次再 close；若实际批次数与预估不同，完成后把总数改为实际值（如 `批次: 0/0`），不要用空白或错误总数绕过门禁。
 - M-029 [fact] git merge 禁止在 bash 执行，须用结构化 git 工具 — 处理合并或其他 Git 分支/索引变更时必读：不要在 bash 运行 git merge；改用结构化 git 工具，并按要求显式 stage、检查 staged_hash/diff，再用该 hash commit。
 - M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
 - M-031 [sop] 关闭 req 前先收尾名下 running 测试记录 — 处理 req 关闭被 running 测试记录阻塞时必读：先用 test_record 为对应测试 ID 写入 passed/failed/skipped 终态，再重试关闭；不再运行的测试必须 skipped 并说明原因。
-- M-032 [fact] R-163 记忆回放评估台已交付:六臂对照量化记忆决策值 — 处理 R-163 记忆回放评估工具交付与 CLI kz replay-eval 使用问题：六臂对照量化决策价值，按 commit hash 追踪版本变更
+- M-032 [fact] R-163 记忆回放评估台已交付 — 处理 R-163 内存回放工具交付与 CLI kz replay-eval使用问题：六臂对照量化决策价值，按 commit hash 追踪版本变更 — 处理 R-163 记忆回放评估工具交付与 CLI kz replay-eval使用问题：六臂对照量化决策价值，按 commit hash追踪版本变更；replay.rs数据层、Arm枚举trait实现、J判据渲染报告细节。
 
-(2 stale 条待归档)
+(1 candidate 条待验证晋升)
