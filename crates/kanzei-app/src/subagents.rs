@@ -10,6 +10,14 @@ use kanzei_llm::LlmClient;
 use kanzei_llm::ProxyConfig;
 use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 
+/// 标签受控词表(R-112,conventions §1.35 用户定调):quick capture 子代理必须
+/// 从词表里给新条目建议一个标签,词表外会被引擎 check_tag 拒绝。
+pub(crate) const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
+
+const QUICK_REQ_DEFECT_SYSTEM: &str = "You capture ONE defect from the user's natural-language description. Call the `defect` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), severity high|medium|low, fields = {\"标签\": pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject, \"复现\": concrete reproduction steps ONLY if the description actually contains them — NEVER invent or pad one; when not reproducible from the text, write \"待澄清: \" followed by the specific questions the user must answer, \"原始描述\": the user's original text verbatim}. Then reply with only the new id.";
+
+const QUICK_REQ_REQUIREMENT_SYSTEM: &str = "You capture ONE requirement from the user's natural-language description. Call the `req` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred), fields = {\"标签\": pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject, \"priority\": suggested P0-P3, \"复杂度\": 小|中|大, \"验收\": one draft acceptance line, \"归属\": \"kanzei\", \"原始描述\": the user's original text verbatim}. Then reply with only the new id.";
+
 #[tauri::command]
 pub(crate) async fn quick_req(
     project_dir: String,
@@ -38,9 +46,9 @@ pub(crate) async fn quick_req(
     harness.add(crate::harness_ext::QuickCaptureComponent { capture });
     let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
     let system = if capture == "defect" {
-        "You capture ONE defect from the user's natural-language description. Call the `defect` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), severity high|medium|low, fields = {\"复现\": concrete reproduction steps ONLY if the description actually contains them — NEVER invent or pad one; when not reproducible from the text, write \"待澄清: \" followed by the specific questions the user must answer, \"原始描述\": the user's original text verbatim}. Then reply with only the new id."
+        QUICK_REQ_DEFECT_SYSTEM
     } else {
-        "You capture ONE requirement from the user's natural-language description. Call the `req` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred), fields = {\"priority\": suggested P0-P3, \"复杂度\": 小|中|大, \"验收\": one draft acceptance line, \"归属\": \"kanzei\", \"原始描述\": the user's original text verbatim}. Then reply with only the new id."
+        QUICK_REQ_REQUIREMENT_SYSTEM
     };
     let agent = kanzei_harness::AgentDef {
         name: "quickcapture".into(),
@@ -120,6 +128,36 @@ pub(crate) async fn quick_req(
         }
     }
     Err("子代理未能落库(fast/primary 均失败),请重试或在对话里直接说".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{QUICK_CAPTURE_TAGS, QUICK_REQ_DEFECT_SYSTEM, QUICK_REQ_REQUIREMENT_SYSTEM};
+
+    // R-112 验收④:quick capture 自动建议分类——两条 system 提示必须引导子代理
+    // 从受控词表里选一个标签,且词表与引擎侧 check_tag 的 DocKind.tags 保持一致。
+    #[test]
+    fn quick_capture_prompts_suggest_controlled_vocabulary_tag() {
+        for prompt in [QUICK_REQ_DEFECT_SYSTEM, QUICK_REQ_REQUIREMENT_SYSTEM] {
+            assert!(
+                prompt.contains("标签"),
+                "提示必须让子代理填「标签」字段: {prompt}"
+            );
+            assert!(
+                prompt.contains(QUICK_CAPTURE_TAGS),
+                "提示必须带上受控词表 {QUICK_CAPTURE_TAGS}: {prompt}"
+            );
+            assert!(
+                prompt.contains("pick ONE tag"),
+                "提示必须要求单选: {prompt}"
+            );
+        }
+        // 词表与引擎侧校验真源一致:Req/Defect 的 DocKind.tags 就是这份词表。
+        use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
+        let expected: Vec<&str> = QUICK_CAPTURE_TAGS.split('|').collect();
+        assert_eq!(REQUIREMENTS.tags.unwrap().to_vec(), expected);
+        assert_eq!(DEFECTS.tags.unwrap().to_vec(), expected);
+    }
 }
 
 const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \\

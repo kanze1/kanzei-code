@@ -1116,3 +1116,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: R-112 批1 标签受控词表校验:docstore.rs DocKind 增 tags 词表(核心/后端/前端/模型/发布/流程),tracker.rs check_tag 在 add/update/close/repair_missing_id 写入口校验,词表外拒绝并提示合法值;2 新测试(tag_validation_rejects_out_of_vocabulary_on_add_and_update / tag_validation_skips_documents_without_vocabulary)。tools 134 passed。
 - 收尾: 1786320742
+
+## T-1786320961 cargo test -p kanzei-app (R-112 批2) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-112 批2 quick capture 自动建议分类:subagents.rs 提取 QUICK_CAPTURE_TAGS/QUICK_REQ_DEFECT_SYSTEM/QUICK_REQ_REQUIREMENT_SYSTEM 常量,两条 system 提示引导子代理从受控词表选「标签」;新增单测断言提示含标签建议+词表与引擎 DocKind.tags 一致。kanzei-app 46 passed。
+- 收尾: 1786320961

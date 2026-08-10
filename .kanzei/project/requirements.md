@@ -84,6 +84,11 @@
 - refs: R-054
 - 阶段: 4
 
+- 批次: 1/3
+- 进展: 2026-08-10 接手。现状盘点:conventions §1.35 已定调「标签」单选受控词表(核心/后端/前端/模型/发布/流程),取代 R-112 原方案的领域/类型双维;前端筛选/分组为既有能力(10-docs-core.js:50-68 tagOptions/syncTagFilter,index.html 三处 tag-filter);存量需求/缺陷标签已 100% 归一(词表内)。缺口:①引擎侧词表校验、④quick capture 自动建议分类。批次规划:批1=引擎侧校验、批2=quick capture 建议分类、批3=验收收口+全量。
+批次 1/3 完成(d41fff4):docstore.rs DocKind 增 tags 词表字段,REQUIREMENTS/DEFECTS 用词表、其余 None;tracker.rs 新增 check_tag(兼容 标签/tags/tag 键,按空白/逗号拆分逐词校验),接入 add/update/close/repair_missing_id 四处写入口;2 个新单测覆盖词表外拒绝/多值含非法词/词表内放行/无词表文档不受影响,tools 134 passed。
+批次 2/3:quick capture 自动建议分类。
+
 ## R-117 子代理运行状态的可观察性 [todo]
 - 复杂度: 中
 - 优先级: P3
