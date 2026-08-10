@@ -286,7 +286,7 @@
 - 边界: 只动模板文本;不改 settings_open 的写入时机与「留空即默认」语义;模板内容写进文件、不是界面文案,不受 ui-i18n-smoke 约束。
 - 验收: ①全新环境下 settings_open 产出的文件含各节骨架注释;②解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致);③不引入任何生效的显式值。
 
-## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [todo]
+## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [done]
 - refs: R-171 R-117 R-050 docs/design/parallel_read_serial_write_orchestration.md
 - 优先级: P1
 - 依赖: 
@@ -298,7 +298,23 @@
 - 调度顺序: R-171 关闭后按序取活
 - 阶段: 3
 - 验收: ①至少两个只读子代理真实重叠执行,汇总屏障(最慢任务完成/失败/超时)前 writer 不启动,失败/超时都有确定终态;②一次真实需求完成并行勘察→屏障→串行实现/验证→并行复核→复核屏障→串行修正全轨迹,阶段事件落 session_events 可回放;③复核阶段在 writer 释放后启动,审查的是稳定快照;④writer 活跃时允许只读勘察继续(读写共存,复用 R-171 读槽机制)。
-- 批次: 6/7
+- 批次: 7/7
+- 关闭说明: 2026-08-11 交付关闭。逐条对照验收原文,证据均为生产路径(§1.25):
+  **①-a「至少两个只读子代理真实重叠执行」✓** —— 两条路径各有证据。模型自派路径:`crates/kanzei/tests/parallel_scouting_under_serial_writer.rs`,从**真实发出的 HTTP 请求体**解析 `tools` 数组断言 `task` 已注册(主快照刻意留空,出现只可能来自 drive 的注册分支),并断言两条 `agent_started` 都早于任何一条 `agent_completed`——重叠的确定性证据,不靠 sleep 卡时序。编排派发路径:`phase_pipeline_tests::七阶段闭环轨迹落库可回放`(8 条 started / 8 条 completed)。实现点 `core/runner/drive.rs` 的 task 注册分支 + `core/runner/subagent.rs` 的读槽登记。
+  **①-b「汇总屏障前 writer 不启动」✓** —— 决策点抽成了可直接测的生产函数 `phase_pipeline.rs::acquire_plain_lease_if_needed`(流水线开启 → `Ok(None)`),此前内联在需要真实 Tauri Window 的 `run_task` 里、只能靠读代码相信。闭环测试三重断言:`plain_lease.is_none()`、勘察返回后 `writer_run_id.is_none()`、**落库事件序 `barrier_reached(synthesis)` 早于第一条 `writer.acquired`**。机械保证是迁移表里没有 `Scouting→Implementation` 边(`阶段迁移表穷举_合法边恰好十条`)。
+  **①-c「失败/超时都有确定终态」✓** —— `core/phase.rs::run_barrier` 双层有界(内层 `subagent_timeout_secs`、外层 `barrier_timeout_secs`,后者显式配置也按内层+1 夹紧);`三终态收敛_失败不中止且零结果告知模型` 用一个**永不返回**的任务验证外层确实收敛。`ScoutOutcome` 只有终态变体,「还在跑」在类型上表达不出来。
+  **②「阶段事件落 session_events 可回放」✓(自动化证据)** —— `七阶段闭环轨迹落库可回放`:真 SQLite + 真协调器 + 真子代理 + 真观察者(只有 provider 是假的),**另开一条连接**从真库读回,断言八段阶段名按序、两道屏障统计(5/5 与 3)、`sequence` 单调。落库单一出口 `app/orchestration_trace.rs::SessionEventObserver`,事件类型与 payload 经 `OrchestrationEvent::event_type()/payload()` 产出,收掉了「枚举一套、落库手写字符串一套」的漂移面。
+  **③「复核在 writer 释放后启动」✓** —— `core/phase.rs::release_lease` 三层保证:`Option::take` 移交所有权(调用方在类型上无法一边持租约一边复核)→ 同步 `drop`(释放回调无 await 无 spawn,返回即已释放)→ 独立快照复核(若将来有人给释放路径加异步分支,这里当场 `LeaseStillHeld` 而非静默放行)。测试 `复核屏障_交出租约后才进复核`、`未持租约进复核被拒`,闭环测试断言 `writer.released` 严格早于 `phase_changed(review)`。
+  **④「writer 活跃时允许只读勘察继续」✓** —— `core/orchestration.rs::acquire_read_slot` 全程不读 `writer_run_id`、唯一返回路径是 `Ok`(**R-171 既有性质,本次只补验证与真实消费者,不作为本次产出申报**)。生产路径证据:`parallel_scouting_under_serial_writer.rs` **整轮真实持有写租约**跑勘察,并断言全程无写租约排队事件。
+  交付批次: 批1 契约(`6f98db2`)/ 批2-4 实现(`67c3fa2`,顺带修 `release_writer` 交接断档与 `process_id` 恒空两缺陷 + `normalize_project_root` 不剥 `\\?\` 导致 worktree 写命令与主对话 writer 落在两个仲裁桶的漏洞)/ 批4.5 恢复桌面端并行查(`e933262`,顺带修读槽按 agent_name 回收导致 `AgentCompleted` 张冠李戴)/ 批5 事件落库(`38716a7`)/ 批6 流水线接线(`45a5e54`)/ 批6.5 路由可配与进度事件(`a921b14`)/ 批7 闭环测试与设计基线回写(`40fe3d8`)/ 前端进度上面板(`ff287c4`)。
+  **三个同族缺陷值得单记**:`release_writer` 交接断档、`process_id` 恒空、读槽按 agent_name 回收——全部是「R-171 时这条路不可达所以没人发现,阶段编排与并行查一恢复就变成真实的审计错误」。**不可达的代码不是没有 bug,是 bug 还没被叫醒。**
+- 残余缺口(§1.2 转移,不丢弃): 
+  ①**「一次真实需求」的真机佐证不存在**——R-173 自身的开发在外部 agent 环境完成,没有走过 kanzei 桌面端的自主推进轮,所以验收②目前只有自动化证据。补法:用户开着自主推进跑一条需求,从 state.db 导出那段事件流。**不含混过去,如实记录。**
+  ②`run_task` 外围那层无测试覆盖:闭环测试复刻的是它在流水线开启时的完整调用序列(同一批生产函数),但 `run_task` 本身需要真实 Tauri Window,单测起不来。未覆盖 Window 事件发射、store 生命周期记账、`phase_pipeline_on` 的 auto_runs 闸门取值(三行 `is_some_and`)。转 R-101(桌面端 E2 harness)。
+  ③修正段触发判据是「非 NO_ISSUES 即有发现」,**失败/超时也算有发现**(宁可多跑一段,不把没复核过的当成复核通过)——有意的保守取向,但弱模型下大概率每轮都跑修正段,自主推进轮的成本上限是「5 勘察 + 主对话 + 3 复核 + 修正」。旋钮是既有的 `[limits] max_tasks_per_turn`。
+  ④单条停止通道不存在 → **R-174 验收④**。最小改法已备:每角色配 `CancellationToken`,新 Tauri 命令按 role 触发,取消后以 `ScoutOutcome::Failed("cancelled")` 进终态,屏障照常收敛不会挂住。
+  ⑤编排派发的 8 条同时也会在主对话里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每轮多 8 个块可能偏吵 → **R-174**(面板形态决策)。
+  ⑥前端面板当前每角色只留最新一轮(`id` = 角色名,跨轮必然重名,已修跨轮复位)。R-174 做独立面板时若要保住历史轮次,需后端给 `role@round` 之类的唯一键。
 - 进展: 2026-08-10 推进中,**不关闭**——按 §1.25 三条验收(①②③)目前仍缺生产调用方,阶段编排对象尚未接进真实运行链路。已交付批次:批1 阶段编排契约(七阶段迁移表、屏障终态类型、事件单一出口,`6f98db2`);批2-4 阶段编排实现(状态机、汇总屏障、复核屏障,`67c3fa2`,顺带修 release_writer 两缺陷与写键错桶);批4.5 恢复桌面端并行查(task 注册不再受 execution_policy 门控、读槽改按 run_id 回收,`e933262`——这条同时解掉 R-174/R-175/R-176 共同记录的「桌面端主对话根本不注册 task 工具」前置回归);批5 编排事件落 session_events(单一出口收掉「枚举一套、落库一套」的漂移面,`38716a7`);批6 阶段流水线接线——自主推进轮走七阶段、勘察/复核由编排对象按角色表派发(`45a5e54`,本条关闭说明撰写期间落地)。**批7 待做**(真实闭环轨迹取证 = 验收②)。依赖字段清理:R-171 已 done 并已在 refs 中,按 §1.35 从「依赖」移出,防调度器误判阻塞(D-239 同族)。
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [todo]
@@ -317,6 +333,12 @@
 - 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
 - refs: R-095 R-117 R-173 R-175 R-176
 - 依赖: 
+- 进展: 2026-08-11 R-173 关闭时转入四条,取活前先读,别重新想一遍:
+  ①**前置回归已解除**——「桌面端主对话根本不注册 task 工具」那条(本条与 R-175/R-176 共同记录的前置)已由 R-173 批4.5 修掉(`e933262`),验收⑦现在可以真去桌面端取证了。
+  ②**验收③已部分交付**——R-173 收尾时把编排派发的勘察/复核子代理接上了活动面板(`ff287c4`):按 `input.phase` 分「勘察/复核」两组、显示角色名与**当前工具名**(取 `kz:task-progress` 的 `trace.name`)、运行时长、内部调用数,超时与失败分开成两种终态,冒烟有 6 组反证锁死。**它刻意复用 `#bg-list` 没有新建平行面板**——本条要做的独立面板应当在此之上演进,不是另起炉灶。仍缺:累计 token、Clear、Running/Finished 两区(现在是按阶段分组,不是按运行状态)。
+  ③**验收④单条停止的最小改法已备**:目前 `dispatch_roles` 的 future 集合由屏障统一驱动,没有对外暴露的 per-role cancel handle。改法 = 每角色配一个 `CancellationToken` + 新 Tauri 命令按 role 触发,取消后该角色以 `ScoutOutcome::Failed("cancelled")` 进终态——屏障照常收敛,不会挂住。
+  ④**两条形态决策留给本条拍**:(a) 编排派发的 8 条同时也会在**主对话**里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每个自主推进轮多 8 个块,可能偏吵;(b) 前端条目的 `id` 就是角色名,而角色跨轮复用,所以当前实现是**每角色只留最新一轮**(跨轮定格的 bug 已修成"原地复位")。要保住历史轮次得让后端给 `role@round` 之类的唯一键。
+  另:验收①②的「并发度可配」部分是**既有能力**(见本条「既有能力」字段),不要重做。
 
 ## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [todo]
 - 优先级: P0
