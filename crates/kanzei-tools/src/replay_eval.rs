@@ -44,11 +44,10 @@ impl ReplayMemoryProvider {
         let policy = FailureRecallPolicy::new(project_root);
         // 尝试从 [embeddings] 启用向量通道;未配置/provider 不可用 → None,
         // hybrid 自动退化为 lexical(设计 §5 验收①)。
-        let embedder: Option<Arc<dyn crate::embed::Embedder>> =
-            KanzeiConfig::load(project_root)
-                .ok()
-                .and_then(|cfg| crate::embed::OpenAiEmbedder::from_config(&cfg).ok())
-                .map(|e| Arc::new(e) as Arc<dyn crate::embed::Embedder>);
+        let embedder: Option<Arc<dyn crate::embed::Embedder>> = KanzeiConfig::load(project_root)
+            .ok()
+            .and_then(|cfg| crate::embed::OpenAiEmbedder::from_config(&cfg).ok())
+            .map(|e| Arc::new(e) as Arc<dyn crate::embed::Embedder>);
         let hybrid = SqliteMemoryIndex::with_embedder(project_root, embedder);
         Self {
             policy,
@@ -239,11 +238,9 @@ impl ReplayDecider for LlmDecider {
         Box<dyn std::future::Future<Output = anyhow::Result<(String, u64)>> + Send + 'a>,
     > {
         Box::pin(async move {
-            let mut system = vec![
-                "你是回放评估台:面对一个历史失败场景,给出**下一步行动**。\
+            let mut system = vec!["你是回放评估台:面对一个历史失败场景,给出**下一步行动**。\
                  只输出要执行的工具与理由,不要复述背景。"
-                    .to_string(),
-            ];
+                .to_string()];
             if !memory_context.trim().is_empty() {
                 system.push(format!("以下记忆供参考:\n{memory_context}"));
             }
@@ -290,12 +287,15 @@ mod tests {
 
     #[test]
     fn normalize_kind_抹掉数字与符号只留词干() {
-        assert_eq!(normalize_kind("old_string not found at line 42"), "old string not found at line");
+        assert_eq!(
+            normalize_kind("old_string not found at line 42"),
+            "old string not found at line"
+        );
         assert_eq!(normalize_kind("路径 /a/b/c 不存在"), "a b c");
     }
 
     #[test]
-    fn oracle臂注入自动事后正确做法_NoMemory臂恒空() {
+    fn oracle臂注入自动事后正确做法_no_memory臂恒空() {
         // 临时目录,避免在源码树里留下 memory 索引(D-174 文件隔离精神)。
         let root = std::env::temp_dir().join(format!("kz-replay-eval-{}", std::process::id()));
         let provider = ReplayMemoryProvider::new(&root);
@@ -346,7 +346,9 @@ mod tests {
             .find(|(_, e)| e.title == "edit 失败处理")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cand_id, &[(1, Some(0), Some(5))], Some("replay-test")).unwrap();
+        store
+            .promote(&cand_id, &[(1, Some(0), Some(5))], Some("replay-test"))
+            .unwrap();
         // 构造带 embedder 的 provider(FakeEmbedder:同文本同向量,query 用相同文本必命中)。
         let mut provider = ReplayMemoryProvider::new(&root);
         provider.hybrid = SqliteMemoryIndex::with_embedder(
@@ -362,7 +364,10 @@ mod tests {
             candidate.contains("[recalled]"),
             "Candidate 必须命中 fingerprint 记忆: {candidate:?}"
         );
-        assert!(candidate.contains("old_string not found 时先 read"), "{candidate:?}");
+        assert!(
+            candidate.contains("old_string not found 时先 read"),
+            "{candidate:?}"
+        );
         // recall_events 落库:policy_action=hybrid 且分段延迟可查(直连 state.db,
         // core 无通用读 API;recall_id 主键为 replay-candidate- 前缀)。
         let conn = rusqlite::Connection::open(root.join(".kanzei").join("state.db")).unwrap();
@@ -385,7 +390,7 @@ mod tests {
     }
 
     #[test]
-    fn leaveOneOut_去掉第一条命中_无命中时不变() {
+    fn leave_one_out_去掉第一条命中_无命中时不变() {
         let root = std::env::temp_dir().join(format!("kz-replay-eval-loo-{}", std::process::id()));
         let provider = ReplayMemoryProvider::new(&root);
         let case = parse_trace_payload(SAMPLE, "t2").unwrap();

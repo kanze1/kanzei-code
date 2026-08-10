@@ -63,8 +63,7 @@ impl Tool for ReadTool {
             .cwd
             .join(kanzei_harness::permission::normalize_resource(&input.path));
         let path_for_read = path.clone();
-        let result =
-            tokio::task::spawn_blocking(move || read_sync(&path_for_read, &input)).await;
+        let result = tokio::task::spawn_blocking(move || read_sync(&path_for_read, &input)).await;
         match result {
             Ok(Ok(text)) => {
                 // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
@@ -252,13 +251,12 @@ mod tests {
         let recall_id = store.record_recall("这轮要发版", &hits, 128);
         let rounds = store.recalls(10);
         assert!(
-            rounds[0]
+            !rounds[0]
                 .hits
                 .iter()
                 .find(|h| h.id == entry.id)
                 .unwrap()
                 .fetched
-                == false
         );
 
         // 通过 ReadTool 读该记忆文件 → 回填 fetched。
@@ -269,10 +267,7 @@ mod tests {
             .map(|(p, _)| p)
             .unwrap();
         let out = ReadTool
-            .execute(
-                json!({"path": path.to_string_lossy()}),
-                &ctx,
-            )
+            .execute(json!({"path": path.to_string_lossy()}), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("package.ps1"), "{}", out.content);

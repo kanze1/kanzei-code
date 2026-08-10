@@ -168,11 +168,8 @@ impl Tool for MemoryNoteTool {
         let store = MemoryStore::project(&ctx.project_root);
         // R-165 批2 novelty gate(验收④):投递前机械三档分流——
         // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
-        let novelty = store.classify_novelty(
-            &input.summary,
-            input.detail.as_deref().unwrap_or(""),
-            "",
-        );
+        let novelty =
+            store.classify_novelty(&input.summary, input.detail.as_deref().unwrap_or(""), "");
         if novelty == super::Novelty::Duplicate {
             store.record_novelty(&novelty, "", &input.summary);
             return ToolOutput::ok(format!(
@@ -306,7 +303,8 @@ impl Tool for MemoryStatsTool {
             // low value(effect_mean≤0)+ high confidence(样本足且 CI 窄)才报;
             // age 不参与。只报不删,真正的 deprecated 由 manager 按 reason 落。
             if store.scope.label() == "project" {
-                if let Some(db) = kanzei_core::SessionStore::open(&store.root.join("..").join("state.db")).ok()
+                if let Ok(db) =
+                    kanzei_core::SessionStore::open(&store.root.join("..").join("state.db"))
                 {
                     if let Ok(candidates) = db.deprecate_candidates(3, 0.34) {
                         for id in candidates.iter().take(3) {

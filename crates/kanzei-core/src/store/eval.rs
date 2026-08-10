@@ -9,7 +9,7 @@
 //! J 判据(success)配对相减、求均值与 95% 近似置信区间,写入 memory_eval_agg。
 //! 在线推理路径不读不写本表——评估永远是周期性的 with/without 回放。
 
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{params, OptionalExtension};
 
 use super::{now_ms, SessionStore, StoreError};
 
@@ -52,10 +52,7 @@ impl SessionStore {
     }
 
     /// 覆盖写入一条记忆的 F(m) 聚合(离线回放后调用,幂等)。
-    pub fn upsert_memory_effect(
-        &self,
-        estimate: &EffectEstimate,
-    ) -> Result<(), StoreError> {
+    pub fn upsert_memory_effect(&self, estimate: &EffectEstimate) -> Result<(), StoreError> {
         self.connection.execute(
             "INSERT INTO memory_eval_agg(memory_id, effect_mean, effect_ci, eval_n, last_eval)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -211,10 +208,9 @@ impl SessionStore {
                 excluded.push_str(&id.to_string());
             }
             let sql = if excluded.is_empty() {
-                format!(
-                    "SELECT episode_id FROM episodes
-                     ORDER BY created_at DESC LIMIT ?1"
-                )
+                "SELECT episode_id FROM episodes
+                 ORDER BY created_at DESC LIMIT ?1"
+                    .to_string()
             } else {
                 format!(
                     "SELECT episode_id FROM episodes
@@ -223,9 +219,8 @@ impl SessionStore {
                 )
             };
             let mut stmt = self.connection.prepare(&sql)?;
-            let rows = stmt.query_map(params![negative_limit as i64], |row| {
-                row.get::<_, i64>(0)
-            })?;
+            let rows =
+                stmt.query_map(params![negative_limit as i64], |row| row.get::<_, i64>(0))?;
             for id in rows.flatten() {
                 out.negative_control.push(id);
             }
@@ -328,7 +323,9 @@ impl SessionStore {
              ORDER BY effect_mean ASC",
         )?;
         let rows = statement
-            .query_map(params![min_eval_n as i64, max_ci], |row| row.get::<_, String>(0))?
+            .query_map(params![min_eval_n as i64, max_ci], |row| {
+                row.get::<_, String>(0)
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
@@ -352,7 +349,19 @@ mod eval_tests {
                 .record_memory_eval("M-1", case, "current", "m", "v1", true, 1, 0, 0, 1, None)
                 .unwrap();
             store
-                .record_memory_eval("M-1", case, "leave_one_out", "m", "v1", false, 1, 0, 0, 1, None)
+                .record_memory_eval(
+                    "M-1",
+                    case,
+                    "leave_one_out",
+                    "m",
+                    "v1",
+                    false,
+                    1,
+                    0,
+                    0,
+                    1,
+                    None,
+                )
                 .unwrap();
         }
         let est = store
@@ -362,10 +371,7 @@ mod eval_tests {
         assert_eq!(est.effect_mean, 1.0);
         assert_eq!(est.eval_n, 3);
         assert_eq!(est.effect_ci, 0.0, "方差为零时 CI 为 0");
-        let queried = store
-            .memory_effect("M-1")
-            .unwrap()
-            .expect("落库后可查");
+        let queried = store.memory_effect("M-1").unwrap().expect("落库后可查");
         assert_eq!(queried.effect_mean, 1.0);
         assert_eq!(queried.eval_n, 3);
         // 未评估的记忆:None。
@@ -411,7 +417,19 @@ mod eval_tests {
             .record_memory_eval("M-3", "c1", "current", "m", "v1", true, 1, 0, 0, 1, None)
             .unwrap();
         store
-            .record_memory_eval("M-3", "c1", "leave_one_out", "m", "v1", false, 1, 0, 0, 1, None)
+            .record_memory_eval(
+                "M-3",
+                "c1",
+                "leave_one_out",
+                "m",
+                "v1",
+                false,
+                1,
+                0,
+                0,
+                1,
+                None,
+            )
             .unwrap();
         // 另一版本只有 current——不得与 v1 配对。
         store
@@ -423,7 +441,10 @@ mod eval_tests {
             .unwrap();
         assert_eq!(est.eval_n, 1);
         // v2 无 leave_one_out 配对 → None。
-        assert!(store.recompute_memory_effect("M-3", "m", "v2").unwrap().is_none());
+        assert!(store
+            .recompute_memory_effect("M-3", "m", "v2")
+            .unwrap()
+            .is_none());
     }
 
     // -----------------------------------------------------------------------
@@ -549,10 +570,16 @@ mod eval_tests {
             .merge_conservation_delta("M-4", "m", "v1")
             .unwrap()
             .unwrap();
-        assert!((delta2 - 0.4).abs() < 1e-9, "合并把成功变失败:前 3 配对差 0、后 2 配对差 1 → 均值 0.4,实得 {delta2}");
+        assert!(
+            (delta2 - 0.4).abs() < 1e-9,
+            "合并把成功变失败:前 3 配对差 0、后 2 配对差 1 → 均值 0.4,实得 {delta2}"
+        );
         assert_eq!(n2, 5);
         // 无配对数据 → None(退化为保守闸)。
-        assert!(store.merge_conservation_delta("M-nobody", "m", "v1").unwrap().is_none());
+        assert!(store
+            .merge_conservation_delta("M-nobody", "m", "v1")
+            .unwrap()
+            .is_none());
     }
 
     // -----------------------------------------------------------------------
@@ -605,6 +632,10 @@ mod eval_tests {
             })
             .unwrap();
         let candidates = store.deprecate_candidates(3, 0.34).unwrap();
-        assert_eq!(candidates, vec!["M-low".to_string()], "只有 low+high confidence 进候选");
+        assert_eq!(
+            candidates,
+            vec!["M-low".to_string()],
+            "只有 low+high confidence 进候选"
+        );
     }
 }

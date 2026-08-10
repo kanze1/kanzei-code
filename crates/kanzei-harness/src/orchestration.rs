@@ -4,7 +4,9 @@
 //! 不承载具体实现——内存实现放 kanzei-core,未来 OS 进程锁实现换插不换契约。
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+type ReleaseCallback = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 /// 执行策略。`ReadParallelWriteSerial` 同时约束 task 使用阶段、writer 租约
 /// 与普通工具执行模式;`Default` 保持现状(wave 并发、无租约)。
@@ -46,7 +48,7 @@ pub struct WriterLease {
     pub project_root: PathBuf,
     pub run_id: String,
     pub process_id: String,
-    release: Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>,
+    release: Option<ReleaseCallback>,
 }
 
 impl std::fmt::Debug for WriterLease {
@@ -89,7 +91,7 @@ impl Drop for WriterLease {
 pub struct ReadPermit {
     pub project_root: PathBuf,
     pub agent_name: String,
-    release: Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>,
+    release: Option<ReleaseCallback>,
 }
 
 impl std::fmt::Debug for ReadPermit {
@@ -200,7 +202,7 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
     /// 取消排队中的写申请(等待者收到确定终态)。
     fn cancel_waiter(&self, run_id: &str);
     /// 快照(活动面板/事件消费)。
-    fn snapshot(&self, project_root: &PathBuf) -> CoordinatorSnapshot;
+    fn snapshot(&self, project_root: &Path) -> CoordinatorSnapshot;
 }
 
 #[cfg(test)]

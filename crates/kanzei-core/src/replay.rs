@@ -131,7 +131,7 @@ pub fn recorded_tool_results(case: &ReplayCase) -> Vec<kanzei_llm::Part> {
             };
             kanzei_llm::Part::ToolResult {
                 call_id: format!("recorded-{}-{}", case.case_id, index),
-                content: content.into(),
+                content,
                 is_error: !step.ok,
             }
         })
@@ -205,17 +205,15 @@ pub struct ReplayDecision {
     pub tokens: u64,
 }
 
+type ReplayDecisionFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<(String, u64)>> + Send + 'a>>;
+
 /// 决策者:给定决策问题与记忆上下文,产出决策文本与 token 数。
 /// 生产实现包装 `LlmClient`(fast 档跑批,异步流);测试用固定响应 fake。
 /// 用显式 BoxFuture 而非 async_trait,避免给 core 增加主依赖。
 pub trait ReplayDecider: Send + Sync {
-    fn decide<'a>(
-        &'a self,
-        question: &'a str,
-        memory_context: &'a str,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = anyhow::Result<(String, u64)>> + Send + 'a>,
-    >;
+    fn decide<'a>(&'a self, question: &'a str, memory_context: &'a str)
+        -> ReplayDecisionFuture<'a>;
 }
 
 /// Oracle 臂的自动近似:从 case 里失败步骤**之后**的成功工具调用,
@@ -251,7 +249,10 @@ pub fn question_for_case(case: &ReplayCase) -> String {
             failed.tool, err
         )
     } else {
-        format!("本轮没有失败步骤(outcome={})。请给出下一步行动。", case.outcome)
+        format!(
+            "本轮没有失败步骤(outcome={})。请给出下一步行动。",
+            case.outcome
+        )
     }
 }
 
@@ -307,9 +308,8 @@ pub async fn run_arms(
 ) -> anyhow::Result<Vec<ReplayDecision>> {
     let mut decisions = Vec::with_capacity(6);
     for arm in Arm::all() {
-        decisions.push(
-            run_single_arm(case, arm, memory, decider, store, model, prompt_version).await?,
-        );
+        decisions
+            .push(run_single_arm(case, arm, memory, decider, store, model, prompt_version).await?);
     }
     Ok(decisions)
 }
@@ -339,25 +339,8 @@ pub struct JScore {
 
 /// 动作词启发集:命中任一即视为"给出了动作"(terminal 成功代理)。
 const ACTION_WORDS: &[&str] = &[
-    "read",
-    "edit",
-    "bash",
-    "git",
-    "grep",
-    "glob",
-    "req",
-    "defect",
-    "memory",
-    "查看",
-    "读取",
-    "修改",
-    "运行",
-    "调用",
-    "搜索",
-    "执行",
-    "重试",
-    "改用",
-    "尝试",
+    "read", "edit", "bash", "git", "grep", "glob", "req", "defect", "memory", "查看", "读取",
+    "修改", "运行", "调用", "搜索", "执行", "重试", "改用", "尝试",
 ];
 
 /// 空转词:只有这些词(或很短)视为未给出动作。
@@ -373,14 +356,13 @@ pub fn score_decision(case: &ReplayCase, decision: &ReplayDecision) -> JScore {
         len >= 4 && has_action_word && !has_evasion
     };
     // 负信号:决策文本里出现 case 中失败的工具名(词边界避免误伤)。
-    let repeats_failed_tool = case
-        .steps
-        .iter()
-        .filter(|s| !s.ok)
-        .any(|s| {
-            let tool = s.tool.trim();
-            tool.len() >= 3 && text.split(|c: char| !c.is_alphanumeric()).any(|w| w == tool)
-        });
+    let repeats_failed_tool = case.steps.iter().filter(|s| !s.ok).any(|s| {
+        let tool = s.tool.trim();
+        tool.len() >= 3
+            && text
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|w| w == tool)
+    });
     let retry_signal = ["重试", "再试", "retry", "重新执行"]
         .iter()
         .any(|w| text.contains(w));
@@ -409,13 +391,9 @@ pub struct ArmSummary {
 }
 
 /// 把一组 case 的六臂决策聚合成各臂汇总(顺序与 [`Arm::all`] 一致)。
-pub fn summarize(
-    cases: &[ReplayCase],
-    decisions: &[Vec<ReplayDecision>],
-) -> Vec<ArmSummary> {
+pub fn summarize(cases: &[ReplayCase], decisions: &[Vec<ReplayDecision>]) -> Vec<ArmSummary> {
     debug_assert_eq!(cases.len(), decisions.len());
-    let mut per_arm: std::collections::HashMap<Arm, Vec<JScore>> =
-        std::collections::HashMap::new();
+    let mut per_arm: std::collections::HashMap<Arm, Vec<JScore>> = std::collections::HashMap::new();
     for (case, arm_decisions) in cases.iter().zip(decisions) {
         for decision in arm_decisions {
             per_arm
@@ -490,7 +468,6 @@ pub fn render_report(
     ));
     out
 }
-
 
 #[cfg(test)]
 mod eval_tests {
@@ -605,10 +582,7 @@ mod eval_tests {
     #[test]
     fn arm_label契约稳定_与设计文档六臂一致() {
         assert_eq!(
-            Arm::all()
-                .iter()
-                .map(|a| a.label())
-                .collect::<Vec<_>>(),
+            Arm::all().iter().map(|a| a.label()).collect::<Vec<_>>(),
             vec![
                 "nomemory",
                 "current",
@@ -653,7 +627,7 @@ mod eval_tests {
     // ---- 批3:J 判据分层 + 对照报告 ----
 
     #[test]
-    fn J判据_有动作重提失败工具重试信号分别识别() {
+    fn j判据_有动作重提失败工具重试信号分别识别() {
         let case = parse_trace_payload(SAMPLE, "j1").unwrap();
         // 有动作 + 重提失败工具(edit)+ 重试信号 → 全负信号命中但 has_action。
         let d = ReplayDecision {
@@ -691,7 +665,7 @@ mod eval_tests {
     }
 
     #[test]
-    fn 对照报告汇总并渲染NoMemoryCurrentOracle差距() {
+    fn 对照报告汇总并渲染_no_memory_current_oracle_差距() {
         let case = parse_trace_payload(SAMPLE, "r1").unwrap();
         // 模拟两个 case 的六臂决策:NoMemory 全部空转、Current 一半、
         // Oracle 全部有动作且不重提失败工具。
@@ -722,12 +696,17 @@ mod eval_tests {
             assert!(report.contains(&format!("| {} |", arm.label())), "{report}");
         }
         // 差距注释:NoMemory 0 → Current 1 → Oracle 2。
-        assert!(report.contains("NoMemory→Current 有动作: 0 → 1"), "{report}");
+        assert!(
+            report.contains("NoMemory→Current 有动作: 0 → 1"),
+            "{report}"
+        );
         assert!(report.contains("Current→Oracle 有动作: 1 → 2"), "{report}");
-        assert!(report.contains("重提失败工具: Current 0 vs Oracle 0"), "{report}");
+        assert!(
+            report.contains("重提失败工具: Current 0 vs Oracle 0"),
+            "{report}"
+        );
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -810,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn 坏payload返回None_不panic() {
+    fn 坏_payload_返回_none_不_panic() {
         assert!(parse_trace_payload("not json", "t").is_none());
         assert!(parse_trace_payload("{}", "t").is_none());
         assert!(parse_trace_payload("[]", "t").is_none());

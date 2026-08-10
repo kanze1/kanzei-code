@@ -498,8 +498,10 @@ fn extract_entry_ids(text: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for tok in text.split_whitespace() {
-        let tok = tok.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '#' || c == ':'));
-        if is_entry_id(&tok) && seen.insert(tok.to_string()) {
+        let tok = tok.trim_matches(|c: char| {
+            !(c.is_ascii_alphanumeric() || c == '-' || c == '#' || c == ':')
+        });
+        if is_entry_id(tok) && seen.insert(tok.to_string()) {
             out.push(tok.to_string());
         }
     }
@@ -602,8 +604,16 @@ mod tests {
             None,
         )
         .unwrap();
-        let snapshot =
-            record_test_run(&root, None, "R-999 定向回归", "passed", None, Some("全绿"), None).unwrap();
+        let snapshot = record_test_run(
+            &root,
+            None,
+            "R-999 定向回归",
+            "passed",
+            None,
+            Some("全绿"),
+            None,
+        )
+        .unwrap();
         assert_eq!(
             snapshot["active"].as_array().unwrap().len(),
             0,
@@ -746,11 +756,24 @@ mod tests {
         )
         .unwrap();
         let result = initialize_refs(&root).unwrap();
-        assert_eq!(result["backfilled"], json!(1), "只有标题含条目号的记录该回填");
+        assert_eq!(
+            result["backfilled"],
+            json!(1),
+            "只有标题含条目号的记录该回填"
+        );
         let text = std::fs::read_to_string(root.join(TEST_RUNS_REL)).unwrap();
-        assert!(text.contains("- 关联: R-153"), "标题里的 R-153 未回填进关联字段:\n{text}");
-        assert!(text.contains("## T-2 冒烟测试"), "无关记录不得被改写:\n{text}");
-        assert!(text.contains("收尾: 123"), "关联字段应插在收尾行之前,不破坏原字段:\n{text}");
+        assert!(
+            text.contains("- 关联: R-153"),
+            "标题里的 R-153 未回填进关联字段:\n{text}"
+        );
+        assert!(
+            text.contains("## T-2 冒烟测试"),
+            "无关记录不得被改写:\n{text}"
+        );
+        assert!(
+            text.contains("收尾: 123"),
+            "关联字段应插在收尾行之前,不破坏原字段:\n{text}"
+        );
         // 幂等:再跑一次不应重复回填。
         let second = initialize_refs(&root).unwrap();
         assert_eq!(second["backfilled"], json!(0), "已结构化的记录不应重复回填");
@@ -780,7 +803,10 @@ mod tests {
         assert_eq!(ids, vec!["D-201", "R-153"]);
         // 终态记录已被快照归档到 archive:关联字段应落在归档文件里。
         let archive_text = std::fs::read_to_string(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap();
-        assert!(archive_text.contains("- 关联: D-201 R-153"), "关联字段未写入归档:\n{archive_text}");
+        assert!(
+            archive_text.contains("- 关联: D-201 R-153"),
+            "关联字段未写入归档:\n{archive_text}"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 

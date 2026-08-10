@@ -41,26 +41,25 @@ impl OpenAiEmbedder {
     /// 只要是 openai 兼容 base_url 即可(本地 ollama 也是这种)。
     pub fn from_config(config: &KanzeiConfig) -> anyhow::Result<Self> {
         let embeddings = &config.embeddings;
-        let provider_name = embeddings.provider.as_deref().ok_or_else(|| {
-            anyhow::anyhow!("`[embeddings]` 未配置 provider——向量通道未启用")
+        let provider_name = embeddings
+            .provider
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("`[embeddings]` 未配置 provider——向量通道未启用"))?;
+        let model = embeddings
+            .model
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("`[embeddings]` 未配置 model——向量通道未启用"))?;
+        let provider = config.providers.get(provider_name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "`[embeddings].provider` 指向未知 provider `{provider_name}`;configured: {}",
+                config
+                    .providers
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         })?;
-        let model = embeddings.model.as_deref().ok_or_else(|| {
-            anyhow::anyhow!("`[embeddings]` 未配置 model——向量通道未启用")
-        })?;
-        let provider = config
-            .providers
-            .get(provider_name)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "`[embeddings].provider` 指向未知 provider `{provider_name}`;configured: {}",
-                    config
-                        .providers
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?;
         let api_key = provider
             .api_key
             .clone()
@@ -207,20 +206,17 @@ mod tests {
     }
 
     #[test]
-    fn from_config_缺节返回None_配置残缺返回错误_全配返回实例() {
+    fn from_config_缺节返回_none_配置残缺返回错误_全配返回实例() {
         let empty = KanzeiConfig::default();
         assert!(embedder_from_config(&empty).unwrap().is_none());
 
         // 只配 provider 不配 model:enabled()=false → None(不报错,通道关闭)。
-        let half: KanzeiConfig =
-            toml::from_str("[embeddings]\nprovider = \"ollama\"\n").unwrap();
+        let half: KanzeiConfig = toml::from_str("[embeddings]\nprovider = \"ollama\"\n").unwrap();
         assert!(embedder_from_config(&half).unwrap().is_none());
 
         // 配全但 provider 未知 → 报错(配置错误要可见,不是静默降级)。
-        let bad: KanzeiConfig = toml::from_str(
-            "[embeddings]\nprovider = \"nope\"\nmodel = \"m\"\n",
-        )
-        .unwrap();
+        let bad: KanzeiConfig =
+            toml::from_str("[embeddings]\nprovider = \"nope\"\nmodel = \"m\"\n").unwrap();
         assert!(embedder_from_config(&bad).is_err());
 
         // 配全且 provider 存在 → Some。

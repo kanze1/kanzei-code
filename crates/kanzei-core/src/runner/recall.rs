@@ -102,7 +102,10 @@ impl<'a> RecallWatch<'a> {
             let kind = failure_kind(content);
             let target = failure_target(input);
             let count = {
-                let entry = self.failures.entry((name.clone(), kind.clone())).or_insert(0);
+                let entry = self
+                    .failures
+                    .entry((name.clone(), kind.clone()))
+                    .or_insert(0);
                 *entry += 1;
                 *entry
             };
@@ -194,7 +197,10 @@ mod tests {
             panic!("expected ToolResult");
         };
         assert!(content.contains("[记忆命中 M-009 | sop]"), "{content}");
-        assert!(content.contains("行动: 先 read 重建 old_string 再重试"), "{content}");
+        assert!(
+            content.contains("行动: 先 read 重建 old_string 再重试"),
+            "{content}"
+        );
         assert!(content.contains("来源: episode E-1 步 3"), "{content}");
 
         // 同轮第二次同类失败:同条目不重复注入(即使错误措辞略变,去重按条目 id)。

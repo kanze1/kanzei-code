@@ -2380,3 +2380,9 @@
 - 根因: `cleanup_orphan_webviews()` 位于 Tauri Builder/建窗之前，并用 `Command::output()` 无界等待 PowerShell+CIM；WMI 卡住会把整个 GUI 启动链永久堵死。
 - 修复: PowerShell 子进程改为显式 spawn + 5 秒轮询上限；超时或查询错误时终止清理子进程并继续建窗。清理孤儿 WebView 仍是尽力而为，不再拥有阻断应用启动的权限。
 - 验收: `cargo test -p kanzei-app` 全绿；release 构建后覆盖安装目录，单实例冷启动在超时边界后成功创建 `kanzei` 主窗口。
+
+## D-255 verify.ps1 在子作用域丢失 LASTEXITCODE,fmt 失败仍继续并误记 pass [fixed] (high)
+- 复现: 2026-08-10 正式发版运行 `scripts/verify.ps1`，仓库存在 24 个 Rustfmt 差异，但输出直接进入 Clippy；脚本的 `Invoke-Check` 用 `& $body` 在子作用域执行，返回父作用域后读不到该 native command 的失败码。
+- 影响: `dist/verification.json` 可能把实际失败的 fmt 门禁记录成 pass，随后允许 package.ps1 发布未通过完整验证的安装包。
+- 修复: `Invoke-Check` 改为点调用 `. $body`，让 cargo/node 的 `LASTEXITCODE` 留在当前函数作用域；同时对本轮 59 个提交累积的 Rustfmt 差异执行全仓机械格式化。
+- 验收: 人工注入失败命令时 Invoke-Check 必须立即 throw；真实 `scripts/verify.ps1` 从 fmt 开始串行跑完全门禁并生成绑定新 HEAD 的 `dist/verification.json`。

@@ -716,17 +716,12 @@ impl MemoryStore {
     /// 不确定 → 才起 LLM 判断(验收④)。
     /// 机械判据:标题规范化精确命中既有 active 记忆 = 明显重复;
     /// FTS 无任何命中 = 明显新;有命中但非精确 = 不确定。
-    pub fn classify_novelty(
-        &self,
-        title: &str,
-        description: &str,
-        body: &str,
-    ) -> Novelty {
+    pub fn classify_novelty(&self, title: &str, description: &str, body: &str) -> Novelty {
         let normalized = normalize_title(title);
         let entries = self.load_all();
-        let dup = entries.iter().any(|(_, e)| {
-            e.status == "active" && normalize_title(&e.title) == normalized
-        });
+        let dup = entries
+            .iter()
+            .any(|(_, e)| e.status == "active" && normalize_title(&e.title) == normalized);
         if dup {
             return Novelty::Duplicate;
         }
@@ -840,7 +835,7 @@ impl MemoryStore {
         }
         let entries = self.load_all();
         for id in std::iter::once(&primary.to_string()).chain(duplicates.iter()) {
-            if !entries.iter().any(|(_, e)| &e.id == id) {
+            if !entries.iter().any(|(_, e)| e.id.as_str() == id.as_str()) {
                 anyhow::bail!("unknown memory id `{id}`");
             }
         }
@@ -851,15 +846,13 @@ impl MemoryStore {
             let fps_of = |id: &str| -> Vec<String> {
                 entries
                     .iter()
-                    .find(|(_, e)| &e.id == id)
+                    .find(|(_, e)| e.id == id)
                     .map(|(_, e)| super::fp_markers(&e.body))
                     .unwrap_or_default()
             };
             let primary_fps = fps_of(primary);
             for dup in duplicates {
-                let shared = fps_of(dup)
-                    .iter()
-                    .any(|f| primary_fps.contains(f));
+                let shared = fps_of(dup).iter().any(|f| primary_fps.contains(f));
                 if !shared {
                     anyhow::bail!(
                         "merge 保守闸: `{primary}` 与 `{dup}` 无共享 fingerprint,且未获用户确认 \
@@ -1592,7 +1585,16 @@ mod tests {
         let (dir, store) = temp_store();
         // source != user → candidate(manager 编译产物)
         let e = store
-            .add("fact", "编译事实", "编译钩子", "body", "memory-manager", &[], None, false)
+            .add(
+                "fact",
+                "编译事实",
+                "编译钩子",
+                "body",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
         let AddOutcome::Added(candidate) = e else {
             panic!("expected Added");
@@ -1602,7 +1604,11 @@ mod tests {
         let err = store.promote(&candidate.id, &[], None).unwrap_err();
         assert!(err.to_string().contains("no memory_sources evidence"));
         // 状态仍是 candidate
-        let (_, after) = store.load_all().into_iter().find(|(_, e)| e.id == candidate.id).unwrap();
+        let (_, after) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == candidate.id)
+            .unwrap();
         assert_eq!(after.status, "candidate");
         // 有证据 → 晋升 active
         let promoted = store
@@ -1610,8 +1616,12 @@ mod tests {
             .unwrap();
         assert_eq!(promoted.status, "active");
         // 晋升后再次 promote 拒绝(candidate|shadow 才可晋升,active 不行)
-        let err2 = store.promote(&candidate.id, &[(2, None, None)], None).unwrap_err();
-        assert!(err2.to_string().contains("only candidate|shadow can be promoted"));
+        let err2 = store
+            .promote(&candidate.id, &[(2, None, None)], None)
+            .unwrap_err();
+        assert!(err2
+            .to_string()
+            .contains("only candidate|shadow can be promoted"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1620,7 +1630,16 @@ mod tests {
     fn user_written_entry_is_active_directly() {
         let (dir, store) = temp_store();
         let e = store
-            .add("preference", "开发重心", "取活必读", "先清缺陷", "user", &[], None, false)
+            .add(
+                "preference",
+                "开发重心",
+                "取活必读",
+                "先清缺陷",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
         let AddOutcome::Added(entry) = e else {
             panic!("expected Added");
@@ -1637,7 +1656,16 @@ mod tests {
     fn novelty_gate_three_tiers_with_telemetry() {
         let (dir, store) = temp_store();
         store
-            .add("fact", "gh 网络代理", "push 前必读:设置 HTTPS_PROXY", "HTTPS_PROXY=http://127.0.0.1:12000", "user", &[], None, false)
+            .add(
+                "fact",
+                "gh 网络代理",
+                "push 前必读:设置 HTTPS_PROXY",
+                "HTTPS_PROXY=http://127.0.0.1:12000",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
         // 明显重复:规范化标题精确命中 active 记忆。
         let dup = store.classify_novelty("GH 网络代理", "push 前必读", "");
@@ -1647,7 +1675,11 @@ mod tests {
         assert_eq!(fresh, Novelty::New, "无关主题应判明显新");
         // 不确定:有语义命中但标题不同(代理相关)。
         let uncertain = store.classify_novelty("网络代理配置", "HTTPS_PROXY 与代理地址", "");
-        assert_eq!(uncertain, Novelty::Uncertain, "语义相关但非精确应留 LLM 判断");
+        assert_eq!(
+            uncertain,
+            Novelty::Uncertain,
+            "语义相关但非精确应留 LLM 判断"
+        );
         // 计数遥测落库。
         store.record_novelty(&dup, "", "GH 网络代理");
         store.record_novelty(&fresh, "", "diff 树渲染优化");
@@ -1673,10 +1705,18 @@ mod tests {
     #[test]
     fn recurrence_three_stage_promotion_counts() {
         let (dir, store) = temp_store();
-        let fp = format!("[fp:edit|old string not found #{}-{}]", std::process::id(), "rec");
+        let fp = format!(
+            "[fp:edit|old string not found #{}-{}]",
+            std::process::id(),
+            "rec"
+        );
         assert_eq!(store.recurrence_count(&fp), 0, "未出现前计数为 0");
         assert_eq!(store.bump_recurrence(&fp), 1, "第 1 次出现");
-        assert_eq!(store.bump_recurrence(&fp), 2, "第 2 次出现 → candidate 档位");
+        assert_eq!(
+            store.bump_recurrence(&fp),
+            2,
+            "第 2 次出现 → candidate 档位"
+        );
         assert_eq!(store.bump_recurrence(&fp), 3, "第 3 次出现 → promote 档位");
         assert_eq!(store.recurrence_count(&fp), 3, "只读查询不递增");
         assert_eq!(store.bump_recurrence(&fp), 4);
@@ -1693,9 +1733,20 @@ mod tests {
     fn promote_is_sole_evidence_writer_and_rows_land() {
         let (dir, store) = temp_store();
         let e = store
-            .add("fact", "证据编译条目", "证据钩子", "正文", "memory-manager", &[], None, false)
+            .add(
+                "fact",
+                "证据编译条目",
+                "证据钩子",
+                "正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(candidate) = e else { panic!("expected Added") };
+        let AddOutcome::Added(candidate) = e else {
+            panic!("expected Added")
+        };
         // 先初始化 state.db schema(promote 内 open 依赖 schema;测试环境无现成库)。
         let path = dir.join(".kanzei").join("state.db");
         kanzei_core::SessionStore::open(&path).unwrap();
@@ -1710,7 +1761,13 @@ mod tests {
             )
             .unwrap();
         }
-        store.promote(&candidate.id, &[(7, Some(100), Some(200))], Some("audit-hash")).unwrap();
+        store
+            .promote(
+                &candidate.id,
+                &[(7, Some(100), Some(200))],
+                Some("audit-hash"),
+            )
+            .unwrap();
         let conn = rusqlite::Connection::open(&path).unwrap();
         let (memory_id, episode_id, source_hash): (String, i64, String) = conn
             .query_row(
@@ -1730,28 +1787,66 @@ mod tests {
     fn deprecated_moves_to_archive_and_hidden_from_search() {
         let (dir, store) = temp_store();
         let e = store
-            .add("fact", "将被推翻的结论", "旧钩子", "旧内容", "user", &[], None, false)
+            .add(
+                "fact",
+                "将被推翻的结论",
+                "旧钩子",
+                "旧内容",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(entry) = e else { panic!("expected Added") };
+        let AddOutcome::Added(entry) = e else {
+            panic!("expected Added")
+        };
         // 设置 deprecated → refresh_derived 自动归档。
-        store.update(&entry.id, None, None, None, Some("deprecated")).unwrap();
+        store
+            .update(&entry.id, None, None, None, Some("deprecated"))
+            .unwrap();
         // 主目录已无该文件,archive/ 有墓碑。
-        assert!(!store.root.join(format!("{}.md", entry.file_stem())).exists());
-        assert!(store.archive_dir().join(format!("{}.md", entry.file_stem())).exists());
+        assert!(!store
+            .root
+            .join(format!("{}.md", entry.file_stem()))
+            .exists());
+        assert!(store
+            .archive_dir()
+            .join(format!("{}.md", entry.file_stem()))
+            .exists());
         // load_all 不含它(默认检索范围),load_archived_ids 保留 ID 防复用。
         assert!(store.load_all().iter().all(|(_, e)| e.id != entry.id));
         assert!(store.load_archived_ids().contains(&entry.id));
         // 默认检索(search 无 status 过滤或 active 过滤)都不可见。
         let hits = store.search("将被推翻", None, None, 5).unwrap();
-        assert!(hits.iter().all(|h| h.entry.id != entry.id), "归档条目不得被检索");
+        assert!(
+            hits.iter().all(|h| h.entry.id != entry.id),
+            "归档条目不得被检索"
+        );
         // invalid 同样归档。
         let i = store
-            .add("fact", "证伪的假设", "证伪钩子", "证伪内容", "user", &[], None, false)
+            .add(
+                "fact",
+                "证伪的假设",
+                "证伪钩子",
+                "证伪内容",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(invalid) = i else { panic!("expected Added") };
-        store.update(&invalid.id, None, None, None, Some("invalid")).unwrap();
+        let AddOutcome::Added(invalid) = i else {
+            panic!("expected Added")
+        };
+        store
+            .update(&invalid.id, None, None, None, Some("invalid"))
+            .unwrap();
         assert!(!store.load_all().iter().any(|(_, e)| e.id == invalid.id));
-        assert!(store.archive_dir().join(format!("{}.md", invalid.file_stem())).exists());
+        assert!(store
+            .archive_dir()
+            .join(format!("{}.md", invalid.file_stem()))
+            .exists());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1762,20 +1857,40 @@ mod tests {
     fn shadow_entry_is_evaluable_but_not_injected() {
         let (dir, store) = temp_store();
         let e = store
-            .add("fact", "影子评估条目", "影子钩子", "影子正文", "memory-manager", &[], None, false)
+            .add(
+                "fact",
+                "影子评估条目",
+                "影子钩子",
+                "影子正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(candidate) = e else { panic!("expected Added") };
+        let AddOutcome::Added(candidate) = e else {
+            panic!("expected Added")
+        };
         // candidate → shadow。
         let shadowed = store.to_shadow(&candidate.id).unwrap();
         assert_eq!(shadowed.status, "shadow");
         // 默认检索与 active 过滤都不可见(不注入生产)。
         let hits_default = store.search("影子评估", None, None, 5).unwrap();
-        assert!(hits_default.iter().all(|h| h.entry.id != candidate.id), "shadow 不得进默认检索");
+        assert!(
+            hits_default.iter().all(|h| h.entry.id != candidate.id),
+            "shadow 不得进默认检索"
+        );
         let hits_active = store.search("影子评估", None, Some("active"), 5).unwrap();
-        assert!(hits_active.iter().all(|h| h.entry.id != candidate.id), "shadow 不得冒充 active");
+        assert!(
+            hits_active.iter().all(|h| h.entry.id != candidate.id),
+            "shadow 不得冒充 active"
+        );
         // 显式查 shadow 可见(评估器通道)。
         let hits_shadow = store.search("影子评估", None, Some("shadow"), 5).unwrap();
-        assert!(hits_shadow.iter().any(|h| h.entry.id == candidate.id), "显式查 shadow 应可见");
+        assert!(
+            hits_shadow.iter().any(|h| h.entry.id == candidate.id),
+            "显式查 shadow 应可见"
+        );
         // shadow → active 仍需 provenance。
         let err = store.promote(&candidate.id, &[], None).unwrap_err();
         assert!(err.to_string().contains("no memory_sources evidence"));
@@ -1785,7 +1900,10 @@ mod tests {
         assert_eq!(promoted.status, "active");
         // 进 active 后默认检索可见。
         let hits_after = store.search("影子评估", None, None, 5).unwrap();
-        assert!(hits_after.iter().any(|h| h.entry.id == candidate.id), "active 后应可检索");
+        assert!(
+            hits_after.iter().any(|h| h.entry.id == candidate.id),
+            "active 后应可检索"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1795,26 +1913,56 @@ mod tests {
     fn shadow_rejects_non_candidate_and_survives_refresh() {
         let (dir, store) = temp_store();
         let e = store
-            .add("fact", "直写活跃条目", "活跃钩子", "正文", "user", &[], None, false)
+            .add(
+                "fact",
+                "直写活跃条目",
+                "活跃钩子",
+                "正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(active) = e else { panic!("expected Added") };
+        let AddOutcome::Added(active) = e else {
+            panic!("expected Added")
+        };
         assert_eq!(active.status, "active");
         let err = store.to_shadow(&active.id).unwrap_err();
         assert!(err.to_string().contains("only candidate can enter shadow"));
         // candidate 进 shadow 后 refresh_derived(任意写触发)不归档它。
         let c = store
-            .add("fact", "影子常驻", "常驻钩子", "正文", "memory-manager", &[], None, false)
+            .add(
+                "fact",
+                "影子常驻",
+                "常驻钩子",
+                "正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
             .unwrap();
-        let AddOutcome::Added(candidate) = c else { panic!("expected Added") };
+        let AddOutcome::Added(candidate) = c else {
+            panic!("expected Added")
+        };
         store.to_shadow(&candidate.id).unwrap();
         // 用一次无关 update 触发 refresh_derived。
-        store.update(&active.id, Some("直写活跃条目改名"), None, None, None).unwrap();
+        store
+            .update(&active.id, Some("直写活跃条目改名"), None, None, None)
+            .unwrap();
         assert!(
             store.load_all().iter().any(|(_, e)| e.id == candidate.id),
             "shadow 是中间态,不得被归档"
         );
         assert_eq!(
-            store.load_all().into_iter().find(|(_, e)| e.id == candidate.id).unwrap().1.status,
+            store
+                .load_all()
+                .into_iter()
+                .find(|(_, e)| e.id == candidate.id)
+                .unwrap()
+                .1
+                .status,
             "shadow"
         );
         std::fs::remove_dir_all(dir).ok();
@@ -1882,7 +2030,10 @@ mod tests {
             .path();
         let dup_text = std::fs::read_to_string(dup_path).unwrap();
         assert!(dup_text.contains("status: deprecated"));
-        assert!(dup_text.contains(&format!("superseded_by: {}", a.id)), "{dup_text}");
+        assert!(
+            dup_text.contains(&format!("superseded_by: {}", a.id)),
+            "{dup_text}"
+        );
         // 未知 id 与自我合并都拒绝
         assert!(store
             .merge(&a.id, std::slice::from_ref(&a.id), None, None, None, true)
@@ -1920,7 +2071,9 @@ mod tests {
                 false,
             )
             .unwrap();
-        let AddOutcome::Added(c) = c else { panic!("expected Added") };
+        let AddOutcome::Added(c) = c else {
+            panic!("expected Added")
+        };
         let d = store
             .add(
                 "fact",
@@ -1933,7 +2086,9 @@ mod tests {
                 false,
             )
             .unwrap();
-        let AddOutcome::Added(d) = d else { panic!("expected Added") };
+        let AddOutcome::Added(d) = d else {
+            panic!("expected Added")
+        };
         let merged = store
             .merge(&c.id, std::slice::from_ref(&d.id), None, None, None, false)
             .unwrap();
@@ -2070,7 +2225,12 @@ mod tests {
         let store = MemoryStore::project(&dir);
         let entries = store.load_all();
         // R-165 批3:迁移的 stale 条目(deprecated)自动归档,主目录只留 active。
-        assert_eq!(entries.len(), 1, "deprecated 迁移条目应已归档: {:?}", entries);
+        assert_eq!(
+            entries.len(),
+            1,
+            "deprecated 迁移条目应已归档: {:?}",
+            entries
+        );
         let m1 = entries.iter().find(|(_, e)| e.id == "M-001").unwrap();
         assert_eq!(m1.1.category, "fact");
         assert_eq!(m1.1.source, "migration");

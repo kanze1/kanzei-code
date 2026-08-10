@@ -114,7 +114,14 @@ impl Tool for TrackerTool {
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(TrackerInput)).unwrap();
         let mut actions = vec![
-            "list", "get", "add", "update", "close", "archive", "reorder", REOPEN_ACTION,
+            "list",
+            "get",
+            "add",
+            "update",
+            "close",
+            "archive",
+            "reorder",
+            REOPEN_ACTION,
         ];
         actions.extend_from_slice(REPAIR_ACTIONS);
         let enums: [(&str, Option<Vec<String>>); 4] = [
@@ -651,8 +658,7 @@ impl Tool for TrackerTool {
                 }
                 ToolOutput::ok(format!(
                     "reopened {id} [{}] {}\n{note}",
-                    back_to,
-                    entries[pos].title
+                    back_to, entries[pos].title
                 ))
             }
             other => ToolOutput::error(format!(
@@ -1277,7 +1283,11 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "终态不可 reopen: {}", out.content);
-        assert!(out.content.contains("not in the reopen set"), "{}", out.content);
+        assert!(
+            out.content.contains("not in the reopen set"),
+            "{}",
+            out.content
+        );
 
         // requirement 的 doing 不在 reopen 集合(REQUIREMENTS.reopen_from = ["doing"] 时
         // 才可退;这里验证 todo 态也被拒),终态 done 更不行。

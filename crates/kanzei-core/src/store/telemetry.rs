@@ -175,9 +175,7 @@ impl SessionStore {
     /// R-162 事件召回明细查询(可观测性 + 测试断言):
     /// 返回 recall_events 里 trigger_type='event_recall' 的行
     /// (recall_id, trigger_payload, policy_action, query),按 created_at 升序。
-    pub fn event_recall_log(
-        &self,
-    ) -> Result<Vec<(String, String, String, String)>, StoreError> {
+    pub fn event_recall_log(&self) -> Result<Vec<(String, String, String, String)>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT recall_id, trigger_payload, policy_action, query
              FROM recall_events WHERE trigger_type = 'event_recall'
@@ -185,12 +183,7 @@ impl SessionStore {
         )?;
         let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                ))
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
@@ -325,10 +318,11 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        let linked = store
-            .link_recall_events_to_episode(episode, 0)
-            .unwrap();
-        assert_eq!(linked, 1, "开跑预检索的 recall_event 必须回填到本轮 episode");
+        let linked = store.link_recall_events_to_episode(episode, 0).unwrap();
+        assert_eq!(
+            linked, 1,
+            "开跑预检索的 recall_event 必须回填到本轮 episode"
+        );
         // join 查询:episode 的 prompt_head 与 recall 的 query 同轮可对账。
         let row: Option<(String, String)> = store
             .connection
@@ -383,9 +377,7 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        let linked2 = store
-            .link_recall_events_to_episode(second, 100)
-            .unwrap();
+        let linked2 = store.link_recall_events_to_episode(second, 100).unwrap();
         assert_eq!(linked2, 0, "时间窗外的旧事件不得被误回填");
     }
 }

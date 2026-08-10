@@ -29,7 +29,8 @@ pub struct SubagentRuntime {
     pub limits: kanzei_harness::config::Limits,
     /// R-171 批6:项目级协调器(可选)。Some 时子代理执行前申请读槽登记
     /// 「并行查」身份,结束 RAII 释放;None(纯 CLI 单运行/测试)不登记。
-    pub coordinator: Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
+    pub coordinator:
+        Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

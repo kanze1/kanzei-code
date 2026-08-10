@@ -690,7 +690,10 @@ async fn replay_eval_cli(args: &[String]) -> anyhow::Result<()> {
         .await?;
         all_decisions.push(decisions);
     }
-    println!("{}", kanzei_core::replay::render_report(&cases, &all_decisions, &resolved.model));
+    println!(
+        "{}",
+        kanzei_core::replay::render_report(&cases, &all_decisions, &resolved.model)
+    );
     Ok(())
 }
 

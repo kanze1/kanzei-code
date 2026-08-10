@@ -16,7 +16,9 @@ $full_hash = (git -C $root rev-parse HEAD).Trim()
 $checks = [ordered]@{}
 function Invoke-Check([string]$name, [scriptblock]$body) {
     Write-Host "==> $name" -ForegroundColor Cyan
-    & $body
+    # 在当前作用域执行，确保 native command 的 LASTEXITCODE 不会随子作用域丢失。
+    # 否则 cargo fmt --check 失败后仍会继续跑 clippy，门禁会误记 fmt=pass(D-255)。
+    . $body
     if ($LASTEXITCODE -ne 0) { throw "$name 失败(exit=$LASTEXITCODE)" }
     $checks[$name] = "pass"
 }

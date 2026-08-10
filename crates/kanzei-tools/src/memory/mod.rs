@@ -339,9 +339,7 @@ pub struct FingerprintIndex {
 impl FingerprintIndex {
     /// 全量构建(启动扫描):遍历两级 store 的 active 条目,取 fingerprint 建索引。
     /// 返回索引到的指纹条数(无指纹条目不计)。
-    pub fn build(
-        project_root: &std::path::Path,
-    ) -> std::collections::HashMap<String, Vec<String>> {
+    pub fn build(project_root: &std::path::Path) -> std::collections::HashMap<String, Vec<String>> {
         let mut map: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         let mut stores = vec![MemoryStore::project(project_root)];
@@ -357,10 +355,7 @@ impl FingerprintIndex {
         map
     }
 
-    fn insert_into(
-        map: &mut std::collections::HashMap<String, Vec<String>>,
-        entry: &MemoryEntry,
-    ) {
+    fn insert_into(map: &mut std::collections::HashMap<String, Vec<String>>, entry: &MemoryEntry) {
         if let Some(fp) = entry.fingerprint() {
             let fp = fp.trim().to_string();
             if fp.is_empty() {
@@ -394,7 +389,10 @@ impl FingerprintIndex {
     /// 精确查询:给定指纹(如 `[fp:edit|old_string not found]`),返回命中 id。
     /// 无指纹 = 空。调用方再按 valid_from/version 排。
     pub fn lookup(&self, fingerprint: &str) -> &[String] {
-        self.map.get(fingerprint).map(|v| v.as_slice()).unwrap_or(&[])
+        self.map
+            .get(fingerprint)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 }
 
@@ -530,7 +528,7 @@ impl FailureRecallPolicy {
                 continue;
             };
             for row in rows {
-                if self.entries.get(&row.entry.id).is_some() {
+                if self.entries.contains_key(&row.entry.id) {
                     hits.push(kanzei_core::RecallHit {
                         id: row.entry.id.clone(),
                         category: row.entry.category.clone(),
@@ -1575,9 +1573,11 @@ source: user
     #[test]
     fn fingerprint索引_构建查询增量upsert与删除() {
         // R-162 B2:Tier0 内存索引——指纹→id 精确查询,增删改各走各的通道。
-        let fp = |id: &str, body: &str| parse_entry(&format!(
+        let fp = |id: &str, body: &str| {
+            parse_entry(&format!(
             "---\nid: {id}\nscope: project\ncategory: sop\ntitle: t\ndescription: d\nstatus: active\ncreated: 2026-08-10\nupdated: 2026-08-10\nsource: user\n---\n{body}"
-        ));
+        ))
+        };
         let a = fp("M-100", "[fp:edit|old_string not found] 正文");
         let b = fp("M-101", "[fp:edit|old_string not found] 另一条");
         let c = fp("M-102", "[fp:bash|cargo test] 第三条");
@@ -1634,7 +1634,7 @@ source: user
     }
 
     #[test]
-    fn tier0指纹精确命中_不走BM25() {
+    fn tier0指纹精确命中_不走_bm25() {
         // R-162 内容③/验收③前置:Tier0 fingerprint 精确匹配,命中即返回。
         let root = temp_memory_root("tier0");
         let store = MemoryStore::project(&root);
@@ -1674,7 +1674,7 @@ source: user
     }
 
     #[test]
-    fn tier1_BM25降级_无指纹条目经搜索命中() {
+    fn tier1_bm25降级_无指纹条目经搜索命中() {
         // R-162 内容③:Tier0 miss 后走 Tier1 BM25(错误原文+目标构 query)。
         let root = temp_memory_root("tier1");
         let store = MemoryStore::project(&root);
@@ -1699,12 +1699,7 @@ source: user
             .unwrap();
         store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
-        let t = trigger(
-            "bash",
-            "cannot find proxy",
-            "cargo",
-            1,
-        );
+        let t = trigger("bash", "cannot find proxy", "cargo", 1);
         // 把 sample 换成能命中 BM25 的词(Tier1 用 sample 前 120 字符构 query)。
         let t = kanzei_core::RecallTrigger {
             sample: "cargo test 需要 HTTPS_PROXY 代理".into(),
@@ -1768,7 +1763,10 @@ source: user
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let log = sstore.event_recall_log().unwrap();
         assert_eq!(log.len(), 1, "一次触发落一条 recall_event: {log:?}");
-        assert_eq!(log[0].2, "reretrieve", "count≥2 时 policy_action 应为 reretrieve");
+        assert_eq!(
+            log[0].2, "reretrieve",
+            "count≥2 时 policy_action 应为 reretrieve"
+        );
         assert!(
             log[0].1.contains("\"tool\":\"edit\"") && log[0].1.contains("\"count\":2"),
             "trigger_payload 必须带 tool 与失败次数: {}",
@@ -1778,7 +1776,7 @@ source: user
     }
 
     #[test]
-    fn 重复失败ReRetrieve换query_遥测标reretrieve() {
+    fn 重复失败_re_retrieve换_query_遥测标_reretrieve() {
         // R-162 内容④:同 (tool,kind) 失败 ≥2 次换 query——遥测 policy_action
         // 标 reretrieve,禁止原 top-k 重塞的口径在 retrieve 侧由"每次新检索
         // (不同 sample/已注入去重)"保证。这里验证落库字段正确。
@@ -1831,7 +1829,7 @@ source: user
     }
 
     #[test]
-    fn 端到端_edit失败后记忆Packet进上下文() {
+    fn 端到端_edit失败后记忆_packet进上下文() {
         // R-162 验收①"录制回放证明":真实 FailureRecallPolicy + 真实记忆条目 +
         // RecallWatch 全链路——edit 工具失败瞬间,相关 SOP 记忆以 Packet 形式
         // 追加进工具结果文本(模型下一轮就能看到,不阻断主循环)。

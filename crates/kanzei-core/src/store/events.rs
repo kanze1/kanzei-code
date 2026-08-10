@@ -219,7 +219,11 @@ mod tests {
             .create_session("ses_replay", "C:/replay", None)
             .unwrap();
         store
-            .append_event("ses_replay", "run.completed", &serde_json::json!({"outcome": "ok"}))
+            .append_event(
+                "ses_replay",
+                "run.completed",
+                &serde_json::json!({"outcome": "ok"}),
+            )
             .unwrap();
         store
             .append_event(
@@ -347,10 +351,7 @@ mod tests {
             assert_eq!(ev.sequence, seq);
         }
         let events = store.list_events("ses_lease", 0).unwrap();
-        let kinds: Vec<&str> = events
-            .iter()
-            .map(|e| e.event_type.as_str())
-            .collect();
+        let kinds: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
         assert_eq!(
             kinds,
             vec![

@@ -613,7 +613,10 @@ mod tests {
         let c = failure_kind("test failed: 13 assertions failed");
         let d = failure_kind("test failed: 7 assertions failed");
         assert_eq!(c, d, "数字差异必须抹平");
-        assert!(!c.contains('1') && !d.contains('7'), "ASCII 数字必须全部抹掉");
+        assert!(
+            !c.contains('1') && !d.contains('7'),
+            "ASCII 数字必须全部抹掉"
+        );
 
         // 首行截断 80 字符,长错误不撑爆索引。
         let long = failure_kind(&"x".repeat(300));
@@ -626,7 +629,11 @@ mod tests {
         let path = serde_json::json!({ "path": "C:/p/main.rs" });
         assert_eq!(failure_target(&path), "main.rs");
         let backslash = serde_json::json!({ "file_path": "C:\\p\\lib.rs" });
-        assert_eq!(failure_target(&backslash), "lib.rs", "Windows 反斜杠路径取尾段");
+        assert_eq!(
+            failure_target(&backslash),
+            "lib.rs",
+            "Windows 反斜杠路径取尾段"
+        );
         let command = serde_json::json!({ "command": "cargo test -p foo --all-features" });
         assert_eq!(failure_target(&command), "cargo");
         let id = serde_json::json!({ "id": "M-001" });

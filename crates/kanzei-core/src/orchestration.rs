@@ -7,7 +7,7 @@ use kanzei_harness::orchestration::{
     ReadSlotRequest, WriterLease, WriterLeaseRequest,
 };
 use std::collections::{BTreeMap, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 
@@ -102,7 +102,7 @@ impl MemoryCoordinator {
         }
         state.writer_run_id = None;
         state.writer_process_id = None;
-        while let Some(w) = state.waiting.pop_front() {
+        if let Some(w) = state.waiting.pop_front() {
             let _wake_reason = &w.reason; // 审计:唤醒排队写者的申请原因。
             let lease = WriterLease::with_release(
                 PathBuf::from(root_key),
@@ -171,9 +171,7 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
         {
             let mut guard = self.inner.projects.lock().unwrap();
             let state = guard.entry(key.clone()).or_insert_with(ProjectState::new);
-            state
-                .readers
-                .insert(run_id.clone(), agent_name.clone());
+            state.readers.insert(run_id.clone(), agent_name.clone());
             state.last_event = Some(OrchestrationEvent::AgentStarted {
                 project_root: request.project_root.clone(),
                 run_id,
@@ -182,19 +180,18 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
         }
         // R-171 批6:读槽带释放回调——子代理结束即从快照消失(active_readers
         // 不再永久累积),保证「并行查」的身份可见且可回收。
-        let permit = ReadPermit::with_release(
-            request.project_root.clone(),
-            agent_name.clone(),
-            {
-                let key = key.clone();
-                let coord = self.clone();
-                move |released_agent| coord.release_reader(&key, released_agent)
-            },
-        );
+        let permit = ReadPermit::with_release(request.project_root.clone(), agent_name.clone(), {
+            let key = key.clone();
+            let coord = self.clone();
+            move |released_agent| coord.release_reader(&key, released_agent)
+        });
         Ok(permit)
     }
 
-    async fn acquire_writer_lease(&self, request: WriterLeaseRequest) -> Result<WriterLease, String> {
+    async fn acquire_writer_lease(
+        &self,
+        request: WriterLeaseRequest,
+    ) -> Result<WriterLease, String> {
         let key = normalize_project_root(&request.project_root);
         // 排队决策与事件写入在同步块内完成;await 在 guard 释放之后,
         // 避免 std::sync::MutexGuard 跨 await 使 future 不 Send。
@@ -274,20 +271,20 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
         }
     }
 
-    fn snapshot(&self, project_root: &PathBuf) -> CoordinatorSnapshot {
+    fn snapshot(&self, project_root: &Path) -> CoordinatorSnapshot {
         let key = normalize_project_root(project_root);
         let guard = self.inner.projects.lock().unwrap();
         let state = guard.get(&key);
         match state {
             Some(s) => CoordinatorSnapshot {
-                project_root: project_root.clone(),
+                project_root: project_root.to_path_buf(),
                 writer: s.writer_process_id.clone(),
                 writer_run_id: s.writer_run_id.clone(),
                 waiting_writers: s.waiting.iter().map(|w| w.run_id.clone()).collect(),
                 active_readers: s.readers.values().cloned().collect(),
             },
             None => CoordinatorSnapshot {
-                project_root: project_root.clone(),
+                project_root: project_root.to_path_buf(),
                 ..Default::default()
             },
         }

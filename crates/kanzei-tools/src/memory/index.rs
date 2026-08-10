@@ -179,10 +179,7 @@ impl SqliteMemoryIndex {
     /// 记录 tracing 并跳过该条——检索降级不阻塞主流程(设计 §3.2 精神)。
     fn vectorize(&self, entry: &MemoryEntry) -> Option<Vec<f32>> {
         let embedder = self.embedder.as_ref()?;
-        let text = format!(
-            "{}\n{}\n{}",
-            entry.title, entry.description, entry.body
-        );
+        let text = format!("{}\n{}\n{}", entry.title, entry.description, entry.body);
         match embedder.embed(&[&text]) {
             Ok(mut vecs) => vecs.pop(),
             Err(e) => {
@@ -207,18 +204,13 @@ impl SqliteMemoryIndex {
 
     /// Tier0:指纹精确匹配。兼容 frontmatter fingerprint 一等字段与正文 [fp:] 标记。
     fn tier0(&self, fp_key: &str) -> Vec<IndexHit> {
-        let mut ids = self
-            .fp
-            .get(fp_key)
-            .cloned()
-            .unwrap_or_default();
+        let mut ids = self.fp.get(fp_key).cloned().unwrap_or_default();
         if ids.is_empty() {
             // 兼容正文裸标记:快照内精确子串(条目数小,可接受)。
             for (id, entry) in &self.entries {
-                if entry
-                    .fingerprint()
-                    .is_some_and(|fp| fp.contains(fp_key.trim_start_matches("[fp:").trim_end_matches(']')))
-                {
+                if entry.fingerprint().is_some_and(|fp| {
+                    fp.contains(fp_key.trim_start_matches("[fp:").trim_end_matches(']'))
+                }) {
                     ids.push(id.clone());
                 }
             }
@@ -287,15 +279,14 @@ impl SqliteMemoryIndex {
             let sim = cosine_similarity(query_vec, &vec);
             scored.push((sim, id));
         }
-        scored.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(limit);
         scored
             .into_iter()
             .filter_map(|(score, id)| {
-                self.entries.get(&id).map(|e| IndexHit::from_entry(e, score))
+                self.entries
+                    .get(&id)
+                    .map(|e| IndexHit::from_entry(e, score))
             })
             .collect()
     }
@@ -430,7 +421,10 @@ impl MemoryIndex for SqliteMemoryIndex {
                 )?;
             }
         } else {
-            conn.execute("DELETE FROM memory_vectors WHERE id = ?1", rusqlite::params![entry.id])?;
+            conn.execute(
+                "DELETE FROM memory_vectors WHERE id = ?1",
+                rusqlite::params![entry.id],
+            )?;
         }
         Ok(())
     }
@@ -442,7 +436,10 @@ impl MemoryIndex for SqliteMemoryIndex {
         self.fp.retain(|_, ids| !ids.is_empty());
         self.entries.remove(id);
         let conn = self.open_vector_db()?;
-        conn.execute("DELETE FROM memory_vectors WHERE id = ?1", rusqlite::params![id])?;
+        conn.execute(
+            "DELETE FROM memory_vectors WHERE id = ?1",
+            rusqlite::params![id],
+        )?;
         Ok(())
     }
 
@@ -453,7 +450,7 @@ impl MemoryIndex for SqliteMemoryIndex {
         let conn = self.open_vector_db()?;
         conn.execute("DELETE FROM memory_vectors", [])?;
         let mut failed = 0usize;
-        for (_, entry) in &self.entries {
+        for entry in self.entries.values() {
             if let Some(vec) = self.vectorize(entry) {
                 conn.execute(
                     "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
@@ -471,7 +468,11 @@ impl MemoryIndex for SqliteMemoryIndex {
                 failed += 1;
             }
         }
-        tracing::debug!(entries = self.entries.len(), failed, "memory_vectors 全量重建完成");
+        tracing::debug!(
+            entries = self.entries.len(),
+            failed,
+            "memory_vectors 全量重建完成"
+        );
         Ok(())
     }
 }
@@ -632,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn 无embedder降级_fingerprint精确命中与BM25完整可用() {
+    fn 无embedder降级_fingerprint精确命中与_bm25完整可用() {
         // 验收①:无 embedder 时 fingerprint + BM25 两通道完整可用。
         let (root, store) = temp_root();
         // 带 [fp:] 正文标记的条目 → Tier0 指纹命中。
@@ -655,10 +656,15 @@ mod tests {
         let index = SqliteMemoryIndex::new(&root);
         // dense 通道恒空(无 embedder)。
         let dense = index.search_dense(&IndexQuery::text("edit old_string"), 5);
-        assert!(dense.is_empty(), "无 embedder 时 dense 必须不可用: {:?}", dense);
+        assert!(
+            dense.is_empty(),
+            "无 embedder 时 dense 必须不可用: {:?}",
+            dense
+        );
 
         // 指纹精确命中:Tier0 返回 1 条且是目标条目。
-        let fp_hits = index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let fp_hits =
+            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(fp_hits.len(), 1, "指纹必须精确命中: {:?}", fp_hits);
         assert!(fp_hits[0].action.contains("edit"), "{:?}", fp_hits[0]);
         assert_eq!(fp_hits[0].score, 1.0);
@@ -672,13 +678,14 @@ mod tests {
         );
 
         // hybrid 退化为 lexical:同 query 结果一致(无 embedder 时功能完整)。
-        let hybrid = index.search_hybrid(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hybrid =
+            index.search_hybrid(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(hybrid.len(), 1, "hybrid 退化后与 lexical 一致");
         assert_eq!(hybrid[0].id, fp_hits[0].id);
     }
 
     #[test]
-    fn 指纹miss时回落BM25_文本可兜底() {
+    fn 指纹miss时回落_bm25_文本可兜底() {
         let (root, store) = temp_root();
         add(
             &store,
@@ -719,7 +726,8 @@ mod tests {
             "[fp:edit|old_string not found]\n先 read。",
         );
         index.upsert(&entry).unwrap();
-        let hits = index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hits =
+            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(hits.len(), 1, "upsert 后必须可查: {:?}", hits);
 
         // remove → 不可查。
@@ -730,7 +738,8 @@ mod tests {
 
         // rebuild → 从文件系统全量重建,恢复命中。
         index.rebuild().unwrap();
-        let hits = index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
+        let hits =
+            index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(hits.len(), 1, "rebuild 后必须恢复: {:?}", hits);
     }
 
@@ -823,8 +832,20 @@ mod tests {
     fn dense_检索_embedder配置后按语义命中() {
         // 验收②核心:dense 通道配置 embedder 后生效,能按向量相似度命中。
         let (root, store) = temp_root();
-        let e1 = add(&store, "fact", "edit 失败处理", "old_string not found 时先 read", "先 read 重建 old_string 再 edit");
-        let e2 = add(&store, "fact", "cargo 构建", "网络错误重试", "cargo build 失败清理缓存重试");
+        let e1 = add(
+            &store,
+            "fact",
+            "edit 失败处理",
+            "old_string not found 时先 read",
+            "先 read 重建 old_string 再 edit",
+        );
+        let _e2 = add(
+            &store,
+            "fact",
+            "cargo 构建",
+            "网络错误重试",
+            "cargo build 失败清理缓存重试",
+        );
 
         // 注意:FakeEmbedder 是文本 hash,同文本同向量。query 用与 e1 完全相同的
         // 文本 → 余弦=1 必命中 e1;e2 文本不同 → 不命中(或排在后面)。
@@ -833,7 +854,9 @@ mod tests {
         index.rebuild().unwrap();
 
         let hits = index.search_dense(
-            &IndexQuery::text("edit 失败处理\nold_string not found 时先 read\n先 read 重建 old_string 再 edit"),
+            &IndexQuery::text(
+                "edit 失败处理\nold_string not found 时先 read\n先 read 重建 old_string 再 edit",
+            ),
             5,
         );
         assert!(
@@ -850,8 +873,20 @@ mod tests {
     fn hybrid_rrf融合_同时出现在两通道的条目排名靠前() {
         let (root, store) = temp_root();
         // 两条条目:shared 在语义上与 query 最接近,unique 只靠文本。
-        let shared = add(&store, "sop", "edit 失败", "old_string not found 先 read", "先 read 目标文件再 edit 重试");
-        let unique = add(&store, "fact", "cargo", "cargo build 网络错误", "清理缓存重试");
+        let shared = add(
+            &store,
+            "sop",
+            "edit 失败",
+            "old_string not found 先 read",
+            "先 read 目标文件再 edit 重试",
+        );
+        let _unique = add(
+            &store,
+            "fact",
+            "cargo",
+            "cargo build 网络错误",
+            "清理缓存重试",
+        );
 
         let embedder = Arc::new(crate::embed::FakeEmbedder::new(16));
         let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
@@ -865,7 +900,11 @@ mod tests {
             hybrid
         );
         // shared 在 lexical(BM25 文本重叠)与 dense(语义相同)都出现 → RRF 融合后第一。
-        assert_eq!(hybrid[0].id, shared.id, "RRF 融合后两通道都命中的条目应第一: {:?}", hybrid);
+        assert_eq!(
+            hybrid[0].id, shared.id,
+            "RRF 融合后两通道都命中的条目应第一: {:?}",
+            hybrid
+        );
 
         // hybrid 与纯 lexical 不同(融合了 dense 贡献)或至少不劣于 lexical。
         let lexical = index.search_lexical(&query, 5);
@@ -881,7 +920,13 @@ mod tests {
     fn hybrid_带分段耗时_无embedder时embed与vector段为0() {
         // 验收②:hybrid 生效时各段延迟可观测(lexical/embed/vector 三段)。
         let (root, store) = temp_root();
-        let e1 = add(&store, "fact", "edit 失败", "old_string not found 先 read", "先 read 再 edit");
+        let e1 = add(
+            &store,
+            "fact",
+            "edit 失败",
+            "old_string not found 先 read",
+            "先 read 再 edit",
+        );
 
         // 有 embedder:embed 段有耗时,且结果命中。用带 2ms 延迟的桩模拟真实
         // embedding 耗时(毫秒粒度可测;FakeEmbedder 本身亚毫秒会记成 0)。
@@ -919,7 +964,7 @@ mod tests {
             let (_, timing) = index.search_hybrid_with_timing(&query, 5);
             assert_eq!(timing.embed_ms, 0, "无 embedder 时 embed 段必须为 0");
             assert_eq!(timing.vector_ms, 0, "无 embedder 时 vector 段必须为 0");
-            assert!(timing.lexical_ms >= 0);
+            assert_eq!(timing.total(), timing.lexical_ms);
         }
     }
 }

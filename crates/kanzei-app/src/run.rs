@@ -97,8 +97,12 @@ pub(crate) async fn run_task(
         project_root: project_root.clone(),
         ..Default::default()
     };
-    let mut runner_config =
-        build_runner_config(&resolved, &config, reasoning_override.as_deref(), &ctx.project_root);
+    let mut runner_config = build_runner_config(
+        &resolved,
+        &config,
+        reasoning_override.as_deref(),
+        &ctx.project_root,
+    );
     // R-171:主对话 writer 阶段强制串行写(普通工具 FIFO、task 禁用)。
     runner_config.execution_policy =
         kanzei_harness::orchestration::ExecutionPolicy::ReadParallelWriteSerial;
@@ -480,9 +484,8 @@ pub(crate) async fn run_task(
             timeout_secs: config.limits.subagent_timeout_secs(),
             limits: config.limits.clone(),
             // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
-            coordinator: Some(Arc::clone(&coordinator) as Arc<
-                dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
-            >),
+            coordinator: Some(Arc::clone(&coordinator)
+                as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
         })
     } else {
         None
@@ -889,7 +892,8 @@ pub(crate) fn build_runner_config(
     config: &kanzei_harness::config::KanzeiConfig,
     reasoning_override: Option<&str>,
     project_root: &std::path::Path,
-) -> kanzei_core::RunnerConfig {    kanzei_core::RunnerConfig {
+) -> kanzei_core::RunnerConfig {
+    kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
         reasoning: resolve_reasoning_override(
