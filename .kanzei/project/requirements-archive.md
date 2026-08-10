@@ -1524,3 +1524,18 @@
 - 批次: 2/2
 - 进展: 内容已全部完成，按引擎可验证标记数(B2/B3)收口为 2 批：批1工作(schema v8 三张新表 recall_events/memory_sources/memory_eval + SessionStore 统一写入 + funnel_counts + episode 写入返回 episode_id)在综合提交 9b255de 中交付(当时批次标记约定尚未在提示词生效，subject 无 B1 标记)，已进 origin/dev 不可改写。批2(B2, b9baccc)：①read 工具读记忆文件正文后回填 fetched(mark_memory_file_read 接入 read.rs，修复 id 解析 split 只取到 'M' 与 Windows 大小写折叠导致 scope 匹配恒失败，加快速路径防副作用，read.rs 单测 read_memory_file_backfills_recall_fetched/read_non_memory_file_does_not_touch_fetched 验收②✓)；②桌面端 memory_search_page 接线 record_memory_search_telemetry(与 memory_search 工具/CLI 开跑预检索同源，验收①桌面端✓)；③memory_stats 展示 state.db 五段漏斗 A→R→I→U→Y(tools.rs project_funnel_counts + stats 测试断言 0/1/1/0/0，验收③✓)；④kanzei-core 导出 FunnelCounts。批3(B3, eba199b)：SessionStore 新增 link_recall_events_to_episode，CLI(main.rs)/桌面端(run.rs) append_episode 成功后按本轮开始墙钟毫秒回填 episode_id，单测验证开跑预检索 recall_event 可 join episodes 查询且时间窗外旧事件不被误回填(验收① join 部分✓)。kanzei-core 73 全绿、workspace 全量通过。验收全部达成。内容④ index.db memory_recalls 停写留读未做：read 回填采纳目前落 index.db memory_recalls，若停写则新召回无 fetched 落点、R-149 决策权重失效；设计文档 memory_control_plane.md §2 迁移口径(既有)规定 fetched 采纳判定升级为 ACTION_CHANGED 的前身，完整迁移依赖 R-162/163 的 ACTION_CHANGED 判定落地后统一收敛，本条仅按该口径完成停写前置(recall_events 全链路落库+采纳盲区修复+同源接线)。
 
+## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: 
+- 来源: 同 R-161。「记了但没进决策」的结构性根因:召回时机只有开跑一次,M-009 类条目该在 edit 失败的瞬间被想起。文献锚点 MemCon(memory 操作是序列决策)、Memory in the Loop(存了≠读了)。
+- 内容: ①RecallWatch 挂 runner 工具结果回喂钩位(先例 R-100 RedundancyWatch,runner.rs 的 note_step 同款,主循环零架构改动);②错误分类在线化:抽出 summarize_failures 的 (tool,kind) 分类为共享函数;③Tier0 fingerprint 精确匹配(内存索引,p95<5ms)→ miss 则 Tier1 BM25(错误原文+文件+符号构 query,p95<10ms),超时降级不阻塞;④重复失败(同 tool+kind ≥2)走 ReRetrieve 换 query,禁止原 top-k 重塞;⑤Memory Packet 注入格式:触发原因/行动/状态/来源,同轮同条目只注入一次;⑥frontmatter 扩展 fingerprint/trigger/valid_from/supersedes/version 一等字段(宽容读零迁移),引擎维护 fingerprint→id 内存索引。
+- 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
+- refs: R-103 M-009 docs/design/memory_control_plane.md
+
+- 进展: 批1~批5 已完成(0732e1b/66f36a5/3f20b2c/a4df7c0/70e1ae9)。关闭前全量 cargo test --workspace 全绿(155 tools / 79 core / 51 app)。验收逐项证据:①memory/mod.rs:1774 端到端回放测试——edit 失败后 [记忆命中] Packet 追加进工具结果文本;②memory/mod.rs:1677 超时降级单测 + TIER1_BUDGET_MS(memory/mod.rs:445)循环内检查(memory/mod.rs:510);③record_trigger(memory/mod.rs:569)落 recall_events + event_recall_log(store/telemetry.rs:178);④recall.rs:174 同轮同条目只注入一次单测(seen 去重 recall.rs:120);⑤kanzei/src/main.rs:191 与 kanzei-app/src/run.rs:817 双端注入 FailureRecallPolicy。五项验收全部有测试证据,关闭。
+
+- 批次: 5/5
+

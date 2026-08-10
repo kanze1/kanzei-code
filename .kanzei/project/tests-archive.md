@@ -1198,3 +1198,13 @@
 - 命令: cargo test -p kanzei-tools; cargo test -p kanzei-core
 - 摘要: tools 153 / core 79 全绿:批5 完成——CLI/桌面端注入 FailureRecallPolicy(验收⑤)+ 端到端集成测试(验收①:edit 失败后记忆 Packet 进上下文)
 - 收尾: 1786343145
+
+## T-1786344250 cargo test --workspace (D-241 reopen 机制收口) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-241 关闭前全量:workspace 各 crate 全绿(含 kanzei-tools 155、harness 51、core 79、app 63 等);reopen 动作两条新测试通过
+- 收尾: 1786344250
+
+## T-1786344306 cargo test --workspace (R-162 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-162 关闭前全量:workspace 全绿(kanzei-tools 155 / core 79 / app 51 / harness 51 等);RecallWatch 端到端回放测试与超时降级单测均在列
+- 收尾: 1786344306
