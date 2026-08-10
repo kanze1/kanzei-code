@@ -74,10 +74,16 @@ kanzei 已经具备两块可复用能力：
 | `baseline` | coordinator | 只读、串行取快照 | 分支、dirty 状态、关键文档和验证入口已记录 |
 | `scouting` | read agents | `read/glob/grep`，允许并行 | 所有任务完成、失败或超时均有终态 |
 | `synthesis` | coordinator | 不写仓库 | 形成调用链、文件归属、实施顺序和验收矩阵 |
-| `implementation` | writer | task 禁用；所有普通工具串行 | 每个改动批次有对应最小验证 |
+| `implementation` | writer | 只读 task 允许（见下注）；所有普通工具串行 | 每个改动批次有对应最小验证 |
 | `integration` | 同一 writer | 测试、构建、迁移、文档和 Git 串行 | 集成验证结果落轨迹 |
 | `review` | read agents | 只读并行 | 契约、测试与交付质量报告全部归位 |
 | `fixup` | writer | 重新获取写租约，工具串行 | 复核问题关闭并完成最终验证 |
+
+> **2026-08-10 口径修订（`implementation` 阶段的 task）**：本表初版写的是「task 禁用」，与**不变量 9**（「只读代理可以在 writer 活跃时继续读取已经存在的状态」）以及 R-173 验收④（「writer 活跃时允许只读勘察继续」）直接冲突。两处冲突时**以不变量为准**：表里那格表达的是*阶段纪律的期望*（勘察应当在勘察阶段做完），被误当成了*安全约束*。
+>
+> 它不是安全约束的理由：只读子代理的工具集在**构造时**就只有 `read/glob/grep`（`crates/kanzei-tools/src/subagent.rs` 的 `SubagentBase`），且子代理内 `ask` 恒 Deny——writer 阶段跑 task 在代码层面不可能产生写入，破坏不了单写语义。
+>
+> 这条修订有实际代价背景：R-171 把 task 注册挂在 `!execution_policy.is_serial_writer()` 上（`crates/kanzei-core/src/runner/drive.rs`），而桌面端主对话无条件设 `ReadParallelWriteSerial`（`crates/kanzei-app/src/run.rs`），结果是**桌面端主对话根本不注册 task 工具**，「并行查」被整个关掉、读槽登记代码不可达。修订后 task 注册不再受 policy 门控，串行强制仍只作用于普通工具。
 
 ### 推荐勘察角色
 
@@ -99,6 +105,8 @@ kanzei 已经具备两块可复用能力：
 6. 权限询问在获取写租约前完成；用户拒绝后不得占用写租约。
 7. 停止、关闭、panic 收尾和窗口退出都必须释放写租约并给排队者确定终态。
 8. `quick_req`、tracker、goal、memory 写工具、`test_record`、Git 写操作、worktree 创建/合并/清理不得绕过协调器。
+   **2026-08-10 补注（租约辖区 vs 文件锁辖区）**：本条约束的是**代理发起的写动作**。另有一类写入不归租约管——UI 只读命令顺手做的**幂等归档**（如 `docs_snapshot` 开头的 `archive_terminal`，只在「有条目刚进终态」时写盘）。它必须走 R-138 的**毫秒级文件锁**（`crates/kanzei-tools/src/atomic_file.rs` 的 `FileLock`，限时 `try_lock` 拿不到就跳过并落 `warnings`），**不得挂写租约**：`MemoryCoordinator::acquire_writer_lease` 无超时，挂上去会让文档面板在 agent 跑一轮期间整段卡死——拿一个更严重的问题换一个更轻的。
+   判据：**谁发起的**。代理的写动作 → 租约；界面读路径顺手做的幂等维护 → 文件锁。两者的目标都是「不并发写坏」，但排队语义不同，不可互相替代。
 9. 只读代理可以在 writer 活跃时继续读取已经存在的状态；复核阶段必须等 writer 释放租约后再启动，保证审查的是稳定快照。
 10. dirty 工作树属于用户；基线必须记录，writer 不得清理或覆盖无关修改。
 
@@ -211,6 +219,11 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
 ## 变更记录
 
 - 2026-08-10：依据用户“并行查、串行写”定调建立设计基线；确定项目级单 writer、实现阶段全工具串行、并行复核后串行修正；关联 P0 需求 R-171。
+- 2026-08-10（交付后修订）：R-171 已交付并关闭；R-173 承接阶段编排对象与两道屏障。本次并行交付一批同族条目后，对本文做三处口径修订：
+  1. **阶段契约表** `implementation` 行「task 禁用」改为「只读 task 允许」——它与不变量 9 冲突，且实测把桌面端的「并行查」整个关掉了（详见该表下方的修订说明）。
+  2. **不变量 8** 补注租约辖区与文件锁辖区的判据（详见该条）。R-138 的跨进程文件锁已交付，`docstore` 的四个整文件写点全部改 tmp+rename 原子替换，`TrackerTool` 的写动作分支在 `load → next_id → save` 整段持锁。
+  3. 「与既有设计的关系」中对 R-138 的定位（「保护非 runner 或未来 OS 进程入口」）已由实测确认为真需求：`kz` CLI 的 tracker 子命令**没有协调器**，与桌面端并发时项目级单 writer 在跨进程层面本就不成立——文件锁补的正是这一层，不是第二套租约。
+  另记两条本次实测澄清：①D-227 的 `test_record` 同 ID 与并发无关（wave 排他与写租约都生效、四条记录全部存活），根因是分配器只读系统时钟不读文件，**串行不等于唯一**——租约在原理上修不掉它；②`core/orchestration.rs` 的 `normalize_project_root` 不剥 Windows 扩展长度前缀 `\\?\`，而 worktree 写命令走 `canonicalize`（带前缀）、主对话 writer 走发现式取根（不带），两者落在**不同的项目桶**，worktree 写入实际绕过了协调器。该缺口在 R-173 批次内修复。
 
 ## 验证证据
 
