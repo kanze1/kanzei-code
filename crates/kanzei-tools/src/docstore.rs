@@ -30,6 +30,10 @@ pub struct DocKind {
     pub tags: Option<&'static [&'static str]>,
     /// 非终态之间允许自由往返(目标 active⇄paused);false = 只进不退。
     pub bidirectional: bool,
+    /// 允许经 `reopen` 退回初始态的非终态列表(空 = 不支持退回)。
+    /// D-241:fixing 长期无人续推时没有合法退回通道,agent 只能手改 markdown 或
+    /// 让僵尸条目永远占着「进行中」语义;reopen 把「推不动就退回」变成可执行动作。
+    pub reopen_from: &'static [&'static str],
 }
 
 pub const REQUIREMENTS: DocKind = DocKind {
@@ -42,6 +46,7 @@ pub const REQUIREMENTS: DocKind = DocKind {
     priorities: Some(&["P0", "P1", "P2", "P3"]),
     tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
+    reopen_from: &["doing"],
 };
 
 pub const DEFECTS: DocKind = DocKind {
@@ -54,6 +59,7 @@ pub const DEFECTS: DocKind = DocKind {
     priorities: Some(&["P0", "P1", "P2", "P3"]),
     tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
+    reopen_from: &["fixing"],
 };
 
 pub const SOURCES: DocKind = DocKind {
@@ -66,6 +72,7 @@ pub const SOURCES: DocKind = DocKind {
     priorities: None,
     tags: None,
     bidirectional: false,
+    reopen_from: &[],
 };
 
 pub const FINDINGS: DocKind = DocKind {
@@ -78,6 +85,7 @@ pub const FINDINGS: DocKind = DocKind {
     priorities: None,
     tags: None,
     bidirectional: false,
+    reopen_from: &[],
 };
 
 /// 跨会话记忆(R-098):记"已确认的事实与踩过的坑",与追踪文档职责分离——
@@ -94,6 +102,7 @@ pub const MEMORY: DocKind = DocKind {
     tags: None,
     // 结论可能被重新确认,允许 active⇄stale 往返。
     bidirectional: true,
+    reopen_from: &[],
 };
 
 /// 设计决策(R-110):讨论与设计的沉淀——像需求/缺陷一样可追踪、可引用、可检索。
@@ -108,6 +117,7 @@ pub const DECISIONS: DocKind = DocKind {
     priorities: None,
     tags: None,
     bidirectional: false,
+    reopen_from: &[],
 };
 
 /// 长期目标(R-019):agent 每次运行注入活跃目标,无明确任务时自主推进。
@@ -121,6 +131,7 @@ pub const GOALS: DocKind = DocKind {
     priorities: None,
     tags: None,
     bidirectional: true,
+    reopen_from: &[],
 };
 
 #[derive(Debug, Clone, PartialEq)]

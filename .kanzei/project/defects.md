@@ -1,18 +1,5 @@
 # Defects
 
-## D-241 D-202/D-173/D-223 长期挂 fixing 无人续推:占「进行中」语义,且引擎无 fixing→open 退回通道 [open] (medium)
-- 优先级: P1
-- 标签: 流程
-- refs: D-202 D-173 D-223 D-239 D-235 R-101
-- 证据等级: E1(三条目文本 + docstore 状态机代码实证 + 开发重心 M-002 的队列可达性)
-- 现象: defects.md 里三条 [fixing] 长期无人续推——D-202(超长对话卡顿,修复方向①②④⑤已落地,卡在真机复测)、D-173(架构索引通道,2026-08-09 收口核对因 architecture 工具零调用刻意不关)、D-223(profile_default 编译失败,自称"待 R-153 上游迁移稳定后复测",而 R-153 早已归档关闭)。三条都不在推进中,却都占着 fixing 的「进行中」语义。
-- 影响: ①误导「在做」指针——D-207 三修(60943d2)的运行事实优先正是为压制这类假象,提交信息原话「挂着 fixing 的旧缺陷不再冒充正在做」,说明它已真实误导过界面;②按 §1.1 防堆积兜底「含阻塞在内 doing 总数 >4 不得再开新项」,三条僵尸 fixing 直接吃掉缺陷侧的准入余量;③三条各自的残余验证(D-202 的真机 Event Timing 与 DOM 上限、D-173 的 architecture 真实调用、D-223 的 cargo check 复测)没有任何机制会提醒任何人回去做。
-- 根因(两层): ①**无退路**:docstore 的 transition_allowed 单向(docstore.rs:638 `cannot move backward ... forward only`,defect 序列 open→fixing→fixed|wontfix),错误文案让人「手改 markdown」,但 .kanzei/project/* 对 agent 是 edit-denied(M-005)且 shell 旁路被检测回滚——**agent 根本没有把 fixing 退回 open 的通道**,与 D-235(conventions.md 无专用写入)、D-173(架构索引无专用工具)属同一族「既不能 edit、也无专用工具」缺口,所以挂久了只能继续挂。②**无回扫**:fixing 只在被触碰时顺手复核(与 D-239 记的阻塞字段同病),没有任何周期性机械核对「这条 fixing 多久没动过」;叠加当前开发重心=需求优先(M-002),defects.md 在需求队列跑空前根本扫不到,三条永远等不到「被触碰」。
-- 修复方向(逐条处置,可立刻验证): D-223 → R-153 已归档,直接 `cargo check -p kanzei-app` 复测,通过即补证据关闭;D-173 → 核对 2026-08-09 之后 architecture 工具是否已有真实调用(1ec12ca 声称「架构索引已登记」),有则按其验收③关闭,无则如实写进展并保持 fixing;D-202 → 按 §1.2 可用即关闭:修复方向①②④⑤已落地且冒烟有拦截实测,残余(真机 Event Timing、DOM 节点数上界)转 R-101 或新条目,真机复测属外部阻塞(解除人=用户),要么补合法「阻塞:」字段,要么连同残余转移后关闭。
-- 修复方向(机制,二选一或都做): ①给 tracker 一个合法的退回动作(如 `defect reopen <id> reason=…`,与 repair_* 同族,强制写理由并落进展),让「推不动就退回 open」成为可执行动作而不是纸面建议;②活动条目滞留回扫——list 或调度器对超过 N 轮无进展更新的 doing/fixing 打标(表达方式同 [调度死锁] 横幅),把「该回去看看」从人的记性变成机械信号。
-- 验收: ①D-202/D-173/D-223 三条各自有明确归宿(fixed / wontfix / 带具名解除人的合法阻塞 / 退回 open),不再是无归宿的 fixing;②处置依据逐条写进各条进展,残余验证有去处(§1.2);③机制项落地任一:tracker 有可用的 reopen 动作(有测试),或活动条目滞留有机械打标(有测试);④此后不再出现「无进展更新且无阻塞字段」的 fixing/doing 长期滞留。
-- 边界: 本条只做队列口径与通道,不承接 D-202/D-173/D-223 各自验收里的功能性残余(那些留在原条目或按 §1.2 转移)。
-
 ## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
 - 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
 - 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
@@ -88,22 +75,6 @@
 
 - 进展: 2026-08-09 取活:验收①prompt 层(禁止编造、写待澄清+问题清单)为既有交付(main.rs QuickCaptureComponent system 文案,3512-3519);本轮补验收③:侧栏/文档页对「复现: 待澄清: …」形态的缺陷渲染 .clarify-badge 徽标(renderDocList,只认复现字段以「待澄清」开头,title 带具体问题清单,不误标需求),i18n 词条「待澄清」,style.css .clarify-badge(accent 色);冒烟桩数据 D-001 复现改为待澄清形态并新增断言(徽标渲染+问题提示+需求不误标),ui-runtime-smoke 222 invoke 全绿,ui-i18n-smoke 771 key 全绿,frontend_check 结构完整。验收①真实快记实证与④(自举取活跳过/优先澄清待澄清条目,属调度核心改动)留后续,④记入 R-101 批次前评估。
 
-## D-202 超长对话把 webview 主线程拖死,侧栏等大片控件点击无反应 [fixing] (high)
-- 复现: 2026-08-09 用户实测(53bb8e7 桌面端):自举循环长会话(几百轮,含大量工具调用块/diff/markdown)期间,侧栏条目展开、筛选等点击**完全无反应**(无按压反馈,像点在空气上);发送等主操作路径尚可。用户自判"上下文太多卡住了"。初步排查已排除:①初始化崩坏(53bb8e7 的 main.js 在 ui-runtime-smoke 全量执行 0 错误);②ask 遮罩挡点击(全屏 overlay 会挡住所有东西,与"主操作正常"不符);③R-086 状态机焊死(那只禁用运行态控件,不吞侧栏点击)。
-- 疑似根因(待复现证实): 长对话 DOM 巨大(消息、工具块、diff 逐条渲染,无虚拟化/窗口化),流式事件持续追加触发重排,主线程长期忙碌,点击事件延迟到秒级等价于无反应。若成立,与 D-013(diff 默认展开导致对话过长)、D-046(重绘防抖)是同一性能债的延续:此前只做了"少画",没做"画不下就不画"。
-- 验收: ①可复现实证:构造或回放长会话,量化点击响应延迟(如 Event Timing / 长任务计数),定位耗时大头;②修复后同样场景侧栏点击在人可感知阈值内响应(<200ms);③对话渲染有上限策略(虚拟化、折叠历史或分页任一),DOM 节点数有界;④冒烟加长会话性能断言防回归。
-- 根因(2026-08-09 定位,代码实证): 主因是 **i18n 的全局 MutationObserver 把每一次 DOM 变动都放大成一次全文档重扫**。main.js:711 `new MutationObserver(() => applyLanguage())` 监听 `document.body` 且 `childList+subtree+characterData+attributes`;而 applyLanguage(main.js:627)每次执行都 `createTreeWalker(document.body, SHOW_TEXT)` 走**整页每一个文本节点**(每个节点还做一次 `parent.closest("[data-i18n-raw]")` 祖先回溯),之后再 `querySelectorAll("[title],[placeholder],[aria-label])` 扫一遍全页。它不按语言短路——中文模式下同样全量走。于是单次成本 ∝ 全文档文本节点数 ≈ 对话长度,而触发频率 = 每个流式 delta 一次(appendAssistant 的 `innerHTML=` 必然产生 childList 变动)⇒ 一轮对话的渲染开销对会话长度成平方增长,轮次越多主线程越被占满,点击排在长任务后面就等于"没反应"。
-  次因(同一热路径上的三处放大,都在 appendAssistant,main.js:1320-1335):①每个 delta 重新 `renderMarkdown(整条消息)` 并整块 `innerHTML=`,单条消息内部就是 O(n²);②每个 delta 把整条 raw `split("\n").map(正则).filter()` 一遍,只为取"最近在说"的最后一行;③每个 delta `scrollBottom()` 读 `messages.scrollHeight`,强制同步重排整个消息列表(这一项随轮次增长)。全文件 `requestAnimationFrame` 出现 0 次,没有任何合帧/节流。
-  另:对话 DOM 从不裁剪(只有切会话时 `messages.innerHTML=""`),所以**上下文压缩不会缓解卡顿**——压缩只减少发给模型的 token,渲染侧一个节点都没少。用户"上下文太多卡住了"的直觉方向对,但机制不在上下文,在渲染。
-- 量化(2026-08-09,ui-runtime-smoke 的 DOM harness 内测,只证明标度不代表真机绝对值): applyLanguage 单次耗时随文本节点数线性上升——95 节点 0.54ms / 295 节点 1.11ms / 895 节点 3.61ms;renderMarkdown 每 delta 均摊耗时随消息长度线性上升——2850 字 0.035ms → 45600 字 0.169ms(单条消息累计 135ms,纯解析、不含 DOM)。真机 WebView 的 TreeWalker/重排成本远高于 harness,几百轮会话的文本节点数在万级,单次 applyLanguage 已足以吃满一帧。
-- 修复方向(建议按序,每步独立可验): ①observer 回调改为只处理 `mutations` 里的 addedNodes 子树(新进节点才本地化),不再全文档重扫——单点改动,收益最大;②applyLanguage 用 rAF 合帧,一帧最多一次;③appendAssistant 流式期间只追加纯文本(`textContent +=`),消息收尾时再整条 renderMarkdown 一次;④"最近在说"从 delta 增量算,不扫整条 raw;⑤scrollBottom 合帧,或改 CSS `overflow-anchor` / 底部哨兵 + IntersectionObserver,去掉每 delta 读 scrollHeight;⑥最后才做验收③的 DOM 上限(窗口化/折叠历史)——前五步做完可能已不需要。
-- 修复(2026-08-09,修复方向①②④⑤已落地): ①applyLanguage 拆成 localizeTextNode/localizeAttributes/localizeRoot(root),observer 回调改为只把 `records` 里的 addedNodes(childList)与 target(characterData/attributes)交给 localizeNodes,全文档重扫只留给初始化与切语言两处显式调用;②④⑤合成一处:appendAssistant/appendReasoning 的 delta 只累加文本,renderMarkdown+innerHTML+scrollBottom 压到每帧最多一次(scheduleStreamRender/flushStreamRender),上一次渲染实测 >8ms 就按实测耗时退避(上限 250ms),长消息自动降频;"最近在说"改用 lastNonEmptyLine() 只扫尾部 2000 字窗口(并丢掉被窗口截断的首行,预览不会从半个词开始)。③(流式期间只上纯文本、收尾再渲染)未采纳——合帧后已无必要,且会让正文在流式期间失去格式。⑥DOM 上限/窗口化仍未做,留待真机复测后再判是否需要。
-- 冒烟(验收④已落): ui-runtime-smoke 的 DOM harness 原先给 observer 递空 records、createTreeWalker 忽略 root、requestAnimationFrame 同步执行——三处都会让新路径在冒烟里空转,已一并补真:投递真实 MutationRecord、createTreeWalker 尊重 root(含文本节点 root)、rAF 入队由 flush 排干,并统计"从 body 起的全文档重扫"次数。新增三条行为断言:200 个 delta 触发的 renderMarkdown ≤20 次、全文档 i18n 重扫增量为 0、合帧后最后一段文本确实渲染出来;另加一条增量本地化断言(新进节点在 en 下必须被翻译),防止"少扫了也少翻了"。拦截实测:把 observer 改回 `() => applyLanguage()` → 冒烟报"触发了 2 次全文档重扫"(harness 内 200 个 delta 同步发生会被微任务合批,真机每个 delta 是独立事件、独立微任务检查点,即每 delta 一次);把渲染改回每 delta 一次 → 报"200 个 delta 触发了 200 次 renderMarkdown"。四条 UI 冒烟全绿。
-- 待验收: ②真机复测(几百轮会话下侧栏点击 <200ms)由用户在新构建上确认;①的真机 Event Timing/长任务数据仍未采;③(DOM 节点数有界)未做。三条都清了才转 fixed。
-- 证据等级: E1(代码路径实证 + harness 标度量化 + 拦截实测;真机 Event Timing 数据待补,对应验收①)
-- 优先级: P1
-- 标签: 前端
-
 ## D-184 commands / skills 两张注册表是死的:解析注册后无人消费 [open] (medium)
 - 复现: 在 `~/.kanzei/commands/` 或 `~/.kanzei/skills/`(及项目同名目录)放 markdown,MarkdownComponent 会扫描、解析并注册(crates/kanzei-harness/src/markdown.rs:22);但全仓库对 `snapshot.commands()` / `snapshot.skills()`(crates/kanzei-harness/src/harness.rs:110、114)**零调用**——文件进了注册表就地消失,既不进提示词也不成为工具。
 - 影响: 六张注册表实际在跑的只有四张。用户按目录约定放了命令/技能文件,界面与模型都不会有任何反应,也没有一行提示说"注册了但没人用",属于静默无效功能。
@@ -124,17 +95,6 @@
 - 验收: M-013 被更正或标 stale，不再声称本次根因是忘记暂存；失败提炼能优先保留同一 bash 调用中更早的 fatal/pathspec 根因，或在无法判定时只记录症状不下根因结论；有回归覆盖。
 
 - 进展: 错误 M-013 仍处于未提交状态；已向 memory inbox 投递具名更正说明，后续修复需让 failure harvest 保留同批前置 `fatal: pathspec` 根因并补回归。本轮不把错误记忆混入 R-069 提交。
-
-## D-173 架构索引 architecture/README.md 无专用工具可写:edit 被 ruleset 拒绝,agent 只能 bash 旁路维护 [fixing] (high)
-- 备注: 本轮已用 bash 旁路一次性补齐索引(946742f),内容正确;本缺陷登记的是通道缺失本身,不撤回已完成的补全。D-171 已确认为真实缺陷(孤儿 webview 黑屏,743d4e4 修复并登记),非编号空洞;此前的 tombstone 误判已撤销。
-- 复现: agent 用 edit 更新 `.kanzei/project/architecture/README.md` 报 permission denied by ruleset(policy-managed,提示用专用工具);但 req/defect/goal/decision 四个专用工具只管理各自追踪文件,没有任何工具托管 architecture 目录。实测 2026-08-08:索引补全只能经 bash 写入(946742f),而 bash 能写受保护目录本身也说明 R-139 的 bash 级 .kanzei 路径硬门禁尚未落地。
-- 影响: ①自举循环新增/重命名设计文档后,架构索引只能由用户手改,必然滞后(本次 10 个文档重命名 + 2 份新设计入库后,索引仍只有 5 个旧条目);②agent 若想维护索引,唯一通道是 bash 旁路,而旁路通道本身违反'受保护文档不被 bash 旁路'的设计原则;③architecture/README.md 是架构发现入口,索引滞后会让后续会话找不到现行设计真源。
-- 根因: ruleset 对 `.kanzei/project/*` 的 edit/write 硬 deny 只给 tracker 类工具放行(设计意图是防模型旁路),但 architecture/README.md 作为同级项目管理资产不在任何专用工具的托管范围——需求/缺陷/目标/决策各有工具而架构索引没有,形成'既不能 edit、也无专用工具'的双重缺口;bash 写入通道未封堵又构成硬门禁的旁路。
-- 验收: ①提供可用的架构索引维护通道:要么新增专用命令/工具(如 `kz doc index` 或 tracker 工具扩展),要么把索引改为从 docs/design 自动生成(如 docs_snapshot 系),agent 更新 docs/design 后索引自动同步;②补 R-139 的 bash 级 .kanzei 路径硬门禁,使受保护文档不能经 bash 旁路写入;③验收时新增/重命名一个 docs/design 文档后,索引可被 agent 直接维护且无需 bash 旁路。
-- 修复进展(2026-08-08): 已新增 `architecture` 专用工具及固定路径、`expected_hash` 并发保护、同目录临时文件与可恢复替换;Harness 已把架构文档纳入托管资源并要求通过专用工具访问;通用 Bash 已在执行前后对托管资源做快照并回滚越界写入。
-- 验证(2026-08-08): `kanzei-tools` 80 项、`kanzei-harness` 37 项、`kanzei-core` 50 项测试通过。尚未在已安装桌面端中完成一次真实模型调用与工具交互验收,因此保持 `fixing`。
-- 收口核对(2026-08-09): 本轮 fixing 批量收口时**刻意不关**这条。episodes 实证:48 个轮次里 `architecture` 工具 **0 次真实调用**(同期 req 196 次、defect 95 次)——验收③"agent 直接维护索引且无需 bash 旁路"不是没测到,是从未发生。工具注册、权限、D-195 的提示词同源测试都在,但按 §1.25"声称完成的能力必须有真实调用方",一个零调用的通道不能算闭合。下一次自举改动 docs/design 后用 architecture 工具更新索引成功,即可关闭。
-- 优先级: P1
 
 ## D-174 托管项目后台 Shell 缺少可归因的文件隔离 [open] (high)
 - 复现: 后台 Bash 启动后立即返回,后续异步进程可以在任意时刻修改 `.kanzei/project` 与 `.kanzei/memory`;Harness 无法区分后台进程写入和稍后专用工具的合法写入,也无法安全回滚。
@@ -165,14 +125,6 @@
 - refs: D-163 R-157 D-207
 - 优先级: P1
 - 标签: 前端
-
-## D-223 R-158 新增设置字段误删 profile_default 导致编译失败 [fixing] (medium)
-- 修复范围: 恢复 SettingsPayload.profile_default 字段；Codex Fast mode 仍保持独立字段。
-- 复现: 在本次 Codex Fast mode 改动后运行 `cargo check -p kanzei-app`，SettingsPayload 编译报 profile_default 不存在；设置打开构造体也报该字段未定义。
-- 根因: 新增 codex_fast_mode 字段时的精确替换遗漏了既有 profile_default 字段。
-- 验收: SettingsPayload 同时包含 profile_default 与 codex_fast_mode；设置保存/打开相关构造点可编译。
-- 优先级: P1
-- 进展: 已恢复 crates/kanzei-app/src/main.rs::SettingsPayload.profile_default，并保留 codex_fast_mode；后续 cargo check 未再报告 profile_default 缺失。整体 kanzei-app 仍被 R-153 既有 mobile.rs/processes.rs 编译错误阻断，待上游迁移稳定后复测。
 
 ## D-227 并行 test_record 自动生成相同时间戳 ID，四条 UI 记录互相覆盖 [open] (medium)
 - 复现: 并行调用四个同秒 test_record，均省略 id；结果生成相同 T-1786297655，archive 中标题不同但 ID 相同。

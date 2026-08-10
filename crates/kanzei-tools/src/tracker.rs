@@ -24,12 +24,17 @@ pub struct TrackerTool {
 /// 用完整性门禁挡住它们会形成死锁。
 const REPAIR_ACTIONS: &[&str] = &["repair_reused_id", "repair_missing_id", "void_id"];
 
+/// D-241:fixing 推不动时退回 open 的合法动作。与 repair_* 同族但不修完整性,
+/// 所以仍走完整性门禁(拒绝在破损状态下 reopen)。
+const REOPEN_ACTION: &str = "reopen";
+
 const WRITE_ACTIONS: &[&str] = &[
     "add",
     "update",
     "close",
     "archive",
     "reorder",
+    REOPEN_ACTION,
     "repair_reused_id",
     "repair_missing_id",
     "void_id",
@@ -109,7 +114,7 @@ impl Tool for TrackerTool {
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(TrackerInput)).unwrap();
         let mut actions = vec![
-            "list", "get", "add", "update", "close", "archive", "reorder",
+            "list", "get", "add", "update", "close", "archive", "reorder", REOPEN_ACTION,
         ];
         actions.extend_from_slice(REPAIR_ACTIONS);
         let enums: [(&str, Option<Vec<String>>); 4] = [
@@ -599,9 +604,61 @@ impl Tool for TrackerTool {
                     input.order.join(" → ")
                 ))
             }
+            // D-241:fixing 推不动时的合法退路。要求 id + reason(强制写理由),
+            // 状态必须命中该文档类型的 reopen_from 集合,退回初始态并落进展。
+            // 与「手改 markdown」的区别:reopen 走引擎,理由进文档,调度器下次
+            // 扫到的是 open 而不是冒充「正在做」的僵尸 fixing。
+            REOPEN_ACTION => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for reopen");
+                };
+                let Some(reason) = input
+                    .reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty())
+                else {
+                    return ToolOutput::error(
+                        "`reason` is required for reopen: say why this item is being pulled back",
+                    );
+                };
+                let Some(pos) = entries.iter().position(|e| &e.id == id) else {
+                    return ToolOutput::error(unknown_id(id, &entries));
+                };
+                let current = &entries[pos];
+                if !self.kind.reopen_from.contains(&current.status.as_str()) {
+                    return ToolOutput::error(format!(
+                        "cannot reopen {id}: status `{}` is not in the reopen set ({}). \
+                         Reopen pulls a non-terminal item back to `{}`; closed items stay closed.",
+                        current.status,
+                        self.kind.reopen_from.join(" | "),
+                        self.kind.statuses[0],
+                    ));
+                }
+                let back_to = self.kind.statuses[0].to_string();
+                entries[pos].status = back_to.clone();
+                // 退回理由必须留在条目里,不能只出现在工具输出——否则下轮上下文
+                // 一滚动就没人知道这条为什么被退回来(D-241 验收②「处置依据逐条写进进展」)。
+                // 追加新的一行进展,而不是拼进已有字段值:docstore 按行解析,
+                // 值里嵌 \n 的重载会被拆成 Raw 行而丢失(D-241 实测)。
+                let note = format!("[reopen {}] {}", crate::memory::today(), reason);
+                entries[pos].fields.push(("进展".into(), note.clone()));
+                if let Err(e) = store.save(&entries) {
+                    return ToolOutput::error(format!(
+                        "cannot write {}: {e}",
+                        store.path.display()
+                    ));
+                }
+                ToolOutput::ok(format!(
+                    "reopened {id} [{}] {}\n{note}",
+                    back_to,
+                    entries[pos].title
+                ))
+            }
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: list | get | add | update | close | archive | \
-                 reorder | {}",
+                 reorder | {} | {}",
+                REOPEN_ACTION,
                 REPAIR_ACTIONS.join(" | ")
             )),
         };
@@ -1131,6 +1188,115 @@ mod tests {
         assert!(!out.is_error, "总数改成实际批数后应放行: {}", out.content);
         let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(saved[0].status, "done");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-241 机制项:fixing 推不动时可以合法退回 open。要求 id + reason,
+    /// 理由必须落进条目进展(不能只出现在工具输出),调度器下次看到的是 open。
+    #[tokio::test]
+    async fn reopen_把fixing退回open_并强制写理由进进展() {
+        let dir = std::env::temp_dir().join(format!("kz-reopen-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("D-001");
+        e.status = "fixing".into();
+        e.fields = vec![("进展".into(), "修复方向已落地,真机复测卡在外部环境".into())];
+        DocStore::open(&dir, &DEFECTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+
+        // 不带理由 → 拒绝。
+        let out = tool
+            .execute(json!({"action": "reopen", "id": "D-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "reopen 必须给理由: {}", out.content);
+        assert!(out.content.contains("reason"), "{}", out.content);
+
+        // 状态不在 reopen 集合(open 不是) → 拒绝。
+        let saved = DocStore::open(&dir, &DEFECTS).load().unwrap();
+        assert_eq!(saved[0].status, "fixing", "被拒的 reopen 不能动状态");
+        let out = tool
+            .execute(
+                json!({"action": "reopen", "id": "D-001", "reason": "推不动,退回"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "fixing 应可退回 open: {}", out.content);
+        assert!(out.content.contains("open"), "{}", out.content);
+
+        let saved = DocStore::open(&dir, &DEFECTS).load().unwrap();
+        assert_eq!(saved[0].status, "open", "状态必须退回 open");
+        let progress_lines: Vec<&str> = saved[0]
+            .fields
+            .iter()
+            .filter(|(k, _)| k == "进展")
+            .map(|(_, v)| v.as_str())
+            .collect();
+        assert!(
+            progress_lines.iter().any(|p| p.contains("推不动,退回")),
+            "理由必须落进进展(任意一行): {:?}",
+            progress_lines
+        );
+        assert!(
+            progress_lines.iter().any(|p| p.contains("[reopen")),
+            "进展要有 reopen 落款: {:?}",
+            progress_lines
+        );
+        // 追加语义:原始进展行原样保留,新理由独立成行(与 docstore 按行解析一致)。
+        assert!(
+            progress_lines.iter().any(|p| p.contains("修复方向已落地")),
+            "原始进展不能被覆盖: {:?}",
+            progress_lines
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-241 边界:closed(终态)条目不能 reopen,requirement 的 done 同理。
+    #[tokio::test]
+    async fn reopen_拒绝终态与不在集合的状态() {
+        let dir = std::env::temp_dir().join(format!("kz-reopen-edge-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("D-001");
+        e.status = "fixed".into();
+        DocStore::open(&dir, &DEFECTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let out = tool
+            .execute(
+                json!({"action": "reopen", "id": "D-001", "reason": "不该退"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "终态不可 reopen: {}", out.content);
+        assert!(out.content.contains("not in the reopen set"), "{}", out.content);
+
+        // requirement 的 doing 不在 reopen 集合(REQUIREMENTS.reopen_from = ["doing"] 时
+        // 才可退;这里验证 todo 态也被拒),终态 done 更不行。
+        let mut r = entry("R-001");
+        r.status = "done".into();
+        DocStore::open(&dir, &REQUIREMENTS).save(&[r]).unwrap();
+        let rtool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = rtool
+            .execute(
+                json!({"action": "reopen", "id": "R-001", "reason": "不该退"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "done 不可 reopen: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

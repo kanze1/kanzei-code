@@ -20,6 +20,7 @@
 - [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(进行中)。
 - [`monolith_decomposition.md`](../../../docs/design/monolith_decomposition.md)：巨石拆解方案——app/main.rs、ui/main.js、core/runner.rs、core/store.rs 分文件拆解(R-153~R-156,A-008)。
 - [`architecture_browser.md`](../../../docs/design/architecture_browser.md)：可视化架构浏览与记忆设置——技术栈选型评估(R-122,方案 A:既有 classic script + 目录树复用)。
+- [`parallel_read_serial_write_orchestration.md`](../../../docs/design/parallel_read_serial_write_orchestration.md)：多进程代理编排——并行查、串行写(R-171 调度与写入纪律真源;勘察/复核只读子代理并行,项目级单写租约与工具调用 FIFO)。
 
 ### 评审中（决策门禁未过）
 
