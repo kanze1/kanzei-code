@@ -85,6 +85,27 @@ impl SessionStore {
             .optional()
             .map_err(Into::into)
     }
+
+    /// 回放评估台原料(R-163 批1):最近 N 条 `run.trace` 的 payload_json(新→旧)。
+    /// 只取该类型——run.trace 是引擎机械写入的轨迹画像(工具名/输入摘要/ok/error),
+    /// 不掺对话快照等其它事件;回放案例由 [`crate::replay::parse_trace_payload`] 解析。
+    pub fn list_trace_payloads(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT event_id, payload_json FROM session_events
+                 WHERE session_id = ?1 AND event_type = 'run.trace'
+                 ORDER BY sequence DESC LIMIT ?2",
+        )?;
+        let rows = statement
+            .query_map(params![session_id, limit as i64], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 /// 事件行解析。
@@ -187,6 +208,46 @@ mod tests {
             .unwrap();
         assert_eq!(latest.payload["v"], 2);
         assert!(store.latest_event("ses_test", "missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn list_trace_payloads_只返回run_trace并按新到旧() {
+        // R-163 批1:回放评估台原料接口——只取 run.trace 类型,其它事件不混入,
+        // 顺序按 sequence 倒序(最新轨迹优先)。
+        let store = store();
+        store
+            .create_session("ses_replay", "C:/replay", None)
+            .unwrap();
+        store
+            .append_event("ses_replay", "run.completed", &serde_json::json!({"outcome": "ok"}))
+            .unwrap();
+        store
+            .append_event(
+                "ses_replay",
+                "run.trace",
+                &serde_json::json!({"events": [{"id": "a", "kind": "tool.started", "name": "read"}], "outcome": "failed"}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_replay",
+                "run.trace",
+                &serde_json::json!({"events": [], "outcome": "completed"}),
+            )
+            .unwrap();
+        let traces = store.list_trace_payloads("ses_replay", 10).unwrap();
+        assert_eq!(traces.len(), 2, "run.completed 不得混入回放原料");
+        assert!(
+            traces[0].1.contains("completed"),
+            "最新 run.trace 在前: {}",
+            traces[0].1
+        );
+        // 限量:limit=1 只取最新一条。
+        let one = store.list_trace_payloads("ses_replay", 1).unwrap();
+        assert_eq!(one.len(), 1);
+        assert!(one[0].1.contains("completed"));
+        // 缺 session 时为空,不报错。
+        assert!(store.list_trace_payloads("missing", 10).unwrap().is_empty());
     }
 
     #[test]

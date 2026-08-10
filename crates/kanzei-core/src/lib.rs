@@ -4,6 +4,7 @@
 pub mod assemble;
 pub mod history;
 pub mod notification;
+pub mod replay;
 pub mod runner;
 pub mod store;
 

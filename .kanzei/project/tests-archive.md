@@ -1208,3 +1208,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-162 关闭前全量:workspace 全绿(kanzei-tools 155 / core 79 / app 51 / harness 51 等);RecallWatch 端到端回放测试与超时降级单测均在列
 - 收尾: 1786344306
+
+## T-1786344878 cargo test -p kanzei-core (R-163 B1 回放数据层) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-163 批1 回放数据层:kanzei-core 84 全绿(新增 replay 4 测试:解析 run.trace 按 id 配对透传失败原文、录制回放不真执行外部工具合成结果、宽容解析、坏 payload 返回 None;events 新增 list_trace_payloads 测试)
+- 收尾: 1786344878
