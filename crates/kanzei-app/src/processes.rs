@@ -192,6 +192,19 @@ pub fn process_create(
 /// 3. 落库;**落库失败就整体回滚**(摘工作树 + 删分支 + 从内存进程表移除),绝不
 ///    留半绑定态。半绑定态是最坏的结局:磁盘上有树、库里没线,用户在界面上看不见
 ///    它,也就没有任何入口能把它收掉。
+///
+/// # 查重不是 check-then-act
+///
+/// 第 1 步(查重)、第 2 步(建树)、以及把新 handle 插进内存表这三件事**同处
+/// `state.processes` 的同一个 `MutexGuard` 之内** —— guard 在查重之前取得,直到插表
+/// 完成才 `drop`。所以「查到没人绑 ⇒ 建树 ⇒ 绑上」是原子的,两个并发调用者不可能
+/// 都通过查重。这也是为什么 `create_worktree`(一次阻塞 git 调用)被刻意留在锁内:
+/// 把它挪到锁外会**立刻**打开竞态窗口,建出两棵同路径树或两条绑同一棵树的线。
+/// 唯一另一个会写 `worktree_path` 的地方是 `restore_processes_from_store`,它取的
+/// 是同一把锁,因此也不会与本函数交错。
+///
+/// 跨**进程**(两个 app 实例同时开着同一个项目)不在这把锁的覆盖范围内;那一层由
+/// git 自己兜底(`worktree add` 撞已存在的目标会失败),本轮不做进程间互斥。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_process(
     state: &AppState,
@@ -464,16 +477,43 @@ pub(crate) fn worktree_status(
     ))
 }
 
+/// 本地分支是否已经存在。用 `rev-parse --verify` 走全名 `refs/heads/<branch>`,
+/// 不用 `branch --list`(那是 glob 匹配)。
+fn branch_exists(root: &Path, branch: &str) -> bool {
+    let refname = format!("refs/heads/{branch}");
+    worktree_command(root, &["rev-parse", "--verify", "--quiet", &refname])
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
 /// 建工作树(非 Tauri 内核):`worktree_create` 命令与 `create_process` 建线共用。
 ///
-/// 顺带补上以前缺的一件事:`git worktree add` 失败时**回收已经建出来的目录**。
-/// 不回收的话下一次同名建线会撞上「工作树已存在」,把用户永久堵死在一个既没有
-/// 线也删不掉的半成品上。
+/// # `git worktree add` 之后的每一步都必须能回滚
+///
+/// 这个函数有两条失败路径,两条都会在磁盘与 git 里留下**界面上没有任何入口能收掉**
+/// 的残留,所以两条都得自己收干净:
+///
+/// 1. **`add` 自己失败**:2026-08-11 实测 git 的四种 add 失败模式(目标是非空目录 /
+///    目标是文件 / 前置目录建不出 / 路径超长)**统统把新分支留在原地** —— `git
+///    worktree add -b` 是先建分支再挂树的。只 `remove_dir_all` + `prune` 不删分支,
+///    下一次同名建线就撞 `a branch named '…' already exists`,**第二次起永久失败**。
+/// 2. **`add` 成功、后面的工作区探测失败**:此时树已经挂上、分支已经落地,用 `?`
+///    直接抛错就留下一棵孤儿树 + 一条孤儿分支。`create_process` 的整体回滚**救不了
+///    它** —— 那一层只回滚它自己那一步(落库),`create_worktree` 返回 Err 时它认为
+///    这里已经什么都没建出来。
+///
+/// # 分支只删自己建的那一条
+///
+/// 回滚要问的是反方向的问题:**不是「我该删哪条分支」,而是「这条分支是不是我建的」**。
+/// `add` 若因为同名分支**已经存在**而失败,那条分支是用户的东西,删掉就是丢数据。
+/// 所以 add 之前先记下分支存不存在,只有「调用前不存在」才允许删。`add` **成功**的
+/// 那条路径不需要这个判断:`-b` 撞名必失败,add 成功 ⇒ 分支就是本次建出来的。
 pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, String> {
     let (worktree, branch) = worktree_target(root, name)?;
     if worktree.exists() {
         return Err(format!("工作树已存在: {}", worktree.display()));
     }
+    let branch_was_there = branch_exists(root, &branch);
     let output = worktree_command(
         root,
         &[
@@ -486,11 +526,22 @@ pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, S
         ],
     )?;
     if !output.status.success() {
-        let _ = std::fs::remove_dir_all(&worktree);
-        let _ = worktree_command(root, &["worktree", "prune"]);
+        // 分支若是本次 add 建出来的,必须一并收掉(见上文第 1 条)。
+        discard_worktree(
+            root,
+            &worktree,
+            (!branch_was_there).then_some(branch.as_str()),
+        );
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    let (files, diff) = worktree_status(root, &worktree)?;
+    // add 已经成功:从这里往下的任何失败都得整体回滚,不能用 `?` 抛出去(见上文第 2 条)。
+    let (files, diff) = match worktree_status(root, &worktree) {
+        Ok(probed) => probed,
+        Err(error) => {
+            rollback_worktree(root, &worktree, &branch);
+            return Err(error);
+        }
+    };
     Ok(WorktreeInfo {
         path: git_arg_path(&worktree),
         branch,
@@ -500,9 +551,17 @@ pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, S
     })
 }
 
-/// 回收一条建到一半的线:先 remove 工作树(分支正被它 checkout,不先摘就删不掉),
-/// 再删分支。全程 best-effort —— 它跑在失败路径上,自己再报错只会盖掉真正的原因。
+/// 回收一条建到一半的线:摘工作树 + 删分支。
+///
+/// 只在「分支确定是本次建出来的」时候调用(`create_process` 的落库失败回滚、
+/// `create_worktree` 里 add 成功之后的失败),所以这里无条件删分支。
 pub(crate) fn rollback_worktree(root: &Path, worktree: &Path, branch: &str) {
+    discard_worktree(root, worktree, Some(branch));
+}
+
+/// 回滚的实现:先 remove 工作树(分支正被它 checkout,不先摘就删不掉),再按需删分支。
+/// 全程 best-effort —— 它跑在失败路径上,自己再报错只会盖掉真正的原因。
+fn discard_worktree(root: &Path, worktree: &Path, branch: Option<&str>) {
     let target = git_arg_path(worktree);
     let removed = worktree_command(root, &["worktree", "remove", "--force", &target])
         .map(|output| output.status.success())
@@ -511,7 +570,9 @@ pub(crate) fn rollback_worktree(root: &Path, worktree: &Path, branch: &str) {
         let _ = std::fs::remove_dir_all(worktree);
         let _ = worktree_command(root, &["worktree", "prune"]);
     }
-    let _ = worktree_command(root, &["branch", "-D", branch]);
+    if let Some(branch) = branch {
+        let _ = worktree_command(root, &["branch", "-D", branch]);
+    }
 }
 
 fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, String> {
