@@ -1258,3 +1258,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 171 passed(167+4:dense检索/余弦/RRF融合/分段耗时),0 失败
 - 收尾: 1786346531
+
+## T-1786346752 R-164 B4 定向测试:cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 172 passed(171+1: candidate 臂 hybrid 装配落 recall_events),0 失败
+- 收尾: 1786346752
