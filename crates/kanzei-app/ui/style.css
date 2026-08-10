@@ -794,6 +794,7 @@ button:disabled { opacity: .45; cursor: default; }
 .memory-flags-head { font-size: 11px; color: var(--dim); margin: 8px 0 2px; }
 .memory-flag-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: baseline; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--border-soft); padding: 3px 0; font-size: 11.5px; cursor: pointer; }
 .memory-flag-row:hover .memory-row-title { color: var(--fg-strong); }
+.memory-flag-row .memory-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .memory-flag-row.zero-adopt .memory-row-id { color: var(--warn); }
 .memory-flag-row.recurring .memory-row-id { color: var(--info); }
 .memory-profile { font-size: 11px; margin-bottom: 4px; }

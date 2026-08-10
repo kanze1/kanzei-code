@@ -64,8 +64,8 @@
 - 验收: ①空闲整理清单包含零采纳与复发两类候选且处置有墓碑;②Memory 页可见召回/采纳数据(800/1024/1280 三档可用);③降权参数复核结论落回 docs/design/memory_decision_sufficiency.md 变更记录。
 - refs: R-103 R-107 R-125 R-145
 
-- 批次: 2/3
-- 进展: 批2完成:hits 因子退役(自增强与采纳率方向冲突,排序只留 bm25+采纳率决策权重,hit_count 降观测);参数 0.6/0.7/阈值 3 复核后保留(真实采纳率分布不足+低估通道未闭合,待 R-145 实证),read 钩子缺口列入 R-145;复核结论写入 docs/design/memory_decision_sufficiency.md 变更记录。tools 183 全绿。剩批3:800/1024/1280 三档验证+全量+关闭。
+- 批次: 3/3
+- 进展: 批3完成:冒烟脚本加 memory_value_flags 断言+800/1024/1280 三档宽度循环验证+fixture recalled/fetched;CSS 补 memory-flag-row 标题 ellipsis 防窄宽溢出;四条冒烟+全量 workspace 全绿。关闭。验收对照:①空闲整理清单=memory.rs memory_value_flags(zeroAdopt recalled≥3&fetched=0 + recurring recalled≥3),UI renderMemoryValueFlags 渲染,处置走 showMemoryDetail 既有墓碑不静默删;②采纳率=memory_entries recalled/fetched + loadMemoryList meta 显示召回/采纳,三档宽度冒烟断言通过;③复核结论=memory_decision_sufficiency.md 2026-08-10 变更记录(hits 退役/0.6-0.7-阈值3保留/read钩子列入R-145)。
 
 ## R-132 mem单页手动触发整理功能 [todo]
 - priority: P1

@@ -1338,3 +1338,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: R-150 批2:hits 因子退役(自增强与采纳率方向冲突),排序只留 bm25+采纳率决策权重;参数 0.6/0.7/阈值 3 保留并记录复核结论与 read 钩子缺口到文档变更记录。tools 183 全绿。
 - 收尾: 1786350521
+
+## T-1786350657 R-150 B3 三档宽度+全量(cargo test --workspace) [passed]
+- 命令: node --check + 四条 ui 冒烟(含三档宽度)+ cargo test --workspace
+- 摘要: R-150 批3:冒烟脚本加 memory_value_flags 断言+800/1024/1280 三档宽度验证、CSS ellipsis 防窄宽溢出。四条冒烟+全量 workspace 全绿。
+- 收尾: 1786350657

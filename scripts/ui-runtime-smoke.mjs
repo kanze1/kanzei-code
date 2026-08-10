@@ -609,6 +609,11 @@ const payloads = {
     fingerprint: "[sop:R-123]",
   }],
   memory_note_discard: true,
+  // R-150:空闲整理清单——零采纳(召回≥3 采纳=0)+ 复发候选,前端只展示。
+  memory_value_flags: {
+    zeroAdopt: [{ scope: "project", id: "M-001", title: "CRLF 未命中", recalled: 5, fetched: 0 }],
+    recurring: [{ scope: "project", id: "M-002", title: "发版 SOP", recalled: 4, fetched: 1 }],
+  },
   // R-099/R-127:一轮有画像、一轮早于度量落地,验证两者区分得开。
   run_metrics: {
     rounds: [
@@ -709,8 +714,8 @@ const payloads = {
   memory_overview: { scopes: [{ scope: "project", root: PROJECT, total: 0, hitsTotal: 0, categories: {}, integrity: [], inboxPending: 0 }] },
   // 两条:一条有命中,一条陈旧且零命中(验证「长期零命中」标记与清理入口)。
   memory_entries: [
-    { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, updated: "2026-08-01" },
-    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, updated: "2026-01-01" },
+    { id: "M-SOP-001", category: "sop", title: "冒烟 SOP", description: "继续执行冒烟任务", status: "active", body: "执行冒烟任务", hits: 4, lastHitAt: 1_760_000_000_000, recalled: 4, fetched: 2, updated: "2026-08-01" },
+    { id: "M-DEAD-001", category: "fact", title: "从没被用到的记忆", description: "冒烟用:零命中条目", status: "active", body: "陈旧结论", hits: 0, lastHitAt: 0, recalled: 0, fetched: 0, updated: "2026-01-01" },
   ],
   memory_context_bill: { turns: [] },
   workspace_snapshot: {},
@@ -2096,6 +2101,39 @@ assert(
   "记忆详情缺少删除入口(stale 只是降权,仍占索引)",
 );
 assert(listText("memory-detail").includes("累计命中"), "记忆详情未给出效果画像");
+
+// ---------- R-150 空闲整理清单 + 三档宽度响应式 ----------
+assert(invokeLog.includes("memory_value_flags"), "记忆页未拉取空闲整理清单");
+const flagRows = document.querySelectorAll("#memory-value-flags .memory-flag-row");
+assert(flagRows.length === 2, `空闲整理清单未渲染全部候选,实得 ${flagRows.length}`);
+assert(
+  document.querySelector("#memory-value-flags .memory-flag-row.zero-adopt"),
+  "零采纳候选未按类别标记(区分「语义显著但决策无关」)",
+);
+assert(
+  listText("memory-value-flags").includes("M-001") && listText("memory-value-flags").includes("5"),
+  "零采纳候选未给出召回次数(判断依据缺失)",
+);
+// 记忆列表采纳率:召回/采纳 数据在条目 meta 可见。
+assert(
+  listText("memory-list").includes("召回") && listText("memory-list").includes("采纳"),
+  "记忆列表未展示召回/采纳数据(验收②数据面)",
+);
+// 三档宽度:800/1024/1280 下记忆页不崩、清单与采纳率数据仍在 DOM。
+for (const width of [800, 1024, 1280]) {
+  windowShim.innerWidth = width;
+  await flush();
+  assert(
+    document.querySelector("#memory-value-flags .memory-flag-row"),
+    `${width}px 下空闲整理清单缺失`,
+  );
+  assert(
+    listText("memory-list").includes("召回") && listText("memory-list").includes("采纳"),
+    `${width}px 下记忆列表召回/采纳数据缺失`,
+  );
+}
+windowShim.innerWidth = 1280;
+await flush();
 
 // ---------- 主对话工具块:⎿ 摘要行与展开详情不得双写同一段文案(历史回放路径) ----------
 // 用户实测:一条 edit 失败,⎿ 行显示了一段文案,点开详情又把同一段完整贴了一遍。
