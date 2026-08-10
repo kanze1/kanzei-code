@@ -57,6 +57,7 @@
 ## 变更记录
 
 - 2026-08-10：用户选定 B「Memory Layers」方形 K 方案；以 1254px 概念稿经 Lanczos 缩放生成 1024px `app-icon.png`，再用 `cargo tauri icon` 统一覆盖 Windows、macOS、iOS、Android 与通用 PNG 资产。已检查 1024/512/128/64/32px 尺寸，32px 仍可辨认 K 主体。
+- 2026-08-10：修复 Windows 可执行文件仍沿用旧图标的问题。`build.rs` 现在显式监听 `icons/icon.ico` 与 `tauri.conf.json`，图标资产变化会强制重新生成并嵌入 PE 资源。
 
 ## 后续约束
 

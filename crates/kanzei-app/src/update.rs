@@ -309,7 +309,28 @@ Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
     }
-    let _ = cmd.output();
+    // D-254:部分 Windows 机器的 CIM/WMI 服务会永久卡住。这里发生在 Tauri
+    // 建窗之前，等待无上限就会表现成“kzapp 进程存在但窗口永远不出现”。
+    // 清理只是启动前维护动作，5 秒仍未返回就终止查询并继续建窗。
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let Ok(mut child) = cmd.spawn() else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return;
+            }
+        }
+    }
 }
 pub(crate) fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
     let deadline = std::time::Instant::now() + timeout;

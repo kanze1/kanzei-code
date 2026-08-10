@@ -2,7 +2,10 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum LlmError {
-    #[error("transport error: {0}")]
+    // reqwest 的 Display 只给出 `error sending request for url (...)` 这一层，
+    // Windows 上真正可行动的原因（DNS、连接拒绝、TLS、超时）藏在 source 链里。
+    // GUI 最终只会拿 error.to_string()，所以必须在这里把整条因果链保留下来。
+    #[error("transport error: {details}", details = error_chain_message(.0))]
     Transport(#[from] reqwest::Error),
     #[error("provider returned HTTP {status}: {body}")]
     Http { status: u16, body: String },
@@ -21,6 +24,20 @@ pub enum LlmError {
     Protocol(String),
     #[error("invalid configuration: {0}")]
     Config(String),
+}
+
+fn error_chain_message(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let detail = cause.to_string();
+        if !detail.is_empty() && !message.contains(&detail) {
+            message.push_str(": ");
+            message.push_str(&detail);
+        }
+        source = cause.source();
+    }
+    message
 }
 
 impl LlmError {
@@ -113,6 +130,46 @@ fn is_overflow_message(message: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct TestCause(&'static str);
+
+    impl std::fmt::Display for TestCause {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for TestCause {}
+
+    #[derive(Debug)]
+    struct TestOuter {
+        source: TestCause,
+    }
+
+    impl std::fmt::Display for TestOuter {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("request failed")
+        }
+    }
+
+    impl std::error::Error for TestOuter {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.source)
+        }
+    }
+
+    #[test]
+    fn transport_error_keeps_actionable_source_chain() {
+        let error = TestOuter {
+            source: TestCause("connection refused"),
+        };
+
+        assert_eq!(
+            error_chain_message(&error),
+            "request failed: connection refused"
+        );
+    }
 
     #[test]
     fn rate_limit_kind_with_token_message_does_not_trigger_context_compression() {

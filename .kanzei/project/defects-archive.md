@@ -2369,3 +2369,14 @@
 
 - 进展: 已修复于 R-165 批3(commit 90e4eda):archive_dead() 在 refresh_derived 开头自动把 deprecated/invalid 移入 archive/ 带墓碑,主目录只留 active/candidate;load_all/FTS/默认检索天然不含归档条目;ID 由 load_archived_ids 保留永不复用。验收③测试 deprecated_moves_to_archive_and_hidden_from_search 通过。全量 cargo test --workspace 全绿。
 
+## D-253 DeepSeek 传输失败只显示 reqwest 顶层错误,无法判断 DNS/TLS/连接原因 [fixed] (medium)
+- 来源: 2026-08-10 用户关闭代理后实测 `transport error: error sending request for url (https://api.deepseek.com/chat/completions)`，两次重试后仍没有底层原因。
+- 定位: `LlmError::Transport` 直接使用 `reqwest::Error` 的 Display；桌面端失败事件最终只调用 `error.to_string()`，而 Windows 的 DNS、TCP、TLS 等原因位于 Error source 链。现场 DNS 同时解析到透明代理常见的 Fake-IP `198.18.0.38`，恢复后强制直连 HTTP 与 Kanzei 自身 Rust 请求链均成功，说明截图时是网络/TUN 切换期的瞬态传输失败，不是 DeepSeek Key、模型名或 base_url 配错。
+- 修复: `kanzei-llm/src/error.rs` 统一展开去重后的 source 链，所有桌面端/CLI 传输错误都保留可行动底层原因；不改变 `proxy = "off"` 的强制直连语义，不做静默代理回退。
+- 验收: 新增 `transport_error_keeps_actionable_source_chain`；`cargo test -p kanzei-llm` 40/40 通过，`cargo check -p kanzei-app --tests` 通过；真实 `KANZEI_PROXY=off` + `deepseek:deepseek-v4-flash` 请求返回 `KANZEI_DS_OK`。
+
+## D-254 启动前孤儿 WebView 清理的 CIM 查询无超时,kzapp 有进程但永不建窗 [fixed] (high)
+- 复现: 覆盖新 EXE 后单实例启动，12 秒内 `kzapp.exe` 存活且 Responding=True，但 MainWindowHandle 恒为 0、工作集仅 11 MB；独立执行同款 `Get-CimInstance Win32_Process` 超过 10 秒仍不返回。存在另一 kzapp 实例时脚本会提前 exit，因而历史运行被偶然掩盖。
+- 根因: `cleanup_orphan_webviews()` 位于 Tauri Builder/建窗之前，并用 `Command::output()` 无界等待 PowerShell+CIM；WMI 卡住会把整个 GUI 启动链永久堵死。
+- 修复: PowerShell 子进程改为显式 spawn + 5 秒轮询上限；超时或查询错误时终止清理子进程并继续建窗。清理孤儿 WebView 仍是尽力而为，不再拥有阻断应用启动的权限。
+- 验收: `cargo test -p kanzei-app` 全绿；release 构建后覆盖安装目录，单实例冷启动在超时边界后成功创建 `kanzei` 主窗口。
