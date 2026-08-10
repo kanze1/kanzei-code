@@ -1143,3 +1143,8 @@
 ## T-1786321823 ui 冒烟四件套(R-122 批3 记忆入口) [passed]
 - 摘要: 四条冒烟全过:runtime(250 invoke,新增记忆入口断言)/i18n(33 key+27 HTML)/a11y(13 icon-btn)/markdown
 - 收尾: 1786321823
+
+## T-1786323304 cargo test --workspace (R-169 收口) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量测试全绿:harness auto_run 12 单测、app/tools 定向与 workspace 全部通过,无 FAILED。
+- 收尾: 1786323668

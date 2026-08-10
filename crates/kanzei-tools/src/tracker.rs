@@ -736,6 +736,37 @@ pub fn schedule_for_display(
         .collect())
 }
 
+/// R-169:自主推进(鞭挞)的 backlog 判定——桌面端与 CLI 共用同一实现
+/// (D-229 类「能力只在桌面端」的架构债消除)。活动条目里存在可推进项 →
+/// Workable;无活动条目 → Empty;全部阻塞 → AllBlocked。
+/// block_reasons 与 docs_snapshot 的 `blocked` 字段同源(schedule_for_display)。
+pub fn backlog_status(project_root: &std::path::Path) -> kanzei_harness::auto_run::BacklogStatus {
+    use kanzei_harness::auto_run::BacklogStatus;
+    let ctx = ToolCtx::new(project_root.to_path_buf());
+    let mut active = 0usize;
+    let mut workable = false;
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let entries = DocStore::open(project_root, kind).load().unwrap_or_default();
+        let scheduled = schedule_for_display(&ctx, kind, &entries).unwrap_or_default();
+        for item in scheduled {
+            if kind.terminal.contains(&item.entry.status.as_str()) {
+                continue;
+            }
+            active += 1;
+            if item.block_reasons.is_empty() {
+                workable = true;
+            }
+        }
+    }
+    if workable {
+        BacklogStatus::Workable
+    } else if active == 0 {
+        BacklogStatus::Empty
+    } else {
+        BacklogStatus::AllBlocked
+    }
+}
+
 #[derive(Default)]
 struct DependencyStates {
     terminal: BTreeMap<String, bool>,
@@ -1019,7 +1050,7 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::TrackerTool;
-    use crate::docstore::{DocStore, Entry, GOALS, REQUIREMENTS};
+    use crate::docstore::{DocStore, Entry, DEFECTS, GOALS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
     use std::process::Command;
@@ -1962,6 +1993,34 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn backlog_status_三态判定_桌面端与CLI共用同一实现() {
+        use kanzei_harness::auto_run::BacklogStatus;
+        use std::path::Path;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let uniq = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("kz-backlog-{}-{uniq}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let root: &Path = &dir;
+        // ① 全阻塞:带「阻塞:」字段的活动条目 → AllBlocked。
+        let mut blocked = entry("R-001");
+        blocked.status = "doing".into();
+        blocked.fields = vec![("阻塞".into(), "等用户回复方案".into())];
+        DocStore::open(root, &REQUIREMENTS).save(&[blocked]).unwrap();
+        DocStore::open(root, &DEFECTS).save(&[]).unwrap();
+        assert!(matches!(super::backlog_status(root), BacklogStatus::AllBlocked));
+        // ② 存在可推进条目 → Workable(即使有另一条被阻塞)。
+        DocStore::open(root, &REQUIREMENTS)
+            .save(&[entry("R-002")])
+            .unwrap();
+        assert!(matches!(super::backlog_status(root), BacklogStatus::Workable));
+        // ③ 无活动条目 → Empty。
+        DocStore::open(root, &REQUIREMENTS).save(&[]).unwrap();
+        DocStore::open(root, &DEFECTS).save(&[]).unwrap();
+        assert!(matches!(super::backlog_status(root), BacklogStatus::Empty));
         std::fs::remove_dir_all(dir).ok();
     }
 }

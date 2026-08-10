@@ -8,21 +8,8 @@ let autoContinueTimer = null;
 let autoContinueGeneration = 0;
 let autoStopReason = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
+// R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
 let noActionRounds = 0;
-// R-076:不构成实质进展的工具。一轮里只有这些(纯查询/探测/写记忆日记)时
-// 仍算空转——模型不能再靠 memory_note 或无关读取绕过刹车(D-044 教训的硬化)。
-// bash/git/edit/write/tracker 等可能改变状态的工具不在列:名称粒度分不出
-// git status 与 git commit,误判成空转的代价(真干活被打断)比漏判高。
-const NON_PROGRESS_TOOLS = new Set([
-  "memory_note", "memory_search", "memory_stats",
-  "read", "grep", "glob", "webfetch",
-  "ui_dom", "ui_console", "ui_style", "frontend_locate", "frontend_check",
-  "task",
-]);
-function hasProgressTools(tools) {
-  if (!tools || typeof tools !== "object") return false;
-  return Object.keys(tools).some((name) => !NON_PROGRESS_TOOLS.has(name));
-}
 // R-157:节奏配置渲染规则 6。默认值 = conventions §1.4(entry_close/every_commit/
 // per_batch/per_entry),settings_get 异步填充后继续文案随配置变化。
 const DEFAULT_CADENCE = {
@@ -210,21 +197,8 @@ const LEGACY_CONTINUE_PROMPTS = [
     "不要往 goal/req/defect 写「仍在阻塞」类记录、不要产生空提交。\n" +
     "除【阻塞】外不要用纯文本收尾——没有动作的一轮会被判为空转。",
 ];
-// 没有实质动作时先给一次具体的推进指令,而不是直接停:一轮无动作往往是模型
-// 在"这条该不该做"上想岔了,而不是真没活干(D-097)。
-const NUDGE_PROMPT =
-  "上一轮没有产生任何实质动作。不要再做可行性判断,直接执行:\n" +
-  "从 defects.md 最上面一条开始,说出它的下一个最小可执行步骤(具体到文件和改动),然后立刻做掉。\n" +
-  "那一条一时推不动就跳到下一条,需求同理——总有一条是能动手的。\n" +
-  "如果每一条都标着阻塞:先复核阻塞是否还成立。多数是你自己历轮写下的,解除条件早已满足,\n" +
-  "清空这些条目的「阻塞」字段再取活;真正卡住的只有等用户拍板的那几条,把它们点名列给用户。\n" +
-  "不要为了凑动作去做与当前条目无关的事,也不要只更新追踪文档就算一轮。";
-
-function nudgePrompt() {
-  const first = selectedWorkPriority() === "requirement-first" ? "requirements.md" : "defects.md";
-  const second = selectedWorkPriority() === "requirement-first" ? "defects.md" : "requirements.md";
-  return NUDGE_PROMPT.replace("defects.md", first).replace("需求同理", `${second} 同理`);
-}
+// R-169:NUDGE 文案生成已下沉 harness(nudge_prompt),前端不再持有模板。
+// 无动作判定与推进指令由引擎给出,前端只负责在收到 Nudge 动作时发送。
 
 function selectedAgent() {
   const mode = $("profile-select").value;
@@ -313,33 +287,8 @@ function scheduleAutoContinue() {
   }, 2000);
 }
 
-async function stopAutoWhenBacklogEmpty() {
-  if (!$("auto-continue").checked || !autoContinueAllowed()) return false;
-  try {
-    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
-    // R-076:只数"可推进"的条目——closed/终态不算,外部阻塞(阻塞:字段有值)也不算。
-    // blocked-but-open 的 backlog 同样没有可做的事,继续跑只会空转烧钱;空与全阻塞
-    // 给出不同的停止原因,状态迁移可区分、可断言。
-    const active = [...(snapshot.requirements ?? []), ...(snapshot.defects ?? [])].filter(
-      (entry) => !entry.closed && !["done", "dropped", "fixed", "wontfix"].includes(entry.status)
-    );
-    const workable = active.some((entry) => !entryBlocked(entry));
-    if (workable) return false;
-    const blocked = active.length > 0 && active.every((entry) => entryBlocked(entry));
-    $("auto-continue").checked = false;
-    localStorage.setItem("kz-auto-continue", "0");
-    autoRounds = 0;
-    cancelAutoContinueTimer();
-    const reason = blocked ? t("需求与缺陷全部被阻塞，自动推进已停止") : t("需求与缺陷已清空，自动推进已停止");
-    setAutoStopReason(reason);
-    addMessage("notice", `✅ ${reason}`);
-    log(blocked ? t("自动推进停止:需求与缺陷全部被阻塞") : t("自动推进停止:需求与缺陷已清空"));
-    return true;
-  } catch (error) {
-    log(`${t("检查需求/缺陷是否清空失败")}:${error}`, "warn");
-    return false;
-  }
-}
+// R-169:全部阻塞/清空停止已下沉 harness backlog_status + auto_run 状态机,
+// 判定结果随 kz:done 的 autoAction(Stop:AllBlocked/BacklogEmpty)带给前端执行。
 function renderAttachments() {
   const box = $("attachments");
   box.innerHTML = "";
@@ -421,6 +370,8 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     autoRounds = 0;
     noActionRounds = 0;
     cancelAutoContinueTimer();
+    // R-169:手动发送归零后端状态机计数。
+    void invoke("auto_state_reset");
   }
   currentAssistant = null;
   currentReasoning = null;
@@ -578,6 +529,9 @@ function stopAutoForManualInput() {
   autoRounds = 0;
   noActionRounds = 0;
   cancelAutoContinueTimer();
+  // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
+  void invoke("auto_state_update", { enabled: false });
+  void invoke("auto_state_reset");
   const message = t("收到手动输入，鞭挞已停止");
   setAutoStopReason(message);
   addMessage("notice", message);
@@ -685,6 +639,8 @@ $("continue-toggle").addEventListener("click", () => {
   if (open) $("continue-prompt").focus();
 });
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
+// R-169:启动即同步后端开关状态(后端默认关闭;勾选状态持久化于前端 localStorage)。
+void invoke("auto_state_update", { enabled: $("auto-continue").checked });
 renderAutoStatus();
 // 存的是旧默认文案时静默升级:否则刹车契约(【阻塞】标记)与提示词对不上,
 // 用户自己改过的文案不动。
@@ -718,6 +674,8 @@ $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   $("auto-pause").classList.toggle("active", autoPaused);
   $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
+  // R-169:暂停状态同步后端状态机。
+  void invoke("auto_state_update", { paused: autoPaused });
   if (autoPaused) cancelAutoContinueTimer();
   // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
   if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
@@ -728,6 +686,8 @@ $("auto-pause").addEventListener("click", () => {
 });
 $("auto-stop-round").addEventListener("change", () => {
   autoStopAfterRound = $("auto-stop-round").checked;
+  // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
+  void invoke("auto_state_update", { stopAfterRound: autoStopAfterRound });
   log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
 });
 $("auto-max").addEventListener("change", () => {
@@ -737,6 +697,8 @@ $("auto-max").addEventListener("change", () => {
   renderAutoStatus();
   autoRounds = 0;
   cancelAutoContinueTimer();
+  // R-169:上限同步后端状态机。
+  void invoke("auto_state_update", { maxRounds: max });
   log(`${t("鞭挞上限已设为")} ${max} ${t("轮")}`);
 });
 $("auto-continue").addEventListener("change", () => {
@@ -745,6 +707,7 @@ $("auto-continue").addEventListener("change", () => {
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
+    void invoke("auto_state_update", { enabled: false });
     toast(t("鞭挞仅适用于自主推进模式，请先切换模式"));
     log(t("鞭挞未开启:结伴开发模式不支持自动续跑"));
     return;
@@ -752,6 +715,8 @@ $("auto-continue").addEventListener("change", () => {
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
+  // R-169:开关同步后端状态机(enabled)。
+  void invoke("auto_state_update", { enabled: $("auto-continue").checked });
   log($("auto-continue").checked ? `${t("鞭挞已开启:每轮结束自动推进目标")} (${t("轮")} ${autoContinueMax()})` : t("鞭挞已关闭"));
   // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
   // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
@@ -785,6 +750,8 @@ function syncAutoContinueWithProfile() {
   localStorage.setItem("kz-auto-continue", "0");
   autoRounds = 0;
   cancelAutoContinueTimer();
+  // R-169:模式不兼容时后端开关同步关闭。
+  void invoke("auto_state_update", { enabled: false });
   renderAutoStatus();
   log(t("当前模式不支持鞭挞，已自动关闭"));
   toast(t("鞭挞已关闭：当前进程不是自主推进模式"));

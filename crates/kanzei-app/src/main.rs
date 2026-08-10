@@ -11,6 +11,7 @@ pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
 pub(crate) use kanzei_harness::ConfigComponent;
 
 mod agent_container;
+mod auto_run;
 mod conversation;
 mod docs;
 mod fast_model;
@@ -124,6 +125,8 @@ fn main() {
             run::stop_run,
             run::answer_ask,
             run::pending_asks_get,
+            auto_run::auto_state_update,
+            auto_run::auto_state_reset,
             settings::settings_get,
             settings::settings_save,
             settings::settings_open,

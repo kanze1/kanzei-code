@@ -1702,9 +1702,11 @@ sandbox.renderProcesses([
 await flush();
 assert(document.querySelector(".process-tab.active")?.textContent.includes("主会话"), "重建用例收尾后活动进程未回到主会话");
 
-// ---------- R-076 鞭挞状态机:防空转硬化与外部阻塞刹车 ----------
-// 前置:切回中文(前面 i18n 段把界面留在英文,刹车原因文案断言按中文写),
-// 切到 dev-auto(鞭挞仅此档位可跑),把计数拨到已知状态。
+// ---------- R-169 鞭挞执行层:判定已引擎化,前端只执行 autoAction ----------
+// 判定(空转画像/连数/全部阻塞/NUDGE 时机/停止原因)全部在 harness auto_run
+// 状态机单测覆盖(kanzei-harness auto_run.rs,12 组);这里验证前端对 kz:done
+// 携带 autoAction 的执行:Continue→续跑、Nudge→追加指令提示、Stop→停止+原因+
+// 开关联动、NoContinue→不动。
 assert(sandbox.__kzTest, "未注入鞭挞状态测试钩子");
 const savedProfileForWhip = byId.get("profile-select").value;
 const savedAutoCheck = byId.get("auto-continue").checked;
@@ -1715,86 +1717,71 @@ await flush();
 byId.get("profile-select").value = "dev-auto";
 byId.get("auto-continue").checked = true;
 sandbox.__kzTest.reset();
-// ① 实质进展轮(edit 等非只读工具):计入推进轮次,不刹车。
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { read: 2, edit: 1 }, sessionId: "sess-smoke" } });
+// ① Continue:镜像计数并续跑,不刹车。
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { read: 2, edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.rounds() === 1, `实质进展轮应计入推进轮次,实得 ${sandbox.__kzTest.rounds()}`);
-assert(byId.get("auto-continue").checked, "实质进展轮不应关掉自动推进");
-// ② 只有 memory_note 的轮次(写日记):第一次只追加推进指令,第二次刹车。
-handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, sessionId: "sess-smoke" } });
+assert(sandbox.__kzTest.rounds() === 1, `Continue 应镜像推进计数,实得 ${sandbox.__kzTest.rounds()}`);
+assert(byId.get("auto-continue").checked, "Continue 不应关掉自动推进");
+// ② Nudge:引擎给出的推进指令占一轮,前端给提示不刹车。
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Nudge", prompt: "上一轮没有产生任何实质动作。", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(sandbox.__kzTest.noAction() === 1, "写日记轮次第一次应记为无动作并追加推进指令");
-assert(sandbox.__kzTest.rounds() === 2, "追加推进指令也应占推进轮次");
-assert(byId.get("auto-continue").checked, "写日记轮次第一次不应立即刹车");
-handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, sessionId: "sess-smoke" } });
+assert(sandbox.__kzTest.rounds() === 2, `Nudge 应镜像推进计数,实得 ${sandbox.__kzTest.rounds()}`);
+assert(byId.get("auto-status").textContent.includes("无动作 · 追加推进指令"), `#auto-status 未提示追加推进指令: ${byId.get("auto-status")?.textContent}`);
+assert(byId.get("auto-continue").checked, "Nudge 第一次不应立即刹车");
+// ③ Stop(NoAction):连续两轮无动作,停止并显示原因。
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Stop", reason: "NoAction" }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 0, "连续两轮无实质动作后推进计数应清零");
 assert(sandbox.__kzTest.stopReason().includes("连续两轮无动作"), `刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
 assert(byId.get("auto-status").textContent.includes("连续两轮无动作"), `#auto-status 未显示刹车原因: ${byId.get("auto-status")?.textContent}`);
-// ③ 真实改动轮(bash/edit)不触发无动作,也不被记成空转。
-sandbox.__kzTest.reset();
-handlers.get("kz:done")?.({ payload: { steps: 4, halted: false, tools: { bash: 1, edit: 2 }, sessionId: "sess-smoke" } });
-await flush();
-assert(sandbox.__kzTest.rounds() === 1, "真实改动轮应继续推进");
-assert(sandbox.__kzTest.noAction() === 0, "真实改动轮不得计为无动作");
-// ④ 外部阻塞刹车:需求/缺陷全部带 blocked 标记 → 无可推进项,停并给出阻塞原因。
-const savedDocsSnapshot = structuredClone(payloads.docs_snapshot);
-payloads.docs_snapshot = {
-  requirements: [docEntry("R-001", "被阻塞需求", "doing", { blocked: true })],
-  defects: [docEntry("D-001", "被阻塞缺陷", "open", { blocked: true })],
-};
-sandbox.__kzTest.setRounds(3); // 模拟鞭挞进行中
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+// ④ Stop(AllBlocked):全部阻塞,停并取消开关。
+byId.get("auto-continue").checked = true;
+sandbox.__kzTest.setRounds(3);
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "AllBlocked" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-continue").checked, "需求/缺陷全部被阻塞时自动推进应停止");
 assert(sandbox.__kzTest.rounds() === 0, "阻塞刹车后推进计数应清零");
 assert(sandbox.__kzTest.stopReason().includes("全部被阻塞"), `阻塞刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
-payloads.docs_snapshot = savedDocsSnapshot;
-// ⑤ 恢复桩数据后,存在可推进条目时不得误刹车。
+// ⑤ Continue:存在可推进条目时正常续跑(不误刹车)。
 byId.get("auto-continue").checked = true;
 sandbox.__kzTest.setRounds(1);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
-assert(byId.get("auto-continue").checked, "存在可推进条目时不得因阻塞刹车");
-// ⑥ backlog 清空(无任何活动条目):停止,原因与阻塞区分。
+assert(byId.get("auto-continue").checked, "Continue 不得误刹车");
+// ⑥ Stop(BacklogEmpty):清空,停并取消开关。
 byId.get("auto-continue").checked = true;
 sandbox.__kzTest.setRounds(2);
-payloads.docs_snapshot = { requirements: [], defects: [] };
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "BacklogEmpty" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-continue").checked, "需求/缺陷清空时自动推进应停止");
 assert(sandbox.__kzTest.stopReason().includes("已清空"), `清空刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
-payloads.docs_snapshot = savedDocsSnapshot;
-// ⑦ 本轮后停:本轮完成后停,开关自动取消勾选。
+// ⑦ Stop(StopAfterRound):本轮后停,开关自动取消勾选。
 byId.get("auto-continue").checked = true;
 sandbox.__kzTest.setRounds(1);
-sandbox.__kzTest.setStopAfterRound(true);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "StopAfterRound" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!byId.get("auto-stop-round").checked, "本轮后停后开关应自动取消勾选");
 assert(sandbox.__kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${sandbox.__kzTest.stopReason()}`);
-// ⑧ 达到上限:推进轮数等于上限即停,原因明确。
+// ⑧ Stop(MaxRounds):达上限,计数清零原因明确。
 byId.get("auto-continue").checked = true;
 const autoMaxWhip = Number.parseInt(byId.get("auto-max").value, 10) || 10;
 sandbox.__kzTest.setRounds(autoMaxWhip);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "MaxRounds", max: autoMaxWhip }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 0, "达到上限后推进计数应清零");
 assert(sandbox.__kzTest.stopReason().includes("已达连上限"), `上限刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
-// ⑨ 暂停:暂停中完成本轮 → 停;恢复后再推进轮次照常增长。
+// ⑨ Stop(Paused):暂停中完成本轮 → 停;恢复后 Continue 再推进。
 byId.get("auto-continue").checked = true;
-sandbox.__kzTest.setPaused(true);
 sandbox.__kzTest.setRounds(1);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "Paused" }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.stopReason().includes("已暂停"), `暂停刹车原因不对: ${sandbox.__kzTest.stopReason()}`);
-sandbox.__kzTest.setPaused(false);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 2, `恢复后推进轮次应继续增长,实得 ${sandbox.__kzTest.rounds()}`);
-// ⑩ 用户拒绝(halted):整段鞭挞分支不进入,推进计数原地不动(不续也不清零)。
+// ⑩ NoContinue(halted):整段鞭挞分支不进入,推进计数原地不动。
 sandbox.__kzTest.setRounds(4);
-handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, sessionId: "sess-smoke" } });
+handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, autoAction: { type: "NoContinue" }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
 // 收尾:恢复冒烟前置环境(语言/档位/开关/计数)。

@@ -383,15 +383,6 @@
 - 验收: 活动栏不记录 edit 等工具调用，仅记录报错和非工具的 bash 命令。
 - 优先级: P1
 
-## R-169 鞭挞状态机引擎化:自主推进核心部件下沉 harness [todo]
-- 优先级: P1
-- 内容: 按 docs/design/continue_prompt_dissection.md §4 下沉清单执行：鞭挞(自主推进)核心部件从 ui/08-compose.js + 07-events.js 下沉 kanzei-harness 新增 auto-run 策略模块，kanzei-core runner 轮末消费。下沉项：①空转检测工具画像 NON_PROGRESS_TOOLS/hasProgressTools；②全部阻塞/清空停止 stopAutoWhenBacklogEmpty；③连数上限 autoContinueMax 与判定；④无动作 NUDGE(第一次追加推进指令/第二次停)；⑤2 秒调度 scheduleAutoContinue；⑥暂停/本轮后停/停止原因状态机。前端只留 UI 壳(开关/连数输入/暂停/本轮后停按钮/状态回显)；CLI 获得同款自主循环能力。R-128 验收(全部阻塞自动停止、解除后可恢复)并入本引擎状态机作为判定分支。
-- 原始描述: 2026-08-10 用户指令：鞭挞相关的核心部件拆解到 harness 里。现状：鞭挞状态机全在前端 JS，CLI 无自主循环概念；规则落提示词导致 D-120/D-128/D-163 等双源漂移事故反复发生(conventions §4:能代码强制的绝不只写进提示词)。
-- 复杂度: 大
-- 归属: kanzei
-- 标签: 核心
-- 验收: ①空转检测/连数上限/全部阻塞停止/NUDGE 判定均有 harness 单测，断言可覆盖七种场景(与 R-076 同级别)；②桌面端鞭挞行为与现状等价：runtime smoke 断言轮末续跑、全部阻塞自动停止且解除后可恢复、无动作第一次追加 NUDGE 第二次停；③CLI 轮末具备同款自主循环或状态机单源可被 CLI 消费(D-229 类桌面端独占架构债消除)；④前端 08-compose.js/07-events.js 不再承载状态机判定逻辑(只留控件与事件转发)。
-
 ## R-170 继续文案精简:默认降级为用户意图载体,引擎规则剥离 [todo]
 - 优先级: P1
 - 内容: 按 docs/design/continue_prompt_dissection.md §3 剥离清单执行：①默认文案从大段引擎规则(规则 1-6/TAIL)降级为极简意图句(如「继续推进，规则按系统提示」)；②移除开发重心拼接块(continuePrompt() 尾部)——取活顺序已由 run.rs work_priority_guidance + memory preference 注入 system prompt；③移除 cadenceVerificationText 渲染——R-157 已把节奏参数化进 kanzei.toml [cadence]，渲染点移出文案(需要时改注入 system prompt)；④删除 LEGACY_CONTINUE_PROMPTS 静默升级机制、lastRenderedPrompt/applyCadenceSettings 分支——规则剥离后不存在「历史默认需升级」的契约错位；⑤textarea 仅承载用户附加意图，删空回落极简默认。

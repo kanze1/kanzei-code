@@ -1447,3 +1447,18 @@
 - 批次: 3/3
 - 进展: 2026-08-10 三批完成。批1(da809a2):技术栈选型评估报告 docs/design/architecture_browser.md(验收③,方案A=既有 classic script+目录树复用,选型理由/取舍/风险齐备),顺带修 D-173 索引缺口(3 个未入册文档补入索引,architecture check 0 issue)。批2(bad8490):可视化架构浏览器——后端新增 architecture_snapshot(读索引+docs/design 目录清单,只读)与 docs_read_custom(只读 docs/ 前缀)并注册 invoke_handler(crates/kanzei-app/src/docs.rs:309-379, main.rs 注册);前端主导航新增 view-arch(ui/index.html:25 导航按钮+367 视图容器, 19-arch.js 渲染),左侧索引章节分组+未入册分层树(data-i18n-raw 保护防 i18n 词条污染),右侧索引原文,点击文档走应用内 MD 查看器(15-views-misc.js openRuntimeMarkdown);runtime smoke 断言树渲染/未入册/查看器打开。批3(5c9e1df):架构浏览「记忆管理」入口——view-arch 顶部按钮跳转记忆页,触达既有 memory_* 命令(memory_entry_save/delete/consolidate 等,既有能力显式标注非本次交付)。
 
+## R-169 鞭挞状态机引擎化:自主推进核心部件下沉 harness [done]
+- 优先级: P1
+- 内容: 按 docs/design/continue_prompt_dissection.md §4 下沉清单执行：鞭挞(自主推进)核心部件从 ui/08-compose.js + 07-events.js 下沉 kanzei-harness 新增 auto-run 策略模块，kanzei-core runner 轮末消费。下沉项：①空转检测工具画像 NON_PROGRESS_TOOLS/hasProgressTools；②全部阻塞/清空停止 stopAutoWhenBacklogEmpty；③连数上限 autoContinueMax 与判定；④无动作 NUDGE(第一次追加推进指令/第二次停)；⑤2 秒调度 scheduleAutoContinue；⑥暂停/本轮后停/停止原因状态机。前端只留 UI 壳(开关/连数输入/暂停/本轮后停按钮/状态回显)；CLI 获得同款自主循环能力。R-128 验收(全部阻塞自动停止、解除后可恢复)并入本引擎状态机作为判定分支。
+- 原始描述: 2026-08-10 用户指令：鞭挞相关的核心部件拆解到 harness 里。现状：鞭挞状态机全在前端 JS，CLI 无自主循环概念；规则落提示词导致 D-120/D-128/D-163 等双源漂移事故反复发生(conventions §4:能代码强制的绝不只写进提示词)。
+- 复杂度: 大
+- 归属: kanzei
+- 标签: 核心
+- 验收: ①空转检测/连数上限/全部阻塞停止/NUDGE 判定均有 harness 单测，断言可覆盖七种场景(与 R-076 同级别)；②桌面端鞭挞行为与现状等价：runtime smoke 断言轮末续跑、全部阻塞自动停止且解除后可恢复、无动作第一次追加 NUDGE 第二次停；③CLI 轮末具备同款自主循环或状态机单源可被 CLI 消费(D-229 类桌面端独占架构债消除)；④前端 08-compose.js/07-events.js 不再承载状态机判定逻辑(只留控件与事件转发)。
+
+- 批次: 4/4
+- 状态: doing
+- 进展: 2026-08-10 四批全部完成。批1: kanzei-harness/src/auto_run.rs 策略模块(空转画像/连数/阻塞/优先级/状态机 decide + 12 单测)。批2: kanzei-app 后端接线——auto_state_update/auto_action 命令、run.rs kz:done 携带 autoAction、AppState 双线程 Mutex。批3: 前端壳化——07-events.js kz:done 只执行 autoAction(Continue/Nudge/Stop/NoContinue),08-compose.js 删除 decideAutoContinue/stopAutoWhenBacklogEmpty 等判定函数,控件经 auto_state_update 同步后端;四条冒烟按新契约重写并全绿。批4: backlog 单源下沉 kanzei-tools::tracker::backlog_status(三态单测),app 转发复用,CLI main.rs 轮末消费(AllBlocked/Empty 提示),D-229 架构债消除。全量 cargo test --workspace 全绿。
+
+- 关闭证据: 验收①: crates/kanzei-harness/src/auto_run.rs #[cfg(test)] 12 个单测覆盖七场景(有实质动作续跑/无动作第一次 NUDGE 第二次停/达连数上限/全部阻塞/清空/暂停/本轮后停/用户拒绝/优先级排序/重置),cargo test -p kanzei-harness auto_run 12 passed。验收②: scripts/ui-runtime-smoke.mjs 鞭挞块重写为 autoAction 执行断言——①Continue 镜像计数续跑、②Nudge 追加推进指令提示、③Stop(NoAction)停止+原因、④Stop(AllBlocked)停止并取消开关、⑤Continue 恢复续跑不误刹车、⑥Stop(BacklogEmpty)清空停止、⑦Stop(StopAfterRound)本轮后停开关联动、⑧Stop(MaxRounds)清零、⑨Stop(Paused)暂停停/恢复续跑、⑩NoContinue(halted)计数不动;四条 ui 冒烟全绿。验收③: CLI 消费点 crates/kanzei/src/main.rs 轮末调用 kanzei_tools::tracker::backlog_status 打印 AllBlocked/Empty 提示(状态机单源),backlog 实现下沉 crates/kanzei-tools/src/tracker.rs backlog_status(带三态单测),app/auto_run.rs 只转发复用不留第二份逻辑。验收④: crates/kanzei-app/ui/07-events.js kz:done 只执行 autoAction,08-compose.js 已删 decideAutoContinue/stopAutoWhenBacklogEmpty 等判定函数,控件事件仅转发 auto_state_update;grep 无残留引用。全量 cargo test --workspace 全绿。
+

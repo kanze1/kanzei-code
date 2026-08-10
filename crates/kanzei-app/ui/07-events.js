@@ -300,71 +300,72 @@ on("kz:done", async (e) => {
   refreshGit();
   refreshPendingInputs();
 
-  // 鞭挞:正常完成且上轮有实质动作(>1 轮 = 有工具调用)才续;拒绝/纯聊天即停。
-  if (await stopAutoWhenBacklogEmpty()) return;
-  if ($("auto-continue").checked && autoContinueAllowed() && !p.halted) {
-    if (autoPaused) {
-      addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);
-      setAutoStopReason("已暂停");
-      return;
-    }
-    if (autoStopAfterRound) {
-      autoStopAfterRound = false;
-      $("auto-stop-round").checked = false;
-      // 说清是哪个开关停的:否则用户只看到"停了",无从判断该去关什么。
-      addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
-      log(`${t("鞭挞停止")}:${t("本轮后停")}`);
-      setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
-      autoRounds = 0;
-      noActionRounds = 0;
-      return;
-    }
-    // 连数上限先于其它判定:追加推进指令也要占一轮,不能借这条路冲破上限。
-    const max = autoContinueMax();
-    if (autoRounds >= max) {
-      addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${max})`);
-      setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
-      autoRounds = 0;
-      noActionRounds = 0;
-      return;
-    }
-    // 无实质动作(没有任何工具调用,或只有读/探测/记忆日记类工具)的处理。模型
-    // 不再有"声明阻塞"这条出口(用户定调:阻塞太好走),刹车只由机械条件触发:
-    // ① 第一次无动作 → 先给一次具体的推进指令,不停;
-    // ② 连续第二次无动作 → 停,避免空转烧钱(D-044 的教训;R-076:按本轮工具画像
-    //    一并判定,memory_note/纯读取轮次不再靠 steps>1 蒙混过关)。
-    const noAction = p.steps <= 1 || !hasProgressTools(p.tools);
-    if (noAction && autoRounds > 0) {
-      if (noActionRounds === 0) {
-        noActionRounds = 1;
-        addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
-        log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
-        autoRounds += 1;
-        renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${autoContinueMax()}`);
-        cancelAutoContinueTimer();
-        const generation = autoContinueGeneration;
-        autoContinueTimer = setTimeout(() => {
-          autoContinueTimer = null;
-          if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
-          if ($("auto-continue").checked && autoContinueAllowed() && !running) {
-            sendText(nudgePrompt(), { auto: true });
-          }
-        }, 2000);
-        return;
-      }
-      addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能目标已达成或确实无可推进项)")}`);
-      log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
-      setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
-      autoRounds = 0;
-      noActionRounds = 0;
-      return;
-    }
-    noActionRounds = 0;
-    autoRounds += 1;
+  // R-169:鞭挞判定已引擎化(harness auto_run 状态机)——kz:done 携带 autoAction,
+  // 前端只执行:Continue→续跑;Nudge→发引擎生成的推进指令;Stop→停+显示原因;
+  // NoContinue→不动作(用户拒绝/未开启)。前端不再做任何机械判定
+  // (空转画像/连数/全部阻塞/无动作 NUDGE 全部在后端,见 harness auto_run.rs)。
+  const action = p.autoAction || { type: "NoContinue" };
+  if (action.type === "Continue") {
+    autoRounds = action.rounds ?? autoRounds + 1;
+    const max = action.max ?? autoContinueMax();
     setStatus(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`, false);
     renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
     scheduleAutoContinue();
+  } else if (action.type === "Nudge") {
+    autoRounds = action.rounds ?? autoRounds + 1;
+    const max = action.max ?? autoContinueMax();
+    addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
+    log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
+    renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max}`);
+    cancelAutoContinueTimer();
+    const generation = autoContinueGeneration;
+    autoContinueTimer = setTimeout(() => {
+      autoContinueTimer = null;
+      if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
+      if ($("auto-continue").checked && autoContinueAllowed() && !running) {
+        sendText(action.prompt, { auto: true });
+      }
+    }, 2000);
+  } else if (action.type === "Stop") {
+    autoRounds = 0;
+    noActionRounds = 0;
+    cancelAutoContinueTimer();
+    const reason = action.reason;
+    if (reason === "Paused") {
+      addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);
+      setAutoStopReason("已暂停");
+    } else if (reason === "StopAfterRound") {
+      $("auto-stop-round").checked = false;
+      void invoke("auto_state_update", { stopAfterRound: false });
+      addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
+      log(`${t("鞭挞停止")}:${t("本轮后停")}`);
+      setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
+    } else if (reason === "MaxRounds") {
+      addMessage("notice", `${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")} (${action.max ?? autoContinueMax()})`);
+      setAutoStopReason(`${t("鞭挞停止")}:${t("已达连上限,点继续或重开鞭挞")}`);
+    } else if (reason === "NoAction") {
+      addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能目标已达成或确实无可推进项)")}`);
+      log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
+      setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
+    } else if (reason === "AllBlocked") {
+      $("auto-continue").checked = false;
+      localStorage.setItem("kz-auto-continue", "0");
+      void invoke("auto_state_update", { enabled: false });
+      const msg = t("需求与缺陷全部被阻塞，自动推进已停止");
+      setAutoStopReason(msg);
+      addMessage("notice", `✅ ${msg}`);
+      log(t("自动推进停止:需求与缺陷全部被阻塞"));
+    } else if (reason === "BacklogEmpty") {
+      $("auto-continue").checked = false;
+      localStorage.setItem("kz-auto-continue", "0");
+      void invoke("auto_state_update", { enabled: false });
+      const msg = t("需求与缺陷已清空，自动推进已停止");
+      setAutoStopReason(msg);
+      addMessage("notice", `✅ ${msg}`);
+      log(t("自动推进停止:需求与缺陷已清空"));
+    }
   }
+  // NoContinue:用户拒绝/未开启——不续跑不重置,等手动输入重新武装。
 });
 
 // ---------- 权限弹窗 ----------

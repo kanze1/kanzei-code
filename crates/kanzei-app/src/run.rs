@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
+use kanzei_harness::auto_run::AutoRunCtx;
 use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
@@ -32,6 +33,7 @@ pub(crate) async fn run_task(
     reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     live_run: Arc<Mutex<LiveRun>>,
+    auto_run: Arc<Mutex<crate::auto_run::AutoRunController>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
@@ -85,7 +87,10 @@ pub(crate) async fn run_task(
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
     let runner_config = build_runner_config(&resolved, &config, reasoning_override.as_deref());
-    let ctx = ToolCtx { cwd, project_root };
+    let ctx = ToolCtx {
+        cwd,
+        project_root: project_root.clone(),
+    };
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
@@ -613,6 +618,30 @@ pub(crate) async fn run_task(
     // 只算本轮切片,不含 prior,否则历史工具调用让每一轮都看着像有动作。
     let this_run_tools =
         kanzei_core::summarize_tools(&summary.messages[prior.len().min(summary.messages.len())..]);
+    // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
+    // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
+    let auto_action = {
+        let mut ctrl = auto_run.lock().unwrap();
+        let backlog = crate::auto_run::backlog_status(&project_root);
+        let tools_vec: Vec<String> = this_run_tools.keys().cloned().collect();
+        let ctx = AutoRunCtx {
+            backlog,
+            halted: summary.halted_by_user,
+            steps: summary.steps,
+            tools: &tools_vec,
+        };
+        crate::auto_run::decide_auto_run(&mut ctrl, ctx)
+    };
+    let mut auto_action_json = crate::auto_run::serialize_action(
+        auto_action,
+        crate::auto_run::work_priority_enum(work_priority),
+    );
+    // 附带判定后的计数与上限,前端仅用于显示(autoRounds/max 镜像)。
+    {
+        let ctrl = auto_run.lock().unwrap();
+        auto_action_json["rounds"] = json!(ctrl.state.rounds);
+        auto_action_json["max"] = json!(ctrl.state.max_rounds);
+    }
     conversation
         .lock()
         .unwrap()
@@ -695,6 +724,7 @@ pub(crate) async fn run_task(
                 "cacheRead": summary.usage.cache_read,
                 "cacheWrite": summary.usage.cache_write,
                 "tools": this_run_tools,
+                "autoAction": auto_action_json,
             }),
             &session_id,
         ),
@@ -1323,6 +1353,8 @@ pub(crate) async fn run_prompt(
     let conversation = runtime.conversation.clone();
     let live_run = runtime.live.clone();
     let runtime_for_task = runtime.clone();
+    // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
+    let auto_run = state.auto_run.clone();
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
@@ -1345,6 +1377,7 @@ pub(crate) async fn run_prompt(
                 reasoning.clone(),
                 conversation.clone(),
                 live_run.clone(),
+                auto_run.clone(),
                 delivery,
                 next_input.take(),
             )
