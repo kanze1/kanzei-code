@@ -25,6 +25,9 @@ pub struct DocKind {
     pub terminal: &'static [&'static str],
     pub severities: Option<&'static [&'static str]>,
     pub priorities: Option<&'static [&'static str]>,
+    /// 标签受控词表(conventions §1.35 用户定调):None = 该文档不参与标签分类。
+    /// 写入口校验:「标签:」值必须命中词表,词表外拒绝并提示合法值。
+    pub tags: Option<&'static [&'static str]>,
     /// 非终态之间允许自由往返(目标 active⇄paused);false = 只进不退。
     pub bidirectional: bool,
 }
@@ -37,6 +40,7 @@ pub const REQUIREMENTS: DocKind = DocKind {
     terminal: &["done", "dropped"],
     severities: None,
     priorities: Some(&["P0", "P1", "P2", "P3"]),
+    tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
 };
 
@@ -48,6 +52,7 @@ pub const DEFECTS: DocKind = DocKind {
     terminal: &["fixed", "wontfix"],
     severities: Some(&["high", "medium", "low"]),
     priorities: Some(&["P0", "P1", "P2", "P3"]),
+    tags: Some(&["核心", "后端", "前端", "模型", "发布", "流程"]),
     bidirectional: false,
 };
 
@@ -59,6 +64,7 @@ pub const SOURCES: DocKind = DocKind {
     terminal: &["archived"],
     severities: None,
     priorities: None,
+    tags: None,
     bidirectional: false,
 };
 
@@ -70,6 +76,7 @@ pub const FINDINGS: DocKind = DocKind {
     terminal: &["confirmed", "dropped"],
     severities: None,
     priorities: None,
+    tags: None,
     bidirectional: false,
 };
 
@@ -84,6 +91,7 @@ pub const MEMORY: DocKind = DocKind {
     terminal: &["stale"],
     severities: None,
     priorities: None,
+    tags: None,
     // 结论可能被重新确认,允许 active⇄stale 往返。
     bidirectional: true,
 };
@@ -98,6 +106,7 @@ pub const DECISIONS: DocKind = DocKind {
     terminal: &["superseded", "rejected"],
     severities: None,
     priorities: None,
+    tags: None,
     bidirectional: false,
 };
 
@@ -110,6 +119,7 @@ pub const GOALS: DocKind = DocKind {
     terminal: &["achieved", "dropped"],
     severities: None,
     priorities: None,
+    tags: None,
     bidirectional: true,
 };
 

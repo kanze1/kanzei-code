@@ -269,6 +269,9 @@ impl Tool for TrackerTool {
                 if let Some(priority_err) = self.check_priority(&input.priority) {
                     return ToolOutput::error(priority_err);
                 }
+                if let Some(tag_err) = self.check_tag(&input.fields) {
+                    return ToolOutput::error(tag_err);
+                }
                 let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
@@ -375,6 +378,9 @@ impl Tool for TrackerTool {
                 if let Some(priority_err) = self.check_priority(&input.priority) {
                     return ToolOutput::error(priority_err);
                 }
+                if let Some(tag_err) = self.check_tag(&input.fields) {
+                    return ToolOutput::error(tag_err);
+                }
                 if let Err(e) = self.check_refs(ctx, &input.refs, true) {
                     return ToolOutput::error(e);
                 }
@@ -420,6 +426,9 @@ impl Tool for TrackerTool {
                 }
                 if let Some(priority_err) = self.check_priority(&input.priority) {
                     return ToolOutput::error(priority_err);
+                }
+                if let Some(tag_err) = self.check_tag(&input.fields) {
+                    return ToolOutput::error(tag_err);
                 }
                 if let Err(e) = self.check_refs(ctx, &input.refs, false) {
                     return ToolOutput::error(e);
@@ -628,6 +637,34 @@ impl TrackerTool {
         } else {
             Some(format!(
                 "invalid priority `{value}`; valid: {}",
+                valid.join(" | ")
+            ))
+        }
+    }
+
+    /// 标签受控词表校验(R-112):「标签:」值必须命中 conventions §1.35 词表,
+    /// 词表外拒绝并提示合法值。fields 键兼容 标签/tags/tag,值按空白/逗号拆分逐词校验。
+    fn check_tag(&self, fields: &BTreeMap<String, String>) -> Option<String> {
+        let Some(valid) = self.kind.tags else {
+            return None;
+        };
+        let Some(value) = fields.iter().find(|(key, _)| {
+            **key == "标签" || key.eq_ignore_ascii_case("tags") || key.eq_ignore_ascii_case("tag")
+        }) else {
+            return None;
+        };
+        let bad: Vec<&str> = value
+            .1
+            .split(|c: char| c == ',' || c.is_whitespace())
+            .map(str::trim)
+            .filter(|t| !t.is_empty() && !valid.contains(t))
+            .collect();
+        if bad.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "invalid tag `{}`; valid: {}",
+                bad.join(" "),
                 valid.join(" | ")
             ))
         }
@@ -1792,6 +1829,121 @@ mod tests {
             dependents.get("R-002").unwrap(),
             &vec!["R-001".to_string(), "R-003".to_string(), "R-004".to_string()]
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    // R-112:标签受控词表校验——add/update 时词表外拒绝并提示合法值,词表内放行;
+    // 无标签字段或不参与分类的文档不受影响。
+    #[tokio::test]
+    async fn tag_validation_rejects_out_of_vocabulary_on_add_and_update() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-tag-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[entry("R-001")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+
+        // add:词表外标签被拒,错误里带合法词表。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "t", "fields": {"标签": "杂项"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("invalid tag `杂项`"), "{}", out.content);
+        assert!(out.content.contains("核心"), "{}", out.content);
+        assert!(out.content.contains("后端"), "{}", out.content);
+
+        // add:词表内标签放行。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "t", "fields": {"标签": "前端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // update:词表外标签被拒。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"标签": "网络"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("invalid tag `网络`"), "{}", out.content);
+
+        // update:多值含一个非法词也被拒(按空白/逗号拆分逐词校验)。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"标签": "核心 杂项"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("invalid tag `杂项`"), "{}", out.content);
+
+        // update:词表内多值放行。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"标签": "核心 流程"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // 无标签字段的更新不受影响(close 走 fields 合并,不应误伤)。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"进展": "x"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn tag_validation_skips_documents_without_vocabulary() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-tag-goal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &GOALS);
+        store.save(&[entry("G-001")]).unwrap();
+        let tool = TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone());
+        // 无词表的文档:任意标签值放行,不受校验约束。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "G-001", "fields": {"标签": "任意值"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 }

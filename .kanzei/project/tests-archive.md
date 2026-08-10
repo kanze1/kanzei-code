@@ -1111,3 +1111,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-111 关闭前全量:45+71+51+39+132+7+3+2+1 全绿(kanzei-app 45、kanzei-core 71、kanzei-harness 51、kanzei-llm 39、kanzei-tools 132)。首次链接 LNK1104(kzapp 测试二进制被瞬态占用)重试即过。
 - 收尾: 1786320491
+
+## T-1786320742 cargo test -p kanzei-tools (R-112 批1) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-112 批1 标签受控词表校验:docstore.rs DocKind 增 tags 词表(核心/后端/前端/模型/发布/流程),tracker.rs check_tag 在 add/update/close/repair_missing_id 写入口校验,词表外拒绝并提示合法值;2 新测试(tag_validation_rejects_out_of_vocabulary_on_add_and_update / tag_validation_skips_documents_without_vocabulary)。tools 134 passed。
+- 收尾: 1786320742
