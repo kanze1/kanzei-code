@@ -58,6 +58,27 @@ pub enum AddOutcome {
     SubjectConflict(MemoryEntry),
 }
 
+/// R-165 批2 novelty gate 三档分流结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Novelty {
+    /// 明显新:与既有 active 记忆无重叠,直接 PROPOSE。
+    New,
+    /// 明显重复:标题规范化精确命中既有 active 记忆,NOOP。
+    Duplicate,
+    /// 不确定:有语义命中但非精确,才起 LLM 判断。
+    Uncertain,
+}
+
+impl Novelty {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Novelty::New => "new",
+            Novelty::Duplicate => "duplicate",
+            Novelty::Uncertain => "uncertain",
+        }
+    }
+}
+
 /// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
 /// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
 /// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
@@ -428,7 +449,19 @@ impl MemoryStore {
                  -- 拉过 = 采纳,没拉 = 召回了但没用上。这是机械可判的,不靠猜。
                  fetched INTEGER NOT NULL DEFAULT 0,
                  PRIMARY KEY(recall_id, entry_id));
-             CREATE INDEX IF NOT EXISTS memory_recalls_at ON memory_recalls(at DESC);",
+             CREATE INDEX IF NOT EXISTS memory_recalls_at ON memory_recalls(at DESC);
+             -- R-165 批2:novelty gate 三档分流计数遥测(验收④)。
+             CREATE TABLE IF NOT EXISTS novelty_events(
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 at INTEGER NOT NULL,
+                 verdict TEXT NOT NULL,           -- new | duplicate | uncertain
+                 fingerprint TEXT NOT NULL DEFAULT '',
+                 note_head TEXT NOT NULL DEFAULT '');
+             -- R-165 批2:recurrence 三段晋升的跨轮持久计数(验收②)。
+             CREATE TABLE IF NOT EXISTS recurrence_counts(
+                 fingerprint TEXT PRIMARY KEY,
+                 count INTEGER NOT NULL DEFAULT 0,
+                 last_at INTEGER NOT NULL DEFAULT 0);",
         )?;
         Ok(conn)
     }
@@ -621,6 +654,73 @@ impl MemoryStore {
             )?;
         }
         Ok(hits_out)
+    }
+
+    /// R-165 批2 novelty gate 三档:明显新 → PROPOSE、明显重复 → NOOP、
+    /// 不确定 → 才起 LLM 判断(验收④)。
+    /// 机械判据:标题规范化精确命中既有 active 记忆 = 明显重复;
+    /// FTS 无任何命中 = 明显新;有命中但非精确 = 不确定。
+    pub fn classify_novelty(
+        &self,
+        title: &str,
+        description: &str,
+        body: &str,
+    ) -> Novelty {
+        let normalized = normalize_title(title);
+        let entries = self.load_all();
+        let dup = entries.iter().any(|(_, e)| {
+            e.status == "active" && normalize_title(&e.title) == normalized
+        });
+        if dup {
+            return Novelty::Duplicate;
+        }
+        // 用描述+正文做 FTS 探测:有明显语义命中即不确定,否则新。
+        let probe = format!("{} {}", description, body);
+        match self.search(&probe, None, Some("active"), 3) {
+            Ok(hits) if !hits.is_empty() => Novelty::Uncertain,
+            _ => Novelty::New,
+        }
+    }
+
+    /// 落一条 novelty 三档分流计数遥测(验收④)。
+    pub fn record_novelty(&self, verdict: &Novelty, fingerprint: &str, note_head: &str) {
+        let Ok(conn) = self.open_db() else { return };
+        let _ = conn.execute(
+            "INSERT INTO novelty_events(at, verdict, fingerprint, note_head) VALUES (?1, ?2, ?3, ?4)",
+            params![now_ms(), verdict.as_str(), fingerprint, note_head.chars().take(80).collect::<String>()],
+        );
+    }
+
+    /// R-165 批2 recurrence 三段晋升的跨轮计数(验收②):
+    /// 同指纹跨轮复发计数,第 2 次才 candidate、第 3 次且带修复成功才 promote。
+    /// 返回第几次出现(1-based)。持久化在 index.db,manager 消化失败笔记时查。
+    pub fn bump_recurrence(&self, fingerprint: &str) -> u32 {
+        let Ok(conn) = self.open_db() else { return 1 };
+        let now = now_ms();
+        let _ = conn.execute(
+            "INSERT INTO recurrence_counts(fingerprint, count, last_at) VALUES (?1, 1, ?2)
+             ON CONFLICT(fingerprint) DO UPDATE SET count = count + 1, last_at = ?2",
+            params![fingerprint, now],
+        );
+        conn.query_row(
+            "SELECT count FROM recurrence_counts WHERE fingerprint = ?1",
+            params![fingerprint],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n as u32)
+        .unwrap_or(1)
+    }
+
+    /// 查询某指纹当前的复发次数(只读,不递增)。
+    pub fn recurrence_count(&self, fingerprint: &str) -> u32 {
+        let Ok(conn) = self.open_db() else { return 0 };
+        conn.query_row(
+            "SELECT count FROM recurrence_counts WHERE fingerprint = ?1",
+            params![fingerprint],
+            |r| r.get::<_, i64>(0),
+        )
+        .map(|n| n as u32)
+        .unwrap_or(0)
     }
 
     /// 完整性检测(D-112 同款哲学):ID 重复、缺号、解析失败的文件都要可见。
@@ -1447,6 +1547,61 @@ mod tests {
         assert_eq!(entry.status, "active");
         // find_preference 只找 active:user 直写偏好立即可用
         assert!(store.find_preference("开发重心").is_some());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-165 批2(验收④):novelty gate 三档分流——明显重复 NOOP、
+    /// 明显新 PROPOSE、不确定才留 LLM,计数落遥测表。
+    #[test]
+    fn novelty_gate_three_tiers_with_telemetry() {
+        let (dir, store) = temp_store();
+        store
+            .add("fact", "gh 网络代理", "push 前必读:设置 HTTPS_PROXY", "HTTPS_PROXY=http://127.0.0.1:12000", "user", &[], None, false)
+            .unwrap();
+        // 明显重复:规范化标题精确命中 active 记忆。
+        let dup = store.classify_novelty("GH 网络代理", "push 前必读", "");
+        assert_eq!(dup, Novelty::Duplicate, "规范化标题应命中 active 记忆");
+        // 明显新:无重叠词。
+        let fresh = store.classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "");
+        assert_eq!(fresh, Novelty::New, "无关主题应判明显新");
+        // 不确定:有语义命中但标题不同(代理相关)。
+        let uncertain = store.classify_novelty("网络代理配置", "HTTPS_PROXY 与代理地址", "");
+        assert_eq!(uncertain, Novelty::Uncertain, "语义相关但非精确应留 LLM 判断");
+        // 计数遥测落库。
+        store.record_novelty(&dup, "", "GH 网络代理");
+        store.record_novelty(&fresh, "", "diff 树渲染优化");
+        store.record_novelty(&uncertain, "", "网络代理配置");
+        let conn = store.open_db().unwrap();
+        let total: i64 = conn
+            .query_row("SELECT COUNT(*) FROM novelty_events", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(total, 3, "三档分流都要有计数遥测记录");
+        let verdicts: Vec<String> = conn
+            .prepare("SELECT verdict FROM novelty_events ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(verdicts, vec!["duplicate", "new", "uncertain"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-165 批2(验收②):recurrence 三段晋升——跨轮计数递增,
+    /// 第 1 次=1、第 2 次=2、第 3 次=3,harvest_failures 按档位写笔记。
+    #[test]
+    fn recurrence_three_stage_promotion_counts() {
+        let (dir, store) = temp_store();
+        let fp = format!("[fp:edit|old string not found #{}-{}]", std::process::id(), "rec");
+        assert_eq!(store.recurrence_count(&fp), 0, "未出现前计数为 0");
+        assert_eq!(store.bump_recurrence(&fp), 1, "第 1 次出现");
+        assert_eq!(store.bump_recurrence(&fp), 2, "第 2 次出现 → candidate 档位");
+        assert_eq!(store.bump_recurrence(&fp), 3, "第 3 次出现 → promote 档位");
+        assert_eq!(store.recurrence_count(&fp), 3, "只读查询不递增");
+        assert_eq!(store.bump_recurrence(&fp), 4);
+        // 计数持久化跨 store 实例(同一 index.db)。
+        let reopened = MemoryStore::open(store.scope, store.root.clone());
+        assert_eq!(reopened.recurrence_count(&fp), 4, "持久计数跨实例可见");
         std::fs::remove_dir_all(dir).ok();
     }
 

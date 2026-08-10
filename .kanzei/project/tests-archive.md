@@ -1273,3 +1273,13 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 173 passed(172+D-252 回归测试),0 失败
 - 收尾: 1786347165
+
+## T-1786348872 cargo test -p kanzei-tools (R-165 批1 lifecycle 四态) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 175 passed; 0 failed. 批1: lifecycle 四态+provenance 硬约束+MemoryPromoteTool。
+- 收尾: 1786348872
+
+## T-1786349087 cargo test -p kanzei-tools (R-165 批2 novelty+recurrence) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 177 passed; 0 failed. 批2: novelty gate 三档+遥测、recurrence 三段晋升计数。
+- 收尾: 1786349087

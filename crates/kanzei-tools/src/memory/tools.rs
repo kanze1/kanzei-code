@@ -166,6 +166,22 @@ impl Tool for MemoryNoteTool {
             return ToolOutput::error(e);
         }
         let store = MemoryStore::project(&ctx.project_root);
+        // R-165 批2 novelty gate(验收④):投递前机械三档分流——
+        // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
+        let novelty = store.classify_novelty(
+            &input.summary,
+            input.detail.as_deref().unwrap_or(""),
+            "",
+        );
+        if novelty == super::Novelty::Duplicate {
+            store.record_novelty(&novelty, "", &input.summary);
+            return ToolOutput::ok(format!(
+                "noted as duplicate (NOOP, {:.60}…) — already an active memory covers it; \
+                 use memory_update to evolve that entry instead of re-adding",
+                input.summary
+            ));
+        }
+        store.record_novelty(&novelty, "", &input.summary);
         match store.append_note(
             &input.summary,
             input.detail.as_deref().unwrap_or(""),

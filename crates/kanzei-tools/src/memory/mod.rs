@@ -12,7 +12,7 @@ mod tools;
 
 pub use index::{IndexHit, IndexQuery, MemoryIndex, SqliteMemoryIndex};
 pub use manager::{manager_agent, MemoryManagerComponent};
-pub use store::{AddOutcome, MemoryStore, RecallHit, RecallRound, SearchHit};
+pub use store::{AddOutcome, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit};
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
@@ -692,14 +692,18 @@ pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSign
                 signal.tool, signal.count, fingerprint
             ),
         };
+        // R-165 批2 recurrence 三段晋升(验收②):同指纹跨轮计数——
+        // 第 2 次才 candidate,第 3 次+且修复成功才 promote。
+        let recurrence = store.bump_recurrence(&fingerprint);
         let detail = format!(
-            "- 错误原文: {}\n- 涉及目标: {}\n- 判断要点: 这是环境/工具契约类的可复用知识,还是本次任务内的一次性噪声(例如 TDD 里预期的测试失败、自己写错又立刻改对的编译错误)?是前者才建条目,后者判 NOOP。\n- 指纹: 建条目时把 {} 原样放进正文——它是复发检测的键,丢了引擎就看不见「记了但没用」。",
+            "- 错误原文: {}\n- 涉及目标: {}\n- 复发档位: 第 {} 次(跨轮计数)\n- 判断要点: 这是环境/工具契约类的可复用知识,还是本次任务内的一次性噪声(例如 TDD 里预期的测试失败、自己写错又立刻改对的编译错误)?是前者才建条目,后者判 NOOP。\n- 指纹: 建条目时把 {} 原样放进正文——它是复发检测的键,丢了引擎就看不见「记了但没用」。\n- 晋升规则: 第 2 次才建 candidate(未验证);第 3 次+ 且带修复成功证据时,用 memory_add 建条目后 memory_promote 带 episode 证据升 active。",
             signal.sample.replace('\n', " "),
             if signal.targets.is_empty() {
                 "(无)".to_string()
             } else {
                 signal.targets.join(", ")
             },
+            recurrence,
             fingerprint,
         );
         if store.append_note(&summary, &detail, "fact", &[]).is_ok() {
