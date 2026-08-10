@@ -351,10 +351,10 @@ impl MemoryStore {
         // 仅 project scope 有 state.db(global 记忆无 episode 证据源)。
         let hash = source_hash.unwrap_or("compiler").to_string();
         if self.scope == MemoryScope::Project {
-            if let Ok(store) =
-                kanzei_core::SessionStore::open(&self.root.join("..").join("state.db"))
-            {
+            let db_path = self.root.join("..").join("state.db");
+            if let Ok(store) = kanzei_core::SessionStore::open(&db_path) {
                 for (episode_id, event_start, event_end) in sources {
+                    // episode_id 外键必须真实存在(state.db episodes),否则 INSERT 静默失败。
                     let _ = store.record_memory_source(
                         id,
                         *episode_id,
@@ -800,6 +800,7 @@ impl MemoryStore {
         title: Option<&str>,
         description: Option<&str>,
         body: Option<&str>,
+        confirmed: bool,
     ) -> anyhow::Result<MemoryEntry> {
         if duplicates.is_empty() {
             anyhow::bail!("merge needs at least one duplicate id");
@@ -811,6 +812,30 @@ impl MemoryStore {
         for id in std::iter::once(&primary.to_string()).chain(duplicates.iter()) {
             if !entries.iter().any(|(_, e)| &e.id == id) {
                 anyhow::bail!("unknown memory id `{id}`");
+            }
+        }
+        // R-165 批4 merge 保守闸(⑧):评估器落地前只合并同 fingerprint 或用户确认的。
+        // 无用户确认时,primary 与每个 duplicate 必须共享至少一个 [fp:...] 标记,
+        // 否则拒绝——合并会销毁证据链,不能靠 manager 自觉。
+        if !confirmed {
+            let fps_of = |id: &str| -> Vec<String> {
+                entries
+                    .iter()
+                    .find(|(_, e)| &e.id == id)
+                    .map(|(_, e)| super::fp_markers(&e.body))
+                    .unwrap_or_default()
+            };
+            let primary_fps = fps_of(primary);
+            for dup in duplicates {
+                let shared = fps_of(dup)
+                    .iter()
+                    .any(|f| primary_fps.contains(f));
+                if !shared {
+                    anyhow::bail!(
+                        "merge 保守闸: `{primary}` 与 `{dup}` 无共享 fingerprint,且未获用户确认 \
+                         (confirmed=true)——评估器落地前只合并同 fingerprint 或用户确认的条目"
+                    );
+                }
             }
         }
         let mut merged = self.update(primary, title, description, body, None)?;
@@ -1631,6 +1656,45 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// R-165 批4(验收⑤):evidence(memory_sources)无自治写路径——
+    /// 只有 promote() 写它,且每条证据落在 state.db 可 join。
+    /// (代码审计:record_memory_source 生产调用方唯一 = store.rs promote 内。)
+    #[test]
+    fn promote_is_sole_evidence_writer_and_rows_land() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add("fact", "证据编译条目", "证据钩子", "正文", "memory-manager", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(candidate) = e else { panic!("expected Added") };
+        // 先初始化 state.db schema(promote 内 open 依赖 schema;测试环境无现成库)。
+        let path = dir.join(".kanzei").join("state.db");
+        kanzei_core::SessionStore::open(&path).unwrap();
+        // episode 7 必须先存在:memory_sources 有外键 REFERENCES episodes。
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute(
+                "INSERT INTO episodes(episode_id, session_id, created_at, prompt_head, outcome, steps,
+                                      input_tokens, output_tokens, tools_json, context_json)
+                 VALUES (7, 'test-session', 0, '测试轮', 'ok', 1, 10, 10, '[]', '{}')",
+                [],
+            )
+            .unwrap();
+        }
+        store.promote(&candidate.id, &[(7, Some(100), Some(200))], Some("audit-hash")).unwrap();
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let (memory_id, episode_id, source_hash): (String, i64, String) = conn
+            .query_row(
+                "SELECT memory_id, episode_id, source_hash FROM memory_sources WHERE memory_id = ?1",
+                params![candidate.id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(memory_id, candidate.id);
+        assert_eq!(episode_id, 7);
+        assert_eq!(source_hash, "audit-hash");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-165 批3(验收③):deprecated/invalid 移入 archive/ 且默认检索不可见(D-231)。
     #[test]
     fn deprecated_moves_to_archive_and_hidden_from_search() {
@@ -1702,6 +1766,7 @@ mod tests {
                 None,
                 Some("gh 网络失败/超时必读"),
                 Some("HTTPS_PROXY=http://127.0.0.1:12000"),
+                true, // 测试无共享指纹:confirmed=true 模拟用户确认(R-165 保守闸)
             )
             .unwrap();
         assert_eq!(merged.id, a.id);
@@ -1725,11 +1790,59 @@ mod tests {
         assert!(dup_text.contains(&format!("superseded_by: {}", a.id)), "{dup_text}");
         // 未知 id 与自我合并都拒绝
         assert!(store
-            .merge(&a.id, std::slice::from_ref(&a.id), None, None, None)
+            .merge(&a.id, std::slice::from_ref(&a.id), None, None, None, true)
             .is_err());
         assert!(store
-            .merge("M-999", std::slice::from_ref(&b.id), None, None, None)
+            .merge("M-999", std::slice::from_ref(&b.id), None, None, None, true)
             .is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-165 批4 merge 保守闸(⑧):评估器落地前只合并同 fingerprint 或用户确认的。
+    #[test]
+    fn merge_conservative_gate_requires_shared_fingerprint_or_confirmed() {
+        let (dir, store) = temp_store();
+        let a = add(&store, "fact", "主题甲", "钩子甲", "正文甲");
+        let b = add(&store, "fact", "主题乙", "钩子乙", "正文乙");
+        // 无 confirmed、无共享指纹 → 拒绝。
+        let err = store
+            .merge(&a.id, std::slice::from_ref(&b.id), None, None, None, false)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("无共享 fingerprint"),
+            "保守闸应点名缺共享指纹: {err}"
+        );
+        // 有共享指纹 → 放行。
+        let c = store
+            .add(
+                "fact",
+                "同坑另一个角度",
+                "钩子丙",
+                "正文 [fp:edit|not found]",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let AddOutcome::Added(c) = c else { panic!("expected Added") };
+        let d = store
+            .add(
+                "fact",
+                "同坑第三个角度",
+                "钩子丁",
+                "补充 [fp:edit|not found]",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let AddOutcome::Added(d) = d else { panic!("expected Added") };
+        let merged = store
+            .merge(&c.id, std::slice::from_ref(&d.id), None, None, None, false)
+            .unwrap();
+        assert_eq!(merged.id, c.id);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2065,6 +2178,7 @@ mod tests {
                 None,
                 None,
                 Some("合并后的正文(manager 忘了带指纹)"),
+                true, // 测指纹兜底而非闸门:confirmed=true 放行
             )
             .unwrap();
         // 指纹被引擎兜底并入 primary 正文,复发检测继续可用。

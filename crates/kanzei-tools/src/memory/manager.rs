@@ -263,6 +263,9 @@ struct MergeInput {
     body: Option<String>,
     #[serde(default)]
     description: Option<String>,
+    /// R-165 保守闸:用户已确认这次合并(评估器落地前,无确认则要求共享 fingerprint)。
+    #[serde(default)]
+    confirmed: bool,
 }
 
 pub struct MemoryMergeTool;
@@ -296,6 +299,7 @@ impl Tool for MemoryMergeTool {
             None,
             input.description.as_deref(),
             input.body.as_deref(),
+            input.confirmed,
         ) {
             Ok(e) => ToolOutput::ok(format!(
                 "merged {} ← [{}]",
@@ -731,6 +735,13 @@ pub fn manager_agent() -> AgentDef {
                  Notes may carry a `- refs: R-012 D-044` line: pass those IDs verbatim to \
                  memory_add's `refs` parameter (R-070 source contract; invalid IDs are \
                  rejected by the engine). \
+                 BEFORE merging, ask the three conversion questions (R-165): \
+                 COVERAGE (does the merged entry cover all key facts?), PRESERVATION \
+                 (does it keep accurate details from the old entries?), FAITHFULNESS \
+                 (does it state anything NOT in the evidence?). memory_merge is \
+                 engine-gated: without `confirmed: true` it only merges entries sharing a \
+                 [fp:...] marker — pass confirmed=true ONLY when the user explicitly \
+                 approved this merge. \
                  A failure COUNT is signal strength, never content: \"edit failed 7 times\" \
                  means the same mistake recurred — it does NOT mean \"7 retries are needed\". \
                  Record the underlying constraint (quote the actual error text), not the \

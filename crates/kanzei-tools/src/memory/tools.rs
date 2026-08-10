@@ -273,6 +273,14 @@ impl Tool for MemoryStatsTool {
             if pending > 0 {
                 out.push_str(&format!(" · inbox {pending} pending"));
             }
+            // R-165 批4 memory pressure(内容④):active 记忆过多会稀释检索注入,
+            // 提示整理(归档/合并),引擎不自动删。
+            let active_count = entries.iter().filter(|(_, e)| e.status == "active").count();
+            if active_count > 500 {
+                out.push_str(&format!(
+                    " · ⚠ memory pressure: {active_count} active(>500) — 建议归档失效条目或合并重复"
+                ));
+            }
             for issue in store.integrity_issues() {
                 out.push_str(&format!("\n  ⚠ {issue}"));
             }

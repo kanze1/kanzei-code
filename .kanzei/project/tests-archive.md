@@ -1288,3 +1288,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 178 passed; 0 failed. 批3: 归档落地 D-231, deprecated/invalid 移 archive/ 默认检索不可见。
 - 收尾: 1786349227
+
+## T-1786349488 cargo test -p kanzei-tools (R-165 批4 merge 保守闸与证据审计) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 180 passed; 0 failed. 批4: merge 保守闸+转换三问+memory pressure+验收⑤证据审计。
+- 收尾: 1786349488
