@@ -1168,3 +1168,8 @@
 - 命令: cargo test -p kanzei-core
 - 摘要: 73 通过:新增 recall_events 回填 episode_id 后 join episodes 查询单测(验收① join 部分)
 - 收尾: 1786341887
+
+## T-1786341997 cargo test --workspace (R-161 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-161 关闭前全量验证:workspace 全部 crate 测试通过
+- 收尾: 1786341997
