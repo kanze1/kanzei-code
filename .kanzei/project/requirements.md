@@ -64,9 +64,9 @@
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
 - refs: R-149 R-150 docs/design/memory_control_plane.md
 
-- 进展: 批1完成:SCHEMA_VERSION 8→9,memory_eval_agg 聚合表(effect_mean/effect_ci/eval_n/last_eval),store/eval.rs 提供 memory_effect 查询 + recompute_memory_effect(F(m)=Current−LeaveOneOut 配对差均值/95%CI,同 model/prompt_version 内配对,单臂不参与,空跑不清历史)。3 条测试,core 90→93 全绿,下游 4 crate check 过。剩批2:Q(m) 选择;批3:shadow 态;批4:merge D<ε;批5:deprecate 候选+时间衰减审计+关闭。
+- 进展: 批2完成:Q(m) 三类选择——eval_case_set(memory_id, negative_limit) 返回 triggered(recall_events.injected_ids 含该记忆的 episode)/near_miss(candidate 含注入不含)/negative_control(无关 episode 最近优先)。2 条测试,core 93→95 全绿。剩批3 shadow 态;批4 merge D<ε;批5 deprecate 候选+时间衰减审计+关闭。
 
-- 批次: 1/5
+- 批次: 2/5
 
 - 状态: doing
 

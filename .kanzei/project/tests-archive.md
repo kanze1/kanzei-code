@@ -1303,3 +1303,8 @@
 - 命令: cargo test -p kanzei-core && cargo check -p kanzei-tools -p kanzei-app -p kanzei-harness -p kanzei
 - 摘要: 93 passed (core)。批1: SCHEMA v9 + memory_eval_agg + F(m) 聚合/查询,下游 4 crate check 过。
 - 收尾: 1786349794
+
+## T-1786349855 cargo test -p kanzei-core (R-166 B2 Q(m) 选择) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 95 passed (core)。批2: Q(m) 三类 episode 选择(triggered/near-miss/negative_control)。
+- 收尾: 1786349855

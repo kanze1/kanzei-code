@@ -138,10 +138,107 @@ impl SessionStore {
     }
 }
 
+/// Q(m):一条记忆的离线回放案例集(R-166 内容②)。
+///
+/// 三种来源,三类都是 episode(可转 ReplayCase):
+/// - `triggered`:该记忆真的被检索并注入过的历史 episode(positive——验证它有用时该赢)。
+/// - `near_miss`:该记忆进了候选但最终没被注入的 episode(边界——差一点就用到它)。
+/// - `negative_control`:与该记忆无关的 episode(对照——不该因 m 出现而改变行为)。
+///
+/// 周期性回放就用这个集合做 with/without:Current 注入 m、LeaveOneOut 不注入,
+/// 在 triggered/near_miss 上期望 F(m)>0,在 negative_control 上期望 F(m)≈0——
+/// 若 negative_control 上也显著偏离,说明 m 在无关场景造成干扰。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EvalCaseSet {
+    /// 注入过该记忆的 episode(recall_events.injected_ids 含 memory_id)。
+    pub triggered: Vec<i64>,
+    /// 候选但未注入的 episode(candidate_ids 含、injected_ids 不含)。
+    pub near_miss: Vec<i64>,
+    /// 与该记忆无关的 episode(排除前两类,按最近优先取 negative_limit 条)。
+    pub negative_control: Vec<i64>,
+}
+
+impl SessionStore {
+    /// 组装 Q(m):三类 episode 一次查询返回。
+    /// `negative_limit` 控制对照集大小(0 = 不要对照)。episode 必须是 episodes 表
+    /// 里真实存在的行,才能被转成 ReplayCase。
+    pub fn eval_case_set(
+        &self,
+        memory_id: &str,
+        negative_limit: usize,
+    ) -> Result<EvalCaseSet, StoreError> {
+        let mut out = EvalCaseSet::default();
+        // triggered:injected_ids(JSON 数组)里出现过该记忆的 episode。
+        let mut triggered = self.connection.prepare(
+            "SELECT DISTINCT r.episode_id
+             FROM recall_events r, json_each(r.injected_ids) j
+             WHERE j.value = ?1 AND r.episode_id IS NOT NULL
+             ORDER BY r.episode_id",
+        )?;
+        let triggered_rows = triggered.query_map(params![memory_id], |row| row.get::<_, i64>(0))?;
+        for id in triggered_rows.flatten() {
+            out.triggered.push(id);
+        }
+        // near_miss:候选里有、注入里没有。
+        let mut near = self.connection.prepare(
+            "SELECT DISTINCT r.episode_id
+             FROM recall_events r, json_each(r.candidate_ids) c
+             WHERE c.value = ?1
+               AND r.episode_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM json_each(r.injected_ids) j WHERE j.value = ?1
+               )
+             ORDER BY r.episode_id",
+        )?;
+        let near_rows = near.query_map(params![memory_id], |row| row.get::<_, i64>(0))?;
+        for id in near_rows.flatten() {
+            out.near_miss.push(id);
+        }
+        // negative control:与 m 完全无关的最近 episode。
+        if negative_limit > 0 {
+            let mut excluded = String::new();
+            for (idx, id) in out
+                .triggered
+                .iter()
+                .chain(out.near_miss.iter())
+                .collect::<Vec<_>>()
+                .iter()
+                .enumerate()
+            {
+                if idx > 0 {
+                    excluded.push(',');
+                }
+                excluded.push_str(&id.to_string());
+            }
+            let sql = if excluded.is_empty() {
+                format!(
+                    "SELECT episode_id FROM episodes
+                     ORDER BY created_at DESC LIMIT ?1"
+                )
+            } else {
+                format!(
+                    "SELECT episode_id FROM episodes
+                     WHERE episode_id NOT IN ({excluded})
+                     ORDER BY created_at DESC LIMIT ?1"
+                )
+            };
+            let mut stmt = self.connection.prepare(&sql)?;
+            let rows = stmt.query_map(params![negative_limit as i64], |row| {
+                row.get::<_, i64>(0)
+            })?;
+            for id in rows.flatten() {
+                out.negative_control.push(id);
+            }
+        }
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod eval_tests {
     use super::*;
     use crate::store::testutil::store;
+    use crate::store::RecallEvent;
 
     /// 批1(R-166 验收①):F(m) 聚合可算可查——构造 3 个配对 case,
     /// Current 全成功、LeaveOneOut 全失败 → effect_mean = 1.0,
@@ -227,5 +324,92 @@ mod eval_tests {
         assert_eq!(est.eval_n, 1);
         // v2 无 leave_one_out 配对 → None。
         assert!(store.recompute_memory_effect("M-3", "m", "v2").unwrap().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // 批2(R-166 内容②):Q(m) 三类 episode 选择。
+    // -----------------------------------------------------------------------
+
+    /// 批2:triggered/near_miss/negative_control 三类正确分类。
+    /// - e1: injected_ids 含 M-1 → triggered
+    /// - e2: candidate_ids 含 M-1、injected 不含 → near_miss
+    /// - e3: 与 M-1 无关 → negative_control(当 negative_limit 足够时)
+    #[test]
+    fn eval_case_set_splits_three_kinds() {
+        let store = store();
+        let mut ids = Vec::new();
+        for (tag, n) in [("a", 1), ("b", 2), ("c", 3)] {
+            let id = store
+                .append_episode(&crate::store::EpisodeRecord {
+                    session_id: "ses",
+                    prompt_head: tag,
+                    outcome: "ok",
+                    tools_json: "[]",
+                    context_json: "{}",
+                    metrics_json: "{}",
+                    provider: "",
+                    model: "",
+                    run_id: "r",
+                    input_id: "i",
+                    overflow_json: "[]",
+                    ..Default::default()
+                })
+                .unwrap();
+            ids.push(id);
+            let _ = n;
+        }
+        let (e1, e2, e3) = (ids[0], ids[1], ids[2]);
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "r1",
+                episode_id: Some(e1),
+                step_id: Some(1),
+                trigger_type: "tool_failure",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "q",
+                candidate_ids: "[\"M-1\"]",
+                retrieved_ids: "[\"M-1\"]",
+                injected_ids: "[\"M-1\"]",
+                lexical_ms: 1,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 1,
+            })
+            .unwrap();
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "r2",
+                episode_id: Some(e2),
+                step_id: Some(1),
+                trigger_type: "tool_failure",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "q",
+                candidate_ids: "[\"M-1\"]",
+                retrieved_ids: "[\"M-1\"]",
+                injected_ids: "[]",
+                lexical_ms: 1,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 1,
+            })
+            .unwrap();
+        let set = store.eval_case_set("M-1", 10).unwrap();
+        assert_eq!(set.triggered, vec![e1]);
+        assert_eq!(set.near_miss, vec![e2]);
+        assert!(set.negative_control.contains(&e3), "e3 与 M-1 无关应进对照");
+        assert!(!set.negative_control.contains(&e1));
+        assert!(!set.negative_control.contains(&e2));
+    }
+
+    /// 批2:negative_limit=0 时不要对照集。
+    #[test]
+    fn eval_case_set_can_disable_negative_control() {
+        let store = store();
+        let set = store.eval_case_set("M-x", 0).unwrap();
+        assert!(set.triggered.is_empty());
+        assert!(set.near_miss.is_empty());
+        assert!(set.negative_control.is_empty());
     }
 }
