@@ -3,11 +3,13 @@
 
 use rusqlite::{params, OptionalExtension};
 
+pub type EpisodeListRow = (i64, String, String, u32, String);
+
 use super::{now_ms, EpisodeRecord, SessionStore, StoreError};
 
 impl SessionStore {
     /// 轮次情景摘要(R-106):机械生成的轨迹画像,R-099 度量与记忆系统共用。
-    pub fn append_episode(&self, episode: &EpisodeRecord<'_>) -> Result<(), StoreError> {
+    pub fn append_episode(&self, episode: &EpisodeRecord<'_>) -> Result<i64, StoreError> {
         self.connection.execute(
                 "INSERT INTO episodes(session_id, created_at, prompt_head, outcome, steps,
                                       input_tokens, output_tokens, tools_json, context_json, metrics_json,
@@ -32,7 +34,7 @@ impl SessionStore {
                     episode.overflow_json,
                 ],
             )?;
-        Ok(())
+        Ok(self.connection.last_insert_rowid())
     }
 
     /// 最近若干轮的运行归属(D-173):provider/model/run_id/input_id/duration_ms。
@@ -107,7 +109,7 @@ impl SessionStore {
         &self,
         session_id: &str,
         limit: usize,
-    ) -> Result<Vec<(i64, String, String, u32, String)>, StoreError> {
+    ) -> Result<Vec<EpisodeListRow>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT created_at, prompt_head, outcome, steps, tools_json
                  FROM episodes WHERE session_id = ?1

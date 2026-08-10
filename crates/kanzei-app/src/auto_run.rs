@@ -7,7 +7,6 @@
 //! 七种停止场景)的权威单测在 harness 侧,本模块只是接线。
 
 use std::path::Path;
-use std::sync::Mutex;
 
 use kanzei_harness::auto_run::{
     nudge_prompt, AutoRunAction, AutoRunCtx, AutoRunState, AutoStopReason, BacklogStatus,
@@ -30,13 +29,30 @@ pub(crate) struct AutoRunController {
 #[tauri::command]
 pub fn auto_state_update(
     state: State<'_, AppState>,
+    session_id: String,
     enabled: Option<bool>,
     paused: Option<bool>,
     stop_after_round: Option<bool>,
     max_rounds: Option<u32>,
 ) -> serde_json::Value {
-    let mut ctrl = state.auto_run.lock().unwrap();
+    let mut controllers = state.auto_runs.lock().unwrap();
+    let ctrl = controllers.entry(session_id).or_default();
+    apply_state_update(ctrl, enabled, paused, stop_after_round, max_rounds);
+    json!({ "ok": true })
+}
+
+fn apply_state_update(
+    ctrl: &mut AutoRunController,
+    enabled: Option<bool>,
+    paused: Option<bool>,
+    stop_after_round: Option<bool>,
+    max_rounds: Option<u32>,
+) {
     if let Some(v) = enabled {
+        if ctrl.enabled != v {
+            // 开关重开应重新计数；否则 UI 已清零而引擎仍沿用旧轮数，会立刻误触上限。
+            ctrl.state.reset();
+        }
         ctrl.enabled = v;
     }
     if let Some(v) = paused {
@@ -48,13 +64,19 @@ pub fn auto_state_update(
     if let Some(v) = max_rounds {
         ctrl.state.max_rounds = v.clamp(1, 100);
     }
-    json!({ "ok": true })
 }
 
 /// 手动发送/用户操作时归零连数(原前端 sendText 非 auto 分支)。
 #[tauri::command]
-pub fn auto_state_reset(state: State<'_, AppState>) -> serde_json::Value {
-    state.auto_run.lock().unwrap().state.reset();
+pub fn auto_state_reset(state: State<'_, AppState>, session_id: String) -> serde_json::Value {
+    state
+        .auto_runs
+        .lock()
+        .unwrap()
+        .entry(session_id)
+        .or_default()
+        .state
+        .reset();
     json!({ "ok": true })
 }
 
@@ -103,5 +125,42 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
         WorkPriority::RequirementFirst
     } else {
         WorkPriority::DefectFirst
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_state_update, AutoRunController};
+
+    #[test]
+    fn 开关切换会清空本会话旧轮数_上限保持边界约束() {
+        let mut ctrl = AutoRunController {
+            enabled: true,
+            ..Default::default()
+        };
+        ctrl.state.rounds = 6;
+
+        apply_state_update(&mut ctrl, Some(false), None, None, Some(0));
+        assert!(!ctrl.enabled);
+        assert_eq!(ctrl.state.rounds, 0);
+        assert_eq!(ctrl.state.max_rounds, 1);
+
+        ctrl.state.rounds = 3;
+        apply_state_update(&mut ctrl, Some(true), None, None, Some(500));
+        assert!(ctrl.enabled);
+        assert_eq!(ctrl.state.rounds, 0);
+        assert_eq!(ctrl.state.max_rounds, 100);
+    }
+
+    #[test]
+    fn 不同控制器的轮数天然隔离() {
+        let mut first = AutoRunController::default();
+        let mut second = AutoRunController::default();
+        first.state.rounds = 4;
+
+        apply_state_update(&mut second, Some(true), None, None, Some(2));
+        assert_eq!(first.state.rounds, 4);
+        assert_eq!(second.state.rounds, 0);
+        assert_eq!(second.state.max_rounds, 2);
     }
 }

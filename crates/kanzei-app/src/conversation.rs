@@ -83,7 +83,7 @@ pub(crate) fn conversation_trace_get(
         if event.event_type == "conversation.updated"
             && event.payload["messages"]
                 .as_array()
-                .map_or(false, Vec::is_empty)
+                .is_some_and(Vec::is_empty)
         {
             segment_start = event.sequence;
         }

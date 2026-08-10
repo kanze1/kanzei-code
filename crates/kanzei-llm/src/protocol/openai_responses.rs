@@ -260,12 +260,10 @@ impl ProtocolState for ResponsesState {
                             signature: item["encrypted_content"].as_str().map(str::to_string),
                         });
                     }
-                    "message" => {
-                        if self.text_open.remove(&index).unwrap_or(false) {
-                            out.push(LlmEvent::TextEnd {
-                                index: index as usize,
-                            });
-                        }
+                    "message" if self.text_open.remove(&index).unwrap_or(false) => {
+                        out.push(LlmEvent::TextEnd {
+                            index: index as usize,
+                        });
                     }
                     _ => {}
                 }

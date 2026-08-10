@@ -98,6 +98,10 @@ const required = [
   ["status-mode\").textContent = statusRunning ? t(\"运行中\")", "动态状态使用翻译入口"],
   ["statusTextSource = String(text ?? \"\")", "状态文案存源"],
   ["localizeDynamic(statusTextSource)", "状态文案渲染时本地化"],
+  // 侧栏焦点卡片:切语言要跟着重渲(renderDocsSnapshot 末尾调 applyLanguage),
+  // 「凭什么指这一条」的依据字段也不能被后人悄悄删掉。
+  ["function renderFocusPanel(", "侧栏焦点面板动态入口"],
+  ["focus.activeSource", "焦点依据字段"],
 ];
 const missing = required.filter(([needle]) => !source.includes(needle));
 if (missing.length) {

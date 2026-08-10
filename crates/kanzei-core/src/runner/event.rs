@@ -119,8 +119,8 @@ pub struct RunSummary {
     pub overflow_traces: Vec<String>,
 }
 
-/// 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
-/// 注意:传入 `&summary.messages` 会把 prior 全历史一起统计;要本轮画像请传
+// 轨迹的工具调用画像:工具名 → 调用次数(episode 与 R-099 度量共用)。
+// 注意:传入 `&summary.messages` 会把 prior 全历史一起统计;要本轮画像请传。
 
 /// 权限询问的用户决定。AlwaysAllow 的持久化由 UI 层负责(写入项目配置),
 /// runner 只负责本次会话内不再重复询问。

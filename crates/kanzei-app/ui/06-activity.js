@@ -1,4 +1,4 @@
-// ---------- 活动面板(R-037):全部工具调用按序入列,详情点击展开,跑完保留可回看 ----------
+// ---------- 活动面板(R-037/R-168):终端命令与失败调用入列,详情点击展开 ----------
 const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
 const diffSummary = new Map();
 const BG_MAX = 120;
@@ -20,11 +20,10 @@ function bgSync() {
   syncActivityPanel();
   applyBgFilters();
 }
-// R-095:活动面板此前只收 task 与 memory_note,绝大多数轮次里它是空的——"打开也没啥用"。
-// 现在它是完整的活动流水,靠筛选控制噪音;主对话仍保留内联工具块,两者定位不同:
-// 主对话是叙事,活动面板是可检索的执行记录。
-function isActivityTool() {
-  return true;
+// R-168:活动栏不是完整工具审计(主对话已有内联工具块)，只保留用户需要盯进度的
+// 终端命令；任意工具失败仍会在结束时补建，避免把故障信号一起静默掉。
+function isActivityTool(name) {
+  return bgIsTerminal(name);
 }
 
 const BG_TOOL_TYPES = {
@@ -34,16 +33,11 @@ const BG_TOOL_TYPES = {
   task: "agent",
   memory_note: "memory", memory_search: "memory", memory_stats: "memory",
 };
-// 小工具降噪(用户定调):高频查询/登记类调用**成功时不进活动流**,失败才补建条目。
-// 活动面板要回答的是"跑得怎么样"——成功的 read/req/files 千篇一律没有信息量,
-// 错误才是信号;bash/task/write/edit/git 等有实质副作用或长耗时的仍然全量入列。
-const BG_QUIET_TOOLS = new Set([
-  "read", "glob", "grep", "files", "req", "defect", "goal", "source",
-  "finding", "decision", "test_record", "memory_search", "memory_stats",
-]);
+// 除终端命令外，所有成功工具调用均静默；未知新工具也默认静默，避免功能扩展后
+// 活动栏重新被灌满。失败路径由 bgFinishQuiet 补建真实错误条目。
 const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
 function bgQuiet(name) {
-  return BG_QUIET_TOOLS.has(name);
+  return !isActivityTool(name);
 }
 function bgStartQuiet(id, name, summary, input) {
   if (!id) return;
@@ -130,9 +124,14 @@ function bgAdd(id, name, summary, input) {
   toolName.textContent = name;
   const target = document.createElement("span");
   target.className = "bg-target";
-  target.textContent = summary;
+  // 后端 summarize_input(kanzei-core/src/runner/compaction.rs)把整坨入参 JSON 截到 160 字,
+  // 对所有工具一视同仁——edit 于是显示成 `{"new_string":"…","old_strin…`,完全看不出改的是哪个文件。
+  // 标题优先走前端按工具名挑字段的 toolCallSummary(05-chat-render.js,主对话工具块同款),
+  // 挑不出来再回落后端 summary(回放事件不带 input,靠的就是这一级),最后回落空串。
+  const shown = toolCallSummary(name, input) || String(summary ?? "");
+  target.textContent = shown;
   title.append(toolName, target);
-  title.title = summary;
+  title.title = shown;
   const prog = document.createElement("div");
   prog.className = "bg-prog";
   prog.textContent = name === "task" ? `… ${t("子代理启动中")}` : "…";
@@ -166,7 +165,9 @@ function bgAdd(id, name, summary, input) {
     first.remove();
   }
   const entry = {
-    el, title, prog, meta, detail, actions, type, name, summary, input,
+    // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
+    // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
+    el, title, target, prog, meta, detail, actions, type, name, summary: shown, input,
     children: new Map(), startedAt: Date.now(), done: false,
   };
   bgEntries.set(id, entry);
@@ -424,8 +425,10 @@ function bgEnd(id, ok, preview, display) {
   entry.meta.textContent = bits.join(" · ");
   // 结构化详情进面板内展开区(diff/终端/新建/todo)。
   const d = display;
-  if (d?.kind === "diff") {
-    entry.title.textContent += `  +${d.additions} −${d.deletions}`;
+  // 增减行数只能追加到 .bg-target 里:对整个 title 按钮做 textContent += 等于把
+  // .bg-tool/.bg-target 两个子 span 拍平成单个文本节点,工具名/目标的分栏结构当场消失。
+  if (d?.kind === "diff" && entry.target) {
+    entry.target.textContent += `  +${d.additions} −${d.deletions}`;
   }
   appendDisplayBlock(entry.detail, d);
   if (!ok && preview) {

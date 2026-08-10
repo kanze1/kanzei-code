@@ -2,9 +2,17 @@
 function quickCaptureForm(kind, sectionId, noun) {
   const section = $(sectionId);
   const title = section.querySelector(".section-title");
-  if (title.querySelector(".quickreq-form")) return;
+  // 需求与缺陷两种快记现在共用「当前在做」这一个分区标题。旧守卫只看"有没有表单",
+  // 于是正在写需求时点「记缺陷」会静默无反应——能力被挡住却不说破,与 D-166/D-210
+  // 同一种病。同类再点是幂等(保留已写内容),换一类就换掉表单。
+  const opened = title.querySelector(".quickreq-form");
+  if (opened) {
+    if (opened.dataset.kind === kind) return;
+    opened.remove();
+  }
   const form = document.createElement("div");
   form.className = "goal-add-form quickreq-form";
+  form.dataset.kind = kind;
   const input = document.createElement("textarea");
   input.rows = 3;
   input.placeholder = `${t("自然语言描述")}${t(noun)};Ctrl+Enter 或点${t("提交")},Esc ${t("取消")}。${t("独立子代理后台进行")},不打断当前对话。`;
@@ -50,8 +58,8 @@ function quickCaptureForm(kind, sectionId, noun) {
   title.append(form);
   input.focus();
 }
-$("req-quick").addEventListener("click", () => quickCaptureForm("req", "req-section", "需求"));
-$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "defect-section", "缺陷"));
+$("req-quick").addEventListener("click", () => quickCaptureForm("req", "focus-section", "需求"));
+$("defect-quick").addEventListener("click", () => quickCaptureForm("defect", "focus-section", "缺陷"));
 
 function renderConventions(conv) {
   const el = $("conv-list");

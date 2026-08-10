@@ -18,6 +18,29 @@ const I18N_EN = {
   "架构索引读取失败": "Failed to load architecture index",
   "先选择一个项目": "Select a project first",
   "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
+  // 侧栏「当前在做」焦点卡片:完整列表搬进单页视图后,侧栏只保留取活焦点这一条。
+  "当前在做": "In progress now",
+  "记需求": "Log item",
+  "记缺陷": "Log defect",
+  "打开完整需求与缺陷列表": "Open the full work item and defect lists",
+  "查看完整列表": "View the full list",
+  "在完整列表中查看": "Show in the full list",
+  "当前没有在做的条目": "Nothing is in progress",
+  "队列已清空或全部被阻塞": "The queue is empty, or everything is blocked",
+  "下一个": "Next",
+  "待办": "Backlog",
+  "依据": "Basis",
+  "本轮运行证据": "run evidence from this round",
+  "取活顺序推断": "inferred from the work order",
+  "优先级仅参考,不影响取活顺序": "Priority is reference only; it does not affect the work order",
+  "需求与工作 / 缺陷 / 测试": "Work items / Defects / Tests",
+  "完整列表与深度管理都在这里：筛选、排序、拖拽定开发顺序、字段编辑、批量操作、依赖视图与测试记录；侧栏只留当前在做。":
+    "Full lists and deep management live here: filtering, sorting, drag to set the development order, field editing, bulk actions, the dependency view, and test runs. The sidebar keeps only what is in progress now.",
+  "查看测试记录": "View test runs",
+  "测试记录由 agent 跑测时写入,刷新会自动归档已完成项。":
+    "Test runs are written by the agent while it tests; refreshing archives completed entries automatically.",
+  "排序只改显示;拖拽(手动排序)才写回文件、改变取活顺序":
+    "Sorting only changes the display; dragging under manual sort writes back to the file and changes the agent's work order",
   "文件树加载失败": "Failed to load file tree",
   "已标注": "annotated",
   "文件导览": "File explorer",
@@ -320,8 +343,11 @@ const I18N_EN = {
   "传输重试次数": "Transport retries",
   "限流重试次数": "Rate-limit retries",
   "验证与提交节奏": "Verification & commit cadence",
-  "留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],下次注入的继续文案按新节奏渲染;发版门禁与 CI 全量不受参数影响。":
-    "Leave blank to use the built-in default (current §1.4 values). Changes are written to [cadence] in kanzei.toml and the next injected continue prompt renders the new cadence; the release gate and CI full test suite are unaffected by these parameters.",
+  // R-170 之后继续文案不再渲染节奏规则,而 KanzeiConfig::merge() 也从未合并 [cadence]:
+  // 全仓没有任何消费方。原文案承诺"下次注入的继续文案按新节奏渲染"是对用户的假承诺,
+  // 与本批要治的"界面显示 A、运行用 B"同族,先如实说明;接回引擎后再改回去。
+  "留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。":
+    "Leave blank to use the built-in default (current §1.4 values). Changes are written to [cadence] in kanzei.toml, but the engine does not consume these parameters yet (nothing reads them back after R-170 moved the rules out of the continue prompt), so changing them will not change the agent's verification cadence; the release gate and CI full test suite are unaffected by these parameters.",
   "全量测试": "Full test suite",
   "条目关闭前": "Before entry close",
   "每次提交前": "Before every commit",

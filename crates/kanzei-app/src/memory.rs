@@ -98,7 +98,7 @@ pub(crate) fn memory_recalls(project_dir: String, limit: Option<usize>) -> serde
     for store in memory_stores_for(&project_dir) {
         rounds.extend(store.recalls(limit));
     }
-    rounds.sort_by(|a, b| b.at.cmp(&a.at));
+    rounds.sort_by_key(|round| std::cmp::Reverse(round.at));
     rounds.truncate(limit);
     let total = rounds.len();
     let with_fetch = rounds

@@ -197,15 +197,31 @@ function toolCallSummary(name, input) {
   return arg.length > 76 ? `${arg.slice(0, 75)}…` : arg;
 }
 
-/// 结果摘要:取第一行有信息量的内容(bash 的 "exit code: 0" 独占首行时顺延到下一行)。
-function toolResultPreview(content, isError) {
-  const lines = String(content ?? "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const meaningful = lines.find((line) => !/^exit code:\s*0$/i.test(line)) || lines[0] || "";
-  if (!meaningful) return isError ? t("失败") : t("完成");
-  return meaningful.length > 110 ? `${meaningful.slice(0, 109)}…` : meaningful;
+/// ⎿ 行的字数预算。摘要在这里切断,剩余原文从同一个位置接着给——
+/// 一个字要么在摘要里、要么在详情里,不会两边都有。
+const TOOL_PREVIEW_MAX = 110;
+
+/// 把工具结果切成互不重叠的两段:
+/// - `text`:⎿ 行的摘要,取第一行有信息量的内容(bash 的 "exit code: 0" 独占首行时顺延到下一行),
+///   超过预算就截断;
+/// - `rest`:摘要没覆盖到的剩余原文(被顺延跳过的行、被截断的首行尾巴、以及后续所有行)。
+/// 从"取摘要"改成"切两段",是因为原先摘要与详情各自独立地从同一份 content 取一遍,
+/// 详情那边靠 `full !== preview` 去重——只挡得住单行短结果,首行超长或多行一律双写。
+function toolResultSplit(content, isError) {
+  const lines = String(content ?? "").split("\n");
+  const informative = (line) => line.trim() && !/^exit code:\s*0$/i.test(line.trim());
+  let idx = lines.findIndex(informative);
+  // 全篇只有 "exit code: 0" 时仍然显示它,别把唯一的结果吞成"完成"。
+  if (idx < 0) idx = lines.findIndex((line) => line.trim());
+  if (idx < 0) return { text: isError ? t("失败") : t("完成"), rest: "" };
+  const head = lines[idx].trim();
+  const cut = head.length > TOOL_PREVIEW_MAX;
+  const text = cut ? `${head.slice(0, TOOL_PREVIEW_MAX - 1)}…` : head;
+  // 被顺延跳过的行没在 ⎿ 露过面,归入剩余部分而不是丢掉;首行被截时把没显示完的尾巴接上,
+  // 前置的 … 与 ⎿ 行结尾的 … 呼应,读起来是明确的续接关系。
+  const skipped = lines.slice(0, idx).filter((line) => line.trim());
+  const tail = cut ? [`…${head.slice(TOOL_PREVIEW_MAX - 1)}`] : [];
+  return { text, rest: [...skipped, ...tail, ...lines.slice(idx + 1)].join("\n") };
 }
 
 /// 构造一个工具块。done=false 时是运行中占位,后续由 fillToolBlock 收尾。
@@ -242,22 +258,23 @@ function buildToolBlock(name, input) {
   return { wrap, head, icon, result, detail };
 }
 
-/// 收尾:状态图标 + 结果摘要行 + 折叠详情(完整输入与输出)。
+/// 收尾:状态图标 + 结果摘要行 + 折叠详情(摘要之外的剩余输出 + 完整入参)。
+/// ⎿ 行与详情是同一份文本切出来的两段,同一段文字在一个工具块里只出现一次。
 function fillToolBlock(block, { ok, content, display, input }) {
   block.wrap.classList.remove("running");
   block.wrap.classList.add(ok ? "ok" : "err");
   // 形状与颜色双重区分:只靠颜色对色盲不可辨(D-105 无障碍口径)。
   block.icon.textContent = ok ? "⏺" : "✗";
-  const preview = toolResultPreview(content, !ok);
-  block.result.textContent = `⎿ ${preview}`;
+  const { text: summary, rest } = toolResultSplit(content, !ok);
+  block.result.textContent = `⎿ ${summary}`;
   block.result.classList.remove("hidden");
   appendDisplayBlock(block.detail, display);
-  const full = String(content ?? "");
-  // 详情只在结果确实比摘要长时才给,避免"展开了还是那一行"。
-  if (full.trim() && full.trim() !== preview) {
+  // 详情只放摘要没覆盖到的部分:`rest` 非空本身就是"还有没显示完的内容"这个判据,
+  // 单行短结果照旧不出框(不给"展开了还是那一行"的假承诺),多行/长首行也不再重复正文。
+  if (rest.trim()) {
     const pre = document.createElement("pre");
     pre.className = "tool-msg-raw";
-    pre.textContent = full.length > 8000 ? `${full.slice(0, 8000)}\n…(${t("已截断")})` : full;
+    pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${t("已截断")})` : rest;
     block.detail.appendChild(pre);
   }
   if (input && Object.keys(input).length) {
@@ -286,6 +303,10 @@ function chatToolStart(id, name, summary, input) {
 function chatToolEnd(id, ok, preview, display) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
+  // 注意语义:实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 +
+  // " (+N lines)"),不是完整输出。展开区因此只会拿到这一行的尾巴——这是事实,别为了
+  // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看
+  // 活动面板的 terminal display(走 display.full)或历史回放。
   fillToolBlock(block, { ok, content: preview, display });
 }
 

@@ -32,3 +32,7 @@ schemars.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# D-240:安装助手必须按真实进程句柄判断父进程退出，不能从 tasklist 的本地化文本猜测。
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }

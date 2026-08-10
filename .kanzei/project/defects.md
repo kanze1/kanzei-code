@@ -193,14 +193,6 @@
 - 进展: 本轮发现；后续需用串行记录或显式唯一 id 认领，先核对 tests-archive 的实际条目。
 - 优先级: P2
 
-## D-232 package.ps1 发布门禁缺「HEAD 已推远端」检查,未推时 422 到最后一步才炸 [open] (medium)
-- 优先级: P2
-- 复现: 2026-08-10 发版 build-9e09b80 实测:dev 领先 origin/dev 21 个提交时跑 package.ps1 -Ack 21 -Publish,tauri build + NSIS 全部完成(约 1 分钟)后,gh release create --target <full_hash> 报 HTTP 422 `Release.target_commitish is invalid`——GitHub 要求 target 提交在远端可达,本地未推的 SHA 一律拒绝。推送后重跑成功。
-- 影响: 失败发生在整条流水线最后一步,前面的构建时间全部白费;且 422 报错文案不指向真因(脚本注释里只记载过「短 hash 会 422」的旧案),排查要靠人对比 origin/dev。自举/无人值守发版场景下这是必踩坑——自举只 commit 不 push。
-- 修复方向: 在 -Ack 核对同一节(构建开始前)加一条前置检查:`git rev-list origin/<branch>..HEAD` 非零即中止,报错明说「先 git push 再发版」;或者(需用户拍板)自动 push 后继续。顺带把 422 旧案注释更新为两种成因(短 hash / 未推远端)。
-- 证据等级: E1(本次发版实测复现+修复验证)
-- 标签: 流程
-
 ## D-233 文件视图打开卡顿:同步 files_snapshot 在主线程全量读+哈希 258 个文件 [open] (medium)
 - 优先级: P1
 - 标签: 前端
@@ -224,10 +216,102 @@
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
 
-## D-240 update_tests_update 进程存活探测 flaky:tasklist 竞态偶发误判自身已退出 [open] (medium)
+## D-243 记忆正文读取仍未回填遥测采纳 [open] (medium)
+- 复现: memory_search 返回 file 后调用通用 read，当前 read.rs 只读取文件，不调用 MemoryStore::mark_recall_fetched；memory_search 自身却在搜索返回时提前标记 fetched。
+- 来源: R-161 验收②与 docs/design/memory_control_plane.md §2
+- 标签: 核心
+- 进展: 待随 R-161 批2修复。
+- 验收: 仅在真实 read 读取 .kanzei/memory 文件后回填对应召回；memory_search 与桌面端/CLI 共用 state.db 漏斗事件；保留旧 index.db 读兼容。
+- 优先级: P1
+
+## D-244 对照页优先级/阻塞控件跨队列写并落盘:调一次覆盖另一队的持久化筛选 [open] (medium)
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端
+- refs: D-207 D-211
+- 证据等级: E1(取证确认 HEAD 既有 + 探针实测)
+- 复现: 对照(both)标签页上,`优先级` 与 `阻塞` 两个控件仍是启用的,它们走 14-docs-actions.js 的 applyDocFilter,而 applyDocFilter 对 docFilterTargets() 返回的每个队列都写。实测:对照页把优先级调成 P0 → `before={"req":"all","defect":"all"} after={"req":"P0","defect":"P0"} saved={"req":"P0","defect":"P0"}`;调阻塞同理。缺陷队列的筛选被覆盖并落盘。
+- 取证(重要,别误判成新引入): `git show HEAD:crates/kanzei-app/ui/14-docs-actions.js` 该行 = `for (const kind of docFilterTargets()) documentFilters[kind][field] = value;`,且 HEAD 的 syncDocumentFilters 也从不给 priority/blocked 置灰——**HEAD 就有的形态**,不是 2026-08-10 侧栏重构引入的。
+- 与已修 P0 的区别: 这是**用户主动调控件**、两张列表当场同时变,不是「切个标签页就被改掉」;相对 HEAD 只减不增。所以不拦发版,但按 2026-08-10 定调「对照页是只读的对照视图,不得改动任何队列的持久化筛选状态」它同样不合规。
+- 修复方向(二选一,都属设计决策): ①对照页禁用这两个控件(与 status/complexity/sort/tag 一致,走中性副本);②给对照页独立的筛选状态,不与两队共享。
+- 验收: 对照页调任何筛选控件后,两队的持久化筛选状态均不被改写(内存与 localStorage 都要验);有拦截实测的冒烟断言。
+
+## D-245 R-170 把 kanzei.toml [cadence] 变成死配置:设置页照写,无任何消费方送进模型 [open] (high)
+- 优先级: P0
+- 复杂度: 中
+- 标签: 核心
+- refs: R-157 R-170 D-242
+- 证据等级: E1(全仓 grep 零命中 + config.rs merge 缺分支,两处独立实证)
+- 复现: R-157 交付了 kanzei.toml `[cadence]` 五个字段 + 设置页透传 + 把生效节奏渲染进继续文案。R-170(eb7ae42)按剥离清单删掉了 cadenceVerificationText 与 applyCadenceSettings ——**渲染点没了,配置就再也到不了模型**。两处实证:①`grep -rn "\.cadence|Cadence" --include=*.rs crates/` 除 settings.rs 存取与 config.rs 定义本身外零命中,JS 侧除 16-settings.js 表单存取外只剩 02-i18n.js 一段已失真的说明文案;②crates/kanzei-harness/src/config.rs 的 merge() 只合并 models/providers/proxy/profile/permissions/limits,**没有 cadence 分支**,load() 从 KanzeiConfig::default() 起手,所以 `config.cadence` 恒为默认——文件里写了也到不了运行时。
+- 影响: R-157 整条交付变成惰性资产:设置页改得动、存得住、读得回,唯独不生效。用户按界面调节奏后行为不变,属于「只展示不接真实数据源」的反面(§1.25 明令这类不算完成)。与 D-242 同源——都是 R-170 剥离时误判「真源已在别处」。
+- 修复方向: ①config.rs merge() 补 cadence 分支,让文件值真能进 KanzeiConfig;②给节奏一条到模型的通路(注入 system prompt,或让引擎按配置直接决定跑不跑全量,后者更符合「能代码强制的绝不只写进提示词」);③conventions §1.4 的「交付后本节标注引擎已接管」在通路补回前**不得标注**——现在标了就是假话。
+- 验收: ①改 kanzei.toml 的 [cadence] 后,实测行为随之变化(轨迹或日志为证);②config.rs merge 有 cadence 单测;③设置页改参数→保存→重开生效且真作用于验证节奏;④R-157 的验收⑤有明确归宿。
+
+## D-246 内置 provider 删不掉:fill_defaults 无条件回填五个,UI 上删了下次打开又回来 [open] (medium)
 - 优先级: P3
 - 复杂度: 小
-- 复现: cargo test -p kanzei-app 全量并行时,update_tests_update::install_helper_waits_for_the_caller_to_exit_before_installing 偶发失败(296s):wait_for_parent_exit(自身 PID,600ms) 判定"当前进程已退出"。单独重跑 2s 通过,二次全量通过。
+- 标签: 前端
+- 依据: 2026-08-10 设置页全字段走查。本轮修好了**自定义** provider 的删除持久化(settings_apply_providers 按「载荷非空即权威」剪枝,有单测钉死空清单不删);但 crates/kanzei-harness/src/config.rs fill_defaults 用 entry().or_insert() 无条件注入 anthropic/ollama/codex/claude/deepseek 五个内置 provider,而 settings_get 在 fill_defaults 之后才列表——删掉这五个中任何一个,配置文件里的子表确实被删了,下次打开设置页它仍会由默认回填重新出现。
+- 影响: 用户感知是「删了又回来」,会以为删除功能坏了(实际是自定义 provider 已修好、内置的按设计回填)。与 D-173 的 context_limit 兜底同源。
+- 修复方向: 二选一——①UI 上把内置 provider 标成不可删(或删除按钮改「恢复默认」);②给一句「已恢复为内置默认」的说明。不建议改 fill_defaults 本身,那是配置可用性的兜底。
+- 验收: 内置 provider 的删除入口不再给出「已删除」的错误预期,用户能看懂为什么它还在。
+
+## D-247 代理选「指定地址」却留空时静默降级成 env,界面零提示 [open] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 依据: 2026-08-10 设置页全字段走查(用户定调「加提示」,登记交自举)。设置页代理模式选「指定地址」但地址框留空时,crates/kanzei-app/src/settings.rs 按空串当 `env` 处理,静默降级,界面没有任何提示——用户以为自己指定了地址,实际走的是环境变量。
+- 影响: 静默降级是本仓反复吃亏的模式(D-004「任何拒绝发送的理由都要说出来,绝不静默」同族);代理配错时表现为「设了没用」,排查要一路读到 settings.rs 才看得出来。
+- 验收: ①选「指定地址」而地址为空时,界面给出可见提示(表单校验或保存时提醒任一),说明将回落到环境变量;②不静默改写用户选择;③冒烟或单测覆盖该分支。
+
+## D-248 applyProfileValue 切进程时写全局 kz-profile,把用户的全局档位选择静默降级 [open] (medium)
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端
+- 证据等级: E1(取证 HEAD 逐字一致 + 探针实测)
+- 依据: 2026-08-10 持久化面全面审计(35 个写入点逐条枚举)顺带查出。crates/kanzei-app/ui/08-compose.js 的 applyProfileValue 把**进程级**档位写进**全局**键 `kz-profile`。实测:
+  用户全局选了 `dev-auto` → switchProcess 到一个 research 进程 → 全局 `kz-profile` 被写成 `research`。
+  而该函数上方的回退分支只认 `dev-pair`/`dev-auto`,`research` 被写进去等于**把用户的全局选择降级成 dev-pair**。
+- 取证: `git show HEAD:crates/kanzei-app/ui/08-compose.js` 的 applyProfileValue 与工作区**逐字一致**——HEAD 既有行为,不是 2026-08-10 侧栏重构引入的。
+- 影响: 切个进程看一眼就把全局偏好丢了,且丢法不可见(下次启动才发现档位变了)。与本轮治的那一族同病:非用户主动的操作改掉并落盘了用户的持久化状态。
+- 修复方向: 进程级档位不应写全局键——要么进程档位单独存(按 session/进程 id),要么只在用户主动改档位时写全局。注意别破坏「新进程继承全局默认」的既有语义。
+- 验收: 切进程不改写全局 `kz-profile`;用户主动改档位仍正常持久化;有拦截实测的冒烟断言。
+
+## D-249 docs_snapshot 把读失败静默降级成空列表:unwrap_or_default 叠加 docstore 非原子写,前端拿到「成功但空」的快照 [open] (high)
+- 优先级: P1
+- 复杂度: 中
 - 标签: 后端
-- 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
-- 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
+- refs: R-138 D-244
+- 证据等级: E1(四处代码实证 + 竞态探针实测)
+- 依据: 2026-08-10 持久化面全面审计。四层叠加构成一条「瞬态空快照」通道:
+  ①`crates/kanzei-tools/src/docstore.rs:307` 是 `std::fs::write(&self.path, text)`——**截断后重写,非原子**;
+  ②同文件 285-291 的 `load()` 对空文件/少条目一律返回 `Ok`,不报错;
+  ③`crates/kanzei-app/src/docs.rs:96` 是 `store.load().unwrap_or_default()`——**任何读失败(含 Windows 文件占用)静默降级成空列表**;
+  ④`docs.rs:87-89` 每次 `docs_snapshot` 开头都跑 `archive_terminal()`,**它自己就在写这几个文件**,而它只在「有条目刚进终态」时才写——正是 `refreshDocsSoon` 被触发的同一时刻。
+  于是一次 `refreshDocs`(用户点标签页)与一次 `refreshDocsSoon`(agent 事件,400ms 去抖 + IPC)完全可以同时在飞:一个在写,一个读到被截断的文件,前端拿到一份**「成功但空」**的快照。
+- 影响: 不止筛选——计数归零、列表闪空都从这里来;且因为它长得像"成功",所有下游都不会重试或报警。本轮已在前端加了两道收窄(D-169 回落加空列表守卫、refreshDocs 换项目重认),但截断读到「部分条目」时 `entries.length` 仍 > 0,**前端只能收窄不能封死**。
+- 修复方向: ①`DocStore::save` 与 `archive_terminal` 改 tmp+rename 原子写(与 R-138 同一件事,可并轨);②`docs_snapshot` 别把读失败 `unwrap_or_default()` 成空列表——读失败要么向上报错让前端保留上一份快照,要么显式区分「真的没有条目」与「读不到」。
+- 验收: ①并发写 + 读的压测下,前端不会收到「成功但空」的快照;②读失败有可见信号(不静默降级);③原子写落地后 tracker 文件不会被读到截断态;④有回归测试。
+
+## D-250 refreshDocs 的 catch 里 clearPendingJump 没有项目守卫:旧项目刷新失败会作废新项目刚排的跳转高亮 [open] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- refs: D-249
+- 证据等级: E1(探针实测 pendingJumpId 从 "R-901" 变 null)
+- 依据: 2026-08-10 收口验证顺带发现。crates/kanzei-app/ui/14-docs-actions.js 的 refreshDocs 本轮加了「await 前后各认一次项目」的守卫,但**只加在成功路径**;catch 里的 clearPendingJump() 没有同样的守卫。于是替旧项目发出的那次刷新若在用户切走之后才抛错,会把**新项目刚排上的**跳转高亮一并作废。
+- 影响: 只丢高亮,不动数据——用户点了条目引用跳过去,却看不出落在哪一条。窄,但属同一条路径上的不对称(成功路径按项目收敛了、失败路径没有)。
+- 修复方向: catch 里同样比对 forProject === currentProject,只作废属于自己那次刷新的挂起跳转。
+- 验收: 旧项目的刷新失败不影响新项目已排的跳转高亮;有拦截实测的冒烟断言。
+
+## D-251 kz-worktrees 键在 await 之后才取:切项目撞上 IPC 会把甲项目的工作树写进乙项目 [open] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- refs: D-249 D-250
+- 证据等级: E2(代码形态实证 + `git show HEAD:` 确认既有)
+- 依据: 2026-08-10 持久化面审计。crates/kanzei-app/ui/09-sessions.js:67 与 :82 的 `kz-worktrees:${currentProject}` 是在 `await invoke(...)` **之后**才取键的——与本轮修掉的 refreshDocs 同一类跨项目错写:切项目撞上 IPC 时,甲项目新建/丢弃的工作树路径会写进乙项目的键。
+- 取证: `git show HEAD:crates/kanzei-app/ui/09-sessions.js` 形态相同,**HEAD 就有,不是 2026-08-10 侧栏重构引入的**。
+- 影响: 比文档刷新那条窄得多——要用户点「建/弃工作树」按钮后立刻切项目才撞上;但一旦撞上,工作树清单会长期错位(它是纯前端 localStorage 清单,不从 `git worktree list` 发现,见 R-050 退回原因④)。
+- 修复方向: 与 refreshDocs 同一改法——await 前把 currentProject 存成局部量,await 后比对,不一致就丢弃本次写入。
+- 验收: 切项目时的在途工作树操作不写进新项目的键;有回归覆盖。

@@ -263,7 +263,7 @@ impl Tool for BashTool {
                 );
                 let breach = enforce_managed_files(&ctx.project_root, managed_before);
                 if let Some(report) = &breach {
-                    rendered.push_str("\n");
+                    rendered.push('\n');
                     rendered.push_str(report);
                 }
                 let display = serde_json::json!({
@@ -349,7 +349,7 @@ fn full_file_write_cmdlet(command: &str) -> Option<&'static str> {
 
 /// shell 中的 Git 写子命令。读命令仍放行；写命令统一走结构化 `git` 工具。
 fn git_mutation_form(command: &str) -> Option<String> {
-    for segment in command.split(|c| matches!(c, ';' | '\n' | '|' | '&')) {
+    for segment in command.split([';', '\n', '|', '&']) {
         let tokens: Vec<&str> = segment.split_whitespace().collect();
         let Some(git_at) = tokens.iter().position(|t| {
             let t = t.trim_matches(['"', '\'']);

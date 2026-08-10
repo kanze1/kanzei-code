@@ -186,7 +186,7 @@ pub async fn files_annotate(
                 first_error.get_or_insert(format!("{}: {e}", entry.path));
             }
         }
-        if dirty && (done + failed) % SAVE_EVERY == 0 {
+        if dirty && (done + failed).is_multiple_of(SAVE_EVERY) {
             let _ = save_annotations(&root, &store);
         }
         let _ = window.emit(

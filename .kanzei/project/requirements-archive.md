@@ -1473,3 +1473,41 @@
 - 批次: 2/2
 - 进展: 批1: 08-compose.js 极简默认(DEFAULT_CONTINUE_PROMPT="继续推进，规则按系统提示执行。"),删除 DEFAULT_CADENCE/applyCadenceSettings/cadenceVerificationText/buildContinuePrompt/CONTINUE_PROMPT_HEAD+TAIL/LEGACY_CONTINUE_PROMPTS/lastRenderedPrompt 全部双源治理代码;continuePrompt() 移除开发重心拼接(归 run.rs work_priority_guidance + memory preference)。批2: 16-settings.js/18-startup.js 移除 applyCadenceSettings 调用点;冒烟断言反转(旧默认原样读回不覆盖、删空回落极简、极简不含规则文本、源码不再持有规则文本)。四条冒烟全绿。收口验证完成。
 - 关闭证据: 验收①: crates/kanzei-app/ui/08-compose.js DEFAULT_CONTINUE_PROMPT="继续推进，规则按系统提示执行。"(行16),CONTINUE_PROMPT_HEAD/TAIL 与 LEGACY_CONTINUE_PROMPTS 已整体删除;scripts/ui-runtime-smoke.mjs 快照断言:删空后极简默认不含「粒度/阻塞字段/验收证据/全量测试每 3 批/一直做下去」,且 08-compose.js 源码不再持有「逐条对照验收原文/真实调用方或消费者/不得缩小验收」。验收②: 08-compose.js 初始化块(行463-469)存什么读什么——stored 原样赋 textarea,不再覆盖;change 监听器 `value || DEFAULT_CONTINUE_PROMPT` 删空回落极简;冒烟断言 textareaPrompt===storedPrompt 与删空后 minimal 含「继续推进」。验收③: LEGACY_CONTINUE_PROMPTS/applyCadenceSettings/lastRenderedPrompt 全部删除(grep 无残留),冒烟断言旧默认文案仍原样留在 localStorage 不被覆盖。验收④: node --check 全过 + ui-runtime/i18n/a11y/markdown 四条冒烟全绿,含新增极简默认断言。验收⑤: TAIL「一直做下去」随默认删除,NUDGE 由 R-169 harness nudge_prompt 接管(极简断言含不含「一直做下去」)。
+
+## R-131 设置页面部分内容支持折叠(如操作命令) [done]
+- 原始描述: 设置页面的一些显示该折叠折叠比如操作命令
+- 复杂度: 小
+- 归属: kanzei
+- 验收: 设置页面中操作命令等较长内容默认折叠展示,点击可展开/收起
+- 优先级: P2
+
+- 标签: 前端
+
+## R-134 需求和缺陷记录需要分类 [done]
+- priority: P2
+- 原始描述: 需求和缺陷记录的时候需要分类
+- 复杂度: 小
+- 归属: kanzei
+- 验收: 实现需求/缺陷记录的类型区分机制
+
+- 标签: 后端
+
+## R-146 clippy 警告清零并设闸门,此后不再悄悄回涨 [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 流程
+- 阶段: 2
+- 依赖: R-152 R-153 R-154 R-155
+- 依赖说明(2026-08-09): 闸门落点定为 ci.yml/verify.ps1 里注释着的 clippy 步骤(R-152 落地);lint 收敛的全仓 diff 会与巨石拆解大搬迁撞车并使 monolith_decomposition.md 行号地图漂移,故排在 R-153~R-155 之后,与 R-156(fmt)相邻轮做。
+- 来源: 2026-08-09 用户定调「加需求里让他自举」。当前 `cargo clippy --workspace --all-targets` 0 error、约 23 条 warning(needless_borrow×7、redundant_clone×3、map_or 可简化×2、redundant closure×2、sort_by_key×2、too_many_arguments×2、复杂类型/手写字符比较/可写成 for 循环/两处 unused assignment 等)。此前 deny 级 never_loop 曾让整个 workspace 的 clippy 编译不过(D-197 顺带修掉),warning 不清则同类问题混在噪声里看不见。
+- 内容: ①清零:逐条修掉现存 warning;确属合理的(如参数多但拆结构体属 churn 的 too_many_arguments)用 `#[allow]` 就地压制**并写明理由**,不许裸 allow。②设闸门:让 warning 无法再悄悄回涨——scripts 或 CI 任一位置跑 `cargo clippy --workspace --all-targets -- -D warnings` 并在非零退出时失败;package.ps1 构建前挂上即可。
+- 边界(必须遵守): 纯 lint 收敛,**禁止顺手重构**——不改函数签名、不拆结构体、不动行为;每类 lint 一个提交或全部一个提交均可,但 diff 里只允许 lint 相关改动;改完跑全量测试,任何测试变红即回退该处改法。挑没有其它源码工作在飞的时段做,避免与并发提交撞车。
+- 验收: ①`cargo clippy --workspace --all-targets -- -D warnings` exit=0;②每个 `#[allow]` 带一行理由注释;③闸门落地且实测会拦(临时引入一条 warning 验证非零退出后撤销);④workspace 全量测试通过,无行为改动(git diff 审计不含逻辑变更)。
+
+## R-168 活动栏仅记录报错和非工具 Bash [done]
+- 原始描述: 不要在活动栏记录所有工具，edit啥的，只记录报错的和非工具的bash
+- 复杂度: 小
+- 归属: kanzei
+- 验收: 活动栏不记录 edit 等工具调用，仅记录报错和非工具的 bash 命令。
+- 优先级: P1
+

@@ -108,7 +108,7 @@ fn run_glob(base: &std::path::Path, pattern: &str, limit: usize) -> Result<Strin
     if hits.is_empty() {
         return Ok(format!("(no files match `{pattern}`)"));
     }
-    hits.sort_by(|a, b| b.0.cmp(&a.0));
+    hits.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     let total = hits.len();
     let mut out: Vec<String> = hits.into_iter().take(limit).map(|(_, p)| p).collect();
     if total > limit {

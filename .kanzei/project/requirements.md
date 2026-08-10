@@ -16,7 +16,7 @@
 
 - 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)无专用写入通道——edit 被 ruleset 拒绝,shell 旁路被检测回滚,conventions.md 为模型只读托管资产(已记 D-235)。解除动作: 修复 D-235 提供 conventions.md 专用写入工具,或用户手写 §1.4 标注;标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具)或手写标注的用户。
 
-## R-161 记忆漏斗遥测:召回到结果的 A→R→E→U→Y 全链路落库 [todo]
+## R-161 记忆漏斗遥测:召回到结果的 A→R→E→U→Y 全链路落库 [doing]
 - 优先级: P0
 - 复杂度: 中
 - 标签: 核心
@@ -25,6 +25,9 @@
 - 内容: ①三张新表进 state.db(与 episodes 同库可 join):recall_events(触发/动作/query/候选/注入/分段延迟)、memory_sources(条目→episode 区间溯源)、memory_eval(回放臂结果);②五段漏斗判定 AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,各段机械可判;③修采纳盲区:read 工具读 .kanzei/memory/ 文件路径时回填采纳(现只有 memory_search 回填,R-150 已点名);④index.db 的 memory_recalls 停写留读;⑤CLI 与桌面端同源接线。
 - 验收: ①三表落库,CLI/桌面端写同一口径且能 join episodes 查询;②read 记忆文件回填采纳有单测;③memory_stats 可见五段漏斗计数;④漏斗各段判定有单测覆盖。
 - refs: R-103 R-125 R-150 docs/design/memory_control_plane.md
+
+- 批次: 1/3
+- 进展: 批1完成：state.db schema v8 新增 recall_events/memory_sources/memory_eval，SessionStore 提供统一写入与 funnel_counts，episode 写入返回 episode_id；kanzei-core 72 项定向测试全绿。批2待接 memory_search/read/CLI/桌面同源写入。
 
 ## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [todo]
 - 优先级: P0
@@ -144,14 +147,26 @@
 - refs: R-162 docs/design/memory_control_plane.md
 - 进展: 2026-08-10 口径清理:原「依赖: R-161/R-162/R-163」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-161/R-162/R-163 后推进。
 
+## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [todo]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 调度顺序: 紧跟 R-161～R-167 memory system 开发序列之后；这是开发顺序，不登记为阻塞依赖，memory 序列收口后直接取活。
+- 来源: 2026-08-10 用户定调子代理计划的核心原则为「并行查，串行写」，并要求收束仓库多进程代理流接口；完整设计见 docs/design/parallel_read_serial_write_orchestration.md。
+- 内容: ①新增 `ReadParallelWriteSerial` 执行策略与项目级 `ProjectExecutionCoordinator` 接口；②勘察/复核阶段允许 task 只读子代理并行，全部进入终态后经过汇总屏障；③同一规范化 project_root 同时只允许一个 writer run，租约跨实现/集成阶段和连续工具调用持有；④writer 阶段禁用 task，普通工具强制按模型调用顺序 FIFO 串行；⑤ProcessHandle 共享项目协调器，ToolCtx 分离 worktree_key 与 project_write_key 并携带 run/process 身份；⑥quick_req、tracker、goal、memory、test_record、Git/worktree 等独立写入口全部接入同一仲裁；⑦写队列、租约、阶段、取消和恢复事件落现有 session/run 轨迹。
+- 边界: P0 覆盖当前应用内多个 ProcessHandle；不做图形化 DAG、不开放子代理通用写权限、不在本批实现跨机器调度。worktree 保留隔离、diff、恢复和交付能力，但不能绕过项目级单 writer。
+- 验收: ①至少两个只读子代理真实重叠执行且工具白名单无写入口；②汇总屏障前 writer 不启动，失败/超时都有终态；③writer 阶段普通工具 max in-flight=1 且结果按调用顺序归位；④两个 ProcessHandle 竞争写权时租约区间不重叠，同一 writer 的连续写之间不能插入第二个 writer；⑤quick_req/tracker/test_record/Git/worktree 写入无法绕过协调器；⑥停止、关闭、panic 收尾后租约可靠释放；⑦一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹。
+- refs: R-050 R-117 R-138 R-141 D-227 docs/design/parallel_read_serial_write_orchestration.md
+
 ## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
 - 复杂度: 大
 - 优先级: P2
 - 来源: 用户反馈:历史对话或新开线程并行推进项目,类似 git 分支/树,最后解决冲突合并
 - 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口
-- 已完成: 线程隔离(=R-030 进程页签)真实可用,消息/权限/队列/活动/停止按 session 隔离并有 POC 测试;worktree 后端命令 create/diff/merge/discard 存在,merge 前的 `git merge-tree --write-tree` 冲突预检真实实现(kanzei-app/src/main.rs:671-684);设计文档 deep_parallel_dev.md(含附录早期 POC)覆盖线程/工作树关系与锁顺序,是 R-050 方案的唯一承载。
+- 已完成: 线程隔离(=R-030 进程页签)真实可用,消息/权限/队列/活动/停止按 session 隔离并有 POC 测试;worktree 后端命令 create/diff/merge/discard 存在,merge 前的 `git merge-tree --write-tree` 冲突预检真实实现(kanzei-app/src/main.rs:671-684);设计文档 deep_parallel_dev.md(含附录早期 POC)继续承载 worktree/模型隔离方案,多进程调度与写入纪律以 parallel_read_serial_write_orchestration.md/R-171 为准。
 - 退回原因: 2026-08-07 验收核查发现核心组合未成立,勾不该打。①worktree 与线程完全脱节:ProcessHandle.worktree_path 恒为 None(main.rs:164/523,全仓库无 Some 赋值),process_create 不接受 worktree 参数,run_prompt 校验进程必须属于主项目目录(2605-2607)——没有任何线程能在 worktree 里运行,所有并行线程写同一工作目录;应用内无流程会在 worktree 分支产生提交,"合并"在闭环内空转。②多进程同一工作树无任何写冲突检测,设计承诺的项目写锁/git 锁/docstore 版本哈希在代码中完全不存在。③"可查看 diff"实为 git status --porcelain 文件名列表弹 toast(见 D-096)。④崩溃恢复仅设计文字,worktree 清单存 localStorage 不从 git worktree list 发现。
-- 下一步: 按 deep_parallel_dev.md 分阶段推进:先让进程可绑定 worktree 并在其中运行(打通 worktree_path),再补同工作树并行的写冲突防护,最后接 diff 查看器。注意该文 §6 决策点 D1~D7 未经用户定案前不得动工(G-003 门禁)。
+- 下一步: R-171 先在 memory system 开发序列之后交付项目级单 writer 与串行工具地基；R-050 的 worktree 绑定、diff 与恢复仍按 deep_parallel_dev.md 分阶段推进,且该文 §6 其余 D1~D7 未经用户定案前不得动工。
 - 遗留质量问题: worktree 四个命令零测试;worktree_field 的 field 参数是无效分支(main.rs:605-610 两分支返回同值);frontend_phase3.md 的 POC 章节重复粘贴两遍且第一遍路径写错。
 - refs: R-030 D-096
 - 阶段: 5
@@ -160,8 +175,8 @@
 
 - 标签: 核心
 
-- 进展: 2026-08-08 复核:门禁仍成立,保持 todo 不启动;定案前如队列触达本条目只可完善设计文档或调研,不改代码。
-- 阻塞: 用户: 需先对 docs/design/deep_parallel_dev.md §6 决策点 D1~D7 逐条定案(G-003 门禁明文:未定案前不得开始实施)。解除动作:用户审阅设计文档并逐点拍板 D1~D7(可全部采纳或逐条修改),定案后本条目解除。
+- 进展: 2026-08-10 口径更新:本条 worktree/模型隔离部分的门禁仍成立,保持 todo;项目级单 writer 与串行工具已拆为 R-171,不受本条未定决策阻塞。
+- 阻塞: 用户: 需先对 docs/design/deep_parallel_dev.md §6 中除“项目级单 writer”外的 worktree/模型隔离决策逐条定案。解除动作:用户审阅剩余决策点并拍板后,本条 worktree 实施部分解除。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
@@ -243,15 +258,6 @@
 
 - 标签: 后端
 
-## R-131 设置页面部分内容支持折叠(如操作命令) [todo]
-- 原始描述: 设置页面的一些显示该折叠折叠比如操作命令
-- 复杂度: 小
-- 归属: kanzei
-- 验收: 设置页面中操作命令等较长内容默认折叠展示,点击可展开/收起
-- 优先级: P2
-
-- 标签: 前端
-
 ## R-133 diff树渲染优化 [todo]
 - 原始描述: diff树的显示很丑，标记颜色并且不要重叠
 - 复杂度: 中
@@ -260,15 +266,6 @@
 - 优先级: P2
 
 - 标签: 前端
-
-## R-134 需求和缺陷记录需要分类 [todo]
-- priority: P2
-- 原始描述: 需求和缺陷记录的时候需要分类
-- 复杂度: 小
-- 归属: kanzei
-- 验收: 实现需求/缺陷记录的类型区分机制
-
-- 标签: 后端
 
 ## R-135 开发与缺陷修复进度动画显示 [todo]
 - 优先级: P0
@@ -351,18 +348,6 @@
 
 - 标签: 流程
 
-## R-146 clippy 警告清零并设闸门,此后不再悄悄回涨 [todo]
-- 优先级: P2
-- 复杂度: 小
-- 标签: 流程
-- 阶段: 2
-- 依赖: R-152 R-153 R-154 R-155
-- 依赖说明(2026-08-09): 闸门落点定为 ci.yml/verify.ps1 里注释着的 clippy 步骤(R-152 落地);lint 收敛的全仓 diff 会与巨石拆解大搬迁撞车并使 monolith_decomposition.md 行号地图漂移,故排在 R-153~R-155 之后,与 R-156(fmt)相邻轮做。
-- 来源: 2026-08-09 用户定调「加需求里让他自举」。当前 `cargo clippy --workspace --all-targets` 0 error、约 23 条 warning(needless_borrow×7、redundant_clone×3、map_or 可简化×2、redundant closure×2、sort_by_key×2、too_many_arguments×2、复杂类型/手写字符比较/可写成 for 循环/两处 unused assignment 等)。此前 deny 级 never_loop 曾让整个 workspace 的 clippy 编译不过(D-197 顺带修掉),warning 不清则同类问题混在噪声里看不见。
-- 内容: ①清零:逐条修掉现存 warning;确属合理的(如参数多但拆结构体属 churn 的 too_many_arguments)用 `#[allow]` 就地压制**并写明理由**,不许裸 allow。②设闸门:让 warning 无法再悄悄回涨——scripts 或 CI 任一位置跑 `cargo clippy --workspace --all-targets -- -D warnings` 并在非零退出时失败;package.ps1 构建前挂上即可。
-- 边界(必须遵守): 纯 lint 收敛,**禁止顺手重构**——不改函数签名、不拆结构体、不动行为;每类 lint 一个提交或全部一个提交均可,但 diff 里只允许 lint 相关改动;改完跑全量测试,任何测试变红即回退该处改法。挑没有其它源码工作在飞的时段做,避免与并发提交撞车。
-- 验收: ①`cargo clippy --workspace --all-targets -- -D warnings` exit=0;②每个 `#[allow]` 带一行理由注释;③闸门落地且实测会拦(临时引入一条 warning 验证非零退出后撤销);④workspace 全量测试通过,无行为改动(git diff 审计不含逻辑变更)。
-
 ## R-147 增加使用手册与作者话内容板块 [todo]
 - 复杂度: 中
 - 归属: kanzei
@@ -376,10 +361,12 @@
 - 归属: kanzei
 - 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
 
-## R-168 活动栏仅记录报错和非工具 Bash [todo]
-- 原始描述: 不要在活动栏记录所有工具，edit啥的，只记录报错的和非工具的bash
+## R-172 新建配置文件的注释模板补齐各节骨架示例 [todo]
+- 优先级: P3
 - 复杂度: 小
+- 标签: 前端
 - 归属: kanzei
-- 验收: 活动栏不记录 edit 等工具调用，仅记录报错和非工具的 bash 命令。
-- 优先级: P1
-
+- 来源: 2026-08-10 设置页全字段走查。settings_open 原先在新建配置时把 `codex_fast_mode = false` 合成进载荷写死(已作为缺陷修掉),现改为写纯注释模板。用户定调:**保留注释模板**(不回退成 0 字节空文件),但当前模板只有三行注释,全新环境下打开「配置原文」看不到有哪些节可写,第一次上手缺线索。
+- 内容: 把新建配置的注释模板补成带各节骨架的注释示例(至少覆盖 [models]、[providers.X]、[limits]、[proxy]、[cadence] 的键名与取值范围),全部以注释形式给出——**不得写成生效的显式值**,否则会被当成用户设定、绕过 fill_defaults 的默认(这正是被修掉的那个 bug 的形态)。
+- 边界: 只动模板文本;不改 settings_open 的写入时机与「留空即默认」语义;模板内容写进文件、不是界面文案,不受 ui-i18n-smoke 约束。
+- 验收: ①全新环境下 settings_open 产出的文件含各节骨架注释;②解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致);③不引入任何生效的显式值。

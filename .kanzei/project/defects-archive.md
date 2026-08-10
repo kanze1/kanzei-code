@@ -2267,3 +2267,20 @@
 - 证据等级: E1(代码路径实证)
 - 验收: ①files.rs::git_file_list、git_batches.rs::commit_subjects、git.rs::compile_gate、shell.rs::kill_tree 四处子进程全部设置 CREATE_NO_WINDOW(std/tokio creation_flags);②共享辅助函数收敛,不与 bash.rs/git.rs 既有隐藏逻辑重复;③cargo test -p kanzei-tools 全绿。
 - 进展: 修复完成(提交 2ee766d)。验收对照:①四处调用点全部接入 CREATE_NO_WINDOW——files.rs:175 `crate::hide_console(&mut command)`(git_file_list)、git_batches.rs:40 `crate::hide_console(&mut command)`(commit_subjects)、git.rs:331 `crate::hide_console_async(&mut command)`(compile_gate/cargo)、shell.rs:92 `crate::hide_console_async(&mut command)`(kill_tree/taskkill);②共享辅助收敛于 lib.rs:57(hide_console,std,cfg(windows) 设 0x0800_0000)与 lib.rs:67(hide_console_async,tokio),bash.rs:560/git.rs:509 私有函数改为委托共享实现,无重复常量;③cargo test -p kanzei-tools 126 passed/0 failed(记录 T-1786312997),下游 kanzei-core/kanzei-app cargo check 通过(仅既有警告)。
+
+## D-232 package.ps1 发布门禁缺「HEAD 已推远端」检查,未推时 422 到最后一步才炸 [fixed] (medium)
+- 优先级: P2
+- 复现: 2026-08-10 发版 build-9e09b80 实测:dev 领先 origin/dev 21 个提交时跑 package.ps1 -Ack 21 -Publish,tauri build + NSIS 全部完成(约 1 分钟)后,gh release create --target <full_hash> 报 HTTP 422 `Release.target_commitish is invalid`——GitHub 要求 target 提交在远端可达,本地未推的 SHA 一律拒绝。推送后重跑成功。
+- 影响: 失败发生在整条流水线最后一步,前面的构建时间全部白费;且 422 报错文案不指向真因(脚本注释里只记载过「短 hash 会 422」的旧案),排查要靠人对比 origin/dev。自举/无人值守发版场景下这是必踩坑——自举只 commit 不 push。
+- 修复方向: 在 -Ack 核对同一节(构建开始前)加一条前置检查:`git rev-list origin/<branch>..HEAD` 非零即中止,报错明说「先 git push 再发版」;或者(需用户拍板)自动 push 后继续。顺带把 422 旧案注释更新为两种成因(短 hash / 未推远端)。
+- 证据等级: E1(本次发版实测复现+修复验证)
+- 标签: 流程
+
+## D-240 update_tests_update 进程存活探测 flaky:tasklist 竞态偶发误判自身已退出 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 复现: cargo test -p kanzei-app 全量并行时,update_tests_update::install_helper_waits_for_the_caller_to_exit_before_installing 偶发失败(296s):wait_for_parent_exit(自身 PID,600ms) 判定"当前进程已退出"。单独重跑 2s 通过,二次全量通过。
+- 标签: 后端
+- 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
+- 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
+

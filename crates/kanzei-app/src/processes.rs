@@ -174,6 +174,8 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         runtime.asks.lock().unwrap().clear();
         runtime.running.store(false, Ordering::SeqCst);
     }
+    // 自主推进控制器与进程生命周期同源；关闭后不能让下次同 ID 会话继承旧轮数。
+    state.auto_runs.lock().unwrap().remove(&session_id);
     if process_id.starts_with("d|") {
         *process.model.lock().unwrap() = None;
         *process.profile.lock().unwrap() = None;

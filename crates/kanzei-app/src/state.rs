@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tauri::Emitter;
 use tokio::sync::oneshot;
 
 pub(crate) fn prompt_attachment_parts(
@@ -260,9 +259,9 @@ pub(crate) struct AppState {
     pub(crate) ask_seq: Arc<AtomicU64>,
     pub(crate) processes: Arc<Mutex<HashMap<String, ProcessHandle>>>,
     pub(crate) mobile_service: Arc<Mutex<Option<MobileService>>>,
-    /// 自主推进(鞭挞)判定状态(R-169):控件输入经 auto_state_update 同步,
-    /// 轮末由 run.rs 判定并随 kz:done 带给前端执行。
-    pub(crate) auto_run: Arc<Mutex<crate::auto_run::AutoRunController>>,
+    /// 自主推进(鞭挞)状态按会话隔离：控件输入经 auto_state_update 同步，
+    /// 轮末由 run.rs 只消费所属会话的控制器，不能串扰后台进程。
+    pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
 }
 
 pub(crate) fn normalized_project_root(path: &Path) -> PathBuf {

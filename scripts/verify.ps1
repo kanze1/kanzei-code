@@ -23,6 +23,7 @@ function Invoke-Check([string]$name, [scriptblock]$body) {
 
 # R-146(clippy)启用时必须同步修改 .github/workflows/ci.yml：两处门禁清单保持一致。
 Invoke-Check "fmt" { cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check }
+Invoke-Check "clippy" { cargo clippy --workspace --all-targets --manifest-path "$root\Cargo.toml" -- -D warnings }
 Invoke-Check "test" { cargo test --workspace --manifest-path "$root\Cargo.toml" }
 Invoke-Check "ui_syntax" {
     Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {

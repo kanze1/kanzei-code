@@ -323,6 +323,7 @@ pub fn resident_index(
 /// 1. 信号本身已过 `summarize_failures` 的"重复≥2 或有恢复对"闸;
 /// 2. 同指纹在当前 inbox 里已存在则跳过(同一个坑不重复投);
 /// 3. 每轮上限 MAX_FAILURE_NOTES_PER_RUN 条。
+///
 /// 值不值得写成记忆条目仍由 memory-manager 判定——引擎不做语义判断。
 pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSignal]) -> usize {
     let global = MemoryStore::global();
@@ -477,6 +478,72 @@ pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<Stri
     prompt_hints_with_budget(project_root, prompt, MEMORY_CONTEXT_BUDGET)
 }
 
+/// 把一次实际记忆检索写入 state.db。CLI 的开跑预检索、memory_search 工具和
+/// 桌面端搜索页都经过这里，避免三条入口各自维护漏斗口径。
+pub fn record_memory_search_telemetry(
+    project_root: &std::path::Path,
+    query: &str,
+    hits: &[SearchHit],
+    injected: bool,
+) {
+    if hits.is_empty() {
+        return;
+    }
+    let path = project_root.join(".kanzei").join("state.db");
+    let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+        return;
+    };
+    let ids: Vec<&str> = hits.iter().map(|hit| hit.entry.id.as_str()).collect();
+    let Ok(ids_json) = serde_json::to_string(&ids) else {
+        return;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let event = kanzei_core::RecallEvent {
+        recall_id: &format!("memory-search-{now}"),
+        episode_id: None,
+        step_id: None,
+        trigger_type: "memory_search",
+        trigger_payload: "{}",
+        policy_action: "lexical",
+        query,
+        candidate_ids: &ids_json,
+        retrieved_ids: &ids_json,
+        injected_ids: if injected { &ids_json } else { "[]" },
+        lexical_ms: 0,
+        embed_ms: 0,
+        vector_ms: 0,
+        total_ms: 0,
+    };
+    let _ = store.record_recall_event(&event);
+}
+
+/// 在真正读取记忆文件后回填旧 index.db 的 fetched 事实。搜索结果本身不算采纳。
+pub fn mark_memory_file_read(project_root: &std::path::Path, path: &std::path::Path) {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return;
+    };
+    let Some(memory_id) = file_name.split('-').next() else {
+        return;
+    };
+    if memory_id.is_empty() {
+        return;
+    }
+    let mut stores = vec![MemoryStore::project(project_root)];
+    stores.extend(MemoryStore::global());
+    for store in stores {
+        if store.scope.label() == "project" && !path.starts_with(&store.root) {
+            continue;
+        }
+        if store.scope.label() == "global" && !path.starts_with(&store.root) {
+            continue;
+        }
+        store.mark_recall_fetched(memory_id);
+    }
+}
+
 /// budget 与常驻注入同源,决定「哪些条目已在 memory-index 里」的判定口径。
 fn prompt_hints_with_budget(
     project_root: &std::path::Path,
@@ -536,6 +603,7 @@ fn prompt_hints_with_budget(
             store.record_recall(prompt, &own, block.len());
         }
     }
+    record_memory_search_telemetry(project_root, prompt, &hits, true);
     Some(block)
 }
 

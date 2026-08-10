@@ -115,6 +115,9 @@ function renderProviders() {
     removeBtn.addEventListener("click", () => {
       settingsProviders.splice(index, 1);
       renderProviders();
+      // 删行是 click,不是 input/change,表格上的事件委托抓不到它:不显式同步就会
+      // 出现"删了 provider 却没有未保存提示",切走视图一重载又原样回来。
+      syncSettingsDirty();
     });
     tdRemove.appendChild(removeBtn);
 
@@ -188,14 +191,21 @@ const SETTINGS_FORM_IDS = [
   "set-cadence-full-test", "set-cadence-full-test-batches",
   "set-cadence-targeted-test", "set-cadence-commit", "set-cadence-push",
 ];
+// 开关类控件不能混进 SETTINGS_FORM_IDS:checkbox 的 .value 恒为 "on"(勾不勾都一样),
+// 拿它做指纹永远比不出差异。脏状态必须读 .checked。漏登记的后果不是"少个角标"——
+// 03-shell.js:107 每次进设置页都重跑 loadSettings,把表单整张覆盖回磁盘值:走开一趟
+// 再回来,勾过的开关就悄悄弹回去了,而角标从头到尾没亮过。用户看到的就是
+// "这个开关点了没用"(D-157 那条"界面显示 A、运行用 B"的开关版)。
+const SETTINGS_TOGGLE_IDS = ["set-codex-fast-mode"];
 let settingsSnapshot = "";
 function settingsFingerprint() {
   // provider 表格是动态行,单独序列化;它和标量字段一起构成"这张表单当前的样子"。
   const scalars = SETTINGS_FORM_IDS.map((id) => `${id}=${$(id)?.value ?? ""}`).join("|");
+  const toggles = SETTINGS_TOGGLE_IDS.map((id) => `${id}=${$(id)?.checked ? 1 : 0}`).join("|");
   const providers = JSON.stringify(
     settingsProviders.map((p) => [p.name, p.protocol, p.baseUrl, p.apiKeyEnv, p.apiKey, p.contextLimit]),
   );
-  return `${scalars}||${providers}`;
+  return `${scalars}|${toggles}||${providers}`;
 }
 function syncSettingsDirty() {
   const badge = $("settings-dirty");
@@ -213,11 +223,31 @@ function renderEffectiveNotice(s) {
   const box = $("settings-effective");
   if (!box) return;
   const diffs = [];
-  for (const [key, label] of [["primary", "primary"], ["fast", "fast"], ["reasoning", "思考强度"]]) {
+  const effective = s.effective;
+  // 只比 effective 里**确实带了的键**:后端没报的键(旧版本 / 新加的字段还没接线)
+  // 一律跳过,否则 undefined 会被当成"实际生效是未设",提示条天天误报,
+  // 用户很快就学会无视它,真被覆盖时反而看不见。
+  const has = (key) => effective && Object.prototype.hasOwnProperty.call(effective, key);
+  // 模型角色之外的标量也会被项目级 kanzei.toml 覆盖(D-168 当年只堵了模型角色这一个口):
+  // 用户改全局值、页面显示「已保存」、运行永远用项目值,又是一次"保存没生效"。
+  for (const [key, label] of [
+    ["primary", "primary"], ["fast", "fast"], ["reasoning", t("思考强度")],
+    ["proxy", t("代理")], ["profileDefault", t("默认模式")], ["codexFastMode", "Codex Fast mode"],
+  ]) {
+    if (!has(key)) continue;
     const global = key === "reasoning" ? (s.reasoning === "off" ? null : s.reasoning) : s[key];
-    const eff = s.effective?.[key] ?? null;
-    if (s.effective && (eff ?? null) !== (global ?? null)) {
+    const eff = effective[key];
+    if ((eff ?? null) !== (global ?? null)) {
       diffs.push(`${label}:本页 ${global ?? "(未设)"} → 实际生效 ${eff ?? "(未设)"}`);
+    }
+  }
+  // 运行上限十项合成一条:项目级只要覆盖了任意一个键就弹十条提示会把这条提示废掉。
+  if (has("limits")) {
+    const overridden = LIMIT_FIELDS
+      .map(([, key]) => key)
+      .filter((key) => (s.limits?.[key] ?? null) !== (effective.limits?.[key] ?? null));
+    if (overridden.length) {
+      diffs.push(`${t("运行上限")}:${overridden.join("、")}`);
     }
   }
   box.classList.toggle("hidden", diffs.length === 0);
@@ -231,10 +261,19 @@ function renderEffectiveNotice(s) {
 // 模型角色改成真下拉:自由文本框要手打 `provider:model`,拼错一个字母要到运行时
 // 才炸,而那时人早已离开设置页。这里从各 provider 探测到的清单里选,手填只作兜底。
 let knownModelIds = [];
-async function fillKnownModels(preserve = true) {
-  const roles = [$("set-primary"), $("set-fast")].filter(Boolean);
+/// desired = { primary, fast }:调用方把"该保留哪个值"显式传进来(loadSettings 用已存值)。
+/// 不传则以下拉当前值为基准(「重新探测模型」「一键就绪子代理」——那时选项已经建好,
+/// 读 DOM 才是对的)。**绝不能**让 loadSettings 靠"先 select.value = 已存值、再来这里读
+/// DOM"当基准:首次进设置页时两个 select 在 index.html 里是零个 option 的空壳,按 HTML
+/// 规范给 select 赋一个没有匹配 option 的值只会把 selectedIndex 打到 -1、value 读回空串,
+/// 那两行赋值等于没写。基准一空,下面的手填兜底 option 就不会建,已存的模型被静默清成
+/// 「未设」,用户改别的字段点一次保存就把 [models] primary/fast 从 kanzei.toml 里删掉,
+/// 运行回落内置默认——正是 08-compose.js:747 记下的同一个坑,顶栏躲过了,这里没有。
+async function fillKnownModels(desired = null) {
+  const roles = [[$("set-primary"), "primary"], [$("set-fast"), "fast"]].filter(([el]) => el);
   if (!roles.length) return;
-  const current = roles.map((el) => el.value);
+  // 不传 desired 时,基准要在 await 之前取——探测可能耗时数秒,期间用户仍能改下拉。
+  const current = desired ? null : roles.map(([el]) => el.value);
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
     // 角色不能再指向角色(primary → primary 会绕成死循环)。
@@ -242,8 +281,8 @@ async function fillKnownModels(preserve = true) {
   } catch {
     knownModelIds = [];
   }
-  roles.forEach((select, index) => {
-    const keep = preserve ? current[index] : select.value;
+  roles.forEach(([select, role], index) => {
+    const keep = desired ? (desired[role] ?? "") : current[index];
     select.innerHTML = "";
     const none = document.createElement("option");
     none.value = "";
@@ -267,8 +306,23 @@ async function fillKnownModels(preserve = true) {
     manual.value = MANUAL_MODEL_SENTINEL;
     manual.textContent = t("＋ 手填模型…");
     select.appendChild(manual);
+    // 结构性不变量:keep 非空时上面必然已存在 value === keep 的 option(要么在
+    // knownModelIds 里,要么刚补的手填兜底),所以这句赋值必然落得下去;keep 为空则
+    // 选中「未设」。任何时候都不会出现"赋了个无效值 → 静默变空串"。
     select.value = keep ?? "";
   });
+}
+
+/// 下拉里没有这个值就补一个兜底 option。选项表写死在 index.html 里,而配置文件的合法
+/// 取值集合比它大(例如 [profile] default 还认 readonly),硬塞一个不存在的值只会让
+/// select 落到空串,保存一次就把用户配置改成默认档——与模型角色同一个坑。
+function ensureSelectOption(select, value) {
+  if (!select || !value) return;
+  if ([...select.options].some((o) => o.value === value)) return;
+  const opt = document.createElement("option");
+  opt.value = value;
+  opt.textContent = value;
+  select.appendChild(opt);
 }
 
 // 手填分支:两个角色下拉共用。选中哨兵值时弹输入,校验格式后插回列表。
@@ -415,13 +469,14 @@ async function loadSettings() {
     return;
   }
   $("settings-path").textContent = s.path;
-  // 先把已保存的值塞进去,再让 fillKnownModels 以它为基准建选项:
-  // 顺序反了的话,探测不到的已存值会在建表时丢失,一保存就把配置改坏。
-  $("set-primary").value = s.primary ?? "";
-  $("set-fast").value = s.fast ?? "";
-  await fillKnownModels();
-  $("set-primary").value = s.primary ?? "";
-  $("set-fast").value = s.fast ?? "";
+  // 已存值必须**显式传给** fillKnownModels 当基准。此前是"先 select.value = 已存值,
+  // 建完选项再塞一次",两次都是空操作:首次进设置页时下拉里一个 option 都没有,给
+  // select 赋没有匹配项的值按规范只会把它打到空串。基准一空,探测不到的已存模型就被
+  // 静默清成「未设」,而 markSettingsSaved() 还把这个已经被清空的状态当成干净基线
+  // (角标不亮,零告警),用户改任意别的字段点保存,后端就把 [models] 的键删了。
+  await fillKnownModels({ primary: s.primary ?? "", fast: s.fast ?? "" });
+  // 配置里可能是 readonly 这种下拉没有的合法档位:没有兜底 option 就会变空串。
+  ensureSelectOption($("set-profile"), s.profileDefault);
   $("set-profile").value = s.profileDefault;
   $("set-reasoning").value = s.reasoning || "off";
   $("set-codex-fast-mode").checked = s.codexFastMode === true;
@@ -466,6 +521,10 @@ async function loadSettings() {
 }
 for (const id of SETTINGS_FORM_IDS) {
   $(id)?.addEventListener("input", syncSettingsDirty);
+  $(id)?.addEventListener("change", syncSettingsDirty);
+}
+// checkbox 只有 change 有意义(input 事件对它不触发脏状态之外的语义)。
+for (const id of SETTINGS_TOGGLE_IDS) {
   $(id)?.addEventListener("change", syncSettingsDirty);
 }
 // provider 表格是动态重建的,逐行绑会随重绘丢失;在容器上做事件委托一次覆盖全表。
@@ -521,6 +580,7 @@ $("agent-container-rollback").addEventListener("click", () => agentContainerActi
 $("provider-add").addEventListener("click", () => {
   settingsProviders.push({ name: "", protocol: "openai", baseUrl: "http://", apiKeyEnv: "" });
   renderProviders();
+  syncSettingsDirty();
 });
 
 $("providers-test").addEventListener("click", async () => {
@@ -559,6 +619,9 @@ $("settings-save").addEventListener("click", async () => {
         codexFastMode: $("set-codex-fast-mode").checked,
         limits: collectLimits(),
         cadence: collectCadence(),
+        // 约定:清单非空 = 清单即权威,后端会删掉配置里不在清单中的 [providers.X]
+        // (否则表格里点了「×」保存后重开又回来)。所以这里**必须发整张表**,
+        // 任何时候都不许只发"改动过的那几行"。
         providers: settingsProviders.map((p) => ({
           name: p.name,
           protocol: p.protocol,

@@ -169,6 +169,7 @@ impl MemoryStore {
 
     /// 写入门禁:枚举校验 + description 必填 + 精确标题去重(可 force)+ refs 来源契约
     /// + subject 状态不变量(同 category+subject 至多一条 active,force 不可绕,R-149)。
+    #[allow(clippy::too_many_arguments)] // 记忆条目的稳定写入接口；参数均直接映射持久化字段。
     pub fn add(
         &self,
         category: &str,
@@ -1380,7 +1381,7 @@ mod tests {
         let merged = store
             .merge(
                 &a.id,
-                &[b.id.clone()],
+                std::slice::from_ref(&b.id),
                 None,
                 Some("gh 网络失败/超时必读"),
                 Some("HTTPS_PROXY=http://127.0.0.1:12000"),
@@ -1397,10 +1398,10 @@ mod tests {
             .any(|(k, v)| k == "superseded_by" && v == &a.id));
         // 未知 id 与自我合并都拒绝
         assert!(store
-            .merge(&a.id, &[a.id.clone()], None, None, None)
+            .merge(&a.id, std::slice::from_ref(&a.id), None, None, None)
             .is_err());
         assert!(store
-            .merge("M-999", &[b.id.clone()], None, None, None)
+            .merge("M-999", std::slice::from_ref(&b.id), None, None, None)
             .is_err());
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1721,7 +1722,7 @@ mod tests {
         let merged = store
             .merge(
                 &a.id,
-                &[b.id.clone()],
+                std::slice::from_ref(&b.id),
                 None,
                 None,
                 Some("合并后的正文(manager 忘了带指纹)"),

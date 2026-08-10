@@ -144,8 +144,8 @@ fn handle_mobile_connection(mut stream: TcpStream, project_root: PathBuf, token:
                 return;
             };
             match kanzei_core::SessionStore::open(&state_path).and_then(|store| {
-                store.create_session(&thread_id, &project_root.display().to_string(), None)?;
-                store.append_event(&thread_id, "mobile.message", &payload)?;
+                store.create_session(thread_id, &project_root.display().to_string(), None)?;
+                store.append_event(thread_id, "mobile.message", &payload)?;
                 Ok(())
             }) {
                 Ok(()) => mobile_json_response("202 Accepted", &json!({"accepted": true})),

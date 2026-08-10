@@ -86,6 +86,19 @@ function autoContinueMax() {
   const value = Number.parseInt($("auto-max").value, 10);
   return Number.isFinite(value) ? Math.min(100, Math.max(1, value)) : DEFAULT_AUTO_CONTINUE_MAX;
 }
+function syncAutoRunState() {
+  if (!activeSessionId) return;
+  return invoke("auto_state_update", {
+    sessionId: activeSessionId,
+    enabled: $("auto-continue").checked,
+    paused: autoPaused,
+    stopAfterRound: autoStopAfterRound,
+    maxRounds: autoContinueMax(),
+  });
+}
+function resetAutoRunState() {
+  if (activeSessionId) void invoke("auto_state_reset", { sessionId: activeSessionId });
+}
 function cancelAutoContinueTimer() {
   if (autoContinueTimer) clearTimeout(autoContinueTimer);
   autoContinueTimer = null;
@@ -187,7 +200,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     noActionRounds = 0;
     cancelAutoContinueTimer();
     // R-169:手动发送归零后端状态机计数。
-    void invoke("auto_state_reset");
+    resetAutoRunState();
   }
   currentAssistant = null;
   currentReasoning = null;
@@ -346,8 +359,8 @@ function stopAutoForManualInput() {
   noActionRounds = 0;
   cancelAutoContinueTimer();
   // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
-  void invoke("auto_state_update", { enabled: false });
-  void invoke("auto_state_reset");
+  void syncAutoRunState();
+  resetAutoRunState();
   const message = t("收到手动输入，鞭挞已停止");
   setAutoStopReason(message);
   addMessage("notice", message);
@@ -455,8 +468,6 @@ $("continue-toggle").addEventListener("click", () => {
   if (open) $("continue-prompt").focus();
 });
 $("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
-// R-169:启动即同步后端开关状态(后端默认关闭;勾选状态持久化于前端 localStorage)。
-void invoke("auto_state_update", { enabled: $("auto-continue").checked });
 renderAutoStatus();
 // R-170:LEGACY 升级机制已删除(规则剥离后无「历史默认需升级」契约错位)。
 // 存什么读什么:用户自定义文案原样保留;删空回落极简默认。
@@ -476,12 +487,15 @@ $("auto-max").value = Math.min(100, Math.max(1, Number.parseInt(localStorage.get
 localStorage.removeItem("kz-auto-stop-round");
 $("auto-stop-round").checked = false;
 autoStopAfterRound = false;
+// 启动时等 activeSessionId 就绪后同步所有控件；仅同步 enabled 会让已保存的轮数上限
+// 在后端回落为默认 10，造成展示与实际安全上限不一致。
+void syncAutoRunState();
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   $("auto-pause").classList.toggle("active", autoPaused);
   $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
   // R-169:暂停状态同步后端状态机。
-  void invoke("auto_state_update", { paused: autoPaused });
+  void syncAutoRunState();
   if (autoPaused) cancelAutoContinueTimer();
   // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
   if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
@@ -493,7 +507,7 @@ $("auto-pause").addEventListener("click", () => {
 $("auto-stop-round").addEventListener("change", () => {
   autoStopAfterRound = $("auto-stop-round").checked;
   // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
-  void invoke("auto_state_update", { stopAfterRound: autoStopAfterRound });
+  void syncAutoRunState();
   log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
 });
 $("auto-max").addEventListener("change", () => {
@@ -504,7 +518,8 @@ $("auto-max").addEventListener("change", () => {
   autoRounds = 0;
   cancelAutoContinueTimer();
   // R-169:上限同步后端状态机。
-  void invoke("auto_state_update", { maxRounds: max });
+  void syncAutoRunState();
+  resetAutoRunState();
   log(`${t("鞭挞上限已设为")} ${max} ${t("轮")}`);
 });
 $("auto-continue").addEventListener("change", () => {
@@ -513,7 +528,7 @@ $("auto-continue").addEventListener("change", () => {
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
-    void invoke("auto_state_update", { enabled: false });
+    void syncAutoRunState();
     toast(t("鞭挞仅适用于自主推进模式，请先切换模式"));
     log(t("鞭挞未开启:结伴开发模式不支持自动续跑"));
     return;
@@ -522,7 +537,7 @@ $("auto-continue").addEventListener("change", () => {
   autoRounds = 0;
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
   // R-169:开关同步后端状态机(enabled)。
-  void invoke("auto_state_update", { enabled: $("auto-continue").checked });
+  void syncAutoRunState();
   log($("auto-continue").checked ? `${t("鞭挞已开启:每轮结束自动推进目标")} (${t("轮")} ${autoContinueMax()})` : t("鞭挞已关闭"));
   // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
   // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
@@ -557,7 +572,7 @@ function syncAutoContinueWithProfile() {
   autoRounds = 0;
   cancelAutoContinueTimer();
   // R-169:模式不兼容时后端开关同步关闭。
-  void invoke("auto_state_update", { enabled: false });
+  void syncAutoRunState();
   renderAutoStatus();
   log(t("当前模式不支持鞭挞，已自动关闭"));
   toast(t("鞭挞已关闭：当前进程不是自主推进模式"));

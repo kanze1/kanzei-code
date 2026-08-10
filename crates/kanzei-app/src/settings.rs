@@ -246,6 +246,9 @@ pub(crate) fn settings_apply_scalar_fields(
     );
     let profile = settings_table(doc, "profile")?;
     profile.set_implicit(true);
+    // readonly 也是合法档位(defs.rs ProfileKind)。设置页的下拉只列 dev/research,
+    // 但文件里写着 readonly 的用户不能因为路过一次设置页就被静默降级成 dev——
+    // 白名单少一个值,表现出来就是"我明明没动这一项,保存后它自己变了"。
     settings_set_or_reset(
         profile,
         "default",
@@ -253,7 +256,7 @@ pub(crate) fn settings_apply_scalar_fields(
             .profile_default
             .as_ref()
             .or(payload.profile.as_ref())
-            .filter(|p| p.as_str() == "dev" || p.as_str() == "research")
+            .filter(|p| matches!(p.as_str(), "dev" | "research" | "readonly"))
             .cloned(),
         "dev",
     );
@@ -363,12 +366,36 @@ pub(crate) fn settings_apply_cadence(
     Ok(())
 }
 
+/// [providers] 节:载荷带非空 provider 清单 = **清单即权威**,配置里不在清单中的
+/// `[providers.X]` 子表会被删除;载荷不带 provider(settings_open 的合成载荷、其他
+/// 调用方)则整节不动,只增改不删——与 settings_apply_cadence「载荷不带 cadence 就整
+/// 节不动」是同一条约定。
+///
+/// 加这条剪枝之前只有 upsert:设置页表格里点「×」删掉一个 provider,载荷里确实没它了,
+/// 但配置里的子表从没被删过,重开设置页它又原样回来,用户看到的就是"删了没生效"。
+/// 因此新调用方要么发整张表,要么一个 provider 都别发,不许发"只改动的那几行"。
 pub(crate) fn settings_apply_providers(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
 ) -> Result<(), String> {
     let providers = settings_table(doc, "providers")?;
     providers.set_implicit(true);
+    if !payload.providers.is_empty() {
+        let keep: std::collections::BTreeSet<&str> = payload
+            .providers
+            .iter()
+            .map(|p| p.name.trim())
+            .filter(|name| !name.is_empty())
+            .collect();
+        let stale: Vec<String> = providers
+            .iter()
+            .map(|(key, _)| key.to_string())
+            .filter(|key| !keep.contains(key.as_str()))
+            .collect();
+        for name in stale {
+            providers.remove(&name);
+        }
+    }
     for p in &payload.providers {
         let name = p.name.trim().to_string();
         if name.is_empty() {
@@ -444,11 +471,37 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             })
         })
         .collect();
-    let effective = project_dir.as_deref().map(PathBuf::from).filter(|p| p.is_dir())
-        .and_then(|root| kanzei_harness::KanzeiConfig::load(&root).ok()).map(|merged| json!({
-            "primary": merged.models.primary, "fast": merged.models.fast,
-            "reasoning": merged.models.reasoning, "codexFastMode": merged.models.codex_fast_mode,
-        }));
+    // 生效值:全局 + 项目级合并后的结果。项目级 .kanzei/kanzei.toml 能覆盖的**每一项**
+    // 都要报,漏报一项就意味着用户在本页改它、看到「已保存」、运行却永远用项目值
+    // (D-168 当年只报了模型角色,[limits]/proxy/[profile] 这几项一直是哑的)。
+    // 标量按与下面顶层字段**同一套**兜底归一化(proxy→env、profileDefault→dev、
+    // codexFastMode→false),否则前端拿 None 和顶层的默认值一比就会天天误报覆盖。
+    let effective = project_dir
+        .as_deref()
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
+        .and_then(|root| kanzei_harness::KanzeiConfig::load(&root).ok())
+        .map(|merged| {
+            json!({
+                "primary": merged.models.primary, "fast": merged.models.fast,
+                "reasoning": merged.models.reasoning,
+                "codexFastMode": merged.models.codex_fast_mode.unwrap_or(false),
+                "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
+                "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev".into()),
+                "limits": {
+                    "maxTokens": merged.limits.max_tokens,
+                    "subagentMaxTokens": merged.limits.subagent_max_tokens,
+                    "subagentTimeoutSecs": merged.limits.subagent_timeout_secs,
+                    "contextBudgetRatio": merged.limits.context_budget_ratio,
+                    "recentVerbatimRatio": merged.limits.recent_verbatim_ratio,
+                    "maxTasksPerTurn": merged.limits.max_tasks_per_turn,
+                    "maxParallelTools": merged.limits.max_parallel_tools,
+                    "transportRetries": merged.limits.transport_retries,
+                    "rateLimitRetries": merged.limits.rate_limit_retries,
+                    "streamRestarts": merged.limits.stream_restarts,
+                },
+            })
+        });
     json!({
         "path": path.display().to_string(), "primary": config.models.primary, "fast": config.models.fast,
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
@@ -484,7 +537,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         // 节奏(R-157):原值 + 生效默认值。前端把它渲染进继续文案规则 6,
         // 让"全量什么时候跑/定向跑不跑/提交与 push 频率"随配置变化而非硬化在提示词里。
         "cadence": serde_json::to_value(&config.cadence).unwrap_or_else(|_| serde_json::json!({})),
-        "cadenceDefaults": serde_json::to_value(&kanzei_harness::config::Cadence::default())
+        "cadenceDefaults": serde_json::to_value(kanzei_harness::config::Cadence::default())
             .unwrap_or_else(|_| serde_json::json!({})),
         "effective": effective,
         "projectConfig": project_dir.as_deref().and_then(|d| kanzei_harness::config::discover_project_root(Path::new(d)))
@@ -515,22 +568,29 @@ pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Re
 pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
     settings_save_at_path(payload, &global_config_path())
 }
+/// 「打开配置原文」在文件不存在时铺的底:**只有注释,一个键都不写**。
+///
+/// 此前这里是合成一份空 SettingsPayload 走 settings_save,结果 settings_apply_scalar_fields
+/// 里 `codex_fast_mode` 是无条件写入,新文件一落地就是 `[models] codex_fast_mode = false`。
+/// 而 `false` 与「未设」在配置里不可区分,config.rs 那条"primary 是 codex:gpt-5.6-luna
+/// 且用户没表过态就自动开 Fast mode"从此永久失效——用户只是想看一眼配置长什么样,
+/// 却把一个自己从没碰过的开关关死了。留空即默认,这是整套配置的基本约定。
+pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
+    let template = "\
+# kanzei 全局配置。留空 = 用内置默认;设置页里改的也是这个文件。\n\
+# 常用节:[models] primary/fast/reasoning、proxy、[profile] default、\n\
+#         [limits]、[cadence]、[providers.<名字>]\n";
+    let doc: toml_edit::DocumentMut = template
+        .parse()
+        .map_err(|e| format!("内置配置模板不是合法 toml(这是 bug): {e}"))?;
+    settings_write_document(doc, path)
+}
+
 #[tauri::command]
 pub fn settings_open() -> Result<(), String> {
     let path = global_config_path();
     if !path.is_file() {
-        settings_save(SettingsPayload {
-            primary: String::new(),
-            fast: String::new(),
-            proxy: "env".into(),
-            reasoning: None,
-            codex_fast_mode: false,
-            profile_default: None,
-            profile: None,
-            limits: Default::default(),
-            providers: vec![],
-            cadence: None,
-        })?;
+        settings_bootstrap_file(&path)?;
     }
     crate::state::hidden_command("cmd")
         .args(["/c", "start", "", &path.display().to_string()])
@@ -649,9 +709,6 @@ fn _state_type_marker(_: Option<State<'_, AppState>>) {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanzei_harness::config::{
-        CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence,
-    };
     use kanzei_harness::KanzeiConfig;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -830,6 +887,121 @@ mod tests {
             broken,
             "file must be untouched"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    fn 空载荷(providers: Vec<ProviderPayload>) -> SettingsPayload {
+        SettingsPayload {
+            primary: String::new(),
+            fast: String::new(),
+            proxy: "env".into(),
+            reasoning: None,
+            codex_fast_mode: false,
+            profile_default: None,
+            profile: None,
+            limits: Default::default(),
+            providers,
+            cadence: None,
+        }
+    }
+
+    fn 临时配置(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "kanzei-{tag}-{}.toml",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn provider_清单非空即权威_删掉的节要真消失_空清单则整节不动() {
+        let path = 临时配置("providers-prune");
+        std::fs::write(
+            &path,
+            "[providers.mine]\nprotocol = \"openai\"\nbase_url = \"http://mine\"\n\
+             [providers.keepme]\nprotocol = \"openai\"\nbase_url = \"http://keep\"\n",
+        )
+        .unwrap();
+        // 设置页删掉 mine 后发的就是这张"少了一行"的整表。
+        settings_save_at_path(
+            空载荷(vec![ProviderPayload {
+                name: "keepme".into(),
+                protocol: "openai".into(),
+                base_url: "http://keep".into(),
+                api_key_env: None,
+                api_key: None,
+                auth: None,
+                context_limit: None,
+            }]),
+            &path,
+        )
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("[providers.mine]"),
+            "表格里删掉的 provider 仍留在配置里(重开设置页会原样回来):\n{text}"
+        );
+        let saved: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert!(
+            saved.providers.contains_key("keepme"),
+            "清单里的 provider 被误删"
+        );
+        assert!(!saved.providers.contains_key("mine"));
+
+        // 载荷不带 provider(settings_open 合成载荷 / 其他调用方)→ 只增改不删。
+        settings_save_at_path(空载荷(vec![]), &path).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(
+            saved.providers.contains_key("keepme"),
+            "空清单不该被当成「删光所有 provider」"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn 打开配置原文_新建文件不把_codex_fast_mode_写死成_false() {
+        let path = 临时配置("bootstrap");
+        settings_bootstrap_file(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("codex_fast_mode"),
+            "新建的配置写死了开关,「未设」与 false 从此不可区分:\n{text}"
+        );
+        let mut config: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(
+            config.models.codex_fast_mode, None,
+            "新文件必须是「未表态」"
+        );
+        config.fill_defaults();
+        assert_eq!(
+            config.models.codex_fast_mode,
+            Some(true),
+            "留空才能让 codex:gpt-5.6-luna 的 Fast mode 自动开启继续生效"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn readonly_档位保存后不被静默降级成_dev() {
+        let path = 临时配置("profile-readonly");
+        std::fs::write(&path, "[profile]\ndefault = \"readonly\"\n").unwrap();
+        let mut payload = 空载荷(vec![]);
+        payload.profile_default = Some("readonly".into());
+        settings_save_at_path(payload, &path).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            saved.profile.default.as_deref(),
+            Some("readonly"),
+            "路过一次设置页就把 readonly 降级成 dev"
+        );
+        // 非法值仍然要被挡下并回落 dev(白名单放宽不等于不校验)。
+        let mut payload = 空载荷(vec![]);
+        payload.profile_default = Some("不存在的档".into());
+        settings_save_at_path(payload, &path).unwrap();
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved.profile.default.as_deref(), Some("dev"));
         let _ = std::fs::remove_file(path);
     }
 

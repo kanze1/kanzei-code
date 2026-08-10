@@ -399,8 +399,32 @@ impl Component for DevProfile {
                          and display-only shells do not count. Mark reused behavior explicitly as \
                          existing capability rather than this delivery, and never narrow platform \
                          or scope qualifiers from the original acceptance text. If any item lacks \
-                         evidence, keep it active and record the gap. WIP limit: keep at most 2 requirements in doing; \
-                         finish and close existing doing items before starting new ones. \
+                         evidence, keep it active and record the gap. \
+                         WIP limit: ONE executable item at a time across BOTH queues — a \
+                         requirement in doing and a defect in fixing share the SAME single \
+                         slot; finish it, park it, or close it before picking up another. An \
+                         item that carries a valid blocking field (an external blocker with a \
+                         named unblocker) or that the user explicitly parked is NOT executable \
+                         and does NOT consume the slot — never refuse to start new work on the \
+                         grounds that a blocked item is sitting in doing or fixing. Hoarding \
+                         backstop: when doing plus fixing, blocked ones included, exceeds 4, \
+                         open nothing new until the backlog is drained. \
+                         Batch protocol: YOU decide how many batches an item takes, from its \
+                         actual work, with a hard ceiling of 10 — the 复杂度 field does NOT \
+                         dictate the count. Most items are one batch and need no declaration. \
+                         When an item genuinely needs splitting, your FIRST landing action is \
+                         to write the batch table into the entry as `批次: 0/N` (N chosen by \
+                         you, N <= 10). After each finished batch update it to `批次: k/N` — \
+                         the sidebar cells are the only place your progress is visible from \
+                         outside, and an unfilled cell reads as no progress. Every batch \
+                         commit's subject must carry the marker `<ID> B<k>` (for example \
+                         `R-161 B3`): the engine derives real progress from commit subjects, \
+                         so an unmarked commit does not count toward it. At close time the \
+                         batches must be full — if you over-estimated, set the total to the \
+                         real number (`批次: 5/5`) instead of leaving empty cells; if work \
+                         remains, finish it. If ten batches are not enough, the item is too \
+                         big: close what is genuinely done and open a follow-up item for the \
+                         rest. \
                          Pick work according to the selected work-priority mode appended for this run: \
                          scan the selected first queue top-down, then the other queue only when the \
                          first has no workable item. When no mode is supplied, use defect-first. Priority labels are background info, not the ordering. If NOTHING is workable \
@@ -428,10 +452,16 @@ impl Component for DevProfile {
                          need node --check plus the smoke scripts, NOT the cargo suite; \
                          `node --check` alone is NEVER sufficient evidence for a frontend \
                          change — it only parses. \
-                         When crates/ changed, run the TARGETED test first and the full \
-                         workspace suite ONCE right before committing — never while a \
-                         file is still mid-edit, and never re-run a suite that nothing \
-                         changed since. Editing files: use \
+                         When crates/ changed, run the TARGETED suite (cargo test -p \
+                         <changed crate>) before every commit. The FULL workspace suite \
+                         (cargo test --workspace) runs ONCE before CLOSING an item whose \
+                         复杂度 is 中 or 大 — items marked 小 close on targeted tests alone, \
+                         and an item with no complexity assessed is not exempt: fill the \
+                         field in before closing rather than treating unassessed as free. \
+                         Never run a full suite while a file is still mid-edit, and never \
+                         re-run a suite that nothing changed since. The release gate \
+                         (verify.ps1) and CI run their own full suite; that one is not \
+                         yours to skip. Editing files: use \
                          `edit`; if it misses twice it shows the file's real content — align \
                          to that, never rewrite whole files via shell. Memory: BEFORE \
                          exploring a problem the memory index hints at, `memory_search` it; \
@@ -691,6 +721,123 @@ mod tests {
             assert!(
                 system.contains(required),
                 "dev system prompt 缺少 R-085 完成判定约束: {required}"
+            );
+        }
+    }
+
+    /// 取 dev 档 system prompt 的公共装配(与上面那条同一条装配线)。
+    fn dev_system_prompt(tag: &str) -> String {
+        let root = PathBuf::from(format!("C:/kanzei-{tag}-test"));
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(DevProfile).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        snapshot.select_agent(Some("dev")).unwrap().system.clone()
+    }
+
+    /// D-242 / D-219(2026-08-10 用户定调):WIP 单槽 + 批次协议必须在提示词里有真源。
+    ///
+    /// 反向断言是关键:只断言新文本存在的话,旧口径句子留在原地测试照样绿,
+    /// 而模型会同时读到两条互斥规则——这正是 D-242 的失效模式。
+    #[test]
+    fn dev_system_prompt_enforces_wip_and_batch_contract() {
+        let system = dev_system_prompt("d242-wip");
+
+        for required in [
+            // ① WIP:需求与缺陷合计只有一个可执行槽,阻塞项不占槽。
+            "ONE executable item",
+            "share the SAME single slot",
+            "does NOT consume the slot",
+            "exceeds 4",
+            // ② 批次:数量由 agent 自定,上限 10,写法与提交标记有明确规矩。
+            "hard ceiling of 10",
+            "批次: 0/N",
+            "批次: k/N",
+            "<ID> B<k>",
+            "does not count toward it",
+            "the item is too big",
+        ] {
+            assert!(
+                system.contains(required),
+                "D-242 规则真源缺失:dev system prompt 里没有 `{required}`。\
+                 引擎照着批次门禁罚人,提示词却没教规矩,agent 只能撞门。"
+            );
+        }
+
+        assert!(
+            !system.contains("keep at most 2 requirements"),
+            "D-219 旧口径残留:WIP 仍写着「最多 2 个 requirements in doing」,\
+             与新的单槽口径互斥,模型会按就近句取其一。"
+        );
+    }
+
+    /// 2026-08-10 用户定调③:全量测试只服务于中/大条目的收口,不再挂在每次提交上。
+    #[test]
+    fn dev_system_prompt_gates_full_suite_on_complexity() {
+        let system = dev_system_prompt("d242-cadence");
+
+        for required in [
+            "cargo test --workspace",
+            "before CLOSING",
+            "复杂度 is 中 or 大",
+            // 不可调降的底线必须同时在场,否则「小条目不跑全量」会被外推成「发版也不用跑」。
+            "verify.ps1",
+        ] {
+            assert!(
+                system.contains(required),
+                "D-242 规则真源缺失:验证节奏段没有 `{required}`,\
+                 提示词与 conventions §1.4 会再次漂开。"
+            );
+        }
+
+        assert!(
+            !system.contains("ONCE right before committing"),
+            "旧口径残留:提示词仍要求「每次提交前全量一次」,与 §1.4 的\
+             「中/大条目关闭前」直接冲突。"
+        );
+    }
+
+    /// 三条定调的两份真源必须同口径:conventions.md 全量注入(D-201),dev system
+    /// prompt 常驻,任一侧单方面改口,模型就会同时读到两条互斥规则——这正是
+    /// D-242/D-128 反复出现的失效模式。
+    ///
+    /// 只断言三个短 token,不锁整句措辞:规范是用户手写资产,行文随时可改,
+    /// 但「1 个槽 / 上限 10 批 / 全量只对中大」这三个判据不能悄悄消失。
+    #[test]
+    fn conventions_与提示词对三条定调保持同口径() {
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.kanzei/project/conventions.md");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("读不到 {}:{e}", path.display()));
+
+        // 小节 = 从该二级标题起到下一个二级标题为止(`### ` 不会被误当边界)。
+        // 标题必须带尾空格再查:文件里 §1.35 排在 §1.3 前面,查 "## 1.3" 会先命中它。
+        let section = |heading: &str| -> &str {
+            let start = text
+                .find(heading)
+                .unwrap_or_else(|| panic!("conventions.md 里找不到小节 {heading}"));
+            let rest = &text[start + heading.len()..];
+            &rest[..rest.find("\n## ").unwrap_or(rest.len())]
+        };
+
+        for (heading, token, 定调) in [
+            (
+                "## 1.1 ",
+                "1 个可执行活动项",
+                "WIP 单槽(需求+缺陷合计 1 个)",
+            ),
+            ("## 1.3 ", "上限 10 批", "批数由 agent 自定、上限 10"),
+            ("## 1.4 ", "复杂度中/大", "全量测试只服务中/大条目的收口"),
+        ] {
+            assert!(
+                section(heading).contains(token),
+                "conventions.md {heading} 缺少「{token}」({定调});\
+                 提示词已按新口径写,规范这侧沉默就等于半份真源(D-242)。"
             );
         }
     }

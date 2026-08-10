@@ -143,14 +143,19 @@ document.addEventListener("click", (event) => {
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
-  log(`${t("工具")} ${e.payload.name} ${e.payload.summary}`);
+  // 后端 summarize_input 把整坨入参 JSON 截到 160 字,对所有工具一视同仁——直接拼进
+  // 运行日志与「当前动作」行,edit/write 就显示成 `{"new_string":"…","old_strin…`。
+  // 与活动栏标题、主对话工具块用同一个 toolCallSummary 挑字段,挑不出来再回落后端摘要。
+  // 顺带修掉 summary 缺省时 `.slice()` 直接抛的隐患(事件里 summary 并非必填)。
+  const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
+  log(`${t("工具")} ${e.payload.name} ${shown}`);
   currentAssistant = null;
   currentReasoning = null;
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  // 小工具降噪:静默工具先挂起,成功则不进活动流,失败在 tool-end 补建(用户定调)。
+  // R-168:非终端工具先挂起,成功不进活动流，失败在 tool-end 补建。
   if (bgQuiet(e.payload.name)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  liveSet("live-action", `⚙ ${e.payload.name} ${e.payload.summary.slice(0, 60)}`);
+  liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
 function isBatchCommit(event) {
@@ -336,7 +341,8 @@ on("kz:done", async (e) => {
       setAutoStopReason("已暂停");
     } else if (reason === "StopAfterRound") {
       $("auto-stop-round").checked = false;
-      void invoke("auto_state_update", { stopAfterRound: false });
+      autoStopAfterRound = false;
+      void syncAutoRunState();
       addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
       log(`${t("鞭挞停止")}:${t("本轮后停")}`);
       setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
@@ -350,7 +356,7 @@ on("kz:done", async (e) => {
     } else if (reason === "AllBlocked") {
       $("auto-continue").checked = false;
       localStorage.setItem("kz-auto-continue", "0");
-      void invoke("auto_state_update", { enabled: false });
+      void syncAutoRunState();
       const msg = t("需求与缺陷全部被阻塞，自动推进已停止");
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);
@@ -358,7 +364,7 @@ on("kz:done", async (e) => {
     } else if (reason === "BacklogEmpty") {
       $("auto-continue").checked = false;
       localStorage.setItem("kz-auto-continue", "0");
-      void invoke("auto_state_update", { enabled: false });
+      void syncAutoRunState();
       const msg = t("需求与缺陷已清空，自动推进已停止");
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);

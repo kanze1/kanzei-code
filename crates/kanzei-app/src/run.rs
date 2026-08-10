@@ -17,6 +17,7 @@ use crate::{
     with_session_id, AppState, LiveRun, PendingAsk, PromptAttachment, SessionRuntime,
 };
 
+#[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
 pub(crate) async fn run_task(
     window: &Window,
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
@@ -33,7 +34,7 @@ pub(crate) async fn run_task(
     reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     live_run: Arc<Mutex<LiveRun>>,
-    auto_run: Arc<Mutex<crate::auto_run::AutoRunController>>,
+    auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
 ) -> anyhow::Result<()> {
@@ -57,7 +58,7 @@ pub(crate) async fn run_task(
         config: config.clone(),
     };
 
-    let mut harness = build_run_harness();
+    let harness = build_run_harness();
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
@@ -620,28 +621,27 @@ pub(crate) async fn run_task(
         kanzei_core::summarize_tools(&summary.messages[prior.len().min(summary.messages.len())..]);
     // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
     // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
-    let auto_action = {
-        let mut ctrl = auto_run.lock().unwrap();
-        let backlog = crate::auto_run::backlog_status(&project_root);
-        let tools_vec: Vec<String> = this_run_tools.keys().cloned().collect();
+    let backlog = crate::auto_run::backlog_status(&project_root);
+    let tools_vec: Vec<String> = this_run_tools.keys().cloned().collect();
+    let auto_action_json = {
+        let mut controllers = auto_runs.lock().unwrap();
+        let ctrl = controllers.entry(session_id.clone()).or_default();
         let ctx = AutoRunCtx {
             backlog,
             halted: summary.halted_by_user,
             steps: summary.steps,
             tools: &tools_vec,
         };
-        crate::auto_run::decide_auto_run(&mut ctrl, ctx)
+        let action = crate::auto_run::decide_auto_run(ctrl, ctx);
+        let mut payload = crate::auto_run::serialize_action(
+            action,
+            crate::auto_run::work_priority_enum(work_priority),
+        );
+        // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
+        payload["rounds"] = json!(ctrl.state.rounds);
+        payload["max"] = json!(ctrl.state.max_rounds);
+        payload
     };
-    let mut auto_action_json = crate::auto_run::serialize_action(
-        auto_action,
-        crate::auto_run::work_priority_enum(work_priority),
-    );
-    // 附带判定后的计数与上限,前端仅用于显示(autoRounds/max 镜像)。
-    {
-        let ctrl = auto_run.lock().unwrap();
-        auto_action_json["rounds"] = json!(ctrl.state.rounds);
-        auto_action_json["max"] = json!(ctrl.state.max_rounds);
-    }
     conversation
         .lock()
         .unwrap()
@@ -779,6 +779,7 @@ pub(crate) fn emit_stage(window: &Window, session_id: &str, name: &str, detail: 
     );
 }
 
+#[allow(dead_code)] // 供独立启动路径复用；主运行链当前走 build_run_harness 后的统一 route。
 pub(crate) async fn build_model_route(
     resolved: &kanzei_harness::config::ResolvedModel,
     proxy: &kanzei_llm::ProxyConfig,
@@ -1161,7 +1162,7 @@ pub(crate) fn stop_run(
         .filter(|(session_id, runtime)| {
             target_session
                 .as_ref()
-                .map_or(true, |target| target == *session_id)
+                .is_none_or(|target| target == *session_id)
                 && runtime.running.load(Ordering::SeqCst)
         })
         .map(|(_, runtime)| runtime.clone())
@@ -1296,6 +1297,7 @@ pub(crate) fn append_run_notification(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
 #[tauri::command]
 pub(crate) async fn run_prompt(
     window: Window,
@@ -1354,7 +1356,7 @@ pub(crate) async fn run_prompt(
     let live_run = runtime.live.clone();
     let runtime_for_task = runtime.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
-    let auto_run = state.auto_run.clone();
+    let auto_runs = state.auto_runs.clone();
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
@@ -1377,7 +1379,7 @@ pub(crate) async fn run_prompt(
                 reasoning.clone(),
                 conversation.clone(),
                 live_run.clone(),
-                auto_run.clone(),
+                auto_runs.clone(),
                 delivery,
                 next_input.take(),
             )
@@ -1468,7 +1470,6 @@ pub(crate) fn run_metrics(
 
 #[cfg(test)]
 mod assembly_tests {
-    use super::*;
     use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
     use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
     use std::path::PathBuf;

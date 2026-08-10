@@ -16,7 +16,8 @@ use serde_json::Value;
 // v6:回填 v5 之前遗留的 promoted 输入(D-180)。
 // v7:v6 回填晚了一步——存量 promoted 已被 v5 期间的停止抹成 cancelled,
 //     改从迁移前备份里把状态位捞回来(D-180 续)。
-const SCHEMA_VERSION: i64 = 7;
+// v8:R-161 记忆漏斗遥测,三张表与 episodes 同库可 join。
+const SCHEMA_VERSION: i64 = 8;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -113,6 +114,9 @@ mod inbox;
 mod notifications;
 mod schema;
 mod session;
+mod telemetry;
+
+pub use telemetry::{FunnelCounts, RecallEvent};
 
 pub use session::{project_session_id, project_state_path};
 

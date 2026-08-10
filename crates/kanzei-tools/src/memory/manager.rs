@@ -285,11 +285,7 @@ impl Tool for MemoryStaleTool {
 }
 
 #[derive(Deserialize, JsonSchema)]
-struct InboxClearInput {
-    /// 固定 project(草稿箱只在项目域)
-    #[serde(default)]
-    scope: Option<String>,
-}
+struct InboxClearInput;
 
 pub struct MemoryInboxClearTool;
 
@@ -356,6 +352,7 @@ impl Component for MemoryManagerComponent {
     }
 }
 
+#[allow(clippy::items_after_test_module)] // 保持公开 manager_agent 紧邻其实现，测试仍集中在本模块。
 #[cfg(test)]
 mod tests {
     use super::*;

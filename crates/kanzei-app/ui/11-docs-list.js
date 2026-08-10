@@ -1,13 +1,14 @@
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
 // 全部条目,所以在有筛选时禁止拖拽(顺序不完整会被引擎拒绝)。
 let dragReqId = null;
-function reqDragEnabled(filters = reqFilters) {
+function reqDragEnabled(filters = NEUTRAL_DOC_FILTERS) {
   return filters.sort === "manual" && filters.status === "all" && filters.priority === "all" && filters.complexity === "all" && filters.tag === "all" && (filters.blocked ?? "all") === "all";
 }
-// R-123 职责分离 + D-211 修订:侧边栏 = 浏览与取活(只读详情 + 切状态 + 拖拽改序),
-// 独立文档页 = 深度管理(字段编辑、批量操作、对照);排序不再独属文档页——侧栏的
-// 锁提示/解锁按钮照常渲染,拖拽能力必须两侧一致,否则"解锁了却拖不动"(D-211)。
-// 编辑表单与批量操作仍只在文档页(deepManage 门控)。
+// 职责分离(用户定调,替代 R-123 的两 surface 平分):侧栏只留「当前在做」焦点卡片
+// (只读详情 + 切状态,见 renderFocusPanel),完整需求/缺陷列表连同筛选、排序、分组、
+// 拖拽改序、字段编辑、批量操作、依赖视图整体收进单页视图。renderDocList 仍保留
+// surface 概念——goal/source/finding 这些侧栏轻列表还走它,它们没有深度管理能力。
+// D-211 的教训继续有效:锁提示渲染出来了就必须真的能解锁并拖动,承诺与能力不能脱节。
 function docSurface(listEl) {
   return String(listEl?.id ?? "").startsWith("documents-") ? "documents" : "sidebar";
 }
@@ -101,22 +102,7 @@ async function commitDocOrder(listEl, kind) {
 // 引用跳转。目标可能被筛选藏起来、在折叠分区里、在收起的侧栏里,或者已经归档——
 // 旧实现只认当前可见节点(offsetParent !== null),这四种情况一律静默失败:点了没反应,
 // 也没有任何提示,看起来就是"引用是死链"(D-166)。
-function jumpToEntry(ref) {
-  const matches = [...document.querySelectorAll("[data-doc-id]")].filter(
-    (item) => item.dataset.docId === ref,
-  );
-  if (!matches.length) {
-    toast(`${t("找不到")} ${ref}`);
-    return;
-  }
-  // 同一条目可能同时存在于侧栏和独立文档页:优先跳当前视图里那个,都不可见就取第一个
-  // 并把挡住它的容器逐层打开。
-  const target = matches.find((item) => item.offsetParent) ?? matches[0];
-  if (sidebarCollapsed && target.closest("#sidebar")) {
-    sidebarCollapsed = false;
-    localStorage.setItem("kz-sidebar-collapsed", "0");
-    syncSidebar();
-  }
+function revealEntryNode(target) {
   // 只掀开确实会藏住条目的两类容器,不对任意祖先去 hidden——那会顺手展开整个视图。
   for (let node = target; node; node = node.parentElement) {
     if (node.classList?.contains("doc-archive-list")) node.classList.remove("hidden");
@@ -126,8 +112,71 @@ function jumpToEntry(ref) {
   target.classList.add("ref-highlight");
   setTimeout(() => target.classList.remove("ref-highlight"), 1200);
 }
+// 单页视图里承载条目的容器。按容器 id 判定而不是按 #view-documents 祖先:侧栏的
+// 目标/来源/发现列表同样挂 data-doc-id,笼统地「不在侧栏就当在单页」会把跳转一个目标
+// 也变成切视图。
+const DOCUMENTS_ENTRY_CONTAINERS = ["documents-req-list", "documents-defect-list", "documents-dep-view"];
+const inDocumentsPage = (item) => DOCUMENTS_ENTRY_CONTAINERS.some((id) => item.closest(`#${id}`));
+// 跨视图跳转的高亮必须活过随后的那次刷新。openDocumentsView() 会触发 refreshDocs(),
+// 它 await 的是一次真实 IPC(真机毫秒级),而 setTimeout(…, 0) 就在当下这一轮跑——
+// 顺序必然是"先高亮、后重绘",高亮落在旧节点上,紧接着 renderDocList 的
+// `el.innerHTML = ""` 把该节点连同 scrollIntoView 的落点一起清掉:用户被切到单页视图,
+// 却看不出到底是哪一条(D-166 的另一种复发形态)。
+// 所以不猜时机:把待高亮 id 存起来,由重绘收尾(renderDocsSnapshot)消费。
+let pendingJumpId = null;
+function consumePendingJump() {
+  if (!pendingJumpId) return;
+  const ref = pendingJumpId;
+  // 只给一次机会:目标此刻若被筛掉或已不在列表里就作罢,不留一个会在将来某次
+  // 无关刷新上突然亮起来的悬挂高亮。
+  pendingJumpId = null;
+  const target = [...document.querySelectorAll("[data-doc-id]")]
+    .filter((item) => item.dataset.docId === ref)
+    .find(inDocumentsPage);
+  if (target) revealEntryNode(target);
+}
+// 刷新失败(目录被删、文件被锁、解析失败)时 renderDocsSnapshot 根本不会跑,上面那次
+// 消费就永远不会发生。留着这个 id 正是上面「不留悬挂高亮」的反面:之后任意一次无关刷新
+// ——agent 触发的 refreshDocsSoon、或用户下次再进文档页——都会把它兑现,用户没点跳转
+// 条目却自己亮了。所以跳转的失败路径必须显式作废(D-211:承诺与实现不能脱节)。
+function clearPendingJump() {
+  pendingJumpId = null;
+}
+function jumpToEntry(ref) {
+  const findAll = () =>
+    [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
+  const matches = findAll();
+  if (!matches.length) {
+    toast(`${t("找不到")} ${ref}`);
+    return;
+  }
+  // 完整列表整体搬进单页视图后,绝大多数条目只存在于 #view-documents 里。该视图未激活时
+  // 它的祖先是 display:none,scrollIntoView 对隐藏祖先无效——不先把视图切过去,跳转就精确
+  // 复刻 D-166 的「点了没反应」。侧栏焦点卡片里的那一条仍按老路径就地高亮。
+  const inDocuments = matches.find(inDocumentsPage);
+  const documentsActive = $("view-documents")?.classList.contains("active");
+  if (inDocuments && !documentsActive) {
+    openDocumentsView();
+    // 切视图会触发 refreshDocs 重绘,重绘换掉的是节点本身:高亮加在旧节点上等于没加。
+    // 交给重绘收尾时消费(consumePendingJump),不用定时器去赌 IPC 的快慢。
+    // 没有项目就不会有刷新,也就没有重绘会换掉节点——那种情况直接就地高亮。
+    if (currentProject) {
+      pendingJumpId = ref;
+      return;
+    }
+  }
+  // 同一条目可能同时存在于侧栏焦点卡片和单页列表:优先跳单页那个(完整上下文都在那边),
+  // 没有就取当前可见的,再没有就取第一个并把挡住它的容器逐层打开。
+  const target = inDocuments ?? matches.find((item) => item.offsetParent) ?? matches[0];
+  if (sidebarCollapsed && target.closest("#sidebar")) {
+    sidebarCollapsed = false;
+    localStorage.setItem("kz-sidebar-collapsed", "0");
+    syncSidebar();
+  }
+  revealEntryNode(target);
+}
 
-function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = reqFilters, archivedEntries = []) {
+function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
   // 一类现象,必须给出条数与一键清除,而不是留一片空白(D-169)。
@@ -187,8 +236,15 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
     clear.className = "ghost mini";
     clear.textContent = t("清除筛选");
     clear.addEventListener("click", () => {
+      // 写回一律落到底层 documentFilters[kind]。传进来的 reqFilterState 可能是对照页的
+      // **中性显示副本**(见 12-docs-pages.js 的 neutralizedDocFilters):写副本等于按钮
+      // 点了没反应,也不会落盘。goal/source/finding 没有筛选状态(它们那三张列表也渲染
+      // 不出本按钮——不走 req/defect 的筛选分支就不可能"被筛空"),取不到就不写,免得
+      // 踩到冻结的 NEUTRAL_DOC_FILTERS 上抛异常。
+      const filterState = documentFilters[kind];
+      if (!filterState) return;
       for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
-        if (key in reqFilterState) reqFilterState[key] = "all";
+        if (key in filterState) filterState[key] = "all";
       }
       saveDocFilters();
       refreshDocs();
@@ -235,20 +291,18 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       unlock.addEventListener("click", () => {
         if (isGrouped) {
           // 走现有开关按钮:持久化、按钮 active 态、重渲染全在它的 handler 里。
-          const toggleId =
-            surface === "documents"
-              ? "documents-group-toggle"
-              : kind === "req"
-                ? "req-group-toggle"
-                : "defect-group-toggle";
-          $(toggleId)?.click();
+          $("documents-group-toggle")?.click();
         }
-        if ("sort" in reqFilterState && reqFilterState.sort !== "manual") {
-          reqFilterState.sort = "manual";
-          if (reqFilterState === reqFilters) localStorage.setItem("kz-req-sort", "manual");
+        // 同「清除筛选」:写底层 documentFilters[kind],不写对照页的中性显示副本,
+        // 否则解锁按钮点了没反应(锁提示还挂着,拖拽仍然锁着)。本按钮只在 req/defect
+        // 上渲染(上面 kind 判断),documentFilters 里必有对应队列;取不到就不写。
+        const filterState = documentFilters[kind];
+        if (!filterState) return;
+        if ("sort" in filterState && filterState.sort !== "manual") {
+          filterState.sort = "manual";
         }
         for (const key of ["status", "priority", "complexity", "tag", "blocked"]) {
-          if (key in reqFilterState) reqFilterState[key] = "all";
+          if (key in filterState) filterState[key] = "all";
         }
         saveDocFilters();
         syncDocFilterControls();
@@ -425,7 +479,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = re
       });
       row.appendChild(badge);
     }
-    if (kind === "req" && el.id !== "req-list") {
+    if (kind === "req" && surface === "documents") {
       const complexityBadge = document.createElement("span");
       complexityBadge.className = "complexity-badge";
       complexityBadge.textContent = cx === "小" || cx === "中" || cx === "大" ? `${t("复杂度")}:${t(cx)}` : t("未评估");

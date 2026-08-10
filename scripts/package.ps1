@@ -9,9 +9,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
 
-# 步进标注:发版全程 6~7 步,每步一行 [N/M],配合活动面板的实时输出流,
+# 步进标注:发版全程 6~8 步,每步一行 [N/M],配合活动面板的实时输出流,
 # 长静默段(tauri build 数分钟)之前先说清"现在在哪一步、一共几步"。
-$script:stepTotal = if ($Publish) { 7 } else { 6 }
+$script:stepTotal = if ($Publish) { 8 } else { 6 }
 $script:stepIndex = 0
 function Step([string]$label) {
     $script:stepIndex += 1
@@ -54,6 +54,25 @@ if ($Ack -lt 0) {
 }
 if ($Ack -ne $commits.Count) {
     throw "发布范围不符:你确认的是 $Ack 个提交,实际区间里有 $($commits.Count) 个。逐条核对上面的清单——多出来的很可能是并发运行提交的,不该跟着这次发出去"
+}
+
+# D-232:GitHub release 的 --target 必须是远端已知的完整 SHA。未 push 时若等到
+# tauri/NSIS 都完成再由 gh 返回 422，会白白浪费整次构建；这里在构建前给出可执行出路。
+if ($Publish) {
+    $branch = (git -C $root branch --show-current).Trim()
+    if ([string]::IsNullOrWhiteSpace($branch)) {
+        throw "当前处于 detached HEAD，无法确认发布提交是否已推到远端；请切换到已跟踪分支后再发版"
+    }
+    $remoteRef = "origin/$branch"
+    git -C $root rev-parse --verify --quiet "refs/remotes/$remoteRef" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "远端分支 $remoteRef 不存在或尚未 fetch；先 git push -u origin $branch 再发版"
+    }
+    $unpublished = @(git -C $root rev-list "$remoteRef..HEAD") | Where-Object { $_ }
+    Step "远端可达检查:$remoteRef"
+    if ($unpublished.Count -gt 0) {
+        throw "HEAD 有 $($unpublished.Count) 个提交尚未推送到 $remoteRef；先执行 git push origin $branch，再重新运行 package.ps1 -Publish。GitHub 无法为未推送 SHA 创建 release target"
+    }
 }
 
 Step "发布树干净检查"

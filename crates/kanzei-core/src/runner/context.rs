@@ -18,7 +18,7 @@ pub const CONTEXT_BUDGET_RATIO: f64 = 0.7;
 /// 盘点,而无步数上限的自举 run 恰恰是最需要盘点的(D-206 顺带修:与压缩总量配额
 /// 同型,把"周期性动作"写成了"有限次动作")。
 pub(crate) fn is_budget_checkpoint(step: u32) -> bool {
-    step == 20 || (step >= 40 && step % 40 == 0)
+    step == 20 || (step >= 40 && step.is_multiple_of(40))
 }
 
 /// 主动压缩后,最近这部分历史逐字保留的预算占比(相对 context_limit)。
@@ -312,7 +312,7 @@ mod tests {
     /// trim_tail:压缩后仍超线时只收 tail 最旧端,任务定义、纪要、当前用户
     /// 消息一律不动——否则下一步预算检查立刻再压,缓存前缀两次全量重算。
     #[test]
-    fn trimTail只收最旧端且不动首尾与纪要() {
+    fn trim_tail只收最旧端且不动首尾与纪要() {
         let system = vec![String::new()];
         let mut messages = vec![Message::user_text("任务定义:修复 D-123 的空指针")];
         messages.push(Message::user_text(
@@ -366,7 +366,7 @@ mod tests {
     /// 缓存前缀两次全量重算,恰是它要防的事。谁把 budgeted_tokens 改回
     /// 原始估算,这条立刻红。
     #[test]
-    fn trimTail按校准口径收线_调用方视角不再超预算() {
+    fn trim_tail按校准口径收线_调用方视角不再超预算() {
         let calibration = 1.6; // 中文密集轨迹的真实形态:估算系统性偏低
         let system = vec![String::new()];
         let build = || {

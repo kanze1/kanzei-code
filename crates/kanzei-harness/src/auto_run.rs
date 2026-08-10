@@ -30,7 +30,9 @@ pub const NON_PROGRESS_TOOLS: &[&str] = &[
 
 /// 本轮工具画像是否包含实质进展工具。
 pub fn has_progress_tools(tools: &[String]) -> bool {
-    tools.iter().any(|name| !NON_PROGRESS_TOOLS.contains(&name.as_str()))
+    tools
+        .iter()
+        .any(|name| !NON_PROGRESS_TOOLS.contains(&name.as_str()))
 }
 
 /// 轮末 backlog 状态(由调用方查询 docs_snapshot 后传入)。
@@ -262,7 +264,11 @@ mod tests {
             ..ctx_with_tools(&[])
         };
         let mut state = AutoRunState::new(10);
-        assert!(!has_progress_tools(&mk_tools(&["memory_note", "read", "ui_dom"])));
+        assert!(!has_progress_tools(&mk_tools(&[
+            "memory_note",
+            "read",
+            "ui_dom"
+        ])));
         assert!(has_progress_tools(&mk_tools(&["edit"])));
         // 首轮(rounds=0)无动作不 NUDGE 不停:直接续(前端 `noAction && autoRounds > 0` 语义)。
         assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
@@ -288,7 +294,10 @@ mod tests {
         assert_eq!(state.decide(&bad), AutoRunAction::Nudge);
         assert_eq!(state.rounds, 2);
         // 第 3 轮:仍无动作 → 停。
-        assert_eq!(state.decide(&bad), AutoRunAction::Stop(AutoStopReason::NoAction));
+        assert_eq!(
+            state.decide(&bad),
+            AutoRunAction::Stop(AutoStopReason::NoAction)
+        );
         assert_eq!(state.rounds, 0, "停止后计数归零");
     }
 
@@ -318,7 +327,10 @@ mod tests {
             tools: &mk_tools(&["edit"]),
             ..ctx_with_tools(&[])
         };
-        assert_eq!(state.decide(&ok), AutoRunAction::Stop(AutoStopReason::Paused));
+        assert_eq!(
+            state.decide(&ok),
+            AutoRunAction::Stop(AutoStopReason::Paused)
+        );
         state.paused = false;
         assert_eq!(state.decide(&ok), AutoRunAction::Continue);
     }
@@ -351,12 +363,18 @@ mod tests {
         };
         let mut blocked_ctx = ok.clone();
         blocked_ctx.backlog = BacklogStatus::AllBlocked;
-        assert_eq!(state.decide(&blocked_ctx), AutoRunAction::Stop(AutoStopReason::AllBlocked));
+        assert_eq!(
+            state.decide(&blocked_ctx),
+            AutoRunAction::Stop(AutoStopReason::AllBlocked)
+        );
         assert_eq!(state.rounds, 0);
 
         let mut empty_ctx = ok.clone();
         empty_ctx.backlog = BacklogStatus::Empty;
-        assert_eq!(state.decide(&empty_ctx), AutoRunAction::Stop(AutoStopReason::BacklogEmpty));
+        assert_eq!(
+            state.decide(&empty_ctx),
+            AutoRunAction::Stop(AutoStopReason::BacklogEmpty)
+        );
     }
 
     #[test]

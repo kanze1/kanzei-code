@@ -28,14 +28,18 @@ mod state;
 mod subagents;
 mod update;
 
+#[cfg(test)]
 pub(crate) use projects::{export_project_data, ExportOptions};
 
-pub(crate) use settings::{global_config_path, settings_save_at_path};
-pub(crate) use settings::{LimitsPayload, ProviderPayload, SettingsPayload};
+pub(crate) use settings::global_config_path;
 
+#[cfg(test)]
+pub(crate) use settings::{ProviderPayload, SettingsPayload};
+
+#[cfg(test)]
 pub(crate) use update::{
-    build_stamp, clear_stale_installer, installed_cli_is_older, installer_path, pending_path,
-    release_is_newer, update_helper_path, update_log_at, validate_installer, wait_for_parent_exit,
+    installed_cli_is_older, pending_path, release_is_newer, update_helper_path, update_log_at,
+    validate_installer, wait_for_parent_exit,
 };
 
 pub(crate) use state::{
@@ -43,7 +47,7 @@ pub(crate) use state::{
     process_info, process_session_id, prompt_attachment_parts, runtime_for,
     stop_runtime_and_finalize, take_pending_ask, ui_probe, ui_probe_result, with_session_id,
     AppState, LiveRun, MobileService, MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo,
-    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBES, UI_PROBE_EMIT, UI_PROBE_SEQ,
+    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]

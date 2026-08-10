@@ -123,12 +123,12 @@ impl Tool for WebFetchTool {
 /// 轻量 HTML→文本:去 script/style,剥标签,压空白;不引第三方解析器。
 pub(crate) fn html_to_text(html: &str) -> String {
     let mut out = String::with_capacity(html.len() / 4);
-    let mut chars = html.char_indices().peekable();
+    let chars = html.char_indices();
     // 待匹配的标签标记均为 ASCII；只做 ASCII 折叠，避免 Unicode 大小写映射改变字节偏移。
     let lower = html.to_ascii_lowercase();
     let mut skip_until: Option<usize> = None;
     let mut in_tag = false;
-    while let Some((i, c)) = chars.next() {
+    for (i, c) in chars {
         if let Some(end) = skip_until {
             if i < end {
                 continue;

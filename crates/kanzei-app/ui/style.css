@@ -1,5 +1,3 @@
-.documents-active #req-section .section-title > span:nth-child(2), .documents-active #defect-section .section-title > span:nth-child(2) { display: none; }
-.documents-active #req-section .doc-list, .documents-active #defect-section .doc-list { display: none; }
 /* kanzei — 中性深灰底 + 蓝强调,金色运行态/橙光警告(kanzei.site 状态色) */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -169,6 +167,43 @@ body {
   0%, 100% { border-left-color: var(--ok); }
   50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
 }
+/* 「当前在做」焦点卡片(用户定调:侧栏只留这一条,但要显示得比列表行完整)。
+   D-105:状态、阻塞、焦点依据一律用文字 + 边框表达,绿色只是装饰性冗余,
+   把颜色全部去掉后信息量不减。 */
+#focus-body { padding: 0 10px 2px; display: flex; flex-direction: column; gap: 6px; }
+.focus-card {
+  border: 1px solid var(--border); border-left: 3px solid var(--ok);
+  border-radius: var(--radius); background: var(--panel2);
+  padding: 7px 9px; display: flex; flex-direction: column; gap: 5px;
+}
+.focus-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.focus-id { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.focus-title { font-size: 12.5px; color: var(--fg-strong); line-height: 1.45; white-space: normal; word-break: break-word; }
+.focus-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.focus-chip { font-size: 10px; font-family: var(--mono); color: var(--dim); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; white-space: nowrap; }
+.focus-card .complexity-meter {
+  display: grid; grid-template-columns: repeat(var(--cells, 3), 1fr); gap: 1px;
+  align-items: center; height: 12px; width: 64px; flex-shrink: 0;
+}
+.focus-source { font-size: 10.5px; color: var(--dim); }
+.focus-card .doc-field { font-size: 11px; }
+.focus-card .doc-actions { margin-top: 2px; }
+.focus-card.blocked { border-left-color: var(--warn); }
+.focus-empty { padding: 2px 4px 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; }
+.focus-empty .dim { font-size: 11px; }
+.focus-next {
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  font-size: 11.5px; padding: 4px 6px;
+  border: 1px dashed var(--border); border-radius: var(--radius);
+}
+.focus-next-label { color: var(--info); flex-shrink: 0; }
+.focus-next-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#focus-backlog { padding: 4px 14px 2px; font-size: 11px; }
+/* 排序 vs 拖拽:两件事挨在一条工具条上极易混,常显说明是三重冗余里的第一重
+   (另两重是非手动排序下的锁提示与 draggable=false)。 */
+#documents-sort-note { flex-basis: 100%; font-size: 11px; }
+#documents-tests { padding: 6px 10px 8px; }
+#documents-tests > p { margin-bottom: 6px; }
 /* 拖拽锁提示(D-207/D-210):点名具体条件 + 一键解锁。轻卡片形态,不抢列表的戏。 */
 .drag-hint {
   display: flex;
@@ -242,7 +277,6 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .workspace-status.idle { color: var(--muted); background: #8883; }
 .workspace-path, .workspace-summary, .workspace-activity, .workspace-meta { margin-top: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .complexity-badge { color: var(--dim); font-size: 10px; font-family: var(--mono); flex-shrink: 0; }
-#req-list .doc-item::before { display: none; }
 /* 批次进度格:轨道总长固定,再按批次数等分——格子多少只改变每格宽度,不改变
    这一列占的位置,列表才不会因为条目批次多寡而参差。列数由 JS 写 --cells,
    写死 repeat(3, 1fr) 会把 11 个格子折成 4 行(实测就是这么糊成一坨的)。 */
@@ -254,11 +288,14 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
   display: block; height: 9px; min-width: 0; border: 1px solid var(--border);
   border-radius: 2px; background: transparent;
 }
-#req-list .doc-item.pri-P0 .complexity-cell.filled { background: var(--err); border-color: var(--err); }
-#req-list .doc-item.pri-P1 .complexity-cell.filled { background: var(--warn); border-color: var(--warn); }
-#req-list .doc-item.pri-P2 .complexity-cell.filled { background: var(--info); border-color: var(--info); }
-#req-list .doc-item.pri-P3 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
-#req-list .doc-item:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
+/* 填充色此前只在 `#req-list` 下定义:侧栏列表整体搬进单页后,#documents-req-list 里的
+   已完成格会全是透明的——批次进度条看着永远是空的。按条目类名限定即可,与容器无关。 */
+.doc-item.pri-P0 .complexity-cell.filled, .focus-card.pri-P0 .complexity-cell.filled { background: var(--err); border-color: var(--err); }
+.doc-item.pri-P1 .complexity-cell.filled, .focus-card.pri-P1 .complexity-cell.filled { background: var(--warn); border-color: var(--warn); }
+.doc-item.pri-P2 .complexity-cell.filled, .focus-card.pri-P2 .complexity-cell.filled { background: var(--info); border-color: var(--info); }
+.doc-item.pri-P3 .complexity-cell.filled, .focus-card.pri-P3 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
+.doc-item:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled,
+.focus-card:not(.pri-P0):not(.pri-P1):not(.pri-P2):not(.pri-P3) .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 .documents-toolbar {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 12px 0;
   padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 5px; background: var(--panel2);
@@ -1102,11 +1139,6 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   border: 1px solid var(--border); border-radius: 4px;
   padding: 6px 8px; margin-bottom: 6px; font-size: 12px; background: var(--panel);
 }
-.doc-filter-row {
-  display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 10px;
-  border-top: 1px solid var(--border-soft); background: var(--panel2);
-}
-.filter-toggle.active { color: var(--accent); border-color: var(--accent); }
 
 /* ---------- 主对话内联工具块(R-090):形态对齐 Claude Code ---------- */
 /* 无边框无底色,靠字重与缩进建立层次;两行一块:调用行 + ⎿ 结果行。 */

@@ -53,4 +53,5 @@
 
 - [`r108_ai_design_decision_records.md`](r108_ai_design_decision_records.md)：R-108 的双层记录方案示例，关联草案决策 A-006。
 - [`memory_system.md`](memory_system.md)：记忆系统设计基线与既有工程决策。
+- [`parallel_read_serial_write_orchestration.md`](parallel_read_serial_write_orchestration.md)：多进程代理“并行查、串行写”的阶段流、项目级单 writer 与工具串行契约。
 - [`reliability_usability_self_hosting_quality.md`](reliability_usability_self_hosting_quality.md)：可靠性、可用性与自举质量基线。

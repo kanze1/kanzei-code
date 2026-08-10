@@ -17,7 +17,7 @@
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
       <button type="button" class="activity-item" data-view="workspace" title="工作区" aria-label="切换到工作区">⌂</button>
-      <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷" aria-label="切换到需求与工作和缺陷">☷</button>
+      <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷 / 测试" aria-label="切换到需求与工作和缺陷">☷</button>
       <button type="button" class="activity-item" data-view="memory" title="记忆" aria-label="切换到记忆">❖</button>
       <button type="button" class="activity-item" data-view="files" title="文件导览" aria-label="切换到文件导览">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
@@ -61,9 +61,19 @@
           <div id="live-note" class="live-row hidden"></div>
         </div>
       </div>
-      <div class="sidebar-section" data-collapse-key="tests" id="tests-section">
-        <div class="section-title"><span>测试记录 <em id="test-count"></em></span><button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试">↻</button></div>
-        <div id="test-list" class="doc-list"></div>
+      <!-- 当前在做(用户定调):侧栏不再罗列完整需求/缺陷,只呈现取活焦点这一条,
+           但要比原来的列表行显示得充分;完整列表、测试记录整体收进「需求与工作 / 缺陷 / 测试」单页视图。 -->
+      <div class="sidebar-section" data-collapse-key="focus" id="focus-section">
+        <div class="section-title">
+          <span>当前在做</span>
+          <span>
+            <button id="req-quick" class="ghost mini" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话">记需求</button>
+            <button id="defect-quick" class="ghost mini" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话">记缺陷</button>
+            <button id="focus-open-documents" class="icon-btn" title="打开完整需求与缺陷列表" aria-label="打开完整需求与缺陷列表">☷</button>
+          </span>
+        </div>
+        <div id="focus-body" role="region" aria-label="当前在做"></div>
+        <div id="focus-backlog" class="dim"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
         <div class="section-title"><span>隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" aria-label="刷新工作树差异">↻</button></div>
@@ -78,61 +88,6 @@
           </span>
         </div>
         <div id="goal-list" class="doc-list"></div>
-      </div>
-      <div class="sidebar-section" data-collapse-key="requirements" id="req-section">
-        <div class="section-title">
-          <span>需求与工作 <em id="req-count"></em></span>
-          <span>
-            <button id="req-filter-toggle" class="icon-btn filter-toggle" title="展开筛选与排序" aria-label="展开需求筛选与排序" aria-expanded="false">▽</button>
-            <button id="req-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换需求分组显示" aria-pressed="true">☰</button>
-            <button id="req-quick" class="icon-btn" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录需求">✎</button>
-            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文">↗</button>
-          </span>
-        </div>
-        <div id="req-filter-row" class="doc-filter-row hidden">
-          <select id="req-status-filter" class="doc-filter" title="按状态筛选">
-            <option value="all">全部状态</option>
-            <option value="doing">doing</option>
-            <option value="todo">todo</option>
-            <option value="done">done</option>
-            <option value="dropped">dropped</option>
-          </select>
-          <select id="req-complexity-filter" class="doc-filter" title="按复杂度筛选">
-            <option value="all">全部复杂度</option>
-            <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
-          </select>
-          <select id="req-priority-filter" class="doc-filter" title="按优先级筛选(仅参考,不影响取活顺序)">
-            <option value="all">全部优先级</option>
-            <option value="P0">P0</option><option value="P1">P1</option>
-            <option value="P2">P2</option><option value="P3">P3</option>
-          </select>
-          <select id="req-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
-          <select id="req-blocked-filter" class="doc-filter" title="按阻塞状态筛选"><option value="all">全部执行状态</option><option value="blocked">已阻塞</option><option value="ready">可执行</option></select>
-          <select id="req-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
-            <option value="manual">手动</option>
-            <option value="priority">优先级</option>
-            <option value="complexity">复杂度</option>
-            <option value="status">状态</option>
-            <option value="id">编号</option>
-          </select>
-        </div>
-        <div id="req-list" class="doc-list"></div>
-      </div>
-      <div class="sidebar-section" data-collapse-key="defects" id="defect-section">
-        <div class="section-title">
-          <span>缺陷 <em id="defect-count"></em></span>
-          <span>
-            <button id="defect-filter-toggle" class="icon-btn filter-toggle" title="展开筛选" aria-label="展开缺陷筛选" aria-expanded="false">▽</button>
-            <button id="defect-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换缺陷分组显示" aria-pressed="true">☰</button>
-            <button id="defect-quick" class="icon-btn" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" aria-label="快速记录缺陷">✎</button>
-            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
-          </span>
-        </div>
-        <div id="defect-filter-row" class="doc-filter-row hidden">
-          <select id="defect-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
-          <select id="defect-blocked-filter" class="doc-filter" title="按阻塞状态筛选"><option value="all">全部执行状态</option><option value="blocked">已阻塞</option><option value="ready">可执行</option></select>
-        </div>
-        <div id="defect-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="research" id="research-section">
         <div class="section-title">
@@ -266,22 +221,38 @@
       <!-- 设置视图 -->
       <div id="view-documents" class="view">
         <div id="documents-scroll">
-          <h1>需求与工作 / 缺陷</h1>
-          <p class="dim">深度管理页面：拖拽排序、字段编辑与批量操作都在这里；侧栏只负责浏览与取活。</p>
+          <h1>需求与工作 / 缺陷 / 测试</h1>
+          <p class="dim">完整列表与深度管理都在这里：筛选、排序、拖拽定开发顺序、字段编辑、批量操作、依赖视图与测试记录；侧栏只留当前在做。</p>
           <div class="documents-toolbar">
             <label for="documents-project-select" class="documents-project-label">项目</label>
             <select id="documents-project-select" title="切换当前项目"></select>
-            <button id="documents-tab-req" class="primary">需求与工作</button>
-            <button id="documents-tab-defect" class="ghost">缺陷</button>
+            <button id="documents-tab-req" class="primary">需求与工作 <em id="req-count"></em></button>
+            <button id="documents-tab-defect" class="ghost">缺陷 <em id="defect-count"></em></button>
+            <button id="documents-tab-tests" class="ghost" title="查看测试记录">测试记录 <em id="test-count"></em></button>
+            <button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试">↻</button>
             <button id="defect-review" class="ghost" type="button" title="使用只读子代理审查活动缺陷，不修改项目文件">自动审查缺陷</button>
             <span id="defect-review-status" class="dim" role="status" aria-live="polite"></span>
             <button id="documents-tab-both" class="ghost" title="需求与缺陷并排对照，便于核对互相引用的条目">对照</button>
             <button id="documents-dep-toggle" class="ghost" title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链">依赖视图</button>
-            <select id="documents-status-filter" class="doc-filter"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
-            <select id="documents-priority-filter" class="doc-filter"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文">↗</button>
+            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
+            <select id="documents-status-filter" class="doc-filter" title="按状态筛选"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
+            <select id="documents-complexity-filter" class="doc-filter" title="按复杂度筛选">
+              <option value="all">全部复杂度</option>
+              <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
+            </select>
+            <select id="documents-priority-filter" class="doc-filter" title="按优先级筛选(仅参考,不影响取活顺序)"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
             <button id="documents-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换文档页分组显示" aria-pressed="true">☰</button>
             <select id="documents-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
             <select id="documents-blocked-filter" class="doc-filter" title="按阻塞状态筛选"><option value="all">全部执行状态</option><option value="blocked">已阻塞</option><option value="ready">可执行</option></select>
+            <select id="documents-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
+              <option value="manual">手动</option>
+              <option value="priority">优先级</option>
+              <option value="complexity">复杂度</option>
+              <option value="status">状态</option>
+              <option value="id">编号</option>
+            </select>
+            <span id="documents-sort-note" class="dim">排序只改显示;拖拽(手动排序)才写回文件、改变取活顺序</span>
           </div>
           <div id="documents-batch-bar" class="documents-batch-bar hidden" role="region" aria-label="批量操作">
             <span id="documents-batch-count" class="dim"></span>
@@ -295,6 +266,10 @@
           </div>
           <div id="documents-req-list" class="doc-list documents-list"></div>
           <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
+          <div id="documents-tests" class="documents-list hidden" role="region" aria-label="测试记录">
+            <p class="dim">测试记录由 agent 跑测时写入,刷新会自动归档已完成项。</p>
+            <div id="test-list" class="doc-list"></div>
+          </div>
           <div id="documents-dep-view" class="dep-view hidden" role="region" aria-label="依赖视图"></div>
         </div>
       </div>
@@ -511,7 +486,7 @@
           </details>
           <details class="settings-group">
             <summary>验证与提交节奏</summary>
-          <p class="dim">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],下次注入的继续文案按新节奏渲染;发版门禁与 CI 全量不受参数影响。</p>
+          <p class="dim">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。</p>
           <div class="form-row">
             <label>全量测试</label>
             <select id="set-cadence-full-test">

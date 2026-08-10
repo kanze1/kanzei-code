@@ -14,6 +14,17 @@ const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "u
 
 const issues = [];
 const fail = (msg) => issues.push(msg);
+// 断言在真实 DOM 上跑,某条护栏一旦真的红了,后续代码常常会顺带对 null 取属性而硬崩:
+// 进程带着一个孤零零的 TypeError 退出,已经攒下的失败清单全看不见,读的人只能从
+// "Cannot read properties of null" 反推是哪条能力没了。这个钩子保证无论怎么退出,
+// 已收集的问题都先打出来——一次跑完拿到全部线索,而不是修一条崩一次。
+let reportedIssues = false;
+process.on("exit", (code) => {
+  if (code !== 0 && !reportedIssues && issues.length) {
+    console.error(`崩溃前已收集到 ${issues.length} 处失败:`);
+    for (const issue of issues) console.error(` - ${issue}`);
+  }
+});
 
 // CSS 结构完整性:浏览器对花括号错配是静默容错的,一个被吃掉的 `@media ... {`
 // 会让整段响应式规则无条件生效而没有任何报错(c65c80e 就这样把 D-164 带上了线)。
@@ -86,6 +97,16 @@ if (
   !source.includes("function fillToolBlock")
 ) {
   fail("历史工具会话未保留完整调用与结果详情");
+}
+// 工具块的 ⎿ 摘要行与展开详情必须是同一份文本切出来的两段(toolResultSplit),
+// 不能各自独立地从 content 取一遍再靠 `full !== preview` 去重——那个写法只挡得住
+// 单行短结果,首行超长或多行一律把同一段文案渲染两遍。运行时判据见下面的工具块用例;
+// 这条静态契约拦的是"改回旧写法"这个具体形态。
+if (source.includes("full.trim() !== preview")) {
+  fail("工具块详情又回到了「摘要之外再贴一遍完整原文」的写法(full.trim() !== preview)");
+}
+if (!source.includes("function toolResultSplit")) {
+  fail("工具块缺少 toolResultSplit:摘要与详情不再是同一份文本的互斥两段,双写会复发");
 }
 const dictionarySource = source.slice(source.indexOf("const I18N_EN = {"), source.indexOf("const I18N_ZH = new WeakMap"));
 const dictionaryKeys = new Set([...dictionarySource.matchAll(/\"((?:\\.|[^\"])*)\"\s*:/g)].map((match) => match[1]));
@@ -165,6 +186,36 @@ class ClassList {
   }
   contains(name) { return this.#set.has(name); }
 }
+// ---------- <select> 的规范语义 ----------
+// 早期 harness 把 select.value 当普通属性存:赋什么都照单全收。真实浏览器不是这样——
+// 给 select 赋一个没有匹配 <option> 的值,只会把 selectedIndex 打到 -1、value 读回空串。
+// 差别不是细节:「先 select.value = 已存值,再读 DOM 当基准」这种写法在真机上等于把
+// 已存配置静默清空(D-168 同族,一次保存就把 kanzei.toml 的键删掉),而在旧 harness 里
+// 恒为通过。所以这里按规范实现,让这类缺陷在冒烟里现形。
+const selectOptions = (el) => el.childNodes.filter((n) => n instanceof Element && n.tagName === "OPTION");
+// HTML 规范的 "ask for a reset":单选 select 的 option 列表变动后,若没有任何 option
+// 处于选中态,第一个自动选中。少了这一步,replaceChildren 之后 value 恒为空串。
+function resetSelectedness(el) {
+  if (el.tagName !== "SELECT") return;
+  const options = selectOptions(el);
+  if (!options.length || options.some((o) => o._selected)) return;
+  options[0]._selected = true;
+}
+// select 的 innerHTML/index.html 静态标记里写死的 <option> 必须建成真实子节点,
+// 否则 select.options 恒为空,上面的规范语义会把所有下拉一起变哑(实测会连累
+// 语言切换、节奏回填、思考强度落盘等 20 多条无关断言)。
+function parseOptionsInto(el, fragment) {
+  for (const [, attributes, inner] of String(fragment).matchAll(/<option([^>]*)>([\s\S]*?)<\/option>/g)) {
+    const option = new Element("option");
+    option.ownerDocument = el.ownerDocument;
+    const text = inner.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+    option.textContent = text;
+    const valueAttribute = attributes.match(/\bvalue="([^"]*)"/)?.[1];
+    option.value = valueAttribute === undefined ? text : valueAttribute;
+    if (/\bselected\b/.test(attributes)) option._selected = true;
+    el.appendChild(option);
+  }
+}
 class Element {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
@@ -196,7 +247,7 @@ class Element {
     this.scrollTop = 0;
     this.scrollHeight = 0;
   }
-  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); notifyMutation({ type: "childList", target: this, addedNodes: [node] }); return node; }
+  _adopt(node) { node.parentNode = this; node.ownerDocument = this.ownerDocument; this.childNodes.push(node); resetSelectedness(this); notifyMutation({ type: "childList", target: this, addedNodes: [node] }); return node; }
   appendChild(node) { node.remove(); return this._adopt(node); }
   append(...nodes) { for (const n of nodes) this.appendChild(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n); }
   prepend(...nodes) { for (const n of nodes.reverse()) this.insertBefore(typeof n === "string" ? this.ownerDocument.createTextNode(n) : n, this.childNodes[0] ?? null); }
@@ -206,9 +257,10 @@ class Element {
     node.ownerDocument = this.ownerDocument;
     const idx = ref ? this.childNodes.indexOf(ref) : -1;
     if (idx < 0) this.childNodes.push(node); else this.childNodes.splice(idx, 0, node);
+    resetSelectedness(this);
     return node;
   }
-  replaceChildren(...nodes) { for (const c of [...this.childNodes]) c.parentNode = null; this.childNodes = []; this._innerHTML = ""; this.append(...nodes); }
+  replaceChildren(...nodes) { for (const c of [...this.childNodes]) c.parentNode = null; this.childNodes = []; this._innerHTML = ""; this.append(...nodes); resetSelectedness(this); }
   remove() {
     if (this.parentNode) {
       const siblings = this.parentNode.childNodes;
@@ -252,13 +304,42 @@ class Element {
   set innerHTML(value) {
     this._innerHTML = String(value);
     this.childNodes = [];
+    // select 是例外:它的 innerHTML 里写的是 <option>,必须建成真实子节点。
+    // 只留去标签文本的话 select.options 恒为空,规范化的 value 语义会把它变成一个哑控件。
+    if (this.tagName === "SELECT") {
+      this._textContent = "";
+      parseOptionsInto(this, value);
+      resetSelectedness(this);
+      notifyMutation({ type: "childList", target: this, addedNodes: [this] });
+      return;
+    }
     this._textContent = String(value)
       .replace(/<[^>]*>/g, "")
       .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
     notifyMutation({ type: "childList", target: this, addedNodes: [this] });
   }
-  get value() { return this._value ?? ""; }
-  set value(v) { this._value = String(v); }
+  get value() {
+    if (this.tagName === "SELECT") {
+      const options = selectOptions(this);
+      const selected = options.find((o) => o._selected);
+      // selectedIndex < 0(含"一个 option 都没有"的空壳)→ 空串,与浏览器一致。
+      return selected ? selected.value : "";
+    }
+    return this._value ?? "";
+  }
+  set value(v) {
+    const next = String(v);
+    if (this.tagName === "SELECT") {
+      // 精确查找:命中就选中它,没命中就全部取消选中(= selectedIndex -1),不再"照单全收"。
+      for (const option of selectOptions(this)) option._selected = option.value === next;
+    }
+    this._value = next;
+  }
+  get selectedIndex() { return this.tagName === "SELECT" ? selectOptions(this).findIndex((o) => o._selected) : -1; }
+  set selectedIndex(index) {
+    if (this.tagName !== "SELECT") return;
+    selectOptions(this).forEach((option, idx) => { option._selected = idx === Number(index); });
+  }
   getAttribute(name) { return this._attributes[name] ?? null; }
   // class 必须走 className 设值,否则 classList 的内部集合与属性脱节:index.html 里
   // 写死的 class 不进集合,第一次 classList.toggle() 回写就把它们整体抹掉了。
@@ -420,6 +501,14 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   // 后代选择器需要真实嵌套:按 id 造出来的节点是扁平的,`#providers-table tbody`
   // 会拿到 null。视图切换护栏打开后 settings 首次被真正执行,立刻暴露了这个缺口。
   if (el.tagName === "TABLE") el.appendChild(document.createElement("tbody"));
+  // index.html 里写死的 <option> 也要建成真实子节点(见 parseOptionsInto 的说明):
+  // 语言/代理/思考强度/节奏/各类筛选下拉的选项全在标记里,不建就全变哑控件。
+  if (el.tagName === "SELECT") {
+    const tail = html.slice(match.index + match[0].length);
+    const end = tail.indexOf("</select>");
+    parseOptionsInto(el, end < 0 ? "" : tail.slice(0, end));
+    resetSelectedness(el);
+  }
 }
 
 // 主视图切换按钮只有 class 没有 id,上面那轮按 id 造不出它们;这里按 class 补造,
@@ -442,6 +531,11 @@ for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*da
 const PROJECT = "C:/smoke/project";
 // nextStatuses 是状态流转按钮的数据源:桩里缺它,侧栏"能不能切状态"就无从断言。
 const docEntry = (id, title, status, extra = {}) => ({ id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"], ...extra });
+// ---------- 工具块夹具:历史回放里的四种结果形态 ----------
+// 双写缺陷(⎿ 摘要行与展开详情各渲染一遍同一段文案)只在"首行超过 ⎿ 预算"或"多行"时
+// 显形,单行短结果永远看不出来——夹具必须真的超预算,否则断言恒真。
+const HISTORY_LONG_FIRST_LINE = `历史失败首行 ${"abcdefghijklmnopqrstuvwxyz".repeat(6)}`; // 163 字 > 110
+const HISTORY_HUGE_OUTPUT = `第一行输出\n${"这是一段很长的历史输出。".repeat(800)}`; // 远超 8000
 const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   update_check: { newer: false },
@@ -532,7 +626,24 @@ const payloads = {
       },
     ],
   },
-  conversation_get: [{ role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] }],
+  // 历史回放里的工具调用/结果:此前只有一条纯文本消息,历史工具块在运行时从未被执行过
+  // (只有源码字符串断言),⎿ 摘要与展开详情的双写在这条路径上完全没有护栏。
+  conversation_get: [
+    { role: "user", parts: [{ type: "text", text: "冒烟历史消息" }] },
+    {
+      role: "assistant",
+      parts: [
+        { type: "tool_call", id: "H1", name: "edit", input: { path: "ui/x.js", old_string: "a", new_string: "b" } },
+        { type: "tool_result", call_id: "H1", is_error: true, content: `${HISTORY_LONG_FIRST_LINE}\n第二行\n第三行` },
+        { type: "tool_call", id: "H2", name: "bash", input: { command: "cargo test --workspace" } },
+        { type: "tool_result", call_id: "H2", is_error: false, content: HISTORY_HUGE_OUTPUT },
+        { type: "tool_call", id: "H3", name: "bash", input: { command: "true" } },
+        { type: "tool_result", call_id: "H3", is_error: false, content: "exit code: 0\n真正的输出行" },
+        { type: "tool_call", id: "H4", name: "bash", input: { command: "true" } },
+        { type: "tool_result", call_id: "H4", is_error: false, content: "exit code: 0" },
+      ],
+    },
+  ],
   conversation_trace_get: [],
   conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
   // 角色项 + 一个真实模型:角色不该出现在设置页的角色下拉里(会绕成自指)。
@@ -559,9 +670,12 @@ const payloads = {
     primary: "deepseek:deepseek-chat",
     fast: "ollama:qwen3",
     proxy: "env",
-    profileDefault: "dev",
+    // readonly 是配置文件里的合法档位,但 index.html 的下拉只写了 dev/research:
+    // 硬塞一个没有匹配 option 的值会让 select 落到空串,保存一次就把用户配置降级成 dev
+    // (与模型角色同一个坑)。必须补出兜底 option。
+    profileDefault: "readonly",
     reasoning: "off",
-    codexFastMode: false,
+    codexFastMode: true,
     limits: { maxTokens: 4096, subagentTimeoutSecs: null },
     limitDefaults: {
       maxTokens: 8192, subagentMaxTokens: 4096, subagentTimeoutSecs: 900,
@@ -572,9 +686,23 @@ const payloads = {
     cadence: { full_test: "every_n_batches", full_test_batches: 3, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
     cadenceDefaults: { full_test: "entry_close", full_test_batches: null, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
     profiles: {},
-    providers: [],
+    // 两个自定义 provider:表格里点「×」再保存,载荷必须只剩没删的那个(且仍是整张表)。
+    providers: [
+      { name: "mine", protocol: "openai", baseUrl: "http://127.0.0.1:1", apiKeyEnv: "", apiKey: "", contextLimit: null },
+      { name: "keepme", protocol: "openai", baseUrl: "http://127.0.0.1:2", apiKeyEnv: "", apiKey: "", contextLimit: null },
+    ],
     permissions: [],
-    effective: { primary: "anthropic:claude-sonnet-5", fast: "ollama:qwen3", reasoning: null },
+    // 项目级覆盖:D-168 当年只堵了模型角色,limits/proxy 被覆盖时页面一声不吭。
+    // 这里让 primary/proxy/limits.maxTokens 各不相同(必须提示)、profileDefault 与
+    // codexFastMode 相同(不得误报)、fast 整条缺失(has() 守卫必须整条跳过)。
+    effective: {
+      primary: "anthropic:claude-sonnet-5",
+      reasoning: null,
+      proxy: "http://127.0.0.1:7890",
+      profileDefault: "readonly",
+      codexFastMode: true,
+      limits: { maxTokens: 8192, subagentTimeoutSecs: null },
+    },
     projectConfig: "C:/smoke/project/.kanzei/kanzei.toml",
   },
   permission_rules_get: [],
@@ -588,11 +716,25 @@ const payloads = {
   workspace_snapshot: {},
 };
 const invokeLog = [];
+const invokeArgs = [];
 const savedPayloads = new Map();
 // 探针回传要看具体参数(id 配对、取样内容),所以单独留一份带参日志。
 const probeResults = [];
+// 真机时序闸门:桩默认返回"已 resolve 的 promise",于是 `await invoke(...)` 之后的代码
+// 走微任务,恒早于 setTimeout(0)。真机上 IPC 是毫秒级,顺序恰好相反——凡是"先刷新
+// 再做某事"的时序契约,在默认桩下都会假绿。给某条命令挂一个闸门,就能把这一段
+// 挂起,让 setTimeout 先跑完,复现真机顺序。
+const invokeGates = new Map();
+// 后端失败注入:真机上 docs_snapshot 会因目录被删/文件锁/解析失败而抛错,那条 catch
+// 路径上的清理(比如作废挂起的跳转高亮)只有让桩真的抛错才测得到。
+const invokeFailures = new Map();
 async function invoke(cmd, args) {
   invokeLog.push(cmd);
+  invokeArgs.push({ cmd, args });
+  const gate = invokeGates.get(cmd);
+  if (gate) await gate;
+  const failure = invokeFailures.get(cmd);
+  if (failure) throw new Error(failure);
   if (cmd === "settings_save") savedPayloads.set(cmd, args);
   if (cmd === "ui_probe_result") probeResults.push(args);
   if (cmd in payloads) return structuredClone(payloads[cmd]);
@@ -603,6 +745,8 @@ const handlers = new Map();
 
 const storage = new Map();
 storage.set("kz-auto-continue", "1");
+// P1:启动恢复的上限必须作为同一次状态同步发到当前会话，不能仍让后端停在默认 10。
+storage.set("kz-auto-max", "3");
 // R-170:预置旧版默认继续文案(镜像历史 LEGACY_CONTINUE_PROMPTS[0],已删除)。
 // 升级机制删除后旧值必须原样读回(验收③:不再触发覆盖);夹具保留用于断言。
 storage.set(
@@ -663,13 +807,37 @@ class ResizeObserverShim {
   disconnect() {}
 }
 
+// 冒烟里**有意注入**的后端失败会走 toastError → reportPersistentError,那是被测行为的
+// 一部分,不该当成"意外的持久错误"判红。窗口显式开合并按片段精确匹配,离开窗口一律
+// 恢复判红——不然就等于顺手把真错误也吞了。
+let expectedPersistentError = null;
+let expectedPersistentHits = 0;
+// 同理,但走的是另一条出口:refreshDocsSoon 的 catch 只 console.error(不 toastError),
+// 而"注入失败 → 它必须作废挂起的跳转高亮"正是要测的行为。规矩与上面一致:显式开窗、
+// 按片段精确匹配、离开窗口立刻恢复判红——不然就等于顺手把真的 console.error 也吞了。
+let expectedConsoleError = null;
+let expectedConsoleHits = 0;
+
 const sandbox = {
   __reportInitError: (label, err) => fail(`初始化步骤 ${label} 抛异常(已被 main.js 吞掉): ${err?.stack ?? err}`),
-  __reportPersistentError: (text) => fail(`reportPersistentError: ${text}`),
+  __reportPersistentError: (text) => {
+    if (expectedPersistentError && String(text).includes(expectedPersistentError)) {
+      expectedPersistentHits += 1;
+      return;
+    }
+    fail(`reportPersistentError: ${text}`);
+  },
   console: {
     log: (...a) => console.log(...a),
     warn: (...a) => console.warn(...a),
-    error: (...a) => { fail(`console.error: ${a.map(String).join(" ")}`); },
+    error: (...a) => {
+      const text = a.map(String).join(" ");
+      if (expectedConsoleError && text.includes(expectedConsoleError)) {
+        expectedConsoleHits += 1;
+        return;
+      }
+      fail(`console.error: ${text}`);
+    },
   },
   window: windowShim,
   document,
@@ -702,6 +870,33 @@ async function flush(rounds = 12) {
       if (!pendingTimers.has(h) || h.interval) continue;
       pendingTimers.delete(h);
       await h.fn();
+    }
+  }
+}
+
+// 手工排空一轮已排队的 setTimeout(闸门段里要复现"定时器先于 IPC 落地"的真机顺序,
+// 不能用 flush——它会连锁把回调自己新排的定时器也冲掉)。
+// 关键:**不得无条件 await 回调**。被排空的回调里若也有一次同名 invoke(典型如
+// refreshDocsSoon 里的 docs_snapshot),它会撞上同一道还没放开的闸门,`await handle.fn()`
+// 就此死等——CI 表现为挂死而不是判红,比红灯难查得多。这里一律带超时:任何情况下
+// 都不挂死,超时就判红并说清原因。
+const DRAIN_TIMEOUT_MS = 300;
+async function drainTimersOnce(label) {
+  for (const handle of [...pendingTimers]) {
+    if (!pendingTimers.has(handle) || handle.interval) continue;
+    pendingTimers.delete(handle);
+    const timedOut = Symbol("drain-timeout");
+    let timer = null;
+    const result = await Promise.race([
+      (async () => handle.fn())(),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(timedOut), DRAIN_TIMEOUT_MS); }),
+    ]);
+    clearTimeout(timer);
+    if (result === timedOut) {
+      fail(
+        `${label}:排空定时器时有回调 ${DRAIN_TIMEOUT_MS}ms 未返回(多半是它内部的 invoke 撞上了还没放开的闸门)。` +
+        "冒烟绝不能挂死,这里按失败处理;要么在闸门段前清掉该定时器,要么别在闸门段前排它。",
+      );
     }
   }
 }
@@ -750,8 +945,13 @@ try {
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
-assert(listText("req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("req-list").slice(0, 60)}"`);
-assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
+const initialAutoState = invokeArgs.find(({ cmd, args }) =>
+  cmd === "auto_state_update" && args?.sessionId === "sess-smoke" && args?.maxRounds === 3
+);
+assert(initialAutoState, "启动恢复的自动推进状态未将当前会话和已保存上限一并同步给后端");
+// 完整需求/缺陷列表整体搬进单页视图(侧栏只留「当前在做」的焦点卡片),落点换了、断言跟着搬。
+assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
+assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
 // R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
 // (验收③);删空 textarea 回落极简默认,且极简默认不含任何引擎规则文本(验收①)。
 {
@@ -785,11 +985,13 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
 }
 // 批次进度格(R-160):格数与已填格必须来自后端算好的 entry.batches,前端不得另存
 // 一份复杂度→格数的映射;总数为 1 的条目不画格(一轮做完的东西不需要进度条)。
+// 批次上限 10 只在写入侧(docstore.rs check_declared_batches)拦截,读路径与渲染必须原样
+// 透传:归档里 11/11、16/16 的历史条目若被前端二次钳制成 10,格子数与 aria-label 就成了假数。
 {
-  const meter = document.querySelector('#req-list .doc-item[data-doc-id="R-001"] .batch-meter');
+  const meter = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .batch-meter');
   assert(meter, "批次进度格没渲染出来");
   const cells = meter.querySelectorAll(".complexity-cell");
-  assert(cells.length === 11, `11 批应画 11 格,实际 ${cells.length}`);
+  assert(cells.length === 11, `11 批应画 11 格(前端不得二次钳制到 10),实际 ${cells.length}`);
   assert(
     cells.filter((c) => c.className.includes("filled")).length === 3,
     "已完成 3 批就该填 3 格",
@@ -803,9 +1005,36 @@ assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染�
     `读屏标签要带准确批次数:${meter.getAttribute("aria-label")}`,
   );
   assert(
-    !document.querySelector('#req-list .doc-item[data-doc-id="R-002"] .batch-meter'),
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"] .batch-meter'),
     "总数为 1 的条目不该画进度格(一轮做完的东西没有进度可言)",
   );
+}
+// D-242 新口径:批数由 agent 显式声明(`批次: k/N`),上限 10;未声明就没有批次
+// (docstore.rs batch_progress 返回 (0,1)),复杂度不再凭空生成 3/8 个空格子。
+// 上界 10/10 与"未声明不画格"这两种形态此前从未被渲染路径覆盖过。
+{
+  const savedBatchDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    ...savedBatchDocs,
+    requirements: [
+      docEntry("R-010", "走满上限的条目", "doing", { complexity: "大", batches: { done: 10, total: 10 } }),
+      docEntry("R-011", "未声明批次的大条目", "todo", { complexity: "大", batches: { done: 0, total: 1 } }),
+    ],
+  };
+  await sandbox.refreshDocs();
+  const full = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-010"] .batch-meter');
+  assert(full, "走满上限(10/10)的条目没画进度格");
+  const fullCells = full.querySelectorAll(".complexity-cell");
+  assert(fullCells.length === 10, `10 批应画 10 格,实际 ${fullCells.length}`);
+  assert(fullCells.every((c) => c.className.includes("filled")), "10/10 应全部填满");
+  assert(full.style.getPropertyValue("--cells") === "10", "10 批的 --cells 不对");
+  assert((full.getAttribute("aria-label") ?? "").includes("10/10"), "10/10 读屏标签不对");
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-011"] .batch-meter'),
+    "未声明批次的「大」条目不该凭空画出进度格(D-242:复杂度不再映射默认批数)",
+  );
+  payloads.docs_snapshot = savedBatchDocs;
+  await sandbox.refreshDocs();
 }
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
@@ -813,13 +1042,89 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
 // D-207:取活焦点标记——在做的(doing/fixing)高亮,取活序下一个(defect-first 下
 // 第一个无阻塞的 open 缺陷)次亮。基于数据计算,与视图排序/分组无关。
 {
-  const active = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
+  const active = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(active?.classList.contains("agent-active"), "doing 条目 R-001 未标记 agent-active(在做高亮丢失)");
-  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(next?.classList.contains("agent-next"), "defect-first 下首个可开工缺陷 D-001 未标记 agent-next(取活预览丢失)");
   assert(!next.classList.contains("agent-active"), "open 条目不该被标成在做");
-  const notNext = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
+  const notNext = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]');
   assert(!notNext?.classList.contains("agent-next"), "缺陷队列有可开工项时,需求 R-002 不该被标为下一个");
+}
+// ---------- 侧栏「当前在做」焦点卡片:单条,不是列表、不是集合 ----------
+// 用户定调:侧栏只显示 agent 当前在做的那一条,且显示得完整一点。完整列表连同筛选、
+// 排序、分组、批量、测试记录全部搬进单页视图。
+{
+  const cards = document.querySelectorAll("#focus-body .focus-card");
+  assert(cards.length === 1, `侧栏焦点区应恰好一张卡片(单条,不是集合),实得 ${cards.length}`);
+  assert(cards[0]?.dataset.docId === "R-001", `焦点卡片指错条目:${cards[0]?.dataset.docId}`);
+  const focusText = listText("focus-body");
+  for (const needle of ["R-001", "冒烟需求", "doing", "3/11", "P1", "复杂度"]) {
+    assert(focusText.includes(needle), `焦点卡片缺少「${needle}」(侧栏要显示得完整一点):${focusText.slice(0, 160)}`);
+  }
+  assert(document.querySelector("#focus-body .batch-meter"), "焦点卡片缺批次进度格");
+  assert(document.querySelectorAll("#focus-body .doc-field").length > 0, "焦点卡片没有只读字段(取活时看不到进展/验收)");
+  // 焦点依据(D-207 三修的对外可见面):凭运行证据还是凭取活序,必须说出来。
+  assert(focusText.includes("取活顺序推断"), `无运行证据时焦点依据应说明是推断:${focusText.slice(0, 160)}`);
+  // 侧栏不再承载完整列表 / 筛选 / 排序 / 分组 / 测试记录 —— 这些 id 从 index.html 里整体消失。
+  for (const gone of ["req-list", "defect-list", "tests-section", "req-filter-row", "defect-filter-row",
+    "req-sort", "req-group-toggle", "req-priority-filter", "req-status-filter", "req-tag-filter"]) {
+    assert(!byId.has(gone), `侧栏残留完整列表控件 #${gone}(侧栏应只显示当前在做的单条)`);
+  }
+  // 测试记录搬进单页:#test-list 必须在 #documents-tests 里(harness 的 DOM 是按 id 扁平造的,
+  // 祖先链断言天然不成立,这里改用 index.html 的静态包含关系)。
+  const testsBlock = html.slice(html.indexOf('id="documents-tests"'), html.indexOf('id="documents-dep-view"'));
+  assert(testsBlock.includes('id="test-list"'), "测试记录列表不在单页 #documents-tests 内(仍挂在侧栏)");
+  assert(listText("test-list").includes("冒烟测试"), "测试记录搬家后没渲染出桩数据");
+  // 「下一个」紧凑行:computeAgentFocus 给得出才渲染。
+  const nextRow = document.querySelector("#focus-body .focus-next");
+  assert(nextRow?.dataset.docId === "D-001", `焦点区「下一个」应指 D-001,实得 ${nextRow?.dataset.docId}`);
+  assert(nextRow?.textContent.includes("冒烟缺陷"), "「下一个」未给出标题");
+  // 待办计数补回被删列表的信息量。
+  assert(/\d/.test(listText("focus-backlog")), "焦点区未给出待办计数");
+}
+// 焦点卡片的状态流转按钮:取活时要能直接切状态,这条链路不能因为列表搬家而断掉。
+{
+  const actionButton = document.querySelector("#focus-body .doc-actions button");
+  assert(actionButton, "焦点卡片缺少状态流转按钮(取活链路断了)");
+  const before = invokeLog.filter((cmd) => cmd === "docs_update").length;
+  actionButton?.click();
+  await flush();
+  assert(
+    invokeLog.filter((cmd) => cmd === "docs_update").length > before,
+    "焦点卡片的状态流转按钮没有真正提交 docs_update",
+  );
+}
+// 焦点空态:队列清空时说破,并给出去完整列表的入口(不留空壳、不编)。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    ...savedFocusDocs,
+    requirements: [docEntry("R-001", "已完成需求", "done", { closed: true })],
+    defects: [docEntry("D-001", "已修缺陷", "fixed", { closed: true })],
+  };
+  await sandbox.refreshDocs();
+  assert(!document.querySelector("#focus-body .focus-card"), "全部关闭时不该还有焦点卡片");
+  assert(listText("focus-body").includes("当前没有在做的条目"), `焦点空态未说破:${listText("focus-body")}`);
+  assert(!document.querySelector("#focus-body .focus-next"), "拿不到「下一个」时不该留空壳");
+  const emptyButton = document.querySelector("#focus-body .focus-empty button");
+  assert(emptyButton, "焦点空态缺少「查看完整列表」入口");
+  emptyButton.click();
+  await flush();
+  assert(byId.get("view-documents").classList.contains("active"), "焦点空态的入口没能切到单页视图");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
+// 侧栏标题栏的「打开完整列表」按钮:切视图 + 走 refreshDocs。
+{
+  byId.get("view-documents").classList.remove("active");
+  const before = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+  byId.get("focus-open-documents").click();
+  await flush();
+  assert(byId.get("view-documents").classList.contains("active"), "#focus-open-documents 未激活单页视图");
+  assert(
+    invokeLog.filter((cmd) => cmd === "docs_snapshot").length > before,
+    "#focus-open-documents 未触发 refreshDocs",
+  );
 }
 // D-207 单线程语义:active 是单条(取活序第一个可执行 doing/fixing),不是集合。
 // 多条 doing/fixing 只是"已取未动"的历史状态,只有取活序第一条才是 agent 正在推的。
@@ -830,12 +1135,45 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
     defects: [docEntry("D-001", "可开工缺陷", "open", {})],
   };
   await sandbox.refreshDocs();
-  const firstDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
-  const secondDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-002"]');
+  const firstDoing = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
+  const secondDoing = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]');
   assert(firstDoing?.classList.contains("agent-active"), "取活序第一条 doing 应标 agent-active(当前正在做)");
   assert(!secondDoing.classList.contains("agent-active"), "第二条 doing 只是已取未动,不该标 agent-active(active 是单条)");
-  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(next?.classList.contains("agent-next"), "active 之后取活序第一个可开工缺陷 D-001 仍应为下一个");
+  // WIP=1(2026-08-10 定调):两个队列共用同一个槽位,整个快照里被标「正在做」的只能有一条。
+  assert(
+    document.querySelectorAll("#documents-req-list .agent-active, #documents-defect-list .agent-active").length === 1,
+    "两条 doing 同时在场时「正在做」应仍是单条(需求与缺陷共用一个槽,不是每队各一个)",
+  );
+  assert(document.querySelectorAll("#focus-body .focus-card").length === 1, "侧栏焦点卡片必须是单条");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
+// WIP=1 跨队列:defect-first 下,非阻塞 fixing 缺陷占走那唯一的槽,需求侧的 doing 不再算「在做」。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  const priority = byId.get("work-priority-select");
+  const savedPriority = priority.value;
+  payloads.docs_snapshot = {
+    requirements: [docEntry("R-A", "需求侧 doing", "doing", {}), docEntry("R-B", "待办需求", "todo", {})],
+    defects: [docEntry("D-A", "缺陷侧 fixing", "fixing", {})],
+  };
+  priority.value = "defect-first";
+  await sandbox.refreshDocs();
+  assert(
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-A"]')?.classList.contains("agent-active"),
+    "defect-first 下,fixing 缺陷应占走唯一的可执行槽",
+  );
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-A"]')?.classList.contains("agent-active"),
+    "两队共用一个槽:缺陷占了槽,需求侧的 doing 不该同时被标「正在做」",
+  );
+  assert(
+    document.querySelector("#focus-body .focus-next")?.dataset.docId === "R-B",
+    "「当前」与「下一个」两个指针应各有值,不能塌成同一条",
+  );
+  priority.value = savedPriority;
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
@@ -849,10 +1187,10 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
     defects: [docEntry("D-001", "可开工缺陷", "open", {})],
   };
   await sandbox.refreshDocs();
-  const blockedDoing = document.querySelector('#req-list .doc-item[data-doc-id="R-001"]');
+  const blockedDoing = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(blockedDoing?.classList.contains("blocked"), "阻塞 doing 应保留 blocked 标记(阻塞展示不受影响)");
   assert(!blockedDoing.classList.contains("agent-active"), "阻塞 doing 不该标 agent-active(运行焦点只标可执行条目)");
-  const next = document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]');
+  const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(next?.classList.contains("agent-next"), "blocked doing 不应挡住 next:可开工缺陷 D-001 仍应为下一个");
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
@@ -868,32 +1206,41 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
   };
   await sandbox.refreshDocs();
   assert(
-    document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
     "无运行证据时应按取活序推断(defect-first 指 fixing 缺陷)",
   );
   handlers.get("kz:tool-end")({ payload: { id: "F1", name: "req", ok: true, preview: "updated: R-001 [doing] 批次推进", display: null } });
   await flush();
   await sandbox.refreshDocs();
   assert(
-    document.querySelector('#req-list .doc-item[data-doc-id="R-001"]')?.classList.contains("agent-active"),
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]')?.classList.contains("agent-active"),
     "运行证据(updated: R-001)未覆盖状态推断——「在做」指针仍指错条目",
   );
+  // 焦点卡片必须同步说出依据变了:D-207 三修的对外可见面就在这句话上。
   assert(
-    !document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    listText("focus-body").includes("本轮运行证据"),
+    `运行证据命中后焦点卡片仍说是推断:${listText("focus-body").slice(0, 160)}`,
+  );
+  assert(
+    !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
     "运行证据生效后,挂着 fixing 的旧缺陷不该再标「正在做」",
   );
   // 新一轮 run 开跑(kz:turn step 1):上一轮证据作废,回落推断。
   handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0 } });
   await sandbox.refreshDocs();
   assert(
-    document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
     "新 run 开跑后旧运行证据未作废",
+  );
+  assert(
+    listText("focus-body").includes("取活顺序推断"),
+    `运行证据作废后焦点卡片未回落成推断:${listText("focus-body").slice(0, 160)}`,
   );
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
 // D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
-const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
+const archivedRow = document.querySelector("#documents-req-list .doc-archive-list .archived-entry");
 assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");
 assert(archivedRow.parentElement.classList.contains("hidden"), "归档区应默认折叠");
 assert(typeof sandbox.jumpToEntry === "function", "jumpToEntry 未定义(引用跳转入口丢失)");
@@ -909,58 +1256,63 @@ assert(
   `跳转到不存在的条目时应给出提示而不是静默失败,实得 toast: "${listText("toast")}"`,
 );
 
-// R-123 职责分离(侧栏只读浏览、文档页深度管理)经 D-211 修订:拖拽改序两侧一致——
-// 侧栏照常渲染"解锁"按钮,解锁后就必须能拖,否则是承诺与能力脱节(D-211)。
-assert(!document.querySelector("#req-list .doc-edit"), "侧栏仍在渲染字段编辑表单(应只在独立文档页)");
-assert(!document.querySelector("#defect-list .doc-edit"), "缺陷侧栏仍在渲染字段编辑表单");
-assert(!document.querySelector("#req-list .doc-pick"), "侧栏出现批量选择框(批量操作应只在文档页)");
+// 完整列表搬进单页后,「侧栏不该有编辑表单/批量选择」这组断言换了落点:侧栏根本没有
+// 列表了(上面 byId 反向断言 + ui-a11y-smoke.mjs 已守住),再照搬到 #documents-req-list
+// 就会变成断言「单页不该能编辑」——正好把 R-123 的能力判反。这里改为守住单页确实有这些能力,
+// 见下面 reqEditor / .doc-pick 两组;此处只保留「侧栏焦点区不承载列表能力」的正面判据。
+assert(!document.querySelector("#focus-body .doc-edit"), "侧栏焦点卡片渲染了字段编辑表单(编辑只在独立文档页)");
+assert(!document.querySelector("#focus-body .doc-pick"), "侧栏焦点卡片出现批量选择框(批量操作应只在文档页)");
 assert(
-  !document.querySelectorAll("#req-list .doc-item").some((n) => n.draggable),
-  "分组锁状态下侧栏条目不应可拖(解锁后才设置 draggable)",
+  !document.querySelectorAll("#documents-req-list .doc-item").some((n) => n.draggable),
+  "分组锁状态下条目不应可拖(解锁后才设置 draggable)",
 );
-// D-211 修复链路:侧栏解锁 → 锁提示消失 → draggable=true → 拖拽 → reorder 落库。
+// D-211 修复链路:解锁 → 锁提示消失 → draggable=true → 拖拽 → reorder 落库。
+// 终判据收紧到 action==="reorder":拖拽是唯一能改取活顺序的入口,只数 docs_update 次数
+// 的话,任何顺手多发的 docs_update(改状态/改字段)都能让它假通过。
 {
-  const sidebarReq = document.querySelector("#req-list");
-  const hint = sidebarReq.querySelector(".drag-hint");
-  assert(hint, "侧栏默认分组视图未渲染锁提示");
+  const reqListEl = document.querySelector("#documents-req-list");
+  const hint = reqListEl.querySelector(".drag-hint");
+  assert(hint, "默认分组视图未渲染锁提示");
   const unlockBtn = [...hint.querySelectorAll("button")].find((b) => b.textContent.includes("解锁"));
   assert(unlockBtn, "锁提示缺少一键解锁按钮(D-210 能力丢失)");
   unlockBtn.click();
   await flush();
-  assert(!sidebarReq.querySelector(".drag-hint"), "解锁后锁提示未消失");
-  const items = [...sidebarReq.querySelectorAll(".doc-item[data-doc-id]")];
-  assert(items.length >= 2, `解锁后侧栏需求条目不足(无法验证拖拽落库): ${items.length}`);
-  assert(items.every((n) => n.draggable), "侧栏解锁后条目未设置 draggable(D-211:解锁了却拖不动)");
-  const before = invokeLog.filter((c) => c === "docs_update").length;
+  assert(!document.querySelector("#documents-req-list .drag-hint"), "解锁后锁提示未消失");
+  const items = [...document.querySelectorAll("#documents-req-list .doc-item[data-doc-id]")];
+  assert(items.length >= 2, `解锁后需求条目不足(无法验证拖拽落库): ${items.length}`);
+  assert(items.every((n) => n.draggable), "解锁后条目未设置 draggable(D-211:解锁了却拖不动)");
+  const reorderCount = () =>
+    invokeArgs.filter(({ cmd, args }) => cmd === "docs_update" && args?.action === "reorder").length;
+  const before = reorderCount();
   const [a, b] = items;
   a.dispatchEvent({ type: "dragstart", dataTransfer: { effectAllowed: "", setData() {} } });
   b.dispatchEvent({ type: "dragover", clientY: 0, preventDefault() {} });
   a.dispatchEvent({ type: "dragend" });
   await flush();
-  const after = invokeLog.filter((c) => c === "docs_update").length;
-  assert(after > before, `侧栏拖拽未提交 docs_update(reorder 落库缺失),增量=${after - before}`);
+  assert(reorderCount() > before, `拖拽未提交 action=reorder 的 docs_update(唯一能改取活顺序的入口断了)`);
 }
 // D-207 验收③:优先级语义 UI 明示——priority 只是背景信息,不参与取活(用户定调),
 // 避免满屏 P0~P3 徽章让人按优先级猜取活序。
 {
-  const priFilter = document.querySelector("#req-priority-filter");
-  assert(priFilter?.getAttribute("title").includes("仅参考"), `侧栏优先级筛选未明示"仅参考,不影响取活": "${priFilter?.getAttribute("title")}"`);
-  const badge = document.querySelector("#req-list .pri-badge");
+  const priFilter = document.querySelector("#documents-priority-filter");
+  assert(priFilter?.getAttribute("title").includes("仅参考"), `优先级筛选未明示"仅参考,不影响取活": "${priFilter?.getAttribute("title")}"`);
+  const badge = document.querySelector("#documents-req-list .pri-badge");
   assert(badge?.title.includes("仅参考"), `优先级徽章未明示"仅参考,不影响取活": "${badge?.title}"`);
 }
-// D-205 验收③:带「待澄清」复现的缺陷在侧栏可辨识——用户能一眼看到哪些条目等他补话,
+// D-205 验收③:带「待澄清」复现的缺陷可辨识——用户能一眼看到哪些条目等他补话,
 // 不会把"待澄清"当真实复现拿去开工。
 {
-  const clarifyBadge = document.querySelector("#defect-list .clarify-badge");
+  const clarifyBadge = document.querySelector("#documents-defect-list .clarify-badge");
   assert(clarifyBadge, "带「待澄清」复现的缺陷未渲染待澄清徽标(D-205)");
   assert(clarifyBadge.title.includes("待澄清"), `待澄清徽标未带具体问题提示: "${clarifyBadge.title}"`);
-  assert(!document.querySelector("#req-list .clarify-badge"), "需求列表误渲染待澄清徽标(仅缺陷快记有此形态)");
+  assert(!document.querySelector("#documents-req-list .clarify-badge"), "需求列表误渲染待澄清徽标(仅缺陷快记有此形态)");
 }
-// 侧栏移除编辑后必须仍能读到字段,否则等于把信息一起删了。
-const sidebarFields = document.querySelectorAll("#req-list .doc-detail .doc-field");
-assert(sidebarFields.length > 0, "侧栏详情既无编辑表单也无只读字段,信息被一起删掉了");
+// 列表搬走之后,取活时要看的只读字段落到了侧栏焦点卡片上——断言跟着搬,不能删:
+// 「信息被一起删掉」这条护栏必须留着。
+const sidebarFields = document.querySelectorAll("#focus-body .doc-field");
+assert(sidebarFields.length > 0, "侧栏焦点卡片既无编辑表单也无只读字段,信息被一起删掉了");
 // 状态流转留在侧栏:取活时要能直接切。
-assert(document.querySelector("#req-list .doc-actions button"), "侧栏详情缺少状态流转按钮(取活链路断了)");
+assert(document.querySelector("#focus-body .doc-actions button"), "侧栏焦点卡片缺少状态流转按钮(取活链路断了)");
 
 const reqEditor = document.querySelector("#documents-req-list .doc-edit");
 assert(reqEditor?.querySelector("input") && reqEditor?.querySelector("button"), "独立文档页未提供标题/字段编辑控件");
@@ -1080,6 +1432,610 @@ depToggle.click();
 await flush();
 assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点击依赖视图按钮后面板未隐藏");
 
+// ---------- 单页视图补齐侧栏退休掉的能力:排序 / 复杂度筛选 / 测试记录 ----------
+// 完整列表整体搬进单页后,侧栏原有的排序、复杂度筛选、测试记录都必须在这里找得到,
+// 否则搬家等于把能力删了。
+{
+  byId.get("documents-tab-req").click();
+  await flush();
+  const reorderCount = () =>
+    invokeArgs.filter(({ cmd, args }) => cmd === "docs_update" && args?.action === "reorder").length;
+  const setSort = async (value) => {
+    const sort = byId.get("documents-sort");
+    sort.value = value;
+    sort._listeners.change?.forEach((fn) => fn({ target: sort }));
+    await flush();
+  };
+
+  // ① 排序 ≠ 拖拽:排序只改显示口径,只有手动排序下的拖拽才写回文件、改变取活顺序。
+  // 三重冗余(常显说明 / 锁提示点名 / draggable 关掉)缺一条,用户就会以为"按优先级排一下,
+  // agent 就会按优先级取活"。
+  assert(listText("documents-sort-note").includes("拖拽"), `排序说明未点明拖拽才写回文件:"${listText("documents-sort-note")}"`);
+  const reorderBeforeSort = reorderCount();
+  await setSort("priority");
+  const sortHint = document.querySelector("#documents-req-list .drag-hint");
+  assert(sortHint, "非手动排序下未渲染拖拽锁提示(静默禁用 = D-210 老毛病)");
+  assert(sortHint.textContent.includes("排序=优先级"), `锁提示未点名到具体条件:"${sortHint.textContent}"`);
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item[data-doc-id]").every((n) => !n.draggable),
+    "非手动排序下条目仍可拖(拖出来的顺序会与文件顺序对不上)",
+  );
+  assert(
+    reorderCount() === reorderBeforeSort,
+    "改排序竟然提交了 action=reorder 的 docs_update:排序只该改显示,不该动取活顺序",
+  );
+  // ② 解锁后拖拽仍然真的能改取活顺序(能力没被上一条断言"锁死")。
+  const unlock = [...sortHint.querySelectorAll("button")].find((b) => b.textContent.includes("解锁"));
+  assert(unlock, "排序锁提示缺少一键解锁");
+  unlock.click();
+  await flush();
+  assert(byId.get("documents-sort").value === "manual", "解锁后排序未切回手动");
+  assert(!document.querySelector("#documents-req-list .drag-hint"), "解锁后锁提示未消失");
+  const sortedItems = [...document.querySelectorAll("#documents-req-list .doc-item[data-doc-id]")];
+  assert(sortedItems.every((n) => n.draggable), "解锁后条目仍拖不动");
+  const beforeDrag = reorderCount();
+  sortedItems[0].dispatchEvent({ type: "dragstart", dataTransfer: { effectAllowed: "", setData() {} } });
+  sortedItems[1].dispatchEvent({ type: "dragover", clientY: 0, preventDefault() {} });
+  sortedItems[0].dispatchEvent({ type: "dragend" });
+  await flush();
+  assert(reorderCount() > beforeDrag, "解锁后拖拽仍未提交 action=reorder(承诺与能力脱节)");
+
+  // ③ 复杂度筛选补齐(侧栏退休前有这一档,单页必须接上,含按项目落盘)。
+  const complexity = byId.get("documents-complexity-filter");
+  assert(complexity && !complexity.disabled, "需求页缺少可用的复杂度筛选");
+  complexity.value = "大";
+  complexity._listeners.change?.forEach((fn) => fn({ target: complexity }));
+  await flush();
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "复杂度筛选没生效(R-001 是「中」,筛「大」时不该还在)",
+  );
+  assert(document.querySelector("#documents-req-list .doc-filtered-empty"), "复杂度筛空后未说破");
+  const complexityKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
+  assert(
+    JSON.parse(storage.get(complexityKey)).docReq.complexity === "大",
+    "复杂度筛选未按项目落盘(重启后回「全部」)",
+  );
+  complexity.value = "all";
+  complexity._listeners.change?.forEach((fn) => fn({ target: complexity }));
+  await flush();
+  assert(document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'), "复杂度筛选清回「全部」后条目没回来");
+
+  // ④ 测试记录已从侧栏搬进单页:切过去要真的显示,且对它无意义的控件要**置灰说破**,
+  // 不做静默无效(D-210/D-211 的教训)。
+  byId.get("documents-tab-tests").click();
+  await flush();
+  assert(!byId.get("documents-tests").classList.contains("hidden"), "测试记录标签页打不开");
+  assert(byId.get("documents-req-list").classList.contains("hidden"), "测试记录页仍显示需求列表");
+  assert(byId.get("documents-defect-list").classList.contains("hidden"), "测试记录页仍显示缺陷列表");
+  assert(byId.get("documents-batch-bar").classList.contains("hidden"), "测试记录页不该出现批量操作条");
+  assert(byId.get("documents-dep-toggle").disabled === true, "测试记录页的依赖视图按钮应置灰(禁用要说破)");
+  assert(byId.get("documents-tab-tests").className.includes("primary"), "测试记录标签未标为当前页");
+  assert(listText("test-list").includes("冒烟测试"), "测试记录页没渲染出测试数据");
+  // 切回来必须完全可逆:dependencyViewOpen 这类标志不能被 tests 页顺手清掉。
+  byId.get("documents-tab-req").click();
+  await flush();
+  assert(!byId.get("documents-req-list").classList.contains("hidden"), "切回需求页后列表没回来");
+  assert(byId.get("documents-tests").classList.contains("hidden"), "切回需求页后测试记录未隐藏");
+  assert(byId.get("documents-dep-toggle").disabled === false, "切回需求页后依赖视图按钮仍被禁用");
+  assert(byId.get("documents-status-filter").disabled === false, "切回需求页后状态筛选仍被禁用");
+  // ⑤ #tests-refresh 搬家后按 id 绑定的监听必须还在(09-sessions.js:565 绑的是这个 id)。
+  const testsBefore = invokeLog.filter((cmd) => cmd === "test_runs_snapshot").length;
+  byId.get("tests-refresh").click();
+  await flush();
+  assert(
+    invokeLog.filter((cmd) => cmd === "test_runs_snapshot").length > testsBefore,
+    "测试记录刷新按钮搬进单页后失效了(按 id 绑定的监听断了)",
+  );
+
+  // ⑥ 引用跳转必须先把单页视图切过去:条目现在只存在于 #view-documents 里,
+  // 视图没激活时祖先是 display:none,scrollIntoView 无效 —— 真机上就是 D-166 的「点了没反应」。
+  // 冒烟 harness 的 offsetParent 恒真,这条只能靠显式断言守。
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  assert(!byId.get("view-documents").classList.contains("active"), "前置失败:未离开单页视图");
+  sandbox.jumpToEntry("R-002");
+  await flush();
+  assert(byId.get("view-documents").classList.contains("active"), "跳转到单页里的条目时没有先切视图(点了没反应,D-166 复发)");
+}
+
+// ---------- 对照(both)标签页:显示上不带筛选,但绝不许清掉用户的筛选 ----------
+// 对照页只提供「全部状态」(两队状态机不同),复杂度/排序是需求专有口径 —— 这三档在
+// 对照页必须**按中性渲染**,否则界面写着「全部状态 / 全部复杂度 / 手动」而列表仍按上次
+// 设的条件在筛,条目凭空少了(D-169 那类「以为数据丢了」)。
+// 但"中性"只能是**显示口径**:此前这里真的把 documentFilters.req/defect 写成 all 并落盘,
+// 用户在需求页设好 status=doing + 复杂度=大,只是切去对照页瞄一眼,回来筛选就永久没了、
+// 重启也回不来 —— R-115「筛选按项目持久化」在这条路径上的直接回归。两头一起钉死:
+// 对照页渲染确实不带筛选,切回去筛选原样还在(控件 + 内存 + 落盘)。
+{
+  byId.get("documents-tab-req").click();
+  await flush();
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  await setDocFilter("documents-status-filter", "doing"); // R-002 是 todo → 被藏
+  await setDocFilter("documents-complexity-filter", "大"); // R-001 是「中」 → 被藏
+  await setDocFilter("documents-sort", "priority");
+  assert(!document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'), "前置失败:复杂度筛选没生效");
+  assert(!document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'), "前置失败:状态筛选没生效");
+  const filtersStoreKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
+  assert(filtersStoreKey, "前置失败:筛选没有落盘(R-115 的持久化本身断了)");
+
+  byId.get("documents-tab-both").click();
+  await flush();
+  // ① 显示口径:三档下拉复位,列表真的按不带筛选渲染。
+  assert(byId.get("documents-status-filter").value === "all", "对照页状态下拉未复位");
+  assert(byId.get("documents-complexity-filter").value === "all", "对照页复杂度下拉未复位");
+  assert(byId.get("documents-sort").value === "manual", "对照页排序下拉未复位");
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "对照页只复位了下拉显示值、列表仍按复杂度在筛:界面写着「全部复杂度」而 R-001(中)被藏(D-169:以为数据丢了)",
+  );
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    "对照页只复位了下拉显示值、列表仍按状态在筛:界面写着「全部状态」而 R-002(todo)被藏",
+  );
+  const bothDragHint = document.querySelector("#documents-req-list .drag-hint");
+  assert(
+    !(bothDragHint?.textContent ?? "").includes("排序"),
+    `对照页下拉写着「手动」而锁提示仍点名排序:"${bothDragHint?.textContent}"`,
+  );
+  // ② 底层筛选不许被清掉:落盘必须原样保留,否则重启后也回不来。
+  assert(
+    (() => {
+      const saved = JSON.parse(storage.get(filtersStoreKey) ?? "{}");
+      return saved.docReq?.status === "doing" && saved.docReq?.complexity === "大" && saved.docReq?.sort === "priority";
+    })(),
+    `去对照页瞄一眼就把用户的筛选清掉并落盘了(R-115 回归:切回来没了,重启也回不来):${storage.get(filtersStoreKey)}`,
+  );
+  // ③ 切回需求页:控件、内存、列表三处都得是用户原来的那套。
+  byId.get("documents-tab-req").click();
+  await flush();
+  assert(byId.get("documents-status-filter").value === "doing", "切回需求页,状态筛选没了(对照页把它清掉了)");
+  assert(byId.get("documents-complexity-filter").value === "大", "切回需求页,复杂度筛选没了(对照页把它清掉了)");
+  assert(byId.get("documents-sort").value === "priority", "切回需求页,排序没了(对照页把它清掉了)");
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "切回需求页后复杂度筛选只剩下拉显示值、列表没在筛(状态与显示脱节)",
+  );
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    "切回需求页后状态筛选只剩下拉显示值、列表没在筛(状态与显示脱节)",
+  );
+
+  // 缺陷侧同理:对照页只提供「全部状态」,缺陷队列的 status 同样是"显示中性、状态保留"。
+  byId.get("documents-tab-defect").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "fixing"); // D-001 是 open → 被藏
+  assert(!document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]'), "前置失败:缺陷状态筛选没生效");
+  byId.get("documents-tab-both").click();
+  await flush();
+  assert(
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]'),
+    "对照页缺陷列表仍按看不见的 status=fixing 在筛(显示口径没做中性)",
+  );
+  assert(
+    JSON.parse(storage.get(filtersStoreKey) ?? "{}").docDefect?.status === "fixing",
+    `对照页把缺陷队列的 status 清掉并落盘了:${storage.get(filtersStoreKey)}`,
+  );
+  byId.get("documents-tab-defect").click();
+  await flush();
+  assert(byId.get("documents-status-filter").value === "fixing", "切回缺陷页,状态筛选没了");
+  assert(
+    !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]'),
+    "切回缺陷页后状态筛选只剩下拉显示值、列表没在筛",
+  );
+
+  // 收尾:筛选现在会真的留下来,后续用例假定列表完整 —— 走用户路径调回「全部」。
+  await setDocFilter("documents-status-filter", "all");
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "all");
+  await setDocFilter("documents-complexity-filter", "all");
+  await setDocFilter("documents-sort", "manual");
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2
+      && document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]'),
+    "收尾失败:筛选没调回全部,后续用例会连带假失败",
+  );
+}
+
+// ---------- 对照页不得改动任何队列的持久化标签筛选(跨队列写回) ----------
+// 标签曾经是唯一一个绕开"中性副本"的字段:syncDocumentFilters 里有一段
+// `for (const kind of docFilterTargets())` 把下拉的生效值写给每一个队列并落盘。
+// 实测两种坏法,都是"去对照页瞄一眼就改掉用户状态":
+//   缺陷页设「后端」→ 点对照 → 缺陷队列的标签被清成「全部」并落盘,切回去筛选永久没了;
+//   需求页设「核心」→ 点对照 → 「核心」被写进缺陷队列并落盘,用户从没在缺陷页设过,
+//   缺陷列表却永久少了一批。
+// 定调:对照页是只读的对照视图,标签与 status/complexity/sort 同一套机制——只改显示。
+// 唯一允许写回的例外是 D-169 的"值失效"回落,且只能作用于该标签所属的那一队(见 ④)。
+{
+  const savedTagDocs = structuredClone(payloads.docs_snapshot);
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  const filtersStoreKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
+  assert(filtersStoreKey, "前置失败:筛选没有落盘(R-115 的持久化本身断了)");
+  const liveTags = () => JSON.parse(vm.runInContext(
+    "JSON.stringify({ req: documentFilters.req.tag, defect: documentFilters.defect.tag })",
+    sandbox,
+  ));
+  const savedTags = () => {
+    const saved = JSON.parse(storage.get(filtersStoreKey) ?? "{}");
+    return { req: saved.docReq?.tag, defect: saved.docDefect?.tag };
+  };
+  // 两队各带各的标签:只有这样才分得清"清掉了"与"被写成了对面那一支"。
+  payloads.docs_snapshot = {
+    ...savedTagDocs,
+    requirements: [
+      docEntry("R-001", "核心标签需求", "doing", { fields: [["标签", "核心"]] }),
+      docEntry("R-002", "前端标签需求", "todo", { fields: [["标签", "前端"]] }),
+    ],
+    defects: [
+      docEntry("D-001", "后端标签缺陷", "open", { fields: [["标签", "后端"]] }),
+      docEntry("D-002", "前端标签缺陷", "open", { fields: [["标签", "前端"]] }),
+    ],
+  };
+  await sandbox.refreshDocs();
+  await flush();
+
+  // ① 缺陷页设好的标签,去对照页瞄一眼再回来必须原样还在(此前被清成「全部」并落盘)。
+  byId.get("documents-tab-defect").click();
+  await flush();
+  await setDocFilter("documents-tag-filter", "后端");
+  assert(
+    !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-002"]'),
+    "前置失败:缺陷标签筛选没生效",
+  );
+  byId.get("documents-tab-both").click();
+  await flush();
+  assert(
+    liveTags().defect === "后端",
+    `对照页把缺陷队列的标签清掉了:${JSON.stringify(liveTags())}`,
+  );
+  assert(
+    savedTags().defect === "后端",
+    `对照页把缺陷队列的标签清掉并落盘了(切回去没了,重启也回不来):${storage.get(filtersStoreKey)}`,
+  );
+  // 显示口径:渲染真的不带标签筛选,下拉跟着显示「全部标签」——两者必须一致(D-211)。
+  assert(
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-002"]'),
+    "对照页缺陷列表仍按看不见的标签在筛(显示口径没做中性,D-169:以为条目掉了)",
+  );
+  assert(byId.get("documents-tag-filter").value === "all", "对照页标签下拉未复位");
+  // 渲染按中性走而控件还能调 = 调了不生效,而且一调就把值写进两个队列并落盘(D-210 静默无效)。
+  assert(
+    byId.get("documents-tag-filter").disabled === true,
+    "对照页标签渲染按中性走,控件却没置灰:调了不生效,还会把值写进两队并落盘",
+  );
+  byId.get("documents-tab-defect").click();
+  await flush();
+  assert(byId.get("documents-tag-filter").value === "后端", "切回缺陷页,标签筛选没了");
+  assert(
+    !document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-002"]'),
+    "切回缺陷页后标签只剩下拉显示值、列表没在筛(状态与显示脱节)",
+  );
+
+  // ② 需求页的标签绝不许被写进缺陷队列:用户从没在缺陷页设过,缺陷列表却少一批。
+  await setDocFilter("documents-tag-filter", "all");
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-tag-filter", "核心");
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    "前置失败:需求标签筛选没生效",
+  );
+  byId.get("documents-tab-both").click();
+  await flush();
+  assert(
+    liveTags().defect === "all",
+    `对照页把需求页的标签写进了缺陷队列(缺陷队列被一个用户没设过的条件筛掉一批):${JSON.stringify(liveTags())}`,
+  );
+  assert(
+    savedTags().defect === "all",
+    `对照页把需求页的标签写进缺陷队列并落盘了:${storage.get(filtersStoreKey)}`,
+  );
+  assert(
+    liveTags().req === "核心" && savedTags().req === "核心",
+    `对照页把需求队列自己的标签也改了:${JSON.stringify(liveTags())} / ${storage.get(filtersStoreKey)}`,
+  );
+
+  // ③ D-169 的"值失效"回落必须还在,但只作用于该标签所属的那一队。
+  // 缺陷页设「后端」,随后该标签在缺陷队列里消失(改名/清空/换项目):下拉只能回落成
+  // 「全部」,状态与落盘必须跟着回落,否则列表被一个看不见的条件筛空;而需求队列的
+  // 「核心」还在、还有效,一个字节都不许动。
+  byId.get("documents-tab-defect").click();
+  await flush();
+  await setDocFilter("documents-tag-filter", "后端");
+  payloads.docs_snapshot = {
+    ...savedTagDocs,
+    requirements: [
+      docEntry("R-001", "核心标签需求", "doing", { fields: [["标签", "核心"]] }),
+      docEntry("R-002", "前端标签需求", "todo", { fields: [["标签", "前端"]] }),
+    ],
+    defects: [docEntry("D-002", "前端标签缺陷", "open", { fields: [["标签", "前端"]] })],
+  };
+  await sandbox.refreshDocs();
+  await flush();
+  assert(
+    liveTags().defect === "all" && savedTags().defect === "all",
+    `标签在缺陷队列里已不存在,筛选状态却没跟着回落(列表被看不见的条件筛空,D-169):${JSON.stringify(liveTags())} / ${storage.get(filtersStoreKey)}`,
+  );
+  assert(
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-002"]'),
+    "标签回落后缺陷列表仍是空的(条目看起来凭空掉了)",
+  );
+  assert(
+    liveTags().req === "核心" && savedTags().req === "核心",
+    `缺陷队列的标签回落顺手改掉了需求队列的标签(值失效纠正跨队列写了):${JSON.stringify(liveTags())} / ${storage.get(filtersStoreKey)}`,
+  );
+
+  // 收尾:标签调回「全部」并还原快照,否则后续用例看到的是被筛过的列表。
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-tag-filter", "all");
+  payloads.docs_snapshot = savedTagDocs;
+  await sandbox.refreshDocs();
+  await flush();
+  assert(
+    liveTags().req === "all" && liveTags().defect === "all",
+    `收尾失败:标签没调回全部(${JSON.stringify(liveTags())}),后续用例会连带假失败`,
+  );
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2
+      && document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]'),
+    "收尾失败:快照没还原,后续用例会连带假失败",
+  );
+}
+
+// ---------- 「清除筛选」/「解锁」必须写回底层筛选状态,不能写到对照页的中性副本上 ----------
+// 对照页改成"中性副本渲染"之后,renderDocList 收到的 reqFilterState 可能只是一份临时对象。
+// 这两个按钮若还照着它写,点了等于没点(列表照旧空着、拖拽照旧锁着)——渲染出来的承诺
+// 不兑现,正是 D-211。判据必须让副本与底层状态**真的不同**(先设一个会被中性化掉的
+// status/sort),否则副本恒等于状态,断言恒真。
+{
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  const reqFilters = () => JSON.parse(vm.runInContext("JSON.stringify(documentFilters.req)", sandbox));
+  // 分组开关是"锁"之一,解锁会顺手关掉它。记下进来时的值,出去时还原,不把后续用例
+  // 的分组视图连带改掉。
+  const groupedBefore = reqFilters().grouped;
+
+  // ① 清除筛选:对照页上状态被中性化,只剩优先级还在筛 → 列表被筛空。
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "doing"); // 会被中性化 → 副本 ≠ 底层状态
+  await setDocFilter("documents-priority-filter", "P0"); // 两条需求都是 P1 → 筛空
+  byId.get("documents-tab-both").click();
+  await flush();
+  const compareFilteredEmpty = document.querySelector("#documents-req-list .doc-filtered-empty");
+  assert(compareFilteredEmpty, "前置失败:对照页需求列表没有被筛空(优先级筛选没生效?)");
+  compareFilteredEmpty.querySelector("button").click();
+  await flush();
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
+    "对照页点「清除筛选」列表没回来:写到中性副本上了,底层筛选原封不动(按钮渲染了却不兑现,D-211)",
+  );
+  assert(
+    reqFilters().priority === "all" && reqFilters().status === "all",
+    `「清除筛选」没写回底层 documentFilters.req:${JSON.stringify(reqFilters())}`,
+  );
+
+  // ② 解锁:同样在对照页(status/sort 被中性化),锁提示由「阻塞=可执行」点名。
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "doing"); // 会被中性化 → 副本 ≠ 底层状态
+  await setDocFilter("documents-sort", "priority"); // 同上
+  await setDocFilter("documents-blocked-filter", "ready"); // 两条都不阻塞 → 列表仍有 2 条
+  byId.get("documents-tab-both").click();
+  await flush();
+  // 断言不得因为前一条红了就崩:整串失败要一次看全(harness 的退出钩子只是兜底)。
+  const compareDragHint = document.querySelector("#documents-req-list .drag-hint");
+  assert(compareDragHint, "前置失败:对照页没有渲染拖拽锁提示");
+  assert(
+    (compareDragHint?.textContent ?? "").includes("阻塞"),
+    `前置失败:锁提示没点名阻塞筛选:"${compareDragHint?.textContent}"`,
+  );
+  compareDragHint?.querySelector("button")?.click();
+  await flush();
+  assert(
+    reqFilters().status === "all" && reqFilters().blocked === "all" && reqFilters().sort === "manual",
+    `「解锁」没写回底层 documentFilters.req(写到中性副本上了,锁提示与拖拽照旧):${JSON.stringify(reqFilters())}`,
+  );
+  if (reqFilters().grouped !== groupedBefore) {
+    byId.get("documents-group-toggle").click();
+    await flush();
+  }
+  byId.get("documents-tab-req").click();
+  await flush();
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
+    "收尾失败:筛选没清干净,后续用例会连带假失败",
+  );
+
+  // ③ 冻结对象护栏:goal/source/finding 三张列表拿的是**冻结的** NEUTRAL_DOC_FILTERS。
+  // 这两个按钮在它们身上渲染不出来(筛选分支只对 req/defect 生效 → 不可能"被筛空";
+  // 锁提示显式限定 kind),而且写回一律走 documentFilters[kind](这三类取不到就不写)。
+  // 两道保险都要在:机械钉住"根本没渲染",免得哪天筛选放开了顺手踩到冻结对象上抛异常。
+  for (const listId of ["goal-list", "source-list", "finding-list"]) {
+    assert(
+      !document.querySelector(`#${listId} .doc-filtered-empty`) && !document.querySelector(`#${listId} .drag-hint`),
+      `#${listId} 渲染出了会写筛选状态的按钮,但它拿到的是冻结的 NEUTRAL_DOC_FILTERS`,
+    );
+  }
+}
+
+// ---------- 筛选只能写给确实拥有该字段的队列 ----------
+// documentFilters.defect 没有 complexity/sort 两个键。凭空写进去,锁提示的
+// `key in reqFilterState` 就会把「复杂度=大」列进缺陷队列的锁,而 docDragEnabled 的
+// 缺陷分支只看 status/priority/tag/blocked——提示说锁了、实际仍可拖(D-211 反向脱节)。
+{
+  byId.get("documents-tab-both").click();
+  await flush();
+  sandbox.applyDocFilter("complexity", "大");
+  sandbox.applyDocFilter("sort", "priority");
+  await flush();
+  // documentFilters 是 const 词法声明,不会挂到 sandbox 全局上,只能在同一 context 里求值。
+  const defectFilterKeys = vm.runInContext("Object.keys(documentFilters.defect).join(',')", sandbox).split(",");
+  assert(
+    !defectFilterKeys.includes("complexity"),
+    `对照模式把「复杂度」写进了缺陷筛选状态:缺陷拖拽判断根本不看它,锁提示却会照列(D-211 反向脱节)。实得键:${defectFilterKeys.join(",")}`,
+  );
+  assert(
+    !defectFilterKeys.includes("sort"),
+    `对照模式把「排序」写进了缺陷筛选状态。实得键:${defectFilterKeys.join(",")}`,
+  );
+  byId.get("documents-tab-req").click();
+  await flush();
+  // 对照页不再清用户的筛选(见上一段),所以刚写进 req 的复杂度/排序会真的留下来:
+  // 这里手工调回全部,否则后续用例的列表是被筛过的。
+  sandbox.applyDocFilter("complexity", "all");
+  sandbox.applyDocFilter("sort", "manual");
+  await flush();
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
+    "收尾失败:复杂度/排序没调回全部,后续用例会连带假失败",
+  );
+}
+
+// ---------- 跨视图跳转的高亮必须活过随后的那次刷新(真机时序) ----------
+// openDocumentsView() 触发的 refreshDocs() 是一次真实 IPC:`await invoke("docs_snapshot")`
+// 之后才 renderDocsSnapshot。用 setTimeout(…, 0) 去赌"刷新已经落地",真机毫秒级 IPC 下
+// 必然赌输——高亮打在旧节点上,紧接着 renderDocList 的 el.innerHTML = "" 把该节点连同
+// scrollIntoView 的落点一并清掉:用户被切过去却看不出是哪一条。
+// 默认桩是已 resolve 的 promise,微任务恒先于 setTimeout,顺序恰好反过来 = 假绿;
+// 这里给 docs_snapshot 挂闸门,把真机顺序复现出来。
+{
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  assert(!byId.get("view-documents").classList.contains("active"), "前置失败:未离开单页视图");
+  assert(document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'), "前置失败:跳转前列表里没有 R-002");
+  let openDocsSnapshot;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { openDocsSnapshot = resolve; }));
+  sandbox.jumpToEntry("R-002");
+  // 刷新还挂在闸门上,这一轮先把已排队的 setTimeout 跑掉 = 真机顺序。只跑一遍、不连锁:
+  // 回调自己排的 1200ms 移除定时器不会被顺带冲掉,失败原因就只剩「高亮打在旧节点上」。
+  // 排空带超时(drainTimersOnce):闸门段前若有人排了一次 refreshDocsSoon,它内部的
+  // docs_snapshot 会撞上这道还没放开的闸门,无超时的 await 会让整个冒烟挂死而不是判红。
+  await settle();
+  await drainTimersOnce("跨视图跳转闸门段");
+  openDocsSnapshot();
+  invokeGates.delete("docs_snapshot");
+  // 只推进微任务、不动定时器:ref-highlight 的 1200ms 移除定时器不能在断言前被冲掉。
+  for (let i = 0; i < 12; i += 1) await settle();
+  assert(byId.get("view-documents").classList.contains("active"), "跳转到单页里的条目时没有先切视图(点了没反应,D-166 复发)");
+  const freshJumpNode = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]');
+  assert(freshJumpNode, "刷新后列表里找不到 R-002");
+  assert(
+    freshJumpNode?.classList.contains("ref-highlight"),
+    "跨视图跳转的高亮没活过随后的 refreshDocs:重绘把带高亮的旧节点整个换掉了(真机 IPC 毫秒级,setTimeout(0) 必然先跑)",
+  );
+  await flush();
+}
+
+// ---------- 刷新失败不得留下悬挂高亮 ----------
+// 11-docs-list.js 写着「不留一个会在将来某次无关刷新上突然亮起来的悬挂高亮」,但那句
+// 只在 renderDocsSnapshot 真的跑到时成立。真机上 docs_snapshot 会因目录被删/文件锁/
+// 解析失败而抛错:refreshDocs 走 catch → 不重绘 → pendingJumpId 一直挂着;之后任意一次
+// 无关刷新(agent 触发的 refreshDocsSoon、或用户再进文档页)都会把它消费掉 ——
+// 用户没点跳转,条目自己亮了。承诺与实现必须一致(D-211)。
+{
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  assert(!byId.get("view-documents").classList.contains("active"), "前置失败:未离开单页视图");
+  assert(document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'), "前置失败:跳转前列表里没有 R-002");
+  // 注入的刷新失败会走 toastError:那正是被测的那条 catch,不判红。
+  expectedPersistentError = "项目文档刷新失败";
+  const hitsBefore = expectedPersistentHits;
+  invokeFailures.set("docs_snapshot", "冒烟注入:目录被删/文件被锁/解析失败");
+  sandbox.jumpToEntry("R-002");
+  // 只推进微任务、不跑定时器:失败注入期间不能让 refreshDocsSoon 之类的定时器也撞上去
+  // (它的 catch 走 console.error,会以另一种形态判红,掩盖真正要看的那条)。
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeFailures.delete("docs_snapshot");
+  assert(expectedPersistentHits > hitsBefore, "前置失败:注入的 docs_snapshot 失败没有触发 refreshDocs 的 catch");
+  expectedPersistentError = null;
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === null,
+    "docs_snapshot 抛错后 pendingJumpId 还挂着:下一次无关刷新会把它兑现——用户没点跳转,条目自己亮了(悬挂高亮)",
+  );
+  // 无关刷新:一次成功的 refreshDocs 不得凭空点亮任何条目。
+  await sandbox.refreshDocs();
+  // 断言前只推微任务:1200ms 的移除定时器一旦被跑掉,这条断言就恒真了。
+  for (let i = 0; i < 12; i += 1) await settle();
+  const strayHighlights = document.querySelectorAll(".ref-highlight");
+  assert(
+    strayHighlights.length === 0,
+    `无关刷新点亮了 ${strayHighlights.length} 个条目(${strayHighlights.map((n) => n.dataset.docId).join(",")}):悬挂高亮被消费了`,
+  );
+  await flush();
+}
+
+// ---------- refreshDocsSoon 的失败路径同样不得留下悬挂高亮(单独钉) ----------
+// 上面那条只走得到 refreshDocs 的 catch。运行中真正高频跑的是 refreshDocsSoon:agent 每次
+// 改需求/缺陷都会排它,而它的 catch 是另一条独立的出口(console.error,不是 toastError)。
+// 实测过:只删掉 refreshDocsSoon 里的 clearPendingJump()、保留 refreshDocs 那处,整套冒烟
+// 照样全绿——"两条路径都钉住了"是个错觉,将来会静默回退。这一条只钉 refreshDocsSoon。
+// 手法:让跳转触发的那次 refreshDocs 卡在闸门上(闸门在 invoke 那一刻就捕获,随后立刻
+// 摘掉,后续调用不再等),于是这一段里唯一跑得完的刷新就是 refreshDocsSoon —— 清理到底
+// 是谁做的没有歧义,refreshDocs 那处即使还在也帮不上忙。
+{
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  assert(!byId.get("view-documents").classList.contains("active"), "前置失败:未离开单页视图");
+  assert(document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'), "前置失败:跳转前列表里没有 R-002");
+  let releaseJumpRefresh;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseJumpRefresh = resolve; }));
+  sandbox.jumpToEntry("R-002");
+  // 只推微任务:这一步要的是"refreshDocs 卡住、pendingJumpId 挂着",不能让定时器插进来。
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeGates.delete("docs_snapshot");
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === "R-002",
+    `前置失败:跳转没有挂起高亮(实得 ${JSON.stringify(vm.runInContext("pendingJumpId", sandbox))})`,
+  );
+  // 被测的正是 refreshDocsSoon 那条 catch,它只 console.error —— 开窗放行,出了这段立刻收回。
+  expectedConsoleError = "冒烟注入";
+  const consoleHitsBefore = expectedConsoleHits;
+  invokeFailures.set("docs_snapshot", "冒烟注入:refreshDocsSoon 撞上目录被删/文件被锁/解析失败");
+  sandbox.refreshDocsSoon();
+  await drainTimersOnce("refreshDocsSoon 失败路径");
+  for (let i = 0; i < 12; i += 1) await settle();
+  invokeFailures.delete("docs_snapshot");
+  assert(
+    expectedConsoleHits > consoleHitsBefore,
+    "前置失败:注入的 docs_snapshot 失败没有走到 refreshDocsSoon 的 catch(这一段根本没测到目标路径)",
+  );
+  expectedConsoleError = null;
+  assert(
+    vm.runInContext("pendingJumpId", sandbox) === null,
+    "refreshDocsSoon 抛错后 pendingJumpId 还挂着:之后任意一次无关刷新都会把它兑现——用户没点跳转,条目自己亮了(悬挂高亮)",
+  );
+  // 收尾:放开闸门让那次卡住的 refreshDocs 跑完(注入已撤,它会正常重绘),
+  // 并确认这次无关刷新没有凭空点亮任何条目。
+  releaseJumpRefresh();
+  for (let i = 0; i < 12; i += 1) await settle();
+  const straySoonHighlights = document.querySelectorAll(".ref-highlight");
+  assert(
+    straySoonHighlights.length === 0,
+    `refreshDocsSoon 失败后的无关刷新点亮了 ${straySoonHighlights.length} 个条目(${straySoonHighlights.map((n) => n.dataset.docId).join(",")}):悬挂高亮被消费了`,
+  );
+  await flush();
+}
+
 byId.get("sop-picker").click();
 await flush();
 const sopEntry = document.querySelector("#sop-list .sop-entry");
@@ -1141,7 +2097,64 @@ assert(
 );
 assert(listText("memory-detail").includes("累计命中"), "记忆详情未给出效果画像");
 
-// ---------- R-095 活动面板：完整流水 + 筛选 + 信息量 + 可操作 ----------
+// ---------- 主对话工具块:⎿ 摘要行与展开详情不得双写同一段文案(历史回放路径) ----------
+// 用户实测:一条 edit 失败,⎿ 行显示了一段文案,点开详情又把同一段完整贴了一遍。
+// 根因是摘要与详情各自独立地从同一份 content 取一遍,详情靠 `full !== preview` 去重,
+// 只挡得住单行短结果。判据用「同一段文字在单个工具块里出现几次」——必须限定在单个
+// .tool-msg 上取 textContent:harness 的 textContent 会把 innerHTML 文本与子节点文本拼接,
+// 对整个 #messages 取会把别的消息里的同款文案一起算进来。
+{
+  const blocks = document.querySelectorAll("#messages .tool-msg");
+  assert(blocks.length === 4, `历史回放应按 call_id 配出 4 个工具块,实得 ${blocks.length}`);
+  const [h1, h2, h3, h4] = blocks;
+  const resultOf = (block) => block.querySelector(".tool-msg-result")?.textContent ?? "";
+  // 详情里真正的"剩余输出"块(带 args 类的那个是完整入参,不是结果原文)。
+  const restOf = (block) =>
+    block.querySelectorAll(".tool-msg-raw").find((n) => !n.classList.contains("args")) ?? null;
+
+  // ① 首行超长 + 多行的失败结果:同一段文案只能出现一次。
+  const needle = HISTORY_LONG_FIRST_LINE.slice(0, 60);
+  assert(
+    h1.textContent.split(needle).length - 1 === 1,
+    `工具块把同一段结果文案渲染了两遍(⎿ 行与展开详情双写):出现 ${h1.textContent.split(needle).length - 1} 次`,
+  );
+  assert(
+    resultOf(h1) === `⎿ ${HISTORY_LONG_FIRST_LINE.slice(0, 109)}…`,
+    `⎿ 行截断规则漂移了:"${resultOf(h1).slice(0, 40)}…"(长度 ${resultOf(h1).length})`,
+  );
+  // 去重不能靠"干脆不给详情":被截掉的后半句与后续行必须仍读得到。
+  const h1Rest = restOf(h1);
+  assert(h1Rest, "长首行被截断后没有展开区:被截掉的内容再也读不到了");
+  assert(
+    h1Rest.textContent.startsWith("…") && h1Rest.textContent.includes(HISTORY_LONG_FIRST_LINE.slice(-20)),
+    `展开区未接上被截断的首行尾巴:"${h1Rest.textContent.slice(0, 40)}"`,
+  );
+  assert(
+    h1Rest.textContent.includes("第二行") && h1Rest.textContent.includes("第三行"),
+    "展开区丢了首行之后的正文",
+  );
+  // 历史详情必须给完整入参(83 行那条源码契约的运行时版本)。
+  assert(
+    h1.querySelectorAll(".tool-msg-raw").some((n) => n.classList.contains("args") && n.textContent.includes("path")),
+    "历史工具块缺少完整入参 JSON",
+  );
+
+  // ② 8000 字上界仍然生效(去重不等于放开长度上界)。
+  const h2Rest = restOf(h2);
+  assert(h2Rest, "超长历史输出没有展开区");
+  assert(h2Rest.textContent.endsWith("…(已截断)"), `超长输出未截断:结尾为 "${h2Rest.textContent.slice(-20)}"`);
+  assert(h2Rest.textContent.length < 8100, `截断上界失效,实得 ${h2Rest.textContent.length} 字`);
+
+  // ③ bash 的 "exit code: 0" 独占首行时顺延到下一行,被跳过的那行归入剩余而不是丢掉。
+  assert(resultOf(h3) === "⎿ 真正的输出行", `exit code 顺延语义变了:"${resultOf(h3)}"`);
+  assert(restOf(h3)?.textContent === "exit code: 0", `被跳过的 exit code 行被丢掉了:"${restOf(h3)?.textContent}"`);
+
+  // ④ 全篇只有 "exit code: 0" 时仍显示它,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
+  assert(resultOf(h4) === "⎿ exit code: 0", `唯一的结果行被吞成兜底文案:"${resultOf(h4)}"`);
+  assert(restOf(h4) === null, "只有一行结果时不该出展开区(展开了还是那一行 = 假承诺)");
+}
+
+// ---------- R-168 活动面板：仅终端命令和失败调用 + 筛选 + 信息量 + 可操作 ----------
 const toolStart = handlers.get("kz:tool-start");
 const toolEnd = handlers.get("kz:tool-end");
 const taskProgress = handlers.get("kz:task-progress");
@@ -1151,12 +2164,10 @@ toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace"
 toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" } } });
 toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" } } });
 await flush();
-assert(
-  document.querySelectorAll("#bg-list .bg-entry").length >= 3,
-  "活动面板未收录普通工具调用(面板只有 task/memory 时几乎恒空,等于没用)",
-);
 const bashEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=bash]");
 assert(bashEntry, "活动面板缺少终端类条目");
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T2]"), "成功 edit 不应进入活动栏(R-168)");
+assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "运行中的 task 不应进入活动栏(R-168)");
 assert(
   bashEntry.querySelector(".bg-tool")?.textContent === "bash"
     && bashEntry.querySelector(".bg-target")?.textContent.includes("cargo test"),
@@ -1283,6 +2294,181 @@ assert(sidebarEl.classList.contains("collapsed") !== collapsedBefore, "rail 开�
 railToggle.click();
 assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开关未能再次切换回来");
 
+// ---------- 主对话工具块:实时路径同样不双写 ----------
+// 实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 + " (+N lines)"),
+// 本身就超过 ⎿ 行预算——双写在这条路径上是每次失败都能看见的。
+{
+  const toolMsgAt = (index) => document.querySelectorAll("#messages .tool-msg")[index];
+  const LIVE_PREVIEW =
+    "old_string 未命中:crates/kanzei-tools/src/edit.rs:202-209 的空白与换行与磁盘上的内容不一致," +
+    "请改用插入式替换,或者先确认 allow_deletion 这个参数的语义之后再重试一次 (+2 lines)";
+  assert(LIVE_PREVIEW.length > 120, `夹具失效:实时 preview 必须超过 ⎿ 行预算才验得到双写,实得 ${LIVE_PREVIEW.length} 字`);
+
+  // ① 失败的长摘要:同一段文案在一个块里只能出现一次。
+  let index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "X1", name: "edit", summary: "crates/kanzei-tools/src/edit.rs", input: { path: "crates/kanzei-tools/src/edit.rs" } } });
+  toolEnd({ payload: { id: "X1", name: "edit", ok: false, preview: LIVE_PREVIEW, display: null } });
+  await flush();
+  const x1 = toolMsgAt(index);
+  assert(x1, "实时失败工具块未建出");
+  const needle = LIVE_PREVIEW.slice(0, 60);
+  assert(
+    x1.textContent.split(needle).length - 1 === 1,
+    `工具块把同一段结果文案渲染了两遍(D-237 同族回归):出现 ${x1.textContent.split(needle).length - 1} 次`,
+  );
+  // 但被截掉的后半句必须仍读得到——不允许用「干脆不给 detail」的方式消灭重复。
+  // 判据比 includes 更硬:去掉两端的续接省略号后,摘要 + 剩余必须**逐字**拼回原文
+  // ——既不丢字(详情被砍掉),也不重字(双写复发)。
+  const x1Head = (x1.querySelector(".tool-msg-result")?.textContent ?? "").replace(/^⎿ /, "").replace(/…$/, "");
+  const x1Rest = (x1.querySelector(".tool-msg-raw")?.textContent ?? "").replace(/^…/, "");
+  assert(
+    x1Head + x1Rest === LIVE_PREVIEW,
+    `摘要 + 详情拼不回原文(丢字或重字):摘要 ${x1Head.length} 字 + 详情 ${x1Rest.length} 字 vs 原文 ${LIVE_PREVIEW.length} 字`,
+  );
+  assert(x1Rest.endsWith("(+2 lines)"), `被截掉的尾巴读不到了:"${x1Rest.slice(-30)}"`);
+
+  // ② 成功的短结果:零退化——⎿ 行原样,不出展开区,不加 has-detail。
+  index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js" } });
+  toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null } });
+  await flush();
+  const x2 = toolMsgAt(index);
+  assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ replaced 1 occurrence", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
+  assert(x2.querySelector(".tool-msg-raw") === null, "成功短结果不该出展开区(展开了还是那一行 = 假承诺)");
+  assert(!x2.classList.contains("has-detail"), "成功短结果不该标 has-detail");
+
+  // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
+  index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js" } });
+  toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null } });
+  await flush();
+  const x3 = toolMsgAt(index);
+  const x3Result = x3?.querySelector(".tool-msg-result")?.textContent ?? "";
+  assert(x3Result.length === 112 && x3Result.endsWith("…"), `⎿ 行预算漂移(应为 "⎿ " + 109 字 + "…" = 112),实得 ${x3Result.length}`);
+  assert(
+    x3.querySelector(".tool-msg-raw")?.textContent === `…${"x".repeat(91)}`,
+    `剩余部分与截断点对不上(会漏字或重字):"${x3.querySelector(".tool-msg-raw")?.textContent?.slice(0, 20)}"`,
+  );
+}
+
+// ---------- 活动栏条目标题:按工具挑字段,不是后端那坨入参 JSON ----------
+// 后端 summarize_input(kanzei-core/src/runner/compaction.rs:251)把整个入参 JSON 截到
+// 160 字,对所有工具一视同仁——edit 于是显示成 `{"new_string":"…","old_strin…`,
+// 完全看不出改的是哪个文件(用户截图)。前端标题必须走 toolCallSummary 挑字段。
+{
+  const bgEntry = (id) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === id);
+  // ① 终端直入列:后端 summary 是裸 JSON,标题必须显示命令本身。
+  toolStart({ payload: { id: "BGJ1", name: "bash", summary: '{"command":"cargo test -p kanzei-app","workdir":"."}', input: { command: "cargo test -p kanzei-app", workdir: "." } } });
+  await flush();
+  const j1 = bgEntry("BGJ1");
+  assert(j1, "终端条目未入列");
+  const j1Target = j1.querySelector(".bg-target")?.textContent ?? "";
+  assert(j1Target === "cargo test -p kanzei-app", `活动栏标题回到了后端整坨入参 JSON:"${j1Target.slice(0, 60)}"`);
+  assert(!j1Target.startsWith("{") && !j1Target.includes('"command"'), "活动栏标题里还留着 JSON 语法");
+  // ② 悬浮提示同步:鼠标停上去看到的必须是同一份人类可读文本。
+  assert(
+    j1.querySelector(".bg-title")?.title === j1Target,
+    `悬浮提示仍是裸 JSON 或与标题不一致:"${j1.querySelector(".bg-title")?.title?.slice(0, 60)}"`,
+  );
+
+  // ③ 失败补建路径(复现用户截图那条):edit 的 summary 是 new_string/old_string 的整坨 JSON。
+  toolStart({ payload: { id: "BGJ2", name: "edit", summary: '{"new_string":"pub fn append_episode","old_string":"old"}', input: { path: "crates/kanzei-core/src/store.rs", new_string: "pub fn append_episode", old_string: "old" } } });
+  toolEnd({ payload: { id: "BGJ2", name: "edit", ok: false, preview: "old_string not found", display: null } });
+  await flush();
+  const j2 = bgEntry("BGJ2");
+  assert(j2, "失败的静默工具没有补建条目(R-168 回归)");
+  assert(j2.classList.contains("err"), "补建的失败条目未标失败态");
+  const j2Target = j2.querySelector(".bg-target")?.textContent ?? "";
+  assert(j2Target === "crates/kanzei-core/src/store.rs", `edit 条目标题不是文件路径:"${j2Target.slice(0, 60)}"`);
+  assert(!j2Target.includes("new_string") && !j2Target.startsWith("{"), "edit 条目标题里还留着入参 JSON");
+  assert(j2.querySelector(".bg-title")?.title === j2Target, "edit 条目的悬浮提示与标题不一致");
+  // 同一份裸 JSON 还会漏到另外两个用户可见面:侧边栏「当前动作」行与运行日志。
+  // 活动栏修好而这两处照旧,用户仍然天天看见 `{"new_string":…`。
+  assert(
+    !listText("live-action").includes("new_string") && listText("live-action").includes("store.rs"),
+    `「当前动作」行仍是后端裸 JSON:"${listText("live-action")}"`,
+  );
+  assert(
+    !listText("log-lines").includes('"new_string"'),
+    "运行日志里仍直接拼后端 summary(edit 在日志里还是一坨入参 JSON)",
+  );
+  // summary 缺省时不能抛:事件里 summary 并非必填,`summary.slice()` 会把整条事件链打断。
+  toolStart({ payload: { id: "BGJ2b", name: "read", input: { path: "crates/kanzei/src/main.rs" } } });
+  await flush();
+  assert(
+    listText("live-action").includes("crates/kanzei/src/main.rs"),
+    `summary 缺省时「当前动作」行未回落到入参挑字段:"${listText("live-action")}"`,
+  );
+
+  // ④ 回落链第二级:挑不出字段就用后端 summary(回放事件不带 input,靠的就是这一级)。
+  toolStart({ payload: { id: "BGJ3", name: "bash", summary: "人类可读的后端摘要", input: {} } });
+  await flush();
+  assert(
+    bgEntry("BGJ3")?.querySelector(".bg-target")?.textContent === "人类可读的后端摘要",
+    `挑不出字段时未回落后端 summary:"${bgEntry("BGJ3")?.querySelector(".bg-target")?.textContent}"`,
+  );
+
+  // ⑤ 回落链第三级:两级都空就是空标题,不能抛异常、也不能凭空编一句。
+  toolStart({ payload: { id: "BGJ4", name: "bash", summary: "", input: {} } });
+  await flush();
+  const j4 = bgEntry("BGJ4");
+  assert(j4, "summary 与 input 都为空时条目建不出来了");
+  assert(j4.querySelector(".bg-target")?.textContent === "", "空标题被填了兜底文案");
+  assert((j4.querySelector(".bg-title")?.title ?? "") === "", "空标题的悬浮提示不该有内容");
+
+  // ⑥ diff 终态不得把两段式标题拍平:对整个 title 按钮做 textContent += 会把
+  // .bg-tool/.bg-target 两个 span 压成单个文本节点,工具名/目标的分栏当场消失。
+  toolStart({ payload: { id: "BGJ5", name: "edit", summary: "x.rs", input: { path: "x.rs" } } });
+  toolEnd({ payload: { id: "BGJ5", name: "edit", ok: false, preview: "写坏了", display: { kind: "diff", path: "x.rs", additions: 3, deletions: 1, language: "rust", lines: [] } } });
+  await flush();
+  const j5 = bgEntry("BGJ5");
+  assert(j5?.querySelector(".bg-tool") && j5?.querySelector(".bg-target"), "diff 终态把 .bg-tool/.bg-target 两段式结构拍平了(工具名/目标的分栏消失)");
+  const j5Target = j5?.querySelector(".bg-target")?.textContent ?? j5?.textContent ?? "";
+  assert(j5Target.includes("x.rs") && j5Target.includes("+3"), `diff 增删数未追加到目标列:"${j5Target.slice(0, 60)}"`);
+
+  // ⑦ 「重跑」填回输入框的首行也不能是裸 JSON(entry.summary 存的是显示值)。
+  toolEnd({ payload: { id: "BGJ1", name: "bash", ok: true, preview: "test result: ok", display: null } });
+  await flush();
+  const rerun = [...bgEntry("BGJ1").querySelectorAll(".bg-actions button")].find((b) => b.textContent === "重跑");
+  assert(rerun, "结束的终端条目缺少重跑入口");
+  rerun.click();
+  await flush();
+  const promptValue = byId.get("prompt").value;
+  assert(
+    promptValue.split("\n")[0] === "重跑这次调用:bash cargo test -p kanzei-app",
+    `重跑填词首行仍是裸 JSON:"${promptValue.split("\n")[0]}"`,
+  );
+  assert(promptValue.includes("workdir"), "重跑填词丢了完整入参(只剩一行摘要就没法复核参数)");
+  byId.get("prompt").value = "";
+
+  // ⑧ 回放路径不能被改坏:回放事件不带 input,标题只能来自后端 summary。
+  toolEnd({ payload: { id: "BGJ3", name: "bash", ok: true, preview: "done", display: null } });
+  toolEnd({ payload: { id: "BGJ4", name: "bash", ok: true, preview: "done", display: null } });
+  await flush();
+  sandbox.renderRecoveredTraces([{
+    events: [
+      { id: "RP1", kind: "tool.started", name: "bash", summary: "scripts/verify.ps1" },
+      { id: "RP1", kind: "tool.completed", ok: true, durationMs: 1200 },
+      { id: "RP2", kind: "tool.started", name: "edit", summary: "历史失败调用" },
+      { id: "RP2", kind: "tool.completed", ok: false, error: "boom" },
+      // name 缺失的回放事件走静默通道:R-168 之后它根本不建条目(不是"建一条无名条目")。
+      { id: "RP3", kind: "tool.started" },
+    ],
+  }]);
+  await flush();
+  const rp1 = bgEntry("RP1");
+  assert(rp1?.querySelector(".bg-target")?.textContent === "scripts/verify.ps1", `回放条目标题不对:"${rp1?.querySelector(".bg-target")?.textContent}"`);
+  assert(rp1?.querySelector(".bg-tool")?.textContent === "bash", "回放条目未分列工具名");
+  // D-208 不变量:回放条目是历史,不能显示成运行中、也不能给停止按钮。
+  assert(!rp1.classList.contains("running"), "回放条目被标成运行中");
+  assert(!rp1.querySelectorAll(".bg-actions button").some((b) => b.textContent === "停止"), "回放条目不该有停止按钮");
+  const rp2 = bgEntry("RP2");
+  assert(rp2, "回放里失败的静默工具未补建条目");
+  assert(rp2.classList.contains("err"), "回放补建的条目未标失败态");
+  assert(rp2.querySelector(".bg-target")?.textContent === "历史失败调用", `回放失败条目标题不对:"${rp2.querySelector(".bg-target")?.textContent}"`);
+  assert(!bgEntry("RP3"), "name 缺失的回放事件不该建出条目(它走静默通道,建了就是一条没有信息量的空壳)");
+}
+
 // ---------- D-170 项目隔离失效必须报出来 ----------
 assert(invokeLog.includes("project_root_info"), "切项目时未检查项目根是否与所选目录一致");
 const sharedWarn = byId.get("project-shared-warn");
@@ -1299,6 +2485,13 @@ assert(invokeLog.includes("project_detach"), "点了建立独立空间却没调�
 // 持久化的标签在当前项目可能不存在:下拉回落成"全部"而状态没跟着回落,
 // 列表就被一个看不见的条件筛空——用户看到的是"需求凭空掉了"。
 // 走真实持久化路径:把一个当前项目里不存在的标签写进偏好,再触发恢复与重绘。
+// 前置:上面的用例把标签页停在「对照」,而对照页按既有设计只提供「全部状态」一个选项
+// (12-docs-pages.js:126/130),直接给状态筛选赋 "dropped" 会被 <select> 规范语义拒绝
+// (无匹配 option → selectedIndex=-1 → value 变空串),整组断言会以"筛不动"的形态假失败。
+byId.get("documents-tab-req").click();
+await flush();
+// 旧结构种子(顶层 req 而非 docReq):这是 10-docs-core.js:34-35 降级读取的真实用例,
+// R-115 的筛选偏好在这次搬迁中不能丢。不要顺手改成 docReq。
 const filtersKey = [...storage.keys()].find((k) => k.startsWith("kz-filters")) ?? "kz-filters:C:/smoke/project";
 storage.set(filtersKey, JSON.stringify({ req: { tag: "这个标签不存在", status: "all", priority: "all", complexity: "all", blocked: "all", sort: "manual" } }));
 sandbox.restoreDocFilters();
@@ -1306,21 +2499,21 @@ await sandbox.refreshDocs();
 await flush();
 // 不变量:列表不得"无声变空"。要么标签回落后条目照常显示,要么明说被筛掉了多少。
 assert(
-  document.querySelectorAll("#req-list .doc-item").length > 0
-    || document.querySelector("#req-list .doc-filtered-empty"),
+  document.querySelectorAll("#documents-req-list .doc-item").length > 0
+    || document.querySelector("#documents-req-list .doc-filtered-empty"),
   "不存在的标签把列表筛空了,且界面没有任何说明——看起来就是需求凭空掉了",
 );
 assert(
-  document.querySelectorAll("#req-list .doc-item").length > 0,
+  document.querySelectorAll("#documents-req-list .doc-item").length > 0,
   "当前项目没有这个标签,筛选状态应回落成「全部」而不是筛空",
 );
 
 // 真实存在但无匹配的筛选:验证"被筛空"的提示与一键清除。
-const statusFilterEl = byId.get("req-status-filter");
+const statusFilterEl = byId.get("documents-status-filter");
 statusFilterEl.value = "dropped";
 statusFilterEl._listeners.change?.forEach((fn) => fn({ target: statusFilterEl }));
 await flush();
-const filteredEmpty = document.querySelector("#req-list .doc-filtered-empty");
+const filteredEmpty = document.querySelector("#documents-req-list .doc-filtered-empty");
 assert(filteredEmpty, "列表被筛空却没有任何说明(一片空白最容易被当成数据丢失)");
 assert(/\d/.test(filteredEmpty.textContent), "未给出被隐藏的条数");
 const clearFiltersBtn = filteredEmpty.querySelector("button");
@@ -1328,7 +2521,7 @@ assert(clearFiltersBtn, "被筛空时缺少一键清除筛选");
 clearFiltersBtn.click();
 await flush();
 assert(
-  document.querySelectorAll("#req-list .doc-item").length > 0,
+  document.querySelectorAll("#documents-req-list .doc-item").length > 0,
   "点了清除筛选,条目没有回来",
 );
 
@@ -1441,6 +2634,76 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   );
 }
 
+// ---------- 设置页逐字段往返:开关 / provider 删除 / 项目级覆盖 / 未知合法值 ----------
+// 这一组守的是"界面显示 A、运行用 B"的几条具体路径:开关不登记脏状态、provider 删了又
+// 回来、limits/proxy 被项目级覆盖却不告警、配置里的合法值下拉里没有就被静默降级。
+{
+  // 上一组刚保存过并回流 loadSettings,这里就是干净基线。
+  assert(byId.get("settings-dirty").classList.contains("hidden"), "保存回流后未回到干净态(基线没归零,后面的脏状态断言全是假通过)");
+
+  // ① 开关回填:只测保存不测回填的话,「进设置页开关自己弹回去」这种形态抓不到。
+  assert(byId.get("set-codex-fast-mode").checked === true, "Codex Fast mode 已存值未回填到开关");
+  // ② 配置里的合法值下拉里没有,必须补兜底 option 而不是静默变空串。
+  assert(
+    byId.get("set-profile").value === "readonly",
+    `配置里的 readonly 档位被下拉吃掉了(保存一次就降级成 dev):实得 "${byId.get("set-profile").value}"`,
+  );
+
+  // ③ 项目级覆盖必须明说,且不能误报。断言一律用**值/键名**而不是中文标签:
+  // 界面语言会切,标签会跟着变,按标签断言是假红的常见来源。
+  assert(!byId.get("settings-effective").classList.contains("hidden"), "项目级覆盖了 proxy/limits,设置页却没有提示");
+  const effectiveNotice = listText("settings-effective");
+  assert(effectiveNotice.includes("http://127.0.0.1:7890"), `代理被项目级覆盖却没报出实际生效值:${effectiveNotice}`);
+  assert(effectiveNotice.includes("maxTokens"), `运行上限被项目级覆盖却没点名到具体键:${effectiveNotice}`);
+  assert(!effectiveNotice.includes("readonly"), `两侧相同的 profileDefault 被误报成覆盖:${effectiveNotice}`);
+  assert(!effectiveNotice.includes("Codex Fast mode"), `两侧相同的 Codex Fast mode 被误报成覆盖:${effectiveNotice}`);
+  // effective 里**没有**的键必须整条跳过:undefined 被当成"实际生效是未设"会让提示条
+  // 天天误报,用户学会无视它,真被覆盖时反而看不见。
+  assert(!effectiveNotice.includes("ollama:qwen3"), `effective 里缺失的 fast 被当成"被覆盖成未设"误报了:${effectiveNotice}`);
+
+  // ④ 开关的脏状态:checkbox 的 .value 恒为 "on",拿它做指纹永远比不出差异。
+  // 漏登记的后果不是少个角标——进设置页会重跑 loadSettings 把表单整张覆盖回磁盘值,
+  // 走开一趟再回来勾过的开关就悄悄弹回去了,而角标从头到尾没亮过。
+  const codexToggle = byId.get("set-codex-fast-mode");
+  codexToggle.checked = false;
+  codexToggle.dispatchEvent({ type: "change" });
+  assert(!byId.get("settings-dirty").classList.contains("hidden"), "改了开关却没有「未保存」提示(开关版的 D-157)");
+
+  // ⑤ provider 删除:删行是 click 不是 input,表格上的事件委托抓不到,必须显式同步脏状态。
+  const providerRows = document.querySelectorAll("#providers-table tbody tr");
+  assert(providerRows.length === 2, `provider 表格未渲染出两行,实得 ${providerRows.length}`);
+  const removeBtn = providerRows[0].querySelectorAll("button").find((b) => b.textContent === "×");
+  assert(removeBtn, "provider 行缺少移除按钮");
+  removeBtn.click();
+  await flush();
+  assert(!byId.get("settings-dirty").classList.contains("hidden"), "删了 provider 却没有「未保存」提示(切走再回来它就原样回来了)");
+
+  // ⑥ 保存载荷:顶层键集合逐字比对。规范 §4 要求表单透传全部字段,多一项少一项都要红——
+  // 少一项 = 那个字段保存时被悄悄丢掉,多一项 = 有人加了后端不认的键。
+  byId.get("settings-save").click();
+  await flush();
+  const payload = savedPayloads.get("settings_save")?.payload;
+  assert(payload, "点保存未调 settings_save");
+  assert(
+    Object.keys(payload ?? {}).sort().join(",")
+      === "cadence,codexFastMode,fast,limits,primary,profileDefault,providers,proxy,reasoning",
+    `settings_save 载荷顶层键集合变了: ${Object.keys(payload ?? {}).sort().join(",")}`,
+  );
+  // 根因终局判据:首次进设置页时两个角色 select 是零 option 的空壳,若实现仍是
+  // 「先 select.value = 已存值、再读 DOM 当基准」,这里必然收到空串——而空串保存回去
+  // 就是把 [models] primary/fast 从 kanzei.toml 里删掉。
+  assert(payload?.primary === "deepseek:deepseek-chat", `探测不到的已存 primary 被保存成了 "${payload?.primary}"`);
+  assert(payload?.fast === "ollama:qwen3", `已存 fast 被保存成了 "${payload?.fast}"`);
+  assert(payload?.profileDefault === "readonly", `readonly 档位保存时被静默降级成 "${payload?.profileDefault}"`);
+  assert(payload?.codexFastMode === false, `开关的新值未透传到载荷: ${payload?.codexFastMode}`);
+  assert(
+    (payload?.providers ?? []).map((p) => p.name).join(",") === "keepme",
+    `provider 删除未落进载荷(或整张表没发全): ${(payload?.providers ?? []).map((p) => p.name).join(",")}`,
+  );
+  // 保存回流后基线必须归零,否则「未保存」角标会一直亮着,变成人人无视的噪音。
+  assert(byId.get("settings-dirty").classList.contains("hidden"), "保存回流后「未保存」角标仍亮着");
+}
+
 // ---------- R-136 子代理模型一键就绪 ----------
 assert(invokeLog.includes("fast_model_status"), "设置页未检测子代理模型就绪状态");
 assert(
@@ -1501,13 +2764,17 @@ deliverySelect.value = "steer";
 deliverySelect._listeners.change?.forEach((fn) => fn({ target: deliverySelect }));
 assert(storage.get("kz-delivery") === "steer", "交付方式未落盘");
 
-const reqStatusFilter = byId.get("req-status-filter");
+// 状态筛选只在「需求与工作」标签页下可用(对照页只有「全部状态」一个选项),
+// 先把标签页切回来,否则 select 规范语义会把 "doing" 拒成空串,落盘值也跟着变空。
+byId.get("documents-tab-req").click();
+await flush();
+const reqStatusFilter = byId.get("documents-status-filter");
 reqStatusFilter.value = "doing";
 reqStatusFilter._listeners.change?.forEach((fn) => fn({ target: reqStatusFilter }));
 await flush();
 const filterKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
 assert(filterKey, "需求筛选未落盘(重启后会回到「全部」)");
-assert(JSON.parse(storage.get(filterKey)).req.status === "doing", "筛选落盘值不对");
+assert(JSON.parse(storage.get(filterKey)).docReq.status === "doing", "筛选落盘值不对");
 
 // 模式回退链:本进程记忆 → 全局上次选择 → dev-pair。中间那档缺了就会静默降级。
 assert(typeof sandbox.applyProfileValue === "function", "applyProfileValue 未定义");
@@ -1546,7 +2813,7 @@ assert(trendText.includes("17%"), `均值应只算已度量轮次(1/6≈17%),实
 // ---------- R-126 UI 自查探针：在真实窗口里取样并回传 ----------
 const probe = handlers.get("kz:ui-probe");
 assert(probe, "未订阅 UI 探针事件(agent 无法自查界面)");
-probe({ payload: { id: 1, kind: "dom", arg: "#req-list" } });
+probe({ payload: { id: 1, kind: "dom", arg: "#documents-req-list" } });
 await flush();
 assert(probeResults.length === 1, "DOM 探针未回传结果");
 assert(probeResults[0].id === 1, "探针回传未带上请求 id(后端无法配对)");
@@ -1925,7 +3192,430 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
+// documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
+// 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,
+// 而 syncDocumentFilters 里 D-169 的标签回落一触发就 saveDocFilters(),把这一整套写进
+// **新项目**的键——用户在新项目从没设过,列表却少了一批,重启也回不来。
+// 触发条件一点不苛刻:上个项目的标签在新项目里不存在(标签本来就按项目走)。
+// 两头一起钉死:新项目必须是干净的默认口径,老项目切回去必须原样还在(别为了修这个
+// 把 R-115 的按项目持久化弄坏)。
+{
+  const PROJECT_B = "C:/smoke/project-b";
+  const savedDocsPayload = structuredClone(payloads.docs_snapshot);
+  const filtersKeyOf = (path) => `kz-filters:${path}`;
+  // 默认口径取自被测代码自己那一份(DOC_FILTER_DEFAULTS),冒烟里不另抄一遍:
+  // 抄第二份的话,默认值一改这组断言就悄悄变成恒真。
+  const DEFAULTS = JSON.parse(vm.runInContext("JSON.stringify(DOC_FILTER_DEFAULTS)", sandbox));
+  const liveFilters = () => JSON.parse(vm.runInContext("JSON.stringify(documentFilters)", sandbox));
+  const savedFilters = (path) => JSON.parse(storage.get(filtersKeyOf(path)) ?? "null");
+  // 内存与落盘共用同一把尺子:列出所有"与默认值不同"的持久化字段。
+  const stray = (bag, kind) =>
+    Object.entries(DEFAULTS[kind])
+      .filter(([field, def]) => bag?.[field] !== undefined && bag[field] !== def)
+      .map(([field]) => `${kind}.${field}=${bag[field]}`);
+  const strayLive = () => { const f = liveFilters(); return [...stray(f.req, "req"), ...stray(f.defect, "defect")]; };
+  const straySaved = (path) => {
+    const blob = savedFilters(path);
+    return [...stray(blob?.docReq, "req"), ...stray(blob?.docDefect, "defect")];
+  };
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  const gotoProject = async (path, docs) => {
+    payloads.docs_snapshot = docs;
+    payloads.projects_select = {
+      current: path,
+      projects: [PROJECT, PROJECT_B],
+      names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
+    };
+    await sandbox.selectWorkspaceProject(path);
+    await flush();
+    assert(
+      vm.runInContext("currentProject", sandbox) === path,
+      `前置失败:切项目没走通(currentProject=${vm.runInContext("currentProject", sandbox)})`,
+    );
+  };
+  // 项目1 有「核心」标签,项目2 只有「流程」——标签按项目走,这就是常态。
+  const docsA = {
+    ...savedDocsPayload,
+    requirements: [
+      docEntry("R-001", "核心大需求", "doing", { complexity: "大", fields: [["标签", "核心"]] }),
+      docEntry("R-002", "前端需求", "todo", { fields: [["标签", "前端"]] }),
+    ],
+    defects: [
+      docEntry("D-001", "冒烟缺陷", "open", { fields: [["标签", "前端"]] }),
+      docEntry("D-002", "在修缺陷", "fixing", { fields: [["标签", "前端"]] }),
+    ],
+  };
+  const docsB = {
+    ...savedDocsPayload,
+    requirements: [docEntry("R-900", "项目二需求", "todo", { complexity: "中", fields: [["标签", "流程"]] })],
+    defects: [docEntry("D-900", "项目二缺陷", "open", { fields: [["标签", "流程"]] })],
+  };
+
+  // 前置:项目1 设好一套只属于它的筛选(两队都设,跨队列泄漏也要能看出来)。
+  payloads.docs_snapshot = docsA;
+  await sandbox.refreshDocs();
+  await flush();
+  byId.get("documents-tab-defect").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "fixing");
+  byId.get("documents-tab-req").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "doing");
+  await setDocFilter("documents-complexity-filter", "大");
+  await setDocFilter("documents-tag-filter", "核心");
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]')
+      && !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    "前置失败:项目1 的需求筛选没生效",
+  );
+  const strayA = straySaved(PROJECT);
+  assert(
+    ["req.status=doing", "req.complexity=大", "req.tag=核心", "defect.status=fixing"].every((f) => strayA.includes(f)),
+    `前置失败:项目1 的筛选没完整落盘(R-115 持久化本身断了):${storage.get(filtersKeyOf(PROJECT))}`,
+  );
+
+  // 项目2 从没设过偏好:键必须先干净,否则断言测的是"回填",不是"泄漏"。
+  storage.delete(filtersKeyOf(PROJECT_B));
+
+  await gotoProject(PROJECT_B, docsB);
+  assert(
+    strayLive().length === 0,
+    `换到没设过偏好的项目,内存里还挂着上一个项目的筛选:${strayLive().join(", ")}`,
+  );
+  assert(
+    straySaved(PROJECT_B).length === 0,
+    `上一个项目的筛选被写进了新项目的键(用户从没设过,重启也回不来):${straySaved(PROJECT_B).join(", ")} / ${storage.get(filtersKeyOf(PROJECT_B))}`,
+  );
+  // 用户视角的后果:新项目的列表被一个自己从没设过的条件筛空。
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]'),
+    "新项目的需求被上一个项目的筛选藏掉了(看起来就是条目凭空没有)",
+  );
+  assert(
+    document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-900"]'),
+    "新项目的缺陷被上一个项目的筛选藏掉了",
+  );
+  assert(byId.get("documents-status-filter").value === "all", "新项目的状态下拉还显示着上一个项目的值");
+  assert(byId.get("documents-tag-filter").value === "all", "新项目的标签下拉还显示着上一个项目的值");
+
+  // 切回项目1:自己的筛选必须原样还在(内存 + 落盘 + 控件 + 列表)。
+  await gotoProject(PROJECT, docsA);
+  byId.get("documents-tab-req").click();
+  await flush();
+  const backLive = liveFilters();
+  assert(
+    backLive.req.status === "doing" && backLive.req.complexity === "大" && backLive.req.tag === "核心"
+      && backLive.defect.status === "fixing",
+    `切回原项目,它自己的筛选没回来(为了不泄漏把按项目持久化一起弄坏了):${JSON.stringify(backLive)}`,
+  );
+  assert(
+    ["req.status=doing", "req.complexity=大", "req.tag=核心", "defect.status=fixing"].every((f) => straySaved(PROJECT).includes(f)),
+    `切回原项目,落盘的筛选被改掉了:${storage.get(filtersKeyOf(PROJECT))}`,
+  );
+  assert(byId.get("documents-status-filter").value === "doing", "切回原项目,状态下拉没回填");
+  assert(byId.get("documents-complexity-filter").value === "大", "切回原项目,复杂度下拉没回填");
+  assert(byId.get("documents-tag-filter").value === "核心", "切回原项目,标签下拉没回填");
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    "切回原项目后筛选只剩下拉显示值、列表没在筛(状态与显示脱节)",
+  );
+
+  // 分组开关不按项目走:它记在全局键 kz-grouped-docs 上(见 bindGroupToggle),换项目
+  // 复位**不得**碰它。整个复位形状就建立在这条边界上——复位只覆盖 DOC_FILTER_DEFAULTS 的
+  // 键,grouped 故意不在那份清单里。把 grouped 加进 DOC_FILTER_DEFAULTS 上面那些断言全绿,
+  // 因为它们只逐字段比对"与默认值不同"的持久化项,而 grouped 的默认值(true)恰好等于
+  // 被错误复位后的值。所以必须单独钉死:用户关掉分组,换个项目它自己回来了,
+  // 落盘还停在 0、按钮还写着 aria-pressed=false —— 显示、内存、落盘三方脱节。
+  {
+    const groupToggle = byId.get("documents-group-toggle");
+    const groupedLive = () => liveFilters();
+    const groupedBefore = groupedLive().req.grouped;
+    // 走用户路径把开关拨到「关」:已经是关的就先开再关,保证落盘值也确实是这条路径写出来的
+    // (前面的用例可能只改过内存里的 grouped —— 解锁按钮就是),否则前置断言测的是别人留下的残值。
+    if (!groupedLive().req.grouped) {
+      groupToggle.click();
+      await flush();
+    }
+    groupToggle.click();
+    await flush();
+    assert(
+      groupedLive().req.grouped === false && groupedLive().defect.grouped === false
+        && storage.get("kz-grouped-docs") === "0" && groupToggle.getAttribute("aria-pressed") === "false",
+      `前置失败:分组没关掉(内存 ${JSON.stringify(groupedLive().req.grouped)} / 落盘 ${storage.get("kz-grouped-docs")} / aria-pressed ${groupToggle.getAttribute("aria-pressed")})`,
+    );
+
+    storage.delete(filtersKeyOf(PROJECT_B));
+    await gotoProject(PROJECT_B, docsB);
+    const afterSwitch = groupedLive();
+    assert(
+      afterSwitch.req.grouped === false && afterSwitch.defect.grouped === false,
+      `换项目把分组开关复位了(它按 kz-grouped-docs 全局记、不随项目走):req=${afterSwitch.req.grouped} defect=${afterSwitch.defect.grouped}`,
+    );
+    assert(
+      storage.get("kz-grouped-docs") === "0",
+      `换项目改掉了分组开关的全局落盘值:kz-grouped-docs=${storage.get("kz-grouped-docs")}`,
+    );
+    assert(
+      groupToggle.getAttribute("aria-pressed") === "false",
+      `换项目后分组按钮的 aria-pressed 与状态脱节:aria-pressed=${groupToggle.getAttribute("aria-pressed")}(内存 ${afterSwitch.req.grouped})`,
+    );
+
+    // 还原:切回项目1 并把分组开关调回进来时的样子,否则后续用例看到的是另一种渲染形态。
+    storage.delete(filtersKeyOf(PROJECT_B));
+    await gotoProject(PROJECT, docsA);
+    if (groupedLive().req.grouped !== groupedBefore) {
+      groupToggle.click();
+      await flush();
+    }
+    assert(
+      groupedLive().req.grouped === groupedBefore,
+      `收尾失败:分组开关没还原(${groupedLive().req.grouped} ≠ ${groupedBefore}),后续用例会连带假失败`,
+    );
+    byId.get("documents-tab-req").click();
+    await flush();
+  }
+
+  // 收尾:走用户路径把筛选调回全部,清掉项目2 的键,还原快照。
+  await setDocFilter("documents-status-filter", "all");
+  await setDocFilter("documents-complexity-filter", "all");
+  await setDocFilter("documents-tag-filter", "all");
+  byId.get("documents-tab-defect").click();
+  await flush();
+  await setDocFilter("documents-status-filter", "all");
+  byId.get("documents-tab-req").click();
+  await flush();
+  storage.delete(filtersKeyOf(PROJECT_B));
+  delete payloads.projects_select;
+  payloads.docs_snapshot = savedDocsPayload;
+  await sandbox.refreshDocs();
+  await flush();
+  assert(strayLive().length === 0, `收尾失败:筛选没调回全部(${strayLive().join(", ")})`);
+}
+
+// ---------- 一次空快照不得清掉用户的标签筛选 ----------
+// syncDocumentFilters 的 D-169 回落(「保存的标签在这一队里已经不存在了 → 回落成全部并落盘」)
+// 只在**这一队真的有条目**时才成立。而 docs_snapshot 并不保证非空:docstore 那几个文件是
+// fs::write 截断重写(非原子),load() 又把空文件当成合法的空列表返回,docs.rs 更是
+// unwrap_or_default —— 任何读失败(含 Windows 上的文件占用)都静默降级成空;偏偏
+// docs_snapshot 自己开头就在写这几个文件,一次 refreshDocs 与一次 refreshDocsSoon
+// 完全可以同时在飞。于是一次瞬态空快照就够把用户设好的标签筛选永久清成「全部」:
+// 内存与落盘一起改,数据回来了也回不来,重启同样,全程零用户动作。
+// 空列表里「列表被一个看不见的条件筛空」这个前提根本不成立(列表本来就是空的),
+// 没有任何理由改用户的口径。
+{
+  const savedDocsPayload = structuredClone(payloads.docs_snapshot);
+  const filtersKey = `kz-filters:${PROJECT}`;
+  const liveTag = (kind) => JSON.parse(vm.runInContext(`JSON.stringify(documentFilters.${kind})`, sandbox)).tag;
+  const savedTag = (kind) =>
+    JSON.parse(storage.get(filtersKey) ?? "{}")[kind === "req" ? "docReq" : "docDefect"]?.tag;
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  const taggedDocs = {
+    ...savedDocsPayload,
+    requirements: [
+      docEntry("R-001", "核心标签需求", "doing", { fields: [["标签", "核心"]] }),
+      docEntry("R-002", "前端标签需求", "todo", { fields: [["标签", "前端"]] }),
+    ],
+    defects: [docEntry("D-001", "前端标签缺陷", "open", { fields: [["标签", "前端"]] })],
+  };
+
+  byId.get("documents-tab-req").click();
+  await flush();
+  payloads.docs_snapshot = taggedDocs;
+  await sandbox.refreshDocs();
+  await flush();
+  await setDocFilter("documents-tag-filter", "核心");
+  assert(
+    liveTag("req") === "核心" && savedTag("req") === "核心",
+    `前置失败:标签筛选没设上或没落盘(内存 ${liveTag("req")} / 落盘 ${storage.get(filtersKey)})`,
+  );
+
+  // 瞬态空快照:两队都读成了空(截断重写撞上并发读,或读失败降级成空列表)。
+  payloads.docs_snapshot = { ...savedDocsPayload, requirements: [], defects: [] };
+  await sandbox.refreshDocs();
+  await flush();
+  assert(
+    liveTag("req") === "核心",
+    `一次瞬态空快照把用户的标签筛选清成了「全部」(内存):${liveTag("req")}`,
+  );
+  assert(
+    savedTag("req") === "核心",
+    `一次瞬态空快照把用户的标签筛选清成「全部」并落盘了(数据回来了筛选也回不来,重启同样):${storage.get(filtersKey)}`,
+  );
+
+  // 数据回来:筛选必须原样还在,并且真的在筛(状态与显示不许脱节)。
+  payloads.docs_snapshot = taggedDocs;
+  await sandbox.refreshDocs();
+  await flush();
+  assert(
+    byId.get("documents-tag-filter").value === "核心"
+      && document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]')
+      && !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]'),
+    `空快照过后数据回来了,标签筛选却没恢复成用户设的那个:下拉=${byId.get("documents-tag-filter").value}`,
+  );
+
+  // 收尾:走用户路径调回全部并还原快照。
+  await setDocFilter("documents-tag-filter", "all");
+  payloads.docs_snapshot = savedDocsPayload;
+  await sandbox.refreshDocs();
+  await flush();
+  assert(
+    liveTag("req") === "all" && liveTag("defect") === "all",
+    `收尾失败:标签没调回全部(${liveTag("req")} / ${liveTag("defect")})`,
+  );
+}
+
+// ---------- 在途快照不得落到已经切走的项目上 ----------
+// refreshDocs / refreshDocsSoon 都是 `await invoke("docs_snapshot", { projectDir: currentProject })`
+// 之后直接 renderDocsSnapshot。await 期间用户切了项目,这份数据就是**上一个项目**的:
+// 轻则切项目瞬间闪一下上一个项目的列表,重则 syncDocumentFilters 拿**新项目**的筛选去
+// **旧项目**的条目里判「这标签还在不在」——判否就回落成「全部」,而落盘走的是新项目的键。
+// 用户在新项目从没动过筛选,列表却少了一批,重启也回不来。
+// 闸门把"IPC 还没回来"这段真机时序复现出来:只卡住这一次,切项目自己那次刷新照常走。
+{
+  const PROJECT_B = "C:/smoke/project-b";
+  const savedDocsPayload = structuredClone(payloads.docs_snapshot);
+  const filtersKeyOf = (path) => `kz-filters:${path}`;
+  const liveReqTag = () => JSON.parse(vm.runInContext("JSON.stringify(documentFilters.req)", sandbox)).tag;
+  const savedReqTag = (path) => JSON.parse(storage.get(filtersKeyOf(path)) ?? "{}").docReq?.tag;
+  const setDocFilter = async (id, value) => {
+    const el = byId.get(id);
+    el.value = value;
+    assert(el.value === value, `前置失败:#${id} 没有 value=${value} 的选项`);
+    el._listeners.change?.forEach((fn) => fn({ target: el }));
+    await flush();
+  };
+  const gotoProject = async (path, docs) => {
+    payloads.docs_snapshot = docs;
+    payloads.projects_select = {
+      current: path,
+      projects: [PROJECT, PROJECT_B],
+      names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
+    };
+    await sandbox.selectWorkspaceProject(path);
+    await flush();
+    assert(
+      vm.runInContext("currentProject", sandbox) === path,
+      `前置失败:切项目没走通(currentProject=${vm.runInContext("currentProject", sandbox)})`,
+    );
+  };
+  // 标签按项目走:甲只有「核心」,乙只有「流程」。这就是常态,触发条件一点不苛刻。
+  const docsA = {
+    ...savedDocsPayload,
+    requirements: [docEntry("R-001", "甲项目需求", "doing", { fields: [["标签", "核心"]] })],
+    defects: [docEntry("D-001", "甲项目缺陷", "open", { fields: [["标签", "核心"]] })],
+  };
+  const docsB = {
+    ...savedDocsPayload,
+    requirements: [docEntry("R-900", "乙项目需求", "todo", { fields: [["标签", "流程"]] })],
+    defects: [docEntry("D-900", "乙项目缺陷", "open", { fields: [["标签", "流程"]] })],
+  };
+
+  byId.get("documents-tab-req").click();
+  await flush();
+  storage.delete(filtersKeyOf(PROJECT_B));
+  await gotoProject(PROJECT_B, docsB);
+  await setDocFilter("documents-tag-filter", "流程");
+  assert(
+    liveReqTag() === "流程" && savedReqTag(PROJECT_B) === "流程",
+    `前置失败:项目乙的标签筛选没设上或没落盘(内存 ${liveReqTag()} / 落盘 ${storage.get(filtersKeyOf(PROJECT_B))})`,
+  );
+
+  await gotoProject(PROJECT, docsA);
+  let releaseStale;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseStale = resolve; }));
+  const stale = sandbox.refreshDocs(); // 替项目甲发出,此刻卡在闸门上
+  await settle();
+  invokeGates.delete("docs_snapshot"); // 只卡住上面那一次:已在 await 的调用握着自己那个 promise
+  await gotoProject(PROJECT_B, docsB);
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]'),
+    "前置失败:切到项目乙后列表不是乙的",
+  );
+  assert(liveReqTag() === "流程", `前置失败:项目乙自己的标签筛选没回填(${liveReqTag()})`);
+
+  // 在途的那一次现在才落地,带回来的是**项目甲**的数据。
+  payloads.docs_snapshot = docsA;
+  releaseStale();
+  await stale;
+  payloads.docs_snapshot = docsB; // 还原,免得随后的定时器刷新又拿到甲的数据(那是另一回事)
+  await flush();
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]')
+      && !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "上一个项目的在途快照被画到了当前项目上(切项目瞬间闪一下上一个项目的列表)",
+  );
+  assert(
+    liveReqTag() === "流程",
+    `上一个项目的在途快照把当前项目的标签筛选清掉了(内存):${liveReqTag()}`,
+  );
+  assert(
+    savedReqTag(PROJECT_B) === "流程",
+    `上一个项目的在途快照把当前项目的标签筛选清掉并落进了当前项目的键(用户从没动过,重启也回不来):${storage.get(filtersKeyOf(PROJECT_B))}`,
+  );
+
+  // refreshDocsSoon 走同一条路,而且更容易撞上:它由 agent 的文档变更事件驱动,自带 400ms
+  // 合并窗口,定时器落地时用户早就可能切走了。两个函数各测一次,少一个就是漏一条真实路径。
+  await gotoProject(PROJECT, docsA);
+  assert(liveReqTag() === "all", `前置失败:项目甲的标签筛选不是干净的(${liveReqTag()})`);
+  let releaseSoon;
+  invokeGates.set("docs_snapshot", new Promise((resolve) => { releaseSoon = resolve; }));
+  // 手工点火,且**不 await**:回调此刻正卡在闸门上,drainTimersOnce 会按 300ms 超时判红。
+  // 只点火 refreshDocsSoon 自己排的那一个,不波及别处已排队的定时器。
+  const timersBefore = new Set(pendingTimers);
+  sandbox.refreshDocsSoon();
+  for (const handle of [...pendingTimers]) {
+    if (timersBefore.has(handle) || handle.interval) continue;
+    pendingTimers.delete(handle);
+    void handle.fn();
+  }
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "docs_snapshot" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:refreshDocsSoon 没有替项目甲发出在途的 docs_snapshot(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("docs_snapshot");
+  await gotoProject(PROJECT_B, docsB);
+  payloads.docs_snapshot = docsA;
+  releaseSoon();
+  for (let i = 0; i < 12; i += 1) await settle();
+  payloads.docs_snapshot = docsB;
+  await flush();
+  assert(
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-900"]')
+      && !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "refreshDocsSoon 的在途快照被画到了已经切走的项目上",
+  );
+  assert(
+    liveReqTag() === "流程" && savedReqTag(PROJECT_B) === "流程",
+    `refreshDocsSoon 的在途快照(上一个项目的数据)把当前项目的标签筛选清掉并落盘了:内存 ${liveReqTag()} / 落盘 ${storage.get(filtersKeyOf(PROJECT_B))}`,
+  );
+
+  // 收尾:调回全部、切回项目甲、清掉项目乙的键、还原快照。
+  await setDocFilter("documents-tag-filter", "all");
+  await gotoProject(PROJECT, savedDocsPayload);
+  storage.delete(filtersKeyOf(PROJECT_B));
+  delete payloads.projects_select;
+  payloads.docs_snapshot = savedDocsPayload;
+  await sandbox.refreshDocs();
+  await flush();
+  assert(liveReqTag() === "all", `收尾失败:标签没调回全部(${liveReqTag()})`);
+}
+
 if (issues.length) {
+  reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);
   for (const issue of issues) console.error(` - ${issue}`);
   process.exit(1);

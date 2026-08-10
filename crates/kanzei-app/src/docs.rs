@@ -2,10 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::json;
-use tauri::State;
-
 use kanzei_tools::docstore::{DocStore, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
+use serde_json::json;
 
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
@@ -197,6 +195,7 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
     })
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
 #[tauri::command]
 pub async fn docs_update(
     project_dir: String,

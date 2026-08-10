@@ -101,15 +101,9 @@ fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
         let name = fm.get("name").unwrap_or(stem).to_string();
         let agent = AgentDef {
             name: name.clone(),
-            profile: fm
-                .get("profile")
-                .and_then(|s| serde_plain(s))
-                .unwrap_or_default(),
+            profile: fm.get("profile").and_then(serde_plain).unwrap_or_default(),
             model: fm.get("model").unwrap_or("primary").to_string(),
-            mode: fm
-                .get("mode")
-                .and_then(|s| serde_plain(s))
-                .unwrap_or_default(),
+            mode: fm.get("mode").and_then(serde_plain).unwrap_or_default(),
             steps: fm.get("steps").and_then(|s| s.parse().ok()).unwrap_or(0),
             system: fm.body,
         };

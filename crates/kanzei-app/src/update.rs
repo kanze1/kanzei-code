@@ -360,11 +360,23 @@ fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
 }
 #[cfg(windows)]
 fn process_alive(pid: u32) -> bool {
-    Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .output()
-        .ok()
-        .is_some_and(|out| String::from_utf8_lossy(&out.stdout).contains(&pid.to_string()))
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+
+    // 进程句柄与 PID 一一对应；退出码 STILL_ACTIVE 才表示该 PID 仍在运行。
+    // 这不依赖 tasklist 的输出语言、列宽或 PID 子串匹配。
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut exit_code = 0;
+        let queried = GetExitCodeProcess(handle, &mut exit_code);
+        let _ = CloseHandle(handle);
+        queried != 0 && exit_code == STILL_ACTIVE as u32
+    }
 }
 #[cfg(not(windows))]
 fn process_alive(_pid: u32) -> bool {

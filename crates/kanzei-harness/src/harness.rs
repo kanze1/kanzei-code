@@ -34,16 +34,9 @@ pub struct HarnessDraft {
     pub permissions: Ruleset,
 }
 
+#[derive(Default)]
 pub struct Harness {
     components: Vec<Box<dyn Component>>,
-}
-
-impl Default for Harness {
-    fn default() -> Self {
-        Harness {
-            components: Vec::new(),
-        }
-    }
 }
 
 impl Harness {
@@ -277,7 +270,6 @@ fn permission_snapshot_of(draft: &HarnessDraft) -> Vec<PermissionSnapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Harness, KanzeiConfig, ProfileKind};
 
     #[test]
     fn permission_snapshot_reflects_ruleset_and_hard_denies() {

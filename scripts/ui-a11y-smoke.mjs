@@ -49,7 +49,23 @@ assert.match(js, /function docDragEnabled\(kind, listEl, filterState\)/);
 // D-210:缺陷拖拽守卫覆盖全部四项筛选(旧断言只钉 status/priority 的字面量,
 // tag/blocked 筛选下列表不完整,提交的顺序会被引擎拒绝)。
 assert.match(js, /\["status", "priority", "tag", "blocked"\]\.every/);
-assert.match(js, /renderDocList\(defectList,[\s\S]*documentFilters\.defect/);
+// 缺陷列表必须拿缺陷队列自己的筛选状态。旧断言是
+// /renderDocList\(defectList,[\s\S]*documentFilters\.defect/ —— `[\s\S]*` 贪婪跨全文,
+// 只要文件后面任意位置还出现过 documentFilters.defect(它出现了好几次),调用点写成
+// 什么都能匹配上,等于没断言。改成:先切出调用点那一行(不跨行),再对这一行本身断言,
+// 并显式排除拿错队列的写法——传错 state 时必须红。
+const defectListCall = js.match(/^[^\n]*renderDocList\(defectList,[^\n]*$/m);
+assert.ok(defectListCall, "找不到 renderDocList(defectList, …) 调用点");
+assert.match(
+  defectListCall[0],
+  /documentFilters\.defect/,
+  `缺陷列表没有拿缺陷队列的筛选状态:${defectListCall[0].trim()}`
+);
+assert.doesNotMatch(
+  defectListCall[0],
+  /documentFilters\.req/,
+  `缺陷列表拿了需求队列的筛选状态:${defectListCall[0].trim()}`
+);
 // D-212:视图容器的显隐只归 .view/.view.active 管。裸 `#view-xxx { display:… }`
 // 的 ID 特异性会无条件压过 .view 的 display:none,该视图永远渲染、叠进对话页
 // (文件导览页首发就这么翻的车)。带 .active 的规则合法。
@@ -62,9 +78,27 @@ for (const match of cssNoComments.matchAll(/#view-[\w-]+\s*\{([^}]*)\}/g)) {
 }
 assert.match(js, /function setRunning\(value, statusText\)[\s\S]*send\.disabled = false/);
 assert.match(js, /运行中可插入或排队，按交付方式发送/);
-assert.ok(html.includes('id="req-tag-filter"'), "缺少需求标签筛选");
-assert.ok(html.includes('id="defect-tag-filter"'), "缺少缺陷标签筛选");
+// 侧栏重构后完整列表整体搬进单页:侧栏不再持有任何筛选控件(标签筛选能力由下一条
+// #documents-tag-filter 守着)。这里改成反向断言而不是删掉——删了就没人守「标签筛选
+// 被谁顺手删掉」,留着正向断言又会把「已经搬走」误报成「丢了」。
+assert.ok(!html.includes('id="req-tag-filter"'), "侧栏不该再持有需求标签筛选(完整列表已搬进单页)");
+assert.ok(!html.includes('id="defect-tag-filter"'), "侧栏不该再持有缺陷标签筛选(完整列表已搬进单页)");
 assert.ok(html.includes('id="documents-tag-filter"'), "缺少独立页标签筛选");
+// 侧栏只剩「当前在做」的焦点卡片:列表、筛选条、分组/排序控件、测试记录都不该还在侧栏。
+for (const gone of ["req-list", "defect-list", "tests-section", "req-filter-row", "defect-filter-row", "req-sort", "req-group-toggle", "req-priority-filter", "req-status-filter"]) {
+  assert.ok(!html.includes(`id="${gone}"`), `侧栏残留完整列表控件 ${gone}(侧栏应只显示当前在做的单条)`);
+}
+assert.ok(html.includes('id="focus-section"') && html.includes('id="focus-body"'), "侧栏缺少「当前在做」焦点分区");
+assert.match(html, /id="focus-section"[\s\S]{0,400}?class="section-title"/, "焦点分区缺 section-title(快记表单挂在它下面)");
+// 测试记录搬进单页后三个 id 必须原样保留在 #documents-tests 内:09-sessions.js 按 id 绑定,
+// 改名会让顶层 addEventListener 在 null 上抛错,整条 ui/*.js 执行链断掉。
+const testsBlock = html.slice(html.indexOf('id="documents-tests"'), html.indexOf('id="documents-dep-view"'));
+for (const id of ["test-list"]) {
+  assert.ok(testsBlock.includes(`id="${id}"`), `测试记录列表 ${id} 不在单页 #documents-tests 内`);
+}
+for (const id of ["test-count", "tests-refresh"]) {
+  assert.ok(html.includes(`id="${id}"`), `测试记录控件 ${id} 丢失(09-sessions.js 按 id 绑定)`);
+}
 assert.match(html, /id="defect-review"[^>]*>自动审查缺陷<\/button>/);
 assert.match(html, /id="defect-review-status"[^>]*role="status"[^>]*aria-live="polite"/);
 assert.match(js, /invoke\("defect_review", \{ projectDir: currentProject \}\)/);
@@ -116,7 +150,11 @@ assert.match(js, /cell\.setAttribute\("aria-hidden", "true"\)/);
 assert.match(js, /meter\.style\.setProperty\("--cells"/);
 assert.match(css, /grid-template-columns: repeat\(var\(--cells/);
 assert.match(css, /\.doc-row \.complexity-meter \{ flex: 0 0 \d+px; width: \d+px; \}/);
-assert.match(css, /#req-list \.doc-item::before \{ display: none; \}/);
+// 批次格填充色曾只在 `#req-list` 下定义,列表搬进单页后 #documents-req-list 里的已完成格
+// 全是透明的。改按条目类名限定后,容器 id 不得再出现在批次格规则里。
+assert.doesNotMatch(css, /#req-list \.doc-item/, "批次格/条目样式仍按已删除的 #req-list 容器限定");
+assert.match(css, /\.doc-item\.pri-P1 \.complexity-cell\.filled, \.focus-card\.pri-P1 \.complexity-cell\.filled/);
+assert.match(css, /\.focus-card \{/, "缺少侧栏焦点卡片样式");
 assert.match(js, /window\.addEventListener\("focus", resetTitleOnFocus\)/);
 assert.match(js, /if \(running\) \{[\s\S]*运行中请先完成或停止当前任务，再打开历史对话/);
 assert.match(js, /document\.querySelectorAll\("\[data-doc-id\]"\)[\s\S]*item\.dataset\.docId === ref[\s\S]*offsetParent/);

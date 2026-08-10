@@ -28,9 +28,8 @@ jobs:
       # fmt 闸门(R-156 交付启用)：全仓格式化收敛完成。
       - name: fmt
         run: cargo fmt --all -- --check
-      # clippy 闸门由 R-146(warning 清零)交付时取消注释。
-      # - name: clippy
-      #   run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace
       - name: ui smoke

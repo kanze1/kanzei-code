@@ -1,12 +1,23 @@
+// await 前后各认一次项目。这份快照是替 forProject 取的:await 期间用户切走了,它就是
+// **上一个项目**的数据,照旧渲染的后果不止"闪一下上个项目的列表"——syncDocumentFilters
+// 会拿新项目的筛选去旧项目的条目里判「这标签还在不在」,判否就回落并落盘(D-169 那段),
+// 而落盘走的是**新项目**的键:用户在新项目从没设过筛选,列表却永久少一批,重启也回不来。
+// 挂起的跳转高亮不必在这条路径上作废:切项目必然跟着 selectWorkspaceProject 自己那次
+// refreshDocs,由那次重绘消费(目标不在新项目的列表里就自然作罢),不会留成悬挂高亮。
 async function refreshDocs() {
   if (!currentProject) return;
+  const forProject = currentProject;
   try {
-    const snapshot = await invoke("docs_snapshot", { projectDir: currentProject });
+    const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+    if (currentProject !== forProject) return;
     renderDocsSnapshot(snapshot);
     await refreshConversationList();
     await refreshTests();
     await refreshWorktrees();
   } catch (err) {
+    // 这次刷新没能走到 renderDocsSnapshot,跨视图跳转挂起的高亮就永远等不到人消费。
+    // 留着它 = 悬挂高亮:之后任意一次无关刷新都会把它兑现,用户没点跳转条目却自己亮了。
+    clearPendingJump();
     toastError(`项目文档刷新失败:${err}`, { retry: refreshDocs });
   }
 }
@@ -24,9 +35,17 @@ function refreshDocsSoon() {
       refreshDocsSoon();
       return;
     }
+    // 同 refreshDocs:await 前后各认一次项目。这条路径由 agent 的文档变更事件驱动,
+    // 合并窗口本身就有 400ms,在飞的概率比手动刷新更高。
+    const forProject = currentProject;
     try {
-      renderDocsSnapshot(await invoke("docs_snapshot", { projectDir: currentProject }));
+      const snapshot = await invoke("docs_snapshot", { projectDir: forProject });
+      if (currentProject !== forProject) return;
+      renderDocsSnapshot(snapshot);
     } catch (err) {
+      // 同 refreshDocs:没重绘成 = 挂起的跳转高亮没人消费,不作废就会在下一次
+      // 无关刷新上突然亮起来。
+      clearPendingJump();
       console.error(err);
     }
   }, 400);
@@ -38,8 +57,16 @@ $("documents-project-select").addEventListener("change", (event) => {
 
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+// 测试记录已从侧栏搬到这里:切过去顺手刷一次,否则看到的是上次 refreshDocs 的旧快照。
+$("documents-tab-tests").addEventListener("click", () => {
+  documentsKind = "tests";
+  if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
+  refreshTests();
+});
 $("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-dep-toggle").addEventListener("click", () => { dependencyViewOpen = !dependencyViewOpen; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+// 侧栏焦点卡片旁的「打开完整需求与缺陷列表」:列表不在侧栏之后的可发现性入口。
+$("focus-open-documents").addEventListener("click", openDocumentsView);
 
 async function runDefectReview() {
   if (!currentProject) {
@@ -84,8 +111,15 @@ $("bg-status-filter").value = bgFilters.status;
 $("documents-batch-apply").addEventListener("click", applyBatch);
 $("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 // 筛选写进 docFilterTargets() 给出的每个队列:对照模式下两边共用同一套条件。
+// 但只写给**确实拥有该字段**的队列:缺陷没有复杂度/排序口径(documentFilters.defect
+// 里根本没这两个键)。凭空写进去,锁提示的 `key in reqFilterState` 就会列出
+// 「复杂度=大」,而 docDragEnabled 的缺陷分支只看 status/priority/tag/blocked——
+// 提示说锁了、实际仍可拖,是 D-211 的反向脱节。
 function applyDocFilter(field, value) {
-  for (const kind of docFilterTargets()) documentFilters[kind][field] = value;
+  for (const kind of docFilterTargets()) {
+    if (!(field in documentFilters[kind])) continue;
+    documentFilters[kind][field] = value;
+  }
   saveDocFilters();
   if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot);
 }
@@ -95,9 +129,14 @@ $("delivery-select").addEventListener("change", (event) => {
 });
 $("documents-status-filter").addEventListener("change", (e) => applyDocFilter("status", e.target.value));
 $("documents-priority-filter").addEventListener("change", (e) => applyDocFilter("priority", e.target.value));
+$("documents-complexity-filter").addEventListener("change", (e) => applyDocFilter("complexity", e.target.value));
 $("documents-tag-filter").addEventListener("change", (e) => applyDocFilter("tag", e.target.value));
 $("documents-blocked-filter").addEventListener("change", (e) => applyDocFilter("blocked", e.target.value));
-// 分组开关(用户定调:按受控标签分组展示,含侧边栏):关掉即回纯开发顺序+拖拽。
+// 排序走 applyDocFilter:它只改 documentFilters(显示口径),永远不会碰 docs_update(reorder)。
+// 能改取活顺序的入口只有一个——手动排序下的拖拽,见 commitDocOrder。
+$("documents-sort").addEventListener("change", (e) => applyDocFilter("sort", e.target.value));
+// 分组开关(用户定调:按受控标签分组展示):关掉即回纯开发顺序+拖拽。
+// 完整列表只剩单页视图一处,开关也只剩这一个。
 function bindGroupToggle(id, storageKey, apply) {
   const btn = $(id);
   if (!btn) return;
@@ -113,14 +152,6 @@ function bindGroupToggle(id, storageKey, apply) {
     if (latestDocsSnapshot) renderDocsSnapshot(latestDocsSnapshot);
   });
 }
-bindGroupToggle("req-group-toggle", "kz-grouped-req", (op) => {
-  if (op === "toggle") reqFilters.grouped = !reqFilters.grouped;
-  return reqFilters.grouped;
-});
-bindGroupToggle("defect-group-toggle", "kz-grouped-defect", (op) => {
-  if (op === "toggle") defectFilters.grouped = !defectFilters.grouped;
-  return defectFilters.grouped;
-});
 bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
   if (op === "toggle") {
     const next = !documentFilters.req.grouped;
@@ -128,42 +159,4 @@ bindGroupToggle("documents-group-toggle", "kz-grouped-docs", (op) => {
     documentFilters.defect.grouped = next;
   }
   return documentFilters.req.grouped;
-});
-// 筛选折叠(用户定调:侧边栏筛选再收一层):默认收起,状态持久化。
-for (const [btnId, rowId, storageKey] of [
-  ["req-filter-toggle", "req-filter-row", "kz-filters-req"],
-  ["defect-filter-toggle", "defect-filter-row", "kz-filters-defect"],
-]) {
-  const btn = $(btnId);
-  const row = $(rowId);
-  if (!btn || !row) continue;
-  const apply = (open) => {
-    row.classList.toggle("hidden", !open);
-    btn.setAttribute("aria-expanded", String(open));
-    btn.classList.toggle("active", open);
-  };
-  apply(localStorage.getItem(storageKey) === "1");
-  btn.addEventListener("click", () => {
-    const open = row.classList.contains("hidden");
-    localStorage.setItem(storageKey, open ? "1" : "0");
-    apply(open);
-  });
-}
-for (const [id, key] of [["req-status-filter", "status"], ["req-priority-filter", "priority"], ["req-complexity-filter", "complexity"], ["req-tag-filter", "tag"], ["req-blocked-filter", "blocked"], ["req-sort", "sort"]]) {
-  $(id).addEventListener("change", (event) => {
-    reqFilters[key] = event.target.value;
-    if (key === "sort") localStorage.setItem("kz-req-sort", event.target.value);
-    saveDocFilters();
-    refreshDocs();
-  });
-}
-$("defect-tag-filter").addEventListener("change", (event) => {
-  defectFilters.tag = event.target.value;
-  saveDocFilters();
-  refreshDocs();
-});
-$("defect-blocked-filter").addEventListener("change", (event) => {
-  defectFilters.blocked = event.target.value;
-  saveDocFilters();
-  refreshDocs();
 });

@@ -8,6 +8,7 @@
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
 
+#[allow(clippy::too_many_arguments)] // 公开驱动边界，收拢为参数对象会同时扰动所有递归调用方。
 pub fn run_once<'a>(
     client: &'a LlmClient,
     route: &'a Route,
@@ -106,7 +107,7 @@ pub fn run_once_with_parts<'a>(
             parts: user_parts,
         });
         let mut total_usage = Usage::default();
-        let mut final_text = String::new();
+        let mut final_text: String;
         // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
         // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
         let max_steps = agent.steps;
@@ -126,7 +127,6 @@ pub fn run_once_with_parts<'a>(
         // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
         // 每步拿到 provider 真实 input tokens 后 EMA 更新。
         let mut calibration = 1.0f64;
-        let mut last_estimated = 0u64;
         // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
         let mut redundancy = RedundancyWatch::default();
 
@@ -230,7 +230,7 @@ pub fn run_once_with_parts<'a>(
                 // 下一次预算判断就按校准后的口径来。tools 随 last_step 变化,估算必须
                 // 与实际发出的请求同口径,否则校准因子被系统性偏差污染。
                 let req_tools: &[ToolSpec] = if last_step { &[] } else { &specs };
-                last_estimated = estimate_prompt_tokens(&system, &request_messages, req_tools);
+                let last_estimated = estimate_prompt_tokens(&system, &request_messages, req_tools);
                 let request = LlmRequest {
                     model: config.model.clone(),
                     system: system.clone(),

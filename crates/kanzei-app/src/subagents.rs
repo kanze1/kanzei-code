@@ -4,15 +4,14 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{run_once_with_parts, AskFuture};
-use kanzei_core::{AskRequest, RunEvent, RunnerConfig};
+use kanzei_core::{RunEvent, RunnerConfig};
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::LlmClient;
 use kanzei_llm::ProxyConfig;
 use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
 
-/// 标签受控词表(R-112,conventions §1.35 用户定调):quick capture 子代理必须
-/// 从词表里给新条目建议一个标签,词表外会被引擎 check_tag 拒绝。
-pub(crate) const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
+#[cfg(test)]
+const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
 
 const QUICK_REQ_DEFECT_SYSTEM: &str = "You capture ONE defect from the user's natural-language description. Call the `defect` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), severity high|medium|low, fields = {\"标签\": pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject, \"复现\": concrete reproduction steps ONLY if the description actually contains them — NEVER invent or pad one; when not reproducible from the text, write \"待澄清: \" followed by the specific questions the user must answer, \"原始描述\": the user's original text verbatim}. Then reply with only the new id.";
 

@@ -88,15 +88,7 @@ impl Tool for MemorySearchTool {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         all_hits.truncate(limit);
-        // R-125「是否产生作用」的判据回填:开跑预检索只注入索引行,模型要真用起来
-        // 就必须再拉一次正文——拉到了就说明那次召回起了作用。这里是唯一的拉取入口之一。
-        for store in stores_for(ctx, scope) {
-            for hit in &all_hits {
-                if hit.entry.scope == store.scope.label() {
-                    store.mark_recall_fetched(&hit.entry.id);
-                }
-            }
-        }
+        super::record_memory_search_telemetry(&ctx.project_root, &input.query, &all_hits, true);
         if all_hits.is_empty() {
             return ToolOutput::ok(format!(
                 "(no memory matched `{}` — if you learn something reusable here, record it with memory_note)",

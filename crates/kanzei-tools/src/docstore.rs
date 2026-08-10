@@ -133,36 +133,32 @@ pub struct Entry {
     pub fields: Vec<(String, String)>,
 }
 
-/// 复杂度 → 默认批次数。条目可用 `- 批次: 3/11` 显式覆盖总数(拆解类天然不止 8 批)。
-/// 小 = 一轮做完,不分批;中/大才有推进格。
-pub fn default_batches(complexity: &str) -> u32 {
-    match complexity.trim() {
-        "中" => 3,
-        "大" => 8,
-        _ => 1,
-    }
-}
+/// 单条目批次数上限(2026-08-10 用户定调:批数由 agent 按实际工作量自定,上限 10)。
+/// 这是**写入侧**门禁的判据,读路径不做钳制——理由见 declared_batch_progress。
+pub const MAX_BATCHES: u32 = 10;
 
 /// 条目的批次进度 (已完成, 总数)。
 ///
-/// 判据只有这一份:UI 的格子、关闭门禁、提示词渲染都从这里取,不要在前端再抄一张
-/// 复杂度→格数的表——两份映射迟早会漂。
+/// 总数**只认条目自己声明的 `批次: k/N`**;没声明 = 不分批(1 格),既不画进度条
+/// 也不受关闭门禁约束——批数由 agent 定,引擎不替他猜(2026-08-10 定调)。原先按
+/// 复杂度给的固定默认值(中 3/大 8)已删:它经关闭门禁直接支配了没声明批次的中/大
+/// 条目,让它们必然撞门(D-242 影响①)。
+///
+/// 判据只有这一份:UI 的格子与关闭门禁都从这里取,不要在前端再抄一张映射表。
 pub fn batch_progress(entry: &Entry) -> (u32, u32) {
-    let complexity = entry
-        .fields
-        .iter()
-        .find(|(k, _)| k == "复杂度" || k.eq_ignore_ascii_case("complexity"))
-        .map(|(_, v)| v.as_str())
-        .unwrap_or("");
-    let declared = declared_batch_progress(entry);
-    match declared {
+    match declared_batch_progress(entry) {
         // 显式声明优先:总数为 0 视为没声明,避免除零与"0/0 格"这种空表达。
         Some((done, total)) if total > 0 => (done.min(total), total),
-        _ => (0, default_batches(complexity)),
+        _ => (0, 1),
     }
 }
 
 /// 从条目字段读取手写的批次副本。`None` 表示未声明或格式无效。
+///
+/// 读路径故意**不按 MAX_BATCHES 钳制**,两条理由:①归档里真实存在 11/11、16/16 的
+/// 条目,钳到 10 会把历史显示成假数;②关闭门禁走的也是这里——把声明的 12 钳成 10,
+/// git 推导出 10 个批次标记时门禁就会放行两个根本没做的批次,硬门禁被静默降级成软
+/// 提示。上限因此加在写入侧(check_declared_batches)。
 pub fn declared_batch_progress(entry: &Entry) -> Option<(u32, u32)> {
     entry
         .fields
@@ -172,7 +168,7 @@ pub fn declared_batch_progress(entry: &Entry) -> Option<(u32, u32)> {
         .filter(|(_, total)| *total > 0)
 }
 
-/// Git 提交历史可用时，以它的已完成数覆盖手写副本；总批数仍由条目声明或复杂度决定。
+/// Git 提交历史可用时，以它的已完成数覆盖手写副本；总批数仍只由条目声明决定。
 pub fn batch_progress_with_derived_done(entry: &Entry, derived_done: Option<u32>) -> (u32, u32) {
     let (declared_done, total) = batch_progress(entry);
     let done = derived_done.unwrap_or(declared_done).min(total);
@@ -184,6 +180,55 @@ fn parse_batches(raw: &str) -> Option<(u32, u32)> {
     let normalized = raw.replace('／', "/");
     let (done, total) = normalized.trim().split_once('/')?;
     Some((done.trim().parse().ok()?, total.trim().parse().ok()?))
+}
+
+/// 写入侧校验:条目**本次声明**批次时的唯一判据。
+///
+/// `existing_total` = 该条目**当前已有**的批次总数;新建(add)没有既有值,传 `None`。
+/// 上限只约束「新声明或被抬高的总数」:本次总数**不高于既有值**就放行(哪怕既有值是
+/// 11、16),高于既有值且超过上限才拒。理由:归档/存量里真实存在 11/11、16/16 的历史
+/// 条目,`3/11` → `4/11` 是它们的**正常逐批推进**,不是新声明——拦下来只会逼 agent
+/// 为了动一条历史条目去篡改它的总数;而抬高总数(`3/11` → `3/16`)是货真价实的新声明,
+/// 必须撞门。新建没有既有值,按 `<= MAX_BATCHES` 严格约束。
+///
+/// 选择「拒绝并报错」而不是「钳到 10」:钳制既会改写归档里的真值,又会把关闭门禁
+/// 静默放宽(声明 12 被钳成 10 时,做完 10 批就放行)。拒绝发生在写入当下,agent
+/// 拿到的是可执行的出路(拆后续条目),而不是事后撞门。
+///
+/// 调用方必须只把**本次传入的字段值**喂进 `raw`,绝不能拿合并后的整条目来校验——
+/// 否则归档里 11/11、16/16 的历史条目一旦被触碰就再也关不掉。既有值只作为上限的
+/// 基准出现在 `existing_total` 里,不参与格式与 `done > total` 的判定。
+pub fn check_declared_batches(
+    raw: &str,
+    existing_total: Option<u32>,
+) -> Result<(u32, u32), String> {
+    let Some((done, total)) = parse_batches(raw) else {
+        return Err(format!("批次字段要写成 `k/N`(如 `0/3`),实际收到 `{raw}`。"));
+    };
+    if total == 0 {
+        return Err("批次总数不能为 0;不分批就别写这个字段。".into());
+    }
+    if done > total {
+        return Err(format!("已完成 {done} 超过总数 {total},先核对再写。"));
+    }
+    // 基准 = 既有总数(新建按 0 算)。只有把总数抬到基准之上、又越过上限,才是新声明。
+    let baseline = existing_total.unwrap_or(0);
+    if total > MAX_BATCHES && total > baseline {
+        let 既有 = if baseline > MAX_BATCHES {
+            format!(
+                "该条目既有总数是 {baseline}(历史真值),照它原样往前推(只改已完成数)\
+                 或改小总数都放行,抬到 {total} 不行。"
+            )
+        } else {
+            String::new()
+        };
+        return Err(format!(
+            "批数上限 {MAX_BATCHES}(2026-08-10 用户定调),实际声明 {total}。\
+             批数由你按工作量定,但超过 {MAX_BATCHES} 批说明这个条目本身太大:\
+             把能收口的部分做完关闭,剩下的开成后续条目,不要靠加批次把一条撑到底。{既有}"
+        ));
+    }
+    Ok((done, total))
 }
 
 impl Entry {
@@ -883,9 +928,8 @@ fn render_heading(out: &mut String, entry: &Entry) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn 批次进度_显式声明优先_否则按复杂度给默认格数() {
-        let make = |fields: Vec<(&str, &str)>| Entry {
+    fn 批次夹具(fields: Vec<(&str, &str)>) -> Entry {
+        Entry {
             id: "R-999".into(),
             title: "t".into(),
             status: "doing".into(),
@@ -894,10 +938,17 @@ mod tests {
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
-        };
-        // 没写批次:格数来自复杂度,一格未填。
-        assert_eq!(batch_progress(&make(vec![("复杂度", "大")])), (0, 8));
-        assert_eq!(batch_progress(&make(vec![("复杂度", "中")])), (0, 3));
+        }
+    }
+
+    #[test]
+    fn 批次进度_只认显式声明_未声明即不分批() {
+        let make = 批次夹具;
+        // 没写批次一律 (0,1),复杂度不再生成格数。原先中=3/大=8 的固定默认值经
+        // tracker 关闭门禁(total>1 && done<total)直接把没声明批次的中/大条目
+        // 拦死——批数由 agent 定之后,引擎不替他猜(D-242 影响①的回归锁)。
+        assert_eq!(batch_progress(&make(vec![("复杂度", "大")])), (0, 1));
+        assert_eq!(batch_progress(&make(vec![("复杂度", "中")])), (0, 1));
         assert_eq!(batch_progress(&make(vec![("复杂度", "小")])), (0, 1));
         assert_eq!(
             batch_progress(&make(vec![])),
@@ -905,20 +956,103 @@ mod tests {
             "没评估复杂度按一轮做完算"
         );
 
-        // 写了就以它为准:拆解类天然不止 8 批,默认值不能压住实际批次表。
+        // 写了就以它为准:归档里真实存在 11 批的拆解条目,读路径不得钳到上限 10。
         assert_eq!(
             batch_progress(&make(vec![("复杂度", "大"), ("批次", "3/11")])),
             (3, 11)
         );
         // 手写文档的宽容:空格与全角斜杠。
         assert_eq!(batch_progress(&make(vec![("批次", " 2 ／ 5 ")])), (2, 5));
-        // 已完成不会超过总数;0/0 视为没声明,回落复杂度而不是画 0 个格。
+        // 已完成不会超过总数;0/0 视为没声明,回落"不分批"而不是画 0 个格。
         assert_eq!(batch_progress(&make(vec![("批次", "9/5")])), (5, 5));
         assert_eq!(
             batch_progress(&make(vec![("复杂度", "中"), ("批次", "0/0")])),
-            (0, 3)
+            (0, 1)
         );
         assert_eq!(batch_progress(&make(vec![("批次", "乱写")])), (0, 1));
+    }
+
+    #[test]
+    fn 声明批数上限十批_超出拒绝并给出出路() {
+        assert_eq!(
+            check_declared_batches("0/10", None),
+            Ok((0, 10)),
+            "10 是合法上界"
+        );
+        assert_eq!(
+            check_declared_batches(" 3 ／ 7 ", None),
+            Ok((3, 7)),
+            "宽容解析一致"
+        );
+
+        let over = check_declared_batches("0/11", None).unwrap_err();
+        assert!(over.contains("10"), "错误里要点名上限: {over}");
+        assert!(
+            over.contains("后续条目"),
+            "只说不行不算数,必须给出可执行的出路(D-173 的教训): {over}"
+        );
+
+        assert!(
+            check_declared_batches("0/0", None).is_err(),
+            "总数 0 没有意义"
+        );
+        assert!(
+            check_declared_batches("乱写", None).is_err(),
+            "格式非法要挡住"
+        );
+        assert!(
+            check_declared_batches("5/3", None).is_err(),
+            "已完成不能超过总数"
+        );
+
+        // 读路径不钳制的回归锁:上限只在写入侧生效,历史条目照原样读出来。
+        // 谁"顺手"把 10 也钳到读路径上,归档的 11/11 会显示成 10/10,
+        // 且声明 12 批的条目做完 10 批就会被关闭门禁放行。
+        assert_eq!(
+            declared_batch_progress(&批次夹具(vec![("批次", "3/11")])),
+            Some((3, 11))
+        );
+    }
+
+    #[test]
+    fn 上限只拦抬高的总数_历史超限条目照常逐批推进() {
+        // 存量/归档里真实存在 11 批的条目。它们的正常推进是「改已完成数、不动总数」——
+        // 门禁若对 total>10 一律拒,agent 想动这类条目就只能先篡改总数,门禁反而在
+        // 逼人伪造历史。基准比较把两件事分开:抬高才是新声明。
+        assert_eq!(
+            check_declared_batches("4/11", Some(11)),
+            Ok((4, 11)),
+            "历史 3/11 推进到 4/11 是逐批推进,必须放行"
+        );
+        assert_eq!(
+            check_declared_batches("3/11", Some(11)),
+            Ok((3, 11)),
+            "总数原样重写(等于既有值)也算不高于,放行"
+        );
+        assert_eq!(
+            check_declared_batches("3/3", Some(11)),
+            Ok((3, 3)),
+            "把总数改小到实际批数是我们鼓励的收口路径"
+        );
+
+        let 抬高 = check_declared_batches("3/16", Some(11)).unwrap_err();
+        assert!(抬高.contains("16"), "错误要点名本次声明: {抬高}");
+        assert!(抬高.contains("11"), "错误要点名既有基准: {抬高}");
+        assert!(抬高.contains("后续条目"), "仍要给出可执行的出路: {抬高}");
+
+        assert!(
+            check_declared_batches("0/12", Some(5)).is_err(),
+            "既有值本身没超上限时,抬到 12 照旧撞门"
+        );
+        assert!(
+            check_declared_batches("0/11", None).is_err(),
+            "新建没有既有值,按 <=10 严格约束"
+        );
+        // 基准只放宽上限,不放宽其它判据。
+        assert!(
+            check_declared_batches("12/11", Some(11)).is_err(),
+            "已完成超过总数,给了基准也不能放行"
+        );
     }
 
     #[test]

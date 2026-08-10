@@ -10,6 +10,8 @@ use serde::Deserialize;
 
 use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
+type DependencyMap = BTreeMap<String, Vec<String>>;
+
 pub struct TrackerTool {
     pub tool_name: &'static str,
     pub noun: &'static str,
@@ -381,6 +383,10 @@ impl Tool for TrackerTool {
                 if let Some(tag_err) = self.check_tag(&input.fields) {
                     return ToolOutput::error(tag_err);
                 }
+                // 新建没有既有批次值:严格按上限约束。
+                if let Some(batch_err) = self.check_batches(&input.fields, None) {
+                    return ToolOutput::error(batch_err);
+                }
                 if let Err(e) = self.check_refs(ctx, &input.refs, true) {
                     return ToolOutput::error(e);
                 }
@@ -429,6 +435,10 @@ impl Tool for TrackerTool {
                 }
                 if let Some(tag_err) = self.check_tag(&input.fields) {
                     return ToolOutput::error(tag_err);
+                }
+                // 以条目现有的批次总数为基准:存量 >10 的条目照常逐批推进,只拦抬高。
+                if let Some(batch_err) = self.check_batches(&input.fields, Some(&entries[pos])) {
+                    return ToolOutput::error(batch_err);
                 }
                 if let Err(e) = self.check_refs(ctx, &input.refs, false) {
                     return ToolOutput::error(e);
@@ -644,15 +654,35 @@ impl TrackerTool {
 
     /// 标签受控词表校验(R-112):「标签:」值必须命中 conventions §1.35 词表,
     /// 词表外拒绝并提示合法值。fields 键兼容 标签/tags/tag,值按空白/逗号拆分逐词校验。
+    /// 批次字段的写入侧门禁(2026-08-10 用户定调:批数由 agent 按工作量自定,上限 10)。
+    ///
+    /// 只校验**本次调用传入的字段值**,绝不拿合并后的整条目校验:归档里真实存在
+    /// 11/11、16/16 的历史条目,按整条目校验会让它们一被触碰就再也关不掉。
+    /// 判据本身在 docstore::check_declared_batches——上限、格式、done>total 都在那儿,
+    /// 这里只负责把它接到写入路径上(没有调用方的门禁等于没有门禁)。
+    ///
+    /// `existing` = 被改的那条目前在文件里的样子(add 这类新建传 None)。它只提供
+    /// 上限的基准:既有 3/11 推进到 4/11 是正常逐批推进要放行,抬到 3/16 才是新声明
+    /// 要拒——不给基准的话,门禁会把存量 >10 条目的每一次推进都误伤掉。
+    fn check_batches(
+        &self,
+        fields: &BTreeMap<String, String>,
+        existing: Option<&Entry>,
+    ) -> Option<String> {
+        let (_, value) = fields
+            .iter()
+            .find(|(key, _)| **key == "批次" || key.eq_ignore_ascii_case("batches"))?;
+        let existing_total = existing
+            .and_then(crate::docstore::declared_batch_progress)
+            .map(|(_, total)| total);
+        crate::docstore::check_declared_batches(value, existing_total).err()
+    }
+
     fn check_tag(&self, fields: &BTreeMap<String, String>) -> Option<String> {
-        let Some(valid) = self.kind.tags else {
-            return None;
-        };
-        let Some(value) = fields.iter().find(|(key, _)| {
+        let valid = self.kind.tags?;
+        let value = fields.iter().find(|(key, _)| {
             **key == "标签" || key.eq_ignore_ascii_case("tags") || key.eq_ignore_ascii_case("tag")
-        }) else {
-            return None;
-        };
+        })?;
         let bad: Vec<&str> = value
             .1
             .split(|c: char| c == ',' || c.is_whitespace())
@@ -746,8 +776,15 @@ pub fn backlog_status(project_root: &std::path::Path) -> kanzei_harness::auto_ru
     let mut active = 0usize;
     let mut workable = false;
     for kind in [&REQUIREMENTS, &DEFECTS] {
-        let entries = DocStore::open(project_root, kind).load().unwrap_or_default();
-        let scheduled = schedule_for_display(&ctx, kind, &entries).unwrap_or_default();
+        let entries = match DocStore::open(project_root, kind).load() {
+            Ok(entries) => entries,
+            // 自动推进宁可继续等下一轮，也不能把暂时的读取故障伪装成“已清空”。
+            Err(_) => return BacklogStatus::Unknown,
+        };
+        let scheduled = match schedule_for_display(&ctx, kind, &entries) {
+            Ok(scheduled) => scheduled,
+            Err(_) => return BacklogStatus::Unknown,
+        };
         for item in scheduled {
             if kind.terminal.contains(&item.entry.status.as_str()) {
                 continue;
@@ -862,13 +899,7 @@ pub fn dependents_map(
     ctx: &ToolCtx,
     current_kind: &DocKind,
     current_entries: &[Entry],
-) -> Result<
-    (
-        std::collections::BTreeMap<String, Vec<String>>,
-        std::collections::BTreeMap<String, Vec<String>>,
-    ),
-    String,
-> {
+) -> Result<(DependencyMap, DependencyMap), String> {
     let states = dependency_states(ctx, current_kind, current_entries)?;
     let mut dependents: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for (from, deps) in &states.deps {
@@ -1100,6 +1131,120 @@ mod tests {
         assert!(!out.is_error, "总数改成实际批数后应放行: {}", out.content);
         let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(saved[0].status, "done");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// 写入侧门禁必须真的接上:docstore::check_declared_batches 有实现有单测,但没有
+    /// 调用方时「上限 10」只是提示词里的一句话(§1.25:没有消费者不算交付)。
+    /// 同时钉死作用域——只校验**本次传入**的字段值,归档里 11/11 的历史条目照常关得掉。
+    #[tokio::test]
+    async fn 声明批数超过十批_写入侧拒绝_但不牵连已有的历史批数() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-batch-cap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![("批次".into(), "3/11".into())];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // ① 历史 3/11 的正常逐批推进(只改已完成数)必须放行:这是存量条目唯一能往前
+        //    走的动作,拦掉它等于逼 agent 先篡改总数才能动这条。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"批次": "4/11"}}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !out.is_error,
+            "历史 3/11 推进到 4/11 应放行: {}",
+            out.content
+        );
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(
+            saved[0]
+                .fields
+                .iter()
+                .find(|(k, _)| k == "批次")
+                .map(|(_, v)| v.as_str()),
+            Some("4/11"),
+            "推进后的批次要真的落盘"
+        );
+
+        // ② 把既有的 11 抬到 16 是货真价实的新声明:拒绝,且错误里要同时给出上限、
+        //    既有基准与出路(拆后续条目)。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"批次": "3/16"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "抬高总数到 16 应被拒: {}", out.content);
+        assert!(out.content.contains("10"), "{}", out.content);
+        assert!(out.content.contains("11"), "{}", out.content);
+        assert!(out.content.contains("后续条目"), "{}", out.content);
+
+        // 既有值没超上限时,抬到 12 照旧撞门(基准不是免死金牌)。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "另一条", "fields": {"批次": "0/5"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-002", "fields": {"批次": "0/12"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "既有 5 批抬到 12 应被拒: {}", out.content);
+
+        // ③ 新建没有既有值,按 <=10 严格约束(两条写入路径都要接上,不能只堵一半)。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "新条目", "fields": {"批次": "0/11"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "add 携 11 批应被拒: {}", out.content);
+
+        // ④ 新建 0/10 是合法上界,照常放行。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "十批条目", "fields": {"批次": "0/10"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "add 携 10 批应放行: {}", out.content);
+
+        // ⑤ 作用域:文件里已有的 11 是历史真值,把它做完(按实际改小成 4/4)必须照常
+        //    关得掉——若门禁错误地校验合并后的整条目,归档里 11/11、16/16 的条目会永久
+        //    关不掉。
+        let out = tool
+            .execute(
+                json!({"action": "close", "id": "R-001", "fields": {"批次": "4/4"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "历史 11 批条目收口应放行: {}", out.content);
+        assert_eq!(
+            DocStore::open(&dir, &REQUIREMENTS).load().unwrap()[0].status,
+            "done"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1839,14 +1984,14 @@ mod tests {
             &vec!["R-002".to_string(), "R-003".to_string()]
         );
         assert_eq!(deps.get("R-003").unwrap(), &vec!["R-002".to_string()]);
-        assert!(deps.get("R-002").is_none());
+        assert!(!deps.contains_key("R-002"));
         // 反向:R-002 被 R-001 与 R-003 依赖;R-003 只被 R-001 依赖;R-001 无人依赖。
         assert_eq!(
             dependents.get("R-002").unwrap(),
             &vec!["R-001".to_string(), "R-003".to_string()]
         );
         assert_eq!(dependents.get("R-003").unwrap(), &vec!["R-001".to_string()]);
-        assert!(dependents.get("R-001").is_none());
+        assert!(!dependents.contains_key("R-001"));
 
         // 去重:同一依赖写两遍只出现一次。
         let mut dup = entry("R-004");
@@ -1997,11 +2142,14 @@ mod tests {
     }
 
     #[test]
-    fn backlog_status_三态判定_桌面端与CLI共用同一实现() {
+    fn backlog_status_三态判定_桌面端与_cli共用同一实现() {
         use kanzei_harness::auto_run::BacklogStatus;
         use std::path::Path;
         use std::time::{SystemTime, UNIX_EPOCH};
-        let uniq = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let uniq = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let dir = std::env::temp_dir().join(format!("kz-backlog-{}-{uniq}", std::process::id()));
         std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
         let root: &Path = &dir;
@@ -2009,18 +2157,48 @@ mod tests {
         let mut blocked = entry("R-001");
         blocked.status = "doing".into();
         blocked.fields = vec![("阻塞".into(), "等用户回复方案".into())];
-        DocStore::open(root, &REQUIREMENTS).save(&[blocked]).unwrap();
+        DocStore::open(root, &REQUIREMENTS)
+            .save(&[blocked])
+            .unwrap();
         DocStore::open(root, &DEFECTS).save(&[]).unwrap();
-        assert!(matches!(super::backlog_status(root), BacklogStatus::AllBlocked));
+        assert!(matches!(
+            super::backlog_status(root),
+            BacklogStatus::AllBlocked
+        ));
         // ② 存在可推进条目 → Workable(即使有另一条被阻塞)。
         DocStore::open(root, &REQUIREMENTS)
             .save(&[entry("R-002")])
             .unwrap();
-        assert!(matches!(super::backlog_status(root), BacklogStatus::Workable));
+        assert!(matches!(
+            super::backlog_status(root),
+            BacklogStatus::Workable
+        ));
         // ③ 无活动条目 → Empty。
         DocStore::open(root, &REQUIREMENTS).save(&[]).unwrap();
         DocStore::open(root, &DEFECTS).save(&[]).unwrap();
         assert!(matches!(super::backlog_status(root), BacklogStatus::Empty));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn backlog_status_读取失败时返回未知而非误报清空() {
+        use kanzei_harness::auto_run::BacklogStatus;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let uniq = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "kz-backlog-read-fail-{}-{uniq}",
+            std::process::id()
+        ));
+        let project = dir.join(".kanzei/project");
+        std::fs::create_dir_all(project.join("defects.md")).unwrap();
+
+        assert!(matches!(
+            super::backlog_status(&dir),
+            BacklogStatus::Unknown
+        ));
         std::fs::remove_dir_all(dir).ok();
     }
 }

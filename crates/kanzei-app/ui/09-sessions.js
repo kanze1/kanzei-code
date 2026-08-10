@@ -93,6 +93,7 @@ let syncedRunningProcessId = null;
 let askSyncedSession = null;
 function renderProcesses(items) {
   processItems = items ?? [];
+  const previousSessionId = activeSessionId;
   // R-086:后端是运行态权威,先把返回的 running 校正进各会话状态机(事件可能
   // 丢失),视图只投影活动会话的状态机,而不是直接信某一次轮询的瞬时值。
   // 已收敛终态(converged)的会话不被旧轮询值翻回——事件在轮询采样之后才发
@@ -107,6 +108,7 @@ function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   activeSessionId = active?.session_id ?? null;
+  if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
   // 补拉一次待答队列。后端 asks 表活得比 webview 久,不补拉的话重载前挂起的
   // 权限询问再也不会出现,而后端还在 await 它的答复。按会话去重,只拉一次。
@@ -181,6 +183,7 @@ async function switchProcess(processId) {
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
+  void syncAutoRunState();
   // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
   // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。
   askSyncedSession = target.session_id;

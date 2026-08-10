@@ -126,7 +126,50 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS episodes_session_created
                      ON episodes(session_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '7')
+                 CREATE TABLE IF NOT EXISTS recall_events (
+                     recall_id TEXT PRIMARY KEY NOT NULL,
+                     episode_id INTEGER REFERENCES episodes(episode_id),
+                     step_id INTEGER,
+                     trigger_type TEXT NOT NULL,
+                     trigger_payload TEXT NOT NULL,
+                     policy_action TEXT NOT NULL,
+                     query TEXT NOT NULL,
+                     candidate_ids TEXT NOT NULL,
+                     retrieved_ids TEXT NOT NULL,
+                     injected_ids TEXT NOT NULL,
+                     lexical_ms INTEGER NOT NULL DEFAULT 0,
+                     embed_ms INTEGER NOT NULL DEFAULT 0,
+                     vector_ms INTEGER NOT NULL DEFAULT 0,
+                     total_ms INTEGER NOT NULL DEFAULT 0,
+                     created_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS recall_events_episode
+                     ON recall_events(episode_id, created_at);
+                 CREATE TABLE IF NOT EXISTS memory_sources (
+                     memory_id TEXT NOT NULL,
+                     episode_id INTEGER NOT NULL REFERENCES episodes(episode_id),
+                     event_start INTEGER,
+                     event_end INTEGER,
+                     source_hash TEXT NOT NULL,
+                     PRIMARY KEY(memory_id, episode_id, source_hash)
+                 );
+                 CREATE TABLE IF NOT EXISTS memory_eval (
+                     memory_id TEXT NOT NULL,
+                     replay_case TEXT NOT NULL,
+                     arm TEXT NOT NULL,
+                     model TEXT NOT NULL,
+                     prompt_version TEXT NOT NULL,
+                     success INTEGER NOT NULL,
+                     steps INTEGER NOT NULL,
+                     tool_errors INTEGER NOT NULL,
+                     retries INTEGER NOT NULL,
+                     tokens INTEGER NOT NULL,
+                     first_divergence_step INTEGER,
+                     created_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS memory_eval_memory
+                     ON memory_eval(memory_id, created_at);
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '8')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
