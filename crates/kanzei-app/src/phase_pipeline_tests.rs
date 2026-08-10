@@ -172,6 +172,7 @@ impl Fixture {
             "run_b6",
             "proc_b6",
             &self.config.limits,
+            None, // 未配 [models] scout:沿用模板的 fast
         )
     }
 
@@ -202,6 +203,127 @@ fn implementation_summary() -> kanzei_core::RunSummary {
         context_report: vec![("agent/system".into(), 10)],
         overflow_traces: vec!["impl-overflow".into()],
     }
+}
+
+/// 编排派发的子代理必须把内部进度上抛,且走**既有事件形状**。
+///
+/// 这条测试就是前端(R-174 子代理面板)的契约:事件名、id、payload 字段改了它会红。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 编排派发的子代理上抛既有形状的进度事件() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        // 5 个勘察角色并发连上来,响应一致。
+        for _ in 0..5 {
+            serve_response(&listener, text_response("勘察结论:drive.rs:57", 1, 1)).await;
+        }
+    });
+
+    let fx = fixture("progress", address);
+    let rt = fx.subagent_rt();
+    let mut pipeline = fx.pipeline();
+    let seen: Arc<Mutex<Vec<kanzei_core::RunEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let mut on_event = move |event: kanzei_core::RunEvent| sink.lock().unwrap().push(event);
+
+    let brief = pipeline
+        .scout(&fx.client, &rt, &fx.ctx, "修 R-173", &mut on_event)
+        .await
+        .expect("勘察应当成功");
+    server.await.unwrap();
+    pipeline.abort("test done");
+
+    assert!(brief.contains("勘察简报"));
+    let events = seen.lock().unwrap();
+
+    // ① ToolStart:每个角色一条,name 沿用 "task"(UI 已有的子代理块渲染直接可用)。
+    let starts: Vec<(&String, &serde_json::Value)> = events
+        .iter()
+        .filter_map(|e| match e {
+            kanzei_core::RunEvent::ToolStart {
+                id, name, input, ..
+            } if name == "task" => Some((id, input)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(starts.len(), 5, "5 个勘察角色各应有一条 ToolStart");
+    let mut ids: Vec<&str> = starts.iter().map(|(id, _)| id.as_str()).collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        vec![
+            "architecture_scout",
+            "docs_scout",
+            "runtime_scout",
+            "test_scout",
+            "write_surface_scout",
+        ],
+        "id 必须就是角色名——面板靠它配对 start/progress/end"
+    );
+    for (id, input) in &starts {
+        assert_eq!(
+            input["phase"], "scouting",
+            "input.phase 是面板分区的依据,不能缺"
+        );
+        assert_eq!(input["role"].as_str(), Some(id.as_str()));
+        assert!(
+            input["prompt"]
+                .as_str()
+                .is_some_and(|p| p.contains("修 R-173")),
+            "input.prompt 要能展开看到派给这个角色的完整指令(R-095)"
+        );
+    }
+
+    // ② TaskProgress:子代理内部轮次/工具进度按 id 挂回对应角色。
+    let progress: Vec<&String> = events
+        .iter()
+        .filter_map(|e| match e {
+            kanzei_core::RunEvent::TaskProgress { id, .. } => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !progress.is_empty(),
+        "子代理的内部进度必须上抛,不能像批6 那样被丢弃"
+    );
+    for id in &progress {
+        assert!(
+            ids.contains(&id.as_str()),
+            "TaskProgress 的 id 必须能配到某个角色块: {id}"
+        );
+    }
+
+    // ③ ToolEnd:每个角色一条,ok 反映终态。
+    let ends: Vec<(&String, bool)> = events
+        .iter()
+        .filter_map(|e| match e {
+            kanzei_core::RunEvent::ToolEnd { id, name, ok, .. } if name == "task" => {
+                Some((id, *ok))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        ends.len(),
+        5,
+        "每个角色都要有终态事件,面板才能从 Running 移出"
+    );
+    assert!(ends.iter().all(|(_, ok)| *ok));
+    // start 必须全部早于 end(面板先建块再收尾)。
+    let first_end = events
+        .iter()
+        .position(|e| matches!(e, kanzei_core::RunEvent::ToolEnd { .. }))
+        .unwrap();
+    let last_start = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, kanzei_core::RunEvent::ToolStart { .. }))
+        .map(|(i, _)| i)
+        .next_back()
+        .unwrap();
+    assert!(last_start < first_end, "5 个块必须先全部建起来再收尾");
+    drop(events);
+    std::fs::remove_dir_all(&fx.project).ok();
 }
 
 /// 复核有发现 → 跑修正段;历史必须接续,用量/步数必须合并。

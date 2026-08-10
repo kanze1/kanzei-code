@@ -188,6 +188,40 @@ pub(crate) async fn run_task(
         .get(&session_id)
         .is_some_and(|ctrl| ctrl.enabled);
     let mut pipeline = if phase_pipeline_on {
+        // R-173:勘察/复核用哪条路由由 `[models] scout` 决定。解析失败**不静默**——
+        // 阶段面板上会有一行,然后按未配置处理(沿用 fast),而不是让整轮跑不成。
+        let scout_route = match config.models.scout.as_deref() {
+            None => None,
+            Some(model_ref) => match config.resolve_model(model_ref) {
+                Ok(resolved) => match kanzei_core::build_route(&resolved, &proxy).await {
+                    Ok(route) => {
+                        stage(
+                            "勘察路由",
+                            format!("{}:{}", resolved.provider_name, resolved.model),
+                        );
+                        Some(crate::phase_pipeline::ScoutRoute {
+                            service_tier: config.service_tier_for(&resolved),
+                            model: resolved.model.clone(),
+                            route,
+                        })
+                    }
+                    Err(error) => {
+                        stage(
+                            "勘察路由",
+                            format!("{model_ref} 建链失败,回退 fast:{error}"),
+                        );
+                        None
+                    }
+                },
+                Err(error) => {
+                    stage(
+                        "勘察路由",
+                        format!("{model_ref} 解析失败,回退 fast:{error}"),
+                    );
+                    None
+                }
+            },
+        };
         Some(crate::phase_pipeline::PhasePipeline::start(
             Arc::clone(&coordinator) as Arc<dyn ProjectExecutionCoordinator>,
             Arc::clone(&orchestration_trace)
@@ -196,6 +230,7 @@ pub(crate) async fn run_task(
             &run_id,
             &process_id,
             &config.limits,
+            scout_route,
         ))
     } else {
         None
@@ -585,7 +620,10 @@ pub(crate) async fn run_task(
                         config.limits.max_tasks_per_turn()
                     ),
                 );
-                match pipeline.scout(&client, template, &ctx, &prompt).await {
+                match pipeline
+                    .scout(&client, template, &ctx, &prompt, &mut on_event)
+                    .await
+                {
                     Ok(brief) => {
                         stage("屏障", "勘察全部进入终态,开始申请写租约".into());
                         run_prompt = format!("{brief}\n\n{run_prompt}");
@@ -1038,7 +1076,7 @@ pub(crate) async fn run_review_and_fixup(
     };
     stage("复核", "写租约已交出,并行只读复核中…".into());
     let findings = match pipeline
-        .review(client, template, ctx, prompt, &summary.text)
+        .review(client, template, ctx, prompt, &summary.text, on_event)
         .await
     {
         Ok(findings) => findings,

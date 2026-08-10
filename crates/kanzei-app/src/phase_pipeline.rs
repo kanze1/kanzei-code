@@ -31,9 +31,11 @@
 
 use std::sync::Arc;
 
+use kanzei_core::RunEvent;
 use kanzei_core::{PhaseOrchestrator, ScoutTask, SubagentRuntime};
 use kanzei_harness::orchestration::{
-    PhaseObserver, ProjectExecutionCoordinator, ScoutOutcome, WriterLeaseRequest,
+    BarrierKind, BarrierOutcome, PhaseObserver, ProjectExecutionCoordinator, ScoutOutcome,
+    WriterLeaseRequest,
 };
 use kanzei_harness::ToolCtx;
 use kanzei_llm::LlmClient;
@@ -86,6 +88,8 @@ pub(crate) struct PhasePipeline {
     /// 单阶段并行角色数上限。复用既有的 `max_tasks_per_turn`——它的语义本来就是
     /// 「一轮最多并行几个子代理」,不另立一个会配歪的新键。
     roster_cap: usize,
+    /// `[models] scout` 解析出的路由;None = 沿用模板的 fast。
+    scout_route: Option<ScoutRoute>,
 }
 
 /// 一个角色的产出。
@@ -103,6 +107,7 @@ impl PhasePipeline {
         run_id: &str,
         process_id: &str,
         limits: &kanzei_harness::config::Limits,
+        scout_route: Option<ScoutRoute>,
     ) -> Self {
         let orchestrator = PhaseOrchestrator::new(
             coordinator,
@@ -115,6 +120,7 @@ impl PhasePipeline {
         PhasePipeline {
             orchestrator,
             roster_cap: limits.max_tasks_per_turn(),
+            scout_route,
         }
     }
 
@@ -128,24 +134,79 @@ impl PhasePipeline {
         template: &SubagentRuntime,
         ctx: &ToolCtx,
         task_prompt: &str,
+        on_event: &mut (dyn FnMut(RunEvent) + Send),
     ) -> anyhow::Result<String> {
         self.orchestrator.enter_scouting()?;
-        let roles: Vec<(&str, &str)> = SCOUT_ROLES.iter().take(self.roster_cap).copied().collect();
+        let roles: Vec<(&'static str, &'static str)> =
+            SCOUT_ROLES.iter().take(self.roster_cap).copied().collect();
+        let prompts: Vec<String> = roles
+            .iter()
+            .map(|(role, brief)| scout_prompt(role, brief, task_prompt))
+            .collect();
+        let (reports, outcome) = self
+            .dispatch_roles(
+                BarrierKind::Synthesis,
+                &roles,
+                &prompts,
+                client,
+                template,
+                ctx,
+                on_event,
+            )
+            .await?;
+        Ok(render_brief("勘察简报", &reports, outcome.model_notice()))
+    }
+
+    /// 并行派发一批只读角色并过屏障,过程中把子代理的内部进度实时上抛。
+    ///
+    /// 进度走的是**既有事件形状**(`ToolStart` / `TaskProgress` / `ToolEnd`),
+    /// 与模型自己派 task 时一模一样——UI 侧不需要第二套渲染,R-174 的子代理面板
+    /// 消费的也是同一份数据。区别只在 `input` 里多带了 `phase` 与 `role` 两个字段,
+    /// 面板据此分区,不必猜。
+    #[allow(clippy::too_many_arguments)] // 角色表、提示、路由、事件口四样缺一不可,包成结构体只是换个地方写。
+    async fn dispatch_roles(
+        &mut self,
+        kind: BarrierKind,
+        roles: &[(&'static str, &'static str)],
+        prompts: &[String],
+        client: &LlmClient,
+        template: &SubagentRuntime,
+        ctx: &ToolCtx,
+        on_event: &mut (dyn FnMut(RunEvent) + Send),
+    ) -> anyhow::Result<(Vec<RoleReport>, BarrierOutcome)> {
+        let phase = match kind {
+            BarrierKind::Synthesis => "scouting",
+            BarrierKind::Review => "review",
+        };
         let runtimes: Vec<SubagentRuntime> = roles
             .iter()
-            .map(|(role, _)| runtime_as(template, role))
+            .map(|(role, _)| self.runtime_as(template, role))
             .collect();
+        // 派发即上报:UI 先拿到块,子代理的轮次/工具进度随后挂上去。
+        for ((role, brief), prompt) in roles.iter().zip(prompts.iter()) {
+            on_event(RunEvent::ToolStart {
+                id: role.to_string(),
+                name: "task".into(),
+                summary: format!("{role} · {}", brief.chars().take(40).collect::<String>()),
+                input: serde_json::json!({
+                    "prompt": prompt,
+                    "phase": phase,
+                    "role": role,
+                }),
+            });
+        }
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
         let reports = Arc::new(std::sync::Mutex::new(Vec::<RoleReport>::new()));
         let tasks: Vec<(String, ScoutTask<'_>)> = roles
             .iter()
             .zip(runtimes.iter())
-            .map(|((role, brief), rt)| {
-                let prompt = scout_prompt(role, brief, task_prompt);
+            .zip(prompts.iter())
+            .map(|(((role, _), rt), prompt)| {
                 let reports = reports.clone();
+                let tx = tx.clone();
                 let task: ScoutTask<'_> = Box::pin(async move {
-                    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
                     let output =
-                        kanzei_core::run_read_agent(client, rt, ctx, role, &prompt, tx).await;
+                        kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx).await;
                     let outcome = if output.is_error {
                         ScoutOutcome::Failed(output.content.chars().take(200).collect())
                     } else {
@@ -161,9 +222,53 @@ impl PhasePipeline {
                 (role.to_string(), task)
             })
             .collect();
-        let outcome = self.orchestrator.join_scouts(tasks).await?;
+        // 边等屏障边转发进度——与 drive.rs 派 task 时同一个形状。
+        // 只等屏障、不等通道关闭:`tx` 在本作用域一直活着,recv 不会提前返回 None。
+        let outcome = {
+            // 两个屏障方法返回的是两个不同的匿名 future 类型,装箱统一。
+            type Barrier<'f> = std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                BarrierOutcome,
+                                kanzei_harness::orchestration::PhaseError,
+                            >,
+                        > + Send
+                        + 'f,
+                >,
+            >;
+            let mut barrier: Barrier<'_> = match kind {
+                BarrierKind::Synthesis => Box::pin(self.orchestrator.join_scouts(tasks)),
+                BarrierKind::Review => Box::pin(self.orchestrator.join_reviewers(tasks)),
+            };
+            loop {
+                tokio::select! {
+                    biased;
+                    Some(event) = rx.recv() => on_event(event),
+                    done = &mut barrier => break done?,
+                }
+            }
+        };
+        // 屏障已过 = 所有角色都终态,通道里剩下的是最后一批进度,清干净再收尾。
+        while let Ok(event) = rx.try_recv() {
+            on_event(event);
+        }
         let reports = std::mem::take(&mut *reports.lock().unwrap());
-        Ok(render_brief("勘察简报", &reports, outcome.model_notice()))
+        for (role, _) in roles {
+            let report = reports.iter().find(|r| r.role == *role);
+            let ok = report.map(|r| r.ok).unwrap_or(false);
+            let preview = report
+                .map(|r| r.text.lines().next().unwrap_or("").to_string())
+                .unwrap_or_else(|| "(超时,未产出结果)".into());
+            on_event(RunEvent::ToolEnd {
+                id: role.to_string(),
+                name: "task".into(),
+                ok,
+                preview,
+                display: None,
+            });
+        }
+        Ok((reports, outcome))
     }
 
     /// 子代理被关掉时的勘察阶段:**空屏障照样走一遍**。
@@ -206,42 +311,27 @@ impl PhasePipeline {
         ctx: &ToolCtx,
         task_prompt: &str,
         run_summary: &str,
+        on_event: &mut (dyn FnMut(RunEvent) + Send),
     ) -> anyhow::Result<Option<String>> {
         // 这一句就是复核屏障:租约在这里被交出,之后才可能进 review。
         self.orchestrator.enter_review()?;
-        let roles: Vec<(&str, &str)> = REVIEW_ROLES.iter().take(self.roster_cap).copied().collect();
-        let runtimes: Vec<SubagentRuntime> = roles
+        let roles: Vec<(&'static str, &'static str)> =
+            REVIEW_ROLES.iter().take(self.roster_cap).copied().collect();
+        let prompts: Vec<String> = roles
             .iter()
-            .map(|(role, _)| runtime_as(template, role))
+            .map(|(role, brief)| review_prompt(role, brief, task_prompt, run_summary))
             .collect();
-        let reports = Arc::new(std::sync::Mutex::new(Vec::<RoleReport>::new()));
-        let tasks: Vec<(String, ScoutTask<'_>)> = roles
-            .iter()
-            .zip(runtimes.iter())
-            .map(|((role, brief), rt)| {
-                let prompt = review_prompt(role, brief, task_prompt, run_summary);
-                let reports = reports.clone();
-                let task: ScoutTask<'_> = Box::pin(async move {
-                    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-                    let output =
-                        kanzei_core::run_read_agent(client, rt, ctx, role, &prompt, tx).await;
-                    let outcome = if output.is_error {
-                        ScoutOutcome::Failed(output.content.chars().take(200).collect())
-                    } else {
-                        ScoutOutcome::Completed
-                    };
-                    reports.lock().unwrap().push(RoleReport {
-                        role,
-                        text: output.content,
-                        ok: !output.is_error,
-                    });
-                    outcome
-                });
-                (role.to_string(), task)
-            })
-            .collect();
-        let outcome = self.orchestrator.join_reviewers(tasks).await?;
-        let reports = std::mem::take(&mut *reports.lock().unwrap());
+        let (reports, outcome) = self
+            .dispatch_roles(
+                BarrierKind::Review,
+                &roles,
+                &prompts,
+                client,
+                template,
+                ctx,
+                on_event,
+            )
+            .await?;
         Ok(findings(&reports, outcome.model_notice()))
     }
 
@@ -266,24 +356,51 @@ impl PhasePipeline {
     }
 }
 
-/// 按角色克隆一份子代理运行时。
-///
-/// 角色名要落到 `rt.agent.name`,因为读槽登记用的就是它——同轮并行的角色靠
-/// `run_id` 区分身份、靠 `agent_name` 显示是谁(见 `ReadPermit`)。
-fn runtime_as(template: &SubagentRuntime, role: &str) -> SubagentRuntime {
-    let mut agent = template.agent.clone();
-    agent.name = role.to_string();
-    SubagentRuntime {
-        snapshot: template.snapshot.clone(),
-        agent,
-        fast: template.fast.clone(),
-        primary: template.primary.clone(),
-        fast_service_tier: template.fast_service_tier.clone(),
-        primary_service_tier: template.primary_service_tier.clone(),
-        max_tokens: template.max_tokens,
-        timeout_secs: template.timeout_secs,
-        limits: template.limits.clone(),
-        coordinator: template.coordinator.clone(),
+/// 编排派发的只读代理用哪条路由。`None` = 沿用模板的 `fast`(与引入前一致)。
+pub(crate) struct ScoutRoute {
+    pub(crate) route: kanzei_llm::Route,
+    pub(crate) model: String,
+    pub(crate) service_tier: Option<String>,
+}
+
+impl PhasePipeline {
+    /// 按角色克隆一份子代理运行时。
+    ///
+    /// 角色名要落到 `rt.agent.name`,因为读槽登记用的就是它——同轮并行的角色靠
+    /// `run_id` 区分身份、靠 `agent_name` 显示是谁(见 `ReadPermit`)。
+    ///
+    /// 路由:配了 `[models] scout` 就**把 fast 和 primary 两个槽都换成它**。
+    /// 这样不必给 `SubagentRuntime` 加第三个槽,也不必改 `run_subagent` 的选择逻辑——
+    /// 无论它挑哪个槽,拿到的都是用户为勘察指定的那条路由。
+    fn runtime_as(&self, template: &SubagentRuntime, role: &str) -> SubagentRuntime {
+        let mut agent = template.agent.clone();
+        agent.name = role.to_string();
+        let (fast, primary, fast_tier, primary_tier) = match &self.scout_route {
+            Some(scout) => (
+                (scout.route.clone(), scout.model.clone()),
+                (scout.route.clone(), scout.model.clone()),
+                scout.service_tier.clone(),
+                scout.service_tier.clone(),
+            ),
+            None => (
+                template.fast.clone(),
+                template.primary.clone(),
+                template.fast_service_tier.clone(),
+                template.primary_service_tier.clone(),
+            ),
+        };
+        SubagentRuntime {
+            snapshot: template.snapshot.clone(),
+            agent,
+            fast,
+            primary,
+            fast_service_tier: fast_tier,
+            primary_service_tier: primary_tier,
+            max_tokens: template.max_tokens,
+            timeout_secs: template.timeout_secs,
+            limits: template.limits.clone(),
+            coordinator: template.coordinator.clone(),
+        }
     }
 }
 

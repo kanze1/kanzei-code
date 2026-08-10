@@ -220,6 +220,17 @@ pub struct ModelRoles {
     /// Codex Fast mode:同一模型使用更高消耗的 priority 服务档位。
     #[serde(default)]
     pub codex_fast_mode: Option<bool>,
+    /// R-173:阶段编排派发的只读代理(勘察 + 复核)用哪条路由。
+    ///
+    /// 取值与 primary/fast 同一套解析(角色名或 `provider:model`)。
+    /// `None` = 沿用 `fast`,与引入前逐字节一致。
+    ///
+    /// 单独一个键的理由:勘察/复核是**读密集、上下文短、要看懂代码**的活,
+    /// 它该用哪个模型与「主对话用哪个」「机械检索用哪个」都不是同一个问题。
+    /// 写死 fast 等于假定勘察是廉价活——用户跑 DeepSeek 时这个假设不成立,
+    /// 白白让勘察质量降级。
+    #[serde(default)]
+    pub scout: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -635,7 +646,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         check(
             models,
             "models",
-            &["primary", "fast", "reasoning", "codex_fast_mode"],
+            &["primary", "fast", "reasoning", "codex_fast_mode", "scout"],
             &mut out,
         );
     }
@@ -726,6 +737,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     }
     if layer.models.codex_fast_mode.is_some() {
         base.models.codex_fast_mode = layer.models.codex_fast_mode;
+    }
+    if layer.models.scout.is_some() {
+        base.models.scout = layer.models.scout;
     }
     base.providers.extend(layer.providers);
     if layer.proxy.is_some() {
@@ -905,6 +919,48 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    /// R-173:勘察/复核路由可配,缺省沿用 fast(旧配置行为逐字节不变)。
+    #[test]
+    fn 勘察路由可配且缺省沿用fast() {
+        // 旧配置没有这个键 → None,调用方回退 fast。
+        let old: KanzeiConfig = toml::from_str("[models]\nprimary = \"a:b\"\n").unwrap();
+        assert_eq!(old.models.scout, None, "缺省必须是 None,不能替用户拍板");
+
+        // 显式配置能解析成真实模型(与 primary/fast 同一套解析,没有第二套)。
+        let mut c: KanzeiConfig =
+            toml::from_str("[models]\nscout = \"claude:claude-sonnet-4-6\"\n").unwrap();
+        c.fill_defaults();
+        let resolved = c
+            .resolve_model(c.models.scout.as_deref().unwrap())
+            .expect("scout 取值必须走既有 resolve_model");
+        assert_eq!(resolved.model, "claude-sonnet-4-6");
+        // 角色名同样能用。
+        let role: KanzeiConfig = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
+        assert_eq!(role.models.scout.as_deref(), Some("primary"));
+
+        // 层叠:项目层写了才覆盖,没写不打回默认(reasoning 那次漏合并的教训)。
+        let mut base: KanzeiConfig =
+            toml::from_str("[models]\nprimary = \"a:b\"\nscout = \"fast\"\n").unwrap();
+        let layer: KanzeiConfig = toml::from_str("[models]\nprimary = \"c:d\"\n").unwrap();
+        merge(&mut base, layer);
+        assert_eq!(
+            base.models.scout.as_deref(),
+            Some("fast"),
+            "项目层没写 scout 时必须保住全局层的值"
+        );
+        let layer2: KanzeiConfig = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
+        merge(&mut base, layer2);
+        assert_eq!(base.models.scout.as_deref(), Some("primary"));
+
+        // 未知键体检不得把 scout 报成拼错(设置页透传不丢字段)。
+        let value: toml::Value = toml::from_str("[models]\nscout = \"primary\"\n").unwrap();
+        let warnings = unknown_keys(&value);
+        assert!(
+            !warnings.iter().any(|w| w.contains("scout")),
+            "scout 是已知键,不该被报成未知: {warnings:?}"
+        );
     }
 
     #[test]
