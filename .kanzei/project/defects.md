@@ -1,5 +1,21 @@
 # Defects
 
+## D-262 shell::kill_tree 从未真正击杀进程树:2 秒 timeout 叠加 kill_on_drop 反而先杀死 taskkill 自己 [open] (medium)
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 证据等级: E1(实测可复现 + 代码形态自证)
+- refs: D-174 R-097 R-139
+- 复现: 2026-08-10 交付 D-174 写「停止后台任务」测试时暴露,三条实测证据:
+  ①`kill_tree(pid)` 恒定耗时 **2.008 秒**(正好是它自己的超时)后返回,目标进程 `alive_after=true`;
+  ②把超时去掉单独跑,内层 `taskkill` 阻塞约 **27 秒**(直到目标进程自然结束)才返回 `exit=128`;
+  ③`current_thread` 与 `multi_thread` 两种 tokio runtime 都复现;换 `std::process` + `spawn_blocking`、去掉 `hide_console_async` 均不解决。
+- 根因(代码形态自证,`crates/kanzei-tools/src/shell.rs` 的 `kill_tree`): `command.kill_on_drop(true)` 与 `tokio::time::timeout(2s, command.output())` 叠在一起——**超时丢弃 future 的那一刻,`kill_on_drop` 把 taskkill 进程本身杀了**。于是每次调用的实际行为是「启动 taskkill → 两秒后杀掉 taskkill → 返回」,目标进程树毫发无伤。返回值还被 `let _ =` 吞掉,失败完全不可见。
+  次因待查:证据②说明 taskkill 在本机确实需要远超 2 秒才返回(疑似 `output()` 等待管道关闭,而管道被目标进程树里的某个成员继承着——典型的「grandchild 继承 stdout 导致 output() 挂住」形态)。若属实,则超时值调大也治不好,应改为不捕获输出(`status()` 而非 `output()`)或显式给 taskkill 的 stdio 设 `null`。修复前必须先证实这一条,不要只把 2 秒改成 30 秒。
+- 影响(超出 D-174 的范围): ①`process stop` 名义返回 stopped、实则进程还在跑,用户以为停了;②`bash` 工具的超时击杀同样失效,超时只是让工具调用返回,被击杀的进程继续持有文件与端口;③D-174 的后台越界处置里「回滚后 kill 进程树」这一加固项目前无效——该条已在 D-174 交付时如实标注,其验收②靠的是隔离+回滚+归因这条与 D-173 前台围栏同口径的路径,不依赖 kill。
+- 边界: `shell.rs` 在 D-174 交付时未被修改(尝试性修复未解决问题,已 `git checkout` 还原干净),本条是独立缺陷。
+- 验收: ①`kill_tree` 调用后目标进程树**真的消失**(实测断言 `alive_after == false`,不是断言函数返回);②taskkill 失败/超时不再被静默吞掉,至少有 `tracing::warn!` 级别的可见信号(D-004 口径);③`process stop` 与 `bash` 超时两条路径各有一条断言进程真的退出的回归测试——注意 D-174 交付时**刻意拆掉了两条会因为错误的原因而通过的断言**,本条修复后要把它们按正确形态补回去;④非 Windows 分支保持可编译。
+
 ## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
 - 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
 - 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
@@ -425,19 +441,3 @@
 - 修复方向: 五处生产写点全部改走 `atomic_file::write_atomic`;「读 → 分配 id → 写」整段用 `atomic_file` 的 `FileLock`(`lock_exclusive` / `try_lock_exclusive`)罩住,与 docstore 的 `TrackerTool` 写动作分支同源。注意 `FileLock` 是 `!Send`,不得跨 await 点持有。**不要另造锁**。
 - 验收: ①`crates/kanzei-tools/src/test_record.rs` 的生产路径不再出现裸 `std::fs::write`(可机械核验:该文件非 `#[cfg(test)]` 区域 grep `fs::write` 零命中);②「读→分配→写」整段持锁,两个进程并发 `test_record` 不撞号、不丢记录,有跨进程或多线程压测覆盖;③全仓只有 `atomic_file` 一套原子写/文件锁原语(grep 无第二处 tmp+rename 或独占句柄实现);④D-227 已交付的分配器与拒写逻辑既有测试保持绿。
 - refs: D-227 R-138 D-249 D-260
-
-## D-262 shell::kill_tree 从未真正击杀进程树:2 秒 timeout 叠加 kill_on_drop 反而先杀死 taskkill 自己 [open] (medium)
-- 优先级: P1
-- 复杂度: 中
-- 标签: 核心
-- 证据等级: E1(实测可复现 + 代码形态自证)
-- refs: D-174 R-097 R-139
-- 复现: 2026-08-10 交付 D-174 写「停止后台任务」测试时暴露,三条实测证据:
-  ①`kill_tree(pid)` 恒定耗时 **2.008 秒**(正好是它自己的超时)后返回,目标进程 `alive_after=true`;
-  ②把超时去掉单独跑,内层 `taskkill` 阻塞约 **27 秒**(直到目标进程自然结束)才返回 `exit=128`;
-  ③`current_thread` 与 `multi_thread` 两种 tokio runtime 都复现;换 `std::process` + `spawn_blocking`、去掉 `hide_console_async` 均不解决。
-- 根因(代码形态自证,`crates/kanzei-tools/src/shell.rs` 的 `kill_tree`): `command.kill_on_drop(true)` 与 `tokio::time::timeout(2s, command.output())` 叠在一起——**超时丢弃 future 的那一刻,`kill_on_drop` 把 taskkill 进程本身杀了**。于是每次调用的实际行为是「启动 taskkill → 两秒后杀掉 taskkill → 返回」,目标进程树毫发无伤。返回值还被 `let _ =` 吞掉,失败完全不可见。
-  次因待查:证据②说明 taskkill 在本机确实需要远超 2 秒才返回(疑似 `output()` 等待管道关闭,而管道被目标进程树里的某个成员继承着——典型的「grandchild 继承 stdout 导致 output() 挂住」形态)。若属实,则超时值调大也治不好,应改为不捕获输出(`status()` 而非 `output()`)或显式给 taskkill 的 stdio 设 `null`。修复前必须先证实这一条,不要只把 2 秒改成 30 秒。
-- 影响(超出 D-174 的范围): ①`process stop` 名义返回 stopped、实则进程还在跑,用户以为停了;②`bash` 工具的超时击杀同样失效,超时只是让工具调用返回,被击杀的进程继续持有文件与端口;③D-174 的后台越界处置里「回滚后 kill 进程树」这一加固项目前无效——该条已在 D-174 交付时如实标注,其验收②靠的是隔离+回滚+归因这条与 D-173 前台围栏同口径的路径,不依赖 kill。
-- 边界: `shell.rs` 在 D-174 交付时未被修改(尝试性修复未解决问题,已 `git checkout` 还原干净),本条是独立缺陷。
-- 验收: ①`kill_tree` 调用后目标进程树**真的消失**(实测断言 `alive_after == false`,不是断言函数返回);②taskkill 失败/超时不再被静默吞掉,至少有 `tracing::warn!` 级别的可见信号(D-004 口径);③`process stop` 与 `bash` 超时两条路径各有一条断言进程真的退出的回归测试——注意 D-174 交付时**刻意拆掉了两条会因为错误的原因而通过的断言**,本条修复后要把它们按正确形态补回去;④非 Windows 分支保持可编译。
