@@ -1153,3 +1153,18 @@
 - 命令: node --check + ui-* smoke ×4 (R-170)
 - 摘要: 08-compose/16-settings/18-startup/smoke node --check 通过;ui-runtime/i18n/a11y/markdown 四条冒烟全绿;新增极简默认断言(删空回落、不含规则文本)与 LEGACY 不再覆盖断言通过。
 - 收尾: 1786323907
+
+## T-1786341674 cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 145 通过:新增 read 回填采纳、mark_memory_file_read 修复、memory_stats 漏斗展示测试全绿
+- 收尾: 1786341674
+
+## T-1786341674 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 72 通过:lib.rs 导出 FunnelCounts 无回归
+- 收尾: 1786341674
+
+## T-1786341887 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: 73 通过:新增 recall_events 回填 episode_id 后 join episodes 查询单测(验收① join 部分)
+- 收尾: 1786341887

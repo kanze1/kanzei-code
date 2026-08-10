@@ -134,6 +134,12 @@ pub(crate) async fn run_task(
             .unwrap_or_default()
     );
     let run_started = std::time::Instant::now();
+    // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
+    // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
+    let run_epoch_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or_default();
     store.set_status(&session_id, "running")?;
     append_run_notification(&store, &session_id, "running", "任务已开始", false)?;
     store.append_event(
@@ -520,7 +526,7 @@ pub(crate) async fn run_task(
                     );
                 }
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
-                let _ = store.append_episode(&kanzei_core::EpisodeRecord {
+                if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
                     session_id: &session_id,
                     prompt_head: &prompt,
                     outcome: if summary.halted_by_user {
@@ -549,7 +555,10 @@ pub(crate) async fn run_task(
                     // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
                     overflow_json: &serde_json::to_string(&summary.overflow_traces)
                         .unwrap_or_default(),
-                });
+                }) {
+                    // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
+                    let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+                }
                 let _ = store.finish_input(&promoted_input_id, true);
                 // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
                 // flush_live_run 不该再补一条信息量更少的(D-179)。

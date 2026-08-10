@@ -115,6 +115,23 @@ impl SessionStore {
         Ok(())
     }
 
+    /// 把 created_at >= since_ms 且尚未关联 episode 的 recall_events 回填到该 episode。
+    /// 开跑预检索(R-106)发生在 episode 落库之前,写入时没有 episode_id;
+    /// 轮末 append_episode 后用本轮开始时间戳回填,recall_events 才能 join episodes(验收①)。
+    /// 返回实际回填行数;没有待回填行时静默返回 0。
+    pub fn link_recall_events_to_episode(
+        &self,
+        episode_id: i64,
+        since_ms: i64,
+    ) -> Result<usize, StoreError> {
+        let n = self.connection.execute(
+            "UPDATE recall_events SET episode_id = ?1
+             WHERE episode_id IS NULL AND created_at >= ?2",
+            params![episode_id, since_ms],
+        )?;
+        Ok(n)
+    }
+
     /// 机械口径：available 为 active 记忆数，其余阶段按 state.db 证据去重计数。
     pub fn funnel_counts(&self) -> Result<FunnelCounts, StoreError> {
         let available =
@@ -241,5 +258,110 @@ mod tests {
                 outcome_improved: 1
             }
         );
+    }
+
+    #[test]
+    fn recall_events_回填episode后可join_episodes查询() {
+        // R-161 验收①:recall_events 与 episodes 同库,轮末用本轮开始时间戳回填
+        // episode_id,之后能 join episodes 查询(CLI/桌面端同一口径)。
+        let store = store();
+        // 开跑预检索先落一条 recall_event(episode 尚未创建,episode_id=NULL)。
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "memory-search-pre-run",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "memory_search",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "cargo test",
+                candidate_ids: "[\"M-1\"]",
+                retrieved_ids: "[\"M-1\"]",
+                injected_ids: "[\"M-1\"]",
+                lexical_ms: 1,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 1,
+            })
+            .unwrap();
+        // 轮末 append_episode,回填时间窗设为"本轮开始"(0 = 早于一切)。
+        let episode = store
+            .append_episode(&crate::store::EpisodeRecord {
+                session_id: "ses_join",
+                prompt_head: "p",
+                outcome: "ok",
+                tools_json: "[]",
+                context_json: "{}",
+                metrics_json: "{}",
+                provider: "",
+                model: "",
+                run_id: "r",
+                input_id: "i",
+                overflow_json: "[]",
+                ..Default::default()
+            })
+            .unwrap();
+        let linked = store
+            .link_recall_events_to_episode(episode, 0)
+            .unwrap();
+        assert_eq!(linked, 1, "开跑预检索的 recall_event 必须回填到本轮 episode");
+        // join 查询:episode 的 prompt_head 与 recall 的 query 同轮可对账。
+        let row: Option<(String, String)> = store
+            .connection
+            .query_row(
+                "SELECT e.prompt_head, r.query FROM recall_events r
+                 JOIN episodes e ON e.episode_id = r.episode_id
+                 WHERE r.recall_id = 'memory-search-pre-run'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .ok();
+        assert_eq!(row, Some(("p".to_string(), "cargo test".to_string())));
+        // 时间窗外(比 since 更早)的旧事件不得被误回填。
+        store
+            .record_recall_event(&RecallEvent {
+                recall_id: "stale-recall",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "memory_search",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "old",
+                candidate_ids: "[]",
+                retrieved_ids: "[]",
+                injected_ids: "[]",
+                lexical_ms: 0,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 0,
+            })
+            .unwrap();
+        store
+            .connection
+            .execute(
+                "UPDATE recall_events SET created_at = 1 WHERE recall_id = 'stale-recall'",
+                [],
+            )
+            .unwrap();
+        let second = store
+            .append_episode(&crate::store::EpisodeRecord {
+                session_id: "ses_join",
+                prompt_head: "p2",
+                outcome: "ok",
+                tools_json: "[]",
+                context_json: "{}",
+                metrics_json: "{}",
+                provider: "",
+                model: "",
+                run_id: "r2",
+                input_id: "i2",
+                overflow_json: "[]",
+                ..Default::default()
+            })
+            .unwrap();
+        let linked2 = store
+            .link_recall_events_to_episode(second, 100)
+            .unwrap();
+        assert_eq!(linked2, 0, "时间窗外的旧事件不得被误回填");
     }
 }

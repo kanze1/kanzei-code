@@ -26,8 +26,8 @@
 - 验收: ①三表落库,CLI/桌面端写同一口径且能 join episodes 查询;②read 记忆文件回填采纳有单测;③memory_stats 可见五段漏斗计数;④漏斗各段判定有单测覆盖。
 - refs: R-103 R-125 R-150 docs/design/memory_control_plane.md
 
-- 批次: 1/3
-- 进展: 批1完成：state.db schema v8 新增 recall_events/memory_sources/memory_eval，SessionStore 提供统一写入与 funnel_counts，episode 写入返回 episode_id；kanzei-core 72 项定向测试全绿。批2待接 memory_search/read/CLI/桌面同源写入。
+- 批次: 2/3
+- 进展: 批1完成：state.db schema v8 新增 recall_events/memory_sources/memory_eval，SessionStore 提供统一写入与 funnel_counts，episode 写入返回 episode_id；kanzei-core 72 项定向测试全绿。批2完成：①read 工具读记忆文件正文后回填 fetched（mark_memory_file_read 接入 read.rs，修复 id 解析 split 只取到 'M' 与 Windows 大小写折叠导致 scope 匹配恒失败，加快速路径防副作用，read.rs 单测 read_memory_file_backfills_recall_fetched/read_non_memory_file_does_not_touch_fetched 验收②✓）；②桌面端 memory_search_page 接线 record_memory_search_telemetry（与 memory_search 工具/CLI 开跑预检索同源，验收①桌面端✓）；③memory_stats 展示 state.db 五段漏斗 A→R→I→U→Y（tools.rs project_funnel_counts + stats 测试断言 0/1/1/0/0，验收③✓）；④kanzei-core 导出 FunnelCounts。kanzei-tools 145 全绿、kanzei-core 72 全绿。批3待做：recall_events 关联 episode_id（join episodes 查询）+ index.db memory_recalls 停写留读（内容④）+ 漏斗各段判定单测补强。
 
 ## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [todo]
 - 优先级: P0
