@@ -29,5 +29,6 @@
 - M-029 [fact] git merge 禁止在 bash 执行，须用结构化 git 工具 — 处理合并或其他 Git 分支/索引变更时必读：不要在 bash 运行 git merge；改用结构化 git 工具，并按要求显式 stage、检查 staged_hash/diff，再用该 hash commit。
 - M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
 - M-031 [sop] 关闭 req 前先收尾名下 running 测试记录 — 处理 req 关闭被 running 测试记录阻塞时必读：先用 test_record 为对应测试 ID 写入 passed/failed/skipped 终态，再重试关闭；不再运行的测试必须 skipped 并说明原因。
+- M-032 [fact] R-163 记忆回放评估台已交付:六臂对照量化记忆决策值 — 处理 R-163 记忆回放评估工具交付与 CLI kz replay-eval 使用问题：六臂对照量化决策价值，按 commit hash 追踪版本变更
 
 (2 stale 条待归档)

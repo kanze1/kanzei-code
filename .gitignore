@@ -12,6 +12,7 @@
 # schema 升级前的整库备份(D-175):本机回退用的退路,不是仓库资产。
 .kanzei/state.db.v*.bak
 .kanzei/memory/index.db
+.kanzei/memory/index.db-journal
 .kanzei/memory/inbox.md
 # shell 越权写入托管文档时,改后的版本先隔离留证再回滚(D-173);是证据不是资产。
 .kanzei/quarantine/

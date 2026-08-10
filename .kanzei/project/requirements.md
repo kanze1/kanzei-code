@@ -16,7 +16,7 @@
 
 - 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)无专用写入通道——edit 被 ruleset 拒绝,shell 旁路被检测回滚,conventions.md 为模型只读托管资产(已记 D-235)。解除动作: 修复 D-235 提供 conventions.md 专用写入工具,或用户手写 §1.4 标注;标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具)或手写标注的用户。
 
-## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [todo]
+## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -27,7 +27,13 @@
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
 - refs: A-011 R-163 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 口径清理:原「依赖: R-162/R-163」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-162/R-163 后推进。
+- 进展: 2026-08-10 口径清理:原「依赖: R-162/R-163」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。
+
+批1完成(R-164 B1):crates/kanzei-tools/src/memory/index.rs 新增 MemoryIndex trait(IndexQuery/IndexHit + search_lexical/dense/hybrid/upsert/remove/rebuild)与 SqliteMemoryIndex 默认实现——lexical 通道复用 FingerprintIndex(Tier0 指纹精确)+ MemoryStore::search(Tier1 BM25),dense 恒空(未接 embedder),hybrid 无 embedder 时自动退化 lexical(验收①);mod.rs 注册导出。3 个新测试:无embedder降级_fingerprint精确命中与BM25完整可用/指纹miss时回落BM25_文本可兜底/upsert_remove_rebuild_增量与全量一致。kanzei-tools 162 passed(原159+3)全绿。
+
+批次规划: 批2 Embedder trait + openai 兼容 /embeddings 实现(含 ollama)+ kanzei.toml [embeddings] 配置节 + 向量列存储 + rebuild(验收④);批3 dense 通道 brute-force + RRF 融合(k=60)+ 分段延迟落 recall_events(验收②);批4 R-163 三臂对比装配(lexical/dense/hybrid)+ 报告落库(验收③)。实现注:向量列用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——Windows bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列在 index.db、brute-force、可重建)与设计 §5 一致。
+
+- 批次: 1/4
 
 ## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
 - 优先级: P0
