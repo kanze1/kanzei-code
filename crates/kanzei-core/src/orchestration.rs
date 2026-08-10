@@ -132,26 +132,66 @@ impl MemoryCoordinator {
             process_id: state.writer_process_id.clone().unwrap_or_default(),
         });
     }
+
+    /// 归还读槽(批6):按 agent_name 移除登记并记录 AgentCompleted 事件。
+    /// 由 ReadPermit 的 drop 回调调用——子代理结束(含失败/取消)即回收。
+    fn release_reader(&self, root_key: &str, agent_name: &str) {
+        let mut guard = self.inner.projects.lock().unwrap();
+        let Some(state) = guard.get_mut(root_key) else {
+            return;
+        };
+        let removed = {
+            let run_id = state
+                .readers
+                .iter()
+                .find(|(_, name)| name.as_str() == agent_name)
+                .map(|(rid, _)| rid.clone());
+            if let Some(rid) = &run_id {
+                state.readers.remove(rid);
+            }
+            run_id
+        };
+        if let Some(run_id) = removed {
+            state.last_event = Some(OrchestrationEvent::AgentCompleted {
+                project_root: PathBuf::from(root_key),
+                run_id,
+                agent_name: agent_name.to_string(),
+                ok: true,
+            });
+        }
+    }
 }
 
 #[async_trait::async_trait]
 impl ProjectExecutionCoordinator for MemoryCoordinator {
     async fn acquire_read_slot(&self, request: ReadSlotRequest) -> Result<ReadPermit, String> {
         let key = normalize_project_root(&request.project_root);
-        let mut guard = self.inner.projects.lock().unwrap();
-        let state = guard.entry(key).or_insert_with(ProjectState::new);
-        state
-            .readers
-            .insert(request.run_id.clone(), request.agent_name.clone());
-        state.last_event = Some(OrchestrationEvent::AgentStarted {
-            project_root: request.project_root.clone(),
-            run_id: request.run_id.clone(),
-            agent_name: request.agent_name.clone(),
-        });
-        Ok(ReadPermit {
-            project_root: request.project_root,
-            agent_name: request.agent_name,
-        })
+        let agent_name = request.agent_name.clone();
+        let run_id = request.run_id.clone();
+        {
+            let mut guard = self.inner.projects.lock().unwrap();
+            let state = guard.entry(key.clone()).or_insert_with(ProjectState::new);
+            state
+                .readers
+                .insert(run_id.clone(), agent_name.clone());
+            state.last_event = Some(OrchestrationEvent::AgentStarted {
+                project_root: request.project_root.clone(),
+                run_id,
+                agent_name: agent_name.clone(),
+            });
+        }
+        // R-171 批6:读槽带释放回调——子代理结束即从快照消失(active_readers
+        // 不再永久累积),保证「并行查」的身份可见且可回收。
+        let permit = ReadPermit::with_release(
+            request.project_root.clone(),
+            agent_name.clone(),
+            {
+                let key = key.clone();
+                let coord = self.clone();
+                move |released_agent| coord.release_reader(&key, released_agent)
+            },
+        );
+        Ok(permit)
     }
 
     async fn acquire_writer_lease(&self, request: WriterLeaseRequest) -> Result<WriterLease, String> {
@@ -338,6 +378,14 @@ mod tests {
         assert_eq!(snap.active_readers.len(), 2);
         assert!(snap.active_readers.contains(&"scout-a".to_string()));
         assert!(snap.active_readers.contains(&"scout-b".to_string()));
+        // R-171 批6:读槽 RAII 释放——子代理结束即从快照消失,不永久累积。
+        drop(a);
+        let snap = coord.snapshot(&dir);
+        assert_eq!(snap.active_readers.len(), 1);
+        assert!(snap.active_readers.contains(&"scout-b".to_string()));
+        drop(b);
+        let snap = coord.snapshot(&dir);
+        assert!(snap.active_readers.is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 

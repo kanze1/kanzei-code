@@ -435,6 +435,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: config.limits.subagent_timeout_secs(),
             limits: config.limits.clone(),
+            // R-171 批6:CLI 单运行不参与共享仲裁,不登记读槽。
+            coordinator: None,
         }
     };
 

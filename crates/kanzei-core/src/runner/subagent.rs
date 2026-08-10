@@ -27,6 +27,9 @@ pub struct SubagentRuntime {
     pub timeout_secs: u64,
     /// 可调上限,随主运行链一起传下来。
     pub limits: kanzei_harness::config::Limits,
+    /// R-171 批6:项目级协调器(可选)。Some 时子代理执行前申请读槽登记
+    /// 「并行查」身份,结束 RAII 释放;None(纯 CLI 单运行/测试)不登记。
+    pub coordinator: Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {
@@ -155,6 +158,20 @@ pub(crate) async fn run_subagent(
                 trace,
             });
         }
+    };
+    // R-171 批6:子代理是只读勘察/复核——申请读槽登记并行身份,结束自动释放。
+    // 读槽只登记不阻塞(wave 并行),与 writer 租约是两套互不干扰的机制。
+    let _read_permit = match rt.coordinator.as_ref() {
+        Some(coord) => coord
+            .acquire_read_slot(kanzei_harness::orchestration::ReadSlotRequest {
+                project_root: ctx.project_root.clone(),
+                run_id: parent_call_id.to_string(),
+                process_id: rt.agent.name.clone(),
+                agent_name: rt.agent.name.clone(),
+            })
+            .await
+            .ok(),
+        None => None,
     };
     let mut ask = |_request: AskRequest| -> AskFuture {
         Box::pin(async { AskResponse::Permission(AskReply::Deny) })

@@ -479,6 +479,10 @@ pub(crate) async fn run_task(
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: config.limits.subagent_timeout_secs(),
             limits: config.limits.clone(),
+            // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
+            coordinator: Some(Arc::clone(&coordinator) as Arc<
+                dyn kanzei_harness::orchestration::ProjectExecutionCoordinator,
+            >),
         })
     } else {
         None

@@ -85,10 +85,43 @@ impl Drop for WriterLease {
 }
 
 /// 读许可:只读并发不受限制,但复核阶段必须等 writer 释放后启动。
-#[derive(Debug)]
+/// Drop 时调用注入的释放回调,保证子代理结束(含失败/取消)即从快照消失。
 pub struct ReadPermit {
     pub project_root: PathBuf,
     pub agent_name: String,
+    release: Option<std::sync::Arc<dyn Fn(&str) + Send + Sync>>,
+}
+
+impl std::fmt::Debug for ReadPermit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadPermit")
+            .field("project_root", &self.project_root)
+            .field("agent_name", &self.agent_name)
+            .finish()
+    }
+}
+
+impl ReadPermit {
+    /// 协调器实现创建读槽时注入释放回调;未注入(如测试直构)则 drop 为空操作。
+    pub fn with_release(
+        project_root: PathBuf,
+        agent_name: String,
+        release: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Self {
+        ReadPermit {
+            project_root,
+            agent_name,
+            release: Some(std::sync::Arc::new(release)),
+        }
+    }
+}
+
+impl Drop for ReadPermit {
+    fn drop(&mut self) {
+        if let Some(cb) = &self.release {
+            cb(&self.agent_name);
+        }
+    }
 }
 
 /// 协调器快照(可观察性):谁在排队、谁持有写权、各项目读代理数。
