@@ -64,9 +64,9 @@
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
 - refs: R-149 R-150 docs/design/memory_control_plane.md
 
-- 进展: 批3完成:shadow 态落地(五态齐)——STATUSES 加 shadow,to_shadow(candidate→shadow,无需 provenance),promote 允许 candidate|shadow→active(仍需证据),search 默认/active 查询硬排除 shadow、显式查 shadow 可见。2 条测试:shadow 可评估不注入生产、非 candidate 拒绝+refresh 不归档。kanzei-tools 180→182 全绿。剩批4 merge D<ε;批5 deprecate 候选+时间衰减审计+关闭。
+- 进展: 批4完成:merge 守恒 D(S→m')<ε——core eval.rs merge_conservation_delta(current vs merged 臂同 case 配对差均值,空版本=通配),memory_merge 工具接入:有评估数据时 D≥0.5 拒绝并给依据,无数据退化既有保守闸。2 条测试(core 失真度量 + tools 守恒拒绝落盘)。tools 182→183、core 95→96 全绿。剩批5 deprecate 候选+时间衰减审计+关闭。
 
-- 批次: 3/5
+- 批次: 4/5
 
 - 状态: doing
 

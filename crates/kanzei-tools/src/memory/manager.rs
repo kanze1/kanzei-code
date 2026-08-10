@@ -293,6 +293,34 @@ impl Tool for MemoryMergeTool {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
+        // R-166 批4:合并守恒 D(S→m')<ε 把关——有离线评估数据时,合并前后
+        // 行为必须等价(D 小);失真(D≥ε)拒绝。无评估数据(评估器没跑过该记忆
+        // 的合并对照)退化为既有保守闸(fingerprint/用户确认),不拦。
+        // ε=0.5:允许小扰动(单个 case 的 success 翻转会被均值摊薄),
+        // 但「合并后普遍失败」这种失真必须拦下。
+        const EPSILON: f64 = 0.5;
+        let merge_distortion = {
+            let db_path = store.root.join("..").join("state.db");
+            kanzei_core::SessionStore::open(&db_path)
+                .ok()
+                .and_then(|db| db.merge_conservation_delta(&input.primary, "", "").ok().flatten())
+        };
+        if let Some((delta, n)) = merge_distortion {
+            if delta >= EPSILON {
+                return ToolOutput::error(format!(
+                    "merge 守恒拒绝: D(S→m')={delta:.3} ≥ ε={EPSILON} (配对 {n} case)——\
+                     合并会把决策质量显著改变,压缩不是行为等价变换。请先跑合并对照回放 \
+                     (merged 臂)确认等价,或拆分合并"
+                ));
+            }
+            // 放行:记录判定依据(供验收②的「判定依据落库」审计)。
+            tracing::info!(
+                primary = %input.primary,
+                delta,
+                n,
+                "merge 守恒放行: D(S→m') < ε"
+            );
+        }
         match store.merge(
             &input.primary,
             &input.duplicates,
@@ -529,6 +557,72 @@ mod tests {
             )
             .await;
         assert!(no_reason.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-166 批4(验收②):merge 守恒 D(S→m')<ε 把关——state.db 里有失真评估
+    /// (current 全成功、merged 全失败,D=1≥0.5)时,memory_merge 被拒绝并给出依据。
+    #[tokio::test]
+    async fn merge_gate_rejects_distorting_merge_with_delta() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-mergegate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+        };
+        let store = MemoryStore::project(&dir);
+        // 建两条可合并的记忆(同 fingerprint 才能过保守闸;守恒闸在保守闸之前)。
+        for (title, desc, body) in [
+            ("合并守恒测试主", "钩子主", "内容 [fp:abc]"),
+            ("合并守恒测试副", "钩子副", "重复内容 [fp:abc]"),
+        ] {
+            let out = MemoryAddTool
+                .execute(
+                    json!({"scope": "project", "category": "fact", "title": title,
+                           "description": desc, "body": body}),
+                    &ctx,
+                )
+                .await;
+            assert!(!out.is_error, "{}", out.content);
+        }
+        // state.db 写失真评估:M-001 current 全成功、merged 全失败 → D=1 ≥ ε=0.5。
+        let db_path = dir.join(".kanzei").join("state.db");
+        let db = kanzei_core::SessionStore::open(&db_path).unwrap();
+        for (case, c_ok, m_ok) in [
+            ("c1", true, false),
+            ("c2", true, false),
+            ("c3", true, false),
+        ] {
+            db.record_memory_eval("M-001", case, "current", "m", "v1", c_ok, 1, 0, 0, 1, None)
+                .unwrap();
+            db.record_memory_eval("M-001", case, "merged", "m", "v1", m_ok, 1, 0, 0, 1, None)
+                .unwrap();
+        }
+        drop(db);
+        // merge 应被守恒闸拒绝。
+        let out = MemoryMergeTool
+            .execute(
+                json!({"scope": "project", "primary": "M-001", "duplicates": ["M-002"],
+                       "confirmed": false}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "失真合并必须被拒: {}", out.content);
+        assert!(
+            out.content.contains("守恒拒绝") && out.content.contains("D(S→m')"),
+            "拒绝文案要带守恒依据: {}",
+            out.content
+        );
+        // 两条都还在,未被并掉。
+        let entries = store.load_all();
+        assert_eq!(entries.len(), 2, "拒绝后不落盘: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

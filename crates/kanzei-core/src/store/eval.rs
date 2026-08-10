@@ -232,6 +232,78 @@ impl SessionStore {
         }
         Ok(out)
     }
+
+    /// 合并守恒 D(S→m')(R-166 内容④,验收②):合并前后在相同 case 上的
+    /// 决策质量差。D = E[J(e;M) − J(e;(M∖S)∪{m'})]。
+    ///
+    /// 数据来源:memory_eval 里同一 memory_id、同一 case 的 `current` 臂
+    /// (合并前)与 `merged` 臂(合并后)的 success 配对差,同 model/prompt_version
+    /// 内配对。model/prompt_version 传空串 = 任意版本(merge 工具不知道评估
+    /// 当时的版本号,用通配取全部历史评估)。返回 (|D| 均值, 配对 case 数);
+    /// 无配对数据返回 None(评估器还没跑过该记忆的合并对照,退化为
+    /// fingerprint/用户确认保守闸)。
+    pub fn merge_conservation_delta(
+        &self,
+        memory_id: &str,
+        model: &str,
+        prompt_version: &str,
+    ) -> Result<Option<(f64, usize)>, StoreError> {
+        let (sql, version_filtered) = if model.is_empty() && prompt_version.is_empty() {
+            (
+                "SELECT c.success, m.success
+                 FROM memory_eval c
+                 JOIN memory_eval m
+                   ON m.memory_id = c.memory_id
+                  AND m.replay_case = c.replay_case
+                  AND m.model = c.model
+                  AND m.prompt_version = c.prompt_version
+                 WHERE c.memory_id = ?1
+                   AND c.arm = 'current'
+                   AND m.arm = 'merged'",
+                false,
+            )
+        } else {
+            (
+                "SELECT c.success, m.success
+                 FROM memory_eval c
+                 JOIN memory_eval m
+                   ON m.memory_id = c.memory_id
+                  AND m.replay_case = c.replay_case
+                  AND m.model = c.model
+                  AND m.prompt_version = c.prompt_version
+                 WHERE c.memory_id = ?1
+                   AND c.model = ?2
+                   AND c.prompt_version = ?3
+                   AND c.arm = 'current'
+                   AND m.arm = 'merged'",
+                true,
+            )
+        };
+        let mut statement = self.connection.prepare(sql)?;
+        let rows = if version_filtered {
+            statement
+                .query_map(params![memory_id, model, prompt_version], |row| {
+                    Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)? != 0))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            statement
+                .query_map(params![memory_id], |row| {
+                    Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)? != 0))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        if rows.is_empty() {
+            return Ok(None);
+        }
+        let n = rows.len();
+        // D = 合并前 − 合并后;取绝对值均值作为「失真度」。
+        let sum_abs: f64 = rows
+            .iter()
+            .map(|(c, m)| (*c as i64 - *m as i64).unsigned_abs() as f64)
+            .sum();
+        Ok(Some((sum_abs / n as f64, n)))
+    }
 }
 
 #[cfg(test)]
@@ -411,5 +483,47 @@ mod eval_tests {
         assert!(set.triggered.is_empty());
         assert!(set.near_miss.is_empty());
         assert!(set.negative_control.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // 批4(R-166 内容④):合并守恒 D(S→m')。
+    // -----------------------------------------------------------------------
+
+    /// 批4(验收②):合并前后行为等价时 D≈0;失真时 D 显著 >0。
+    #[test]
+    fn merge_conservation_delta_measures_distortion() {
+        let store = store();
+        // 等价合并:3 个 case 上 current 与 merged 全相同 → D = 0。
+        for (case, ok) in [("c1", true), ("c2", false), ("c3", true)] {
+            store
+                .record_memory_eval("M-4", case, "current", "m", "v1", ok, 1, 0, 0, 1, None)
+                .unwrap();
+            store
+                .record_memory_eval("M-4", case, "merged", "m", "v1", ok, 1, 0, 0, 1, None)
+                .unwrap();
+        }
+        let (delta, n) = store
+            .merge_conservation_delta("M-4", "m", "v1")
+            .unwrap()
+            .expect("有配对数据");
+        assert_eq!(delta, 0.0, "行为等价合并 D 必须为 0");
+        assert_eq!(n, 3);
+        // 失真合并:current 全成功、merged 全失败 → D = 1.0。
+        for case in ["c4", "c5"] {
+            store
+                .record_memory_eval("M-4", case, "current", "m", "v1", true, 1, 0, 0, 1, None)
+                .unwrap();
+            store
+                .record_memory_eval("M-4", case, "merged", "m", "v1", false, 1, 0, 0, 1, None)
+                .unwrap();
+        }
+        let (delta2, n2) = store
+            .merge_conservation_delta("M-4", "m", "v1")
+            .unwrap()
+            .unwrap();
+        assert!((delta2 - 0.4).abs() < 1e-9, "合并把成功变失败:前 3 配对差 0、后 2 配对差 1 → 均值 0.4,实得 {delta2}");
+        assert_eq!(n2, 5);
+        // 无配对数据 → None(退化为保守闸)。
+        assert!(store.merge_conservation_delta("M-nobody", "m", "v1").unwrap().is_none());
     }
 }

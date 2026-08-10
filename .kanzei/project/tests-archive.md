@@ -1313,3 +1313,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 182 passed (tools)。批3: shadow 态(五态齐,可评估不注入生产)。
 - 收尾: 1786349978
+
+## T-1786350133 cargo test -p kanzei-tools -p kanzei-core (R-166 B4 merge 守恒) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-core
+- 摘要: tools 183 + core 96 全绿。批4: merge 守恒 D(S→m')<ε 把关。
+- 收尾: 1786350133
