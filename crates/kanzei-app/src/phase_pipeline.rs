@@ -502,6 +502,51 @@ pub(crate) fn plain_writer_request(
     }
 }
 
+/// 写租约的取得时机——两条路的**唯一实质差异**,也是不变量 2 在生产路径上的落点。
+///
+/// - `pipeline_on = true`(自主推进轮):**当场不取**,返回 `Ok(None)`。租约推迟到
+///   汇总屏障之后由编排对象在 `begin_implementation` 里取——勘察全部进入终态之前
+///   项目里不得出现 writer。
+/// - `pipeline_on = false`(手动一问一答):与 R-171 完全一致,当场取、持有整轮,
+///   并发 queued/acquired 两条事件。
+///
+/// 抽成独立函数**只为可测**:这个判定原先内联在 `run_task` 里,而 `run_task` 需要
+/// Tauri `Window` 才能调用,于是"流水线开启时不取租约"这条只能靠读代码确认。
+pub(crate) async fn acquire_plain_lease_if_needed(
+    pipeline_on: bool,
+    coordinator: &dyn ProjectExecutionCoordinator,
+    observer: &dyn PhaseObserver,
+    project_root: &std::path::Path,
+    run_id: &str,
+    process_id: &str,
+    session_id: &str,
+) -> Result<Option<kanzei_harness::orchestration::WriterLease>, String> {
+    use kanzei_harness::orchestration::OrchestrationEvent;
+    if pipeline_on {
+        return Ok(None);
+    }
+    observer.observe(&OrchestrationEvent::WriterQueued {
+        project_root: project_root.to_path_buf(),
+        run_id: run_id.to_string(),
+        process_id: process_id.to_string(),
+        reason: format!("session {session_id} writer run"),
+    });
+    let lease = coordinator
+        .acquire_writer_lease(plain_writer_request(
+            project_root,
+            run_id,
+            process_id,
+            session_id,
+        ))
+        .await?;
+    observer.observe(&OrchestrationEvent::WriterAcquired {
+        project_root: project_root.to_path_buf(),
+        run_id: run_id.to_string(),
+        process_id: process_id.to_string(),
+    });
+    Ok(Some(lease))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

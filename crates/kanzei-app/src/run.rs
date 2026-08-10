@@ -235,39 +235,19 @@ pub(crate) async fn run_task(
     } else {
         None
     };
-    // 写租约的取得时机是两条路的**唯一实质差异**:
-    // - 流水线开:**推迟到汇总屏障之后**由编排对象取(不变量 2——勘察全终态前
-    //   writer 不得启动)。此处不取。
-    // - 流水线关:与 R-171 完全一致,当场取、持有整轮。
-    let plain_lease = if pipeline.is_some() {
-        None
-    } else {
-        writer_event(
-            kanzei_harness::orchestration::OrchestrationEvent::WriterQueued {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.clone(),
-                process_id: process_id.clone(),
-                reason: format!("session {session_id} writer run"),
-            },
-        );
-        let lease = coordinator
-            .acquire_writer_lease(crate::phase_pipeline::plain_writer_request(
-                &ctx.project_root,
-                &run_id,
-                &process_id,
-                &session_id,
-            ))
-            .await
-            .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
-        writer_event(
-            kanzei_harness::orchestration::OrchestrationEvent::WriterAcquired {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.clone(),
-                process_id: process_id.clone(),
-            },
-        );
-        Some(lease)
-    };
+    // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
+    // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
+    let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
+        pipeline.is_some(),
+        coordinator.as_ref(),
+        orchestration_trace.as_ref(),
+        &ctx.project_root,
+        &run_id,
+        &process_id,
+        &session_id,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
     // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
     // 由协调器快照可见,租约不泄漏。流水线路径的租约由编排对象持有。
     let _write_lease = plain_lease.map(|lease| WriterLeaseTrace { _lease: lease });

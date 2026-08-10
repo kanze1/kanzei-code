@@ -205,6 +205,310 @@ fn implementation_summary() -> kanzei_core::RunSummary {
     }
 }
 
+/// **验收②的关闭依据**:一条运行跑完七阶段,阶段事件落 `session_events` 可回放。
+///
+/// 这条测试复刻 `run_task` 在流水线开启时的**完整调用序列**,用的是同一批生产函数:
+/// `acquire_plain_lease_if_needed` → `PhasePipeline::scout` → `begin_implementation`
+/// → `run_once_with_parts` → `run_review_and_fixup`。协调器、子代理、事件观察者、
+/// SQLite 全是真的,只有 provider 是假的。
+///
+/// 覆盖不到的只有 `run_task` 外围那层 Tauri 胶水(`Window` 事件、store 生命周期
+/// 记账)——它需要真实 Tauri Window,单测起不来。
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn 七阶段闭环轨迹落库可回放() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    // 连接顺序 = 阶段顺序:5 勘察 → 1 实现 → 3 复核 → 1 修正。
+    let server = tokio::spawn(async move {
+        for _ in 0..5 {
+            serve_response(
+                &listener,
+                text_response("勘察:drive.rs:57 注册无门控", 2, 1),
+            )
+            .await;
+        }
+        serve_response(&listener, text_response("实现段:已按勘察结论改完", 50, 10)).await;
+        for _ in 0..3 {
+            serve_response(&listener, text_response("run.rs 新分支缺测试", 2, 1)).await;
+        }
+        serve_response(&listener, text_response("修正段:补齐测试", 30, 6)).await;
+    });
+
+    let fx = fixture("e2e", address);
+    let session_id = "ses_r173_e2e";
+    let db = fx.project.join(".kanzei").join("state.db");
+    {
+        let store = kanzei_core::SessionStore::open(&db).unwrap();
+        store
+            .create_session(session_id, &fx.project.display().to_string(), None)
+            .unwrap();
+    }
+    // 真实观察者:事件经 OrchestrationEvent 单一出口落进真的 SQLite。
+    let observer =
+        Arc::new(crate::orchestration_trace::SessionEventObserver::open(&db, session_id).unwrap());
+    let mut pipeline = PhasePipeline::start(
+        fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
+        observer.clone() as Arc<dyn PhaseObserver>,
+        fx.project.clone(),
+        "run_e2e",
+        "proc_e2e",
+        &fx.config.limits,
+        None,
+    );
+
+    // ---- 验收①第二分句(生产路径):流水线开启时当场不取租约 ----
+    let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
+        true, // pipeline_on
+        fx.coordinator.as_ref(),
+        observer.as_ref(),
+        &fx.project,
+        "run_e2e",
+        "proc_e2e",
+        session_id,
+    )
+    .await
+    .unwrap();
+    assert!(
+        plain_lease.is_none(),
+        "流水线开启时 run_task 不得当场取租约"
+    );
+    assert!(
+        fx.coordinator.snapshot(&fx.project).writer_run_id.is_none(),
+        "勘察还没开始,项目里不该有 writer"
+    );
+
+    let rt = fx.subagent_rt();
+    let mut on_event = |_e: kanzei_core::RunEvent| {};
+    let mut ask = |_r: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
+        Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+    };
+    let stage = |_n: &str, _d: String| {};
+
+    // ---- 勘察 → 汇总屏障 ----
+    let brief = pipeline
+        .scout(&fx.client, &rt, &fx.ctx, "修 R-173", &mut on_event)
+        .await
+        .expect("勘察应当成功");
+    assert!(brief.contains("勘察简报") && brief.contains("drive.rs:57"));
+    assert!(
+        fx.coordinator.snapshot(&fx.project).writer_run_id.is_none(),
+        "汇总屏障刚过、begin_implementation 之前,项目仍不得有 writer(不变量 2)"
+    );
+
+    // ---- 实现:取租约 → 主对话 run_once ----
+    pipeline.begin_implementation().await.unwrap();
+    assert_eq!(
+        fx.coordinator
+            .snapshot(&fx.project)
+            .writer_run_id
+            .as_deref(),
+        Some("run_e2e"),
+        "实现阶段必须持有写租约"
+    );
+    let summary = kanzei_core::run_once_with_parts(
+        &fx.client,
+        &fx.route,
+        &fx.snapshot,
+        &fx.agent,
+        &fx.runner_config(),
+        &fx.ctx,
+        &format!("{brief}\n\n修 R-173"),
+        &[],
+        None,
+        Some(&rt),
+        &mut on_event,
+        &mut ask,
+    )
+    .await
+    .expect("实现段应当成功");
+
+    // ---- 集成 → 复核屏障 → 复核 → 修正 ----
+    let merged = crate::run::run_review_and_fixup(
+        &mut pipeline,
+        &fx.client,
+        &fx.route,
+        &fx.snapshot,
+        &fx.agent,
+        &fx.runner_config(),
+        &fx.ctx,
+        "修 R-173",
+        Some(&rt),
+        summary,
+        &mut on_event,
+        &mut ask,
+        &stage,
+    )
+    .await
+    .expect("复核+修正应当成功");
+    pipeline.finish();
+    server.await.unwrap();
+
+    assert!(merged.text.contains("修正段"));
+    assert!(
+        fx.coordinator.snapshot(&fx.project).writer_run_id.is_none(),
+        "收尾后不得残留写租约(不变量 7)"
+    );
+
+    // ---- 回放:另开连接读回落库的事件流 ----
+    let store = kanzei_core::SessionStore::open(&db).unwrap();
+    let events = store.list_events(session_id, 0).unwrap();
+    let types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
+
+    // 七阶段按设计文档顺序完整落库。
+    let phases: Vec<&str> = events
+        .iter()
+        .filter(|e| e.event_type == "orchestration.phase_changed")
+        .map(|e| e.payload["phase"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        phases,
+        vec![
+            "baseline",
+            "scouting",
+            "synthesis",
+            "implementation",
+            "integration",
+            "review",
+            "fixup",
+            "finished",
+        ],
+        "七阶段轨迹必须完整且按序"
+    );
+
+    // 汇总屏障 5 个角色全终态,复核屏障 3 个。
+    let barriers: Vec<&kanzei_core::StoredEvent> = events
+        .iter()
+        .filter(|e| e.event_type == "orchestration.barrier_reached")
+        .collect();
+    assert_eq!(barriers.len(), 2);
+    assert_eq!(barriers[0].payload["barrier"], "synthesis");
+    assert_eq!(barriers[0].payload["agent_count"], 5);
+    assert_eq!(barriers[0].payload["completed"], 5);
+    assert_eq!(barriers[1].payload["barrier"], "review");
+    assert_eq!(barriers[1].payload["agent_count"], 3);
+
+    // **验收①第二分句的可回放证据**:第一次取租约必须晚于汇总屏障。
+    let synthesis_barrier = events
+        .iter()
+        .position(|e| {
+            e.event_type == "orchestration.barrier_reached" && e.payload["barrier"] == "synthesis"
+        })
+        .unwrap();
+    let first_acquire = types
+        .iter()
+        .position(|t| *t == "orchestration.writer.acquired")
+        .expect("必须有取租约事件");
+    assert!(
+        synthesis_barrier < first_acquire,
+        "汇总屏障必须早于第一次取写租约(不变量 2),实际序列: {types:?}"
+    );
+
+    // **验收③的可回放证据**:复核阶段晚于写租约释放。
+    let released = types
+        .iter()
+        .position(|t| *t == "orchestration.writer.released")
+        .unwrap();
+    let review_phase = events
+        .iter()
+        .position(|e| {
+            e.event_type == "orchestration.phase_changed" && e.payload["phase"] == "review"
+        })
+        .unwrap();
+    assert!(
+        released < review_phase,
+        "复核必须在写租约释放之后启动(不变量 9)"
+    );
+
+    // 两段写区间:实现一次、修正一次,各自成对且不重叠。
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| **t == "orchestration.writer.acquired")
+            .count(),
+        2
+    );
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| **t == "orchestration.writer.released")
+            .count(),
+        2
+    );
+
+    // **验收①第一分句 + ④**:8 个只读代理各自登记并回收了读槽。
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| **t == "orchestration.agent_started")
+            .count(),
+        8,
+        "5 勘察 + 3 复核 都要登记读槽"
+    );
+    assert_eq!(
+        types
+            .iter()
+            .filter(|t| **t == "orchestration.agent_completed")
+            .count(),
+        8
+    );
+    // sequence 单调 = 回放顺序即真实顺序。
+    let sequences: Vec<i64> = events.iter().map(|e| e.sequence).collect();
+    assert!(sequences.windows(2).all(|w| w[0] < w[1]));
+    std::fs::remove_dir_all(&fx.project).ok();
+}
+
+/// 非流水线路径(手动一问一答)当场取租约——与 R-171 一致。
+#[tokio::test]
+async fn 非流水线路径当场取租约() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let fx = fixture("plain", listener.local_addr().unwrap());
+    let db = fx.project.join(".kanzei").join("state.db");
+    {
+        let store = kanzei_core::SessionStore::open(&db).unwrap();
+        store.create_session("ses_plain", "p", None).unwrap();
+    }
+    let observer =
+        crate::orchestration_trace::SessionEventObserver::open(&db, "ses_plain").unwrap();
+
+    let lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
+        false, // pipeline_on = false:手动一问一答
+        fx.coordinator.as_ref(),
+        &observer,
+        &fx.project,
+        "run_plain",
+        "proc_plain",
+        "ses_plain",
+    )
+    .await
+    .unwrap();
+    assert!(lease.is_some(), "非流水线路径必须当场取租约");
+    assert_eq!(
+        fx.coordinator
+            .snapshot(&fx.project)
+            .writer_run_id
+            .as_deref(),
+        Some("run_plain")
+    );
+    // queued→acquired 两条事件照旧落库(R-171 的审计闭环不受批6 影响)。
+    let store = kanzei_core::SessionStore::open(&db).unwrap();
+    let types: Vec<String> = store
+        .list_events("ses_plain", 0)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.event_type)
+        .collect();
+    assert_eq!(
+        types,
+        vec![
+            "orchestration.writer.queued",
+            "orchestration.writer.acquired"
+        ]
+    );
+    drop(lease);
+    assert!(fx.coordinator.snapshot(&fx.project).writer_run_id.is_none());
+    std::fs::remove_dir_all(&fx.project).ok();
+}
+
 /// 编排派发的子代理必须把内部进度上抛,且走**既有事件形状**。
 ///
 /// 这条测试就是前端(R-174 子代理面板)的契约:事件名、id、payload 字段改了它会红。

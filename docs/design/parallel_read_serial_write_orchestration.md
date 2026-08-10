@@ -95,6 +95,25 @@ kanzei 已经具备两块可复用能力：
 
 子代理输出统一包含：事实结论、证据路径与行号、风险、建议改动面；不得直接实施建议。
 
+> **2026-08-11 口径明确(R-173 批6 交付回写)**：本节是**给编排器的角色表**，不是"建议模型这样分工"。
+> 勘察由阶段编排对象按本表直接派发（`crates/kanzei-app/src/phase_pipeline.rs` 的 `SCOUT_ROLES`），
+> 不经模型的 `task` 工具调用。
+>
+> 理由是**屏障**：让模型自己派 `task` 也能并行，但那样汇总屏障无从谈起——模型什么时候派、
+> 派几个、派完没有，编排对象都不知道，`join_scouts` 拿不到任何可等待的终态，不变量 2
+> 就退化成一句提示词恳求。按角色表派发拿到的是一组确定的 future，屏障才有东西可等。
+>
+> 两条路(编排派发 / 模型自派 `task`)走的是**同一个** `run_subagent`
+> (`kanzei_core::run_read_agent` 是薄封装)，只读白名单、`ask` 恒 Deny、读槽登记与
+> RAII 回收完全一致——不存在"编排派的子代理走了另一条没人管的路"。模型自派那条路
+> 仍然保留，writer 阶段也可用(见阶段契约表 `implementation` 行的修订说明)。
+>
+> **复核阶段同构**：`review` 的角色表由该阶段完成门槛("契约、测试与交付质量报告全部归位")
+> 直接导出，实现见同文件的 `REVIEW_ROLES`。
+>
+> 角色的模型路由由 `[models] scout` 配置(取值与 `primary`/`fast` 同一套解析)；
+> 未配置时沿用 `fast`。并行角色数上限复用 `[limits] max_tasks_per_turn`，不另立新键。
+
 ## 核心不变量
 
 1. `read_agent` 的运行时工具集合严格等于审计通过的只读白名单；构造后和执行前各复核一次。
@@ -189,9 +208,24 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
 
 ### 后续批次
 
-- P1：阶段编排对象、汇总屏障、全局只读并发预算与失败策略。
+- **P1：阶段编排对象、汇总屏障、全局只读并发预算与失败策略 —— 已交付(R-173，2026-08-11)。**
+  - 契约在 `crates/kanzei-harness/src/orchestration.rs`：`Phase` 七阶段 + 合法迁移表、
+    `BarrierKind`/`ScoutOutcome`/`BarrierOutcome`、`PhaseError`、`PhaseObserver`，
+    以及 `OrchestrationEvent` 的落库单一出口(`event_type()` / `payload()`)。
+  - 实现在 `crates/kanzei-core/src/phase.rs`：`PhaseOrchestrator` 持有写租约不外泄，
+    `join_scouts` 是进入 `synthesis` 的唯一通路，`enter_review` 交出租约后才能进 `review`。
+  - 接线在 `crates/kanzei-app/src/phase_pipeline.rs` + `run.rs`：**只在自主推进轮装配**
+    (手动一问一答不构造编排对象，运行路径与引入前逐字节相同)。
+  - **并发预算**沿用 `[limits] max_tasks_per_turn`；**失败策略**为「失败/超时不中止，
+    但必须让模型知道」(`BarrierOutcome::model_notice`)；**屏障上界**为
+    `[limits] barrier_timeout_secs`，缺省由 `subagent_timeout_secs` 推导且强制宽于内层。
 - P2：活动面板按阶段展示、writer 排队/持有者/取消与历史回放。
+  - 事件侧已就绪(全部 `orchestration.*` 事件落 `session_events`，`sequence` 单调可回放)；
+    面板渲染与单条停止归 R-174。
 - P3：worktree 真实绑定、稳定快照复核、崩溃恢复和未来 OS 多进程协调器实现。
+  - 补注:R-173 的复核屏障保证的是「**本 run 已交出写权**」，不是「项目全局无 writer」——
+    释放瞬间另一个 ProcessHandle 的排队 writer 会立刻接手。跨进程的全局稳定快照留在 P3；
+    等全局静默会被后来的写者饿死，需要另设策略。
 
 ## 验收矩阵
 
@@ -208,6 +242,14 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
 | dirty 保护 | 用户预存修改保持不变，writer 只改计划内文件 |
 | 真实闭环 | 一次需求完成并行勘察→屏障→串行实现/验证→并行复核→串行修正全轨迹 |
 
+> **2026-08-11 证据落点(R-173 交付)**：上表中由 R-173 承接的四行，可复核证据分别在——
+> 并行勘察 = `crates/kanzei/tests/parallel_scouting_under_serial_writer.rs`(真实 HTTP 请求体里
+> 断言 `task` 已注册 + 读槽区间重叠)；屏障 = `crates/kanzei-app/src/phase_pipeline_tests.rs`
+> 的七阶段闭环测试(汇总屏障事件早于第一次 `writer.acquired`)与 `crates/kanzei-core/src/phase.rs`
+> 的三终态测试(含永不返回的任务由外层上界收敛)；读写共存 = `phase.rs` 的
+> `writer活跃时读槽仍可获取` 与前述集成测试(整轮真实持租约);真实闭环 = 同一份七阶段
+> 闭环测试(事件流从 `session_events` 读回、`sequence` 单调、七阶段按序)。
+
 ## 与既有设计的关系
 
 - `subagent_management.md`：复用其只读子代理与可观察性基础，本设计补项目级调度纪律。
@@ -223,6 +265,11 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
   1. **阶段契约表** `implementation` 行「task 禁用」改为「只读 task 允许」——它与不变量 9 冲突，且实测把桌面端的「并行查」整个关掉了（详见该表下方的修订说明）。
   2. **不变量 8** 补注租约辖区与文件锁辖区的判据（详见该条）。R-138 的跨进程文件锁已交付，`docstore` 的四个整文件写点全部改 tmp+rename 原子替换，`TrackerTool` 的写动作分支在 `load → next_id → save` 整段持锁。
   3. 「与既有设计的关系」中对 R-138 的定位（「保护非 runner 或未来 OS 进程入口」）已由实测确认为真需求：`kz` CLI 的 tracker 子命令**没有协调器**，与桌面端并发时项目级单 writer 在跨进程层面本就不成立——文件锁补的正是这一层，不是第二套租约。
+- 2026-08-11（R-173 交付回写）：**P1 阶段编排对象已交付**，本文四处更新——
+  1. 「后续批次」P1 标注已交付并列出契约/实现/接线的落点；P2 补「事件侧已就绪」；P3 补跨进程稳定快照的语义边界。
+  2. 「推荐勘察角色」明确为**给编排器的角色表**而非对模型的分工建议，并写明为什么必须由编排器派发（屏障需要可等待的确定终态，模型自派拿不到）。
+  3. 交付过程中在 R-171 既有实现里发现并修掉三个**同族缺陷**，成因相同——代码路径不可达时缺陷不会暴露：`release_writer` 交接路径不发 `WriterReleased`（审计断档）、`WriterReleased` 的 `process_id` 恒为空串、`ReadPermit` 按 `agent_name` 回收（并行角色同名，回收身份错乱）。前两个在写租约事件真正落库时才可见，第三个在「并行查」恢复后才可见。
+  4. 交付中另发现并修掉一个**跨进程写仲裁漏洞**：`normalize_project_root` 未剥 Windows `\\?\` 扩展长度前缀，导致 worktree 命令（走 `canonicalize`）与主对话（走裸路径）落进两个仲裁桶，不变量 8 在 Windows 上实际被绕过。修复点收在该函数一处，两种形态现已竞争同一租约。
   另记两条本次实测澄清：①D-227 的 `test_record` 同 ID 与并发无关（wave 排他与写租约都生效、四条记录全部存活），根因是分配器只读系统时钟不读文件，**串行不等于唯一**——租约在原理上修不掉它；②`core/orchestration.rs` 的 `normalize_project_root` 不剥 Windows 扩展长度前缀 `\\?\`，而 worktree 写命令走 `canonicalize`（带前缀）、主对话 writer 走发现式取根（不带），两者落在**不同的项目桶**，worktree 写入实际绕过了协调器。该缺口在 R-173 批次内修复。
 
 ## 验证证据
