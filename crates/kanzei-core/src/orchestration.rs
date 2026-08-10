@@ -53,8 +53,6 @@ struct ProjectState {
     waiting: VecDeque<WaitingWriter>,
     /// 活跃只读代理(run_id → agent_name)。
     readers: BTreeMap<String, String>,
-    /// 最近一次事件(审计可读)。
-    last_event: Option<OrchestrationEvent>,
 }
 
 struct WaitingWriter {
@@ -71,23 +69,8 @@ impl ProjectState {
             writer_process_id: None,
             waiting: VecDeque::new(),
             readers: BTreeMap::new(),
-            last_event: None,
         }
     }
-}
-
-/// 记一条事件:写进内存快照,同时排进待发列表。
-///
-/// R-173:`last_event` 是**单槽**,一次操作里发两条事件(交接时的 released +
-/// acquired)后一条会盖掉前一条——所以真正的轨迹必须走观察者,单槽只留作
-/// "最近一次"的内存快照。待发列表在**释放 projects 锁之后**才真正发出去。
-fn record(
-    state: &mut ProjectState,
-    pending: &mut Vec<OrchestrationEvent>,
-    event: OrchestrationEvent,
-) {
-    state.last_event = Some(event.clone());
-    pending.push(event);
 }
 
 /// 写租约申请的即时结果:当场拿到,或进队列等唤醒。
@@ -155,18 +138,6 @@ impl MemoryCoordinator {
         }
     }
 
-    /// 最近一次事件的内存快照。单槽语义:一次操作发多条时只留最后一条,
-    /// 完整轨迹看观察者。
-    pub fn last_event(&self, root: &std::path::Path) -> Option<OrchestrationEvent> {
-        let key = normalize_project_root(root);
-        self.inner
-            .projects
-            .lock()
-            .unwrap()
-            .get(&key)
-            .and_then(|s| s.last_event.clone())
-    }
-
     /// 归还租约的统一路径:WriterLease drop 时回调这里。
     /// 唤醒下一个排队写者,保证租约区间不重叠、FIFO 顺序可审计。
     fn release_writer(&self, root_key: &str, run_id: &str) {
@@ -189,15 +160,11 @@ impl MemoryCoordinator {
             // 一旦有排队者就提前 return,离任 writer 的 Released 永远发不出来——
             // 审计流成了 A.acquired → B.acquired,中间断档,看不出 A 何时交的权、
             // 两段写区间的边界在哪。
-            record(
-                state,
-                &mut pending,
-                OrchestrationEvent::WriterReleased {
-                    project_root: PathBuf::from(root_key),
-                    run_id: run_id.to_string(),
-                    process_id: released_process_id,
-                },
-            );
+            pending.push(OrchestrationEvent::WriterReleased {
+                project_root: PathBuf::from(root_key),
+                run_id: run_id.to_string(),
+                process_id: released_process_id,
+            });
             if let Some(w) = state.waiting.pop_front() {
                 let _wake_reason = &w.reason; // 审计:唤醒排队写者的申请原因。
                 let lease = WriterLease::with_release(
@@ -212,15 +179,11 @@ impl MemoryCoordinator {
                 );
                 state.writer_run_id = Some(w.run_id.clone());
                 state.writer_process_id = Some(w.process_id.clone());
-                record(
-                    state,
-                    &mut pending,
-                    OrchestrationEvent::WriterAcquired {
-                        project_root: PathBuf::from(root_key),
-                        run_id: w.run_id.clone(),
-                        process_id: w.process_id.clone(),
-                    },
-                );
+                pending.push(OrchestrationEvent::WriterAcquired {
+                    project_root: PathBuf::from(root_key),
+                    run_id: w.run_id.clone(),
+                    process_id: w.process_id.clone(),
+                });
                 if let Some(tx) = w.tx {
                     let _ = tx.send(Ok(lease));
                 }
@@ -250,16 +213,12 @@ impl MemoryCoordinator {
                 run_id
             };
             if let Some(run_id) = removed {
-                record(
-                    state,
-                    &mut pending,
-                    OrchestrationEvent::AgentCompleted {
-                        project_root: PathBuf::from(root_key),
-                        run_id,
-                        agent_name: agent_name.to_string(),
-                        ok: true,
-                    },
-                );
+                pending.push(OrchestrationEvent::AgentCompleted {
+                    project_root: PathBuf::from(root_key),
+                    run_id,
+                    agent_name: agent_name.to_string(),
+                    ok: true,
+                });
             }
         }
         self.notify(pending);
@@ -280,15 +239,11 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
             let mut guard = self.inner.projects.lock().unwrap();
             let state = guard.entry(key.clone()).or_insert_with(ProjectState::new);
             state.readers.insert(run_id.clone(), agent_name.clone());
-            record(
-                state,
-                &mut pending,
-                OrchestrationEvent::AgentStarted {
-                    project_root: request.project_root.clone(),
-                    run_id,
-                    agent_name: agent_name.clone(),
-                },
-            );
+            pending.push(OrchestrationEvent::AgentStarted {
+                project_root: request.project_root.clone(),
+                run_id,
+                agent_name: agent_name.clone(),
+            });
         }
         self.notify(pending);
         // R-171 批6:读槽带释放回调——子代理结束即从快照消失(active_readers
@@ -315,15 +270,11 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
             if state.writer_run_id.is_none() {
                 state.writer_run_id = Some(request.run_id.clone());
                 state.writer_process_id = Some(request.process_id.clone());
-                record(
-                    state,
-                    &mut pending,
-                    OrchestrationEvent::WriterAcquired {
-                        project_root: request.project_root.clone(),
-                        run_id: request.run_id.clone(),
-                        process_id: request.process_id.clone(),
-                    },
-                );
+                pending.push(OrchestrationEvent::WriterAcquired {
+                    project_root: request.project_root.clone(),
+                    run_id: request.run_id.clone(),
+                    process_id: request.process_id.clone(),
+                });
                 LeaseOutcome::Granted(WriterLease::with_release(
                     request.project_root.clone(),
                     request.run_id.clone(),
@@ -343,16 +294,12 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
                     reason: request.reason.clone(),
                     tx: Some(tx),
                 });
-                record(
-                    state,
-                    &mut pending,
-                    OrchestrationEvent::WriterQueued {
-                        project_root: request.project_root.clone(),
-                        run_id: request.run_id.clone(),
-                        process_id: request.process_id.clone(),
-                        reason: request.reason.clone(),
-                    },
-                );
+                pending.push(OrchestrationEvent::WriterQueued {
+                    project_root: request.project_root.clone(),
+                    run_id: request.run_id.clone(),
+                    process_id: request.process_id.clone(),
+                    reason: request.reason.clone(),
+                });
                 LeaseOutcome::Queued(rx)
             }
         };
@@ -387,14 +334,10 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
                     };
                     if removed {
                         // 记录取消事件(审计:排队中的写者被取消)。
-                        record(
-                            state,
-                            &mut pending,
-                            OrchestrationEvent::WriterCancelled {
-                                project_root: PathBuf::from(key),
-                                run_id: run_id.to_string(),
-                            },
-                        );
+                        pending.push(OrchestrationEvent::WriterCancelled {
+                            project_root: PathBuf::from(key),
+                            run_id: run_id.to_string(),
+                        });
                         state.waiting.remove(idx);
                     } else {
                         idx += 1;
@@ -646,10 +589,11 @@ mod tests {
     /// R-173 修缺陷 A + B:交接路径上离任 writer 的 Released **必须**发出,
     /// 且带真实 process_id。
     ///
-    /// 这两个 bug 从 R-171 起就存在,一直不可见——因为唯一的消费者是内存里的
-    /// `last_event` 单槽,而 `last_event` 自始至终没有任何生产代码读它(R-173
-    /// 勘察时才发现)。事件一旦要落库,它们立刻变成可见的审计错误:审计流会是
-    /// A.acquired → B.acquired,看不出 A 何时交的权、两段写区间的边界在哪。
+    /// 这两个 bug 从 R-171 起就存在,一直不可见——当时事件的唯一去处是一个叫
+    /// `last_event` 的内存单槽,而那个单槽自始至终没有任何生产代码读它(R-173
+    /// 勘察时才发现,批5 已连字段一起删掉)。事件一旦真的落库,它们立刻变成可见的
+    /// 审计错误:审计流会是 A.acquired → B.acquired,看不出 A 何时交的权、
+    /// 两段写区间的边界在哪。
     #[tokio::test]
     async fn 写租约交接时离任者released不断档且身份完整() {
         let dir = std::env::temp_dir().join(format!("kz-orch-handoff-{}", std::process::id()));

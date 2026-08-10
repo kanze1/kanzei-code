@@ -19,6 +19,7 @@ mod files_view;
 mod harness_ext;
 mod memory;
 mod mobile;
+mod orchestration_trace;
 mod prefs;
 mod processes;
 mod projects;

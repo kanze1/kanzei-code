@@ -169,16 +169,23 @@ pub(crate) async fn run_task(
     // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
     // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
     // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
-    // 批5:writer 事件落 session_events 轨迹(验收⑦可审计)。
-    store.append_event(
-        &session_id,
-        "orchestration.writer.queued",
-        &json!({
-            "run_id": run_id,
-            "process_id": process_id,
-            "project_root": ctx.project_root.display().to_string(),
-        }),
-    )?;
+    // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
+    // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
+    // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
+    let orchestration_trace =
+        crate::orchestration_trace::SessionEventObserver::open(&state_path, &session_id)?;
+    let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
+        use kanzei_harness::orchestration::PhaseObserver;
+        orchestration_trace.observe(&event);
+    };
+    writer_event(
+        kanzei_harness::orchestration::OrchestrationEvent::WriterQueued {
+            project_root: ctx.project_root.clone(),
+            run_id: run_id.clone(),
+            process_id: process_id.clone(),
+            reason: format!("session {session_id} writer run"),
+        },
+    );
     let write_lease = coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
             project_root: ctx.project_root.clone(),
@@ -188,15 +195,13 @@ pub(crate) async fn run_task(
         })
         .await
         .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
-    store.append_event(
-        &session_id,
-        "orchestration.writer.acquired",
-        &json!({
-            "run_id": run_id,
-            "process_id": process_id,
-            "project_root": ctx.project_root.display().to_string(),
-        }),
-    )?;
+    writer_event(
+        kanzei_harness::orchestration::OrchestrationEvent::WriterAcquired {
+            project_root: ctx.project_root.clone(),
+            run_id: run_id.clone(),
+            process_id: process_id.clone(),
+        },
+    );
     // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
     // 由协调器快照可见,租约不泄漏。
     let _write_lease = WriterLeaseTrace {
@@ -827,16 +832,14 @@ pub(crate) async fn run_task(
     );
     // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
     // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
-    if let Some(store) = store.as_ref() {
-        let _ = store.append_event(
-            &session_id,
-            "orchestration.writer.released",
-            &json!({
-                "run_id": run_id,
-                "process_id": process_id,
-            }),
-        );
-    }
+    // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
+    writer_event(
+        kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
+            project_root: ctx.project_root.clone(),
+            run_id: run_id.clone(),
+            process_id: process_id.clone(),
+        },
+    );
     Ok(())
 }
 #[tauri::command]

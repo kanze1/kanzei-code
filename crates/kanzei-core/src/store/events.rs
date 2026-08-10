@@ -328,27 +328,37 @@ mod tests {
     fn orchestration_写租约事件闭环可审计() {
         // R-171 批5 验收⑦:queued→acquired→released 三事件可顺序回放,
         // 审计不丢持有者身份——会话事件流是写仲裁的可审计轨迹。
+        //
+        // R-173 批5:改由 OrchestrationEvent 自己给出类型名与 payload。原版在这里
+        // 手抄了一遍字符串字面量和 payload 形状,于是**测试本身也是漂移面的一部分**:
+        // 枚举那边改了名,测试照样绿,谁都发现不了。现在测试和生产代码走同一个出口。
+        use kanzei_harness::orchestration::OrchestrationEvent;
         let store = store();
         store.create_session("ses_lease", "C:/proj", None).unwrap();
-        let run_id = "run_1".to_string();
-        let process_id = "proc_1".to_string();
-        for (name, seq) in [
-            ("orchestration.writer.queued", 1),
-            ("orchestration.writer.acquired", 2),
-            ("orchestration.writer.released", 3),
-        ] {
-            let ev = store
-                .append_event(
-                    "ses_lease",
-                    name,
-                    &serde_json::json!({
-                        "run_id": run_id,
-                        "process_id": process_id,
-                        "project_root": "C:/proj",
-                    }),
-                )
+        let root = std::path::PathBuf::from("C:/proj");
+        let timeline = [
+            OrchestrationEvent::WriterQueued {
+                project_root: root.clone(),
+                run_id: "run_1".into(),
+                process_id: "proc_1".into(),
+                reason: "session writer run".into(),
+            },
+            OrchestrationEvent::WriterAcquired {
+                project_root: root.clone(),
+                run_id: "run_1".into(),
+                process_id: "proc_1".into(),
+            },
+            OrchestrationEvent::WriterReleased {
+                project_root: root,
+                run_id: "run_1".into(),
+                process_id: "proc_1".into(),
+            },
+        ];
+        for (seq, event) in (1i64..).zip(timeline.iter()) {
+            let stored = store
+                .append_event("ses_lease", event.event_type(), &event.payload())
                 .unwrap();
-            assert_eq!(ev.sequence, seq);
+            assert_eq!(stored.sequence, seq);
         }
         let events = store.list_events("ses_lease", 0).unwrap();
         let kinds: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
@@ -358,11 +368,13 @@ mod tests {
                 "orchestration.writer.queued",
                 "orchestration.writer.acquired",
                 "orchestration.writer.released"
-            ]
+            ],
+            "落库类型名必须与 R-171 已写进 state.db 的历史行一致,否则旧轨迹回放不出来"
         );
         for ev in &events {
             assert_eq!(ev.payload["run_id"], "run_1");
             assert_eq!(ev.payload["process_id"], "proc_1");
+            assert_eq!(ev.payload["project_root"], "C:/proj");
         }
     }
 
