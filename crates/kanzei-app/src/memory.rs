@@ -157,13 +157,30 @@ pub(crate) fn memory_entry_delete(
 
 #[tauri::command]
 pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_json::Value {
-    let mut out = Vec::new();
+    let cwd = PathBuf::from(&project_dir);
+    let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
+    // R-161 桌面端同源:与 memory_search 工具/CLI 开跑预检索走同一漏斗口径,
+    // 命中即记 RETRIEVED(桌面搜索页只展示、不进 LLM 上下文,故 injected=false)。
+    let mut all_hits: Vec<kanzei_tools::memory::SearchHit> = Vec::new();
     for store in memory_stores_for(&project_dir) {
         if let Ok(found) = store.search(&query, None, None, 8) {
-            for h in found {
-                out.push(json!({"id": h.entry.id, "scope": h.entry.scope, "category": h.entry.category, "title": h.entry.title, "description": h.entry.description, "status": h.entry.status, "snippet": h.snippet, "hits": h.hits}));
-            }
+            all_hits.extend(found);
         }
+    }
+    all_hits.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    all_hits.truncate(8);
+    let out: Vec<serde_json::Value> = all_hits
+        .iter()
+        .map(|h| {
+            json!({"id": h.entry.id, "scope": h.entry.scope, "category": h.entry.category, "title": h.entry.title, "description": h.entry.description, "status": h.entry.status, "snippet": h.snippet, "hits": h.hits})
+        })
+        .collect();
+    if !all_hits.is_empty() {
+        kanzei_tools::memory::record_memory_search_telemetry(&root, &query, &all_hits, false);
     }
     json!(out)
 }

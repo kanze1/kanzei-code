@@ -21,6 +21,14 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
     out
 }
 
+/// R-161:读项目 state.db 的五段漏斗计数(与 episodes 同库,CLI/桌面同源写入)。
+/// 库缺失或损坏时返回 None——遥测是诊断口径,不应让 stats 工具报错。
+fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
+    let state = kanzei_core::project_state_path(&ctx.project_root);
+    let store = kanzei_core::SessionStore::open(&state).ok()?;
+    store.funnel_counts().ok()
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct SearchInput {
     /// 检索词(空格分词,FTS 全文匹配 title/description/body)
@@ -230,6 +238,21 @@ impl Tool for MemoryStatsTool {
                 let fetched: u64 = profile.values().map(|(_, f)| f).sum();
                 out.push_str(&format!(" · 召回 {recalled}/采纳 {fetched}"));
             }
+            // R-161 五段漏斗(与 episodes 同库,CLI/桌面端同源写入):A→R→I→U→Y。
+            // 只在项目 scope 报一次,避免跨 store 重复计数(global store 命中也会
+            // 记进项目 state.db 的 recall_events)。
+            if store.scope.label() == "project" {
+                if let Some(funnel) = project_funnel_counts(ctx) {
+                    out.push_str(&format!(
+                        "\n  漏斗 A→R→I→U→Y: {}/{}/{}/{}/{} (available/retrieved/injected/action_changed/outcome_improved)",
+                        funnel.available,
+                        funnel.retrieved,
+                        funnel.injected,
+                        funnel.action_changed,
+                        funnel.outcome_improved
+                    ));
+                }
+            }
             let pending = store.pending_notes();
             if pending > 0 {
                 out.push_str(&format!(" · inbox {pending} pending"));
@@ -369,6 +392,8 @@ mod tests {
             store.record_recall("要发版了", &hits, 128);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+        // R-161:state.db 同源记录一条检索遥测,stats 要能看到五段漏斗计数。
+        crate::memory::record_memory_search_telemetry(&ctx.project_root, "要发版了", &hits, true);
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
         assert!(stats.content.contains("召回 3/采纳 0"), "{}", stats.content);
@@ -379,6 +404,11 @@ mod tests {
         );
         assert!(
             stats.content.contains("召回 3 次未被采纳"),
+            "{}",
+            stats.content
+        );
+        assert!(
+            stats.content.contains("漏斗 A→R→I→U→Y: 0/1/1/0/0"),
             "{}",
             stats.content
         );

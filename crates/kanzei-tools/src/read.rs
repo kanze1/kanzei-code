@@ -62,9 +62,16 @@ impl Tool for ReadTool {
         let path = ctx
             .cwd
             .join(kanzei_harness::permission::normalize_resource(&input.path));
-        let result = tokio::task::spawn_blocking(move || read_sync(&path, &input)).await;
+        let path_for_read = path.clone();
+        let result =
+            tokio::task::spawn_blocking(move || read_sync(&path_for_read, &input)).await;
         match result {
-            Ok(Ok(text)) => ToolOutput::ok(text),
+            Ok(Ok(text)) => {
+                // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
+                // 回填 fetched(与 memory_search 回填同口径,CLI/桌面同源)。
+                crate::memory::mark_memory_file_read(&ctx.project_root, &path);
+                ToolOutput::ok(text)
+            }
             Ok(Err(e)) => ToolOutput::error(e),
             Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
         }
@@ -188,5 +195,115 @@ fn human_bytes(n: u64) -> String {
         format!("{:.1} MiB", n as f64 / 1048576.0)
     } else {
         format!("{:.1} KiB", n as f64 / 1024.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kanzei_harness::Tool;
+    use serde_json::json;
+
+    fn temp_project() -> (std::path::PathBuf, ToolCtx) {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-readtool-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        (
+            dir.clone(),
+            ToolCtx {
+                cwd: dir.clone(),
+                project_root: dir.clone(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn read_memory_file_backfills_recall_fetched() {
+        // R-161 验收②:read 工具读 .kanzei/memory/ 下的记忆文件正文 = 这次召回
+        // 被采纳,必须回填 fetched(此前只有 memory_search 回填,read 是盲区)。
+        let (dir, ctx) = temp_project();
+        let store = crate::memory::MemoryStore::project(&dir);
+        let entry = match store
+            .add(
+                "sop",
+                "发版 SOP 两条通道",
+                "发版发布安装更新必读",
+                "package.ps1 -Publish 后静默装 setup",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            crate::memory::AddOutcome::Added(e) => e,
+            _ => panic!("expected add"),
+        };
+        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        assert!(!hits.is_empty());
+        // 制造一次召回:此时 fetched=0(召回≠采纳)。
+        let recall_id = store.record_recall("这轮要发版", &hits, 128);
+        let rounds = store.recalls(10);
+        assert!(
+            rounds[0]
+                .hits
+                .iter()
+                .find(|h| h.id == entry.id)
+                .unwrap()
+                .fetched
+                == false
+        );
+
+        // 通过 ReadTool 读该记忆文件 → 回填 fetched。
+        let path = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .map(|(p, _)| p)
+            .unwrap();
+        let out = ReadTool
+            .execute(
+                json!({"path": path.to_string_lossy()}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("package.ps1"), "{}", out.content);
+
+        // 回填只作用于最近一次召回的同一条目。
+        let after = store.recalls(10);
+        let hit = after
+            .iter()
+            .find(|r| r.recall_id == recall_id)
+            .unwrap()
+            .hits
+            .iter()
+            .find(|h| h.id == entry.id)
+            .unwrap();
+        assert!(hit.fetched, "read 记忆文件后未回填采纳");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn read_non_memory_file_does_not_touch_fetched() {
+        // 普通文件 read 不应触发任何记忆回填副作用。
+        let (dir, ctx) = temp_project();
+        let plain = dir.join("notes.md");
+        std::fs::write(&plain, "普通笔记").unwrap();
+        let out = ReadTool.execute(json!({"path": "notes.md"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("普通笔记"));
+        // 项目记忆库根目录不应因这次 read 被创建(快速路径短路,无副作用)。
+        assert!(
+            !dir.join(".kanzei").join("memory").exists(),
+            "非记忆文件的 read 不应创建记忆库目录"
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 }

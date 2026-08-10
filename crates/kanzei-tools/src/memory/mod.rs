@@ -522,26 +522,46 @@ pub fn record_memory_search_telemetry(
 
 /// 在真正读取记忆文件后回填旧 index.db 的 fetched 事实。搜索结果本身不算采纳。
 pub fn mark_memory_file_read(project_root: &std::path::Path, path: &std::path::Path) {
+    // 快速路径:不在任一记忆库根目录下的文件直接返回,避免对任意 read
+    // 触发 MemoryStore 构造(legacy 迁移/建库)这类副作用。
+    // 注意:read 工具落点经 normalize_resource 折叠过大小写,这里必须做
+    // 大小写不敏感比较,否则 Windows 下 scope 匹配恒失败(D-176 同源教训)。
+    let in_project = starts_with_ci(path, &project_memory_root(project_root));
+    let in_global = global_memory_root().is_some_and(|root| starts_with_ci(path, &root));
+    if !in_project && !in_global {
+        return;
+    }
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
         return;
     };
-    let Some(memory_id) = file_name.split('-').next() else {
+    // 文件名形如 `M-001-slug.md`(或 `U-001-…`)：id 是前两段——scope 前缀 + 编号,
+    // slug 里也可能含 '-'，不能只取第一段。注意:read 工具落点经
+    // normalize_resource 折叠过大小写,文件名本身也可能被折成小写,
+    // 提取 id 时必须把 scope 前缀还原为大写(M/U),否则回填匹配不上真实 id。
+    let mut parts = file_name.split('-');
+    let (Some(scope_prefix), Some(number)) = (parts.next(), parts.next()) else {
         return;
     };
-    if memory_id.is_empty() {
+    if number.is_empty() {
         return;
     }
+    let memory_id = format!("{}-{number}", scope_prefix.to_ascii_uppercase());
     let mut stores = vec![MemoryStore::project(project_root)];
     stores.extend(MemoryStore::global());
     for store in stores {
-        if store.scope.label() == "project" && !path.starts_with(&store.root) {
+        if !starts_with_ci(path, &store.root) {
             continue;
         }
-        if store.scope.label() == "global" && !path.starts_with(&store.root) {
-            continue;
-        }
-        store.mark_recall_fetched(memory_id);
+        store.mark_recall_fetched(&memory_id);
     }
+}
+
+/// 大小写不敏感的前缀比较(Windows 路径折叠:normalize_resource 已把
+/// 工具落点折成小写,而 store.root 保留原始大小写,直接 starts_with 会漏判)。
+fn starts_with_ci(path: &std::path::Path, root: &std::path::Path) -> bool {
+    let p = path.to_string_lossy().replace('\\', "/").to_lowercase();
+    let r = root.to_string_lossy().replace('\\', "/").to_lowercase();
+    p.starts_with(&r)
 }
 
 /// budget 与常驻注入同源,决定「哪些条目已在 memory-index 里」的判定口径。
@@ -919,6 +939,66 @@ mod tests {
             "不同条目应各投一次"
         );
         assert!(store.read_inbox().contains("(无失败信号)"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn mark_memory_file_read_backfills_only_matching_scope_entry() {
+        // R-161:read 记忆文件后按文件名 id(M-001-slug.md)回填最近一次召回的 fetched。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-markread-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        let entry = match store
+            .add(
+                "sop",
+                "发版 SOP 两条通道",
+                "发版发布安装更新必读",
+                "package.ps1",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("expected add"),
+        };
+        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        let recall_id = store.record_recall("要发版", &hits, 256);
+        let (path, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == entry.id)
+            .unwrap();
+        // 模拟 read 工具读该文件 → 回填采纳。
+        mark_memory_file_read(&dir, &path);
+        let after = store.recalls(10);
+        let hit = after
+            .iter()
+            .find(|r| r.recall_id == recall_id)
+            .unwrap()
+            .hits
+            .iter()
+            .find(|h| h.id == entry.id)
+            .unwrap();
+        assert!(hit.fetched, "read 记忆文件后 fetched 未回填");
+        // 非记忆库路径:快速路径短路,不产生任何副作用(记忆库不因读普通文件被创建)。
+        let plain = dir.join("notes.md");
+        std::fs::write(&plain, "普通笔记").unwrap();
+        std::fs::remove_dir_all(dir.join(".kanzei")).unwrap();
+        mark_memory_file_read(&dir, &plain);
+        assert!(
+            !dir.join(".kanzei").exists(),
+            "非记忆文件的 read 不应重建记忆库目录"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
