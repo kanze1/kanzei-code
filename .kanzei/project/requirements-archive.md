@@ -1717,3 +1717,158 @@
 
 - 进展: 2026-08-10 交付(d980889):①diff 汇总按路径层级成目录树——buildDiffTree/appendDiffNode(06-activity.js)把平铺路径归入可折叠目录(▾/▸,aria-expanded),文件行按深度缩进,+/− 计数沿用 diff-add/diff-del 同色系(D-237 既有);②并排视图重叠修复——.diff-pane 加 min-width:0 + overflow-x:auto,长行(pre 不换行)在自身列内横向滚动,不再溢出覆盖相邻列(grid 子项默认 min-width:auto 被 pre 内容撑破的根因);③冒烟新增断言:树容器/目录行/文件归组/折叠交互(ui-runtime-smoke.mjs)。验收证据:color 标记=diff-add/del 色(style.css:1032-1033 既有)+ 树形目录头;diff 树=buildDiffTree L7-66;重叠解决=.diff-pane 规则(style.css:1020-1024);四条冒烟全绿 T-1786369496。复杂度中,纯前端改动 crates/ 零变更,全量等价 R-130 门禁(T-1786369281 全绿)不重跑。
 
+## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [dropped]
+- 复杂度: 大
+- 优先级: P2
+- 来源: 用户反馈:历史对话或新开线程并行推进项目,类似 git 分支/树,最后解决冲突合并
+- 验收: 设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复;两个线程可独立运行且互不串消息/权限/活动/停止;写入冲突能在提交前检测并阻止自动覆盖;worktree 模式可查看 diff、选择合并或放弃;合并失败保留双方改动和可恢复入口
+- 已完成: 线程隔离(=R-030 进程页签)真实可用,消息/权限/队列/活动/停止按 session 隔离并有 POC 测试;worktree 后端命令 create/diff/merge/discard 存在,merge 前的 `git merge-tree --write-tree` 冲突预检真实实现(kanzei-app/src/main.rs:671-684);设计文档 deep_parallel_dev.md(含附录早期 POC)继续承载 worktree/模型隔离方案,多进程调度与写入纪律以 parallel_read_serial_write_orchestration.md/R-171 为准。
+- 退回原因: 2026-08-07 验收核查发现核心组合未成立,勾不该打。①worktree 与线程完全脱节:ProcessHandle.worktree_path 恒为 None(main.rs:164/523,全仓库无 Some 赋值),process_create 不接受 worktree 参数,run_prompt 校验进程必须属于主项目目录(2605-2607)——没有任何线程能在 worktree 里运行,所有并行线程写同一工作目录;应用内无流程会在 worktree 分支产生提交,"合并"在闭环内空转。②多进程同一工作树无任何写冲突检测,设计承诺的项目写锁/git 锁/docstore 版本哈希在代码中完全不存在。③"可查看 diff"实为 git status --porcelain 文件名列表弹 toast(见 D-096)。④崩溃恢复仅设计文字,worktree 清单存 localStorage 不从 git worktree list 发现。
+- 下一步: R-171 先在 memory system 开发序列之后交付项目级单 writer 与串行工具地基；R-050 的 worktree 绑定、diff 与恢复仍按 deep_parallel_dev.md 分阶段推进,且该文 §6 其余 D1~D7 未经用户定案前不得动工。
+- 遗留质量问题: worktree 四个命令零测试;worktree_field 的 field 参数是无效分支(main.rs:605-610 两分支返回同值);frontend_phase3.md 的 POC 章节重复粘贴两遍且第一遍路径写错。
+- 阶段: 5
+- 证据等级: E2+E3
+- 设计定位: 功能需求(2026-08-08 用户定调:R-093 的"质量先行"阶段门槛作废,按普通优先级参与取活)
+
+- 标签: 核心
+
+- 进展: 2026-08-10 口径更新:本条 worktree/模型隔离部分的门禁仍成立,保持 todo;项目级单 writer 与串行工具已拆为 R-171,不受本条未定决策阻塞。 2026-08-10 晚:用户已对 deep_parallel_dev.md §6 的 D1~D7 逐条拍板(并补 N1~N3),阻塞条件消失,`阻塞:` 字段按 conventions §1.1「解除条件已满足当场清空」清除;本条随即按下方关闭说明收口。
+- 关闭说明: 2026-08-10 关闭(**dropped**)。用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,本条按「关闭原条、新开子条」收口。
+
+  **逐条对照验收原文(五条)**:
+  ①「设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复」→ **已达成**:关系与状态机在 deep_parallel_dev.md 附录 A.1/A.2,锁顺序在附录 A.3,并被 docs/design/parallel_read_serial_write_orchestration.md 的十条核心不变量取代为更严格的口径;§6 于本日全部定案。
+  ②「两个线程可独立运行且互不串消息/权限/活动/停止」→ **已由 R-030(进程页签)交付**,消息/权限/队列/活动/停止按 session 隔离,有 POC 测试背书(2026-08-07 核查确认这部分真实)。
+  ③「写入冲突能在提交前检测并阻止自动覆盖」→ **已由 R-171(项目级单 writer + 写租约 + FIFO 排队 + 旁路收口)交付**。这正是本条 2026-08-07 退回原因②的归宿,不在本次拍板范围;deep_parallel_dev.md §6.3 已记一笔,避免下次评审重复拍板。
+  ④「worktree 模式可查看 diff、选择合并或放弃」→ **后端已达成、前端接线转移**:**D-096 已 [fixed]**,`worktree_diff` 已返回真实 `git diff --no-ext-diff --binary`,不再是文件名列表弹 toast;**R-133 已 [done]**,`crates/kanzei-app/ui/06-activity.js` 提供可折叠的 diff 目录树渲染器(`buildDiffTree`/`renderDiff`);`worktree_merge`(含 `merge-tree --write-tree` 冲突预检)与 `worktree_discard` 命令真实可用。剩下的只是把两者接起来 → **R-179**。
+  ⑤「合并失败保留双方改动和可恢复入口」→ **后端已达成**:`worktree_merge` 的冲突预检与 `worktree_discard` 失败时"已保留以便恢复"的兜底存在;UI 侧的可读展示 → **R-179**。
+
+  **剩余未覆盖的,逐条点名去处**:线绑 worktree(`ProcessHandle.worktree_path` 至今恒 `None`)、线清单从 `git worktree list --porcelain` 发现(现在存 localStorage)、四个 worktree 命令零测试、一树一线查重 → **R-177**;崩溃恢复里的模型/会话重建、线级模型隔离与状态持久化(含 R-030 遗留的"重启不丢页签")、设置页作用域选择器 → **R-178**;diff 前端接线、合并/放弃确认流、线页签仪表、`worktree_field` 的死分支 → **R-179**。本条「遗留质量问题」三项:worktree 四命令零测试 → R-177 验收⑦;`worktree_field` 死分支 → R-179 顺手修;frontend_phase3.md 的 POC 章节重复 → 该章节已于 2026-08-08 移入 deep_parallel_dev.md 作为附录,问题自然消解。
+
+  **为什么取 `dropped` 而不是 `done`**:三条理由。①conventions §1.2 明令「验收的功能性条款未实现」不得关闭为完成——本条最核心的组合(线在 worktree 里独立运行)**至今一行都没实现**,只是被转移了。②已达成的四条验收**全部由别的条目交付**(R-030 / R-171 / D-096+R-133),标 done 等于把它们的交付重复记在本条账上,违反 §1.25「不得把既有能力重新申报为本次产出」。③本条 2026-08-07 已被验收核查判定「部件各自真实、组合从未成立」并退回,其后未再产出实现。dropped = **本条作为容器退役,诉求整体转移**,不虚增交付统计。(口径与 R-117 一致,但理由不同:R-117 是自身从未产出实现,本条是自身核心从未成立且已达成部分归属别人。)
+- refs: R-030 D-096 R-133 R-171 R-177 R-178 R-179 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
+
+## R-117 子代理运行状态的可观察性 [dropped]
+- 复杂度: 中
+- 优先级: P3
+- 原始描述: 添加触发后弹出浮层显示最近开发和当前进展列表
+- 范围界定: 2026-08-08 用户澄清真实意图是"子代理能对当前运行状态进行观察",并明确表示在 R-095 的呈现优化落地后不确定是否仍需要独立入口。
+- 待定: 本条挂在 R-095 之后再定去留。R-095 交付后由用户判断:若活动面板的筛选折叠与后台任务操作已足够观察子代理状态,则本条关闭;若仍缺子代理各自的进度维度,则按缺口重写验收。
+- 依赖: 
+
+- 标签: 前端
+
+- refs: R-095
+- 进展: 2026-08-10 复查:R-095 已交付(done),其验收⑤明确覆盖子代理状态观察——活动面板子代理条目给出内部调用数与当前步骤,入参/输出/成败/耗时齐备。本条原始诉求「子代理能对当前运行状态进行观察」已被 R-095 覆盖;去留按「待定」字段由用户拍板(关闭或按缺口重写验收),agent 不擅自决定。依赖 R-095 已关闭,移入 refs。
+- 关闭说明: 2026-08-10 关闭(dropped)。本条「待定」字段原文写着「本条挂在 R-095 之后再定去留,由用户判断」——**用户本次定调已经回答了它**:看过 Claude Code 的后台子代理面板后明确要**独立入口**,而且要那种形态(独立 Running / Finished 分区面板,每条显示 名称/类型/时长/token/工具调用数/当前工具名/单条停止/View transcript,面板有 Clear)。按 conventions §1.2「残余验证与质量缺口不丢弃:关闭时转移到专门条目并在关闭条目进展里注明去处」:本条的全部诉求(独立入口 + 子代理各自的进度维度)转移由 **R-174**「子代理面板与并发度口径」承接,R-174 的验收③④⑤⑥⑦ 覆盖了本条缺的每一项(六字段取真实事件、单条停止真能停、完整 transcript 有真实数据源、冒烟断言、桌面端可达)。本条不再单独保留入口决策,故取 dropped 而非 done——本条自身从未产出实现,声称 done 会虚增交付统计。
+
+## R-137 Anthropic thinking 块协议回放:signature 原样回传,多轮工具不再 400 [done]
+- 背景: direction_taste 复刻清单·高:CC 按协议要求回放 thinking 块;kanzei 现状 anthropic.rs:97 Part::Reasoning => None 丢弃全部 Reasoning,thinking+工具第二轮必 400(R-094 只做了请求侧思考强度,未做响应侧回放)。
+- 设计定位: 复刻 CC 基线行为:thinking 块按协议要求回放
+- 证据等级: E2
+- 阶段: 1
+- 验收: anthropic 通道多轮工具调用时:①thinking 块的 signature 在后续请求中原样回传;②thinking+工具第二轮不再 400;③非 thinking 模型的 reasoning 文本以可见 assistant 文本保留(与 R-094 结论一致);④补 anthropic 多轮含 thinking 的协议契约测试。
+
+- 优先级: P0
+
+- 标签: 模型
+
+- 复杂度: 中
+- 进展: 2026-08-10 交付(8a63c78):anthropic.rs message_to_value 对 Part::Reasoning 的协议回放——有 signature → 按 Anthropic 协议输出 {"type":"thinking","thinking":text,"signature":sig} 原样回传(验收①);无 signature → 降级为可见 assistant 文本块(验收③,R-094 结论);空 reasoning 整体跳过。signature 由响应侧 signature_delta→ReasoningEnd 收集、runner drive.rs 已存入 Part::Reasoning(既有,R-137 前已就位),本次只补回放缺口。新增两个契约测试(thinking_replay_roundtrips_signature_and_tool_sequence / reasoning_without_signature_falls_back_to_visible_text),覆盖验收④;测试断言 thinking+tool_use+text 块序不被打乱(验收②的请求体侧保证)。定向:kanzei-llm 42/42、core 103/103、下游 check 全绿。
+
+## R-138 docstore 原子写与跨进程文件锁:tmp+rename + 独占句柄,并发写不丢不撞 [done]
+- 背景: direction_taste §5.2 地基债:docstore 整文件重写无原子替换与跨进程锁,D-064 类 lost-update 真实存在;deep_parallel_dev §3.3 P4 也要求 docstore 进程级文件锁收口主根 .kanzei 的最后一个共享写点。
+- 设计定位: tracker 文档写入的原子性与并发安全
+- 证据等级: E2
+- 阶段: 1
+- 验收: docstore save 改 tmp+rename 原子替换(临时文件与目标同目录);跨进程文件锁(Windows std::fs 独占句柄,毫秒级持有);并发写 tracker 的压测不丢条目不撞 ID;失败时保留现场可重试。
+
+- 优先级: P0
+
+- 标签: 核心
+- 复杂度: 中
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(done)。交付提交 `b4bda5c`,与 **D-249** 并轨交付(同一条竞态通道的上下游两层)。
+
+  **逐条对照验收原文(四条)**
+
+  ①「docstore save 改 tmp+rename 原子替换(临时文件与目标同目录)」→ **达成,且覆盖面大于验收原文**。新建 `crates/kanzei-tools/src/atomic_file.rs`,`write_atomic`(:35)的序列是:同目录 tmp(文件名带 pid + 纳秒)→ `create_new` → `write_all` → **`sync_all`** → `rename`,失败按 `RENAME_ATTEMPTS=6` / `RENAME_BACKOFF_MS=20`(:21-22)退避重试。`sync_all` 不可省——没有 fsync 时 NTFS 可能把 rename 排到数据落盘之前,断电后拿到零长度文件,正是本条要根治的形态。**替换的是 docstore 的全部 4 个整文件写点,不只 save**:`save`(docstore.rs:332)、`repair_reused_archived_id`(:392)、`archive_terminal`(:461/:523)、`void_id`(:608)。`archive_terminal` 的两步写序另加注释锁死「先写归档再删活动」:原子写保证不了跨文件原子性,当前顺序崩溃后是「条目同时在两处」(完整性门禁能报),反过来才是真丢数据;回归测试在 docstore.rs:1467 附近(注释写明「谁把 save 提到 write_atomic 前面,这条就会红」)。测试:`原子写替换已有目标且不留临时文件`(atomic_file.rs:381)、`临时文件与目标同目录`(:400,注释点明跨卷 rename 会失败、这条不变量塌了原子写就整体失效)、`父目录不存在时自动创建`(:415)。
+
+  ②「跨进程文件锁(Windows std::fs 独占句柄,毫秒级持有)」→ **达成,零新依赖**。`FileLock`(atomic_file.rs:125)双层实现:**进程间**用 Windows `share_mode(0)` 开独占句柄(:306),第二个进程 open 直接失败,句柄随进程退出由 OS 关闭,崩溃不留死锁;非 Windows 走 `O_EXCL` + mtime 陈旧摘除(`LOCK_STALE_AFTER=30s`,:106)。**进程内**是手写可重入互斥(Mutex + Condvar + ThreadId)——**刻意没用 `std::sync::ReentrantLock`**:它没有限时等待,`docs_snapshot` 的 `try_lock(200ms)` 遇进程内争用就没法遵守预算,会退化成无限等。API 两个入口:`lock_exclusive`(:164)与限时的 `try_lock_exclusive`(:183);`DocStore` 侧包装为 `lock()`(docstore.rs:308)与 `try_lock(budget)`(:313)。**纪律由编译器强制而非君子协定**:`FileLock` 带 `_not_send: PhantomData<*const ()>`(:128)做成 `!Send`,「绝不跨 await、绝不跨线程持有」这条规矩谁想违反都编译不过。防死锁不变量写进注释:持锁期间永不获取第二把锁,跨 kind 的 `check_refs` 走不加锁读路径,结构上不可能循环等待。测试:`独占句柄第二次打开必然失败`(:427)、`锁同线程可重入而其它线程排队`(:447)、`限时取锁拿不到时返回空而不是错误`(:485)。
+
+  ③「并发写 tracker 的压测不丢条目不撞 ID」→ **达成**。**关键判断,与验收字面不同**:真正的 lost-update 不在 `save` 里,而在 `TrackerTool::execute` 的 `load → next_id → save` **跨度**上——两次 save 本来就不重叠,丢失发生在它们各自的读与写之间。所以锁加在写动作分支顶部罩住整段:`crates/kanzei-tools/src/tracker.rs:184` 的 `let _write_lock = if WRITE_ACTIONS.contains(...)`(`WRITE_ACTIONS` 定义在 :31),读动作(list/get)不取锁照常并行。回归闸打在**真实写入口**上:`并发新建不丢条目也不撞编号`(tracker.rs:2354),8 个线程各起独立 runtime(模拟互不共享内存态的 OS 进程)并发 `req add`,断言落 8 条、8 个 ID 互异、`integrity_issues` 为空。**反证**:把这把锁回退后跑同一用例,8 个并发 add **只活下来 1 条、8 个全拿到 R-001**——lost-update 与 ID 撞车同时坐实。
+
+  ④「失败时保留现场可重试」→ **达成**。`write_atomic` 抄的是 `auth/store.rs` 那份原子写,但**故意反着改了一处**:替换失败时**保留 tmp 不删**。理由写在实现注释里——凭证可以重新登录,tracker 的新内容是内存里唯一一份,删了就是丢用户这次编辑。测试 `替换失败时保留临时文件且原文件不被破坏`(atomic_file.rs:510),用 `share_mode(0)` 独占打开目标模拟杀软/编辑器占用,断言原文件完好且 tmp 留着。
+
+  **读路径一律不加锁**(设计决策,别在后续"顺手加锁"里改掉):原子替换后读者只可能看到旧全量或新全量,不存在截断态;让读者排队只会把 UI 刷新变慢。
+
+  **既有能力标注(§1.25)**:`DocStore` 的解析/序列化、`archive_terminal` 的归档语义、`repair_reused_archived_id` 的保守拒改立场均为既有实现,本条只替换写原语并在写事务外围加锁,不重复申报这些能力。
+
+  **残余缺口去处(§1.2)**:`crates/kanzei-tools/src/test_record.rs` 的五处生产 `std::fs::write` 尚未并轨 `atomic_file`(跨进程 CAS 缺失)→ 已登记 **D-261**;`test_runs_snapshot` 这条只读命令顺手写盘且不持任何锁 → 已登记 **D-260**(修复口径照抄本条对 `docs_snapshot` 的处置:限时文件锁,**不挂写租约**)。设计基线的口径已回写:`docs/design/parallel_read_serial_write_orchestration.md` 不变量 8 的 2026-08-10 补注(提交 `79852a5`)确立判据——**代理发起的写动作走租约,界面读路径顺手做的幂等维护走文件锁**。
+
+  **验证**:交付时定向 kanzei-tools 208 / kanzei-app 53 全绿,clippy `-D warnings` 零输出,rustfmt clean;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
+
+## R-141 ToolCtx 显式主根绑定:消除发现式取根与 worktree 锁键歧义 [done]
+- 背景: direction_taste §5.4 与 D-170 教训:ToolCtx::new 仍发现式取根(harness/src/tool.rs:13-17),worktree 线若命中 worktree 内 .kanzei 副本会拿到过期身份;并发锁键语义(tool.rs:19-28)只拼 project_root,两棵树同路径会撞锁。deep_parallel_dev §3.2 明确选 A:显式主根、不做根发现。
+- 设计定位: 深并行前置:线进程显式携带主根,消除发现式根解析事故面
+- 证据等级: E2
+- 阶段: 1
+- 验收: ToolCtx 构造支持显式传入 project_root(不再无条件 discover);线路径全程显式传根;补断言测试:worktree 内运行时 project_root 必须等于主根;并发锁键区分 worktree 实例。
+
+- 优先级: P0
+
+- 标签: 核心
+- 复杂度: 中
+- 批次: 2/2
+- 关闭说明: 2026-08-10 关闭(done)。交付提交 `8574b63`(批1:harness/tools/CLI)+ `bf85fe9`(批2:桌面端线路径)。行号以交付时 dev HEAD 为准;`crates/kanzei-app/src/run.rs` 正被 R-173 批6 改动,该文件的证据以符号名为准。
+
+  **逐条对照验收原文(四条)**
+
+  ①「ToolCtx 构造支持显式传入 project_root(不再无条件 discover)」→ **达成**。`crates/kanzei-harness/src/tool.rs:39` 的 `ToolCtx::new(cwd, project_root)` 改双参,函数体内零 `discover_project_root`;发现式取根被拆成独立入口 `ToolCtx::discovering(cwd)`(tool.rs:63),其文档注释钉死「线路径调用它是 bug」,并写清 D-170 的 worktree 变体成因——`.kanzei/project/*.md` 被 git 跟踪,`git worktree add` 会把它们 checkout 成分支副本,而 worktree 的 `.git` 是文件不是目录,于是 `discover_project_root` 在 worktree 内第一层就命中副本立即返回。
+
+  ②「线路径全程显式传根」→ **达成**,两端各有落点。CLI:`crates/kanzei/src/main.rs:180` 改 `ToolCtx::new(cwd, project_root)`,根在入口解析一次后显式传下。桌面端:`run_task` 新增 `main_root: PathBuf` 参数(`crates/kanzei-app/src/run.rs`,签名处注释说明 worktree 上线后 `project_dir` 是代码树、`main_root` 仍是主根),函数体内 `let project_root = main_root;`,`discover_project_root` 归零;调用方 `run_prompt` 在 IPC 入口解析一次后传下。同时把 `resolve_profile_and_root` 拆成 `resolve_profile`(只解析 profile,不再顺手发现根),注释写明「捆在一起正是根发现能悄悄溜进线路径的原因」。**可机械核验的收敛证据**:HEAD 上 `run.rs` 只剩 2 处 `discover_project_root`,全在 Tauri command 第一行(`summarize_chat`、`run_prompt`);生产代码里 `ToolCtx::discovering` 只剩 2 个调用点,均为进程/IPC 入口(`crates/kanzei/src/main.rs:858` CLI tracker 子命令、`crates/kanzei-app/src/docs.rs:343` `docs_update`),`crates/kanzei-tools/src/todowrite.rs:97` 那处在 `#[cfg(test)]` 内不计;`crates/kanzei-app/src/subagents.rs:39/218` 两处也都在 `#[tauri::command]` 函数体内(quick_req / defect_review),属入口不属线路径。
+
+  ③「补断言测试:worktree 内运行时 project_root 必须等于主根」→ **达成**。`crates/kanzei-harness/src/tool.rs:248` `worktree_内运行时_project_root_必须等于主根`。**这条测试的写法值得单独点名**:它**先断言危害前提**——`discover_project_root(worktree) == Some(worktree)` 且 `!= Some(main)`,把「发现式取根在 worktree 内必然拿到分支副本」本身钉成回归闸,然后才断言显式绑定后 `ctx.project_root == main && ctx.cwd == worktree`。少了前半段,后半段在「discover 恰好也能返回主根」的实现下会假绿,测试就证明不了自己在防什么。夹具 `worktree_fixture`(tool.rs:221)复刻真实磁盘形态:主根与 worktree 是兄弟目录、worktree 内有 `.kanzei` 副本、`.git` 是 `gitdir:` 指针文件。
+
+  ④「并发锁键区分 worktree 实例」→ **达成**。`worktree_concurrency_key()`(tool.rs:90)的缺省回退从 `project_root` 改 `cwd`——显式主根后同项目 N 棵树的 `project_root` 完全相同,拿它当工具锁键会把互不相干的树串死;锁键真源是工具实际作用的代码树(bash 用 `ctx.cwd.join(workdir)`,git 用 `ensure_repository(&ctx.cwd)`)。生产接线在 `run.rs` 的执行身份注入处:`worktree_key = ctx.cwd.display()`、`project_write_key = normalized_project_root(&ctx.project_root)`,两把键各自带注释写清不变式(写主根的串行、写代码的并行)。测试三条:`两个_worktree_实例锁键必须不同_写仲裁键必须相同`(tool.rs:274,同时断言 `ToolConcurrency::write_worktree` 两侧 `!conflicts_with`)、`未显式设身份时锁键回退到代码树而非项目根`(tool.rs:302)、`同一棵树的锁键对大小写与分隔符稳定`(tool.rs:316)。
+
+  **超出验收的一处质量决策(必须留档,别在后续重构里当冗余合并掉)**:批2 的 `main_root` **刻意不复用** `run_prompt` 已算好的 `project_root`。后者 canonicalize 过,Windows 上形态是 `\\?\C:\…`;它一旦成为 `ctx.project_root`,就会同时决定 DocStore 路径、`project_state_path` 与**工具权限资源的归一形态**——`permission::normalize_resource` 把 `\\?\C:\x` 归成 `//?/C:/x`,与 `c:/x` 是两个串,用户经 `append_allow_rule` 存下的绝对路径放行规则会一夜全部失配。所以拆成两个值各司其职:`project_root` = 规范化身份键(喂 `process_session_id` 与进程归属比较),`main_root` = 文件系统形态主根(喂 `ctx.project_root`,不 canonicalize)。托管文档落盘路径与权限规则形态逐字节不变,规范化只用在写仲裁键上。
+
+  **顺带收益**:`crates/kanzei-tools/src/edit.rs:343` 的测试 fixture 原本靠「本机 HOME 恰好没有 `.git`」才解析出正确的根,显式双参后这条隐式环境依赖消失。
+
+  **既有能力标注(§1.25,不重复申报)**:`with_identity` / `project_write_key` / `ToolConcurrency` 的框架是 R-171 既有产出;本条只改锁键**取值来源**(project_root → cwd)与生产侧接线,框架本身不是本次产出。
+
+  **残余缺口去处(§1.2)**:worktree 线本身尚未上线(`ProcessHandle.worktree_path` 仍恒 `None`),本条只交付「显式传根 + 双键拆开」的地基;线绑 worktree、`run_prompt` 归属校验改按 origin_project、配置读主根 → **R-177**(该条「前置」字段已写明依赖本条批2,现已满足)。
+
+  **验证**:交付时定向 kanzei-harness 70 / kanzei-tools 187 / kanzei-core 103 / kanzei-app 53 全绿;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
+
+## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [done]
+- refs: R-171 R-117 R-050 docs/design/parallel_read_serial_write_orchestration.md
+- 优先级: P1
+- 依赖: 
+- 内容: R-171 验收②⑦ 转移承接:①阶段编排对象:baseline→scouting(并行只读子代理)→汇总屏障→implementation(单 writer 租约,串行)→integration(同一 writer)→review(并行只读复核)→复核屏障→fixup(重新获取写租约串行修正);②汇总屏障:scouting 全部任务进入终态(完成/失败/超时)前 writer 不得启动,失败/超时都有确定终态,屏障不永久挂起;③复核屏障:writer 释放租约后复核才启动,保证审查的是稳定快照(设计不变量 9);④真实闭环验证:一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹,事件落 session/run 轨迹(复用 R-171 批5 的 orchestration.* 事件与批6 的读槽登记)。
+- 复杂度: 大
+- 归属: kanzei
+- 来源: 2026-08-10 R-171 关闭裁决:验收②⑦ 依赖阶段编排对象,按用户选择 A 拆为本 P1 需求承接
+- 标签: 核心
+- 调度顺序: R-171 关闭后按序取活
+- 阶段: 3
+- 验收: ①至少两个只读子代理真实重叠执行,汇总屏障(最慢任务完成/失败/超时)前 writer 不启动,失败/超时都有确定终态;②一次真实需求完成并行勘察→屏障→串行实现/验证→并行复核→复核屏障→串行修正全轨迹,阶段事件落 session_events 可回放;③复核阶段在 writer 释放后启动,审查的是稳定快照;④writer 活跃时允许只读勘察继续(读写共存,复用 R-171 读槽机制)。
+- 批次: 7/7
+- 关闭说明: 2026-08-11 交付关闭。逐条对照验收原文,证据均为生产路径(§1.25):
+  **①-a「至少两个只读子代理真实重叠执行」✓** —— 两条路径各有证据。模型自派路径:`crates/kanzei/tests/parallel_scouting_under_serial_writer.rs`,从**真实发出的 HTTP 请求体**解析 `tools` 数组断言 `task` 已注册(主快照刻意留空,出现只可能来自 drive 的注册分支),并断言两条 `agent_started` 都早于任何一条 `agent_completed`——重叠的确定性证据,不靠 sleep 卡时序。编排派发路径:`phase_pipeline_tests::七阶段闭环轨迹落库可回放`(8 条 started / 8 条 completed)。实现点 `core/runner/drive.rs` 的 task 注册分支 + `core/runner/subagent.rs` 的读槽登记。
+  **①-b「汇总屏障前 writer 不启动」✓** —— 决策点抽成了可直接测的生产函数 `phase_pipeline.rs::acquire_plain_lease_if_needed`(流水线开启 → `Ok(None)`),此前内联在需要真实 Tauri Window 的 `run_task` 里、只能靠读代码相信。闭环测试三重断言:`plain_lease.is_none()`、勘察返回后 `writer_run_id.is_none()`、**落库事件序 `barrier_reached(synthesis)` 早于第一条 `writer.acquired`**。机械保证是迁移表里没有 `Scouting→Implementation` 边(`阶段迁移表穷举_合法边恰好十条`)。
+  **①-c「失败/超时都有确定终态」✓** —— `core/phase.rs::run_barrier` 双层有界(内层 `subagent_timeout_secs`、外层 `barrier_timeout_secs`,后者显式配置也按内层+1 夹紧);`三终态收敛_失败不中止且零结果告知模型` 用一个**永不返回**的任务验证外层确实收敛。`ScoutOutcome` 只有终态变体,「还在跑」在类型上表达不出来。
+  **②「阶段事件落 session_events 可回放」✓(自动化证据)** —— `七阶段闭环轨迹落库可回放`:真 SQLite + 真协调器 + 真子代理 + 真观察者(只有 provider 是假的),**另开一条连接**从真库读回,断言八段阶段名按序、两道屏障统计(5/5 与 3)、`sequence` 单调。落库单一出口 `app/orchestration_trace.rs::SessionEventObserver`,事件类型与 payload 经 `OrchestrationEvent::event_type()/payload()` 产出,收掉了「枚举一套、落库手写字符串一套」的漂移面。
+  **③「复核在 writer 释放后启动」✓** —— `core/phase.rs::release_lease` 三层保证:`Option::take` 移交所有权(调用方在类型上无法一边持租约一边复核)→ 同步 `drop`(释放回调无 await 无 spawn,返回即已释放)→ 独立快照复核(若将来有人给释放路径加异步分支,这里当场 `LeaseStillHeld` 而非静默放行)。测试 `复核屏障_交出租约后才进复核`、`未持租约进复核被拒`,闭环测试断言 `writer.released` 严格早于 `phase_changed(review)`。
+  **④「writer 活跃时允许只读勘察继续」✓** —— `core/orchestration.rs::acquire_read_slot` 全程不读 `writer_run_id`、唯一返回路径是 `Ok`(**R-171 既有性质,本次只补验证与真实消费者,不作为本次产出申报**)。生产路径证据:`parallel_scouting_under_serial_writer.rs` **整轮真实持有写租约**跑勘察,并断言全程无写租约排队事件。
+  交付批次: 批1 契约(`6f98db2`)/ 批2-4 实现(`67c3fa2`,顺带修 `release_writer` 交接断档与 `process_id` 恒空两缺陷 + `normalize_project_root` 不剥 `\\?\` 导致 worktree 写命令与主对话 writer 落在两个仲裁桶的漏洞)/ 批4.5 恢复桌面端并行查(`e933262`,顺带修读槽按 agent_name 回收导致 `AgentCompleted` 张冠李戴)/ 批5 事件落库(`38716a7`)/ 批6 流水线接线(`45a5e54`)/ 批6.5 路由可配与进度事件(`a921b14`)/ 批7 闭环测试与设计基线回写(`40fe3d8`)/ 前端进度上面板(`ff287c4`)。
+  **三个同族缺陷值得单记**:`release_writer` 交接断档、`process_id` 恒空、读槽按 agent_name 回收——全部是「R-171 时这条路不可达所以没人发现,阶段编排与并行查一恢复就变成真实的审计错误」。**不可达的代码不是没有 bug,是 bug 还没被叫醒。**
+- 残余缺口(§1.2 转移,不丢弃): 
+  ①**「一次真实需求」的真机佐证不存在**——R-173 自身的开发在外部 agent 环境完成,没有走过 kanzei 桌面端的自主推进轮,所以验收②目前只有自动化证据。补法:用户开着自主推进跑一条需求,从 state.db 导出那段事件流。**不含混过去,如实记录。**
+  ②`run_task` 外围那层无测试覆盖:闭环测试复刻的是它在流水线开启时的完整调用序列(同一批生产函数),但 `run_task` 本身需要真实 Tauri Window,单测起不来。未覆盖 Window 事件发射、store 生命周期记账、`phase_pipeline_on` 的 auto_runs 闸门取值(三行 `is_some_and`)。转 R-101(桌面端 E2 harness)。
+  ③修正段触发判据是「非 NO_ISSUES 即有发现」,**失败/超时也算有发现**(宁可多跑一段,不把没复核过的当成复核通过)——有意的保守取向,但弱模型下大概率每轮都跑修正段,自主推进轮的成本上限是「5 勘察 + 主对话 + 3 复核 + 修正」。旋钮是既有的 `[limits] max_tasks_per_turn`。
+  ④单条停止通道不存在 → **R-174 验收④**。最小改法已备:每角色配 `CancellationToken`,新 Tauri 命令按 role 触发,取消后以 `ScoutOutcome::Failed("cancelled")` 进终态,屏障照常收敛不会挂住。
+  ⑤编排派发的 8 条同时也会在主对话里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每轮多 8 个块可能偏吵 → **R-174**(面板形态决策)。
+  ⑥前端面板当前每角色只留最新一轮(`id` = 角色名,跨轮必然重名,已修跨轮复位)。R-174 做独立面板时若要保住历史轮次,需后端给 `role@round` 之类的唯一键。
+- 进展: 2026-08-10 推进中,**不关闭**——按 §1.25 三条验收(①②③)目前仍缺生产调用方,阶段编排对象尚未接进真实运行链路。已交付批次:批1 阶段编排契约(七阶段迁移表、屏障终态类型、事件单一出口,`6f98db2`);批2-4 阶段编排实现(状态机、汇总屏障、复核屏障,`67c3fa2`,顺带修 release_writer 两缺陷与写键错桶);批4.5 恢复桌面端并行查(task 注册不再受 execution_policy 门控、读槽改按 run_id 回收,`e933262`——这条同时解掉 R-174/R-175/R-176 共同记录的「桌面端主对话根本不注册 task 工具」前置回归);批5 编排事件落 session_events(单一出口收掉「枚举一套、落库一套」的漂移面,`38716a7`);批6 阶段流水线接线——自主推进轮走七阶段、勘察/复核由编排对象按角色表派发(`45a5e54`,本条关闭说明撰写期间落地)。**批7 待做**(真实闭环轨迹取证 = 验收②)。依赖字段清理:R-171 已 done 并已在 refs 中,按 §1.35 从「依赖」移出,防调度器误判阻塞(D-239 同族)。
+

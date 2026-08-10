@@ -2386,3 +2386,156 @@
 - 影响: `dist/verification.json` 可能把实际失败的 fmt 门禁记录成 pass，随后允许 package.ps1 发布未通过完整验证的安装包。
 - 修复: 删除会丢失首项证据的脚本块封装，八个门禁改为显式串行命令；每条 cargo/node 命令后立即读取 `LASTEXITCODE` 并写入同名证据。同时对本轮 59 个提交累积的 Rustfmt 差异执行全仓机械格式化。
 - 验收: 人工注入失败命令时 Invoke-Check 必须立即 throw；真实 `scripts/verify.ps1` 从 fmt 开始串行跑完全门禁并生成绑定新 HEAD 的 `dist/verification.json`。
+
+## D-174 托管项目后台 Shell 缺少可归因的文件隔离 [fixed] (high)
+- 复现: 后台 Bash 启动后立即返回,后续异步进程可以在任意时刻修改 `.kanzei/project` 与 `.kanzei/memory`;Harness 无法区分后台进程写入和稍后专用工具的合法写入,也无法安全回滚。
+- 根因: 现有后台进程注册表只管理 PID、日志和生命周期,没有独立工作目录、文件系统沙箱或按进程归因的写入审计。
+- 影响: 若继续允许托管项目中的后台 Bash,受保护文档可能绕过专用工具契约;当前修复选择在存在 `.kanzei` 的项目中拒绝后台 Bash,因此 R-097 的后台启动能力暂时降级。
+- 验收: ①后台任务运行在可隔离或可归因的文件系统边界中;②后台任务不能写入 Harness 托管路径;③专用工具的合法写入不会被后台回滚机制误伤;④覆盖启动、轮询、停止、越界写入和并发合法写入测试。
+- 优先级: P1
+- 关联需求: R-097、R-139
+- 复杂度: 大
+- 批次: 4/4
+- 关闭说明: 2026-08-10 关闭(fixed)。交付提交 `4ed305d`。**能力边界先说清楚,免得下次有人看到 R-097 就以为后台任务能长驻**:此前的修复是「托管项目一律拒绝后台 bash」(R-097 的后台能力在自举仓库里等于 0);本轮换成可归因边界,能力恢复到「**单 run 内可用、跨 run 被收尾**」——后台任务生命周期 ⊆ owner run 生命周期,下一个 run 起来时上一个 run 的后台任务被终止并做终态对账。这是本轮**有意为之的安全降级**,不是终态语义。
+
+  **逐条对照验收原文(四条)**
+
+  ①「后台任务运行在可隔离或可归因的文件系统边界中」→ **达成(归因边界,不是内核隔离)**。新建 `crates/kanzei-tools/src/managed.rs`:托管围栏从 `bash.rs` **纯搬迁**(逻辑一字未改),前台/后台共用一套口径——仓库里不该有第二套「不能写入」的语义。`BackgroundProcess` 增 `owner: BackgroundOwner{run_id, process_id, write_key}`(background.rs:31-36/56),身份取自 `ToolCtx` 的 R-171 双键;`run_id` 缺失(CLI 未 `with_identity`)登记 `unowned` 而**不伪造 id**——归因要么真实,要么如实说不知道。spawn 之前拍托管基线,`register()` 的文档注释钉死「基线必须是 spawn 之前拍的」:晚一刻就把进程自己的副作用算进基线,围栏从此永远看不见它。另有 `workdir` 结构化围栏(`background_workdir_breach`,bash.rs:412,由 bash.rs:165 调用):校验**参数**而非命令文本——D-173 已证否「猜命令文本」这条路(`WriteAllText`/重定向/解释器一行流/`git checkout` 单文件都绕得过),所以它只是静态第一道,绝对路径写入仍由守卫的结果侧对账兜住。
+
+  ②「后台任务不能写入 Harness 托管路径」→ **达成,但走的是「隔离 + 回滚 + 归因」而非「阻止写入」**。守卫任务 `spawn_guard`(background.rs:245)按 `GUARD_TICK = 300ms`(:26)周期对账,进程退出后再对账一次(命令可能在最后一刻写盘);`reconcile`(:262)两级探测(先比元数据,命中差异才读内容),判为越界即隔离到 `.kanzei/quarantine/bg-<id>-<ms>/` → 回滚到基线 → 生成 `BreachRecord{at_ms, touched, quarantine, restored}` 留档,并可经 `process output` 读出(测试断言输出含 `[managed-files]` 与 `owner run=run-breach`)。处置比前台硬一档(连带 kill 进程树),理由是后台进程会持续重试写入,不 kill 就是无限回滚循环。**必须如实标注的一点**:交付过程中发现 `crates/kanzei-tools/src/shell.rs` 的 `kill_tree` **从未真正击杀过任何进程树**(恒定 2.008s 后返回而目标仍 alive,`kill_on_drop` 与 2s `timeout` 叠加会在超时丢弃 future 时先把 taskkill 自己杀了),已单独登记 **D-262**。因此「越界后 kill 进程树」这一**加固项有实现、但目前无可信证据**;验收②的成立**不依赖它**,靠的是隔离 + 回滚 + 归因这条与 D-173 前台围栏同口径的路径。`shell.rs` 本轮零改动(尝试性修复未解决问题,已 `git checkout` 还原干净)。
+
+  ③「专用工具的合法写入不会被后台回滚机制误伤」→ **达成**。新建 `crates/kanzei-harness/src/managed_fence.rs`:专用写工具白名单(`MANAGED_WRITERS`,:38)+ RAII 窗口 `tool_scope` + 窗口关闭时的吸收回调(`set_absorber`,:118),与 `harness/progress.rs` 的 task-local 同构。放在 harness 是因为 kanzei-core 不依赖 kanzei-tools,runner 侧的「合法写入信号」要传给 tools 侧的守卫只能经 harness。接线两处:`crates/kanzei-core/src/runner/tool_exec.rs:95` 与 `crates/kanzei-core/src/runner/drive.rs:888` 各包一层(**串行路径必须包**,writer 阶段走的就是那条)。`reconcile` 里用 `write_in_progress` 把本轮变化分流成「有合法解释」与「越界」,前者推进基线不报越界。
+
+  ④「覆盖启动、轮询、停止、越界写入和并发合法写入测试」→ **达成,五场景齐备**(`crates/kanzei-tools/src/background.rs`):`场景启动_托管项目后台任务登记owner与基线`(:484)、`场景轮询_读输出不误判托管树也不产生越界记录`(:508)、`场景停止_走终止路径并做终态对账`(:561)、`场景越界_后台写托管文档被隔离回滚并归因到owner`(:598)、`场景并发_窗口内合法写入不误伤_窗口外同样写入被回滚`(:662)。场景⑤**带对照组**且对照组是重点:同样的写入放在窗口**外**必须被回滚——只测「窗口内不被误伤」的话,一个恒真放行的实现照样能让上半段假绿。
+
+  **刻意拆掉了两条「会因为错误的原因而通过」的断言,并在测试注释里写明原因**(这件事必须留档,否则后来人会以为是漏写):(a) 停止场景不再断言「进程真的退出」——`kill_tree` 是坏的,那条断言只会因为命令自然结束而绿;改断言「走了终止 + 终态对账路径、不误报越界、托管树逐字节不变」。(b) 越界场景不再断言「越界进程被 kill」——该命令写完就自然退出,`is_running()` 为假证明不了 kill 起了作用。两处注释都写明「等 D-262 修好后应把断言按正确形态补回去」,D-262 的验收③也照这条写了。
+
+  **其它交付项**:`finish_foreign_owners`(background.rs:313)做跨 run 收尾,真实调用方在 `bash.rs:175` 与 `process.rs:60`;`kill_background_processes`(= `background::kill_project`)升级为「终止 + 终态对账」,即租约释放前的收尾入口(不另造别名),调用方 `crates/kanzei-app/src/run.rs`。删除托管项目里的后台拒绝点,`BashTool::description()` 动态化——原静态描述在托管项目里向模型宣传一个必然失败的参数,每次浪费一轮;新文案明说后台任务「fenced and owned by the current run … finished when the next run starts — so it cannot outlive this turn」。批1 的 `#[allow(dead_code)]` 已全部摘除,每项都有真实消费方(§1.25)。
+
+  **既有能力标注(§1.25)**:托管围栏的镜像/比对/隔离/回滚逻辑(`ManagedSnapshot::capture`、`enforce_managed_files`、4 MiB 单文件 / 2000 文件上限)是 **D-173 前台围栏的既有实现**,本轮只是从 `bash.rs` 搬进 `managed.rs` 供前后台共用,**不作为本次产出申报**;`BackgroundProcess` 注册表、输出缓冲与 256 KiB 丢头留尾同样是 R-097 既有。本次新增的是:owner 身份与基线守卫、合法写入窗口(managed_fence)、跨 run 收尾、五场景测试。
+
+  **残余缺口去处(§1.2)**:①内核级隔离(受限令牌/低完整性/AppContainer/ACL)+ 合法写入窗口的毫秒级缝隙 + 镜像上限内的空白 → **D-258**(本轮评估为代价收益倒挂:低完整性进程连 `target/`、`node_modules/` 都写不了,而那正是后台任务的唯一用途);②跨 run 长驻的受管后台服务 + 后台日志落盘可回看 → **R-180**;③`kill_tree` 失效 → **D-262**;④租约 Drop 的精确收尾接线 → **R-173**。
+
+  **验证**:交付时定向 kanzei-tools 213 / kanzei-harness 81 / kanzei-core 119 全通过,clippy `-p tools -p harness -p app -p core --all-targets -D warnings` 零输出,rustfmt 全净;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度大,满足 §1.4 全量触发点①)。
+
+## D-227 并行 test_record 自动生成相同时间戳 ID，四条 UI 记录互相覆盖 [fixed] (medium)
+- 复现: 并行调用四个同秒 test_record，均省略 id；结果生成相同 T-1786297655，archive 中标题不同但 ID 相同。
+- 影响: 测试证据无法一一引用，可能破坏测试记录唯一性与归档完整性。
+- 标签: 流程
+- 进展: 本轮发现；后续需用串行记录或显式唯一 id 认领，先核对 tests-archive 的实际条目。
+- 优先级: P2
+- 复杂度: 中
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(fixed)。交付提交 `ab41df2`。
+
+  **先纠正本条目原文的一处事实(重要,别把它当成历史结论继承下去)**:标题与影响字段写的「四条 UI 记录**互相覆盖**」**不成立**。实测核对 `.kanzei/project/tests-archive.md`:`T-1786297655` 的四条记录(:820/:825/:830/:835,标题分别是 R-153 的 i18n / a11y / Markdown / runtime 四条冒烟)**全部落盘存活,没有任何内容丢失**;`T-1786341674` 的两条同理(:1157/:1162)。wave 排他与 R-171 的写租约都真的生效了。真实损害只有一条:**ID 不唯一 → 无法按 id 引用、无法按 id 收尾**(工具要求「用显式 id 收尾」,同号时不知道收的是哪一条)。
+
+  **根因判断(与原文的「并行」推测相反)**:根因不是并发,是分配器**只读系统时钟不读文件**——`append_test_run` 直取 epoch 秒当 ID,同一秒内的连续两次调用必然同号。**串行 ≠ 唯一**:串行保证的是「同一时刻只有一个写者」,唯一性要的是「分配前看过已发出的编号」,两件事无交集。所以 **R-171 的写租约在原理上修不掉它**,本条也不该等租约。归档实证支持这一判断:四条记录标题各不相同,连「收尾」时刻都是同一秒。
+
+  **逐条对照原文的诉求(本条无编号验收字段,按「影响」字段的两条诉求对照)**
+
+  ①「测试证据可一一引用 / 记录唯一性」→ **达成**。`crates/kanzei-tools/src/test_record.rs:82` 新增 `allocate_test_id(root)`:扫 `active ∪ archive` 全部 `T-<n>`,取 `max(now_secs, max+1)` 单调推进。**选单调推进而非加后缀**是有理由的——`running_age_secs`(:67)与 `last_passed_at` 都对 `T-<epoch>` 做 `parse::<u64>()`,ID 一旦带后缀这两条会**静默失效**,且 1400+ 条历史记录要跟着迁移;代价只是突发时编号领先墙钟几秒,配套把 `running_age_secs` 的 `checked_sub` 改 `saturating_sub`(:68),编号领先墙钟时 age 归 0 而不是让 `age_secs`/`stale` 两个字段整个消失。测试:`同秒串行四次登记必须拿到四个互不相同的id`(:1044)、`写排他下并发四次登记编号仍互不相同`(:1085)、`新编号必须跳过归档里已占用的最大编号`(:1134)、`编号保持纯u64且领先墙钟时不判悬空`(:1274)。
+
+  ②「归档完整性」→ **达成,双向把关**。新登记路径 `ensure_id_unused`(:107):编号已被 active/archive 任一条占用且标题不同 → **报错拒写、不自动改号**(沿用 `docstore::repair_reused_archived_id` 的保守立场:静默改号会把编号复用伪装成一次正常写入,证据链就此不可信,D-004 口径),错误文本给全冲突编号、两个标题、所在文件、「未写入任何内容」与两条可执行的下一步;测试 `编号已被占用时拒绝再登记并说明理由`(:1153)。归档侧同样把关(:262-286):内容相同幂等跳过,内容不同报错不追加;测试 `归档已有同编号且内容不同时拒绝追加`(:1242)。另外把「用显式 id 收尾」这条纪律做成可执行的——工具输出回显本次分配的编号(`recorded T-xxx`,:635/:643;running 状态追加「跑完请用 id=T-xxx 记终态」),不回显的话该纪律在源头就无法执行,正是本缺陷反复复发的机制缺口;测试 `工具输出必须回显本次分配的编号`(:1182)。
+
+  **顺带修掉一处勘察时没看出来的静默失败**:旧 `record_test_run` 用 `str::replace` 做块替换,`old_block` 找不到时**原样返回、照样 `fs::write` 回去并返回成功快照**——一次收尾彻底丢失且无任何提示。现在改为定点区间替换(:400-414),找不到就明确报错「未写入任何内容,请重新读取列表后重试」(D-004 口径);同时消除了「两条字节相同的块被一次连坐换掉」的问题,测试 `定点替换不得误伤内容相同的另一条记录`(:1206)。
+
+  **设计自我修正(留档)**:原打算加「落盘前全文件编号唯一性后置校验」,写测试时发现它与定点替换**直接冲突**——那会让已含重复编号的历史文件彻底无法写入,连修复性收尾都做不了。改为只在新登记路径查占用。
+
+  **既有能力标注(§1.25)**:`test_record` 的追加/就地收尾/归档搬运/悬空 running 标记均为既有实现;本次产出是编号分配器、同号拒写(双侧)、定点替换与输出回显。
+
+  **残余缺口去处(§1.2)**:①**跨进程原子性(CAS)未做**——分配器的单调推进只在单进程内成立,两个 OS 进程同时 `test_record` 仍可能撞号;按裁决并轨到 R-138 新建的 `crates/kanzei-tools/src/atomic_file.rs`(仓里只留一套原子写/文件锁原语),已登记 **D-261**。②**历史 6 条重复编号未清理**(本次修复**刻意不回改历史**,需要显式的一次性修复入口)→ 已登记 **D-259**。③`test_runs_snapshot` 是只读命令却写盘且不持任何锁 → 已登记 **D-260**。
+
+  **验证**:交付时定向 `cargo test -p kanzei-tools` 208 passed 0 failed(test_record 21 条 = 13 原有 + 8 新增,八条都是真回归闸、旧实现逐条会挂),rustfmt clean,clippy 零诊断指向本文件;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
+
+## D-249 docs_snapshot 把读失败静默降级成空列表:unwrap_or_default 叠加 docstore 非原子写,前端拿到「成功但空」的快照 [fixed] (high)
+- 优先级: P1
+- 复杂度: 中
+- 标签: 后端
+- refs: R-138 D-244
+- 证据等级: E1(四处代码实证 + 竞态探针实测)
+- 依据: 2026-08-10 持久化面全面审计。四层叠加构成一条「瞬态空快照」通道:
+  ①`crates/kanzei-tools/src/docstore.rs:307` 是 `std::fs::write(&self.path, text)`——**截断后重写,非原子**;
+  ②同文件 285-291 的 `load()` 对空文件/少条目一律返回 `Ok`,不报错;
+  ③`crates/kanzei-app/src/docs.rs:96` 是 `store.load().unwrap_or_default()`——**任何读失败(含 Windows 文件占用)静默降级成空列表**;
+  ④`docs.rs:87-89` 每次 `docs_snapshot` 开头都跑 `archive_terminal()`,**它自己就在写这几个文件**,而它只在「有条目刚进终态」时才写——正是 `refreshDocsSoon` 被触发的同一时刻。
+  于是一次 `refreshDocs`(用户点标签页)与一次 `refreshDocsSoon`(agent 事件,400ms 去抖 + IPC)完全可以同时在飞:一个在写,一个读到被截断的文件,前端拿到一份**「成功但空」**的快照。
+- 影响: 不止筛选——计数归零、列表闪空都从这里来;且因为它长得像"成功",所有下游都不会重试或报警。本轮已在前端加了两道收窄(D-169 回落加空列表守卫、refreshDocs 换项目重认),但截断读到「部分条目」时 `entries.length` 仍 > 0,**前端只能收窄不能封死**。
+- 修复方向: ①`DocStore::save` 与 `archive_terminal` 改 tmp+rename 原子写(与 R-138 同一件事,可并轨);②`docs_snapshot` 别把读失败 `unwrap_or_default()` 成空列表——读失败要么向上报错让前端保留上一份快照,要么显式区分「真的没有条目」与「读不到」。
+- 验收: ①并发写 + 读的压测下,前端不会收到「成功但空」的快照;②读失败有可见信号(不静默降级);③原子写落地后 tracker 文件不会被读到截断态;④有回归测试。
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(fixed)。交付提交 `b4bda5c`,与 **R-138** 并轨交付——本条描述的是同一条竞态通道的四层叠加,①③层归 R-138(原子写),②④层归本条。
+
+  **逐条对照验收原文(四条)**
+
+  ①「并发写 + 读的压测下,前端不会收到『成功但空』的快照」→ **达成**。回归测试 `docs_snapshot_并发刷新不会返回成功但空的快照`(`crates/kanzei-app/src/state_tests.rs:295`):一个写线程反复整文件重写 `requirements.md`,主线程连做 60 次 `docs_snapshot`,每次断言条目数恒等于 6(不是「>0」——那样缺条目也能绿)。打的是完整通道:`docs_snapshot` 自己开头就会写(`archive_terminal`),正是依据字段第④层描述的重叠窗口。**反证**:回退原子写后跑同一用例,立刻打出「读到了截断态:条目数 0,只可能是 3 或 30」——本条描述的「成功但空」逐字复现。
+
+  ②「读失败有可见信号(不静默降级)」→ **达成**。`crates/kanzei-app/src/docs.rs` 的 `docs_snapshot` 签名从 `-> serde_json::Value` 改为 `-> Result<serde_json::Value, String>`,**4 处** `unwrap_or_default()` / `map_or(0, ..)` 全部换成 `?` + `read_failed(kind, e)`(点名读不到的是哪个文件)——**比本条依据字段描述的多 3 处**:依据只点了 `docs.rs:96` 的 `store.load().unwrap_or_default()`,实际同函数里 `batch_ids` 收集、`archived`(load_archive 计数)、`archived_entries`(load_archive 取值)、`load`(每个 kind 的条目)四处都是同一个洞。回归测试 `docs_snapshot_读失败向上报错而不是空列表`(state_tests.rs:258,`#[cfg(windows)]`):先确认正常路径读得到 1 条(免得夹具不对导致假阳性),再用 `share_mode(0)` 独占占用文件,断言 `expect_err` 且错误文本含 `requirements.md`,最后解除占用断言自动恢复、不留粘滞状态。**反证**:回退该改动后,panic 里直接打出 `"requirements": Array []` 的成功载荷。
+
+  ③「原子写落地后 tracker 文件不会被读到截断态」→ **达成,由 R-138 交付**(§1.25 显式标注:这一条不是本条的产出)。`crates/kanzei-tools/src/docstore.rs` 的四个整文件写点全部改 `crate::atomic_file::write_atomic`(:348 save / :461 与 :523 archive_terminal / :608 void_id 及 :392 repair_reused_archived_id 路径),读者只可能看到旧全量或新全量。
+
+  ④「有回归测试」→ **达成**,即上面两条(state_tests.rs:258 与 :295),加上 R-138 侧 `crates/kanzei-tools/src/atomic_file.rs` 的 7 条与 `tracker.rs:2354` 的并发闸。
+
+  **关键设计口径:开头那次 `archive_terminal` 明确不挂写租约**。它走 `DocStore::try_lock(200ms)` 限时文件锁(docs.rs 内 `store.try_lock(Duration::from_millis(200))`),拿不到就**跳过归档但正常返回读结果**,失败进新增的 `warnings` 数组 + `tracing::warn!`,**不参与整体失败**——原先是 `let _ =`,归档失败连一行日志都没有。不挂租约的理由:`MemoryCoordinator::acquire_writer_lease` **无超时**,挂上去会让文档面板在 agent 跑一轮期间整段卡死,等于拿一个更严重的问题换一个更轻的。该口径已写进 `docs/design/parallel_read_serial_write_orchestration.md` **不变量 8 的 2026-08-10 补注**(提交 `79852a5`,文件 :108-109):**代理发起的写动作走租约;界面读路径顺手做的幂等维护走文件锁**。后续 D-260 照此口径修 `test_runs_snapshot`。
+
+  **零 `.js` 改动,以及为什么这成立**(这是本方案的关键收益,不是省事):前端两个消费点 `crates/kanzei-app/ui/14-docs-actions.js` 的 `refreshDocs`(:11)与 `refreshDocsSoon`(:45)**现成就是「保留上一份快照」**——`invoke` 抛错时走 `catch`,`renderDocsSnapshot` 根本不会被调用,`latestDocsSnapshot` 与屏幕上那份列表原样留着,只多一个 `toastError` / `console.error`。旧实现给的是「成功但空」,前端**没有任何办法**分辨,只能被迫重绘成空;改成抛错之后,降级方式正好落在前端已有的正确路径上。新增的 `warnings` 字段也不需要改 `.js`:前端忽略未知键。冒烟 `ui-runtime` 743 invoke 0 错误,证实零 `.js` 改动成立。
+
+  **既有能力标注(§1.25)**:前端两处 `catch` 的「不重绘即保留上一份」语义是既有实现(D-169/D-250 系列改动带来的),本条只是让后端不再把读失败伪装成成功,不重复申报前端行为为本次产出。
+
+  **残余缺口去处(§1.2)**:同类「只读命令顺手写盘且不持锁」的最后一处在 `test_runs_snapshot` → 已登记 **D-260**;`test_record.rs` 五处裸 `std::fs::write` 未并轨 `atomic_file` → 已登记 **D-261**。
+
+  **验证**:交付时定向 kanzei-tools 208 / kanzei-app 53 全绿,clippy `-D warnings` 零输出,ui-runtime 冒烟 743 invoke 0 错误;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
+
+## D-250 refreshDocs 的 catch 里 clearPendingJump 没有项目守卫:旧项目刷新失败会作废新项目刚排的跳转高亮 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- refs: D-249
+- 证据等级: E1(探针实测 pendingJumpId 从 "R-901" 变 null)
+- 依据: 2026-08-10 收口验证顺带发现。crates/kanzei-app/ui/14-docs-actions.js 的 refreshDocs 本轮加了「await 前后各认一次项目」的守卫,但**只加在成功路径**;catch 里的 clearPendingJump() 没有同样的守卫。于是替旧项目发出的那次刷新若在用户切走之后才抛错,会把**新项目刚排上的**跳转高亮一并作废。
+- 影响: 只丢高亮,不动数据——用户点了条目引用跳过去,却看不出落在哪一条。窄,但属同一条路径上的不对称(成功路径按项目收敛了、失败路径没有)。
+- 修复方向: catch 里同样比对 forProject === currentProject,只作废属于自己那次刷新的挂起跳转。
+- 验收: 旧项目的刷新失败不影响新项目已排的跳转高亮;有拦截实测的冒烟断言。
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(fixed)。交付提交 `36ce685`,与 **D-251** 同批(同一族「await 前后项目身份不一致」)。
+
+  **逐条对照验收原文(两条)**
+
+  ①「旧项目的刷新失败不影响新项目已排的跳转高亮」→ **达成**。`crates/kanzei-app/ui/14-docs-actions.js` 的两条 `catch` 各加项目守卫,改法与成功路径对称:`refreshDocs` 的 catch 改成 `if (currentProject === forProject) clearPendingJump();`,`refreshDocsSoon` 的 catch 同改。**同族第二处一并修**——`refreshDocsSoon` 由 agent 的文档变更事件驱动、自带 400ms 合并窗口,定时器落地时用户早就可能切走,撞上的概率比 `refreshDocs` 更高;冒烟里早有实证「只修一处、整套照样全绿」,所以两处必须各自单独钉。`toastError` / `console.error` 保持**无条件**:刷新确实失败了,与用户此刻停在哪个项目无关,该看见就得看见(D-004 口径)。
+
+  ②「有拦截实测的冒烟断言」→ **达成**。`scripts/ui-runtime-smoke.mjs` 新增两块:`旧项目的刷新失败不得作废新项目刚排的跳转高亮(D-250)`(:3776)与 `refreshDocsSoon 的失败路径同样要按项目收敛(单独钉,D-250)`(:3830),复用 :3645 起的「甲乙两个项目 + 闸门」夹具。**反证结果(把修复改回旧代码必须判红)**:S1 `refreshDocs` 去守卫 → 红 2 条;S2 `refreshDocsSoon` 去守卫 → 红 2 条;**且 S1 与 S2 各自只红自己那块**,证明两条路径被互相独立地钉住,不是一块断言顺手覆盖了两处。
+
+  **验证**:`node --check` 三文件 OK;ui-runtime 743 invoke 0 错误(本批新增 4 个断言块,invoke 589 → 743)、ui-a11y 22 icon-btn、ui-i18n 871 key、ui-markdown 全通过。复杂度小,按 §1.4 全量测试**非必需**;本轮仍随同批条目跑了全量 `cargo test --workspace` exit=0、524 passed。
+
+## D-251 kz-worktrees 键在 await 之后才取:切项目撞上 IPC 会把甲项目的工作树写进乙项目 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- refs: D-249 D-250
+- 证据等级: E2(代码形态实证 + `git show HEAD:` 确认既有)
+- 依据: 2026-08-10 持久化面审计。crates/kanzei-app/ui/09-sessions.js:67 与 :82 的 `kz-worktrees:${currentProject}` 是在 `await invoke(...)` **之后**才取键的——与本轮修掉的 refreshDocs 同一类跨项目错写:切项目撞上 IPC 时,甲项目新建/丢弃的工作树路径会写进乙项目的键。
+- 取证: `git show HEAD:crates/kanzei-app/ui/09-sessions.js` 形态相同,**HEAD 就有,不是 2026-08-10 侧栏重构引入的**。
+- 影响: 比文档刷新那条窄得多——要用户点「建/弃工作树」按钮后立刻切项目才撞上;但一旦撞上,工作树清单会长期错位(它是纯前端 localStorage 清单,不从 `git worktree list` 发现,见 R-050 退回原因④)。
+- 修复方向: 与 refreshDocs 同一改法——await 前把 currentProject 存成局部量,await 后比对,不一致就丢弃本次写入。
+- 验收: 切项目时的在途工作树操作不写进新项目的键;有回归覆盖。
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(fixed)。交付提交 `36ce685`,与 **D-250** 同批。
+
+  **逐条对照验收原文(两条)**
+
+  ①「切项目时的在途工作树操作不写进新项目的键」→ **达成**,`crates/kanzei-app/ui/09-sessions.js` 三处全部改成 await 前认领局部量 `forProject`:`refreshWorktrees`(键与逐条 `worktree_diff` 的 `projectDir` 都用 `forProject`,末尾再加 `if (currentProject !== forProject) return;` 不把旧项目清单画进新面板)、`handleWorktreeAction`(函数首行 `const forProject = currentProject;`,`worktree_merge` / `worktree_discard` 的实参与放弃后的 `kz-worktrees` 读写全走它)、`worktree-add` 点击处理(同上)。**依据字段只点了 :67 与 :82 两处;`refreshWorktrees` 的 `projectDir` 原本也在 for-await 循环里逐次重取,清单越长在飞越久,一并收敛**——这是超出条目原文的第三处。
+
+  ②「有回归覆盖」→ **达成**。`scripts/ui-runtime-smoke.mjs:3890` 起的 `在途的工作树操作不得写进已经切走的项目的键(D-251)`,覆盖新建与放弃两条路径,**每条配正反两个方向的断言**。
+
+  **一处对验收的解释,显式记录(不悄悄改)**:采用「**写进认领项目的键**」而非条目「修复方向」字段写的「不一致就**丢弃**本次写入」。理由:工作树清单是**纯前端 localStorage 清单,不从 `git worktree list` 发现**(R-050 退回原因④),而工作树在磁盘上已经真的建出来 / 真的放弃了;丢弃写入等于把「错位」换成**更难恢复的「丢失」**——错位至少还能在另一个项目的清单里看见,丢失则任何一次刷新都不会把它找回来。验收**原文**是「不写进新项目的键」,写进认领项目照样满足,不缩小范围。**反证实测支持这个选择**:S5「新建改成丢弃写入」→ 红 1 条(正是「没落进它真正所属的项目甲的键」那一条)。
+
+  **反证结果(把修复改回旧代码必须判红)**:S3 新建键改回 await 后取 → 红 2 条;S4 放弃键改回 → 红 2 条;S5 新建改成「丢弃写入」→ 红 1 条。
+
+  **反证过程补掉的一个断言盲区(值得留档)**:只做值断言时 S4 那一侧**恒绿**——放弃路径把甲的改动写进乙时,被过滤掉的是乙**根本没有的**路径,写回去逐字不变,纯值断言看不出发生过错写。于是在冒烟里加了**写入去向探针**(包住 `localStorage.setItem`,记录本次写了哪些 `kz-worktrees:*` 键),错写才无处可藏,S4 随即判红。
+
+  **既有形态标注**:本条是 HEAD 既有缺陷(`git show HEAD:crates/kanzei-app/ui/09-sessions.js` 形态相同),不是 2026-08-10 侧栏重构引入,已在依据字段取证。
+
+  **顺带说明(不属本条,别误以为被一起修了)**:同文件 :86 的 `}("click", refreshWorktrees);` 破损行(`worktrees-refresh` 按钮全仓无监听器)仍在,归 **D-257**。
+
+  **验证**:`node --check` 三文件 OK;ui-runtime 743 invoke 0 错误、ui-a11y 22 icon-btn、ui-i18n 871 key、ui-markdown 全通过。复杂度小,按 §1.4 全量测试**非必需**;本轮仍随同批条目跑了全量 `cargo test --workspace` exit=0、524 passed。
+
