@@ -181,7 +181,26 @@ impl SessionStore {
                      eval_n INTEGER NOT NULL DEFAULT 0,
                      last_eval INTEGER NOT NULL DEFAULT 0
                  );
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '9')
+                 -- v10(R-178):线级状态持久化。桌面端每项目的「页签」(进程/线)与
+                 -- 每条线各自的模型 / profile / reasoning / 勘察复核开关。
+                 -- origin_project 是主根(规范化形态),project_dir 是执行工作树
+                 -- (worktree 上线后两者分离)。默认进程(d|)同样落库——它是「主对话」
+                 -- 的模型/开关状态,重启后要恢复;恢复时无需重建存在性
+                 -- (ensure_default_process 保证),只需用库值回填字段。
+                 CREATE TABLE IF NOT EXISTS processes (
+                     process_id TEXT PRIMARY KEY NOT NULL,
+                     origin_project TEXT NOT NULL,
+                     project_dir TEXT NOT NULL,
+                     worktree_path TEXT,
+                     model TEXT,
+                     profile TEXT,
+                     reasoning TEXT,
+                     phase_pipeline INTEGER NOT NULL DEFAULT 0,
+                     updated_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS processes_origin
+                     ON processes(origin_project);
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '10')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。

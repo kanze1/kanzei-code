@@ -6,6 +6,7 @@ use super::{
 };
 // R-153 批4:default_process_id 已迁到 state 模块。
 use crate::state::{default_process_id, ensure_default_process, process_info};
+use crate::processes::{persist_process, restore_processes_from_store};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -186,4 +187,130 @@ fn pending_ask_lookup_stays_with_its_runtime_container() {
     assert_eq!(take_pending_ask(&state, 7).unwrap().session_id, "ses_a");
     assert!(take_pending_ask(&state, 7).is_none());
     assert!(second.asks.lock().unwrap().is_empty());
+}
+
+/// R-178 D3:进程落库 → 模拟重启 → 从库恢复,模型/profile/reasoning/勘察复核
+/// 完整回填,页签(线)重新出现。验收①的核心往返。
+#[test]
+fn process_persist_then_restart_restores_line_state() {
+    let root = std::env::temp_dir().join(format!(
+        "kz-process-persist-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+
+    // ---- 第一次运行:一条非默认线,线级字段已设置,落库 ----
+    let line = crate::state::ProcessHandle {
+        id: format!("p1|{}", canonical.display()),
+        origin_project: canonical.display().to_string(),
+        project_dir: canonical.display().to_string(),
+        worktree_path: None,
+        model: Arc::new(std::sync::Mutex::new(Some(
+            "deepseek:deepseek-v4-flash".into(),
+        ))),
+        profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
+        reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
+        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+    };
+    persist_process(&canonical, &line).unwrap();
+
+    // ---- 模拟重启:全新 AppState(空内存),从 state.db 恢复 ----
+    let restarted = AppState::default();
+    restore_processes_from_store(&restarted, &canonical).unwrap();
+    let processes = restarted.processes.lock().unwrap();
+    let restored = processes.get(&line.id).expect("重启后线页签丢失");
+    assert_eq!(restored.origin_project, canonical.display().to_string());
+    assert_eq!(
+        restored.model.lock().unwrap().as_deref(),
+        Some("deepseek:deepseek-v4-flash")
+    );
+    assert_eq!(restored.profile.lock().unwrap().as_deref(), Some("dev"));
+    assert_eq!(restored.reasoning.lock().unwrap().as_deref(), Some("high"));
+    assert!(restored.phase_pipeline_enabled.load(Ordering::SeqCst));
+    drop(processes);
+
+    // ---- 默认进程(id 相同)的字段也能回填,不复建存在性 ----
+    let restarted2 = AppState::default();
+    let default = ensure_default_process(&restarted2, &canonical);
+    restore_processes_from_store(&restarted2, &canonical).unwrap();
+    let processes2 = restarted2.processes.lock().unwrap();
+    assert!(processes2.get(&line.id).is_some(), "线页签必须恢复");
+    assert!(processes2.get(&default.id).is_some(), "默认进程存在性由 ensure 保证");
+    drop(processes2);
+    // 默认进程本身的字段也持久化:更新后重启可见。
+    *default.model.lock().unwrap() = Some("anthropic:claude-sonnet-5".into());
+    persist_process(&canonical, &default).unwrap();
+    let restarted3 = AppState::default();
+    restore_processes_from_store(&restarted3, &canonical).unwrap();
+    let restored_default = restarted3
+        .processes
+        .lock()
+        .unwrap()
+        .get(&default.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        restored_default.model.lock().unwrap().as_deref(),
+        Some("anthropic:claude-sonnet-5")
+    );
+
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// R-178 D3:线级状态按主项目隔离——A 项目的线不会在 B 项目恢复(D-170 式)。
+#[test]
+fn process_restore_is_isolated_per_project() {
+    let root_a = std::env::temp_dir().join(format!(
+        "kz-proj-a-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let root_b = std::env::temp_dir().join(format!(
+        "kz-proj-b-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root_a).unwrap();
+    std::fs::create_dir_all(&root_b).unwrap();
+    let canonical_a = crate::normalized_project_root(&root_a);
+    let canonical_b = crate::normalized_project_root(&root_b);
+
+    // A 项目写一条线。
+    let line = crate::state::ProcessHandle {
+        id: format!("p1|{}", canonical_a.display()),
+        origin_project: canonical_a.display().to_string(),
+        project_dir: canonical_a.display().to_string(),
+        worktree_path: None,
+        model: Arc::new(std::sync::Mutex::new(Some(
+            "deepseek:deepseek-v4-flash".into(),
+        ))),
+        profile: Arc::new(std::sync::Mutex::new(None)),
+        reasoning: Arc::new(std::sync::Mutex::new(None)),
+        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    persist_process(&canonical_a, &line).unwrap();
+
+    // B 项目恢复时看不到 A 的线。
+    let restarted_b = AppState::default();
+    restore_processes_from_store(&restarted_b, &canonical_b).unwrap();
+    assert!(restarted_b
+        .processes
+        .lock()
+        .unwrap()
+        .get(&line.id)
+        .is_none());
+
+    std::fs::remove_dir_all(&root_a).ok();
+    std::fs::remove_dir_all(&root_b).ok();
 }

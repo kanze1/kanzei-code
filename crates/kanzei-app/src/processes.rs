@@ -66,6 +66,9 @@ pub fn process_list(
 ) -> Result<Vec<ProcessInfo>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     let default = ensure_default_process(&state, &root);
+    // R-178 D3:启动/切换项目时从 state.db 恢复本项目的线/进程注册
+    // (页签不丢 + 线级模型/profile/reasoning/勘察复核开关回填)。
+    restore_processes_from_store(&state, &root)?;
     let processes = state.processes.lock().unwrap();
     let mut result = processes
         .values()
@@ -77,6 +80,63 @@ pub fn process_list(
     }
     result.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(result)
+}
+
+/// R-178 D3:把 state.db 里该主项目的线/进程注册合入内存进程表。
+///
+/// 已存在的进程(id 相同)只回填持久字段(model/profile/reasoning/勘察复核),
+/// 不重建——内存里的 SessionRuntime 等运行时状态属于当前会话,不能被覆盖;
+/// 不存在的(重启后的线页签)新建 ProcessHandle 恢复存在性。库是字段的权威,
+/// 因为 process_create/update/close 每次都同步落库。
+pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Result<(), String> {
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let origin = root.display().to_string();
+    let stored = store
+        .list_processes(&origin)
+        .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    let mut processes = state.processes.lock().unwrap();
+    for record in stored {
+        let handle = processes
+            .entry(record.process_id.clone())
+            .or_insert_with(|| ProcessHandle {
+                id: record.process_id.clone(),
+                origin_project: record.origin_project.clone(),
+                project_dir: record.project_dir.clone(),
+                worktree_path: record.worktree_path.clone(),
+                model: Arc::new(Mutex::new(None)),
+                profile: Arc::new(Mutex::new(None)),
+                reasoning: Arc::new(Mutex::new(None)),
+                phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+            });
+        // 库值回填:process_update 每次落库,库是持久字段的权威。
+        *handle.model.lock().unwrap() = record.model;
+        *handle.profile.lock().unwrap() = record.profile;
+        *handle.reasoning.lock().unwrap() = record.reasoning;
+        handle
+            .phase_pipeline_enabled
+            .store(record.phase_pipeline, Ordering::SeqCst);
+    }
+    Ok(())
+}
+
+/// 把一条 ProcessHandle 的持久字段写回 state.db(process_create/update 共用)。
+pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<(), String> {
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    store
+        .upsert_process(&kanzei_core::StoredProcess {
+            process_id: process.id.clone(),
+            origin_project: process.origin_project.clone(),
+            project_dir: process.project_dir.clone(),
+            worktree_path: process.worktree_path.clone(),
+            model: process.model.lock().unwrap().clone(),
+            profile: process.profile.lock().unwrap().clone(),
+            reasoning: process.reasoning.lock().unwrap().clone(),
+            phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+            updated_at: crate::run::now_ms(),
+        })
+        .map_err(|e| format!("进程状态落库失败: {e}"))
 }
 
 #[tauri::command]
@@ -121,7 +181,10 @@ pub fn process_create(
         phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
     };
     let info = process_info(&state, &process);
-    processes.insert(process.id.clone(), process);
+    processes.insert(process.id.clone(), process.clone());
+    drop(processes);
+    // R-178 D3:非默认线创建即落库,重启后页签与线级状态可恢复。
+    persist_process(&root, &process)?;
     Ok(info)
 }
 
@@ -158,6 +221,10 @@ pub fn process_update(
             .phase_pipeline_enabled
             .store(phase_pipeline, Ordering::SeqCst);
     }
+    // R-178 D3:任何字段变更同步落库(含默认进程——它是「主对话」的模型/开关状态,
+    // 重启后要用库值回填)。
+    let root = normalized_project_root(Path::new(&process.project_dir));
+    persist_process(&root, &process)?;
     Ok(process_info(&state, &process))
 }
 
@@ -188,8 +255,16 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         process
             .phase_pipeline_enabled
             .store(false, Ordering::SeqCst);
+        // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
+        persist_process(&root, &process)?;
     } else {
         state.processes.lock().unwrap().remove(&process_id);
+        // R-178 D3:线关闭即从库删除,页签不再恢复。
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+        store
+            .delete_process(&process_id)
+            .map_err(|e| format!("删除进程注册失败: {e}"))?;
     }
     Ok(())
 }

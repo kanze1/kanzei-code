@@ -1469,3 +1469,8 @@
 - 摘要: R-174 关闭前全量:cargo test --workspace 全绿(core 119/harness 82/llm 42/tools 213/app 68 + 3 条 kz 并行集成测试)
 - 关联: R-174
 - 收尾: 1786382919
+
+## T-1786386108 R-178 B1 cargo test -p kanzei-core store::processes + -p kanzei-app [passed]
+- 摘要: R-178 批1:store processes 表读写 5 测试 + app 落库/恢复往返 2 测试 + kanzei-app 全量 70 全绿
+- 关联: R-178
+- 收尾: 1786386108

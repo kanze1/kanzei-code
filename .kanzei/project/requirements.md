@@ -45,7 +45,7 @@
 - 批次: 0/6
 - 进展: 取活:前置 R-141 已关闭(8574b63+bf85fe9,批2 完成),本条第③⑤ 更不受影响。按验收拆分 6 批:批1 process_create 建线+worktree_path 真实绑定+回滚;批2 run_prompt 归属校验改 origin_project+cwd/main_root 分离;批3 线清单 git worktree list --porcelain 发现,废除 localStorage kz-worktrees;批4 session_id 后缀+一树一线查重+N3 开关;批5 配置读主根(⑧)+四个命令测试补全(⑦);批6 端到端集成测试+收口。批次表见侧栏。
 
-## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [todo]
+## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [doing]
 - 优先级: P1
 - 复杂度: 中
 - 标签: 后端
@@ -58,6 +58,10 @@
 - 边界: **D7 第一版不放 providers / api key**——它们写进被 git 跟踪的项目 toml 有泄密风险,不一次全开;界面上要说清作用域选择器当前覆盖哪些字段,不留"选了本项目但某些字段仍写全局"的静默歧义。worktree 绑定属 R-177,本条不碰;崩溃恢复里的 worktree/分支重建属 R-177。
 - 验收: ①重启后每项目、每线的模型 / profile / reasoning / 子代理开关完整恢复,页签不丢(R-030 遗留项一并核验)。②两个项目配不同 primary 互不影响(D-170 式双项目用例),CLI 与桌面解析结果一致(同一真源)。③五层解析链每层缺省回落各有单测。④localStorage 旧键存在时首次启动上迁并清除,迁移有测试;全仓 grep `kz-model:` 不再作为真源被读。⑤设置页选「本项目」保存后,主根 `.kanzei/kanzei.toml` 真出现 `[models]` 且立即生效(`models_list` 与徽标同步);选「全局」写 `~/.kanzei/kanzei.toml`,两者互不串写,有往返单测。⑥保存不丢字段(conventions §4),旧配置无新键时行为不变(serde default 单测)。⑦D7 覆盖范围在界面上对用户可见,providers/api key 的作用域切换被明确禁用而非静默忽略。
 - refs: R-050 R-030 R-115 R-136 R-177 R-179 D-168 docs/design/deep_parallel_dev.md
+
+- 批次: 1/5
+
+- 进展: 批1(D3 落库)完成:crates/kanzei-core/src/store/processes.rs 新增 StoredProcess + upsert/list/get/delete 四函数(v10 表读写,5 单测);app 层 process_create/update/close 同步落库、process_list 启动时 restore_processes_from_store 从 state.db 恢复页签与线级字段(默认进程 d| 也落库——它是主对话的模型/开关状态)。process_persist_then_restart_restores_line_state + process_restore_is_isolated_per_project 两条往返测试绿;kanzei-app 全量 70 绿。待办:批2 五层解析链落码+缺省回落单测、批3 localStorage 上迁、批4 D7 作用域选择器。
 
 ## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [doing]
 - 优先级: P1

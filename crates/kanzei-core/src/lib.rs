@@ -24,5 +24,5 @@ pub use runner::{
 };
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,
-    RecallEvent, Session, SessionStore, StoreError, StoredEvent,
+    RecallEvent, Session, SessionStore, StoreError, StoredEvent, StoredProcess,
 };
