@@ -53,18 +53,6 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-167 学习型召回控制器占位:bandit 调度 recall 动作 [todo]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 核心
-- 阶段: 2
-- 依赖: 
-- 来源: 同 R-161,MemCon 方向。占位:确定性 RecallPolicy 数据积累后才评估是否值得上 contextual bandit(state:goal/tool/error/stuck 计数;reward:任务成功−失败成本−token−延迟)。
-- 内容: 占位。是否立项取决于 R-162 落地后的 trigger_precision/recall 实证——确定性规则已够好则关闭本条,不硬上学习组件。
-- 验收: 先出判定报告(基于 R-161/R-163 数据,给出做/不做结论与依据);若做,再补功能验收。
-- refs: R-162 docs/design/memory_control_plane.md
-- 进展: 2026-08-10 口径清理:原「依赖: R-161/R-162/R-163」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-161/R-162/R-163 后推进。
-
 ## R-171 多进程代理编排 P0:并行查、项目级单写与工具串行强制 [todo]
 - 优先级: P0
 - 复杂度: 大

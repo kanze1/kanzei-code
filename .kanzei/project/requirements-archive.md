@@ -1638,3 +1638,17 @@
 
 - 批次: 1/1
 
+## R-167 学习型召回控制器占位:bandit 调度 recall 动作 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 核心
+- 阶段: 2
+- 依赖: 
+- 来源: 同 R-161,MemCon 方向。占位:确定性 RecallPolicy 数据积累后才评估是否值得上 contextual bandit(state:goal/tool/error/stuck 计数;reward:任务成功−失败成本−token−延迟)。
+- 内容: 占位。是否立项取决于 R-162 落地后的 trigger_precision/recall 实证——确定性规则已够好则关闭本条,不硬上学习组件。
+- 验收: 先出判定报告(基于 R-161/R-163 数据,给出做/不做结论与依据);若做,再补功能验收。
+- refs: R-162 docs/design/memory_control_plane.md
+- 进展: 判定报告(基于 R-161/162/163 数据,state.db immutable 只读):**结论=不做**,关闭本条。依据:①确定性规则已够好——199 轮 episodes 失败 outcome 仅 8 次(4%),召回采纳率 37.8%(R-145 实证),无「确定性规则失效」实例;②bandit 无学习信号——recall_events 真实触发仅 5 条(全 lexical),R-163 memory_eval 30 行全是合成 case(nomemory/current/candidate 等 0/5,oracle 1/5),state(goal/tool/error/stuck 计数)与 reward(成功−失败−token−延迟)均无真实数据可拟合;③成本收益不成立——为 4% 失败率上学习组件,与「确定性规则已够好则关闭,不硬上学习组件」的占位验收一致。验收①判定报告已出;②若做才补功能验收——结论不做,无需功能验收。
+
+- 批次: 1/1
+
