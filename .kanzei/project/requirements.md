@@ -73,31 +73,18 @@
 
 - 阻塞: 用户: 2026-08-09 挂起——先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)。解除动作: D-185/D-184 修复后用户确认恢复推进(或用户主动解除挂起),恢复时状态转 doing。解除人: 用户。
 
-## R-112 需求缺陷分类体系标准化 [todo]
-- 标签: 流程
-- 复杂度: 中
-- 优先级: P3
-- 归属: kanzei
-- 来源: 2026-08-08 用户:需求和缺陷应该要分类
-- 内容: 现状标签(标签/类型/领域)是自由文本,同义词发散不可聚合。改造:①收敛为两级受控词表——`领域`(单选:engine/provider/session/permission/tracker/memory/ui/release/process)与 `类型`(单选:功能/质量/性能/安全/体验/流程),词表在 conventions 定义、引擎枚举校验,自由 `标签` 保留但降为辅助;②既有条目批量归一(同义词映射表);③文档页按领域/类型双维筛选与计数。
-- 验收: 词表外的领域/类型被引擎拒绝并提示合法值;存量条目 100% 归一;文档页双维筛选可用;quick capture 自动建议分类。
-- refs: R-054
-- 阶段: 4
-
-- 批次: 3/3
-- 进展: 批3(收口)完成:全量 cargo test --workspace 全绿(46+71+51+39+134+7+3+2+1)。验收逐项:①词表外拒绝并提示合法值=批1 check_tag(docstore.rs DocKind.tags + tracker.rs 四处写入口),单测覆盖词表外/多值含非法词/无词表文档;②存量 100% 归一=扫描 requirements.md/defects.md 全部 46 个标签均命中词表;③文档页双维筛选=既有能力(10-docs-core.js:50-80 tagOptions/syncTagFilter、index.html 三处 tag-filter + group-toggle),ui_dom 实测渲染正常、无 console 错误;④quick capture 自动建议分类=批2 subagents.rs 两条 system 提示引导子代理从词表选「标签」,单测断言提示含词表且与 DocKind.tags 一致。验收全项满足,关闭。
-批次 1/3 完成(d41fff4):docstore.rs DocKind 增 tags 词表字段,REQUIREMENTS/DEFECTS 用词表、其余 None;tracker.rs 新增 check_tag(兼容 标签/tags/tag 键,按空白/逗号拆分逐词校验),接入 add/update/close/repair_missing_id 四处写入口;2 个新单测覆盖词表外拒绝/多值含非法词/词表内放行/无词表文档不受影响,tools 134 passed。
-批次 2/3:quick capture 自动建议分类。
-
 ## R-117 子代理运行状态的可观察性 [todo]
 - 复杂度: 中
 - 优先级: P3
 - 原始描述: 添加触发后弹出浮层显示最近开发和当前进展列表
 - 范围界定: 2026-08-08 用户澄清真实意图是"子代理能对当前运行状态进行观察",并明确表示在 R-095 的呈现优化落地后不确定是否仍需要独立入口。
 - 待定: 本条挂在 R-095 之后再定去留。R-095 交付后由用户判断:若活动面板的筛选折叠与后台任务操作已足够观察子代理状态,则本条关闭;若仍缺子代理各自的进度维度,则按缺口重写验收。
-- 依赖: R-095
+- 依赖: 
 
 - 标签: 前端
+
+- refs: R-095
+- 进展: 2026-08-10 复查:R-095 已交付(done),其验收⑤明确覆盖子代理状态观察——活动面板子代理条目给出内部调用数与当前步骤,入参/输出/成败/耗时齐备。本条原始诉求「子代理能对当前运行状态进行观察」已被 R-095 覆盖;去留按「待定」字段由用户拍板(关闭或按缺口重写验收),agent 不擅自决定。依赖 R-095 已关闭,移入 refs。
 
 ## R-122 构建可视化架构浏览与维护内存设置功能 [todo]
 - priority: P2
@@ -107,6 +94,10 @@
 - 验收: 实现可视化架构图/浏览器，支持维护记忆等配置信息，并完成技术栈选型评估报告
 
 - 标签: 前端
+
+- 优先级: P2
+- 批次: 0/3
+- 进展: 2026-08-10 接手。现状盘点(调研):①前端约束=A-008 已定调有序 classic script 不引入 ES modules/框架(decisions.md:52-57 + monolith_decomposition.md:171),ui/ 无 package.json/构建工具;②已有可复用渲染模式=17-files.js buildFilesTree/renderFilesDir 目录树 + 13-memory.js renderMemoryArch 卡片 + 应用内 MD 查看器 openDocViewer;③架构数据源=architecture/README.md 索引(architecture 工具维护,当前有 3 个 design doc 未入索引=D-173 缺口)+ docs/design/ 文档;④记忆维护命令齐备(memory_overview/entries/save/delete/consolidate 等 13 个)。批次规划:批1=技术栈选型评估报告(docs/design/architecture_browser.md)+修索引缺口;批2=架构浏览视图(主导航入口,树形浏览+应用内查看器);批3=记忆配置入口接入+收口验证。
 
 ## R-128 全部阻塞时停止鞭挞的逻辑设计 [todo]
 - priority: P2

@@ -1126,3 +1126,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-112 关闭前全量:46+71+51+39+134+7+3+2+1 全绿(kanzei-app 46 含批2 新测试、kanzei-tools 134 含批1 两个新测试)。
 - 收尾: 1786321078
+
+## T-1786321256 R-122 批1 架构索引校验 [passed]
+- 命令: architecture check + git diff
+- 摘要: R-122 批1 技术栈选型评估报告(docs/design/architecture_browser.md,验收③)+架构索引修复:architecture update 将新报告与 3 个未入册文档(ci_release_evidence_chain/memory_control_plane/monolith_decomposition)补入索引,validation ok(19 链接,0 issue,顺带收口 D-173 缺口)。
+- 收尾: 1786321256

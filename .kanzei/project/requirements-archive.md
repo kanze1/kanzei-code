@@ -1418,3 +1418,19 @@
 批次规划(3批):批1=引擎侧依赖语义分立——「依赖:」字段解析成独立键+ID 存在性校验+循环依赖检测(依赖图 DFS 判环)+tracker 输出附带反向链接;批2=前端文档页依赖视图——按依赖拓扑分层的列表(可做层/被阻塞层)+点击条目高亮其依赖链;批3=验收收口——不存在引用告警/正反向链接/视图切换/循环告警逐项验证+全量测试。
 批次 0/3:开始批1。
 
+## R-112 需求缺陷分类体系标准化 [done]
+- 标签: 流程
+- 复杂度: 中
+- 优先级: P3
+- 归属: kanzei
+- 来源: 2026-08-08 用户:需求和缺陷应该要分类
+- 内容: 现状标签(标签/类型/领域)是自由文本,同义词发散不可聚合。改造:①收敛为两级受控词表——`领域`(单选:engine/provider/session/permission/tracker/memory/ui/release/process)与 `类型`(单选:功能/质量/性能/安全/体验/流程),词表在 conventions 定义、引擎枚举校验,自由 `标签` 保留但降为辅助;②既有条目批量归一(同义词映射表);③文档页按领域/类型双维筛选与计数。
+- 验收: 词表外的领域/类型被引擎拒绝并提示合法值;存量条目 100% 归一;文档页双维筛选可用;quick capture 自动建议分类。
+- refs: R-054
+- 阶段: 4
+
+- 批次: 3/3
+- 进展: 批3(收口)完成:全量 cargo test --workspace 全绿(46+71+51+39+134+7+3+2+1)。验收逐项:①词表外拒绝并提示合法值=批1 check_tag(docstore.rs DocKind.tags + tracker.rs 四处写入口),单测覆盖词表外/多值含非法词/无词表文档;②存量 100% 归一=扫描 requirements.md/defects.md 全部 46 个标签均命中词表;③文档页双维筛选=既有能力(10-docs-core.js:50-80 tagOptions/syncTagFilter、index.html 三处 tag-filter + group-toggle),ui_dom 实测渲染正常、无 console 错误;④quick capture 自动建议分类=批2 subagents.rs 两条 system 提示引导子代理从词表选「标签」,单测断言提示含词表且与 DocKind.tags 一致。验收全项满足,关闭。
+批次 1/3 完成(d41fff4):docstore.rs DocKind 增 tags 词表字段,REQUIREMENTS/DEFECTS 用词表、其余 None;tracker.rs 新增 check_tag(兼容 标签/tags/tag 键,按空白/逗号拆分逐词校验),接入 add/update/close/repair_missing_id 四处写入口;2 个新单测覆盖词表外拒绝/多值含非法词/词表内放行/无词表文档不受影响,tools 134 passed。
+批次 2/3:quick capture 自动建议分类。
+
