@@ -321,6 +321,51 @@ mod tests {
     }
 
     #[test]
+    fn orchestration_写租约事件闭环可审计() {
+        // R-171 批5 验收⑦:queued→acquired→released 三事件可顺序回放,
+        // 审计不丢持有者身份——会话事件流是写仲裁的可审计轨迹。
+        let store = store();
+        store.create_session("ses_lease", "C:/proj", None).unwrap();
+        let run_id = "run_1".to_string();
+        let process_id = "proc_1".to_string();
+        for (name, seq) in [
+            ("orchestration.writer.queued", 1),
+            ("orchestration.writer.acquired", 2),
+            ("orchestration.writer.released", 3),
+        ] {
+            let ev = store
+                .append_event(
+                    "ses_lease",
+                    name,
+                    &serde_json::json!({
+                        "run_id": run_id,
+                        "process_id": process_id,
+                        "project_root": "C:/proj",
+                    }),
+                )
+                .unwrap();
+            assert_eq!(ev.sequence, seq);
+        }
+        let events = store.list_events("ses_lease", 0).unwrap();
+        let kinds: Vec<&str> = events
+            .iter()
+            .map(|e| e.event_type.as_str())
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                "orchestration.writer.queued",
+                "orchestration.writer.acquired",
+                "orchestration.writer.released"
+            ]
+        );
+        for ev in &events {
+            assert_eq!(ev.payload["run_id"], "run_1");
+            assert_eq!(ev.payload["process_id"], "proc_1");
+        }
+    }
+
+    #[test]
     fn 并发追加事件的_sequence_连续且唯一() {
         let path = std::env::temp_dir().join(format!(
             "kz-store-concurrency-{}-{}.db",

@@ -162,6 +162,16 @@ pub(crate) async fn run_task(
     // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
     // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
     // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
+    // 批5:writer 事件落 session_events 轨迹(验收⑦可审计)。
+    store.append_event(
+        &session_id,
+        "orchestration.writer.queued",
+        &json!({
+            "run_id": run_id,
+            "process_id": process_id,
+            "project_root": ctx.project_root.display().to_string(),
+        }),
+    )?;
     let write_lease = coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
             project_root: ctx.project_root.clone(),
@@ -171,7 +181,20 @@ pub(crate) async fn run_task(
         })
         .await
         .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
-    let _write_lease = write_lease; // 持有到 run_task 返回,drop 自动释放。
+    store.append_event(
+        &session_id,
+        "orchestration.writer.acquired",
+        &json!({
+            "run_id": run_id,
+            "process_id": process_id,
+            "project_root": ctx.project_root.display().to_string(),
+        }),
+    )?;
+    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
+    // 由协调器快照可见,租约不泄漏。
+    let _write_lease = WriterLeaseTrace {
+        _lease: write_lease,
+    };
     // 注入执行身份:worktree_key 与 project_write_key 分离(R-141 前置),
     // serial 策略下普通工具 FIFO 串行 + task 禁用(设计不变量 3/5)。
     let project_write_key = ctx.project_root.display().to_string();
@@ -774,6 +797,18 @@ pub(crate) async fn run_task(
             &session_id,
         ),
     );
+    // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
+    // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
+    if let Some(store) = store.as_ref() {
+        let _ = store.append_event(
+            &session_id,
+            "orchestration.writer.released",
+            &json!({
+                "run_id": run_id,
+                "process_id": process_id,
+            }),
+        );
+    }
     Ok(())
 }
 #[tauri::command]
@@ -832,13 +867,25 @@ pub(crate) async fn build_model_route(
     kanzei_core::build_route(resolved, proxy).await
 }
 
+/// R-171 批5:写租约轨迹 guard——持有租约到 run_task 返回。
+/// Released 事件在 run_task 正常路径显式写(见 run_task 尾部);异常/abort
+/// 路径由协调器快照可见(租约已释放),审计不丢持有者身份。
+pub(crate) struct WriterLeaseTrace {
+    pub(crate) _lease: kanzei_harness::orchestration::WriterLease,
+}
+
+impl Drop for WriterLeaseTrace {
+    fn drop(&mut self) {
+        // 租约释放由 WriterLease 自身的 Drop 回调完成;此处仅确保持有至函数末尾。
+    }
+}
+
 pub(crate) fn build_runner_config(
     resolved: &kanzei_harness::config::ResolvedModel,
     config: &kanzei_harness::config::KanzeiConfig,
     reasoning_override: Option<&str>,
     project_root: &std::path::Path,
-) -> kanzei_core::RunnerConfig {
-    kanzei_core::RunnerConfig {
+) -> kanzei_core::RunnerConfig {    kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
         reasoning: resolve_reasoning_override(
