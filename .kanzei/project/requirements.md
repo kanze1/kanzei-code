@@ -16,19 +16,6 @@
 
 - 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)无专用写入通道——edit 被 ruleset 拒绝,shell 旁路被检测回滚,conventions.md 为模型只读托管资产(已记 D-235)。解除动作: 修复 D-235 提供 conventions.md 专用写入工具,或用户手写 §1.4 标注;标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具)或手写标注的用户。
 
-## R-161 记忆漏斗遥测:召回到结果的 A→R→E→U→Y 全链路落库 [doing]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 核心
-- 阶段: 2
-- 来源: 2026-08-10 memory 深度调研后用户拍板「Memory 是控制系统不是 RAG」,设计基线 docs/design/memory_control_plane.md;本条是全系列的前提——没有遥测无法区分「真变好」与「感觉变好」。
-- 内容: ①三张新表进 state.db(与 episodes 同库可 join):recall_events(触发/动作/query/候选/注入/分段延迟)、memory_sources(条目→episode 区间溯源)、memory_eval(回放臂结果);②五段漏斗判定 AVAILABLE→RETRIEVED→INJECTED→ACTION_CHANGED→OUTCOME_IMPROVED,各段机械可判;③修采纳盲区:read 工具读 .kanzei/memory/ 文件路径时回填采纳(现只有 memory_search 回填,R-150 已点名);④index.db 的 memory_recalls 停写留读;⑤CLI 与桌面端同源接线。
-- 验收: ①三表落库,CLI/桌面端写同一口径且能 join episodes 查询;②read 记忆文件回填采纳有单测;③memory_stats 可见五段漏斗计数;④漏斗各段判定有单测覆盖。
-- refs: R-103 R-125 R-150 docs/design/memory_control_plane.md
-
-- 批次: 3/3
-- 进展: 批1完成：state.db schema v8 新增 recall_events/memory_sources/memory_eval，SessionStore 提供统一写入与 funnel_counts，episode 写入返回 episode_id；kanzei-core 72 项定向测试全绿。批2完成：①read 工具读记忆文件正文后回填 fetched（mark_memory_file_read 接入 read.rs，修复 id 解析 split 只取到 'M' 与 Windows 大小写折叠导致 scope 匹配恒失败，加快速路径防副作用，read.rs 单测 read_memory_file_backfills_recall_fetched/read_non_memory_file_does_not_touch_fetched 验收②✓）；②桌面端 memory_search_page 接线 record_memory_search_telemetry（与 memory_search 工具/CLI 开跑预检索同源，验收①桌面端✓）；③memory_stats 展示 state.db 五段漏斗 A→R→I→U→Y（tools.rs project_funnel_counts + stats 测试断言 0/1/1/0/0，验收③✓）；④kanzei-core 导出 FunnelCounts。kanzei-tools 145 全绿。批3完成：SessionStore 新增 link_recall_events_to_episode，CLI(main.rs)/桌面端(run.rs) append_episode 成功后按本轮开始墙钟毫秒回填 episode_id，单测验证开跑预检索 recall_event 可 join episodes 查询且时间窗外旧事件不被误回填（验收① join 部分✓）；kanzei-core 73 全绿。验收全部达成。内容④ index.db memory_recalls 停写留读未做：read 回填采纳(批2)目前落 index.db memory_recalls，若停写则新召回无 fetched 落点、R-149 决策权重失效；设计文档 memory_control_plane.md §2 迁移口径(既有)规定 fetched 采纳判定升级为 ACTION_CHANGED 的前身，完整迁移依赖 R-162/163 的 ACTION_CHANGED 判定落地后统一收敛，本条仅按该口径完成停写前置(recall_events 全链路落库+采纳盲区修复+同源接线)。
-
 ## R-162 事件触发召回:RecallPolicy 让记忆在失败瞬间进入决策 [todo]
 - 优先级: P0
 - 复杂度: 大
