@@ -154,7 +154,7 @@
 - 复杂度: 中
 - 进展: 2026-08-10 交付(8a63c78):anthropic.rs message_to_value 对 Part::Reasoning 的协议回放——有 signature → 按 Anthropic 协议输出 {"type":"thinking","thinking":text,"signature":sig} 原样回传(验收①);无 signature → 降级为可见 assistant 文本块(验收③,R-094 结论);空 reasoning 整体跳过。signature 由响应侧 signature_delta→ReasoningEnd 收集、runner drive.rs 已存入 Part::Reasoning(既有,R-137 前已就位),本次只补回放缺口。新增两个契约测试(thinking_replay_roundtrips_signature_and_tool_sequence / reasoning_without_signature_falls_back_to_visible_text),覆盖验收④;测试断言 thinking+tool_use+text 块序不被打乱(验收②的请求体侧保证)。定向:kanzei-llm 42/42、core 103/103、下游 check 全绿。
 
-## R-138 docstore 原子写与跨进程文件锁:tmp+rename + 独占句柄,并发写不丢不撞 [todo]
+## R-138 docstore 原子写与跨进程文件锁:tmp+rename + 独占句柄,并发写不丢不撞 [done]
 - 背景: direction_taste §5.2 地基债:docstore 整文件重写无原子替换与跨进程锁,D-064 类 lost-update 真实存在;deep_parallel_dev §3.3 P4 也要求 docstore 进程级文件锁收口主根 .kanzei 的最后一个共享写点。
 - 设计定位: tracker 文档写入的原子性与并发安全
 - 证据等级: E2
@@ -164,6 +164,27 @@
 - 优先级: P0
 
 - 标签: 核心
+- 复杂度: 中
+- 批次: 1/1
+- 关闭说明: 2026-08-10 关闭(done)。交付提交 `b4bda5c`,与 **D-249** 并轨交付(同一条竞态通道的上下游两层)。
+
+  **逐条对照验收原文(四条)**
+
+  ①「docstore save 改 tmp+rename 原子替换(临时文件与目标同目录)」→ **达成,且覆盖面大于验收原文**。新建 `crates/kanzei-tools/src/atomic_file.rs`,`write_atomic`(:35)的序列是:同目录 tmp(文件名带 pid + 纳秒)→ `create_new` → `write_all` → **`sync_all`** → `rename`,失败按 `RENAME_ATTEMPTS=6` / `RENAME_BACKOFF_MS=20`(:21-22)退避重试。`sync_all` 不可省——没有 fsync 时 NTFS 可能把 rename 排到数据落盘之前,断电后拿到零长度文件,正是本条要根治的形态。**替换的是 docstore 的全部 4 个整文件写点,不只 save**:`save`(docstore.rs:332)、`repair_reused_archived_id`(:392)、`archive_terminal`(:461/:523)、`void_id`(:608)。`archive_terminal` 的两步写序另加注释锁死「先写归档再删活动」:原子写保证不了跨文件原子性,当前顺序崩溃后是「条目同时在两处」(完整性门禁能报),反过来才是真丢数据;回归测试在 docstore.rs:1467 附近(注释写明「谁把 save 提到 write_atomic 前面,这条就会红」)。测试:`原子写替换已有目标且不留临时文件`(atomic_file.rs:381)、`临时文件与目标同目录`(:400,注释点明跨卷 rename 会失败、这条不变量塌了原子写就整体失效)、`父目录不存在时自动创建`(:415)。
+
+  ②「跨进程文件锁(Windows std::fs 独占句柄,毫秒级持有)」→ **达成,零新依赖**。`FileLock`(atomic_file.rs:125)双层实现:**进程间**用 Windows `share_mode(0)` 开独占句柄(:306),第二个进程 open 直接失败,句柄随进程退出由 OS 关闭,崩溃不留死锁;非 Windows 走 `O_EXCL` + mtime 陈旧摘除(`LOCK_STALE_AFTER=30s`,:106)。**进程内**是手写可重入互斥(Mutex + Condvar + ThreadId)——**刻意没用 `std::sync::ReentrantLock`**:它没有限时等待,`docs_snapshot` 的 `try_lock(200ms)` 遇进程内争用就没法遵守预算,会退化成无限等。API 两个入口:`lock_exclusive`(:164)与限时的 `try_lock_exclusive`(:183);`DocStore` 侧包装为 `lock()`(docstore.rs:308)与 `try_lock(budget)`(:313)。**纪律由编译器强制而非君子协定**:`FileLock` 带 `_not_send: PhantomData<*const ()>`(:128)做成 `!Send`,「绝不跨 await、绝不跨线程持有」这条规矩谁想违反都编译不过。防死锁不变量写进注释:持锁期间永不获取第二把锁,跨 kind 的 `check_refs` 走不加锁读路径,结构上不可能循环等待。测试:`独占句柄第二次打开必然失败`(:427)、`锁同线程可重入而其它线程排队`(:447)、`限时取锁拿不到时返回空而不是错误`(:485)。
+
+  ③「并发写 tracker 的压测不丢条目不撞 ID」→ **达成**。**关键判断,与验收字面不同**:真正的 lost-update 不在 `save` 里,而在 `TrackerTool::execute` 的 `load → next_id → save` **跨度**上——两次 save 本来就不重叠,丢失发生在它们各自的读与写之间。所以锁加在写动作分支顶部罩住整段:`crates/kanzei-tools/src/tracker.rs:184` 的 `let _write_lock = if WRITE_ACTIONS.contains(...)`(`WRITE_ACTIONS` 定义在 :31),读动作(list/get)不取锁照常并行。回归闸打在**真实写入口**上:`并发新建不丢条目也不撞编号`(tracker.rs:2354),8 个线程各起独立 runtime(模拟互不共享内存态的 OS 进程)并发 `req add`,断言落 8 条、8 个 ID 互异、`integrity_issues` 为空。**反证**:把这把锁回退后跑同一用例,8 个并发 add **只活下来 1 条、8 个全拿到 R-001**——lost-update 与 ID 撞车同时坐实。
+
+  ④「失败时保留现场可重试」→ **达成**。`write_atomic` 抄的是 `auth/store.rs` 那份原子写,但**故意反着改了一处**:替换失败时**保留 tmp 不删**。理由写在实现注释里——凭证可以重新登录,tracker 的新内容是内存里唯一一份,删了就是丢用户这次编辑。测试 `替换失败时保留临时文件且原文件不被破坏`(atomic_file.rs:510),用 `share_mode(0)` 独占打开目标模拟杀软/编辑器占用,断言原文件完好且 tmp 留着。
+
+  **读路径一律不加锁**(设计决策,别在后续"顺手加锁"里改掉):原子替换后读者只可能看到旧全量或新全量,不存在截断态;让读者排队只会把 UI 刷新变慢。
+
+  **既有能力标注(§1.25)**:`DocStore` 的解析/序列化、`archive_terminal` 的归档语义、`repair_reused_archived_id` 的保守拒改立场均为既有实现,本条只替换写原语并在写事务外围加锁,不重复申报这些能力。
+
+  **残余缺口去处(§1.2)**:`crates/kanzei-tools/src/test_record.rs` 的五处生产 `std::fs::write` 尚未并轨 `atomic_file`(跨进程 CAS 缺失)→ 已登记 **D-261**;`test_runs_snapshot` 这条只读命令顺手写盘且不持任何锁 → 已登记 **D-260**(修复口径照抄本条对 `docs_snapshot` 的处置:限时文件锁,**不挂写租约**)。设计基线的口径已回写:`docs/design/parallel_read_serial_write_orchestration.md` 不变量 8 的 2026-08-10 补注(提交 `79852a5`)确立判据——**代理发起的写动作走租约,界面读路径顺手做的幂等维护走文件锁**。
+
+  **验证**:交付时定向 kanzei-tools 208 / kanzei-app 53 全绿,clippy `-D warnings` 零输出,rustfmt clean;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
 
 ## R-140 i18n 架构迁移:chrome/content 分离、t(key) 渲染点翻译、MutationObserver 退役 [todo]
 - 背景: direction_taste 定调二(用户明确):i18n 保留换架构。现行词典+MutationObserver 已产出 8 条缺陷家族(D-092/D-108/D-129/D-135/D-136/D-142/D-157/D-160)并篡改模型输出显示;D-172 只修了死循环,未换架构。四铁律:chrome/content 分离、翻译发生在渲染点 t(key)、模型输出语言是 prompt 问题、漏译可机械检出。
@@ -176,7 +197,7 @@
 
 - 标签: 前端
 
-## R-141 ToolCtx 显式主根绑定:消除发现式取根与 worktree 锁键歧义 [todo]
+## R-141 ToolCtx 显式主根绑定:消除发现式取根与 worktree 锁键歧义 [done]
 - 背景: direction_taste §5.4 与 D-170 教训:ToolCtx::new 仍发现式取根(harness/src/tool.rs:13-17),worktree 线若命中 worktree 内 .kanzei 副本会拿到过期身份;并发锁键语义(tool.rs:19-28)只拼 project_root,两棵树同路径会撞锁。deep_parallel_dev §3.2 明确选 A:显式主根、不做根发现。
 - 设计定位: 深并行前置:线进程显式携带主根,消除发现式根解析事故面
 - 证据等级: E2
@@ -186,6 +207,29 @@
 - 优先级: P0
 
 - 标签: 核心
+- 复杂度: 中
+- 批次: 2/2
+- 关闭说明: 2026-08-10 关闭(done)。交付提交 `8574b63`(批1:harness/tools/CLI)+ `bf85fe9`(批2:桌面端线路径)。行号以交付时 dev HEAD 为准;`crates/kanzei-app/src/run.rs` 正被 R-173 批6 改动,该文件的证据以符号名为准。
+
+  **逐条对照验收原文(四条)**
+
+  ①「ToolCtx 构造支持显式传入 project_root(不再无条件 discover)」→ **达成**。`crates/kanzei-harness/src/tool.rs:39` 的 `ToolCtx::new(cwd, project_root)` 改双参,函数体内零 `discover_project_root`;发现式取根被拆成独立入口 `ToolCtx::discovering(cwd)`(tool.rs:63),其文档注释钉死「线路径调用它是 bug」,并写清 D-170 的 worktree 变体成因——`.kanzei/project/*.md` 被 git 跟踪,`git worktree add` 会把它们 checkout 成分支副本,而 worktree 的 `.git` 是文件不是目录,于是 `discover_project_root` 在 worktree 内第一层就命中副本立即返回。
+
+  ②「线路径全程显式传根」→ **达成**,两端各有落点。CLI:`crates/kanzei/src/main.rs:180` 改 `ToolCtx::new(cwd, project_root)`,根在入口解析一次后显式传下。桌面端:`run_task` 新增 `main_root: PathBuf` 参数(`crates/kanzei-app/src/run.rs`,签名处注释说明 worktree 上线后 `project_dir` 是代码树、`main_root` 仍是主根),函数体内 `let project_root = main_root;`,`discover_project_root` 归零;调用方 `run_prompt` 在 IPC 入口解析一次后传下。同时把 `resolve_profile_and_root` 拆成 `resolve_profile`(只解析 profile,不再顺手发现根),注释写明「捆在一起正是根发现能悄悄溜进线路径的原因」。**可机械核验的收敛证据**:HEAD 上 `run.rs` 只剩 2 处 `discover_project_root`,全在 Tauri command 第一行(`summarize_chat`、`run_prompt`);生产代码里 `ToolCtx::discovering` 只剩 2 个调用点,均为进程/IPC 入口(`crates/kanzei/src/main.rs:858` CLI tracker 子命令、`crates/kanzei-app/src/docs.rs:343` `docs_update`),`crates/kanzei-tools/src/todowrite.rs:97` 那处在 `#[cfg(test)]` 内不计;`crates/kanzei-app/src/subagents.rs:39/218` 两处也都在 `#[tauri::command]` 函数体内(quick_req / defect_review),属入口不属线路径。
+
+  ③「补断言测试:worktree 内运行时 project_root 必须等于主根」→ **达成**。`crates/kanzei-harness/src/tool.rs:248` `worktree_内运行时_project_root_必须等于主根`。**这条测试的写法值得单独点名**:它**先断言危害前提**——`discover_project_root(worktree) == Some(worktree)` 且 `!= Some(main)`,把「发现式取根在 worktree 内必然拿到分支副本」本身钉成回归闸,然后才断言显式绑定后 `ctx.project_root == main && ctx.cwd == worktree`。少了前半段,后半段在「discover 恰好也能返回主根」的实现下会假绿,测试就证明不了自己在防什么。夹具 `worktree_fixture`(tool.rs:221)复刻真实磁盘形态:主根与 worktree 是兄弟目录、worktree 内有 `.kanzei` 副本、`.git` 是 `gitdir:` 指针文件。
+
+  ④「并发锁键区分 worktree 实例」→ **达成**。`worktree_concurrency_key()`(tool.rs:90)的缺省回退从 `project_root` 改 `cwd`——显式主根后同项目 N 棵树的 `project_root` 完全相同,拿它当工具锁键会把互不相干的树串死;锁键真源是工具实际作用的代码树(bash 用 `ctx.cwd.join(workdir)`,git 用 `ensure_repository(&ctx.cwd)`)。生产接线在 `run.rs` 的执行身份注入处:`worktree_key = ctx.cwd.display()`、`project_write_key = normalized_project_root(&ctx.project_root)`,两把键各自带注释写清不变式(写主根的串行、写代码的并行)。测试三条:`两个_worktree_实例锁键必须不同_写仲裁键必须相同`(tool.rs:274,同时断言 `ToolConcurrency::write_worktree` 两侧 `!conflicts_with`)、`未显式设身份时锁键回退到代码树而非项目根`(tool.rs:302)、`同一棵树的锁键对大小写与分隔符稳定`(tool.rs:316)。
+
+  **超出验收的一处质量决策(必须留档,别在后续重构里当冗余合并掉)**:批2 的 `main_root` **刻意不复用** `run_prompt` 已算好的 `project_root`。后者 canonicalize 过,Windows 上形态是 `\\?\C:\…`;它一旦成为 `ctx.project_root`,就会同时决定 DocStore 路径、`project_state_path` 与**工具权限资源的归一形态**——`permission::normalize_resource` 把 `\\?\C:\x` 归成 `//?/C:/x`,与 `c:/x` 是两个串,用户经 `append_allow_rule` 存下的绝对路径放行规则会一夜全部失配。所以拆成两个值各司其职:`project_root` = 规范化身份键(喂 `process_session_id` 与进程归属比较),`main_root` = 文件系统形态主根(喂 `ctx.project_root`,不 canonicalize)。托管文档落盘路径与权限规则形态逐字节不变,规范化只用在写仲裁键上。
+
+  **顺带收益**:`crates/kanzei-tools/src/edit.rs:343` 的测试 fixture 原本靠「本机 HOME 恰好没有 `.git`」才解析出正确的根,显式双参后这条隐式环境依赖消失。
+
+  **既有能力标注(§1.25,不重复申报)**:`with_identity` / `project_write_key` / `ToolConcurrency` 的框架是 R-171 既有产出;本条只改锁键**取值来源**(project_root → cwd)与生产侧接线,框架本身不是本次产出。
+
+  **残余缺口去处(§1.2)**:worktree 线本身尚未上线(`ProcessHandle.worktree_path` 仍恒 `None`),本条只交付「显式传根 + 双键拆开」的地基;线绑 worktree、`run_prompt` 归属校验改按 origin_project、配置读主根 → **R-177**(该条「前置」字段已写明依赖本条批2,现已满足)。
+
+  **验证**:交付时定向 kanzei-harness 70 / kanzei-tools 187 / kanzei-core 103 / kanzei-app 53 全绿;关闭前全量 `cargo test --workspace` exit=0、524 passed(复杂度中,满足 §1.4 全量触发点①)。
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。
@@ -245,7 +289,7 @@
 ## R-173 阶段编排对象:勘察屏障→串行实现→复核屏障→修正闭环 [todo]
 - refs: R-171 R-117 R-050 docs/design/parallel_read_serial_write_orchestration.md
 - 优先级: P1
-- 依赖: R-171
+- 依赖: 
 - 内容: R-171 验收②⑦ 转移承接:①阶段编排对象:baseline→scouting(并行只读子代理)→汇总屏障→implementation(单 writer 租约,串行)→integration(同一 writer)→review(并行只读复核)→复核屏障→fixup(重新获取写租约串行修正);②汇总屏障:scouting 全部任务进入终态(完成/失败/超时)前 writer 不得启动,失败/超时都有确定终态,屏障不永久挂起;③复核屏障:writer 释放租约后复核才启动,保证审查的是稳定快照(设计不变量 9);④真实闭环验证:一条真实需求留下「并行勘察→串行实现/集成→并行复核→串行修正」完整轨迹,事件落 session/run 轨迹(复用 R-171 批5 的 orchestration.* 事件与批6 的读槽登记)。
 - 复杂度: 大
 - 归属: kanzei
@@ -254,6 +298,8 @@
 - 调度顺序: R-171 关闭后按序取活
 - 阶段: 3
 - 验收: ①至少两个只读子代理真实重叠执行,汇总屏障(最慢任务完成/失败/超时)前 writer 不启动,失败/超时都有确定终态;②一次真实需求完成并行勘察→屏障→串行实现/验证→并行复核→复核屏障→串行修正全轨迹,阶段事件落 session_events 可回放;③复核阶段在 writer 释放后启动,审查的是稳定快照;④writer 活跃时允许只读勘察继续(读写共存,复用 R-171 读槽机制)。
+- 批次: 6/7
+- 进展: 2026-08-10 推进中,**不关闭**——按 §1.25 三条验收(①②③)目前仍缺生产调用方,阶段编排对象尚未接进真实运行链路。已交付批次:批1 阶段编排契约(七阶段迁移表、屏障终态类型、事件单一出口,`6f98db2`);批2-4 阶段编排实现(状态机、汇总屏障、复核屏障,`67c3fa2`,顺带修 release_writer 两缺陷与写键错桶);批4.5 恢复桌面端并行查(task 注册不再受 execution_policy 门控、读槽改按 run_id 回收,`e933262`——这条同时解掉 R-174/R-175/R-176 共同记录的「桌面端主对话根本不注册 task 工具」前置回归);批5 编排事件落 session_events(单一出口收掉「枚举一套、落库一套」的漂移面,`38716a7`);批6 阶段流水线接线——自主推进轮走七阶段、勘察/复核由编排对象按角色表派发(`45a5e54`,本条关闭说明撰写期间落地)。**批7 待做**(真实闭环轨迹取证 = 验收②)。依赖字段清理:R-171 已 done 并已在 refs 中,按 §1.35 从「依赖」移出,防调度器误判阻塞(D-239 同族)。
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [todo]
 - 优先级: P0
