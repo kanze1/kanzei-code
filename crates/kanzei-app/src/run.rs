@@ -811,6 +811,8 @@ pub(crate) fn build_runner_config(
         service_tier: config.service_tier_for(resolved),
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
+        // R-162 事件触发召回:批 5 注入 kanzei-tools 实现的 RecallPolicy。
+        recall: None,
     }
 }
 

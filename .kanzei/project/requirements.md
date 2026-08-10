@@ -27,9 +27,9 @@
 - 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
 - refs: R-103 M-009 docs/design/memory_control_plane.md
 
-- 进展: 批1完成(R-162 B1, 0732e1b):failure_kind/failure_target 提为 pub(crate) 共享函数 + 直接单测(路径/数字抹平、Windows 反斜杠、命令首词、80 截断)。批2完成(R-162 B2):MemoryEntry 新增一等字段访问 field/fingerprint/trigger/valid_from/supersedes/version——frontmatter fingerprint/trigger/valid_from/supersedes/version 经 extras 宽容读取(零迁移:旧条目无键照常返回 None),fingerprint() 优先一等字段、回退正文 [fp:] 旧标记;新增 FingerprintIndex 内存索引(build 全量扫描两级 store active 条目 / upsert 写时增量 / remove 删除,lookup 精确查询 p95<5ms 用 HashMap 而非 find_active_by_marker 的 O(n) 扫描);单测一等字段宽容读零迁移_fingerprint回退正文标记 + fingerprint索引_构建查询增量upsert与删除。kanzei-tools 147 全绿。批3待做:RecallWatch 状态机(core 内)——挂 drive.rs 工具结果回喂钩位(redundancy.note_step 同款),触发判定/同轮同条目注入一次/每次触发落 recall_events(trigger/action/延迟),检索经注入回调解耦 core↔tools 依赖。
+- 进展: 批1完成(R-162 B1, 0732e1b):failure_kind/failure_target 提为 pub(crate) 共享函数 + 直接单测。批2完成(R-162 B2, 66f36a5):MemoryEntry 一等字段访问 + FingerprintIndex 内存索引(build/upsert/remove/lookup)+ 单测,kanzei-tools 147 全绿。批3完成(R-162 B3):core 新增 runner/recall.rs——RecallWatch watcher(状态按单次运行持有,挂 drive.rs 工具结果回喂钩位 redundancy.note_step 同款)+ RecallPolicy trait(检索/遥测注入解耦 core↔tools,core 零依赖 tools);RunnerConfig 新增 recall: Option<Box<dyn RecallPolicy>>,CLI(main.rs 两处)/桌面端(run.rs/memory.rs/subagents.rs 三处)/subagent.rs/write.rs 全部构造点补 recall: None;drive.rs 实例化 RecallWatch::new(config.recall.as_deref()) 并在 redundancy.note_step 之后调用;触发判定用共享 failure_kind/failure_target,同轮同条目按 id 去重(设计 §3.3,错误措辞略变不重复注入),命中追加 [记忆命中 id | category] 行动/状态/来源 Packet 文本,每次触发调 policy.record_trigger(trigger/action/延迟)落遥测;单测4条:工具失败触发注入_同轮同条目只注入一次(验收④✓)/非失败结果不触发/无策略纯no_op/失败计数递增(≥2 供 ReRetrieve,内容④前置)。core 79 全绿。批4待做:tools 侧 RecallPolicy 实现 recall_for_failure——Tier0 fingerprint 精确匹配(用 B2 FingerprintIndex,p95<5ms)→ miss 则 Tier1 BM25(错误原文+文件+符号构 query,p95<10ms),超时降级不阻塞,重复失败(同 tool+kind≥2)ReRetrieve 换 query 禁止原 top-k 重塞,record_trigger 落 recall_events(验收③)。
 
-- 批次: 2/5
+- 批次: 3/5
 
 ## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
 - 优先级: P0

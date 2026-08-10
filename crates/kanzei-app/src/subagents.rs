@@ -94,6 +94,7 @@ pub(crate) async fn quick_req(
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
             limits: config.limits.clone(),
+            recall: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -249,6 +250,7 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             context_limit: resolved.provider.context_limit,
             limits: config.limits.clone(),
             model: resolved.model,
+            recall: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture {

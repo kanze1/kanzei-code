@@ -1183,3 +1183,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 147 通过:新增一等字段宽容读零迁移 + fingerprint 索引(构建/upsert/remove)单测(批2)
 - 收尾: 1786342410
+
+## T-1786342725 R-162 B3 RecallWatch 定向测试(core/tools/app) [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-tools; cargo test -p kanzei-app
+- 摘要: core 79 / tools 147 / app 51 全绿:新增 RecallWatch 4 单测(触发注入/同轮去重/非失败不触发/无策略 no-op/失败计数递增)
+- 收尾: 1786342725

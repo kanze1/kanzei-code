@@ -129,6 +129,9 @@ pub fn run_once_with_parts<'a>(
         let mut calibration = 1.0f64;
         // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
         let mut redundancy = RedundancyWatch::default();
+        // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。
+        // 策略从 config 借用(不拥有);None = 关闭召回,零行为变化。
+        let mut recall = RecallWatch::new(config.recall.as_deref());
 
         let mut step = 0u32;
         loop {
@@ -896,6 +899,9 @@ pub fn run_once_with_parts<'a>(
             // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
             // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
             redundancy.note_step(&ctx.project_root, &calls, &mut results);
+            // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
+            // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
+            recall.note_step(&calls, &mut results);
             messages.push(Message::tool_results(results));
 
             if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {

@@ -23,6 +23,8 @@ mod redundancy;
 pub(crate) use context::*;
 mod compaction;
 mod drive;
+mod recall;
+pub use recall::{RecallHit, RecallPolicy, RecallTrigger, RecallWatch};
 mod subagent;
 mod tool_exec;
 pub use drive::{run_once, run_once_with_parts};
@@ -49,6 +51,10 @@ pub struct RunnerConfig {
     pub context_limit: Option<u64>,
     /// 可调上限([limits] 节)。全 None = 内置默认,与改造前的硬编码常量逐值一致。
     pub limits: kanzei_harness::config::Limits,
+    /// R-162 事件触发召回策略:工具失败瞬间把相关记忆 Packet 注入下一请求前。
+    /// None = 关闭召回(纯 no-op,行为与引入前完全一致)。core 不依赖 tools,
+    /// 实现由 CLI/桌面端注入(kanzei-tools 记忆检索包装成 RecallPolicy)。
+    pub recall: Option<Box<dyn RecallPolicy>>,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。

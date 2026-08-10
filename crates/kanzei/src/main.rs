@@ -186,6 +186,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         // 轮内主动压缩的预算基准(D-176)。
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
+        // R-162 事件触发召回:批 5 注入 kanzei-tools 实现的 RecallPolicy。
+        recall: None,
     };
     let ctx = ToolCtx { cwd, project_root };
 
@@ -625,6 +627,7 @@ async fn consolidate_memory_inbox(
             service_tier: config.service_tier_for(&resolved),
             context_limit: resolved.provider.context_limit,
             limits: config.limits.clone(),
+            recall: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {

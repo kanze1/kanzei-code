@@ -94,6 +94,9 @@ pub(crate) async fn run_subagent(
         // 子代理跑的是 fast 模型,窗口未必与主模型同源;这里不传上限,
         // 让它继续走撞墙后的被动恢复,不按主模型的预算误压。
         context_limit: None,
+        // R-162:子代理是机械检索,不需要事件触发召回(记忆命中只面向主代理
+        // 的失败瞬间决策;子代理注入会让同一失败双倍刷屏)。
+        recall: None,
     };
     let mut on_event = |event: RunEvent| {
         let text = match &event {

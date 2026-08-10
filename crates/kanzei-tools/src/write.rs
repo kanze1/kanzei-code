@@ -380,6 +380,7 @@ mod tests {
             service_tier: None,
             context_limit: None,
             limits: Default::default(),
+            recall: None,
         };
         let tool_ctx = ToolCtx {
             cwd: root.clone(),
