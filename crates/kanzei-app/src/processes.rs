@@ -1,4 +1,21 @@
 //! Process and worktree commands.
+//!
+//! # 字段口径(F4 定死,先读这一段再改本文件)
+//!
+//! `ProcessHandle.project_dir` 与 `ProcessHandle.origin_project` **恒为主根**
+//! (`normalized_project_root` 的规范化形态);一条线的执行工作树**只**由
+//! `worktree_path` 承担。这不是风格偏好,是四处反推主根的代码逼出来的硬约束:
+//!
+//! - 本文件 `create_process` 的 `p{n}` 计数按 `project_dir` 分桶——改存 worktree
+//!   后每棵树各自从 p1 开始,编号立刻撞车;
+//! - 本文件 `process_update` 与 `process_close` 都用 `project_dir` 反推 root 去
+//!   开 `state.db`——改存 worktree 会把库落进工作树,线一关就连同工作树一起没了;
+//! - `state.rs` 的 `process_info` 用 `project_dir` 算 `session_id`——改存 worktree
+//!   等于给同一条线换身份串,会话历史集体失联(D-176 红线)。
+//!
+//! 正因为 `project_dir` 恒主根,`p{n}` 在一个项目内已经唯一,`session_id` 才不
+//! 需要再加 worktree 后缀(§0 定案 2 的前提)。`store/schema.rs` 的 processes 表
+//! 注释同批更正为这个口径。
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -148,11 +165,72 @@ pub fn process_create(
     reasoning: Option<String>,
     // 「勘察复核」开关(阶段流水线总闸)。缺省 = 关,见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
+    // 给定则同时建一棵工作树并绑到这条线上;缺省(Tauri 对未传的 Option 参数解析为
+    // None)保持今天的行为,worktree_path 恒 None。
+    worktree_name: Option<String>,
 ) -> Result<ProcessInfo, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    ensure_default_process(&state, &root);
+    create_process(
+        &state,
+        &project_dir,
+        model,
+        profile,
+        reasoning,
+        phase_pipeline,
+        worktree_name,
+    )
+}
+
+/// `process_create` 的非 Tauri 内核。
+///
+/// 拆出来是为了能测:`State<'_, AppState>` 在单元测试里构造不出来,而本批要验的
+/// 三件事(真实绑定 / 一树一线 / 失败整体回滚)全在这段逻辑里。
+///
+/// 建线的三步顺序不可调换:
+/// 1. **查重先于建树**(D4 定案):目标树已被别的线绑走就直接拒并点名那条线的 id,
+///    此时一棵树都不许多出来——否则「拒绝」还是会在磁盘上留下垃圾工作树。
+/// 2. 建树。
+/// 3. 落库;**落库失败就整体回滚**(摘工作树 + 删分支 + 从内存进程表移除),绝不
+///    留半绑定态。半绑定态是最坏的结局:磁盘上有树、库里没线,用户在界面上看不见
+///    它,也就没有任何入口能把它收掉。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_process(
+    state: &AppState,
+    project_dir: &str,
+    model: Option<String>,
+    profile: Option<String>,
+    reasoning: Option<String>,
+    phase_pipeline: Option<bool>,
+    worktree_name: Option<String>,
+) -> Result<ProcessInfo, String> {
+    let root = normalized_project_root(Path::new(project_dir));
+    ensure_default_process(state, &root);
+    // 恒主根:见本文件头的「字段口径」。worktree 路径只进 worktree_path。
     let project = root.display().to_string();
+    let worktree_name = worktree_name.filter(|value| !value.trim().is_empty());
     let mut processes = state.processes.lock().unwrap();
+
+    // ① 一树一线查重(建树之前)。
+    let planned = match worktree_name.as_deref() {
+        Some(name) => {
+            let (target, branch) = worktree_target(&root, name)?;
+            let key = worktree_key(&target);
+            if let Some(bound) = processes.values().find(|process| {
+                process
+                    .worktree_path
+                    .as_deref()
+                    .is_some_and(|path| worktree_key(Path::new(path)) == key)
+            }) {
+                return Err(format!(
+                    "工作树 {} 已绑定到线 {};一棵工作树同时只能有一条线",
+                    target.display(),
+                    bound.id
+                ));
+            }
+            Some((target, branch))
+        }
+        None => None,
+    };
+
     let next = processes
         .values()
         .filter(|process| process.project_dir == project && process.id.starts_with("p"))
@@ -168,11 +246,18 @@ pub fn process_create(
         .max()
         .unwrap_or(0)
         + 1;
+
+    // ② 建树。失败直接返回:此刻还没有任何进程进内存表,不需要回滚。
+    let worktree_path = match worktree_name.as_deref() {
+        Some(name) => Some(create_worktree(&root, name)?.path),
+        None => None,
+    };
+
     let process = ProcessHandle {
         id: format!("p{next}|{project}"),
         origin_project: project.clone(),
         project_dir: project,
-        worktree_path: None,
+        worktree_path,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
         profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
         reasoning: Arc::new(Mutex::new(
@@ -180,11 +265,17 @@ pub fn process_create(
         )),
         phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
     };
-    let info = process_info(&state, &process);
+    let info = process_info(state, &process);
     processes.insert(process.id.clone(), process.clone());
     drop(processes);
-    // R-178 D3:非默认线创建即落库,重启后页签与线级状态可恢复。
-    persist_process(&root, &process)?;
+    // ③ R-178 D3:非默认线创建即落库,重启后页签与线级状态可恢复。
+    if let Err(error) = persist_process(&root, &process) {
+        state.processes.lock().unwrap().remove(&process.id);
+        if let Some((target, branch)) = planned {
+            rollback_worktree(&root, &target, &branch);
+        }
+        return Err(error);
+    }
     Ok(info)
 }
 
@@ -277,6 +368,152 @@ fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, 
         .map_err(|e| format!("git 执行失败: {e}"))
 }
 
+/// 把路径变成可以交给 git 当**命令行参数**的形态(剥掉 Windows 扩展长度前缀)。
+///
+/// `normalized_project_root` 会 `canonicalize`,Windows 上产出 `\\?\C:\...`。
+/// 2026-08-11 实测:该形态作为进程的 `current_dir` 完全可用(Win32 API 认),但
+/// **作为 git 的参数一律失败** —— `git worktree add -b b \\?\C:\x\wt HEAD` 报
+/// `could not create leading directories of '//?/C:/x/wt/.git': Invalid argument`。
+/// 所以凡是把路径交给 git 当参数的地方都得先过这一层,否则「建线」在 Windows 上
+/// 一次都成功不了(R-177 验收①)。反过来 `current_dir` 不必剥,保持原样即可。
+fn git_arg_path(path: &Path) -> String {
+    let raw = path.display().to_string();
+    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
+}
+
+/// 一树一线查重用的路径键。
+///
+/// 查重必须发生在**建树之前**(D4 定案),那时目标目录还不存在、`canonicalize`
+/// 必然失败,所以这里是「能规范化就规范化,不能就退回字面量归一」:统一分隔符、
+/// 剥扩展长度前缀、去尾分隔符,Windows 上再小写。已绑定的线存的是已存在的真实
+/// 路径(canonicalize 成功),目标路径存的是尚不存在的字面量(canonicalize 失败),
+/// 两条路径经过同一套归一后仍然可比——这是查重能对上的原因。
+fn worktree_key(path: &Path) -> String {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let raw = resolved.display().to_string().replace('\\', "/");
+    let stripped = match raw.strip_prefix("//?/UNC/") {
+        Some(rest) => format!("//{rest}"),
+        None => raw.strip_prefix("//?/").unwrap_or(&raw).to_string(),
+    };
+    let trimmed = stripped.trim_end_matches('/');
+    if cfg!(windows) {
+        trimmed.to_lowercase()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 工作树的目标路径与分支名——只算不落盘。
+///
+/// 与 `create_worktree` 分开,是因为一树一线查重要在建树**之前**拿到目标路径
+/// (D4 定案:目标树已被绑定则拒绝,此时一棵树都不许多出来)。
+pub(crate) fn worktree_target(root: &Path, name: &str) -> Result<(PathBuf, String), String> {
+    let safe_name: String = name
+        .trim()
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if safe_name.is_empty() {
+        return Err("工作树名称不能为空".into());
+    }
+    let parent = root.parent().unwrap_or(root);
+    Ok((
+        parent.join(format!(".kanzei-worktree-{safe_name}")),
+        format!("kanzei/thread-{safe_name}"),
+    ))
+}
+
+/// 工作树的真实工作区状态:未提交文件清单 + diff。
+///
+/// `create_worktree` 与 `worktree_diff` 共用同一次探测。建线以前返回的是硬编码
+/// 乐观值(空 files / clean=true / 空 diff),收活流程会把「线还有活没提交」当成
+/// 干净合并——那是丢工作,不是显示问题。
+pub(crate) fn worktree_status(
+    root: &Path,
+    worktree: &Path,
+) -> Result<(Vec<String>, String), String> {
+    let target = git_arg_path(worktree);
+    let output = worktree_command(root, &["-C", &target, "status", "--porcelain"])?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let files = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let diff_output =
+        worktree_command(root, &["-C", &target, "diff", "--no-ext-diff", "--binary"])?;
+    if !diff_output.status.success() {
+        return Err(String::from_utf8_lossy(&diff_output.stderr)
+            .trim()
+            .to_string());
+    }
+    Ok((
+        files,
+        String::from_utf8_lossy(&diff_output.stdout).to_string(),
+    ))
+}
+
+/// 建工作树(非 Tauri 内核):`worktree_create` 命令与 `create_process` 建线共用。
+///
+/// 顺带补上以前缺的一件事:`git worktree add` 失败时**回收已经建出来的目录**。
+/// 不回收的话下一次同名建线会撞上「工作树已存在」,把用户永久堵死在一个既没有
+/// 线也删不掉的半成品上。
+pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, String> {
+    let (worktree, branch) = worktree_target(root, name)?;
+    if worktree.exists() {
+        return Err(format!("工作树已存在: {}", worktree.display()));
+    }
+    let output = worktree_command(
+        root,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            &branch,
+            &git_arg_path(&worktree),
+            "HEAD",
+        ],
+    )?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&worktree);
+        let _ = worktree_command(root, &["worktree", "prune"]);
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let (files, diff) = worktree_status(root, &worktree)?;
+    Ok(WorktreeInfo {
+        path: git_arg_path(&worktree),
+        branch,
+        clean: files.is_empty(),
+        files,
+        diff,
+    })
+}
+
+/// 回收一条建到一半的线:先 remove 工作树(分支正被它 checkout,不先摘就删不掉),
+/// 再删分支。全程 best-effort —— 它跑在失败路径上,自己再报错只会盖掉真正的原因。
+pub(crate) fn rollback_worktree(root: &Path, worktree: &Path, branch: &str) {
+    let target = git_arg_path(worktree);
+    let removed = worktree_command(root, &["worktree", "remove", "--force", &target])
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !removed {
+        let _ = std::fs::remove_dir_all(worktree);
+        let _ = worktree_command(root, &["worktree", "prune"]);
+    }
+    let _ = worktree_command(root, &["branch", "-D", branch]);
+}
+
 fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, String> {
     let output = worktree_command(worktree, &["branch", "--show-current"])?;
     if !output.status.success() {
@@ -326,47 +563,7 @@ pub async fn worktree_create(
         })
         .await
         .map_err(|e| format!("无法获取项目写租约: {e}"))?;
-    let safe_name: String = name
-        .trim()
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    if safe_name.is_empty() {
-        return Err("工作树名称不能为空".into());
-    }
-    let parent = root.parent().unwrap_or(&root);
-    let worktree = parent.join(format!(".kanzei-worktree-{safe_name}"));
-    if worktree.exists() {
-        return Err(format!("工作树已存在: {}", worktree.display()));
-    }
-    let branch = format!("kanzei/thread-{safe_name}");
-    let output = worktree_command(
-        &root,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            &worktree.display().to_string(),
-            "HEAD",
-        ],
-    )?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
-    Ok(WorktreeInfo {
-        path: worktree.display().to_string(),
-        branch,
-        files: Vec::new(),
-        clean: true,
-        diff: String::new(),
-    })
+    create_worktree(&root, &name)
 }
 
 #[tauri::command]
@@ -374,41 +571,9 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
     let root = normalized_project_root(Path::new(&project_dir));
     let worktree = validate_worktree_path(&root, &worktree_path)?;
     let branch = worktree_field(&root, &worktree, "branch")?;
-    let output = worktree_command(
-        &root,
-        &[
-            "-C",
-            &worktree.display().to_string(),
-            "status",
-            "--porcelain",
-        ],
-    )?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
-    let files = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let diff_output = worktree_command(
-        &root,
-        &[
-            "-C",
-            &worktree.display().to_string(),
-            "diff",
-            "--no-ext-diff",
-            "--binary",
-        ],
-    )?;
-    if !diff_output.status.success() {
-        return Err(String::from_utf8_lossy(&diff_output.stderr)
-            .trim()
-            .to_string());
-    }
-    let diff = String::from_utf8_lossy(&diff_output.stdout).to_string();
+    let (files, diff) = worktree_status(&root, &worktree)?;
     Ok(WorktreeInfo {
-        path: worktree.display().to_string(),
+        path: git_arg_path(&worktree),
         branch,
         clean: files.is_empty(),
         files,
@@ -474,10 +639,9 @@ pub async fn worktree_discard(
         .await
         .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let output = worktree_command(
-        &root,
-        &["worktree", "remove", &worktree.display().to_string()],
-    )?;
+    // git 收不下 `\\?\` 前缀的参数(见 `git_arg_path`),而 validate 出来的正是
+    // canonicalize 的产物——不剥这一层,放弃工作树在 Windows 上永远失败。
+    let output = worktree_command(&root, &["worktree", "remove", &git_arg_path(&worktree)])?;
     if !output.status.success() {
         return Err(format!(
             "工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}",
@@ -489,3 +653,8 @@ pub async fn worktree_discard(
         worktree.display()
     ))
 }
+
+// R-177 验收⑦:processes.rs 在 F4 之前零测试(既无 mod tests 也无 #[test])。
+#[cfg(test)]
+#[path = "worktree_tests.rs"]
+mod tests;

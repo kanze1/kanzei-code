@@ -183,8 +183,12 @@ impl SessionStore {
                  );
                  -- v10(R-178):线级状态持久化。桌面端每项目的「页签」(进程/线)与
                  -- 每条线各自的模型 / profile / reasoning / 勘察复核开关。
-                 -- origin_project 是主根(规范化形态),project_dir 是执行工作树
-                 -- (worktree 上线后两者分离)。默认进程(d|)同样落库——它是「主对话」
+                 -- origin_project 与 project_dir **恒为主根**(规范化形态);一条线的
+                 -- 执行工作树只由 worktree_path 承担(F4 定死)。这里以前写的是
+                 -- 「project_dir 存执行工作树」,与代码事实相反:kanzei-app 的 p{n}
+                 -- 计数、persist/close 反推 root 开库、session_id 反推 root 四处都拿
+                 -- project_dir 当主根用,改存工作树会让会话按树分裂、state.db 落进
+                 -- 工作树。默认进程(d|)同样落库——它是「主对话」
                  -- 的模型/开关状态,重启后要恢复;恢复时无需重建存在性
                  -- (ensure_default_process 保证),只需用库值回填字段。
                  CREATE TABLE IF NOT EXISTS processes (
