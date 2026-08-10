@@ -3322,6 +3322,47 @@ sandbox.__kzTest.setRounds(4);
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, autoAction: { type: "NoContinue" }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
+// ---------- 「勘察复核」= 阶段流水线总闸(2026-08-11 换闸门) ----------
+// 闸门从 auto_runs[session].enabled 换成进程级开关后,「开鞭挞 = 每轮勘察+复核」这个
+// 旧心智模型不再成立。四种组合里只有「鞭挞开 + 闸门关」需要提示,这里把它和它的
+// 反面(闸门开 → 不提示)一起钉住,顺带钉 IPC 参数名(phasePipeline,不再是 subagent)。
+const pipelineToggle = byId.get("process-phase-pipeline");
+assert(pipelineToggle, "顶栏「更多」里缺少「勘察复核」开关");
+assert(
+  !pipelineToggle.checked,
+  "「勘察复核」必须默认关闭(process_list 桩不带 phase_pipeline 字段时回落 false)"
+);
+byId.get("auto-continue").checked = true;
+pipelineToggle.checked = false;
+pipelineToggle.dispatchEvent({ type: "change" });
+await flush();
+assert(
+  invokeArgs.findLast(({ cmd }) => cmd === "process_update")?.args?.phasePipeline === false,
+  `关闭勘察复核未以 phasePipeline 发给后端:${JSON.stringify(invokeArgs.findLast(({ cmd }) => cmd === "process_update"))}`
+);
+assert(
+  byId.get("auto-status").textContent.includes("勘察复核未开"),
+  `鞭挞开着而勘察复核关着时,自主推进面板必须明说:${byId.get("auto-status")?.textContent}`
+);
+// 打开闸门:后端回显跟着变(桩模拟 process_list 的新值),提示随即消失。
+payloads.process_list[0].phase_pipeline = true;
+pipelineToggle.checked = true;
+pipelineToggle.dispatchEvent({ type: "change" });
+await flush();
+assert(
+  invokeArgs.findLast(({ cmd }) => cmd === "process_update")?.args?.phasePipeline === true,
+  `打开勘察复核未以 phasePipeline 发给后端:${JSON.stringify(invokeArgs.findLast(({ cmd }) => cmd === "process_update"))}`
+);
+assert(
+  pipelineToggle.checked && !byId.get("auto-status").textContent.includes("勘察复核未开"),
+  `闸门开着时不该再提示未开:${byId.get("auto-status")?.textContent}`
+);
+// 收尾:桩与控件回到默认关,免得后续用例继承本节状态。
+payloads.process_list[0].phase_pipeline = false;
+pipelineToggle.checked = false;
+pipelineToggle.dispatchEvent({ type: "change" });
+await flush();
+
 // 收尾:恢复冒烟前置环境(语言/档位/开关/计数)。
 byId.get("profile-select").value = savedProfileForWhip;
 byId.get("auto-continue").checked = savedAutoCheck;
@@ -3989,6 +4030,74 @@ const docsB = {
     "项目乙自己那次刷新没有兑现挂起的跳转高亮",
   );
   await flush();
+}
+
+// ---------- R-174 子代理面板:独立分区、六字段真实数据、单条停止、transcript ----------
+{
+  // 打开面板:agent-toggle 应切出 #agent-panel 并收起 #bg-panel(互斥)。
+  const agentToggle = byId.get("agent-toggle");
+  assert(agentToggle, "子代理面板缺少 rail 开关");
+  const agentPanel = byId.get("agent-panel");
+  const bgPanel = byId.get("bg-panel");
+  agentToggle.click();
+  assert(!agentPanel.classList.contains("hidden"), "点击 agent-toggle 后 #agent-panel 未展开");
+  assert(bgPanel.classList.contains("hidden"), "子代理面板打开时活动面板未收起(互斥切换失败)");
+  agentToggle.click(); // 收起
+  assert(agentPanel.classList.contains("hidden"), "再次点击 agent-toggle 后 #agent-panel 未收起");
+  agentToggle.click(); // 再展开,后续断言用
+  // 建条:task 的 tool-start 进子代理面板(编排派发带 phase,模型自派 name=task)。
+  const sA = handlers.get("kz:tool-start");
+  const pA = handlers.get("kz:task-progress");
+  const eA = handlers.get("kz:tool-end");
+  sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" } } });
+  await flush();
+  const a1 = document.querySelector('#agent-running .bg-entry[data-agent-id="my_scout"]');
+  assert(a1, "运行中的子代理未进入 Running 区");
+  assert(a1.querySelector(".bg-tool")?.textContent.includes("my_scout"), "编排派发的子代理未以角色名作名称");
+  assert(a1.querySelector(".bg-phase-badge")?.textContent.includes("Scouting"), "子代理缺少类型(阶段)徽章");
+  assert(a1.dataset.agentElapsed === "0", "子代理缺少已运行时长字段");
+  // 六字段中的 token/工具调用数/当前工具名必须来自真实 trace(usage/start 事件)。
+  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } } } });
+  await flush();
+  assert(a1.dataset.agentCurrentTool === "read", "子代理未显示当前正在用的工具名(trace 数据源)");
+  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "end", name: "read", ok: true, preview: "ok" } } });
+  pA({ payload: { id: "my_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 100, output: 50, cache_read: 10, cache_write: 5 } } } });
+  await flush();
+  assert(a1.dataset.agentCurrentTool === "read", "工具结束后当前工具名应保留(idle 态)");
+  assert(a1.querySelector(".bg-meta")?.textContent.includes("tokens"), "子代理元信息未显示累计 token");
+  assert(a1.querySelector(".bg-meta")?.textContent.includes("tool calls"), "子代理元信息未显示工具调用次数");
+  // transcript:展开 detail 应有完整调用序列(名称 + 入参)。
+  a1.querySelector(".bg-title").click();
+  assert(a1.querySelector(".agent-call"), "子代理缺少 transcript 调用序列");
+  assert(a1.querySelector(".agent-call pre")?.textContent.includes("src/main.rs"), "transcript 未包含调用的完整入参");
+  // 单条停止:运行中的子代理有停止按钮,点击走 stop_task 而非 stop_run。
+  const stopBtn = [...a1.querySelectorAll(".bg-actions button")].find((b) => b.textContent === "Stop");
+  assert(stopBtn, "运行中的子代理缺少单条停止按钮");
+  const beforeStop = invokeLog.filter((cmd) => cmd === "stop_run").length;
+  stopBtn.click();
+  await flush();
+  assert(
+    invokeArgs.some((a) => a.cmd === "stop_task" && a.args?.taskId === "my_scout"),
+    "单条停止未调用 stop_task(或参数缺少 taskId)",
+  );
+  assert(invokeLog.filter((cmd) => cmd === "stop_run").length === beforeStop, "单条停止误调用了 stop_run(整轮停止)");
+  // 被停终态:tool-end ok=false +「被停」文案 → 移到 Finished 区、标 stopped、读槽释放由后端负责。
+  eA({ payload: { id: "my_scout", name: "task", ok: false, preview: "子代理已被停止", display: null } });
+  await flush();
+  const a1f = document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]');
+  assert(a1f, "被停的子代理未移入 Finished 区");
+  assert(a1f.dataset.bgStatus === "stopped", "被停的子代理未标记 stopped 终态");
+  assert(a1f.querySelector(".bg-meta")?.textContent.includes("Stopped"), "被停的子代理终态元信息未显示「已停止」");
+  assert(!a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Stop"), "结束的子代理不应残留停止按钮");
+  // Finished 区的条目有「打开」(transcript 视图入口)。
+  assert(a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Finished 区子代理缺少打开 transcript 入口");
+  // Clear 清空 Finished 区。
+  byId.get("agent-clear").click();
+  await flush();
+  assert(!document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]'), "Clear 未清空 Finished 区");
+  // 关闭面板,恢复活动面板互斥状态。
+  agentToggle.click();
+  assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
 
 // ---------- 在途的工作树操作不得写进已经切走的项目的键(D-251) ----------

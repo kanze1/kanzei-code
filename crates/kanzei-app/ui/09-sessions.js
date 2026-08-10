@@ -153,7 +153,10 @@ function renderProcesses(items) {
     tab.addEventListener("click", () => switchProcess(item.id));
     tabs.appendChild(tab);
   }
-  $("process-subagent").checked = active?.subagent ?? true;
+  // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
+  $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
+  // 鞭挞面板要跟着重算:自主推进开着而流水线关着时那里有一行提示。
+  renderAutoStatus();
 }
 
 async function refreshProcesses() {
@@ -229,7 +232,8 @@ async function switchProcess(processId) {
 $("process-add").addEventListener("click", async () => {
   if (!currentProject) return;
   try {
-    const item = await invoke("process_create", { projectDir: currentProject, subagent: true });
+    // 新进程与默认进程同一默认:勘察复核关(要显式打开才强制走七阶段)。
+    const item = await invoke("process_create", { projectDir: currentProject, phasePipeline: false });
     await refreshProcesses();
     await switchProcess(item.id);
   } catch (err) {
@@ -237,15 +241,17 @@ $("process-add").addEventListener("click", async () => {
   }
 });
 
-$("process-subagent").addEventListener("change", async (event) => {
+$("process-phase-pipeline").addEventListener("change", async (event) => {
   if (!activeProcessId) return;
   try {
-    await invoke("process_update", { processId: activeProcessId, subagent: event.target.checked });
+    await invoke("process_update", { processId: activeProcessId, phasePipeline: event.target.checked });
     await refreshProcesses();
+    log(event.target.checked ? t("勘察复核已开启:每个任务强制走勘察→实现→复核") : t("勘察复核已关闭:恢复一问一答,模型仍可自己派子代理"));
   } catch (err) {
     event.target.checked = !event.target.checked;
     toastError(`${t("更新进程能力失败")}:${err}`);
   }
+  renderAutoStatus();
 });
 
 // ---------- 项目管理 ----------

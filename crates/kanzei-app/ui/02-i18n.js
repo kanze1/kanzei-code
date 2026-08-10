@@ -174,6 +174,13 @@ const I18N_EN = {
   "平均终端调用": "Avg terminal calls", "平均 git 查询组": "Avg git query groups", "edit 未命中率": "Edit miss rate",
   "平均步数": "Avg steps", "平均输出 token": "Avg output tokens", "近": "Last", "轮均值": "round average",
   "步": "steps", "终端": "terminal", "组": "groups", "未命中": "missed", "子代理": "subagents",
+  "已完成": "Finished", "工具调用": "tool calls", "修复": "Fix-up", "token": "tokens",
+  "子代理启动中": "Subagent starting", "收起子代理面板": "Collapse subagent panel", "打开子代理面板": "Open subagent panel",
+  "子代理面板": "Subagent panel", "打开或收起子代理面板": "Open or collapse subagent panel",
+  "清空已完成的子代理条目": "Clear finished subagent entries", "清空": "Clear",
+  "只停这一条子代理,不影响本轮其它工具": "Stop only this subagent, other tools keep running",
+  "已请求停止该子代理": "Stop requested for this subagent", "展开或收起子代理详情": "Expand or collapse subagent detail",
+  "查看完整 transcript(工具调用序列 + 每次入参与输出)": "View full transcript (tool call sequence + each call's input and output)",
   "失败": "failed", "上下文": "context", "该轮早于度量落地,无画像": "This round predates metrics collection — no profile",
   "标记失效": "Mark stale", "恢复启用": "Reactivate", "没有命中的记忆": "No matching memory",
   "记忆检索失败": "Memory search failed", "inbox 尚有草稿未消化": "Inbox still has pending notes",
@@ -229,7 +236,10 @@ const I18N_EN = {
   "鞭挞上限(1-100)": "Auto-run limit (1–100)",
   "本次不再弹权限窗,全部自动放行(相当于 yolo)": "Automatically allow all permissions for this session",
   "创建隔离 Git 工作树线程": "Create isolated Git worktree thread",
-  "只对当前进程启用/关闭只读子代理": "Enable or disable read-only subagents for this process",
+  // 「勘察复核」= 阶段流水线总闸(2026-08-11 用户定调)。它不是「有没有子代理」的开关
+  // ——关着的时候模型照样能自己派 task,所以文案与译名都不能再出现「启用子代理」的说法。
+  "勘察复核": "Scout & review",
+  "开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。": "When on, every task in this process is forced through: parallel scouting → implementation → parallel review → fixup (when there are findings). When off it is plain question-and-answer, and the model can still dispatch its own subagents. Cost: 5 scouting + 3 review subagents per round, plus an extra fixup pass whenever review does not come back all NO_ISSUES (failures and timeouts count as findings), so a weak model will run it almost every round. The parallel role cap is [limits] max_tasks_per_turn.",
   "用 fast 模型总结当前对话并存档到 .kanzei/summaries/": "Summarize this chat with the fast model and archive it under .kanzei/summaries/",
   "把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI": "Copy this chat, including reasoning and tool traces, as Markdown",
   "搜索当前对话": "Search this chat",
@@ -428,6 +438,11 @@ const I18N_DYNAMIC_EN = {
   "已加入队列，将按顺序执行": "Added to the queue and will run in order",
   "已存档": "Archived",
   "连续推进上限": "Continuous progress limit",
+  // 自主推进不再自带七阶段:鞭挞开着而「勘察复核」关着时,顶栏必须明说,否则用户会
+  // 沿用旧心智模型以为每轮都在勘察(2026-08-11 换闸门带来的行为变化)。
+  "勘察复核未开(每轮直接实现)": "Scout & review is off (each round goes straight to implementation)",
+  "勘察复核已开启:每个任务强制走勘察→实现→复核": "Scout & review on: every task is forced through scouting → implementation → review",
+  "勘察复核已关闭:恢复一问一答,模型仍可自己派子代理": "Scout & review off: back to plain question-and-answer; the model can still dispatch its own subagents",
   "已切换为需求优先": "Switched to requirement-first",
   "已切换为缺陷优先": "Switched to defect-first",
   "停止指令失败": "Stop command failed",

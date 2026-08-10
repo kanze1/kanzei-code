@@ -113,6 +113,11 @@ kanzei 已经具备两块可复用能力：
 >
 > 角色的模型路由由 `[models] scout` 配置(取值与 `primary`/`fast` 同一套解析)；
 > 未配置时沿用 `fast`。并行角色数上限复用 `[limits] max_tasks_per_turn`，不另立新键。
+>
+> **2026-08-11 补注(装配闸门换人)**：本表由编排器派发这条不变；变的是**什么时候有编排器**。
+> 闸门已从「自主推进轮」改为进程级「勘察复核」开关(默认关)，开着时手动一问一答同样按本表
+> 派发全部角色。开关关着时**不是**没有子代理——模型自己派 `task` 的那条路始终可用，
+> 只是没有屏障可言(见上文)。
 
 ## 核心不变量
 
@@ -214,8 +219,12 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
     以及 `OrchestrationEvent` 的落库单一出口(`event_type()` / `payload()`)。
   - 实现在 `crates/kanzei-core/src/phase.rs`：`PhaseOrchestrator` 持有写租约不外泄，
     `join_scouts` 是进入 `synthesis` 的唯一通路，`enter_review` 交出租约后才能进 `review`。
-  - 接线在 `crates/kanzei-app/src/phase_pipeline.rs` + `run.rs`：**只在自主推进轮装配**
-    (手动一问一答不构造编排对象，运行路径与引入前逐字节相同)。
+  - 接线在 `crates/kanzei-app/src/phase_pipeline.rs` + `run.rs`：装配闸门是
+    `phase_pipeline::start_if_enabled` 的第一个参数，取值来自**进程级「勘察复核」开关**
+    (`ProcessHandle::phase_pipeline_enabled`，默认关)。开 = 该进程**每个任务**都走七阶段，
+    手动一问一答也走；关 = 不构造编排对象，运行路径与引入前逐字节相同。
+    (2026-08-11 用户定调修订：闸门原为 `AutoRunController::enabled`，即「只在自主推进轮装配」；
+    详见本文变更记录同日条目。)
   - **并发预算**沿用 `[limits] max_tasks_per_turn`；**失败策略**为「失败/超时不中止，
     但必须让模型知道」(`BarrierOutcome::model_notice`)；**屏障上界**为
     `[limits] barrier_timeout_secs`，缺省由 `subagent_timeout_secs` 推导且强制宽于内层。
@@ -271,6 +280,20 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
   3. 交付过程中在 R-171 既有实现里发现并修掉三个**同族缺陷**，成因相同——代码路径不可达时缺陷不会暴露：`release_writer` 交接路径不发 `WriterReleased`（审计断档）、`WriterReleased` 的 `process_id` 恒为空串、`ReadPermit` 按 `agent_name` 回收（并行角色同名，回收身份错乱）。前两个在写租约事件真正落库时才可见，第三个在「并行查」恢复后才可见。
   4. 交付中另发现并修掉一个**跨进程写仲裁漏洞**：`normalize_project_root` 未剥 Windows `\\?\` 扩展长度前缀，导致 worktree 命令（走 `canonicalize`）与主对话（走裸路径）落进两个仲裁桶，不变量 8 在 Windows 上实际被绕过。修复点收在该函数一处，两种形态现已竞争同一租约。
   另记两条本次实测澄清：①D-227 的 `test_record` 同 ID 与并发无关（wave 排他与写租约都生效、四条记录全部存活），根因是分配器只读系统时钟不读文件，**串行不等于唯一**——租约在原理上修不掉它；②`core/orchestration.rs` 的 `normalize_project_root` 不剥 Windows 扩展长度前缀 `\\?\`，而 worktree 写命令走 `canonicalize`（带前缀）、主对话 writer 走发现式取根（不带），两者落在**不同的项目桶**，worktree 写入实际绕过了协调器。该缺口在 R-173 批次内修复。
+- 2026-08-11（装配闸门修订，用户定调）：七阶段的装配闸门从 `AutoRunController::enabled`
+  （自主推进/鞭挞）换成**进程级「勘察复核」开关**（`ProcessHandle::phase_pipeline_enabled`，
+  界面同名勾选框，**默认关**）。三点后果写在这里，免得下次又靠读代码推：
+  1. **自主推进不再自带流水线**——它只管「轮末要不要自动发下一条」；旧闸门让用户形成
+     「开自主推进 = 每轮勘察+复核」的心智模型，换闸门后不成立，界面在鞭挞开而闸门关时明说。
+  2. **开关打开 = 每个任务强制走七阶段**，手动一问一答也走（旧口径只在自主推进轮走）。
+  3. 该开关**不再**控制子代理有无：`run.rs` 的 `subagent_rt` 改为无条件构造，模型自己派
+     `task` 那条路与本开关无关。开关名从「子代理」改为「勘察复核」正是为此——它管的是
+     「每轮强制勘察与复核」，不是「有没有子代理」。
+  设计原则（不变量 1~10、屏障语义、角色表）一条未改，改的只有装配条件；本文对应更新
+  「推荐勘察角色」补注与「后续批次」P1 接线两处。闸门两种取值各有定向测试：
+  `crates/kanzei-app/src/phase_pipeline_tests.rs` 的 `勘察复核关闭时不构造编排对象且行为与引入前一致`
+  与 `七阶段闭环轨迹落库可回放`（后者入口改为从闸门进——直接 `PhasePipeline::start` 的写法
+  在换闸门时不会红，等于没守住闸门）。
 
 ## 验证证据
 

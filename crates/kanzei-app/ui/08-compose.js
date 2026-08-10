@@ -63,11 +63,20 @@ async function loadWorkFocus() {
   else if (title.includes("缺陷优先")) $("work-priority-select").value = "defect-first";
 }
 
+// 「勘察复核」= 阶段流水线总闸(2026-08-11 用户定调),勾选框在顶栏「更多」里。
+function phasePipelineOn() {
+  return $("process-phase-pipeline")?.checked === true;
+}
 function renderAutoStatus(text = autoStopReason) {
   const el = $("auto-status");
   if (!el) return;
   const max = autoContinueMax();
-  el.textContent = localizeDynamic(text || `连续推进上限 ${max}`);
+  const base = text || `连续推进上限 ${max}`;
+  // 自主推进**不再**自带七阶段(闸门已换成进程级「勘察复核」开关)。用户此前的心智
+  // 模型是「开鞭挞 = 每轮勘察+复核」,不说出来就会以为勘察静默失效了——所以鞭挞
+  // 开着而流水线关着时必须在这里明说,而不是让他从没有勘察块反推。
+  const hint = $("auto-continue")?.checked && !phasePipelineOn() ? " · 勘察复核未开(每轮直接实现)" : "";
+  el.textContent = localizeDynamic(`${base}${hint}`);
 }
 // R-170:继续文案 = 用户附加意图 + 极简默认兜底。开发重心/引擎规则已由
 // run.rs work_priority_guidance + memory preference 注入 system prompt,不再拼接。
@@ -535,6 +544,8 @@ $("auto-continue").addEventListener("change", () => {
   }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
+  // 开鞭挞的这一刻就要看到「勘察复核未开」提示,而不是等下一轮结束才显示。
+  renderAutoStatus();
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
   // R-169:开关同步后端状态机(enabled)。
   void syncAutoRunState();

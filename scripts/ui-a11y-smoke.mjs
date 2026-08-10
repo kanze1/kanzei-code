@@ -123,7 +123,7 @@ assert.match(js, /localStorage\.setItem\("kz-sidebar-collapsed"/);
 assert.ok(html.includes('id="send"'), "缺少发送按钮");
 assert.ok(html.includes('id="stop"'), "缺少停止按钮");
 assert.match(html, /id="topbar-more"[\s\S]*id="summarize-btn"/);
-assert.match(html, /id="topbar-more"[\s\S]*id="worktree-add"[\s\S]*id="process-subagent-wrap"/);
+assert.match(html, /id="topbar-more"[\s\S]*id="worktree-add"[\s\S]*id="process-phase-pipeline-wrap"/);
 assert.match(js, /function syncSidebar\(\)/);
 assert.match(js, /function syncActivityPanel\(\)/);
 assert.match(js, /localStorage\.setItem\("kz-activity-panel"/);

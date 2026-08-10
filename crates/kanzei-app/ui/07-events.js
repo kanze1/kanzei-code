@@ -157,6 +157,9 @@ on("kz:tool-start", (e) => {
   // 只看 name(恒为 "task")会连同它们一起静默,内部进度全丢。
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  // R-174:子代理面板独立于活动面板,task 类一律进子代理面板(编排派发带 phase,
+  // 模型自派 name=task)。其余工具不进子代理面板。
+  if (e.payload.name === "task") agentStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -178,6 +181,8 @@ on("kz:tool-progress", (e) => {
 on("kz:task-progress", (e) => {
   const payload = e.payload;
   bgProgress(payload.id, payload.text, payload.trace);
+  // R-174:子代理面板同一数据流。trace 里带 input/usage 时是 transcript 与 token 数据源。
+  agentProgress(payload.id, payload.text, payload.trace);
   // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
   // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
   // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
@@ -215,6 +220,9 @@ on("kz:tool-end", (e) => {
   }
   chatToolEnd(p.id, p.ok, p.preview, p.display);
   recordDiffSummary(p.display);
+  // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
+  // 或被停后补发)。
+  if (p.name === "task") agentEnd(p.id, p.ok, p.preview, p.display);
   // 静默工具成功→无声丢弃;失败→bgFinishQuiet 已补建条目,bgEnd 接着画错误详情。
   bgFinishQuiet(p.id, p.ok);
   bgEnd(p.id, p.ok, p.preview, p.display);

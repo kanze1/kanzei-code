@@ -185,7 +185,9 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         *process.model.lock().unwrap() = None;
         *process.profile.lock().unwrap() = None;
         // 默认进程不销毁,只复位;复位值必须与 ensure_default_process 的默认一致(关)。
-        process.phase_pipeline_enabled.store(false, Ordering::SeqCst);
+        process
+            .phase_pipeline_enabled
+            .store(false, Ordering::SeqCst);
     } else {
         state.processes.lock().unwrap().remove(&process_id);
     }

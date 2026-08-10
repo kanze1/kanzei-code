@@ -5,7 +5,7 @@ use super::{
     PendingAsk, SessionRuntime,
 };
 // R-153 批4:default_process_id 已迁到 state 模块。
-use crate::state::default_process_id;
+use crate::state::{default_process_id, ensure_default_process, process_info};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -123,6 +123,35 @@ fn process_sessions_are_isolated_but_default_keeps_legacy_id() {
         process_session_id(root, Some("p1|C:\\project")),
         process_session_id(root, Some("p2|C:\\project"))
     );
+}
+
+/// 「勘察复核」(阶段流水线总闸)的默认值必须是**关**。
+///
+/// 2026-08-11 用户定调:「我如果显式打开子代理,应该每个任务强制触发」——默认开就
+/// 不叫显式,而且默认开等于给每一轮无差别加 5 个勘察 + 3 个复核子代理的成本。
+/// 这条同时钉住给前端的回显字段(`ProcessInfo.phase_pipeline`),它是界面勾选框的初值。
+#[test]
+fn 勘察复核开关默认关闭() {
+    let state = AppState::default();
+    let root = std::env::temp_dir().join(format!(
+        "kz-pipeline-default-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let process = ensure_default_process(&state, &root);
+    assert!(
+        !process.phase_pipeline_enabled.load(Ordering::SeqCst),
+        "默认进程的「勘察复核」必须默认关闭(要显式打开才强制走七阶段)"
+    );
+    assert!(
+        !process_info(&state, &process).phase_pipeline,
+        "回显给前端的默认值也必须是关,否则界面勾选框与真实闸门对不上"
+    );
+    std::fs::remove_dir_all(&root).ok();
 }
 
 #[test]
