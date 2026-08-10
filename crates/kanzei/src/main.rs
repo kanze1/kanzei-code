@@ -1057,8 +1057,15 @@ mod tests {
     }
 
     /// 优先级定死:参数 > 环境变量 > 发现式(None 表示交给发现式)。
+    /// `KANZEI_PROJECT_ROOT` 是进程级状态,而测试同进程并发跑:真读环境变量的用例
+    /// 必须互斥,否则两条用例互相看见对方设的值,红绿都不可信。
+    static PROJECT_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn explicit_main_root_prefers_flag_over_env() {
+        let _guard = PROJECT_ROOT_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let flag = PathBuf::from("C:/flag-root");
         let env = Some("C:/env-root".to_string());
         assert_eq!(
@@ -1118,9 +1125,28 @@ mod tests {
             "必须是 D-194 那条拦截,而不是别的报错: {error}"
         );
 
-        // 大小写/尾分隔符等写法一样拦得住(dir_key 归一)。
-        let variant = PathBuf::from(format!("{}{}", home.display(), std::path::MAIN_SEPARATOR));
-        assert!(main_project_root(Some(&variant), &cwd).is_err());
+        // 大小写/尾分隔符/正斜杠/`\\?\` 前缀等写法一样拦得住(dir_key 归一)。
+        let text = home.display().to_string();
+        let mut variants = vec![PathBuf::from(format!(
+            "{text}{}",
+            std::path::MAIN_SEPARATOR
+        ))];
+        #[cfg(windows)]
+        variants.extend([
+            PathBuf::from(text.to_lowercase()),
+            PathBuf::from(text.replace('\\', "/")),
+            PathBuf::from(format!(r"\\?\{text}")),
+        ]);
+        for variant in variants {
+            let error = main_project_root(Some(&variant), &cwd)
+                .expect_err("HOME 的等价写法必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "{} 必须撞 D-194 那条拦截: {error}",
+                variant.display()
+            );
+        }
 
         // 对照组:普通目录不受影响。
         let ok_root = std::env::temp_dir().join(format!(
@@ -1133,6 +1159,83 @@ mod tests {
         ));
         std::fs::create_dir_all(ok_root.join(".kanzei")).unwrap();
         assert_eq!(main_project_root(Some(&ok_root), &cwd).unwrap(), ok_root);
+        std::fs::remove_dir_all(ok_root).unwrap();
+    }
+
+    /// 含 `.` / `..` 的 HOME 写法必须被拦。
+    ///
+    /// 这是 D-194 的一条真洞,实测过:`KANZEI_PROJECT_ROOT=C:\Users\kanzei` 退出码 1
+    /// 被拦,而 `C:\Users\kanzei\.` 与 `C:\Users\kanzei\Documents\..` 都退出码 0 一路跑通,
+    /// project 级 state.db 被写进全局配置根 `~/.kanzei`。原因是 `dir_key` 不折叠 `.`/`..`,
+    /// 而 `resolve_project_root` 的标记校验对这些写法照样成立(HOME 下有 `.kanzei`)——
+    /// 两道拦截同时静默通过。
+    ///
+    /// 洞是 R-182 的显式主根入口打开的:在那之前根恒来自 `current_dir()`,写不出这种串。
+    /// 所以这里**两条入口各测一遍**:参数与环境变量必须撞同一道拦截。
+    #[test]
+    fn 显式主根含点段一样过home拦截() {
+        let home = real_home();
+        let cwd = std::env::temp_dir();
+        let sep = std::path::MAIN_SEPARATOR;
+        let text = home.display().to_string();
+        let mut forms = vec![
+            format!("{text}{sep}."),
+            format!("{text}{sep}Documents{sep}.."),
+            format!("{text}{sep}.{sep}"),
+            format!("{text}{sep}a{sep}..{sep}.{sep}b{sep}.."),
+        ];
+        #[cfg(windows)]
+        {
+            let slash = text.replace('\\', "/");
+            forms.push(format!("{slash}/./"));
+            forms.push(format!("{slash}/Documents/.."));
+        }
+
+        for form in forms {
+            // 入口一:`--project-root` 参数。
+            let flag = PathBuf::from(&form);
+            let explicit =
+                explicit_main_root_from(Some(&flag), None).expect("参数入口必须产出显式根");
+            let error = main_project_root(Some(&explicit), &cwd)
+                .expect_err("--project-root 指向 HOME 必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "--project-root {form} 必须撞 D-194 那条拦截: {error}"
+            );
+
+            // 入口二:`KANZEI_PROJECT_ROOT` 环境变量,真读进程环境走一遍。
+            let explicit = {
+                let _guard = PROJECT_ROOT_ENV_LOCK
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                std::env::set_var(PROJECT_ROOT_ENV, &form);
+                let resolved = explicit_main_root(None);
+                std::env::remove_var(PROJECT_ROOT_ENV);
+                resolved
+            }
+            .expect("环境变量入口必须产出显式根");
+            let error = main_project_root(Some(&explicit), &cwd)
+                .expect_err("KANZEI_PROJECT_ROOT 指向 HOME 必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "KANZEI_PROJECT_ROOT={form} 必须撞 D-194 那条拦截: {error}"
+            );
+        }
+
+        // 对照组:名字里带 `.` 的**合法**目录不是 `.` 段,不许被误拦。
+        let ok_root = std::env::temp_dir().join(format!(
+            "kanzei-d194-dot-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dotted = ok_root.join("v1.0").join("app");
+        std::fs::create_dir_all(dotted.join(".kanzei")).unwrap();
+        assert_eq!(main_project_root(Some(&dotted), &cwd).unwrap(), dotted);
         std::fs::remove_dir_all(ok_root).unwrap();
     }
 

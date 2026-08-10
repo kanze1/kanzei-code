@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::permission::Rule;
+use crate::permission::{normalize_resource, Rule};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct KanzeiConfig {
@@ -957,13 +957,28 @@ pub fn resolve_project_root(explicit: Option<&Path>, cwd: &Path) -> anyhow::Resu
     Ok(explicit.to_path_buf())
 }
 
-/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、去尾分隔符,Windows 上再小写。
+/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、折叠 `.` / `..`、去尾分隔符,
+/// Windows 上再小写。
 ///
 /// 裸 `==` 比较不够(D-194):`dirs::home_dir()` 给 `C:\Users\kanzei`,而走上来的祖先
 /// 可能是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize
 /// 的产物)——任一形态对不上,HOME 判断就静默失效,`~/.kanzei` 立刻变回项目根磁铁。
 /// 同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线)。
 /// 这里是纯比较、不进哈希,所以可以比那边更狠:分隔符也一并统一。
+///
+/// **`.` / `..` 必须折叠**,而且这是 R-182 新入口打开的洞、不是历史遗留:根从
+/// `current_dir()` 来的时候不可能带 `.`/`..` 段,`--project-root` / `KANZEI_PROJECT_ROOT`
+/// 收的却是用户任意书写的路径串。`C:\Users\kanzei\.` 与 `C:\Users\kanzei\Documents\..`
+/// 在文件系统看来就是 HOME,`resolve_project_root` 的标记校验对它们照样成立
+/// (HOME 下有 `.kanzei`),于是两道拦截**全部静默通过**,project 级 state.db 被写进
+/// `~/.kanzei`——实测发生过。
+///
+/// 折叠**复用 `permission::normalize_resource`**(权限决策的同一份实现,D-050),不另写
+/// 第二份:两份词法折叠一旦漂移,就是"权限那边算出来的路径"和"取根这边算出来的路径"
+/// 指向两个地方。
+///
+/// **仍然不做 `canonicalize`**:折叠是纯词法的、不碰文件系统,所以不解符号链接、
+/// 也不会把用户写的裸路径变成 `\\?\` 形态(那会让已写下的绝对路径权限规则集体失配)。
 fn dir_key(path: &Path) -> String {
     let raw = path.to_string_lossy();
     let stripped = raw
@@ -971,12 +986,13 @@ fn dir_key(path: &Path) -> String {
         .map(|rest| format!(r"\\{rest}"))
         .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
         .unwrap_or_else(|| raw.to_string());
-    // 分隔符与大小写只在 Windows 上等价;Linux 下 `a\b` 是个合法文件名、`C:` 与 `c:`
-    // 是两个目录,归一过头会把不同路径判成同一个。
+    // 分隔符与大小写只在 Windows 上等价;Linux 下 `C:` 与 `c:` 是两个目录,
+    // 归一过头会把不同路径判成同一个。
     #[cfg(windows)]
-    let key = stripped.replace('/', "\\").to_lowercase();
+    let unified = stripped.replace('/', "\\").to_lowercase();
     #[cfg(not(windows))]
-    let key = stripped;
+    let unified = stripped;
+    let key = normalize_resource(&unified);
     key.trim_end_matches(['\\', '/']).to_string()
 }
 
@@ -1451,8 +1467,91 @@ typo_fielt = true
             assert!(is_home_root(&PathBuf::from(
                 home.display().to_string().to_uppercase()
             )));
+            // canonicalize 的产物形态:剥了 `\\?\` 才认得出来。
+            assert!(is_home_root(&PathBuf::from(format!(
+                r"\\?\{}",
+                home.display()
+            ))));
         }
         assert!(!is_home_root(&home.join("projects")));
+    }
+
+    /// D-194 补漏:`dir_key` 不折叠 `.` / `..` 时,`C:\Users\kanzei\.` 这类写法让 HOME
+    /// 拦截静默失效——而 `resolve_project_root` 的标记校验对它照样成立(HOME 下有
+    /// `.kanzei`),两道拦截一起被绕过,project 级 state.db 被写进全局配置根 `~/.kanzei`
+    /// (实测发生过)。
+    ///
+    /// 这条路是 R-182 的显式主根入口打开的:在那之前根恒来自 `current_dir()`,不含
+    /// `.`/`..` 段,写不出这种串;新入口收的正是用户任意书写的路径。
+    #[test]
+    fn is_home_root_folds_dot_and_dotdot_segments() {
+        let Some(home) = dirs::home_dir() else {
+            return; // 无 HOME 的环境跳过,不是被测行为。
+        };
+        let sep = std::path::MAIN_SEPARATOR;
+        let text = home.display().to_string();
+        let mut forms = vec![
+            // 尾随 `.`:文件系统里就是 HOME 自己。
+            PathBuf::from(format!("{text}{sep}.")),
+            // 下一级再 `..` 弹回来。折叠是纯词法的,所以那一级存不存在都一样。
+            PathBuf::from(format!("{text}{sep}Documents{sep}..")),
+            // `.` 后面还跟着尾分隔符。
+            PathBuf::from(format!("{text}{sep}.{sep}")),
+            // 多段叠加,一路弹回 HOME。
+            PathBuf::from(format!("{text}{sep}a{sep}..{sep}.{sep}b{sep}..")),
+        ];
+        #[cfg(windows)]
+        {
+            let slash = text.replace('\\', "/");
+            forms.push(PathBuf::from(format!("{slash}/./")));
+            forms.push(PathBuf::from(format!("{slash}/Documents/..")));
+            // 大小写 + `.` 段 + `\\?\` 前缀三者叠加,任一环节漏了都拦不住。
+            forms.push(PathBuf::from(format!(
+                r"\\?\{}\.",
+                text.to_lowercase().trim_end_matches('\\')
+            )));
+        }
+        for form in forms {
+            assert!(
+                is_home_root(&form),
+                "含 . / .. 的写法必须被认成 HOME: {}",
+                form.display()
+            );
+        }
+    }
+
+    /// 折叠不许过头:路径里带 `.` 的**合法目录名**(`v1.0`、`.config`)不是 `.` 段,
+    /// 正常项目根不能被误拦;`..` 也必须真的向上一级,而不是被吞掉。
+    #[test]
+    fn dir_key_keeps_dotted_directory_names() {
+        let app = PathBuf::from(r"C:\proj\v1.0\app");
+        // `v1.0` / `.config` 是目录名,不是 `.` 段:各自都还在。
+        assert_ne!(dir_key(&app), dir_key(&PathBuf::from(r"C:\proj\v1.0")));
+        assert_ne!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\.config"))
+        );
+        assert_ne!(dir_key(&app), dir_key(&PathBuf::from(r"C:\proj\app")));
+        // 而真正的 `.` 段确实被折掉。
+        assert_eq!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\."))
+        );
+        assert_eq!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\sub\.."))
+        );
+
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // 正常项目根(哪怕就在 HOME 底下、哪怕名字里带点)不被误判成 HOME。
+        assert!(!is_home_root(&home.join("proj").join("v1.0").join("app")));
+        assert!(!is_home_root(&home.join("v1.0")));
+        assert!(!is_home_root(&home.join(".config")));
+        // `..` 真的向上一级:HOME 的父目录不是 HOME。
+        assert!(!is_home_root(&home.join("..")));
+        assert!(!is_home_root(&home.join("a").join("..").join("..")));
     }
 
     /// R-182 内容②:`load_at_root` 是**显式**入口——给它哪个根就读哪个根,
