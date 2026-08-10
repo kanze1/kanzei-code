@@ -225,7 +225,7 @@
 - 修复方向: 无论选哪种语义,`projectDir` 都必须在进入循环**之前**认领成局部量(与 36ce685 对 refreshDocs / handleWorktreeAction 的改法同源),循环内每次 await 后比对;差异只在比对不一致时是 `break` 还是继续用认领的局部量。
 - 验收: ①批量操作进行中切项目,**不得有任何一条**写进新项目(逐条核对 docs_update 的 projectDir 实参);②有拦截实测的冒烟断言(scripts/ui-runtime-smoke.mjs 构造「await 中途改 currentProject」的桩,断言后续 invoke 的 projectDir 一律不是新项目);③所选语义在 UI 上对用户可见——选中止要给出「已切换项目,剩余 N 条未执行」之类的明确反馈,选按认领项目做完要说明这批改动落在哪个项目。
 
-## D-257 worktrees-refresh 刷新按钮全仓无监听器:addEventListener 前半段被重构吃掉,只剩 no-op 逗号表达式 [open] (medium)
+## D-257 worktrees-refresh 刷新按钮全仓无监听器:addEventListener 前半段被重构吃掉,只剩 no-op 逗号表达式 [fixed] (medium)
 - 优先级: P3
 - 复杂度: 小
 - 标签: 前端
@@ -240,6 +240,7 @@
 - 影响: 工作树差异清单只剩自动刷新路径(handleWorktreeAction 成功后 09-sessions.js:81、worktree-add 成功后 :99、以及 14-docs-actions.js:16 与 02-i18n.js:754 的整体刷新),用户看到过期状态时**没有手动刷新手段**。危害窄(工作树本身低频),但属于「界面承诺了能力却没有能力」,与 D-211 同族。
 - 修复方向: 把 09-sessions.js:86 还原成两行——函数声明收尾的 `}`,以及独立一行 `$("worktrees-refresh").addEventListener("click", refreshWorktrees);`。
 - 验收: 二选一,不留中间态。**优先①**——①按钮真能刷新:点击 `#worktrees-refresh` 后 refreshWorktrees 被调用且工作树清单重渲染,scripts/ui-runtime-smoke.mjs 有对应冒烟断言(断言点击后触发 worktree 相关 invoke);或②按钮与 09-sessions.js 的 no-op 残留一起清理干净(index.html 不再有该按钮、JS 不再有那条逗号表达式)。选②等于删掉用户可见的界面能力,属缩小范围,需先经用户同意。
+- 进展: **已按验收①交付并关闭**(`c3398b5`,经 `eb50db6` 并入 dev)。2026-08-11 任务级并行实测的线 B 产出,改动面只含 `crates/kanzei-app/ui/09-sessions.js`(恢复被吃掉的 `$("worktrees-refresh").addEventListener` 前缀)与 `scripts/ui-runtime-smoke.mjs`(点击后断言真打出 `worktree_diff` 且 `projectDir` 正确、清单按新数据重渲染,另加一条"按钮从 index.html 消失即判红"的前置断言防止将来滑向验收②)。**反证独立复核过**:把文件改回破损形态后 `node --check` **仍然通过**(正是依据③说的那类漏网),而冒烟精确判红两处;还原后转绿。合并后全量门禁复跑:fmt 干净、前端冒烟通过、`cargo test -p kanzei-tools` 217 全过。
 
 ## D-258 后台任务缺内核级文件隔离:归因+回滚拦不住合法写入窗口的毫秒级蒙混 [open] (medium)
 - 优先级: P2
@@ -289,6 +290,9 @@
 - 修复方向: 五处生产写点全部改走 `atomic_file::write_atomic`;「读 → 分配 id → 写」整段用 `atomic_file` 的 `FileLock`(`lock_exclusive` / `try_lock_exclusive`)罩住,与 docstore 的 `TrackerTool` 写动作分支同源。注意 `FileLock` 是 `!Send`,不得跨 await 点持有。**不要另造锁**。
 - 验收: ①`crates/kanzei-tools/src/test_record.rs` 的生产路径不再出现裸 `std::fs::write`(可机械核验:该文件非 `#[cfg(test)]` 区域 grep `fs::write` 零命中);②「读→分配→写」整段持锁,两个进程并发 `test_record` 不撞号、不丢记录,有跨进程或多线程压测覆盖;③全仓只有 `atomic_file` 一套原子写/文件锁原语(grep 无第二处 tmp+rename 或独占句柄实现);④D-227 已交付的分配器与拒写逻辑既有测试保持绿。
 - refs: D-227 R-138 D-249 D-260
+- 进展: **主体已交付,保持 open 因验收③未达成**(`dadf1ce`,经 `88b9cda` 并入 dev)。2026-08-11 任务级并行实测的线 C 产出,改动面只含 `crates/kanzei-tools/src/test_record.rs`。已达成:**①**五处生产写点全部并轨 `atomic_file::write_atomic`(快照归档两处、`record_test_run` 定点替换、`append_test_run` 追加、`initialize_refs` 回填),并加了机械守护测试(按行切到 `#[cfg(test)]` 为止、跳过注释行,复发当场红);**②**新增 `lock_test_runs()` 走 `atomic_file::lock_exclusive`,键取 `tests.md` **一把锁同时罩活动与归档**(因 `allocate_test_id`/`ensure_id_unused` 本就同时扫两边,分开锁等于没锁),`record_test_run`/`append_test_run`/`initialize_refs` 各自把「读→分配/认领→写」整段罩住,内层嵌套走 `FileLock` 同线程重入计数;三个持锁函数全是同步 fn,锁不进 async 状态机(`!Send` 由编译器兜着,未另造锁)。快照的幂等归档拆成 `archive_terminal_records` 用 `try_lock_exclusive(200ms)`,拿不到锁跳过归档照常返回读结果(与不变量 8 补注同口径),编号复用/IO 故障等真失败仍照常报错。新增三条用例:8 线程无外部串行并发登记(编号互异、记录不丢)、外部持锁期间登记必须等待且 `tests.md` 不被创建(证明罩的是整段而非只罩落盘)、快照拿不到锁时跳过而非报错;**④**D-227 既有用例全绿(`cargo test -p kanzei-tools` 217 passed),clippy `-D warnings` 干净。
+  **未达成的验收③(全仓只留一套原子写原语)**:仓里仍有四处独立 tmp+rename,均不在本次改动面内——`crates/kanzei-llm/src/auth/store.rs:50`、`crates/kanzei-tools/src/architecture.rs:202`、`crates/kanzei-tools/src/files.rs:64`、`crates/kanzei-tools/src/memory/store.rs:1356`。本条据此保持 `open`,收口这四处即可关闭。
+  **另记一条本次实测的设计发现(与 R-182 同源)**:`lock_path_for` 把锁文件放在目标同目录,即 `<worktree>/.kanzei/project/tests.lock`。并行工作树各有自己的 `.kanzei/`,所以**各写各的 `tests.md` 时根本不会互斥**;互斥只在同一份 checkout 被多个进程打开时才成立。这与实测「两个 worktree 相隔 10 秒各 `kz defect add` 都拿到 D-267」是同一件事的两面——**锁生效的前提是文档只有一份**,落点见 R-182 内容①②。
 
 ## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [open] (medium)
 - 优先级: P1
@@ -359,3 +363,10 @@
 - 边界: **判定失败方向是偏严**(该允许的没允许),不是越权。因此本条**不得以「放宽匹配」作为修法**——不能简单让纯字符串 pattern 去匹配结构化 value(那会同时废掉 ①的两条测试)。要交付的是**新增一档可安全表达的规则形态**,不是削弱现有两档。
 - 修复方向(待设计,勿直接照做): 大致形状是——把命令**真正解析**成子命令序列(按 `;`/`&&`/`||`/`|`/换行切分,并对命令替换 `$(...)`/反引号、重定向到规则外路径等无法静态判定的构造保持 Ask),要求**每一个**子命令都命中允许规则才放行;workdir 维度改为**可显式表达**(规则能写「任意 workdir」,但必须是用户显式写出来的,不是旧规则被默认提权)。这一条与 R-183 内容②「worktree 应继承主根规则」是同一诉求的两半:继承必须是可见的、写出来的,不是隐式的。
 - 验收: ①存在一种**可手写、可复用**的规则形态,能表达「任意 workdir 下的 cargo 命令」,有单测。②命令**确实没有**链接符/替换构造时不再被无条件降级;**确实有**时仍降级——两个方向各有单测,且含 `git status; rm -rf ~` 这类反例。③**D-051 三条性质的反证测试全部保留且仍绿**:换 workdir 即变 Ask(:476)、旧纯字符串规则不授权结构化请求(:494)、精确规则可放行整串(:472)。把这三条测试改红或删掉即视为验收不通过。④既有 12 条结构化 JSON 规则不因本次修改而失效(向后兼容单测)。⑤修复后 `kz run` 能在 worktree 里靠一组**可手写的**规则完成一次「改代码 → cargo test → 提交」闭环(与 R-183 验收①同一条轨迹)。⑥启动告警「N 条旧 bash 权限规则」在规则可正常匹配后消失,或给出可执行的收敛路径。⑦**实测被拒命令清单**作为规则模板的输入:本次并行实测里被拒/需要放行的命令要归档,R-183 内容④的模板据此收敛,不靠拍脑袋。
+- **实测被拒命令清单(验收⑦的输入,2026-08-11 三条并行线实采)**: 五条,全部来自**外部 agent 的权限层**(该层已经在做本条想要的按子命令匹配),形态高度一致——
+  ①`node <脚本> && echo "EXIT=$?"` —— 拦截理由明确点名 `echo "EXIT=$?"` 这一段需批准,**拆掉尾部 echo 后同一条命令直接放行**;
+  ②`ls <路径> | head -0; ls <路径>`;
+  ③`awk '<程序>' <文件>`(单命令,只是 `awk` 不在允许集);
+  ④PowerShell `cargo test ... | Select-Object -Last 40`;
+  ⑤bash `... | head -30; echo ...`。
+  **归纳**:①②④⑤ 全是**复合命令**(`&&` / `;` / `|`),③ 是**未列入允许集的单个可执行**。两类都在改成单条纯命令后放行。对本条的三点含义:(a) 修复方向里「解析成子命令序列、要求每个都命中」的形状**已有活的参照实现**,不必再论证可行性;(b) 拦截必须**点名具体是哪一段**不被允许,否则无法自我修正——这是可用性的关键,不是锦上添花;(c) R-183 内容④的基础规则模板至少要覆盖 agent 实际会用的这批 shell 动词:`echo`/`head`/`tail`/`awk`/`grep`/`ls`,以及 PowerShell 的 `Select-Object`——它们几乎只出现在管道尾部做截断,危险面低但出现频率极高,是「不放行就寸步难行、放行也没什么风险」的典型。
