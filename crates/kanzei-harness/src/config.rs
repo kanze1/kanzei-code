@@ -48,6 +48,9 @@ pub struct Limits {
     /// 单个子代理的墙钟上限(秒)
     #[serde(default)]
     pub subagent_timeout_secs: Option<u64>,
+    /// R-173 汇总/复核屏障的墙钟上界(秒)。None = 由 subagent_timeout_secs 推导
+    #[serde(default)]
+    pub barrier_timeout_secs: Option<u64>,
     /// 轮内主动压缩的触发线:占上下文窗口的比例
     #[serde(default)]
     pub context_budget_ratio: Option<f64>,
@@ -80,6 +83,19 @@ impl Limits {
     }
     pub fn subagent_timeout_secs(&self) -> u64 {
         self.subagent_timeout_secs.unwrap_or(900)
+    }
+    /// R-173 屏障上界:默认由 `subagent_timeout_secs` 推导(×2),不另拍一个数。
+    ///
+    /// **外层必须永远宽于内层**——每个勘察子代理已被 `subagent_timeout_secs`
+    /// 的墙钟包住(见 runner drive 的 task 派发),屏障只是"内层失效时"的兜底。
+    /// 把本值配成小于等于子代理上界,会让屏障在子代理**正常工作**时就把它判成
+    /// 超时,凭空制造假失败。所以显式配置也按下界夹紧(与本节 `max_parallel_tools`
+    /// 的 `.max(1)`、`context_budget_ratio` 的 `.clamp()` 同一口径)。
+    pub fn barrier_timeout_secs(&self) -> u64 {
+        let inner = self.subagent_timeout_secs();
+        self.barrier_timeout_secs
+            .unwrap_or(inner.saturating_mul(2))
+            .max(inner.saturating_add(1))
     }
     pub fn context_budget_ratio(&self) -> f64 {
         self.context_budget_ratio.unwrap_or(0.7).clamp(0.1, 0.95)
@@ -937,6 +953,35 @@ mod tests {
                 .unwrap();
         assert_eq!(wild.limits.context_budget_ratio(), 0.95);
         assert_eq!(wild.limits.max_tasks_per_turn(), 1);
+    }
+
+    /// R-173:屏障上界由子代理上界推导,且**永远宽于内层**。
+    /// 配窄了会在子代理正常工作时误判超时,所以下界被夹住。
+    #[test]
+    fn 屏障上界由子代理上界推导且永远宽于内层() {
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.limits.subagent_timeout_secs(), 900);
+        assert_eq!(empty.limits.barrier_timeout_secs(), 1800, "默认 = 内层 ×2");
+
+        // 跟着内层走:调小子代理上界,屏障默认值同步收窄,不用两处各配一遍。
+        let derived: KanzeiConfig =
+            toml::from_str("[limits]\nsubagent_timeout_secs = 60\n").unwrap();
+        assert_eq!(derived.limits.barrier_timeout_secs(), 120);
+
+        // 显式配置生效。
+        let explicit: KanzeiConfig =
+            toml::from_str("[limits]\nsubagent_timeout_secs = 60\nbarrier_timeout_secs = 300\n")
+                .unwrap();
+        assert_eq!(explicit.limits.barrier_timeout_secs(), 300);
+
+        // 配得比内层还窄 → 夹到内层之上,屏障不会在子代理仍合法运行时误伤。
+        let narrow: KanzeiConfig =
+            toml::from_str("[limits]\nsubagent_timeout_secs = 900\nbarrier_timeout_secs = 10\n")
+                .unwrap();
+        assert!(
+            narrow.limits.barrier_timeout_secs() > narrow.limits.subagent_timeout_secs(),
+            "屏障上界必须严格宽于子代理上界"
+        );
     }
 
     #[test]

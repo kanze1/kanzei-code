@@ -25,8 +25,9 @@ pub use harness::{
 pub use home::kanzei_home;
 pub use markdown::MarkdownComponent;
 pub use orchestration::{
-    CoordinatorSnapshot, ExecutionPolicy, OrchestrationEvent, ProjectExecutionCoordinator,
-    ReadPermit, ReadSlotRequest, WriterLease, WriterLeaseRequest,
+    BarrierKind, BarrierOutcome, CoordinatorSnapshot, ExecutionPolicy, OrchestrationEvent, Phase,
+    PhaseError, PhaseObserver, ProjectExecutionCoordinator, ReadPermit, ReadSlotRequest,
+    ScoutOutcome, WriterLease, WriterLeaseRequest,
 };
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
