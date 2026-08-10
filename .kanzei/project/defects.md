@@ -206,3 +206,5 @@
 - 标签: 后端
 - 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
 - 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
+
+## D-241 D-202/D-173/D-223 长期挂 fixing 无人续推:占「进行中」语义,且引擎无 fixing→open 退回通道 [open] (medium)
