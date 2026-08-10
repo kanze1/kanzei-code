@@ -60,9 +60,68 @@ fn now_secs() -> u64 {
 }
 
 /// 记录 id 里带着创建时刻(T-<epoch>),据此算悬空时长。
+///
+/// 同一秒内连发多条时分配器会把编号推到墙钟之前(见 `allocate_test_id`),
+/// 此时 age 取 0 而不是让 age_secs/stale 两个字段整个消失——几秒后自愈。
 fn running_age_secs(id: &str) -> Option<u64> {
     let stamp: u64 = id.strip_prefix("T-")?.parse().ok()?;
-    now_secs().checked_sub(stamp)
+    Some(now_secs().saturating_sub(stamp))
+}
+
+/// 分配下一个测试记录 id:`max(现在, 已占用最大编号 + 1)`。
+///
+/// D-227:秒级时间戳单独用会撞。四条 UI 冒烟记录共用了 `T-1786297655`,事后
+/// 无法按 id 逐条引用/收尾。它**不是**并发缺陷——`ToolConcurrency::write_worktree`
+/// 切 wave、R-171 的写租约都已经把写入串行化了(四条记录全部落盘存活即为证据),
+/// 撞车照样发生:串行保证的是「同一时刻只有一个写者」,唯一性要的是「分配前看过
+/// 已发出的编号」,两件事无交集。所以这里必须扫 active + archive 已占用的编号。
+///
+/// 保持纯 u64 而不是加 `-2` 后缀:`running_age_secs` 与 `last_passed_at` 都按
+/// `T-<epoch>` 做 `parse::<u64>()`,后缀会让悬空检测静默失效,且 1400+ 条历史
+/// 记录要跟着迁移。单调推进的代价只是编号在突发时领先墙钟几秒。
+fn allocate_test_id(root: &Path) -> String {
+    let used_max = [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL]
+        .into_iter()
+        .flat_map(|rel| read_test_records(&root.join(rel)))
+        .filter_map(|(_, record)| {
+            record["id"]
+                .as_str()?
+                .strip_prefix("T-")?
+                .parse::<u64>()
+                .ok()
+        })
+        .max();
+    let next = match used_max {
+        Some(max) => now_secs().max(max + 1),
+        None => now_secs(),
+    };
+    format!("T-{next}")
+}
+
+/// 新登记落盘前的编号占用兜底:该 id 已被 active/archive 任何一条记录占用就报错。
+///
+/// `allocate_test_id` 正常情况下已经保证编号未被占用,这里挡的是分配器被绕过的
+/// 场景(手改文件、外部进程写入、将来新增的写路径)。发现冲突一律报错、不自动改号:
+/// 参照 `docstore::repair_reused_archived_id` 的保守立场——静默改号会把编号复用
+/// 伪装成一次正常写入,证据链就此不可信(D-004:拒绝的理由必须说出来,绝不静默)。
+fn ensure_id_unused(root: &Path, id: &str, incoming_title: &str) -> Result<(), String> {
+    for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
+        for (_, record) in read_test_records(&root.join(rel)) {
+            if record["id"].as_str() != Some(id) {
+                continue;
+            }
+            let existing_title = record["title"].as_str().unwrap_or_default().trim();
+            return Err(format!(
+                "测试记录 {id} 已被占用(现有标题「{existing_title}」,见 {rel}),\
+                 拒绝再登记一条同号记录(本次标题「{}」)。未写入任何内容。\
+                 同一编号只能对应一次测试,否则按 id 收尾或反查证据时无法区分是哪一条。\
+                 下一步:省略 id 重新调用会自动分配未占用编号;若本意是收尾已有记录,\
+                 请带上那条记录自己的 id。",
+                incoming_title.trim()
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub struct TestRecordTool;
@@ -168,6 +227,19 @@ fn read_test_records(path: &Path) -> Vec<(String, serde_json::Value)> {
         .unwrap_or_default()
 }
 
+/// 单个 `## T-xxx 标题 [status]` 块的记录 id(取标题行第一个 token)。
+fn block_id(block: &str) -> String {
+    block
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim_start_matches("## ")
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// 快照:读取 active + archived,并把 active 中的终态记录自动归档。
 /// 返回 { active, archived, path, archive_path }。
 pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
@@ -187,7 +259,28 @@ pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
     if !archived_blocks.is_empty() {
         let mut archived_text = std::fs::read_to_string(&archive_path)
             .unwrap_or_else(|_| "# Test Runs Archive\n".into());
+        // 归档里同一编号只能有一条。内容完全相同视为重复归档,幂等跳过;
+        // 内容不同说明编号被复用,直接报错——静默追加正是 D-227 那批同号记录
+        // (T-1786297655 ×4)在归档里彼此无法区分的成因。
+        let already = parse_test_blocks(&archived_text)
+            .into_iter()
+            .filter_map(|(block, record)| Some((record["id"].as_str()?.to_string(), block)))
+            .collect::<std::collections::BTreeMap<_, _>>();
         for block in archived_blocks {
+            let id = block_id(&block);
+            if let Some(existing) = already.get(&id) {
+                if existing.trim() == block.trim() {
+                    continue;
+                }
+                return Err(format!(
+                    "归档 {} 里已有测试记录 {id} 且内容不同,拒绝追加第二条同号记录。\
+                     未写入任何内容。\n现有归档:{}\n本次待归档:{}\n\
+                     同号记录无法按 id 区分,需人工核对后处理;自动改号会掩盖编号复用。",
+                    archive_path.display(),
+                    existing.lines().next().unwrap_or_default(),
+                    block.lines().next().unwrap_or_default(),
+                ));
+            }
             archived_text.push_str("\n\n");
             archived_text.push_str(&block);
         }
@@ -306,9 +399,23 @@ pub fn record_test_run(
         block.push_str(&format!("- 收尾: {}\n", now_secs()));
     }
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let updated = text.replace(old_block.as_str(), block.trim_end());
+    // 定点替换而不是 str::replace:后者会把**所有**字节相同的块一起换掉。
+    // 文件里出现两条内容相同的记录时(编号复用的历史遗留),一次收尾会连坐
+    // 干掉另一条;摘要里恰好嵌了另一条记录的原文时同理。
+    let Some(at) = text.find(old_block.as_str()) else {
+        return Err(format!(
+            "测试记录 {record_id} 的原文块已不在 {} 中(可能刚被改写);未写入任何内容,请重新读取列表后重试",
+            path.display()
+        ));
+    };
+    let mut updated = String::with_capacity(text.len());
+    updated.push_str(&text[..at]);
+    updated.push_str(block.trim_end());
+    updated.push_str(&text[at + old_block.len()..]);
     std::fs::write(&path, updated).map_err(|e| e.to_string())?;
-    test_runs_snapshot(root)
+    let mut snapshot = test_runs_snapshot(root)?;
+    snapshot["recorded_id"] = json!(record_id);
+    Ok(snapshot)
 }
 
 /// 追加一条测试记录并返回最新快照(等价于 app 侧 test_run_record)。
@@ -327,13 +434,10 @@ pub fn append_test_run(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let id = format!(
-        "T-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| e.to_string())?
-            .as_secs()
-    );
+    // D-227:编号由分配器给,不能直接取墙钟秒——同一秒内的多次登记(即使已被
+    // wave/写租约串行化)会拿到同一个 id。分配后再做一次占用兜底。
+    let id = allocate_test_id(root);
+    ensure_id_unused(root, &id, title)?;
     let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Test Runs\n".into());
     text.push_str(&format!("\n\n## {id} {} [{status}]\n", title.trim()));
     if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
@@ -349,7 +453,9 @@ pub fn append_test_run(
         text.push_str(&format!("- 收尾: {}\n", now_secs()));
     }
     std::fs::write(&path, text).map_err(|e| e.to_string())?;
-    test_runs_snapshot(root)
+    let mut snapshot = test_runs_snapshot(root)?;
+    snapshot["recorded_id"] = json!(id);
+    Ok(snapshot)
 }
 
 /// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。active + archive 一起看。
@@ -523,10 +629,32 @@ fn is_entry_id(part: &str) -> bool {
 fn render_snapshot(snapshot: &serde_json::Value) -> String {
     let active = snapshot["active"].as_array().map(Vec::len).unwrap_or(0);
     let archived = snapshot["archived"].as_array().map(Vec::len).unwrap_or(0);
-    let mut lines = vec![format!(
-        "recorded. active: {active}, archived: {archived} (path: {})",
-        snapshot["path"].as_str().unwrap_or_default()
-    )];
+    // 本次分配到的编号必须回显:拿不到 id,「跑完带上 id 收尾」这条纪律在源头
+    // 就无法执行,只能靠标题猜——D-227 里四条同号记录事后无法逐条引用,正是
+    // 这个缺口(编号既不唯一、又从不告诉调用方)一起造成的。
+    let recorded = snapshot["recorded_id"].as_str().unwrap_or_default();
+    let mut lines = vec![if recorded.is_empty() {
+        format!(
+            "recorded. active: {active}, archived: {archived} (path: {})",
+            snapshot["path"].as_str().unwrap_or_default()
+        )
+    } else {
+        format!(
+            "recorded {recorded}. active: {active}, archived: {archived} (path: {})",
+            snapshot["path"].as_str().unwrap_or_default()
+        )
+    }];
+    let still_running = !recorded.is_empty()
+        && snapshot["active"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|r| r["id"].as_str() == Some(recorded) && r["status"].as_str() == Some("running"));
+    if still_running {
+        lines.push(format!(
+            "↳ 跑完请用 test_record 带 id={recorded} 记终态(passed/failed/skipped)。"
+        ));
+    }
     let mut stale = 0;
     for record in snapshot["active"].as_array().into_iter().flatten() {
         let is_stale = record["stale"].as_bool().unwrap_or(false);
@@ -896,6 +1024,288 @@ mod tests {
             out.content
         );
         assert!(root.join(TEST_RUNS_REL).exists());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 播一条编号等于"现在"的记录:强制分配器走单调推进分支,让"同一秒内连发"
+    /// 这个前提确定成立,而不是靠测试跑得够快去撞运气。
+    fn seed_now_baseline(root: &Path) -> u64 {
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let seed = now_secs();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!("# Test Runs\n\n## T-{seed} 基线 [running]\n"),
+        )
+        .unwrap();
+        seed
+    }
+
+    #[test]
+    fn 同秒串行四次登记必须拿到四个互不相同的id() {
+        let root = temp_project("sameseconds");
+        let seed = seed_now_baseline(&root);
+        let titles = [
+            "R-153 UI i18n 冒烟",
+            "R-153 UI a11y 冒烟",
+            "R-153 UI Markdown 冒烟",
+            "R-153 UI runtime 冒烟",
+        ];
+        let mut ids = Vec::new();
+        for title in titles {
+            let snapshot = append_test_run(&root, title, "running", None, None, None).unwrap();
+            ids.push(
+                snapshot["recorded_id"]
+                    .as_str()
+                    .expect("登记必须回显分配到的编号")
+                    .to_string(),
+            );
+        }
+        // D-227 的核心判断:串行 ≠ 唯一。这四次是严格顺序执行的(等价于 wave
+        // 排他/写租约下的实际执行),旧实现照样会给出同一个 T-<epoch>。
+        let unique = ids.iter().collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), 4, "同秒四次登记必须拿到四个不同编号:{ids:?}");
+        assert!(
+            !ids.contains(&format!("T-{seed}")),
+            "不得复用已占用的基线编号:{ids:?}"
+        );
+        let records = read_test_records(&root.join(TEST_RUNS_REL));
+        assert_eq!(records.len(), 5, "四条记录加基线都该在:{records:#?}");
+        for title in titles {
+            assert!(
+                records
+                    .iter()
+                    .any(|(_, r)| r["title"].as_str() == Some(title)),
+                "标题 {title} 丢失:{records:#?}"
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn 写排他下并发四次登记编号仍互不相同() {
+        let root = temp_project("concurrent");
+        seed_now_baseline(&root);
+        // 互斥锁模拟生产**已经具备**的写排他:ToolConcurrency::write_worktree 切 wave
+        // (harness/tool.rs)+ R-171 的项目写租约。D-227 的要害正在于此——这层排他
+        // 生效了(四条记录全部落盘存活即为证据),编号照样撞。
+        let gate = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let titles = [
+            "R-153 UI i18n 冒烟",
+            "R-153 UI a11y 冒烟",
+            "R-153 UI Markdown 冒烟",
+            "R-153 UI runtime 冒烟",
+        ];
+        let mut tasks = Vec::new();
+        for title in titles {
+            let root = root.clone();
+            let gate = gate.clone();
+            tasks.push(tokio::spawn(async move {
+                let _guard = gate.lock().await;
+                let ctx = ToolCtx::new(root.clone(), root.clone());
+                let out = TestRecordTool
+                    .execute(json!({ "title": title, "status": "running" }), &ctx)
+                    .await;
+                assert!(!out.is_error, "{}", out.content);
+                out.content
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        let records = read_test_records(&root.join(TEST_RUNS_REL));
+        assert_eq!(records.len(), 5, "四条并发记录加基线都该在:{records:#?}");
+        let ids = records
+            .iter()
+            .map(|(_, r)| r["id"].as_str().unwrap_or_default().to_string())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), 5, "同秒并发登记必须编号互不相同(D-227):{ids:?}");
+        for title in titles {
+            assert!(
+                records
+                    .iter()
+                    .any(|(_, r)| r["title"].as_str() == Some(title)),
+                "标题 {title} 丢失:{records:#?}"
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 新编号必须跳过归档里已占用的最大编号() {
+        let root = temp_project("skiparchived");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let future = now_secs() + 500;
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            format!("# Test Runs Archive\n\n## T-{future} 历史记录 [passed]\n- 收尾: {future}\n"),
+        )
+        .unwrap();
+        let snapshot = append_test_run(&root, "新记录", "running", None, None, None).unwrap();
+        assert_eq!(
+            snapshot["recorded_id"].as_str().unwrap(),
+            format!("T-{}", future + 1),
+            "分配器必须把归档里已占用的编号也算进去,否则归档条目会被新记录撞号"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 编号已被占用时拒绝再登记并说明理由() {
+        let root = temp_project("idtaken");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-500 甲测试 [running]\n",
+        )
+        .unwrap();
+        let before = std::fs::read(root.join(TEST_RUNS_REL)).unwrap();
+        let err = ensure_id_unused(&root, "T-500", "乙测试").unwrap_err();
+        // D-004:拒绝的理由要说全——冲突编号、已有标题、本次标题、下一步。
+        assert!(err.contains("T-500"), "{err}");
+        assert!(err.contains("甲测试"), "必须说出已有记录的标题:{err}");
+        assert!(err.contains("乙测试"), "必须说出本次要写的标题:{err}");
+        assert!(err.contains("未写入"), "必须明说什么都没写:{err}");
+        assert!(err.contains("省略 id"), "必须给出可执行的下一步:{err}");
+        assert_eq!(
+            std::fs::read(root.join(TEST_RUNS_REL)).unwrap(),
+            before,
+            "拒绝路径不得改动文件"
+        );
+        assert!(
+            ensure_id_unused(&root, "T-501", "丙测试").is_ok(),
+            "未占用的编号不该被拦"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn 工具输出必须回显本次分配的编号() {
+        let root = temp_project("echoid");
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = TestRecordTool
+            .execute(json!({ "title": "R-1 长测试", "status": "running" }), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let records = read_test_records(&root.join(TEST_RUNS_REL));
+        let id = records[0].1["id"].as_str().unwrap().to_string();
+        // 拿不到编号,「跑完带 id 收尾」这条纪律在源头就无法执行,只能靠标题猜。
+        assert!(
+            out.content.contains(&format!("recorded {id}")),
+            "工具输出必须回显分配到的编号:{}",
+            out.content
+        );
+        assert!(
+            out.content.contains(&format!("id={id}")),
+            "running 记录必须提示带该 id 收尾:{}",
+            out.content
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 定点替换不得误伤内容相同的另一条记录() {
+        let root = temp_project("splice");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        // 历史遗留:同号且字节相同的两条记录(编号复用的产物)。
+        // 旧实现用 str::replace 会把两条一起换掉,收尾一条等于抹掉另一条。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-500 甲测试 [running]\n- 命令: cargo test\n\n## T-500 甲测试 [running]\n- 命令: cargo test\n",
+        )
+        .unwrap();
+        let snapshot = record_test_run(
+            &root,
+            Some("T-500"),
+            "甲测试",
+            "passed",
+            None,
+            Some("全绿"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            snapshot["active"].as_array().unwrap().len(),
+            1,
+            "只该收尾一条,另一条必须原样留着:{snapshot:#?}"
+        );
+        assert_eq!(snapshot["active"][0]["status"], json!("running"));
+        assert_eq!(
+            snapshot["archived"].as_array().unwrap().len(),
+            1,
+            "被收尾的那条应归档:{snapshot:#?}"
+        );
+        assert_eq!(snapshot["archived"][0]["status"], json!("passed"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 归档已有同编号且内容不同时拒绝追加() {
+        let root = temp_project("archivedup");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            "# Test Runs Archive\n\n## T-500 甲测试 [passed]\n- 摘要: 甲\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-500 乙测试 [passed]\n- 摘要: 乙\n",
+        )
+        .unwrap();
+        let archive_before = std::fs::read(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap();
+        let active_before = std::fs::read(root.join(TEST_RUNS_REL)).unwrap();
+        let err = test_runs_snapshot(&root).unwrap_err();
+        assert!(err.contains("T-500"), "{err}");
+        assert!(err.contains("未写入"), "必须明说什么都没写:{err}");
+        assert_eq!(
+            std::fs::read(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap(),
+            archive_before,
+            "拒绝路径不得改动归档"
+        );
+        assert_eq!(
+            std::fs::read(root.join(TEST_RUNS_REL)).unwrap(),
+            active_before,
+            "拒绝路径不得改动活动记录"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 编号保持纯u64且领先墙钟时不判悬空() {
+        let root = temp_project("monotonic");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let ahead = now_secs() + 50;
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!("# Test Runs\n\n## T-{ahead} 基线 [running]\n"),
+        )
+        .unwrap();
+        let snapshot = append_test_run(&root, "新记录", "running", None, None, None).unwrap();
+        let id = snapshot["recorded_id"].as_str().unwrap().to_string();
+        // 纯 u64:running_age_secs 与 last_passed_at 都靠 parse::<u64>(),
+        // 一旦改成带后缀的编号,悬空检测和提交门禁会静默失效。
+        let stamp = id.strip_prefix("T-").expect("编号必须形如 T-<整数>");
+        assert!(
+            stamp.parse::<u64>().is_ok(),
+            "编号必须保持纯 u64,不得加后缀:{id}"
+        );
+        assert_eq!(
+            running_age_secs(&id),
+            Some(0),
+            "编号领先墙钟时 age 应饱和到 0,而不是让字段整个消失"
+        );
+        let fresh = snapshot["active"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"].as_str() == Some(id.as_str()))
+            .expect("新记录应在 active 中")
+            .clone();
+        assert_eq!(
+            fresh["stale"],
+            json!(false),
+            "新记录不该被判悬空:{fresh:#?}"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }
