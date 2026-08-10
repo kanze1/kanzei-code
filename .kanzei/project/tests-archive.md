@@ -1238,3 +1238,13 @@
 - 命令: cargo test --workspace
 - 摘要: R-163 关闭前全量:workspace 全绿(core 90/tools 159/app 等)
 - 收尾: 1786345551
+
+## T-1786345685 R-163 关闭前全量:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: exit 0;kanzei-tools 159 passed,core/harness/llm Doc-tests 0 失败;与 R-163 进展「core 90 + tools 159 全绿」一致(§1.4 复杂度大条目关闭前全量)
+- 收尾: 1786345685
+
+## T-1786346035 R-164 B1 定向测试:cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 162 passed(原159+新增3:无embedder降级_fingerprint+BM25/指纹miss回落BM25/upsert_remove_rebuild);0 失败
+- 收尾: 1786346035
