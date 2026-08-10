@@ -121,18 +121,17 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
         let entries = store.load().unwrap_or_default();
         // 反向依赖图(R-111):跨 req/defect 构建「谁依赖我」。放在快照入口算一次,
         // 两个 kind 共用,避免每个 kind 重复读盘。仅对 req/defect 输出(其它 kind 无依赖语义)。
-        let (dependents_deps, dependents) = if kind.rel_path == REQUIREMENTS.rel_path
-            || kind.rel_path == DEFECTS.rel_path
-        {
-            kanzei_tools::tracker::dependents_map(
-                &kanzei_harness::ToolCtx::new(root.clone()),
-                kind,
-                &entries,
-            )
-            .unwrap_or_default()
-        } else {
-            Default::default()
-        };
+        let (dependents_deps, dependents) =
+            if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
+                kanzei_tools::tracker::dependents_map(
+                    &kanzei_harness::ToolCtx::new(root.clone()),
+                    kind,
+                    &entries,
+                )
+                .unwrap_or_default()
+            } else {
+                Default::default()
+            };
         let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
             if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
                 kanzei_tools::tracker::schedule_for_display(
@@ -319,7 +318,10 @@ pub fn docs_read(project_dir: String, kind: String) -> Result<serde_json::Value,
 /// 读取项目内任意相对路径的 Markdown(R-122 架构浏览用):只读 docs/ 前缀文件,
 /// 防止把命令变成任意文件读取通道。返回与 docs_read 同构。
 #[tauri::command]
-pub fn docs_read_custom(project_dir: String, rel_path: String) -> Result<serde_json::Value, String> {
+pub fn docs_read_custom(
+    project_dir: String,
+    rel_path: String,
+) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
     let normalized = rel_path.replace('\\', "/");
@@ -346,8 +348,8 @@ pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, S
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
     let index_path = root.join(".kanzei/project/architecture/README.md");
-    let index = std::fs::read_to_string(&index_path)
-        .map_err(|e| format!("架构索引读取失败: {e}"))?;
+    let index =
+        std::fs::read_to_string(&index_path).map_err(|e| format!("架构索引读取失败: {e}"))?;
     let design_dir = root.join("docs/design");
     let mut docs: Vec<serde_json::Value> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&design_dir) {

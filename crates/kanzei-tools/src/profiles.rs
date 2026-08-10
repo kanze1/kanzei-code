@@ -585,9 +585,7 @@ impl Component for ReadonlyProfile {
                 .push(rule("git", subcommand, Effect::Allow));
         }
         // 只读档位下联网抓取放行(分析"外部事实"时的主要只读通道)。
-        draft
-            .permissions
-            .push(rule("webfetch", "*", Effect::Allow));
+        draft.permissions.push(rule("webfetch", "*", Effect::Allow));
         // 写与命令:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
         // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
         // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。

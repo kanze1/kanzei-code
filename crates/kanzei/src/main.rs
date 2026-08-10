@@ -771,7 +771,10 @@ mod tests {
             "开始".to_string(),
             "新会话".to_string(),
         ];
-        assert_eq!(parse_run_args(&args), (true, false, "开始 新会话".to_string()));
+        assert_eq!(
+            parse_run_args(&args),
+            (true, false, "开始 新会话".to_string())
+        );
     }
 
     #[test]

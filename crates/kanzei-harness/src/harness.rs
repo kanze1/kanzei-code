@@ -283,9 +283,7 @@ mod tests {
     fn permission_snapshot_reflects_ruleset_and_hard_denies() {
         let mut draft = HarnessDraft::default();
         // 普通规则:read 放行、bash ask。
-        draft
-            .permissions
-            .push(rule("read", "*", Effect::Allow));
+        draft.permissions.push(rule("read", "*", Effect::Allow));
         draft.permissions.push(rule("bash", "*", Effect::Ask));
         // 硬 deny:write 整体摘除。
         draft

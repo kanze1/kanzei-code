@@ -859,7 +859,6 @@ pub fn dependents_map(
     Ok((deps_map, dependents))
 }
 
-
 fn schedule_entries<'a>(
     entries: &'a [Entry],
     states: &DependencyStates,
@@ -1804,7 +1803,10 @@ mod tests {
 
         let (deps, dependents) = super::dependents_map(&ctx, &REQUIREMENTS, &loaded).unwrap();
         // 正向:R-001 → [R-002, R-003],R-003 → [R-002],R-002 无依赖。
-        assert_eq!(deps.get("R-001").unwrap(), &vec!["R-002".to_string(), "R-003".to_string()]);
+        assert_eq!(
+            deps.get("R-001").unwrap(),
+            &vec!["R-002".to_string(), "R-003".to_string()]
+        );
         assert_eq!(deps.get("R-003").unwrap(), &vec!["R-002".to_string()]);
         assert!(deps.get("R-002").is_none());
         // 反向:R-002 被 R-001 与 R-003 依赖;R-003 只被 R-001 依赖;R-001 无人依赖。
@@ -1827,7 +1829,11 @@ mod tests {
         let (_, dependents) = super::dependents_map(&ctx, &REQUIREMENTS, &loaded).unwrap();
         assert_eq!(
             dependents.get("R-002").unwrap(),
-            &vec!["R-001".to_string(), "R-003".to_string(), "R-004".to_string()]
+            &vec![
+                "R-001".to_string(),
+                "R-003".to_string(),
+                "R-004".to_string()
+            ]
         );
         std::fs::remove_dir_all(dir).ok();
     }
@@ -1863,7 +1869,11 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "{}", out.content);
-        assert!(out.content.contains("invalid tag `杂项`"), "{}", out.content);
+        assert!(
+            out.content.contains("invalid tag `杂项`"),
+            "{}",
+            out.content
+        );
         assert!(out.content.contains("核心"), "{}", out.content);
         assert!(out.content.contains("后端"), "{}", out.content);
 
@@ -1884,7 +1894,11 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "{}", out.content);
-        assert!(out.content.contains("invalid tag `网络`"), "{}", out.content);
+        assert!(
+            out.content.contains("invalid tag `网络`"),
+            "{}",
+            out.content
+        );
 
         // update:多值含一个非法词也被拒(按空白/逗号拆分逐词校验)。
         let out = tool
@@ -1894,7 +1908,11 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "{}", out.content);
-        assert!(out.content.contains("invalid tag `杂项`"), "{}", out.content);
+        assert!(
+            out.content.contains("invalid tag `杂项`"),
+            "{}",
+            out.content
+        );
 
         // update:词表内多值放行。
         let out = tool
