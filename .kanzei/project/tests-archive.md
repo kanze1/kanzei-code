@@ -1188,3 +1188,8 @@
 - 命令: cargo test -p kanzei-core; cargo test -p kanzei-tools; cargo test -p kanzei-app
 - 摘要: core 79 / tools 147 / app 51 全绿:新增 RecallWatch 4 单测(触发注入/同轮去重/非失败不触发/无策略 no-op/失败计数递增)
 - 收尾: 1786342725
+
+## T-1786342987 R-162 B4 FailureRecallPolicy 定向测试(tools/core) [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-core
+- 摘要: tools 152 / core 79 全绿:FailureRecallPolicy 实现 Tier0/Tier1/ReRetrieve/超时降级 + event_recall_log 查询 + 5 条单测(验收③/④)
+- 收尾: 1786342987

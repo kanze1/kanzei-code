@@ -171,6 +171,30 @@ impl SessionStore {
             outcome_improved: outcome_improved as u64,
         })
     }
+
+    /// R-162 事件召回明细查询(可观测性 + 测试断言):
+    /// 返回 recall_events 里 trigger_type='event_recall' 的行
+    /// (recall_id, trigger_payload, policy_action, query),按 created_at 升序。
+    pub fn event_recall_log(
+        &self,
+    ) -> Result<Vec<(String, String, String, String)>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT recall_id, trigger_payload, policy_action, query
+             FROM recall_events WHERE trigger_type = 'event_recall'
+             ORDER BY created_at",
+        )?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]

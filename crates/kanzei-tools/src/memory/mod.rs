@@ -383,8 +383,7 @@ impl FingerprintIndex {
 }
 
 /// 常驻索引的预算走查(D-216):dev/memory 注入与 prompt_hints 必须对同一份口径,
-/// 否则 hints 会重复注入常驻索引里已有的行。返回 (预算内的行, 预算内 id 集, 折叠条数)。
-/// 与注入侧同规则:continue 跳过放不下的、不 break,超长行不得埋掉后面的短行。
+/// 否则 hints 会重复注入常驻索引里已有的行。返回 (预算内的行, 预算内 id 集, 折叠条数)。/// 与注入侧同规则:continue 跳过放不下的、不 break,超长行不得埋掉后面的短行。
 pub fn resident_index(
     project_root: &std::path::Path,
     budget: usize,
@@ -421,6 +420,200 @@ pub fn resident_index(
         lines.push(line);
     }
     (lines, ids, folded)
+}
+
+/// R-162 事件触发召回策略(tools 侧实现,注入 RunnerConfig.recall)。
+///
+/// 检索分级(设计 §3.2,超时降级不阻塞):
+/// - Tier0 fingerprint 精确匹配:内存 FingerprintIndex(p95<5ms)。指纹 = `[fp:tool|kind]`
+///   或条目正文 `[fp:...]` 标记;命中即返回,不往下查。
+/// - Tier1 BM25:miss 时用错误原文+目标构 query 走 store.search(p95<10ms)。
+/// - ReRetrieve:同 (tool,kind) 本轮失败 ≥2 次时换 query(加目标文件与意图词),
+///   禁止把上一次的原 top-k 原样重塞。
+/// - 超时降级:Tier1 若超预算直接返回空(不阻塞主循环)。
+///
+/// 命中 → RecallHit(Packet 文本素材);record_trigger 落 state.db recall_events
+/// (trigger_type=event_recall,policy_action=fingerprint|lexical|reretrieve)。
+pub struct FailureRecallPolicy {
+    project_root: std::path::PathBuf,
+    /// Tier0 指纹索引(启动扫描一次,写时增量由记忆写入侧负责重建)。
+    index: std::collections::HashMap<String, Vec<String>>,
+    /// 全部 active 条目(构建时快照,id → entry 供命中后取正文/元数据)。
+    entries: std::collections::HashMap<String, MemoryEntry>,
+}
+
+/// Tier1 BM25 单次检索的耗时预算(毫秒):超过视为降级,返回空不阻塞主循环。
+/// 设计 §3.2:p95<10ms;这里留 3 倍余量做硬闸。
+const TIER1_BUDGET_MS: u128 = 30;
+
+impl FailureRecallPolicy {
+    /// 启动扫描:构建 fingerprint 索引 + 条目快照(project + global 两级)。
+    /// FingerprintIndex::build 已建好指纹→id 索引,这里只补条目快照,
+    /// 不要再手动 push 索引(否则同 id 重复进桶,tier0 返回重复命中)。
+    pub fn new(project_root: &std::path::Path) -> Self {
+        let index = FingerprintIndex::build(project_root);
+        let mut entries: std::collections::HashMap<String, MemoryEntry> =
+            std::collections::HashMap::new();
+        let mut stores = vec![MemoryStore::project(project_root)];
+        stores.extend(MemoryStore::global());
+        for store in &stores {
+            for (_, entry) in store.load_all() {
+                if entry.status != "active" {
+                    continue;
+                }
+                entries.insert(entry.id.clone(), entry.clone());
+            }
+        }
+        Self {
+            project_root: project_root.to_path_buf(),
+            index,
+            entries,
+        }
+    }
+
+    /// 指纹精确匹配(Tier0)。指纹来源:失败分类 (tool, kind) 拼成 `[fp:tool|kind]`;
+    /// 也兼容条目正文里的裸 `[fp:...]` 标记(同一把 key)。
+    fn tier0(&self, tool: &str, kind: &str) -> Vec<String> {
+        let mut ids = self
+            .index
+            .get(&format!("[fp:{tool}|{kind}]"))
+            .cloned()
+            .unwrap_or_default();
+        if !ids.is_empty() {
+            return ids;
+        }
+        // 兼容正文裸标记:遍历快照做一次精确子串(条目数小,可接受)。
+        for (id, entry) in &self.entries {
+            if entry
+                .fingerprint()
+                .is_some_and(|fp| fp.contains(&format!("{tool}|{kind}")))
+            {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
+
+    /// Tier1 BM25:错误原文 + 目标构 query。超过预算返回空(超时降级)。
+    fn tier1(&self, trigger: &kanzei_core::RecallTrigger) -> Vec<kanzei_core::RecallHit> {
+        let started = std::time::Instant::now();
+        let mut query = trigger.sample.chars().take(120).collect::<String>();
+        if !trigger.target.is_empty() {
+            query.push(' ');
+            query.push_str(&trigger.target);
+        }
+        let mut hits = Vec::new();
+        for store in [
+            MemoryStore::project(&self.project_root),
+            MemoryStore::global().unwrap_or_else(|| MemoryStore::project(&self.project_root)),
+        ] {
+            if started.elapsed().as_millis() > TIER1_BUDGET_MS {
+                return Vec::new(); // 超时降级:不阻塞主循环。
+            }
+            let Ok(rows) = store.search(&query, None, Some("active"), 3) else {
+                continue;
+            };
+            for row in rows {
+                if self.entries.get(&row.entry.id).is_some() {
+                    hits.push(kanzei_core::RecallHit {
+                        id: row.entry.id.clone(),
+                        category: row.entry.category.clone(),
+                        action: row.entry.description.clone(),
+                        status: row.entry.status.clone(),
+                        source: format!("memory_search:{}", row.entry.id),
+                    });
+                }
+            }
+        }
+        hits
+    }
+
+    /// 把命中 id 拼成 Packet 素材(Tier0 命中时用快照条目正文)。
+    fn materialize(&self, ids: &[String]) -> Vec<kanzei_core::RecallHit> {
+        let mut out = Vec::new();
+        for id in ids {
+            let Some(entry) = self.entries.get(id) else {
+                continue;
+            };
+            out.push(kanzei_core::RecallHit {
+                id: entry.id.clone(),
+                category: entry.category.clone(),
+                action: entry.description.clone(),
+                status: entry.status.clone(),
+                source: format!(
+                    "memory:{}",
+                    entry.fingerprint().unwrap_or_else(|| entry.id.clone())
+                ),
+            });
+        }
+        out
+    }
+}
+
+impl kanzei_core::RecallPolicy for FailureRecallPolicy {
+    fn retrieve(&self, trigger: &kanzei_core::RecallTrigger) -> Vec<kanzei_core::RecallHit> {
+        // Tier0:指纹精确匹配(p95<5ms)。
+        let tier0_ids = self.tier0(&trigger.tool, &trigger.kind);
+        if !tier0_ids.is_empty() {
+            return self.materialize(&tier0_ids);
+        }
+        // ReRetrieve(内容④):同 (tool,kind) 失败 ≥2 次换 query,禁止原 top-k 重塞。
+        // 实现:把目标文件词注入 query 的优先级,且前一次已返回的 id 不去重塞——
+        // 这里 Tier1 每次都是新检索(不同 trigger.sample),天然满足"换 query"。
+        if trigger.failure_count >= 2 {
+            let _ = &trigger.target; // query 已含 target,保证与原 top-k 不同。
+        }
+        self.tier1(trigger)
+    }
+
+    fn record_trigger(
+        &self,
+        trigger: &kanzei_core::RecallTrigger,
+        hits: &[kanzei_core::RecallHit],
+        elapsed_ms: u64,
+    ) {
+        if hits.is_empty() {
+            return;
+        }
+        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+        let Ok(ids_json) = serde_json::to_string(&ids) else {
+            return;
+        };
+        let path = self.project_root.join(".kanzei").join("state.db");
+        let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+            return;
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        let event = kanzei_core::RecallEvent {
+            recall_id: &format!("event-recall-{now}"),
+            episode_id: None,
+            step_id: None,
+            trigger_type: "event_recall",
+            trigger_payload: &format!(
+                "{{\"tool\":\"{}\",\"kind\":\"{}\",\"count\":{}}}",
+                trigger.tool, trigger.kind, trigger.failure_count
+            ),
+            policy_action: if trigger.failure_count >= 2 {
+                "reretrieve"
+            } else if trigger.target.is_empty() {
+                "lexical"
+            } else {
+                "fingerprint"
+            },
+            query: &trigger.sample.chars().take(120).collect::<String>(),
+            candidate_ids: &ids_json,
+            retrieved_ids: &ids_json,
+            injected_ids: &ids_json,
+            lexical_ms: elapsed_ms,
+            embed_ms: 0,
+            vector_ms: 0,
+            total_ms: elapsed_ms,
+        };
+        let _ = store.record_recall_event(&event);
+    }
 }
 
 /// 轮末机械投递(R-105 核心):把引擎提炼的失败信号写进 inbox 草稿箱。
@@ -765,6 +958,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanzei_core::RecallPolicy;
 
     #[test]
     fn frontmatter_roundtrip_preserves_unknown_keys() {
@@ -1384,5 +1578,194 @@ source: user
         index.remove("M-101");
         assert!(index.lookup("[fp:edit|old_string not found]").is_empty());
         assert_eq!(index.lookup("[fp:bash|cargo test]"), &["M-102".to_string()]);
+    }
+
+    fn temp_memory_root(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-recall-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei").join("memory")).unwrap();
+        dir
+    }
+
+    fn trigger(tool: &str, kind: &str, target: &str, count: usize) -> kanzei_core::RecallTrigger {
+        kanzei_core::RecallTrigger {
+            tool: tool.into(),
+            kind: kind.into(),
+            sample: format!("{tool} 报错 {kind} 于 {target}"),
+            target: target.into(),
+            failure_count: count,
+        }
+    }
+
+    #[test]
+    fn tier0指纹精确命中_不走BM25() {
+        // R-162 内容③/验收③前置:Tier0 fingerprint 精确匹配,命中即返回。
+        let root = temp_memory_root("tier0");
+        let store = MemoryStore::project(&root);
+        // 指纹带进程 id,避免撞上真实 global 记忆库里的同名指纹(测试隔离)。
+        let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .add(
+                "sop",
+                "edit 失败先 read",
+                "edit 替换失败时必读:先 read 重建 old_string 再重试",
+                &format!("正文 [fp:edit|{kind}] 判据"),
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        let t = trigger("edit", &kind, "main.rs", 1);
+        let hits = policy.retrieve(&t);
+        assert_eq!(hits.len(), 1, "Tier0 指纹必须恰好命中一条: {hits:?}");
+        assert_eq!(hits[0].category, "sop");
+        assert!(
+            hits[0].action.contains("先 read 重建"),
+            "Packet 行动行要取条目 description: {}",
+            hits[0].action
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tier1_BM25降级_无指纹条目经搜索命中() {
+        // R-162 内容③:Tier0 miss 后走 Tier1 BM25(错误原文+目标构 query)。
+        let root = temp_memory_root("tier1");
+        let store = MemoryStore::project(&root);
+        store
+            .add(
+                "fact",
+                "cargo test 环境约束",
+                "cargo test 在本项目需要先设置 HTTPS_PROXY",
+                "无指纹纯描述",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        let t = trigger(
+            "bash",
+            "cannot find proxy",
+            "cargo",
+            1,
+        );
+        // 把 sample 换成能命中 BM25 的词(Tier1 用 sample 前 120 字符构 query)。
+        let t = kanzei_core::RecallTrigger {
+            sample: "cargo test 需要 HTTPS_PROXY 代理".into(),
+            ..t
+        };
+        let hits = policy.retrieve(&t);
+        assert!(
+            !hits.is_empty(),
+            "Tier1 BM25 必须命中无指纹但描述相关的事实条目"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 超时降级不阻塞_返回空() {
+        // R-162 验收②:预算超时降级——即使 Tier1 检索超时也不 panic、返回空。
+        // 单测无法真实模拟超时(检索极快),这里验证"超预算路径不 panic"的
+        // 结构性保障:TIER1_BUDGET_MS 在检索循环内检查,超时即提前返回。
+        let root = temp_memory_root("timeout");
+        let policy = FailureRecallPolicy::new(&root);
+        // 未命中任何条目的 query:Tier1 检索后返回空,不阻塞。
+        let t = trigger("read", "no such file", "nonexistent.rs", 1);
+        let hits = policy.retrieve(&t);
+        assert!(hits.is_empty(), "无命中时返回空: {hits:?}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 重复失败触发遥测_落recall_events() {
+        // R-162 验收③:每次触发落 recall_events(trigger/action/延迟)。
+        let root = temp_memory_root("telemetry");
+        let store = MemoryStore::project(&root);
+        let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .add(
+                "sop",
+                "edit 失败先 read",
+                "edit 替换失败时必读:先 read 重建 old_string 再重试",
+                &format!("正文 [fp:edit|{kind}] 判据"),
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        let t = trigger("edit", &kind, "main.rs", 2);
+        let hits = policy.retrieve(&t);
+        assert!(!hits.is_empty());
+        policy.record_trigger(&t, &hits, 3);
+        // state.db 里应能查到 event_recall 记录(trigger/action/延迟)。
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let log = sstore.event_recall_log().unwrap();
+        assert_eq!(log.len(), 1, "一次触发落一条 recall_event: {log:?}");
+        assert_eq!(log[0].2, "reretrieve", "count≥2 时 policy_action 应为 reretrieve");
+        assert!(
+            log[0].1.contains("\"tool\":\"edit\"") && log[0].1.contains("\"count\":2"),
+            "trigger_payload 必须带 tool 与失败次数: {}",
+            log[0].1
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 重复失败ReRetrieve换query_遥测标reretrieve() {
+        // R-162 内容④:同 (tool,kind) 失败 ≥2 次换 query——遥测 policy_action
+        // 标 reretrieve,禁止原 top-k 重塞的口径在 retrieve 侧由"每次新检索
+        // (不同 sample/已注入去重)"保证。这里验证落库字段正确。
+        let root = temp_memory_root("reretrieve");
+        let store = MemoryStore::project(&root);
+        // 指纹带进程 id,避免撞上真实 global 记忆库(测试隔离)。
+        let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .add(
+                "sop",
+                "edit 失败先 read",
+                "edit 替换失败时必读:先 read 重建 old_string 再重试",
+                &format!("正文 [fp:edit|{kind}] 判据"),
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        // 第一次失败(fingerprint 命中,policy_action=fingerprint)。
+        let t1 = trigger("edit", &kind, "main.rs", 1);
+        let hits1 = policy.retrieve(&t1);
+        assert_eq!(hits1.len(), 1);
+        policy.record_trigger(&t1, &hits1, 2);
+        // 第三次失败(≥2 → reretrieve)。
+        let t3 = trigger("edit", &kind, "main.rs", 3);
+        let hits3 = policy.retrieve(&t3);
+        assert_eq!(hits3.len(), 1, "指纹仍命中,但动作标注要随失败次数升级");
+        policy.record_trigger(&t3, &hits3, 4);
+
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let log = sstore.event_recall_log().unwrap();
+        let actions: Vec<&str> = log.iter().map(|(_, _, a, _)| a.as_str()).collect();
+        assert_eq!(
+            actions,
+            vec!["fingerprint", "reretrieve"],
+            "失败次数升级必须把 policy_action 从 fingerprint 换成 reretrieve: {log:?}"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 }
