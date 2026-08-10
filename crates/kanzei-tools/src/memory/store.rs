@@ -378,12 +378,38 @@ impl MemoryStore {
         atomic_write(&path, &render_entry(entry))
     }
 
-    /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
-    pub fn refresh_derived(&self) -> anyhow::Result<()> {
+    /// 归档失效条目(D-231/R-165 验收③):deprecated/invalid 移入 archive/ 带墓碑。
+    /// 返回归档条数。引擎强制:任何 refresh_derived(写操作后)都会先归档,
+    /// 主目录只留 active/candidate——归档条目不在 load_all/FTS/检索范围内,
+    /// ID 由 load_archived_ids 保留永不复用。
+    pub fn archive_dead(&self) -> usize {
         let entries = self.load_all();
-        // INDEX.md:一行一条(仅 active),stale/归档折叠为计数。
+        let mut archived = 0usize;
+        for (path, entry) in &entries {
+            if entry.status != "deprecated" && entry.status != "invalid" {
+                continue;
+            }
+            let archive_dir = self.archive_dir();
+            std::fs::create_dir_all(&archive_dir).ok();
+            let dest = archive_dir.join(format!("{}.md", entry.file_stem()));
+            // 墓碑:保留文件(内容即追溯),目标已存在则跳过(防重复归档覆盖)。
+            if dest.exists() {
+                let _ = std::fs::remove_file(path);
+            } else if std::fs::rename(path, &dest).is_ok() {
+                archived += 1;
+            }
+        }
+        archived
+    }
+
+    /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
+    /// R-165 批3:先归档失效条目,再以归档后的集合重建(主目录只含 active/candidate)。
+    pub fn refresh_derived(&self) -> anyhow::Result<()> {
+        let _archived = self.archive_dead();
+        let entries = self.load_all();
+        // INDEX.md:一行一条(仅 active),candidate 折叠为计数(未验证不占索引面)。
         let mut index = format!("# Memory Index ({})\n\n", self.scope.label());
-        let mut stale = 0usize;
+        let mut candidates = 0usize;
         for (_, e) in &entries {
             if e.status == "active" {
                 index.push_str(&format!(
@@ -391,11 +417,11 @@ impl MemoryStore {
                     e.id, e.category, e.title, e.description
                 ));
             } else {
-                stale += 1;
+                candidates += 1;
             }
         }
-        if stale > 0 {
-            index.push_str(&format!("\n({stale} stale 条待归档)\n"));
+        if candidates > 0 {
+            index.push_str(&format!("\n({candidates} candidate 条待验证晋升)\n"));
         }
         atomic_write(&self.index_md(), &index)?;
 
@@ -1150,7 +1176,7 @@ impl MemoryStore {
                 title: legacy_entry.title.clone(),
                 description: format!("{}(迁移自 memory.md)", legacy_entry.title),
                 status: if legacy_entry.status == "stale" {
-                    "stale"
+                    "deprecated"
                 } else {
                     "active"
                 }
@@ -1605,6 +1631,36 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// R-165 批3(验收③):deprecated/invalid 移入 archive/ 且默认检索不可见(D-231)。
+    #[test]
+    fn deprecated_moves_to_archive_and_hidden_from_search() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add("fact", "将被推翻的结论", "旧钩子", "旧内容", "user", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(entry) = e else { panic!("expected Added") };
+        // 设置 deprecated → refresh_derived 自动归档。
+        store.update(&entry.id, None, None, None, Some("deprecated")).unwrap();
+        // 主目录已无该文件,archive/ 有墓碑。
+        assert!(!store.root.join(format!("{}.md", entry.file_stem())).exists());
+        assert!(store.archive_dir().join(format!("{}.md", entry.file_stem())).exists());
+        // load_all 不含它(默认检索范围),load_archived_ids 保留 ID 防复用。
+        assert!(store.load_all().iter().all(|(_, e)| e.id != entry.id));
+        assert!(store.load_archived_ids().contains(&entry.id));
+        // 默认检索(search 无 status 过滤或 active 过滤)都不可见。
+        let hits = store.search("将被推翻", None, None, 5).unwrap();
+        assert!(hits.iter().all(|h| h.entry.id != entry.id), "归档条目不得被检索");
+        // invalid 同样归档。
+        let i = store
+            .add("fact", "证伪的假设", "证伪钩子", "证伪内容", "user", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(invalid) = i else { panic!("expected Added") };
+        store.update(&invalid.id, None, None, None, Some("invalid")).unwrap();
+        assert!(!store.load_all().iter().any(|(_, e)| e.id == invalid.id));
+        assert!(store.archive_dir().join(format!("{}.md", invalid.file_stem())).exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn integrity_detects_holes_and_duplicates() {
         let (dir, store) = temp_store();
@@ -1650,13 +1706,23 @@ mod tests {
             .unwrap();
         assert_eq!(merged.id, a.id);
         assert_eq!(merged.description, "gh 网络失败/超时必读");
-        let entries = store.load_all();
-        let (_, dup) = entries.iter().find(|(_, e)| e.id == b.id).unwrap();
-        assert_eq!(dup.status, "deprecated"); // R-165:merge 墓碑统一 deprecated
-        assert!(dup
-            .extras
-            .iter()
-            .any(|(k, v)| k == "superseded_by" && v == &a.id));
+        // R-165 批3:墓碑条目归档到 archive/(主目录只留 active/candidate)。
+        assert!(store.load_all().iter().all(|(_, e)| e.id != b.id));
+        let dup_path = std::fs::read_dir(store.archive_dir())
+            .unwrap()
+            .flatten()
+            .find(|p| {
+                p.path()
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(&b.id))
+                    .unwrap_or(false)
+            })
+            .expect("archive 墓碑应存在")
+            .path();
+        let dup_text = std::fs::read_to_string(dup_path).unwrap();
+        assert!(dup_text.contains("status: deprecated"));
+        assert!(dup_text.contains(&format!("superseded_by: {}", a.id)), "{dup_text}");
         // 未知 id 与自我合并都拒绝
         assert!(store
             .merge(&a.id, std::slice::from_ref(&a.id), None, None, None)
@@ -1795,18 +1861,30 @@ mod tests {
         .unwrap();
         let store = MemoryStore::project(&dir);
         let entries = store.load_all();
-        assert_eq!(entries.len(), 2);
+        // R-165 批3:迁移的 stale 条目(deprecated)自动归档,主目录只留 active。
+        assert_eq!(entries.len(), 1, "deprecated 迁移条目应已归档: {:?}", entries);
         let m1 = entries.iter().find(|(_, e)| e.id == "M-001").unwrap();
         assert_eq!(m1.1.category, "fact");
         assert_eq!(m1.1.source, "migration");
         assert!(m1.1.body.contains("依据: 实测"));
-        let m2 = entries.iter().find(|(_, e)| e.id == "M-002").unwrap();
-        assert_eq!(m2.1.status, "deprecated"); // 旧档 stale 迁移后归一化 deprecated
+        let archived_m2 = std::fs::read_dir(store.archive_dir())
+            .unwrap()
+            .flatten()
+            .find(|p| {
+                p.path()
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with("M-002"))
+                    .unwrap_or(false)
+            })
+            .expect("M-002 归档墓碑应存在");
+        let m2_text = std::fs::read_to_string(archived_m2.path()).unwrap();
+        assert!(m2_text.contains("status: deprecated"), "{m2_text}");
         // 原文件变为指路牌,重复 open 不再迁移
         let legacy = std::fs::read_to_string(dir.join(".kanzei/project/memory.md")).unwrap();
         assert!(legacy.contains("已迁移"));
         let again = MemoryStore::project(&dir);
-        assert_eq!(again.load_all().len(), 2);
+        assert_eq!(again.load_all().len(), 1);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2003,13 +2081,22 @@ mod tests {
         );
         // refs 并集进 primary。
         assert_eq!(merged.refs(), vec!["R-001".to_string()]);
-        // 墓碑语义不变。
-        let (_, dup) = store
-            .load_all()
-            .into_iter()
-            .find(|(_, e)| e.id == b.id)
-            .unwrap();
-        assert_eq!(dup.status, "deprecated");
+        // R-165 批3:墓碑语义不变,但条目归档到 archive/。
+        assert!(store.load_all().iter().all(|(_, e)| e.id != b.id));
+        let dup_path = std::fs::read_dir(store.archive_dir())
+            .unwrap()
+            .flatten()
+            .find(|p| {
+                p.path()
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(&b.id))
+                    .unwrap_or(false)
+            })
+            .expect("archive 墓碑应存在")
+            .path();
+        let dup_text = std::fs::read_to_string(dup_path).unwrap();
+        assert!(dup_text.contains("status: deprecated"), "{dup_text}");
         std::fs::remove_dir_all(dir).ok();
     }
 

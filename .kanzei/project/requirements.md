@@ -64,9 +64,9 @@
 - 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
 - refs: R-105 D-231 docs/design/memory_control_plane.md
 
-- 进展: 批2完成:novelty gate 三档(classify_novelty 机械分流 new/duplicate/uncertain + novelty_events 计数遥测表,memory_note 投递时挡明显重复);recurrence 三段晋升(跨轮计数表 recurrence_counts,bump_recurrence 持久递增,harvest_failures 笔记带档位与晋升规则)。177 测试全绿(含验收②④新测试)。批3=归档落地 D-231(验收③)。
+- 进展: 批3完成(D-231 修复):archive_dead() 自动归档 deprecated/invalid 到 archive/ 带墓碑,refresh_derived 任何写操作后强制归档;INDEX.md 改 candidate 折叠计数;迁移 stale 直接写 deprecated;检索/load_all 天然不可见,ID 永不复用。178 测试全绿(含验收③新测试)。批4=转换三问+merge 保守闸+后台触发扩展其余(验收⑤)。
 
-- 批次: 2/4
+- 批次: 3/4
 
 ## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [todo]
 - 优先级: P0

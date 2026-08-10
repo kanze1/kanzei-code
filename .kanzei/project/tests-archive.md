@@ -1283,3 +1283,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 177 passed; 0 failed. 批2: novelty gate 三档+遥测、recurrence 三段晋升计数。
 - 收尾: 1786349087
+
+## T-1786349227 cargo test -p kanzei-tools (R-165 批3 归档落地) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 178 passed; 0 failed. 批3: 归档落地 D-231, deprecated/invalid 移 archive/ 默认检索不可见。
+- 收尾: 1786349227
