@@ -93,6 +93,45 @@ impl MemoryEntry {
             .map(|(_, v)| v.split_whitespace().map(str::to_string).collect())
             .unwrap_or_default()
     }
+
+    /// R-162 一等字段(宽容读零迁移):extras 里查 fingerprint/trigger/valid_from/
+    /// supersedes/version。旧条目没有这些键时返回 None,不报错、不迁移。
+    /// 写入侧不强制——谁写了谁受益,缺键的条目只少触发少召回,不坏。
+    pub fn field(&self, key: &str) -> Option<&str> {
+        self.extras
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+            .filter(|v| !v.is_empty())
+    }
+
+    /// 触发指纹:优先 frontmatter `fingerprint:` 一等字段;缺省回退到正文
+    /// `[fp:...]` 标记的第一条(兼容旧条目,见 fp_markers)。
+    pub fn fingerprint(&self) -> Option<String> {
+        self.field("fingerprint")
+            .map(str::to_string)
+            .or_else(|| fp_markers(&self.body).first().cloned())
+    }
+
+    /// 触发时机:tool_failure | intent | state_change;缺省 = 任意失败都试。
+    pub fn trigger(&self) -> Option<&str> {
+        self.field("trigger")
+    }
+
+    /// 条目有效起始日期:早于它的触发不命中。
+    pub fn valid_from(&self) -> Option<&str> {
+        self.field("valid_from")
+    }
+
+    /// 本条目取代的旧条目 id(版本链,superseded_by 反向已有)。
+    pub fn supersedes(&self) -> Option<&str> {
+        self.field("supersedes")
+    }
+
+    /// 版本号(宽容:非数字或缺失 = None,不 panic)。
+    pub fn version(&self) -> Option<u32> {
+        self.field("version").and_then(|v| v.trim().parse().ok())
+    }
 }
 
 /// 标题 → 文件名片段:保留字母数字与 CJK,其余折叠为 '-';上限 40 字符。
@@ -270,6 +309,77 @@ pub fn fp_markers(text: &str) -> Vec<String> {
     out.sort();
     out.dedup();
     out
+}
+
+/// R-162 Tier0 指纹内存索引:fingerprint → memory_id,启动扫描 + 写时增量。
+/// p95 < 5ms 的硬性来源——查 HashMap 而非全文件扫描(fnd_active_by_marker 是
+/// O(n) 全文件扫描,不达标)。宽容:无指纹的条目不进索引;同一指纹多条时
+/// 全保留,由调用方按 valid_from/version 排序择优。
+#[derive(Debug, Default, Clone)]
+pub struct FingerprintIndex {
+    map: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl FingerprintIndex {
+    /// 全量构建(启动扫描):遍历两级 store 的 active 条目,取 fingerprint 建索引。
+    /// 返回索引到的指纹条数(无指纹条目不计)。
+    pub fn build(
+        project_root: &std::path::Path,
+    ) -> std::collections::HashMap<String, Vec<String>> {
+        let mut map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        let mut stores = vec![MemoryStore::project(project_root)];
+        stores.extend(MemoryStore::global());
+        for store in &stores {
+            for (_, entry) in store.load_all() {
+                if entry.status != "active" {
+                    continue;
+                }
+                Self::insert_into(&mut map, &entry);
+            }
+        }
+        map
+    }
+
+    fn insert_into(
+        map: &mut std::collections::HashMap<String, Vec<String>>,
+        entry: &MemoryEntry,
+    ) {
+        if let Some(fp) = entry.fingerprint() {
+            let fp = fp.trim().to_string();
+            if fp.is_empty() {
+                return;
+            }
+            let ids = map.entry(fp).or_default();
+            if !ids.contains(&entry.id) {
+                ids.push(entry.id.clone());
+            }
+        }
+    }
+
+    /// 写时增量(单条 upsert):重建该条目的指纹桶,旧桶移除该 id。
+    pub fn upsert(&mut self, entry: &MemoryEntry) {
+        // 先清理该 id 在旧桶里的位置(条目指纹可能被 update 改过)。
+        for ids in self.map.values_mut() {
+            ids.retain(|id| id != &entry.id);
+        }
+        self.map.retain(|_, ids| !ids.is_empty());
+        Self::insert_into(&mut self.map, entry);
+    }
+
+    /// 写时删除:从所有桶移除该 id。
+    pub fn remove(&mut self, id: &str) {
+        for ids in self.map.values_mut() {
+            ids.retain(|cur| cur != id);
+        }
+        self.map.retain(|_, ids| !ids.is_empty());
+    }
+
+    /// 精确查询:给定指纹(如 `[fp:edit|old_string not found]`),返回命中 id。
+    /// 无指纹 = 空。调用方再按 valid_from/version 排。
+    pub fn lookup(&self, fingerprint: &str) -> &[String] {
+        self.map.get(fingerprint).map(|v| v.as_slice()).unwrap_or(&[])
+    }
 }
 
 /// 常驻索引的预算走查(D-216):dev/memory 注入与 prompt_hints 必须对同一份口径,
@@ -1153,5 +1263,126 @@ mod tests {
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 0);
         assert_eq!(store.pending_notes(), 1);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn 一等字段宽容读零迁移_fingerprint回退正文标记() {
+        // R-162 B2:frontmatter 新增键必须"宽容读零迁移"——有键的条目读到,
+        // 没键的旧条目不报错、不进 extras 冲突。
+        let text = "\
+---
+id: M-042
+scope: project
+category: sop
+title: edit 失败先 read
+description: edit 替换失败时先 read 再重试
+status: active
+created: 2026-08-10
+updated: 2026-08-10
+source: run:test/1
+fingerprint: [fp:edit|old_string not found]
+trigger: tool_failure
+valid_from: 2026-08-07
+supersedes: M-041
+version: 2
+---
+edit 失败时先 read 当前文件重建 old_string,不要继续猜
+";
+        let entry = parse_entry(text);
+        assert_eq!(
+            entry.fingerprint(),
+            Some("[fp:edit|old_string not found]".to_string())
+        );
+        assert_eq!(entry.trigger(), Some("tool_failure"));
+        assert_eq!(entry.valid_from(), Some("2026-08-07"));
+        assert_eq!(entry.supersedes(), Some("M-041"));
+        assert_eq!(entry.version(), Some(2));
+
+        // 兼容正文内旧标记:无 fingerprint 字段但有 [fp:] 正文时回退。
+        let legacy = "\
+---
+id: M-043
+scope: project
+category: sop
+title: 旧条目
+description: 只有正文标记
+status: active
+created: 2026-08-10
+updated: 2026-08-10
+source: user
+---
+旧正文 [fp:bash|cargo test] 只有标记没有字段
+";
+        let legacy_entry = parse_entry(legacy);
+        assert_eq!(
+            legacy_entry.fingerprint(),
+            Some("[fp:bash|cargo test]".to_string())
+        );
+
+        // 完全无指纹:不 panic,返回 None。
+        let bare = "\
+---
+id: M-044
+scope: project
+category: fact
+title: 无指纹
+description: 没有指纹也没有标记
+status: active
+created: 2026-08-10
+updated: 2026-08-10
+source: user
+---
+正文没有任何标记
+";
+        let bare_entry = parse_entry(bare);
+        assert_eq!(bare_entry.fingerprint(), None);
+        assert_eq!(bare_entry.version(), None, "非数字版本宽容为 None");
+
+        // render 往返:新键原样保留(extras 兜底机制不丢数据)。
+        let rendered = render_entry(&entry);
+        let roundtrip = parse_entry(&rendered);
+        assert_eq!(
+            roundtrip.fingerprint(),
+            Some("[fp:edit|old_string not found]".to_string())
+        );
+        assert_eq!(roundtrip.trigger(), Some("tool_failure"));
+        assert_eq!(roundtrip.version(), Some(2));
+    }
+
+    #[test]
+    fn fingerprint索引_构建查询增量upsert与删除() {
+        // R-162 B2:Tier0 内存索引——指纹→id 精确查询,增删改各走各的通道。
+        let fp = |id: &str, body: &str| parse_entry(&format!(
+            "---\nid: {id}\nscope: project\ncategory: sop\ntitle: t\ndescription: d\nstatus: active\ncreated: 2026-08-10\nupdated: 2026-08-10\nsource: user\n---\n{body}"
+        ));
+        let a = fp("M-100", "[fp:edit|old_string not found] 正文");
+        let b = fp("M-101", "[fp:edit|old_string not found] 另一条");
+        let c = fp("M-102", "[fp:bash|cargo test] 第三条");
+
+        let mut index = FingerprintIndex::default();
+        index.upsert(&a);
+        index.upsert(&b);
+        index.upsert(&c);
+        assert_eq!(
+            index.lookup("[fp:edit|old_string not found]"),
+            &["M-100".to_string(), "M-101".to_string()],
+            "同一指纹多条全保留"
+        );
+        assert_eq!(index.lookup("[fp:bash|cargo test]"), &["M-102".to_string()]);
+        assert!(index.lookup("[fp:read|missing]").is_empty(), "未命中为空");
+
+        // 写时增量:指纹被改(update)后旧桶不留痕。
+        let a_moved = fp("M-100", "[fp:read|not found] 正文改了");
+        index.upsert(&a_moved);
+        assert_eq!(
+            index.lookup("[fp:edit|old_string not found]"),
+            &["M-101".to_string()]
+        );
+        assert_eq!(index.lookup("[fp:read|not found]"), &["M-100".to_string()]);
+
+        // 删除:所有桶移除该 id,空桶清掉。
+        index.remove("M-101");
+        assert!(index.lookup("[fp:edit|old_string not found]").is_empty());
+        assert_eq!(index.lookup("[fp:bash|cargo test]"), &["M-102".to_string()]);
     }
 }

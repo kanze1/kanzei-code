@@ -1178,3 +1178,8 @@
 - 命令: cargo test -p kanzei-core runner::metrics
 - 摘要: 9 通过:新增 failure_kind/failure_target 共享函数直接单测(批1)
 - 收尾: 1786342211
+
+## T-1786342410 cargo test -p kanzei-tools (R-162 B2) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 147 通过:新增一等字段宽容读零迁移 + fingerprint 索引(构建/upsert/remove)单测(批2)
+- 收尾: 1786342410

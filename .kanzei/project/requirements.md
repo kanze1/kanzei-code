@@ -27,9 +27,9 @@
 - 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
 - refs: R-103 M-009 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 口径清理:原「依赖: R-161」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。R-161 已完成,本条解锁。批1完成(R-162 B1, 9b255de 之后首个提交 719a53e... 实际为 metrics 提交):failure_kind/failure_target 从 summarize_failures 内部提为 pub(crate) 共享函数,RecallWatch 复用同一 (tool,kind) 分类口径;新增直接单测 failure_kind_把路径与数字抹平_同坑塌成一条 / failure_target_路径取尾段_命令取首词(路径 token 与数字抹平、Windows 反斜杠、命令首词、id 小写)。kanzei-core runner::metrics 9 全绿。批2待做:frontmatter 扩展 fingerprint/trigger/valid_from/supersedes/version 一等字段(宽容读零迁移,extras 兜底)+ 引擎维护 fingerprint→id 内存索引(tools 内)+ 单测。
+- 进展: 批1完成(R-162 B1, 0732e1b):failure_kind/failure_target 提为 pub(crate) 共享函数 + 直接单测(路径/数字抹平、Windows 反斜杠、命令首词、80 截断)。批2完成(R-162 B2):MemoryEntry 新增一等字段访问 field/fingerprint/trigger/valid_from/supersedes/version——frontmatter fingerprint/trigger/valid_from/supersedes/version 经 extras 宽容读取(零迁移:旧条目无键照常返回 None),fingerprint() 优先一等字段、回退正文 [fp:] 旧标记;新增 FingerprintIndex 内存索引(build 全量扫描两级 store active 条目 / upsert 写时增量 / remove 删除,lookup 精确查询 p95<5ms 用 HashMap 而非 find_active_by_marker 的 O(n) 扫描);单测一等字段宽容读零迁移_fingerprint回退正文标记 + fingerprint索引_构建查询增量upsert与删除。kanzei-tools 147 全绿。批3待做:RecallWatch 状态机(core 内)——挂 drive.rs 工具结果回喂钩位(redundancy.note_step 同款),触发判定/同轮同条目注入一次/每次触发落 recall_events(trigger/action/延迟),检索经注入回调解耦 core↔tools 依赖。
 
-- 批次: 1/5
+- 批次: 2/5
 
 ## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
 - 优先级: P0
