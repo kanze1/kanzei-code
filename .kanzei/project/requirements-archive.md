@@ -1600,3 +1600,15 @@
 - 批次: 3/3
 - 进展: 批3完成:冒烟脚本加 memory_value_flags 断言+800/1024/1280 三档宽度循环验证+fixture recalled/fetched;CSS 补 memory-flag-row 标题 ellipsis 防窄宽溢出;四条冒烟+全量 workspace 全绿。关闭。验收对照:①空闲整理清单=memory.rs memory_value_flags(zeroAdopt recalled≥3&fetched=0 + recurring recalled≥3),UI renderMemoryValueFlags 渲染,处置走 showMemoryDetail 既有墓碑不静默删;②采纳率=memory_entries recalled/fetched + loadMemoryList meta 显示召回/采纳,三档宽度冒烟断言通过;③复核结论=memory_decision_sufficiency.md 2026-08-10 变更记录(hits 退役/0.6-0.7-阈值3保留/read钩子列入R-145)。
 
+## R-132 mem单页手动触发整理功能 [done]
+- priority: P1
+- 原始描述: mem单页应该有个可以手动触发的整理，这个需要详细设计，先记录吧
+- 复杂度: 中
+- 归属: kanzei
+- 验收: mem单页提供手动触发整理的入口，触发后执行整理流程并给出结果反馈
+
+- 标签: 核心
+
+- 批次: 1/1
+- 进展: 关闭。验收对照:①手动触发整理入口=index.html 空闲整理清单标题内 memory-cleanup-btn「一键整理」按钮;②执行整理流程=13-memory.js click→invoke memory_cleanup_demote→memory.rs 批量降级 recalled≥3&fetched=0&active 为 stale(墓碑可逆不删),冒烟断言按钮存在+调用后端+刷新计数;③结果反馈=toast 降级/跳过数量+前3条标题。全量 cargo test --workspace 全绿(app 51+tools 183+core 97)。
+

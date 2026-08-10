@@ -1348,3 +1348,8 @@
 - 命令: node --check + 四条 ui 冒烟 + cargo test -p kanzei-app
 - 摘要: R-132 批1:memory_cleanup_demote(零采纳候选批量降级 stale,可逆不删)+ 前端一键整理按钮+toast 反馈。app 51 全绿,四条冒烟过(i18n 65 key)。
 - 收尾: 1786350773
+
+## T-1786350822 cargo test --workspace (R-132 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-132 关闭前全量:cargo test --workspace 全绿(app 51 + tools 183 + core 97)。
+- 收尾: 1786350822
