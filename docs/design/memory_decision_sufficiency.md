@@ -102,6 +102,7 @@
 - 2026-08-09 实证修正:真实召回数据(37 轮)显示 preference 走 prompt_hints 召回路径且采纳率结构性无意义,search() 豁免 preference 的 decision_weight;同批发现 D-214(SOP 候选滞留全局 inbox)与「read 不计采纳」遥测缺口(挂 R-150)。
 - 2026-08-09 全环节评审后硬化(D-215/D-216 当日修复):①update/merge 引擎兜底指纹与 refs(fp_markers 提取、update 丢指纹拒绝、merge 自动搬运);②注入与 hints 统一口径(resident_index 共用预算走查,常驻条目短指向、折叠条目全行、preference 不进 hints 与遥测);③登记 D-217(stale 归档搬运不存在)与 hits 因子去留(并入 R-150 复核)。
 - 2026-08-10 R-150 参数复核结论:①**hits 因子退役**——搜索命中自增强(常被搜到→排更前→更常被搜到),与采纳率权重「召回未采纳→沉底」方向冲突,理论 importance ≠ semantic salience;排序权重只留 bm25 + 采纳率决策权重,hit_count 降为观测(SearchHit.hits 仍回传,UI 与遥测可看,不再乘进 score)。②**0.6/0.7/阈值 3 保留**:真实采纳率分布尚不足(37 轮实证主要暴露 preference 结构性无意义,已豁免),且两个低估通道未闭合(「看索引行即用」「直接 read 记忆文件不经 memory_search」),此刻调参没有可靠信号;待 R-145 轨迹实证补足数据后再复核。③**read 钩子缺口确认**:给 read 加记忆目录钩子回填 mark_recall_fetched 是消除低估通道的机械手段,列入 R-145 并轨实施,本轮只记录不实现。④验收①「空闲整理清单」落地:memory_value_flags(零采纳 recalled≥3&fetched=0 + 复发候选 recalled≥3)进 Memory UI,处置走既有墓碑机制不静默删。
+- 2026-08-10 R-145 闭环实证(真实自举轨迹,state.db + index.db immutable 只读查询):①**写入→命中→避免重复探索成立**:199 episodes / 413 条召回 / 156 采纳(37.8%);M-006(前端动态 i18n 源文案)召回 110 采纳 25、M-009(edit 未命中→read 重读)召回 49 采纳 24、M-022(验证 Rust 变更跑 test_record)召回 54 采纳 14——高频条目写盘后被后续轮检索命中且正文被拉取,直接佐证避免重复探索(如 M-009 后 edit 未命中即 read 重读,不再摸索)。②**注入 token 有界**:173 轮有记忆注入账单,字节 p25=3519/p50=3667/p75=3732/max=3941——窄区间稳定,不随 25+ 条目线性膨胀,无信息缺失返工(采纳率>0 且注入有上界)。③R-150 复核缺口仍开放:read 钩子回填 mark_recall_fetched 未实施,采纳率仍有低估通道;参数 0.6/0.7/阈值 3 维持。
 
 ## 验证证据
 
