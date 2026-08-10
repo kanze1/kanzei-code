@@ -240,25 +240,28 @@ pub async fn run_single_arm(
     // 验收⑤结果落 memory_eval:每条记忆一个 arm 一行,同 case 可对照。
     // memory_id 为 case_id(六臂在同一 case 上对照,不是按条目消融时留空语义
     // 由 Leave-One-Out 臂的 provider 自行决定去掉哪条)。
+    let decision = ReplayDecision {
+        arm,
+        case_id: case.case_id.clone(),
+        text,
+        tokens,
+    };
+    // J 判据(批3)驱动落库:success = 是否产出可行动作(terminal 成功代理)。
+    let score = score_decision(case, &decision);
     store.record_memory_eval(
         &case.case_id,
         &case.case_id,
         arm.label(),
         model,
         prompt_version,
-        true, // success 语义(是否产出可行动作)由批3 J 判据细化,批2 先落"可跑"。
-        1,
+        score.has_action,
+        case.steps.len() as u64,
         case.tool_failures() as u64,
-        0,
+        score.retry_signal as u64,
         tokens,
         None,
     )?;
-    Ok(ReplayDecision {
-        arm,
-        case_id: case.case_id.clone(),
-        text,
-        tokens,
-    })
+    Ok(decision)
 }
 
 /// 六臂全跑同一 case,返回各臂决策(顺序与 [`Arm::all`] 一致)。
@@ -278,6 +281,184 @@ pub async fn run_arms(
     }
     Ok(decisions)
 }
+
+// ---------------------------------------------------------------------------
+// 批3:J 判据分层 + 对照报告(验收③)
+// ---------------------------------------------------------------------------
+
+/// J 判据分层评分(R-163 内容②设计 §5):对一次回放决策打分。
+///
+/// 分层的意图是从"决策质量"反推记忆价值——C≪D 说明触发/检索问题,
+/// C≈D 仍败则内容/utilization 问题。本评分是**可自动计算的代理**:
+///
+/// 1. `has_action`(terminal 成功代理):决策是否给出实质可行动作
+///    (非空、非空转——含动作词且不全是"无法操作"类退避)。
+/// 2. `repeats_failed_tool`(工具失败数方向,负信号):决策重提了 case 里
+///    已失败的工具——大概率再次失败,记忆没起作用。
+/// 3. `retry_signal`(重试方向,负信号):决策文本出现"重试/再试/retry"。
+/// 4. `tokens`:决策成本,六臂同 case 对比时作为效率维度。
+#[derive(Debug, Clone, PartialEq)]
+pub struct JScore {
+    pub has_action: bool,
+    pub repeats_failed_tool: bool,
+    pub retry_signal: bool,
+    pub tokens: u64,
+}
+
+/// 动作词启发集:命中任一即视为"给出了动作"(terminal 成功代理)。
+const ACTION_WORDS: &[&str] = &[
+    "read",
+    "edit",
+    "bash",
+    "git",
+    "grep",
+    "glob",
+    "req",
+    "defect",
+    "memory",
+    "查看",
+    "读取",
+    "修改",
+    "运行",
+    "调用",
+    "搜索",
+    "执行",
+    "重试",
+    "改用",
+    "尝试",
+];
+
+/// 空转词:只有这些词(或很短)视为未给出动作。
+const EVASION_WORDS: &[&str] = &["无法", "不能", "不知道", "无权限", "抱歉"];
+
+/// 对一次决策按 J 判据分层评分。
+pub fn score_decision(case: &ReplayCase, decision: &ReplayDecision) -> JScore {
+    let text = decision.text.trim();
+    let has_action = {
+        let len = text.chars().count();
+        let has_action_word = ACTION_WORDS.iter().any(|w| text.contains(w));
+        let has_evasion = EVASION_WORDS.iter().any(|w| text.contains(w));
+        len >= 4 && has_action_word && !has_evasion
+    };
+    // 负信号:决策文本里出现 case 中失败的工具名(词边界避免误伤)。
+    let repeats_failed_tool = case
+        .steps
+        .iter()
+        .filter(|s| !s.ok)
+        .any(|s| {
+            let tool = s.tool.trim();
+            tool.len() >= 3 && text.split(|c: char| !c.is_alphanumeric()).any(|w| w == tool)
+        });
+    let retry_signal = ["重试", "再试", "retry", "重新执行"]
+        .iter()
+        .any(|w| text.contains(w));
+    JScore {
+        has_action,
+        repeats_failed_tool,
+        retry_signal,
+        tokens: decision.tokens,
+    }
+}
+
+/// 单臂在多个 case 上的聚合评分(报告的一行)。
+#[derive(Debug, Clone)]
+pub struct ArmSummary {
+    pub arm: Arm,
+    /// 参与聚合的 case 数。
+    pub cases: usize,
+    /// has_action 命中的 case 数。
+    pub with_action: usize,
+    /// 重提失败工具(负信号)的 case 数。
+    pub repeats_failed: usize,
+    /// 重试信号(负信号)的 case 数。
+    pub retry: usize,
+    /// 决策 token 总和。
+    pub total_tokens: u64,
+}
+
+/// 把一组 case 的六臂决策聚合成各臂汇总(顺序与 [`Arm::all`] 一致)。
+pub fn summarize(
+    cases: &[ReplayCase],
+    decisions: &[Vec<ReplayDecision>],
+) -> Vec<ArmSummary> {
+    debug_assert_eq!(cases.len(), decisions.len());
+    let mut per_arm: std::collections::HashMap<Arm, Vec<JScore>> =
+        std::collections::HashMap::new();
+    for (case, arm_decisions) in cases.iter().zip(decisions) {
+        for decision in arm_decisions {
+            per_arm
+                .entry(decision.arm)
+                .or_default()
+                .push(score_decision(case, decision));
+        }
+    }
+    Arm::all()
+        .iter()
+        .map(|arm| {
+            let scores = per_arm.get(arm).cloned().unwrap_or_default();
+            ArmSummary {
+                arm: *arm,
+                cases: scores.len(),
+                with_action: scores.iter().filter(|s| s.has_action).count(),
+                repeats_failed: scores.iter().filter(|s| s.repeats_failed_tool).count(),
+                retry: scores.iter().filter(|s| s.retry_signal).count(),
+                total_tokens: scores.iter().map(|s| s.tokens).sum(),
+            }
+        })
+        .collect()
+}
+
+/// 渲染六臂对照报告(验收③:产出 NoMemory vs Current vs Oracle 对照)。
+///
+/// 输出 Markdown 表格 + 三条关键差距注释:
+/// 1. NoMemory→Current:记忆是否带来可行动作的提升(内容/注入价值)。
+/// 2. Current→Oracle:现状与上界的差距(检索/触发损失)。
+/// 3. 负信号(repeats_failed/retry):哪一臂最容易把模型带回失败路径。
+pub fn render_report(
+    cases: &[ReplayCase],
+    decisions: &[Vec<ReplayDecision>],
+    model: &str,
+) -> String {
+    let summaries = summarize(cases, decisions);
+    let mut out = String::new();
+    out.push_str(&format!(
+        "## 六臂对照报告(case={}, model={})\n\n",
+        cases.len(),
+        model
+    ));
+    out.push_str("| 臂 | case | 有动作 | 重提失败工具 | 重试信号 | 总token |\n");
+    out.push_str("|---|---|---|---|---|---|\n");
+    for s in &summaries {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |\n",
+            s.arm.label(),
+            s.cases,
+            s.with_action,
+            s.repeats_failed,
+            s.retry,
+            s.total_tokens
+        ));
+    }
+    // 差距注释:按臂索引取 NoMemory=0, Current=1, Oracle=3。
+    let get = |arm: Arm| summaries.iter().find(|s| s.arm == arm);
+    let no_memory = get(Arm::NoMemory).map(|s| s.with_action).unwrap_or(0);
+    let current = get(Arm::Current).map(|s| s.with_action).unwrap_or(0);
+    let oracle = get(Arm::Oracle).map(|s| s.with_action).unwrap_or(0);
+    let current_repeat = get(Arm::Current).map(|s| s.repeats_failed).unwrap_or(0);
+    let oracle_repeat = get(Arm::Oracle).map(|s| s.repeats_failed).unwrap_or(0);
+    out.push_str("\n### 差距注释\n\n");
+    out.push_str(&format!(
+        "- NoMemory→Current 有动作: {no_memory} → {current}(记忆注入带来的增量)\n"
+    ));
+    out.push_str(&format!(
+        "- Current→Oracle 有动作: {current} → {oracle}(上界差距 = 检索/触发损失)\n"
+    ));
+    out.push_str(&format!(
+        "- 重提失败工具: Current {current_repeat} vs Oracle {oracle_repeat}(记忆把模型拉回失败路径的程度)\n"
+    ));
+    out
+}
+
 
 #[cfg(test)]
 mod eval_tests {
@@ -401,6 +582,83 @@ mod eval_tests {
                 "compression_cf"
             ]
         );
+    }
+
+    // ---- 批3:J 判据分层 + 对照报告 ----
+
+    #[test]
+    fn J判据_有动作重提失败工具重试信号分别识别() {
+        let case = parse_trace_payload(SAMPLE, "j1").unwrap();
+        // 有动作 + 重提失败工具(edit)+ 重试信号 → 全负信号命中但 has_action。
+        let d = ReplayDecision {
+            arm: Arm::Current,
+            case_id: "j1".into(),
+            text: "我重试 edit,先读取文件再修改。".into(),
+            tokens: 9,
+        };
+        let s = score_decision(&case, &d);
+        assert!(s.has_action, "含动作词(读取/修改/重试)且无空转词");
+        assert!(s.repeats_failed_tool, "重提了失败工具 edit");
+        assert!(s.retry_signal, "含'重试'");
+        assert_eq!(s.tokens, 9);
+        // 空转:无动作词/短文本 → 无动作。
+        let evasive = ReplayDecision {
+            arm: Arm::NoMemory,
+            case_id: "j1".into(),
+            text: "抱歉,我无法处理。".into(),
+            tokens: 3,
+        };
+        let s2 = score_decision(&case, &evasive);
+        assert!(!s2.has_action, "空转词 + 无动作词 → 无动作");
+        assert!(!s2.repeats_failed_tool, "未重提工具");
+        // 动作词命中但避开失败工具:改用 read 而非 edit。
+        let good = ReplayDecision {
+            arm: Arm::Oracle,
+            case_id: "j1".into(),
+            text: "先用 read 查看目标文件确认实际内容。".into(),
+            tokens: 8,
+        };
+        let s3 = score_decision(&case, &good);
+        assert!(s3.has_action);
+        assert!(!s3.repeats_failed_tool, "改用 read,不重提失败工具 edit");
+        assert!(!s3.retry_signal);
+    }
+
+    #[test]
+    fn 对照报告汇总并渲染NoMemoryCurrentOracle差距() {
+        let case = parse_trace_payload(SAMPLE, "r1").unwrap();
+        // 模拟两个 case 的六臂决策:NoMemory 全部空转、Current 一半、
+        // Oracle 全部有动作且不重提失败工具。
+        let mut decisions: Vec<Vec<ReplayDecision>> = Vec::new();
+        for i in 0..2 {
+            let mut arm_decisions = Vec::new();
+            for arm in Arm::all() {
+                let text = match (arm, i) {
+                    (Arm::NoMemory, _) => "抱歉,无法处理。".into(),
+                    (Arm::Oracle, _) => "先 read 查看文件实际内容再修改。".into(),
+                    (Arm::Current, 0) => "先 read 查看文件。".into(),
+                    (Arm::Current, 1) => "抱歉,无法处理。".into(),
+                    _ => "read 文件后 edit 修改。".into(),
+                };
+                arm_decisions.push(ReplayDecision {
+                    arm,
+                    case_id: format!("r{}", i + 1),
+                    text,
+                    tokens: 10,
+                });
+            }
+            decisions.push(arm_decisions);
+        }
+        let cases = vec![case.clone(), case];
+        let report = render_report(&cases, &decisions, "fake");
+        // 六臂都有一行。
+        for arm in Arm::all() {
+            assert!(report.contains(&format!("| {} |", arm.label())), "{report}");
+        }
+        // 差距注释:NoMemory 0 → Current 1 → Oracle 2。
+        assert!(report.contains("NoMemory→Current 有动作: 0 → 1"), "{report}");
+        assert!(report.contains("Current→Oracle 有动作: 1 → 2"), "{report}");
+        assert!(report.contains("重提失败工具: Current 0 vs Oracle 0"), "{report}");
     }
 }
 

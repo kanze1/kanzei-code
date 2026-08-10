@@ -1218,3 +1218,8 @@
 - 命令: cargo test -p kanzei-core replay
 - 摘要: R-163 B2 六臂 runner:新增 eval_tests 3 测试(六臂各自可跑并落 memory_eval、决策问题取第一个失败步骤原文、arm label 契约稳定),kanzei-core 87 全绿
 - 收尾: 1786345005
+
+## T-1786345086 cargo test -p kanzei-core (R-163 B3 J 判据+对照报告) [passed]
+- 命令: cargo test -p kanzei-core replay
+- 摘要: R-163 B3 J 判据分层+对照报告:score_decision(has_action/repeats_failed_tool/retry_signal/tokens)+summarize+render_report(NoMemory/Current/Oracle 差距注释),run_single_arm 落库改为真实 J 判据;新增 2 测试,kanzei-core 89 全绿
+- 收尾: 1786345086

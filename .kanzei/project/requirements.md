@@ -27,9 +27,9 @@
 - 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
 - refs: R-103 docs/design/memory_control_plane.md
 
-- 进展: 批1完成(R-163 B1, 028307a):回放数据层——kanzei-core/src/replay.rs 新增 parse_trace_payload(按 id 配对 run.trace 的 tool.started/completed,失败透传 error 原文)+ recorded_tool_results(合成回放 Part::ToolResult,不构造/不执行任何 Tool,验收④)+ ReplayCase::tool_failures;SessionStore::list_trace_payloads(store/events.rs)取最近 run.trace 原料;4 个 replay 测试 + 1 个原料接口测试,kanzei-core 84 全绿。批2: 六臂 runner。
+- 进展: 批2完成(R-163 B2, 48e3634):六臂 runner——replay.rs 新增 Arm 枚举(六臂 label 稳定契约)/MemoryContextProvider trait(记忆注入抽象,NoMemory 恒空)/ReplayDecider trait(LLM 决策,测试用 fake)/question_for_case(取第一个失败步骤原文)/run_single_arm+run_arms(六臂全跑同一 case 落 memory_eval);3 个 eval 测试(六臂各自可跑并落库、决策问题、arm 契约),kanzei-core 87 全绿。批3: J 判据分层 + NoMemory/Current/Oracle 对照报告。
 
-- 批次: 1/4
+- 批次: 2/4
 
 ## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [todo]
 - 优先级: P0
