@@ -137,7 +137,10 @@ fn skip_whitespace(chars: &[char], mut index: usize) -> usize {
 }
 
 fn parse_number(chars: &[char], index: usize) -> Option<(u32, usize)> {
-    let start = skip_whitespace(chars, index);
+    // 不跳过前导空格:批次标记(B/S/批)必须紧邻数字才能被识别,
+    // 「kanzei-tools 162」的 S+空格+162 不得被误判成 S162(D-252)。
+    // 需要空格的地方调用方已先 skip_whitespace(如范围展开 S5- S6 的第二个数字)。
+    let start = index;
     let mut end = start;
     while chars.get(end).is_some_and(|c| c.is_ascii_digit()) {
         end += 1;
@@ -187,5 +190,19 @@ R-156 批次2: 其他条目不得误判\n\
 R-157 审批流程第二版: 「批」后不是数字,不构成批次\n\
 普通提交: R-157 的日常改动(无批次标记)\n";
         assert_eq!(completed_batches_from_subjects(subjects, "R-157"), 3);
+    }
+
+    #[test]
+    fn word_trailing_s_followed_by_number_is_not_a_batch_marker() {
+        // D-252:提交标题里「kanzei-tools 162」「tools 167」「harness 64」的
+        // 单词尾 S + 空格 + 数字不得被误判为 S162/S167/S64 批次。
+        let subjects = "\
+R-164 B1: ... kanzei-tools 162 全绿\n\
+R-164 B2: ... tools 167 + harness 64 全绿\n\
+R-164 B3: ... kanzei-tools 171 全绿\n\
+R-164 B4: ... kanzei-tools 172 全绿\n\
+chore: 测试归档同步(R-164 B1 定向测试 passed 归档)\n";
+        // 只有 B1/B2/B3/B4 四个标记;S 结尾单词后的数字不再计入。
+        assert_eq!(completed_batches_from_subjects(subjects, "R-164"), 4);
     }
 }

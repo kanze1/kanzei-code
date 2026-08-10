@@ -255,3 +255,10 @@
 - 影响: 比文档刷新那条窄得多——要用户点「建/弃工作树」按钮后立刻切项目才撞上;但一旦撞上,工作树清单会长期错位(它是纯前端 localStorage 清单,不从 `git worktree list` 发现,见 R-050 退回原因④)。
 - 修复方向: 与 refreshDocs 同一改法——await 前把 currentProject 存成局部量,await 后比对,不一致就丢弃本次写入。
 - 验收: 切项目时的在途工作树操作不写进新项目的键;有回归覆盖。
+
+## D-252 git_batches 把「tools 167」「kanzei-tools 162」等单词尾 S+空格+数字误判为 S 批次,虚增推导批次数 [open] (medium)
+- 严重度: medium
+- 优先级: P1
+- 复现: 提交标题含 S 结尾英文词后跟数字会被误判为 S 批次。实测 R-164 关闭:R-164 B4 提交标题「...kanzei-tools 172 全绿」中 'tools' 的 S + 空格 + 172 被 collect_marked_batches(crates/kanzei-tools/src/git_batches.rs:100-110) 识别为批次 S172;同类误判:kanzei-tools 162→S162、tools 167→S167、harness 64→S64、tools 171→S171。8 个含 R-164 的提交提取出 B1-B4+S162/S167/S64/S171/S172 共 9 个标记,关闭门禁报「手写批次 4/4,但 Git 提交历史标记数为 9」拒绝关闭。根因:collect_marked_batches 对 B/S 后跟数字不要求紧邻,parse_number(crates/kanzei-tools/src/git_batches.rs:139-154) 内部 skip_whitespace 跳过空格后再 parse,于是英文单词尾字母 S + 空格 + 数字也被当作批次标记;「批」分支无此问题(中文场景批后直接跟数字)。
+- 影响: 任何提交标题里出现 S/B 结尾英文单词后跟数字(如 kanzei-tools 162、tools 167、harness 64)都会虚增 git 推导批次数,导致关闭门禁误拦正常条目(中/大条目关闭必经此门禁),且侧栏批次进度显示虚高。
+- 证据等级: E1(代码实证 + R-164 关闭实测)
