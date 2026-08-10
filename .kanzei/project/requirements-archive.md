@@ -1539,3 +1539,18 @@
 
 - 批次: 5/5
 
+## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: 
+- 来源: 同 R-161。episodes/events 已存完整轨迹与 overflow,回放原料在库里,缺的是评估协议。
+- 内容: ①回放模块:取历史 episode,ToolResult 走录制回放(不真执行外部工具),LLM 真调(fast 档跑批),固定 repo commit/model/prompt 版本;②六臂:NoMemory(下界)/Current/Candidate(新策略)/Oracle(人工标定,上界)/Leave-One-Out(单条消融)/CompressionCF(合并前后对照);③J 用可执行判据分层:terminal 成功→工具失败数→重试→重复动作→步数→token,LLM judge 仅评软性 SOP 质量;④首批 30–50 case 从 M-009/M-010/M-019/M-021/M-022/M-023/M-026 的触发历史提取;⑤结果落 memory_eval。
+- 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
+- refs: R-103 docs/design/memory_control_plane.md
+
+- 进展: 批4完成(R-163 B4, 3e61663):core trait 演进(ReplayDecider 显式 BoxFuture 支持异步真调 + MemoryContextProvider 接收 case + oracle_text_from_case 自动事后正确做法);kanzei-tools/replay_eval.rs 新增 ReplayMemoryProvider(NoMemory 恒空/Current+Candidate+CompressionCF 接 FailureRecallPolicy 召回/LeaveOneOut 去首条命中/Oracle 自动合成)+ LlmDecider(真调 stream 收 TextDelta/StepFinish usage);kz replay-eval [--limit N] CLI 装配全套,真实跑通 5 case 六臂对照报告;4 个 tools 测试 + 2 个 core 测试,core 90 + tools 159 全绿。四批完毕,待全量测试后逐条对照验收关闭。
+
+- 批次: 4/4
+

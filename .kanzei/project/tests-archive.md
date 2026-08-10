@@ -1233,3 +1233,8 @@
 - 命令: cargo test -p kanzei-core -p kanzei-tools
 - 摘要: R-163 B4 提交前定向重跑:core 90 + tools 159 全绿(临时目录改造后无源码树污染)
 - 收尾: 1786345497
+
+## T-1786345551 cargo test --workspace (R-163 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-163 关闭前全量:workspace 全绿(core 90/tools 159/app 等)
+- 收尾: 1786345551

@@ -16,21 +16,6 @@
 
 - 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)无专用写入通道——edit 被 ruleset 拒绝,shell 旁路被检测回滚,conventions.md 为模型只读托管资产(已记 D-235)。解除动作: 修复 D-235 提供 conventions.md 专用写入工具,或用户手写 §1.4 标注;标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具)或手写标注的用户。
 
-## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心
-- 阶段: 2
-- 依赖: 
-- 来源: 同 R-161。episodes/events 已存完整轨迹与 overflow,回放原料在库里,缺的是评估协议。
-- 内容: ①回放模块:取历史 episode,ToolResult 走录制回放(不真执行外部工具),LLM 真调(fast 档跑批),固定 repo commit/model/prompt 版本;②六臂:NoMemory(下界)/Current/Candidate(新策略)/Oracle(人工标定,上界)/Leave-One-Out(单条消融)/CompressionCF(合并前后对照);③J 用可执行判据分层:terminal 成功→工具失败数→重试→重复动作→步数→token,LLM judge 仅评软性 SOP 质量;④首批 30–50 case 从 M-009/M-010/M-019/M-021/M-022/M-023/M-026 的触发历史提取;⑤结果落 memory_eval。
-- 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
-- refs: R-103 docs/design/memory_control_plane.md
-
-- 进展: 批3完成(R-163 B3, 6d5fc8f):J 判据分层 score_decision(has_action 动作词启发/repeats_failed_tool 词边界/rety 信号/tokens)+ summarize 聚合 + render_report(六臂表格 + NoMemory→Current 增量/Current→Oracle 上界差距/重提失败工具注释);run_single_arm 落库 success 改为真实 J 判据(steps=tool 步数/retries=重试信号);新增 2 测试,kanzei-core 89 全绿。批4: 真实数据评估入口(≥30 case 提取 + CLI 可重复执行)。
-
-- 批次: 3/4
-
 ## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [todo]
 - 优先级: P0
 - 复杂度: 大
