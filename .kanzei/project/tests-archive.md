@@ -1213,3 +1213,8 @@
 - 命令: cargo test -p kanzei-core
 - 摘要: R-163 批1 回放数据层:kanzei-core 84 全绿(新增 replay 4 测试:解析 run.trace 按 id 配对透传失败原文、录制回放不真执行外部工具合成结果、宽容解析、坏 payload 返回 None;events 新增 list_trace_payloads 测试)
 - 收尾: 1786344878
+
+## T-1786345005 cargo test -p kanzei-core (R-163 B2 六臂 runner) [passed]
+- 命令: cargo test -p kanzei-core replay
+- 摘要: R-163 B2 六臂 runner:新增 eval_tests 3 测试(六臂各自可跑并落 memory_eval、决策问题取第一个失败步骤原文、arm label 契约稳定),kanzei-core 87 全绿
+- 收尾: 1786345005

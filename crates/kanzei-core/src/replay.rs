@@ -138,6 +138,273 @@ pub fn recorded_tool_results(case: &ReplayCase) -> Vec<kanzei_llm::Part> {
         .collect()
 }
 
+/// 六臂对照(R-163 内容②,设计文档 §4):
+/// A NoMemory(下界)/ B Current(现状)/ C Candidate(新策略)/
+/// D Oracle(人工标定正确记忆 = 上界)/ E Leave-One-Out(单条消融)/
+/// F CompressionCF(合并前后对照)。
+///
+/// 每臂的差异只在"注入什么记忆上下文",决策主体(LLM)与回放数据完全相同——
+/// 这是对照实验的公共底座:变量只有记忆,结果差异才能归因到记忆本身。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Arm {
+    NoMemory,
+    Current,
+    Candidate,
+    Oracle,
+    LeaveOneOut,
+    CompressionCF,
+}
+
+impl Arm {
+    /// 六臂的固定顺序(报告与落库都按此序)。
+    pub fn all() -> [Arm; 6] {
+        [
+            Arm::NoMemory,
+            Arm::Current,
+            Arm::Candidate,
+            Arm::Oracle,
+            Arm::LeaveOneOut,
+            Arm::CompressionCF,
+        ]
+    }
+
+    /// 落 memory_eval 的 arm 名(小写下划线,稳定契约)。
+    pub fn label(&self) -> &'static str {
+        match self {
+            Arm::NoMemory => "nomemory",
+            Arm::Current => "current",
+            Arm::Candidate => "candidate",
+            Arm::Oracle => "oracle",
+            Arm::LeaveOneOut => "leave_one_out",
+            Arm::CompressionCF => "compression_cf",
+        }
+    }
+}
+
+/// 记忆上下文提供者:给定触发文本与臂,返回该臂应注入的记忆文本。
+///
+/// core 不依赖 tools——检索实现(Current 用现有策略、Candidate 用新策略、
+/// Oracle 用人工标定、Leave-One-Out 做单条消融、CompressionCF 做合并前后)
+/// 由 CLI/桌面端把 kanzei-tools 记忆检索包装成此 trait 注入。
+/// NoMemory 永远返回空(下界)。
+pub trait MemoryContextProvider: Send + Sync {
+    /// arm 对应的记忆注入文本;NoMemory 返回空字符串。
+    fn context_for(&self, arm: &Arm, trigger: &str) -> String;
+}
+
+/// 一次回放决策的产物:某臂在某 case 上的 LLM 决策文本与 token 消耗。
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplayDecision {
+    pub arm: Arm,
+    pub case_id: String,
+    /// LLM 输出的决策文本(下一步怎么做)。
+    pub text: String,
+    /// 本次决策的 token 成本(产出 token 数)。
+    pub tokens: u64,
+}
+
+/// 决策者:给定决策问题与记忆上下文,产出决策文本与 token 数。
+/// 生产实现包装 `LlmClient`(fast 档跑批);测试用固定响应 fake。
+pub trait ReplayDecider: Send + Sync {
+    fn decide(&self, question: &str, memory_context: &str) -> anyhow::Result<(String, u64)>;
+}
+
+/// 从 case 构造决策问题:第一个失败步骤的"该怎么做"追问。
+/// 没有失败步骤时退化为"本轮怎么做"。
+pub fn question_for_case(case: &ReplayCase) -> String {
+    if let Some(failed) = case.steps.iter().find(|s| !s.ok) {
+        let err = failed.error.as_deref().unwrap_or("(无错误文本)");
+        format!(
+            "工具 `{}` 调用失败: {}\n请给出下一步行动。",
+            failed.tool, err
+        )
+    } else {
+        format!("本轮没有失败步骤(outcome={})。请给出下一步行动。", case.outcome)
+    }
+}
+
+/// 跑单个臂:构造问题 → 取记忆上下文 → 决策 → 落 memory_eval。
+/// 返回该臂的决策产物(供批3的对照报告聚合)。
+pub async fn run_single_arm(
+    case: &ReplayCase,
+    arm: Arm,
+    memory: &dyn MemoryContextProvider,
+    decider: &dyn ReplayDecider,
+    store: &crate::store::SessionStore,
+    model: &str,
+    prompt_version: &str,
+) -> anyhow::Result<ReplayDecision> {
+    let question = question_for_case(case);
+    let context = memory.context_for(&arm, &question);
+    let (text, tokens) = decider.decide(&question, &context)?;
+    // 验收⑤结果落 memory_eval:每条记忆一个 arm 一行,同 case 可对照。
+    // memory_id 为 case_id(六臂在同一 case 上对照,不是按条目消融时留空语义
+    // 由 Leave-One-Out 臂的 provider 自行决定去掉哪条)。
+    store.record_memory_eval(
+        &case.case_id,
+        &case.case_id,
+        arm.label(),
+        model,
+        prompt_version,
+        true, // success 语义(是否产出可行动作)由批3 J 判据细化,批2 先落"可跑"。
+        1,
+        case.tool_failures() as u64,
+        0,
+        tokens,
+        None,
+    )?;
+    Ok(ReplayDecision {
+        arm,
+        case_id: case.case_id.clone(),
+        text,
+        tokens,
+    })
+}
+
+/// 六臂全跑同一 case,返回各臂决策(顺序与 [`Arm::all`] 一致)。
+pub async fn run_arms(
+    case: &ReplayCase,
+    memory: &dyn MemoryContextProvider,
+    decider: &dyn ReplayDecider,
+    store: &crate::store::SessionStore,
+    model: &str,
+    prompt_version: &str,
+) -> anyhow::Result<Vec<ReplayDecision>> {
+    let mut decisions = Vec::with_capacity(6);
+    for arm in Arm::all() {
+        decisions.push(
+            run_single_arm(case, arm, memory, decider, store, model, prompt_version).await?,
+        );
+    }
+    Ok(decisions)
+}
+
+#[cfg(test)]
+mod eval_tests {
+    use super::*;
+    use crate::store::testutil::store;
+
+    /// 固定响应的决策者:验证六臂机制,不依赖真实 LLM。
+    /// 决策文本 = "行动" + 注入的记忆上下文——变量只有记忆,结果差异归因到记忆。
+    struct FakeDecider;
+
+    impl ReplayDecider for FakeDecider {
+        fn decide(
+            &self,
+            _question: &str,
+            memory_context: &str,
+        ) -> anyhow::Result<(String, u64)> {
+            Ok((
+                format!("行动|{memory_context}"),
+                memory_context.chars().count() as u64,
+            ))
+        }
+    }
+
+    /// 记忆提供者:除 NoMemory 外每臂都吐一行带臂名的文本,便于断言差异。
+    struct LabelMemory;
+
+    impl MemoryContextProvider for LabelMemory {
+        fn context_for(&self, arm: &Arm, _trigger: &str) -> String {
+            match arm {
+                Arm::NoMemory => String::new(),
+                _ => format!("[memory-{}] 该做的行动", arm.label()),
+            }
+        }
+    }
+
+    const SAMPLE: &str = r#"{
+      "events": [
+        {"at": 1, "id": "a", "kind": "tool.started", "name": "edit", "summary": "{}"},
+        {"at": 2, "durationMs": 5, "error": "old_string not found", "id": "a", "kind": "tool.completed", "name": "edit", "ok": false}
+      ],
+      "outcome": "failed"
+    }"#;
+
+    #[tokio::test]
+    async fn 六臂各自可跑并落memory_eval() {
+        // 验收①:六臂在同一 case 上各自跑完并落库,arm 名是稳定契约。
+        let store = store();
+        let case = parse_trace_payload(SAMPLE, "case-arms").unwrap();
+        let memory = LabelMemory;
+        let decider = FakeDecider;
+        let decisions = run_arms(&case, &memory, &decider, &store, "fake", "v1")
+            .await
+            .unwrap();
+        assert_eq!(decisions.len(), 6);
+        assert_eq!(
+            decisions.iter().map(|d| d.arm.label()).collect::<Vec<_>>(),
+            vec![
+                "nomemory",
+                "current",
+                "candidate",
+                "oracle",
+                "leave_one_out",
+                "compression_cf"
+            ]
+        );
+        // 变量只有记忆:NoMemory 决策文本最短(无注入),其它臂都带各自记忆文本。
+        assert_eq!(decisions[0].text, "行动|");
+        for d in &decisions[1..] {
+            assert!(
+                d.text.contains(&format!("[memory-{}]", d.arm.label())),
+                "臂 {} 的决策必须带自己的记忆上下文: {}",
+                d.arm.label(),
+                d.text
+            );
+        }
+        // 全部落 memory_eval:arm 名齐全。
+        let rows: Vec<(String, String)> = store
+            .connection
+            .prepare("SELECT arm, replay_case FROM memory_eval ORDER BY arm")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 6);
+        for (arm, replay_case) in rows {
+            assert_eq!(replay_case, "case-arms");
+            assert!(Arm::all().iter().any(|a| a.label() == arm), "未知臂: {arm}");
+        }
+    }
+
+    #[test]
+    fn 决策问题取第一个失败步骤的原文() {
+        let case = parse_trace_payload(SAMPLE, "q").unwrap();
+        let q = question_for_case(&case);
+        assert!(q.contains("edit"), "{q}");
+        assert!(q.contains("old_string not found"), "{q}");
+        // 无失败步骤时退化文案。
+        let ok_case = parse_trace_payload(
+            r#"{"events":[{"id":"a","kind":"tool.started","name":"git","summary":"{}"},
+                {"id":"a","kind":"tool.completed","name":"git","ok":true}],"outcome":"completed"}"#,
+            "q2",
+        )
+        .unwrap();
+        assert!(question_for_case(&ok_case).contains("没有失败步骤"));
+    }
+
+    #[test]
+    fn arm_label契约稳定_与设计文档六臂一致() {
+        assert_eq!(
+            Arm::all()
+                .iter()
+                .map(|a| a.label())
+                .collect::<Vec<_>>(),
+            vec![
+                "nomemory",
+                "current",
+                "candidate",
+                "oracle",
+                "leave_one_out",
+                "compression_cf"
+            ]
+        );
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
