@@ -818,6 +818,9 @@ pub(crate) fn build_runner_config(
         recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
             project_root,
         ))),
+        // R-171:桌面端主对话(writer)默认 Default,批3 接协调器后由调用方
+        // 按执行策略传入 ReadParallelWriteSerial。
+        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
     }
 }
 

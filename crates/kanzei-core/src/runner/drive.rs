@@ -54,7 +54,9 @@ pub fn run_once_with_parts<'a>(
                 input_schema: t.input_schema(),
             })
             .collect();
-        if subagent.is_some() {
+        if subagent.is_some() && !config.execution_policy.is_serial_writer() {
+            // R-171:ReadParallelWriteSerial(writer 阶段)禁用 task 子代理——
+            // 设计文档不变量 5:「writer 阶段禁用 task」,工具不注册比注册后拒绝更干净。
             specs.push(task_spec());
         }
 
@@ -500,9 +502,14 @@ pub fn run_once_with_parts<'a>(
                 }
             }
 
+            // R-171 批2:writer 阶段(ReadWriteSerial)强制普通工具串行——
+            // max in-flight=1 且结果按模型调用顺序归位(验收③)。设计文档不变量 5。
+            let serial_writer = config.execution_policy.is_serial_writer();
             // R-097 批一：权限询问仍按旧路径串行处理(R-086 承接询问路由)；当本批
             // 不需要新 ask 时，普通工具按显式并发契约切成确定性 wave 并发执行。
-            let can_parallel_tools = {
+            let can_parallel_tools = if serial_writer {
+                false
+            } else {
                 let mut ready = true;
                 let mut ordinary_count = 0usize;
                 for (_, name, input, _) in &calls {

@@ -169,3 +169,14 @@ pub trait ProjectExecutionCoordinator: Send + Sync {
     /// 快照(活动面板/事件消费)。
     fn snapshot(&self, project_root: &PathBuf) -> CoordinatorSnapshot;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ExecutionPolicy;
+
+    #[test]
+    fn serial_writer_policy_flag() {
+        assert!(!ExecutionPolicy::Default.is_serial_writer());
+        assert!(ExecutionPolicy::ReadParallelWriteSerial.is_serial_writer());
+    }
+}

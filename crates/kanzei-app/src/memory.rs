@@ -364,6 +364,7 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String) {
             context_limit: resolved.provider.context_limit,
             limits: config.limits.clone(),
             recall: None,
+            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {

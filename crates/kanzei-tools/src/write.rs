@@ -382,6 +382,7 @@ mod tests {
             context_limit: None,
             limits: Default::default(),
             recall: None,
+            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         };
         let tool_ctx = ToolCtx {
             cwd: root.clone(),

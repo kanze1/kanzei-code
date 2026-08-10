@@ -55,6 +55,9 @@ pub struct RunnerConfig {
     /// None = 关闭召回(纯 no-op,行为与引入前完全一致)。core 不依赖 tools,
     /// 实现由 CLI/桌面端注入(kanzei-tools 记忆检索包装成 RecallPolicy)。
     pub recall: Option<Box<dyn RecallPolicy>>,
+    /// R-171 执行策略:ReadParallelWriteSerial 时 writer 阶段强制普通工具串行
+    /// (max in-flight=1)、禁用 task 子代理;Default 保持现状(wave 并发)。
+    pub execution_policy: kanzei_harness::orchestration::ExecutionPolicy,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。

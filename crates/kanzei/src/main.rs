@@ -197,6 +197,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
             &ctx.project_root,
         ))),
+        // R-171:CLI 单运行实例用默认策略;桌面端多进程场景才启用串行写。
+        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
     };
 
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
@@ -730,6 +732,7 @@ async fn consolidate_memory_inbox(
             context_limit: resolved.provider.context_limit,
             limits: config.limits.clone(),
             recall: None,
+            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {

@@ -354,4 +354,59 @@ mod tests {
                 if call_id == "call_pending" && content.contains("cancelled")
         ));
     }
+
+    /// R-171 批2:writer 阶段 max in-flight=1(wave 上限 1 时逐条执行且不重叠)。
+    /// drive 在 ReadParallelWriteSerial 下直接走串行路径不调 wave;此测试锚定
+    /// wave 路径若被复用(如防御性回退)同样满足「任意时刻最多一个工具执行」。
+    #[tokio::test]
+    async fn max_parallel_1_强制串行_结果按下标归位() {
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let max_in_flight = Arc::new(AtomicUsize::new(0));
+        let tool = Arc::new(ProbeTool {
+            name: "probe_read",
+            concurrency: ToolConcurrency::Shared("worktree:test".into()),
+            in_flight: in_flight.clone(),
+            max_in_flight: max_in_flight.clone(),
+        });
+        let calls = vec![
+            probe_call(
+                0,
+                "call_1",
+                serde_json::json!({"label": "first", "delay_ms": 20}),
+                tool.clone(),
+            ),
+            probe_call(
+                1,
+                "call_2",
+                serde_json::json!({"label": "second", "delay_ms": 20}),
+                tool.clone(),
+            ),
+            probe_call(
+                2,
+                "call_3",
+                serde_json::json!({"label": "third", "delay_ms": 20}),
+                tool,
+            ),
+        ];
+        let ctx = ToolCtx::new(std::env::temp_dir());
+        let mut on_event = |_event| {};
+        let results = execute_prepared_tools(calls, &ctx, 1, &mut on_event).await;
+
+        assert_eq!(
+            max_in_flight.load(Ordering::SeqCst),
+            1,
+            "writer 阶段任意时刻最多一个工具执行"
+        );
+        assert_eq!(results.len(), 3);
+        // 结果按下标与调用顺序对齐。
+        for (idx, (call_index, part)) in results.iter().enumerate() {
+            assert_eq!(*call_index, idx);
+            let expect_id = format!("call_{}", idx + 1);
+            assert!(matches!(
+                part,
+                Part::ToolResult { call_id, is_error: false, .. }
+                    if *call_id == expect_id
+            ));
+        }
+    }
 }

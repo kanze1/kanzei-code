@@ -97,6 +97,8 @@ pub(crate) async fn run_subagent(
         // R-162:子代理是机械检索,不需要事件触发召回(记忆命中只面向主代理
         // 的失败瞬间决策;子代理注入会让同一失败双倍刷屏)。
         recall: None,
+        // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
+        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
     };
     let mut on_event = |event: RunEvent| {
         let text = match &event {
