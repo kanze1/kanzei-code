@@ -1253,3 +1253,8 @@
 - 命令: cargo test -p kanzei-tools -p kanzei-harness
 - 摘要: tools 167 passed(162+embed3+向量2),harness 64 passed(含 embeddings 配置节测试);0 失败
 - 收尾: 1786346354
+
+## T-1786346531 R-164 B3 定向测试:cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 171 passed(167+4:dense检索/余弦/RRF融合/分段耗时),0 失败
+- 收尾: 1786346531
