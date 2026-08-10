@@ -167,7 +167,7 @@ mod tests {
         store.upsert_process(&sample()).unwrap();
         let loaded = store.get_process("p1|C:/project").unwrap().unwrap();
         assert_eq!(loaded.model.as_deref(), Some("deepseek:deepseek-v4-flash"));
-        assert_eq!(loaded.phase_pipeline, true);
+        assert!(loaded.phase_pipeline);
     }
 
     #[test]
