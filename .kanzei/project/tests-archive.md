@@ -1148,3 +1148,8 @@
 - 命令: cargo test --workspace
 - 摘要: 全量测试全绿:harness auto_run 12 单测、app/tools 定向与 workspace 全部通过,无 FAILED。
 - 收尾: 1786323668
+
+## T-1786323907 前端冒烟四连 (R-170 继续文案精简) [passed]
+- 命令: node --check + ui-* smoke ×4 (R-170)
+- 摘要: 08-compose/16-settings/18-startup/smoke node --check 通过;ui-runtime/i18n/a11y/markdown 四条冒烟全绿;新增极简默认断言(删空回落、不含规则文本)与 LEGACY 不再覆盖断言通过。
+- 收尾: 1786323907

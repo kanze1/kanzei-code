@@ -455,8 +455,7 @@ async function loadSettings() {
   batchesEl.value = batches === null || batches === undefined ? "" : String(batches);
   const defaultBatches = cdDefaults.full_test_batches;
   batchesEl.placeholder = defaultBatches === undefined || defaultBatches === null ? "" : `${t("默认")} ${defaultBatches}`;
-  // 设置页是最权威的节奏来源:继续文案随它渲染(未自定义时)。
-  applyCadenceSettings(s);
+  // R-170:cadence 表单回填即止,不再联动继续文案(规则剥离,文案仅承载用户意图)。
   settingsProviders = s.providers;
   renderProviders();
   renderEffectiveNotice(s);

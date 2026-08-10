@@ -101,15 +101,12 @@ const autoNoticeIndex = source.indexOf('addMessage("notice", `${t("鞭挞已触�
 if (autoNoticeIndex < 0 || source.includes('addUserMessage(auto ?')) {
   fail("自动续轮仍把内部提示词重复展示为用户消息");
 }
-  if (!source.includes("逐条对照验收原文") || !source.includes("每项给出精确代码位置证据")) {
-    fail("自动续跑提示缺少逐条验收与精确代码位置证据约束");
-  }
-  if (
-    !source.includes("真实调用方或消费者") ||
-    !source.includes("显式标注为既有能力而非本次交付") ||
-    !source.includes("不得缩小验收里的平台或范围限定词")
-  ) {
-    fail("自动续跑提示缺少真实调用方、既有能力标注或平台/范围保持约束");
+  // R-170:引擎规则(验收证据/调用方/范围保持)已剥离出继续文案,归 system prompt;
+  // 前端源码不应再持有这些规则文本(验收①快照断言)。
+  for (const ruleText of ["逐条对照验收原文", "真实调用方或消费者", "不得缩小验收里的平台或范围限定词"]) {
+    if (source.includes(ruleText)) {
+      fail(`08-compose.js 仍持有引擎规则文本「${ruleText}」(R-170 应已剥离)`);
+    }
   }
 
 const pendingTimers = new Set();
@@ -606,9 +603,8 @@ const handlers = new Map();
 
 const storage = new Map();
 storage.set("kz-auto-continue", "1");
-// R-157 批2:预置旧版默认继续文案(镜像 08-compose.js LEGACY_CONTINUE_PROMPTS[0]),
-// 启动块应把它静默升级为新默认并写入 localStorage。夹具若与 LEGACY 列表脱节,
-// 升级不再命中,下面断言会失败——那是提醒同步夹具,不是误报。
+// R-170:预置旧版默认继续文案(镜像历史 LEGACY_CONTINUE_PROMPTS[0],已删除)。
+// 升级机制删除后旧值必须原样读回(验收③:不再触发覆盖);夹具保留用于断言。
 storage.set(
   "kz-continue-prompt",
   "继续推进。取活顺序按本轮末尾给出的「开发重心」执行(它来自记忆里的用户定调,是唯一权威);" +
@@ -756,23 +752,36 @@ assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启�
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
 assert(listText("req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("req-list").slice(0, 60)}"`);
 assert(listText("defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
-// R-157 批2:预置的 LEGACY 默认文案必须被静默升级,且 18-startup「节奏配置」步骤把
-// mock 的生效节奏(every_n_batches/3)渲染进继续文案——证明参数化真的到达注入提示词。
+// R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
+// (验收③);删空 textarea 回落极简默认,且极简默认不含任何引擎规则文本(验收①)。
 {
   const storedPrompt = storage.get("kz-continue-prompt") ?? "";
   const textareaPrompt = (byId.get("continue-prompt")?.value ?? "").trim();
   assert(
-    !storedPrompt.includes("粒度 = 一轮一个完整条目"),
-    "LEGACY 旧默认文案未被升级:仍留在 localStorage"
-  );
-  assert(
-    storedPrompt.includes("全量测试每 3 批跑一次") && storedPrompt.includes("继续推进"),
-    `继续文案未按生效节奏渲染(应含「全量测试每 3 批跑一次」): ${storedPrompt.slice(0, 120)}`
+    storedPrompt.includes("粒度 = 一轮一个完整条目"),
+    "旧默认文案被覆盖:升级机制应已删除,旧值应原样保留在 localStorage"
   );
   assert(
     textareaPrompt === storedPrompt,
-    "textarea 与 localStorage 的默认文案不一致(升级/节奏渲染不同步)"
+    "textarea 与 localStorage 不一致:旧默认文案应原样读回(不触发覆盖)"
   );
+  // 删空 textarea → 回落极简默认,且不含批次粒度/阻塞定义/验收证据/验证节奏文本。
+  const textarea = byId.get("continue-prompt");
+  textarea.value = "";
+  textarea.dispatchEvent({ type: "change" });
+  const minimal = (byId.get("continue-prompt")?.value ?? "").trim();
+  assert(
+    minimal.includes("继续推进"),
+    `极简默认应保留「继续推进」意图句: ${minimal.slice(0, 60)}`
+  );
+  for (const ruleText of ["粒度", "阻塞字段", "验收证据", "全量测试每 3 批", "一直做下去"]) {
+    assert(
+      !minimal.includes(ruleText),
+      `极简默认仍含引擎规则文本「${ruleText}」: ${minimal.slice(0, 120)}`
+    );
+  }
+  // 恢复夹具:后续用例按极简默认对待。
+  storage.set("kz-continue-prompt", minimal);
 }
 // 批次进度格(R-160):格数与已填格必须来自后端算好的 entry.batches,前端不得另存
 // 一份复杂度→格数的映射;总数为 1 的条目不画格(一轮做完的东西不需要进度条)。

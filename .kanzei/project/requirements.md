@@ -383,11 +383,3 @@
 - 验收: 活动栏不记录 edit 等工具调用，仅记录报错和非工具的 bash 命令。
 - 优先级: P1
 
-## R-170 继续文案精简:默认降级为用户意图载体,引擎规则剥离 [todo]
-- 优先级: P1
-- 内容: 按 docs/design/continue_prompt_dissection.md §3 剥离清单执行：①默认文案从大段引擎规则(规则 1-6/TAIL)降级为极简意图句(如「继续推进，规则按系统提示」)；②移除开发重心拼接块(continuePrompt() 尾部)——取活顺序已由 run.rs work_priority_guidance + memory preference 注入 system prompt；③移除 cadenceVerificationText 渲染——R-157 已把节奏参数化进 kanzei.toml [cadence]，渲染点移出文案(需要时改注入 system prompt)；④删除 LEGACY_CONTINUE_PROMPTS 静默升级机制、lastRenderedPrompt/applyCadenceSettings 分支——规则剥离后不存在「历史默认需升级」的契约错位；⑤textarea 仅承载用户附加意图，删空回落极简默认。
-- 原始描述: 2026-08-10 用户指令：把继续文案拆解，评估保留必要性。评估结论(continue_prompt_dissection.md §5 方案 A)：保留但降级——11 项职责中 9 项在 system prompt/配置已有真源，LEGACY 是双源治理成本，仅「用户自定义意图」是独有价值；每轮 1.2KB 冗余注入 + 双源漂移(D-120/D-128/D-163 前科)应结构性消除。
-- 复杂度: 中
-- 归属: kanzei
-- 标签: 前端
-- 验收: ①默认文案快照断言不再包含批次粒度/阻塞定义/验收证据/验证节奏等引擎规则文本；②用户自定义文案不受影响：localStorage kz-continue-prompt 读回原样、删空回落极简默认；③LEGACY 升级代码删除后，旧默认文案不再触发覆盖(单测/冒烟断言)；④四条冒烟全绿(ui-runtime/i18n/a11y/markdown)，新增继续文案极简默认断言；⑤与 TBD-1 并行时 TAIL/NUDGE 文本移除以引擎接管为准。
