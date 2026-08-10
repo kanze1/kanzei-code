@@ -46,9 +46,10 @@ impl MemoryScope {
 
 /// 合法 category(episode 除外:它是 state.db 里的轮次日志,不是文件记忆)。
 pub const CATEGORIES: &[&str] = &["preference", "habit", "fact", "sop"];
-/// R-165 lifecycle 四态:candidate(已编译未验证)→ active(有 provenance,注入检索)
-/// → deprecated(降级,永不移除)| invalid(证伪)。stale 为兼容旧档的别名,读取映射 deprecated。
-pub const STATUSES: &[&str] = &["candidate", "active", "deprecated", "invalid"];
+/// R-165/R-166 生命周期五态:candidate(已编译未验证)→ shadow(可被评估、
+/// 不注入生产,R-166)→ active(有 provenance,注入检索)→ deprecated(降级,
+/// 永不移除)| invalid(证伪)。stale 为兼容旧档的别名,读取映射 deprecated。
+pub const STATUSES: &[&str] = &["candidate", "shadow", "active", "deprecated", "invalid"];
 /// 老文件里的 `stale` 视为 deprecated(R-165 兼容映射,读侧统一)。
 pub const LEGACY_STALE_ALIAS: &str = "stale";
 

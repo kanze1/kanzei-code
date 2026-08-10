@@ -1308,3 +1308,8 @@
 - 命令: cargo test -p kanzei-core
 - 摘要: 95 passed (core)。批2: Q(m) 三类 episode 选择(triggered/near-miss/negative_control)。
 - 收尾: 1786349855
+
+## T-1786349978 cargo test -p kanzei-tools (R-166 B3 shadow 态) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 182 passed (tools)。批3: shadow 态(五态齐,可评估不注入生产)。
+- 收尾: 1786349978

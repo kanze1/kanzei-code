@@ -318,10 +318,33 @@ impl MemoryStore {
         Ok(entry)
     }
 
-    /// 升级 candidate → active(R-165 生命周期 PROMOTE)。
+    /// candidate → shadow(R-166):进入评估期,可被离线回放评估但不注入生产检索。
+    /// 与 promote 不同,to_shadow 不需要 provenance——评估本身就是验证,
+    /// 评估通过后 promote(带证据)才进 active。状态机:只有 candidate 可进 shadow。
+    pub fn to_shadow(&self, id: &str) -> anyhow::Result<MemoryEntry> {
+        let entries = self.load_all();
+        let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
+            anyhow::bail!("unknown memory id `{id}`");
+        };
+        if entry.status != "candidate" {
+            anyhow::bail!(
+                "cannot to_shadow `{id}`: status is `{}`, only candidate can enter shadow",
+                entry.status
+            );
+        }
+        entry.status = "shadow".into();
+        entry.updated = today();
+        self.write_entry(&entry, Some(&path))?;
+        self.refresh_derived()?;
+        Ok(entry)
+    }
+
+    /// 升级 candidate|shadow → active(R-165 生命周期 PROMOTE)。
     /// provenance 硬约束:必须提供至少一条 memory_sources 证据(episode 区间),
     /// 无来源不入 active——证据编译语义的引擎强制,不靠 manager 自觉。
     /// `sources` 形如 (episode_id, event_start, event_end) 元组,非空才放行。
+    /// R-166:允许 shadow → active(评估通过后进入生产);candidate 也可直接跳
+    /// shadow 阶段进入 active(评估器未落地前的既有路径)。
     pub fn promote(
         &self,
         id: &str,
@@ -338,9 +361,9 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
-        if entry.status != "candidate" {
+        if entry.status != "candidate" && entry.status != "shadow" {
             anyhow::bail!(
-                "cannot promote `{id}`: status is `{}`, only candidate can be promoted",
+                "cannot promote `{id}`: status is `{}`, only candidate|shadow can be promoted",
                 entry.status
             );
         }
@@ -632,6 +655,11 @@ impl MemoryStore {
                 if entry.status != want {
                     continue;
                 }
+            }
+            // R-166:shadow 条目不注入生产检索——默认/其他 status 查询一律跳过,
+            // 只有显式查 shadow 才可见(评估器用)。与 0.5 降权不同,这是硬排除。
+            if entry.status == "shadow" && status != Some("shadow") {
+                continue;
             }
             let hit_count: u64 = conn
                 .query_row(
@@ -1579,9 +1607,9 @@ mod tests {
             .promote(&candidate.id, &[(1, Some(0), Some(10))], Some("test-hash"))
             .unwrap();
         assert_eq!(promoted.status, "active");
-        // 晋升后再次 promote 拒绝(candidate 才可晋升)
+        // 晋升后再次 promote 拒绝(candidate|shadow 才可晋升,active 不行)
         let err2 = store.promote(&candidate.id, &[(2, None, None)], None).unwrap_err();
-        assert!(err2.to_string().contains("only candidate can be promoted"));
+        assert!(err2.to_string().contains("only candidate|shadow can be promoted"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1722,6 +1750,71 @@ mod tests {
         store.update(&invalid.id, None, None, None, Some("invalid")).unwrap();
         assert!(!store.load_all().iter().any(|(_, e)| e.id == invalid.id));
         assert!(store.archive_dir().join(format!("{}.md", invalid.file_stem())).exists());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-166 批3(验收③):shadow 条目不注入生产检索但可被评估——默认检索
+    /// (无 status 或 active 过滤)不可见,显式 status=shadow 查询可见(评估器用);
+    /// shadow → active 需 provenance(candidate 同规则)。
+    #[test]
+    fn shadow_entry_is_evaluable_but_not_injected() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add("fact", "影子评估条目", "影子钩子", "影子正文", "memory-manager", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(candidate) = e else { panic!("expected Added") };
+        // candidate → shadow。
+        let shadowed = store.to_shadow(&candidate.id).unwrap();
+        assert_eq!(shadowed.status, "shadow");
+        // 默认检索与 active 过滤都不可见(不注入生产)。
+        let hits_default = store.search("影子评估", None, None, 5).unwrap();
+        assert!(hits_default.iter().all(|h| h.entry.id != candidate.id), "shadow 不得进默认检索");
+        let hits_active = store.search("影子评估", None, Some("active"), 5).unwrap();
+        assert!(hits_active.iter().all(|h| h.entry.id != candidate.id), "shadow 不得冒充 active");
+        // 显式查 shadow 可见(评估器通道)。
+        let hits_shadow = store.search("影子评估", None, Some("shadow"), 5).unwrap();
+        assert!(hits_shadow.iter().any(|h| h.entry.id == candidate.id), "显式查 shadow 应可见");
+        // shadow → active 仍需 provenance。
+        let err = store.promote(&candidate.id, &[], None).unwrap_err();
+        assert!(err.to_string().contains("no memory_sources evidence"));
+        let promoted = store
+            .promote(&candidate.id, &[(3, Some(0), Some(5))], Some("shadow-hash"))
+            .unwrap();
+        assert_eq!(promoted.status, "active");
+        // 进 active 后默认检索可见。
+        let hits_after = store.search("影子评估", None, None, 5).unwrap();
+        assert!(hits_after.iter().any(|h| h.entry.id == candidate.id), "active 后应可检索");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-166 批3:非 candidate 不能进 shadow;shadow 不落入 archive_dead(它是
+    /// 中间态,不是失效态)——refresh_derived 后主目录仍保留 shadow 文件。
+    #[test]
+    fn shadow_rejects_non_candidate_and_survives_refresh() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add("fact", "直写活跃条目", "活跃钩子", "正文", "user", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(active) = e else { panic!("expected Added") };
+        assert_eq!(active.status, "active");
+        let err = store.to_shadow(&active.id).unwrap_err();
+        assert!(err.to_string().contains("only candidate can enter shadow"));
+        // candidate 进 shadow 后 refresh_derived(任意写触发)不归档它。
+        let c = store
+            .add("fact", "影子常驻", "常驻钩子", "正文", "memory-manager", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(candidate) = c else { panic!("expected Added") };
+        store.to_shadow(&candidate.id).unwrap();
+        // 用一次无关 update 触发 refresh_derived。
+        store.update(&active.id, Some("直写活跃条目改名"), None, None, None).unwrap();
+        assert!(
+            store.load_all().iter().any(|(_, e)| e.id == candidate.id),
+            "shadow 是中间态,不得被归档"
+        );
+        assert_eq!(
+            store.load_all().into_iter().find(|(_, e)| e.id == candidate.id).unwrap().1.status,
+            "shadow"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
