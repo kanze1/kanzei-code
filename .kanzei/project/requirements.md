@@ -27,7 +27,11 @@
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
 - refs: A-011 R-163 docs/design/memory_control_plane.md
 
-- 进展: 批1完成(R-164 B1):MemoryIndex trait + SqliteMemoryIndex lexical 实现,无 embedder 降级测试,kanzei-tools 162 全绿(详见上一段进展)。
+- 进展: 批1完成(MemoryIndex trait + SqliteMemoryIndex lexical 降级,162 全绿)、批2完成([embeddings] 配置节 + Embedder/OpenAiEmbedder + 向量列存储,167+64 全绿)。
+
+批3完成(R-164 B3):index.rs 实现 dense 通道——dense_scan 读 memory_vectors 全表 brute-force 余弦(topN),dense() 入口(query 文本→embedder 向量→扫描);search_hybrid 在有 embedder 时做 RRF 融合(k=60,lexical top10 + dense top10 → top5,禁止线性加权,设计 §5),dense 空结果自动退化为 lexical;新增 search_hybrid_with_timing 返回 (hits, RetrievalTiming{lexical_ms,embed_ms,vector_ms}) 供 RecallEvent 分段延迟落库(验收②)——检索层不碰 SessionStore,落库由装配方(批4)做。4 个新测试:cosine_相似度_同向为1_垂直为0/dense_检索_embedder配置后按语义命中/hybrid_rrf融合_同时出现在两通道的条目排名靠前/hybrid_带分段耗时_无embedder时embed与vector段为0。kanzei-tools 171 passed 全绿。
+
+批次规划: 批4 R-163 三臂对比装配(lexical/dense/hybrid)+ 报告落库(验收③)+ replay_eval 落 recall_events 分段延迟(验收②装配)。实现注:向量列用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——Windows bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列在 index.db、brute-force、可重建)与设计 §5 一致。
 
 批2完成(R-164 B2):(1) kanzei-harness config.rs 新增 [embeddings] 节(EmbeddingsSection{provider,model} + enabled(),serde default 缺节关闭,层叠合并逐字段覆盖,unknown_keys 清单登记)——旧配置无节时通道关闭行为不变,harness 64 测试含新增 embeddings_缺节关闭_配置后启用_旧配置行为不变;(2) kanzei-tools/src/embed.rs 新增 Embedder trait(同步签名,内部 tokio runtime 驱动)+ OpenAiEmbedder(openai 兼容 POST {base_url}/embeddings,解析 data[].embedding,api_key 经 provider api_key_env/api_key 解析,本地 ollama 免 key)+ FakeEmbedder(测试用确定性向量)+ embedder_from_config 工厂(未配置→None 关闭通道);mock HTTP 测试验证 URL/请求体/响应解析,3 测试;(3) SqliteMemoryIndex 接向量列:with_embedder 构造 + memory_vectors 表(同 index.db,派生物)+ vectorize/upsert 增量/remove 删行/rebuild 全量重建(验收④),2 新测试(有embedder时rebuild生成向量_无embedder时向量表空/upsert_增量维护向量_remove删除向量)。
 
@@ -37,7 +41,7 @@
 
 批次规划: 批2 Embedder trait + openai 兼容 /embeddings 实现(含 ollama)+ kanzei.toml [embeddings] 配置节 + 向量列存储 + rebuild(验收④);批3 dense 通道 brute-force + RRF 融合(k=60)+ 分段延迟落 recall_events(验收②);批4 R-163 三臂对比装配(lexical/dense/hybrid)+ 报告落库(验收③)。实现注:向量列用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——Windows bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列在 index.db、brute-force、可重建)与设计 §5 一致。
 
-- 批次: 2/4
+- 批次: 3/4
 
 ## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
 - 优先级: P0
