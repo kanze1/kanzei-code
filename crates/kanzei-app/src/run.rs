@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
 use kanzei_harness::auto_run::AutoRunCtx;
+use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
@@ -37,6 +38,10 @@ pub(crate) async fn run_task(
     auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
+    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
+    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
+    coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    process_id: String,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -92,8 +97,11 @@ pub(crate) async fn run_task(
         project_root: project_root.clone(),
         ..Default::default()
     };
-    let runner_config =
+    let mut runner_config =
         build_runner_config(&resolved, &config, reasoning_override.as_deref(), &ctx.project_root);
+    // R-171:主对话 writer 阶段强制串行写(普通工具 FIFO、task 禁用)。
+    runner_config.execution_policy =
+        kanzei_harness::orchestration::ExecutionPolicy::ReadParallelWriteSerial;
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
@@ -149,6 +157,32 @@ pub(crate) async fn run_task(
         "session.status_changed",
         &json!({ "status": "running" }),
     )?;
+    // R-171 批3:主对话 writer run 获取项目级写租约并持有到本轮结束。
+    // 权限询问发生在租约获取之前(设计不变量 6)——此处无询问,直接申请;
+    // RAII:任何结束路径(正常/错误/取消/abort)都会 drop 释放,绝不永久占用。
+    // 注意:acquire_writer_lease 在项目已有 writer 时会排队等待,这是「串行写」
+    // 的强制点——第二个 ProcessHandle 必须等当前 writer 释放后才能拿到租约。
+    let write_lease = coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: ctx.project_root.clone(),
+            run_id: run_id.clone(),
+            process_id: process_id.clone(),
+            reason: format!("session {session_id} writer run"),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
+    let _write_lease = write_lease; // 持有到 run_task 返回,drop 自动释放。
+    // 注入执行身份:worktree_key 与 project_write_key 分离(R-141 前置),
+    // serial 策略下普通工具 FIFO 串行 + task 禁用(设计不变量 3/5)。
+    let project_write_key = ctx.project_root.display().to_string();
+    let worktree_key = ctx.project_root.display().to_string();
+    let mut ctx = ctx;
+    ctx = ctx.with_identity(
+        worktree_key,
+        project_write_key,
+        run_id.clone(),
+        process_id.clone(),
+    );
     let _ = window.emit(
         "kz:meta",
         with_session_id(
@@ -1376,6 +1410,9 @@ pub(crate) async fn run_prompt(
     let runtime_for_task = runtime.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
     let auto_runs = state.auto_runs.clone();
+    // R-171:项目级协调器与进程身份传给 writer run(写租约申请用)。
+    let coordinator = state.coordinator.clone();
+    let process_id_for_run = process.id.clone();
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
@@ -1401,6 +1438,8 @@ pub(crate) async fn run_prompt(
                 auto_runs.clone(),
                 delivery,
                 next_input.take(),
+                coordinator.clone(),
+                process_id_for_run.clone(),
             )
             .await;
             if let Err(e) = &result {

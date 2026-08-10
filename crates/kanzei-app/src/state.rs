@@ -253,7 +253,6 @@ pub(crate) fn hidden_command(program: &str) -> Command {
     command
 }
 
-#[derive(Default)]
 pub(crate) struct AppState {
     pub(crate) runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     pub(crate) ask_seq: Arc<AtomicU64>,
@@ -262,6 +261,22 @@ pub(crate) struct AppState {
     /// 自主推进(鞭挞)状态按会话隔离：控件输入经 auto_state_update 同步，
     /// 轮末由 run.rs 只消费所属会话的控制器，不能串扰后台进程。
     pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
+    /// R-171 项目级执行协调器:所有 ProcessHandle 共享同一实例,按规范化主根分桶。
+    /// 「并行查、串行写」的强制点——主对话 writer run 在这里获取写租约。
+    pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        AppState {
+            runtimes: Arc::new(Mutex::new(HashMap::new())),
+            ask_seq: Arc::new(AtomicU64::new(0)),
+            processes: Arc::new(Mutex::new(HashMap::new())),
+            mobile_service: Arc::new(Mutex::new(None)),
+            auto_runs: Arc::new(Mutex::new(HashMap::new())),
+            coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+        }
+    }
 }
 
 pub(crate) fn normalized_project_root(path: &Path) -> PathBuf {
