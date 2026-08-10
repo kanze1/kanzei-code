@@ -2354,3 +2354,9 @@
 - 批次: 1/1
 - 进展: 2026-08-10 机制项落地(验收③):tracker 新增 reopen 动作——REOPEN_ACTION 常量(tracker.rs:29)加入 WRITE_ACTIONS 与 input_schema actions 列表(tracker.rs:37/117),execute 分支(tracker.rs:611)要求 id+reason(强制),校验当前状态在 kind.reopen_from 集合内(DocKind 新增字段 docstore.rs:36;DEFECTS.reopen_from=["fixing"] docstore.rs:62、REQUIREMENTS.reopen_from=["doing"] docstore.rs:49),退回初始态并追加一行「进展: [reopen 日期] 理由」(追加而非拼接:docstore 按行解析,值内 \n 会丢,D-241 实测修正)。测试两条:reopen_把fixing退回open_并强制写理由进进展(tracker.rs:1202,含不带 reason 拒绝、状态退回、理由落进展、原始进展保留)、reopen_拒绝终态与不在集合的状态(tracker.rs:1254)。kanzei-tools 全量 155 测试全绿,下游 4 crate cargo check 通过。验收①D-202/D-173/D-223 三条已于 2026-08-10 各自处置归档(D-223 cargo check 复测通过关闭;D-173 architecture 工具真实调用实证 9b255de 后关闭;D-202 按 §1.2 可用即关闭,残余转 R-101 验收清单),处置依据逐条写进三条进展(验收②)。
 
+## D-252 git_batches 把「tools 167」「kanzei-tools 162」等单词尾 S+空格+数字误判为 S 批次,虚增推导批次数 [fixed] (medium)
+- 严重度: medium
+- 优先级: P1
+- 复现: 提交标题含 S 结尾英文词后跟数字会被误判为 S 批次。实测 R-164 关闭:R-164 B4 提交标题「...kanzei-tools 172 全绿」中 'tools' 的 S + 空格 + 172 被 collect_marked_batches(crates/kanzei-tools/src/git_batches.rs:100-110) 识别为批次 S172;同类误判:kanzei-tools 162→S162、tools 167→S167、harness 64→S64、tools 171→S171。8 个含 R-164 的提交提取出 B1-B4+S162/S167/S64/S171/S172 共 9 个标记,关闭门禁报「手写批次 4/4,但 Git 提交历史标记数为 9」拒绝关闭。根因:collect_marked_batches 对 B/S 后跟数字不要求紧邻,parse_number(crates/kanzei-tools/src/git_batches.rs:139-154) 内部 skip_whitespace 跳过空格后再 parse,于是英文单词尾字母 S + 空格 + 数字也被当作批次标记;「批」分支无此问题(中文场景批后直接跟数字)。
+- 影响: 任何提交标题里出现 S/B 结尾英文单词后跟数字(如 kanzei-tools 162、tools 167、harness 64)都会虚增 git 推导批次数,导致关闭门禁误拦正常条目(中/大条目关闭必经此门禁),且侧栏批次进度显示虚高。
+- 证据等级: E1(代码实证 + R-164 关闭实测)

@@ -1263,3 +1263,13 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 172 passed(171+1: candidate 臂 hybrid 装配落 recall_events),0 失败
 - 收尾: 1786346752
+
+## T-1786346772 R-164 关闭前全量:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:172 tools + 90 core + 64 harness + 51 app 等全部 ok
+- 收尾: 1786346820
+
+## T-1786347165 D-252 修复定向测试:cargo test -p kanzei-tools [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 173 passed(172+D-252 回归测试),0 失败
+- 收尾: 1786347165
