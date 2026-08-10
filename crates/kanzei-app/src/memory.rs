@@ -51,7 +51,10 @@ pub(crate) fn memory_entries(
     for store in memory_stores_for(&project_dir) {
         if store.scope.label() == scope {
             let profile = store.hit_profile();
-            let list: Vec<serde_json::Value> = store.load_all().into_iter().filter(|(_, e)| category.as_deref().is_none_or(|c| e.category == c)).map(|(path, e)| { let (hits, last_hit_at) = profile.get(&e.id).copied().unwrap_or((0, 0)); json!({"id": e.id, "category": e.category, "title": e.title, "description": e.description, "status": e.status, "updated": e.updated, "source": e.source, "refs": e.refs(), "hits": hits, "lastHitAt": last_hit_at, "path": path.display().to_string(), "body": e.body}) }).collect();
+            // R-150:召回/采纳率并入条目——recall_profile 提供 (recalled, fetched),
+            // 前端据此显示采纳率与零采纳标记(零采纳候选的 UI 消费)。
+            let recall = store.recall_profile();
+            let list: Vec<serde_json::Value> = store.load_all().into_iter().filter(|(_, e)| category.as_deref().is_none_or(|c| e.category == c)).map(|(path, e)| { let (hits, last_hit_at) = profile.get(&e.id).copied().unwrap_or((0, 0)); let (recalled, fetched) = recall.get(&e.id).copied().unwrap_or((0, 0)); json!({"id": e.id, "category": e.category, "title": e.title, "description": e.description, "status": e.status, "updated": e.updated, "source": e.source, "refs": e.refs(), "hits": hits, "lastHitAt": last_hit_at, "recalled": recalled, "fetched": fetched, "path": path.display().to_string(), "body": e.body}) }).collect();
             return Ok(json!(list));
         }
     }
@@ -106,6 +109,40 @@ pub(crate) fn memory_recalls(project_dir: String, limit: Option<usize>) -> serde
         .filter(|r| r.hits.iter().any(|h| h.fetched))
         .count();
     json!({"rounds": rounds, "rounds_total": total, "rounds_with_fetch": with_fetch})
+}
+
+/// R-150 空闲整理清单:零采纳候选与复发候选(内容①)。
+/// 零采纳 = 召回≥3 但从未拉正文;复发 = 最近回放里同一标题反复出现(暂以
+/// 召回次数高且采纳为 0 的近似——精确复发标记走 fingerprint,这里给 UI 候选)。
+/// 只列候选不处置——处置走既有墓碑机制(memory_entry_save 降级 / delete),不静默删。
+#[tauri::command]
+pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
+    let mut zero_adopt = Vec::new();
+    let mut recurring = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        let entries = store.load_all();
+        let profile = store.recall_profile();
+        // 零采纳候选:召回≥3 且从未采纳(active 条目的 UI 消费,只读)。
+        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
+            if let Some(&(recalled, fetched)) = profile.get(&e.id) {
+                if recalled >= 3 && fetched == 0 {
+                    zero_adopt.push(json!({"scope": store.scope.label(), "id": e.id, "title": e.title, "recalled": recalled, "fetched": 0}));
+                }
+            }
+        }
+        // 复发候选:召回轮次多、采纳为 0 的条目是「语义显著但决策无关」的头号嫌疑;
+        // 与 R-149 决策权重口径一致(召回≥3 才起权),同一清单给空闲整理用。
+        // 这里只汇总 active 且 recalled>=3 的条目(零采纳子集之外再加 fetched>0 的),
+        // 复发信号暂用 recalled 频次近似,精确 fingerprint 复发见 R-150 文档。
+        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
+            if let Some(&(recalled, fetched)) = profile.get(&e.id) {
+                if recalled >= 3 {
+                    recurring.push(json!({"scope": store.scope.label(), "id": e.id, "title": e.title, "recalled": recalled, "fetched": fetched}));
+                }
+            }
+        }
+    }
+    json!({"zeroAdopt": zero_adopt, "recurring": recurring})
 }
 
 #[tauri::command]

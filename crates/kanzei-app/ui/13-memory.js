@@ -6,16 +6,18 @@ async function refreshMemory() {
     return;
   }
   try {
-    const [overview, billData, recallData, candidates] = await Promise.all([
+    const [overview, billData, recallData, candidates, flags] = await Promise.all([
       invoke("memory_overview", { projectDir: currentProject }),
       invoke("memory_context_bill", { projectDir: currentProject }),
       invoke("memory_recalls", { projectDir: currentProject, limit: 20 }),
       invoke("memory_note_candidates", { projectDir: currentProject }),
+      invoke("memory_value_flags", { projectDir: currentProject }),
     ]);
     renderMemoryArch(overview);
     renderMemoryBill(billData);
     renderMemoryRecalls(recallData);
     renderMemoryCandidates(candidates);
+    renderMemoryValueFlags(flags);
     if (memorySelection) await loadMemoryList(memorySelection.scope, memorySelection.category);
   } catch (err) {
     toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
@@ -255,6 +257,68 @@ function renderMemoryCandidates(list) {
   }
 }
 
+// R-150:空闲整理清单。零采纳候选(召回≥3 采纳=0)与复发候选只展示+可点开详情,
+// 处置不在这里静默删——点条目打开详情页走既有墓碑机制(降级/修订/归档)。
+function renderMemoryValueFlags(data) {
+  const box = $("memory-value-flags");
+  const count = $("memory-flags-count");
+  if (!box) return;
+  box.innerHTML = "";
+  const zero = Array.isArray(data?.zeroAdopt) ? data.zeroAdopt : [];
+  const recur = Array.isArray(data?.recurring) ? data.recurring : [];
+  const total = zero.length + recur.length;
+  count.textContent = total ? `· ${total}` : "";
+  if (!total) {
+    box.innerHTML = `<p class="dim">${t("暂无零采纳或复发候选")}</p>`;
+    return;
+  }
+  if (zero.length) {
+    const h = document.createElement("p");
+    h.className = "memory-flags-head";
+    h.textContent = `${t("零采纳候选")} (${zero.length})`;
+    box.appendChild(h);
+    for (const item of zero) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "memory-flag-row zero-adopt";
+      row.innerHTML =
+        `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
+        `<span class="memory-row-title">${escapeHtml(item.title)}</span>` +
+        `<span class="dim">${t("召回")} ${item.recalled}/${t("采纳")} ${item.fetched}</span>`;
+      row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
+      box.appendChild(row);
+    }
+  }
+  if (recur.length) {
+    const h = document.createElement("p");
+    h.className = "memory-flags-head";
+    h.textContent = `${t("复发候选")} (${recur.length})`;
+    box.appendChild(h);
+    for (const item of recur) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "memory-flag-row recurring";
+      row.innerHTML =
+        `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
+        `<span class="memory-row-title">${escapeHtml(item.title)}</span>` +
+        `<span class="dim">${t("召回")} ${item.recalled}/${t("采纳")} ${item.fetched}</span>`;
+      row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
+      box.appendChild(row);
+    }
+  }
+}
+
+// 从清单跳详情:按 scope+id 定位条目并复用现有详情渲染。
+async function openMemoryDetailById(scope, id) {
+  try {
+    const list = await invoke("memory_entries", { projectDir: currentProject, scope, category: null });
+    const entry = (list || []).find((e) => e.id === id);
+    if (entry) showMemoryDetail(scope, entry);
+  } catch (err) {
+    toastError(`${t("记忆条目加载失败")}:${err}`);
+  }
+}
+
 // R-125:召回明细。没有这块界面就没有任何评估手段——记忆有没有用只能凭感觉。
 function renderMemoryRecalls(data) {
   const box = $("memory-recalls");
@@ -360,17 +424,24 @@ async function loadMemoryList(scope, category) {
       // 只在条目有一定年纪时才标,刚写下来还没被检索过不算"没用"。
       const ageDays = memoryAgeDays(entry.updated);
       const dormant = (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
-      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}`;
+      // R-150:零采纳标记——召回≥3 但从未拉正文 = 语义显著但决策无关。
+      const zeroAdopt = (entry.recalled ?? 0) >= 3 && (entry.fetched ?? 0) === 0 && entry.status !== "stale";
+      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}`;
       row.dataset.memoryId = entry.id;
       const lastHit = entry.lastHitAt
         ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}`
         : t("从未命中");
+      // R-150:召回/采纳率并入 meta——采纳率 = fetched/recalled。
+      const recallMeta = (entry.recalled ?? 0) > 0
+        ? ` · ${t("召回")} ${entry.recalled}/${t("采纳")} ${entry.fetched}`
+        : "";
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(entry.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(entry.title)}</span>` +
         `<span class="dim">${escapeHtml(entry.description)}</span>` +
-        `<span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits} · ${lastHit} · ${escapeHtml(entry.updated)}` +
-        `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}</span>`;
+        `<span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits}${recallMeta} · ${lastHit} · ${escapeHtml(entry.updated)}` +
+        `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}` +
+        `${zeroAdopt ? ` · <em class="memory-zero-adopt-flag">${t("零采纳候选")}</em>` : ""}</span>`;
       row.addEventListener("click", () => showMemoryDetail(scope, entry));
       container.appendChild(row);
     }

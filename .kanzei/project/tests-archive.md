@@ -1328,3 +1328,8 @@
 - 命令: cargo test --workspace
 - 摘要: 全 workspace 全绿(core 97 + tools 183 等)。R-166 关闭前全量验证。
 - 收尾: 1786350269
+
+## T-1786350433 R-150 B1 定向验证(前端冒烟+app) [passed]
+- 命令: node --check ui/*.js + 四条 ui 冒烟 + cargo test -p kanzei-app
+- 摘要: R-150 批1:memory_entries 召回/采纳率 + memory_value_flags 空闲整理清单(零采纳/复发)+ Memory UI 消费。node check 过、四条冒烟过(含 i18n 资源表 58 key)、app 51 全绿。
+- 收尾: 1786350433

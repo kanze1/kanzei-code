@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [todo]
+## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [doing]
 - 优先级: P1
 - 复杂度: 中
 - 标签: 前端
@@ -63,6 +63,9 @@
 - 内容: 消费 R-149 产出的决策价值信号:①空闲整理(sleep-time)把「零采纳候选」(召回≥3 采纳=0)与「复发告警」纳入整理清单,处置走既有墓碑机制(降级/修订/归档),不静默删;②Memory UI 页展示每条目的召回/采纳率与复发告警,零采纳候选有显式标记;③与 R-145 并轨:发版后取自举轨迹验证「写入→命中→避免重复探索」闭环,并复核 R-149 降权参数(0.6/0.7/阈值 3)是否合适——复核须计入两个采纳率低估通道:「看索引行即用」与「直接 read 记忆文件不经 memory_search 不计采纳」(后者可考虑给 read 加记忆目录钩子回填 mark_recall_fetched);同批决定 hits 因子去留——hits 奖励「常被搜到」(自增强)与采纳率权重惩罚「召回未采纳」方向冲突,候选处置:退役或降为平局破除器。
 - 验收: ①空闲整理清单包含零采纳与复发两类候选且处置有墓碑;②Memory 页可见召回/采纳数据(800/1024/1280 三档可用);③降权参数复核结论落回 docs/design/memory_decision_sufficiency.md 变更记录。
 - refs: R-103 R-107 R-125 R-145
+
+- 批次: 1/3
+- 进展: 批1完成:memory_entries 加 recalled/fetched(采纳率),新 command memory_value_flags(零采纳 recalled≥3&fetched=0 + 复发候选 recalled≥3)注册进 invoke_handler,Memory UI 空闲整理清单区块+采纳率 meta+零采纳标记,HTML 静态文案登记 i18n 资源表。四条冒烟+app 51 全绿。剩批2(文档参数复核落文档)、批3(800/1024/1280 三档验证+关闭)。
 
 ## R-132 mem单页手动触发整理功能 [todo]
 - priority: P1

@@ -788,6 +788,14 @@ button:disabled { opacity: .45; cursor: default; }
 /* 长期零命中:淡出 + 标记,一眼看出哪些记忆从没被用到过 */
 .memory-row.dormant { opacity: .68; }
 .memory-dormant-flag { font-style: normal; color: var(--warn); }
+/* R-150:零采纳候选(召回≥3 采纳=0)——语义显著但决策无关 */
+.memory-row.zero-adopt { border-left: 2px solid var(--warn); }
+.memory-zero-adopt-flag { font-style: normal; color: var(--warn); }
+.memory-flags-head { font-size: 11px; color: var(--dim); margin: 8px 0 2px; }
+.memory-flag-row { display: grid; grid-template-columns: auto 1fr auto; gap: 6px; align-items: baseline; width: 100%; text-align: left; background: transparent; border: 0; border-top: 1px solid var(--border-soft); padding: 3px 0; font-size: 11.5px; cursor: pointer; }
+.memory-flag-row:hover .memory-row-title { color: var(--fg-strong); }
+.memory-flag-row.zero-adopt .memory-row-id { color: var(--warn); }
+.memory-flag-row.recurring .memory-row-id { color: var(--info); }
 .memory-profile { font-size: 11px; margin-bottom: 4px; }
 button.ghost.danger { color: var(--err); }
 button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }

@@ -146,6 +146,7 @@ fn main() {
             memory::memory_overview,
             memory::memory_entries,
             memory::memory_recalls,
+            memory::memory_value_flags,
             memory::memory_entry_delete,
             memory::memory_note_candidates,
             memory::memory_note_discard,
