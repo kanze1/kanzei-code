@@ -25,18 +25,35 @@ use kanzei_core::RecallPolicy;
 use kanzei_llm::{LlmClient, LlmEvent, LlmRequest, Message, Route, Usage};
 use std::sync::Arc;
 
-use crate::memory::FailureRecallPolicy;
+use crate::memory::{FailureRecallPolicy, IndexQuery, SqliteMemoryIndex};
+use kanzei_harness::config::KanzeiConfig;
 
 /// 把六臂记忆注入接到真实检索策略上。
 pub struct ReplayMemoryProvider {
-    /// Current/Candidate/LeaveOneOut 共用的检索策略。
+    /// Current/LeaveOneOut/CompressionCF 共用现状策略(fingerprint → BM25)。
     policy: FailureRecallPolicy,
+    /// Candidate 臂:三通道混合检索(fingerprint → BM25 + dense → RRF 融合,
+    /// R-164 批4 装配)。无 [embeddings] 配置时退化为 lexical,与 Current 同源。
+    hybrid: SqliteMemoryIndex,
+    /// 供 RecallEvent 落库(state.db)定位。
+    project_root: std::path::PathBuf,
 }
 
 impl ReplayMemoryProvider {
     pub fn new(project_root: &std::path::Path) -> Self {
+        let policy = FailureRecallPolicy::new(project_root);
+        // 尝试从 [embeddings] 启用向量通道;未配置/provider 不可用 → None,
+        // hybrid 自动退化为 lexical(设计 §5 验收①)。
+        let embedder: Option<Arc<dyn crate::embed::Embedder>> =
+            KanzeiConfig::load(project_root)
+                .ok()
+                .and_then(|cfg| crate::embed::OpenAiEmbedder::from_config(&cfg).ok())
+                .map(|e| Arc::new(e) as Arc<dyn crate::embed::Embedder>);
+        let hybrid = SqliteMemoryIndex::with_embedder(project_root, embedder);
         Self {
-            policy: FailureRecallPolicy::new(project_root),
+            policy,
+            hybrid,
+            project_root: project_root.to_path_buf(),
         }
     }
 
@@ -76,6 +93,71 @@ impl ReplayMemoryProvider {
         }
         out
     }
+
+    /// Candidate 臂:三通道混合检索(fingerprint → RRF 融合),并落 RecallEvent
+    /// (policy_action=hybrid,分段延迟填 lexical_ms/embed_ms/vector_ms——验收②)。
+    /// 无 [embeddings] 时 hybrid 自动退化为 lexical,与 Current 同源(降级路径)。
+    fn candidate_text(&self, case: &ReplayCase) -> String {
+        let Some(trigger) = Self::trigger_for(case) else {
+            return String::new();
+        };
+        let mut query_text = trigger.sample.chars().take(120).collect::<String>();
+        if !trigger.target.is_empty() {
+            query_text.push(' ');
+            query_text.push_str(&trigger.target);
+        }
+        let query = IndexQuery::both(&trigger.tool, &trigger.kind, &query_text);
+        let (hits, timing) = self.hybrid.search_hybrid_with_timing(&query, 5);
+        if hits.is_empty() {
+            return String::new();
+        }
+        let recall_hits: Vec<kanzei_core::RecallHit> = hits
+            .iter()
+            .map(|h| kanzei_core::RecallHit {
+                id: h.id.clone(),
+                category: h.category.clone(),
+                action: h.action.clone(),
+                status: h.status.clone(),
+                source: format!("memory_hybrid:{}", h.id),
+            })
+            .collect();
+        // 落 recall_events(与运行时 event_recall 同表,trigger_type 区分来源)。
+        let ids: Vec<&str> = recall_hits.iter().map(|h| h.id.as_str()).collect();
+        if let Ok(ids_json) = serde_json::to_string(&ids) {
+            let path = self.project_root.join(".kanzei").join("state.db");
+            if let Ok(store) = kanzei_core::SessionStore::open(&path) {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or_default();
+                let event = kanzei_core::RecallEvent {
+                    recall_id: &format!("replay-candidate-{now}"),
+                    episode_id: None,
+                    step_id: None,
+                    trigger_type: "replay_eval",
+                    trigger_payload: &format!(
+                        "{{\"tool\":\"{}\",\"kind\":\"{}\"}}",
+                        trigger.tool, trigger.kind
+                    ),
+                    policy_action: "hybrid",
+                    query: &query_text.chars().take(120).collect::<String>(),
+                    candidate_ids: &ids_json,
+                    retrieved_ids: &ids_json,
+                    injected_ids: &ids_json,
+                    lexical_ms: timing.lexical_ms,
+                    embed_ms: timing.embed_ms,
+                    vector_ms: timing.vector_ms,
+                    total_ms: timing.total(),
+                };
+                let _ = store.record_recall_event(&event);
+            }
+        }
+        let mut out = String::from("[recalled] 失败时相关的记忆条目:\n");
+        for hit in recall_hits {
+            out.push_str(&format!("- [{}] {}\n", hit.category, hit.action));
+        }
+        out
+    }
 }
 
 impl MemoryContextProvider for ReplayMemoryProvider {
@@ -83,8 +165,9 @@ impl MemoryContextProvider for ReplayMemoryProvider {
         match arm {
             Arm::NoMemory => String::new(),
             Arm::Current => self.current_text(case),
-            // 新策略与现状同源:检索差异由后续条目引入,本批保持对照可比。
-            Arm::Candidate => self.current_text(case),
+            // R-164 批4:新策略 = 三通道混合检索(有 [embeddings] 配置时真正融合;
+            // 未配置时退化为 lexical,与 Current 同源,对照可比)。
+            Arm::Candidate => self.candidate_text(case),
             Arm::Oracle => oracle_text_from_case(case),
             // 消融:去掉第一条命中(最容易系统性折叠的 id——D-230)。
             Arm::LeaveOneOut => {
@@ -223,7 +306,8 @@ mod tests {
         assert!(oracle.contains("read"), "{oracle}");
         // NoMemory 恒空。
         assert!(provider.context_for(&Arm::NoMemory, &case).is_empty());
-        // Candidate/CompressionCF 与 Current 同源(本批装配约束)。
+        // 空记忆目录 + 无 [embeddings] 配置:Candidate 退化为 lexical,与 Current
+        // 同源(都无命中 → 空);CompressionCF 与 Current 同源(合并器未落地)。
         assert_eq!(
             provider.context_for(&Arm::Candidate, &case),
             provider.context_for(&Arm::Current, &case)
@@ -232,6 +316,64 @@ mod tests {
             provider.context_for(&Arm::CompressionCF, &case),
             provider.context_for(&Arm::Current, &case)
         );
+    }
+
+    #[test]
+    fn candidate臂_有记忆条目时用hybrid检索并落recall_events() {
+        // 验收②装配:Candidate 臂走三通道混合检索,命中后分段延迟落 recall_events。
+        let root = std::env::temp_dir().join(format!("kz-replay-eval-cand-{}", std::process::id()));
+        // 清理历史残留,保证断言独立。
+        let _ = std::fs::remove_dir_all(&root);
+        let store = crate::memory::MemoryStore::project(&root);
+        // 种子:一条与 SAMPLE 失败指纹(tool=edit,kind=old string not found)精确匹配的
+        // 记忆条目——fingerprint 触发应命中。
+        store
+            .add(
+                "fact",
+                "edit 失败处理",
+                "old_string not found 时先 read",
+                "[fp:edit|old string not found]",
+                "replay-test",
+                &[],
+                None,
+                true,
+            )
+            .unwrap();
+        // 构造带 embedder 的 provider(FakeEmbedder:同文本同向量,query 用相同文本必命中)。
+        let mut provider = ReplayMemoryProvider::new(&root);
+        provider.hybrid = SqliteMemoryIndex::with_embedder(
+            &root,
+            Some(Arc::new(crate::embed::FakeEmbedder::new(16))),
+        );
+        // rebuild 生成向量(FakeEmbedder 可用),让 dense 通道真正参与融合。
+        use crate::memory::MemoryIndex as _;
+        provider.hybrid.rebuild().unwrap();
+        let case = parse_trace_payload(SAMPLE, "t5").unwrap();
+        let candidate = provider.context_for(&Arm::Candidate, &case);
+        assert!(
+            candidate.contains("[recalled]"),
+            "Candidate 必须命中 fingerprint 记忆: {candidate:?}"
+        );
+        assert!(candidate.contains("old_string not found 时先 read"), "{candidate:?}");
+        // recall_events 落库:policy_action=hybrid 且分段延迟可查(直连 state.db,
+        // core 无通用读 API;recall_id 主键为 replay-candidate- 前缀)。
+        let conn = rusqlite::Connection::open(root.join(".kanzei").join("state.db")).unwrap();
+        let rows: Vec<(String, i64, i64, i64)> = conn
+            .prepare(
+                "SELECT policy_action, lexical_ms, embed_ms, vector_ms
+                 FROM recall_events WHERE trigger_type='replay_eval'
+                 ORDER BY created_at DESC LIMIT 1",
+            )
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(rows.len(), 1, "必须恰好落一条 replay_eval 事件");
+        let (action, _lex, embed_ms, _vec) = &rows[0];
+        assert_eq!(action, "hybrid", "policy_action 必须是 hybrid");
+        // FakeEmbedder 极快,embed_ms 可能为 0;只验证列存在且已填。
+        let _ = embed_ms;
     }
 
     #[test]

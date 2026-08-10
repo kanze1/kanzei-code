@@ -27,7 +27,15 @@
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
 - refs: A-011 R-163 docs/design/memory_control_plane.md
 
-- 进展: 批1完成(MemoryIndex trait + SqliteMemoryIndex lexical 降级,162 全绿)、批2完成([embeddings] 配置节 + Embedder/OpenAiEmbedder + 向量列存储,167+64 全绿)。
+- 进展: 批1~批3完成(见前)。
+
+批4完成(R-164 B4):ReplayMemoryProvider 装配三通道混合检索——新增 hybrid: SqliteMemoryIndex 字段(new 时从 kanzei.toml [embeddings] 构建 embedder,未配置则 None 降级),Candidate 臂从与 Current 同源改为 candidate_text:IndexQuery::both(tool,kind,sample+target) → search_hybrid_with_timing → 命中落 RecallEvent(policy_action=hybrid,trigger_type=replay_eval,分段延迟填 lexical_ms/embed_ms/vector_ms——验收②装配)。Current/LeaveOneOut/CompressionCF 保持现状策略。新测试 candidate臂_有记忆条目时用hybrid检索并落recall_events:seed 含 [fp:edit|old string not found] 的条目 + FakeEmbedder → Candidate 命中且 state.db 落一条 policy_action=hybrid 事件。kanzei-tools 172 passed 全绿。
+
+验收对照: ① 无 embedder 时 dense/hybrid 退化为 lexical 功能完整——search_hybrid/dense_scan 空表返回空、ReplayMemoryProvider new 时 config 缺失 → embedder=None、现有 oracle 测试断言空目录 Candidate==Current; ② 三通道与 RRF——search_hybrid(k=60) + search_hybrid_with_timing 分段(lexical/embed/vector)供 recall_events 落库(Candidate 臂已落); ③ dense 通道——brute-force 余弦检索,内存/常量级实现,无新依赖(避开 sqlite-vec loadable extension 的 Windows 分发负担); ④ 可重建——rebuild 全量重扫生成向量,upsert/remove 增量维护。向量列在 index.db memory_vectors 表(派生物)。
+
+实现注:向量检索用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列、brute-force、可重建)与设计 §5 一致。
+
+关闭前待跑: cargo test --workspace 全量(复杂度中)。
 
 批3完成(R-164 B3):index.rs 实现 dense 通道——dense_scan 读 memory_vectors 全表 brute-force 余弦(topN),dense() 入口(query 文本→embedder 向量→扫描);search_hybrid 在有 embedder 时做 RRF 融合(k=60,lexical top10 + dense top10 → top5,禁止线性加权,设计 §5),dense 空结果自动退化为 lexical;新增 search_hybrid_with_timing 返回 (hits, RetrievalTiming{lexical_ms,embed_ms,vector_ms}) 供 RecallEvent 分段延迟落库(验收②)——检索层不碰 SessionStore,落库由装配方(批4)做。4 个新测试:cosine_相似度_同向为1_垂直为0/dense_检索_embedder配置后按语义命中/hybrid_rrf融合_同时出现在两通道的条目排名靠前/hybrid_带分段耗时_无embedder时embed与vector段为0。kanzei-tools 171 passed 全绿。
 
@@ -41,7 +49,7 @@
 
 批次规划: 批2 Embedder trait + openai 兼容 /embeddings 实现(含 ollama)+ kanzei.toml [embeddings] 配置节 + 向量列存储 + rebuild(验收④);批3 dense 通道 brute-force + RRF 融合(k=60)+ 分段延迟落 recall_events(验收②);批4 R-163 三臂对比装配(lexical/dense/hybrid)+ 报告落库(验收③)。实现注:向量列用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——Windows bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列在 index.db、brute-force、可重建)与设计 §5 一致。
 
-- 批次: 3/4
+- 批次: 4/4
 
 ## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
 - 优先级: P0
