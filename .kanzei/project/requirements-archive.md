@@ -1706,3 +1706,14 @@
 - 批次: 2/2
 - 进展: 2026-08-10 B2 完成(777cdaf):①test_runs_init_refs 接入项目级写仲裁(docs.rs,与 test_run_record 同模式,D-227 并发覆盖门禁);②initialize_refs 无变化不写盘(幂等零副作用,test_record.rs);③前端 refreshTests 每次刷新前调用 test_runs_init_refs(09-sessions.js),批量初始化获得真实消费者;④冒烟断言 init 被调用且带 projectDir(ui-runtime-smoke.mjs)。T-1786369234 定向+冒烟、T-1786369281 全量均绿。
 
+## R-133 diff树渲染优化 [done]
+- 原始描述: diff树的显示很丑，标记颜色并且不要重叠
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 实现color标记的git diff树，解决重叠问题确保视觉清晰
+- 优先级: P2
+
+- 标签: 前端
+
+- 进展: 2026-08-10 交付(d980889):①diff 汇总按路径层级成目录树——buildDiffTree/appendDiffNode(06-activity.js)把平铺路径归入可折叠目录(▾/▸,aria-expanded),文件行按深度缩进,+/− 计数沿用 diff-add/diff-del 同色系(D-237 既有);②并排视图重叠修复——.diff-pane 加 min-width:0 + overflow-x:auto,长行(pre 不换行)在自身列内横向滚动,不再溢出覆盖相邻列(grid 子项默认 min-width:auto 被 pre 内容撑破的根因);③冒烟新增断言:树容器/目录行/文件归组/折叠交互(ui-runtime-smoke.mjs)。验收证据:color 标记=diff-add/del 色(style.css:1032-1033 既有)+ 树形目录头;diff 树=buildDiffTree L7-66;重叠解决=.diff-pane 规则(style.css:1020-1024);四条冒烟全绿 T-1786369496。复杂度中,纯前端改动 crates/ 零变更,全量等价 R-130 门禁(T-1786369281 全绿)不重跑。
+
