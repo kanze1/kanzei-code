@@ -59,9 +59,9 @@
 - 验收: ①重启后每项目、每线的模型 / profile / reasoning / 子代理开关完整恢复,页签不丢(R-030 遗留项一并核验)。②两个项目配不同 primary 互不影响(D-170 式双项目用例),CLI 与桌面解析结果一致(同一真源)。③五层解析链每层缺省回落各有单测。④localStorage 旧键存在时首次启动上迁并清除,迁移有测试;全仓 grep `kz-model:` 不再作为真源被读。⑤设置页选「本项目」保存后,主根 `.kanzei/kanzei.toml` 真出现 `[models]` 且立即生效(`models_list` 与徽标同步);选「全局」写 `~/.kanzei/kanzei.toml`,两者互不串写,有往返单测。⑥保存不丢字段(conventions §4),旧配置无新键时行为不变(serde default 单测)。⑦D7 覆盖范围在界面上对用户可见,providers/api key 的作用域切换被明确禁用而非静默忽略。
 - refs: R-050 R-030 R-115 R-136 R-177 R-179 D-168 docs/design/deep_parallel_dev.md
 
-- 批次: 1/5
+- 批次: 2/5
 
-- 进展: 批1(D3 落库)完成:crates/kanzei-core/src/store/processes.rs 新增 StoredProcess + upsert/list/get/delete 四函数(v10 表读写,5 单测);app 层 process_create/update/close 同步落库、process_list 启动时 restore_processes_from_store 从 state.db 恢复页签与线级字段(默认进程 d| 也落库——它是主对话的模型/开关状态)。process_persist_then_restart_restores_line_state + process_restore_is_isolated_per_project 两条往返测试绿;kanzei-app 全量 70 绿。待办:批2 五层解析链落码+缺省回落单测、批3 localStorage 上迁、批4 D7 作用域选择器。
+- 进展: 批1(D3 落库)已提交 d575549:store/processes.rs 四函数 + app 落库/恢复 + 往返测试。批2(五层解析链)已提交 c597d0a:kanzei_harness::config::resolve_model_chain 收敛 ①本轮直选→②线持久→③agent 默认,桌面 run.rs:93 与 CLI main.rs:163 共用同一真源(验收②),④⑤ 由 config load 层叠+fill_defaults 承担(既有能力);删除桌面死代码 resolve_model_ref;五层链引用层缺省回落单测绿(harness 83 + app 70 + kz 全绿)。待办:批3 localStorage kz-model 旧键上迁+清除、批4 D7 作用域选择器、批5 收口。
 
 ## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [doing]
 - 优先级: P1
