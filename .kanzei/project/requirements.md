@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [todo]
+## R-050 并行对话线程与分支工作树:隔离运行、冲突检测与合并 [dropped]
 - 复杂度: 大
 - 优先级: P2
 - 来源: 用户反馈:历史对话或新开线程并行推进项目,类似 git 分支/树,最后解决冲突合并
@@ -62,15 +62,26 @@
 - 退回原因: 2026-08-07 验收核查发现核心组合未成立,勾不该打。①worktree 与线程完全脱节:ProcessHandle.worktree_path 恒为 None(main.rs:164/523,全仓库无 Some 赋值),process_create 不接受 worktree 参数,run_prompt 校验进程必须属于主项目目录(2605-2607)——没有任何线程能在 worktree 里运行,所有并行线程写同一工作目录;应用内无流程会在 worktree 分支产生提交,"合并"在闭环内空转。②多进程同一工作树无任何写冲突检测,设计承诺的项目写锁/git 锁/docstore 版本哈希在代码中完全不存在。③"可查看 diff"实为 git status --porcelain 文件名列表弹 toast(见 D-096)。④崩溃恢复仅设计文字,worktree 清单存 localStorage 不从 git worktree list 发现。
 - 下一步: R-171 先在 memory system 开发序列之后交付项目级单 writer 与串行工具地基；R-050 的 worktree 绑定、diff 与恢复仍按 deep_parallel_dev.md 分阶段推进,且该文 §6 其余 D1~D7 未经用户定案前不得动工。
 - 遗留质量问题: worktree 四个命令零测试;worktree_field 的 field 参数是无效分支(main.rs:605-610 两分支返回同值);frontend_phase3.md 的 POC 章节重复粘贴两遍且第一遍路径写错。
-- refs: R-030 D-096
 - 阶段: 5
 - 证据等级: E2+E3
 - 设计定位: 功能需求(2026-08-08 用户定调:R-093 的"质量先行"阶段门槛作废,按普通优先级参与取活)
 
 - 标签: 核心
 
-- 进展: 2026-08-10 口径更新:本条 worktree/模型隔离部分的门禁仍成立,保持 todo;项目级单 writer 与串行工具已拆为 R-171,不受本条未定决策阻塞。
-- 阻塞: 用户: 需先对 docs/design/deep_parallel_dev.md §6 中除“项目级单 writer”外的 worktree/模型隔离决策逐条定案。解除动作:用户审阅剩余决策点并拍板后,本条 worktree 实施部分解除。
+- 进展: 2026-08-10 口径更新:本条 worktree/模型隔离部分的门禁仍成立,保持 todo;项目级单 writer 与串行工具已拆为 R-171,不受本条未定决策阻塞。 2026-08-10 晚:用户已对 deep_parallel_dev.md §6 的 D1~D7 逐条拍板(并补 N1~N3),阻塞条件消失,`阻塞:` 字段按 conventions §1.1「解除条件已满足当场清空」清除;本条随即按下方关闭说明收口。
+- 关闭说明: 2026-08-10 关闭(**dropped**)。用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,本条按「关闭原条、新开子条」收口。
+
+  **逐条对照验收原文(五条)**:
+  ①「设计文档明确线程/项目/工作树关系、锁顺序、取消与崩溃恢复」→ **已达成**:关系与状态机在 deep_parallel_dev.md 附录 A.1/A.2,锁顺序在附录 A.3,并被 docs/design/parallel_read_serial_write_orchestration.md 的十条核心不变量取代为更严格的口径;§6 于本日全部定案。
+  ②「两个线程可独立运行且互不串消息/权限/活动/停止」→ **已由 R-030(进程页签)交付**,消息/权限/队列/活动/停止按 session 隔离,有 POC 测试背书(2026-08-07 核查确认这部分真实)。
+  ③「写入冲突能在提交前检测并阻止自动覆盖」→ **已由 R-171(项目级单 writer + 写租约 + FIFO 排队 + 旁路收口)交付**。这正是本条 2026-08-07 退回原因②的归宿,不在本次拍板范围;deep_parallel_dev.md §6.3 已记一笔,避免下次评审重复拍板。
+  ④「worktree 模式可查看 diff、选择合并或放弃」→ **后端已达成、前端接线转移**:**D-096 已 [fixed]**,`worktree_diff` 已返回真实 `git diff --no-ext-diff --binary`,不再是文件名列表弹 toast;**R-133 已 [done]**,`crates/kanzei-app/ui/06-activity.js` 提供可折叠的 diff 目录树渲染器(`buildDiffTree`/`renderDiff`);`worktree_merge`(含 `merge-tree --write-tree` 冲突预检)与 `worktree_discard` 命令真实可用。剩下的只是把两者接起来 → **R-179**。
+  ⑤「合并失败保留双方改动和可恢复入口」→ **后端已达成**:`worktree_merge` 的冲突预检与 `worktree_discard` 失败时"已保留以便恢复"的兜底存在;UI 侧的可读展示 → **R-179**。
+
+  **剩余未覆盖的,逐条点名去处**:线绑 worktree(`ProcessHandle.worktree_path` 至今恒 `None`)、线清单从 `git worktree list --porcelain` 发现(现在存 localStorage)、四个 worktree 命令零测试、一树一线查重 → **R-177**;崩溃恢复里的模型/会话重建、线级模型隔离与状态持久化(含 R-030 遗留的"重启不丢页签")、设置页作用域选择器 → **R-178**;diff 前端接线、合并/放弃确认流、线页签仪表、`worktree_field` 的死分支 → **R-179**。本条「遗留质量问题」三项:worktree 四命令零测试 → R-177 验收⑦;`worktree_field` 死分支 → R-179 顺手修;frontend_phase3.md 的 POC 章节重复 → 该章节已于 2026-08-08 移入 deep_parallel_dev.md 作为附录,问题自然消解。
+
+  **为什么取 `dropped` 而不是 `done`**:三条理由。①conventions §1.2 明令「验收的功能性条款未实现」不得关闭为完成——本条最核心的组合(线在 worktree 里独立运行)**至今一行都没实现**,只是被转移了。②已达成的四条验收**全部由别的条目交付**(R-030 / R-171 / D-096+R-133),标 done 等于把它们的交付重复记在本条账上,违反 §1.25「不得把既有能力重新申报为本次产出」。③本条 2026-08-07 已被验收核查判定「部件各自真实、组合从未成立」并退回,其后未再产出实现。dropped = **本条作为容器退役,诉求整体转移**,不虚增交付统计。(口径与 R-117 一致,但理由不同:R-117 是自身从未产出实现,本条是自身核心从未成立且已达成部分归属别人。)
+- refs: R-030 D-096 R-133 R-171 R-177 R-178 R-179 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
 
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
@@ -110,7 +121,7 @@
 
 - 阻塞: 用户: 2026-08-09 挂起——先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)。解除动作: D-185/D-184 修复后用户确认恢复推进(或用户主动解除挂起),恢复时状态转 doing。解除人: 用户。
 
-## R-117 子代理运行状态的可观察性 [todo]
+## R-117 子代理运行状态的可观察性 [dropped]
 - 复杂度: 中
 - 优先级: P3
 - 原始描述: 添加触发后弹出浮层显示最近开发和当前进展列表
@@ -122,6 +133,7 @@
 
 - refs: R-095
 - 进展: 2026-08-10 复查:R-095 已交付(done),其验收⑤明确覆盖子代理状态观察——活动面板子代理条目给出内部调用数与当前步骤,入参/输出/成败/耗时齐备。本条原始诉求「子代理能对当前运行状态进行观察」已被 R-095 覆盖;去留按「待定」字段由用户拍板(关闭或按缺口重写验收),agent 不擅自决定。依赖 R-095 已关闭,移入 refs。
+- 关闭说明: 2026-08-10 关闭(dropped)。本条「待定」字段原文写着「本条挂在 R-095 之后再定去留,由用户判断」——**用户本次定调已经回答了它**:看过 Claude Code 的后台子代理面板后明确要**独立入口**,而且要那种形态(独立 Running / Finished 分区面板,每条显示 名称/类型/时长/token/工具调用数/当前工具名/单条停止/View transcript,面板有 Clear)。按 conventions §1.2「残余验证与质量缺口不丢弃:关闭时转移到专门条目并在关闭条目进展里注明去处」:本条的全部诉求(独立入口 + 子代理各自的进度维度)转移由 **R-174**「子代理面板与并发度口径」承接,R-174 的验收③④⑤⑥⑦ 覆盖了本条缺的每一项(六字段取真实事件、单条停止真能停、完整 transcript 有真实数据源、冒烟断言、桌面端可达)。本条不再单独保留入口决策,故取 dropped 而非 done——本条自身从未产出实现,声称 done 会虚增交付统计。
 
 ## R-135 开发与缺陷修复进度动画显示 [todo]
 - 优先级: P0
@@ -242,3 +254,114 @@
 - 调度顺序: R-171 关闭后按序取活
 - 阶段: 3
 - 验收: ①至少两个只读子代理真实重叠执行,汇总屏障(最慢任务完成/失败/超时)前 writer 不启动,失败/超时都有确定终态;②一次真实需求完成并行勘察→屏障→串行实现/验证→并行复核→复核屏障→串行修正全轨迹,阶段事件落 session_events 可回放;③复核阶段在 writer 释放后启动,审查的是稳定快照;④writer 活跃时允许只读勘察继续(读写共存,复用 R-171 读槽机制)。
+
+## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [todo]
+- 优先级: P0
+- 复杂度: 中
+- 标签: 前端
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调:kanzei 的子代理要走这个执行模型,而且比它更激进。四个轴——①后台化(跨轮存活、主代理派完不阻塞、完成发通知)②子代理能写(打破只读白名单、自持写租约)③并发度放开(远不止现在的 8)④可对话(给正在跑的子代理发消息带原上下文续跑)——**都要,但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。参照物形态(Claude Code 面板实测):独立 Background tasks 面板,分 Running / Finished N 两区;每条显示名称、类型、已运行时长、累计 token、工具调用次数、当前正在用的工具名、View transcript 链接、单条停止按钮;面板有 Clear。本条是四轴里最便宜、可独立交付的一段(可观察 + 并发度口径),不依赖后台化。
+- 设计定位: 四轴分级第 1 级——先把子代理变成「看得见、停得住、查得到」的对象;后台化(R-175)与写权(R-176)在此之上叠加
+- 既有能力(§1.25 显式标注,不得重复申报为本次产出): 并发度**已经是可配项**——`max_tasks_per_turn` 在 crates/kanzei-harness/src/config.rs:59 是 `Option<usize>` 字段,:90-92 `unwrap_or(8).max(1)` 给默认 8 且**无上限钳制**;设置页已有「单轮子代理数上限」输入框(crates/kanzei-app/ui/index.html:469-470 `set-max-tasks`、ui/16-settings.js:187 与 :420、crates/kanzei-app/src/settings.rs:287-288/497/519/531);往返单测已钉死「没填的键不写进文件 / 没填走内置默认 8」(settings.rs:749-752)、serde default 单测已存在(config.rs:918-920、:936-939 越界回落 1)。因此「从固定 8 改为可配」这件事**无需再做**。
+- 关键现状(本组三条需求的共同前置): 桌面端主对话**根本不注册 task 工具**——crates/kanzei-core/src/runner/drive.rs:57 只在 `subagent.is_some() && !config.execution_policy.is_serial_writer()` 时 push `task_spec()`,而 crates/kanzei-app/src/run.rs:107-108 给主对话**无条件**设 `ExecutionPolicy::ReadParallelWriteSerial`(`is_serial_writer()==true`,见 crates/kanzei-harness/src/orchestration.rs:21-23)。所以并行子代理在桌面端当前是**全禁**状态:drive.rs:410-503 的轮内并发批与 crates/kanzei-core/src/runner/subagent.rs:163-176 的读槽登记代码不可达,`max_tasks_per_turn` 配了也没有生效路径。该回归由 **R-173**(阶段编排对象)的阶段感知策略修复,是本条与 R-175/R-176 的共同前置——本条的面板与并发度实测必须在 R-173 修复后才能在桌面端取证。
+- 内容: ①并发度口径收口(**不是重做配置**):复核默认 8 是否上调(用户要「远不止 8」),并在设置页把该值与「桌面端当前不生效」的事实对用户说清;溢出分支文案沿用 drive.rs:441-444 既有实现。②新增**独立「子代理」面板**——不再只作为活动面板(#bg-panel,ui/index.html:630-650)里 `bg-type-filter=agent` 的一个筛选项:Running / Finished N 分区,每条显示 名称 / 类型 / 已运行时长 / 累计 token / 工具调用次数 / **当前正在用的工具名** / 单条停止 / 打开 transcript,面板有 Clear。③单条停止通道:现状 ui/06-activity.js:261 注释明写「子代理没有单条停止通道,只能停整轮」,本条要消灭这个缺口。④可查看单个子代理的**完整 transcript**(工具调用序列 + 每次调用的入参与输出),不再只有 R-095 的摘要维度(内部调用数 / 当前步骤 / 成败 / 耗时)。
+- 边界: 不做后台化(R-175)、不做写权(R-176);面板本条只需渲染**轮内并发**的子代理,跨轮存活条目待 R-175 提供数据后再接。不改 `max_tasks_per_turn` 的配置通道本身(已可用),只调默认值口径与设置页说明。
+- 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
+- refs: R-095 R-117 R-173 R-175 R-176
+- 依赖: 
+
+## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [todo]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 依赖: R-173
+- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调,四轴(后台化 / 子代理能写 / 并发度放开 / 可对话)**都要但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。本条吃「后台化」与「可对话」两轴,详细定调背景见 R-174 来源字段。
+- 设计定位: 四轴分级第 2 级——把子代理从「轮内一次性调用」升级为有生命周期、有身份、可续谈的长期对象
+- 现状(读码实证): ①子代理是**轮内并发、主代理必须等齐**:crates/kanzei-core/src/runner/drive.rs:410-503 把本轮所有 task 调用收进 `FuturesUnordered`,用 `tokio::select!`(:481-501)循环消费,全部归位后主代理才继续——派发方被钉在原地等最慢的那个。②`SubagentRuntime` 是纯进程内对象(crates/kanzei-core/src/runner/subagent.rs:14-34),返回即死,transcript 不持久化。③续跑无地基:run_subagent 调 run_once 时 prior 传的是空历史(subagent.rs:189 `&[]`),没有可续的上下文。④超时是纯兜底墙钟(drive.rs:462-475,`rt.timeout_secs` 默认 900,见 crates/kanzei-harness/src/config.rs:81-83)。⑤读槽是 RAII 释放(subagent.rs:163-176 `_read_permit` 随函数返回自动 drop),后台化后函数不再随子代理生命周期返回,这条释放路径必然失效。⑥R-174 记录的前置回归同样适用:桌面端主对话因 run.rs:107-108 无条件 `ReadParallelWriteSerial` 而根本不注册 task 工具,后台化在桌面端可达之前必须先由 R-173 修好。
+- 内容: ①drive.rs:410-503 的「派发—等齐—归位」语义改为可选:后台模式下 task 派发后立即返回句柄,主代理本轮继续做别的,不再被 select! 循环阻塞。②跨轮子代理注册表:跨会话存活、崩溃/重启后可发现——不能只活在内存里。③完成/失败/超时**发通知回主对话**:复用既有 `agent_notifications` 表(crates/kanzei-core/src/store/notifications.rs)与 session_events 轨迹,**不新造通道**。④子代理 transcript 持久化,支持按 id 恢复上下文并追加消息续跑(「可对话」轴)。⑤所有终态确定、不得悬挂:超时 / 失败 / 被停三条路径都要落确定终态并释放读槽——RAII 失效后需要显式释放路径(设计不变量 7:停止、关闭、panic 收尾和窗口退出都必须释放并给排队者确定终态)。⑥屏障、终态、编排事件轨迹一律复用 R-173 的阶段编排对象,**不另造一套**。
+- 边界: 后台子代理仍受只读白名单约束——crates/kanzei-tools/src/subagent.rs:13-25 构造时只装 read/glob/grep,ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179);写权是 R-176 的事,两条需求不混做。面板呈现(Running/Finished 分区、单条停止、transcript 查看)属 R-174,本条只负责让后台条目有真实数据与真实停止通道可被它消费。
+- 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
+- refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
+
+## R-176 写子代理:自持写租约的并行实现线,协调器 FIFO 排队与改动可归因 [todo]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 依赖: R-173 R-175
+- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调,四轴**都要但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。本条吃「子代理能写」轴,详细定调背景见 R-174 来源字段。用户明确要比参照物更激进——参照物的子代理仍是只读探索,kanzei 要让子代理自己拿写租约、成为真正的并行实现线。
+- 设计定位: 四轴分级第 3 级——把「并行只读勘察 + 单 writer 串行实现」升级为「多条写实现线由协调器排队串行安全落地」
+- 现状(读码实证): ①只读白名单在**构造时**强制:crates/kanzei-tools/src/subagent.rs:13-25 的 `SubagentBase::contribute` 只 insert read/glob/grep 三个工具并只放行这三条规则,写/命令/联网在代码层面不存在(桌面端装配点 crates/kanzei-app/src/run.rs:456-461);子代理内 ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179)。②写租约地基**已就位**:契约在 crates/kanzei-harness/src/orchestration.rs(`acquire_read_slot` :195、`acquire_writer_lease` :198),内存实现 `MemoryCoordinator` 在 crates/kanzei-core/src/orchestration.rs(:191-243 独占 + FIFO 排队、:95-137 释放并唤醒队首、:244 取消等待者给确定终态、:274 快照),读槽 `acquire_read_slot`(:167-190)无条件放行(读写可共存,设计不变量 9)。③子代理侧只登记读槽(crates/kanzei-core/src/runner/subagent.rs:163-176),从不申请写租约。④R-174 记录的前置回归同样适用(run.rs:107-108 + drive.rs:57 使桌面端 task 全禁)。
+- 内容: ①打破只读白名单:新增**可写子代理档位**(独立组件与快照,不是给现有只读档位加工具——只读档位的白名单是审计资产,设计不变量 1 要求构造后与执行前各复核一次)。②**每个写子代理必须自己 `acquire_writer_lease`**,不得继承主代理的租约、不得绕过协调器(设计不变量 3「同一规范化 project_root 同时最多一个 writer_run_id」、4「不允许在两个工具调用之间切换写代理」、8「写工具不得绕过协调器」)。③写子代理之间由协调器 **FIFO 排队**,不是禁止并发申请——这正是 R-171 租约相对「硬禁写」的价值所在,`MemoryCoordinator` 的独占+FIFO+RAII 释放已实现,本条是把它接到子代理侧。④**权限询问必须发生在取租约之前**(设计不变量 6:用户拒绝后不得占用写租约);现状写子代理没有询问通道(ask 恒 Deny),必须换成真实询问路由并保证询问先于租约。⑤与 D-174 的后台 shell 归因体系对齐:writer 释放租约前必须收尾,不得留下仍在写的后台进程(设计不变量 7)。
+- 风险(本条是四轴里风险最集中的一条,必须写在验收之前): 写子代理 + 后台化 = **用户看不见的进程在改仓库**。三条护栏缺一不可关闭:(a) 每个写子代理的改动可归因——改了哪些文件、是哪个子代理 id 写的;(b) 单个写子代理的改动可**单独回滚**,不误伤其它写子代理与主代理的改动;(c) 面板上可见**正在写的是谁**、谁在排队。
+- 边界: worktree 绑定不在本条(那是 R-050 的批1);本条只保证「多个写子代理在**同一工作树**上串行安全」。后台化本身属 R-175,本条只在其之上加写权。
+- 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
+- refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
+
+## R-177 线绑 worktree 后端打通:process_create 建线、cwd/主根分离、线清单从 git 发现 [todo]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 后端
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 调度顺序: R-050 拆出的三条里**优先取这一条**——它是唯一真正加速自举的一条(取活序按文件顺序,本条排在 R-178/R-179 之前即为用户意图;priority 只是背景信息)。前置 R-141 批2 落地后即可动工。
+- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第一条(= 该文 P1)。D1 定案「运行时重定向主根」的落点就在本条。
+- 内容: ①`process_create` 增可选 `worktree_name`:给定时先建 worktree 再绑定,`ProcessHandle.worktree_path` 写入真实路径(crates/kanzei-app/src/processes.rs:114 与 src/state.rs:310 现在恒为 `None`),任一步失败整体回滚不留半绑定态。②`run_prompt` 的进程归属校验改按 `origin_project` 判定——现状 crates/kanzei-app/src/run.rs 比的是 `process.project_dir`,线上线后该字段指向 worktree,校验会把自己的线拒掉;同时让 `run_task` 的 `project_dir`(→`cwd`)对线传 worktree 路径、`main_root` 仍传主根。③线清单真源改 `git worktree list --porcelain` 发现,废除 `localStorage["kz-worktrees:*"]`(crates/kanzei-app/ui/09-sessions.js:37/78/79/95/97 五处);解析器不要重造——crates/kanzei-tools/src/git.rs:488 的 `worktree_for_branch` 已经是 `--porcelain` 解析器,抽出复用。④`session_id` 加 worktree 后缀,与既有进程后缀同构(crates/kanzei-app/src/state.rs:290 `process_session_id` 现在拼 `{base}#{prefix}`)。⑤补四个 worktree 命令的测试——`crates/kanzei-app/src/processes.rs` 当前**零测试**(无 `mod tests`、无 `#[test]`)。⑥一树一线查重(D4 定案):目标树已被绑定则拒绝建线。⑦N3 定案的开关:线**默认不写主根 tracker**,开关打开时照常排队(不改单写语义)。⑧D1-A 的配置侧收口:`run_task` 现在 `KanzeiConfig::load_with_warnings(&cwd)`,线上线后会读到 worktree 里的分支副本,须改读主根。
+- 边界: 不做模型隔离与线级持久化(R-178)、不做 diff/合并 UX(R-179)。不绕过项目级单 writer:两条线写主根 tracker 仍由 R-171 的写租约排队,worktree 只隔离**代码文件**。物理排除 worktree 内 `.kanzei` 副本(sparse-checkout / skip-worktree)是 D1 定案里的**可选纵深防御**,不在本条,不阻塞交付。
+- 收益(写实,别高估): 并行写**不会**发生。真正拿到的是三条:①线与主树自举循环**代码互不覆盖**(git 物理隔离,不靠锁);②线 A 等 review 时线 B 可以编译/跑测试/读代码/做只读勘察;③自举 agent 跑在主树时,用户可以在线上手动改东西不打架。
+- 验收: ①`process_create` 带 `worktree_name` 后 `ProcessHandle.worktree_path` 是真实路径(有断言,不是 `None`);建树成功但绑定失败时 worktree 被回收,不留半绑定态,有测试。②线上的一轮 `run_prompt` 实测:`cwd` = worktree、`project_root` = 主根;线内写代码落在 worktree,而 tracker/state.db/记忆全部落主根;worktree 内的 `.kanzei` 副本**字节级零改动**(测试直接比对文件哈希)。③配置解析取主根的 `.kanzei/kanzei.toml`,worktree 里的分支副本改了也不生效,有测试。④线清单来自 `git worktree list --porcelain`:手工 `git worktree add` 出来的树也能被发现,localStorage 键清空后清单不丢;全仓 grep `kz-worktrees` 零命中。⑤同一 worktree 再建第二条线被拒(D4),错误文案指出已绑定的线。⑥线 `session_id` 与主树进程互不覆盖,删树后会话历史仍可回放。⑦四个 worktree 命令(create/diff/merge/discard)各有测试,`processes.rs` 不再零测试。⑧N3 开关默认关:线里的 agent 调 tracker 写工具时被明确拒绝并说明原因(不是静默失败),打开开关后能写且走写租约排队。
+- refs: R-050 R-141 R-171 R-173 R-178 R-179 D-096 D-251 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
+- 依赖: 
+- 前置(不是阻塞,解除权在 agent 手里,按 D-239 教训**不写进「依赖」字段**免得调度器整条跳过): **R-141 批2**。R-141 批1(`8574b63`)已落一半——`ToolCtx::new` 改双参不再发现式取根、`ToolCtx::discovering` 只留给进程/IPC 入口,`run_task` 已收显式 `main_root` 并令 `project_root = main_root`、`cwd = project_dir`,`run_prompt` 在 IPC 入口解析一次主根后显式传入(crates/kanzei-app/src/run.rs 已有「R-050 D1 运行时重定向主根的落点」注释)。批2(`app/run.rs` 显式传根收尾 + 双键拆开)落地后本条即可动工;R-141 未完成时先做本条的 ③(线清单从 git 发现)与 ⑤(补测试)也不受影响。
+
+## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [todo]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 后端
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 调度顺序: 与 R-177 **零耦合**,可并行甚至先做。其中 D7 那半(设置页作用域选择器)**改动面极小、可当天交付**——`settings_save_at_path` 已经是参数化路径的(crates/kanzei-app/src/settings.rs:562),接线点就在那,取活的人可以先拿这份即时收益再做 D3。
+- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第二条(= 该文 P2)。承接 D3(线级模型选择存 state.db)与 D7(设置页作用域选择器,第一版只覆盖 `[models]`)两条定案。
+- 内容: ①D3:state.db 建 `processes` 表(现有表见 crates/kanzei-core/src/store/schema.rs,没有这张),存线/进程注册 + 模型 / profile / reasoning / 子代理开关;`ProcessHandle` 的这几个字段现在是纯内存 `Arc<Mutex<..>>`(crates/kanzei-app/src/state.rs:197-200),重启即丢。②五层解析链落码 + 测试(本轮直选 → 线持久选择 → 项目 `[models]` → 全局 `[models]` → 内置默认,逐层缺省回落)。③`localStorage["kz-model:*"]`、`kz-manual-models:*` 一次性上迁后端,前端下拉降级为回显 + 写入口,不再是真源;保留旧键 fallback 一个版本。④**顺带交付 R-030 遗留的「重启不丢页签」**——R-030 的 2026-08-07 核查把"进程列表不持久化(重启丢页签)"标 P3 暂不处理,至今未做,与本表同源一表两用。⑤D7:`settings_save` 加 `scope` 参数(全局 / 本项目),**第一版只覆盖 `[models]`**;写本项目 = `toml_edit` 追加到主根 `.kanzei/kanzei.toml`。⑥崩溃恢复里「模型/会话重建」那部分归本条(依赖同一张表)。
+- 边界: **D7 第一版不放 providers / api key**——它们写进被 git 跟踪的项目 toml 有泄密风险,不一次全开;界面上要说清作用域选择器当前覆盖哪些字段,不留"选了本项目但某些字段仍写全局"的静默歧义。worktree 绑定属 R-177,本条不碰;崩溃恢复里的 worktree/分支重建属 R-177。
+- 验收: ①重启后每项目、每线的模型 / profile / reasoning / 子代理开关完整恢复,页签不丢(R-030 遗留项一并核验)。②两个项目配不同 primary 互不影响(D-170 式双项目用例),CLI 与桌面解析结果一致(同一真源)。③五层解析链每层缺省回落各有单测。④localStorage 旧键存在时首次启动上迁并清除,迁移有测试;全仓 grep `kz-model:` 不再作为真源被读。⑤设置页选「本项目」保存后,主根 `.kanzei/kanzei.toml` 真出现 `[models]` 且立即生效(`models_list` 与徽标同步);选「全局」写 `~/.kanzei/kanzei.toml`,两者互不串写,有往返单测。⑥保存不丢字段(conventions §4),旧配置无新键时行为不变(serde default 单测)。⑦D7 覆盖范围在界面上对用户可见,providers/api key 的作用域切换被明确禁用而非静默忽略。
+- refs: R-050 R-030 R-115 R-136 R-177 R-179 D-168 docs/design/deep_parallel_dev.md
+
+## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [todo]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 调度顺序: 锦上添花,排在 R-177/R-178 之后。工作量已被 R-133 与 D-096 大幅削减(见「既有能力」)。
+- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第三条(= 该文 P3)。
+- 既有能力(§1.25 显式标注,不得重复申报为本次产出): ①**D-096 已 [fixed]**——`worktree_diff` 已返回真实 `git diff --no-ext-diff --binary`(crates/kanzei-app/src/processes.rs),不再是 `status --porcelain` 文件名列表弹 toast;②**R-133 已 [done]**——`crates/kanzei-app/ui/06-activity.js` 已有可折叠的 diff 目录树渲染器(`buildDiffTree`、`renderDiff`,含并排视图与长行自身列滚动);③`worktree_merge` 的 `git merge-tree --write-tree` 冲突预检真实可用;④`worktree_discard` 失败时"已保留以便恢复"的兜底已存在。**本条是把这些接起来,不是重造。**
+- 内容: ①把 `worktree_diff` 的输出接进 06-activity.js **已有**的 diff 目录树渲染器——不造新查看器。②合并 / 放弃的确认流:合并前展示 `merge-tree --write-tree` 冲突预检结果的可读形态(哪些文件冲突、哪边改的),放弃前明确说清"树删了、分支留着"。③线页签徽标:分支名 / running 状态 / 每线 token 计数(episodes 已记,取出来显示)。④建线 UI 上落 D6 定案的提示:每树独立 `target/` = 磁盘 ×N + 首次冷编译数分钟。⑤`worktree_discard` 在 Windows 因文件句柄占用失败时,把现有兜底延伸到 UI 提示(§5 风险 3)。
+- 顺手修: `crates/kanzei-app/src/processes.rs` 的 `worktree_field(root, worktree, field)` 的 `field` 参数是死分支——`if field == "branch"` 与 `else` 两支返回同一个 `branch`,`else` 里只有一句 `let _ = root;`;两个调用点(`worktree_diff` 与 `worktree_merge`)都只传 `"branch"`。要么去掉 `field` 与 `root` 两个参数,要么让 else 分支真的返回别的东西,不留假分支。
+- 边界: 不做图形化 DAG / 画布式线管理(§2.3 与 R-111 的克制一致)。不做跨线自动任务分派。合并策略按 N2 定案保持 `merge --no-ff`,不改成 rebase。
+- 验收: ①线的 diff 在应用内用 06-activity.js 的目录树渲染器显示(前端有断言证明走的是既有渲染器,不是新写的一份)。②不离开应用完成 review → merge → 清理全流程;合并失败时双方改动保留且有可恢复入口(R-050 原验收原文)。③冲突预检结果在界面上可读:列出冲突文件,不只是一句"有冲突"。④线页签显示分支名与 running,每线 token 计数取自真实 episodes 数据(§1.25:不得是常量占位)。⑤建线 UI 出现磁盘/冷编译成本提示。⑥`worktree_field` 的死分支消失(全仓 grep 无同值双分支)。⑦前端改动跑 `node --check` + `node scripts/ui-runtime-smoke.mjs`,新交互(打开 diff、确认合并、确认放弃)各有冒烟断言(conventions §1.3)。⑧800/1024/1280 三档布局检查。
+- refs: R-050 R-133 R-177 R-178 D-096 D-257 docs/design/deep_parallel_dev.md
+
+## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(读码核实 crates/kanzei-tools/src/background.rs,2026-08-10 dev HEAD)
+- 来源: 2026-08-10 D-174 交付时的安全降级转出。D-174 本轮取的口径是「后台任务生命周期 ⊆ owner run」——后台任务登记 `BackgroundOwner{run_id, process_id, 写仲裁键}`,owner run 收尾时一并收尾,好处是不会留下用户看不见的进程在改仓库。代价是 dev server 一类**需要跨 run 存活**的服务做不了。
+- 现状(读码实证): ①`BackgroundHandle.owner: BackgroundOwner` 已登记归属身份(background.rs:29/55),跨 owner 收尾判定消费它;②后台日志**只在内存**——`MAX_BACKGROUND_OUTPUT = 256 * 1024`(background.rs:23),超限「丢头留尾」并标记截断(:131),**不落盘、不进 state.db**,进程一退历史全没;③没有任何注册表让后台任务活过 owner run。
+- 内容: ①受管后台服务档位:生命周期显式脱离 owner run(用户或 agent 明确声明"这是长驻服务"),与"跟随 owner run"的默认档位并存,不是把默认改掉。②长驻服务的注册表跨 run 可发现,重启后能列出仍在跑的服务并给确定处置(接管 / 标失败 / 杀掉),不留幽灵进程。③后台日志落盘可回看,取代现在的内存 256 KiB 丢头留尾;落盘不得让日志变成新的写冲突源(走 R-138 的原子写原语,不另造)。④长驻服务仍受 D-174 的托管路径归因与越界回滚约束——脱离 owner run 不等于脱离文件隔离。
+- 边界: 不做通用的服务编排/健康检查/自动重启;不把默认档位改成长驻(D-174 的安全降级是有意为之)。子代理后台化属 R-175,两者语义相关但不是同一件事——R-175 管的是**子代理**跨轮存活,本条管的是**shell 后台进程**跨 run 存活;实现时共用注册表与终态口径,不要各造一套。
+- 验收: ①声明为长驻的后台服务在 owner run 结束后仍在跑,且能被查询到状态;默认档位的后台任务行为不变(owner run 收尾即收尾),有测试区分两档。②强杀 kzapp 后重开,注册表能列出上次未终结的长驻服务并给出确定处置,不留幽灵条目。③后台日志落盘:超过 256 KiB 的输出不再丢头,重启后仍可回看,有测试。④长驻服务写入托管路径(`.kanzei/project`、`.kanzei/memory`)仍被 D-174 的归因/回滚拦下,有回归覆盖。⑤日志落盘走 `crates/kanzei-tools/src/atomic_file.rs` 的原语,全仓不出现第二套写原语。
+- refs: D-174 R-175 R-138 R-097
