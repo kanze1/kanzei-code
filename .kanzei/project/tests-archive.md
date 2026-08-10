@@ -1248,3 +1248,8 @@
 - 命令: cargo test -p kanzei-tools
 - 摘要: 162 passed(原159+新增3:无embedder降级_fingerprint+BM25/指纹miss回落BM25/upsert_remove_rebuild);0 失败
 - 收尾: 1786346035
+
+## T-1786346354 R-164 B2 定向测试:cargo test -p kanzei-tools -p kanzei-harness [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-harness
+- 摘要: tools 167 passed(162+embed3+向量2),harness 64 passed(含 embeddings 配置节测试);0 失败
+- 收尾: 1786346354
