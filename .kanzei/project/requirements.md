@@ -53,23 +53,6 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [doing]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心
-- 阶段: 2
-- 依赖: 
-- 来源: 同 R-161。理论锚点 DeMem(决策失真,安全合并=存在共同近优动作,而非文本相似);kanzei 有可执行 verifier,J 不靠 LLM judge。
-- 内容: ①F(m)=E[J(e;M)−J(e;M∖{m})] 离线定向回放,绝不在线算;②每条 memory 维护 Q(m)=触发匹配 episode+near-miss+negative control;③周期性 with/without 回放,memory_eval 维护 effect_mean/effect_ci/eval_n/last_eval;④merge 由 D(S→m')<ε 把关,压缩变成有测试的行为等价变换;⑤shadow 态引入(五态齐):可被评估、不注入生产;⑥只有 low value+high confidence 进 deprecate 候选,age 不作为独立淘汰判据。
-- 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
-- refs: R-149 R-150 docs/design/memory_control_plane.md
-
-- 进展: 批5完成:deprecate 候选——core eval.rs deprecate_candidates(effect_mean≤0 + eval_n≥3 + CI≤0.34),memory_stats 项目 scope 报反事实候选(只报不删,真删走 memory_stale)。验收④时间衰减审计:全仓 grep memory 模块无 age/时间衰减淘汰路径,updated 仅记录。tools 183、core 96→97 全绿。剩关闭:全量测试+验收逐条对照。
-
-- 批次: 5/5
-
-- 状态: doing
-
 ## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [todo]
 - 优先级: P1
 - 复杂度: 中

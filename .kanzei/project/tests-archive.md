@@ -1323,3 +1323,8 @@
 - 命令: cargo test -p kanzei-tools -p kanzei-core
 - 摘要: tools 183 + core 97 全绿。批5: deprecate 候选(low value + high confidence)与时间衰减审计。
 - 收尾: 1786350214
+
+## T-1786350269 cargo test --workspace (R-166 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全 workspace 全绿(core 97 + tools 183 等)。R-166 关闭前全量验证。
+- 收尾: 1786350269

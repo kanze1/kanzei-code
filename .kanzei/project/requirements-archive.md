@@ -1569,3 +1569,20 @@
 
 - 批次: 4/4
 
+## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [done]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心
+- 阶段: 2
+- 依赖: 
+- 来源: 同 R-161。理论锚点 DeMem(决策失真,安全合并=存在共同近优动作,而非文本相似);kanzei 有可执行 verifier,J 不靠 LLM judge。
+- 内容: ①F(m)=E[J(e;M)−J(e;M∖{m})] 离线定向回放,绝不在线算;②每条 memory 维护 Q(m)=触发匹配 episode+near-miss+negative control;③周期性 with/without 回放,memory_eval 维护 effect_mean/effect_ci/eval_n/last_eval;④merge 由 D(S→m')<ε 把关,压缩变成有测试的行为等价变换;⑤shadow 态引入(五态齐):可被评估、不注入生产;⑥只有 low value+high confidence 进 deprecate 候选,age 不作为独立淘汰判据。
+- 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
+- refs: R-149 R-150 docs/design/memory_control_plane.md
+
+- 进展: 关闭。验收对照:①F(m) 可查=store/eval.rs memory_effect(memory_id) 查 memory_eval_agg(effect_mean/effect_ci/eval_n/last_eval),测试 forgetting_cost_aggregates_and_queries;②merge D<ε=merge_conservation_delta + memory_merge 守恒闸(D≥0.5 拒绝带依据),测试 merge_gate_rejects_distorting_merge_with_delta + merge_conservation_delta_measures_distortion;③shadow 可评估不注入=to_shadow + search 硬排除,测试 shadow_entry_is_evaluable_but_not_injected;④无时间衰减淘汰=memory 模块 grep 审计无 age/ttl 路径,deprecate 只由 F(m) 驱动,测试 deprecate_candidates_require_low_value_and_high_confidence。全量 cargo test --workspace 全绿(core 97+tools 183)。
+
+- 批次: 5/5
+
+- 状态: doing
+
