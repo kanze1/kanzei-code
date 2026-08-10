@@ -1,5 +1,58 @@
 # Defects
 
+## D-241 D-202/D-173/D-223 长期挂 fixing 无人续推:占「进行中」语义,且引擎无 fixing→open 退回通道 [open] (medium)
+- 优先级: P1
+- 标签: 流程
+- refs: D-202 D-173 D-223 D-239 D-235 R-101
+- 证据等级: E1(三条目文本 + docstore 状态机代码实证 + 开发重心 M-002 的队列可达性)
+- 现象: defects.md 里三条 [fixing] 长期无人续推——D-202(超长对话卡顿,修复方向①②④⑤已落地,卡在真机复测)、D-173(架构索引通道,2026-08-09 收口核对因 architecture 工具零调用刻意不关)、D-223(profile_default 编译失败,自称"待 R-153 上游迁移稳定后复测",而 R-153 早已归档关闭)。三条都不在推进中,却都占着 fixing 的「进行中」语义。
+- 影响: ①误导「在做」指针——D-207 三修(60943d2)的运行事实优先正是为压制这类假象,提交信息原话「挂着 fixing 的旧缺陷不再冒充正在做」,说明它已真实误导过界面;②按 §1.1 防堆积兜底「含阻塞在内 doing 总数 >4 不得再开新项」,三条僵尸 fixing 直接吃掉缺陷侧的准入余量;③三条各自的残余验证(D-202 的真机 Event Timing 与 DOM 上限、D-173 的 architecture 真实调用、D-223 的 cargo check 复测)没有任何机制会提醒任何人回去做。
+- 根因(两层): ①**无退路**:docstore 的 transition_allowed 单向(docstore.rs:638 `cannot move backward ... forward only`,defect 序列 open→fixing→fixed|wontfix),错误文案让人「手改 markdown」,但 .kanzei/project/* 对 agent 是 edit-denied(M-005)且 shell 旁路被检测回滚——**agent 根本没有把 fixing 退回 open 的通道**,与 D-235(conventions.md 无专用写入)、D-173(架构索引无专用工具)属同一族「既不能 edit、也无专用工具」缺口,所以挂久了只能继续挂。②**无回扫**:fixing 只在被触碰时顺手复核(与 D-239 记的阻塞字段同病),没有任何周期性机械核对「这条 fixing 多久没动过」;叠加当前开发重心=需求优先(M-002),defects.md 在需求队列跑空前根本扫不到,三条永远等不到「被触碰」。
+- 修复方向(逐条处置,可立刻验证): D-223 → R-153 已归档,直接 `cargo check -p kanzei-app` 复测,通过即补证据关闭;D-173 → 核对 2026-08-09 之后 architecture 工具是否已有真实调用(1ec12ca 声称「架构索引已登记」),有则按其验收③关闭,无则如实写进展并保持 fixing;D-202 → 按 §1.2 可用即关闭:修复方向①②④⑤已落地且冒烟有拦截实测,残余(真机 Event Timing、DOM 节点数上界)转 R-101 或新条目,真机复测属外部阻塞(解除人=用户),要么补合法「阻塞:」字段,要么连同残余转移后关闭。
+- 修复方向(机制,二选一或都做): ①给 tracker 一个合法的退回动作(如 `defect reopen <id> reason=…`,与 repair_* 同族,强制写理由并落进展),让「推不动就退回 open」成为可执行动作而不是纸面建议;②活动条目滞留回扫——list 或调度器对超过 N 轮无进展更新的 doing/fixing 打标(表达方式同 [调度死锁] 横幅),把「该回去看看」从人的记性变成机械信号。
+- 验收: ①D-202/D-173/D-223 三条各自有明确归宿(fixed / wontfix / 带具名解除人的合法阻塞 / 退回 open),不再是无归宿的 fixing;②处置依据逐条写进各条进展,残余验证有去处(§1.2);③机制项落地任一:tracker 有可用的 reopen 动作(有测试),或活动条目滞留有机械打标(有测试);④此后不再出现「无进展更新且无阻塞字段」的 fixing/doing 长期滞留。
+- 边界: 本条只做队列口径与通道,不承接 D-202/D-173/D-223 各自验收里的功能性残余(那些留在原条目或按 §1.2 转移)。
+
+## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
+- 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
+- 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
+- 根因: 提示块拼在 prompt 字符串上而不是作为一次性 system/context 段落,持久化路径对它无感知。
+- 验收: hint 块不进 conversations 快照(或落库前剥离),连跑 3 轮后历史里最多一个块;注入 token 账单能看出 hint 段的独立占比。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+## D-229 harvest_sop 只接了桌面端,CLI 轮末缺失同款 SOP 采集通道 [open] (medium)
+- 优先级: P2
+- 依据: 2026-08-10 memory 系统全量走查。crates/kanzei/src/main.rs 轮末只调 harvest_failures + harvest_entry_fact;kanzei-app/src/main.rs 轮末额外有 harvest_sop——CLI 完成条目不产 SOP 候选,R-124 采集通道双端不对称,遥测口径也随之分裂。
+- 修复方向: CLI 轮末补 harvest_sop 同款调用;三个 harvest 收敛为一个共享的轮末采集函数,两端调同一入口,杜绝再次漂移。
+- refs: R-124 R-105
+
+## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [open] (medium)
+- 优先级: P2
+- 依据: kanzei-tools/src/memory/mod.rs resident_index 按 load_all 的 id 升序装 3000 字预算,放不下的 continue 折叠——id 越大(越新)的条目越容易被挤出常驻索引,而新条目往往正是当前最相关的;老条目永远优先纯属枚举顺序副作用,不是价值排序。
+- 修复方向: 装箱前按价值排序(decision_weight×新近度,或至少 updated 新近优先);与 prompt_hints 的口径保持同源(D-216 教训:两边必须对同一份判定)。
+- refs: R-104 R-149
+
+## D-214 SOP 候选投进全局 inbox 无人消化:manager 只读项目 inbox,7 条候选自 08-08 滞留 [open]
+- 现象: ~/.kanzei/memory/inbox.md 里有 7 条 `## note` SOP 候选(最早 2026-08-08),从未被消化。
+- 根因线索: harvest_sop 按设计把 SOP 候选投给 global store 的 inbox(kanzei-app main.rs ~6019),但轮末触发只查项目 store 的 pending_notes,manager 的 memory_inbox_clear 也只清项目 inbox——全局 inbox 是只进不出的死信箱。
+- 修复方向(二选一): ①轮末触发与 manager 消化把 global inbox 一并纳入(pending 检查、prompt 注入、clear 都要对齐);②SOP 候选改投项目 inbox,由 manager 消化时按 scope=global 落库(R-124 本意是用户拍板采纳,注意别破坏候选箱语义)。
+- 影响: R-124 SOP 提炼链路实际断裂,候选永远到不了用户面前。
+- refs: R-124 R-149 (medium)
+
+## D-217 stale 记忆无归档搬运通道:memory_system.md 承诺的 memory-archive/ 整理流程不存在 [open]
+- 现象: 设计基线 §2 写「stale 后由整理流程移入 memory-archive/,带墓碑」,但代码里 archive/ 目录只被 load_archived_ids 用来保 ID 不复用,没有任何工具或触发把 stale 条目搬进去;INDEX.md 的「N stale 条待归档」永远挂着。sleep-time 空闲整理同样未实现,消化只有轮末触发与 UI 手动按钮。
+- 影响: 遗忘只有「人工+墓碑」半套;stale 条目永远占主目录与 load_all 扫描;文档与实现不一致。
+- 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
+- refs: R-150 R-107 (medium)
+
+## D-231 stale 记忆归档流程未落地,失效条目永驻主目录 [open] (medium)
+- 优先级: P3
+- 依据: memory_system.md §2 承诺「stale 后由整理流程移入 archive/ 带墓碑」;store.rs 的 load_archived_ids 会读 archive/ 目录,但代码里没有任何写入方——stale 条目永驻主目录,FTS 仍索引(仅 0.5 降权),目录随时间只增不减。
+- 修复方向: 并入 R-165 Memory Compiler 的归档流程(deprecated/invalid 移入 archive/,墓碑保留,默认检索不可见);lifecycle 状态迁移时一并处理 stale→deprecated 兼容映射。
+- refs: R-165 R-103
+
 ## D-209 对话落库粒度太粗(用户反馈,具体维度待澄清) [open] (medium)
 - refs: D-208 D-185
 - 原始描述: 用户 2026-08-09 原话"落库对话粒度太粗"(与活动栏回放问题同时反馈)。
@@ -60,15 +113,6 @@
 - 优先级: P2
 - 标签: 核心
 
-## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [open] (medium)
-- 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
-- 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
-- 根因: 提示块拼在 prompt 字符串上而不是作为一次性 system/context 段落,持久化路径对它无感知。
-- 验收: hint 块不进 conversations 快照(或落库前剥离),连跑 3 轮后历史里最多一个块;注入 token 账单能看出 hint 段的独立占比。
-- 证据等级: E2
-- 优先级: P2
-- 标签: 核心
-
 ## D-159 memory-manager 忽略前置 pathspec fatal 并把 commit 症状误记为根因 [open] (medium)
 - refs: R-105
 - 优先级: P2
@@ -111,19 +155,6 @@
 - 优先级: P2
 - 标签: 核心
 
-## D-214 SOP 候选投进全局 inbox 无人消化:manager 只读项目 inbox,7 条候选自 08-08 滞留 [open]
-- 现象: ~/.kanzei/memory/inbox.md 里有 7 条 `## note` SOP 候选(最早 2026-08-08),从未被消化。
-- 根因线索: harvest_sop 按设计把 SOP 候选投给 global store 的 inbox(kanzei-app main.rs ~6019),但轮末触发只查项目 store 的 pending_notes,manager 的 memory_inbox_clear 也只清项目 inbox——全局 inbox 是只进不出的死信箱。
-- 修复方向(二选一): ①轮末触发与 manager 消化把 global inbox 一并纳入(pending 检查、prompt 注入、clear 都要对齐);②SOP 候选改投项目 inbox,由 manager 消化时按 scope=global 落库(R-124 本意是用户拍板采纳,注意别破坏候选箱语义)。
-- 影响: R-124 SOP 提炼链路实际断裂,候选永远到不了用户面前。
-- refs: R-124 R-149 (medium)
-
-## D-217 stale 记忆无归档搬运通道:memory_system.md 承诺的 memory-archive/ 整理流程不存在 [open]
-- 现象: 设计基线 §2 写「stale 后由整理流程移入 memory-archive/,带墓碑」,但代码里 archive/ 目录只被 load_archived_ids 用来保 ID 不复用,没有任何工具或触发把 stale 条目搬进去;INDEX.md 的「N stale 条待归档」永远挂着。sleep-time 空闲整理同样未实现,消化只有轮末触发与 UI 手动按钮。
-- 影响: 遗忘只有「人工+墓碑」半套;stale 条目永远占主目录与 load_all 扫描;文档与实现不一致。
-- 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
-- refs: R-150 R-107 (medium)
-
 ## D-219 WIP 准入把阻塞 doing 计入配额,鞭挞提示词与 §1.1 新口径不同步 [open] (medium)
 - 复现: 2026-08-09 实测:R-101(用户挂起)+R-148(仅剩等用户复查)占满 2 个 doing 名额,循环以「WIP 约束不能并发开启」拒开 R-153——两个不可执行条目把新工作准入整体锁死。
 - 根因: 旧 §1.1 规则「blocked doing 不占可执行槽,但仍计入 doing 总数」自相矛盾——计入总数即占用准入;DEFAULT_CONTINUE_PROMPT 规则 5「doing 最多 2 个;已满就继续推进这两项」把旧口径写死在注入文案里,且不区分可执行/阻塞。
@@ -149,24 +180,6 @@
 - 标签: 流程
 - 进展: 本轮发现；后续需用串行记录或显式唯一 id 认领，先核对 tests-archive 的实际条目。
 - 优先级: P2
-
-## D-229 harvest_sop 只接了桌面端,CLI 轮末缺失同款 SOP 采集通道 [open] (medium)
-- 优先级: P2
-- 依据: 2026-08-10 memory 系统全量走查。crates/kanzei/src/main.rs 轮末只调 harvest_failures + harvest_entry_fact;kanzei-app/src/main.rs 轮末额外有 harvest_sop——CLI 完成条目不产 SOP 候选,R-124 采集通道双端不对称,遥测口径也随之分裂。
-- 修复方向: CLI 轮末补 harvest_sop 同款调用;三个 harvest 收敛为一个共享的轮末采集函数,两端调同一入口,杜绝再次漂移。
-- refs: R-124 R-105
-
-## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [open] (medium)
-- 优先级: P2
-- 依据: kanzei-tools/src/memory/mod.rs resident_index 按 load_all 的 id 升序装 3000 字预算,放不下的 continue 折叠——id 越大(越新)的条目越容易被挤出常驻索引,而新条目往往正是当前最相关的;老条目永远优先纯属枚举顺序副作用,不是价值排序。
-- 修复方向: 装箱前按价值排序(decision_weight×新近度,或至少 updated 新近优先);与 prompt_hints 的口径保持同源(D-216 教训:两边必须对同一份判定)。
-- refs: R-104 R-149
-
-## D-231 stale 记忆归档流程未落地,失效条目永驻主目录 [open] (medium)
-- 优先级: P3
-- 依据: memory_system.md §2 承诺「stale 后由整理流程移入 archive/ 带墓碑」;store.rs 的 load_archived_ids 会读 archive/ 目录,但代码里没有任何写入方——stale 条目永驻主目录,FTS 仍索引(仅 0.5 降权),目录随时间只增不减。
-- 修复方向: 并入 R-165 Memory Compiler 的归档流程(deprecated/invalid 移入 archive/,墓碑保留,默认检索不可见);lifecycle 状态迁移时一并处理 stale→deprecated 兼容映射。
-- refs: R-165 R-103
 
 ## D-232 package.ps1 发布门禁缺「HEAD 已推远端」检查,未推时 422 到最后一步才炸 [open] (medium)
 - 优先级: P2
@@ -206,5 +219,3 @@
 - 标签: 后端
 - 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
 - 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
-
-## D-241 D-202/D-173/D-223 长期挂 fixing 无人续推:占「进行中」语义,且引擎无 fixing→open 退回通道 [open] (medium)
