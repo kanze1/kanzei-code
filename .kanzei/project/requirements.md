@@ -27,7 +27,7 @@
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
 - refs: A-011 R-163 docs/design/memory_control_plane.md
 
-- 进展: 批1~批3完成(见前)。
+- 进展: 批1~批4全部完成,全量测试通过。关闭被引擎旧产物误拦(D-252),修复已提交,新版 kzapp 已落 pending,待用户重启 kzapp 后关闭。
 
 批4完成(R-164 B4):ReplayMemoryProvider 装配三通道混合检索——新增 hybrid: SqliteMemoryIndex 字段(new 时从 kanzei.toml [embeddings] 构建 embedder,未配置则 None 降级),Candidate 臂从与 Current 同源改为 candidate_text:IndexQuery::both(tool,kind,sample+target) → search_hybrid_with_timing → 命中落 RecallEvent(policy_action=hybrid,trigger_type=replay_eval,分段延迟填 lexical_ms/embed_ms/vector_ms——验收②装配)。Current/LeaveOneOut/CompressionCF 保持现状策略。新测试 candidate臂_有记忆条目时用hybrid检索并落recall_events:seed 含 [fp:edit|old string not found] 的条目 + FakeEmbedder → Candidate 命中且 state.db 落一条 policy_action=hybrid 事件。kanzei-tools 172 passed 全绿。
 
@@ -50,6 +50,8 @@
 批次规划: 批2 Embedder trait + openai 兼容 /embeddings 实现(含 ollama)+ kanzei.toml [embeddings] 配置节 + 向量列存储 + rebuild(验收④);批3 dense 通道 brute-force + RRF 融合(k=60)+ 分段延迟落 recall_events(验收②);批4 R-163 三臂对比装配(lexical/dense/hybrid)+ 报告落库(验收③)。实现注:向量列用 rusqlite 普通表 + Rust 侧 brute-force 余弦,替代 sqlite-vec loadable extension——Windows bundled rusqlite 加载扩展有版本兼容与分发负担,功能语义(向量列在 index.db、brute-force、可重建)与设计 §5 一致。
 
 - 批次: 4/4
+
+- 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
 ## R-165 Memory Compiler:manager 升级为证据编译与生命周期管理 [todo]
 - 优先级: P0
