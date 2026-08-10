@@ -479,6 +479,107 @@ mod tests {
         ready()
     }
 
+    /// 命令片段的连接符(cmd 不认 `;`)。
+    fn joiner() -> &'static str {
+        if crate::shell::detected_shell().name == "cmd" {
+            " & "
+        } else {
+            "; "
+        }
+    }
+
+    /// 命令前奏:起一个孙进程,并把它的 pid 写进临时文件回传。返回 `(片段, 临时文件)`。
+    ///
+    /// D-262 之后凡是断言"进程树真的没了"的测试都要用这个形态,原因有三条:
+    /// ①必须有孙进程——`taskkill /t` 存在的全部理由就是后代,只查根 pid 查不出 `/t` 有没有生效;
+    /// ②前奏必须排在命令**最前面**,孙进程要早于被测事件(停止/越界)就位,否则测试拿不到
+    ///   断言对象,只能退化成"只查根"而看不见真正的孤儿残留;
+    /// ③孙 pid 走临时文件回传而不是 stdout:后台任务的 stdout 由注册表持续抽着,别去抢。
+    ///
+    /// 回传用 `WriteAllText` 而不是 `Set-Content`:后者被 bash 工具的整文件覆写规则拦掉。
+    fn tree_prelude(tag: &str) -> (String, PathBuf) {
+        let marker = std::env::temp_dir().join(format!(
+            "kz-d262-bg-{tag}-{}-{}.txt",
+            std::process::id(),
+            now_ms()
+        ));
+        let marker_str = marker.display().to_string().replace('\\', "/");
+        let prelude = match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => format!(
+                "$c = Start-Process -NoNewWindow -PassThru -FilePath (Get-Process -Id $PID).Path \
+                 -ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 300'; \
+                 [System.IO.File]::WriteAllText('{marker_str}', \"$($c.Id)\")"
+            ),
+            "cmd" => format!(
+                "start /b ping -n 300 127.0.0.1 >nul & echo 0 > \"{marker_str}\""
+            ),
+            _ => format!("sleep 300 & echo $! > '{marker_str}'"),
+        };
+        (prelude, marker)
+    }
+
+    /// 命令尾巴:活得远比测试长。
+    ///
+    /// 会自然退出的命令会让"已终止"断言因为**错误的原因**通过——这正是 D-174 当时
+    /// 拆掉断言的顾虑,所以这里一律 300 秒。
+    fn linger() -> &'static str {
+        match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 300",
+            "cmd" => "ping -n 300 127.0.0.1 >nul",
+            _ => "sleep 300",
+        }
+    }
+
+    /// 读回孙进程 pid;拿不到就返回 None(cmd/POSIX 分支不回传真 pid)。
+    async fn grandchild_pid(marker: &Path) -> Option<u32> {
+        for _ in 0..200 {
+            if let Ok(text) = std::fs::read_to_string(marker) {
+                if let Ok(pid) = text.trim().parse::<u32>() {
+                    let _ = std::fs::remove_file(marker);
+                    return if pid == 0 { None } else { Some(pid) };
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        None
+    }
+
+    /// pwsh/powershell 下孙 pid 必须真的拿到手。
+    ///
+    /// 拿不到就说明测试形态坏了(比如前奏没排在最前面),断言会静默退化成"只查根进程"
+    /// ——那正好是 D-262 里孤儿后代能一直活下去的那个盲区,不能让它悄悄发生。
+    fn require_grandchild(pid: Option<u32>) -> Option<u32> {
+        if matches!(crate::shell::detected_shell().name, "pwsh" | "powershell") {
+            assert!(
+                pid.is_some(),
+                "pwsh 下必须回传孙进程 pid,否则本测试会静默退化成只查根进程"
+            );
+        }
+        pid
+    }
+
+    /// 断言整棵树都不在了(D-262 验收①的口径:问 pid 的活性,不问函数的返回值)。
+    ///
+    /// 终止是异步的,所以这里是"等到没"而不是"看一眼";等不到就如实红。
+    async fn assert_tree_gone(root: u32, grandchild: Option<u32>, whose: &str) {
+        let pids: Vec<u32> = [Some(root), grandchild].into_iter().flatten().collect();
+        let gone = wait_until(
+            || !pids.iter().copied().any(crate::shell::process_alive),
+            15_000,
+        )
+        .await;
+        let alive: Vec<u32> = pids
+            .iter()
+            .copied()
+            .filter(|p| crate::shell::process_alive(*p))
+            .collect();
+        // 残留会占着测试机 300 秒,先收拾再断言。
+        for pid in &alive {
+            crate::shell::kill_tree(*pid).await;
+        }
+        assert!(gone, "{whose}:进程树必须真的消失,残留 pid {alive:?}");
+    }
+
     /// 场景①启动:托管项目里的后台任务必须带 owner、带启动瞬间的基线、并挂上守卫。
     #[tokio::test]
     async fn 场景启动_托管项目后台任务登记owner与基线() {
@@ -549,26 +650,36 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
-    /// 场景③停止:stop 走终止路径并做终态对账,且不凭空造出越界。
+    /// 场景③停止:stop 走终止路径、做终态对账,而且**进程树真的消失**。
     ///
-    /// **这条测试有意不断言"进程真的死了"。** 本轮实测发现 `shell::kill_tree` 在本
-    /// 环境下从来没杀死过任何东西:它恒定耗时 2.008s(正好是自己的超时)后返回,
-    /// 目标进程毫发无损;内层 taskkill 阻塞约 27 秒(直到目标自然结束)才返回
-    /// exit=128。current_thread 与 multi_thread 两种 runtime 都复现。这是 R-097
-    /// 遗留的独立缺陷(同时影响 `process stop` 与 bash 超时击杀),不属于 D-174,
-    /// 已单独报出。等它修好,这里应补回"停止后进程必须退出"的断言。
+    /// D-174 交付时这条测试有意不断言"进程真的死了":当时 `shell::kill_tree` 恒定 2.008 秒
+    /// 后返回而目标毫发无损(已单独登记为 D-262),断言只会长期挂红,而且当时用的是 5 秒
+    /// 短命令——就算断言也会因为"命令自然退出"这个**错误的原因**通过。
+    ///
+    /// D-262 修复后按正确形态补回,三处都换了口径:①命令改成 300 秒长驻,自然退出不可能
+    /// 冒充击杀成功;②带一个孙进程,`taskkill /t` 没生效就会留下残留;③断言问的是 pid 的
+    /// 活性(`process_alive`),不是 `stop` 的返回值——旧实现能让"断言函数返回"的测试满分通过。
     #[tokio::test]
-    async fn 场景停止_走终止路径并做终态对账() {
+    async fn 场景停止_走终止路径并做终态对账_进程树真的消失() {
         let _serial = serial().lock().await;
         let root = temp_managed_project("stop");
-        // 用短命令而不是长驻:kill_tree 目前杀不掉东西,长驻命令只会给测试机留残留。
-        let sleeper = match crate::shell::detected_shell().name {
-            "pwsh" | "powershell" => "Start-Sleep -Seconds 5",
-            "cmd" => "ping -n 5 127.0.0.1 >nul",
-            _ => "sleep 5",
-        };
-        let id = start_background(&root, sleeper, "run-stop").await;
-        assert!(get(&id).unwrap().is_running(), "命令此刻应在运行");
+        let (prelude, marker) = tree_prelude("stop");
+        let command = format!("{prelude}{}{}", joiner(), linger());
+        let id = start_background(&root, &command, "run-stop").await;
+        let process = get(&id).unwrap();
+        assert!(process.is_running(), "命令此刻应在运行");
+        let root_pid = process.pid.expect("后台任务应有 pid");
+        let grandchild = require_grandchild(grandchild_pid(&marker).await);
+        assert!(
+            crate::shell::process_alive(root_pid),
+            "测试前提:根进程此刻应在运行"
+        );
+        if let Some(gc) = grandchild {
+            assert!(
+                crate::shell::process_alive(gc),
+                "测试前提:孙进程此刻应在运行"
+            );
+        }
 
         let ctx = ctx_for(&root, "run-stop");
         let out = crate::process::ProcessTool
@@ -579,6 +690,8 @@ mod tests {
             .await;
         // stop 找到了活着的进程并走了终止 + 终态对账这条路径。
         assert!(out.content.contains("stopped"), "{}", out.content);
+        // D-262 验收③:`stop` 报了 stopped,进程就必须真的没了——影响①正是"名义 stopped、实则还在跑"。
+        assert_tree_gone(root_pid, grandchild, "process stop").await;
         // 终态对账不该凭空造出越界:这个任务没碰过托管树。
         assert!(
             get(&id).unwrap().breaches().is_empty(),
@@ -595,12 +708,25 @@ mod tests {
     /// 场景④越界写入:后台任务在工具早已返回之后写托管文档,
     /// 必须被隔离、回滚、终止进程树,并留下能追到 owner 的归因记录。
     #[tokio::test]
-    async fn 场景越界_后台写托管文档被隔离回滚并归因到owner() {
+    async fn 场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止() {
         let _serial = serial().lock().await;
         let root = temp_managed_project("breach");
         let target = root.join(".kanzei/project/defects.md");
-        let command = delayed_write_command(&target, "BREACH");
+        // D-262 之前这里用的是"写完就自然退出"的命令,所以"越界即终止"根本无法断言
+        // (进程反正会自己走,断言会因为错误的原因通过)。现在的形态是
+        // 「先起孙进程 → 再越界写 → 然后长驻 300 秒」:孙进程必须早于越界事件就位,
+        // 否则守卫在孙进程出生前就把根杀了,测试既拿不到孙 pid,也看不见孤儿残留。
+        let (prelude, marker) = tree_prelude("breach");
+        let command = format!(
+            "{prelude}{j}{}{j}{}",
+            delayed_write_command(&target, "BREACH"),
+            linger(),
+            j = joiner()
+        );
         let id = start_background(&root, &command, "run-breach").await;
+        let breach_root_pid = get(&id).unwrap().pid.expect("后台任务应有 pid");
+        // 趁树还活着把孙 pid 拿到手:守卫杀完之后 marker 就再也不会被写了。
+        let breach_grandchild = require_grandchild(grandchild_pid(&marker).await);
         // 工具已经返回,写入还没发生——这正是 D-174 描述的时序。
         assert_eq!(
             std::fs::read_to_string(&target).unwrap(),
@@ -631,11 +757,10 @@ mod tests {
             "改后的内容必须留证在 {}",
             breach.quarantine
         );
-        // 这里**不**断言"越界进程已被终止":本例的命令写完就自然退出,
-        // 断言 is_running() 会因为自然退出而通过,证明不了 kill 起了作用。
-        // 而 kill_tree 本轮实测确实是坏的(见 场景停止 的注释),所以"越界即终止"
-        // 目前只有实现、没有可信证据。围栏本身不依赖它成立:隔离 + 回滚 + 归因
-        // 与 D-173 前台围栏同口径,已由上面几条断言覆盖。
+        // D-262 补回的断言:越界即终止。命令是 300 秒长驻的,自然退出冒充不了击杀;
+        // 守卫的 reconcile(kill_on_breach=true) 必须把整棵树杀掉,否则后台进程会持续
+        // 重试写入,变成"只回滚不终止"的无限回滚循环(reconcile 的文档注释即此意)。
+        assert_tree_gone(breach_root_pid, breach_grandchild, "越界即终止").await;
 
         // 归因必须能顺着 process 工具读出来,而不是只留在内存里。
         let out = crate::process::ProcessTool

@@ -745,7 +745,85 @@ mod tests {
             .await;
         assert!(out.is_error);
         assert!(out.content.contains("timeout: true"), "{}", out.content);
-        assert!(started.elapsed() < std::time::Duration::from_secs(4));
+        // D-262:超时路径现在要**等到进程树确认消失**才返回(见 shell::kill_tree),
+        // 而本机 taskkill 光启动就是秒级(实测 1.0–4.2 秒,机器一忙更久)。原先 4 秒的
+        // 上限是按"击杀不生效、超时只让调用返回"那套行为定的,不能再当基准。
+        // 上限仍然要有——只是按真实击杀成本重新定档。
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(30),
+            "超时路径耗时 {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// D-262 验收③(bash 超时这条路径):超时不只是让工具调用返回,
+    /// 被超时的**进程树必须真的退出**。
+    ///
+    /// 缺陷影响②原文:"超时只是让工具调用返回,被击杀的进程继续持有文件与端口"。
+    /// 所以断言的对象是 pid 的活性,而不是返回文本里有没有 "timeout: true"——
+    /// 后者在击杀完全失效的旧实现下同样是绿的。
+    ///
+    /// 形态要点:①命令活 300 秒,自然退出冒充不了击杀;②带孙进程,`taskkill /t`
+    /// 不生效就会留残留;③两个 pid 都由命令自己写进临时文件回传,不经 stdout
+    /// (stdout 被 bash 工具自己抽着)。
+    #[tokio::test]
+    async fn timeout_actually_terminates_the_process_tree() {
+        let shell = super::detected_shell();
+        if !matches!(shell.name, "pwsh" | "powershell") {
+            eprintln!("跳过:本测试需要 pwsh/powershell 才能回传孙进程 pid");
+            return;
+        }
+        let root = temp_project("timeout-tree");
+        let marker = root.join("pids.txt");
+        let marker_str = marker.display().to_string().replace('\\', "/");
+        let command = format!(
+            "$c = Start-Process -NoNewWindow -PassThru -FilePath (Get-Process -Id $PID).Path \
+             -ArgumentList '-NoProfile','-NonInteractive','-Command','Start-Sleep -Seconds 300'; \
+             [System.IO.File]::WriteAllText('{marker_str}', \"$PID,$($c.Id)\"); \
+             Start-Sleep -Seconds 300"
+        );
+        let out = BashTool
+            .execute(
+                // 超时要给足:命令得先把孙进程起来并写完 pid,不然测试拿不到断言对象。
+                serde_json::json!({"command": command, "timeout_ms": 8000}),
+                &ToolCtx {
+                    cwd: root.clone(),
+                    project_root: root.clone(),
+                    ..Default::default()
+                },
+            )
+            .await;
+        assert!(out.content.contains("timeout: true"), "{}", out.content);
+
+        let text = std::fs::read_to_string(&marker).expect("命令应已回传 pid");
+        let pids: Vec<u32> = text
+            .trim()
+            .split(',')
+            .map(|p| p.trim().parse::<u32>().expect("pid"))
+            .collect();
+        assert_eq!(pids.len(), 2, "应回传 shell 与孙进程两个 pid: {text}");
+
+        // 终止是异步的,所以"等到没"而不是"看一眼";等不到就如实红。
+        let mut alive: Vec<u32> = Vec::new();
+        for _ in 0..100 {
+            alive = pids
+                .iter()
+                .copied()
+                .filter(|p| crate::shell::process_alive(*p))
+                .collect();
+            if alive.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        for pid in &alive {
+            crate::shell::kill_tree(*pid).await;
+        }
+        std::fs::remove_dir_all(&root).ok();
+        assert!(
+            alive.is_empty(),
+            "D-262 验收③:bash 超时后进程树必须真的退出,残留 pid {alive:?}"
+        );
     }
 
     #[test]
