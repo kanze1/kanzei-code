@@ -662,6 +662,7 @@ const payloads = {
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
+  test_runs_init_refs: { backfilled: 0 },
   process_list: [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
@@ -1047,6 +1048,12 @@ assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
 // R-130:测试→条目映射——关联的 R-/D- 条目号渲染成可点击跳转的徽标。
 {
+  // R-130 验收③:批量初始化必须有真实调用方——refreshTests 每次刷新前先跑
+  // test_runs_init_refs(幂等回填旧记录关联字段),再取快照渲染。
+  const initCalls = invokeLog.filter((cmd) => cmd === "test_runs_init_refs");
+  assert(initCalls.length >= 1, `测试列表刷新未调用批量初始化:init 调用次数 ${initCalls.length}`);
+  const initArgs = invokeArgs.find(({ cmd }) => cmd === "test_runs_init_refs");
+  assert(initArgs && initArgs.args?.projectDir, "test_runs_init_refs 未带 projectDir 参数");
   const testEntry = document.querySelector("#test-list .test-entry");
   assert(testEntry, "前置失败:测试记录条目未渲染");
   const chips = testEntry.querySelectorAll(".test-ref-chip");

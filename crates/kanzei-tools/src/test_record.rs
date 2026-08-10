@@ -489,6 +489,10 @@ pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
         }
         blocks.join("\n## ")
     };
+    if updated == text {
+        // 幂等:没有任何需要回填的记录时不动文件,避免每次打开测试页都触发一次写盘。
+        return Ok(json!({ "backfilled": 0 }));
+    }
     std::fs::write(&path, updated).map_err(|e| e.to_string())?;
     Ok(json!({ "backfilled": backfilled }))
 }

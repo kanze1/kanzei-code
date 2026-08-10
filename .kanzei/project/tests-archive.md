@@ -1414,3 +1414,9 @@
 - 摘要: workspace 全量全绿;auto_run 13/13(含新增「阻塞解除后_恢复续跑」)
 - 关联: R-128
 - 收尾: 1786369001
+
+## T-1786369234 R-130 B2 批量初始化调用链定向+冒烟 [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app + ui-runtime-smoke
+- 摘要: B2 挂接批量初始化调用链:test_runs_init_refs 接入写仲裁+幂等不写盘,refreshTests 每次刷新前调用;tools 187/187、app 51/51、冒烟 0 错
+- 关联: R-130
+- 收尾: 1786369234

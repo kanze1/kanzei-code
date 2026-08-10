@@ -97,9 +97,24 @@ pub async fn test_run_record(
 }
 
 /// R-130:批量初始化测试→条目映射。扫描 tests.md 旧记录,从标题回填「关联」字段。
+/// 与 test_run_record 同为 tests.md 写入口,接入项目级写仲裁(R-171 批4 模式),
+/// 不能绕过协调器直接写文件(D-227 并发覆盖的机械门禁)。
 #[tauri::command]
-pub fn test_runs_init_refs(project_dir: String) -> Result<serde_json::Value, String> {
+pub async fn test_runs_init_refs(
+    state: tauri::State<'_, crate::AppState>,
+    project_dir: String,
+) -> Result<serde_json::Value, String> {
     let root = normalized_project_root(Path::new(&project_dir));
+    let _lease = state
+        .coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            project_root: root.clone(),
+            run_id: format!("test_init_refs_{}", crate::run::now_ms()),
+            process_id: "test_record".into(),
+            reason: "test refs backfill".into(),
+        })
+        .await
+        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
     kanzei_tools::test_record::initialize_refs(&root)
 }
 

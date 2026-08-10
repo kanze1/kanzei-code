@@ -573,6 +573,10 @@ async function refreshTests() {
     return;
   }
   try {
+    // R-130 验收③:批量导入/初始化有真实消费者——每次刷新前把旧记录里标题含
+    // R-/D- 条目号的补写「关联」字段(幂等:已结构化的不动,无变化不写盘),
+    // 再取快照渲染。旧记录因此也能在列表里带出可跳转的关联徽标。
+    await invoke("test_runs_init_refs", { projectDir: currentProject });
     renderTestRuns(await invoke("test_runs_snapshot", { projectDir: currentProject }));
   } catch (error) {
     log(`测试记录刷新失败:${error}`, "warn");
