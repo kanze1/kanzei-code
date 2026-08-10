@@ -538,7 +538,10 @@ mod windows_kill_tree_tests {
         // 这条测试对机器负载敏感(taskkill 启动本身就是秒级),留一行实测耗时便于将来定位。
         eprintln!("kill_tree 实测耗时 {elapsed:?}(confirmed={confirmed})");
         assert!(confirmed, "kill_tree 应确认目标已终止");
-        assert!(!root_alive, "D-262 验收①:根进程必须真的消失,而不是函数返回就算完");
+        assert!(
+            !root_alive,
+            "D-262 验收①:根进程必须真的消失,而不是函数返回就算完"
+        );
         assert!(
             !grandchild_alive,
             "D-262 验收①:孙进程必须一起消失——/t 不生效的话这里就是残留"
@@ -572,7 +575,10 @@ mod windows_kill_tree_tests {
         let elapsed = started.elapsed();
         assert!(confirmed, "目标已经不在了,kill_tree 应直接确认成功");
         // 短路生效才可能这么快:本机 taskkill 光启动就要 1.0–4.2 秒(见 kill_tree 文档)。
-        assert!(elapsed < Duration::from_millis(500), "应短路,不该真去起 taskkill:{elapsed:?}");
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "应短路,不该真去起 taskkill:{elapsed:?}"
+        );
         drop(child);
     }
 }

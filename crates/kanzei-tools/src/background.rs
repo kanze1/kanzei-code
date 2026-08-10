@@ -675,7 +675,10 @@ mod tests {
             "测试前提:根进程此刻应在运行"
         );
         if let Some(gc) = grandchild {
-            assert!(crate::shell::process_alive(gc), "测试前提:孙进程此刻应在运行");
+            assert!(
+                crate::shell::process_alive(gc),
+                "测试前提:孙进程此刻应在运行"
+            );
         }
 
         let ctx = ctx_for(&root, "run-stop");
