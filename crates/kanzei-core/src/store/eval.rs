@@ -304,6 +304,34 @@ impl SessionStore {
             .sum();
         Ok(Some((sum_abs / n as f64, n)))
     }
+
+    /// deprecate 候选筛选(R-166 内容⑥,验收④):只有 low value + high confidence
+    /// 才进候选,age 不作为独立淘汰判据。
+    ///
+    /// - low value:effect_mean ≤ 0(拿掉该记忆决策质量不下降甚至提升)。
+    /// - high confidence:eval_n ≥ 3 且 effect_ci ≤ 0.34(95% CI 上界在 0 附近,
+    ///   n=3 时 t≈2.9 的临界半宽 0.34 是「CI 不越过正区」的最小可用宽度)。
+    ///
+    /// 返回候选 memory_id 列表。候选只是「建议」——真正的 deprecated 由
+    /// manager 按 reason 落 memory_stale,本函数不写状态(引擎只筛不判,
+    /// 淘汰是人的复核动作)。
+    pub fn deprecate_candidates(
+        &self,
+        min_eval_n: usize,
+        max_ci: f64,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT memory_id FROM memory_eval_agg
+             WHERE effect_mean <= 0
+               AND eval_n >= ?1
+               AND effect_ci <= ?2
+             ORDER BY effect_mean ASC",
+        )?;
+        let rows = statement
+            .query_map(params![min_eval_n as i64, max_ci], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
 }
 
 #[cfg(test)]
@@ -525,5 +553,58 @@ mod eval_tests {
         assert_eq!(n2, 5);
         // 无配对数据 → None(退化为保守闸)。
         assert!(store.merge_conservation_delta("M-nobody", "m", "v1").unwrap().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // 批5(R-166 内容⑥,验收④):deprecate 候选 = low value + high confidence。
+    // -----------------------------------------------------------------------
+
+    /// 批5:只有 effect_mean≤0 且 eval_n/CI 达标才进候选;高价值、样本不足、
+    /// CI 过宽都不进。age(created 新旧)不参与判定。
+    #[test]
+    fn deprecate_candidates_require_low_value_and_high_confidence() {
+        let store = store();
+        // low value + high confidence:mean=-1, n=4, ci=0 → 进候选。
+        store
+            .upsert_memory_effect(&EffectEstimate {
+                memory_id: "M-low".into(),
+                effect_mean: -1.0,
+                effect_ci: 0.0,
+                eval_n: 4,
+                last_eval: 1,
+            })
+            .unwrap();
+        // 高价值(mean>0)→ 不进。
+        store
+            .upsert_memory_effect(&EffectEstimate {
+                memory_id: "M-high".into(),
+                effect_mean: 1.0,
+                effect_ci: 0.0,
+                eval_n: 4,
+                last_eval: 1,
+            })
+            .unwrap();
+        // 样本不足(n=1)→ 不进。
+        store
+            .upsert_memory_effect(&EffectEstimate {
+                memory_id: "M-weak".into(),
+                effect_mean: -1.0,
+                effect_ci: 0.0,
+                eval_n: 1,
+                last_eval: 1,
+            })
+            .unwrap();
+        // CI 过宽(不 confidence)→ 不进。
+        store
+            .upsert_memory_effect(&EffectEstimate {
+                memory_id: "M-wide".into(),
+                effect_mean: -1.0,
+                effect_ci: 0.8,
+                eval_n: 4,
+                last_eval: 1,
+            })
+            .unwrap();
+        let candidates = store.deprecate_candidates(3, 0.34).unwrap();
+        assert_eq!(candidates, vec!["M-low".to_string()], "只有 low+high confidence 进候选");
     }
 }

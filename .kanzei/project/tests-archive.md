@@ -1318,3 +1318,8 @@
 - 命令: cargo test -p kanzei-tools -p kanzei-core
 - 摘要: tools 183 + core 96 全绿。批4: merge 守恒 D(S→m')<ε 把关。
 - 收尾: 1786350133
+
+## T-1786350214 cargo test -p kanzei-tools -p kanzei-core (R-166 B5 deprecate 候选) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-core
+- 摘要: tools 183 + core 97 全绿。批5: deprecate 候选(low value + high confidence)与时间衰减审计。
+- 收尾: 1786350214

@@ -302,6 +302,27 @@ impl Tool for MemoryStatsTool {
                     flagged += 1;
                 }
             }
+            // R-166 批5(内容⑥,验收④):deprecate 候选——F(m) 评估的
+            // low value(effect_mean≤0)+ high confidence(样本足且 CI 窄)才报;
+            // age 不参与。只报不删,真正的 deprecated 由 manager 按 reason 落。
+            if store.scope.label() == "project" {
+                if let Some(db) = kanzei_core::SessionStore::open(&store.root.join("..").join("state.db")).ok()
+                {
+                    if let Ok(candidates) = db.deprecate_candidates(3, 0.34) {
+                        for id in candidates.iter().take(3) {
+                            if let Some((_, e)) = entries
+                                .iter()
+                                .find(|(_, e)| &e.id == id && e.status == "active")
+                            {
+                                out.push_str(&format!(
+                                    "\n  ⚠ 反事实候选 {}《{}》F(m)≤0(拿掉不损失)+ 置信达标 — 可 memory_stale 归档",
+                                    e.id, e.title
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
             out.push('\n');
         }
         if out.is_empty() {

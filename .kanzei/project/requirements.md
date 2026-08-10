@@ -64,9 +64,9 @@
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
 - refs: R-149 R-150 docs/design/memory_control_plane.md
 
-- 进展: 批4完成:merge 守恒 D(S→m')<ε——core eval.rs merge_conservation_delta(current vs merged 臂同 case 配对差均值,空版本=通配),memory_merge 工具接入:有评估数据时 D≥0.5 拒绝并给依据,无数据退化既有保守闸。2 条测试(core 失真度量 + tools 守恒拒绝落盘)。tools 182→183、core 95→96 全绿。剩批5 deprecate 候选+时间衰减审计+关闭。
+- 进展: 批5完成:deprecate 候选——core eval.rs deprecate_candidates(effect_mean≤0 + eval_n≥3 + CI≤0.34),memory_stats 项目 scope 报反事实候选(只报不删,真删走 memory_stale)。验收④时间衰减审计:全仓 grep memory 模块无 age/时间衰减淘汰路径,updated 仅记录。tools 183、core 96→97 全绿。剩关闭:全量测试+验收逐条对照。
 
-- 批次: 4/5
+- 批次: 5/5
 
 - 状态: doing
 
