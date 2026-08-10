@@ -1121,3 +1121,8 @@
 - 命令: cargo test -p kanzei-app
 - 摘要: R-112 批2 quick capture 自动建议分类:subagents.rs 提取 QUICK_CAPTURE_TAGS/QUICK_REQ_DEFECT_SYSTEM/QUICK_REQ_REQUIREMENT_SYSTEM 常量,两条 system 提示引导子代理从受控词表选「标签」;新增单测断言提示含标签建议+词表与引擎 DocKind.tags 一致。kanzei-app 46 passed。
 - 收尾: 1786320961
+
+## T-1786321078 cargo test --workspace (R-112 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-112 关闭前全量:46+71+51+39+134+7+3+2+1 全绿(kanzei-app 46 含批2 新测试、kanzei-tools 134 含批1 两个新测试)。
+- 收尾: 1786321078
