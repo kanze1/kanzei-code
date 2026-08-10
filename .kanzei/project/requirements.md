@@ -128,7 +128,7 @@
 
 - 标签: 前端
 
-## R-137 Anthropic thinking 块协议回放:signature 原样回传,多轮工具不再 400 [todo]
+## R-137 Anthropic thinking 块协议回放:signature 原样回传,多轮工具不再 400 [done]
 - 背景: direction_taste 复刻清单·高:CC 按协议要求回放 thinking 块;kanzei 现状 anthropic.rs:97 Part::Reasoning => None 丢弃全部 Reasoning,thinking+工具第二轮必 400(R-094 只做了请求侧思考强度,未做响应侧回放)。
 - 设计定位: 复刻 CC 基线行为:thinking 块按协议要求回放
 - 证据等级: E2
@@ -138,6 +138,9 @@
 - 优先级: P0
 
 - 标签: 模型
+
+- 复杂度: 中
+- 进展: 2026-08-10 交付(8a63c78):anthropic.rs message_to_value 对 Part::Reasoning 的协议回放——有 signature → 按 Anthropic 协议输出 {"type":"thinking","thinking":text,"signature":sig} 原样回传(验收①);无 signature → 降级为可见 assistant 文本块(验收③,R-094 结论);空 reasoning 整体跳过。signature 由响应侧 signature_delta→ReasoningEnd 收集、runner drive.rs 已存入 Part::Reasoning(既有,R-137 前已就位),本次只补回放缺口。新增两个契约测试(thinking_replay_roundtrips_signature_and_tool_sequence / reasoning_without_signature_falls_back_to_visible_text),覆盖验收④;测试断言 thinking+tool_use+text 块序不被打乱(验收②的请求体侧保证)。定向:kanzei-llm 42/42、core 103/103、下游 check 全绿。
 
 ## R-138 docstore 原子写与跨进程文件锁:tmp+rename + 独占句柄,并发写不丢不撞 [todo]
 - 背景: direction_taste §5.2 地基债:docstore 整文件重写无原子替换与跨进程锁,D-064 类 lost-update 真实存在;deep_parallel_dev §3.3 P4 也要求 docstore 进程级文件锁收口主根 .kanzei 的最后一个共享写点。

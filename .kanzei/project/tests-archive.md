@@ -1438,3 +1438,9 @@
 - 摘要: anthropic 通道 thinking 回放:signature 原样回传(thinking 块),无 signature 降级可见文本;llm 42/42(新增 2 契约测试),core 103/103,下游 check 全绿
 - 关联: R-137
 - 收尾: 1786369626
+
+## T-1786369689 cargo test --workspace (R-137 关闭门禁) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-137 关闭前全量:全部 crate 测试全绿
+- 关联: R-137
+- 收尾: 1786369689
