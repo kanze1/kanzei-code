@@ -2556,3 +2556,27 @@
 - 验收: 二选一,不留中间态。**优先①**——①按钮真能刷新:点击 `#worktrees-refresh` 后 refreshWorktrees 被调用且工作树清单重渲染,scripts/ui-runtime-smoke.mjs 有对应冒烟断言(断言点击后触发 worktree 相关 invoke);或②按钮与 09-sessions.js 的 no-op 残留一起清理干净(index.html 不再有该按钮、JS 不再有那条逗号表达式)。选②等于删掉用户可见的界面能力,属缩小范围,需先经用户同意。
 - 进展: **已按验收①交付并关闭**(`c3398b5`,经 `eb50db6` 并入 dev)。2026-08-11 任务级并行实测的线 B 产出,改动面只含 `crates/kanzei-app/ui/09-sessions.js`(恢复被吃掉的 `$("worktrees-refresh").addEventListener` 前缀)与 `scripts/ui-runtime-smoke.mjs`(点击后断言真打出 `worktree_diff` 且 `projectDir` 正确、清单按新数据重渲染,另加一条"按钮从 index.html 消失即判红"的前置断言防止将来滑向验收②)。**反证独立复核过**:把文件改回破损形态后 `node --check` **仍然通过**(正是依据③说的那类漏网),而冒烟精确判红两处;还原后转绿。合并后全量门禁复跑:fmt 干净、前端冒烟通过、`cargo test -p kanzei-tools` 217 全过。
 
+## D-262 shell::kill_tree 从未真正击杀进程树:2 秒 timeout 叠加 kill_on_drop 反而先杀死 taskkill 自己 [fixed] (medium)
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 证据等级: E1(实测可复现 + 代码形态自证)
+- refs: D-174 R-097 R-139
+- 复现: 2026-08-10 交付 D-174 写「停止后台任务」测试时暴露,三条实测证据:
+  ①`kill_tree(pid)` 恒定耗时 **2.008 秒**(正好是它自己的超时)后返回,目标进程 `alive_after=true`;
+  ②把超时去掉单独跑,内层 `taskkill` 阻塞约 **27 秒**(直到目标进程自然结束)才返回 `exit=128`;
+  ③`current_thread` 与 `multi_thread` 两种 tokio runtime 都复现;换 `std::process` + `spawn_blocking`、去掉 `hide_console_async` 均不解决。
+- 根因(代码形态自证,`crates/kanzei-tools/src/shell.rs` 的 `kill_tree`): `command.kill_on_drop(true)` 与 `tokio::time::timeout(2s, command.output())` 叠在一起——**超时丢弃 future 的那一刻,`kill_on_drop` 把 taskkill 进程本身杀了**。于是每次调用的实际行为是「启动 taskkill → 两秒后杀掉 taskkill → 返回」,目标进程树毫发无伤。返回值还被 `let _ =` 吞掉,失败完全不可见。
+  次因待查:证据②说明 taskkill 在本机确实需要远超 2 秒才返回(疑似 `output()` 等待管道关闭,而管道被目标进程树里的某个成员继承着——典型的「grandchild 继承 stdout 导致 output() 挂住」形态)。若属实,则超时值调大也治不好,应改为不捕获输出(`status()` 而非 `output()`)或显式给 taskkill 的 stdio 设 `null`。修复前必须先证实这一条,不要只把 2 秒改成 30 秒。
+- 影响(超出 D-174 的范围): ①`process stop` 名义返回 stopped、实则进程还在跑,用户以为停了;②`bash` 工具的超时击杀同样失效,超时只是让工具调用返回,被击杀的进程继续持有文件与端口;③D-174 的后台越界处置里「回滚后 kill 进程树」这一加固项目前无效——该条已在 D-174 交付时如实标注,其验收②靠的是隔离+回滚+归因这条与 D-173 前台围栏同口径的路径,不依赖 kill。
+- 边界: `shell.rs` 在 D-174 交付时未被修改(尝试性修复未解决问题,已 `git checkout` 还原干净),本条是独立缺陷。
+- 验收: ①`kill_tree` 调用后目标进程树**真的消失**(实测断言 `alive_after == false`,不是断言函数返回);②taskkill 失败/超时不再被静默吞掉,至少有 `tracing::warn!` 级别的可见信号(D-004 口径);③`process stop` 与 `bash` 超时两条路径各有一条断言进程真的退出的回归测试——注意 D-174 交付时**刻意拆掉了两条会因为错误的原因而通过的断言**,本条修复后要把它们按正确形态补回去;④非 Windows 分支保持可编译。
+- **本条「根因」的次因猜测已被实测证伪(修复时必读)**: 原文要求「修复前必须先证实 taskkill 因 `output()` 等管道关闭而挂住」。2026-08-11 交付时按要求做了独立复现程序(std only,每档测「victim 何时死」而非「函数何时返回」,单独拍孙进程 pid),**结论是这条猜测不成立**:读管道 / 不读管道 / `status()`+`stdio(null)` 三档耗时 **1097–1139 ms,毫无差别**;拆开测量时 taskkill 进程退出与 stdout EOF 落在**同一毫秒**(1172/1172)。机制上也讲不通——taskkill 的管道是它自己 spawn 时才建的,晚于目标树,目标树继承不到。**照原文方向改(换 `status()` 或 stdio 设 null)根本治不好本缺陷。**
+  真因是 `taskkill.exe` 的**启动延迟**:对一个不存在的 pid 连打三次是 2907 / 4230 / 1071 ms,原来那条 2 秒的线本就压在延迟分布中间;负载下实测到一次 `kill_tree` 耗时 20.04 秒,其中 15 秒是 taskkill 超出等待上限、最后由 `TerminateProcess` 收尾。原文「证据②约 27 秒 + exit=128」由此得到解释:不是管道挂住,是负载下的进程创建延迟——等 taskkill 终于跑起来时,5 秒的目标已自然退出,所以报「找不到进程」。
+  这条测量还改变了修法,是本条最值钱的一句:**需要击杀进程的时刻,往往正是机器忙得起不动新进程的时刻**。所以「靠 spawn 一个新进程去杀进程」结构上就是错的。
+- 进展: **已交付并关闭**(`29e5b42`/`25c251d`,经 `merge par/d-262` 并入 dev)。2026-08-11 任务级并行实测的线 A 产出,中途被误判为已死、由人替它提交过一个 WIP(见 D-263 同族教训),它自己续跑至完成。
+  实现:主手段改为 `CreateToolhelp32Snapshot` 拍进程树名单 + 逐个 `TerminateProcess`,taskkill 降级为兜底;新增 `process_alive`(`OpenProcess`+`GetExitCodeProcess`,可对任意 pid 提问,不像 `Child::try_wait` 只能问直接子进程)与击杀**前**的进程树快照(击杀后父子关系随进程消失,再也问不出树的形状)。`kill_tree` 从 **2.008 秒(什么也没杀)** 变成 **10–12 毫秒(真杀干净)**。
+  顺带修掉交付过程中自己引入的一个坑:根 pid 已死不能短路返回成功——bash 超时路径上 shell 的 `kill_on_drop` 会先杀根,短路会把孙进程永久留下(正是本条影响②);快照能认出孤儿(Windows 保留创建者 pid),所以这条走得通。
+  验收:**①**断言 `process_alive` 对根**和孙进程**都为 false,关键反证是**把旧实现的等价体连打 5 次,5/5 恒定 2.01 秒返回且整棵树全都活着**,与原文证据①逐字吻合——证明这些测试真能抓到 D-262,不是因为错误的原因通过;**②**每条失败路径都有 `tracing::warn!`(启动失败/非零退出/超出等待/残留清单),返回值改 `bool`,调用点无需改动;**③**三条路径各有测试,`background.rs` 与 `bash.rs` **补回了 D-174 刻意拆掉的那两条断言**,命令换成 300 秒长驻 + 带孙进程(自然退出冒充不了击杀),并把孙进程排到越界写之前(否则测试会静默退化成只查根);**④**用 cfg 翻转在本机实编译了非 Windows 分支(`--all-targets` 无错),但 Linux target 的 std 未装,**未做真交叉编译**——如实标注。
+  合并后全量门禁:fmt 干净、clippy `-D warnings` 干净、`cargo test --workspace` 16 个测试目标全绿。
+
