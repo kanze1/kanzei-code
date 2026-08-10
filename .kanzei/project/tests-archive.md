@@ -1408,3 +1408,9 @@
 - 命令: cargo test -p kanzei-tools test_record; cargo test -p kanzei-app; node --check + 四条 ui 冒烟
 - 摘要: R-130 B1:test_record 结构化 refs 字段(写入/解析/反查 records_for_entry/回填 initialize_refs)+ app test_run_record 加 refs 参数 + test_runs_init_refs 命令 + 前端关联徽标跳转。tools 13 测全绿、app 51 测全绿、四条冒烟全绿。
 - 收尾: 1786365346
+
+## T-1786368929 cargo test --workspace (R-128 关闭门禁) [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量全绿;auto_run 13/13(含新增「阻塞解除后_恢复续跑」)
+- 关联: R-128
+- 收尾: 1786369001
