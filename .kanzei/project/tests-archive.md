@@ -1398,3 +1398,8 @@
 - 命令: node --check + 四条 ui 冒烟(ui-runtime/ui-i18n/ui-a11y/ui-markdown)
 - 摘要: R-129 B1:13-memory.js 正文分段阅读(摘要行+段落折叠+编辑切换)改动后 node --check 全过、四条冒烟全绿(runtime 含新增 R-129 断言块:摘要/3 段拆分/折叠展开/编辑回填/保存载荷)。style.css frontend_check 结构完整。
 - 收尾: 1786364954
+
+## T-1786365006 R-129 关闭前全量测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-129 关闭前全量:cargo test --workspace 全绿(core 103 / harness 65 / tools 183 / app 51 / kz 等),纯前端改动无 Rust 回归
+- 收尾: 1786365006
