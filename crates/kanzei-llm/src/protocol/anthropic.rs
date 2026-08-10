@@ -578,7 +578,9 @@ mod tests {
                     name: "read".into(),
                     input: serde_json::json!({"path": "a.rs"}),
                 },
-                Part::Text { text: "下一步".into() },
+                Part::Text {
+                    text: "下一步".into(),
+                },
             ])],
             tools: vec![],
             max_tokens: 1024,
@@ -612,7 +614,9 @@ mod tests {
                     text: "思考过程".into(),
                     signature: None,
                 },
-                Part::Text { text: "结论".into() },
+                Part::Text {
+                    text: "结论".into(),
+                },
             ])],
             tools: vec![],
             max_tokens: 1024,
