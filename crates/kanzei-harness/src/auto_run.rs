@@ -378,6 +378,28 @@ mod tests {
     }
 
     #[test]
+    fn 阻塞解除后_恢复续跑() {
+        // R-128 验收后半段:全阻塞停止后,阻塞字段清空、backlog 回到 Workable,
+        // 下一轮判定应恢复正常续跑(停止仅由当时的 backlog 状态触发,不持久锁死)。
+        let mut state = AutoRunState::new(10);
+        let ok = AutoRunCtx {
+            steps: 2,
+            tools: &mk_tools(&["edit"]),
+            ..ctx_with_tools(&[])
+        };
+        let mut blocked_ctx = ok.clone();
+        blocked_ctx.backlog = BacklogStatus::AllBlocked;
+        assert_eq!(
+            state.decide(&blocked_ctx),
+            AutoRunAction::Stop(AutoStopReason::AllBlocked)
+        );
+        assert_eq!(state.rounds, 0);
+        // 阻塞解除:同一状态机,backlog 回到 Workable → 正常续跑并计数。
+        assert_eq!(state.decide(&ok), AutoRunAction::Continue);
+        assert_eq!(state.rounds, 1);
+    }
+
+    #[test]
     fn backlog查询失败_按可推进处理不误停() {
         let mut state = AutoRunState::new(10);
         let t = mk_tools(&["edit"]);
