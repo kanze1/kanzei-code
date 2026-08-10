@@ -92,11 +92,8 @@ pub(crate) async fn run_task(
     // 界面模型下拉直选优先于 agent 定义(R-178 P2 五层链 ①②③:本轮直选 → 线持久
     // 选择 → agent 默认;④⑤ 由 config.resolve_model 承担)。桌面与 CLI 共用
     // kanzei_harness::config::resolve_model_chain,同一真源。
-    let model_ref = kanzei_harness::config::resolve_model_chain(
-        model_override.as_deref(),
-        None,
-        &agent.model,
-    );
+    let model_ref =
+        kanzei_harness::config::resolve_model_chain(model_override.as_deref(), None, &agent.model);
     let resolved = config.resolve_model(&model_ref)?;
     let proxy = resolve_proxy(&config);
     stage(

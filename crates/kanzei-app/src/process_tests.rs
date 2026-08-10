@@ -5,8 +5,8 @@ use super::{
     PendingAsk, SessionRuntime,
 };
 // R-153 批4:default_process_id 已迁到 state 模块。
-use crate::state::{default_process_id, ensure_default_process, process_info};
 use crate::processes::{persist_process, restore_processes_from_store};
+use crate::state::{default_process_id, ensure_default_process, process_info};
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -240,7 +240,10 @@ fn process_persist_then_restart_restores_line_state() {
     restore_processes_from_store(&restarted2, &canonical).unwrap();
     let processes2 = restarted2.processes.lock().unwrap();
     assert!(processes2.get(&line.id).is_some(), "线页签必须恢复");
-    assert!(processes2.get(&default.id).is_some(), "默认进程存在性由 ensure 保证");
+    assert!(
+        processes2.get(&default.id).is_some(),
+        "默认进程存在性由 ensure 保证"
+    );
     drop(processes2);
     // 默认进程本身的字段也持久化:更新后重启可见。
     *default.model.lock().unwrap() = Some("anthropic:claude-sonnet-5".into());

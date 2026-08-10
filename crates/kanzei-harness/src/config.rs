@@ -966,7 +966,10 @@ mod tests {
         // ①② 都缺省 → ③ agent 默认。
         assert_eq!(resolve_model_chain(None, None, "primary"), "primary");
         // 空串视为未设,照样回落。
-        assert_eq!(resolve_model_chain(Some("   "), Some("a:b"), "primary"), "a:b");
+        assert_eq!(
+            resolve_model_chain(Some("   "), Some("a:b"), "primary"),
+            "a:b"
+        );
         assert_eq!(
             resolve_model_chain(None, Some("  "), "fast"),
             "fast",

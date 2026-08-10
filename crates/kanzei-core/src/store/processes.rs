@@ -176,10 +176,22 @@ mod tests {
         let mut off = sample();
         off.phase_pipeline = false;
         store.upsert_process(&off).unwrap();
-        assert!(!store.get_process("p1|C:/project").unwrap().unwrap().phase_pipeline);
+        assert!(
+            !store
+                .get_process("p1|C:/project")
+                .unwrap()
+                .unwrap()
+                .phase_pipeline
+        );
         let mut on = sample();
         on.phase_pipeline = true;
         store.upsert_process(&on).unwrap();
-        assert!(store.get_process("p1|C:/project").unwrap().unwrap().phase_pipeline);
+        assert!(
+            store
+                .get_process("p1|C:/project")
+                .unwrap()
+                .unwrap()
+                .phase_pipeline
+        );
     }
 }
