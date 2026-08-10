@@ -172,41 +172,70 @@ pub(crate) async fn run_task(
     // R-173 批5:writer 事件经 OrchestrationEvent 的**单一出口**落 session_events。
     // 这里原本是三处手写字符串 + 手拼 payload,与枚举没有类型联系——改名或加字段时
     // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
-    let orchestration_trace =
-        crate::orchestration_trace::SessionEventObserver::open(&state_path, &session_id)?;
+    let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
+        &state_path,
+        &session_id,
+    )?);
     let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
         use kanzei_harness::orchestration::PhaseObserver;
         orchestration_trace.observe(&event);
     };
-    writer_event(
-        kanzei_harness::orchestration::OrchestrationEvent::WriterQueued {
-            project_root: ctx.project_root.clone(),
-            run_id: run_id.clone(),
-            process_id: process_id.clone(),
-            reason: format!("session {session_id} writer run"),
-        },
-    );
-    let write_lease = coordinator
-        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            project_root: ctx.project_root.clone(),
-            run_id: run_id.clone(),
-            process_id: process_id.clone(),
-            reason: format!("session {session_id} writer run"),
-        })
-        .await
-        .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
-    writer_event(
-        kanzei_harness::orchestration::OrchestrationEvent::WriterAcquired {
-            project_root: ctx.project_root.clone(),
-            run_id: run_id.clone(),
-            process_id: process_id.clone(),
-        },
-    );
-    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
-    // 由协调器快照可见,租约不泄漏。
-    let _write_lease = WriterLeaseTrace {
-        _lease: write_lease,
+    // R-173 批6:阶段流水线**只在自主推进轮**装配。手动一问一答走 else 分支,
+    // 与引入前逐字节相同——「不构造编排对象就是关」,没有第二个开关可以配错。
+    let phase_pipeline_on = auto_runs
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .is_some_and(|ctrl| ctrl.enabled);
+    let mut pipeline = if phase_pipeline_on {
+        Some(crate::phase_pipeline::PhasePipeline::start(
+            Arc::clone(&coordinator) as Arc<dyn ProjectExecutionCoordinator>,
+            Arc::clone(&orchestration_trace)
+                as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
+            ctx.project_root.clone(),
+            &run_id,
+            &process_id,
+            &config.limits,
+        ))
+    } else {
+        None
     };
+    // 写租约的取得时机是两条路的**唯一实质差异**:
+    // - 流水线开:**推迟到汇总屏障之后**由编排对象取(不变量 2——勘察全终态前
+    //   writer 不得启动)。此处不取。
+    // - 流水线关:与 R-171 完全一致,当场取、持有整轮。
+    let plain_lease = if pipeline.is_some() {
+        None
+    } else {
+        writer_event(
+            kanzei_harness::orchestration::OrchestrationEvent::WriterQueued {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.clone(),
+                process_id: process_id.clone(),
+                reason: format!("session {session_id} writer run"),
+            },
+        );
+        let lease = coordinator
+            .acquire_writer_lease(crate::phase_pipeline::plain_writer_request(
+                &ctx.project_root,
+                &run_id,
+                &process_id,
+                &session_id,
+            ))
+            .await
+            .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
+        writer_event(
+            kanzei_harness::orchestration::OrchestrationEvent::WriterAcquired {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.clone(),
+                process_id: process_id.clone(),
+            },
+        );
+        Some(lease)
+    };
+    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
+    // 由协调器快照可见,租约不泄漏。流水线路径的租约由编排对象持有。
+    let _write_lease = plain_lease.map(|lease| WriterLeaseTrace { _lease: lease });
     // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
     // task 禁用(设计不变量 3/5)。
     //
@@ -539,10 +568,46 @@ pub(crate) async fn run_task(
     }
 
     // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
-    let run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
+    let mut run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
         Some(hints) => format!("{hints}\n\n{prompt}"),
         None => prompt.clone(),
     };
+    // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
+    // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,
+    // 而 synthesis 的唯一入边是 `scout` 里的汇总屏障(不变量 2)。
+    if let Some(pipeline) = pipeline.as_mut() {
+        match subagent_rt.as_ref() {
+            Some(template) => {
+                stage(
+                    "勘察",
+                    format!(
+                        "并行只读勘察中(最多 {} 个角色)…",
+                        config.limits.max_tasks_per_turn()
+                    ),
+                );
+                match pipeline.scout(&client, template, &ctx, &prompt).await {
+                    Ok(brief) => {
+                        stage("屏障", "勘察全部进入终态,开始申请写租约".into());
+                        run_prompt = format!("{brief}\n\n{run_prompt}");
+                    }
+                    Err(error) => {
+                        // 勘察失败不该让这一轮跑不成:按无勘察继续,但**不静默**——
+                        // 阶段面板上有这一行,轨迹里有 barrier 事件可查。
+                        stage("勘察", format!("勘察阶段失败,本轮无勘察简报:{error}"));
+                    }
+                }
+            }
+            None => {
+                // 子代理关闭时没有勘察能力:空屏障照样走一遍,轨迹里留下
+                // agent_count=0 的 barrier,而不是让阶段序列缺一截。
+                let _ = pipeline.scout_skipped().await;
+            }
+        }
+        pipeline
+            .begin_implementation()
+            .await
+            .map_err(|e| anyhow::anyhow!("无法进入实现阶段: {e}"))?;
+    }
     let run_result = run_once_with_parts(
         &client,
         &route,
@@ -558,6 +623,39 @@ pub(crate) async fn run_task(
         &mut ask,
     )
     .await;
+    // R-173 批6 · 集成 → 复核屏障 → 复核 → 修正。
+    //
+    // 复核屏障(`review` 内的第一句)会**交出写租约**,所以复核代理审的是稳定快照
+    // (不变量 9)。只有复核真有发现时才会有第二段 run_once;无发现时本轮的
+    // run_once 次数与引入前一样是 1 次。
+    let run_result = match (pipeline.as_mut(), run_result) {
+        (Some(pipeline), Ok(summary)) => {
+            let merged = run_review_and_fixup(
+                pipeline,
+                &client,
+                &route,
+                &snapshot,
+                &agent,
+                &runner_config,
+                &ctx,
+                &prompt,
+                subagent_rt.as_ref(),
+                summary,
+                &mut on_event,
+                &mut ask,
+                &stage,
+            )
+            .await;
+            pipeline.finish();
+            merged
+        }
+        (Some(pipeline), Err(error)) => {
+            // 运行失败:不变量 7——任意结束路径都要交出租约并给确定终态。
+            pipeline.abort("run failed");
+            Err(error)
+        }
+        (None, result) => result,
+    };
     let store = match kanzei_core::SessionStore::open(&state_path) {
         Ok(store) => Some(store),
         Err(error) => {
@@ -833,13 +931,19 @@ pub(crate) async fn run_task(
     // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
     // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
     // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
-    writer_event(
-        kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
-            project_root: ctx.project_root.clone(),
-            run_id: run_id.clone(),
-            process_id: process_id.clone(),
-        },
-    );
+    //
+    // 批6:**仅非流水线路径**发这一条。流水线路径的租约归编排对象管,它在复核屏障
+    // 和收尾时已经各发过一次 released——这里再发一条会在轨迹里凭空多出一次释放,
+    // 回放时看起来像"释放了两次"。
+    if !phase_pipeline_on {
+        writer_event(
+            kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.clone(),
+                process_id: process_id.clone(),
+            },
+        );
+    }
     Ok(())
 }
 #[tauri::command]
@@ -896,6 +1000,101 @@ pub(crate) async fn build_model_route(
     proxy: &kanzei_llm::ProxyConfig,
 ) -> anyhow::Result<kanzei_llm::Route> {
     kanzei_core::build_route(resolved, proxy).await
+}
+
+/// R-173 批6:集成 → 复核屏障 → 复核 → 修正。
+///
+/// 只在阶段流水线开启(自主推进轮)时被调用。返回**合并后**的 RunSummary:
+/// - 无复核发现:原样返回实现段的 summary,本轮 run_once 次数 = 1(与引入前一致);
+/// - 有复核发现:跑一段修正 run_once,`prior` 接实现段的完整 `messages`,
+///   所以返回的 `messages` 是「实现段 + 修正段」的连续历史,
+///   `prior.len()` 之后的切片仍然正好是本轮全部内容(轮末统计口径不变)。
+#[allow(clippy::too_many_arguments)] // 复核/修正要重放整条 run_once 参数链,收拢成参数对象只会多一层壳。
+pub(crate) async fn run_review_and_fixup(
+    pipeline: &mut crate::phase_pipeline::PhasePipeline,
+    client: &kanzei_llm::LlmClient,
+    route: &kanzei_llm::Route,
+    snapshot: &Arc<kanzei_harness::HarnessSnapshot>,
+    agent: &kanzei_harness::AgentDef,
+    runner_config: &kanzei_core::RunnerConfig,
+    ctx: &ToolCtx,
+    prompt: &str,
+    subagent_rt: Option<&kanzei_core::SubagentRuntime>,
+    summary: kanzei_core::RunSummary,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+    ask: &mut (dyn FnMut(kanzei_core::AskRequest) -> AskFuture + Send),
+    stage: &(dyn Fn(&str, String) + Sync),
+) -> anyhow::Result<kanzei_core::RunSummary> {
+    if let Err(error) = pipeline.begin_integration() {
+        tracing::warn!(%error, "进入集成阶段失败,跳过复核");
+        return Ok(summary);
+    }
+    let Some(template) = subagent_rt else {
+        // 没有子代理能力:仍然走复核屏障(交出写租约),只是没有角色可派。
+        if let Err(error) = pipeline.review_skipped().await {
+            tracing::warn!(%error, "空复核屏障失败");
+        }
+        return Ok(summary);
+    };
+    stage("复核", "写租约已交出,并行只读复核中…".into());
+    let findings = match pipeline
+        .review(client, template, ctx, prompt, &summary.text)
+        .await
+    {
+        Ok(findings) => findings,
+        Err(error) => {
+            stage("复核", format!("复核阶段失败,跳过修正:{error}"));
+            return Ok(summary);
+        }
+    };
+    let Some(findings) = findings else {
+        stage("复核", "复核无发现,本轮收工".into());
+        return Ok(summary);
+    };
+    stage("修正", "复核有发现,重新获取写租约执行修正…".into());
+    if let Err(error) = pipeline.begin_fixup().await {
+        stage("修正", format!("无法进入修正阶段:{error}"));
+        return Ok(summary);
+    }
+    let fixup = run_once_with_parts(
+        client,
+        route,
+        snapshot,
+        agent,
+        runner_config,
+        ctx,
+        &crate::phase_pipeline::fixup_prompt(&findings),
+        // 历史接续:修正段的 prior 就是实现段跑完的完整 messages。
+        &summary.messages,
+        None,
+        subagent_rt,
+        on_event,
+        ask,
+    )
+    .await;
+    match fixup {
+        Ok(mut merged) => {
+            // 合并口径:token/步数是两段之和(用户看到的是"这一条消息花了多少"),
+            // messages/context_report 取修正段的——它已经含实现段全历史。
+            merged.usage.input += summary.usage.input;
+            merged.usage.output += summary.usage.output;
+            merged.usage.reasoning += summary.usage.reasoning;
+            merged.usage.cache_read += summary.usage.cache_read;
+            merged.usage.cache_write += summary.usage.cache_write;
+            merged.steps += summary.steps;
+            merged.halted_by_user |= summary.halted_by_user;
+            let mut traces = summary.overflow_traces;
+            traces.extend(merged.overflow_traces);
+            merged.overflow_traces = traces;
+            Ok(merged)
+        }
+        Err(error) => {
+            // 修正段失败不推翻实现段的成果:实现段已经落盘的改动仍然有效,
+            // 本轮按实现段的结果收尾,失败在阶段面板上可见。
+            stage("修正", format!("修正段失败,按实现段结果收尾:{error}"));
+            Ok(summary)
+        }
+    }
 }
 
 /// R-171 批5:写租约轨迹 guard——持有租约到 run_task 返回。

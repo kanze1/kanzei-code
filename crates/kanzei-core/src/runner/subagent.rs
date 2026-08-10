@@ -203,3 +203,30 @@ pub(crate) async fn run_subagent(
         Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
     }
 }
+
+/// R-173:**编排对象直接派发**的只读勘察/复核代理。
+///
+/// 与 `task` 工具那条路的区别只在**谁决定派谁**:task 由模型在轮内自行派发,
+/// 本函数由阶段编排对象按固定角色表派发(设计文档「推荐勘察角色」)。二者走的是
+/// 同一个 [`run_subagent`],所以只读白名单、`ask` 恒 Deny、读槽登记与 RAII 回收
+/// **完全一致**——不存在"编排派的子代理走了另一条没人管的路"。
+///
+/// `agent_id` 同时用作读槽身份键(并行角色靠它区分,见 `ReadPermit::run_id`)。
+pub async fn run_read_agent(
+    client: &LlmClient,
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    agent_id: &str,
+    prompt: &str,
+    progress: tokio::sync::mpsc::UnboundedSender<RunEvent>,
+) -> kanzei_harness::ToolOutput {
+    run_subagent(
+        client,
+        rt,
+        ctx,
+        agent_id,
+        &serde_json::json!({ "prompt": prompt }),
+        progress,
+    )
+    .await
+}

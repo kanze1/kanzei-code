@@ -79,7 +79,7 @@ mod tests {
         dir.join("state.db")
     }
 
-    fn scout(outcome: ScoutOutcome) -> kanzei_core::ScoutTask {
+    fn scout(outcome: ScoutOutcome) -> kanzei_core::ScoutTask<'static> {
         Box::pin(async move { outcome })
     }
 

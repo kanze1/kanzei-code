@@ -32,7 +32,11 @@ use kanzei_harness::orchestration::{
 
 /// 一个勘察/复核任务。调用方把真实子代理调用(以及它的 `ToolOutput` → [`ScoutOutcome`]
 /// 映射)装箱交进来;core 不认识 task 工具,只认识"会给出终态的 future"。
-pub type ScoutTask = std::pin::Pin<Box<dyn std::future::Future<Output = ScoutOutcome> + Send>>;
+///
+/// 带生命周期:真实调用方要在 future 里借用 `LlmClient`/`SubagentRuntime`/`ToolCtx`,
+/// 若强制 `'static` 就得把这些统统 Arc 化,徒增一层间接。
+pub type ScoutTask<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = ScoutOutcome> + Send + 'a>>;
 
 /// 阶段编排对象。
 ///
@@ -223,7 +227,7 @@ impl PhaseOrchestrator {
     /// [`BarrierOutcome::model_notice`]。
     pub async fn join_scouts(
         &mut self,
-        scouts: Vec<(String, ScoutTask)>,
+        scouts: Vec<(String, ScoutTask<'_>)>,
     ) -> Result<BarrierOutcome, PhaseError> {
         self.guard_transition(Phase::Synthesis)?;
         let outcome = self.run_barrier(BarrierKind::Synthesis, scouts).await;
@@ -277,7 +281,7 @@ impl PhaseOrchestrator {
     /// 但它会记下"屏障已过",[`Self::enter_fixup`] 拿这个作前置条件。
     pub async fn join_reviewers(
         &mut self,
-        reviewers: Vec<(String, ScoutTask)>,
+        reviewers: Vec<(String, ScoutTask<'_>)>,
     ) -> Result<BarrierOutcome, PhaseError> {
         if self.phase != Phase::Review {
             return Err(PhaseError::IllegalTransition {
@@ -351,7 +355,7 @@ impl PhaseOrchestrator {
     async fn run_barrier(
         &mut self,
         kind: BarrierKind,
-        tasks: Vec<(String, ScoutTask)>,
+        tasks: Vec<(String, ScoutTask<'_>)>,
     ) -> BarrierOutcome {
         let mut outcome = BarrierOutcome::new(kind, tasks.len());
         if tasks.is_empty() {
@@ -531,7 +535,7 @@ mod tests {
         .with_observer(recorder.clone() as Arc<dyn PhaseObserver>)
     }
 
-    fn done(name: &str) -> (String, ScoutTask) {
+    fn done(name: &str) -> (String, ScoutTask<'static>) {
         (name.into(), Box::pin(async { ScoutOutcome::Completed }))
     }
 
@@ -607,15 +611,16 @@ mod tests {
 
         let in_flight = Arc::new(AtomicUsize::new(0));
         let max_in_flight = Arc::new(AtomicUsize::new(0));
-        let make = |in_flight: Arc<AtomicUsize>, max: Arc<AtomicUsize>, ms: u64| -> ScoutTask {
-            Box::pin(async move {
-                let active = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
-                max.fetch_max(active, Ordering::SeqCst);
-                tokio::time::sleep(Duration::from_millis(ms)).await;
-                in_flight.fetch_sub(1, Ordering::SeqCst);
-                ScoutOutcome::Completed
-            })
-        };
+        let make =
+            |in_flight: Arc<AtomicUsize>, max: Arc<AtomicUsize>, ms: u64| -> ScoutTask<'static> {
+                Box::pin(async move {
+                    let active = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    max.fetch_max(active, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    ScoutOutcome::Completed
+                })
+            };
         let scouts = vec![
             (
                 "architecture_scout".to_string(),
@@ -655,7 +660,7 @@ mod tests {
         // 屏障上界 80ms:第三个任务永不返回,靠外层兜底收成超时。
         let mut orch = orchestrator("terminal", &coord, &recorder, 80);
         orch.enter_scouting().unwrap();
-        let scouts: Vec<(String, ScoutTask)> = vec![
+        let scouts: Vec<(String, ScoutTask<'static>)> = vec![
             (
                 "ok_scout".into(),
                 Box::pin(async { ScoutOutcome::Completed }),

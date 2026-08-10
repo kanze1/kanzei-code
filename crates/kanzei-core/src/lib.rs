@@ -17,10 +17,10 @@ pub use notification::{
 };
 pub use phase::{PhaseOrchestrator, ScoutTask};
 pub use runner::{
-    completed_entry, run_once, run_once_with_parts, summarize_failures, summarize_metrics,
-    summarize_tools, AskFuture, AskReply, AskRequest, AskResponse, CompletedEntry, FailureSignal,
-    RecallHit, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
-    RunnerConfig, SubagentRuntime,
+    completed_entry, run_once, run_once_with_parts, run_read_agent, summarize_failures,
+    summarize_metrics, summarize_tools, AskFuture, AskReply, AskRequest, AskResponse,
+    CompletedEntry, FailureSignal, RecallHit, RecallPolicy, RecallTrigger, RecallWatch, RunEvent,
+    RunMetrics, RunSummary, RunnerConfig, SubagentRuntime,
 };
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,

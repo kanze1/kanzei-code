@@ -20,6 +20,7 @@ mod harness_ext;
 mod memory;
 mod mobile;
 mod orchestration_trace;
+mod phase_pipeline;
 mod prefs;
 mod processes;
 mod projects;
@@ -65,6 +66,9 @@ mod process_tests;
 
 #[cfg(test)]
 mod update_tests_update;
+
+#[cfg(test)]
+mod phase_pipeline_tests;
 
 fn main() {
     if update::startup_update() {
