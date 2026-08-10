@@ -469,6 +469,7 @@
             <label>单轮子代理数上限</label>
             <input id="set-max-tasks" type="number" min="1" step="1" />
           </div>
+          <p class="dim">同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。</p>
           <div class="form-row">
             <label>压缩触发线 <span class="dim">占窗口比例</span></label>
             <input id="set-context-ratio" type="number" min="0.1" max="0.95" step="0.05" />

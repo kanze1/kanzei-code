@@ -1,5 +1,6 @@
 const I18N_EN = {
   "agent 正在做这一条": "The agent is working on this item",
+  "同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。": "Max subagents that can run in parallel in one turn. Default 16 (leave empty for the default); extras are not queued — they get a \"too many parallel subagent tasks\" error back to the model. Effective in the desktop main conversation (task tool registration is no longer gated by the execution policy since R-173).",
   "架构浏览": "Architecture browser",
   "切换到架构浏览": "Switch to architecture browser",
   "设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。": "Visual browse of design docs and the architecture index: left shows the docs/design tree (grouped by index status), right shows the index text; clicking a doc opens it in the in-app Markdown viewer.",

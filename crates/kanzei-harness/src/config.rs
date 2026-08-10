@@ -104,7 +104,10 @@ impl Limits {
         self.recent_verbatim_ratio.unwrap_or(0.35).clamp(0.05, 0.9)
     }
     pub fn max_tasks_per_turn(&self) -> usize {
-        self.max_tasks_per_turn.unwrap_or(8).max(1)
+        // R-174:默认从 8 上调到 16——用户要「远不止 8」(2026-08-10 看过 Claude Code
+        // 的后台面板后定调)。编排勘察角色表共 8 名(5 勘察 + 3 复核),16 容得下完整
+        // 角色表,又给模型自派 task 留出双倍并行余量。
+        self.max_tasks_per_turn.unwrap_or(16).max(1)
     }
     pub fn max_parallel_tools(&self) -> usize {
         self.max_parallel_tools.unwrap_or(8).max(1)
@@ -989,7 +992,7 @@ mod tests {
         assert_eq!(empty.limits.max_tokens(), 8192);
         assert_eq!(empty.limits.subagent_timeout_secs(), 900);
         assert_eq!(empty.limits.context_budget_ratio(), 0.7);
-        assert_eq!(empty.limits.max_tasks_per_turn(), 8);
+        assert_eq!(empty.limits.max_tasks_per_turn(), 16);
 
         // 项目层只写一个键,不能把全局层其余的键打回默认(reasoning 那次漏合并的教训)。
         let mut base: KanzeiConfig =

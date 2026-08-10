@@ -1444,3 +1444,9 @@
 - 摘要: R-137 关闭前全量:全部 crate 测试全绿
 - 关联: R-137
 - 收尾: 1786369689
+
+## T-1786381065 R-174 批1 并发度实测集成测试 [passed]
+- 命令: cargo test -p kanzei --test max_tasks_parallel_dispatch
+- 摘要: N=20 派发 21 task:20 全执行、第 21 落溢出、读槽 20/20;harness 82/app 67 全绿;四条冒烟+i18n 通过
+- 关联: R-174
+- 收尾: 1786381131

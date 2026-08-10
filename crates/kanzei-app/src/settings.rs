@@ -749,7 +749,7 @@ mod tests {
             saved.limits.max_tasks_per_turn, None,
             "没填的键不该被写进文件"
         );
-        assert_eq!(saved.limits.max_tasks_per_turn(), 8, "没填就走内置默认");
+        assert_eq!(saved.limits.max_tasks_per_turn(), 16, "没填就走内置默认");
         settings_save_at_path(payload(LimitsPayload::default()), &path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(!text.contains("max_tokens"), "清空后仍留着死键:\n{text}");

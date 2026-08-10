@@ -1,6 +1,6 @@
 # Requirements
 
-## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [todo]
+## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
 - 复杂度: 中
 - 标签: 前端
@@ -16,12 +16,14 @@
 - 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
 - refs: R-095 R-117 R-173 R-175 R-176
 - 依赖: 
-- 进展: 2026-08-11 R-173 关闭时转入四条,取活前先读,别重新想一遍:
+- 进展: 2026-08-11 R-173 关闭时转入四条,取活前先读,别重新想一遍。批1(并发度口径收口)已交付:①默认值 8→16(config.rs max_tasks_per_turn() unwrap_or(16),用户要「远不止 8」,16 容得下完整 8 名编排角色表 + 双倍自派余量);②设置页「单轮子代理数上限」补说明——桌面端已生效(R-173 起 task 注册不再受执行策略门控,旧「不生效」说法是 R-173 修复前的现状,已按新现实改写)、默认 16、溢出不排队直接报错;i18n 登记新文案;③验收①实测证据:新增集成测试 crates/kanzei/tests/max_tasks_parallel_dispatch.rs——kanzei.toml 配 N=20,同轮派发 21 个 task,断言 20 个 ToolEnd 全 ok、第 21 个(call_task_20)落 drive.rs 溢出分支且 preview 带「too many parallel subagent tasks; maximum per turn is 20」、读槽 20 登记 20 回收。定向:harness 82 / app 67 / 集成测试 1 全绿,四条前端冒烟 + i18n 全绿。
   ①**前置回归已解除**——「桌面端主对话根本不注册 task 工具」那条(本条与 R-175/R-176 共同记录的前置)已由 R-173 批4.5 修掉(`e933262`),验收⑦现在可以真去桌面端取证了。
   ②**验收③已部分交付**——R-173 收尾时把编排派发的勘察/复核子代理接上了活动面板(`ff287c4`):按 `input.phase` 分「勘察/复核」两组、显示角色名与**当前工具名**(取 `kz:task-progress` 的 `trace.name`)、运行时长、内部调用数,超时与失败分开成两种终态,冒烟有 6 组反证锁死。**它刻意复用 `#bg-list` 没有新建平行面板**——本条要做的独立面板应当在此之上演进,不是另起炉灶。仍缺:累计 token、Clear、Running/Finished 两区(现在是按阶段分组,不是按运行状态)。
   ③**验收④单条停止的最小改法已备**:目前 `dispatch_roles` 的 future 集合由屏障统一驱动,没有对外暴露的 per-role cancel handle。改法 = 每角色配一个 `CancellationToken` + 新 Tauri 命令按 role 触发,取消后该角色以 `ScoutOutcome::Failed("cancelled")` 进终态——屏障照常收敛,不会挂住。
   ④**两条形态决策留给本条拍**:(a) 编排派发的 8 条同时也会在**主对话**里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每个自主推进轮多 8 个块,可能偏吵;(b) 前端条目的 `id` 就是角色名,而角色跨轮复用,所以当前实现是**每角色只留最新一轮**(跨轮定格的 bug 已修成"原地复位")。要保住历史轮次得让后端给 `role@round` 之类的唯一键。
   另:验收①②的「并发度可配」部分是**既有能力**(见本条「既有能力」字段),不要重做。
+
+- 批次: 1/5
 
 ## R-177 线绑 worktree 后端打通:process_create 建线、cwd/主根分离、线清单从 git 发现 [todo]
 - 优先级: P0
