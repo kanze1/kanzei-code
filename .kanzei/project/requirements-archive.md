@@ -1586,3 +1586,17 @@
 
 - 状态: doing
 
+## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [done]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 前端
+- 阶段: 2
+- 依赖: R-149
+- 来源: 同 R-149,P2 移交自举循环。
+- 内容: 消费 R-149 产出的决策价值信号:①空闲整理(sleep-time)把「零采纳候选」(召回≥3 采纳=0)与「复发告警」纳入整理清单,处置走既有墓碑机制(降级/修订/归档),不静默删;②Memory UI 页展示每条目的召回/采纳率与复发告警,零采纳候选有显式标记;③与 R-145 并轨:发版后取自举轨迹验证「写入→命中→避免重复探索」闭环,并复核 R-149 降权参数(0.6/0.7/阈值 3)是否合适——复核须计入两个采纳率低估通道:「看索引行即用」与「直接 read 记忆文件不经 memory_search 不计采纳」(后者可考虑给 read 加记忆目录钩子回填 mark_recall_fetched);同批决定 hits 因子去留——hits 奖励「常被搜到」(自增强)与采纳率权重惩罚「召回未采纳」方向冲突,候选处置:退役或降为平局破除器。
+- 验收: ①空闲整理清单包含零采纳与复发两类候选且处置有墓碑;②Memory 页可见召回/采纳数据(800/1024/1280 三档可用);③降权参数复核结论落回 docs/design/memory_decision_sufficiency.md 变更记录。
+- refs: R-103 R-107 R-125 R-145
+
+- 批次: 3/3
+- 进展: 批3完成:冒烟脚本加 memory_value_flags 断言+800/1024/1280 三档宽度循环验证+fixture recalled/fetched;CSS 补 memory-flag-row 标题 ellipsis 防窄宽溢出;四条冒烟+全量 workspace 全绿。关闭。验收对照:①空闲整理清单=memory.rs memory_value_flags(zeroAdopt recalled≥3&fetched=0 + recurring recalled≥3),UI renderMemoryValueFlags 渲染,处置走 showMemoryDetail 既有墓碑不静默删;②采纳率=memory_entries recalled/fetched + loadMemoryList meta 显示召回/采纳,三档宽度冒烟断言通过;③复核结论=memory_decision_sufficiency.md 2026-08-10 变更记录(hits 退役/0.6-0.7-阈值3保留/read钩子列入R-145)。
+
