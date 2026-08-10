@@ -4129,6 +4129,33 @@ const docsB = {
   storage.delete(wtKeyOf(PROJECT));
   storage.delete(wtKeyOf(PROJECT_B));
 
+  // ---------- ⓪ 侧栏「隔离工作树」的刷新按钮真的能刷新(D-257) ----------
+  // 这条护栏拦的是「按钮在 index.html 里,监听器却不在任何 JS 里」这个形态:7c5f022 抽
+  // handleWorktreeAction 时,函数收尾的 `}` 吃掉了下一行 `$("worktrees-refresh").addEventListener`
+  // 的前半段,剩下 `}("click", refreshWorktrees);` —— 语法合法、`node --check` 通过、静态
+  // grep 也只在标记里看得见那个 id,唯独运行时点下去什么都不发生。所以断言必须是**点击后
+  // 真的打出了 worktree 相关 IPC**,不能退化成「源码里有这个字符串」。
+  await gotoProject(PROJECT, docsA);
+  storage.set(wtKeyOf(PROJECT), JSON.stringify([WT_NEW]));
+  const refreshBtn = byId.get("worktrees-refresh");
+  assert(refreshBtn, "侧栏「隔离工作树」的刷新按钮 #worktrees-refresh 不在 index.html 里了(界面承诺的手动刷新能力消失)");
+  if (refreshBtn) {
+    const beforeRefreshClick = invokeArgs.length;
+    refreshBtn.click();
+    await flush();
+    const refreshCalls = invokeArgs.slice(beforeRefreshClick).filter((entry) => String(entry.cmd).startsWith("worktree_"));
+    assert(
+      refreshCalls.some((entry) => entry.cmd === "worktree_diff" && entry.args?.projectDir === PROJECT),
+      "点击 #worktrees-refresh 没有触发任何 worktree_diff:按钮没有绑上 refreshWorktrees" +
+        `(本次点击后的 worktree IPC:${JSON.stringify(refreshCalls)})`,
+    );
+    assert(
+      document.querySelectorAll("#worktree-list .worktree-entry").length === 1,
+      "点击 #worktrees-refresh 后工作树清单没有按新数据重渲染(拉回来了却没画上去)",
+    );
+  }
+  storage.delete(wtKeyOf(PROJECT));
+
   // ① 新建:替甲发出 worktree_create,落地前切到乙。
   await gotoProject(PROJECT, docsA);
   let releaseCreate;

@@ -83,7 +83,11 @@ async function handleWorktreeAction(item, action) {
   } catch (error) {
     toastError(String(error), { retry: () => handleWorktreeAction(item, action) });
   }
-}("click", refreshWorktrees);
+}
+// D-257:这一行曾被 7c5f022 抽 handleWorktreeAction 时的收尾 `}` 吃掉前半段,只剩
+// `}("click", refreshWorktrees);` —— 语法合法、node --check 通过,按钮却全仓无监听器。
+// 改动这一带时注意别再把它并进上面的函数尾行。
+$("worktrees-refresh").addEventListener("click", refreshWorktrees);
 $("worktree-add").addEventListener("click", async () => {
   if (!currentProject) return;
   // 同 handleWorktreeAction(D-251):键在 await 前认领。新建更要紧——工作树已经在磁盘上
