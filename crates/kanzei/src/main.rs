@@ -446,6 +446,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             limits: config.limits.clone(),
             // R-171 批6:CLI 单运行不参与共享仲裁,不登记读槽。
             coordinator: None,
+            // R-174:CLI 单运行无前端停止按钮,不挂取消注册表。
+            cancellations: None,
         }
     };
 

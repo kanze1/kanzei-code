@@ -108,6 +108,9 @@ pub(crate) struct SessionRuntime {
     pub(crate) lifecycle: Arc<Mutex<()>>,
     pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     pub(crate) live: Arc<Mutex<LiveRun>>,
+    /// R-174:本会话运行中的子代理取消注册表。`stop_task` 命令按 id 命中即取消,
+    /// run_task 构造 SubagentRuntime 时把它塞进 `cancellations` 字段,单一实例共享。
+    pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
 }
 
 #[derive(Default)]
@@ -197,7 +200,17 @@ pub(crate) struct ProcessHandle {
     pub(crate) model: Arc<Mutex<Option<String>>>,
     pub(crate) profile: Arc<Mutex<Option<String>>>,
     pub(crate) reasoning: Arc<Mutex<Option<String>>>,
-    pub(crate) subagent_enabled: Arc<AtomicBool>,
+    /// 界面上的「勘察复核」开关(2026-08-11 用户定调)。
+    ///
+    /// 它是**阶段流水线的总闸**:开 = 本进程每个任务都强制走
+    /// 勘察 → 汇总屏障 → 实现 → 复核屏障 → 复核 →(有发现时)修正;
+    /// 关 = 一问一答,与引入七阶段之前逐字节相同。
+    ///
+    /// 它**不**控制子代理的有无——关着的时候模型照样能自己派 `task`
+    /// (`run.rs` 的 `subagent_rt` 无条件构造)。这个字段以前叫 `subagent_enabled`
+    /// 且默认开,名不副实:关掉它连子代理运行时都没有,开着它也只是把 `task`
+    /// 摆上桌、派不派全看模型,给不了「每个任务都勘察」的保证。
+    pub(crate) phase_pipeline_enabled: Arc<AtomicBool>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ProcessInfo {
@@ -209,7 +222,8 @@ pub(crate) struct ProcessInfo {
     pub(crate) model: Option<String>,
     pub(crate) profile: Option<String>,
     pub(crate) reasoning: Option<String>,
-    pub(crate) subagent: bool,
+    /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
+    pub(crate) phase_pipeline: bool,
     pub(crate) running: bool,
     pub(crate) label: String,
 }
@@ -239,6 +253,7 @@ impl Default for SessionRuntime {
             lifecycle: Arc::new(Mutex::new(())),
             conversation: Arc::new(Mutex::new(HashMap::new())),
             live: Arc::new(Mutex::new(LiveRun::default())),
+            task_cancellations: Arc::new(kanzei_core::TaskCancellations::default()),
         }
     }
 }
@@ -311,7 +326,9 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
-            subagent_enabled: Arc::new(AtomicBool::new(true)),
+            // 默认关:用户要的是「显式打开才强制走七阶段」,默认开就不叫显式
+            // (2026-08-11 用户定调)。
+            phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
         })
         .clone()
 }
@@ -333,7 +350,7 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         model: process.model.lock().unwrap().clone(),
         profile: process.profile.lock().unwrap().clone(),
         reasoning: process.reasoning.lock().unwrap().clone(),
-        subagent: process.subagent_enabled.load(Ordering::SeqCst),
+        phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
         running,
         label: if process.id.starts_with("d|") {
             "默认".into()

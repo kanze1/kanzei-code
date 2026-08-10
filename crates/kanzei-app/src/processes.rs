@@ -86,7 +86,8 @@ pub fn process_create(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
-    subagent: Option<bool>,
+    // 「勘察复核」开关(阶段流水线总闸)。缺省 = 关,见 `ProcessHandle` 的字段注释。
+    phase_pipeline: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     ensure_default_process(&state, &root);
@@ -117,7 +118,7 @@ pub fn process_create(
         reasoning: Arc::new(Mutex::new(
             reasoning.filter(|value| !value.trim().is_empty()),
         )),
-        subagent_enabled: Arc::new(AtomicBool::new(subagent.unwrap_or(true))),
+        phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
     };
     let info = process_info(&state, &process);
     processes.insert(process.id.clone(), process);
@@ -131,7 +132,8 @@ pub fn process_update(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
-    subagent: Option<bool>,
+    // 「勘察复核」开关(阶段流水线总闸),见 `ProcessHandle` 的字段注释。
+    phase_pipeline: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let process = state
         .processes
@@ -151,8 +153,10 @@ pub fn process_update(
         *process.reasoning.lock().unwrap() =
             Some(reasoning).filter(|value| !value.trim().is_empty());
     }
-    if let Some(subagent) = subagent {
-        process.subagent_enabled.store(subagent, Ordering::SeqCst);
+    if let Some(phase_pipeline) = phase_pipeline {
+        process
+            .phase_pipeline_enabled
+            .store(phase_pipeline, Ordering::SeqCst);
     }
     Ok(process_info(&state, &process))
 }
@@ -180,7 +184,8 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
     if process_id.starts_with("d|") {
         *process.model.lock().unwrap() = None;
         *process.profile.lock().unwrap() = None;
-        process.subagent_enabled.store(true, Ordering::SeqCst);
+        // 默认进程不销毁,只复位;复位值必须与 ensure_default_process 的默认一致(关)。
+        process.phase_pipeline_enabled.store(false, Ordering::SeqCst);
     } else {
         state.processes.lock().unwrap().remove(&process_id);
     }

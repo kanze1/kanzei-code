@@ -31,7 +31,9 @@ pub(crate) async fn run_task(
     // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
     main_root: PathBuf,
     session_id: String,
-    subagent_enabled: bool,
+    // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
+    // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
+    phase_pipeline_enabled: bool,
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
@@ -39,6 +41,9 @@ pub(crate) async fn run_task(
     reasoning_override: Option<String>,
     conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     live_run: Arc<Mutex<LiveRun>>,
+    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
+    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
+    task_cancellations: Arc<kanzei_core::TaskCancellations>,
     auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
     delivery: kanzei_core::Delivery,
     promoted_input: Option<kanzei_core::AdmittedInput>,
@@ -180,61 +185,25 @@ pub(crate) async fn run_task(
         use kanzei_harness::orchestration::PhaseObserver;
         orchestration_trace.observe(&event);
     };
-    // R-173 批6:阶段流水线**只在自主推进轮**装配。手动一问一答走 else 分支,
-    // 与引入前逐字节相同——「不构造编排对象就是关」,没有第二个开关可以配错。
-    let phase_pipeline_on = auto_runs
-        .lock()
-        .unwrap()
-        .get(&session_id)
-        .is_some_and(|ctrl| ctrl.enabled);
-    let mut pipeline = if phase_pipeline_on {
-        // R-173:勘察/复核用哪条路由由 `[models] scout` 决定。解析失败**不静默**——
-        // 阶段面板上会有一行,然后按未配置处理(沿用 fast),而不是让整轮跑不成。
-        let scout_route = match config.models.scout.as_deref() {
-            None => None,
-            Some(model_ref) => match config.resolve_model(model_ref) {
-                Ok(resolved) => match kanzei_core::build_route(&resolved, &proxy).await {
-                    Ok(route) => {
-                        stage(
-                            "勘察路由",
-                            format!("{}:{}", resolved.provider_name, resolved.model),
-                        );
-                        Some(crate::phase_pipeline::ScoutRoute {
-                            service_tier: config.service_tier_for(&resolved),
-                            model: resolved.model.clone(),
-                            route,
-                        })
-                    }
-                    Err(error) => {
-                        stage(
-                            "勘察路由",
-                            format!("{model_ref} 建链失败,回退 fast:{error}"),
-                        );
-                        None
-                    }
-                },
-                Err(error) => {
-                    stage(
-                        "勘察路由",
-                        format!("{model_ref} 解析失败,回退 fast:{error}"),
-                    );
-                    None
-                }
-            },
-        };
-        Some(crate::phase_pipeline::PhasePipeline::start(
-            Arc::clone(&coordinator) as Arc<dyn ProjectExecutionCoordinator>,
-            Arc::clone(&orchestration_trace)
-                as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
-            ctx.project_root.clone(),
-            &run_id,
-            &process_id,
-            &config.limits,
-            scout_route,
-        ))
-    } else {
-        None
-    };
+    // 阶段流水线的装配闸门 = 进程级「勘察复核」开关(2026-08-11 用户定调)。
+    // 开着 → 每个任务都走七阶段(手动对话也走);关着 → 不构造编排对象,与引入前
+    // 逐字节相同。闸门与构造都在 phase_pipeline::start_if_enabled 里,那里可以脱离
+    // Tauri Window 直接测(见 phase_pipeline_tests.rs 的两条闸门测试)。
+    //
+    // 这里以前读的是 auto_runs[session].enabled(自主推进/鞭挞)。换掉之后自主推进
+    // **不再**自带流水线——它只管「轮末要不要自动发下一条」。
+    let mut pipeline = crate::phase_pipeline::start_if_enabled(
+        phase_pipeline_enabled,
+        &config,
+        &proxy,
+        Arc::clone(&coordinator) as Arc<dyn ProjectExecutionCoordinator>,
+        Arc::clone(&orchestration_trace) as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
+        ctx.project_root.clone(),
+        &run_id,
+        &process_id,
+        &stage,
+    )
+    .await;
     // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
     // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
     let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
@@ -523,7 +492,14 @@ pub(crate) async fn run_task(
     }
 
     // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
-    let subagent_rt = if subagent_enabled {
+    //
+    // **无条件构造**(2026-08-11 用户定调):模型自己派 `task` 这条路永远开着,不受
+    // 「勘察复核」开关控制。以前它受 subagent_enabled 门控,关掉就连子代理运行时都
+    // 没有——而那个开关现在的语义是「每轮强制勘察+复核」,拿它去掐模型自派的能力
+    // 是两件事混在一个布尔上。仍保留 Option 外壳:run_once_with_parts 与
+    // run_review_and_fixup 的形参是 Option<&SubagentRuntime>,且它们的测试覆盖了
+    // None(无勘察/复核角色)那条路。
+    let subagent_rt = {
         let mut sub_harness = Harness::default();
         sub_harness
             .add(kanzei_tools::SubagentBase)
@@ -556,9 +532,9 @@ pub(crate) async fn run_task(
             // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
             coordinator: Some(Arc::clone(&coordinator)
                 as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
+            // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
+            cancellations: Some(task_cancellations),
         })
-    } else {
-        None
     };
 
     let initial_parts = prompt_attachment_parts(attachments.unwrap_or_default())?;
@@ -953,7 +929,7 @@ pub(crate) async fn run_task(
     // 批6:**仅非流水线路径**发这一条。流水线路径的租约归编排对象管,它在复核屏障
     // 和收尾时已经各发过一次 released——这里再发一条会在轨迹里凭空多出一次释放,
     // 回放时看起来像"释放了两次"。
-    if !phase_pipeline_on {
+    if !phase_pipeline_enabled {
         writer_event(
             kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
                 project_root: ctx.project_root.clone(),
@@ -1581,6 +1557,25 @@ pub(crate) fn stop_run(
     }
 }
 
+/// R-174:单条停止一个运行中的子代理(模型 task 或编排角色)。
+/// 命中 id 后 run_subagent 的取消分支立即触发,该子代理以「被停」终态收尾,
+/// 读槽随 future drop 由 RAII 释放——不会像 stop_run 那样停掉整轮主对话。
+#[tauri::command]
+pub(crate) fn stop_task(
+    state: State<'_, AppState>,
+    project_dir: String,
+    task_id: String,
+) -> Result<bool, String> {
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    let session_id = process_session_id(&root, None);
+    let runtime = runtime_for(&state, &session_id);
+    let hit = runtime.task_cancellations.cancel(&task_id);
+    if !hit {
+        return Err(format!("子代理 {task_id} 不在运行中或已结束"));
+    }
+    Ok(true)
+}
+
 fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
     match value.unwrap_or("queue") {
         "steer" => Ok(kanzei_core::Delivery::Steer),
@@ -1688,7 +1683,7 @@ pub(crate) async fn run_prompt(
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
-    let subagent_enabled = process.subagent_enabled.load(Ordering::SeqCst);
+    let phase_pipeline_enabled = process.phase_pipeline_enabled.load(Ordering::SeqCst);
     let runtime = runtime_for(&state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
     {
@@ -1709,6 +1704,7 @@ pub(crate) async fn run_prompt(
     let lifecycle = runtime.lifecycle.clone();
     let conversation = runtime.conversation.clone();
     let live_run = runtime.live.clone();
+    let task_cancellations = runtime.task_cancellations.clone();
     let runtime_for_task = runtime.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
     let auto_runs = state.auto_runs.clone();
@@ -1730,7 +1726,7 @@ pub(crate) async fn run_prompt(
                 project_dir.clone(),
                 main_root.clone(),
                 session_id.clone(),
-                subagent_enabled,
+                phase_pipeline_enabled,
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
@@ -1738,6 +1734,7 @@ pub(crate) async fn run_prompt(
                 reasoning.clone(),
                 conversation.clone(),
                 live_run.clone(),
+                task_cancellations.clone(),
                 auto_runs.clone(),
                 delivery,
                 next_input.take(),

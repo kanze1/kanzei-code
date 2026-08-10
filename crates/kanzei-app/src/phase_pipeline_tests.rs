@@ -147,6 +147,7 @@ impl Fixture {
             timeout_secs: 30,
             limits: self.config.limits.clone(),
             coordinator: Some(self.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+            cancellations: None,
         }
     }
 
@@ -205,12 +206,16 @@ fn implementation_summary() -> kanzei_core::RunSummary {
     }
 }
 
-/// **验收②的关闭依据**:一条运行跑完七阶段,阶段事件落 `session_events` 可回放。
+/// **验收②的关闭依据**,同时是**闸门取值②(「勘察复核」开)的行为锚点**:
+/// 开关打开 → 编排对象真的被构造 → 一条运行跑完七阶段,事件落 `session_events` 可回放。
 ///
 /// 这条测试复刻 `run_task` 在流水线开启时的**完整调用序列**,用的是同一批生产函数:
-/// `acquire_plain_lease_if_needed` → `PhasePipeline::scout` → `begin_implementation`
-/// → `run_once_with_parts` → `run_review_and_fixup`。协调器、子代理、事件观察者、
-/// SQLite 全是真的,只有 provider 是假的。
+/// `start_if_enabled`(闸门本身)→ `acquire_plain_lease_if_needed` → `PhasePipeline::scout`
+/// → `begin_implementation` → `run_once_with_parts` → `run_review_and_fixup`。协调器、
+/// 子代理、事件观察者、SQLite 全是真的,只有 provider 是假的。
+///
+/// 入口刻意从**闸门**开始而不是直接 `PhasePipeline::start`:2026-08-11 换闸门那次
+/// (自主推进 → 进程级「勘察复核」开关)如果只改 run.rs,直接构造的测试照样全绿。
 ///
 /// 覆盖不到的只有 `run_task` 外围那层 Tauri 胶水(`Window` 事件、store 生命周期
 /// 记账)——它需要真实 Tauri Window,单测起不来。
@@ -246,15 +251,20 @@ async fn 七阶段闭环轨迹落库可回放() {
     // 真实观察者:事件经 OrchestrationEvent 单一出口落进真的 SQLite。
     let observer =
         Arc::new(crate::orchestration_trace::SessionEventObserver::open(&db, session_id).unwrap());
-    let mut pipeline = PhasePipeline::start(
+    // ---- 闸门取值②:「勘察复核」开 → 装配编排对象 ----
+    let mut pipeline = crate::phase_pipeline::start_if_enabled(
+        true, // 进程级「勘察复核」开关打开
+        &fx.config,
+        &kanzei_llm::ProxyConfig::Disabled,
         fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
         observer.clone() as Arc<dyn PhaseObserver>,
         fx.project.clone(),
         "run_e2e",
         "proc_e2e",
-        &fx.config.limits,
-        None,
-    );
+        &|_name: &str, _detail: String| {},
+    )
+    .await
+    .expect("「勘察复核」开着时必须构造编排对象");
 
     // ---- 验收①第二分句(生产路径):流水线开启时当场不取租约 ----
     let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
@@ -457,9 +467,14 @@ async fn 七阶段闭环轨迹落库可回放() {
     std::fs::remove_dir_all(&fx.project).ok();
 }
 
-/// 非流水线路径(手动一问一答)当场取租约——与 R-171 一致。
+/// **闸门取值①:「勘察复核」关(新默认)** —— 一个编排对象都不构造,行为与引入
+/// 七阶段之前一致:当场取写租约、事件流里只有 R-171 的 queued→acquired 两条。
+///
+/// 入口同样是生产闸门 `start_if_enabled`,并把它的返回值原样喂给
+/// `acquire_plain_lease_if_needed(pipeline.is_some(), …)`——与 run.rs 里逐字相同的
+/// 表达式。闸门若被改回旧形态(读自主推进开关),这条与上面那条七阶段闭环必有一红。
 #[tokio::test]
-async fn 非流水线路径当场取租约() {
+async fn 勘察复核关闭时不构造编排对象且行为与引入前一致() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let fx = fixture("plain", listener.local_addr().unwrap());
     let db = fx.project.join(".kanzei").join("state.db");
@@ -469,9 +484,38 @@ async fn 非流水线路径当场取租约() {
     }
     let observer =
         crate::orchestration_trace::SessionEventObserver::open(&db, "ses_plain").unwrap();
+    // 阶段汇报口的替身:关着时连 `[models] scout` 都不该去解析,一行都不该有。
+    let stage_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let pipeline = crate::phase_pipeline::start_if_enabled(
+        false, // 进程级「勘察复核」开关关闭
+        &fx.config,
+        &kanzei_llm::ProxyConfig::Disabled,
+        fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
+        fx.recorder.clone() as Arc<dyn PhaseObserver>,
+        fx.project.clone(),
+        "run_plain",
+        "proc_plain",
+        &|name: &str, detail: String| stage_lines.lock().unwrap().push(format!("{name}:{detail}")),
+    )
+    .await;
+    assert!(
+        pipeline.is_none(),
+        "「勘察复核」关着时不得构造编排对象——「不构造就是关」"
+    );
+    assert!(
+        fx.events().is_empty(),
+        "关着时不该有任何编排事件,实得: {:?}",
+        fx.events()
+    );
+    assert!(
+        stage_lines.lock().unwrap().is_empty(),
+        "关着时不该解析勘察路由(白跑一次建链),实得: {:?}",
+        stage_lines.lock().unwrap()
+    );
 
     let lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
-        false, // pipeline_on = false:手动一问一答
+        pipeline.is_some(), // 与 run.rs 逐字相同的表达式
         fx.coordinator.as_ref(),
         &observer,
         &fx.project,
@@ -489,7 +533,8 @@ async fn 非流水线路径当场取租约() {
             .as_deref(),
         Some("run_plain")
     );
-    // queued→acquired 两条事件照旧落库(R-171 的审计闭环不受批6 影响)。
+    // queued→acquired 两条事件照旧落库(R-171 的审计闭环不受批6 影响);
+    // 一条 phase_changed / barrier_reached 都不该有——那是"走了七阶段"的标志。
     let store = kanzei_core::SessionStore::open(&db).unwrap();
     let types: Vec<String> = store
         .list_events("ses_plain", 0)
@@ -502,7 +547,8 @@ async fn 非流水线路径当场取租约() {
         vec![
             "orchestration.writer.queued",
             "orchestration.writer.acquired"
-        ]
+        ],
+        "关着时的事件流必须与引入七阶段前逐条相同"
     );
     drop(lease);
     assert!(fx.coordinator.snapshot(&fx.project).writer_run_id.is_none());

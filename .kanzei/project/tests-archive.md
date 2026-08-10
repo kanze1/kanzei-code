@@ -1450,3 +1450,12 @@
 - 摘要: N=20 派发 21 task:20 全执行、第 21 落溢出、读槽 20/20;harness 82/app 67 全绿;四条冒烟+i18n 通过
 - 关联: R-174
 - 收尾: 1786381131
+
+## T-1786382067 R-174 批2 单条停止+TaskTrace 数据面定向测试 [passed]
+- 摘要: 批2 定向:core 119/harness 82/tools 213/app 67 全绿;3 条 kz 并行集成测试(task_cancel_parallel + max_tasks + parallel_scouting)全绿
+- 收尾: 1786382067
+
+## T-1786382099 R-174 B2 kanzei-app 提交前定向复测 [passed]
+- 摘要: 批2 提交前复测:run.rs task_cancellations 引用修复后 kanzei-app 67 passed 全绿
+- 关联: R-174
+- 收尾: 1786382099

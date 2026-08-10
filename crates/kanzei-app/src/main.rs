@@ -132,6 +132,7 @@ fn main() {
             docs::docs_snapshot,
             run::run_prompt,
             run::stop_run,
+            run::stop_task,
             run::answer_ask,
             run::pending_asks_get,
             auto_run::auto_state_update,

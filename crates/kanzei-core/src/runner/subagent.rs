@@ -1,13 +1,44 @@
 //! 子代理域(R-155 B7):SubagentRuntime 运行时、task 工具 schema(task_spec)与
 //! run_subagent(独立只读快照 + 空历史,ask 一律 Deny,run_once 递归经 dyn Box 断开)。
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use kanzei_harness::{AgentDef, HarnessSnapshot, ToolCtx};
-use kanzei_llm::{LlmClient, ReasoningEffort, Route, ToolSpec};
+use kanzei_llm::{LlmClient, ReasoningEffort, Route, ToolSpec, Usage};
+use tokio_util::sync::CancellationToken;
 
 use super::event::{AskFuture, AskReply, AskRequest, AskResponse, RunEvent, TaskTrace};
 use super::{run_once, RunnerConfig};
+
+/// R-174:运行中**可单条取消**的子代理注册表。id = 模型 task 调用 id 或编排角色名。
+/// `cancel` 命中后 token 即触发,drive/phase_pipeline 的 select 分支以「被停」终态收尾,
+/// 读槽由 run_subagent future drop 时 RAII 释放。None(测试/CLI 单运行)不支持中途单条停止。
+#[derive(Default)]
+pub struct TaskCancellations {
+    inner: Mutex<HashMap<String, CancellationToken>>,
+}
+impl TaskCancellations {
+    pub fn register(&self, id: &str) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.inner.lock().unwrap().insert(id.to_string(), token.clone());
+        token
+    }
+    /// 取消一个子代理;返回该 id 当时是否在运行(不在 = 已结束/不存在)。
+    pub fn cancel(&self, id: &str) -> bool {
+        let token = self.inner.lock().unwrap().remove(id);
+        if let Some(token) = token {
+            token.cancel();
+            true
+        } else {
+            false
+        }
+    }
+    /// 子代理自然结束后清理注册(token 已失效或从未被 cancel);幂等。
+    pub fn unregister(&self, id: &str) {
+        self.inner.lock().unwrap().remove(id);
+    }
+}
 
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
@@ -31,6 +62,9 @@ pub struct SubagentRuntime {
     /// 「并行查」身份,结束 RAII 释放;None(纯 CLI 单运行/测试)不登记。
     pub coordinator:
         Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
+    /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
+    /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
+    pub cancellations: Option<Arc<TaskCancellations>>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {
@@ -104,6 +138,7 @@ pub(crate) async fn run_subagent(
         // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
     };
+    let mut total_usage = Usage::default();
     let mut on_event = |event: RunEvent| {
         let text = match &event {
             RunEvent::TurnStart { step, max_steps } => Some(if *max_steps > 0 {
@@ -119,7 +154,10 @@ pub(crate) async fn run_subagent(
         };
         let trace = match event {
             RunEvent::ToolStart {
-                id, name, summary, ..
+                id,
+                name,
+                summary,
+                input,
             } => Some(TaskTrace {
                 child_id: id,
                 phase: "start".into(),
@@ -128,6 +166,9 @@ pub(crate) async fn run_subagent(
                 ok: None,
                 preview: None,
                 display: None,
+                // R-174:完整入参原文进 trace,面板/transcript 可展开复核「到底拿什么调的」。
+                input: Some(input),
+                usage: None,
             }),
             RunEvent::ToolEnd {
                 id,
@@ -143,7 +184,29 @@ pub(crate) async fn run_subagent(
                 ok: Some(ok),
                 preview: Some(preview),
                 display,
+                input: None,
+                usage: None,
             }),
+            // R-174:子代理每轮 StepEnd 累计 token,以 phase="usage" 的 trace 上抛,
+            // 前端据此刷新「累计 token」字段(transcript/面板共用同一数据源)。
+            RunEvent::StepEnd { usage, .. } => {
+                total_usage.input = total_usage.input.saturating_add(usage.input);
+                total_usage.output = total_usage.output.saturating_add(usage.output);
+                total_usage.reasoning = total_usage.reasoning.saturating_add(usage.reasoning);
+                total_usage.cache_read = total_usage.cache_read.saturating_add(usage.cache_read);
+                total_usage.cache_write = total_usage.cache_write.saturating_add(usage.cache_write);
+                Some(TaskTrace {
+                    child_id: parent_call_id.to_string(),
+                    phase: "usage".into(),
+                    name: String::new(),
+                    summary: None,
+                    ok: None,
+                    preview: None,
+                    display: None,
+                    input: None,
+                    usage: Some(total_usage),
+                })
+            }
             _ => None,
         };
         if let Some(text) = text {
@@ -191,17 +254,67 @@ pub(crate) async fn run_subagent(
         &mut on_event,
         &mut ask,
     );
-    match fut.await {
-        Ok(summary) => {
-            let text = if summary.text.trim().is_empty() {
-                "(subagent finished without a text answer)".to_string()
-            } else {
-                summary.text
-            };
-            kanzei_harness::ToolOutput::ok(text)
-        }
-        Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
+    // R-174:单条停止——注册表 Some 时注册本子代理的取消 token,`stop_task` 命中后
+    // 立即触发 select 分支,以「被停」终态返回;读槽 `_read_permit` 随函数返回由 RAII
+    // 释放。drive.rs 的 timeout 仍在外层墙钟兜底,二者正交(取消先到先得)。
+    let cancellation = rt
+        .cancellations
+        .as_ref()
+        .map(|reg| reg.register(parent_call_id));
+    let mut fut = Box::pin(fut);
+    let output = match &cancellation {
+        Some(token) => tokio::select! {
+            biased;
+            _ = token.cancelled() => {
+                let _ = progress.send(RunEvent::TaskProgress {
+                    id: parent_call_id.to_string(),
+                    text: "子代理已被停止".into(),
+                    trace: Some(TaskTrace {
+                        child_id: parent_call_id.to_string(),
+                        phase: "cancelled".into(),
+                        name: String::new(),
+                        summary: None,
+                        ok: None,
+                        preview: None,
+                        display: None,
+                        input: None,
+                        usage: None,
+                    }),
+                });
+                kanzei_harness::ToolOutput::error(format!(
+                    "subagent {parent_call_id} was stopped by the user"
+                ))
+            }
+            result = &mut fut => match result {
+                Ok(summary) => {
+                    let text = if summary.text.trim().is_empty() {
+                        "(subagent finished without a text answer)".to_string()
+                    } else {
+                        summary.text
+                    };
+                    kanzei_harness::ToolOutput::ok(text)
+                }
+                Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
+            },
+        },
+        None => match fut.await {
+            Ok(summary) => {
+                let text = if summary.text.trim().is_empty() {
+                    "(subagent finished without a text answer)".to_string()
+                } else {
+                    summary.text
+                };
+                kanzei_harness::ToolOutput::ok(text)
+            }
+            Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
+        },
+    };
+    // 无论哪条路径结束(正常/失败/超时/取消),从注册表摘掉本 id——
+    // 取消时 cancel() 已移除,这里对已移除的幂等;防 timeout 提前 drop future 后残留死 token。
+    if let Some(reg) = rt.cancellations.as_ref() {
+        reg.unregister(parent_call_id);
     }
+    output
 }
 
 /// R-173:**编排对象直接派发**的只读勘察/复核代理。

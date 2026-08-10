@@ -1,10 +1,19 @@
 //! 阶段流水线接线(R-173 批6):把 [`PhaseOrchestrator`] 接进桌面端的一轮运行。
 //!
-//! # 只在自主推进轮装配
+//! # 装配闸门 = 进程级「勘察复核」开关(2026-08-11 用户定调)
 //!
-//! 手动一问一答**不构造本对象**,运行路径与引入前逐字节相同——「不构造编排对象
-//! 就是关」(2026-08-10 用户定调),没有第二个布尔开关可以配错。构造闸门是
-//! `run.rs` 里那一句 `AutoRunController::enabled`。
+//! 唯一闸门是 [`start_if_enabled`] 的第一个参数,值来自 `ProcessHandle::
+//! phase_pipeline_enabled`(界面上的「勘察复核」勾选框)。开 = 本进程**每个任务**
+//! 都走七阶段,手动一问一答也走;关 = 不构造本对象,运行路径与引入前逐字节相同
+//! ——「不构造编排对象就是关」(2026-08-10 用户定调),没有第二个布尔开关可以配错。
+//!
+//! **闸门曾经是 `AutoRunController::enabled`(自主推进/鞭挞)**,已于 2026-08-11 换掉:
+//! 用户由此形成「开自主推进 = 走七阶段」的心智模型,而自主推进本来只管「轮末要不要
+//! 自动发下一条」。现在两件事彻底分开,自主推进**不再**自带流水线。
+//!
+//! 另一条不受本闸门影响的路:**模型自己派 `task`**。开关关着时子代理运行时照样构造
+//! (`run.rs` 的 `subagent_rt` 无条件),模型想派就能派——本开关管的是「每轮强制勘察
+//! 与复核」,不是「有没有子代理」。
 //!
 //! # 为什么勘察由编排对象派发,而不是让模型自己调 task
 //!
@@ -97,6 +106,82 @@ struct RoleReport {
     role: &'static str,
     text: String,
     ok: bool,
+}
+
+/// **阶段流水线的唯一装配闸门**:开关关着就返回 `None`,一个编排对象都不构造。
+///
+/// `enabled` 来自进程级的「勘察复核」开关(`ProcessHandle::phase_pipeline_enabled`),
+/// 与自主推进(鞭挞)无关——见模块头。
+///
+/// 闸门与构造合在一处**只为可测**:它原先内联在 `run_task` 里,而 `run_task` 需要
+/// Tauri `Window` 才能调用,于是「开关关着时不构造编排对象」这条只能靠读代码确认。
+/// 顺带保证了一件事——`[models] scout` 的解析(可能发起建链请求)只在开关打开时发生,
+/// 关着的那条路上一次网络往返都不多花。
+#[allow(clippy::too_many_arguments)] // 协调器/观察者/身份/配置/事件口缺一不可,包成结构体只是换个地方写。
+pub(crate) async fn start_if_enabled(
+    enabled: bool,
+    config: &kanzei_harness::KanzeiConfig,
+    proxy: &kanzei_llm::ProxyConfig,
+    coordinator: Arc<dyn ProjectExecutionCoordinator>,
+    observer: Arc<dyn PhaseObserver>,
+    project_root: std::path::PathBuf,
+    run_id: &str,
+    process_id: &str,
+    stage: &(dyn Fn(&str, String) + Sync),
+) -> Option<PhasePipeline> {
+    if !enabled {
+        return None;
+    }
+    let scout_route = resolve_scout_route(config, proxy, stage).await;
+    Some(PhasePipeline::start(
+        coordinator,
+        observer,
+        project_root,
+        run_id,
+        process_id,
+        &config.limits,
+        scout_route,
+    ))
+}
+
+/// 勘察/复核用哪条路由由 `[models] scout` 决定。解析失败**不静默**——阶段面板上
+/// 会有一行,然后按未配置处理(沿用 fast),而不是让整轮跑不成。
+async fn resolve_scout_route(
+    config: &kanzei_harness::KanzeiConfig,
+    proxy: &kanzei_llm::ProxyConfig,
+    stage: &(dyn Fn(&str, String) + Sync),
+) -> Option<ScoutRoute> {
+    let model_ref = config.models.scout.as_deref()?;
+    let resolved = match config.resolve_model(model_ref) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            stage(
+                "勘察路由",
+                format!("{model_ref} 解析失败,回退 fast:{error}"),
+            );
+            return None;
+        }
+    };
+    match kanzei_core::build_route(&resolved, proxy).await {
+        Ok(route) => {
+            stage(
+                "勘察路由",
+                format!("{}:{}", resolved.provider_name, resolved.model),
+            );
+            Some(ScoutRoute {
+                service_tier: config.service_tier_for(&resolved),
+                model: resolved.model.clone(),
+                route,
+            })
+        }
+        Err(error) => {
+            stage(
+                "勘察路由",
+                format!("{model_ref} 建链失败,回退 fast:{error}"),
+            );
+            None
+        }
+    }
 }
 
 impl PhasePipeline {
@@ -400,6 +485,7 @@ impl PhasePipeline {
             timeout_secs: template.timeout_secs,
             limits: template.limits.clone(),
             coordinator: template.coordinator.clone(),
+            cancellations: template.cancellations.clone(),
         }
     }
 }
@@ -504,11 +590,11 @@ pub(crate) fn plain_writer_request(
 
 /// 写租约的取得时机——两条路的**唯一实质差异**,也是不变量 2 在生产路径上的落点。
 ///
-/// - `pipeline_on = true`(自主推进轮):**当场不取**,返回 `Ok(None)`。租约推迟到
+/// - `pipeline_on = true`(「勘察复核」开着):**当场不取**,返回 `Ok(None)`。租约推迟到
 ///   汇总屏障之后由编排对象在 `begin_implementation` 里取——勘察全部进入终态之前
 ///   项目里不得出现 writer。
-/// - `pipeline_on = false`(手动一问一答):与 R-171 完全一致,当场取、持有整轮,
-///   并发 queued/acquired 两条事件。
+/// - `pipeline_on = false`(「勘察复核」关着,一问一答):与 R-171 完全一致,当场取、
+///   持有整轮,并发 queued/acquired 两条事件。
 ///
 /// 抽成独立函数**只为可测**:这个判定原先内联在 `run_task` 里,而 `run_task` 需要
 /// Tauri `Window` 才能调用,于是"流水线开启时不取租约"这条只能靠读代码确认。

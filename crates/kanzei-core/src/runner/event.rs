@@ -13,6 +13,13 @@ pub struct TaskTrace {
     pub ok: Option<bool>,
     pub preview: Option<String>,
     pub display: Option<serde_json::Value>,
+    /// R-174:子代理内部工具调用的**完整入参** JSON(transcript 数据源,验收⑤)。
+    /// 活动面板摘要(summary)只给一行,信息量不足以复核"它到底拿什么参数调的",
+    /// transcript 必须能展开每次调用的原始入参。
+    pub input: Option<serde_json::Value>,
+    /// R-174:子代理**累计 token**(StepEnd 逐次累加,面板「累计 token」字段数据源)。
+    /// phase == "usage" 的 trace 携带本字段,前端据此刷新计数。
+    pub usage: Option<Usage>,
 }
 
 /// 面向 UI 的运行事件(CLI/桌面端都消费这一层,不直接碰 LlmEvent)。
