@@ -84,6 +84,17 @@
 - refs: R-054 D-112
 - 阶段: 4
 
+- 批次: 3/3
+- 进展: 批3(收口)完成:全量 cargo test --workspace 全绿(45+71+51+39+132+7+3+2+1,首跑 LNK1104 因测试二进制瞬态占用,重试即过)。验收逐项核对:①依赖引用不存在告警=既有引擎能力 tracker.rs:860(block_reasons 依赖不存在);②条目详情含正反向链接=批1 交付 docs.rs:179-181 snapshot 输出 dependencies/dependents+前端 12-docs-pages.js:201-202 meta;③文档页被谁阻塞/阻塞谁视图=批2 交付 renderDependencyView(12-docs-pages.js:156-231)+highlightDependencyChain(232-267)+toggle(14-docs-actions.js:42),runtime smoke 断言覆盖按钮/分层/高亮/压暗/隐藏切换;④循环依赖告警=既有引擎能力 tracker.rs:846-850。验收全项满足,关闭。
+批次 1/3 完成(9c61b23):tracker.rs dependents_map 公共函数(正反向依赖图,与 dependency_states 共用「依赖:」字段解析),docs.rs docs_snapshot 输出 dependencies/dependents 字段;单测覆盖正反向与去重。
+批次 2/3 完成(0eb7cf8):文档页依赖视图——index.html dep-toggle 按钮+dep-view 容器;12-docs-pages.js renderDependencyView(可做/被阻塞分层,数据与引擎取活同源)+highlightDependencyChain(点击高亮向上依赖+向下被依赖,压暗无关);14-docs-actions.js toggle 绑定;style.css dep-view 样式;i18n 登记 6 词条。runtime smoke 新增断言(按钮/分层/高亮/压暗/隐藏切换)全绿。
+批次 3/3:收口验证——验收①④为既有引擎能力(依赖不存在告警 tracker.rs:823、循环依赖告警 tracker.rs:831-835),验收②③为本次交付;跑全量测试后关闭。
+批次 1/3 完成(9c61b23):tracker.rs 新增 dependents_map 公共函数(返回正向/反向依赖图,与 dependency_states 共用「依赖:」字段解析,排序去重),docs.rs docs_snapshot 每条目输出 dependencies/dependents 字段。单测 dependents_map_reports_forward_and_reverse_links 覆盖正反向与去重,tools 132 passed。
+批次 2/3:前端文档页依赖视图(分层列表+点击高亮)。
+批次 3/3:收口验证(不存在引用告警/正反向链接/视图切换/循环告警逐项+全量测试)。
+批次规划(3批):批1=引擎侧依赖语义分立——「依赖:」字段解析成独立键+ID 存在性校验+循环依赖检测(依赖图 DFS 判环)+tracker 输出附带反向链接;批2=前端文档页依赖视图——按依赖拓扑分层的列表(可做层/被阻塞层)+点击条目高亮其依赖链;批3=验收收口——不存在引用告警/正反向链接/视图切换/循环告警逐项验证+全量测试。
+批次 0/3:开始批1。
+
 ## R-112 需求缺陷分类体系标准化 [todo]
 - 标签: 流程
 - 复杂度: 中

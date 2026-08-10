@@ -1096,3 +1096,18 @@
 - 命令: cargo test --workspace
 - 摘要: R-102 关闭前全量验证:13 个测试目标全绿(45+71+51+39+131+7+3+2+1)。首次全量曾遇 update_tests_update::install_helper_waits flaky(296s,进程存活探测竞态),单独重跑 2s 通过,二次全量全绿——与本次改动无关(update.rs 未触碰),已另行登记。
 - 收尾: 1786319498
+
+## T-1786319886 R-111 批1 dependents_map 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-111 批1 引擎侧依赖反向链接:tracker.rs 新增 dependents_map 公共函数(返回正向/反向依赖图,与既有 dependency_states 共用「依赖:」字段解析),docs.rs docs_snapshot 输出 dependencies/dependents 字段。新增单测 dependents_map_reports_forward_and_reverse_links 验证正反向与去重。tools 132 passed。
+- 收尾: 1786319886
+
+## T-1786320028 R-111 批2 前端依赖视图四条冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs + i18n/a11y/markdown smoke
+- 摘要: R-111 批2 前端依赖视图:index.html 新增 documents-dep-toggle 按钮与 documents-dep-view 容器;12-docs-pages.js renderDependencyView(可做/被阻塞分层 + 点击高亮依赖链)与 highlightDependencyChain;14-docs-actions.js toggle 绑定;style.css dep-view 样式;i18n 登记 6 词条。runtime smoke 新增依赖视图断言(按钮/分层/高亮/压暗/隐藏切换)并全绿,其余三条冒烟通过。
+- 收尾: 1786320028
+
+## T-1786320491 cargo test --workspace (R-111 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-111 关闭前全量:45+71+51+39+132+7+3+2+1 全绿(kanzei-app 45、kanzei-core 71、kanzei-harness 51、kanzei-llm 39、kanzei-tools 132)。首次链接 LNK1104(kzapp 测试二进制被瞬态占用)重试即过。
+- 收尾: 1786320491
