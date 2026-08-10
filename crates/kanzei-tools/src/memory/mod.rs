@@ -1768,4 +1768,57 @@ source: user
         );
         std::fs::remove_dir_all(root).ok();
     }
+
+    #[test]
+    fn 端到端_edit失败后记忆Packet进上下文() {
+        // R-162 验收①"录制回放证明":真实 FailureRecallPolicy + 真实记忆条目 +
+        // RecallWatch 全链路——edit 工具失败瞬间,相关 SOP 记忆以 Packet 形式
+        // 追加进工具结果文本(模型下一轮就能看到,不阻断主循环)。
+        let root = temp_memory_root("e2e");
+        let store = MemoryStore::project(&root);
+        let kind = format!("old_string not found #{}", std::process::id());
+        store
+            .add(
+                "sop",
+                "edit 失败先 read",
+                "edit 替换失败时必读:先 read 重建 old_string 再重试",
+                &format!("正文 [fp:edit|{kind}] 判据"),
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        let mut watch = kanzei_core::RecallWatch::new(Some(&policy));
+        let calls = vec![(
+            "c1".into(),
+            "edit".into(),
+            serde_json::json!({ "path": "src/main.rs" }),
+            "".into(),
+        )];
+        let mut results = vec![kanzei_llm::Part::ToolResult {
+            call_id: "c1".into(),
+            content: format!("old_string not found in src/main.rs (kind: {kind})"),
+            is_error: true,
+        }];
+        watch.note_step(&calls, &mut results);
+        let kanzei_llm::Part::ToolResult { content, .. } = &results[0] else {
+            panic!("expected ToolResult");
+        };
+        // 记忆命中以 Packet 文本追加进结果,模型下一轮即可见。
+        assert!(
+            content.contains("[记忆命中"),
+            "工具失败结果必须携带记忆 Packet: {content}"
+        );
+        assert!(content.contains("行动: edit 替换失败时必读"), "{content}");
+        assert!(content.contains("状态: active"), "{content}");
+        // 遥测同链路落库。
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let log = sstore.event_recall_log().unwrap();
+        assert_eq!(log.len(), 1, "端到端触发也必须落 recall_events");
+        assert_eq!(log[0].2, "fingerprint", "首次失败指纹命中标 fingerprint");
+        std::fs::remove_dir_all(root).ok();
+    }
 }

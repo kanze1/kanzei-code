@@ -1193,3 +1193,8 @@
 - 命令: cargo test -p kanzei-tools; cargo test -p kanzei-core
 - 摘要: tools 152 / core 79 全绿:FailureRecallPolicy 实现 Tier0/Tier1/ReRetrieve/超时降级 + event_recall_log 查询 + 5 条单测(验收③/④)
 - 收尾: 1786342987
+
+## T-1786343145 R-162 B5 注入+端到端(tools/core) [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-core
+- 摘要: tools 153 / core 79 全绿:批5 完成——CLI/桌面端注入 FailureRecallPolicy(验收⑤)+ 端到端集成测试(验收①:edit 失败后记忆 Packet 进上下文)
+- 收尾: 1786343145

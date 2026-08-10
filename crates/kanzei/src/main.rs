@@ -173,6 +173,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
+    let ctx = ToolCtx { cwd, project_root };
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
@@ -186,10 +187,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         // 轮内主动压缩的预算基准(D-176)。
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
-        // R-162 事件触发召回:批 5 注入 kanzei-tools 实现的 RecallPolicy。
-        recall: None,
+        // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ CLI 侧)。
+        recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
+            &ctx.project_root,
+        ))),
     };
-    let ctx = ToolCtx { cwd, project_root };
 
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);

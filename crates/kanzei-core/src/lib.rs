@@ -15,8 +15,8 @@ pub use notification::{
 pub use runner::{
     completed_entry, run_once, run_once_with_parts, summarize_failures, summarize_metrics,
     summarize_tools, AskFuture, AskReply, AskRequest, AskResponse, CompletedEntry, FailureSignal,
-    RecallHit, RecallPolicy, RecallTrigger, RunEvent, RunMetrics, RunSummary, RunnerConfig,
-    SubagentRuntime,
+    RecallHit, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
+    RunnerConfig, SubagentRuntime,
 };
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,

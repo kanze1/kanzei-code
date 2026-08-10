@@ -27,9 +27,9 @@
 - 验收: ①录制回放或 E2E 证明:edit 失败后下一次 LLM 请求前 M-009 类 Packet 已进上下文;②预算超时降级有单测;③每次触发落 recall_events(trigger/action/延迟);④同轮同条目注入一次有单测;⑤CLI/桌面端同源。
 - refs: R-103 M-009 docs/design/memory_control_plane.md
 
-- 进展: 批1完成(R-162 B1, 0732e1b):failure_kind/failure_target 提为 pub(crate) 共享函数 + 直接单测。批2完成(R-162 B2, 66f36a5):MemoryEntry 一等字段访问 + FingerprintIndex 内存索引 + 单测。批3完成(R-162 B3, 3f20b2c):core 新增 runner/recall.rs RecallWatch watcher + RecallPolicy trait + RunnerConfig.recall 字段 + drive.rs 钩位 + 4 单测(验收④✓)。批4完成(R-162 B4):tools 侧 FailureRecallPolicy 实现 RecallPolicy——Tier0 FingerprintIndex.lookup 精确匹配(内存 HashMap p95<5ms)→ miss 则 Tier1 store.search BM25(错误原文+目标构 query,p95<10ms 预算 30ms 硬闸超时降级不阻塞)→ failure_count≥2 遥测标 reretrieve(内容④换 query 口径,禁止原 top-k 重塞由每次新检索+注入去重保证);record_trigger 落 recall_events(trigger_type=event_recall,payload 带 tool/kind/count,policy_action=fingerprint|reretrieve,延迟 elapsed_ms)(验收③✓);kanzei-core 新增 event_recall_log 公开查询(可观测性+测试断言);lib.rs 导出 RecallHit/RecallPolicy/RecallTrigger;5 条单测:tier0指纹精确命中/超时降级不阻塞(验收②✓)/重复失败触发遥测落recall_events(验收③✓)/ReRetrieve换query遥测标reretrieve(内容④✓)/tier1_BM25降级。tools 152 / core 79 全绿。批5待做:CLI/桌面端 RunnerConfig 注入 FailureRecallPolicy(验收⑤同源)+ 录制回放证明 edit 失败后 Packet 进上下文(验收①)+ 全量验证。
+- 进展: 批1完成(R-162 B1, 0732e1b):failure_kind/failure_target 提为 pub(crate) 共享函数 + 直接单测。批2完成(R-162 B2, 66f36a5):MemoryEntry 一等字段访问 + FingerprintIndex 内存索引 + 单测。批3完成(R-162 B3, 3f20b2c):core 新增 runner/recall.rs RecallWatch + RecallPolicy trait + RunnerConfig.recall 字段 + drive.rs 钩位 + 4 单测(验收④✓)。批4完成(R-162 B4, a4df7c0):tools 侧 FailureRecallPolicy 实现 RecallPolicy——Tier0 FingerprintIndex.lookup 精确匹配→Tier1 store.search BM25(错误原文+目标构 query,30ms 硬闸超时降级不阻塞)(验收②✓)→failure_count≥2 遥测标 reretrieve(内容④✓);record_trigger 落 recall_events(event_recall,payload 带 tool/kind/count,policy_action=fingerprint|reretrieve,延迟)(验收③✓);event_recall_log 公开查询;lib.rs 导出 RecallHit/RecallPolicy/RecallTrigger。批5完成:CLI main.rs 与桌面端 run.rs build_runner_config 均注入 FailureRecallPolicy(验收⑤ CLI+桌面端同源);lib.rs 补导出 RecallWatch;新增端到端集成测试——真实 FailureRecallPolicy+记忆条目+RecallWatch 全链路,edit 失败后记忆 Packet 追加进工具结果文本(验收①✓录制回放证明)。tools 153 / core 79 / app 51 全绿。待办:关闭前 cargo test --workspace 全量(复杂度 中)。
 
-- 批次: 4/5
+- 批次: 5/5
 
 ## R-163 记忆回放评估台:六臂对照量化每条记忆的决策价值 [todo]
 - 优先级: P0

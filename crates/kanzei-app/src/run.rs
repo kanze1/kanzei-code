@@ -87,11 +87,12 @@ pub(crate) async fn run_task(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
-    let runner_config = build_runner_config(&resolved, &config, reasoning_override.as_deref());
     let ctx = ToolCtx {
         cwd,
         project_root: project_root.clone(),
     };
+    let runner_config =
+        build_runner_config(&resolved, &config, reasoning_override.as_deref(), &ctx.project_root);
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
@@ -800,6 +801,7 @@ pub(crate) fn build_runner_config(
     resolved: &kanzei_harness::config::ResolvedModel,
     config: &kanzei_harness::config::KanzeiConfig,
     reasoning_override: Option<&str>,
+    project_root: &std::path::Path,
 ) -> kanzei_core::RunnerConfig {
     kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
@@ -811,8 +813,10 @@ pub(crate) fn build_runner_config(
         service_tier: config.service_tier_for(resolved),
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
-        // R-162 事件触发召回:批 5 注入 kanzei-tools 实现的 RecallPolicy。
-        recall: None,
+        // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ 桌面端)。
+        recall: Some(Box::new(kanzei_tools::memory::FailureRecallPolicy::new(
+            project_root,
+        ))),
     }
 }
 
