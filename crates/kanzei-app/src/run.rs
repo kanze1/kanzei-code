@@ -26,6 +26,10 @@ pub(crate) async fn run_task(
     prompt: String,
     attachments: Option<Vec<PromptAttachment>>,
     project_dir: String,
+    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
+    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
+    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
+    main_root: PathBuf,
     session_id: String,
     subagent_enabled: bool,
     profile: Option<String>,
@@ -55,7 +59,10 @@ pub(crate) async fn run_task(
     let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
     let config = Arc::new(config);
     report_config_warnings(window, &session_id, &config, &config_warnings);
-    let (profile, project_root) = resolve_profile_and_root(profile.as_deref(), &config, &cwd)?;
+    let profile = resolve_profile(profile.as_deref(), &config)?;
+    // R-050 D1「运行时重定向主根」的落点:cwd 是代码工作树(将来 = worktree),
+    // project_root 恒为主根——托管文档、state.db、记忆全部走它。
+    let project_root = main_root;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -92,11 +99,7 @@ pub(crate) async fn run_task(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
-    let ctx = ToolCtx {
-        cwd,
-        project_root: project_root.clone(),
-        ..Default::default()
-    };
+    let ctx = ToolCtx::new(cwd, project_root.clone());
     let mut runner_config = build_runner_config(
         &resolved,
         &config,
@@ -199,10 +202,28 @@ pub(crate) async fn run_task(
     let _write_lease = WriterLeaseTrace {
         _lease: write_lease,
     };
-    // 注入执行身份:worktree_key 与 project_write_key 分离(R-141 前置),
-    // serial 策略下普通工具 FIFO 串行 + task 禁用(设计不变量 3/5)。
-    let project_write_key = ctx.project_root.display().to_string();
-    let worktree_key = ctx.project_root.display().to_string();
+    // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
+    // task 禁用(设计不变量 3/5)。
+    //
+    // R-141 拆开这两把键,服务的是 R-050 D1「运行时重定向主根」:worktree 线
+    // 上线后,同一项目的 N 棵树以 cwd=worktree、project_root=主根 运行,于是——
+    //
+    // ① `project_write_key` = **规范化主根**,N 棵树必须**相同**。
+    //    主根 `.kanzei` 的 tracker/记忆是所有线唯一的共享写点,键一旦随树分裂,
+    //    跨进程单写仲裁就被绕过(两条线同时重写同一个 docstore = lost update)。
+    //    这里取 normalized_project_root:它比 project_root 多一次 canonicalize,
+    //    保证不同路径写法落进同一个仲裁桶,且与 run_prompt 算给会话 id/进程归属
+    //    的那个身份键逐字节相同。(它内部那次 discover 对已解析的主根是 no-op,
+    //    不是根发现——线路径不做根发现这条不变式仍然成立。)
+    // ② `worktree_key` = **代码树**,N 棵树必须**不同**。
+    //    它是工具内并发锁键,bash/git/edit 真实作用于 ctx.cwd;若拿主根当键,
+    //    互不相干的两棵树会因为主根相同而彼此串锁、白白串行。
+    //
+    // 一句话:写主根的串行,写代码的并行。改任何一行前先确认这条不变式还成立。
+    let project_write_key = crate::normalized_project_root(&ctx.project_root)
+        .display()
+        .to_string();
+    let worktree_key = ctx.cwd.display().to_string();
     let mut ctx = ctx;
     ctx = ctx.with_identity(
         worktree_key,
@@ -993,20 +1014,19 @@ pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
     format!("\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context.")
 }
 
-pub(crate) fn resolve_profile_and_root(
+/// R-141:只解析 profile,**不再顺手发现项目根**。
+/// 根由 IPC 入口(run_prompt)解析一次后显式传进 run_task——把两件事捆在一个
+/// 函数里,正是根发现能悄悄溜进线路径的原因。
+pub(crate) fn resolve_profile(
     profile: Option<&str>,
     config: &kanzei_harness::config::KanzeiConfig,
-    cwd: &Path,
-) -> anyhow::Result<(kanzei_harness::ProfileKind, PathBuf)> {
-    let profile = match profile.filter(|profile| !profile.is_empty()) {
+) -> anyhow::Result<kanzei_harness::ProfileKind> {
+    match profile.filter(|profile| !profile.is_empty()) {
         Some(profile) => profile
             .parse()
-            .map_err(|error: String| anyhow::anyhow!(error))?,
-        None => config.default_profile(),
-    };
-    let project_root =
-        kanzei_harness::config::discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
-    Ok((profile, project_root))
+            .map_err(|error: String| anyhow::anyhow!(error)),
+        None => Ok(config.default_profile()),
+    }
 }
 
 pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
@@ -1421,7 +1441,14 @@ pub(crate) async fn run_prompt(
     process_id: Option<String>,
 ) -> Result<(), String> {
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
+    // 规范化主根:会话 id 与进程归属的身份键(canonicalize 过,形态唯一)。
     let project_root = crate::normalized_project_root(Path::new(&project_dir));
+    // R-141:这里是 IPC 入口,根发现只做这一次,结果显式传给 run_task。
+    // 与上面那个刻意分开:main_root 是**文件系统形态**的主根(托管文档、state.db、
+    // 权限规则里的绝对路径都按它落盘),不做 canonicalize——换成 `\\?\` 前缀形态
+    // 会让用户已写的绝对路径放行规则一夜失配。
+    let main_root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+        .unwrap_or_else(|| PathBuf::from(&project_dir));
     let process = if let Some(process_id) = process_id.as_deref() {
         let process = state
             .processes
@@ -1481,6 +1508,7 @@ pub(crate) async fn run_prompt(
                 next_prompt,
                 next_attachments.take(),
                 project_dir.clone(),
+                main_root.clone(),
                 session_id.clone(),
                 subagent_enabled,
                 profile.clone(),
