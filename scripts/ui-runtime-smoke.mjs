@@ -71,8 +71,10 @@ if (!documentsBottomPadding || Number(documentsBottomPadding[1]) < 24) {
   fail("独立文档页滚动容器未预留状态栏安全间距");
 }
 // 小工具降噪后,非静默工具仍需全量入列(R-095 的"完整流水"只对有信息量的调用成立)。
-if (!source.includes('else if (isActivityTool(e.payload.name)) bgAdd')) {
-  fail("活动面板仍会接收全部工具调用(或降噪分流被移除)");
+// R-173:分流判定必须连 input 一起传——编排派发的勘察/复核子代理 name 恒为 "task",
+// 只看 name 会把它们连同模型自己派的 task 一起静默,内部进度整批丢掉。
+if (!source.includes('else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd')) {
+  fail("活动面板仍会接收全部工具调用(或降噪分流被移除,或分流判定不再看 input.phase)");
 }
 if (!source.includes("function reportPersistentError(text, { retry = null } = {})") || !html.includes('id="log-retry"') || !source.includes("function copyReadable(el)")) {
   fail("错误反馈缺少持久详情、恢复入口或复制能力");
@@ -2361,6 +2363,108 @@ assert(
 );
 statusFilter.value = "all";
 statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
+
+// ---------- R-173 编排派发的勘察/复核子代理:实时进度必须落到面板上 ----------
+// 编排对象按角色表派发的这批子代理不经模型 tool call,主对话里没有内联工具块兜底,
+// 活动面板是它们唯一的可见处。此前 name 恒为 "task" 被 R-168 一刀切静默,于是 5 勘察 +
+// 3 复核的轮次/工具进度整批落空。区分依据是后端给的 input.phase(scouting/review)。
+const orchEntry = (role) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === role);
+const orchGroup = (phase) => document.querySelector(`.bg-group[data-bg-phase=${phase}]`);
+const orchGroupHead = (phase) => orchGroup(phase)?.querySelector(".bg-group-head")?.textContent ?? "";
+const scoutRoles = ["architecture_scout", "runtime_scout", "test_scout"];
+// ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
+for (const role of scoutRoles) {
+  toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role } } });
+}
+// 同一批里混一条模型自己派的 task(不带 phase):R-168 的静默口径不能被顺手打破。
+toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" } } });
+await flush();
+for (const role of scoutRoles) {
+  assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
+}
+assert(!orchEntry("MODEL_TASK"), "模型自己派的 task 被一起放行了(R-168 静默口径被打破)");
+// ② 分组:按 input.phase 分区,这是 Running/Finished 分区的雏形。
+assert(orchGroup("scouting"), "勘察子代理未按 input.phase 分组");
+assert(
+  orchGroup("scouting").querySelectorAll(".bg-entry").length === scoutRoles.length,
+  `勘察分组内条目数不对:${orchGroup("scouting").querySelectorAll(".bg-entry").length}`,
+);
+assert(orchGroupHead("scouting").includes("勘察"), `勘察分组标题缺阶段名,实得 "${orchGroupHead("scouting")}"`);
+assert(orchGroupHead("scouting").includes("0/3"), `勘察分组标题未给出完成数/总数,实得 "${orchGroupHead("scouting")}"`);
+// ③ 单条信息量:角色名(不是恒为 "task" 的工具名)、所属阶段、已运行时长与内部调用数。
+const scout = orchEntry("architecture_scout");
+assert(
+  scout.querySelector(".bg-tool")?.textContent === "architecture_scout",
+  `条目未以角色名标识,实得 "${scout.querySelector(".bg-tool")?.textContent}"(8 条都叫 task 等于没标识)`,
+);
+assert(
+  scout.querySelector(".bg-phase-badge")?.textContent === "勘察",
+  `条目未标出所属阶段,实得 "${scout.querySelector(".bg-phase-badge")?.textContent}"`,
+);
+assert(/运行中 · \d+s · 内部调用 \d+/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
+  `运行中未给出状态/已运行时长/内部调用数,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
+assert(scout.dataset.bgStatus === "running", `运行中状态未落到条目上,实得 "${scout.dataset.bgStatus}"`);
+// ④ 执行期进度:纯轮次进度(trace 为 null)与工具进度都要落到对应角色。
+taskProgress({ payload: { id: "architecture_scout", text: "第 3/12 轮", trace: null } });
+await flush();
+assert(scout.querySelector(".bg-prog")?.textContent === "第 3/12 轮",
+  `轮次进度未挂回角色条目,实得 "${scout.querySelector(".bg-prog")?.textContent}"`);
+// ⑤ 当前正在用的工具名 —— 用户点名要的那一项。值与写入去向都断言:
+// 只断言文本看不出"写对了内容却写错了元素",dataset 探针把去向也钉死。
+taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "start", name: "grep", summary: "phase_pipeline" } } });
+await flush();
+assert(scout.querySelector(".bg-current")?.textContent.includes("grep"),
+  `当前工具名未显示,实得 "${scout.querySelector(".bg-current")?.textContent}"`);
+assert(scout.dataset.bgCurrentTool === "grep", `当前工具名写错了地方,实得 "${scout.dataset.bgCurrentTool}"`);
+assert(!scout.querySelector(".bg-current")?.classList.contains("hidden"), "当前工具名所在行仍是隐藏的");
+assert(!scout.querySelector(".bg-current")?.classList.contains("idle"), "工具正在跑却标成了空闲态");
+taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "end", name: "grep", ok: true, preview: "命中 12 处" } } });
+taskProgress({ payload: { id: "architecture_scout", text: "第 5/12 轮", trace: { child_id: "c2", phase: "start", name: "read", summary: "phase_pipeline.rs" } } });
+await flush();
+assert(scout.dataset.bgCurrentTool === "read", `当前工具名未跟着换到下一个工具,实得 "${scout.dataset.bgCurrentTool}"`);
+assert(/内部调用 2/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
+  `工具调用次数未累计,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
+// ⑥ 终态:成功/失败/超时三分,完成的条目继续可见。
+toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "勘察简报首行", display: null } });
+toolEnd({ payload: { id: "runtime_scout", name: "task", ok: false, preview: "(超时,未产出结果)", display: null } });
+toolEnd({ payload: { id: "test_scout", name: "task", ok: false, preview: "子代理内部报错", display: null } });
+await flush();
+assert(orchEntry("architecture_scout")?.dataset.bgStatus === "ok", "成功角色终态不对");
+assert(orchEntry("test_scout")?.dataset.bgStatus === "err", "失败角色终态不对");
+assert(orchEntry("runtime_scout")?.dataset.bgStatus === "timeout",
+  `超时角色未与失败区分开,实得 "${orchEntry("runtime_scout")?.dataset.bgStatus}"`);
+assert(orchEntry("runtime_scout")?.classList.contains("timeout"), "超时角色缺少可视区分的样式钩子");
+assert(!orchEntry("test_scout")?.classList.contains("timeout"), "普通失败被误标成超时");
+assert(orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent.includes("超时"),
+  `超时角色元信息未写明超时,实得 "${orchEntry("runtime_scout")?.querySelector(".bg-meta")?.textContent}"`);
+assert(orchEntry("test_scout")?.querySelector(".bg-meta")?.textContent.includes("失败"), "失败角色元信息未写明失败");
+assert(scout.dataset.bgCurrentTool === "", "角色收尾后当前工具名没清掉(会一直显示最后一个工具在跑)");
+for (const role of scoutRoles) {
+  assert(orchEntry(role) && !orchEntry(role).classList.contains("hidden"), `${role} 跑完就消失了(完成的条目必须保留可见)`);
+}
+assert(orchGroupHead("scouting").includes("3/3"), `勘察分组标题未跟随完成数,实得 "${orchGroupHead("scouting")}"`);
+// ⑦ 复核阶段单独一区,与勘察分开。
+for (const role of ["spec_reviewer", "risk_reviewer"]) {
+  toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role } } });
+}
+await flush();
+assert(orchGroup("review"), "复核子代理未单独分区");
+assert(orchGroup("review").querySelectorAll(".bg-entry").length === 2, "复核分组内条目数不对");
+assert(orchGroupHead("review").includes("复核"), `复核分组标题缺阶段名,实得 "${orchGroupHead("review")}"`);
+assert(orchEntry("spec_reviewer")?.querySelector(".bg-phase-badge")?.textContent === "复核", "复核条目阶段标记不对");
+assert(
+  orchGroup("scouting").querySelectorAll(".bg-entry").length === 3,
+  "复核条目串进了勘察分组",
+);
+// ⑧ 角色名跨轮复用:同名角色再次派发要原地复位,否则第二轮的进度全写进上一轮那条终态行。
+toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" } } });
+await flush();
+assert(orchEntry("architecture_scout")?.dataset.bgStatus === "running",
+  `同名角色第二轮派发未复位,实得 "${orchEntry("architecture_scout")?.dataset.bgStatus}"(面板会定格在上一轮)`);
+assert(orchGroup("scouting").querySelectorAll(".bg-entry").length === 3, "同名角色复位时把条目复制了一份");
+assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,实得 "${orchGroupHead("scouting")}"`);
+toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null } });
+await flush();
 
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");

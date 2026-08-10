@@ -140,6 +140,8 @@ const I18N_EN = {
   "选择": "Select", "已选": "Selected", "改状态…": "Change status…", "混选类型,仅可改标签": "Mixed types — tags only",
   "先选择要改的状态或标签": "Pick a status or tag to apply first", "批量操作完成": "Bulk update done", "批量操作部分失败": "Bulk update partly failed",
   "内部调用": "inner calls", "只停这一条,不影响本轮其它工具": "Stop just this one; other tools in this round keep running",
+  // R-173:编排派发的勘察/复核子代理在活动面板里的分区标签与超时终态。
+  "勘察": "Scouting", "复核": "Review", "超时": "Timed out",
   "已停止该后台进程": "Background process stopped", "停止失败": "Failed to stop", "重跑": "Re-run",
   "把这次调用的参数填回输入框,确认后再执行": "Put this call's arguments back in the input box for you to confirm",
   "已填入输入框,确认后发送": "Filled into the input box — review, then send", "复制完整输出": "Copy full output",

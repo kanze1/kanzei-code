@@ -81,11 +81,28 @@ function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
   applyBgFilters();
+  renderBgGroups();
 }
 // R-168:活动栏不是完整工具审计(主对话已有内联工具块)，只保留用户需要盯进度的
 // 终端命令；任意工具失败仍会在结束时补建，避免把故障信号一起静默掉。
-function isActivityTool(name) {
-  return bgIsTerminal(name);
+//
+// R-173:例外是编排对象按角色表派发的勘察/复核子代理。它们不经模型 tool call,
+// 主对话里没有"内联工具块"这个兜底,活动面板是它们唯一的可见处——按 R-168 静默
+// 等于把 5 勘察 + 3 复核的全部内部进度直接丢掉。后端(a921b14)用既有三事件上抛,
+// input.phase 就是分区依据(scouting/review),据此放行;模型自己派的 task 不带
+// phase,仍旧静默,R-168 的口径不动。
+const ORCH_PHASES = new Set(["scouting", "review"]);
+function orchPhaseOf(input) {
+  const phase = input?.phase;
+  return typeof phase === "string" && ORCH_PHASES.has(phase) ? phase : null;
+}
+function orchPhaseLabel(phase) {
+  // 写成两个字面量调用而不是查表:i18n 冒烟只扫源码里带字符串常量的翻译调用,
+  // 查表写法(t(MAP[phase]))会整条绕过 key 覆盖率检查,英文界面上就地漏译。
+  return phase === "scouting" ? t("勘察") : t("复核");
+}
+function isActivityTool(name, input) {
+  return bgIsTerminal(name) || (name === "task" && orchPhaseOf(input) !== null);
 }
 
 const BG_TOOL_TYPES = {
@@ -98,8 +115,8 @@ const BG_TOOL_TYPES = {
 // 除终端命令外，所有成功工具调用均静默；未知新工具也默认静默，避免功能扩展后
 // 活动栏重新被灌满。失败路径由 bgFinishQuiet 补建真实错误条目。
 const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
-function bgQuiet(name) {
-  return !isActivityTool(name);
+function bgQuiet(name, input) {
+  return !isActivityTool(name, input);
 }
 function bgStartQuiet(id, name, summary, input) {
   if (!id) return;
@@ -155,6 +172,46 @@ function applyBgFilters() {
   }
 }
 
+// R-173:编排派发的子代理按 input.phase 分区(勘察 / 复核)。这是用户要的 Running/
+// Finished 分区的雏形,复用 #bg-list 而不是另起一个平行面板——独立子代理面板归 R-174,
+// 本轮只把丢掉的信息接回来。
+const bgGroups = new Map(); // phase -> {wrap, head, body}
+function bgGroupBody(phase) {
+  const list = $("bg-list");
+  if (!phase) return list;
+  let group = bgGroups.get(phase);
+  if (!group) {
+    const wrap = document.createElement("div");
+    wrap.className = `bg-group bg-group-${phase}`;
+    wrap.dataset.bgPhase = phase;
+    const head = document.createElement("div");
+    head.className = "bg-group-head";
+    const body = document.createElement("div");
+    body.className = "bg-group-body";
+    wrap.append(head, body);
+    list.appendChild(wrap);
+    group = { wrap, head, body };
+    bgGroups.set(phase, group);
+  }
+  return group.body;
+}
+// 组标题给"完成数/总数",这是本轮最直接的推进度读数;整组被筛选清空就收起,
+// 不留一个指向空气的标题。
+function renderBgGroups() {
+  for (const [phase, group] of bgGroups) {
+    const rows = [...bgEntries.values()].filter((entry) => entry.phase === phase);
+    if (!rows.length) {
+      group.wrap.remove();
+      bgGroups.delete(phase);
+      continue;
+    }
+    const done = rows.filter((entry) => entry.done).length;
+    group.head.textContent = `${orchPhaseLabel(phase)} · ${done}/${rows.length}`;
+    group.wrap.dataset.bgGroupDone = `${done}/${rows.length}`;
+    group.wrap.classList.toggle("hidden", !rows.some((entry) => !entry.el.classList.contains("hidden")));
+  }
+}
+
 /// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
 /// 原先把累计写在 bgEnd 里就等于永远拿不到数据,#diff-summary 变成接不到数据源的空壳(D-137)。
 function recordDiffSummary(display) {
@@ -167,13 +224,83 @@ function recordDiffSummary(display) {
   renderDiffSummary();
 }
 
+// 完整入参永远可展开:summary 是一行摘要,复核"到底拿什么参数调的"要看原文。
+// 编排派发的子代理尤其需要——input.prompt 就是派给该角色的完整指令。
+function bgAppendArgs(entry, input) {
+  if (!input || !Object.keys(input).length) return;
+  const args = document.createElement("pre");
+  args.className = "tool-display term bg-args";
+  args.textContent = JSON.stringify(input, null, 2);
+  entry.detail.appendChild(args);
+  entry.el.classList.add("has-detail");
+}
+
+// 当前正在用的工具名。工具结束后保留名字但转灰(.idle):子代理在两次工具调用之间
+// 是在思考,清空会让这一行大部分时间是空的,反而看不出它刚干了什么。
+function bgSetCurrentTool(entry, name, running) {
+  if (!entry.current) return;
+  const label = String(name ?? "");
+  entry.current.textContent = label ? `⚙ ${label}` : "";
+  entry.current.classList.toggle("hidden", !label);
+  entry.current.classList.toggle("idle", Boolean(label) && !running);
+  // 写入去向探针:值断言看不出"写对了但写错了地方",dataset 把去向也钉死。
+  entry.el.dataset.bgCurrentTool = label;
+}
+
+// 运行中的元信息一行。编排派发的子代理要的是"跑了多久 + 内部调用了几次工具",
+// 只有秒数看不出它到底在推进还是卡死。1 秒心跳与建条时共用同一段,建条即可读。
+function bgTick(entry) {
+  const seconds = Math.round((Date.now() - entry.startedAt) / 1000);
+  entry.el.dataset.bgElapsed = String(seconds);
+  entry.meta.textContent = entry.phase
+    ? `${t("运行中")} · ${seconds}s · ${t("内部调用")} ${entry.children.size}`
+    : `${seconds}s`;
+}
+
+// 角色名就是 id,而角色跨轮复用(每个自主推进轮都有 architecture_scout)。同名角色
+// 再次派发时必须原地复位:被 bgEntries.has(id) 直接挡掉的话,第二轮的 progress/end
+// 会全写进上一轮那条已终态的行,面板从此定格在上一轮。
+function bgRestart(id, summary, input) {
+  const entry = bgEntries.get(id);
+  if (!entry) return;
+  entry.done = false;
+  entry.startedAt = Date.now();
+  entry.children.clear();
+  entry.input = input;
+  entry.live = null;
+  entry.summary = toolCallSummary(entry.name, input) || String(summary ?? "");
+  entry.target.textContent = entry.summary;
+  entry.title.title = entry.summary;
+  entry.el.classList.remove("ok", "err", "timeout", "has-detail");
+  entry.el.classList.add("running");
+  entry.el.dataset.bgStatus = "running";
+  entry.prog.textContent = `… ${t("子代理启动中")}`;
+  entry.detail.innerHTML = "";
+  entry.detail.classList.add("hidden");
+  bgAppendArgs(entry, input);
+  bgSetCurrentTool(entry, null, false);
+  bgTick(entry);
+  bgRenderActions(id, entry);
+  bgSync();
+}
+
 function bgAdd(id, name, summary, input) {
-  if (!id || bgEntries.has(id)) return;
+  if (!id) return;
+  const phase = name === "task" ? orchPhaseOf(input) : null;
+  if (bgEntries.has(id)) {
+    if (phase) bgRestart(id, summary, input);
+    return;
+  }
   const type = bgToolType(name);
   const el = document.createElement("div");
-  el.className = `bg-entry running bg-type-${type}`;
+  el.className = `bg-entry running bg-type-${type}${phase ? " bg-orch" : ""}`;
   el.dataset.bgId = id;
   el.dataset.bgTool = name;
+  el.dataset.bgStatus = "running";
+  if (phase) {
+    el.dataset.bgPhase = phase;
+    el.dataset.bgRole = id;
+  }
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
@@ -183,7 +310,8 @@ function bgAdd(id, name, summary, input) {
   // 跑的是哪条命令——"打开也没啥用"的直接原因(R-095 验收 ⑤)。
   const toolName = document.createElement("span");
   toolName.className = "bg-tool";
-  toolName.textContent = name;
+  // 编排派发的这批里,"task" 对所有 8 条都一样,毫无区分度;角色名才是身份。
+  toolName.textContent = phase ? id : name;
   const target = document.createElement("span");
   target.className = "bg-target";
   // 后端 summarize_input(kanzei-core/src/runner/compaction.rs)把整坨入参 JSON 截到 160 字,
@@ -193,46 +321,51 @@ function bgAdd(id, name, summary, input) {
   const shown = toolCallSummary(name, input) || String(summary ?? "");
   target.textContent = shown;
   title.append(toolName, target);
+  // 所属阶段随条目走,不只挂在组标题上:筛选/滚动之后单看一行也要知道它是勘察还是复核。
+  if (phase) {
+    const badge = document.createElement("span");
+    badge.className = "bg-phase-badge";
+    badge.textContent = orchPhaseLabel(phase);
+    title.append(badge);
+  }
   title.title = shown;
   const prog = document.createElement("div");
   prog.className = "bg-prog";
   prog.textContent = name === "task" ? `… ${t("子代理启动中")}` : "…";
+  // 当前正在用的工具名单独一行:bg-meta 每秒被心跳整行重写,挂那儿会被冲掉。
+  const current = phase ? document.createElement("div") : null;
+  if (current) current.className = "bg-current hidden";
   const meta = document.createElement("div");
   meta.className = "bg-meta";
   const actions = document.createElement("div");
   actions.className = "bg-actions";
   const detail = document.createElement("div");
   detail.className = "bg-detail hidden";
-  // 完整入参永远可展开:summary 是一行摘要,复核"到底拿什么参数调的"要看原文。
-  if (input && Object.keys(input).length) {
-    const args = document.createElement("pre");
-    args.className = "tool-display term bg-args";
-    args.textContent = JSON.stringify(input, null, 2);
-    detail.appendChild(args);
-    el.classList.add("has-detail");
-  }
   title.addEventListener("click", () => {
     if (detail.children.length) {
       detail.classList.toggle("hidden");
       title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
     }
   });
-  el.append(title, prog, meta, actions, detail);
+  el.append(title, prog, ...(current ? [current] : []), meta, actions, detail);
+  bgGroupBody(phase).appendChild(el);
   const list = $("bg-list");
-  list.appendChild(el);
-  while (list.children.length > BG_MAX) {
-    const first = list.firstElementChild;
-    if (!first) break;
-    bgEntries.delete(first.dataset.bgId);
-    first.remove();
-  }
   const entry = {
     // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
     // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
-    el, title, target, prog, meta, detail, actions, type, name, summary: shown, input,
+    el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input,
     children: new Map(), startedAt: Date.now(), done: false,
   };
   bgEntries.set(id, entry);
+  bgAppendArgs(entry, input);
+  bgTick(entry);
+  // 上限裁剪改按登记表走:条目现在可能嵌在分组容器里,再按 #bg-list 的直接子节点裁剪
+  // 会把整组连同其中多条一起摘掉、却只注销一个 id,剩下的 id 变成指向游离节点的幽灵条目。
+  while (bgEntries.size > BG_MAX) {
+    const oldestId = bgEntries.keys().next().value;
+    bgEntries.get(oldestId)?.el.remove();
+    bgEntries.delete(oldestId);
+  }
   bgRenderActions(id, entry);
   bgSync();
   list.scrollTop = list.scrollHeight;
@@ -440,8 +573,13 @@ function bgProgress(id, text, trace) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   if (text) entry.prog.textContent = text;
-  if (!trace) return;
+  if (!trace) {
+    // 纯轮次进度(trace 为 null)也让心跳行跟上,不必等下一次 1 秒 tick。
+    if (!entry.done) bgTick(entry);
+    return;
+  }
   entry.detail.classList.add("trace-detail");
+  bgSetCurrentTool(entry, trace.name, trace.phase === "start");
   let child = entry.children.get(trace.child_id);
   if (trace.phase === "start") {
     if (!child) {
@@ -464,6 +602,8 @@ function bgProgress(id, text, trace) {
     child.meta.textContent = trace.preview || (trace.ok ? t("完成") : t("失败"));
     appendDisplayBlock(child.row, trace.display);
   }
+  // 调用数在 children 落定后再刷,先刷会永远少算一次。
+  if (!entry.done) bgTick(entry);
 }
 
 function bgEnd(id, ok, preview, display) {
@@ -477,12 +617,18 @@ function bgEnd(id, ok, preview, display) {
   entry.done = true;
   entry.el.classList.remove("running");
   entry.el.classList.add(ok ? "ok" : "err");
+  // 超时角色后端固定发 ok=false + preview「(超时,未产出结果)」。它与"跑了但失败"
+  // 是两回事:超时说明该角色被屏障砍掉、什么都没产出,视觉上必须能与失败分开。
+  const timedOut = !ok && /超时/.test(String(preview ?? ""));
+  if (timedOut) entry.el.classList.add("timeout");
+  entry.el.dataset.bgStatus = ok ? "ok" : timedOut ? "timeout" : "err";
+  bgSetCurrentTool(entry, null, false);
   entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
   // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
   // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
   const ms = Date.now() - entry.startedAt;
   const elapsed = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-  const bits = [ok ? `✓ ${t("成功")}` : `✕ ${t("失败")}`, elapsed];
+  const bits = [ok ? `✓ ${t("成功")}` : timedOut ? `⏱ ${t("超时")}` : `✕ ${t("失败")}`, elapsed];
   if (entry.type === "agent") bits.push(`${t("内部调用")} ${entry.children.size}`);
   entry.meta.textContent = bits.join(" · ");
   // 结构化详情进面板内展开区(diff/终端/新建/todo)。
@@ -555,6 +701,7 @@ function bgClear() {
   for (const entry of bgEntries.values()) entry.el.remove();
   bgEntries.clear();
   bgPending.clear();
+  bgGroups.clear();
   diffSummary.clear();
   $("bg-list").innerHTML = "";
   renderDiffSummary();
@@ -567,13 +714,16 @@ function bgAbortRunning(label) {
       entry.done = true;
       entry.el.classList.remove("running");
       entry.el.classList.add("err");
+      entry.el.dataset.bgStatus = "err";
+      bgSetCurrentTool(entry, null, false);
       entry.prog.textContent = label;
     }
   }
+  renderBgGroups();
 }
 setInterval(() => {
   for (const entry of bgEntries.values()) {
-    if (!entry.done) entry.meta.textContent = `${Math.round((Date.now() - entry.startedAt) / 1000)}s`;
+    if (!entry.done) bgTick(entry);
   }
 }, 1000);
 

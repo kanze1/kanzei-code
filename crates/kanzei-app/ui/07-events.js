@@ -153,8 +153,10 @@ on("kz:tool-start", (e) => {
   currentReasoning = null;
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   // R-168:非终端工具先挂起,成功不进活动流，失败在 tool-end 补建。
-  if (bgQuiet(e.payload.name)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  else if (isActivityTool(e.payload.name)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  // R-173:入参一并传下去——编排派发的勘察/复核子代理靠 input.phase 才认得出来,
+  // 只看 name(恒为 "task")会连同它们一起静默,内部进度全丢。
+  if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
