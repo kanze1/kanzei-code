@@ -356,15 +356,43 @@ impl KanzeiConfig {
     }
 
     /// 同 load,但把未知字段告警交给调用方展示(CLI stderr / 桌面 kz:status)。
+    ///
+    /// 语义不变的**发现式**入口:从 cwd 向上找项目根,再委托 [`Self::load_with_warnings_at_root`]。
+    /// 显式主根(`--project-root` / `KANZEI_PROJECT_ROOT`)的调用方请直接用 at_root 版本,
+    /// 别在这里绕一圈——cwd 一旦指向 worktree,发现出来的就是 worktree 自己的 `.kanzei` 副本。
     pub fn load_with_warnings(cwd: &Path) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
+        let root = discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+        Self::load_with_warnings_at_root(&root)
+    }
+
+    /// 显式主根加载:直接叠加全局 `kanzei_home()/kanzei.toml` 与
+    /// `project_root/.kanzei/kanzei.toml`,**不做任何根发现**。
+    ///
+    /// 与 [`Self::load`] 的区别只有一条:根从哪来。这里的根是调用方说了算的,
+    /// 因此在 worktree 里也能读到主根那份配置(D-267:worktree 里 `.kanzei` 是
+    /// 被 git checkout 出来的**分支副本**,发现式取根会读到过期的那一份)。
+    pub fn load_at_root(project_root: &Path) -> anyhow::Result<KanzeiConfig> {
+        let (config, warnings) = Self::load_with_warnings_at_root(project_root)?;
+        for warning in &warnings {
+            tracing::warn!("{warning}");
+        }
+        Ok(config)
+    }
+
+    /// 同 [`Self::load_at_root`],但把未知字段告警交给调用方展示。
+    pub fn load_with_warnings_at_root(
+        project_root: &Path,
+    ) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
         let mut config = KanzeiConfig::default();
         let mut warnings = Vec::new();
         if let Some(home) = crate::home::kanzei_home() {
             merge_file(&mut config, &home.join("kanzei.toml"), &mut warnings)?;
         }
-        if let Some(project) = discover_project_config(cwd) {
-            merge_file(&mut config, &project, &mut warnings)?;
-        }
+        merge_file(
+            &mut config,
+            &project_root.join(".kanzei").join("kanzei.toml"),
+            &mut warnings,
+        )?;
         config.fill_defaults();
         Ok((config, warnings))
     }
@@ -882,6 +910,53 @@ pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
     discover_project_root_with_home(cwd, dirs::home_dir().as_deref())
 }
 
+/// 显式主根优先于发现式取根:参数 > 环境变量 > 发现式(现状)。
+///
+/// R-182 内容②。`explicit` 由调用方按「`--project-root` 参数 > `KANZEI_PROJECT_ROOT`
+/// 环境变量」合成后传进来;为 `None` 时逐字节退回今天的发现式行为
+/// (`discover_project_root(cwd)`,兜底 cwd 本身)。
+///
+/// 实测背景(D-267):两棵 worktree 相隔 10 秒各跑一次 `kz defect add`,**都拿到 D-267**——
+/// `.kanzei/project/*.md` 被 git 跟踪,`git worktree add` 把它们 checkout 成分支副本,
+/// 发现式取根在 worktree 里第一层就命中那份副本,两条线各自在自己的副本上分配编号。
+/// 显式主根就是这条路的出口。
+///
+/// **两个根是正交的两件事,别再混**(D-187 的教训):
+/// - `KANZEI_PROJECT_ROOT` 改的是**项目根**——`.kanzei/project/*.md`、state.db、项目记忆;
+/// - `KANZEI_HOME` 改的是**全局根**——`~/.kanzei/kanzei.toml`、全局记忆、app.json。
+///   设了其中一个不会影响另一个。
+///
+/// **不做 canonicalize**:与 run.rs 同源的理由——Windows 上 `canonicalize` 产出
+/// `\\?\C:\…` 形态,用户已经写下的绝对路径权限规则会一夜之间集体失配。
+pub fn resolve_project_root(explicit: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
+    let Some(explicit) = explicit else {
+        return Ok(discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf()));
+    };
+    if !explicit.exists() {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)指向的路径不存在: {}",
+            explicit.display()
+        );
+    }
+    if !explicit.is_dir() {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不是目录: {}",
+            explicit.display()
+        );
+    }
+    // worktree 的 `.git` 是**文件**不是目录,所以这里目录/文件都算标记;
+    // `.kanzei` 则必须是目录(托管文档挂在它下面)。
+    let has_marker = explicit.join(".kanzei").is_dir() || explicit.join(".git").exists();
+    if !has_marker {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不像项目根:{} 下既没有 .kanzei 目录也没有 .git。\n\
+             主根是放 .kanzei/project/*.md 与 state.db 的那个目录;确实想把它当项目,就先 mkdir .kanzei。",
+            explicit.display()
+        );
+    }
+    Ok(explicit.to_path_buf())
+}
+
 /// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、去尾分隔符,Windows 上再小写。
 ///
 /// 裸 `==` 比较不够(D-194):`dirs::home_dir()` 给 `C:\Users\kanzei`,而走上来的祖先
@@ -1378,6 +1453,154 @@ typo_fielt = true
             )));
         }
         assert!(!is_home_root(&home.join("projects")));
+    }
+
+    /// R-182 内容②:`load_at_root` 是**显式**入口——给它哪个根就读哪个根,
+    /// 一步都不许向上发现;发现式的老入口 `load_with_warnings` 语义原样不变。
+    #[test]
+    fn load_at_root不做根发现() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-at-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sub = root.join("sub");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::create_dir_all(sub.join(".kanzei")).unwrap();
+        std::fs::write(
+            root.join(".kanzei").join("kanzei.toml"),
+            "[models]\nprimary = \"mock:root-model\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sub.join(".kanzei").join("kanzei.toml"),
+            "[models]\nprimary = \"mock:sub-model\"\n",
+        )
+        .unwrap();
+
+        // 显式入口:传 root 就读 root 那份,哪怕 cwd 概念上在 sub 里。
+        let (at_root, _) = KanzeiConfig::load_with_warnings_at_root(&root).unwrap();
+        assert_eq!(at_root.models.primary.as_deref(), Some("mock:root-model"));
+        assert_eq!(
+            KanzeiConfig::load_at_root(&root)
+                .unwrap()
+                .models
+                .primary
+                .as_deref(),
+            Some("mock:root-model")
+        );
+        // 发现式老入口:从 sub 出发仍然命中 sub 自己的 `.kanzei`(行为一字不改)。
+        let (discovered, _) = KanzeiConfig::load_with_warnings(&sub).unwrap();
+        assert_eq!(discovered.models.primary.as_deref(), Some("mock:sub-model"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 优先级定死:参数 > 环境变量 > 发现式。本函数只看「显式还是没有」这一层;
+    /// 参数与环境变量的先后由 CLI 侧合成(main.rs 的 `explicit_main_root`)。
+    #[test]
+    fn resolve_project_root显式优先() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-resolve-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sub = root.join("sub");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::create_dir_all(sub.join(".kanzei")).unwrap();
+
+        // 显式给了根:cwd 在 sub 里也照样返回 root。
+        assert_eq!(
+            resolve_project_root(Some(&root), &sub).unwrap(),
+            root.clone()
+        );
+        // 没给:逐字节退回 discover_project_root——这同时证明本批没去改它。
+        assert_eq!(
+            resolve_project_root(None, &sub).unwrap(),
+            discover_project_root(&sub).unwrap()
+        );
+        assert_eq!(resolve_project_root(None, &sub).unwrap(), sub.clone());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn 显式主根必须是真项目根() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-marker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let empty = root.join("empty");
+        let file = root.join("a-file.txt");
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(&file, "not a directory").unwrap();
+        // worktree 的 `.git` 是文件,必须照样算标记。
+        std::fs::write(worktree.join(".git"), "gitdir: ../repo/.git/worktrees/w\n").unwrap();
+
+        for bad in [root.join("does-not-exist"), empty.clone(), file.clone()] {
+            let error = resolve_project_root(Some(&bad), &root)
+                .unwrap_err()
+                .to_string();
+            // 错误必须点名来源键名,否则用户不知道该去改哪个开关/变量。
+            assert!(
+                error.contains("--project-root") && error.contains("KANZEI_PROJECT_ROOT"),
+                "错误文本要点名来源: {error}"
+            );
+        }
+        assert_eq!(
+            resolve_project_root(Some(&worktree), &root).unwrap(),
+            worktree
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 不做 canonicalize:`\\?\` 形态会让用户已写的绝对路径权限规则一夜失配。
+    #[test]
+    fn 显式主根不做canonicalize() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-nocanon-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+
+        let mut forms = vec![PathBuf::from(format!(
+            "{}{}",
+            root.display(),
+            std::path::MAIN_SEPARATOR
+        ))];
+        #[cfg(windows)]
+        forms.push(PathBuf::from(
+            root.display().to_string().to_lowercase().replace('\\', "/"),
+        ));
+        for form in forms {
+            let resolved = resolve_project_root(Some(&form), &root).unwrap();
+            assert!(
+                !resolved.display().to_string().starts_with(r"\\?\"),
+                "不该 canonicalize: {}",
+                resolved.display()
+            );
+            // 原样返回:用户写下什么就是什么。
+            assert_eq!(resolved, form);
+        }
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
