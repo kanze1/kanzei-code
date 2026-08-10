@@ -175,11 +175,20 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
-    let ctx = ToolCtx {
-        cwd,
-        project_root,
-        ..Default::default()
-    };
+    // R-141:根在入口(上面 discover_project_root)解析一次,这里显式传下去;
+    // CLI 是单工作树,代码树即项目根,两把键同源。
+    let ctx = ToolCtx::new(cwd, project_root.clone()).with_identity(
+        project_root.display().to_string(),
+        project_root.display().to_string(),
+        format!(
+            "cli_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ),
+        "cli".into(),
+    );
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
@@ -845,7 +854,8 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
         _ => {}
     }
     // 追踪类子命令写的正是 .kanzei/project/*.md,和 run 一样不能落进 HOME(D-194)。
-    let ctx = ToolCtx::new(std::env::current_dir()?);
+    // R-141:这里是 CLI 进程入口,发现式取根合法且只做这一次。
+    let ctx = ToolCtx::discovering(std::env::current_dir()?);
     reject_home_as_project_root(&ctx.project_root)?;
     let output = tool.execute(input, &ctx).await;
     if output.is_error {

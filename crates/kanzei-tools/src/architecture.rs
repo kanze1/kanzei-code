@@ -493,7 +493,7 @@ mod tests {
             &root,
             "# 架构\n\n- [`harness_m1.md`](../../../docs/design/harness_m1.md):基线。\n",
         );
-        let ctx = ToolCtx::new(root.clone());
+        let ctx = ToolCtx::new(root.clone(), root.clone());
 
         let got = ArchitectureTool
             .execute(json!({"action": "get"}), &ctx)
@@ -551,7 +551,7 @@ mod tests {
         std::fs::write(root.join(DESIGN_DIR).join("harness_m1.md"), "# x").unwrap();
         std::fs::write(root.join(DESIGN_DIR).join("memory_system.md"), "# y").unwrap();
         write_index(&root, "# 架构\n");
-        let ctx = ToolCtx::new(root.clone());
+        let ctx = ToolCtx::new(root.clone(), root.clone());
         let hash = content_hash("# 架构\n");
 
         // 漏索引 + 死链 + 重复 + 非 snake_case,一次全部指出来。
@@ -596,7 +596,7 @@ mod tests {
         let original =
             "# 架构\n\n- [`harness_m1.md`](../../../docs/design/harness_m1.md):已有说明。\n";
         write_index(&root, original);
-        let ctx = ToolCtx::new(root.clone());
+        let ctx = ToolCtx::new(root.clone(), root.clone());
 
         let out = ArchitectureTool
             .execute(json!({"action": "regenerate"}), &ctx)

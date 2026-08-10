@@ -340,7 +340,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("target.txt"), content).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         (dir, ctx)
     }
 

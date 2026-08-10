@@ -835,7 +835,9 @@ pub fn schedule_for_display(
 /// block_reasons 与 docs_snapshot 的 `blocked` 字段同源(schedule_for_display)。
 pub fn backlog_status(project_root: &std::path::Path) -> kanzei_harness::auto_run::BacklogStatus {
     use kanzei_harness::auto_run::BacklogStatus;
-    let ctx = ToolCtx::new(project_root.to_path_buf());
+    // R-141:调用方给的就是主根,不再从它二次发现(worktree 线传下来的主根
+    // 与代码树不同,发现一次就会拐回分支副本)。
+    let ctx = ToolCtx::new(project_root.to_path_buf(), project_root.to_path_buf());
     let mut active = 0usize;
     let mut workable = false;
     for kind in [&REQUIREMENTS, &DEFECTS] {
@@ -1170,7 +1172,7 @@ mod tests {
             ("批次".into(), "3/11".into()),
         ];
         DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",
@@ -1207,7 +1209,7 @@ mod tests {
         e.status = "fixing".into();
         e.fields = vec![("进展".into(), "修复方向已落地,真机复测卡在外部环境".into())];
         DocStore::open(&dir, &DEFECTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let tool = TrackerTool {
             tool_name: "defect",
             noun: "defect",
@@ -1269,7 +1271,7 @@ mod tests {
         let mut e = entry("D-001");
         e.status = "fixed".into();
         DocStore::open(&dir, &DEFECTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let tool = TrackerTool {
             tool_name: "defect",
             noun: "defect",
@@ -1328,7 +1330,7 @@ mod tests {
         e.status = "doing".into();
         e.fields = vec![("批次".into(), "3/11".into())];
         DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",
@@ -1458,7 +1460,7 @@ mod tests {
         e.status = "doing".into();
         e.fields = vec![("批次".into(), "2/2".into())];
         DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let tool = TrackerTool {
             tool_name: "req",
             noun: "requirement",
@@ -1496,7 +1498,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         // 完整置换:成功且文件顺序改变。
         let out = tool
@@ -1538,7 +1540,7 @@ mod tests {
         let output = tool
             .execute(
                 json!({"action": "add", "title": "新条目"}),
-                &ToolCtx::new(dir.clone()),
+                &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
         assert!(!output.is_error, "{}", output.content);
@@ -1571,7 +1573,10 @@ mod tests {
             requires_refs: None,
         };
         let output = tool
-            .execute(json!({"action": "archive"}), &ToolCtx::new(dir.clone()))
+            .execute(
+                json!({"action": "archive"}),
+                &ToolCtx::new(dir.clone(), dir.clone()),
+            )
             .await;
         assert!(!output.is_error, "{}", output.content);
 
@@ -1612,7 +1617,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         // 读操作必须仍然可用——否则模型无法诊断,就成了死锁。
         for action in ["list", "get"] {
@@ -1682,7 +1687,7 @@ mod tests {
             kind: &GOALS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         let repaired = tool
             .execute(json!({"action": "repair_reused_id", "id": "G-002"}), &ctx)
@@ -1734,7 +1739,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         // 门禁关闭:普通写被拒,且措辞点名三条修复通道、并禁止伪造墓碑。
         let out = tool
@@ -1884,7 +1889,10 @@ mod tests {
             requires_refs: None,
         };
         let out = tool
-            .execute(json!({"action": "list"}), &ToolCtx::new(dir.clone()))
+            .execute(
+                json!({"action": "list"}),
+                &ToolCtx::new(dir.clone(), dir.clone()),
+            )
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("tracker integrity"), "{}", out.content);
@@ -1915,7 +1923,10 @@ mod tests {
             requires_refs: None,
         };
         let out = tool
-            .execute(json!({"action": "archive"}), &ToolCtx::new(dir.clone()))
+            .execute(
+                json!({"action": "archive"}),
+                &ToolCtx::new(dir.clone(), dir.clone()),
+            )
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("R-001"), "{}", out.content);
@@ -1940,7 +1951,7 @@ mod tests {
         let output = tool
             .execute(
                 json!({"action": "update", "id": "R-001", "priority": "P0"}),
-                &ToolCtx::new(dir.clone()),
+                &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
         assert!(!output.is_error, "{}", output.content);
@@ -1978,7 +1989,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         let out = tool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
@@ -2038,7 +2049,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         let out = tool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
@@ -2095,7 +2106,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         let out = tool.execute(json!({"action": "list"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
@@ -2150,7 +2161,7 @@ mod tests {
         let mut c = entry("R-003");
         c.fields.push(("依赖".into(), "R-002".into()));
         store.save(&[a, b, c]).unwrap();
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         let loaded = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
 
         let (deps, dependents) = super::dependents_map(&ctx, &REQUIREMENTS, &loaded).unwrap();
@@ -2211,7 +2222,7 @@ mod tests {
             kind: &REQUIREMENTS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
         // add:词表外标签被拒,错误里带合法词表。
         let out = tool
@@ -2305,7 +2316,7 @@ mod tests {
             kind: &GOALS,
             requires_refs: None,
         };
-        let ctx = ToolCtx::new(dir.clone());
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
         // 无词表的文档:任意标签值放行,不受校验约束。
         let out = tool
             .execute(

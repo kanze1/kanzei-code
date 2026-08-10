@@ -160,7 +160,7 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
         let (dependents_deps, dependents) =
             if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
                 kanzei_tools::tracker::dependents_map(
-                    &kanzei_harness::ToolCtx::new(root.clone()),
+                    &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
                     kind,
                     &entries,
                 )
@@ -171,7 +171,7 @@ pub fn docs_snapshot(project_dir: String) -> serde_json::Value {
         let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
             if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
                 kanzei_tools::tracker::schedule_for_display(
-                    &kanzei_harness::ToolCtx::new(root.clone()),
+                    &kanzei_harness::ToolCtx::new(root.clone(), root.clone()),
                     kind,
                     &entries,
                 )
@@ -297,7 +297,8 @@ pub async fn docs_update(
     if let Some(fields) = fields.filter(|f| f.is_object()) {
         input["fields"] = fields;
     }
-    let ctx = kanzei_harness::ToolCtx::new(PathBuf::from(&project_dir));
+    // R-141:Tauri command 入口,发现式取根合法且只做这一次。
+    let ctx = kanzei_harness::ToolCtx::discovering(PathBuf::from(&project_dir));
     let output = tool.execute(input, &ctx).await;
     if output.is_error {
         Err(output.content)

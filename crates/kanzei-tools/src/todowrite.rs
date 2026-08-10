@@ -94,7 +94,7 @@ mod tests {
         let output = TodoWriteTool
             .execute(
                 json!({"todos": [{"id": "1", "content": "检查", "status": "done"}]}),
-                &ToolCtx::new(std::env::current_dir().unwrap()),
+                &ToolCtx::discovering(std::env::current_dir().unwrap()),
             )
             .await;
         assert!(!output.is_error);

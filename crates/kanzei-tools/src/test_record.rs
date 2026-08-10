@@ -589,8 +589,8 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        // ToolCtx::new discovers the nearest project marker; keep the fixture
-        // isolated from CI runners whose temp directory may sit below a checkout.
+        // R-141 后 ToolCtx::new 不再发现取根,但 DocStore/托管路径仍以 .kanzei
+        // 为准;保留标记,让 fixture 与可能位于某个 checkout 之下的 CI 临时目录隔离。
         std::fs::create_dir(dir.join(".kanzei")).unwrap();
         dir
     }
@@ -877,7 +877,7 @@ mod tests {
     #[tokio::test]
     async fn tool_records_and_returns_snapshot_text() {
         let root = temp_project("tool");
-        let ctx = ToolCtx::new(root.clone());
+        let ctx = ToolCtx::new(root.clone(), root.clone());
         let out = TestRecordTool
             .execute(
                 json!({"title": "cargo test -p kanzei-llm", "status": "passed", "command": "cargo test -p kanzei-llm"}),

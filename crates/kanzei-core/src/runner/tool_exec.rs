@@ -199,7 +199,10 @@ mod tests {
             index,
             id: id.into(),
             name: tool.name().into(),
-            concurrency: tool.concurrency(&input, &ToolCtx::new(std::env::temp_dir())),
+            concurrency: tool.concurrency(
+                &input,
+                &ToolCtx::new(std::env::temp_dir(), std::env::temp_dir()),
+            ),
             input,
             tool,
         }
@@ -229,7 +232,7 @@ mod tests {
                 tool,
             ),
         ];
-        let ctx = ToolCtx::new(std::env::temp_dir());
+        let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut completed = Vec::new();
         let mut on_event = |event| {
             if let RunEvent::ToolEnd { id, .. } = event {
@@ -285,7 +288,7 @@ mod tests {
             probe_call(1, "read_1", serde_json::json!({"delay_ms": 15}), reader),
             probe_call(2, "write_2", serde_json::json!({"delay_ms": 15}), writer),
         ];
-        let ctx = ToolCtx::new(std::env::temp_dir());
+        let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut on_event = |_event| {};
         let results = execute_prepared_tools(
             calls,
@@ -388,7 +391,7 @@ mod tests {
                 tool,
             ),
         ];
-        let ctx = ToolCtx::new(std::env::temp_dir());
+        let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut on_event = |_event| {};
         let results = execute_prepared_tools(calls, &ctx, 1, &mut on_event).await;
 

@@ -32,9 +32,11 @@ impl Default for ToolCtx {
 }
 
 impl ToolCtx {
-    pub fn new(cwd: std::path::PathBuf) -> Self {
-        let project_root =
-            crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    /// R-141:显式主根绑定——**不做任何根发现**。
+    ///
+    /// `cwd` 是实际代码工作树,`project_root` 是项目身份真源(`.kanzei` 托管文档、
+    /// state.db、记忆)。worktree 线两者不同,调用方必须自己说清楚。
+    pub fn new(cwd: std::path::PathBuf, project_root: std::path::PathBuf) -> Self {
         ToolCtx {
             cwd,
             project_root,
@@ -43,6 +45,25 @@ impl ToolCtx {
             run_id: None,
             process_id: None,
         }
+    }
+
+    /// 从 cwd 发现式解析项目根。**只允许出现在进程/IPC 入口**——CLI 启动、
+    /// Tauri command 的第一行、一次性查询。**线路径(runner/drive、子代理、
+    /// 桌面端 run/processes/subagents)调用它是 bug**:根必须在入口解析一次,
+    /// 之后全程显式携带。
+    ///
+    /// 为什么钉这么死(R-141 立的护栏,别拆):
+    /// - D-170:发现式根解析让两个项目串了身份,项目级状态互相污染。
+    /// - D-170 的 worktree 变体:`.kanzei/project/*.md` 被 git 跟踪,
+    ///   `git worktree add` 会把它们 checkout 成**分支副本**;而 worktree 里的
+    ///   `.git` 是文件不是目录。于是 `discover_project_root` 在 worktree 内
+    ///   第一层就命中副本自己的 `.kanzei` 立即返回,线拿到一套过期的
+    ///   需求/缺陷/记忆,tracker 写入落在分支副本上。
+    ///   worktree 又建在主根的兄弟目录,向上走也回不到主根。
+    pub fn discovering(cwd: std::path::PathBuf) -> Self {
+        let project_root =
+            crate::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+        ToolCtx::new(cwd, project_root)
     }
 
     pub fn with_identity(
@@ -59,15 +80,19 @@ impl ToolCtx {
         self
     }
 
+    /// 工具级并发锁键 = **代码树**,不是项目根。
+    ///
+    /// R-141:缺省回退到 `cwd` 而非 `project_root`。显式主根绑定后,同一项目的
+    /// N 棵 worktree 的 `project_root` 完全相同,拿它当工具锁键会把互不相干的
+    /// 两棵树串死。锁键的真源是工具真实作用的那棵树——bash 用
+    /// `ctx.cwd.join(workdir)` 定执行目录,git 用 `ensure_repository(&ctx.cwd)`。
+    /// 跨进程写仲裁是另一把键,见 [`ToolCtx::project_write_key`]。
     pub fn worktree_concurrency_key(&self) -> String {
-        format!(
-            "worktree:{}",
-            self.worktree_key
-                .as_deref()
-                .unwrap_or(&self.project_root.display().to_string())
-                .replace('\\', "/")
-                .to_lowercase()
-        )
+        let key = self
+            .worktree_key
+            .clone()
+            .unwrap_or_else(|| self.cwd.display().to_string());
+        format!("worktree:{}", key.replace('\\', "/").to_lowercase())
     }
 
     /// 写仲裁键:缺省回退到 project_root(未显式绑定身份时与旧行为一致)。
@@ -185,7 +210,119 @@ fn truncate(s: &str, max: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::ToolConcurrency;
+    use super::{ToolConcurrency, ToolCtx};
+    use std::path::{Path, PathBuf};
+
+    /// 复刻 `git worktree add` 之后的真实磁盘形态:
+    /// 主根与 worktree 是**兄弟目录**(见 kanzei-app/src/processes.rs 的
+    /// `parent.join(".kanzei-worktree-{name}")`),且 worktree 里躺着一份被 git
+    /// checkout 出来的 `.kanzei` 副本。worktree 的 `.git` 是文件不是目录,
+    /// 所以发现式取根只会撞上那份副本。
+    fn worktree_fixture(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "kz-toolctx-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(base.join("main").join(".kanzei").join("project")).unwrap();
+        for tree in [".kanzei-worktree-a", ".kanzei-worktree-b"] {
+            std::fs::create_dir_all(base.join(tree).join(".kanzei").join("project")).unwrap();
+            // 真 worktree 的 .git 是文件(gitdir: 指针),不是目录。
+            std::fs::write(
+                base.join(tree).join(".git"),
+                "gitdir: ../main/.git/worktrees/x",
+            )
+            .unwrap();
+        }
+        base
+    }
+
+    fn cleanup(base: &Path) {
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn worktree_内运行时_project_root_必须等于主根() {
+        let base = worktree_fixture("root");
+        let main = base.join("main");
+        let worktree = base.join(".kanzei-worktree-a");
+
+        // 危害前提:发现式取根在 worktree 内必然命中分支副本,拿不到主根。
+        // 这条断言在,后来人改 discover_project_root 时就知道自己动了什么。
+        assert_eq!(
+            crate::config::discover_project_root(&worktree),
+            Some(worktree.clone()),
+            "worktree 内的 .kanzei 副本是目录、.git 是文件,discover 第一层就命中副本"
+        );
+        assert_ne!(
+            crate::config::discover_project_root(&worktree),
+            Some(main.clone())
+        );
+
+        // 显式绑定后,项目身份恒为主根,代码树仍是 worktree。
+        let ctx = ToolCtx::new(worktree.clone(), main.clone());
+        assert_eq!(ctx.project_root, main);
+        assert_eq!(ctx.cwd, worktree);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn 两个_worktree_实例锁键必须不同_写仲裁键必须相同() {
+        let base = worktree_fixture("keys");
+        let main = base.join("main");
+        let main_key = main.display().to_string();
+        let identity = |tree: PathBuf, run: &str| {
+            let tree_key = tree.display().to_string();
+            ToolCtx::new(tree, main.clone()).with_identity(
+                tree_key,
+                main_key.clone(),
+                run.into(),
+                "p1".into(),
+            )
+        };
+        let a = identity(base.join(".kanzei-worktree-a"), "run_a");
+        let b = identity(base.join(".kanzei-worktree-b"), "run_b");
+
+        // 工具级锁键按代码树分开:两棵树的写工具不该互相排队。
+        assert_ne!(a.worktree_concurrency_key(), b.worktree_concurrency_key());
+        assert!(!ToolConcurrency::write_worktree(&a)
+            .conflicts_with(&ToolConcurrency::write_worktree(&b)));
+        // 跨进程写仲裁键仍是同一个主根:主根 .kanzei 的写入必须串行。
+        assert_eq!(a.project_write_key(), b.project_write_key());
+        assert_eq!(a.project_write_key(), main_key);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn 未显式设身份时锁键回退到代码树而非项目根() {
+        // 回退分支的护栏:回退到 project_root 会让同项目的两棵树拿到同一把键,
+        // 互不相干的 worktree 立刻撞锁。别改回去。
+        let main = PathBuf::from("/repo/main");
+        let a = ToolCtx::new(PathBuf::from("/repo/.kanzei-worktree-a"), main.clone());
+        let b = ToolCtx::new(PathBuf::from("/repo/.kanzei-worktree-b"), main.clone());
+        assert_eq!(a.project_root, b.project_root);
+        assert_ne!(a.worktree_concurrency_key(), b.worktree_concurrency_key());
+        // 同一棵树的两个上下文仍然共键(写工具照常互斥)。
+        let a2 = ToolCtx::new(PathBuf::from("/repo/.kanzei-worktree-a"), main);
+        assert_eq!(a.worktree_concurrency_key(), a2.worktree_concurrency_key());
+    }
+
+    #[test]
+    fn 同一棵树的锁键对大小写与分隔符稳定() {
+        let main = PathBuf::from(r"C:\repo\main");
+        let upper = ToolCtx::new(PathBuf::from(r"C:\repo\Wt"), main.clone());
+        let lower = ToolCtx::new(PathBuf::from("c:/repo/wt"), main);
+        assert_eq!(upper.worktree_concurrency_key(), "worktree:c:/repo/wt");
+        assert_eq!(
+            upper.worktree_concurrency_key(),
+            lower.worktree_concurrency_key()
+        );
+    }
 
     #[test]
     fn concurrency_conflicts_are_keyed_and_conservative() {
