@@ -94,7 +94,19 @@ fn message_to_value(message: &crate::request::Message) -> Value {
             Part::Document { media_type, data } => Some(json!({
                 "type": "document", "source": {"type": "base64", "media_type": media_type, "data": data}
             })),
-            Part::Reasoning { .. } => None,
+            Part::Reasoning { text, signature } => {
+                // R-137:thinking 块协议回放——多轮工具调用时,assistant 的 thinking 块
+                // 必须按 Anthropic 协议原样回传(含 signature),否则 thinking+工具第二轮
+                // 直接被 400(原实现丢 Reasoning 导致)。有 signature → thinking 块;
+                // 无 signature(非 thinking 模型/旧会话) → 以可见 assistant 文本保留(R-094 结论)。
+                match signature {
+                    Some(sig) => Some(json!({
+                        "type": "thinking", "thinking": text, "signature": sig,
+                    })),
+                    None if !text.is_empty() => Some(json!({"type": "text", "text": text})),
+                    None => None,
+                }
+            }
             Part::ToolCall { id, name, input } => Some(json!({
                 "type": "tool_use", "id": id, "name": name, "input": input,
             })),
@@ -546,5 +558,89 @@ mod tests {
         let body = build_body(&base(ReasoningEffort::Low, 65536, None));
         assert_eq!(body["max_tokens"], 65536);
         assert_eq!(body["thinking"]["budget_tokens"], 4096);
+    }
+
+    /// R-137:thinking 块协议回放——多轮工具调用的请求体必须把 assistant 的
+    /// thinking 块连同 signature 原样回传(否则第二轮 400);无 signature 的
+    /// reasoning 降级为可见 assistant 文本;thinking 块后跟工具调用。
+    #[test]
+    fn thinking_replay_roundtrips_signature_and_tool_sequence() {
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![
+                Part::Reasoning {
+                    text: "让我先读文件".into(),
+                    signature: Some("SIG123".into()),
+                },
+                Part::ToolCall {
+                    id: "toolu_1".into(),
+                    name: "read".into(),
+                    input: serde_json::json!({"path": "a.rs"}),
+                },
+                Part::Text { text: "下一步".into() },
+            ])],
+            tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req);
+        let content = &body["messages"][0]["content"];
+        // ①signature 原样回传,thinking 块按协议字段名输出。
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "让我先读文件");
+        assert_eq!(content[0]["signature"], "SIG123");
+        // ②thinking 块之后工具调用紧随其后(块序不被打乱)。
+        assert_eq!(content[1]["type"], "tool_use");
+        assert_eq!(content[1]["id"], "toolu_1");
+        assert_eq!(content[1]["name"], "read");
+        assert_eq!(content[2]["type"], "text");
+        assert_eq!(content[2]["text"], "下一步");
+    }
+
+    /// R-137:无 signature 的 reasoning(非 thinking 模型/旧会话)以可见文本保留,
+    /// 不丢信息也不按 thinking 块回传(会因缺 signature 被服务端拒)。
+    #[test]
+    fn reasoning_without_signature_falls_back_to_visible_text() {
+        let req = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![
+                Part::Reasoning {
+                    text: "思考过程".into(),
+                    signature: None,
+                },
+                Part::Text { text: "结论".into() },
+            ])],
+            tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req);
+        let content = &body["messages"][0]["content"];
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "思考过程");
+        assert!(content[0].get("signature").is_none());
+        assert_eq!(content[1]["type"], "text");
+        // 空 reasoning(无文本无签名)整体跳过,不产生空块。
+        let req2 = LlmRequest {
+            model: "claude-sonnet-5".into(),
+            system: vec!["s".into()],
+            messages: vec![Message::assistant(vec![Part::Reasoning {
+                text: String::new(),
+                signature: None,
+            }])],
+            tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+        let body = build_body(&req2);
+        assert_eq!(body["messages"][0]["content"].as_array().unwrap().len(), 0);
     }
 }

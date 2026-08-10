@@ -1432,3 +1432,9 @@
 - 摘要: diff 汇总目录树(可折叠)+ 并排视图长行收进自身列滚动(不覆盖相邻列);四条冒烟全绿
 - 关联: R-133
 - 收尾: 1786369496
+
+## T-1786369626 R-137 定向测试(llm/core + 下游 check) [passed]
+- 命令: cargo test -p kanzei-llm + cargo check 下游 + cargo test -p kanzei-core
+- 摘要: anthropic 通道 thinking 回放:signature 原样回传(thinking 块),无 signature 降级可见文本;llm 42/42(新增 2 契约测试),core 103/103,下游 check 全绿
+- 关联: R-137
+- 收尾: 1786369626
