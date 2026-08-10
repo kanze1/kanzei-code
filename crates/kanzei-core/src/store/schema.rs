@@ -169,7 +169,19 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS memory_eval_memory
                      ON memory_eval(memory_id, created_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '8')
+                 -- v9(R-166):F(m) 反事实评估聚合,每条记忆一行。
+                 -- effect_mean = E[J(e;M) - J(e;M∖{m})](Current − LeaveOneOut 在
+                 -- Q(m) 回放集上的均值差),effect_ci 为 95% 近似置信区间,
+                 -- eval_n 为参与聚合的 case 数,last_eval 为最近一次离线回放时间。
+                 -- 只由 offline 周期回放写,在线路径不碰。
+                 CREATE TABLE IF NOT EXISTS memory_eval_agg (
+                     memory_id TEXT PRIMARY KEY NOT NULL,
+                     effect_mean REAL NOT NULL DEFAULT 0,
+                     effect_ci REAL NOT NULL DEFAULT 0,
+                     eval_n INTEGER NOT NULL DEFAULT 0,
+                     last_eval INTEGER NOT NULL DEFAULT 0
+                 );
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '9')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。

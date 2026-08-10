@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [todo]
+## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -64,7 +64,11 @@
 - 验收: ①每条 active 记忆可查 F(m) 估计与置信区间;②至少一次真实 merge 经 D<ε 判定放行或拒绝且判定依据落库;③shadow 条目不注入生产但被评估(测试);④代码中无按时间衰减的淘汰路径。
 - refs: R-149 R-150 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 口径清理:原「依赖: R-163/R-165」被 list 判为 blocked,实为非阻塞内部依赖,清出依赖字段。解锁条件: 完成 R-163/R-165 后推进。
+- 进展: 批1完成:SCHEMA_VERSION 8→9,memory_eval_agg 聚合表(effect_mean/effect_ci/eval_n/last_eval),store/eval.rs 提供 memory_effect 查询 + recompute_memory_effect(F(m)=Current−LeaveOneOut 配对差均值/95%CI,同 model/prompt_version 内配对,单臂不参与,空跑不清历史)。3 条测试,core 90→93 全绿,下游 4 crate check 过。剩批2:Q(m) 选择;批3:shadow 态;批4:merge D<ε;批5:deprecate 候选+时间衰减审计+关闭。
+
+- 批次: 1/5
+
+- 状态: doing
 
 ## R-150 记忆决策价值 P2:空闲整理与 UI 消费零采纳与复发清单 [todo]
 - 优先级: P1

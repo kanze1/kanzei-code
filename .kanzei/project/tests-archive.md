@@ -1298,3 +1298,8 @@
 - 命令: cargo test --workspace
 - 摘要: 全 workspace 全绿:180 (tools) + core/app/harness 等全部通过。R-165 关闭前全量验证。
 - 收尾: 1786349540
+
+## T-1786349794 cargo test -p kanzei-core (R-166 B1 F(m) 聚合) [passed]
+- 命令: cargo test -p kanzei-core && cargo check -p kanzei-tools -p kanzei-app -p kanzei-harness -p kanzei
+- 摘要: 93 passed (core)。批1: SCHEMA v9 + memory_eval_agg + F(m) 聚合/查询,下游 4 crate check 过。
+- 收尾: 1786349794

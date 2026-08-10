@@ -17,7 +17,9 @@ use serde_json::Value;
 // v7:v6 回填晚了一步——存量 promoted 已被 v5 期间的停止抹成 cancelled,
 //     改从迁移前备份里把状态位捞回来(D-180 续)。
 // v8:R-161 记忆漏斗遥测,三张表与 episodes 同库可 join。
-const SCHEMA_VERSION: i64 = 8;
+// v9:R-166 反事实评估——memory_eval_agg 聚合表(F(m) 的 effect_mean/effect_ci/
+//     eval_n/last_eval),每条记忆一行,离线回放周期更新。
+const SCHEMA_VERSION: i64 = 9;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -109,6 +111,7 @@ pub struct EpisodeRecord<'a> {
 }
 
 mod episodes;
+mod eval;
 mod events;
 mod inbox;
 mod notifications;
@@ -116,6 +119,7 @@ mod schema;
 mod session;
 mod telemetry;
 
+pub use eval::EffectEstimate;
 pub use telemetry::{FunnelCounts, RecallEvent};
 
 pub use session::{project_session_id, project_state_path};
