@@ -89,8 +89,14 @@ pub(crate) async fn run_task(
         ),
     );
 
-    // 界面模型下拉直选优先于 agent 定义。
-    let model_ref = resolve_model_ref(model_override, &agent.model);
+    // 界面模型下拉直选优先于 agent 定义(R-178 P2 五层链 ①②③:本轮直选 → 线持久
+    // 选择 → agent 默认;④⑤ 由 config.resolve_model 承担)。桌面与 CLI 共用
+    // kanzei_harness::config::resolve_model_chain,同一真源。
+    let model_ref = kanzei_harness::config::resolve_model_chain(
+        model_override.as_deref(),
+        None,
+        &agent.model,
+    );
     let resolved = config.resolve_model(&model_ref)?;
     let proxy = resolve_proxy(&config);
     stage(
@@ -1147,12 +1153,6 @@ pub(crate) fn auth_stage_detail(provider_name: &str, model: &str, has_auth: bool
             ""
         }
     )
-}
-
-pub(crate) fn resolve_model_ref(model_override: Option<String>, agent_model: &str) -> String {
-    model_override
-        .filter(|model| !model.trim().is_empty())
-        .unwrap_or_else(|| agent_model.to_string())
 }
 
 pub(crate) fn resolve_reasoning_override(

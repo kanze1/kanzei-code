@@ -159,8 +159,14 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         .select_agent(std::env::var("KANZEI_AGENT").ok().as_deref())?
         .clone();
 
-    // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。
-    let model_ref = std::env::var("KANZEI_MODEL").unwrap_or_else(|_| agent.model.clone());
+    // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。R-178 P2 五层链 ①②③:
+    // CLI 无线/进程概念(② 恒 None),本轮直选 = KANZEI_MODEL → agent 默认;
+    // ④⑤ 由 config.resolve_model 承担。与桌面共用同一真源。
+    let model_ref = kanzei_harness::config::resolve_model_chain(
+        std::env::var("KANZEI_MODEL").ok().as_deref(),
+        None,
+        &agent.model,
+    );
     let resolved = config.resolve_model(&model_ref)?;
 
     let proxy = match std::env::var("KANZEI_PROXY")

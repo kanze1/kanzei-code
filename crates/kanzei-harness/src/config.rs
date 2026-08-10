@@ -841,6 +841,33 @@ pub fn discover_project_config(cwd: &Path) -> Option<PathBuf> {
     discover_project_root(cwd).map(|root| root.join(".kanzei").join("kanzei.toml"))
 }
 
+/// R-178 P2:五层模型解析链的前三层(引用层)合并——本轮直选 → 线持久选择 → agent 默认。
+///
+/// 五层链(design §3.4):
+/// ① 本轮直选(`run_prompt` 的 `model` 参数 / CLI `KANZEI_MODEL`);
+/// ② 线/进程持久选择(`ProcessHandle.model`,state.db `processes` 表,重启后恢复);
+/// ③ agent 定义的默认引用(通常 `"primary"` / `"fast"` 角色);
+/// ④ 项目 `[models]` / 全局 `[models]` 层叠——由 `KanzeiConfig::load_with_warnings`
+///    (全局 merge → 项目覆盖)在 `config.models` 里完成;
+/// ⑤ 内置默认——由 `fill_defaults()` 兜底。
+///
+/// 本函数只负责 ①②③ 的**引用合并**:返回最终要交给 `resolve_model` 的模型引用串。
+/// ④⑤ 是 `resolve_model` 内部的事(角色 → provider:model → [providers]),
+/// 本函数不掺和。CLI 与桌面共用这一份,保证「同一真源」(验收②)。
+///
+/// 空串 / 纯空白视为「未设」,逐层回落。
+pub fn resolve_model_chain(
+    run_override: Option<&str>,
+    process_model: Option<&str>,
+    agent_model: &str,
+) -> String {
+    run_override
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| process_model.filter(|value| !value.trim().is_empty()))
+        .map(str::to_string)
+        .unwrap_or_else(|| agent_model.to_string())
+}
+
 /// 项目根 = 向上**最近**的含 `.kanzei/` 或 `.git/` 的目录;都没有则 cwd 本身。
 ///
 /// 两条约束都是踩出来的,别再退回去:
@@ -922,6 +949,29 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    /// R-178 P2 五层链 ①②③:本轮直选 → 线持久选择 → agent 默认,逐层缺省回落。
+    /// (④项目/全局 [models] 与 ⑤内置默认由 load_with_warnings + fill_defaults 承担,
+    /// 见 merge_layers 与 defaults_and_model_resolution。)
+    #[test]
+    fn 五层链引用层逐层缺省回落() {
+        // ① 本轮直选存在 → 用它(即使线持久与 agent 默认都设了)。
+        assert_eq!(
+            resolve_model_chain(Some("claude:claude-sonnet-4-6"), Some("a:b"), "primary"),
+            "claude:claude-sonnet-4-6"
+        );
+        // ① 缺省 → ② 线持久选择。
+        assert_eq!(resolve_model_chain(None, Some("a:b"), "primary"), "a:b");
+        // ①② 都缺省 → ③ agent 默认。
+        assert_eq!(resolve_model_chain(None, None, "primary"), "primary");
+        // 空串视为未设,照样回落。
+        assert_eq!(resolve_model_chain(Some("   "), Some("a:b"), "primary"), "a:b");
+        assert_eq!(
+            resolve_model_chain(None, Some("  "), "fast"),
+            "fast",
+            "空白线持久值不得覆盖 agent 默认"
+        );
     }
 
     /// R-173:勘察/复核路由可配,缺省沿用 fast(旧配置行为逐字节不变)。

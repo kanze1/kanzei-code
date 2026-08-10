@@ -1474,3 +1474,8 @@
 - 摘要: R-178 批1:store processes 表读写 5 测试 + app 落库/恢复往返 2 测试 + kanzei-app 全量 70 全绿
 - 关联: R-178
 - 收尾: 1786386108
+
+## T-1786386422 R-178 B2 cargo test -p kanzei-harness -p kanzei-app -p kanzei [passed]
+- 摘要: R-178 批2:五层解析链 ①②③ 收敛为 harness resolve_model_chain,桌面/CLI 共用同一真源;缺省回落单测 + harness 83 + app 70 + kz 全绿
+- 关联: R-178
+- 收尾: 1786386422
