@@ -5,6 +5,7 @@ mod background;
 mod base;
 mod bash;
 pub mod docstore;
+pub mod embed;
 mod edit;
 pub mod files;
 pub mod frontend;

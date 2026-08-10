@@ -25,6 +25,10 @@ pub struct KanzeiConfig {
     pub limits: Limits,
     #[serde(default)]
     pub cadence: Cadence,
+    /// 向量检索通道(R-164):配置了 provider:model 才启用 dense/hybrid。
+    /// 未配置时系统退化为 lexical 通道,功能完整(设计 §5 验收①)。
+    #[serde(default)]
+    pub embeddings: EmbeddingsSection,
 }
 
 /// 运行时上限与阈值。此前全部是散落在各 crate 里的硬编码常量,配置层没有任何入口——
@@ -97,6 +101,26 @@ impl Limits {
     }
     pub fn stream_restarts(&self) -> u32 {
         self.stream_restarts.unwrap_or(2)
+    }
+}
+
+/// 向量检索通道配置(R-164)。两个字段都带 serde default:
+/// 旧配置没有 `[embeddings]` 节时通道关闭,检索退化为 lexical(设计 §5 验收①)。
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct EmbeddingsSection {
+    /// provider 名(providers 表里的键,如 "ollama")。None = 通道关闭。
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// 模型名(如 "nomic-embed-text" / "text-embedding-3-small")。
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+impl EmbeddingsSection {
+    /// 通道是否启用:provider 与 model 都配置了才生效。
+    pub fn enabled(&self) -> bool {
+        self.provider.as_deref().is_some_and(|p| !p.is_empty())
+            && self.model.as_deref().is_some_and(|m| !m.is_empty())
     }
 }
 
@@ -587,6 +611,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
             "permissions",
             "limits",
             "cadence",
+            "embeddings",
         ],
         &mut out,
     );
@@ -597,6 +622,9 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
             &["primary", "fast", "reasoning", "codex_fast_mode"],
             &mut out,
         );
+    }
+    if let Some(embeddings) = value.get("embeddings") {
+        check(embeddings, "embeddings", &["provider", "model"], &mut out);
     }
     if let Some(limits) = value.get("limits") {
         check(
@@ -711,6 +739,13 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         rate_limit_retries,
         stream_restarts,
     );
+    // [embeddings] 逐字段覆盖(与 [limits] 同规:项目层只覆盖写了的那几个键)。
+    if layer.embeddings.provider.is_some() {
+        base.embeddings.provider = layer.embeddings.provider;
+    }
+    if layer.embeddings.model.is_some() {
+        base.embeddings.model = layer.embeddings.model;
+    }
 }
 
 /// "总是允许"的持久化:向项目配置追加 allow 规则(后来的规则 last-match-wins)。
@@ -854,6 +889,25 @@ mod tests {
         let m = c.resolve_model("ollama:llama3.3").unwrap();
         assert_eq!(m.model, "llama3.3");
         assert!(c.resolve_model("nope").is_err());
+    }
+
+    #[test]
+    fn embeddings_缺节关闭_配置后启用_旧配置行为不变() {
+        // 旧配置没有 [embeddings] → 通道关闭,检索退化为 lexical(验收①精神)。
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert!(!empty.embeddings.enabled());
+
+        // 只配 provider 不配 model → 仍关闭(缺一半不算启用)。
+        let half: KanzeiConfig = toml::from_str("[embeddings]\nprovider = \"ollama\"\n").unwrap();
+        assert!(!half.embeddings.enabled());
+
+        // 配全 → 启用。
+        let full: KanzeiConfig =
+            toml::from_str("[embeddings]\nprovider = \"ollama\"\nmodel = \"nomic-embed-text\"\n")
+                .unwrap();
+        assert!(full.embeddings.enabled());
+        assert_eq!(full.embeddings.provider.as_deref(), Some("ollama"));
+        assert_eq!(full.embeddings.model.as_deref(), Some("nomic-embed-text"));
     }
 
     #[test]

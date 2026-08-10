@@ -22,9 +22,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use super::store::SearchHit;
 use super::{FingerprintIndex, MemoryEntry, MemoryStore};
+use crate::embed::Embedder;
 
 /// 一次检索请求:文本与指纹触发二选一(可同时携带)。
 #[derive(Debug, Clone, Default)]
@@ -108,21 +110,31 @@ pub trait MemoryIndex: Send + Sync {
 
 /// SqliteMemoryIndex 默认实现(设计 §5)。
 ///
-/// 批1 范围:lexical 通道完整(fingerprint + BM25,复用 FingerprintIndex 与
-/// MemoryStore::search);dense 通道未接 embedder → 恒空;hybrid 退化为 lexical。
 /// 数据分布与既有召回同源:指纹在内存 HashMap(p95<5ms),BM25 走 index.db FTS5,
-/// 向量列与 Embedder 由后续批次接入(验收②④)。
+/// 向量列在同一 index.db 的 `memory_vectors` 表(派生物,可重建——验收④)。
+///
+/// 批2 范围:接入 [`Embedder`] 与向量列——有 embedder 时 rebuild 全量生成向量、
+/// upsert/remove 增量维护;无 embedder 时向量列空、dense 恒空、hybrid 退化为
+/// lexical(验收①)。dense 检索(brute-force 余弦)与 RRF 融合由批3 落地,
+/// 本批保证存储与重建闭环。
 pub struct SqliteMemoryIndex {
     project_root: PathBuf,
     /// Tier0 指纹索引:启动扫描 + 写时增量(upsert/remove)。
     fp: HashMap<String, Vec<String>>,
     /// active 条目快照(id → entry),供命中 materialize 与 upsert 增量。
     entries: HashMap<String, MemoryEntry>,
+    /// 向量通道:None = 关闭(hybrid 退化为 lexical)。批3 用 cosine 检索。
+    embedder: Option<Arc<dyn Embedder>>,
 }
 
 impl SqliteMemoryIndex {
     /// 启动扫描构建(project + global 两级,与 FailureRecallPolicy 同规)。
     pub fn new(project_root: &Path) -> Self {
+        Self::with_embedder(project_root, None)
+    }
+
+    /// 带向量通道的构造:embedder 为 None 时与 [`new`] 等价(降级路径)。
+    pub fn with_embedder(project_root: &Path, embedder: Option<Arc<dyn Embedder>>) -> Self {
         let fp = FingerprintIndex::build(project_root);
         let mut entries: HashMap<String, MemoryEntry> = HashMap::new();
         let mut stores = vec![MemoryStore::project(project_root)];
@@ -139,7 +151,58 @@ impl SqliteMemoryIndex {
             project_root: project_root.to_path_buf(),
             fp,
             entries,
+            embedder,
         }
+    }
+
+    /// 向量库路径:项目 memory 根下的 index.db(与 FTS 同库)。
+    fn vector_db_path(&self) -> PathBuf {
+        super::project_memory_root(&self.project_root).join("index.db")
+    }
+
+    /// 打开向量表(派生物,可重建;缺表即建)。
+    fn open_vector_db(&self) -> anyhow::Result<rusqlite::Connection> {
+        std::fs::create_dir_all(super::project_memory_root(&self.project_root))?;
+        let conn = rusqlite::Connection::open(self.vector_db_path())?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_vectors(
+                 id TEXT PRIMARY KEY,
+                 dim INTEGER NOT NULL,
+                 vector BLOB NOT NULL,
+                 updated INTEGER NOT NULL DEFAULT 0);",
+        )?;
+        Ok(conn)
+    }
+
+    /// 条目 → 向量。仅当通道启用时对 active 条目生成;失败(provider 报错)
+    /// 记录 tracing 并跳过该条——检索降级不阻塞主流程(设计 §3.2 精神)。
+    fn vectorize(&self, entry: &MemoryEntry) -> Option<Vec<f32>> {
+        let embedder = self.embedder.as_ref()?;
+        let text = format!(
+            "{}\n{}\n{}",
+            entry.title, entry.description, entry.body
+        );
+        match embedder.embed(&[&text]) {
+            Ok(mut vecs) => vecs.pop(),
+            Err(e) => {
+                tracing::warn!(
+                    id = %entry.id,
+                    error = %e,
+                    "embedding 生成失败,该条向量跳过(检索降级不阻塞)"
+                );
+                None
+            }
+        }
+    }
+
+    /// 向量 BLOB 序列化:f32 LE 字节拼接。
+    fn vector_to_blob(vec: &[f32]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(vec.len() * 4);
+        for v in vec {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
     }
 
     /// Tier0:指纹精确匹配。兼容 frontmatter fingerprint 一等字段与正文 [fp:] 标记。
@@ -234,6 +297,29 @@ impl MemoryIndex for SqliteMemoryIndex {
         } else {
             self.entries.remove(&entry.id);
         }
+        // 向量增量:active 且有 embedder → 生成并落表;非 active → 删行。
+        let conn = self.open_vector_db()?;
+        if entry.status == "active" {
+            if let Some(vec) = self.vectorize(entry) {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                conn.execute(
+                    "INSERT INTO memory_vectors(id, dim, vector, updated)
+                     VALUES (?1, ?2, ?3, ?4)
+                     ON CONFLICT(id) DO UPDATE SET dim = ?2, vector = ?3, updated = ?4",
+                    rusqlite::params![
+                        entry.id,
+                        vec.len() as i64,
+                        Self::vector_to_blob(&vec),
+                        now_ms
+                    ],
+                )?;
+            }
+        } else {
+            conn.execute("DELETE FROM memory_vectors WHERE id = ?1", rusqlite::params![entry.id])?;
+        }
         Ok(())
     }
 
@@ -243,11 +329,37 @@ impl MemoryIndex for SqliteMemoryIndex {
         }
         self.fp.retain(|_, ids| !ids.is_empty());
         self.entries.remove(id);
+        let conn = self.open_vector_db()?;
+        conn.execute("DELETE FROM memory_vectors WHERE id = ?1", rusqlite::params![id])?;
         Ok(())
     }
 
     fn rebuild(&mut self) -> anyhow::Result<()> {
-        *self = Self::new(&self.project_root);
+        // 重建内存索引与向量表:指纹+条目快照全量重扫,向量全量重算(验收④)。
+        let new_self = Self::with_embedder(&self.project_root, self.embedder.clone());
+        *self = new_self;
+        let conn = self.open_vector_db()?;
+        conn.execute("DELETE FROM memory_vectors", [])?;
+        let mut failed = 0usize;
+        for (_, entry) in &self.entries {
+            if let Some(vec) = self.vectorize(entry) {
+                conn.execute(
+                    "INSERT INTO memory_vectors(id, dim, vector, updated) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![
+                        entry.id,
+                        vec.len() as i64,
+                        Self::vector_to_blob(&vec),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as i64)
+                            .unwrap_or(0)
+                    ],
+                )?;
+            } else {
+                failed += 1;
+            }
+        }
+        tracing::debug!(entries = self.entries.len(), failed, "memory_vectors 全量重建完成");
         Ok(())
     }
 }
@@ -390,5 +502,79 @@ mod tests {
         index.rebuild().unwrap();
         let hits = index.search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5);
         assert_eq!(hits.len(), 1, "rebuild 后必须恢复: {:?}", hits);
+    }
+
+    #[test]
+    fn 有embedder时rebuild生成向量_无embedder时向量表空() {
+        // 验收④:配置 embedder 后向量索引可全量重建;验收①:无 embedder 时降级。
+        let (root, store) = temp_root();
+        let e1 = add(&store, "fact", "A 概念", "A 的描述", "A 的正文内容");
+        let e2 = add(&store, "sop", "B 概念", "B 的描述", "B 的正文内容");
+
+        // 无 embedder:rebuild 后向量表为空(dense 通道关闭)。
+        {
+            let mut index = SqliteMemoryIndex::new(&root);
+            index.rebuild().unwrap();
+            let conn = index.open_vector_db().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memory_vectors", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "无 embedder 时不得生成任何向量");
+        }
+
+        // 有 embedder:rebuild 全量生成(每条 active 都有向量,维度一致)。
+        {
+            let embedder = Arc::new(crate::embed::FakeEmbedder::new(8));
+            let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
+            index.rebuild().unwrap();
+            let conn = index.open_vector_db().unwrap();
+            let rows: Vec<(String, i64)> = conn
+                .prepare("SELECT id, dim FROM memory_vectors ORDER BY id")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert_eq!(rows.len(), 2, "两条 active 条目都要有向量: {rows:?}");
+            for (id, dim) in &rows {
+                assert!(id == &e1.id || id == &e2.id, "未知条目 id: {id}");
+                assert_eq!(*dim, 8, "维度必须与 embedder 一致");
+            }
+            // BLOB 可反序列化为 8 个 f32。
+            let (_, blob): (String, Vec<u8>) = conn
+                .query_row("SELECT id, vector FROM memory_vectors LIMIT 1", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .unwrap();
+            assert_eq!(blob.len(), 8 * 4, "f32 LE 字节数必须 = dim*4");
+        }
+    }
+
+    #[test]
+    fn upsert_增量维护向量_remove删除向量() {
+        let (root, store) = temp_root();
+        let embedder = Arc::new(crate::embed::FakeEmbedder::new(4));
+        let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
+
+        // upsert 一条 → 向量表出现该行。
+        let entry = add(&store, "fact", "C 概念", "C 的描述", "C 的正文");
+        index.upsert(&entry).unwrap();
+        {
+            let conn = index.open_vector_db().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memory_vectors", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 1, "upsert 后向量必须落表");
+        }
+
+        // remove → 向量行删除。
+        index.remove(&entry.id).unwrap();
+        {
+            let conn = index.open_vector_db().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memory_vectors", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 0, "remove 后向量必须删除");
+        }
     }
 }
