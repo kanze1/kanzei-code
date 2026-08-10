@@ -469,7 +469,7 @@ const payloads = {
     unannotated: 1,
   },
   docs_snapshot: {
-    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 } })],
+    requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
     goals: [{ id: "G-001", title: "冒烟目标", status: "active", fields: [] }],
     sources: [],
@@ -989,6 +989,42 @@ assert(
 blockedFilter.value = "all";
 blockedFilter._listeners.change?.forEach((fn) => fn({ target: blockedFilter }));
 await flush();
+
+// ---------- R-111 依赖视图:可做/被阻塞分层,点击条目高亮依赖链 ----------
+const depToggle = byId.get("documents-dep-toggle");
+assert(depToggle, "文档页缺少依赖视图切换按钮");
+depToggle.click();
+await flush();
+assert(
+  !byId.get("documents-dep-view").classList.contains("hidden"),
+  "点击依赖视图按钮后面板未显示",
+);
+assert(
+  byId.get("documents-req-list").classList.contains("hidden")
+    && byId.get("documents-defect-list").classList.contains("hidden"),
+  "依赖视图打开时普通列表未隐藏",
+);
+// 桩依赖:R-002 依赖 R-001 → R-002 处于被阻塞层,R-001 处于可做层。
+const depEntries = [...document.querySelectorAll("#documents-dep-view .dep-entry")];
+assert(depEntries.length >= 2, "依赖视图未渲染分层条目");
+const r001 = depEntries.find((n) => n.dataset.docId === "R-001");
+const r002 = depEntries.find((n) => n.dataset.docId === "R-002");
+assert(r001 && r002, "依赖视图缺少 R-001/R-002");
+assert(
+  r001.closest(".dep-layer") !== r002.closest(".dep-layer"),
+  "R-001 与 R-002 应分属不同层(依赖关系未分层)",
+);
+// 点击 R-002 应高亮它自己和依赖链上的 R-001,并压暗无关条目。
+r002.click();
+await flush();
+assert(r002.classList.contains("dep-lit"), "点击后目标条目未高亮");
+assert(r001.classList.contains("dep-lit"), "依赖链上游未高亮");
+const unrelated = depEntries.find((n) => n.dataset.docId === "D-001");
+if (unrelated) assert(unrelated.classList.contains("dep-dim"), "无关条目未压暗");
+depToggle.click();
+await flush();
+assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点击依赖视图按钮后面板未隐藏");
+
 byId.get("sop-picker").click();
 await flush();
 const sopEntry = document.querySelector("#sop-list .sop-entry");

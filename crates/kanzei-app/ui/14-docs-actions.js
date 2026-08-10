@@ -39,6 +39,7 @@ $("documents-project-select").addEventListener("change", (event) => {
 $("documents-tab-req").addEventListener("click", () => { documentsKind = "req"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-defect").addEventListener("click", () => { documentsKind = "defect"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 $("documents-tab-both").addEventListener("click", () => { documentsKind = "both"; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
+$("documents-dep-toggle").addEventListener("click", () => { dependencyViewOpen = !dependencyViewOpen; if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });
 
 async function runDefectReview() {
   if (!currentProject) {

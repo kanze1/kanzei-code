@@ -136,14 +136,134 @@ function renderDocuments(snapshot) {
   renderDocList(defectList, snapshot.defects ?? [], "defect", snapshot.archived?.defect ?? 0, documentFilters.defect, snapshot.archived_entries?.defect ?? []);
   // 「对照」把两个队列并排摆出来:需求与缺陷互相引用,分成两个标签页时对不起来。
   const both = documentsKind === "both";
-  reqList.classList.toggle("hidden", !both && documentsKind !== "req");
-  defectList.classList.toggle("hidden", !both && documentsKind !== "defect");
+  const depMode = dependencyViewOpen;
+  reqList.classList.toggle("hidden", depMode || (!both && documentsKind !== "req"));
+  defectList.classList.toggle("hidden", depMode || (!both && documentsKind !== "defect"));
   $("documents-scroll")?.classList.toggle("compare", both);
   $("documents-tab-req").className = documentsKind === "req" ? "primary" : "ghost";
   $("documents-tab-defect").className = documentsKind === "defect" ? "primary" : "ghost";
   const compareTab = $("documents-tab-both");
   if (compareTab) compareTab.className = both ? "primary" : "ghost";
+  renderDependencyView(snapshot);
   syncBatchBar();
+}
+// 依赖视图(R-111):按依赖拓扑分层展示需求+缺陷。可做层 = 依赖全部满足(已关闭或
+// 不依赖任何未完成条目)的条目;被阻塞层 = 还有未完成依赖的条目。点击任意条目
+// 高亮它的依赖链——向上(它依赖谁)与向下(谁依赖它),整条链一眼可读。
+// 数据来自批1 的 docs_snapshot 每条目 dependencies/dependents 字段(「依赖:」语义,
+// refs 不参与),与引擎取活/阻塞判断同源,不做第二套解析。
+let dependencyViewOpen = false;
+function renderDependencyView(snapshot) {
+  const depView = $("documents-dep-view");
+  const toggle = $("documents-dep-toggle");
+  if (!depView || !toggle) return;
+  if (!dependencyViewOpen) {
+    depView.classList.add("hidden");
+    toggle.classList.remove("primary");
+    toggle.classList.add("ghost");
+    return;
+  }
+  toggle.classList.add("primary");
+  toggle.classList.remove("ghost");
+  depView.classList.remove("hidden");
+  const reqs = snapshot?.requirements ?? [];
+  const defs = snapshot?.defects ?? [];
+  const entries = [...reqs, ...defs];
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const done = new Set(entries.filter((e) => e.closed || e.status === "done" || e.status === "fixed").map((e) => e.id));
+  const hasDeps = (e) => Array.isArray(e.dependencies) && e.dependencies.length > 0;
+  const depsDone = (e) => (e.dependencies ?? []).every((id) => done.has(id));
+  const layers = { ready: [], blocked: [] };
+  for (const e of entries) {
+    if (!hasDeps(e) || depsDone(e)) layers.ready.push(e);
+    else layers.blocked.push(e);
+  }
+  const renderLayer = (list, title, cls) => {
+    const head = document.createElement("h3");
+    head.className = `dep-layer-head ${cls}`;
+    head.textContent = `${title}(${list.length})`;
+    const wrap = document.createElement("div");
+    wrap.className = "dep-layer";
+    for (const e of list) {
+      const row = document.createElement("div");
+      row.className = `dep-entry${e.closed ? " closed" : ""}`;
+      row.dataset.docId = e.id;
+      row.setAttribute("role", "button");
+      row.tabIndex = 0;
+      const kind = e.id.startsWith("D-") ? "defect" : "req";
+      const st = document.createElement("span");
+      st.className = `st st-${e.status || "todo"}`;
+      st.textContent = e.id;
+      const title = document.createElement("span");
+      title.className = "dep-entry-title";
+      title.textContent = e.title;
+      const meta = [];
+      if (hasDeps(e)) meta.push(`${t("依赖")} ${(e.dependencies ?? []).length}`);
+      if (Array.isArray(e.dependents) && e.dependents.length) meta.push(`${t("被依赖")} ${e.dependents.length}`);
+      if (meta.length) {
+        const m = document.createElement("span");
+        m.className = "dim dep-meta";
+        m.textContent = meta.join(" · ");
+        row.append(st, title, m);
+      } else {
+        row.append(st, title);
+      }
+      row.addEventListener("click", () => highlightDependencyChain(row, e, byId));
+      row.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        row.click();
+      });
+      wrap.appendChild(row);
+    }
+    depView.append(head, wrap);
+  };
+  depView.replaceChildren();
+  renderLayer(layers.ready, t("可做(依赖已满足)"), "ready");
+  renderLayer(layers.blocked, t("被阻塞(还有未完成依赖)"), "blocked");
+  // 全部无依赖时给一行说明,避免空视图像没渲染。
+  if (!layers.ready.length && !layers.blocked.length) {
+    const empty = document.createElement("p");
+    empty.className = "dim";
+    empty.textContent = t("暂无依赖关系");
+    depView.appendChild(empty);
+  }
+}
+function highlightDependencyChain(clicked, entry, byId) {
+  const depView = $("documents-dep-view");
+  if (!depView) return;
+  const rows = [...depView.querySelectorAll(".dep-entry")];
+  rows.forEach((r) => {
+    r.classList.remove("dep-lit", "dep-dim");
+    r.style.opacity = "";
+  });
+  const lit = new Set();
+  const walkUp = (id, visited) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    lit.add(id);
+    const e = byId.get(id);
+    if (!e) return;
+    for (const dep of e.dependencies ?? []) walkUp(dep, visited);
+  };
+  const walkDown = (id, visited) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+    lit.add(id);
+    for (const e of byId.values()) {
+      if ((e.dependencies ?? []).includes(id)) walkDown(e.id, visited);
+    }
+  };
+  walkUp(entry.id, new Set());
+  walkDown(entry.id, new Set());
+  for (const r of rows) {
+    if (lit.has(r.dataset.docId)) r.classList.add("dep-lit");
+    else {
+      r.classList.add("dep-dim");
+      r.style.opacity = "0.45";
+    }
+  }
+  clicked.scrollIntoView({ block: "nearest" });
 }
 // 取活焦点(D-207):在做的条目与 agent 下一个会拿的条目。数据取 scheduler 序的
 // snapshot(可执行在前+block_reasons),按当前 work-priority 跨需求/缺陷两队计算——
