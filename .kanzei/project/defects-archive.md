@@ -2384,5 +2384,5 @@
 ## D-255 verify.ps1 在子作用域丢失 LASTEXITCODE,fmt 失败仍继续并误记 pass [fixed] (high)
 - 复现: 2026-08-10 正式发版运行 `scripts/verify.ps1`，仓库存在 24 个 Rustfmt 差异，但输出直接进入 Clippy；脚本的 `Invoke-Check` 用 `& $body` 在子作用域执行，返回父作用域后读不到该 native command 的失败码。
 - 影响: `dist/verification.json` 可能把实际失败的 fmt 门禁记录成 pass，随后允许 package.ps1 发布未通过完整验证的安装包。
-- 修复: `Invoke-Check` 改为点调用 `. $body`，让 cargo/node 的 `LASTEXITCODE` 留在当前函数作用域；同时对本轮 59 个提交累积的 Rustfmt 差异执行全仓机械格式化。
+- 修复: 删除会丢失首项证据的脚本块封装，八个门禁改为显式串行命令；每条 cargo/node 命令后立即读取 `LASTEXITCODE` 并写入同名证据。同时对本轮 59 个提交累积的 Rustfmt 差异执行全仓机械格式化。
 - 验收: 人工注入失败命令时 Invoke-Check 必须立即 throw；真实 `scripts/verify.ps1` 从 fmt 开始串行跑完全门禁并生成绑定新 HEAD 的 `dist/verification.json`。

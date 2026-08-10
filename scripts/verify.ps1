@@ -14,29 +14,50 @@ if ($unclean.Count -gt 0) {
 $full_hash = (git -C $root rev-parse HEAD).Trim()
 
 $checks = [ordered]@{}
-function Invoke-Check([string]$name, [scriptblock]$body) {
-    Write-Host "==> $name" -ForegroundColor Cyan
-    # 在当前作用域执行，确保 native command 的 LASTEXITCODE 不会随子作用域丢失。
-    # 否则 cargo fmt --check 失败后仍会继续跑 clippy，门禁会误记 fmt=pass(D-255)。
-    . $body
-    if ($LASTEXITCODE -ne 0) { throw "$name 失败(exit=$LASTEXITCODE)" }
-    $checks[$name] = "pass"
-}
+
+# 每条 native command 后立刻检查退出码，不把 LASTEXITCODE 跨函数/脚本块传递(D-255)。
+Write-Host "==> fmt" -ForegroundColor Cyan
+cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
+if ($LASTEXITCODE -ne 0) { throw "fmt 失败(exit=$LASTEXITCODE)" }
+$checks["fmt"] = "pass"
 
 # R-146(clippy)启用时必须同步修改 .github/workflows/ci.yml：两处门禁清单保持一致。
-Invoke-Check "fmt" { cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check }
-Invoke-Check "clippy" { cargo clippy --workspace --all-targets --manifest-path "$root\Cargo.toml" -- -D warnings }
-Invoke-Check "test" { cargo test --workspace --manifest-path "$root\Cargo.toml" }
-Invoke-Check "ui_syntax" {
-    Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
-        node --check $_.FullName
-        if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
-    }
+Write-Host "==> clippy" -ForegroundColor Cyan
+cargo clippy --workspace --all-targets --manifest-path "$root\Cargo.toml" -- -D warnings
+if ($LASTEXITCODE -ne 0) { throw "clippy 失败(exit=$LASTEXITCODE)" }
+$checks["clippy"] = "pass"
+
+Write-Host "==> test" -ForegroundColor Cyan
+cargo test --workspace --manifest-path "$root\Cargo.toml"
+if ($LASTEXITCODE -ne 0) { throw "test 失败(exit=$LASTEXITCODE)" }
+$checks["test"] = "pass"
+
+Write-Host "==> ui_syntax" -ForegroundColor Cyan
+Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
+    node --check $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
 }
-Invoke-Check "ui_runtime" { node "$root\scripts\ui-runtime-smoke.mjs" }
-Invoke-Check "ui_a11y" { node "$root\scripts\ui-a11y-smoke.mjs" }
-Invoke-Check "ui_i18n" { node "$root\scripts\ui-i18n-smoke.mjs" }
-Invoke-Check "ui_markdown" { node "$root\scripts\ui-markdown-smoke.mjs" }
+$checks["ui_syntax"] = "pass"
+
+Write-Host "==> ui_runtime" -ForegroundColor Cyan
+node "$root\scripts\ui-runtime-smoke.mjs"
+if ($LASTEXITCODE -ne 0) { throw "ui_runtime 失败(exit=$LASTEXITCODE)" }
+$checks["ui_runtime"] = "pass"
+
+Write-Host "==> ui_a11y" -ForegroundColor Cyan
+node "$root\scripts\ui-a11y-smoke.mjs"
+if ($LASTEXITCODE -ne 0) { throw "ui_a11y 失败(exit=$LASTEXITCODE)" }
+$checks["ui_a11y"] = "pass"
+
+Write-Host "==> ui_i18n" -ForegroundColor Cyan
+node "$root\scripts\ui-i18n-smoke.mjs"
+if ($LASTEXITCODE -ne 0) { throw "ui_i18n 失败(exit=$LASTEXITCODE)" }
+$checks["ui_i18n"] = "pass"
+
+Write-Host "==> ui_markdown" -ForegroundColor Cyan
+node "$root\scripts\ui-markdown-smoke.mjs"
+if ($LASTEXITCODE -ne 0) { throw "ui_markdown 失败(exit=$LASTEXITCODE)" }
+$checks["ui_markdown"] = "pass"
 
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
 [ordered]@{
