@@ -614,6 +614,8 @@ const payloads = {
     zeroAdopt: [{ scope: "project", id: "M-001", title: "CRLF 未命中", recalled: 5, fetched: 0 }],
     recurring: [{ scope: "project", id: "M-002", title: "发版 SOP", recalled: 4, fetched: 1 }],
   },
+  // R-132:一键整理——零采纳候选降级 stale,返回降级/跳过清单。
+  memory_cleanup_demote: { demoted: [{ id: "M-001", title: "CRLF 未命中" }], skipped: [] },
   // R-099/R-127:一轮有画像、一轮早于度量落地,验证两者区分得开。
   run_metrics: {
     rounds: [
@@ -2134,6 +2136,14 @@ for (const width of [800, 1024, 1280]) {
 }
 windowShim.innerWidth = 1280;
 await flush();
+
+// ---------- R-132 一键整理:手动触发整理入口 + 结果反馈 ----------
+const cleanupBtn = byId.get("memory-cleanup-btn");
+assert(cleanupBtn, "空闲整理清单缺少一键整理入口(验收:手动触发整理)");
+cleanupBtn.click();
+await flush();
+assert(invokeLog.includes("memory_cleanup_demote"), "一键整理未调用后端整理流程");
+assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲整理清单计数");
 
 // ---------- 主对话工具块:⎿ 摘要行与展开详情不得双写同一段文案(历史回放路径) ----------
 // 用户实测:一条 edit 失败,⎿ 行显示了一段文案,点开详情又把同一段完整贴了一遍。

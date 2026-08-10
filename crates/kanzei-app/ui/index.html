@@ -291,7 +291,9 @@
               <h2>待确认候选 <span id="memory-candidate-count" class="dim"></span></h2>
               <p class="dim">完成一个完整条目后自动提炼的 SOP 候选。候选不会自己入库——采纳才交给记忆管理子代理提炼成条目，丢弃则直接移出。</p>
               <div id="memory-candidates" class="memory-candidates"></div>
-              <h2>空闲整理清单 <span id="memory-flags-count" class="dim"></span></h2>
+              <h2>空闲整理清单 <span id="memory-flags-count" class="dim"></span>
+                <button type="button" id="memory-cleanup-btn" class="mini" title="对零采纳候选(召回≥3 采纳=0)一键降级为 stale,可逆不删">一键整理</button>
+              </h2>
               <p class="dim">零采纳候选 = 召回≥3 但从未拉正文(语义显著却决策无关);复发候选 = 召回频次高的活跃条目。处置走既有墓碑机制(降级/修订),不静默删。</p>
               <div id="memory-value-flags" class="memory-value-flags"></div>
               <h2>召回评估 <span id="memory-recall-rate" class="dim"></span></h2>

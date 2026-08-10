@@ -145,6 +145,31 @@ pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
     json!({"zeroAdopt": zero_adopt, "recurring": recurring})
 }
 
+/// R-132 一键整理:对零采纳候选(召回≥3 采纳=0 且 active)批量降级为 stale。
+/// 走既有墓碑机制(降级不删除、可逆——UI 详情可改回 active),不静默删。
+/// 返回降级清单与跳过清单,供前端给出结果反馈。
+#[tauri::command]
+pub(crate) fn memory_cleanup_demote(project_dir: String) -> Result<serde_json::Value, String> {
+    let mut demoted = Vec::new();
+    let mut skipped = Vec::new();
+    for store in memory_stores_for(&project_dir) {
+        let entries = store.load_all();
+        let profile = store.recall_profile();
+        for (_, e) in entries.iter().filter(|(_, e)| e.status == "active") {
+            let Some(&(recalled, fetched)) = profile.get(&e.id) else {
+                continue;
+            };
+            if recalled >= 3 && fetched == 0 {
+                match store.update(&e.id, None, None, None, Some("stale")) {
+                    Ok(updated) => demoted.push(json!({"id": e.id, "title": updated.title})),
+                    Err(err) => skipped.push(json!({"id": e.id, "reason": err.to_string()})),
+                }
+            }
+        }
+    }
+    Ok(json!({"demoted": demoted, "skipped": skipped}))
+}
+
 #[tauri::command]
 pub(crate) fn memory_entry_save(
     project_dir: String,

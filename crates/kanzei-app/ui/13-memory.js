@@ -609,3 +609,27 @@ $("memory-consolidate-btn").addEventListener("click", async () => {
     toastError(`${t("整理失败")}:${err}`);
   }
 });
+
+// R-132:一键整理——对零采纳候选(召回≥3 采纳=0)批量降级 stale,可逆不删。
+// 结果反馈:降级数量 + 跳过数量,明细进 toast 尾部。
+$("memory-cleanup-btn").addEventListener("click", async () => {
+  if (!currentProject) return;
+  const btn = $("memory-cleanup-btn");
+  btn.disabled = true;
+  try {
+    const result = await invoke("memory_cleanup_demote", { projectDir: currentProject });
+    const demoted = Array.isArray(result?.demoted) ? result.demoted : [];
+    const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+    if (demoted.length) {
+      const names = demoted.slice(0, 3).map((d) => d.title).join("、");
+      toast(`${t("已降级")} ${demoted.length} ${t("条记忆为 stale")}${skipped.length ? `,${t("跳过")} ${skipped.length}` : ""}${demoted.length > 3 ? "…" : ""}${names ? `:${names}` : ""}`);
+    } else {
+      toast(skipped.length ? `${t("无候选可降级")},${t("跳过")} ${skipped.length}` : t("无零采纳候选需要整理"));
+    }
+    refreshMemory();
+  } catch (err) {
+    toastError(`${t("整理失败")}:${err}`);
+  } finally {
+    btn.disabled = false;
+  }
+});

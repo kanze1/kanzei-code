@@ -53,7 +53,7 @@
 
 - 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
 
-## R-132 mem单页手动触发整理功能 [todo]
+## R-132 mem单页手动触发整理功能 [doing]
 - priority: P1
 - 原始描述: mem单页应该有个可以手动触发的整理，这个需要详细设计，先记录吧
 - 复杂度: 中
@@ -61,6 +61,9 @@
 - 验收: mem单页提供手动触发整理的入口，触发后执行整理流程并给出结果反馈
 
 - 标签: 核心
+
+- 批次: 1/1
+- 进展: 批1完成(单批):后端 memory_cleanup_demote 零采纳候选(recalled≥3&fetched=0&active)批量降级 stale(墓碑机制可逆不删),注册 invoke_handler;前端空闲整理清单标题加「一键整理」按钮,点击调用+toast 反馈(降级/跳过数量+前3条标题);冒烟脚本加 fixture+断言;HTML 静态文案登记 i18n。app 51 全绿,四条冒烟过。剩关闭:全量+验收对照。
 
 ## R-145 Memory 闭环实证:发版后轨迹命中与 token 基线对比 [todo]
 - 优先级: P1

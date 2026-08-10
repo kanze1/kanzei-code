@@ -1343,3 +1343,8 @@
 - 命令: node --check + 四条 ui 冒烟(含三档宽度)+ cargo test --workspace
 - 摘要: R-150 批3:冒烟脚本加 memory_value_flags 断言+800/1024/1280 三档宽度验证、CSS ellipsis 防窄宽溢出。四条冒烟+全量 workspace 全绿。
 - 收尾: 1786350657
+
+## T-1786350773 R-132 B1 一键整理入口+反馈(前端冒烟+app) [passed]
+- 命令: node --check + 四条 ui 冒烟 + cargo test -p kanzei-app
+- 摘要: R-132 批1:memory_cleanup_demote(零采纳候选批量降级 stale,可逆不删)+ 前端一键整理按钮+toast 反馈。app 51 全绿,四条冒烟过(i18n 65 key)。
+- 收尾: 1786350773
