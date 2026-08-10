@@ -2539,3 +2539,20 @@
 
   **验证**:`node --check` 三文件 OK;ui-runtime 743 invoke 0 错误、ui-a11y 22 icon-btn、ui-i18n 871 key、ui-markdown 全通过。复杂度小,按 §1.4 全量测试**非必需**;本轮仍随同批条目跑了全量 `cargo test --workspace` exit=0、524 passed。
 
+## D-257 worktrees-refresh 刷新按钮全仓无监听器:addEventListener 前半段被重构吃掉,只剩 no-op 逗号表达式 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 证据等级: E1(按钮存在、全仓零绑定、git log -S 定位引入提交,三处独立实证)
+- refs: D-211
+- 复现: 侧栏「隔离工作树」区块标题右侧的刷新按钮(↻)**点了没反应**。
+- 依据①(按钮确实存在): crates/kanzei-app/ui/index.html:79 —— `<button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" aria-label="刷新工作树差异">↻</button>`,位于 `#worktrees-section` 的 section-title 内。**注意 id 是 `worktrees-refresh`(复数 worktrees),不是 `worktree-refresh`**:按单数形式 grep 会一无所获并误判成「元素已删除」。
+- 依据②(全仓零绑定): `grep -rn "worktrees-refresh" crates/ scripts/` 只命中 index.html:79 那一行,没有任何 JS 绑定它。
+- 依据③(破损行): crates/kanzei-app/ui/09-sessions.js:86 是 `}("click", refreshWorktrees);` —— `$("worktrees-refresh").addEventListener` 的前半段丢了。`}` 结束的是上方 `async function handleWorktreeAction(item, action)` 的函数**声明**,其后的 `("click", refreshWorktrees);` 成了一条独立的、合法但完全 no-op 的逗号表达式语句(函数声明不是表达式,不会被调用)。`node --check crates/kanzei-app/ui/09-sessions.js` **通过**——语法检查抓不到它,正是 conventions §1.3「前端改动不得只以 node --check 作为验证证据」说的那类漏网。
+- 取证: `git log -S 'worktrees-refresh").addEventListener' -- crates/kanzei-app/ui/` 与 `git log -S '}("click", refreshWorktrees);'` 共同指向 **7c5f022「增加工作树操作失败重试入口」(2026-08-07)**;`git show 7c5f022 -- crates/kanzei-app/ui/main.js` 的 diff 逐字为 `-$("worktrees-refresh").addEventListener("click", refreshWorktrees);` / `+}("click", refreshWorktrees);`——把工作树操作抽成 `handleWorktreeAction` 时,新函数的收尾 `}` 覆盖掉了下一行的 `$("worktrees-refresh").addEventListener` 前缀。R-154 B5(9349b45)切出 09-sessions.js 时原样带了过来。**HEAD 既有**(HEAD=36ce685 的 :86 仍是同一形态),不是本轮改动引入。
+- 结论(纠正勘察分歧): 按钮**没有被删**——这**不是删残留,是真正的按钮失效**,修法是恢复绑定而不是清理死代码。
+- 影响: 工作树差异清单只剩自动刷新路径(handleWorktreeAction 成功后 09-sessions.js:81、worktree-add 成功后 :99、以及 14-docs-actions.js:16 与 02-i18n.js:754 的整体刷新),用户看到过期状态时**没有手动刷新手段**。危害窄(工作树本身低频),但属于「界面承诺了能力却没有能力」,与 D-211 同族。
+- 修复方向: 把 09-sessions.js:86 还原成两行——函数声明收尾的 `}`,以及独立一行 `$("worktrees-refresh").addEventListener("click", refreshWorktrees);`。
+- 验收: 二选一,不留中间态。**优先①**——①按钮真能刷新:点击 `#worktrees-refresh` 后 refreshWorktrees 被调用且工作树清单重渲染,scripts/ui-runtime-smoke.mjs 有对应冒烟断言(断言点击后触发 worktree 相关 invoke);或②按钮与 09-sessions.js 的 no-op 残留一起清理干净(index.html 不再有该按钮、JS 不再有那条逗号表达式)。选②等于删掉用户可见的界面能力,属缩小范围,需先经用户同意。
+- 进展: **已按验收①交付并关闭**(`c3398b5`,经 `eb50db6` 并入 dev)。2026-08-11 任务级并行实测的线 B 产出,改动面只含 `crates/kanzei-app/ui/09-sessions.js`(恢复被吃掉的 `$("worktrees-refresh").addEventListener` 前缀)与 `scripts/ui-runtime-smoke.mjs`(点击后断言真打出 `worktree_diff` 且 `projectDir` 正确、清单按新数据重渲染,另加一条"按钮从 index.html 消失即判红"的前置断言防止将来滑向验收②)。**反证独立复核过**:把文件改回破损形态后 `node --check` **仍然通过**(正是依据③说的那类漏网),而冒烟精确判红两处;还原后转绿。合并后全量门禁复跑:fmt 干净、前端冒烟通过、`cargo test -p kanzei-tools` 217 全过。
+
