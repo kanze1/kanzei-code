@@ -90,6 +90,9 @@ impl Drop for WriterLease {
 /// Drop 时调用注入的释放回调,保证子代理结束(含失败/取消)即从快照消失。
 pub struct ReadPermit {
     pub project_root: PathBuf,
+    /// 读槽身份键。**必须唯一**——同轮并行的 N 个子代理共用同一个 `agent_name`
+    /// (都是 agent 定义名,如 `explore`),只有 run_id(= 父 tool call id)能区分它们。
+    pub run_id: String,
     pub agent_name: String,
     release: Option<ReleaseCallback>,
 }
@@ -98,6 +101,7 @@ impl std::fmt::Debug for ReadPermit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ReadPermit")
             .field("project_root", &self.project_root)
+            .field("run_id", &self.run_id)
             .field("agent_name", &self.agent_name)
             .finish()
     }
@@ -105,13 +109,19 @@ impl std::fmt::Debug for ReadPermit {
 
 impl ReadPermit {
     /// 协调器实现创建读槽时注入释放回调;未注入(如测试直构)则 drop 为空操作。
+    ///
+    /// 回调收到的是 **run_id**,不是 agent_name(R-173 批4.5 修:原实现按
+    /// agent_name 回收,而并行子代理的 agent_name 全部相同,协调器只能"随便挑一条
+    /// 同名的删掉"——个数对得上,身份是错的,AgentCompleted 会报错运行的 run_id)。
     pub fn with_release(
         project_root: PathBuf,
+        run_id: String,
         agent_name: String,
         release: impl Fn(&str) + Send + Sync + 'static,
     ) -> Self {
         ReadPermit {
             project_root,
+            run_id,
             agent_name,
             release: Some(std::sync::Arc::new(release)),
         }
@@ -121,7 +131,7 @@ impl ReadPermit {
 impl Drop for ReadPermit {
     fn drop(&mut self) {
         if let Some(cb) = &self.release {
-            cb(&self.agent_name);
+            cb(&self.run_id);
         }
     }
 }

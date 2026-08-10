@@ -54,9 +54,24 @@ pub fn run_once_with_parts<'a>(
                 input_schema: t.input_schema(),
             })
             .collect();
-        if subagent.is_some() && !config.execution_policy.is_serial_writer() {
-            // R-171:ReadParallelWriteSerial(writer 阶段)禁用 task 子代理——
-            // 设计文档不变量 5:「writer 阶段禁用 task」,工具不注册比注册后拒绝更干净。
+        if subagent.is_some() {
+            // R-173 批4.5:task 注册**不再受执行策略门控**。
+            //
+            // 为什么这样安全:只读子代理产不出写入,这是**构造层面**的事实,不靠运行时
+            // 判断——`kanzei_tools::SubagentBase` 只 insert read/glob/grep 三个工具
+            // (`crates/kanzei-tools/src/subagent.rs`),子代理快照里根本不存在写工具;
+            // 且子代理内 `ask` 恒 Deny(见 `runner/subagent.rs` 的 run_subagent),
+            // 无人应答的权限询问也不可能被放行。所以 writer 阶段跑 task 破坏不了单写语义。
+            //
+            // 串行强制**不动**:它只作用于普通工具,在下面那条独立分支上
+            // (`let serial_writer = config.execution_policy.is_serial_writer()`),
+            // task 从来不走那条路——同轮的 task 调用在更上面的块里先行结算。
+            //
+            // R-171 曾把注册挂在 `!is_serial_writer()` 上,而桌面端主对话无条件设
+            // ReadParallelWriteSerial,结果是主对话根本不注册 task、「并行查」被整个
+            // 关掉、读槽登记代码不可达。口径修订与完整论证见
+            // `docs/design/parallel_read_serial_write_orchestration.md` 的
+            // 「阶段契约」表下「2026-08-10 口径修订(implementation 阶段的 task)」一节。
             specs.push(task_spec());
         }
 

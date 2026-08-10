@@ -194,29 +194,25 @@ impl MemoryCoordinator {
 
     /// 归还读槽(批6):按 agent_name 移除登记并记录 AgentCompleted 事件。
     /// 由 ReadPermit 的 drop 回调调用——子代理结束(含失败/取消)即回收。
-    fn release_reader(&self, root_key: &str, agent_name: &str) {
+    /// R-173 批4.5 修:按 **run_id** 回收,不按 agent_name。
+    ///
+    /// 原实现在 `readers` 里找第一条 value == agent_name 的记录删掉。同轮并行的
+    /// N 个子代理 agent_name **全部相同**(都是 agent 定义名 `explore`),于是
+    /// "随便挑一条同名的删掉":个数对得上,身份是错的——AgentCompleted 会挂在
+    /// 另一个还在跑的子代理的 run_id 上。R-171 时这条路不可达所以没暴露,
+    /// 批4.5 让并行查恢复后它立刻变成真实的审计错误。
+    fn release_reader(&self, root_key: &str, run_id: &str) {
         let mut pending = Vec::new();
         {
             let mut guard = self.inner.projects.lock().unwrap();
             let Some(state) = guard.get_mut(root_key) else {
                 return;
             };
-            let removed = {
-                let run_id = state
-                    .readers
-                    .iter()
-                    .find(|(_, name)| name.as_str() == agent_name)
-                    .map(|(rid, _)| rid.clone());
-                if let Some(rid) = &run_id {
-                    state.readers.remove(rid);
-                }
-                run_id
-            };
-            if let Some(run_id) = removed {
+            if let Some(agent_name) = state.readers.remove(run_id) {
                 pending.push(OrchestrationEvent::AgentCompleted {
                     project_root: PathBuf::from(root_key),
-                    run_id,
-                    agent_name: agent_name.to_string(),
+                    run_id: run_id.to_string(),
+                    agent_name,
                     ok: true,
                 });
             }
@@ -248,11 +244,16 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
         self.notify(pending);
         // R-171 批6:读槽带释放回调——子代理结束即从快照消失(active_readers
         // 不再永久累积),保证「并行查」的身份可见且可回收。
-        let permit = ReadPermit::with_release(request.project_root.clone(), agent_name.clone(), {
-            let key = key.clone();
-            let coord = self.clone();
-            move |released_agent| coord.release_reader(&key, released_agent)
-        });
+        let permit = ReadPermit::with_release(
+            request.project_root.clone(),
+            request.run_id.clone(),
+            agent_name.clone(),
+            {
+                let key = key.clone();
+                let coord = self.clone();
+                move |released_run_id| coord.release_reader(&key, released_run_id)
+            },
+        );
         Ok(permit)
     }
 
