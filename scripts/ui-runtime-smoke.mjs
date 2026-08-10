@@ -848,6 +848,41 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
+// D-207 三修:运行事实优先——纯文件状态推断会把挂着 fixing 的旧缺陷标成「正在做」,
+// 而 agent 实际在推别的条目(用户实测:指着缺陷,实做 R-117)。req/defect 的 update
+// 结果与批次提交都带条目 ID,运行证据一到就覆盖推断;新一轮 run 开跑即作废。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    requirements: [docEntry("R-001", "实际在做的需求", "doing", {})],
+    defects: [docEntry("D-001", "挂着 fixing 的旧缺陷", "fixing", {})],
+  };
+  await sandbox.refreshDocs();
+  assert(
+    document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    "无运行证据时应按取活序推断(defect-first 指 fixing 缺陷)",
+  );
+  handlers.get("kz:tool-end")({ payload: { id: "F1", name: "req", ok: true, preview: "updated: R-001 [doing] 批次推进", display: null } });
+  await flush();
+  await sandbox.refreshDocs();
+  assert(
+    document.querySelector('#req-list .doc-item[data-doc-id="R-001"]')?.classList.contains("agent-active"),
+    "运行证据(updated: R-001)未覆盖状态推断——「在做」指针仍指错条目",
+  );
+  assert(
+    !document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    "运行证据生效后,挂着 fixing 的旧缺陷不该再标「正在做」",
+  );
+  // 新一轮 run 开跑(kz:turn step 1):上一轮证据作废,回落推断。
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0 } });
+  await sandbox.refreshDocs();
+  assert(
+    document.querySelector('#defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
+    "新 run 开跑后旧运行证据未作废",
+  );
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
 // D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
 const archivedRow = document.querySelector("#req-list .doc-archive-list .archived-entry");
 assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");

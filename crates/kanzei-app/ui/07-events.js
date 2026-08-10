@@ -12,6 +12,8 @@ on("kz:meta", (e) => {
 });
 on("kz:turn", (e) => {
   const p = e.payload;
+  // 新一轮 run 开跑:上一轮的「在做」运行证据作废,重新从本轮动作里取。
+  if (p.step === 1) clearRuntimeFocus();
   if (p.step > 1) {
     clearEmptyState();
     // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
@@ -156,6 +158,11 @@ function isBatchCommit(event) {
     && event.ok
     && /^committed verified staged set\b/.test(event.preview || "");
 }
+// 从工具结果文本里抽条目 ID(R-xxx/D-xxx):tracker 更新与批次提交标题都以它开头,
+// 这是「agent 实际在做谁」的运行证据(D-207 三修),喂给 setRuntimeFocus。
+function workItemIdFrom(text) {
+  return String(text ?? "").match(/\b([RD]-\d{1,4})\b/)?.[1] ?? null;
+}
 
 // 工具执行中的增量输出(bash 等):活动面板对应条目实时追加。
 on("kz:tool-progress", (e) => {
@@ -166,7 +173,11 @@ on("kz:task-progress", (e) => {
   bgProgress(payload.id, payload.text, payload.trace);
   // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
   // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
-  if (isBatchCommit(payload.trace)) refreshDocsSoon();
+  // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
+  if (isBatchCommit(payload.trace)) {
+    setRuntimeFocus(workItemIdFrom(payload.trace?.preview));
+    refreshDocsSoon();
+  }
 });
 on("kz:tool-end", (e) => {
   const p = e.payload;
@@ -174,11 +185,20 @@ on("kz:tool-end", (e) => {
   // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
+    // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
+    // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
+    if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {
+      setRuntimeFocus(workItemIdFrom(p.preview));
+    }
     // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
     refreshDocsSoon();
   }
   // Git 提交标题是批次进度的真源，成功提交后立即重拉文档快照。
-  if (isBatchCommit(p)) refreshDocsSoon();
+  // 「在做」运行证据②:批次提交标题以条目 ID 开头,是最强的"实际在推谁"信号。
+  if (isBatchCommit(p)) {
+    setRuntimeFocus(workItemIdFrom(p.preview));
+    refreshDocsSoon();
+  }
   // 测试记录同理:跑完测试后左侧应立即出现结果。
   if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
   // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。

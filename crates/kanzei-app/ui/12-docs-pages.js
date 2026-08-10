@@ -274,11 +274,29 @@ function highlightDependencyChain(clicked, entry, byId) {
 // 条目不计 WIP、不占运行焦点。next 是取活序第一个可开工条目(requirement-first
 // 先需求后缺陷)。
 let agentFocus = { active: null, next: null };
+// 运行事实(D-207 三修):本轮里 agent 实际动过谁——req/defect 更新与批次提交都带
+// 条目 ID,这是"正在做"的真源。文件状态推断只是兜底:缺陷优先下一条挂着 fixing
+// 的旧缺陷(如 D-202)会永远赢得指针,而 agent 实际在推别的条目(用户实测指着
+// 缺陷、实做 R-117/R-122)。运行证据一到就覆盖推断;run 结束或新一轮开跑时清空。
+let runtimeFocusId = null;
+function setRuntimeFocus(id) {
+  if (id) runtimeFocusId = id;
+}
+function clearRuntimeFocus() {
+  runtimeFocusId = null;
+}
 function computeAgentFocus(snapshot) {
   const focus = { active: null, next: null };
   if (!snapshot) return focus;
   const reqs = snapshot.requirements ?? [];
   const defs = snapshot.defects ?? [];
+  // 运行事实优先:证据指向的条目仍开放才算数(已关闭说明那条刚收尾,回落推断)。
+  if (runtimeFocusId) {
+    const evidence = [...reqs, ...defs].find(
+      (entry) => entry.id === runtimeFocusId && !entry.closed
+    );
+    if (evidence) focus.active = evidence.id;
+  }
   const queues =
     selectedWorkPriority() === "requirement-first"
       ? [[reqs, "doing"], [defs, "fixing"]]
@@ -286,11 +304,13 @@ function computeAgentFocus(snapshot) {
   // 正在做 = 取活序里第一个可执行的 doing/fixing(单条)。blocked 不计:§1.1 阻塞项
   // 不进 WIP、不占运行焦点——agent 会跳过它继续取下一个可开工条目,渲染必须与
   // 取活一致(否则 R-157 类阻塞 doing 会被标成「agent 正在做」,而实际它推不动)。
-  for (const [list, status] of queues) {
-    const hit = list.find((entry) => entry.status === status && !entry?.blocked);
-    if (hit) {
-      focus.active = hit.id;
-      break;
+  if (!focus.active) {
+    for (const [list, status] of queues) {
+      const hit = list.find((entry) => entry.status === status && !entry?.blocked);
+      if (hit) {
+        focus.active = hit.id;
+        break;
+      }
     }
   }
   // 下一个 = 取活序里第一个可开工的 open/todo。状态与 active(doing/fixing)不重叠,
