@@ -2284,3 +2284,17 @@
 - 根因: process_alive 用 `tasklist /FI "PID eq <pid>"` 探测(update.rs:362-368);全量并行时进程表查询与测试进程存在竞态,tasklist 输出偶发不包含自身 PID,误判已退出。update.rs/update_tests_update.rs 自 R-156 后未改动,与 R-102 无关。
 - 验收: 全量并行时该测试稳定通过(不 flaky);或 process_alive 改用 OpenProcess/枚举快照等无 tasklist 文本竞态的探测方式。
 
+## D-242 R-170 剥离继续文案时把批次规则删空:引擎门禁照罚,提示词与 system prompt 均无真源 [fixed] (high)
+- 优先级: P0
+- 标签: 流程
+- refs: R-170 R-169 R-160 D-219 D-241
+- 证据等级: E1(全仓 grep 零命中 + 门禁代码实证 + 现默认文案实证)
+- 复现: R-170(eb7ae42,2026-08-10 关闭)按 continue_prompt_dissection.md §3 剥离清单删除继续文案规则 1-6。删除后 `DEFAULT_CONTINUE_PROMPT = "继续推进，规则按系统提示执行。"`(crates/kanzei-app/ui/08-compose.js:16)。但**批次规则并没有落到任何 system prompt**:对 .rs/.js/.mjs 全仓 grep「批次: 0/」「批次表」「一轮一个批次」「中 3、大 8」只命中 docstore.rs 的默认值实现与 state_tests.rs 夹具,零规则文本;crates/kanzei-tools/src/profiles.rs 的 dev system prompt 有验收证据契约与 WIP 上限,唯独没有任何批次拆解指令。
+- 影响: ①**引擎照罚但没人教规矩**——tracker close 门禁仍在(crates/kanzei-tools/src/tracker.rs:466),复杂度「中」「大」的条目即使从不写批次字段,也会按 default_batches(docstore.rs:138,中 3 / 大 8)判定 0/3、0/8 被拦在关闭门口;队首的 R-161(中)、R-162/R-163(大)会立刻撞上。②**进度可见性回归到 R-160 之前**——侧栏批次格子是「外部唯一看得见推进的地方」,不写 `批次: k/N` 就整轮空着。③**git 推导链路失去输入**——git_batches.rs 认的是提交标题里的 `R-123 B4` / `S5-S6` 标记,这个约定同样只写在被删的规则 2 里,现在无处可查。
+- 根因: R-170 验收①的前提是「11 项职责中 9 项在 system prompt/配置已有真源」,该前提对「批次粒度」这一项不成立——批次规则从来只存在于继续文案的规则 2,system prompt 从未承载过。剥离时按清单逐条删,没有对每一项复核「真源是否真的存在」,于是删掉的是唯一一份。与 conventions §4「能代码强制的绝不只写进提示词」互为反面:这次是能罚不能教。
+- 现存兜底(不足以关闭本条): 记忆 M-028 只教「关闭时报批次未走完怎么过关」(完成后把总数改成实际值),不教「取活时先定批次表 0/N、每批填 k/N、提交标题带标记」;关闭门禁的错误文案本身可自解释,但那是撞上之后的事后补救,格子该填的那一路已经损失。
+- 验收: ①批次规则有明确真源(profiles.rs 的 dev system prompt,或引擎注入的等价位置),内容至少覆盖:复杂度→默认批数(中 3/大 8)、第一轮先写 `批次: 0/N`、每批完成后更新 `批次: k/N`、提交标题带 `<ID> B<k>` 标记、关闭时批次须走满或据实改小总数;②有测试断言该规则文本存在(照搬 profiles.rs 既有的 dev_system_prompt_enforces_acceptance_evidence_contract 写法);③实测一条「中」或「大」条目从取活到关闭,侧栏格子逐格填上、关闭时不被门禁拦;④顺带修 D-219 的机制层待修项——system prompt 的 WIP 文案仍是旧口径 `keep at most 2 requirements in doing`(profiles.rs:402),不区分可执行/阻塞 doing,按 §1.1 新口径改写。
+- 边界: 只补规则真源与断言,不改批次门禁与 git 推导的既有行为(那两处是对的,缺的是输入端)。
+
+- 进展: 验收逐条核对(2026-08-10 收口):①真源——9b255de 已把完整批次协议写回 dev system prompt(profiles.rs:412-427):批数 agent 自定上限 10、首轮批次: 0/N、每批更新批次: k/N、提交标题 <ID> B<k>、关闭时走满或据实改小总数;验收原文「复杂度→默认批数(中 3/大 8)」子项已被用户 2026-08-10 新定调取代(批数 agent 自定、上限 10、复杂度不再支配),落点见 docstore.rs:142-145 注释与 9b255de commit message。②断言——dev_system_prompt_enforces_wip_and_batch_contract(profiles.rs:747)断言 10 个 token + 反向断言旧口径,实跑 3 个 dev_system_prompt 测试全绿;kanzei-tools 全量 153 passed。③实测——R-161(复杂度中)批次 2/2 关闭于 1930f5f,门禁放行。④D-219 旧口径 keep at most 2 requirements 已删,改单槽口径,反向断言在场。边界满足:tracker.rs:446-480 关闭门禁与 git_batches 推导未改,git_batches 2 测试全绿。
+
