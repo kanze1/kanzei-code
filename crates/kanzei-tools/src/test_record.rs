@@ -39,6 +39,10 @@ struct TestRecordInput {
     /// 结果摘要(可选)
     #[serde(default)]
     summary: Option<String>,
+    /// 关联条目 ID 列表(如 ["D-201", "R-153"]);写入「关联」字段,
+    /// 建立测试→缺陷/需求的映射,供按条目反查测试记录
+    #[serde(default)]
+    refs: Option<Vec<String>>,
     /// 要收尾的既有记录 id(如 "T-1786254656");省略时按标题自动认领同名 running 记录
     #[serde(default)]
     id: Option<String>,
@@ -101,6 +105,7 @@ impl Tool for TestRecordTool {
             &input.status,
             input.command.as_deref(),
             input.summary.as_deref(),
+            input.refs.as_deref(),
         ) {
             Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
             Err(err) => ToolOutput::error(err),
@@ -133,9 +138,25 @@ pub fn parse_test_blocks(text: &str) -> Vec<(String, serde_json::Value)> {
                 .filter_map(|line| line.split_once(':'))
                 .map(|(key, value)| json!({ "key": key.trim(), "value": value.trim() }))
                 .collect::<Vec<_>>();
+            // R-130:结构化「关联」字段——测试→缺陷/需求映射。旧记录没有此字段时
+            // refs 为空,由 initialize_refs 从标题回填。
+            let refs = fields
+                .iter()
+                .find(|f| f["key"] == "关联")
+                .and_then(|f| f["value"].as_str())
+                .map(|v| {
+                    v.split_whitespace()
+                        .filter(|part| is_entry_id(part))
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
             Some((
                 block.trim_end().to_string(),
-                json!({ "id": id, "title": title, "status": status, "fields": fields }),
+                json!({
+                    "id": id, "title": title, "status": status,
+                    "fields": fields, "refs": refs
+                }),
             ))
         })
         .collect()
@@ -219,6 +240,7 @@ pub fn record_test_run(
     status: &str,
     command: Option<&str>,
     summary: Option<&str>,
+    refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
@@ -244,7 +266,7 @@ pub fn record_test_run(
                 "找不到测试记录 {wanted};省略 id 可新登记一条,或先用 test_record 列表核对 id"
             ));
         }
-        return append_test_run(root, title, status, command, summary);
+        return append_test_run(root, title, status, command, summary, refs);
     };
     let record_id = record["id"].as_str().unwrap_or_default().to_string();
     let mut block = format!("## {record_id} {} [{status}]\n", title.trim());
@@ -271,6 +293,13 @@ pub fn record_test_run(
     {
         block.push_str(&format!("- 摘要: {summary}\n"));
     }
+    if let Some(refs) = refs
+        .filter(|list| !list.is_empty())
+        .map(|list| list.join(" "))
+        .or_else(|| inherited("关联"))
+    {
+        block.push_str(&format!("- 关联: {refs}\n"));
+    }
     if status != "running" {
         // 收尾时刻:记录 id 是**开始**时间,而提交门禁要问的是"测试跑完在改完代码之后吗"。
         // 必须单独落一个终点时间,否则先起 running 再改代码就能骗过门禁。
@@ -289,6 +318,7 @@ pub fn append_test_run(
     status: &str,
     command: Option<&str>,
     summary: Option<&str>,
+    refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
@@ -311,6 +341,9 @@ pub fn append_test_run(
     }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
         text.push_str(&format!("- 摘要: {}\n", summary.trim()));
+    }
+    if let Some(refs) = refs.filter(|list| !list.is_empty()) {
+        text.push_str(&format!("- 关联: {}\n", refs.join(" ")));
     }
     if status != "running" {
         text.push_str(&format!("- 收尾: {}\n", now_secs()));
@@ -374,6 +407,112 @@ pub fn unclosed_running_for(root: &Path, entry_id: &str) -> Vec<(String, String)
         .collect()
 }
 
+/// R-130:按条目(R-xxx/D-xxx)反查关联的测试记录(active + archived)。
+///
+/// 判据**优先结构化 refs**(「关联」字段),标题命中作为兜底——旧记录没有 refs 时
+/// 靠标题里出现的条目号照样能查到,保证初始化前后的查询口径一致。
+pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
+        for (_, mut record) in read_test_records(&root.join(rel)) {
+            let refs_hit = record["refs"]
+                .as_array()
+                .map(|refs| refs.iter().any(|r| r.as_str() == Some(entry_id)))
+                .unwrap_or(false);
+            let title_hit = record["title"]
+                .as_str()
+                .map(|title| title.contains(entry_id))
+                .unwrap_or(false);
+            if refs_hit || title_hit {
+                record["archived"] = json!(rel == TEST_RUNS_ARCHIVE_REL);
+                out.push(record);
+            }
+        }
+    }
+    out
+}
+
+/// R-130:批量初始化/回填测试→条目映射。
+///
+/// 旧测试记录没有「关联」字段,查询只能靠标题命中。这里扫描 tests.md 全部记录,
+/// 从标题里提取 `R-xxx` / `D-xxx` 条目号,补写「关联」字段,一次落盘。
+/// 返回回填了多少条,方便调用方反馈(0 表示已全部结构化,无旧记录)。
+pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
+    let path = root.join(TEST_RUNS_REL);
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut backfilled = 0usize;
+    let updated = {
+        let mut parts = text.split("\n## ").collect::<Vec<_>>();
+        // 第一部分是文件头("# Test Runs"),不拆。
+        let head = parts.remove(0);
+        let mut blocks = Vec::with_capacity(parts.len() + 1);
+        blocks.push(head.to_string());
+        for raw in parts {
+            let block = format!("## {raw}");
+            // 已有「关联」字段就不动(结构化在前,标题回填只补缺失)。
+            let has_refs = block.lines().any(|line| {
+                line.trim()
+                    .strip_prefix("- ")
+                    .and_then(|l| l.split_once(':'))
+                    .map(|(key, _)| key.trim() == "关联")
+                    .unwrap_or(false)
+            });
+            if has_refs {
+                blocks.push(block);
+                continue;
+            }
+            // 从标题行提取条目号:## T-xxx 标题 [status]
+            let header = block.lines().next().unwrap_or_default();
+            let title = header.trim_start_matches("## ").trim();
+            let title_only = title
+                .split('[')
+                .next()
+                .unwrap_or(title)
+                .trim()
+                .trim_start_matches(|c: char| !c.is_ascii_digit() && c != ' ')
+                .trim();
+            let ids = extract_entry_ids(title_only);
+            if ids.is_empty() {
+                blocks.push(block);
+                continue;
+            }
+            // 插到「收尾」行之前,保持字段块连贯。
+            let mut lines = block.lines().collect::<Vec<_>>();
+            let insert_at = lines
+                .iter()
+                .position(|line| line.trim_start().starts_with("- 收尾:"))
+                .unwrap_or(lines.len());
+            let ref_line = format!("- 关联: {}", ids.join(" "));
+            lines.insert(insert_at, &ref_line);
+            blocks.push(lines.join("\n"));
+            backfilled += 1;
+        }
+        blocks.join("\n## ")
+    };
+    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    Ok(json!({ "backfilled": backfilled }))
+}
+
+/// 从字符串里提取 `R-xxx` / `D-xxx` 条目号(去重保序)。
+fn extract_entry_ids(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for tok in text.split_whitespace() {
+        let tok = tok.trim_matches(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '#' || c == ':'));
+        if is_entry_id(&tok) && seen.insert(tok.to_string()) {
+            out.push(tok.to_string());
+        }
+    }
+    out
+}
+
+/// 是否形如 `R-153` / `D-201`(条目号,字母 + 至少 2 位数字)。
+fn is_entry_id(part: &str) -> bool {
+    (part.starts_with("R-") || part.starts_with("D-"))
+        && part.len() > 3
+        && part[2..].chars().all(|c| c.is_ascii_digit())
+}
+
 /// 快照渲染成工具可读文本。
 fn render_snapshot(snapshot: &serde_json::Value) -> String {
     let active = snapshot["active"].as_array().map(Vec::len).unwrap_or(0);
@@ -402,6 +541,15 @@ fn render_snapshot(snapshot: &serde_json::Value) -> String {
                 String::new()
             },
         ));
+        let refs = record["refs"].as_array().map(|r| {
+            r.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        });
+        if let Some(refs) = refs.filter(|r| !r.is_empty()) {
+            lines.push(format!("   关联: {refs}"));
+        }
     }
     if stale > 0 {
         lines.push(format!(
@@ -451,10 +599,11 @@ mod tests {
             "running",
             Some("cargo test"),
             None,
+            None,
         )
         .unwrap();
         let snapshot =
-            record_test_run(&root, None, "R-999 定向回归", "passed", None, Some("全绿")).unwrap();
+            record_test_run(&root, None, "R-999 定向回归", "passed", None, Some("全绿"), None).unwrap();
         assert_eq!(
             snapshot["active"].as_array().unwrap().len(),
             0,
@@ -515,7 +664,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(last_passed_at(&root), None, "只有 running 时不该有背书");
-        record_test_run(&root, None, "R-1 回归", "passed", None, Some("全绿")).unwrap();
+        record_test_run(&root, None, "R-1 回归", "passed", None, Some("全绿"), None).unwrap();
         let at = last_passed_at(&root).expect("收尾后必须有时间戳");
         assert!(
             at >= started + 3000,
@@ -541,6 +690,101 @@ mod tests {
     }
 
     #[test]
+    fn parse_blocks_extracts_refs_from关联字段() {
+        let text = "# Test Runs\n\n## T-3 R-153 批6 回归 [passed]\n- 命令: cargo test\n- 关联: D-201 R-153\n";
+        let blocks = parse_test_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        let refs = blocks[0].1["refs"].as_array().unwrap();
+        let ids = refs.iter().filter_map(|r| r.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids, vec!["D-201", "R-153"], "关联字段应解析为结构化 refs");
+        // 非条目 token(命令、路径)不该混进 refs。
+        let text2 = "# Test Runs\n\n## T-4 x [passed]\n- 关联: cargo D-x R-1 R-153\n";
+        let blocks2 = parse_test_blocks(text2);
+        let ids2 = blocks2[0].1["refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids2, vec!["R-153"], "只认 R-/D- 开头的条目号:{ids2:?}");
+    }
+
+    #[test]
+    fn records_for_entry_prefers_refs_and_falls_back_to_title() {
+        let root = temp_project("refsquery");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-1 D-201 回归 [passed]\n- 命令: cargo test\n",
+        )
+        .unwrap();
+        // 标题命中(旧记录无 refs 字段)。
+        let by_title = records_for_entry(&root, "D-201");
+        assert_eq!(by_title.len(), 1, "标题兜底查询应命中 D-201:{by_title:#?}");
+        assert_eq!(by_title[0]["id"], json!("T-1"));
+        // 无关条目不误伤。
+        assert_eq!(records_for_entry(&root, "R-999").len(), 0);
+        // 结构化 refs 查询:显式关联命中。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-2 冒烟 [passed]\n- 关联: D-999\n- 命令: x\n",
+        )
+        .unwrap();
+        let by_refs = records_for_entry(&root, "D-999");
+        assert_eq!(by_refs.len(), 1, "refs 字段应命中 D-999:{by_refs:#?}");
+        assert_eq!(by_refs[0]["id"], json!("T-2"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn initialize_refs_backfills_entry_ids_from_title() {
+        let root = temp_project("initrefs");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-1 R-153 批6 回归 [passed]\n- 命令: cargo test\n- 收尾: 123\n\n## T-2 冒烟测试 [passed]\n- 命令: x\n",
+        )
+        .unwrap();
+        let result = initialize_refs(&root).unwrap();
+        assert_eq!(result["backfilled"], json!(1), "只有标题含条目号的记录该回填");
+        let text = std::fs::read_to_string(root.join(TEST_RUNS_REL)).unwrap();
+        assert!(text.contains("- 关联: R-153"), "标题里的 R-153 未回填进关联字段:\n{text}");
+        assert!(text.contains("## T-2 冒烟测试"), "无关记录不得被改写:\n{text}");
+        assert!(text.contains("收尾: 123"), "关联字段应插在收尾行之前,不破坏原字段:\n{text}");
+        // 幂等:再跑一次不应重复回填。
+        let second = initialize_refs(&root).unwrap();
+        assert_eq!(second["backfilled"], json!(0), "已结构化的记录不应重复回填");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn append_with_refs_writes_关联_field() {
+        let root = temp_project("appendrefs");
+        let snapshot = append_test_run(
+            &root,
+            "D-201 回归",
+            "passed",
+            Some("cargo test"),
+            None,
+            Some(&["D-201".to_string(), "R-153".to_string()]),
+        )
+        .unwrap();
+        let archived = snapshot["archived"].as_array().unwrap();
+        assert_eq!(archived[0]["refs"].as_array().unwrap().len(), 2);
+        let ids = archived[0]["refs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|r| r.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["D-201", "R-153"]);
+        // 终态记录已被快照归档到 archive:关联字段应落在归档文件里。
+        let archive_text = std::fs::read_to_string(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap();
+        assert!(archive_text.contains("- 关联: D-201 R-153"), "关联字段未写入归档:\n{archive_text}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn parse_blocks_handles_running_without_fields() {
         let text = "# Test Runs\n\n## T-2 long run [running]\n";
         let blocks = parse_test_blocks(text);
@@ -559,6 +803,7 @@ mod tests {
             "passed",
             Some("cargo test"),
             Some("全绿"),
+            None,
         )
         .unwrap();
         assert_eq!(snapshot["active"].as_array().unwrap().len(), 0);
@@ -576,13 +821,13 @@ mod tests {
     #[test]
     fn running_status_stays_active_until_terminal() {
         let root = temp_project("running");
-        append_test_run(&root, "long run", "running", None, None).unwrap();
+        append_test_run(&root, "long run", "running", None, None, None).unwrap();
         let snapshot = test_runs_snapshot(&root).unwrap();
         assert_eq!(snapshot["active"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["active"][0]["status"], json!("running"));
         assert_eq!(snapshot["archived"].as_array().unwrap().len(), 0);
         // 终态后自动归档:running 那条仍留 active,passed 那条进 archive。
-        append_test_run(&root, "long run", "passed", None, None).unwrap();
+        append_test_run(&root, "long run", "passed", None, None, None).unwrap();
         let snapshot = test_runs_snapshot(&root).unwrap();
         assert_eq!(snapshot["active"].as_array().unwrap().len(), 1);
         assert_eq!(snapshot["active"][0]["status"], json!("running"));
@@ -594,7 +839,7 @@ mod tests {
     #[test]
     fn invalid_status_is_rejected() {
         let root = temp_project("invalid");
-        let err = append_test_run(&root, "x", "bogus", None, None).unwrap_err();
+        let err = append_test_run(&root, "x", "bogus", None, None, None).unwrap_err();
         assert!(err.contains("passed"), "{err}");
         std::fs::remove_dir_all(&root).ok();
     }

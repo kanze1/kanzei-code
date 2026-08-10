@@ -191,6 +191,7 @@ fn main() {
             processes::worktree_discard,
             docs::test_runs_snapshot,
             docs::test_run_record,
+            docs::test_runs_init_refs,
             mobile::mobile_service_start,
             mobile::mobile_service_stop,
             agent_container::agent_container_create,

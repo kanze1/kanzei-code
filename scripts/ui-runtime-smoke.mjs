@@ -661,7 +661,7 @@ const payloads = {
   ],
   git_status: { branch: "main", changes: 2 },
   list_pending_inputs: [],
-  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]] }], archived: [] },
+  test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
   process_list: [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
@@ -1045,6 +1045,27 @@ assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表
 }
 assert(listText("goal-list").includes("冒烟目标"), "目标列表未渲染出桩数据");
 assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲染出桩数据");
+// R-130:测试→条目映射——关联的 R-/D- 条目号渲染成可点击跳转的徽标。
+{
+  const testEntry = document.querySelector("#test-list .test-entry");
+  assert(testEntry, "前置失败:测试记录条目未渲染");
+  const chips = testEntry.querySelectorAll(".test-ref-chip");
+  assert(chips.length === 2, `测试条目应渲染 2 个关联徽标,实得 ${chips.length}`);
+  assert(
+    [...chips].some((c) => c.textContent === "R-001") && [...chips].some((c) => c.textContent === "D-001"),
+    `关联徽标内容应为 R-001/D-001:${[...chips].map((c) => c.textContent).join(",")}`,
+  );
+  // 点徽标跳转到对应条目:先离开文档视图,验证 jumpToEntry 被触发。
+  document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat")?.click();
+  await flush();
+  const before = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
+  [...chips].find((c) => c.textContent === "R-001").click();
+  await flush();
+  assert(
+    invokeLog.filter((cmd) => cmd === "docs_snapshot").length > before,
+    "点击测试关联徽标未触发跳转刷新",
+  );
+}
 assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
 // D-207:取活焦点标记——在做的(doing/fixing)高亮,取活序下一个(defect-first 下
 // 第一个无阻塞的 open 缺陷)次亮。基于数据计算,与视图排序/分组无关。

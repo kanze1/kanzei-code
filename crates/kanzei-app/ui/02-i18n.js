@@ -120,7 +120,7 @@ const I18N_EN = {
   "已停止": "Stopped", "完成": "Completed", "用户拒绝后停止": "Stopped after user rejection", "本轮完成": "Round completed", "按你的拒绝停止": "Stopped after your rejection",
   "没有可复制的内容": "Nothing to copy", "当前没有可复制的对话": "No conversation to copy",
   "当前任务还在运行，自动鞭挞将在本轮完成后继续": "The current task is still running; auto-run will continue after this round", "先在左侧「项目」里添加并选择一个目录": "Add and select a directory under Projects first",
-  "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input",
+  "已撤销排队输入": "Queued input cancelled", "暂无测试记录": "No test runs", "撤销": "Cancel", "撤销这条排队输入": "Cancel this queued input", "跳转到": "Jump to",
   "记忆": "Memory", "检索全部记忆(FTS)": "Search all memory (FTS)", "整理 inbox": "Consolidate inbox",
   "展开或收起工具详情": "Toggle tool detail", "开发重心保存失败": "Failed to save work focus",
   "无结果(轮次中断)": "No result (round interrupted)",

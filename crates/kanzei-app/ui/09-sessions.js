@@ -546,6 +546,23 @@ function renderTestRuns(snapshot) {
     row.className = `test-entry test-${record.status}`;
     row.textContent = `${record.status === "passed" ? "✓" : record.status === "failed" ? "×" : record.status === "running" ? "●" : "○"} ${record.id} ${record.title}`;
     row.title = (record.fields ?? []).map((field) => `${field.key}: ${field.value}`).join("\n");
+    // R-130:测试→条目映射可见——关联的 R-/D- 条目号渲染成可点跳转的徽标,
+    // 让「这条测试为哪个条目背书」一眼可见,点一下直接跳到该条目。
+    const refs = record.refs ?? [];
+    if (refs.length) {
+      const refRow = document.createElement("div");
+      refRow.className = "test-entry-refs";
+      for (const refId of refs) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "test-ref-chip";
+        chip.textContent = refId;
+        chip.title = `${t("跳转到")} ${refId}`;
+        chip.addEventListener("click", () => jumpToEntry(refId));
+        refRow.appendChild(chip);
+      }
+      row.appendChild(refRow);
+    }
     list.appendChild(row);
   }
 }

@@ -71,6 +71,7 @@ pub async fn test_run_record(
     status: String,
     command: Option<String>,
     summary: Option<String>,
+    refs: Option<Vec<String>>,
 ) -> Result<serde_json::Value, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     // R-171 批4:test_record 是独立写入口(写 tests.md),接入项目级写仲裁——
@@ -91,7 +92,15 @@ pub async fn test_run_record(
         &status,
         command.as_deref(),
         summary.as_deref(),
+        refs.as_deref(),
     )
+}
+
+/// R-130:批量初始化测试→条目映射。扫描 tests.md 旧记录,从标题回填「关联」字段。
+#[tauri::command]
+pub fn test_runs_init_refs(project_dir: String) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    kanzei_tools::test_record::initialize_refs(&root)
 }
 
 #[tauri::command]

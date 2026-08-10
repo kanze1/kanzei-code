@@ -1403,3 +1403,8 @@
 - 命令: cargo test --workspace
 - 摘要: R-129 关闭前全量:cargo test --workspace 全绿(core 103 / harness 65 / tools 183 / app 51 / kz 等),纯前端改动无 Rust 回归
 - 收尾: 1786365006
+
+## T-1786365346 R-130 B1 测试-条目映射定向+冒烟 [passed]
+- 命令: cargo test -p kanzei-tools test_record; cargo test -p kanzei-app; node --check + 四条 ui 冒烟
+- 摘要: R-130 B1:test_record 结构化 refs 字段(写入/解析/反查 records_for_entry/回填 initialize_refs)+ app test_run_record 加 refs 参数 + test_runs_init_refs 命令 + 前端关联徽标跳转。tools 13 测全绿、app 51 测全绿、四条冒烟全绿。
+- 收尾: 1786365346
