@@ -64,7 +64,9 @@
 - 验收: ①无 provenance 不入 active(引擎拒绝有测试);②recurrence 三段晋升有单测;③deprecated/invalid 移入 archive/ 且默认检索不可见;④novelty 三档分流有计数遥测;⑤evidence 表无任何自治写路径(代码审计+测试)。
 - refs: R-105 D-231 docs/design/memory_control_plane.md
 
-- 进展: 2026-08-10 取活:R-164 已阻塞待用户重启 kzapp(不占槽位),按需求优先取 R-165。依赖已满足(R-162 完成),开始推进。
+- 进展: 批1完成:lifecycle 四态(candidate/active/deprecated/invalid)+stale 兼容映射(normalize_status);add() 按 source 落态(user 直写 active,manager 编译 candidate);promote() provenance 硬约束(无 memory_sources 不入 active);MemoryPromoteTool 注册进 manager;merge 墓碑 deprecated。175 测试全绿。批2=novelty gate+recurrence 三段晋升(验收②④)。
+
+- 批次: 1/4
 
 ## R-166 记忆反事实评估器:遗忘成本 F(m) 与合并守恒 D(S→m') 落地 [todo]
 - 优先级: P0

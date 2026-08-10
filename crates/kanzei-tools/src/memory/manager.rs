@@ -25,6 +25,77 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
 }
 
 #[derive(Deserialize, JsonSchema)]
+struct PromoteInput {
+    /// candidate 记忆的 id(manager 先 memory_add 得到)
+    id: String,
+    /// 至少一条 episode 证据(provenance 硬约束,R-165)。
+    /// episode_id 必须真实存在于 state.db episodes 表;event_start/end 可空。
+    sources: Vec<PromoteSource>,
+    /// 证据哈希,默认 "compiler"
+    #[serde(default)]
+    source_hash: Option<String>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct PromoteSource {
+    episode_id: i64,
+    #[serde(default)]
+    event_start: Option<i64>,
+    #[serde(default)]
+    event_end: Option<i64>,
+}
+
+/// R-165 PROMOTE:candidate → active,provenance 硬约束(至少一条 memory_sources)。
+/// manager 编译出记忆后必须先 memory_add(candidate)再 memory_promote(带证据)——
+/// 无来源证据的记忆永远无法进入检索注入。
+pub struct MemoryPromoteTool;
+
+#[async_trait]
+impl Tool for MemoryPromoteTool {
+    fn name(&self) -> &'static str {
+        "memory_promote"
+    }
+
+    fn description(&self) -> String {
+        "Promote a candidate memory to active with episode evidence (R-165 provenance hard \
+         constraint). Params: id, sources=[{episode_id, event_start?, event_end?}], \
+         source_hash?. A candidate with no episode source can never become active — this is \
+         the engine-enforced evidence gate, not advisory."
+            .into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(PromoteInput)).unwrap()
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: PromoteInput = match crate::parse_input(self, input) {
+            Ok(v) => v,
+            Err(out) => return out,
+        };
+        let store = match store_for(ctx, "project") {
+            Ok(s) => s,
+            Err(e) => return ToolOutput::error(e.to_string()),
+        };
+        let sources: Vec<(i64, Option<i64>, Option<i64>)> = input
+            .sources
+            .iter()
+            .map(|s| (s.episode_id, s.event_start, s.event_end))
+            .collect();
+        match store.promote(&input.id, &sources, input.source_hash.as_deref()) {
+            Ok(e) => ToolOutput::ok(format!(
+                "promoted {} [{}] {} → active (evidence: {} source(s))",
+                e.id,
+                e.category,
+                e.title,
+                sources.len()
+            )),
+            Err(e) => ToolOutput::error(e.to_string()),
+        }
+    }
+}
+
+#[derive(Deserialize, JsonSchema)]
 struct AddInput {
     /// global(preference/habit) | project(fact/sop)
     scope: String,
@@ -327,6 +398,9 @@ impl Component for MemoryManagerComponent {
         draft.tools.insert("memory_add", Arc::new(MemoryAddTool));
         draft
             .tools
+            .insert("memory_promote", Arc::new(MemoryPromoteTool));
+        draft
+            .tools
             .insert("memory_update", Arc::new(MemoryUpdateTool));
         draft
             .tools
@@ -341,6 +415,7 @@ impl Component for MemoryManagerComponent {
             "memory_search",
             "memory_stats",
             "memory_add",
+            "memory_promote",
             "memory_update",
             "memory_merge",
             "memory_stale",
@@ -381,6 +456,7 @@ mod tests {
         for tool in [
             "memory_search",
             "memory_add",
+            "memory_promote",
             "memory_update",
             "memory_merge",
             "memory_stale",
@@ -546,6 +622,8 @@ mod tests {
             .extras
             .iter()
             .any(|(k, v)| k == "subject" && v == "安装通道"));
+        // R-165:subject 状态不变量只约束 active——先 promote 带证据升 active,冲突才触发。
+        store.promote(&entry.id, &[(1, None, None)], Some("test")).unwrap();
 
         let conflict = MemoryAddTool
             .execute(

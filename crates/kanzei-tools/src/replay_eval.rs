@@ -339,6 +339,14 @@ mod tests {
                 true,
             )
             .unwrap();
+        // R-165:编译产物须带证据晋升 active 才可检索(provenance 硬约束)。
+        let (cand_id, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 失败处理")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cand_id, &[(1, Some(0), Some(5))], Some("replay-test")).unwrap();
         // 构造带 embedder 的 provider(FakeEmbedder:同文本同向量,query 用相同文本必命中)。
         let mut provider = ReplayMemoryProvider::new(&root);
         provider.hybrid = SqliteMemoryIndex::with_embedder(

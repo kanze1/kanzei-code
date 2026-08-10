@@ -46,7 +46,20 @@ impl MemoryScope {
 
 /// 合法 category(episode 除外:它是 state.db 里的轮次日志,不是文件记忆)。
 pub const CATEGORIES: &[&str] = &["preference", "habit", "fact", "sop"];
-pub const STATUSES: &[&str] = &["active", "stale"];
+/// R-165 lifecycle 四态:candidate(已编译未验证)→ active(有 provenance,注入检索)
+/// → deprecated(降级,永不移除)| invalid(证伪)。stale 为兼容旧档的别名,读取映射 deprecated。
+pub const STATUSES: &[&str] = &["candidate", "active", "deprecated", "invalid"];
+/// 老文件里的 `stale` 视为 deprecated(R-165 兼容映射,读侧统一)。
+pub const LEGACY_STALE_ALIAS: &str = "stale";
+
+/// 状态归一化:旧档 `stale` → `deprecated`,其余原样。
+pub fn normalize_status(status: &str) -> &str {
+    if status == LEGACY_STALE_ALIAS {
+        "deprecated"
+    } else {
+        status
+    }
+}
 
 /// global scope 根目录;KANZEI_HOME 供测试与多环境覆盖(D-187 提升为全局统一入口)。
 pub fn global_memory_root() -> Option<PathBuf> {
@@ -198,7 +211,7 @@ pub fn parse_entry(text: &str) -> MemoryEntry {
                 "category" => entry.category = value.into(),
                 "title" => entry.title = value.into(),
                 "description" => entry.description = value.into(),
-                "status" => entry.status = value.into(),
+                "status" => entry.status = normalize_status(value).into(),
                 "created" => entry.created = value.into(),
                 "updated" => entry.updated = value.into(),
                 "source" => entry.source = value.into(),
@@ -1437,6 +1450,14 @@ mod tests {
             AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
+        // R-165:manager 编译产物须 promote 带证据才 active——复发检测只看 active 记忆。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 未命中先 read 重读")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
 
         // 第二次同类失败:必须改投修订笔记,点名既有条目,不再原坑重投。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
@@ -1625,6 +1646,14 @@ source: user
                 false,
             )
             .unwrap();
+        // R-165:manager 编译产物须 promote 带证据才 active 可检索。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 失败先 read")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 1);
         let hits = policy.retrieve(&t);
@@ -1655,6 +1684,14 @@ source: user
                 false,
             )
             .unwrap();
+        // R-165:manager 编译产物须 promote 带证据才 active 可检索。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "cargo test 环境约束")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger(
             "bash",
@@ -1707,6 +1744,14 @@ source: user
                 false,
             )
             .unwrap();
+        // R-165:manager 编译产物须 promote 带证据才 active 可检索。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 失败先 read")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 2);
         let hits = policy.retrieve(&t);
@@ -1747,6 +1792,14 @@ source: user
                 false,
             )
             .unwrap();
+        // R-165:manager 编译产物须 promote 带证据才 active 可检索。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 失败先 read")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         // 第一次失败(fingerprint 命中,policy_action=fingerprint)。
         let t1 = trigger("edit", &kind, "main.rs", 1);
@@ -1791,6 +1844,14 @@ source: user
                 false,
             )
             .unwrap();
+        // R-165:manager 编译产物须 promote 带证据才 active 可检索(Packet 注入只看 active)。
+        let (cid, _) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.title == "edit 失败先 read")
+            .map(|(p, e)| (e.id, p))
+            .unwrap();
+        store.promote(&cid, &[(1, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let mut watch = kanzei_core::RecallWatch::new(Some(&policy));
         let calls = vec![(

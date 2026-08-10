@@ -198,6 +198,7 @@ impl MemoryStore {
         let subject = subject.map(str::trim).filter(|s| !s.is_empty());
         let entries = self.load_all();
         // 状态不变量先于标题去重,且不受 force 影响:状态就地覆盖,绝不并存。
+        // 仅 active 持有 subject——candidate 未验证不占状态槽(R-165)。
         if let Some(subject) = subject {
             if let Some((_, existing)) = entries.iter().find(|(_, e)| {
                 e.status == "active"
@@ -210,7 +211,7 @@ impl MemoryStore {
         if !force {
             let normalized = normalize_title(title);
             if let Some((_, existing)) = entries.iter().find(|(_, e)| {
-                e.status == "active"
+                (e.status == "active" || e.status == "candidate")
                     && e.category == category
                     && normalize_title(&e.title) == normalized
             }) {
@@ -239,7 +240,13 @@ impl MemoryStore {
             category: category.into(),
             title: title.into(),
             description: description.into(),
-            status: "active".into(),
+            // R-165:source=="user" 是用户直写(最高权证据),直接 active;
+            // manager/编译器产物落 candidate,须 memory_promote 带证据晋升。
+            status: if source == "user" {
+                "active".into()
+            } else {
+                "candidate".into()
+            },
             created: now.clone(),
             updated: now,
             source: source.into(),
@@ -261,6 +268,8 @@ impl MemoryStore {
         status: Option<&str>,
     ) -> anyhow::Result<MemoryEntry> {
         if let Some(status) = status {
+            // 兼容旧档别名:stale → deprecated(R-165 兼容映射,写入侧统一归一化)。
+            let status = super::normalize_status(status);
             if !STATUSES.contains(&status) {
                 anyhow::bail!("invalid status `{status}`; valid: {}", STATUSES.join(" | "));
             }
@@ -279,11 +288,62 @@ impl MemoryStore {
             entry.body = body.trim().to_string();
         }
         if let Some(status) = status {
-            entry.status = status.into();
+            entry.status = super::normalize_status(status).into();
         }
         entry.updated = today();
         // 文件名沿用旧路径(slug 终身不改)。
         self.write_entry(&entry, Some(&path))?;
+        self.refresh_derived()?;
+        Ok(entry)
+    }
+
+    /// 升级 candidate → active(R-165 生命周期 PROMOTE)。
+    /// provenance 硬约束:必须提供至少一条 memory_sources 证据(episode 区间),
+    /// 无来源不入 active——证据编译语义的引擎强制,不靠 manager 自觉。
+    /// `sources` 形如 (episode_id, event_start, event_end) 元组,非空才放行。
+    pub fn promote(
+        &self,
+        id: &str,
+        sources: &[(i64, Option<i64>, Option<i64>)],
+        source_hash: Option<&str>,
+    ) -> anyhow::Result<MemoryEntry> {
+        if sources.is_empty() {
+            anyhow::bail!(
+                "cannot promote `{id}`: no memory_sources evidence — R-165 provenance \
+                 hard constraint, a candidate needs at least one episode source"
+            );
+        }
+        let entries = self.load_all();
+        let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
+            anyhow::bail!("unknown memory id `{id}`");
+        };
+        if entry.status != "candidate" {
+            anyhow::bail!(
+                "cannot promote `{id}`: status is `{}`, only candidate can be promoted",
+                entry.status
+            );
+        }
+        entry.status = "active".into();
+        entry.updated = today();
+        self.write_entry(&entry, Some(&path))?;
+        // 证据落 state.db memory_sources 表(与 episodes 同库,可 join)。
+        // 仅 project scope 有 state.db(global 记忆无 episode 证据源)。
+        let hash = source_hash.unwrap_or("compiler").to_string();
+        if self.scope == MemoryScope::Project {
+            if let Ok(store) =
+                kanzei_core::SessionStore::open(&self.root.join("..").join("state.db"))
+            {
+                for (episode_id, event_start, event_end) in sources {
+                    let _ = store.record_memory_source(
+                        id,
+                        *episode_id,
+                        *event_start,
+                        *event_end,
+                        &hash,
+                    );
+                }
+            }
+        }
         self.refresh_derived()?;
         Ok(entry)
     }
@@ -673,7 +733,7 @@ impl MemoryStore {
                 .into_iter()
                 .find(|(_, e)| &e.id == id)
                 .expect("checked above");
-            entry.status = "stale".into();
+            entry.status = "deprecated".into();
             entry.updated = today();
             entry
                 .extras
@@ -1335,12 +1395,58 @@ mod tests {
         let updated = store
             .update(&e.id, None, None, Some("V2 修订"), Some("stale"))
             .unwrap();
-        assert_eq!(updated.status, "stale");
+        assert_eq!(updated.status, "deprecated"); // R-165:stale 兼容映射 deprecated
         assert_eq!(updated.body, "V2 修订");
         assert_eq!(updated.created, e.created);
         // stale 默认不出现在 active 过滤下
         let active_only = store.search("结论", None, Some("active"), 5).unwrap();
         assert!(active_only.is_empty());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-165 批1:编译产物(candidate)必须带 episode 证据才能 promote 进 active——
+    /// 无 provenance 的记忆永不可注入检索,引擎强制不靠 manager 自觉。
+    #[test]
+    fn promote_requires_provenance_hard_gate() {
+        let (dir, store) = temp_store();
+        // source != user → candidate(manager 编译产物)
+        let e = store
+            .add("fact", "编译事实", "编译钩子", "body", "memory-manager", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(candidate) = e else {
+            panic!("expected Added");
+        };
+        assert_eq!(candidate.status, "candidate");
+        // 无证据 → 拒绝
+        let err = store.promote(&candidate.id, &[], None).unwrap_err();
+        assert!(err.to_string().contains("no memory_sources evidence"));
+        // 状态仍是 candidate
+        let (_, after) = store.load_all().into_iter().find(|(_, e)| e.id == candidate.id).unwrap();
+        assert_eq!(after.status, "candidate");
+        // 有证据 → 晋升 active
+        let promoted = store
+            .promote(&candidate.id, &[(1, Some(0), Some(10))], Some("test-hash"))
+            .unwrap();
+        assert_eq!(promoted.status, "active");
+        // 晋升后再次 promote 拒绝(candidate 才可晋升)
+        let err2 = store.promote(&candidate.id, &[(2, None, None)], None).unwrap_err();
+        assert!(err2.to_string().contains("only candidate can be promoted"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-165 批1:source=="user" 用户直写是最高权证据,直接 active(不走编译门禁)。
+    #[test]
+    fn user_written_entry_is_active_directly() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add("preference", "开发重心", "取活必读", "先清缺陷", "user", &[], None, false)
+            .unwrap();
+        let AddOutcome::Added(entry) = e else {
+            panic!("expected Added");
+        };
+        assert_eq!(entry.status, "active");
+        // find_preference 只找 active:user 直写偏好立即可用
+        assert!(store.find_preference("开发重心").is_some());
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1391,7 +1497,7 @@ mod tests {
         assert_eq!(merged.description, "gh 网络失败/超时必读");
         let entries = store.load_all();
         let (_, dup) = entries.iter().find(|(_, e)| e.id == b.id).unwrap();
-        assert_eq!(dup.status, "stale");
+        assert_eq!(dup.status, "deprecated"); // R-165:merge 墓碑统一 deprecated
         assert!(dup
             .extras
             .iter()
@@ -1540,7 +1646,7 @@ mod tests {
         assert_eq!(m1.1.source, "migration");
         assert!(m1.1.body.contains("依据: 实测"));
         let m2 = entries.iter().find(|(_, e)| e.id == "M-002").unwrap();
-        assert_eq!(m2.1.status, "stale");
+        assert_eq!(m2.1.status, "deprecated"); // 旧档 stale 迁移后归一化 deprecated
         // 原文件变为指路牌,重复 open 不再迁移
         let legacy = std::fs::read_to_string(dir.join(".kanzei/project/memory.md")).unwrap();
         assert!(legacy.contains("已迁移"));
@@ -1748,7 +1854,7 @@ mod tests {
             .into_iter()
             .find(|(_, e)| e.id == b.id)
             .unwrap();
-        assert_eq!(dup.status, "stale");
+        assert_eq!(dup.status, "deprecated");
         std::fs::remove_dir_all(dir).ok();
     }
 
