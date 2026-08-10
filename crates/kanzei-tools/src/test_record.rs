@@ -27,6 +27,27 @@ pub const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
 
 const VALID_STATUS: &[&str] = &["running", "passed", "failed", "skipped"];
 
+/// 快照顺手做那次幂等归档的取锁预算。写事务本身是毫秒级的,等到 200ms 还没轮到
+/// 说明对面正忙;归档是幂等的,跳过一轮下次刷新就补上,而面板卡住用户立刻能感觉到
+/// ——`atomic_file::try_lock_exclusive` 的定位就是这条"做不成也无所谓"的路径。
+const ARCHIVE_LOCK_BUDGET: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// 取测试记录的写事务锁(D-261,原语来自 `crate::atomic_file`)。
+///
+/// **一把锁罩两个文件**:键取活动文件 `tests.md`,归档 `tests-archive.md` 与它是
+/// 一笔账(`allocate_test_id` / `ensure_id_unused` 同时扫两边),分开锁等于没锁
+/// ——与 docstore「一个 kind 一把锁,键取自活动文档路径」同源。
+///
+/// **纪律:毫秒级持有,绝不跨 await。** `FileLock` 是 `!Send`,而本模块所有持锁的
+/// 函数都是同步的(`TestRecordTool::execute` 只是同步调用它们),锁不会进入
+/// async 状态机——谁要把持锁的代码挪到 `.await` 两侧,编译器会先拦下来。
+///
+/// **防死锁不变量:持锁期间永不获取第二把锁。** 本模块只有这一把锁,内层重入
+/// (`record_test_run` → `append_test_run` / `test_runs_snapshot`)走同线程重入计数。
+fn lock_test_runs(root: &Path) -> Result<crate::atomic_file::FileLock, String> {
+    crate::atomic_file::lock_exclusive(&root.join(TEST_RUNS_REL)).map_err(|e| e.to_string())
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct TestRecordInput {
     /// 测试标题(如 "cargo test -p kanzei-llm")
@@ -240,61 +261,97 @@ fn block_id(block: &str) -> String {
         .to_string()
 }
 
+/// 活动记录按状态分成 (仍在跑的, 终态待归档的) 两组,元素是原文块。
+fn partition_active(active_path: &Path) -> (Vec<String>, Vec<String>) {
+    let mut live = Vec::new();
+    let mut terminal = Vec::new();
+    for (block, record) in read_test_records(active_path) {
+        let status = record["status"].as_str().unwrap_or_default();
+        if matches!(status, "passed" | "failed" | "skipped") {
+            terminal.push(block);
+        } else {
+            live.push(block);
+        }
+    }
+    (live, terminal)
+}
+
+/// 把 active 里的终态记录搬进归档文件(幂等)。
+///
+/// **D-261:整段在锁内。** 读、算、写三步之间被另一个进程插入一次写入,归档就会
+/// 出现重复条目、活动文件里新写的记录也会被这次整文件回写抹掉——与
+/// `docstore::archive_terminal`「事务锁必须罩住 load」同一形态、同一把原语。
+///
+/// **拿不到锁就跳过。** 这是只读快照顺手做的幂等维护(面板每次刷新、每次
+/// `test_record` 返回前都会走一遍),做不成下次刷新就补上;让文档面板为一次归档
+/// 卡住是拿更重的问题换更轻的(`atomic_file::try_lock_exclusive` 的定位即此)。
+/// 只有"别人正在写"才跳过——编号复用、IO 故障这类真失败照常抛给调用方。
+fn archive_terminal_records(active_path: &Path, archive_path: &Path) -> Result<(), String> {
+    // 先不加锁探一眼:绝大多数快照根本没有可归档记录,不该为此去碰锁文件,更不该
+    // 让面板刷新与 agent 的写入互相排队。这一眼只用于"要不要进事务",写入依据一律
+    // 以锁内那次重读为准。
+    if partition_active(active_path).1.is_empty() {
+        return Ok(());
+    }
+    let Some(_lock) = crate::atomic_file::try_lock_exclusive(active_path, ARCHIVE_LOCK_BUDGET)
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    // 锁内重读:等锁期间别人可能已经把这批记录归档完了。
+    let (live_blocks, terminal_blocks) = partition_active(active_path);
+    if terminal_blocks.is_empty() {
+        return Ok(());
+    }
+    let mut archived_text =
+        std::fs::read_to_string(archive_path).unwrap_or_else(|_| "# Test Runs Archive\n".into());
+    // 归档里同一编号只能有一条。内容完全相同视为重复归档,幂等跳过;
+    // 内容不同说明编号被复用,直接报错——静默追加正是 D-227 那批同号记录
+    // (T-1786297655 ×4)在归档里彼此无法区分的成因。
+    let already = parse_test_blocks(&archived_text)
+        .into_iter()
+        .filter_map(|(block, record)| Some((record["id"].as_str()?.to_string(), block)))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    for block in terminal_blocks {
+        let id = block_id(&block);
+        if let Some(existing) = already.get(&id) {
+            if existing.trim() == block.trim() {
+                continue;
+            }
+            return Err(format!(
+                "归档 {} 里已有测试记录 {id} 且内容不同,拒绝追加第二条同号记录。\
+                 未写入任何内容。\n现有归档:{}\n本次待归档:{}\n\
+                 同号记录无法按 id 区分,需人工核对后处理;自动改号会掩盖编号复用。",
+                archive_path.display(),
+                existing.lines().next().unwrap_or_default(),
+                block.lines().next().unwrap_or_default(),
+            ));
+        }
+        archived_text.push_str("\n\n");
+        archived_text.push_str(&block);
+    }
+    if let Some(parent) = archive_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    // 写序不可调换:**先写归档、再删活动**。原子写只保证单个文件不被读成半截,
+    // 保证不了两个文件之间的原子性——两步之间崩溃时,当前顺序留下的是"记录同时在
+    // 两处"(重复归档会被上面那段幂等跳过),反过来留下的是"两处都没有"= 真丢
+    // 数据(与 docstore::archive_terminal 同一取舍)。
+    crate::atomic_file::write_atomic(archive_path, &archived_text).map_err(|e| e.to_string())?;
+    let active_text = if live_blocks.is_empty() {
+        "# Test Runs\n".to_string()
+    } else {
+        format!("# Test Runs\n\n{}\n", live_blocks.join("\n\n"))
+    };
+    crate::atomic_file::write_atomic(active_path, &active_text).map_err(|e| e.to_string())
+}
+
 /// 快照:读取 active + archived,并把 active 中的终态记录自动归档。
 /// 返回 { active, archived, path, archive_path }。
 pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
     let active_path = root.join(TEST_RUNS_REL);
     let archive_path = root.join(TEST_RUNS_ARCHIVE_REL);
-    let active = read_test_records(&active_path);
-    let mut live_blocks = Vec::new();
-    let mut archived_blocks = Vec::new();
-    for (block, record) in active {
-        let status = record["status"].as_str().unwrap_or_default();
-        if matches!(status, "passed" | "failed" | "skipped") {
-            archived_blocks.push(block);
-        } else {
-            live_blocks.push(block);
-        }
-    }
-    if !archived_blocks.is_empty() {
-        let mut archived_text = std::fs::read_to_string(&archive_path)
-            .unwrap_or_else(|_| "# Test Runs Archive\n".into());
-        // 归档里同一编号只能有一条。内容完全相同视为重复归档,幂等跳过;
-        // 内容不同说明编号被复用,直接报错——静默追加正是 D-227 那批同号记录
-        // (T-1786297655 ×4)在归档里彼此无法区分的成因。
-        let already = parse_test_blocks(&archived_text)
-            .into_iter()
-            .filter_map(|(block, record)| Some((record["id"].as_str()?.to_string(), block)))
-            .collect::<std::collections::BTreeMap<_, _>>();
-        for block in archived_blocks {
-            let id = block_id(&block);
-            if let Some(existing) = already.get(&id) {
-                if existing.trim() == block.trim() {
-                    continue;
-                }
-                return Err(format!(
-                    "归档 {} 里已有测试记录 {id} 且内容不同,拒绝追加第二条同号记录。\
-                     未写入任何内容。\n现有归档:{}\n本次待归档:{}\n\
-                     同号记录无法按 id 区分,需人工核对后处理;自动改号会掩盖编号复用。",
-                    archive_path.display(),
-                    existing.lines().next().unwrap_or_default(),
-                    block.lines().next().unwrap_or_default(),
-                ));
-            }
-            archived_text.push_str("\n\n");
-            archived_text.push_str(&block);
-        }
-        if let Some(parent) = archive_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&archive_path, archived_text).map_err(|e| e.to_string())?;
-        let active_text = if live_blocks.is_empty() {
-            "# Test Runs\n".to_string()
-        } else {
-            format!("# Test Runs\n\n{}\n", live_blocks.join("\n\n"))
-        };
-        std::fs::write(&active_path, active_text).map_err(|e| e.to_string())?;
-    }
+    archive_terminal_records(&active_path, &archive_path)?;
     let live = read_test_records(&active_path)
         .into_iter()
         .map(|(_, mut record)| {
@@ -339,6 +396,11 @@ pub fn record_test_run(
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
     let path = root.join(TEST_RUNS_REL);
+    // D-261:「读 → 认领 → 定点替换 → 写」是一笔事务,锁必须罩住整段。只锁写那一下
+    // 挡不住:两个进程各自读到同一份原文、各自算出替换结果、再各自整文件写回,后写的
+    // 那个把前一个的收尾连同新记录一起覆盖掉——丢失发生在它们各自的读与写**之间**。
+    // 内层 append_test_run / test_runs_snapshot 会再取一次同一把锁,走同线程重入。
+    let _lock = lock_test_runs(root)?;
     let existing = read_test_records(&path);
     // 认领目标:显式 id 优先;否则终态自动认领同标题的 running 记录(最新的一条)。
     let target = existing.iter().rev().find(|(_, record)| {
@@ -412,7 +474,7 @@ pub fn record_test_run(
     updated.push_str(&text[..at]);
     updated.push_str(block.trim_end());
     updated.push_str(&text[at + old_block.len()..]);
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    crate::atomic_file::write_atomic(&path, &updated).map_err(|e| e.to_string())?;
     let mut snapshot = test_runs_snapshot(root)?;
     snapshot["recorded_id"] = json!(record_id);
     Ok(snapshot)
@@ -434,6 +496,10 @@ pub fn append_test_run(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    // D-261:锁必须罩住「读 → 分配 id → 写」整段。分配器扫的是"此刻已占用的编号",
+    // 扫完到落盘之间只要有别人写入,两个 OS 进程就会算出同一个 id 并互相覆盖——
+    // D-227 修的是同秒时间戳(单进程内的单调推进),跨进程竞态要靠这把锁。
+    let _lock = lock_test_runs(root)?;
     // D-227:编号由分配器给,不能直接取墙钟秒——同一秒内的多次登记(即使已被
     // wave/写租约串行化)会拿到同一个 id。分配后再做一次占用兜底。
     let id = allocate_test_id(root);
@@ -452,7 +518,7 @@ pub fn append_test_run(
     if status != "running" {
         text.push_str(&format!("- 收尾: {}\n", now_secs()));
     }
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    crate::atomic_file::write_atomic(&path, &text).map_err(|e| e.to_string())?;
     let mut snapshot = test_runs_snapshot(root)?;
     snapshot["recorded_id"] = json!(id);
     Ok(snapshot)
@@ -545,6 +611,9 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
 /// 返回回填了多少条,方便调用方反馈(0 表示已全部结构化,无旧记录)。
 pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
     let path = root.join(TEST_RUNS_REL);
+    // D-261:整读整写 tests.md,读到写之间必须没有别人写入——否则这次回填会把期间
+    // 新登记的记录连同它的编号一起覆盖掉。判据("哪些块缺关联字段")与落盘是一笔事务。
+    let _lock = lock_test_runs(root)?;
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut backfilled = 0usize;
     let updated = {
@@ -599,7 +668,7 @@ pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
         // 幂等:没有任何需要回填的记录时不动文件,避免每次打开测试页都触发一次写盘。
         return Ok(json!({ "backfilled": 0 }));
     }
-    std::fs::write(&path, updated).map_err(|e| e.to_string())?;
+    crate::atomic_file::write_atomic(&path, &updated).map_err(|e| e.to_string())?;
     Ok(json!({ "backfilled": backfilled }))
 }
 
@@ -1306,6 +1375,161 @@ mod tests {
             json!(false),
             "新记录不该被判悬空:{fresh:#?}"
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-261 验收① 的机械守护:生产路径不得再出现裸 `fs::write`。
+    ///
+    /// 做成守护测试而不是"评审时记得 grep 一下":两套写原语的复发形态就是顺手写
+    /// 一行 `std::fs::write`,它在 diff 里长得完全无害,而代价是这个文件重新拥有
+    /// 一套与 `atomic_file` 不同的失败语义(先截断再写、无临时文件留证)。
+    /// 注释行不计入,否则连"为什么不用它"都不许写下来。
+    #[test]
+    fn 生产路径不得出现裸fs_write() {
+        let source = include_str!("test_record.rs");
+        // 按行切而不是按 "\n#[cfg(test)]\n" 整串匹配:仓库在 Windows 上检出的是
+        // CRLF,整串匹配会静默落空。找不到标记时 take_while 会把测试区也算进来,
+        // 于是这条直接红——宁可吵闹地失败,也不要悄悄退化成"什么都没检查"。
+        let hits: Vec<&str> = source
+            .lines()
+            .take_while(|line| line.trim() != "#[cfg(test)]")
+            .filter(|line| !line.trim_start().starts_with("//"))
+            .filter(|line| line.contains("fs::write"))
+            .collect();
+        assert!(
+            hits.is_empty(),
+            "生产路径出现裸 fs::write,必须改走 atomic_file::write_atomic(D-261):{hits:#?}"
+        );
+    }
+
+    /// D-261 验收②:并发登记既不撞号也不丢记录。
+    ///
+    /// 与 D-227 那条并发用例的区别是**没有 gate**:那条用互斥锁模拟已有的写排他,
+    /// 证明"串行了照样撞号";这条不加任何外部串行,证明事务锁本身就够——写入口
+    /// 自己扛得住并发,不依赖 wave 排他或写租约先把调用方排好队。
+    #[test]
+    fn 并发登记不撞号也不丢记录() {
+        let root = temp_project("lockstress");
+        // 播一条编号等于"现在"的基线,强制分配器走单调推进分支:否则墙钟秒一变,
+        // 各线程天然拿到不同编号,用例就失去证明力。
+        seed_now_baseline(&root);
+        let 并发: usize = 8;
+        let 线程: Vec<_> = (0..并发)
+            .map(|i| {
+                let root = root.clone();
+                std::thread::spawn(move || {
+                    append_test_run(&root, &format!("并发登记 {i}"), "running", None, None, None)
+                })
+            })
+            .collect();
+        for (i, 句柄) in 线程.into_iter().enumerate() {
+            句柄
+                .join()
+                .unwrap()
+                .unwrap_or_else(|e| panic!("第 {i} 次登记失败: {e}"));
+        }
+        let records = read_test_records(&root.join(TEST_RUNS_REL));
+        assert_eq!(
+            records.len(),
+            并发 + 1,
+            "{并发} 条并发记录加基线都该在(丢记录 = 有人的整文件回写覆盖了别人):{records:#?}"
+        );
+        let ids = records
+            .iter()
+            .map(|(_, r)| r["id"].as_str().unwrap_or_default().to_string())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), 并发 + 1, "并发登记必须编号互不相同:{ids:?}");
+        for i in 0..并发 {
+            let title = format!("并发登记 {i}");
+            assert!(
+                records
+                    .iter()
+                    .any(|(_, r)| r["title"].as_str() == Some(title.as_str())),
+                "标题「{title}」丢失:{records:#?}"
+            );
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-261 验收②:锁必须罩住**整段**事务,而不是只罩落盘那一下。
+    ///
+    /// 判据取"外部持锁期间文件没被创建":登记若能在此期间读到已占用编号并写回,
+    /// 就说明读与写之间是敞开的——两个进程正是在这个缝里算出同一个 id 的。
+    /// 跨进程那一层的机械证据在 atomic_file 的「独占句柄第二次打开必然失败」,
+    /// 这里证明的是本模块把事务边界画在了正确的位置。
+    #[test]
+    fn 外部持锁期间登记必须等待而不是抢先写入() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let root = temp_project("lockspan");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let 目标 = root.join(TEST_RUNS_REL);
+        // FileLock 是 !Send:锁在本线程取、本线程放,登记放到另一个线程去撞。
+        let 锁 = crate::atomic_file::lock_exclusive(&目标).unwrap();
+        let 完成 = Arc::new(AtomicBool::new(false));
+        let 线程 = {
+            let root = root.clone();
+            let 完成 = 完成.clone();
+            std::thread::spawn(move || {
+                append_test_run(&root, "被挡住的登记", "running", None, None, None).unwrap();
+                完成.store(true, Ordering::SeqCst);
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(!完成.load(Ordering::SeqCst), "持锁期间不该有人把登记做完");
+        assert!(
+            !目标.exists(),
+            "持锁期间 tests.md 不该被创建:说明写入没等锁"
+        );
+        drop(锁);
+        线程.join().unwrap();
+        assert!(完成.load(Ordering::SeqCst), "释放后必须能完成登记");
+        assert_eq!(
+            read_test_records(&目标).len(),
+            1,
+            "等到的那次登记必须真的落盘"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 快照顺手做的那次幂等归档拿不到锁时**跳过**,而不是报错或干等。
+    ///
+    /// 它是只读路径(面板刷新)上的维护动作:晚归档一轮没有代价,让面板卡住或弹
+    /// 一个错误框有代价。真失败(编号复用)仍照常报错,那条由
+    /// `归档已有同编号且内容不同时拒绝追加` 守着。
+    #[test]
+    fn 快照归档拿不到锁时跳过而不是报错() {
+        let root = temp_project("archiveskip");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let 目标 = root.join(TEST_RUNS_REL);
+        std::fs::write(
+            &目标,
+            "# Test Runs\n\n## T-700 甲测试 [passed]\n- 摘要: 全绿\n",
+        )
+        .unwrap();
+        let 锁 = crate::atomic_file::lock_exclusive(&目标).unwrap();
+        let snapshot = {
+            let root = root.clone();
+            std::thread::spawn(move || test_runs_snapshot(&root))
+                .join()
+                .unwrap()
+        }
+        .expect("拿不到锁不是错误:面板必须照常拿到读结果");
+        assert_eq!(
+            snapshot["active"].as_array().unwrap().len(),
+            1,
+            "跳过归档时终态记录仍留在 active,读结果照常返回:{snapshot:#?}"
+        );
+        assert!(
+            !root.join(TEST_RUNS_ARCHIVE_REL).exists(),
+            "拿不到锁就不该写归档文件"
+        );
+        drop(锁);
+        // 锁一放,下一次快照把这轮欠下的归档补上——跳过是延后,不是丢弃。
+        let snapshot = test_runs_snapshot(&root).unwrap();
+        assert_eq!(snapshot["active"].as_array().unwrap().len(), 0);
+        assert_eq!(snapshot["archived"].as_array().unwrap().len(), 1);
         std::fs::remove_dir_all(&root).ok();
     }
 }
