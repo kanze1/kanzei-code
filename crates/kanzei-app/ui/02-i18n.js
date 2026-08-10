@@ -12,6 +12,8 @@ const I18N_EN = {
   "设计文档树": "Design doc tree",
   "打开": "Open",
   "重新扫描架构索引": "Rescan architecture index",
+  "记忆管理": "Memory management",
+  "跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)": "Jump to the memory page to maintain entries (edit/consolidate/focus via existing memory commands)",
   "打开失败": "Failed to open",
   "架构索引读取失败": "Failed to load architecture index",
   "先选择一个项目": "Select a project first",

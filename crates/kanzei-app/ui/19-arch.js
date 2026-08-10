@@ -120,3 +120,10 @@ async function openArchDoc(name) {
 
 $("arch-refresh").addEventListener("click", refreshArch);
 $("arch-open-index").addEventListener("click", () => openDocViewer("architecture"));
+// 批3:记忆管理入口——跳转记忆页触达既有 memory_* 维护命令(编辑/整理/重心设置)。
+// 复用导航栏 memory 按钮的既有切换逻辑,不重复实现视图激活。
+$("arch-goto-memory").addEventListener("click", () => {
+  const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
+  if (memoryBtn) memoryBtn.click();
+  else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
+});

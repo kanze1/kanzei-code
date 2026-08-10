@@ -1834,6 +1834,15 @@ assert(
   byId.get("viewer-close").click();
   await flush();
   assert(byId.get("viewer-overlay").classList.contains("hidden"), "查看器关闭失败");
+  // 批3:记忆管理入口跳转记忆页(复用导航按钮,维护动作走既有 memory_* 命令)。
+  const gotoMemory = byId.get("arch-goto-memory");
+  assert(gotoMemory, "架构页缺少记忆管理入口");
+  const memBtn = [...document.querySelectorAll(".activity-item[data-view]")].find((b) => b.dataset.view === "memory");
+  assert(memBtn, "缺少记忆导航按钮");
+  gotoMemory.click();
+  await flush();
+  assert(byId.get("view-memory").classList.contains("active"), "记忆管理入口未激活记忆视图");
+  assert(memBtn.classList.contains("active"), "记忆导航按钮未同步高亮");
 }
 
 // ---------- D-202 流式渲染性能回归 ----------

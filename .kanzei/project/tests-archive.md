@@ -1135,3 +1135,11 @@
 ## T-1786321597 ui 冒烟四件套(R-122 架构浏览) [passed]
 - 摘要: runtime(8 主视图含 arch)/i18n(31 key+25 HTML)/a11y(13 icon-btn)/markdown 全过;M-014 资源表补齐「打开」「设计文档树」
 - 收尾: 1786321597
+
+## T-1786321728 cargo test --workspace (R-122 关闭前全量) [passed]
+- 摘要: 全 workspace 354 个测试全绿(7+3+2+1+46+71+51+39+134),关闭前全量验证通过
+- 收尾: 1786321784
+
+## T-1786321823 ui 冒烟四件套(R-122 批3 记忆入口) [passed]
+- 摘要: 四条冒烟全过:runtime(250 invoke,新增记忆入口断言)/i18n(33 key+27 HTML)/a11y(13 icon-btn)/markdown
+- 收尾: 1786321823
