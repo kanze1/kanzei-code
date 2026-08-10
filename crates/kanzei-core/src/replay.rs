@@ -181,15 +181,17 @@ impl Arm {
     }
 }
 
-/// 记忆上下文提供者:给定触发文本与臂,返回该臂应注入的记忆文本。
+/// 记忆上下文提供者:给定回放案例与臂,返回该臂应注入的记忆文本。
 ///
 /// core 不依赖 tools——检索实现(Current 用现有策略、Candidate 用新策略、
-/// Oracle 用人工标定、Leave-One-Out 做单条消融、CompressionCF 做合并前后)
-/// 由 CLI/桌面端把 kanzei-tools 记忆检索包装成此 trait 注入。
-/// NoMemory 永远返回空(下界)。
+/// Oracle 用人工标定/自动事后正确做法、Leave-One-Out 做单条消融、
+/// CompressionCF 做合并前后)由 CLI/桌面端把 kanzei-tools 记忆检索
+/// 包装成此 trait 注入。NoMemory 永远返回空(下界)。
 pub trait MemoryContextProvider: Send + Sync {
     /// arm 对应的记忆注入文本;NoMemory 返回空字符串。
-    fn context_for(&self, arm: &Arm, trigger: &str) -> String;
+    /// 接收整个 case:Oracle 等臂需要从 case 里提取失败后成功步骤,
+    /// 而非只依赖 trigger 文本。
+    fn context_for(&self, arm: &Arm, case: &ReplayCase) -> String;
 }
 
 /// 一次回放决策的产物:某臂在某 case 上的 LLM 决策文本与 token 消耗。
@@ -204,9 +206,39 @@ pub struct ReplayDecision {
 }
 
 /// 决策者:给定决策问题与记忆上下文,产出决策文本与 token 数。
-/// 生产实现包装 `LlmClient`(fast 档跑批);测试用固定响应 fake。
+/// 生产实现包装 `LlmClient`(fast 档跑批,异步流);测试用固定响应 fake。
+/// 用显式 BoxFuture 而非 async_trait,避免给 core 增加主依赖。
 pub trait ReplayDecider: Send + Sync {
-    fn decide(&self, question: &str, memory_context: &str) -> anyhow::Result<(String, u64)>;
+    fn decide<'a>(
+        &'a self,
+        question: &'a str,
+        memory_context: &'a str,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = anyhow::Result<(String, u64)>> + Send + 'a>,
+    >;
+}
+
+/// Oracle 臂的自动近似:从 case 里失败步骤**之后**的成功工具调用,
+/// 合成"事后正确做法"记忆(上界的自动化版本;人工标定条目可覆盖)。
+/// 无后续成功步骤时返回空(该 case 的 Oracle 臂与 NoMemory 同权)。
+pub fn oracle_text_from_case(case: &ReplayCase) -> String {
+    let Some(failed_idx) = case.steps.iter().position(|s| !s.ok) else {
+        return String::new();
+    };
+    let mut recovered = Vec::new();
+    for step in &case.steps[failed_idx + 1..] {
+        if step.ok {
+            recovered.push(format!("{} {}", step.tool, step.input));
+        }
+    }
+    if recovered.is_empty() {
+        return String::new();
+    }
+    format!(
+        "[oracle] 工具 `{}` 失败后,实际成功的做法是:\n- {}",
+        case.steps[failed_idx].tool,
+        recovered.join("\n- ")
+    )
 }
 
 /// 从 case 构造决策问题:第一个失败步骤的"该怎么做"追问。
@@ -235,8 +267,8 @@ pub async fn run_single_arm(
     prompt_version: &str,
 ) -> anyhow::Result<ReplayDecision> {
     let question = question_for_case(case);
-    let context = memory.context_for(&arm, &question);
-    let (text, tokens) = decider.decide(&question, &context)?;
+    let context = memory.context_for(&arm, case);
+    let (text, tokens) = decider.decide(&question, &context).await?;
     // 验收⑤结果落 memory_eval:每条记忆一个 arm 一行,同 case 可对照。
     // memory_id 为 case_id(六臂在同一 case 上对照,不是按条目消融时留空语义
     // 由 Leave-One-Out 臂的 provider 自行决定去掉哪条)。
@@ -470,15 +502,19 @@ mod eval_tests {
     struct FakeDecider;
 
     impl ReplayDecider for FakeDecider {
-        fn decide(
-            &self,
-            _question: &str,
-            memory_context: &str,
-        ) -> anyhow::Result<(String, u64)> {
-            Ok((
-                format!("行动|{memory_context}"),
-                memory_context.chars().count() as u64,
-            ))
+        fn decide<'a>(
+            &'a self,
+            _question: &'a str,
+            memory_context: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<(String, u64)>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                Ok((
+                    format!("行动|{memory_context}"),
+                    memory_context.chars().count() as u64,
+                ))
+            })
         }
     }
 
@@ -486,7 +522,7 @@ mod eval_tests {
     struct LabelMemory;
 
     impl MemoryContextProvider for LabelMemory {
-        fn context_for(&self, arm: &Arm, _trigger: &str) -> String {
+        fn context_for(&self, arm: &Arm, _case: &ReplayCase) -> String {
             match arm {
                 Arm::NoMemory => String::new(),
                 _ => format!("[memory-{}] 该做的行动", arm.label()),
@@ -582,6 +618,36 @@ mod eval_tests {
                 "compression_cf"
             ]
         );
+    }
+
+    #[test]
+    fn oracle自动合成失败后的成功做法_无后续则空() {
+        // 失败后紧跟成功步骤 → 合成"事后正确做法"。
+        let case = parse_trace_payload(
+            r#"{"events":[
+                {"id":"a","kind":"tool.started","name":"edit","summary":"{}"},
+                {"id":"a","kind":"tool.completed","name":"edit","ok":false,"error":"old_string not found"},
+                {"id":"b","kind":"tool.started","name":"read","summary":"{\"path\":\"src/main.rs\"}"},
+                {"id":"b","kind":"tool.completed","name":"read","ok":true}
+            ],"outcome":"completed"}"#,
+            "o1",
+        )
+        .unwrap();
+        let oracle = oracle_text_from_case(&case);
+        assert!(oracle.contains("[oracle]"), "{oracle}");
+        assert!(oracle.contains("edit"), "{oracle}");
+        assert!(oracle.contains("read"), "{oracle}");
+        // 失败后没有成功步骤 → 空(Oracle 与 NoMemory 同权)。
+        let no_recover = parse_trace_payload(SAMPLE, "o2").unwrap();
+        assert!(oracle_text_from_case(&no_recover).is_empty());
+        // 无失败步骤 → 空。
+        let ok_case = parse_trace_payload(
+            r#"{"events":[{"id":"a","kind":"tool.started","name":"git","summary":"{}"},
+                {"id":"a","kind":"tool.completed","name":"git","ok":true}],"outcome":"completed"}"#,
+            "o3",
+        )
+        .unwrap();
+        assert!(oracle_text_from_case(&ok_case).is_empty());
     }
 
     // ---- 批3:J 判据分层 + 对照报告 ----

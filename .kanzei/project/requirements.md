@@ -27,9 +27,9 @@
 - 验收: ①六臂各自可跑并落 memory_eval;②首批 ≥30 case 可重复执行;③产出 NoMemory vs Current vs Oracle 对照报告(判读:C≪D=触发/检索问题,C≈D 仍败=内容/utilization 问题);④录制回放不真执行外部工具有测试。
 - refs: R-103 docs/design/memory_control_plane.md
 
-- 进展: 批2完成(R-163 B2, 48e3634):六臂 runner——replay.rs 新增 Arm 枚举(六臂 label 稳定契约)/MemoryContextProvider trait(记忆注入抽象,NoMemory 恒空)/ReplayDecider trait(LLM 决策,测试用 fake)/question_for_case(取第一个失败步骤原文)/run_single_arm+run_arms(六臂全跑同一 case 落 memory_eval);3 个 eval 测试(六臂各自可跑并落库、决策问题、arm 契约),kanzei-core 87 全绿。批3: J 判据分层 + NoMemory/Current/Oracle 对照报告。
+- 进展: 批3完成(R-163 B3, 6d5fc8f):J 判据分层 score_decision(has_action 动作词启发/repeats_failed_tool 词边界/rety 信号/tokens)+ summarize 聚合 + render_report(六臂表格 + NoMemory→Current 增量/Current→Oracle 上界差距/重提失败工具注释);run_single_arm 落库 success 改为真实 J 判据(steps=tool 步数/retries=重试信号);新增 2 测试,kanzei-core 89 全绿。批4: 真实数据评估入口(≥30 case 提取 + CLI 可重复执行)。
 
-- 批次: 2/4
+- 批次: 3/4
 
 ## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [todo]
 - 优先级: P0

@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => {
             tracker_cli(&args).await
         }
+        Some("replay-eval") => replay_eval_cli(&args[1..]).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
         None => {
@@ -66,6 +67,7 @@ fn usage_text() -> &'static str {
     "usage: kz run \"<prompt>\"\n\
        kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始\n\
        kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
+       kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
 agent: dev(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
@@ -587,6 +589,100 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     if exit_code != 0 {
         std::process::exit(exit_code);
     }
+    Ok(())
+}
+
+/// R-163 批4:六臂回放评估入口。
+/// `kz replay-eval [--limit N]` 从历史 run.trace 提取 case(默认 30),
+/// 六臂各自真调 LLM(fast 档),落 memory_eval 并打印对照报告。
+/// 验收②:首批 ≥30 case 可重复执行——同一命令可反复跑,结果逐轮累积。
+async fn replay_eval_cli(args: &[String]) -> anyhow::Result<()> {
+    let limit = args
+        .iter()
+        .position(|a| a == "--limit")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(30);
+
+    let cwd = std::env::current_dir()?;
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    let config = Arc::new(config);
+    for warning in &config_warnings {
+        eprintln!("\x1b[33m{warning}\x1b[0m");
+    }
+    let project_root =
+        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
+    reject_home_as_project_root(&project_root)?;
+
+    // fast 档跑批;未配 fast 时回落 primary。
+    let model_ref = std::env::var("KANZEI_MODEL")
+        .ok()
+        .or_else(|| config.models.fast.clone())
+        .or_else(|| config.models.primary.clone())
+        .ok_or_else(|| anyhow::anyhow!("未配置模型:kanzei.toml [models] 缺 primary"))?;
+    let resolved = config.resolve_model(&model_ref)?;
+    let proxy = match std::env::var("KANZEI_PROXY")
+        .ok()
+        .or_else(|| config.proxy.clone())
+    {
+        Some(p) if p == "off" => ProxyConfig::Disabled,
+        Some(p) if p == "env" => ProxyConfig::Env,
+        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
+        _ => ProxyConfig::Env,
+    };
+    let route = kanzei_core::build_route(&resolved, &proxy).await?;
+    let client = LlmClient::new(&proxy)?;
+
+    // 提取 case:最近 run.trace → 解析(带失败步骤的才值得回放)。
+    let session_id = kanzei_core::project_session_id(&project_root);
+    let state_path = kanzei_core::project_state_path(&project_root);
+    let store = kanzei_core::SessionStore::open(&state_path)?;
+    store.create_session(&session_id, &project_root.display().to_string(), None)?;
+    // 多取 5 倍,过滤掉无失败步骤与解析失败的,凑满 limit。
+    let traces = store.list_trace_payloads(&session_id, limit.saturating_mul(5))?;
+    let mut cases: Vec<kanzei_core::replay::ReplayCase> = Vec::new();
+    for (event_id, payload) in &traces {
+        let Some(case) = kanzei_core::replay::parse_trace_payload(payload, event_id) else {
+            continue;
+        };
+        if case.tool_failures() > 0 {
+            cases.push(case);
+        }
+        if cases.len() >= limit {
+            break;
+        }
+    }
+    if cases.is_empty() {
+        eprintln!("\x1b[33m(replay-eval: 库里没有可回放的失败轨迹——先跑几轮 kz run 再评估)\x1b[0m");
+        return Ok(());
+    }
+
+    let provider = kanzei_tools::replay_eval::ReplayMemoryProvider::new(&project_root);
+    let decider = kanzei_tools::replay_eval::LlmDecider::new(
+        std::sync::Arc::new(client),
+        std::sync::Arc::new(route),
+        resolved.model.clone(),
+    );
+    eprintln!(
+        "replay-eval: {} case, model={}, limit={}",
+        cases.len(),
+        resolved.model,
+        limit
+    );
+    let mut all_decisions: Vec<Vec<kanzei_core::replay::ReplayDecision>> = Vec::new();
+    for case in &cases {
+        let decisions = kanzei_core::replay::run_arms(
+            case,
+            &provider,
+            &decider,
+            &store,
+            &resolved.model,
+            "replay-eval-v1",
+        )
+        .await?;
+        all_decisions.push(decisions);
+    }
+    println!("{}", kanzei_core::replay::render_report(&cases, &all_decisions, &resolved.model));
     Ok(())
 }
 

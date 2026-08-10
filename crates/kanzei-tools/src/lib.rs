@@ -25,6 +25,7 @@ mod websearch;
 mod write;
 
 pub mod profiles;
+pub mod replay_eval;
 pub mod subagent;
 
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。

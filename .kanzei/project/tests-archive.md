@@ -1223,3 +1223,13 @@
 - 命令: cargo test -p kanzei-core replay
 - 摘要: R-163 B3 J 判据分层+对照报告:score_decision(has_action/repeats_failed_tool/retry_signal/tokens)+summarize+render_report(NoMemory/Current/Oracle 差距注释),run_single_arm 落库改为真实 J 判据;新增 2 测试,kanzei-core 89 全绿
 - 收尾: 1786345086
+
+## T-1786345435 cargo test -p kanzei-core -p kanzei-tools (R-163 B4 真实装配) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-tools; cargo run -p kanzei -- replay-eval --limit 5
+- 摘要: R-163 B4 真实装配:core trait 演进(async decider + provider 接收 case + oracle 自动合成),kanzei-tools/replay_eval.rs(ReplayMemoryProvider 六臂注入接 FailureRecallPolicy + LlmDecider 真调)4 测试;CLI replay-eval 命令真实跑通 5 case 六臂对照报告;core 90 + tools 159 全绿
+- 收尾: 1786345435
+
+## T-1786345497 cargo test -p kanzei-core -p kanzei-tools (R-163 B4 提交前) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-tools
+- 摘要: R-163 B4 提交前定向重跑:core 90 + tools 159 全绿(临时目录改造后无源码树污染)
+- 收尾: 1786345497

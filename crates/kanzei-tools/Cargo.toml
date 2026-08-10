@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+futures.workspace = true
 kanzei-harness.workspace = true
 kanzei-llm.workspace = true
 kanzei-core.workspace = true
