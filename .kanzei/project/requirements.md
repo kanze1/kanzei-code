@@ -303,8 +303,8 @@
 - 现状: 约束目前三处载体,各缺一块:①conventions.md 是项目级文件,通用规则(§1.1 取活/§1.2 关闭/§1.25 验收/§1.35 标签/§1.3 批次/§1.4 节奏/§2/§3/§5/§7/§8/§10)与 kanzei 特有规则(§4 架构契约/§6 dev 分支/§9 构建发版)混在一起,另一个项目是独立目录拿不到;②conv-init 一键创建模板(docs.rs:52-55)只有四行空骨架(代码风格/提交规范/测试要求/禁止事项各一个空 bullet),不含任何通用规则——另一个项目生成的 conventions.md 就是这个空壳;③profile 提示词(profiles.rs:407-492)有执行期批次/WIP/验证协议,但围绕「正在执行的条目」,对「登记新需求/缺陷」没有字段清单约束;req add 门禁只有 title is required(tracker.rs:420),不校验 复杂度/批次/priority/label/来源,defect add 同理。harness 侧无任何 conventions 注入代码(grep 仅命中注释引用)。
 - 阶段: 3
 - 验收: ①拆分分析落地:通用/项目特有分类表写入本条进展,harness 内置模板与分类一致;②新项目一致性:conv-init 生成的文件含完整通用规则(不再四行空壳),有模板生成测试断言关键节存在(§1.1 阻塞口径/§1.3 批次/§1.4 节奏/§1.25 验收证据);③登记硬约束:req add 缺 复杂度 报错、defect add 缺 severity/priority 报错,报错信息提示补什么字段,有定向测试;profile 提示词含登记字段清单(可 grep 断言);④kanzei conventions.md 通用节与引擎模板不重复(单源),项目特有节(§4/§6/§9)保留,文档与实现一致;⑤不回归:既有 req add 正常路径(带全字段)行为不变,kanzei 存量条目不受影响,相关 crate 定向测试全绿,关闭前全量测试通过。
-- 批次: 4/6
-- 进展: 2026-08-12 05:00 批5b 解除阻塞:用户拍板永久放行,.kanzei/kanzei.toml 已加 [[permissions.rules]] action="conventions" resource="patch" effect="allow"(提交 16757b1;引擎默认只放行 get,patch 落 Ask,而自主推进轮是 NonInteractive 档位会把 Ask 直接跳过——这正是前三轮被拦的原因,详见 D-281)。注意 ruleset 快照在开跑时定死,新规则下一轮才生效。批5b 可继续:删 conventions.md 通用节(§1~§3、§5、§7、§8、§10),保留项目特有节 §4/§6/§9,分块 patch 每块前重新 get 取 hash。
+- 批次: 6/6
+- 进展: 批6 收口核对(2026-08-15):验收逐条证据如下。①拆分分类表:通用=§1.1 取活/阻塞、§1.2 关闭边界、§1.25 验收证据、§1.35 标签与依赖、§1.3 批次、§1.4 节奏、§2 代码原则、§3 命名、§5 终端、§6 通用分支纪律、§7 测试、§8 文档、§10 并行——全部进 kanzei-harness/assets/default_conventions.md;项目特有=§4 架构契约/§6 kanzei 分支/§9 构建发版(含 9.1)——留在项目 conventions.md。②conv-init 生成项目特有骨架(docs.rs:42-73 注明通用规则由引擎注入),注入测试断言四关键节(profiles.rs:1015-1027 required 数组含 §1.1 阻塞口径/§1.3 批次/§1.4 节奏/§1.25 验收证据)。③登记硬约束:req add 缺复杂度/priority/标签即拒、defect add 缺 severity/priority/标签即拒(tracker.rs 与 B3 测试 add_requires_registration_fields),dev prompt 含登记契约(B4 测试可 grep 断言)。④kanzei conventions.md 已删全部通用节,只留 §4/§6/§9/§9.1(commit 56cb17c),profiles.rs 同口径测试真源迁引擎模板并加单源防回归断言。⑤存量 req add 正常路径不变(带全字段行为不变,既有 8 处裸 add 已补登记字段),定向测试全绿,全量待跑。
 
 - 阻塞: 
 
