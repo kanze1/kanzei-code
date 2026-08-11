@@ -287,78 +287,153 @@ async function loadConversation(sequence = null, switchGeneration = null) {
   }
 }
 
-let conversationItems = [];
-function renderConversationList(items) {
-  conversationItems = items ?? [];
-  const el = $("conversation-list");
-  el.innerHTML = "";
-  $("chat-select-all").checked = false;
-  $("conversation-count").textContent = items.length;
-  if (!items.length) {
-    el.textContent = t("暂无历史对话");
-    return;
-  }
-  for (const item of [...items].reverse()) {
-    const row = document.createElement("div");
-    row.className = "doc-item conv-row";
-    row.title = t("点击打开 · 勾选后点标题栏的删除图标批量删除");
-    const check = document.createElement("input");
-    check.type = "checkbox";
-    check.className = "chat-check";
-    check.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
-    check.addEventListener("click", (e) => e.stopPropagation());
-    check.addEventListener("change", () => {
-      const checks = [...document.querySelectorAll(".chat-check")];
-      $("chat-select-all").checked = checks.length > 0 && checks.every((item) => item.checked);
-    });
-    const title = document.createElement("span");
-    title.className = "title";
-    title.textContent = `${item.title || t("新对话")} (${item.message_count} ${t("条")})`;
-    row.append(check, title);
-    row.addEventListener("click", async () => {
-      if (running) {
-        toast(t("运行中请先完成或停止当前任务，再打开历史对话"));
-        return;
-      }
-      try {
-        await loadConversation(item.sequence);
-        addMessage("notice", `${t("已打开历史对话")} #${item.sequence}`);
-      } catch (err) {
-        toastError(String(err));
-      }
-    });
-    el.appendChild(row);
-  }
+// 历史对话按线路归属渲染:后端本来就按 process_id 隔离 session,前端不能再把
+// 当前线路的快照扁平化到一个全局列表,否则用户看不出「这段历史属于哪条线」。
+const conversationItemsByProcess = new Map();
+const conversationErrorsByProcess = new Map();
+let conversationListGeneration = 0;
+
+function lineHistoryElement(processId) {
+  return [...document.querySelectorAll(".parallel-line-history")]
+    .find((element) => element.dataset.processId === processId) ?? null;
 }
 
-$("chat-select-all").addEventListener("change", (event) => {
-  document.querySelectorAll(".chat-check").forEach((check) => { check.checked = event.target.checked; });
-});
+function historyProcessItem(processId) {
+  return processItems.find((item) => item.id === processId) ?? null;
+}
 
-$("chat-del").addEventListener("click", async () => {
-  const sequences = [...document.querySelectorAll(".chat-check:checked")]
-    .flatMap((c) => JSON.parse(c.dataset.seqs));
+async function openConversationForProcess(processId, sequence) {
+  const target = historyProcessItem(processId);
+  if (!target) return;
+  if (processRunning(target)) {
+    toast(t("运行中请先完成或停止当前任务，再打开历史对话"));
+    return;
+  }
+  if (processId !== activeProcessId) await switchProcess(processId);
+  await loadConversation(sequence);
+  addMessage("notice", `${t("已打开历史对话")} #${sequence}`);
+}
+
+async function deleteConversationsForProcess(processId, sequences) {
   if (!sequences.length) {
     toast(t("先勾选要删除的历史对话"));
     return;
   }
   try {
-    const n = await invoke("conversation_delete", { projectDir: currentProject, processId: activeProcessId, sequences });
+    const n = await invoke("conversation_delete", { projectDir: currentProject, processId, sequences });
     toast(`${t("已删除")} ${n}${t("份对话快照")}`);
-    await refreshConversationList();
+    await refreshConversationLists();
   } catch (err) {
-    toastError(String(err), { retry: () => $("chat-del").click() });
+    toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences) });
   }
-});
+}
+
+function renderLineConversationHistory(processId) {
+  const el = lineHistoryElement(processId);
+  if (!el) return;
+  el.replaceChildren();
+  const error = conversationErrorsByProcess.get(processId);
+  if (error) {
+    el.textContent = `${t("历史对话加载失败")}:${error}`;
+    return;
+  }
+  const items = conversationItemsByProcess.get(processId);
+  if (!items) {
+    el.textContent = t("加载中…");
+    return;
+  }
+  const head = document.createElement("div");
+  head.className = "parallel-history-head";
+  const label = document.createElement("span");
+  label.textContent = `${t("历史对话")} (${items.length})`;
+  const action = document.createElement("button");
+  action.type = "button";
+  action.className = "ghost mini parallel-history-delete";
+  action.textContent = t("删除");
+  action.title = t("删除勾选的对话");
+  action.setAttribute("aria-label", t("删除勾选的对话"));
+  action.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const sequences = [...el.querySelectorAll(".parallel-history-check:checked")]
+      .flatMap((check) => JSON.parse(check.dataset.seqs));
+    void deleteConversationsForProcess(processId, sequences);
+  });
+  head.append(label, action);
+  el.appendChild(head);
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "parallel-history-empty";
+    empty.textContent = t("暂无历史对话");
+    el.appendChild(empty);
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "parallel-history-list";
+  for (const item of [...items].reverse()) {
+    const row = document.createElement("div");
+    row.className = "parallel-history-row";
+    row.title = t("点击打开 · 勾选后点删除");
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "parallel-history-check";
+    check.dataset.seqs = JSON.stringify(item.sequences ?? [item.sequence]);
+    check.addEventListener("click", (event) => event.stopPropagation());
+    const title = document.createElement("span");
+    title.className = "title";
+    title.textContent = `${item.title || t("新对话")} (${item.message_count} ${t("条")})`;
+    row.append(check, title);
+    row.addEventListener("click", () => void openConversationForProcess(processId, item.sequence));
+    list.appendChild(row);
+  }
+  el.appendChild(list);
+}
+
+// 兼容语言切换与完成事件的既有调用点,但实际刷新范围已经是全部线路。
+function renderConversationList(items) {
+  if (!activeProcessId) return;
+  conversationErrorsByProcess.delete(activeProcessId);
+  conversationItemsByProcess.set(activeProcessId, items ?? []);
+  renderLineConversationHistory(activeProcessId);
+}
+
+async function refreshConversationLists() {
+  if (!currentProject) return;
+  const forProject = currentProject;
+  const generation = ++conversationListGeneration;
+  const targets = processItems.slice();
+  if (!targets.length) return;
+  const results = await Promise.all(targets.map(async (process) => {
+    try {
+      return { processId: process.id, items: await invoke("conversation_list", { projectDir: forProject, processId: process.id }) };
+    } catch (error) {
+      return { processId: process.id, error };
+    }
+  }));
+  if (generation !== conversationListGeneration || currentProject !== forProject) return;
+  const errors = [];
+  for (const result of results) {
+    if (result.error) {
+      conversationErrorsByProcess.set(result.processId, result.error);
+      errors.push(`${result.processId}:${result.error}`);
+    } else {
+      conversationErrorsByProcess.delete(result.processId);
+      conversationItemsByProcess.set(result.processId, result.items ?? []);
+    }
+    renderLineConversationHistory(result.processId);
+  }
+  const known = new Set(targets.map((process) => process.id));
+  for (const processId of conversationItemsByProcess.keys()) {
+    if (!known.has(processId)) conversationItemsByProcess.delete(processId);
+  }
+  if (errors.length) {
+    const message = `${t("历史对话加载失败")}:${errors.join("; ")}`;
+    log(message, "warn");
+    toastError(message, { retry: refreshConversationLists });
+  }
+}
 
 async function refreshConversationList() {
-  if (!currentProject) return;
-  try {
-    renderConversationList(await invoke("conversation_list", { projectDir: currentProject, processId: activeProcessId }));
-  } catch (err) {
-    $("conversation-list").textContent = `${t("历史对话加载失败")}:${err}`;
-    toastError(`${t("历史对话加载失败")}:${err}`, { retry: refreshConversationList });
-  }
+  return refreshConversationLists();
 }
 
 // ---------- 新对话 ----------

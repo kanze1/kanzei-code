@@ -740,7 +740,9 @@ const payloads = {
     },
   ],
   conversation_trace_get: [],
-  conversation_list: [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "预览", updated_at: "2026-08-08 00:00" }],
+  conversation_list: ({ processId }) => processId === "p|bg"
+    ? [{ sequence: 2, sequences: [2], title: "后台线路历史", preview: "后台预览", updated_at: "2026-08-08 00:01" }]
+    : [{ sequence: 1, sequences: [1], title: "冒烟会话", preview: "主线预览", updated_at: "2026-08-08 00:00" }],
   // 角色项 + 一个真实模型:角色不该出现在设置页的角色下拉里(会绕成自指)。
   models_list: [
     { id: "primary", label: "primary → anthropic:claude-sonnet-5" },
@@ -1182,7 +1184,21 @@ assert(listText("test-list").includes("冒烟测试"), "测试记录列表未渲
     "点击测试关联徽标未触发跳转刷新",
   );
 }
-assert(listText("conversation-list").includes("冒烟会话"), "历史对话列表未渲染出桩数据");
+// 历史必须随线路渲染，不能再退回一个全局 conversation-list，否则切线后无法判断归属。
+assert(!byId.has("conversation-list"), "历史对话不应再有独立的全局列表");
+const lineHistories = document.querySelectorAll("#parallel-task-status .parallel-line-history");
+assert(lineHistories.length === 2, `两条线路都应有自己的历史容器,实际 ${lineHistories.length}`);
+assert(
+  [...lineHistories].some((history) => history.dataset.processId === "d|smoke" && history.textContent.includes("冒烟会话")),
+  "主线历史没有挂到主线按钮下面",
+);
+assert(
+  [...lineHistories].some((history) => history.dataset.processId === "p|bg" && history.textContent.includes("后台线路历史") && !history.textContent.includes("冒烟会话")),
+  "并行线历史没有按 process_id 隔离渲染",
+);
+const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");
+assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
+assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
 // D-207:取活焦点标记——在做的(doing/fixing)高亮,取活序下一个(defect-first 下
 // 第一个无阻塞的 open 缺陷)次亮。基于数据计算,与视图排序/分组无关。
 {
@@ -3604,7 +3620,7 @@ sandbox.renderProcesses([
   ...twoProcesses,
   { id: "p|third", label: "第三线路", session_id: "sess-third", running: false, branch: "kanzei/thread-third", authority: "parallel", stage: "测试" },
 ]);
-assert(byId.get("parallel-task-status").children.length === 3, "三线并行时侧栏只渲染了一个/两条任务状态");
+assert(document.querySelectorAll("#parallel-task-status .parallel-task-row").length === 3, "三线并行时侧栏只渲染了一个/两条任务状态");
 assert(listText("parallel-task-status").includes("第三线路") && listText("parallel-task-status").includes("测试"), "侧栏任务状态未显示第三线路及其阶段");
 sandbox.renderProcesses(twoProcesses);
 await flush();

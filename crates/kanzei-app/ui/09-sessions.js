@@ -145,6 +145,9 @@ function renderParallelTaskStatus(items) {
     const state = sessionState(item.session_id);
     if (item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
     const runningNow = processRunning(item);
+    const line = document.createElement("div");
+    line.className = "parallel-line";
+    line.dataset.processId = item.id;
     const row = document.createElement("button");
     row.type = "button";
     row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}`;
@@ -164,11 +167,19 @@ function renderParallelTaskStatus(items) {
       ? `${authority}: ${state.detail || stage}`
       : `${authority}: ${t("点击切换到此线路")}`;
     row.addEventListener("click", () => void switchProcess(item.id));
-    target.appendChild(row);
+    line.appendChild(row);
+    const history = document.createElement("div");
+    history.className = "parallel-line-history";
+    history.dataset.processId = item.id;
+    line.appendChild(history);
+    target.appendChild(line);
+    if (typeof renderLineConversationHistory === "function") renderLineConversationHistory(item.id);
   }
 }
 function renderProcesses(items) {
+  const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
   processItems = items ?? [];
+  const nextProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousSessionId = activeSessionId;
   // R-086:后端是运行态权威,先把返回的 running 校正进各会话状态机(事件可能
   // 丢失),视图只投影活动会话的状态机,而不是直接信某一次轮询的瞬时值。
@@ -212,6 +223,9 @@ function renderProcesses(items) {
   trackerToggle.checked = isWorktreeLine && (active?.tracker_writes ?? false);
   // 鞭挞面板要跟着重算:自主推进开着而流水线关着时那里有一行提示。
   renderAutoStatus();
+  if (previousProcessKey !== nextProcessKey && typeof refreshConversationLists === "function") {
+    void refreshConversationLists();
+  }
 }
 
 async function refreshProcesses() {

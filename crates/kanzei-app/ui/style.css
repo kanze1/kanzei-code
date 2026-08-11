@@ -846,11 +846,21 @@ button:disabled { opacity: .45; cursor: default; }
 #agent-panel .bg-entry.timeout { border-left-color: var(--warn); }
 #agent-panel .bg-entry[data-bg-status="stopped"] .bg-title::before { content: "⏹ "; color: var(--warn); }
 .parallel-task-status { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.parallel-line { display: flex; flex-direction: column; gap: 2px; }
 .parallel-task-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 5px 7px; border: 1px solid var(--border-soft); border-radius: 4px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
 .parallel-task-row:hover, .parallel-task-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .parallel-task-row.running { border-left: 2px solid var(--ok); }
 .parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: 11px; }
 .parallel-task-state { color: var(--dim); font-size: 10px; }
+.parallel-line-history { margin: 0 3px 2px 10px; padding: 3px 5px 4px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: 10px; }
+.parallel-history-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 19px; }
+.parallel-history-delete { padding: 1px 5px; font-size: 10px; }
+.parallel-history-list { display: flex; flex-direction: column; gap: 1px; max-height: 180px; overflow-y: auto; }
+.parallel-history-row { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 3px 2px; border-radius: 3px; cursor: pointer; color: var(--fg); }
+.parallel-history-row:hover { background: var(--panel2); color: var(--fg-strong); }
+.parallel-history-row .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.parallel-history-check { width: 12px; height: 12px; flex-shrink: 0; accent-color: var(--accent); }
+.parallel-history-empty { padding: 2px; }
 .bg-entry {
   background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--radius);
   padding: 7px 9px; font-family: var(--mono); font-size: 11.5px;
@@ -995,13 +1005,6 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
   transition: width .3s ease; border-radius: 3px;
 }
 #ctx-bar.warn #ctx-bar-fill { background: var(--warn); }
-
-/* ---------- 历史对话行(复选批删) ---------- */
-#conversation-list { background: var(--panel); color: var(--fg); }
-.conv-row { cursor: pointer; align-items: center; color: var(--fg); background: transparent; border-bottom: 1px solid var(--border-soft); }
-.conv-row:hover { background: var(--panel2); color: var(--fg-strong); }
-.conv-row .title { color: inherit; }
-.conv-row input[type="checkbox"] { width: 13px; height: 13px; flex-shrink: 0; accent-color: var(--accent); }
 
 /* 回放里的工具痕迹:一行淡色,不喧宾夺主 */
 .tool-chip.replay { padding: 4px 10px; opacity: .55; font-size: 11.5px; }
