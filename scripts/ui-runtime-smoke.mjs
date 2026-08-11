@@ -3930,6 +3930,39 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批7:指标页 + 文件页域迁移(标题/说明/工具栏/占位) ----------
+// 指标页 h1/说明/两个 aria-label;文件页排序·标注·刷新按钮(title+文本+aria-label)、
+// 文件树 aria-label、占位说明 迁移到 data-i18n-key/data-i18n-title/data-i18n-aria-label。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  const b7Key = (key) => [...sandbox.document.querySelectorAll("[data-i18n-key]")].find((el) => el.dataset.i18nKey === key)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b7Key("运行画像") === "运行画像", "中文态指标页标题应保持原文(前置失效)");
+  assert(attrOf("metrics-trend", "aria-label") === "跨轮趋势", "中文态 metrics-trend aria-label 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(b7Key("运行画像") === "Run profile", `英文态「运行画像」未翻译,实际 "${b7Key("运行画像")}"`);
+  assert(b7Key("按行数") === "By lines", `英文态「按行数」未翻译,实际 "${b7Key("按行数")}"`);
+  assert(b7Key("标注") === "Annotate", `英文态「标注」未翻译,实际 "${b7Key("标注")}"`);
+  assert(attrOf("metrics-trend", "aria-label") === "Cross-round trends", `英文态 metrics-trend aria-label 未翻译,实际 "${attrOf("metrics-trend", "aria-label")}"`);
+  assert(attrOf("metrics-rounds", "aria-label") === "Per-round profile", `英文态 metrics-rounds aria-label 未翻译,实际 "${attrOf("metrics-rounds", "aria-label")}"`);
+  assert(attrOf("files-sort", "title") === "Toggle sort: name / lines", `英文态 files-sort title 未翻译,实际 "${attrOf("files-sort", "title")}"`);
+  assert(attrOf("files-refresh", "aria-label") === "Rescan file tree", `英文态 files-refresh aria-label 未翻译,实际 "${attrOf("files-refresh", "aria-label")}"`);
+  assert(attrOf("files-tree", "aria-label") === "Project file tree", `英文态文件树 aria-label 未翻译,实际 "${attrOf("files-tree", "aria-label")}"`);
+  assert(b7Key("选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明").includes("Select a file on the left"), `英文态文件占位说明未翻译,实际 "${b7Key("选择左侧文件查看内容 · 目录行显示聚合度量 · 「标注」用 fast 模型生成用途说明")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b7Key("运行画像") === "运行画像", `切回中文后「运行画像」未回原文,实际 "${b7Key("运行画像")}"`);
+  assert(attrOf("files-refresh", "aria-label") === "重新扫描文件树", `切回中文后 files-refresh aria-label 未回原文,实际 "${attrOf("files-refresh", "aria-label")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,
