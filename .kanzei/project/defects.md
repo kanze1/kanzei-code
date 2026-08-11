@@ -36,34 +36,34 @@
 - 影响: SOP 是 R-105 记忆蒸馏的主要产出形态之一,人读不动就只剩模型消费一条腿;产生时机不对还会稀释记忆库信噪比。
 - 验收: ①总结质量:SOP 条目有可照做的结构(适用场景/步骤/每步判断依据/边界),不再是纯工具名罗列;②查看展示:Memory 页的 SOP 有适合阅读的排版,入口可发现;③产生时机:沉淀门槛可说明(什么样的流程值得成为 SOP),乱沉淀实例(纯机械序列)被拦;④用户复查确认三个维度都有改善。
 - 备注: 本条登记过程本身暴露了快记的信息保真缺陷(伪复现「查看 SOP 时」+丢"用户"限定词),已单独登记为 D-205 并修了第一层。
-- 优先级: P2
+- 优先级: P3
 - 标签: 核心
 
 - 批次: 2/2
-- 进展: 两批交付+全量绿,逐条证据:①总结质量——harvest_sop 候选 detail 给 manager 可照做结构模板(1.适用场景 2.操作步骤:每步做什么+判断依据 3.边界与例外)(crates/kanzei-tools/src/memory/mod.rs harvest_sop),manager_agent() prompt 加 SOP 提炼规则(纯工具罗列不算 SOP、一次性流程 NOOP)(memory/manager.rs manager_agent),不再纯工具名罗列;②查看展示——Memory 页列表行 sop 加左边框+SOP 徽标(13-memory.js loadMemoryList + style.css .memory-row.sop/.memory-row-cat.sop,入口可发现),详情正文 renderMemoryBodyRead 识别「N. 标题」编号行渲染为结构化步骤块(.memory-sop-step 标题加粗+正文剥离冒号);③产生时机——harvest_sop 加工具序列门槛(tools<3 机械拦截,纯机械序列被拦,memory/mod.rs + 回归单测短流程不投)。④待用户复查确认三个维度。验证:T-1786451023(批1 定向 232 绿)+T-1786451128(批2 前端四冒烟)+T-1786451243(关闭前全量全绿)。
+- 进展: 两批交付+全量绿,逐条证据:①总结质量——harvest_sop 候选 detail 给 manager 可照做结构模板(1.适用场景 2.操作步骤:每步做什么+判断依据 3.边界与例外)(crates/kanzei-tools/src/memory/mod.rs harvest_sop),manager_agent() prompt 加 SOP 提炼规则(纯工具罗列不算 SOP、一次性流程 NOOP)(memory/manager.rs manager_agent),不再纯工具名罗列;②查看展示——Memory 页列表行 sop 加左边框+SOP 徽标(13-memory.js loadMemoryList + style.css .memory-row.sop/.memory-row-cat.sop,入口可发现),详情正文 renderMemoryBodyRead 识别「N. 标题」编号行渲染为结构化步骤块(.memory-sop-step 标题加粗+正文剥离冒号);③产生时机——harvest_sop 加工具序列门槛(tools<3 机械拦截,纯机械序列被拦,memory/mod.rs + 回归单测短流程不投)。④待用户复查确认三个维度。验证:T-1786451023(批1 定向 232 绿)+T-1786451128(批2 前端四冒烟)+T-1786451243(关闭前全量全绿)。2026-08-13 用户定调:要改但不是现在,需求比较边缘,优先级 P2→P3,阻塞保持成立。
 
 - 阻塞: 验收④「用户复查确认三个维度都有改善」——工程面①②③已交付并全量绿,需用户实际查看 Memory 页 SOP 排版与新沉淀门槛后确认;解除人=用户(复查后确认改善即可关闭)。
+
+- priority: 
 
 ## D-239 取活口径漂移复现追踪:伪阻塞/伪可执行/挂起无载体 [open] (medium)
 - 复现: 2026-08-10 复盘取活时发现三处阻塞/挂起口径漂移:①R-151/R-162~R-167 把非阻塞内部依赖(R-150/R-161 等,解除权在 agent)写进「依赖」字段,list 据未完成依赖判 blocked,调度器整批跳过,需求队列后半截系统性锁死;②R-157 实质卡在 D-235(conventions.md 无专用写入通道,edit 被 ruleset 拒绝),却无阻塞字段,以 doing 形态占可执行 WIP 名额、实际推不动;③R-101 用户 08-09 挂起只写在进展里,状态 todo 无阻塞字段,取活器会误取。
 - 根因假设: §1.1 阻塞口径只在「触碰条目时」顺带复核,无周期机械核对;2026-08-09 WIP 口径修订后历史条目未回扫(R-151 的阻塞恰在口径修订期写入)。
-- 进展: 2026-08-10 已修当前三条:R-101 补挂起阻塞字段(解除人=用户);R-157 补合法阻塞(⑤依赖 D-235,解除人=修 D-235 的 kanzei 或用户手写);R-151/R-162~R-167 清空伪阻塞依赖字段,依赖关系写进各条进展。
+- 进展: 2026-08-10 已修当前三条:R-101 补挂起阻塞字段(解除人=用户);R-157 补合法阻塞(⑤依赖 D-235);R-151/R-162~R-167 清空伪阻塞依赖字段。2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」已清空,依赖保留在依赖字段;其余条目阻塞字段均为合法外部阻塞,无伪可执行 doing,无挂起无载体;未升级 §1.1/取活器(单条误写,§1.1 已覆盖)。2026-08-13 第二轮复核(autonomous 会话):R-157 阻塞更新(conventions 工具已就位但 patch 需用户批准);R-164 阻塞保持(无 cargo 权限跑不了全量);其余用户/环境阻塞均仍成立。未升级 §1.1/取活器。
+
+2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」(内部顺序依赖,解除权在 agent),已清空阻塞字段、依赖关系保留在依赖字段,复核过程见本轮进展。其余条目阻塞字段均为合法外部阻塞(用户拍板/用户复查/环境工具),无伪可执行 doing(三个 doing 均带具名解除人),无挂起无载体。未升级 §1.1/取活器:本次漂移是单条误写,不是规则缺陷,§1.1 已覆盖此情形(「上游条目自身只是被自记阻塞(伪传递阻塞)」不算阻塞);继续观察,累计复现达阈值再升级。
+
+2026-08-13 第二轮复核(autonomous 会话):R-157 阻塞描述更新——conventions 专用工具已随新引擎就位(当前工具集含 conventions get/patch),但本会话为 autonomous 模式,patch 报 permission requires user approval 被跳过,§1.4 标注仍需用户在交互会话批准或手写落地;R-164 阻塞(用户重启 kzapp)保持成立——本会话无法确认用户是否已重启,且复杂度大关闭前需 cargo test --workspace 全量、autonomous 白名单无 cargo 权限;R-174/D-204/D-207/D-209/R-059/R-101/R-135/D-259 等用户/环境阻塞均仍成立。本轮观察:open 源码缺陷(D-260/D-261/D-263~D-275)在 autonomous 会话全部缺 edit crates/ + cargo 权限,属「缺权限/环境」临时限制,已在各自进展注明,不固化阻塞字段(会话级限制解除权在用户,交互会话即可执行)。未升级 §1.1/取活器。
+
+2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」(内部顺序依赖,解除权在 agent),已清空阻塞字段、依赖关系保留在依赖字段,复核过程见本轮进展。其余条目阻塞字段均为合法外部阻塞(用户拍板/用户复查/环境工具),无伪可执行 doing(三个 doing 均带具名解除人),无挂起无载体。未升级 §1.1/取活器:本次漂移是单条误写,不是规则缺陷,§1.1 已覆盖此情形(「上游条目自身只是被自记阻塞(伪传递阻塞)」不算阻塞);继续观察,累计复现达阈值再升级。
+
+2026-08-13 第二轮复核(autonomous 会话):R-157 阻塞描述更新——conventions 专用工具已随新引擎就位(当前工具集含 conventions get/patch),但本会话为 autonomous 模式,patch 报 permission requires user approval 被跳过,§1.4 标注仍需用户在交互会话批准或手写落地;R-164 阻塞(用户重启 kzapp)保持成立——本会话无法确认用户是否已重启,且复杂度大关闭前需 cargo test --workspace 全量、autonomous 白名单无 cargo 权限;R-174/D-204/D-207/D-209/R-059/R-101/R-135/D-259 等用户/环境阻塞均仍成立。本轮观察:open 源码缺陷(D-260/D-261/D-263~D-275)在 autonomous 会话全部缺 edit crates/ + cargo 权限,属「缺权限/环境」临时限制,已在各自进展注明,不固化阻塞字段(会话级限制解除权在用户,交互会话即可执行)。未升级 §1.1/取活器。
+
+2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」(内部顺序依赖,解除权在 agent),已清空阻塞字段、依赖关系保留在依赖字段,复核过程见本轮进展。其余条目阻塞字段均为合法外部阻塞(用户拍板/用户复查/环境工具),无伪可执行 doing(三个 doing 均带具名解除人),无挂起无载体。未升级 §1.1/取活器:本次漂移是单条误写,不是规则缺陷,§1.1 已覆盖此情形(「上游条目自身只是被自记阻塞(伪传递阻塞)」不算阻塞);继续观察,累计复现达阈值再升级。
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
 
-## D-258 后台任务缺内核级文件隔离:归因+回滚拦不住合法写入窗口的毫秒级蒙混 [open] (medium)
-- 优先级: P2
-- 复杂度: 大
-- 标签: 核心
-- 证据等级: E1(读码核实 crates/kanzei-tools/src/managed.rs 与 background.rs,2026-08-10 dev HEAD)
-- 来源: 2026-08-10 D-174 交付时的残余转出。D-174 本轮做的是「**按进程归因 + 越界回滚**」:`ManagedSnapshot::capture` 在动作前后各拍一次托管目录镜像(managed.rs),改了就隔离留证 + 整体回滚;后台任务登记 `BackgroundOwner{run_id, process_id, 写仲裁键}`。这是**结果侧**判定,故意不靠命令文本匹配(`WriteAllText`、重定向、python/node 一行流、`git checkout` 单文件都能避开任何字符串匹配)。
-- 未做的部分与理由: **内核级隔离**(受限令牌 / 低完整性进程 / AppContainer / 托管路径 ACL)被评估为**代价收益倒挂**——低完整性进程连 `target/`、`node_modules/` 都写不了,而那正是后台任务的唯一用途(跑 build、跑 dev server、跑测试)。为了堵一个窄缝把功能整个杀掉,不划算,所以本轮明确不做,转出为独立条目待重新评估。
-- 残余缺口(本条要解决的): ①无内核级边界:后台进程在操作系统层面**仍有权限**写托管路径,拦截全靠前后两次镜像比对。②**合法写入窗口的毫秒级蒙混**——专用工具正在合法写托管文档的那个窗口里,后台进程若同时写同一批文件,前后镜像比对无法区分哪一笔是合法的、哪一笔是后台进程的,回滚要么误伤合法写入、要么放过越界写入。③镜像本身有上限:单文件 >4 MiB 只记指纹(能检测不能回滚)、目录 >2000 文件直接放弃镜像(既不检测也不回滚,只在输出里如实说明),这两条边界内后台进程可以自由写。
-- 修复方向(择一或组合,取活前先评估代价): ①托管路径 ACL:给后台进程一个专用身份,对 `.kanzei/project`、`.kanzei/memory` 拒绝写——比整进程低完整性精确得多,不影响 `target/`;②合法写入窗口内改走独占文件锁(R-138 的 `FileLock`),让镜像比对不必在窗口内做判定;③镜像上限内的空白改为**显式拒绝后台任务**而不是静默放行。
-- 验收: ①存在一条不依赖前后镜像比对的机械边界,后台进程写托管路径在**操作系统层面**失败(或有等价的、不靠事后比对的拦截),有实测证据;②后台任务仍能正常写 `target/`、`node_modules/` 等非托管路径(不得为了堵缝把功能杀掉),有回归;③专用工具的合法写入窗口内,后台进程的越界写入被识别且合法写入不被误伤,有并发用例覆盖;④镜像上限(4 MiB 单文件 / 2000 文件)被突破时的行为是**显式拒绝或显式告警**,不是静默放行,有测试。
-- refs: D-174 R-097 R-139 R-180
-
-## D-259 tests-archive 历史重复编号未清理:T-1786297655 四条同号、T-1786341674 两条同号 [open] (low)
+## D-259 tests-archive 历史重复编号未清理:T-1786297655 四条同号、T-1786341674 两条同号 [fixing] (low)
 - 优先级: P3
 - 复杂度: 小
 - 标签: 流程
@@ -75,6 +75,10 @@
 - 修复方向: 给 `test_record` 加一个显式的一次性修复动作(参照 tracker 的 `repair_reused_id`:必须显式指定 id、必须说明改成什么、结果打印出来),把历史同号记录逐条改成未占用编号并保留原标题/内容;不得静默批量改。
 - 验收: ①`tests-archive.md` 里每个 `T-` 编号唯一(同一条命令可机械核验:`grep -o "T-[0-9]*" ... | sort | uniq -d` 输出为空);②改号动作是显式入口、有输出说明哪条改成了什么,不是自动触发;③改号后原记录的标题、状态、命令、summary、关联字段一字不丢,有测试;④D-227 已修好的分配器与拒写逻辑不被本条改动破坏(既有测试保持绿)。
 - refs: D-227 D-004
+
+- 状态: fixing
+
+- 阻塞: 环境/工具: 无人值守(autonomous)会话的权限规则(.kanzei/kanzei.toml)只放行 style.css 的 edit,edit crates/kanzei-tools/src/test_record.rs 被 NonInteractive 拒绝——修复需要给 test_record 工具加显式 repair_reused_id 动作,必须改该文件。解除动作: 用户在交互会话中批准该文件的 edit(或往 kanzei.toml 添加 edit 放行规则),再按 D-259 修复方向实现。解除人: 用户。
 
 ## D-260 test_runs_snapshot 只读命令却写盘且不持任何锁:绕过不变量 8 的最后一个写点 [open] (medium)
 - 优先级: P2
@@ -88,6 +92,11 @@
 - 验收: ①`test_runs_snapshot` 的归档写盘被限时文件锁保护,拿不到锁时**跳过归档但正常返回读结果**(不阻塞面板、不报错弹窗),有测试;②并发「面板刷新 + agent `test_record`」的用例下,`tests.md` / `tests-archive.md` 不丢条目、不出现截断态,有回归;③归档写盘走原子写(与 D-261 并轨,不各写各的);④`test_runs_snapshot` 不引入写租约(有断言或注释锁定这条口径,防下一个人"顺手改成和兄弟命令一致"把面板卡死)。
 - refs: R-138 D-227 D-249 D-261 docs/design/parallel_read_serial_write_orchestration.md
 
+- 进展: 2026-08-13 核验(保持 open,不关闭):实质修复已由 D-261(dadf1ce,经 88b9cda 并入 dev)在 test_record.rs 中顺带交付,本条做核验记录(既有能力标注,非本次新写代码)。逐条证据:①归档写盘被限时文件锁保护、拿不到锁跳过且正常返回读结果——archive_terminal_records(test_record.rs:296-300)try_lock_exclusive(active_path, 200ms),拿不到锁 return Ok(());测试「快照归档拿不到锁时跳过而不是报错」(test_record.rs:1501-1534)。②并发面板刷新+agent test_record 不丢条目/不截断——三条既有用例组合覆盖:「外部持锁期间登记必须等待而不是抢先写入」(:1460-1494,agent 方向)、「快照归档拿不到锁时跳过而不是报错」(:1501-1534,面板方向)、「并发登记不撞号也不丢记录」(:1410-1452,8 线程无外部串行)——锁是同一把 atomic_file 独占句柄,任意两写者并发只落「等待/跳过/串行」三态之一。③归档写盘走原子写:write_atomic(archive_path, :340)与 write_atomic(active_path, :346),与 D-261 并轨无第二套。④不引入写租约:docs.rs test_runs_snapshot(:61-64)薄封装只转调,无 acquire_writer_lease;test_record.rs:285-288 注释明确锁定口径,防下一个人顺手改挂租约。
+
+**保持 open 的原因**:复杂度 medium,按 conventions §1.4 关闭前需跑 cargo test --workspace 全量;2026-08-13 无人值守会话的权限白名单无 cargo,本轮无法执行全量。全量由 D-261 关闭时(其验收③并轨第二套原子写后)或下次发版门禁(verify.ps1)兜底,与本条共享同一批代码改动。
+- 阻塞: 
+
 ## D-261 test_record 五处 std::fs::write 未并轨 atomic_file:跨进程 CAS 缺失,仓里两套写原语 [open] (medium)
 - 优先级: P3
 - 复杂度: 小
@@ -99,9 +108,13 @@
 - 修复方向: 五处生产写点全部改走 `atomic_file::write_atomic`;「读 → 分配 id → 写」整段用 `atomic_file` 的 `FileLock`(`lock_exclusive` / `try_lock_exclusive`)罩住,与 docstore 的 `TrackerTool` 写动作分支同源。注意 `FileLock` 是 `!Send`,不得跨 await 点持有。**不要另造锁**。
 - 验收: ①`crates/kanzei-tools/src/test_record.rs` 的生产路径不再出现裸 `std::fs::write`(可机械核验:该文件非 `#[cfg(test)]` 区域 grep `fs::write` 零命中);②「读→分配→写」整段持锁,两个进程并发 `test_record` 不撞号、不丢记录,有跨进程或多线程压测覆盖;③全仓只有 `atomic_file` 一套原子写/文件锁原语(grep 无第二处 tmp+rename 或独占句柄实现);④D-227 已交付的分配器与拒写逻辑既有测试保持绿。
 - refs: D-227 R-138 D-249 D-260
-- 进展: **主体已交付,保持 open 因验收③未达成**(`dadf1ce`,经 `88b9cda` 并入 dev)。2026-08-11 任务级并行实测的线 C 产出,改动面只含 `crates/kanzei-tools/src/test_record.rs`。已达成:**①**五处生产写点全部并轨 `atomic_file::write_atomic`(快照归档两处、`record_test_run` 定点替换、`append_test_run` 追加、`initialize_refs` 回填),并加了机械守护测试(按行切到 `#[cfg(test)]` 为止、跳过注释行,复发当场红);**②**新增 `lock_test_runs()` 走 `atomic_file::lock_exclusive`,键取 `tests.md` **一把锁同时罩活动与归档**(因 `allocate_test_id`/`ensure_id_unused` 本就同时扫两边,分开锁等于没锁),`record_test_run`/`append_test_run`/`initialize_refs` 各自把「读→分配/认领→写」整段罩住,内层嵌套走 `FileLock` 同线程重入计数;三个持锁函数全是同步 fn,锁不进 async 状态机(`!Send` 由编译器兜着,未另造锁)。快照的幂等归档拆成 `archive_terminal_records` 用 `try_lock_exclusive(200ms)`,拿不到锁跳过归档照常返回读结果(与不变量 8 补注同口径),编号复用/IO 故障等真失败仍照常报错。新增三条用例:8 线程无外部串行并发登记(编号互异、记录不丢)、外部持锁期间登记必须等待且 `tests.md` 不被创建(证明罩的是整段而非只罩落盘)、快照拿不到锁时跳过而非报错;**④**D-227 既有用例全绿(`cargo test -p kanzei-tools` 217 passed),clippy `-D warnings` 干净。
+- 进展: **主体已交付,保持 open 因验收③未达成**(dadf1ce,经 88b9cda 并入 dev)。2026-08-11 任务级并行实测的线 C 产出,改动面只含 crates/kanzei-tools/src/test_record.rs。已达成:**①**五处生产写点全部并轨 atomic_file::write_atomic(快照归档两处、record_test_run 定点替换、append_test_run 追加、initialize_refs 回填),并加了机械守护测试(按行切到 #[cfg(test)] 为止、跳过注释行,复发当场红);**②**新增 lock_test_runs() 走 atomic_file::lock_exclusive,键取 tests.md 一把锁同时罩活动与归档,record_test_run/append_test_run/initialize_refs 各自把「读→分配/认领→写」整段罩住,内层嵌套走 FileLock 同线程重入计数;三个持锁函数全是同步 fn,锁不进 async 状态机(!Send 由编译器兜着,未另造锁)。快照的幂等归档拆成 archive_terminal_records 用 try_lock_exclusive(200ms),拿不到锁跳过归档照常返回读结果。新增三条用例:8 线程无外部串行并发登记、外部持锁期间登记必须等待、快照拿不到锁时跳过;**④**D-227 既有用例全绿(cargo test -p kanzei-tools 217 passed),clippy -D warnings 干净。
+
+2026-08-13 验收③复核(grep 全仓 tmp+rename / 独占句柄):发现**至少两处第二套原子写实现**仍在仓内——①crates/kanzei-llm/src/auth/store.rs:50-58 自带 tmp+rename(`path.with_extension(format!("kz{}.tmp", ...))` + std::fs::rename,注释还写着「写临时文件再 rename 覆盖」);②crates/kanzei-tools/src/files.rs:64-66 自带 tmp+rename(`path.with_extension("json.tmp")` + rename)。kanzei-tools 内 docstore.rs 已全部引用 crate::atomic_file(308/316/345/348/461/523/608 均为 atomic_file 或 lock 封装)合规。验收③(全仓只有 atomic_file 一套原语)未达成,缺口精确位置如上,待并轨。
   **未达成的验收③(全仓只留一套原子写原语)**:仓里仍有四处独立 tmp+rename,均不在本次改动面内——`crates/kanzei-llm/src/auth/store.rs:50`、`crates/kanzei-tools/src/architecture.rs:202`、`crates/kanzei-tools/src/files.rs:64`、`crates/kanzei-tools/src/memory/store.rs:1356`。本条据此保持 `open`,收口这四处即可关闭。
   **另记一条本次实测的设计发现(与 R-182 同源)**:`lock_path_for` 把锁文件放在目标同目录,即 `<worktree>/.kanzei/project/tests.lock`。并行工作树各有自己的 `.kanzei/`,所以**各写各的 `tests.md` 时根本不会互斥**;互斥只在同一份 checkout 被多个进程打开时才成立。这与实测「两个 worktree 相隔 10 秒各 `kz defect add` 都拿到 D-267」是同一件事的两面——**锁生效的前提是文档只有一份**,落点见 R-182 内容①②。
+
+- 阻塞: 
 
 ## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [open] (medium)
 - 优先级: P1
@@ -238,3 +251,13 @@
 - 验收: `cargo check --workspace` 通过；`kanzei-core` 的 ASK 策略单测通过；UI 事件回归确认后台来源不进入用户 ASK 队列；桌面安装后需实际启动三线并开启自举，确认无弹窗且线路继续推进。
 - 证据等级: E1(读码 + 编译/定向测试)，桌面最终验收待用户安装后实测。
 - refs: D-271 R-169 R-174
+
+## D-275 托管路径 OS 层写隔离(残余):后台进程与专用工具同窗口同前缀时仍可蒙混 [open] (medium)
+- 优先级: P2
+- 复杂度: 大
+- 来源: 2026-08-11 D-258 关闭时转出(验收①的 OS 层条款未做,成本收益倒挂且与验收②互斥)
+- 标签: 核心
+- 缺陷: D-275
+- 证据等级: E1
+- 进展: D-258 已交付等价拦截(守卫不整树推进 + 双快照精确吸收),残余边界为:后台进程在专用工具窗口内、写窗口前缀内的路径(与专用工具同窗口)仍会被吸收进基线。OS 层隔离(受限令牌/ACL/低完整性)是彻底消除该残余的唯一方向,但 D-258 评估为成本收益倒挂且与「后台能写 target/」互斥——本条目仅在有明确收益方案(如仅对 .kanzei/project 与 .kanzei/memory 两颗托管树设 ACL,不影响 target/)时取活,取活前先评估代价。
+- 验收: ①存在一条后台进程在操作系统层面写托管路径失败的机制(受限令牌/低完整性/ACL),有实测证据,且不得破坏后台任务写 target/、node_modules/(与 D-258 验收②同口径);②该机制与托管写入窗口(managed_fence)组合后,窗口内后台进程与专用工具写同一批路径也不能蒙混——即吸收/回滚不再依赖镜像快照区分;③跨平台降级路径有明确说明(Windows 独占句柄 vs POSIX advisory lock),降级时不静默放行而是显式告警。

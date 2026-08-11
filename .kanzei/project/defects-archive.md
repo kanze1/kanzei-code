@@ -2875,3 +2875,24 @@
 
 - 进展: 2026-08-12 交付(e6c2360)。D-235 原验收字段缺失,按复现/影响推导验收并逐条给证据:①专用写入通道存在——ConventionsTool(crates/kanzei-tools/src/conventions.rs,get 读全文+hash+标题导航 / patch 逐字替换)注册进 DevProfile(profiles.rs tools.insert),get 放行、patch 逐次询问(与 architecture update 同保守口径),deny 表新增 `*.kanzei/project/conventions*` → Some("conventions")(profiles.rs),write/edit 硬 deny 的拒绝理由从此点名工具而不是「无专用工具」(profiles.rs 测试断言 hint 含 `conventions`);②patch 契约有 7 个单测:唯一命中写入/0 命中拒写/多命中拒写/陈旧 hash 拒写/缺 expected_hash 拒写/缺失文件报错/get 全文+hash+标题导航,kanzei-tools 240 passed;③原「无专用工具」断言改用 notes.md 继续守「不得编造工具名」底线(profiles.rs)。复用:content_hash/replace_recoverably 提为 pub(crate) 由 conventions 共用,不养第二份 CAS 原语。R-157 验收⑤(§1.4 标注)现可用 `conventions patch` 落地,需新引擎二进制;R-157 阻塞字段已同步更新。验证:fmt/clippy 全绿 + 下游 kanzei-app/kanzei cargo check 通过(T-1786463010)。
 
+## D-258 后台任务缺内核级文件隔离:归因+回滚拦不住合法写入窗口的毫秒级蒙混 [fixed] (medium)
+- 优先级: P2
+- 复杂度: 大
+- 标签: 核心
+- 证据等级: E1(读码核实 crates/kanzei-tools/src/managed.rs 与 background.rs,2026-08-10 dev HEAD)
+- 来源: 2026-08-10 D-174 交付时的残余转出。D-174 本轮做的是「**按进程归因 + 越界回滚**」:`ManagedSnapshot::capture` 在动作前后各拍一次托管目录镜像(managed.rs),改了就隔离留证 + 整体回滚;后台任务登记 `BackgroundOwner{run_id, process_id, 写仲裁键}`。这是**结果侧**判定,故意不靠命令文本匹配(`WriteAllText`、重定向、python/node 一行流、`git checkout` 单文件都能避开任何字符串匹配)。
+- 未做的部分与理由: **内核级隔离**(受限令牌 / 低完整性进程 / AppContainer / 托管路径 ACL)被评估为**代价收益倒挂**——低完整性进程连 `target/`、`node_modules/` 都写不了,而那正是后台任务的唯一用途(跑 build、跑 dev server、跑测试)。为了堵一个窄缝把功能整个杀掉,不划算,所以本轮明确不做,转出为独立条目待重新评估。
+- 残余缺口(本条要解决的): ①无内核级边界:后台进程在操作系统层面**仍有权限**写托管路径,拦截全靠前后两次镜像比对。②**合法写入窗口的毫秒级蒙混**——专用工具正在合法写托管文档的那个窗口里,后台进程若同时写同一批文件,前后镜像比对无法区分哪一笔是合法的、哪一笔是后台进程的,回滚要么误伤合法写入、要么放过越界写入。③镜像本身有上限:单文件 >4 MiB 只记指纹(能检测不能回滚)、目录 >2000 文件直接放弃镜像(既不检测也不回滚,只在输出里如实说明),这两条边界内后台进程可以自由写。
+- 修复方向(择一或组合,取活前先评估代价): ①托管路径 ACL:给后台进程一个专用身份,对 `.kanzei/project`、`.kanzei/memory` 拒绝写——比整进程低完整性精确得多,不影响 `target/`;②合法写入窗口内改走独占文件锁(R-138 的 `FileLock`),让镜像比对不必在窗口内做判定;③镜像上限内的空白改为**显式拒绝后台任务**而不是静默放行。
+- 验收: ①存在一条不依赖前后镜像比对的机械边界,后台进程写托管路径在**操作系统层面**失败(或有等价的、不靠事后比对的拦截),有实测证据;②后台任务仍能正常写 `target/`、`node_modules/` 等非托管路径(不得为了堵缝把功能杀掉),有回归;③专用工具的合法写入窗口内,后台进程的越界写入被识别且合法写入不被误伤,有并发用例覆盖;④镜像上限(4 MiB 单文件 / 2000 文件)被突破时的行为是**显式拒绝或显式告警**,不是静默放行,有测试。
+- refs: D-174 R-097 R-139 R-180
+
+- 状态: fixed
+- 进展: 已修复(2026-08-11,提交 90fe6ab + 85ce42d)。逐条验收证据:
+①OS 层条款(受限令牌/低完整性/ACL):成本收益倒挂维持原判,且与验收②直接互斥——低完整性进程连 target/、node_modules/ 都写不了,后台任务(跑 build/dev server/测试)整体被杀。等价拦截交付:①守卫在变化全被窗口分流为合法时**不再整树推进基线**(旧实现把后台进程窗口内偷写的文件固化进基线,窗口一关守卫永远看不见,这是蒙混承重点);②吸收从「整前缀」收窄为「窗口打开/关闭双快照之间实际变化的路径 ∩ 前缀」(managed_fence set_observer 双阶段 + absorb_paths)。后台进程要蒙混必须落在专用工具窗口的精确时间窗内、写同一批前缀路径;写窗口外路径(即使发生在窗口内)窗口关闭后仍被守卫下一轮识别回滚。实测:测试「窗口开着时守卫不推进基线_关闭后精确吸收」。OS 层边界转出为新缺陷 D-275。
+②后台写非托管路径畅通:新增回归测试「后台写非托管路径畅通不误伤」(scratch.txt 写成功、无越界记录、文件保留、托管树逐字节不变);既有场景②轮询/后台托管/停止均绿。
+③窗口内合法写入不误伤 + 越界被识别:场景⑤(窗口内写入保留、窗口外同写入回滚到基线)保持绿;新增「窗口内后台写窗口外托管文件_关闭后仍被回滚且合法写入保留」(memory 文件被回滚、defects.md 合法写入保留、归因记录点名越界路径)。
+④镜像上限被突破显式拒绝:新增「托管树超限时后台任务被显式拒绝而不是静默放行」(>4 MiB 单文件,报 refused before execution,注册表无残留);前台 bash 的 is_complete 拒绝早已存在(bash.rs:155-162),后台同路径覆盖。
+验证:cargo test -p kanzei-tools 244 passed / kanzei-harness 110 passed / fmt/clippy 全绿 / 下游 kanzei-core + kanzei check 过。
+- 阻塞: 
+

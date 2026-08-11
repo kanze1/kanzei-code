@@ -42,7 +42,7 @@
 - 批次: 3/3
 - 进展: 批1: kanzei.toml [cadence] 配置结构 + serde default + 加载接线 + 旧配置默认行为单测。批2: 注入提示词参数化(DEFAULT_CONTINUE_PROMPT 规则 6 + LEGACY 静默升级)+ 测试。批3(本轮): 设置页新增「验证与提交节奏」组(index.html + 02-i18n.js 登记 16 条新键 + 16-settings.js CADENCE_FIELDS/collectCadence/回填/透传),后端 settings.rs 增 CadencePayload + settings_apply_cadence 接线 settings_save(枚举白名单校验,非法值不写;全空清旧键回落默认;载荷缺 cadence 不动既有节),往返单测「节奏字段_写入读回_清空移除_不串改其他键」绿;同时修复批2 接线 bug:cadenceSettings 只声明未赋值、启动块把静态 DEFAULT 固化进 textarea 导致配置 cadence 永远到不了提示词——新增 applyCadenceSettings(未自定义时随生效节奏重渲染)+ 18-startup「节奏配置」步骤 + 16-settings loadSettings 同步;冒烟预置 LEGACY 夹具断言升级+节奏渲染+表单回填+保存载荷透传,四条冒烟与 kanzei-app 45 单测全绿。验收④✓(LEGACY 升级断言)、③✓(表单读/存/脏状态+往返)、①✓(配置 cadence 渲染进继续文案有冒烟断言)。验收⑤未达成:conventions.md 为模型只读托管资产且无专用工具(edit 被 ruleset 拒绝,shell 旁路被检测回滚),「引擎已接管」标注需用户手写或专用工具落地,已记 D-235;R-157 保持 doing 待⑤。依赖 R-153/R-154 已关闭移入 refs。
 
-- 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)的专用写入通道已由 D-235 交付(conventions 工具,get 放行/patch 逐次询问,含 7 单测),但当前会话工具集是旧引擎产物,无法调用新工具;标注需在新引擎二进制(下次构建 kzapp/kz)下用 `conventions patch` 落到 conventions.md §1.4,或用户手写。解除动作: 重建引擎后在 conventions.md §1.4 落标注,标注落地后完成⑤并关闭本条。解除人: 修 D-235 的 kanzei(提供专用工具,已完成)或手写标注的用户。
+- 阻塞: 环境/工具: 验收⑤(conventions §1.4 标注「引擎已接管」)的专用写入通道已交付(conventions 工具 get 放行/patch 逐次询问,含 7 单测)且当前引擎已含该工具,但本会话为 autonomous 模式,conventions patch 报 permission requires user approval 被跳过——标注仍无法落地。解除动作: 用户在交互会话批准一次 conventions patch(或手写标注),标注落地后完成⑤并关闭本条。解除人: 用户。
 
 ## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [doing]
 - 优先级: P0
@@ -55,7 +55,13 @@
 - 验收: ①无 embedder 降级测试:fingerprint+BM25 完整可用;②配置 embeddings provider 后 hybrid 生效且分段延迟落 recall_events;③R-163 三臂对比(lexical/dense/hybrid),hybrid 显著优才切默认,报告落库;④删 index.db 后向量索引可全量重建。
 - refs: A-011 R-163 docs/design/memory_control_plane.md
 
-- 进展: 批1~批4全部完成,全量测试通过。关闭被引擎旧产物误拦(D-252),修复已提交,新版 kzapp 已落 pending,待用户重启 kzapp 后关闭。
+- 进展: 批1~批4全部完成,全量测试通过(上一轮)。关闭被引擎旧产物误拦(D-252),修复已提交,新版 kzapp 已落 pending。
+
+2026-08-13 第二轮:引擎已更新(工具集含 conventions 工具),但复杂度大关闭前需全量测试、本会话无 cargo 权限,无法关闭。已收集四项验收证据精确位置供关闭时引用:
+①无 embedder 降级:MemoryIndex trait + SqliteMemoryIndex(memory/index.rs:91-128),new() 默认 None(index.rs:132-134),search_hybrid 无 embedder 直接退 search_lexical(index.rs:337-341);测试「无embedder降级_fingerprint精确命中与_bm25完整可用」(index.rs:635-685)+「指纹miss时回落_bm25」(687-708)。
+②hybrid 生效 + recall_events 分段落库:Embedder trait(embed.rs:20-23)、OpenAiEmbedder from_config(42-80)、POST /embeddings(93-148)、FakeEmbedder(153-182)、embedder_from_config 未配置→None(186-191);search_hybrid_with_timing 分段计时+R RF(index.rs:517-595),RecallEvent 三段时间字段(core/store/telemetry.rs:17-32)+ record_recall_event(34-61)+ schema recall_events 表(core/store/schema.rs:129-147);replay_eval.rs:96-159 candidate_text 调 hybrid 并 record_recall_event;测试「candidate臂_有记忆条目时用hybrid检索并落recall_events」(replay_eval.rs:321-390)、「hybrid_rrf融合_同时出现在两通道的条目排名靠前」(index.rs:872-917)、「hybrid_带分段耗时」(919-969)。
+③R-163 三臂/六臂对照:Arm 枚举六臂(core/replay.rs:148-156),run_arms 六臂同 case 全跑(300-315),JScore/score_decision(332-375),render_report 三臂差距表(421-470);ReplayMemoryProvider match 六臂(tools/replay_eval.rs:162-188),落库 memory_eval(core/store/schema.rs:156-171 + telemetry.rs:81-116);CLI 装配(kz main.rs:790/804/817);测试「六臂各自可跑并落memory_eval」(replay.rs:518-564)。
+④删 index.db 重建:vector_db_path=index.db(memory/index.rs:158-161),rebuild DELETE+全量重算(index.rs:446-477);测试「有embedder时rebuild生成向量_无embedder时向量表空」(index.rs:746-790)。
 
 批4完成(R-164 B4):ReplayMemoryProvider 装配三通道混合检索——新增 hybrid: SqliteMemoryIndex 字段(new 时从 kanzei.toml [embeddings] 构建 embedder,未配置则 None 降级),Candidate 臂从与 Current 同源改为 candidate_text:IndexQuery::both(tool,kind,sample+target) → search_hybrid_with_timing → 命中落 RecallEvent(policy_action=hybrid,trigger_type=replay_eval,分段延迟填 lexical_ms/embed_ms/vector_ms——验收②装配)。Current/LeaveOneOut/CompressionCF 保持现状策略。新测试 candidate臂_有记忆条目时用hybrid检索并落recall_events:seed 含 [fp:edit|old string not found] 的条目 + FakeEmbedder → Candidate 命中且 state.db 落一条 policy_action=hybrid 事件。kanzei-tools 172 passed 全绿。
 
@@ -79,7 +85,7 @@
 
 - 批次: 4/4
 
-- 阻塞: 用户重启 kzapp(具名解除人:用户)——关闭门禁被运行中的引擎旧编译产物误拦:引擎(kzapp.exe 60712,13:48 编译)内嵌 D-252 修复前的 kanzei-tools,把提交标题「kanzei-tools 162/171/172」「tools 167」「harness 64」的单词尾 S+空格+数字误判为 S 批次,推导 9 ≠ 手写 4/4。D-252 修复已提交(314aa0e)+ 新版 kzapp release 已构建并落 kzapp.exe.pending,用户关闭并重开 kzapp 后自动接力替换(update.rs:444 rename pending→exe),引擎加载新库后推导恢复 4,即可关闭。
+- 阻塞: 环境/工具: 关闭门禁批次推导的引擎旧产物问题(D-252)已修复,当前工具集已含 conventions 工具(引擎至少为 D-235 之后构建),「用户重启 kzapp」条件可能已满足;但 R-164 复杂度=大,按 conventions §1.4 关闭前需 cargo test --workspace 全量,本会话 autonomous 白名单无 cargo 权限,全量无法执行。解除动作: 用户在交互会话批准 cargo 权限(或手跑全量并确认全绿),我即可补全量证据并关闭本条。解除人: 用户。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
@@ -114,7 +120,7 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: 2026-08-09 取活:本轮目标 = harness 基座 + 四条 E2(D-060/D-086/D-064/D-066);三条桌面 E2(D-051/D-055/D-056)属后续批次。 2026-08-09 卡点定位:CDP 驱动真实 WebView——窗口已改 setup 手动创建并注入 --remote-debugging-port(9a3cfca 已提交);实测参数被 WebView2 接受(进程命令行含 remote-debugging-port)但端口未监听(19 个 webview 进程 netstat 0 监听,fetch 全拒)。 2026-08-09 用户定案:选 A——改用微软/Playwright 官方标准路径,由 E2 脚本设环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 后拉起 kzapp,保证首个 browser 进程带参;放弃 additional_browser_args 通道(疑似被 WebView2 静默忽略)。 挂起(用户定调):本条先挂起,优先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A。探针 scripts/probe-webview-cdp.mjs(v13)留工作区未提交。
+- 进展: 2026-08-13 阻塞复核:挂起前提小缺陷链 D-188→D-187→D-185→D-184 已全部 fixed(逐个核实),技术前置已满足;仅剩「用户确认恢复推进」一步。2026-08-09 挂起——先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)。解除动作更新:D-185/D-184 等四个前置缺陷已全部修复,需用户确认恢复推进(或用户主动解除挂起),恢复时状态转 doing。解除人: 用户。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
 - 阻塞: 用户: 2026-08-09 挂起——先修小缺陷 D-188→D-187→D-185→D-184,修完再回来走 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)。解除动作: D-185/D-184 修复后用户确认恢复推进(或用户主动解除挂起),恢复时状态转 doing。解除人: 用户。
@@ -193,6 +199,9 @@
 - 边界: worktree 绑定不在本条(那是 R-050 的批1);本条只保证「多个写子代理在**同一工作树**上串行安全」。后台化本身属 R-175,本条只在其之上加写权。
 - 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
+
+- 进展: 2026-08-13(D-239 验收②复核):清空伪阻塞字段——原「阻塞: 未完成依赖: R-175」是内部顺序依赖,解除权在 agent(做完 R-175 即可恢复取活),不属于外部阻塞四类,违反 §1.1。依赖关系保留在「依赖:」字段(R-175 未完成、无外部阻塞,是真实顺序前置);R-175 关闭后取活本条的判定以依赖字段为准,不再依赖阻塞字段。
+- 阻塞: 
 
 ## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [todo]
 - 优先级: P2
