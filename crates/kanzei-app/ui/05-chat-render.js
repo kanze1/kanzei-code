@@ -9,7 +9,11 @@ function nearBottom() {
   return messages.scrollHeight - messages.scrollTop - messages.clientHeight < 48;
 }
 function updateLatestButton() {
-  $("jump-latest").classList.toggle("hidden", followLatest);
+  // 容错而非兜底修复:按钮一旦不在 DOM 里(例如又被挪进 #messages 然后被
+  // innerHTML 清掉),这里只是不更新,不能把整条滚动/渲染链路一起拖崩——
+  // 2026-08-12 就是这么炸的:恢复历史、新建并行线路全报 null.classList。
+  const button = $("jump-latest");
+  if (button) button.classList.toggle("hidden", followLatest);
 }
 messages.addEventListener("scroll", () => {
   followLatest = nearBottom();

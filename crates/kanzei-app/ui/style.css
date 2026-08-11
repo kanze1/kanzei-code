@@ -553,7 +553,14 @@ select {
   border-radius: 4px; padding: 3px 8px; font: inherit; font-size: 12px;
 }
 
-#messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+/* D-280:「回到最新」必须浮在消息区右下角,既不能被输入区遮挡(旧版按 #main
+   定位 + 硬编码 bottom:92px,输入区一长就被盖住),也不能跟着内容滚走。
+   做法是给消息区套一层不滚动的定位容器:#messages 负责滚动,按钮是它的兄弟。
+   按钮**不能**放进 #messages——renderRecoveredMessages/clearChat 会
+   `messages.innerHTML = ""`,一清就把按钮删了,之后 updateLatestButton 拿到
+   null 直接抛 TypeError(2026-08-12 实测:恢复历史与新建并行线路全崩)。 */
+#chat-area { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+#messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
 #jump-latest { position: absolute; right: 22px; bottom: 14px; z-index: 2; box-shadow: 0 2px 8px #0008; }
 #messages .message-body { min-width: 0; }
 .msg { position: relative; }

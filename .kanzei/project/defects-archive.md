@@ -2926,3 +2926,22 @@
 
 - 进展: 2026-08-13 代码交付(见上)。2026-08-15 用户重启引擎后执行真实清理:repair_reused_archived_id T-1786297655(四条→保留 i18n 第一条,其余改号 T-1786478785/786/787)、T-1786341674(两条→保留 tools 第一条,改号 T-1786478788);机械核验 `^## T-(\d+)` 364 条记录编号全部唯一(UNIQ-OK);修复动作有逐条输出、标题/状态/命令/摘要/关联字段一字未动;T-1786478774 记录终态 passed。验收①②③④全部满足,关闭。
 
+## D-283 自举轮提交前不跑 fmt/clippy/ui_lint,存量违规攒到发版才集中爆发 [wontfix] (low)
+- 备注: 不建议直接在发版脚本里自动修复:那会让违规在无人察觉中被改写,与 D-183 强制停顿的设计意图相反。
+- 复现: 2026-08-12 发版前跑 scripts/verify.ps1,连撞三处存量违规,全部来自此前已提交的自举轮代码,均非本次改动引入:①cargo fmt 未归一(R-191 B5a dc087ae 的折行);②clippy -D warnings 红(conventions.rs 三处 unused_mut、tracker.rs 一处 question_mark,来自 587bca1/dc087ae);③ui_lint no-undef 红(D-278 b76a5f0 新增顶层函数 fastStatusText 后未重跑 scripts/gen-ui-lint-globals.mjs)。修掉这三处用了三个杂活提交(a9f78f2/d81ffd7/3f268a5)才进得了发版。
+- 影响: 每次发版都要先做几个与本次交付无关的杂活提交,发版动作被拖长;发版者要现场判断别人留下的违规该不该改;违规越攒越多时一次发版可能被拖成半小时的清理。
+- 期望: 自举轮提交前至少跑 fmt + clippy(UI 有改动时加 ui_lint),或把这三项加进轮末验证协议;若嫌慢,退一步做法是在提交钩子里只跑 cargo fmt 与 gen-ui-lint-globals,把最机械的两类挡住。
+- 标签: 流程
+- 根因: 自举轮的轮末验证协议只跑 cargo test,不跑 fmt、clippy -D warnings、ui_lint;而 verify.ps1(发版门禁)是全仓唯一跑全套的地方。于是违规在分支上一路累积,直到有人发版才暴露,且暴露时已经分不清是谁留下的。
+- 优先级: P2
+
+- 进展: 2026-08-12 05:05 判定为 D-264 的重复登记:D-264(2026-08-11 登记,至今 open)已覆盖同一根因(自举轮定向验证口径只提测试、不提 fmt/clippy,与 CI/verify.ps1 的门禁清单不同步)与同一修复方向(推荐代码强制而非写进规则)。本条独有的增量——ui_lint/gen-ui-lint-globals 这个第三维度——已并入 D-264 进展。不另开条目。
+
+## D-284 kz CLI 的 tracker update 只收 id 与 status,写不了字段与进展,CLI 走不完一条条目的全程 [fixed] (low)
+- 复现: kz defect update <id> <status> 只解析位置参数 id 与 status(crates/kanzei/src/main.rs 的 update 分支),没有写 进展 或任意字段的入口。于是用 CLI 处理一条缺陷时,close 前无法把验收证据写进进展字段——而 §1.25 与 M-020 要求证据必须在 close 前写入,close 后条目归档就改不动了。
+- 影响: CLI 只能做半程:登记完必须回桌面端才能收尾;脚本化/自动化处理条目无路可走;也让「用 CLI 补登记」这条路走不到关闭。
+- 期望: update 分支复用 add 的开关解析,支持 --priority/--severity/--field 键=值 写任意字段(含 进展)。顺带补 update 的用法说明进 kz 的 usage 文本。
+- 标签: 核心
+- 根因: CLI 的 tracker 入口是位置参数薄封装。add 分支这次刚补上字段开关(--severity/--priority/--complexity/--tag/--field 键=值,提交 f104890 与后续),update 分支没有同步。
+- 优先级: P3
+- 进展: 2026-08-12 05:10 已交付(提交 cb09746):登记开关解析抽成 parse_tracker_flags,add 与 update 共用——--severity/-s、--priority/-p、--complexity、--tag、--field 键=值(可重复,能写 进展 等任意字段)。位置参数语义不变:add 拼标题,update 取第一个作 id、第二个作 status。验收证据:①新增单测 登记开关解析_字段与位置参数各归各位,覆盖字段与位置参数分离、值内等号只按第一个切、无字段开关时不产出空 fields 键;②实测走通全程——本次 D-281/D-282/D-284 与 R-194/R-195/R-196 六条登记全部经该开关写入完整字段(复现/根因/影响/期望/来源/现状/内容/边界/验收),且用 update --field 阻塞= 清掉了 R-191 的过期阻塞字段、写入进展;③全量 694 测试通过,cargo clippy --workspace --all-targets -- -D warnings 零告警。残余:本次修改在 build-3f268a5 之后,已安装的 kz 要等下次发版才带上该开关(仓内 target/release/kz.exe 已可用)。

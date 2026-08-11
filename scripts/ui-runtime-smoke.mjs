@@ -2983,6 +2983,31 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(!bgEntry("RP3"), "name 缺失的回放事件不该建出条目(它走静默通道,建了就是一条没有信息量的空壳)");
 }
 
+// ---------- D-280 回归:清空消息区不得连「回到最新」按钮一起清掉 ----------
+// 2026-08-12 实测事故:D-280 把 #jump-latest 挪进了 #messages 里,而
+// renderRecoveredMessages / clearChat 都做 `messages.innerHTML = ""`——
+// 一清按钮就没了,之后任何滚动/渲染触发 updateLatestButton 都抛
+// `Cannot read properties of null (reading 'classList')`,恢复历史与新建
+// 并行线路整条链路当场崩掉。按钮必须是滚动容器的**兄弟**,不是它的孩子。
+{
+  // 冒烟的 DOM 是按 id 摊平造的(按钮一律挂在 body 上),父子关系在这里测不出来,
+  // 所以结构断言直接查 index.html 源文本:#messages 的开闭标签之间不许出现按钮。
+  assert(byId.get("chat-area"), "缺少 #chat-area:「回到最新」需要一个不滚动的定位容器做锚点");
+  const messagesOpen = html.indexOf('<section id="messages">');
+  const messagesClose = html.indexOf("</section>", messagesOpen);
+  assert(messagesOpen >= 0 && messagesClose > messagesOpen, "index.html 里找不到 #messages 区块");
+  assert(
+    !html.slice(messagesOpen, messagesClose).includes('id="jump-latest"'),
+    "「回到最新」按钮又被放进 #messages 了:renderRecoveredMessages/clearChat 会 " +
+      "`messages.innerHTML = \"\"`,一清就把它删掉,之后 updateLatestButton 抛 null.classList",
+  );
+  // 行为面:两条清空路径都不得抛异常(抛了会被 __reportInitError/console.error 抓住)。
+  sandbox.clearChat("新对话");
+  await flush();
+  sandbox.renderRecoveredMessages([]);
+  await flush();
+}
+
 // ---------- D-170 项目隔离失效必须报出来 ----------
 assert(invokeLog.includes("project_root_info"), "切项目时未检查项目根是否与所选目录一致");
 const sharedWarn = byId.get("project-shared-warn");
