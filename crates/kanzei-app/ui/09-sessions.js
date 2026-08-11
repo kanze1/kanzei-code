@@ -215,6 +215,7 @@ function refreshParallelTaskProjection(sessionId) {
 }
 function renderProcesses(items) {
   const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
+  const previousProcessId = activeProcessId;
   processItems = items ?? [];
   const nextProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousSessionId = activeSessionId;
@@ -224,7 +225,21 @@ function renderProcesses(items) {
   // 出是正常时序,此刻 process_list 里仍是 running=true,但会话实际已结束。
   for (const item of processItems) {
     const state = sessionState(item.session_id);
-    if (!state.converged) state.running = Boolean(item.running);
+    if (state.converged) continue;
+    // 实时事件是运行态的高优先级来源。一次在飞的 process_list 请求可能在
+    // 后端刚启动 session 前采样到 false，不能覆盖 kz:turn/status/tool 形成的
+    // live_running=true；同理，用户刚点击发送时的本地启动意图也要跨过这个窗口。
+    if (state.live_running === true || (state.local_start_pending && !item.running)) {
+      state.running = true;
+    } else if (state.live_running === false) {
+      state.running = false;
+    } else {
+      state.running = Boolean(item.running);
+      if (item.running) {
+        state.live_running = true;
+        state.local_start_pending = false;
+      }
+    }
   }
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
     const preferred = processItems.find((item) => item.id.startsWith("d|")) || processItems[0];
@@ -232,6 +247,13 @@ function renderProcesses(items) {
   }
   const active = processItems.find((item) => item.id === activeProcessId);
   activeSessionId = active?.session_id ?? null;
+  const activeProcessChanged = previousProcessId !== activeProcessId;
+  if (activeProcessChanged && activeProcessId) {
+    // 首次加载、切项目重建或活动线被回收后选 fallback 时，必须恢复目标线的
+    // 完整设置；普通轮询不重复应用，避免覆盖用户刚修改的控件和鞭挞计数。
+    applyAutoUiState(activeProcessId);
+    applyProfileValue(active?.profile);
+  }
   if (activeSessionId && activeSessionId !== previousSessionId) void syncAutoRunState();
   // R-086:活动会话换人(含首次拿到进程列表——界面重载后就是这条路)时向后端
   // 补拉一次待答队列。后端 asks 表活得比 webview 久,不补拉的话重载前挂起的
@@ -246,6 +268,7 @@ function renderProcesses(items) {
   // 状态机的本地停止复位仍然优先；下一次真实 process_list/事件投影会校正它。
   const activeRunning = active ? processRunning(active) : false;
   const activePending = active ? sessionState(active.session_id).auto_pending === true && !activeRunning : false;
+  const activeTerminalStatus = active ? sessionState(active.session_id).terminal_status : "";
   if (
     !activePending && (activeProcessId !== syncedRunningProcessId ||
     activeRunning !== syncedRunningState ||
@@ -253,7 +276,7 @@ function renderProcesses(items) {
   ) {
     syncedRunningProcessId = activeProcessId;
     syncedRunningState = activeRunning;
-    setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
+    setRunning(activeRunning, activeRunning ? t("运行中") : activeTerminalStatus || t("空闲"));
   }
   if (activePending) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
   renderParallelTaskStatus(processItems);

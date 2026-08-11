@@ -30,7 +30,7 @@
   6. 活动工具轨迹在运行中可见，停止/重载/切线后可按 session 回放；轮内中断不再静默丢失。
   7. 历史对话继续挂在所属线路下，主线与并行线查询、删除、打开均不串 session。
   8. 相关 Rust、UI 冒烟、a11y、i18n、并行线路回归、构建和真实桌面验收全部有证据；未更新运行实例不得报告发版完成。
-- 进展: 2026-08-12 完成 10/10 批次。设计基线、后端 session 状态/实时 trace 抽象、前端三态投影、线路设置隔离、历史归属、回归门禁和发布均已落地。`cargo test --workspace` 全绿；`cargo test -p kanzei-app` 122 项全绿；UI runtime/a11y/i18n/Markdown/ESLint/并行线路回归全绿；release 安装位与构建位 SHA-256 一致，`kz --version` 为 `26cd648 20260811223154`。真实 WebView2 CDP E2 在当前环境因探针查询系统进程超时未完成，未将其冒烟结果计为通过。
+- 进展: 2026-08-12 完成 10/10 批次。设计基线、后端 session 状态/实时 trace 抽象、前端三态投影、线路设置隔离、历史归属、回归门禁和发布均已落地。最终审计又补上两处竞态：旧 `process_list` 快照不能覆盖实时运行事件或发送后的启动意图；`kz:error` 通过 `terminal` 字段区分持久化告警与终态失败。`cargo test -p kanzei-app` 122 项、clippy、UI runtime/a11y/i18n/Markdown/ESLint/并行线路回归全绿；最终安装位 hash、版本和构建位一致性以本次发布交接记录为准。真实 WebView2 CDP E2 在当前环境因探针查询系统进程超时未完成，未将其冒烟结果计为通过。
 - 阻塞:
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]

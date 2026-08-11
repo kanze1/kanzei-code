@@ -45,6 +45,9 @@ function on(event, handler) {
       state.running = true;
       state.converged = false;
       state.auto_pending = false;
+      state.live_running = true;
+      state.local_start_pending = false;
+      state.terminal_status = "";
     }
     if (event === "kz:status" && sessionId) {
       const state = sessionState(sessionId);
@@ -59,6 +62,9 @@ function on(event, handler) {
       state.running = true;
       state.converged = false;
       state.auto_pending = false;
+      state.live_running = true;
+      state.local_start_pending = false;
+      state.terminal_status = "";
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
@@ -79,12 +85,17 @@ function on(event, handler) {
       // (事件丢失时切回会卡在错误运行态)。
       // 只有**会话级**终态才收敛:kz:done 是一轮的终点,kz:error 也可能只是本轮
       // 失败(后端随后仍会发 kz:idle),拿它们收敛会让排队输入的第二轮起全程显示空闲。
-      if (sessionId && (event === "kz:idle" || event === "kz:stopped")) {
+      const terminalError = event === "kz:error" && eventPayload.payload?.terminal !== false;
+      if (sessionId && (event === "kz:idle" || event === "kz:stopped" || terminalError)) {
         const state = sessionState(sessionId);
         state.running = false;
         // 终态一经收敛,后续轮询的旧值(发出事件前采样的 running=true)不得把它
         // 翻回——这是"不依赖当前视图"的最后一环;下一轮的 kz:turn 才能解除。
         state.converged = true;
+        state.live_running = false;
+        state.local_start_pending = false;
+        if (event === "kz:stopped") state.terminal_status = "已停止";
+        else if (terminalError) state.terminal_status = "出错";
         if (typeof refreshParallelTaskProjection === "function") {
           refreshParallelTaskProjection(sessionId);
         }

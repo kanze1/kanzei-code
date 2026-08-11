@@ -242,13 +242,28 @@ on("kz:step", (e) => {
 });
 on("kz:error", (e) => {
   cancelAutoContinueTimer();
-  const message = e.payload.message;
+  const payload = e.payload ?? {};
+  const message = payload.message;
+  const terminal = payload.terminal !== false;
   reportError(message);
-  stopElapsed();
-  setRunning(false, "出错");
-  bgAbortRunning(`(${localizeDynamic("出错中止")})`);
-  liveIdle("出错");
-  notifyRunState("failed", message);
+  // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
+  // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
+  if (terminal) {
+    stopElapsed();
+    if (activeSessionId) {
+      const state = sessionState(activeSessionId);
+      state.running = false;
+      state.converged = true;
+      state.auto_pending = false;
+      state.live_running = false;
+      state.local_start_pending = false;
+      state.terminal_status = "出错";
+    }
+    setRunning(false, "出错");
+    bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+    liveIdle("出错");
+    notifyRunState("failed", message);
+  }
   $("log-panel").classList.remove("hidden");
   refreshProcesses();
 });

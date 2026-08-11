@@ -54,7 +54,7 @@ round_finished -> auto_pending -> starting
 - 进度事件：`kz:turn`、`kz:meta`、`kz:status`、`kz:text`、`kz:reasoning`、`kz:tool-start`、`kz:tool-progress`、`kz:task-progress`、`kz:step`。带有 `session_id` 时立即把该会话投影为运行中；
 - 轮末事件：`kz:done`。只结束当前轮，不收回会话运行态；
 - 会话终态：`kz:idle`、`kz:stopped`。只有这两类事件允许把会话收敛为空闲；
-- `kz:error`：记录本轮失败；只有后端随后结束运行循环时才收敛为空闲。
+- `kz:error`：记录本轮失败；后端必须在 payload 中明确 `terminal: true/false`。持久化告警、停止清理告警等 `terminal: false` 不能收回仍在运行的会话；只有终态错误(`terminal: true`)或随后到达的 `kz:idle` 才收敛为空闲。
 
 任何单独的 `set_status(..., false)` 都不能覆盖统一会话状态。`auto_pending` 必须显示为“等待下一轮”，并提供取消鞭挞语义；它不伪装成后端仍在执行。
 
@@ -100,7 +100,7 @@ round_finished -> auto_pending -> starting
 2. 事件丢失时从 `process_list` / `collaboration_snapshot` 修复；
 3. 并行线路页面的文件和 token 等非事件字段刷新。
 
-轮询不得把已经收到的实时进度覆盖为空闲，也不得替代运行态事件。运行中的 UI 延迟目标是事件到达后的一个渲染帧；轮询延迟不作为运行态正确性的依据。
+轮询不得把已经收到的实时进度覆盖为空闲，也不得替代运行态事件。发送后的 `starting` 窗口由本地启动意图保护，直到首个实时事件或后端快照确认；终态收敛后的旧快照也不能把状态翻回运行。运行中的 UI 延迟目标是事件到达后的一个渲染帧；轮询延迟不作为运行态正确性的依据。
 
 ## 6. 停止语义
 
@@ -120,4 +120,3 @@ round_finished -> auto_pending -> starting
 6. 活动轨迹至少在运行中、停止后、重载后各有可恢复路径。
 7. 停止必须只影响用户指定的线路；
 8. “顶部状态栏、左侧线路按钮、停止按钮”只能由同一投影函数驱动。
-

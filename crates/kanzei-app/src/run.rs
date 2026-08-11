@@ -1721,7 +1721,7 @@ pub(crate) fn stop_run(
         let _ = window.emit(
             "kz:error",
             with_session_id(
-                json!({ "message": "目标项目当前没有可停止的运行" }),
+                json!({ "message": "目标项目当前没有可停止的运行", "terminal": false }),
                 target_session.as_deref().unwrap_or(""),
             ),
         );
@@ -1752,7 +1752,7 @@ pub(crate) fn stop_run(
             let _ = window.emit(
                 "kz:error",
                 with_session_id(
-                    json!({ "message": format!("停止时清理排队输入失败: {error}") }),
+                    json!({ "message": format!("停止时清理排队输入失败: {error}"), "terminal": false }),
                     target_session.as_deref().unwrap_or(""),
                 ),
             );
@@ -1852,7 +1852,7 @@ pub(crate) fn report_persistence_failure(
     tracing::warn!("{message}");
     let _ = window.emit(
         "kz:error",
-        with_session_id(json!({ "message": message }), session_id),
+        with_session_id(json!({ "message": message, "terminal": false }), session_id),
     );
 }
 
@@ -2025,7 +2025,7 @@ pub(crate) async fn run_prompt(
                 let _ = window.emit(
                     "kz:error",
                     with_session_id(
-                        json!({ "message": format!("{message}{hint}") }),
+                        json!({ "message": format!("{message}{hint}"), "terminal": true }),
                         &session_id,
                     ),
                 );
@@ -2048,7 +2048,10 @@ pub(crate) async fn run_prompt(
                     Err(error) => {
                         let _ = window.emit(
                             "kz:error",
-                            with_session_id(json!({ "message": error.to_string() }), &session_id),
+                            with_session_id(
+                                json!({ "message": error.to_string(), "terminal": true }),
+                                &session_id,
+                            ),
                         );
                         running.store(false, Ordering::SeqCst);
                         idle_reason = "failed";

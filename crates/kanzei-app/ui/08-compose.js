@@ -233,6 +233,11 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     state.auto_pending = false;
     state.running = true;
     state.converged = false;
+    // run_prompt 的 IPC 返回前，旧的 process_list 快照可能仍是 false；
+    // 在首个实时事件到达前不能让这份旧快照覆盖本次用户明确的启动意图。
+    state.live_running = null;
+    state.local_start_pending = true;
+    state.terminal_status = "";
   }
   clearRunPending();
   setRunning(true, attachmentStatus);
@@ -265,6 +270,15 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   } catch (err) {
     reportError(String(err));
     stopElapsed();
+    if (activeSessionId) {
+      const state = sessionState(activeSessionId);
+      state.running = false;
+      state.converged = true;
+      state.auto_pending = false;
+      state.live_running = false;
+      state.local_start_pending = false;
+      state.terminal_status = "出错";
+    }
     setRunning(false);
   }
 }
@@ -723,7 +737,15 @@ $("stop").addEventListener("click", () => {
   cancelAutoContinueTimer();
   autoRounds = 0;
   if (runControlPending && !running) {
-    if (activeSessionId) sessionState(activeSessionId).auto_pending = false;
+    if (activeSessionId) {
+      const state = sessionState(activeSessionId);
+      state.running = false;
+      state.converged = true;
+      state.auto_pending = false;
+      state.live_running = false;
+      state.local_start_pending = false;
+      state.terminal_status = "已停止";
+    }
     $("auto-continue").checked = false;
     rememberAutoUiState();
     void syncAutoRunState();
@@ -742,6 +764,9 @@ $("stop").addEventListener("click", () => {
     state.running = false;
     state.converged = true;
     state.auto_pending = false;
+    state.live_running = false;
+    state.local_start_pending = false;
+    state.terminal_status = "已停止";
   }
   log(t("已请求停止(本地已复位)"));
 });

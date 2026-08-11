@@ -3562,6 +3562,14 @@ assert(document.documentElement.lang === "en", "切换 English 后 document.lang
 assert(storage.get("kz-language") === "en", "English 选择未持久化");
 assert(projectInit.getAttribute("title") === "Initialize a new project directory", "静态 title 未翻译");
 assert(chatActivity.getAttribute("aria-label") === "Switch to chat", "静态 aria-label 未翻译");
+// 非终态 persistence warning 不能把仍在运行的会话投影成空闲；随后再验证
+// terminal=true 的真正运行失败会收口为 Error。
+handlers.get("kz:turn")?.({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
+await flush();
+handlers.get("kz:error")?.({ payload: { message: "smoke persistence warning", terminal: false, sessionId: "sess-smoke" } });
+await flush();
+assert(listText("status-mode").includes("Running"), `非终态错误不应收回运行态: "${listText("status-mode")}"`);
+assert(!byId.get("stop").classList.contains("hidden"), "非终态错误期间停止按钮不应消失");
 handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
 await flush();
 assert(listText("status-text").includes("Error"), `英文动态错误状态未翻译: "${listText("status-text")}"`);

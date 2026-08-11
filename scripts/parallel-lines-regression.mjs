@@ -26,6 +26,12 @@ assert(sessions.includes("processRefreshInFlight"), "进程刷新缺少单飞请
 assert(sessions.includes("processSwitchGeneration"), "线路切换缺少请求代次护栏");
 assert(sessions.includes("function renderParallelTaskStatus(items)"), "左侧线路状态按钮渲染入口缺失");
 assert(sessions.includes("function processRunning(item)"), "线路运行态未统一经过状态真源映射");
+assert(sessions.includes("state.live_running === true"), "实时运行事件不能被旧 process_list 快照覆盖");
+assert(sessions.includes("state.local_start_pending && !item.running"), "发送启动窗口不能被旧空闲快照覆盖");
+assert(compose.includes("state.local_start_pending = true"), "发送启动意图未进入状态投影");
+assert((await readUi("01-core.js")).includes("payload?.terminal !== false"), "错误事件缺少终态区分");
+assert(sessions.includes("applyAutoUiState(activeProcessId)"), "重载/切项目后未恢复活动线路鞭挞设置");
+assert(sessions.includes("applyProfileValue(active?.profile)"), "重载/切项目后未恢复活动线路 profile");
 assert(!sessions.includes("process-tabs"), "顶部进程切换条已移除,不应重新引入");
 assert(sessions.includes("loadConversation(null, switchGeneration)"), "对话恢复未绑定切换代次");
 

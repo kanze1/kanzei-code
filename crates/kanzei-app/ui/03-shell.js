@@ -76,7 +76,16 @@ const sessionStates = new Map();
 function sessionState(sessionId) {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { running: false, converged: false, auto_pending: false, stage: "空闲", detail: "" };
+    state = {
+      running: false,
+      converged: false,
+      auto_pending: false,
+      live_running: null,
+      local_start_pending: false,
+      terminal_status: "",
+      stage: "空闲",
+      detail: "",
+    };
     sessionStates.set(sessionId, state);
   }
   return state;
