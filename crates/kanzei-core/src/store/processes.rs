@@ -52,6 +52,38 @@ impl SessionStore {
         Ok(())
     }
 
+    /// **只插入新行**:`process_id` 已存在时返回 `false`,既有行一个字段都不动。
+    ///
+    /// 建线专用,与 [`Self::upsert_process`] 的分工是硬的:`upsert_process` 的
+    /// `ON CONFLICT DO UPDATE` 会**连 `worktree_path` 一起覆盖**,那对「改一条已知的线」
+    /// 是对的,对「新建一条线」是灾难 —— 桌面端的 `p{n}` 编号一旦跟库里已有行撞上
+    /// (重启后内存表是空的,而库里还留着上次的 p1),新线就会把旧线那一行整个改写,
+    /// 旧线绑的那棵工作树从此在库里失联:磁盘上有树、库里指向别处,界面上再也找不到它。
+    ///
+    /// 编号分配已经改成「内存表 ∪ 库」取最大值,正常不会撞;这个方法是第二道闸 ——
+    /// 万一还是撞了,宁可让建线失败(调用方会回滚掉刚建的工作树),也不许静默改写既有行。
+    pub fn insert_new_process(&self, process: &StoredProcess) -> Result<bool, StoreError> {
+        let affected = self.connection.execute(
+            "INSERT INTO processes
+                 (process_id, origin_project, project_dir, worktree_path,
+                  model, profile, reasoning, phase_pipeline, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(process_id) DO NOTHING",
+            params![
+                process.process_id,
+                process.origin_project,
+                process.project_dir,
+                process.worktree_path,
+                process.model,
+                process.profile,
+                process.reasoning,
+                process.phase_pipeline,
+                process.updated_at,
+            ],
+        )?;
+        Ok(affected > 0)
+    }
+
     /// 列出一个主项目的全部非默认线/进程,按 process_id 排序(稳定顺序)。
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
         let mut stmt = self.connection.prepare(
@@ -149,6 +181,38 @@ mod tests {
         updated.phase_pipeline = false;
         store.upsert_process(&updated).unwrap();
         assert_eq!(store.list_processes("C:/project").unwrap(), vec![updated]);
+    }
+
+    /// 建线专用写法:撞上既有行时**一个字段都不许动**,尤其是 `worktree_path`。
+    ///
+    /// 这是 `upsert_process` 干不了的事——它的 `ON CONFLICT DO UPDATE` 会把既有行
+    /// 整条改写,旧线绑的工作树就此从库里失联。
+    #[test]
+    fn process_insert_new_never_touches_existing_row() {
+        let store = testutil::store();
+        let mut existing = sample();
+        existing.worktree_path = Some("C:/project/.kanzei-worktree-old".into());
+        store.upsert_process(&existing).unwrap();
+
+        let mut intruder = sample();
+        intruder.worktree_path = Some("C:/project/.kanzei-worktree-new".into());
+        intruder.model = Some("anthropic:claude-sonnet-5".into());
+        intruder.updated_at = 999;
+        assert!(
+            !store.insert_new_process(&intruder).unwrap(),
+            "撞上既有 process_id 必须返回 false,不许写进去"
+        );
+        assert_eq!(
+            store.get_process("p1|C:/project").unwrap().unwrap(),
+            existing,
+            "既有行必须逐字段原封不动(worktree_path 尤其不能被改写)"
+        );
+
+        // 不撞的 id 照常插入成功。
+        let mut fresh = sample();
+        fresh.process_id = "p2|C:/project".into();
+        assert!(store.insert_new_process(&fresh).unwrap());
+        assert_eq!(store.get_process("p2|C:/project").unwrap(), Some(fresh));
     }
 
     #[test]
