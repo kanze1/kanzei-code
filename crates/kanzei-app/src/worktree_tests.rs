@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{
-    create_process, create_worktree, create_worktree_arbitrated, create_worktree_with_receipt,
+    acquire_project_write_lease_within, create_process, create_worktree,
+    create_worktree_arbitrated, create_worktree_with_receipt, reclaim_worktree_on_close,
     restore_processes_from_store, rollback_worktree, worktree_status, worktree_target,
     WorktreeReceipt,
 };
@@ -189,13 +190,38 @@ async fn 同一worktree不得绑定第二条线() {
 
 /// R-177 验收① 后半:任一步失败整体回滚,不留半绑定态。
 ///
-/// 用「把 state.db 的位置占成目录」制造落库失败:`SessionStore::open` 拿目录当
-/// 数据库必然报错,且这是纯文件系统手段,不依赖权限位在 CI 与本机的差异。
+/// # 夹具为什么不再是「把 state.db 的位置占成目录」
+///
+/// K2' 把一树一线查重改成查「内存表 ∪ state.db」,而查重发生在**建树之前** —— 库打不开
+/// 就在建树之前失败,这条测试要验的回滚路径根本走不到,测试会变成绿的空壳。
+///
+/// 现在的夹具直接踩 `insert_new_process` 的第二道闸:预置一行 `p1|<项目>`,但把它的
+/// `origin_project` 写成**别的项目**。于是 `list_processes(本项目)` 看不见它(编号照常
+/// 算出 p1、查重照常放行),而插入时主键撞上 ⇒ 返回 false ⇒ 建线在**落库这一步**失败,
+/// 此时工作树与分支都已经建出来了,正是回滚要收的那一刻。这也正是 `insert_new_process`
+/// 文档里写的契约本身(「宁可让建线失败,也不许静默改写既有行」)。
 #[tokio::test]
 async fn 落库失败时worktree被回收_不留半绑定态() {
     let root = git_repo("kz-f4-rollback");
     let canonical = crate::normalized_project_root(&root);
-    std::fs::create_dir_all(kanzei_core::project_state_path(&canonical)).unwrap();
+    let project = canonical.display().to_string();
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical))
+        .expect("夹具:库必须开得起来,失败要发生在落库那一步");
+    store
+        .insert_new_process(&kanzei_core::StoredProcess {
+            process_id: format!("p1|{project}"),
+            // 挂在别的主项目名下:本项目的 list_processes 看不见它,编号与查重都不受影响。
+            origin_project: "C:/另一个项目".into(),
+            project_dir: "C:/另一个项目".into(),
+            worktree_path: None,
+            model: None,
+            profile: None,
+            reasoning: None,
+            phase_pipeline: false,
+            updated_at: 1,
+        })
+        .unwrap();
+    drop(store);
     let name = unique("rollback");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
 
@@ -211,10 +237,11 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
     )
     .await
     .expect_err("落库失败必须让整次建线失败");
-    // 失败必须来自库(state.db),不是来自 git —— 否则这条测试验的就不是回滚路径了。
+    // 失败必须来自库(state.db)的落库那一步,不是来自 git、也不是来自查重 ——
+    // 否则这条测试验的就不是「建出来之后再回滚」那条路径了。
     assert!(
-        error.contains("state.db"),
-        "这次失败应当来自落库而不是建树: {error}"
+        error.contains("state.db") && error.contains("拒绝覆盖既有注册"),
+        "这次失败应当来自落库(insert_new_process 第二道闸)而不是建树/查重: {error}"
     );
 
     assert!(!target.exists(), "回滚必须删掉已经建出来的 worktree 目录");
@@ -410,40 +437,78 @@ fn 建树失败不得留下孤儿分支_同名可立即重建() {
     cleanup(&root, &[target, bystander]);
 }
 
-/// 反方向:回滚只许删**本次调用建出来**的分支。
+/// K2' 验收②:**认领失败时零回滚** —— 调用前后 git 状态逐字节相同。
 ///
-/// 「add 失败了就 `branch -D`」是错的——要问的不是「我该删哪条分支」,而是「这条
-/// 分支是不是我建的」。同名分支若在调用前就存在,`add -b` 必然因它而失败,那条分支
-/// 是用户的东西(可能挂着还没合并的活),删掉就是丢数据。
+/// 这是新架构的核心不变量的机械形态。`git branch <name> <base>` 的 ref 创建是原子的
+/// (CAS,已存在即失败),所以它一旦失败就证明**本次调用一个东西都没建出来**,于是
+/// 一个字节都不许删。老版在这条路上是 `worktree add -b` 撞名失败 → 走进清理块 →
+/// 拿着调用前采样的过期布尔量去 `worktree remove --force` + 删分支,并发下删的正是
+/// 赢家刚建好的东西。
+///
+/// 判据取两份**全量**快照:`git worktree list --porcelain` 与 `git branch --list`,
+/// 逐字节比较。仓里还种了一棵目录被挪走的旁观者工作树,让「有没有偷偷 prune 过」
+/// 也落进同一个判据里。
 #[test]
-fn 回滚不得删掉调用前就存在的同名分支() {
-    let root = git_repo("kz-f4-keepbranch");
+fn 认领失败时零回滚_git状态逐字节不变() {
+    let root = git_repo("kz-k2-zerorollback");
     let canonical = crate::normalized_project_root(&root);
-    let name = unique("keepbranch");
+    let name = unique("zerorollback");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
 
-    // 用户自己先有一条同名分支,上面挂着一个提交。
+    // 场景:这个名字被一条**已经存在的分支**占着(「放弃工作树」只删目录、分支照旧留着,
+    // 之后同名再建就是这一幕),而且这条分支上挂着用户还没合并的活。
+    let bystander = park_bystander_worktree(&root, &canonical);
     git(&root, &["branch", &branch]);
-    let head = git(&root, &["rev-parse", &branch]).trim().to_string();
+    std::fs::write(root.join("user.txt"), "用户在这条分支上的活\n").unwrap();
+    git(&root, &["add", "user.txt"]);
+    git(&root, &["commit", "-qm", "用户的活"]);
+    git(&root, &["branch", "-f", &branch, "HEAD"]);
+    git(&root, &["reset", "-q", "--hard", "HEAD~1"]);
+    let branch_head = git(&root, &["rev-parse", &branch]).trim().to_string();
 
-    let error = create_worktree(&canonical, &name).expect_err("同名分支已存在时建树必然失败");
-    assert!(
-        error.contains("already exists"),
-        "这次失败应当来自分支撞名: {error}"
+    let worktrees_before = worktree_registry(&canonical);
+    let branches_before = git(&root, &["branch", "--list"]);
+
+    let error = create_worktree(&canonical, &name).expect_err("名字被分支占着时建树必然失败");
+
+    assert_eq!(
+        worktree_registry(&canonical),
+        worktrees_before,
+        "认领失败必须零回滚:git 的工作树清单要逐字节相同"
     );
-    assert!(
-        branch_exists(&canonical, &branch),
-        "回滚只许删本次建出来的分支,不许碰调用前就存在的 {branch}"
+    assert_eq!(
+        git(&root, &["branch", "--list"]),
+        branches_before,
+        "认领失败必须零回滚:分支清单要逐字节相同"
     );
     assert_eq!(
         git(&root, &["rev-parse", &branch]).trim(),
-        head,
-        "那条分支必须原封不动"
+        branch_head,
+        "被占用的那条分支必须原封不动(它上面挂着还没合并的活)"
     );
     assert!(!target.exists(), "失败仍然不许在磁盘上留下目录");
 
+    // 验收④ 前半:错误必须点名「被一条已存在的**分支**占着」并给出可执行动作 ——
+    // app 里没有删分支的入口,只给 git 原文等于把这个名字变成死结。
+    assert!(
+        error.contains(&branch),
+        "错误必须点名占着这个名字的分支: {error}"
+    );
+    assert!(
+        error.contains("分支占着"),
+        "错误必须说清占用者是分支(不是目录残留): {error}"
+    );
+    assert!(
+        error.contains(&format!("branch -D {branch}")),
+        "错误必须给出确切可执行的回收命令: {error}"
+    );
+    assert!(
+        error.contains("log --oneline"),
+        "删分支前必须先给出「确认没有要保留的提交」的确切命令: {error}"
+    );
+
     git(&root, &["branch", "-D", &branch]);
-    cleanup(&root, &[target]);
+    cleanup(&root, &[target, bystander]);
 }
 
 /// 复核点:`project_dir` 是不是**真的**恒主根?
@@ -680,8 +745,10 @@ async fn 并发建同名树_赢家的树与分支必须完好无损() {
 
     for error in results.iter().filter_map(|result| result.as_ref().err()) {
         assert!(
-            error.contains("已绑定到线") || error.contains("工作树已存在"),
-            "落败者必须拿到明确的「这棵树已经有主了」,不是 git 的原始报错: {error}"
+            error.contains("已绑定到线")
+                || error.contains("工作树已存在")
+                || error.contains("分支占着"),
+            "落败者必须拿到明确的「这个名字已经有主了」,不是 git 的原始报错: {error}"
         );
     }
 
@@ -960,6 +1027,9 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
 /// 次要②:同一个父目录下的两个项目,用同名工作树不得撞同一条路径。
 ///
 /// 老版路径是 `root.parent().join(".kanzei-worktree-<name>")` —— 不含项目名。
+/// K2' 再补一刀:加了项目名之后,项目名与工作树名之间若用 `-` 连接,分量边界还原不出来
+/// —— `sanitize_component` 把一切非 `[A-Za-z0-9_-]` 压成 `-`,于是两个分量里都可能有
+/// `-`,「项目 a + 名字 b-c」与「项目 a-b + 名字 c」落到同一条路径,冲突换个形态回来。
 #[test]
 fn 同父目录下两个项目的同名工作树不撞路径() {
     let parent = std::env::temp_dir().join(unique("kz-k2-two"));
@@ -977,5 +1047,496 @@ fn 同父目录下两个项目的同名工作树不撞路径() {
     );
     assert!(targets[0].display().to_string().contains("alpha"));
     assert!(targets[1].display().to_string().contains("beta"));
+
+    // 分量拼接的歧义:两组不同的(项目, 名字)不得落到同一条路径。
+    let (left, _) = worktree_target(&parent.join("a"), "b-c").unwrap();
+    let (right, _) = worktree_target(&parent.join("a-b"), "c").unwrap();
+    assert_ne!(
+        left, right,
+        "「项目 a + 名字 b-c」与「项目 a-b + 名字 c」必须落在不同路径: {left:?} / {right:?}"
+    );
+    // 名字里的非法字符被压成 `-` 之后也不得制造歧义。
+    let (dotted, _) = worktree_target(&parent.join("a"), "b c").unwrap();
+    assert_eq!(
+        dotted, left,
+        "名字归一是既定行为(空格压成 -),这里只钉住它不改变分量边界"
+    );
     let _ = std::fs::remove_dir_all(&parent);
+}
+
+// ══ K2':认领改成 git ref CAS —— 跨进程才是真正的判据 ═════════════════════════
+
+/// 跨进程验收① 的子进程入口。父测试用 `--exact` 重入**本测试二进制**来起真实 OS 进程。
+const CROSS_PROCESS_CHILD: &str = "processes::tests::k2_cross_process_child";
+
+/// 验收① 的子进程:只做一件事——在给定仓里建一条带同名工作树的线,把结果打到 stdout。
+///
+/// 正常跑测试套时三个环境变量都不在,它是空操作(所以不需要 `#[ignore]`,也就不必让
+/// 父进程去传 `--ignored`)。
+#[tokio::test]
+async fn k2_cross_process_child() {
+    let (Ok(root), Ok(name), Ok(go)) = (
+        std::env::var("KZ_K2_CHILD_ROOT"),
+        std::env::var("KZ_K2_CHILD_NAME"),
+        std::env::var("KZ_K2_CHILD_GO"),
+    ) else {
+        return;
+    };
+    // 起跑线:两个进程都装载完毕后父进程才放行,让它们尽量同时打进 git。
+    let go = PathBuf::from(go);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !go.exists() {
+        assert!(std::time::Instant::now() < deadline, "等父进程放行超时");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let state = AppState::default();
+    let line = match create_process(&state, &root, None, None, None, None, Some(name)).await {
+        Ok(info) => format!("OK {}", info.worktree_path.unwrap_or_default()),
+        Err(error) => format!("ERR {}", error.replace('\n', " ⏎ ")),
+    };
+    println!("KZ_RESULT {line}");
+}
+
+/// 验收①:**两个真实 OS 进程**同时建同名工作树,赢家的树与分支完好无损。
+///
+/// 上一版用写租约挡这个竞态,而 `MemoryCoordinator` 是 `AppState` 里的进程内内存对象
+/// (设计基线 §6.2:`kz` CLI、自举循环、第二个 kzapp 实例都看不见它)。所以那条破坏
+/// 一字未减,只是从「线程之间」搬到了「进程之间」—— 用两个线程测永远测不出来,必须起
+/// **两个 OS 进程**。这条测试在「认领 = `worktree add -b`」的老实现上必红:输家的 add
+/// 失败 → 清理块拿着调用前采样的过期布尔量 → `worktree remove --force` + 删分支 →
+/// 删掉的是赢家刚建好的树和分支。
+#[test]
+fn 跨进程并发建同名树_赢家的树与分支完好无损() {
+    let root = git_repo("kz-k2-xproc");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("xproc");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    let head = git(&canonical, &["rev-parse", "HEAD"]).trim().to_string();
+    let before = worktree_registry(&canonical).matches("worktree ").count();
+    // 先把 state.db 的库结构建出来:两个子进程会同时开它,建表这一步不必也去竞争。
+    drop(
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical))
+            .expect("预建 state.db"),
+    );
+
+    let go = std::env::temp_dir().join(unique("kz-k2-go"));
+    let exe = std::env::current_exe().expect("拿到测试二进制自身路径");
+    let mut kids = Vec::new();
+    for _ in 0..2 {
+        kids.push(
+            super::hidden_command(&exe.display().to_string())
+                .args([
+                    CROSS_PROCESS_CHILD,
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("KZ_K2_CHILD_ROOT", root.display().to_string())
+                .env("KZ_K2_CHILD_NAME", &name)
+                .env("KZ_K2_CHILD_GO", go.display().to_string())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .expect("起真实 OS 子进程"),
+        );
+    }
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    std::fs::write(&go, b"go").unwrap();
+
+    let mut outcomes = Vec::new();
+    for kid in kids {
+        let output = kid.wait_with_output().expect("等子进程结束");
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        // libtest 把 `--nocapture` 的输出接在进度行尾巴上(`test … ... KZ_RESULT …`),
+        // 所以按标记切,不按行首匹配。子进程那侧已经把换行换成了 ⏎,结果必在一行内。
+        let line = stdout.find("KZ_RESULT ").map(|at| {
+            stdout[at + "KZ_RESULT ".len()..]
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        });
+        match line {
+            Some(line) => outcomes.push(line),
+            None => panic!(
+                "子进程没有给出结果(它是不是没跑到那个测试?)\nstdout:\n{stdout}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        }
+    }
+    let _ = std::fs::remove_file(&go);
+
+    let winners = outcomes
+        .iter()
+        .filter(|line| line.starts_with("OK "))
+        .count();
+    assert_eq!(
+        winners, 1,
+        "两个真实 OS 进程同时建同名树,只许一个胜出: {outcomes:?}"
+    );
+
+    // ——赢家的东西一个字节都不许被输家动过(这才是这条致命的后果所在)。
+    assert!(
+        target.is_dir(),
+        "赢家的工作树目录必须还在: {}\n{outcomes:?}",
+        target.display()
+    );
+    assert!(
+        branch_exists(&canonical, &branch),
+        "赢家的分支必须还在: {branch}\n{outcomes:?}"
+    );
+    assert_eq!(
+        git(&canonical, &["rev-parse", &format!("refs/heads/{branch}")]).trim(),
+        head,
+        "赢家分支的 SHA 必须仍停在建出来时那个基点(被输家 update-ref/branch -D 动过就不是了)"
+    );
+    assert_eq!(
+        git(&target, &["rev-parse", "HEAD"]).trim(),
+        head,
+        "赢家工作树的 HEAD 必须仍解析得出(被 update-ref 打断会变成全零)"
+    );
+    assert!(
+        registry_has(&canonical, &target),
+        "赢家的工作树必须仍在 git 的清单里:\n{}",
+        worktree_registry(&canonical)
+    );
+    assert_eq!(
+        worktree_registry(&canonical).matches("worktree ").count(),
+        before + 1,
+        "磁盘上只许多出一棵工作树"
+    );
+
+    let loser = outcomes
+        .iter()
+        .find(|line| line.starts_with("ERR "))
+        .expect("必须有一个落败者");
+    assert!(
+        loser.contains("分支占着")
+            || loser.contains("已绑定到线")
+            || loser.contains("工作树已存在"),
+        "落败者必须拿到点名的明确错误,不是 git 原文: {loser}"
+    );
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+/// 验收④ 后半:一树一线查重必须**查库**,并点名占着这棵树的那条线。
+///
+/// 老版查重只扫内存进程表,而同一个函数里的编号分配偏偏是查库的——自相矛盾。后果:
+/// 重启后(内存表空、库里还绑着)同名建线一路绕过查重,撞进 `create_worktree` 的目录
+/// 预检,给出的文案会教用户 `worktree remove --force` 一棵**仍被库里某条线绑着、且带
+/// 未提交改动**的活树,而且完全不点名那条线。
+#[tokio::test]
+async fn 查重必须查库_重启后同名建线点名占用的线() {
+    let root = git_repo("kz-k2-storedup");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("storedup");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+
+    let state = AppState::default();
+    let first = create_process(
+        &state,
+        &root.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(name.clone()),
+    )
+    .await
+    .unwrap();
+    // 线上有还没提交的活:老版文案教人 force 删掉的正是这种树。
+    std::fs::write(target.join("还没提交的活.txt"), "别删我\n").unwrap();
+
+    // 重启:内存进程表清空,库里那条绑定还在。
+    state.processes.lock().unwrap().clear();
+    assert!(
+        state.processes.lock().unwrap().is_empty(),
+        "前提:内存表是空的(重启后的形态)"
+    );
+
+    let error = create_process(
+        &state,
+        &root.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(name.clone()),
+    )
+    .await
+    .expect_err("库里已经有线绑着这棵树,同名建线必须被拒");
+    assert!(
+        error.contains(&first.id),
+        "拒绝文案必须点名库里绑着它的那条线 {}: {error}",
+        first.id
+    );
+    assert!(
+        !error.contains("worktree remove --force"),
+        "查重命中时不许教用户 force 删掉一棵还有主的活树: {error}"
+    );
+    assert!(
+        target.join("还没提交的活.txt").exists(),
+        "被拒时不许动那棵树里的东西"
+    );
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+/// 验收⑤:写租约获取必须有上界,超时报明确错误,而不是永久 pending。
+///
+/// 协调器的排队是无限期的,而取消入口(`cancel_waiter`)在 app 界面上够不到——没有上界
+/// 时一条卡死的 writer 能把建线/建树/合并/放弃全变成永远转圈,用户只能杀进程。
+///
+/// 顺带钉住实现细节:超时分支**不能**直接丢掉排队用的 future(丢掉 = 丢掉 oneshot 接收
+/// 端 ⇒ 协调器交接时 `tx.send` 把租约退回并就地 drop ⇒ drop 回调再锁同一把 std Mutex
+/// ⇒ 自锁死)。所以这里还断言超时之后排队者已经从协调器里消失,且释放持有者之后协调器
+/// 仍然能正常把租约交给下一个人。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 写租约获取有超时_不留永久pending() {
+    use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
+
+    let root = git_repo("kz-k2-leasetimeout");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let holder = state
+        .coordinator
+        .acquire_writer_lease(WriterLeaseRequest {
+            project_root: canonical.clone(),
+            run_id: "k2-timeout-holder".into(),
+            process_id: "k2".into(),
+            reason: "占位写者(永不主动释放)".into(),
+        })
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let error = acquire_project_write_lease_within(
+        &state,
+        &canonical,
+        "建线测试",
+        std::time::Duration::from_millis(200),
+    )
+    .await
+    .expect_err("有人一直占着写租约时,取租约必须超时报错而不是永远等下去");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(10),
+        "超时必须真的按上界返回,而不是被别的东西唤醒: {:?}",
+        started.elapsed()
+    );
+    assert!(
+        error.contains("超时") && error.contains("建线测试"),
+        "超时文案必须说清是什么操作超时: {error}"
+    );
+    assert!(
+        error.contains("没有创建任何东西"),
+        "超时文案必须说清没有半成品留下: {error}"
+    );
+    assert!(
+        state
+            .coordinator
+            .snapshot(&canonical)
+            .waiting_writers
+            .is_empty(),
+        "超时之后排队者必须从协调器里消失,不许留成永久 pending: {:?}",
+        state.coordinator.snapshot(&canonical).waiting_writers
+    );
+
+    // 超时路径没有把协调器搞坏:持有者一放,下一个照常拿得到。
+    drop(holder);
+    let next = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        acquire_project_write_lease_within(
+            &state,
+            &canonical,
+            "超时之后照常取",
+            std::time::Duration::from_secs(5),
+        ),
+    )
+    .await
+    .expect("超时路径不得把协调器留在死锁/半状态")
+    .expect("持有者释放后必须能立刻拿到租约");
+    drop(next);
+    cleanup(&root, &[]);
+}
+
+/// 默认档必须是「有上界」,不是某次调用忘了传就退回无限等。
+#[test]
+fn 写租约默认上界是有限的() {
+    assert!(
+        super::WRITE_LEASE_TIMEOUT > std::time::Duration::ZERO,
+        "默认上界不能是 0(那样正常操作全部立刻超时)"
+    );
+    assert!(
+        super::WRITE_LEASE_TIMEOUT <= std::time::Duration::from_secs(600),
+        "默认上界必须真的能兜住卡死的 writer,不能大到等于没有"
+    );
+}
+
+/// 次要②:建树期间**不许**独占全局进程表锁。
+///
+/// 老版把 `git worktree add`(一次全量检出)+ `status` + `diff` 全压在
+/// `state.processes` 的 guard 里,理由是「查重必须原子」。代价是这几百毫秒到数秒里,
+/// `process_list` / `process_update` / `process_close` / `run_prompt` 全部卡在同一把锁
+/// 上 —— 界面对所有线冻结。
+///
+/// 判据是机械的,不是「读代码看着像在锁外」:用 `post-checkout` 钩子把 `git worktree
+/// add` **确定性地**卡住 3 秒(2026-08-11 实测 git 在 `worktree add` 的检出之后会跑这个
+/// 钩子,实测耗时 3.2s),在这段窗口里从另一个线程反复 `try_lock` 全局进程表——一次都
+/// 不许失败。
+///
+/// 夹具前提:git 能跑 `#!/bin/sh` 钩子(Git for Windows 自带 sh)。跑不动钩子的话
+/// `worktree add` 会秒回,下面那条「前提」断言会先红出来,不会伪装成绿。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 建树期间进程表锁不被独占() {
+    let root = git_repo("kz-k2-lockfree");
+    let hooks = root.join("kz-hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    std::fs::write(hooks.join("post-checkout"), "#!/bin/sh\nsleep 3\n").unwrap();
+    git(
+        &root,
+        &[
+            "config",
+            "core.hooksPath",
+            &hooks.display().to_string().replace('\\', "/"),
+        ],
+    );
+
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("lockfree");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    let state = Arc::new(AppState::default());
+    let task = {
+        let state = Arc::clone(&state);
+        let project = root.display().to_string();
+        let name = name.clone();
+        tokio::spawn(async move {
+            create_process(&state, &project, None, None, None, None, Some(name)).await
+        })
+    };
+
+    // 等 git 真的走进钩子(钩子在里面 sleep 3s),再在这个窗口里反复抢锁。
+    tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+    assert!(
+        !task.is_finished(),
+        "夹具前提不成立:钩子没有把 git worktree add 卡住(git 跑不了 sh 钩子?),\
+         这条测试此刻证明不了任何事"
+    );
+    let mut probes = 0usize;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1200);
+    while std::time::Instant::now() < deadline {
+        // 抢到就立刻还回去:这里验的是「抢得到」,不是「占着」。
+        drop(
+            state
+                .processes
+                .try_lock()
+                .expect("建树期间不许独占全局进程表锁——界面会对所有线冻结"),
+        );
+        probes += 1;
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(probes > 10, "抢锁次数太少,窗口没打开: {probes}");
+    assert!(
+        !task.is_finished(),
+        "前提:抢锁期间建树确实还没结束(钩子还卡着)"
+    );
+
+    let info = tokio::time::timeout(std::time::Duration::from_secs(60), task)
+        .await
+        .expect("建树最终要结束")
+        .expect("建线任务不许 panic")
+        .expect("建线本身必须成功");
+    assert!(info.worktree_path.is_some());
+
+    git(&root, &["config", "--unset", "core.hooksPath"]);
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+/// 重要3:关线时对绑定工作树的处置 —— 干净且已合并的自动回收。
+///
+/// 老版关线一个 git 命令都不发:库里的绑定行删了,树和分支留在磁盘上无人认领,
+/// app 内再没有入口能收,之后同名建线就撞进「工作树已存在」/「分支已存在」。
+#[test]
+fn 关线时干净且已合并的工作树被自动回收() {
+    let root = git_repo("kz-k2-closeclean");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("closeclean");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+
+    create_worktree(&canonical, &name).unwrap();
+    assert!(target.is_dir());
+    // 线上干了活并提交,然后收活合进主线——这正是「收完活再关线」的主流程形态。
+    std::fs::write(target.join("line.txt"), "线上的活\n").unwrap();
+    git(&target, &["add", "line.txt"]);
+    git(&target, &["commit", "-qm", "线上的活"]);
+    git(
+        &canonical,
+        &["merge", "-q", "--no-ff", "-m", "收活", &branch],
+    );
+
+    reclaim_worktree_on_close(&canonical, &target)
+        .expect("干净且已合并的工作树,关线时必须被回收掉");
+    assert!(!target.exists(), "干净且已合并 ⇒ 树必须被摘掉");
+    assert!(
+        !branch_exists(&canonical, &branch),
+        "干净且已合并 ⇒ 分支必须被回收(留着就堵死同名再建)"
+    );
+    // 回收之后同名可以立刻再建:名字不会被自己的残留占死。
+    let rebuilt = create_worktree(&canonical, &name).expect("回收之后同名建线必须能成功");
+    assert_eq!(rebuilt.branch, branch);
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+/// 重要3 反方向:有未提交改动 / 分支没合过来的树,关线时**一律保留**,并给出可执行回收动作。
+///
+/// 自动删一棵还挂着几小时活的树是丢工作,比留下孤儿严重得多。
+#[test]
+fn 关线时有活的工作树必须保留并给出回收动作() {
+    let root = git_repo("kz-k2-closedirty");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("closedirty");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+
+    create_worktree(&canonical, &name).unwrap();
+    std::fs::write(target.join("还没提交.txt"), "几小时的活\n").unwrap();
+
+    let kept =
+        reclaim_worktree_on_close(&canonical, &target).expect_err("有未提交改动的树,关线时不许删");
+    assert!(target.is_dir(), "有活的树必须原样留着");
+    assert!(
+        target.join("还没提交.txt").exists(),
+        "里面的活一个字节都不许动"
+    );
+    assert!(branch_exists(&canonical, &branch), "分支同样必须留着");
+    assert!(
+        kept.contains(&target.display().to_string()) && kept.contains(&branch),
+        "保留说明必须点名路径与分支: {kept}"
+    );
+    assert!(
+        kept.contains("worktree remove --force") && kept.contains(&format!("branch -D {branch}")),
+        "保留说明必须给出可执行的回收命令: {kept}"
+    );
+
+    // 干净但**没合并**同样保留。
+    std::fs::remove_file(target.join("还没提交.txt")).unwrap();
+    std::fs::write(target.join("committed.txt"), "提交了但没合\n").unwrap();
+    git(&target, &["add", "committed.txt"]);
+    git(&target, &["commit", "-qm", "提交了但没合"]);
+    let unmerged =
+        reclaim_worktree_on_close(&canonical, &target).expect_err("分支还没并进主线时不许删");
+    assert!(
+        unmerged.contains("还没并进主线"),
+        "保留原因必须说清是「没合过来」而不是「有未提交改动」: {unmerged}"
+    );
+    assert!(target.is_dir());
+    assert!(branch_exists(&canonical, &branch));
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
 }

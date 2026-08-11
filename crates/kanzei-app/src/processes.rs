@@ -187,43 +187,43 @@ pub async fn process_create(
 /// `process_create` 的非 Tauri 内核。
 ///
 /// 拆出来是为了能测:`State<'_, AppState>` 在单元测试里构造不出来,而本批要验的
-/// 事(真实绑定 / 一树一线 / 失败整体回滚 / 走写仲裁)全在这段逻辑里。
+/// 事(真实绑定 / 一树一线 / 失败整体回滚 / 并发不互相破坏)全在这段逻辑里。
 ///
-/// # 为什么这里必须取项目写租约(K2 返工的根因)
+/// # 并发下的正确性靠什么(K2' 返工的根因:上一版靠错了东西)
 ///
-/// 建工作树 = 建目录 + 建分支 + 改仓库的 worktree 清单,**是项目级写操作**。同文件的
-/// `worktree_create` / `worktree_merge` / `worktree_discard` 三个入口早就接进了写仲裁
-/// (R-171 批4 的口径),唯独建线这条新入口绕过去了,于是它与 `worktree_create` 之间
-/// 只剩下**两把互不相干的锁**:一边是协调器的写租约,一边是 `state.processes` 的
-/// Mutex。两条路可以真并发,而 `create_worktree` 里「这条分支是不是我建的」是**调用前
-/// 采样出来的布尔量**——采样与 `add` 之间别人把树和分支建好了,自己的 `add` 因此失败,
-/// 清理块就会拿着一个过期的判断去 `worktree remove --force` + 删分支,**删掉的是赢家
-/// 刚建好的树和分支**。并发正是本项目的用例(整条第一梯队就是为任务级并行做的),
-/// 所以这不是理论风险。
+/// 上一版把「预检 → 建树 → 绑定落库」罩进项目**写租约**,以为竞态就此消失。**没有。**
+/// `MemoryCoordinator` 是 `AppState` 里的进程内内存对象(设计基线 §6.2 明写:`kz` CLI、
+/// 自举循环、第二个 kzapp 实例都看不见它),所以那条破坏一字未减,只是从「线程之间」
+/// 搬到了「进程之间」:两个并发建同名树的调用者,输的一方的回滚照旧
+/// `worktree remove --force` + 删分支,掉的是**赢家刚建好的**树和分支。上一版为此写下的
+/// 免责理由(「跨进程那一层由 git 自己兜底」)是错的 —— **git 的失败正是触发破坏的那一步**。
 ///
-/// 修法是让「预检 → 建树 → 建分支 → 绑定落库」整段罩在**同一个项目写租约**下:
-/// 与 `worktree_create` 同一个仲裁入口([`acquire_project_write_lease`]),同一项目内
-/// 天然串行。竞态窗口与仲裁旁路同时消失。回滚侧另有一道 SHA 双保险,见
-/// [`WorktreeReceipt`]。
+/// 现在正确性不靠任何锁,靠 git 自己的原子性:`git branch <name> <base>` 的 ref 创建是
+/// CAS(已存在即失败),把它当作**认领**并让它先行,见
+/// [`create_worktree_with_receipt`]。认领失败 ⇒ 本次调用什么都没建出来 ⇒ 零回滚。
+/// 这条不变量跨进程成立,不依赖协调器。
 ///
-/// # 锁边界的代价(为什么建树挪到了锁外)
+/// # 写租约为什么还留着
 ///
-/// 老版把 `git worktree add`(一次全量检出)+ `git status` + `git diff` 全压在
-/// `state.processes` 的 guard 里,理由是「查重必须原子」。代价是这段几百毫秒到数秒的
-/// 阻塞期间,`process_list` / `process_update` / `process_close` / `run_prompt`
-/// 全部卡在同一把锁上——整个界面对所有线冻结。现在原子性由写租约保证,内存锁只在
-/// 两个**极短**的临界区里取:查重一次、编号+落库+插表一次。git 的耗时调用全在锁外。
-/// (落库那次临界区里有一次 SQLite 打开+写入,毫秒级;放在锁内是为了让「编号 ⇒ 落库
-/// ⇒ 插表」保持原子,否则两条不带 worktree 的建线——它们不取写租约——会算出同一个
-/// `p{n}`。)
+/// 它对**同进程内**的仲裁与审计仍有价值(`worktree_create`/`merge`/`discard` 三条命令
+/// 已在用同一个入口,建线不进来就会与它们乱序),但**不再是正确性的依靠**。租约获取带
+/// 上界([`WRITE_LEASE_TIMEOUT`]),超时报明确错误 —— 否则一条卡死的 writer 能让建线
+/// 永久 pending,而 app 里够不到取消入口。
+///
+/// # 锁边界(为什么 git 的耗时调用全在内存锁外)
+///
+/// `git worktree add` 是一次全量检出,`status` + `diff` 在大仓上也要几百毫秒到数秒。
+/// 它们若压在 `state.processes` 的 guard 里,这段时间 `process_list` /
+/// `process_update` / `process_close` / `run_prompt` 全部卡在同一把锁上——界面对所有线
+/// 冻结。所以内存锁只在两个**极短**的临界区里取:查重一次、编号+落库+插表一次;
+/// 步骤 ③ 的全部 git 调用在锁外。(落库那次临界区里有一次 SQLite 打开+写入,毫秒级;
+/// 放在锁内是为了让「编号 ⇒ 落库 ⇒ 插表」保持原子,否则两条不带 worktree 的建线
+/// ——它们不取租约——会算出同一个 `p{n}`。)
 ///
 /// # 不带 worktree 的建线为什么不取租约
 ///
 /// 它一个字节都不写项目工作区,只往 `state.db` 加一行。让它去排项目写租约,等于把
 /// 「新开一条线」这个按钮挂在正在跑的 writer 后面等,UX 上不可接受,收益是零。
-///
-/// 跨**进程**(两个 app 实例同时开着同一个项目)不在协调器覆盖范围内;那一层由
-/// git 自己兜底(`worktree add` 撞已存在的目标会失败),本轮不做进程间互斥。
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_process(
     state: &AppState,
@@ -249,11 +249,15 @@ pub(crate) async fn create_process(
     };
 
     // ② 一树一线查重(建树之前:被拒时磁盘上一棵树都不许多出来)。
+    //    查的是**内存表 ∪ state.db**:同一个函数里的编号分配一直是查库的,查重只扫内存
+    //    表就自相矛盾——重启后内存表是空的,于是同名建线绕过查重、一路撞到
+    //    `create_worktree` 的目录预检,给出的文案会教用户 `worktree remove --force`
+    //    一棵**仍被库里某条线绑着、且可能带未提交改动**的活树,还完全不点名那条线。
     let planned = match worktree_name.as_deref() {
         Some(name) => {
             let (target, _) = worktree_target(&root, name)?;
             let key = worktree_key(&target);
-            if let Some(bound) = bound_process_id(state, &key) {
+            if let Some(bound) = bound_thread_for_worktree(state, &root, &project, &key)? {
                 return Err(bound_error(&target, &bound));
             }
             Some((target, key))
@@ -301,25 +305,59 @@ pub(crate) async fn create_process(
 /// 一树一线被拒时的文案:必须点名是哪条线绑着它,否则用户无从下手。
 fn bound_error(target: &Path, bound_id: &str) -> String {
     format!(
-        "工作树 {} 已绑定到线 {bound_id};一棵工作树同时只能有一条线",
+        "工作树 {} 已绑定到线 {bound_id};一棵工作树同时只能有一条线。\
+         要复用这棵树就先关掉线 {bound_id},或换一个工作树名字",
         target.display()
     )
 }
 
-/// 内存进程表里是否已经有线绑着这棵树;有就给出那条线的 id。
-fn bound_process_id(state: &AppState, key: &str) -> Option<String> {
-    state
-        .processes
-        .lock()
-        .unwrap()
-        .values()
-        .find(|process| {
-            process
+/// 一树一线查重:**内存进程表 ∪ state.db**,命中就给出占着它的那条线的 id。
+///
+/// 两边都要查。内存表是当前会话的权威(刚建出来还没被别人回读),库是重启后的权威
+/// (内存表此刻是空的)。只查一边都会漏,而漏掉的后果是同名建线撞进 git 的原始报错。
+fn bound_thread_for_worktree(
+    state: &AppState,
+    root: &Path,
+    project: &str,
+    key: &str,
+) -> Result<Option<String>, String> {
+    // guard 只在这个块里活着——下面要开 SQLite,绝不能带着全局进程表锁去做 IO。
+    let in_memory = {
+        state
+            .processes
+            .lock()
+            .unwrap()
+            .values()
+            .find(|process| {
+                process
+                    .worktree_path
+                    .as_deref()
+                    .is_some_and(|path| worktree_key(Path::new(path)) == key)
+            })
+            .map(|process| process.id.clone())
+    };
+    if in_memory.is_some() {
+        return Ok(in_memory);
+    }
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let stored = store
+        .list_processes(project)
+        .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    Ok(stored_bound_thread(&stored, key))
+}
+
+/// 库里是否已经有线绑着这棵树(按 [`worktree_key`] 归一后比较)。
+fn stored_bound_thread(stored: &[kanzei_core::StoredProcess], key: &str) -> Option<String> {
+    stored
+        .iter()
+        .find(|record| {
+            record
                 .worktree_path
                 .as_deref()
                 .is_some_and(|path| worktree_key(Path::new(path)) == key)
         })
-        .map(|process| process.id.clone())
+        .map(|record| record.process_id.clone())
 }
 
 /// `p{n}` 编号:`p<数字>|<项目>` 里的那个数字。其它形态(默认线 `d|…`)返回 None。
@@ -362,7 +400,7 @@ fn register_process(
     let mut processes = state.processes.lock().unwrap();
 
     // 二次查重:建树期间内存锁是放开的,`restore_processes_from_store` 可能把库里的
-    // 绑定合了进来。同项目的并发建线被写租约挡在外面,这一次查的是那条路。
+    // 绑定合了进来。
     if let Some((target, key)) = planned {
         if let Some(bound) = processes.values().find(|process| {
             process
@@ -379,6 +417,13 @@ fn register_process(
     let stored = store
         .list_processes(project)
         .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    // 二次查重的库那一半:与上面的内存那一半同为「内存 ∪ 库」,口径必须一致,
+    // 否则重启后的绑定会从这道闸底下漏过去(一棵树两条线)。
+    if let Some((target, key)) = planned {
+        if let Some(bound) = stored_bound_thread(&stored, key) {
+            return Err(bound_error(target, &bound));
+        }
+    }
     let next = next_process_index(&processes, &stored, project);
 
     let process = ProcessHandle {
@@ -506,6 +551,12 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
         persist_process(&root, &process)?;
     } else {
+        // 先处置工作树,再删绑定行。顺序是硬的:绑定行一删,这棵树在库里就再也查不到,
+        // 处置逻辑连它绑给谁都说不出来。
+        let disposal = process
+            .worktree_path
+            .as_deref()
+            .map(|worktree| reclaim_worktree_on_close(&root, Path::new(worktree)));
         state.processes.lock().unwrap().remove(&process_id);
         // R-178 D3:线关闭即从库删除,页签不再恢复。
         let state_path = kanzei_core::project_state_path(&root);
@@ -513,8 +564,99 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         store
             .delete_process(&process_id)
             .map_err(|e| format!("删除进程注册失败: {e}"))?;
+        if let Some(Err(kept)) = disposal {
+            // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
+            // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
+            let _ = store.create_session(&session_id, &root.display().to_string(), None);
+            let _ = store.append_event(
+                &session_id,
+                "worktree.orphaned",
+                &json!({ "process_id": process_id, "detail": kept }),
+            );
+        }
     }
     Ok(())
+}
+
+/// 关线时对绑定工作树的处置(K2' 重要3)。
+///
+/// 老版关线**一个 git 命令都不发**:库里的绑定行删了,树和分支留在磁盘上无人认领,
+/// app 内再没有任何入口能收 —— 之后同名建线就撞进「工作树已存在」/「分支已存在」。
+///
+/// # 语义定死:只自动回收「证明得了一文不值」的那一棵
+///
+/// 两条同时成立才删:
+/// 1. 工作区**干净**(`status --porcelain` 空,含未跟踪文件);
+/// 2. 分支已经是主 HEAD 的**祖先**(活已经合并进去了)。
+///
+/// 两条成立 ⇒ 这棵树和这条分支里没有任何独有内容,删掉零损失;这也正是「收活之后关线」
+/// 这条主流程的形态,用户按下关闭就该干净收场。任何一条不成立就**原样留着** ——
+/// 里面可能是几个小时还没提交的活,自动删掉是丢工作。
+///
+/// `Err(说明)` = 没删,说明里带着路径、分支与可执行的回收命令(调用方落进审计流)。
+fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String> {
+    let branch = worktree_field(root, worktree, "branch")
+        .map_err(|error| format!("工作树 {} 的分支查不出来: {error}", worktree.display()))?;
+    let (files, _) = worktree_status(root, worktree)
+        .map_err(|error| format!("工作树 {} 的状态查不出来: {error}", worktree.display()))?;
+    let recycle_hint = format!(
+        "回收命令:`git -C \"{}\" worktree remove --force \"{}\"` 与 \
+         `git -C \"{}\" branch -D {branch}`",
+        git_arg_path(root),
+        git_arg_path(worktree),
+        git_arg_path(root),
+    );
+    if !files.is_empty() {
+        return Err(format!(
+            "工作树 {} 有 {} 处未提交改动,关线时保留未删(分支 {branch})。{recycle_hint}",
+            worktree.display(),
+            files.len(),
+        ));
+    }
+    let merged = worktree_command(root, &["merge-base", "--is-ancestor", &branch, "HEAD"])
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !merged {
+        return Err(format!(
+            "分支 {branch} 还没并进主线(工作树 {} 干净但提交没合过来),关线时保留未删。\
+             {recycle_hint}",
+            worktree.display(),
+        ));
+    }
+    // 干净且已合并:先摘树(不加 --force —— 上面刚验过干净,真要 force 才删得掉说明
+    // 判断和现实对不上,那就该保留),再按 sha 做 CAS 删分支。
+    let sha = rev_parse(root, &format!("refs/heads/{branch}"));
+    let removed = worktree_command(root, &["worktree", "remove", &git_arg_path(worktree)])
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    if !removed {
+        return Err(format!(
+            "工作树 {} 干净且已合并,但 git 没能摘掉它(可能有程序占着里面的文件),\
+             关线时保留未删。{recycle_hint}",
+            worktree.display(),
+        ));
+    }
+    match sha {
+        Some(sha) => {
+            let refname = format!("refs/heads/{branch}");
+            let _ = worktree_command(root, &["update-ref", "-d", &refname, &sha]);
+            if branch_exists(root, &branch) {
+                return Err(format!(
+                    "工作树 {} 已摘掉,但分支 {branch} 没删成(它可能已经不在关线时那个 \
+                     sha 上)。若确认可丢弃:`git -C \"{}\" branch -D {branch}`",
+                    worktree.display(),
+                    git_arg_path(root),
+                ));
+            }
+            Ok(())
+        }
+        None => Err(format!(
+            "工作树 {} 已摘掉,但分支 {branch} 的 sha 解析不出来,没敢删它。\
+             若确认可丢弃:`git -C \"{}\" branch -D {branch}`",
+            worktree.display(),
+            git_arg_path(root),
+        )),
+    }
 }
 
 fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
@@ -591,6 +733,14 @@ fn sanitize_component(value: &str) -> String {
 /// 直接失败,而错误说的是「工作树已存在」,用户在自己项目里根本找不到它;更糟的是
 /// 回滚会去动另一个项目的目录。加上项目名之后,同一父目录下的项目目录名必然互不相同,
 /// 冲突面就此消失。
+///
+/// # 项目名与工作树名之间的分隔符不能是 `-`
+///
+/// [`sanitize_component`] 把一切非 `[A-Za-z0-9_-]` 压成 `-`,所以两个分量里都可能出现
+/// `-`。用 `-` 连接就还原不出边界:「项目 `a` + 名字 `b-c`」与「项目 `a-b` + 名字 `c`」
+/// 都落成 `.kanzei-worktree-a-b-c`,两个不同项目的工作树撞进同一条路径——正是上面刚
+/// 修掉的那类冲突换个形态回来。用 `.` 连接就没有歧义:`sanitize_component` 永远产不出
+/// `.`(它是被压掉的那一类),所以第一个 `.` 必然是分隔符本身。
 pub(crate) fn worktree_target(root: &Path, name: &str) -> Result<(PathBuf, String), String> {
     let safe_name = sanitize_component(name);
     if safe_name.is_empty() {
@@ -603,7 +753,7 @@ pub(crate) fn worktree_target(root: &Path, name: &str) -> Result<(PathBuf, Strin
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "project".into());
     Ok((
-        parent.join(format!(".kanzei-worktree-{project_tag}-{safe_name}")),
+        parent.join(format!(".kanzei-worktree-{project_tag}.{safe_name}")),
         // 分支名不必带项目名:分支活在本仓库里,跨项目不共享命名空间。
         format!("kanzei/thread-{safe_name}"),
     ))
@@ -641,6 +791,55 @@ pub(crate) fn worktree_status(
     ))
 }
 
+/// 目录残留挡住这个名字时的文案(D-004 口径:必须自带可执行的解法)。
+///
+/// 这条预检是「名字被目录占死」唯一的出口。走到这里时**一树一线查重已经放行**
+/// (`create_process` 那一侧查的是内存表 ∪ state.db),也就是说没有任何一条线绑着它 ——
+/// 它是无主残留:上一条线关闭时留下的、或上次回滚没收干净的。里面**可能有未提交改动**,
+/// 所以文案先给「看一眼」,再给「删掉」,最后才给分支那一半。
+fn residual_worktree_error(root: &Path, worktree: &Path, branch: &str) -> String {
+    format!(
+        "工作树已存在: {};app 的线清单里没有线绑着它(无主残留:上一条线关闭时留下,\
+         或上次回滚没收干净),里面可能还有未提交改动。\
+         先看一眼 `git -C \"{}\" status --porcelain`;确认可丢弃后执行 \
+         `git -C \"{}\" worktree remove --force \"{}\"`,该命令报「不是工作树」就直接\
+         删掉这个目录;同名分支 {branch} 若也要一并回收,再执行 \
+         `git -C \"{}\" branch -D {branch}`,然后重试",
+        worktree.display(),
+        git_arg_path(worktree),
+        git_arg_path(root),
+        git_arg_path(worktree),
+        git_arg_path(root),
+    )
+}
+
+/// 认领(`git branch`)失败时的文案。
+///
+/// 最常见的成因是**分支残留**:「放弃工作树」只删目录、分支照旧留着(`worktree_discard`
+/// 的返回值自己写着「分支仍保留」),于是同名再建撞上它。老版把 git 的原文
+/// `fatal: a branch named '…' already exists` 直接抛给用户 —— 不带任何解法,而 app 里
+/// **根本没有删分支的入口**,这个名字就此变成死结。按 D-004 口径,这里必须点名
+/// 「是一条已存在的**分支**占着这个名字」(不是目录残留)并给出可执行动作。
+///
+/// 判「是不是撞名」用的是 `branch_exists` 复查,不是匹配 git 的错误文本 —— git 的输出
+/// 会被本地化,匹配字符串在中文 git 上直接失效。
+fn branch_claim_error(root: &Path, branch: &str, worktree: &Path, git_error: &str) -> String {
+    if branch_exists(root, branch) {
+        format!(
+            "这个工作树名字被一条已存在的分支占着: {branch}(不是目录残留:{} 并不存在)。\
+             本次调用没有创建任何东西,磁盘与 git 状态一个字节都没动。\
+             app 里没有删分支的入口,请先确认它上面没有要保留的提交:\
+             `git -C \"{}\" log --oneline HEAD..{branch}`;确认可丢弃后执行 \
+             `git -C \"{}\" branch -D {branch}` 再重试,想保留就换一个工作树名字",
+            worktree.display(),
+            git_arg_path(root),
+            git_arg_path(root),
+        )
+    } else {
+        format!("认领分支 {branch} 失败,本次建线没有创建任何东西(磁盘与 git 状态未变): {git_error}")
+    }
+}
+
 /// 本地分支是否已经存在。用 `rev-parse --verify` 走全名 `refs/heads/<branch>`,
 /// 不用 `branch --list`(那是 glob 匹配)。
 fn branch_exists(root: &Path, branch: &str) -> bool {
@@ -652,18 +851,27 @@ fn branch_exists(root: &Path, branch: &str) -> bool {
 
 /// 回滚凭据:本次调用**确实建出来了什么**,以及删它的判据。
 ///
-/// 老版把「删哪棵树、删哪条分支」现算:目标路径由名字推、分支由名字推、
-/// 「这条分支是不是我建的」是一个调用前采样的布尔量。三样都不是**本次建出来的那个
-/// 东西的身份**,而只是「同名的那个东西」——并发下同名的东西可能是别人刚建好的。
-/// 凭据把身份钉死:分支只有停在**建出来时那个 sha** 上才允许删。
+/// # 核心不变量(K2' 定死,改本文件先读这一段)
+///
+/// **只回滚本次调用亲手创建出来的东西;认领(`git branch`)失败即证明没有任何东西是
+/// 我创建的,因此一个字节都不许删。**
+///
+/// 这条不变量在类型层面就成立,不靠任何调用方自觉:凭据**只在认领成功之后构造**
+/// ([`create_worktree_with_receipt`] 里,目录预检与 `git branch` 两道闸都过了才有它),
+/// 所以「有凭据」⇔「这棵树的目录与这条分支都是本次调用建出来的」。认领失败与目录残留
+/// 两条路径**根本产不出凭据**,回滚代码对它们不可达 —— 这就是「零回滚」的机械形态。
+/// 它不依赖锁,跨进程成立。
+///
+/// 分支那一侧还有第二道判据:只有停在**建出来时那个 sha** 上才允许删(线上已经有提交
+/// 就删不动)。见 [`Self::branch_sha`]。
 pub(crate) struct WorktreeReceipt {
     pub(crate) worktree: PathBuf,
     pub(crate) branch: String,
-    /// `Some(sha)` = 这条分支是本次调用建出来的,且当时停在 `sha`;回滚用
+    /// `Some(sha)` = 认领成功那一刻这条分支停在 `sha`;回滚用
     /// `git update-ref -d <ref> <sha>` 做**原子比较后删除**——ref 已经不在这个 sha 上
-    /// (别人重建了它 / 线上已经有提交)就删不动,这正是要的。
+    /// (线上已经有提交 / 别人重建了它)就删不动,这正是要的。
     ///
-    /// `None` = 调用前就存在(用户的东西)或无法确认;回滚一律不碰,也不当残留报。
+    /// `None` = sha 解析不出来(git 出错等),无法做 CAS;回滚一律不碰,也不当残留报。
     pub(crate) branch_sha: Option<String>,
 }
 
@@ -714,31 +922,39 @@ fn worktree_admin_dir(worktree: &Path) -> Option<PathBuf> {
 ///
 /// **它本身不取写租约**:两个调用方都在外层取(`worktree_create` →
 /// [`create_worktree_arbitrated`],建线 → `create_process`),租约不可重入,在这里再取
-/// 一次就是自己等自己。
+/// 一次就是自己等自己。而正确性本来也不由租约提供,见下。
+///
+/// # 并发安全靠 git 的 ref CAS,不靠锁(K2' 返工)
+///
+/// 老版是 `git worktree add -b <branch> <path> HEAD`:**建分支与建树是同一条命令**,
+/// 于是「这条分支是不是我建的」只能靠**调用前采样**的布尔量去猜。采样是过去时——并发
+/// 下别人在采样与 add 之间把树和分支建好了,自己的 add 因此失败,清理块就拿着过期判断
+/// 去 `worktree remove --force` + 删分支,**删的是赢家刚建好的东西**。上一版拿写租约挡
+/// 这个窗口,但协调器是进程内对象,换成两个 OS 进程(kz CLI / 自举循环 / 第二个 kzapp)
+/// 破坏原样复现。
+///
+/// 现在把「认领」与「建树」拆开,并让认领先行:
+///
+/// 1. `git branch <branch> HEAD` —— **ref 创建是原子的(CAS),已存在即失败**。
+///    成功 ⇒ 这条分支是我建的,这个结论**跨进程**成立,由 git 保证;
+///    失败 ⇒ 别人(或用户)拥有这个名字 ⇒ **报错返回,零回滚**。
+/// 2. `git worktree add <path> <branch>` —— 挂到一条已经归我的分支上。
+/// 3. 失败回滚:因为第 1 步成功过,我确知分支归我 ⇒ 按 sha 做 CAS 删除;目录也只可能是
+///    本次建出来的(第 0 步的 `worktree.exists()` 预检已排除事前存在)。
+///
+/// 核心不变量与它的类型层面形态见 [`WorktreeReceipt`]。
 ///
 /// # `git worktree add` 之后的每一步都必须能回滚
 ///
-/// 这个函数有两条失败路径,两条都会在磁盘与 git 里留下**界面上没有任何入口能收掉**
+/// 认领成功之后有两条失败路径,两条都会在磁盘与 git 里留下**界面上没有任何入口能收掉**
 /// 的残留,所以两条都得自己收干净:
 ///
-/// 1. **`add` 自己失败**:2026-08-11 实测 git 的四种 add 失败模式(目标是非空目录 /
-///    目标是文件 / 前置目录建不出 / 路径超长)**统统把新分支留在原地** —— `git
-///    worktree add -b` 是先建分支再挂树的。不删分支,下一次同名建线就撞
+/// 1. **`add` 自己失败**:分支已经落地(第 1 步建的)。不删它,下一次同名建线就撞
 ///    `a branch named '…' already exists`,**第二次起永久失败**。
-/// 2. **`add` 成功、后面的工作区探测失败**:此时树已经挂上、分支已经落地,用 `?`
-///    直接抛错就留下一棵孤儿树 + 一条孤儿分支。`create_process` 的整体回滚**救不了
-///    它** —— 那一层只回滚它自己那一步(落库),`create_worktree` 返回 Err 时它认为
-///    这里已经什么都没建出来。
-///
-/// # 分支只删自己建的那一条,而且只在它没动过的时候删
-///
-/// 回滚要问的是反方向的问题:**不是「我该删哪条分支」,而是「这条分支是不是我建的」**。
-/// 两道判据缺一不可:
-/// - `add` 若因为同名分支**已经存在**而失败,那条分支是用户的东西,删掉就是丢数据 ——
-///   所以 add 之前先采样它存不存在,只有「调用前不存在」才进入下一道;
-/// - 采样是**过去时**,并发下它可能已经过期(别人在这中间把同名分支建了出来)。
-///   所以再记下**本次建出来时那条分支的 sha**,删的时候交给
-///   `git update-ref -d <ref> <sha>` 原子比较:ref 不在这个 sha 上就删不动。
+/// 2. **`add` 成功、后面的工作区探测失败**:树已经挂上、分支已经落地,用 `?` 直接抛错
+///    就留下一棵孤儿树 + 一条孤儿分支。`create_process` 的整体回滚**救不了它** ——
+///    那一层只回滚它自己那一步(落库),`create_worktree` 返回 Err 时它认为这里已经
+///    什么都没建出来。
 pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, String> {
     create_worktree_with_receipt(root, name).map(|(info, _)| info)
 }
@@ -749,50 +965,37 @@ pub(crate) fn create_worktree_with_receipt(
     name: &str,
 ) -> Result<(WorktreeInfo, WorktreeReceipt), String> {
     let (worktree, branch) = worktree_target(root, name)?;
+    // ⓪ 目录残留预检。在认领之前,所以走到这里一定**零回滚**(还没有凭据)。
     if worktree.exists() {
-        // D-004 口径:这条预检是「名字被占死」唯一的出口,必须自带可执行的解法,
-        // 否则一次失败的清理就能让这个名字永远建不出来而用户无从下手。
-        return Err(format!(
-            "工作树已存在: {};若它是上次回滚失败留下的残留,先执行 \
-             `git -C \"{}\" worktree remove --force \"{}\"`,该命令报「不是工作树」\
-             就直接删掉这个目录,然后重试",
-            worktree.display(),
-            git_arg_path(root),
-            git_arg_path(&worktree),
-        ));
+        return Err(residual_worktree_error(root, &worktree, &branch));
     }
-    let branch_was_there = branch_exists(root, &branch);
-    // 建树基点:add 失败时新建的分支必然停在这里(命令里显式给的就是 HEAD),
-    // 拿它当回滚删分支的 CAS 判据。
-    let base_sha = rev_parse(root, "HEAD");
-    let output = worktree_command(
-        root,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            &git_arg_path(&worktree),
-            "HEAD",
-        ],
-    )?;
-    if !output.status.success() {
-        let receipt = WorktreeReceipt {
-            worktree,
-            branch,
-            branch_sha: if branch_was_there { None } else { base_sha },
-        };
-        let failure = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        // 分支若是本次 add 建出来的,必须一并收掉(见上文第 1 条)。
-        return Err(with_residue(failure, discard_worktree(root, &receipt)));
+    // ① 原子认领:ref 创建是 CAS,已存在即失败。成功即拥有,跨进程成立。
+    let claim = worktree_command(root, &["branch", &branch, "HEAD"])?;
+    if !claim.status.success() {
+        // 零回滚:第 1 步失败即证明本次调用没有创建出任何东西,一个字节都不许删。
+        let failure = String::from_utf8_lossy(&claim.stderr).trim().to_string();
+        return Err(branch_claim_error(root, &branch, &worktree, &failure));
     }
-    // add 已经成功:从这里往下的任何失败都得整体回滚,不能用 `?` 抛出去(见上文第 2 条)。
-    // `-b` 撞名必失败 ⇒ add 成功就说明这条分支是本次建出来的,记下它此刻的 sha。
+    // 认领成功 ⇒ 分支归我 ⇒ 从这里起才有凭据(见 WorktreeReceipt 的不变量)。
     let receipt = WorktreeReceipt {
         branch_sha: rev_parse(root, &format!("refs/heads/{branch}")),
         worktree,
         branch,
     };
+    // ② 挂树到已经归我的那条分支上(不再用 `-b`:认领已经在第 1 步做完了)。
+    let output = worktree_command(
+        root,
+        &[
+            "worktree",
+            "add",
+            &git_arg_path(&receipt.worktree),
+            &receipt.branch,
+        ],
+    )?;
+    if !output.status.success() {
+        let failure = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(with_residue(failure, discard_worktree(root, &receipt)));
+    }
     let (files, diff) = match worktree_status(root, &receipt.worktree) {
         Ok(probed) => probed,
         Err(error) => return Err(with_residue(error, rollback_worktree(root, &receipt))),
@@ -828,6 +1031,10 @@ fn with_residue(error: String, rollback: Result<(), String>) -> String {
 }
 
 /// 回滚的实现:先 remove 工作树(分支正被它 checkout,不先摘就删不掉),再按凭据删分支。
+///
+/// 目录删得下手的依据是 [`WorktreeReceipt`] 的不变量:凭据只在认领成功之后构造,而认领
+/// 之前那道 `worktree.exists()` 预检已经排除了「目录事前就在」,所以凭据里的目录必然是
+/// 本次调用建出来的。分支那一侧另有 sha CAS 兜底。
 ///
 /// # 为什么不再调 `git worktree prune`
 ///
@@ -935,12 +1142,22 @@ fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, S
     Ok(worktree)
 }
 
+/// 项目写租约的获取上界。
+///
+/// 协调器的排队是**无限期**的:没有上界时,一条卡死/挂起的 writer 会把建线、建树、
+/// 合并、放弃全部变成永久 pending,而取消入口(`cancel_waiter`)在 app 界面上够不到
+/// —— 用户能做的只有杀进程。所以宁可超时报错让人重试,也不留永久挂起。
+/// 120s 是「大仓上一次正常写操作的量级」与「人还愿意等」之间的取值。
+pub(crate) const WRITE_LEASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
 /// 项目级写操作的**唯一**仲裁入口。
 ///
 /// R-171 批4 的口径:worktree 的创建/合并/放弃都是项目级写操作,得进写仲裁。
-/// K2 补上第四个调用方 `create_process`(建线)—— 它以前绕过这里,拿 `state.processes`
-/// 的 Mutex 当互斥,与本函数的租约互不可见,于是「建线」与「建工作树」可以真并发,
-/// 输的一方会拿过期的判断删掉赢的一方刚建好的树和分支。
+/// K2 补上第四个调用方 `create_process`(建线),让四条路在同一进程内保持有序。
+///
+/// **它不是并发正确性的依靠**(K2' 更正):协调器是进程内内存对象,`kz` CLI /
+/// 自举循环 / 第二个 kzapp 实例都看不见它。同名建树的正确性由 git 的 ref CAS 保证,
+/// 见 [`create_worktree_with_receipt`]。这里的租约只管同进程内的顺序与审计。
 ///
 /// `run_id` 必须**全局唯一**:协调器按 run_id 认领与释放租约,重号会让一个持有者的
 /// 释放动作落到另一个持有者头上。毫秒时间戳在并发下会撞,所以再缀一个进程内自增号。
@@ -949,22 +1166,72 @@ async fn acquire_project_write_lease(
     root: &Path,
     reason: &str,
 ) -> Result<WriterLease, String> {
+    acquire_project_write_lease_within(state, root, reason, WRITE_LEASE_TIMEOUT).await
+}
+
+/// [`acquire_project_write_lease`] 的带上界形态(超时可注入,测试用)。
+///
+/// # 超时为什么不能直接 `tokio::time::timeout` 包一层
+///
+/// `timeout` 到点会**丢掉里面的 future**,连带丢掉排队用的 oneshot 接收端。而协调器
+/// 交接租约时走的是 `let _ = tx.send(Ok(lease))`:接收端已经没了 ⇒ send 把租约原样退回
+/// ⇒ 租约在**协调器仍持有 projects 锁**的那一行被 drop ⇒ drop 回调又去锁同一把
+/// `std::sync::Mutex` ⇒ 自锁死。所以这里用 `select!` + `pin!`:超时分支里 future 仍然
+/// 活着(接收端没被丢),先 `cancel_waiter` 把自己从队列里摘掉,再 await 同一个 future
+/// 收敛 —— 拿到的要么是取消错误(报超时),要么是刚好抢到的租约(那就照常返回,
+/// 没必要为了报错而把到手的租约扔掉)。
+pub(crate) async fn acquire_project_write_lease_within(
+    state: &AppState,
+    root: &Path,
+    reason: &str,
+    limit: std::time::Duration,
+) -> Result<WriterLease, String> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let run_id = format!(
         "worktree_{}_{}",
         crate::run::now_ms(),
         SEQ.fetch_add(1, Ordering::SeqCst)
     );
-    state
-        .coordinator
-        .acquire_writer_lease(WriterLeaseRequest {
-            project_root: root.to_path_buf(),
-            run_id,
-            process_id: "worktree".into(),
-            reason: reason.into(),
-        })
-        .await
-        .map_err(|e| format!("无法获取项目写租约: {e}"))
+    let acquire = state.coordinator.acquire_writer_lease(WriterLeaseRequest {
+        project_root: root.to_path_buf(),
+        run_id: run_id.clone(),
+        process_id: "worktree".into(),
+        reason: reason.into(),
+    });
+    tokio::pin!(acquire);
+    tokio::select! {
+        result = &mut acquire => result.map_err(|e| format!("无法获取项目写租约: {e}")),
+        _ = tokio::time::sleep(limit) => {
+            state.coordinator.cancel_waiter(&run_id);
+            match acquire.await {
+                Ok(lease) => Ok(lease),
+                Err(_) => Err(write_lease_timeout_error(state, root, reason, limit)),
+            }
+        }
+    }
+}
+
+/// 超时文案:必须说清等的是谁、等了多久、下一步能做什么。
+fn write_lease_timeout_error(
+    state: &AppState,
+    root: &Path,
+    reason: &str,
+    limit: std::time::Duration,
+) -> String {
+    let snapshot = state.coordinator.snapshot(root);
+    let holder = snapshot
+        .writer_run_id
+        .as_deref()
+        .map(|run| format!("当前写者 run_id={run}"))
+        .unwrap_or_else(|| "此刻查不到写者(它可能刚刚释放)".to_string());
+    format!(
+        "等待项目写租约超时({}s):{}({holder})。\
+         项目 {} 上有别的写操作长时间没结束——先让那条线跑完或停掉它,再重试本次操作。\
+         本次操作没有创建任何东西",
+        limit.as_secs(),
+        reason,
+        root.display(),
+    )
 }
 
 /// `worktree_create` 的非 Tauri 内核:取写租约 + 建树。
