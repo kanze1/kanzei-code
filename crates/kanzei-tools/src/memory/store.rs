@@ -227,6 +227,15 @@ impl MemoryStore {
         if description.is_empty() {
             anyhow::bail!("description must not be empty — it is the retrieval hook");
         }
+        // 空正文条目是纯噪声:占编号、进 FTS、召回出来啥也没有。2026-08-12 清理时
+        // 库里躺着 3 条只有 frontmatter 的条目(M-039/M-048/M-049),都是 manager
+        // 在权限受限的自动轮里批量写记忆时产的。写入侧直接拒。
+        if body.trim().is_empty() {
+            anyhow::bail!(
+                "body must not be empty — an entry with only frontmatter is unusable: \
+                 put the actual finding (what happened, what to do instead) in the body"
+            );
+        }
         let subject = subject.map(str::trim).filter(|s| !s.is_empty());
         let entries = self.load_all();
         // 状态不变量先于标题去重,且不受 force 影响:状态就地覆盖,绝不并存。
@@ -247,6 +256,24 @@ impl MemoryStore {
                     && e.category == category
                     && normalize_title(&e.title) == normalized
             }) {
+                return Ok(AddOutcome::Duplicate(existing.clone()));
+            }
+            // 近似去重(2026-08-12):标题一字不差才算重复太弱了——同一个坑换个
+            // 说法、换个 category 就能再落一条。实测一个「tracker update 字段语义」
+            // 的坑堆出 8 条 sop、一个「bash 里 git mutation 被拒」堆出 5 条(fact
+            // 与 sop 混着),标题两两都不相同,旧闸门一条都没拦住。
+            // 判据:标题切词后的包含度(交集 / 较短一侧),跨 category 也查。
+            if let Some(existing) = entries
+                .iter()
+                .map(|(_, e)| e)
+                .filter(|e| e.status == "active" || e.status == "candidate")
+                .filter(|e| title_containment(title, &e.title) >= TITLE_DUP_THRESHOLD)
+                .max_by(|a, b| {
+                    title_containment(title, &a.title)
+                        .partial_cmp(&title_containment(title, &b.title))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            {
                 return Ok(AddOutcome::Duplicate(existing.clone()));
             }
         }
@@ -1006,11 +1033,31 @@ impl MemoryStore {
 
     /// 精确子串查找 active 条目正文里的指纹标记(复发检测,R-149)。
     /// 不用 FTS 相似度:弱模型只需原样复制标记,引擎侧零阈值、可单测。
-    pub fn find_active_by_marker(&self, marker: &str) -> Option<MemoryEntry> {
-        self.load_all()
-            .into_iter()
-            .map(|(_, e)| e)
-            .find(|e| e.status == "active" && e.body.contains(marker))
+    /// 按指纹找既有条目。**active 与 candidate 都算**——candidate 看不见正是
+    /// 重复条目的生产线:manager 每消化一条同类 inbox note 都以为是新知识,
+    /// 2026-08-12 清理时一个「tracker update 字段语义」的坑堆了 8 条 candidate。
+    /// 匹配走归一后的标记比对,老口径的正文标记照样命中。
+    pub fn find_by_marker(&self, marker: &str) -> Option<MemoryEntry> {
+        let key = kanzei_core::normalize_fp_marker(marker);
+        let mut hit: Option<MemoryEntry> = None;
+        for (_, entry) in self.load_all() {
+            if entry.status != "active" && entry.status != "candidate" {
+                continue;
+            }
+            let matched = super::fp_markers(&entry.body)
+                .iter()
+                .chain(entry.field("fingerprint").map(str::to_string).iter())
+                .any(|fp| kanzei_core::normalize_fp_marker(fp) == key);
+            if !matched {
+                continue;
+            }
+            // active 优先:同一个坑既有 active 又有 candidate 时,该改的是 active。
+            if entry.status == "active" {
+                return Some(entry);
+            }
+            hit.get_or_insert(entry);
+        }
+        hit
     }
 
     /// 效果画像(R-125):id → (累计命中, 最近命中时间毫秒)。最近命中时间为 0 = 从未命中,
@@ -1262,6 +1309,53 @@ fn normalize_title(title: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(|c| c.to_lowercase())
         .collect()
+}
+
+/// 近似重复的判定阈值:两个标题切词后的包含度。0.55 是拿实测样本卡的——
+/// 2026-08-12 归档的那 8 条「tracker update 字段语义」两两在 0.57~0.75,
+/// 而 M-011《repair_reused_id 修复》与 M-012《完整性门禁拒绝写操作》这种
+/// 同子系统但确属两条知识的只有 0.32,阈值落在中间。
+const TITLE_DUP_THRESHOLD: f64 = 0.55;
+
+/// 光看比例会误杀短标题:「安装通道切换 SOP」与「安装通道改为便携版」共享
+/// 「安装通道」四个字就到 0.57,但那是两条知识。所以再加一道绝对量下限——
+/// 真重复的那 8 条两两共享 12~16 个词,短标题的偶然同名到不了 8。
+const TITLE_DUP_MIN_COMMON: usize = 8;
+
+/// 标题切词:CJK 按单字、ASCII 按词(小写),标点丢弃。CJK 不分词就没法比,
+/// 单字粒度对中文标题足够——记忆标题短,长词的顺序信息不重要。
+fn title_tokens(title: &str) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    let mut word = String::new();
+    for ch in title.chars() {
+        if is_cjk(ch) {
+            if !word.is_empty() {
+                out.insert(std::mem::take(&mut word));
+            }
+            out.insert(ch.to_string());
+        } else if ch.is_alphanumeric() {
+            word.extend(ch.to_lowercase());
+        } else if !word.is_empty() {
+            out.insert(std::mem::take(&mut word));
+        }
+    }
+    if !word.is_empty() {
+        out.insert(word);
+    }
+    out
+}
+
+/// 包含度 = 交集 / 较短一侧。用包含度而不是 Jaccard:同一个坑的重复条目
+/// 常常一条写得长、一条写得短,Jaccard 会被长的那条稀释掉。
+/// 比例与绝对量两道都要过,少一道就会误杀短标题(见 TITLE_DUP_MIN_COMMON)。
+fn title_containment(a: &str, b: &str) -> f64 {
+    let (ta, tb) = (title_tokens(a), title_tokens(b));
+    let shorter = ta.len().min(tb.len());
+    let common = ta.intersection(&tb).count();
+    if shorter < 6 || common < TITLE_DUP_MIN_COMMON {
+        return 0.0;
+    }
+    common as f64 / shorter as f64
 }
 
 /// unicode61 把连续 CJK 当单个整词,子串查不到(拍板点③的即时实证)。
@@ -2363,6 +2457,133 @@ mod tests {
     }
 
     #[test]
+    fn add_拒绝空正文条目() {
+        // 2026-08-12 清理时库里躺着 3 条只有 frontmatter 的条目(M-039/048/049),
+        // 占编号、进 FTS、召回出来什么也没有。写入侧直接拒。
+        let (dir, store) = temp_store();
+        let err = match store.add(
+            "fact",
+            "标题在",
+            "描述在",
+            "   \n  ",
+            "user",
+            &[],
+            None,
+            false,
+        ) {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("空正文必须被拒"),
+        };
+        assert!(err.contains("body must not be empty"), "{err}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn add_近似标题跨状态跨类目判重() {
+        let (dir, store) = temp_store();
+        // source != "user" → 落 candidate:未晋升条目隐形正是重复的生产线。
+        let first = match store
+            .add(
+                "sop",
+                "defect update 字段键名与多字段处理 SOP 防英文 key 追加与旧内容丢弃的脏数据陷阱",
+                "更新字段时必读",
+                "正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("首条应写入"),
+        };
+        assert_eq!(first.status, "candidate");
+        // 换个说法、换个 category 再记一遍 —— 旧闸门(标题一字不差 + 同 category)
+        // 一条都拦不住,这正是那 8 条重复的由来。
+        match store
+            .add(
+                "fact",
+                "defect/req update 字段键名与值处理 SOP 防脏数据",
+                "缺陷更新时必读",
+                "正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            AddOutcome::Duplicate(existing) => assert_eq!(existing.id, first.id),
+            _ => panic!("近似重复没被拦住"),
+        }
+        // 真的是另一个坑时,force 仍然放行(逃生门不堵死)。
+        assert!(matches!(
+            store
+                .add(
+                    "fact",
+                    "defect/req update 字段键名与值处理 SOP 防脏数据",
+                    "缺陷更新时必读",
+                    "正文",
+                    "user",
+                    &[],
+                    None,
+                    true,
+                )
+                .unwrap(),
+            AddOutcome::Added(_)
+        ));
+        // 同子系统但确属两条知识的不能误杀(实测包含度 0.32,远低于阈值)。
+        assert!(matches!(
+            store
+                .add(
+                    "sop",
+                    "活动归档同 ID 语义不同时用 repair_reused_id 修复勿直接编辑托管文档",
+                    "完整性门禁报同号时必读",
+                    "正文",
+                    "user",
+                    &[],
+                    None,
+                    false,
+                )
+                .unwrap(),
+            AddOutcome::Added(_)
+        ));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn find_by_marker_看得见candidate且吃老口径标记() {
+        let (dir, store) = temp_store();
+        let entry = match store
+            .add(
+                "fact",
+                "bash 里 git mutation 被拦",
+                "git 操作被拒时必读",
+                "正文\n[fp:bash|`git merge` is blocked in bash: git mutations must use the structured `git` tool]",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            _ => panic!("应写入"),
+        };
+        assert_eq!(entry.status, "candidate");
+        // 另一个子命令、同一道墙:归一后与正文里的老口径标记等价,
+        // 且 candidate 不再隐形——否则 manager 会把同一个坑再记一遍。
+        assert_eq!(
+            store
+                .find_by_marker("[fp:bash|`git restore` is blocked in bash: git mutations must use the structured `git` tool]")
+                .map(|e| e.id),
+            Some(entry.id.clone()),
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn decision_weight_边界与单调性() {
         // 样本不足(召回<3)不动分。
         assert_eq!(decision_weight(0, 0), 1.0);
@@ -2454,9 +2675,7 @@ mod tests {
             merged.body
         );
         assert_eq!(
-            store
-                .find_active_by_marker("[fp:edit|not found]")
-                .map(|e| e.id),
+            store.find_by_marker("[fp:edit|not found]").map(|e| e.id),
             Some(a.id.clone()),
         );
         // refs 并集进 primary。

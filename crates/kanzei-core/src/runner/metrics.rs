@@ -328,8 +328,64 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
     signals
 }
 
-/// 错误指纹:首行小写 → 抹掉含路径分隔符的 token 与全部数字 → 折叠空白 → 截 80。
-/// 目的是让「13 次 CRLF 未命中」塌成同一条,而不是 13 条。
+/// 抹掉错误原文里的易变载荷:反引号包住的片段(具体命令名、结构化 bash 的整段
+/// 命令 JSON)与花括号包住的片段(裸 JSON)。没有配对收尾就吃到行尾——错误原文
+/// 经常是被截断的。
+///
+/// 不抹会怎样(2026-08-12 实测):`permission requires user approval: bash on
+/// `{"command":"Get-ChildItem …}`` 这类错误,命令换一个字指纹就变成新的一条,
+/// index.db 的 recurrence_counts 里 11 个指纹**全部停在 1**,于是「第 2 次才建
+/// candidate、第 3 次+才晋升 active」的三段晋升门永远打不开,记忆只进不出。
+pub fn mask_volatile_payload(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut chars = line.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '`' => {
+                for c in chars.by_ref() {
+                    if c == '`' {
+                        break;
+                    }
+                }
+            }
+            '{' => {
+                let mut depth = 1usize;
+                for c in chars.by_ref() {
+                    match c {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// 把 `[fp:tool|kind]` 标记归一到当前口径。既有记忆正文里存的是**改口径之前**
+/// 生成的标记,比较时两侧都过一遍本函数才对得上——否则每次收紧指纹规则,
+/// 全部存量记忆就集体失配,复发检测直接瞎掉。归一是幂等的。
+pub fn normalize_fp_marker(marker: &str) -> String {
+    let trimmed = marker.trim();
+    let Some(rest) = trimmed.strip_prefix("[fp:") else {
+        return trimmed.to_string();
+    };
+    let rest = rest.strip_suffix(']').unwrap_or(rest);
+    let Some((tool, kind)) = rest.split_once('|') else {
+        return trimmed.to_string();
+    };
+    format!("[fp:{}|{}]", tool.trim(), failure_kind(kind))
+}
+
+/// 错误指纹:首行小写 → 抹掉易变载荷 → 抹掉含路径分隔符的 token 与全部数字 →
+/// 折叠空白 → 截 80。目的是让「13 次 CRLF 未命中」塌成同一条,而不是 13 条。
 /// R-162:从 summarize_failures 抽出为共享函数,RecallWatch(事件触发召回)复用
 /// 同一 (tool, kind) 分类口径,离线度量的失败指纹与在线触发的失败指纹必须一致。
 pub(crate) fn failure_kind(content: &str) -> String {
@@ -347,6 +403,7 @@ pub(crate) fn failure_kind(content: &str) -> String {
                 || lower.contains("did not match")
         })
         .unwrap_or(first_line);
+    let root_line = mask_volatile_payload(root_line);
     let scrubbed: Vec<String> = root_line
         .split_whitespace()
         .filter(|token| !token.contains('/') && !token.contains('\\'))
@@ -634,6 +691,51 @@ mod tests {
         // 首行截断 80 字符,长错误不撑爆索引。
         let long = failure_kind(&"x".repeat(300));
         assert_eq!(long.chars().count(), 80);
+    }
+
+    #[test]
+    fn failure_kind_抹掉命令载荷_权限错误不再每次换指纹() {
+        // 2026-08-12 实证:权限拒绝把整条命令 JSON 拼进错误原文,命令换一个字
+        // 指纹就换一条,recurrence_counts 里 11 个指纹全停在 1,三段晋升门永不打开。
+        let a = failure_kind(
+            r#"permission requires user approval: bash on `{"command":"Get-ChildItem output"}`"#,
+        );
+        let b = failure_kind(
+            r#"permission requires user approval: bash on `{"command":"git log --all --oneline"}`"#,
+        );
+        assert_eq!(a, b, "同一道权限墙必须塌成同一指纹");
+        assert!(a.contains("permission requires user approval"), "{a}");
+
+        // 反引号里的具体子命令同样是载荷:bash 里做 git mutation 是同一个坑。
+        let merge = failure_kind(
+            "`git merge` is blocked in bash: git mutations must use the structured `git` tool",
+        );
+        let restore = failure_kind(
+            "`git restore` is blocked in bash: git mutations must use the structured `git` tool",
+        );
+        assert_eq!(merge, restore, "同族 git mutation 拦截必须塌成同一指纹");
+
+        // 但不同的坑不能被抹成一条:整文件重写与 git mutation 是两条规则。
+        let rewrite = failure_kind(
+            "`Set-Content` is blocked: whole-file rewrites bypass the edit tool's validation",
+        );
+        assert_ne!(merge, rewrite, "尾部语义不同的拦截不得误并");
+    }
+
+    #[test]
+    fn normalize_fp_marker_老口径标记归一到新口径且幂等() {
+        // 存量记忆正文里的标记是收紧口径之前生成的,不归一就集体失配。
+        let stored = "[fp:bash|`git merge` is blocked in bash: git mutations must use the structured `git` tool]";
+        let fresh = format!(
+            "[fp:bash|{}]",
+            failure_kind("`git restore` is blocked in bash: git mutations must use the structured `git` tool")
+        );
+        assert_eq!(normalize_fp_marker(stored), normalize_fp_marker(&fresh));
+        // 幂等:归一结果再归一不变。
+        let once = normalize_fp_marker(stored);
+        assert_eq!(normalize_fp_marker(&once), once);
+        // 不是 fp 标记的串原样返回,不制造假指纹。
+        assert_eq!(normalize_fp_marker("随便一句话"), "随便一句话");
     }
 
     /// D-159:bash 批次多行输出时,前置 `fatal: pathspec` 根因优先于首行的

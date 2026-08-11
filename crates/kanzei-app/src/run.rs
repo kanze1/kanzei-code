@@ -623,7 +623,7 @@ pub(crate) async fn run_task(
     // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
     // D-185:提示块不再拼进 run_prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进去会随 User message 进 messages → 落 conversations → 下轮回灌累积。
-    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt);
+    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt, autonomous);
     let mut run_prompt = prompt.clone();
     // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
     // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,

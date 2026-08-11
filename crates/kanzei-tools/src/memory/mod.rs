@@ -355,13 +355,20 @@ impl FingerprintIndex {
         map
     }
 
+    /// 一条记忆的全部指纹入桶(不只第一条):同一个坑常有多个错误原文,
+    /// M-029 就同时挂 git merge / restore / rebase 三条。key 一律归一后再入桶,
+    /// 与 tier0 查询侧同口径。
     fn insert_into(map: &mut std::collections::HashMap<String, Vec<String>>, entry: &MemoryEntry) {
-        if let Some(fp) = entry.fingerprint() {
-            let fp = fp.trim().to_string();
-            if fp.is_empty() {
-                return;
+        let markers: Vec<String> = match entry.field("fingerprint") {
+            Some(fp) => vec![fp.to_string()],
+            None => fp_markers(&entry.body),
+        };
+        for marker in markers {
+            let key = kanzei_core::normalize_fp_marker(marker.trim());
+            if key.is_empty() {
+                continue;
             }
-            let ids = map.entry(fp).or_default();
+            let ids = map.entry(key).or_default();
             if !ids.contains(&entry.id) {
                 ids.push(entry.id.clone());
             }
@@ -387,10 +394,11 @@ impl FingerprintIndex {
     }
 
     /// 精确查询:给定指纹(如 `[fp:edit|old_string not found]`),返回命中 id。
-    /// 无指纹 = 空。调用方再按 valid_from/version 排。
+    /// 无指纹 = 空。调用方再按 valid_from/version 排。查询侧同样先归一,
+    /// 老口径的指纹串照样能查到(桶 key 是归一后的)。
     pub fn lookup(&self, fingerprint: &str) -> &[String] {
         self.map
-            .get(fingerprint)
+            .get(&kanzei_core::normalize_fp_marker(fingerprint))
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
@@ -503,21 +511,25 @@ impl FailureRecallPolicy {
 
     /// 指纹精确匹配(Tier0)。指纹来源:失败分类 (tool, kind) 拼成 `[fp:tool|kind]`;
     /// 也兼容条目正文里的裸 `[fp:...]` 标记(同一把 key)。
+    /// 两侧都过 `normalize_fp_marker`:存量条目里的标记是收紧口径之前生成的,
+    /// 不归一就等于每次改指纹规则都把既有记忆集体踢出复发检测。
     fn tier0(&self, tool: &str, kind: &str) -> Vec<String> {
-        let mut ids = self
-            .index
-            .get(&format!("[fp:{tool}|{kind}]"))
-            .cloned()
-            .unwrap_or_default();
+        let key = kanzei_core::normalize_fp_marker(&format!("[fp:{tool}|{kind}]"));
+        let mut ids = self.index.get(&key).cloned().unwrap_or_default();
         if !ids.is_empty() {
             return ids;
         }
-        // 兼容正文裸标记:遍历快照做一次精确子串(条目数小,可接受)。
+        // 兼容正文裸标记:遍历快照做一次归一后比对(条目数小,可接受)。
+        // 取全部标记而不只是第一条——一条记忆常覆盖同族的多个错误原文
+        // (M-029 就同时挂着 git merge / restore / rebase 三条)。
         for (id, entry) in &self.entries {
-            if entry
-                .fingerprint()
-                .is_some_and(|fp| fp.contains(&format!("{tool}|{kind}")))
-            {
+            let matched = entry
+                .field("fingerprint")
+                .map(|fp| vec![fp.to_string()])
+                .unwrap_or_else(|| fp_markers(&entry.body))
+                .iter()
+                .any(|fp| kanzei_core::normalize_fp_marker(fp) == key);
+            if matched {
                 ids.push(id.clone());
             }
         }
@@ -669,23 +681,33 @@ pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSign
         if store.note_fingerprint_seen(&fingerprint) {
             continue;
         }
-        // 复发检测(R-149):指纹已在某条 active 记忆正文里,同类失败却仍出现——
+        // 复发检测(R-149):指纹已在某条既有记忆正文里,同类失败却仍出现——
         // 记忆在、坑还在 = 它没进决策。投修订笔记点名该条目,而不是原坑重投。
-        let existing = store.find_active_by_marker(&fingerprint).or_else(|| {
-            global
-                .as_ref()
-                .and_then(|g| g.find_active_by_marker(&fingerprint))
-        });
+        // candidate 同样算数(2026-08-12):只认 active 时,未晋升的条目对
+        // manager 是隐形的,同一个坑就会被反复当成新知识再记一遍。
+        let existing = store
+            .find_by_marker(&fingerprint)
+            .or_else(|| global.as_ref().and_then(|g| g.find_by_marker(&fingerprint)));
         if let Some(entry) = existing {
             let summary = format!(
                 "已有记忆 {} 但 {} 同类失败本轮仍复发({} 次){}",
                 entry.id, signal.tool, signal.count, fingerprint
             );
+            let action = if entry.status == "candidate" {
+                format!(
+                    "该条还是 candidate(未晋升 = 检索与注入都看不见它,所以拦不住复发)。用 memory_update 把本次原文补进去,够证据就 memory_promote 升 active——**不要新建条目**,{} 这个坑在库里已经有主了。",
+                    entry.id
+                )
+            } else {
+                "用 memory_update 修订该条(补判据/改 description 召回钩子)".to_string()
+            };
             let detail = format!(
-                "- 既有条目: {}《{}》\n- 错误原文: {}\n- 判断要点: 记忆存在但没拦住复发,说明它没进决策。用 memory_update 修订该条(补判据/改 description 召回钩子,正文里的 {} 标记必须保留);只有确认这是另一个坑才新增,不要原样再记一遍。",
+                "- 既有条目: {}《{}》[{}]\n- 错误原文: {}\n- 判断要点: 记忆存在但没拦住复发,说明它没进决策。{};正文里的 {} 标记必须保留。只有确认这是另一个坑才新增,不要原样再记一遍。",
                 entry.id,
                 entry.title,
+                entry.status,
                 signal.sample.replace('\n', " "),
+                action,
                 fingerprint,
             );
             if store.append_note(&summary, &detail, "fact", &[]).is_ok() {
@@ -856,10 +878,27 @@ pub fn harvest_end_of_run(
     (delivered, sop, fact)
 }
 
-/// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
+/// 开跑预检索(R-106):拿本轮的检索键对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
-pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
-    prompt_hints_with_budget(project_root, prompt, MEMORY_CONTEXT_BUDGET)
+///
+/// `autonomous`(自主推进/鞭挞轮)时**不拿 prompt 当检索键**:那是一段每轮
+/// 一字不差的模板,拿它检索等于每轮注入同一批条目。改用 tracker 的取活条目
+/// 标题;没有可推进项就不注入(那种轮次本来也没什么可召回的)。
+pub fn prompt_hints(
+    project_root: &std::path::Path,
+    prompt: &str,
+    autonomous: bool,
+) -> Option<String> {
+    let query = if autonomous {
+        let titles = crate::tracker::workable_titles(project_root, 2);
+        if titles.is_empty() {
+            return None;
+        }
+        titles.join(" ")
+    } else {
+        prompt.to_string()
+    };
+    prompt_hints_with_budget(project_root, &query, MEMORY_CONTEXT_BUDGET)
 }
 
 /// 把一次实际记忆检索写入 state.db。CLI 的开跑预检索、memory_search 工具和
@@ -1175,10 +1214,16 @@ mod tests {
             AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
-        let hit = prompt_hints(&dir, "帮我把这一批发版出去");
+        let hit = prompt_hints(&dir, "帮我把这一批发版出去", false);
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
-        assert!(prompt_hints(&dir, "完全无关的宇宙话题").is_none());
+        assert!(prompt_hints(&dir, "完全无关的宇宙话题", false).is_none());
+        // 自动轮不拿 prompt 当检索键:这个临时项目没有 tracker 取活条目,
+        // 于是不注入——而不是用模板 prompt 去捞一批不相干的条目回来。
+        assert!(
+            prompt_hints(&dir, "帮我把这一批发版出去", true).is_none(),
+            "自动轮应改用取活条目做检索键,无取活项时不注入"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

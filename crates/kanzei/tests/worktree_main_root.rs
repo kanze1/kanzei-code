@@ -177,9 +177,20 @@ fn defects_path(root: &Path) -> PathBuf {
 
 /// 在 `cwd` 里跑 `kz defect add <title>`,`KANZEI_PROJECT_ROOT` 显式指向主根。
 /// 返回分配到的编号(stdout 形如 `added D-001 [open] <title>`)。
+/// 登记必填字段走开关传(R-191 B3 的硬门禁:缺 severity/priority/标签即拒)。
 fn spawn_defect_add(cwd: &Path, main_root: &Path, title: &str) -> std::process::Child {
     Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["defect", "add", title])
+        .args([
+            "defect",
+            "add",
+            title,
+            "--severity",
+            "low",
+            "--priority",
+            "P3",
+            "--tag",
+            "流程",
+        ])
         .current_dir(cwd)
         .env("KANZEI_PROJECT_ROOT", main_root)
         .stdin(Stdio::null())

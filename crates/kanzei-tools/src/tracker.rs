@@ -831,9 +831,7 @@ impl TrackerTool {
         }
         if self.kind.tags.is_some() {
             let has_tag = input.fields.iter().any(|(k, v)| {
-                (*k == "标签"
-                    || k.eq_ignore_ascii_case("tags")
-                    || k.eq_ignore_ascii_case("tag"))
+                (*k == "标签" || k.eq_ignore_ascii_case("tags") || k.eq_ignore_ascii_case("tag"))
                     && !v.trim().is_empty()
             });
             if !has_tag {
@@ -964,6 +962,38 @@ pub fn schedule_for_display(
             block_reasons,
         })
         .collect())
+}
+
+/// 当前可推进条目的「ID 标题」,按调度顺序取前 limit 条(阻塞的跳过)。
+///
+/// 用途:自主推进轮的记忆召回查询键。自动轮的 prompt 是固定模板,拿它去检索
+/// 等于每轮都用同一个常量查询——2026-08-12 实测,224 轮召回里 161 轮是自动轮,
+/// 反复注入同一批条目(M-006 被注入 101 次只被拉取 18 次),采纳率 22.5%,
+/// 而用户真实提问轮是 46.5%。取活条目的标题才是这一轮真正在做的事。
+pub fn workable_titles(project_root: &std::path::Path, limit: usize) -> Vec<String> {
+    let ctx = ToolCtx::new(project_root.to_path_buf(), project_root.to_path_buf());
+    let mut out = Vec::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let Ok(entries) = DocStore::open(project_root, kind).load() else {
+            continue;
+        };
+        let Ok(scheduled) = schedule_for_display(&ctx, kind, &entries) else {
+            continue;
+        };
+        for item in scheduled {
+            if out.len() >= limit {
+                return out;
+            }
+            if kind.terminal.contains(&item.entry.status.as_str()) {
+                continue;
+            }
+            if !item.block_reasons.is_empty() {
+                continue;
+            }
+            out.push(format!("{} {}", item.entry.id, item.entry.title));
+        }
+    }
+    out
 }
 
 /// R-169:自主推进(鞭挞)的 backlog 判定——桌面端与 CLI 共用同一实现
@@ -2569,7 +2599,8 @@ mod tests {
             .await;
         assert!(out.is_error, "裸 req add 必须被拒");
         assert!(
-            out.content.contains("复杂度") && out.content.contains("priority")
+            out.content.contains("复杂度")
+                && out.content.contains("priority")
                 && out.content.contains("标签"),
             "报错应提示缺哪些字段: {}",
             out.content
@@ -2609,7 +2640,11 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(out.is_error, "缺 severity 的 defect add 必须被拒: {}", out.content);
+        assert!(
+            out.is_error,
+            "缺 severity 的 defect add 必须被拒: {}",
+            out.content
+        );
         assert!(out.content.contains("severity"), "{}", out.content);
         let out = def_tool
             .execute(

@@ -565,7 +565,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 开跑预检索(R-106):prompt 命中既有记忆时前置提示块(只给索引行)。
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
-    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt);
+    // CLI 的 `kz run` 一律是用户显式发起的一轮,prompt 就是真实检索键(非自动轮)。
+    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt, false);
     let run_prompt = prompt.clone();
     let run_result = tokio::select! {
         result = run_once(
@@ -963,8 +964,42 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
             }
         }
         "add" => {
-            let title = args[2..].join(" ");
-            input["title"] = serde_json::json!(title);
+            // R-191 B3 起 req/defect 登记是硬约束(缺 severity/priority/复杂度/标签即拒),
+            // 但 CLI 这条入口只会拼标题——于是 `kz defect add` 一律被自己的门禁拒掉。
+            // 这里补上开关:`--severity/-s`、`--priority/-p`、`--complexity`、`--tag`,
+            // 其余词照旧拼成标题(位置参数语义不变,老用法只是需要补必填开关)。
+            let mut title_words: Vec<String> = Vec::new();
+            let mut fields = serde_json::Map::new();
+            let mut rest = args[2..].iter();
+            while let Some(word) = rest.next() {
+                match word.as_str() {
+                    "--severity" | "-s" => {
+                        if let Some(v) = rest.next() {
+                            input["severity"] = serde_json::json!(v);
+                        }
+                    }
+                    "--priority" | "-p" => {
+                        if let Some(v) = rest.next() {
+                            input["priority"] = serde_json::json!(v);
+                        }
+                    }
+                    "--complexity" => {
+                        if let Some(v) = rest.next() {
+                            fields.insert("复杂度".into(), serde_json::json!(v));
+                        }
+                    }
+                    "--tag" => {
+                        if let Some(v) = rest.next() {
+                            fields.insert("标签".into(), serde_json::json!(v));
+                        }
+                    }
+                    other => title_words.push(other.to_string()),
+                }
+            }
+            input["title"] = serde_json::json!(title_words.join(" "));
+            if !fields.is_empty() {
+                input["fields"] = serde_json::Value::Object(fields);
+            }
         }
         _ => {}
     }
