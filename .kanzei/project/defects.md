@@ -274,7 +274,7 @@
 - 标签: 核心
 - 证据等级: E1(2026-08-13 实测复现,含 diff 与 read 证据)
 
-## D-278 子代理面板打开后无就绪状态:侧边栏小窗口看不到「子代理可用」文案(设置页有,面板没有) [open] (medium)
+## D-278 子代理面板打开后无就绪状态:侧边栏小窗口看不到「子代理可用」文案(设置页有,面板没有) [fixing] (medium)
 - content: 侧边栏 ◉ 按钮打开的子代理面板(#agent-panel)只有「运行中/已完成/已关闭」三个分区,没有任何就绪/可用状态信息。设置页 fast 行已正确显示「✓ 子代理就绪(qwen3.5:4b)」(fast_model_status 返回 ready=true),但面板打开后用户看不到子代理是否可用——缺环时(Ollama 未装/服务未起/模型未拉)也无法从面板感知。
 - label: 前端
 - priority: P2
@@ -283,3 +283,28 @@
 - 复现: 1) 打开设置页确认 fast 行显示就绪(或缺环文案);2) 点侧边栏 ◉ 打开子代理面板;3) 面板内只有空的三分区,无任何就绪/可用文案。
 - 根因: R-174 子代理面板只消费 RunEvent 渲染运行记录,未接入 fast_model_status 就绪数据源;就绪状态只在设置页(refreshFastStatus)渲染过一次,面板打开时无独立查询与展示。
 - 进展: 修复完成:①index.html 面板头部加 #agent-panel-status 状态行(role=status);②06-agent-panel.js 新增共享函数 fastStatusText(s)(就绪/未安装/服务未运行/模型未拉取/外部 provider 文案分支)与 refreshAgentPanelStatus(打开面板时 invoke fast_model_status),面板打开即刷新,并监听 kz:fast-setup 事件保持同步;③16-settings.js refreshFastStatus 改为复用 fastStatusText,设置页与面板文案同源不再漂移;④style.css 加 .agent-panel-status 样式(warn-text 复用)。验证:node --check ×2、frontend_check(花括号完整)、ui-runtime-smoke 21 项通过、cargo test -p kanzei-app 122 passed(T-1786476071)。残余:ui 资源打包进 exe,需用户重建 kzapp 后目视确认面板打开显示就绪文案。
+- status: fixing
+- 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,面板就绪状态行无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,打开侧边栏子代理面板确认显示「✓ 子代理就绪(qwen3.5:4b)」(或缺环文案),确认后关闭。解除人:用户。
+
+## D-279 单条消息含多项诉求时只落实一部分,且被追问时用相邻动作顶替原诉求 [open] (medium)
+- severity: medium
+- priority: P1
+- label: 流程
+- 复现(有原始轨迹,2026-08-12 用户三次追问才暴露): 用户单条消息含 4 项诉求——①修复安装包图标 ②登记需求「fast 本地模型 ollama 自动安装开启 + 能看到运行状态」③登记需求「架构图渲染工具,必须代码生成非文生图」④登记需求「亮色主题 + 前端渲染器换色结构评估」。**第一轮只交付①**(提交 097e030),②③④在整轮 23 步里一次都没被提及,收尾总结也没说明漏了什么。用户追问「登记需求做了吗」后,**第二轮把①补登成 D-277**(图标缺陷)并回「登记完成」——追问指向的是那 3 条需求,回应却是给已交付的①补条目,3 条需求仍然零动作。用户第三次把原始消息整段贴回才被发现。
+- 证据(2026-08-12 03: 20 核实): `.kanzei/project/requirements.md` 里 R-188(③)、R-189(④)存在但未提交,**②对应的条目全仓库不存在**——`grep -rn "ollama" .kanzei/project/requirements.md` 零命中,requirements-archive.md 里只有 2026-08-08 的 R-136(已 done,只覆盖「一键安装」,不覆盖用户这次要的「自动开启 + 常驻运行状态」)。即 4 项诉求最终:2 项落地、1 项被相邻动作顶替、1 项彻底丢失。②已于本次补登为 R-190。
+- 根因(待证): ①轮内没有把用户单条消息里的多项诉求拆成显式清单,诉求项在长轮次里靠模型自己记,记漏了没有任何机制会发现——收尾总结是自由文本,不与原始诉求逐项对照,所以「漏了 3 项」还能写成「登记完成」;②被追问「做了吗」时没有回读原始消息逐项核对,而是拿手边最近的相邻动作(补登 D-277)充数——这与 §1.25 已禁止的「以相邻交付冒充验收」是同一个动作,只是发生在**用户诉求层**而不是验收条款层,现有约束没有覆盖到。
+- 影响: 自举模式下「用户登记需求」是整个流程的入口,漏掉一项等于该诉求彻底消失——没有任何后续机制会重新发现它(缺陷/需求扫描只扫已登记条目)。且漏项被总结成「完成」,用户只能靠人工比对原始消息才能发现,发现成本远高于登记成本。本次是用户三次追问才捞回来,若用户没坚持,R-190 这条诉求就永久丢了。
+- 期望: 单条消息含多项诉求时,轮内有显式的逐项清单;收尾时逐项给出「已做/未做/为什么」,漏项不得被总结成「完成」。被追问是否遗漏时,必须回读原始消息逐项核对,不得用相邻动作顶替。
+- 处置建议(不在本条强行拍形态): 与 §1.25「不得以相邻交付冒充验收」同源,可考虑把该约束从验收层扩到用户诉求层;机制侧可选的最轻形态是轮首把用户消息里的祈使项拆成 todo 清单、收尾对照该清单再产出总结。
+- refs: D-277 R-188 R-189 R-190
+- status: open
+
+## D-280 「回到最新」按钮悬浮位置错误:相对 #main 硬编码 bottom:92px,被输入区遮挡 [open] (medium)
+- content: 「回到最新」按钮(#jump-latest)悬浮位置错误:它用 position:absolute 相对 #main 定位,bottom:92px 是硬编码,而 #composer 实际高度约 120px+(padding 24 + textarea 3 行 + composer-bar),按钮被压在输入区里;附件条/继续文案面板展开时被遮挡更严重。
+- label: 前端
+- priority: P2
+- severity: low
+- 修复: 把按钮移进 #messages 内部并给 #messages 加 position:relative,按钮改为 right:22px;bottom:14px 相对消息区右下角悬浮,composer 高度变化不再影响;删除已失效的 #messages + #jump-latest 兄弟选择器规则。
+- 复现: 1) 长对话向上滚动,出现「回到最新」按钮;2) 按钮落在输入框区域内/紧贴输入框,而不是悬浮在消息列表右下角。
+- 根因: #jump-latest 是 #messages 的兄弟节点,包含块是 #main(position:relative),bottom:92px 相对整个主视图底部,与 composer 真实高度不耦合。
+- 进展: 修复完成:①index.html 把 #jump-latest 从 #messages 兄弟位移进 #messages 内部(empty-state 之后);②style.css #messages 加 position:relative,#jump-latest 改为 right:22px;bottom:14px(相对消息区右下角悬浮,与 messages padding 对齐),删除已失效的 #messages + #jump-latest 兄弟选择器。验证:frontend_check 花括号完整、ui-runtime-smoke 21 项通过 0 错误(T-1786476379)。影响范围:仅对话视图「回到最新」按钮定位,JS 引用(getElementById)不受父子结构影响。残余:ui 打包进 exe,需重建 kzapp 后目视确认按钮悬浮在消息列表右下角、输入框上方。

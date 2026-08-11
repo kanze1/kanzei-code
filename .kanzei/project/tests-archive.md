@@ -1830,3 +1830,9 @@
 - 摘要: 122 passed, 0 failed — D-278 前端修复(子代理面板就绪状态行)不影响后端;node --check ×2、frontend_check、ui-runtime-smoke 21 项全过
 - 关联: D-278
 - 收尾: 1786476071
+
+## T-1786476379 前端冒烟:D-280 回到最新按钮悬浮位置修复 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs + frontend_check
+- 摘要: 「回到最新」按钮移入 #messages 相对定位:frontend_check 花括号完整、ui-runtime-smoke 21 项通过 0 运行时错误;HTML 结构确认按钮在 section#messages 内、footer#composer 外
+- 关联: D-280
+- 收尾: 1786476379

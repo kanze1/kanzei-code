@@ -553,9 +553,8 @@ select {
   border-radius: 4px; padding: 3px 8px; font: inherit; font-size: 12px;
 }
 
-#messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
-#jump-latest { position: absolute; right: 28px; bottom: 92px; z-index: 2; box-shadow: 0 2px 8px #0008; }
-#messages + #jump-latest { align-self: flex-end; }
+#messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+#jump-latest { position: absolute; right: 22px; bottom: 14px; z-index: 2; box-shadow: 0 2px 8px #0008; }
 #messages .message-body { min-width: 0; }
 .msg { position: relative; }
 .msg-actions { position: absolute; right: 4px; top: 2px; opacity: 0; transition: opacity .12s; }
