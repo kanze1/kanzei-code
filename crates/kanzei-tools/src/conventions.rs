@@ -462,7 +462,7 @@ mod tests {
         let crlf = "## 1. 语言与沟通\r\n\r\n- 旧行一。\r\n- 旧行二。\r\n\r\n## 2. 之后\r\n";
         std::fs::write(root.join(CONVENTIONS_REL), crlf).unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let mut input = serde_json::json!({
+        let input = serde_json::json!({
             "action": "patch",
             "old_string": "- 旧行一。\n- 旧行二。",
             "new_string": "- 新行。",
@@ -485,7 +485,7 @@ mod tests {
         let lf = "## 1.\n\n- 甲。\n\n## 2.\n";
         std::fs::write(root2.join(CONVENTIONS_REL), lf).unwrap();
         let ctx2 = ToolCtx::new(root2.clone(), root2.clone());
-        let mut input2 = serde_json::json!({
+        let input2 = serde_json::json!({
             "action": "patch",
             "old_string": "- 甲。\r\n\r\n## 2.",
             "new_string": "- 乙。\r\n\r\n## 2.",
@@ -506,7 +506,7 @@ mod tests {
         let crlf = "## 1.1 需求取活与阻塞调度\r\n\r\n- 需求列表按文件顺序自上而下扫描，顺序代表用户意图；priority 只用于背景判断，不得改变取活顺序。\r\n- **`阻塞:` 字段只留给外部阻塞**——即解除权不在 agent 手里的四类：①已经把方案发给用户、正在等回复；②缺凭据/权限/环境；③依赖外部服务或他人；④用户明确宣布该条自己直营。写入时必须带**具名的解除人**（谁做什么才能解除），写不出具名解除人的就不是外部阻塞。\r\n\r\n## 1.2 关闭边界\r\n";
         std::fs::write(root.join(CONVENTIONS_REL), crlf).unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let mut input = serde_json::json!({
+        let input = serde_json::json!({
             "action": "patch",
             "old_string": "- 需求列表按文件顺序自上而下扫描，顺序代表用户意图；priority 只用于背景判断，不得改变取活顺序。\n- **`阻塞:` 字段只留给外部阻塞**——即解除权不在 agent 手里的四类：①已经把方案发给用户、正在等回复；②缺凭据/权限/环境；③依赖外部服务或他人；④用户明确宣布该条自己直营。写入时必须带**具名的解除人**（谁做什么才能解除），写不出具名解除人的就不是外部阻塞。",
             "new_string": "- 替换行。",

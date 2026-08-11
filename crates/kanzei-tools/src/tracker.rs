@@ -810,9 +810,7 @@ impl TrackerTool {
     fn check_add_required(&self, input: &TrackerInput) -> Option<String> {
         // 只有带 priorities 的追踪文档(req/defect)有登记硬约束;
         // goal/source/finding/memory/decision(priorities None)不受影响。
-        if self.kind.priorities.is_none() {
-            return None;
-        }
+        self.kind.priorities?;
         let mut missing: Vec<&str> = Vec::new();
         if self.kind.severities.is_some() {
             if input.severity.is_none() {
