@@ -108,6 +108,8 @@ pub(crate) struct SessionRuntime {
     pub(crate) lifecycle: Arc<Mutex<()>>,
     pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     pub(crate) live: Arc<Mutex<LiveRun>>,
+    /// 最近一次真实 `kz:status` 阶段,供跨线并列视图读取。
+    pub(crate) stage: Arc<Mutex<String>>,
     /// R-174:本会话运行中的子代理取消注册表。`stop_task` 命令按 id 命中即取消,
     /// run_task 构造 SubagentRuntime 时把它塞进 `cancellations` 字段,单一实例共享。
     pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
@@ -263,6 +265,7 @@ impl Default for SessionRuntime {
             lifecycle: Arc::new(Mutex::new(())),
             conversation: Arc::new(Mutex::new(HashMap::new())),
             live: Arc::new(Mutex::new(LiveRun::default())),
+            stage: Arc::new(Mutex::new("空闲".into())),
             task_cancellations: Arc::new(kanzei_core::TaskCancellations::default()),
         }
     }
@@ -394,6 +397,7 @@ pub(crate) fn stop_runtime_and_finalize(
     }
     runtime.asks.lock().unwrap().clear();
     runtime.running.store(false, Ordering::SeqCst);
+    *runtime.stage.lock().unwrap() = "空闲".into();
     store.finalize_interrupt(session_id)
 }
 pub(crate) fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {

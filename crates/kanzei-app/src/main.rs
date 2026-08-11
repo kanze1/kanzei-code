@@ -192,6 +192,7 @@ fn main() {
             processes::process_create,
             processes::process_update,
             processes::process_close,
+            collaboration::collaboration_snapshot,
             processes::worktree_create,
             processes::worktree_list,
             processes::worktree_diff,

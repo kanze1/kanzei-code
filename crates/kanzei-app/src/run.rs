@@ -40,6 +40,7 @@ pub(crate) async fn run_task(
     // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     block_tracker_writes: bool,
     collaboration_probe: crate::collaboration::CollaborationProbe,
+    current_stage: Arc<Mutex<String>>,
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
@@ -60,6 +61,7 @@ pub(crate) async fn run_task(
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
+        *current_stage.lock().unwrap() = name.to_string();
         emit_stage(window, &session_id, name, detail);
     };
 
@@ -1782,6 +1784,7 @@ pub(crate) async fn run_prompt(
     let live_run = runtime.live.clone();
     let task_cancellations = runtime.task_cancellations.clone();
     let runtime_for_task = runtime.clone();
+    let current_stage = runtime.stage.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
     let auto_runs = state.auto_runs.clone();
     // R-171:项目级协调器与进程身份传给 writer run(写租约申请用)。
@@ -1811,6 +1814,7 @@ pub(crate) async fn run_prompt(
                 phase_pipeline_enabled,
                 block_tracker_writes,
                 collaboration_probe.clone(),
+                current_stage.clone(),
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
@@ -1881,6 +1885,11 @@ pub(crate) async fn run_prompt(
             "kz:idle",
             with_session_id(json!({ "reason": idle_reason }), &session_id),
         );
+        *runtime_for_task.stage.lock().unwrap() = if idle_reason == "failed" {
+            "失败".into()
+        } else {
+            "空闲".into()
+        };
         runtime_for_task.current_run.lock().unwrap().take();
     });
     *runtime.current_run.lock().unwrap() = Some(handle);

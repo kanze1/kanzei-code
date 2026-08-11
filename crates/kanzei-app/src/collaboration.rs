@@ -17,6 +17,12 @@ pub(crate) struct CollaborationLine {
     pub(crate) branch: String,
     pub(crate) worktree_path: Option<String>,
     pub(crate) claim: String,
+    pub(crate) phase: String,
+    pub(crate) current_tool: Option<String>,
+    pub(crate) running: bool,
+    pub(crate) steps: u32,
+    pub(crate) input_tokens: u64,
+    pub(crate) output_tokens: u64,
     pub(crate) changed_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) changed_files_error: Option<String>,
@@ -48,6 +54,15 @@ impl CollaborationProbe {
 
     /// 当前项目里其它正在运行的线。锁内只克隆句柄;git 与 live 采样全部在锁外。
     pub(crate) fn active_others(&self) -> Vec<CollaborationLine> {
+        self.collect_lines(false, true)
+    }
+
+    /// 前端并列视图读取当前项目全部线(含 idle)。与 agent 协作块共用同一采样路径。
+    pub(crate) fn all_lines(&self) -> Vec<CollaborationLine> {
+        self.collect_lines(true, false)
+    }
+
+    fn collect_lines(&self, include_current: bool, running_only: bool) -> Vec<CollaborationLine> {
         let origin = self.origin_project.display().to_string();
         let handles = self
             .processes
@@ -55,7 +70,8 @@ impl CollaborationProbe {
             .unwrap()
             .values()
             .filter(|process| {
-                process.origin_project == origin && process.id != self.current_process_id
+                process.origin_project == origin
+                    && (include_current || process.id != self.current_process_id)
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -64,13 +80,28 @@ impl CollaborationProbe {
             .into_iter()
             .filter_map(|process| {
                 let session_id = process_session_id(&self.origin_project, Some(&process.id));
-                let runtime = runtimes.get(&session_id)?;
-                if !runtime.running.load(std::sync::atomic::Ordering::SeqCst) {
+                let runtime = runtimes.get(&session_id);
+                let running = runtime.is_some_and(|runtime| {
+                    runtime.running.load(std::sync::atomic::Ordering::SeqCst)
+                });
+                if running_only && !running {
                     return None;
                 }
-                let live = runtime.live.lock().unwrap();
-                let claim = claim_from_prompt(&live.prompt_head);
-                drop(live);
+                let (claim, current_tool, steps, input_tokens, output_tokens) = runtime
+                    .map(|runtime| {
+                        let live = runtime.live.lock().unwrap();
+                        (
+                            claim_from_prompt(&live.prompt_head),
+                            current_tool(&live.trace),
+                            live.steps,
+                            live.input_tokens,
+                            live.output_tokens,
+                        )
+                    })
+                    .unwrap_or_else(|| ("未声明条目".into(), None, 0, 0, 0));
+                let phase = runtime
+                    .map(|runtime| runtime.stage.lock().unwrap().clone())
+                    .unwrap_or_else(|| "空闲".into());
                 let code_root = process
                     .worktree_path
                     .as_deref()
@@ -92,6 +123,12 @@ impl CollaborationProbe {
                     branch,
                     worktree_path: process.worktree_path,
                     claim,
+                    phase,
+                    current_tool,
+                    running,
+                    steps,
+                    input_tokens,
+                    output_tokens,
                     changed_files,
                     changed_files_error,
                 })
@@ -111,6 +148,18 @@ impl CollaborationProbe {
             &lines,
         ))
     }
+}
+
+fn current_tool(trace: &[serde_json::Value]) -> Option<String> {
+    let latest = trace.iter().rev().find(|event| {
+        matches!(
+            event.get("kind").and_then(serde_json::Value::as_str),
+            Some("tool.started" | "tool.completed")
+        )
+    })?;
+    (latest.get("kind")?.as_str()? == "tool.started")
+        .then(|| latest.get("name")?.as_str().map(str::to_string))
+        .flatten()
 }
 
 fn process_label(process: &ProcessHandle) -> String {
@@ -233,8 +282,14 @@ fn render_lines(title: &str, lines: &[CollaborationLine]) -> String {
             line.changed_files.join(", ")
         };
         output.push(format!(
-            "- {} ({}) · claim: {} · branch: {} · changed files: {}",
-            line.label, line.process_id, line.claim, line.branch, files
+            "- {} ({}) · claim: {} · branch: {} · phase: {} · tool: {} · changed files: {}",
+            line.label,
+            line.process_id,
+            line.claim,
+            line.branch,
+            line.phase,
+            line.current_tool.as_deref().unwrap_or("none"),
+            files
         ));
     }
     output.push(
@@ -242,6 +297,28 @@ fn render_lines(title: &str, lines: &[CollaborationLine]) -> String {
             .into(),
     );
     output.join("\n")
+}
+
+/// R-184 B 面:跨线并列视图的只读 IPC。进程注册先从 state.db 恢复,避免重启后漏线。
+#[tauri::command]
+pub(crate) async fn collaboration_snapshot(
+    state: tauri::State<'_, crate::AppState>,
+    project_dir: String,
+) -> Result<Vec<CollaborationLine>, String> {
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    crate::ensure_default_process(&state, &root);
+    crate::processes::restore_processes_from_store(&state, &root)?;
+    let probe = CollaborationProbe::new(
+        state.processes.clone(),
+        state.runtimes.clone(),
+        root,
+        String::new(),
+    );
+    // git status/diff 在大仓可能到秒级；轮询 IPC 用阻塞线程池采样，不能占住
+    // Tauri 命令执行线程拖慢其它线路的发送、停止与权限响应。
+    tauri::async_runtime::spawn_blocking(move || probe.all_lines())
+        .await
+        .map_err(|error| format!("并行线路采样任务失败: {error}"))
 }
 
 pub(crate) struct CollaborationComponent {
@@ -389,13 +466,17 @@ mod tests {
             .unwrap()
             .insert(other.id.clone(), other.clone());
         let other_runtime = runtime_for(&state, &process_session_id(&canonical, Some(&other.id)));
-        other_runtime.live.lock().unwrap().begin(
-            "run-r184",
-            "input-r184",
-            "继续推进 R-184",
-            "test",
-            "test",
-        );
+        {
+            let mut live = other_runtime.live.lock().unwrap();
+            live.begin("run-r184", "input-r184", "继续推进 R-184", "test", "test");
+            live.steps = 3;
+            live.input_tokens = 1200;
+            live.output_tokens = 300;
+            live.trace.push(serde_json::json!({
+                "kind": "tool.started", "id": "call-1", "name": "edit"
+            }));
+        }
+        *other_runtime.stage.lock().unwrap() = "实现".into();
 
         let probe = CollaborationProbe::new(
             state.processes.clone(),
@@ -419,6 +500,22 @@ mod tests {
         assert!(snapshot.system_baseline().is_empty());
         other_runtime.running.store(true, Ordering::SeqCst);
         std::fs::write(root.join("first.rs"), "first\n").unwrap();
+        let all = probe.all_lines();
+        let other_line = all
+            .iter()
+            .find(|line| line.process_id == other.id)
+            .expect("并列视图漏掉运行线");
+        assert!(other_line.running);
+        assert_eq!(other_line.phase, "实现");
+        assert_eq!(other_line.current_tool.as_deref(), Some("edit"));
+        assert_eq!(
+            (
+                other_line.steps,
+                other_line.input_tokens,
+                other_line.output_tokens
+            ),
+            (3, 1200, 300)
+        );
         let first = snapshot.refreshable_system_baseline_with_report().0;
         assert!(
             first.contains("R-184"),

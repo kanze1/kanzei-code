@@ -601,6 +601,7 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         }
         runtime.asks.lock().unwrap().clear();
         runtime.running.store(false, Ordering::SeqCst);
+        *runtime.stage.lock().unwrap() = "空闲".into();
     }
     // 自主推进控制器与进程生命周期同源；关闭后不能让下次同 ID 会话继承旧轮数。
     state.auto_runs.lock().unwrap().remove(&session_id);

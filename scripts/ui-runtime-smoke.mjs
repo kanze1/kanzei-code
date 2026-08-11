@@ -706,10 +706,24 @@ const payloads = {
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
-    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main" },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
     // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
     { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false },
+  ],
+  collaboration_snapshot: [
+    {
+      process_id: "d|smoke", label: "主会话", branch: "main", worktree_path: null,
+      claim: "R-184 并行主线", phase: "复核", current_tool: null, running: false,
+      steps: 8, input_tokens: 2400, output_tokens: 600,
+      changed_files: ["crates/shared.rs", "docs/main.md"],
+    },
+    {
+      process_id: "p|bg", label: "后台会话", branch: "thread-a1", worktree_path: "C:/smoke/wt/thread-a1",
+      claim: "R-184 并行分支", phase: "实现", current_tool: "edit", running: true,
+      steps: 3, input_tokens: 1200, output_tokens: 300,
+      changed_files: ["crates/shared.rs", "crates/branch.rs"],
+    },
   ],
   pending_asks_get: [],
   // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
@@ -4159,6 +4173,55 @@ const docsB = {
   assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
 
+// ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------
+{
+  await gotoProject(PROJECT, savedDocsPayload);
+  const linesButton = document.querySelector('.activity-item[data-view="lines"]');
+  assert(linesButton, "活动栏缺少并行线路入口");
+  const beforeOpen = invokeArgs.length;
+  linesButton?.click();
+  await flush();
+  const openCalls = invokeArgs.slice(beforeOpen);
+  assert(
+    openCalls.some((entry) => entry.cmd === "collaboration_snapshot" && entry.args?.projectDir === PROJECT),
+    `打开并行线路没有读取真实 collaboration_snapshot(${JSON.stringify(openCalls)})`,
+  );
+  const lanes = document.querySelectorAll("#lines-list .line-lane");
+  assert(lanes.length === 2, `并列视图没有渲染两条线路(实得 ${lanes.length})`);
+  // harness 的 index.html 解析只登记静态 id,不重建完整父子树；动态线路需从
+  // #lines-list 的真实后代读取，不能靠 #view-lines 汇总 textContent。
+  const linesText = lanes.map((lane) => lane.textContent).join("\n");
+  const claims = document.querySelectorAll("#lines-list .line-claim").map((node) => node.textContent);
+  assert(
+    claims.length === 2 && claims.every((claim) => claim.startsWith("R-184")) && new Set(claims).size === 2,
+    `并列视图没有分别显示两条真实 claim(${JSON.stringify(claims)})`,
+  );
+  // 冒烟前半段已切到英文；固定标签和恰好命中词典的中文值会被本地化，下面只断言
+  // 语言无关的现场值，阶段另允许中英两种等价值。
+  for (const expected of ["实现", "edit", "thread-a1", "crates/shared.rs"]) {
+    assert(linesText.includes(expected), `并列视图漏掉真实字段:${expected}(实得:${linesText})`);
+  }
+  assert(linesText.includes("复核") || linesText.includes("Review"), `并列视图漏掉真实阶段复核(实得:${linesText})`);
+  assert(
+    document.querySelectorAll("#lines-list .line-agent-code").map((node) => node.textContent).join("") === "MA",
+    "线路没有同时显示稳定的 M/A 文本身份",
+  );
+  assert(
+    document.querySelectorAll("#lines-conflict-list .line-conflict").length === 1 &&
+      (document.querySelector("#lines-conflict-list .line-conflict")?.textContent ?? "").includes("crates/shared.rs"),
+    "共享改动文件没有在发起合并前形成可下钻的跨线冲突预警",
+  );
+  const semanticNote = byId.get("lines-semantic-note")?.textContent ?? "";
+  assert(
+    semanticNote.includes("语义层未检查") || semanticNote.includes("semantic overlap unchecked"),
+    `并列视图缺少语义冲突未检查的固定边界提示(实得:${semanticNote})`,
+  );
+  assert(
+    !openCalls.some((entry) => entry.cmd === "worktree_merge"),
+    "查看冲突预警不应偷偷触发合并",
+  );
+}
+
 // ---------- 线清单来自 git,前端不再持有清单状态(R-177 内容③ / D-251 / D-257) ----------
 // 清单真源改成后端 `worktree_list`(它跑 `git worktree list --porcelain`)之后,
 // 原来那两条护栏守的性质没有消失,只是换了形态,所以**等价重写而不是删除**:
@@ -4179,7 +4242,11 @@ const docsB = {
     args?.projectDir === PROJECT_B
       ? [wtItem(WT_B, "thread-b")]
       : [wtItem(WT_A1, "thread-a1"), wtItem(WT_A2, "thread-a2")];
-  payloads.worktree_create = wtItem(WT_A1, "thread-a1");
+  payloads.process_create = {
+    id: "p2|smoke", label: "线路 2", session_id: "sess-line-2", running: false,
+    worktree_path: WT_A1, branch: "thread-a1", tracker_writes: false,
+  };
+  payloads.worktree_merge = "已合并工作树";
   payloads.worktree_discard = "已放弃工作树";
 
   // 写入去向探针:方向反过来了。以前查「有没有写错键」,现在查「还写不写」。
@@ -4249,22 +4316,41 @@ const docsB = {
       `实得 ${JSON.stringify(paintedAfterSwitch)}`,
   );
 
-  // ---------- ② 建线不再维护任何前端清单 ----------
+  // ---------- ② 合并前先读取冲突现场,再进入 Git 合并 ----------
+  const mergeButton = document.querySelector("#worktree-list .worktree-merge");
+  const beforeMerge = invokeArgs.length;
+  mergeButton?.click();
+  await flush();
+  const mergeCalls = invokeArgs.slice(beforeMerge);
+  const snapshotIndex = mergeCalls.findIndex((entry) => entry.cmd === "collaboration_snapshot");
+  const mergeIndex = mergeCalls.findIndex((entry) => entry.cmd === "worktree_merge");
+  assert(
+    snapshotIndex >= 0 && mergeIndex > snapshotIndex,
+    `worktree_merge 没有经过先预警后合并的顺序(${JSON.stringify(mergeCalls)})`,
+  );
+
+  // ---------- ③ 建线原子创建「工作树 + 进程绑定」,前端不维护影子清单 ----------
   await gotoProject(PROJECT, docsA);
   const beforeAdd = invokeArgs.length;
   byId.get("worktree-add").click();
   await flush();
   const addCalls = invokeArgs.slice(beforeAdd);
   assert(
-    addCalls.some((entry) => entry.cmd === "worktree_create" && entry.args?.projectDir === PROJECT),
-    `新建工作树没有替项目甲发出 worktree_create(${JSON.stringify(addCalls)})`,
+    addCalls.some((entry) => entry.cmd === "process_create" && entry.args?.projectDir === PROJECT &&
+      entry.args?.worktreeName?.startsWith("line-") && entry.args?.phasePipeline === false &&
+      entry.args?.trackerWrites === false),
+    `新建线路没有原子发出带 worktreeName 的 process_create(${JSON.stringify(addCalls)})`,
+  );
+  assert(
+    !addCalls.some((entry) => entry.cmd === "worktree_create"),
+    "建线仍在调用只建树不绑进程的 worktree_create",
   );
   assert(
     addCalls.some((entry) => entry.cmd === "worktree_list"),
     "新建之后没有重新向 git 要清单(前端已不持有清单,不刷就看不见新树)",
   );
 
-  // ---------- ③ 前端不得再写任何 kz-worktrees 键 ----------
+  // ---------- ④ 前端不得再写任何 kz-worktrees 键 ----------
   assert(
     wtWrites.length === 0,
     `前端仍在写 localStorage 工作树清单(${wtWrites.join(" / ")}):清单真源已经是 git,` +
@@ -4274,7 +4360,8 @@ const docsB = {
   // 收尾:摘掉写入探针与桩,切回项目甲并还原快照。
   localStorageShim.setItem = rawSetItem;
   delete payloads.worktree_list;
-  delete payloads.worktree_create;
+  delete payloads.process_create;
+  delete payloads.worktree_merge;
   delete payloads.worktree_discard;
   await gotoProject(PROJECT, savedDocsPayload);
   delete payloads.projects_select;

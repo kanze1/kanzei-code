@@ -63,6 +63,7 @@ async function handleWorktreeAction(item, action) {
       return;
     }
     if (action === "discard" && !window.confirm(`${t("放弃工作树")} ${item.branch}？${t("未提交改动会阻止删除并保留现场")}`)) return;
+    if (action === "merge" && !(await confirmWorktreeMerge(item, forProject))) return;
     const command = action === "merge" ? "worktree_merge" : "worktree_discard";
     const result = await invoke(command, { projectDir: forProject, worktreePath: item.path });
     if (String(result).length > 160) {
@@ -82,19 +83,29 @@ async function handleWorktreeAction(item, action) {
 // `}("click", refreshWorktrees);` —— 语法合法、node --check 通过,按钮却全仓无监听器。
 // 改动这一带时注意别再把它并进上面的函数尾行。
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
-$("worktree-add").addEventListener("click", async () => {
+async function createWorktreeLine() {
   if (!currentProject) return;
   // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
-  const name = `thread-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+  const name = `line-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
   try {
-    const item = await invoke("worktree_create", { projectDir: forProject, name });
-    toast(`${t("隔离工作树已创建")}:${item.path}`);
-    await refreshWorktrees();
+    // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
+    // 一棵没有会话身份的孤树，看得见却不能并行跑任务。
+    const item = await invoke("process_create", {
+      projectDir: forProject,
+      worktreeName: name,
+      phasePipeline: false,
+      trackerWrites: false,
+    });
+    if (currentProject !== forProject) return;
+    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+    await switchProcess(item.id);
+    toast(`${t("并行线路已创建")}:${item.branch || name}`);
   } catch (error) {
-    toastError(`创建工作树失败:${error}`);
+    toastError(`${t("创建并行线路失败")}:${error}`);
   }
-});
+}
+$("worktree-add").addEventListener("click", createWorktreeLine);
 
 // ---------- R-030:项目内独立进程 ----------
 let syncedRunningProcessId = null;
