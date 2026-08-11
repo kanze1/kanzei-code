@@ -3963,6 +3963,58 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批8:设置页域迁移(标题/关于/全部 details 区块/动态字符串) ----------
+// 设置页 h1/说明(span 包裹保留 code#settings-path)/关于 kanzei 三行/界面语言/模型角色
+// (保存到·作用域 option·primary·fast·探测·一键就绪)/Provider(测试·表头·添加)/网络与默认
+// (代理 option·默认模式 option·思考强度 option)/运行上限(六组 label+说明)/验证与提交节奏
+// (全量/定向/提交/push 的 option 与 title)/移动端桥接/已记住的权限/工作资料导出/版本与更新/
+// 底部动作区 全部挂 data-i18n-key/data-i18n-title/data-i18n-placeholder。16-settings.js 的
+// 11 处动态模板改走 t()(删除失败/读取权限规则失败/本页·实际生效·未设/手填×2/设置读取失败/
+// 启动·停止桥接失败/保存失败/选择导出目录失败/导出失败),词典补 本页/实际生效/手填 三 key。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  const b8Key = (key) => [...sandbox.document.querySelectorAll("[data-i18n-key]")].find((el) => el.dataset.i18nKey === key)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b8Key("设置") === "设置", "中文态设置页标题应保持原文(前置失效)");
+  assert(b8Key("模型角色") === "模型角色", "中文态「模型角色」应保持原文(前置失效)");
+  assert(attrOf("export-output-dir", "placeholder") === "选择导出目录", "中文态导出目录 placeholder 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(b8Key("设置") === "Settings", `英文态「设置」未翻译,实际 "${b8Key("设置")}"`);
+  assert(b8Key("关于 kanzei") === "About kanzei", `英文态「关于 kanzei」未翻译,实际 "${b8Key("关于 kanzei")}"`);
+  assert(b8Key("模型角色") === "Model roles", `英文态「模型角色」未翻译,实际 "${b8Key("模型角色")}"`);
+  assert(b8Key("保存到") === "Save to", `英文态「保存到」未翻译(span 包裹保留 hint),实际 "${b8Key("保存到")}"`);
+  assert(b8Key("全局配置") === "Global config", `英文态「全局配置」未翻译(option 渲染点),实际 "${b8Key("全局配置")}"`);
+  assert(b8Key("主循环") === "Main loop", `英文态「主循环」未翻译(span 包裹),实际 "${b8Key("主循环")}"`);
+  assert(b8Key("重新探测模型") === "Re-detect models", `英文态「重新探测模型」未翻译,实际 "${b8Key("重新探测模型")}"`);
+  assert(b8Key("测试全部连通性") === "Test connectivity", `英文态「测试全部连通性」未翻译,实际 "${b8Key("测试全部连通性")}"`);
+  assert(b8Key("思考强度") === "Reasoning effort", `英文态「思考强度」未翻译,实际 "${b8Key("思考强度")}"`);
+  assert(b8Key("主对话输出上限") === "Main output cap", `英文态「主对话输出上限」未翻译,实际 "${b8Key("主对话输出上限")}"`);
+  assert(b8Key("验证与提交节奏") === "Verification & commit cadence", `英文态「验证与提交节奏」未翻译,实际 "${b8Key("验证与提交节奏")}"`);
+  assert(b8Key("全量测试") === "Full test suite", `英文态「全量测试」未翻译,实际 "${b8Key("全量测试")}"`);
+  assert(b8Key("每 N 批") === "Every N batches", `英文态「每 N 批」未翻译(option 渲染点),实际 "${b8Key("每 N 批")}"`);
+  assert(b8Key("移动端桥接") === "Mobile bridge", `英文态「移动端桥接」未翻译,实际 "${b8Key("移动端桥接")}"`);
+  assert(b8Key("已记住的权限") === "Saved permissions", `英文态「已记住的权限」未翻译,实际 "${b8Key("已记住的权限")}"`);
+  assert(b8Key("工作资料导出") === "Export work materials", `英文态「工作资料导出」未翻译,实际 "${b8Key("工作资料导出")}"`);
+  assert(b8Key("检查更新") === "Check for updates", `英文态「检查更新」未翻译,实际 "${b8Key("检查更新")}"`);
+  assert(b8Key("保存") === "Save", `英文态「保存」未翻译,实际 "${b8Key("保存")}"`);
+  assert(attrOf("set-save-scope", "title") === "Scope selector (v1) covers model roles only; Providers and API keys always go to the global config", `英文态作用域 title 未翻译,实际 "${attrOf("set-save-scope", "title")}"`);
+  assert(attrOf("export-output-dir", "placeholder") === "Choose an export directory", `英文态导出目录 placeholder 未翻译,实际 "${attrOf("export-output-dir", "placeholder")}"`);
+  assert(attrOf("set-cadence-full-test-batches", "title") === "Interval in batches for every-N-batches", `英文态每 N 批 title 未翻译,实际 "${attrOf("set-cadence-full-test-batches", "title")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b8Key("设置") === "设置", `切回中文后「设置」未回原文,实际 "${b8Key("设置")}"`);
+  assert(b8Key("保存到") === "保存到", `切回中文后「保存到」未回原文,实际 "${b8Key("保存到")}"`);
+  assert(attrOf("export-output-dir", "placeholder") === "选择导出目录", `切回中文后导出目录 placeholder 未回原文,实际 "${attrOf("export-output-dir", "placeholder")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,

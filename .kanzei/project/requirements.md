@@ -133,8 +133,8 @@
 
 - 标签: 前端
 
-- 批次: 7/10
-- 进展: 批1-6 已提交(止血/静态 DOM/顶栏·对话区·工作区/架构浏览/文档页/记忆页)。批7(本轮):指标页+文件页域迁移——指标页 h1/说明/跨轮趋势·逐轮画像 aria-label;文件页排序(按行数+title)/标注(title)/刷新(title+aria-label)/文件树 aria-label/占位说明 全部挂 data-i18n-key/data-i18n-title/data-i18n-aria-label。17-files.js 仅 1 处注释含中文(非界面文案),指标渲染在 13-memory.js 已走 t()。B7 断言组覆盖文本/title/aria-label/占位 中英切换。四条冒烟全绿。剩余:设置/活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
+- 批次: 8/10
+- 进展: 批1-7 已提交(止血/静态 DOM/顶栏·对话区·工作区/架构浏览/文档页/记忆页/指标+文件页)。批8(本轮):设置页域整体迁移——h1/说明(span 包裹保留 code#settings-path)/关于 kanzei/界面语言/模型角色(保存到+作用域 option+primary·fast+探测+一键就绪)/Provider(测试+表头+添加)/网络与默认(代理·默认模式·思考强度 option)/运行上限(六组 label+说明)/验证与提交节奏(全量/定向/提交/push 的 option 与 title)/移动端桥接/已记住的权限/工作资料导出(placeholder)/版本与更新/底部动作区 全部挂 data-i18n-key/data-i18n-title/data-i18n-placeholder。16-settings.js 11 处动态模板改走 t()(删除失败/读取权限规则失败/本页·实际生效·未设/手填×2/设置读取失败/启动·停止桥接失败/保存失败/选择导出目录失败/导出失败),词典补 本页/实际生效/手填 三 key(资源 51→54)。B8 断言组覆盖文本/option/span 包裹/title/placeholder 中英切换。四条冒烟全绿。剩余:活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。

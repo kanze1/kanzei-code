@@ -132,7 +132,7 @@ async function deletePermissionRule(rule) {
     toast(t("已删除权限规则"));
     await loadPermissionRules();
   } catch (err) {
-    toastError(`删除失败: ${err}`, { retry: () => deletePermissionRule(rule) });
+    toastError(`${t("删除失败")}: ${err}`, { retry: () => deletePermissionRule(rule) });
   }
 }
 
@@ -173,7 +173,7 @@ async function loadPermissionRules() {
     renderPermissionRules(await invoke("permission_rules_get", { projectDir: currentProject }));
   } catch (err) {
     renderPermissionRules({ rules: [] });
-    toastError(`读取权限规则失败: ${err}`, { retry: loadPermissionRules });
+    toastError(`${t("读取权限规则失败")}: ${err}`, { retry: loadPermissionRules });
   }
 }
 // D-157:设置页是一张表单,填了不点保存不生效。此前没有任何提示,于是界面显示
@@ -238,7 +238,7 @@ function renderEffectiveNotice(s) {
     const global = key === "reasoning" ? (s.reasoning === "off" ? null : s.reasoning) : s[key];
     const eff = effective[key];
     if ((eff ?? null) !== (global ?? null)) {
-      diffs.push(`${label}:本页 ${global ?? "(未设)"} → 实际生效 ${eff ?? "(未设)"}`);
+      diffs.push(`${label}:${t("本页")} ${global ?? `(${t("未设")})`} → ${t("实际生效")} ${eff ?? `(${t("未设")})`}`);
     }
   }
   // 运行上限十项合成一条:项目级只要覆盖了任意一个键就弹十条提示会把这条提示废掉。
@@ -299,7 +299,7 @@ async function fillKnownModels(desired = null) {
     if (keep && !knownModelIds.includes(keep)) {
       const opt = document.createElement("option");
       opt.value = keep;
-      opt.textContent = `${keep}(手填)`;
+      opt.textContent = `${keep}(${t("手填")})`;
       select.appendChild(opt);
     }
     const manual = document.createElement("option");
@@ -343,7 +343,7 @@ function wireManualModelRole(id) {
     }
     const opt = document.createElement("option");
     opt.value = input;
-    opt.textContent = `${input}(手填)`;
+    opt.textContent = `${input}(${t("手填")})`;
     select.insertBefore(opt, select.lastElementChild);
     select.value = input;
     last = input;
@@ -465,7 +465,7 @@ async function loadSettings() {
   } catch (err) {
     // 配置损坏时不能留一张空白表单让用户无从下手(保存会把默认值写回,反而丢配置)。
     $("settings-path").textContent = t("配置读取失败");
-    toastError(`设置读取失败:${err}`, { retry: loadSettings });
+    toastError(`${t("设置读取失败")}:${err}`, { retry: loadSettings });
     return;
   }
   $("settings-path").textContent = s.path;
@@ -560,7 +560,7 @@ $("mobile-service-start").addEventListener("click", async () => {
     $("mobile-service-stop").classList.remove("hidden");
     toast(t("移动端本机桥接已启动"));
   } catch (error) {
-    toastError(`启动移动端桥接失败:${error}`, { retry: () => $("mobile-service-start").click() });
+    toastError(`${t("启动移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-start").click() });
   }
 });
 $("mobile-service-stop").addEventListener("click", async () => {
@@ -570,7 +570,7 @@ $("mobile-service-stop").addEventListener("click", async () => {
     $("mobile-service-start").classList.remove("hidden");
     $("mobile-service-stop").classList.add("hidden");
   } catch (error) {
-    toastError(`停止移动端桥接失败:${error}`, { retry: () => $("mobile-service-stop").click() });
+    toastError(`${t("停止移动端桥接失败")}:${error}`, { retry: () => $("mobile-service-stop").click() });
   }
 });
 async function agentContainerAction(action) {
@@ -655,7 +655,7 @@ $("settings-save").addEventListener("click", async () => {
     toast(t("已保存"));
     loadSettings();
   } catch (err) {
-    toastError(`保存失败: ${err}`, { retry: () => $("settings-save").click() });
+    toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
   }
 });
 
@@ -666,7 +666,7 @@ $("export-pick-dir").addEventListener("click", async () => {
     const path = await invoke("export_pick_dir");
     if (path) $("export-output-dir").value = path;
   } catch (error) {
-    toastError(`选择导出目录失败:${error}`);
+    toastError(`${t("选择导出目录失败")}:${error}`);
   }
 });
 $("export-project").addEventListener("click", async () => {
@@ -691,7 +691,7 @@ $("export-project").addEventListener("click", async () => {
     toast(t("导出完成"));
   } catch (error) {
     $("export-result").textContent = String(error);
-    toastError(`导出失败:${error}`);
+    toastError(`${t("导出失败")}:${error}`);
   } finally {
     button.disabled = false;
   }

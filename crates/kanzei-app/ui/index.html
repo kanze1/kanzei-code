@@ -406,233 +406,233 @@
 
       <div id="view-settings" class="view">
         <div id="settings-scroll">
-          <h1>设置</h1>
-          <p class="dim">写入全局 <code id="settings-path"></code>,项目级 .kanzei/kanzei.toml 会覆盖全局。</p>
+          <h1 data-i18n-key="设置">设置</h1>
+          <p class="dim"><span data-i18n-key="写入全局">写入全局 </span><code id="settings-path"></code><span data-i18n-key=",项目级 .kanzei/kanzei.toml 会覆盖全局。">,项目级 .kanzei/kanzei.toml 会覆盖全局。</span></p>
 
           <section id="about-kanzei" class="about-panel" aria-labelledby="about-kanzei-title">
-            <h2 id="about-kanzei-title">关于 kanzei</h2>
-            <p>kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。</p>
-            <p class="dim">从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。</p>
+            <h2 id="about-kanzei-title" data-i18n-key="关于 kanzei">关于 kanzei</h2>
+            <p data-i18n-key="kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。">kanzei 是文件优先的日常开发工具：让上下文、权限、记忆和工作轨迹可见、可回放、可验证。</p>
+            <p class="dim" data-i18n-key="从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。">从左侧选择项目，在对话框输入任务；遇到权限请求时选择允许、拒绝或总是允许。运行结果、错误和工具详情会留在当前会话中。</p>
           </section>
 
           <div class="form-row">
-            <label>界面语言</label>
+            <label data-i18n-key="界面语言">界面语言</label>
             <select id="language-select"><option value="zh">简体中文</option><option value="en">English</option></select>
           </div>
 
           <details class="settings-group" open>
-            <summary>模型角色</summary>
+            <summary data-i18n-key="模型角色">模型角色</summary>
           <p id="settings-effective" class="settings-effective hidden" role="status"></p>
           <div class="form-row">
-            <label>保存到 <span class="dim" id="settings-scope-hint"></span></label>
-            <select id="set-save-scope" title="作用域选择器第一版只覆盖模型角色;Provider 与 API Key 始终写全局配置">
-              <option value="global">全局配置</option>
-              <option value="project">本项目配置</option>
+            <label><span data-i18n-key="保存到">保存到</span> <span class="dim" id="settings-scope-hint"></span></label>
+            <select id="set-save-scope" title="作用域选择器第一版只覆盖模型角色;Provider 与 API Key 始终写全局配置" data-i18n-title="作用域选择器第一版只覆盖模型角色;Provider 与 API Key 始终写全局配置">
+              <option value="global" data-i18n-key="全局配置">全局配置</option>
+              <option value="project" data-i18n-key="本项目配置">本项目配置</option>
             </select>
           </div>
           <p class="dim" id="settings-scope-note"></p>
           <div class="form-row">
-            <label>primary <span class="dim">主循环</span></label>
-            <select id="set-primary" title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
+            <label>primary <span class="dim" data-i18n-key="主循环">主循环</span></label>
+            <select id="set-primary" title="从已探测到的模型中选择;端点不提供列表时可手填" data-i18n-title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
           </div>
           <div class="form-row">
-            <label>fast <span class="dim">子代理/杂活(本地模型)</span></label>
-            <select id="set-fast" title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
+            <label>fast <span class="dim" data-i18n-key="子代理/杂活(本地模型)">子代理/杂活(本地模型)</span></label>
+            <select id="set-fast" title="从已探测到的模型中选择;端点不提供列表时可手填" data-i18n-title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
           </div>
           <div class="form-row">
             <label></label>
-            <button id="models-refresh" class="ghost" type="button" title="重新向各 provider 探测可用模型">重新探测模型</button>
+            <button id="models-refresh" class="ghost" type="button" title="重新向各 provider 探测可用模型" data-i18n-title="重新向各 provider 探测可用模型"><span data-i18n-key="重新探测模型">重新探测模型</span></button>
           </div>
           <div class="form-row fast-setup-row">
             <label></label>
             <span id="fast-status" class="dim" role="status"></span>
-            <button id="fast-setup" class="ghost hidden" type="button" title="自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型">一键就绪子代理</button>
+            <button id="fast-setup" class="ghost hidden" type="button" title="自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型" data-i18n-title="自动完成:安装 Ollama(winget)→ 启动服务 → 拉取 fast 模型"><span data-i18n-key="一键就绪子代理">一键就绪子代理</span></button>
           </div>
 
           </details>
           <details class="settings-group" open>
             <summary>Provider</summary>
           <div class="settings-actions" style="margin-top: 0; margin-bottom: 8px;">
-            <button id="providers-test" class="ghost">测试全部连通性</button>
+            <button id="providers-test" class="ghost"><span data-i18n-key="测试全部连通性">测试全部连通性</span></button>
             <span id="providers-test-result" class="dim" role="status" aria-live="polite"></span>
           </div>
           <table id="providers-table">
-            <thead><tr><th>名称</th><th>协议</th><th>Base URL</th><th>API Key(环境变量或直填 + 测试)</th><th>上下文(token)</th><th></th></tr></thead>
+            <thead><tr><th data-i18n-key="名称">名称</th><th data-i18n-key="协议">协议</th><th>Base URL</th><th data-i18n-key="API Key(环境变量或直填 + 测试)">API Key(环境变量或直填 + 测试)</th><th data-i18n-key="上下文(token)">上下文(token)</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
-          <button id="provider-add" class="ghost">+ 添加 provider</button>
+          <button id="provider-add" class="ghost"><span data-i18n-key="+ 添加 provider">+ 添加 provider</span></button>
 
           </details>
           <details class="settings-group">
-            <summary>网络与默认</summary>
+            <summary data-i18n-key="网络与默认">网络与默认</summary>
           <div class="form-row">
-            <label>代理</label>
+            <label data-i18n-key="代理">代理</label>
             <select id="set-proxy-mode">
-              <option value="env">跟随环境变量</option>
-              <option value="off">直连</option>
-              <option value="custom">指定地址</option>
+              <option value="env" data-i18n-key="跟随环境变量">跟随环境变量</option>
+              <option value="off" data-i18n-key="直连">直连</option>
+              <option value="custom" data-i18n-key="指定地址">指定地址</option>
             </select>
             <input id="set-proxy-url" placeholder="http://127.0.0.1:12000" spellcheck="false" class="hidden" />
           </div>
           <div class="form-row">
-            <label>默认模式</label>
+            <label data-i18n-key="默认模式">默认模式</label>
             <select id="set-profile">
-              <option value="dev">dev 开发</option>
-              <option value="research">research 研究</option>
+              <option value="dev" data-i18n-key="dev 开发">dev 开发</option>
+              <option value="research" data-i18n-key="research 研究">research 研究</option>
             </select>
           </div>
           <div class="form-row">
-            <label>思考强度</label>
+            <label data-i18n-key="思考强度">思考强度</label>
             <select id="set-reasoning">
-              <option value="off">关闭(不发思考参数)</option>
-              <option value="low">低</option>
-              <option value="medium">中</option>
-              <option value="high">高</option>
+              <option value="off" data-i18n-key="关闭(不发思考参数)">关闭(不发思考参数)</option>
+              <option value="low" data-i18n-key="低">低</option>
+              <option value="medium" data-i18n-key="中">中</option>
+              <option value="high" data-i18n-key="高">高</option>
             </select>
           </div>
-          <p class="dim">默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效;
+          <p class="dim" data-i18n-key="默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效;开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。">默认档,顶栏可按进程临时覆盖。仅推理模型(Claude 思考、o 系/gpt-5 等)有效;
             开启后 Anthropic 会按档位分配思考预算并自动抬高输出上限,OpenAI 系发送 reasoning effort。</p>
           <div class="form-row">
-            <label><input id="set-codex-fast-mode" type="checkbox" /> Codex Fast mode</label>
+            <label><input id="set-codex-fast-mode" type="checkbox" /> <span data-i18n-key="Codex Fast mode">Codex Fast mode</span></label>
           </div>
-          <p class="dim">仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。</p>
+          <p class="dim" data-i18n-key="仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。">仅对 Codex 生效：仍使用当前模型（例如 luna），但会增加积分消耗以换取更快响应。</p>
 
           </details>
           <details class="settings-group">
-            <summary>运行上限</summary>
-          <p class="dim">留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。</p>
+            <summary data-i18n-key="运行上限">运行上限</summary>
+          <p class="dim" data-i18n-key="留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。">留空 = 用内置默认(输入框里的灰字就是默认值)。只有填了的项会写进配置,今后默认值变了也跟着变。</p>
           <div class="form-row">
-            <label>主对话输出上限 <span class="dim">tokens</span></label>
+            <label><span data-i18n-key="主对话输出上限">主对话输出上限</span> <span class="dim">tokens</span></label>
             <input id="set-max-tokens" type="number" min="256" step="256" />
-            <label>子代理输出上限 <span class="dim">tokens</span></label>
+            <label><span data-i18n-key="子代理输出上限">子代理输出上限</span> <span class="dim">tokens</span></label>
             <input id="set-subagent-max-tokens" type="number" min="256" step="256" />
           </div>
           <div class="form-row">
-            <label>子代理墙钟上限 <span class="dim">秒</span></label>
+            <label><span data-i18n-key="子代理墙钟上限">子代理墙钟上限</span> <span class="dim">秒</span></label>
             <input id="set-subagent-timeout" type="number" min="10" step="10" />
-            <label>单轮子代理数上限</label>
+            <label data-i18n-key="单轮子代理数上限">单轮子代理数上限</label>
             <input id="set-max-tasks" type="number" min="1" step="1" />
           </div>
-          <p class="dim">同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。</p>
+          <p class="dim" data-i18n-key="同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。">同轮最多并行执行的子代理数。默认 16(留空即默认);超出部分不排队,直接以「too many parallel subagent tasks」错误返回给模型。桌面端主对话已生效(R-173 起 task 工具注册不再受执行策略门控)。</p>
           <div class="form-row">
-            <label>压缩触发线 <span class="dim">占窗口比例</span></label>
+            <label><span data-i18n-key="压缩触发线">压缩触发线</span> <span class="dim">占窗口比例</span></label>
             <input id="set-context-ratio" type="number" min="0.1" max="0.95" step="0.05" />
-            <label>压缩保留近期 <span class="dim">比例</span></label>
+            <label><span data-i18n-key="压缩保留近期">压缩保留近期</span> <span class="dim">比例</span></label>
             <input id="set-verbatim-ratio" type="number" min="0.05" max="0.9" step="0.05" />
           </div>
           <div class="form-row">
-            <label>单波并行工具数</label>
+            <label data-i18n-key="单波并行工具数">单波并行工具数</label>
             <input id="set-max-parallel" type="number" min="1" step="1" />
-            <label>流中断重放次数</label>
+            <label data-i18n-key="流中断重放次数">流中断重放次数</label>
             <input id="set-stream-restarts" type="number" min="0" step="1" />
           </div>
           <div class="form-row">
-            <label>传输重试次数</label>
+            <label data-i18n-key="传输重试次数">传输重试次数</label>
             <input id="set-transport-retries" type="number" min="0" step="1" />
-            <label>限流重试次数</label>
+            <label data-i18n-key="限流重试次数">限流重试次数</label>
             <input id="set-rate-retries" type="number" min="0" step="1" />
           </div>
 
           </details>
           <details class="settings-group">
-            <summary>验证与提交节奏</summary>
-          <p class="dim">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。</p>
+            <summary data-i18n-key="验证与提交节奏">验证与提交节奏</summary>
+          <p class="dim" data-i18n-key="留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。">留空 = 用内置默认(§1.4 当前值)。改动写进 kanzei.toml [cadence],但引擎当前还没有接回这组参数(R-170 把规则从继续文案剥离后暂无消费方),改了不会改变 agent 的验证节奏;发版门禁与 CI 全量不受参数影响。</p>
           <div class="form-row">
-            <label>全量测试</label>
+            <label data-i18n-key="全量测试">全量测试</label>
             <select id="set-cadence-full-test">
-              <option value="">默认</option>
-              <option value="entry_close">条目关闭前</option>
-              <option value="every_commit">每次提交前</option>
-              <option value="every_n_batches">每 N 批</option>
-              <option value="release_only">仅发版前</option>
+              <option value="" data-i18n-key="默认">默认</option>
+              <option value="entry_close" data-i18n-key="条目关闭前">条目关闭前</option>
+              <option value="every_commit" data-i18n-key="每次提交前">每次提交前</option>
+              <option value="every_n_batches" data-i18n-key="每 N 批">每 N 批</option>
+              <option value="release_only" data-i18n-key="仅发版前">仅发版前</option>
             </select>
-            <input id="set-cadence-full-test-batches" type="number" min="1" step="1" placeholder="N" title="每 N 批的间隔" />
+            <input id="set-cadence-full-test-batches" type="number" min="1" step="1" placeholder="N" title="每 N 批的间隔" data-i18n-title="每 N 批的间隔" />
           </div>
           <div class="form-row">
-            <label>定向测试</label>
+            <label data-i18n-key="定向测试">定向测试</label>
             <select id="set-cadence-targeted-test">
-              <option value="">默认</option>
-              <option value="every_commit">每次提交前</option>
-              <option value="off">关闭</option>
+              <option value="" data-i18n-key="默认">默认</option>
+              <option value="every_commit" data-i18n-key="每次提交前">每次提交前</option>
+              <option value="off" data-i18n-key="关闭">关闭</option>
             </select>
-            <label>提交粒度</label>
+            <label data-i18n-key="提交粒度">提交粒度</label>
             <select id="set-cadence-commit">
-              <option value="">默认</option>
-              <option value="per_batch">每批一提交</option>
-              <option value="per_entry">每条目一提交</option>
+              <option value="" data-i18n-key="默认">默认</option>
+              <option value="per_batch" data-i18n-key="每批一提交">每批一提交</option>
+              <option value="per_entry" data-i18n-key="每条目一提交">每条目一提交</option>
             </select>
           </div>
           <div class="form-row">
-            <label>push 频率</label>
+            <label data-i18n-key="push 频率">push 频率</label>
             <select id="set-cadence-push">
-              <option value="">默认</option>
-              <option value="per_entry">条目完成后</option>
-              <option value="per_commit">每提交后</option>
-              <option value="periodic">定期自动</option>
+              <option value="" data-i18n-key="默认">默认</option>
+              <option value="per_entry" data-i18n-key="条目完成后">条目完成后</option>
+              <option value="per_commit" data-i18n-key="每提交后">每提交后</option>
+              <option value="periodic" data-i18n-key="定期自动">定期自动</option>
             </select>
           </div>
 
           </details>
           <details class="settings-group">
-            <summary>移动端桥接</summary>
-          <p class="dim">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
+            <summary data-i18n-key="移动端桥接">移动端桥接</summary>
+          <p class="dim" data-i18n-key="仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。">仅监听本机回环地址；启动后把一次性配对 token 提供给移动端，停止服务即撤销。</p>
           <div class="form-row">
-            <label>本机服务</label>
-            <button id="mobile-service-start" class="ghost">启动</button>
-            <button id="mobile-service-stop" class="danger hidden">停止并撤销</button>
+            <label data-i18n-key="本机服务">本机服务</label>
+            <button id="mobile-service-start" class="ghost"><span data-i18n-key="启动">启动</span></button>
+            <button id="mobile-service-stop" class="danger hidden"><span data-i18n-key="停止并撤销">停止并撤销</span></button>
             <span id="mobile-service-status" class="dim"></span>
           </div>
           <div class="form-row">
-            <label>代理管理容器</label>
+            <label data-i18n-key="代理管理容器">代理管理容器</label>
             <input id="agent-container-id" placeholder="agent id" spellcheck="false" />
-            <button id="agent-container-create" class="ghost">创建</button>
-            <button id="agent-container-upgrade" class="ghost">升级到 2</button>
-            <button id="agent-container-rollback" class="ghost">回滚</button>
+            <button id="agent-container-create" class="ghost"><span data-i18n-key="创建">创建</span></button>
+            <button id="agent-container-upgrade" class="ghost"><span data-i18n-key="升级到 2">升级到 2</span></button>
+            <button id="agent-container-rollback" class="ghost"><span data-i18n-key="回滚">回滚</span></button>
           </div>
 
           </details>
           <details class="settings-group">
-            <summary>已记住的权限</summary>
-          <p class="dim">当前项目中选择“总是允许”后保存的放行规则。删除后下次匹配时会再次询问。</p>
+            <summary data-i18n-key="已记住的权限">已记住的权限</summary>
+          <p class="dim" data-i18n-key="当前项目中选择“总是允许”后保存的放行规则。删除后下次匹配时会再次询问。">当前项目中选择“总是允许”后保存的放行规则。删除后下次匹配时会再次询问。</p>
           <table id="permission-rules-table">
-            <thead><tr><th>操作</th><th>资源</th><th></th></tr></thead>
+            <thead><tr><th data-i18n-key="操作">操作</th><th data-i18n-key="资源">资源</th><th></th></tr></thead>
             <tbody></tbody>
           </table>
-          <p id="permission-rules-empty" class="dim">当前项目没有已记住的放行规则。</p>
+          <p id="permission-rules-empty" class="dim" data-i18n-key="当前项目没有已记住的放行规则。">当前项目没有已记住的放行规则。</p>
           <p id="permission-rules-path" class="dim"></p>
           </details>
           <details class="settings-group">
-            <summary>工作资料导出</summary>
-          <p class="dim">默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。</p>
+            <summary data-i18n-key="工作资料导出">工作资料导出</summary>
+          <p class="dim" data-i18n-key="默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。">默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。</p>
           <div class="form-row">
-            <label for="export-output-dir">导出目录</label>
-            <input id="export-output-dir" placeholder="选择导出目录" spellcheck="false" />
-            <button id="export-pick-dir" class="ghost">选择目录</button>
+            <label for="export-output-dir" data-i18n-key="导出目录">导出目录</label>
+            <input id="export-output-dir" placeholder="选择导出目录" data-i18n-placeholder="选择导出目录" spellcheck="false" />
+            <button id="export-pick-dir" class="ghost"><span data-i18n-key="选择目录">选择目录</span></button>
           </div>
           <div class="form-row export-options">
-            <label><input id="export-memory" type="checkbox" checked /> 记忆</label>
-            <label><input id="export-requirements" type="checkbox" checked /> 需求</label>
-            <label><input id="export-defects" type="checkbox" checked /> 缺陷</label>
-            <label><input id="export-config" type="checkbox" checked /> 项目配置</label>
-            <button id="export-project" class="primary">导出工作资料</button>
+            <label><input id="export-memory" type="checkbox" checked /> <span data-i18n-key="记忆">记忆</span></label>
+            <label><input id="export-requirements" type="checkbox" checked /> <span data-i18n-key="需求">需求</span></label>
+            <label><input id="export-defects" type="checkbox" checked /> <span data-i18n-key="缺陷">缺陷</span></label>
+            <label><input id="export-config" type="checkbox" checked /> <span data-i18n-key="项目配置">项目配置</span></label>
+            <button id="export-project" class="primary"><span data-i18n-key="导出工作资料">导出工作资料</span></button>
           </div>
           <p id="export-result" class="dim" role="status" aria-live="polite"></p>
 
           </details>
           <details class="settings-group">
-            <summary>版本与更新</summary>
+            <summary data-i18n-key="版本与更新">版本与更新</summary>
           <div class="form-row">
-            <label>当前版本 <span id="update-current" class="dim"></span></label>
-            <button id="update-check" class="ghost">检查更新</button>
-            <button id="update-install" class="primary hidden">下载并安装</button>
+            <label><span data-i18n-key="当前版本">当前版本</span> <span id="update-current" class="dim"></span></label>
+            <button id="update-check" class="ghost"><span data-i18n-key="检查更新">检查更新</span></button>
+            <button id="update-install" class="primary hidden"><span data-i18n-key="下载并安装">下载并安装</span></button>
             <span id="update-result" class="dim"></span>
           </div>
           </details>
 
           <div class="settings-actions">
-            <span id="settings-dirty" class="settings-dirty hidden" role="status">未保存 — 改动要点「保存」才会写入配置并生效</span>
-            <button id="settings-open" class="ghost">打开配置原文</button>
-            <button id="settings-save" class="primary">保存</button>
+            <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>
+            <button id="settings-open" class="ghost"><span data-i18n-key="打开配置原文">打开配置原文</span></button>
+            <button id="settings-save" class="primary"><span data-i18n-key="保存">保存</span></button>
           </div>
         </div>
       </div>

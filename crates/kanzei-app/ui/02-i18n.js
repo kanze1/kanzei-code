@@ -152,7 +152,7 @@ const I18N_EN = {
   "最近活动": "Recent activity", "排队": "Queued", "条": "items", "更新于": "Updated", "已归档": "archived",
   "展开已归档条目": "Expand archived items", "双击打开归档文件": "Double-click to open archive file",
   "外部阻塞": "Externally blocked", "阻塞": "Blocked", "可执行": "Ready", "阻塞原因": "Blocking reasons", "缺少阻塞原因": "Blocking reason missing", "解除条件": "Release condition", "下一步": "Next step", "等待项目外部条件、负责人或服务解除": "Waiting for an external condition, owner, or service", "待澄清": "Needs clarification",
-  "复杂度": "Complexity", "未评估": "Not assessed", "未设": "Unset", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
+  "复杂度": "Complexity", "未评估": "Not assessed", "未设": "Unset", "本页": "this page", "实际生效": "effective", "手填": "typed manually", "设置缺陷复杂度": "Set defect complexity", "设置需求复杂度": "Set requirement complexity", "复杂度已保存": "Complexity saved",
   "保存到": "Save to", "全局配置": "Global config", "本项目配置": "Project config",
   "作用域选择器第一版只覆盖模型角色;Provider 与 API Key 始终写全局配置": "Scope selector (v1) covers model roles only; Providers and API keys always go to the global config",
   "D7 只覆盖模型角色;Provider 与密钥始终写全局": "Scope (v1) covers model roles only; Providers and API keys always go to the global config", "未选中项目,仅可保存到全局": "No project selected; only the global config can be written", "本项目将写入": "This project will be written to",
