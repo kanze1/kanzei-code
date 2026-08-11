@@ -133,8 +133,8 @@
 
 - 标签: 前端
 
-- 批次: 4/10
-- 进展: 批1(消息容器豁免止血)/批2(静态 DOM data-i18n-key/data-i18n-title 一次性应用)/批3(顶栏/对话区/工作区迁移)已在 dev 合入。批4(本轮):渲染点翻译机制补全 data-i18n-aria-label/data-i18n-placeholder(applyDataI18nKeys 02-i18n.js:830 起新增两个属性循环;localizeTextNode/localizeAttributes 的 observer 豁免选择器同步扩展,避免挂 data-i18n-* 的元素英文态漏翻属性);架构浏览域整体迁移(标题/说明/记忆管理/打开/架构索引/两个 title/两个 aria-label),19-arch.js 动态文案此前已走 t()。冒烟新增 R-140 批4 断言组(中文态前置/英文态文本+title+aria-label 翻译/切中文回原文)。四条冒烟(ui-runtime/i18n/a11y/markdown)全绿。剩余:文档/记忆/指标/文件/设置/活动/会话/compose 各域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
+- 批次: 5/10
+- 进展: 批1-4 已提交(消息容器豁免/静态 DOM 一次性应用/顶栏·对话区·工作区迁移/架构浏览域迁移+渲染点属性补齐)。批5(本轮):文档页域整体迁移——h1/说明/项目标签/六个 tab 按钮/测试刷新/自动审查缺陷/对照/依赖视图/req-open·defect-open/四个筛选下拉(含静态 option 文本 全部状态·全部复杂度·小中大·未评估·全部优先级·全部标签·全部执行状态·已阻塞·可执行·手动·优先级·复杂度·状态·编号)/批量操作区(改状态…·改标签…·标签六项·应用·取消选择)/测试记录区 全部挂 data-i18n-key/data-i18n-title/data-i18n-aria-label。冒烟 harness 的 parseOptionsInto 补建 option 的 data-i18n-key(否则筛选下拉在冒烟恒为假通过);B5 断言组覆盖文本/option/title/aria-label 中英切换(含含空格 key 的遍历匹配)。四条冒烟全绿(ui-runtime/i18n/a11y/markdown;a11y 的 defect-review 结构断言随 span 包裹同步更新)。剩余:记忆/指标/文件/设置/活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。

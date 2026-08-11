@@ -257,56 +257,56 @@
       <!-- 设置视图 -->
       <div id="view-documents" class="view">
         <div id="documents-scroll">
-          <h1>需求与工作 / 缺陷 / 测试</h1>
-          <p class="dim">完整列表与深度管理都在这里：筛选、排序、拖拽定开发顺序、字段编辑、批量操作、依赖视图与测试记录；侧栏只留当前在做。</p>
+          <h1 data-i18n-key="需求与工作 / 缺陷 / 测试">需求与工作 / 缺陷 / 测试</h1>
+          <p class="dim" data-i18n-key="完整列表与深度管理都在这里：筛选、排序、拖拽定开发顺序、字段编辑、批量操作、依赖视图与测试记录；侧栏只留当前在做。">完整列表与深度管理都在这里：筛选、排序、拖拽定开发顺序、字段编辑、批量操作、依赖视图与测试记录；侧栏只留当前在做。</p>
           <div class="documents-toolbar">
-            <label for="documents-project-select" class="documents-project-label">项目</label>
-            <select id="documents-project-select" title="切换当前项目"></select>
-            <button id="documents-tab-req" class="primary">需求与工作 <em id="req-count"></em></button>
-            <button id="documents-tab-defect" class="ghost">缺陷 <em id="defect-count"></em></button>
-            <button id="documents-tab-tests" class="ghost" title="查看测试记录">测试记录 <em id="test-count"></em></button>
-            <button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试">↻</button>
-            <button id="defect-review" class="ghost" type="button" title="使用只读子代理审查活动缺陷，不修改项目文件">自动审查缺陷</button>
+            <label for="documents-project-select" class="documents-project-label" data-i18n-key="项目">项目</label>
+            <select id="documents-project-select" title="切换当前项目" data-i18n-title="切换当前项目"></select>
+            <button id="documents-tab-req" class="primary"><span data-i18n-key="需求与工作">需求与工作</span> <em id="req-count"></em></button>
+            <button id="documents-tab-defect" class="ghost"><span data-i18n-key="缺陷">缺陷</span> <em id="defect-count"></em></button>
+            <button id="documents-tab-tests" class="ghost" title="查看测试记录" data-i18n-title="查看测试记录"><span data-i18n-key="测试记录">测试记录</span> <em id="test-count"></em></button>
+            <button id="tests-refresh" class="icon-btn" title="刷新并自动归档已完成测试" data-i18n-title="刷新并自动归档已完成测试" aria-label="刷新并自动归档已完成测试" data-i18n-aria-label="刷新并自动归档已完成测试">↻</button>
+            <button id="defect-review" class="ghost" type="button" title="使用只读子代理审查活动缺陷，不修改项目文件" data-i18n-title="使用只读子代理审查活动缺陷，不修改项目文件"><span data-i18n-key="自动审查缺陷">自动审查缺陷</span></button>
             <span id="defect-review-status" class="dim" role="status" aria-live="polite"></span>
-            <button id="documents-tab-both" class="ghost" title="需求与缺陷并排对照，便于核对互相引用的条目">对照</button>
-            <button id="documents-dep-toggle" class="ghost" title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链">依赖视图</button>
-            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文">↗</button>
-            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" aria-label="打开 defects.md 原文">↗</button>
-            <select id="documents-status-filter" class="doc-filter" title="按状态筛选"><option value="all">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
-            <select id="documents-complexity-filter" class="doc-filter" title="按复杂度筛选">
-              <option value="all">全部复杂度</option>
-              <option value="小">小</option><option value="中">中</option><option value="大">大</option><option value="unassessed">未评估</option>
+            <button id="documents-tab-both" class="ghost" title="需求与缺陷并排对照，便于核对互相引用的条目" data-i18n-title="需求与缺陷并排对照，便于核对互相引用的条目"><span data-i18n-key="对照">对照</span></button>
+            <button id="documents-dep-toggle" class="ghost" title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链" data-i18n-title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链"><span data-i18n-key="依赖视图">依赖视图</span></button>
+            <button id="req-open" class="icon-btn" title="打开 requirements.md 原文" data-i18n-title="打开 requirements.md 原文" aria-label="打开 requirements.md 原文" data-i18n-aria-label="打开 requirements.md 原文">↗</button>
+            <button id="defect-open" class="icon-btn" title="打开 defects.md 原文" data-i18n-title="打开 defects.md 原文" aria-label="打开 defects.md 原文" data-i18n-aria-label="打开 defects.md 原文">↗</button>
+            <select id="documents-status-filter" class="doc-filter" title="按状态筛选" data-i18n-title="按状态筛选"><option value="all" data-i18n-key="全部状态">全部状态</option><option value="todo">todo</option><option value="doing">doing</option><option value="open">open</option><option value="done">done</option><option value="fixed">fixed</option></select>
+            <select id="documents-complexity-filter" class="doc-filter" title="按复杂度筛选" data-i18n-title="按复杂度筛选">
+              <option value="all" data-i18n-key="全部复杂度">全部复杂度</option>
+              <option value="小" data-i18n-key="小">小</option><option value="中" data-i18n-key="中">中</option><option value="大" data-i18n-key="大">大</option><option value="unassessed" data-i18n-key="未评估">未评估</option>
             </select>
-            <select id="documents-priority-filter" class="doc-filter" title="按优先级筛选(仅参考,不影响取活顺序)"><option value="all">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
-            <button id="documents-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" aria-label="切换文档页分组显示" aria-pressed="true">☰</button>
-            <select id="documents-tag-filter" class="doc-filter" title="按标签筛选"><option value="all">全部标签</option></select>
-            <select id="documents-blocked-filter" class="doc-filter" title="按阻塞状态筛选"><option value="all">全部执行状态</option><option value="blocked">已阻塞</option><option value="ready">可执行</option></select>
-            <select id="documents-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
-              <option value="manual">手动</option>
-              <option value="priority">优先级</option>
-              <option value="complexity">复杂度</option>
-              <option value="status">状态</option>
-              <option value="id">编号</option>
+            <select id="documents-priority-filter" class="doc-filter" title="按优先级筛选(仅参考,不影响取活顺序)" data-i18n-title="按优先级筛选(仅参考,不影响取活顺序)"><option value="all" data-i18n-key="全部优先级">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
+            <button id="documents-group-toggle" class="icon-btn group-toggle" title="按标签分组显示" data-i18n-title="按标签分组显示" aria-label="切换文档页分组显示" data-i18n-aria-label="切换文档页分组显示" aria-pressed="true">☰</button>
+            <select id="documents-tag-filter" class="doc-filter" title="按标签筛选" data-i18n-title="按标签筛选"><option value="all" data-i18n-key="全部标签">全部标签</option></select>
+            <select id="documents-blocked-filter" class="doc-filter" title="按阻塞状态筛选" data-i18n-title="按阻塞状态筛选"><option value="all" data-i18n-key="全部执行状态">全部执行状态</option><option value="blocked" data-i18n-key="已阻塞">已阻塞</option><option value="ready" data-i18n-key="可执行">可执行</option></select>
+            <select id="documents-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此取活)" data-i18n-title="需求排序(手动=拖拽定开发顺序,agent 按此取活)">
+              <option value="manual" data-i18n-key="手动">手动</option>
+              <option value="priority" data-i18n-key="优先级">优先级</option>
+              <option value="complexity" data-i18n-key="复杂度">复杂度</option>
+              <option value="status" data-i18n-key="状态">状态</option>
+              <option value="id" data-i18n-key="编号">编号</option>
             </select>
-            <span id="documents-sort-note" class="dim">排序只改显示;拖拽(手动排序)才写回文件、改变取活顺序</span>
+            <span id="documents-sort-note" class="dim" data-i18n-key="排序只改显示;拖拽(手动排序)才写回文件、改变取活顺序">排序只改显示;拖拽(手动排序)才写回文件、改变取活顺序</span>
           </div>
-          <div id="documents-batch-bar" class="documents-batch-bar hidden" role="region" aria-label="批量操作">
+          <div id="documents-batch-bar" class="documents-batch-bar hidden" role="region" aria-label="批量操作" data-i18n-aria-label="批量操作">
             <span id="documents-batch-count" class="dim"></span>
-            <select id="documents-batch-status" class="doc-filter" title="批量改状态"><option value="">改状态…</option></select>
-            <select id="documents-batch-tag" class="doc-filter" title="批量改标签">
-              <option value="">改标签…</option>
-              <option>前端</option><option>后端</option><option>核心</option><option>模型</option><option>发布</option><option>流程</option>
+            <select id="documents-batch-status" class="doc-filter" title="批量改状态" data-i18n-title="批量改状态"><option value="" data-i18n-key="改状态…">改状态…</option></select>
+            <select id="documents-batch-tag" class="doc-filter" title="批量改标签" data-i18n-title="批量改标签">
+              <option value="" data-i18n-key="改标签…">改标签…</option>
+              <option data-i18n-key="前端">前端</option><option data-i18n-key="后端">后端</option><option data-i18n-key="核心">核心</option><option data-i18n-key="模型">模型</option><option data-i18n-key="发布">发布</option><option data-i18n-key="流程">流程</option>
             </select>
-            <button id="documents-batch-apply" class="primary mini" type="button">应用</button>
-            <button id="documents-batch-clear" class="ghost mini" type="button">取消选择</button>
+            <button id="documents-batch-apply" class="primary mini" type="button"><span data-i18n-key="应用">应用</span></button>
+            <button id="documents-batch-clear" class="ghost mini" type="button"><span data-i18n-key="取消选择">取消选择</span></button>
           </div>
           <div id="documents-req-list" class="doc-list documents-list"></div>
           <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
-          <div id="documents-tests" class="documents-list hidden" role="region" aria-label="测试记录">
-            <p class="dim">测试记录由 agent 跑测时写入,刷新会自动归档已完成项。</p>
+          <div id="documents-tests" class="documents-list hidden" role="region" aria-label="测试记录" data-i18n-aria-label="测试记录">
+            <p class="dim" data-i18n-key="测试记录由 agent 跑测时写入,刷新会自动归档已完成项。">测试记录由 agent 跑测时写入,刷新会自动归档已完成项。</p>
             <div id="test-list" class="doc-list"></div>
           </div>
-          <div id="documents-dep-view" class="dep-view hidden" role="region" aria-label="依赖视图"></div>
+          <div id="documents-dep-view" class="dep-view hidden" role="region" aria-label="依赖视图" data-i18n-aria-label="依赖视图"></div>
         </div>
       </div>
 

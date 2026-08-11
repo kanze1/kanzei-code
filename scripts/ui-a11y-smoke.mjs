@@ -99,7 +99,7 @@ for (const id of ["test-list"]) {
 for (const id of ["test-count", "tests-refresh"]) {
   assert.ok(html.includes(`id="${id}"`), `测试记录控件 ${id} 丢失(09-sessions.js 按 id 绑定)`);
 }
-assert.match(html, /id="defect-review"[^>]*>自动审查缺陷<\/button>/);
+assert.match(html, /id="defect-review"[^>]*><span data-i18n-key="自动审查缺陷">自动审查缺陷<\/span><\/button>/);
 assert.match(html, /id="defect-review-status"[^>]*role="status"[^>]*aria-live="polite"/);
 assert.match(js, /invoke\("defect_review", \{ projectDir: currentProject \}\)/);
 assert.match(js, /function entryTags\(entry\)/);

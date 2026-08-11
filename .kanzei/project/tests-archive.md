@@ -1527,3 +1527,9 @@
 - 摘要: R-140 批4:02-i18n.js 渲染点翻译补 data-i18n-aria-label/data-i18n-placeholder + 架构浏览域迁移;四条冒烟全绿,新增批4断言组(文本/title/aria-label 中英切换)
 - 关联: R-140
 - 收尾: 1786443240
+
+## T-1786443520 R-140 B5 前端冒烟 [passed]
+- 命令: node --check + 四条冒烟(ui-runtime/ui-i18n/ui-a11y/ui-markdown)
+- 摘要: R-140 批5:文档页域迁移(h1/工具栏/筛选/批量/测试区 data-i18n-*,含静态 option);harness parseOptionsInto 补建 option data-i18n-key;a11y defect-review 结构断言同步;四条冒烟全绿
+- 关联: R-140
+- 收尾: 1786443520

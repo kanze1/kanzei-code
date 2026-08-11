@@ -252,6 +252,10 @@ function parseOptionsInto(el, fragment) {
     option.ownerDocument = el.ownerDocument;
     const text = inner.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
     option.textContent = text;
+    // R-140 批5:静态 option 的 data-i18n-key 也要建到桩元素上,否则渲染点翻译
+    // 对 option 文本恒不生效,文档域的筛选下拉在冒烟里全是假通过。
+    const keyValue = attributes.match(/\bdata-i18n-key="([^"]*)"/)?.[1];
+    if (keyValue !== undefined) option.setAttribute("data-i18n-key", keyValue);
     const valueAttribute = attributes.match(/\bvalue="([^"]*)"/)?.[1];
     option.value = valueAttribute === undefined ? text : valueAttribute;
     // value setter 只写 _value;真实浏览器里 getAttribute("value") 也会返回该值,
@@ -3840,6 +3844,48 @@ assert(
   assert(archKey("架构浏览") === "架构浏览", `切回中文后「架构浏览」未回原文,实际 "${archKey("架构浏览")}"`);
   assert(attrOf("arch-tree", "aria-label") === "设计文档树", `切回中文后 arch-tree aria-label 未回原文,实际 "${attrOf("arch-tree", "aria-label")}"`);
   assert(attrOf("arch-refresh", "aria-label") === "重新扫描架构索引", `切回中文后 arch-refresh aria-label 未回原文,实际 "${attrOf("arch-refresh", "aria-label")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
+// ---------- R-140 批5:文档页域迁移(标题/工具栏/筛选/批量/测试区) ----------
+// 文档页 h1/说明/标签/按钮/筛选下拉/批量操作/测试记录区迁移到 data-i18n-key/
+// data-i18n-title/data-i18n-aria-label,含静态 <option> 文本。英文态翻译、切中文回原文。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  // harness 的 queryAllFrom 按空格切分选择器,含空格/斜杠的 key 无法用 `[data-i18n-key="..."]`
+  // 查询;改为遍历所有 data-i18n-key 节点按 dataset 匹配(与 B4 断言组同款绕过)。
+  const docKey = (key) => [...sandbox.document.querySelectorAll("[data-i18n-key]")].find((el) => el.dataset.i18nKey === key)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(docKey("需求与工作 / 缺陷 / 测试") === "需求与工作 / 缺陷 / 测试", "中文态文档页标题应保持原文(前置失效)");
+  assert(docKey("全部状态") === "全部状态", "中文态状态筛选「全部状态」应保持原文(前置失效)");
+  assert(attrOf("documents-status-filter", "title") === "按状态筛选", "中文态状态筛选 title 应保持原文(前置失效)");
+  assert(attrOf("req-open", "aria-label") === "打开 requirements.md 原文", "中文态 req-open aria-label 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(docKey("需求与工作 / 缺陷 / 测试") === "Work items / Defects / Tests", `英文态文档页标题未翻译,实际 "${docKey("需求与工作 / 缺陷 / 测试")}"`);
+  assert(docKey("自动审查缺陷") === "Review defects", `英文态「自动审查缺陷」未翻译,实际 "${docKey("自动审查缺陷")}"`);
+  assert(docKey("依赖视图") === "Dependency view", `英文态「依赖视图」未翻译,实际 "${docKey("依赖视图")}"`);
+  assert(docKey("全部状态") === "All statuses", `英文态「全部状态」未翻译(option 渲染点),实际 "${docKey("全部状态")}"`);
+  assert(docKey("未评估") === "Not assessed", `英文态「未评估」未翻译(option 渲染点),实际 "${docKey("未评估")}"`);
+  assert(docKey("已阻塞") === "Blocked", `英文态「已阻塞」未翻译(option 渲染点),实际 "${docKey("已阻塞")}"`);
+  assert(docKey("手动") === "Manual", `英文态「手动」未翻译(option 渲染点),实际 "${docKey("手动")}"`);
+  assert(docKey("取消选择") === "Clear selection", `英文态「取消选择」未翻译,实际 "${docKey("取消选择")}"`);
+  assert(attrOf("documents-status-filter", "title") === "Filter by status", `英文态状态筛选 title 未翻译,实际 "${attrOf("documents-status-filter", "title")}"`);
+  assert(attrOf("documents-priority-filter", "title") === "Filter by priority (reference only; does not affect work order)", `英文态优先级筛选 title 未翻译,实际 "${attrOf("documents-priority-filter", "title")}"`);
+  assert(attrOf("req-open", "aria-label") === "Open requirements.md source", `英文态 req-open aria-label 未翻译(渲染点属性补齐),实际 "${attrOf("req-open", "aria-label")}"`);
+  assert(attrOf("tests-refresh", "aria-label") === "Refresh and archive completed tests", `英文态 tests-refresh aria-label 未翻译,实际 "${attrOf("tests-refresh", "aria-label")}"`);
+  assert(attrOf("documents-batch-bar", "aria-label") === "Bulk actions", `英文态批量操作区 aria-label 未翻译,实际 "${attrOf("documents-batch-bar", "aria-label")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(docKey("需求与工作 / 缺陷 / 测试") === "需求与工作 / 缺陷 / 测试", `切回中文后文档页标题未回原文,实际 "${docKey("需求与工作 / 缺陷 / 测试")}"`);
+  assert(docKey("全部状态") === "全部状态", `切回中文后「全部状态」未回原文,实际 "${docKey("全部状态")}"`);
+  assert(attrOf("req-open", "aria-label") === "打开 requirements.md 原文", `切回中文后 req-open aria-label 未回原文,实际 "${attrOf("req-open", "aria-label")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
