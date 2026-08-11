@@ -1491,9 +1491,3 @@
 - 摘要: settings.rs D7 定向测试 10 passed + 冒烟全绿(runtime 含作用域断言/i18n/a11y/markdown)
 - 关联: R-178
 - 收尾: 1786439226
-
-## T-1786439420 cargo test --workspace (R-178 关闭前全量) [passed]
-- 命令: cargo test --workspace
-- 摘要: R-178 收口前全量:cargo test --workspace 全绿(core 42/harness 107/tools 130/app 112/kz 227 等)
-- 关联: R-178
-- 收尾: 1786439420
