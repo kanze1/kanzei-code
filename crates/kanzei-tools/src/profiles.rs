@@ -141,6 +141,16 @@ impl Component for DevProfile {
                 .push(rule("architecture", read_only, Effect::Allow));
         }
 
+        // 开发规范 conventions.md 的专用写通道(D-235):与 D-173 同根因——write/edit
+        // 硬 deny 而合法路径不可达,模型就去找 shell 旁路。get(读全文+hash)放行,
+        // patch(逐字替换)写操作仍逐次询问,和 architecture update 同一保守口径。
+        draft
+            .tools
+            .insert("conventions", Arc::new(crate::conventions::ConventionsTool));
+        draft
+            .permissions
+            .push(rule("conventions", "get", Effect::Allow));
+
         // 硬 deny:项目文档与记忆文件只能走专用工具(用户手改不受此限——这是模型的门禁)。
         // 每条 deny 都必须挂上它的合法替代路径:resolve 会校验那个工具真的注册了,
         // 拒绝理由也由此推导,不会再固定说一句不存在的 "use the dedicated tool"。
@@ -176,6 +186,11 @@ impl Component for DevProfile {
                     "*.kanzei/project/tests*",
                     Some("test_record"),
                     "测试记录:终态自动归档,由 test_record 追加",
+                ),
+                (
+                    "*.kanzei/project/conventions*",
+                    Some("conventions"),
+                    "开发规范:patch 逐字替换,唯一命中才写",
                 ),
                 (
                     "*.kanzei/memory/*",
@@ -994,10 +1009,11 @@ mod tests {
         }
 
         // 没有专用工具的资源族:必须如实说能力未实现,并明确堵死 shell 绕行。
-        let conventions =
-            kanzei_harness::permission::normalize_resource(".kanzei/project/conventions.md");
-        assert_eq!(snapshot.evaluate("write", &conventions), Effect::Deny);
-        let hint = snapshot.denial_hint("write", &conventions);
+        // conventions.md 自 D-235 起有了专用工具,这里用另一个仍无工具的
+        // .kanzei/project 文件(如 notes.md)继续守「不得编造工具名」这条底线。
+        let uncovered = kanzei_harness::permission::normalize_resource(".kanzei/project/notes.md");
+        assert_eq!(snapshot.evaluate("write", &uncovered), Effect::Deny);
+        let hint = snapshot.denial_hint("write", &uncovered);
         assert!(hint.contains("unimplemented capability"), "{hint}");
         assert!(hint.contains("WriteAllText"), "{hint}");
         assert!(
@@ -1005,10 +1021,24 @@ mod tests {
             "不得编造不存在的工具: {hint}"
         );
 
+        // conventions.md 现在有了合法通道,指引必须点名它,不能再说「没有专用工具」。
+        let conventions =
+            kanzei_harness::permission::normalize_resource(".kanzei/project/conventions.md");
+        assert_eq!(snapshot.evaluate("write", &conventions), Effect::Deny);
+        let hint = snapshot.denial_hint("write", &conventions);
+        assert!(
+            hint.contains("`conventions`"),
+            "指引没点名 conventions 工具: {hint}"
+        );
+
         // 架构索引现在有了合法通道,而且读/校验默认放行。
         assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "check"), Effect::Allow);
         assert_eq!(snapshot.evaluate("architecture", "update"), Effect::Ask);
+
+        // conventions 的读动作默认放行、写动作(patch)逐次询问——与 architecture 同口径。
+        assert_eq!(snapshot.evaluate("conventions", "get"), Effect::Allow);
+        assert_eq!(snapshot.evaluate("conventions", "patch"), Effect::Ask);
     }
 
     /// 覆盖校验必须真的会炸:声明了不存在的工具就不该装配成功。

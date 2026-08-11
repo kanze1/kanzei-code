@@ -5,6 +5,7 @@ pub mod atomic_file;
 mod background;
 mod base;
 mod bash;
+pub mod conventions;
 pub mod docstore;
 mod edit;
 pub mod embed;

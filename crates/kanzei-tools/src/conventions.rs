@@ -1,0 +1,382 @@
+//! conventions 工具:开发规范 `.kanzei/project/conventions.md` 的专用写通道。
+//!
+//! D-235 与 D-173 同根因:`.kanzei/project/*` 对 write/edit 硬 deny,而 conventions.md
+//! 没有任何专用工具,于是模型唯一的合法写路径不可达,只能去找 shell 旁路。本工具把
+//! 那条路补上,并且比裸 write 多三层硬门禁(与 architecture 工具同源):
+//!
+//! 1. CAS(expected_hash):基于 **get 读到的那一版** 才能 patch,并发手改不会被静默覆盖。
+//! 2. 逐字替换 + 唯一命中:old_string 必须恰好出现一次,0 次或多次都拒写并说明,
+//!    防止「改错地方」和「整段内容被顶掉」这两类 edit 事故(D-004:拒绝的理由必须说
+//!    出来,绝不静默)。
+//! 3. 只认这一个文件:路径由引擎给定,输入里没有 path 参数可以指到别处。
+//!
+//! 与 architecture 的差异:conventions.md 是 15KB 级用户手写规范,整文件替换风险远高于
+//! 架构索引,所以写动作收敛为**定点补丁**(patch)而不是 update(整文件替换);读动作
+//! get 给出全文 + hash + 标题导航,让模型在不依赖外部快照的情况下完成补丁。
+
+use std::path::Path;
+
+use async_trait::async_trait;
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+use crate::architecture::{content_hash, replace_recoverably};
+
+/// 开发规范(相对项目根)。
+pub const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
+
+#[derive(Deserialize, JsonSchema)]
+struct ConventionsInput {
+    /// get(读全文+hash+标题导航) | patch(逐字替换,唯一命中才写)
+    action: String,
+    /// patch 必填:要替换的原文(必须恰好出现一次)
+    #[serde(default)]
+    old_string: Option<String>,
+    /// patch 必填:替换后的新文本
+    #[serde(default)]
+    new_string: Option<String>,
+    /// patch 必填:上一次 get 返回的 hash(并发写入保护)
+    #[serde(default)]
+    expected_hash: Option<String>,
+}
+
+pub struct ConventionsTool;
+
+#[async_trait]
+impl Tool for ConventionsTool {
+    fn name(&self) -> &'static str {
+        "conventions"
+    }
+
+    fn description(&self) -> String {
+        format!(
+            "Read and maintain the dev rules document `{CONVENTIONS_REL}` (the ONLY write \
+             channel for it — write/edit are denied there). Actions: get (full text + hash + \
+             heading navigation), patch (replace exactly one occurrence of old_string with \
+             new_string; refuses when the hash from the last get is stale, when old_string \
+             matches 0 places, or when it matches 2+ places — nothing is written then). \
+             patch is a surgical replacement, never a whole-file rewrite."
+        )
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        let mut schema = serde_json::to_value(schemars::schema_for!(ConventionsInput)).unwrap();
+        if let Some(action) = schema
+            .pointer_mut("/properties/action")
+            .and_then(|v| v.as_object_mut())
+        {
+            action.insert("enum".into(), serde_json::json!(["get", "patch"]));
+        }
+        schema
+    }
+
+    /// 权限资源 = 子动作,读写可分别授权(get 只读,patch 改盘)。
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        vec![input["action"].as_str().unwrap_or("*").to_string()]
+    }
+
+    fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        match input["action"].as_str() {
+            Some("patch") => ToolConcurrency::write_worktree(ctx),
+            _ => ToolConcurrency::shared_worktree(ctx),
+        }
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: ConventionsInput = match crate::parse_input(self, input) {
+            Ok(v) => v,
+            Err(out) => return out,
+        };
+        let path = ctx.project_root.join(CONVENTIONS_REL);
+
+        match input.action.as_str() {
+            "get" => {
+                if !path.exists() {
+                    return ToolOutput::error(format!(
+                        "{CONVENTIONS_REL} does not exist at {}",
+                        path.display()
+                    ));
+                }
+                let current = read_text(&path);
+                let headings: Vec<&str> = current
+                    .lines()
+                    .filter(|l| l.trim_start().starts_with('#'))
+                    .collect();
+                let mut out = format!(
+                    "path: {CONVENTIONS_REL}\nhash: {}\nlines: {}\nheadings:\n",
+                    content_hash(&current),
+                    current.lines().count(),
+                );
+                for heading in headings.iter().take(60) {
+                    out.push_str(&format!("  {heading}\n"));
+                }
+                if headings.is_empty() {
+                    out.push_str("  (no markdown headings)\n");
+                }
+                out.push_str("---\n");
+                out.push_str(&current);
+                ToolOutput::ok(out)
+            }
+            "patch" => {
+                let Some(old_string) = input.old_string else {
+                    return ToolOutput::error(
+                        "`old_string` (the exact text to replace) is required for patch",
+                    );
+                };
+                let Some(new_string) = input.new_string else {
+                    return ToolOutput::error(
+                        "`new_string` (the replacement text) is required for patch",
+                    );
+                };
+                if old_string.is_empty() {
+                    return ToolOutput::error(
+                        "`old_string` must not be empty — an empty needle matches every position",
+                    );
+                }
+                let Some(expected) = input.expected_hash else {
+                    return ToolOutput::error(format!(
+                        "`expected_hash` is required for patch — call `get` first and pass the \
+                         hash it returned. Current hash: {}",
+                        content_hash(&read_text(&path))
+                    ));
+                };
+                if !path.exists() {
+                    return ToolOutput::error(format!(
+                        "{CONVENTIONS_REL} does not exist at {}",
+                        path.display()
+                    ));
+                }
+                let current = read_text(&path);
+                let current_hash = content_hash(&current);
+                if expected != current_hash {
+                    return ToolOutput::error(format!(
+                        "stale expected_hash `{expected}`; the file is now `{current_hash}` \
+                         (someone edited {CONVENTIONS_REL} since your last get). Re-run `get`, \
+                         apply your patch onto the current text, and patch again — do NOT \
+                         resubmit the old text."
+                    ));
+                }
+                let matches: Vec<_> = current.match_indices(&old_string).collect();
+                match matches.len() {
+                    0 => {
+                        return ToolOutput::error(format!(
+                            "`old_string` not found in {CONVENTIONS_REL} (0 occurrences). \
+                             Nothing was written. Re-read the current text via `get` and \
+                             align old_string to it exactly (whitespace included)."
+                        ));
+                    }
+                    1 => {}
+                    n => {
+                        return ToolOutput::error(format!(
+                            "`old_string` matches {n} locations in {CONVENTIONS_REL}; refusing \
+                             to patch non-uniquely. Nothing was written. Widen old_string to a \
+                             unique region (surrounding line context), or patch each occurrence \
+                             separately."
+                        ));
+                    }
+                }
+                let new_content = current.replacen(&old_string, &new_string, 1);
+                if let Err(e) = replace_recoverably(&path, &new_content, &expected) {
+                    return ToolOutput::error(e);
+                }
+                let diff_lines =
+                    new_content.lines().count() as i64 - current.lines().count() as i64;
+                ToolOutput::ok(format!(
+                    "patched {CONVENTIONS_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}",
+                    new_content.lines().count(),
+                    content_hash(&new_content),
+                ))
+                .with_display(serde_json::json!({
+                    "kind": "diff",
+                    "path": CONVENTIONS_REL,
+                    "before": current,
+                    "after": new_content,
+                }))
+            }
+            other => ToolOutput::error(format!("unknown action `{other}`; valid: get | patch")),
+        }
+    }
+}
+
+fn read_text(path: &Path) -> String {
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NONCE: AtomicUsize = AtomicUsize::new(0);
+
+    fn tmp_dir() -> PathBuf {
+        let nonce = NONCE.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir().join(format!(
+            "kanzei-conventions-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        dir
+    }
+
+    const SAMPLE: &str = "## 1.4 验证与提交节奏参数\n\n- 默认值: 全量测试只在关闭前跑。\n\n## 2. 代码修改原则\n\n- 小步可验证。\n";
+
+    /// 在临时项目里写一份 SAMPLE,执行一次工具调用,返回 (输出, 项目根)。
+    async fn run(
+        action: &str,
+        old: Option<&str>,
+        new: Option<&str>,
+        expected: Option<&str>,
+    ) -> (ToolOutput, PathBuf) {
+        let root = tmp_dir();
+        std::fs::write(root.join(CONVENTIONS_REL), SAMPLE).unwrap();
+        let mut input = serde_json::json!({ "action": action });
+        if let Some(v) = old {
+            input["old_string"] = serde_json::json!(v);
+        }
+        if let Some(v) = new {
+            input["new_string"] = serde_json::json!(v);
+        }
+        if let Some(v) = expected {
+            input["expected_hash"] = serde_json::json!(v);
+        }
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ConventionsTool.execute(input, &ctx).await;
+        (out, root)
+    }
+
+    #[tokio::test]
+    async fn get_returns_text_hash_and_headings() {
+        let (out, _) = run("get", None, None, None).await;
+        assert!(!out.is_error, "get 应成功: {}", out.content);
+        let text = &out.content;
+        assert!(
+            text.contains("path: .kanzei/project/conventions.md"),
+            "{text}"
+        );
+        assert!(text.contains("hash: "), "{text}");
+        assert!(
+            text.contains("## 1.4 验证与提交节奏参数"),
+            "标题导航缺失: {text}"
+        );
+        assert!(text.contains("## 2. 代码修改原则"), "标题导航缺失: {text}");
+        assert!(text.contains("小步可验证"), "全文未返回: {text}");
+        assert!(
+            text.contains(&content_hash(SAMPLE)),
+            "get 未返回当前 hash: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn get_missing_file_is_error() {
+        let root = tmp_dir();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ConventionsTool
+            .execute(serde_json::json!({ "action": "get" }), &ctx)
+            .await;
+        assert!(out.is_error, "缺失文件应报错: {}", out.content);
+        assert!(out.content.contains("does not exist"), "{}", out.content);
+    }
+
+    #[tokio::test]
+    async fn patch_unique_replace_writes_and_returns_new_hash() {
+        let root = tmp_dir();
+        std::fs::write(root.join(CONVENTIONS_REL), SAMPLE).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = ConventionsTool
+            .execute(
+                serde_json::json!({
+                    "action": "patch",
+                    "old_string": "全量测试只在关闭前跑",
+                    "new_string": "全量测试只在复杂度中/大条目关闭前跑(引擎已接管)",
+                    "expected_hash": content_hash(SAMPLE),
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "patch 应成功: {}", out.content);
+        let written = std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap();
+        assert!(written.contains("(引擎已接管)"), "补丁未落盘: {written}");
+        assert!(
+            written.contains("## 2. 代码修改原则"),
+            "无关小节被改动: {written}"
+        );
+        assert!(
+            out.content.contains(&content_hash(&written)),
+            "返回 hash 与落盘内容不一致: {}",
+            out.content
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_zero_matches_refuses() {
+        let (out, root) = run(
+            "patch",
+            Some("这句话在文件里不存在"),
+            Some("替换"),
+            Some(&content_hash(SAMPLE)),
+        )
+        .await;
+        assert!(out.is_error, "0 命中不应成功: {}", out.content);
+        assert!(out.content.contains("0 occurrences"), "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap(),
+            SAMPLE,
+            "拒绝时不得改动文件"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_multiple_matches_refuses() {
+        // SAMPLE 里两个标题都以 "## " 开头,old_string 取 "## " 命中 2 处。
+        let (out, root) = run(
+            "patch",
+            Some("## "),
+            Some("# "),
+            Some(&content_hash(SAMPLE)),
+        )
+        .await;
+        assert!(out.is_error, "多命中不应成功: {}", out.content);
+        assert!(
+            out.content.contains("matches 2 locations"),
+            "{}",
+            out.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap(),
+            SAMPLE,
+            "拒绝时不得改动文件"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_stale_hash_refuses() {
+        let (out, root) = run(
+            "patch",
+            Some("小步可验证"),
+            Some("小步、可验证、可回滚"),
+            Some("deadbeef"),
+        )
+        .await;
+        assert!(out.is_error, "陈旧 hash 不应成功: {}", out.content);
+        assert!(
+            out.content.contains("stale expected_hash"),
+            "{}",
+            out.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap(),
+            SAMPLE,
+            "拒绝时不得改动文件"
+        );
+    }
+
+    #[tokio::test]
+    async fn patch_requires_expected_hash() {
+        let (out, _) = run("patch", Some("小步可验证"), Some("替换"), None).await;
+        assert!(out.is_error, "缺 expected_hash 不应成功: {}", out.content);
+        assert!(out.content.contains("expected_hash"), "{}", out.content);
+    }
+}

@@ -1785,3 +1785,9 @@
 - 摘要: 纯前端改动:applyBatch 认领 batchProjectDir + 切项目后 toast。node --check 3 文件通过;ui-runtime-smoke 1144 invoke 0 运行时错误(含 D-256 新断言:闸门挂起第一条 docs_update → 中途切 currentProject → 断言全部 projectDir 为认领旧项目 + toast 明说落地);i18n/a11y/markdown/lint 冒烟全绿,gen-ui-lint-globals 再生成(1105 标识符)。
 - 关联: D-256
 - 收尾: 1786462431
+
+## T-1786463010 D-235 定向测试(kanzei-tools + fmt/clippy + 下游 check) [passed]
+- 命令: cargo test -p kanzei-tools; cargo test -p kanzei-tools conventions; cargo fmt --all --check; cargo clippy -p kanzei-tools --all-targets -- -D warnings; cargo check -p kanzei-app -p kanzei
+- 摘要: D-235 conventions 工具交付:kanzei-tools 240 passed(含 conventions 7 新测试:get 全文+hash+标题/缺失文件报错/patch 唯一命中写入/0 命中拒写/多命中拒写/陈旧 hash 拒写/缺字段拒写);profiles 测试更新(conventions 拒绝理由点名工具,无工具兜底族改用 notes.md);fmt/clippy 全绿;下游 kanzei-app/kanzei cargo check 通过。tier1_bm25 一次并行负载下偶发失败,单跑与复跑均绿(既有 TIER1_BUDGET_MS 负载 flake,与本次无关)。
+- 关联: D-235
+- 收尾: 1786463010

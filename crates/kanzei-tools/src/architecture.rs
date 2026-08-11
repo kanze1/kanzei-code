@@ -189,7 +189,12 @@ fn read_index(path: &Path) -> String {
 
 /// 同目录临时文件 + 可恢复替换。写临时文件后再次核对 CAS，避免校验期间的外部修改
 /// 被覆盖；Windows 不能原子覆盖已有目标，因此先保留 backup，替换失败会恢复原件。
-fn replace_recoverably(path: &Path, content: &str, expected_hash: &str) -> Result<(), String> {
+/// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
+pub(crate) fn replace_recoverably(
+    path: &Path,
+    content: &str,
+    expected_hash: &str,
+) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("{} has no parent", path.display()))?;
@@ -247,7 +252,8 @@ fn replace_recoverably(path: &Path, content: &str, expected_hash: &str) -> Resul
 }
 
 /// 内容指纹(CAS 用)。规范化行尾后再哈希:换行风格不同不该算作并发改动。
-fn content_hash(content: &str) -> String {
+/// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
+pub(crate) fn content_hash(content: &str) -> String {
     let normalized = content.replace("\r\n", "\n");
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     normalized.hash(&mut hasher);
