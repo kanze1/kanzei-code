@@ -202,30 +202,87 @@ pub fn register(
     registry().lock().unwrap().insert(id, process.clone());
     // 托管项目才需要守卫;非托管项目没有托管树可对账,不必空转。
     if crate::managed::managed_scope_exists(project_root) {
-        install_absorber_once();
+        install_window_observer_once();
         spawn_guard(process.clone());
     }
     process
 }
 
-/// 安装"吸收合法写入"的回调(harness 侧的窗口关闭时回调过来)。
+/// 安装"观察合法写入窗口"的回调(harness 侧的窗口开合回调过来)。
 ///
 /// harness 不依赖 tools,快照与基线都在这一侧,所以只能反向注入。回调里做文件 IO
 /// 是有意的:窗口关闭发生在工具执行完成之后,此刻磁盘状态才是最终的;而且注册表
 /// 为空时立刻返回,没有后台任务的绝大多数场景零成本。
-fn install_absorber_once() {
+///
+/// D-258 精确吸收:窗口**打开**时给每个运行中的后台进程拍一张「打开前」快照,
+/// **关闭**时拍「关闭后」快照,只吸收两张快照之间**实际变化**的路径(还要落在
+/// 本窗口声明的前缀内),而不是把整个前缀的当前状态吸收进基线——整前缀吸收会
+/// 把后台进程在窗口内偷写的文件(专用工具没碰)一起固化。
+fn install_window_observer_once() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        kanzei_harness::managed_fence::set_absorber(|spec| {
+        kanzei_harness::managed_fence::set_observer(|phase, spec| {
             for process in running_processes() {
                 let root = PathBuf::from(&process.project_root);
-                let current = ManagedSnapshot::capture(&root);
-                let mut baseline = process.baseline();
-                baseline.absorb_from(&current, spec.prefixes);
-                process.set_baseline(baseline);
+                let key = (process.id.clone(), spec.tool);
+                match phase {
+                    kanzei_harness::managed_fence::WindowPhase::Opened => {
+                        // 先拍照再入栈:capture 是文件 IO,别占着快照 map 的锁。
+                        let snapshot = ManagedSnapshot::capture(&root);
+                        window_open_snapshots()
+                            .lock()
+                            .unwrap()
+                            .entry(key)
+                            .or_default()
+                            .push(snapshot);
+                    }
+                    kanzei_harness::managed_fence::WindowPhase::Closed => {
+                        // 弹栈(短临界区),capture 在锁外做(文件 IO)。
+                        let opened = {
+                            let mut snapshots = window_open_snapshots().lock().unwrap();
+                            let popped = snapshots.get_mut(&key).and_then(|stack| stack.pop());
+                            if let Some(stack) = snapshots.get(&key) {
+                                if stack.is_empty() {
+                                    snapshots.remove(&key);
+                                }
+                            }
+                            popped
+                        };
+                        let current = ManagedSnapshot::capture(&root);
+                        let mut baseline = process.baseline();
+                        // 有打开快照:只吸收「打开→关闭」之间实际变化的路径 ∩ 本窗口前缀。
+                        // 没有(窗口打开期间才 spawn 的后台进程):吸收「基线→当前」的前缀内
+                        // 变化——窗口关闭时补账,避免它把专用工具此刻的合法写入误判成越界。
+                        let before = opened.as_ref().unwrap_or(&baseline);
+                        if let Some(change) = crate::managed::diff(before, &current) {
+                            let paths: Vec<&str> = change
+                                .touched()
+                                .into_iter()
+                                .map(|s| s.as_str())
+                                .filter(|p| kanzei_harness::managed_fence::covers(spec, p))
+                                .collect();
+                            if !paths.is_empty() {
+                                baseline.absorb_paths(&current, &paths);
+                                process.set_baseline(baseline);
+                            }
+                        }
+                    }
+                }
             }
         });
     });
+}
+
+/// 每个后台进程按 (process_id, tool) 存放的「窗口打开前」快照栈。
+///
+/// 按 tool 分栈而不是单一栈:不同专用工具(如 defect 与 memory_add)的窗口可以
+/// 并发打开、交错关闭,LIFO 单栈会错配各自的打开快照。同一 tool 的嵌套窗口
+/// (并行 wave)仍按 LIFO 匹配——同一工具名同时开多个窗口是罕见路径,接受该语义。
+type WindowSnapshotMap = Mutex<HashMap<(String, &'static str), Vec<ManagedSnapshot>>>;
+
+fn window_open_snapshots() -> &'static WindowSnapshotMap {
+    static SNAPSHOTS: OnceLock<WindowSnapshotMap> = OnceLock::new();
+    SNAPSHOTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// 全部仍在运行的后台进程(跨项目)。锁只在克隆期间持有,后续文件 IO 不占锁。
@@ -269,10 +326,13 @@ async fn reconcile(process: &Arc<BackgroundProcess>, kill_on_breach: bool) -> Op
     let change = crate::managed::diff(&baseline, &current)?;
     // 分流:此刻有专用工具窗口覆盖的路径有合法解释,本轮放过——真正的吸收在
     // 窗口关闭时做(守卫是周期采样的,整个窗口可能落在两次采样之间)。
-    let (_legitimate, breach) = change.partition(kanzei_harness::managed_fence::write_in_progress);
+    let (legitimate, breach) = change.partition(kanzei_harness::managed_fence::write_in_progress);
     if breach.is_empty() {
-        // 全部有合法解释:推进基线,避免下一轮把同一批变化重复报一遍。
-        process.set_baseline(current);
+        // D-258:变化全部被窗口分流为合法时**不推进基线**。整树推进会把后台进程
+        // 在窗口内偷写的文件固化进基线——窗口一关,守卫就再也看不见它,这是蒙混
+        // 真正承重的位置。基线唯一的推进方式是窗口关闭时的精确吸收(只吸收窗口
+        // 前后实际变化的路径)。窗口开着时反复对账不推进是无害的:变化原样留在
+        // diff 里,窗口关闭后要么被吸收(合法),要么在下一轮被报越界(后台蒙混)。
         return None;
     }
     let (quarantine, restored) = crate::managed::quarantine_and_restore(
@@ -293,8 +353,18 @@ async fn reconcile(process: &Arc<BackgroundProcess>, kill_on_breach: bool) -> Op
             crate::shell::kill_tree(pid).await;
         }
     }
-    // 回滚之后重新取基线:树已经回到基线状态,但窗口内的合法改动要一并吸收。
-    process.set_baseline(ManagedSnapshot::capture(&root));
+    // 回滚 breach 后,只把 legitimate(窗口覆盖的合法写入)吸收进基线,不再整树
+    // set_baseline(capture)——整树推进同样会把窗口内未回滚的蒙混写入固化掉。
+    // legitimate 里若混有后台进程的写入(残余边界:与专用工具同窗口写同前缀文件),
+    // 快照层面无法区分,如实记录在 D-258。
+    let mut new_baseline = baseline;
+    let legitimate_paths: Vec<&str> = legitimate
+        .touched()
+        .into_iter()
+        .map(|s| s.as_str())
+        .collect();
+    new_baseline.absorb_paths(&current, &legitimate_paths);
+    process.set_baseline(new_baseline);
     Some(record)
 }
 
@@ -827,6 +897,152 @@ mod tests {
             LEGIT,
             "窗口外写入应回滚到上一次合法写入的内容(基线已被窗口吸收)"
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-258 验收核心:窗口开着时守卫**不推进基线**。旧实现里,后台进程只要赶上
+    /// 任意一个专用工具窗口,把前缀内文件改成恶意内容,守卫对账看到的变化全被
+    /// 分流为"合法",然后 `set_baseline(current)` 把整棵托管树(含恶意内容)固化
+    /// 进基线——窗口一关,守卫就再也看不见它,这是"毫秒级蒙混"真正承重的位置。
+    ///
+    /// 断言口径:窗口开着时手动对账,基线必须**落后于**当前树(变化仍可被看见);
+    /// 窗口关闭后精确吸收只吸收窗口内实际变化的路径,基线追上当前、不再报越界。
+    #[tokio::test]
+    async fn 窗口开着时守卫不推进基线_关闭后精确吸收() {
+        let _serial = serial().lock().await;
+        let root = temp_managed_project("window-hold");
+        let target = root.join(".kanzei/project/defects.md");
+        let long_running = match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 30",
+            "cmd" => "ping -n 30 127.0.0.1 >nul",
+            _ => "sleep 30",
+        };
+        let id = start_background(&root, long_running, "run-hold").await;
+        let process = get(&id).unwrap();
+
+        // 打开窗口并停在 pending(窗口保持开着,工具"还没结束")。
+        // 必须用 Box::pin 持有 future 本体:tokio::pin! 只持有 &mut 引用,
+        // drop 引用不会 drop future,窗口会一直开到最后,吸收断言必然假失败。
+        let mut window: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(
+            kanzei_harness::managed_fence::tool_scope("defect", std::future::pending::<()>()),
+        );
+        {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(20), &mut window).await;
+        }
+        assert!(
+            kanzei_harness::managed_fence::write_in_progress(".kanzei/project/defects.md"),
+            "窗口应已打开"
+        );
+
+        // 窗口内改前缀文件(模拟专用工具写入)。
+        const LEGIT: &str = "# Defects\n\n## D-001 窗口内合法写入 [fixing]\n";
+        std::fs::write(&target, LEGIT).unwrap();
+
+        // 手动对账:窗口开着,变化被分流为合法,守卫**必须**不推进基线。
+        reconcile(&process, false).await;
+        assert!(
+            process.breaches().is_empty(),
+            "窗口内的变化不该报越界: {:?}",
+            process.breaches()
+        );
+        let current = ManagedSnapshot::capture(&root);
+        assert!(
+            crate::managed::diff(&process.baseline(), &current).is_some(),
+            "D-258 蒙混洞:守卫在窗口开着时推进了基线,后台偷写被固化,窗口一关就再也看不见"
+        );
+
+        // 关闭窗口:精确吸收把窗口内实际变化的路径推进基线。
+        drop(window);
+        let current = ManagedSnapshot::capture(&root);
+        assert!(
+            crate::managed::diff(&process.baseline(), &current).is_none(),
+            "窗口关闭的精确吸收后,基线应与当前一致"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            LEGIT,
+            "窗口内合法写入不得被误伤"
+        );
+        assert!(process.breaches().is_empty(), "吸收完成后不该有越界记录");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-258 验收③(精确拦截侧):窗口覆盖 project 前缀时,后台进程(此处由主进程
+    /// 模拟,语义等价)写**窗口前缀外**的托管文件——窗口关闭的精确吸收不会把它
+    /// 带进基线,守卫下一轮必须把它识别为越界并回滚,同时窗口内的合法写入保留。
+    #[tokio::test]
+    async fn 窗口内后台写窗口外托管文件_关闭后仍被回滚且合法写入保留() {
+        let _serial = serial().lock().await;
+        let root = temp_managed_project("window-outer");
+        let target = root.join(".kanzei/project/defects.md");
+        let memory_target = root.join(".kanzei/memory/M-999-x.md");
+        let long_running = match crate::shell::detected_shell().name {
+            "pwsh" | "powershell" => "Start-Sleep -Seconds 30",
+            "cmd" => "ping -n 30 127.0.0.1 >nul",
+            _ => "sleep 30",
+        };
+        let id = start_background(&root, long_running, "run-outer").await;
+        let process = get(&id).unwrap();
+        std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
+
+        const LEGIT: &str = "# Defects\n\n## D-001 窗口内合法写入 [fixing]\n";
+        // 窗口内:专用工具写 project 下的文件;同一时刻"后台进程"写 memory 下的文件。
+        kanzei_harness::managed_fence::tool_scope("defect", async {
+            std::fs::write(&target, LEGIT).unwrap();
+            std::fs::write(&memory_target, "MEMORY BREACH").unwrap();
+        })
+        .await;
+
+        assert!(
+            wait_until(|| !process.breaches().is_empty(), 10_000).await,
+            "窗口关闭后,窗口前缀外的越界写入必须被守卫识别"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            LEGIT,
+            "窗口内的合法写入不被误伤"
+        );
+        assert!(
+            !memory_target.exists(),
+            "窗口前缀外的越界写入必须被回滚(新建文件被删除)"
+        );
+        let breaches = process.breaches();
+        let breach = breaches.last().unwrap();
+        assert!(
+            breach.touched.iter().any(|p| p.ends_with("M-999-x.md")),
+            "归因记录必须点名越界的 memory 文件: {:?}",
+            breach.touched
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-258 验收④:托管树镜像上限(单文件 >4 MiB / 目录 >2000 文件)被突破时,
+    /// 后台任务必须**显式拒绝**而不是静默放行——放行等于告诉后台进程"这棵子树
+    /// 随便写,反正没人能回滚你"。
+    #[tokio::test]
+    async fn 托管树超限时后台任务被显式拒绝而不是静默放行() {
+        let _serial = serial().lock().await;
+        let root = temp_managed_project("limit");
+        // 造一个超过单文件镜像上限的托管文件。
+        let big = root.join(".kanzei/project/big.md");
+        std::fs::write(
+            &big,
+            vec![b'x'; crate::managed::MANAGED_SNAPSHOT_FILE_LIMIT as usize + 1],
+        )
+        .unwrap();
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({"command": "echo hi", "background": true}),
+                &ctx_for(&root, "run-limit"),
+            )
+            .await;
+        assert!(out.is_error, "超限时必须显式拒绝: {}", out.content);
+        assert!(
+            out.content.contains("refused before execution"),
+            "拒绝信息必须点名原因: {}",
+            out.content
+        );
+        assert!(list(&root).is_empty(), "被拒绝的后台任务不得出现在注册表里");
         std::fs::remove_dir_all(&root).ok();
     }
 

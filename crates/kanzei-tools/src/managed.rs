@@ -42,32 +42,26 @@ impl ManagedSnapshot {
         !self.truncated && self.files.values().all(Option::is_some)
     }
 
-    /// 把 `current` 里落在 `prefixes` 内的路径吸收进本基线(其余路径保持原样)。
+    /// 把 `current` 里 `paths` 指定的这些路径吸收进本基线(其余路径保持原样)。
     ///
-    /// D-174 合法写入窗口关闭时调用:专用工具刚写完的那些路径从此算"已知状态",
-    /// 后台守卫下一轮不会再把它们报成越界。前缀之外的变化一律不吸收——窗口只为
-    /// 声明过的那部分托管子树背书。
-    pub(crate) fn absorb_from(&mut self, current: &ManagedSnapshot, prefixes: &[&str]) {
-        let matches = |path: &str| {
-            prefixes
-                .iter()
-                .any(|prefix| path.starts_with(prefix) || path == prefix.trim_end_matches('/'))
-        };
-        for (path, content) in &current.files {
-            if matches(path) {
-                self.files.insert(path.clone(), content.clone());
+    /// D-258:吸收粒度从「前缀内全部路径」收窄为「窗口期间实际变化的路径」。
+    /// 整前缀吸收会让后台进程在窗口内偷写的文件(专用工具没碰、窗口前后却有变化)
+    /// 也被固化进基线;按路径吸收只认「打开/关闭两次镜像之间的差异」,后台进程
+    /// 必须和专用工具写同一批文件才能蒙混——写别的文件会在窗口关闭后留痕,
+    /// 被守卫下一轮对账判成越界回滚。
+    ///
+    /// `paths` 里在 `current` 中不存在的路径视为被删除(窗口内被删的托管文件同样
+    /// 要吸收,否则守卫会把"专用工具的归档移动"当成越界删除再给写回去)。
+    pub(crate) fn absorb_paths(&mut self, current: &ManagedSnapshot, paths: &[&str]) {
+        for &path in paths {
+            match current.files.get(path) {
+                Some(content) => {
+                    self.files.insert(path.to_string(), content.clone());
+                }
+                None => {
+                    self.files.remove(path);
+                }
             }
-        }
-        // 窗口内被删掉的托管文件同样要吸收,否则守卫会把"专用工具的归档移动"
-        // 当成越界删除再给写回去。
-        let vanished: Vec<String> = self
-            .files
-            .keys()
-            .filter(|path| matches(path) && !current.files.contains_key(*path))
-            .cloned()
-            .collect();
-        for path in vanished {
-            self.files.remove(&path);
         }
     }
 }

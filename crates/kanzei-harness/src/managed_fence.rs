@@ -13,7 +13,7 @@
 //! 里,它要观察的是"此刻整个进程有没有专用工具在写",task-local 跨任务看不见。
 //!
 //! 本模块只提供窗口与判定,不碰文件系统。快照/回滚由 kanzei-tools 侧持有
-//! (harness 不依赖 tools,吸收动作经 `set_absorber` 注入的回调回调过去)。
+//! (harness 不依赖 tools,吸收动作经 `set_observer` 注入的回调回调过去)。
 
 use std::sync::{Mutex, OnceLock};
 
@@ -105,18 +105,29 @@ fn active() -> &'static Mutex<Vec<&'static ManagedWriterSpec>> {
     ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-type Absorber = Box<dyn Fn(&'static ManagedWriterSpec) + Send + Sync>;
-
-fn absorber() -> &'static OnceLock<Absorber> {
-    static ABSORBER: OnceLock<Absorber> = OnceLock::new();
-    &ABSORBER
+/// 窗口生命周期阶段。打开与关闭各通知一次,让吸收方在两侧都能拍快照:
+/// D-258 的精确吸收需要「打开前」与「关闭后」两张镜像来算窗口内实际变化的路径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowPhase {
+    Opened,
+    Closed,
 }
 
-/// 注入"吸收合法写入"的回调。kanzei-tools 在登记首个后台任务时安装:
+type Observer = Box<dyn Fn(WindowPhase, &'static ManagedWriterSpec) + Send + Sync>;
+
+fn observer() -> &'static OnceLock<Observer> {
+    static OBSERVER: OnceLock<Observer> = OnceLock::new();
+    &OBSERVER
+}
+
+/// 注入窗口观察者。kanzei-tools 在登记首个后台任务时安装:
 /// harness 不依赖 tools,快照与基线都在 tools 侧,所以吸收动作只能回调过去。
 /// 幂等——重复安装保留首次注入的实现。
-pub fn set_absorber(f: impl Fn(&'static ManagedWriterSpec) + Send + Sync + 'static) {
-    let _ = absorber().set(Box::new(f));
+///
+/// `Opened` 在窗口登记之后、工具执行之前回调;`Closed` 在窗口注销**之前**回调
+/// (此刻窗口仍对守卫可见,守卫采样会把窗口覆盖的变化当合法分流,不会误伤)。
+pub fn set_observer(f: impl Fn(WindowPhase, &'static ManagedWriterSpec) + Send + Sync + 'static) {
+    let _ = observer().set(Box::new(f));
 }
 
 /// 合法写入窗口。Drop 时关闭并触发吸收——RAII 保证正常返回、错误、超时取消
@@ -131,6 +142,10 @@ impl ToolWindow {
         let spec = writer_spec(tool);
         if let Some(spec) = spec {
             active().lock().unwrap().push(spec);
+            // 登记之后再通知 Opened:观察者此刻拍到的快照就是"工具还没写"的状态。
+            if let Some(observe) = observer().get() {
+                observe(WindowPhase::Opened, spec);
+            }
         }
         ToolWindow { spec }
     }
@@ -141,17 +156,18 @@ impl Drop for ToolWindow {
         let Some(spec) = self.spec else {
             return;
         };
+        // 吸收在弹窗**之前**做:此刻窗口仍登记在 active 里,守卫采样会把窗口覆盖的
+        // 变化当合法分流(配合守卫"不整树推进"),吸收完成后才弹窗——避免「关窗 →
+        // 吸收完成」之间守卫把专用工具的合法写入误判成越界回滚(D-258 时序竞态)。
+        if let Some(observe) = observer().get() {
+            observe(WindowPhase::Closed, spec);
+        }
         {
             let mut guard = active().lock().unwrap();
             // 按身份移除一个实例(同名工具可能并发开多个窗口)。
             if let Some(at) = guard.iter().position(|other| std::ptr::eq(*other, spec)) {
                 guard.remove(at);
             }
-        }
-        // 窗口关闭时吸收:守卫是周期采样的,可能整个窗口都落在两次采样之间,
-        // 只靠"采样时窗口是否开着"会漏掉刚写完就关窗的合法改动并误判越界。
-        if let Some(absorb) = absorber().get() {
-            absorb(spec);
         }
     }
 }
@@ -229,13 +245,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn 窗口开合可见_并在结束时触发吸收() {
+    async fn 窗口开合可见_并在两端触发观察() {
         let _serial = serial().lock().await;
-        let absorbed = Arc::new(AtomicUsize::new(0));
+        let opened = Arc::new(AtomicUsize::new(0));
+        let closed = Arc::new(AtomicUsize::new(0));
         {
-            let absorbed = absorbed.clone();
-            set_absorber(move |_spec| {
-                absorbed.fetch_add(1, Ordering::SeqCst);
+            let opened = opened.clone();
+            let closed = closed.clone();
+            set_observer(move |phase, _spec| match phase {
+                WindowPhase::Opened => {
+                    opened.fetch_add(1, Ordering::SeqCst);
+                }
+                WindowPhase::Closed => {
+                    closed.fetch_add(1, Ordering::SeqCst);
+                }
             });
         }
         assert!(active_tools().is_empty(), "起始不该有开着的窗口");
@@ -249,17 +272,23 @@ mod tests {
         assert!(active_tools().is_empty(), "窗口必须随作用域关闭");
         assert!(!write_in_progress(".kanzei/project/defects.md"));
         assert_eq!(
-            absorbed.load(Ordering::SeqCst),
+            opened.load(Ordering::SeqCst),
             1,
-            "窗口关闭必须触发一次吸收——守卫是周期采样的,整个窗口可能落在两次采样之间"
+            "窗口打开必须触发一次 Opened——精确吸收需要「打开前」快照"
+        );
+        assert_eq!(
+            closed.load(Ordering::SeqCst),
+            1,
+            "窗口关闭必须触发一次 Closed 吸收——守卫是周期采样的,整个窗口可能落在两次采样之间"
         );
 
-        // 非专用写工具零开销通过:不开窗口、不触发吸收。
+        // 非专用写工具零开销通过:不开窗口、不触发观察。
         tool_scope("bash", async {
             assert!(active_tools().is_empty());
         })
         .await;
-        assert_eq!(absorbed.load(Ordering::SeqCst), 1);
+        assert_eq!(opened.load(Ordering::SeqCst), 1);
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
