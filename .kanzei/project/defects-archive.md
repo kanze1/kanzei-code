@@ -2694,3 +2694,18 @@
 ② 三个 harvest 收敛为一个共享轮末采集函数,两端调同一入口 ✓(harvest_end_of_run @ kanzei-tools memory/mod.rs:805;CLI main.rs:646 与桌面端 run.rs:733 同一调用)
 ③ 杜绝再次漂移 ✓(单入口,双端无独立 harvest 逻辑)
 
+## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [fixed] (medium)
+- 优先级: P2
+- 依据: kanzei-tools/src/memory/mod.rs resident_index 按 load_all 的 id 升序装 3000 字预算,放不下的 continue 折叠——id 越大(越新)的条目越容易被挤出常驻索引,而新条目往往正是当前最相关的;老条目永远优先纯属枚举顺序副作用,不是价值排序。
+- 修复方向: 装箱前按价值排序(decision_weight×新近度,或至少 updated 新近优先);与 prompt_hints 的口径保持同源(D-216 教训:两边必须对同一份判定)。
+- refs: R-104 R-149
+
+- 进展: 已修复并全量验证。逐条对照:
+①「装箱前按价值排序」——crates/kanzei-tools/src/memory/mod.rs resident_index(行 401):装箱前 all.sort_by 按 updated 新近优先、同 updated 按 id_number 降序(id 数字越大创建越晚),取代原先 load_all 的 id 升序先到先得;
+②「decision_weight×新近度,或至少 updated 新近优先」——MemoryEntry 无 decision_weight 字段,采用 updated 新近优先(修复方向的最低要求),同 updated 平手按 id 数字降序(新条目优先);
+③「与 prompt_hints 的口径保持同源(D-216)」——prompt_hints(mod.rs:958)与 profiles.rs:280 注入侧本就调用同一个 resident_index,一处排序改动两端同步生效,无新分裂;
+④ 验证——新增单测 resident_index_价值排序_新近条目优先于老条目(mod.rs:1493):新 updated 优先入选、最老折叠、行序按价值降序、同 updated 时 id 大优先;既有 hints 口径测试(hints_不重复常驻索引_折叠条目才给全行)回归通过。定向 kanzei-tools 231 全绿(T-1786449681),workspace 全量全绿(T-1786449748),提交 ee95bf8。
+- 验收: ① 装箱前按价值排序 ✓(resident_index sort_by updated 新近 + id 数字降序,mod.rs:401)
+② 新条目不再被系统性折叠 ✓(单测:新 updated 优先、最老折叠)
+③ 与 prompt_hints 口径同源 ✓(prompt_hints 与 profiles 注入共用同一 resident_index,D-216 不破坏)
+

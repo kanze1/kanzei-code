@@ -1647,3 +1647,9 @@
 - 摘要: D-230 修复定向验证:resident_index 装箱前按价值排序(updated 新近优先,同 updated 按 id 数字降序),取代 id 升序先到先得。新增单测:新 updated 优先入选、最老折叠、行序按价值降序、同 updated 时 id 大优先。memory 模块 70 全绿,kanzei-tools 231 全绿(含既有 resident/prompt_hints 口径测试回归)。
 - 关联: D-230
 - 收尾: 1786449681
+
+## T-1786449748 cargo test --workspace (D-230 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-230 关闭前全量:全部 crate 全绿(kanzei-tools 231 含新增 resident_index 价值排序测试)。resident_index 装箱前按 updated 新近 + id 数字降序排序,新条目不再被系统性折叠。
+- 关联: D-230
+- 收尾: 1786449748
