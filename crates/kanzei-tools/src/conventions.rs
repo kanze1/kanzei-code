@@ -129,6 +129,10 @@ impl Tool for ConventionsTool {
                         "`new_string` (the replacement text) is required for patch",
                     );
                 };
+                // agent→工具参数在协议层常把换行转义成字面 `\n`/`\r\n`/`\r` 文本
+                // (测试代码直接构造 JSON 时则是真换行)。统一解码,两种输入等价。
+                let old_string = decode_escaped_newlines(&old_string);
+                let new_string = decode_escaped_newlines(&new_string);
                 if old_string.is_empty() {
                     return ToolOutput::error(
                         "`old_string` must not be empty — an empty needle matches every position",
@@ -158,6 +162,19 @@ impl Tool for ConventionsTool {
                     ));
                 }
                 let matches: Vec<_> = current.match_indices(&old_string).collect();
+                if matches.len() != 1 {
+                    // CRLF 文件里,跨行 old_string 几乎不可能用 LF 参数逐字命中;
+                    // 先按 LF 归一化重试一次,再决定报错文案。
+                    let lf_current = normalize_lf(&current);
+                    let lf_old = normalize_lf(&old_string);
+                    let lf_matches: Vec<_> = lf_current.match_indices(&lf_old).collect();
+                    if lf_matches.len() == 1 {
+                        let (start, end) = map_lf_range(&current, lf_matches[0].0, lf_matches[0].1.len());
+                        let mut new_content = current.clone();
+                        new_content.replace_range(start..end, &new_string);
+                        return write_patch(&path, current, new_content, &expected);
+                    }
+                }
                 match matches.len() {
                     0 => {
                         return ToolOutput::error(format!(
@@ -177,26 +194,82 @@ impl Tool for ConventionsTool {
                     }
                 }
                 let new_content = current.replacen(&old_string, &new_string, 1);
-                if let Err(e) = replace_recoverably(&path, &new_content, &expected) {
-                    return ToolOutput::error(e);
-                }
-                let diff_lines =
-                    new_content.lines().count() as i64 - current.lines().count() as i64;
-                ToolOutput::ok(format!(
-                    "patched {CONVENTIONS_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}",
-                    new_content.lines().count(),
-                    content_hash(&new_content),
-                ))
-                .with_display(serde_json::json!({
-                    "kind": "diff",
-                    "path": CONVENTIONS_REL,
-                    "before": current,
-                    "after": new_content,
-                }))
+                write_patch(&path, current, new_content, &expected)
             }
             other => ToolOutput::error(format!("unknown action `{other}`; valid: get | patch")),
         }
     }
+}
+
+/// 执行写盘 + 产出 diff 显示。new_content 里的裸换行统一为文件既有风格(CRLF 文件不
+/// 因 LF 参数产生混合换行)。
+fn write_patch(path: &Path, current: String, new_content: String, expected: &str) -> ToolOutput {
+    let new_content = if current.contains("\r\n") {
+        normalize_lf(&new_content).replace('\n', "\r\n")
+    } else {
+        new_content
+    };
+    if let Err(e) = replace_recoverably(path, &new_content, expected) {
+        return ToolOutput::error(e);
+    }
+    let diff_lines = new_content.lines().count() as i64 - current.lines().count() as i64;
+    ToolOutput::ok(format!(
+        "patched {CONVENTIONS_REL} ({} lines, {diff_lines:+} vs before)\nhash: {}",
+        new_content.lines().count(),
+        content_hash(&new_content),
+    ))
+    .with_display(serde_json::json!({
+        "kind": "diff",
+        "path": CONVENTIONS_REL,
+        "before": current,
+        "after": new_content,
+    }))
+}
+
+/// CRLF → LF 归一化(只删成对 `\r\n` 里的 `\r`,单独 `\r` 保留)。
+fn normalize_lf(s: &str) -> String {
+    s.replace("\r\n", "\n")
+}
+
+/// 解码协议层把换行转义成的字面序列(`\n` / `\r\n` / `\r` 文本形式),
+/// 还原为真换行,使字面转义与真换行两种参数输入等价。
+fn decode_escaped_newlines(s: &str) -> String {
+    s.replace("\\r\\n", "\n")
+        .replace("\\r", "\n")
+        .replace("\\n", "\n")
+}
+
+/// 把 LF 归一化文本上的字节区间 [lf_start, lf_start + lf_len) 映射回原始文本
+/// (含 `\r\n`)的字节区间。原理:归一化文本 = 原文删去每个 CRLF 的 `\r`;
+/// 原文偏移 = 归一化偏移 + 前缀里被删掉的 `\r` 数。
+fn map_lf_range(original: &str, lf_start: usize, lf_len: usize) -> (usize, usize) {
+    let bytes = original.as_bytes();
+    let mut i = 0usize;
+    let mut seen = 0usize;
+    let mut orig = 0usize;
+    while i < bytes.len() && seen < lf_start {
+        if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            i += 1;
+            orig += 1; // \r 在原文占 1 字节,\n 在下一轮计入 seen
+            continue;
+        }
+        seen += 1;
+        i += 1;
+        orig += 1;
+    }
+    let start = orig;
+    let mut walked = 0usize;
+    while i < bytes.len() && walked < lf_len {
+        if bytes[i] == b'\r' && i + 1 < bytes.len() && bytes[i + 1] == b'\n' {
+            i += 1;
+            orig += 1;
+            continue;
+        }
+        walked += 1;
+        i += 1;
+        orig += 1;
+    }
+    (start, orig)
 }
 
 fn read_text(path: &Path) -> String {
@@ -378,5 +451,81 @@ mod tests {
         let (out, _) = run("patch", Some("小步可验证"), Some("替换"), None).await;
         assert!(out.is_error, "缺 expected_hash 不应成功: {}", out.content);
         assert!(out.content.contains("expected_hash"), "{}", out.content);
+    }
+
+    /// CRLF 文件 + LF 参数的跨行 patch:逐字匹配必然 0 命中,归一化后应成功,
+    /// 且写回不产生混合换行(整文件仍 CRLF)。
+    #[tokio::test]
+    async fn patch_tolerates_crlf_files_with_lf_old_string() {
+        let root = tmp_dir();
+        let crlf = "## 1. 语言与沟通\r\n\r\n- 旧行一。\r\n- 旧行二。\r\n\r\n## 2. 之后\r\n";
+        std::fs::write(root.join(CONVENTIONS_REL), crlf).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut input = serde_json::json!({
+            "action": "patch",
+            "old_string": "- 旧行一。\n- 旧行二。",
+            "new_string": "- 新行。",
+            "expected_hash": content_hash(crlf),
+        });
+        let out = ConventionsTool.execute(input.clone(), &ctx).await;
+        assert!(!out.is_error, "CRLF 文件 + LF old_string 应可 patch: {}", out.content);
+        let after = std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap();
+        assert_eq!(
+            after,
+            "## 1. 语言与沟通\r\n\r\n- 新行。\r\n\r\n## 2. 之后\r\n",
+            "替换内容正确且换行统一为 CRLF"
+        );
+        assert!(!after.replace("\r\n", "").contains('\n'), "不得混合换行");
+        // LF 文件 + CRLF old_string 也容忍。
+        let root2 = tmp_dir();
+        let lf = "## 1.\n\n- 甲。\n\n## 2.\n";
+        std::fs::write(root2.join(CONVENTIONS_REL), lf).unwrap();
+        let ctx2 = ToolCtx::new(root2.clone(), root2.clone());
+        let mut input2 = serde_json::json!({
+            "action": "patch",
+            "old_string": "- 甲。\r\n\r\n## 2.",
+            "new_string": "- 乙。\r\n\r\n## 2.",
+            "expected_hash": content_hash(lf),
+        });
+        let out2 = ConventionsTool.execute(input2.clone(), &ctx2).await;
+        assert!(!out2.is_error, "LF 文件 + CRLF old_string 也应可 patch: {}", out2.content);
+    }
+
+    /// 复现真实 conventions.md 场景:跨行 old_string 在 CRLF 文件上匹配。
+    #[tokio::test]
+    async fn multi_line_old_string_matches_crlf_file() {
+        let root = tmp_dir();
+        let crlf = "## 1.1 需求取活与阻塞调度\r\n\r\n- 需求列表按文件顺序自上而下扫描，顺序代表用户意图；priority 只用于背景判断，不得改变取活顺序。\r\n- **`阻塞:` 字段只留给外部阻塞**——即解除权不在 agent 手里的四类：①已经把方案发给用户、正在等回复；②缺凭据/权限/环境；③依赖外部服务或他人；④用户明确宣布该条自己直营。写入时必须带**具名的解除人**（谁做什么才能解除），写不出具名解除人的就不是外部阻塞。\r\n\r\n## 1.2 关闭边界\r\n";
+        std::fs::write(root.join(CONVENTIONS_REL), crlf).unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let mut input = serde_json::json!({
+            "action": "patch",
+            "old_string": "- 需求列表按文件顺序自上而下扫描，顺序代表用户意图；priority 只用于背景判断，不得改变取活顺序。\n- **`阻塞:` 字段只留给外部阻塞**——即解除权不在 agent 手里的四类：①已经把方案发给用户、正在等回复；②缺凭据/权限/环境；③依赖外部服务或他人；④用户明确宣布该条自己直营。写入时必须带**具名的解除人**（谁做什么才能解除），写不出具名解除人的就不是外部阻塞。",
+            "new_string": "- 替换行。",
+            "expected_hash": content_hash(crlf),
+        });
+        let out = ConventionsTool.execute(input.clone(), &ctx).await;
+        assert!(!out.is_error, "多行 old_string 应可匹配 CRLF 文件: {}", out.content);
+        let after = std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap();
+        assert_eq!(
+            after,
+            "## 1.1 需求取活与阻塞调度\r\n\r\n- 替换行。\r\n\r\n## 1.2 关闭边界\r\n",
+            "替换内容正确"
+        );
+    }
+
+    /// 归一化区间映射:验证 LF 偏移 → CRLF 原文偏移的换算。
+    #[test]
+    fn map_lf_range_maps_across_crlf() {
+        let original = "aa\r\nbb\r\ncc";
+        // 归一化文本: aa\nbb\ncc
+        // lf 偏移 0..2 → 原文 0..2(aa)
+        assert_eq!(map_lf_range(original, 0, 2), (0, 2));
+        // lf 偏移 3..5(bb)→ 原文 4..6(每个 \r\n 前多一个 \r)
+        assert_eq!(map_lf_range(original, 3, 2), (4, 6));
+        // lf 偏移 6..8(cc)→ 原文 8..10
+        assert_eq!(map_lf_range(original, 6, 2), (8, 10));
+        // 空匹配
+        assert_eq!(map_lf_range(original, 0, 0), (0, 0));
     }
 }
