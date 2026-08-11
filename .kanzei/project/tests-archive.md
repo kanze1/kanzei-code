@@ -1635,3 +1635,9 @@
 - 摘要: D-229 修复定向验证:新增 harvest_end_of_run 共享轮末采集入口(kanzei-tools memory/mod.rs),CLI(main.rs)与桌面端(run.rs)两端调用同一入口,补上 CLI 缺失的 SOP 采集通道。参数 global_root 注入临时全局记忆根(避免 D-273 式 set_var 并发互踩)。新增单测:完成条目投 SOP+fact、纯查询轮不投。tools 230 + kanzei 集成 + app 118 全绿。
 - 关联: D-229
 - 收尾: 1786449431
+
+## T-1786449517 cargo test --workspace (D-229 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-229 关闭前全量:全部 crate 全绿(kanzei-tools 230、kanzei-app 118、kanzei-core 130、kanzei-harness 107 等)。共享轮末采集入口 harvest_end_of_run 两端(CLI/桌面端)同一调用,SOP 采集通道 CLI 补齐。
+- 关联: D-229
+- 收尾: 1786449517

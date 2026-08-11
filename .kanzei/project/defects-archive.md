@@ -2680,3 +2680,17 @@
 
 - 进展: 修复:memory_hints 不再拼进 prompt 字符串,改为 run_once/run_once_with_parts 的新参数(kanzei-core/src/runner/drive.rs:20-24,43-46),作为稳定 system 段注入(stable_system.push,drive.rs:117-121)——system 不进 messages,自然不进 conversations,下轮 prior 回灌不到;context_report 单独记 memory/hints(drive.rs:107-110)。CLI(main.rs:566-568 prompt_hints 独立,run_once 传 memory_hints.as_deref())与桌面端(run.rs:604-607)同步改造;15 处调用点全部补参(其余传 None)。验收核对:①hint 块不进 conversations 快照——集成测试 memory_hints_not_persisted.rs 断言③ summary.messages 无任何 hint 块(连跑 N 轮历史 0 个,满足「最多一个」);②token 账单独立占比——测试断言④ context_report 含 memory/hints 条目,CLI context 打印(source 字符)与桌面端 context 事件均携带该条目。验证:四层断言集成测试绿(T-1786449090),关闭前全量 cargo test --workspace 全绿(T-1786449161)。既有能力标注:prompt_hints 检索逻辑(kanzei-tools memory/mod.rs:931)未动,只改注入通道。
 
+## D-229 harvest_sop 只接了桌面端,CLI 轮末缺失同款 SOP 采集通道 [fixed] (medium)
+- 优先级: P2
+- 依据: 2026-08-10 memory 系统全量走查。crates/kanzei/src/main.rs 轮末只调 harvest_failures + harvest_entry_fact;kanzei-app/src/main.rs 轮末额外有 harvest_sop——CLI 完成条目不产 SOP 候选,R-124 采集通道双端不对称,遥测口径也随之分裂。
+- 修复方向: CLI 轮末补 harvest_sop 同款调用;三个 harvest 收敛为一个共享的轮末采集函数,两端调同一入口,杜绝再次漂移。
+- refs: R-124 R-105
+
+- 进展: 已修复并全量验证。逐条对照:
+①「CLI 轮末补 harvest_sop 同款调用」——crates/kanzei/src/main.rs 轮末现调 kanzei_tools::memory::harvest_end_of_run(行 646),内部对完成条目调 harvest_sop(global 候选箱),CLI 完成条目现在也会产 SOP 候选;
+②「三个 harvest 收敛为一个共享轮末采集函数,两端调同一入口」——crates/kanzei-tools/src/memory/mod.rs 新增 pub fn harvest_end_of_run(行 805):harvest_failures → completed_entry 判定 → harvest_sop(global)→ harvest_entry_fact(project)四步顺序与桌面端既有行为逐条对齐;CLI(main.rs:646)与桌面端(crates/kanzei-app/src/run.rs:733)均只调此入口,杜绝双端漂移;
+③ 验证——新增单测 harvest_end_of_run_完成条目投SOP与fact_纯查询轮不投(mod.rs:1310):完成条目轮产 global SOP 候选 + project fact 候选,纯查询轮零投递;global_root 参数注入临时全局记忆根(避免 D-273 式 set_var 并发互踩)。定向测试 kanzei-tools 230/kanzei 集成/kanzei-app 118 全绿(T-1786449431);workspace 全量全绿(T-1786449517),提交 b40478f。
+- 验收: ① CLI 轮末补 harvest_sop 同款调用 ✓(main.rs:646 经 harvest_end_of_run→harvest_sop)
+② 三个 harvest 收敛为一个共享轮末采集函数,两端调同一入口 ✓(harvest_end_of_run @ kanzei-tools memory/mod.rs:805;CLI main.rs:646 与桌面端 run.rs:733 同一调用)
+③ 杜绝再次漂移 ✓(单入口,双端无独立 harvest 逻辑)
+

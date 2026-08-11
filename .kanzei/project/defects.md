@@ -1,11 +1,5 @@
 # Defects
 
-## D-229 harvest_sop 只接了桌面端,CLI 轮末缺失同款 SOP 采集通道 [fixing] (medium)
-- 优先级: P2
-- 依据: 2026-08-10 memory 系统全量走查。crates/kanzei/src/main.rs 轮末只调 harvest_failures + harvest_entry_fact;kanzei-app/src/main.rs 轮末额外有 harvest_sop——CLI 完成条目不产 SOP 候选,R-124 采集通道双端不对称,遥测口径也随之分裂。
-- 修复方向: CLI 轮末补 harvest_sop 同款调用;三个 harvest 收敛为一个共享的轮末采集函数,两端调同一入口,杜绝再次漂移。
-- refs: R-124 R-105
-
 ## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [open] (medium)
 - 优先级: P2
 - 依据: kanzei-tools/src/memory/mod.rs resident_index 按 load_all 的 id 升序装 3000 字预算,放不下的 continue 折叠——id 越大(越新)的条目越容易被挤出常驻索引,而新条目往往正是当前最相关的;老条目永远优先纯属枚举顺序副作用,不是价值排序。
