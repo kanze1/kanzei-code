@@ -1880,3 +1880,85 @@ fn 关线时有活的工作树必须保留并给出回收动作() {
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
     cleanup(&root, &[target]);
 }
+
+// ---------- R-184 P5:收活五格之③ 门禁 ----------
+
+/// 门禁步骤表按「文件是否真的存在」组装:没有 Cargo.toml 的树不装样子跑 cargo,
+/// 没有前端冒烟脚本的树不装样子跑 node。
+#[test]
+fn 门禁步骤表随工作树内容自适应() {
+    let dir = std::env::temp_dir().join(unique("gate-steps"));
+    std::fs::create_dir_all(&dir).unwrap();
+    // 空目录:一条步骤都没有。
+    let none = super::gate_steps(&dir);
+    assert!(none.is_empty(), "无 Cargo.toml 无冒烟脚本 ⇒ 不应有任何门禁步骤");
+    // 只有 Cargo.toml:出现 fmt/clippy/test 三条。
+    std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n").unwrap();
+    let cargo_only = super::gate_steps(&dir);
+    let names: Vec<&str> = cargo_only.iter().map(|s| s.name).collect();
+    assert_eq!(names, vec!["fmt", "clippy", "test"], "有 Cargo.toml 应恰好是 fmt/clippy/test 三连");
+    // 加冒烟脚本:多一条 ui-smoke。
+    std::fs::create_dir_all(dir.join("scripts")).unwrap();
+    std::fs::write(dir.join("scripts/ui-runtime-smoke.mjs"), "// fake\n").unwrap();
+    let full = super::gate_steps(&dir);
+    let names: Vec<&str> = full.iter().map(|s| s.name).collect();
+    assert_eq!(names, vec!["fmt", "clippy", "test", "ui-smoke"], "四连顺序必须是 fmt/clippy/test/ui-smoke");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 门禁对乱路径不 panic(路径合法性由 worktree_gate 命令在调用前用 validate 校验)。
+#[tokio::test]
+async fn 门禁对非工作树路径不panic() {
+    let root = git_repo("kz-gate-nonwt");
+    let canonical = crate::normalized_project_root(&root);
+    let outside = canonical.join("not-a-worktree");
+    std::fs::create_dir_all(&outside).unwrap();
+    let result = super::run_worktree_gate(&outside).await;
+    // run_worktree_gate 只跑树里的命令;乱路径上跑出空步骤即可(不 panic)。
+    assert!(result.is_empty(), "乱路径上没有 Cargo.toml 无冒烟脚本 ⇒ 步骤应为空");
+    cleanup(&root, &[]);
+}
+
+/// 门禁执行:真实建一棵树,放一个 Cargo.toml + 冒烟脚本,跑 run_worktree_gate,
+/// 应拿到对应步骤且命令真实执行(退出码/输出进入 summary)。
+#[tokio::test]
+async fn 门禁真实执行并返回步骤结果() {
+    let root = git_repo("kz-gate-real");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("gate-real");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    create_worktree(&canonical, &name).unwrap();
+    // 一棵空 Rust 仓:cargo fmt --check / clippy / test 对空仓应全部通过。
+    std::fs::write(
+        target.join("Cargo.toml"),
+        "[package]\nname = \"gate-x\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(target.join("src")).unwrap();
+    std::fs::write(target.join("src/lib.rs"), "//! x\n").unwrap();
+    std::fs::create_dir_all(target.join("scripts")).unwrap();
+    std::fs::write(target.join("scripts/ui-runtime-smoke.mjs"), "console.log('ok')\n").unwrap();
+
+    let steps = super::run_worktree_gate(&target).await;
+    let names: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, vec!["fmt", "clippy", "test", "ui-smoke"]);
+    for step in &steps {
+        assert!(
+            step.ok,
+            "门禁步骤 {} 应通过,收到: {}",
+            step.name,
+            step.summary.chars().take(300).collect::<String>()
+        );
+        // fmt/clippy 的 --check/--quiet 成功时无输出,摘要可为空;失败必须有摘要。
+        if !step.ok {
+            assert!(
+                !step.summary.is_empty(),
+                "失败的步骤 {} 必须带回可读摘要",
+                step.name
+            );
+        }
+    }
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}

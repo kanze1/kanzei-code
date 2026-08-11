@@ -198,6 +198,7 @@ fn main() {
             processes::worktree_diff,
             processes::worktree_merge,
             processes::worktree_discard,
+            processes::worktree_gate,
             docs::test_runs_snapshot,
             docs::test_run_record,
             docs::test_runs_init_refs,

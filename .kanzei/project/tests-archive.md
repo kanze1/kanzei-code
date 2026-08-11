@@ -1587,3 +1587,9 @@
 - 摘要: R-184 批3(P2):ui-runtime-smoke 新增 5 组断言全过(角色色点、角色筛选下拉与切换、主对话折叠组默认收起/展开/caret、不同角色独立成组);i18n 959 key 通过(新增 3 键);a11y/markdown 冒烟通过。
 - 关联: R-184
 - 收尾: 1786446371
+
+## T-1786447134 R-184 批4 收活五格(门禁+②不可跳过) [passed]
+- 命令: cargo test -p kanzei-app 门禁 + 全量 app + ui 冒烟五连 + gen-ui-lint-globals
+- 摘要: R-184 批4(P5 收活五格 ①-④):后端 worktree_gate 三单测全绿(步骤表自适应/乱路径不panic/真实执行四连);kanzei-app 118 单测无回归;ui-runtime-smoke 新增五格断言全过(收活按钮仅带工作树线/四格结构/②不可跳过未读diff时格3格4禁用/加载差异后确认解锁/worktree_gate 调用与四步渲染/合并调用与结果);i18n 984 key;a11y/markdown/lint 全绿(globals 重生成 1088)。
+- 关联: R-184
+- 收尾: 1786447134

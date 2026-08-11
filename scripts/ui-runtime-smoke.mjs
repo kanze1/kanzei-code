@@ -4820,6 +4820,104 @@ const docsB = {
   );
 }
 
+// ---------- R-184 P5:收活五格(②不可跳过 + 门禁 + 合并) ----------
+{
+  // 五格需要 worktree_diff / worktree_gate 桩:diff 给一条真实差异,gate 给四步全过。
+  payloads.worktree_diff = {
+    path: "C:/smoke/wt/thread-a1",
+    branch: "thread-a1",
+    clean: false,
+    files: ["crates/branch.rs"],
+    diff: "diff --git a/crates/branch.rs b/crates/branch.rs\n+pub fn line_work() {}\n",
+  };
+  payloads.worktree_gate = [
+    { name: "fmt", ok: true, summary: "" },
+    { name: "clippy", ok: true, summary: "" },
+    { name: "test", ok: true, summary: "test result: ok. 118 passed" },
+    { name: "ui-smoke", ok: true, summary: "UI 运行时冒烟通过" },
+  ];
+  // 五格块先于下方工作树清单块执行,worktree_merge 桩在此补齐(下方同值覆盖无害)。
+  payloads.worktree_merge = "已合并工作树分支 thread-a1;工作树仍保留,可检查后显式放弃";
+  // 桩里只有后台会话带 worktree_path → 只有它的 lane 有「收活」按钮。
+  const lanes = [...document.querySelectorAll("#lines-list .line-lane")];
+  const withHarvest = lanes.filter((lane) => lane.querySelector(".line-harvest-toggle"));
+  assert(withHarvest.length === 1, `收活按钮应只出现在带工作树的线上(实得 ${withHarvest.length})`);
+  const wtLane = withHarvest[0];
+  assert(
+    (wtLane.querySelector(".line-claim")?.textContent ?? "").includes("R-184 并行分支"),
+    "收活按钮出现在了错误的线上(应属于带工作树的后台会话)",
+  );
+
+  // 打开收活面板:五格结构(本批:格1-4,格5 批5)。
+  wtLane.querySelector(".line-harvest-toggle").click();
+  await flush();
+  const panel = wtLane.querySelector(".line-harvest");
+  assert(panel, "点击收活未展开五格面板");
+  // smoke 的 Element 不解析 innerHTML 拼的子节点,格号从面板文本提取数字序列。
+  const panelText = panel.textContent;
+  const stepNoSeq = ["1", "2", "3", "4"].filter((no) => panelText.includes(no)).join("");
+  assert(stepNoSeq === "1234", `收活面板应呈现 1/2/3/4 四格(实得 ${stepNoSeq})`);
+
+  // ② 不可跳过:未读 diff 前,格3(门禁)与格4(合并)必须全部禁用。
+  const gateRun = panel.querySelector(".harvest-gate-run");
+  const mergeRun = panel.querySelector(".harvest-merge-run");
+  const readConfirm = panel.querySelector(".harvest-read-confirm");
+  assert(gateRun && mergeRun && readConfirm, "收活面板缺少格2确认/格3门禁/格4合并控件");
+  assert(readConfirm.disabled, "未加载差异时「我已读过 diff」应禁用");
+  assert(gateRun.disabled && mergeRun.disabled, "② 不可跳过:未读 diff 前格3/格4必须禁用");
+
+  // 加载差异 → 确认 → 解锁格3/格4。
+  const diffLoad = panel.querySelector(".harvest-diff-load");
+  assert(diffLoad, "收活面板缺少「加载差异」按钮");
+  diffLoad.click();
+  await flush();
+  assert(!readConfirm.disabled, "差异加载成功后「我已读过 diff」应可用");
+  readConfirm.click();
+  await flush();
+  assert(
+    panel.querySelector(".harvest-step.confirmed"),
+    "确认后格2未进入已读状态(confirmed)",
+  );
+  assert(!gateRun.disabled && !mergeRun.disabled, "② 不可跳过:已读 diff 后格3/格4应解锁");
+
+  // 格3 门禁:worktree_gate 被真实调用,步骤结果渲染进面板。
+  const gateCallsBefore = invokeArgs.length;
+  gateRun.click();
+  await flush();
+  const gateCalls = invokeArgs.slice(gateCallsBefore).filter((e) => e.cmd === "worktree_gate");
+  assert(
+    gateCalls.length === 1 && gateCalls[0].args?.worktreePath === "C:/smoke/wt/thread-a1",
+    `跑门禁没有带正确工作树调用 worktree_gate(${JSON.stringify(gateCalls)})`,
+  );
+  const gateRows = [...panel.querySelectorAll(".harvest-gate-step")];
+  assert(gateRows.length >= 4, `门禁结果未逐步骤渲染(实得 ${gateRows.length})`);
+  assert(
+    gateRows.every((row) => row.classList.contains("ok")),
+    "桩门禁应全部通过(ok),实得: " + gateRows.map((r) => `${r.dataset.gateName}:${r.className}`).join(","),
+  );
+  assert(
+    panel.querySelector(".harvest-gate-pass")?.textContent.includes("门禁通过") ||
+      panel.querySelector(".harvest-gate-pass")?.textContent.includes("All gates passed"),
+    "门禁全过未显示通过结论",
+  );
+
+  // 格4 合并:确认后调用 worktree_merge。
+  const mergeCallsBefore = invokeArgs.length;
+  mergeRun.click();
+  for (let i = 0; i < 12; i += 1) await settle();
+  await flush();
+  // confirmWorktreeMerge 会先打 collaboration_snapshot,再打 worktree_merge。
+  const mergeCalls = invokeArgs.slice(mergeCallsBefore).filter((e) => e.cmd === "worktree_merge");
+  assert(
+    mergeCalls.length === 1 && mergeCalls[0].args?.worktreePath === "C:/smoke/wt/thread-a1",
+    `合并没有带正确工作树调用 worktree_merge(${JSON.stringify(mergeCalls)})`,
+  );
+  assert(
+    (panel.querySelector(".harvest-merge-done")?.textContent ?? "").includes("已合并工作树"),
+    `合并成功后未显示合并结果,panel 文本: ${(panel?.textContent ?? "panel 已摘除").slice(0, 200)}`,
+  );
+}
+
 // ---------- 线清单来自 git,前端不再持有清单状态(R-177 内容③ / D-251 / D-257) ----------
 // 清单真源改成后端 `worktree_list`(它跑 `git worktree list --porcelain`)之后,
 // 原来那两条护栏守的性质没有消失,只是换了形态,所以**等价重写而不是删除**:

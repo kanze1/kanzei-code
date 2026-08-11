@@ -196,10 +196,209 @@ function renderLines(lines) {
       renderLines(collaborationLines);
     });
     actions.appendChild(open);
+    // R-184 P5 收活五格:只有真实工作树上的线才有「收活」入口(主树没有可合并分支)。
+    if (line.worktree_path) {
+      const harvest = document.createElement("button");
+      harvest.type = "button";
+      harvest.className = "ghost mini line-harvest-toggle";
+      harvest.textContent = t("收活");
+      harvest.addEventListener("click", () => {
+        const panel = lane.querySelector(".line-harvest");
+        if (panel) {
+          panel.remove();
+          return;
+        }
+        lane.appendChild(buildHarvestPanel(line, forProject()));
+      });
+      actions.appendChild(harvest);
+    }
     lane.append(head, claim, facts, changed, actions);
     target.appendChild(lane);
   }
   renderLineConflicts(collaborationLines);
+}
+
+// ---------- R-184 P5:收活五格(设计文档 §5) ----------
+// ① 读报告 → ② 人读 diff → ③ 跑门禁 → ④ 合并 → ⑤ 回写 tracker。
+// ② 不可跳过:未点「我已读过 diff」时 ③④ 全部禁用(⑤ 由批5 接入)。
+// 格3 门禁由 kanzei 跑(worktree_gate:fmt/clippy/test/前端冒烟),不能信线自己说的绿。
+function forProject() {
+  return currentProject;
+}
+
+function buildHarvestPanel(line, projectDir) {
+  const panel = document.createElement("div");
+  panel.className = "line-harvest";
+  const title = document.createElement("h4");
+  title.className = "line-harvest-title";
+  title.textContent = `${t("收活")} · ${line.label} (${line.branch || line.process_id})`;
+  panel.appendChild(title);
+
+  // 格1 读报告:线的事实区已经展示,这里把「要合什么」摆成一段可读清单。
+  const report = document.createElement("div");
+  report.className = "harvest-step";
+  const reportHead = document.createElement("div");
+  reportHead.className = "harvest-step-head";
+  reportHead.innerHTML = `<span class="harvest-step-no">1</span><strong>${t("读报告")}</strong><span class="harvest-step-state ok">${t("已展示")}</span>`;
+  const reportBody = document.createElement("div");
+  reportBody.className = "harvest-step-body";
+  const lines = [t("认领条目"), t("当前阶段"), t("改动文件")];
+  reportBody.textContent = `${line.claim || t("未声明条目")} · ${line.phase || t("空闲")} · ${(line.changed_files ?? []).length} ${t("个文件")}`;
+  report.append(reportHead, reportBody);
+  panel.appendChild(report);
+
+  // 格2 人读 diff:必须显式确认,是语义层唯一防线(设计文档 §5 ②)。
+  const diffStep = document.createElement("div");
+  diffStep.className = "harvest-step";
+  const diffHead = document.createElement("div");
+  diffHead.className = "harvest-step-head";
+  diffHead.innerHTML = `<span class="harvest-step-no">2</span><strong>${t("人读 diff")}</strong>`;
+  const diffBody = document.createElement("div");
+  diffBody.className = "harvest-step-body";
+  const diffLoad = document.createElement("button");
+  diffLoad.type = "button";
+  diffLoad.className = "ghost mini harvest-diff-load";
+  diffLoad.textContent = t("加载差异");
+  const diffOutput = document.createElement("pre");
+  diffOutput.className = "harvest-diff";
+  diffOutput.hidden = true;
+  const readConfirm = document.createElement("button");
+  readConfirm.type = "button";
+  readConfirm.className = "primary mini harvest-read-confirm";
+  readConfirm.disabled = true;
+  readConfirm.textContent = t("我已读过 diff");
+  diffLoad.addEventListener("click", async () => {
+    diffLoad.disabled = true;
+    diffLoad.textContent = t("加载中…");
+    try {
+      const info = await invoke("worktree_diff", { projectDir, worktreePath: line.worktree_path });
+      const files = (info.files ?? []).join("\n");
+      const body = [files ? `${t("文件")}:\n${files}` : "", info.diff ? `${t("差异")}:\n${info.diff}` : t("工作树干净,没有未提交差异")].filter(Boolean).join("\n\n");
+      diffOutput.textContent = body;
+      diffOutput.hidden = false;
+      readConfirm.disabled = false;
+      diffLoad.textContent = t("重新加载");
+    } catch (error) {
+      diffLoad.disabled = false;
+      diffLoad.textContent = t("加载差异");
+      toastError(`${t("差异读取失败")}:${error}`);
+    }
+  });
+  readConfirm.addEventListener("click", () => {
+    diffStep.dataset.read = "1";
+    diffStep.classList.add("confirmed");
+    readConfirm.disabled = true;
+    readConfirm.textContent = t("已确认");
+    gateButton.disabled = false;
+    mergeButton.disabled = false;
+  });
+  diffBody.append(diffLoad, diffOutput, readConfirm);
+  diffStep.append(diffHead, diffBody);
+  panel.appendChild(diffStep);
+
+  // 格3 跑门禁:kanzei 亲自跑,失败不阻断(看全貌),成败在面板上逐步骤可见。
+  const gateStep = document.createElement("div");
+  gateStep.className = "harvest-step";
+  const gateHead = document.createElement("div");
+  gateHead.className = "harvest-step-head";
+  gateHead.innerHTML = `<span class="harvest-step-no">3</span><strong>${t("跑门禁")}</strong>`;
+  const gateBody = document.createElement("div");
+  gateBody.className = "harvest-step-body";
+  const gateButton = document.createElement("button");
+  gateButton.type = "button";
+  gateButton.className = "ghost mini harvest-gate-run";
+  gateButton.disabled = true;
+  gateButton.textContent = t("运行门禁");
+  const gateOutput = document.createElement("div");
+  gateOutput.className = "harvest-gate-result";
+  gateButton.addEventListener("click", async () => {
+    gateButton.disabled = true;
+    gateButton.textContent = t("运行中…");
+    gateOutput.replaceChildren();
+    try {
+      const steps = await invoke("worktree_gate", { projectDir, worktreePath: line.worktree_path });
+      for (const step of steps) {
+        const row = document.createElement("div");
+        row.className = `harvest-gate-step ${step.ok ? "ok" : "err"}`;
+        row.dataset.gateName = step.name;
+        const mark = document.createElement("span");
+        mark.className = "harvest-gate-mark";
+        mark.textContent = step.ok ? "✓" : "✗";
+        const name = document.createElement("code");
+        name.textContent = step.name;
+        const detail = document.createElement("pre");
+        detail.textContent = step.summary || t("(无输出)");
+        row.append(mark, name, detail);
+        gateOutput.appendChild(row);
+      }
+      const anyFail = steps.some((step) => !step.ok);
+      if (anyFail) {
+        const warn = document.createElement("p");
+        warn.className = "harvest-gate-warn";
+        warn.textContent = t("门禁未通过:请先在线上修复,再重跑");
+        gateOutput.appendChild(warn);
+      } else {
+        const pass = document.createElement("p");
+        pass.className = "harvest-gate-pass";
+        pass.textContent = t("门禁通过");
+        gateOutput.appendChild(pass);
+      }
+      gateButton.disabled = false;
+      gateButton.textContent = t("重跑门禁");
+    } catch (error) {
+      gateButton.disabled = false;
+      gateButton.textContent = t("运行门禁");
+      toastError(`${t("门禁执行失败")}:${error}`);
+    }
+  });
+  gateBody.append(gateButton, gateOutput);
+  gateStep.append(gateHead, gateBody);
+  panel.appendChild(gateStep);
+
+  // 格4 合并:复用既有 worktree_merge(含 merge-tree 预检 + --no-ff)。
+  const mergeStep = document.createElement("div");
+  mergeStep.className = "harvest-step";
+  const mergeHead = document.createElement("div");
+  mergeHead.className = "harvest-step-head";
+  mergeHead.innerHTML = `<span class="harvest-step-no">4</span><strong>${t("合并")}</strong>`;
+  const mergeBody = document.createElement("div");
+  mergeBody.className = "harvest-step-body";
+  const mergeButton = document.createElement("button");
+  mergeButton.type = "button";
+  mergeButton.className = "ghost mini harvest-merge-run";
+  mergeButton.disabled = true;
+  mergeButton.textContent = t("合并到主线");
+  mergeButton.addEventListener("click", async () => {
+    const item = { path: line.worktree_path, branch: line.branch };
+    const ok = await confirmWorktreeMerge(item, projectDir);
+    if (!ok) return;
+    mergeButton.disabled = true;
+    mergeButton.textContent = t("合并中…");
+    try {
+      const result = await invoke("worktree_merge", { projectDir, worktreePath: line.worktree_path });
+      mergeStep.classList.add("confirmed");
+      const done = document.createElement("p");
+      done.className = "harvest-merge-done";
+      done.textContent = result;
+      mergeBody.replaceChildren(done);
+      const stateTag = document.createElement("span");
+      stateTag.className = "harvest-step-state ok";
+      stateTag.textContent = t("已合并");
+      mergeHead.appendChild(stateTag);
+      refreshLines();
+      refreshWorktrees();
+      refreshGit();
+    } catch (error) {
+      mergeButton.disabled = false;
+      mergeButton.textContent = t("合并到主线");
+      toastError(`${t("合并失败")}:${error}`);
+    }
+  });
+  mergeBody.append(mergeButton);
+  mergeStep.append(mergeHead, mergeBody);
+  panel.appendChild(mergeStep);
+
+  return panel;
 }
 
 async function refreshLines() {
