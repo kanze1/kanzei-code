@@ -1533,3 +1533,9 @@
 - 摘要: R-140 批5:文档页域迁移(h1/工具栏/筛选/批量/测试区 data-i18n-*,含静态 option);harness parseOptionsInto 补建 option data-i18n-key;a11y defect-review 结构断言同步;四条冒烟全绿
 - 关联: R-140
 - 收尾: 1786443520
+
+## T-1786443608 R-140 B6 前端冒烟 [passed]
+- 命令: node --check + 四条冒烟(ui-runtime/ui-i18n/ui-a11y/ui-markdown)
+- 摘要: R-140 批6:记忆页域迁移(h1/搜索框 placeholder+aria-label/整理按钮/区块标题/清理按钮 data-i18n-*);含计数 span 的 h2 用 span 包裹;四条冒烟全绿
+- 关联: R-140
+- 收尾: 1786443608

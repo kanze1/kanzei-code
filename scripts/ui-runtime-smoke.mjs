@@ -3891,6 +3891,45 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批6:记忆页域迁移(标题/说明/工具/侧栏区块) ----------
+// 记忆页 h1/说明/搜索框(placeholder+aria-label)/整理按钮/区块标题/清理按钮迁移到
+// data-i18n-key/data-i18n-title/data-i18n-placeholder/data-i18n-aria-label。
+// 含子元素的 h2 文本用 span 包裹(不得在 h2 上直接 data-i18n-key,会清掉计数 span)。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  const memKey = (key) => [...sandbox.document.querySelectorAll("[data-i18n-key]")].find((el) => el.dataset.i18nKey === key)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(memKey("记忆") === "记忆", "中文态记忆页标题应保持原文(前置失效)");
+  assert(memKey("待确认候选") === "待确认候选", "中文态「待确认候选」应保持原文(前置失效)");
+  assert(attrOf("memory-search-input", "placeholder") === "检索全部记忆(FTS)", "中文态搜索框 placeholder 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(memKey("记忆") === "Memory", `英文态「记忆」未翻译,实际 "${memKey("记忆")}"`);
+  assert(memKey("整理 inbox") === "Consolidate inbox", `英文态「整理 inbox」未翻译,实际 "${memKey("整理 inbox")}"`);
+  assert(memKey("待确认候选") === "Pending candidates", `英文态「待确认候选」未翻译(span 包裹),实际 "${memKey("待确认候选")}"`);
+  assert(memKey("空闲整理清单") === "Idle cleanup list", `英文态「空闲整理清单」未翻译,实际 "${memKey("空闲整理清单")}"`);
+  assert(memKey("一键整理") === "Clean up now", `英文态「一键整理」未翻译,实际 "${memKey("一键整理")}"`);
+  assert(memKey("召回评估") === "Recall evaluation", `英文态「召回评估」未翻译,实际 "${memKey("召回评估")}"`);
+  assert(memKey("上下文账单") === "Context bill", `英文态「上下文账单」未翻译,实际 "${memKey("上下文账单")}"`);
+  assert(memKey("最近轮次") === "Recent rounds", `英文态「最近轮次」未翻译,实际 "${memKey("最近轮次")}"`);
+  assert(attrOf("memory-search-input", "placeholder") === "Search all memory (FTS)", `英文态搜索框 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("memory-search-input", "placeholder")}"`);
+  assert(attrOf("memory-search-input", "aria-label") === "Search memory", `英文态搜索框 aria-label 未翻译(渲染点属性补齐),实际 "${attrOf("memory-search-input", "aria-label")}"`);
+  assert(attrOf("memory-arch", "aria-label") === "Memory architecture overview", `英文态 memory-arch aria-label 未翻译,实际 "${attrOf("memory-arch", "aria-label")}"`);
+  assert(attrOf("memory-consolidate-btn", "title") === "Consolidate inbox drafts now", `英文态整理按钮 title 未翻译,实际 "${attrOf("memory-consolidate-btn", "title")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(memKey("记忆") === "记忆", `切回中文后「记忆」未回原文,实际 "${memKey("记忆")}"`);
+  assert(memKey("待确认候选") === "待确认候选", `切回中文后「待确认候选」未回原文,实际 "${memKey("待确认候选")}"`);
+  assert(attrOf("memory-search-input", "placeholder") === "检索全部记忆(FTS)", `切回中文后搜索框 placeholder 未回原文,实际 "${attrOf("memory-search-input", "placeholder")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,

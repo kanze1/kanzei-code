@@ -133,8 +133,8 @@
 
 - 标签: 前端
 
-- 批次: 5/10
-- 进展: 批1-4 已提交(消息容器豁免/静态 DOM 一次性应用/顶栏·对话区·工作区迁移/架构浏览域迁移+渲染点属性补齐)。批5(本轮):文档页域整体迁移——h1/说明/项目标签/六个 tab 按钮/测试刷新/自动审查缺陷/对照/依赖视图/req-open·defect-open/四个筛选下拉(含静态 option 文本 全部状态·全部复杂度·小中大·未评估·全部优先级·全部标签·全部执行状态·已阻塞·可执行·手动·优先级·复杂度·状态·编号)/批量操作区(改状态…·改标签…·标签六项·应用·取消选择)/测试记录区 全部挂 data-i18n-key/data-i18n-title/data-i18n-aria-label。冒烟 harness 的 parseOptionsInto 补建 option 的 data-i18n-key(否则筛选下拉在冒烟恒为假通过);B5 断言组覆盖文本/option/title/aria-label 中英切换(含含空格 key 的遍历匹配)。四条冒烟全绿(ui-runtime/i18n/a11y/markdown;a11y 的 defect-review 结构断言随 span 包裹同步更新)。剩余:记忆/指标/文件/设置/活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
+- 批次: 6/10
+- 进展: 批1-5 已提交(止血/静态 DOM 一次性应用/顶栏·对话区·工作区/架构浏览/文档页)。批6(本轮):记忆页域整体迁移——h1/说明/搜索框(placeholder+aria-label)/整理 inbox 按钮/记忆架构总览与条目列表 aria-label/待确认候选·空闲整理清单·召回评估(含计数 span 的 h2 文本用 span data-i18n-key 包裹,避免 textContent 清掉计数)/一键清理按钮/上下文账单·最近轮次 全部挂 data-i18n-key/data-i18n-title/data-i18n-placeholder/data-i18n-aria-label。13-memory.js 动态文案已 101 处 t()(剩余 9 处为 ui_dom/ui_style 探针报告文本,工具输出非界面文案,不进 i18n)。B6 断言组覆盖文本/placeholder/aria-label/title 中英切换。四条冒烟全绿。剩余:指标/文件/设置/活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。
