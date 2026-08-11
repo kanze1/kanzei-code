@@ -199,6 +199,7 @@ fn main() {
             processes::worktree_merge,
             processes::worktree_discard,
             processes::worktree_gate,
+            processes::worktree_harvest_writeback,
             docs::test_runs_snapshot,
             docs::test_run_record,
             docs::test_runs_init_refs,

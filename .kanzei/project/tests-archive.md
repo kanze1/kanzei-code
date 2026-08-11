@@ -1593,3 +1593,9 @@
 - 摘要: R-184 批4(P5 收活五格 ①-④):后端 worktree_gate 三单测全绿(步骤表自适应/乱路径不panic/真实执行四连);kanzei-app 118 单测无回归;ui-runtime-smoke 新增五格断言全过(收活按钮仅带工作树线/四格结构/②不可跳过未读diff时格3格4禁用/加载差异后确认解锁/worktree_gate 调用与四步渲染/合并调用与结果);i18n 984 key;a11y/markdown/lint 全绿(globals 重生成 1088)。
 - 关联: R-184
 - 收尾: 1786447134
+
+## T-1786447779 R-184 批5 收活格5 tracker 回写 [passed]
+- 命令: cargo test -p kanzei-tools + cargo test -p kanzei-app + ui 冒烟五连
+- 摘要: R-184 批5(收活格5 回写 tracker):append_progress 两单测(只追加进展不改状态/未知ID拒绝/完整性破损拒绝);kanzei-tools 229 全绿;kanzei-app 118 全绿;ui-runtime-smoke 新增格5 断言(②不可跳过延伸至格5 未读diff全禁用/已读diff后格5仍禁用/合并后解锁/回写真实调用带参/结果渲染)+ 五格结构 1-5;i18n 993 key;a11y/markdown/lint 全绿(globals 1094);前端无 console 错误。
+- 关联: R-184
+- 收尾: 1786447779

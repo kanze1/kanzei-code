@@ -845,6 +845,54 @@ pub struct ScheduledEntry {
     pub block_reasons: Vec<String>,
 }
 
+/// R-184 批5(收活格5):合并成功后,把线的交付回写**主根** tracker。
+///
+/// 只追加「进展」字段、不改状态、不改标题——收活回写是事实记录,条目该不该
+/// done/open 仍由取活判定负责,这里不越权。走与 `TrackerTool::execute` 相同
+/// 的跨进程锁与完整性门禁(load … find … save 整段罩在锁里,两个 worktree
+/// 各自登记撞 D-267 的教训),所以绝不绕过 docstore 直接改文件。
+///
+/// 返回更新后的条目,让调用方能复核回写是否落在预期的行上。
+pub fn append_progress(
+    project_root: &std::path::Path,
+    kind: &'static DocKind,
+    id: &str,
+    note: &str,
+) -> Result<Entry, String> {
+    let store = DocStore::open(project_root, kind);
+    let _lock = store
+        .lock()
+        .map_err(|e| format!("cannot lock {} for writing: {e}", store.path.display()))?;
+    let mut entries = store
+        .load()
+        .map_err(|e| format!("cannot read {}: {e}", store.path.display()))?;
+    let issues = store.integrity_issues(&entries);
+    if !issues.is_empty() {
+        return Err(format!(
+            "REFUSING to write {}: tracker integrity is broken.\n{}",
+            kind.rel_path,
+            issues.join("\n")
+        ));
+    }
+    let Some(pos) = entries.iter().position(|e| e.id == id) else {
+        return Err(unknown_id(id, &entries));
+    };
+    let entry = &mut entries[pos];
+    let now = crate::memory::today();
+    let line = format!("{now} 收活回写: {note}");
+    match entry.fields.iter_mut().find(|(k, _)| k == "进展") {
+        Some((_, slot)) => {
+            slot.push('\n');
+            slot.push_str(&line);
+        }
+        None => entry.fields.push(("进展".into(), line)),
+    }
+    store
+        .save(&entries)
+        .map_err(|e| format!("cannot write {}: {e}", store.path.display()))?;
+    Ok(entries[pos].clone())
+}
+
 /// 为桌面端文档快照提供与 req/defect list 相同的阻塞判断和稳定后置顺序。
 pub fn schedule_for_display(
     ctx: &ToolCtx,
@@ -1209,6 +1257,89 @@ mod tests {
             tool.resources(&json!({"action": "repair_missing_id"})),
             ["write:repair_missing_id"]
         );
+    }
+
+    /// R-184 批5 收活格5:append_progress 只追加「进展」、不改状态/标题/其它字段。
+    #[test]
+    fn append_progress_only_appends_progress_field_and_keeps_state() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-append-progress-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields.push(("进展".into(), "2026-08-10 既有进展".into()));
+        e.fields.push(("优先级".into(), "P1".into()));
+        store.save(&[e]).unwrap();
+
+        let updated = super::append_progress(&dir, &REQUIREMENTS, "R-001", "由 M 线交付合并").unwrap();
+        assert_eq!(updated.status, "doing", "回写不得改状态");
+        assert_eq!(updated.title, "t-R-001", "回写不得改标题");
+        let progress = updated
+            .fields
+            .iter()
+            .find(|(k, _)| k == "进展")
+            .map(|(_, v)| v.as_str())
+            .unwrap();
+        assert!(progress.starts_with("2026-08-10 既有进展\n"), "{progress}");
+        assert!(progress.ends_with("收活回写: 由 M 线交付合并"), "{progress}");
+        // 优先级字段原样保留。
+        assert!(updated.fields.iter().any(|(k, v)| k == "优先级" && v == "P1"));
+
+        // 无既有进展字段的条目:直接新建该字段。保存必须带上 R-001,否则覆盖丢条目。
+        let e2 = entry("R-002");
+        let mut both = store.load().unwrap();
+        both.push(e2);
+        store.save(&both).unwrap();
+        let updated2 = super::append_progress(&dir, &REQUIREMENTS, "R-002", "第二条").unwrap();
+        let progress2 = updated2
+            .fields
+            .iter()
+            .find(|(k, _)| k == "进展")
+            .map(|(_, v)| v.as_str())
+            .unwrap();
+        assert!(progress2.starts_with("20"), "{progress2}");
+        assert!(progress2.contains("收活回写: 第二条"), "{progress2}");
+
+        // 未知 ID 拒绝且不写盘。
+        let before = store.load().unwrap();
+        let err = super::append_progress(&dir, &REQUIREMENTS, "R-999", "x").unwrap_err();
+        assert!(err.contains("unknown id `R-999`"), "{err}");
+        let after = store.load().unwrap();
+        assert_eq!(after.len(), before.len(), "未知 ID 不得写盘");
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-184 批5:完整性破损时 append_progress 必须拒绝(与 TrackerTool 同一门禁)。
+    #[test]
+    fn append_progress_refuses_when_integrity_broken() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-append-progress-integrity-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        // 编号断层(R-001 缺 R-002,直接上 R-003)→ 完整性门禁必须拦。
+        let mut broken = entry("R-001");
+        broken.fields.push(("进展".into(), "x".into()));
+        store.save(&[broken, entry("R-003")]).unwrap();
+        let err = super::append_progress(&dir, &REQUIREMENTS, "R-001", "x").unwrap_err();
+        assert!(
+            err.contains("tracker integrity is broken"),
+            "完整性破损必须拒绝回写: {err}"
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]

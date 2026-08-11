@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
+use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
 use serde_json::json;
 use tauri::State;
 
@@ -1502,6 +1503,53 @@ pub async fn worktree_gate(
     let root = normalized_project_root(Path::new(&project_dir));
     let worktree = validate_worktree_path(&root, &worktree_path)?;
     Ok(run_worktree_gate(&worktree).await)
+}
+
+/// R-184 批5(收活格5):合并成功后,把线的交付回写**主根** tracker。
+///
+/// 设计文档 §5 ⑤:回写必须走 tracker 工具落主根一份,标记带取得者代号;线全程
+/// 不碰 `.kanzei/**`(两个 worktree 相隔 10 秒各登记一条缺陷都拿到 D-267 的教训)。
+/// 这里就是桌面端那个落点:claims 里的条目 ID 决定写哪个 docstore,`append_progress`
+/// 走与 `TrackerTool::execute` 相同的跨进程锁与完整性门禁,只追加「进展」不改状态
+/// (该不该 done/open 仍由取活判定负责)。
+///
+/// claim 不是条目 ID(自由文本)时拒绝回写——宁可让用户看到"无法自动回写",
+/// 也不能猜一个 ID 写错条目。acceptance 检查在关闭时由主代理用自己的 tracker
+/// 工具做,不在这里越权。
+#[tauri::command]
+pub async fn worktree_harvest_writeback(
+    project_dir: String,
+    worktree_path: String,
+    claim: String,
+    agent_code: String,
+    branch: String,
+) -> Result<String, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    // 收活对象必须是 git 认得的真实工作树(与 merge/gate 同一条路径校验),防越界。
+    let _worktree = validate_worktree_path(&root, &worktree_path)?;
+    let Some((prefix, id)) = claim.split_once('-') else {
+        return Err(format!(
+            "认领 `{claim}` 不是条目 ID(应为 R-xxx / D-xxx),无法自动回写;请用主代理的 tracker 工具手动登记收活。"
+        ));
+    };
+    let kind = match prefix {
+        "R" => &REQUIREMENTS,
+        "D" => &DEFECTS,
+        _ => {
+            return Err(format!(
+                "认领 `{claim}` 的条目类型不受收活回写支持(R/D 之外);请用主代理的 tracker 工具手动登记。"
+            ))
+        }
+    };
+    let note = format!("由 {agent_code} 线交付并合并(branch {branch})。收活回写来自 {worktree_path}。");
+    let updated = kanzei_tools::tracker::append_progress(&root, kind, id, &note)?;
+    let progress = updated
+        .fields
+        .iter()
+        .find(|(k, _)| k == "进展")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or_default();
+    Ok(format!("已回写 {id} 收活记录。当前进展:\n{progress}"))
 }
 
 /// 线清单:真源是 `git worktree list --porcelain`(R-177 内容③ / 验收④)。

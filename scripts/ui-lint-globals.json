@@ -1085,6 +1085,12 @@
   "worktreeItems",
   "wrap",
   "writeJson",
+  "writebackBody",
+  "writebackButton",
+  "writebackHead",
+  "writebackHint",
+  "writebackOutput",
+  "writebackStep",
   "zero",
   "zeroAdopt"
 ]

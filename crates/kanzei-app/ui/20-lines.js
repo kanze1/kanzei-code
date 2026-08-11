@@ -208,7 +208,7 @@ function renderLines(lines) {
           panel.remove();
           return;
         }
-        lane.appendChild(buildHarvestPanel(line, forProject()));
+        lane.appendChild(buildHarvestPanel(line, forProject(), code));
       });
       actions.appendChild(harvest);
     }
@@ -226,7 +226,7 @@ function forProject() {
   return currentProject;
 }
 
-function buildHarvestPanel(line, projectDir) {
+function buildHarvestPanel(line, projectDir, agentCode) {
   const panel = document.createElement("div");
   panel.className = "line-harvest";
   const title = document.createElement("h4");
@@ -385,9 +385,10 @@ function buildHarvestPanel(line, projectDir) {
       stateTag.className = "harvest-step-state ok";
       stateTag.textContent = t("已合并");
       mergeHead.appendChild(stateTag);
-      refreshLines();
-      refreshWorktrees();
-      refreshGit();
+      // 合并完成后解锁格5(回写 tracker);refresh 延后到回写之后,免得重建清掉格5。
+      writebackButton.disabled = false;
+      writebackButton.textContent = t("回写 tracker");
+      writebackHint.textContent = `${line.claim || t("未声明条目")} · ${t("由")} ${agentCode} ${t("线交付")}`;
     } catch (error) {
       mergeButton.disabled = false;
       mergeButton.textContent = t("合并到主线");
@@ -397,6 +398,61 @@ function buildHarvestPanel(line, projectDir) {
   mergeBody.append(mergeButton);
   mergeStep.append(mergeHead, mergeBody);
   panel.appendChild(mergeStep);
+
+  // 格5 回写 tracker:合并完成后把线交付落主根一份(设计文档 §5 ⑤)。
+  // 只追加进展不改状态;claim 不是条目 ID 时后端拒绝,不让用户误以为已登记。
+  // 未合并前禁用——②不可跳过同时约束③④⑤(设计文档 §10 验收5)。
+  const writebackStep = document.createElement("div");
+  writebackStep.className = "harvest-step";
+  const writebackHead = document.createElement("div");
+  writebackHead.className = "harvest-step-head";
+  writebackHead.innerHTML = `<span class="harvest-step-no">5</span><strong>${t("回写 tracker")}</strong>`;
+  const writebackBody = document.createElement("div");
+  writebackBody.className = "harvest-step-body";
+  const writebackHint = document.createElement("p");
+  writebackHint.className = "harvest-writeback-hint";
+  writebackHint.textContent = t("合并完成后可回写");
+  const writebackButton = document.createElement("button");
+  writebackButton.type = "button";
+  writebackButton.className = "primary mini harvest-writeback-run";
+  writebackButton.disabled = true;
+  writebackButton.textContent = t("需先合并");
+  const writebackOutput = document.createElement("pre");
+  writebackOutput.className = "harvest-writeback-output";
+  writebackOutput.hidden = true;
+  writebackButton.addEventListener("click", async () => {
+    if (writebackButton.dataset.done === "1") return;
+    writebackButton.disabled = true;
+    writebackButton.textContent = t("回写中…");
+    try {
+      const result = await invoke("worktree_harvest_writeback", {
+        projectDir,
+        worktreePath: line.worktree_path,
+        claim: line.claim || "",
+        agentCode: agentCode,
+        branch: line.branch || "",
+      });
+      writebackStep.classList.add("confirmed");
+      writebackButton.dataset.done = "1";
+      writebackButton.textContent = t("已回写");
+      writebackOutput.textContent = result;
+      writebackOutput.hidden = false;
+      const stateTag = document.createElement("span");
+      stateTag.className = "harvest-step-state ok";
+      stateTag.textContent = t("已回写");
+      writebackHead.appendChild(stateTag);
+      refreshLines();
+      refreshWorktrees();
+      refreshGit();
+    } catch (error) {
+      writebackButton.disabled = false;
+      writebackButton.textContent = t("重试回写");
+      toastError(`${t("回写失败")}:${error}`);
+    }
+  });
+  writebackBody.append(writebackHint, writebackButton, writebackOutput);
+  writebackStep.append(writebackHead, writebackBody);
+  panel.appendChild(writebackStep);
 
   return panel;
 }

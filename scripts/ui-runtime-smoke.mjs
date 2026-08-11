@@ -4838,6 +4838,7 @@ const docsB = {
   ];
   // 五格块先于下方工作树清单块执行,worktree_merge 桩在此补齐(下方同值覆盖无害)。
   payloads.worktree_merge = "已合并工作树分支 thread-a1;工作树仍保留,可检查后显式放弃";
+  payloads.worktree_harvest_writeback = "已回写 R-184 收活记录。当前进展:\n2026-08-11 收活回写: 由 A 线交付并合并(branch thread-a1)。";
   // 桩里只有后台会话带 worktree_path → 只有它的 lane 有「收活」按钮。
   const lanes = [...document.querySelectorAll("#lines-list .line-lane")];
   const withHarvest = lanes.filter((lane) => lane.querySelector(".line-harvest-toggle"));
@@ -4855,16 +4856,20 @@ const docsB = {
   assert(panel, "点击收活未展开五格面板");
   // smoke 的 Element 不解析 innerHTML 拼的子节点,格号从面板文本提取数字序列。
   const panelText = panel.textContent;
-  const stepNoSeq = ["1", "2", "3", "4"].filter((no) => panelText.includes(no)).join("");
-  assert(stepNoSeq === "1234", `收活面板应呈现 1/2/3/4 四格(实得 ${stepNoSeq})`);
+  const stepNoSeq = ["1", "2", "3", "4", "5"].filter((no) => panelText.includes(no)).join("");
+  assert(stepNoSeq === "12345", `收活面板应呈现 1/2/3/4/5 五格(实得 ${stepNoSeq})`);
 
-  // ② 不可跳过:未读 diff 前,格3(门禁)与格4(合并)必须全部禁用。
+  // ② 不可跳过:未读 diff 前,格3(门禁)、格4(合并)、格5(回写)必须全部禁用。
   const gateRun = panel.querySelector(".harvest-gate-run");
   const mergeRun = panel.querySelector(".harvest-merge-run");
   const readConfirm = panel.querySelector(".harvest-read-confirm");
-  assert(gateRun && mergeRun && readConfirm, "收活面板缺少格2确认/格3门禁/格4合并控件");
+  const writebackRun = panel.querySelector(".harvest-writeback-run");
+  assert(gateRun && mergeRun && readConfirm && writebackRun, "收活面板缺少格2确认/格3门禁/格4合并/格5回写控件");
   assert(readConfirm.disabled, "未加载差异时「我已读过 diff」应禁用");
-  assert(gateRun.disabled && mergeRun.disabled, "② 不可跳过:未读 diff 前格3/格4必须禁用");
+  assert(
+    gateRun.disabled && mergeRun.disabled && writebackRun.disabled,
+    "② 不可跳过:未读 diff 前格3/格4/格5必须全部禁用",
+  );
 
   // 加载差异 → 确认 → 解锁格3/格4。
   const diffLoad = panel.querySelector(".harvest-diff-load");
@@ -4879,6 +4884,10 @@ const docsB = {
     "确认后格2未进入已读状态(confirmed)",
   );
   assert(!gateRun.disabled && !mergeRun.disabled, "② 不可跳过:已读 diff 后格3/格4应解锁");
+  assert(
+    writebackRun.disabled,
+    "格5 回写必须等合并完成才解锁:已读 diff 后不应可用(② 不可跳过 + ⑤ 在④之后)",
+  );
 
   // 格3 门禁:worktree_gate 被真实调用,步骤结果渲染进面板。
   const gateCallsBefore = invokeArgs.length;
@@ -4915,6 +4924,36 @@ const docsB = {
   assert(
     (panel.querySelector(".harvest-merge-done")?.textContent ?? "").includes("已合并工作树"),
     `合并成功后未显示合并结果,panel 文本: ${(panel?.textContent ?? "panel 已摘除").slice(0, 200)}`,
+  );
+
+  // 格5 回写 tracker:合并成功后解锁,点击调用 worktree_harvest_writeback 并渲染结果。
+  const writebackOutput = panel.querySelector(".harvest-writeback-output");
+  assert(writebackRun && writebackOutput, "收活面板缺少格5 回写控件");
+  assert(
+    !writebackRun.disabled,
+    "合并成功后格5 回写按钮必须解锁(②不可跳过已过,设计文档 §10 验收5)",
+  );
+  const writebackCallsBefore = invokeArgs.length;
+  writebackRun.click();
+  for (let i = 0; i < 12; i += 1) await settle();
+  await flush();
+  const writebackCalls = invokeArgs
+    .slice(writebackCallsBefore)
+    .filter((e) => e.cmd === "worktree_harvest_writeback");
+  assert(
+    writebackCalls.length === 1 &&
+      writebackCalls[0].args?.worktreePath === "C:/smoke/wt/thread-a1" &&
+      writebackCalls[0].args?.claim.includes("R-184") &&
+      writebackCalls[0].args?.branch === "thread-a1",
+    `格5 回写没有带正确参数调用 worktree_harvest_writeback(${JSON.stringify(writebackCalls)})`,
+  );
+  assert(
+    (writebackOutput?.textContent ?? "").includes("已回写 R-184 收活记录"),
+    `格5 回写成功后未渲染结果(实得: ${writebackOutput?.textContent ?? "(无)"})`,
+  );
+  assert(
+    panel.querySelector(".harvest-step.confirmed"),
+    "回写成功后格5 未进入已读/完成状态",
   );
 }
 
