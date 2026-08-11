@@ -25,24 +25,6 @@
 
 - 批次: 3/5
 
-## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [done]
-- 优先级: P1
-- 复杂度: 中
-- 标签: 后端
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
-- 调度顺序: 与 R-177 **零耦合**,可并行甚至先做。其中 D7 那半(设置页作用域选择器)**改动面极小、可当天交付**——`settings_save_at_path` 已经是参数化路径的(crates/kanzei-app/src/settings.rs:562),接线点就在那,取活的人可以先拿这份即时收益再做 D3。
-- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第二条(= 该文 P2)。承接 D3(线级模型选择存 state.db)与 D7(设置页作用域选择器,第一版只覆盖 `[models]`)两条定案。
-- 内容: ①D3:state.db 建 `processes` 表(现有表见 crates/kanzei-core/src/store/schema.rs,没有这张),存线/进程注册 + 模型 / profile / reasoning / 子代理开关;`ProcessHandle` 的这几个字段现在是纯内存 `Arc<Mutex<..>>`(crates/kanzei-app/src/state.rs:197-200),重启即丢。②五层解析链落码 + 测试(本轮直选 → 线持久选择 → 项目 `[models]` → 全局 `[models]` → 内置默认,逐层缺省回落)。③`localStorage["kz-model:*"]`、`kz-manual-models:*` 一次性上迁后端,前端下拉降级为回显 + 写入口,不再是真源;保留旧键 fallback 一个版本。④**顺带交付 R-030 遗留的「重启不丢页签」**——R-030 的 2026-08-07 核查把"进程列表不持久化(重启丢页签)"标 P3 暂不处理,至今未做,与本表同源一表两用。⑤D7:`settings_save` 加 `scope` 参数(全局 / 本项目),**第一版只覆盖 `[models]`**;写本项目 = `toml_edit` 追加到主根 `.kanzei/kanzei.toml`。⑥崩溃恢复里「模型/会话重建」那部分归本条(依赖同一张表)。
-- 边界: **D7 第一版不放 providers / api key**——它们写进被 git 跟踪的项目 toml 有泄密风险,不一次全开;界面上要说清作用域选择器当前覆盖哪些字段,不留"选了本项目但某些字段仍写全局"的静默歧义。worktree 绑定属 R-177,本条不碰;崩溃恢复里的 worktree/分支重建属 R-177。
-- 验收: ①重启后每项目、每线的模型 / profile / reasoning / 子代理开关完整恢复,页签不丢(R-030 遗留项一并核验)。②两个项目配不同 primary 互不影响(D-170 式双项目用例),CLI 与桌面解析结果一致(同一真源)。③五层解析链每层缺省回落各有单测。④localStorage 旧键存在时首次启动上迁并清除,迁移有测试;全仓 grep `kz-model:` 不再作为真源被读。⑤设置页选「本项目」保存后,主根 `.kanzei/kanzei.toml` 真出现 `[models]` 且立即生效(`models_list` 与徽标同步);选「全局」写 `~/.kanzei/kanzei.toml`,两者互不串写,有往返单测。⑥保存不丢字段(conventions §4),旧配置无新键时行为不变(serde default 单测)。⑦D7 覆盖范围在界面上对用户可见,providers/api key 的作用域切换被明确禁用而非静默忽略。
-- refs: R-030 R-115 D-168 D-170 D-248
-
-- 批次: 4/4
-
-- 进展: 五批规划实际合为 4 批交付完成:批1 d575549(processes 落库/恢复)、批2 c597d0a(五层解析链收敛 harness 单源)、批3 540f178(localStorage 上迁清除+schema v12)、批4 ba616f7(D7 作用域选择器)。批5 收口即本轮复核+全量:验收① processes.rs 四函数+manual_models 贯通+迁移测试;② resolve_model_chain 桌面 run.rs:107/CLI main.rs:266 共用;③ config.rs:1312 五层缺省回落单测;④ 迁移成功/失败/回显冒烟断言;⑤ 批4 两个 D7 往返单测;⑥ 新参均 Option 缺省走 global 向后兼容,settings 10 测试全绿;⑦ 界面提示+后端按 scope 拦截。cargo test --workspace 全绿(T-1786439420)。关闭。
-
 ## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [doing]
 - 优先级: P1
 - 复杂度: 中

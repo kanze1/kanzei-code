@@ -1491,3 +1491,21 @@
 - 摘要: settings.rs D7 定向测试 10 passed + 冒烟全绿(runtime 含作用域断言/i18n/a11y/markdown)
 - 关联: R-178
 - 收尾: 1786439226
+
+## T-1786440498 ui-runtime-smoke (R-140 B1 消息容器豁免) [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js && node --check crates/kanzei-app/ui/05-chat-render.js && node --check scripts/ui-runtime-smoke.mjs && node scripts/ui-runtime-smoke.mjs
+- 摘要: R-140 批1 冒烟全绿:21 组 + 0 运行时错误;新增止血断言组(英文态消息容器模型输出不被词典改写、消息区外仍翻译)真实执行(经 TEMP-VERIFY 验证)
+- 关联: R-140
+- 收尾: 1786440498
+
+## T-1786440919 ui-runtime-smoke (R-140 B2 静态 data-i18n-key) [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js && node --check crates/kanzei-app/ui/05-chat-render.js && node --check scripts/ui-runtime-smoke.mjs && node scripts/ui-runtime-smoke.mjs
+- 摘要: R-140 批2 冒烟全绿:21 组 + 0 运行时错误;新增批2 断言组(静态 data-i18n-key 标题英文态翻译/切中文回原文、data-i18n-title 按钮属性翻译)真实执行(经 TEMP-VERIFY-R140B2 验证)
+- 关联: R-140
+- 收尾: 1786440919
+
+## T-1786440983 ui 冒烟四连(p1 f6a162e 合并后) [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js crates/kanzei-app/ui/05-chat-render.js crates/kanzei-app/ui/16-settings.js scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: p1 分支 f6a162e(R-140 B1)fast-forward 合入 dev 后四条冒烟全绿,与 R-178 批4 改动无冲突
+- 关联: R-140 R-178
+- 收尾: 1786440983

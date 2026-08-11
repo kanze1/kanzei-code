@@ -31,4 +31,4 @@
 - M-031 [sop] 关闭 req 前先收尾名下 running 测试记录 — 处理 req 关闭被 running 测试记录阻塞时必读：先用 test_record 为对应测试 ID 写入 passed/failed/skipped 终态，再重试关闭；不再运行的测试必须 skipped 并说明原因。
 - M-032 [fact] R-163 记忆回放评估台已交付 — 处理 R-163 内存回放工具交付与 CLI kz replay-eval使用问题：六臂对照量化决策价值，按 commit hash 追踪版本变更 — 处理 R-163 记忆回放评估工具交付与 CLI kz replay-eval使用问题：六臂对照量化决策价值，按 commit hash追踪版本变更；replay.rs数据层、Arm枚举trait实现、J判据渲染报告细节。
 
-(1 candidate 条待验证晋升)
+(2 candidate 条待验证晋升)
