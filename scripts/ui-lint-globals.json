@@ -713,6 +713,7 @@
   "previousSessionId",
   "pri",
   "primary",
+  "priorityBlockedNeutral",
   "priorityFilter",
   "priorityRank",
   "probeConsole",
