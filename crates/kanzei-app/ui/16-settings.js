@@ -108,18 +108,28 @@ function renderProviders() {
     tdCtx.appendChild(ctxInput);
 
     const tdRemove = document.createElement("td");
-    const removeBtn = document.createElement("button");
-    removeBtn.className = "icon-btn";
-    removeBtn.textContent = "×";
-    removeBtn.setAttribute("aria-label", `${t("移除 provider")} ${p.name || index + 1}`);
-    removeBtn.addEventListener("click", () => {
-      settingsProviders.splice(index, 1);
-      renderProviders();
-      // 删行是 click,不是 input/change,表格上的事件委托抓不到它:不显式同步就会
-      // 出现"删了 provider 却没有未保存提示",切走视图一重载又原样回来。
-      syncSettingsDirty();
-    });
-    tdRemove.appendChild(removeBtn);
+    if (p.builtin) {
+      // R-184 P6(D-246):内置 provider 由配置兜底无条件回填,删除会「删了重开又回来」,
+      // 换成可见的「内置」标记,不给用户错误预期。
+      const builtin = document.createElement("span");
+      builtin.className = "provider-builtin";
+      builtin.textContent = t("内置");
+      builtin.title = t("内置 provider 由 kanzei 默认提供,不可删除;可改配置或编辑连接信息");
+      tdRemove.appendChild(builtin);
+    } else {
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "icon-btn";
+      removeBtn.textContent = "×";
+      removeBtn.setAttribute("aria-label", `${t("移除 provider")} ${p.name || index + 1}`);
+      removeBtn.addEventListener("click", () => {
+        settingsProviders.splice(index, 1);
+        renderProviders();
+        // 删行是 click,不是 input/change,表格上的事件委托抓不到它:不显式同步就会
+        // 出现"删了 provider 却没有未保存提示",切走视图一重载又原样回来。
+        syncSettingsDirty();
+      });
+      tdRemove.appendChild(removeBtn);
+    }
 
     tr.append(tdName, tdProtocol, tdUrl, tdKey, tdCtx, tdRemove);
     tbody.appendChild(tr);
@@ -512,6 +522,7 @@ async function loadSettings() {
     $("set-proxy-url").value = proxy;
     $("set-proxy-url").classList.remove("hidden");
   }
+  updateProxyHint();
   // 节奏:已存值回填下拉;空 = 用默认。间隔输入框占位显示默认 N。
   const cd = s.cadence ?? {};
   const cdDefaults = s.cadenceDefaults ?? {};
@@ -548,9 +559,26 @@ for (const event of ["input", "change"]) {
   $("providers-table")?.addEventListener(event, () => setTimeout(syncSettingsDirty, 0));
 }
 
+// R-184 P6(D-247):选「指定地址」却留空时,后端按空串回落 env——这是静默降级,
+// 界面必须把「将回落环境变量」说出来,不许用户以为地址已生效。
+function updateProxyHint() {
+  const hint = $("set-proxy-hint");
+  if (!$("set-proxy-url") || !hint) return;
+  const mode = $("set-proxy-mode").value;
+  const emptyCustom = mode === "custom" && !$("set-proxy-url").value.trim();
+  hint.classList.toggle("hidden", !emptyCustom);
+  if (emptyCustom) {
+    hint.textContent = t("地址留空将回落「跟随环境变量」");
+    $("set-proxy-url").classList.remove("hidden");
+  }
+}
 $("set-proxy-mode").addEventListener("change", () => {
   $("set-proxy-url").classList.toggle("hidden", $("set-proxy-mode").value !== "custom");
+  // 留空时输入框保持可见,否则提示「回落」但地址框都找不到,更迷惑。
+  if ($("set-proxy-mode").value === "custom") $("set-proxy-url").classList.remove("hidden");
+  updateProxyHint();
 });
+$("set-proxy-url").addEventListener("input", updateProxyHint);
 
 $("mobile-service-start").addEventListener("click", async () => {
   try {

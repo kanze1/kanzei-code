@@ -493,6 +493,9 @@ const I18N_EN = {
   "记住为": "Remember as",
   "允许一次": "Allow once",
   "提交回答": "Submit answer",
+  "地址留空将回落「跟随环境变量」": "Empty address falls back to \"follow environment variable\"",
+  "内置": "Built-in",
+  "内置 provider 由 kanzei 默认提供,不可删除;可改配置或编辑连接信息": "Built-in providers ship with kanzei and cannot be removed; edit their connection info instead",
 };
 const I18N_DYNAMIC_EN = {
   "完成提示音不可用": "Completion sound unavailable",

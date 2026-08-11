@@ -797,9 +797,11 @@ const payloads = {
     cadenceDefaults: { full_test: "entry_close", full_test_batches: null, targeted_test: "every_commit", commit: "per_batch", push: "per_entry" },
     profiles: {},
     // 两个自定义 provider:表格里点「×」再保存,载荷必须只剩没删的那个(且仍是整张表)。
+    // 加一个内置 provider(anthropic + builtin:true):删除入口必须是「内置」标记而不是 ×(D-246)。
     providers: [
       { name: "mine", protocol: "openai", baseUrl: "http://127.0.0.1:1", apiKeyEnv: "", apiKey: "", contextLimit: null },
       { name: "keepme", protocol: "openai", baseUrl: "http://127.0.0.1:2", apiKeyEnv: "", apiKey: "", contextLimit: null },
+      { name: "anthropic", protocol: "anthropic", baseUrl: "https://api.anthropic.com", apiKeyEnv: "ANTHROPIC_API_KEY", apiKey: "", auth: null, contextLimit: 200000, builtin: true },
     ],
     permissions: [],
     // 项目级覆盖:D-168 当年只堵了模型角色,limits/proxy 被覆盖时页面一声不吭。
@@ -3088,9 +3090,14 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
 
   // ⑤ provider 删除:删行是 click 不是 input,表格上的事件委托抓不到,必须显式同步脏状态。
   const providerRows = document.querySelectorAll("#providers-table tbody tr");
-  assert(providerRows.length === 2, `provider 表格未渲染出两行,实得 ${providerRows.length}`);
+  assert(providerRows.length === 3, `provider 表格未渲染出三行,实得 ${providerRows.length}`);
+  // D-246:内置 provider(anthropic)的删除入口是「内置」标记,不是 ×——删了重开又回来,不给假按钮。
+  const builtinCell = providerRows[2].querySelector(".provider-builtin");
+  assert(builtinCell, "内置 provider 行缺少「内置」标记(D-246)");
+  const builtinRemove = providerRows[2].querySelector("button");
+  assert(!builtinRemove || builtinRemove.textContent !== "×", "内置 provider 不应提供删除按钮(D-246)");
   const removeBtn = providerRows[0].querySelectorAll("button").find((b) => b.textContent === "×");
-  assert(removeBtn, "provider 行缺少移除按钮");
+  assert(removeBtn, "自定义 provider 行缺少移除按钮");
   removeBtn.click();
   await flush();
   assert(!byId.get("settings-dirty").classList.contains("hidden"), "删了 provider 却没有「未保存」提示(切走再回来它就原样回来了)");
@@ -3114,11 +3121,48 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   assert(payload?.profileDefault === "readonly", `readonly 档位保存时被静默降级成 "${payload?.profileDefault}"`);
   assert(payload?.codexFastMode === false, `开关的新值未透传到载荷: ${payload?.codexFastMode}`);
   assert(
-    (payload?.providers ?? []).map((p) => p.name).join(",") === "keepme",
+    (payload?.providers ?? []).map((p) => p.name).join(",") === "keepme,anthropic",
     `provider 删除未落进载荷(或整张表没发全): ${(payload?.providers ?? []).map((p) => p.name).join(",")}`,
   );
   // 保存回流后基线必须归零,否则「未保存」角标会一直亮着,变成人人无视的噪音。
   assert(byId.get("settings-dirty").classList.contains("hidden"), "保存回流后「未保存」角标仍亮着");
+}
+
+// ---------- R-184 P6(D-247):代理「指定地址」留空必须可见提示 ----------
+{
+  const proxyMode = byId.get("set-proxy-mode");
+  const proxyUrl = byId.get("set-proxy-url");
+  const proxyHint = byId.get("set-proxy-hint");
+  assert(proxyMode && proxyUrl && proxyHint, "设置页缺少代理模式/地址/提示元素");
+  // 夹具回显 proxy=env → custom 输入框隐藏、提示隐藏。
+  assert(proxyUrl.classList.contains("hidden"), "env 模式下地址框不应可见");
+  assert(proxyHint.classList.contains("hidden"), "env 模式下提示不应可见");
+  // 切「指定地址」且留空 → 提示可见,说明将回落环境变量。
+  proxyMode.value = "custom";
+  proxyMode._listeners.change?.forEach((fn) => fn({ target: proxyMode }));
+  assert(!proxyUrl.classList.contains("hidden"), "custom 模式下地址框应可见");
+  assert(!proxyHint.classList.contains("hidden"), "「指定地址」留空时提示应可见(D-247)");
+  const hintText = proxyHint.textContent || "";
+  assert(hintText.includes("回落"), `提示未说明将回落: ${hintText}`);
+  // 填了地址 → 提示消失。
+  proxyUrl.value = "http://127.0.0.1:12000";
+  proxyUrl._listeners.input?.forEach((fn) => fn({ target: proxyUrl }));
+  assert(proxyHint.classList.contains("hidden"), "地址已填时提示应消失(D-247)");
+  // 不静默改写用户选择:留空保存时载荷 proxy 仍为 custom 语义(空串),由后端按空回落,
+  // 但界面已把回落说出来——这里验证载荷没被前端擅自改成 env。
+  proxyUrl.value = "";
+  proxyUrl._listeners.input?.forEach((fn) => fn({ target: proxyUrl }));
+  proxyMode._listeners.change?.forEach((fn) => fn({ target: proxyMode }));
+  byId.get("settings-save").click();
+  await flush();
+  const proxyPayload = savedPayloads.get("settings_save")?.payload?.proxy;
+  assert(proxyPayload === "", `前端不应改写用户选择(留空即空串,回落语义在后端): 实得 ${JSON.stringify(proxyPayload)}`);
+  proxyMode.value = "env";
+  proxyMode._listeners.change?.forEach((fn) => fn({ target: proxyMode }));
+  proxyUrl.value = "";
+  proxyUrl._listeners.input?.forEach((fn) => fn({ target: proxyUrl }));
+  assert(proxyUrl.classList.contains("hidden"), "切回 env 后地址框应隐藏");
+  assert(proxyHint.classList.contains("hidden"), "切回 env 后提示应消失");
 }
 
 // ---------- R-178 批4 D7:设置页作用域选择器 ----------
@@ -3304,6 +3348,29 @@ sandbox.applyProfileValue("dev");
 assert(
   byId.get("profile-select").value === "dev-pair",
   "全局值与后端 profile 冲突时应回落 dev-pair,不能把 research 塞进 dev 进程",
+);
+// R-184 P6(D-248):applyProfileValue 是**回显**,只读——切进程看一眼绝不许改写全局
+// kz-profile(否则用户全局档位被静默降级)。写全局只能发生在用户主动 change。
+storage.set("kz-profile", "dev-auto");
+sandbox.applyProfileValue("dev");
+assert(
+  storage.get("kz-profile") === "dev-auto",
+  `回显(切进程)不得改写全局 kz-profile,实得 ${storage.get("kz-profile")}(D-248)`,
+);
+const profileSelectEl = byId.get("profile-select");
+profileSelectEl.value = "dev-auto";
+profileSelectEl._listeners.change?.forEach((fn) => fn({ target: profileSelectEl }));
+assert(
+  storage.get("kz-profile") === "dev-auto",
+  "用户主动切换档位仍须写全局 kz-profile",
+);
+storage.set("kz-profile", "dev-auto");
+sandbox.applyProfileValue("dev");
+profileSelectEl.value = "dev-pair";
+profileSelectEl._listeners.change?.forEach((fn) => fn({ target: profileSelectEl }));
+assert(
+  storage.get("kz-profile") === "dev-pair",
+  "用户主动切换档位仍须写全局 kz-profile(第二次)",
 );
 
 // ---------- R-099/R-127 运行画像面板 ----------

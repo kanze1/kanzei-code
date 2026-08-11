@@ -302,6 +302,20 @@ mod context_limit_tests {
         // 认不出来的 provider 保持 None——宁可显示"未知",也不编一个预算基准。
         assert_eq!(known_context_limit("mystery", "https://example.test"), None);
     }
+
+    /// D-246:内置名单与 fill_defaults 实际回填必须一致,否则 UI 的「内置」标记
+    /// 会漏标/错标——名单漂移比没有名单更糟。
+    #[test]
+    fn 内置名单与fill_defaults回填一致() {
+        let mut config = KanzeiConfig::default();
+        config.providers.clear();
+        config.fill_defaults();
+        for name in builtin_provider_names() {
+            assert!(config.providers.contains_key(*name), "fill_defaults 未回填内置 {name}");
+        }
+        // 名单里不该有 fill_defaults 不保证的键(用户自定义的不能误标内置)。
+        assert_eq!(config.providers.len(), builtin_provider_names().len());
+    }
 }
 
 /// 已知 provider 的上下文窗口。名字优先,其次看 base_url 主机名(用户可能改名)。
@@ -750,6 +764,14 @@ impl KanzeiConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(crate::defs::ProfileKind::Dev)
     }
+}
+
+/// fill_defaults 无条件回填的内置 provider 名单(R-184 P6 / D-246)。
+/// 与 fill_defaults 中的五个 `entry().or_insert()` 保持同步;UI 据此把内置
+/// provider 的删除入口换成「内置」标记,避免「删了重开又回来」的误导。
+/// 这是只读元数据,不参与配置解析。
+pub fn builtin_provider_names() -> &'static [&'static str] {
+    &["anthropic", "ollama", "codex", "claude", "deepseek"]
 }
 
 fn merge_file(

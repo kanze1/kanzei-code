@@ -1599,3 +1599,15 @@
 - 摘要: R-184 批5(收活格5 回写 tracker):append_progress 两单测(只追加进展不改状态/未知ID拒绝/完整性破损拒绝);kanzei-tools 229 全绿;kanzei-app 118 全绿;ui-runtime-smoke 新增格5 断言(②不可跳过延伸至格5 未读diff全禁用/已读diff后格5仍禁用/合并后解锁/回写真实调用带参/结果渲染)+ 五格结构 1-5;i18n 993 key;a11y/markdown/lint 全绿(globals 1094);前端无 console 错误。
 - 关联: R-184
 - 收尾: 1786447779
+
+## T-1786448195 R-184 P6 批6 缺陷族定向验证 [passed]
+- 命令: cargo test -p kanzei-harness -p kanzei-app; node scripts/ui-runtime-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 摘要: D-246(内置 provider 徽标+名单一致性单测)、D-247(代理留空提示)、D-248(回显只读拦截断言)修复完成:harness 108 + app 118 全绿,五条前端冒烟全绿(新增断言随运行)。
+- 关联: R-184 D-246 D-247 D-248
+- 收尾: 1786448195
+
+## T-1786448224 R-184 B6 config.rs 复测(提交门禁) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: 提交门禁拦下后复测:config.rs 空行恢复(builtin 函数与单测保持)后 harness 108 全绿,背书待提交源码。
+- 关联: R-184 D-246
+- 收尾: 1786448224

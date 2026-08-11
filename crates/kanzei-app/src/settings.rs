@@ -480,6 +480,9 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                 "name": name, "protocol": p.protocol, "baseUrl": p.base_url,
                 "apiKeyEnv": p.api_key_env, "apiKey": p.api_key, "keyPresent": key_present,
                 "auth": p.auth, "contextLimit": p.context_limit,
+                // R-184 P6(D-246):内置 provider 由 fill_defaults 无条件回填,
+                // 删了重开会回来——前端据此把删除入口换成「内置」标记,不误导。
+                "builtin": kanzei_harness::config::builtin_provider_names().contains(&name.as_str()),
             })
         })
         .collect();
