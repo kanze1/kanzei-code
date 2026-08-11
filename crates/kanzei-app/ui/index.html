@@ -380,22 +380,22 @@
 
       <div id="view-arch" class="view">
         <div id="arch-scroll">
-          <h1>架构浏览</h1>
-          <p class="dim">设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。</p>
+          <h1 data-i18n-key="架构浏览">架构浏览</h1>
+          <p class="dim" data-i18n-key="设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。">设计文档与架构索引的可视化浏览:左侧为 docs/design 文档树(按索引状态分层),右侧为架构索引原文;点击文档在应用内 Markdown 查看器打开。</p>
           <div class="arch-quick-actions">
-            <button id="arch-goto-memory" class="ghost" title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)">记忆管理</button>
+            <button id="arch-goto-memory" class="ghost" title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)" data-i18n-title="跳转到记忆页维护记忆条目(编辑/整理/重心设置走既有 memory 命令)"><span data-i18n-key="记忆管理">记忆管理</span></button>
           </div>
           <div id="arch-layout">
             <div id="arch-tree-wrap">
               <div id="arch-summary" class="dim"></div>
-              <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-raw></div>
+              <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-aria-label="设计文档树" data-i18n-raw></div>
             </div>
             <div id="arch-index">
               <div id="arch-index-head">
-                <span>架构索引</span>
+                <span data-i18n-key="架构索引">架构索引</span>
                 <span class="arch-index-actions">
-                  <button id="arch-open-index" class="ghost mini" title="在查看器中打开架构索引">打开</button>
-                  <button id="arch-refresh" class="icon-btn" title="重新扫描" aria-label="重新扫描架构索引">⟳</button>
+                  <button id="arch-open-index" class="ghost mini" title="在查看器中打开架构索引" data-i18n-title="在查看器中打开架构索引"><span data-i18n-key="打开">打开</span></button>
+                  <button id="arch-refresh" class="icon-btn" title="重新扫描" data-i18n-title="重新扫描" aria-label="重新扫描架构索引" data-i18n-aria-label="重新扫描架构索引">⟳</button>
                 </span>
               </div>
               <pre id="arch-index-body"></pre>

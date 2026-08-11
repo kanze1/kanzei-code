@@ -1521,3 +1521,9 @@
 - 摘要: p1 R-140 B3 合入 dev 后四条冒烟全绿(runtime 含 B3 顶栏/对话区/工作区 data-i18n-key 断言组,0 运行时错误)
 - 关联: R-140
 - 收尾: 1786441776
+
+## T-1786443240 R-140 B4 前端冒烟 [passed]
+- 命令: node --check + 四条冒烟(ui-runtime/ui-i18n/ui-a11y/ui-markdown)
+- 摘要: R-140 批4:02-i18n.js 渲染点翻译补 data-i18n-aria-label/data-i18n-placeholder + 架构浏览域迁移;四条冒烟全绿,新增批4断言组(文本/title/aria-label 中英切换)
+- 关联: R-140
+- 收尾: 1786443240

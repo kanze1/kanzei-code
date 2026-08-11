@@ -133,6 +133,9 @@
 
 - 标签: 前端
 
+- 批次: 4/10
+- 进展: 批1(消息容器豁免止血)/批2(静态 DOM data-i18n-key/data-i18n-title 一次性应用)/批3(顶栏/对话区/工作区迁移)已在 dev 合入。批4(本轮):渲染点翻译机制补全 data-i18n-aria-label/data-i18n-placeholder(applyDataI18nKeys 02-i18n.js:830 起新增两个属性循环;localizeTextNode/localizeAttributes 的 observer 豁免选择器同步扩展,避免挂 data-i18n-* 的元素英文态漏翻属性);架构浏览域整体迁移(标题/说明/记忆管理/打开/架构索引/两个 title/两个 aria-label),19-arch.js 动态文案此前已走 t()。冒烟新增 R-140 批4 断言组(中文态前置/英文态文本+title+aria-label 翻译/切中文回原文)。四条冒烟(ui-runtime/i18n/a11y/markdown)全绿。剩余:文档/记忆/指标/文件/设置/活动/会话/compose 各域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
+
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。
 - 设计定位: 前端静态检查最低配,防未定义变量类回归

@@ -720,9 +720,9 @@ let applyingLanguage = false;
 function localizeTextNode(node, language) {
   const parent = node.parentElement || node.parentNode;
   if (parent?.closest?.("[data-i18n-raw]")) return;
-  // R-140 批2:data-i18n-key/data-i18n-title 由渲染点翻译,observer 不再碰
-  // (双重处理会把已翻译文本当原文再翻一遍,产生错译)。
-  if (parent?.closest?.("[data-i18n-key], [data-i18n-title]")) return;
+  // R-140 批2/批4:data-i18n-key/data-i18n-title/data-i18n-aria-label/data-i18n-placeholder
+  // 由渲染点翻译,observer 不再碰(双重处理会把已翻译文本当原文再翻一遍,产生错译)。
+  if (parent?.closest?.("[data-i18n-key], [data-i18n-title], [data-i18n-aria-label], [data-i18n-placeholder]")) return;
   // R-140 批1(止血):消息容器整体豁免词典替换。模型输出/用户输入/错误文本是
   // 用户数据,英文态下恰好等于词典 key 的片段(「运行中」「失败」…)会被 observer
   // 改写成英文——展示层篡改数据(D-135 家族)。消息区内的产品文案(复制按钮、
@@ -753,8 +753,8 @@ function localizeAttributes(element, language) {
   // R-140 批1:消息容器内的 title/placeholder/aria-label 属性同样豁免(与
   // localizeTextNode 同一止血面;消息区内的属性文案走 t() 渲染点,不靠 observer)。
   if (element.closest?.("#messages")) return;
-  // R-140 批2:data-i18n-key/data-i18n-title 由渲染点翻译,observer 不碰属性。
-  if (element.closest?.("[data-i18n-key], [data-i18n-title]")) return;
+  // R-140 批2/批4:data-i18n-key/data-i18n-title/data-i18n-aria-label/data-i18n-placeholder 由渲染点翻译,observer 不碰属性。
+  if (element.closest?.("[data-i18n-key], [data-i18n-title], [data-i18n-aria-label], [data-i18n-placeholder]")) return;
   let originals = I18N_ATTR_ZH.get(element);
   if (!originals) {
     originals = new Map();
@@ -840,6 +840,20 @@ function applyDataI18nKeys(root, language) {
     if (!key) continue;
     const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
     if (el.title !== next) el.title = next;
+  }
+  // R-140 批4:aria-label/placeholder 与 title 同走渲染点。observer 对挂 data-i18n-*
+  // 的元素整体豁免(localizeTextNode/localizeAttributes),属性不在此补齐会在英文态漏翻。
+  for (const el of root.querySelectorAll("[data-i18n-aria-label]")) {
+    const key = el.dataset.i18nAriaLabel;
+    if (!key) continue;
+    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
+    if (el.getAttribute("aria-label") !== next) el.setAttribute("aria-label", next);
+  }
+  for (const el of root.querySelectorAll("[data-i18n-placeholder]")) {
+    const key = el.dataset.i18nPlaceholder;
+    if (!key) continue;
+    const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
+    if (el.getAttribute("placeholder") !== next) el.setAttribute("placeholder", next);
   }
 }
 const languageSelect = $("language-select");

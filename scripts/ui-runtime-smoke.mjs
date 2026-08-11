@@ -545,7 +545,7 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
     if (value !== undefined) el.setAttribute(attribute, value);
   }
   if (/\bdata-i18n-raw\b/.test(attributes)) el.setAttribute("data-i18n-raw", "");
-  for (const attribute of ["data-i18n-key", "data-i18n-title"]) {
+  for (const attribute of ["data-i18n-key", "data-i18n-title", "data-i18n-aria-label", "data-i18n-placeholder"]) {
     const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -591,7 +591,7 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)\bdata-i18n-key="
   if (/id="/.test(`${before} ${after}`)) continue; // 带 id 的已由上面按 id 段建造
   const el = document.createElement(tag);
   el.setAttribute("data-i18n-key", key);
-  for (const attribute of ["data-i18n-title"]) {
+  for (const attribute of ["data-i18n-title", "data-i18n-aria-label", "data-i18n-placeholder"]) {
     const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -3804,6 +3804,42 @@ assert(
   sandbox.applyLanguage();
   assert(keyText("新对话") === "新对话", `切回中文后「新对话」未回原文,实际 "${keyText("新对话")}"`);
   assert(keyText("发送") === "发送", `切回中文后「发送」未回原文,实际 "${keyText("发送")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
+// ---------- R-140 批4:架构浏览域迁移 + aria-label/placeholder 渲染点翻译 ----------
+// 架构浏览视图的标题/说明/按钮文案迁移到 data-i18n-key,title 走 data-i18n-title,
+// aria-label 走 data-i18n-aria-label(渲染点补齐属性翻译——元素挂 data-i18n-* 后
+// observer 整体豁免,属性不在此补齐会在英文态漏翻)。英文态翻译、切中文回原文。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  const archKey = (key) => sandbox.document.querySelector(`[data-i18n-key="${key}"]`)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(archKey("架构浏览") === "架构浏览", "中文态架构浏览标题应保持原文(前置失效)");
+  assert(attrOf("arch-tree", "aria-label") === "设计文档树", "中文态 arch-tree aria-label 应保持原文(前置失效)");
+  assert(attrOf("arch-refresh", "aria-label") === "重新扫描架构索引", "中文态 arch-refresh aria-label 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(archKey("架构浏览") === "Architecture browser", `英文态「架构浏览」未翻译,实际 "${archKey("架构浏览")}"`);
+  assert(archKey("架构索引") === "Architecture index", `英文态「架构索引」未翻译,实际 "${archKey("架构索引")}"`);
+  assert(archKey("记忆管理") === "Memory management", `英文态「记忆管理」未翻译,实际 "${archKey("记忆管理")}"`);
+  assert(archKey("打开") === "Open", `英文态「打开」未翻译,实际 "${archKey("打开")}"`);
+  assert(attrOf("arch-goto-memory", "title") === "Jump to the memory page to maintain entries (edit/consolidate/focus via existing memory commands)", `英文态 arch-goto-memory title 未翻译,实际 "${attrOf("arch-goto-memory", "title")}"`);
+  assert(attrOf("arch-open-index", "title") === "Open the architecture index in the viewer", `英文态 arch-open-index title 未翻译,实际 "${attrOf("arch-open-index", "title")}"`);
+  assert(attrOf("arch-tree", "aria-label") === "Design doc tree", `英文态 arch-tree aria-label 未翻译(渲染点属性补齐),实际 "${attrOf("arch-tree", "aria-label")}"`);
+  assert(attrOf("arch-refresh", "title") === "Rescan", `英文态 arch-refresh title 未翻译,实际 "${attrOf("arch-refresh", "title")}"`);
+  assert(attrOf("arch-refresh", "aria-label") === "Rescan architecture index", `英文态 arch-refresh aria-label 未翻译(渲染点属性补齐),实际 "${attrOf("arch-refresh", "aria-label")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(archKey("架构浏览") === "架构浏览", `切回中文后「架构浏览」未回原文,实际 "${archKey("架构浏览")}"`);
+  assert(attrOf("arch-tree", "aria-label") === "设计文档树", `切回中文后 arch-tree aria-label 未回原文,实际 "${attrOf("arch-tree", "aria-label")}"`);
+  assert(attrOf("arch-refresh", "aria-label") === "重新扫描架构索引", `切回中文后 arch-refresh aria-label 未回原文,实际 "${attrOf("arch-refresh", "aria-label")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
