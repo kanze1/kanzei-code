@@ -542,7 +542,11 @@ pub fn run_once_with_parts<'a>(
                     ordinary_count += 1;
                     let action = tool.action();
                     for resource in tool.resources_with_ctx(input, ctx) {
-                        let resource = kanzei_harness::permission::normalize_resource(&resource);
+                        // D-269:bash 的资源是 shell 文本,不能走路径规范化(非单射会把
+                        // 一条授权放大成整个原像类)。三个评估站点必须用同一个分流函数。
+                        let resource = kanzei_harness::permission::normalize_resource_for_action(
+                            action, &resource,
+                        );
                         if snapshot.evaluate(action, &resource) != Effect::Ask {
                             continue;
                         }
@@ -601,7 +605,12 @@ pub fn run_once_with_parts<'a>(
                     let denied = tool
                         .resources_with_ctx(&input, ctx)
                         .into_iter()
-                        .map(|resource| kanzei_harness::permission::normalize_resource(&resource))
+                        // D-269:同 :545,bash 走原样,路径类仍走 normalize_resource。
+                        .map(|resource| {
+                            kanzei_harness::permission::normalize_resource_for_action(
+                                action, &resource,
+                            )
+                        })
                         .find(|resource| snapshot.evaluate(action, resource) == Effect::Deny);
                     if let Some(resource) = denied {
                         on_event(RunEvent::PermissionResolved {
@@ -758,10 +767,17 @@ pub fn run_once_with_parts<'a>(
                     let mut gate_result = Gate::Pass;
                     let mut pending_ask: Vec<String> = Vec::new();
                     for resource in tool.resources_with_ctx(&input, ctx) {
-                        // 统一正斜杠 + 消解 . / ..,权限 pattern 不用关心平台,也不能被路径变体绕过:
-                        // `.kanzei/research/../../src/main.rs` 会被 `*.kanzei/research/*` 判为放行,
-                        // 而落盘时 join 会消解 ..,实际写到项目任意位置(D-050)。
-                        let normalized = kanzei_harness::permission::normalize_resource(&resource);
+                        // 路径类资源:统一正斜杠 + 消解 . / ..,权限 pattern 不用关心平台,也不能
+                        // 被路径变体绕过:`.kanzei/research/../../src/main.rs` 会被
+                        // `*.kanzei/research/*` 判为放行,而落盘时 join 会消解 ..,实际写到项目
+                        // 任意位置(D-050)。
+                        // bash 资源是 shell 文本,同一套规范化在它身上是提权通道(D-269):
+                        // `..` 会把前一段整段弹掉,注入语句藏在被弹掉的那一段里。这里落到
+                        // session_rules 的 pattern 也是本函数的产物——bash 走原样,注入段里的
+                        // `*` 才能活到 pattern 成形,D-051 的串联降级才不会被绕开。
+                        let normalized = kanzei_harness::permission::normalize_resource_for_action(
+                            action, &resource,
+                        );
                         let mut resolved = |decision, source| {
                             on_event(RunEvent::PermissionResolved {
                                 tool_call_id: id.clone(),
