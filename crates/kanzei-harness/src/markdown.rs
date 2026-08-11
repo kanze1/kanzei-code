@@ -22,6 +22,41 @@ impl Component for MarkdownComponent {
             scan_commands(&base.join("commands"), draft);
             scan_skills(&base.join("skills"), draft);
         }
+        // D-184:commands/skills 消费端——渲染进 system baseline。
+        // 扫描结果即 final(contribute 内已填充),渲染成静态文本克隆进闭包
+        // (ContextSource 闭包只拿 ResolveCtx,不持有 draft)。
+        // commands → 可调用清单;skills → 加载提示(正文留在文件,按需 read)。
+        let mut blocks = Vec::new();
+        if !draft.commands.is_empty() {
+            let mut text = String::from(
+                "可用命令(commands):按名调用,模板正文在对应 md 文件,参数用 $ARGUMENTS / $1..$N:\n",
+            );
+            for (name, cmd) in draft.commands.iter() {
+                text.push_str(&format!("- {name}: {}\n", cmd.description));
+                if let Some(agent) = &cmd.agent {
+                    text.push_str(&format!("  (限定 agent: {agent})\n"));
+                }
+            }
+            blocks.push(text.trim().to_string());
+        }
+        if !draft.skills.is_empty() {
+            let mut text = String::from("可用技能(skills):做相关任务时读取对应文件加载技能正文:\n");
+            for (name, skill) in draft.skills.iter() {
+                text.push_str(&format!(
+                    "- {name}: {} (正文: {})\n",
+                    skill.description,
+                    skill.path.display()
+                ));
+            }
+            blocks.push(text.trim().to_string());
+        }
+        if !blocks.is_empty() {
+            let block = blocks.join("\n\n");
+            draft.context.insert(
+                "core/commands_skills",
+                crate::source("core/commands_skills", move |_| Some(block.clone())),
+            );
+        }
         Ok(())
     }
 }
@@ -182,6 +217,9 @@ fn serde_plain<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use crate::harness::Harness;
 
     #[test]
     fn frontmatter_parsing() {
@@ -239,5 +277,85 @@ mod tests {
                 "CRLF body 不得残留分隔符 keys={keys}"
             );
         }
+    }
+
+    /// D-184:commands/skills 解析后必须被消费——渲染进 system baseline。
+    /// 放命令与技能文件,resolve 后 stable baseline 含命令名/描述与技能名/加载提示,
+    /// 不再是「解析了但没人读」的注册表。
+    #[test]
+    fn commands_and_skills_render_into_system_baseline() {
+        let dir =
+            std::env::temp_dir().join(format!("kanzei-markdown-consume-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".kanzei/commands")).unwrap();
+        std::fs::create_dir_all(dir.join(".kanzei/skills/build/SKILL.md").parent().unwrap())
+            .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/commands/release.md"),
+            "---\nname: release\ndescription: 发布双通道\n---\n执行 package.ps1 -Publish",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/skills/build/SKILL.md"),
+            "---\ndescription: 构建与格式检查\n---\n构建技能正文",
+        )
+        .unwrap();
+
+        let mut harness = Harness::default();
+        harness.add(MarkdownComponent);
+        let snapshot = harness
+            .resolve(&crate::harness::ResolveCtx {
+                profile: crate::defs::ProfileKind::Dev,
+                cwd: dir.clone(),
+                project_root: dir.clone(),
+                config: Arc::new(crate::config::KanzeiConfig::default()),
+            })
+            .unwrap();
+
+        // commands/skills 文件存在 → 注册表有货,且进了 stable baseline。
+        assert_eq!(snapshot.commands().len(), 1);
+        assert_eq!(snapshot.skills().len(), 1);
+        let baseline = snapshot.system_baseline();
+        assert!(
+            baseline.contains("可用命令(commands)"),
+            "commands 应进提示词: {baseline}"
+        );
+        assert!(baseline.contains("release: 发布双通道"), "命令清单含描述");
+        assert!(baseline.contains("可用技能(skills)"), "skills 应进提示词");
+        assert!(
+            baseline.contains("build: 构建与格式检查"),
+            "技能清单含描述: {baseline}"
+        );
+        assert!(baseline.contains("SKILL.md"), "加载提示指向技能正文文件");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// D-184:无命令/技能文件时 baseline 不产生空块(零内容不占上下文)。
+    #[test]
+    fn empty_commands_skills_render_nothing() {
+        let dir =
+            std::env::temp_dir().join(format!("kanzei-markdown-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut harness = Harness::default();
+        harness.add(MarkdownComponent);
+        let snapshot = harness
+            .resolve(&crate::harness::ResolveCtx {
+                profile: crate::defs::ProfileKind::Dev,
+                cwd: dir.clone(),
+                project_root: dir.clone(),
+                config: Arc::new(crate::config::KanzeiConfig::default()),
+            })
+            .unwrap();
+
+        let baseline = snapshot.system_baseline();
+        assert!(
+            !baseline.contains("可用命令") && !baseline.contains("可用技能"),
+            "空注册表不应渲染: {baseline:?}"
+        );
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

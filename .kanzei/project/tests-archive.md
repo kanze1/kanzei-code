@@ -1677,3 +1677,15 @@
 - 摘要: D-217 修复定向验证:①memory_stale reason 墓碑随条目进归档(先追加正文再 update 状态,archive_dead rename 时文件已带 reason)——新增单测 stale_墓碑_reason随条目进归档(主目录消失、归档保留 ID、正文含 stale reason+原正文);②memory_value_flags 返回 staleArchived 计数(store.archived_count),前端整理清单显示「已归档待复查」+ i18n 登记;③memory_system.md 三处文档同步(archive/ 目录名、手动整理替代 sleep-time、R-107 验收修正)。kanzei-tools 232 + app 118 全绿,前端四条冒烟通过。
 - 关联: D-217
 - 收尾: 1786450308
+
+## T-1786450390 cargo test --workspace (D-217 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-217 关闭前全量:全部 crate 全绿(kanzei-app 118 + tools 232 + core 130 + harness 107 + llm 42 + 其余)。
+- 关联: D-217
+- 收尾: 1786450390
+
+## T-1786450575 D-184 定向测试:commands/skills 消费端渲染进 baseline [passed]
+- 命令: cargo test -p kanzei-harness + cargo clippy -p kanzei-harness + cargo check 下游(core/tools/app)
+- 摘要: D-184 修复定向验证:commands/skills 消费端接上——markdown.rs contribute 末尾把两注册表渲染进 system baseline(commands → 可调用清单含描述/限定 agent;skills → 加载提示含描述与 SKILL.md 路径,正文按需 read)。新增两单测:commands_and_skills_render_into_system_baseline(解析后进 stable baseline)、empty_commands_skills_render_nothing(空注册表不产生空块)。kanzei-harness 109 全绿,clippy 干净,下游 check 干净。
+- 关联: D-184
+- 收尾: 1786450575
