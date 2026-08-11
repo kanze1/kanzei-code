@@ -44,12 +44,16 @@ async function applyBatch() {
     return;
   }
   const targets = [...batchSelection.entries()];
+  // D-256:进入循环前认领项目。批量操作进行中切项目时,整批继续写**认领时的旧项目**;
+  // 循环内不得重读 currentProject——await 之间它可能已被用户切走,重读会把旧项目的
+  // 条目 id 写进新项目(2026-08-11 用户拍板:按认领项目做完,不是中止)。
+  const batchProjectDir = currentProject;
   let ok = 0;
   const failures = [];
   for (const [id, kind] of targets) {
     try {
       await invoke("docs_update", {
-        projectDir: currentProject,
+        projectDir: batchProjectDir,
         kind,
         action: "update",
         id,
@@ -66,6 +70,11 @@ async function applyBatch() {
   batchSelection.clear();
   if (failures.length) toastError(`${t("批量操作部分失败")}(${ok}/${targets.length}):${failures.join(";")}`);
   else toast(`${t("批量操作完成")}:${ok}`);
+  // D-256:批量期间用户切走了项目,整批实际落在认领时的旧项目——必须明说落地在哪,
+  // 免得用户以为刚才那批改的是当前项目(切走的那个)。
+  if (batchProjectDir !== currentProject) {
+    toast(`${t("这批改动落在")} ${batchProjectDir}`);
+  }
   refreshDocs();
 }
 

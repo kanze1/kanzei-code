@@ -222,6 +222,7 @@ const I18N_EN = {
   "保存修改": "Save changes", "标题": "Title", "编辑标题": "Edit title", "编辑字段": "Edit field", "记忆已保存": "Memory saved", "记忆保存失败": "Failed to save memory", "找不到": "Not found:",
   "选择": "Select", "已选": "Selected", "改状态…": "Change status…", "混选类型,仅可改标签": "Mixed types — tags only",
   "先选择要改的状态或标签": "Pick a status or tag to apply first", "批量操作完成": "Bulk update done", "批量操作部分失败": "Bulk update partly failed",
+  "这批改动落在": "These changes landed in",
   "内部调用": "inner calls", "只停这一条,不影响本轮其它工具": "Stop just this one; other tools in this round keep running",
   // R-173:编排派发的勘察/复核子代理在活动面板里的分区标签与超时终态。
   "勘察": "Scouting", "复核": "Review", "超时": "Timed out",

@@ -130,6 +130,7 @@
   "base",
   "baseName",
   "baseTitle",
+  "batchProjectDir",
   "batchSelection",
   "batches",
   "batchesEl",

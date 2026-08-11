@@ -1540,6 +1540,48 @@ assert(
   invokeLog.filter((cmd) => cmd === "docs_update").length > beforeBatch,
   "批量应用未提交 docs_update",
 );
+// D-256:批量操作进行中切项目,不得有任何一条写进新项目。
+// 2026-08-11 用户拍板语义:按认领项目做完——整批继续写旧项目,循环内不重读 currentProject;
+// 循环结束后若 currentProject 已变,提示「这批改动落在 <旧项目>」。
+// 桩把第一条 docs_update 挂在闸门上,applyBatch 停在第一次 await 处,此刻把 currentProject
+// 换成项目乙;放行后剩余条目必须仍以认领时的旧项目为 projectDir,且 toast 明说落地项目。
+{
+  const reqPicks = [...document.querySelectorAll("#documents-req-list .doc-pick")];
+  assert(reqPicks.length >= 2, "前置失败:D-256 用例需要至少 2 条需求条目");
+  const claimedProject = vm.runInContext("currentProject", sandbox);
+  const batchStart = invokeArgs.length;
+  reqPicks.forEach((el) => { el.checked = true; el._listeners.change?.forEach((fn) => fn({ target: el })); });
+  assert(
+    vm.runInContext("batchSelection.size", sandbox) >= 2,
+    "前置失败:批量选中集未达到 2 条",
+  );
+  let releaseBatch;
+  invokeGates.set("docs_update", new Promise((resolve) => { releaseBatch = resolve; }));
+  byId.get("documents-batch-tag").value = "流程";
+  byId.get("documents-batch-apply")._listeners.click?.forEach((fn) => fn({}));
+  await settle();
+  // 循环已挂在第一条 docs_update 的 await 上——此刻切项目。旧实现从这里起会把新项目
+  // 写进 projectDir,正是 D-256 描述的错写(新项目的同号条目被真改状态/改标签)。
+  vm.runInContext(`currentProject = ${JSON.stringify("C:/smoke/project-b")}`, sandbox);
+  releaseBatch();
+  invokeGates.delete("docs_update");
+  await flush();
+  const batchUpdateCalls = invokeArgs.slice(batchStart).filter(({ cmd, args }) => cmd === "docs_update" && args?.action === "update");
+  assert(batchUpdateCalls.length >= 2, "D-256:批量循环未按选中条目逐条提交 docs_update");
+  const projectDirs = new Set(batchUpdateCalls.map(({ args }) => args?.projectDir));
+  assert(
+    [...projectDirs].every((dir) => dir === claimedProject),
+    `D-256:批量中途切项目后,有 docs_update 的 projectDir 指向非认领项目(${[...projectDirs].join(",")})`,
+  );
+  assert(
+    listText("toast").includes(claimedProject),
+    `D-256:批量期间切走项目,结束后未提示这批改动落在认领项目(toast="${listText("toast")}")`,
+  );
+  // 复位:清空选中、把 currentProject 改回,不污染后续用例。
+  reqPicks.forEach((el) => { el.checked = false; el._listeners.change?.forEach((fn) => fn({ target: el })); });
+  vm.runInContext(`currentProject = ${JSON.stringify(claimedProject)}`, sandbox);
+  await flush();
+}
 // 对照:两个队列同时可见,共用同一套**显示口径**——全字段中性化(D-244)。
 byId.get("documents-tab-both")._listeners.click?.forEach((fn) => fn({}));
 await flush();
