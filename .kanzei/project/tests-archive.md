@@ -1719,3 +1719,15 @@
 - 摘要: D-204 批2 定向验证(验收②查看展示):Memory 页 sop 条目排版——列表行 sop 条目加左边框+「SOP」徽标(入口可发现,13-memory.js loadMemoryList class+徽标,style.css .memory-row.sop/.memory-row-cat.sop);详情正文 renderMemoryBodyRead 识别「N. 标题」编号行渲染为结构化步骤块(.memory-sop-step,标题加粗+正文剥离冒号后内容);i18n 登记「SOP」。ui-runtime 1137 invoke 0 错误、i18n 997 key、lint 1100 标识符全绿,frontend_check 结构完整,ui_console 无错误。
 - 关联: D-204
 - 收尾: 1786451128
+
+## T-1786451243 cargo test --workspace (D-204 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-204 关闭前全量(复杂度中):workspace 全绿——core 131 + tools 232 + harness 109 + app 118 + llm 42,含批1 harvest_sop 门槛/结构模板与批2 前端排版改动。
+- 关联: D-204
+- 收尾: 1786451243
+
+## T-1786451336 D-205 契约测试:快记 prompt 禁止编造+保留限定词 [passed]
+- 命令: cargo test -p kanzei-app quick_capture
+- 摘要: D-205 验收①+②机械回归:新增 quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers 契约测试,锁死 QUICK_REQ_DEFECT_SYSTEM 的「NEVER invent or pad one」「待澄清+具体问题清单」「keep qualifier words」「original text verbatim」四项 prompt 防线,防后续文案改回退。quick_capture 2 测试全绿。
+- 关联: D-205
+- 收尾: 1786451336

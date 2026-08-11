@@ -176,6 +176,34 @@ mod tests {
         assert_eq!(REQUIREMENTS.tags.unwrap().to_vec(), expected);
         assert_eq!(DEFECTS.tags.unwrap().to_vec(), expected);
     }
+
+    // D-205 验收①+②(快记信息保真)机械回归:prompt 层禁止编造复现、推断不出写
+    // 待澄清问题清单、保留原文关键限定词——这些是防 D-204 类伪复现的 prompt 防线,
+    // 必须被契约测试锁死,防止后续文案改动悄悄把防线改回退。
+    #[test]
+    fn quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers() {
+        let p = QUICK_REQ_DEFECT_SYSTEM;
+        assert!(
+            p.contains("NEVER invent or pad one"),
+            "复现字段必须禁止编造/填充: {p}"
+        );
+        assert!(
+            p.contains("待澄清"),
+            "推断不出复现时必须写「待澄清」而非编造: {p}"
+        );
+        assert!(
+            p.contains("questions the user must answer"),
+            "待澄清必须带具体问题清单: {p}"
+        );
+        assert!(
+            p.contains("keep qualifier words"),
+            "必须保留原文关键限定词(用户/桌面端/CLI 等): {p}"
+        );
+        assert!(
+            p.contains("original text verbatim"),
+            "原始描述必须逐字保留原文: {p}"
+        );
+    }
 }
 
 const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \\

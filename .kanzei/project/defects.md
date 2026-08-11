@@ -22,7 +22,9 @@
 - 优先级: P1
 - 标签: 前端
 
-- 进展: 2026-08-09 部分交付(①取活焦点可视化、②拖拽禁用提示)基础上,本轮补验收③:优先级语义二选一选 B(UI 明示)——按 M-002 用户定调 priority 只是背景信息不参与取活,不改 prompt/schedule。实现:①侧栏优先级筛选下拉 title 改为「按优先级筛选(仅参考,不影响取活顺序)」(index.html);②需求/缺陷行内优先级徽章 title 追加「(仅参考,不影响取活)」(main.js renderDocList badge.title);③i18n 新增两条词条(I18N_EN),ui-i18n-smoke 770 key 全绿;④冒烟新增断言:筛选 title 与徽章 title 均含「仅参考」,ui-runtime-smoke 222 invoke 全绿。验收④用户复查(能否看懂 agent 下一个会拿哪条)待发版安装后用户确认,与 D-210/D-211 同惯例。 2026-08-10 用户反馈验收④未过:前端把阻塞 doing(R-157)渲染成「运行中」,与取活实际脱节(§1.1 阻塞项不计 WIP、agent 跳过它)。根因:computeAgentFocus active 收集只按 status==doing/fixing,未排除 blocked。修复①:12-docs-pages.js computeAgentFocus 的 active 排除 entry.blocked,冒烟补断言,四条前端冒烟全绿,提交 c0864b0。 2026-08-10 用户再反馈:active 是集合没意义——集合是为多线程并行(每线程一条 active)设计的,现在多线程改造还远,应退化为单条。修复②:computeAgentFocus 的 active 从 Set 改为单条 id = 取活序第一个可执行的 doing/fixing(defect-first 先缺陷后需求);多余可执行 doing/fixing 只是已取未动的历史状态,不标 agent-active;11-docs-list.js 使用点同步 has()→===。冒烟新增「多条 doing 只标取活序第一条」断言,ui-runtime 243 invoke 全绿。验收④仍待用户重建 kzapp 后复查确认(ui 资源打包进 exe,需 release.ps1 重建生效)。
+- 进展: 2026-08-09 部分交付(①取活焦点可视化、②拖拽禁用提示);本轮补验收③:优先级二选一选 B(UI 明示)——侧栏筛选 title 与行内徽章 title 均注明「仅参考,不影响取活」(index.html/main.js renderDocList badge.title),i18n 两条词条,冒烟断言全绿。2026-08-10 用户反馈验收④未过:blocked doing 被渲染成「运行中」——computeAgentFocus 修复①:active 排除 entry.blocked(12-docs-pages.js),四条冒烟全绿(c0864b0)。2026-08-10 再反馈:active 集合无意义,退化为单条——computeAgentFocus 改为取活序第一个可执行的 doing/fixing 单条 id,11-docs-list.js has()→===,冒烟新增多条 doing 只标取活序第一条断言,ui-runtime 243 invoke 全绿。①②③已交付,验收④(用户重建 kzapp 后复查确认能看懂「下一个会拿哪条、为什么」)待用户侧动作。
+
+- 阻塞: 验收④用户复查:ui 资源打包进 exe,需用户跑 release.ps1 重建 kzapp 后实际查看侧栏取活焦点并确认能看懂;解除人=用户(重建+复查后确认即关闭)。
 
 ## D-205 快记通道无信息保真门槛:模糊输入被编造复现后落库,关键限定词丢失 [open] (medium)
 - refs: D-204
@@ -35,7 +37,9 @@
 - 优先级: P2
 - 标签: 后端
 
-- 进展: 2026-08-09 取活:验收①prompt 层(禁止编造、写待澄清+问题清单)为既有交付(main.rs QuickCaptureComponent system 文案,3512-3519);本轮补验收③:侧栏/文档页对「复现: 待澄清: …」形态的缺陷渲染 .clarify-badge 徽标(renderDocList,只认复现字段以「待澄清」开头,title 带具体问题清单,不误标需求),i18n 词条「待澄清」,style.css .clarify-badge(accent 色);冒烟桩数据 D-001 复现改为待澄清形态并新增断言(徽标渲染+问题提示+需求不误标),ui-runtime-smoke 222 invoke 全绿,ui-i18n-smoke 771 key 全绿,frontend_check 结构完整。验收①真实快记实证与④(自举取活跳过/优先澄清待澄清条目,属调度核心改动)留后续,④记入 R-101 批次前评估。
+- 进展: 取活:验收① prompt 层与验收③(既有交付)基础上,本轮补验收①②的机械回归保护——新增契约测试 quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers(subagents.rs tests),锁死 QUICK_REQ_DEFECT_SYSTEM 四项防线:NEVER invent or pad one(禁止编造复现)、待澄清+questions the user must answer(推断不出写问题清单)、keep qualifier words(保留关键限定词)、original text verbatim(原文逐字)。quick_capture 2 测试全绿。验收④(自举取活跳过/优先澄清待澄清条目)已明确记入 R-101 批次前评估,不属本条。
+
+- 批次: 1/1
 
 ## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixing] (medium)
 - refs: D-205 R-105 R-107
@@ -49,7 +53,9 @@
 - 标签: 核心
 
 - 批次: 2/2
-- 进展: 批2 完成:Memory 页 sop 条目排版(验收②)——列表行 sop 加左边框+SOP 徽标(入口可发现),详情正文编号行识别为结构化步骤块(.memory-sop-step 标题加粗+正文剥离);i18n 登记 SOP。前端四冒烟全绿。批1+批2 完成,剩余:关闭前全量 + 关闭。
+- 进展: 两批交付+全量绿,逐条证据:①总结质量——harvest_sop 候选 detail 给 manager 可照做结构模板(1.适用场景 2.操作步骤:每步做什么+判断依据 3.边界与例外)(crates/kanzei-tools/src/memory/mod.rs harvest_sop),manager_agent() prompt 加 SOP 提炼规则(纯工具罗列不算 SOP、一次性流程 NOOP)(memory/manager.rs manager_agent),不再纯工具名罗列;②查看展示——Memory 页列表行 sop 加左边框+SOP 徽标(13-memory.js loadMemoryList + style.css .memory-row.sop/.memory-row-cat.sop,入口可发现),详情正文 renderMemoryBodyRead 识别「N. 标题」编号行渲染为结构化步骤块(.memory-sop-step 标题加粗+正文剥离冒号);③产生时机——harvest_sop 加工具序列门槛(tools<3 机械拦截,纯机械序列被拦,memory/mod.rs + 回归单测短流程不投)。④待用户复查确认三个维度。验证:T-1786451023(批1 定向 232 绿)+T-1786451128(批2 前端四冒烟)+T-1786451243(关闭前全量全绿)。
+
+- 阻塞: 验收④「用户复查确认三个维度都有改善」——工程面①②③已交付并全量绿,需用户实际查看 Memory 页 SOP 排版与新沉淀门槛后确认;解除人=用户(复查后确认改善即可关闭)。
 
 ## D-219 WIP 准入把阻塞 doing 计入配额,鞭挞提示词与 §1.1 新口径不同步 [open] (medium)
 - 复现: 2026-08-09 实测:R-101(用户挂起)+R-148(仅剩等用户复查)占满 2 个 doing 名额,循环以「WIP 约束不能并发开启」拒开 R-153——两个不可执行条目把新工作准入整体锁死。
