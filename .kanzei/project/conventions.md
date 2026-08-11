@@ -159,3 +159,12 @@
 - **发布树(worktree)**:发布统一从 `C:\Users\kanzei\Documents\kanzei-release`(`git worktree`,跟踪 main)执行:`git -C <发布树> pull` 后跑其中的 `package.ps1 -Publish`——与 dev 工作树完全隔离,发布时不需要 stash/打断正在进行的开发。**提交了不等于发布了**:安装版用户只认 Releases,合并 main 后记得发布。
 - **Release 标签规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;历史 release 不删除(更新只看 latest)。
 - **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。
+
+## 10. 任务级并行：分支干、合并、冲突检测解决、文档一份唯一
+
+- 每条可写开发线必须绑定独立 git worktree 与独立分支；同一代码树最多绑定一条线。同一棵树上的多个 writer 仍要排队，不能把覆盖文件叫作并行。
+- 代码写入只落本线 worktree。交付通过逐线 diff、`merge-tree` 预检、`--no-ff` 合并与冲突处理进入主线；禁止用项目级 run 租约把不同 worktree 的整轮执行重新串行化。单轮内部仍按工具的 `ToolConcurrency` 契约避免同树冲突。
+- `.kanzei/project/*.md`、`state.db` 与项目记忆只认主根一份。线内 `cwd` 是 worktree，`project_root` 是主根；CLI 从 worktree 运行时必须显式传 `--project-root` 或 `KANZEI_PROJECT_ROOT`。tracker 写入默认关闭，显式开启后由主根上的既有 `FileLock` 保护单次读改写。
+- 多线协作不是独占执行。每条线开跑与刷新时都要看到其他活跃线的认领、分支与改动文件；提交只暂存自己明确修改的文件，提交前重查协作状态、工作树和 staged diff，禁止 `git add .` 或目录级扫入。
+- UI 在合并前显示各线真实运行态与文件集合交集；文件交集和 git 预检只覆盖**文本层**。语义撞车不会被 git 保证检出，界面必须常驻“文本层已检查 · 语义层未检查”，不得把空冲突带表述成语义安全。
+- “并行查、串行写”仅保留为 R-171 历史阶段编排说明，不再是任务级并行的现行写入纪律。现行口径以本节、R-177/R-182/R-184 与 `parallel_lines_ui.md` 为准。
