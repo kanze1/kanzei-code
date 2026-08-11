@@ -2813,3 +2813,13 @@
 
 - 复杂度: 中
 
+## D-243 记忆正文读取仍未回填遥测采纳 [fixed] (medium)
+- 复现: memory_search 返回 file 后调用通用 read，当前 read.rs 只读取文件，不调用 MemoryStore::mark_recall_fetched；memory_search 自身却在搜索返回时提前标记 fetched。
+- 来源: R-161 验收②与 docs/design/memory_control_plane.md §2
+- 标签: 核心
+- 进展: 关闭对照——实质修复已由 R-161 B2(b9baccc)交付,本条漏关,现核验补齐:验收①read.rs:71 仅在 read_sync 成功后调 mark_memory_file_read(非记忆文件快速短路,memory/mod.rs:908 starts_with_ci 限定记忆库根);store.rs:562 mark_recall_fetched 只回填最近一次召回;测试 read.rs:227/290、mod.rs:1428 全绿。②memory/mod.rs:867 record_memory_search_telemetry 打开 state.db 写 RecallEvent(kanzei-core store/telemetry.rs:35 recall_events 表),注释明示 CLI 预检索/memory_search 工具/桌面端搜索页三入口共用。③store.rs:128 index.db memory_recalls 仍是 fetched 事实库(read 回填 UPDATE 走这里),state.db 新增遥测表,双库并存旧读路径未破坏。验证:cargo test -p kanzei-tools memory 71 全绿(read_memory_file_backfills_recall_fetched + mark_memory_file_read_backfills_only_matching_scope_entry 均在)。既有能力标注:mark_recall_fetched/record_recall_event 为 R-161 交付,本条仅核验关闭。
+- 验收: 仅在真实 read 读取 .kanzei/memory 文件后回填对应召回；memory_search 与桌面端/CLI 共用 state.db 漏斗事件；保留旧 index.db 读兼容。
+- 优先级: P1
+
+- 复杂度: 小
+
