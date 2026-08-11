@@ -60,14 +60,17 @@ pub(crate) async fn run_task(
     let cwd = PathBuf::from(&project_dir);
     anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
 
-    stage("配置", format!("加载 {}", cwd.display()));
-    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    // R-050 D1「运行时重定向主根」的落点:cwd 是代码工作树(线上线后 = worktree),
+    // project_root 恒为主根——托管文档、state.db、记忆全部走它。
+    // 取根必须在**加载配置之前**:R-177 内容⑧,配置是主根资产,worktree 里的
+    // `.kanzei/kanzei.toml` 是被 git checkout 出来的分支副本,读它等于让线的行为
+    // 取决于分支停在哪一代。
+    let project_root = main_root;
+    stage("配置", format!("加载 {}", project_root.display()));
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
     let config = Arc::new(config);
     report_config_warnings(window, &session_id, &config, &config_warnings);
     let profile = resolve_profile(profile.as_deref(), &config)?;
-    // R-050 D1「运行时重定向主根」的落点:cwd 是代码工作树(将来 = worktree),
-    // project_root 恒为主根——托管文档、state.db、记忆全部走它。
-    let project_root = main_root;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -756,7 +759,11 @@ pub(crate) async fn run_task(
                     report_persistence_failure(window, &session_id, "写入完成通知", error);
                 }
                 // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
-                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(project_dir.clone()));
+                // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
+                // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
+                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(
+                    ctx.project_root.display().to_string(),
+                ));
             }
             Err(error) => {
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {
@@ -1637,6 +1644,19 @@ pub(crate) fn append_run_notification(
     Ok(())
 }
 
+/// 本轮代码树:线绑了 worktree 就在那棵树上跑,否则就是项目目录本身。
+///
+/// **这是唯一让 `cwd` 真正指向 worktree 的地方**(R-177 内容②)。`main_root`
+/// 一路不变——托管文档、state.db、记忆、配置全部仍落主根,两者第一次真正分叉。
+/// 抽成纯函数是为了让这条判定可以直接测,不必去构造 `Window` 与整条运行链。
+pub(crate) fn code_root_for(worktree_path: Option<&str>, project_dir: &str) -> String {
+    worktree_path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| project_dir.to_string())
+}
+
 #[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
 #[tauri::command]
 pub(crate) async fn run_prompt(
@@ -1669,13 +1689,18 @@ pub(crate) async fn run_prompt(
             .get(process_id)
             .cloned()
             .ok_or_else(|| format!("进程不存在: {process_id}"))?;
-        if process.project_dir != project_root.display().to_string() {
+        // R-177 内容②:归属按 `origin_project` 判定。`project_dir` 已被 F4 定死为
+        // 恒主根,两值今天恒等;改的是**意图**——归属问的是「这条线是从哪个项目开出来
+        // 的」,不是「它此刻在哪棵树上跑」。将来若 project_dir 再指向别处,这里不会
+        // 跟着把线自己拒掉。
+        if process.origin_project != project_root.display().to_string() {
             return Err("进程不属于当前项目".into());
         }
         process
     } else {
         ensure_default_process(&state, &project_root)
     };
+    let code_root = code_root_for(process.worktree_path.as_deref(), &project_dir);
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
     let model = model.or_else(|| process.model.lock().unwrap().clone());
@@ -1720,7 +1745,7 @@ pub(crate) async fn run_prompt(
                 ask_seq.clone(),
                 next_prompt,
                 next_attachments.take(),
-                project_dir.clone(),
+                code_root.clone(),
                 main_root.clone(),
                 session_id.clone(),
                 phase_pipeline_enabled,
@@ -1821,6 +1846,65 @@ pub(crate) fn run_metrics(
         serde_json::json!({ "at": at, "prompt": prompt, "outcome": outcome, "steps": steps, "inputTokens": input, "outputTokens": output, "tools": parse(&tools), "context": parse(&context), "metrics": parse(&metrics), "measured": metrics.trim() != "{}" && !metrics.trim().is_empty() })
     }).collect();
     Ok(serde_json::json!({ "rounds": rounds }))
+}
+
+#[cfg(test)]
+mod worktree_run_tests {
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-run-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
+        dir
+    }
+
+    /// R-177 验收② 前半:线上运行时 cwd = worktree、project_root = 主根,两者**不相等**。
+    #[test]
+    fn 线上运行cwd是worktree_project_root是主根() {
+        let main_root = "C:/proj/kanzei";
+        let worktree = "C:/proj/.kanzei-worktree-kanzei.f6";
+        let cwd = super::code_root_for(Some(worktree), main_root);
+        assert_eq!(cwd, worktree, "线绑了树就必须在那棵树上跑");
+        assert_ne!(cwd, main_root, "cwd 与主根必须分叉,否则线没有物理隔离");
+        // 主树进程一个字节都不变:worktree_path 为 None(或空串)时恒等于项目目录。
+        assert_eq!(super::code_root_for(None, main_root), main_root);
+        assert_eq!(super::code_root_for(Some("   "), main_root), main_root);
+    }
+
+    /// R-177 验收③:配置取**主根**那一份,worktree 里的分支副本改了也不生效。
+    /// run_task 用的就是这个入口(`load_with_warnings_at_root(&project_root)`),
+    /// 配套的机械判据是本文件里发现式取根的配置入口零命中。
+    #[test]
+    fn 配置从主根加载_worktree副本改了不生效() {
+        let main_root = temp_dir("cfg-main");
+        let worktree = temp_dir("cfg-tree");
+        std::fs::write(
+            main_root.join(".kanzei/kanzei.toml"),
+            "[profile]\ndefault = \"dev\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            worktree.join(".kanzei/kanzei.toml"),
+            "[profile]\ndefault = \"research\"\n",
+        )
+        .unwrap();
+        let (config, _) =
+            kanzei_harness::KanzeiConfig::load_with_warnings_at_root(&main_root).unwrap();
+        assert_eq!(
+            config.profile.default.as_deref(),
+            Some("dev"),
+            "必须读主根那份配置;读到 research 说明取了 worktree 的分支副本"
+        );
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
+    }
 }
 
 #[cfg(test)]

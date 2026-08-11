@@ -178,7 +178,11 @@ impl Tool for FrontendLocateTool {
         let rel = input
             .css_path
             .unwrap_or_else(|| "crates/kanzei-app/ui/style.css".to_string());
-        let path = ctx.project_root.join(&rel);
+        // R-177 内容②:样式表是仓库源码,取 cwd(= 本线的代码树)。取主根会让
+        // 同一个 agent 在两棵树之间读写——frontend 读主树的 css、edit 按 cwd 落
+        // worktree,分支改过该文件时 old_string 匹配失败,没改过时基于陈旧上下文
+        // 改对了地方,git 一个字都不报。
+        let path = ctx.cwd.join(&rel);
         let css = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(e) => return ToolOutput::error(format!("读取 {} 失败: {e}", path.display())),
@@ -239,7 +243,8 @@ impl Tool for FrontendCheckTool {
         let rel = input
             .css_path
             .unwrap_or_else(|| "crates/kanzei-app/ui/style.css".to_string());
-        let path = ctx.project_root.join(&rel);
+        // 与 frontend_locate 同一条判据:仓库源码走 cwd。
+        let path = ctx.cwd.join(&rel);
         let css = match std::fs::read_to_string(&path) {
             Ok(text) => text,
             Err(e) => return ToolOutput::error(format!("读取 {} 失败: {e}", path.display())),
@@ -257,6 +262,63 @@ impl Tool for FrontendCheckTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-177 内容②:frontend 两个工具读的都是**本线的树**。
+    /// 主树同路径的 css 内容不同时,不得读到主树那份——读主树、edit 落 worktree
+    /// 正是「git 一字不报的语义撞车」。
+    #[tokio::test]
+    async fn frontend读的是本线的树_不是主树() {
+        use kanzei_harness::{Tool, ToolCtx};
+        let tag = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let main_root = std::env::temp_dir().join(format!("kz-fe-main-{tag}"));
+        let worktree = std::env::temp_dir().join(format!("kz-fe-tree-{tag}"));
+        for root in [&main_root, &worktree] {
+            std::fs::create_dir_all(root.join("crates/kanzei-app/ui")).unwrap();
+        }
+        std::fs::write(
+            main_root.join("crates/kanzei-app/ui/style.css"),
+            ".只在主树 { color: red; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            worktree.join("crates/kanzei-app/ui/style.css"),
+            ".线内新增 { color: blue; }\n",
+        )
+        .unwrap();
+        let ctx = ToolCtx {
+            cwd: worktree.clone(),
+            project_root: main_root.clone(),
+            ..Default::default()
+        };
+        let out = FrontendLocateTool
+            .execute(serde_json::json!({"selector": ".线内新增"}), &ctx)
+            .await;
+        assert!(
+            out.content.contains(".线内新增"),
+            "应定位到本线树里的规则: {}",
+            out.content
+        );
+        let out = FrontendLocateTool
+            .execute(serde_json::json!({"selector": ".只在主树"}), &ctx)
+            .await;
+        assert!(
+            out.content.contains("没有匹配"),
+            "不得读到主树那份 css: {}",
+            out.content
+        );
+        // frontend_check 同一条判据。
+        let out = FrontendCheckTool.execute(serde_json::json!({}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
+    }
 
     #[test]
     fn 定位给出全部定义点并标出所在媒体查询() {

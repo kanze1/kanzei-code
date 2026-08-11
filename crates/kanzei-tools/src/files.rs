@@ -379,10 +379,15 @@ impl Tool for FilesTool {
             Ok(value) => value,
             Err(output) => return output,
         };
-        let entries = scan(&ctx.project_root);
+        // R-177 内容②:扫的是**代码树**。判据统一为「凡 `.kanzei/**` 资产走
+        // project_root,凡仓库源码走 cwd」——read/glob/grep/write/edit 早就走 cwd,
+        // 这里若还取主根,同一个 agent 会在两棵树之间读写:files 列主树的文件,
+        // edit 按 cwd 落 worktree。
+        let entries = scan(&ctx.cwd);
         if entries.is_empty() {
             return ToolOutput::ok("(no files)".to_string());
         }
+        // 批注是 `.kanzei/file-annotations.json`,主根一份的资产,取 project_root 不变。
         let annotations = load_annotations(&ctx.project_root);
         let text = match input.top {
             Some(top) => render_top(&entries, &annotations, top.clamp(1, 100)),
@@ -418,6 +423,38 @@ mod tests {
         std::fs::write(root.join("docs/note.md"), "中文字数按字符计,一共二十个字。").unwrap();
         std::fs::write(root.join("data.bin"), vec![0u8; 128]).unwrap();
         root
+    }
+
+    /// R-177 内容②:线上运行时 files 工具读的是**本线的树**。
+    /// 主树同名文件内容不同时,不得读到主树那份——否则 agent 会照主树的形态
+    /// 构造 edit,而 edit 按 cwd 落 worktree。
+    #[tokio::test]
+    async fn files读的是本线的树_不是主树() {
+        let main_root = fixture("main");
+        let worktree = fixture("worktree");
+        // 两棵树同名文件内容不同,且各自有一个对方没有的文件。
+        std::fs::write(worktree.join("src/lib.rs"), "fn only_in_worktree() {}\n").unwrap();
+        std::fs::write(worktree.join("src/线内新增.rs"), "fn 线内() {}\n").unwrap();
+        std::fs::write(main_root.join("src/只在主树.rs"), "fn 主树() {}\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: worktree.clone(),
+            project_root: main_root.clone(),
+            ..Default::default()
+        };
+        let out = FilesTool.execute(serde_json::json!({}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("线内新增.rs"),
+            "应列出本线树里的文件: {}",
+            out.content
+        );
+        assert!(
+            !out.content.contains("只在主树.rs"),
+            "不得列出主树独有的文件: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
     }
 
     #[test]

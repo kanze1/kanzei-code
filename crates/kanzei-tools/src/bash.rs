@@ -164,7 +164,7 @@ impl Tool for BashTool {
         // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
         // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
         if input.background && managed_scope_exists(&ctx.project_root) {
-            if let Some(breach) = background_workdir_breach(&ctx.project_root, &workdir) {
+            if let Some(breach) = background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir) {
                 return ToolOutput::error(breach);
             }
         }
@@ -409,20 +409,34 @@ fn git_mutation_form(command: &str) -> Option<String> {
 /// 解释器一行流,那条路本文件顶部已经放弃)。因此它只是第一道:挡掉
 /// "cd 进托管目录再用相对路径写"的一整类,绝对路径写入仍由后台守卫的
 /// 结果侧对账兜住。
-fn background_workdir_breach(project_root: &Path, workdir: &Path) -> Option<String> {
+///
+/// # 包含根是**代码树**,不是主根(R-177 内容②)
+///
+/// D-174 的两条语义原样保留:①不得跑出可归因范围;②不得扎进托管树。变的只是
+/// 「可归因范围」的正名——线上线后 agent 的代码树是 worktree,主根只承担
+/// `.kanzei/**`。仍按主根做包含判定的话,线里每一条 `background: true` 的 bash
+/// 都会被无条件拒(worktree 不在主根之下)。
+///
+/// 托管树的排除同时查两处:代码树自己的 `.kanzei`(worktree 里那份是 git checkout
+/// 出来的分支副本,一样不许当工作目录)与主根的 `.kanzei`(真正的托管资产)。
+fn background_workdir_breach(
+    code_root: &Path,
+    project_root: &Path,
+    workdir: &Path,
+) -> Option<String> {
     let (root, dir) = match (
-        std::fs::canonicalize(project_root),
+        std::fs::canonicalize(code_root),
         std::fs::canonicalize(workdir),
     ) {
         (Ok(root), Ok(dir)) => (root, dir),
         // 任一侧无法规范化时两侧都用原样路径比,避免单边规范化造成假阳性拒绝。
-        _ => (project_root.to_path_buf(), workdir.to_path_buf()),
+        _ => (code_root.to_path_buf(), workdir.to_path_buf()),
     };
     let Ok(relative) = dir.strip_prefix(&root) else {
         return Some(format!(
-            "background workdir must stay inside the project root: {} is outside {}",
+            "background workdir must stay inside the code tree: {} is outside {}",
             workdir.display(),
-            project_root.display()
+            code_root.display()
         ));
     };
     let relative = relative.display().to_string().replace('\\', "/");
@@ -432,7 +446,27 @@ fn background_workdir_breach(project_root: &Path, workdir: &Path) -> Option<Stri
             workdir.display()
         ));
     }
+    if in_managed_dir(project_root, workdir) {
+        return Some(format!(
+            "background workdir must not sit inside `.kanzei/`: {}",
+            workdir.display()
+        ));
+    }
     None
+}
+
+/// workdir 是否落在 `root/.kanzei` 之下。与上面的相对路径判定同源,单独抽出来
+/// 是为了让「代码树」与「主根」两个根各查一次。
+fn in_managed_dir(root: &Path, workdir: &Path) -> bool {
+    let (root, dir) = match (std::fs::canonicalize(root), std::fs::canonicalize(workdir)) {
+        (Ok(root), Ok(dir)) => (root, dir),
+        _ => (root.to_path_buf(), workdir.to_path_buf()),
+    };
+    let Ok(relative) = dir.strip_prefix(&root) else {
+        return false;
+    };
+    let relative = relative.display().to_string().replace('\\', "/");
+    relative == ".kanzei" || relative.starts_with(".kanzei/")
 }
 
 fn background_owner(ctx: &ToolCtx) -> crate::background::BackgroundOwner {
@@ -485,7 +519,8 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::{full_file_write_cmdlet, git_mutation_form, BashTool};
+    use super::{full_file_write_cmdlet, git_mutation_form, in_managed_dir, BashTool};
+    use crate::managed::ManagedSnapshot;
     use kanzei_harness::{Tool, ToolCtx};
     use std::path::PathBuf;
 
@@ -636,7 +671,8 @@ mod tests {
             out.content
         );
 
-        // 跑出项目根:同样拒绝(跑出去就无从归因,守卫的对账范围也失去意义)。
+        // 跑出代码树:同样拒绝(跑出去就无从归因,守卫的对账范围也失去意义)。
+        // 主树运行时 cwd == project_root,这一条与改前逐字节同义。
         let outside = root.parent().unwrap().join(format!(
             "kz-bash-outside-{}-{}",
             std::process::id(),
@@ -658,12 +694,119 @@ mod tests {
             .await;
         assert!(out.is_error, "{}", out.content);
         assert!(
-            out.content.contains("must stay inside the project root"),
+            out.content.contains("must stay inside the code tree"),
             "{}",
             out.content
         );
         std::fs::remove_dir_all(&outside).ok();
         std::fs::remove_dir_all(root).ok();
+    }
+
+    /// R-177 内容②:线上运行时 cwd = worktree、project_root = 主根,
+    /// 后台围栏必须以**代码树**为界——否则线里每一条 background bash 都被无条件拒。
+    #[tokio::test]
+    async fn 后台workdir以代码树为界_worktree子目录放行_树外与两处kanzei仍拒() {
+        let main_root = temp_project("bg-main");
+        let worktree = temp_project("bg-worktree");
+        let sub = worktree.join("crates");
+        std::fs::create_dir_all(&sub).unwrap();
+        let ctx = ToolCtx {
+            cwd: worktree.clone(),
+            project_root: main_root.clone(),
+            ..Default::default()
+        };
+        // ① worktree 的子目录:放行(改前会因为「不在主根之下」被拒)。
+        let out = BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "echo ok",
+                    "background": true,
+                    "workdir": "crates",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !out.is_error,
+            "worktree 子目录必须放行,实际: {}",
+            out.content
+        );
+        // ② worktree 内的 .kanzei 副本:仍拒。
+        let out = BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "echo ok",
+                    "background": true,
+                    "workdir": ".kanzei/project",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("must not sit inside `.kanzei/`"),
+            "{}",
+            out.content
+        );
+        // ③ 主根(代码树之外):仍拒。
+        let out = BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "echo ok",
+                    "background": true,
+                    "workdir": main_root.display().to_string(),
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("must stay inside the code tree"),
+            "{}",
+            out.content
+        );
+        // ④ 主根的托管目录:即使换个走法也拒(两处 .kanzei 都在排除表里)。
+        assert!(
+            in_managed_dir(&main_root, &main_root.join(".kanzei/project")),
+            "主根的 .kanzei 必须仍在排除表里"
+        );
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
+    }
+
+    /// 固化事实(不是遗漏):托管快照恒取**主根**——托管文档只有主根一份,
+    /// worktree 里的 `.kanzei` 副本不在围栏辖区,由 git 分支自己承担。
+    #[test]
+    fn 托管快照仍取主根_worktree内kanzei副本不在辖区() {
+        let main_root = temp_project("snap-main");
+        let worktree = temp_project("snap-worktree");
+        std::fs::write(main_root.join(".kanzei/project/x.md"), "main").unwrap();
+        std::fs::write(worktree.join(".kanzei/project/x.md"), "worktree").unwrap();
+        let ctx = ToolCtx {
+            cwd: worktree.clone(),
+            project_root: main_root.clone(),
+            ..Default::default()
+        };
+        let snapshot = ManagedSnapshot::capture(&ctx.project_root);
+        assert_eq!(
+            snapshot,
+            ManagedSnapshot::capture(&main_root),
+            "快照必须取主根那一份"
+        );
+        assert_ne!(
+            snapshot,
+            ManagedSnapshot::capture(&worktree),
+            "两棵树的托管副本内容不同,快照不该取到 worktree 那份"
+        );
+        // 改 worktree 里的副本不影响主根快照——它压根不在辖区内。
+        std::fs::write(worktree.join(".kanzei/project/x.md"), "worktree-changed").unwrap();
+        assert_eq!(
+            ManagedSnapshot::capture(&ctx.project_root),
+            snapshot,
+            "worktree 内的 .kanzei 副本改动不得进入托管围栏"
+        );
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
     }
 
     /// D-174:托管项目里的后台启动从"一律拒绝"恢复为"受管启动"。
