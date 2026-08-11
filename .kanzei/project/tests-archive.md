@@ -1818,3 +1818,15 @@
 - 摘要: 全量全绿:kanzei-tools 247(含 D-259 新增 3)、kanzei-app 120、kanzei-core 132、kanzei-harness 110、kanzei-llm 43、集成 3+1,0 failed;doc-test 0 failed 1 ignored
 - 关联: R-164 R-157
 - 收尾: 1786473468
+
+## T-1786475545 cargo test -p kanzei-app (NSIS installerIcon 配置) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 122 passed, 0 failed — 验证 tauri.conf.json 增加 installerIcon 后配置可解析且 kanzei-app 编译测试全绿
+- 关联: crates/kanzei-app/tauri.conf.json
+- 收尾: 1786475545
+
+## T-1786476071 cargo test -p kanzei-app (D-278 子代理面板就绪状态) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 122 passed, 0 failed — D-278 前端修复(子代理面板就绪状态行)不影响后端;node --check ×2、frontend_check、ui-runtime-smoke 21 项全过
+- 关联: D-278
+- 收尾: 1786476071

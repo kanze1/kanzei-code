@@ -381,22 +381,18 @@ async function refreshFastStatus() {
     return;
   }
   if (!s.managed) {
-    status.textContent = t("fast 指向外部 provider,不由本机托管");
+    status.textContent = fastStatusText(s).text;
     btn.classList.add("hidden");
     return;
   }
   if (s.ready) {
-    status.textContent = `✓ ${t("子代理就绪")}(${s.model})`;
+    status.textContent = fastStatusText(s).text;
     status.classList.remove("warn-text");
     btn.classList.add("hidden");
     return;
   }
-  const missing = !s.installed
-    ? t("Ollama 未安装")
-    : !s.serviceUp
-      ? t("Ollama 服务未运行")
-      : `${t("模型未拉取")}(${s.model})`;
-  status.textContent = `⚠ ${missing} — ${t("子代理杂活(记忆整理/快速记录)暂不可用")}`;
+  const st = fastStatusText(s);
+  status.textContent = st.text;
   status.classList.add("warn-text");
   btn.classList.remove("hidden");
 }

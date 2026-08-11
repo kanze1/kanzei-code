@@ -2896,3 +2896,13 @@
 验证:cargo test -p kanzei-tools 244 passed / kanzei-harness 110 passed / fmt/clippy 全绿 / 下游 kanzei-core + kanzei check 过。
 - 阻塞: 
 
+## D-277 NSIS 安装包 exe 图标是 Tauri 默认图标:需显式配置 installerIcon(任务栏正常仅安装器不对) [fixed] (medium)
+- priority: P3
+- severity: low
+- 修复: tauri.conf.json 的 nsis 节补 "installerIcon": "icons/icon.ico"(提交 097e030)。插曲:首版还加了 installerHeaderIcon,被 tauri-build 拒绝(该字段不存在,头部只有 headerImage 横幅图片),已剔除,最终只保留 installerIcon。
+- 内容: NSIS 安装包 kanzei-setup-*.exe 的图标是 Tauri 默认图标;运行时窗口/任务栏图标正常(走 bundle.icon),仅安装器本体 exe 图标不对。
+- 来源: 用户反馈:2026-08-11 用户观察到安装包 exe 图标是默认图标,任务栏(运行时窗口)图标正常。
+- 标签: 发布
+- 根因: Tauri 2 的 NSIS 安装器不继承 bundle.icon,必须显式配置 bundle.windows.nsis.installerIcon;原 tauri.conf.json 的 nsis 节只写了 installMode 和 languages,缺该项。
+- 进展: 修复已提交 097e030。残余验证:图标真正生效需重新打包安装器,下次 package.ps1 -Publish 重建后目视确认 exe 图标即可;既有已发布安装包(如 build-c7bbe0a)不会变化。
+- 验证: 像素对比实证:最新安装包 kanzei-setup-c7bbe0a.exe 内嵌图标与 icons/icon.ico 在 32×32 下 1024/1024 全异,确认是默认图标而非缓存。cargo check -p kanzei-app 通过(tauri-build 成功解析新配置),cargo test -p kanzei-app 122 passed(T-1786475545)。

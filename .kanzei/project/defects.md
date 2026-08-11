@@ -273,3 +273,13 @@
 - 影响: ①条目数据膨胀,重复段落混淆后续审计与记忆蒸馏;②清理死路:游离段落一旦产生,agent 侧任何工具都删不掉,只能用户手动 git 操作;③单行/多行语义不一致(替换 vs 追加),调用方无法预期;④D-239 验收②(复核口径漂移)因此类缺陷污染证据。
 - 标签: 核心
 - 证据等级: E1(2026-08-13 实测复现,含 diff 与 read 证据)
+
+## D-278 子代理面板打开后无就绪状态:侧边栏小窗口看不到「子代理可用」文案(设置页有,面板没有) [open] (medium)
+- content: 侧边栏 ◉ 按钮打开的子代理面板(#agent-panel)只有「运行中/已完成/已关闭」三个分区,没有任何就绪/可用状态信息。设置页 fast 行已正确显示「✓ 子代理就绪(qwen3.5:4b)」(fast_model_status 返回 ready=true),但面板打开后用户看不到子代理是否可用——缺环时(Ollama 未装/服务未起/模型未拉)也无法从面板感知。
+- label: 前端
+- priority: P2
+- severity: medium
+- 修复: 面板头部加状态行:打开面板时 invoke fast_model_status 并按 managed/ready 显示与设置页同源的文案(就绪/未安装/服务未运行/模型未拉取/外部 provider)。文案计算抽成共享函数 fastStatusText(s) 供设置页与面板同源,避免两处漂移。
+- 复现: 1) 打开设置页确认 fast 行显示就绪(或缺环文案);2) 点侧边栏 ◉ 打开子代理面板;3) 面板内只有空的三分区,无任何就绪/可用文案。
+- 根因: R-174 子代理面板只消费 RunEvent 渲染运行记录,未接入 fast_model_status 就绪数据源;就绪状态只在设置页(refreshFastStatus)渲染过一次,面板打开时无独立查询与展示。
+- 进展: 修复完成:①index.html 面板头部加 #agent-panel-status 状态行(role=status);②06-agent-panel.js 新增共享函数 fastStatusText(s)(就绪/未安装/服务未运行/模型未拉取/外部 provider 文案分支)与 refreshAgentPanelStatus(打开面板时 invoke fast_model_status),面板打开即刷新,并监听 kz:fast-setup 事件保持同步;③16-settings.js refreshFastStatus 改为复用 fastStatusText,设置页与面板文案同源不再漂移;④style.css 加 .agent-panel-status 样式(warn-text 复用)。验证:node --check ×2、frontend_check(花括号完整)、ui-runtime-smoke 21 项通过、cargo test -p kanzei-app 122 passed(T-1786476071)。残余:ui 资源打包进 exe,需用户重建 kzapp 后目视确认面板打开显示就绪文案。

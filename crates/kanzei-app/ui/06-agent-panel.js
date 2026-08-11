@@ -8,6 +8,37 @@
 const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
 let agentPanelOpen = false;
 
+// D-278:子代理就绪文案——设置页 fast 行与侧边栏子代理面板共用同一计算,避免两处漂移。
+// s 来自 fast_model_status 的载荷:managed/ready/model/installed/serviceUp。
+function fastStatusText(s) {
+  if (!s.managed) return { text: t("fast 指向外部 provider,不由本机托管"), warn: false };
+  if (s.ready) return { text: `✓ ${t("子代理就绪")}(${s.model})`, warn: false };
+  const missing = !s.installed
+    ? t("Ollama 未安装")
+    : !s.serviceUp
+      ? t("Ollama 服务未运行")
+      : `${t("模型未拉取")}(${s.model})`;
+  return { text: `⚠ ${missing} — ${t("子代理杂活(记忆整理/快速记录)暂不可用")}`, warn: true };
+}
+
+// D-278:面板头部就绪状态行。打开面板时查询 fast_model_status,与设置页同源文案;
+// 查询失败(命令不可用/旧引擎)时保持隐藏,不遮挡面板其余内容。
+async function refreshAgentPanelStatus() {
+  const line = $("agent-panel-status");
+  if (!line) return;
+  let s;
+  try {
+    s = await invoke("fast_model_status");
+  } catch {
+    line.classList.add("hidden");
+    return;
+  }
+  const st = fastStatusText(s);
+  line.textContent = st.text;
+  line.classList.remove("hidden");
+  line.classList.toggle("warn-text", st.warn);
+}
+
 function agentToolType(phase, name) {
   if (phase) return phase; // scouting / review / fixup
   if (name && name !== "task") return name;
@@ -70,6 +101,7 @@ function agentTogglePanel() {
   $("agent-toggle").classList.toggle("active", agentPanelOpen);
   $("agent-toggle").setAttribute("aria-expanded", String(agentPanelOpen));
   $("agent-toggle").title = agentPanelOpen ? t("收起子代理面板") : t("打开子代理面板");
+  if (agentPanelOpen) refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
 }
 
 function agentStart(id, name, summary, input) {
@@ -307,6 +339,10 @@ function agentPanelSetup() {
   const toggle = $("agent-toggle");
   toggle.addEventListener("click", agentTogglePanel);
   $("agent-clear").addEventListener("click", agentClearFinished);
+  // D-278:一键就绪进度事件也同步刷新面板状态行(面板开着时在设置页操作,回到面板即最新)。
+  on("kz:fast-setup", () => {
+    if (agentPanelOpen) refreshAgentPanelStatus();
+  });
 }
 // defer 脚本执行时 DOM 已解析完毕,agent-toggle 一定存在;与 activity-toggle 的
 // syncActivityPanel 一样在模块加载期挂好监听。
