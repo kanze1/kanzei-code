@@ -909,6 +909,55 @@ fn persist_always_allow(
 }
 
 /// 人用直通:不经 LLM,直接调 tracker 工具。
+/// tracker 子命令的字段开关解析(add / update 共用),返回剩下的位置参数。
+///
+/// R-191 B3 起 req/defect 登记是硬约束(缺 severity/priority/复杂度/标签即拒),
+/// 而这条 CLI 入口原先只会拼标题——`kz defect add` 一律被自己的门禁拒掉。
+/// 支持:`--severity/-s`、`--priority/-p`、`--complexity`、`--tag`、
+/// `--field 键=值`(可重复,写 复现/根因/影响/期望/验收/进展 等任意字段)。
+/// 位置参数语义不变:add 拼成标题,update 取第一个作 id、第二个作 status。
+fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value) -> Vec<String> {
+    let mut positional: Vec<String> = Vec::new();
+    let mut fields = serde_json::Map::new();
+    let mut rest = args.iter();
+    while let Some(word) = rest.next() {
+        match word.as_str() {
+            "--severity" | "-s" => {
+                if let Some(v) = rest.next() {
+                    input["severity"] = serde_json::json!(v);
+                }
+            }
+            "--priority" | "-p" => {
+                if let Some(v) = rest.next() {
+                    input["priority"] = serde_json::json!(v);
+                }
+            }
+            "--complexity" => {
+                if let Some(v) = rest.next() {
+                    fields.insert("复杂度".into(), serde_json::json!(v));
+                }
+            }
+            "--tag" => {
+                if let Some(v) = rest.next() {
+                    fields.insert("标签".into(), serde_json::json!(v));
+                }
+            }
+            "--field" | "-f" => {
+                if let Some(v) = rest.next() {
+                    if let Some((key, value)) = v.split_once('=') {
+                        fields.insert(key.trim().into(), serde_json::json!(value));
+                    }
+                }
+            }
+            other => positional.push(other.to_string()),
+        }
+    }
+    if !fields.is_empty() {
+        input["fields"] = serde_json::Value::Object(fields);
+    }
+    positional
+}
+
 async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     use kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
     use kanzei_tools::tracker::TrackerTool;
@@ -956,50 +1005,19 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     let mut input = serde_json::json!({ "action": action });
     match action {
         "get" | "close" | "update" | "repair_reused_id" => {
-            if let Some(id) = args.get(2) {
+            // D-284:update 也要能写字段与进展。只收 id/status 的话 CLI 走不到关闭——
+            // §1.25 要求验收证据必须在 close 前写进进展字段,close 后条目归档就改不动。
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            if let Some(id) = positional.first() {
                 input["id"] = serde_json::json!(id);
             }
-            if let Some(status) = args.get(3) {
+            if let Some(status) = positional.get(1) {
                 input["status"] = serde_json::json!(status);
             }
         }
         "add" => {
-            // R-191 B3 起 req/defect 登记是硬约束(缺 severity/priority/复杂度/标签即拒),
-            // 但 CLI 这条入口只会拼标题——于是 `kz defect add` 一律被自己的门禁拒掉。
-            // 这里补上开关:`--severity/-s`、`--priority/-p`、`--complexity`、`--tag`,
-            // 其余词照旧拼成标题(位置参数语义不变,老用法只是需要补必填开关)。
-            let mut title_words: Vec<String> = Vec::new();
-            let mut fields = serde_json::Map::new();
-            let mut rest = args[2..].iter();
-            while let Some(word) = rest.next() {
-                match word.as_str() {
-                    "--severity" | "-s" => {
-                        if let Some(v) = rest.next() {
-                            input["severity"] = serde_json::json!(v);
-                        }
-                    }
-                    "--priority" | "-p" => {
-                        if let Some(v) = rest.next() {
-                            input["priority"] = serde_json::json!(v);
-                        }
-                    }
-                    "--complexity" => {
-                        if let Some(v) = rest.next() {
-                            fields.insert("复杂度".into(), serde_json::json!(v));
-                        }
-                    }
-                    "--tag" => {
-                        if let Some(v) = rest.next() {
-                            fields.insert("标签".into(), serde_json::json!(v));
-                        }
-                    }
-                    other => title_words.push(other.to_string()),
-                }
-            }
-            input["title"] = serde_json::json!(title_words.join(" "));
-            if !fields.is_empty() {
-                input["fields"] = serde_json::Value::Object(fields);
-            }
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            input["title"] = serde_json::json!(positional.join(" "));
         }
         _ => {}
     }
@@ -1026,11 +1044,64 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 mod tests {
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
-        main_project_root, parse_run_args, persist_always_allow, usage_text, RunArgs,
-        PROJECT_ROOT_ENV,
+        main_project_root, parse_run_args, parse_tracker_flags, persist_always_allow, usage_text,
+        RunArgs, PROJECT_ROOT_ENV,
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
+
+    /// 登记开关解析:add 与 update 共用一套,位置参数语义不变。
+    /// 没有这套开关时 `kz defect add` 一律被 R-191 B3 的登记门禁拒掉,
+    /// 而 update 写不了字段就意味着 CLI 走不到关闭(§1.25 要求 close 前写证据)。
+    #[test]
+    fn 登记开关解析_字段与位置参数各归各位() {
+        let args: Vec<String> = [
+            "标题前半",
+            "--severity",
+            "medium",
+            "标题后半",
+            "-p",
+            "P2",
+            "--tag",
+            "核心",
+            "--complexity",
+            "中",
+            "--field",
+            "复现=第一步=点开设置页",
+            "-f",
+            "验收=有测试",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let mut input = serde_json::json!({ "action": "add" });
+        let positional = parse_tracker_flags(&args, &mut input);
+        assert_eq!(positional, vec!["标题前半", "标题后半"]);
+        assert_eq!(input["severity"], "medium");
+        assert_eq!(input["priority"], "P2");
+        assert_eq!(input["fields"]["标签"], "核心");
+        assert_eq!(input["fields"]["复杂度"], "中");
+        assert_eq!(input["验收"], serde_json::Value::Null);
+        assert_eq!(input["fields"]["验收"], "有测试");
+        // 值里带等号只按第一个切,后面的等号原样留在值里。
+        assert_eq!(input["fields"]["复现"], "第一步=点开设置页");
+
+        // update 路径:位置参数是 id 与 status,字段照样能写(含 进展)。
+        let args: Vec<String> = ["R-191", "doing", "--field", "进展=解除阻塞"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut input = serde_json::json!({ "action": "update" });
+        let positional = parse_tracker_flags(&args, &mut input);
+        assert_eq!(positional, vec!["R-191", "doing"]);
+        assert_eq!(input["fields"]["进展"], "解除阻塞");
+
+        // 无字段开关时不产出空的 fields 键(免得覆盖既有字段的语义被改变)。
+        let args: Vec<String> = ["D-1", "fixed"].iter().map(|s| s.to_string()).collect();
+        let mut input = serde_json::json!({ "action": "close" });
+        parse_tracker_flags(&args, &mut input);
+        assert_eq!(input["fields"], serde_json::Value::Null);
+    }
 
     fn run_args(new_session: bool, readonly: bool, prompt: &str) -> RunArgs {
         RunArgs {
