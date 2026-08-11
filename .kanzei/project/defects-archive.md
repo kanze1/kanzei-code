@@ -2823,3 +2823,18 @@
 
 - 复杂度: 小
 
+## D-244 对照页优先级/阻塞控件跨队列写并落盘:调一次覆盖另一队的持久化筛选 [fixed] (medium)
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端
+- refs: D-207 D-211
+- 证据等级: E1(取证确认 HEAD 既有 + 探针实测)
+- 复现: 对照(both)标签页上,`优先级` 与 `阻塞` 两个控件仍是启用的,它们走 14-docs-actions.js 的 applyDocFilter,而 applyDocFilter 对 docFilterTargets() 返回的每个队列都写。实测:对照页把优先级调成 P0 → `before={"req":"all","defect":"all"} after={"req":"P0","defect":"P0"} saved={"req":"P0","defect":"P0"}`;调阻塞同理。缺陷队列的筛选被覆盖并落盘。
+- 取证(重要,别误判成新引入): `git show HEAD:crates/kanzei-app/ui/14-docs-actions.js` 该行 = `for (const kind of docFilterTargets()) documentFilters[kind][field] = value;`,且 HEAD 的 syncDocumentFilters 也从不给 priority/blocked 置灰——**HEAD 就有的形态**,不是 2026-08-10 侧栏重构引入的。
+- 与已修 P0 的区别: 这是**用户主动调控件**、两张列表当场同时变,不是「切个标签页就被改掉」;相对 HEAD 只减不增。所以不拦发版,但按 2026-08-10 定调「对照页是只读的对照视图,不得改动任何队列的持久化筛选状态」它同样不合规。
+- 修复方向(二选一,都属设计决策): ①对照页禁用这两个控件(与 status/complexity/sort/tag 一致,走中性副本);②给对照页独立的筛选状态,不与两队共享。
+- 验收: 对照页调任何筛选控件后,两队的持久化筛选状态均不被改写(内存与 localStorage 都要验);有拦截实测的冒烟断言。
+
+- 批次: 1/1
+- 进展: 关闭对照——验收①内存:neutralizedDocFilters(12-docs-pages.js)both 分支加 overrides.priority/blocked=all,渲染/拖拽/锁提示三处共用中性副本;syncDocumentFilters 对照页禁用 priority/blocked 控件(priorityBlockedNeutral)且不再写底层(只显示 all),切回单队列页原值填回。验收②localStorage:applyDocFilter 的 saveDocFilters 在对照页不可达(控件 disabled,change 不触发)。验收③拦截实测冒烟断言:ui-runtime-smoke.mjs 重构三块旧断言(对照共用筛选/清除筛选/解锁)→ D-244 只读断言(控件 disabled、模拟 change 两队列列表不筛空、before/after localStorage 两队均不被改写、切回 req 原筛选还在),③冻结对象护栏保留。验证:node --check 全 ui/*.js 过,四条冒烟全绿(ui-runtime 1137 invoke 0 错误,T-1786452213)。既有能力标注:status/tag/complexity/sort 的中性化机制为既有(R-115/D-211),本条把漏网的 priority/blocked 并入同机制。
+

@@ -1761,3 +1761,9 @@
 - 摘要: D-233 关闭前全量:cargo test --workspace 全绿(kanzei-tools 233 含增量/vendor 单测,kanzei-app 3,其余 crate 全过)。批1 async 化 + 前端缓存优先 + 批2 增量扫描 + vendor 跳过读内容,验收①-⑤全部落地。
 - 关联: D-233
 - 收尾: 1786451883
+
+## T-1786452213 D-244 对照页 priority/blocked 只读化冒烟四连 [passed]
+- 命令: node --check ui/*.js + 四条前端冒烟
+- 摘要: D-244(验收):对照页 priority/blocked 中性化——12-docs-pages.js neutralizedDocFilters both 分支加 overrides.priority/blocked = all(与 status/tag 同机制,只改显示不动底层);syncDocumentFilters 里对照页禁用 priority/blocked 控件(priorityBlockedNeutral)并显示中性 all,切回单队列页原值填回。冒烟断言重构:旧「对照模式共用筛选条件/清除筛选/解锁」三块全部改为 D-244 只读断言(控件 disabled、调 blocked 列表不筛空、两队列 localStorage 不被改写、切回 req 原筛选还在);③冻结对象护栏保留。node --check 全过,四条冒烟全绿(ui-runtime 1137 invoke)。
+- 关联: D-244
+- 收尾: 1786452213

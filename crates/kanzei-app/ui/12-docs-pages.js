@@ -130,6 +130,13 @@ function neutralizedDocFilters(state) {
   if (documentsKind === "both") {
     overrides.status = "all";
     overrides.tag = "all";
+    // D-244:对照页是只读对照视图——优先级/阻塞筛选同样是「按谁的都不对」:
+    // 需求 P0~P3 与缺陷的优先级口径不同(缺陷的 priority 是可选的 P0~P3,
+    // 需求则是必填),阻塞更只有缺陷队列才有持久化意义。并排看时按任何一队
+    // 的 priority/blocked 筛,另一队就会被一个用户从没在那队设过的条件筛掉,
+    // 与 status/tag 当初治好的是同一个病。走中性副本,只改显示、不动底层。
+    overrides.priority = "all";
+    overrides.blocked = "all";
   }
   // 复杂度与排序是需求专有口径:非需求页控件置灰并显示 all/manual。
   if (documentsKind !== "req") {
@@ -151,7 +158,12 @@ function syncDocumentFilters(snapshot) {
   const blockedFilter = $("documents-blocked-filter");
   // 禁用要说破(D-210/D-211 一路的教训):控件真的置灰,不做静默无效。
   const isTests = documentsKind === "tests";
-  for (const el of [priorityFilter, tagFilter, blockedFilter]) if (el) el.disabled = isTests;
+  // D-244:对照页是只读对照视图——priority/blocked 与 status/tag 同机制,
+  // 置灰并显示中性 all(渲染确实按中性走,承诺与实际一致),底层状态不动。
+  const priorityBlockedNeutral = documentsKind === "both";
+  for (const el of [tagFilter]) if (el) el.disabled = isTests;
+  if (priorityFilter) priorityFilter.disabled = isTests || priorityBlockedNeutral;
+  if (blockedFilter) blockedFilter.disabled = isTests || priorityBlockedNeutral;
   if (isTests) {
     for (const el of [statusFilter, complexityFilter, sortSelect]) if (el) el.disabled = true;
     return;
@@ -175,8 +187,10 @@ function syncDocumentFilters(snapshot) {
   // 所以这里显示 all 与实际一致。**但不动底层状态**:清掉它等于用户去对照页看一眼就
   // 丢了自己的筛选(R-115 回归)。切回单队列页时下面这行会把原值原样填回来。
   statusFilter.value = documentsKind === "both" ? "all" : filters.status;
-  priorityFilter.value = filters.priority ?? "all";
-  blockedFilter.value = filters.blocked ?? "all";
+  // D-244:对照页只读——priority/blocked 显示中性 all(与实际渲染一致),
+  // 切回单队列页时下面这行会把原值原样填回来(底层状态从未被改)。
+  priorityFilter.value = priorityBlockedNeutral ? "all" : (filters.priority ?? "all");
+  blockedFilter.value = priorityBlockedNeutral ? "all" : (filters.blocked ?? "all");
   // 复杂度与排序是需求专有口径(缺陷队列既没有复杂度筛选也不参与排序):
   // 对照/缺陷标签页下置灰并显示中性值,免得摆着一个调了不生效的控件。同样只改显示。
   const reqOnly = documentsKind === "req";

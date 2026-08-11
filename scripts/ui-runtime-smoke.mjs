@@ -1540,7 +1540,7 @@ assert(
   invokeLog.filter((cmd) => cmd === "docs_update").length > beforeBatch,
   "批量应用未提交 docs_update",
 );
-// 对照:两个队列同时可见,且共用同一套筛选条件。
+// 对照:两个队列同时可见,共用同一套**显示口径**——全字段中性化(D-244)。
 byId.get("documents-tab-both")._listeners.click?.forEach((fn) => fn({}));
 await flush();
 assert(
@@ -1548,19 +1548,21 @@ assert(
     && !byId.get("documents-defect-list").classList.contains("hidden"),
   "对照模式未同时显示需求与缺陷两个队列",
 );
-// 对照模式下改一次筛选,两个队列都要跟着变——只作用于其中一个就等于没在对照。
-// 桩数据都不带阻塞理由,筛「已阻塞」后两边都应清空。
+// D-244:对照页是只读对照视图,blocked 控件必须置灰;模拟 change 也不得改任何一队的
+// 持久化筛选(此前这里真的会跨队列写并落盘)。桩数据都不带阻塞理由,若筛选生效两边都会
+// 清空——断言两边都还在,证明中性化兜住了。
 const reqBefore = document.querySelectorAll("#documents-req-list .doc-item").length;
 const defectBefore = document.querySelectorAll("#documents-defect-list .doc-item").length;
 assert(reqBefore > 0 && defectBefore > 0, "对照模式下两个队列应先都有条目");
 const blockedFilter = byId.get("documents-blocked-filter");
+assert(blockedFilter.disabled, "对照页阻塞控件应置灰(D-244:只读对照视图)");
 blockedFilter.value = "blocked";
 blockedFilter._listeners.change?.forEach((fn) => fn({ target: blockedFilter }));
 await flush();
 assert(
-  document.querySelectorAll("#documents-req-list .doc-item").length === 0
-    && document.querySelectorAll("#documents-defect-list .doc-item").length === 0,
-  "对照模式下筛选只作用于一个队列(两边口径会对不上)",
+  document.querySelectorAll("#documents-req-list .doc-item").length === reqBefore
+    && document.querySelectorAll("#documents-defect-list .doc-item").length === defectBefore,
+  "对照模式下改阻塞筛选把列表筛空了:中性化没生效(对照页必须只读,D-244)",
 );
 blockedFilter.value = "all";
 blockedFilter._listeners.change?.forEach((fn) => fn({ target: blockedFilter }));
@@ -1965,11 +1967,12 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   );
 }
 
-// ---------- 「清除筛选」/「解锁」必须写回底层筛选状态,不能写到对照页的中性副本上 ----------
-// 对照页改成"中性副本渲染"之后,renderDocList 收到的 reqFilterState 可能只是一份临时对象。
-// 这两个按钮若还照着它写,点了等于没点(列表照旧空着、拖拽照旧锁着)——渲染出来的承诺
-// 不兑现,正是 D-211。判据必须让副本与底层状态**真的不同**(先设一个会被中性化掉的
-// status/sort),否则副本恒等于状态,断言恒真。
+// ---------- 对照页全字段中性化(D-244):priority/blocked 与 status/tag/complexity/sort 同机制 ----------
+// 此前对照页上只剩 priority/blocked 两个控件仍是"真实筛选":调一次就跨队列写进
+// documentFilters.req/defect 并落盘(实测 before={"req":"all","defect":"all"}
+// after={"req":"P0","defect":"P0"} saved=同)——用户去对照页调一下优先级,另一队的
+// 持久化筛选就被覆盖。定调:对照页是只读的对照视图,priority/blocked 同样走中性副本,
+// 只改显示、不动任何一队的底层状态;控件置灰,切回单队列页时原值原样回来。
 {
   const setDocFilter = async (id, value) => {
     const el = byId.get(id);
@@ -1978,67 +1981,92 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
     el._listeners.change?.forEach((fn) => fn({ target: el }));
     await flush();
   };
-  const reqFilters = () => JSON.parse(vm.runInContext("JSON.stringify(documentFilters.req)", sandbox));
-  // 分组开关是"锁"之一,解锁会顺手关掉它。记下进来时的值,出去时还原,不把后续用例
-  // 的分组视图连带改掉。
-  const groupedBefore = reqFilters().grouped;
+  const filtersStoreKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
+  assert(filtersStoreKey, "前置失败:筛选没有落盘(R-115 的持久化本身断了)");
+  const savedFilters = () => JSON.parse(storage.get(filtersStoreKey) ?? "{}");
 
-  // ① 清除筛选:对照页上状态被中性化,只剩优先级还在筛 → 列表被筛空。
+  // ① req 页设 priority=P0 + blocked=blocked(两条需求默认 P1 且不阻塞 → 列表被筛空)。
   byId.get("documents-tab-req").click();
   await flush();
-  await setDocFilter("documents-status-filter", "doing"); // 会被中性化 → 副本 ≠ 底层状态
-  await setDocFilter("documents-priority-filter", "P0"); // 两条需求都是 P1 → 筛空
+  await setDocFilter("documents-priority-filter", "P0");
+  await setDocFilter("documents-blocked-filter", "blocked");
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "前置失败:req 页 priority/blocked 筛选没生效",
+  );
+  const before = savedFilters();
+
+  // ② 切对照页:priority/blocked 控件置灰并显示 all(与 status/tag 同机制),列表不再被筛空。
   byId.get("documents-tab-both").click();
   await flush();
-  const compareFilteredEmpty = document.querySelector("#documents-req-list .doc-filtered-empty");
-  assert(compareFilteredEmpty, "前置失败:对照页需求列表没有被筛空(优先级筛选没生效?)");
-  compareFilteredEmpty.querySelector("button").click();
-  await flush();
   assert(
-    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
-    "对照页点「清除筛选」列表没回来:写到中性副本上了,底层筛选原封不动(按钮渲染了却不兑现,D-211)",
+    byId.get("documents-priority-filter").disabled,
+    "对照页优先级控件没有置灰(D-244:只读对照视图)",
   );
   assert(
-    reqFilters().priority === "all" && reqFilters().status === "all",
-    `「清除筛选」没写回底层 documentFilters.req:${JSON.stringify(reqFilters())}`,
+    byId.get("documents-blocked-filter").disabled,
+    "对照页阻塞控件没有置灰(D-244:只读对照视图)",
   );
-
-  // ② 解锁:同样在对照页(status/sort 被中性化),锁提示由「阻塞=可执行」点名。
-  byId.get("documents-tab-req").click();
-  await flush();
-  await setDocFilter("documents-status-filter", "doing"); // 会被中性化 → 副本 ≠ 底层状态
-  await setDocFilter("documents-sort", "priority"); // 同上
-  await setDocFilter("documents-blocked-filter", "ready"); // 两条都不阻塞 → 列表仍有 2 条
-  byId.get("documents-tab-both").click();
-  await flush();
-  // 断言不得因为前一条红了就崩:整串失败要一次看全(harness 的退出钩子只是兜底)。
-  const compareDragHint = document.querySelector("#documents-req-list .drag-hint");
-  assert(compareDragHint, "前置失败:对照页没有渲染拖拽锁提示");
   assert(
-    (compareDragHint?.textContent ?? "").includes("阻塞"),
-    `前置失败:锁提示没点名阻塞筛选:"${compareDragHint?.textContent}"`,
+    byId.get("documents-priority-filter").value === "all",
+    `对照页优先级控件应显示中性 all,实际 "${byId.get("documents-priority-filter").value}"`,
   );
-  compareDragHint?.querySelector("button")?.click();
-  await flush();
   assert(
-    reqFilters().status === "all" && reqFilters().blocked === "all" && reqFilters().sort === "manual",
-    `「解锁」没写回底层 documentFilters.req(写到中性副本上了,锁提示与拖拽照旧):${JSON.stringify(reqFilters())}`,
+    byId.get("documents-blocked-filter").value === "all",
+    `对照页阻塞控件应显示中性 all,实际 "${byId.get("documents-blocked-filter").value}"`,
   );
-  if (reqFilters().grouped !== groupedBefore) {
-    byId.get("documents-group-toggle").click();
-    await flush();
-  }
-  byId.get("documents-tab-req").click();
-  await flush();
   assert(
-    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
-    "收尾失败:筛选没清干净,后续用例会连带假失败",
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "对照页仍按 priority=all 之外的条件在筛 R-001(优先级中性化没生效,界面写着全部却少条目)",
+  );
+  assert(
+    !document.querySelector("#documents-req-list .doc-filtered-empty"),
+    "对照页不应渲染「清除筛选」:全字段中性化后不可能被筛空(D-244)",
+  );
+  assert(
+    !document.querySelector("#documents-req-list .drag-hint"),
+    "对照页不应渲染锁提示:全字段中性化后没有锁定条件(D-244)",
   );
 
-  // ③ 冻结对象护栏:goal/source/finding 三张列表拿的是**冻结的** NEUTRAL_DOC_FILTERS。
-  // 这两个按钮在它们身上渲染不出来(筛选分支只对 req/defect 生效 → 不可能"被筛空";
-  // 锁提示显式限定 kind),而且写回一律走 documentFilters[kind](这三类取不到就不写)。
-  // 两道保险都要在:机械钉住"根本没渲染",免得哪天筛选放开了顺手踩到冻结对象上抛异常。
+  // ③ 两队的持久化筛选原样保留,一个字节都不许被对照页改掉(内存 + localStorage)。
+  const after = savedFilters();
+  assert(
+    before.docReq?.priority === "P0" && before.docReq?.blocked === "blocked"
+      && after.docReq?.priority === "P0" && after.docReq?.blocked === "blocked",
+    `对照页把 req 的持久化筛选改掉了:${JSON.stringify(after)}`,
+  );
+  assert(
+    before.docDefect?.priority === after.docDefect?.priority
+      && before.docDefect?.blocked === after.docDefect?.blocked,
+    `对照页把 defect 的持久化筛选改掉了:${JSON.stringify(after)}`,
+  );
+
+  // ④ 切回 req 页:控件原值回来、列表仍按用户设定的筛(对照页只改显示,没动底层)。
+  byId.get("documents-tab-req").click();
+  await flush();
+  assert(
+    byId.get("documents-priority-filter").value === "P0"
+      && byId.get("documents-blocked-filter").value === "blocked",
+    "切回 req 页,priority/blocked 筛选没了(对照页把它清掉了)",
+  );
+  assert(
+    !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]'),
+    "切回 req 页后 priority/blocked 筛选只剩下拉显示值、列表没在筛(状态与显示脱节)",
+  );
+
+  // 收尾:走用户路径调回「全部」,不污染后续用例。
+  await setDocFilter("documents-priority-filter", "all");
+  await setDocFilter("documents-blocked-filter", "all");
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-item").length >= 2,
+    "收尾失败:筛选没调回全部,后续用例会连带假失败",
+  );
+}
+// ③ 冻结对象护栏:goal/source/finding 三张列表拿的是**冻结的** NEUTRAL_DOC_FILTERS。
+// 这两个按钮在它们身上渲染不出来(筛选分支只对 req/defect 生效 → 不可能"被筛空";
+// 锁提示显式限定 kind),而且写回一律走 documentFilters[kind](这三类取不到就不写)。
+// 两道保险都要在:机械钉住"根本没渲染",免得哪天筛选放开了顺手踩到冻结对象上抛异常。
+{
   for (const listId of ["goal-list", "source-list", "finding-list"]) {
     assert(
       !document.querySelector(`#${listId} .doc-filtered-empty`) && !document.querySelector(`#${listId} .drag-hint`),
