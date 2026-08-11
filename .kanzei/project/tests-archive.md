@@ -1665,3 +1665,9 @@
 - 摘要: D-214 提交前复测(注释同步后):CLI/桌面端轮末注释更新为 D-214 新语义(SOP 候选→项目 inbox、落库 global),kanzei-tools 231 + kanzei 3 + app 118 全绿。
 - 关联: D-214
 - 收尾: 1786449991
+
+## T-1786450039 cargo test --workspace (D-214 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-214 关闭前全量:全部 crate 全绿。SOP 候选改投项目 inbox 后进入既有 manager 消化通道(CLI/桌面端),manager prompt 例外规则按 scope=global 落库,候选箱语义保留(用户拍板采纳)。
+- 关联: D-214
+- 收尾: 1786450039

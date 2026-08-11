@@ -2709,3 +2709,21 @@
 ② 新条目不再被系统性折叠 ✓(单测:新 updated 优先、最老折叠)
 ③ 与 prompt_hints 口径同源 ✓(prompt_hints 与 profiles 注入共用同一 resident_index,D-216 不破坏)
 
+## D-214 SOP 候选投进全局 inbox 无人消化:manager 只读项目 inbox,7 条候选自 08-08 滞留 [fixed]
+- 现象: ~/.kanzei/memory/inbox.md 里有 7 条 `## note` SOP 候选(最早 2026-08-08),从未被消化。
+- 根因线索: harvest_sop 按设计把 SOP 候选投给 global store 的 inbox(kanzei-app main.rs ~6019),但轮末触发只查项目 store 的 pending_notes,manager 的 memory_inbox_clear 也只清项目 inbox——全局 inbox 是只进不出的死信箱。
+- 修复方向(二选一): ①轮末触发与 manager 消化把 global inbox 一并纳入(pending 检查、prompt 注入、clear 都要对齐);②SOP 候选改投项目 inbox,由 manager 消化时按 scope=global 落库(R-124 本意是用户拍板采纳,注意别破坏候选箱语义)。
+- 影响: R-124 SOP 提炼链路实际断裂,候选永远到不了用户面前。
+- refs: R-124 R-149 (medium)
+
+- 进展: 已修复并全量验证。采用修复方向②(SOP 候选改投项目 inbox,manager 消化时按 scope=global 落库)。逐条对照:
+①「SOP 候选改投项目 inbox」——crates/kanzei-tools/src/memory/mod.rs harvest_end_of_run(行 ~825):SOP 候选与 fact 候选同投项目 store(harvest_sop(&project,...)),删掉原先投 global 的 MemoryStore::global() 分支与 global_root 参数;CLI(main.rs:649)与桌面端(run.rs:736)两处调用点同步;
+②「由 manager 消化时按 scope=global 落库」——crates/kanzei-tools/src/memory/manager.rs manager_agent 的 system prompt(行 ~830)加例外规则:候选 detail 明确写 scope=global 时 memory_add 用 scope=global(跨项目流程模板覆盖默认 fact/sop→project 规则);harvest_sop 的候选 detail 本就写明「写进 category=sop、scope=global 的候选」(mod.rs:751),manager 消化时按此落库;
+③「R-124 本意是用户拍板采纳,注意别破坏候选箱语义」——候选仍在 inbox(项目侧),memory_note_candidates 遍历 project+global 两级 pending,用户可见可采纳;agent 不自决入库的语义不变;
+④ 验证——更新 harvest_end_of_run 测试:断言 SOP+fact 候选都落项目 inbox 且 detail 含 scope=global 落库目标、纯查询轮零投递;定向 kanzei-tools 231/kanzei/app 118 全绿(T-1786449918/T-1786449991),workspace 全量全绿(T-1786450039),提交 7b6f7f0。
+注:历史 ~/.kanzei/memory/inbox.md 中已滞留的 7 条候选仍留在全局 inbox(UI 候选列表可见,可手动采纳),修复保证的是新候选不再进死信箱。
+- 验收: ① SOP 候选改投项目 inbox ✓(harvest_end_of_run 用 project store,mod.rs:825;两端调用点同步)
+② manager 消化时按 scope=global 落库 ✓(manager.rs prompt 例外规则 + 候选 detail 指明 scope=global)
+③ 候选箱语义保留 ✓(候选仍经 manager 消化、用户拍板,不自决入库)
+④ 链路不再只进不出 ✓(项目 inbox 被两处 consolidate 与 memory_inbox_clear 正常消化)
+
