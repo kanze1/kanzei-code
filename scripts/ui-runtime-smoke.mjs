@@ -254,6 +254,10 @@ function parseOptionsInto(el, fragment) {
     option.textContent = text;
     const valueAttribute = attributes.match(/\bvalue="([^"]*)"/)?.[1];
     option.value = valueAttribute === undefined ? text : valueAttribute;
+    // value setter 只写 _value;真实浏览器里 getAttribute("value") 也会返回该值,
+    // 而 matchesOne 的属性选择器走 getAttribute。不同步的话 `option[value="x"]`
+    // 在冒烟里恒空——R-178 批4 的设置页作用域下拉(option[value="project"])就撞上了。
+    if (valueAttribute !== undefined) option._attributes.value = valueAttribute;
     if (/\bselected\b/.test(attributes)) option._selected = true;
     el.appendChild(option);
   }
@@ -3023,6 +3027,49 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   );
   // 保存回流后基线必须归零,否则「未保存」角标会一直亮着,变成人人无视的噪音。
   assert(byId.get("settings-dirty").classList.contains("hidden"), "保存回流后「未保存」角标仍亮着");
+}
+
+// ---------- R-178 批4 D7:设置页作用域选择器 ----------
+// 第一版只覆盖 [models]:scope=project 时后端只写模型角色进主根 .kanzei/kanzei.toml,
+// proxy/provider/limits/cadence 一律仍走全局(后端 settings.rs 按 scope 拦截)。
+// 前端职责:默认全局、有项目上下文时 project 选项可用、无项目时禁用并回退 global、
+// 保存时透传 scope+projectDir。
+{
+  const scopeSelect = byId.get("set-save-scope");
+  assert(scopeSelect, "设置页缺少作用域选择器 #set-save-scope");
+  const projectOption = scopeSelect.querySelector('option[value="project"]');
+  assert(projectOption, "作用域选择器缺少「本项目」选项");
+  // 冒烟 settings_get 桩自带 projectConfig(有项目)→ 选项可用、默认值 global。
+  assert(projectOption.disabled === false, "有项目上下文时「本项目」选项未启用");
+  assert(scopeSelect.value === "global", "默认作用域应为 global");
+
+  byId.get("settings-save").click();
+  await flush();
+  const saveArgs = savedPayloads.get("settings_save");
+  assert(saveArgs?.scope === "global", `默认作用域应为 global: ${JSON.stringify(saveArgs?.scope)}`);
+  assert(saveArgs?.projectDir === null || saveArgs?.projectDir === undefined, "global 作用域不应携带 projectDir");
+
+  // 无项目上下文:settings_get 不带 projectConfig → 选项禁用且当前值回退 global。
+  const originalSettingsGet = payloads.settings_get;
+  payloads.settings_get = { ...originalSettingsGet, projectConfig: undefined };
+  try {
+    const loadSettingsInSandbox = vm.runInContext("loadSettings", sandbox);
+    await loadSettingsInSandbox();
+    assert(projectOption.disabled === true, "无项目上下文时「本项目」选项未被禁用");
+    assert(scopeSelect.value === "global", "无项目上下文时作用域未回退到 global");
+  } finally {
+    payloads.settings_get = originalSettingsGet;
+  }
+
+  // 有项目上下文:选中「本项目」保存 → scope+projectDir 一起透传。
+  await vm.runInContext("loadSettings", sandbox)();
+  scopeSelect.value = "project";
+  byId.get("settings-save").click();
+  await flush();
+  const projectArgs = savedPayloads.get("settings_save");
+  assert(projectArgs?.scope === "project", `选了「本项目」保存却没带 scope=project: ${JSON.stringify(projectArgs?.scope)}`);
+  const currentProjectInSandbox = vm.runInContext("currentProject", sandbox);
+  assert(projectArgs?.projectDir === currentProjectInSandbox, "scope=project 未携带当前项目目录");
 }
 
 // ---------- R-136 子代理模型一键就绪 ----------

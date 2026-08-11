@@ -423,6 +423,14 @@
             <summary>模型角色</summary>
           <p id="settings-effective" class="settings-effective hidden" role="status"></p>
           <div class="form-row">
+            <label>保存到 <span class="dim" id="settings-scope-hint"></span></label>
+            <select id="set-save-scope" title="作用域选择器第一版只覆盖模型角色;Provider 与 API Key 始终写全局配置">
+              <option value="global">全局配置</option>
+              <option value="project">本项目配置</option>
+            </select>
+          </div>
+          <p class="dim" id="settings-scope-note"></p>
+          <div class="form-row">
             <label>primary <span class="dim">主循环</span></label>
             <select id="set-primary" title="从已探测到的模型中选择;端点不提供列表时可手填"></select>
           </div>

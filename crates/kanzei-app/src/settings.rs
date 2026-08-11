@@ -213,28 +213,7 @@ pub(crate) fn settings_apply_scalar_fields(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
 ) -> Result<(), String> {
-    let models = settings_table(doc, "models")?;
-    settings_set_or_remove(
-        models,
-        "primary",
-        Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty()),
-    );
-    settings_set_or_remove(
-        models,
-        "fast",
-        Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
-    );
-    settings_set_or_reset(
-        models,
-        "reasoning",
-        payload
-            .reasoning
-            .as_ref()
-            .map(|v| v.trim().to_ascii_lowercase())
-            .filter(|v| ["low", "medium", "high"].contains(&v.as_str())),
-        "off",
-    );
-    settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
+    settings_apply_model_fields(doc, payload)?;
     settings_set_or_reset(
         doc.as_table_mut(),
         "proxy",
@@ -260,6 +239,39 @@ pub(crate) fn settings_apply_scalar_fields(
             .cloned(),
         "dev",
     );
+    Ok(())
+}
+
+/// 只应用 [models] 节(primary/fast/reasoning/codex_fast_mode)。R-178 批4:D7
+/// 作用域选择器第一版只覆盖这一节——写项目配置时不许带出 proxy/profile/limits/
+/// cadence/providers,否则「选本项目保存」会悄悄把 provider 密钥写进被 git 跟踪的
+/// 项目 toml(D7 边界明确排除)。
+pub(crate) fn settings_apply_model_fields(
+    doc: &mut toml_edit::DocumentMut,
+    payload: &SettingsPayload,
+) -> Result<(), String> {
+    let models = settings_table(doc, "models")?;
+    settings_set_or_remove(
+        models,
+        "primary",
+        Some(payload.primary.trim().to_string()).filter(|s| !s.is_empty()),
+    );
+    settings_set_or_remove(
+        models,
+        "fast",
+        Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
+    );
+    settings_set_or_reset(
+        models,
+        "reasoning",
+        payload
+            .reasoning
+            .as_ref()
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|v| ["low", "medium", "high"].contains(&v.as_str())),
+        "off",
+    );
+    settings_set_value(models, "codex_fast_mode", payload.codex_fast_mode);
     Ok(())
 }
 
@@ -565,8 +577,31 @@ pub(crate) fn settings_save_at_path(payload: SettingsPayload, path: &Path) -> Re
 }
 
 #[tauri::command]
-pub fn settings_save(payload: SettingsPayload) -> Result<(), String> {
-    settings_save_at_path(payload, &global_config_path())
+pub fn settings_save(
+    payload: SettingsPayload,
+    scope: Option<String>,
+    project_dir: Option<String>,
+) -> Result<(), String> {
+    validate_model_roles(&payload)?;
+    // R-178 批4 D7:作用域选择器第一版只覆盖 [models]。选「本项目」时只把
+    // 模型角色写进主根 .kanzei/kanzei.toml,proxy/profile/limits/cadence/providers
+    // 一律不动——provider 密钥写进被 git 跟踪的项目 toml 有泄密风险(D7 边界)。
+    // 选「全局」(默认,缺省即全局)行为与既有完全一致:全字段写全局配置。
+    match scope.as_deref() {
+        Some("project") => {
+            let Some(dir) = project_dir.as_deref().filter(|d| !d.trim().is_empty()) else {
+                return Err("「本项目」作用域需要当前项目目录".into());
+            };
+            let root = kanzei_harness::config::discover_project_root(Path::new(dir))
+                .ok_or_else(|| format!("找不到项目根:{dir}"))?;
+            let path = root.join(".kanzei").join("kanzei.toml");
+            // 只应用模型字段;其余 apply_* 全部跳过。
+            let mut doc = settings_read_document(&path)?;
+            settings_apply_model_fields(&mut doc, &payload)?;
+            settings_write_document(doc, &path)
+        }
+        _ => settings_save_at_path(payload, &global_config_path()),
+    }
 }
 /// 「打开配置原文」在文件不存在时铺的底:**只有注释,一个键都不写**。
 ///
@@ -1094,5 +1129,66 @@ mod tests {
             "载荷缺 cadence 时不得动既有节"
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    /// R-178 批4 D7:作用域选择器第一版只覆盖 [models]。
+    /// - scope=project → 只把模型角色写进主根 .kanzei/kanzei.toml,proxy/provider 不串写;
+    /// - scope=global(缺省)→ 与既有 settings_save 行为一致,项目配置不被触碰。
+    #[test]
+    fn settings_save_project_scope_writes_only_models() {
+        let project_root = std::env::temp_dir().join(format!(
+            "kanzei-d7-root-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let kanzei_dir = project_root.join(".kanzei");
+        std::fs::create_dir_all(&kanzei_dir).unwrap();
+        let project_toml = kanzei_dir.join("kanzei.toml");
+        std::fs::write(
+            &project_toml,
+            "# 项目配置\nproxy = \"off\"\n[providers.stub]\nprotocol = \"openai\"\nbase_url = \"http://x\"\n",
+        )
+        .unwrap();
+
+        // 载荷里 proxy 与 providers 都非空——scope=project 必须把它们挡在项目配置外。
+        let mut payload = 空载荷(vec![ProviderPayload {
+            name: "stub".into(),
+            protocol: "openai".into(),
+            base_url: "http://x".into(),
+            api_key_env: Some("STUB_KEY".into()),
+            api_key: None,
+            auth: None,
+            context_limit: None,
+        }]);
+        payload.proxy = "http://127.0.0.1:12000".into();
+        payload.primary = "codex:gpt-5.6-luna".into();
+        payload.fast = "codex:gpt-5.6-luna-fast".into();
+
+        settings_save(
+            payload,
+            Some("project".into()),
+            Some(project_root.display().to_string()),
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&project_toml).unwrap();
+        assert!(text.contains("primary = \"codex:gpt-5.6-luna\""), "模型角色未写入项目配置:\n{text}");
+        assert!(text.contains("fast = \"codex:gpt-5.6-luna-fast\""), "fast 未写入:\n{text}");
+        assert!(!text.contains("127.0.0.1:12000"), "proxy 被串写进项目配置:\n{text}");
+        assert!(!text.contains("STUB_KEY"), "provider 密钥被串写进项目配置:\n{text}");
+        assert!(text.contains("[providers.stub]"), "既有 providers 节被误删:\n{text}");
+        // 注释与未知内容保留(toml_edit 文档化编辑)。
+        assert!(text.contains("# 项目配置"), "注释丢失:\n{text}");
+        let _ = std::fs::remove_dir_all(&project_root);
+    }
+
+    /// D7 收尾:scope=project 且缺项目目录 → 报错而不是静默写全局(避免把「本项目」
+    /// 的意图落进全局配置——那正是 D-248 那类静默降级的复发形态)。
+    #[test]
+    fn settings_save_project_scope_without_project_dir_refuses() {
+        let result = settings_save(空载荷(vec![]), Some("project".into()), None);
+        assert!(result.is_err(), "缺项目目录必须报错,不得静默落全局");
     }
 }

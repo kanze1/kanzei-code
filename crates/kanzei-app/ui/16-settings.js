@@ -469,6 +469,20 @@ async function loadSettings() {
     return;
   }
   $("settings-path").textContent = s.path;
+  // R-178 批4 D7 作用域选择器:settings_get 返回 projectConfig 时才允许选「本项目」。
+  // 无项目上下文(未选中项目)时 project 选项禁用,避免把"全局"意图落进一个偶然的
+  // 工作目录。
+  const projectConfig = s.projectConfig;
+  const scopeSelect = $("set-save-scope");
+  const projectOption = scopeSelect.querySelector('option[value="project"]');
+  projectOption.disabled = !projectConfig;
+  if (!projectConfig && scopeSelect.value === "project") scopeSelect.value = "global";
+  $("settings-scope-hint").textContent = projectConfig
+    ? t("D7 只覆盖模型角色;Provider 与密钥始终写全局")
+    : t("未选中项目,仅可保存到全局");
+  $("settings-scope-note").textContent = projectConfig
+    ? t("本项目将写入") + " " + projectConfig
+    : "";
   // 已存值必须**显式传给** fillKnownModels 当基准。此前是"先 select.value = 已存值,
   // 建完选项再塞一次",两次都是空操作:首次进设置页时下拉里一个 option 都没有,给
   // select 赋没有匹配项的值按规范只会把它打到空串。基准一空,探测不到的已存模型就被
@@ -608,8 +622,13 @@ $("providers-test").addEventListener("click", async () => {
 $("settings-save").addEventListener("click", async () => {
   const mode = $("set-proxy-mode").value;
   const proxy = mode === "custom" ? $("set-proxy-url").value.trim() : mode;
+  const scope = $("set-save-scope").value;
   try {
     await invoke("settings_save", {
+      // R-178 批4 D7:scope=project 只把模型角色写进主根 .kanzei/kanzei.toml;
+      // 其余字段(proxy/limits/cadence/providers)始终走全局,后端按 scope 拦截。
+      scope,
+      projectDir: scope === "project" ? currentProject : null,
       payload: {
         primary: $("set-primary").value,
         fast: $("set-fast").value,
