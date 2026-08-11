@@ -1779,3 +1779,9 @@
 - 摘要: D-245 关闭前全量:cargo test --workspace 全绿(kanzei-harness 110 含 cadence 3,kanzei-app 120 含 run 14,其余 crate 全过)。cadence 从死配置恢复为生效配置:merge 层叠 + system prompt 注入。
 - 关联: D-245
 - 收尾: 1786452562
+
+## T-1786462431 D-256 前端冒烟(node --check + 四条 ui 冒烟) [passed]
+- 命令: node --check crates/kanzei-app/ui/11-docs-list.js; node --check crates/kanzei-app/ui/02-i18n.js; node --check scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/gen-ui-lint-globals.mjs; node scripts/ui-lint-smoke.mjs
+- 摘要: 纯前端改动:applyBatch 认领 batchProjectDir + 切项目后 toast。node --check 3 文件通过;ui-runtime-smoke 1144 invoke 0 运行时错误(含 D-256 新断言:闸门挂起第一条 docs_update → 中途切 currentProject → 断言全部 projectDir 为认领旧项目 + toast 明说落地);i18n/a11y/markdown/lint 冒烟全绿,gen-ui-lint-globals 再生成(1105 标识符)。
+- 关联: D-256
+- 收尾: 1786462431

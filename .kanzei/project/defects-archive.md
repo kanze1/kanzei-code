@@ -2608,7 +2608,7 @@
 - 验收: ①`drive.rs` 三处对 bash 资源不再调 `normalize_resource`(机械核验:该文件 bash 分支 grep 零命中);②**定向反证**:用本条实测里的那一对命令构造测试,断言注入版为 `Ask` 而非 `Allow`;再补 `cargo --manifest-path ./x/; evil ;/../y.toml` 一条同形态。③既有落盘规则的处置方案落地且有测试(迁移或兼容读取,二者都要证明不引入原像类)。④D-050 的四条路径规范化测试与 `write.rs` 落点一致性测试保持绿(证明只动了 bash 分支)。⑤D-051 的 `command_chaining_escapes` 在注入形态下重新生效,有测试。
 - 进展: 2026-08-11 已修复并随 `build-97c8509` 发布。bash 权限资源改为逐字节原文判定，不再进入路径规范化；历史规则中 20/21 本就是规范化不动点，不引入会恢复原像类漏洞的兼容垫片。斜杠注入与 `cargo --manifest-path` 两条反证均由 `97c8509` 前的 K1 测试锁死，D-050 路径用例及 D-051 链式命令降级保持全绿。
 
-## D-272 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [fixed] (high)
+## D-274 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [fixed] (high)
 - 优先级: P0
 - 复杂度: 小
 - 标签: 核心
@@ -2851,4 +2851,20 @@
 
 - 批次: 2/2
 - 进展: 批1+批2 完成:①config.rs merge_file 加 overlay_cadence(raw toml cadence 表显式键集合驱动逐键覆盖,单测「cadence_层叠合并」验证项目层只写 full_test 时全局层 push 保持)——文件值真能进 KanzeiConfig;②通路:run.rs cadence_guidance 把与默认不同的档位注入 Dev system prompt(append_dev_guidance 加 config 参数),全默认空串不污染;③设置页既有 settings_apply_cadence 写盘 + settings_get 读 config.cadence,保存→重开→注入循环闭环。④conventions §1.4 标注:通路已补回(引擎按配置注入节奏),R-157 验收⑤的标注条件满足,可标注。剩余:关闭前全量 + 关闭。
+
+## D-256 applyBatch 在 for-await 循环里逐次重取 currentProject,切项目会把旧项目条目 id 写进新项目 [fixed] (medium)
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端
+- 证据等级: E1(代码形态实证 + `git show HEAD:` 确认既有)
+- refs: D-250 D-251 D-249
+- 复现: crates/kanzei-app/ui/11-docs-list.js 的 `applyBatch`(39-70 行)对批量选中集逐条 `await invoke("docs_update", …)`,而 `projectDir` 取的是**循环体内当场读的全局 `currentProject`**(:52),不是进入批量前认领的局部量。批量操作进行中切项目,剩余条目就会拿着**旧项目的条目 id** 去写**新项目**:选中 R-001、D-001 这类在两个项目里都存在的 id 时,新项目里的同号条目会被真的改状态、改标签。
+- 取证(别误判成新引入): `git show HEAD:crates/kanzei-app/ui/11-docs-list.js` 的 applyBatch 与工作区**逐字一致**(HEAD=36ce685,同样是 39-70 行、`projectDir: currentProject` 落在 :52)——**HEAD 就有的形态**,不是 2026-08-10 侧栏重构、也不是 D-250/D-251 收口引入的。
+- 影响: 与 D-250/D-251 同族(await 前后项目身份不一致),但**危害高一档**:D-250 只丢跳转高亮、D-251 只错写 localStorage 工作树清单,本条是**真数据错写**——新项目的 tracker 条目被改状态/改标签并经 docs_update 落盘,用户事后看不出是谁改的。批量越大、切得越早,错写条目越多。
+- 待定(产品决策,**不代用户拍板**): 中途换项目时,剩余批量操作应当**整批中止**,还是**继续按认领的旧项目做完**?两种语义都自洽——中止 = 最保守,不再动任何项目;按认领项目做完 = 用户本意就是对旧项目那批条目生效,只是人走开了。取活前必须先向用户确认(D-205 教训:不代用户猜死),确认后再按所选语义改写本条验收③。
+- 修复方向: 无论选哪种语义,`projectDir` 都必须在进入循环**之前**认领成局部量(与 36ce685 对 refreshDocs / handleWorktreeAction 的改法同源),循环内每次 await 后比对;差异只在比对不一致时是 `break` 还是继续用认领的局部量。
+- 验收: ①批量操作进行中切项目,不得有任何一条写进新项目(逐条核对 docs_update 的 projectDir 实参);②有拦截实测的冒烟断言(scripts/ui-runtime-smoke.mjs 构造「await 中途改 currentProject」的桩,断言后续 invoke 的 projectDir 一律不是新项目);③按认领项目做完语义:整批继续写旧项目,完成后若 currentProject 已变,提示「这批改动落在 <旧项目>」
+
+- 批次: 1/1
+- 进展: 2026-08-12 实现落地(0f39192)。验收逐条证据:①循环前认领 `const batchProjectDir = currentProject`(11-docs-list.js applyBatch 循环外),循环内 `projectDir: batchProjectDir` 不再重读全局——冒烟桩把第一条 docs_update 挂闸门、await 处把 currentProject 换成 C:/smoke/project-b,放行后断言该批全部 docs_update 的 projectDir === 认领旧项目;②ui-runtime-smoke.mjs 新增 D-256 断言块(闸门+中途切项目+projectDir 集合断言,运行 1144 invoke 0 错误);③按认领项目做完语义:循环不中止继续写旧项目,结束后 `if (batchProjectDir !== currentProject) toast(这批改动落在 …)`(11-docs-list.js:74-77),i18n 键「这批改动落在」登记(02-i18n.js),冒烟断言 toast 含认领项目。验证:node --check ×3 + ui-runtime/i18n/a11y/markdown/lint 五条冒烟全绿(T-1786462431)。
 
