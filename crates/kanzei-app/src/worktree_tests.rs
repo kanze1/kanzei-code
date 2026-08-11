@@ -8,14 +8,17 @@
 //! 有基点,而只伪造磁盘形态(建几个空目录)验不出 git 到底认不认那条路径——F4
 //! 修的第一个真问题(`\\?\` 前缀 git 不收)恰恰只有真跑 git 才暴露得出来。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use kanzei_harness::{Tool, ToolCtx};
+
 use super::{
     acquire_project_write_lease_within, create_process, create_worktree,
-    create_worktree_arbitrated, create_worktree_with_receipt, reclaim_worktree_on_close,
-    restore_processes_from_store, rollback_worktree, worktree_status, worktree_target,
-    WorktreeReceipt,
+    create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_checked,
+    merge_worktree, reclaim_worktree_on_close, restore_processes_from_store, rollback_worktree,
+    worktree_diff, worktree_status, worktree_target, WorktreeReceipt,
 };
 use crate::state::{ensure_default_process, process_session_id, AppState};
 
@@ -94,6 +97,39 @@ fn cleanup(root: &Path, worktrees: &[PathBuf]) {
         let _ = std::fs::remove_dir_all(worktree);
     }
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// 目录的逐文件字节快照。F13 原方案写 sha256；测试内直接保留全部字节更强：
+/// 任一文件新增、删除、改名或一个字节变化都会让 BTreeMap 不相等，且不引入哈希依赖。
+fn tree_bytes(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(base: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
+        let mut entries = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap())
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(base, &path, out);
+            } else if path.is_file() {
+                out.insert(
+                    path.strip_prefix(base).unwrap().to_path_buf(),
+                    std::fs::read(path).unwrap(),
+                );
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    if root.is_dir() {
+        walk(root, root, &mut out);
+    }
+    out
+}
+
+fn discard_clean_tree_and_branch(root: &Path, worktree: &Path, branch: &str) {
+    discard_worktree_checked(root, &worktree.display().to_string()).unwrap();
+    git(root, &["branch", "-D", branch]);
 }
 
 /// R-177 验收① 前半:`worktree_path` 不再恒 `None`,而是一条真实存在的路径,
@@ -299,6 +335,300 @@ fn worktree_create返回的clean反映真实工作区() {
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
     cleanup(&root, &[target]);
+}
+
+#[test]
+fn worktree_diff返回真实改动与diff() {
+    let root = git_repo("kz-f13-diff");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("diff");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    let created = create_worktree(&canonical, &name).unwrap();
+
+    std::fs::write(target.join("seed.txt"), "line changed seed\n").unwrap();
+    std::fs::write(target.join("untracked.txt"), "new line file\n").unwrap();
+    let info = worktree_diff(
+        canonical.display().to_string(),
+        target.display().to_string(),
+    )
+    .unwrap();
+    assert_eq!(info.branch, branch);
+    assert!(!info.clean);
+    assert!(info.files.iter().any(|file| file.contains("seed.txt")));
+    assert!(info.files.iter().any(|file| file.contains("untracked.txt")));
+    assert!(
+        info.diff.contains("seed.txt") && info.diff.contains("line changed seed"),
+        "worktree_diff 必须返回真实 tracked diff:\n{}",
+        info.diff
+    );
+    assert_eq!(info.path, created.path);
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+#[test]
+fn worktree_merge干净时以no_ff落地() {
+    let root = git_repo("kz-f13-merge-clean");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("merge-clean");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    create_worktree(&canonical, &name).unwrap();
+
+    std::fs::write(target.join("line.txt"), "from line\n").unwrap();
+    git(&target, &["add", "line.txt"]);
+    git(&target, &["commit", "-qm", "line commit"]);
+    let result = merge_worktree(&canonical, &target.display().to_string()).unwrap();
+    assert!(result.contains(&branch));
+    assert_eq!(
+        std::fs::read_to_string(canonical.join("line.txt"))
+            .unwrap()
+            .trim(),
+        "from line",
+        "Windows core.autocrlf 可改工作区换行,但文件内容必须来自分支线"
+    );
+    let parents = git(&canonical, &["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(
+        parents.split_whitespace().count(),
+        3,
+        "--no-ff 必须留下双亲 merge commit,实得:{parents}"
+    );
+
+    discard_clean_tree_and_branch(&canonical, &target, &branch);
+    cleanup(&root, &[target]);
+}
+
+#[test]
+fn worktree_merge冲突时不执行合并且保留双方() {
+    let root = git_repo("kz-f13-merge-conflict");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("merge-conflict");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    create_worktree(&canonical, &name).unwrap();
+
+    std::fs::write(target.join("seed.txt"), "line side\n").unwrap();
+    git(&target, &["add", "seed.txt"]);
+    git(&target, &["commit", "-qm", "line side"]);
+    std::fs::write(canonical.join("seed.txt"), "main side\n").unwrap();
+    git(&canonical, &["add", "seed.txt"]);
+    git(&canonical, &["commit", "-qm", "main side"]);
+    let main_head = git(&canonical, &["rev-parse", "HEAD"]);
+    let line_head = git(&canonical, &["rev-parse", &branch]);
+
+    let error = merge_worktree(&canonical, &target.display().to_string())
+        .expect_err("同一行的相反修改必须被 merge-tree 预检拦住");
+    assert!(error.contains("双方改动已保留"), "{error}");
+    assert!(error.contains("seed.txt"), "冲突结果必须点名文件:{error}");
+    assert_eq!(git(&canonical, &["rev-parse", "HEAD"]), main_head);
+    assert_eq!(git(&canonical, &["rev-parse", &branch]), line_head);
+    assert_eq!(
+        std::fs::read_to_string(canonical.join("seed.txt")).unwrap(),
+        "main side\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("seed.txt")).unwrap(),
+        "line side\n"
+    );
+
+    discard_clean_tree_and_branch(&canonical, &target, &branch);
+    cleanup(&root, &[target]);
+}
+
+#[test]
+fn worktree_discard有未提交改动时保留现场() {
+    let root = git_repo("kz-f13-discard-dirty");
+    let canonical = crate::normalized_project_root(&root);
+    let name = unique("discard-dirty");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    create_worktree(&canonical, &name).unwrap();
+    std::fs::write(target.join("keep-me.txt"), "uncommitted\n").unwrap();
+
+    let error = discard_worktree_checked(&canonical, &target.display().to_string())
+        .expect_err("未提交改动必须阻止普通 worktree remove");
+    assert!(error.contains("已保留以便恢复"), "{error}");
+    assert!(target.join("keep-me.txt").is_file());
+    assert!(registry_has(&canonical, &target));
+    assert!(branch_exists(&canonical, &branch));
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+#[tokio::test]
+async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变() {
+    let root = git_repo("kz-f13-loop");
+    let canonical = crate::normalized_project_root(&root);
+    std::fs::create_dir_all(canonical.join(".kanzei/project")).unwrap();
+    std::fs::write(canonical.join(".kanzei/kanzei.toml"), "profile = \"dev\"\n").unwrap();
+    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+        .save(&[])
+        .unwrap();
+    git(&canonical, &["add", ".kanzei"]);
+    git(&canonical, &["commit", "-qm", "seed kanzei assets"]);
+    let main_seed = std::fs::read(canonical.join("seed.txt")).unwrap();
+
+    let state = AppState::default();
+    let name = unique("loop");
+    let info = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(name),
+    )
+    .await
+    .unwrap();
+    let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
+    let branch = info.branch.as_deref().unwrap();
+    let kanzei_before = tree_bytes(&worktree.join(".kanzei"));
+    assert!(
+        !kanzei_before.is_empty(),
+        "夹具必须真的把 .kanzei checkout 到线上"
+    );
+
+    std::fs::create_dir_all(worktree.join("src")).unwrap();
+    std::fs::write(worktree.join("src/line.rs"), "pub fn line() {}\n").unwrap();
+    git(&worktree, &["add", "src/line.rs"]);
+    git(&worktree, &["commit", "-qm", "line source"]);
+
+    let ctx = ToolCtx::new(worktree.clone(), canonical.clone());
+    let tracker = kanzei_tools::tracker::TrackerTool {
+        tool_name: "req",
+        noun: "requirement",
+        kind: &kanzei_tools::docstore::REQUIREMENTS,
+        requires_refs: None,
+    };
+    let tracker_out = tracker
+        .execute(
+            serde_json::json!({
+                "action": "add",
+                "title": "F13 main-root tracker",
+                "fields": {"验收": "tracker follows project_root"}
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(!tracker_out.is_error, "{}", tracker_out.content);
+    let memory_out = kanzei_tools::memory::MemoryNoteTool
+        .execute(
+            serde_json::json!({
+                "summary": format!("F13 main-root memory {}", unique("note")),
+                "detail": "memory follows project_root",
+                "refs": []
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(!memory_out.is_error, "{}", memory_out.content);
+
+    let session_id = process_session_id(&canonical, Some(&info.id));
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+    store
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &serde_json::json!({"messages": [kanzei_llm::Message::user_text("F13 line history")]}),
+        )
+        .unwrap();
+    drop(store);
+
+    assert_eq!(
+        std::fs::read(canonical.join("seed.txt")).unwrap(),
+        main_seed
+    );
+    assert!(
+        !canonical.join("src/line.rs").exists(),
+        "线内源码不得泄漏到主树"
+    );
+    assert!(
+        std::fs::read_to_string(canonical.join(".kanzei/project/requirements.md"))
+            .unwrap()
+            .contains("F13 main-root tracker")
+    );
+    assert!(
+        !std::fs::read_to_string(worktree.join(".kanzei/project/requirements.md"))
+            .unwrap()
+            .contains("F13 main-root tracker")
+    );
+    assert!(kanzei_tools::memory::project_memory_root(&canonical)
+        .join("inbox.md")
+        .is_file());
+    assert!(kanzei_core::project_state_path(&canonical).is_file());
+    assert!(!kanzei_core::project_state_path(&worktree).exists());
+    assert_eq!(
+        tree_bytes(&worktree.join(".kanzei")),
+        kanzei_before,
+        "线内 .kanzei 副本必须逐文件逐字节零改动"
+    );
+
+    discard_clean_tree_and_branch(&canonical, &worktree, branch);
+    cleanup(&root, &[worktree]);
+}
+
+#[tokio::test]
+async fn 删树后线的会话历史仍可回放() {
+    let root = git_repo("kz-f13-history");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let info = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(unique("history")),
+    )
+    .await
+    .unwrap();
+    let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
+    let branch = info.branch.as_deref().unwrap();
+    let session_id = process_session_id(&canonical, Some(&info.id));
+    let messages = vec![kanzei_llm::Message::user_text(
+        "history survives tree removal",
+    )];
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    store
+        .create_session(&session_id, &canonical.display().to_string(), None)
+        .unwrap();
+    store
+        .append_event(
+            &session_id,
+            "conversation.updated",
+            &serde_json::json!({"messages": messages}),
+        )
+        .unwrap();
+    drop(store);
+
+    discard_clean_tree_and_branch(&canonical, &worktree, branch);
+    assert!(!worktree.exists());
+    let reopened =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    let replayed = crate::conversation::recover_messages(&reopened, &session_id).unwrap();
+    assert_eq!(replayed.len(), 1);
+    assert!(serde_json::to_string(&replayed[0])
+        .unwrap()
+        .contains("history survives tree removal"));
+    assert_eq!(
+        crate::conversation::conversation_list(
+            canonical.display().to_string(),
+            Some(info.id.clone())
+        )
+        .unwrap()
+        .len(),
+        1,
+        "删树后历史列表入口也必须仍能发现这段会话"
+    );
+    drop(reopened);
+
+    cleanup(&root, &[worktree]);
 }
 
 /// 不传 `worktree_name` 时行为与今天逐字节一致:`worktree_path` 恒 `None`、

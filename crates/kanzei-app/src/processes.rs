@@ -1415,25 +1415,19 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
     })
 }
 
-#[tauri::command]
-pub async fn worktree_merge(
-    state: tauri::State<'_, AppState>,
-    project_dir: String,
-    worktree_path: String,
-) -> Result<String, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    // R-171 批4:worktree 合并是项目级写操作,接入写仲裁。
-    let _lease = acquire_project_write_lease(&state, &root, "worktree merge").await?;
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let branch = worktree_field(&root, &worktree, "branch")?;
-    let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
+/// 合并命令的可测试内核。写租约由 Tauri 命令在调用前获取；这里保留从路径校验、
+/// merge-tree 预检到 `--no-ff` 合并的完整可观察语义。
+fn merge_worktree(root: &Path, worktree_path: &str) -> Result<String, String> {
+    let worktree = validate_worktree_path(root, worktree_path)?;
+    let branch = worktree_field(root, &worktree, "branch")?;
+    let check = worktree_command(root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
     if !check.status.success() {
         return Err(format!(
             "合并前冲突检测失败,双方改动已保留:\n{}",
             String::from_utf8_lossy(&check.stdout)
         ));
     }
-    let output = worktree_command(&root, &["merge", "--no-ff", &branch])?;
+    let output = worktree_command(root, &["merge", "--no-ff", &branch])?;
     if !output.status.success() {
         return Err(format!(
             "合并未完成,请在主项目中解决并保留工作树:\n{}",
@@ -1446,18 +1440,24 @@ pub async fn worktree_merge(
 }
 
 #[tauri::command]
-pub async fn worktree_discard(
+pub async fn worktree_merge(
     state: tauri::State<'_, AppState>,
     project_dir: String,
     worktree_path: String,
 ) -> Result<String, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    // R-171 批4:worktree 放弃(remove 工作树)是项目级写操作,接入写仲裁。
-    let _lease = acquire_project_write_lease(&state, &root, "worktree discard").await?;
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    // R-171 批4:worktree 合并是项目级写操作,接入写仲裁。
+    let _lease = acquire_project_write_lease(&state, &root, "worktree merge").await?;
+    merge_worktree(&root, &worktree_path)
+}
+
+/// 放弃命令的可测试内核。未提交改动时 git 必须拒绝并保留现场；写租约仍由
+/// Tauri 命令承担，不把协调器行为混进结果测试。
+fn discard_worktree_checked(root: &Path, worktree_path: &str) -> Result<String, String> {
+    let worktree = validate_worktree_path(root, worktree_path)?;
     // git 收不下 `\\?\` 前缀的参数(见 `git_arg_path`),而 validate 出来的正是
     // canonicalize 的产物——不剥这一层,放弃工作树在 Windows 上永远失败。
-    let output = worktree_command(&root, &["worktree", "remove", &git_arg_path(&worktree)])?;
+    let output = worktree_command(root, &["worktree", "remove", &git_arg_path(&worktree)])?;
     if !output.status.success() {
         return Err(format!(
             "工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}",
@@ -1468,6 +1468,18 @@ pub async fn worktree_discard(
         "已放弃工作树 {} 的工作目录;分支仍保留",
         worktree.display()
     ))
+}
+
+#[tauri::command]
+pub async fn worktree_discard(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+    worktree_path: String,
+) -> Result<String, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    // R-171 批4:worktree 放弃(remove 工作树)是项目级写操作,接入写仲裁。
+    let _lease = acquire_project_write_lease(&state, &root, "worktree discard").await?;
+    discard_worktree_checked(&root, &worktree_path)
 }
 
 // R-177 验收⑦:processes.rs 在 F4 之前零测试(既无 mod tests 也无 #[test])。
