@@ -76,7 +76,10 @@ pub fn run_once_with_parts<'a>(
         }
 
         // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
-        let (baseline, mut context_report) = snapshot.system_baseline_with_report();
+        let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();
+        let (mut refreshable_baseline, refreshable_report) =
+            snapshot.refreshable_system_baseline_with_report();
+        context_report.extend(refreshable_report);
         if !agent.system.trim().is_empty() {
             context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
         }
@@ -94,7 +97,7 @@ pub fn run_once_with_parts<'a>(
         if spec_chars > 0 {
             context_report.push(("tools/schema".into(), spec_chars));
         }
-        let system: Vec<String> = [agent.system.clone(), baseline]
+        let stable_system: Vec<String> = [agent.system.clone(), baseline]
             .into_iter()
             .filter(|s| !s.trim().is_empty())
             .collect();
@@ -153,6 +156,15 @@ pub fn run_once_with_parts<'a>(
         let mut step = 0u32;
         loop {
             step += 1;
+            // R-184:只有显式标记的动态源在轮内刷新。它作为本步临时 system 段
+            // 替换,不 push 进 messages,因此内容变化不会把旧协作块逐轮堆进历史。
+            if step > 1 {
+                refreshable_baseline = snapshot.refreshable_system_baseline_with_report().0;
+            }
+            let mut system = stable_system.clone();
+            if !refreshable_baseline.trim().is_empty() {
+                system.push(refreshable_baseline.clone());
+            }
             on_event(RunEvent::TurnStart { step, max_steps });
             let last_step = max_steps > 0 && step == max_steps;
             // 步数软预算(D-173):步数上限是 0(不设人为天花板),但"不封顶"不等于

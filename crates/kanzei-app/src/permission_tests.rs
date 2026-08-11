@@ -86,7 +86,7 @@ fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
         project_root: root.clone(),
         config: Arc::new(config),
     };
-    let snapshot = build_run_harness(true).resolve(&ctx).unwrap();
+    let snapshot = build_run_harness(true, None).resolve(&ctx).unwrap();
     let names = snapshot
         .materialize_tools()
         .iter()
@@ -98,7 +98,7 @@ fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
     let hint = snapshot.denial_hint("req", "write:add");
     assert!(hint.contains("未开启 tracker 写入"), "{hint}");
 
-    let enabled = build_run_harness(false).resolve(&ctx).unwrap();
+    let enabled = build_run_harness(false, None).resolve(&ctx).unwrap();
     assert_eq!(enabled.evaluate("req", "write:add"), Effect::Allow);
     std::fs::remove_dir_all(root).unwrap();
 }

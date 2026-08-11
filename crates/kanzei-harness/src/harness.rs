@@ -146,9 +146,35 @@ impl HarnessSnapshot {
     /// baseline + 上下文账单(R-106):每个 source 注入了多少字符,
     /// "本轮上下文里有什么、各占多少"从此是数据而不是猜测。
     pub fn system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
+        let (mut stable, mut report) = self.stable_system_baseline_with_report();
+        let (refreshing, refreshing_report) = self.refreshable_system_baseline_with_report();
+        if !refreshing.is_empty() {
+            if !stable.is_empty() {
+                stable.push_str("\n\n");
+            }
+            stable.push_str(&refreshing);
+        }
+        report.extend(refreshing_report);
+        (stable, report)
+    }
+
+    /// 只渲染一次的稳定上下文。runner 用它保持既有 baseline 快照语义。
+    pub fn stable_system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
+        self.render_context_sources(false)
+    }
+
+    /// 每个模型步骤前替换的临时上下文;不进入 messages,因此不会逐轮累积。
+    pub fn refreshable_system_baseline_with_report(&self) -> (String, Vec<(String, usize)>) {
+        self.render_context_sources(true)
+    }
+
+    fn render_context_sources(&self, refreshing: bool) -> (String, Vec<(String, usize)>) {
         let mut sections = Vec::new();
         let mut report = Vec::new();
         for (name, src) in self.draft.context.iter() {
+            if src.refresh_each_step() != refreshing {
+                continue;
+            }
             if let Some(text) = src.baseline(&self.ctx) {
                 let text = text.trim();
                 if !text.is_empty() {
@@ -275,6 +301,7 @@ fn permission_snapshot_of(draft: &HarnessDraft) -> Vec<PermissionSnapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn permission_snapshot_reflects_ruleset_and_hard_denies() {
@@ -323,5 +350,63 @@ mod tests {
         // task 不在注册表但快照补了它(只读档位的 task 放行断言依赖它)。
         let task = snap.iter().find(|s| s.action == "task").unwrap();
         assert_eq!(task.effect, Effect::Ask);
+    }
+
+    #[test]
+    fn refreshable_context_is_separate_and_recomputed_without_accumulation() {
+        struct ContextComponent {
+            value: Arc<AtomicUsize>,
+        }
+        impl Component for ContextComponent {
+            fn contribute(
+                &self,
+                draft: &mut HarnessDraft,
+                _ctx: &ResolveCtx,
+            ) -> anyhow::Result<()> {
+                draft.context.insert(
+                    "stable",
+                    crate::source("stable", |_| Some("stable-value".into())),
+                );
+                let value = self.value.clone();
+                draft.context.insert(
+                    "refreshing",
+                    crate::refreshing_source("refreshing", move |_| {
+                        Some(format!("dynamic-{}", value.load(Ordering::SeqCst)))
+                    }),
+                );
+                Ok(())
+            }
+        }
+
+        let value = Arc::new(AtomicUsize::new(1));
+        let mut harness = Harness::default();
+        harness.add(ContextComponent {
+            value: value.clone(),
+        });
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: PathBuf::from("C:/test"),
+                project_root: PathBuf::from("C:/test"),
+                config: Arc::new(KanzeiConfig::default()),
+            })
+            .unwrap();
+        assert_eq!(
+            snapshot.stable_system_baseline_with_report().0,
+            "stable-value"
+        );
+        assert_eq!(
+            snapshot.refreshable_system_baseline_with_report().0,
+            "dynamic-1"
+        );
+        value.store(2, Ordering::SeqCst);
+        assert_eq!(
+            snapshot.refreshable_system_baseline_with_report().0,
+            "dynamic-2",
+            "刷新只能给出新值,不能把 dynamic-1 累加回来"
+        );
+        let combined = snapshot.system_baseline();
+        assert!(combined.contains("stable-value"));
+        assert_eq!(combined.matches("dynamic-2").count(), 1);
     }
 }

@@ -12,6 +12,7 @@ pub(crate) use kanzei_harness::ConfigComponent;
 
 mod agent_container;
 mod auto_run;
+mod collaboration;
 mod conversation;
 mod docs;
 mod fast_model;

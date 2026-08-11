@@ -39,6 +39,7 @@ pub(crate) async fn run_task(
     phase_pipeline_enabled: bool,
     // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     block_tracker_writes: bool,
+    collaboration_probe: crate::collaboration::CollaborationProbe,
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
@@ -83,7 +84,7 @@ pub(crate) async fn run_task(
         config: config.clone(),
     };
 
-    let harness = build_run_harness(block_tracker_writes);
+    let harness = build_run_harness(block_tracker_writes, Some(collaboration_probe));
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
@@ -1205,9 +1206,15 @@ pub(crate) fn append_dev_guidance(
     system.push('\n');
     system.push_str(kanzei_tools::frontend_inspection_guidance());
     system.push_str(&work_priority_guidance(work_priority));
+    system.push_str(
+        "\n\nCollaboration commit discipline: stage ONLY the explicit files you changed; never use `git add .` or another directory-wide stage. Immediately before every commit, call `collaboration_status`, re-run `git status`, and inspect the staged diff/hash so another line's unfinished work cannot be swept into your commit.",
+    );
 }
 
-pub(crate) fn build_run_harness(block_tracker_writes: bool) -> kanzei_harness::Harness {
+pub(crate) fn build_run_harness(
+    block_tracker_writes: bool,
+    collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
+) -> kanzei_harness::Harness {
     let mut harness = kanzei_harness::Harness::default();
     harness
         .add(kanzei_tools::BaseComponent)
@@ -1219,6 +1226,9 @@ pub(crate) fn build_run_harness(block_tracker_writes: bool) -> kanzei_harness::H
         .add(TrackerWritePolicyComponent {
             block: block_tracker_writes,
         });
+    if let Some(probe) = collaboration_probe {
+        harness.add(crate::collaboration::CollaborationComponent { probe });
+    }
     harness
 }
 
@@ -1777,6 +1787,12 @@ pub(crate) async fn run_prompt(
     // R-171:项目级协调器与进程身份传给 writer run(写租约申请用)。
     let coordinator = state.coordinator.clone();
     let process_id_for_run = process.id.clone();
+    let collaboration_probe = crate::collaboration::CollaborationProbe::new(
+        state.processes.clone(),
+        state.runtimes.clone(),
+        project_root.clone(),
+        process.id.clone(),
+    );
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
@@ -1794,6 +1810,7 @@ pub(crate) async fn run_prompt(
                 session_id.clone(),
                 phase_pipeline_enabled,
                 block_tracker_writes,
+                collaboration_probe.clone(),
                 profile.clone(),
                 agent.clone(),
                 model.clone(),
@@ -1991,5 +2008,19 @@ mod assembly_tests {
                 "缺少前端自查工具 `{tool}`;已注册: {tools:?}"
             );
         }
+    }
+
+    #[test]
+    fn 开发提示词强制逐文件暂存并在提交前刷新协作状态() {
+        let mut system = String::new();
+        super::append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first");
+        assert!(system.contains("stage ONLY the explicit files you changed"));
+        assert!(system.contains("never use `git add .`"));
+        assert!(system.contains("Immediately before every commit"));
+        assert!(system.contains("call `collaboration_status`"));
+
+        let mut research = String::new();
+        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first");
+        assert!(research.is_empty(), "提交纪律只属于开发档位");
     }
 }
