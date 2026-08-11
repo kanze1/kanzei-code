@@ -2,6 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// bash 工具的权限 action 名。**这是 D-269 全部分流判据的唯一出处**——
+/// [`normalize_resource_for_action`] 与 [`resource_match_for_action`] 都靠它决定
+/// 「这条资源是 shell 文本还是文件路径」。
+///
+/// 它与 `kanzei_tools::BashTool` 之间是**跨 crate 的字面量耦合**:`Tool::action()` 默认
+/// 返回 `Tool::name()`,所以把 bash 工具改名(或给它单独实现一个 `action()`)会让这里
+/// 静默走进路径分支——也就是静默重新打开 D-269,而且没有任何测试会红。
+///
+/// 本 crate 是 `kanzei-tools` 的**上游**,拿不到 `BashTool` 来断言,所以钉住这条耦合的
+/// 用例放在下游:`crates/kanzei/tests/bash_action_literal.rs`。改这里的值 = 必须同时改那条用例。
+pub const BASH_ACTION: &str = "bash";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Effect {
@@ -194,19 +206,45 @@ fn is_windows_drive_path(resource: &str) -> bool {
         && resource.as_bytes()[0].is_ascii_alphabetic()
 }
 
+/// 按 action 选择资源**规范化**语义:`bash` 的资源是 shell 文本(`BashTool::resources_with_ctx`
+/// 造出的 `{"command":…,"workdir":…}` JSON 串,其中 workdir 已单独规范化过),**原样返回**;
+/// 其余 action 仍走 `normalize_resource`(D-050 的路径语义,一字不动)。
+///
+/// D-269:`normalize_resource` 为路径语义**故意设计成非单射**——弹掉 `..` 的前一段、折叠
+/// `//` 与 `/./`、`\`→`/`、Windows 下整串小写。把它施加到 bash 文本上,一条规则准入的就不再是
+/// 一条命令,而是该命令在 `normalize_resource` 下的**整个原像类**:在已批准命令的任一 `/` 处
+/// 写成 `T/../`(T 为任意不含 `/` 的串)即可把任意 shell 语句藏进 T,规范化后与原命令逐字节
+/// 相等,判定 Allow,而 `bash.rs` 执行的是未经规范化的原始命令文本。
+///
+/// 论证方向必须写对:授权需要的是「一个 pattern 只准入一个 value」的**单射性**,不是
+/// 「一个 value 只算出一个规范化结果」的函数性——后者对任何确定性函数都恒成立,与授权无关。
+/// 因此这里不做任何「两侧都规范化后比较」的兼容处理:那只会把准入集从 `{V : N(V)==P}` 换成
+/// `{V : N(V)==N(P)}`,原像类一个不少。
+pub fn normalize_resource_for_action(action: &str, resource: &str) -> String {
+    if action == BASH_ACTION {
+        return resource.to_string();
+    }
+    normalize_resource(resource)
+}
+
+/// bash 资源的**结构化**形态判定:`BashTool::resources_with_ctx` 产出的
+/// `{"command":…,"workdir":…}` JSON 串。判据只有一条(全仓唯一实现,`config.rs` 的
+/// 历史规则分类也走它,免得两处判据漂移):可解析成 JSON 且同时带 `command` 与 `workdir`。
+pub fn is_structured_bash_resource(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some())
+}
+
 /// 按 action 选择资源语义；bash 命令是 shell 语法文本，不能因其中出现 `/` 就走文件路径规范化。
 pub fn resource_match_for_action(action: &str, pattern: &str, value: &str) -> bool {
-    if action == "bash" {
+    if action == BASH_ACTION {
         if pattern == "*" {
             return wildcard_match(pattern, value);
         }
-        let value_is_structured = serde_json::from_str::<serde_json::Value>(value)
-            .ok()
-            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
-        let pattern_is_structured = serde_json::from_str::<serde_json::Value>(pattern)
-            .ok()
-            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
-        return if value_is_structured && !pattern_is_structured {
+        // 旧的纯字符串规则不得授权结构化请求:两者语义不同,`./scripts/release.ps1` 这类
+        // pattern 一旦被允许去匹配 `{"command":…}` 串,授权范围就变成了整个 JSON 文本空间。
+        return if is_structured_bash_resource(value) && !is_structured_bash_resource(pattern) {
             false
         } else {
             wildcard_match(pattern, value)
@@ -232,7 +270,7 @@ pub fn resource_match(pattern: &str, value: &str) -> bool {
 /// 非整体 bash 通配规则无法表达命令内部的 shell/解释器语义；不自动放行，
 /// 只有显式资源 `*` 的整体放行不降级(D-051)。
 fn command_chaining_escapes(action: &str, resource: &str, pattern: &str) -> bool {
-    action == "bash" && pattern != "*" && pattern.contains('*') && !resource.is_empty()
+    action == BASH_ACTION && pattern != "*" && pattern.contains('*') && !resource.is_empty()
 }
 
 /// `*` 通配(匹配任意串,含空);其余字符逐字比较,大小写敏感。
@@ -513,6 +551,168 @@ mod tests {
         }]);
         assert_eq!(rs.evaluate("bash", structured), Effect::Ask);
     }
+
+    /// D-269 定向反证:已批准命令的任一 `/` 换成 `T/../` 即可把任意 shell 语句藏进 T。
+    /// 规范化后两条命令逐字节相等——所以判定站点一旦对 bash 资源做路径规范化,一条规则
+    /// 准入的就是整个原像类。分流之后注入版必须回到 Ask。
+    #[test]
+    fn bash注入形态不再借历史授权提权() {
+        let 已批准 = r#"{"command":"cat src/main.rs","workdir":"c:/project"}"#;
+        let 注入版 = r#"{"command":"cat src/;rm -rf ~;/../main.rs","workdir":"c:/project"}"#;
+
+        // 原像坍缩是真实存在的:这一行就是提权链本身,不是假设。
+        assert_ne!(已批准, 注入版);
+        assert_eq!(normalize_resource(注入版), normalize_resource(已批准));
+        assert_eq!(normalize_resource(注入版), 已批准);
+
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: 已批准.into(),
+            effect: Effect::Allow,
+        }]);
+        // 判定站点看到的串由 normalize_resource_for_action 产出。drive.rs 里共三处,
+        // 按**名字**记(行号会随任何一次编辑漂,原来写的 :545/:604/:764 已经全部对不上了):
+        // 并行预检(can_parallel_tools 的资源循环)、并行 deny 预筛、串行门禁。
+        assert_eq!(
+            rs.evaluate("bash", &normalize_resource_for_action("bash", 已批准)),
+            Effect::Allow,
+            "被批准的那条命令本身必须仍然放行"
+        );
+        assert_eq!(
+            rs.evaluate("bash", &normalize_resource_for_action("bash", 注入版)),
+            Effect::Ask,
+            "注入版必须回到询问,而不是借原像类拿到 Allow"
+        );
+    }
+
+    /// 同形态第二例:`cargo --manifest-path ./x/; evil ;/../y.toml`(D-269 验收②后半)。
+    #[test]
+    fn cargo_manifest_path同形态注入被拦() {
+        let 已批准 = r#"{"command":"cargo --manifest-path ./x/y.toml","workdir":"c:/project"}"#;
+        let 注入版 =
+            r#"{"command":"cargo --manifest-path ./x/; evil ;/../y.toml","workdir":"c:/project"}"#;
+
+        assert_ne!(已批准, 注入版);
+        assert_eq!(normalize_resource(注入版), 已批准);
+
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: 已批准.into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            rs.evaluate("bash", &normalize_resource_for_action("bash", 已批准)),
+            Effect::Allow
+        );
+        assert_eq!(
+            rs.evaluate("bash", &normalize_resource_for_action("bash", 注入版)),
+            Effect::Ask
+        );
+    }
+
+    /// D-269 验收⑤:注入段里的 `*` 曾在 pattern 成形前就被 `..` 整段弹掉,于是 D-051 的
+    /// `command_chaining_escapes` 拿不到 `*`、降级不触发。drive.rs 落 session_rule 时用的
+    /// 正是同一个分流函数,bash 走原样后 `*` 活到 pattern 里,降级重新生效。
+    #[test]
+    fn d051串联降级在注入形态下重新生效() {
+        let 注入值 = r#"{"command":"cat src/;rm -rf * ;/../main.rs","workdir":"c:/project"}"#;
+
+        // 旧路径:pattern 由 normalize_resource 产出,`*` 连同整段被弹掉。
+        let 旧pattern = normalize_resource(注入值);
+        assert!(
+            !旧pattern.contains('*'),
+            "旧路径下 `*` 被 `..` 弹掉,降级无从触发:{旧pattern}"
+        );
+        let 旧规则 = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: 旧pattern.clone(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            旧规则.evaluate("bash", &旧pattern),
+            Effect::Allow,
+            "这一行是被修掉的旧行为的见证,不是期望行为"
+        );
+
+        // 新路径:pattern 就是原始命令文本,`*` 还在。
+        let 新pattern = normalize_resource_for_action("bash", 注入值);
+        assert_eq!(新pattern, 注入值);
+        assert!(新pattern.contains('*'));
+        let 新规则 = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: 新pattern.clone(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            新规则.evaluate("bash", &normalize_resource_for_action("bash", 注入值)),
+            Effect::Ask,
+            "含 `*` 的非整体 bash 规则必须被 D-051 降级成询问"
+        );
+    }
+
+    /// bash 资源进 evaluate 时与 BashTool 的产出逐字节相同:JSON 转义的 `\"` 不被折成 `/"`,
+    /// 大小写不被折叠(workdir 的规范化由 bash.rs 单独负责,这里不能再来一次)。
+    #[test]
+    fn bash资源进evaluate时逐字节等于工具产出() {
+        for resource in [
+            r#"{"command":"git commit -m \"fix: A//B\"","workdir":"c:/project"}"#,
+            r#"{"command":"Select-String -Path Crates/App.rs -Pattern X","workdir":"c:/project"}"#,
+            r#"{"command":"cat a/../b","workdir":"c:/project"}"#,
+        ] {
+            assert_eq!(normalize_resource_for_action("bash", resource), resource);
+        }
+    }
+
+    /// 只动了 bash 分支:路径类 action 的规范化逐字节不变(D-269 验收④的直接落点)。
+    #[test]
+    fn 路径类action的规范化分流一字不变() {
+        for action in ["write", "edit", "read", "glob", "grep", "task"] {
+            for resource in [
+                r".KANZEI\project\..\project\goals.md",
+                "src//main.rs",
+                "./scripts/release.ps1",
+                r"C:\Workspace\.KANZEI\project\goals.md",
+                "plain-token",
+            ] {
+                assert_eq!(
+                    normalize_resource_for_action(action, resource),
+                    normalize_resource(resource),
+                    "action={action} resource={resource}"
+                );
+            }
+        }
+    }
+
+    /// 历史非结构化 bash 规则的处置:不做迁移。`./scripts/release.ps1` 这类 pattern 无论
+    /// 是否规范化,都被 [`resource_match_for_action`] 里那道「结构化 value 不接受非结构化
+    /// pattern」的 gate 挡在结构化请求之外(按名字记,别写行号)——迁移改不动这个事实,只会
+    /// 把一条今天命不中的规则改成能命中,那是替用户扩大授权,方向反了。
+    #[test]
+    fn 非结构化历史pattern对结构化请求恒不命中() {
+        let value = r#"{"command":"./scripts/release.ps1 -skiptests","workdir":"c:/project"}"#;
+        for pattern in [
+            "./scripts/release.ps1",
+            "scripts/release.ps1",
+            "git *",
+            "get-childitem *",
+        ] {
+            let rs = Ruleset::new(vec![Rule {
+                action: "bash".into(),
+                resource: pattern.into(),
+                effect: Effect::Allow,
+            }]);
+            assert_eq!(
+                rs.evaluate("bash", &normalize_resource_for_action("bash", value)),
+                Effect::Ask,
+                "pattern={pattern}"
+            );
+            assert!(
+                !resource_match_for_action("bash", pattern, value),
+                "pattern={pattern}"
+            );
+        }
+    }
+
     #[test]
     fn hard_deny_cannot_be_overridden_by_later_normal_rules() {
         let mut rs = Ruleset::new(vec![Rule {

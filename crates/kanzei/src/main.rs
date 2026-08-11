@@ -69,6 +69,8 @@ fn usage_text() -> &'static str {
        kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
+project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
+project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\
 config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
 agent: dev(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
 profile: KANZEI_PROFILE=dev|research|readonly；KANZEI_AGENT=dev|dev-pair|research|readonly\n\
@@ -80,16 +82,69 @@ fn usage() {
     eprint!("{}", usage_text());
 }
 
-fn parse_run_args(args: &[String]) -> (bool, bool, String) {
+/// `kz run` 的解析结果。
+///
+/// R-182:新增 `--project-root` 之后,开关不再全是布尔——带值的开关必须把
+/// **flag 与它的值两个 token 都**从 prompt 里剥掉,否则路径会被当提示词发给模型。
+#[derive(Debug, PartialEq, Eq)]
+struct RunArgs {
+    new_session: bool,
+    readonly: bool,
+    project_root: Option<std::path::PathBuf>,
+    prompt: String,
+}
+
+const PROJECT_ROOT_FLAG: &str = "--project-root";
+const PROJECT_ROOT_ENV: &str = "KANZEI_PROJECT_ROOT";
+
+fn parse_run_args(args: &[String]) -> RunArgs {
     let new_session = args.iter().any(|arg| arg == "--new");
     let readonly = args.iter().any(|arg| arg == "--readonly");
-    let prompt = args
-        .iter()
-        .filter(|arg| arg.as_str() != "--new" && arg.as_str() != "--readonly")
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(" ");
-    (new_session, readonly, prompt)
+    let mut project_root = None;
+    let mut words: Vec<&str> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        match arg {
+            "--new" | "--readonly" => {}
+            PROJECT_ROOT_FLAG => {
+                // 取值并连同 flag 一起吃掉;缺值时只吃 flag(后面的 resolve 会
+                // 按发现式取根,不会把 "--project-root" 当提示词发出去)。
+                if let Some(value) = args.get(index + 1) {
+                    project_root = Some(std::path::PathBuf::from(value));
+                    index += 1;
+                }
+            }
+            _ => words.push(arg),
+        }
+        index += 1;
+    }
+    RunArgs {
+        new_session,
+        readonly,
+        project_root,
+        prompt: words.join(" "),
+    }
+}
+
+/// 显式主根的**唯一**合成点:参数 > 环境变量 > (None = 交给发现式)。
+///
+/// `KANZEI_PROJECT_ROOT` trim 后非空才算设置——与既有的 KANZEI_PROFILE/AGENT/
+/// MODEL/PROXY 同构,空串一律视为「没设」。
+fn explicit_main_root(flag: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    explicit_main_root_from(flag, std::env::var(PROJECT_ROOT_ENV).ok())
+}
+
+fn explicit_main_root_from(
+    flag: Option<&std::path::Path>,
+    env: Option<String>,
+) -> Option<std::path::PathBuf> {
+    if let Some(flag) = flag {
+        return Some(flag.to_path_buf());
+    }
+    env.map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
 }
 
 /// D-194:HOME 不能当项目根。
@@ -112,15 +167,47 @@ fn reject_home_as_project_root(project_root: &std::path::Path) -> anyhow::Result
     );
 }
 
+/// CLI 三条入口(run / replay-eval / tracker)取主根的**唯一**通道。
+///
+/// 收成一个函数是为了让「显式入口必须过同一道 HOME 拦截」由**结构**保证,
+/// 而不是靠三处各自记得调一次(D-194/D-189/D-186:`KANZEI_PROJECT_ROOT=%USERPROFILE%`
+/// 这类误设会把项目产物写进全局配置根)。
+///
+/// 拦截调两次是有意的:
+/// - 第一次打在**显式输入**上。它是纯路径比较、不看磁盘,所以哪怕 HOME 下既没有
+///   `.kanzei` 也没有 `.git`,「你把主根写成 HOME 了」也一定会被点名,而不会被
+///   「这看着不像项目根」的泛化报错盖过去。
+/// - 第二次打在**解析结果**上,覆盖发现式那一路(今天就有的那条)。
+fn main_project_root(
+    explicit: Option<&std::path::Path>,
+    cwd: &std::path::Path,
+) -> anyhow::Result<std::path::PathBuf> {
+    if let Some(explicit) = explicit {
+        reject_home_as_project_root(explicit)?;
+    }
+    let project_root = kanzei_harness::config::resolve_project_root(explicit, cwd)?;
+    reject_home_as_project_root(&project_root)?;
+    Ok(project_root)
+}
+
 async fn run_cli(args: &[String]) -> anyhow::Result<()> {
-    let (new_session, readonly, prompt) = parse_run_args(args);
+    let RunArgs {
+        new_session,
+        readonly,
+        project_root: root_flag,
+        prompt,
+    } = parse_run_args(args);
     if prompt.trim().is_empty() {
         usage();
         std::process::exit(2);
     }
 
     let cwd = std::env::current_dir()?;
-    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    // R-182:取根必须在配置加载**之前**——配置本身就挂在主根下面,
+    // 先按 cwd 加载再改根,worktree 里读到的会是被 checkout 出来的分支副本。
+    let project_root =
+        main_project_root(explicit_main_root(root_flag.as_deref()).as_deref(), &cwd)?;
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
     let config = Arc::new(config);
     for warning in &config_warnings {
         eprintln!("\x1b[33m{warning}\x1b[0m");
@@ -134,9 +221,6 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         Err(_) if readonly => ProfileKind::Readonly,
         Err(_) => config.default_profile(),
     };
-    let project_root =
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    reject_home_as_project_root(&project_root)?;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -181,8 +265,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
 
     let client = LlmClient::new(&proxy)?;
-    // R-141:根在入口(上面 discover_project_root)解析一次,这里显式传下去;
-    // CLI 是单工作树,代码树即项目根,两把键同源。
+    // R-141:根在入口(上面 main_project_root)解析一次,这里显式传下去。
+    // R-182:显式主根时 cwd 与 project_root **第一次可能不相等**(worktree 里
+    // cwd 是那棵树、主根是 .kanzei 托管文档的真源),所以两者必须分别传。
     let ctx = ToolCtx::new(cwd, project_root.clone()).with_identity(
         project_root.display().to_string(),
         project_root.display().to_string(),
@@ -629,15 +714,21 @@ async fn replay_eval_cli(args: &[String]) -> anyhow::Result<()> {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(30);
 
+    let root_flag = args
+        .iter()
+        .position(|a| a == PROJECT_ROOT_FLAG)
+        .and_then(|i| args.get(i + 1))
+        .map(std::path::PathBuf::from);
+
     let cwd = std::env::current_dir()?;
-    let (config, config_warnings) = KanzeiConfig::load_with_warnings(&cwd)?;
+    // 与 run 同构:取根先于配置加载,显式主根同样过 HOME 拦截。
+    let project_root =
+        main_project_root(explicit_main_root(root_flag.as_deref()).as_deref(), &cwd)?;
+    let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
     let config = Arc::new(config);
     for warning in &config_warnings {
         eprintln!("\x1b[33m{warning}\x1b[0m");
     }
-    let project_root =
-        kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
-    reject_home_as_project_root(&project_root)?;
 
     // fast 档跑批;未配 fast 时回落 primary。
     let model_ref = std::env::var("KANZEI_MODEL")
@@ -862,9 +953,15 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
         _ => {}
     }
     // 追踪类子命令写的正是 .kanzei/project/*.md,和 run 一样不能落进 HOME(D-194)。
-    // R-141:这里是 CLI 进程入口,发现式取根合法且只做这一次。
-    let ctx = ToolCtx::discovering(std::env::current_dir()?);
-    reject_home_as_project_root(&ctx.project_root)?;
+    // R-182 / D-267:这条入口原先是发现式取根,于是在 worktree 里第一层就命中被
+    // checkout 出来的 `.kanzei` **分支副本**——两棵树相隔 10 秒各跑 `kz defect add`,
+    // 各自在自己的副本上算 next_id,**都拿到 D-267**。改走显式主根:
+    // `KANZEI_PROJECT_ROOT` 指哪写哪,没设时行为与今天逐字节相同。
+    // (tracker 的位置参数会把 `add` 后面的词全部拼成标题,所以这条入口只认环境变量,
+    //  不认 `--project-root` 开关。)
+    let cwd = std::env::current_dir()?;
+    let project_root = main_project_root(explicit_main_root(None).as_deref(), &cwd)?;
+    let ctx = ToolCtx::new(cwd, project_root);
     let output = tool.execute(input, &ctx).await;
     if output.is_error {
         eprintln!("{}", output.content);
@@ -876,8 +973,25 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_exit_code, parse_run_args, persist_always_allow, usage_text};
+    use super::{
+        cli_exit_code, explicit_main_root, explicit_main_root_from, main_project_root,
+        parse_run_args, persist_always_allow, usage_text, RunArgs, PROJECT_ROOT_ENV,
+    };
     use kanzei_core::AskReply;
+    use std::path::{Path, PathBuf};
+
+    fn run_args(new_session: bool, readonly: bool, prompt: &str) -> RunArgs {
+        RunArgs {
+            new_session,
+            readonly,
+            project_root: None,
+            prompt: prompt.to_string(),
+        }
+    }
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
 
     #[test]
     fn usage_lists_agent_profile_and_model_selection() {
@@ -897,16 +1011,16 @@ mod tests {
     }
 
     #[test]
+    fn usage_lists_explicit_project_root() {
+        let usage = usage_text();
+        assert!(usage.contains("--project-root"));
+        assert!(usage.contains("KANZEI_PROJECT_ROOT"));
+    }
+
+    #[test]
     fn readonly_flag_is_parsed_and_stripped_from_prompt() {
-        let args = vec![
-            "--readonly".to_string(),
-            "分析".to_string(),
-            "代码".to_string(),
-        ];
-        assert_eq!(
-            parse_run_args(&args),
-            (false, true, "分析 代码".to_string())
-        );
+        let args = strings(&["--readonly", "分析", "代码"]);
+        assert_eq!(parse_run_args(&args), run_args(false, true, "分析 代码"));
     }
     #[test]
     fn halted_run_uses_nonzero_exit_code_but_completed_run_stays_zero() {
@@ -915,15 +1029,214 @@ mod tests {
     }
     #[test]
     fn run_new_flag_is_removed_from_prompt() {
-        let args = vec![
-            "--new".to_string(),
-            "开始".to_string(),
-            "新会话".to_string(),
-        ];
+        let args = strings(&["--new", "开始", "新会话"]);
+        assert_eq!(parse_run_args(&args), run_args(true, false, "开始 新会话"));
+    }
+
+    /// 带值开关最常漏的一步:只剥 flag、把值留在提示词里,于是路径被当成提示词发给模型。
+    #[test]
+    fn project_root_flag_and_value_are_stripped_from_prompt() {
+        let args = strings(&["--project-root", "C:/x", "hello", "world"]);
+        let parsed = parse_run_args(&args);
+        assert_eq!(parsed.prompt, "hello world");
+        assert_eq!(parsed.project_root, Some(PathBuf::from("C:/x")));
+        assert!(!parsed.new_session && !parsed.readonly);
+
+        // 与其它开关混用、且不在首位时同样成立。
+        let args = strings(&["--new", "写", "--project-root", "C:/x", "测试"]);
+        let parsed = parse_run_args(&args);
+        assert_eq!(parsed.prompt, "写 测试");
+        assert_eq!(parsed.project_root, Some(PathBuf::from("C:/x")));
+        assert!(parsed.new_session);
+
+        // 缺值时也不能把开关本身当提示词发出去。
+        let args = strings(&["改代码", "--project-root"]);
+        let parsed = parse_run_args(&args);
+        assert_eq!(parsed.prompt, "改代码");
+        assert_eq!(parsed.project_root, None);
+    }
+
+    /// 优先级定死:参数 > 环境变量 > 发现式(None 表示交给发现式)。
+    /// `KANZEI_PROJECT_ROOT` 是进程级状态,而测试同进程并发跑:真读环境变量的用例
+    /// 必须互斥,否则两条用例互相看见对方设的值,红绿都不可信。
+    static PROJECT_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn explicit_main_root_prefers_flag_over_env() {
+        let _guard = PROJECT_ROOT_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let flag = PathBuf::from("C:/flag-root");
+        let env = Some("C:/env-root".to_string());
         assert_eq!(
-            parse_run_args(&args),
-            (true, false, "开始 新会话".to_string())
+            explicit_main_root_from(Some(&flag), env.clone()),
+            Some(flag.clone())
         );
+        assert_eq!(
+            explicit_main_root_from(None, env),
+            Some(PathBuf::from("C:/env-root"))
+        );
+        assert_eq!(explicit_main_root_from(None, None), None);
+        // trim 后为空 = 没设,不是"设成了空路径"。
+        assert_eq!(explicit_main_root_from(None, Some("   ".into())), None);
+
+        // 真正读的是 KANZEI_PROJECT_ROOT 这个键(键名写错就没人发现)。
+        std::env::set_var(PROJECT_ROOT_ENV, "C:/env-root");
+        assert_eq!(
+            explicit_main_root(None),
+            Some(PathBuf::from("C:/env-root")),
+            "环境变量键名必须是 {PROJECT_ROOT_ENV}"
+        );
+        assert_eq!(explicit_main_root(Some(&flag)), Some(flag));
+        std::env::remove_var(PROJECT_ROOT_ENV);
+    }
+
+    /// 本机被 `is_home_root` 认成 HOME 的那个路径;拿不到就是环境异常,直接失败。
+    fn real_home() -> PathBuf {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Some(parent) = kanzei_harness::home::kanzei_home()
+            .as_deref()
+            .and_then(Path::parent)
+        {
+            candidates.push(parent.to_path_buf());
+        }
+        for key in ["USERPROFILE", "HOME"] {
+            if let Ok(value) = std::env::var(key) {
+                candidates.push(PathBuf::from(value));
+            }
+        }
+        candidates
+            .into_iter()
+            .find(|c| kanzei_harness::config::is_home_root(c))
+            .expect("测试环境必须能解析出 HOME")
+    }
+
+    /// D-194 红线:新入口(--project-root / KANZEI_PROJECT_ROOT)不得绕过 HOME 拦截。
+    /// `KANZEI_PROJECT_ROOT=%USERPROFILE%` 这类误设会把项目产物写进全局配置根。
+    #[test]
+    fn 显式主根同样过home拦截() {
+        let home = real_home();
+        let cwd = std::env::temp_dir();
+        let error = main_project_root(Some(&home), &cwd)
+            .expect_err("HOME 当主根必须被拒")
+            .to_string();
+        assert!(
+            error.contains("全局配置根"),
+            "必须是 D-194 那条拦截,而不是别的报错: {error}"
+        );
+
+        // 大小写/尾分隔符/正斜杠/`\\?\` 前缀等写法一样拦得住(dir_key 归一)。
+        let text = home.display().to_string();
+        let mut variants = vec![PathBuf::from(format!(
+            "{text}{}",
+            std::path::MAIN_SEPARATOR
+        ))];
+        #[cfg(windows)]
+        variants.extend([
+            PathBuf::from(text.to_lowercase()),
+            PathBuf::from(text.replace('\\', "/")),
+            PathBuf::from(format!(r"\\?\{text}")),
+        ]);
+        for variant in variants {
+            let error = main_project_root(Some(&variant), &cwd)
+                .expect_err("HOME 的等价写法必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "{} 必须撞 D-194 那条拦截: {error}",
+                variant.display()
+            );
+        }
+
+        // 对照组:普通目录不受影响。
+        let ok_root = std::env::temp_dir().join(format!(
+            "kanzei-r182-home-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(ok_root.join(".kanzei")).unwrap();
+        assert_eq!(main_project_root(Some(&ok_root), &cwd).unwrap(), ok_root);
+        std::fs::remove_dir_all(ok_root).unwrap();
+    }
+
+    /// 含 `.` / `..` 的 HOME 写法必须被拦。
+    ///
+    /// 这是 D-194 的一条真洞,实测过:`KANZEI_PROJECT_ROOT=C:\Users\kanzei` 退出码 1
+    /// 被拦,而 `C:\Users\kanzei\.` 与 `C:\Users\kanzei\Documents\..` 都退出码 0 一路跑通,
+    /// project 级 state.db 被写进全局配置根 `~/.kanzei`。原因是 `dir_key` 不折叠 `.`/`..`,
+    /// 而 `resolve_project_root` 的标记校验对这些写法照样成立(HOME 下有 `.kanzei`)——
+    /// 两道拦截同时静默通过。
+    ///
+    /// 洞是 R-182 的显式主根入口打开的:在那之前根恒来自 `current_dir()`,写不出这种串。
+    /// 所以这里**两条入口各测一遍**:参数与环境变量必须撞同一道拦截。
+    #[test]
+    fn 显式主根含点段一样过home拦截() {
+        let home = real_home();
+        let cwd = std::env::temp_dir();
+        let sep = std::path::MAIN_SEPARATOR;
+        let text = home.display().to_string();
+        let mut forms = vec![
+            format!("{text}{sep}."),
+            format!("{text}{sep}Documents{sep}.."),
+            format!("{text}{sep}.{sep}"),
+            format!("{text}{sep}a{sep}..{sep}.{sep}b{sep}.."),
+        ];
+        #[cfg(windows)]
+        {
+            let slash = text.replace('\\', "/");
+            forms.push(format!("{slash}/./"));
+            forms.push(format!("{slash}/Documents/.."));
+        }
+
+        for form in forms {
+            // 入口一:`--project-root` 参数。
+            let flag = PathBuf::from(&form);
+            let explicit =
+                explicit_main_root_from(Some(&flag), None).expect("参数入口必须产出显式根");
+            let error = main_project_root(Some(&explicit), &cwd)
+                .expect_err("--project-root 指向 HOME 必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "--project-root {form} 必须撞 D-194 那条拦截: {error}"
+            );
+
+            // 入口二:`KANZEI_PROJECT_ROOT` 环境变量,真读进程环境走一遍。
+            let explicit = {
+                let _guard = PROJECT_ROOT_ENV_LOCK
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                std::env::set_var(PROJECT_ROOT_ENV, &form);
+                let resolved = explicit_main_root(None);
+                std::env::remove_var(PROJECT_ROOT_ENV);
+                resolved
+            }
+            .expect("环境变量入口必须产出显式根");
+            let error = main_project_root(Some(&explicit), &cwd)
+                .expect_err("KANZEI_PROJECT_ROOT 指向 HOME 必须被拒")
+                .to_string();
+            assert!(
+                error.contains("全局配置根"),
+                "KANZEI_PROJECT_ROOT={form} 必须撞 D-194 那条拦截: {error}"
+            );
+        }
+
+        // 对照组:名字里带 `.` 的**合法**目录不是 `.` 段,不许被误拦。
+        let ok_root = std::env::temp_dir().join(format!(
+            "kanzei-d194-dot-gate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dotted = ok_root.join("v1.0").join("app");
+        std::fs::create_dir_all(dotted.join(".kanzei")).unwrap();
+        assert_eq!(main_project_root(Some(&dotted), &cwd).unwrap(), dotted);
+        std::fs::remove_dir_all(ok_root).unwrap();
     }
 
     #[test]

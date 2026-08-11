@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::permission::Rule;
+use crate::permission::{is_structured_bash_resource, normalize_resource, Rule, BASH_ACTION};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct KanzeiConfig {
@@ -334,6 +334,55 @@ pub struct ProfileSection {
 pub struct PermissionsSection {
     #[serde(default)]
     pub rules: Vec<Rule>,
+    /// 无 TTY 时(脚手架派发、CI)遇到 Ask 该怎么办。缺键 = [`NonInteractive::Deny`],
+    /// 也就是**今天的行为**:EOF → Deny → 停机。
+    ///
+    /// 类型故意留成 `Option<String>` 而不是枚举:未知取值(来自更新版本的 kanzei,
+    /// 或者手抖拼错)**不能炸掉启动**,只能 fail-closed 回落 deny 再产一条告警。
+    /// 读的时候走 [`KanzeiConfig::non_interactive_policy`],别直接读这个字段。
+    ///
+    /// 本批只落 schema 与告警,**暂时没有消费者**——策略真正生效在后续批次。
+    /// 三处接线(`unknown_keys` / `merge` / 告警)在本批一次做齐,各有一条命名测试守着:
+    /// `Limits::barrier_timeout_secs` 就栽在只加字段没接 merge,项目层设了却静默不生效。
+    #[serde(default)]
+    pub non_interactive: Option<String>,
+}
+
+/// 无 TTY 时的 Ask 处置策略(R-183 内容①)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NonInteractive {
+    /// 今天的行为:问不出来就停机。**缺省档**,也是所有解析失败的回落档。
+    #[default]
+    Deny,
+    /// 不问,直接按规则集判定;Ask 当作 deny 回喂模型并继续本轮。
+    RulesOnly,
+    /// 同 `RulesOnly`,外加本次运行由操作员显式提供的 allowlist。
+    AllowListed,
+}
+
+impl NonInteractive {
+    /// 配置里认的取值。写在一处,解析与告警文案共用,免得两边漂移。
+    const KNOWN: [(&'static str, NonInteractive); 3] = [
+        ("deny", NonInteractive::Deny),
+        ("rules_only", NonInteractive::RulesOnly),
+        ("allow_listed", NonInteractive::AllowListed),
+    ];
+
+    fn parse(text: &str) -> Option<NonInteractive> {
+        let key = text.trim().to_ascii_lowercase();
+        Self::KNOWN
+            .iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| *value)
+    }
+
+    fn known_names() -> String {
+        Self::KNOWN
+            .iter()
+            .map(|(name, _)| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(" / ")
+    }
 }
 
 /// 解析后的模型指向。
@@ -356,16 +405,47 @@ impl KanzeiConfig {
     }
 
     /// 同 load,但把未知字段告警交给调用方展示(CLI stderr / 桌面 kz:status)。
+    ///
+    /// 语义不变的**发现式**入口:从 cwd 向上找项目根,再委托 [`Self::load_with_warnings_at_root`]。
+    /// 显式主根(`--project-root` / `KANZEI_PROJECT_ROOT`)的调用方请直接用 at_root 版本,
+    /// 别在这里绕一圈——cwd 一旦指向 worktree,发现出来的就是 worktree 自己的 `.kanzei` 副本。
     pub fn load_with_warnings(cwd: &Path) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
+        let root = discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+        Self::load_with_warnings_at_root(&root)
+    }
+
+    /// 显式主根加载:直接叠加全局 `kanzei_home()/kanzei.toml` 与
+    /// `project_root/.kanzei/kanzei.toml`,**不做任何根发现**。
+    ///
+    /// 与 [`Self::load`] 的区别只有一条:根从哪来。这里的根是调用方说了算的,
+    /// 因此在 worktree 里也能读到主根那份配置(D-267:worktree 里 `.kanzei` 是
+    /// 被 git checkout 出来的**分支副本**,发现式取根会读到过期的那一份)。
+    pub fn load_at_root(project_root: &Path) -> anyhow::Result<KanzeiConfig> {
+        let (config, warnings) = Self::load_with_warnings_at_root(project_root)?;
+        for warning in &warnings {
+            tracing::warn!("{warning}");
+        }
+        Ok(config)
+    }
+
+    /// 同 [`Self::load_at_root`],但把未知字段告警交给调用方展示。
+    pub fn load_with_warnings_at_root(
+        project_root: &Path,
+    ) -> anyhow::Result<(KanzeiConfig, Vec<String>)> {
         let mut config = KanzeiConfig::default();
         let mut warnings = Vec::new();
         if let Some(home) = crate::home::kanzei_home() {
             merge_file(&mut config, &home.join("kanzei.toml"), &mut warnings)?;
         }
-        if let Some(project) = discover_project_config(cwd) {
-            merge_file(&mut config, &project, &mut warnings)?;
-        }
+        merge_file(
+            &mut config,
+            &project_root.join(".kanzei").join("kanzei.toml"),
+            &mut warnings,
+        )?;
         config.fill_defaults();
+        // 三处接线之三:非交互策略键认不出来时的 fail-closed 告警。要在**层叠之后**打,
+        // 因为最终生效的是合并结果——全局写对了、项目层写错了,该报的是项目层那个值。
+        warnings.extend(config.non_interactive_policy_warning());
         Ok((config, warnings))
     }
 
@@ -375,12 +455,7 @@ impl KanzeiConfig {
             .rules
             .iter()
             .filter(|rule| {
-                rule.action == "bash"
-                    && !serde_json::from_str::<serde_json::Value>(&rule.resource)
-                        .ok()
-                        .is_some_and(|resource| {
-                            resource.get("command").is_some() && resource.get("workdir").is_some()
-                        })
+                rule.action == BASH_ACTION && !is_structured_bash_resource(&rule.resource)
             })
             .collect()
     }
@@ -397,13 +472,77 @@ impl KanzeiConfig {
             .collect()
     }
 
+    /// **结构化**但无法证明「没被路径规范化改写过」的 bash 规则(D-269 收敛路径)。
+    ///
+    /// 背景:修复前 drive.rs 落盘规则时对 bash 资源也跑了 `normalize_resource`,而那是**路径**
+    /// 语义——`\`→`/`、折 `//` 与 `/./`、弹 `..` 前一段、Windows 整串小写。于是已落盘的结构化
+    /// 规则分成三类:
+    /// - 命令里有 `\`(JSON 里的 `\"` 转义)→ 变成 `/"`,整串**不再是合法 JSON**,
+    ///   [`Self::legacy_bash_rules`] 已经把它们算进去了;
+    /// - 命令里有大写(`Get-Content`、`-SkipTests`)→ 被整串小写,**仍是合法 JSON**,于是
+    ///   `legacy_bash_rules` 一条都认不出来:用户零告警、零指引,只看到命令莫名其妙又开始逐次询问。
+    ///   本函数补的就是这一类。
+    /// - 本来就全小写、也没有会被折叠的分隔符 → 规范化是恒等,规则今天仍然命中。
+    ///
+    /// **判据只能过宽,这是可证明的**:落盘的是 `P = N(J)`,而 `N` 幂等,所以 `N(P) == P` 对
+    /// **每一条**历史规则都成立——单看 `P` 反推 `J` 就是求非单射函数的原像,答案是一个类不是一个点
+    /// (与 D-269 拒绝"反解迁移"是同一个理由)。因此这里取 `N(P) == P` 作判据:
+    /// - **零漏报**:凡被改写过的规则必然满足它,一条都不会漏;
+    /// - **会多报**:天生全小写的规则(`git status --short`)也满足它,而那种规则其实还活着。
+    ///
+    /// 多报是可接受的,因为告警给出的动作是**有条件的**——"下次这条命令又来问你时重新授权一次"。
+    /// 规则还活着的用户永远等不到那个询问,也就不需要做任何事。
+    ///
+    /// 唯一能**证明**没被改写的一类要排掉:整串一个分隔符都没有。`normalize_resource`
+    /// 对无分隔符的串直接原样返回(连 Windows 小写那步都走不到),所以 `J` 无分隔符 ⇒
+    /// `P = N(J) = J` ⇒ 规则今天照样命中。这类不点名。
+    pub fn structured_bash_rules_possibly_stale(&self) -> Vec<&Rule> {
+        self.permissions
+            .rules
+            .iter()
+            .filter(|rule| {
+                rule.action == BASH_ACTION
+                    && rule.effect != crate::permission::Effect::Deny
+                    && !is_wildcard_resource(&rule.resource)
+                    && is_structured_bash_resource(&rule.resource)
+                    && (rule.resource.contains('/') || rule.resource.contains('\\'))
+                    && normalize_resource(&rule.resource) == rule.resource
+            })
+            .collect()
+    }
+
+    /// 无 TTY 时的 Ask 处置策略。缺键、空串、无法识别的取值一律 **fail-closed 回落
+    /// [`NonInteractive::Deny`]** —— 也就是今天的行为,旧配置逐字节不变。
+    pub fn non_interactive_policy(&self) -> NonInteractive {
+        self.permissions
+            .non_interactive
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+            .and_then(NonInteractive::parse)
+            .unwrap_or_default()
+    }
+
+    /// 非交互策略键写了但认不出来时的告警。**必须有**:悄悄回落到 deny 而不吭声,
+    /// 用户会以为自己已经开了 rules_only,实际每次都停机,还归不到因。
+    pub fn non_interactive_policy_warning(&self) -> Option<String> {
+        let raw = self.permissions.non_interactive.as_deref()?;
+        if raw.trim().is_empty() || NonInteractive::parse(raw).is_some() {
+            return None;
+        }
+        Some(format!(
+            "permissions.non_interactive = `{raw}` 无法识别，已 fail-closed 回落到 `deny`(无 TTY 时遇到询问即停机)；\
+             可用取值：{}。",
+            NonInteractive::known_names()
+        ))
+    }
+
     /// 显式 `bash/* = allow` 保持全量放行语义，启动时必须明确告知用户。
     pub fn explicit_bash_wildcard_allows(&self) -> Vec<&Rule> {
         self.permissions
             .rules
             .iter()
             .filter(|rule| {
-                rule.action == "bash"
+                rule.action == BASH_ACTION
                     && is_wildcard_resource(&rule.resource)
                     && rule.effect == crate::permission::Effect::Allow
             })
@@ -415,6 +554,12 @@ impl KanzeiConfig {
     /// 原实现按规则形态分别计数各说各话:legacy 规则与显式 `bash/*` 并存时
     /// last-match-wins 让一切直接放行,告警却照样说"将逐次询问"——在安全边界上
     /// 给出错误告知。现在先用代表性命令跑一遍 Ruleset::evaluate,以真实判定为准。
+    ///
+    /// **yolo 判据修正(F8 ①,D-139 以新形态复发的必修点)**:光看"探针评估成 Allow"
+    /// 推不出"全量放行"。探针是一条**具体**命令,用户完全可能只授权过它自己——那时
+    /// 告警会把"你授权过 git status"说成"你把 bash 全放开了",又是一条假话。
+    /// 改成两个条件同时成立才敢说 yolo:探针 Allow **且** 确实存在显式 `bash/*` 放行规则。
+    /// 探针 Allow 但没有 `*` 规则时,如实说"是这条探针命令被某条规则直接命中,其余仍会询问"。
     pub fn bash_permission_warnings(&self) -> Vec<String> {
         let mut warnings = Vec::new();
         let mut ruleset = crate::permission::Ruleset::default();
@@ -423,31 +568,56 @@ impl KanzeiConfig {
         }
         // 代表性命令:一条普通只读命令即可探明"默认会不会问"。
         let probe = serde_json::json!({ "command": "git status", "workdir": "." }).to_string();
-        let effective = ruleset.evaluate("bash", &probe);
+        let probe_allowed =
+            ruleset.evaluate(BASH_ACTION, &probe) == crate::permission::Effect::Allow;
 
-        let legacy_count = self.legacy_bash_rules_needing_downgrade().len();
+        let legacy = self.legacy_bash_rules_needing_downgrade();
+        let stale = self.structured_bash_rules_possibly_stale();
         let wildcard_count = self.explicit_bash_wildcard_allows().len();
 
-        if effective == crate::permission::Effect::Allow {
+        if probe_allowed && wildcard_count > 0 {
             // 无论有多少条 legacy 规则,实际结果就是全量放行——必须如实说。
             warnings.push(format!(
-                "检测到 bash 权限最终判定为全量放行(yolo){}；不会再逐次询问，请确认这是有意设置。",
-                if wildcard_count > 0 {
-                    format!("，来自 {wildcard_count} 条显式 bash/* 放行规则")
-                } else {
-                    String::new()
-                }
+                "检测到 bash 权限最终判定为全量放行(yolo)，来自 {wildcard_count} 条显式 bash/* 放行规则；\
+                 不会再逐次询问，请确认这是有意设置。"
             ));
-            if legacy_count > 0 {
+            if !legacy.is_empty() {
                 warnings.push(format!(
-                    "另有 {legacy_count} 条旧 bash 规则被上述放行覆盖(last-match-wins)，实际不生效。"
+                    "另有 {} 条旧 bash 规则被上述放行覆盖(last-match-wins)，实际不生效。",
+                    legacy.len()
                 ));
             }
             return warnings;
         }
-        if legacy_count > 0 {
+        if probe_allowed {
+            // 探针命中了某条具体规则,但没有整体放行规则——说清范围,别冒充 yolo。
+            warnings.push(
+                "探针命令 `git status` 已被某条已有 bash 规则直接放行，但配置里没有整体 bash/* 放行规则；\
+                 其余命令仍会逐次询问。"
+                    .to_string(),
+            );
+        }
+        // D-269 收敛路径:两类失效各说各的,并且都给**可执行的动作**,不是"请重新选择作用域"
+        // 这种没有落点的话。用户看到的症状是同一句"命令又开始问了",指引必须能直接照做。
+        if !legacy.is_empty() {
             warnings.push(format!(
-                "检测到 {legacy_count} 条旧 bash 权限规则；将逐次询问，请重新选择精确作用域。"
+                "检测到 {} 条旧 bash 权限规则(升级前的裸命令形态，如 {})：\
+                 它们对今天的结构化请求恒不命中，等于已经失效。\
+                 这些命令会重新逐次询问，遇到时按一次「总是允许」就好，新规则会覆盖旧的；\
+                 旧条目留在配置里不影响判定，想清爽可以自行删掉。",
+                legacy.len(),
+                rule_digest(&legacy)
+            ));
+        }
+        if !stale.is_empty() {
+            warnings.push(format!(
+                "另有 {} 条结构化 bash 规则可能是修复前写下的(如 {})：\
+                 那时命令文本会被路径规范化整串小写(`Get-Content` → `get-content`)，\
+                 改写过的规则再也对不上原命令。无法从改写后的文本反推原文，所以这里只能按最宽的判据点名，\
+                 其中确实还有效的那些你不会遇到询问；\
+                 真遇到某条命令又开始问，同样按一次「总是允许」即可。",
+                stale.len(),
+                rule_digest(&stale)
             ));
         }
         warnings
@@ -612,6 +782,32 @@ fn is_wildcard_resource(resource: &str) -> bool {
     resource.trim() == "*"
 }
 
+/// 告警里点名规则用的摘要:取前两条的命令文本,各截 40 个**字符**(不是字节——
+/// 命令里有中文,按字节切会在多字节中间断开而 panic),其余折成"等 N 条"。
+fn rule_digest(rules: &[&Rule]) -> String {
+    fn 命令(resource: &str) -> String {
+        let text = serde_json::from_str::<serde_json::Value>(resource)
+            .ok()
+            .and_then(|json| json.get("command")?.as_str().map(str::to_string))
+            .unwrap_or_else(|| resource.to_string());
+        let mut 头: String = text.chars().take(40).collect();
+        if text.chars().count() > 40 {
+            头.push('…');
+        }
+        头
+    }
+    let 前两条: Vec<String> = rules.iter().take(2).map(|r| 命令(&r.resource)).collect();
+    let mut out = 前两条
+        .iter()
+        .map(|c| format!("`{c}`"))
+        .collect::<Vec<_>>()
+        .join("、");
+    if rules.len() > 前两条.len() {
+        out.push_str(&format!(" 等，共 {} 条", rules.len()));
+    }
+    out
+}
+
 /// 列出 schema 未识别的键路径。schema 变更时同步维护;
 /// `unknown_keys_schema_matches_struct` 测试守护两者不漂移。
 fn unknown_keys(value: &toml::Value) -> Vec<String> {
@@ -710,7 +906,13 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         );
     }
     if let Some(permissions) = value.get("permissions") {
-        check(permissions, "permissions", &["rules"], &mut out);
+        // 三处接线之一:新键要进这份已知键清单,否则用户一写就收到"未知配置项"假告警。
+        check(
+            permissions,
+            "permissions",
+            &["rules", "non_interactive"],
+            &mut out,
+        );
         if let Some(rules) = permissions.get("rules").and_then(|r| r.as_array()) {
             for (index, rule) in rules.iter().enumerate() {
                 check(
@@ -752,6 +954,12 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         base.profile.default = layer.profile.default;
     }
     base.permissions.rules.extend(layer.permissions.rules);
+    // 三处接线之二:标量键要按 [limits] 的同一套规矩做 overlay —— 项目层写了才覆盖,
+    // 没写就保持全局层的值。只加字段不接这一行,项目层设了会静默不生效
+    // (`Limits::barrier_timeout_secs` 就是这么漏的)。
+    if layer.permissions.non_interactive.is_some() {
+        base.permissions.non_interactive = layer.permissions.non_interactive;
+    }
     // [limits] 逐字段覆盖:项目层只写了哪几个键就只覆盖哪几个,没写的保持全局层的值。
     // 整节替换会让"项目里只调一个 max_tokens"把其余全部打回默认——正是 reasoning
     // 那次漏合并留下的教训。
@@ -882,13 +1090,76 @@ pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
     discover_project_root_with_home(cwd, dirs::home_dir().as_deref())
 }
 
-/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、去尾分隔符,Windows 上再小写。
+/// 显式主根优先于发现式取根:参数 > 环境变量 > 发现式(现状)。
+///
+/// R-182 内容②。`explicit` 由调用方按「`--project-root` 参数 > `KANZEI_PROJECT_ROOT`
+/// 环境变量」合成后传进来;为 `None` 时逐字节退回今天的发现式行为
+/// (`discover_project_root(cwd)`,兜底 cwd 本身)。
+///
+/// 实测背景(D-267):两棵 worktree 相隔 10 秒各跑一次 `kz defect add`,**都拿到 D-267**——
+/// `.kanzei/project/*.md` 被 git 跟踪,`git worktree add` 把它们 checkout 成分支副本,
+/// 发现式取根在 worktree 里第一层就命中那份副本,两条线各自在自己的副本上分配编号。
+/// 显式主根就是这条路的出口。
+///
+/// **两个根是正交的两件事,别再混**(D-187 的教训):
+/// - `KANZEI_PROJECT_ROOT` 改的是**项目根**——`.kanzei/project/*.md`、state.db、项目记忆;
+/// - `KANZEI_HOME` 改的是**全局根**——`~/.kanzei/kanzei.toml`、全局记忆、app.json。
+///   设了其中一个不会影响另一个。
+///
+/// **不做 canonicalize**:与 run.rs 同源的理由——Windows 上 `canonicalize` 产出
+/// `\\?\C:\…` 形态,用户已经写下的绝对路径权限规则会一夜之间集体失配。
+pub fn resolve_project_root(explicit: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
+    let Some(explicit) = explicit else {
+        return Ok(discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf()));
+    };
+    if !explicit.exists() {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)指向的路径不存在: {}",
+            explicit.display()
+        );
+    }
+    if !explicit.is_dir() {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不是目录: {}",
+            explicit.display()
+        );
+    }
+    // worktree 的 `.git` 是**文件**不是目录,所以这里目录/文件都算标记;
+    // `.kanzei` 则必须是目录(托管文档挂在它下面)。
+    let has_marker = explicit.join(".kanzei").is_dir() || explicit.join(".git").exists();
+    if !has_marker {
+        anyhow::bail!(
+            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不像项目根:{} 下既没有 .kanzei 目录也没有 .git。\n\
+             主根是放 .kanzei/project/*.md 与 state.db 的那个目录;确实想把它当项目,就先 mkdir .kanzei。",
+            explicit.display()
+        );
+    }
+    Ok(explicit.to_path_buf())
+}
+
+/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、折叠 `.` / `..`、去尾分隔符,
+/// Windows 上再小写。
 ///
 /// 裸 `==` 比较不够(D-194):`dirs::home_dir()` 给 `C:\Users\kanzei`,而走上来的祖先
 /// 可能是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize
 /// 的产物)——任一形态对不上,HOME 判断就静默失效,`~/.kanzei` 立刻变回项目根磁铁。
 /// 同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线)。
 /// 这里是纯比较、不进哈希,所以可以比那边更狠:分隔符也一并统一。
+///
+/// **`.` / `..` 必须折叠**,而且这是 R-182 新入口打开的洞、不是历史遗留:根从
+/// `current_dir()` 来的时候不可能带 `.`/`..` 段,`--project-root` / `KANZEI_PROJECT_ROOT`
+/// 收的却是用户任意书写的路径串。`C:\Users\kanzei\.` 与 `C:\Users\kanzei\Documents\..`
+/// 在文件系统看来就是 HOME,`resolve_project_root` 的标记校验对它们照样成立
+/// (HOME 下有 `.kanzei`),于是两道拦截**全部静默通过**,project 级 state.db 被写进
+/// `~/.kanzei`——实测发生过。
+///
+/// 折叠**复用 `permission::normalize_resource`**(权限决策的同一份实现,D-050),不另写
+/// 第二份:两份词法折叠一旦漂移,就是"权限那边算出来的路径"和"取根这边算出来的路径"
+/// 指向两个地方。
+///
+/// **本函数自身仍然是纯词法的**:不碰文件系统、不解符号链接,也不会把用户写的裸路径
+/// 变成 `\\?\` 形态。词法折叠单独用赢不了别名(见 [`is_same_dir`]),但它是**永远可用**
+/// 的那一层:路径不存在或读不到时 `canonicalize` 给不出身份,这里的结论就是最后的兜底。
 fn dir_key(path: &Path) -> String {
     let raw = path.to_string_lossy();
     let stripped = raw
@@ -896,13 +1167,94 @@ fn dir_key(path: &Path) -> String {
         .map(|rest| format!(r"\\{rest}"))
         .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
         .unwrap_or_else(|| raw.to_string());
-    // 分隔符与大小写只在 Windows 上等价;Linux 下 `a\b` 是个合法文件名、`C:` 与 `c:`
-    // 是两个目录,归一过头会把不同路径判成同一个。
+    // 分隔符与大小写只在 Windows 上等价;Linux 下 `C:` 与 `c:` 是两个目录,
+    // 归一过头会把不同路径判成同一个。
     #[cfg(windows)]
-    let key = stripped.replace('/', "\\").to_lowercase();
+    let unified = stripped.replace('/', "\\").to_lowercase();
     #[cfg(not(windows))]
-    let key = stripped;
+    let unified = stripped;
+    let key = normalize_resource(&unified);
     key.trim_end_matches(['\\', '/']).to_string()
+}
+
+/// 两个路径串指的是不是**同一个目录**。
+///
+/// D-194 补漏二:**词法规则补不完**,别再往 [`dir_key`] 里加规则了。实测(Windows 11)
+/// 下面这些写法在磁盘上就是同一个目录,而纯词法折叠一条都认不出来:
+/// - `C:\Users\kanzei.` —— Windows 剥掉末段的尾随点;`kanzei.` 对折叠来说是个普通段名,
+///   既不是 `.` 也不是 `..`,于是 `c:/users/kanzei.` ≠ `c:/users/kanzei`。
+/// - `\\localhost\C$\Users\kanzei` / `\\127.0.0.1\C$\Users\kanzei` —— 归一成
+///   `//localhost/c$/users/kanzei`,与盘符形态永不相等。这**不纯是对抗构造**:网络/漫游
+///   profile 下 UNC 本来就是合法写法。
+/// - 符号链接、junction、`subst` 虚拟盘、8.3 短名 —— 凡「词法不同、文件系统同一」的别名,
+///   再补多少条词法规则也补不完。
+///
+/// 所以改用**文件系统身份**:两侧各做一次 `std::fs::canonicalize`。实测它把 junction、
+/// 8.3 短名、`subst` 虚拟盘、尾随点、大小写、`\\?\` 前缀一律解成同一个 `\\?\C:\…` 形态。
+///
+/// **这与「显式主根不做 canonicalize」不矛盾——两条说的是不同的事。**
+/// 那条顾虑(见 [`resolve_project_root`] 与测试 `显式主根不做canonicalize`)反对的是把
+/// canonicalize 的产物**当作项目根存下去 / 传下去**:`\\?\` 形态会让用户已经写在配置里的
+/// 绝对路径权限规则集体失配。而这里的 canonicalize **只活在本次相等判断内部**——不返回、
+/// 不存储、不进哈希、不传给任何下游;`resolve_project_root` 返回的仍是用户写下的原串,
+/// 下游看到的形态一个字节没变(那条测试原样保留,正是用来钉住存储/传播侧没变的)。
+///
+/// canonicalize 失败(路径不存在、无读权限)时**回落到词法折叠**——拿不到身份不等于放行。
+fn is_same_dir(a: &Path, b: &Path) -> bool {
+    // ① 词法层永远先跑:它不需要路径存在,也是 canonicalize 失败时的兜底。
+    //    只加不减——加上身份层之后,今天能认出来的写法一条都不会变得认不出来。
+    if dir_key(a) == dir_key(b) {
+        return true;
+    }
+    let (Ok(ca), Ok(cb)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) else {
+        return false;
+    };
+    // ② 身份层:同一命名空间内 canonicalize 就是唯一名字,别名到这里全部坍缩。
+    if dir_key(&ca) == dir_key(&cb) {
+        return true;
+    }
+    // ③ 跨命名空间:canonicalize **不**把 UNC 归到盘符形态(实测
+    //    `\\localhost\C$\Users\kanzei` → `\\?\UNC\localhost\C$\Users\kanzei`),所以 ② 在
+    //    「一侧 UNC、一侧盘符」时必然判不等。只在这种情况下再走一层判据。
+    if !is_unc_key(&dir_key(&ca)) && !is_unc_key(&dir_key(&cb)) {
+        return false;
+    }
+    same_dir_by_volume_metadata(&ca, &cb)
+}
+
+/// [`dir_key`] 产出的 UNC 形态(`\\host\share\…` → `//host/share/…`)。
+fn is_unc_key(key: &str) -> bool {
+    key.starts_with("//")
+}
+
+/// 跨命名空间的同一性:比对目录**自身**的卷级元数据(创建时间 + 修改时间,均 100ns 精度)。
+/// 这两个属性存在卷上,透过盘符还是透过 UNC 读到的是同一份——实测一致。
+///
+/// **诚实说明它不是句柄级身份**:句柄级身份要 `GetFileInformationByHandle` 的
+/// `(volume_serial_number, file_index)`,std 里对应 `windows_by_handle`,**至今未稳定**
+/// (rustc 1.97 实测 E0658),而本 crate 不引入 winapi 依赖去换这一处判据。
+///
+/// 判错方向是可陈述的:元数据相等 → 判成同一个目录 → **多拦一个 HOME**(更严,可见地报错);
+/// 元数据不等 → 判成不同 → 退回 ② 的结论。因此误判只会偏保守,不会偏放行。
+/// 唯一会偏放行的窗口是「两次读之间 HOME 自身的 mtime 被别的进程改掉」,所以读两轮:
+/// 第一轮不等就整组重读一次,那个窗口需要连续两次都撞上才成立。
+fn same_dir_by_volume_metadata(a: &Path, b: &Path) -> bool {
+    fn fingerprint(path: &Path) -> Option<(Option<std::time::SystemTime>, std::time::SystemTime)> {
+        let meta = std::fs::metadata(path).ok()?;
+        if !meta.is_dir() {
+            return None;
+        }
+        Some((meta.created().ok(), meta.modified().ok()?))
+    }
+    for _ in 0..2 {
+        let (Some(fa), Some(fb)) = (fingerprint(a), fingerprint(b)) else {
+            return false;
+        };
+        if fa == fb {
+            return true;
+        }
+    }
+    false
 }
 
 /// 解析出的项目根是不是 HOME 本身。
@@ -911,8 +1263,10 @@ fn dir_key(path: &Path) -> String {
 /// 一路向上找不到任何标记时兜底返回 cwd,而 cwd 就是 HOME。此时项目级产物(state.db、
 /// project/、memory/)会落进 `~/.kanzei`——那是全局配置根,两边数据就此混在一起
 /// (D-186 的残留正是这么来的)。调用方拿这个判据在开跑前拦下来。
+///
+/// 相等判断委托 [`is_same_dir`](词法折叠 + 文件系统身份),别名形态在那里说明。
 pub fn is_home_root(root: &Path) -> bool {
-    dirs::home_dir().is_some_and(|home| dir_key(&home) == dir_key(root))
+    dirs::home_dir().is_some_and(|home| is_same_dir(&home, root))
 }
 
 fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
@@ -1176,6 +1530,215 @@ mod tests {
         assert_eq!(padded.explicit_bash_wildcard_allows().len(), 1);
     }
 
+    /// F8 ①(D-139 的新形态):**探针 Allow ≠ yolo**。探针是一条具体命令,用户完全可能
+    /// 只授权过它自己;老判据会把"你授权过 git status"说成"bash 已经全放开",又一句假话。
+    #[test]
+    fn 探针被单条规则命中时不得冒充全量放行() {
+        // 规则内容与探针逐字节相同:探针必然 Allow,但配置里没有任何 `bash/*`。
+        let probe = serde_json::json!({ "command": "git status", "workdir": "." }).to_string();
+        let text = format!(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = '{probe}'\neffect = \"allow\"\n"
+        );
+        let config: KanzeiConfig = toml::from_str(&text).unwrap();
+
+        // 先钉住前提:这条配置下探针的**实际评估结果**确实是 Allow,
+        // 否则这条用例根本没走到被修的那个分支。
+        let mut ruleset = crate::permission::Ruleset::default();
+        for rule in &config.permissions.rules {
+            ruleset.push(rule.clone());
+        }
+        assert_eq!(
+            ruleset.evaluate(BASH_ACTION, &probe),
+            crate::permission::Effect::Allow
+        );
+        assert_eq!(config.explicit_bash_wildcard_allows().len(), 0);
+
+        let w = config.bash_permission_warnings();
+        assert!(
+            !w.iter().any(|line| line.contains("全量放行")),
+            "没有 bash/* 规则就不许说全量放行: {w:?}"
+        );
+        assert!(
+            w.iter().any(|line| line.contains("其余命令仍会逐次询问")),
+            "必须如实说清范围: {w:?}"
+        );
+    }
+
+    /// D-269 收敛路径(验收⑥):停止对 bash 资源做路径规范化之后,**已落盘的结构化规则
+    /// 里有一类是可解析的**——命令文本被 Windows 整串小写改写过,JSON 还合法,于是
+    /// `legacy_bash_rules` 一条都认不出来:用户零告警、零指引,只看到命令又开始逐次询问。
+    ///
+    /// 夹具用的是本机真实配置里的形态(9 条非结构化 / 7 条被折成不可解析 / 5 条可解析,
+    /// 其中 3 条命令原文有大写因而已经失效)。
+    #[test]
+    fn 被小写折坏的结构化规则也要进告警() {
+        let text = r#"
+# ① 非结构化(裸命令):legacy_bash_rules 认得
+[[permissions.rules]]
+action = "bash"
+resource = "Get-ChildItem *"
+effect = "allow"
+
+# ② 结构化但被 `\` → `/` 折成不可解析:legacy_bash_rules 也认得
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git commit -m /"整理/"","workdir":"c:/proj"}'
+effect = "allow"
+
+# ③ 结构化、可解析、但命令原文有大写被整串小写:老判据完全认不出来
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"(get-content /x/main.rs).count","workdir":"c:/proj"}'
+effect = "allow"
+
+# ④ 结构化、可解析、天生全小写:其实还活着,判据只能宽报(理由见函数注释)
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git status --short","workdir":"c:/proj"}'
+effect = "allow"
+
+# ⑤ deny 是仍然生效的护栏,不算失效(D-139)
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"rm -rf /","workdir":"c:/proj"}'
+effect = "deny"
+"#;
+        let config: KanzeiConfig = toml::from_str(text).unwrap();
+
+        // ③④ 正是老判据漏掉的那一类:它们是合法结构化资源,legacy 那边一条不收。
+        let legacy = config.legacy_bash_rules_needing_downgrade();
+        assert_eq!(legacy.len(), 2, "①② 归 legacy: {legacy:?}");
+
+        let stale = config.structured_bash_rules_possibly_stale();
+        assert_eq!(stale.len(), 2, "③④ 归新判据,deny 的 ⑤ 不算: {stale:?}");
+        assert!(stale.iter().any(|r| r.resource.contains("get-content")));
+
+        let w = config.bash_permission_warnings();
+        let text = w.join("\n");
+        // 两类各说各的,数目都要出现。
+        assert!(text.contains("2 条旧 bash 权限规则"), "{w:?}");
+        assert!(text.contains("2 条结构化 bash 规则"), "{w:?}");
+        // 可执行的动作:说清失效 + 下次遇到重新授权一次即可。
+        assert!(text.contains("总是允许"), "必须给出可照做的动作: {w:?}");
+        // 点名到具体命令,而不是只报一个数字。
+        assert!(text.contains("Get-ChildItem *"), "{w:?}");
+        assert!(text.contains("get-content"), "{w:?}");
+        // 不许再出现那句没有落点的老文案。
+        assert!(!text.contains("请重新选择精确作用域"), "{w:?}");
+    }
+
+    /// F8 ⑥ 接线之三:非交互策略键缺席 = `deny` = **今天的行为**,旧配置逐字节不变。
+    #[test]
+    fn 非交互策略缺键等于deny且旧配置行为不变() {
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert_eq!(empty.non_interactive_policy(), NonInteractive::Deny);
+        assert!(empty.non_interactive_policy_warning().is_none());
+
+        // 只有 rules 的老配置同样不变,也不产额外告警。
+        let old: KanzeiConfig = toml::from_str(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \"*\"\neffect = \"allow\"\n",
+        )
+        .unwrap();
+        assert_eq!(old.non_interactive_policy(), NonInteractive::Deny);
+        assert!(old.non_interactive_policy_warning().is_none());
+
+        for (写法, 期望) in [
+            ("deny", NonInteractive::Deny),
+            ("rules_only", NonInteractive::RulesOnly),
+            ("allow_listed", NonInteractive::AllowListed),
+            ("  Rules_Only  ", NonInteractive::RulesOnly),
+        ] {
+            let c: KanzeiConfig =
+                toml::from_str(&format!("[permissions]\nnon_interactive = \"{写法}\"\n")).unwrap();
+            assert_eq!(c.non_interactive_policy(), 期望, "写法 {写法:?}");
+            assert!(
+                c.non_interactive_policy_warning().is_none(),
+                "写法 {写法:?}"
+            );
+        }
+    }
+
+    /// F8 ⑥ 接线之三(续):认不出来的取值 **fail-closed 回落 deny 并且必须出声**。
+    /// 悄悄回落最坏——用户以为开了 rules_only,实际每次停机,还归不到因。
+    #[test]
+    fn 非交互策略非法取值fail_closed回落deny并告警() {
+        for 写法 in ["rulesonly", "yolo", "true", "1"] {
+            let c: KanzeiConfig =
+                toml::from_str(&format!("[permissions]\nnon_interactive = \"{写法}\"\n")).unwrap();
+            assert_eq!(
+                c.non_interactive_policy(),
+                NonInteractive::Deny,
+                "非法取值 {写法:?} 必须回落 deny"
+            );
+            let warning = c
+                .non_interactive_policy_warning()
+                .unwrap_or_else(|| panic!("非法取值 {写法:?} 必须产告警"));
+            assert!(warning.contains(写法), "告警要点名原值: {warning}");
+            assert!(warning.contains("fail-closed"), "{warning}");
+            assert!(warning.contains("rules_only"), "要列出可用取值: {warning}");
+        }
+        // 空串按"没写"处理:不回落告警,行为等于缺键。
+        let 空: KanzeiConfig = toml::from_str("[permissions]\nnon_interactive = \"  \"\n").unwrap();
+        assert_eq!(空.non_interactive_policy(), NonInteractive::Deny);
+        assert!(空.non_interactive_policy_warning().is_none());
+    }
+
+    /// F8 ⑥ 接线之二:`merge` 的 overlay。只加字段不接这一行,项目层设了会静默不生效
+    /// (`Limits::barrier_timeout_secs` 的前车之鉴)。
+    #[test]
+    fn 非交互策略项目层覆盖全局层() {
+        let mut base: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"deny\"\n").unwrap();
+        let layer: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"rules_only\"\n").unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.non_interactive_policy(), NonInteractive::RulesOnly);
+
+        // 反向:项目层没写这个键,不能把全局层的值打回默认。
+        let mut base: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"allow_listed\"\n").unwrap();
+        let layer: KanzeiConfig = toml::from_str(
+            "[[permissions.rules]]\naction = \"bash\"\nresource = \"*\"\neffect = \"allow\"\n",
+        )
+        .unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.non_interactive_policy(), NonInteractive::AllowListed);
+        assert_eq!(base.permissions.rules.len(), 1, "rules 仍然是追加语义");
+    }
+
+    /// 序列化顺序陷阱:TOML 里标量键必须排在**数组表之前**,否则 `non_interactive` 会被
+    /// 当成 `[[permissions.rules]]` 最后一项的字段,写出去的文件读回来就变了个意思。
+    /// `unknown_keys_schema_matches_struct` 只覆盖了缺省(None)那种情况,盖不住这条。
+    #[test]
+    fn 非交互策略键与规则数组同时存在时能原样round_trip() {
+        let mut config = KanzeiConfig::default();
+        config.permissions.non_interactive = Some("rules_only".into());
+        config.permissions.rules.push(Rule {
+            action: "bash".into(),
+            resource: "*".into(),
+            effect: crate::permission::Effect::Allow,
+        });
+        let text = toml::to_string_pretty(&config).unwrap();
+        let back: KanzeiConfig = toml::from_str(&text)
+            .unwrap_or_else(|e| panic!("序列化产物读不回来(标量排在数组表之后?): {e}\n{text}"));
+        assert_eq!(back.non_interactive_policy(), NonInteractive::RulesOnly);
+        assert_eq!(back.permissions.rules.len(), 1);
+        let raw: toml::Value = toml::from_str(&text).unwrap();
+        assert_eq!(unknown_keys(&raw), Vec::<String>::new());
+    }
+
+    /// F8 ⑥ 接线之一:新键要进 `unknown_keys` 的已知清单,否则一写就收到"未知配置项"假告警。
+    #[test]
+    fn 非交互策略键不产生未知配置项假告警() {
+        let raw: toml::Value =
+            toml::from_str("[permissions]\nnon_interactive = \"rules_only\"\n").unwrap();
+        assert_eq!(unknown_keys(&raw), Vec::<String>::new());
+        // 同一节里拼错的键仍然要报出来,清单不是把整节放行。
+        let raw: toml::Value =
+            toml::from_str("[permissions]\nnon_interactiv = \"rules_only\"\n").unwrap();
+        assert_eq!(unknown_keys(&raw), vec!["permissions.non_interactiv"]);
+    }
+
     #[test]
     fn unknown_fields_are_tolerated_and_reported() {
         // D-084:新版本写入的配置节不能炸掉旧二进制;未知键忽略但可见。
@@ -1376,8 +1939,422 @@ typo_fielt = true
             assert!(is_home_root(&PathBuf::from(
                 home.display().to_string().to_uppercase()
             )));
+            // canonicalize 的产物形态:剥了 `\\?\` 才认得出来。
+            assert!(is_home_root(&PathBuf::from(format!(
+                r"\\?\{}",
+                home.display()
+            ))));
         }
         assert!(!is_home_root(&home.join("projects")));
+    }
+
+    /// D-194 补漏:`dir_key` 不折叠 `.` / `..` 时,`C:\Users\kanzei\.` 这类写法让 HOME
+    /// 拦截静默失效——而 `resolve_project_root` 的标记校验对它照样成立(HOME 下有
+    /// `.kanzei`),两道拦截一起被绕过,project 级 state.db 被写进全局配置根 `~/.kanzei`
+    /// (实测发生过)。
+    ///
+    /// 这条路是 R-182 的显式主根入口打开的:在那之前根恒来自 `current_dir()`,不含
+    /// `.`/`..` 段,写不出这种串;新入口收的正是用户任意书写的路径。
+    #[test]
+    fn is_home_root_folds_dot_and_dotdot_segments() {
+        let Some(home) = dirs::home_dir() else {
+            return; // 无 HOME 的环境跳过,不是被测行为。
+        };
+        let sep = std::path::MAIN_SEPARATOR;
+        let text = home.display().to_string();
+        let mut forms = vec![
+            // 尾随 `.`:文件系统里就是 HOME 自己。
+            PathBuf::from(format!("{text}{sep}.")),
+            // 下一级再 `..` 弹回来。折叠是纯词法的,所以那一级存不存在都一样。
+            PathBuf::from(format!("{text}{sep}Documents{sep}..")),
+            // `.` 后面还跟着尾分隔符。
+            PathBuf::from(format!("{text}{sep}.{sep}")),
+            // 多段叠加,一路弹回 HOME。
+            PathBuf::from(format!("{text}{sep}a{sep}..{sep}.{sep}b{sep}..")),
+        ];
+        #[cfg(windows)]
+        {
+            let slash = text.replace('\\', "/");
+            forms.push(PathBuf::from(format!("{slash}/./")));
+            forms.push(PathBuf::from(format!("{slash}/Documents/..")));
+            // 大小写 + `.` 段 + `\\?\` 前缀三者叠加,任一环节漏了都拦不住。
+            forms.push(PathBuf::from(format!(
+                r"\\?\{}\.",
+                text.to_lowercase().trim_end_matches('\\')
+            )));
+        }
+        for form in forms {
+            assert!(
+                is_home_root(&form),
+                "含 . / .. 的写法必须被认成 HOME: {}",
+                form.display()
+            );
+        }
+    }
+
+    /// 折叠不许过头:路径里带 `.` 的**合法目录名**(`v1.0`、`.config`)不是 `.` 段,
+    /// 正常项目根不能被误拦;`..` 也必须真的向上一级,而不是被吞掉。
+    #[test]
+    fn dir_key_keeps_dotted_directory_names() {
+        let app = PathBuf::from(r"C:\proj\v1.0\app");
+        // `v1.0` / `.config` 是目录名,不是 `.` 段:各自都还在。
+        assert_ne!(dir_key(&app), dir_key(&PathBuf::from(r"C:\proj\v1.0")));
+        assert_ne!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\.config"))
+        );
+        assert_ne!(dir_key(&app), dir_key(&PathBuf::from(r"C:\proj\app")));
+        // 而真正的 `.` 段确实被折掉。
+        assert_eq!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\."))
+        );
+        assert_eq!(
+            dir_key(&app),
+            dir_key(&PathBuf::from(r"C:\proj\v1.0\app\sub\.."))
+        );
+
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+        // 正常项目根(哪怕就在 HOME 底下、哪怕名字里带点)不被误判成 HOME。
+        assert!(!is_home_root(&home.join("proj").join("v1.0").join("app")));
+        assert!(!is_home_root(&home.join("v1.0")));
+        assert!(!is_home_root(&home.join(".config")));
+        // `..` 真的向上一级:HOME 的父目录不是 HOME。
+        assert!(!is_home_root(&home.join("..")));
+        assert!(!is_home_root(&home.join("a").join("..").join("..")));
+    }
+
+    /// 造一个空的临时夹具根,名字带 pid + 纳秒,避免同进程并发用例互踩。
+    fn 临时夹具根(标签: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-{标签}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    /// `C:\x\y` → `\\localhost\C$\x\y`(本机管理共享)。拿不到盘符就返回 None。
+    #[cfg(windows)]
+    fn 管理共享形态(path: &Path, host: &str) -> Option<PathBuf> {
+        let text = path.display().to_string();
+        let bytes = text.as_bytes();
+        if bytes.len() < 3 || bytes[1] != b':' || !bytes[0].is_ascii_alphabetic() {
+            return None;
+        }
+        Some(PathBuf::from(format!(
+            r"\\{host}\{}${}",
+            &text[..1],
+            &text[2..]
+        )))
+    }
+
+    /// D-194 补漏三(对抗复核实测推翻了词法折叠):**「词法不同、文件系统同一」的别名补不完**。
+    ///
+    /// 复核实测出的两条现成绕过:`C:\Users\kanzei.`(Windows 剥掉末段尾随点)与
+    /// `\\localhost\C$\Users\kanzei`(UNC,漫游/网络 profile 下本来就是合法写法);
+    /// 再往下还有符号链接、junction、`subst` 虚拟盘、8.3 短名。本条用**真夹具**证明
+    /// 身份层认得出它们,并且**每条都先断言词法层认不出**——否则用例证明不了身份层在干活。
+    ///
+    /// 夹具全部造在系统临时目录,一个字节都不碰真 HOME;造不出来的形态跳过并打印原因。
+    #[test]
+    #[cfg(windows)]
+    fn 文件系统别名一律被认成同一个目录() {
+        let root = 临时夹具根("d194-alias");
+        // 名字取长一点,8.3 短名才有 `~1` 形态可测。
+        let 目标 = root.join("homedirectory");
+        std::fs::create_dir_all(目标.join(".kanzei")).unwrap();
+        // 对照组:名字里带点的**合法**项目根,不能被误拦。
+        let 带点项目根 = root.join("v1.0").join("app");
+        std::fs::create_dir_all(&带点项目根).unwrap();
+
+        let mut 跳过: Vec<String> = Vec::new();
+        let 断言别名 = |形态: &Path, 名称: &str| {
+            assert_ne!(
+                dir_key(&目标),
+                dir_key(形态),
+                "夹具失效:{名称} 在词法上必须与目标不同,否则这条用例证明不了身份层"
+            );
+            assert!(
+                is_same_dir(&目标, 形态),
+                "{名称} 在磁盘上就是同一个目录,必须被认出来: {}",
+                形态.display()
+            );
+        };
+
+        // ① 尾随点:Windows 剥掉末段的尾随点,`homedirectory.` 就是 `homedirectory`。
+        断言别名(&PathBuf::from(format!("{}.", 目标.display())), "尾随点");
+
+        // ② junction:不需要管理员权限,mklink /J 即可。
+        let junction = root.join("junc");
+        let 造junction = std::process::Command::new("cmd")
+            .args([
+                "/c",
+                "mklink",
+                "/J",
+                &junction.display().to_string(),
+                &目标.display().to_string(),
+            ])
+            .output();
+        match 造junction {
+            Ok(_) if junction.is_dir() => 断言别名(&junction, "junction"),
+            Ok(out) => 跳过.push(format!(
+                "junction: mklink /J 没造出来({})",
+                String::from_utf8_lossy(&out.stdout).trim()
+            )),
+            Err(e) => 跳过.push(format!("junction: 起不了 cmd({e})")),
+        }
+
+        // ③ 符号链接:Windows 上要管理员或开发者模式,普通会话大概率造不出来。
+        let 符号链接 = root.join("symd");
+        match std::os::windows::fs::symlink_dir(&目标, &符号链接) {
+            Ok(()) => 断言别名(&符号链接, "符号链接"),
+            Err(e) => 跳过.push(format!(
+                "符号链接: {e}(Windows 建目录符号链接需管理员或开发者模式)"
+            )),
+        }
+
+        // ④ 8.3 短名:卷上可能已经关掉 8dot3name 生成。
+        let 短名 = root.join("HOMEDI~1");
+        if 短名.is_dir() {
+            断言别名(&短名, "8.3 短名");
+        } else {
+            跳过.push("8.3 短名: 本卷未生成 8dot3 名(fsutil 8dot3name 已关)".into());
+        }
+
+        // ⑤ UNC 管理共享:两种主机写法各一遍;非管理员会话访问 C$ 会失败,失败即跳过。
+        for host in ["localhost", "127.0.0.1"] {
+            match 管理共享形态(&目标, host) {
+                Some(unc) if unc.is_dir() => 断言别名(&unc, &format!(r"UNC \\{host}\C$")),
+                Some(unc) => 跳过.push(format!("UNC {}: 不可达(需要管理共享权限)", unc.display())),
+                None => 跳过.push(format!("UNC {host}: 夹具不在盘符路径上")),
+            }
+        }
+
+        // 反向:别名判定不许过头——不同的目录仍然是不同的目录。
+        assert!(!is_same_dir(&目标, &带点项目根), "带点的合法项目根被误拦");
+        assert!(!is_same_dir(&目标, &root.join("v1.0")));
+        assert!(!is_same_dir(&目标, &root), "父目录不是同一个目录");
+        assert!(
+            !is_same_dir(&目标, &目标.join(".kanzei")),
+            "子目录不是同一个目录"
+        );
+
+        if !跳过.is_empty() {
+            eprintln!("文件系统别名用例跳过的形态: {跳过:#?}");
+        }
+        // junction 先单独删,避免递归删除时穿到目标里去。
+        let _ = std::fs::remove_dir(&junction);
+        let _ = std::fs::remove_dir(&符号链接);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// 复核实测报上来的那两条绕过,直接打在**真 HOME**上(只读:比较不写任何东西)。
+    /// 这是红线用例——它红就意味着 `KANZEI_PROJECT_ROOT` 又能把项目产物写进 `~/.kanzei`。
+    #[test]
+    #[cfg(windows)]
+    fn 真home的尾随点与unc写法不再绕过拦截() {
+        let Some(home) = dirs::home_dir() else {
+            return; // 无 HOME 的环境跳过,不是被测行为。
+        };
+        let 尾随点 = PathBuf::from(format!("{}.", home.display()));
+        assert_ne!(dir_key(&home), dir_key(&尾随点), "夹具失效:词法上本该不同");
+        assert!(
+            is_home_root(&尾随点),
+            "`{}` 在磁盘上就是 HOME,必须被拦下",
+            尾随点.display()
+        );
+
+        let mut 测到的unc = 0usize;
+        for host in ["localhost", "127.0.0.1"] {
+            let Some(unc) = 管理共享形态(&home, host) else {
+                continue;
+            };
+            if !unc.is_dir() {
+                eprintln!("跳过 {}(需要管理共享权限)", unc.display());
+                continue;
+            }
+            assert_ne!(dir_key(&home), dir_key(&unc), "夹具失效:词法上本该不同");
+            assert!(is_home_root(&unc), "UNC 写法必须被拦下: {}", unc.display());
+            测到的unc += 1;
+        }
+        if 测到的unc == 0 {
+            eprintln!("本机管理共享不可达,UNC 形态未覆盖(见同名夹具用例)");
+        }
+    }
+
+    /// 拿不到文件系统身份时**回落词法折叠**,不因为 canonicalize 失败就当成两个目录。
+    /// (路径不存在这条在 CLI 里其实到不了 `is_home_root`——`resolve_project_root`
+    /// 先报"显式主根指向的路径不存在";这里钉的是守卫本身的兜底行为。)
+    #[test]
+    fn canonicalize失败时回落到词法折叠() {
+        let 不存在 = std::env::temp_dir().join(format!(
+            "kanzei-d194-missing-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!不存在.exists());
+        assert!(std::fs::canonicalize(&不存在).is_err());
+        assert!(is_same_dir(&不存在, &不存在.join(".")));
+        assert!(is_same_dir(&不存在, &不存在.join("x").join("..")));
+        assert!(!is_same_dir(&不存在, &不存在.join("x")));
+    }
+
+    /// R-182 内容②:`load_at_root` 是**显式**入口——给它哪个根就读哪个根,
+    /// 一步都不许向上发现;发现式的老入口 `load_with_warnings` 语义原样不变。
+    #[test]
+    fn load_at_root不做根发现() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-at-root-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sub = root.join("sub");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::create_dir_all(sub.join(".kanzei")).unwrap();
+        std::fs::write(
+            root.join(".kanzei").join("kanzei.toml"),
+            "[models]\nprimary = \"mock:root-model\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            sub.join(".kanzei").join("kanzei.toml"),
+            "[models]\nprimary = \"mock:sub-model\"\n",
+        )
+        .unwrap();
+
+        // 显式入口:传 root 就读 root 那份,哪怕 cwd 概念上在 sub 里。
+        let (at_root, _) = KanzeiConfig::load_with_warnings_at_root(&root).unwrap();
+        assert_eq!(at_root.models.primary.as_deref(), Some("mock:root-model"));
+        assert_eq!(
+            KanzeiConfig::load_at_root(&root)
+                .unwrap()
+                .models
+                .primary
+                .as_deref(),
+            Some("mock:root-model")
+        );
+        // 发现式老入口:从 sub 出发仍然命中 sub 自己的 `.kanzei`(行为一字不改)。
+        let (discovered, _) = KanzeiConfig::load_with_warnings(&sub).unwrap();
+        assert_eq!(discovered.models.primary.as_deref(), Some("mock:sub-model"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 优先级定死:参数 > 环境变量 > 发现式。本函数只看「显式还是没有」这一层;
+    /// 参数与环境变量的先后由 CLI 侧合成(main.rs 的 `explicit_main_root`)。
+    #[test]
+    fn resolve_project_root显式优先() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-resolve-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sub = root.join("sub");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::create_dir_all(sub.join(".kanzei")).unwrap();
+
+        // 显式给了根:cwd 在 sub 里也照样返回 root。
+        assert_eq!(
+            resolve_project_root(Some(&root), &sub).unwrap(),
+            root.clone()
+        );
+        // 没给:逐字节退回 discover_project_root——这同时证明本批没去改它。
+        assert_eq!(
+            resolve_project_root(None, &sub).unwrap(),
+            discover_project_root(&sub).unwrap()
+        );
+        assert_eq!(resolve_project_root(None, &sub).unwrap(), sub.clone());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn 显式主根必须是真项目根() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-marker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let empty = root.join("empty");
+        let file = root.join("a-file.txt");
+        let worktree = root.join("worktree");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::create_dir_all(&worktree).unwrap();
+        std::fs::write(&file, "not a directory").unwrap();
+        // worktree 的 `.git` 是文件,必须照样算标记。
+        std::fs::write(worktree.join(".git"), "gitdir: ../repo/.git/worktrees/w\n").unwrap();
+
+        for bad in [root.join("does-not-exist"), empty.clone(), file.clone()] {
+            let error = resolve_project_root(Some(&bad), &root)
+                .unwrap_err()
+                .to_string();
+            // 错误必须点名来源键名,否则用户不知道该去改哪个开关/变量。
+            assert!(
+                error.contains("--project-root") && error.contains("KANZEI_PROJECT_ROOT"),
+                "错误文本要点名来源: {error}"
+            );
+        }
+        assert_eq!(
+            resolve_project_root(Some(&worktree), &root).unwrap(),
+            worktree
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// 不做 canonicalize:`\\?\` 形态会让用户已写的绝对路径权限规则一夜失配。
+    #[test]
+    fn 显式主根不做canonicalize() {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r182-nocanon-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+
+        let mut forms = vec![PathBuf::from(format!(
+            "{}{}",
+            root.display(),
+            std::path::MAIN_SEPARATOR
+        ))];
+        #[cfg(windows)]
+        forms.push(PathBuf::from(
+            root.display().to_string().to_lowercase().replace('\\', "/"),
+        ));
+        for form in forms {
+            let resolved = resolve_project_root(Some(&form), &root).unwrap();
+            assert!(
+                !resolved.display().to_string().starts_with(r"\\?\"),
+                "不该 canonicalize: {}",
+                resolved.display()
+            );
+            // 原样返回:用户写下什么就是什么。
+            assert_eq!(resolved, form);
+        }
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
