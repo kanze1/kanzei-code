@@ -30,3 +30,5 @@ crates/kanzei-app/icons/ios/
 # 并行线的私有 target(每树一个,避免共享 target 让 cargo 把别树产物判 Fresh 复用)
 .target-private/
 .target-merge/
+# R-142 前端 ESLint:npm 依赖是 devDependency 产物,不入库(冒烟依赖它,CI/发版前 npm ci)
+node_modules/

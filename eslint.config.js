@@ -1,0 +1,81 @@
+// R-142:前端最低配 ESLint(flat config)。
+// 只开 no-undef 类规则(防手误),不引入构建步骤。ui/*.js 是经典 script 按序加载,
+// 顶层声明的全局标识符清单由 scripts/gen-ui-lint-globals.mjs 生成(冒烟会校验同步)。
+import globals from "globals";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const uiGlobals = JSON.parse(fs.readFileSync(path.join(here, "scripts/ui-lint-globals.json"), "utf8"));
+
+export default [
+  {
+    files: ["crates/kanzei-app/ui/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "script",
+      globals: {
+        // ui/*.js 跨文件全局(经典 script 顶层作用域共享)。放前面:同名宿主全局
+        // 由后面的 Tauri/browser 只读块覆盖,保持 readonly 语义。
+        ...Object.fromEntries(uiGlobals.map((name) => [name, "writable"])),
+        // Tauri 注入的宿主对象
+        window: "readonly",
+        document: "readonly",
+        navigator: "readonly",
+        location: "readonly",
+        history: "readonly",
+        localStorage: "readonly",
+        sessionStorage: "readonly",
+        console: "readonly",
+        alert: "readonly",
+        fetch: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        requestAnimationFrame: "readonly",
+        cancelAnimationFrame: "readonly",
+        EventSource: "readonly",
+        MutationObserver: "readonly",
+        NodeFilter: "readonly",
+        Blob: "readonly",
+        URL: "readonly",
+        FileReader: "readonly",
+        Image: "readonly",
+        TextEncoder: "readonly",
+        TextDecoder: "readonly",
+        AudioContext: "readonly",
+        CustomEvent: "readonly",
+        KeyboardEvent: "readonly",
+        MouseEvent: "readonly",
+        Event: "readonly",
+        performance: "readonly",
+        ...globals.browser,
+        // Tauri IPC(由 WebView 注入,非标准 browser 全局)
+        invoke: "readonly",
+        listen: "readonly",
+        __TAURI_INTERNALS__: "readonly",
+      },
+    },
+    rules: {
+      // 唯一启用的规则:未定义变量。其余规则一律不开(最低配,不引入格式化约束)。
+      "no-undef": "error",
+      // 注释里的全局用法允许(如 JSDoc @type)
+      "no-unused-vars": "off",
+    },
+  },
+  {
+    // scripts/*.mjs 冒烟脚本自身:node 环境 + ESM
+    files: ["scripts/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: globals.node,
+    },
+    rules: {
+      "no-undef": "error",
+      "no-unused-vars": "off",
+    },
+  },
+];

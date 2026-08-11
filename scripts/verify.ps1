@@ -44,6 +44,11 @@ node "$root\scripts\ui-runtime-smoke.mjs"
 if ($LASTEXITCODE -ne 0) { throw "ui_runtime 失败(exit=$LASTEXITCODE)" }
 $checks["ui_runtime"] = "pass"
 
+Write-Host "==> ui_lint (R-142 no-undef)" -ForegroundColor Cyan
+node "$root\scripts\ui-lint-smoke.mjs"
+if ($LASTEXITCODE -ne 0) { throw "ui_lint 失败(exit=$LASTEXITCODE)" }
+$checks["ui_lint"] = "pass"
+
 Write-Host "==> parallel_lines_regression" -ForegroundColor Cyan
 node "$root\scripts\parallel-lines-regression.mjs"
 if ($LASTEXITCODE -ne 0) { throw "parallel_lines_regression 失败(exit=$LASTEXITCODE)" }

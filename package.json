@@ -1,0 +1,14 @@
+{
+  "name": "kanzei-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "kanzei 前端静态检查与冒烟脚本的 npm 壳(无构建步骤,仅 devDependencies)",
+  "scripts": {
+    "lint": "eslint crates/kanzei-app/ui/*.js"
+  },
+  "devDependencies": {
+    "eslint": "^9.24.0",
+    "globals": "^17.9.0"
+  }
+}
