@@ -5,7 +5,9 @@ use super::{
     PendingAsk, SessionRuntime,
 };
 // R-153 批4:default_process_id 已迁到 state 模块。
-use crate::processes::{persist_process, restore_processes_from_store};
+use crate::processes::{
+    persist_process, restore_processes_from_store, restore_processes_from_store_once,
+};
 use crate::state::{default_process_id, ensure_default_process, process_info};
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -265,6 +267,52 @@ fn process_persist_then_restart_restores_line_state() {
         Some("anthropic:claude-sonnet-5")
     );
 
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// 状态轮询是只读采样：同一运行期重复进入 process_list/collaboration_snapshot
+/// 不得把 state.db 的旧快照覆盖掉用户刚改的内存设置。
+#[test]
+fn repeated_process_restore_does_not_overwrite_live_settings() {
+    let root = std::env::temp_dir().join(format!(
+        "kz-process-refresh-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let canonical = crate::normalized_project_root(&root);
+    let stored = crate::state::ProcessHandle {
+        id: format!("p1|{}", canonical.display()),
+        origin_project: canonical.display().to_string(),
+        project_dir: canonical.display().to_string(),
+        worktree_path: None,
+        branch: None,
+        model: Arc::new(std::sync::Mutex::new(Some("old-model".into()))),
+        profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
+        reasoning: Arc::new(std::sync::Mutex::new(Some("medium".into()))),
+        phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    persist_process(&canonical, &stored).unwrap();
+
+    let state = AppState::default();
+    restore_processes_from_store_once(&state, &canonical).unwrap();
+    let live = state
+        .processes
+        .lock()
+        .unwrap()
+        .get(&stored.id)
+        .unwrap()
+        .clone();
+    *live.model.lock().unwrap() = Some("new-model".into());
+    *live.reasoning.lock().unwrap() = Some("high".into());
+
+    restore_processes_from_store_once(&state, &canonical).unwrap();
+    assert_eq!(live.model.lock().unwrap().as_deref(), Some("new-model"));
+    assert_eq!(live.reasoning.lock().unwrap().as_deref(), Some("high"));
     std::fs::remove_dir_all(&root).ok();
 }
 

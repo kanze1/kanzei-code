@@ -111,6 +111,9 @@ $("worktree-add").addEventListener("click", createWorktreeLine);
 let syncedRunningProcessId = null;
 // 已向后端补拉过待答队列的会话,防止每次进程列表刷新都打一次 pending_asks_get。
 let askSyncedSession = null;
+let processRefreshInFlight = null;
+let processRefreshQueued = false;
+let processSwitchGeneration = 0;
 function renderProcesses(items) {
   processItems = items ?? [];
   const previousSessionId = activeSessionId;
@@ -145,10 +148,17 @@ function renderProcesses(items) {
     setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
   }
   const tabs = $("process-tabs");
-  tabs.replaceChildren();
+  const existingTabs = new Map(
+    [...tabs.children].map((tab) => [tab.dataset.processId, tab]),
+  );
+  const nextTabs = [];
   for (const item of processItems) {
-    const tab = document.createElement("button");
-    tab.type = "button";
+    const tab = existingTabs.get(item.id) || document.createElement("button");
+    if (!tab.dataset.processId) {
+      tab.type = "button";
+      tab.addEventListener("click", () => switchProcess(tab.dataset.processId));
+    }
+    tab.dataset.processId = item.id;
     // R-086:标签的 ● 从该会话状态机取——后台会话的 done 已收敛终态,不依赖
     // 这次轮询是否恰好拉到了最新 running。
     const itemRunning = sessionState(item.session_id).running;
@@ -156,9 +166,9 @@ function renderProcesses(items) {
     const branch = item.branch ? ` · ${item.branch}` : "";
     tab.textContent = `${item.label}${branch}${itemRunning ? " ●" : ""}`;
     tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}${item.worktree_path ? ` · ${item.worktree_path}` : ""}`;
-    tab.addEventListener("click", () => switchProcess(item.id));
-    tabs.appendChild(tab);
+    nextTabs.push(tab);
   }
+  tabs.replaceChildren(...nextTabs);
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
   // 分支线写主根 tracker 必须由用户显式打开；默认线直接写主根，不展示无意义开关。
@@ -174,11 +184,26 @@ function renderProcesses(items) {
 
 async function refreshProcesses() {
   if (!currentProject) return;
-  try {
-    renderProcesses(await invoke("process_list", { projectDir: currentProject }));
-  } catch (err) {
-    log(`${t("进程列表刷新失败")}:${err}`, "warn");
+  if (processRefreshInFlight) {
+    processRefreshQueued = true;
+    return processRefreshInFlight;
   }
+  const forProject = currentProject;
+  processRefreshInFlight = (async () => {
+    try {
+      const items = await invoke("process_list", { projectDir: forProject });
+      if (currentProject === forProject) renderProcesses(items);
+    } catch (err) {
+      if (currentProject === forProject) log(`${t("进程列表刷新失败")}:${err}`, "warn");
+    } finally {
+      processRefreshInFlight = null;
+      if (processRefreshQueued) {
+        processRefreshQueued = false;
+        void refreshProcesses();
+      }
+    }
+  })();
+  return processRefreshInFlight;
 }
 
 async function refreshPendingAsks() {
@@ -208,6 +233,10 @@ async function switchProcess(processId) {
   if (processId === activeProcessId) return;
   const target = processItems.find((item) => item.id === processId);
   if (!target) return;
+  const switchGeneration = ++processSwitchGeneration;
+  const forProject = currentProject;
+  const isCurrentSwitch = () =>
+    switchGeneration === processSwitchGeneration && currentProject === forProject;
   // 后端只保存 dev/research；切换前先把前端的 dev-auto 档位绑定到旧进程，
   // 这样回切时不会因后端 profile=dev 而退回 dev-pair。
   if (activeProcessId) processProfileUi.set(activeProcessId, $("profile-select").value);
@@ -229,16 +258,20 @@ async function switchProcess(processId) {
   clearChat();
   bgClear();
   renderTodoPanel([], 0, 0);
-  await loadConversation();
+  await loadConversation(null, switchGeneration);
+  if (!isCurrentSwitch()) return;
   await refreshPendingAsks();
+  if (!isCurrentSwitch()) return;
   await refreshDocs();
+  if (!isCurrentSwitch()) return;
   await loadModels();
+  if (!isCurrentSwitch()) return;
   // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
   $("model-select").value = target.model || "";
   if (target.profile) applyProfileValue(target.profile);
   refreshGit();
   refreshPendingInputs();
-  refreshProcesses();
+  void refreshProcesses();
   log(`${t("已切换到进程")} ${target.label}`);
 }
 
@@ -257,7 +290,8 @@ $("process-add").addEventListener("click", async () => {
 $("process-phase-pipeline").addEventListener("change", async (event) => {
   if (!activeProcessId) return;
   try {
-    await invoke("process_update", { processId: activeProcessId, phasePipeline: event.target.checked });
+    await queueProcessUpdate(activeProcessId, { phasePipeline: event.target.checked });
+    updateLocalProcessItem(activeProcessId, { phase_pipeline: event.target.checked });
     await refreshProcesses();
     log(event.target.checked ? t("勘察复核已开启:每个任务强制走勘察→实现→复核") : t("勘察复核已关闭:恢复一问一答,模型仍可自己派子代理"));
   } catch (err) {
@@ -271,7 +305,8 @@ $("process-tracker-writes").addEventListener("change", async (event) => {
   const active = processItems.find((item) => item.id === activeProcessId);
   if (!activeProcessId || !active?.worktree_path) return;
   try {
-    await invoke("process_update", { processId: activeProcessId, trackerWrites: event.target.checked });
+    await queueProcessUpdate(activeProcessId, { trackerWrites: event.target.checked });
+    updateLocalProcessItem(activeProcessId, { tracker_writes: event.target.checked });
     await refreshProcesses();
     log(event.target.checked ? t("当前分支线已允许写主根追踪器") : t("当前分支线已恢复为只读主根追踪器"));
   } catch (err) {

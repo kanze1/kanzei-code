@@ -3,6 +3,10 @@
 // 其 branch / phase / tool / changed_files 来自后端当前运行态和 git 现场。
 let collaborationLines = [];
 let linesRefreshInFlight = false;
+let linesRefreshTimer = null;
+let linesRefreshQueued = false;
+const LINES_REFRESH_IDLE_MS = 8000;
+const LINES_REFRESH_RUNNING_MS = 3500;
 
 function lineAgentCodes(lines) {
   const codes = new Map();
@@ -188,7 +192,6 @@ function renderLines(lines) {
     open.textContent = line.process_id === activeProcessId ? t("当前线路") : t("切换到此线路");
     open.disabled = line.process_id === activeProcessId;
     open.addEventListener("click", async () => {
-      await refreshProcesses();
       await switchProcess(line.process_id);
       renderLines(collaborationLines);
     });
@@ -200,8 +203,12 @@ function renderLines(lines) {
 }
 
 async function refreshLines() {
-  if (!currentProject || linesRefreshInFlight) {
-    if (!currentProject) renderLines([]);
+  if (!currentProject) {
+    renderLines([]);
+    return;
+  }
+  if (linesRefreshInFlight) {
+    linesRefreshQueued = true;
     return;
   }
   const forProject = currentProject;
@@ -217,7 +224,22 @@ async function refreshLines() {
     }
   } finally {
     linesRefreshInFlight = false;
+    if (linesRefreshQueued) {
+      linesRefreshQueued = false;
+      scheduleLinesRefresh(250);
+    } else {
+      const running = collaborationLines.some((line) => line.running);
+      scheduleLinesRefresh(running ? LINES_REFRESH_RUNNING_MS : LINES_REFRESH_IDLE_MS);
+    }
   }
+}
+
+function scheduleLinesRefresh(delay) {
+  if (linesRefreshTimer) clearTimeout(linesRefreshTimer);
+  linesRefreshTimer = setTimeout(() => {
+    linesRefreshTimer = null;
+    if ($("view-lines").classList.contains("active")) void refreshLines();
+  }, delay);
 }
 
 async function confirmWorktreeMerge(item, forProject) {
@@ -242,8 +264,5 @@ async function confirmWorktreeMerge(item, forProject) {
   return window.confirm(`${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`);
 }
 
-$("lines-refresh").addEventListener("click", refreshLines);
+$("lines-refresh").addEventListener("click", () => void refreshLines());
 $("lines-add").addEventListener("click", createWorktreeLine);
-setInterval(() => {
-  if ($("view-lines").classList.contains("active")) refreshLines();
-}, 2500);

@@ -86,7 +86,7 @@ pub fn process_list(
     let default = ensure_default_process(&state, &root);
     // R-178 D3:启动/切换项目时从 state.db 恢复本项目的线/进程注册
     // (页签不丢 + 线级模型/profile/reasoning/勘察复核开关回填)。
-    restore_processes_from_store(&state, &root)?;
+    restore_processes_from_store_once(&state, &root)?;
     let processes = state.processes.lock().unwrap();
     let mut result = processes
         .values()
@@ -155,6 +155,32 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
             .store(record.tracker_writes_enabled, Ordering::SeqCst);
     }
     Ok(())
+}
+
+/// 项目首次进入时恢复持久进程注册；同一运行期后续刷新只读内存运行态。
+///
+/// `restore_processes_from_store` 保留为重启/测试使用的明确恢复原语，不能直接挂在
+/// 高频的 `process_list` 或 `collaboration_snapshot` 路径上。
+pub(crate) fn restore_processes_from_store_once(
+    state: &AppState,
+    root: &Path,
+) -> Result<(), String> {
+    let project = root.display().to_string();
+    let mut restored = state.restored_projects.lock().unwrap();
+    if restored.contains(&project) {
+        return Ok(());
+    }
+    restore_processes_from_store(state, root)?;
+    restored.insert(project);
+    Ok(())
+}
+
+pub(crate) fn mark_project_restored(state: &AppState, root: &Path) {
+    state
+        .restored_projects
+        .lock()
+        .unwrap()
+        .insert(root.display().to_string());
 }
 
 /// 把一条 ProcessHandle 的持久字段写回 state.db(process_update/process_close 用)。
@@ -581,6 +607,7 @@ pub fn process_update(
     // 重启后要用库值回填)。
     let root = normalized_project_root(Path::new(&process.project_dir));
     persist_process(&root, &process)?;
+    mark_project_restored(&state, &root);
     Ok(process_info(&state, &process))
 }
 

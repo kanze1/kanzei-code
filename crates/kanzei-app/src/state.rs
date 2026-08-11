@@ -1,6 +1,6 @@
 //! AppState、运行时状态、UI 探针与跨域状态辅助。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -285,6 +285,9 @@ pub(crate) struct AppState {
     pub(crate) runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     pub(crate) ask_seq: Arc<AtomicU64>,
     pub(crate) processes: Arc<Mutex<HashMap<String, ProcessHandle>>>,
+    /// 已完成 state.db 进程注册恢复的项目。恢复是项目进入时的一次性动作；
+    /// 后续 process_list/collaboration_snapshot 只读取运行态，不能重复用旧库值覆盖内存设置。
+    pub(crate) restored_projects: Arc<Mutex<HashSet<String>>>,
     pub(crate) mobile_service: Arc<Mutex<Option<MobileService>>>,
     /// 自主推进(鞭挞)状态按会话隔离：控件输入经 auto_state_update 同步，
     /// 轮末由 run.rs 只消费所属会话的控制器，不能串扰后台进程。
@@ -300,6 +303,7 @@ impl Default for AppState {
             runtimes: Arc::new(Mutex::new(HashMap::new())),
             ask_seq: Arc::new(AtomicU64::new(0)),
             processes: Arc::new(Mutex::new(HashMap::new())),
+            restored_projects: Arc::new(Mutex::new(HashSet::new())),
             mobile_service: Arc::new(Mutex::new(None)),
             auto_runs: Arc::new(Mutex::new(HashMap::new())),
             coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),

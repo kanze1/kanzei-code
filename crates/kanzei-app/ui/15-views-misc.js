@@ -249,14 +249,17 @@ function renderRecoveredMessages(items) {
   scrollBottom(true);
 }
 
-async function loadConversation(sequence = null) {
+async function loadConversation(sequence = null, switchGeneration = null) {
   if (!currentProject) return;
+  const isCurrent = () => switchGeneration === null || switchGeneration === processSwitchGeneration;
   try {
     bgClear();
     renderTodoPanel([], 0, 0);
     const history = await invoke("conversation_get", { projectDir: currentProject, processId: activeProcessId, sequence });
+    if (!isCurrent()) return;
     renderRecoveredMessages(history);
     const traces = await invoke("conversation_trace_get", { projectDir: currentProject, processId: activeProcessId, sequence });
+    if (!isCurrent()) return;
     renderRecoveredTraces(traces);
     log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
   } catch (err) {

@@ -37,6 +37,7 @@ jobs:
         run: |
           for f in crates/kanzei-app/ui/*.js; do node --check "$f"; done
           node scripts/ui-runtime-smoke.mjs
+          node scripts/parallel-lines-regression.mjs
           node scripts/ui-a11y-smoke.mjs
           node scripts/ui-i18n-smoke.mjs
           node scripts/ui-markdown-smoke.mjs

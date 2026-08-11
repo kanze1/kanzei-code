@@ -576,6 +576,26 @@ function persistProcessProfiles() {
   writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));
 }
 
+// 进程级设置必须按线路串行落库。模型/profile/reasoning 原先是 fire-and-forget，
+// 快速切换或刷新时旧请求可能晚于新请求完成，把刚选的值覆盖回去。
+const processUpdateQueues = new Map();
+function queueProcessUpdate(processId, fields) {
+  const previous = processUpdateQueues.get(processId) || Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(() => invoke("process_update", { processId, ...fields }));
+  processUpdateQueues.set(processId, next);
+  next.finally(() => {
+    if (processUpdateQueues.get(processId) === next) processUpdateQueues.delete(processId);
+  }).catch(() => {});
+  return next;
+}
+
+function updateLocalProcessItem(processId, fields) {
+  const item = processItems.find((candidate) => candidate.id === processId);
+  if (item) Object.assign(item, fields);
+}
+
 function syncAutoContinueWithProfile() {
   if (autoContinueAllowed() || !$("auto-continue").checked) return;
   $("auto-continue").checked = false;
@@ -596,16 +616,17 @@ function applyProfileValue(backendProfile) {
   const fallback = ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
   if (backendProfile === "research") $("profile-select").value = "research";
   else $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
-  localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
   syncAutoContinueWithProfile();
 }
 $("profile-select").addEventListener("change", () => {
-  localStorage.setItem(PROFILE_STORAGE_KEY, $("profile-select").value);
+  const value = $("profile-select").value;
+  localStorage.setItem(PROFILE_STORAGE_KEY, value);
   if (activeProcessId) {
-    processProfileUi.set(activeProcessId, $("profile-select").value);
+    processProfileUi.set(activeProcessId, value);
     persistProcessProfiles();
-    const profile = $("profile-select").value === "research" ? "research" : "dev";
-    invoke("process_update", { processId: activeProcessId, profile })
+    const profile = value === "research" ? "research" : "dev";
+    updateLocalProcessItem(activeProcessId, { profile });
+    queueProcessUpdate(activeProcessId, { profile })
       .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
   }
   syncAutoContinueWithProfile();
@@ -772,7 +793,8 @@ $("reasoning-select").addEventListener("change", () => {
   const value = $("reasoning-select").value;
   localStorage.setItem(prefKey("reasoning"), value);
   if (activeProcessId) {
-    invoke("process_update", { processId: activeProcessId, reasoning: value })
+    updateLocalProcessItem(activeProcessId, { reasoning: value });
+    queueProcessUpdate(activeProcessId, { reasoning: value })
       .catch((error) => reportPersistentError(`${t("进程思考强度保存失败")}:${error}`));
   }
 });
@@ -793,7 +815,8 @@ $("model-select").addEventListener("change", () => {
       $("model-select").value = input;
     });
     if (activeProcessId) {
-      invoke("process_update", { processId: activeProcessId, model: input })
+      updateLocalProcessItem(activeProcessId, { model: input });
+      queueProcessUpdate(activeProcessId, { model: input })
         .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
     }
     return;
@@ -801,7 +824,8 @@ $("model-select").addEventListener("change", () => {
   localStorage.setItem(prefKey("model"), select.value);
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
-    invoke("process_update", { processId: activeProcessId, model: $("model-select").value })
+    updateLocalProcessItem(activeProcessId, { model: select.value || null });
+    queueProcessUpdate(activeProcessId, { model: select.value })
       .catch((error) => reportPersistentError(`${t("进程模型保存失败")}:${error}`));
   }
 });
