@@ -822,17 +822,17 @@
 - 摘要: 790 个资源 key、296 项 HTML 文案、61 项动态契约覆盖通过。
 - 收尾: 1786297655
 
-## T-1786297655 R-153 UI a11y 冒烟 [passed]
+## T-1786478785 R-153 UI a11y 冒烟 [passed]
 - 命令: node scripts/ui-a11y-smoke.mjs
 - 摘要: 22 个静态 icon-btn 及核心键盘语义、焦点规则覆盖通过。
 - 收尾: 1786297655
 
-## T-1786297655 R-153 UI Markdown 冒烟 [passed]
+## T-1786478786 R-153 UI Markdown 冒烟 [passed]
 - 命令: node scripts/ui-markdown-smoke.mjs
 - 摘要: 列表、表格、代码语言、安全外链与 XSS 用例覆盖通过。
 - 收尾: 1786297655
 
-## T-1786297655 R-153 UI runtime 冒烟 [passed]
+## T-1786478787 R-153 UI runtime 冒烟 [passed]
 - 命令: node scripts/ui-runtime-smoke.mjs
 - 摘要: main.js 全量执行、初始化 222 次 invoke、7 个主视图切换与需求/缺陷/目标/测试/历史列表渲染通过，0 运行时错误。
 - 收尾: 1786297655
@@ -1159,7 +1159,7 @@
 - 摘要: 145 通过:新增 read 回填采纳、mark_memory_file_read 修复、memory_stats 漏斗展示测试全绿
 - 收尾: 1786341674
 
-## T-1786341674 cargo test -p kanzei-core [passed]
+## T-1786478788 cargo test -p kanzei-core [passed]
 - 命令: cargo test -p kanzei-core
 - 摘要: 72 通过:lib.rs 导出 FunnelCounts 无回归
 - 收尾: 1786341674
@@ -1860,3 +1860,14 @@
 - 摘要: R-191 批4:dev system prompt 补登记契约(Registration contract)——新 req 必带 复杂度/priority/标签、新 defect 必带 severity/priority/标签、写明 来源、需分批时同调用写 批次: 0/N;新测试 dev_system_prompt_teaches_registration_contract 可 grep 断言。kanzei-tools 250 passed
 - 关联: R-191
 - 收尾: 1786477773
+
+## T-1786478582 cargo test -p kanzei-tools (R-191 B5a conventions CRLF patch 修复) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-191 B5a:conventions 工具 CRLF 跨行 patch 修复(归一化匹配+字面转义解码+偏移映射+换行统一)——kanzei-tools 253 passed(含新增 3 测)
+- 关联: R-191
+- 收尾: 1786478582
+
+## T-1786478774 D-259 清理 tests-archive 重复编号 [passed]
+- 摘要: 新引擎重启后执行 repair_reused_archived_id:T-1786297655 四条中保留第一条、其余 3 条改号(T-1786478785/86/87);T-1786341674 两条中保留第一条、1 条改号(T-1786478788);机械核验 `^## T-(\d+)` 364 条记录编号全部唯一
+- 关联: D-259
+- 收尾: 1786478802
