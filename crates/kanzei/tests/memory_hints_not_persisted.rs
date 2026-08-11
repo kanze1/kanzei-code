@@ -77,10 +77,8 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let project = std::env::temp_dir().join(format!(
-        "kz-d185-hints-{}-{suffix}",
-        std::process::id()
-    ));
+    let project =
+        std::env::temp_dir().join(format!("kz-d185-hints-{}-{suffix}", std::process::id()));
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -159,12 +157,14 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
     let system_text = messages_arr
         .iter()
         .filter(|m| m["role"] == "system")
-        .filter_map(|m| m["content"].as_str().or_else(|| {
-            m["content"]
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(|v| v["text"].as_str())
-        }))
+        .filter_map(|m| {
+            m["content"].as_str().or_else(|| {
+                m["content"]
+                    .as_array()
+                    .and_then(|items| items.first())
+                    .and_then(|v| v["text"].as_str())
+            })
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
@@ -184,17 +184,13 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
     );
 
     // ③ summary.messages 全程无 hint 块(不进历史 → 不回灌)。
-    let persisted = summary
-        .messages
-        .iter()
-        .flat_map(|m| &m.parts)
-        .any(|part| {
-            if let kanzei_llm::Part::Text { text } = part {
-                text.contains("<memory-hints>")
-            } else {
-                false
-            }
-        });
+    let persisted = summary.messages.iter().flat_map(|m| &m.parts).any(|part| {
+        if let kanzei_llm::Part::Text { text } = part {
+            text.contains("<memory-hints>")
+        } else {
+            false
+        }
+    });
     assert!(!persisted, "summary.messages 里出现了 hint 块,下轮会被回灌");
 
     // ④ context_report 含 memory/hints 条目:token 账单能看到 hint 段独立占比。

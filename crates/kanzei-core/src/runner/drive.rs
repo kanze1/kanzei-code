@@ -27,8 +27,19 @@ pub fn run_once<'a>(
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     run_once_with_parts(
-        client, route, snapshot, agent, config, ctx, prompt, memory_hints, prior, None, subagent,
-        on_event, ask,
+        client,
+        route,
+        snapshot,
+        agent,
+        config,
+        ctx,
+        prompt,
+        memory_hints,
+        prior,
+        None,
+        subagent,
+        on_event,
+        ask,
     )
 }
 
@@ -905,9 +916,7 @@ pub fn run_once_with_parts<'a>(
                             "permission denied by ruleset: {action} on `{resource}`.\n{}",
                             snapshot.denial_hint(action, &resource),
                         )),
-                        Gate::NonInteractive(message) => {
-                            kanzei_harness::ToolOutput::error(message)
-                        }
+                        Gate::NonInteractive(message) => kanzei_harness::ToolOutput::error(message),
                         Gate::UserDeclined => {
                             on_event(RunEvent::ToolEnd {
                                 id: id.clone(),

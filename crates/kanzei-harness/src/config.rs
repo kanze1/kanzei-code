@@ -2563,10 +2563,7 @@ effect = "deny"
         dir
     }
 
-    fn load_two_layer(
-        global: &std::path::Path,
-        project: &std::path::Path,
-    ) -> KanzeiConfig {
+    fn load_two_layer(global: &std::path::Path, project: &std::path::Path) -> KanzeiConfig {
         // 模拟 load_with_warnings_at_root 的全局+项目层叠,但两个目录都显式可控。
         let mut config = KanzeiConfig::default();
         let mut warnings = Vec::new();

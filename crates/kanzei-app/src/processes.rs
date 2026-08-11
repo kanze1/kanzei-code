@@ -1541,7 +1541,8 @@ pub async fn worktree_harvest_writeback(
             ))
         }
     };
-    let note = format!("由 {agent_code} 线交付并合并(branch {branch})。收活回写来自 {worktree_path}。");
+    let note =
+        format!("由 {agent_code} 线交付并合并(branch {branch})。收活回写来自 {worktree_path}。");
     let updated = kanzei_tools::tracker::append_progress(&root, kind, id, &note)?;
     let progress = updated
         .fields

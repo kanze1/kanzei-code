@@ -1353,29 +1353,40 @@ pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
 /// 输出空串,不污染既有的默认节奏语义(conventions §1.4 仍是默认真源)。
 /// 语义口径与 §1.4 逐条对应,由引擎按配置直接声明,不靠模型自己猜。
 pub(crate) fn cadence_guidance(cadence: &kanzei_harness::config::Cadence) -> String {
-    use kanzei_harness::config::{CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence};
+    use kanzei_harness::config::{
+        CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence,
+    };
     let mut parts: Vec<String> = Vec::new();
     match cadence.full_test {
-        FullTestCadence::EveryCommit => parts.push("full test suite runs before EVERY commit".into()),
+        FullTestCadence::EveryCommit => {
+            parts.push("full test suite runs before EVERY commit".into())
+        }
         FullTestCadence::EveryNBatches => parts.push(format!(
             "full test suite runs every {} batches",
             cadence.full_test_batches.unwrap_or(1)
         )),
-        FullTestCadence::ReleaseOnly => {
-            parts.push("full test suite runs only before release (verify.ps1), not during normal dev".into())
-        }
+        FullTestCadence::ReleaseOnly => parts.push(
+            "full test suite runs only before release (verify.ps1), not during normal dev".into(),
+        ),
         FullTestCadence::EntryClose => {}
     }
     if cadence.targeted_test == TargetedTestCadence::Off {
-        parts.push("targeted tests are OFF: pick verification scope yourself, matching the change surface".into());
+        parts.push(
+            "targeted tests are OFF: pick verification scope yourself, matching the change surface"
+                .into(),
+        );
     }
     match cadence.commit {
-        CommitCadence::PerEntry => parts.push("commit granularity: one commit per whole entry".into()),
+        CommitCadence::PerEntry => {
+            parts.push("commit granularity: one commit per whole entry".into())
+        }
         CommitCadence::PerBatch => {}
     }
     match cadence.push {
         PushCadence::PerCommit => parts.push("push after every commit".into()),
-        PushCadence::Periodic => parts.push("push on a periodic schedule, not after every entry".into()),
+        PushCadence::Periodic => {
+            parts.push("push on a periodic schedule, not after every entry".into())
+        }
         PushCadence::PerEntry => {}
     }
     if parts.is_empty() {
@@ -2127,7 +2138,12 @@ mod auto_push_tests {
     }
 
     fn git(dir: &Path, args: &[&str]) -> String {
-        let output = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
         assert!(
             output.status.success(),
             "git {:?} 失败: {}",
@@ -2151,7 +2167,10 @@ mod auto_push_tests {
         // bare 仓库默认 HEAD 分支名随 git 版本/config 漂移(master 或 main),
         // 钉死 refs/heads/main 让 rev-parse 断言与本地仓库分支名一致。
         git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
-        git(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        git(
+            &repo,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
         std::fs::write(repo.join("a.txt"), "hello\n").unwrap();
         git(&repo, &["add", "a.txt"]);
         git(&repo, &["commit", "-q", "-m", "第一条"]);
@@ -2177,8 +2196,14 @@ mod auto_push_tests {
         let traces = traces.into_inner().unwrap();
         let remote_head = git(&remote, &["rev-parse", "main"]);
         assert_eq!(remote_head, local_head, "远端必须收到本轮提交");
-        assert!(traces.iter().any(|e| e["ok"] == true), "轨迹应记 push 成功: {traces:?}");
-        assert!(!stages.iter().any(|s| s.contains("失败")), "成功路径不该报失败: {stages:?}");
+        assert!(
+            traces.iter().any(|e| e["ok"] == true),
+            "轨迹应记 push 成功: {traces:?}"
+        );
+        assert!(
+            !stages.iter().any(|s| s.contains("失败")),
+            "成功路径不该报失败: {stages:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2196,8 +2221,14 @@ mod auto_push_tests {
             &|entry| traces.lock().unwrap().push(entry),
         )
         .await;
-        assert!(traces.into_inner().unwrap().is_empty(), "无提交不应产生 push 轨迹");
-        assert!(stages.into_inner().unwrap().is_empty(), "无提交不应产生任何 stage 输出");
+        assert!(
+            traces.into_inner().unwrap().is_empty(),
+            "无提交不应产生 push 轨迹"
+        );
+        assert!(
+            stages.into_inner().unwrap().is_empty(),
+            "无提交不应产生任何 stage 输出"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2226,7 +2257,10 @@ mod auto_push_tests {
             stages.iter().any(|s| s.contains("失败")),
             "失败必须经 stage 可见: {stages:?}"
         );
-        assert!(traces.iter().any(|e| e["ok"] == false), "轨迹应记 push 失败: {traces:?}");
+        assert!(
+            traces.iter().any(|e| e["ok"] == false),
+            "轨迹应记 push 失败: {traces:?}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
@@ -2283,7 +2317,12 @@ mod assembly_tests {
         assert!(system.contains("call `collaboration_status`"));
 
         let mut research = String::new();
-        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first", &config);
+        super::append_dev_guidance(
+            &mut research,
+            ProfileKind::Research,
+            "defect-first",
+            &config,
+        );
         assert!(research.is_empty(), "提交纪律只属于开发档位");
     }
 
@@ -2292,7 +2331,7 @@ mod assembly_tests {
     #[test]
     fn cadence指引_全默认空串_显式配置注入() {
         use kanzei_harness::config::{
-            CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence, Cadence,
+            Cadence, CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence,
         };
         // 全默认 → 空串,不污染既有 system prompt。
         assert_eq!(super::cadence_guidance(&Cadence::default()), "");
@@ -2320,7 +2359,12 @@ mod assembly_tests {
         assert!(system.contains("every 3 batches"), "{system}");
         // Research 档位不注入(验证节奏只属于开发档位)。
         let mut research = String::new();
-        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first", &config);
+        super::append_dev_guidance(
+            &mut research,
+            ProfileKind::Research,
+            "defect-first",
+            &config,
+        );
         assert!(research.is_empty());
     }
 }

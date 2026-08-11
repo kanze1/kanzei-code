@@ -1891,18 +1891,33 @@ fn 门禁步骤表随工作树内容自适应() {
     std::fs::create_dir_all(&dir).unwrap();
     // 空目录:一条步骤都没有。
     let none = super::gate_steps(&dir);
-    assert!(none.is_empty(), "无 Cargo.toml 无冒烟脚本 ⇒ 不应有任何门禁步骤");
+    assert!(
+        none.is_empty(),
+        "无 Cargo.toml 无冒烟脚本 ⇒ 不应有任何门禁步骤"
+    );
     // 只有 Cargo.toml:出现 fmt/clippy/test 三条。
-    std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"\n").unwrap();
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        "[package]\nname = \"x\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
     let cargo_only = super::gate_steps(&dir);
     let names: Vec<&str> = cargo_only.iter().map(|s| s.name).collect();
-    assert_eq!(names, vec!["fmt", "clippy", "test"], "有 Cargo.toml 应恰好是 fmt/clippy/test 三连");
+    assert_eq!(
+        names,
+        vec!["fmt", "clippy", "test"],
+        "有 Cargo.toml 应恰好是 fmt/clippy/test 三连"
+    );
     // 加冒烟脚本:多一条 ui-smoke。
     std::fs::create_dir_all(dir.join("scripts")).unwrap();
     std::fs::write(dir.join("scripts/ui-runtime-smoke.mjs"), "// fake\n").unwrap();
     let full = super::gate_steps(&dir);
     let names: Vec<&str> = full.iter().map(|s| s.name).collect();
-    assert_eq!(names, vec!["fmt", "clippy", "test", "ui-smoke"], "四连顺序必须是 fmt/clippy/test/ui-smoke");
+    assert_eq!(
+        names,
+        vec!["fmt", "clippy", "test", "ui-smoke"],
+        "四连顺序必须是 fmt/clippy/test/ui-smoke"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -1915,7 +1930,10 @@ async fn 门禁对非工作树路径不panic() {
     std::fs::create_dir_all(&outside).unwrap();
     let result = super::run_worktree_gate(&outside).await;
     // run_worktree_gate 只跑树里的命令;乱路径上跑出空步骤即可(不 panic)。
-    assert!(result.is_empty(), "乱路径上没有 Cargo.toml 无冒烟脚本 ⇒ 步骤应为空");
+    assert!(
+        result.is_empty(),
+        "乱路径上没有 Cargo.toml 无冒烟脚本 ⇒ 步骤应为空"
+    );
     cleanup(&root, &[]);
 }
 
@@ -1937,7 +1955,11 @@ async fn 门禁真实执行并返回步骤结果() {
     std::fs::create_dir_all(target.join("src")).unwrap();
     std::fs::write(target.join("src/lib.rs"), "//! x\n").unwrap();
     std::fs::create_dir_all(target.join("scripts")).unwrap();
-    std::fs::write(target.join("scripts/ui-runtime-smoke.mjs"), "console.log('ok')\n").unwrap();
+    std::fs::write(
+        target.join("scripts/ui-runtime-smoke.mjs"),
+        "console.log('ok')\n",
+    )
+    .unwrap();
 
     let steps = super::run_worktree_gate(&target).await;
     let names: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();

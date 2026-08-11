@@ -342,7 +342,9 @@ pub(crate) fn failure_kind(content: &str) -> String {
         .lines()
         .find(|l| {
             let lower = l.to_lowercase();
-            lower.contains("fatal:") || lower.contains("pathspec") || lower.contains("did not match")
+            lower.contains("fatal:")
+                || lower.contains("pathspec")
+                || lower.contains("did not match")
         })
         .unwrap_or(first_line);
     let scrubbed: Vec<String> = root_line
@@ -644,7 +646,10 @@ mod tests {
             kind.contains("fatal: pathspec") && kind.contains("did not match"),
             "应取 pathspec 根因行,而非首行 commit 症状: {kind}"
         );
-        assert!(!kind.contains("changes not staged"), "commit 症状行不得成为根因: {kind}");
+        assert!(
+            !kind.contains("changes not staged"),
+            "commit 症状行不得成为根因: {kind}"
+        );
 
         // 无根因行时退回首行(既有行为不回归)。
         let single = failure_kind("old_string not found in C:/p/main.rs");
