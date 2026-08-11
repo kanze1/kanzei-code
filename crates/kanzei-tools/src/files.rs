@@ -619,24 +619,41 @@ mod tests {
     fn 增量扫描复用未变文件_vendor路径不读内容() {
         let root = fixture("incr");
         std::fs::create_dir_all(root.join("ui/vendor")).unwrap();
-        std::fs::write(root.join("ui/vendor/editor.js"), "// vendor 大文件\n".repeat(100)).unwrap();
+        std::fs::write(
+            root.join("ui/vendor/editor.js"),
+            "// vendor 大文件\n".repeat(100),
+        )
+        .unwrap();
         std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn b() {}\n").unwrap();
 
         // 首次扫描:vendor 文件在树里可见(大小有值),但 lines/chars 为空、
         // 不进 annotatable——只 stat 不读内容。
         let (first, reused_first) = scan_incremental(&root, None);
         assert_eq!(reused_first, 0, "首次扫描没有可复用的");
-        let vendor = first.iter().find(|e| e.path == "ui/vendor/editor.js").unwrap();
-        assert!(vendor.lines.is_none() && vendor.chars.is_none(), "vendor 不得读内容:\n{vendor:?}");
+        let vendor = first
+            .iter()
+            .find(|e| e.path == "ui/vendor/editor.js")
+            .unwrap();
+        assert!(
+            vendor.lines.is_none() && vendor.chars.is_none(),
+            "vendor 不得读内容:\n{vendor:?}"
+        );
         assert!(vendor.size > 0, "vendor 仍应显示大小(树里可见)");
         assert!(
-            !first.iter().any(|e| e.lines.is_some() && e.path.starts_with("ui/vendor")),
+            !first
+                .iter()
+                .any(|e| e.lines.is_some() && e.path.starts_with("ui/vendor")),
             "vendor 不得进入可标注集合"
         );
 
         // 第二次扫描(内容未变):全部复用,reused 计数等于文件数——缓存命中证据。
         let (second, reused_second) = scan_incremental(&root, Some(&first));
-        assert_eq!(reused_second, first.len(), "未变文件应全部复用: {reused_second}/{}", first.len());
+        assert_eq!(
+            reused_second,
+            first.len(),
+            "未变文件应全部复用: {reused_second}/{}",
+            first.len()
+        );
         assert_eq!(second.len(), first.len(), "条目数不变");
         let lib = first.iter().find(|e| e.path == "src/lib.rs").unwrap();
         let lib2 = second.iter().find(|e| e.path == "src/lib.rs").unwrap();
