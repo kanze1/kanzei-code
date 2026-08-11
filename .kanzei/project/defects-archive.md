@@ -2622,3 +2622,40 @@
 - 修复方向: 把 `send` 与「send 失败后 lease 的处置」**移出临界区**。形态:锁内只把要唤醒的 `(tx, lease)` 收进局部变量(与 `pending` 事件同一手法,该函数已经在用),锁释放后再 `send`;send 失败时**显式处理**退回的 lease(此时不持锁,drop 回调可安全重入去唤醒下一个排队者),不得再用 `let _ =` 吞掉。
 - 验收: ①构造「排队者的接收端已丢弃」(丢弃 acquire future 后由持有者释放租约),断言 `release_writer` **正常返回**且后续 `acquire_writer_lease` 仍能成功——该测试**在修复前必须挂死/超时**(反证);②send 失败时退回的 lease 被显式处置且**队列继续推进**(下一个排队者拿到租约),有测试;③`projects` 锁的临界区内**不再有任何可能触发 `WriterLease::drop` 的语句**(机械核验:锁块内 grep 无 `send(`);④R-171/R-173 既有写租约测试全绿。
 - 进展: 2026-08-11 由 `a10d4a5` 修复。锁内只决定下一次交接，`send` 与失败后退回租约的显式 drop 均移到临界区外；接收端丢弃后队列继续推进，后续 writer 仍能获取。反证把实现临时改回锁内 send 后新测试 5 秒超时变红；恢复修复后核心与应用既有写租约测试全绿。
+
+## D-246 内置 provider 删不掉:fill_defaults 无条件回填五个,UI 上删了下次打开又回来 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 依据: 2026-08-10 设置页全字段走查。本轮修好了**自定义** provider 的删除持久化(settings_apply_providers 按「载荷非空即权威」剪枝,有单测钉死空清单不删);但 crates/kanzei-harness/src/config.rs fill_defaults 用 entry().or_insert() 无条件注入 anthropic/ollama/codex/claude/deepseek 五个内置 provider,而 settings_get 在 fill_defaults 之后才列表——删掉这五个中任何一个,配置文件里的子表确实被删了,下次打开设置页它仍会由默认回填重新出现。
+- 影响: 用户感知是「删了又回来」,会以为删除功能坏了(实际是自定义 provider 已修好、内置的按设计回填)。与 D-173 的 context_limit 兜底同源。
+- 修复方向: 二选一——①UI 上把内置 provider 标成不可删(或删除按钮改「恢复默认」);②给一句「已恢复为内置默认」的说明。不建议改 fill_defaults 本身,那是配置可用性的兜底。
+- 验收: 内置 provider 的删除入口不再给出「已删除」的错误预期,用户能看懂为什么它还在。
+
+- 进展: 修复(R-184 批6):settings_get 每个 provider 返回 builtin 标记(kanzei-harness::config::builtin_provider_names(),crates/kanzei-app/src/settings.rs:483-485);前端渲染时内置 provider 删除按钮换成「内置」徽标+title 说明(ui/16-settings.js:111-127);fill_defaults 兜底逻辑不变。单测:内置名单与 fill_defaults 回填一致(kanzei-harness/src/config.rs:308-318)。冒烟:夹具加 anthropic builtin 行,断言内置行有徽标、无 × 删除按钮、载荷保留内置行(scripts/ui-runtime-smoke.mjs:3090-3100,3123-3126)。验证:cargo test -p kanzei-harness 108 全绿、-p kanzei-app 118 全绿、五条冒烟全绿(T-1786448195)。
+
+## D-247 代理选「指定地址」却留空时静默降级成 env,界面零提示 [fixed] (medium)
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 依据: 2026-08-10 设置页全字段走查(用户定调「加提示」,登记交自举)。设置页代理模式选「指定地址」但地址框留空时,crates/kanzei-app/src/settings.rs 按空串当 `env` 处理,静默降级,界面没有任何提示——用户以为自己指定了地址,实际走的是环境变量。
+- 影响: 静默降级是本仓反复吃亏的模式(D-004「任何拒绝发送的理由都要说出来,绝不静默」同族);代理配错时表现为「设了没用」,排查要一路读到 settings.rs 才看得出来。
+- 验收: ①选「指定地址」而地址为空时,界面给出可见提示(表单校验或保存时提醒任一),说明将回落到环境变量;②不静默改写用户选择;③冒烟或单测覆盖该分支。
+
+- 进展: 修复(R-184 批6):设置页代理模式选「指定地址」且地址留空时,updateProxyHint 显示可见提示「地址留空将回落「跟随环境变量」」(ui/16-settings.js:562-573,挂点 span#set-proxy-hint ui/index.html:476,回显与 change/input 均触发);前端不改写用户选择——载荷保持空串由后端回落,非空时提示消失。冒烟:D-247 断言块覆盖 env 隐藏→custom 留空提示可见→填地址消失→留空保存载荷为空串(scripts/ui-runtime-smoke.mjs:3128-3165)。i18n 新 key 已登记(02-i18n.js)。验证:五条冒烟全绿(T-1786448195)。
+
+## D-248 applyProfileValue 切进程时写全局 kz-profile,把用户的全局档位选择静默降级 [fixed] (medium)
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端
+- 证据等级: E1(取证 HEAD 逐字一致 + 探针实测)
+- 依据: 2026-08-10 持久化面全面审计(35 个写入点逐条枚举)顺带查出。crates/kanzei-app/ui/08-compose.js 的 applyProfileValue 把**进程级**档位写进**全局**键 `kz-profile`。实测:
+  用户全局选了 `dev-auto` → switchProcess 到一个 research 进程 → 全局 `kz-profile` 被写成 `research`。
+  而该函数上方的回退分支只认 `dev-pair`/`dev-auto`,`research` 被写进去等于**把用户的全局选择降级成 dev-pair**。
+- 取证: `git show HEAD:crates/kanzei-app/ui/08-compose.js` 的 applyProfileValue 与工作区**逐字一致**——HEAD 既有行为,不是 2026-08-10 侧栏重构引入的。
+- 影响: 切个进程看一眼就把全局偏好丢了,且丢法不可见(下次启动才发现档位变了)。与本轮治的那一族同病:非用户主动的操作改掉并落盘了用户的持久化状态。
+- 修复方向: 进程级档位不应写全局键——要么进程档位单独存(按 session/进程 id),要么只在用户主动改档位时写全局。注意别破坏「新进程继承全局默认」的既有语义。
+- 验收: 切进程不改写全局 `kz-profile`;用户主动改档位仍正常持久化;有拦截实测的冒烟断言。
+
+- 进展: 修复(R-184 批6,根因已在此前 2773342 移除 applyProfileValue 内写全局键):applyProfileValue 现为只读回显——先查本进程记忆再回退全局,不改写 localStorage kz-profile(ui/08-compose.js:611-620);写全局仅发生在用户主动 change(08-compose.js:623)。本轮补拦截冒烟断言:回显不改写全局键、用户主动切换仍写全局(scripts/ui-runtime-smoke.mjs:3349-3371)。验证:ui-runtime-smoke 全绿(T-1786448195)。
+

@@ -4885,6 +4885,23 @@ const docsB = {
     !openCalls.some((entry) => entry.cmd === "worktree_merge"),
     "查看冲突预警不应偷偷触发合并",
   );
+  // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
+  for (const width of [800, 1024, 1280]) {
+    windowShim.innerWidth = width;
+    await flush();
+    const lanesAt = document.querySelectorAll("#lines-list .line-lane");
+    assert(lanesAt.length === 2, `${width}px 下列表视图线道缺失(实得 ${lanesAt.length})`);
+    assert(
+      document.querySelectorAll("#lines-conflict-list .line-conflict").length === 1,
+      `${width}px 下冲突预警缺失`,
+    );
+    assert(
+      (byId.get("lines-semantic-note")?.textContent ?? "").includes("未检查") ||
+        (byId.get("lines-semantic-note")?.textContent ?? "").includes("unchecked"),
+      `${width}px 下语义边界提示缺失`,
+    );
+  }
+  windowShim.innerWidth = 1280;
 }
 
 // ---------- R-184 P5:收活五格(②不可跳过 + 门禁 + 合并) ----------

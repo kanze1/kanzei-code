@@ -1611,3 +1611,9 @@
 - 摘要: 提交门禁拦下后复测:config.rs 空行恢复(builtin 函数与单测保持)后 harness 108 全绿,背书待提交源码。
 - 关联: R-184 D-246
 - 收尾: 1786448224
+
+## T-1786448527 cargo test --workspace (R-184 关闭前全量 + D-273) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-184 关闭前全量:18 crate 全绿。顺带修复 D-273(kanzei_home 两测试并发互踩全局 KANZEI_HOME,合并为顺序测试)。docstore 原子写测试在早前一次全量偶发红,单独/后续全量均绿,判定为 Windows 文件句柄时序偶发,与本条改动无关。
+- 关联: R-184 D-273
+- 收尾: 1786448527

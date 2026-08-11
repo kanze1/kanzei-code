@@ -27,8 +27,12 @@ pub fn kanzei_home() -> Option<PathBuf> {
 mod tests {
     use super::kanzei_home;
 
+    /// 两个 home 行为合并成顺序测试:`kanzei_home_honors_env_var` 用进程级全局
+    /// KANZEI_HOME,与 `kanzei_home_defaults_to_home_dot_kanzei` 并行跑会互踩
+    /// (set_var 期间默认分支读到被污染的变量,全量偶发红)。顺序执行后互斥。
     #[test]
-    fn kanzei_home_honors_env_var() {
+    fn kanzei_home_顺序验证环境变量与默认() {
+        // 1) 环境变量优先。
         let root = std::env::temp_dir().join(format!(
             "kanzei-home-test-{}-{}",
             std::process::id(),
@@ -41,10 +45,8 @@ mod tests {
         assert_eq!(kanzei_home(), Some(root.clone()));
         std::env::remove_var("KANZEI_HOME");
         assert_ne!(kanzei_home(), Some(root));
-    }
 
-    #[test]
-    fn kanzei_home_defaults_to_home_dot_kanzei() {
+        // 2) 无变量时回落 HOME/.kanzei。
         let Some(home) = dirs::home_dir() else {
             return; // 无 HOME 的环境跳过,不是被测行为。
         };
