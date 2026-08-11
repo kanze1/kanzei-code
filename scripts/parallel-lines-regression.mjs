@@ -24,7 +24,9 @@ assert(!/open\.addEventListener\([\s\S]{0,220}?await refreshProcesses\(\)/.test(
 
 assert(sessions.includes("processRefreshInFlight"), "进程刷新缺少单飞请求护栏");
 assert(sessions.includes("processSwitchGeneration"), "线路切换缺少请求代次护栏");
-assert(sessions.includes("tabs.replaceChildren(...nextTabs)"), "顶部 tab 缺少稳定节点复用路径");
+assert(sessions.includes("function renderParallelTaskStatus(items)"), "左侧线路状态按钮渲染入口缺失");
+assert(sessions.includes("function processRunning(item)"), "线路运行态未统一经过状态真源映射");
+assert(!sessions.includes("process-tabs"), "顶部进程切换条已移除,不应重新引入");
 assert(sessions.includes("loadConversation(null, switchGeneration)"), "对话恢复未绑定切换代次");
 
 assert(compose.includes("const processUpdateQueues = new Map()"), "进程设置缺少按线路保存队列");
@@ -35,4 +37,4 @@ assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFIL
 assert(views.includes("switchGeneration = null"), "对话恢复缺少可选切换代次参数");
 assert(views.includes("if (!isCurrent()) return;"), "旧线路对话响应缺少丢弃护栏");
 
-console.log("并行线路回归护栏通过:刷新节流、切换代次、tab 复用、设置串行保存和 profile 隔离");
+console.log("并行线路回归护栏通过:刷新节流、左侧线路状态/切换代次、设置串行保存和 profile 隔离");

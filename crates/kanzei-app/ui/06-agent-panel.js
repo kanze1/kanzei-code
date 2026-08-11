@@ -104,7 +104,7 @@ function agentTogglePanel() {
   if (agentPanelOpen) refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
 }
 
-function agentStart(id, name, summary, input) {
+function agentStart(id, name, summary, input, sessionId = activeSessionId) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
   const existing = agentEntries.get(id);
@@ -159,7 +159,7 @@ function agentStart(id, name, summary, input) {
   el.append(title, prog, meta, actions, detail);
   const entry = {
     el, title, target, prog, meta, actions, detail, phase, name,
-    calls: new Map(), tokens: 0, currentTool: "", startedAt: Date.now(), state: "running",
+    calls: new Map(), tokens: 0, currentTool: "", startedAt: Date.now(), state: "running", sessionId,
   };
   agentEntries.set(id, entry);
   $("agent-running").appendChild(el);
@@ -297,7 +297,9 @@ function agentRenderActions(id, entry) {
     // R-174:子代理单条停止通道——不再只能停整轮。
     add(t("停止"), t("只停这一条子代理,不影响本轮其它工具"), async () => {
       try {
-        await invoke("stop_task", { projectDir: currentProject, taskId: String(id) });
+        const processId = processItems.find((item) => item.session_id === entry.sessionId)?.id
+          || (entry.sessionId === activeSessionId ? activeProcessId : null);
+        await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(id) });
         toast(t("已请求停止该子代理"));
       } catch (error) {
         toastError(`${t("停止失败")}:${error}`);

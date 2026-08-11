@@ -57,18 +57,17 @@
 
 见 §1。侧栏与文档页同源，一处计算两处渲染。
 
-### 3.2 主对话（`#process-tabs` / `09-sessions.js`）
+### 3.2 主对话（`#parallel-task-status` / `09-sessions.js`）
 
-**骨架已存在**：`#process-tabs` + `switchProcess()`（R-030 已交付），本条不重造。要加的只有两件：
+当前实现把主线与并行线收口为左侧“当前状态”中的两个线路按钮：按钮同时承担线路切换、代号显示、运行/空闲状态和当前阶段显示。顶部原有的 `#process-tabs` 并行切换条已移除，避免同一组线路出现两套入口。
 
-1. 页签上带 **`● A` 代号+色**；worktree 线额外显示分支名徽标（这条与 R-179 内容③ 合并，不重复实现）。
-2. 线的页签与主树进程**视觉可区分**——线是"代码在别处"的，误把改动敲进错误的树是真实风险。
+线路运行态以该线路的 `ProcessInfo.running` 与实时 `RunEvent` 为真源；“鞭挞”是自动续跑控制器的独立状态，不能用勾选状态覆盖线路运行态。因而主线即使命名为“鞭挞”，当前轮停止后也应显示“空闲”。
 
-**前置**：R-177。今天 `ProcessHandle.worktree_path` 恒为 `None`，没有任何路径让线在 worktree 里跑，所以页签背后还不是"线"。
+后续若补充分支徽标，仍应沿用线路按钮这一处渲染，不再恢复顶部重复页签。
 
 ### 3.3 活动记录（`#bg-panel` / `#bg-list` / `06-activity.js`）
 
-改为**按 agent 归属**：每条轨迹带 `● A`，可按 agent 筛选（复用现有 `#bg-type-filter` 的形态，新增一个 agent 维度）。
+当前实现保留所有有名称的工具调用（包括 read/grep/edit/task 等）的开始、进度、完成和失败记录；活动条目携带所属 `session_id`，停止操作按所属线路解析 `process_id`。后续按 agent 筛选时应复用现有类型筛选器形态，不得重新引入“成功小工具静默丢弃”的分流。
 
 这一步同时收口 R-174 剩下的三件事（§6.1）。
 
@@ -185,7 +184,7 @@ R-174 是 `[doing]`，其进展字段记着三件未完成的事。引入 agent 
 
 ## 7. 复用清单（§1.25：不得重复申报为本次产出）
 
-- **进程页签与切换**：`#process-tabs` + `switchProcess()`（`ui/09-sessions.js:146/198`，R-030 已交付）——只加代号/颜色/分支徽标。
+- **线路状态与切换**：`#parallel-task-status` + `switchProcess()`（`ui/09-sessions.js`）——线路按钮同时渲染代号、状态与阶段，不再维护顶部重复页签。
 - **diff 渲染**：`ui/06-activity.js` 的 `buildDiffTree`/`renderDiff`（R-133 已 done，含折叠目录树与并排视图）——只把 `worktree_diff` 的输出接进去。
 - **worktree 命令**：`src/processes.rs` 的 `worktree_create`/`worktree_diff`/`worktree_merge`/`worktree_discard` 四条已存在且含冲突预检。
 - **线级状态存储**：`store/processes.rs` 的 `StoredProcess` 与四函数（R-178 批1 已交付）。

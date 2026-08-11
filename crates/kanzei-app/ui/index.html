@@ -57,12 +57,11 @@
         <div id="conversation-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="live" id="live-section">
-        <div class="section-title"><span data-i18n-key="当前状态">当前状态</span> <em id="parallel-task-count"></em></div>
+        <div class="section-title">
+          <span><span data-i18n-key="当前状态">当前状态</span> <em id="parallel-task-count"></em></span>
+          <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" data-i18n-title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
+        </div>
         <div id="live-status">
-          <div id="live-turn" class="live-row dim">空闲</div>
-          <div id="live-focus" class="live-row hidden"></div>
-          <div id="live-action" class="live-row hidden"></div>
-          <div id="live-note" class="live-row hidden"></div>
           <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="并行任务状态" data-i18n-aria-label="并行任务状态"></div>
         </div>
       </div>
@@ -121,11 +120,8 @@
       <div id="view-chat" class="view active">
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
-          <nav id="process-tabs" aria-label="项目进程" data-i18n-aria-label="项目进程"></nav>
-          <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" data-i18n-title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
           <button id="new-chat" class="primary topbar-new-chat" title="清空多轮对话历史,开一段新会话" data-i18n-title="清空多轮对话历史,开一段新会话"><span data-i18n-key="新对话">新对话</span></button>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板"><span data-i18n-key="活动">活动</span></button>
-          <button id="sidebar-toggle" class="ghost" title="折叠/展开左侧栏" data-i18n-title="折叠/展开左侧栏" aria-expanded="true"><span data-i18n-key="侧栏">侧栏</span></button>
           <span class="spacer"></span>
           <label id="auto-continue-wrap" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
             <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>

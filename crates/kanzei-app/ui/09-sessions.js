@@ -127,6 +127,12 @@ let askSyncedSession = null;
 let processRefreshInFlight = null;
 let processRefreshQueued = false;
 let processSwitchGeneration = 0;
+function processRunning(item) {
+  const state = sessionState(item.session_id);
+  // 终态事件已经收敛时,旧轮询里的 running=true 不能把线路重新点亮；
+  // 未收敛时则合并事件缓存与后端快照,覆盖事件丢失/乱序的窗口。
+  return state.converged ? state.running : state.running || Boolean(item.running);
+}
 function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
   const count = $("parallel-task-count");
@@ -138,7 +144,7 @@ function renderParallelTaskStatus(items) {
   for (const item of processes) {
     const state = sessionState(item.session_id);
     if (item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
-    const runningNow = state.running || Boolean(item.running);
+    const runningNow = processRunning(item);
     const row = document.createElement("button");
     row.type = "button";
     row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}`;
@@ -150,8 +156,9 @@ function renderParallelTaskStatus(items) {
     head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
     const status = document.createElement("span");
     status.className = "parallel-task-state";
-    const stage = state.stage || item.stage || (runningNow ? t("运行中") : t("空闲"));
-    status.textContent = `${runningNow ? "●" : "○"} ${runningNow ? t("运行中") : t("空闲")} · ${stage}`;
+    const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : t("空闲"));
+    const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
+    status.textContent = `${runningNow ? "●" : "○"} ${runningNow ? t("运行中") : t("空闲")} · ${stage}${detail}`;
     row.append(head, status);
     row.title = runningNow
       ? `${authority}: ${state.detail || stage}`
@@ -188,36 +195,12 @@ function renderProcesses(items) {
   pumpAsk();
   // 活动进程换人时按状态机重算运行态(切项目/进程后旧会话的终态也经状态机
   // 收敛,不会丢)。只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
-  const activeRunning = activeSessionId ? sessionState(activeSessionId).running : false;
+  const activeRunning = active ? processRunning(active) : false;
   if (activeProcessId !== syncedRunningProcessId) {
     syncedRunningProcessId = activeProcessId;
     setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
   }
   renderParallelTaskStatus(processItems);
-  const tabs = $("process-tabs");
-  const existingTabs = new Map(
-    [...tabs.children].map((tab) => [tab.dataset.processId, tab]),
-  );
-  const nextTabs = [];
-  for (const item of processItems) {
-    const tab = existingTabs.get(item.id) || document.createElement("button");
-    if (!tab.dataset.processId) {
-      tab.type = "button";
-      tab.addEventListener("click", () => switchProcess(tab.dataset.processId));
-    }
-    tab.dataset.processId = item.id;
-    const isPrimary = item.authority === "primary" || item.id.startsWith("d|");
-    tab.dataset.authority = isPrimary ? "primary" : "parallel";
-    // R-086:标签的 ● 从该会话状态机取——后台会话的 done 已收敛终态,不依赖
-    // 这次轮询是否恰好拉到了最新 running。
-    const itemRunning = sessionState(item.session_id).running;
-    tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${itemRunning ? " running" : ""}`;
-    const branch = item.branch ? ` · ${item.branch}` : "";
-    tab.textContent = `${isPrimary ? "◆ " : "◇ "}${item.label}${branch}${itemRunning ? " ●" : ""}`;
-    tab.title = `${isPrimary ? t("主代理") : t("并行线")} · ${item.id}${item.model ? ` · ${item.model}` : ""}${item.worktree_path ? ` · ${item.worktree_path}` : ""}`;
-    nextTabs.push(tab);
-  }
-  tabs.replaceChildren(...nextTabs);
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
   // 分支线写主根 tracker 必须由用户显式打开；默认线直接写主根，不展示无意义开关。
@@ -300,8 +283,8 @@ async function switchProcess(processId) {
   // R-086:运行态投影自该会话的状态机(后台终态已收敛),不直接信 processItems
   // 的瞬时轮询值——事件先到状态机,切回时看到的才是准的。
   setRunning(
-    sessionState(target.session_id).running,
-    sessionState(target.session_id).running ? t("运行中") : t("空闲")
+    processRunning(target),
+    processRunning(target) ? t("运行中") : t("空闲")
   );
   renderProcesses(processItems);
   // 不在请求发出前清空消息:切线期间保留旧内容,等目标线程的历史完整恢复后

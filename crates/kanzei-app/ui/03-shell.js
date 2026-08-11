@@ -238,9 +238,11 @@ function syncSidebar() {
   const sidebar = $("sidebar");
   const toggle = $("sidebar-toggle");
   sidebar.classList.toggle("collapsed", sidebarCollapsed);
-  toggle.classList.toggle("active", sidebarCollapsed);
-  toggle.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
-  toggle.title = localizeDynamic(sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏");
+  if (toggle) {
+    toggle.classList.toggle("active", sidebarCollapsed);
+    toggle.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
+    toggle.title = localizeDynamic(sidebarCollapsed ? "展开左侧栏" : "折叠左侧栏");
+  }
   // rail 上的常驻开关与顶栏按钮同步同一状态:窄视口下侧栏悬浮盖住顶栏时,
   // rail 是唯一还能点到的开关(用户实测缩放后"没有关闭和打开")。
   const rail = $("rail-sidebar-toggle");
@@ -255,7 +257,7 @@ function toggleSidebar() {
   localStorage.setItem("kz-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
   syncSidebar();
 }
-$("sidebar-toggle").addEventListener("click", toggleSidebar);
+$("sidebar-toggle")?.addEventListener("click", toggleSidebar);
 $("rail-sidebar-toggle")?.addEventListener("click", toggleSidebar);
 // 悬浮模式(≤900px,缩放放大同样会触发)下侧栏盖在主区上:点侧栏外的任意
 // 位置就收起,不再需要先找到被盖住的开关。

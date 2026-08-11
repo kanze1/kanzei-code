@@ -1755,10 +1755,11 @@ pub(crate) fn stop_run(
 pub(crate) fn stop_task(
     state: State<'_, AppState>,
     project_dir: String,
+    process_id: Option<String>,
     task_id: String,
 ) -> Result<bool, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
-    let session_id = process_session_id(&root, None);
+    let session_id = process_session_id(&root, process_id.as_deref());
     let runtime = runtime_for(&state, &session_id);
     let hit = runtime.task_cancellations.cancel(&task_id);
     if !hit {

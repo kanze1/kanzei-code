@@ -154,14 +154,12 @@ on("kz:tool-start", (e) => {
   currentAssistant = null;
   currentReasoning = null;
   chatToolStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  // R-168:非终端工具先挂起,成功不进活动流，失败在 tool-end 补建。
-  // R-173:入参一并传下去——编排派发的勘察/复核子代理靠 input.phase 才认得出来,
-  // 只看 name(恒为 "task")会连同它们一起静默,内部进度全丢。
+  // 活动面板保留完整工具轨迹,入参一并传下去以支持编排阶段、角色和完整详情。
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
-  else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   // R-174:子代理面板独立于活动面板,task 类一律进子代理面板(编排派发带 phase,
   // 模型自派 name=task)。其余工具不进子代理面板。
-  if (e.payload.name === "task") agentStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
+  if (e.payload.name === "task") agentStart(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
   setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
 });
@@ -225,7 +223,8 @@ on("kz:tool-end", (e) => {
   // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
   // 或被停后补发)。
   if (p.name === "task") agentEnd(p.id, p.ok, p.preview, p.display);
-  // 静默工具成功→无声丢弃;失败→bgFinishQuiet 已补建条目,bgEnd 接着画错误详情。
+  // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
+  // 随后由 bgEnd 更新完成态和错误详情。
   bgFinishQuiet(p.id, p.ok);
   bgEnd(p.id, p.ok, p.preview, p.display);
   setStatus("运行中", true);

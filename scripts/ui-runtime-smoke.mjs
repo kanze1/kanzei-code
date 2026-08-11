@@ -2488,7 +2488,7 @@ assert(listText("memory-flags-count").includes("2"), "整理后未刷新空闲�
   assert(restOf(h4) === null, "只有一行结果时不该出展开区(展开了还是那一行 = 假承诺)");
 }
 
-// ---------- R-168 活动面板：仅终端命令和失败调用 + 筛选 + 信息量 + 可操作 ----------
+// ---------- 活动面板：完整工具调用 + 筛选 + 信息量 + 可操作 ----------
 const toolStart = handlers.get("kz:tool-start");
 const toolEnd = handlers.get("kz:tool-end");
 const taskProgress = handlers.get("kz:task-progress");
@@ -2500,8 +2500,8 @@ toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input
 await flush();
 const bashEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=bash]");
 assert(bashEntry, "活动面板缺少终端类条目");
-assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T2]"), "成功 edit 不应进入活动栏(R-168)");
-assert(!document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "运行中的 task 不应进入活动栏(R-168)");
+assert(document.querySelector("#bg-list .bg-entry[data-bg-id=T2]"), "成功 edit 未进入完整活动栏");
+assert(document.querySelector("#bg-list .bg-entry[data-bg-id=T3]"), "运行中的 task 未进入完整活动栏");
 assert(
   bashEntry.querySelector(".bg-tool")?.textContent === "bash"
     && bashEntry.querySelector(".bg-target")?.textContent.includes("cargo test"),
@@ -2584,7 +2584,7 @@ await flush();
 for (const role of scoutRoles) {
   assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
 }
-assert(!orchEntry("MODEL_TASK"), "模型自己派的 task 被一起放行了(R-168 静默口径被打破)");
+  assert(orchEntry("MODEL_TASK"), "模型自己派的 task 未进入完整活动栏");
 // ② 分组:按 input.phase 分区,这是 Running/Finished 分区的雏形。
 assert(orchGroup("scouting"), "勘察子代理未按 input.phase 分组");
 assert(
@@ -2769,16 +2769,13 @@ assert(
   assert(head.getAttribute("aria-expanded") === "false", "折叠后 aria-expanded 应为 false");
 }
 
-// ---------- 小工具降噪 + bash 实时输出 + rail 侧栏开合(用户定调) ----------
-// ① 静默工具成功不进活动流,失败补建条目——活动面板只回答"哪里不对"。
+// ---------- 完整活动流 + bash 实时输出 + rail 侧栏开合 ----------
+// ① 成功工具也进入活动流,失败仍保留失败态。
 const quietBefore = document.querySelectorAll("#bg-list .bg-entry").length;
 toolStart({ payload: { id: "Q1", name: "read", summary: "crates/kanzei/src/main.rs", input: { path: "crates/kanzei/src/main.rs" } } });
 toolEnd({ payload: { id: "Q1", name: "read", ok: true, preview: "1 //! kz", display: null } });
 await flush();
-assert(
-  document.querySelectorAll("#bg-list .bg-entry").length === quietBefore,
-  "成功的 read 仍进了活动流(小工具降噪未生效)",
-);
+assert(document.querySelectorAll("#bg-list .bg-entry").length === quietBefore + 1, "成功的 read 未进入完整活动流");
 toolStart({ payload: { id: "Q2", name: "req", summary: "update R-999", input: { action: "update" } } });
 toolEnd({ payload: { id: "Q2", name: "req", ok: false, preview: "找不到 R-999", display: null } });
 await flush();
@@ -2896,12 +2893,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(j2Target === "crates/kanzei-core/src/store.rs", `edit 条目标题不是文件路径:"${j2Target.slice(0, 60)}"`);
   assert(!j2Target.includes("new_string") && !j2Target.startsWith("{"), "edit 条目标题里还留着入参 JSON");
   assert(j2.querySelector(".bg-title")?.title === j2Target, "edit 条目的悬浮提示与标题不一致");
-  // 同一份裸 JSON 还会漏到另外两个用户可见面:侧边栏「当前动作」行与运行日志。
-  // 活动栏修好而这两处照旧,用户仍然天天看见 `{"new_string":…`。
-  assert(
-    !listText("live-action").includes("new_string") && listText("live-action").includes("store.rs"),
-    `「当前动作」行仍是后端裸 JSON:"${listText("live-action")}"`,
-  );
+  // 活动按钮本身展示人类可读目标,不能回退到后端整坨 JSON。
+  assert(j2Target.includes("store.rs") && !j2Target.includes("new_string"), "活动条目目标仍是裸 JSON");
   assert(
     !listText("log-lines").includes('"new_string"'),
     "运行日志里仍直接拼后端 summary(edit 在日志里还是一坨入参 JSON)",
@@ -2910,8 +2903,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   toolStart({ payload: { id: "BGJ2b", name: "read", input: { path: "crates/kanzei/src/main.rs" } } });
   await flush();
   assert(
-    listText("live-action").includes("crates/kanzei/src/main.rs"),
-    `summary 缺省时「当前动作」行未回落到入参挑字段:"${listText("live-action")}"`,
+    bgEntry("BGJ2b")?.querySelector(".bg-target")?.textContent.includes("crates/kanzei/src/main.rs"),
+    "summary 缺省时活动条目未回落到入参挑字段",
   );
 
   // ④ 回落链第二级:挑不出字段就用后端 summary(回放事件不带 input,靠的就是这一级)。
@@ -2965,7 +2958,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
       { id: "RP1", kind: "tool.completed", ok: true, durationMs: 1200 },
       { id: "RP2", kind: "tool.started", name: "edit", summary: "历史失败调用" },
       { id: "RP2", kind: "tool.completed", ok: false, error: "boom" },
-      // name 缺失的回放事件走静默通道:R-168 之后它根本不建条目(不是"建一条无名条目")。
+      // name 缺失的回放事件没有可读身份,不应建出空壳条目。
       { id: "RP3", kind: "tool.started" },
     ],
   }]);
@@ -3555,14 +3548,14 @@ assert(projectInit.getAttribute("title") === "Initialize a new project directory
 assert(chatActivity.getAttribute("aria-label") === "Switch to chat", "静态 aria-label 未翻译");
 handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
 await flush();
-assert(listText("live-turn").includes("Error"), `英文动态错误状态未翻译: "${listText("live-turn")}"`);
+assert(listText("status-text").includes("Error"), `英文动态错误状态未翻译: "${listText("status-text")}"`);
 assert(document.querySelector(".error-level")?.textContent === "Fatal error", "英文错误等级未翻译");
 languageControl.value = "zh";
 languageControl.dispatchEvent({ type: "change" });
 await flush();
 assert(document.documentElement.lang === "zh-CN", "切回中文后 document.lang 未更新");
 assert(storage.get("kz-language") === "zh", "中文选择未持久化");
-assert(listText("live-turn").includes("出错"), `中文动态错误状态未恢复: "${listText("live-turn")}"`);
+assert(listText("status-text").includes("出错"), `中文动态错误状态未恢复: "${listText("status-text")}"`);
 assert(
   document.querySelector(".error-level")?.textContent === "致命错误",
   `动态错误等级切回中文失败:${document.querySelector(".error-level")?.textContent}`,
@@ -3603,8 +3596,8 @@ await flush();
 assert(byId.get("ask-overlay").classList.contains("hidden"), "R-086 前置:主会话 ask 未清空");
 // 场景:主会话(sess-smoke)活动;后台会话(sess-bg)初始 running=true(桩里故意给旧值,
 // 模拟"事件已收敛但轮询采样发生在事件之前"的竞态)。
-const activeTab = document.querySelector(".process-tab.active");
-assert(activeTab?.textContent.includes("主会话"), `冒烟前置:主会话应为活动进程(实际:${activeTab?.textContent})`);
+const activeLine = document.querySelector("#parallel-task-status .parallel-task-row.active");
+assert(activeLine?.textContent.includes("主会话"), `冒烟前置:主会话应为活动线路(实际:${activeLine?.textContent})`);
 // 并行线状态卡按 process_list 全量投影,三条并行线就必须有三条可切换任务行。
 const twoProcesses = structuredClone(payloads.process_list);
 sandbox.renderProcesses([
@@ -3629,8 +3622,8 @@ await flush();
 const bgState = sandbox.sessionState("sess-bg");
 assert(bgState.converged === false, "kz:done 是轮末事件,不得收敛会话终态(排队输入还要继续跑)");
 assert(bgState.running === true, `kz:done 后会话仍在跑,运行态被误清: ${bgState.running}`);
-const bgTabAfterDone = [...document.querySelectorAll(".process-tab")].find((tab) => tab.textContent.includes("后台会话"));
-assert(bgTabAfterDone?.textContent.includes("●"), `多轮运行第一轮结束后标签页熄灯(实际:${bgTabAfterDone?.textContent})`);
+const bgLineAfterDone = [...document.querySelectorAll("#parallel-task-status .parallel-task-row")].find((row) => row.textContent.includes("后台会话"));
+assert(bgLineAfterDone?.textContent.includes("●"), `多轮运行第一轮结束后线路按钮熄灯(实际:${bgLineAfterDone?.textContent})`);
 assert(byId.get("stop").classList.contains("hidden"), "后台会话结束不应改变主会话视图的运行态");
 // 第二轮开跑:kz:turn 是每轮开头必发的自愈信号,把状态机拨回运行中并解除 converged。
 handlers.get("kz:turn")?.({ payload: { step: 1, maxSteps: 30, sessionId: "sess-bg" } });
@@ -3642,17 +3635,17 @@ handlers.get("kz:idle")?.({ payload: { reason: "completed", sessionId: "sess-bg"
 await flush();
 assert(sandbox.sessionState("sess-bg").running === false, "kz:idle 未收敛运行态");
 assert(sandbox.sessionState("sess-bg").converged === true, "kz:idle 未标记 converged");
-const bgTabAfterIdle = [...document.querySelectorAll(".process-tab")].find((tab) => tab.textContent.includes("后台会话"));
-assert(!bgTabAfterIdle?.textContent.includes("●"), "会话已空闲但标签页仍亮着运行标记");
+const bgLineAfterIdle = [...document.querySelectorAll("#parallel-task-status .parallel-task-row")].find((row) => row.textContent.includes("后台会话"));
+assert(!bgLineAfterIdle?.textContent.includes("●"), "会话已空闲但线路按钮仍亮着运行标记");
 // 切回后台会话:权限询问可见可答复,运行态显示空闲(converged 挡住桩里的旧 running=true)。
 const messagesBeforeSwitch = listText("messages");
 const pendingSwitch = sandbox.switchProcess("p|bg");
 assert(listText("messages") === messagesBeforeSwitch, "切线程请求尚未完成时主对话被清空");
 await pendingSwitch;
 await flush();
-const bgTab = document.querySelector(".process-tab.active");
-assert(bgTab?.textContent.includes("后台会话"), "切换到后台会话后活动进程 tab 未更新");
-assert(bgTab?.textContent.includes("kanzei/thread-smoke"), `分支线标签未显示真实分支名:${bgTab?.textContent}`);
+const bgLine = document.querySelector("#parallel-task-status .parallel-task-row.active");
+assert(bgLine?.textContent.includes("后台会话"), "切换到后台会话后活动线路按钮未更新");
+assert(bgLine?.textContent.includes("kanzei/thread-smoke"), `分支线按钮未显示真实分支名:${bgLine?.textContent}`);
 const trackerToggle = byId.get("process-tracker-writes");
 assert(trackerToggle && !trackerToggle.checked, "分支线 tracker 写入必须默认关闭");
 assert(!byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "分支线未显示 tracker 写入开关");
@@ -3676,8 +3669,8 @@ assert(byId.get("ask-overlay").classList.contains("hidden"), "答复后权限弹
 // 再切回主会话:不串台,无残留弹窗。
 await sandbox.switchProcess("d|smoke");
 await flush();
-const backTab = document.querySelector(".process-tab.active");
-assert(backTab?.textContent.includes("主会话"), "切回主会话后活动进程 tab 未更新");
+const backLine = document.querySelector("#parallel-task-status .parallel-task-row.active");
+assert(backLine?.textContent.includes("主会话"), "切回主会话后活动线路按钮未更新");
 assert(byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "默认线不应显示分支 tracker 开关");
 assert(byId.get("ask-overlay").classList.contains("hidden"), "切回主会话后残留后台 ask 弹窗");
 
@@ -3705,7 +3698,7 @@ sandbox.renderProcesses([
   { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: true },
 ]);
 await flush();
-assert(document.querySelector(".process-tab.active")?.textContent.includes("主会话"), "重建用例收尾后活动进程未回到主会话");
+assert(document.querySelector("#parallel-task-status .parallel-task-row.active")?.textContent.includes("主会话"), "重建用例收尾后活动线路未回到主会话");
 
 // ---------- R-169 鞭挞执行层:判定已引擎化,前端只执行 autoAction ----------
 // 判定(空转画像/连数/全部阻塞/NUDGE 时机/停止原因)全部在 harness auto_run
@@ -4283,7 +4276,7 @@ assert(
 // rail 导航 title/aria-label 已由批0 断言覆盖;live-turn/status-mode/status-text 是动态
 // 元素(JS 用 t()/localizeDynamic 渲染点写入),一律不挂 data-i18n-key——挂了会在切语言时被
 // applyDataI18nKeys 覆写回原文。chat-search·prompt placeholder/sop-picker aria-label/
-// queue·steer option/process-tabs aria-label/log 面板/statusbar(git·ctx·tokens·日志)/
+// queue·steer option/log 面板/statusbar(git·ctx·tokens·日志)/
 // 活动面板筛选(类型+状态)/agent 面板区块与清空/权限询问(标题·字段·回答 placeholder·
 // 四按钮)/查看器两按钮全部挂 data-i18n-*。带 id 的元素把 data-i18n-key 放元素自身
 // (冒烟按 id 建节点只取开标签后首个 < 前的 directText,span 包裹会让按钮文本变空);
@@ -4298,7 +4291,7 @@ assert(
   sandbox.applyLanguage();
   assert(b9Key("权限请求") === "权限请求", "中文态权限请求标题应保持原文(前置失效)");
   assert(b9Key("当前计划") === "当前计划", "中文态当前计划应保持原文(前置失效)");
-  assert(attrOf("process-tabs", "aria-label") === "项目进程", "中文态 process-tabs aria-label 应保持原文(前置失效)");
+  assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
   assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
   assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
 
@@ -4324,12 +4317,11 @@ assert(
   assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
   assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste or drop images or PDFs", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
   assert(b9Key("排队 queue") === "Queue", `英文态「排队 queue」未翻译(option 渲染点),实际 "${b9Key("排队 queue")}"`);
-  assert(attrOf("process-tabs", "aria-label") === "Project processes", `英文态 process-tabs aria-label 未翻译,实际 "${attrOf("process-tabs", "aria-label")}"`);
+  assert(!sandbox.document.getElementById("process-tabs"), "英文态不应出现顶部进程切换条");
   // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
   // 它们的文案由 JS 渲染点(t()/localizeDynamic)负责,切语言不应被 applyDataI18nKeys 触碰。
   assert(!attrOf("status-mode", "data-i18n-key"), "status-mode 不得挂 data-i18n-key(动态渲染点)");
   assert(!attrOf("status-text", "data-i18n-key"), "status-text 不得挂 data-i18n-key(动态渲染点)");
-  assert(!sandbox.document.getElementById("live-turn")?.getAttribute("data-i18n-key"), "live-turn 不得挂 data-i18n-key(动态渲染点)");
 
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();

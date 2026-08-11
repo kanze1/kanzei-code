@@ -29,6 +29,10 @@ window.addEventListener("unhandledrejection", (event) => {
 });
 
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
+const SESSION_PROGRESS_EVENTS = new Set([
+  "kz:meta", "kz:status", "kz:text", "kz:reasoning",
+  "kz:tool-start", "kz:tool-progress", "kz:task-progress", "kz:step",
+]);
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
@@ -45,6 +49,14 @@ function on(event, handler) {
       const state = sessionState(sessionId);
       state.stage = eventPayload.payload?.stage || state.stage || "空闲";
       state.detail = eventPayload.payload?.detail || "";
+    }
+    // 运行事件不保证每条线路都先收到 kz:turn:并行线路可能先收到 meta、status
+    // 或工具进度。任何带会话身份的实时进度都说明该线路仍在运行,否则左侧线路按钮
+    // 会在实际执行时显示「空闲」,直到下一次轮询或下一轮 turn 才被纠正。
+    if (sessionId && SESSION_PROGRESS_EVENTS.has(event)) {
+      const state = sessionState(sessionId);
+      state.running = true;
+      state.converged = false;
     }
     const controlEvent =
       event === "kz:ask" ||

@@ -21,7 +21,7 @@ assert.match(js, /if \(event\.key !== "Escape"\) return/);
 assert.match(js, /answerAsk\(askActive\.kind === "question" \? "cancel" : "deny"\)/);
 assert.match(js, /\$\("viewer-close"\)\.focus\(\)/);
 assert.match(js, /if \(event\.key !== "Enter" && event\.key !== " "\) return/);
-for (const selector of ["activity-item", "sidebar-toggle", "auto-continue", "auto-allow"]) {
+for (const selector of ["activity-item", "rail-sidebar-toggle", "auto-continue", "auto-allow"]) {
   assert.ok(html.includes(`id="${selector}"`) || html.includes(`class="${selector}`), `缺少核心控件 ${selector}`);
 }
 assert.match(js, /activity-item[\s\S]*aria-current/);
@@ -112,7 +112,7 @@ assert.match(html, /id="continue-toggle"[\s\S]*id="continue-btn"/);
 assert.match(css, /#continue-panel[\s\S]*grid-template-columns: auto minmax\(0, 1fr\)/);
 assert.match(css, /#topbar[\s\S]*flex-wrap: nowrap/);
 assert.match(css, /@media \(max-width: 1024px\)[\s\S]*#topbar \.crumb, #auto-status \{ display: none; \}/);
-assert.match(css, /@media \(max-width: 1024px\)[\s\S]*#process-tabs \{[^}]*min-width: 40px;[^}]*max-width: 120px/);
+assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与左侧线路状态按钮重复");
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
 assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
 assert.match(css, /#sidebar\.collapsed[\s\S]*width: 0/);

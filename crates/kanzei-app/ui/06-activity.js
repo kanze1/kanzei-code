@@ -1,4 +1,4 @@
-// ---------- 活动面板(R-037/R-168):终端命令与失败调用入列,详情点击展开 ----------
+// ---------- 活动面板(R-037):完整工具活动入列,详情点击展开 ----------
 const bgEntries = new Map(); // call_id -> {el, title, prog, meta, detail, startedAt, done}
 const diffSummary = new Map();
 const BG_MAX = 120;
@@ -105,14 +105,9 @@ function syncBgRoleFilterOptions() {
   }
   select.value = roles.includes(current) || current === "all" ? current : "all";
 }
-// R-168:活动栏不是完整工具审计(主对话已有内联工具块)，只保留用户需要盯进度的
-// 终端命令；任意工具失败仍会在结束时补建，避免把故障信号一起静默掉。
-//
-// R-173:例外是编排对象按角色表派发的勘察/复核子代理。它们不经模型 tool call,
-// 主对话里没有"内联工具块"这个兜底,活动面板是它们唯一的可见处——按 R-168 静默
-// 等于把 5 勘察 + 3 复核的全部内部进度直接丢掉。后端(a921b14)用既有三事件上抛,
-// input.phase 就是分区依据(scouting/review),据此放行;模型自己派的 task 不带
-// phase,仍旧静默,R-168 的口径不动。
+// 活动栏现在保留完整工具轨迹。主对话仍然是主要阅读区,但活动面板需要回答
+// 「刚才实际做了什么、现在卡在哪、失败在哪里」,不能把 read/grep/edit 等成功调用
+// 静默到只剩终端和错误,否则用户看到的就是空白面板。
 const ORCH_PHASES = new Set(["scouting", "review"]);
 function orchPhaseOf(input) {
   const phase = input?.phase;
@@ -124,7 +119,7 @@ function orchPhaseLabel(phase) {
   return phase === "scouting" ? t("勘察") : t("复核");
 }
 function isActivityTool(name, input) {
-  return bgIsTerminal(name) || (name === "task" && orchPhaseOf(input) !== null);
+  return Boolean(name);
 }
 
 const BG_TOOL_TYPES = {
@@ -134,11 +129,11 @@ const BG_TOOL_TYPES = {
   task: "agent",
   memory_note: "memory", memory_search: "memory", memory_stats: "memory",
 };
-// 除终端命令外，所有成功工具调用均静默；未知新工具也默认静默，避免功能扩展后
-// 活动栏重新被灌满。失败路径由 bgFinishQuiet 补建真实错误条目。
+// 保留这个待收尾表是为了兼容历史回放路径；当前实时工具调用统一进入活动栏，
+// 因此 bgQuiet 固定返回 false，成功/失败都保留完整轨迹。
 const bgPending = new Map(); // call_id -> {name, summary, input, startedAt}
 function bgQuiet(name, input) {
-  return !isActivityTool(name, input);
+  return false;
 }
 function bgStartQuiet(id, name, summary, input) {
   if (!id) return;
@@ -146,7 +141,7 @@ function bgStartQuiet(id, name, summary, input) {
   // 悬挂上限:异常中断的静默调用不该无限累积。
   if (bgPending.size > BG_MAX) bgPending.delete(bgPending.keys().next().value);
 }
-// 收尾一条静默调用。成功→无声丢弃返回 true;失败→补建条目返回 false,
+// 收尾历史兼容路径中的待定调用。成功返回 true；失败补建真实条目，
 // 让调用方继续走 bgEnd 把错误详情画出来。
 function bgFinishQuiet(id, ok) {
   const pending = bgPending.get(id);
@@ -286,13 +281,14 @@ function bgTick(entry) {
 // 角色名就是 id,而角色跨轮复用(每个自主推进轮都有 architecture_scout)。同名角色
 // 再次派发时必须原地复位:被 bgEntries.has(id) 直接挡掉的话,第二轮的 progress/end
 // 会全写进上一轮那条已终态的行,面板从此定格在上一轮。
-function bgRestart(id, summary, input) {
+function bgRestart(id, summary, input, sessionId = activeSessionId) {
   const entry = bgEntries.get(id);
   if (!entry) return;
   entry.done = false;
   entry.startedAt = Date.now();
   entry.children.clear();
   entry.input = input;
+  entry.sessionId = sessionId;
   entry.live = null;
   entry.summary = toolCallSummary(entry.name, input) || String(summary ?? "");
   entry.target.textContent = entry.summary;
@@ -310,11 +306,11 @@ function bgRestart(id, summary, input) {
   bgSync();
 }
 
-function bgAdd(id, name, summary, input) {
+function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
   if (bgEntries.has(id)) {
-    if (phase) bgRestart(id, summary, input);
+    if (phase) bgRestart(id, summary, input, sessionId);
     return;
   }
   const type = bgToolType(name);
@@ -386,7 +382,7 @@ function bgAdd(id, name, summary, input) {
   const entry = {
     // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
     // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
-    el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input,
+    el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input, sessionId,
     role: phase ? id : null, children: new Map(), startedAt: Date.now(), done: false,
   };
   bgEntries.set(id, entry);
@@ -433,8 +429,15 @@ function bgRenderActions(id, entry) {
             return;
           }
         }
-        await invoke("stop_run", { sessionId: activeSessionId });
-        toast(t("已请求停止"));
+        const processId = processItems.find((item) => item.session_id === entry.sessionId)?.id
+          || (entry.sessionId === activeSessionId ? activeProcessId : null);
+        if (entry.name === "task") {
+          await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(id) });
+          toast(t("已请求停止该子代理"));
+        } else {
+          await invoke("stop_run", { projectDir: currentProject, processId });
+          toast(t("已请求停止"));
+        }
       } catch (error) {
         toastError(`${t("停止失败")}:${error}`);
       }
@@ -691,11 +694,12 @@ function renderRecoveredTraces(payloads) {
     for (const event of payload.events || []) {
       if (!event.id) continue; // turn.started / context.compacted 等无 id 事件不进列表
       if (event.kind === "tool.started") {
-        // 回放同样遵守小工具降噪:成功的静默调用不进列表,失败的照常补建。
+        if (!event.name) continue;
+        // 回放与实时路径一致:完整工具调用都进入活动面板。
         if (bgQuiet(event.name)) {
           bgStartQuiet(event.id, event.name, event.summary || "", null);
         } else if (!bgEntries.has(event.id)) {
-          bgAdd(event.id, event.name || "task", event.summary || t("历史子代理轨迹"));
+          bgAdd(event.id, event.name || "task", event.summary || t("历史子代理轨迹"), null, activeSessionId);
         }
       } else if (event.kind === "tool.completed") {
         if (bgFinishQuiet(event.id, event.ok !== false)) continue;
@@ -725,7 +729,7 @@ function renderRecoveredTraces(payloads) {
     entry.meta.textContent = `${t("回放")} · ${t("无结果(轮次中断)")}`;
     bgRenderActions(id, entry);
   }
-  // 回放里没等到 completed 的静默调用直接丢弃,不让残留 id 污染后续实时判定。
+  // 回放里没等到 completed 的兼容待定调用直接丢弃，不让残留 id 污染后续实时判定。
   bgPending.clear();
   bgSync();
 }
@@ -778,10 +782,11 @@ function liveSet(id, text) {
   const source = String(text ?? "");
   if (!source) {
     liveTextSources.delete(id);
-    el.classList.add("hidden");
+    el?.classList.add("hidden");
     return;
   }
   liveTextSources.set(id, source);
+  if (!el) return;
   el.classList.remove("hidden");
   el.textContent = localizeDynamic(source);
   el.title = localizeDynamic(source);
@@ -790,15 +795,19 @@ function liveIdle(label) {
   const turn = $("live-turn");
   const source = String(label ?? "");
   liveTextSources.set("live-turn", source);
-  turn.textContent = localizeDynamic(source);
-  turn.classList.add("dim");
+  if (turn) {
+    turn.textContent = localizeDynamic(source);
+    turn.classList.add("dim");
+  }
   liveSet("live-action", "");
 }
 function liveTurn(text) {
   const turn = $("live-turn");
   const source = String(text ?? "");
   liveTextSources.set("live-turn", source);
-  turn.textContent = localizeDynamic(source);
-  turn.classList.remove("dim");
+  if (turn) {
+    turn.textContent = localizeDynamic(source);
+    turn.classList.remove("dim");
+  }
 }
 
