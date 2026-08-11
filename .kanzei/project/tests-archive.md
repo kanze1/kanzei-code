@@ -1671,3 +1671,9 @@
 - 摘要: D-214 关闭前全量:全部 crate 全绿。SOP 候选改投项目 inbox 后进入既有 manager 消化通道(CLI/桌面端),manager prompt 例外规则按 scope=global 落库,候选箱语义保留(用户拍板采纳)。
 - 关联: D-214
 - 收尾: 1786450039
+
+## T-1786450308 D-217 定向测试:stale 墓碑落档 + 积压清单 [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app + 前端冒烟(node --check + ui-runtime/i18n/lint)
+- 摘要: D-217 修复定向验证:①memory_stale reason 墓碑随条目进归档(先追加正文再 update 状态,archive_dead rename 时文件已带 reason)——新增单测 stale_墓碑_reason随条目进归档(主目录消失、归档保留 ID、正文含 stale reason+原正文);②memory_value_flags 返回 staleArchived 计数(store.archived_count),前端整理清单显示「已归档待复查」+ i18n 登记;③memory_system.md 三处文档同步(archive/ 目录名、手动整理替代 sleep-time、R-107 验收修正)。kanzei-tools 232 + app 118 全绿,前端四条冒烟通过。
+- 关联: D-217
+- 收尾: 1786450308

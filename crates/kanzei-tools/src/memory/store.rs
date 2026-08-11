@@ -170,6 +170,15 @@ impl MemoryStore {
         out
     }
 
+    /// 归档条数(D-217):stale/失效条目经 archive_dead 搬入 archive/ 后在此计数,
+    /// 供整理清单展示「已归档待复查」积压。只读,不触发扫描副作用。
+    pub fn archived_count(&self) -> usize {
+        let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
+            return 0;
+        };
+        dir.flatten().filter(|p| p.path().extension().and_then(|e| e.to_str()) == Some("md")).count()
+    }
+
     /// ID 分配扫活跃+归档,编号绝不复用(同 tracker 哲学)。
     pub fn next_id(&self, entries: &[(PathBuf, MemoryEntry)]) -> String {
         let prefix = self.scope.prefix();

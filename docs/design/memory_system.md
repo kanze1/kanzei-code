@@ -57,7 +57,7 @@ refs: R-070 D-200       # R-070 来源引用(可选):空格分隔的引用 ID �
 - **refs 来源契约(R-070)**:memory_add/memory_note 的 `refs` 参数代码强制校验——`[RDAMGSF]-<数字>` 必须命中对应 doc 的活跃或归档条目,否则按相对文件路径必须真实存在于项目根;任一非法整体拒绝,不在提示词层面兜底(先例:tracker.rs check_refs)。frontmatter 宽容读,refs 存 `extras` 键,`MemoryEntry::refs()` 还原;
 - 每 scope 一份引擎维护的 `INDEX.md`(一行一条:id/category/title/description),人可读,损坏可由文件重建;
 - 完整性检测:INDEX ↔ 文件集合一致性、ID 缺号告警(同 D-112 门禁);
-- 删除 = 归档:`stale` 后由整理流程移入 `memory-archive/`,带墓碑,绝不静默消失。
+- 删除 = 归档:`stale`(兼容别名,归一为 `deprecated`)或 `invalid` 条目由引擎自动搬运进 `archive/`(目录实际名;任何写操作后的 `refresh_derived` 都先跑 `archive_dead` 做 rename),带墓碑——墓碑 = 文件本身内容保留,`memory_stale` 的 reason 追加进正文随文件进归档,绝不静默消失;ID 由归档侧保留永不复用。
 
 SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode 轨迹摘要表。真源始终是文件;库删了可全量重建。
 
@@ -68,7 +68,7 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 - `memory_add(scope, category, title, description, content)` — 写入前引擎做近似去重检查(同 category 标题/内容相似即返回候选,要求改为 update 或显式确认新增);
 - `memory_update(id, patch)` — 演化:内容修订、description 调整、命中后的强化;
 - `memory_merge(ids, merged)` — 合并重复,被并条目自动 stale 并在墓碑里链到新条目;
-- `memory_stale(id, reason)` — 失效标记(被推翻/过期),reason 必填;
+- `memory_stale(id, reason)` — 失效标记(被推翻/过期),reason 必填;reason 追加进正文,随条目进 archive/ 成为墓碑追溯;
 - `memory_search(query, scope?, category?, status?)` — FTS5 BM25 + 结构化过滤,结果按 相关度×新近度×hits 排序;
 - `memory_stats()` — 各 scope/category 计数、体积、低命中候选、stale 候选。
 
@@ -81,7 +81,7 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 | 轮末收尾 | memory-manager 复盘本轮轨迹:生成 episode 摘要;对 note 草稿与轨迹中的"新知"做 ADD/UPDATE/NOOP | 每轮一次 fast 调用 |
 | 条目关闭(defect fixed / req done) | 根因→fact 候选;重复出现的操作序列→sop 候选 | 随轮末合并 |
 | 用户显式 | 「记住这个」指令 / UI 按钮 → 直接投递 note | 零 |
-| 空闲整理(sleep-time) | 桌面端空闲时:合并重复、低命中降级提示、stale 归档、INDEX 重建校验 | 后台,可关 |
+| 空闲整理(手动,可关) | 桌面端「一键整理」按钮:零采纳候选批量降级 stale→归档;stale 积压(归档计数)进整理清单可复查——非 sleep-time 自动(R-107 按设计偏差改为手动,R-132 落地) | 用户触发 |
 | 上下文溢出 | 先把被裁剪段压成 episode 再重置(与 D-088 联动),轨迹不再无声蒸发 | 溢出时一次 |
 | 体积阈值 | 某 scope 条目数/体积超限 → 强制一轮整理 | 罕见 |
 
@@ -103,7 +103,7 @@ SQLite 只存**可重建的派生物**:FTS5 全文索引、hits 统计、episode
 - **R-104(M1 存储与检索)**:文件格式+两级 scope+引擎门禁+INDEX+FTS5+memory_search/stats;迁移现有 M-条目。验收:检索命中率在真实轨迹中可观测;INDEX 完整性门禁有回归;全部内容可 git 恢复。
 - **R-105(M2 管理子代理与触发)**:memory-manager 子代理+全套写工具+note 投递+轮末/关闭/显式三个触发点。验收:连续自举轮次中出现"轮末写入→后续轮检索命中→避免重复探索"的完整闭环实证(轨迹为证);去重门禁拦下重复写入的用例。
 - **R-106(M3 注入改造与账单)**:索引常驻+正文按需+sop 触发提示+逐 source token 计量落库。验收:同类任务每轮注入 token 较基线下降且无信息缺失导致的返工;账单数据可查询。
-- **R-107(M4 UI 与空闲整理)**:Memory 页(架构图/条目/账单/检索)+sleep-time 整理+溢出压缩联动。验收:800/1024/1280 三档可用;整理动作全部有墓碑与日志,无静默删除。
+- **R-107(M4 UI 与空闲整理)**:Memory 页(架构图/条目/账单/检索)+ 手动整理(一键降级零采纳候选 + stale 积压复查)+ 溢出压缩联动。验收:800/1024/1280 三档可用;整理动作全部有墓碑与日志,无静默删除。sleep-time 自动整理按设计偏差关闭,改手动按钮(R-132)。
 
 ## 8. 明确不做(决策记录)
 

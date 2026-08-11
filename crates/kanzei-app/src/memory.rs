@@ -111,14 +111,17 @@ pub(crate) fn memory_recalls(project_dir: String, limit: Option<usize>) -> serde
     json!({"rounds": rounds, "rounds_total": total, "rounds_with_fetch": with_fetch})
 }
 
-/// R-150 空闲整理清单:零采纳候选与复发候选(内容①)。
+/// R-150 空闲整理清单:零采纳候选、复发候选与 stale 积压(内容①)。
 /// 零采纳 = 召回≥3 但从未拉正文;复发 = 最近回放里同一标题反复出现(暂以
 /// 召回次数高且采纳为 0 的近似——精确复发标记走 fingerprint,这里给 UI 候选)。
+/// stale 积压(D-217) = archive/ 里已归档条目数(引擎 archive_dead 搬运后的
+/// 遗忘总量,供「待复查」提示——归档文件保留墓碑正文可回看)。
 /// 只列候选不处置——处置走既有墓碑机制(memory_entry_save 降级 / delete),不静默删。
 #[tauri::command]
 pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
     let mut zero_adopt = Vec::new();
     let mut recurring = Vec::new();
+    let mut stale_archived = 0usize;
     for store in memory_stores_for(&project_dir) {
         let entries = store.load_all();
         let profile = store.recall_profile();
@@ -141,8 +144,9 @@ pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
                 }
             }
         }
+        stale_archived += store.archived_count();
     }
-    json!({"zeroAdopt": zero_adopt, "recurring": recurring})
+    json!({"zeroAdopt": zero_adopt, "recurring": recurring, "staleArchived": stale_archived})
 }
 
 /// R-132 一键整理:对零采纳候选(召回≥3 采纳=0 且 active)批量降级为 stale。

@@ -379,13 +379,19 @@ impl Tool for MemoryStaleTool {
             Ok(s) => s,
             Err(e) => return ToolOutput::error(e.to_string()),
         };
-        let body_note = format!("\n\n(stale: {})", input.reason.trim());
-        match store.update(&input.id, None, None, None, Some("stale")) {
-            Ok(e) => {
-                let appended = format!("{}{}", e.body, body_note);
-                let _ = store.update(&input.id, None, None, Some(&appended), None);
-                ToolOutput::ok(format!("staled {} — {}", e.id, input.reason.trim()))
-            }
+        // D-217:墓碑必须随条目进 archive。原实现先 update 状态(触发 archive_dead
+        // 把文件搬走),再想追加 reason 正文——此时 load_all 已找不到条目,reason
+        // 永远不落档,归档文件没有「为什么失效」的追溯。正确做法:先读原 body,
+        // 追加墓碑文本,再一次性 update(body + status),rename 时文件已带墓碑。
+        let reason = input.reason.trim();
+        let (found_id, found_body) =
+            match store.load_all().into_iter().find(|(_, e)| e.id == input.id) {
+                Some((_, e)) => (e.id.clone(), e.body),
+                None => return ToolOutput::error(format!("unknown memory id `{}`", input.id)),
+            };
+        let appended = format!("{}\n\n(stale: {reason})", found_body.trim_end());
+        match store.update(&found_id, None, None, Some(&appended), Some("stale")) {
+            Ok(e) => ToolOutput::ok(format!("staled {} — {reason}", e.id)),
             Err(e) => ToolOutput::error(e.to_string()),
         }
     }
@@ -562,6 +568,76 @@ mod tests {
             )
             .await;
         assert!(no_reason.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-217:memory_stale 的 reason 必须随条目进 archive/ 墓碑(原实现先搬走文件
+    /// 再追加正文,load_all 找不到条目,reason 永远不落档)。验证:标 stale 后条目
+    /// 离开主目录,archive/ 里文件正文含 `(stale: reason)`,ID 由归档侧保留。
+    #[tokio::test]
+    async fn stale_墓碑_reason随条目进归档() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-stale-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let store = MemoryStore::project(&dir);
+        let added = MemoryAddTool
+            .execute(
+                json!({"scope": "project", "category": "fact", "title": "墓碑测试条目",
+                       "description": "测试 reason 落档", "body": "原始正文"}),
+                &ctx,
+            )
+            .await;
+        assert!(!added.is_error, "{}", added.content);
+
+        let staled = MemoryStaleTool
+            .execute(
+                json!({"scope": "project", "id": "M-001", "reason": "被新结论推翻"}),
+                &ctx,
+            )
+            .await;
+        assert!(!staled.is_error, "{}", staled.content);
+        assert!(staled.content.contains("被新结论推翻"), "{}", staled.content);
+
+        // 主目录不再有 M-001(archive_dead 已搬走),归档侧保留 ID。
+        assert!(
+            !store.load_all().iter().any(|(_, e)| e.id == "M-001"),
+            "stale 条目应离开主目录"
+        );
+        let archive_dir = dir.join(".kanzei").join("memory").join("archive");
+        let names: Vec<String> = std::fs::read_dir(&archive_dir)
+            .unwrap()
+            .flatten()
+            .map(|f| f.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("M-001-")),
+            "归档侧应保留 ID: {names:?}"
+        );
+        // 墓碑正文:归档文件里必须能看到 reason(可追溯)。
+        let bodies: Vec<String> = std::fs::read_dir(&archive_dir)
+            .unwrap()
+            .flatten()
+            .map(|f| std::fs::read_to_string(f.path()).unwrap_or_default())
+            .collect();
+        assert!(
+            bodies.iter().any(|b| b.contains("(stale: 被新结论推翻)")),
+            "归档墓碑必须含 reason: {bodies:?}"
+        );
+        assert!(
+            bodies.iter().any(|b| b.contains("原始正文")),
+            "归档墓碑必须保留原正文: {bodies:?}"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

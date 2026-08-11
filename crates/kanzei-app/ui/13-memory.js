@@ -259,6 +259,7 @@ function renderMemoryCandidates(list) {
 
 // R-150:空闲整理清单。零采纳候选(召回≥3 采纳=0)与复发候选只展示+可点开详情,
 // 处置不在这里静默删——点条目打开详情页走既有墓碑机制(降级/修订/归档)。
+// D-217:stale 积压(已归档条目数)也进清单——归档保留墓碑正文可回看复查。
 function renderMemoryValueFlags(data) {
   const box = $("memory-value-flags");
   const count = $("memory-flags-count");
@@ -266,10 +267,20 @@ function renderMemoryValueFlags(data) {
   box.innerHTML = "";
   const zero = Array.isArray(data?.zeroAdopt) ? data.zeroAdopt : [];
   const recur = Array.isArray(data?.recurring) ? data.recurring : [];
+  const staleArchived = Number(data?.staleArchived) || 0;
   const total = zero.length + recur.length;
   count.textContent = total ? `· ${total}` : "";
+  if (staleArchived > 0) {
+    const p = document.createElement("p");
+    p.className = "memory-flags-head stale-archived";
+    p.textContent = `${t("已归档待复查")} (${staleArchived})`;
+    box.appendChild(p);
+  }
   if (!total) {
-    box.innerHTML = `<p class="dim">${t("暂无零采纳或复发候选")}</p>`;
+    const empty = document.createElement("p");
+    empty.className = "dim";
+    empty.textContent = t("暂无零采纳或复发候选");
+    box.appendChild(empty);
     return;
   }
   if (zero.length) {
