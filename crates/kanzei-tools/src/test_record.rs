@@ -67,6 +67,11 @@ struct TestRecordInput {
     /// 要收尾的既有记录 id(如 "T-1786254656");省略时按标题自动认领同名 running 记录
     #[serde(default)]
     id: Option<String>,
+    /// 显式修复动作:传入要修复的重复编号(如 "T-1786297655"),把归档里该 id 下
+    /// 除第一条外的重复记录逐条改成未占用编号并打印结果;此时其余字段被忽略。
+    /// 仅用于清理 D-227 之前的历史同号存量,绝不静默自动触发。
+    #[serde(default)]
+    repair_reused_archived_id: Option<String>,
 }
 
 /// running 记录多久没收尾就算悬空。自举一轮的定向测试通常几分钟内出结果,
@@ -178,6 +183,14 @@ impl Tool for TestRecordTool {
             Err(out) => return out,
         };
         let root = ctx.project_root.clone();
+        if let Some(repair_id) = &input.repair_reused_archived_id {
+            // D-259:显式一次性修复入口。只清历史同号存量,绝不自动触发;
+            // 参照 docstore::repair_reused_archived_id 的保守立场,结果必须说出来。
+            return match repair_reused_archived_id(&root, repair_id) {
+                Ok(report) => ToolOutput::ok(report),
+                Err(err) => ToolOutput::error(err),
+            };
+        }
         match record_test_run(
             &root,
             input.id.as_deref(),
@@ -670,6 +683,105 @@ pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
     }
     crate::atomic_file::write_atomic(&path, &updated).map_err(|e| e.to_string())?;
     Ok(json!({ "backfilled": backfilled }))
+}
+
+/// D-259:显式一次性修复——清理 tests-archive.md 里 D-227 之前的历史同号记录。
+///
+/// 参照 `docstore::repair_reused_archived_id` 的保守立场:绝不静默批量改号,必须
+/// 显式指定要修复的编号,逐条改成未占用编号并保留原标题/状态/字段,结果打印出来。
+/// 修复后的编号与 active + archive 双侧现存编号都不冲突(`ensure_id_unused` 的判据)。
+/// 只有该编号确实存在 ≥2 条时才动手;单条/不存在直接报错,不做任何写。
+pub fn repair_reused_archived_id(root: &Path, old_id: &str) -> Result<String, String> {
+    if !old_id.starts_with("T-") {
+        return Err(format!("要修复的必须是测试记录编号(形如 T-xxx),收到「{old_id}」"));
+    }
+    let archive_path = root.join(TEST_RUNS_ARCHIVE_REL);
+    // D-261:读 → 分配新号 → 写回,整段在锁内;否则两个进程同时修可能撞号或互相覆盖。
+    let _lock = lock_test_runs(root)?;
+    let text = std::fs::read_to_string(&archive_path).map_err(|e| e.to_string())?;
+    let records = read_test_records(&archive_path);
+    let dup_positions: Vec<usize> = records
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, record))| record["id"].as_str() == Some(old_id))
+        .map(|(i, _)| i)
+        .collect();
+    if dup_positions.len() < 2 {
+        return Err(format!(
+            "{old_id} 在 {} 中只有 {} 条,没有需要修复的重复(需 ≥2 条同号记录)",
+            TEST_RUNS_ARCHIVE_REL,
+            dup_positions.len()
+        ));
+    }
+    // 收集 active + archive 双侧全部已占用编号,新编号必须避开(ensure_id_unused 判据)。
+    let mut used: std::collections::BTreeSet<u64> = [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL]
+        .into_iter()
+        .flat_map(|rel| read_test_records(&root.join(rel)))
+        .filter_map(|(_, record)| {
+            record["id"]
+                .as_str()?
+                .strip_prefix("T-")?
+                .parse::<u64>()
+                .ok()
+        })
+        .collect();
+    // 保留第一条原编号(它是对应那次测试最早的记录),其余逐条改成未占用编号。
+    // 按行扫描 + 出现次序计数,而不是按块内容匹配:同号块内容若完全相同,
+    // replacen 会改错对象(把该保留的第一条也改掉),计数则精确到第几条。
+    let mut changes = Vec::new();
+    let mut change_i = 1usize; // dup_positions[0] 保留原编号,从第 2 条起改号。
+    let mut seen = 0usize;
+    let mut lines = text.split('\n').map(|s| s.to_string()).collect::<Vec<String>>();
+    for line in &mut lines {
+        if !line.trim_start().starts_with(&format!("## {old_id}")) {
+            continue;
+        }
+        if seen == 0 {
+            seen += 1;
+            continue;
+        }
+        let next = used
+            .iter()
+            .next_back()
+            .copied()
+            .map(|max| now_secs().max(max + 1))
+            .unwrap_or_else(now_secs);
+        used.insert(next);
+        let new_id = format!("T-{next}");
+        let title = dup_positions
+            .get(change_i)
+            .and_then(|&pos| records[pos].1.get("title"))
+            .and_then(|t| t.as_str())
+            .unwrap_or_default()
+            .trim();
+        // 只替换块首行的编号 token(`## T-xxx ... [status]`),标题/状态一字不动。
+        let new_line = line.replacen(old_id, &new_id, 1);
+        if new_line == *line {
+            return Err(format!(
+                "{old_id} 的块首行里找不到编号 token,未写入任何内容:\n{line}"
+            ));
+        }
+        changes.push(format!("{old_id}「{title}」→ {new_id}"));
+        *line = new_line;
+        seen += 1;
+        change_i += 1;
+    }
+    crate::atomic_file::write_atomic(&archive_path, &lines.join("\n")).map_err(|e| e.to_string())?;
+    let mut report = format!(
+        "已修复 {old_id}(保留第一条「{}」原编号,其余 {n} 条改号):\n",
+        records[dup_positions[0]]
+            .1
+            .get("title")
+            .and_then(|t| t.as_str())
+            .unwrap_or_default()
+            .trim(),
+        n = changes.len()
+    );
+    for line in changes {
+        report.push_str(&format!("  {line}\n"));
+    }
+    report.push_str("原记录的标题/状态/命令/摘要/关联字段一字未动。");
+    Ok(report)
 }
 
 /// 从字符串里提取 `R-xxx` / `D-xxx` 条目号(去重保序)。
@@ -1530,6 +1642,111 @@ mod tests {
         let snapshot = test_runs_snapshot(&root).unwrap();
         assert_eq!(snapshot["active"].as_array().unwrap().len(), 0);
         assert_eq!(snapshot["archived"].as_array().unwrap().len(), 1);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-259:显式修复动作把历史同号记录逐条改成未占用编号,保留标题/字段。
+    #[test]
+    fn 修复归档重复编号_保留第一条其余改号且字段一字不动() {
+        let root = temp_project("repair");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-500 活跃记录 [running]\n- 摘要: 还在跑\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            "# Test Runs Archive\n\n\
+             ## T-1000 甲测试 [passed]\n- 命令: cargo test -p a\n- 摘要: 甲\n- 关联: R-1\n- 收尾: 1000\n\n\
+             ## T-1000 乙测试 [passed]\n- 命令: cargo test -p b\n- 摘要: 乙\n- 关联: R-2\n- 收尾: 1001\n",
+        )
+        .unwrap();
+
+        let report = repair_reused_archived_id(&root, "T-1000").unwrap();
+        assert!(report.contains("保留第一条「甲测试」"), "{report}");
+        assert!(report.contains("T-1000「乙测试」→ T-"), "{report}");
+        assert!(report.contains("一字未动"), "{report}");
+
+        // 全部编号唯一,且不与 active/archive 现存编号冲突(ensure_id_unused 判据)。
+        let archived = read_test_records(&root.join(TEST_RUNS_ARCHIVE_REL));
+        let ids: Vec<&str> = archived
+            .iter()
+            .map(|(_, r)| r["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids[0], "T-1000", "第一条保留原编号:{ids:?}");
+        assert_ne!(ids[1], "T-1000", "第二条必须改号:{ids:?}");
+        let all_ids: Vec<String> = [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL]
+            .iter()
+            .flat_map(|rel| read_test_records(&root.join(rel)))
+            .map(|(_, r)| r["id"].as_str().unwrap().to_string())
+            .collect();
+        let mut sorted = all_ids.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted.len(), all_ids.len(), "修复后编号必须全部唯一:{all_ids:?}");
+
+        // 标题/状态/命令/摘要/关联/收尾一字不动。
+        let (block2, rec2) = &archived[1];
+        assert_eq!(rec2["title"], json!("乙测试"));
+        assert_eq!(rec2["status"], json!("passed"));
+        for need in ["- 命令: cargo test -p b", "- 摘要: 乙", "- 关联: R-2", "- 收尾: 1001"] {
+            assert!(block2.contains(need), "字段被改坏了: {block2}");
+        }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-259:只有一条或不存在时拒绝修复,不做任何写。
+    #[test]
+    fn 修复单条编号时拒绝且不改文件() {
+        let root = temp_project("repair1");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let before = "# Test Runs Archive\n\n## T-2000 唯一测试 [passed]\n- 摘要: 全绿\n";
+        std::fs::write(root.join(TEST_RUNS_ARCHIVE_REL), before).unwrap();
+
+        let err = repair_reused_archived_id(&root, "T-2000").unwrap_err();
+        assert!(err.contains("只有 1 条"), "{err}");
+        let err = repair_reused_archived_id(&root, "T-9999").unwrap_err();
+        assert!(err.contains("只有 0 条"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap(),
+            before,
+            "拒绝时必须一字不改"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-259:工具层把 repair_reused_archived_id 字段分派到修复动作并返回报告。
+    #[tokio::test]
+    async fn tool_repair_reused_archived_id_dispatches() {
+        let root = temp_project("toolrepair");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            root.join(TEST_RUNS_ARCHIVE_REL),
+            "# Test Runs Archive\n\n\
+             ## T-3000 丙 [passed]\n- 摘要: 丙\n\n\
+             ## T-3000 丁 [passed]\n- 摘要: 丁\n",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let out = TestRecordTool
+            .execute(
+                json!({
+                    "title": "占位(修复动作忽略标题)",
+                    "status": "passed",
+                    "repair_reused_archived_id": "T-3000"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("保留第一条「丙」"), "{}", out.content);
+        assert!(out.content.contains("T-3000「丁」→ T-"), "{}", out.content);
+        // 未提供修复字段时走正常记录路径,不受影响。
+        let out2 = TestRecordTool
+            .execute(json!({"title": "cargo test -p k", "status": "passed"}), &ctx)
+            .await;
+        assert!(!out2.is_error, "{}", out2.content);
         std::fs::remove_dir_all(&root).ok();
     }
 }
