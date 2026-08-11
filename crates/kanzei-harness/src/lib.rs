@@ -5,6 +5,7 @@
 pub mod auto_run;
 pub mod config;
 pub mod context;
+pub mod conventions;
 pub mod defs;
 pub mod harness;
 pub mod home;
@@ -19,6 +20,7 @@ pub mod tool;
 
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};
+pub use conventions::DEFAULT_CONVENTIONS;
 pub use defs::{AgentDef, AgentMode, CommandDef, ProfileKind, ProfileScope, SkillDef};
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
