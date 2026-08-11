@@ -706,7 +706,7 @@ const payloads = {
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
-    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main" },
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat" },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
     // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
     { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false },
@@ -3046,6 +3046,15 @@ assert(listText("fast-status").includes("50%"), "安装进度未反映到界面"
 
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
 const modelSelect = byId.get("model-select");
+const compactModelValues = [...modelSelect.options].map((o) => o.value);
+assert(compactModelValues.includes("deepseek:deepseek-chat"), "当前线路已选的 DeepSeek 未保留在紧凑模型列表");
+assert(!compactModelValues.includes("ollama:qwen3"), "紧凑模型列表仍把未选模型全部灌入顶栏");
+const showAllOption = [...modelSelect.options].find((o) => o.value === "__show_all_models__");
+assert(showAllOption, "紧凑模型列表缺少展开完整探测清单入口");
+modelSelect.value = "__show_all_models__";
+modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
+await flush();
+assert([...modelSelect.options].some((o) => o.value === "ollama:qwen3"), "展开完整模型清单后仍缺少探测模型");
 const manualOption = [...modelSelect.options].find((o) => o.value === "__manual__");
 assert(manualOption, "模型下拉缺少手填入口(端点不实现 /models 时就彻底没法选)");
 sandbox.window.prompt = () => "deepseek:deepseek-chat";

@@ -535,7 +535,7 @@ const I18N_DYNAMIC_EN = {
   "手动": "Manual",
   "优先级": "Priority",
   "编号": "ID",
-  "模型列表已刷新": "Model list refreshed",
+  "模型列表已刷新": "Model list refreshed", "显示全部探测模型…": "Show all detected models…", "已记住": "remembered",
   "模型列表获取失败": "Failed to load model list",
   "撤销失败": "Failed to cancel",
   "队列刷新失败": "Failed to refresh queue",

@@ -1315,7 +1315,13 @@ pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_jso
     let mut items = Vec::new();
     for role in ["primary", "fast"] {
         if let Ok(resolved) = config.resolve_model(role) {
-            items.push(json!({ "id": role, "label": format!("{role} → {}:{}", resolved.provider_name, resolved.model) }));
+            let direct = format!("{}:{}", resolved.provider_name, resolved.model);
+            items.push(json!({ "id": role, "label": format!("{role} → {direct}") }));
+            // 角色项用于显示配置来源，直指项用于顶栏按进程选择。即使 provider 的
+            // /models 探测失败，当前配置的实际模型也不能从下拉里消失(例如 DeepSeek)。
+            if !items.iter().any(|item| item["id"] == direct) {
+                items.push(json!({ "id": direct, "label": direct }));
+            }
         }
     }
     for (name, provider) in &config.providers {

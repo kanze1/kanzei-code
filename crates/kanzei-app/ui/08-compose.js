@@ -718,9 +718,14 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---------- 模型直选 ----------
-async function loadModels() {
+const SHOW_ALL_MODELS_SENTINEL = "__show_all_models__";
+let showAllModels = false;
+async function loadModels({ showAll = false } = {}) {
+  showAllModels = showAll;
   const select = $("model-select");
   const saved = localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
+  const activeModel = processItems.find((item) => item.id === activeProcessId)?.model || "";
+  const selectedIds = new Set([saved, activeModel, ...manualModels()].filter(Boolean));
   select.innerHTML = "";
   const def = document.createElement("option");
   def.value = "";
@@ -729,17 +734,37 @@ async function loadModels() {
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
     const ids = new Set(models.map((m) => m.id));
-    for (const m of models) {
+    // 顶栏默认只展示已选/已记住的模型和两个角色入口；完整探测清单仍可按需展开。
+    const visibleModels = showAll
+      ? models
+      : models.filter((m) => ["primary", "fast"].includes(m.id) || selectedIds.has(m.id));
+    for (const m of visibleModels) {
       const opt = document.createElement("option");
       opt.value = m.id;
       opt.textContent = m.label;
       if (m.id === saved) opt.selected = true;
       select.appendChild(opt);
     }
+    // 当前线路/项目记住的直指模型即使未被 /models 返回，也必须保留为可见选项。
+    // 这是 DeepSeek 等端点探测失败时仍能继续使用的关键兜底。
+    for (const id of selectedIds) {
+      if (ids.has(id)) continue;
+      const opt = document.createElement("option");
+      opt.value = id;
+      opt.textContent = `${id}(${t("已记住")})`;
+      if (id === saved) opt.selected = true;
+      select.appendChild(opt);
+    }
+    if (!showAll && models.some((m) => !visibleModels.includes(m))) {
+      const all = document.createElement("option");
+      all.value = SHOW_ALL_MODELS_SENTINEL;
+      all.textContent = t("显示全部探测模型…");
+      select.appendChild(all);
+    }
     // D-167:探测不到不等于用不了——端点可能没实现 /models,key 也可能还没配好。
     // 手填过的模型要留在列表里,否则下次重开又得再填一遍。
     for (const id of manualModels()) {
-      if (ids.has(id)) continue;
+      if (ids.has(id) || selectedIds.has(id)) continue;
       const opt = document.createElement("option");
       opt.value = id;
       opt.textContent = `${id}(手填)`;
@@ -801,6 +826,14 @@ $("reasoning-select").addEventListener("change", () => {
 
 $("model-select").addEventListener("change", () => {
   const select = $("model-select");
+  if (select.value === SHOW_ALL_MODELS_SENTINEL) {
+    const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
+      localStorage.getItem(prefKey("model")) || "";
+    loadModels({ showAll: true }).then(() => {
+      select.value = selected;
+    });
+    return;
+  }
   if (select.value === MANUAL_MODEL_SENTINEL) {
     const input = (window.prompt(t("填 provider:model,例如 deepseek:deepseek-chat")) || "").trim();
     // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
