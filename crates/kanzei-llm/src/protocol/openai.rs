@@ -80,6 +80,15 @@ pub fn build_body(request: &LlmRequest) -> Value {
                         _ => None,
                     })
                     .collect();
+                // Chat Completions 无法回放未带签名的 Reasoning part。若这一轮
+                // assistant 只有 reasoning（或空文本），旧实现仍会发
+                // {"role":"assistant","content":null}，严格 provider 会以
+                // "content or tool_calls must be set" 拒绝整个下一次请求。
+                // Responses/Anthropic 各自保留它们可表达的 reasoning；此协议只跳过
+                // 这个不可序列化、对后续上下文没有文本或工具语义的占位消息。
+                if text.is_empty() && tool_calls.is_empty() {
+                    continue;
+                }
                 let mut m = json!({"role": "assistant"});
                 m["content"] = if text.is_empty() {
                     Value::Null
@@ -521,6 +530,45 @@ mod tests {
         assert_eq!(body["messages"][3]["role"], "tool");
         assert_eq!(body["messages"][3]["tool_call_id"], "call_1");
         assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    fn body_skips_assistant_history_without_text_or_tool_call() {
+        let req = LlmRequest {
+            model: "deepseek".into(),
+            system: vec!["sys".into()],
+            messages: vec![
+                Message::user_text("第一问"),
+                Message::assistant(vec![Part::Reasoning {
+                    text: "仅内部思考".into(),
+                    signature: None,
+                }]),
+                Message::assistant(vec![Part::Text {
+                    text: String::new(),
+                }]),
+                Message::user_text("第二问"),
+            ],
+            tools: vec![],
+            max_tokens: 100,
+            temperature: None,
+            reasoning: ReasoningEffort::Off,
+            service_tier: None,
+        };
+
+        let body = build_body(&req);
+        let messages = body["messages"]
+            .as_array()
+            .expect("messages must be an array");
+        assert_eq!(
+            messages.len(),
+            3,
+            "system 加两条用户消息；空 assistant 不得出站"
+        );
+        assert!(messages.iter().all(|message| {
+            message["role"] != "assistant"
+                || message["content"].is_string()
+                || message["tool_calls"].is_array()
+        }));
     }
 
     /// 思考强度→reasoning_effort;关闭时不得出现该字段(旧 provider 不认)。
