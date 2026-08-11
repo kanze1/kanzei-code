@@ -76,13 +76,14 @@ const sessionStates = new Map();
 function sessionState(sessionId) {
   let state = sessionStates.get(sessionId);
   if (!state) {
-    state = { running: false, converged: false, stage: "空闲", detail: "" };
+    state = { running: false, converged: false, auto_pending: false, stage: "空闲", detail: "" };
     sessionStates.set(sessionId, state);
   }
   return state;
 }
 
 let running = false;
+let runControlPending = false;
 let currentProject = null;
 let currentAssistant = null;
 let currentReasoning = null;
@@ -383,11 +384,31 @@ function renderTokens() {
 
 function setRunning(value, statusText) {
   running = value;
+  runControlPending = false;
   const send = $("send");
   send.disabled = false;
   send.title = value ? t("运行中可插入或排队，按交付方式发送") : "";
   send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : "发送");
-  $("stop").classList.toggle("hidden", !value);
+  const stop = $("stop");
+  stop.classList.toggle("hidden", !value);
+  stop.textContent = t("停止");
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
+}
+
+// 鞭挞在两轮之间等待时，后端会话已经结束本轮但自动续跑定时器仍可取消。
+// 这不是 idle：停止按钮必须继续可用，且不能把 running 伪装成真实执行。
+function setRunPending(statusText) {
+  runControlPending = true;
+  const stop = $("stop");
+  stop.classList.remove("hidden");
+  stop.textContent = t("停止鞭挞");
+  setStatus(statusText ?? t("等待下一轮"), false);
+}
+
+function clearRunPending() {
+  runControlPending = false;
+  const stop = $("stop");
+  stop.classList.toggle("hidden", !running);
+  stop.textContent = t("停止");
 }
 

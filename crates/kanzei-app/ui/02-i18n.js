@@ -156,7 +156,7 @@ const I18N_EN = {
   "对话": "Chat", "工作区": "Workspace", "设置": "Settings", "活动": "Activity", "继续": "Continue",
   "鞭挞": "Auto-run", "SOP": "SOP", "选择 SOP": "Choose SOP", "关闭 SOP 列表": "Close SOP list", "暂无可调用的 SOP": "No callable SOPs", "SOP 加载失败": "Failed to load SOPs", "SOP 已填入继续输入": "SOP inserted into the prompt", "SOP 内容为空": "This SOP has no executable content", "鞭挞已触发": "Auto-run triggered", "收到手动输入，鞭挞已停止": "Manual input received; auto-run stopped", "暂停鞭挞": "Pause auto-run", "继续鞭挞": "Resume auto-run", "本轮后停": "Stop after round",
   "自动放行": "Auto-allow", "总结": "Summarize", "复制上下文": "Copy context", "新对话": "New chat",
-  "附件": "Attach", "停止": "Stop", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
+  "附件": "Attach", "停止": "Stop", "停止鞭挞": "Stop Auto-run", "鞭挞等待": "Auto-run waiting", "发送": "Send", "需求与工作 / 缺陷": "Work items / Defects",
   "模型角色": "Model roles", "网络与默认": "Network & defaults", "默认模式": "Default mode",
   "已记住的权限": "Saved permissions", "版本与更新": "Version & updates", "保存": "Save",
   "检查更新": "Check for updates", "下载并安装": "Download and install", "打开配置原文": "Open config", "工作资料导出": "Export work materials", "默认导出记忆、需求、缺陷和项目配置；可按需取消项目内容，导出结果会显示实际路径。": "Memory, requirements, defects, and project config are selected by default; the result path is shown.", "导出目录": "Export directory", "选择导出目录": "Choose an export directory", "选择目录": "Choose directory", "记忆": "Memory", "需求": "Requirements", "缺陷": "Defects", "项目配置": "Project config", "导出工作资料": "Export work materials", "导出完成": "Export completed",

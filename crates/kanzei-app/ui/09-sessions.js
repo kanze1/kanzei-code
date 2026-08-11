@@ -122,6 +122,7 @@ $("worktree-add").addEventListener("click", createWorktreeLine);
 
 // ---------- R-030:项目内独立进程 ----------
 let syncedRunningProcessId = null;
+let syncedRunningState = null;
 // 已向后端补拉过待答队列的会话,防止每次进程列表刷新都打一次 pending_asks_get。
 let askSyncedSession = null;
 let processRefreshInFlight = null;
@@ -145,12 +146,13 @@ function renderParallelTaskStatus(items) {
     const state = sessionState(item.session_id);
     if (item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
     const runningNow = processRunning(item);
+    const pendingNow = state.auto_pending === true && !runningNow;
     const line = document.createElement("div");
     line.className = "parallel-line";
     line.dataset.processId = item.id;
     const row = document.createElement("button");
     row.type = "button";
-    row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}`;
+    row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}${pendingNow ? " auto-pending" : ""}`;
     row.dataset.processId = item.id;
     row.setAttribute("role", "listitem");
     const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
@@ -159,12 +161,14 @@ function renderParallelTaskStatus(items) {
     head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
     const status = document.createElement("span");
     status.className = "parallel-task-state";
-    const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : t("空闲"));
+    const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : pendingNow ? t("等待下一轮") : t("空闲"));
     const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
-    status.textContent = `${runningNow ? "●" : "○"} ${runningNow ? t("运行中") : t("空闲")} · ${stage}${detail}`;
+    status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
     row.append(head, status);
     row.title = runningNow
       ? `${authority}: ${state.detail || stage}`
+      : pendingNow
+        ? `${authority}: ${t("等待下一轮")}`
       : `${authority}: ${t("点击切换到此线路")}`;
     row.addEventListener("click", () => void switchProcess(item.id));
     line.appendChild(row);
@@ -174,6 +178,39 @@ function renderParallelTaskStatus(items) {
     line.appendChild(history);
     target.appendChild(line);
     if (typeof renderLineConversationHistory === "function") renderLineConversationHistory(item.id);
+    if (item.id === activeProcessId && pendingNow) {
+      setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+    }
+  }
+}
+function refreshParallelTaskProjection(sessionId) {
+  if (!sessionId) return;
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  if (!item) return;
+  const row = [...document.querySelectorAll(".parallel-task-row")]
+    .find((candidate) => candidate.dataset.processId === item.id);
+  if (!row) return;
+  const state = sessionState(item.session_id);
+  const runningNow = processRunning(item);
+  const pendingNow = state.auto_pending === true && !runningNow;
+  const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
+  const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : pendingNow ? t("等待下一轮") : t("空闲"));
+  const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
+  row.classList.toggle("running", runningNow);
+  row.classList.toggle("auto-pending", pendingNow);
+  const status = row.querySelector(".parallel-task-state");
+  if (status) status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+  row.title = runningNow
+    ? `${authority}: ${state.detail || stage}`
+    : pendingNow
+      ? `${authority}: ${t("等待下一轮")}`
+    : `${authority}: ${t("点击切换到此线路")}`;
+  if (item.id === activeProcessId && pendingNow) {
+    setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+  } else if (item.id === activeProcessId && running !== runningNow) {
+    syncedRunningProcessId = item.id;
+    syncedRunningState = runningNow;
+    setRunning(runningNow, runningNow ? t("运行中") : t("空闲"));
   }
 }
 function renderProcesses(items) {
@@ -204,13 +241,21 @@ function renderProcesses(items) {
     refreshPendingAsks();
   }
   pumpAsk();
-  // 活动进程换人时按状态机重算运行态(切项目/进程后旧会话的终态也经状态机
-  // 收敛,不会丢)。只在身份变化时同步,避免与"停止"按钮的本地即时复位互相打架。
+  // 按「线路身份 + 线路运行态」同步运行栏。旧实现只在活动进程换人时同步，
+  // 导致同一条线路从空闲变运行后 stop 仍隐藏，底部状态也一直停在空闲。
+  // 状态机的本地停止复位仍然优先；下一次真实 process_list/事件投影会校正它。
   const activeRunning = active ? processRunning(active) : false;
-  if (activeProcessId !== syncedRunningProcessId) {
+  const activePending = active ? sessionState(active.session_id).auto_pending === true && !activeRunning : false;
+  if (
+    !activePending && (activeProcessId !== syncedRunningProcessId ||
+    activeRunning !== syncedRunningState ||
+    running !== activeRunning)
+  ) {
     syncedRunningProcessId = activeProcessId;
+    syncedRunningState = activeRunning;
     setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
   }
+  if (activePending) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
   renderParallelTaskStatus(processItems);
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
@@ -285,10 +330,17 @@ async function switchProcess(processId) {
     switchGeneration === processSwitchGeneration && currentProject === forProject;
   // 后端只保存 dev/research；切换前先把前端的 dev-auto 档位绑定到旧进程，
   // 这样回切时不会因后端 profile=dev 而退回 dev-pair。
-  if (activeProcessId) processProfileUi.set(activeProcessId, $("profile-select").value);
+  if (activeProcessId) {
+    processProfileUi.set(activeProcessId, $("profile-select").value);
+    persistProcessProfiles();
+    rememberAutoUiState(activeProcessId);
+  }
+  cancelAutoContinueTimer();
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
+  applyAutoUiState(activeProcessId);
+  applyProfileValue(target.profile);
   void syncAutoRunState();
   // 下面有一次显式 await refreshPendingAsks(),先认领这个会话,免得 renderProcesses
   // 里的补拉守卫又打一次 pending_asks_get(结果会被 id 去重,只是白跑一趟)。
@@ -315,7 +367,6 @@ async function switchProcess(processId) {
   if (!isCurrentSwitch()) return;
   // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
   $("model-select").value = target.model || "";
-  if (target.profile) applyProfileValue(target.profile);
   refreshGit();
   refreshPendingInputs();
   void refreshProcesses();

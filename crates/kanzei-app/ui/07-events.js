@@ -307,7 +307,10 @@ on("kz:done", async (e) => {
   log(`${t("运行完成")}: ${p.steps} ${t("轮")}, ${t("耗时")} ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
   notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按你的拒绝停止") : `${t("完成")} ${p.steps} ${t("轮")}`);
-  setRunning(false);
+  // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
+  // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
+  if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+  else setRunning(false);
   // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
   refreshConversationList();
   // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
@@ -324,8 +327,10 @@ on("kz:done", async (e) => {
   if (action.type === "Continue") {
     autoRounds = action.rounds ?? autoRounds + 1;
     const max = action.max ?? autoContinueMax();
-    setStatus(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`, false);
+    if (p.sessionId) sessionState(p.sessionId).auto_pending = true;
+    if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
+    if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
     scheduleAutoContinue();
   } else if (action.type === "Nudge") {
     autoRounds = action.rounds ?? autoRounds + 1;
@@ -333,16 +338,23 @@ on("kz:done", async (e) => {
     addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
     log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
     renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max}`);
+    if (p.sessionId) sessionState(p.sessionId).auto_pending = true;
+    if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+    if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
     cancelAutoContinueTimer();
     const generation = autoContinueGeneration;
     autoContinueTimer = setTimeout(() => {
       autoContinueTimer = null;
       if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
       if ($("auto-continue").checked && autoContinueAllowed() && !running) {
+        if (p.sessionId) sessionState(p.sessionId).auto_pending = false;
+        clearRunPending();
         sendText(action.prompt, { auto: true });
       }
     }, 2000);
   } else if (action.type === "Stop") {
+    if (p.sessionId) sessionState(p.sessionId).auto_pending = false;
+    if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
     autoRounds = 0;
     noActionRounds = 0;
     cancelAutoContinueTimer();

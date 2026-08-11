@@ -127,6 +127,9 @@ pub(crate) struct LiveRun {
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
     pub(crate) trace: Vec<serde_json::Value>,
+    /// 已经以增量 `run.trace` 事件写入 state.db 的轨迹条数。写入失败时由
+    /// `flush_live_trace` 在停止/收尾路径补写剩余部分，避免实时写入和终态补写重复。
+    pub(crate) persisted_trace_events: usize,
     pub(crate) flushed: bool,
 }
 impl LiveRun {
@@ -166,13 +169,7 @@ pub(crate) fn flush_live_run(
         return false;
     }
     live.flushed = true;
-    if !live.trace.is_empty() {
-        let _ = store.append_event(
-            session_id,
-            "run.trace",
-            &json!({"events": live.trace, "outcome": outcome}),
-        );
-    }
+    let _ = flush_live_trace_locked(store, session_id, &mut live, Some(outcome));
     let _ = store.append_episode(&kanzei_core::EpisodeRecord {
         session_id,
         prompt_head: &live.prompt_head,
@@ -191,6 +188,91 @@ pub(crate) fn flush_live_run(
         duration_ms: live.duration_ms(),
     });
     true
+}
+
+/// 补写实时轨迹中尚未落盘的部分，不改变运行的 flushed 语义。
+pub(crate) fn flush_live_trace(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    live: &Arc<Mutex<LiveRun>>,
+) -> bool {
+    let mut live = live.lock().unwrap();
+    flush_live_trace_locked(store, session_id, &mut live, None)
+}
+
+fn flush_live_trace_locked(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    live: &mut LiveRun,
+    outcome: Option<&str>,
+) -> bool {
+    let pending = live
+        .trace
+        .get(live.persisted_trace_events..)
+        .unwrap_or(&[])
+        .to_vec();
+    if pending.is_empty() {
+        return false;
+    }
+    let mut payload = json!({"run_id": live.run_id, "events": pending});
+    if let Some(outcome) = outcome {
+        payload["outcome"] = json!(outcome);
+    }
+    if store
+        .append_event(session_id, "run.trace", &payload)
+        .is_ok()
+    {
+        live.persisted_trace_events = live.trace.len();
+        true
+    } else {
+        false
+    }
+}
+
+/// 把当前运行轨迹按事件增量写入 state.db。
+///
+/// 运行中的 UI 仍然通过 Tauri 事件实时显示；这里提供的是切线、重载和崩溃前
+/// 的可恢复边界。写入失败不打断模型运行，收尾路径会再次补写未落盘部分。
+pub(crate) fn record_live_trace(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    live: &Arc<Mutex<LiveRun>>,
+    event: serde_json::Value,
+) {
+    let (run_id, index) = {
+        let mut live = live.lock().unwrap();
+        if live.started_at.is_none() {
+            return;
+        }
+        live.trace.push(event.clone());
+        (live.run_id.clone(), live.trace.len() - 1)
+    };
+    if store
+        .append_event(
+            session_id,
+            "run.trace",
+            &json!({"run_id": run_id, "events": [event], "partial": true}),
+        )
+        .is_ok()
+    {
+        let mut live = live.lock().unwrap();
+        if live.persisted_trace_events == index {
+            live.persisted_trace_events += 1;
+        }
+    }
+}
+
+/// 事件回调需要 `Send + Sync`，不能捕获 rusqlite 连接；按状态库路径短开连接，
+/// 让实时轨迹写入与模型事件回调保持解耦。
+pub(crate) fn record_live_trace_at_path(
+    state_path: &std::path::Path,
+    session_id: &str,
+    live: &Arc<Mutex<LiveRun>>,
+    event: serde_json::Value,
+) {
+    if let Ok(store) = kanzei_core::SessionStore::open(state_path) {
+        record_live_trace(&store, session_id, live, event);
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -850,6 +850,7 @@ button:disabled { opacity: .45; cursor: default; }
 .parallel-task-row { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 5px 7px; border: 1px solid var(--border-soft); border-radius: 4px; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; }
 .parallel-task-row:hover, .parallel-task-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .parallel-task-row.running { border-left: 2px solid var(--ok); }
+.parallel-task-row.auto-pending { border-left: 2px solid var(--warn); }
 .parallel-task-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-size: 11px; }
 .parallel-task-state { color: var(--dim); font-size: 10px; }
 .parallel-line-history { margin: 0 3px 2px 10px; padding: 3px 5px 4px; border-left: 1px solid var(--border-soft); color: var(--dim); font-size: 10px; }

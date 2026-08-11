@@ -120,6 +120,8 @@ function scheduleAutoContinue() {
     autoContinueTimer = null;
     if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
     if ($("auto-continue").checked && autoContinueAllowed() && !running) {
+      if (activeSessionId) sessionState(activeSessionId).auto_pending = false;
+      clearRunPending();
       sendText(continuePrompt(), { auto: true });
     }
   }, 2000);
@@ -226,6 +228,13 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   } else {
     addUserMessage(prompt, promptAttachments);
   }
+  if (activeSessionId) {
+    const state = sessionState(activeSessionId);
+    state.auto_pending = false;
+    state.running = true;
+    state.converged = false;
+  }
+  clearRunPending();
   setRunning(true, attachmentStatus);
   // R-086:本轮运行开始,活动会话状态机同步为运行中——控制事件与状态机同源。
   // converged 复位:新一轮可以覆盖旧终态。
@@ -233,6 +242,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
     const state = sessionState(activeSessionId);
     state.running = true;
     state.converged = false;
+    state.auto_pending = false;
   }
   startElapsed();
   log(`${auto ? t("鞭挞") : t("发送")}:${prompt.slice(0, 80)}`);
@@ -503,6 +513,7 @@ autoStopAfterRound = false;
 void syncAutoRunState();
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
+  rememberAutoUiState();
   $("auto-pause").classList.toggle("active", autoPaused);
   $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
   // R-169:暂停状态同步后端状态机。
@@ -517,6 +528,7 @@ $("auto-pause").addEventListener("click", () => {
 });
 $("auto-stop-round").addEventListener("change", () => {
   autoStopAfterRound = $("auto-stop-round").checked;
+  rememberAutoUiState();
   // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
   void syncAutoRunState();
   log(autoStopAfterRound ? t("本轮结束后将停止鞭挞") : t("已取消本轮后停"));
@@ -525,6 +537,7 @@ $("auto-max").addEventListener("change", () => {
   const max = autoContinueMax();
   $("auto-max").value = max;
   localStorage.setItem("kz-auto-max", String(max));
+  rememberAutoUiState();
   renderAutoStatus();
   autoRounds = 0;
   cancelAutoContinueTimer();
@@ -539,6 +552,7 @@ $("auto-continue").addEventListener("change", () => {
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
+    rememberAutoUiState();
     void syncAutoRunState();
     toast(t("鞭挞仅适用于自主推进模式，请先切换模式"));
     log(t("鞭挞未开启:结伴开发模式不支持自动续跑"));
@@ -546,6 +560,7 @@ $("auto-continue").addEventListener("change", () => {
   }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
+  rememberAutoUiState();
   // 开鞭挞的这一刻就要看到「勘察复核未开」提示,而不是等下一轮结束才显示。
   renderAutoStatus();
   if (!$('auto-continue').checked) cancelAutoContinueTimer();
@@ -578,6 +593,56 @@ function persistProcessProfiles() {
   writeJson(PROCESS_PROFILE_KEY, Object.fromEntries(processProfileUi));
 }
 
+// 鞭挞是线路级控制状态。旧实现只把 enabled 放在全局 localStorage，切到一条
+// 尚未配置的并行线时会把主线的勾选状态直接写进新 session，甚至让旧线路的定时器
+// 在新线路上发送继续指令。没有记录的并行线默认关闭，必须由用户在该线路主动开启。
+const PROCESS_AUTO_STATE_KEY = "kz-process-auto-state";
+const processAutoState = new Map(
+  Object.entries(readJson(PROCESS_AUTO_STATE_KEY, {})).filter(([, value]) => value && typeof value === "object"),
+);
+function normalizeAutoState(value, processId) {
+  const storedMax = Number.parseInt(value?.maxRounds, 10);
+  const legacyMax = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
+  return {
+    enabled: value?.enabled === undefined
+      ? Boolean(processId?.startsWith("d|") && localStorage.getItem("kz-auto-continue") === "1")
+      : value.enabled === true,
+    paused: value?.paused === true,
+    stopAfterRound: value?.stopAfterRound === true,
+    maxRounds: Number.isFinite(storedMax)
+      ? Math.min(100, Math.max(1, storedMax))
+      : Number.isFinite(legacyMax) ? Math.min(100, Math.max(1, legacyMax)) : DEFAULT_AUTO_CONTINUE_MAX,
+  };
+}
+function persistProcessAutoState() {
+  writeJson(PROCESS_AUTO_STATE_KEY, Object.fromEntries(processAutoState));
+}
+function rememberAutoUiState(processId = activeProcessId) {
+  if (!processId) return;
+  processAutoState.set(processId, {
+    enabled: $("auto-continue").checked,
+    paused: autoPaused,
+    stopAfterRound: autoStopAfterRound,
+    maxRounds: autoContinueMax(),
+  });
+  persistProcessAutoState();
+}
+function applyAutoUiState(processId) {
+  const next = normalizeAutoState(processAutoState.get(processId), processId);
+  processAutoState.set(processId, next);
+  $("auto-continue").checked = next.enabled;
+  autoPaused = next.paused;
+  autoStopAfterRound = next.stopAfterRound;
+  $("auto-stop-round").checked = autoStopAfterRound;
+  $("auto-max").value = String(next.maxRounds);
+  $("auto-pause").classList.toggle("active", autoPaused);
+  $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
+  autoRounds = 0;
+  cancelAutoContinueTimer();
+  renderAutoStatus();
+  persistProcessAutoState();
+}
+
 // 进程级设置必须按线路串行落库。模型/profile/reasoning 原先是 fire-and-forget，
 // 快速切换或刷新时旧请求可能晚于新请求完成，把刚选的值覆盖回去。
 const processUpdateQueues = new Map();
@@ -601,7 +666,8 @@ function updateLocalProcessItem(processId, fields) {
 function syncAutoContinueWithProfile() {
   if (autoContinueAllowed() || !$("auto-continue").checked) return;
   $("auto-continue").checked = false;
-  localStorage.setItem("kz-auto-continue", "0");
+  rememberAutoUiState();
+  if (activeProcessId?.startsWith("d|")) localStorage.setItem("kz-auto-continue", "0");
   autoRounds = 0;
   cancelAutoContinueTimer();
   // R-169:模式不兼容时后端开关同步关闭。
@@ -612,10 +678,12 @@ function syncAutoContinueWithProfile() {
 }
 function applyProfileValue(backendProfile) {
   const remembered = activeProcessId ? processProfileUi.get(activeProcessId) : null;
-  // 回退顺序:本进程的记忆 → 全局上次选择 → dev-pair。少了中间这一档,
-  // 新进程与重启后的旧进程都会被静默降级成结伴开发。
+  // 主线兼容旧的全局偏好；并行线没有本线设置时必须从安全默认 dev-pair 起步，
+  // 不能因为主线曾选过 dev-auto 就让新线静默开启鞭挞。
   const globalChoice = localStorage.getItem(PROFILE_STORAGE_KEY);
-  const fallback = ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
+  const fallback = activeProcessId?.startsWith("d|") && ["dev-pair", "dev-auto"].includes(globalChoice)
+    ? globalChoice
+    : "dev-pair";
   if (backendProfile === "research") $("profile-select").value = "research";
   else $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
   syncAutoContinueWithProfile();
@@ -632,6 +700,7 @@ $("profile-select").addEventListener("change", () => {
       .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
   }
   syncAutoContinueWithProfile();
+  rememberAutoUiState();
 });
 $("work-priority-select").addEventListener("change", async () => {
   const value = selectedWorkPriority();
@@ -653,6 +722,16 @@ $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
   cancelAutoContinueTimer();
   autoRounds = 0;
+  if (runControlPending && !running) {
+    if (activeSessionId) sessionState(activeSessionId).auto_pending = false;
+    $("auto-continue").checked = false;
+    rememberAutoUiState();
+    void syncAutoRunState();
+    clearRunPending();
+    setRunning(false, t("已停止"));
+    log(t("已请求停止(本地已复位)"));
+    return;
+  }
   invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`${t("停止指令失败")}:${err}`));
   hideAsk();
   stopElapsed();
@@ -662,6 +741,7 @@ $("stop").addEventListener("click", () => {
     const state = sessionState(activeSessionId);
     state.running = false;
     state.converged = true;
+    state.auto_pending = false;
   }
   log(t("已请求停止(本地已复位)"));
 });

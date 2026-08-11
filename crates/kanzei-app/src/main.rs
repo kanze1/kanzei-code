@@ -46,11 +46,12 @@ pub(crate) use update::{
 };
 
 pub(crate) use state::{
-    ensure_default_process, flush_live_run, normalized_project_root, pending_ask_payload,
-    process_info, process_session_id, prompt_attachment_parts, runtime_for,
-    stop_runtime_and_finalize, take_pending_ask, ui_probe, ui_probe_result, with_session_id,
-    AppState, LiveRun, MobileService, MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo,
-    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBE_EMIT,
+    ensure_default_process, flush_live_run, flush_live_trace, normalized_project_root,
+    pending_ask_payload, process_info, process_session_id, prompt_attachment_parts,
+    record_live_trace, record_live_trace_at_path, runtime_for, stop_runtime_and_finalize,
+    take_pending_ask, ui_probe, ui_probe_result, with_session_id, AppState, LiveRun, MobileService,
+    MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo, PromptAttachment, SessionRuntime,
+    WorktreeInfo, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]

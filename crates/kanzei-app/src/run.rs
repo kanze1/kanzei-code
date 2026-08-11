@@ -16,9 +16,10 @@ use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
 
 use crate::{
-    conversation, ensure_default_process, flush_live_run, memory, process_session_id,
-    prompt_attachment_parts, runtime_for, stop_runtime_and_finalize, take_pending_ask,
-    with_session_id, AppState, LiveRun, PendingAsk, PromptAttachment, SessionRuntime,
+    conversation, ensure_default_process, flush_live_run, flush_live_trace, memory,
+    process_session_id, prompt_attachment_parts, record_live_trace, record_live_trace_at_path,
+    runtime_for, stop_runtime_and_finalize, take_pending_ask, with_session_id, AppState, LiveRun,
+    PendingAsk, PromptAttachment, SessionRuntime,
 };
 
 #[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
@@ -313,6 +314,8 @@ pub(crate) async fn run_task(
         &resolved.model,
     );
     let trace_log = live.clone();
+    let trace_state_path_for_events = state_path.clone();
+    let trace_session_id_for_events = session_id.clone();
     // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
     // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
     // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
@@ -338,10 +341,15 @@ pub(crate) async fn run_task(
                 {
                     let mut live = trace_log.lock().unwrap();
                     live.steps = live.steps.max(step);
-                    live.trace.push(json!({
-                        "kind": "turn.started", "step": step, "at": now_ms(),
-                    }));
                 }
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "turn.started", "step": step, "at": now_ms(),
+                    }),
+                );
                 emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
             }
             RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
@@ -360,10 +368,15 @@ pub(crate) async fn run_task(
                     .lock()
                     .unwrap()
                     .insert(id.clone(), std::time::Instant::now());
-                trace_log.lock().unwrap().trace.push(json!({
-                    "kind": "tool.started", "id": id, "name": name,
-                    "summary": summary, "at": now_ms(),
-                }));
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "tool.started", "id": id, "name": name,
+                        "summary": summary, "at": now_ms(),
+                    }),
+                );
                 emit_event(
                     "kz:tool-start",
                     json!({ "id": id, "name": name, "summary": summary, "input": input }),
@@ -389,12 +402,17 @@ pub(crate) async fn run_task(
                         round_pending.store(false, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
-                trace_log.lock().unwrap().trace.push(json!({
-                    "kind": "tool.completed", "id": id, "name": name, "ok": ok,
-                    "durationMs": elapsed_ms(&id), "at": now_ms(),
-                    // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
-                    "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
-                }));
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "tool.completed", "id": id, "name": name, "ok": ok,
+                        "durationMs": elapsed_ms(&id), "at": now_ms(),
+                        // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
+                        "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
+                    }),
+                );
                 emit_event(
                     "kz:tool-end",
                     json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
@@ -409,11 +427,16 @@ pub(crate) async fn run_task(
                 limit_tokens,
                 dropped_messages,
             } => {
-                trace_log.lock().unwrap().trace.push(json!({
-                    "kind": "context.compacted", "before": before_tokens, "after": after_tokens,
-                    "budget": budget_tokens, "limit": limit_tokens,
-                    "dropped": dropped_messages, "at": now_ms(),
-                }));
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "context.compacted", "before": before_tokens, "after": after_tokens,
+                        "budget": budget_tokens, "limit": limit_tokens,
+                        "dropped": dropped_messages, "at": now_ms(),
+                    }),
+                );
                 emit_event(
                     "kz:status",
                     json!({
@@ -433,10 +456,15 @@ pub(crate) async fn run_task(
                 decision,
                 source,
             } => {
-                trace_log.lock().unwrap().trace.push(json!({
-                    "kind": "permission.resolved", "id": tool_call_id, "action": action,
-                    "resource": resource, "decision": decision, "source": source, "at": now_ms(),
-                }));
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "permission.resolved", "id": tool_call_id, "action": action,
+                        "resource": resource, "decision": decision, "source": source, "at": now_ms(),
+                    }),
+                );
                 Ok(())
             }
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
@@ -454,7 +482,12 @@ pub(crate) async fn run_task(
                         "display": item.display,
                     })),
                 });
-                trace_log.lock().unwrap().trace.push(payload.clone());
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    payload.clone(),
+                );
                 emit_event("kz:task-progress", payload)
             }
             RunEvent::Retry {
@@ -713,14 +746,14 @@ pub(crate) async fn run_task(
         }
         (None, result) => result,
     };
-    let store = match kanzei_core::SessionStore::open(&state_path) {
+    let final_store = match kanzei_core::SessionStore::open(&state_path) {
         Ok(store) => Some(store),
         Err(error) => {
             report_persistence_failure(window, &session_id, "打开会话数据库", error);
             None
         }
     };
-    if let Some(store) = store.as_ref() {
+    if let Some(store) = final_store.as_ref() {
         match &run_result {
             Ok(summary) => {
                 if let Err(error) = store.set_status(&session_id, "idle") {
@@ -886,11 +919,18 @@ pub(crate) async fn run_task(
     };
     // R-143:自举循环批次提交后自动 push。仅当本轮确有 git commit 成功(检测位在
     // on_event 的 ToolStart/ToolEnd 置位);push 失败经 stage 可见但不阻断本轮收尾。
+    let trace_state_path = state_path.clone();
+    let trace_session_id = session_id.clone();
+    let trace_live = live.clone();
     maybe_push_after_commit(
         committed_this_round.load(std::sync::atomic::Ordering::Relaxed),
         &ctx.cwd,
         &|name, detail| stage(name, detail),
-        &|entry| live.lock().unwrap().trace.push(entry),
+        &|entry| {
+            if let Ok(trace_store) = kanzei_core::SessionStore::open(&trace_state_path) {
+                record_live_trace(&trace_store, &trace_session_id, &trace_live, entry);
+            }
+        },
     )
     .await;
     conversation
@@ -946,15 +986,10 @@ pub(crate) async fn run_task(
         .get(&session_id)
         .cloned()
         .unwrap_or_default();
-    let trace = live.lock().unwrap().trace.clone();
-    if let Some(store) = store.as_ref() {
-        if !trace.is_empty() {
-            if let Err(error) =
-                store.append_event(&session_id, "run.trace", &json!({ "events": trace }))
-            {
-                report_persistence_failure(window, &session_id, "写入运行轨迹", error);
-            }
-        }
+    if let Some(store) = final_store.as_ref() {
+        // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
+        // 轮末再把整轮复制一遍造成回放重复。
+        flush_live_trace(store, &session_id, &live);
         if let Err(error) = store.append_event(
             &session_id,
             "conversation.updated",

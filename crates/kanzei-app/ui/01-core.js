@@ -44,6 +44,7 @@ function on(event, handler) {
       const state = sessionState(sessionId);
       state.running = true;
       state.converged = false;
+      state.auto_pending = false;
     }
     if (event === "kz:status" && sessionId) {
       const state = sessionState(sessionId);
@@ -57,6 +58,12 @@ function on(event, handler) {
       const state = sessionState(sessionId);
       state.running = true;
       state.converged = false;
+      state.auto_pending = false;
+    }
+    // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
+    // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
+    if (sessionId && typeof refreshParallelTaskProjection === "function") {
+      refreshParallelTaskProjection(sessionId);
     }
     const controlEvent =
       event === "kz:ask" ||
@@ -78,6 +85,9 @@ function on(event, handler) {
         // 终态一经收敛,后续轮询的旧值(发出事件前采样的 running=true)不得把它
         // 翻回——这是"不依赖当前视图"的最后一环;下一轮的 kz:turn 才能解除。
         state.converged = true;
+        if (typeof refreshParallelTaskProjection === "function") {
+          refreshParallelTaskProjection(sessionId);
+        }
       }
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
