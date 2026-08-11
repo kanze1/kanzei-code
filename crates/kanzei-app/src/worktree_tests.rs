@@ -598,7 +598,8 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
             serde_json::json!({
                 "action": "add",
                 "title": "F13 main-root tracker",
-                "fields": {"验收": "tracker follows project_root"}
+                "priority": "P2",
+                "fields": {"复杂度": "中", "标签": "核心", "验收": "tracker follows project_root"}
             }),
             &ctx,
         )

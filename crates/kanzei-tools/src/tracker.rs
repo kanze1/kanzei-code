@@ -419,6 +419,10 @@ impl Tool for TrackerTool {
                 let Some(title) = input.title.as_deref().filter(|t| !t.trim().is_empty()) else {
                     return ToolOutput::error("`title` is required for add");
                 };
+                // R-191:登记硬约束(缺必填字段即拒,提示补什么)。
+                if let Some(required_err) = self.check_add_required(&input) {
+                    return ToolOutput::error(required_err);
+                }
                 if let Some(sev_err) = self.check_severity(&input.severity) {
                     return ToolOutput::error(sev_err);
                 }
@@ -792,6 +796,58 @@ impl TrackerTool {
                 "invalid tag `{}`; valid: {}",
                 bad.join(" "),
                 valid.join(" | ")
+            ))
+        }
+    }
+
+    /// R-191 登记硬约束:新建条目缺关键登记字段直接拒绝,并提示补什么,不静默放行。
+    ///
+    /// 触发:另一个项目的 agent 登记需求时漏掉复杂度评估——根因就是 add 只校验 title,
+    /// 「复杂度/severity/priority/标签」全凭自觉。跨项目一致性不能靠每个项目各自记,
+    /// 要在这里硬拦:req 必带 复杂度(小|中|大)+ 优先级 + 标签;defect 必带
+    /// severity + 优先级 + 标签。goal/source/finding(severities/priorities/tags 均 None)
+    /// 不受影响。
+    fn check_add_required(&self, input: &TrackerInput) -> Option<String> {
+        // 只有带 priorities 的追踪文档(req/defect)有登记硬约束;
+        // goal/source/finding/memory/decision(priorities None)不受影响。
+        if self.kind.priorities.is_none() {
+            return None;
+        }
+        let mut missing: Vec<&str> = Vec::new();
+        if self.kind.severities.is_some() {
+            if input.severity.is_none() {
+                missing.push("severity (high|medium|low)");
+            }
+        } else {
+            let has_complexity = input.fields.iter().any(|(k, v)| {
+                (*k == "复杂度" || k.eq_ignore_ascii_case("complexity")) && !v.trim().is_empty()
+            });
+            if !has_complexity {
+                missing.push("复杂度 (小|中|大)");
+            }
+        }
+        if input.priority.is_none() {
+            missing.push("priority (P0|P1|P2|P3)");
+        }
+        if self.kind.tags.is_some() {
+            let has_tag = input.fields.iter().any(|(k, v)| {
+                (*k == "标签"
+                    || k.eq_ignore_ascii_case("tags")
+                    || k.eq_ignore_ascii_case("tag"))
+                    && !v.trim().is_empty()
+            });
+            if !has_tag {
+                missing.push("标签 (核心|后端|前端|模型|发布|流程)");
+            }
+        }
+        if missing.is_empty() {
+            None
+        } else {
+            Some(format!(
+                "{} add 缺少必填登记字段: {}. 新建条目必须先补这些字段再登记——\
+                 缺字段即拒是跨项目硬约束(R-191),不静默放行。",
+                self.noun,
+                missing.join("、")
             ))
         }
     }
@@ -1566,7 +1622,7 @@ mod tests {
         // 既有值没超上限时,抬到 12 照旧撞门(基准不是免死金牌)。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "另一条", "fields": {"批次": "0/5"}}),
+                json!({"action": "add", "title": "另一条", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心", "批次": "0/5"}}),
                 &ctx,
             )
             .await;
@@ -1582,7 +1638,7 @@ mod tests {
         // ③ 新建没有既有值,按 <=10 严格约束(两条写入路径都要接上,不能只堵一半)。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "新条目", "fields": {"批次": "0/11"}}),
+                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心", "批次": "0/11"}}),
                 &ctx,
             )
             .await;
@@ -1591,7 +1647,7 @@ mod tests {
         // ④ 新建 0/10 是合法上界,照常放行。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "十批条目", "fields": {"批次": "0/10"}}),
+                json!({"action": "add", "title": "十批条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心", "批次": "0/10"}}),
                 &ctx,
             )
             .await;
@@ -1727,7 +1783,7 @@ mod tests {
         };
         let output = tool
             .execute(
-                json!({"action": "add", "title": "新条目"}),
+                json!({"action": "add", "title": "新条目", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}),
                 &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
@@ -1841,7 +1897,7 @@ mod tests {
             .save(&[entry("R-001"), entry("R-002"), entry("R-003")])
             .unwrap();
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写"}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}), &ctx)
             .await;
         assert!(!out.is_error, "完整性恢复后应放行: {}", out.content);
         std::fs::remove_dir_all(&dir).ok();
@@ -1974,7 +2030,7 @@ mod tests {
         // 两个空洞都交代完 → 完整性恢复,普通写放行,且注销过的号不再被复用。
         assert!(store.integrity_issues(&store.load().unwrap()).is_empty());
         let out = tool
-            .execute(json!({"action": "add", "title": "恢复后可写"}), &ctx)
+            .execute(json!({"action": "add", "title": "恢复后可写", "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.content.contains("R-005"), "{}", out.content);
@@ -2415,7 +2471,7 @@ mod tests {
         // add:词表外标签被拒,错误里带合法词表。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "t", "fields": {"标签": "杂项"}}),
+                json!({"action": "add", "title": "t", "priority": "P2", "fields": {"复杂度": "中", "标签": "杂项"}}),
                 &ctx,
             )
             .await;
@@ -2431,7 +2487,7 @@ mod tests {
         // add:词表内标签放行。
         let out = tool
             .execute(
-                json!({"action": "add", "title": "t", "fields": {"标签": "前端"}}),
+                json!({"action": "add", "title": "t", "priority": "P2", "fields": {"复杂度": "中", "标签": "前端"}}),
                 &ctx,
             )
             .await;
@@ -2482,6 +2538,99 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    // R-191:登记硬约束——新建 req 缺 复杂度/优先级/标签 即拒并提示补什么,
+    // 新建 defect 缺 severity 即拒;补全后放行;goal(severities/priorities/tags
+    // 全 None)不受影响。跨项目一致性的机械门禁:登记缺字段不再静默放行。
+    #[tokio::test]
+    async fn add_requires_registration_fields() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-r191-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+
+        // req:缺 复杂度/优先级/标签 → 拒绝,错误提示补什么。
+        let req_tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let out = req_tool
+            .execute(json!({"action": "add", "title": "裸登记"}), &ctx)
+            .await;
+        assert!(out.is_error, "裸 req add 必须被拒");
+        assert!(
+            out.content.contains("复杂度") && out.content.contains("priority")
+                && out.content.contains("标签"),
+            "报错应提示缺哪些字段: {}",
+            out.content
+        );
+
+        // req:只带 复杂度 仍缺 priority/标签 → 拒绝。
+        let out = req_tool
+            .execute(
+                json!({"action": "add", "title": "半裸", "fields": {"复杂度": "中"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("priority"), "{}", out.content);
+
+        // req:字段补全 → 放行。
+        let out = req_tool
+            .execute(
+                json!({"action": "add", "title": "完整", "priority": "P2",
+                       "fields": {"复杂度": "中", "标签": "核心"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // defect:缺 severity → 拒绝;补全 → 放行。
+        let def_tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let out = def_tool
+            .execute(
+                json!({"action": "add", "title": "缺陷裸登记", "priority": "P2",
+                       "fields": {"标签": "前端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "缺 severity 的 defect add 必须被拒: {}", out.content);
+        assert!(out.content.contains("severity"), "{}", out.content);
+        let out = def_tool
+            .execute(
+                json!({"action": "add", "title": "缺陷完整", "severity": "medium",
+                       "priority": "P2", "fields": {"标签": "前端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+
+        // goal(无必填 kind 字段):裸 add 不受影响。
+        let goal_tool = TrackerTool {
+            tool_name: "goal",
+            noun: "goal",
+            kind: &GOALS,
+            requires_refs: None,
+        };
+        let out = goal_tool
+            .execute(json!({"action": "add", "title": "目标"}), &ctx)
+            .await;
+        assert!(!out.is_error, "goal 裸 add 不应被拦: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2552,7 +2701,7 @@ mod tests {
                         };
                         let ctx = ToolCtx::new(dir.clone(), dir.clone());
                         tool.execute(
-                            json!({"action": "add", "title": format!("并发条目 {n}")}),
+                            json!({"action": "add", "title": format!("并发条目 {n}"), "priority": "P2", "fields": {"复杂度": "中", "标签": "核心"}}),
                             &ctx,
                         )
                         .await

@@ -1848,3 +1848,9 @@
 - 摘要: R-191 批2:注入逻辑改为引擎默认模板+项目文件拼接(新测试 conventions_注入含引擎默认模板与项目特有规则 验证无项目文件也全量注入、有文件时通用在前);conv-init 模板改为项目特有骨架。kanzei-tools 248 passed / kanzei-app 122 passed
 - 关联: R-191
 - 收尾: 1786477408
+
+## T-1786477698 cargo test -p kanzei-tools -p kanzei-app -p kanzei (R-191 B3 add 必填校验) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app -p kanzei
+- 摘要: R-191 批3:tracker add 登记硬约束——req 缺 复杂度/priority/标签 即拒、defect 缺 severity 即拒,报错提示补什么;goal/source/finding 等(priorities None)不受影响。新测试 add_requires_registration_fields + 既有 8 处裸 add 测试补字段。kanzei-tools 249 / kanzei-app 122 / kanzei 13 passed
+- 关联: R-191
+- 收尾: 1786477698
