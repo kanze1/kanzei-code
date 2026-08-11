@@ -63,25 +63,6 @@
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。复核已累计 3 轮(2026-08-13 ×2、2026-08-14 ×1),无同类复现。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
 
-## D-259 tests-archive 历史重复编号未清理:T-1786297655 四条同号、T-1786341674 两条同号 [fixing] (low)
-- 优先级: P3
-- 复杂度: 小
-- 标签: 流程
-- 证据等级: E1(实测统计 + 读码核实分配器与拒写逻辑,2026-08-10 dev HEAD)
-- 复现: `grep -o "T-[0-9]*" .kanzei/project/tests-archive.md | sort | uniq -c | sort -rn` → `4 T-1786297655`、`2 T-1786341674`,其余编号各 1 条。同号记录标题不同,按 id 无法区分是哪一次测试。
-- 来源与边界(别重复修已修好的部分): **D-227 已修好分配器**——`crates/kanzei-tools/src/test_record.rs` 现在扫描已有集合单调推进(不再同秒撞号)、同号拒写(`ensure_id_unused`)、归档侧内容不同时拒绝追加第二条同号记录(test_record.rs:275-283)。**新的重复不会再产生**;本条只管**历史存量**。
-- 为什么不自动清理: 参照 `crates/kanzei-tools/src/docstore.rs:392` `repair_reused_archived_id` 的保守立场——静默改号会把编号复用伪装成一次正常写入,证据链就此不可信(D-004:拒绝的理由必须说出来,绝不静默)。所以 D-227 的修复**刻意不回改历史**,需要一个**显式的一次性修复入口**。
-- 影响: 窄。测试证据按 id 反查时,这 6 条记录里有 4+2 条互相指不清;条目关闭时引用「T-1786297655」无法确定指的是哪一次。另注:归档解析用 `BTreeMap` 按 id 收敛,重复条目在解析层被折叠成一条,所以既有代码路径不会因此报错,问题只在人工反查。
-- 修复方向: 给 `test_record` 加一个显式的一次性修复动作(参照 tracker 的 `repair_reused_id`:必须显式指定 id、必须说明改成什么、结果打印出来),把历史同号记录逐条改成未占用编号并保留原标题/内容;不得静默批量改。
-- 验收: ①`tests-archive.md` 里每个 `T-` 编号唯一(同一条命令可机械核验:`grep -o "T-[0-9]*" ... | sort | uniq -d` 输出为空);②改号动作是显式入口、有输出说明哪条改成了什么,不是自动触发;③改号后原记录的标题、状态、命令、summary、关联字段一字不丢,有测试;④D-227 已修好的分配器与拒写逻辑不被本条改动破坏(既有测试保持绿)。
-- refs: D-227 D-004
-
-- 状态: fixing
-
-- 阻塞: 环境/工具: 修复动作代码已交付(2026-08-13 ae6c0c8),但当前运行中的 kzapp 引擎是旧版构建,test_record 工具的 repair_reused_archived_id 字段不被识别——调用被当普通登记处理(误新增 T-1786473305),真实清理未执行。解除动作: 用户重建/重启 kzapp(新版引擎含 repair_reused_archived_id)后,agent 用 test_record repair_reused_archived_id 对 T-1786297655 与 T-1786341674 各执行一次,再机械核验 uniq -d 为空即关闭。解除人: 用户(重启引擎)。
-
-- 进展: 2026-08-13 代码交付:test_record 新增显式修复动作 repair_reused_archived_id(test_record.rs:688-785)——保留第一条原编号、其余按行扫描计数改成未占用编号、标题/状态/命令/摘要/关联/收尾字段一字不动;仅当该 id ≥2 条时动手,单条/不存在拒绝且不改文件;整段持锁(D-261 同款);3 新测试(重复修复字段不动/单条拒绝不改文件/工具层分派)+ 既有 25 全绿(28 passed, T-1786473288),全量 cargo test --workspace 全绿(T-1786473325)。真实清理待新版引擎(见阻塞)。
-
 ## D-260 test_runs_snapshot 只读命令却写盘且不持任何锁:绕过不变量 8 的最后一个写点 [open] (medium)
 - 优先级: P2
 - 复杂度: 小
@@ -142,6 +123,8 @@
 - 影响: 红灯要等 push 后 CI 才暴露,而自举一轮可能提交多次;更糟的是**发版门禁会当场拦下**(本轮 `package.ps1` 的验证证据门禁就是这样拦住的),排查时要回溯好几个提交才找得到源头。
 - 修复方向(二选一或都做): ①把 fmt/clippy 写进 §1.4 的定向清单——每次提交前对**改动文件**跑 `rustfmt --edition 2021 <file>` 与对**改动 crate** 跑 `cargo clippy -p <crate> --all-targets -- -D warnings`(注意:本次那 6 条 clippy 只在编译 `-p kanzei` 时才暴露,只跑改动最多的那个 crate 不够,新增了测试文件就要连它所在的 crate 一起跑);②做成代码强制而非规则:轮末提交前引擎自动跑一次 fmt/clippy 定向检查,红了不许提交(conventions §4「任何『规则』能用代码强制的绝不只写进提示词」)。**推荐 ②**,因为 ① 已经写在规则里过一次而这次仍然漏了。
 - 验收: ①构造「新增文件带 fmt/clippy 违规」的场景,提交前被拦住并明说违规位置;②conventions §1.4 的定向清单与 CI/verify.ps1 的门禁清单**逐项对齐**,两处任一新增门禁时另一处必须同步(可加一条守护测试比对两份清单);③有回归覆盖。
+
+- 进展: 2026-08-12 05:05 第三次复发(本条仍 open,机制未修):发版前跑 verify.ps1 又撞三处存量违规,全部来自自举轮已提交代码——①cargo fmt 未归一(dc087ae);②clippy -D warnings 红(conventions.rs 三处 unused_mut、tracker.rs 一处 question_mark,来自 587bca1/dc087ae);③本条尚未覆盖的第三个维度:ui_lint no-undef 红(b76a5f0 新增顶层函数 fastStatusText 后未重跑 scripts/gen-ui-lint-globals.mjs)。修掉用了三个杂活提交 a9f78f2/d81ffd7/3f268a5 才进得了发版。结论:①UI 侧的 gen-ui-lint-globals 要与 fmt/clippy 并列进定向清单(本条原文只提 fmt/clippy);②修复方向仍推荐②代码强制——规则层已写过一次而这次照样漏。D-283 是本条的重复登记,已 dropped 归并。
 
 ## D-265 dev 构建的更新检查谎报「已是最新」:release_is_newer 对 dev 直接返回 false,用户永远不知道该手动装 [open] (medium)
 - 优先级: P1
@@ -310,3 +293,41 @@
 - 进展: 修复完成:①index.html 把 #jump-latest 从 #messages 兄弟位移进 #messages 内部(empty-state 之后);②style.css #messages 加 position:relative,#jump-latest 改为 right:22px;bottom:14px(相对消息区右下角悬浮,与 messages padding 对齐),删除已失效的 #messages + #jump-latest 兄弟选择器。验证:frontend_check 花括号完整、ui-runtime-smoke 21 项通过 0 错误(T-1786476379)。影响范围:仅对话视图「回到最新」按钮定位,JS 引用(getElementById)不受父子结构影响。残余:ui 打包进 exe,需重建 kzapp 后目视确认按钮悬浮在消息列表右下角、输入框上方。
 - status: fixing
 - 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,按钮新位置无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,长对话向上滚动,确认「回到最新」按钮悬浮在消息列表右下角、输入框上方(不再被遮挡),确认后关闭。解除人:用户。
+
+## D-281 「自动放行」开关在自主推进/鞭挞轮静默失效,用户以为放了权实际没有 [open] (medium)
+- 复现: ①顶栏勾选「自动放行」;②开鞭挞、模式选自主推进;③自动轮里任何 Ask 档位的工具(如 conventions patch)仍被拒,报 permission requires user approval: ...; autonomous/parallel run skipped it;④界面没有任何提示说明该开关此刻无效。2026-08-12 R-191 批5b 因此连撞三轮才被发现。
+- 影响: 开关 tooltip 写的是「本次不再弹权限窗,全部自动放行(相当于 yolo)」,用户据此认为已全局放权,实际在最需要它的自动轮完全无效,且失效是静默的。「总是允许」同样顶不住:session_approved/session_rules 是 drive() 的局部变量(drive.rs:166/170),名字叫 session,作用域其实是一轮——这一轮点了总是允许,下一轮照样拦。
+- 期望: 二选一:①自动放行状态下传,自动轮改用 AskPolicy::AutoAllow 而不是 NonInteractive(仍落 PermissionResolved 事件保可审计);②至少在勾选时明示「本开关对鞭挞自动轮无效」,不让用户误以为已放权。
+- 标签: 核心
+- 根因: run.rs:128 把 autonomous 轮与并行线(process_id 以 p| 开头)的 AskPolicy 设为 NonInteractive;drive.rs:876 在调用 ask() 之前就短路返回 Gate::NonInteractive,kz:ask 事件根本不发出。而自动放行的实现(ui/07-events.js:416)是监听 kz:ask 事件替用户回 AllowOnce——没有事件就没有可放行的对象;07-events.js:411 另有一道防御把 source=autonomous/parallel 的询问直接丢弃。
+- 规避: 2026-08-12 已用 .kanzei/kanzei.toml 的 conventions patch allow 规则绕过单点,本条要解决的是开关本身的语义。
+- 优先级: P2
+
+## D-282 memory-manager 并发 update 把记忆条目的 description 覆盖成别的主题 [open] (medium)
+- 复现: 2026-08-12 04:11 实际发生:人工合并重复记忆写入 M-044(主题:tracker update 字段语义)后一分钟内,轮末 memory-manager 对同一条目执行 update,把 description 换成 edit/old_string 的内容(那是 M-027 的主题),而 title 与正文仍是 tracker 字段语义,条目自相矛盾。已人工修回(提交 d4a4f08)。
+- 影响: description 是召回钩子(检索与注入都看它),写错等于把条目挂到错误场景:该被召回时不出现,不该出现时被注入。且覆盖是静默的,人工做记忆维护时会被无声顶掉,只能靠 git diff 事后发现。
+- 期望: ①update 时若新 description 与条目 title/正文主题明显不一致,拒绝或至少警告;②记忆条目写入加 CAS 式并发保护(conventions 工具已有 expected_hash 的先例);③manager 选目标条目的判据落轨迹,选错时可复盘。
+- 标签: 核心
+- 根因(待证): ①manager 消化 inbox note 时选错了目标条目(疑似按相似度挑中最近写入或得分最高的一条,而不是同主题那条);②memory update 对 description 是整值替换,不校验新 description 与该条目 title/正文是否同主题;③记忆写入没有并发保护,人工维护与轮末 manager 可以同时写同一个文件。
+- 规避: 做记忆维护前先停自动推进循环。
+- 优先级: P2
+
+## D-283 自举轮提交前不跑 fmt/clippy/ui_lint,存量违规攒到发版才集中爆发 [wontfix] (low)
+- 备注: 不建议直接在发版脚本里自动修复:那会让违规在无人察觉中被改写,与 D-183 强制停顿的设计意图相反。
+- 复现: 2026-08-12 发版前跑 scripts/verify.ps1,连撞三处存量违规,全部来自此前已提交的自举轮代码,均非本次改动引入:①cargo fmt 未归一(R-191 B5a dc087ae 的折行);②clippy -D warnings 红(conventions.rs 三处 unused_mut、tracker.rs 一处 question_mark,来自 587bca1/dc087ae);③ui_lint no-undef 红(D-278 b76a5f0 新增顶层函数 fastStatusText 后未重跑 scripts/gen-ui-lint-globals.mjs)。修掉这三处用了三个杂活提交(a9f78f2/d81ffd7/3f268a5)才进得了发版。
+- 影响: 每次发版都要先做几个与本次交付无关的杂活提交,发版动作被拖长;发版者要现场判断别人留下的违规该不该改;违规越攒越多时一次发版可能被拖成半小时的清理。
+- 期望: 自举轮提交前至少跑 fmt + clippy(UI 有改动时加 ui_lint),或把这三项加进轮末验证协议;若嫌慢,退一步做法是在提交钩子里只跑 cargo fmt 与 gen-ui-lint-globals,把最机械的两类挡住。
+- 标签: 流程
+- 根因: 自举轮的轮末验证协议只跑 cargo test,不跑 fmt、clippy -D warnings、ui_lint;而 verify.ps1(发版门禁)是全仓唯一跑全套的地方。于是违规在分支上一路累积,直到有人发版才暴露,且暴露时已经分不清是谁留下的。
+- 优先级: P2
+
+- 进展: 2026-08-12 05:05 判定为 D-264 的重复登记:D-264(2026-08-11 登记,至今 open)已覆盖同一根因(自举轮定向验证口径只提测试、不提 fmt/clippy,与 CI/verify.ps1 的门禁清单不同步)与同一修复方向(推荐代码强制而非写进规则)。本条独有的增量——ui_lint/gen-ui-lint-globals 这个第三维度——已并入 D-264 进展。不另开条目。
+
+## D-284 kz CLI 的 tracker update 只收 id 与 status,写不了字段与进展,CLI 走不完一条条目的全程 [fixed] (low)
+- 复现: kz defect update <id> <status> 只解析位置参数 id 与 status(crates/kanzei/src/main.rs 的 update 分支),没有写 进展 或任意字段的入口。于是用 CLI 处理一条缺陷时,close 前无法把验收证据写进进展字段——而 §1.25 与 M-020 要求证据必须在 close 前写入,close 后条目归档就改不动了。
+- 影响: CLI 只能做半程:登记完必须回桌面端才能收尾;脚本化/自动化处理条目无路可走;也让「用 CLI 补登记」这条路走不到关闭。
+- 期望: update 分支复用 add 的开关解析,支持 --priority/--severity/--field 键=值 写任意字段(含 进展)。顺带补 update 的用法说明进 kz 的 usage 文本。
+- 标签: 核心
+- 根因: CLI 的 tracker 入口是位置参数薄封装。add 分支这次刚补上字段开关(--severity/--priority/--complexity/--tag/--field 键=值,提交 f104890 与后续),update 分支没有同步。
+- 优先级: P3
+- 进展: 2026-08-12 05:10 已交付(提交 cb09746):登记开关解析抽成 parse_tracker_flags,add 与 update 共用——--severity/-s、--priority/-p、--complexity、--tag、--field 键=值(可重复,能写 进展 等任意字段)。位置参数语义不变:add 拼标题,update 取第一个作 id、第二个作 status。验收证据:①新增单测 登记开关解析_字段与位置参数各归各位,覆盖字段与位置参数分离、值内等号只按第一个切、无字段开关时不产出空 fields 键;②实测走通全程——本次 D-281/D-282/D-284 与 R-194/R-195/R-196 六条登记全部经该开关写入完整字段(复现/根因/影响/期望/来源/现状/内容/边界/验收),且用 update --field 阻塞= 清掉了 R-191 的过期阻塞字段、写入进展;③全量 694 测试通过,cargo clippy --workspace --all-targets -- -D warnings 零告警。残余:本次修改在 build-3f268a5 之后,已安装的 kz 要等下次发版才带上该开关(仓内 target/release/kz.exe 已可用)。
