@@ -4,13 +4,15 @@ scope: project
 category: fact
 title: R-163 记忆回放评估台交付与架构：六臂量化 CLI kz repl a y-eval
 description: 处理 R-163/ReplayDecider/MemoryContextProvider/KzReplayEval 四批交付特征、显式执行模型与判据实现时必读
-status: candidate
+status: deprecated
 created: 2026-08-10
-updated: 2026-08-10
+updated: 2026-08-12
 source: memory-manager
 refs: R-163
+superseded_by: M-032
 ---
 
+> 墓碑:2026-08-12 库存合并,本条已并入 M-032(内容重复,原文保留供追溯)。
 R-163 记忆回放评估台已交付:六臂对照量化记忆决策价值,CLI `kz replay-eval`可重复执行。
 
 ①replay.rs 回放数据层(parse_trace_payload按id配对 run.trace tool.started/completed + recorded_tool_results不真执行工具)。
