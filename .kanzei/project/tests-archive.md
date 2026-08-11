@@ -1515,3 +1515,9 @@
 - 摘要: R-140 批3 冒烟全绿(21 组,0 运行时错误)+ 真实 UI 验证:new-chat/composer-bar/worktrees-section 中文态原文渲染正确、console 无错误;新增批3 断言组(顶栏/对话区/工作区视图 data-i18n-key 翻译)经 TEMP-VERIFY-R140B3 验证真实执行
 - 关联: R-140
 - 收尾: 1786441213
+
+## T-1786441776 ui 冒烟四连(R-140 B3 合入 dev) [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js crates/kanzei-app/ui/05-chat-render.js scripts/ui-runtime-smoke.mjs; node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: p1 R-140 B3 合入 dev 后四条冒烟全绿(runtime 含 B3 顶栏/对话区/工作区 data-i18n-key 断言组,0 运行时错误)
+- 关联: R-140
+- 收尾: 1786441776
