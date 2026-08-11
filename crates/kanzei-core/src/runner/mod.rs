@@ -40,6 +40,20 @@ pub(crate) use redundancy::*;
 
 use event::{drain_task_events, preview};
 
+/// ASK 的交互边界。主代理的手动运行允许把问题交给用户；并行线与自举运行
+/// 必须非交互，否则一个后台 ASK 会把整条自动链路挂在桌面弹窗上。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AskPolicy {
+    Interactive,
+    NonInteractive,
+}
+
+impl AskPolicy {
+    pub(crate) fn allows_user_prompt(self) -> bool {
+        matches!(self, Self::Interactive)
+    }
+}
+
 pub struct RunnerConfig {
     pub model: String,
     pub max_tokens: u32,
@@ -58,6 +72,8 @@ pub struct RunnerConfig {
     /// R-171 执行策略:ReadParallelWriteSerial 时 writer 阶段强制普通工具串行
     /// (max in-flight=1)、禁用 task 子代理;Default 保持现状(wave 并发)。
     pub execution_policy: kanzei_harness::orchestration::ExecutionPolicy,
+    /// 权限/问题询问策略；默认由调用方显式选择，避免后台运行意外弹窗。
+    pub ask_policy: AskPolicy,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。
@@ -129,7 +145,7 @@ pub(crate) mod testutil {
 mod tests {
     use super::{
         compact_messages_aggressively, compact_messages_for_retry, drain_task_events,
-        recover_context_overflow, RunEvent, MAX_STREAM_RESTARTS,
+        recover_context_overflow, AskPolicy, RunEvent, MAX_STREAM_RESTARTS,
     };
     use kanzei_llm::{LlmError, Message, Part};
 
@@ -177,6 +193,12 @@ mod tests {
         ));
         // 重放次数必须有界:每次重放都要重新生成已产出的 token。
         assert_eq!(MAX_STREAM_RESTARTS, 2);
+    }
+
+    #[test]
+    fn 自举与并行线禁止用户询问() {
+        assert!(AskPolicy::Interactive.allows_user_prompt());
+        assert!(!AskPolicy::NonInteractive.allows_user_prompt());
     }
 
     #[test]

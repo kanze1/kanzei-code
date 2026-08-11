@@ -1278,7 +1278,8 @@ mod tests {
         e.fields.push(("优先级".into(), "P1".into()));
         store.save(&[e]).unwrap();
 
-        let updated = super::append_progress(&dir, &REQUIREMENTS, "R-001", "由 M 线交付合并").unwrap();
+        let updated =
+            super::append_progress(&dir, &REQUIREMENTS, "R-001", "由 M 线交付合并").unwrap();
         assert_eq!(updated.status, "doing", "回写不得改状态");
         assert_eq!(updated.title, "t-R-001", "回写不得改标题");
         let progress = updated
@@ -1288,9 +1289,15 @@ mod tests {
             .map(|(_, v)| v.as_str())
             .unwrap();
         assert!(progress.starts_with("2026-08-10 既有进展\n"), "{progress}");
-        assert!(progress.ends_with("收活回写: 由 M 线交付合并"), "{progress}");
+        assert!(
+            progress.ends_with("收活回写: 由 M 线交付合并"),
+            "{progress}"
+        );
         // 优先级字段原样保留。
-        assert!(updated.fields.iter().any(|(k, v)| k == "优先级" && v == "P1"));
+        assert!(updated
+            .fields
+            .iter()
+            .any(|(k, v)| k == "优先级" && v == "P1"));
 
         // 无既有进展字段的条目:直接新建该字段。保存必须带上 R-001,否则覆盖丢条目。
         let e2 = entry("R-002");

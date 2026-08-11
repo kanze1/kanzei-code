@@ -1,4 +1,5 @@
 const I18N_EN = {
+  "后台询问已跳过": "Background ASK skipped",
   "并行线路": "Parallel lines",
   "切换到并行线路": "Switch to parallel lines",
   "每条线绑定独立分支与工作树；状态和文件交集来自当前运行现场。": "Each line is bound to its own branch and worktree; status and file overlap come from the live runtime.",

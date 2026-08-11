@@ -205,6 +205,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         recall: None,
         // 关键:主对话就是 writer 阶段的策略。R-171 下这一行会让 task 消失。
         execution_policy: ExecutionPolicy::ReadParallelWriteSerial,
+        ask_policy: kanzei_core::AskPolicy::Interactive,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
     let mut on_event = |_event: kanzei_core::RunEvent| {};

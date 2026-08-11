@@ -176,7 +176,9 @@ impl MemoryStore {
         let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
             return 0;
         };
-        dir.flatten().filter(|p| p.path().extension().and_then(|e| e.to_str()) == Some("md")).count()
+        dir.flatten()
+            .filter(|p| p.path().extension().and_then(|e| e.to_str()) == Some("md"))
+            .count()
     }
 
     /// ID 分配扫活跃+归档,编号绝不复用(同 tracker 哲学)。

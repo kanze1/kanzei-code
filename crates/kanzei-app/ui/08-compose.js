@@ -196,6 +196,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         delivery,
         attachments: promptAttachments,
         processId: activeProcessId,
+        autonomous: auto,
       });
       toast(localizeDynamic(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行"));
       await refreshPendingInputs();
@@ -247,6 +248,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
       processId: activeProcessId,
+      autonomous: auto,
     };
     if (!auto) lastRequest = request;
     await invoke("run_prompt", request);

@@ -58,6 +58,7 @@ pub(crate) async fn run_task(
     // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
     coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
     process_id: String,
+    autonomous: bool,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -124,7 +125,19 @@ pub(crate) async fn run_task(
         &config,
         reasoning_override.as_deref(),
         &ctx.project_root,
+        if autonomous || process_id.starts_with("p|") {
+            kanzei_core::AskPolicy::NonInteractive
+        } else {
+            kanzei_core::AskPolicy::Interactive
+        },
     );
+    let ask_source = if autonomous {
+        "autonomous"
+    } else if process_id.starts_with("p|") {
+        "parallel"
+    } else {
+        "primary"
+    };
     // R-182 内容①:不再无条件强制串行写。
     //
     // R-171 在这里无条件设 ReadParallelWriteSerial,于是主对话**每一轮**的普通工具
@@ -507,6 +520,13 @@ pub(crate) async fn run_task(
             ),
         };
         let payload = with_session_id(payload, &ask_session_id);
+        let payload = match payload {
+            serde_json::Value::Object(mut object) => {
+                object.insert("source".into(), json!(ask_source));
+                serde_json::Value::Object(object)
+            }
+            other => other,
+        };
         asks.lock().unwrap().insert(
             id,
             PendingAsk {
@@ -1191,6 +1211,7 @@ pub(crate) fn build_runner_config(
     config: &kanzei_harness::config::KanzeiConfig,
     reasoning_override: Option<&str>,
     project_root: &std::path::Path,
+    ask_policy: kanzei_core::AskPolicy,
 ) -> kanzei_core::RunnerConfig {
     kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
@@ -1209,6 +1230,7 @@ pub(crate) fn build_runner_config(
         // R-171:桌面端主对话(writer)默认 Default,批3 接协调器后由调用方
         // 按执行策略传入 ReadParallelWriteSerial。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        ask_policy,
     }
 }
 
@@ -1825,7 +1847,9 @@ pub(crate) async fn run_prompt(
     delivery: Option<String>,
     attachments: Option<Vec<PromptAttachment>>,
     process_id: Option<String>,
+    autonomous: Option<bool>,
 ) -> Result<(), String> {
+    let autonomous = autonomous.unwrap_or(false);
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     // 规范化主根:会话 id 与进程归属的身份键(canonicalize 过,形态唯一)。
     let project_root = crate::normalized_project_root(Path::new(&project_dir));
@@ -1928,6 +1952,7 @@ pub(crate) async fn run_prompt(
                 next_input.take(),
                 coordinator.clone(),
                 process_id_for_run.clone(),
+                autonomous,
             )
             .await;
             if let Err(e) = &result {

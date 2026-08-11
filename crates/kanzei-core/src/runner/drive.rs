@@ -760,6 +760,12 @@ pub fn run_once_with_parts<'a>(
                             .map(str::to_owned);
                         let output = if question.is_empty() {
                             kanzei_harness::ToolOutput::error("question must not be empty")
+                        } else if !config.ask_policy.allows_user_prompt() {
+                            // 自举/并行线没有稳定的用户或代理间 ASK 通道；把问题转成
+                            // 可回喂模型的工具错误，不能等待桌面答复。
+                            kanzei_harness::ToolOutput::error(
+                                "question unavailable in autonomous/parallel run: this line cannot ask the user; continue with available evidence",
+                            )
                         } else {
                             match ask(AskRequest::Question {
                                 question: question.to_owned(),
@@ -856,6 +862,13 @@ pub fn run_once_with_parts<'a>(
                                 resolved("allow", "session_rule");
                                 continue;
                             }
+                            if !config.ask_policy.allows_user_prompt() {
+                                resolved("declined", "noninteractive");
+                                gate_result = Gate::NonInteractive(format!(
+                                    "permission requires user approval: {action} on `{resource}`; autonomous/parallel run skipped it",
+                                ));
+                                break;
+                            }
                             match ask(AskRequest::Permission {
                                 action: action.to_string(),
                                 resource: resource.clone(),
@@ -892,6 +905,9 @@ pub fn run_once_with_parts<'a>(
                             "permission denied by ruleset: {action} on `{resource}`.\n{}",
                             snapshot.denial_hint(action, &resource),
                         )),
+                        Gate::NonInteractive(message) => {
+                            kanzei_harness::ToolOutput::error(message)
+                        }
                         Gate::UserDeclined => {
                             on_event(RunEvent::ToolEnd {
                                 id: id.clone(),

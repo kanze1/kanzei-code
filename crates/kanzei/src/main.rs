@@ -318,6 +318,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         ))),
         // R-171:CLI 单运行实例用默认策略;桌面端多进程场景才启用串行写。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        ask_policy: kanzei_core::AskPolicy::Interactive,
     };
 
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
@@ -859,6 +860,7 @@ async fn consolidate_memory_inbox(
             limits: config.limits.clone(),
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+            ask_policy: kanzei_core::AskPolicy::NonInteractive,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {

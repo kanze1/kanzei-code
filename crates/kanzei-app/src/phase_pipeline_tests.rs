@@ -162,6 +162,7 @@ impl Fixture {
             recall: None,
             execution_policy:
                 kanzei_harness::orchestration::ExecutionPolicy::ReadParallelWriteSerial,
+            ask_policy: kanzei_core::AskPolicy::Interactive,
         }
     }
 

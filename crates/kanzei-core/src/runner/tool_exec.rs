@@ -139,6 +139,7 @@ pub(crate) async fn execute_prepared_tools(
 pub(crate) enum Gate {
     Pass,
     Deny(String),
+    NonInteractive(String),
     UserDeclined,
 }
 

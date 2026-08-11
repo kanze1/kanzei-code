@@ -383,6 +383,7 @@ mod tests {
             limits: Default::default(),
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+            ask_policy: kanzei_core::AskPolicy::Interactive,
         };
         let tool_ctx = ToolCtx {
             cwd: root.clone(),

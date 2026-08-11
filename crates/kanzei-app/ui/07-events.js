@@ -406,6 +406,12 @@ function askQueueFor(sessionId) {
 on("kz:ask", (e) => {
   const sessionId = askSessionId(e.payload);
   e.payload.sessionId = sessionId;
+  // 后端的 NonInteractive 策略不会产生 kz:ask；这里仍做一层防御，避免旧运行
+  // 或第三方事件把并行/自举线的询问冒泡到当前用户弹窗。
+  if (e.payload.source === "parallel" || e.payload.source === "autonomous") {
+    log(`${t("后台询问已跳过")}: ${e.payload.action || e.payload.question || "ASK"}`);
+    return;
+  }
   // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
   if (e.payload.kind !== "question" && $("auto-allow").checked) {
     log(`${t("自动放行")}:${e.payload.action} ${e.payload.resource}`);

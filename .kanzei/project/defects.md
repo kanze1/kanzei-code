@@ -54,7 +54,7 @@
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
 
-## D-256 applyBatch 在 for-await 循环里逐次重取 currentProject,切项目会把旧项目条目 id 写进新项目 [open] (medium)
+## D-256 applyBatch 在 for-await 循环里逐次重取 currentProject,切项目会把旧项目条目 id 写进新项目 [fixing] (medium)
 - 优先级: P1
 - 复杂度: 小
 - 标签: 前端
@@ -65,7 +65,10 @@
 - 影响: 与 D-250/D-251 同族(await 前后项目身份不一致),但**危害高一档**:D-250 只丢跳转高亮、D-251 只错写 localStorage 工作树清单,本条是**真数据错写**——新项目的 tracker 条目被改状态/改标签并经 docs_update 落盘,用户事后看不出是谁改的。批量越大、切得越早,错写条目越多。
 - 待定(产品决策,**不代用户拍板**): 中途换项目时,剩余批量操作应当**整批中止**,还是**继续按认领的旧项目做完**?两种语义都自洽——中止 = 最保守,不再动任何项目;按认领项目做完 = 用户本意就是对旧项目那批条目生效,只是人走开了。取活前必须先向用户确认(D-205 教训:不代用户猜死),确认后再按所选语义改写本条验收③。
 - 修复方向: 无论选哪种语义,`projectDir` 都必须在进入循环**之前**认领成局部量(与 36ce685 对 refreshDocs / handleWorktreeAction 的改法同源),循环内每次 await 后比对;差异只在比对不一致时是 `break` 还是继续用认领的局部量。
-- 验收: ①批量操作进行中切项目,**不得有任何一条**写进新项目(逐条核对 docs_update 的 projectDir 实参);②有拦截实测的冒烟断言(scripts/ui-runtime-smoke.mjs 构造「await 中途改 currentProject」的桩,断言后续 invoke 的 projectDir 一律不是新项目);③所选语义在 UI 上对用户可见——选中止要给出「已切换项目,剩余 N 条未执行」之类的明确反馈,选按认领项目做完要说明这批改动落在哪个项目。
+- 验收: ①批量操作进行中切项目,不得有任何一条写进新项目(逐条核对 docs_update 的 projectDir 实参);②有拦截实测的冒烟断言(scripts/ui-runtime-smoke.mjs 构造「await 中途改 currentProject」的桩,断言后续 invoke 的 projectDir 一律不是新项目);③按认领项目做完语义:整批继续写旧项目,完成后若 currentProject 已变,提示「这批改动落在 <旧项目>」
+
+- 批次: 1/1
+- 进展: 取活确认产品语义(2026-08-11 用户拍板):按认领项目做完——整批继续写旧项目,循环内不再重读 currentProject;循环结束后若 currentProject 已变,提示「这批改动落在 <旧项目>」。实现:进入循环前认领 batchProjectDir 局部量,循环内 invoke 用认领值;完成后比对 currentProject,不一致则 toast 说明落地项目。
 
 ## D-258 后台任务缺内核级文件隔离:归因+回滚拦不住合法写入窗口的毫秒级蒙混 [open] (medium)
 - 优先级: P2
@@ -246,3 +249,11 @@
 - 修复: `conversation_get`/`conversation_trace_get` 锁定项目、进程和切换代次，目标历史完整恢复后再原子替换消息；侧栏按每个进程显示主代理/并行线、运行态、阶段并支持点击切换；子代理生命周期明确为 `running → finished → closed → deleted`，关闭/删除仅作用于当前 UI 条目，保留后端 transcript 与审计，停止仍调用真实 `stop_task`；主代理写入、比对、合并、发版边界同步写入系统提示与 task_spec，子代理工具白名单保持 `read/glob/grep`。
 - 验收: `node scripts/ui-runtime-smoke.mjs` 覆盖三线状态、切线不清空、关闭/重开/删除；`ui-i18n-smoke`、`ui-a11y-smoke`、`ui-markdown-smoke`、`parallel-lines-regression` 全绿；`cargo test -p kanzei-app` 112 passed、`cargo test -p kanzei-core` 130 passed。2026-08-11 随本次桌面端发版交付，待用户安装后进行最终桌面实测。
 
+## D-272 并行线/自举 ASK 串到用户弹窗并中断自动推进 [closed] (high)
+- 来源: 2026-08-11 用户复现——代理线调用 ASK 时弹窗出现在主用户界面，自举运行被迫等待或停止。
+- 根因: 所有 `AskRequest` 默认复用桌面端用户询问闭包；运行模式没有把“可等待用户”与“后台自动推进”区分开，前端也没有按 ASK 来源做最后一道隔离。
+- 修复: `RunnerConfig.ask_policy` 明确区分 `Interactive` 与 `NonInteractive`。主线手动运行保持交互；并行进程与自举续跑使用非交互策略：权限 ASK 转成可回喂模型的错误并继续，`question` 转成明确的不可询问工具错误，不创建 `PendingAsk`、不发用户弹窗。ASK 事件附带 `source`，前端对旧运行/异常事件再做并行、自举来源拦截。子代理继续保持只读与硬拒绝 ASK。
+- 边界: 当前交付解决“不会串到用户”的安全行为；真正的代理间问答需独立的带 source/target 的内部消息通道，后续另立需求，不复用用户 ASK。
+- 验收: `cargo check --workspace` 通过；`kanzei-core` 的 ASK 策略单测通过；UI 事件回归确认后台来源不进入用户 ASK 队列；桌面安装后需实际启动三线并开启自举，确认无弹窗且线路继续推进。
+- 证据等级: E1(读码 + 编译/定向测试)，桌面最终验收待用户安装后实测。
+- refs: D-271 R-169 R-174

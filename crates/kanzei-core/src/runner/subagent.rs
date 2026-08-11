@@ -9,7 +9,7 @@ use kanzei_llm::{LlmClient, ReasoningEffort, Route, ToolSpec, Usage};
 use tokio_util::sync::CancellationToken;
 
 use super::event::{AskFuture, AskReply, AskRequest, AskResponse, RunEvent, TaskTrace};
-use super::{run_once, RunnerConfig};
+use super::{run_once, AskPolicy, RunnerConfig};
 
 /// R-174:运行中**可单条取消**的子代理注册表。id = 模型 task 调用 id 或编排角色名。
 /// `cancel` 命中后 token 即触发,drive/phase_pipeline 的 select 分支以「被停」终态收尾,
@@ -142,6 +142,7 @@ pub(crate) async fn run_subagent(
         recall: None,
         // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        ask_policy: AskPolicy::NonInteractive,
     };
     let mut total_usage = Usage::default();
     let mut on_event = |event: RunEvent| {
