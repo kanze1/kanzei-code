@@ -641,26 +641,20 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 本轮切片:summary.messages = prior + 本轮。统计与失败提炼都只看本轮,
     // 否则历史失败会被反复上报、工具计数也会累计全历史(R-099 基线失真)。
     let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-    // 轮末失败提炼与机械投递(R-105):不依赖模型自觉调用 memory_note。
+    // 轮末采集(D-229):CLI 与桌面端共用 harvest_end_of_run——失败提炼 → 条目收口
+    // 判定 → SOP 候选(global)→ 根因 fact 候选(project)。SOP 通道此前只接了桌面端,
+    // CLI 完成条目不产 SOP 候选,遥测口径两端分裂;这里补上并收敛为单入口。
     {
-        let signals = kanzei_core::summarize_failures(this_run);
-        if !signals.is_empty() {
-            let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
-            let delivered = kanzei_tools::memory::harvest_failures(&store, &signals);
-            if delivered > 0 {
-                eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
-            }
+        let (delivered, sop, fact) =
+            kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run, None);
+        if delivered > 0 {
+            eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
         }
-        // 条目关闭触发的根因→fact(R-105):完成条目的同时把根因原料投 inbox,
-        // 由 memory-manager 提炼成 fact。闸门在 completed_entry 里用代码强制。
-        if let Some(done) = kanzei_core::completed_entry(this_run) {
-            let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
-            if kanzei_tools::memory::harvest_entry_fact(&store, &done, &prompt, &signals) {
-                eprintln!(
-                    "\x1b[90m(memory: 已投递 {} 的根因候选待整理)\x1b[0m",
-                    done.id
-                );
-            }
+        if sop {
+            eprintln!("\x1b[90m(memory: 已投递候选 SOP 待用户采纳)\x1b[0m");
+        }
+        if fact {
+            eprintln!("\x1b[90m(memory: 已投递根因候选待整理)\x1b[0m");
         }
     }
     // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。

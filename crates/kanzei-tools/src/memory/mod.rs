@@ -793,6 +793,48 @@ pub fn harvest_entry_fact(
     store.append_note(&summary, &detail, "fact", &[]).is_ok()
 }
 
+/// 轮末采集的唯一入口(D-229):CLI 与桌面端共享同一实现,杜绝 harvest 集合两端漂移。
+///
+/// 顺序与桌面端既有行为逐条对齐:
+///   1. 失败提炼(harvest_failures → 项目 inbox,不依赖模型自觉调 memory_note);
+///   2. 条目收口判定(completed_entry):本轮确实完整收了一个条目才继续;
+///   3. SOP 候选(harvest_sop → **global** 候选箱等用户一键采纳,agent 不能自决入库);
+///   4. 根因→fact 候选(harvest_entry_fact → 项目 inbox,由 manager 提炼)。
+///
+/// 返回 (投递失败笔记数, 是否产出 SOP 候选, 是否产出 fact 候选),便于调用方打日志。
+///
+/// `global_root` 仅供测试注入临时全局记忆根;生产调用方传 `None`(走默认
+/// `MemoryStore::global()`)。用参数注入而非测试内 set_var(KANZEI_HOME) 是
+/// 因为进程级环境变量会与同进程并行测试互踩(D-273 教训)。
+pub fn harvest_end_of_run(
+    project_root: &std::path::Path,
+    prompt: &str,
+    this_run: &[kanzei_llm::Message],
+    global_root: Option<&std::path::Path>,
+) -> (usize, bool, bool) {
+    let signals = kanzei_core::summarize_failures(this_run);
+    let project = MemoryStore::project(project_root);
+    let delivered = harvest_failures(&project, &signals);
+    let (sop, fact) = match kanzei_core::completed_entry(this_run) {
+        Some(done) => {
+            let sop = match global_root {
+                Some(root) => harvest_sop(
+                    &MemoryStore::open(MemoryScope::Global, root.to_path_buf()),
+                    &done,
+                    prompt,
+                ),
+                None => MemoryStore::global()
+                    .map(|global| harvest_sop(&global, &done, prompt))
+                    .unwrap_or(false),
+            };
+            let fact = harvest_entry_fact(&project, &done, prompt, &signals);
+            (sop, fact)
+        }
+        None => (false, false),
+    };
+    (delivered, sop, fact)
+}
+
 /// 开跑预检索(R-106):拿用户 prompt 对两级记忆做一次 BM25,命中则返回
 /// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
 pub fn prompt_hints(project_root: &std::path::Path, prompt: &str) -> Option<String> {
@@ -977,6 +1019,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
     use kanzei_core::RecallPolicy;
+    use serde_json::json;
 
     #[test]
     fn frontmatter_roundtrip_preserves_unknown_keys() {
@@ -1263,6 +1306,86 @@ mod tests {
         );
         assert!(store.read_inbox().contains("(无失败信号)"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-229 验收:CLI 与桌面端共用 harvest_end_of_run 单入口。完成条目的轮末
+    /// 应产出 global SOP 候选 + project fact 候选;纯查询轮不产出任何候选。
+    #[test]
+    fn harvest_end_of_run_完成条目投SOP与fact_纯查询轮不投() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-harvesteor-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        // global 记忆根通过参数注入临时目录(生产传 None 走默认),避免测试内
+        // set_var(KANZEI_HOME) 与同进程并行测试互踩(D-273 教训)。
+        let home = std::env::temp_dir().join(format!(
+            "kz-harvesteor-home-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+
+        // 完成条目的消息序列:edit 成功 → req update done(收口)。
+        let done = vec![
+            msg_call("c1", "edit", json!({"path": "src/lib.rs"})),
+            msg_result("c1", "ok", false),
+            msg_call("c2", "req", json!({"action": "update", "id": "R-777", "status": "done"})),
+            msg_result("c2", "updated", false),
+        ];
+        let (delivered, sop, fact) = harvest_end_of_run(&dir, "收口 R-777", &done, Some(&home));
+        assert_eq!(delivered, 0, "无失败信号的轮末不应投失败笔记");
+        assert!(sop, "完成条目应产出 SOP 候选(global 候选箱)");
+        assert!(fact, "完成条目应产出 fact 候选(项目 inbox)");
+
+        let project = MemoryStore::project(&dir);
+        assert!(
+            project.read_inbox().contains("[fact:R-777]"),
+            "fact 候选应落项目 inbox"
+        );
+        // global 候选箱:harvest_sop 写进全局记忆的 inbox(用户级),项目 store 读不到。
+        // 以 sop 返回值为准(上文已断言),此处再确认项目 inbox 只含 fact 候选。
+        assert!(
+            !project.read_inbox().contains("[sop:R-777]"),
+            "SOP 候选不应落项目 inbox(它是 global 候选箱的)"
+        );
+
+        // 纯查询轮:read + req done,无实质动作,completed_entry 不触发 → 零投递。
+        let read_only = vec![
+            msg_call("c3", "read", json!({"path": "src/lib.rs"})),
+            msg_result("c3", "...", false),
+            msg_call("c4", "req", json!({"action": "update", "id": "R-778", "status": "done"})),
+            msg_result("c4", "updated", false),
+        ];
+        let (delivered2, sop2, fact2) = harvest_end_of_run(&dir, "只读轮", &read_only, Some(&home));
+        assert_eq!(delivered2, 0);
+        assert!(!sop2, "纯查询轮不应产 SOP");
+        assert!(!fact2, "纯查询轮不应产 fact");
+
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn msg_call(id: &str, name: &str, input: serde_json::Value) -> kanzei_llm::Message {
+        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
+            id: id.into(),
+            name: name.into(),
+            input,
+        }])
+    }
+
+    fn msg_result(call_id: &str, content: &str, is_error: bool) -> kanzei_llm::Message {
+        kanzei_llm::Message::tool_results(vec![kanzei_llm::Part::ToolResult {
+            call_id: call_id.into(),
+            content: content.into(),
+            is_error,
+        }])
     }
 
     #[test]

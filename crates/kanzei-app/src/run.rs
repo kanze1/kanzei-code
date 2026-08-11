@@ -730,28 +730,10 @@ pub(crate) async fn run_task(
                 // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
                 // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
                 let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-                // 轮末失败提炼与机械投递(R-105):不依赖模型自觉调用 memory_note。
-                let signals = kanzei_core::summarize_failures(this_run);
-                if !signals.is_empty() {
-                    let memory = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
-                    kanzei_tools::memory::harvest_failures(&memory, &signals);
-                }
-                // SOP 提炼(R-124):只在本轮确实完成了一个完整条目时触发,闸门在
-                // completed_entry 里用代码强制。SOP 是用户的常用模板,所以只产候选,
-                // 落到 global 候选箱等用户一键采纳——agent 不能自己决定入库。
-                // 根因→fact(R-105):同一次收口把根因原料投项目 inbox,由 manager
-                // 提炼成 fact——SOP 判 NOOP 时根因仍有记忆价值。
-                if let Some(done) = kanzei_core::completed_entry(this_run) {
-                    if let Some(global) = kanzei_tools::memory::MemoryStore::global() {
-                        kanzei_tools::memory::harvest_sop(&global, &done, &prompt);
-                    }
-                    kanzei_tools::memory::harvest_entry_fact(
-                        &kanzei_tools::memory::MemoryStore::project(&ctx.project_root),
-                        &done,
-                        &prompt,
-                        &signals,
-                    );
-                }
+                // 轮末采集(D-229):CLI 与桌面端共用 harvest_end_of_run——失败提炼
+                // → 条目收口判定 → SOP 候选(global)→ 根因 fact 候选(project)。
+                // 顺序与既有行为逐条对齐;SOP 只产候选等用户一键采纳,agent 不自决入库。
+                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run, None);
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
                 if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
                     session_id: &session_id,
