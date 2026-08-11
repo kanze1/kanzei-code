@@ -445,6 +445,16 @@ impl Component for DevProfile {
                          remains, finish it. If ten batches are not enough, the item is too \
                          big: close what is genuinely done and open a follow-up item for the \
                          rest. \
+                         Registration contract (R-191, enforced by the engine): a NEW \
+                         requirement (`req add`) MUST carry 复杂度 (小|中|大), priority \
+                         (P0|P1|P2|P3) and 标签 from the controlled vocabulary \
+                         (核心|后端|前端|模型|发布|流程); a NEW defect (`defect add`) MUST \
+                         carry severity (high|medium|low), priority and 标签. The tool \
+                         rejects the call otherwise and tells you what to fill — never \
+                         retry with an empty field. State the 来源 of every new item \
+                         (user message / feedback / self-found) so it stays traceable. \
+                         If the item genuinely needs batching, write `批次: 0/N` in the \
+                         same call.
                          Pick work according to the selected work-priority mode appended for this run: \
                          scan the selected first queue top-down, then the other queue only when the \
                          first has no workable item. When no mode is supplied, use defect-first. Priority labels are background info, not the ordering. If NOTHING is workable \
@@ -1020,6 +1030,27 @@ mod tests {
             "拼接顺序错误:通用规则必须在项目特有规则之前"
         );
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// R-191:登记硬约束必须在提示词里有真源——引擎会拒缺字段的 add,提示词不教
+    /// 规矩 agent 只会撞门。断言关键 token,不锁整句措辞。
+    #[test]
+    fn dev_system_prompt_teaches_registration_contract() {
+        let system = dev_system_prompt("r191-reg");
+        for required in [
+            "Registration contract",
+            "复杂度 (小|中|大)",
+            "severity (high|medium|low)",
+            "controlled vocabulary",
+            "rejects the call otherwise",
+            "来源",
+        ] {
+            assert!(
+                system.contains(required),
+                "R-191 登记契约缺失:dev system prompt 里没有 `{required}`。\
+                 引擎现在会拒缺字段的 add,提示词却没教字段清单。"
+            );
+        }
     }
 
     #[test]

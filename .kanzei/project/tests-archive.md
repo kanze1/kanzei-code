@@ -1854,3 +1854,9 @@
 - 摘要: R-191 批3:tracker add 登记硬约束——req 缺 复杂度/priority/标签 即拒、defect 缺 severity 即拒,报错提示补什么;goal/source/finding 等(priorities None)不受影响。新测试 add_requires_registration_fields + 既有 8 处裸 add 测试补字段。kanzei-tools 249 / kanzei-app 122 / kanzei 13 passed
 - 关联: R-191
 - 收尾: 1786477698
+
+## T-1786477773 cargo test -p kanzei-tools (R-191 B4 登记契约提示词) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-191 批4:dev system prompt 补登记契约(Registration contract)——新 req 必带 复杂度/priority/标签、新 defect 必带 severity/priority/标签、写明 来源、需分批时同调用写 批次: 0/N;新测试 dev_system_prompt_teaches_registration_contract 可 grep 断言。kanzei-tools 250 passed
+- 关联: R-191
+- 收尾: 1786477773
