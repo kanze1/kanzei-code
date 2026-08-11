@@ -2608,7 +2608,7 @@
 - 验收: ①`drive.rs` 三处对 bash 资源不再调 `normalize_resource`(机械核验:该文件 bash 分支 grep 零命中);②**定向反证**:用本条实测里的那一对命令构造测试,断言注入版为 `Ask` 而非 `Allow`;再补 `cargo --manifest-path ./x/; evil ;/../y.toml` 一条同形态。③既有落盘规则的处置方案落地且有测试(迁移或兼容读取,二者都要证明不引入原像类)。④D-050 的四条路径规范化测试与 `write.rs` 落点一致性测试保持绿(证明只动了 bash 分支)。⑤D-051 的 `command_chaining_escapes` 在注入形态下重新生效,有测试。
 - 进展: 2026-08-11 已修复并随 `build-97c8509` 发布。bash 权限资源改为逐字节原文判定，不再进入路径规范化；历史规则中 20/21 本就是规范化不动点，不引入会恢复原像类漏洞的兼容垫片。斜杠注入与 `cargo --manifest-path` 两条反证均由 `97c8509` 前的 K1 测试锁死，D-050 路径用例及 D-051 链式命令降级保持全绿。
 
-## D-271 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [fixed] (high)
+## D-272 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [fixed] (high)
 - 优先级: P0
 - 复杂度: 小
 - 标签: 核心
