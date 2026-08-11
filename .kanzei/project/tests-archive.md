@@ -1767,3 +1767,15 @@
 - 摘要: D-244(验收):对照页 priority/blocked 中性化——12-docs-pages.js neutralizedDocFilters both 分支加 overrides.priority/blocked = all(与 status/tag 同机制,只改显示不动底层);syncDocumentFilters 里对照页禁用 priority/blocked 控件(priorityBlockedNeutral)并显示中性 all,切回单队列页原值填回。冒烟断言重构:旧「对照模式共用筛选条件/清除筛选/解锁」三块全部改为 D-244 只读断言(控件 disabled、调 blocked 列表不筛空、两队列 localStorage 不被改写、切回 req 原筛选还在);③冻结对象护栏保留。node --check 全过,四条冒烟全绿(ui-runtime 1137 invoke)。
 - 关联: D-244
 - 收尾: 1786452213
+
+## T-1786452506 D-245 B1+B2:cadence merge 层叠 + system prompt 通路 [passed]
+- 命令: cargo test -p kanzei-harness cadence + cargo test -p kanzei-app run + cargo check -p kanzei + 前端冒烟
+- 摘要: D-245 批1+批2(验收①②③):批1 config.rs merge_file 加 overlay_cadence——用 raw toml [cadence] 表显式键集合驱动逐键覆盖(字段非 Option,「没写」与「显式默认」在 merge 层不可区分,须由 raw 键驱动),新增单测「cadence_层叠合并_显式键覆盖_缺键保持全局」(项目层只写 full_test,全局层 push=per_entry 保持)。批2 通路:run.rs cadence_guidance 把与 §1.4 默认不同的档位注入 system prompt(全默认空串不污染),append_dev_guidance 加 config 参数注入;单测「cadence指引_全默认空串_显式配置注入」断言五档位文本+Dev 注入+Research 不注入。验证:kanzei-harness 110 全绿(含 cadence 3),kanzei-app 120 全绿(含 run 14),cargo check -p kanzei 干净,ui-runtime 1137 invoke 全绿。
+- 关联: D-245
+- 收尾: 1786452506
+
+## T-1786452562 cargo test --workspace (D-245 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-245 关闭前全量:cargo test --workspace 全绿(kanzei-harness 110 含 cadence 3,kanzei-app 120 含 run 14,其余 crate 全过)。cadence 从死配置恢复为生效配置:merge 层叠 + system prompt 注入。
+- 关联: D-245
+- 收尾: 1786452562

@@ -311,7 +311,10 @@ mod context_limit_tests {
         config.providers.clear();
         config.fill_defaults();
         for name in builtin_provider_names() {
-            assert!(config.providers.contains_key(*name), "fill_defaults 未回填内置 {name}");
+            assert!(
+                config.providers.contains_key(*name),
+                "fill_defaults 未回填内置 {name}"
+            );
         }
         // 名单里不该有 fill_defaults 不保证的键(用户自定义的不能误标内置)。
         assert_eq!(config.providers.len(), builtin_provider_names().len());
@@ -794,9 +797,42 @@ fn merge_file(
                 path.display()
             ));
         }
+        // D-245:cadence 层叠。字段非 Option,必须用 raw 表显式键驱动 overlay,
+        // 否则「项目层只写一个键」会把其余字段打回默认(见 overlay_cadence)。
+        let cadence_written: std::collections::HashSet<&str> = raw
+            .get("cadence")
+            .and_then(|v| v.as_table())
+            .map(|table| table.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        if !cadence_written.is_empty() {
+            overlay_cadence(&mut config.cadence, &layer.cadence, &cadence_written);
+        }
     }
     merge(config, layer);
     Ok(())
+}
+
+/// D-245:cadence 逐键 overlay。字段非 Option,「没写」与「显式写成默认值」在
+/// merge 层不可区分(serde default 把两者都落成默认),所以由调用方把 raw toml
+/// `[cadence]` 表里**显式出现的键**传进来,只覆盖这些——与 [limits] 的
+/// 「项目层只覆盖显式写的键」同一套层叠语义,避免项目层只调一个 full_test
+/// 就把其余字段全部打回默认。
+fn overlay_cadence(base: &mut Cadence, layer: &Cadence, written: &std::collections::HashSet<&str>) {
+    if written.contains("full_test") {
+        base.full_test = layer.full_test;
+    }
+    if written.contains("full_test_batches") {
+        base.full_test_batches = layer.full_test_batches;
+    }
+    if written.contains("targeted_test") {
+        base.targeted_test = layer.targeted_test;
+    }
+    if written.contains("commit") {
+        base.commit = layer.commit;
+    }
+    if written.contains("push") {
+        base.push = layer.push;
+    }
 }
 
 /// `*` 通配资源判定:全仓统一按 trim 后比较,避免两处判定不一致(D-139)。
@@ -2478,6 +2514,70 @@ effect = "deny"
         assert_eq!(base.models.primary.as_deref(), Some("kimi:kimi-k2"));
         assert_eq!(base.permissions.rules.len(), 2);
         assert!(base.providers.contains_key("kimi"));
+    }
+
+    // D-245 验收②:merge_file 必须把 [cadence] 的显式键逐项覆盖进 KanzeiConfig。
+    // 此前 merge() 没有 cadence 分支,文件里写了也到不了运行时——config.cadence
+    // 恒为默认(复现实证:全仓 grep 除 settings/config 定义外零消费方)。
+    #[test]
+    fn cadence_层叠合并_显式键覆盖_缺键保持全局() {
+        // 全局层:full_test=release_only + push=per_entry(显式写 per_entry)。
+        let global = temp_config_dir();
+        std::fs::write(
+            global.join("kanzei.toml"),
+            "[cadence]\nfull_test = \"release_only\"\npush = \"per_entry\"\n",
+        )
+        .unwrap();
+        // 项目层:只显式写 full_test=every_commit,其余键不得被打回默认。
+        let project = temp_config_dir();
+        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+        std::fs::write(
+            project.join(".kanzei").join("kanzei.toml"),
+            "[cadence]\nfull_test = \"every_commit\"\n",
+        )
+        .unwrap();
+        let config = load_two_layer(&global, &project);
+        // 项目层覆盖了 full_test。
+        assert_eq!(config.cadence.full_test, FullTestCadence::EveryCommit);
+        // 全局层的 push=per_entry 保持——项目层没写 push,不得被默认值(per_batch)覆盖。
+        assert_eq!(config.cadence.push, PushCadence::PerEntry);
+        // 全局层的默认仍生效:targeted_test 没在任一层显式写 → §1.4 默认。
+        assert_eq!(
+            config.cadence.targeted_test,
+            TargetedTestCadence::EveryCommit
+        );
+        std::fs::remove_dir_all(global).ok();
+        std::fs::remove_dir_all(project).ok();
+    }
+
+    fn temp_config_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-config-cadence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn load_two_layer(
+        global: &std::path::Path,
+        project: &std::path::Path,
+    ) -> KanzeiConfig {
+        // 模拟 load_with_warnings_at_root 的全局+项目层叠,但两个目录都显式可控。
+        let mut config = KanzeiConfig::default();
+        let mut warnings = Vec::new();
+        merge_file(&mut config, &global.join("kanzei.toml"), &mut warnings).unwrap();
+        merge_file(
+            &mut config,
+            &project.join(".kanzei").join("kanzei.toml"),
+            &mut warnings,
+        )
+        .unwrap();
+        config
     }
 
     #[test]

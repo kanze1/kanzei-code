@@ -90,7 +90,7 @@ pub(crate) async fn run_task(
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
-    append_dev_guidance(&mut agent.system, profile, work_priority);
+    append_dev_guidance(&mut agent.system, profile, work_priority, &config);
     stage(
         "装配",
         format!(
@@ -1255,6 +1255,7 @@ pub(crate) fn append_dev_guidance(
     system: &mut String,
     profile: kanzei_harness::ProfileKind,
     work_priority: &str,
+    config: &kanzei_harness::config::KanzeiConfig,
 ) {
     if profile != kanzei_harness::ProfileKind::Dev {
         return;
@@ -1263,6 +1264,7 @@ pub(crate) fn append_dev_guidance(
     system.push('\n');
     system.push_str(kanzei_tools::frontend_inspection_guidance());
     system.push_str(&work_priority_guidance(work_priority));
+    system.push_str(&cadence_guidance(&config.cadence));
     system.push_str(
         "\n\nAuthority boundary: you are the primary agent. Own file edits, diff review, commits, merges, and release/package actions. Any `task` subagent is read-only reconnaissance and must never write/edit, run bash, change git state, merge, or publish. Collaboration commit discipline: stage ONLY the explicit files you changed; never use `git add .` or another directory-wide stage. Immediately before every commit, call `collaboration_status`, re-run `git status`, and inspect the staged diff/hash so another line's unfinished work cannot be swept into your commit.",
     );
@@ -1321,6 +1323,43 @@ pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
         ("defects.md", "requirements.md")
     };
     format!("\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context.")
+}
+
+/// D-245 验收①/③通路:把 kanzei.toml `[cadence]` 的生效节奏注入 system prompt。
+/// R-170 剥离前端渲染后配置就成了死资产(设置页照写、无任何消费方)——这里的注入
+/// 让文件里写的值**真的决定行为**。只注入**与 §1.4 默认不同的档位**:全部默认时
+/// 输出空串,不污染既有的默认节奏语义(conventions §1.4 仍是默认真源)。
+/// 语义口径与 §1.4 逐条对应,由引擎按配置直接声明,不靠模型自己猜。
+pub(crate) fn cadence_guidance(cadence: &kanzei_harness::config::Cadence) -> String {
+    use kanzei_harness::config::{CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence};
+    let mut parts: Vec<String> = Vec::new();
+    match cadence.full_test {
+        FullTestCadence::EveryCommit => parts.push("full test suite runs before EVERY commit".into()),
+        FullTestCadence::EveryNBatches => parts.push(format!(
+            "full test suite runs every {} batches",
+            cadence.full_test_batches.unwrap_or(1)
+        )),
+        FullTestCadence::ReleaseOnly => {
+            parts.push("full test suite runs only before release (verify.ps1), not during normal dev".into())
+        }
+        FullTestCadence::EntryClose => {}
+    }
+    if cadence.targeted_test == TargetedTestCadence::Off {
+        parts.push("targeted tests are OFF: pick verification scope yourself, matching the change surface".into());
+    }
+    match cadence.commit {
+        CommitCadence::PerEntry => parts.push("commit granularity: one commit per whole entry".into()),
+        CommitCadence::PerBatch => {}
+    }
+    match cadence.push {
+        PushCadence::PerCommit => parts.push("push after every commit".into()),
+        PushCadence::Periodic => parts.push("push on a periodic schedule, not after every entry".into()),
+        PushCadence::PerEntry => {}
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("\n\nVerification/commit cadence (from kanzei.toml [cadence], overrides section 1.4 defaults): {}", parts.join("; "))
 }
 
 /// R-141:只解析 profile,**不再顺手发现项目根**。
@@ -2210,15 +2249,53 @@ mod assembly_tests {
 
     #[test]
     fn 开发提示词强制逐文件暂存并在提交前刷新协作状态() {
+        let config = kanzei_harness::config::KanzeiConfig::default();
         let mut system = String::new();
-        super::append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first");
+        super::append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first", &config);
         assert!(system.contains("stage ONLY the explicit files you changed"));
         assert!(system.contains("never use `git add .`"));
         assert!(system.contains("Immediately before every commit"));
         assert!(system.contains("call `collaboration_status`"));
 
         let mut research = String::new();
-        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first");
+        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first", &config);
         assert!(research.is_empty(), "提交纪律只属于开发档位");
+    }
+
+    // D-245 验收①通路:cadence_guidance 只注入与 §1.4 默认不同的档位;全默认时
+    // 空串(不污染既有语义);显式配置时文本里出现对应节奏。
+    #[test]
+    fn cadence指引_全默认空串_显式配置注入() {
+        use kanzei_harness::config::{
+            CommitCadence, FullTestCadence, PushCadence, TargetedTestCadence, Cadence,
+        };
+        // 全默认 → 空串,不污染既有 system prompt。
+        assert_eq!(super::cadence_guidance(&Cadence::default()), "");
+        // 显式全档位 → 五条节奏都注入。
+        let custom = Cadence {
+            full_test: FullTestCadence::EveryNBatches,
+            full_test_batches: Some(3),
+            targeted_test: TargetedTestCadence::Off,
+            commit: CommitCadence::PerEntry,
+            push: PushCadence::PerCommit,
+        };
+        let text = super::cadence_guidance(&custom);
+        assert!(text.contains("every 3 batches"), "{text}");
+        assert!(text.contains("targeted tests are OFF"), "{text}");
+        assert!(text.contains("one commit per whole entry"), "{text}");
+        assert!(text.contains("push after every commit"), "{text}");
+        assert!(text.contains("kanzei.toml [cadence]"), "{text}");
+        // 注入点:append_dev_guidance 确实把指引拼进 system prompt。
+        let config = kanzei_harness::config::KanzeiConfig {
+            cadence: custom,
+            ..Default::default()
+        };
+        let mut system = String::new();
+        super::append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first", &config);
+        assert!(system.contains("every 3 batches"), "{system}");
+        // Research 档位不注入(验证节奏只属于开发档位)。
+        let mut research = String::new();
+        super::append_dev_guidance(&mut research, ProfileKind::Research, "defect-first", &config);
+        assert!(research.is_empty());
     }
 }
