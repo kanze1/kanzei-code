@@ -1339,6 +1339,31 @@ assert(listText("conversation-list").includes("冒烟会话"), "历史对话列�
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
+// D-219 验收②:构造「2 个阻塞 doing + 可做 todo」场景——阻塞 doing 全部不计
+// WIP、不占运行焦点、不挡住 next;可开工 todo 仍是「下一个」。这是 §1.1
+// 「阻塞项不计入准入配额、不得误拒新条目」的前端投影:渲染与取活一致。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    requirements: [
+      docEntry("R-001", "阻塞的 doing", "doing", { blocked: true }),
+      docEntry("R-002", "另一个阻塞 doing", "doing", { blocked: true }),
+      docEntry("R-003", "可开工待办", "todo", {}),
+    ],
+    defects: [],
+  };
+  await sandbox.refreshDocs();
+  const activeCount = document.querySelectorAll(
+    "#documents-req-list .doc-item.agent-active, #documents-defect-list .doc-item.agent-active"
+  ).length;
+  assert(activeCount === 0, "两个阻塞 doing 都不应标 agent-active(阻塞项不进 WIP 不占焦点),实际 {activeCount}");
+  const blockedAll = document.querySelectorAll('#documents-req-list .doc-item[data-doc-id="R-001"], #documents-req-list .doc-item[data-doc-id="R-002"]');
+  assert(blockedAll.length === 2 && [...blockedAll].every((el) => el.classList.contains("blocked")), "阻塞 doing 应保留 blocked 标记");
+  const next = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-003"]');
+  assert(next?.classList.contains("agent-next"), "阻塞 doing 不应挡住 next:可开工 todo R-003 仍应为下一个");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
+}
 // D-207 三修:运行事实优先——纯文件状态推断会把挂着 fixing 的旧缺陷标成「正在做」,
 // 而 agent 实际在推别的条目(用户实测:指着缺陷,实做 R-117)。req/defect 的 update
 // 结果与批次提交都带条目 ID,运行证据一到就覆盖推断;新一轮 run 开跑即作废。

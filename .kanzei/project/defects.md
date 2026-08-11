@@ -26,21 +26,6 @@
 
 - 阻塞: 验收④用户复查:ui 资源打包进 exe,需用户跑 release.ps1 重建 kzapp 后实际查看侧栏取活焦点并确认能看懂;解除人=用户(重建+复查后确认即关闭)。
 
-## D-205 快记通道无信息保真门槛:模糊输入被编造复现后落库,关键限定词丢失 [open] (medium)
-- refs: D-204
-- 复现: 实例即 D-204。用户输入"SOP易用程度有问题,似乎总结的不太好",快记(QuickCaptureComponent 迷你 run,crates/kanzei-app/src/main.rs)产出「复现: 查看 SOP 时」——这不是复现,是从"查看 SOP"四个字硬挤出来的伪复现;用户真实意图「**用户**查看/使用 SOP 时的易用性」(2026-08-09 对话澄清)这一关键限定完全丢失,条目读起来像在说 SOP 内容对模型的可消费性。
-- 影响: 信息在源头瘦身,浪费全落下游:自举拿到「查看 SOP 时」这种复现无从下手,要么猜方向(猜错=整轮白干)要么空转;更糟的是伪复现看起来像真的,没人知道该回去问用户。快记越好用、用得越多,这个失真通道流量越大。
-- 根因: 三层叠加。①prompt 只说 how to reproduce **if inferable**,没规定推断不出时怎么办,模型的默认行为就是编一个;②快记的 ask 回调把 Question 一律 Cancelled(无人应答的设计约束),模型想追问也没有通道;③落库成功判据"只看库落了新条目"(main.rs:3545 注释),条目落了就算赢,信息量无人把关。
-- 修复(第一层已做): prompt 明确禁止编造——推断不出复现时如实写「待澄清: <列出需要用户回答的问题>」,并要求从原文抽取关键限定词(谁的/哪个端/什么场景)进标题或复现。机制层留给后续:落库后如何机械识别"待澄清"条目并在 UI 上提示用户补充,属产品设计,交自举承接。
-- 验收: ①模糊输入(如 D-204 原文)快记产出的复现字段不再是伪复现,而是「待澄清」+具体问题清单;②含关键限定词的输入(如"用户易用性")限定词不丢;③带「待澄清」的条目在侧栏可辨识(徽标/前缀任一),用户能一眼看到哪些条目等他补话;④自举取活时跳过或优先澄清「待澄清」条目,不拿伪复现开工。
-- 证据等级: E1(D-204 实例 + prompt/回调/判据三处代码实证)
-- 优先级: P2
-- 标签: 后端
-
-- 进展: 取活:验收① prompt 层与验收③(既有交付)基础上,本轮补验收①②的机械回归保护——新增契约测试 quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers(subagents.rs tests),锁死 QUICK_REQ_DEFECT_SYSTEM 四项防线:NEVER invent or pad one(禁止编造复现)、待澄清+questions the user must answer(推断不出写问题清单)、keep qualifier words(保留关键限定词)、original text verbatim(原文逐字)。quick_capture 2 测试全绿。验收④(自举取活跳过/优先澄清待澄清条目)已明确记入 R-101 批次前评估,不属本条。
-
-- 批次: 1/1
-
 ## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixing] (medium)
 - refs: D-205 R-105 R-107
 - 原始描述: SOP易用程度有问题，似乎总结的不太好
@@ -67,6 +52,10 @@
 - refs: D-163 R-157 D-207
 - 优先级: P1
 - 标签: 前端
+
+- 复杂度: 小
+- 批次: 1/1
+- 进展: 逐条证据:①注入文案与 §1.1 新口径一致——R-170 已把规则剥离出 continue prompt(DEFAULT_CONTINUE_PROMPT 极简意图句 08-compose.js:16,LEGACY 升级机制删除 08-compose.js:481),dev system prompt 为 WIP 单槽真源(profiles.rs:748 dev_system_prompt_enforces_wip_and_batch_contract:断言 ONE executable item/share the SAME single slot/does NOT consume the slot/exceeds 4 + 反断言无「keep at most 2 requirements」旧口径残留;conventions 同口径测试 profiles.rs:812);②「2 个阻塞 doing + 可做 todo」场景——本轮 ui-runtime-smoke 新增断言:两阻塞 doing 均不标 agent-active、blocked 标记保留、可开工 todo 仍为 agent-next(不被误拒);③冒烟断言防回归——上述断言 + D-207 既有 blocked doing 断言。验证:T-1786451xxx(ui-runtime 1147 invoke 全绿)+ dev_system_prompt_enforces_wip 单测绿。
 
 ## D-233 文件视图打开卡顿:同步 files_snapshot 在主线程全量读+哈希 258 个文件 [open] (medium)
 - 优先级: P1

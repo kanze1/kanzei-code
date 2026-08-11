@@ -1731,3 +1731,9 @@
 - 摘要: D-205 验收①+②机械回归:新增 quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers 契约测试,锁死 QUICK_REQ_DEFECT_SYSTEM 的「NEVER invent or pad one」「待澄清+具体问题清单」「keep qualifier words」「original text verbatim」四项 prompt 防线,防后续文案改回退。quick_capture 2 测试全绿。
 - 关联: D-205
 - 收尾: 1786451336
+
+## T-1786451434 D-219 冒烟:2 阻塞 doing 不误拒新条目 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: D-219 验收②③:ui-runtime-smoke 新增「2 个阻塞 doing + 可做 todo」场景断言——两个 blocked doing 均不标 agent-active(阻塞项不进 WIP 不占焦点)、blocked 标记保留、可开工 todo 仍为 agent-next(不被挡住)。21 ui js + 1147 invoke 全绿。机制层证据:R-170 规则剥离(08-compose.js:16/481 LEGACY 删除)、dev system prompt 单槽真源 + 反断言(profiles.rs:748 dev_system_prompt_enforces_wip_and_batch_contract,1 测试绿)、conventions 同口径(profiles.rs:812)。
+- 关联: D-219 D-207
+- 收尾: 1786451434
