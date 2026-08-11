@@ -605,7 +605,7 @@ pub fn run_once_with_parts<'a>(
                     let denied = tool
                         .resources_with_ctx(&input, ctx)
                         .into_iter()
-                        // D-269:同 :545,bash 走原样,路径类仍走 normalize_resource。
+                        // D-269:同上面的并行预检站点,bash 走原样,路径类仍走 normalize_resource。
                         .map(|resource| {
                             kanzei_harness::permission::normalize_resource_for_action(
                                 action, &resource,

@@ -2,6 +2,18 @@
 
 use serde::{Deserialize, Serialize};
 
+/// bash 工具的权限 action 名。**这是 D-269 全部分流判据的唯一出处**——
+/// [`normalize_resource_for_action`] 与 [`resource_match_for_action`] 都靠它决定
+/// 「这条资源是 shell 文本还是文件路径」。
+///
+/// 它与 `kanzei_tools::BashTool` 之间是**跨 crate 的字面量耦合**:`Tool::action()` 默认
+/// 返回 `Tool::name()`,所以把 bash 工具改名(或给它单独实现一个 `action()`)会让这里
+/// 静默走进路径分支——也就是静默重新打开 D-269,而且没有任何测试会红。
+///
+/// 本 crate 是 `kanzei-tools` 的**上游**,拿不到 `BashTool` 来断言,所以钉住这条耦合的
+/// 用例放在下游:`crates/kanzei/tests/bash_action_literal.rs`。改这里的值 = 必须同时改那条用例。
+pub const BASH_ACTION: &str = "bash";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Effect {
@@ -209,25 +221,30 @@ fn is_windows_drive_path(resource: &str) -> bool {
 /// 因此这里不做任何「两侧都规范化后比较」的兼容处理:那只会把准入集从 `{V : N(V)==P}` 换成
 /// `{V : N(V)==N(P)}`,原像类一个不少。
 pub fn normalize_resource_for_action(action: &str, resource: &str) -> String {
-    if action == "bash" {
+    if action == BASH_ACTION {
         return resource.to_string();
     }
     normalize_resource(resource)
 }
 
+/// bash 资源的**结构化**形态判定:`BashTool::resources_with_ctx` 产出的
+/// `{"command":…,"workdir":…}` JSON 串。判据只有一条(全仓唯一实现,`config.rs` 的
+/// 历史规则分类也走它,免得两处判据漂移):可解析成 JSON 且同时带 `command` 与 `workdir`。
+pub fn is_structured_bash_resource(text: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some())
+}
+
 /// 按 action 选择资源语义；bash 命令是 shell 语法文本，不能因其中出现 `/` 就走文件路径规范化。
 pub fn resource_match_for_action(action: &str, pattern: &str, value: &str) -> bool {
-    if action == "bash" {
+    if action == BASH_ACTION {
         if pattern == "*" {
             return wildcard_match(pattern, value);
         }
-        let value_is_structured = serde_json::from_str::<serde_json::Value>(value)
-            .ok()
-            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
-        let pattern_is_structured = serde_json::from_str::<serde_json::Value>(pattern)
-            .ok()
-            .is_some_and(|json| json.get("command").is_some() && json.get("workdir").is_some());
-        return if value_is_structured && !pattern_is_structured {
+        // 旧的纯字符串规则不得授权结构化请求:两者语义不同,`./scripts/release.ps1` 这类
+        // pattern 一旦被允许去匹配 `{"command":…}` 串,授权范围就变成了整个 JSON 文本空间。
+        return if is_structured_bash_resource(value) && !is_structured_bash_resource(pattern) {
             false
         } else {
             wildcard_match(pattern, value)
@@ -253,7 +270,7 @@ pub fn resource_match(pattern: &str, value: &str) -> bool {
 /// 非整体 bash 通配规则无法表达命令内部的 shell/解释器语义；不自动放行，
 /// 只有显式资源 `*` 的整体放行不降级(D-051)。
 fn command_chaining_escapes(action: &str, resource: &str, pattern: &str) -> bool {
-    action == "bash" && pattern != "*" && pattern.contains('*') && !resource.is_empty()
+    action == BASH_ACTION && pattern != "*" && pattern.contains('*') && !resource.is_empty()
 }
 
 /// `*` 通配(匹配任意串,含空);其余字符逐字比较,大小写敏感。
@@ -553,7 +570,9 @@ mod tests {
             resource: 已批准.into(),
             effect: Effect::Allow,
         }]);
-        // 判定站点看到的串由 normalize_resource_for_action 产出(drive.rs :545/:604/:764)。
+        // 判定站点看到的串由 normalize_resource_for_action 产出。drive.rs 里共三处,
+        // 按**名字**记(行号会随任何一次编辑漂,原来写的 :545/:604/:764 已经全部对不上了):
+        // 并行预检(can_parallel_tools 的资源循环)、并行 deny 预筛、串行门禁。
         assert_eq!(
             rs.evaluate("bash", &normalize_resource_for_action("bash", 已批准)),
             Effect::Allow,
@@ -665,7 +684,8 @@ mod tests {
     }
 
     /// 历史非结构化 bash 规则的处置:不做迁移。`./scripts/release.ps1` 这类 pattern 无论
-    /// 是否规范化,都被 :209-213 的 gate 挡在结构化请求之外——迁移改不动这个事实,只会
+    /// 是否规范化,都被 [`resource_match_for_action`] 里那道「结构化 value 不接受非结构化
+    /// pattern」的 gate 挡在结构化请求之外(按名字记,别写行号)——迁移改不动这个事实,只会
     /// 把一条今天命不中的规则改成能命中,那是替用户扩大授权,方向反了。
     #[test]
     fn 非结构化历史pattern对结构化请求恒不命中() {
