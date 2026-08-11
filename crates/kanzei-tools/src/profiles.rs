@@ -832,25 +832,26 @@ mod tests {
         );
     }
 
-    /// 三条定调的两份真源必须同口径:conventions.md 全量注入(D-201),dev system
-    /// prompt 常驻,任一侧单方面改口,模型就会同时读到两条互斥规则——这正是
-    /// D-242/D-128 反复出现的失效模式。
+    /// 三条定调的两份真源必须同口径:通用规则由引擎模板注入(R-191 单源,
+    /// DEFAULT_CONVENTIONS),dev system prompt 常驻,任一侧单方面改口,模型就会
+    /// 同时读到两条互斥规则——这正是 D-242/D-128 反复出现的失效模式。
     ///
     /// 只断言三个短 token,不锁整句措辞:规范是用户手写资产,行文随时可改,
     /// 但「1 个槽 / 上限 10 批 / 全量只对中大」这三个判据不能悄悄消失。
+    ///
+    /// R-191 批5b:真源从项目 conventions.md 迁到引擎模板——通用节已从项目文件
+    /// 删除,若仍断言项目文件必然整段缺失;反向断言项目文件不得再含通用节,
+    /// 防「复制必然漂移」的旧病复发。
     #[test]
     fn conventions_与提示词对三条定调保持同口径() {
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.kanzei/project/conventions.md");
-        let text = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("读不到 {}:{e}", path.display()));
+        // 通用规则真源:引擎内置模板(编译期内嵌,所有项目一致)。
+        let text = kanzei_harness::DEFAULT_CONVENTIONS;
 
         // 小节 = 从该二级标题起到下一个二级标题为止(`### ` 不会被误当边界)。
-        // 标题必须带尾空格再查:文件里 §1.35 排在 §1.3 前面,查 "## 1.3" 会先命中它。
         let section = |heading: &str| -> &str {
             let start = text
                 .find(heading)
-                .unwrap_or_else(|| panic!("conventions.md 里找不到小节 {heading}"));
+                .unwrap_or_else(|| panic!("引擎模板里找不到小节 {heading}"));
             let rest = &text[start + heading.len()..];
             &rest[..rest.find("\n## ").unwrap_or(rest.len())]
         };
@@ -866,9 +867,27 @@ mod tests {
         ] {
             assert!(
                 section(heading).contains(token),
-                "conventions.md {heading} 缺少「{token}」({定调});\
+                "引擎模板 {heading} 缺少「{token}」({定调});\
                  提示词已按新口径写,规范这侧沉默就等于半份真源(D-242)。"
             );
+        }
+
+        // R-191 单源防回归:项目 conventions.md 只放项目特有规则,不得再复制通用节。
+        let project_path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.kanzei/project/conventions.md");
+        if let Ok(project_text) = std::fs::read_to_string(&project_path) {
+            for forbidden in [
+                "## 1.1 需求取活与阻塞调度",
+                "## 1.25 完成判定与验收证据",
+                "## 2. 代码修改原则",
+                "## 10. 任务级并行",
+            ] {
+                assert!(
+                    !project_text.contains(forbidden),
+                    "项目 conventions.md 仍含通用节「{forbidden}」——\
+                     通用规则已由引擎模板单源(R-191),项目文件复制必然漂移。"
+                );
+            }
         }
     }
 

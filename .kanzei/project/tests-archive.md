@@ -1871,3 +1871,9 @@
 - 摘要: 新引擎重启后执行 repair_reused_archived_id:T-1786297655 四条中保留第一条、其余 3 条改号(T-1786478785/86/87);T-1786341674 两条中保留第一条、1 条改号(T-1786478788);机械核验 `^## T-(\d+)` 364 条记录编号全部唯一
 - 关联: D-259
 - 收尾: 1786478802
+
+## T-1786484486 R-191 B5b conventions.md 删除通用节 + 测试真源迁移 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: conventions.md 项目文件删除通用节(§1~§3、§5、§7、§8、§10),保留项目特有 §4/§6/§9/§9.1;profiles.rs 测试 conventions_与提示词对三条定调保持同口径 真源从项目文件迁到 kanzei_harness::DEFAULT_CONVENTIONS,并新增反向断言(项目文件不得再含通用节)。cargo test -p kanzei-tools 256 全绿(含 conventions_ 两条)。
+- 关联: R-191
+- 收尾: 1786484486
