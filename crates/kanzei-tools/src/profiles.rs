@@ -260,13 +260,18 @@ impl Component for DevProfile {
         draft.context.insert(
             "dev/conventions",
             source("dev/conventions", |ctx: &ResolveCtx| {
+                // R-191:通用规则单源进引擎,所有项目默认注入;项目文件只追加项目特有规则。
+                // 通用部分永远在(无项目文件的项目也拿到完整约束),项目文件在其后拼接。
+                let mut text = String::from(kanzei_harness::DEFAULT_CONVENTIONS);
                 let path = ctx.project_root.join(".kanzei/project/conventions.md");
-                let text = std::fs::read_to_string(path).ok()?;
-                let text = text.trim();
-                if text.is_empty() {
-                    return None;
+                if let Ok(project_rules) = std::fs::read_to_string(&path) {
+                    let project_rules = project_rules.trim();
+                    if !project_rules.is_empty() {
+                        text.push_str("\n\n<!-- 以下为本项目特有规则(自动追加) -->\n\n");
+                        text.push_str(project_rules);
+                    }
                 }
-                Some(format!("<conventions>\n{text}\n</conventions>"))
+                Some(format!("<conventions>\n{}\n</conventions>", text.trim()))
             }),
         );
 
@@ -954,6 +959,65 @@ mod tests {
         assert!(
             !baseline.contains("规范过长已截断"),
             "不该再出现截断提示:全量注入之后它没有意义"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// R-191:通用规则单源注入——无项目文件时引擎默认模板也全量进上下文,
+    /// 有项目文件时通用 + 项目特有拼接,且通用在前。conventions 是 context source,
+    /// 断言必须看 system_baseline(dev_system_prompt 的 agent.system 不含 context 注入)。
+    #[test]
+    fn conventions_注入含引擎默认模板与项目特有规则() {
+        let baseline_of = |root: &std::path::Path| {
+            let ctx = ResolveCtx {
+                profile: ProfileKind::Dev,
+                cwd: root.to_path_buf(),
+                project_root: root.to_path_buf(),
+                config: Arc::new(KanzeiConfig::default()),
+            };
+            let mut harness = Harness::default();
+            harness.add(DevProfile).add(ConfigComponent);
+            harness.resolve(&ctx).unwrap().system_baseline()
+        };
+
+        // ① 无项目文件:引擎默认模板必须全量注入(新项目零配置也拿到完整约束)。
+        let bare = PathBuf::from("C:/kanzei-r191-default-test");
+        let baseline = baseline_of(&bare);
+        for required in [
+            "通用开发规范单源",
+            "阻塞:` 字段只留给外部阻塞",
+            "批次: k/N",
+            "任务级并行",
+            "可用即关闭",
+        ] {
+            assert!(
+                baseline.contains(required),
+                "引擎默认模板未注入 dev 上下文: {required}"
+            );
+        }
+
+        // ② 有项目文件:两段拼接,通用在前、项目特有在后。
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-r191-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let project_only = "## 项目特有规则\n- 只在 kanzei 仓库生效";
+        std::fs::write(root.join(".kanzei/project/conventions.md"), project_only).unwrap();
+        let baseline = baseline_of(&root);
+        assert!(
+            baseline.contains(project_only),
+            "项目特有规则没进上下文——R-191 拼接丢失项目文件"
+        );
+        let default_pos = baseline.find("通用开发规范单源");
+        let project_pos = baseline.find("项目特有规则");
+        assert!(
+            default_pos.is_some() && project_pos.is_some() && default_pos < project_pos,
+            "拼接顺序错误:通用规则必须在项目特有规则之前"
         );
         std::fs::remove_dir_all(root).unwrap();
     }

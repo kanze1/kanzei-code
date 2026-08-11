@@ -1836,3 +1836,15 @@
 - 摘要: 「回到最新」按钮移入 #messages 相对定位:frontend_check 花括号完整、ui-runtime-smoke 21 项通过 0 运行时错误;HTML 结构确认按钮在 section#messages 内、footer#composer 外
 - 关联: D-280
 - 收尾: 1786476379
+
+## T-1786477217 cargo test -p kanzei-harness (R-191 B1 模板单源) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: R-191 批1:新增 DEFAULT_CONVENTIONS 常量与 assets/default_conventions.md(通用开发规范单源),110 passed 0 failed
+- 关联: R-191
+- 收尾: 1786477217
+
+## T-1786477408 cargo test -p kanzei-tools -p kanzei-app (R-191 B2 注入拼接) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 摘要: R-191 批2:注入逻辑改为引擎默认模板+项目文件拼接(新测试 conventions_注入含引擎默认模板与项目特有规则 验证无项目文件也全量注入、有文件时通用在前);conv-init 模板改为项目特有骨架。kanzei-tools 248 passed / kanzei-app 122 passed
+- 关联: R-191
+- 收尾: 1786477408
