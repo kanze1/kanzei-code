@@ -39,9 +39,9 @@
 - 验收: ①重启后每项目、每线的模型 / profile / reasoning / 子代理开关完整恢复,页签不丢(R-030 遗留项一并核验)。②两个项目配不同 primary 互不影响(D-170 式双项目用例),CLI 与桌面解析结果一致(同一真源)。③五层解析链每层缺省回落各有单测。④localStorage 旧键存在时首次启动上迁并清除,迁移有测试;全仓 grep `kz-model:` 不再作为真源被读。⑤设置页选「本项目」保存后,主根 `.kanzei/kanzei.toml` 真出现 `[models]` 且立即生效(`models_list` 与徽标同步);选「全局」写 `~/.kanzei/kanzei.toml`,两者互不串写,有往返单测。⑥保存不丢字段(conventions §4),旧配置无新键时行为不变(serde default 单测)。⑦D7 覆盖范围在界面上对用户可见,providers/api key 的作用域切换被明确禁用而非静默忽略。
 - refs: R-050 R-030 R-115 R-136 R-177 R-179 D-168 docs/design/deep_parallel_dev.md
 
-- 批次: 3/5
+- 批次: 4/5
 
-- 进展: 批1(D3 落库)已提交 d575549;批2(五层解析链)已提交 c597d0a;批3(localStorage 旧键上迁+清除)已提交 540f178:schema v12 为 processes 补 manual_models 列(存量默认空列表,有迁移测试),process_update 支持 manualModels,StoredProcess/ProcessHandle/ProcessInfo 贯通;前端模型直选与手填候选改从默认进程行读,localStorage 旧键(kz-model/kz-manual-models)首次进入项目一次性上迁后端并清除,迁移失败保留旧键可重试;冒烟断言手填写 process_update.manualModels 并补迁移成功/失败/后端回显整链(验收④);全仓 grep kz-model 只剩迁移函数内部 fallback 读与 removeItem,不再作为真源被读。待办:批4 D7 设置页作用域选择器(settings_save 加 scope,第一版覆盖 [models])、批5 收口。
+- 进展: 批1 d575549、批2 c597d0a、批3 540f178、批4 ba616f7 已提交。批4=D7 作用域选择器:settings_save 新增 scope 参数,scope=project 只把 primary/fast/reasoning/codex_fast_mode 写进主根 .kanzei/kanzei.toml,proxy/provider/limits/cadence 一律不串写(provider 密钥不进被 git 跟踪的项目 toml,验收⑤⑦);缺项目目录时报错不静默落全局(防 D-248 式降级);设置页「保存到」选择器有项目上下文才启用「本项目」,无项目禁用并回退 global(验收⑦覆盖范围对用户可见);2 个 D7 往返单测 + runtime 冒烟断言(默认 global/无项目禁用/选中 project 透传)+ 修复冒烟 option getAttribute('value') 缺口。待办:批5 收口——复核验收①②③⑥(①重启恢复/③五层缺省回落已在批2,①⑥需桌面端手动核验与 serde default 单测复核)、cargo test --workspace 全量、按验收逐条结项。
 
 ## R-157 验证与提交节奏引擎化:kanzei.toml 可调参数并注入循环 [doing]
 - 优先级: P1
