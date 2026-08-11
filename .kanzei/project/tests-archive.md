@@ -1509,3 +1509,9 @@
 - 摘要: p1 分支 f6a162e(R-140 B1)fast-forward 合入 dev 后四条冒烟全绿,与 R-178 批4 改动无冲突
 - 关联: R-140 R-178
 - 收尾: 1786440983
+
+## T-1786441213 ui-runtime-smoke (R-140 B3 顶栏/对话区/工作区迁移) [passed]
+- 命令: node --check crates/kanzei-app/ui/02-i18n.js && node --check scripts/ui-runtime-smoke.mjs && node scripts/ui-runtime-smoke.mjs && ui_dom 验证 #new-chat/#composer-bar/#worktrees-section 渲染
+- 摘要: R-140 批3 冒烟全绿(21 组,0 运行时错误)+ 真实 UI 验证:new-chat/composer-bar/worktrees-section 中文态原文渲染正确、console 无错误;新增批3 断言组(顶栏/对话区/工作区视图 data-i18n-key 翻译)经 TEMP-VERIFY-R140B3 验证真实执行
+- 关联: R-140
+- 收尾: 1786441213

@@ -3766,6 +3766,36 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批3:顶栏/对话区/工作区视图 data-i18n-key 迁移 ----------
+// 顶栏按钮(新对话/活动/侧栏/鞭挞/更多)、对话区按钮(继续/附件/停止/发送)、
+// 工作区与并行线路视图标题迁移到 data-i18n-key 后,英文态翻译、切中文回原文。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  const keyText = (key) => sandbox.document.querySelector(`[data-i18n-key="${key}"]`)?.textContent;
+  assert(keyText("新对话") === "新对话", "中文态顶栏「新对话」应保持原文(前置失效)");
+  assert(keyText("发送") === "发送", "中文态发送按钮应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(keyText("新对话") === "New chat", `英文态「新对话」未翻译,实际 "${keyText("新对话")}"`);
+  assert(keyText("发送") === "Send", `英文态「发送」未翻译,实际 "${keyText("发送")}"`);
+  assert(keyText("停止") === "Stop", `英文态「停止」未翻译,实际 "${keyText("停止")}"`);
+  assert(keyText("工作区") === "Workspace", `英文态「工作区」未翻译,实际 "${keyText("工作区")}"`);
+  assert(keyText("并行线路") === "Parallel lines", `英文态「并行线路」未翻译,实际 "${keyText("并行线路")}"`);
+  assert(keyText("刷新") === "Refresh", `英文态「刷新」未翻译,实际 "${keyText("刷新")}"`);
+  assert(keyText("鞭挞") === "Auto-run", `英文态「鞭挞」未翻译,实际 "${keyText("鞭挞")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(keyText("新对话") === "新对话", `切回中文后「新对话」未回原文,实际 "${keyText("新对话")}"`);
+  assert(keyText("发送") === "发送", `切回中文后「发送」未回原文,实际 "${keyText("发送")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,
