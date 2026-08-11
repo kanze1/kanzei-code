@@ -1,9 +1,8 @@
 //! websearch 工具(R-023):通过 DuckDuckGo HTML 搜索页返回结构化结果。
 
 use async_trait::async_trait;
-use kanzei_harness::{KanzeiConfig, Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use kanzei_llm::proxy::build_http_client;
-use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -59,12 +58,7 @@ impl Tool for WebSearchTool {
         }
         let query: String = query.chars().take(MAX_QUERY_CHARS).collect();
         let limit = input.max_results.unwrap_or(5).clamp(1, MAX_RESULTS);
-        let proxy = match KanzeiConfig::load(&ctx.cwd).ok().and_then(|c| c.proxy) {
-            Some(p) if p == "off" => ProxyConfig::Disabled,
-            Some(p) if p == "env" => ProxyConfig::Env,
-            Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
-            _ => ProxyConfig::Env,
-        };
+        let proxy = crate::tool_proxy(ctx);
         let client = match build_http_client(&proxy) {
             Ok(c) => c,
             Err(e) => return ToolOutput::error(format!("http client: {e}")),

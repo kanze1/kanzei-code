@@ -2,9 +2,8 @@
 //! 响应大小与输出长度双重截断;research 模式的主力工具。
 
 use async_trait::async_trait;
-use kanzei_harness::{KanzeiConfig, Tool, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use kanzei_llm::proxy::build_http_client;
-use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -50,12 +49,7 @@ impl Tool for WebFetchTool {
             return ToolOutput::error("url must start with http:// or https://");
         }
         // 与 LLM 请求同一套代理策略(配置驱动,loopback 豁免)。
-        let proxy = match KanzeiConfig::load(&ctx.cwd).ok().and_then(|c| c.proxy) {
-            Some(p) if p == "off" => ProxyConfig::Disabled,
-            Some(p) if p == "env" => ProxyConfig::Env,
-            Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
-            _ => ProxyConfig::Env,
-        };
+        let proxy = crate::tool_proxy(ctx);
         let client = match build_http_client(&proxy) {
             Ok(c) => c,
             Err(e) => return ToolOutput::error(format!("http client: {e}")),
@@ -195,6 +189,46 @@ pub(crate) fn html_to_text(html: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::html_to_text;
+
+    /// R-182 内容④:代理配置是**主根**资产,从 worktree 跑时不能读分支副本。
+    ///
+    /// 两处联网工具共用 `crate::tool_proxy`,这一条同时守住它们两个。
+    #[test]
+    fn 联网工具取代理配置用主根_不读worktree里的分支副本() {
+        use kanzei_harness::ToolCtx;
+        let tag = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let main_root = std::env::temp_dir().join(format!("kz-proxy-main-{tag}"));
+        let worktree = std::env::temp_dir().join(format!("kz-proxy-tree-{tag}"));
+        for root in [&main_root, &worktree] {
+            std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        }
+        std::fs::write(
+            main_root.join(".kanzei/kanzei.toml"),
+            "proxy = \"http://127.0.0.1:12000\"\n",
+        )
+        .unwrap();
+        // 分支副本写成 off:读错了就会变成「不走代理」。
+        std::fs::write(worktree.join(".kanzei/kanzei.toml"), "proxy = \"off\"\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: worktree.clone(),
+            project_root: main_root.clone(),
+            ..Default::default()
+        };
+        let proxy = crate::tool_proxy(&ctx);
+        assert!(
+            matches!(&proxy, kanzei_llm::proxy::ProxyConfig::Explicit(url) if url == "http://127.0.0.1:12000"),
+            "必须取主根那份配置,实得: {proxy:?}"
+        );
+        std::fs::remove_dir_all(&worktree).ok();
+        std::fs::remove_dir_all(&main_root).ok();
+    }
 
     #[test]
     fn unicode_text_does_not_shift_script_and_style_offsets() {

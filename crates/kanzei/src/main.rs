@@ -190,6 +190,23 @@ fn main_project_root(
     Ok(project_root)
 }
 
+/// CLI 的两把执行身份键(R-182 内容④ / 验收⑤)。
+///
+/// - **工具级并发锁键 = 代码树(cwd)**。同一项目的 N 棵 worktree 各跑各的,
+///   共用一把锁会让它们的写工具互相串死;
+/// - **跨进程写仲裁键 = 主根**。主根 `.kanzei` 的 tracker/记忆是所有线唯一的
+///   共享写点,键一旦随树分裂,跨进程单写仲裁就被绕过。
+///
+/// 改前两参都传 `project_root`,注释里还写着「CLI 是单工作树,代码树即项目根,
+/// 两把键同源」——`--project-root` / `KANZEI_PROJECT_ROOT` 落地之后那句话就不
+///成立了。抽成纯函数只为可测:`run_cli` 要真跑一整轮才走得到那一行。
+fn cli_identity_keys(cwd: &std::path::Path, project_root: &std::path::Path) -> (String, String) {
+    (
+        cwd.display().to_string(),
+        project_root.display().to_string(),
+    )
+}
+
 async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let RunArgs {
         new_session,
@@ -268,9 +285,11 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // R-141:根在入口(上面 main_project_root)解析一次,这里显式传下去。
     // R-182:显式主根时 cwd 与 project_root **第一次可能不相等**(worktree 里
     // cwd 是那棵树、主根是 .kanzei 托管文档的真源),所以两者必须分别传。
+    //
+    let (worktree_key, write_key) = cli_identity_keys(&cwd, &project_root);
     let ctx = ToolCtx::new(cwd, project_root.clone()).with_identity(
-        project_root.display().to_string(),
-        project_root.display().to_string(),
+        worktree_key,
+        write_key,
         format!(
             "cli_{}",
             std::time::SystemTime::now()
@@ -974,8 +993,9 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        cli_exit_code, explicit_main_root, explicit_main_root_from, main_project_root,
-        parse_run_args, persist_always_allow, usage_text, RunArgs, PROJECT_ROOT_ENV,
+        cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
+        main_project_root, parse_run_args, persist_always_allow, usage_text, RunArgs,
+        PROJECT_ROOT_ENV,
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
@@ -991,6 +1011,29 @@ mod tests {
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|a| a.to_string()).collect()
+    }
+
+    /// R-182 验收⑤:从 worktree 跑 `kz` 时两把键必须分叉。
+    ///
+    /// 工具级并发锁键跟着代码树走(N 棵树互不串死),写仲裁键钉在主根
+    /// (主根 `.kanzei` 是所有线唯一的共享写点)。主树运行时两者同值,
+    /// 与改前逐字节相同。
+    #[test]
+    fn cli双键在worktree下必须分叉_主树下仍同源() {
+        let main_root = Path::new("C:/proj/kanzei");
+        let worktree = Path::new("C:/proj/.kanzei-worktree-kanzei.f7");
+
+        let (worktree_key, write_key) = cli_identity_keys(worktree, main_root);
+        assert_eq!(worktree_key, worktree.display().to_string());
+        assert_eq!(write_key, main_root.display().to_string());
+        assert_ne!(
+            worktree_key, write_key,
+            "worktree 里跑时两把键必须不同,否则同项目 N 棵树共用一把工具锁互相串死"
+        );
+
+        // 主树:cwd == 主根,两把键同值,行为与改前一致。
+        let (worktree_key, write_key) = cli_identity_keys(main_root, main_root);
+        assert_eq!(worktree_key, write_key);
     }
 
     #[test]

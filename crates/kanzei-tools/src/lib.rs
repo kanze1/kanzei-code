@@ -53,6 +53,27 @@ pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
         .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
 }
 
+/// 联网工具的代理策略:与 LLM 请求同一套(配置驱动,loopback 豁免)。
+///
+/// **配置取 `ctx.project_root`,不取 `ctx.cwd`**(R-182 内容④)。代理是主根资产;
+/// 线上线后 cwd 是 worktree,那里的 `.kanzei/kanzei.toml` 是被 git checkout 出来的
+/// 分支副本,读它等于让「能不能联网」取决于这条线的分支停在哪一代。判据与 F6 同源:
+/// 凡 `.kanzei/**` 资产走 project_root,凡仓库源码走 cwd。
+///
+/// webfetch 与 websearch 两处原本各写一遍同样的 match,一并收敛到这里。
+pub(crate) fn tool_proxy(ctx: &kanzei_harness::ToolCtx) -> kanzei_llm::proxy::ProxyConfig {
+    use kanzei_llm::proxy::ProxyConfig;
+    match kanzei_harness::KanzeiConfig::load_at_root(&ctx.project_root)
+        .ok()
+        .and_then(|c| c.proxy)
+    {
+        Some(p) if p == "off" => ProxyConfig::Disabled,
+        Some(p) if p == "env" => ProxyConfig::Env,
+        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
+        _ => ProxyConfig::Env,
+    }
+}
+
 /// Windows 上禁止外部子进程新建控制台窗口(D-238)。
 ///
 /// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
