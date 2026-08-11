@@ -42,21 +42,6 @@
 
 - 阻塞: 验收④「用户复查确认三个维度都有改善」——工程面①②③已交付并全量绿,需用户实际查看 Memory 页 SOP 排版与新沉淀门槛后确认;解除人=用户(复查后确认改善即可关闭)。
 
-## D-219 WIP 准入把阻塞 doing 计入配额,鞭挞提示词与 §1.1 新口径不同步 [open] (medium)
-- 复现: 2026-08-09 实测:R-101(用户挂起)+R-148(仅剩等用户复查)占满 2 个 doing 名额,循环以「WIP 约束不能并发开启」拒开 R-153——两个不可执行条目把新工作准入整体锁死。
-- 根因: 旧 §1.1 规则「blocked doing 不占可执行槽,但仍计入 doing 总数」自相矛盾——计入总数即占用准入;DEFAULT_CONTINUE_PROMPT 规则 5「doing 最多 2 个;已满就继续推进这两项」把旧口径写死在注入文案里,且不区分可执行/阻塞。
-- 已做(规则层,2026-08-09): conventions §1.1 改为「非阻塞 doing 最多 2;阻塞/挂起 doing 不计入准入配额;含阻塞总数 >4 必须先收敛存量」;R-101 转回 todo(用户挂起,不在推进中),R-148 补①类阻塞字段(等用户复查)——名额已释放,R-153 可开。
-- 待修(机制层): DEFAULT_CONTINUE_PROMPT 规则 5 文案按新口径改写(区分可执行/阻塞 doing),旧默认加入 LEGACY_CONTINUE_PROMPTS 静默升级(D-163 同族,防用户存的旧默认与新契约错位);调度器/取活预览若有同口径判断(D-207 系)一并同步。
-- 验收: ①注入文案与 §1.1 新口径一致,LEGACY 升级路径有测试;②构造「2 个阻塞 doing + 可做 todo」场景,循环能开新条目不再误拒;③冒烟断言防回归。
-- 边界: 改动集中在 main.js 文案与 LEGACY 数组,与 R-154 拆解撞文件——微小改动,安排在 R-154 批次间隙或 08-compose 批落位后做,不与拆解批同轮;R-157 参数化规则 6 时顺路复核本条。
-- refs: D-163 R-157 D-207
-- 优先级: P1
-- 标签: 前端
-
-- 复杂度: 小
-- 批次: 1/1
-- 进展: 逐条证据:①注入文案与 §1.1 新口径一致——R-170 已把规则剥离出 continue prompt(DEFAULT_CONTINUE_PROMPT 极简意图句 08-compose.js:16,LEGACY 升级机制删除 08-compose.js:481),dev system prompt 为 WIP 单槽真源(profiles.rs:748 dev_system_prompt_enforces_wip_and_batch_contract:断言 ONE executable item/share the SAME single slot/does NOT consume the slot/exceeds 4 + 反断言无「keep at most 2 requirements」旧口径残留;conventions 同口径测试 profiles.rs:812);②「2 个阻塞 doing + 可做 todo」场景——本轮 ui-runtime-smoke 新增断言:两阻塞 doing 均不标 agent-active、blocked 标记保留、可开工 todo 仍为 agent-next(不被误拒);③冒烟断言防回归——上述断言 + D-207 既有 blocked doing 断言。验证:T-1786451xxx(ui-runtime 1147 invoke 全绿)+ dev_system_prompt_enforces_wip 单测绿。
-
 ## D-233 文件视图打开卡顿:同步 files_snapshot 在主线程全量读+哈希 258 个文件 [open] (medium)
 - 优先级: P1
 - 标签: 前端
@@ -67,6 +52,9 @@
 - 修复方向(按序独立可验): ①`files_snapshot`/`file_preview` 改 async command(线程池执行,主线程立即解放)——单词改动收益最大;②快照会话内缓存:切回视图直接用 filesSnapshotData 渲染,后台静默刷新,显式「刷新」按钮才强制重扫;③增量重扫:按 size+mtime 粗判未变的文件复用上次的行数/哈希,只重读变了的(全文 FNV 只在标注流程里保持 D-213 的 mtime 免疫语义);④vendor/gen 等永不标注的路径跳过读内容(只 stat),树里仍显示但标记「未度量」。
 - 验收: ①切到文件视图主线程无秒级冻结,切换期间其它控件可点(与 D-202 验收同口径 <200ms);②切走再切回不重扫(有缓存命中证据);③第二次打开的快照耗时比首次显著下降(增量路径生效,日志或遥测可见);④vendor 文件不再被读内容,measurable 集合缩到项目自有源码;⑤冒烟或单测覆盖 async 化与缓存路径。
 - 证据等级: E1(用户复现 + 代码路径实证 + 读取量实测 4.4MB/258 文件)
+
+- 批次: 1/2
+- 进展: 批1(验收①⑤)完成:files_snapshot/file_preview 改 async command(主线程解放,files_view.rs:26/78);前端切回文件视图缓存优先(showFilesView:有快照先渲染+后台静默刷新,17-files.js;filesViewLeft 清理定时器,03-shell.js;刷新按钮仍强制重扫)。file_preview 测试改 tokio,3 测试全绿,ui-runtime 1147 invoke + lint 1103 全绿。批2 待做:增量重扫(size+mtime 粗判)与 vendor 跳过读内容。
 
 ## D-235 conventions.md 无专用工具可写:模型只读,引擎化交付标注无法落地 [open] (medium)
 - 复现: R-157 验收⑤要求 conventions.md §1.4 标注「引擎已接管」。edit 被 ruleset 拒绝:policy-managed(用户手写的项目资产,模型只读),且无专用工具;规则明令禁止 shell 旁路(重定向/Set-Content/WriteAllText/node 单行均被检测回滚)。同 D-173(architecture/README.md 无专用工具)一类的能力缺口:需求/缺陷/目标/决策各有 tracker 工具,规范文档 conventions.md 没有对应专用写入通道。

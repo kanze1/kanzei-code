@@ -20,8 +20,10 @@ fn resolve_root(project_dir: &str) -> PathBuf {
 }
 
 /// 整树快照:文件清单 + 目录聚合 + 有效标注。前端树从这一份渲染。
+/// D-233 批1:async 化——同步 Tauri command 在主线程执行,整树扫描期间
+/// UI 完全冻结;async command 由线程池执行,主线程立即解放。
 #[tauri::command]
-pub fn files_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
+pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = resolve_root(&project_dir);
     let entries = scan(&root);
     let dirs = aggregate_dirs(&entries);
@@ -71,8 +73,9 @@ pub fn files_snapshot(project_dir: String) -> Result<serde_json::Value, String> 
 }
 
 /// 文件预览(Monaco 只读打开)。路径必须落在项目根内;超限文件截断并如实标注。
+/// D-233 批1:async 化——与 files_snapshot 同理,大文件读取不该占主线程。
 #[tauri::command]
-pub fn file_preview(project_dir: String, path: String) -> Result<serde_json::Value, String> {
+pub async fn file_preview(project_dir: String, path: String) -> Result<serde_json::Value, String> {
     const MAX_PREVIEW_BYTES: u64 = 4 * 1024 * 1024;
     let root = resolve_root(&project_dir);
     let rel = path.trim_matches(['/', '\\']);
@@ -418,8 +421,8 @@ mod tests {
 
     /// 预览的路径逃逸必须被挡:file_preview 是前端直连的读文件通道,
     /// 越界等于把整个磁盘开给 webview。
-    #[test]
-    fn 预览拒绝越界路径() {
+    #[tokio::test]
+    async fn 预览拒绝越界路径() {
         let root = std::env::temp_dir().join(format!(
             "kz-fv-escape-{}-{}",
             std::process::id(),
@@ -436,21 +439,24 @@ mod tests {
             .join(format!("kz-fv-outside-{}.txt", std::process::id()));
         std::fs::write(&outside, "secret").unwrap();
 
-        let ok = file_preview(root.display().to_string(), "ok.txt".into()).unwrap();
+        let ok = file_preview(root.display().to_string(), "ok.txt".into())
+            .await
+            .unwrap();
         assert_eq!(ok["content"], "fine");
         assert_eq!(ok["binary"], false);
 
         let escape = file_preview(
             root.display().to_string(),
             format!("../{}", outside.file_name().unwrap().to_string_lossy()),
-        );
+        )
+        .await;
         assert!(escape.is_err(), "越界路径必须拒绝: {escape:?}");
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_file(&outside).ok();
     }
 
-    #[test]
-    fn 预览识别二进制并拒进文本通道() {
+    #[tokio::test]
+    async fn 预览识别二进制并拒进文本通道() {
         let root = std::env::temp_dir().join(format!(
             "kz-fv-bin-{}-{}",
             std::process::id(),
@@ -461,7 +467,9 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
         std::fs::write(root.join("blob.bin"), [0u8, 159, 146, 150]).unwrap();
-        let preview = file_preview(root.display().to_string(), "blob.bin".into()).unwrap();
+        let preview = file_preview(root.display().to_string(), "blob.bin".into())
+            .await
+            .unwrap();
         assert_eq!(preview["binary"], true);
         assert_eq!(preview["content"], "");
         std::fs::remove_dir_all(&root).ok();

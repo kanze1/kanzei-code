@@ -15,6 +15,27 @@ async function refreshFiles() {
     toastError(`${t("文件树加载失败")}:${err}`);
   }
 }
+// D-233 批1:切回视图不重扫——filesSnapshotData 是「最近一次成功快照」,
+// 视图切换时先拿它渲染(立即可用),后台静默刷新保持新鲜;只有用户点
+// 「刷新」按钮(或标注后)才强制走完整重扫。
+let filesSilentRefresh = null;
+function showFilesView() {
+  const view = document.getElementById("view-files");
+  if (!view) return;
+  view.classList.add("active");
+  if (filesSnapshotData) {
+    renderFilesTree();
+    filesSilentRefresh = setTimeout(refreshFiles, 400);
+  } else {
+    refreshFiles();
+  }
+}
+function filesViewLeft() {
+  if (filesSilentRefresh) {
+    clearTimeout(filesSilentRefresh);
+    filesSilentRefresh = null;
+  }
+}
 
 function humanSize(bytes) {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;

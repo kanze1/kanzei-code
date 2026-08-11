@@ -1737,3 +1737,9 @@
 - 摘要: D-219 验收②③:ui-runtime-smoke 新增「2 个阻塞 doing + 可做 todo」场景断言——两个 blocked doing 均不标 agent-active(阻塞项不进 WIP 不占焦点)、blocked 标记保留、可开工 todo 仍为 agent-next(不被挡住)。21 ui js + 1147 invoke 全绿。机制层证据:R-170 规则剥离(08-compose.js:16/481 LEGACY 删除)、dev system prompt 单槽真源 + 反断言(profiles.rs:748 dev_system_prompt_enforces_wip_and_batch_contract,1 测试绿)、conventions 同口径(profiles.rs:812)。
 - 关联: D-219 D-207
 - 收尾: 1786451434
+
+## T-1786451554 D-233 B1:async 化 + 前端缓存优先 [passed]
+- 命令: cargo test -p kanzei-app files_view + ui-runtime/lint 冒烟
+- 摘要: D-233 批1(验收①⑤):files_snapshot/file_preview 改 async command(files_view.rs:26/78,同步 command 在主线程执行会冻结 UI,async 由线程池执行);前端切回文件视图缓存优先——showFilesView 有快照先渲染再后台静默刷新(17-files.js),filesViewLeft 清理定时器(03-shell.js 挂接),显式刷新按钮仍强制重扫。测试:file_preview 两测试改 tokio::test + .await(files_view.rs),files_view 3 测试全绿;ui-runtime 21 js + 1147 invoke 全绿;lint 1103 标识符全绿。
+- 关联: D-233
+- 收尾: 1786451554
