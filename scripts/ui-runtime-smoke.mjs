@@ -12,6 +12,46 @@ const root = resolve(import.meta.dirname, "..");
 const { html, scriptSrcs, sources, joined: source } = loadUiSources();
 const style = await readFile(resolve(root, "crates/kanzei-app/ui/style.css"), "utf8");
 
+// ---------- 变异守卫(R-177 内容③)----------
+// 一条恒绿的断言与一条真护栏在 CI 里长得一模一样。`KZ_SMOKE_MUTATE=<id>` 时,
+// 把**被守护的那一行源码**直接删掉再跑,期望脚本非零退出——这样「删了它就变红」
+// 是机械判据,不是写在注释里的承诺。
+// 变异没命中(源码被改写、那一行不在了)本身就是失败:守卫悄悄失效比断言变红更危险。
+const SMOKE_MUTATE = process.env.KZ_SMOKE_MUTATE ?? "";
+if (SMOKE_MUTATE) {
+  // 正则而不是字面量:仓里 ui/*.js 的换行是 CRLF/LF 混着的,字面量 "\n" 会漏匹配,
+  // 而漏匹配的变异是**假绿**——它看起来"守卫生效了",其实一行都没删。
+  const mutations = {
+    // D-251:refreshWorktrees 在 await 之后那一次 currentProject 复查。
+    // 删了它,项目甲在途的清单会被画进项目乙的面板。
+    d251: {
+      pattern: /[ \t]*if \(currentProject !== forProject\) return;\r?\n(\s*renderWorktrees\(live\);)/,
+      replace: "$1",
+    },
+    // D-257:刷新按钮的监听器。删了它,按钮点下去什么都不发生。
+    d257: {
+      pattern: /\$\("worktrees-refresh"\)\.addEventListener\("click", refreshWorktrees\);/,
+      replace: "",
+    },
+  };
+  const mutation = mutations[SMOKE_MUTATE];
+  if (!mutation) {
+    console.error(`未知的 KZ_SMOKE_MUTATE=${SMOKE_MUTATE}(可用:${Object.keys(mutations).join(" / ")})`);
+    process.exit(2);
+  }
+  let hit = 0;
+  for (let i = 0; i < sources.length; i += 1) {
+    const global = new RegExp(mutation.pattern.source, "g");
+    hit += (sources[i].match(global) ?? []).length;
+    sources[i] = sources[i].replace(global, mutation.replace);
+  }
+  if (hit !== 1) {
+    console.error(`变异 ${SMOKE_MUTATE} 没有恰好命中一处被守护的源码(实得 ${hit} 处):护栏已经失效,先修变异表`);
+    process.exit(2);
+  }
+  console.error(`[KZ_SMOKE_MUTATE=${SMOKE_MUTATE}] 已删除被守护的源码,期望本次运行**失败**`);
+}
+
 const issues = [];
 const fail = (msg) => issues.push(msg);
 // 断言在真实 DOM 上跑,某条护栏一旦真的红了,后续代码常常会顺带对 null 取属性而硬崩:
@@ -747,7 +787,12 @@ async function invoke(cmd, args) {
   if (failure) throw new Error(failure);
   if (cmd === "settings_save") savedPayloads.set(cmd, args);
   if (cmd === "ui_probe_result") probeResults.push(args);
-  if (cmd in payloads) return structuredClone(payloads[cmd]);
+  // 桩可以是**函数**:同一条命令按入参返回不同结果。线清单要判「切走后不把甲的
+  // 清单画进乙的面板」,必须让两个项目返回不同的清单,固定值做不到。
+  if (cmd in payloads) {
+    const stub = payloads[cmd];
+    return structuredClone(typeof stub === "function" ? stub(args) : stub);
+  }
   return null;
 }
 async function listen(event, handler) { handlers.set(event, handler); }
@@ -4100,43 +4145,44 @@ const docsB = {
   assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
 
-// ---------- 在途的工作树操作不得写进已经切走的项目的键(D-251) ----------
-// 工作树清单是纯前端 localStorage 清单,不从 `git worktree list` 发现(R-050 退回原因④):
-// 一旦把甲项目的工作树写进乙项目的键,没有任何一次刷新会把它纠回来,是长期错位。
-// 每条都配两个方向的断言,缺一不可:只断言「没写进乙」的话,一个「两边都不写」的错误实现
-// (丢弃在途写入 = 把错位换成更难恢复的丢失)照样能蒙混过关。
+// ---------- 线清单来自 git,前端不再持有清单状态(R-177 内容③ / D-251 / D-257) ----------
+// 清单真源改成后端 `worktree_list`(它跑 `git worktree list --porcelain`)之后,
+// 原来那两条护栏守的性质没有消失,只是换了形态,所以**等价重写而不是删除**:
+//   D-251「切项目时清单不错位」→ 在途的清单响应落地时项目已切走,不得画进新项目的面板;
+//   D-257「#worktrees-refresh 真的绑了监听器」→ 点击后必须真打出 worktree_list IPC。
+// 另加一条新的反向断言:前端**不得再写任何 kz-worktrees 键**(清单状态已经全部下沉)。
+//
+// 两条断言各接一个变异开关(KZ_SMOKE_MUTATE=d251 / =d257):故意破坏被守护的行为,
+// 期望脚本非零退出。这是把「删掉任一条即变红」从人工验证换成机械判据——不然一条
+// 恒绿的断言和一条真护栏在 CI 里长得一模一样。
 {
-  const wtKeyOf = (path) => `kz-worktrees:${path}`;
-  const wtList = (path) => JSON.parse(storage.get(wtKeyOf(path)) ?? "[]");
   const wtItem = (path, branch) => ({ path, branch, clean: true, files: [], diff: "" });
-  const WT_NEW = "C:/smoke/wt/thread-new";
-  const WT_KEEP = "C:/smoke/wt/thread-keep";
+  const WT_A1 = "C:/smoke/wt/thread-a1";
+  const WT_A2 = "C:/smoke/wt/thread-a2";
   const WT_B = "C:/smoke/wt/thread-b";
-  // 写入去向探针。光看值有盲区:把甲的清单改动写进乙的键时,如果那次改动对乙的值恰好
-  // 等价(放弃一条乙根本没有的路径 = 过滤掉个寂寞,写回去逐字不变),值断言就看不出来
-  // ——实测过,少了这个探针 S4 那一侧恒绿。所以直接记录**写了哪些键**,错写无处可藏。
-  let wtWrites = null;
+  // 两个项目返回**不同**清单:D-251 只有这样才判得出来。
+  payloads.worktree_list = (args) =>
+    args?.projectDir === PROJECT_B
+      ? [wtItem(WT_B, "thread-b")]
+      : [wtItem(WT_A1, "thread-a1"), wtItem(WT_A2, "thread-a2")];
+  payloads.worktree_create = wtItem(WT_A1, "thread-a1");
+  payloads.worktree_discard = "已放弃工作树";
+
+  // 写入去向探针:方向反过来了。以前查「有没有写错键」,现在查「还写不写」。
+  const wtWrites = [];
   const rawSetItem = localStorageShim.setItem;
   localStorageShim.setItem = (key, value) => {
-    if (wtWrites && String(key).startsWith("kz-worktrees:")) wtWrites.push(String(key));
+    if (String(key).startsWith("kz-worktrees:")) wtWrites.push(String(key));
     return rawSetItem(key, value);
   };
-  const startWtWriteProbe = () => { wtWrites = []; };
-  const stopWtWriteProbe = () => { const seen = wtWrites ?? []; wtWrites = null; return seen; };
-  payloads.worktree_create = wtItem(WT_NEW, "thread-new");
-  payloads.worktree_diff = wtItem(WT_NEW, "thread-new");
-  payloads.worktree_discard = "已放弃工作树";
-  storage.delete(wtKeyOf(PROJECT));
-  storage.delete(wtKeyOf(PROJECT_B));
 
-  // ---------- ⓪ 侧栏「隔离工作树」的刷新按钮真的能刷新(D-257) ----------
-  // 这条护栏拦的是「按钮在 index.html 里,监听器却不在任何 JS 里」这个形态:7c5f022 抽
-  // handleWorktreeAction 时,函数收尾的 `}` 吃掉了下一行 `$("worktrees-refresh").addEventListener`
-  // 的前半段,剩下 `}("click", refreshWorktrees);` —— 语法合法、`node --check` 通过、静态
-  // grep 也只在标记里看得见那个 id,唯独运行时点下去什么都不发生。所以断言必须是**点击后
-  // 真的打出了 worktree 相关 IPC**,不能退化成「源码里有这个字符串」。
+  // ---------- ⓪ 刷新按钮真的能刷新(D-257) ----------
+  // 拦的是「按钮在 index.html 里,监听器却不在任何 JS 里」这个形态:7c5f022 抽
+  // handleWorktreeAction 时,函数收尾的 `}` 吃掉了下一行 `$("worktrees-refresh")
+  // .addEventListener` 的前半段,剩下 `}("click", refreshWorktrees);` —— 语法合法、
+  // `node --check` 通过、静态 grep 也只在标记里看得见那个 id,唯独点下去什么都不发生。
+  // 所以断言必须是**点击后真的打出了 IPC**,不能退化成「源码里有这个字符串」。
   await gotoProject(PROJECT, docsA);
-  storage.set(wtKeyOf(PROJECT), JSON.stringify([WT_NEW]));
   const refreshBtn = byId.get("worktrees-refresh");
   assert(refreshBtn, "侧栏「隔离工作树」的刷新按钮 #worktrees-refresh 不在 index.html 里了(界面承诺的手动刷新能力消失)");
   if (refreshBtn) {
@@ -4145,87 +4191,76 @@ const docsB = {
     await flush();
     const refreshCalls = invokeArgs.slice(beforeRefreshClick).filter((entry) => String(entry.cmd).startsWith("worktree_"));
     assert(
-      refreshCalls.some((entry) => entry.cmd === "worktree_diff" && entry.args?.projectDir === PROJECT),
-      "点击 #worktrees-refresh 没有触发任何 worktree_diff:按钮没有绑上 refreshWorktrees" +
+      refreshCalls.some((entry) => entry.cmd === "worktree_list" && entry.args?.projectDir === PROJECT),
+      "点击 #worktrees-refresh 没有触发 worktree_list:按钮没有绑上 refreshWorktrees" +
         `(本次点击后的 worktree IPC:${JSON.stringify(refreshCalls)})`,
     );
     assert(
-      document.querySelectorAll("#worktree-list .worktree-entry").length === 1,
-      "点击 #worktrees-refresh 后工作树清单没有按新数据重渲染(拉回来了却没画上去)",
+      document.querySelectorAll("#worktree-list .worktree-entry").length === 2,
+      "点击 #worktrees-refresh 后工作树清单没有按 git 返回的数据重渲染(拉回来了却没画上去)",
+    );
+    // 清单不再逐条 worktree_diff:一次 IPC 拿全,清单越长省得越多。
+    assert(
+      !refreshCalls.some((entry) => entry.cmd === "worktree_diff"),
+      `刷新清单不该再逐条打 worktree_diff(实得:${JSON.stringify(refreshCalls)})`,
     );
   }
-  storage.delete(wtKeyOf(PROJECT));
 
-  // ① 新建:替甲发出 worktree_create,落地前切到乙。
+  // ---------- ① 在途的清单响应不得画进已经切走的项目(D-251) ----------
   await gotoProject(PROJECT, docsA);
-  let releaseCreate;
-  invokeGates.set("worktree_create", new Promise((resolve) => { releaseCreate = resolve; }));
+  let releaseList;
+  invokeGates.set("worktree_list", new Promise((resolve) => { releaseList = resolve; }));
+  refreshBtn.click();
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "worktree_list" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:刷新没有替项目甲发出 worktree_list(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("worktree_list"); // 只卡住上面那一次
+  await gotoProject(PROJECT_B, docsB);
+  refreshBtn.click();
+  await flush();
+  assert(
+    document.querySelectorAll("#worktree-list .worktree-entry").length === 1,
+    "前置失败:切到项目乙之后清单没按乙的数据渲染",
+  );
+  releaseList();
+  for (let i = 0; i < 12; i += 1) await settle();
+  await flush();
+  const paintedAfterSwitch = [...document.querySelectorAll("#worktree-list .worktree-entry")]
+    .map((row) => row.textContent);
+  assert(
+    paintedAfterSwitch.length === 1 && paintedAfterSwitch[0].includes("thread-b"),
+    "项目甲在途的工作树清单被画进了项目乙的面板(await 之后少了一次 currentProject 复查):" +
+      `实得 ${JSON.stringify(paintedAfterSwitch)}`,
+  );
+
+  // ---------- ② 建线不再维护任何前端清单 ----------
+  await gotoProject(PROJECT, docsA);
+  const beforeAdd = invokeArgs.length;
   byId.get("worktree-add").click();
-  await settle();
+  await flush();
+  const addCalls = invokeArgs.slice(beforeAdd);
   assert(
-    invokeArgs.at(-1)?.cmd === "worktree_create" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
-    `前置失败:worktree-add 没有替项目甲发出 worktree_create(${JSON.stringify(invokeArgs.at(-1))})`,
-  );
-  invokeGates.delete("worktree_create"); // 只卡住上面那一次
-  await gotoProject(PROJECT_B, docsB);
-  startWtWriteProbe();
-  releaseCreate();
-  for (let i = 0; i < 12; i += 1) await settle();
-  const createWrites = stopWtWriteProbe();
-  assert(
-    !createWrites.includes(wtKeyOf(PROJECT_B)),
-    `甲项目在途新建的工作树写进了乙项目的键(本次写了 ${createWrites.join(" / ")}):` +
-      `纯前端清单,错位不会被任何一次刷新纠回来 —— 乙的键现在是 ${storage.get(wtKeyOf(PROJECT_B))}`,
+    addCalls.some((entry) => entry.cmd === "worktree_create" && entry.args?.projectDir === PROJECT),
+    `新建工作树没有替项目甲发出 worktree_create(${JSON.stringify(addCalls)})`,
   );
   assert(
-    wtList(PROJECT).includes(WT_NEW),
-    `在途新建的工作树没有落进它真正所属的项目甲的键:${storage.get(wtKeyOf(PROJECT))}` +
-      "(工作树已经在磁盘上建出来了,丢弃这次写入 = 把错位换成更难恢复的丢失)",
+    addCalls.some((entry) => entry.cmd === "worktree_list"),
+    "新建之后没有重新向 git 要清单(前端已不持有清单,不刷就看不见新树)",
   );
 
-  // ② 放弃:甲有两条、乙有一条,替甲发出 worktree_discard,落地前切到乙。
-  storage.set(wtKeyOf(PROJECT), JSON.stringify([WT_NEW, WT_KEEP]));
-  storage.set(wtKeyOf(PROJECT_B), JSON.stringify([WT_B]));
-  await gotoProject(PROJECT, docsA);
-  const wtEntries = document.querySelectorAll("#worktree-list .worktree-entry");
-  assert(wtEntries.length === 2, `前置失败:项目甲的工作树清单没渲染出两条(实得 ${wtEntries.length})`);
-  // 动作按钮顺序固定为 差异/合并/放弃,取第三个 —— 按文案取会被界面语言影响。
-  const discardBtn = wtEntries[0].querySelectorAll("button")[2];
-  assert(discardBtn, "前置失败:工作树条目上没有「放弃」按钮");
-  let releaseDiscard;
-  invokeGates.set("worktree_discard", new Promise((resolve) => { releaseDiscard = resolve; }));
-  discardBtn.click();
-  await settle();
+  // ---------- ③ 前端不得再写任何 kz-worktrees 键 ----------
   assert(
-    invokeArgs.at(-1)?.cmd === "worktree_discard" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
-    `前置失败:没有替项目甲发出 worktree_discard(${JSON.stringify(invokeArgs.at(-1))})`,
-  );
-  invokeGates.delete("worktree_discard");
-  await gotoProject(PROJECT_B, docsB);
-  startWtWriteProbe();
-  releaseDiscard();
-  for (let i = 0; i < 12; i += 1) await settle();
-  const discardWrites = stopWtWriteProbe();
-  assert(
-    !discardWrites.includes(wtKeyOf(PROJECT_B)),
-    `甲项目在途放弃的工作树改动落到了乙项目的键上(本次写了 ${discardWrites.join(" / ")}):` +
-      `乙的键现在是 ${storage.get(wtKeyOf(PROJECT_B))}`,
-  );
-  assert(
-    JSON.stringify(wtList(PROJECT_B)) === JSON.stringify([WT_B]),
-    `乙项目的工作树清单被改动了:${storage.get(wtKeyOf(PROJECT_B))}`,
-  );
-  assert(
-    JSON.stringify(wtList(PROJECT)) === JSON.stringify([WT_KEEP]),
-    `在途放弃没有从它真正所属的项目甲的键里摘掉那一条(或连带删错了别的):${storage.get(wtKeyOf(PROJECT))}`,
+    wtWrites.length === 0,
+    `前端仍在写 localStorage 工作树清单(${wtWrites.join(" / ")}):清单真源已经是 git,` +
+      "留着这份影子清单只会在两处不一致时误导用户",
   );
 
-  // 收尾:摘掉写入探针、清掉两个项目的工作树键与桩,切回项目甲并还原快照。
+  // 收尾:摘掉写入探针与桩,切回项目甲并还原快照。
   localStorageShim.setItem = rawSetItem;
-  storage.delete(wtKeyOf(PROJECT));
-  storage.delete(wtKeyOf(PROJECT_B));
+  delete payloads.worktree_list;
   delete payloads.worktree_create;
-  delete payloads.worktree_diff;
   delete payloads.worktree_discard;
   await gotoProject(PROJECT, savedDocsPayload);
   delete payloads.projects_select;

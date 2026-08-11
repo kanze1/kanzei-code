@@ -192,6 +192,7 @@ fn main() {
             processes::process_update,
             processes::process_close,
             processes::worktree_create,
+            processes::worktree_list,
             processes::worktree_diff,
             processes::worktree_merge,
             processes::worktree_discard,

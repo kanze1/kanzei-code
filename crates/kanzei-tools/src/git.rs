@@ -484,20 +484,71 @@ fn validate_ref(raw: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
-/// 解析 `git worktree list --porcelain`,找到检出了指定分支的工作树路径。
-fn worktree_for_branch(porcelain: &str, branch: &str) -> Option<std::path::PathBuf> {
-    let want = format!("refs/heads/{branch}");
-    let mut current: Option<&str> = None;
+/// `git worktree list --porcelain` 的一条记录。
+///
+/// R-177 内容③:线清单的**真源**是 git,不是前端 localStorage。手工
+/// `git worktree add` 出来的树、以及 kzapp 换了一台机器/清了缓存之后的树,
+/// 都必须能被发现——localStorage 清单三者一个都做不到。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeEntry {
+    pub path: std::path::PathBuf,
+    /// 检出的分支短名(`refs/heads/` 已剥)。detached / bare 时为 None。
+    pub branch: Option<String>,
+    pub bare: bool,
+    pub detached: bool,
+    pub locked: bool,
+    pub prunable: bool,
+}
+
+/// 解析 `git worktree list --porcelain`。
+///
+/// porcelain 的形状:每条记录以 `worktree <path>` 开头,后面跟若干属性行,
+/// 记录之间用空行分隔。`branch` / `bare` / `detached` / `locked` / `prunable`
+/// 都可能出现,`locked` 与 `prunable` 还可能带一个原因串(`locked <reason>`)。
+pub fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeEntry> {
+    let mut out: Vec<WorktreeEntry> = Vec::new();
     for line in porcelain.lines() {
+        let line = line.trim_end();
         if let Some(path) = line.strip_prefix("worktree ") {
-            current = Some(path.trim());
-        } else if let Some(head) = line.strip_prefix("branch ") {
-            if head.trim() == want {
-                return current.map(std::path::PathBuf::from);
-            }
+            out.push(WorktreeEntry {
+                path: std::path::PathBuf::from(path.trim()),
+                branch: None,
+                bare: false,
+                detached: false,
+                locked: false,
+                prunable: false,
+            });
+            continue;
+        }
+        let Some(current) = out.last_mut() else {
+            continue; // 属性行出现在任何 `worktree` 之前:不是合法输出,跳过。
+        };
+        if let Some(head) = line.strip_prefix("branch ") {
+            current.branch = Some(
+                head.trim()
+                    .strip_prefix("refs/heads/")
+                    .unwrap_or(head.trim())
+                    .to_string(),
+            );
+        } else if line == "bare" {
+            current.bare = true;
+        } else if line == "detached" {
+            current.detached = true;
+        } else if line == "locked" || line.starts_with("locked ") {
+            current.locked = true;
+        } else if line == "prunable" || line.starts_with("prunable ") {
+            current.prunable = true;
         }
     }
-    None
+    out
+}
+
+/// 找到检出了指定分支的工作树路径。
+fn worktree_for_branch(porcelain: &str, branch: &str) -> Option<std::path::PathBuf> {
+    parse_worktree_list(porcelain)
+        .into_iter()
+        .find(|entry| entry.branch.as_deref() == Some(branch))
+        .map(|entry| entry.path)
 }
 
 /// 快进合并:分支级变更中唯一"要么无冲突成功、要么干净失败"的形态,所以可以
@@ -627,6 +678,63 @@ fn hide_console_window(_command: &mut tokio::process::Command) {}
 mod tests {
     use super::*;
     use kanzei_harness::Tool;
+
+    /// R-177 内容③:解析器抽出来即补单测——它此前零直接覆盖,只被 merge_ff 间接用到。
+    /// 表驱动覆盖 `--porcelain` 的全部行形态。
+    #[test]
+    fn parse_worktree_list识别分支_bare_detached_locked_prunable() {
+        let porcelain = "\
+worktree C:/proj/kanzei
+HEAD 1111111111111111111111111111111111111111
+branch refs/heads/dev
+
+worktree C:/proj/.kanzei-worktree-kanzei.f9
+HEAD 2222222222222222222222222222222222222222
+branch refs/heads/kanzei/thread-f9
+
+worktree C:/proj/detached-tree
+HEAD 3333333333333333333333333333333333333333
+detached
+
+worktree C:/proj/bare-tree
+bare
+
+worktree C:/proj/locked-tree
+HEAD 4444444444444444444444444444444444444444
+detached
+locked 手工锁住的原因
+
+worktree C:/proj/gone-tree
+HEAD 5555555555555555555555555555555555555555
+branch refs/heads/gone
+prunable gitdir file points to non-existent location
+";
+        let entries = parse_worktree_list(porcelain);
+        assert_eq!(entries.len(), 6, "{entries:?}");
+
+        assert_eq!(entries[0].path, std::path::PathBuf::from("C:/proj/kanzei"));
+        assert_eq!(
+            entries[0].branch.as_deref(),
+            Some("dev"),
+            "分支短名要剥前缀"
+        );
+        assert!(!entries[0].bare && !entries[0].detached);
+
+        assert_eq!(
+            entries[1].branch.as_deref(),
+            Some("kanzei/thread-f9"),
+            "含 / 的分支名不能被截断"
+        );
+
+        assert!(entries[2].detached && entries[2].branch.is_none());
+        assert!(entries[3].bare && entries[3].branch.is_none());
+        assert!(entries[4].locked, "locked 带原因串时也要认出来");
+        assert!(entries[5].prunable, "prunable 带原因串时也要认出来");
+
+        // 空输入与孤儿属性行都不能 panic,也不能凭空造出记录。
+        assert!(parse_worktree_list("").is_empty());
+        assert!(parse_worktree_list("branch refs/heads/x\nbare\n").is_empty());
+    }
 
     fn temp_repo(tag: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(

@@ -28,27 +28,25 @@ function renderWorktrees(items) {
     list.appendChild(row);
   }
 }
-// await 前后各认一次项目(D-251,与 refreshDocs 同一改法)。逐条 worktree_diff 都是一次
-// 真实 IPC,清单越长在飞的时间越久:循环里重取 currentProject 会让用户切走之后的那几条
-// 拿新项目当 projectDir 去查旧项目的工作树,末尾再把旧项目的清单画进新项目的面板。
+// R-177 内容③:清单真源是 `git worktree list --porcelain`(后端 worktree_list),
+// 前端不再持有任何清单状态。原先存在 localStorage["kz-worktrees:*"] 里,于是三件事
+// 都做不到:手工 `git worktree add` 出来的树看不见、换机器/清缓存后清单归零、而树
+// 还在磁盘上。一次 IPC 拿全,也不用再逐条 worktree_diff。
+//
+// D-251 的性质**照旧守住**:projectDir 在 await **之前**认领,回来后再认一次,
+// 替旧项目拉回来的清单不画进新项目的面板。
 async function refreshWorktrees() {
   if (!currentProject) return renderWorktrees([]);
   const forProject = currentProject;
-  const saved = JSON.parse(localStorage.getItem(`kz-worktrees:${forProject}`) || "[]");
-  const live = [];
-  for (const path of saved) {
-    try { live.push(await invoke("worktree_diff", { projectDir: forProject, worktreePath: path })); }
-    catch (error) { log(`工作树已不可用:${path} · ${error}`, "warn"); }
-  }
-  // 替旧项目拉回来的清单不画到新项目的面板上:切项目必然跟着自己那次 refreshWorktrees。
+  let live = [];
+  try { live = await invoke("worktree_list", { projectDir: forProject }); }
+  catch (error) { log(`工作树清单读取失败:${error}`, "warn"); }
   if (currentProject !== forProject) return;
   renderWorktrees(live);
 }
-// D-251:工作树清单是纯前端 localStorage 清单,不从 `git worktree list` 发现(R-050 退回
-// 原因④)。所以键必须在 await **之前**认领:合并/放弃是一次真实 IPC,用户在它落地前切走,
-// 按 currentProject 取键就把甲项目的清单改动写进了乙项目,而且不会被任何一次刷新自愈。
-// 不一致时不丢弃写入——工作树在磁盘上真的被放弃了,清单必须跟着改,只是要改**它自己那个
-// 项目**的键;丢弃等于把「错位」换成更难恢复的「丢失」。
+// D-251:合并/放弃是一次真实 IPC,用户可能在它落地前切走。projectDir 必须在 await
+// **之前**认领——按 currentProject 取就会拿新项目当参数去操作旧项目的工作树。
+// 清单本身不再需要维护(真源在 git),末尾重刷一次即可。
 async function handleWorktreeAction(item, action) {
   const forProject = currentProject;
   try {
@@ -74,10 +72,6 @@ async function handleWorktreeAction(item, action) {
     } else {
       toast(result);
     }
-    if (action === "discard") {
-      const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${forProject}`) || "[]").filter((path) => path !== item.path);
-      localStorage.setItem(`kz-worktrees:${forProject}`, JSON.stringify(paths));
-    }
     await refreshWorktrees();
     refreshGit();
   } catch (error) {
@@ -90,15 +84,11 @@ async function handleWorktreeAction(item, action) {
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
 $("worktree-add").addEventListener("click", async () => {
   if (!currentProject) return;
-  // 同 handleWorktreeAction(D-251):键在 await 前认领。新建更要紧——工作树已经在磁盘上
-  // 建出来了,写错键 = 它在甲项目里再也不出现,却凭空出现在乙项目的清单里。
+  // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
   const name = `thread-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
   try {
     const item = await invoke("worktree_create", { projectDir: forProject, name });
-    const paths = JSON.parse(localStorage.getItem(`kz-worktrees:${forProject}`) || "[]");
-    paths.push(item.path);
-    localStorage.setItem(`kz-worktrees:${forProject}`, JSON.stringify(paths));
     toast(`${t("隔离工作树已创建")}:${item.path}`);
     await refreshWorktrees();
   } catch (error) {

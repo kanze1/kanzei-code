@@ -34,6 +34,9 @@ pub mod subagent;
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。
 pub use background::kill_project as kill_background_processes;
 pub use base::BaseComponent;
+/// R-177 内容③:线清单的真源是 `git worktree list --porcelain`。解析器不新造,
+/// 从 `merge_ff` 已在用的那一个抽出来复用。
+pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
     frontend_inspection_guidance, prompt_tool_mentions, DevProfile, ReadonlyProfile,
     ResearchProfile,

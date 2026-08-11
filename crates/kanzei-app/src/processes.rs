@@ -1007,6 +1007,8 @@ pub(crate) fn create_worktree_with_receipt(
             clean: files.is_empty(),
             files,
             diff,
+            // 刚建出来还没绑线;绑定发生在 process_create 里,清单由 worktree_list 合并。
+            bound_process: None,
         },
         receipt,
     ))
@@ -1128,18 +1130,42 @@ fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, S
     }
 }
 
+/// 校验一条 worktree 路径:**必须是 git 自己认得的工作树**,且不是主根。
+///
+/// R-177 内容③/验收④:判据从「位于项目同级目录之下」改成「出现在
+/// `git worktree list --porcelain` 里」。两个方向都更对:
+/// - **更严**——兄弟目录里的另一个 git 仓、或者随便一个同级目录,以前都能通过
+///   路径前缀检查混进来,现在过不了;
+/// - **更全**——手工 `git worktree add` 到别处的树以前一律被拒,现在只要 git
+///   认得就能合并/放弃(验收④要求这类树也能被发现)。
 fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, String> {
     let worktree =
         std::fs::canonicalize(worktree_path).map_err(|e| format!("工作树不存在或无法解析: {e}"))?;
-    let parent = root
-        .parent()
-        .unwrap_or(root)
-        .canonicalize()
-        .unwrap_or_else(|_| root.parent().unwrap_or(root).to_path_buf());
-    if !worktree.starts_with(&parent) || worktree == root {
-        return Err("工作树必须位于项目同级目录,不能指向项目本身或外部路径".into());
+    if worktree_key(&worktree) == worktree_key(root) {
+        return Err("不能对项目主树本身执行工作树操作".into());
+    }
+    let known = git_worktrees(root)?;
+    if !known
+        .iter()
+        .any(|entry| worktree_key(&entry.path) == worktree_key(&worktree))
+    {
+        return Err(format!(
+            "git 不认得这棵工作树: {}。只有 `git worktree list` 列出的树才能操作。",
+            worktree.display()
+        ));
     }
     Ok(worktree)
+}
+
+/// 本项目在 git 眼里的全部工作树(**含主树自己**)。
+fn git_worktrees(root: &Path) -> Result<Vec<kanzei_tools::WorktreeEntry>, String> {
+    let output = worktree_command(root, &["worktree", "list", "--porcelain"])?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(kanzei_tools::parse_worktree_list(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 /// 项目写租约的获取上界。
@@ -1256,6 +1282,56 @@ pub async fn worktree_create(
     create_worktree_arbitrated(&state, &root, &name).await
 }
 
+/// 线清单:真源是 `git worktree list --porcelain`(R-177 内容③ / 验收④)。
+///
+/// 改前清单存在前端 `localStorage["kz-worktrees:*"]` 里,于是三件事都做不到:
+/// 手工 `git worktree add` 出来的树看不见、换机器/清缓存后清单归零、而磁盘上的
+/// 树还在。现在每次都问 git,前端不再持有任何清单状态。
+///
+/// 主树自己那条剔除;bare 与 prunable 的也剔除(前者不是工作树,后者的目录已经
+/// 不在了,列出来只会让「合并/放弃」按钮点了就报错)。绑定关系从进程表合并进来,
+/// 让界面能显示这棵树被哪条线占着。
+#[tauri::command]
+pub fn worktree_list(
+    state: tauri::State<'_, AppState>,
+    project_dir: String,
+) -> Result<Vec<WorktreeInfo>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let root_key = worktree_key(&root);
+    let bound: std::collections::BTreeMap<String, String> = state
+        .processes
+        .lock()
+        .unwrap()
+        .values()
+        .filter_map(|process| {
+            let path = process.worktree_path.as_ref()?;
+            Some((worktree_key(Path::new(path)), process.id.clone()))
+        })
+        .collect();
+    let mut out = Vec::new();
+    for entry in git_worktrees(&root)? {
+        let key = worktree_key(&entry.path);
+        if key == root_key || entry.bare || entry.prunable {
+            continue;
+        }
+        // 探测失败不整条丢:树在清单里但状态取不到,用户更需要看见它并知道为什么。
+        let (files, diff) = worktree_status(&root, &entry.path)
+            .unwrap_or_else(|error| (vec![format!("(状态不可读: {error})")], String::new()));
+        out.push(WorktreeInfo {
+            path: git_arg_path(&entry.path),
+            branch: entry
+                .branch
+                .clone()
+                .unwrap_or_else(|| "(游离 HEAD)".to_string()),
+            clean: files.is_empty(),
+            files,
+            diff,
+            bound_process: bound.get(&key).cloned(),
+        });
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<WorktreeInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
@@ -1268,6 +1344,7 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
         clean: files.is_empty(),
         files,
         diff,
+        bound_process: None,
     })
 }
 
