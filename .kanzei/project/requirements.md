@@ -25,26 +25,6 @@
 
 - 批次: 3/5
 
-## R-177 线绑 worktree 后端打通:process_create 建线、cwd/主根分离、线清单从 git 发现 [done]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 后端
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
-- 调度顺序: R-050 拆出的三条里**优先取这一条**——它是唯一真正加速自举的一条(取活序按文件顺序,本条排在 R-178/R-179 之前即为用户意图;priority 只是背景信息)。前置 R-141 批2 落地后即可动工。
-- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第一条(= 该文 P1)。D1 定案「运行时重定向主根」的落点就在本条。
-- 内容: ①`process_create` 增可选 `worktree_name`:给定时先建 worktree 再绑定,`ProcessHandle.worktree_path` 写入真实路径(crates/kanzei-app/src/processes.rs:114 与 src/state.rs:310 现在恒为 `None`),任一步失败整体回滚不留半绑定态。②`run_prompt` 的进程归属校验改按 `origin_project` 判定——现状 crates/kanzei-app/src/run.rs 比的是 `process.project_dir`,线上线后该字段指向 worktree,校验会把自己的线拒掉;同时让 `run_task` 的 `project_dir`(→`cwd`)对线传 worktree 路径、`main_root` 仍传主根。③线清单真源改 `git worktree list --porcelain` 发现,废除 `localStorage["kz-worktrees:*"]`(crates/kanzei-app/ui/09-sessions.js:37/78/79/95/97 五处);解析器不要重造——crates/kanzei-tools/src/git.rs:488 的 `worktree_for_branch` 已经是 `--porcelain` 解析器,抽出复用。④`session_id` 加 worktree 后缀,与既有进程后缀同构(crates/kanzei-app/src/state.rs:290 `process_session_id` 现在拼 `{base}#{prefix}`)。⑤补四个 worktree 命令的测试——`crates/kanzei-app/src/processes.rs` 当前**零测试**(无 `mod tests`、无 `#[test]`)。⑥一树一线查重(D4 定案):目标树已被绑定则拒绝建线。⑦N3 定案的开关:线**默认不写主根 tracker**,开关打开时照常排队(不改单写语义)。⑧D1-A 的配置侧收口:`run_task` 现在 `KanzeiConfig::load_with_warnings(&cwd)`,线上线后会读到 worktree 里的分支副本,须改读主根。
-- 边界: 不做模型隔离与线级持久化(R-178)、不做 diff/合并 UX(R-179)。不绕过项目级单 writer:两条线写主根 tracker 仍由 R-171 的写租约排队,worktree 只隔离**代码文件**。物理排除 worktree 内 `.kanzei` 副本(sparse-checkout / skip-worktree)是 D1 定案里的**可选纵深防御**,不在本条,不阻塞交付。
-- 收益(写实,别高估): 并行写**不会**发生。真正拿到的是三条:①线与主树自举循环**代码互不覆盖**(git 物理隔离,不靠锁);②线 A 等 review 时线 B 可以编译/跑测试/读代码/做只读勘察;③自举 agent 跑在主树时,用户可以在线上手动改东西不打架。
-- 验收: ①`process_create` 带 `worktree_name` 后 `ProcessHandle.worktree_path` 是真实路径(有断言,不是 `None`);建树成功但绑定失败时 worktree 被回收,不留半绑定态,有测试。②线上的一轮 `run_prompt` 实测:`cwd` = worktree、`project_root` = 主根;线内写代码落在 worktree,而 tracker/state.db/记忆全部落主根;worktree 内的 `.kanzei` 副本**字节级零改动**(测试直接比对文件哈希)。③配置解析取主根的 `.kanzei/kanzei.toml`,worktree 里的分支副本改了也不生效,有测试。④线清单来自 `git worktree list --porcelain`:手工 `git worktree add` 出来的树也能被发现,localStorage 键清空后清单不丢;全仓 grep `kz-worktrees` 零命中。⑤同一 worktree 再建第二条线被拒(D4),错误文案指出已绑定的线。⑥线 `session_id` 与主树进程互不覆盖,删树后会话历史仍可回放。⑦四个 worktree 命令(create/diff/merge/discard)各有测试,`processes.rs` 不再零测试。⑧N3 开关默认关:线里的 agent 调 tracker 写工具时被明确拒绝并说明原因(不是静默失败),打开开关后能写且走写租约排队。
-- refs: R-050 R-141 R-171 R-173 R-178 R-179 D-096 D-251 docs/design/deep_parallel_dev.md docs/design/parallel_read_serial_write_orchestration.md
-- 依赖: 
-- 前置(不是阻塞,解除权在 agent 手里,按 D-239 教训**不写进「依赖」字段**免得调度器整条跳过): **R-141 批2**。R-141 批1(`8574b63`)已落一半——`ToolCtx::new` 改双参不再发现式取根、`ToolCtx::discovering` 只留给进程/IPC 入口,`run_task` 已收显式 `main_root` 并令 `project_root = main_root`、`cwd = project_dir`,`run_prompt` 在 IPC 入口解析一次主根后显式传入(crates/kanzei-app/src/run.rs 已有「R-050 D1 运行时重定向主根的落点」注释)。批2(`app/run.rs` 显式传根收尾 + 双键拆开)落地后本条即可动工;R-141 未完成时先做本条的 ③(线清单从 git 发现)与 ⑤(补测试)也不受影响。
-
-- 批次: 6/6
-- 进展: 2026-08-11 已关闭。①建线/真实绑定/git ref CAS/失败零残留=`f052ca8`;②`cwd=worktree`、`project_root=主根`及 background/frontend/files 三处调用方=`b1a2f98`;③主根配置与 CLI 双键=`c651096`;④git porcelain 清单与 `kz-worktrees` 零命中=`fc44c38`;⑤N3 默认只读、开启后恢复 tracker 写入、真实分支回显=`ea93158`;⑥四命令真实 git 测试、代码只落线树、worktree `.kanzei` 副本字节级不变、删树后会话回放=`e791536`。定案后的内容④不迁移 session_id 身份串：既有 `#p{n}` 已保证线/主树会话不覆盖，分支名改由 `ProcessInfo.branch` 回显，避免 D-176 式历史失联；验收⑥两端均有回归测试。R-182 已撤销 run 级项目单 writer，因此验收⑧“走写租约排队”的旧措辞按新基线改由主根唯一文档 + R-138 FileLock 保护单次 tracker 写操作。
-
 ## R-178 模型隔离与线级状态持久化:state.db processes 表 + 设置页作用域选择器 [doing]
 - 优先级: P1
 - 复杂度: 中
@@ -303,30 +283,6 @@
 - 内容: ①把写租约扩成**跨进程**实现:复用 `atomic_file::FileLock` 的独占句柄手法,在主根落一个持久 lease(持有者 = pid + run_id + 取得时刻 + 用途),`ProjectExecutionCoordinator` 接口不变(设计基线明写「换插不换契约」);②新增 `kz lock <acquire|release|status>` CLI,让**外部 agent 也能入局**——外部 agent 不受 kanzei 的 runner 约束,唯一可行的是给它一个能主动调用的通道,并把「动仓库前先 `kz lock acquire`」写进 conventions;③引擎侧在取活前检查外部 lease,被占时**明说谁占着、占了多久**并等待或跳过,不得静默继续(D-004 口径);④崩溃不留死锁:独占句柄随进程退出由 OS 关闭,非 Windows 走 mtime 陈旧摘除,与 `FileLock` 同一套;⑤lease 事件进 session_events,与 R-171 的 `writer.*` 同一出口。
 - 边界: 不做强制拦截外部进程的写(做不到,也不该做);本条是**协作式**互斥——提供机制 + 可见信号,让双方都能知道对方在写。真正的强隔离是 worktree(R-177),两者互补不互替。
 - 验收: ①两个 OS 进程(kzapp + kz CLI)同时申请写租约,实际持有区间不重叠且顺序可审计;②`kz lock status` 能报出当前持有者(pid/run_id/取得时刻/用途)与等待队列;③引擎取活时被外部 lease 占住,轨迹里有可见记录并说明持有者,不是静默跳过或静默继续;④强杀持有进程后 lease 自动失效,下一个申请者能立刻拿到(崩溃不留死锁,有实测);⑤`ProjectExecutionCoordinator` 的调用契约未变(现有 runner/旁路调用点零改动,有编译期证据);⑥conventions 补一节「外部 agent 动仓库前的取锁纪律」。
-
-## R-182 撤销项目级单 writer:文档单份靠主根重定向、代码靠分支合并,写仲裁回归 git 与既有文件锁 [done]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 核心
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(2026-08-11 四组机械实测,可复现,命令见「实测」字段)
-- refs: R-171 R-177 R-138 R-181 R-183 docs/design/parallel_read_serial_write_orchestration.md docs/design/deep_parallel_dev.md
-- 来源: 2026-08-11 用户指出此前的并行都不满意,原因是**子代理只是单个回合内的扇出,不是任务级并行**——N 个无依赖任务各自独立跑、独立提交、无汇合点。为拿实测数据而搭了三条独立 worktree 线,实测结果把「并行查、串行写」的不变量 3(同一 project_root 同时最多一个 writer)顶翻。用户定调:**分支干、合并、冲突检测解决,文档保持一份唯一**。
-- 实测(四组,主树全程未受影响): 
-  ①**跨 worktree 编号必撞**:`kz defect add` 在 kz-par-a 与 kz-par-c 相隔 **10 秒**各跑一次,两边都拿到 `D-267`。零并发也撞——因为两边锁的是**两个不同的文件**。不是竞态,是必然。
-  ②**同根并发反而安全**:同一个根三条并发 `kz defect add` → D-267/268/269,三条全部存活、编号互不重复。**R-138 的 `FileLock` 是真有效的**。
-  ③**改已有条目跨线合并零冲突零丢失**:三条线各改自己那一段(翻 `[open]`→`[fixed]` + 追加进展行),顺序 `git merge --no-ff` 三次全干净,三条进展行一条不少。**这证伪了 deep_parallel_dev.md §3.2「docstore 整文件重写的冲突几乎必然」的判断——那句话只对「新增条目」成立。**
-  ④**新增条目必冲突**:两条线各登记一条新缺陷(都是 D-267),合第二条时 `CONFLICT (content): .kanzei/project/defects.md`。
-  ①④ 的成因是同一个:tracker 被当成分支副本 checkout 了两份。**只要保证一份,①④ 都不存在,②证明剩下的并发由既有 FileLock 兜住。**
-- 内容: ①**撤销不变量 3**(项目级单 writer 覆盖 implementation+integration 全程)与 `ExecutionPolicy::ReadParallelWriteSerial` 对普通工具的全程串行强制;写互斥收缩为 R-138 `atomic_file::FileLock` 的**毫秒级单次操作持锁**(docstore 已是这个形态,②有实测背书)。②**补 `kz` CLI 侧的主根重定向**——R-177 只收口桌面端 `process_create`/`run_prompt`,`crates/kanzei/src/main.rs:138` 与 `:639` 的 `discover_project_root(&cwd)` **不在其范围内**,从 worktree 跑 `kz` 仍会命中副本(实测①就是这个状态);`kz` 需要一个显式主根入口(CLI 参数或环境变量),它今天**完全没有**。③代码层冲突检测**不新造**:复用既有 `worktree_*` 四命令的 `merge-tree --write-tree` 预检与 `worktree_diff` 的真实 diff。④`processes`/`state.db`/memory 同样只认主根一份(与 D1-A 同一条原则)。⑤把「分支干、合并、冲突检测解决、文档一份唯一」写成 conventions 的一节,取代「并行查、串行写」的旧口径。
-- 边界: 不做**语义撞车**检测(A 把某签名重构成形态①、B 按形态②写,git 一字不报)——本条只交付文本层,语义层作为**已知缺口**记在设计文档,不在本条造机制。不动 worktree 的物理隔离(那是 R-177)。不做无人值守通道(R-183)。R-171 已交付的协调器**不删代码**,只把强制口径从「run 级项目锁」降为「单次操作文件锁」,接口保留给未来可能的重新收紧。
-- 验收: ①从任意 worktree 跑 `kz defect add`,新条目落**主根**的 defects.md,worktree 内的 `.kanzei` 副本**字节级零改动**(哈希比对);重跑实测① 两条线不再撞号。②两条独立 OS 进程在**不同 worktree** 并发登记条目,编号互不重复、条目全部存活(= 把实测②的结论从同根扩到跨树)。③实现阶段的普通工具不再被强制串行:同一 run 内互不冲突的工具可并发,有轨迹证据;`ReadParallelWriteSerial` 的全程串行断言测试相应改写而非删除。④三条线各改自己那段 tracker 后顺序合并仍全干净(实测③固化成回归测试)。⑤`kz` 有显式主根入口且有测试:从 worktree 跑时 `project_root` = 主根、`cwd` = worktree,断言不相等。⑥conventions 新口径落地,旧「并行查、串行写」表述全仓无残留矛盾。
-- 依赖: 
-- 前置(不写进依赖,按 D-239 教训): R-177 的 D1-A 落点覆盖桌面端;本条覆盖 CLI 侧。两条可并行,但**本条验收①②必须在 R-177 之后或与之同批**才能端到端成立。
-
-- 批次: 5/5
-- 进展: 2026-08-11 已关闭。CLI `--project-root`/`KANZEI_PROJECT_ROOT` 与三入口双键=`c651096`;撤销项目级 run 租约及阶段普通工具强制串行=`e98cead`，`ExecutionPolicy::ReadParallelWriteSerial` 仍保留为显式收紧选项。`crates/kanzei/tests/worktree_main_root.rs` 用真实 `kz` 子进程证明：worktree 登记只改主根、两棵树副本哈希不变；两棵树 5 轮并发共 10 个编号全部唯一且主根 10 条全存活。`e791536` 固化 diff/merge/discard 与干净合并/冲突保留；本次 conventions/Goals/架构索引完成新口径切换。语义撞车仍是明确边界，界面常驻“文本层已检查 · 语义层未检查”。
 
 ## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [todo]
 - **2026-08-11 改写(用户定调,随 D-267 关闭为 dropped)**: 原标题里的「permission 规则 worktree 继承主根、可审计预授权集」两项**作废**——它们服务的是 D-267 的中间档,而中间档已被砍掉(理由见 D-267 关闭说明:挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」)。**本条大幅缩小**:非交互模式下 bash 直接放行,防线整体挪到结果侧(R-186)。

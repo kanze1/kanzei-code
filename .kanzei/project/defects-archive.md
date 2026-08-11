@@ -2580,3 +2580,45 @@
   验收:**①**断言 `process_alive` 对根**和孙进程**都为 false,关键反证是**把旧实现的等价体连打 5 次,5/5 恒定 2.01 秒返回且整棵树全都活着**,与原文证据①逐字吻合——证明这些测试真能抓到 D-262,不是因为错误的原因通过;**②**每条失败路径都有 `tracing::warn!`(启动失败/非零退出/超出等待/残留清单),返回值改 `bool`,调用点无需改动;**③**三条路径各有测试,`background.rs` 与 `bash.rs` **补回了 D-174 刻意拆掉的那两条断言**,命令换成 300 秒长驻 + 带孙进程(自然退出冒充不了击杀),并把孙进程排到越界写之前(否则测试会静默退化成只查根);**④**用 cfg 翻转在本机实编译了非 Windows 分支(`--all-targets` 无错),但 Linux target 的 std 未装,**未做真交叉编译**——如实标注。
   合并后全量门禁:fmt 干净、clippy `-D warnings` 干净、`cargo test --workspace` 16 个测试目标全绿。
 
+## D-269 bash 权限可被历史授权提权:normalize_resource 非单射,在已批准命令的任一斜杠处插入 T/../ 即可带进任意 shell 语句 [fixed] (high)
+- 优先级: P0
+- 复杂度: 中
+- 标签: 核心
+- 证据等级: E1(**我在 dev HEAD 上独立复现**,非仅采信复核结论;见「实测」)
+- refs: D-050 D-051 D-267 R-183 docs/design/tier1_implementation_plan.md
+- 来源: 2026-08-11 第一梯队 F1 的对抗复核。复核本意是验 F1 新加的兼容垫片,**结果发现同一个洞在改动之前就存在**——F1 只是把它显式化并书面认证为"安全"。**本条与 F1 无关,是既有缺陷,已发布的 `build-ad80b2d` 里就是活的。**
+- 根因: `normalize_resource`(`crates/kanzei-harness/src/permission.rs:180-215`)按 **D-050** 的设计做路径规范化——弹出 `..` 的前一段、折叠 `//` 与 `/./`、`\`→`/`、Windows 下整串小写。这些操作**故意是非单射的**(多个输入映到同一输出),对路径资源是正确的。
+  问题在 `crates/kanzei-core/src/runner/drive.rs` **:545 / :604 / :764 三处**对**所有** action 的资源一律 `normalize_resource`,**bash 也不例外**。而 bash 的资源是 `{"command":...,"workdir":...}` 的 **shell 文本**,不是路径。于是:
+  ①落盘的 pattern 是规范化后的串;②运行期的 value 也被规范化;③二者逐字节比较。
+  **结果是一条规则准入的不是一个命令,而是 `normalize_resource` 的整个原像类。**
+  垫片式修法(F1)把判据写成 `pattern == normalize_resource(value)`,并论证"确定性保证每个 V 只对应唯一 P"——**这个不变量写反了**:那是函数性,授权需要的是反方向的**单射性**(每个 P 只准入唯一 V),而 `normalize_resource` 恰恰被设计成非单射。
+- 影响(提权,不是可用性): 在**任一条已批准命令**里含至少一个 `/` 时,把该 `/` 替换成 `T/../`(T 为任意不含 `/` 的串)即可注入任意 shell 语句——T 在规范化时被 `..` 整段弹掉,注入版与原版的规范化结果逐字节相等。用户配置里 21 条 bash 规则大多含 `/`。
+  **D-051 的降级同时失效**:注入段里的 `*` 在 pattern 成形前就被抹掉,pattern 不含 `*`,`command_chaining_escapes` 不触发。
+  命令文本确实原样执行:`crates/kanzei-tools/src/bash.rs:87` 把 `input["command"]` 逐字节放进 resource JSON,`execute` 用的是同一个 `input.command`,**中间无任何再校验**。
+- 实测(2026-08-11,**我在 dev HEAD `b53b9aa` 上独立跑的**,scratch crate 依赖仓内真实 `kanzei-harness`,未改仓库任何文件): 
+  已批准(取自 `.kanzei/kanzei.toml` 第 11 条真实规则):
+  `git grep -n "cleanup_orphan_webviews" -- crates/kanzei-app/src/main.rs`
+  注入版:
+  `git grep -n "cleanup_orphan_webviews" -- crates/; Remove-Item -Recurse -Force $HOME ;/../kanzei-app/src/main.rs`
+  输出:`两条命令不同 true` / `规范化后相等 true` / `evaluate(已批准命令) Allow` / `evaluate(注入命令) Allow`。
+  复核方另在第 5/9/12 条规则与 `cargo --manifest-path` 上给出同形态提权链,并验证 F1 之后的新落盘形态(未 mangle 的原串,只要本身是规范化的不动点)**同样中招**——所以这不是只影响历史规则的一次性兼容窗口。
+- 修复方向(待设计,勿直接照做): 根子是**对 bash 资源施加了路径语义**。正确方向是让 bash 资源**彻底不经过任何路径规范化**——`drive.rs` 三处按 action 分流,bash 走原样、其余仍走 `normalize_resource`(**只能改 bash 分支**:write/edit/read 少了 normalize 会让 D-050 的四条路径测试与 `write.rs` 的落点一致性测试同时红)。
+  配套问题:既有落盘的 pattern 已经是规范化后的串,停止规范化后它们与原串失配。二选一——①加载时一次性迁移(反解或标记失效要求重新授权);②保留一个**只做逐字节相等**的兼容读取路径。**注意 ② 正是 F1 的形态,而它就是被本条否掉的那个**——若走 ②,必须证明它不引入原像类(F1 的论证是错的,不可复用)。
+- 边界: 与 D-267(缺一个安全中间档)是**不同**的问题。D-267 是"偏严到没有可用中间档";本条是"偏松到历史授权可提权"。两条要分别修,不要合成一次改动。
+- 验收: ①`drive.rs` 三处对 bash 资源不再调 `normalize_resource`(机械核验:该文件 bash 分支 grep 零命中);②**定向反证**:用本条实测里的那一对命令构造测试,断言注入版为 `Ask` 而非 `Allow`;再补 `cargo --manifest-path ./x/; evil ;/../y.toml` 一条同形态。③既有落盘规则的处置方案落地且有测试(迁移或兼容读取,二者都要证明不引入原像类)。④D-050 的四条路径规范化测试与 `write.rs` 落点一致性测试保持绿(证明只动了 bash 分支)。⑤D-051 的 `command_chaining_escapes` 在注入形态下重新生效,有测试。
+- 进展: 2026-08-11 已修复并随 `build-97c8509` 发布。bash 权限资源改为逐字节原文判定，不再进入路径规范化；历史规则中 20/21 本就是规范化不动点，不引入会恢复原像类漏洞的兼容垫片。斜杠注入与 `cargo --manifest-path` 两条反证均由 `97c8509` 前的 K1 测试锁死，D-050 路径用例及 D-051 链式命令降级保持全绿。
+
+## D-271 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [fixed] (high)
+- 优先级: P0
+- 复杂度: 小
+- 标签: 核心
+- 证据等级: E1(**我在 dev HEAD 上逐行核实代码形态**,非仅采信复核结论)
+- refs: R-171 R-173 R-177 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 批次 K2' 交付时主动上报(它在 app 侧绕开了这个坑,但如实指出根因在 core 里没修)。**与本轮改动无关,是既有缺陷,已发布的 `build-ad80b2d` 里就是活的。**
+- 根因(代码形态自证,`crates/kanzei-core/src/orchestration.rs` 的 `release_writer`): 交接分支里 `if let Some(tx) = w.tx { let _ = tx.send(Ok(lease)); }` 这一行在 `self.inner.projects.lock()` 的**临界区内**(锁块直到该行之后才闭合,`self.notify(pending)` 在块外)。
+  `oneshot::Sender::send` 在**接收端已被丢弃**时返回 `Err(原值)`——把 `WriterLease` 原样退回。`let _ =` 当场 drop 它,而 `WriterLease` 的 Drop 回调正是 `move |released_run_id| coord.release_writer(&key, released_run_id)` → **二次进入 `release_writer` → 再锁同一把非重入 `std::sync::Mutex` → 死锁**。
+- 可达性(今天就可达,不是理论): 任何**被丢弃/abort 的排队 acquire future** 都会造成"接收端已丢弃"。例如 `crates/kanzei-app/src/run.rs` 的 writer run 被停止按钮 abort 时,它排在队列里的 `w.tx` 接收端随之消失;下一个持有者释放租约、轮到唤醒它时就撞上。死锁发生在持有全局 `projects` 锁的线程上,**该项目的所有写仲裁自此永久挂死**(`acquire_writer_lease` / `release_writer` / `snapshot` 全阻塞),只能重启 kzapp。
+- 影响: 项目级写仲裁整体失效且不可恢复。并行开发下暴露面被放大——排队者越多、abort 越频繁越容易撞上,而任务级并行的常态正是「多个 writer 排队 + 随时停某一条」。
+- 修复方向: 把 `send` 与「send 失败后 lease 的处置」**移出临界区**。形态:锁内只把要唤醒的 `(tx, lease)` 收进局部变量(与 `pending` 事件同一手法,该函数已经在用),锁释放后再 `send`;send 失败时**显式处理**退回的 lease(此时不持锁,drop 回调可安全重入去唤醒下一个排队者),不得再用 `let _ =` 吞掉。
+- 验收: ①构造「排队者的接收端已丢弃」(丢弃 acquire future 后由持有者释放租约),断言 `release_writer` **正常返回**且后续 `acquire_writer_lease` 仍能成功——该测试**在修复前必须挂死/超时**(反证);②send 失败时退回的 lease 被显式处置且**队列继续推进**(下一个排队者拿到租约),有测试;③`projects` 锁的临界区内**不再有任何可能触发 `WriterLease::drop` 的语句**(机械核验:锁块内 grep 无 `send(`);④R-171/R-173 既有写租约测试全绿。
+- 进展: 2026-08-11 由 `a10d4a5` 修复。锁内只决定下一次交接，`send` 与失败后退回租约的显式 drop 均移到临界区外；接收端丢弃后队列继续推进，后续 writer 仍能获取。反证把实现临时改回锁内 send 后新测试 5 秒超时变红；恢复修复后核心与应用既有写租约测试全绿。
