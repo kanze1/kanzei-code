@@ -140,8 +140,16 @@ impl MemoryCoordinator {
 
     /// 归还租约的统一路径:WriterLease drop 时回调这里。
     /// 唤醒下一个排队写者,保证租约区间不重叠、FIFO 顺序可审计。
+    ///
+    /// **D-271:交接必须在锁外投递。** `oneshot::Sender::send` 在接收端已丢弃时
+    /// 把 `WriterLease` **原样退回**,而 `WriterLease::drop` 的回调正是本函数——
+    /// 在临界区内 drop 退回的租约会二次锁同一把非重入 `std::sync::Mutex`,
+    /// 该项目的写仲裁自此永久挂死,只能重启进程。触发条件是「排队者被取消/超时
+    /// 后持有者才释放」,任务级并行下这正是常态。所以锁内只把 `(tx, lease)` 收进
+    /// 局部变量(与 `pending` 事件同一手法),锁释放后再 send。
     fn release_writer(&self, root_key: &str, run_id: &str) {
         let mut pending = Vec::new();
+        let mut handoff: Option<(oneshot::Sender<Result<WriterLease, String>>, WriterLease)> = None;
         {
             let mut guard = self.inner.projects.lock().unwrap();
             let Some(state) = guard.get_mut(root_key) else {
@@ -165,8 +173,15 @@ impl MemoryCoordinator {
                 run_id: run_id.to_string(),
                 process_id: released_process_id,
             });
-            if let Some(w) = state.waiting.pop_front() {
-                let _wake_reason = &w.reason; // 审计:唤醒排队写者的申请原因。
+            // 取到**第一个还带发送端**的排队者。`tx` 已被 `cancel_waiter` 取走的
+            // 条目理论上同批就从队列移除了,万一残留必须跳过而不是就此收手——
+            // 否则写者位空着、后面的排队者再也等不到唤醒。
+            while let Some(w) = state.waiting.pop_front() {
+                let Some(tx) = w.tx else { continue };
+                // 审计:唤醒排队写者的申请原因。
+                let _wake_reason = &w.reason;
+                // 租约只在确定有人接手时才构造:在锁内构造又在锁内 drop,
+                // 同样会撞上 D-271 的重入死锁。
                 let lease = WriterLease::with_release(
                     PathBuf::from(root_key),
                     w.run_id.clone(),
@@ -184,12 +199,20 @@ impl MemoryCoordinator {
                     run_id: w.run_id.clone(),
                     process_id: w.process_id.clone(),
                 });
-                if let Some(tx) = w.tx {
-                    let _ = tx.send(Ok(lease));
-                }
+                handoff = Some((tx, lease));
+                break;
             }
         }
         self.notify(pending);
+        if let Some((tx, lease)) = handoff {
+            // 接收端已丢弃(排队者被取消/abort/超时)时租约原样退回,必须**显式**落地:
+            // 此刻已不持锁,drop 回调重入 release_writer 是安全的,租约会顺次传给
+            // 再下一个排队者。用 `let _ =` 吞掉则写权停在一个不存在的持有者身上,
+            // 后续所有 acquire 永久排队——这正是 D-271 的失败形态。
+            if let Err(Ok(orphan)) = tx.send(Ok(lease)) {
+                drop(orphan);
+            }
+        }
     }
 
     /// 归还读槽(批6):按 agent_name 移除登记并记录 AgentCompleted 事件。
@@ -484,6 +507,67 @@ mod tests {
             .await
             .expect("取消后等待者应结束")
             .unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-271 反证:排队者被 abort 之后,持有者释放租约不得死锁。
+    ///
+    /// 失败形态是**整个进程挂死**而不是断言变红,所以 `drop` 放在独立 OS 线程上,
+    /// 用 `recv_timeout` 把死锁翻译成可判定的超时失败。修复前:release_writer 在
+    /// 临界区内 `tx.send(Ok(lease))`,接收端已丢弃 → 租约原样退回 → `let _ =`
+    /// 当场 drop → Drop 回调二次锁同一把非重入 Mutex → 该项目写仲裁永久挂死。
+    #[tokio::test]
+    async fn 排队者被abort后释放租约不死锁并越位交给下一个() {
+        let dir = std::env::temp_dir().join(format!("kz-orch-d271-{}", std::process::id()));
+        let coord = MemoryCoordinator::new();
+        let lease_a = coord
+            .acquire_writer_lease(req("run-a", &dir))
+            .await
+            .unwrap();
+
+        // B 排队后被 abort:oneshot 的接收端随 future 一起丢弃,但队列条目还在。
+        let coord_b = coord.clone();
+        let dir_b = dir.clone();
+        let task_b =
+            tokio::spawn(async move { coord_b.acquire_writer_lease(req("run-b", &dir_b)).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            coord.snapshot(&dir).waiting_writers,
+            vec!["run-b".to_string()]
+        );
+        task_b.abort();
+        let _ = task_b.await;
+
+        // C 排在 B 后面,接收端存活。
+        let coord_c = coord.clone();
+        let dir_c = dir.clone();
+        let task_c =
+            tokio::spawn(async move { coord_c.acquire_writer_lease(req("run-c", &dir_c)).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            coord.snapshot(&dir).waiting_writers,
+            vec!["run-b".to_string(), "run-c".to_string()]
+        );
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            drop(lease_a);
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("release_writer 卡住:退回的租约在临界区内 drop,二次锁同一把 Mutex(D-271)");
+
+        let lease_c = tokio::time::timeout(Duration::from_secs(5), task_c)
+            .await
+            .expect("C 应被唤醒")
+            .unwrap()
+            .unwrap();
+        assert_eq!(lease_c.run_id, "run-c", "写权必须越过被 abort 的 B 交给 C");
+        let snap = coord.snapshot(&dir);
+        assert_eq!(snap.writer_run_id.as_deref(), Some("run-c"));
+        assert!(snap.waiting_writers.is_empty());
+        drop(lease_c);
         std::fs::remove_dir_all(&dir).ok();
     }
 
