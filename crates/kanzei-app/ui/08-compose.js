@@ -723,8 +723,10 @@ let showAllModels = false;
 async function loadModels({ showAll = false } = {}) {
   showAllModels = showAll;
   const select = $("model-select");
-  const saved = localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
+  // R-178 批3:首次进入项目时把 localStorage 旧键上迁后端(幂等,成功后不再执行)。
+  void migrateLegacyModelPrefs();
   const activeModel = processItems.find((item) => item.id === activeProcessId)?.model || "";
+  const saved = activeModel || legacyModelPrefValue();
   const selectedIds = new Set([saved, activeModel, ...manualModels()].filter(Boolean));
   select.innerHTML = "";
   const def = document.createElement("option");
@@ -784,14 +786,58 @@ async function loadModels({ showAll = false } = {}) {
 // 手填模型:provider:model 直指。有些 OpenAI 兼容端点不提供 /models,
 // 或者 key 尚未配好导致探测为空,这条通道保证配了 provider 就一定能用。
 const MANUAL_MODEL_SENTINEL = "__manual__";
-function manualModels() {
+// R-178 批3:localStorage 旧键一次性上迁后端(②层),前端不再以 localStorage 为真源。
+// 旧键形态:`kz-model`(更早的全局键)、`kz-model:<project>`(R-115 项目级)、
+// `kz-manual-models:<project>`(手填候选)。保留旧键 fallback 一个版本——迁移执行前
+// 旧值仍可读(legacyModelPrefValue/legacyManualModels),迁移成功后旧键即清除。
+// 首次进入项目时把 localStorage 旧键上迁到默认进程(②层持久选择)并清除旧键。
+// 幂等:旧键不存在时直接返回;迁移失败保留旧键,下次 loadModels 再试。不设一次性
+// 标志——「旧键清除后自然不再迁移」就是幂等,也让失败可重试(保留旧键 fallback
+// 一个版本:迁移函数保留到下一大版本再删)。
+function legacyModelPrefValue() {
+  return localStorage.getItem(prefKey("model")) ?? localStorage.getItem("kz-model") ?? "";
+}
+function legacyManualModels() {
   const list = readJson(prefKey("manual-models"), []);
+  return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
+}
+async function migrateLegacyModelPrefs() {
+  if (!currentProject) return;
+  const legacyModel = legacyModelPrefValue();
+  const legacyManual = legacyManualModels();
+  if (!legacyModel && legacyManual.length === 0) return;
+  const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
+  if (!defaultProcess) return; // 默认进程尚未就绪,待 process_list 后由 loadModels 再触发
+  const patch = {};
+  if (legacyModel) patch.model = legacyModel;
+  if (legacyManual.length > 0) patch.manualModels = legacyManual;
+  try {
+    await invoke("process_update", { processId: defaultProcess.id, ...patch });
+    localStorage.removeItem(prefKey("model"));
+    localStorage.removeItem("kz-model");
+    localStorage.removeItem(prefKey("manual-models"));
+    log(`已迁移旧模型偏好到后端:${JSON.stringify(patch)}`);
+  } catch (error) {
+    reportPersistentError(`${t("旧模型偏好迁移失败")}:${error}`);
+  }
+}
+function manualModels() {
+  const legacy = legacyManualModels();
+  const list = legacy.length > 0 ? legacy : (processItems.find((item) => item.id.startsWith("d|"))?.manual_models ?? []);
   return Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
 }
 function addManualModel(id) {
   const list = manualModels();
   if (!list.includes(id)) list.push(id);
+  const defaultProcess = processItems.find((item) => item.id.startsWith("d|"));
+  if (defaultProcess) {
+    return queueProcessUpdate(defaultProcess.id, { manualModels: list })
+      .then(() => refreshProcesses())
+      .catch((error) => reportPersistentError(`${t("手填模型保存失败")}:${error}`));
+  }
+  // 默认进程未就绪(极端时序),退回 localStorage 暂存,由迁移函数下次接手。
   writeJson(prefKey("manual-models"), list);
+  return Promise.resolve();
 }
 // R-115:模型与思考强度按项目记——不同项目常配不同模型,共用一个全局键会互相打架。
 // 思考强度此前只写不读(kz-reasoning 全仓零处 getItem),等于每次重启都回默认档。
@@ -828,7 +874,7 @@ $("model-select").addEventListener("change", () => {
   const select = $("model-select");
   if (select.value === SHOW_ALL_MODELS_SENTINEL) {
     const selected = processItems.find((item) => item.id === activeProcessId)?.model ||
-      localStorage.getItem(prefKey("model")) || "";
+      legacyModelPrefValue();
     loadModels({ showAll: true }).then(() => {
       select.value = selected;
     });
@@ -839,12 +885,10 @@ $("model-select").addEventListener("change", () => {
     // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
     if (!/^[\w.-]+:.+$/.test(input)) {
       if (input) toast(t("格式应为 provider:model"));
-      select.value = localStorage.getItem(prefKey("model")) || "";
+      select.value = processItems.find((item) => item.id === activeProcessId)?.model || "";
       return;
     }
-    addManualModel(input);
-    localStorage.setItem(prefKey("model"), input);
-    loadModels().then(() => {
+    addManualModel(input).then(() => loadModels()).then(() => {
       $("model-select").value = input;
     });
     if (activeProcessId) {
@@ -854,7 +898,6 @@ $("model-select").addEventListener("change", () => {
     }
     return;
   }
-  localStorage.setItem(prefKey("model"), select.value);
   if (activeProcessId) {
     // 空串=清除本进程的模型覆盖(回落 agent 默认);传 null 会被后端当作"不修改"。
     updateLocalProcessItem(activeProcessId, { model: select.value || null });

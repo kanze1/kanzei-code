@@ -139,6 +139,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
                 model: Arc::new(Mutex::new(None)),
                 profile: Arc::new(Mutex::new(None)),
                 reasoning: Arc::new(Mutex::new(None)),
+                manual_models: Arc::new(Mutex::new(Vec::new())),
                 phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
                 tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
             });
@@ -147,6 +148,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         *handle.model.lock().unwrap() = record.model;
         *handle.profile.lock().unwrap() = record.profile;
         *handle.reasoning.lock().unwrap() = record.reasoning;
+        *handle.manual_models.lock().unwrap() = record.manual_models;
         handle
             .phase_pipeline_enabled
             .store(record.phase_pipeline, Ordering::SeqCst);
@@ -198,6 +200,7 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
             model: process.model.lock().unwrap().clone(),
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
+            manual_models: process.manual_models.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
@@ -517,6 +520,7 @@ fn register_process(
         reasoning: Arc::new(Mutex::new(
             reasoning.filter(|value| !value.trim().is_empty()),
         )),
+        manual_models: Arc::new(Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
         tracker_writes_enabled: Arc::new(AtomicBool::new(tracker_writes.unwrap_or(false))),
     };
@@ -531,6 +535,7 @@ fn register_process(
             model: process.model.lock().unwrap().clone(),
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
+            manual_models: process.manual_models.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
             tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
@@ -571,6 +576,9 @@ pub fn process_update(
     model: Option<String>,
     profile: Option<String>,
     reasoning: Option<String>,
+    // 项目级手填模型候选(provider:model 列表)。R-178 批3:前端「＋ 手填模型…」
+    // 写这条通道,不再以 localStorage 为真源。
+    manual_models: Option<Vec<String>>,
     // 「勘察复核」开关(阶段流水线总闸),见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
     tracker_writes: Option<bool>,
@@ -592,6 +600,9 @@ pub fn process_update(
         // 空串 = 清除本进程覆盖,回落配置默认档。
         *process.reasoning.lock().unwrap() =
             Some(reasoning).filter(|value| !value.trim().is_empty());
+    }
+    if let Some(manual_models) = manual_models {
+        *process.manual_models.lock().unwrap() = manual_models;
     }
     if let Some(phase_pipeline) = phase_pipeline {
         process

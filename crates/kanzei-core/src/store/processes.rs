@@ -16,6 +16,9 @@ pub struct StoredProcess {
     pub model: Option<String>,
     pub profile: Option<String>,
     pub reasoning: Option<String>,
+    /// 项目级手填模型候选(provider:model 列表)。R-178 批3 起由默认进程行承载,
+    /// 前端下拉的「手填」候选从后端读,不再以 localStorage 为真源。
+    pub manual_models: Vec<String>,
     pub phase_pipeline: bool,
     pub tracker_writes_enabled: bool,
     pub updated_at: i64,
@@ -24,11 +27,12 @@ pub struct StoredProcess {
 impl SessionStore {
     /// 插入或覆盖一条线/进程注册。`phase_pipeline` 以 bool 投影成 INTEGER。
     pub fn upsert_process(&self, process: &StoredProcess) -> Result<(), StoreError> {
+        let manual_models = serde_json::to_string(&process.manual_models)?;
         self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                  model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
@@ -36,6 +40,7 @@ impl SessionStore {
                  model = excluded.model,
                  profile = excluded.profile,
                  reasoning = excluded.reasoning,
+                 manual_models = excluded.manual_models,
                  phase_pipeline = excluded.phase_pipeline,
                  tracker_writes_enabled = excluded.tracker_writes_enabled,
                  updated_at = excluded.updated_at",
@@ -47,6 +52,7 @@ impl SessionStore {
                 process.model,
                 process.profile,
                 process.reasoning,
+                manual_models,
                 process.phase_pipeline,
                 process.tracker_writes_enabled,
                 process.updated_at,
@@ -66,11 +72,12 @@ impl SessionStore {
     /// 编号分配已经改成「内存表 ∪ 库」取最大值,正常不会撞;这个方法是第二道闸 ——
     /// 万一还是撞了,宁可让建线失败(调用方会回滚掉刚建的工作树),也不许静默改写既有行。
     pub fn insert_new_process(&self, process: &StoredProcess) -> Result<bool, StoreError> {
+        let manual_models = serde_json::to_string(&process.manual_models)?;
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                  model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -80,6 +87,7 @@ impl SessionStore {
                 process.model,
                 process.profile,
                 process.reasoning,
+                manual_models,
                 process.phase_pipeline,
                 process.tracker_writes_enabled,
                 process.updated_at,
@@ -92,7 +100,7 @@ impl SessionStore {
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
-                    model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at
+                    model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at
              FROM processes WHERE origin_project = ?1 ORDER BY process_id",
         )?;
         let rows = stmt.query_map(params![origin_project], |row| {
@@ -104,9 +112,11 @@ impl SessionStore {
                 model: row.get(4)?,
                 profile: row.get(5)?,
                 reasoning: row.get(6)?,
-                phase_pipeline: row.get::<_, i64>(7)? != 0,
-                tracker_writes_enabled: row.get::<_, i64>(8)? != 0,
-                updated_at: row.get(9)?,
+                manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
+                    .unwrap_or_default(),
+                phase_pipeline: row.get::<_, i64>(8)? != 0,
+                tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
+                updated_at: row.get(10)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -126,7 +136,7 @@ impl SessionStore {
         self.connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
-                        model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at
+                        model, profile, reasoning, manual_models, phase_pipeline, tracker_writes_enabled, updated_at
                  FROM processes WHERE process_id = ?1",
                 params![process_id],
                 |row| {
@@ -138,9 +148,11 @@ impl SessionStore {
                         model: row.get(4)?,
                         profile: row.get(5)?,
                         reasoning: row.get(6)?,
-                        phase_pipeline: row.get::<_, i64>(7)? != 0,
-                        tracker_writes_enabled: row.get::<_, i64>(8)? != 0,
-                        updated_at: row.get(9)?,
+                        manual_models: serde_json::from_str(row.get::<_, String>(7)?.as_str())
+                            .unwrap_or_default(),
+                        phase_pipeline: row.get::<_, i64>(8)? != 0,
+                        tracker_writes_enabled: row.get::<_, i64>(9)? != 0,
+                        updated_at: row.get(10)?,
                     })
                 },
             )
@@ -163,6 +175,7 @@ mod tests {
             model: Some("deepseek:deepseek-v4-flash".into()),
             profile: Some("dev".into()),
             reasoning: Some("high".into()),
+            manual_models: vec!["deepseek:deepseek-chat".into()],
             phase_pipeline: true,
             tracker_writes_enabled: true,
             updated_at: 42,
@@ -175,6 +188,11 @@ mod tests {
         store.upsert_process(&sample()).unwrap();
         let loaded = store.list_processes("C:/project").unwrap();
         assert_eq!(loaded, vec![sample()]);
+        // 手填模型列表随行往返,不被 JSON 编解码吞掉(R-178 批3)。
+        assert_eq!(
+            loaded[0].manual_models,
+            vec!["deepseek:deepseek-chat".to_string()]
+        );
         // 另一个主项目互不串扰(D-170 式隔离)。
         assert!(store.list_processes("D:/other").unwrap().is_empty());
     }

@@ -457,6 +457,7 @@ mod tests {
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
+            manual_models: Arc::new(Mutex::new(Vec::new())),
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
             tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         };

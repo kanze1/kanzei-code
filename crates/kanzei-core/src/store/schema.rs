@@ -200,13 +200,14 @@ impl SessionStore {
                      model TEXT,
                      profile TEXT,
                      reasoning TEXT,
+                     manual_models TEXT NOT NULL DEFAULT '[]',
                      phase_pipeline INTEGER NOT NULL DEFAULT 0,
                      tracker_writes_enabled INTEGER NOT NULL DEFAULT 0,
                      updated_at INTEGER NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS processes_origin
                      ON processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '11')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '12')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -226,6 +227,13 @@ impl SessionStore {
         // 迁移前的整库备份由 migrate 入口统一创建;若要回退旧程序,恢复该备份即可。
         let _ = tx.execute(
             "ALTER TABLE processes ADD COLUMN tracker_writes_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
+        // v12:存量进程补 manual_models 列(JSON 数组)。默认 '[]' 代表没有任何
+        // 手填模型候选,与建表默认一致;R-178 批3 的 localStorage 上迁由前端完成,
+        // 库只负责承载,不需要数据回填。
+        let _ = tx.execute(
+            "ALTER TABLE processes ADD COLUMN manual_models TEXT NOT NULL DEFAULT '[]'",
             [],
         );
         // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
@@ -331,6 +339,61 @@ mod tests {
         assert!(
             !process.tracker_writes_enabled,
             "存量线不能在升级后静默获得主根 tracker 写权限"
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-178 批3:存量进程表(v11,无 manual_models 列)升级后必须补上该列,
+    /// 且默认 '[]'(没有任何手填模型候选),读写往返不丢数据。
+    #[test]
+    fn v12给存量进程补手填模型列且默认空列表() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-v12-process-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .connection
+                .execute_batch(
+                    "ALTER TABLE processes RENAME TO processes_v11;
+                     CREATE TABLE processes (
+                         process_id TEXT PRIMARY KEY NOT NULL,
+                         origin_project TEXT NOT NULL,
+                         project_dir TEXT NOT NULL,
+                         worktree_path TEXT,
+                         model TEXT,
+                         profile TEXT,
+                         reasoning TEXT,
+                         phase_pipeline INTEGER NOT NULL DEFAULT 0,
+                         tracker_writes_enabled INTEGER NOT NULL DEFAULT 0,
+                         updated_at INTEGER NOT NULL
+                     );
+                     INSERT INTO processes
+                         (process_id, origin_project, project_dir, worktree_path,
+                          model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at)
+                     VALUES ('d|C:/project', 'C:/project', 'C:/project', NULL,
+                             'deepseek:deepseek-v4-flash', NULL, NULL, 0, 0, 42);
+                     DROP TABLE processes_v11;
+                     UPDATE schema_meta SET value = '11' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        let process = store.get_process("d|C:/project").unwrap().unwrap();
+        assert!(
+            process.manual_models.is_empty(),
+            "存量进程升级后 manual_models 应为空,实得 {:?}",
+            process.manual_models
+        );
+        assert_eq!(
+            process.model.as_deref(),
+            Some("deepseek:deepseek-v4-flash"),
+            "迁移不能把既有字段改掉"
         );
         drop(store);
         std::fs::remove_dir_all(dir).ok();

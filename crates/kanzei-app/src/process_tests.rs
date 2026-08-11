@@ -218,6 +218,7 @@ fn process_persist_then_restart_restores_line_state() {
         ))),
         profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
         reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
+        manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
     };
@@ -293,6 +294,7 @@ fn repeated_process_restore_does_not_overwrite_live_settings() {
         model: Arc::new(std::sync::Mutex::new(Some("old-model".into()))),
         profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
         reasoning: Arc::new(std::sync::Mutex::new(Some("medium".into()))),
+        manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
@@ -352,6 +354,7 @@ fn process_restore_is_isolated_per_project() {
         ))),
         profile: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(None)),
+        manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };

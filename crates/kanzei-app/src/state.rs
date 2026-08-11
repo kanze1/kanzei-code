@@ -204,6 +204,10 @@ pub(crate) struct ProcessHandle {
     pub(crate) model: Arc<Mutex<Option<String>>>,
     pub(crate) profile: Arc<Mutex<Option<String>>>,
     pub(crate) reasoning: Arc<Mutex<Option<String>>>,
+    /// 项目级手填模型候选(R-178 批3)。project 级数据挂默认进程行承载;
+    /// 线进程该字段为 None 语义 = 「跟随项目默认进程的候选列表」。
+    /// 前端下拉的「手填」候选从 process_info 回读,不再以 localStorage 为真源。
+    pub(crate) manual_models: Arc<Mutex<Vec<String>>>,
     /// 界面上的「勘察复核」开关(2026-08-11 用户定调)。
     ///
     /// 它是**阶段流水线的总闸**:开 = 本进程每个任务都强制走
@@ -229,6 +233,7 @@ pub(crate) struct ProcessInfo {
     pub(crate) model: Option<String>,
     pub(crate) profile: Option<String>,
     pub(crate) reasoning: Option<String>,
+    pub(crate) manual_models: Vec<String>,
     /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
     pub(crate) phase_pipeline: bool,
     pub(crate) tracker_writes: bool,
@@ -344,6 +349,7 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
+            manual_models: Arc::new(Mutex::new(Vec::new())),
             // 默认关:用户要的是「显式打开才强制走七阶段」,默认开就不叫显式
             // (2026-08-11 用户定调)。
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
@@ -370,6 +376,7 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         model: process.model.lock().unwrap().clone(),
         profile: process.profile.lock().unwrap().clone(),
         reasoning: process.reasoning.lock().unwrap().clone(),
+        manual_models: process.manual_models.lock().unwrap().clone(),
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
         running,

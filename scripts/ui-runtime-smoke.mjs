@@ -3061,9 +3061,14 @@ sandbox.window.prompt = () => "deepseek:deepseek-chat";
 modelSelect.value = "__manual__";
 modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
 await flush();
-const manualKey = [...storage.keys()].find((k) => k.startsWith("kz-manual-models"));
-assert(manualKey, "手填模型未落盘(下次重开又要再填一遍)");
-assert(JSON.parse(storage.get(manualKey)).includes("deepseek:deepseek-chat"), "手填模型落盘值不对");
+// R-178 批3:手填模型写后端(process_update 携带 manualModels),不再落 localStorage。
+const manualUpdate = invokeArgs.findLast(({ cmd, args }) =>
+  cmd === "process_update" && Array.isArray(args?.manualModels));
+assert(manualUpdate, "手填模型未以 manualModels 发给后端(下次重开又要再填一遍)");
+assert(
+  manualUpdate.args.manualModels.includes("deepseek:deepseek-chat"),
+  `手填模型落盘值不对:${JSON.stringify(manualUpdate.args.manualModels)}`,
+);
 assert(
   [...byId.get("model-select").options].some((o) => o.value === "deepseek:deepseek-chat"),
   "手填后模型未回到下拉列表里",
@@ -3073,10 +3078,51 @@ sandbox.window.prompt = () => "随便写的";
 modelSelect.value = "__manual__";
 modelSelect._listeners.change?.forEach((fn) => fn({ target: modelSelect }));
 await flush();
+const badUpdate = invokeArgs.findLast(({ cmd, args }) =>
+  cmd === "process_update" && Array.isArray(args?.manualModels));
 assert(
-  !JSON.parse(storage.get(manualKey)).includes("随便写的"),
+  !badUpdate || !badUpdate.args.manualModels.includes("随便写的"),
   "非 provider:model 格式不应被接受",
 );
+
+// ---------- R-178 批3:localStorage 旧模型偏好一次性上迁后端并清除 ----------
+// 预置旧版键(模型选择 + 手填候选),迁移后必须写入默认进程且旧键消失,否则下次
+// 启动又回到 localStorage,永远迁不完。
+storage.set(`kz-model:${PROJECT}`, "anthropic:claude-sonnet-5");
+storage.set(`kz-manual-models:${PROJECT}`, JSON.stringify(["ollama:qwen3"]));
+await sandbox.migrateLegacyModelPrefs();
+await flush();
+const migrationModelUpdate = invokeArgs.findLast(({ cmd, args }) =>
+  cmd === "process_update" && args?.model === "anthropic:claude-sonnet-5");
+assert(migrationModelUpdate, "旧模型偏好未上迁到默认进程(process_update 缺 model)");
+const migrationManualUpdate = invokeArgs.findLast(({ cmd, args }) =>
+  cmd === "process_update" && Array.isArray(args?.manualModels)
+    && args.manualModels.includes("ollama:qwen3"));
+assert(migrationManualUpdate, "旧手填候选未上迁到默认进程(process_update 缺 manualModels)");
+assert(!storage.has(`kz-model:${PROJECT}`), "迁移成功后旧模型键未清除(下次启动会重复迁移)");
+assert(!storage.has(`kz-manual-models:${PROJECT}`), "迁移成功后旧手填键未清除(下次启动会重复迁移)");
+// 迁移失败(后端报错)必须保留旧键,下次 loadModels 重试,不能丢用户选择。
+const migrationArgs = invokeArgs.length;
+invokeFailures.set("process_update", "后端拒绝");
+expectedPersistentError = "旧模型偏好迁移失败";
+storage.set(`kz-model:${PROJECT}`, "anthropic:claude-sonnet-5");
+await sandbox.migrateLegacyModelPrefs();
+await flush();
+invokeFailures.delete("process_update");
+expectedPersistentError = null;
+assert(storage.has(`kz-model:${PROJECT}`), "迁移失败时旧键不应被清除(可重试)");
+assert(invokeArgs.length > migrationArgs, "迁移失败重试路径未调用后端");
+
+// 后端回显整链:默认进程的 manual_models(②层)必须驱动下拉回显,而不是 localStorage。
+payloads.process_list[0].manual_models = ["ollama:qwen3"];
+await sandbox.refreshProcesses();
+await sandbox.loadModels();
+await flush();
+assert(
+  [...byId.get("model-select").options].some((o) => o.value === "ollama:qwen3"),
+  "后端 manual_models 未回显到下拉(前端仍以 localStorage 为真源?)",
+);
+delete payloads.process_list[0].manual_models;
 
 // ---------- R-115 偏好持久化：写了必须能读回 ----------
 // 「写了却从不读回」是这块最容易出的问题:kz-reasoning 曾经全仓零处 getItem,

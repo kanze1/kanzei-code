@@ -525,6 +525,8 @@ const I18N_DYNAMIC_EN = {
   "进程模式保存失败": "Failed to save process mode",
   "思考强度保存失败": "Failed to save reasoning effort",
   "进程模型保存失败": "Failed to save process model",
+  "手填模型保存失败": "Failed to save manual model",
+  "旧模型偏好迁移失败": "Failed to migrate legacy model preference",
   "停止指令失败": "Stop command failed",
   "读取附件失败": "Failed to read attachment",
   "复制上下文失败": "Failed to copy context",
