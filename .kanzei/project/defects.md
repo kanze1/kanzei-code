@@ -358,11 +358,3 @@
 - 修复: `conversation_get`/`conversation_trace_get` 锁定项目、进程和切换代次，目标历史完整恢复后再原子替换消息；侧栏按每个进程显示主代理/并行线、运行态、阶段并支持点击切换；子代理生命周期明确为 `running → finished → closed → deleted`，关闭/删除仅作用于当前 UI 条目，保留后端 transcript 与审计，停止仍调用真实 `stop_task`；主代理写入、比对、合并、发版边界同步写入系统提示与 task_spec，子代理工具白名单保持 `read/glob/grep`。
 - 验收: `node scripts/ui-runtime-smoke.mjs` 覆盖三线状态、切线不清空、关闭/重开/删除；`ui-i18n-smoke`、`ui-a11y-smoke`、`ui-markdown-smoke`、`parallel-lines-regression` 全绿；`cargo test -p kanzei-app` 112 passed、`cargo test -p kanzei-core` 130 passed。2026-08-11 随本次桌面端发版交付，待用户安装后进行最终桌面实测。
 
-## D-273 kanzei_home 两测试并发互踩全局 KANZEI_HOME,全量门禁偶发红 [open] (medium)
-- 修复: 已合并为顺序测试 kanzei_home_顺序验证环境变量与默认(kanzei-harness/src/home.rs:30-53),消除全局环境变量互踩。
-- 复杂度: 小
-- 复现: cargo test --workspace 时 kanzei-harness 两个 home 测试并行跑:kanzei_home_honors_env_var 用进程级 set_var(KANZEI_HOME) 期间,kanzei_home_defaults_to_home_dot_kanzei 读到被污染的变量,断言失败。单跑各自通过,全量偶发红。
-- 影响: 全量门禁偶发红(并发测试互踩,非功能缺陷)
-- 标签: 核心
-- 验收: ①cargo test -p kanzei-harness 全绿(108→107+1 合并后总数不变);②cargo test --workspace 连续两轮全绿;③不再有 KANZEI_HOME 并发写点(home.rs 唯一写点已并入顺序测试)。
-- 优先级: P2

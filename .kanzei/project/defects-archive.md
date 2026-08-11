@@ -2659,3 +2659,12 @@
 
 - 进展: 修复(R-184 批6,根因已在此前 2773342 移除 applyProfileValue 内写全局键):applyProfileValue 现为只读回显——先查本进程记忆再回退全局,不改写 localStorage kz-profile(ui/08-compose.js:611-620);写全局仅发生在用户主动 change(08-compose.js:623)。本轮补拦截冒烟断言:回显不改写全局键、用户主动切换仍写全局(scripts/ui-runtime-smoke.mjs:3349-3371)。验证:ui-runtime-smoke 全绿(T-1786448195)。
 
+## D-273 kanzei_home 两测试并发互踩全局 KANZEI_HOME,全量门禁偶发红 [fixed] (medium)
+- 修复: 已合并为顺序测试 kanzei_home_顺序验证环境变量与默认(kanzei-harness/src/home.rs:30-53),消除全局环境变量互踩。
+- 复杂度: 小
+- 复现: cargo test --workspace 时 kanzei-harness 两个 home 测试并行跑:kanzei_home_honors_env_var 用进程级 set_var(KANZEI_HOME) 期间,kanzei_home_defaults_to_home_dot_kanzei 读到被污染的变量,断言失败。单跑各自通过,全量偶发红。
+- 影响: 全量门禁偶发红(并发测试互踩,非功能缺陷)
+- 标签: 核心
+- 验收: ①cargo test -p kanzei-harness 全绿(108→107+1 合并后总数不变);②cargo test --workspace 连续两轮全绿;③不再有 KANZEI_HOME 并发写点(home.rs 唯一写点已并入顺序测试)。
+- 优先级: P2
+- 进展: 修复:合并为顺序测试 kanzei_home_顺序验证环境变量与默认(kanzei-harness/src/home.rs:30-53)——先测 KANZEI_HOME 优先,再测无变量回落 HOME/.kanzei,消除并发互踩。验收核对:①cargo test -p kanzei-harness 107 全绿(两个测试合并后数量正确);②cargo test --workspace 连续两轮全绿(T-1786448527,18 crate);③home.rs 唯一 set_var 写点已并入顺序测试,不再有并发 KANZEI_HOME 写点。
