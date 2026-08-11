@@ -401,6 +401,10 @@ class Element {
     if (this._attributes[name] === next) { notifyMutation({ type: "attributes", target: this, attributeName: name, addedNodes: [] }); return; }
     this._attributes[name] = next;
     if (name === "id") this.id = next;
+    // 真实浏览器的 IDL 反射:title/placeholder 等属性会同步到同名 property。
+    // 假 DOM 不反射的话,applyDataI18nKeys 走 setAttribute 后 `el.title` 读不到,
+    // 切语言断言在 harness 里失明(R-140 批10 实测:observer 退役后属性与 property 脱节)。
+    if (name === "title" || name === "placeholder") this[name] = next;
     // data-* 同步进 dataset(真实浏览器行为):main.js 读 `el.dataset.x`,
     // 冒烟里不同步则 applyDataI18nKeys 等读 dataset 的逻辑在 harness 里失明。
     if (name.startsWith("data-") && name.length > 5) {
@@ -578,6 +582,12 @@ for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*da
   el.className = "activity-item";
   el.dataset.view = match[1];
   for (const attribute of ["title", "aria-label"]) {
+    const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  // R-140 批10:rail 按钮的 data-i18n-* 也要建到桩元素上,否则 applyDataI18nKeys
+  // 的渲染点翻译对它们失明(observer 退役后无人再走属性扫描,漏建即英文态漏翻)。
+  for (const attribute of ["data-i18n-key", "data-i18n-title", "data-i18n-aria-label", "data-i18n-placeholder"]) {
     const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -3697,7 +3707,10 @@ assert(
   );
 }
 
-// 增量本地化必须真的翻译新进节点:observer 不再全量重扫后,漏翻就是新的回归面。
+// ---------- R-140 批10:MutationObserver 退役 ----------
+// 动态文案必须由渲染点 t()/localizeDynamic/applyDataI18nKeys 产出,不再有 observer
+// 事后扫描改写。裸中文节点(用户数据/漏翻)保持原样——这正是验收③ 的正面断言:
+// 谁把 observer 换回来、或退回全文档扫描,这条就红。
 {
   const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
   localStorageShim.setItem("kz-language", "en");
@@ -3707,10 +3720,23 @@ assert(
   document.body.appendChild(probe);
   await flush();
   assert(
-    probe.textContent === "Mobile bridge",
-    `新进节点未被增量本地化(实际 "${probe.textContent}"):observer 只处理变动节点后,漏翻即回归`
+    probe.textContent === "移动端桥接",
+    `裸中文节点被自动本地化(实际 "${probe.textContent}"):MutationObserver 未退役,事后扫描改写仍在`
   );
   probe.remove();
+  // 渲染点路径:渲染器插入 data-i18n-key 节点后,由切语言/初始化路径
+  // applyDataI18nKeys(document.body) 重算 → 英文态即时翻译(与 change 处理器一致)。
+  const keyed = document.createElement("span");
+  keyed.setAttribute("data-i18n-key", "移动端桥接");
+  keyed.textContent = "移动端桥接";
+  document.body.appendChild(keyed);
+  sandbox.applyDataI18nKeys(document.body, "en");
+  await flush();
+  assert(
+    keyed.textContent === "Mobile bridge",
+    `渲染点 data-i18n-key 节点未翻译(实际 "${keyed.textContent}"):applyDataI18nKeys 渲染点路径失效`
+  );
+  keyed.remove();
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
 }
@@ -3737,14 +3763,15 @@ assert(
     assistant.textContent.includes("运行中") && assistant.textContent.includes("失败"),
     `消息容器内的模型输出被词典替换(实际 "${assistant.textContent}"):英文态下用户数据被 i18n 篡改,R-140 止血失败`
   );
-  // 消息区外:翻译仍在工作(豁免没有把整个页面都关掉)。
+  // 消息区外:裸中文节点同样不再被自动改写(observer 退役,无事后扫描);产品文案由
+  // 渲染点 data-i18n-key + applyDataI18nKeys 负责(上方批10 用例已覆盖渲染点路径)。
   const outside = document.createElement("div");
   outside.textContent = "移动端桥接";
   sandbox.document.body.appendChild(outside);
   await flush();
   assert(
-    outside.textContent === "Mobile bridge",
-    `消息容器豁免连带关掉了页面其它区域的翻译(实际 "${outside.textContent}")`
+    outside.textContent === "移动端桥接",
+    `消息区外的裸中文被自动翻译(实际 "${outside.textContent}"):observer 仍在做全文档改写`
   );
   outside.remove();
   // 清掉追加的消息,避免污染后续用例。

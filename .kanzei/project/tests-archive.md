@@ -1557,3 +1557,9 @@
 - 摘要: 运行时冒烟 0 错(21 个 ui/*.js 按序 + 初始化 + 9 视图切换);i18n 静态 956 资源 key / 353 项 HTML 文案 / 63 项动态契约;a11y 22 个静态 icon-btn;markdown 全过。B9 断言组覆盖 rail·log·statusbar·活动筛选·agent 面板·权限询问·查看器·prompt placeholder·queue/steer option 中英切换,以及动态元素(status-mode/status-text/live-turn)不得挂 data-i18n-key 的结构性回归检查。
 - 关联: R-140
 - 收尾: 1786444502
+
+## T-1786445093 R-140 B10 冒烟组:observer 退役后四条(含退役契约新断言) [passed]
+- 命令: node --check ui/*.js && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
+- 摘要: MutationObserver 退役后四条冒烟全绿。运行时 0 错(21 脚本 + 1013 invoke + 9 视图);i18n 静态 956 key / 353 HTML / 57 动态契约(observer 机制标记已替换为新架构标记,新增静态 data-i18n-* 覆盖率断言零漏网);a11y 22 icon-btn;markdown 全过。关键回归:裸中文节点不再被自动本地化(正面断言防 observer 复活),渲染点 data-i18n-key 经 applyDataI18nKeys(document.body) 即时翻译;假 DOM setAttribute 补 title/placeholder IDL 反射、rail 按钮补 data-i18n-* 复制。
+- 关联: R-140
+- 收尾: 1786445093

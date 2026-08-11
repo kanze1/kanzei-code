@@ -644,15 +644,7 @@ const I18N_DYNAMIC_EN = {
   "插入": "Steer",
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送": "Enter a task to begin · permission requests will prompt · Ctrl+Enter to send"
 };
-const I18N_ZH = new WeakMap();
-const I18N_ATTR_ZH = new WeakMap();
-// 长词优先,避免短词先命中把长词切碎;静态与动态资源共用同一复合文案入口。
 const I18N_LOCALIZE_ENTRIES = [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)]
-  .sort(([a], [b]) => b.length - a.length);
-const I18N_SOURCE_BY_EN = new Map(
-  [...Object.entries(I18N_EN), ...Object.entries(I18N_DYNAMIC_EN)].map(([source, translated]) => [translated, source])
-);
-const I18N_REVERSE_ENTRIES = [...I18N_SOURCE_BY_EN.entries()]
   .sort(([a], [b]) => b.length - a.length);
 // 紧邻这些字符时说明命中的是路径/标识符的一部分,不是产品文案。
 const I18N_TOKEN_BOUNDARY = /[\\/._\-a-zA-Z0-9]/;
@@ -688,19 +680,6 @@ function localizeDynamic(value) {
   }
   return out;
 }
-function sourceFromLocalized(value) {
-  const text = String(value ?? "");
-  if (!languageIsEnglish()) return text;
-  const trimmed = text.trim();
-  const exact = I18N_SOURCE_BY_EN.get(trimmed);
-  if (exact) return text.replace(trimmed, exact);
-  let out = text;
-  for (const [translated, source] of I18N_REVERSE_ENTRIES) {
-    if (translated.length < 4) continue;
-    out = replaceStandalone(out, translated, source);
-  }
-  return out;
-}
 function languageIsEnglish() {
   return (localStorage.getItem("kz-language") || "zh") === "en";
 }
@@ -712,116 +691,15 @@ function localizedDocStatus(status) {
   const labels = { todo: "To do", doing: "In progress", done: "Done", dropped: "Dropped", fixing: "Fixing", fixed: "Fixed", open: "Open", wontfix: "Won't fix" };
   return languageIsEnglish() ? (labels[status] || status) : status;
 }
-let applyingLanguage = false;
-// D-202:本地化一律按 root 作用域执行,全文档重扫只留给初始化与切语言。
-// 原先 observer 把**每一次** DOM 变动都放大成一次整页 TreeWalker + 整页属性扫描,
-// 而流式输出每个 delta 都在改 DOM、单次成本又 ∝ 当前对话的文本节点数——
-// 轮次越多越卡的主因就在这里(几百轮后单次重扫足以吃满一帧,点击排不上队)。
-function localizeTextNode(node, language) {
-  const parent = node.parentElement || node.parentNode;
-  if (parent?.closest?.("[data-i18n-raw]")) return;
-  // R-140 批2/批4:data-i18n-key/data-i18n-title/data-i18n-aria-label/data-i18n-placeholder
-  // 由渲染点翻译,observer 不再碰(双重处理会把已翻译文本当原文再翻一遍,产生错译)。
-  if (parent?.closest?.("[data-i18n-key], [data-i18n-title], [data-i18n-aria-label], [data-i18n-placeholder]")) return;
-  // R-140 批1(止血):消息容器整体豁免词典替换。模型输出/用户输入/错误文本是
-  // 用户数据,英文态下恰好等于词典 key 的片段(「运行中」「失败」…)会被 observer
-  // 改写成英文——展示层篡改数据(D-135 家族)。消息区内的产品文案(复制按钮、
-  // 错误级别)都走 t() 渲染点翻译,不依赖 observer,豁免不影响它们。
-  if (parent?.closest?.("#messages")) return;
-  if (!I18N_ZH.has(node)) {
-    I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
-  } else {
-    const cached = I18N_ZH.get(node);
-    const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
-    if (node.nodeValue !== cached && node.nodeValue !== cachedTranslation) {
-      I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
-    }
-  }
-  const source = I18N_ZH.get(node);
-  const key = source.trim();
-  if (!key) return;
-  const exact = I18N_EN[key] || I18N_DYNAMIC_EN[key];
-  const next = language === "en"
-    ? (exact ? source.replace(key, exact) : localizeDynamic(source))
-    : source;
-  if (next.length > 1_000_000) {
-    throw new Error(`i18n text expansion detected:length=${next.length},key=${key.slice(0, 80)}`);
-  }
-  if (node.nodeValue !== next) node.nodeValue = next;
-}
-function localizeAttributes(element, language) {
-  // R-140 批1:消息容器内的 title/placeholder/aria-label 属性同样豁免(与
-  // localizeTextNode 同一止血面;消息区内的属性文案走 t() 渲染点,不靠 observer)。
-  if (element.closest?.("#messages")) return;
-  // R-140 批2/批4:data-i18n-key/data-i18n-title/data-i18n-aria-label/data-i18n-placeholder 由渲染点翻译,observer 不碰属性。
-  if (element.closest?.("[data-i18n-key], [data-i18n-title], [data-i18n-aria-label], [data-i18n-placeholder]")) return;
-  let originals = I18N_ATTR_ZH.get(element);
-  if (!originals) {
-    originals = new Map();
-    I18N_ATTR_ZH.set(element, originals);
-  }
-  for (const attribute of ["title", "placeholder", "aria-label"]) {
-    const value = element.getAttribute(attribute);
-    if (!value) continue;
-    // 原文缓存必须跟随写入方更新:只认首见值会把属性永久冻结在第一次的取值上
-    // (侧栏 tooltip 折叠后仍显示「折叠左侧栏」),状态提示从此长期说谎(D-136)。
-    // 判据:当前值既不是缓存原文也不是它的译文 ⇒ 是别处新写进来的,以新值为准。
-    const cached = originals.get(attribute);
-    if (cached === undefined) {
-      originals.set(attribute, sourceFromLocalized(value));
-    } else if (value !== cached) {
-      const cachedTranslation = I18N_EN[cached.trim()] || I18N_DYNAMIC_EN[cached.trim()] || localizeDynamic(cached);
-      if (value !== cachedTranslation) originals.set(attribute, sourceFromLocalized(value));
-    }
-    const source = originals.get(attribute);
-    const key = source.trim();
-    const next = language === "en" ? (I18N_EN[key] || localizeDynamic(source)) : source;
-    // 同值也调 setAttribute 会照常入 MutationObserver 队列(DOM 规范如此),而 observer
-    // 正监听这三个属性:无条件写 = observer→applyLanguage→写 的微任务死循环,主线程
-    // 饿死、永不绘制,表现为启动黑屏(D-172)。写属性前必须比对,值没变绝不写。
-    if (value !== next) element.setAttribute(attribute, next);
-  }
-}
-/// 只本地化 root 这一棵子树;root 也可以是文本节点(characterData 变动的目标)。
-function localizeRoot(root, language) {
-  if (!root) return;
-  if (typeof root.querySelectorAll !== "function") {
-    if (root.nodeValue != null) localizeTextNode(root, language);
-    return;
-  }
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  while (walker.nextNode()) localizeTextNode(walker.currentNode, language);
-  if (root.hasAttribute?.("title") || root.hasAttribute?.("placeholder") || root.hasAttribute?.("aria-label")) {
-    localizeAttributes(root, language);
-  }
-  root.querySelectorAll("[title], [placeholder], [aria-label]").forEach((element) => localizeAttributes(element, language));
-}
-function localizeNodes(nodes) {
-  if (applyingLanguage) return;
-  applyingLanguage = true;
-  try {
-    const language = localStorage.getItem("kz-language") || "zh";
-    for (const node of nodes) {
-      localizeRoot(node, language);
-      // R-140 批2:动态插入的 data-i18n-key/data-i18n-title 节点同样即时应用。
-      applyDataI18nKeys(node, language);
-    }
-  } finally {
-    applyingLanguage = false;
-  }
-}
 function applyLanguage() {
-  if (applyingLanguage) return;
-  applyingLanguage = true;
-  try {
-    const language = localStorage.getItem("kz-language") || "zh";
-    document.documentElement.lang = language === "en" ? "en" : "zh-CN";
-    localizeRoot(document.body, language);
-    // R-140 批2:静态 DOM data-i18n-key/data-i18n-title 一次性应用(初始化与切语言)。
-    applyDataI18nKeys(document.body, language);
-  } finally {
-    applyingLanguage = false;
-  }
+  // R-140 批10:MutationObserver 退役。动态字符串(状态栏/日志/活动卡/权限队列等)全部
+  // 在渲染点经 t()/localizeDynamic 产出;语言切换时由 change 处理器里的 syncDynamicUiLanguage/
+  // syncActivityPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
+  // refreshConversationList 重渲染。这里只做两件事:同步 <html lang> 与一次性应用静态
+  // data-i18n-*(初始化与切语言各一次),不再全文档扫描文本节点改写(禁止事后扫描,D-202)。
+  const language = localStorage.getItem("kz-language") || "zh";
+  document.documentElement.lang = language === "en" ? "en" : "zh-CN";
+  applyDataI18nKeys(document.body, language);
 }
 // R-140 批1/批2:data-i18n-key/data-i18n-title 渲染点翻译统一入口。
 // 消息容器内的动态文案(复制按钮、错误级别)与静态 DOM(侧栏标题、按钮属性)共用:
@@ -839,10 +717,12 @@ function applyDataI18nKeys(root, language) {
     const key = el.dataset.i18nTitle;
     if (!key) continue;
     const next = language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
-    if (el.title !== next) el.title = next;
+    // R-140 批10:统一走 getAttribute/setAttribute(真实浏览器 IDL 反射会同步 title
+    // property;冒烟假 DOM 的 setAttribute 同样补了 title/placeholder 反射)。
+    if (el.getAttribute("title") !== next) el.setAttribute("title", next);
   }
-  // R-140 批4:aria-label/placeholder 与 title 同走渲染点。observer 对挂 data-i18n-*
-  // 的元素整体豁免(localizeTextNode/localizeAttributes),属性不在此补齐会在英文态漏翻。
+  // R-140 批4/批10:aria-label/placeholder 与 title 同走渲染点(data-i18n-*)。
+  // 属性不在此补齐会在英文态漏翻。
   for (const el of root.querySelectorAll("[data-i18n-aria-label]")) {
     const key = el.dataset.i18nAriaLabel;
     if (!key) continue;
@@ -860,8 +740,10 @@ const languageSelect = $("language-select");
 languageSelect.value = localStorage.getItem("kz-language") || "zh";
 languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
+  // R-140 批10:applyLanguage 已含 applyDataI18nKeys(document.body)——静态 data-i18n-*
+  // 一次性重算;动态面由下面这些渲染点入口重渲染(syncDynamicUiLanguage 重放状态/活动卡
+  // 的源文案,renderWorkspace/renderProviders/refreshDocs 等重建列表),不再需要 observer。
   applyLanguage();
-  applyDataI18nKeys(document.body, localStorage.getItem("kz-language") || "zh");
   syncDynamicUiLanguage();
   syncActivityPanel();
   syncSidebar();
@@ -877,23 +759,3 @@ languageSelect.addEventListener("change", () => {
   updateAskQueueStatus();
 });
 applyLanguage();
-// D-202:只本地化本次变动带进来的节点。records 为空(或宿主不给 records)时不做任何事——
-// 全量本地化由初始化与切语言时的 applyLanguage() 负责,这里绝不能退回全文档重扫。
-const languageObserver = new MutationObserver((records) => {
-  const roots = [];
-  for (const record of records) {
-    if (record.type === "childList") {
-      for (const node of record.addedNodes) roots.push(node);
-    } else {
-      roots.push(record.target);
-    }
-  }
-  if (roots.length) localizeNodes(roots);
-});
-languageObserver.observe(document.body, {
-  childList: true,
-  subtree: true,
-  characterData: true,
-  attributes: true,
-  attributeFilter: ["title", "placeholder", "aria-label"],
-});

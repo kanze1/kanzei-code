@@ -133,8 +133,10 @@
 
 - 标签: 前端
 
-- 批次: 9/10
-- 进展: 批1-8 已提交。批9(本轮):活动/会话/compose 域 + 全局静态面收口——rail 侧栏开关/过程页签 aria-label、live-turn·status-mode·status-text 确认动态元素由 JS 渲染点负责(03-shell.js:318-319、06-activity.js)一律不挂 data-i18n-key(applyDataI18nKeys 会无条件覆写,挂上会在切语言时被覆写回原文),B9 断言组用结构性检查防回归;chat-search·prompt placeholder、sop-picker aria-label、queue/steer option、log 面板三按钮、statusbar(git·ctx·tokens·日志)、活动面板类型/状态筛选 option、agent 面板区块标题与清空、权限询问(标题·字段·回答 placeholder·四按钮)、查看器两按钮全部挂 data-i18n-*。带 id 的元素把 data-i18n-key 放元素自身(冒烟按 id 建节点只取开标签后首个 < 前的 directText,span 包裹会让按钮文本变空——ask-deny 等已改),无 id 容器用内层 span 包裹。06-agent-panel 运行中/已完成计数器、06-activity 未命名文件、08-compose(连续推进上限/勘察复核提示/鞭挞启动/已停止/手填/文件补全/模型列表/停止指令/模型列表获取)、09-sessions(工作树清单/空闲/撤销失败/队列刷新/测试记录刷新)动态字符串改走 t()。词典补 未命名文件/工作树清单读取失败。四条冒烟全绿。剩余:批10 验收③④⑤(MutationObserver 退役与 key 覆盖率收口)。
+- 批次: 10/10
+- 进展: 批1-9 已提交。批10(本轮):MutationObserver 退役——02-i18n.js 移除 observer 及专属机制(局部化函数链 localizeNodes/localizeTextNode/localizeAttributes/localizeRoot、I18N_ZH/I18N_ATTR_ZH 逐轮累积缓存、sourceFromLocalized、I18N_SOURCE_BY_EN/I18N_REVERSE_ENTRIES、applyingLanguage 防抖与文档级重置),applyLanguage 收敛为 lang + applyDataI18nKeys 渲染点应用,无任何事后全文档文本扫描。冒烟 harness 配套:假 DOM setAttribute 补 title/placeholder IDL 反射(真实浏览器反射语义),rail 按钮构建器补 data-i18n-* 复制,两条 observer 行为断言改写为「退役契约」正面断言(裸中文节点不再被自动本地化,谁把 observer 换回来即红;渲染点 data-i18n-key 经 applyDataI18nKeys(document.body) 即时翻译)。ui-i18n-smoke 静态 data-i18n-* 覆盖率断言落地(验收②④ 的机械保证:每处含中文文本/属性的元素都必须带 data-i18n-* 一次性应用标记,否则断言红)。四条冒烟全绿(运行时 0 错、i18n 956 key/353 HTML/57 动态契约、a11y、markdown)。验收①②③④⑤ 证据齐备,准备关闭前全量。
+
+- 复杂度: 大
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。

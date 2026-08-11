@@ -24,6 +24,24 @@ const htmlAllowlist = new Set(["简体中文", "English"]);
 const missingHtmlKeys = [...new Set(htmlCandidates)]
   .filter((key) => han.test(key) && !htmlAllowlist.has(key) && !dictionaryKeys.has(key));
 assert.deepEqual(missingHtmlKeys, [], `HTML 静态文案未进入资源表: ${missingHtmlKeys.join(" | ")}`);
+// R-140 批10:静态 DOM 必须走 data-i18n-* 一次性应用(验收②/④ 的机械保证)——每个含中文
+// 文本/属性的元素都必须带 data-i18n-key/title/aria-label/placeholder 之一,否则英文态
+// 永远不翻译。动态状态元素(live-turn/status-mode/status-text)由 JS 渲染点负责,白名单放行;
+// 其余都是漏网,必须在 HTML 里补 data-i18n-*。
+const staticDynamicId = new Set(["live-turn", "status-mode", "status-text"]);
+const uncoveredStatic = [];
+for (const match of htmlSource.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\w-]+)"((?:[^<>"]|"[^"]*")*?)>/g)) {
+  const [, , before, id, after] = match;
+  const attributes = `${before} ${after}`;
+  const tail = htmlSource.slice(match.index + match[0].length);
+  const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim() ?? "";
+  const hasHan = han.test(directText) || han.test(attributes) && /(?:title|placeholder|aria-label)="/.test(attributes);
+  if (staticDynamicId.has(id)) continue;
+  if (!hasHan) continue;
+  if (/\bdata-i18n-(?:key|title|aria-label|placeholder)="/.test(attributes)) continue;
+  uncoveredStatic.push(id);
+}
+assert.deepEqual(uncoveredStatic, [], `静态中文元素未挂 data-i18n-*: ${uncoveredStatic.join(", ")}`);
 const untranslatedValues = [...`${dictionaryBody}\n${dynamicDictionaryBody}`.matchAll(/"((?:\\.|[^"])*)"\s*:\s*"((?:\\.|[^"])*)"/g)]
   .filter(([, key, value]) => han.test(value) || (han.test(key) && key === value))
   .map(([, key]) => key);
@@ -40,16 +58,10 @@ const required = [
   ["function t(key)", "动态翻译入口"],
   ["I18N_DYNAMIC_EN[key]", "动态资源可由 t 直接消费"],
   ["function applyLanguage()", "静态节点翻译入口"],
-  ["function sourceFromLocalized(value)", "英文动态节点恢复中文源文案"],
+  ["function applyDataI18nKeys(root, language)", "data-i18n-* 静态+动态渲染点翻译入口"],
+  ["I18N_EN[key] || I18N_DYNAMIC_EN[key] || key", "漏译回落中文原文(t 与 applyDataI18nKeys 共用)"],
   ["I18N_LOCALIZE_ENTRIES", "静态与动态资源统一处理复合文案"],
-  ["parent?.closest?.(\"[data-i18n-raw]\")", "用户与权限数据跳过产品翻译"],
-  ["I18N_ZH.set(node, sourceFromLocalized(node.nodeValue))", "动态文本源文案缓存"],
-  ["node.nodeValue !== cached && node.nodeValue !== cachedTranslation", "动态文本源文案跟随业务更新"],
-  ["exact ? source.replace(key, exact) : localizeDynamic(source)", "fallback 不二次替换扩张"],
-  ["const I18N_ATTR_ZH = new WeakMap()", "属性原文缓存"],
-  ["[title], [placeholder], [aria-label]", "可访问属性翻译入口"],
-  ["attributeFilter: [\"title\", \"placeholder\", \"aria-label\"]", "动态属性翻译观察"],
-  ["originals.set(attribute, sourceFromLocalized(value))", "属性原文稳定保存"],
+  ["for (const el of root.querySelectorAll(\"[data-i18n-aria-label]\"))", "可访问属性渲染点翻译入口"],
   ["运行中\": \"Running", "运行中翻译键"],
   ["运行完成\": \"Run completed", "运行完成翻译键"],
   ["运行失败\": \"Run failed", "运行失败翻译键"],

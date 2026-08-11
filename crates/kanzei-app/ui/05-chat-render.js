@@ -25,8 +25,8 @@ function copyButton() {
   button.type = "button";
   button.textContent = t("复制");
   button.title = t("复制消息");
-  // R-140 批1:消息容器豁免 observer 后,容器内 t() 渲染点靠 data-i18n-key
-  // 在语言切换时由 syncMessagesLanguage() 重算(渲染点翻译,不再靠事后回译)。
+  // R-140 批1/批10:消息容器豁免 observer 后,容器内 t() 渲染点靠 data-i18n-key
+  // 在语言切换时由 applyDataI18nKeys(document.body) 重算(渲染点翻译,不再靠事后回译)。
   button.dataset.i18nKey = "复制";
   button.dataset.i18nTitle = "复制消息";
   return button;
