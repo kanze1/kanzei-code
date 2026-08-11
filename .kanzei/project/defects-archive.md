@@ -2868,3 +2868,10 @@
 - 批次: 1/1
 - 进展: 2026-08-12 实现落地(0f39192)。验收逐条证据:①循环前认领 `const batchProjectDir = currentProject`(11-docs-list.js applyBatch 循环外),循环内 `projectDir: batchProjectDir` 不再重读全局——冒烟桩把第一条 docs_update 挂闸门、await 处把 currentProject 换成 C:/smoke/project-b,放行后断言该批全部 docs_update 的 projectDir === 认领旧项目;②ui-runtime-smoke.mjs 新增 D-256 断言块(闸门+中途切项目+projectDir 集合断言,运行 1144 invoke 0 错误);③按认领项目做完语义:循环不中止继续写旧项目,结束后 `if (batchProjectDir !== currentProject) toast(这批改动落在 …)`(11-docs-list.js:74-77),i18n 键「这批改动落在」登记(02-i18n.js),冒烟断言 toast 含认领项目。验证:node --check ×3 + ui-runtime/i18n/a11y/markdown/lint 五条冒烟全绿(T-1786462431)。
 
+## D-235 conventions.md 无专用工具可写:模型只读,引擎化交付标注无法落地 [fixed] (medium)
+- 复现: R-157 验收⑤要求 conventions.md §1.4 标注「引擎已接管」。edit 被 ruleset 拒绝:policy-managed(用户手写的项目资产,模型只读),且无专用工具;规则明令禁止 shell 旁路(重定向/Set-Content/WriteAllText/node 单行均被检测回滚)。同 D-173(architecture/README.md 无专用工具)一类的能力缺口:需求/缺陷/目标/决策各有 tracker 工具,规范文档 conventions.md 没有对应专用写入通道。
+- 影响: R-157 验收⑤(文档标注)无法由 agent 完成,条目不能按 §1.25 关闭;同类缺口将来还会卡住所有需要改 conventions.md 的条目(如引擎化交付后的标注、新决策的 §1.x 更新)。
+- 优先级: P2
+
+- 进展: 2026-08-12 交付(e6c2360)。D-235 原验收字段缺失,按复现/影响推导验收并逐条给证据:①专用写入通道存在——ConventionsTool(crates/kanzei-tools/src/conventions.rs,get 读全文+hash+标题导航 / patch 逐字替换)注册进 DevProfile(profiles.rs tools.insert),get 放行、patch 逐次询问(与 architecture update 同保守口径),deny 表新增 `*.kanzei/project/conventions*` → Some("conventions")(profiles.rs),write/edit 硬 deny 的拒绝理由从此点名工具而不是「无专用工具」(profiles.rs 测试断言 hint 含 `conventions`);②patch 契约有 7 个单测:唯一命中写入/0 命中拒写/多命中拒写/陈旧 hash 拒写/缺 expected_hash 拒写/缺失文件报错/get 全文+hash+标题导航,kanzei-tools 240 passed;③原「无专用工具」断言改用 notes.md 继续守「不得编造工具名」底线(profiles.rs)。复用:content_hash/replace_recoverably 提为 pub(crate) 由 conventions 共用,不养第二份 CAS 原语。R-157 验收⑤(§1.4 标注)现可用 `conventions patch` 落地,需新引擎二进制;R-157 阻塞字段已同步更新。验证:fmt/clippy 全绿 + 下游 kanzei-app/kanzei cargo check 通过(T-1786463010)。
+
