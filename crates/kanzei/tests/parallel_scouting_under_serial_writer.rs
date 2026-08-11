@@ -237,6 +237,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         &runner_config,
         &ctx,
         "勘察这个项目",
+        None,
         &[],
         None,
         Some(&subagent_rt),

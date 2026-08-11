@@ -562,11 +562,10 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     };
 
     // 开跑预检索(R-106):prompt 命中既有记忆时前置提示块(只给索引行)。
-    // 队列里存的仍是用户原文;提示块只进本次运行。
-    let run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
-        Some(hints) => format!("{hints}\n\n{prompt}"),
-        None => prompt.clone(),
-    };
+    // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
+    // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
+    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt);
+    let run_prompt = prompt.clone();
     let run_result = tokio::select! {
         result = run_once(
             &client,
@@ -576,6 +575,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             &runner_config,
             &ctx,
             &run_prompt,
+            memory_hints.as_deref(),
             &prior,
             Some(&subagent_rt),
             &mut on_event,
@@ -886,6 +886,7 @@ async fn consolidate_memory_inbox(
             &runner_config,
             ctx,
             &prompt,
+            None,
             &[],
             None,
             &mut on_event,

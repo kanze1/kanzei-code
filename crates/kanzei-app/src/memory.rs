@@ -385,6 +385,7 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String) {
             &runner_config,
             &tool_ctx,
             &prompt,
+            None,
             &[],
             None,
             None,

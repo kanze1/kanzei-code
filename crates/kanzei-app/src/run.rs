@@ -601,10 +601,10 @@ pub(crate) async fn run_task(
     }
 
     // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
-    let mut run_prompt = match kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt) {
-        Some(hints) => format!("{hints}\n\n{prompt}"),
-        None => prompt.clone(),
-    };
+    // D-185:提示块不再拼进 run_prompt,改由 run_once 作为本轮 system 一次性注入——
+    // 拼进去会随 User message 进 messages → 落 conversations → 下轮回灌累积。
+    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt);
+    let mut run_prompt = prompt.clone();
     // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
     // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,
     // 而 synthesis 的唯一入边是 `scout` 里的汇总屏障(不变量 2)。
@@ -652,6 +652,7 @@ pub(crate) async fn run_task(
         &runner_config,
         &ctx,
         &run_prompt,
+        memory_hints.as_deref(),
         &prior,
         (!initial_parts.is_empty()).then_some(initial_parts.as_slice()),
         subagent_rt.as_ref(),
@@ -1155,6 +1156,8 @@ pub(crate) async fn run_review_and_fixup(
         runner_config,
         ctx,
         &crate::phase_pipeline::fixup_prompt(&findings),
+        // 修正段不注入新记忆提示:同一轮内的第二段,提示已含于实现段的 system。
+        None,
         // 历史接续:修正段的 prior 就是实现段跑完的完整 messages。
         &summary.messages,
         None,

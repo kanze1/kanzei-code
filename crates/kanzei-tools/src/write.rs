@@ -405,6 +405,7 @@ mod tests {
             &runner_config,
             &tool_ctx,
             "执行写入",
+            None,
             &[],
             None,
             &mut on_event,

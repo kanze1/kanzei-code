@@ -1617,3 +1617,9 @@
 - 摘要: R-184 关闭前全量:18 crate 全绿。顺带修复 D-273(kanzei_home 两测试并发互踩全局 KANZEI_HOME,合并为顺序测试)。docstore 原子写测试在早前一次全量偶发红,单独/后续全量均绿,判定为 Windows 文件句柄时序偶发,与本条改动无关。
 - 关联: R-184 D-273
 - 收尾: 1786448527
+
+## T-1786449090 D-185 定向测试:memory_hints system 注入不进历史 [passed]
+- 命令: cargo test -p kanzei-core -p kanzei -p kanzei-app -p kanzei-tools
+- 摘要: D-185 修复定向验证:memory_hints 从 prompt 拼装改为 run_once 的 memory_hints 参数(system 一次性注入,不进 messages)。新增集成测试 memory_hints_not_persisted 断言四层:①请求 system 含 hint 块、②User prompt 不含 hint、③summary.messages 无 hint 块(不回灌)、④context_report 含 memory/hints 条目。core 130 + kanzei 集成全绿 + app 118 + tools 229 全绿。15 处 run_once/run_once_with_parts 调用点已同步新参数。
+- 关联: D-185
+- 收尾: 1786449090

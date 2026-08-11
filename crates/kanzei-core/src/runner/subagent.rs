@@ -254,6 +254,7 @@ pub(crate) async fn run_subagent(
         &config,
         ctx,
         &prompt,
+        None,
         &[],
         None,
         &mut on_event,

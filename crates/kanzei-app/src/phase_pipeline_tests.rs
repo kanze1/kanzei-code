@@ -326,6 +326,7 @@ async fn 七阶段闭环轨迹落库可回放() {
         &fx.runner_config(),
         &fx.ctx,
         &format!("{brief}\n\n修 R-173"),
+        None,
         &[],
         None,
         Some(&rt),

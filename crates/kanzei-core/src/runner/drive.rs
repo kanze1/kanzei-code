@@ -17,13 +17,18 @@ pub fn run_once<'a>(
     config: &'a RunnerConfig,
     ctx: &'a ToolCtx,
     prompt: &'a str,
+    // D-185:开跑预检索的记忆提示块(R-106)。只作本轮 system 一次性注入,不拼进
+    // prompt 字符串——否则随 User message 进 messages → 落 conversations →
+    // 下轮 prior 回灌,逐轮累积 N 个 hint 块。
+    memory_hints: Option<&'a str>,
     prior: &'a [Message],
     subagent: Option<&'a SubagentRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     run_once_with_parts(
-        client, route, snapshot, agent, config, ctx, prompt, prior, None, subagent, on_event, ask,
+        client, route, snapshot, agent, config, ctx, prompt, memory_hints, prior, None, subagent,
+        on_event, ask,
     )
 }
 
@@ -36,6 +41,8 @@ pub fn run_once_with_parts<'a>(
     config: &'a RunnerConfig,
     ctx: &'a ToolCtx,
     prompt: &'a str,
+    // D-185:同 run_once,只进本轮 system,不进 messages/历史。
+    memory_hints: Option<&'a str>,
     // 之前轮次的完整消息历史(空 = 新对话)。
     prior: &'a [Message],
     initial_parts: Option<&'a [Part]>,
@@ -97,10 +104,23 @@ pub fn run_once_with_parts<'a>(
         if spec_chars > 0 {
             context_report.push(("tools/schema".into(), spec_chars));
         }
-        let stable_system: Vec<String> = [agent.system.clone(), baseline]
+        // D-185:记忆提示块是稳定 system 段(每步都在,同 agent/system),但**不进
+        // messages**——messages 是持久化与回灌的载体,进去就会被逐轮累积回灌。
+        // context_report 单独记 memory/hints,让注入 token 账单能看到 hint 段的占比。
+        if let Some(hints) = memory_hints {
+            if !hints.trim().is_empty() {
+                context_report.push(("memory/hints".into(), hints.chars().count()));
+            }
+        }
+        let mut stable_system: Vec<String> = [agent.system.clone(), baseline]
             .into_iter()
             .filter(|s| !s.trim().is_empty())
             .collect();
+        if let Some(hints) = memory_hints {
+            if !hints.trim().is_empty() {
+                stable_system.push(hints.to_string());
+            }
+        }
 
         // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
         // 在尚未触发上下文压缩时就把非法消息交给 provider。
