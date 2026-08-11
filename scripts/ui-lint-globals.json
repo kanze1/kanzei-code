@@ -326,6 +326,7 @@
   "dirNote",
   "dirPath",
   "dirs",
+  "discardingActiveLine",
   "doc",
   "docDragEnabled",
   "docFilterTargets",

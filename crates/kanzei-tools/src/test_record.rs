@@ -693,7 +693,9 @@ pub fn initialize_refs(root: &Path) -> Result<serde_json::Value, String> {
 /// 只有该编号确实存在 ≥2 条时才动手;单条/不存在直接报错,不做任何写。
 pub fn repair_reused_archived_id(root: &Path, old_id: &str) -> Result<String, String> {
     if !old_id.starts_with("T-") {
-        return Err(format!("要修复的必须是测试记录编号(形如 T-xxx),收到「{old_id}」"));
+        return Err(format!(
+            "要修复的必须是测试记录编号(形如 T-xxx),收到「{old_id}」"
+        ));
     }
     let archive_path = root.join(TEST_RUNS_ARCHIVE_REL);
     // D-261:读 → 分配新号 → 写回,整段在锁内;否则两个进程同时修可能撞号或互相覆盖。
@@ -731,7 +733,10 @@ pub fn repair_reused_archived_id(root: &Path, old_id: &str) -> Result<String, St
     let mut changes = Vec::new();
     let mut change_i = 1usize; // dup_positions[0] 保留原编号,从第 2 条起改号。
     let mut seen = 0usize;
-    let mut lines = text.split('\n').map(|s| s.to_string()).collect::<Vec<String>>();
+    let mut lines = text
+        .split('\n')
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
     for line in &mut lines {
         if !line.trim_start().starts_with(&format!("## {old_id}")) {
             continue;
@@ -766,7 +771,8 @@ pub fn repair_reused_archived_id(root: &Path, old_id: &str) -> Result<String, St
         seen += 1;
         change_i += 1;
     }
-    crate::atomic_file::write_atomic(&archive_path, &lines.join("\n")).map_err(|e| e.to_string())?;
+    crate::atomic_file::write_atomic(&archive_path, &lines.join("\n"))
+        .map_err(|e| e.to_string())?;
     let mut report = format!(
         "已修复 {old_id}(保留第一条「{}」原编号,其余 {n} 条改号):\n",
         records[dup_positions[0]]
@@ -1684,13 +1690,22 @@ mod tests {
         let mut sorted = all_ids.clone();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(sorted.len(), all_ids.len(), "修复后编号必须全部唯一:{all_ids:?}");
+        assert_eq!(
+            sorted.len(),
+            all_ids.len(),
+            "修复后编号必须全部唯一:{all_ids:?}"
+        );
 
         // 标题/状态/命令/摘要/关联/收尾一字不动。
         let (block2, rec2) = &archived[1];
         assert_eq!(rec2["title"], json!("乙测试"));
         assert_eq!(rec2["status"], json!("passed"));
-        for need in ["- 命令: cargo test -p b", "- 摘要: 乙", "- 关联: R-2", "- 收尾: 1001"] {
+        for need in [
+            "- 命令: cargo test -p b",
+            "- 摘要: 乙",
+            "- 关联: R-2",
+            "- 收尾: 1001",
+        ] {
             assert!(block2.contains(need), "字段被改坏了: {block2}");
         }
         std::fs::remove_dir_all(&root).ok();
@@ -1744,7 +1759,10 @@ mod tests {
         assert!(out.content.contains("T-3000「丁」→ T-"), "{}", out.content);
         // 未提供修复字段时走正常记录路径,不受影响。
         let out2 = TestRecordTool
-            .execute(json!({"title": "cargo test -p k", "status": "passed"}), &ctx)
+            .execute(
+                json!({"title": "cargo test -p k", "status": "passed"}),
+                &ctx,
+            )
             .await;
         assert!(!out2.is_error, "{}", out2.content);
         std::fs::remove_dir_all(&root).ok();

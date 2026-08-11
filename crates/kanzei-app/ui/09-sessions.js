@@ -19,7 +19,7 @@ function renderWorktrees(items) {
     const actions = document.createElement("div");
     for (const [text, action] of [[t("差异"), "diff"], [t("合并"), "merge"], [t("放弃"), "discard"]]) {
       const button = document.createElement("button");
-      button.className = `ghost mini ${action === "merge" ? "worktree-merge" : ""}`;
+      button.className = `ghost mini ${action === "merge" ? "worktree-merge" : action === "discard" ? "worktree-discard" : ""}`;
       button.textContent = text;
       button.addEventListener("click", () => handleWorktreeAction(item, action));
       actions.appendChild(button);
@@ -49,6 +49,8 @@ async function refreshWorktrees() {
 // 清单本身不再需要维护(真源在 git),末尾重刷一次即可。
 async function handleWorktreeAction(item, action) {
   const forProject = currentProject;
+  const active = processItems.find((process) => process.id === activeProcessId);
+  const discardingActiveLine = action === "discard" && active?.worktree_path === item.path;
   try {
     if (action === "diff") {
       if (item.clean) {
@@ -73,7 +75,18 @@ async function handleWorktreeAction(item, action) {
     } else {
       toast(result);
     }
-    await refreshWorktrees();
+    if (action === "discard") {
+      // 放弃现在会在后端原子注销绑定进程。三份 UI 投影必须一起刷新；只刷新
+      // git 工作树清单会把一个已不存在 cwd 的旧线路页签留在前端。
+      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+      if (currentProject !== forProject) return;
+      if (discardingActiveLine && !processItems.some((process) => process.id === activeProcessId)) {
+        const fallback = processItems.find((process) => process.id.startsWith("d|")) || processItems[0];
+        if (fallback) await switchProcess(fallback.id);
+      }
+    } else {
+      await refreshWorktrees();
+    }
     refreshGit();
   } catch (error) {
     toastError(String(error), { retry: () => handleWorktreeAction(item, action) });

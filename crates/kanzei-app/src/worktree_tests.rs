@@ -16,9 +16,10 @@ use kanzei_harness::{Tool, ToolCtx};
 
 use super::{
     acquire_project_write_lease_within, create_process, create_worktree,
-    create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_checked,
-    merge_worktree, reclaim_worktree_on_close, restore_processes_from_store, rollback_worktree,
-    worktree_diff, worktree_status, worktree_target, WorktreeReceipt,
+    create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_and_unregister,
+    discard_worktree_checked, merge_worktree, reclaim_worktree_on_close,
+    restore_processes_from_store, rollback_worktree, worktree_diff, worktree_status,
+    worktree_target, WorktreeReceipt,
 };
 use crate::state::{ensure_default_process, process_session_id, AppState};
 
@@ -452,6 +453,97 @@ fn worktree_discard有未提交改动时保留现场() {
     assert!(branch_exists(&canonical, &branch));
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+    cleanup(&root, &[target]);
+}
+
+/// 放弃已绑定的线不能只删目录。否则 state.db 与页签仍保留 worktree_path，下一次
+/// run_prompt 会把一个不存在的目录当 cwd。这里走真实 git worktree remove，再验内存
+/// 与持久登记同时消失。
+#[tokio::test]
+async fn worktree_discard同时注销绑定进程() {
+    let root = git_repo("kz-discard-unregister");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let name = unique("discard-bound");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    let info = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(name),
+    )
+    .await
+    .unwrap();
+    let bound = info.worktree_path.clone().expect("夹具必须绑定工作树");
+
+    let result = discard_worktree_and_unregister(&state, &canonical, &bound).unwrap();
+    assert!(
+        result.contains(&info.id),
+        "结果必须说明已关闭哪条线: {result}"
+    );
+    assert!(!target.exists(), "放弃成功后目录必须消失");
+    assert!(
+        !state.processes.lock().unwrap().contains_key(&info.id),
+        "内存进程表不能保留已删工作树的绑定"
+    );
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    let persisted = store
+        .list_processes(&canonical.display().to_string())
+        .unwrap();
+    assert!(
+        !persisted.iter().any(|record| record.process_id == info.id),
+        "state.db 不能在重启后把死线重新恢复出来"
+    );
+
+    git(&canonical, &["branch", "-D", &branch]);
+    cleanup(&root, &[target]);
+}
+
+/// 旧版已经留下了只剩 state.db 登记的死线。重启恢复必须自动删除这类记录，而不是
+/// 把它重新画回前端，等用户发送消息才报工作目录不存在。
+#[tokio::test]
+async fn restart_prunes_missing_worktree_process_registration() {
+    let root = git_repo("kz-prune-missing-worktree");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let name = unique("legacy-missing");
+    let (target, branch) = worktree_target(&canonical, &name).unwrap();
+    let info = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(name),
+    )
+    .await
+    .unwrap();
+    discard_worktree_checked(&canonical, &target.display().to_string()).unwrap();
+    assert!(!target.exists(), "夹具:旧版放弃后目录应已消失");
+
+    let restarted = AppState::default();
+    restore_processes_from_store(&restarted, &canonical).unwrap();
+    assert!(
+        !restarted.processes.lock().unwrap().contains_key(&info.id),
+        "重启恢复不得复活指向不存在目录的旧线"
+    );
+    let store =
+        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical)).unwrap();
+    assert!(
+        !store
+            .list_processes(&canonical.display().to_string())
+            .unwrap()
+            .iter()
+            .any(|record| record.process_id == info.id),
+        "失效登记必须从 state.db 清除"
+    );
+
+    git(&canonical, &["branch", "-D", &branch]);
     cleanup(&root, &[target]);
 }
 

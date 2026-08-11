@@ -5264,7 +5264,33 @@ const docsB = {
     "新建之后没有重新向 git 要清单(前端已不持有清单,不刷就看不见新树)",
   );
 
-  // ---------- ④ 前端不得再写任何 kz-worktrees 键 ----------
+  // ---------- ④ 放弃工作树后必须刷新进程投影 ----------
+  // 后端会同步注销绑定进程；若这里只刷新 worktree_list，旧线路 tab 仍会把已删
+  // 目录作为 cwd 发送，直到 provider/tool 报“工作目录不存在”才暴露。这个断言
+  // 要求放弃动作后至少重新拉进程和工作树两份真源。
+  await gotoProject(PROJECT, docsA);
+  const discardButton = document.querySelector("#worktree-list .worktree-discard");
+  assert(discardButton, "工作树条目缺少放弃按钮，无法关闭绑定线路");
+  if (discardButton) {
+    const beforeDiscard = invokeArgs.length;
+    discardButton.click();
+    await flush();
+    const discardCalls = invokeArgs.slice(beforeDiscard);
+    assert(
+      discardCalls.some((entry) => entry.cmd === "worktree_discard"),
+      `放弃按钮没有调用 worktree_discard(${JSON.stringify(discardCalls)})`,
+    );
+    assert(
+      discardCalls.some((entry) => entry.cmd === "process_list" && entry.args?.projectDir === PROJECT),
+      `放弃后未刷新进程页签，旧线路会残留(${JSON.stringify(discardCalls)})`,
+    );
+    assert(
+      discardCalls.some((entry) => entry.cmd === "worktree_list" && entry.args?.projectDir === PROJECT),
+      `放弃后未刷新工作树清单(${JSON.stringify(discardCalls)})`,
+    );
+  }
+
+  // ---------- ⑤ 前端不得再写任何 kz-worktrees 键 ----------
   assert(
     wtWrites.length === 0,
     `前端仍在写 localStorage 工作树清单(${wtWrites.join(" / ")}):清单真源已经是 git,` +

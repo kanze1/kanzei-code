@@ -1889,6 +1889,15 @@ pub(crate) async fn run_prompt(
     } else {
         ensure_default_process(&state, &project_root)
     };
+    if let Some(worktree_path) = process.worktree_path.as_deref() {
+        if !Path::new(worktree_path).is_dir() {
+            crate::processes::unregister_parallel_process(&state, &project_root, &process.id)?;
+            return Err(format!(
+                "隔离工作树已不存在，已移除失效线路 {}；请切回主线后重试",
+                process.id
+            ));
+        }
+    }
     let code_root = code_root_for(process.worktree_path.as_deref(), &project_dir);
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());

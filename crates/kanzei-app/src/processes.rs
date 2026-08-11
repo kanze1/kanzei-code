@@ -88,6 +88,10 @@ pub fn process_list(
     // R-178 D3:启动/切换项目时从 state.db 恢复本项目的线/进程注册
     // (页签不丢 + 线级模型/profile/reasoning/勘察复核开关回填)。
     restore_processes_from_store_once(&state, &root)?;
+    // 外部 `git worktree remove`、旧版「放弃工作树」都会留下已绑进程但目录消失的
+    // 记录。列表刷新是用户可见的恢复点，必须先收掉这些死线，不能让它们继续出现在
+    // 页签里，直到发送时才以不存在的 cwd 失败。
+    prune_missing_worktree_processes(&state, &root)?;
     let processes = state.processes.lock().unwrap();
     let mut result = processes
         .values()
@@ -114,10 +118,28 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
     let stored = store
         .list_processes(&origin)
         .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    // 重启恢复时同样清理旧版留下的死线。这里只以目录不存在为准：目录仍在但未合并/
+    // 有改动的线不能因为恢复而被擅自删除，保留给用户继续收活。
+    let stale_ids = stored
+        .iter()
+        .filter(|record| {
+            record
+                .worktree_path
+                .as_deref()
+                .is_some_and(|path| !Path::new(path).is_dir())
+        })
+        .map(|record| record.process_id.clone())
+        .collect::<Vec<_>>();
+    for process_id in &stale_ids {
+        store
+            .delete_process(process_id)
+            .map_err(|e| format!("清理失效隔离线 {process_id} 失败: {e}"))?;
+    }
     // git 子进程可能在大仓上耗时,必须在全局进程表锁之外完成。否则一次 process_list
     // 恢复分支名会把 process_update/close/run_prompt 全部冻住。
     let restored = stored
         .into_iter()
+        .filter(|record| !stale_ids.iter().any(|id| id == &record.process_id))
         .map(|record| {
             let branch = record.worktree_path.as_deref().and_then(|path| {
                 worktree_field(root, Path::new(path), "branch")
@@ -664,16 +686,12 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
             .worktree_path
             .as_deref()
             .map(|worktree| reclaim_worktree_on_close(&root, Path::new(worktree)));
-        state.processes.lock().unwrap().remove(&process_id);
-        // R-178 D3:线关闭即从库删除,页签不再恢复。
-        let state_path = kanzei_core::project_state_path(&root);
-        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-        store
-            .delete_process(&process_id)
-            .map_err(|e| format!("删除进程注册失败: {e}"))?;
+        unregister_parallel_process(&state, &root, &process_id)?;
         if let Some(Err(kept)) = disposal {
             // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
             // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
+            let state_path = kanzei_core::project_state_path(&root);
+            let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
             let _ = store.create_session(&session_id, &root.display().to_string(), None);
             let _ = store.append_event(
                 &session_id,
@@ -681,6 +699,61 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
                 &json!({ "process_id": process_id, "detail": kept }),
             );
         }
+    }
+    Ok(())
+}
+
+/// 注销一条非默认进程及其持久化登记。工作树已被成功摘除、启动恢复发现目录消失、
+/// 或用户显式关线时都复用这一出口，避免只删目录却留下会话继续拿它当 cwd。
+pub(crate) fn unregister_parallel_process(
+    state: &AppState,
+    root: &Path,
+    process_id: &str,
+) -> Result<(), String> {
+    if process_id.starts_with("d|") {
+        return Err("默认进程不能注销".into());
+    }
+    // 先删持久登记；失败时保留内存绑定，避免半截状态把仍可恢复的线藏掉。
+    let state_path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    store
+        .delete_process(process_id)
+        .map_err(|e| format!("删除进程注册失败: {e}"))?;
+
+    let session_id = process_session_id(root, Some(process_id));
+    if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
+        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+            handle.abort();
+        }
+        runtime.asks.lock().unwrap().clear();
+        runtime.running.store(false, Ordering::SeqCst);
+        *runtime.stage.lock().unwrap() = "空闲".into();
+    }
+    state.auto_runs.lock().unwrap().remove(&session_id);
+    state.processes.lock().unwrap().remove(process_id);
+    Ok(())
+}
+
+/// 高频列表刷新也要修复本运行期里被外部删除的树。恢复阶段只处理 state.db；这里
+/// 处理已在内存中的绑定，保证用户点一次刷新就能从旧版遗留状态恢复。
+fn prune_missing_worktree_processes(state: &AppState, root: &Path) -> Result<(), String> {
+    let project = root.display().to_string();
+    let stale_ids = state
+        .processes
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|process| {
+            process.origin_project == project
+                && process
+                    .worktree_path
+                    .as_deref()
+                    .is_some_and(|path| !Path::new(path).is_dir())
+        })
+        .map(|process| process.id.clone())
+        .collect::<Vec<_>>();
+    for process_id in stale_ids {
+        unregister_parallel_process(state, root, &process_id)?;
     }
     Ok(())
 }
@@ -1674,6 +1747,27 @@ fn discard_worktree_checked(root: &Path, worktree_path: &str) -> Result<String, 
     ))
 }
 
+/// 放弃一棵工作树必须和它绑定的进程一起收口。先确定绑定身份，再让 git 删除目录；
+/// 删除成功后注销进程与 state.db 记录。顺序倒过来会让失败的 git remove 直接丢失
+/// 用户仍可恢复的线，遗漏注销则会复现「目录不存在但对话仍向它发送」的问题。
+fn discard_worktree_and_unregister(
+    state: &AppState,
+    root: &Path,
+    worktree_path: &str,
+) -> Result<String, String> {
+    let worktree = validate_worktree_path(root, worktree_path)?;
+    let project = root.display().to_string();
+    let bound_process_id =
+        bound_thread_for_worktree(state, root, &project, &worktree_key(&worktree))?;
+    let result = discard_worktree_checked(root, &git_arg_path(&worktree))?;
+    if let Some(process_id) = bound_process_id {
+        unregister_parallel_process(state, root, &process_id)?;
+        Ok(format!("{result};已关闭绑定线路 {process_id}"))
+    } else {
+        Ok(result)
+    }
+}
+
 #[tauri::command]
 pub async fn worktree_discard(
     state: tauri::State<'_, AppState>,
@@ -1683,7 +1777,7 @@ pub async fn worktree_discard(
     let root = normalized_project_root(Path::new(&project_dir));
     // R-171 批4:worktree 放弃(remove 工作树)是项目级写操作,接入写仲裁。
     let _lease = acquire_project_write_lease(&state, &root, "worktree discard").await?;
-    discard_worktree_checked(&root, &worktree_path)
+    discard_worktree_and_unregister(&state, &root, &worktree_path)
 }
 
 // R-177 验收⑦:processes.rs 在 F4 之前零测试(既无 mod tests 也无 #[test])。
