@@ -1689,3 +1689,15 @@
 - 摘要: D-184 修复定向验证:commands/skills 消费端接上——markdown.rs contribute 末尾把两注册表渲染进 system baseline(commands → 可调用清单含描述/限定 agent;skills → 加载提示含描述与 SKILL.md 路径,正文按需 read)。新增两单测:commands_and_skills_render_into_system_baseline(解析后进 stable baseline)、empty_commands_skills_render_nothing(空注册表不产生空块)。kanzei-harness 109 全绿,clippy 干净,下游 check 干净。
 - 关联: D-184
 - 收尾: 1786450575
+
+## T-1786450646 cargo test --workspace (D-184 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-184 关闭前全量:全部 crate 全绿(harness 109 含新增两单测 + tools 232 + app 118 + core 130 + llm 42)。
+- 关联: D-184
+- 收尾: 1786450646
+
+## T-1786450783 D-159 定向测试:pathspec 根因优先于 commit 症状 [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-tools + cargo check 下游(harness/app)
+- 摘要: D-159 修复定向验证:①M-013 更正版已入库(commit 1476098,正文写明先查前置 git add 的 pathspec 错误、不能判定时只记症状,关联 D-159);②failure_kind 对多行 bash 输出优先取 fatal:/pathspec/did not match 根因行而非首行症状(metrics.rs failure_kind,先扫全文本找根因行再退回首行)——新增回归单测 failure_kind_多行bash批次_优先取pathspec根因行(断言 kind 含 pathspec did not match、不含 changes not staged,无根因时退回首行不回归)。kanzei-core 131 + tools 232 全绿,下游 check 干净。
+- 关联: D-159
+- 收尾: 1786450783

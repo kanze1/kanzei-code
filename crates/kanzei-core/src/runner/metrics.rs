@@ -333,8 +333,19 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
 /// R-162:从 summarize_failures 抽出为共享函数,RecallWatch(事件触发召回)复用
 /// 同一 (tool, kind) 分类口径,离线度量的失败指纹与在线触发的失败指纹必须一致。
 pub(crate) fn failure_kind(content: &str) -> String {
-    let first_line = content.lines().next().unwrap_or("").to_lowercase();
-    let scrubbed: Vec<String> = first_line
+    // D-159:bash 批次常把多条命令的输出叠在一起(同一次调用里 `git add` 失败 +
+    // `git commit` 因无暂存失败),机械取首行会把前置的 `fatal: pathspec ... did
+    // not match` 根因丢掉,只留下末尾的 commit 症状——记忆把症状当根因。
+    // 先扫全文本,命中 fatal:/pathspec/did not match 的行优先作为根因行。
+    let first_line = content.lines().next().unwrap_or("");
+    let root_line = content
+        .lines()
+        .find(|l| {
+            let lower = l.to_lowercase();
+            lower.contains("fatal:") || lower.contains("pathspec") || lower.contains("did not match")
+        })
+        .unwrap_or(first_line);
+    let scrubbed: Vec<String> = root_line
         .split_whitespace()
         .filter(|token| !token.contains('/') && !token.contains('\\'))
         .map(|token| {
@@ -621,6 +632,23 @@ mod tests {
         // 首行截断 80 字符,长错误不撑爆索引。
         let long = failure_kind(&"x".repeat(300));
         assert_eq!(long.chars().count(), 80);
+    }
+
+    /// D-159:bash 批次多行输出时,前置 `fatal: pathspec` 根因优先于首行的
+    /// commit 症状——不能把「Changes not staged」当根因记成忘记 add。
+    #[test]
+    fn failure_kind_多行bash批次_优先取pathspec根因行() {
+        let content = "Changes not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\nfatal: pathspec 'src/foo.rs' did not match any files";
+        let kind = failure_kind(content);
+        assert!(
+            kind.contains("fatal: pathspec") && kind.contains("did not match"),
+            "应取 pathspec 根因行,而非首行 commit 症状: {kind}"
+        );
+        assert!(!kind.contains("changes not staged"), "commit 症状行不得成为根因: {kind}");
+
+        // 无根因行时退回首行(既有行为不回归)。
+        let single = failure_kind("old_string not found in C:/p/main.rs");
+        assert!(single.contains("old_string not found"), "{single}");
     }
 
     #[test]
