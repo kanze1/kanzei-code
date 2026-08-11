@@ -1934,3 +1934,19 @@
 
 - 进展: 五批规划实际合为 4 批交付完成:批1 d575549(processes 落库/恢复)、批2 c597d0a(五层解析链收敛 harness 单源)、批3 540f178(localStorage 上迁清除+schema v12)、批4 ba616f7(D7 作用域选择器)。批5 收口即本轮复核+全量:验收① processes.rs 四函数+manual_models 贯通+迁移测试;② resolve_model_chain 桌面 run.rs:107/CLI main.rs:266 共用;③ config.rs:1312 五层缺省回落单测;④ 迁移成功/失败/回显冒烟断言;⑤ 批4 两个 D7 往返单测;⑥ 新参均 Option 缺省走 global 向后兼容,settings 10 测试全绿;⑦ 界面提示+后端按 scope 拦截。cargo test --workspace 全绿(T-1786439420)。关闭。
 
+## R-140 i18n 架构迁移:chrome/content 分离、t(key) 渲染点翻译、MutationObserver 退役 [done]
+- 背景: direction_taste 定调二(用户明确):i18n 保留换架构。现行词典+MutationObserver 已产出 8 条缺陷家族(D-092/D-108/D-129/D-135/D-136/D-142/D-157/D-160)并篡改模型输出显示;D-172 只修了死循环,未换架构。四铁律:chrome/content 分离、翻译发生在渲染点 t(key)、模型输出语言是 prompt 问题、漏译可机械检出。
+- 设计定位: i18n 架构迁移:先止血再渐进 key 化
+- 证据等级: E2+E3
+- 阶段: 1
+- 验收: ①消息容器子树整体豁免词典替换(立即止血,终结数据篡改);②静态 DOM 改 data-i18n 一次性应用、JS 动态字符串经 t(key,params) 产出,禁止事后全文档扫描改写;③MutationObserver 退役;④漏译回落中文原文,冒烟脚本加 key 覆盖率断言;⑤按 A-003 粒度一轮吃一个界面域直至词典机制退役。
+
+- 优先级: P0
+
+- 标签: 前端
+
+- 批次: 10/10
+- 进展: 批1-9 已提交。批10(本轮):MutationObserver 退役——02-i18n.js 移除 observer 及专属机制(局部化函数链 localizeNodes/localizeTextNode/localizeAttributes/localizeRoot、I18N_ZH/I18N_ATTR_ZH 逐轮累积缓存、sourceFromLocalized、I18N_SOURCE_BY_EN/I18N_REVERSE_ENTRIES、applyingLanguage 防抖与文档级重置),applyLanguage 收敛为 lang + applyDataI18nKeys 渲染点应用,无任何事后全文档文本扫描。冒烟 harness 配套:假 DOM setAttribute 补 title/placeholder IDL 反射(真实浏览器反射语义),rail 按钮构建器补 data-i18n-* 复制,两条 observer 行为断言改写为「退役契约」正面断言(裸中文节点不再被自动本地化,谁把 observer 换回来即红;渲染点 data-i18n-key 经 applyDataI18nKeys(document.body) 即时翻译)。ui-i18n-smoke 静态 data-i18n-* 覆盖率断言落地(验收②④ 的机械保证:每处含中文文本/属性的元素都必须带 data-i18n-* 一次性应用标记,否则断言红)。四条冒烟全绿(运行时 0 错、i18n 956 key/353 HTML/57 动态契约、a11y、markdown)。验收①②③④⑤ 证据齐备,准备关闭前全量。
+
+- 复杂度: 大
+

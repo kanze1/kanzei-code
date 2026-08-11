@@ -1563,3 +1563,9 @@
 - 摘要: MutationObserver 退役后四条冒烟全绿。运行时 0 错(21 脚本 + 1013 invoke + 9 视图);i18n 静态 956 key / 353 HTML / 57 动态契约(observer 机制标记已替换为新架构标记,新增静态 data-i18n-* 覆盖率断言零漏网);a11y 22 icon-btn;markdown 全过。关键回归:裸中文节点不再被自动本地化(正面断言防 observer 复活),渲染点 data-i18n-key 经 applyDataI18nKeys(document.body) 即时翻译;假 DOM setAttribute 补 title/placeholder IDL 反射、rail 按钮补 data-i18n-* 复制。
 - 关联: R-140
 - 收尾: 1786445093
+
+## T-1786445140 cargo test --workspace (R-140 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: cargo test --workspace 全绿:17 个测试二进制,0 失败(核心 227 + app 130 + tools 112 等)。R-140 复杂度=大,关闭前全量通过。
+- 关联: R-140
+- 收尾: 1786445198
