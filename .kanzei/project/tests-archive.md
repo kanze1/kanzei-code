@@ -1479,3 +1479,9 @@
 - 摘要: R-178 批2:五层解析链 ①②③ 收敛为 harness resolve_model_chain,桌面/CLI 共用同一真源;缺省回落单测 + harness 83 + app 70 + kz 全绿
 - 关联: R-178
 - 收尾: 1786386422
+
+## T-1786438595 cargo test -p kanzei-core -p kanzei-app (R-178 批3) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app; node --check crates/kanzei-app/ui/08-compose.js; node scripts/ui-runtime-smoke.mjs
+- 摘要: core+app 定向测试全绿(含 schema v12 迁移测试);08-compose.js 语法检查与 UI 运行时冒烟通过
+- 关联: R-178
+- 收尾: 1786438767
