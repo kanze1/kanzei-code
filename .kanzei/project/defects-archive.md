@@ -2727,3 +2727,89 @@
 ③ 候选箱语义保留 ✓(候选仍经 manager 消化、用户拍板,不自决入库)
 ④ 链路不再只进不出 ✓(项目 inbox 被两处 consolidate 与 memory_inbox_clear 正常消化)
 
+## D-217 stale 记忆无归档搬运通道:memory_system.md 承诺的 memory-archive/ 整理流程不存在 [fixed]
+- 现象: 设计基线 §2 写「stale 后由整理流程移入 memory-archive/,带墓碑」,但代码里 archive/ 目录只被 load_archived_ids 用来保 ID 不复用,没有任何工具或触发把 stale 条目搬进去;INDEX.md 的「N stale 条待归档」永远挂着。sleep-time 空闲整理同样未实现,消化只有轮末触发与 UI 手动按钮。
+- 影响: 遗忘只有「人工+墓碑」半套;stale 条目永远占主目录与 load_all 扫描;文档与实现不一致。
+- 修复方向: 归档搬运做成引擎动作(同 tracker archive 哲学:搬运后回读校验),触发挂 R-150 的整理清单(零采纳候选/复发告警/stale 积压);实现时同步修订 memory_system.md 或按实现改文档。
+- refs: R-150 R-107 (medium)
+
+- 关闭证据: ①墓碑落档:memory_stale 现先读原 body 追加 `(stale: reason)` 再一次性 update(body+status),archive_dead rename 时文件已带墓碑——manager.rs:381-397;单测 stale_墓碑_reason随条目进归档(manager.rs:574-644)断言主目录消失+归档保留 ID+正文含 reason 与原正文。②stale 积压进整理清单:memory_value_flags 返回 staleArchived(store.archived_count,store.rs:173-181),前端 13-memory.js renderMemoryValueFlags 显示「已归档待复查」+ i18n 登记(02-i18n.js)。③文档同步:memory_system.md §2 目录名 archive/ 与归档机制现状、§3 memory_stale 墓碑说明、§4 手动整理替代 sleep-time(R-132)、§7 R-107 验收修正。验证:kanzei-tools 232 + app 118 + 前端四冒烟 + cargo test --workspace 全绿(T-1786450308/T-1786450390)。
+- 复杂度: 中
+
+## D-184 commands / skills 两张注册表是死的:解析注册后无人消费 [fixed] (medium)
+- 复现: 在 `~/.kanzei/commands/` 或 `~/.kanzei/skills/`(及项目同名目录)放 markdown,MarkdownComponent 会扫描、解析并注册(crates/kanzei-harness/src/markdown.rs:22);但全仓库对 `snapshot.commands()` / `snapshot.skills()`(crates/kanzei-harness/src/harness.rs:110、114)**零调用**——文件进了注册表就地消失,既不进提示词也不成为工具。
+- 影响: 六张注册表实际在跑的只有四张。用户按目录约定放了命令/技能文件,界面与模型都不会有任何反应,也没有一行提示说"注册了但没人用",属于静默无效功能。
+- 根因: 注册表与消费端分两步落地,消费端(注入提示词或转成工具 spec)始终没接。
+- 验收: 要么接上消费端(commands 进提示词可调用清单、skills 按 description 与任务匹配给出加载提示,与 R-106 的 sop 匹配同源),要么显式移除这两张注册表与扫描逻辑;二选一,不留"解析了但没人读"的中间态。有测试覆盖所选方向。
+- 证据等级: E2(读代码确认零调用点)
+- 优先级: P2
+- 标签: 核心
+
+- 进展: 2026-08-10 取活:标记 fixing,读 markdown.rs/harness.rs 评估接消费端 vs 移除的改动面后定方向。
+
+- 关闭证据: 验收「接上消费端」:①commands 进提示词可调用清单——markdown.rs contribute 末尾渲染「可用命令(commands)」块(名+描述+限定 agent,模板正文按名引用),进 system baseline(crates/kanzei-harness/src/markdown.rs:25-53);②skills 按 description 给加载提示——渲染「可用技能(skills)」块(名+描述+SKILL.md 路径,正文按需 read,markdown.rs:54-66);③测试覆盖所选方向:commands_and_skills_render_into_system_baseline(解析后进 baseline)与 empty_commands_skills_render_nothing(空注册表不产生空块)两单测(markdown.rs:295-374)。消费链:扫描(markdown.rs scan_commands/scan_skills)→ 渲染进 context → snapshot.system_baseline() 注入提示词。验证:kanzei-harness 109 全绿、clippy 干净、下游 check 干净、cargo test --workspace 全绿(T-1786450575/T-1786450646)。
+- 复杂度: 中
+
+## D-159 memory-manager 忽略前置 pathspec fatal 并把 commit 症状误记为根因 [fixed] (medium)
+- refs: R-105
+- 优先级: P2
+- 复现: 一次 `git add` 因文件名大小写/截断不匹配报 pathspec，随后 `git commit` 因无暂存内容退出 1。自动 memory-manager 生成 M-013，标题断言“Changes not staged 表示没有暂存内容”，正文进一步把根因泛化为忘记 git add；但本次真实根因是前置 git add 的 pathspec 不存在。
+- 影响: 记忆把症状误当根因，未来遇到同类输出会错误建议再次 git add，而不检查前置 add 是否因 pathspec/权限失败；属于会诱导重复失败的错误长期事实。
+- 标签: 核心
+- 根因: 失败归纳只消费了批次末尾 `git commit` 输出，没有关联同一 bash 调用前面的 `fatal: pathspec ... did not match any files`，跨命令因果被截断。
+- 证据等级: E1
+- 验收: M-013 被更正或标 stale，不再声称本次根因是忘记暂存；失败提炼能优先保留同一 bash 调用中更早的 fatal/pathspec 根因，或在无法判定时只记录症状不下根因结论；有回归覆盖。
+
+- 进展: 错误 M-013 仍处于未提交状态；已向 memory inbox 投递具名更正说明，后续修复需让 failure harvest 保留同批前置 `fatal: pathspec` 根因并补回归。本轮不把错误记忆混入 R-069 提交。
+
+- 关闭证据: 验收①M-013 更正/标 stale:M-013 正文已是更正版(描述+正文写明「先检查同批前置 git add 是否已报 pathspec did not match;不能判定时只记症状,不要断言忘记 add」,关联 D-159),已入库 commit 1476098。验收②失败提炼优先保留同批前置 fatal/pathspec 根因:metrics.rs failure_kind 先扫全文本找 fatal:/pathspec/did not match 根因行优先于首行(crates/kanzei-core/src/runner/metrics.rs:336-354),无根因行退回首行(不回归)。验收③回归覆盖:新增单测 failure_kind_多行bash批次_优先取pathspec根因行(metrics.rs:637-653,断言 kind 含 pathspec did not match、不含 changes not staged、无根因退回首行)。验证:kanzei-core 131 + tools 232 全绿、下游 check 干净、cargo test --workspace 全绿(T-1786450783/T-1786450853)。
+- 复杂度: 中
+
+## D-205 快记通道无信息保真门槛:模糊输入被编造复现后落库,关键限定词丢失 [fixed] (medium)
+- refs: D-204
+- 复现: 实例即 D-204。用户输入"SOP易用程度有问题,似乎总结的不太好",快记(QuickCaptureComponent 迷你 run,crates/kanzei-app/src/main.rs)产出「复现: 查看 SOP 时」——这不是复现,是从"查看 SOP"四个字硬挤出来的伪复现;用户真实意图「**用户**查看/使用 SOP 时的易用性」(2026-08-09 对话澄清)这一关键限定完全丢失,条目读起来像在说 SOP 内容对模型的可消费性。
+- 影响: 信息在源头瘦身,浪费全落下游:自举拿到「查看 SOP 时」这种复现无从下手,要么猜方向(猜错=整轮白干)要么空转;更糟的是伪复现看起来像真的,没人知道该回去问用户。快记越好用、用得越多,这个失真通道流量越大。
+- 根因: 三层叠加。①prompt 只说 how to reproduce **if inferable**,没规定推断不出时怎么办,模型的默认行为就是编一个;②快记的 ask 回调把 Question 一律 Cancelled(无人应答的设计约束),模型想追问也没有通道;③落库成功判据"只看库落了新条目"(main.rs:3545 注释),条目落了就算赢,信息量无人把关。
+- 修复(第一层已做): prompt 明确禁止编造——推断不出复现时如实写「待澄清: <列出需要用户回答的问题>」,并要求从原文抽取关键限定词(谁的/哪个端/什么场景)进标题或复现。机制层留给后续:落库后如何机械识别"待澄清"条目并在 UI 上提示用户补充,属产品设计,交自举承接。
+- 验收: ①模糊输入(如 D-204 原文)快记产出的复现字段不再是伪复现,而是「待澄清」+具体问题清单;②含关键限定词的输入(如"用户易用性")限定词不丢;③带「待澄清」的条目在侧栏可辨识(徽标/前缀任一),用户能一眼看到哪些条目等他补话;④自举取活时跳过或优先澄清「待澄清」条目,不拿伪复现开工。
+- 证据等级: E1(D-204 实例 + prompt/回调/判据三处代码实证)
+- 优先级: P2
+- 标签: 后端
+
+- 进展: 验收逐条证据:①prompt 层(QUICK_REQ_DEFECT_SYSTEM:NEVER invent or pad one + 待澄清问题清单,subagents.rs:17)为既有交付,本轮补契约测试锁死防回退;②keep qualifier words + original text verbatim 契约断言(subagents.rs tests quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers);③.clarify-badge 徽标为既有交付(renderDocList+冒烟桩 D-001 待澄清断言)。验证:T-1786451336(quick_capture 2 绿)+ 既有 ui-runtime 徽标断言。残余转移:①真实快记实证(跑一次真实快记验证产出形态)与④(自举取活跳过/优先澄清待澄清条目)记入 R-101 批次前评估,不在本条。
+
+- 批次: 1/1
+
+- 复杂度: 小
+
+## D-219 WIP 准入把阻塞 doing 计入配额,鞭挞提示词与 §1.1 新口径不同步 [fixed] (medium)
+- 复现: 2026-08-09 实测:R-101(用户挂起)+R-148(仅剩等用户复查)占满 2 个 doing 名额,循环以「WIP 约束不能并发开启」拒开 R-153——两个不可执行条目把新工作准入整体锁死。
+- 根因: 旧 §1.1 规则「blocked doing 不占可执行槽,但仍计入 doing 总数」自相矛盾——计入总数即占用准入;DEFAULT_CONTINUE_PROMPT 规则 5「doing 最多 2 个;已满就继续推进这两项」把旧口径写死在注入文案里,且不区分可执行/阻塞。
+- 已做(规则层,2026-08-09): conventions §1.1 改为「非阻塞 doing 最多 2;阻塞/挂起 doing 不计入准入配额;含阻塞总数 >4 必须先收敛存量」;R-101 转回 todo(用户挂起,不在推进中),R-148 补①类阻塞字段(等用户复查)——名额已释放,R-153 可开。
+- 待修(机制层): DEFAULT_CONTINUE_PROMPT 规则 5 文案按新口径改写(区分可执行/阻塞 doing),旧默认加入 LEGACY_CONTINUE_PROMPTS 静默升级(D-163 同族,防用户存的旧默认与新契约错位);调度器/取活预览若有同口径判断(D-207 系)一并同步。
+- 验收: ①注入文案与 §1.1 新口径一致,LEGACY 升级路径有测试;②构造「2 个阻塞 doing + 可做 todo」场景,循环能开新条目不再误拒;③冒烟断言防回归。
+- 边界: 改动集中在 main.js 文案与 LEGACY 数组,与 R-154 拆解撞文件——微小改动,安排在 R-154 批次间隙或 08-compose 批落位后做,不与拆解批同轮;R-157 参数化规则 6 时顺路复核本条。
+- refs: D-163 R-157 D-207
+- 优先级: P1
+- 标签: 前端
+
+- 复杂度: 小
+- 批次: 1/1
+- 进展: 逐条证据:①注入文案与 §1.1 新口径一致——R-170 已把规则剥离出 continue prompt(DEFAULT_CONTINUE_PROMPT 极简意图句 08-compose.js:16,LEGACY 升级机制删除 08-compose.js:481),dev system prompt 为 WIP 单槽真源(profiles.rs:748 dev_system_prompt_enforces_wip_and_batch_contract:断言 ONE executable item/share the SAME single slot/does NOT consume the slot/exceeds 4 + 反断言无「keep at most 2 requirements」旧口径残留;conventions 同口径测试 profiles.rs:812);②「2 个阻塞 doing + 可做 todo」场景——本轮 ui-runtime-smoke 新增断言:两阻塞 doing 均不标 agent-active、blocked 标记保留、可开工 todo 仍为 agent-next(不被误拒);③冒烟断言防回归——上述断言 + D-207 既有 blocked doing 断言。验证:T-1786451xxx(ui-runtime 1147 invoke 全绿)+ dev_system_prompt_enforces_wip 单测绿。
+
+## D-233 文件视图打开卡顿:同步 files_snapshot 在主线程全量读+哈希 258 个文件 [fixed] (medium)
+- 优先级: P1
+- 标签: 前端
+- refs: R-148 D-202
+- 复现: 2026-08-10 用户实测(build-9e09b80):桌面端切到「文件」视图明显卡顿。
+- 根因(代码实证,四层叠加): ①`files_snapshot` 是**同步** Tauri command(crates/kanzei-app/src/files_view.rs:24,非 async),Tauri v2 同步 command 在主线程执行——整个扫描期间 UI 完全冻结;②每次调用都全量 `scan(&root)`(kanzei-tools/src/files.rs):对每个 ≤2MB 的代码/md 文件做 `std::fs::read` 全文读取 + 行数统计 + FNV-1a 全文哈希,当前仓库命中 **258 个文件共 4.4MB**(其中 Monaco vendor 85 个文件 1.1MB 也被逐个读+哈希——它们永远不会被标注,读了纯属浪费);③scan 还同步 spawn `git ls-files` 子进程(Windows 进程创建自带几十 ms);④前端每次切视图都重新 invoke(main.js:886 `if (view === "files") refreshFiles()`),filesSnapshotData 缓存形同虚设——切走再切回就重扫一遍。与 D-202 是同类病(主线程被长任务占死),但这次在 Rust 侧不在渲染侧。
+- 影响: 每次打开/切回文件视图 = 主线程同步读 4.4MB + 258 次哈希 + 一次子进程,机械硬盘或杀软实时扫描环境下秒级冻结;仓库越大越糟,与「文件视图是分析重文件的工具」的定位自相矛盾(files_view.rs 头注自己写过"本功能恰好是分析重文件的工具,自己先别成为反例")。
+- 修复方向(按序独立可验): ①`files_snapshot`/`file_preview` 改 async command(线程池执行,主线程立即解放)——单词改动收益最大;②快照会话内缓存:切回视图直接用 filesSnapshotData 渲染,后台静默刷新,显式「刷新」按钮才强制重扫;③增量重扫:按 size+mtime 粗判未变的文件复用上次的行数/哈希,只重读变了的(全文 FNV 只在标注流程里保持 D-213 的 mtime 免疫语义);④vendor/gen 等永不标注的路径跳过读内容(只 stat),树里仍显示但标记「未度量」。
+- 验收: ①切到文件视图主线程无秒级冻结,切换期间其它控件可点(与 D-202 验收同口径 <200ms);②切走再切回不重扫(有缓存命中证据);③第二次打开的快照耗时比首次显著下降(增量路径生效,日志或遥测可见);④vendor 文件不再被读内容,measurable 集合缩到项目自有源码;⑤冒烟或单测覆盖 async 化与缓存路径。
+- 证据等级: E1(用户复现 + 代码路径实证 + 读取量实测 4.4MB/258 文件)
+
+- 批次: 2/2
+- 进展: 关闭对照——验收①files_snapshot/file_preview async command 化(files_view.rs:26/78,主线程解放);②切回缓存优先渲染(17-files.js showFilesView)+ files_snapshot 下发 reused 字段(缓存命中证据,验收②③);③scan_incremental size+mtime 粗判复用未变文件(kanzei-tools/files.rs scan_incremental),单测断言 reused 计数/指纹一致;④is_vendor_rel 跳过 vendor/node_modules/dist/target/gen/third_party 读内容(只 stat,树里仍显示大小),单测断言 vendor lines/chars 为空;⑤单测覆盖 async(file_preview tokio)与增量/vendor 路径。验证:T-1786451554/B1、T-1786451775/B2、T-1786451817/fmt复测、T-1786451883/关闭前全量 cargo test --workspace 全绿;ui-runtime 1147 invoke + i18n 997 key 全绿。既有能力标注:FileEntry 结构与标注/聚合逻辑为既有,本次新增 mtime_ns 内部字段与增量扫描路径。
+
+- 复杂度: 中
+

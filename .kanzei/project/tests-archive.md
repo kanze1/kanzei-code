@@ -1749,3 +1749,15 @@
 - 摘要: D-233 批2(验收③④⑤):files.rs scan_incremental 增量扫描——FileEntry 加 mtime_ns 内部字段,按 size+mtime 粗判未变文件复用上次行数/哈希不碰磁盘读,返回 (entries, reused) 计数;is_vendor_rel 跳过 vendor/node_modules/dist/target/gen/third_party 路径读内容(只 stat,树里仍显示大小但 measurable 集合缩到自有源码)。files_view.rs files_snapshot 用 SNAPSHOT_CACHE(按项目根进程内缓存)喂增量并下发 reused 字段(缓存命中证据),files_annotate 同步走增量。新增单测「增量扫描复用未变文件_vendor路径不读内容」:复用计数/指纹一致/改文件重扫/vendor 不读内容全断言。kanzei-tools 233 + kanzei-app 3 全绿,ui-runtime 1147 invoke + i18n 997 key 全绿。
 - 关联: D-233
 - 收尾: 1786451775
+
+## T-1786451817 D-233 B2 fmt 后复测(files 20 绿) [passed]
+- 命令: cargo test -p kanzei-tools files
+- 摘要: D-233 B2 fmt 后复测:files.rs 测试 fmt 折行(cargo fmt 归一,无逻辑改动),files 20 测试全绿。
+- 关联: D-233
+- 收尾: 1786451817
+
+## T-1786451883 cargo test --workspace (D-233 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-233 关闭前全量:cargo test --workspace 全绿(kanzei-tools 233 含增量/vendor 单测,kanzei-app 3,其余 crate 全过)。批1 async 化 + 前端缓存优先 + 批2 增量扫描 + vendor 跳过读内容,验收①-⑤全部落地。
+- 关联: D-233
+- 收尾: 1786451883
