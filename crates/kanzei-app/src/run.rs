@@ -111,15 +111,19 @@ pub(crate) async fn run_task(
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
     let ctx = ToolCtx::new(cwd, project_root.clone());
-    let mut runner_config = build_runner_config(
+    let runner_config = build_runner_config(
         &resolved,
         &config,
         reasoning_override.as_deref(),
         &ctx.project_root,
     );
-    // R-171:主对话 writer 阶段强制串行写(普通工具 FIFO、task 禁用)。
-    runner_config.execution_policy =
-        kanzei_harness::orchestration::ExecutionPolicy::ReadParallelWriteSerial;
+    // R-182 内容①:不再无条件强制串行写。
+    //
+    // R-171 在这里无条件设 ReadParallelWriteSerial,于是主对话**每一轮**的普通工具
+    // 都 max in-flight = 1 —— 连三次 read 都要排队。冲突判定本来就由每个工具自己
+    // 声明的 ToolConcurrency 承担(写工具一律 write_worktree(ctx),同一棵树上的两次
+    // 写自然互斥;读工具 shared_worktree 之间无冲突),阶段再加一层是重复且过严。
+    // 现在留 RunnerConfig 的默认值(Default),要收紧就显式设策略。
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
@@ -205,6 +209,8 @@ pub(crate) async fn run_task(
         Arc::clone(&coordinator) as Arc<dyn ProjectExecutionCoordinator>,
         Arc::clone(&orchestration_trace) as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
         ctx.project_root.clone(),
+        // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
+        ctx.cwd.clone(),
         &run_id,
         &process_id,
         &stage,
@@ -217,12 +223,15 @@ pub(crate) async fn run_task(
         coordinator.as_ref(),
         orchestration_trace.as_ref(),
         &ctx.project_root,
+        // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
+        // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
+        &ctx.cwd,
         &run_id,
         &process_id,
         &session_id,
     )
     .await
-    .map_err(|e| anyhow::anyhow!("无法获取项目写租约: {e}"))?;
+    .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
     // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
     // 由协调器快照可见,租约不泄漏。流水线路径的租约由编排对象持有。
     let _write_lease = plain_lease.map(|lease| WriterLeaseTrace { _lease: lease });

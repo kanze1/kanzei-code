@@ -217,7 +217,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
     // 按定义都发生在 writer 活跃期间。
     let write_lease = coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            project_root: project.clone(),
+            write_scope: project.clone(),
             run_id: "run_writer".into(),
             process_id: "proc_writer".into(),
             reason: "main conversation writer run".into(),

@@ -47,6 +47,10 @@ pub struct PhaseOrchestrator {
     coordinator: Arc<dyn ProjectExecutionCoordinator>,
     observer: Option<Arc<dyn PhaseObserver>>,
     project_root: PathBuf,
+    /// 写租约的仲裁范围(R-182 内容①)。缺省 = `project_root`,与改前逐字节同义;
+    /// 桌面端主对话把它设成本轮**代码树**,于是两条线互不排队。
+    /// 事件里的 `project_root` 仍然是主根——审计字段不许说谎。
+    write_scope: PathBuf,
     run_id: String,
     process_id: String,
     phase: Phase,
@@ -77,6 +81,7 @@ impl PhaseOrchestrator {
         PhaseOrchestrator {
             coordinator,
             observer: None,
+            write_scope: project_root.clone(),
             project_root,
             run_id: run_id.into(),
             process_id: process_id.into(),
@@ -85,6 +90,14 @@ impl PhaseOrchestrator {
             review_barrier_passed: false,
             barrier_timeout,
         }
+    }
+
+    /// 指定写租约的仲裁范围(R-182 内容①)。桌面端传本轮代码树:线绑了 worktree
+    /// 就在自己那棵树上仲裁写权,两条线互不排队;同一棵树上的两个进程仍然排队
+    /// (同树两个 writer 会互相覆盖文件,那不是并行,是丢工作)。
+    pub fn with_write_scope(mut self, write_scope: PathBuf) -> Self {
+        self.write_scope = write_scope;
+        self
     }
 
     /// 装配事件汇报口(桌面端接 session_events)。不装配则编排照常工作,只是不留轨迹。
@@ -106,7 +119,8 @@ impl PhaseOrchestrator {
         self.phase
     }
 
-    /// 当前阶段的执行策略:写阶段串行、其余并行。
+    /// 当前阶段的执行策略。R-182 内容① 之后恒为 `Default`——单轮内的冲突判定
+    /// 归 `ToolConcurrency`,阶段不再重复施加一层「普通工具全程串行」。
     pub fn execution_policy(&self) -> ExecutionPolicy {
         self.phase.execution_policy()
     }
@@ -160,7 +174,7 @@ impl PhaseOrchestrator {
         let lease = self
             .coordinator
             .acquire_writer_lease(WriterLeaseRequest {
-                project_root: self.project_root.clone(),
+                write_scope: self.write_scope.clone(),
                 run_id: self.run_id.clone(),
                 process_id: self.process_id.clone(),
                 reason: reason.to_string(),
@@ -194,8 +208,10 @@ impl PhaseOrchestrator {
         };
         let run_id = lease.run_id.clone();
         let process_id = lease.process_id.clone();
-        drop(lease); // 同步释放:返回即已生效
-        let snapshot = self.coordinator.snapshot(&self.project_root);
+        // 同步释放:这一行返回时释放已经生效,不是异步承诺。
+        drop(lease);
+        // 复核查的是**仲裁范围**那个桶,不是主根那个桶——租约就是在这个桶里取的。
+        let snapshot = self.coordinator.snapshot(&self.write_scope);
         if snapshot.writer_run_id.as_deref() == Some(run_id.as_str()) {
             return Err(PhaseError::LeaseStillHeld { phase: self.phase });
         }

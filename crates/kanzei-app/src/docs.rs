@@ -79,7 +79,7 @@ pub async fn test_run_record(
     let _lease = state
         .coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            project_root: root.clone(),
+            write_scope: root.clone(),
             run_id: format!("test_record_{}", crate::run::now_ms()),
             process_id: "test_record".into(),
             reason: "test record write".into(),
@@ -108,7 +108,7 @@ pub async fn test_runs_init_refs(
     let _lease = state
         .coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            project_root: root.clone(),
+            write_scope: root.clone(),
             run_id: format!("test_init_refs_{}", crate::run::now_ms()),
             process_id: "test_record".into(),
             reason: "test refs backfill".into(),

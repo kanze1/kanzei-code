@@ -43,7 +43,7 @@ pub(crate) async fn quick_req(
     let _lease = state
         .coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            project_root: project_root.clone(),
+            write_scope: project_root.clone(),
             run_id: format!("quick_req_{}", crate::run::now_ms()),
             process_id: "quick_req".into(),
             reason: "quick capture write".into(),

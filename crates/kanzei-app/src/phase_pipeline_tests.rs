@@ -170,6 +170,7 @@ impl Fixture {
             self.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
             self.recorder.clone() as Arc<dyn PhaseObserver>,
             self.project.clone(),
+            self.project.clone(),
             "run_b6",
             "proc_b6",
             &self.config.limits,
@@ -259,6 +260,7 @@ async fn 七阶段闭环轨迹落库可回放() {
         fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
         observer.clone() as Arc<dyn PhaseObserver>,
         fx.project.clone(),
+        fx.project.clone(),
         "run_e2e",
         "proc_e2e",
         &|_name: &str, _detail: String| {},
@@ -271,6 +273,7 @@ async fn 七阶段闭环轨迹落库可回放() {
         true, // pipeline_on
         fx.coordinator.as_ref(),
         observer.as_ref(),
+        &fx.project,
         &fx.project,
         "run_e2e",
         "proc_e2e",
@@ -494,6 +497,7 @@ async fn 勘察复核关闭时不构造编排对象且行为与引入前一致()
         fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
         fx.recorder.clone() as Arc<dyn PhaseObserver>,
         fx.project.clone(),
+        fx.project.clone(),
         "run_plain",
         "proc_plain",
         &|name: &str, detail: String| stage_lines.lock().unwrap().push(format!("{name}:{detail}")),
@@ -518,6 +522,7 @@ async fn 勘察复核关闭时不构造编排对象且行为与引入前一致()
         pipeline.is_some(), // 与 run.rs 逐字相同的表达式
         fx.coordinator.as_ref(),
         &observer,
+        &fx.project,
         &fx.project,
         "run_plain",
         "proc_plain",
@@ -552,6 +557,90 @@ async fn 勘察复核关闭时不构造编排对象且行为与引入前一致()
     );
     drop(lease);
     assert!(fx.coordinator.snapshot(&fx.project).writer_run_id.is_none());
+    std::fs::remove_dir_all(&fx.project).ok();
+}
+
+/// R-182 内容①:同一项目的两条线在**桌面端这条真实取租约的路径上**互不排队。
+///
+/// 上面那条 `写租约取得时机` 测的是「取不取」,这条测的是「按什么范围取」——
+/// run.rs 传的是 `ctx.cwd`(本轮代码树),两条线的 cwd 是各自的 worktree。
+/// 事件里的 project_root 仍是主根,两者分开传,审计字段不说谎。
+#[tokio::test]
+async fn 两条线走桌面端取租约路径互不排队_事件仍记主根() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let fx = fixture("r182_two_lines", listener.local_addr().unwrap());
+    let db = fx.project.join(".kanzei").join("state.db");
+    {
+        let store = kanzei_core::SessionStore::open(&db).unwrap();
+        store.create_session("ses_line_a", "p", None).unwrap();
+        store.create_session("ses_line_b", "p", None).unwrap();
+    }
+    let observer_a =
+        crate::orchestration_trace::SessionEventObserver::open(&db, "ses_line_a").unwrap();
+    let observer_b =
+        crate::orchestration_trace::SessionEventObserver::open(&db, "ses_line_b").unwrap();
+    let tree_a = fx.project.join("..").join("wt-a");
+    let tree_b = fx.project.join("..").join("wt-b");
+
+    let lease_a = crate::phase_pipeline::acquire_plain_lease_if_needed(
+        false,
+        fx.coordinator.as_ref(),
+        &observer_a,
+        &fx.project, // 事件里的项目根:主根
+        &tree_a,     // 仲裁范围:线 A 的代码树
+        "run_line_a",
+        "proc_line_a",
+        "ses_line_a",
+    )
+    .await
+    .unwrap();
+    assert!(lease_a.is_some());
+
+    // 线 B 必须**当场**拿到——改前它会一直等线 A 整轮结束。
+    let lease_b = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        crate::phase_pipeline::acquire_plain_lease_if_needed(
+            false,
+            fx.coordinator.as_ref(),
+            &observer_b,
+            &fx.project,
+            &tree_b,
+            "run_line_b",
+            "proc_line_b",
+            "ses_line_b",
+        ),
+    )
+    .await
+    .expect("线 B 不得排队等线 A(R-182 内容①)")
+    .unwrap();
+    assert!(lease_b.is_some());
+    assert!(fx.coordinator.snapshot(&tree_a).waiting_writers.is_empty());
+    assert!(fx.coordinator.snapshot(&tree_b).waiting_writers.is_empty());
+
+    // 审计字段:事件落的是**主根**,不是 worktree 路径。
+    let store = kanzei_core::SessionStore::open(&db).unwrap();
+    let payloads: Vec<String> = store
+        .list_events("ses_line_a", 0)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.payload.to_string())
+        .collect();
+    let main_root_fragment = fx
+        .project
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    assert!(
+        payloads.iter().any(|p| p.contains(&main_root_fragment)),
+        "写租约事件必须记主根,实得: {payloads:?}"
+    );
+    assert!(
+        !payloads.iter().any(|p| p.contains("wt-a")),
+        "审计字段不得被换成 worktree 路径,实得: {payloads:?}"
+    );
+    drop(lease_a);
+    drop(lease_b);
     std::fs::remove_dir_all(&fx.project).ok();
 }
 

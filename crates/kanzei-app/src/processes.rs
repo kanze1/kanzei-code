@@ -1193,7 +1193,7 @@ pub(crate) async fn acquire_project_write_lease_within(
         SEQ.fetch_add(1, Ordering::SeqCst)
     );
     let acquire = state.coordinator.acquire_writer_lease(WriterLeaseRequest {
-        project_root: root.to_path_buf(),
+        write_scope: root.to_path_buf(),
         run_id: run_id.clone(),
         process_id: "worktree".into(),
         reason: reason.into(),

@@ -284,7 +284,7 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
         &self,
         request: WriterLeaseRequest,
     ) -> Result<WriterLease, String> {
-        let key = normalize_project_root(&request.project_root);
+        let key = normalize_project_root(&request.write_scope);
         // 排队决策与事件写入在同步块内完成;await 在 guard 释放之后,
         // 避免 std::sync::MutexGuard 跨 await 使 future 不 Send。
         let mut pending = Vec::new();
@@ -295,12 +295,12 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
                 state.writer_run_id = Some(request.run_id.clone());
                 state.writer_process_id = Some(request.process_id.clone());
                 pending.push(OrchestrationEvent::WriterAcquired {
-                    project_root: request.project_root.clone(),
+                    project_root: request.write_scope.clone(),
                     run_id: request.run_id.clone(),
                     process_id: request.process_id.clone(),
                 });
                 LeaseOutcome::Granted(WriterLease::with_release(
-                    request.project_root.clone(),
+                    request.write_scope.clone(),
                     request.run_id.clone(),
                     request.process_id.clone(),
                     {
@@ -319,7 +319,7 @@ impl ProjectExecutionCoordinator for MemoryCoordinator {
                     tx: Some(tx),
                 });
                 pending.push(OrchestrationEvent::WriterQueued {
-                    project_root: request.project_root.clone(),
+                    project_root: request.write_scope.clone(),
                     run_id: request.run_id.clone(),
                     process_id: request.process_id.clone(),
                     reason: request.reason.clone(),
@@ -400,7 +400,7 @@ mod tests {
 
     fn req(run_id: &str, root: &std::path::Path) -> WriterLeaseRequest {
         WriterLeaseRequest {
-            project_root: root.to_path_buf(),
+            write_scope: root.to_path_buf(),
             run_id: run_id.into(),
             process_id: format!("proc-{run_id}"),
             reason: "test".into(),
@@ -508,6 +508,69 @@ mod tests {
             .expect("取消后等待者应结束")
             .unwrap();
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-182 内容① 验收③:同一项目的两条线**不再互相排队**。
+    ///
+    /// 这是「任务级并行」在 kzapp 里能不能成立的分水岭:改前仲裁桶按主根算,
+    /// 第二条线要等第一条**整轮**结束才拿得到写权;改后按代码树算,两条线各自
+    /// 拥有自己那棵 worktree,同时持有写权。
+    ///
+    /// 同时钉住反向的一半:**同一棵树**上的两个进程仍然排队——同树两个 writer
+    /// 会互相覆盖文件,那不是并行,是丢工作。
+    #[tokio::test]
+    async fn 两条线各在自己的worktree上同时持写权_同树仍排队() {
+        let main_root = std::env::temp_dir().join(format!("kz-orch-r182-{}", std::process::id()));
+        let tree_a = main_root
+            .parent()
+            .unwrap()
+            .join(format!(".kanzei-worktree-r182-{}.a", std::process::id()));
+        let tree_b = main_root
+            .parent()
+            .unwrap()
+            .join(format!(".kanzei-worktree-r182-{}.b", std::process::id()));
+        let coord = MemoryCoordinator::new();
+
+        // 两条线,各自的代码树 → 两个桶,都当场拿到租约。
+        let lease_a = coord
+            .acquire_writer_lease(req("run-line-a", &tree_a))
+            .await
+            .unwrap();
+        let lease_b = tokio::time::timeout(
+            Duration::from_secs(2),
+            coord.acquire_writer_lease(req("run-line-b", &tree_b)),
+        )
+        .await
+        .expect("第二条线不得排队等第一条(R-182 内容①)")
+        .unwrap();
+        assert_eq!(lease_a.run_id, "run-line-a");
+        assert_eq!(lease_b.run_id, "run-line-b");
+        assert!(coord.snapshot(&tree_a).waiting_writers.is_empty());
+        assert!(coord.snapshot(&tree_b).waiting_writers.is_empty());
+
+        // 同一棵树上的第二个进程:仍然排队(这一半是有意保留的)。
+        let coord_c = coord.clone();
+        let tree_a2 = tree_a.clone();
+        let queued = tokio::spawn(async move {
+            coord_c
+                .acquire_writer_lease(req("run-same-tree", &tree_a2))
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            coord.snapshot(&tree_a).waiting_writers,
+            vec!["run-same-tree".to_string()],
+            "同一棵树上的第二个 writer 必须排队"
+        );
+        drop(lease_a);
+        let lease_c = tokio::time::timeout(Duration::from_secs(2), queued)
+            .await
+            .expect("释放后同树排队者应被唤醒")
+            .unwrap()
+            .unwrap();
+        assert_eq!(lease_c.run_id, "run-same-tree");
+        drop(lease_b);
+        drop(lease_c);
     }
 
     /// D-271 反证:排队者被 abort 之后,持有者释放租约不得死锁。

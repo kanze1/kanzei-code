@@ -230,7 +230,7 @@ mod tests {
         let root = std::path::PathBuf::from("C:/proj");
         let lease = coordinator
             .acquire_writer_lease(WriterLeaseRequest {
-                project_root: root.clone(),
+                write_scope: root.clone(),
                 run_id: "run_a".into(),
                 process_id: "proc_a".into(),
                 reason: "test".into(),

@@ -125,6 +125,7 @@ pub(crate) async fn start_if_enabled(
     coordinator: Arc<dyn ProjectExecutionCoordinator>,
     observer: Arc<dyn PhaseObserver>,
     project_root: std::path::PathBuf,
+    write_scope: std::path::PathBuf,
     run_id: &str,
     process_id: &str,
     stage: &(dyn Fn(&str, String) + Sync),
@@ -137,6 +138,7 @@ pub(crate) async fn start_if_enabled(
         coordinator,
         observer,
         project_root,
+        write_scope,
         run_id,
         process_id,
         &config.limits,
@@ -185,10 +187,12 @@ async fn resolve_scout_route(
 }
 
 impl PhasePipeline {
+    #[allow(clippy::too_many_arguments)] // 同上:主根与仲裁范围是两个不同的东西。
     pub(crate) fn start(
         coordinator: Arc<dyn ProjectExecutionCoordinator>,
         observer: Arc<dyn PhaseObserver>,
         project_root: std::path::PathBuf,
+        write_scope: std::path::PathBuf,
         run_id: &str,
         process_id: &str,
         limits: &kanzei_harness::config::Limits,
@@ -201,6 +205,7 @@ impl PhasePipeline {
             process_id,
             std::time::Duration::from_secs(limits.barrier_timeout_secs()),
         )
+        .with_write_scope(write_scope)
         .with_observer(observer);
         PhasePipeline {
             orchestrator,
@@ -574,14 +579,17 @@ pub(crate) fn fixup_prompt(findings: &str) -> String {
 }
 
 /// 写租约申请(非流水线路径用):手动一问一答仍走 R-171 的老形状。
+///
+/// `write_scope` 是**本轮代码树**(R-182 内容①):线绑了 worktree 就在自己那棵
+/// 树上仲裁,两条线互不排队;主树进程传项目目录,与改前逐字节同义。
 pub(crate) fn plain_writer_request(
-    project_root: &std::path::Path,
+    write_scope: &std::path::Path,
     run_id: &str,
     process_id: &str,
     session_id: &str,
 ) -> WriterLeaseRequest {
     WriterLeaseRequest {
-        project_root: project_root.to_path_buf(),
+        write_scope: write_scope.to_path_buf(),
         run_id: run_id.to_string(),
         process_id: process_id.to_string(),
         reason: format!("session {session_id} writer run"),
@@ -598,11 +606,15 @@ pub(crate) fn plain_writer_request(
 ///
 /// 抽成独立函数**只为可测**:这个判定原先内联在 `run_task` 里,而 `run_task` 需要
 /// Tauri `Window` 才能调用,于是"流水线开启时不取租约"这条只能靠读代码确认。
+#[allow(clippy::too_many_arguments)] // 审计根与仲裁范围必须分开传,合并回一个参数正是本批要拆掉的错误。
 pub(crate) async fn acquire_plain_lease_if_needed(
     pipeline_on: bool,
     coordinator: &dyn ProjectExecutionCoordinator,
     observer: &dyn PhaseObserver,
     project_root: &std::path::Path,
+    // R-182 内容①:仲裁范围是本轮代码树,与事件里的主根分开传——
+    // 审计字段说的是「哪个项目」,仲裁桶说的是「哪棵树」,两者不是一回事。
+    write_scope: &std::path::Path,
     run_id: &str,
     process_id: &str,
     session_id: &str,
@@ -619,7 +631,7 @@ pub(crate) async fn acquire_plain_lease_if_needed(
     });
     let lease = coordinator
         .acquire_writer_lease(plain_writer_request(
-            project_root,
+            write_scope,
             run_id,
             process_id,
             session_id,

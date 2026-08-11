@@ -913,7 +913,7 @@ async fn 建线与worktree_create排同一个写租约() {
     let holder = state
         .coordinator
         .acquire_writer_lease(WriterLeaseRequest {
-            project_root: canonical.clone(),
+            write_scope: canonical.clone(),
             run_id: "k2-holder".into(),
             process_id: "k2".into(),
             reason: "占位写者".into(),
@@ -1305,7 +1305,7 @@ async fn 写租约获取有超时_不留永久pending() {
     let holder = state
         .coordinator
         .acquire_writer_lease(WriterLeaseRequest {
-            project_root: canonical.clone(),
+            write_scope: canonical.clone(),
             run_id: "k2-timeout-holder".into(),
             process_id: "k2".into(),
             reason: "占位写者(永不主动释放)".into(),

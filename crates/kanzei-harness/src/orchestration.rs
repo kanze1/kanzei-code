@@ -23,11 +23,29 @@ impl ExecutionPolicy {
     }
 }
 
-/// 写租约申请。规范化 project_root 是跨进程仲裁键;
+/// 写租约申请。`write_scope` 规范化后就是仲裁桶键;
 /// run_id/process_id 是租约归属与审计身份。
+///
+/// # 仲裁范围不再等于项目(R-182 内容①)
+///
+/// R-171 的不变量 3 是「同一 project_root 同时最多一个 writer」,于是同一项目的
+/// N 条线在 kzapp 里根本不能同时跑——第二条要等第一条**整轮**结束。2026-08-11
+/// 的四组实测把这条顶翻了:跨 worktree 的编号撞车来自文档被 checkout 成两份,
+/// 而同根并发由 R-138 的 `atomic_file::FileLock` 兜得住。用户定调改成
+/// **分支干、合并、冲突检测解决、文档一份唯一**。
+///
+/// 据此本字段从 `project_root` 改名为 `write_scope`,含义由调用方说了算:
+/// - **主对话的每一轮**传本轮**代码树**(线 = worktree)。于是两条线互不排队,
+///   而同一棵树上的两个进程仍然排队——同树两个 writer 会互相覆盖文件,那不是
+///   并行,是丢工作;
+/// - **托管文档的单一性不再靠它**,由 `atomic_file::FileLock` 的毫秒级单次操作
+///   持锁承担(docstore 早就是这个形态);
+/// - 建树、tracker 快写等入口仍传**主根**——它们争的确实是主根那一份资产。
+///
+/// 排队实现原样保留,是为了将来要重新收紧时接口不用改(R-182 边界原文)。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WriterLeaseRequest {
-    pub project_root: PathBuf,
+    pub write_scope: PathBuf,
     pub run_id: String,
     pub process_id: String,
     pub reason: String,
@@ -460,13 +478,19 @@ impl Phase {
         matches!(self, Phase::Scouting | Phase::Review)
     }
 
-    /// 该阶段的执行策略。写阶段串行、其余并行——「并行查、串行写」的阶段化形态。
+    /// 该阶段的执行策略。
+    ///
+    /// **R-182 内容①:写阶段不再强制普通工具全程串行。** 原口径是「写阶段
+    /// max in-flight = 1」,而单轮内互不冲突的工具本来就该并发——冲突判定早已由
+    /// 每个工具自己声明的 [`crate::ToolConcurrency`] 承担:写工具一律
+    /// `write_worktree(ctx)`,同一棵树上的两次写自然互斥,读工具 `shared_worktree`
+    /// 之间无冲突。再加一层「整个阶段串行」是重复且过严的强制,代价是每一轮
+    /// 读文件都得排队。
+    ///
+    /// `ReadParallelWriteSerial` **不删**:它仍是一个可显式设置的策略,
+    /// 想把某条运行整体收紧回串行时直接设它即可(R-182 边界:接口保留)。
     pub fn execution_policy(self) -> ExecutionPolicy {
-        if self.requires_writer_lease() {
-            ExecutionPolicy::ReadParallelWriteSerial
-        } else {
-            ExecutionPolicy::Default
-        }
+        ExecutionPolicy::Default
     }
 
     /// 事件 payload 里的阶段名(与 serde 表示一致)。
@@ -703,25 +727,27 @@ mod tests {
     }
 
     /// 阶段属性:写租约、task 可用性与执行策略三者必须互相自洽。
+    ///
+    /// **R-182 内容① 改写**(而非删除):原断言是「写阶段必须是串行策略」,
+    /// 现在被守护的性质换成了「**没有任何阶段**再强制普通工具全程串行」——
+    /// 单轮内的冲突判定归 `ToolConcurrency`,阶段不再重复施加一层过严的强制。
+    /// 写阶段禁 task(不变量 5)那一半原样保留。
     #[test]
-    fn 阶段属性自洽_写阶段串行且禁task() {
+    fn 阶段属性自洽_无阶段强制串行且写阶段仍禁task() {
         for phase in Phase::ALL {
+            assert!(
+                !phase.execution_policy().is_serial_writer(),
+                "{phase:?} 不得再靠阶段强制普通工具全程串行(R-182 内容①)"
+            );
             if phase.requires_writer_lease() {
-                assert!(
-                    phase.execution_policy().is_serial_writer(),
-                    "{phase:?} 持写租约却不是串行策略"
-                );
                 assert!(
                     !phase.allows_read_agents(),
                     "{phase:?} 是写阶段,不得派发 task 子代理(不变量 5)"
                 );
-            } else {
-                assert!(
-                    !phase.execution_policy().is_serial_writer(),
-                    "{phase:?} 不持写租约却被判为串行写阶段"
-                );
             }
         }
+        // 策略枚举本身不删:显式设它仍然是串行写,留给将来重新收紧。
+        assert!(ExecutionPolicy::ReadParallelWriteSerial.is_serial_writer());
         // 只读并行阶段恰好是勘察与复核两个。
         let parallel: Vec<Phase> = Phase::ALL
             .into_iter()
