@@ -53,8 +53,8 @@
 - 验收: ①切到文件视图主线程无秒级冻结,切换期间其它控件可点(与 D-202 验收同口径 <200ms);②切走再切回不重扫(有缓存命中证据);③第二次打开的快照耗时比首次显著下降(增量路径生效,日志或遥测可见);④vendor 文件不再被读内容,measurable 集合缩到项目自有源码;⑤冒烟或单测覆盖 async 化与缓存路径。
 - 证据等级: E1(用户复现 + 代码路径实证 + 读取量实测 4.4MB/258 文件)
 
-- 批次: 1/2
-- 进展: 批1(验收①⑤)完成:files_snapshot/file_preview 改 async command(主线程解放,files_view.rs:26/78);前端切回文件视图缓存优先(showFilesView:有快照先渲染+后台静默刷新,17-files.js;filesViewLeft 清理定时器,03-shell.js;刷新按钮仍强制重扫)。file_preview 测试改 tokio,3 测试全绿,ui-runtime 1147 invoke + lint 1103 全绿。批2 待做:增量重扫(size+mtime 粗判)与 vendor 跳过读内容。
+- 批次: 2/2
+- 进展: 批2(验收③④⑤)完成:files.rs scan_incremental 增量扫描(FileEntry 加 mtime_ns 内部字段,size+mtime 粗判复用上次行数/哈希,返回 reused 计数)+ is_vendor_rel 跳过 vendor 等路径读内容;files_view.rs files_snapshot 进程内 SNAPSHOT_CACHE 按项目根喂增量并下发 reused 字段,files_annotate 同步走增量。新增单测(复用计数/vendor 不读内容/改文件重扫),kanzei-tools 233 + kanzei-app 3 全绿,ui-runtime/i18n 冒烟全绿。批1+批2 完成,剩余:关闭前全量 + 关闭。
 
 ## D-235 conventions.md 无专用工具可写:模型只读,引擎化交付标注无法落地 [open] (medium)
 - 复现: R-157 验收⑤要求 conventions.md §1.4 标注「引擎已接管」。edit 被 ruleset 拒绝:policy-managed(用户手写的项目资产,模型只读),且无专用工具;规则明令禁止 shell 旁路(重定向/Set-Content/WriteAllText/node 单行均被检测回滚)。同 D-173(architecture/README.md 无专用工具)一类的能力缺口:需求/缺陷/目标/决策各有 tracker 工具,规范文档 conventions.md 没有对应专用写入通道。

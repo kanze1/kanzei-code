@@ -80,6 +80,26 @@ pub fn content_stamp(meta: &std::fs::Metadata) -> String {
     format!("{}-{}", meta.len(), mtime)
 }
 
+fn mtime_ns(meta: &std::fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+/// D-233 批2:vendor/gen 等永不标注的路径段——只 stat 不读内容,树里仍显示
+/// 但 measurable 集合缩到项目自有源码。Monaco vendor 85 个文件 1.1MB 被逐个
+/// 读+哈希纯属浪费:它们永远不会被标注,读了只拖慢整树扫描。
+fn is_vendor_rel(rel: &str) -> bool {
+    rel.split('/').any(|seg| {
+        matches!(
+            seg,
+            "vendor" | "node_modules" | "dist" | "target" | "gen" | "third_party"
+        )
+    })
+}
+
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for byte in bytes {
@@ -109,12 +129,31 @@ pub struct FileEntry {
     pub oversized: bool,
     /// 内容指纹(标注失效判据)。
     pub stamp: String,
+    /// 修改时间(ns)——增量重扫的粗判依据(D-233 批2),不下发前端。
+    #[serde(skip)]
+    pub(crate) mtime_ns: u128,
 }
 
 /// 扫描仓库:git ls-files 拿清单(尊重 .gitignore,含未跟踪),非 git 目录退化为
-/// 过滤遍历(跳 .git/target/node_modules/.kanzei 的库文件)。
+/// 过滤遍历(跳 .git/target/node_modules/.kanzei 的库文件)。全量扫描入口。
 pub fn scan(project_root: &Path) -> Vec<FileEntry> {
+    scan_incremental(project_root, None).0
+}
+
+/// D-233 批2:增量扫描——按 size+mtime 粗判未变的文件复用上次的行数/哈希,
+/// 只重读变了的(全文 FNV 只在标注流程里保持 D-213 的 mtime 免疫语义)。
+/// 返回 (entries, reused_count):reused_count 供调用方做缓存命中证据。
+pub fn scan_incremental(
+    project_root: &Path,
+    previous: Option<&[FileEntry]>,
+) -> (Vec<FileEntry>, usize) {
     let list = git_file_list(project_root).unwrap_or_else(|| walk_fallback(project_root));
+    let prev: std::collections::HashMap<&str, &FileEntry> = previous
+        .unwrap_or_default()
+        .iter()
+        .map(|e| (e.path.as_str(), e))
+        .collect();
+    let mut reused = 0usize;
     let mut out = Vec::with_capacity(list.len());
     for rel in list {
         let abs = project_root.join(&rel);
@@ -125,13 +164,26 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
             continue;
         }
         let rel_slash = rel.replace('\\', "/");
+        // 增量命中:同路径、同大小、同 mtime —— 内容几乎必然没变,直接复用
+        // 上次的行数/哈希,不碰磁盘读。vendor/二进制等本就不读内容的也走这。
+        if let Some(p) = prev.get(rel_slash.as_str()) {
+            if p.size == meta.len() && p.mtime_ns == mtime_ns(&meta) {
+                out.push((*p).clone());
+                reused += 1;
+                continue;
+            }
+        }
         let ext = Path::new(&rel_slash)
             .extension()
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
         let oversized = meta.len() > MAX_MEASURE_BYTES;
-        let measurable = !oversized && (ext == "md" || CODE_EXTS.contains(&ext.as_str()));
+        // D-233 批2:vendor/gen 路径只 stat 不读内容——它们永远不会被标注,
+        // 读全文纯属浪费(Monaco vendor 85 文件 1.1MB 实测拖慢整树扫描)。
+        let measurable = !oversized
+            && !is_vendor_rel(&rel_slash)
+            && (ext == "md" || CODE_EXTS.contains(&ext.as_str()));
         let bytes = if measurable {
             std::fs::read(&abs).ok()
         } else {
@@ -148,7 +200,7 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
             ),
             (None, _) => (None, None),
         };
-        // 读到内容的用真 hash(mtime 免疫);其余(二进制/过大)退化为大小+mtime——
+        // 读到内容的用真 hash(mtime 免疫);其余(二进制/过大/vendor)退化为大小+mtime——
         // 它们本来也不会被标注,指纹只用于展示层的粗判。
         let stamp = bytes
             .as_deref()
@@ -161,10 +213,11 @@ pub fn scan(project_root: &Path) -> Vec<FileEntry> {
             chars,
             oversized,
             stamp,
+            mtime_ns: mtime_ns(&meta),
         });
     }
     out.sort_by(|a, b| a.path.cmp(&b.path));
-    out
+    (out, reused)
 }
 
 fn git_file_list(root: &Path) -> Option<Vec<String>> {
@@ -557,6 +610,45 @@ mod tests {
         assert_ne!(lib.stamp, lib2.stamp, "内容变了指纹必须变");
         let tree = render_tree(&rescanned, &loaded, None);
         assert!(!tree.contains("工具函数集合"), "过期标注不得注入:\n{tree}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    // D-233 批2(验收③④):增量扫描——未变文件按 size+mtime 复用不上读;
+    // vendor/gen 路径只 stat 不读内容,measurable 集合缩到项目自有源码。
+    #[test]
+    fn 增量扫描复用未变文件_vendor路径不读内容() {
+        let root = fixture("incr");
+        std::fs::create_dir_all(root.join("ui/vendor")).unwrap();
+        std::fs::write(root.join("ui/vendor/editor.js"), "// vendor 大文件\n".repeat(100)).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn b() {}\n").unwrap();
+
+        // 首次扫描:vendor 文件在树里可见(大小有值),但 lines/chars 为空、
+        // 不进 annotatable——只 stat 不读内容。
+        let (first, reused_first) = scan_incremental(&root, None);
+        assert_eq!(reused_first, 0, "首次扫描没有可复用的");
+        let vendor = first.iter().find(|e| e.path == "ui/vendor/editor.js").unwrap();
+        assert!(vendor.lines.is_none() && vendor.chars.is_none(), "vendor 不得读内容:\n{vendor:?}");
+        assert!(vendor.size > 0, "vendor 仍应显示大小(树里可见)");
+        assert!(
+            !first.iter().any(|e| e.lines.is_some() && e.path.starts_with("ui/vendor")),
+            "vendor 不得进入可标注集合"
+        );
+
+        // 第二次扫描(内容未变):全部复用,reused 计数等于文件数——缓存命中证据。
+        let (second, reused_second) = scan_incremental(&root, Some(&first));
+        assert_eq!(reused_second, first.len(), "未变文件应全部复用: {reused_second}/{}", first.len());
+        assert_eq!(second.len(), first.len(), "条目数不变");
+        let lib = first.iter().find(|e| e.path == "src/lib.rs").unwrap();
+        let lib2 = second.iter().find(|e| e.path == "src/lib.rs").unwrap();
+        assert_eq!(lib.stamp, lib2.stamp, "复用后指纹一致");
+
+        // 内容变化 → 该文件重新读,stamp 变,reused 减少一个。
+        std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn changed() {}\n").unwrap();
+        let (third, reused_third) = scan_incremental(&root, Some(&second));
+        assert_eq!(reused_third, first.len() - 1, "只有改过的文件重扫");
+        let lib3 = third.iter().find(|e| e.path == "src/lib.rs").unwrap();
+        assert_ne!(lib2.stamp, lib3.stamp, "内容变了必须重读出新指纹");
+
         std::fs::remove_dir_all(root).ok();
     }
 }

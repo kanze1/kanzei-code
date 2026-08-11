@@ -11,7 +11,8 @@ use tauri::Emitter;
 use kanzei_harness::KanzeiConfig;
 use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_tools::files::{
-    aggregate_dirs, annotations_path, load_annotations, save_annotations, scan, Annotation,
+    aggregate_dirs, annotations_path, load_annotations, save_annotations, scan_incremental,
+    Annotation, FileEntry,
 };
 
 fn resolve_root(project_dir: &str) -> PathBuf {
@@ -19,13 +20,29 @@ fn resolve_root(project_dir: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(project_dir))
 }
 
+/// D-233 批2:进程内快照缓存(按项目根)。files_snapshot 第二次调用把上次的
+/// entries 喂给 scan_incremental,size+mtime 未变的文件直接复用,不再全量
+/// 读+哈希。前端的视图缓存只省了"切回不 invoke",这层省的是 invoke 内的读。
+static SNAPSHOT_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<FileEntry>)>> =
+    std::sync::Mutex::new(None);
+
 /// 整树快照:文件清单 + 目录聚合 + 有效标注。前端树从这一份渲染。
 /// D-233 批1:async 化——同步 Tauri command 在主线程执行,整树扫描期间
 /// UI 完全冻结;async command 由线程池执行,主线程立即解放。
 #[tauri::command]
 pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = resolve_root(&project_dir);
-    let entries = scan(&root);
+    let (entries, reused) = {
+        let mut guard = SNAPSHOT_CACHE.lock().unwrap();
+        let previous = guard
+            .as_ref()
+            .filter(|(cached_root, _)| *cached_root == root)
+            .map(|(_, entries)| entries.as_slice());
+        let (entries, reused) = scan_incremental(&root, previous);
+        // 缓存更新:换项目或首次扫描都直接覆盖,后续调用才吃到增量。
+        *guard = Some((root.clone(), entries.clone()));
+        (entries, reused)
+    };
     let dirs = aggregate_dirs(&entries);
     let annotations = load_annotations(&root);
     let files: Vec<serde_json::Value> = entries
@@ -69,6 +86,7 @@ pub async fn files_snapshot(project_dir: String) -> Result<serde_json::Value, St
         "annotated": annotated,
         "annotatable": annotatable.len(),
         "unannotated": annotatable.len() - annotated,
+        "reused": reused,
     }))
 }
 
@@ -127,7 +145,7 @@ pub async fn files_annotate(
     const HEAD_LINES: usize = 60;
     const SAVE_EVERY: usize = 8;
     let root = resolve_root(&project_dir);
-    let entries = scan(&root);
+    let (entries, _) = scan_incremental(&root, None);
     let mut store = load_annotations(&root);
 
     let pending: Vec<_> = entries

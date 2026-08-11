@@ -1743,3 +1743,9 @@
 - 摘要: D-233 批1(验收①⑤):files_snapshot/file_preview 改 async command(files_view.rs:26/78,同步 command 在主线程执行会冻结 UI,async 由线程池执行);前端切回文件视图缓存优先——showFilesView 有快照先渲染再后台静默刷新(17-files.js),filesViewLeft 清理定时器(03-shell.js 挂接),显式刷新按钮仍强制重扫。测试:file_preview 两测试改 tokio::test + .await(files_view.rs),files_view 3 测试全绿;ui-runtime 21 js + 1147 invoke 全绿;lint 1103 标识符全绿。
 - 关联: D-233
 - 收尾: 1786451554
+
+## T-1786451775 D-233 B2:增量扫描 + vendor 跳过读内容 [passed]
+- 命令: cargo test -p kanzei-tools files + -p kanzei-app files_view + 前端冒烟
+- 摘要: D-233 批2(验收③④⑤):files.rs scan_incremental 增量扫描——FileEntry 加 mtime_ns 内部字段,按 size+mtime 粗判未变文件复用上次行数/哈希不碰磁盘读,返回 (entries, reused) 计数;is_vendor_rel 跳过 vendor/node_modules/dist/target/gen/third_party 路径读内容(只 stat,树里仍显示大小但 measurable 集合缩到自有源码)。files_view.rs files_snapshot 用 SNAPSHOT_CACHE(按项目根进程内缓存)喂增量并下发 reused 字段(缓存命中证据),files_annotate 同步走增量。新增单测「增量扫描复用未变文件_vendor路径不读内容」:复用计数/指纹一致/改文件重扫/vendor 不读内容全断言。kanzei-tools 233 + kanzei-app 3 全绿,ui-runtime 1147 invoke + i18n 997 key 全绿。
+- 关联: D-233
+- 收尾: 1786451775
