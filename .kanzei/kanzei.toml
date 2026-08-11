@@ -123,3 +123,27 @@ effect = "allow"
 action = "bash"
 resource = """{"command":"(get-content 'crates/kanzei-app/src/main.rs').count","workdir":"c:/users/kanzei/documents/kanzei code"}"""
 effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"git worktree list","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = """{"command":"Get-Content '.kanzei/project/tests-archive.md' -TotalCount 40; Write-Host '=== 重复编号统计 ==='; (Select-String -Path '.kanzei/project/tests-archive.md' -Pattern 'T-[0-9]*' -AllMatches).Matches.Value | Group-Object | Where-Object { $_.Count -gt 1 } | Select-Object Name, Count","workdir":"c:/users/kanzei/documents/kanzei code"}"""
+effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"grep -o \"T-[0-9]*\" .kanzei/project/tests-archive.md | sort | uniq -c | sort -rn | Select-Object -First 10","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
+
+# conventions patch 永久放行(用户 2026-08-12 决定):引擎默认只放行 conventions get,
+# patch 落在 Ask 上;而自主推进/鞭挞轮是 NonInteractive 档位,Ask 被直接跳过——
+# 自动轮因此永远做不了 R-191 这类规范下沉。放行后自动轮可改 conventions.md,
+# 代价是 agent 能改自己的规则书(D-235 原本要防的就是这个,此处是显式让渡)。
+[[permissions.rules]]
+action = "conventions"
+resource = "patch"
+effect = "allow"
