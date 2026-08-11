@@ -397,6 +397,12 @@ class Element {
     if (this._attributes[name] === next) { notifyMutation({ type: "attributes", target: this, attributeName: name, addedNodes: [] }); return; }
     this._attributes[name] = next;
     if (name === "id") this.id = next;
+    // data-* 同步进 dataset(真实浏览器行为):main.js 读 `el.dataset.x`,
+    // 冒烟里不同步则 applyDataI18nKeys 等读 dataset 的逻辑在 harness 里失明。
+    if (name.startsWith("data-") && name.length > 5) {
+      const camel = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      this.dataset[camel] = next;
+    }
     notifyMutation({ type: "attributes", target: this, attributeName: name, addedNodes: [] });
   }
   removeAttribute(name) { delete this._attributes[name]; }
@@ -539,6 +545,10 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
     if (value !== undefined) el.setAttribute(attribute, value);
   }
   if (/\bdata-i18n-raw\b/.test(attributes)) el.setAttribute("data-i18n-raw", "");
+  for (const attribute of ["data-i18n-key", "data-i18n-title"]) {
+    const value = attributes.match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
   const tail = html.slice(match.index + match[0].length);
   const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
   if (directText) el.textContent = directText;
@@ -564,6 +574,24 @@ for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*da
   el.className = "activity-item";
   el.dataset.view = match[1];
   for (const attribute of ["title", "aria-label"]) {
+    const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
+    if (value !== undefined) el.setAttribute(attribute, value);
+  }
+  const tail = html.slice(match.index + match[0].length);
+  const directText = tail.match(/^([^<]*)</)?.[1].replace(/\s+/g, " ").trim();
+  if (directText) el.textContent = directText;
+  body.appendChild(el);
+}
+
+// R-140 批2:静态 DOM data-i18n-key 节点(侧栏标题、subtitle)无 id,按属性补造,
+// 让渲染点翻译对这些节点真实可断言——不补造则 `[data-i18n-key]` 恒为空,
+// data-i18n-key 静态翻译在冒烟里全是假通过。
+for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)\bdata-i18n-key="([^"]*)"((?:[^<>"]|"[^"]*")*?)>/g)) {
+  const [, tag, before, key, after] = match;
+  if (/id="/.test(`${before} ${after}`)) continue; // 带 id 的已由上面按 id 段建造
+  const el = document.createElement(tag);
+  el.setAttribute("data-i18n-key", key);
+  for (const attribute of ["data-i18n-title"]) {
     const value = match[0].match(new RegExp(`\\b${attribute}="([^"]*)"`))?.[1];
     if (value !== undefined) el.setAttribute(attribute, value);
   }
@@ -3705,6 +3733,35 @@ assert(
   // 清掉追加的消息,避免污染后续用例。
   const msgs = sandbox.document.querySelectorAll("#messages .msg");
   for (const m of msgs) if (msgs.length > before) m.remove();
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
+// ---------- R-140 批2:静态 DOM data-i18n-key/data-i18n-title 一次性应用 ----------
+// 侧栏标题与按钮属性迁移到 data-i18n-key 后,翻译由渲染点 t() 承担,不再依赖
+// observer 词典扫描。英文态应翻译,切回中文应回原文;title 属性同样走渲染点。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  const sectionTitle = (key) => sandbox.document.querySelector(`[data-i18n-key="${key}"]`)?.textContent;
+  const titleOf = (id) => sandbox.document.getElementById(id)?.title;
+  assert(sectionTitle("项目") === "项目", "中文态侧栏「项目」标题应保持原文(前置失效)");
+  assert(titleOf("project-init") === "初始化新项目目录", "中文态 project-init title 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(sectionTitle("项目") === "Projects", `英文态侧栏「项目」未翻译,实际 "${sectionTitle("项目")}"`);
+  assert(sectionTitle("当前状态") === "Current status", `英文态侧栏「当前状态」未翻译,实际 "${sectionTitle("当前状态")}"`);
+  assert(sectionTitle("开发规范") === "Conventions", `英文态侧栏「开发规范」未翻译,实际 "${sectionTitle("开发规范")}"`);
+  assert(titleOf("project-init") === "Initialize a new project directory", `英文态 project-init title 未翻译,实际 "${titleOf("project-init")}"`);
+  assert(titleOf("worktrees-refresh") === "Refresh worktree changes", `英文态 worktrees-refresh title 未翻译,实际 "${titleOf("worktrees-refresh")}"`);
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(sectionTitle("项目") === "项目", `切回中文后侧栏「项目」未回原文,实际 "${sectionTitle("项目")}"`);
+  assert(titleOf("project-init") === "初始化新项目目录", `切回中文后 project-init title 未回原文,实际 "${titleOf("project-init")}"`);
+
   localStorageShim.setItem("kz-language", priorLanguage);
   sandbox.applyLanguage();
 }

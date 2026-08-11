@@ -40,10 +40,10 @@
     <aside id="sidebar">
       <div class="sidebar-section" data-collapse-key="projects" id="projects-section">
         <div class="section-title">
-          <span>项目</span>
+          <span data-i18n-key="项目">项目</span>
           <span>
-            <button id="project-init" class="icon-btn" title="初始化新项目目录" aria-label="初始化新项目目录">✦</button>
-            <button id="project-add" class="icon-btn" title="添加项目目录" aria-label="添加项目目录">＋</button>
+            <button id="project-init" class="icon-btn" title="初始化新项目目录" data-i18n-title="初始化新项目目录" aria-label="初始化新项目目录">✦</button>
+            <button id="project-add" class="icon-btn" title="添加项目目录" data-i18n-title="添加项目目录" aria-label="添加项目目录">＋</button>
           </span>
         </div>
         <div id="project-list" class="project-list"></div>
@@ -51,13 +51,13 @@
       </div>
       <div class="sidebar-section" data-collapse-key="conversations">
         <div class="section-title">
-          <span>历史对话 <em id="conversation-count"></em></span>
-          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> 全选</label><button id="chat-del" class="icon-btn" title="删除勾选的对话" aria-label="删除勾选的对话"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M11 10v6M14 10v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></span>
+          <span><span data-i18n-key="历史对话">历史对话</span> <em id="conversation-count"></em></span>
+          <span><label class="chat-select-all"><input id="chat-select-all" type="checkbox" /> <span data-i18n-key="全选">全选</span></label><button id="chat-del" class="icon-btn" title="删除勾选的对话" data-i18n-title="删除勾选的对话" aria-label="删除勾选的对话"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M11 10v6M14 10v6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button></span>
         </div>
         <div id="conversation-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="live" id="live-section">
-        <div class="section-title"><span>当前状态</span></div>
+        <div class="section-title"><span data-i18n-key="当前状态">当前状态</span></div>
         <div id="live-status">
           <div id="live-turn" class="live-row dim">空闲</div>
           <div id="live-focus" class="live-row hidden"></div>
@@ -69,46 +69,46 @@
            但要比原来的列表行显示得充分;完整列表、测试记录整体收进「需求与工作 / 缺陷 / 测试」单页视图。 -->
       <div class="sidebar-section" data-collapse-key="focus" id="focus-section">
         <div class="section-title">
-          <span>当前在做</span>
+          <span data-i18n-key="当前在做">当前在做</span>
           <span>
-            <button id="req-quick" class="ghost mini" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话">记需求</button>
-            <button id="defect-quick" class="ghost mini" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话">记缺陷</button>
-            <button id="focus-open-documents" class="icon-btn" title="打开完整需求与缺陷列表" aria-label="打开完整需求与缺陷列表">☷</button>
+            <button id="req-quick" class="ghost mini" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话">记需求</button>
+            <button id="defect-quick" class="ghost mini" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话">记缺陷</button>
+            <button id="focus-open-documents" class="icon-btn" title="打开完整需求与缺陷列表" data-i18n-title="打开完整需求与缺陷列表" aria-label="打开完整需求与缺陷列表">☷</button>
           </span>
         </div>
         <div id="focus-body" role="region" aria-label="当前在做"></div>
         <div id="focus-backlog" class="dim"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
-        <div class="section-title"><span>隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" aria-label="刷新工作树差异">↻</button></div>
+        <div class="section-title"><span data-i18n-key="隔离工作树">隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" data-i18n-title="刷新工作树差异" aria-label="刷新工作树差异">↻</button></div>
         <div id="worktree-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="goals">
         <div class="section-title">
-          <span>目标 <em id="goal-count"></em></span>
+          <span><span data-i18n-key="目标">目标</span> <em id="goal-count"></em></span>
           <span>
-            <button id="goal-add" class="icon-btn" title="新建目标" aria-label="新建目标">＋</button>
-            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" aria-label="打开 goals.md">↗</button>
+            <button id="goal-add" class="icon-btn" title="新建目标" data-i18n-title="新建目标" aria-label="新建目标">＋</button>
+            <button id="goal-open" class="icon-btn" title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" data-i18n-title="打开 goals.md(活跃目标会注入 agent 上下文,没有明确任务时它会自主推进)" aria-label="打开 goals.md">↗</button>
           </span>
         </div>
         <div id="goal-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="research" id="research-section">
         <div class="section-title">
-          <span>研究 <em id="research-count"></em></span>
-          <button id="report-open" class="icon-btn" title="打开 research/report.md" aria-label="打开 research/report.md">↗</button>
+          <span><span data-i18n-key="研究">研究</span> <em id="research-count"></em></span>
+          <button id="report-open" class="icon-btn" title="打开 research/report.md" data-i18n-title="打开 research/report.md" aria-label="打开 research/report.md">↗</button>
         </div>
-        <div class="research-subtitle">来源</div>
+        <div class="research-subtitle" data-i18n-key="来源">来源</div>
         <div id="source-list" class="doc-list"></div>
-        <div class="research-subtitle">发现</div>
+        <div class="research-subtitle" data-i18n-key="发现">发现</div>
         <div id="finding-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="conventions">
         <div class="section-title">
-          <span>开发规范</span>
+          <span data-i18n-key="开发规范">开发规范</span>
           <span>
-            <button id="conv-init" class="icon-btn" title="创建规范模板" aria-label="创建规范模板">＋</button>
-            <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)" aria-label="打开 conventions.md">↗</button>
+            <button id="conv-init" class="icon-btn" title="创建规范模板" data-i18n-title="创建规范模板" aria-label="创建规范模板">＋</button>
+            <button id="conv-open" class="icon-btn" title="打开 conventions.md(agent 会遵守此文件)" data-i18n-title="打开 conventions.md(agent 会遵守此文件)" aria-label="打开 conventions.md">↗</button>
           </span>
         </div>
         <div id="conv-list" class="doc-list"></div>
