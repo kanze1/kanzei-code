@@ -26,3 +26,7 @@ crates/kanzei-app/binaries/
 /dist
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/
+
+# 并行线的私有 target(每树一个,避免共享 target 让 cargo 把别树产物判 Fresh 复用)
+.target-private/
+.target-merge/
