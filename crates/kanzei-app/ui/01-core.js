@@ -100,5 +100,16 @@ function writeJson(key, value) {
     /* 配额满等情况:偏好丢失可以接受,不该打断当前操作 */
   }
 }
+
+// R-184 P2:子代理角色名 → 确定性强调色(0-4)。活动面板角色色点与主对话折叠组共用,
+// 只做确定性映射(同一角色刷新不变),不承诺语义排序;角色名文本是主标识,颜色是辅助
+// (design §2.2 不得只靠颜色区分)。
+function agentRoleAccent(role) {
+  if (!role) return 0;
+  let sum = 0;
+  for (let i = 0; i < role.length; i += 1) sum = (sum * 31 + role.charCodeAt(i)) >>> 0;
+  return (sum % 4) + 1;
+}
+
 const messages = $("messages");
 const promptBox = $("prompt");

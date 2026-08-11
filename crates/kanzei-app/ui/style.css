@@ -1327,6 +1327,25 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 /* ---------- 主对话内联工具块(R-090):形态对齐 Claude Code ---------- */
 /* 无边框无底色,靠字重与缩进建立层次;两行一块:调用行 + ⎿ 结果行。 */
 .msg.tool-msg { padding: 0; margin: 1px 0; background: transparent; border: none; }
+
+/* R-184 P2:子代理角色色点(活动面板轨迹 + 主对话折叠组共用)。颜色来自
+   line-accent-* 的 --line-color;色点旁必有角色名文本,颜色不作唯一区分。 */
+.bg-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-color, var(--dim)); flex-shrink: 0; align-self: center; }
+
+/* R-184 P2:主对话里同一子代理角色的工具块折叠组(默认收起,展开看全部)。 */
+.agent-fold { margin: 2px 0; }
+.agent-fold-head {
+  display: flex; gap: 6px; align-items: center; width: 100%;
+  background: transparent; border: none; color: var(--fg);
+  font-size: 12px; padding: 2px 0 2px 2px; cursor: pointer; text-align: left;
+  font-family: var(--mono, ui-monospace, monospace);
+}
+.agent-fold-head:hover .agent-fold-role { text-decoration: underline; }
+.agent-fold-head:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.agent-fold-role { font-weight: 600; color: var(--line-color, var(--fg)); }
+.agent-fold-count { font-size: 10.5px; }
+.agent-fold-caret { margin-left: auto; color: var(--dim); }
+.agent-fold-body { padding-left: 2px; }
 .tool-msg-head {
   display: flex; gap: 6px; align-items: baseline; width: 100%;
   background: transparent; border: none; color: var(--fg);

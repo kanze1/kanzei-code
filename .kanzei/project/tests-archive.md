@@ -1581,3 +1581,9 @@
 - 摘要: kanzei-app 115 单测全绿,含 R-143 auto_push_tests 三条:本轮有提交+有 upstream → 自动 push 成功且远端收到;本轮无提交 → 零触发;有提交无 remote → 失败经 stage 可见且不 panic。
 - 关联: R-143
 - 收尾: 1786445948
+
+## T-1786446371 R-184 P2 前端冒烟四连 [passed]
+- 命令: node --check + ui-runtime/i18n/a11y/markdown 四条冒烟
+- 摘要: R-184 批3(P2):ui-runtime-smoke 新增 5 组断言全过(角色色点、角色筛选下拉与切换、主对话折叠组默认收起/展开/caret、不同角色独立成组);i18n 959 key 通过(新增 3 键);a11y/markdown 冒烟通过。
+- 关联: R-184
+- 收尾: 1786446371

@@ -110,8 +110,14 @@ $("bg-status-filter").addEventListener("change", (e) => {
   localStorage.setItem("kz-bg-status", bgFilters.status);
   applyBgFilters();
 });
+$("bg-role-filter").addEventListener("change", (e) => {
+  bgFilters.role = e.target.value;
+  localStorage.setItem("kz-bg-role", bgFilters.role);
+  applyBgFilters();
+});
 $("bg-type-filter").value = bgFilters.type;
 $("bg-status-filter").value = bgFilters.status;
+$("bg-role-filter").value = bgFilters.role;
 
 $("documents-batch-apply").addEventListener("click", applyBatch);
 $("documents-batch-clear").addEventListener("click", () => { batchSelection.clear(); if (latestDocsSnapshot) renderDocuments(latestDocsSnapshot); });

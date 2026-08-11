@@ -80,8 +80,30 @@ function appendDiffNode(container, node, depth) {
 function bgSync() {
   // 面板开关只由用户控制;工具事件只能更新内容,不能擅自开关。
   syncActivityPanel();
+  syncBgRoleFilterOptions();
   applyBgFilters();
   renderBgGroups();
+}
+
+// R-184 P2:角色筛选下拉的选项随条目动态刷新(全部 + 当前有 role 的去重角色),
+// 选中值在重建时保留。放在 bgSync 里随条目增减一并维护,不单独监听。
+function syncBgRoleFilterOptions() {
+  const select = $("bg-role-filter");
+  if (!select) return;
+  const current = select.value;
+  const roles = [...new Set([...bgEntries.values()].map((entry) => entry.role).filter(Boolean))].sort();
+  select.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "all";
+  all.textContent = t("全部子代理");
+  select.appendChild(all);
+  for (const role of roles) {
+    const option = document.createElement("option");
+    option.value = role;
+    option.textContent = role;
+    select.appendChild(option);
+  }
+  select.value = roles.includes(current) || current === "all" ? current : "all";
 }
 // R-168:活动栏不是完整工具审计(主对话已有内联工具块)，只保留用户需要盯进度的
 // 终端命令；任意工具失败仍会在结束时补建，避免把故障信号一起静默掉。
@@ -147,6 +169,9 @@ function bgIsTerminal(name) {
 const bgFilters = {
   type: localStorage.getItem("kz-bg-type") || "all",
   status: localStorage.getItem("kz-bg-status") || "all",
+  // R-184 P2:按子代理角色筛活动轨迹。只对编排派发(带 role)的条目生效,
+  // 其它工具一律通过——角色筛是活动面板里的一个维度,不是把活动栏变成子代理专用。
+  role: localStorage.getItem("kz-bg-role") || "all",
 };
 function bgEntryStatus(entry) {
   if (!entry.done) return "running";
@@ -157,7 +182,8 @@ function applyBgFilters() {
   for (const entry of bgEntries.values()) {
     const typeOk = bgFilters.type === "all" || entry.type === bgFilters.type;
     const statusOk = bgFilters.status === "all" || bgEntryStatus(entry) === bgFilters.status;
-    const visible = typeOk && statusOk;
+    const roleOk = bgFilters.role === "all" || entry.role === bgFilters.role;
+    const visible = typeOk && statusOk && roleOk;
     entry.el.classList.toggle("hidden", !visible);
     if (visible) shown += 1;
   }
@@ -312,6 +338,13 @@ function bgAdd(id, name, summary, input) {
   toolName.className = "bg-tool";
   // 编排派发的这批里,"task" 对所有 8 条都一样,毫无区分度;角色名才是身份。
   toolName.textContent = phase ? id : name;
+  // R-184 P2:编排派发的子代理轨迹带角色色点(●,按角色名确定性取色),与主对话
+  // 折叠组同源;色点旁始终有角色名文本,颜色只作辅助不唯一承载区分。
+  const dot = phase ? document.createElement("span") : null;
+  if (dot) {
+    dot.className = `bg-dot line-accent-${agentRoleAccent(id)}`;
+    dot.setAttribute("aria-hidden", "true");
+  }
   const target = document.createElement("span");
   target.className = "bg-target";
   // 后端 summarize_input(kanzei-core/src/runner/compaction.rs)把整坨入参 JSON 截到 160 字,
@@ -320,7 +353,7 @@ function bgAdd(id, name, summary, input) {
   // 挑不出来再回落后端 summary(回放事件不带 input,靠的就是这一级),最后回落空串。
   const shown = toolCallSummary(name, input) || String(summary ?? "");
   target.textContent = shown;
-  title.append(toolName, target);
+  title.append(...(dot ? [dot] : []), toolName, target);
   // 所属阶段随条目走,不只挂在组标题上:筛选/滚动之后单看一行也要知道它是勘察还是复核。
   if (phase) {
     const badge = document.createElement("span");
@@ -354,7 +387,7 @@ function bgAdd(id, name, summary, input) {
     // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
     // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
     el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input,
-    children: new Map(), startedAt: Date.now(), done: false,
+    role: phase ? id : null, children: new Map(), startedAt: Date.now(), done: false,
   };
   bgEntries.set(id, entry);
   bgAppendArgs(entry, input);

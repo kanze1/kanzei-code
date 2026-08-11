@@ -2571,6 +2571,56 @@ assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,�
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null } });
 await flush();
 
+// ---------- R-184 P2:活动记录按 agent 归属与折叠 ----------
+// ① 编排子代理轨迹带角色色点(角色名文本始终在旁,颜色不作唯一区分);
+//    无 phase 的模型自派 task 不进活动面板,自然也不该有色点。
+assert(orchEntry("architecture_scout")?.querySelector(".bg-dot"), "编排子代理轨迹缺角色色点");
+assert(
+  !orchEntry("MODEL_TASK") || !orchEntry("MODEL_TASK").querySelector(".bg-dot"),
+  "无 phase 的模型自派 task 不该有角色色点",
+);
+// ② 角色筛选下拉动态列出全部角色(全部 + 每个出现过的角色)。
+const roleFilter = document.querySelector("#bg-role-filter");
+assert(roleFilter, "活动面板缺角色筛选下拉");
+const roleOptions = [...roleFilter.options].map((o) => o.value);
+for (const role of [...scoutRoles, "spec_reviewer", "risk_reviewer"]) {
+  assert(roleOptions.includes(role), `角色筛选下拉缺选项 ${role},实得 ${roleOptions.join(",")}`);
+}
+// ③ 切到某角色 → 只剩该角色的条目可见;切回全部 → 全部恢复。
+roleFilter.value = "architecture_scout";
+roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
+await flush();
+const visibleAfterRole = [...document.querySelectorAll("#bg-list .bg-entry")].filter((n) => !n.classList.contains("hidden"));
+assert(
+  visibleAfterRole.length >= 1 && visibleAfterRole.every((n) => n.dataset.bgRole === "architecture_scout"),
+  `按角色筛选后应只剩 architecture_scout,实得 ${visibleAfterRole.map((n) => n.dataset.bgRole).join(",")}`,
+);
+roleFilter.value = "all";
+roleFilter._listeners.change?.forEach((fn) => fn({ target: roleFilter }));
+await flush();
+// ④ 主对话里同一角色的 task 工具块折叠成一组(默认收起,组头带块数)。
+const fold = document.querySelector('.agent-fold[data-agent-role="architecture_scout"]');
+assert(fold, "主对话缺角色折叠组");
+const foldHead = fold.querySelector(".agent-fold-head");
+const foldBody = fold.querySelector(".agent-fold-body");
+assert(foldHead && foldBody, "折叠组缺头部或主体");
+assert(foldBody.classList.contains("hidden"), "折叠组默认应收起");
+assert(foldHead.getAttribute("aria-expanded") === "false", "折叠组头 aria-expanded 初始应为 false");
+// 编排角色固定调用 id,第二轮 start 被 chatToolBlocks.has(id) 守卫吞(既有行为:
+// 同一调用 id 只渲染一次),折叠组内保留第一轮的 1 个块。
+const inFold = foldBody.querySelectorAll(".tool-msg").length;
+assert(inFold === 1, `architecture_scout 折叠组内应有 1 个工具块,实得 ${inFold}`);
+assert(fold.querySelector(".agent-fold-count")?.textContent.includes("1"), "折叠组头未显示块数");
+foldHead.click();
+await flush();
+assert(!foldBody.classList.contains("hidden"), "点击折叠组头未展开");
+assert(foldHead.getAttribute("aria-expanded") === "true", "展开后 aria-expanded 应为 true");
+assert(fold.querySelector(".agent-fold-caret")?.textContent === "▾", "展开后 caret 未变为 ▾");
+// ⑤ 不同角色各自独立成组,不互相吞并。
+for (const role of scoutRoles.slice(1)) {
+  assert(document.querySelector(`.agent-fold[data-agent-role=${role}]`), `角色 ${role} 没有自己的折叠组`);
+}
+
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");
 const editEnd = handlers.get("kz:tool-end");

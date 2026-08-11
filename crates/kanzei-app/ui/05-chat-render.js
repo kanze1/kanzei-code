@@ -295,12 +295,64 @@ function fillToolBlock(block, { ok, content, display, input }) {
 
 const chatToolBlocks = new Map();
 const CHAT_TOOL_KEEP = 200; // D-090 同款上界:长跑只保留最近块的活引用,DOM 留在历史里。
+
+// R-184 P2:主对话里的 task 工具块按角色折叠成组(R-174 遗留 (a):编排派发的 8 条
+// 子代理各自生成一个平铺工具块、偏吵)。组头是唯一新增的 DOM,组内块走既有
+// buildToolBlock/fillToolBlock 渲染;同一角色跨轮复用并入同一组,组头显示累计块数。
+const chatAgentFolds = new Map(); // role -> {head, body, countEl, count}
+function chatAgentFold(role) {
+  let group = chatAgentFolds.get(role);
+  if (group) return group;
+  const wrap = document.createElement("div");
+  wrap.className = "agent-fold";
+  wrap.dataset.agentRole = role;
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "agent-fold-head";
+  head.setAttribute("aria-expanded", "false");
+  head.setAttribute("aria-label", `${role} — ${t("展开或收起该子代理的工具块")}`);
+  const dot = document.createElement("span");
+  dot.className = `bg-dot line-accent-${agentRoleAccent(role)}`;
+  dot.setAttribute("aria-hidden", "true");
+  const label = document.createElement("span");
+  label.className = "agent-fold-role";
+  label.textContent = role;
+  const countEl = document.createElement("span");
+  countEl.className = "agent-fold-count dim";
+  const caret = document.createElement("span");
+  caret.className = "agent-fold-caret";
+  caret.textContent = "▸";
+  head.append(dot, label, countEl, caret);
+  const body = document.createElement("div");
+  body.className = "agent-fold-body hidden";
+  head.addEventListener("click", () => {
+    // classList.toggle 返回的是移除后的状态:展开(类已移除)时返回 false。
+    const open = body.classList.toggle("hidden");
+    head.setAttribute("aria-expanded", String(!open));
+    caret.textContent = open ? "▸" : "▾";
+  });
+  wrap.append(head, body);
+  messages.appendChild(wrap);
+  group = { head, body, countEl, count: 0 };
+  chatAgentFolds.set(role, group);
+  return group;
+}
+
 function chatToolStart(id, name, summary, input) {
   if (!id || chatToolBlocks.has(id)) return;
   clearEmptyState();
   // 实时路径拿不到结构化 input(事件里只有 summary 文本),退化为把 summary 当参数展示。
   const block = buildToolBlock(name, input ?? { command: summary });
-  messages.appendChild(block.wrap);
+  if (name === "task") {
+    // task 工具的 id 就是角色名(编排派发)或调用 id(模型自派);折叠组按它归并,
+    // 平铺退化为"每个调用一组",不影响非 task 工具的现有渲染路径。
+    chatAgentFold(String(id)).body.appendChild(block.wrap);
+    const group = chatAgentFolds.get(String(id));
+    group.count += 1;
+    group.countEl.textContent = `(${group.count})`;
+  } else {
+    messages.appendChild(block.wrap);
+  }
   chatToolBlocks.set(id, block);
   if (chatToolBlocks.size > CHAT_TOOL_KEEP) {
     chatToolBlocks.delete(chatToolBlocks.keys().next().value);
