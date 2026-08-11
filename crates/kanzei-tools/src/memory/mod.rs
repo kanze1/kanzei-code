@@ -739,6 +739,13 @@ pub fn harvest_sop(store: &MemoryStore, entry: &kanzei_core::CompletedEntry, pro
     if store.note_fingerprint_seen(&fingerprint) {
         return false;
     }
+    // D-204 批1(验收③沉淀门槛):工具序列过短不构成可复用流程。
+    // completed_entry 已保证至少一个实质写工具(否则根本不进这条线),
+    // 但 1~2 个工具的流程(如 "defect → bash" 一次修复)没有跨条目复用价值,
+    // 投了也是纯工具名罗列——机械拦截比留给 manager 判 NOOP 更稳。
+    if entry.tools.len() < 3 {
+        return false;
+    }
     // 工具序列是提炼步骤的原料;它同时也是判重依据——流程一样的条目应当合并而非新增。
     let flow = entry.tools.join(" → ");
     let summary = format!(
@@ -748,11 +755,20 @@ pub fn harvest_sop(store: &MemoryStore, entry: &kanzei_core::CompletedEntry, pro
     let detail = format!(
         "- 触发任务: {}\n\
          - 实际工具顺序: {}\n\
-         - 请提炼成可复用步骤(祈使句、按顺序、每步说清做什么与判断依据),写进 category=sop、scope=global 的候选。\n\
+         - 请按下列结构提炼成可复用 SOP(写进 category=sop、scope=global 的候选),\n\
+           不是工具罗列而是「照做就能走通」的步骤:\n\
+           1. 适用场景:什么时候该走这套流程(什么类型的任务/什么前置条件);\n\
+           2. 操作步骤:祈使句、按顺序,每步写清做什么 + 这一步的判断依据\n\
+              (怎么知道做对了/做错了怎么办);\n\
+           3. 边界与例外:哪些情况不适用、哪个环节最容易出错。\n\
          - 判重: 若已有 SOP 的步骤实质相同,合并进那一条并补充差异,不要新增。\n\
          - 若这段流程只对本条目成立(一次性排查、与具体 id 强绑定),判 NOOP 不要产出。",
         prompt.chars().take(200).collect::<String>(),
-        if flow.is_empty() { "(无)".to_string() } else { flow },
+        if flow.is_empty() {
+            "(无)".to_string()
+        } else {
+            flow
+        },
     );
     store.append_note(&summary, &detail, "sop", &[]).is_ok()
 }
@@ -1218,9 +1234,21 @@ mod tests {
         let other = kanzei_core::CompletedEntry {
             id: "D-166".into(),
             status: "fixed".into(),
-            tools: vec!["edit".into()],
+            tools: vec!["read".into(), "edit".into(), "bash".into()],
         };
         assert!(harvest_sop(&store, &other, "修跳转"), "不同条目应各投一次");
+
+        // D-204 批1(验收③):工具序列过短(<3)不构成可复用流程,机械拦截。
+        let short = kanzei_core::CompletedEntry {
+            id: "D-167".into(),
+            status: "fixed".into(),
+            tools: vec!["defect".into(), "bash".into()],
+        };
+        assert!(
+            !harvest_sop(&store, &short, "一次小修"),
+            "1~2 个工具的流程不该投 SOP 候选(纯工具罗列)"
+        );
+        assert_eq!(store.pending_note_list().len(), 2, "短流程不应新增候选");
 
         // 候选可逐条查看,并按指纹整块丢弃——只删摘要行会留下孤儿明细。
         let list = store.pending_note_list();
@@ -1329,11 +1357,18 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
 
-        // 完成条目的消息序列:edit 成功 → req update done(收口)。
+        // 完成条目的消息序列:read 定位 → edit 成功 → req update done(收口)。
+        // 工具数 ≥3 才满足 D-204 沉淀门槛;序列本身贴近真实一轮。
         let done = vec![
+            msg_call("c0", "read", json!({"path": "src/lib.rs"})),
+            msg_result("c0", "ok", false),
             msg_call("c1", "edit", json!({"path": "src/lib.rs"})),
             msg_result("c1", "ok", false),
-            msg_call("c2", "req", json!({"action": "update", "id": "R-777", "status": "done"})),
+            msg_call(
+                "c2",
+                "req",
+                json!({"action": "update", "id": "R-777", "status": "done"}),
+            ),
             msg_result("c2", "updated", false),
         ];
         let (delivered, sop, fact) = harvest_end_of_run(&dir, "收口 R-777", &done);
@@ -1358,7 +1393,11 @@ mod tests {
         let read_only = vec![
             msg_call("c3", "read", json!({"path": "src/lib.rs"})),
             msg_result("c3", "...", false),
-            msg_call("c4", "req", json!({"action": "update", "id": "R-778", "status": "done"})),
+            msg_call(
+                "c4",
+                "req",
+                json!({"action": "update", "id": "R-778", "status": "done"}),
+            ),
             msg_result("c4", "updated", false),
         ];
         let (delivered2, sop2, fact2) = harvest_end_of_run(&dir, "只读轮", &read_only);
@@ -1570,7 +1609,10 @@ mod tests {
         let (_, ids2, _) = resident_index(&dir, 110);
         assert!(ids2.contains("M-104"), "平手时 id 大优先: {ids2:?}");
         assert!(ids2.contains("M-103"), "平手时次大 id 也应入选: {ids2:?}");
-        assert!(!ids2.contains("M-102"), "预算内应优先保留最新 updated: {ids2:?}");
+        assert!(
+            !ids2.contains("M-102"),
+            "预算内应优先保留最新 updated: {ids2:?}"
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }

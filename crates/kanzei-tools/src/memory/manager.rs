@@ -607,7 +607,11 @@ mod tests {
             )
             .await;
         assert!(!staled.is_error, "{}", staled.content);
-        assert!(staled.content.contains("被新结论推翻"), "{}", staled.content);
+        assert!(
+            staled.content.contains("被新结论推翻"),
+            "{}",
+            staled.content
+        );
 
         // 主目录不再有 M-001(archive_dead 已搬走),归档侧保留 ID。
         assert!(
@@ -907,6 +911,11 @@ pub fn manager_agent() -> AgentDef {
                  \"scope=global\" (候选 SOP 落库目标) must be ADDed with scope=global — \
                  they are cross-project workflow templates; the detail line overrides \
                  the default scope rule. \
+                 SOP candidates ask for a structured, followable procedure (D-204): \
+                 ALWAYS emit 适用场景 + 操作步骤(每步做什么 AND 判断依据) + 边界与例外. \
+                 A bare tool-name sequence is NOT a SOP — rephrase from the evidence or \
+                 NOOP it. If the flow only fits this one entry (one-off debugging, tied to \
+                 a specific id), NOOP — do not generalize an unrepeatable trace. \
                  STATEFUL facts describing the CURRENT world (当前安装通道/当前分支/当前 \
                  版本…) must pass `subject` (a stable topic key, e.g. \"安装通道\"); the \
                  engine keeps at most one active entry per subject — on conflict \

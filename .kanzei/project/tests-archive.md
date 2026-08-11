@@ -1701,3 +1701,15 @@
 - 摘要: D-159 修复定向验证:①M-013 更正版已入库(commit 1476098,正文写明先查前置 git add 的 pathspec 错误、不能判定时只记症状,关联 D-159);②failure_kind 对多行 bash 输出优先取 fatal:/pathspec/did not match 根因行而非首行症状(metrics.rs failure_kind,先扫全文本找根因行再退回首行)——新增回归单测 failure_kind_多行bash批次_优先取pathspec根因行(断言 kind 含 pathspec did not match、不含 changes not staged,无根因时退回首行不回归)。kanzei-core 131 + tools 232 全绿,下游 check 干净。
 - 关联: D-159
 - 收尾: 1786450783
+
+## T-1786450853 cargo test --workspace (D-159 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-159 关闭前全量:全部 crate 全绿(core 131 含新增单测 + tools 232 + harness 109 + app 118 + llm 42)。
+- 关联: D-159
+- 收尾: 1786450853
+
+## T-1786451023 D-204 B1 定向测试:harvest_sop 门槛与结构模板 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: D-204 批1 定向验证:harvest_sop 沉淀门槛(tools<3 机械拦截,验收③)+ 候选 detail 结构模板(适用场景/步骤+判断依据/边界,验收①原料)+ manager_agent prompt SOP 提炼规则。测试:短流程不投断言新增、harvest_end_of_run 序列补 read。kanzei-tools 232 全绿。
+- 关联: D-204
+- 收尾: 1786451023
