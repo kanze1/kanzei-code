@@ -41,8 +41,14 @@ function on(event, handler) {
       state.running = true;
       state.converged = false;
     }
+    if (event === "kz:status" && sessionId) {
+      const state = sessionState(sessionId);
+      state.stage = eventPayload.payload?.stage || state.stage || "空闲";
+      state.detail = eventPayload.payload?.detail || "";
+    }
     const controlEvent =
       event === "kz:ask" ||
+      event === "kz:status" ||
       event === "kz:done" ||
       event === "kz:error" ||
       event === "kz:stopped" ||

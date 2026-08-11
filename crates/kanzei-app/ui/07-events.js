@@ -2,6 +2,8 @@
 on("kz:status", (e) => {
   const p = e.payload;
   log(`[${p.stage}] ${p.detail}`);
+  // 状态事件按 sessionId 先进入会话状态机,后台线路也要能在侧栏逐条显示阶段。
+  if (p.sessionId) renderParallelTaskStatus(processItems);
   if (running) setStatus(`${p.stage} · ${p.detail}`, true);
 });
 on("kz:meta", (e) => {

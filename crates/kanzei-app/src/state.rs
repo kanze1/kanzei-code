@@ -237,6 +237,10 @@ pub(crate) struct ProcessInfo {
     /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
     pub(crate) phase_pipeline: bool,
     pub(crate) tracker_writes: bool,
+    /// 主代理拥有写入、比对、合并与发版职责;并行线/子代理只在自己的边界内工作。
+    pub(crate) authority: String,
+    /// 当前会话阶段,用于侧栏逐条投影并行任务状态。
+    pub(crate) stage: String,
     pub(crate) running: bool,
     pub(crate) label: String,
 }
@@ -366,6 +370,13 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         .unwrap()
         .get(&session_id)
         .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
+    let stage = state
+        .runtimes
+        .lock()
+        .unwrap()
+        .get(&session_id)
+        .map(|runtime| runtime.stage.lock().unwrap().clone())
+        .unwrap_or_else(|| "空闲".into());
     ProcessInfo {
         id: process.id.clone(),
         origin_project: process.origin_project.clone(),
@@ -379,6 +390,12 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         manual_models: process.manual_models.lock().unwrap().clone(),
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
+        authority: if process.id.starts_with("d|") {
+            "primary".into()
+        } else {
+            "parallel".into()
+        },
+        stage,
         running,
         label: if process.id.starts_with("d|") {
             "默认".into()

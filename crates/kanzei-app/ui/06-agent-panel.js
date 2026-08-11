@@ -2,7 +2,10 @@
 // 与活动面板(#bg-panel)平级的独立右侧面板。数据全部来自真实 RunEvent:
 // tool-start(建条) → task-progress(trace:当前工具名/累计 token/内部调用序列/transcript 数据)
 // → tool-end(终态:成功/失败/被停,移入 Finished 区)。跨轮存活条目等 R-175 提供数据后再接。
-const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, done}
+// 生命周期: running → finished → closed → deleted。
+// closed 只从当前面板收起,后端历史/审计仍保留; deleted 只移除本次 UI 条目,
+// 不改不可变的 conversation trace。
+const agentEntries = new Map(); // id -> {el, head, meta, detail, calls, tokens, startedAt, state}
 let agentPanelOpen = false;
 
 function agentToolType(phase, name) {
@@ -45,15 +48,18 @@ function agentAddUsage(entry, usage) {
 function agentCountsSync() {
   let running = 0;
   let finished = 0;
+  let closed = 0;
   for (const entry of agentEntries.values()) {
-    if (entry.done) finished += 1;
-    else running += 1;
+    if (entry.state === "running") running += 1;
+    else if (entry.state === "finished") finished += 1;
+    else if (entry.state === "closed") closed += 1;
   }
   $("agent-running-count").textContent = running ? `运行中 ${running}` : "";
   $("agent-finished-count").textContent = finished ? `已完成 ${finished}` : "";
   $("agent-running-count2").textContent = running ? String(running) : "";
   $("agent-finished-count2").textContent = finished ? String(finished) : "";
-  $("agent-clear").classList.toggle("hidden", finished === 0);
+  $("agent-closed-count2").textContent = closed ? String(closed) : "";
+  $("agent-clear").classList.toggle("hidden", finished === 0 && closed === 0);
 }
 
 // 打开/收起面板。与活动面板互斥:一个开着时另一个收起,避免右侧两栏叠在一起。
@@ -70,7 +76,7 @@ function agentStart(id, name, summary, input) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
   const existing = agentEntries.get(id);
-  if (existing && !existing.done) return; // 同 id 仍在跑,原地更新
+  if (existing && existing.state === "running") return; // 同 id 仍在跑,原地更新
   if (existing) {
     // 角色跨轮复用(architecture_scout 每轮都派):旧条目进 finished 后同名再次派发,
     // 直接原地复位成新 running 条目,避免面板越积越长。
@@ -81,6 +87,7 @@ function agentStart(id, name, summary, input) {
   el.className = "bg-entry running";
   el.dataset.agentId = id;
   el.dataset.bgStatus = "running";
+  el.dataset.agentState = "running";
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
@@ -120,7 +127,7 @@ function agentStart(id, name, summary, input) {
   el.append(title, prog, meta, actions, detail);
   const entry = {
     el, title, target, prog, meta, actions, detail, phase, name,
-    calls: new Map(), tokens: 0, currentTool: "", startedAt: Date.now(), done: false,
+    calls: new Map(), tokens: 0, currentTool: "", startedAt: Date.now(), state: "running",
   };
   agentEntries.set(id, entry);
   $("agent-running").appendChild(el);
@@ -140,10 +147,10 @@ function agentStart(id, name, summary, input) {
 
 function agentProgress(id, text, trace) {
   const entry = agentEntries.get(id);
-  if (!entry || entry.done) return;
+  if (!entry || entry.state !== "running") return;
   if (text) entry.prog.textContent = text;
   if (!trace) {
-    if (!entry.done) agentTick(entry);
+    if (entry.state === "running") agentTick(entry);
     return;
   }
   if (trace.phase === "usage") {
@@ -166,7 +173,7 @@ function agentProgress(id, text, trace) {
   }
   // 调用的入参与输出都收进 detail,这就是 transcript 的原始数据源。
   renderAgentTranscript(entry);
-  if (!entry.done) agentTick(entry);
+  if (entry.state === "running") agentTick(entry);
 }
 
 // transcript:该子代理内部每次工具调用的 名称 + 入参 + 输出,按发生顺序渲染。
@@ -198,7 +205,8 @@ function renderAgentTranscript(entry) {
 function agentEnd(id, ok, preview, display) {
   const entry = agentEntries.get(id);
   if (!entry) return;
-  entry.done = true;
+  entry.state = "finished";
+  entry.el.dataset.agentState = "finished";
   entry.el.classList.remove("running");
   const stopped = !ok && /被停|停止|stopped|cancelled/.test(String(preview ?? ""));
   entry.el.classList.add(ok ? "ok" : stopped ? "timeout" : "err");
@@ -219,7 +227,25 @@ function agentEnd(id, ok, preview, display) {
   agentCountsSync();
 }
 
-// 每条的操作项:运行中的能单条停止;结束后能重跑、能查看 transcript(点标题展开)。
+function agentClose(id) {
+  const entry = agentEntries.get(id);
+  if (!entry || entry.state !== "finished") return;
+  entry.state = "closed";
+  entry.el.dataset.agentState = "closed";
+  $("agent-closed").appendChild(entry.el);
+  agentRenderActions(id, entry);
+  agentCountsSync();
+}
+
+function agentDelete(id) {
+  const entry = agentEntries.get(id);
+  if (!entry || entry.state !== "closed") return;
+  entry.el.remove();
+  agentEntries.delete(id);
+  agentCountsSync();
+}
+
+// 每条的操作项:运行中的能单条停止;结束后能查看/关闭;关闭后才能删除本地条目。
 function agentRenderActions(id, entry) {
   entry.actions.innerHTML = "";
   const add = (label, title, handler) => {
@@ -235,7 +261,7 @@ function agentRenderActions(id, entry) {
     entry.actions.appendChild(btn);
     return btn;
   };
-  if (!entry.done) {
+  if (entry.state === "running") {
     // R-174:子代理单条停止通道——不再只能停整轮。
     add(t("停止"), t("只停这一条子代理,不影响本轮其它工具"), async () => {
       try {
@@ -246,19 +272,30 @@ function agentRenderActions(id, entry) {
       }
     });
   }
-  if (entry.done) {
+  if (entry.state === "finished") {
     add(t("打开"), t("查看完整 transcript(工具调用序列 + 每次入参与输出)"), () => {
       const detail = entry.detail;
       detail.classList.toggle("hidden");
       entry.title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
     });
+    add(t("关闭"), t("关闭该条目但保留后端历史与审计记录"), () => agentClose(id));
+  }
+  if (entry.state === "closed") {
+    add(t("打开"), t("重新打开该条目"), () => {
+      entry.state = "finished";
+      entry.el.dataset.agentState = "finished";
+      $("agent-finished").appendChild(entry.el);
+      agentRenderActions(id, entry);
+      agentCountsSync();
+    });
+    add(t("删除"), t("从当前面板删除该条目,不删除后端历史"), () => agentDelete(id));
   }
 }
 
-// Clear:清空 Finished 区,保留运行中的。
+// Clear:清空 Finished/Closed 区,保留运行中的;真正删除前必须先关闭。
 function agentClearFinished() {
   for (const [id, entry] of agentEntries) {
-    if (entry.done) {
+    if (entry.state === "finished" || entry.state === "closed") {
       entry.el.remove();
       agentEntries.delete(id);
     }

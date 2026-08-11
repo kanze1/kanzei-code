@@ -251,14 +251,33 @@ function renderRecoveredMessages(items) {
 
 async function loadConversation(sequence = null, switchGeneration = null) {
   if (!currentProject) return;
-  const isCurrent = () => switchGeneration === null || switchGeneration === processSwitchGeneration;
+  // 启动时项目列表与历史恢复并行触发,先确保进程列表已选出主会话,再锁定
+  // processId。否则首次 conversation_get 可能带着 null,历史会被竞态丢掉。
+  if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
+  if (!currentProject || !activeProcessId) return;
+  // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。
+  // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
+  const forProject = currentProject;
+  const forProcessId = activeProcessId;
+  const isCurrent = () =>
+    (switchGeneration === null || switchGeneration === processSwitchGeneration) &&
+    currentProject === forProject &&
+    activeProcessId === forProcessId;
   try {
     bgClear();
     renderTodoPanel([], 0, 0);
-    const history = await invoke("conversation_get", { projectDir: currentProject, processId: activeProcessId, sequence });
+    const history = await invoke("conversation_get", {
+      projectDir: forProject,
+      processId: forProcessId,
+      sequence,
+    });
     if (!isCurrent()) return;
     renderRecoveredMessages(history);
-    const traces = await invoke("conversation_trace_get", { projectDir: currentProject, processId: activeProcessId, sequence });
+    const traces = await invoke("conversation_trace_get", {
+      projectDir: forProject,
+      processId: forProcessId,
+      sequence,
+    });
     if (!isCurrent()) return;
     renderRecoveredTraces(traces);
     log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);

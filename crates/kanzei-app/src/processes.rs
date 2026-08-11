@@ -570,6 +570,7 @@ fn next_process_index(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn process_update(
     state: State<'_, AppState>,
     process_id: String,

@@ -114,6 +114,39 @@ let askSyncedSession = null;
 let processRefreshInFlight = null;
 let processRefreshQueued = false;
 let processSwitchGeneration = 0;
+function renderParallelTaskStatus(items) {
+  const target = $("parallel-task-status");
+  const count = $("parallel-task-count");
+  if (!target || !count) return;
+  const processes = items ?? [];
+  count.textContent = processes.length ? `${processes.length} ${t("条任务")}` : "";
+  target.replaceChildren();
+  if (!processes.length) return;
+  for (const item of processes) {
+    const state = sessionState(item.session_id);
+    if (item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
+    const runningNow = state.running || Boolean(item.running);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `parallel-task-row${item.id === activeProcessId ? " active" : ""}${runningNow ? " running" : ""}`;
+    row.dataset.processId = item.id;
+    row.setAttribute("role", "listitem");
+    const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
+    const head = document.createElement("span");
+    head.className = "parallel-task-head";
+    head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
+    const status = document.createElement("span");
+    status.className = "parallel-task-state";
+    const stage = state.stage || item.stage || (runningNow ? t("运行中") : t("空闲"));
+    status.textContent = `${runningNow ? "●" : "○"} ${runningNow ? t("运行中") : t("空闲")} · ${stage}`;
+    row.append(head, status);
+    row.title = runningNow
+      ? `${authority}: ${state.detail || stage}`
+      : `${authority}: ${t("点击切换到此线路")}`;
+    row.addEventListener("click", () => void switchProcess(item.id));
+    target.appendChild(row);
+  }
+}
 function renderProcesses(items) {
   processItems = items ?? [];
   const previousSessionId = activeSessionId;
@@ -147,6 +180,7 @@ function renderProcesses(items) {
     syncedRunningProcessId = activeProcessId;
     setRunning(activeRunning, activeRunning ? t("运行中") : t("空闲"));
   }
+  renderParallelTaskStatus(processItems);
   const tabs = $("process-tabs");
   const existingTabs = new Map(
     [...tabs.children].map((tab) => [tab.dataset.processId, tab]),
@@ -159,13 +193,15 @@ function renderProcesses(items) {
       tab.addEventListener("click", () => switchProcess(tab.dataset.processId));
     }
     tab.dataset.processId = item.id;
+    const isPrimary = item.authority === "primary" || item.id.startsWith("d|");
+    tab.dataset.authority = isPrimary ? "primary" : "parallel";
     // R-086:标签的 ● 从该会话状态机取——后台会话的 done 已收敛终态,不依赖
     // 这次轮询是否恰好拉到了最新 running。
     const itemRunning = sessionState(item.session_id).running;
     tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${itemRunning ? " running" : ""}`;
     const branch = item.branch ? ` · ${item.branch}` : "";
-    tab.textContent = `${item.label}${branch}${itemRunning ? " ●" : ""}`;
-    tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}${item.worktree_path ? ` · ${item.worktree_path}` : ""}`;
+    tab.textContent = `${isPrimary ? "◆ " : "◇ "}${item.label}${branch}${itemRunning ? " ●" : ""}`;
+    tab.title = `${isPrimary ? t("主代理") : t("并行线")} · ${item.id}${item.model ? ` · ${item.model}` : ""}${item.worktree_path ? ` · ${item.worktree_path}` : ""}`;
     nextTabs.push(tab);
   }
   tabs.replaceChildren(...nextTabs);
@@ -255,7 +291,8 @@ async function switchProcess(processId) {
     sessionState(target.session_id).running ? t("运行中") : t("空闲")
   );
   renderProcesses(processItems);
-  clearChat();
+  // 不在请求发出前清空消息:切线期间保留旧内容,等目标线程的历史完整恢复后
+  // renderRecoveredMessages 一次性替换,避免慢请求/竞态把主对话显示成空白。
   bgClear();
   renderTodoPanel([], 0, 0);
   await loadConversation(null, switchGeneration);

@@ -1209,7 +1209,7 @@ pub(crate) fn append_dev_guidance(
     system.push_str(kanzei_tools::frontend_inspection_guidance());
     system.push_str(&work_priority_guidance(work_priority));
     system.push_str(
-        "\n\nCollaboration commit discipline: stage ONLY the explicit files you changed; never use `git add .` or another directory-wide stage. Immediately before every commit, call `collaboration_status`, re-run `git status`, and inspect the staged diff/hash so another line's unfinished work cannot be swept into your commit.",
+        "\n\nAuthority boundary: you are the primary agent. Own file edits, diff review, commits, merges, and release/package actions. Any `task` subagent is read-only reconnaissance and must never write/edit, run bash, change git state, merge, or publish. Collaboration commit discipline: stage ONLY the explicit files you changed; never use `git add .` or another directory-wide stage. Immediately before every commit, call `collaboration_status`, re-run `git status`, and inspect the staged diff/hash so another line's unfinished work cannot be swept into your commit.",
     );
 }
 

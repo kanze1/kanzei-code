@@ -57,12 +57,13 @@
         <div id="conversation-list" class="doc-list"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="live" id="live-section">
-        <div class="section-title"><span data-i18n-key="当前状态">当前状态</span></div>
+        <div class="section-title"><span data-i18n-key="当前状态">当前状态</span> <em id="parallel-task-count"></em></div>
         <div id="live-status">
           <div id="live-turn" class="live-row dim">空闲</div>
           <div id="live-focus" class="live-row hidden"></div>
           <div id="live-action" class="live-row hidden"></div>
           <div id="live-note" class="live-row hidden"></div>
+          <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="并行任务状态"></div>
         </div>
       </div>
       <!-- 当前在做(用户定调):侧栏不再罗列完整需求/缺陷,只呈现取活焦点这一条,
@@ -699,7 +700,7 @@
       <div class="bg-head">子代理
         <span id="agent-running-count" class="dim"></span>
         <span id="agent-finished-count" class="dim"></span>
-        <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成的子代理条目">清空</button>
+        <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目">清空</button>
       </div>
       <div class="bg-sections">
         <div class="bg-section">
@@ -709,6 +710,10 @@
         <div class="bg-section">
           <div class="bg-section-title">已完成 <span id="agent-finished-count2" class="dim"></span></div>
           <div id="agent-finished"></div>
+        </div>
+        <div class="bg-section">
+          <div class="bg-section-title">已关闭 <span id="agent-closed-count2" class="dim"></span></div>
+          <div id="agent-closed"></div>
         </div>
       </div>
     </aside>

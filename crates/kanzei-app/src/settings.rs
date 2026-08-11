@@ -1174,11 +1174,26 @@ mod tests {
         .unwrap();
 
         let text = std::fs::read_to_string(&project_toml).unwrap();
-        assert!(text.contains("primary = \"codex:gpt-5.6-luna\""), "模型角色未写入项目配置:\n{text}");
-        assert!(text.contains("fast = \"codex:gpt-5.6-luna-fast\""), "fast 未写入:\n{text}");
-        assert!(!text.contains("127.0.0.1:12000"), "proxy 被串写进项目配置:\n{text}");
-        assert!(!text.contains("STUB_KEY"), "provider 密钥被串写进项目配置:\n{text}");
-        assert!(text.contains("[providers.stub]"), "既有 providers 节被误删:\n{text}");
+        assert!(
+            text.contains("primary = \"codex:gpt-5.6-luna\""),
+            "模型角色未写入项目配置:\n{text}"
+        );
+        assert!(
+            text.contains("fast = \"codex:gpt-5.6-luna-fast\""),
+            "fast 未写入:\n{text}"
+        );
+        assert!(
+            !text.contains("127.0.0.1:12000"),
+            "proxy 被串写进项目配置:\n{text}"
+        );
+        assert!(
+            !text.contains("STUB_KEY"),
+            "provider 密钥被串写进项目配置:\n{text}"
+        );
+        assert!(
+            text.contains("[providers.stub]"),
+            "既有 providers 节被误删:\n{text}"
+        );
         // 注释与未知内容保留(toml_edit 文档化编辑)。
         assert!(text.contains("# 项目配置"), "注释丢失:\n{text}");
         let _ = std::fs::remove_dir_all(&project_root);

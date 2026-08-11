@@ -738,10 +738,10 @@ const payloads = {
   test_runs_snapshot: { active: [{ id: "T-001", title: "冒烟测试", status: "passed", fields: [["命令", "cargo test"]], refs: ["R-001", "D-001"] }], archived: [] },
   test_runs_init_refs: { backfilled: 0 },
   process_list: [
-    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat" },
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, branch: "main", model: "deepseek:deepseek-chat", authority: "primary", stage: "复核" },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
     // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
-    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false, authority: "parallel", stage: "实现" },
   ],
   collaboration_snapshot: [
     {
@@ -3354,6 +3354,16 @@ assert(byId.get("ask-overlay").classList.contains("hidden"), "R-086 前置:主�
 // 模拟"事件已收敛但轮询采样发生在事件之前"的竞态)。
 const activeTab = document.querySelector(".process-tab.active");
 assert(activeTab?.textContent.includes("主会话"), `冒烟前置:主会话应为活动进程(实际:${activeTab?.textContent})`);
+// 并行线状态卡按 process_list 全量投影,三条并行线就必须有三条可切换任务行。
+const twoProcesses = structuredClone(payloads.process_list);
+sandbox.renderProcesses([
+  ...twoProcesses,
+  { id: "p|third", label: "第三线路", session_id: "sess-third", running: false, branch: "kanzei/thread-third", authority: "parallel", stage: "测试" },
+]);
+assert(byId.get("parallel-task-status").children.length === 3, "三线并行时侧栏只渲染了一个/两条任务状态");
+assert(listText("parallel-task-status").includes("第三线路") && listText("parallel-task-status").includes("测试"), "侧栏任务状态未显示第三线路及其阶段");
+sandbox.renderProcesses(twoProcesses);
+await flush();
 // 后台会话的权限询问到达:不弹当前窗口,但进入该会话自己的待答队列。
 askHandler?.({
   payload: { id: 501, sessionId: "sess-bg", kind: "permission", action: "后台进程要写文件", resource: "后台/路径", remember: "后台/路径" },
@@ -3384,7 +3394,10 @@ assert(sandbox.sessionState("sess-bg").converged === true, "kz:idle 未标记 co
 const bgTabAfterIdle = [...document.querySelectorAll(".process-tab")].find((tab) => tab.textContent.includes("后台会话"));
 assert(!bgTabAfterIdle?.textContent.includes("●"), "会话已空闲但标签页仍亮着运行标记");
 // 切回后台会话:权限询问可见可答复,运行态显示空闲(converged 挡住桩里的旧 running=true)。
-await sandbox.switchProcess("p|bg");
+const messagesBeforeSwitch = listText("messages");
+const pendingSwitch = sandbox.switchProcess("p|bg");
+assert(listText("messages") === messagesBeforeSwitch, "切线程请求尚未完成时主对话被清空");
+await pendingSwitch;
 await flush();
 const bgTab = document.querySelector(".process-tab.active");
 assert(bgTab?.textContent.includes("后台会话"), "切换到后台会话后活动进程 tab 未更新");
@@ -4392,7 +4405,18 @@ const docsB = {
   assert(!a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Stop"), "结束的子代理不应残留停止按钮");
   // Finished 区的条目有「打开」(transcript 视图入口)。
   assert(a1f.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Finished 区子代理缺少打开 transcript 入口");
-  // Clear 清空 Finished 区。
+  // 关闭只收起条目,后端历史仍保留;重新打开可恢复到 Finished,再删除才移除本次 UI 条目。
+  a1f.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Close")?.click();
+  const a1c = document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]');
+  assert(a1c, "关闭后的子代理未移入 Closed 区");
+  assert(a1c.querySelectorAll(".bg-actions button").some((b) => b.textContent === "Open"), "Closed 条目缺少重新打开入口");
+  a1c.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Open")?.click();
+  const a1reopened = document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]');
+  assert(a1reopened, "Closed 条目点击 Open 后未回到 Finished 区");
+  a1reopened.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Close")?.click();
+  document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]')?.querySelectorAll(".bg-actions button").find((b) => b.textContent === "Delete")?.click();
+  assert(!document.querySelector('#agent-closed .bg-entry[data-agent-id="my_scout"]'), "删除已关闭子代理后 UI 条目仍存在");
+  // Clear 清空 Finished/Closed 区,但不会影响 Running。
   byId.get("agent-clear").click();
   await flush();
   assert(!document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]'), "Clear 未清空 Finished 区");

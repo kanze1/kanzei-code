@@ -74,12 +74,14 @@ pub(crate) fn task_spec() -> ToolSpec {
     ToolSpec {
         name: "task".into(),
         description: "Delegate a narrow read-only exploration task (find files, call \
-                      sites, usages; read and summarize code) to a subagent with tools \
-                      read/glob/grep. Params: prompt (self-contained instruction saying \
-                      exactly what to find and what to report back); optional model: \
-                      \"fast\" (default, local model, mechanical searches) | \"primary\" \
-                      (tasks needing code comprehension). Multiple task calls in one \
-                      turn run in parallel."
+                      sites, usages; read and summarize code) to a subagent with ONLY \
+                      read/glob/grep. It cannot write/edit files, run bash, inspect or \
+                      change git state, merge, or publish/release; those authority-bearing \
+                      actions belong to the primary agent. Params: prompt (self-contained \
+                      instruction saying exactly what to find and what to report back); \
+                      optional model: \"fast\" (default, local model, mechanical searches) | \
+                      \"primary\" (tasks needing code comprehension). Multiple task calls \
+                      in one turn run in parallel."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",

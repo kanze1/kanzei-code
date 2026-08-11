@@ -131,7 +131,12 @@ const I18N_EN = {
   "输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送 · Ctrl/Cmd+K 聚焦输入 · Ctrl/Cmd+Shift+N 新对话 · Ctrl/Cmd+Shift+C 停止":
     "Enter a task to begin · permission requests appear as dialogs · Ctrl+Enter send · Ctrl/Cmd+K focus input · Ctrl/Cmd+Shift+N new chat · Ctrl/Cmd+Shift+C stop",
   "暂无测试记录": "No test runs", "暂无排队输入": "No queued input", "暂无时间": "No time",
-  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle",
+  "运行中": "Running", "等待模型响应": "Waiting for model response", "空闲": "Idle", "条任务": "tasks",
+  "主代理": "Primary agent", "并行线": "Parallel line", "点击切换到此线路": "Click to switch to this line", "并行任务状态": "Parallel task status",
+  "关闭": "Close", "删除": "Delete", "已关闭": "Closed",
+  "关闭该条目但保留后端历史与审计记录": "Close this entry but keep backend history and audit records",
+  "重新打开该条目": "Reopen this entry", "从当前面板删除该条目,不删除后端历史": "Remove this entry from the panel; backend history is kept",
+  "清空已完成和已关闭的子代理条目": "Clear finished and closed subagent entries",
   "已复制": "Copied", "复制失败": "Copy failed", "暂无可复制的运行日志": "No runtime log to copy",
   "运行日志已复制": "Runtime log copied", "运行完成": "Run completed", "运行失败": "Run failed", "运行已停止": "Run stopped",
   "运行状态": "Run status", "工具执行中": "Tool running", "成功": "Succeeded", "失败": "Failed",
