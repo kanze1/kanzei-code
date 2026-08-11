@@ -217,7 +217,7 @@ function renderBgGroups() {
 function recordDiffSummary(display) {
   if (display?.kind !== "diff") return;
   diffSummary.set(display.path || `#${diffSummary.size + 1}`, {
-    path: display.path || "未命名文件",
+    path: display.path || t("未命名文件"),
     additions: display.additions || 0,
     deletions: display.deletions || 0,
   });

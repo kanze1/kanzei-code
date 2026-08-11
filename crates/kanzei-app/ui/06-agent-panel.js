@@ -54,8 +54,8 @@ function agentCountsSync() {
     else if (entry.state === "finished") finished += 1;
     else if (entry.state === "closed") closed += 1;
   }
-  $("agent-running-count").textContent = running ? `运行中 ${running}` : "";
-  $("agent-finished-count").textContent = finished ? `已完成 ${finished}` : "";
+  $("agent-running-count").textContent = running ? `${t("运行中")} ${running}` : "";
+  $("agent-finished-count").textContent = finished ? `${t("已完成")} ${finished}` : "";
   $("agent-running-count2").textContent = running ? String(running) : "";
   $("agent-finished-count2").textContent = finished ? String(finished) : "";
   $("agent-closed-count2").textContent = closed ? String(closed) : "";

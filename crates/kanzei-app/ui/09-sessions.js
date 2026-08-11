@@ -40,7 +40,7 @@ async function refreshWorktrees() {
   const forProject = currentProject;
   let live = [];
   try { live = await invoke("worktree_list", { projectDir: forProject }); }
-  catch (error) { log(`工作树清单读取失败:${error}`, "warn"); }
+  catch (error) { log(`${t("工作树清单读取失败")}:${error}`, "warn"); }
   if (currentProject !== forProject) return;
   renderWorktrees(live);
 }
@@ -517,7 +517,7 @@ function renderProjects(prefs) {
       if (previous && previous !== path) {
         // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
         // 丢弃,新项目会永久卡在"运行中"(发送键禁用)。refreshProcesses 会带回真实状态。
-        setRunning(false, "空闲");
+        setRunning(false, t("空闲"));
         clearChat();
         bgClear();
         renderTodoPanel([], 0, 0);
@@ -625,7 +625,7 @@ function renderPendingInputs(items) {
         }
       } catch (err) {
         cancel.disabled = false;
-        toastError(`撤销失败:${err}`);
+        toastError(`${t("撤销失败")}:${err}`);
       }
     });
     entry.append(prompt, delivery, cancel);
@@ -644,7 +644,7 @@ async function refreshPendingInputs() {
       processId: activeProcessId,
     }));
   } catch (err) {
-    log(`队列刷新失败:${err}`, "warn");
+    log(`${t("队列刷新失败")}:${err}`, "warn");
   }
 }
 
@@ -698,7 +698,7 @@ async function refreshTests() {
     await invoke("test_runs_init_refs", { projectDir: currentProject });
     renderTestRuns(await invoke("test_runs_snapshot", { projectDir: currentProject }));
   } catch (error) {
-    log(`测试记录刷新失败:${error}`, "warn");
+    log(`${t("测试记录刷新失败")}:${error}`, "warn");
   }
 }
 

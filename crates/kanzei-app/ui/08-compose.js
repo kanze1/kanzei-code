@@ -71,11 +71,11 @@ function renderAutoStatus(text = autoStopReason) {
   const el = $("auto-status");
   if (!el) return;
   const max = autoContinueMax();
-  const base = text || `连续推进上限 ${max}`;
+  const base = text || `${t("连续推进上限")} ${max}`;
   // 自主推进**不再**自带七阶段(闸门已换成进程级「勘察复核」开关)。用户此前的心智
   // 模型是「开鞭挞 = 每轮勘察+复核」,不说出来就会以为勘察静默失效了——所以鞭挞
   // 开着而流水线关着时必须在这里明说,而不是让他从没有勘察块反推。
-  const hint = $("auto-continue")?.checked && !phasePipelineOn() ? " · 勘察复核未开(每轮直接实现)" : "";
+  const hint = $("auto-continue")?.checked && !phasePipelineOn() ? ` · ${t("勘察复核未开(每轮直接实现)")}` : "";
   el.textContent = localizeDynamic(`${base}${hint}`);
 }
 // R-170:继续文案 = 用户附加意图 + 极简默认兜底。开发重心/引擎规则已由
@@ -350,7 +350,7 @@ async function refreshFileSuggestions() {
     renderFileSuggestions();
   } catch (error) {
     hideFileSuggestions();
-    log(`文件补全失败:${error}`, "warn");
+    log(`${t("文件补全失败")}:${error}`, "warn");
   }
 }
 
@@ -553,7 +553,7 @@ $("auto-continue").addEventListener("change", () => {
   // BUG 修复(触发):空闲时勾上鞭挞必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
   // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
   if ($("auto-continue").checked && !running && !autoPaused) {
-    setStatus("鞭挞启动,2 秒后开始…", false);
+    setStatus(t("鞭挞启动,2 秒后开始…"), false);
     scheduleAutoContinue();
   }
 });
@@ -651,10 +651,10 @@ $("stop").addEventListener("click", () => {
   // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
   cancelAutoContinueTimer();
   autoRounds = 0;
-  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`停止指令失败:${err}`));
+  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`${t("停止指令失败")}:${err}`));
   hideAsk();
   stopElapsed();
-  setRunning(false, "已停止");
+  setRunning(false, t("已停止"));
   // R-086:本地复位同样收敛到该会话状态机,不依赖后端事件回执。
   if (activeSessionId) {
     const state = sessionState(activeSessionId);
@@ -769,7 +769,7 @@ async function loadModels({ showAll = false } = {}) {
       if (ids.has(id) || selectedIds.has(id)) continue;
       const opt = document.createElement("option");
       opt.value = id;
-      opt.textContent = `${id}(手填)`;
+      opt.textContent = `${id}(${t("手填")})`;
       if (id === saved) opt.selected = true;
       select.appendChild(opt);
     }
@@ -777,9 +777,9 @@ async function loadModels({ showAll = false } = {}) {
     custom.value = MANUAL_MODEL_SENTINEL;
     custom.textContent = t("＋ 手填模型…");
     select.appendChild(custom);
-    log(`模型列表已刷新(${models.length} 个可选)`);
+    log(`${t("模型列表已刷新")}(${models.length} 个可选)`);
   } catch (err) {
-    reportPersistentError(`模型列表获取失败:${err}`);
+    reportPersistentError(`${t("模型列表获取失败")}:${err}`);
   }
 }
 

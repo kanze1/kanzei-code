@@ -133,8 +133,8 @@
 
 - 标签: 前端
 
-- 批次: 8/10
-- 进展: 批1-7 已提交(止血/静态 DOM/顶栏·对话区·工作区/架构浏览/文档页/记忆页/指标+文件页)。批8(本轮):设置页域整体迁移——h1/说明(span 包裹保留 code#settings-path)/关于 kanzei/界面语言/模型角色(保存到+作用域 option+primary·fast+探测+一键就绪)/Provider(测试+表头+添加)/网络与默认(代理·默认模式·思考强度 option)/运行上限(六组 label+说明)/验证与提交节奏(全量/定向/提交/push 的 option 与 title)/移动端桥接/已记住的权限/工作资料导出(placeholder)/版本与更新/底部动作区 全部挂 data-i18n-key/data-i18n-title/data-i18n-placeholder。16-settings.js 11 处动态模板改走 t()(删除失败/读取权限规则失败/本页·实际生效·未设/手填×2/设置读取失败/启动·停止桥接失败/保存失败/选择导出目录失败/导出失败),词典补 本页/实际生效/手填 三 key(资源 51→54)。B8 断言组覆盖文本/option/span 包裹/title/placeholder 中英切换。四条冒烟全绿。剩余:活动/会话/compose 域迁移,然后 MutationObserver 退役与 key 覆盖率收口(验收③④⑤)。
+- 批次: 9/10
+- 进展: 批1-8 已提交。批9(本轮):活动/会话/compose 域 + 全局静态面收口——rail 侧栏开关/过程页签 aria-label、live-turn·status-mode·status-text 确认动态元素由 JS 渲染点负责(03-shell.js:318-319、06-activity.js)一律不挂 data-i18n-key(applyDataI18nKeys 会无条件覆写,挂上会在切语言时被覆写回原文),B9 断言组用结构性检查防回归;chat-search·prompt placeholder、sop-picker aria-label、queue/steer option、log 面板三按钮、statusbar(git·ctx·tokens·日志)、活动面板类型/状态筛选 option、agent 面板区块标题与清空、权限询问(标题·字段·回答 placeholder·四按钮)、查看器两按钮全部挂 data-i18n-*。带 id 的元素把 data-i18n-key 放元素自身(冒烟按 id 建节点只取开标签后首个 < 前的 directText,span 包裹会让按钮文本变空——ask-deny 等已改),无 id 容器用内层 span 包裹。06-agent-panel 运行中/已完成计数器、06-activity 未命名文件、08-compose(连续推进上限/勘察复核提示/鞭挞启动/已停止/手填/文件补全/模型列表/停止指令/模型列表获取)、09-sessions(工作树清单/空闲/撤销失败/队列刷新/测试记录刷新)动态字符串改走 t()。词典补 未命名文件/工作树清单读取失败。四条冒烟全绿。剩余:批10 验收③④⑤(MutationObserver 退役与 key 覆盖率收口)。
 
 ## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [todo]
 - 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。

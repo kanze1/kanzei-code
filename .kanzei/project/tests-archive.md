@@ -1551,3 +1551,9 @@
 - 摘要: R-140 批8:设置页域迁移(全部 details 区块 data-i18n-*);16-settings.js 11 处动态模板走 t();词典补本页/实际生效/手填;四条冒烟全绿
 - 关联: R-140
 - 收尾: 1786443934
+
+## T-1786444502 R-140 B9 冒烟组:node --check + ui-runtime/i18n/a11y/markdown 四条 [passed]
+- 命令: node --check scripts/ui-runtime-smoke.mjs && foreach ui js node --check && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
+- 摘要: 运行时冒烟 0 错(21 个 ui/*.js 按序 + 初始化 + 9 视图切换);i18n 静态 956 资源 key / 353 项 HTML 文案 / 63 项动态契约;a11y 22 个静态 icon-btn;markdown 全过。B9 断言组覆盖 rail·log·statusbar·活动筛选·agent 面板·权限询问·查看器·prompt placeholder·queue/steer option 中英切换,以及动态元素(status-mode/status-text/live-turn)不得挂 data-i18n-key 的结构性回归检查。
+- 关联: R-140
+- 收尾: 1786444502

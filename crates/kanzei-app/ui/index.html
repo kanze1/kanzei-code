@@ -10,29 +10,29 @@
     <aside id="activitybar">
       <!-- 侧栏开合常驻在 rail 上:窄视口下侧栏是悬浮层会盖住顶栏里的开关,
            rail 永远在悬浮层左侧、永远可点,这里才是可靠的开关位置。 -->
-      <button type="button" id="rail-sidebar-toggle" class="activity-item rail-toggle" title="打开/收起侧栏" aria-label="打开或收起侧栏" aria-expanded="true">
+      <button type="button" id="rail-sidebar-toggle" class="activity-item rail-toggle" title="打开/收起侧栏" data-i18n-title="打开/收起侧栏" aria-label="打开或收起侧栏" data-i18n-aria-label="打开或收起侧栏" aria-expanded="true">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
-      <button type="button" class="activity-item active" data-view="chat" title="对话" aria-label="切换到对话" aria-current="page">
+      <button type="button" class="activity-item active" data-view="chat" title="对话" data-i18n-title="对话" aria-label="切换到对话" data-i18n-aria-label="切换到对话" aria-current="page">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h16v12H8l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
-      <button type="button" class="activity-item" data-view="workspace" title="工作区" aria-label="切换到工作区">⌂</button>
-      <button type="button" class="activity-item" data-view="lines" title="并行线路" aria-label="切换到并行线路">
+      <button type="button" class="activity-item" data-view="workspace" title="工作区" data-i18n-title="工作区" aria-label="切换到工作区" data-i18n-aria-label="切换到工作区">⌂</button>
+      <button type="button" class="activity-item" data-view="lines" title="并行线路" data-i18n-title="并行线路" aria-label="切换到并行线路" data-i18n-aria-label="切换到并行线路">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 5v14M18 5v14M6 8h5a3 3 0 0 1 3 3v2a3 3 0 0 0 3 3h1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷 / 测试" aria-label="切换到需求与工作和缺陷">☷</button>
-      <button type="button" class="activity-item" data-view="memory" title="记忆" aria-label="切换到记忆">❖</button>
-      <button type="button" class="activity-item" data-view="files" title="文件导览" aria-label="切换到文件导览">
+      <button type="button" class="activity-item" data-view="documents" title="需求与工作 / 缺陷 / 测试" data-i18n-title="需求与工作 / 缺陷 / 测试" aria-label="切换到需求与工作和缺陷" data-i18n-aria-label="切换到需求与工作和缺陷">☷</button>
+      <button type="button" class="activity-item" data-view="memory" title="记忆" data-i18n-title="记忆" aria-label="切换到记忆" data-i18n-aria-label="切换到记忆">❖</button>
+      <button type="button" class="activity-item" data-view="files" title="文件导览" data-i18n-title="文件导览" aria-label="切换到文件导览" data-i18n-aria-label="切换到文件导览">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       </button>
-      <button type="button" class="activity-item" data-view="arch" title="架构浏览" aria-label="切换到架构浏览">
+      <button type="button" class="activity-item" data-view="arch" title="架构浏览" data-i18n-title="架构浏览" aria-label="切换到架构浏览" data-i18n-aria-label="切换到架构浏览">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Zm3 3h10M7 12h6M7 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" aria-label="打开或收起子代理面板" aria-expanded="false">◉</button>
-      <button type="button" class="activity-item" data-view="metrics" title="运行画像" aria-label="切换到运行画像">
+      <button type="button" id="agent-toggle" class="activity-item rail-toggle" title="子代理面板" data-i18n-title="子代理面板" aria-label="打开或收起子代理面板" data-i18n-aria-label="打开或收起子代理面板" aria-expanded="false">◉</button>
+      <button type="button" class="activity-item" data-view="metrics" title="运行画像" data-i18n-title="运行画像" aria-label="切换到运行画像" data-i18n-aria-label="切换到运行画像">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 20h16M7 20V11M12 20V5M17 20v-6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
-      <button type="button" class="activity-item" data-view="settings" title="设置" aria-label="切换到设置">
+      <button type="button" class="activity-item" data-view="settings" title="设置" data-i18n-title="设置" aria-label="切换到设置" data-i18n-aria-label="切换到设置">
         <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
     </aside>
@@ -63,7 +63,7 @@
           <div id="live-focus" class="live-row hidden"></div>
           <div id="live-action" class="live-row hidden"></div>
           <div id="live-note" class="live-row hidden"></div>
-          <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="并行任务状态"></div>
+          <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="并行任务状态" data-i18n-aria-label="并行任务状态"></div>
         </div>
       </div>
       <!-- 当前在做(用户定调):侧栏不再罗列完整需求/缺陷,只呈现取活焦点这一条,
@@ -77,7 +77,7 @@
             <button id="focus-open-documents" class="icon-btn" title="打开完整需求与缺陷列表" data-i18n-title="打开完整需求与缺陷列表" aria-label="打开完整需求与缺陷列表">☷</button>
           </span>
         </div>
-        <div id="focus-body" role="region" aria-label="当前在做"></div>
+        <div id="focus-body" role="region" aria-label="当前在做" data-i18n-aria-label="当前在做"></div>
         <div id="focus-backlog" class="dim"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
@@ -121,7 +121,7 @@
       <div id="view-chat" class="view active">
         <header id="topbar">
           <span id="project-label" class="crumb"></span>
-          <nav id="process-tabs" aria-label="项目进程"></nav>
+          <nav id="process-tabs" aria-label="项目进程" data-i18n-aria-label="项目进程"></nav>
           <button id="process-add" class="icon-btn" title="为当前项目新建独立进程" data-i18n-title="为当前项目新建独立进程" aria-label="为当前项目新建独立进程">＋</button>
           <button id="new-chat" class="primary topbar-new-chat" title="清空多轮对话历史,开一段新会话" data-i18n-title="清空多轮对话历史,开一段新会话"><span data-i18n-key="新对话">新对话</span></button>
           <button id="activity-toggle" class="ghost" title="显示/隐藏右侧活动面板" data-i18n-title="显示/隐藏右侧活动面板"><span data-i18n-key="活动">活动</span></button>
@@ -149,7 +149,7 @@
               <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI" data-i18n-title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI"><span data-i18n-key="复制上下文">复制上下文</span></button>
               <button id="chat-search-toggle" class="ghost" title="搜索当前对话" data-i18n-title="搜索当前对话"><span data-i18n-key="搜索">搜索</span></button>
               <span id="chat-search" class="hidden">
-                <input id="chat-search-input" placeholder="搜索对话" />
+                <input id="chat-search-input" placeholder="搜索对话" data-i18n-placeholder="搜索对话" />
                 <span id="chat-search-count"></span>
                 <button id="chat-search-prev" class="ghost" title="上一个匹配" data-i18n-title="上一个匹配">↑</button>
                 <button id="chat-search-next" class="ghost" title="下一个匹配" data-i18n-title="下一个匹配">↓</button>
@@ -184,12 +184,12 @@
         <footer id="composer">
           <input id="attachment-input" type="file" accept="image/*,.pdf,application/pdf" multiple hidden />
           <div id="attachments" class="attachments hidden"></div>
-          <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
+          <textarea id="prompt" rows="3" placeholder="想做什么?可粘贴/拖拽图片或 PDF" data-i18n-placeholder="想做什么?可粘贴/拖拽图片或 PDF"></textarea>
           <div id="continue-panel" class="hidden">
             <label for="continue-prompt" data-i18n-key="继续文案">继续文案</label>
             <textarea id="continue-prompt" rows="6" spellcheck="false"></textarea>
           </div>
-          <div id="sop-picker-panel" class="sop-picker-panel hidden" role="dialog" aria-label="选择 SOP">
+          <div id="sop-picker-panel" class="sop-picker-panel hidden" role="dialog" aria-label="选择 SOP" data-i18n-aria-label="选择 SOP">
             <div class="sop-picker-head"><strong data-i18n-key="选择 SOP">选择 SOP</strong><button id="sop-picker-close" class="icon-btn" type="button" aria-label="关闭 SOP 列表" data-i18n-title="关闭 SOP 列表">×</button></div>
             <div id="sop-list" class="sop-list"></div>
           </div>
@@ -206,8 +206,8 @@
               <button id="continue-btn" class="ghost" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
               <button id="attach" class="ghost" title="添加图片或 PDF" data-i18n-title="添加图片或 PDF"><span data-i18n-key="附件">附件</span></button>
               <select id="delivery-select" title="输入交付方式" data-i18n-title="输入交付方式">
-                <option value="queue">排队 queue</option>
-                <option value="steer">插入 steer</option>
+                <option value="queue" data-i18n-key="排队 queue">排队 queue</option>
+                <option value="steer" data-i18n-key="插入 steer">插入 steer</option>
               </select>
               <button id="stop" class="danger hidden"><span data-i18n-key="停止">停止</span></button>
               <button id="send" class="primary"><span data-i18n-key="发送">发送</span></button>
@@ -639,11 +639,11 @@
 
       <div id="log-panel" class="hidden">
         <div class="log-head">
-          <span>运行日志</span>
+          <span data-i18n-key="运行日志">运行日志</span>
           <span>
-            <button id="log-retry" class="icon-btn hidden" title="重试上次失败操作" aria-label="重试上次失败操作">↻</button>
-            <button id="log-copy" class="icon-btn" title="复制日志" aria-label="复制运行日志">⧉</button>
-            <button id="log-clear" class="icon-btn" title="清空" aria-label="清空日志">⌫</button>
+            <button id="log-retry" class="icon-btn hidden" title="重试上次失败操作" data-i18n-title="重试上次失败操作" aria-label="重试上次失败操作" data-i18n-aria-label="重试上次失败操作">↻</button>
+            <button id="log-copy" class="icon-btn" title="复制日志" data-i18n-title="复制日志" aria-label="复制运行日志" data-i18n-aria-label="复制运行日志">⧉</button>
+            <button id="log-clear" class="icon-btn" title="清空" data-i18n-title="清空" aria-label="清空日志" data-i18n-aria-label="清空日志">⌫</button>
           </span>
         </div>
         <div id="log-lines"></div>
@@ -655,41 +655,41 @@
           <span id="status-mode">空闲</span>
           <span id="status-text">空闲</span>
           <span id="status-elapsed"></span>
-          <span id="status-git" title="git 分支 · 未提交改动"></span>
+          <span id="status-git" title="git 分支 · 未提交改动" data-i18n-title="git 分支 · 未提交改动"></span>
         </div>
         <div class="status-right">
-          <span id="ctx-bar" class="hidden" title="上下文占用"><i id="ctx-bar-fill"></i></span>
-          <button id="status-tokens" type="button" class="context-status" aria-label="查看上下文成分" aria-expanded="false"></button>
+          <span id="ctx-bar" class="hidden" title="上下文占用" data-i18n-title="上下文占用"><i id="ctx-bar-fill"></i></span>
+          <button id="status-tokens" type="button" class="context-status" aria-label="查看上下文成分" data-i18n-aria-label="查看上下文成分" aria-expanded="false"></button>
           <div id="context-detail" class="context-detail hidden"></div>
           <span id="status-model"></span>
-          <button id="log-toggle" class="statusbar-btn" title="显示/隐藏运行日志">日志</button>
+          <button id="log-toggle" class="statusbar-btn" title="显示/隐藏运行日志" data-i18n-title="显示/隐藏运行日志" data-i18n-key="日志">日志</button>
           <span id="status-version"></span>
         </div>
       </footer>
     </main>
 
     <aside id="todo-panel" class="hidden">
-      <div class="bg-head">当前计划 <span id="todo-count"></span></div>
+      <div class="bg-head"><span data-i18n-key="当前计划">当前计划</span> <span id="todo-count"></span></div>
       <div id="todo-list"></div>
     </aside>
 
     <aside id="bg-panel" class="hidden">
-      <div class="bg-head">活动 <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
+      <div class="bg-head"><span data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
       <div class="bg-filters">
-        <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选">
-          <option value="all">全部类型</option>
-          <option value="terminal">终端</option>
-          <option value="file">文件</option>
-          <option value="tracker">追踪</option>
-          <option value="agent">子代理</option>
-          <option value="memory">记忆</option>
-          <option value="other">其他</option>
+        <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
+          <option value="all" data-i18n-key="全部类型">全部类型</option>
+          <option value="terminal" data-i18n-key="终端">终端</option>
+          <option value="file" data-i18n-key="文件">文件</option>
+          <option value="tracker" data-i18n-key="追踪">追踪</option>
+          <option value="agent" data-i18n-key="子代理">子代理</option>
+          <option value="memory" data-i18n-key="记忆">记忆</option>
+          <option value="other" data-i18n-key="其他">其他</option>
         </select>
-        <select id="bg-status-filter" class="doc-filter" title="按成败状态筛选">
-          <option value="all">全部状态</option>
-          <option value="running">运行中</option>
-          <option value="ok">成功</option>
-          <option value="err">失败</option>
+        <select id="bg-status-filter" class="doc-filter" title="按成败状态筛选" data-i18n-title="按成败状态筛选">
+          <option value="all" data-i18n-key="全部状态">全部状态</option>
+          <option value="running" data-i18n-key="运行中">运行中</option>
+          <option value="ok" data-i18n-key="成功">成功</option>
+          <option value="err" data-i18n-key="失败">失败</option>
         </select>
       </div>
       <div id="diff-summary" class="diff-summary hidden"></div>
@@ -697,22 +697,22 @@
     </aside>
 
     <aside id="agent-panel" class="hidden">
-      <div class="bg-head">子代理
+      <div class="bg-head"><span data-i18n-key="子代理">子代理</span>
         <span id="agent-running-count" class="dim"></span>
         <span id="agent-finished-count" class="dim"></span>
-        <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目">清空</button>
+        <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目" data-i18n-title="清空已完成和已关闭的子代理条目" data-i18n-key="清空">清空</button>
       </div>
       <div class="bg-sections">
         <div class="bg-section">
-          <div class="bg-section-title">运行中 <span id="agent-running-count2" class="dim"></span></div>
+          <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="agent-running-count2" class="dim"></span></div>
           <div id="agent-running"></div>
         </div>
         <div class="bg-section">
-          <div class="bg-section-title">已完成 <span id="agent-finished-count2" class="dim"></span></div>
+          <div class="bg-section-title"><span data-i18n-key="已完成">已完成</span> <span id="agent-finished-count2" class="dim"></span></div>
           <div id="agent-finished"></div>
         </div>
         <div class="bg-section">
-          <div class="bg-section-title">已关闭 <span id="agent-closed-count2" class="dim"></span></div>
+          <div class="bg-section-title"><span data-i18n-key="已关闭">已关闭</span> <span id="agent-closed-count2" class="dim"></span></div>
           <div id="agent-closed"></div>
         </div>
       </div>
@@ -721,29 +721,29 @@
 
   <div id="ask-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="ask-title">
     <div id="ask-dialog">
-      <div class="ask-title" id="ask-title">权限请求</div>
+      <div class="ask-title" id="ask-title" data-i18n-key="权限请求">权限请求</div>
       <div id="ask-queue-status" class="ask-queue-status"></div>
       <div id="ask-queue-preview" class="ask-queue-preview hidden" data-i18n-raw></div>
       <div class="ask-body">
         <div id="permission-fields">
-          <div class="ask-line"><span class="dim">操作</span><code id="ask-action" data-i18n-raw></code></div>
-          <div class="ask-line"><span class="dim">资源</span><code id="ask-resource" data-i18n-raw></code></div>
-          <div class="ask-line"><span class="dim">记住为</span><code id="ask-remember" data-i18n-raw></code></div>
+          <div class="ask-line"><span class="dim" data-i18n-key="操作">操作</span><code id="ask-action" data-i18n-raw></code></div>
+          <div class="ask-line"><span class="dim" data-i18n-key="资源">资源</span><code id="ask-resource" data-i18n-raw></code></div>
+          <div class="ask-line"><span class="dim" data-i18n-key="记住为">记住为</span><code id="ask-remember" data-i18n-raw></code></div>
         </div>
         <div id="question-fields" class="hidden">
           <div id="ask-question" data-i18n-raw></div>
           <div id="ask-options" data-i18n-raw></div>
-          <input id="ask-answer" type="text" placeholder="输入你的回答" />
+          <input id="ask-answer" type="text" placeholder="输入你的回答" data-i18n-placeholder="输入你的回答" />
         </div>
       </div>
       <div class="ask-buttons" id="permission-buttons">
-        <button id="ask-deny">拒绝</button>
-        <button id="ask-always" title="写入项目 .kanzei/kanzei.toml,之后不再询问">总是允许</button>
-        <button id="ask-allow" class="primary">允许一次</button>
+        <button id="ask-deny" data-i18n-key="拒绝">拒绝</button>
+        <button id="ask-always" title="写入项目 .kanzei/kanzei.toml,之后不再询问" data-i18n-title="写入项目 .kanzei/kanzei.toml,之后不再询问" data-i18n-key="总是允许">总是允许</button>
+        <button id="ask-allow" class="primary" data-i18n-key="允许一次">允许一次</button>
       </div>
       <div class="ask-buttons hidden" id="question-buttons">
-        <button id="ask-cancel">取消</button>
-        <button id="ask-submit" class="primary">提交回答</button>
+        <button id="ask-cancel" data-i18n-key="取消">取消</button>
+        <button id="ask-submit" class="primary" data-i18n-key="提交回答">提交回答</button>
       </div>
     </div>
   </div>
@@ -753,8 +753,8 @@
       <div class="viewer-head">
         <span id="viewer-title"></span>
         <span>
-          <button id="viewer-external" class="icon-btn" title="在外部编辑器打开" aria-label="在外部编辑器打开">↗</button>
-          <button id="viewer-close" class="icon-btn" title="关闭" aria-label="关闭查看器">✕</button>
+          <button id="viewer-external" class="icon-btn" title="在外部编辑器打开" data-i18n-title="在外部编辑器打开" aria-label="在外部编辑器打开" data-i18n-aria-label="在外部编辑器打开">↗</button>
+          <button id="viewer-close" class="icon-btn" title="关闭" data-i18n-title="关闭" aria-label="关闭查看器" data-i18n-aria-label="关闭查看器">✕</button>
         </span>
       </div>
       <div id="viewer-body"></div>

@@ -4015,6 +4015,69 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批9:活动/会话/compose 域 + 全局静态面收口 ----------
+// rail 导航 title/aria-label 已由批0 断言覆盖;live-turn/status-mode/status-text 是动态
+// 元素(JS 用 t()/localizeDynamic 渲染点写入),一律不挂 data-i18n-key——挂了会在切语言时被
+// applyDataI18nKeys 覆写回原文。chat-search·prompt placeholder/sop-picker aria-label/
+// queue·steer option/process-tabs aria-label/log 面板/statusbar(git·ctx·tokens·日志)/
+// 活动面板筛选(类型+状态)/agent 面板区块与清空/权限询问(标题·字段·回答 placeholder·
+// 四按钮)/查看器两按钮全部挂 data-i18n-*。带 id 的元素把 data-i18n-key 放元素自身
+// (冒烟按 id 建节点只取开标签后首个 < 前的 directText,span 包裹会让按钮文本变空);
+// 无 id 的容器/区块标题用内层 span 包裹。06-agent-panel 运行中/已完成计数器、06-activity
+// 未命名文件、08-compose、09-sessions 动态字符串改走 t()。词典补 未命名文件/工作树清单
+// 读取失败(资源 54→56)。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  const b9Key = (key) => [...sandbox.document.querySelectorAll("[data-i18n-key]")].find((el) => el.dataset.i18nKey === key)?.textContent;
+  const attrOf = (id, attr) => sandbox.document.getElementById(id)?.getAttribute(attr);
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b9Key("权限请求") === "权限请求", "中文态权限请求标题应保持原文(前置失效)");
+  assert(b9Key("当前计划") === "当前计划", "中文态当前计划应保持原文(前置失效)");
+  assert(attrOf("process-tabs", "aria-label") === "项目进程", "中文态 process-tabs aria-label 应保持原文(前置失效)");
+  assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", "中文态输入框 placeholder 应保持原文(前置失效)");
+  assert(b9Key("排队 queue") === "排队 queue", "中文态排队 queue option 应保持原文(前置失效)");
+
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  assert(attrOf("rail-sidebar-toggle", "title") === "Open or close the sidebar", `英文态 rail 侧栏开关 title 未翻译,实际 "${attrOf("rail-sidebar-toggle", "title")}"`);
+  assert(attrOf("rail-sidebar-toggle", "aria-label") === "Open or close the sidebar", `英文态 rail 侧栏开关 aria-label 未翻译,实际 "${attrOf("rail-sidebar-toggle", "aria-label")}"`);
+  assert(b9Key("运行日志") === "Runtime log", `英文态「运行日志」未翻译,实际 "${b9Key("运行日志")}"`);
+  assert(attrOf("log-copy", "aria-label") === "Copy runtime log", `英文态 log-copy aria-label 未翻译,实际 "${attrOf("log-copy", "aria-label")}"`);
+  assert(attrOf("status-git", "title") === "Git branch · uncommitted changes", `英文态 status-git title 未翻译,实际 "${attrOf("status-git", "title")}"`);
+  assert(attrOf("status-tokens", "aria-label") === "View context components", `英文态 status-tokens aria-label 未翻译,实际 "${attrOf("status-tokens", "aria-label")}"`);
+  assert(b9Key("日志") === "Logs", `英文态「日志」未翻译,实际 "${b9Key("日志")}"`);
+  assert(b9Key("当前计划") === "Current plan", `英文态「当前计划」未翻译,实际 "${b9Key("当前计划")}"`);
+  assert(b9Key("全部类型") === "All types", `英文态「全部类型」未翻译(option 渲染点),实际 "${b9Key("全部类型")}"`);
+  assert(b9Key("终端") === "terminal", `英文态「终端」未翻译(option 渲染点),实际 "${b9Key("终端")}"`);
+  assert(b9Key("已关闭") === "Closed", `英文态「已关闭」未翻译,实际 "${b9Key("已关闭")}"`);
+  assert(b9Key("清空") === "Clear", `英文态「清空」未翻译,实际 "${b9Key("清空")}"`);
+  assert(b9Key("权限请求") === "Permission request", `英文态「权限请求」未翻译,实际 "${b9Key("权限请求")}"`);
+  assert(b9Key("拒绝") === "Deny", `英文态「拒绝」未翻译,实际 "${b9Key("拒绝")}"`);
+  assert(b9Key("总是允许") === "Always allow", `英文态「总是允许」未翻译,实际 "${b9Key("总是允许")}"`);
+  assert(b9Key("允许一次") === "Allow once", `英文态「允许一次」未翻译,实际 "${b9Key("允许一次")}"`);
+  assert(attrOf("ask-answer", "placeholder") === "Enter your answer", `英文态回答 placeholder 未翻译(渲染点属性补齐),实际 "${attrOf("ask-answer", "placeholder")}"`);
+  assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
+  assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste or drop images or PDFs", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
+  assert(b9Key("排队 queue") === "Queue", `英文态「排队 queue」未翻译(option 渲染点),实际 "${b9Key("排队 queue")}"`);
+  assert(attrOf("process-tabs", "aria-label") === "Project processes", `英文态 process-tabs aria-label 未翻译,实际 "${attrOf("process-tabs", "aria-label")}"`);
+  // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
+  // 它们的文案由 JS 渲染点(t()/localizeDynamic)负责,切语言不应被 applyDataI18nKeys 触碰。
+  assert(!attrOf("status-mode", "data-i18n-key"), "status-mode 不得挂 data-i18n-key(动态渲染点)");
+  assert(!attrOf("status-text", "data-i18n-key"), "status-text 不得挂 data-i18n-key(动态渲染点)");
+  assert(!sandbox.document.getElementById("live-turn")?.getAttribute("data-i18n-key"), "live-turn 不得挂 data-i18n-key(动态渲染点)");
+
+  localStorageShim.setItem("kz-language", "zh");
+  sandbox.applyLanguage();
+  assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
+  assert(b9Key("当前计划") === "当前计划", `切回中文后「当前计划」未回原文,实际 "${b9Key("当前计划")}"`);
+  assert(attrOf("prompt", "placeholder") === "想做什么?可粘贴/拖拽图片或 PDF", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
+  assert(b9Key("排队 queue") === "排队 queue", `切回中文后「排队 queue」未回原文,实际 "${b9Key("排队 queue")}"`);
+
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,
