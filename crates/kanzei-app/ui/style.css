@@ -409,7 +409,8 @@ button.mini { padding: 2px 10px; font-size: 11.5px; }
 .process-tab { border: 1px solid var(--border-soft); background: transparent; color: var(--dim); border-radius: 4px; padding: 3px 8px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .process-tab:hover, .process-tab.active { color: var(--fg-strong); border-color: var(--accent); background: var(--accent-soft); }
 .process-tab.running { color: var(--ok); }
-#process-phase-pipeline-wrap { font-size: 11px; color: var(--dim); display: flex; gap: 4px; align-items: center; }
+#process-phase-pipeline-wrap, #process-tracker-writes-wrap { font-size: 11px; color: var(--dim); display: flex; gap: 4px; align-items: center; }
+#process-tracker-writes-wrap.hidden { display: none; }
 #topbar-more { position: relative; flex-shrink: 0; }
 #topbar-more > summary { list-style: none; cursor: pointer; }
 #topbar-more > summary::-webkit-details-marker { display: none; }

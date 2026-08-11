@@ -170,6 +170,21 @@ impl Tool for TrackerTool {
         schema
     }
 
+    /// tracker 是一个工具承载读写两类动作。F11 只关闭分支线上的写入,所以资源必须
+    /// 带上动作类别;继续使用默认 `*` 会让任意 deny 把 list/get 也一并摘掉。
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        let action = input
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let access = if WRITE_ACTIONS.contains(&action) {
+            "write"
+        } else {
+            "read"
+        };
+        vec![format!("{access}:{action}")]
+    }
+
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
         let input: TrackerInput = match crate::parse_input(self, input) {
             Ok(v) => v,
@@ -1177,6 +1192,23 @@ mod tests {
             severity: None,
             fields: vec![],
         }
+    }
+
+    #[test]
+    fn tracker_permission_resource_distinguishes_reads_and_writes() {
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        assert_eq!(tool.resources(&json!({"action": "list"})), ["read:list"]);
+        assert_eq!(tool.resources(&json!({"action": "get"})), ["read:get"]);
+        assert_eq!(tool.resources(&json!({"action": "add"})), ["write:add"]);
+        assert_eq!(
+            tool.resources(&json!({"action": "repair_missing_id"})),
+            ["write:repair_missing_id"]
+        );
     }
 
     #[tokio::test]

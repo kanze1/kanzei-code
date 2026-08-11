@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
 use kanzei_harness::auto_run::AutoRunCtx;
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
-use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
+use kanzei_harness::{
+    Component, ConfigComponent, Effect, Harness, HarnessDraft, KanzeiConfig, ResolveCtx, Rule,
+    ToolCtx,
+};
 use serde_json::json;
 use tauri::{Emitter, State, Window};
 use tokio::sync::oneshot;
@@ -34,6 +37,8 @@ pub(crate) async fn run_task(
     // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
     // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
     phase_pipeline_enabled: bool,
+    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
+    block_tracker_writes: bool,
     profile: Option<String>,
     agent_name: Option<String>,
     model_override: Option<String>,
@@ -78,7 +83,7 @@ pub(crate) async fn run_task(
         config: config.clone(),
     };
 
-    let harness = build_run_harness();
+    let harness = build_run_harness(block_tracker_writes);
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
@@ -1202,7 +1207,7 @@ pub(crate) fn append_dev_guidance(
     system.push_str(&work_priority_guidance(work_priority));
 }
 
-pub(crate) fn build_run_harness() -> kanzei_harness::Harness {
+pub(crate) fn build_run_harness(block_tracker_writes: bool) -> kanzei_harness::Harness {
     let mut harness = kanzei_harness::Harness::default();
     harness
         .add(kanzei_tools::BaseComponent)
@@ -1210,8 +1215,36 @@ pub(crate) fn build_run_harness() -> kanzei_harness::Harness {
         .add(kanzei_tools::ResearchProfile)
         .add(crate::harness_ext::FrontendToolsComponent)
         .add(kanzei_harness::MarkdownComponent)
-        .add(kanzei_harness::ConfigComponent);
+        .add(kanzei_harness::ConfigComponent)
+        .add(TrackerWritePolicyComponent {
+            block: block_tracker_writes,
+        });
     harness
+}
+
+/// R-177 F11:分支线默认只读主根 tracker。规则放在 ConfigComponent 之后,
+/// 因而用户的通用 kanzei.toml allow 不能意外打开这条线级显式开关。
+struct TrackerWritePolicyComponent {
+    block: bool,
+}
+
+impl Component for TrackerWritePolicyComponent {
+    fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        if !self.block {
+            return Ok(());
+        }
+        for action in ["req", "defect", "goal", "decision", "source", "finding"] {
+            draft.permissions.push_denial_note(
+                Rule {
+                    action: action.into(),
+                    resource: "write:*".into(),
+                    effect: Effect::Deny,
+                },
+                "当前分支线未开启 tracker 写入；读取仍可用。请在该线设置中显式开启后再修改唯一主根文档。",
+            );
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
@@ -1715,6 +1748,8 @@ pub(crate) async fn run_prompt(
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
     let phase_pipeline_enabled = process.phase_pipeline_enabled.load(Ordering::SeqCst);
+    let block_tracker_writes =
+        process.worktree_path.is_some() && !process.tracker_writes_enabled.load(Ordering::SeqCst);
     let runtime = runtime_for(&state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
     {
@@ -1758,6 +1793,7 @@ pub(crate) async fn run_prompt(
                 main_root.clone(),
                 session_id.clone(),
                 phase_pipeline_enabled,
+                block_tracker_writes,
                 profile.clone(),
                 agent.clone(),
                 model.clone(),

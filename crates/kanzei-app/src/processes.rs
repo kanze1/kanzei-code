@@ -102,7 +102,7 @@ pub fn process_list(
 
 /// R-178 D3:把 state.db 里该主项目的线/进程注册合入内存进程表。
 ///
-/// 已存在的进程(id 相同)只回填持久字段(model/profile/reasoning/勘察复核),
+/// 已存在的进程(id 相同)只回填持久字段(model/profile/reasoning/勘察复核/tracker 写入),
 /// 不重建——内存里的 SessionRuntime 等运行时状态属于当前会话,不能被覆盖;
 /// 不存在的(重启后的线页签)新建 ProcessHandle 恢复存在性。库是字段的权威,
 /// 因为 process_create/update/close 每次都同步落库。
@@ -113,8 +113,21 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
     let stored = store
         .list_processes(&origin)
         .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    // git 子进程可能在大仓上耗时,必须在全局进程表锁之外完成。否则一次 process_list
+    // 恢复分支名会把 process_update/close/run_prompt 全部冻住。
+    let restored = stored
+        .into_iter()
+        .map(|record| {
+            let branch = record.worktree_path.as_deref().and_then(|path| {
+                worktree_field(root, Path::new(path), "branch")
+                    .ok()
+                    .map(|branch| branch.trim_start_matches("refs/heads/").to_string())
+            });
+            (record, branch)
+        })
+        .collect::<Vec<_>>();
     let mut processes = state.processes.lock().unwrap();
-    for record in stored {
+    for (record, restored_branch) in restored {
         let handle = processes
             .entry(record.process_id.clone())
             .or_insert_with(|| ProcessHandle {
@@ -122,11 +135,14 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
                 origin_project: record.origin_project.clone(),
                 project_dir: record.project_dir.clone(),
                 worktree_path: record.worktree_path.clone(),
+                branch: restored_branch.clone(),
                 model: Arc::new(Mutex::new(None)),
                 profile: Arc::new(Mutex::new(None)),
                 reasoning: Arc::new(Mutex::new(None)),
                 phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+                tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
             });
+        handle.branch = restored_branch;
         // 库值回填:process_update 每次落库,库是持久字段的权威。
         *handle.model.lock().unwrap() = record.model;
         *handle.profile.lock().unwrap() = record.profile;
@@ -134,6 +150,9 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         handle
             .phase_pipeline_enabled
             .store(record.phase_pipeline, Ordering::SeqCst);
+        handle
+            .tracker_writes_enabled
+            .store(record.tracker_writes_enabled, Ordering::SeqCst);
     }
     Ok(())
 }
@@ -154,12 +173,14 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+            tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })
         .map_err(|e| format!("进程状态落库失败: {e}"))
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC 参数保持独立可选字段,避免前端契约套一层临时对象。
 pub async fn process_create(
     state: State<'_, AppState>,
     project_dir: String,
@@ -168,17 +189,20 @@ pub async fn process_create(
     reasoning: Option<String>,
     // 「勘察复核」开关(阶段流水线总闸)。缺省 = 关,见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
+    // 仅分支线有意义:允许该线更新主根中的唯一 tracker 文档。缺省 = 关。
+    tracker_writes: Option<bool>,
     // 给定则同时建一棵工作树并绑到这条线上;缺省(Tauri 对未传的 Option 参数解析为
     // None)保持今天的行为,worktree_path 恒 None。
     worktree_name: Option<String>,
 ) -> Result<ProcessInfo, String> {
-    create_process(
+    create_process_with_tracker(
         &state,
         &project_dir,
         model,
         profile,
         reasoning,
         phase_pipeline,
+        tracker_writes,
         worktree_name,
     )
     .await
@@ -225,6 +249,7 @@ pub async fn process_create(
 /// 它一个字节都不写项目工作区,只往 `state.db` 加一行。让它去排项目写租约,等于把
 /// 「新开一条线」这个按钮挂在正在跑的 writer 后面等,UX 上不可接受,收益是零。
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn create_process(
     state: &AppState,
     project_dir: &str,
@@ -232,6 +257,30 @@ pub(crate) async fn create_process(
     profile: Option<String>,
     reasoning: Option<String>,
     phase_pipeline: Option<bool>,
+    worktree_name: Option<String>,
+) -> Result<ProcessInfo, String> {
+    create_process_with_tracker(
+        state,
+        project_dir,
+        model,
+        profile,
+        reasoning,
+        phase_pipeline,
+        None,
+        worktree_name,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn create_process_with_tracker(
+    state: &AppState,
+    project_dir: &str,
+    model: Option<String>,
+    profile: Option<String>,
+    reasoning: Option<String>,
+    phase_pipeline: Option<bool>,
+    tracker_writes: Option<bool>,
     worktree_name: Option<String>,
 ) -> Result<ProcessInfo, String> {
     let root = normalized_project_root(Path::new(project_dir));
@@ -271,9 +320,9 @@ pub(crate) async fn create_process(
         Some(name) => Some(create_worktree_with_receipt(&root, name)?),
         None => None,
     };
-    let (worktree_path, receipt) = match created {
-        Some((info, receipt)) => (Some(info.path), Some(receipt)),
-        None => (None, None),
+    let (worktree_path, branch, receipt) = match created {
+        Some((info, receipt)) => (Some(info.path), Some(info.branch), Some(receipt)),
+        None => (None, None, None),
     };
 
     // ④ 编号 + 落库 + 插内存表(一个临界区内完成)。任一步失败就整体回滚,
@@ -284,6 +333,7 @@ pub(crate) async fn create_process(
         &root,
         &project,
         worktree_path,
+        branch,
         planned
             .as_ref()
             .map(|(target, key)| (target.as_path(), key.as_str())),
@@ -292,6 +342,7 @@ pub(crate) async fn create_process(
             profile,
             reasoning,
             phase_pipeline,
+            tracker_writes,
         },
     ) {
         Ok(info) => Ok(info),
@@ -371,6 +422,7 @@ struct ThreadSettings {
     profile: Option<String>,
     reasoning: Option<String>,
     phase_pipeline: Option<bool>,
+    tracker_writes: Option<bool>,
 }
 
 /// 建线的收尾:编号 → 落库 → 进内存表,全程持 `state.processes` 的同一个 guard。
@@ -388,6 +440,7 @@ fn register_process(
     root: &Path,
     project: &str,
     worktree_path: Option<String>,
+    branch: Option<String>,
     planned: Option<(&Path, &str)>,
     settings: ThreadSettings,
 ) -> Result<ProcessInfo, String> {
@@ -396,6 +449,7 @@ fn register_process(
         profile,
         reasoning,
         phase_pipeline,
+        tracker_writes,
     } = settings;
     let mut processes = state.processes.lock().unwrap();
 
@@ -431,12 +485,14 @@ fn register_process(
         origin_project: project.to_string(),
         project_dir: project.to_string(),
         worktree_path,
+        branch,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
         profile: Arc::new(Mutex::new(profile.filter(|value| !value.trim().is_empty()))),
         reasoning: Arc::new(Mutex::new(
             reasoning.filter(|value| !value.trim().is_empty()),
         )),
         phase_pipeline_enabled: Arc::new(AtomicBool::new(phase_pipeline.unwrap_or(false))),
+        tracker_writes_enabled: Arc::new(AtomicBool::new(tracker_writes.unwrap_or(false))),
     };
 
     // R-178 D3:非默认线创建即落库,重启后页签与线级状态可恢复。
@@ -450,6 +506,7 @@ fn register_process(
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
             phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+            tracker_writes_enabled: process.tracker_writes_enabled.load(Ordering::SeqCst),
             updated_at: crate::run::now_ms(),
         })
         .map_err(|e| format!("进程状态落库失败: {e}"))?;
@@ -490,6 +547,7 @@ pub fn process_update(
     reasoning: Option<String>,
     // 「勘察复核」开关(阶段流水线总闸),见 `ProcessHandle` 的字段注释。
     phase_pipeline: Option<bool>,
+    tracker_writes: Option<bool>,
 ) -> Result<ProcessInfo, String> {
     let process = state
         .processes
@@ -513,6 +571,11 @@ pub fn process_update(
         process
             .phase_pipeline_enabled
             .store(phase_pipeline, Ordering::SeqCst);
+    }
+    if let Some(tracker_writes) = tracker_writes {
+        process
+            .tracker_writes_enabled
+            .store(tracker_writes, Ordering::SeqCst);
     }
     // R-178 D3:任何字段变更同步落库(含默认进程——它是「主对话」的模型/开关状态,
     // 重启后要用库值回填)。
@@ -547,6 +610,9 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         // 默认进程不销毁,只复位;复位值必须与 ensure_default_process 的默认一致(关)。
         process
             .phase_pipeline_enabled
+            .store(false, Ordering::SeqCst);
+        process
+            .tracker_writes_enabled
             .store(false, Ordering::SeqCst);
         // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
         persist_process(&root, &process)?;

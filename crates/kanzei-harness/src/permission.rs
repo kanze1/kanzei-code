@@ -44,6 +44,12 @@ pub struct ManagedResource {
     pub required_tool: Option<String>,
     /// 给模型的一句话说明(为什么托管、该怎么做)。
     pub note: Option<String>,
+    /// true = 这是一条有意的能力开关说明,不是“专用工具尚未实现”。
+    ///
+    /// F11 的 tracker 写入开关会拒绝同一个 tracker 工具里的写动作,但读取仍然
+    /// 合法,也不存在另一个替代工具。若仍把 `required_tool: None` 解释成能力缺口,
+    /// 模型会收到完全错误的“记录 defect 后跳过”指引。
+    pub note_only: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,8 +90,25 @@ impl Ruleset {
             resource: rule.resource.clone(),
             required_tool: required_tool.map(str::to_string),
             note: note.map(str::to_string),
+            note_only: false,
         });
         self.push_hard_deny(rule);
+    }
+
+    /// 普通 deny + 精确拒绝理由。
+    ///
+    /// 与 managed hard deny 不同,它不声明替代工具、也不把能力说成未实现;
+    /// 后续普通 allow 仍可按 last-match-wins 覆盖它。用于显式用户开关。
+    pub fn push_denial_note(&mut self, rule: Rule, note: &str) {
+        debug_assert_eq!(rule.effect, Effect::Deny);
+        self.managed.push(ManagedResource {
+            action: rule.action.clone(),
+            resource: rule.resource.clone(),
+            required_tool: None,
+            note: Some(note.to_string()),
+            note_only: true,
+        });
+        self.push(rule);
     }
 
     pub fn managed_resources(&self) -> &[ManagedResource] {
@@ -784,6 +807,30 @@ mod tests {
             .expect("命中兜底族");
         assert_eq!(fallback.required_tool, None);
         assert!(rs.managed_for("write", "src/main.rs").is_none());
+    }
+
+    #[test]
+    fn denial_note_rejects_only_its_resource_without_removing_the_action() {
+        let mut rs = Ruleset::default();
+        rs.push_denial_note(
+            Rule {
+                action: "requirement".into(),
+                resource: "write:*".into(),
+                effect: Effect::Deny,
+            },
+            "当前线未开启 tracker 写入",
+        );
+        assert_eq!(rs.evaluate("requirement", "write:add"), Effect::Deny);
+        assert_eq!(rs.evaluate("requirement", "read:list"), Effect::Ask);
+        assert!(
+            !rs.action_fully_denied("requirement"),
+            "只禁写不能让 materialize 把整个 tracker 工具摘掉"
+        );
+        let managed = rs
+            .managed_for("requirement", "write:add")
+            .expect("写资源应携带明确拒绝理由");
+        assert!(managed.note_only);
+        assert_eq!(managed.note.as_deref(), Some("当前线未开启 tracker 写入"));
     }
 
     #[test]

@@ -140,6 +140,7 @@
               </label>
               <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
               <label id="process-phase-pipeline-wrap" title="开启后本进程每个任务强制走:并行勘察 → 实现 → 并行复核 →(有发现时)修正;关闭时是一问一答,模型仍可自己派子代理。成本:每轮多 5 个勘察 + 3 个复核子代理,复核只要不是全部回 NO_ISSUES(失败/超时也算有发现)就再多跑一段修正,弱模型下几乎每轮都会跑;并行角色数上限由 [limits] max_tasks_per_turn 控制。"><input type="checkbox" id="process-phase-pipeline" /> 勘察复核</label>
+              <label id="process-tracker-writes-wrap" class="hidden" title="允许当前分支线修改主项目唯一的需求、缺陷、目标、决策等 tracker 文档。默认关闭；读取始终可用。"><input type="checkbox" id="process-tracker-writes" /> 写主根追踪器</label>
               <button id="summarize-btn" class="ghost" title="用 fast 模型总结当前对话并存档到 .kanzei/summaries/">总结</button>
               <button id="copy-context" class="ghost" title="把当前对话(含思考/工具轨迹摘要)复制为 markdown,方便贴给其他 AI">复制上下文</button>
               <button id="chat-search-toggle" class="ghost" title="搜索当前对话">搜索</button>

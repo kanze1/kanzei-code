@@ -709,7 +709,7 @@ const payloads = {
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
     // R-086 多会话并发:后台会话初始为运行中,桩里的旧 running=true 正是
     // "事件已收敛但轮询采样仍在事件之前"的竞态值,converged 必须挡住它。
-    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: false },
   ],
   pending_asks_get: [],
   // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
@@ -3244,6 +3244,19 @@ await sandbox.switchProcess("p|bg");
 await flush();
 const bgTab = document.querySelector(".process-tab.active");
 assert(bgTab?.textContent.includes("后台会话"), "切换到后台会话后活动进程 tab 未更新");
+assert(bgTab?.textContent.includes("kanzei/thread-smoke"), `分支线标签未显示真实分支名:${bgTab?.textContent}`);
+const trackerToggle = byId.get("process-tracker-writes");
+assert(trackerToggle && !trackerToggle.checked, "分支线 tracker 写入必须默认关闭");
+assert(!byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "分支线未显示 tracker 写入开关");
+payloads.process_list[1].tracker_writes = true;
+trackerToggle.checked = true;
+trackerToggle.dispatchEvent({ type: "change" });
+await flush();
+assert(
+  invokeArgs.findLast(({ cmd }) => cmd === "process_update")?.args?.trackerWrites === true,
+  `tracker 开关未以 trackerWrites 发给后端:${JSON.stringify(invokeArgs.findLast(({ cmd }) => cmd === "process_update"))}`
+);
+assert(trackerToggle.checked, "后端回显开启后 tracker 开关未保持选中");
 assert(!byId.get("ask-overlay").classList.contains("hidden"), "切回后台会话后权限询问不可见");
 assert(listText("ask-action") === "后台进程要写文件", "切回后弹出的不是该会话自己的 ask(串会话)");
 assert(byId.get("stop").classList.contains("hidden"), "后台会话已收敛终态但切回后仍显示运行中(converged 未生效)");
@@ -3257,6 +3270,7 @@ await sandbox.switchProcess("d|smoke");
 await flush();
 const backTab = document.querySelector(".process-tab.active");
 assert(backTab?.textContent.includes("主会话"), "切回主会话后活动进程 tab 未更新");
+assert(byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "默认线不应显示分支 tracker 开关");
 assert(byId.get("ask-overlay").classList.contains("hidden"), "切回主会话后残留后台 ask 弹窗");
 
 // 重建路径:后端 asks 表活得比 webview 久,界面重载后首次拿到进程列表必须补拉回来,
@@ -3280,7 +3294,7 @@ await flush();
 payloads.pending_asks_get = [];
 sandbox.renderProcesses([
   { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false },
-  { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true },
+  { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", tracker_writes: true },
 ]);
 await flush();
 assert(document.querySelector(".process-tab.active")?.textContent.includes("主会话"), "重建用例收尾后活动进程未回到主会话");

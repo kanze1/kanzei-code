@@ -1,6 +1,6 @@
 //! processes 域(R-178 D3):线/进程注册与线级状态持久化。
-//! v10 表,存线/进程注册 + 模型 / profile / reasoning / 勘察复核开关。
-//! 默认进程(d|)不落库——它是派生物,任何项目都有,不存在"要恢复的线"。
+//! v11 表,存线/进程注册 + 模型 / profile / reasoning / 勘察复核开关 /
+//! tracker 写入开关。默认进程(d|)同样落库,以恢复线级设置。
 
 use rusqlite::{params, OptionalExtension};
 
@@ -17,6 +17,7 @@ pub struct StoredProcess {
     pub profile: Option<String>,
     pub reasoning: Option<String>,
     pub phase_pipeline: bool,
+    pub tracker_writes_enabled: bool,
     pub updated_at: i64,
 }
 
@@ -26,8 +27,8 @@ impl SessionStore {
         self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, phase_pipeline, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(process_id) DO UPDATE SET
                  origin_project = excluded.origin_project,
                  project_dir = excluded.project_dir,
@@ -36,6 +37,7 @@ impl SessionStore {
                  profile = excluded.profile,
                  reasoning = excluded.reasoning,
                  phase_pipeline = excluded.phase_pipeline,
+                 tracker_writes_enabled = excluded.tracker_writes_enabled,
                  updated_at = excluded.updated_at",
             params![
                 process.process_id,
@@ -46,6 +48,7 @@ impl SessionStore {
                 process.profile,
                 process.reasoning,
                 process.phase_pipeline,
+                process.tracker_writes_enabled,
                 process.updated_at,
             ],
         )?;
@@ -66,8 +69,8 @@ impl SessionStore {
         let affected = self.connection.execute(
             "INSERT INTO processes
                  (process_id, origin_project, project_dir, worktree_path,
-                  model, profile, reasoning, phase_pipeline, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                  model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(process_id) DO NOTHING",
             params![
                 process.process_id,
@@ -78,6 +81,7 @@ impl SessionStore {
                 process.profile,
                 process.reasoning,
                 process.phase_pipeline,
+                process.tracker_writes_enabled,
                 process.updated_at,
             ],
         )?;
@@ -88,7 +92,7 @@ impl SessionStore {
     pub fn list_processes(&self, origin_project: &str) -> Result<Vec<StoredProcess>, StoreError> {
         let mut stmt = self.connection.prepare(
             "SELECT process_id, origin_project, project_dir, worktree_path,
-                    model, profile, reasoning, phase_pipeline, updated_at
+                    model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at
              FROM processes WHERE origin_project = ?1 ORDER BY process_id",
         )?;
         let rows = stmt.query_map(params![origin_project], |row| {
@@ -101,7 +105,8 @@ impl SessionStore {
                 profile: row.get(5)?,
                 reasoning: row.get(6)?,
                 phase_pipeline: row.get::<_, i64>(7)? != 0,
-                updated_at: row.get(8)?,
+                tracker_writes_enabled: row.get::<_, i64>(8)? != 0,
+                updated_at: row.get(9)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -121,7 +126,7 @@ impl SessionStore {
         self.connection
             .query_row(
                 "SELECT process_id, origin_project, project_dir, worktree_path,
-                        model, profile, reasoning, phase_pipeline, updated_at
+                        model, profile, reasoning, phase_pipeline, tracker_writes_enabled, updated_at
                  FROM processes WHERE process_id = ?1",
                 params![process_id],
                 |row| {
@@ -134,7 +139,8 @@ impl SessionStore {
                         profile: row.get(5)?,
                         reasoning: row.get(6)?,
                         phase_pipeline: row.get::<_, i64>(7)? != 0,
-                        updated_at: row.get(8)?,
+                        tracker_writes_enabled: row.get::<_, i64>(8)? != 0,
+                        updated_at: row.get(9)?,
                     })
                 },
             )
@@ -158,6 +164,7 @@ mod tests {
             profile: Some("dev".into()),
             reasoning: Some("high".into()),
             phase_pipeline: true,
+            tracker_writes_enabled: true,
             updated_at: 42,
         }
     }
@@ -179,6 +186,7 @@ mod tests {
         let mut updated = sample();
         updated.model = Some("anthropic:claude-sonnet-5".into());
         updated.phase_pipeline = false;
+        updated.tracker_writes_enabled = false;
         store.upsert_process(&updated).unwrap();
         assert_eq!(store.list_processes("C:/project").unwrap(), vec![updated]);
     }
@@ -232,6 +240,7 @@ mod tests {
         let loaded = store.get_process("p1|C:/project").unwrap().unwrap();
         assert_eq!(loaded.model.as_deref(), Some("deepseek:deepseek-v4-flash"));
         assert!(loaded.phase_pipeline);
+        assert!(loaded.tracker_writes_enabled);
     }
 
     #[test]
@@ -256,6 +265,31 @@ mod tests {
                 .unwrap()
                 .unwrap()
                 .phase_pipeline
+        );
+    }
+
+    #[test]
+    fn process_tracker_write_projection_preserves_bool() {
+        let store = testutil::store();
+        let mut off = sample();
+        off.tracker_writes_enabled = false;
+        store.upsert_process(&off).unwrap();
+        assert!(
+            !store
+                .get_process("p1|C:/project")
+                .unwrap()
+                .unwrap()
+                .tracker_writes_enabled
+        );
+        let mut on = sample();
+        on.tracker_writes_enabled = true;
+        store.upsert_process(&on).unwrap();
+        assert!(
+            store
+                .get_process("p1|C:/project")
+                .unwrap()
+                .unwrap()
+                .tracker_writes_enabled
         );
     }
 }

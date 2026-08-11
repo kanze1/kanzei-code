@@ -183,6 +183,11 @@ impl HarnessSnapshot {
     pub fn denial_hint(&self, action: &str, resource: &str) -> String {
         match self.draft.permissions.managed_for(action, resource) {
             Some(managed) => {
+                if managed.note_only {
+                    return managed.note.clone().unwrap_or_else(|| {
+                        format!("`{action}` on this resource is disabled by the current setting.")
+                    });
+                }
                 let note = managed
                     .note
                     .as_deref()

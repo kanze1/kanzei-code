@@ -142,13 +142,21 @@ function renderProcesses(items) {
     // 这次轮询是否恰好拉到了最新 running。
     const itemRunning = sessionState(item.session_id).running;
     tab.className = `process-tab${item.id === activeProcessId ? " active" : ""}${itemRunning ? " running" : ""}`;
-    tab.textContent = `${item.label}${itemRunning ? " ●" : ""}`;
-    tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}`;
+    const branch = item.branch ? ` · ${item.branch}` : "";
+    tab.textContent = `${item.label}${branch}${itemRunning ? " ●" : ""}`;
+    tab.title = `${item.id}${item.model ? ` · ${item.model}` : ""}${item.worktree_path ? ` · ${item.worktree_path}` : ""}`;
     tab.addEventListener("click", () => switchProcess(item.id));
     tabs.appendChild(tab);
   }
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
+  // 分支线写主根 tracker 必须由用户显式打开；默认线直接写主根，不展示无意义开关。
+  const trackerWrap = $("process-tracker-writes-wrap");
+  const trackerToggle = $("process-tracker-writes");
+  const isWorktreeLine = Boolean(active?.worktree_path);
+  trackerWrap.classList.toggle("hidden", !isWorktreeLine);
+  trackerToggle.disabled = !isWorktreeLine;
+  trackerToggle.checked = isWorktreeLine && (active?.tracker_writes ?? false);
   // 鞭挞面板要跟着重算:自主推进开着而流水线关着时那里有一行提示。
   renderAutoStatus();
 }
@@ -246,6 +254,19 @@ $("process-phase-pipeline").addEventListener("change", async (event) => {
     toastError(`${t("更新进程能力失败")}:${err}`);
   }
   renderAutoStatus();
+});
+
+$("process-tracker-writes").addEventListener("change", async (event) => {
+  const active = processItems.find((item) => item.id === activeProcessId);
+  if (!activeProcessId || !active?.worktree_path) return;
+  try {
+    await invoke("process_update", { processId: activeProcessId, trackerWrites: event.target.checked });
+    await refreshProcesses();
+    log(event.target.checked ? t("当前分支线已允许写主根追踪器") : t("当前分支线已恢复为只读主根追踪器"));
+  } catch (err) {
+    event.target.checked = !event.target.checked;
+    toastError(`${t("更新追踪器写入权限失败")}:${err}`);
+  }
 });
 
 // ---------- 项目管理 ----------

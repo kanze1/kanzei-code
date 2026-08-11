@@ -134,6 +134,12 @@ async fn 建线后worktree_path是真实路径() {
     // 恒主根:worktree 路径只由 worktree_path 承担,不许渗进 project_dir。
     assert_eq!(info.project_dir, canonical.display().to_string());
     assert_eq!(info.origin_project, canonical.display().to_string());
+    assert_eq!(
+        info.branch.as_deref(),
+        Some(branch.as_str()),
+        "ProcessInfo 必须把真实 git 分支名交给前端,不能再靠页签编号猜"
+    );
+    assert!(!info.tracker_writes, "新分支线的 tracker 写入必须默认关闭");
     assert_ne!(info.project_dir, bound);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
@@ -218,6 +224,7 @@ async fn 落库失败时worktree被回收_不留半绑定态() {
             profile: None,
             reasoning: None,
             phase_pipeline: false,
+            tracker_writes_enabled: false,
             updated_at: 1,
         })
         .unwrap();
@@ -980,6 +987,7 @@ async fn 编号看库_不覆盖库里既有行的worktree_path() {
                 profile: None,
                 reasoning: None,
                 phase_pipeline: true,
+                tracker_writes_enabled: false,
                 updated_at: 1,
             })
             .unwrap();

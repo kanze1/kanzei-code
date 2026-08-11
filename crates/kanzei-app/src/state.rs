@@ -197,6 +197,8 @@ pub(crate) struct ProcessHandle {
     pub(crate) origin_project: String,
     pub(crate) project_dir: String,
     pub(crate) worktree_path: Option<String>,
+    /// git 工作树对应的真实分支名。默认线为 None;分支线由 git 真源恢复。
+    pub(crate) branch: Option<String>,
     pub(crate) model: Arc<Mutex<Option<String>>>,
     pub(crate) profile: Arc<Mutex<Option<String>>>,
     pub(crate) reasoning: Arc<Mutex<Option<String>>>,
@@ -211,6 +213,8 @@ pub(crate) struct ProcessHandle {
     /// 且默认开,名不副实:关掉它连子代理运行时都没有,开着它也只是把 `task`
     /// 摆上桌、派不派全看模型,给不了「每个任务都勘察」的保证。
     pub(crate) phase_pipeline_enabled: Arc<AtomicBool>,
+    /// 分支线是否允许修改主根中的 tracker 文档。默认关闭,读取不受影响。
+    pub(crate) tracker_writes_enabled: Arc<AtomicBool>,
 }
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct ProcessInfo {
@@ -218,12 +222,14 @@ pub(crate) struct ProcessInfo {
     pub(crate) origin_project: String,
     pub(crate) project_dir: String,
     pub(crate) worktree_path: Option<String>,
+    pub(crate) branch: Option<String>,
     pub(crate) session_id: String,
     pub(crate) model: Option<String>,
     pub(crate) profile: Option<String>,
     pub(crate) reasoning: Option<String>,
     /// 见 [`ProcessHandle::phase_pipeline_enabled`]。前端 `process_list` 回显用。
     pub(crate) phase_pipeline: bool,
+    pub(crate) tracker_writes: bool,
     pub(crate) running: bool,
     pub(crate) label: String,
 }
@@ -327,12 +333,14 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
             origin_project: root.display().to_string(),
             project_dir: root.display().to_string(),
             worktree_path: None,
+            branch: None,
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
             reasoning: Arc::new(Mutex::new(None)),
             // 默认关:用户要的是「显式打开才强制走七阶段」,默认开就不叫显式
             // (2026-08-11 用户定调)。
             phase_pipeline_enabled: Arc::new(AtomicBool::new(false)),
+            tracker_writes_enabled: Arc::new(AtomicBool::new(false)),
         })
         .clone()
 }
@@ -350,11 +358,13 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         origin_project: process.origin_project.clone(),
         project_dir: process.project_dir.clone(),
         worktree_path: process.worktree_path.clone(),
+        branch: process.branch.clone(),
         session_id,
         model: process.model.lock().unwrap().clone(),
         profile: process.profile.lock().unwrap().clone(),
         reasoning: process.reasoning.lock().unwrap().clone(),
         phase_pipeline: process.phase_pipeline_enabled.load(Ordering::SeqCst),
+        tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
         running,
         label: if process.id.starts_with("d|") {
             "默认".into()

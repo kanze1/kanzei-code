@@ -210,12 +210,14 @@ fn process_persist_then_restart_restores_line_state() {
         origin_project: canonical.display().to_string(),
         project_dir: canonical.display().to_string(),
         worktree_path: None,
+        branch: None,
         model: Arc::new(std::sync::Mutex::new(Some(
             "deepseek:deepseek-v4-flash".into(),
         ))),
         profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
         reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
     };
     persist_process(&canonical, &line).unwrap();
 
@@ -232,6 +234,7 @@ fn process_persist_then_restart_restores_line_state() {
     assert_eq!(restored.profile.lock().unwrap().as_deref(), Some("dev"));
     assert_eq!(restored.reasoning.lock().unwrap().as_deref(), Some("high"));
     assert!(restored.phase_pipeline_enabled.load(Ordering::SeqCst));
+    assert!(restored.tracker_writes_enabled.load(Ordering::SeqCst));
     drop(processes);
 
     // ---- 默认进程(id 相同)的字段也能回填,不复建存在性 ----
@@ -295,12 +298,14 @@ fn process_restore_is_isolated_per_project() {
         origin_project: canonical_a.display().to_string(),
         project_dir: canonical_a.display().to_string(),
         worktree_path: None,
+        branch: None,
         model: Arc::new(std::sync::Mutex::new(Some(
             "deepseek:deepseek-v4-flash".into(),
         ))),
         profile: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(None)),
         phase_pipeline_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        tracker_writes_enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     persist_process(&canonical_a, &line).unwrap();
 

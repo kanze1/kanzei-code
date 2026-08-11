@@ -1,5 +1,5 @@
 //! schema 域(R-155 S7):migrate 原样搬,不重构。
-//! 'schema_version','7' 是硬编码字面量,不许改成常量。
+//! schema_version 是硬编码字面量,每次迁移必须随 SCHEMA_VERSION 同步更新。
 //! 已在事务内不得再调自开 tx 的方法(见 mod.rs unchecked_transaction 注)。
 
 use rusqlite::{params, OptionalExtension};
@@ -181,8 +181,9 @@ impl SessionStore {
                      eval_n INTEGER NOT NULL DEFAULT 0,
                      last_eval INTEGER NOT NULL DEFAULT 0
                  );
-                 -- v10(R-178):线级状态持久化。桌面端每项目的「页签」(进程/线)与
-                 -- 每条线各自的模型 / profile / reasoning / 勘察复核开关。
+                 -- v10(R-178),v11(R-177 F11):线级状态持久化。桌面端每项目的
+                 -- 「页签」(进程/线)与每条线各自的模型 / profile / reasoning /
+                 -- 勘察复核开关 / tracker 写入开关。
                  -- origin_project 与 project_dir **恒为主根**(规范化形态);一条线的
                  -- 执行工作树只由 worktree_path 承担(F4 定死)。这里以前写的是
                  -- 「project_dir 存执行工作树」,与代码事实相反:kanzei-app 的 p{n}
@@ -200,11 +201,12 @@ impl SessionStore {
                      profile TEXT,
                      reasoning TEXT,
                      phase_pipeline INTEGER NOT NULL DEFAULT 0,
+                     tracker_writes_enabled INTEGER NOT NULL DEFAULT 0,
                      updated_at INTEGER NOT NULL
                  );
                  CREATE INDEX IF NOT EXISTS processes_origin
                      ON processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '10')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '11')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -220,6 +222,12 @@ impl SessionStore {
         ] {
             let _ = tx.execute(&format!("ALTER TABLE episodes ADD COLUMN {column}"), []);
         }
+        // v11:存量线默认关闭 tracker 写入,与新线默认值一致,不需要数据回填。
+        // 迁移前的整库备份由 migrate 入口统一创建;若要回退旧程序,恢复该备份即可。
+        let _ = tx.execute(
+            "ALTER TABLE processes ADD COLUMN tracker_writes_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         // session_inputs 的 status CHECK 写死在建表语句里,ALTER 改不了,只能重建。
         // 只在旧约束still生效时做,重建是幂等的:新库建出来就已经含 running。
         let legacy_check: Option<String> = tx
@@ -280,6 +288,53 @@ mod tests {
     use super::*;
     use crate::store::*;
     use rusqlite::params;
+
+    #[test]
+    fn v11给存量进程补tracker开关且默认关闭() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-v11-process-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store
+                .connection
+                .execute_batch(
+                    "ALTER TABLE processes RENAME TO processes_v11;
+                     CREATE TABLE processes (
+                         process_id TEXT PRIMARY KEY NOT NULL,
+                         origin_project TEXT NOT NULL,
+                         project_dir TEXT NOT NULL,
+                         worktree_path TEXT,
+                         model TEXT,
+                         profile TEXT,
+                         reasoning TEXT,
+                         phase_pipeline INTEGER NOT NULL DEFAULT 0,
+                         updated_at INTEGER NOT NULL
+                     );
+                     INSERT INTO processes
+                         (process_id, origin_project, project_dir, worktree_path,
+                          model, profile, reasoning, phase_pipeline, updated_at)
+                     VALUES ('p1|C:/project', 'C:/project', 'C:/project', NULL,
+                             NULL, NULL, NULL, 1, 42);
+                     DROP TABLE processes_v11;
+                     UPDATE schema_meta SET value = '10' WHERE key = 'schema_version';",
+                )
+                .unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        let process = store.get_process("p1|C:/project").unwrap().unwrap();
+        assert!(process.phase_pipeline);
+        assert!(
+            !process.tracker_writes_enabled,
+            "存量线不能在升级后静默获得主根 tracker 写权限"
+        );
+        drop(store);
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     /// D-175:迁移是单向的,升级前必须留下可回退的完整副本;
     /// 遇到更新版本的库时,报错要说清该升哪个程序,而不是让人去删库。

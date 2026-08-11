@@ -21,7 +21,7 @@ use serde_json::Value;
 //     eval_n/last_eval),每条记忆一行,离线回放周期更新。
 // v10:R-178 线级状态持久化——processes 表存线/进程注册 + 模型/profile/reasoning/
 //     子代理开关,重启后逐项目恢复(页签不丢,承接 R-030 遗留)。
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 11;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
