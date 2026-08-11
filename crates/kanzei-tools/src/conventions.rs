@@ -169,7 +169,8 @@ impl Tool for ConventionsTool {
                     let lf_old = normalize_lf(&old_string);
                     let lf_matches: Vec<_> = lf_current.match_indices(&lf_old).collect();
                     if lf_matches.len() == 1 {
-                        let (start, end) = map_lf_range(&current, lf_matches[0].0, lf_matches[0].1.len());
+                        let (start, end) =
+                            map_lf_range(&current, lf_matches[0].0, lf_matches[0].1.len());
                         let mut new_content = current.clone();
                         new_content.replace_range(start..end, &new_string);
                         return write_patch(&path, current, new_content, &expected);
@@ -468,11 +469,14 @@ mod tests {
             "expected_hash": content_hash(crlf),
         });
         let out = ConventionsTool.execute(input.clone(), &ctx).await;
-        assert!(!out.is_error, "CRLF 文件 + LF old_string 应可 patch: {}", out.content);
+        assert!(
+            !out.is_error,
+            "CRLF 文件 + LF old_string 应可 patch: {}",
+            out.content
+        );
         let after = std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap();
         assert_eq!(
-            after,
-            "## 1. 语言与沟通\r\n\r\n- 新行。\r\n\r\n## 2. 之后\r\n",
+            after, "## 1. 语言与沟通\r\n\r\n- 新行。\r\n\r\n## 2. 之后\r\n",
             "替换内容正确且换行统一为 CRLF"
         );
         assert!(!after.replace("\r\n", "").contains('\n'), "不得混合换行");
@@ -488,7 +492,11 @@ mod tests {
             "expected_hash": content_hash(lf),
         });
         let out2 = ConventionsTool.execute(input2.clone(), &ctx2).await;
-        assert!(!out2.is_error, "LF 文件 + CRLF old_string 也应可 patch: {}", out2.content);
+        assert!(
+            !out2.is_error,
+            "LF 文件 + CRLF old_string 也应可 patch: {}",
+            out2.content
+        );
     }
 
     /// 复现真实 conventions.md 场景:跨行 old_string 在 CRLF 文件上匹配。
@@ -505,11 +513,14 @@ mod tests {
             "expected_hash": content_hash(crlf),
         });
         let out = ConventionsTool.execute(input.clone(), &ctx).await;
-        assert!(!out.is_error, "多行 old_string 应可匹配 CRLF 文件: {}", out.content);
+        assert!(
+            !out.is_error,
+            "多行 old_string 应可匹配 CRLF 文件: {}",
+            out.content
+        );
         let after = std::fs::read_to_string(root.join(CONVENTIONS_REL)).unwrap();
         assert_eq!(
-            after,
-            "## 1.1 需求取活与阻塞调度\r\n\r\n- 替换行。\r\n\r\n## 1.2 关闭边界\r\n",
+            after, "## 1.1 需求取活与阻塞调度\r\n\r\n- 替换行。\r\n\r\n## 1.2 关闭边界\r\n",
             "替换内容正确"
         );
     }
