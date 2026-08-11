@@ -152,12 +152,12 @@
 ### 9.1 发布部署(两条通道)
 
 - **开发通道(自举机)**:`.\scripts\release.ps1` = 全量测试 → 装 `kz` → 构建并安装 kzapp;kzapp 运行中会落 `kzapp.exe.pending`,**下次启动自动接力替换**,无需手动处理。
-- **发行通道(安装包)**:`.\scripts\package.ps1 -Publish` = `cargo tauri build` 产出 NSIS 安装器 `dist\kanzei-setup-<hash>.exe` → `gh release create build-<hash>` 发布到 GitHub Releases。
+- **发行通道(安装包)**:`.\scripts\package.ps1 -Ack <自上个 build 标签以来的提交数> -Publish` = 先核对发布范围与验证证据，再由 `cargo tauri build` 产出 NSIS 安装器 `dist\kanzei-setup-<hash>.exe` → `gh release create build-<hash>` 发布到 GitHub Releases。
   - 应用内更新以**最新 release** 为源:启动 3 秒后静默检查(有新版弹 toast),设置页「检查更新」可手动查 + 一键下载安装;
   - 所以:想让安装版用户收到更新,**必须带 `-Publish`**;只跑 release.ps1 安装版是感知不到的。
 - **发布时机与检查单**:完成一批已验证需求/缺陷后发布;发布前必须 ①`cargo test --workspace` 全绿 ②工作区干净且已 push ③`kz --version` 的 hash 与 HEAD 一致。
 - **发布树(worktree)**:发布统一从 `C:\Users\kanzei\Documents\kanzei-release`(`git worktree`,跟踪 main)执行:`git -C <发布树> pull` 后跑其中的 `package.ps1 -Publish`——与 dev 工作树完全隔离,发布时不需要 stash/打断正在进行的开发。**提交了不等于发布了**:安装版用户只认 Releases,合并 main 后记得发布。
-- **Release 标签规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;历史 release 不删除(更新只看 latest)。
+- **Release 标签与保留规范**:tag = `build-<short-hash>`,标题 `kanzei <日期> (<hash>)`;公开 Releases 只保留最新稳定版及其安装器,旧 Release 对象与资产发布新版后清理,对应 Git tags 与提交历史保留用于审计和恢复。
 - **产物卫生**:`dist/` 只保留最新安装器,`dist/`、`target/`、安装器一律不入库。
 
 ## 10. 任务级并行：分支干、合并、冲突检测解决、文档一份唯一
