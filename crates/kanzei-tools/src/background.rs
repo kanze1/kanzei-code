@@ -1016,6 +1016,47 @@ mod tests {
         std::fs::remove_dir_all(&root).ok();
     }
 
+    /// D-258 验收②:后台任务写**非托管路径**(项目根下、.kanzei/ 之外)必须畅通——
+    /// 围栏的职责是托管文档,不是把后台功能杀掉。写 scratch 文件不产生越界,
+    /// 文件原样保留。
+    #[tokio::test]
+    async fn 后台写非托管路径畅通不误伤() {
+        let _serial = serial().lock().await;
+        let root = temp_managed_project("unmanaged");
+        let scratch = root.join("scratch.txt");
+        let command = delayed_write_command(&scratch, "SCRATCH");
+        let id = start_background(&root, &command, "run-scratch").await;
+        let process = get(&id).unwrap();
+        assert!(
+            wait_until(
+                || std::fs::read_to_string(&scratch)
+                    .map(|s| s.contains("SCRATCH"))
+                    .unwrap_or(false),
+                10_000,
+            )
+            .await,
+            "后台任务应能正常写非托管路径"
+        );
+        // 跨过几个守卫周期,确认写 scratch 不被判越界、文件不被回滚。
+        tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+        assert!(
+            process.breaches().is_empty(),
+            "写非托管路径不该产生越界记录: {:?}",
+            process.breaches()
+        );
+        assert_eq!(
+            std::fs::read_to_string(&scratch).unwrap(),
+            "SCRATCH",
+            "非托管写入不得被回滚"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".kanzei/project/defects.md")).unwrap(),
+            ORIGINAL_DEFECTS,
+            "托管树不得被动过"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
     /// D-258 验收④:托管树镜像上限(单文件 >4 MiB / 目录 >2000 文件)被突破时,
     /// 后台任务必须**显式拒绝**而不是静默放行——放行等于告诉后台进程"这棵子树
     /// 随便写,反正没人能回滚你"。
