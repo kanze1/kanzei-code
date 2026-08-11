@@ -3,23 +3,31 @@ id: M-044
 scope: project
 category: sop
 title: tracker update 字段语义:中文键才精确匹配,英文键会追加,进展多行会产生永不可删的游离段落
-description: 处理 edit 替换失败 fp:edit|这次替换看着像插入却未保住 old_string 原文或净删除时必读:先 read 重读核对;本意是 insert就把old_string逐行原样写进 new_string,只有确认要删才设 allow_deletion=true;正文的 [fp:edit|...] 标记是复发检测键不得改
+description: 处理 req/defect update 写字段(优先级/进展/阻塞)时必读:update 是整值替换不是增量合并;键名必须用中文键,英文键(priority/progress)会被当未知新键追加成重复脏字段;进展传多行值会作为新段落追加到条目末尾并产生无任何工具能删除的游离段落。正确做法:先 get 读旧值,把旧内容+新内容拼成单行再整体传。
 status: active
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-08-12
 source: memory-manager;2026-08-12 库存合并(D-204/D-239 实测)
 supersedes: M-045 M-047 M-048 M-050 M-051 M-053 M-054
 refs: D-204 D-239
 ---
 
-适用场景：处理 req/defect/goal 的 tracker update (优先级/进展/阻塞字段)
+三条实测结论(D-204 上验证,D-239 是踩坑现场):
 
-操作步骤:
-1. get 读当前目标文件确认现有值
-2. defect update: fields 是整字段替换(非增量合并),键名必须用中文(优先级/进展/阻塞),英文 key(name="priority"/"progress")会被当未知新键追加成重复脏数据,原两批交付证据丢失需从 git diff 找回再 update 恢复
-3. 进展 field:单行 value=替换首行;多行含换行=value as paragraphs appended to END of entries(not replacing original location),游离段落(无"-键:"前缀的文本层)一旦产生**永不清除**:update single line only replaces first row, floating paragraph residue remains;tracker file direct write denied、git restore/checkout 被引擎拦截 shell 整文件重写被拦—没有任何工具能删除floating paragraphs
-4. 清空字段传空字符串会留下空键(解析层忽略不删)
+1. **键名必须用中文键**。引擎按键名精确匹配更新,`优先级`/`进展`/`阻塞` 才会命中原字段;英文键是未知键,会被**追加**到条目里。实测:`defect update D-204 {"priority":"P3","进展":"..."}` 之后,文件里多出 `- priority: P3`,而原来的 `- 优先级: P2` 原封不动。
 
-正确做法:①update前先get读当前field,进展必须拼旧内容+新 content整体单行传;绝不传多行数值
+2. **update 是整值替换,不是增量**。传什么就把该字段变成什么,旧内容不保留。同一次实测里 `进展` 被整段换掉,原来两批交付证据全部丢失,只能从 `git diff` 找回再 update 补写。所以**改任何字段前先 get 读当前值**,把旧内容和新内容拼好一次性传。
 
-边界与例外:D-239因此积累3份验收复核、2份第二轮复核的重复段落。引擎需补"进度历史去重/字段删除"能力(D-239相关)
+3. **进展字段的单行/多行语义不同,多行不可逆**。
+   - 单行值 = 替换 `- 进展:` 那一行;
+   - 多行值(含换行) = 作为**新段落追加**到条目末尾,不替换原行;
+   - 由多行 update 产生的「游离段落」(没有 `- 键:` 前缀的裸文本行)**一旦产生就永远删不掉**:tracker 文件 direct write 被拒、`git restore`/`checkout` 被引擎拦、shell 整文件重写被拦,没有任何工具能删。D-239 因此积累了 3 份「验收②复核」和 2 份「第二轮复核」重复段落。
+
+配套禁令:
+- 绝不传多行值给 `进展`;要追加就把旧内容拼进同一行。
+- 绝不为了「清理重复段落」反复 update——越修越脏,这是 D-239 的教训。
+- 清空字段传空字符串只会留下一个空键(解析层忽略但不删除),不能当删除用。
+
+引擎缺口(已知未修):进展历史去重、字段物理删除都没有原生能力,见 D-239。
+
+注:2026-08-12 04:11 本条的 description 曾被并发运行的 memory-manager 覆盖成 edit/old_string 的内容(那是 M-027 的主题)——description 是召回钩子,被写错等于挂到错误的场景上。做记忆维护时先停自动推进循环。

@@ -31,6 +31,6 @@
 - M-031 [sop] 关闭 req 前先收尾名下 running 测试记录 — 处理 req 关闭被 running 测试记录阻塞时必读：先用 test_record 为对应测试 ID 写入 passed/failed/skipped 终态，再重试关闭；不再运行的测试必须 skipped 并说明原因。
 - M-032 [fact] R-163 记忆回放评估台已交付(六臂对照量化记忆决策值) — 需要用 CLI kz replay-eval 做记忆决策价值评估、或要改 replay.rs 数据层 / Arm 六臂枚举 / J 判据与报告渲染时必读:交付形态、四批实现分工与关键接口约定都在这里。
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
-- M-044 [sop] tracker update 字段语义:中文键才精确匹配,英文键会追加,进展多行会产生永不可删的游离段落 — 处理 edit 替换失败 fp:edit|这次替换看着像插入却未保住 old_string 原文或净删除时必读:先 read 重读核对;本意是 insert就把old_string逐行原样写进 new_string,只有确认要删才设 allow_deletion=true;正文的 [fp:edit|...] 标记是复发检测键不得改
+- M-044 [sop] tracker update 字段语义:中文键才精确匹配,英文键会追加,进展多行会产生永不可删的游离段落 — 处理 req/defect update 写字段(优先级/进展/阻塞)时必读:update 是整值替换不是增量合并;键名必须用中文键,英文键(priority/progress)会被当未知新键追加成重复脏字段;进展传多行值会作为新段落追加到条目末尾并产生无任何工具能删除的游离段落。正确做法:先 get 读旧值,把旧内容+新内容拼成单行再整体传。
 
 (6 candidate 条待验证晋升)
