@@ -730,10 +730,10 @@ pub(crate) async fn run_task(
                 // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
                 // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
                 let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-                // 轮末采集(D-229):CLI 与桌面端共用 harvest_end_of_run——失败提炼
-                // → 条目收口判定 → SOP 候选(global)→ 根因 fact 候选(project)。
-                // 顺序与既有行为逐条对齐;SOP 只产候选等用户一键采纳,agent 不自决入库。
-                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run, None);
+                // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼
+                // → 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact
+                // 候选(项目 inbox)。候选箱语义不变:SOP 只产候选等用户一键采纳,agent 不自决入库。
+                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run);
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
                 if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
                     session_id: &session_id,

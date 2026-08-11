@@ -1653,3 +1653,15 @@
 - 摘要: D-230 关闭前全量:全部 crate 全绿(kanzei-tools 231 含新增 resident_index 价值排序测试)。resident_index 装箱前按 updated 新近 + id 数字降序排序,新条目不再被系统性折叠。
 - 关联: D-230
 - 收尾: 1786449748
+
+## T-1786449918 D-214 定向测试:SOP 候选改投项目 inbox [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei -p kanzei-app
+- 摘要: D-214 修复定向验证:方向②——SOP 候选改投项目 inbox(harvest_end_of_run 删 global_root 参数,harvest_sop 用 project store),manager prompt 加例外规则:候选 detail 指明 scope=global 时按 global 落库。更新 harvest_end_of_run 测试:断言 SOP+fact 候选都落项目 inbox 且 detail 含 scope=global;纯查询轮零投递。kanzei-tools 231 + kanzei + app 118 全绿。
+- 关联: D-214
+- 收尾: 1786449918
+
+## T-1786449991 D-214 提交前复测(注释同步) [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei -p kanzei-app
+- 摘要: D-214 提交前复测(注释同步后):CLI/桌面端轮末注释更新为 D-214 新语义(SOP 候选→项目 inbox、落库 global),kanzei-tools 231 + kanzei 3 + app 118 全绿。
+- 关联: D-214
+- 收尾: 1786449991

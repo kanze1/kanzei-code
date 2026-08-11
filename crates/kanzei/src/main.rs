@@ -641,12 +641,12 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 本轮切片:summary.messages = prior + 本轮。统计与失败提炼都只看本轮,
     // 否则历史失败会被反复上报、工具计数也会累计全历史(R-099 基线失真)。
     let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-    // 轮末采集(D-229):CLI 与桌面端共用 harvest_end_of_run——失败提炼 → 条目收口
-    // 判定 → SOP 候选(global)→ 根因 fact 候选(project)。SOP 通道此前只接了桌面端,
-    // CLI 完成条目不产 SOP 候选,遥测口径两端分裂;这里补上并收敛为单入口。
+    // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼 →
+    // 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact 候选(项目
+    // inbox)。SOP 通道 D-229 起双端一致,D-214 起候选投项目 inbox 进消化通道。
     {
         let (delivered, sop, fact) =
-            kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run, None);
+            kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run);
         if delivered > 0 {
             eprintln!("\x1b[90m(memory: 投递 {delivered} 条失败观察待整理)\x1b[0m");
         }

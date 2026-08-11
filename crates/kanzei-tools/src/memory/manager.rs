@@ -827,6 +827,10 @@ pub fn manager_agent() -> AgentDef {
                  read 重读再改\"). \
                  ALWAYS memory_search before memory_add — the engine rejects exact-title \
                  duplicates. Scope rules: preference/habit → global, fact/sop → project. \
+                 EXCEPTION (D-214): SOP candidates whose detail explicitly says \
+                 \"scope=global\" (候选 SOP 落库目标) must be ADDed with scope=global — \
+                 they are cross-project workflow templates; the detail line overrides \
+                 the default scope rule. \
                  STATEFUL facts describing the CURRENT world (当前安装通道/当前分支/当前 \
                  版本…) must pass `subject` (a stable topic key, e.g. \"安装通道\"); the \
                  engine keeps at most one active entry per subject — on conflict \

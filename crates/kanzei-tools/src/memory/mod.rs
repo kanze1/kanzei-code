@@ -814,35 +814,24 @@ pub fn harvest_entry_fact(
 /// 顺序与桌面端既有行为逐条对齐:
 ///   1. 失败提炼(harvest_failures → 项目 inbox,不依赖模型自觉调 memory_note);
 ///   2. 条目收口判定(completed_entry):本轮确实完整收了一个条目才继续;
-///   3. SOP 候选(harvest_sop → **global** 候选箱等用户一键采纳,agent 不能自决入库);
+///   3. SOP 候选(harvest_sop → **项目** inbox,落库目标 scope=global;
+///      D-214:候选改投项目 inbox——两处 manager 消化通道(CLI main.rs 与桌面端
+///      app memory.rs)都只读项目 inbox,投 global 是只进不出的死信箱;候选箱
+///      语义不变,仍是等用户一键采纳、agent 不自决入库);
 ///   4. 根因→fact 候选(harvest_entry_fact → 项目 inbox,由 manager 提炼)。
 ///
 /// 返回 (投递失败笔记数, 是否产出 SOP 候选, 是否产出 fact 候选),便于调用方打日志。
-///
-/// `global_root` 仅供测试注入临时全局记忆根;生产调用方传 `None`(走默认
-/// `MemoryStore::global()`)。用参数注入而非测试内 set_var(KANZEI_HOME) 是
-/// 因为进程级环境变量会与同进程并行测试互踩(D-273 教训)。
 pub fn harvest_end_of_run(
     project_root: &std::path::Path,
     prompt: &str,
     this_run: &[kanzei_llm::Message],
-    global_root: Option<&std::path::Path>,
 ) -> (usize, bool, bool) {
     let signals = kanzei_core::summarize_failures(this_run);
     let project = MemoryStore::project(project_root);
     let delivered = harvest_failures(&project, &signals);
     let (sop, fact) = match kanzei_core::completed_entry(this_run) {
         Some(done) => {
-            let sop = match global_root {
-                Some(root) => harvest_sop(
-                    &MemoryStore::open(MemoryScope::Global, root.to_path_buf()),
-                    &done,
-                    prompt,
-                ),
-                None => MemoryStore::global()
-                    .map(|global| harvest_sop(&global, &done, prompt))
-                    .unwrap_or(false),
-            };
+            let sop = harvest_sop(&project, &done, prompt);
             let fact = harvest_entry_fact(&project, &done, prompt, &signals);
             (sop, fact)
         }
@@ -1324,8 +1313,10 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    /// D-229 验收:CLI 与桌面端共用 harvest_end_of_run 单入口。完成条目的轮末
-    /// 应产出 global SOP 候选 + project fact 候选;纯查询轮不产出任何候选。
+    /// D-229/D-214 验收:CLI 与桌面端共用 harvest_end_of_run 单入口。完成条目的轮末
+    /// 应产出 SOP 候选 + fact 候选(都落**项目** inbox——D-214:manager 消化通道只
+    /// 读项目 inbox,投 global 是死信箱;SOP 落库目标 scope=global 由候选 detail
+    /// 指明,候选箱本身在项目侧);纯查询轮不产出任何候选。
     #[test]
     fn harvest_end_of_run_完成条目投_sop_与_fact_纯查询轮不投() {
         let dir = std::env::temp_dir().join(format!(
@@ -1337,16 +1328,6 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
-        // global 记忆根通过参数注入临时目录(生产传 None 走默认),避免测试内
-        // set_var(KANZEI_HOME) 与同进程并行测试互踩(D-273 教训)。
-        let home = std::env::temp_dir().join(format!(
-            "kz-harvesteor-home-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
 
         // 完成条目的消息序列:edit 成功 → req update done(收口)。
         let done = vec![
@@ -1355,21 +1336,22 @@ mod tests {
             msg_call("c2", "req", json!({"action": "update", "id": "R-777", "status": "done"})),
             msg_result("c2", "updated", false),
         ];
-        let (delivered, sop, fact) = harvest_end_of_run(&dir, "收口 R-777", &done, Some(&home));
+        let (delivered, sop, fact) = harvest_end_of_run(&dir, "收口 R-777", &done);
         assert_eq!(delivered, 0, "无失败信号的轮末不应投失败笔记");
-        assert!(sop, "完成条目应产出 SOP 候选(global 候选箱)");
-        assert!(fact, "完成条目应产出 fact 候选(项目 inbox)");
+        assert!(sop, "完成条目应产出 SOP 候选");
+        assert!(fact, "完成条目应产出 fact 候选");
 
         let project = MemoryStore::project(&dir);
+        let inbox = project.read_inbox();
+        assert!(inbox.contains("[fact:R-777]"), "fact 候选应落项目 inbox");
         assert!(
-            project.read_inbox().contains("[fact:R-777]"),
-            "fact 候选应落项目 inbox"
+            inbox.contains("[sop:R-777]"),
+            "SOP 候选应落项目 inbox(manager 只消化项目侧): {inbox}"
         );
-        // global 候选箱:harvest_sop 写进全局记忆的 inbox(用户级),项目 store 读不到。
-        // 以 sop 返回值为准(上文已断言),此处再确认项目 inbox 只含 fact 候选。
+        // 候选 detail 指明落库目标仍为 global(D-214:候选箱在项目、落库 global)。
         assert!(
-            !project.read_inbox().contains("[sop:R-777]"),
-            "SOP 候选不应落项目 inbox(它是 global 候选箱的)"
+            inbox.contains("scope=global"),
+            "SOP 候选 detail 必须指明 scope=global 落库目标"
         );
 
         // 纯查询轮:read + req done,无实质动作,completed_entry 不触发 → 零投递。
@@ -1379,12 +1361,11 @@ mod tests {
             msg_call("c4", "req", json!({"action": "update", "id": "R-778", "status": "done"})),
             msg_result("c4", "updated", false),
         ];
-        let (delivered2, sop2, fact2) = harvest_end_of_run(&dir, "只读轮", &read_only, Some(&home));
+        let (delivered2, sop2, fact2) = harvest_end_of_run(&dir, "只读轮", &read_only);
         assert_eq!(delivered2, 0);
         assert!(!sop2, "纯查询轮不应产 SOP");
         assert!(!fact2, "纯查询轮不应产 fact");
 
-        std::fs::remove_dir_all(&home).ok();
         std::fs::remove_dir_all(dir).ok();
     }
 
