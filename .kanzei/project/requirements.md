@@ -124,7 +124,7 @@
 
 - 进展: 2026-08-11 扫描:本条仅存标题/优先级/标签,缺 内容/验收/背景——边界不清无法开工(无验收就无从交付,违反 §1.25)。待用户补全条目内容后按序恢复取活,不占可执行槽位。
 
-## R-143 自举循环定期自动 push:完成批提交后自动推送,失败可见不阻断 [todo]
+## R-143 自举循环定期自动 push:完成批提交后自动推送,失败可见不阻断 [doing]
 - 背景: direction_taste §5.2 地基债:自举循环完成工作后依赖 agent 自觉 push,工作树长期不推风险堆积;定期自动 push 作为基线保障。
 - 设计定位: 自举循环的提交自动推送保障
 - 证据等级: E1
@@ -134,6 +134,10 @@
 - 优先级: P0
 
 - 标签: 流程
+
+- 复杂度: 小
+- 进展: 2026-08-11 完成:run_task 轮末自动 push(本轮有 git commit 成功才触发),push 失败经 stage 可见不阻断;三条单测(推送成功/无提交不触发/无 remote 失败可见)全绿,kanzei-app 115 单测无回归。验收①②③ 证据齐备。
+- 验收证据: ①每完成一批提交后自动 git push——run_task 轮末(decide_auto_run 之后、kz:done 之前)调用 maybe_push_after_commit(crates/kanzei-app/src/run.rs:867-880);检测位由 on_event 的 ToolStart(action=commit)+ToolEnd(ok=true) 置位(run.rs:344-348/365-374),仅本轮确有 git commit 成功才触发;轮末=自举循环批次边界,即「每批提交后自动 push」。②失败可见且不阻断——maybe_push_after_commit 对 push 失败走 stage('推送','自动 push 失败(不阻断):…') + trace 记录 kind:push/ok:false,函数不抛出,run_task 正常收尾发 kz:done(run.rs:1004-1041);单测『有提交无remote_失败可见不panic』验证失败不 panic 且 stage 可见。③与手动 push 共存——自动 push 只在轮末触发一次,git push 幂等推进,手动 git push 工具/命令不受影响;单测『本轮无提交_不触发push』验证无提交时零 stage 零 trace(不与手动流程抢)。测试:auto_push_tests 三条 + kanzei-app 115 单测全绿(T-1786445948)。
 
 ## R-144 验收核查周期化:鞭挞每关 N 条自动插入只读核查回合 [todo]
 - 背景: direction_taste §5.5:08-07 式事件性审计(R-092 手动按钮)应变成常驻节律——鞭挞每关 N 条自动插入一轮只读核查回合,复用现有只读子代理,把验收打假从人工触发变为自动循环的一部分。

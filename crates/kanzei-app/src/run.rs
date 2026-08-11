@@ -305,6 +305,13 @@ pub(crate) async fn run_task(
     // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
     let tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    // R-143:自举循环批次提交后自动 push 的检测位。ToolStart(action=commit)置 pending,
+    // ToolEnd(ok=true)把 pending 提升为 committed;失败/非 commit 只清 pending。
+    // 轮末(decide_auto_run 之后)读 committed,true 才触发 push。
+    let committed_this_round = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending_commit_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let round_committed = committed_this_round.clone();
+    let round_pending = pending_commit_call.clone();
     let mut on_event = move |event: RunEvent| {
         let elapsed_ms = |id: &str| -> Option<u128> {
             tool_started
@@ -332,6 +339,10 @@ pub(crate) async fn run_task(
                 summary,
                 input,
             } => {
+                // R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
+                if name == "git" && input["action"].as_str() == Some("commit") {
+                    round_pending.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 tool_started
                     .lock()
                     .unwrap()
@@ -357,6 +368,14 @@ pub(crate) async fn run_task(
                 preview,
                 display,
             } => {
+                // R-143:git commit 成功后提升 committed 位(仅当本轮确实调用了 commit)。
+                if name == "git" {
+                    if ok && round_pending.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                        round_committed.store(true, std::sync::atomic::Ordering::Relaxed);
+                    } else if !ok {
+                        round_pending.store(false, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
                 trace_log.lock().unwrap().trace.push(json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
                     "durationMs": elapsed_ms(&id), "at": now_ms(),
@@ -862,6 +881,15 @@ pub(crate) async fn run_task(
         payload["max"] = json!(ctrl.state.max_rounds);
         payload
     };
+    // R-143:自举循环批次提交后自动 push。仅当本轮确有 git commit 成功(检测位在
+    // on_event 的 ToolStart/ToolEnd 置位);push 失败经 stage 可见但不阻断本轮收尾。
+    maybe_push_after_commit(
+        committed_this_round.load(std::sync::atomic::Ordering::Relaxed),
+        &ctx.cwd,
+        &|name, detail| stage(name, detail),
+        &|entry| live.lock().unwrap().trace.push(entry),
+    )
+    .await;
     conversation
         .lock()
         .unwrap()
@@ -980,6 +1008,48 @@ pub(crate) fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default()
+}
+
+/// R-143:自举循环轮末自动 push——本轮确有 git commit 成功才触发(检测位由
+/// run_task 的 on_event 在 ToolStart(action=commit)+ ToolEnd(ok=true) 置位)。
+/// push 失败只上报不阻断:自举循环不能被网络/远端状态卡住(验收②);
+/// 与既有手动 git push 流程共存,自动 push 只是把轮末该推的提交推掉(验收③)。
+pub(crate) async fn maybe_push_after_commit(
+    committed: bool,
+    cwd: &std::path::Path,
+    on_stage: &(dyn Fn(&str, String) + Sync),
+    on_trace: &(dyn Fn(serde_json::Value) + Sync),
+) {
+    if !committed {
+        return;
+    }
+    on_stage("推送", "本轮有提交,自动 git push…".into());
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .arg("push")
+        .output()
+        .await;
+    let entry = match output {
+        Ok(out) if out.status.success() => {
+            json!({ "kind": "push", "ok": true, "at": now_ms() })
+        }
+        Ok(out) => {
+            let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            let detail = if detail.is_empty() {
+                String::from_utf8_lossy(&out.stdout).trim().to_string()
+            } else {
+                detail
+            };
+            on_stage("推送", format!("自动 push 失败(不阻断):{detail}"));
+            json!({ "kind": "push", "ok": false, "error": detail, "at": now_ms() })
+        }
+        Err(error) => {
+            on_stage("推送", format!("自动 push 失败(不阻断):{error}"));
+            json!({ "kind": "push", "ok": false, "error": error.to_string(), "at": now_ms() })
+        }
+    };
+    on_trace(entry);
 }
 
 pub(crate) async fn push_ollama_models(
@@ -1981,6 +2051,134 @@ mod worktree_run_tests {
         );
         std::fs::remove_dir_all(&worktree).ok();
         std::fs::remove_dir_all(&main_root).ok();
+    }
+}
+
+#[cfg(test)]
+mod auto_push_tests {
+    use super::maybe_push_after_commit;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    fn temp_repo(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-push-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["config", "user.email", "test@example.invalid"]);
+        git(&repo, &["config", "user.name", "Kanzei Test"]);
+        dir
+    }
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "git {:?} 失败: {}",
+            args,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    /// 有提交 + 有 remote → push 成功,origin 收到该提交,轨迹记录 ok:true。
+    #[tokio::test]
+    async fn 本轮有提交_推送成功_远端收到() {
+        let dir = temp_repo("ok");
+        let repo = dir.join("repo");
+        let remote = dir.join("remote.git");
+        Command::new("git")
+            .args(["init", "-q", "--bare"])
+            .arg(&remote)
+            .output()
+            .unwrap();
+        // bare 仓库默认 HEAD 分支名随 git 版本/config 漂移(master 或 main),
+        // 钉死 refs/heads/main 让 rev-parse 断言与本地仓库分支名一致。
+        git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        git(&repo, &["remote", "add", "origin", remote.to_str().unwrap()]);
+        std::fs::write(repo.join("a.txt"), "hello\n").unwrap();
+        git(&repo, &["add", "a.txt"]);
+        git(&repo, &["commit", "-q", "-m", "第一条"]);
+        // simple 模式无 upstream 的 `git push` 会拒绝;先建立 upstream(等价于
+        // 手动 push 流程已跑过),再验证「轮末自动 push 把后续提交推上去」。
+        git(&repo, &["push", "-q", "-u", "origin", "main"]);
+        std::fs::write(repo.join("b.txt"), "second\n").unwrap();
+        git(&repo, &["add", "b.txt"]);
+        git(&repo, &["commit", "-q", "-m", "第二条"]);
+        let local_head = git(&repo, &["rev-parse", "HEAD"]);
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let traces = std::sync::Mutex::new(Vec::new());
+        maybe_push_after_commit(
+            true,
+            &repo,
+            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
+            &|entry| traces.lock().unwrap().push(entry),
+        )
+        .await;
+
+        let stages = stages.into_inner().unwrap();
+        let traces = traces.into_inner().unwrap();
+        let remote_head = git(&remote, &["rev-parse", "main"]);
+        assert_eq!(remote_head, local_head, "远端必须收到本轮提交");
+        assert!(traces.iter().any(|e| e["ok"] == true), "轨迹应记 push 成功: {traces:?}");
+        assert!(!stages.iter().any(|s| s.contains("失败")), "成功路径不该报失败: {stages:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 本轮没有 commit(检测位 false)→ 根本不触发 push,零 stage/零 trace。
+    #[tokio::test]
+    async fn 本轮无提交_不触发push() {
+        let dir = temp_repo("none");
+        let repo = dir.join("repo");
+        let stages = std::sync::Mutex::new(Vec::new());
+        let traces = std::sync::Mutex::new(Vec::new());
+        maybe_push_after_commit(
+            false,
+            &repo,
+            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
+            &|entry| traces.lock().unwrap().push(entry),
+        )
+        .await;
+        assert!(traces.into_inner().unwrap().is_empty(), "无提交不应产生 push 轨迹");
+        assert!(stages.into_inner().unwrap().is_empty(), "无提交不应产生任何 stage 输出");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 有提交但没有 remote → push 失败,但函数不 panic、不阻断,失败经 stage 可见。
+    #[tokio::test]
+    async fn 有提交无remote_失败可见不panic() {
+        let dir = temp_repo("noremote");
+        let repo = dir.join("repo");
+        std::fs::write(repo.join("a.txt"), "hello\n").unwrap();
+        git(&repo, &["add", "a.txt"]);
+        git(&repo, &["commit", "-q", "-m", "第一条"]);
+
+        let stages = std::sync::Mutex::new(Vec::new());
+        let traces = std::sync::Mutex::new(Vec::new());
+        maybe_push_after_commit(
+            true,
+            &repo,
+            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
+            &|entry| traces.lock().unwrap().push(entry),
+        )
+        .await;
+
+        let stages = stages.into_inner().unwrap();
+        let traces = traces.into_inner().unwrap();
+        assert!(
+            stages.iter().any(|s| s.contains("失败")),
+            "失败必须经 stage 可见: {stages:?}"
+        );
+        assert!(traces.iter().any(|e| e["ok"] == false), "轨迹应记 push 失败: {traces:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
 

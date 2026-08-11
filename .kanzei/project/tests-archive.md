@@ -1575,3 +1575,9 @@
 - 摘要: R-142 提交前定向:五条冒烟全绿。lint 30 文件零 no-undef(1054 标识符白名单与源码同步,gen --check 通过);runtime 0 错(1013 invoke/9 视图);i18n 956 key/353 HTML/57 契约;a11y 22 icon-btn;markdown 全过。负向:注入未定义变量被 no-undef 报错 exit 1。
 - 关联: R-142
 - 收尾: 1786445522
+
+## T-1786445948 cargo test -p kanzei-app (R-143 auto_push) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 115 单测全绿,含 R-143 auto_push_tests 三条:本轮有提交+有 upstream → 自动 push 成功且远端收到;本轮无提交 → 零触发;有提交无 remote → 失败经 stage 可见且不 panic。
+- 关联: R-143
+- 收尾: 1786445948
