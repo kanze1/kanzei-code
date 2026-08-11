@@ -2668,3 +2668,15 @@
 - 验收: ①cargo test -p kanzei-harness 全绿(108→107+1 合并后总数不变);②cargo test --workspace 连续两轮全绿;③不再有 KANZEI_HOME 并发写点(home.rs 唯一写点已并入顺序测试)。
 - 优先级: P2
 - 进展: 修复:合并为顺序测试 kanzei_home_顺序验证环境变量与默认(kanzei-harness/src/home.rs:30-53)——先测 KANZEI_HOME 优先,再测无变量回落 HOME/.kanzei,消除并发互踩。验收核对:①cargo test -p kanzei-harness 107 全绿(两个测试合并后数量正确);②cargo test --workspace 连续两轮全绿(T-1786448527,18 crate);③home.rs 唯一 set_var 写点已并入顺序测试,不再有并发 KANZEI_HOME 写点。
+
+## D-185 `<memory-hints>` 声称只进本轮,实际逐轮累积进对话历史 [fixed] (medium)
+- 复现: 开跑前预检索的记忆提示块拼进 `run_prompt`(crates/kanzei-app/src/main.rs 注入点注释写"提示块只进本次运行"),但它随 User message 进 `summary.messages` → 桌面端整份存进 conversations → 下轮作为 `prior` 回灌。跑 N 轮,历史里就躺着 N 个 hint 块。
+- 影响: ①每轮固定多烧 N-1 份陈旧提示;②这些块是**当时**的记忆快照,与现行 INDEX.md 可能已经不一致,模型读到的是过期索引却无从分辨;③与 R-106"注入 token 下降"的目标反向。
+- 根因: 提示块拼在 prompt 字符串上而不是作为一次性 system/context 段落,持久化路径对它无感知。
+- 验收: hint 块不进 conversations 快照(或落库前剥离),连跑 3 轮后历史里最多一个块;注入 token 账单能看出 hint 段的独立占比。
+- 证据等级: E2
+- 优先级: P2
+- 标签: 核心
+
+- 进展: 修复:memory_hints 不再拼进 prompt 字符串,改为 run_once/run_once_with_parts 的新参数(kanzei-core/src/runner/drive.rs:20-24,43-46),作为稳定 system 段注入(stable_system.push,drive.rs:117-121)——system 不进 messages,自然不进 conversations,下轮 prior 回灌不到;context_report 单独记 memory/hints(drive.rs:107-110)。CLI(main.rs:566-568 prompt_hints 独立,run_once 传 memory_hints.as_deref())与桌面端(run.rs:604-607)同步改造;15 处调用点全部补参(其余传 None)。验收核对:①hint 块不进 conversations 快照——集成测试 memory_hints_not_persisted.rs 断言③ summary.messages 无任何 hint 块(连跑 N 轮历史 0 个,满足「最多一个」);②token 账单独立占比——测试断言④ context_report 含 memory/hints 条目,CLI context 打印(source 字符)与桌面端 context 事件均携带该条目。验证:四层断言集成测试绿(T-1786449090),关闭前全量 cargo test --workspace 全绿(T-1786449161)。既有能力标注:prompt_hints 检索逻辑(kanzei-tools memory/mod.rs:931)未动,只改注入通道。
+

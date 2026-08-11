@@ -1623,3 +1623,9 @@
 - 摘要: D-185 修复定向验证:memory_hints 从 prompt 拼装改为 run_once 的 memory_hints 参数(system 一次性注入,不进 messages)。新增集成测试 memory_hints_not_persisted 断言四层:①请求 system 含 hint 块、②User prompt 不含 hint、③summary.messages 无 hint 块(不回灌)、④context_report 含 memory/hints 条目。core 130 + kanzei 集成全绿 + app 118 + tools 229 全绿。15 处 run_once/run_once_with_parts 调用点已同步新参数。
 - 关联: D-185
 - 收尾: 1786449090
+
+## T-1786449161 cargo test --workspace (D-185 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-185 关闭前全量:全部 crate 全绿(含新增 memory_hints_not_persisted 集成测试与 15 处调用点同步)。
+- 关联: D-185
+- 收尾: 1786449161
