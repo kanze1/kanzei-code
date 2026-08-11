@@ -402,7 +402,7 @@ pub fn resident_index(
     project_root: &std::path::Path,
     budget: usize,
 ) -> (Vec<String>, std::collections::HashSet<String>, usize) {
-    let mut all: Vec<(String, String)> = Vec::new();
+    let mut all: Vec<(MemoryEntry, String)> = Vec::new();
     let mut stores = vec![MemoryStore::project(project_root)];
     stores.extend(MemoryStore::global());
     for store in &stores {
@@ -411,7 +411,7 @@ pub fn resident_index(
                 continue;
             }
             all.push((
-                e.id.clone(),
+                e.clone(),
                 format!(
                     "{} [{}/{}] {} — {}",
                     e.id, e.scope, e.category, e.title, e.description
@@ -419,21 +419,37 @@ pub fn resident_index(
             ));
         }
     }
+    // D-230:装箱前按价值排序,取代原先 id 升序的先到先得——老条目凭枚举顺序
+    // 霸占预算、新条目(往往正是当前最相关的)被系统性折叠。价值 = updated
+    // 新近优先;同 updated 按 id 数字降序(id 越大创建越晚)。
+    all.sort_by(|a, b| {
+        b.0.updated
+            .cmp(&a.0.updated)
+            .then_with(|| id_number(&b.0.id).cmp(&id_number(&a.0.id)))
+    });
     let mut lines = Vec::new();
     let mut ids = std::collections::HashSet::new();
     let mut remaining = budget;
     let mut folded = 0usize;
-    for (id, line) in all {
+    for (entry, line) in all {
         let cost = line.chars().count() + 1;
         if cost > remaining {
             folded += 1;
             continue;
         }
         remaining -= cost;
-        ids.insert(id);
+        ids.insert(entry.id);
         lines.push(line);
     }
     (lines, ids, folded)
+}
+
+/// id 尾部数字("M-042" → 42);解析失败按 0。供价值排序的平手裁决。
+fn id_number(id: &str) -> u64 {
+    id.rsplit(|c: char| !c.is_ascii_digit())
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
 }
 
 /// R-162 事件触发召回策略(tools 侧实现,注入 RunnerConfig.recall)。
@@ -1311,7 +1327,7 @@ mod tests {
     /// D-229 验收:CLI 与桌面端共用 harvest_end_of_run 单入口。完成条目的轮末
     /// 应产出 global SOP 候选 + project fact 候选;纯查询轮不产出任何候选。
     #[test]
-    fn harvest_end_of_run_完成条目投SOP与fact_纯查询轮不投() {
+    fn harvest_end_of_run_完成条目投_sop_与_fact_纯查询轮不投() {
         let dir = std::env::temp_dir().join(format!(
             "kz-harvesteor-{}-{}",
             std::process::id(),
@@ -1523,6 +1539,58 @@ mod tests {
                 .all(|r| r.hits.iter().all(|h| h.id != "M-003")),
             "preference 不该进召回遥测",
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-230:resident_index 装箱前按价值排序——新 updated 优先、同 updated 时
+    /// id 大(创建晚)优先,取代 id 升序先到先得(老条目凭枚举顺序霸占预算)。
+    #[test]
+    fn resident_index_价值排序_新近条目优先于老条目() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-resident-sort-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mem = dir.join(".kanzei").join("memory");
+        std::fs::create_dir_all(&mem).unwrap();
+        // 三条 fact 条目,updated 各不相同(老、中、新),行长短都远低于预算。
+        let write = |id: &str, updated: &str| {
+            std::fs::write(
+                mem.join(format!("{id}-{}.md", id.to_lowercase())),
+                format!(
+                    "---\nid: {id}\nscope: project\ncategory: fact\ntitle: 条目 {id}\n\
+                     description: 描述 {id}\nstatus: active\ncreated: 2026-08-01\n\
+                     updated: {updated}\nsource: user\n---\n\n正文 {id}\n"
+                ),
+            )
+            .unwrap();
+        };
+        write("M-100", "2026-08-01"); // 老
+        write("M-101", "2026-08-03"); // 中
+        write("M-102", "2026-08-05"); // 新
+
+        // 预算只装得下两条(行长约 42c):最新 updated 的两条应入选,最老的折叠。
+        let (lines, ids, folded) = resident_index(&dir, 100);
+        assert_eq!(folded, 1, "{lines:?}");
+        assert!(ids.contains("M-102"), "最新更新的条目必须入选: {ids:?}");
+        assert!(ids.contains("M-101"), "次新更新的条目必须入选: {ids:?}");
+        assert!(!ids.contains("M-100"), "最老的条目应被折叠: {ids:?}");
+        // 行序也按价值:最新的排最前。
+        assert!(lines[0].starts_with("M-102"), "行序应按价值降序: {lines:?}");
+
+        // 同 updated 平手:id 大(创建晚)优先。M-103/M-104 同 updated。
+        write("M-103", "2026-08-06");
+        write("M-104", "2026-08-06");
+        // 预算恰好装两条:M-104 + M-103 入选,次新的 M-102 折叠。
+        let (_, ids2, _) = resident_index(&dir, 110);
+        assert!(ids2.contains("M-104"), "平手时 id 大优先: {ids2:?}");
+        assert!(ids2.contains("M-103"), "平手时次大 id 也应入选: {ids2:?}");
+        assert!(!ids2.contains("M-102"), "预算内应优先保留最新 updated: {ids2:?}");
+
         std::fs::remove_dir_all(dir).ok();
     }
 

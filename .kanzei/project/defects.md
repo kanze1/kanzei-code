@@ -1,6 +1,6 @@
 # Defects
 
-## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [open] (medium)
+## D-230 resident_index 预算装箱按 id 先到先得,新条目被系统性折叠 [fixing] (medium)
 - 优先级: P2
 - 依据: kanzei-tools/src/memory/mod.rs resident_index 按 load_all 的 id 升序装 3000 字预算,放不下的 continue 折叠——id 越大(越新)的条目越容易被挤出常驻索引,而新条目往往正是当前最相关的;老条目永远优先纯属枚举顺序副作用,不是价值排序。
 - 修复方向: 装箱前按价值排序(decision_weight×新近度,或至少 updated 新近优先);与 prompt_hints 的口径保持同源(D-216 教训:两边必须对同一份判定)。

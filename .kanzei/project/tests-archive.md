@@ -1641,3 +1641,9 @@
 - 摘要: D-229 关闭前全量:全部 crate 全绿(kanzei-tools 230、kanzei-app 118、kanzei-core 130、kanzei-harness 107 等)。共享轮末采集入口 harvest_end_of_run 两端(CLI/桌面端)同一调用,SOP 采集通道 CLI 补齐。
 - 关联: D-229
 - 收尾: 1786449517
+
+## T-1786449681 D-230 定向测试:resident_index 价值排序 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: D-230 修复定向验证:resident_index 装箱前按价值排序(updated 新近优先,同 updated 按 id 数字降序),取代 id 升序先到先得。新增单测:新 updated 优先入选、最老折叠、行序按价值降序、同 updated 时 id 大优先。memory 模块 70 全绿,kanzei-tools 231 全绿(含既有 resident/prompt_hints 口径测试回归)。
+- 关联: D-230
+- 收尾: 1786449681
