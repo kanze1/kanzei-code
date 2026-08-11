@@ -2,7 +2,7 @@
 id: M-009
 scope: project
 category: sop
-title: 编辑 old_string not found 时必须 read 重读并按实际空白重建 — fp:edit|old string exact match required including whitespace
+title: 编辑 old_string not found 时必须 read 重读并按实际空白重建
 description: 处理 old_string 未匹配/空白错误时必读：按实际空白重建字符串，不可使用默认模板或假设性替换；旧版本 M-008/M-XXX 的泛化判据已失效
 status: active
 created: 2026-08-07

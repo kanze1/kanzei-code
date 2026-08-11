@@ -8,7 +8,7 @@
 - M-006 [fact] 前端需求/缺陷显示阻塞原因与筛选,独立文档页顺序与调度一致 — 处理需求/缺陷 UI 阻塞显示与筛选、独立文档页排序、docs_snapshot 或 renderDocList 相关改动/回归时必读
 - M-007 [fact] 设置页工作资料导出功能(export_project_data) — 需要了解/修改设置页导出记忆、需求、缺陷、项目配置功能(实现位置、目录约束、返回值)时必读
 - M-008 [fact] runner 首次请求统一清洗 prior 历史(filter_message_history) — 调试 runner 首请求消息构造、prior 历史孤儿 ToolCall/ToolResult、上下文压缩相关问题时必读
-- M-009 [sop] 编辑 old_string not found 时必须 read 重读并按实际空白重建 — fp:edit|old string exact match required including whitespace — 处理 old_string 未匹配/空白错误时必读：按实际空白重建字符串，不可使用默认模板或假设性替换；旧版本 M-008/M-XXX 的泛化判据已失效
+- M-009 [sop] 编辑 old_string not found 时必须 read 重读并按实际空白重建 — 处理 old_string 未匹配/空白错误时必读：按实际空白重建字符串，不可使用默认模板或假设性替换；旧版本 M-008/M-XXX 的泛化判据已失效
 - M-010 [sop] edit 报 old/new 相同是 no-op 拒绝而非失败 — 处理 edit 报“old_string and new_string are identical — nothing to do”时必读：停止重试，先 read 确认目标是否已是期望状态；若未完成则修改 new_string 使其与 old_string 不同，不要用 bash 绕过。
 - M-011 [sop] 活动/归档同 ID 语义不同时用 repair_reused_id 修复,勿直接编辑托管文档 — 处理 tracker 完整性门禁报 present in BOTH active and archive / 活动与归档同 ID 语义不同的修复时必读
 - M-012 [fact] ID 同现于活动与归档时完整性门禁拒绝所有 tracker 写操作 — goal/defect/req 写操作报 tracker integrity is broken / present in BOTH active and archive 时必读
@@ -33,4 +33,4 @@
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
 - M-044 [sop] tracker update 字段语义:中文键才精确匹配,英文键会追加,进展多行会产生永不可删的游离段落 — 处理 req/defect update 写字段(优先级/进展/阻塞)时必读:update 是整值替换不是增量合并;键名必须用中文键,英文键(priority/progress)会被当未知新键追加成重复脏字段;进展传多行值会作为新段落追加到条目末尾并产生无任何工具能删除的游离段落。正确做法:先 get 读旧值,把旧内容+新内容拼成单行再整体传。
 
-(6 candidate 条待验证晋升)
+(5 candidate 条待验证晋升)
