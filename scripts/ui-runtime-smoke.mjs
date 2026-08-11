@@ -3670,6 +3670,45 @@ assert(
   sandbox.applyLanguage();
 }
 
+// ---------- R-140 批1:消息容器整体豁免词典替换(止血) ----------
+// 模型输出是用户数据,英文态下不能因「恰好等于词典 key」被 observer 改写成英文。
+// 在英文态追加一条包含词典 key 的模型输出,断言 message-body 原文保持中文不变;
+// 同时消息区外的节点仍要正常翻译(豁免只圈 #messages,不误伤其它界面域)。
+{
+  const priorLanguage = localStorageShim.getItem("kz-language") || "zh";
+  localStorageShim.setItem("kz-language", "en");
+  sandbox.applyLanguage();
+  const before = sandbox.document.querySelectorAll("#messages .msg").length;
+  sandbox.appendAssistant("运行中 · 失败 · 复制 是用户数据片段,不得改写");
+  await flush();
+  const assistant = sandbox.document.querySelectorAll("#messages .msg.assistant .message-body").at(-1);
+  assert(assistant, "追加模型输出后找不到 .msg.assistant .message-body(前置失效)");
+  const assistantMsg = assistant.closest(".msg");
+  assert(
+    assistantMsg.dataset.raw.includes("运行中"),
+    "模型输出原文丢失(appendAssistant 未保留 raw)"
+  );
+  assert(
+    assistant.textContent.includes("运行中") && assistant.textContent.includes("失败"),
+    `消息容器内的模型输出被词典替换(实际 "${assistant.textContent}"):英文态下用户数据被 i18n 篡改,R-140 止血失败`
+  );
+  // 消息区外:翻译仍在工作(豁免没有把整个页面都关掉)。
+  const outside = document.createElement("div");
+  outside.textContent = "移动端桥接";
+  sandbox.document.body.appendChild(outside);
+  await flush();
+  assert(
+    outside.textContent === "Mobile bridge",
+    `消息容器豁免连带关掉了页面其它区域的翻译(实际 "${outside.textContent}")`
+  );
+  outside.remove();
+  // 清掉追加的消息,避免污染后续用例。
+  const msgs = sandbox.document.querySelectorAll("#messages .msg");
+  for (const m of msgs) if (msgs.length > before) m.remove();
+  localStorageShim.setItem("kz-language", priorLanguage);
+  sandbox.applyLanguage();
+}
+
 // ---------- 换项目不得把上一个项目的筛选落进新项目 ----------
 // documentFilters 是模块级状态,切项目不会重建它;restoreDocFilters 又只"叠加保存里存在
 // 的字段、不复位"。于是切到一个从没设过偏好的新项目时,内存里还挂着上个项目的整套口径,

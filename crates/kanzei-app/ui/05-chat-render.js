@@ -25,6 +25,10 @@ function copyButton() {
   button.type = "button";
   button.textContent = t("复制");
   button.title = t("复制消息");
+  // R-140 批1:消息容器豁免 observer 后,容器内 t() 渲染点靠 data-i18n-key
+  // 在语言切换时由 syncMessagesLanguage() 重算(渲染点翻译,不再靠事后回译)。
+  button.dataset.i18nKey = "复制";
+  button.dataset.i18nTitle = "复制消息";
   return button;
 }
 
@@ -67,7 +71,10 @@ function addErrorMessage(message, { retryable = false } = {}) {
   const contextOverflow = /context[_ ]length|context overflow|prompt is too long|input is too long|上下文.{0,4}(过长|超限)/i.test(message);
   const level = document.createElement("strong");
   level.className = "error-level";
-  level.textContent = contextOverflow ? t("可压缩重试") : retryable ? t("可重试错误") : t("致命错误");
+  const levelKey = contextOverflow ? "可压缩重试" : retryable ? "可重试错误" : "致命错误";
+  level.textContent = t(levelKey);
+  // R-140 批1:记录级别 key,语言切换时由渲染点重算(同 copy-btn)。
+  level.dataset.i18nKey = levelKey;
   const text = document.createElement("div");
   text.textContent = message;
   body.append(level, text);

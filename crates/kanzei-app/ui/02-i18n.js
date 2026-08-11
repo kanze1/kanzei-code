@@ -715,6 +715,11 @@ let applyingLanguage = false;
 function localizeTextNode(node, language) {
   const parent = node.parentElement || node.parentNode;
   if (parent?.closest?.("[data-i18n-raw]")) return;
+  // R-140 批1(止血):消息容器整体豁免词典替换。模型输出/用户输入/错误文本是
+  // 用户数据,英文态下恰好等于词典 key 的片段(「运行中」「失败」…)会被 observer
+  // 改写成英文——展示层篡改数据(D-135 家族)。消息区内的产品文案(复制按钮、
+  // 错误级别)都走 t() 渲染点翻译,不依赖 observer,豁免不影响它们。
+  if (parent?.closest?.("#messages")) return;
   if (!I18N_ZH.has(node)) {
     I18N_ZH.set(node, sourceFromLocalized(node.nodeValue));
   } else {
@@ -737,6 +742,9 @@ function localizeTextNode(node, language) {
   if (node.nodeValue !== next) node.nodeValue = next;
 }
 function localizeAttributes(element, language) {
+  // R-140 批1:消息容器内的 title/placeholder/aria-label 属性同样豁免(与
+  // localizeTextNode 同一止血面;消息区内的属性文案走 t() 渲染点,不靠 observer)。
+  if (element.closest?.("#messages")) return;
   let originals = I18N_ATTR_ZH.get(element);
   if (!originals) {
     originals = new Map();
@@ -799,11 +807,25 @@ function applyLanguage() {
     applyingLanguage = false;
   }
 }
+// R-140 批1:消息容器整体豁免 observer 后,容器内 t() 渲染点(复制按钮、错误级别)
+// 在语言切换时由这里重算——key 在渲染时写入 data-i18n-key/data-i18n-title,
+// 切语言重新 t() 一遍。这是「翻译发生在渲染点」的落地,不依赖事后回译。
+function syncMessagesLanguage() {
+  const container = document.querySelector("#messages");
+  if (!container) return;
+  for (const el of container.querySelectorAll("[data-i18n-key]")) {
+    el.textContent = t(el.dataset.i18nKey);
+  }
+  for (const el of container.querySelectorAll("[data-i18n-title]")) {
+    el.title = t(el.dataset.i18nTitle);
+  }
+}
 const languageSelect = $("language-select");
 languageSelect.value = localStorage.getItem("kz-language") || "zh";
 languageSelect.addEventListener("change", () => {
   localStorage.setItem("kz-language", languageSelect.value);
   applyLanguage();
+  syncMessagesLanguage();
   syncDynamicUiLanguage();
   syncActivityPanel();
   syncSidebar();
