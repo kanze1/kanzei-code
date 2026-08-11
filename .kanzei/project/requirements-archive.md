@@ -1950,3 +1950,20 @@
 
 - 复杂度: 大
 
+## R-142 前端最低配 ESLint:no-undef 防手误,无构建步骤 [done]
+- 背景: direction_taste §5.2 地基债:前端 main.js 6254 行无任何 lint,手误靠运行时发现(报告 E3);no-undef 是最小有效护栏。
+- 设计定位: 前端静态检查最低配,防未定义变量类回归
+- 证据等级: E1
+- 阶段: 1
+- 验收: 引入最低配 ESLint(flat config,只开 recommended+browser env 的 no-undef 类规则),不引入构建步骤;main.js 无未定义变量错误;新增/修改前端文件后 lint 可跑且纳入冒烟脚本。
+
+- 优先级: P0
+
+- 标签: 流程
+
+- 状态: doing
+- 进展: 2026-08-11 完成并提交 8b918ed,已推送。验收①②③ 证据齐备。
+
+- 复杂度: 小
+- 验收证据: ①最低配 ESLint flat config,只开 no-undef,不引入构建步骤——eslint.config.js(81 行)唯一启用 no-undef 规则,ui/*.js 以 sourceType=script + 跨文件 globals 白名单(scripts/ui-lint-globals.json,1054 个顶层标识符,由 scripts/gen-ui-lint-globals.mjs 自动提取)+ Tauri/browser 宿主 readonly;package.json 仅 devDependencies(eslint@^9.39.5 + globals),无任何 build/transform 脚本,无打包步骤。②main.js 无未定义变量错误——main.js 已于 R-154 拆解为 ui/*.js(既有能力,非本次交付);ui/*.js 全量经 no-undef 检查零错误(ui-lint-smoke 30 文件)。③lint 可跑且纳入冒烟脚本——scripts/ui-lint-smoke.mjs 第五条冒烟(ESLint Node API 断言 zero error + globals 清单与源码同步断言),verify.ps1 发布门禁新增 ui_lint 步骤(ui-runtime 之后);npm run lint 即独立可跑。负向验证:临时注入 totallyUndefinedName 被 no-undef 报错 exit 1。测试:五条冒烟全绿(T-1786445522)。
+

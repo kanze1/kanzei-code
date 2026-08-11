@@ -1569,3 +1569,9 @@
 - 摘要: cargo test --workspace 全绿:17 个测试二进制,0 失败(核心 227 + app 130 + tools 112 等)。R-140 复杂度=大,关闭前全量通过。
 - 关联: R-140
 - 收尾: 1786445198
+
+## T-1786445522 R-142 五条冒烟(含新 ui-lint-smoke) [passed]
+- 命令: node scripts/ui-lint-smoke.mjs && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
+- 摘要: R-142 提交前定向:五条冒烟全绿。lint 30 文件零 no-undef(1054 标识符白名单与源码同步,gen --check 通过);runtime 0 错(1013 invoke/9 视图);i18n 956 key/353 HTML/57 契约;a11y 22 icon-btn;markdown 全过。负向:注入未定义变量被 no-undef 报错 exit 1。
+- 关联: R-142
+- 收尾: 1786445522
