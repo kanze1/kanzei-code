@@ -417,6 +417,7 @@ const I18N_EN = {
   "采纳": "Fetched",
   "暂无零采纳或复发候选": "No zero-adopt or recurring candidates",
   "已归档待复查": "Archived, pending review",
+  "SOP": "SOP",
   "每轮开跑时按 prompt 预检索命中了什么。「已采纳」= 召回后正文确实被拉取过；只注入索引行而没拉正文，就是召回了但没用上。": "Shows prompt-based recall hits for each round. Accepted means the full entry was fetched; an injected index row alone did not affect the run.",
   "每轮的上下文占用、token、工具分布与冗余指标。统计口径与 R-099 的冗余治理度量同源，不各算各的。": "Context usage, tokens, tool distribution, and redundancy per round, using the same metrics as R-099.",
   "写入全局": "Save globally",

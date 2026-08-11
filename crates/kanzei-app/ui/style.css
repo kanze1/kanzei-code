@@ -1281,6 +1281,14 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .memory-row:hover { border-color: var(--accent); }
 .memory-row:focus-visible { outline: 1px solid var(--accent); }
 .memory-row.stale { opacity: 0.55; }
+.memory-row.sop { border-left: 3px solid var(--info, #4a9eff); }
+.memory-row-cat.sop {
+  align-self: flex-start; font-style: normal; font-size: 9.5px; letter-spacing: 0.5px;
+  color: var(--info, #4a9eff); border: 1px solid currentColor; border-radius: 3px;
+  padding: 0 4px; margin: 1px 0 2px;
+}
+.memory-sop-step { border-left: 2px solid var(--border-soft, #888); padding-left: 8px; margin: 2px 0; }
+.memory-sop-step-head { font-weight: 600; color: var(--fg-strong, #111); font-size: 12px; margin-bottom: 2px; }
 .memory-row-id { font-family: var(--mono, monospace); color: var(--accent); }
 .memory-row-title { font-weight: 600; }
 .memory-detail {

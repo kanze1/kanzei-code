@@ -437,7 +437,7 @@ async function loadMemoryList(scope, category) {
       const dormant = (entry.hits ?? 0) === 0 && ageDays >= 3 && entry.status !== "stale";
       // R-150:零采纳标记——召回≥3 但从未拉正文 = 语义显著但决策无关。
       const zeroAdopt = (entry.recalled ?? 0) >= 3 && (entry.fetched ?? 0) === 0 && entry.status !== "stale";
-      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}`;
+      row.className = `memory-row${entry.status === "stale" ? " stale" : ""}${dormant ? " dormant" : ""}${zeroAdopt ? " zero-adopt" : ""}${entry.category === "sop" ? " sop" : ""}`;
       row.dataset.memoryId = entry.id;
       const lastHit = entry.lastHitAt
         ? `${t("最近命中")} ${new Date(entry.lastHitAt).toLocaleDateString()}`
@@ -449,6 +449,7 @@ async function loadMemoryList(scope, category) {
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(entry.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(entry.title)}</span>` +
+        `${entry.category === "sop" ? `<em class="memory-row-cat sop">${t("SOP")}</em>` : ""}` +
         `<span class="dim">${escapeHtml(entry.description)}</span>` +
         `<span class="memory-row-meta dim">${escapeHtml(entry.status)} · ${t("命中")} ${entry.hits}${recallMeta} · ${lastHit} · ${escapeHtml(entry.updated)}` +
         `${dormant ? ` · <em class="memory-dormant-flag">${t("长期零命中")}</em>` : ""}` +
@@ -555,6 +556,9 @@ function showMemoryDetail(scope, entry) {
 
 // R-129:正文从单一 textarea 改为「摘要 + 分段阅读」。摘要行取首段去换行截 140 字,
 // 让长文先有可扫读的要点;分段列表按空行拆段,超长段折叠 + 展开按钮,一段一块不糊成整片。
+// D-204 批2(验收②查看展示):sop 条目正文按「步骤 + 判断依据」结构渲染——
+// 以「1. / 2. / 3. …」编号开头的行识别为结构化小节,渲染成可扫读的步骤块
+// (标题加粗 + 间距),不再是糊成一片的纯文本段落。
 function renderMemoryBodyRead(container, bodyText) {
   container.innerHTML = "";
   const text = String(bodyText ?? "");
@@ -574,13 +578,24 @@ function renderMemoryBodyRead(container, bodyText) {
     for (const para of paragraphs) {
       const block = document.createElement("div");
       block.className = "memory-body-para";
+      // D-204 批2:编号开头(如 "1. 适用场景" / "2. 操作步骤:xxx")视为 SOP 结构化小节。
+      const numHead = para.match(/^\s*(\d+)[.、]\s*(.*)$/);
+      const isStep = numHead && numHead[1] && numHead[2].length < 60;
+      if (isStep) {
+        block.classList.add("memory-sop-step");
+        const head = document.createElement("div");
+        head.className = "memory-sop-step-head";
+        head.textContent = `${numHead[1]}. ${numHead[2].split(":")[0]}`;
+        block.appendChild(head);
+      }
       // 折叠阈值:超过 6 行或超过 280 字就只露头,点开才看全——分段的意义就在
       // 先把长文切成可扫读的小块,而不是在详情里堆一片滚动文本。
       const tooLong = para.split("\n").length > 6 || para.length > 280;
       if (tooLong) block.classList.add("collapsed");
       const content = document.createElement("div");
       content.className = "memory-body-para-text";
-      content.textContent = para;
+      // 结构化小节:正文从编号后的冒号处剥离,标题单独一行,正文按内容渲染。
+      content.textContent = isStep ? para.slice(para.indexOf(":") + 1).trim() : para;
       block.appendChild(content);
       if (tooLong) {
         const toggle = document.createElement("button");

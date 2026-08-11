@@ -1713,3 +1713,9 @@
 - 摘要: D-204 批1 定向验证:harvest_sop 沉淀门槛(tools<3 机械拦截,验收③)+ 候选 detail 结构模板(适用场景/步骤+判断依据/边界,验收①原料)+ manager_agent prompt SOP 提炼规则。测试:短流程不投断言新增、harvest_end_of_run 序列补 read。kanzei-tools 232 全绿。
 - 关联: D-204
 - 收尾: 1786451023
+
+## T-1786451128 D-204 B2 前端冒烟:sop 排版与入口 [passed]
+- 命令: node --check + ui-runtime/i18n/lint 冒烟 + frontend_check
+- 摘要: D-204 批2 定向验证(验收②查看展示):Memory 页 sop 条目排版——列表行 sop 条目加左边框+「SOP」徽标(入口可发现,13-memory.js loadMemoryList class+徽标,style.css .memory-row.sop/.memory-row-cat.sop);详情正文 renderMemoryBodyRead 识别「N. 标题」编号行渲染为结构化步骤块(.memory-sop-step,标题加粗+正文剥离冒号后内容);i18n 登记「SOP」。ui-runtime 1137 invoke 0 错误、i18n 997 key、lint 1100 标识符全绿,frontend_check 结构完整,ui_console 无错误。
+- 关联: D-204
+- 收尾: 1786451128
