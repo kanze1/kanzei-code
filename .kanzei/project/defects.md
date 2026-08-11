@@ -403,3 +403,17 @@
 - 缺口④(次要): **两条入口对同一串输入给出的理由不一致**。`KANZEI_PROJECT_ROOT` 走 trim,`--project-root` 不 trim;带首尾空格的 HOME 经参数进来会被报成「路径不存在」而不是「你把主根写成 HOME 了」。两道拦截的先后顺序本来就是为了避免张冠李戴(`main.rs` 明确写了第一道打在显式输入上就是为了不被泛化报错盖过去),这里被空格破了。
 - 边界: 主体(显式入口的身份比较)已交付且经实测,**本条不是回归**。符号链接形态因需管理员/开发者模式未能实测,但 canonicalize 解符号链接与解 junction 走同一条 reparse point 路径,junction 已覆盖。
 - 验收: ①发现式取根对别名形态的 HOME 也拦得住,且**给出加载路径的性能实测**(不得让每次配置加载多做 O(深度) 次系统调用);②卷元数据读失败时方向改为保守(判成可能相同),有定向测试构造读失败;③`KANZEI_HOME` 参与比较,指到项目自己的 `.kanzei` 时被拦并告警,有测试;④两条入口对同一输入给出**同一条**理由,带首尾空格的 HOME 经两条入口都报「主根写成 HOME」,有测试。
+
+## D-271 MemoryCoordinator::release_writer 在持锁临界区内 send 租约:接收端已丢弃时 lease 退回并当场 drop,回调二次锁同一把非重入 Mutex 死锁 [open] (high)
+- 优先级: P0
+- 复杂度: 小
+- 标签: 核心
+- 证据等级: E1(**我在 dev HEAD 上逐行核实代码形态**,非仅采信复核结论)
+- refs: R-171 R-173 R-177 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 批次 K2' 交付时主动上报(它在 app 侧绕开了这个坑,但如实指出根因在 core 里没修)。**与本轮改动无关,是既有缺陷,已发布的 `build-ad80b2d` 里就是活的。**
+- 根因(代码形态自证,`crates/kanzei-core/src/orchestration.rs` 的 `release_writer`): 交接分支里 `if let Some(tx) = w.tx { let _ = tx.send(Ok(lease)); }` 这一行在 `self.inner.projects.lock()` 的**临界区内**(锁块直到该行之后才闭合,`self.notify(pending)` 在块外)。
+  `oneshot::Sender::send` 在**接收端已被丢弃**时返回 `Err(原值)`——把 `WriterLease` 原样退回。`let _ =` 当场 drop 它,而 `WriterLease` 的 Drop 回调正是 `move |released_run_id| coord.release_writer(&key, released_run_id)` → **二次进入 `release_writer` → 再锁同一把非重入 `std::sync::Mutex` → 死锁**。
+- 可达性(今天就可达,不是理论): 任何**被丢弃/abort 的排队 acquire future** 都会造成"接收端已丢弃"。例如 `crates/kanzei-app/src/run.rs` 的 writer run 被停止按钮 abort 时,它排在队列里的 `w.tx` 接收端随之消失;下一个持有者释放租约、轮到唤醒它时就撞上。死锁发生在持有全局 `projects` 锁的线程上,**该项目的所有写仲裁自此永久挂死**(`acquire_writer_lease` / `release_writer` / `snapshot` 全阻塞),只能重启 kzapp。
+- 影响: 项目级写仲裁整体失效且不可恢复。并行开发下暴露面被放大——排队者越多、abort 越频繁越容易撞上,而任务级并行的常态正是「多个 writer 排队 + 随时停某一条」。
+- 修复方向: 把 `send` 与「send 失败后 lease 的处置」**移出临界区**。形态:锁内只把要唤醒的 `(tx, lease)` 收进局部变量(与 `pending` 事件同一手法,该函数已经在用),锁释放后再 `send`;send 失败时**显式处理**退回的 lease(此时不持锁,drop 回调可安全重入去唤醒下一个排队者),不得再用 `let _ =` 吞掉。
+- 验收: ①构造「排队者的接收端已丢弃」(丢弃 acquire future 后由持有者释放租约),断言 `release_writer` **正常返回**且后续 `acquire_writer_lease` 仍能成功——该测试**在修复前必须挂死/超时**(反证);②send 失败时退回的 lease 被显式处置且**队列继续推进**(下一个排队者拿到租约),有测试;③`projects` 锁的临界区内**不再有任何可能触发 `WriterLease::drop` 的语句**(机械核验:锁块内 grep 无 `send(`);④R-171/R-173 既有写租约测试全绿。
