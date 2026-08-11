@@ -1791,3 +1791,30 @@
 - 摘要: D-235 conventions 工具交付:kanzei-tools 240 passed(含 conventions 7 新测试:get 全文+hash+标题/缺失文件报错/patch 唯一命中写入/0 命中拒写/多命中拒写/陈旧 hash 拒写/缺字段拒写);profiles 测试更新(conventions 拒绝理由点名工具,无工具兜底族改用 notes.md);fmt/clippy 全绿;下游 kanzei-app/kanzei cargo check 通过。tier1_bm25 一次并行负载下偶发失败,单跑与复跑均绿(既有 TIER1_BUDGET_MS 负载 flake,与本次无关)。
 - 关联: D-235
 - 收尾: 1786463010
+
+## T-1786467548 cargo test -p kanzei-tools (D-258) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 243 passed(3 个新增:D-258 窗口不推进基线/前缀外越界回滚/超限拒绝),0 failed
+- 关联: D-258
+- 收尾: 1786467548
+
+## T-1786467617 cargo test -p kanzei-tools (D-258 验收②回归) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 244 passed(新增验收②回归:后台写非托管路径畅通不误伤),0 failed
+- 关联: D-258
+- 收尾: 1786467617
+
+## T-1786473288 cargo test -p kanzei-tools test_record (D-259) [passed]
+- 命令: cargo test -p kanzei-tools test_record
+- 摘要: 28 passed:新增 3 个 D-259 修复动作测试(重复编号修复保留第一条其余改号且字段一字不动/单条拒绝且不改文件/工具层分派)+ 既有 25 个全绿
+- 关联: D-259
+- 收尾: 1786473288
+
+## T-1786473305 修复 T-1786297655 重复编号(D-259) [passed]
+- 关联: D-259
+- 收尾: 1786473305
+
+## T-1786473325 cargo test --workspace (R-164/R-157 关闭前全量) [passed]
+- 摘要: 全量全绿:kanzei-tools 247(含 D-259 新增 3)、kanzei-app 120、kanzei-core 132、kanzei-harness 110、kanzei-llm 43、集成 3+1,0 failed;doc-test 0 failed 1 ignored
+- 关联: R-164 R-157
+- 收尾: 1786473468

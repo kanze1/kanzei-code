@@ -78,7 +78,9 @@
 
 - 状态: fixing
 
-- 阻塞: 环境/工具: 无人值守(autonomous)会话的权限规则(.kanzei/kanzei.toml)只放行 style.css 的 edit,edit crates/kanzei-tools/src/test_record.rs 被 NonInteractive 拒绝——修复需要给 test_record 工具加显式 repair_reused_id 动作,必须改该文件。解除动作: 用户在交互会话中批准该文件的 edit(或往 kanzei.toml 添加 edit 放行规则),再按 D-259 修复方向实现。解除人: 用户。
+- 阻塞: 环境/工具: 修复动作代码已交付(2026-08-13 ae6c0c8),但当前运行中的 kzapp 引擎是旧版构建,test_record 工具的 repair_reused_archived_id 字段不被识别——调用被当普通登记处理(误新增 T-1786473305),真实清理未执行。解除动作: 用户重建/重启 kzapp(新版引擎含 repair_reused_archived_id)后,agent 用 test_record repair_reused_archived_id 对 T-1786297655 与 T-1786341674 各执行一次,再机械核验 uniq -d 为空即关闭。解除人: 用户(重启引擎)。
+
+- 进展: 2026-08-13 代码交付:test_record 新增显式修复动作 repair_reused_archived_id(test_record.rs:688-785)——保留第一条原编号、其余按行扫描计数改成未占用编号、标题/状态/命令/摘要/关联/收尾字段一字不动;仅当该 id ≥2 条时动手,单条/不存在拒绝且不改文件;整段持锁(D-261 同款);3 新测试(重复修复字段不动/单条拒绝不改文件/工具层分派)+ 既有 25 全绿(28 passed, T-1786473288),全量 cargo test --workspace 全绿(T-1786473325)。真实清理待新版引擎(见阻塞)。
 
 ## D-260 test_runs_snapshot 只读命令却写盘且不持任何锁:绕过不变量 8 的最后一个写点 [open] (medium)
 - 优先级: P2
