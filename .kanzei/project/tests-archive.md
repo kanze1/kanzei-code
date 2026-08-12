@@ -2068,3 +2068,8 @@
 - 摘要: cargo test -p kanzei-harness --lib permission:28 passed(含 R-198 验收测试 4 个:前缀白名单_放行匹配命令/命令链接重定向回落ask/结构化与纯字符串双形态/非本程序命令仍ask + 更新后的 D-051 前缀通配测试)。fmt/clippy 全过。
 - 关联: R-198
 - 收尾: 1786565253
+
+## T-1786565346 cargo test --workspace (R-198 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(harness 118、tools 263、core 143、app 137,0 failed)。R-198 复杂度=中,关闭前全量。
+- 关联: R-198
+- 收尾: 1786565346
