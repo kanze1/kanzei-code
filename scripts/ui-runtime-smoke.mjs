@@ -5093,6 +5093,11 @@ const docsB = {
   const unclaimedHead = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(!unclaimedHead?.querySelector(".doc-claim-fact"), "排在队首但无人 claim 的条目不应显示被取得标记");
   sandbox.renderLines(payloads.collaboration_snapshot);
+  await flush();
+  assert(
+    document.querySelectorAll("#lines-list .line-lane").every((lane) => !lane.className.includes("line-lane-initial")),
+    "并行线路刷新不应挂载进入动画 class",
+  );
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
   for (const width of [800, 1024, 1280]) {
     windowShim.innerWidth = width;

@@ -20,6 +20,10 @@ function assert(condition, message) {
 assert(!lines.includes("setInterval(() =>"), "多线页面不应恢复固定 setInterval 轮询");
 assert(lines.includes("LINES_REFRESH_IDLE_MS = 8000"), "多线空闲刷新间隔护栏缺失");
 assert(lines.includes("scheduleLinesRefresh(running ? LINES_REFRESH_RUNNING_MS : LINES_REFRESH_IDLE_MS)"), "多线自适应刷新护栏缺失");
+assert(!lines.includes("line-lane-initial"), "线路刷新不应重新挂载进入动画 class");
+const style = await readUi("style.css");
+assert(!/\.line-lane\s*\{[^}]*animation\s*:/.test(style), "线路基础卡片不应在每次刷新时重复播放进入动画");
+assert(!style.includes("line-lane-enter"), "线路刷新不应保留会造成闪烁的进入动画");
 assert(!/open\.addEventListener\([\s\S]{0,220}?await refreshProcesses\(\)/.test(lines), "线路切换前不应额外刷新进程列表");
 
 assert(sessions.includes("processRefreshInFlight"), "进程刷新缺少单飞请求护栏");
