@@ -347,7 +347,7 @@
 - 进展: 2026-08-16 复核:阻塞解除条件①已满足(node --version/node --check 实测放行,cargo build -p kanzei-app 已启动未拦),当场清空阻塞,恢复推进 B1 基座验证。当前 target/debug/kzapp.exe 构建于 08-12 04:30,早于 CDP 注入提交 695305d(08-12 10:07),需重建后跑 node scripts/e2e-smoke.mjs。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 
+- 阻塞: 用户: 2026-08-13 定调 park 本条、专注 D-318,B1 基座验证(重建 kzapp 跑 node scripts/e2e-smoke.mjs)暂停。解除动作: 用户说恢复推进时,重建 kzapp 后继续验证 B1 基座。解除人: 用户。
 
 - 批次: 0/8
 

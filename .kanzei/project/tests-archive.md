@@ -1952,3 +1952,14 @@
 - 摘要: D-303 定向验证:kanzei-app 135 passed(含新测试 writer_lease_trace_drop补写released_异常路径审计成对)、fmt/clippy 绿
 - 关联: D-303
 - 收尾: 1786553393
+
+## T-1786555193 cargo test -p kanzei-tools 加压 10 轮 (D-293) [passed]
+- 摘要: D-293 修复验证:kanzei-tools 全量加压 10 轮 0 失败(修复前 8 轮 2 红)。根因:两条测试依赖 Tier1 BM25 在 30ms 预算内命中,全量并行繁忙时超时降级偶发红;修复为 tier0 指纹口径一致 + tier1 测试直连 store.search 绕开预算
+- 关联: D-293
+- 收尾: 1786555193
+
+## T-1786557957 cargo test -p kanzei-tools (D-293 定向) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: D-293 修复代码定向验证:kanzei-tools 258 passed 全绿(含改后的 Tier1 直连 store.search 与 tier0 指纹口径一致两条测试);另加压 5 轮 0 失败
+- 关联: D-293
+- 收尾: 1786558164
