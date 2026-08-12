@@ -1,31 +1,5 @@
 # Defects
 
-## D-287 更新检查两态不够用:「本地领先于最新发布」被渲染成「已是最新(别人的 hash)」 [fixed] (medium)
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 后端 发版
-- 证据等级: E1(2026-08-12 用户截图 + 代码自证 + 单测)
-- refs: D-265 D-004
-- 复现: 2026-08-12 用户设置页「版本与更新」显示 `当前版本 a7a122a` + 点「检查更新」得到 **「已是最新(build-c99304f)」**。两个不同的 hash 并排摆着还说「已是最新」,看上去像更新检查坏了。实测取证:`c99304f` 是 `a7a122a` 的祖先(`git merge-base --is-ancestor` 通过),GitHub 上 `build-a7a122a` 这个 release **不存在**(本地 package.ps1 打完直接装的,没发布)。
-- 根因: `release_is_newer` 的判定本身没错(本地构建时间戳晚于 release 的 published_at → 无新版),错的是**状态只有两态**。`update_check` 回 `status: if newer {"update"} else {"latest"}`,把三件不同的事糊成一句:①本地就是那个发布;②本地构建晚于最新发布(自举机常态);③根本无法比较(D-265 的 dev 构建)。前端 `16-settings.js` 在 else 分支里无脑打印 `r.latest`,于是把**别人的 hash** 塞进了「已是最新(…)」。
-- 影响: 与 D-265 同族——「发布了但仍在跑旧版」那条线的第四种表现。用户看到自相矛盾的两个 hash,唯一能做的是找人来读代码确认到底哪个在跑;而真正该说的一句话(「你手上这份比线上发布还新」)一次都没说出口。
-- 修复: `update.rs` 引入 `ReleaseVerdict` 五态(Update / Latest / Ahead / DevBuild / Unknown),`status()` 是前后端唯一契约;`release_is_newer` 退化成只判 Update 的测试用包装。前端 `updateResultText(r)` 按 status 一态一句,别人的 hash 一律标成「最新发布」,不再冒充「当前」;`18-startup.js` 的启动静默检查把结论直接写进设置页(不弹 toast),补上 D-265 验收④。
-- 验收: ①无新版的三种成因各有各的文案,只有 status=latest 说「已是最新」;②`release_verdict` 五态有单测,status 取值漂移当场红;③既有 `release_check_never_downgrades_a_newer_local_build` / `legacy_date_only_build_requires_a_later_release_day` 两条回归保持绿;④dev 构建不点「检查更新」也能在设置页看到「无法比较」。
-- 验证: cargo test -p kanzei-app 124 passed(含新增 `更新检查把无新版的三种成因分开而不是一律说已是最新`);cargo clippy -p kanzei-app --all-targets 零警告;node scripts/ui-lint-smoke.mjs / ui-i18n-smoke.mjs 通过。
-
-## D-288 设置页保存把出厂 context_limit 冻进用户 toml:内置默认后来改了永远追不上 [fixed] (medium)
-- 优先级: P1
-- 复杂度: 小
-- 标签: 后端 配置
-- 证据等级: E1(2026-08-12 用户配置实证 + git 历史比对 + 单测)
-- refs: D-173 D-246
-- 复现: 用户 `~/.kanzei/kanzei.toml` 里 `[providers.deepseek] context_limit = 128000`,而 DeepSeek 实际是 1M 窗口;内置默认 `fill_defaults` 早就是 `1_000_000`(`0c9f903` 引入时确为 128_000,后来改对了)。后果:UI 占用比例与压缩预检都按 128k 算基准,DeepSeek 跑到真实容量的 ~12% 就开始压缩。
-- 根因: `settings_get` 发给前端的是 **fill_defaults 之后**的值(含出厂 context_limit),设置页保存时 `settings_apply_providers` 又把**每个** provider 的该字段无条件写回文件。于是用户从没碰过那个格子,一次「保存」就把当时的出厂默认冻成了自己的配置;`fill_defaults` 只补 `None`、不覆盖已有值,内置默认此后再怎么改都追不上。这是「默认值被固化成用户配置」的通病,不止 deepseek 一个字段会中招。
-- 修复: `kanzei-harness::config::builtin_context_limit(name)` 直接取自 `fill_defaults`(不另立名单,避免 D-246 那种名单漂移);`settings_apply_providers` 遇到与出厂默认相同的值就**移除该键**而不是写入——留空 = 跟随内置,每次加载由 fill_defaults 补齐;用户手填的非默认值照旧原样落盘。用户配置里那行 128000 同时按此清掉。
-- 验收: ①保存出厂值后文件里不出现 `context_limit`,加载后生效值等于内置默认;②用户手填的非默认值原样保留;③单测覆盖正反两面。
-- 验证: cargo test -p kanzei-app -p kanzei-harness 234 passed(含新增 `出厂上下文上限不落盘_手填值原样保留`);clippy 零警告。
-- 残余: 只做了 context_limit 这一个字段。设置页其余「回填即落盘」的字段(limits/cadence 已各自有留空语义)未逐一复核,若再出现同类固化按本条同一手法处理。
-
 ## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] (high)
 - 优先级: P0
 - 复杂度: 大
@@ -110,20 +84,6 @@
 2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」(内部顺序依赖,解除权在 agent),已清空阻塞字段、依赖关系保留在依赖字段,复核过程见本轮进展。其余条目阻塞字段均为合法外部阻塞(用户拍板/用户复查/环境工具),无伪可执行 doing(三个 doing 均带具名解除人),无挂起无载体。未升级 §1.1/取活器:本次漂移是单条误写,不是规则缺陷,§1.1 已覆盖此情形(「上游条目自身只是被自记阻塞(伪传递阻塞)」不算阻塞);继续观察,累计复现达阈值再升级。
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。复核已累计 3 轮(2026-08-13 ×2、2026-08-14 ×1),无同类复现。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
-
-## D-265 dev 构建的更新检查谎报「已是最新」:release_is_newer 对 dev 直接返回 false,用户永远不知道该手动装 [fixed] (medium)
-- 优先级: P1
-- 复杂度: 小
-- 标签: 发布
-- 证据等级: E1(用户实测截图 + 代码形态自证)
-- refs: D-145 D-004
-- 复现: 2026-08-11 用户装完 build-22a927c 后打开设置页「版本与更新」,显示 `当前版本 dev` + 点「检查更新」得到 **「已是最新(build-22a927c)」**。它明明已经取到了最新发布的 tag,却告诉用户不用更新;用户据此以为自己已经在新版上,实际左边栏没有子代理面板、「更多」里没有勘察复核开关——新代码一个都没在跑。
-- 根因(代码自证): `crates/kanzei-app/src/update.rs` 的 `release_is_newer` 第一行短路——`if current_hash == "dev" || tag.is_empty() || tag.contains(current_hash) { return false; }`。dev 构建(`KANZEI_BUILD_INFO` 未设,即 `release.ps1` / `cargo build` 产出的那份)直接判定「没有新版」,`update_check` 于是回 `status: "latest"`,前端 `16-settings.js` 按这个渲染成「已是最新」。
-- 影响: **一旦落到 dev 构建上,应用内更新通道就永久失效且无声**——启动时的静默检查不会弹 toast,手动点「检查更新」还会得到一句反向的保证。这正是 D-145「发布了但仍在跑旧版」那一族,只不过上次的成因是两份副本、这次的成因是版本比较把 dev 当终点。用户唯一的出路是有人告诉他去手动装 setup.exe。
-- 为什么当初这么写(不要简单删掉那个分支): dev 构建没有可比的时间戳(`build_stamp` 需要 `KANZEI_BUILD_INFO` 的第二段),硬跟发布版比会得出无意义的结论。所以 `return false` 在**比较语义**上没错,错的是把「无法比较」渲染成「已是最新」。
-- 修复方向: 让 `update_check` 区分三态而不是两态——`latest`(真的最新)/ `update`(有新版)/ **`incomparable`**(本地是 dev 构建,无法与发布版比较)。第三态的文案必须明说:「本地为开发构建(dev),无法与发布版比较;最新发布是 build-xxxx,需要手动运行安装器」,并给出下载入口。D-004 口径:任何不做的理由都要说出来,绝不静默。
-- 验收: ①`KANZEI_BUILD_INFO` 未设时,设置页不再显示「已是最新」,而是明说无法比较 + 最新发布 tag + 手动安装指引;②发布构建的既有两态行为不变(有既有单测的保持绿);③`release_is_newer` 的三态判定有单测覆盖(dev / 同 hash / 更新的发布各一条);④启动时的静默检查在 dev 构建下也给出一次可见提示(不弹窗打扰,但设置页要能看到)。
-- 进展: 2026-08-12 随 D-287 一并修复(同一处状态机)。三态扩到五态:`ReleaseVerdict::{Update, Latest, Ahead, DevBuild, Unknown}`——本条要的 `incomparable` 拆成 `DevBuild`(没有构建戳)与 `Unknown`(有 hash 但拿不到/比不出发布时间),两者文案不同,后者不该说成「你在跑 dev 构建」。验收逐条:①dev 构建现在渲染「本地是开发构建,无法与发布版比较;要装发布版得手动运行安装器(最新发布:build-xxxx)」;②发布构建路径经由 `release_is_newer` 包装,两条既有回归单测未改一字仍绿;③五态各一条断言 + status 契约表(update_tests_update.rs);④`18-startup.js` 的启动静默检查把结论写进设置页 `#update-result`,不弹 toast。关闭本条。
 
 ## D-266 setup.exe 的 /S 静默安装在 kzapp 运行时静默无效:退出码 0、文件没换、无任何提示 [open] (medium)
 - 优先级: P1
