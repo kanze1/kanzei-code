@@ -3571,3 +3571,14 @@
 - 批次: 2/2
 - 进展: 2026-08-16 取活。根因:①memory_update 对 description 整值替换,不校验新 description 与条目 title/正文是否同主题(store.rs update);②记忆条目写入无并发保护。勘察发现用户定调「memory 写入不做跨进程锁,竞争留给 agent 事后解决」(store.rs 第 4 行注释)——期望②不做 FileLock,改 CAS(expected_hash,conventions 先例)。B1 完成(commit b5ba149):①store.rs update 加 description 主题一致性校验(topic_overlap:CJK 单字+英文词去虚词,context=title+旧description+body,交集<2 拒绝,错误带旧/新对照=manager 复盘轨迹)+ CAS expected_hash 参数(传则写前比对 render_entry hash,不一致拒绝);②enforce_topic 开关:manager 写路径(MemoryUpdateTool)强制 true,UI 用户直写(memory_entry_save)/merge/stale 豁免 false(A-005 用户有权写任何内容);③manager.rs UpdateInput 加 expected_hash 透传;④新测试 2 个(update拒绝主题漂移的description/update_cas拒绝过期expected_hash)。验证:memory 77 passed + app 137 passed,fmt/clippy 全过(T-1786563579)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 262)。三项期望逐条对照:①update 时新 description 与条目 title/正文主题不一致拒绝——store.update enforce_topic=true 时 topic_overlap<2 即拒(带旧/新对照),manager 路径强制开启,测试 update拒绝主题漂移的description 断言漂移被拒且条目未被改写;②记忆条目写入 CAS 式并发保护——store.update 新增 expected_hash 参数(写前比对 render_entry hash,不一致拒),conventions expected_hash 同源,UpdateInput 透传,测试 update_cas拒绝过期expected_hash 断言旧 hash 拒/新 hash 放行;不引入跨进程锁(尊重用户定调);③manager 选目标条目判据落轨迹——manager 是 LLM 决策,代码层落地为拒绝信息带旧/新 description 对照 + 条目 id,manager 可见可复盘(并入①实现)。关闭。
 
+## D-316 引擎归档动作产生重复条目与孤儿字段:archive 中 D-309 两份、open 的 D-289 字段被误切入且无工具清理通道 [fixed] (medium)
+- 复现: 上一轮关闭一批缺陷后,引擎自动归档把 fixed 条目移入 defects-archive.md 但未提交(工作树遗留)。实测归档产物两处脏数据:①D-309 在 archive 重复两份(3238/3252 行,内容完全相同);②open 的 D-289 字段行(复现/影响/来源/标签/阻塞/优先级)被误切进 archive 尾部,活动文件 D-289 字段随之下线。
+- 影响: archive 出现重复条目与孤儿字段行;活动文件 open 条目字段被误移(已用 defect update 手工补回 D-289,但 archive 尾部残留 6 行孤儿字段)。归档是引擎管理文件,edit 被 ruleset 拒绝、defect 工具不认归档条目,当前无合法清理通道——同类问题与 D-294 的「游离段落无删除通道」一致。
+- 标签: 流程
+- 根因: 引擎归档动作的切割/复制逻辑疑似把 D-312 之后的 D-289 字段行一并划入归档,并对 D-309 重复落盘;具体在 harness 归档实现,待定位。
+- 优先级: P2
+
+- 复杂度: 中
+- 批次: 2/2
+- 进展: 2026-08-16 取活。现状核实:①archive_terminal(docstore.rs)的 archived.extend(terminal) 只对模板去重、Entry 列表未按 id 去重——重复归档会二次追加(D-309 两份 3238/3252 实证);②D-289 的 6 行孤儿字段已污染进 archive 的 D-312 条目(复现/影响/来源/标签/阻塞/优先级 重复 key + 空阻塞)。B1 完成(commit 44c10cf):①archive_terminal 写回前调 normalize_archive 净化整个归档(按 id 去重保留先归档、每条目同 key 字段去重保留第一个非空、删空字段),净化有变化时即使无新终态条目也强制写回(archived 动作=清理通道);②extend 前 Entry 列表按 id 去重(与模板去重一致);③新测试 archive_terminal_净化重复条目与孤儿字段 构造 D-309 两份+D-312 污染,断言收敛;docstore 19 passed,fmt/clippy 全过(T-1786564595)。真实环境注意:当前 agent 会话的 defect 工具跑的是旧引擎,archive 实测返回 nothing to archive(旧代码无净化)——真实文件脏数据(D-309 重复/D-312 污染)会在引擎更新后的首次归档动作被自动收敛,净化逻辑已有单元测试背书。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 263)。逐条对照:①D-309 重复两份——根因 archive_terminal extend 未按 id 去重,已修(Entry 列表去重 + normalize_archive 整体净化),测试断言重复收敛为一份;②D-289 孤儿字段污染 D-312——normalize_archive 同 key 字段去重(保留第一个非空)+ 删空字段(如 `- 阻塞: `),测试断言复现保留原条目值、空阻塞被删;③无工具清理通道——已建立:任何归档动作(archived=清理通道)自动净化整个归档,无需新工具;净化有变化即强制写回。残余:当前工作树 defects-archive.md 的真实脏数据由含本修复的新引擎在首次归档动作自动收敛(代码已提交,引擎重启后生效),进展已记录。关闭。
+

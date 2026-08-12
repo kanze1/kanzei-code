@@ -176,17 +176,6 @@
 
 - 阻塞: D-319(WebView2 当前环境 DevTools 端口不监听)未解决前,e2e-smoke connectOverCDP 20 秒超时无法实测。解除人:解决 D-319 或确认 WebView2 环境可起 DevTools 后重跑 e2e-smoke。
 
-## D-316 引擎归档动作产生重复条目与孤儿字段:archive 中 D-309 两份、open 的 D-289 字段被误切入且无工具清理通道 [fixing] (medium)
-- 复现: 上一轮关闭一批缺陷后,引擎自动归档把 fixed 条目移入 defects-archive.md 但未提交(工作树遗留)。实测归档产物两处脏数据:①D-309 在 archive 重复两份(3238/3252 行,内容完全相同);②open 的 D-289 字段行(复现/影响/来源/标签/阻塞/优先级)被误切进 archive 尾部,活动文件 D-289 字段随之下线。
-- 影响: archive 出现重复条目与孤儿字段行;活动文件 open 条目字段被误移(已用 defect update 手工补回 D-289,但 archive 尾部残留 6 行孤儿字段)。归档是引擎管理文件,edit 被 ruleset 拒绝、defect 工具不认归档条目,当前无合法清理通道——同类问题与 D-294 的「游离段落无删除通道」一致。
-- 标签: 流程
-- 根因: 引擎归档动作的切割/复制逻辑疑似把 D-312 之后的 D-289 字段行一并划入归档,并对 D-309 重复落盘;具体在 harness 归档实现,待定位。
-- 优先级: P2
-
-- 复杂度: 中
-- 批次: 2/2
-- 进展: 2026-08-16 取活。现状核实:①archive_terminal(docstore.rs)的 archived.extend(terminal) 只对模板去重、Entry 列表未按 id 去重——重复归档会二次追加(D-309 两份 3238/3252 实证);②D-289 的 6 行孤儿字段已污染进 archive 的 D-312 条目(复现/影响/来源/标签/阻塞/优先级 重复 key + 空阻塞)。B1 完成(commit 44c10cf):①archive_terminal 写回前调 normalize_archive 净化整个归档(按 id 去重保留先归档、每条目同 key 字段去重保留第一个非空、删空字段),净化有变化时即使无新终态条目也强制写回(archived 动作=清理通道);②extend 前 Entry 列表按 id 去重(与模板去重一致);③新测试 archive_terminal_净化重复条目与孤儿字段 构造 D-309 两份+D-312 污染,断言收敛;docstore 19 passed,fmt/clippy 全过(T-1786564595)。真实环境注意:当前 agent 会话的 defect 工具跑的是旧引擎,archive 实测返回 nothing to archive(旧代码无净化)——真实文件脏数据(D-309 重复/D-312 污染)会在引擎更新后的首次归档动作被自动收敛,净化逻辑已有单元测试背书。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 263)。逐条对照:①D-309 重复两份——根因 archive_terminal extend 未按 id 去重,已修(Entry 列表去重 + normalize_archive 整体净化),测试断言重复收敛为一份;②D-289 孤儿字段污染 D-312——normalize_archive 同 key 字段去重(保留第一个非空)+ 删空字段(如 `- 阻塞: `),测试断言复现保留原条目值、空阻塞被删;③无工具清理通道——已建立:任何归档动作(archived=清理通道)自动净化整个归档,无需新工具;净化有变化即强制写回。残余:当前工作树 defects-archive.md 的真实脏数据由含本修复的新引擎在首次归档动作自动收敛(代码已提交,引擎重启后生效),进展已记录。关闭。
-
 ## D-319 WebView2 当前环境 DevTools 端口不监听:e2e-smoke connectOverCDP 20 秒超时(参数已传入但不绑定) [open] (medium)
 - 复杂度: 中
 - 复现: 2026-08-16 D-289 实测验证中发现:无论 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 环境变量还是 KANZEI_E2E_CDP 注入路径,WebView2 进程命令行均带上 --remote-debugging-port=<port> --remote-allow-origins=*(进程命令行实证),但端口 20 秒不监听、user-data-dir 无 DevToolsActivePort 文件、进程树完整(renderer/gpu/network 均在)、会话与用户 kzapp 同为 Session 1、无策略禁用(注册表 HKCU/HKLM EdgeWebView/Edge 均空)。对照:同参数字符串起 Edge --headless,1 秒即监听。结论:WebView2 在当前机器/环境不启动 DevTools 端口,与参数注入路径无关。
