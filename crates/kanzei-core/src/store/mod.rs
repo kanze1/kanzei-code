@@ -24,7 +24,8 @@ use serde_json::Value;
 // v11:R-177 F11——processes 补 tracker_writes_enabled 列(存量线默认关闭)。
 // v12:R-178 批3——processes 补 manual_models 列(项目级手填模型候选,JSON 数组,
 //     由默认进程行承载;localStorage kz-manual-models 旧键上迁的目标)。
-const SCHEMA_VERSION: i64 = 12;
+// v13:R-226——retired_processes 保存已注销线路身份,确保 p{n}/session_id 永不复用。
+const SCHEMA_VERSION: i64 = 13;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

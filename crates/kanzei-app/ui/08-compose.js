@@ -4,8 +4,7 @@ const DEFAULT_AUTO_CONTINUE_MAX = 10;
 let autoRounds = 0;
 let autoPaused = false;
 let autoStopAfterRound = false;
-let autoContinueTimer = null;
-let autoContinueGeneration = 0;
+const autoContinueTimers = new Map();
 let autoStopReason = "";
 // 连续无实质动作的轮数:第一次只追加推进指令,第二次才刹车。
 // R-169:判定已下沉 harness auto_run 状态机,前端只保留镜像赋值。
@@ -108,20 +107,29 @@ function syncAutoRunState() {
 function resetAutoRunState() {
   if (activeSessionId) void invoke("auto_state_reset", { sessionId: activeSessionId });
 }
-function cancelAutoContinueTimer() {
-  if (autoContinueTimer) clearTimeout(autoContinueTimer);
-  autoContinueTimer = null;
-  autoContinueGeneration += 1;
+function cancelAutoContinueTimer(sessionId = activeSessionId) {
+  if (!sessionId) return;
+  const entry = autoContinueTimers.get(sessionId);
+  if (entry?.timer) clearTimeout(entry.timer);
+  autoContinueTimers.delete(sessionId);
 }
 // D-291:续跑闸门的**唯一**判据。原来这几个条件散在两处 setTimeout 里,任一不满足
 // 就 `return` ——不发下一轮、不清 auto_pending、不清横幅、不留一个字。界面于是永久
 // 钉在「鞭挞 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
 // 对不上)。闸门必须集中且**开口说话**:不续跑可以,不说为什么不行(D-004 口径)。
-function autoContinueBlockedReason() {
-  if (!$("auto-continue").checked) return "鞭挞已关闭";
-  if (autoPaused) return "已暂停";
-  if (autoStopAfterRound) return "本轮后停";
-  if (!autoContinueAllowed()) return "当前模式不是自主推进";
+function autoContinueBlockedReason(sessionId) {
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  if (!item) return "线路已关闭";
+  if (sessionId === activeSessionId) {
+    if (!$("auto-continue").checked) return "鞭挞已关闭";
+    if (autoPaused) return "已暂停";
+    if (autoStopAfterRound) return "本轮后停";
+    return null;
+  }
+  const config = normalizeAutoState(processAutoState.get(item.id), item.id);
+  if (!config.enabled) return "鞭挞已关闭";
+  if (config.paused) return "已暂停";
+  if (config.stopAfterRound) return "本轮后停";
   return null;
 }
 // `running` 与上面四条不同:它是**瞬态**,不是用户意图。kz:done 有意不收回运行态
@@ -131,9 +139,11 @@ function autoContinueBlockedReason() {
 const AUTO_CONTINUE_RUNNING_GRACE = 15;
 // 闸门拦下时收口:pending 必须落地,否则横幅与线路徽标一直显示「等待下一轮」。
 function abortAutoContinue(reason, sessionId = activeSessionId) {
-  if (sessionId) sessionState(sessionId).auto_pending = false;
-  clearRunPending();
-  renderAutoStatus(`${t("鞭挞未续跑")}:${t(reason)}`);
+  if (sessionId) transitionSession(sessionId, "idle");
+  if (sessionId === activeSessionId) {
+    clearRunPending();
+    renderAutoStatus(`${t("鞭挞未续跑")}:${t(reason)}`);
+  }
   log(`${t("鞭挞未续跑")}:${t(reason)}`);
   if (sessionId) refreshParallelTaskProjection(sessionId);
 }
@@ -141,32 +151,92 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // generation 不符属于「被更新的一枪取代」,静默是对的——但那条路径的 pending
 // 由取消方自己收口,不在这里处理。
 function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
-  cancelAutoContinueTimer();
-  const generation = autoContinueGeneration;
-  autoContinueTimer = setTimeout(() => {
-    autoContinueTimer = null;
-    if (generation !== autoContinueGeneration) return;
-    const blocked = autoContinueBlockedReason();
+  if (!sessionId) return;
+  // 活动线路的模式控件是当前用户意图；后台线路没有共享 DOM，按该线保存的
+  // enabled/paused 配置运行，不能读取当前线路的 profile-select。
+  if (sessionId === activeSessionId && !autoContinueAllowed()) {
+    abortAutoContinue("当前模式不是自主推进", sessionId);
+    return;
+  }
+  cancelAutoContinueTimer(sessionId);
+  const generation = (sessionState(sessionId).auto_generation || 0) + 1;
+  sessionState(sessionId).auto_generation = generation;
+  const timer = setTimeout(async () => {
+    const current = autoContinueTimers.get(sessionId);
+    if (!current || current.generation !== generation) return;
+    autoContinueTimers.delete(sessionId);
+    const blocked = autoContinueBlockedReason(sessionId);
     if (blocked) {
       abortAutoContinue(blocked, sessionId);
       return;
     }
-    if (running) {
+    const targetState = sessionState(sessionId);
+    const item = processItems.find((candidate) => candidate.session_id === sessionId);
+    if (item && processRunning(item)) {
       if (waited < AUTO_CONTINUE_RUNNING_GRACE) {
-        // 计数不复位、generation 顺延:再等一拍,不改任何用户可见状态。
         armAutoContinue(prompt, sessionId, waited + 1);
       } else {
         abortAutoContinue("上一轮尚未结束", sessionId);
       }
       return;
     }
-    if (sessionId) sessionState(sessionId).auto_pending = false;
-    clearRunPending();
-    sendText(prompt, { auto: true });
+    transitionSession(sessionId, "starting", { local_start_pending: true });
+    if (sessionId === activeSessionId) clearRunPending();
+    await sendAutoToSession(prompt, sessionId);
   }, 2000);
+  autoContinueTimers.set(sessionId, { timer, generation });
 }
 function scheduleAutoContinue() {
   armAutoContinue(continuePrompt());
+}
+
+async function sendAutoToSession(prompt, sessionId) {
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  if (!item) return abortAutoContinue("线路已关闭", sessionId);
+  if (sessionId === activeSessionId) {
+    addMessage("notice", `${t("鞭挞已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
+    setRunning(true, t("准备中"));
+  }
+  try {
+    await invoke("run_prompt", {
+      prompt,
+      projectDir: item.project_dir,
+      profile: "dev",
+      agent: "dev",
+      model: item.model || null,
+      workPriority: localStorage.getItem(`kz-work-priority:${item.origin_project}`) === "requirement-first" ? "requirement-first" : "defect-first",
+      delivery: "queue",
+      attachments: [],
+      processId: item.id,
+      autonomous: true,
+    });
+  } catch (error) {
+    transitionSession(sessionId, "failed");
+    if (sessionId === activeSessionId) {
+      reportError(String(error));
+      setRunning(false, t("出错"));
+    } else {
+      reportPersistentError(`${item.label} ${t("鞭挞续跑失败")}:${error}`);
+    }
+    refreshParallelTaskProjection(sessionId);
+  }
+}
+
+function handleBackgroundSessionDone(payload) {
+  const sessionId = payload?.sessionId;
+  if (!sessionId) return;
+  const action = payload.autoAction || { type: "NoContinue" };
+  const state = sessionState(sessionId);
+  state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
+  if (action.type === "Continue" || action.type === "Nudge") {
+    transitionSession(sessionId, "auto_pending", { auto_rounds: state.auto_rounds });
+    refreshParallelTaskProjection(sessionId);
+    armAutoContinue(action.type === "Nudge" ? action.prompt : DEFAULT_CONTINUE_PROMPT, sessionId);
+  } else if (action.type === "Stop") {
+    transitionSession(sessionId, "idle");
+    cancelAutoContinueTimer(sessionId);
+    refreshParallelTaskProjection(sessionId);
+  }
 }
 
 // R-169:全部阻塞/清空停止已下沉 harness backlog_status + auto_run 状态机,
@@ -270,11 +340,12 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   } else {
     addUserMessage(prompt, promptAttachments);
   }
-  if (activeSessionId) {
-    const state = sessionState(activeSessionId);
+  const requestSessionId = activeSessionId;
+  const requestProcessId = activeProcessId;
+  const requestProject = currentProject;
+  if (requestSessionId) {
+    const state = transitionSession(requestSessionId, "starting");
     state.auto_pending = false;
-    state.running = true;
-    state.converged = false;
     // run_prompt 的 IPC 返回前，旧的 process_list 快照可能仍是 false；
     // 在首个实时事件到达前不能让这份旧快照覆盖本次用户明确的启动意图。
     state.live_running = null;
@@ -285,43 +356,36 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   setRunning(true, attachmentStatus);
   // R-086:本轮运行开始,活动会话状态机同步为运行中——控制事件与状态机同源。
   // converged 复位:新一轮可以覆盖旧终态。
-  if (activeSessionId) {
-    const state = sessionState(activeSessionId);
-    state.running = true;
-    state.converged = false;
-    state.auto_pending = false;
-  }
+  if (requestSessionId) transitionSession(requestSessionId, "starting", { auto_pending: false });
   startElapsed();
   log(`${auto ? t("鞭挞") : t("发送")}:${prompt.slice(0, 80)}`);
   try {
     const mode = selectedAgent();
     const request = {
       prompt,
-      projectDir: currentProject,
+      projectDir: requestProject,
       profile: mode.profile,
       agent: mode.agent,
       model: $("model-select").value || null,
       workPriority: selectedWorkPriority(),
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
-      processId: activeProcessId,
+      processId: requestProcessId,
       autonomous: auto,
     };
     if (!auto) lastRequest = request;
     await invoke("run_prompt", request);
   } catch (err) {
-    reportError(String(err));
-    stopElapsed();
-    if (activeSessionId) {
-      const state = sessionState(activeSessionId);
-      state.running = false;
-      state.converged = true;
-      state.auto_pending = false;
-      state.live_running = false;
-      state.local_start_pending = false;
-      state.terminal_status = "出错";
+    if (requestSessionId) transitionSession(requestSessionId, "failed");
+    if (requestSessionId === activeSessionId) {
+      reportError(String(err));
+      stopElapsed();
+      setRunning(false);
+    } else {
+      const failed = processItems.find((candidate) => candidate.session_id === requestSessionId);
+      reportPersistentError(`${failed?.label || requestProcessId} ${t("发送失败")}:${err}`);
     }
-    setRunning(false);
+    refreshParallelTaskProjection(requestSessionId);
   }
 }
 
@@ -698,7 +762,6 @@ function applyAutoUiState(processId) {
   $("auto-pause").classList.toggle("active", autoPaused);
   $("auto-pause").textContent = autoPaused ? t("继续鞭挞") : t("暂停鞭挞");
   autoRounds = 0;
-  cancelAutoContinueTimer();
   renderAutoStatus();
   persistProcessAutoState();
 }
@@ -793,43 +856,36 @@ $("work-priority-select").addEventListener("change", async () => {
     toastError(`${t("开发重心保存失败")}:${err}`);
   }
 });
-$("stop").addEventListener("click", () => {
-  // 本地立即复位,不依赖后端事件回执(事件通道故障时停止键也必须有效)。
-  cancelAutoContinueTimer();
+$("stop").addEventListener("click", async () => {
+  const targetSessionId = activeSessionId;
+  const targetProcessId = activeProcessId;
+  const targetProject = currentProject;
+  cancelAutoContinueTimer(targetSessionId);
   autoRounds = 0;
   if (runControlPending && !running) {
-    if (activeSessionId) {
-      const state = sessionState(activeSessionId);
-      state.running = false;
-      state.converged = true;
-      state.auto_pending = false;
-      state.live_running = false;
-      state.local_start_pending = false;
-      state.terminal_status = "已停止";
-    }
+    if (targetSessionId) transitionSession(targetSessionId, "stopped");
     $("auto-continue").checked = false;
     rememberAutoUiState();
     void syncAutoRunState();
     clearRunPending();
     setRunning(false, t("已停止"));
-    log(t("已请求停止(本地已复位)"));
+    log(t("已停止鞭挞等待"));
     return;
   }
-  invoke("stop_run", { projectDir: currentProject, processId: activeProcessId }).catch((err) => reportPersistentError(`${t("停止指令失败")}:${err}`));
+  if (targetSessionId) transitionSession(targetSessionId, "stopping");
+  setStopping(t("停止中…"));
   hideAsk();
-  stopElapsed();
-  setRunning(false, t("已停止"));
-  // R-086:本地复位同样收敛到该会话状态机,不依赖后端事件回执。
-  if (activeSessionId) {
-    const state = sessionState(activeSessionId);
-    state.running = false;
-    state.converged = true;
-    state.auto_pending = false;
-    state.live_running = false;
-    state.local_start_pending = false;
-    state.terminal_status = "已停止";
+  try {
+    await invoke("stop_run", { projectDir: targetProject, processId: targetProcessId });
+    log(t("停止指令已确认，等待会话终态"));
+  } catch (err) {
+    const item = processItems.find((candidate) => candidate.session_id === targetSessionId);
+    if (targetSessionId) transitionSession(targetSessionId, item?.running ? "running" : "idle");
+    if (targetSessionId === activeSessionId) {
+      setRunning(Boolean(item?.running), item?.running ? t("运行中") : t("空闲"));
+    }
+    reportPersistentError(`${t("停止指令失败")}:${err}`);
   }
-  log(t("已请求停止(本地已复位)"));
 });
 promptBox.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("file-suggestions").classList.contains("hidden")) {

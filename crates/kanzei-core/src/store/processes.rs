@@ -124,11 +124,32 @@ impl SessionStore {
 
     /// 删除一条线/进程注册(进程关闭时)。
     pub fn delete_process(&self, process_id: &str) -> Result<(), StoreError> {
-        self.connection.execute(
+        let tx = self.connection.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO retired_processes(process_id, origin_project, retired_at)
+                 SELECT process_id, origin_project, ?2 FROM processes WHERE process_id = ?1
+                 ON CONFLICT(process_id) DO NOTHING",
+            params![process_id, super::now_ms()],
+        )?;
+        tx.execute(
             "DELETE FROM processes WHERE process_id = ?1",
             params![process_id],
         )?;
+        tx.commit()?;
         Ok(())
+    }
+
+    /// 已注销线路仍占用其身份。历史会话、前端持久设置和审计事件都以 p{n}/session_id
+    /// 为键；若删除登记后复用编号，新线路会继承旧线路的全部事实。
+    pub fn list_retired_process_ids(
+        &self,
+        origin_project: &str,
+    ) -> Result<Vec<String>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT process_id FROM retired_processes WHERE origin_project = ?1 ORDER BY process_id",
+        )?;
+        let rows = statement.query_map(params![origin_project], |row| row.get(0))?;
+        rows.collect::<Result<Vec<String>, _>>().map_err(Into::into)
     }
 
     /// 查单条(不存在的线返回 None)。
@@ -180,6 +201,19 @@ mod tests {
             tracker_writes_enabled: true,
             updated_at: 42,
         }
+    }
+
+    #[test]
+    fn 删除进程后身份进入退役账本且不会丢失() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let process = sample();
+        store.insert_new_process(&process).unwrap();
+        store.delete_process(&process.process_id).unwrap();
+        assert!(store.list_processes("C:/project").unwrap().is_empty());
+        assert_eq!(
+            store.list_retired_process_ids("C:/project").unwrap(),
+            vec![process.process_id]
+        );
     }
 
     #[test]

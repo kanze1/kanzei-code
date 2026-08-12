@@ -118,7 +118,11 @@ function renderLines(lines) {
       .map((lane) => lane.dataset.processId),
   );
   target.replaceChildren();
-  const runningCount = collaborationLines.filter((line) => line.running).length;
+  const lineIsRunning = (line) => {
+    const item = processItems.find((process) => process.id === line.process_id);
+    return item ? processRunning(item) : Boolean(line.running);
+  };
+  const runningCount = collaborationLines.filter(lineIsRunning).length;
   const changedCount = new Set(
     collaborationLines.flatMap((line) => (line.changed_files ?? []).map(normalizedChangedFile)),
   ).size;
@@ -135,6 +139,7 @@ function renderLines(lines) {
 
   const codes = lineAgentCodes(collaborationLines);
   for (const line of collaborationLines) {
+    const lineRunning = lineIsRunning(line);
     const lane = document.createElement("article");
     const code = codes.get(line.process_id) ?? "?";
     const accentIndex = code === "M" ? 0 : ((code.charCodeAt(0) - 64) % 4) + 1;
@@ -156,8 +161,8 @@ function renderLines(lines) {
     titleWrap.append(title, processId);
     identity.append(badge, titleWrap);
     const state = document.createElement("span");
-    state.className = `line-running-state ${line.running ? "running" : "idle"}`;
-    state.textContent = line.running ? t("运行中") : t("空闲");
+    state.className = `line-running-state ${lineRunning ? "running" : "idle"}`;
+    state.textContent = lineRunning ? t("运行中") : t("空闲");
     head.append(identity, state);
 
     const claim = document.createElement("p");
@@ -216,6 +221,8 @@ function renderLines(lines) {
       harvest.type = "button";
       harvest.className = "ghost mini line-harvest-toggle";
       harvest.textContent = t("收活");
+      harvest.disabled = lineRunning;
+      harvest.title = lineRunning ? t("线路运行中，停止并等待收口后才能收活") : "";
       harvest.addEventListener("click", () => {
         const panel = lane.querySelector(".line-harvest");
         if (panel) {

@@ -1,4 +1,12 @@
 const I18N_EN = {
+  "停止中…": "Stopping…",
+  "鞭挞续跑失败": "Auto-continue failed",
+  "发送失败": "Send failed",
+  "已停止鞭挞等待": "Stopped auto-continue wait",
+  "停止指令已确认，等待会话终态": "Stop confirmed; waiting for the session to settle",
+  "线路运行中，停止并等待收口后才能操作工作树": "Stop the running line and wait for it to settle before changing its worktree",
+  "线路运行中，停止并等待收口后才能收活": "Stop the running line and wait for it to settle before harvesting",
+  "该工作树没有绑定线路，不能进入收活流程": "This worktree is not bound to a line and cannot be harvested",
   "后台询问已跳过": "Background ASK skipped",
   "并行线路": "Parallel lines",
   "切换到并行线路": "Switch to parallel lines",

@@ -1,5 +1,16 @@
 # Requirements
 
+## R-226 多线路运行内核二次收口：身份永不复用、独立自动推进与停止/收活隔离 [fixed]
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 并行 自举 发布
+- 来源: 2026-08-12 用户要求全面扫描多线并行后确认继续修复并发版；R-197 虽归档为完成，但 R-206 与本轮反证证明其关键不变量尚未兑现。
+- 内容: 以持久唯一线路身份和 `session_id` 为中心，重新收口线路创建/注销、后端运行时、事件路由、自动推进、停止、对话恢复、工作树收活与前端状态投影；禁止任何全局 UI 状态或项目级清理跨线路生效。
+- 实现顺序（10 批）: ①反证测试基线；②线路身份永不复用与旧缓存清理；③统一注销/停止 finalize；④后台进程按 owner 回收；⑤运行中工作树禁止合并/放弃；⑥前端具名状态机与 stopping；⑦后台控制事件副作用按 session 执行；⑧自动推进定时器与设置按 session 隔离；⑨切线/发送/历史恢复竞态收口；⑩全量门禁、真实双线验收、打包发布。
+- 验收: ①删线重建不会复用 session 或继承历史/profile/鞭挞；②两线同时运行和自动推进互不取消、互不发送到对方；③停止 A 只停止 A 的 run、ask、队列和后台进程，B 保持运行；④运行中、停止中、等待下一轮、空闲由同一会话投影驱动，停止按钮不消失/闪跳；⑤后台 `kz:done` 能续跑并刷新所属历史；⑥运行线路不能合并或放弃工作树；⑦切线期间旧 IPC 失败不能污染新线；⑧活动与历史按 session 恢复且读接口不改写运行中上下文；⑨相关 Rust/UI 反证、workspace 门禁和真实桌面双线 E2 全绿；⑩发布包绑定最终 HEAD，安装实例版本与 hash 可核对。
+- refs: D-313 R-197 R-199 R-206 R-207 R-222 D-209 D-283 D-305 D-306
+- 进展: 2026-08-12 十批按依赖完成：schema v13 退役线路账本保证 session 身份不复用；关闭/注销/停止统一 finalize，后台进程按 owner 回收；工作树破坏操作持 lifecycle 锁并拒绝运行线；前端引入具名 phase、按 session timer 与后台 done 路由，切线不取消旧线，发送/停止捕获发起线路；历史读接口改纯读取；侧栏合并统一进入收活五格。证据：kanzei-app 130 tests、kanzei-tools owner 定向测试、workspace clippy、UI runtime 1496 invokes、UI lint 与 parallel-lines-regression 全绿；完整 workspace/verify 与真实桌面双线随本条发版收尾记录补充。
+
 ## R-225 界面语言设置：跟随系统/中文/English，默认中文 [fixed]
 - 优先级: P1
 - 复杂度: 小
@@ -93,6 +104,7 @@
 - 内容: 提供唯一 mutator(applySessionEvent/applyLocalIntent),按设计 §2.2 把 6 标志折算成具名状态字段;删除重复写块;全局 running 改为派生;补 stopping 投影(点停止后按钮转「停止中…」禁用,进度事件不得翻回运行中,仅 kz:stopped/kz:idle/终态错误能离开)。
 - 验收: ①grep ui/ 目录 state.running 直写仅剩 mutator 一处;②D-283 两条反证冒烟保持绿;③「长工具运行中点停止无状态闪跳」冒烟断言;④删除 08-compose 重复块。
 - refs: D-283 R-197 R-199 D-306
+- 进展: 2026-08-12 R-226 已落具名 `phase`、统一 `transitionSession`、`stopping` 中间态及按活动 session 的运行控件投影；兼容旧路径仍保留 `running/converged/live_running` 字段，故本条不虚标完成，后续验收为删除全部直接字段写入并让全局 running 彻底只读派生。
 
 ## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [open]
 - 优先级: P2

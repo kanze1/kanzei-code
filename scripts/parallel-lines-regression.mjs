@@ -38,8 +38,14 @@ assert(sessions.includes("applyAutoUiState(activeProcessId)"), "重载/切项目
 assert(sessions.includes("applyProfileValue(active?.profile)"), "重载/切项目后未恢复活动线路 profile");
 assert(!sessions.includes("process-tabs"), "顶部进程切换条已移除,不应重新引入");
 assert(sessions.includes("loadConversation(null, switchGeneration)"), "对话恢复未绑定切换代次");
+assert(!sessions.includes("cancelAutoContinueTimer();\n  hideAsk(true)"), "切换线路不应取消原线路自主推进 timer");
+assert(sessions.includes('state.phase === "stopping"'), "线路状态投影缺少 stopping 具名态");
 
 assert(compose.includes("const processUpdateQueues = new Map()"), "进程设置缺少按线路保存队列");
+assert(compose.includes("const autoContinueTimers = new Map()"), "自主推进 timer 未按 session 隔离");
+assert(compose.includes("sendAutoToSession(prompt, sessionId)"), "后台自主推进仍按活动线路发送");
+assert(compose.includes("const requestSessionId = activeSessionId"), "发送 IPC 未捕获发起线路身份");
+assert(compose.includes("transitionSession(targetSessionId, \"stopping\")"), "停止按钮仍缺少 stopping 过渡态");
 assert(compose.includes("queueProcessUpdate(activeProcessId"), "模型/profile/reasoning 未走保存队列");
 assert(sessions.includes("worktreeLineCreateInFlight"), "并行线路创建缺少单飞请求护栏");
 assert(sessions.includes("worktreeLineCreateSequence"), "并行线路创建缺少进程内唯一序号");
@@ -51,5 +57,11 @@ assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFIL
 
 assert(views.includes("switchGeneration = null"), "对话恢复缺少可选切换代次参数");
 assert(views.includes("if (!isCurrent()) return;"), "旧线路对话响应缺少丢弃护栏");
+
+const core = await readUi("01-core.js");
+assert(core.includes("handleBackgroundSessionDone(eventPayload.payload)"), "后台 done 事件副作用仍被路由层截断");
+assert(lines.includes("harvest.disabled = lineRunning"), "运行中线路仍可进入收活");
+assert(!sessions.includes('"worktree-merge"'), "侧栏不应保留绕过收活五格的直接合并按钮");
+assert(sessions.includes('"worktree-harvest"'), "侧栏工作树缺少统一收活入口");
 
 console.log("并行线路回归护栏通过:刷新节流、左侧线路状态/切换代次、设置串行保存和 profile 隔离");

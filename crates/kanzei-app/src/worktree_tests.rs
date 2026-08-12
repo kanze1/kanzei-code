@@ -18,8 +18,8 @@ use super::{
     acquire_project_write_lease_within, create_process, create_worktree,
     create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_and_unregister,
     discard_worktree_checked, merge_worktree, parse_harvest_claim, reclaim_worktree_on_close,
-    restore_processes_from_store, rollback_worktree, worktree_diff, worktree_status,
-    worktree_target, WorktreeReceipt,
+    restore_processes_from_store, rollback_worktree, unregister_parallel_process,
+    with_idle_bound_process, worktree_diff, worktree_status, worktree_target, WorktreeReceipt,
 };
 use crate::state::{ensure_default_process, process_session_id, AppState};
 
@@ -510,6 +510,80 @@ async fn worktree_discard同时注销绑定进程() {
 
     git(&canonical, &["branch", "-D", &branch]);
     cleanup(&root, &[target]);
+}
+
+#[tokio::test]
+async fn 注销线路后新线路不得复用旧session身份() {
+    let root = git_repo("kz-retired-process-id");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let first = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    unregister_parallel_process(&state, &canonical, &first.id).unwrap();
+    let second = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_ne!(first.id, second.id, "线路显示身份不得复用");
+    assert_ne!(first.session_id, second.session_id, "历史会话身份不得复用");
+    cleanup(&root, &[]);
+}
+
+#[tokio::test]
+async fn 运行中线路不能合并或放弃工作树() {
+    let root = git_repo("kz-running-worktree-guard");
+    let canonical = crate::normalized_project_root(&root);
+    let state = AppState::default();
+    let info = create_process(
+        &state,
+        &canonical.display().to_string(),
+        None,
+        None,
+        None,
+        None,
+        Some(unique("running-guard")),
+    )
+    .await
+    .unwrap();
+    let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
+    let runtime = crate::runtime_for(&state, &info.session_id);
+    runtime
+        .running
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let merge = with_idle_bound_process(&state, &canonical, &worktree, "合并", || {
+        Ok::<_, String>(())
+    })
+    .expect_err("运行中线路必须拒绝合并");
+    let discard =
+        discard_worktree_and_unregister(&state, &canonical, info.worktree_path.as_ref().unwrap())
+            .expect_err("运行中线路必须拒绝放弃");
+    assert!(merge.contains("仍在运行"), "{merge}");
+    assert!(discard.contains("仍在运行"), "{discard}");
+    assert!(worktree.is_dir(), "拒绝放弃后工作树必须保留");
+    assert!(state.processes.lock().unwrap().contains_key(&info.id));
+
+    runtime
+        .running
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    unregister_parallel_process(&state, &canonical, &info.id).unwrap();
+    cleanup(&root, &[worktree]);
 }
 
 /// 旧版已经留下了只剩 state.db 登记的死线。重启恢复必须自动删除这类记录，而不是

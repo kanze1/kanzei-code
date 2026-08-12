@@ -207,7 +207,14 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS processes_origin
                      ON processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '12')
+                 CREATE TABLE IF NOT EXISTS retired_processes (
+                     process_id TEXT PRIMARY KEY NOT NULL,
+                     origin_project TEXT NOT NULL,
+                     retired_at INTEGER NOT NULL
+                 );
+                 CREATE INDEX IF NOT EXISTS retired_processes_origin
+                     ON retired_processes(origin_project);
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '13')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。

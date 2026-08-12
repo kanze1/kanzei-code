@@ -460,6 +460,25 @@ pub async fn kill_project(project_root: &Path) -> usize {
     killed
 }
 
+/// 只回收指定线路拥有的后台进程。多线路共享同一个主项目根，停止一条线路时不能
+/// 使用 [`kill_project`]，否则会把其它线路的 dev server、watch 和长测试一起杀掉。
+pub async fn kill_process(project_root: &Path, process_id: &str) -> usize {
+    let mut killed = 0usize;
+    for process in list(project_root)
+        .into_iter()
+        .filter(|process| process.owner.process_id == process_id)
+    {
+        if process.is_running() {
+            if let Some(pid) = process.pid {
+                crate::shell::kill_tree(pid).await;
+                killed += 1;
+            }
+            reconcile(&process, false).await;
+        }
+    }
+    killed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -670,6 +689,23 @@ mod tests {
             "启动瞬间的基线应与托管树当前状态一致"
         );
         assert!(process.breaches().is_empty(), "刚启动不该有越界记录");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[tokio::test]
+    async fn 按线路停止只回收目标owner的后台进程() {
+        let _serial = serial().lock().await;
+        let root = temp_managed_project("stop-owner");
+        let target = start_background(&root, linger(), "line-a").await;
+        let sibling = start_background(&root, linger(), "line-b").await;
+        assert_eq!(kill_process(&root, "proc-line-a").await, 1);
+        let stopped = wait_until(|| !get(&target).unwrap().is_running(), 5_000).await;
+        assert!(stopped, "目标线路后台进程应停止");
+        assert!(
+            get(&sibling).unwrap().is_running(),
+            "其它线路后台进程必须保持运行"
+        );
+        assert!(stop(&sibling).await);
         std::fs::remove_dir_all(&root).ok();
     }
 

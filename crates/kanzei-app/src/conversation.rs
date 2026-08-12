@@ -37,7 +37,6 @@ pub(crate) fn conversation_clear(
 
 #[tauri::command]
 pub(crate) fn conversation_get(
-    state: State<'_, AppState>,
     project_dir: String,
     sequence: Option<i64>,
     process_id: Option<String>,
@@ -49,13 +48,7 @@ pub(crate) fn conversation_get(
     store
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
-    let raw = recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())?;
-    runtime_for(&state, &session_id)
-        .conversation
-        .lock()
-        .unwrap()
-        .insert(session_id, kanzei_core::filter_message_history(&raw));
-    Ok(raw)
+    recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -251,7 +251,7 @@ on("kz:error", (e) => {
     // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
     // terminal=false 的告警(比如持久化警告)就能掐掉已排好的下一轮,而 auto_pending
     // 仍是 true——界面从此停在「等待下一轮」,不报错也不再动。
-    cancelAutoContinueTimer();
+    cancelAutoContinueTimer(payload.sessionId || activeSessionId);
     stopElapsed();
     if (activeSessionId) {
       const state = sessionState(activeSessionId);
@@ -294,7 +294,7 @@ on("kz:compacted", (e) => {
   renderTokens();
 });
 on("kz:stopped", (e) => {
-  cancelAutoContinueTimer();
+  cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
   hideAsk();
   const cancelled = e.payload?.cancelled_queue ?? 0;
   addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
@@ -345,7 +345,7 @@ on("kz:done", async (e) => {
   if (action.type === "Continue") {
     autoRounds = action.rounds ?? autoRounds + 1;
     const max = action.max ?? autoContinueMax();
-    if (p.sessionId) sessionState(p.sessionId).auto_pending = true;
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
@@ -358,18 +358,18 @@ on("kz:done", async (e) => {
     addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
     log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
     renderAutoStatus(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max}`);
-    if (p.sessionId) sessionState(p.sessionId).auto_pending = true;
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
     // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
     // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
     armAutoContinue(action.prompt, p.sessionId);
   } else if (action.type === "Stop") {
-    if (p.sessionId) sessionState(p.sessionId).auto_pending = false;
+    if (p.sessionId) transitionSession(p.sessionId, "idle");
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();
     autoRounds = 0;
     noActionRounds = 0;
-    cancelAutoContinueTimer();
+    cancelAutoContinueTimer(p.sessionId || activeSessionId);
     const reason = action.reason;
     if (reason === "Paused") {
       addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);

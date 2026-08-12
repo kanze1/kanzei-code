@@ -77,6 +77,7 @@ function sessionState(sessionId) {
   let state = sessionStates.get(sessionId);
   if (!state) {
     state = {
+      phase: "idle",
       running: false,
       converged: false,
       auto_pending: false,
@@ -262,6 +263,28 @@ function syncSidebar() {
     rail.title = localizeDynamic(sidebarCollapsed ? "打开侧栏" : "收起侧栏");
   }
 }
+
+// 多线路只允许从具名会话状态投影运行控件。保留旧布尔字段供现有视图读取，
+// 但所有新增竞态路径都通过这一入口同时更新 phase 与兼容字段。
+function transitionSession(sessionId, phase, detail = {}) {
+  if (!sessionId) return null;
+  const state = sessionState(sessionId);
+  state.phase = phase;
+  state.running = ["starting", "running", "stopping"].includes(phase);
+  state.auto_pending = phase === "auto_pending";
+  if (["starting", "running"].includes(phase)) {
+    state.converged = false;
+    state.live_running = phase === "running" ? true : null;
+    state.terminal_status = "";
+  } else if (["idle", "stopped", "failed"].includes(phase)) {
+    state.converged = true;
+    state.live_running = false;
+    state.local_start_pending = false;
+    state.terminal_status = phase === "stopped" ? "已停止" : phase === "failed" ? "出错" : "";
+  }
+  Object.assign(state, detail);
+  return state;
+}
 function toggleSidebar() {
   sidebarCollapsed = !sidebarCollapsed;
   localStorage.setItem("kz-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
@@ -399,9 +422,22 @@ function setRunning(value, statusText) {
   send.title = value ? t("运行中可插入或排队，按交付方式发送") : "";
   send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : "发送");
   const stop = $("stop");
+  stop.disabled = false;
   stop.classList.toggle("hidden", !value);
   stop.textContent = t("停止");
   setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
+}
+
+function setStopping(statusText) {
+  running = true;
+  runControlPending = false;
+  $("send").disabled = true;
+  const stop = $("stop");
+  stop.disabled = false;
+  stop.classList.remove("hidden");
+  stop.disabled = true;
+  stop.textContent = t("停止中…");
+  setStatus(statusText ?? t("停止中…"), true);
 }
 
 // 鞭挞在两轮之间等待时，后端会话已经结束本轮但自动续跑定时器仍可取消。
@@ -409,6 +445,7 @@ function setRunning(value, statusText) {
 function setRunPending(statusText) {
   runControlPending = true;
   const stop = $("stop");
+  stop.disabled = false;
   stop.classList.remove("hidden");
   stop.textContent = t("停止鞭挞");
   setStatus(statusText ?? t("等待下一轮"), false);

@@ -1696,7 +1696,7 @@ pub(crate) fn stop_run(
     state: State<'_, AppState>,
     project_dir: Option<String>,
     process_id: Option<String>,
-) {
+) -> Result<(), String> {
     let target_project = project_dir
         .as_ref()
         .map(PathBuf::from)
@@ -1718,14 +1718,15 @@ pub(crate) fn stop_run(
         .map(|(_, runtime)| runtime.clone())
         .collect();
     if runtimes.is_empty() {
+        let message = "目标项目当前没有可停止的运行".to_string();
         let _ = window.emit(
             "kz:error",
             with_session_id(
-                json!({ "message": "目标项目当前没有可停止的运行", "terminal": false }),
+                json!({ "message": message.clone(), "terminal": false }),
                 target_session.as_deref().unwrap_or(""),
             ),
         );
-        return;
+        return Err(message);
     }
     let mut cancelled = None;
     for runtime in runtimes {
@@ -1749,27 +1750,24 @@ pub(crate) fn stop_run(
             );
         }
         Err(error) => {
+            let message = format!("停止时清理排队输入失败: {error}");
             let _ = window.emit(
                 "kz:error",
                 with_session_id(
-                    json!({ "message": format!("停止时清理排队输入失败: {error}"), "terminal": false }),
+                    json!({ "message": message.clone(), "terminal": false }),
                     target_session.as_deref().unwrap_or(""),
                 ),
             );
-            let _ = window.emit(
-                "kz:stopped",
-                with_session_id(
-                    json!({ "cancelled_queue": 0 }),
-                    target_session.as_deref().unwrap_or(""),
-                ),
-            );
+            return Err(message);
         }
     }
     if let Some(root) = target_project {
         let window = window.clone();
         let session = target_session.clone().unwrap_or_default();
+        let target_process = process_id.unwrap_or_else(|| crate::state::default_process_id(&root));
         tauri::async_runtime::spawn(async move {
-            let killed = kanzei_tools::kill_background_processes(&root).await;
+            let killed =
+                kanzei_tools::kill_background_processes_for_process(&root, &target_process).await;
             if killed > 0 {
                 let _ = window.emit(
                     "kz:status",
@@ -1781,6 +1779,7 @@ pub(crate) fn stop_run(
             }
         });
     }
+    Ok(())
 }
 
 /// R-174:单条停止一个运行中的子代理(模型 task 或编排角色)。

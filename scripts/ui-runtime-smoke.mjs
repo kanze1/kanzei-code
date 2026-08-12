@@ -1054,7 +1054,7 @@ if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeH
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
   vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };",
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };",
     sandbox,
     { filename: "__kzTest-hook.js" }
   );
@@ -3627,7 +3627,9 @@ sandbox.renderProcesses([
   { id: "p|third", label: "第三线路", session_id: "sess-third", running: false, branch: "kanzei/thread-third", authority: "parallel", stage: "测试" },
 ]);
 assert(document.querySelectorAll("#parallel-task-status .parallel-task-row").length === 3, "三线并行时侧栏只渲染了一个/两条任务状态");
-assert(listText("parallel-task-status").includes("第三线路") && listText("parallel-task-status").includes("测试"), "侧栏任务状态未显示第三线路及其阶段");
+const thirdLineStatus = [...document.querySelectorAll("#parallel-task-status .parallel-task-row")]
+  .find((row) => row.dataset.processId === "p|third")?.textContent ?? "";
+assert(thirdLineStatus.includes("第三线路") && !thirdLineStatus.includes("测试"), `空闲第三线路未显示或仍残留旧阶段:${thirdLineStatus}`);
 sandbox.renderProcesses(twoProcesses);
 await flush();
 // 后台会话的权限询问到达:不弹当前窗口,但进入该会话自己的待答队列。
@@ -3833,6 +3835,33 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     sandbox.sessionState(whipSession).auto_pending === true,
     "非致命错误不得取消已排队的续跑(旧实现在函数开头无条件 cancelAutoContinueTimer,一条告警就让鞭挞永久停摆)(D-291)",
   );
+}
+
+// ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
+{
+  const lines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|bg-a", label: "后台甲", session_id: "sess-bg-a", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|bg-b", label: "后台乙", session_id: "sess-bg-b", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedProcessList = payloads.process_list;
+  payloads.process_list = lines;
+  sandbox.renderProcesses(lines);
+  sandbox.__kzTest.setAutoState("p|bg-a", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  sandbox.__kzTest.setAutoState("p|bg-b", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-a" } });
+  handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-b" } });
+  const timerSessions = sandbox.__kzTest.timerSessions();
+  assert(timerSessions.includes("sess-bg-a") && timerSessions.includes("sess-bg-b"), `后台双线路 timer 未并存:${timerSessions.join(",")}`);
+  assert(sandbox.sessionState("sess-bg-a").phase === "auto_pending", "后台甲 done 未进入等待下一轮");
+  assert(sandbox.sessionState("sess-bg-b").phase === "auto_pending", "后台乙 done 未进入等待下一轮");
+  assert(sandbox.activeSessionId === undefined || document.querySelector("#parallel-task-status .parallel-task-row.active")?.textContent.includes("主会话"), "后台 done 串改活动线路");
+  await flush();
+  const backgroundRuns = invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && ["p|bg-a", "p|bg-b"].includes(args?.processId));
+  assert(backgroundRuns.some(({ args }) => args.processId === "p|bg-a"), "后台甲 done 没有续跑所属线路");
+  assert(backgroundRuns.some(({ args }) => args.processId === "p|bg-b"), "后台乙 done 没有续跑所属线路");
+  payloads.process_list = savedProcessList;
+  sandbox.renderProcesses(savedProcessList);
 }
 
 // ---------- D-290 回显不得写盘 ----------
@@ -5312,7 +5341,7 @@ const docsB = {
 // 期望脚本非零退出。这是把「删掉任一条即变红」从人工验证换成机械判据——不然一条
 // 恒绿的断言和一条真护栏在 CI 里长得一模一样。
 {
-  const wtItem = (path, branch) => ({ path, branch, clean: true, files: [], diff: "" });
+  const wtItem = (path, branch, bound_process = null) => ({ path, branch, clean: true, files: [], diff: "", bound_process });
   const WT_A1 = "C:/smoke/wt/thread-a1";
   const WT_A2 = "C:/smoke/wt/thread-a2";
   const WT_B = "C:/smoke/wt/thread-b";
@@ -5320,7 +5349,7 @@ const docsB = {
   payloads.worktree_list = (args) =>
     args?.projectDir === PROJECT_B
       ? [wtItem(WT_B, "thread-b")]
-      : [wtItem(WT_A1, "thread-a1"), wtItem(WT_A2, "thread-a2")];
+      : [wtItem(WT_A1, "thread-a1", "p|bg"), wtItem(WT_A2, "thread-a2")];
   payloads.process_create = {
     id: "p2|smoke", label: "线路 2", session_id: "sess-line-2", running: false,
     worktree_path: WT_A1, branch: "thread-a1", tracker_writes: false,
@@ -5395,17 +5424,25 @@ const docsB = {
       `实得 ${JSON.stringify(paintedAfterSwitch)}`,
   );
 
-  // ---------- ② 合并前先读取冲突现场,再进入 Git 合并 ----------
+  // ---------- ② 侧栏不再直达合并，只能进入同一收活五格 ----------
   const mergeButton = document.querySelector("#worktree-list .worktree-merge");
-  const beforeMerge = invokeArgs.length;
-  mergeButton?.click();
+  assert(!mergeButton, "侧栏仍保留绕过人读 diff 的直接合并入口(D-305)");
+  await gotoProject(PROJECT, docsA);
+  await sandbox.refreshWorktrees();
+  const harvestButton = [...document.querySelectorAll("#worktree-list .worktree-harvest")]
+    .find((button) => button.parentElement?.parentElement?.textContent.includes("thread-a1"));
+  const beforeHarvest = invokeArgs.length;
+  harvestButton?.click();
   await flush();
-  const mergeCalls = invokeArgs.slice(beforeMerge);
-  const snapshotIndex = mergeCalls.findIndex((entry) => entry.cmd === "collaboration_snapshot");
-  const mergeIndex = mergeCalls.findIndex((entry) => entry.cmd === "worktree_merge");
+  const mergeCalls = invokeArgs.slice(beforeHarvest);
   assert(
-    snapshotIndex >= 0 && mergeIndex > snapshotIndex,
-    `worktree_merge 没有经过先预警后合并的顺序(${JSON.stringify(mergeCalls)})`,
+    !mergeCalls.some((entry) => entry.cmd === "worktree_merge"),
+    `点击侧栏收活竟直接触发了 worktree_merge(${JSON.stringify(mergeCalls)})`,
+  );
+  assert(
+    mergeCalls.some((entry) => entry.cmd === "collaboration_snapshot") &&
+      document.querySelector('.activity-item[data-view="lines"]')?.classList.contains("active"),
+    `侧栏收活没有进入线路视图并刷新统一五格数据源(${JSON.stringify(mergeCalls)})`,
   );
 
   // ---------- ③ 建线原子创建「工作树 + 进程绑定」,前端不维护影子清单 ----------

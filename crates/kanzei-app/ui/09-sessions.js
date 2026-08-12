@@ -19,10 +19,15 @@ function renderWorktrees(items) {
     label.textContent = `${item.branch} · ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
     label.title = item.path;
     const actions = document.createElement("div");
-    for (const [text, action] of [[t("差异"), "diff"], [t("合并"), "merge"], [t("放弃"), "discard"]]) {
+    for (const [text, action] of [[t("差异"), "diff"], [t("收活"), "harvest"], [t("放弃"), "discard"]]) {
       const button = document.createElement("button");
-      button.className = `ghost mini ${action === "merge" ? "worktree-merge" : action === "discard" ? "worktree-discard" : ""}`;
+      button.className = `ghost mini ${action === "harvest" ? "worktree-harvest" : action === "discard" ? "worktree-discard" : ""}`;
       button.textContent = text;
+      const bound = processItems.find((process) => process.id === item.bound_process);
+      if (action !== "diff" && bound && processRunning(bound)) {
+        button.disabled = true;
+        button.title = t("线路运行中，停止并等待收口后才能操作工作树");
+      }
       button.addEventListener("click", () => handleWorktreeAction(item, action));
       actions.appendChild(button);
     }
@@ -66,10 +71,21 @@ async function handleWorktreeAction(item, action) {
       }
       return;
     }
+    if (action === "harvest") {
+      if (!item.bound_process) {
+        toastError(t("该工作树没有绑定线路，不能进入收活流程"));
+        return;
+      }
+      if (item.bound_process !== activeProcessId) await switchProcess(item.bound_process);
+      document.querySelector('.activity-item[data-view="lines"]')?.click();
+      await refreshLines();
+      [...document.querySelectorAll("#lines-list .line-lane")]
+        .find((lane) => lane.dataset.processId === item.bound_process)
+        ?.querySelector(".line-harvest-toggle")?.click();
+      return;
+    }
     if (action === "discard" && !window.confirm(`${t("放弃工作树")} ${item.branch}？${t("未提交改动会阻止删除并保留现场")}`)) return;
-    if (action === "merge" && !(await confirmWorktreeMerge(item, forProject))) return;
-    const command = action === "merge" ? "worktree_merge" : "worktree_discard";
-    const result = await invoke(command, { projectDir: forProject, worktreePath: item.path });
+    const result = await invoke("worktree_discard", { projectDir: forProject, worktreePath: item.path });
     if (String(result).length > 160) {
       log(String(result), "info");
       $("log-panel").classList.remove("hidden");
@@ -152,9 +168,10 @@ function renderParallelTaskStatus(items) {
   if (!processes.length) return;
   for (const item of processes) {
     const state = sessionState(item.session_id);
-    if (item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
+    if (item.running && item.stage && (!state.stage || state.stage === "空闲")) state.stage = item.stage;
     const runningNow = processRunning(item);
-    const pendingNow = state.auto_pending === true && !runningNow;
+    const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
+    const stoppingNow = state.phase === "stopping";
     const line = document.createElement("div");
     line.className = "parallel-line";
     line.dataset.processId = item.id;
@@ -169,9 +186,11 @@ function renderParallelTaskStatus(items) {
     head.textContent = `${authority} · ${item.label}${item.branch ? ` · ${item.branch}` : ""}`;
     const status = document.createElement("span");
     status.className = "parallel-task-state";
-    const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : pendingNow ? t("等待下一轮") : t("空闲"));
+    const stage = runningNow
+      ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
+      : pendingNow ? t("等待下一轮") : t("空闲");
     const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
-    status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+    status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
     row.append(head, status);
     row.title = runningNow
       ? `${authority}: ${state.detail || stage}`
@@ -200,14 +219,17 @@ function refreshParallelTaskProjection(sessionId) {
   if (!row) return;
   const state = sessionState(item.session_id);
   const runningNow = processRunning(item);
-  const pendingNow = state.auto_pending === true && !runningNow;
+  const pendingNow = state.phase === "auto_pending" || (state.auto_pending === true && !runningNow);
+  const stoppingNow = state.phase === "stopping";
   const authority = item.authority === "primary" || item.id.startsWith("d|") ? t("主代理") : t("并行线");
-  const stage = [state.stage, item.stage].find((value) => value && value !== "空闲") || (runningNow ? t("运行中") : pendingNow ? t("等待下一轮") : t("空闲"));
+  const stage = runningNow
+    ? [state.stage, item.stage].find((value) => value && value !== "空闲") || t("运行中")
+    : pendingNow ? t("等待下一轮") : t("空闲");
   const detail = runningNow && state.detail ? ` · ${state.detail}` : "";
   row.classList.toggle("running", runningNow);
   row.classList.toggle("auto-pending", pendingNow);
   const status = row.querySelector(".parallel-task-state");
-  if (status) status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
+  if (status) status.textContent = `${runningNow ? "●" : pendingNow ? "◐" : "○"} ${stoppingNow ? t("停止中…") : runningNow ? t("运行中") : pendingNow ? t("鞭挞等待") : t("空闲")} · ${stage}${detail}`;
   row.title = runningNow
     ? `${authority}: ${state.detail || stage}`
     : pendingNow
@@ -215,6 +237,8 @@ function refreshParallelTaskProjection(sessionId) {
     : `${authority}: ${t("点击切换到此线路")}`;
   if (item.id === activeProcessId && pendingNow) {
     setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+  } else if (item.id === activeProcessId && stoppingNow) {
+    setStopping(t("停止中…"));
   } else if (item.id === activeProcessId && running !== runningNow) {
     syncedRunningProcessId = item.id;
     syncedRunningState = runningNow;
@@ -222,9 +246,22 @@ function refreshParallelTaskProjection(sessionId) {
   }
 }
 function renderProcesses(items) {
+  const previousItems = processItems;
   const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousProcessId = activeProcessId;
   processItems = items ?? [];
+  const liveIds = new Set(processItems.map((item) => item.id));
+  // 只清当前项目中确认已注销的线路；切项目时旧项目配置继续保留。身份虽已由后端
+  // 保证永不复用，这里仍回收 timer/session/profile，避免长期运行积累死缓存。
+  for (const removed of previousItems.filter((item) =>
+    item.origin_project === currentProject && !liveIds.has(item.id))) {
+    cancelAutoContinueTimer(removed.session_id);
+    sessionStates.delete(removed.session_id);
+    processAutoState.delete(removed.id);
+    processProfileUi.delete(removed.id);
+  }
+  persistProcessAutoState();
+  persistProcessProfiles();
   const nextProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousSessionId = activeSessionId;
   // R-086:后端是运行态权威,先把返回的 running 校正进各会话状态机(事件可能
@@ -239,13 +276,17 @@ function renderProcesses(items) {
     // live_running=true；同理，用户刚点击发送时的本地启动意图也要跨过这个窗口。
     if (state.live_running === true || (state.local_start_pending && !item.running)) {
       state.running = true;
+      if (state.phase !== "stopping") state.phase = "running";
     } else if (state.live_running === false) {
       state.running = false;
     } else {
       state.running = Boolean(item.running);
       if (item.running) {
+        state.phase = "running";
         state.live_running = true;
         state.local_start_pending = false;
+      } else if (!["auto_pending", "stopping", "stopped", "failed"].includes(state.phase)) {
+        state.phase = "idle";
       }
     }
   }
@@ -275,10 +316,12 @@ function renderProcesses(items) {
   // 导致同一条线路从空闲变运行后 stop 仍隐藏，底部状态也一直停在空闲。
   // 状态机的本地停止复位仍然优先；下一次真实 process_list/事件投影会校正它。
   const activeRunning = active ? processRunning(active) : false;
-  const activePending = active ? sessionState(active.session_id).auto_pending === true && !activeRunning : false;
+  const activeState = active ? sessionState(active.session_id) : null;
+  const activePending = active ? (activeState.phase === "auto_pending" || (activeState.auto_pending === true && !activeRunning)) : false;
+  const activeStopping = activeState?.phase === "stopping";
   const activeTerminalStatus = active ? sessionState(active.session_id).terminal_status : "";
   if (
-    !activePending && (activeProcessId !== syncedRunningProcessId ||
+    !activePending && !activeStopping && (activeProcessId !== syncedRunningProcessId ||
     activeRunning !== syncedRunningState ||
     running !== activeRunning)
   ) {
@@ -286,6 +329,7 @@ function renderProcesses(items) {
     syncedRunningState = activeRunning;
     setRunning(activeRunning, activeRunning ? t("运行中") : activeTerminalStatus || t("空闲"));
   }
+  if (activeStopping) setStopping(t("停止中…"));
   if (activePending) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
   renderParallelTaskStatus(processItems);
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
@@ -369,7 +413,6 @@ async function switchProcess(processId) {
   if (activeProcessId) {
     rememberAutoUiState(activeProcessId);
   }
-  cancelAutoContinueTimer();
   hideAsk(true);
   activeProcessId = processId;
   activeSessionId = target.session_id;
@@ -382,10 +425,9 @@ async function switchProcess(processId) {
   pumpAsk();
   // R-086:运行态投影自该会话的状态机(后台终态已收敛),不直接信 processItems
   // 的瞬时轮询值——事件先到状态机,切回时看到的才是准的。
-  setRunning(
-    processRunning(target),
-    processRunning(target) ? t("运行中") : t("空闲")
-  );
+  if (sessionState(target.session_id).phase === "stopping") setStopping(t("停止中…"));
+  else if (sessionState(target.session_id).phase === "auto_pending") setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+  else setRunning(processRunning(target), processRunning(target) ? t("运行中") : t("空闲"));
   renderProcesses(processItems);
   // 不在请求发出前清空消息:切线期间保留旧内容,等目标线程的历史完整恢复后
   // renderRecoveredMessages 一次性替换,避免慢请求/竞态把主对话显示成空白。

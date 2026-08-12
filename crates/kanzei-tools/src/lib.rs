@@ -34,6 +34,7 @@ pub mod profiles;
 pub mod replay_eval;
 pub mod subagent;
 
+pub use background::kill_process as kill_background_processes_for_process;
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。
 pub use background::kill_project as kill_background_processes;
 pub use base::BaseComponent;

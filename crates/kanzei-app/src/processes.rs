@@ -29,8 +29,8 @@ use tauri::State;
 
 use crate::state::hidden_command;
 use crate::{
-    ensure_default_process, normalized_project_root, process_info, process_session_id, AppState,
-    ProcessHandle, ProcessInfo, WorktreeInfo,
+    ensure_default_process, normalized_project_root, process_info, process_session_id,
+    stop_runtime_and_finalize, AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
 };
 
 #[tauri::command]
@@ -464,8 +464,8 @@ fn stored_bound_thread(stored: &[kanzei_core::StoredProcess], key: &str) -> Opti
 }
 
 /// `p{n}` 编号:`p<数字>|<项目>` 里的那个数字。其它形态(默认线 `d|…`)返回 None。
-fn process_index(id: &str) -> Option<u32> {
-    id.split('|').next()?.strip_prefix('p')?.parse::<u32>().ok()
+fn process_index(id: &str) -> Option<u64> {
+    id.split('|').next()?.strip_prefix('p')?.parse::<u64>().ok()
 }
 
 /// 建线时一次带进来的线级设置(打包只为把参数个数压下来,没有别的语义)。
@@ -523,6 +523,9 @@ fn register_process(
     let stored = store
         .list_processes(project)
         .map_err(|e| format!("读取进程注册失败: {e}"))?;
+    let retired = store
+        .list_retired_process_ids(project)
+        .map_err(|e| format!("读取退役进程身份失败: {e}"))?;
     // 二次查重的库那一半:与上面的内存那一半同为「内存 ∪ 库」,口径必须一致,
     // 否则重启后的绑定会从这道闸底下漏过去(一棵树两条线)。
     if let Some((target, key)) = planned {
@@ -530,7 +533,7 @@ fn register_process(
             return Err(bound_error(target, &bound));
         }
     }
-    let next = next_process_index(&processes, &stored, project);
+    let next = next_process_index(&processes, &stored, &retired, project);
 
     let process = ProcessHandle {
         id: format!("p{next}|{project}"),
@@ -580,8 +583,9 @@ fn register_process(
 fn next_process_index(
     processes: &HashMap<String, ProcessHandle>,
     stored: &[kanzei_core::StoredProcess],
+    retired: &[String],
     project: &str,
-) -> u32 {
+) -> u64 {
     let from_memory = processes
         .values()
         .filter(|process| process.project_dir == project)
@@ -589,7 +593,13 @@ fn next_process_index(
     let from_store = stored
         .iter()
         .filter_map(|record| process_index(&record.process_id));
-    from_memory.chain(from_store).max().unwrap_or(0) + 1
+    let from_retired = retired.iter().filter_map(|id| process_index(id));
+    from_memory
+        .chain(from_store)
+        .chain(from_retired)
+        .max()
+        .unwrap_or(0)
+        + 1
 }
 
 #[tauri::command]
@@ -657,17 +667,19 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         .ok_or_else(|| format!("进程不存在: {process_id}"))?;
     let root = PathBuf::from(&process.project_dir);
     let session_id = process_session_id(&root, Some(&process_id));
-    if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
-        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
-            handle.abort();
-        }
-        runtime.asks.lock().unwrap().clear();
-        runtime.running.store(false, Ordering::SeqCst);
-        *runtime.stage.lock().unwrap() = "空闲".into();
-    }
-    // 自主推进控制器与进程生命周期同源；关闭后不能让下次同 ID 会话继承旧轮数。
-    state.auto_runs.lock().unwrap().remove(&session_id);
     if process_id.starts_with("d|") {
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+        if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
+            if runtime.running.load(Ordering::SeqCst) {
+                stop_runtime_and_finalize(&runtime, &store, &session_id)
+                    .map_err(|e| format!("关闭主线路时收口会话失败: {e}"))?;
+            } else {
+                runtime.asks.lock().unwrap().clear();
+            }
+        }
+        // 自主推进控制器与进程生命周期同源；关闭后不能继承旧轮数。
+        state.auto_runs.lock().unwrap().remove(&session_id);
         *process.model.lock().unwrap() = None;
         *process.profile.lock().unwrap() = None;
         // 默认进程不销毁,只复位;复位值必须与 ensure_default_process 的默认一致(关)。
@@ -713,22 +725,28 @@ pub(crate) fn unregister_parallel_process(
     if process_id.starts_with("d|") {
         return Err("默认进程不能注销".into());
     }
-    // 先删持久登记；失败时保留内存绑定，避免半截状态把仍可恢复的线藏掉。
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
+    let session_id = process_session_id(root, Some(process_id));
+    let runtime = state.runtimes.lock().unwrap().get(&session_id).cloned();
+    if let Some(runtime) = runtime {
+        if runtime.running.load(Ordering::SeqCst) {
+            // 注销是运行会话的终点，不能只 abort future。统一出口会先落在飞轨迹、
+            // 清 ask，再把 promoted/running/pending 输入收敛为 cancelled。
+            stop_runtime_and_finalize(&runtime, &store, &session_id)
+                .map_err(|e| format!("注销线路时收口会话失败: {e}"))?;
+        } else {
+            // runtime 容器会在首次历史读取/ask 恢复时提前存在；空闲容器没有
+            // promoted 输入可 finalize，直接清待答队列即可。
+            runtime.asks.lock().unwrap().clear();
+        }
+    }
+    // finalize 成功后才退役身份；若持久化失败，保留已停止的内存线路供用户重试，
+    // 不制造“后台仍跑但线路入口消失”的半截状态。
     store
         .delete_process(process_id)
         .map_err(|e| format!("删除进程注册失败: {e}"))?;
-
-    let session_id = process_session_id(root, Some(process_id));
-    if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
-        if let Some(handle) = runtime.current_run.lock().unwrap().take() {
-            handle.abort();
-        }
-        runtime.asks.lock().unwrap().clear();
-        runtime.running.store(false, Ordering::SeqCst);
-        *runtime.stage.lock().unwrap() = "空闲".into();
-    }
+    state.runtimes.lock().unwrap().remove(&session_id);
     state.auto_runs.lock().unwrap().remove(&session_id);
     state.processes.lock().unwrap().remove(process_id);
     Ok(())
@@ -1736,7 +1754,37 @@ pub async fn worktree_merge(
     let root = normalized_project_root(Path::new(&project_dir));
     // R-171 批4:worktree 合并是项目级写操作,接入写仲裁。
     let _lease = acquire_project_write_lease(&state, &root, "worktree merge").await?;
-    merge_worktree(&root, &worktree_path)
+    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    with_idle_bound_process(&state, &root, &worktree, "合并", || {
+        merge_worktree(&root, &worktree_path)
+    })
+}
+
+/// 在绑定线路的 lifecycle 临界区内检查并执行工作树破坏性操作。检查通过后，
+/// `run_prompt` 也无法在 Git 操作结束前启动该线，消除 check-then-act 窗口。
+fn with_idle_bound_process<T>(
+    state: &AppState,
+    root: &Path,
+    worktree: &Path,
+    action: &str,
+    operation: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let project = root.display().to_string();
+    let bound = bound_thread_for_worktree(state, root, &project, &worktree_key(worktree))?;
+    let runtime = bound.as_deref().and_then(|process_id| {
+        let session_id = process_session_id(root, Some(process_id));
+        state.runtimes.lock().unwrap().get(&session_id).cloned()
+    });
+    let _lifecycle = runtime
+        .as_ref()
+        .map(|runtime| runtime.lifecycle.lock().unwrap());
+    if runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst))
+    {
+        return Err(format!("线路仍在运行，停止并等待收口后才能{action}工作树"));
+    }
+    operation()
 }
 
 /// 放弃命令的可测试内核。未提交改动时 git 必须拒绝并保留现场；写租约仍由
@@ -1770,7 +1818,9 @@ fn discard_worktree_and_unregister(
     let project = root.display().to_string();
     let bound_process_id =
         bound_thread_for_worktree(state, root, &project, &worktree_key(&worktree))?;
-    let result = discard_worktree_checked(root, &git_arg_path(&worktree))?;
+    let result = with_idle_bound_process(state, root, &worktree, "放弃", || {
+        discard_worktree_checked(root, &git_arg_path(&worktree))
+    })?;
     if let Some(process_id) = bound_process_id {
         unregister_parallel_process(state, root, &process_id)?;
         Ok(format!("{result};已关闭绑定线路 {process_id}"))

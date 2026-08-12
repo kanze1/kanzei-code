@@ -42,6 +42,7 @@ function on(event, handler) {
     // 必须写在下面那句非活动会话 early-return 之前,否则后台会话永远收不到。
     if (event === "kz:turn" && sessionId) {
       const state = sessionState(sessionId);
+      state.phase = "running";
       state.running = true;
       state.converged = false;
       state.auto_pending = false;
@@ -59,6 +60,9 @@ function on(event, handler) {
     // 会在实际执行时显示「空闲」,直到下一次轮询或下一轮 turn 才被纠正。
     if (sessionId && SESSION_PROGRESS_EVENTS.has(event)) {
       const state = sessionState(sessionId);
+      // stopping 是用户已发出的控制意图；晚到的进度不能把停止按钮重新翻回运行态。
+      if (state.phase === "stopping") return;
+      state.phase = "running";
       state.running = true;
       state.converged = false;
       state.auto_pending = false;
@@ -88,12 +92,15 @@ function on(event, handler) {
       const terminalError = event === "kz:error" && eventPayload.payload?.terminal !== false;
       if (sessionId && (event === "kz:idle" || event === "kz:stopped" || terminalError)) {
         const state = sessionState(sessionId);
+        state.phase = event === "kz:stopped" ? "stopped" : terminalError ? "failed" : state.auto_pending ? "auto_pending" : "idle";
         state.running = false;
         // 终态一经收敛,后续轮询的旧值(发出事件前采样的 running=true)不得把它
         // 翻回——这是"不依赖当前视图"的最后一环;下一轮的 kz:turn 才能解除。
         state.converged = true;
         state.live_running = false;
         state.local_start_pending = false;
+        state.stage = "空闲";
+        state.detail = "";
         if (event === "kz:stopped") state.terminal_status = "已停止";
         else if (terminalError) state.terminal_status = "出错";
         if (typeof refreshParallelTaskProjection === "function") {
@@ -103,6 +110,14 @@ function on(event, handler) {
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && sessionId && activeSessionId && sessionId !== activeSessionId) {
+        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
+        if (event === "kz:done" && typeof handleBackgroundSessionDone === "function") {
+          handleBackgroundSessionDone(eventPayload.payload);
+        }
+        if ((event === "kz:stopped" || terminalError) && typeof cancelAutoContinueTimer === "function") {
+          cancelAutoContinueTimer(sessionId);
+        }
+        if (typeof refreshConversationLists === "function") void refreshConversationLists();
         refreshProcesses();
         log(`后台会话控制事件已路由:${event} ${sessionId}`);
         return;
