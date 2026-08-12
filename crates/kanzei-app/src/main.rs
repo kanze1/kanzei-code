@@ -109,8 +109,11 @@ fn main() {
                 tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?;
             if let Ok(port) = std::env::var("KANZEI_E2E_CDP") {
                 if !port.trim().is_empty() {
+                    // D-289:Chromium M111+ 的 CDP 要求显式 origin 白名单,否则
+                    // playwright-core connectOverCDP(非 DevTools 客户端)握手被拒。
+                    // 仅 E2 注入时携带,生产路径不带这两个参数。
                     builder = builder.additional_browser_args(&format!(
-                        "--remote-debugging-port={}",
+                        "--remote-debugging-port={} --remote-allow-origins=*",
                         port.trim()
                     ));
                 }

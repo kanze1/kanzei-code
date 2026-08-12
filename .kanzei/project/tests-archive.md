@@ -2043,3 +2043,8 @@
 - 摘要: cargo test --workspace 全绿(tools 262 passed 1 ignored、core 143、harness 114、app 137,0 failed)。D-282 复杂度=中,关闭前全量。
 - 关联: D-282
 - 收尾: 1786563655
+
+## T-1786564129 node scripts/e2e-smoke.mjs (D-289 实测,被 D-319 环境阻断) [failed]
+- 摘要: node scripts/e2e-smoke.mjs 实测:CDP 端口 20 秒未就绪 FAIL。根因:WebView2 当前环境 DevTools 端口不监听(D-319)——参数已传入(msedgewebview2 命令行实证含 --remote-debugging-port --remote-allow-origins=*)、Edge 同参数对照 1 秒监听、无策略禁用、进程树完整。D-289 修复(补 origin 白名单)本身正确且必要,但完整验收被 D-319 环境阻断。
+- 关联: D-289 D-319
+- 收尾: 1786564129
