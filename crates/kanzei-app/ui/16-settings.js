@@ -762,7 +762,7 @@ $("update-check").addEventListener("click", async () => {
 });
 $("update-install").addEventListener("click", async () => {
   if (!updateUrl) return;
-  $("update-result").textContent = t("下载中…(安装器就绪后会自动弹出)");
+  $("update-result").textContent = t("下载中…(应用将退出,安装完成后请手动启动)");
   $("update-install").disabled = true;
   try {
     $("update-result").textContent = await invoke("update_install", { url: updateUrl });

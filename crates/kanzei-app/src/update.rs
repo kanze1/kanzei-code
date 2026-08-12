@@ -304,7 +304,7 @@ pub(crate) async fn update_install_command(
     };
     app.exit(0);
     Ok(format!(
-        "{prefix}已下载 {mb} MB,正在退出并静默安装,装完会自动重新打开"
+        "{prefix}已下载 {mb} MB,正在退出并静默安装,安装完成后请手动启动应用"
     ))
 }
 
@@ -428,10 +428,9 @@ fn run_install_helper(installer: &Path, exe: &Path, parent_pid: u32) {
     update_log(&format!("安装前 exe={before:?} 安装后 exe={after:?}"));
     if !image_replaced(before, after) {
         update_log("安装器 exit=0 但 exe 未被替换(mtime/大小不变):目标可能被占用,或安装位与运行位不是同一个文件。保留安装包供手动执行。");
-        let _ = Command::new(exe).spawn();
         return;
     }
-    let _ = Command::new(exe).spawn();
+    update_log("安装完成,不自动重新打开应用;用户可手动启动新版");
     let _ = std::fs::remove_file(installer);
 }
 #[cfg(windows)]
@@ -519,12 +518,9 @@ fn apply_pending_update(exe: &Path, pending: &Path) {
         if std::fs::rename(exe, &backup).is_ok() {
             match std::fs::rename(pending, exe) {
                 Ok(()) => {
-                    if Command::new(exe).spawn().is_ok() {
-                        let _ = std::fs::remove_file(&backup);
-                    } else {
-                        let _ = std::fs::remove_file(exe);
-                        let _ = std::fs::rename(&backup, exe);
-                    }
+                    // 更新交接只负责替换文件，不替用户重新启动应用。否则用户关闭
+                    // kzapp 后，仍在等待父进程的 helper 会在这里制造一个新实例。
+                    let _ = std::fs::remove_file(&backup);
                     return;
                 }
                 Err(_) => {

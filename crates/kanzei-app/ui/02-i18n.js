@@ -425,6 +425,7 @@ const I18N_EN = {
   "写入全局": "Save globally",
   ",项目级 .kanzei/kanzei.toml 会覆盖全局。": "; project .kanzei/kanzei.toml overrides global settings.",
   "界面语言": "Interface language",
+  "下载中…(应用将退出,安装完成后请手动启动)": "Downloading… (the app will exit; start it manually after installation)",
   "主循环": "Main loop",
   "子代理/杂活(本地模型)": "Subagents and background work (local model)",
   "名称": "Name",
