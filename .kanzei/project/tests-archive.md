@@ -1973,3 +1973,13 @@
 - 摘要: cargo test --workspace 连续 20 轮(2026-08-13 02:27:46–02:42:39)全部 exit=0,单轮 39–61s,无任何失败输出。修复后总计:kanzei-tools 加压 10 轮 0 失败(T-1786555193)+ 全量 20 轮 0 失败。
 - 关联: D-293
 - 收尾: 1786560203
+
+## T-1786560513 D-266 install-setup.ps1 装后校验模拟测试 [passed]
+- 摘要: install-setup.ps1 四场景模拟验证:①真实 kzapp 运行中当场拒绝(验收①);②安装器 exit 0 但未替换被识破报错(D-266 根因);③hash 匹配安装通过(验收②);④hash 不匹配报错。4/4 通过。另语法校验 install-setup.ps1/release.ps1 均 OK。
+- 关联: D-266
+- 收尾: 1786560513
+
+## T-1786560588 cargo test --workspace (D-266 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(kanzei-tools 258、core 137、app 143 等,0 failed)。D-266 复杂度=中,关闭前全量。
+- 关联: D-266
+- 收尾: 1786560588

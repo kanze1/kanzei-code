@@ -55,7 +55,7 @@ if ($shadow.Count -gt 0) {
 在这里装桌面端只会装进影子目录,而且本脚本的 hash 校验会读回同一份影子、自洽通过——
 安装看起来成功,用户真正运行的 $app_destination 不会变(D-198)。
 请在容器外的终端里装,例如:
-  Start-Process (Resolve-Path "$root\dist\kanzei-setup-<hash>.exe").Path -ArgumentList "/S" -Wait
+  .\scripts\install-setup.ps1 -Setup dist\kanzei-setup-<hash>.exe -ExpectedHash <hash>(带装后校验,避免 D-266 静默无效)
 "@
 }
 
