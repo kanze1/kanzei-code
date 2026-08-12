@@ -404,6 +404,106 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
     }
 }
 
+/// fmt 门禁:提交源码前由工具**亲自**跑 `cargo fmt --all -- --check`(D-264)。
+///
+/// 与 compile_gate 同理由:测试记录是自报证据,挡不住「没跑却说跑了」。规则层
+/// (conventions §1.4)写「提交前跑 fmt/clippy」已被自举漏掉三次(D-264 复现 +
+/// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。命令与 CI(ci.yml)
+/// 和发版门禁(scripts/verify.ps1)完全同参数,任何一处增删门禁都要同步——
+/// 守护测试 stage_fmt_clippy_gates_align_with_ci 比对三处清单。
+async fn fmt_gate(cwd: &Path) -> Result<(), String> {
+    if !cwd.join("Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let mut command = tokio::process::Command::new("cargo");
+    command
+        .args(["fmt", "--all", "--", "--check"])
+        .current_dir(cwd);
+    crate::hide_console_async(&mut command);
+    let output = command.output().await;
+    match output {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            // rustfmt 的 diff 清单走 stdout(Windows 上尤其),stderr 可能只有
+            // "Diff in ..." 的行首;两路都读,避免漏掉违规文件清单。
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            // rustfmt --check 的违规清单长这样:`Diff in crates/foo/src/lib.rs at line 4:`
+            let files: Vec<String> = combined
+                .lines()
+                .filter(|l| l.starts_with("Diff in "))
+                .map(|l| {
+                    l.strip_prefix("Diff in ")
+                        .and_then(|s| s.split(" at line ").next())
+                        .unwrap_or(l)
+                        .to_string()
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let target = if files.is_empty() {
+                "cargo fmt --all -- --check".to_string()
+            } else {
+                files.join(", ")
+            };
+            Err(format!(
+                "提交被拦下:`cargo fmt --all -- --check` 不过,以下文件格式未归一。\
+                 \n{target}\n先跑 `cargo fmt --all` 再提交(D-264)。"
+            ))
+        }
+        Err(error) => Err(format!(
+            "提交被拦下:无法执行 cargo fmt({error})。装好 cargo/rustfmt 或在非 Rust 仓库里提交。"
+        )),
+    }
+}
+
+/// clippy 门禁:提交源码前由工具**亲自**跑 `cargo clippy --workspace --all-targets -- -D warnings`(D-264)。
+///
+/// 2026-08-11 实例:新增集成测试落在 crates/kanzei/tests/,而自举只跑了「改动最多的
+/// crate」的定向测试,`-p kanzei` 从未被 clippy 覆盖——6 条 lint 红灯随提交进库。
+/// 教训:lint 可能只在**别的 crate**(新增测试所在的 crate、被改动 crate 的依赖方)
+/// 暴露,定向 `-p <改动 crate>` 不够;全 workspace 才能兜住。命令与 CI/verify.ps1
+/// 完全同参数(守护测试比对)。
+async fn clippy_gate(cwd: &Path) -> Result<(), String> {
+    if !cwd.join("Cargo.toml").is_file() {
+        return Ok(());
+    }
+    let mut command = tokio::process::Command::new("cargo");
+    command
+        .args([
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--",
+            "-D",
+            "warnings",
+        ])
+        .current_dir(cwd);
+    crate::hide_console_async(&mut command);
+    let output = command.output().await;
+    match output {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let head: Vec<&str> = stderr
+                .lines()
+                .filter(|l| l.starts_with("error") || l.trim_start().starts_with("-->"))
+                .take(16)
+                .collect();
+            Err(format!(
+                "提交被拦下:`cargo clippy --workspace --all-targets -- -D warnings` 不过。\n{}",
+                head.join("\n")
+            ))
+        }
+        Err(error) => Err(format!(
+            "提交被拦下:无法执行 cargo clippy({error})。装好 cargo/clippy 或在非 Rust 仓库里提交。"
+        )),
+    }
+}
+
 /// 源码提交的硬门禁:必须存在**改完之后**才收尾的 passed 测试记录。
 ///
 /// 这条纪律此前只写在提示词里,实测一天里被绕过三次(R-158 顶掉 reasoning effort、
@@ -483,8 +583,15 @@ async fn commit(
     }
     if paths.iter().any(|p| is_source_path(p)) {
         // 顺序有讲究:先验编译(机械真值),再看测试记录(自报证据)。编译不过时
-        // 报编译错误比报"没有测试背书"有用得多。
+        // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 与编译并列
+        // 为提交前硬门禁——规则层写过但自举漏了三次,必须代码强制。
         if let Err(error) = compile_gate(cwd).await {
+            return ToolOutput::error(error);
+        }
+        if let Err(error) = fmt_gate(cwd).await {
+            return ToolOutput::error(error);
+        }
+        if let Err(error) = clippy_gate(cwd).await {
             return ToolOutput::error(error);
         }
     }
@@ -1158,5 +1265,111 @@ prunable gitdir file points to non-existent location
             staged.content
         );
         std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-264 验收②:git.rs 提交门禁的 fmt/clippy 命令与 CI(ci.yml)和发版门禁
+    /// (verify.ps1)逐项对齐——任何一处新增/删除门禁时另两处必须同步。
+    /// 三处任一同级命令被改动(比如只改参数),本测试当场红。
+    #[test]
+    fn stage_fmt_clippy_gates_align_with_ci_and_verify() {
+        // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是
+        // crates/kanzei-tools,上溯两级即仓库根。
+        let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).unwrap();
+        let verify = std::fs::read_to_string(repo_root.join("scripts/verify.ps1")).unwrap();
+
+        // 与 fmt_gate/clippy_gate 相同的命令形态。
+        let fmt = "cargo fmt --all -- --check";
+        let clippy = "cargo clippy --workspace --all-targets -- -D warnings";
+
+        assert!(
+            ci.contains("cargo fmt --all -- --check"),
+            "ci.yml 必须含 fmt 检查: {fmt}"
+        );
+        assert!(
+            ci.contains("cargo clippy --workspace --all-targets -- -D warnings"),
+            "ci.yml 必须含 clippy 检查: {clippy}"
+        );
+        assert!(
+            verify.contains("cargo fmt --all"),
+            "verify.ps1 必须含 fmt 检查"
+        );
+        assert!(
+            verify.contains("cargo clippy --workspace --all-targets"),
+            "verify.ps1 必须含 clippy 检查"
+        );
+        // 本文件(门禁实现)也含同一命令文本。file!() 是编译期相对路径,运行时
+        // cwd 不可靠,用 CARGO_MANIFEST_DIR 拼接绝对路径。
+        let this = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/git.rs"),
+        )
+        .unwrap();
+        assert!(this.contains(fmt), "fmt_gate 命令与 CI 不一致");
+        assert!(this.contains(clippy), "clippy_gate 命令与 CI 不一致");
+    }
+
+    /// D-264 验收①:构造「新增文件带 fmt 违规」场景,提交前被拦并明说违规位置。
+    /// 在临时最小 cargo 工程上直接调 fmt_gate——门禁只读不写,跑完删目录。
+    #[tokio::test]
+    async fn fmt_gate_rejects_unformatted_source_and_names_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-fmtgate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"fmt-gate-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // 故意不格式化:rustfmt 会要求改成 `pub fn x() -> i32 { 1 }`。
+        std::fs::write(dir.join("src/lib.rs"), "pub fn  x( ) -> i32 { 1 }\n").unwrap();
+
+        let err = fmt_gate(&dir).await.unwrap_err();
+        assert!(err.contains("提交被拦下"), "应点名门禁: {err}");
+        // Windows 上 rustfmt/clippy 输出 `src\lib.rs`(反斜杠),Unix 是正斜杠;
+        // 断言文件名片段兼容两种分隔符。
+        assert!(err.contains("lib.rs"), "应点名违规文件: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-264 验收①(clippy 侧):构造「新增文件带 clippy 违规」场景,提交前被拦。
+    /// 最小工程一条 unused variable 即可让 `-D warnings` 红。
+    #[tokio::test]
+    async fn clippy_gate_rejects_lint_violation_and_names_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-clippygate-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"clippy-gate-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .unwrap();
+        // unused_variables 是默认 warn,-D warnings 下必红。
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn probe(flag: bool) -> i32 { let unused = 1; if flag { 1 } else { 0 } }\n",
+        )
+        .unwrap();
+
+        let err = clippy_gate(&dir).await.unwrap_err();
+        assert!(err.contains("提交被拦下"), "应点名门禁: {err}");
+        // 同上:Windows 输出反斜杠路径,断言文件名片段兼容两种分隔符。
+        assert!(err.contains("lib.rs"), "应点名违规文件: {err}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

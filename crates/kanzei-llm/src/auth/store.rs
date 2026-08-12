@@ -36,9 +36,8 @@ pub fn commit(
     }
     let serialized = serde_json::to_string_pretty(next)
         .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
-    atomic_file::write_atomic(path, &serialized).map_err(|e| {
-        LlmError::Config(format!("原子替换 {} 失败: {e}", path.display()))
-    })?;
+    atomic_file::write_atomic(path, &serialized)
+        .map_err(|e| LlmError::Config(format!("原子替换 {} 失败: {e}", path.display())))?;
     Ok(next.clone())
 }
 

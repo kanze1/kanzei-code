@@ -104,7 +104,7 @@
 
 - 阻塞: 
 
-## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [open] (medium)
+## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [fixed] (medium)
 - 优先级: P1
 - 复杂度: 小
 - 标签: 流程
@@ -116,6 +116,8 @@
 - 修复方向: 轮末提交改为**只暂存本轮明确改动过的文件**——引擎本来就知道自己调用过哪些写工具(edit/write/tracker/test_record 的目标路径都有记录),按那份清单 `git add <file>...`。若发现工作区里有清单之外的改动,**不要静默跳过也不要一并提交**,而是在提交说明或轨迹里明说「工作区另有 N 处非本轮改动,未纳入本次提交」(D-004 口径:任何不做的理由都要说出来)。
 - 边界: 这条与 R-181(跨 agent 写入互斥)互补不互替——R-181 让双方知道对方在写,本条保证**即使撞上了,损伤也只停在各自的文件里**。本条更便宜、更该先做。
 - 验收: ①构造「工作区有本轮之外的改动」场景,自举轮末提交**只包含本轮文件**,清单外的改动仍留在工作区;②提交说明或轨迹里对被跳过的改动有可见记录;③有回归测试覆盖「清单外改动不入暂存区」。
+
+- 进展: 2026-08-16 交付(commit 8c17e2b)。调查结论:提交由模型经结构化 git 工具发起,引擎无自动提交;bash 的 git mutation 已全拦截(bash.rs:598-601 测试),stage 已拒索引中外来路径(git.rs:274-283),但缺「工作区非本轮改动」的可见对照。交付:stage 成功后新增 unstaged_changes 对照(git status --porcelain -z 解析),把未纳入本次请求的未暂存改动点名写进返回(Note: the working tree also contains N change(s) NOT staged by this request...),不静默吞掉也不静默跳过。验收逐条:①构造「工作区有本轮之外改动」场景,自举 stage 只含本轮文件、清单外改动留在工作区——回归测试 stage_leaves_foreign_changes_unstaged_and_names_them(git.rs:1112-1158)断言暂存区恰为 mine.txt、theirs-new.txt 与 base.txt 原样未动;②对被跳过的改动有可见记录——stage 返回里点名列出(测试断言 content 含 NOT staged by this request 与两个外来文件路径);③回归测试覆盖「清单外改动不入暂存区」——测试同时断言 staged_paths == [mine.txt] 且外来文件未被触碰。验证:cargo test -p kanzei-tools 250 passed。既有防线(显式 files 才 stage、拒索引外来路径、bash 拦截 git add -A)互补,本条把最后的可见性缺口补上。残余说明:引擎仍无「本轮写过的文件」自动跟踪(需 harness 层工具轨迹扩展,R-181 互补项),stage 对照点名是当前成本最低的机械防线。
 
 ## D-264 定向测试口径漏掉新增集成测试所在 crate:cargo test 全绿但 fmt/clippy 从未跑到 [open] (medium)
 - 优先级: P2
@@ -129,7 +131,7 @@
 - 修复方向(二选一或都做): ①把 fmt/clippy 写进 §1.4 的定向清单——每次提交前对**改动文件**跑 `rustfmt --edition 2021 <file>` 与对**改动 crate** 跑 `cargo clippy -p <crate> --all-targets -- -D warnings`(注意:本次那 6 条 clippy 只在编译 `-p kanzei` 时才暴露,只跑改动最多的那个 crate 不够,新增了测试文件就要连它所在的 crate 一起跑);②做成代码强制而非规则:轮末提交前引擎自动跑一次 fmt/clippy 定向检查,红了不许提交(conventions §4「任何『规则』能用代码强制的绝不只写进提示词」)。**推荐 ②**,因为 ① 已经写在规则里过一次而这次仍然漏了。
 - 验收: ①构造「新增文件带 fmt/clippy 违规」的场景,提交前被拦住并明说违规位置;②conventions §1.4 的定向清单与 CI/verify.ps1 的门禁清单**逐项对齐**,两处任一新增门禁时另一处必须同步(可加一条守护测试比对两份清单);③有回归覆盖。
 
-- 进展: 2026-08-12 05:05 第三次复发(本条仍 open,机制未修):发版前跑 verify.ps1 又撞三处存量违规,全部来自自举轮已提交代码——①cargo fmt 未归一(dc087ae);②clippy -D warnings 红(conventions.rs 三处 unused_mut、tracker.rs 一处 question_mark,来自 587bca1/dc087ae);③本条尚未覆盖的第三个维度:ui_lint no-undef 红(b76a5f0 新增顶层函数 fastStatusText 后未重跑 scripts/gen-ui-lint-globals.mjs)。修掉用了三个杂活提交 a9f78f2/d81ffd7/3f268a5 才进得了发版。结论:①UI 侧的 gen-ui-lint-globals 要与 fmt/clippy 并列进定向清单(本条原文只提 fmt/clippy);②修复方向仍推荐②代码强制——规则层已写过一次而这次照样漏。D-283 是本条的重复登记,已 dropped 归并。
+- 进展: 2026-08-13 已修复(代码强制,方向②):git.rs 新增 fmt_gate+clippy_gate 挂进 commit 源码分支,与 compile_gate 并列硬门禁——`cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 任一不过即拦下提交并点名违规文件(git.rs 375-505)。验收①:fmt_gate_rejects_unformatted_source_and_names_file / clippy_gate_rejects_lint_violation_and_names_file 两测试构造临时最小 cargo 工程带违规代码,断言被拦且报文件名(git.rs 1315-1365)。验收②:stage_fmt_clippy_gates_align_with_ci_and_verify 守护测试比对 git.rs 实现、ci.yml(.github/workflows/ci.yml:29-32)、scripts/verify.ps1 三处命令文本逐项一致,任一处改参数当场红(git.rs 1263-1296);§1.4 定向清单同步写入编译/format/lint 门禁条款(default_conventions.md §1.4),profiles.rs baseline 断言补 compile_gate。验收③:kanzei-tools 253 单测全绿。落地时门禁立即抓住两笔漏网:①D-261 迁移带入 kanzei-llm/atomic_file.rs 测试名 CAS 前缀 non_snake_case;②该提交 4 文件 8 处 fmt 未归一——均当场修复。遗留说明:进展记录提的第三个维度 ui_lint(gen-ui-lint-globals)走独立前端通道,由 ui-runtime/ui-lint-smoke 脚本与 CI 前端 job 覆盖,不在 Rust 提交门禁范围,已在 §1.4 注明不改动需同步;关闭本条。
 
 ## D-265 dev 构建的更新检查谎报「已是最新」:release_is_newer 对 dev 直接返回 false,用户永远不知道该手动装 [open] (medium)
 - 优先级: P1

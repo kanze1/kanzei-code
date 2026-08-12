@@ -99,7 +99,8 @@ pub fn write_atomic_cas(
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .ok_or_else(|| format!("{} 没有父目录,无法在同目录建临时文件", path.display()))?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
     let tmp = temp_sibling(path, parent);
 
     let mut file = std::fs::OpenOptions::new()
@@ -624,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn CAS指纹匹配时替换_不匹配时放弃且原文件不动() {
+    fn 指纹匹配时替换_不匹配时放弃且原文件不动() {
         let dir = 临时目录("cas");
         let path = dir.join("doc.md");
         write_atomic(&path, "旧内容").unwrap();
@@ -635,7 +636,10 @@ mod tests {
 
         // 指纹不匹配:放弃替换,原文件保持"新内容"。
         let err = write_atomic_cas(&path, "覆盖内容", &指纹("别的"), 指纹).unwrap_err();
-        assert!(err.contains("stale expected_hash"), "要点名 CAS 失败: {err}");
+        assert!(
+            err.contains("stale expected_hash"),
+            "要点名 CAS 失败: {err}"
+        );
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "新内容",
