@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: edit 报 old_string 匹配多处时先 read 定位并收窄，非批量勿设 replace_all
 description: 处理 edit 报“old_string matches N locations”时必读：不要重复提交同一个宽泛 old_string；先 read 当前目标文件并用文件路径、函数/区块边界及邻近行构造唯一上下文，确认仅命中 1 处后再 edit。只有明确要改全部命中时才设 replace_all=true，并先核对每个命中范围。
-status: active
+status: deprecated
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-08-12
 source: inbox:2026-08-09
 ---
 

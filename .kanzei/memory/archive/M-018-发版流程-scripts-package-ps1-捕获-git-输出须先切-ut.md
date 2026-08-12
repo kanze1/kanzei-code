@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: 发版流程(scripts/package.ps1):捕获 git 输出须先切 UTF-8;gh release create 的 target 须已 push 到 origin
 description: 处理发版 / gh release create 报 HTTP 422 "target_commitish is invalid"、或 package.ps1 D-183 区间核对提交数偏少/中文提交信息吞行合并、发布被误拦时必读
-status: active
+status: deprecated
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-12
 source: 发版 build-ccfecff, 2026-08-08
 ---
 

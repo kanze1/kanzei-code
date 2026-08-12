@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: Rust/验证失败勿用 bash 反复跑测试，改用结构化验证
 description: 处理 Rust 测试、verify.ps1 或 smoke probe 在 bash 返回 exit code 1、但输出包含具体业务断言失败时必读：不要重复 bash/cargo 重跑；先按断言定位实现问题，并用 test_record/结构化验证记录终态。
-status: active
+status: deprecated
 created: 2026-08-09
-updated: 2026-08-10
+updated: 2026-08-12
 source: inbox:2026-08-09
 ---
 

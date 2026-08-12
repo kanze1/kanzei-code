@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: bash 整文件重写(Set-Content)被环境拦截,须用 edit 做定点修改
 description: bash 里用 Set-Content / 重定向整文件重写被拦截(报 "whole-file rewrites via shell bypass the edit/write tools' syntax validation and diff display")时必读;也说明 edit 容忍换行符差异、连续两次 miss 后展示文件实际内容
-status: active
+status: deprecated
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-12
 source: fp:bash 拦截, 2026-08-08
 ---
 

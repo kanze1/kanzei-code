@@ -4,7 +4,7 @@ scope: project
 category: sop
 title: defect/req update fields replace must use Chinese keys, English creates duplicates — [fp:edit|field replacement needs]
 description: 处理 defect/req update 字段替换失败 (整段替代+中文键名必须)时必读:英文 key(name priority)会被当作新密钥追加致脏数据,单字串值会覆盖首行但多行会变成游离段落永远清除不掉 -- 更新前先读当前内容;用优先级进展阻塞等中文名
-status: candidate
+status: deprecated
 created: 2026-08-12
 updated: 2026-08-12
 source: memory-manager

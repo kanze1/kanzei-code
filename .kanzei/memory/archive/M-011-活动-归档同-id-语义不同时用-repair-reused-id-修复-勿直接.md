@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: 活动/归档同 ID 语义不同时用 repair_reused_id 修复,勿直接编辑托管文档
 description: 处理 tracker 完整性门禁报 present in BOTH active and archive / 活动与归档同 ID 语义不同的修复时必读
-status: active
+status: deprecated
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-12
 source: inbox:2026-08-08
 ---
 

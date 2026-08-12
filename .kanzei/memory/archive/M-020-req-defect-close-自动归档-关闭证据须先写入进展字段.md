@@ -4,7 +4,7 @@ scope: project
 category: sop
 title: req/defect close 自动归档,关闭证据须先写入进展字段
 description: 处理 req/defect 的 close、close 后 update 报 unknown id，或需补验收证据时必读：先把证据写入进展字段再 close；close 后若 ID 不再可见，不要反复 req 重试，改用 git/history 检查归档记录。
-status: active
+status: deprecated
 created: 2026-08-08
 updated: 2026-08-12
 source: memory-manager;2026-08-12 合并 M-039

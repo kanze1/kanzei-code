@@ -4,7 +4,7 @@ scope: project
 category: sop
 title: defect update progress field: single string replaces first line, multi-line appends — [fp:edit|progress flailing accumulation]
 description: 处理 defect update 进展字段语义 (单行换首行、多行追加)及游离段落永不清除时必读:永远记着任何工具都不能移除已产生的游离段落 -- 只配成英文 key name 值来追加 new content;绝不传跨行新 text to avoid flailing paragraph accumulation
-status: candidate
+status: deprecated
 created: 2026-08-12
 updated: 2026-08-12
 source: memory-manager

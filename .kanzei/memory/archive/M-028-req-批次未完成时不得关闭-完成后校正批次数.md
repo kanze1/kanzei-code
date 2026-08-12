@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: req 批次未完成时不得关闭，完成后校正批次数
 description: 处理 req 批次执行与关闭、尤其报“R-148 批次未走完”时必读：先完成所有批次再 close；若实际批次数与预估不同，完成后把总数改为实际值（如 `批次: 0/0`），不要用空白或错误总数绕过门禁。
-status: active
+status: deprecated
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-08-12
 source: memory-manager
 ---
 
