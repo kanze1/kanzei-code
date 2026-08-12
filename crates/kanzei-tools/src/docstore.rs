@@ -864,6 +864,27 @@ fn looks_like_id(s: &str) -> bool {
     }
 }
 
+/// 字段值写进文档前必须归一成**单行**——这是往返不变式的唯一守点。
+///
+/// 解析契约是「一行一个字段」(见 `parse_document`):只有 `- key: value` 那一行会
+/// 成为字段,其余任何行都落进 `TemplateLine::Raw`——原样保留但**不可寻址**。于是
+/// 带换行的字段值一旦写出去,第 2 行起就永久脱离字段体系:update 只改得到第一行,
+/// 剩下的段落**没有任何工具能删**(tracker 直写被拒、git restore 被引擎拦、shell
+/// 整文件重写被拦)。实测 D-239 因此积了 3 份重复的「验收复核」段落(M-056 记录)。
+///
+/// 这里把换行折成空格,保证「写进去的东西一定能原样解析回来」。段落结构会丢,但
+/// 内容一字不少——比起产生删不掉的垃圾,这是明显更小的代价。四个渲染出口必须都
+/// 走这里,漏一个就等于漏一条产生游离段落的路。
+fn push_field(out: &mut String, key: &str, value: &str) {
+    let single_line = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    out.push_str(&format!("- {key}: {single_line}\n"));
+}
+
 pub fn render(kind: &DocKind, entries: &[Entry]) -> String {
     let mut out = format!("# {}\n", kind.heading);
     for e in entries {
@@ -877,7 +898,7 @@ pub fn render(kind: &DocKind, entries: &[Entry]) -> String {
         }
         out.push('\n');
         for (key, value) in &e.fields {
-            out.push_str(&format!("- {key}: {value}\n"));
+            push_field(&mut out, key, value);
         }
     }
     out
@@ -932,14 +953,14 @@ fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryT
                         })
                 {
                     used[index] = true;
-                    out.push_str(&format!("- {current_key}: {value}\n"));
+                    push_field(out, current_key, value);
                 }
             }
         }
     }
     for (index, (key, value)) in entry.fields.iter().enumerate() {
         if !used[index] {
-            out.push_str(&format!("- {key}: {value}\n"));
+            push_field(out, key, value);
         }
     }
 }
@@ -947,7 +968,7 @@ fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryT
 fn render_entry(out: &mut String, entry: &Entry) {
     render_heading(out, entry);
     for (key, value) in &entry.fields {
-        out.push_str(&format!("- {key}: {value}\n"));
+        push_field(out, key, value);
     }
 }
 
@@ -1126,6 +1147,55 @@ mod tests {
         }];
         let text = render(&REQUIREMENTS, &entries);
         assert_eq!(parse(&REQUIREMENTS, &text), entries);
+    }
+
+    /// D-294:字段值带换行时必须折成单行,否则第 2 行起会变成永远删不掉的游离段落。
+    ///
+    /// 反验方式:把 `push_field` 换回 `format!("- {key}: {value}\n")`,本用例第一处
+    /// 断言就会红——解析回来只剩 2 个字段(第 3、4 行成了 Raw),而且此后无论怎么
+    /// update 都碰不到它们。这正是 D-239 积出 3 份重复「验收复核」段落的机制。
+    #[test]
+    fn 多行字段值折成单行_不产生游离段落() {
+        let entries = vec![Entry {
+            id: "R-001".into(),
+            title: "t".into(),
+            status: "doing".into(),
+            severity: None,
+            fields: vec![
+                (
+                    "进展".into(),
+                    "第一行\n第二行继续\n\n第三行前面还有空行".into(),
+                ),
+                ("refs".into(), "D-003".into()),
+            ],
+        }];
+        let text = render(&REQUIREMENTS, &entries);
+
+        // 往返闭合:字段数不变,值折成单行,内容一字不少。
+        let back = parse(&REQUIREMENTS, &text);
+        assert_eq!(back.len(), 1);
+        assert_eq!(
+            back[0].fields,
+            vec![
+                (
+                    "进展".to_string(),
+                    "第一行 第二行继续 第三行前面还有空行".to_string()
+                ),
+                ("refs".to_string(), "D-003".to_string()),
+            ],
+            "多行值必须折成单行字段,否则第 2 行起不可寻址"
+        );
+
+        // 文档里不得出现游离行:条目内每一行要么是标题要么是 `- key: value`。
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            assert!(
+                line.starts_with("## ") || line.starts_with("# ") || line.starts_with("- "),
+                "渲染产出了不可寻址的游离行: {line:?}"
+            );
+        }
+
+        // 幂等:再存一次不会继续变形(游离段落当年正是靠这一步越积越多)。
+        assert_eq!(render(&REQUIREMENTS, &back), text);
     }
 
     #[test]

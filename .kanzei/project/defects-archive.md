@@ -3072,7 +3072,7 @@
 - 验收: ①全局配置里放行 bash 后 `cargo test -p kanzei --test always_allow_bash` 仍全绿;②5 处 spawn 无遗漏;③测试结果不再随开发者本机 `~/.kanzei/kanzei.toml` 变化。
 - 验证: 修复前该测试挂死 16 分钟(实测,进程零 CPU);修复后 `cargo test -p kanzei --test always_allow_bash --test context_overflow_recovery` 5 passed,1.17s + 0.15s。
 - 残余: 只补了 spawn 子进程这一类。仓内**同进程**读全局配置的测试是否也受污染未逐一排查;更彻底的做法是测试统一走一个设好 KANZEI_HOME 的夹具,而不是每处手写三个环境变量——单列 R-200。
-- refs: D-187 M-041 R-200
+- refs: D-187 R-200
 
 ## D-290 模式与鞭挞开关每次冷启动都被重置:回显算出来的值被当成用户意图写回存档 [fixed] (high)
 - severity: high
