@@ -148,6 +148,15 @@ action = "conventions"
 resource = "patch"
 effect = "allow"
 
+# D-295:test_record 白名单(用户 2026-08-12 交互轮批准)——D-264 source_test_gate 要求
+# 「暂存源码改动之后收尾的 passed 测试记录」,autonomous 档位若不放行 test_record,
+# 任何 Rust 源码提交都会被门禁与权限双杀死锁,已验证代码只能滞留工作树。
+[[permissions.rules]]
+action = "test_record"
+resource = "*"
+effect = "allow"
+
+
 [[permissions.rules]]
 action = "bash"
 resource = '{"command":"Get-ChildItem -Recurse -Depth 2 -Include *.ps1,*.toml,*.json,*.conf* -Path scripts,src-tauri,crates/kanzei-app 2>$null | Select-Object -First 5 FullName; Get-ChildItem scripts | Select-Object Name","workdir":"c:/users/kanzei/documents/kanzei code"}'
