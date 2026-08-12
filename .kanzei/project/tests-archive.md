@@ -1998,3 +1998,8 @@
 - 摘要: cargo test --workspace 全绿(kanzei-tools 259 passed 1 ignored(子进程 helper)、core 137、app 143 等,0 failed)。D-268 复杂度=中,关闭前全量。生产路径 managed_fence 语义不变:本次只改 background.rs 测试模块(新增 fence_guard/FenceGuard 与反证测试),managed_fence.rs 生产代码零改动。
 - 关联: D-268
 - 收尾: 1786561432
+
+## T-1786561780 cargo test -p kanzei-harness config + -p kanzei (D-270 定向) [passed]
+- 摘要: D-270 四处缺口修复定向验证:kanzei-harness config 45 passed(含新测试[发现式取根对别名形态的home也拦得住]/[卷元数据读失败时保守判同而不是放行]/[kanzei_home指向项目根或其kanzei时被拦]),kanzei bin 15+3 passed(含新测试 project_root_flag_trims_whitespace_like_env_does)。fmt/clippy 全过。
+- 关联: D-270
+- 收尾: 1786561780

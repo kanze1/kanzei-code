@@ -1318,7 +1318,9 @@ fn is_unc_key(key: &str) -> bool {
 /// (rustc 1.97 实测 E0658),而本 crate 不引入 winapi 依赖去换这一处判据。
 ///
 /// 判错方向是可陈述的:元数据相等 → 判成同一个目录 → **多拦一个 HOME**(更严,可见地报错);
-/// 元数据不等 → 判成不同 → 退回 ② 的结论。因此误判只会偏保守,不会偏放行。
+/// 元数据不等 → 判成不同 → 退回 ② 的结论。D-270 缺口②修正:读失败/非目录/取不到时间
+/// 时**保守判同**(返回 true)——拿不到身份就当作可能相同,由上层保守处置,不再放行
+/// (原实现 return false 是 fail-open,与它自己的注释「只会偏保守」相悖)。
 /// 唯一会偏放行的窗口是「两次读之间 HOME 自身的 mtime 被别的进程改掉」,所以读两轮:
 /// 第一轮不等就整组重读一次,那个窗口需要连续两次都撞上才成立。
 fn same_dir_by_volume_metadata(a: &Path, b: &Path) -> bool {
@@ -1331,7 +1333,7 @@ fn same_dir_by_volume_metadata(a: &Path, b: &Path) -> bool {
     }
     for _ in 0..2 {
         let (Some(fa), Some(fb)) = (fingerprint(a), fingerprint(b)) else {
-            return false;
+            return true; // 拿不到身份 → 可能相同 → 保守判同
         };
         if fa == fb {
             return true;
@@ -1348,16 +1350,45 @@ fn same_dir_by_volume_metadata(a: &Path, b: &Path) -> bool {
 /// (D-186 的残留正是这么来的)。调用方拿这个判据在开跑前拦下来。
 ///
 /// 相等判断委托 [`is_same_dir`](词法折叠 + 文件系统身份),别名形态在那里说明。
+/// D-270 缺口③:`KANZEI_HOME` 也参与比较——全局根(KANZEI_HOME 或默认 `~/.kanzei`)
+/// 与 root 本身或 root 的 `.kanzei` 同目录时都算碰撞,项目产物会写进全局根。
 pub fn is_home_root(root: &Path) -> bool {
-    dirs::home_dir().is_some_and(|home| is_same_dir(&home, root))
+    is_home_root_with(
+        root,
+        dirs::home_dir().as_deref(),
+        crate::home::kanzei_home().as_deref(),
+    )
+}
+
+/// [`is_home_root`] 的可测内核:home 与全局根都作为参数注入,测试不碰进程级
+/// `KANZEI_HOME`(与 home.rs 的顺序测试并行跑会互踩环境变量)。
+fn is_home_root_with(root: &Path, home: Option<&Path>, kh: Option<&Path>) -> bool {
+    if home.is_some_and(|h| is_same_dir(h, root)) {
+        return true;
+    }
+    let Some(kh) = kh else {
+        return false;
+    };
+    // root 本身就是全局根,或 root 的 `.kanzei` 就是全局根(KANZEI_HOME 指到
+    // 项目自己的 `.kanzei` 的场景):两种都是项目产物落进全局配置根的碰撞。
+    is_same_dir(kh, root) || is_same_dir(kh, &root.join(".kanzei"))
 }
 
 fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
     let home_key = home.map(dir_key);
     let mut dir = Some(cwd);
     while let Some(d) = dir {
-        let is_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
-        if (!is_home && d.join(".kanzei").is_dir()) || d.join(".git").is_dir() {
+        let kanzei_marker = d.join(".kanzei").is_dir();
+        let git_marker = d.join(".git").is_dir();
+        let lexically_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
+        // D-270 缺口①:发现式取根对别名形态的 HOME 也要拦得住——`.kanzei` 标记层
+        // 若是 HOME 的别名(词法不同但文件系统身份相同,如尾随点 / UNC),同样跳过
+        // 继续向上,不再把别名 HOME 当项目根返回。身份比较(`is_same_dir`)只发生在
+        // 词法不等**且有 `.kanzei` 标记**的层:普通层仍是纯词法 `dir_key`,不会给
+        // 每次配置加载引入 O(深度) 次 canonicalize 系统调用。
+        let alias_home =
+            !lexically_home && kanzei_marker && home.is_some_and(|h| is_same_dir(h, d));
+        if (kanzei_marker && !lexically_home && !alias_home) || git_marker {
             return Some(d.to_path_buf());
         }
         dir = d.parent();
@@ -1999,6 +2030,92 @@ typo_fielt = true
                 variant.display()
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-270 缺口①:发现式取根对**别名形态**的 HOME 也要拦得住——`dir_key` 词法
+    /// 认不出尾随点/UNC 这类别名(那是 [`is_same_dir`] 的身份层职责),原来的实现
+    /// 会把别名 HOME 当项目根返回。修复后 `.kanzei` 标记层若是 HOME 别名,同样
+    /// 跳过继续向上。
+    #[test]
+    #[cfg(windows)]
+    fn 发现式取根对别名形态的home也拦得住() {
+        let root = project_root_fixture("discover-alias-home");
+        let home = root.join("home");
+        let plain = home.join("scratch");
+        std::fs::create_dir_all(&plain).unwrap();
+        // 尾随点在 Windows 磁盘上就是同一个目录:夹具有效性先验一遍。
+        let alias = PathBuf::from(format!("{}.", home.display()));
+        assert!(is_same_dir(&alias, &home), "夹具失效:别名必须是同一目录");
+        assert_ne!(dir_key(&alias), dir_key(&home), "夹具失效:词法上本该不同");
+        assert_ne!(
+            discover_project_root_with_home(&plain, Some(&alias)),
+            Some(home.clone()),
+            "别名形态的 HOME 被当成了项目根(缺口①)"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-270 缺口②:卷元数据读失败时**保守判同**(可能相同),不再 fail-open 放行
+    /// UNC 别名。原实现 fingerprint 拿不到就 return false = 判成不同 = 放行,
+    /// 与它自己的注释「只会偏保守」相悖。
+    #[test]
+    fn 卷元数据读失败时保守判同而不是放行() {
+        let 甲 = std::env::temp_dir().join(format!(
+            "kanzei-d270-meta-a-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let 乙 = std::env::temp_dir().join(format!(
+            "kanzei-d270-meta-b-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!甲.exists() && !乙.exists(), "夹具失效:两个路径必须不存在");
+        assert!(
+            same_dir_by_volume_metadata(&甲, &乙),
+            "读失败必须保守判同(拿不到身份 = 可能相同,由上层保守处置)"
+        );
+        // 正常目录语义不变:同目录 true、异目录 false。
+        let root = project_root_fixture("meta-conservative");
+        let a = root.join("home");
+        let b = root.join("home").join("projects");
+        assert!(same_dir_by_volume_metadata(&a, &a));
+        assert!(!same_dir_by_volume_metadata(&a, &b));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// D-270 缺口③:`KANZEI_HOME` 参与比较。全局根(KANZEI_HOME 或默认 `~/.kanzei`)
+    /// 与项目根本身或其 `.kanzei` 同目录时,项目产物会写进全局配置根,必须被拦。
+    /// 走可测内核 `is_home_root_with`,不碰进程级 `KANZEI_HOME`(与 home.rs 的顺序
+    /// 测试并行跑会互踩环境变量)。
+    #[test]
+    fn kanzei_home指向项目根或其kanzei时被拦() {
+        let root = project_root_fixture("kanzei-home-collide");
+        let proj = root.join("home").join("projects").join("repo");
+        // 场景 A:KANZEI_HOME 指到项目自己的 .kanzei(root=/proj,kh=/proj/.kanzei)。
+        let kh_at_kanzei = proj.join(".kanzei");
+        std::fs::create_dir_all(&kh_at_kanzei).unwrap();
+        assert!(
+            is_home_root_with(&proj, None, Some(&kh_at_kanzei)),
+            "KANZEI_HOME 指到项目自己的 .kanzei 必须被拦(缺口③)"
+        );
+        // 场景 B:全局根就是项目根本身。
+        assert!(is_home_root_with(&proj, None, Some(&proj)));
+        // 场景 C:全局根在别处(正常形态),项目根不该被误拦。
+        let other_kh = root.join("home").join(".kanzei");
+        assert!(
+            !is_home_root_with(&proj, None, Some(&other_kh)),
+            "全局根在别处时正常项目不该被拦"
+        );
+        // 场景 D:真实 HOME 语义不受影响(home 参数仍优先认)。
+        assert!(is_home_root_with(&proj, Some(&proj), None));
         std::fs::remove_dir_all(root).unwrap();
     }
 

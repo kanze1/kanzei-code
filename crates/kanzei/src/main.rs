@@ -110,8 +110,11 @@ fn parse_run_args(args: &[String]) -> RunArgs {
             PROJECT_ROOT_FLAG => {
                 // 取值并连同 flag 一起吃掉;缺值时只吃 flag(后面的 resolve 会
                 // 按发现式取根,不会把 "--project-root" 当提示词发出去)。
+                // D-270 缺口④:与 KANZEI_PROJECT_ROOT(env 侧 trim)对齐,带首尾
+                // 空格的路径经参数进来也先 trim——否则同一条 HOME 输入经两条入口
+                // 给出的理由不一致(参数侧被空格破成「路径不存在」)。
                 if let Some(value) = args.get(index + 1) {
-                    project_root = Some(std::path::PathBuf::from(value));
+                    project_root = Some(std::path::PathBuf::from(value.trim()));
                     index += 1;
                 }
             }
@@ -160,7 +163,7 @@ fn reject_home_as_project_root(project_root: &std::path::Path) -> anyhow::Result
         return Ok(());
     }
     anyhow::bail!(
-        "项目根解析成了 HOME({}),而 ~/.kanzei 是全局配置根:项目数据落进去会和\
+        "项目根解析成了全局配置根(HOME 或 KANZEI_HOME:{}):项目数据落进去会和\
          全局配置、全局记忆混在一起。\n\
          先 cd 到具体项目目录再跑;确实想把某个目录当项目,就在它下面 mkdir .kanzei。",
         project_root.display()
@@ -1200,6 +1203,21 @@ mod tests {
         let parsed = parse_run_args(&args);
         assert_eq!(parsed.prompt, "改代码");
         assert_eq!(parsed.project_root, None);
+    }
+
+    /// D-270 缺口④:两条入口对同一输入给同一条理由。`--project-root` 值带首尾空格
+    /// 时也必须 trim(与 `KANZEI_PROJECT_ROOT` env 侧对齐),否则带空格的 HOME 经参数
+    /// 进来会被报成「路径不存在」而不是「主根写成 HOME」。
+    #[test]
+    fn project_root_flag_trims_whitespace_like_env_does() {
+        let args = strings(&["--project-root", "  C:/x  ", "hello"]);
+        let parsed = parse_run_args(&args);
+        assert_eq!(
+            parsed.project_root,
+            Some(PathBuf::from("C:/x")),
+            "参数侧必须 trim 首尾空格,与 KANZEI_PROJECT_ROOT(env 侧 trim)一致"
+        );
+        assert_eq!(parsed.prompt, "hello");
     }
 
     /// 优先级定死:参数 > 环境变量 > 发现式(None 表示交给发现式)。
