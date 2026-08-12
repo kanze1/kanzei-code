@@ -105,6 +105,12 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         .current_dir(&project)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
+        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
+        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
+        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
+        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
+        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
+        .env("KANZEI_HOME", home.join(".kanzei"))
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -210,6 +216,12 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .current_dir(&project)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
+        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
+        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
+        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
+        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
+        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
+        .env("KANZEI_HOME", home.join(".kanzei"))
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -285,6 +297,12 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .current_dir(&project)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
+        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
+        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
+        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
+        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
+        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
+        .env("KANZEI_HOME", home.join(".kanzei"))
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -370,6 +388,12 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
         .current_dir(&project)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
+        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
+        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
+        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
+        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
+        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
+        .env("KANZEI_HOME", home.join(".kanzei"))
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")

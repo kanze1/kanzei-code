@@ -1,5 +1,20 @@
 # Defects
 
+## D-292 CLI E2E 测试的 HOME 隔离在 Windows 上失效:读开发者真实全局配置,全量测试挂死而非报红 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 测试 流程
+- 证据等级: E1(2026-08-12 实测挂死 16 分钟零 CPU,定位到进程后当场验证)
+- 复现: 在 `~/.kanzei/kanzei.toml` 加一条 `action="bash", resource="*"` 的 allow 规则,跑 `cargo test --workspace` → `always_allow_bash` 测试进程挂起,**永不超时、零 CPU、无输出**,整轮发版门禁卡死。
+- 根因: 这几个 E2E 测试 spawn `kz` 子进程时用 `.env("HOME")` + `.env("USERPROFILE")` 做隔离。但全局根解析走 `kanzei_home()` → `dirs::home_dir()`,而 `dirs` 在 **Windows 上用 known-folder API(SHGetKnownFolderPath),根本不读 USERPROFILE 环境变量**。于是子进程照样加载开发者真实的 `~/.kanzei/kanzei.toml`——测试的"隔离"是假的,一直如此,只是此前没人在全局配置里放行过 bash 所以没暴露。放行之后权限询问不再产生,测试写进 stdin 的那个 "a" 没有接收方,于是死等。
+- 影响: ①任何人只要全局放行 bash(本仓 2026-08-12 采纳方案 A 正是如此),全量测试直接挂死,发版门禁与 CI 一起卡住;②更广的问题是这些测试的结果本来就受开发者本机配置影响——绿不绿取决于 `~/.kanzei/kanzei.toml` 里写了什么,这是最难查的一类假绿/假红;③失败形态是**挂死不是报红**,比红灯难查得多(CI 上只能看到超时)。
+- 修复: 5 处 spawn 全部补 `.env("KANZEI_HOME", home.join(".kanzei"))`。`KANZEI_HOME` 是 harness/src/home.rs 明确定义的全局根隔离通道(D-187 收敛出来的唯一入口),优先级高于 `dirs::home_dir()`,跨平台一致。
+- 验收: ①全局配置里放行 bash 后 `cargo test -p kanzei --test always_allow_bash` 仍全绿;②5 处 spawn 无遗漏;③测试结果不再随开发者本机 `~/.kanzei/kanzei.toml` 变化。
+- 验证: 修复前该测试挂死 16 分钟(实测,进程零 CPU);修复后 `cargo test -p kanzei --test always_allow_bash --test context_overflow_recovery` 5 passed,1.17s + 0.15s。
+- 残余: 只补了 spawn 子进程这一类。仓内**同进程**读全局配置的测试是否也受污染未逐一排查;更彻底的做法是测试统一走一个设好 KANZEI_HOME 的夹具,而不是每处手写三个环境变量——单列 R-200。
+- refs: D-187 M-041 R-200
+
 ## D-290 模式与鞭挞开关每次冷启动都被重置:回显算出来的值被当成用户意图写回存档 [fixed] (high)
 - severity: high
 - 优先级: P0

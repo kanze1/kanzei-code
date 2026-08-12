@@ -122,6 +122,9 @@ async fn run_cli_with_prior(
         .current_dir(&project)
         .env("HOME", &home)
         .env("USERPROFILE", &home)
+        // D-292:Windows 的 dirs::home_dir() 不认 USERPROFILE,须一并设 KANZEI_HOME,
+        // 否则子进程读的是开发者真实全局配置。
+        .env("KANZEI_HOME", home.join(".kanzei"))
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
