@@ -474,6 +474,11 @@ impl DocStore {
     /// 终态条目移入归档文件(追加,幂等):活跃文件只留进行中的,前端与
     /// 上下文注入都不再被完成项干扰;历史仍可随时翻(get 会回落到归档)。
     /// 返回被移动的条目 ID——调用方必须能告知"哪些条目去了哪个文件"(D-112)。
+    ///
+    /// D-316:写回前对**整个归档**做净化——按 id 去重(保留先归档的那份)与
+    /// 每条目同 key 字段去重(保留第一个非空)。历史脏数据(重复条目 D-309、
+    /// 误切进归档的孤儿字段 D-289)会在任意一次归档动作时被收敛;净化有变化
+    /// 时即使没有新终态条目也强制写回(archived 动作 = 清理通道)。
     pub fn archive_terminal(&self) -> std::io::Result<Vec<String>> {
         // 事务锁必须罩住 load:两个进程各自 load 到同一份活动条目、各自算出同一批
         // 终态条目、再各自写归档,归档里就会出现重复条目。
@@ -482,10 +487,14 @@ impl DocStore {
         let (terminal, live): (Vec<Entry>, Vec<Entry>) = entries
             .into_iter()
             .partition(|e| self.kind.terminal.contains(&e.status.as_str()));
-        if terminal.is_empty() {
+        let mut archived = self.load_archive()?;
+        // D-316 净化:按 id 去重(保留先归档),每条目同 key 字段去重(保留第一个非空)。
+        let before_len = archived.len();
+        archived = Self::normalize_archive(archived);
+        let cleaned = archived.len() != before_len;
+        if terminal.is_empty() && !cleaned {
             return Ok(Vec::new());
         }
-        let mut archived = self.load_archive()?;
         let moved: Vec<String> = terminal.iter().map(|e| e.id.clone()).collect();
         let active_template = self.preserved.lock().unwrap().clone();
         let mut archive_template =
@@ -514,7 +523,15 @@ impl DocStore {
                 }
             }
         }
-        archived.extend(terminal);
+        // D-316:Entry 列表按 id 去重(模板去重只保证渲染不重复,列表本身
+        // 会累积同 id——实测 D-309 两份)。保留先归档的那份。
+        let mut seen_ids: std::collections::HashSet<String> =
+            archived.iter().map(|e| e.id.clone()).collect();
+        for entry in terminal {
+            if seen_ids.insert(entry.id.clone()) {
+                archived.push(entry);
+            }
+        }
         let archived_text = render_with_template(self.kind, &archived, &archive_template);
         let text = archived_text.replacen(
             &format!("# {}\n", self.kind.heading),
@@ -531,6 +548,29 @@ impl DocStore {
         crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
         self.save(&live)?;
         Ok(moved)
+    }
+
+    /// D-316 归档净化:按 id 去重(保留先归档的一份),每条目同 key 字段去重
+    /// (保留第一个非空)。历史脏数据(重复条目、误切进归档的孤儿字段)经此收敛。
+    fn normalize_archive(entries: Vec<Entry>) -> Vec<Entry> {
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for mut entry in entries {
+            if !seen_ids.insert(entry.id.clone()) {
+                continue; // 同 id 重复:保留先归档的那份
+            }
+            let mut seen_keys = std::collections::HashSet::new();
+            entry.fields.retain(|(key, value)| {
+                let key = key.trim();
+                let value = value.trim();
+                if key.is_empty() || value.is_empty() {
+                    return false; // 删空字段(D-289 误切的 `- 阻塞: ` 等)
+                }
+                seen_keys.insert(key.to_string())
+            });
+            out.push(entry);
+        }
+        out
     }
 
     /// 编号账本:`<stem>-ids.md`,记录被**主动废弃**的编号及理由。
@@ -1488,6 +1528,76 @@ mod tests {
         assert_eq!(store.next_id(&live), "R-004");
         // 幂等:再跑一次不动任何东西。
         assert!(store.archive_terminal().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-316 归档净化:归档文件里的重复条目(同 id)与重复 key 字段(历史孤儿
+    /// 误切)在任意归档动作时被收敛——重复 id 保留先归档的一份、同 key 保留
+    /// 第一个非空、空字段删除;净化有变化时即使无新终态条目也强制写回。
+    #[test]
+    fn archive_terminal_净化重复条目与孤儿字段() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-archive-normalize-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let mk = |id: &str, fields: Vec<(&str, &str)>| Entry {
+            id: id.into(),
+            title: "t".into(),
+            status: "done".into(),
+            severity: None,
+            fields: fields
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        // 直接构造脏归档:活动文件放一个 done 条目触发归档,归档文件预置
+        // D-309 重复两份 + D-312 被孤儿字段污染(复现 撞 key、阻塞 空字段)。
+        store.save(&[mk("R-100", vec![])]).unwrap();
+        std::fs::write(
+            store.archive_file(),
+            "\
+# Requirements Archive
+
+## D-309 重复甲 [fixed] (medium)
+- 复现: 甲
+- 影响: 甲
+
+## D-309 重复甲 [fixed] (medium)
+- 复现: 甲
+- 影响: 甲
+
+## D-312 被污染 [fixed] (medium)
+- 复现: 原条目复现
+- 影响: 原条目影响
+- 复现: 孤儿误切复现
+- 阻塞: 
+",
+        )
+        .unwrap();
+        store.archive_terminal().unwrap();
+        let archived = store.load_archive().unwrap();
+        // D-309 只剩一份。
+        let d309: Vec<&Entry> = archived.iter().filter(|e| e.id == "D-309").collect();
+        assert_eq!(d309.len(), 1, "重复条目必须被收敛: {archived:?}");
+        // D-312 的孤儿字段被清:复现 只保留第一个非空、空字段 阻塞 删除。
+        let d312 = archived.iter().find(|e| e.id == "D-312").unwrap();
+        let mut seen = std::collections::HashMap::new();
+        for (k, v) in &d312.fields {
+            seen.entry(k.as_str()).or_insert(v.as_str());
+        }
+        assert_eq!(seen.get("复现"), Some(&"原条目复现"), "{:?}", d312.fields);
+        assert!(!d312
+            .fields
+            .iter()
+            .any(|(k, v)| k == "阻塞" && v.trim().is_empty()));
+        // R-100 也进来了。
+        assert!(archived.iter().any(|e| e.id == "R-100"));
         std::fs::remove_dir_all(&dir).ok();
     }
 

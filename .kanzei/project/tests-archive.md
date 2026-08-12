@@ -2048,3 +2048,13 @@
 - 摘要: node scripts/e2e-smoke.mjs 实测:CDP 端口 20 秒未就绪 FAIL。根因:WebView2 当前环境 DevTools 端口不监听(D-319)——参数已传入(msedgewebview2 命令行实证含 --remote-debugging-port --remote-allow-origins=*)、Edge 同参数对照 1 秒监听、无策略禁用、进程树完整。D-289 修复(补 origin 白名单)本身正确且必要,但完整验收被 D-319 环境阻断。
 - 关联: D-289 D-319
 - 收尾: 1786564129
+
+## T-1786564167 cargo test -p kanzei-app (D-289 提交前定向) [passed]
+- 摘要: cargo test -p kanzei-app:137 passed。D-289 修复(main.rs CDP 注入补 --remote-allow-origins=*)提交前定向复测。
+- 关联: D-289
+- 收尾: 1786564167
+
+## T-1786564595 cargo test -p kanzei-tools --lib docstore (D-316 B1) [passed]
+- 摘要: cargo test -p kanzei-tools --lib docstore:19 passed(含新测试 archive_terminal_净化重复条目与孤儿字段——构造 D-309 重复两份+D-312 污染字段,archive_terminal 后重复收敛为一份、复现保留第一个非空、空字段阻塞删除、新终态条目正常归档)。fmt/clippy 全过。
+- 关联: D-316
+- 收尾: 1786564595
