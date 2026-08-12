@@ -48,7 +48,7 @@
 - 验收: ①failure_kind 对 bash/test 类输出取根因行(断言文本/error 行)构 kind;②写入侧拒绝过短或全类通配的 kind 成为条目指纹;③存量全类通配键拆分处置;④tier0 注入命中按真实同类失败复核。
 - refs: R-196 R-216 D-282
 
-## D-300 limits.barrier_timeout_secs 配置键失效:漏接 merge overlay 且 unknown_keys 名单缺失,设了静默不生效还误报未知键 [open] (medium)
+## D-300 limits.barrier_timeout_secs 配置键失效:漏接 merge overlay 且 unknown_keys 名单缺失,设了静默不生效还误报未知键 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 小
@@ -59,6 +59,7 @@
 - 影响: 用户在任一配置文件设 barrier_timeout_secs 既不生效又收到「未知配置项已忽略」假告警;屏障超时只能用默认 1800s。
 - 验收: ①补 overlay 宏与 unknown_keys 名单各一行;②新增「Limits 全字段经 merge_file 层叠往返不丢值」的穷举守护测试防再漏;③项目层设任一 limits 键都生效且无假告警。
 - refs: D-301
+- 进展: 2026-08-12 已修复:overlay! 宏与 unknown_keys 名单各补 barrier_timeout_secs,:363/:1032 两处注释更新;新增守护测试 limits_全字段_层叠往返不丢值_且名单穷举(TOML 显式赋全字段+unknown_keys 零告警+merge 后逐字段等于层值,同时堵住既有 unknown_keys_schema_matches_struct 对 [limits] 的 None 序列化盲区)。cargo test -p kanzei-harness --lib config 42 passed 0 failed。
 
 ## D-301 编排派发的勘察/复核子代理没有 per-role 墙钟:注释承诺的「双层有界」内层在唯一生产路径上不存在 [open] (medium)
 - severity: medium

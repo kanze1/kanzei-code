@@ -360,7 +360,8 @@ pub struct PermissionsSection {
     ///
     /// 本批只落 schema 与告警,**暂时没有消费者**——策略真正生效在后续批次。
     /// 三处接线(`unknown_keys` / `merge` / 告警)在本批一次做齐,各有一条命名测试守着:
-    /// `Limits::barrier_timeout_secs` 就栽在只加字段没接 merge,项目层设了却静默不生效。
+    /// `Limits::barrier_timeout_secs` 就栽在只加字段没接 merge,项目层设了却静默不生效
+    /// (D-300 已补,`limits_全字段_层叠往返不丢值_且名单穷举` 在防复发)。
     #[serde(default)]
     pub non_interactive: Option<String>,
 }
@@ -933,6 +934,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
                 "max_tokens",
                 "subagent_max_tokens",
                 "subagent_timeout_secs",
+                "barrier_timeout_secs",
                 "context_budget_ratio",
                 "recent_verbatim_ratio",
                 "max_tasks_per_turn",
@@ -1029,7 +1031,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     base.permissions.rules.extend(layer.permissions.rules);
     // 三处接线之二:标量键要按 [limits] 的同一套规矩做 overlay —— 项目层写了才覆盖,
     // 没写就保持全局层的值。只加字段不接这一行,项目层设了会静默不生效
-    // (`Limits::barrier_timeout_secs` 就是这么漏的)。
+    // (`Limits::barrier_timeout_secs` 就是这么漏的,D-300 已补,穷举守护测试在防复发)。
     if layer.permissions.non_interactive.is_some() {
         base.permissions.non_interactive = layer.permissions.non_interactive;
     }
@@ -1045,6 +1047,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         max_tokens,
         subagent_max_tokens,
         subagent_timeout_secs,
+        barrier_timeout_secs,
         context_budget_ratio,
         recent_verbatim_ratio,
         max_tasks_per_turn,
@@ -2529,6 +2532,45 @@ effect = "deny"
         assert_eq!(base.models.primary.as_deref(), Some("kimi:kimi-k2"));
         assert_eq!(base.permissions.rules.len(), 2);
         assert!(base.providers.contains_key("kimi"));
+    }
+
+    // D-300:barrier_timeout_secs 曾同时漏接 overlay 与 unknown_keys 名单——项目层设了
+    // 静默不生效,还被误报「未知配置项」;既有 unknown_keys_schema_matches_struct 对
+    // [limits] 是盲区(None 字段不进序列化)。本测试穷举 Limits 全字段:
+    // ①每个字段都显式出现在 TOML 里(新增字段没进本清单即红,编译期由 serde 字段名驱动);
+    // ②unknown_keys 零告警(名单漏键即红);③merge 后逐字段等于层值(overlay 漏键即红)。
+    #[test]
+    fn limits_全字段_层叠往返不丢值_且名单穷举() {
+        let layer_toml = r#"
+[limits]
+max_tokens = 1
+subagent_max_tokens = 2
+subagent_timeout_secs = 3
+barrier_timeout_secs = 4
+context_budget_ratio = 0.5
+recent_verbatim_ratio = 0.25
+max_tasks_per_turn = 5
+max_parallel_tools = 6
+transport_retries = 7
+rate_limit_retries = 8
+stream_restarts = 9
+"#;
+        // ①穷举完整性:结构体的每个字段都必须在上面的 TOML 里显式赋了值。
+        let layer: KanzeiConfig = toml::from_str(layer_toml).unwrap();
+        let layer_json = serde_json::to_value(&layer.limits).unwrap();
+        for (key, value) in layer_json.as_object().unwrap() {
+            assert!(
+                !value.is_null(),
+                "Limits 新增字段 `{key}` 没进本测试的 TOML——补进来,并同步 overlay! 宏与 unknown_keys 名单"
+            );
+        }
+        // ②unknown_keys 名单:全部键都该被 schema 认识,不得误报。
+        let raw: toml::Value = toml::from_str(layer_toml).unwrap();
+        assert_eq!(unknown_keys(&raw), Vec::<String>::new());
+        // ③merge 层叠:项目层写的每个键都要活着到达运行时。
+        let mut base = KanzeiConfig::default();
+        merge(&mut base, layer);
+        assert_eq!(serde_json::to_value(&base.limits).unwrap(), layer_json);
     }
 
     // D-245 验收②:merge_file 必须把 [cadence] 的显式键逐项覆盖进 KanzeiConfig。
