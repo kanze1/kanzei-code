@@ -42,7 +42,7 @@
 
 - 进展: 2026-08-16 B4/4 完成。验收对照:①events.rs list_events_by_type 下推 event_type+复合索引 session_events_session_type_sequence(schema.rs);②conversation.rs 三调用点改用下推、recover_messages_raw 改 event_by_sequence_and_type 单行;③prune_trace_rounds 每会话保留 200 轮(flush_live_run 收尾触发)、flush_live_trace_locked 整包≤64KB 分批、TaskProgress 入参截断 4096 字符(UI 保留完整);④量化测试(4000 事件)断言下推解析字节量比全表低一个数量级。验证:全量 cargo test --workspace 全绿(kanzei-app 134、kanzei-core 140、kanzei-tools 258),fmt/clippy 绿。提交 4055b6c、bde865d。批次: 4/4
 
-## D-298 state.db 82MB 中约 68MB 是 freelist 死页从不 VACUUM,9 份迁移备份约 59MB 永不清理 [open] (medium)
+## D-298 state.db 82MB 中约 68MB 是 freelist 死页从不 VACUUM,9 份迁移备份约 59MB 永不清理 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 小
@@ -54,7 +54,7 @@
 - 验收: ①空闲时机条件整理:freelist 占比超阈值(如 50%)执行 VACUUM(或建库启用 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。
 - refs: D-297
 
-- 进展: 2026-08-16 取活开始。验收:①空闲时机条件整理(freelist 占比>50% VACUUM 或 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。已读码:backup_before_upgrade(session.rs)每次迁移 VACUUM INTO 新备份、recover_legacy_input_status 遍历全部 .bak 备份;无 VACUUM 调用。
+- 进展: 2026-08-16 完成。验收对照:①session.rs maintain_housekeeping 挂在 SessionStore::open 公共路径(桌面命令/CLI/移动端都走到),24h 节流,PRAGMA freelist_count/page_count 占比>50% 时 VACUUM;②同方法扫描 state.db.v<N>.bak 只保留版本号最大的一份(实测 9 份约 59MB 可清 8 份);③新测试 freelist超阈值时vacuum回收死页 断言 VACUUM 后 page_count 下降、迁移备份只保留最近一版 断言只剩 v12.bak。验证:kanzei-core 143 passed、kanzei-app 134 passed、fmt/clippy 绿。提交 c307f78。
 
 ## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
 - severity: medium
