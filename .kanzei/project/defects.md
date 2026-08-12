@@ -14,6 +14,19 @@
 - refs: D-266 D-287 D-265
 - 进展: 2026-08-12 已定位为更新交接 helper 在父进程退出后无条件重新 spawn kzapp，移除 run_install_helper 与 pending 更新路径的自动拉起，并把 UI/后端文案改为安装完成后手动启动；已通过 kanzei-app 定向 fmt/clippy/test 与 UI 语法/运行时冒烟，需重新打包安装后由用户执行关闭窗口并观察进程树的人工验证。
 
+## D-308 R-225 新增 classic-script 全局未登记导致正式 UI lint 失败 [fixed] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 测试 设置
+- 来源: 2026-08-12 正式 scripts/verify.ps1 发现 R-225 语言设置链路新增全局未同步到 UI lint 白名单。
+- 证据等级: E1(verify 实测:7 处 no-undef；运行时冒烟通过但发布 lint 门禁失败)
+- 机制: classic script 按序共享全局，R-225 的语言常量/函数及归档懒加载新增符号没有重新生成 scripts/ui-lint-globals.json。
+- 影响: 功能运行时可通过，但正式 verify 阶段被 UI lint 拦截，无法生成绑定 HEAD 的发版验证证据。
+- 验收: ①更新生成的全局清单且 no-undef 为 0；②完整 verify 通过并产出 dist/verification.json。
+- refs: R-225 D-296
+- 进展: 2026-08-12 已重新生成 scripts/ui-lint-globals.json，纳入 R-225 语言设置与 D-296 归档懒加载新增全局并清理已删除符号；ui-lint-smoke 31 文件/1157 标识符零错误，完整 verify 已通过并产出绑定 HEAD 的 dist/verification.json。
+
 ## D-296 docs_snapshot 单次调用重复解析两份归档约 6 遍(~4.8MB)+ 1 次 git log,挂在每次文档刷新与每次 git 提交事件后 [fixed] (high)
 - severity: high
 - 优先级: P1
