@@ -145,7 +145,12 @@ impl Ruleset {
         if rule.effect == Effect::Allow
             && command_chaining_escapes(action, resource, &rule.resource)
         {
-            return Effect::Ask;
+            // D-051:通配规则默认降级 Ask。R-198:若规则是「程序名+参数前缀」
+            // 形态且命令安全匹配(程序名一致、无 shell 结构、参数前缀通配命中),
+            // 则放行——这是显式的中间档位,不再是整串通配的隐患。
+            if !(action == BASH_ACTION && bash_prefix_match(&rule.resource, resource)) {
+                return Effect::Ask;
+            }
         }
         rule.effect
     }
@@ -294,6 +299,90 @@ pub fn resource_match(pattern: &str, value: &str) -> bool {
 /// 只有显式资源 `*` 的整体放行不降级(D-051)。
 fn command_chaining_escapes(action: &str, resource: &str, pattern: &str) -> bool {
     action == BASH_ACTION && pattern != "*" && pattern.contains('*') && !resource.is_empty()
+}
+
+/// R-198：bash 规则「程序名 + 参数前缀」白名单匹配（不再整串通配）。
+///
+/// 规则形态如 `node scripts/*.mjs`、`cargo build*`：程序名精确比较，参数部分
+/// 走通配。命令串里出现 shell 链接/重定向/子 shell（`;` `&&` `||` `|` `>` `<`
+/// `$(` 反引号 `&` 等）时**不匹配**——前缀规则只放行"这一个程序以这些参数
+/// 直跑"，不能掩护 `git status; rm -rf /`（D-051 防线在解析层保留）。
+///
+/// 结构化 bash 资源（JSON）不走本函数：JSON 整串语义由 `resource_match_for_action`
+/// 的既有路径处理，这里只服务纯字符串命令形态（验收③ 两形态各走各的路径）。
+pub fn bash_prefix_match(pattern: &str, command: &str) -> bool {
+    if pattern.trim().is_empty() || pattern == "*" || is_structured_bash_resource(command) {
+        return false;
+    }
+    // 程序名 = 命令的第一个 token；参数 = 剩余部分。
+    let Some((cmd_prog, cmd_rest)) = split_first_token(command) else {
+        return false;
+    };
+    // 程序名精确匹配（Windows 上命令大小写不敏感,统一小写比较）。
+    let Some((pat_prog, pat_rest)) = split_first_token(pattern) else {
+        return false;
+    };
+    if !cmd_prog.eq_ignore_ascii_case(&pat_prog) {
+        return false;
+    }
+    // 命令里出现 shell 结构 → 前缀规则不适用（D-051 防线）。
+    if has_shell_meta(&cmd_rest) {
+        return false;
+    }
+    wildcard_match(&pat_rest, &cmd_rest)
+}
+
+/// 取文本的第一个 token（程序名）与剩余部分。引号包裹的程序名（如
+/// `"C:\Program Files\node.exe"`）按一个整体处理。
+fn split_first_token(text: &str) -> Option<(String, String)> {
+    let text = text.trim_start();
+    if text.is_empty() {
+        return None;
+    }
+    let mut quote = None;
+    let mut end = 0usize;
+    for (idx, ch) in text.char_indices() {
+        match ch {
+            '"' | '\'' => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+                end = idx + ch.len_utf8();
+            }
+            c if c.is_whitespace() && quote.is_none() => {
+                return Some((
+                    text[..idx].to_string(),
+                    text[idx..].trim_start().to_string(),
+                ));
+            }
+            _ => end = idx + ch.len_utf8(),
+        }
+    }
+    Some((text[..end].to_string(), String::new()))
+}
+
+/// 命令剩余部分是否含 shell 链接/重定向/子 shell/历史展开字符。
+/// 只要引号外出现这些字符就判定为"不是单程序直跑",前缀规则不匹配。
+fn has_shell_meta(rest: &str) -> bool {
+    let mut quote = None;
+    for ch in rest.chars() {
+        match ch {
+            '"' | '\'' => {
+                if quote == Some(ch) {
+                    quote = None;
+                } else if quote.is_none() {
+                    quote = Some(ch);
+                }
+            }
+            ';' | '&' | '|' | '>' | '<' | '`' | '!' | '$' | '(' | ')' if quote.is_none() => {
+                return true;
+            }
+            _ => {}
+        }
+    }
+    false
 }
 
 /// `*` 通配(匹配任意串,含空);其余字符逐字比较,大小写敏感。
@@ -506,13 +595,19 @@ mod tests {
             resource: "git *".into(),
             effect: Effect::Allow,
         }]);
-        // 旧的首词通配规则也不能放行重定向、解释器入口或其他子命令。
+        // R-198:程序名+参数前缀规则——`git status`(无 shell 结构、程序名精确
+        // 匹配)放行;重定向、解释器入口、别名、其它程序仍 Ask(D-051 防线)。
+        assert_eq!(
+            rs.evaluate("bash", "git status"),
+            Effect::Allow,
+            "R-198:git * 应放行 git status(程序名+参数前缀白名单)"
+        );
         for command in [
-            "git status",
-            "git status > .kanzei/project/requirements.md",
-            "git -c alias.x=!calc x",
-            "python -c open_secret",
-            "pwsh -Command Set-Content secret x",
+            "git status > .kanzei/project/requirements.md", // 重定向
+            "git -c alias.x=!calc x",                       // 别名/历史展开
+            "python -c open_secret",                        // 其它程序
+            "pwsh -Command Set-Content secret x",           // 其它程序
+            "git status; rm -rf /",                         // 命令链接
         ] {
             assert_eq!(
                 rs.evaluate("bash", command),
@@ -573,6 +668,113 @@ mod tests {
             effect: Effect::Allow,
         }]);
         assert_eq!(rs.evaluate("bash", structured), Effect::Ask);
+    }
+
+    /// R-198 验收①:程序名+参数前缀规则放行匹配命令。
+    #[test]
+    fn 前缀白名单_放行匹配命令() {
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "node scripts/*.mjs".into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            rs.evaluate("bash", "node scripts/e2e-smoke.mjs"),
+            Effect::Allow,
+            "验收①:node scripts/*.mjs 应放行 node scripts/e2e-smoke.mjs"
+        );
+        // 参数前缀通配:cargo build* 放行 cargo build --release。
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "cargo build*".into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            rs.evaluate("bash", "cargo build --release -p kanzei"),
+            Effect::Allow
+        );
+    }
+
+    /// R-198 验收②:含命令链接/重定向/子 shell 的命令不得命中前缀规则,回落 Ask。
+    #[test]
+    fn 前缀白名单_命令链接重定向回落ask() {
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "node scripts/*.mjs".into(),
+            effect: Effect::Allow,
+        }]);
+        for command in [
+            "node scripts/x.mjs; rm -rf /",
+            "node scripts/x.mjs && whoami",
+            "node scripts/x.mjs | cat",
+            "node scripts/x.mjs > out.txt",
+            "node scripts/x.mjs $(whoami)",
+            "node scripts/x.mjs `whoami`",
+        ] {
+            assert_eq!(
+                rs.evaluate("bash", command),
+                Effect::Ask,
+                "验收②:含 shell 结构必须回落 Ask: {command}"
+            );
+        }
+    }
+
+    /// R-198 验收③:结构化 bash 资源(JSON)与纯字符串命令两种形态都覆盖——
+    /// 纯字符串规则不授权 JSON(既有保护),JSON 资源经既有整串路径。
+    #[test]
+    fn 前缀白名单_结构化与纯字符串双形态() {
+        // 纯字符串前缀规则对纯字符串命令生效(验收①已证)。
+        // 纯字符串前缀规则不得授权 JSON 资源(与 legacy_bash_rules 同源保护)。
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "node scripts/*.mjs".into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(
+            rs.evaluate(
+                "bash",
+                r#"{"command":"node scripts/e2e-smoke.mjs","workdir":"C:/project"}"#
+            ),
+            Effect::Ask,
+            "纯字符串前缀规则不得授权结构化 JSON 资源"
+        );
+        // 结构化 JSON 资源走既有整串精确匹配路径(不因新增前缀规则而退化)。
+        let structured = r#"{"command":"node scripts/e2e-smoke.mjs","workdir":"C:/project"}"#;
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: structured.into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(rs.evaluate("bash", structured), Effect::Allow);
+    }
+
+    /// R-198 验收④:D-051 既有回归保持绿——整体 `*` 放行不受降级影响,
+    /// 非本程序命令仍 Ask(前缀通配不放行未明确授权的命令 测试覆盖)。
+    #[test]
+    fn 前缀白名单_非本程序命令仍ask() {
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "node scripts/*.mjs".into(),
+            effect: Effect::Allow,
+        }]);
+        for command in [
+            "python scripts/e2e-smoke.mjs", // 程序名不匹配
+            "node other/x.mjs",             // 参数前缀不匹配
+            "cargo build",                  // 程序名不匹配
+        ] {
+            assert_eq!(
+                rs.evaluate("bash", command),
+                Effect::Ask,
+                "非本程序/前缀不匹配必须 Ask: {command}"
+            );
+        }
+        // 整体 `*` 放行仍是 yolo,不降级(D-051)。
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "*".into(),
+            effect: Effect::Allow,
+        }]);
+        assert_eq!(rs.evaluate("bash", "git status; rm -rf ~"), Effect::Allow);
     }
 
     /// D-269 定向反证:已批准命令的任一 `/` 换成 `T/../` 即可把任意 shell 语句藏进 T。

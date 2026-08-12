@@ -36,7 +36,7 @@
 - 进展: 2026-08-16 只读勘察完成(两路 task 子代理并行):①消费点清单——crates/kanzei/tests/always_allow_bash.rs 4 处 spawn(L106-113/217-224/298-305/389-396,每处 HOME+USERPROFILE+KANZEI_HOME 三连,与 D-292 注释成对)、context_overflow_recovery.rs 的 run_cli_with_prior helper(L123-127,两测试共用,唯一'准夹具');②脚本侧遗漏:scripts/e2e-smoke.mjs:24 与 scripts/probe-webview-cdp.mjs:13 注入 USERPROFILE 但无 KANZEI_HOME,验收①迁移时应顺手补;③仓库无共享夹具模块、无 tempfile crate(临时目录均手工 temp_dir().join+remove_dir_all,无 RAII);④RAII guard 先例在 orchestration.rs:99-105(WriterLease drop 释放回调),夹具可复用此模式;⑤kanzei_home() 定义 harness/src/home.rs:19-24(KANZEI_HOME 优先,否则 dirs::home_dir()/.kanzei)。下一步需写代码:新建夹具模块 + 迁移 5 处消费点 + 守护测试 + cargo 验证。
 - 阻塞: 缺权限/环境(§1.1 类②):autonomous 档位下 edit(仅 style.css 一条白名单)、git stage/commit(kanzei.toml 无 action="git" 规则)、cargo test(无规则)全被权限拦截(本轮实测 edit .gitignore 与 git stage 均报 permission requires user approval)。R-200 需新建夹具文件+迁移测试+跑 cargo+提交,当前档位一步都执行不了。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(edit crates/kanzei/tests/**、结构化 git stage/commit、cargo test -p kanzei)后本代理续跑;或②用户切交互轮放行,本代理即可按已完成的勘察清单交付。解除人: 用户。
 
-## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open]
+## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open] [doing]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 权限
@@ -46,6 +46,9 @@
 - 边界: 不做 shell 语法的完整解析(那是无底洞);解析不出来就 fail-closed 回落 Ask。不改 Ask 在 NonInteractive 下等于 Deny 的既定语义。
 - 验收: ①`node scripts/e2e-smoke.mjs` 命中 `node scripts/*.mjs` 规则并放行;②`node scripts/x.mjs; rm -rf /` 不得命中该规则;③结构化 bash 资源(JSON)与纯字符串命令两种形态都覆盖;④D-051 既有回归保持绿。
 - refs: D-051 D-292
+
+- 批次: 1/2
+- 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成:①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565xxx)。B2 待:全量+关闭。
 
 ## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open]
 - 优先级: P2
