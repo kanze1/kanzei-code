@@ -13,6 +13,7 @@ const I18N_EN = {
   "每条线绑定独立分支与工作树；状态和文件交集来自当前运行现场。": "Each line is bound to its own branch and worktree; status and file overlap come from the live runtime.",
   "刷新": "Refresh",
   "新建线路": "New line",
+  "创建中…": "Creating…",
   "运行现场": "Live runtime",
   "运行中线路会自动刷新": "Running lines refresh automatically",
   "合并前检查": "Pre-merge check",

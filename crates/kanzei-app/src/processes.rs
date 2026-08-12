@@ -281,12 +281,12 @@ pub async fn process_create(
 /// [`create_worktree_with_receipt`]。认领失败 ⇒ 本次调用什么都没建出来 ⇒ 零回滚。
 /// 这条不变量跨进程成立,不依赖协调器。
 ///
-/// # 写租约为什么还留着
+/// # 为什么建线不再排源码写租约
 ///
-/// 它对**同进程内**的仲裁与审计仍有价值(`worktree_create`/`merge`/`discard` 三条命令
-/// 已在用同一个入口,建线不进来就会与它们乱序),但**不再是正确性的依靠**。租约获取带
-/// 上界([`WRITE_LEASE_TIMEOUT`]),超时报明确错误 —— 否则一条卡死的 writer 能让建线
-/// 永久 pending,而 app 里够不到取消入口。
+/// 源码写租约覆盖的是某条线对代码的修改周期；创建独立 worktree 只新增 Git ref、
+/// worktree 登记与目录，不修改现有线的代码。把二者放进同一租约会导致主线运行时
+/// 新建线路最长等待 120 秒，直接失去并行入口。现在建线/建树走
+/// `AppState.worktree_ops` 的独立串行闸；合并/放弃仍保留源码写租约。
 ///
 /// # 锁边界(为什么 git 的耗时调用全在内存锁外)
 ///
@@ -343,11 +343,10 @@ pub(crate) async fn create_process_with_tracker(
     let project = root.display().to_string();
     let worktree_name = worktree_name.filter(|value| !value.trim().is_empty());
 
-    // ① 要建树才取写租约,与 worktree_create 同一个仲裁入口。
-    let _lease = match worktree_name.as_deref() {
-        Some(_) => {
-            Some(acquire_project_write_lease(state, &root, "process create worktree").await?)
-        }
+    // ① 建树只排 Git 工作树元数据闸，不排主线源码写租约。guard 持有到绑定落库结束，
+    //    让「建 ref/目录 → 注册线路」在同一应用内保持原子顺序。
+    let _worktree_guard = match worktree_name.as_deref() {
+        Some(_) => Some(state.worktree_ops.lock().await),
         None => None,
     };
 
@@ -368,7 +367,8 @@ pub(crate) async fn create_process_with_tracker(
         None => None,
     };
 
-    // ③ 建树。耗时的 git 调用全在内存锁之外,原子性由 ① 的写租约兜着。
+    // ③ 建树。耗时的 git 调用全在内存锁之外,同进程顺序由 ① 的元数据闸兜着；
+    //    跨进程正确性仍由 create_worktree_with_receipt 的 git ref CAS 兜着。
     //    失败直接返回:create_worktree 自己已经把残留收干净(收不掉的会在错误里点名)。
     let created = match worktree_name.as_deref() {
         Some(name) => Some(create_worktree_with_receipt(&root, name)?),
@@ -1145,9 +1145,9 @@ fn worktree_admin_dir(worktree: &Path) -> Option<PathBuf> {
 
 /// 建工作树(非 Tauri 内核):`worktree_create` 命令与 `create_process` 建线共用。
 ///
-/// **它本身不取写租约**:两个调用方都在外层取(`worktree_create` →
-/// [`create_worktree_arbitrated`],建线 → `create_process`),租约不可重入,在这里再取
-/// 一次就是自己等自己。而正确性本来也不由租约提供,见下。
+/// **它本身不取工作树元数据闸**:两个调用方都在外层取(`worktree_create` →
+/// [`create_worktree_arbitrated`],建线 → `create_process`),闸不可重入,在这里再取
+/// 一次就是自己等自己。源码 writer lease 与建树无关,正确性也不由锁提供,见下。
 ///
 /// # 并发安全靠 git 的 ref CAS,不靠锁(K2' 返工)
 ///
@@ -1403,8 +1403,8 @@ pub(crate) const WRITE_LEASE_TIMEOUT: std::time::Duration = std::time::Duration:
 
 /// 项目级写操作的**唯一**仲裁入口。
 ///
-/// R-171 批4 的口径:worktree 的创建/合并/放弃都是项目级写操作,得进写仲裁。
-/// K2 补上第四个调用方 `create_process`(建线),让四条路在同一进程内保持有序。
+/// R-171 批4 的口径:合并/放弃会改写既有工作区,必须进源码写仲裁。单纯创建
+/// worktree 已拆到 `AppState.worktree_ops`，不再与运行中的代码 writer 互斥。
 ///
 /// **它不是并发正确性的依靠**(K2' 更正):协调器是进程内内存对象,`kz` CLI /
 /// 自举循环 / 第二个 kzapp 实例都看不见它。同名建树的正确性由 git 的 ref CAS 保证,
@@ -1485,7 +1485,7 @@ fn write_lease_timeout_error(
     )
 }
 
-/// `worktree_create` 的非 Tauri 内核:取写租约 + 建树。
+/// `worktree_create` 的非 Tauri 内核:取工作树元数据闸 + 建树。
 ///
 /// 拆出来是为了能测——并发测试要让「建线」和「建工作树」真的同时打进同一个仲裁。
 pub(crate) async fn create_worktree_arbitrated(
@@ -1493,7 +1493,7 @@ pub(crate) async fn create_worktree_arbitrated(
     root: &Path,
     name: &str,
 ) -> Result<WorktreeInfo, String> {
-    let _lease = acquire_project_write_lease(state, root, "worktree create").await?;
+    let _worktree_guard = state.worktree_ops.lock().await;
     create_worktree(root, name)
 }
 

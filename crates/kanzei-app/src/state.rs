@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 pub(crate) fn prompt_attachment_parts(
     attachments: Vec<PromptAttachment>,
@@ -415,6 +415,12 @@ pub(crate) struct AppState {
     /// R-171 项目级执行协调器:所有 ProcessHandle 共享同一实例,按规范化主根分桶。
     /// 「并行查、串行写」的强制点——主对话 writer run 在这里获取写租约。
     pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    /// Git 工作树元数据操作的进程内串行闸。
+    ///
+    /// 建线/建树只创建独立分支与目录,不能去排主线的源码写租约；否则主线运行期间
+    /// 「新建线路」会一直等到整轮结束。它们之间仍需串行，避免同一进程内的
+    /// worktree list/ref/目录操作互相踩踏；跨进程同名竞争由 git ref CAS 兜底。
+    pub(crate) worktree_ops: Arc<AsyncMutex<()>>,
 }
 
 impl Default for AppState {
@@ -427,6 +433,7 @@ impl Default for AppState {
             mobile_service: Arc::new(Mutex::new(None)),
             auto_runs: Arc::new(Mutex::new(HashMap::new())),
             coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
+            worktree_ops: Arc::new(AsyncMutex::new(())),
         }
     }
 }

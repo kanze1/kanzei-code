@@ -1482,13 +1482,13 @@ fn 目录清理失败必须点名残留路径_且名字不会永久中毒() {
     cleanup(&root, &[target]);
 }
 
-/// 验收④:建线走的是**和 `worktree_create` 同一个**写仲裁。
+/// D-318 验收①②:建线不能排主线源码写租约,但必须和 `worktree_create`
+/// 排同一个工作树元数据闸。
 ///
-/// 机械判据不是「代码里有 acquire_writer_lease 这一行」,而是:项目上已经有人持有
-/// 写租约时,建线**必须排队**;租约一放,它立刻拿到。这条测试同时把
-/// `create_worktree_arbitrated` 放进同一个断言里——两条路排的是同一个队。
+/// 先让主线 writer 一直持有租约,证明建线仍能完成；再显式占住元数据闸,
+/// 证明建线会等这把更窄的锁。这样同时锁住「真并行」与 Git 元数据串行两条边界。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn 建线与worktree_create排同一个写租约() {
+async fn 建线不排源码写租约_只排工作树元数据闸() {
     use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
 
     let root = git_repo("kz-k2-lease");
@@ -1497,7 +1497,7 @@ async fn 建线与worktree_create排同一个写租约() {
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
 
     let state = Arc::new(AppState::default());
-    // 项目上先有一个写者(等价于主对话正在写),建线必须排在它后面。
+    // 项目上先有一个写者(等价于主对话正在写),建线必须不受影响。
     let holder = state
         .coordinator
         .acquire_writer_lease(WriterLeaseRequest {
@@ -1509,37 +1509,67 @@ async fn 建线与worktree_create排同一个写租约() {
         .await
         .unwrap();
 
+    let info = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        create_process(
+            &state,
+            &root.display().to_string(),
+            None,
+            None,
+            None,
+            None,
+            Some(name.clone()),
+        ),
+    )
+    .await
+    .expect("主线 writer 持有租约时建线仍应立即完成")
+    .expect("建线本身必须成功");
+    assert!(info.worktree_path.is_some());
+    assert!(target.is_dir());
+    assert_eq!(
+        state
+            .coordinator
+            .snapshot(&canonical)
+            .writer_run_id
+            .as_deref(),
+        Some("k2-holder"),
+        "建线完成时主线 writer 必须仍持有租约,否则没有证明两者真并行"
+    );
+    drop(holder);
+
+    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
+
+    // 另一棵树证明建线与 worktree_create 共用更窄的元数据闸。
+    let gated_name = unique("worktree-gate");
+    let (gated_target, gated_branch) = worktree_target(&canonical, &gated_name).unwrap();
+    let worktree_guard = state.worktree_ops.lock().await;
     let task = {
         let state = Arc::clone(&state);
         let project = root.display().to_string();
-        let name = name.clone();
+        let name = gated_name.clone();
         tokio::spawn(async move {
             create_process(&state, &project, None, None, None, None, Some(name)).await
         })
     };
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert!(
-        !task.is_finished(),
-        "有人持有项目写租约时,建线必须排队——不排队就说明它绕过了仲裁"
-    );
-    assert_eq!(
-        state.coordinator.snapshot(&canonical).waiting_writers.len(),
-        1,
-        "排队者必须出现在同一个协调器的快照里(同一个仲裁入口的机械证据)"
-    );
-    assert!(!target.exists(), "排队期间一棵树都不许建出来");
+    assert!(!task.is_finished(), "工作树元数据闸被占用时,建线必须排队");
+    assert!(!gated_target.exists(), "排队期间一棵树都不许建出来");
 
-    drop(holder);
+    drop(worktree_guard);
     let info = tokio::time::timeout(std::time::Duration::from_secs(30), task)
         .await
-        .expect("租约释放后建线应立刻被唤醒")
+        .expect("工作树元数据闸释放后建线应立刻被唤醒")
         .expect("建线任务不许 panic")
         .expect("建线本身必须成功");
     assert!(info.worktree_path.is_some());
-    assert!(target.is_dir());
+    assert!(gated_target.is_dir());
 
-    rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup(&root, &[target]);
+    rollback_worktree(
+        &canonical,
+        &rollback_receipt(&canonical, &gated_target, &gated_branch),
+    )
+    .unwrap();
+    cleanup(&root, &[target, gated_target]);
 }
 
 /// 验收⑤:编号分配要看库,且**绝不覆盖**库里既有行。

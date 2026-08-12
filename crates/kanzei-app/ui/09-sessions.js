@@ -119,8 +119,14 @@ async function createWorktreeLine() {
   // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
   worktreeLineCreateInFlight = true;
-  const addButton = $("worktree-add");
-  addButton.disabled = true;
+  const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean);
+  // 真实 DOM 取内层 i18n span；运行时测试桩没有复建 id 节点的子树，回退到按钮本身。
+  const linesAddLabel = $("lines-add")?.querySelector("[data-i18n-key]") || $("lines-add");
+  for (const button of addButtons) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+  }
+  if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
   const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
   try {
     // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
@@ -139,7 +145,11 @@ async function createWorktreeLine() {
     toastError(`${t("创建并行线路失败")}:${error}`);
   } finally {
     worktreeLineCreateInFlight = false;
-    addButton.disabled = false;
+    for (const button of addButtons) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+    if (linesAddLabel) linesAddLabel.textContent = t("新建线路");
   }
 }
 $("worktree-add").addEventListener("click", createWorktreeLine);

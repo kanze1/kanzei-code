@@ -49,8 +49,10 @@ assert(compose.includes("transitionSession(targetSessionId, \"stopping\")"), "�
 assert(compose.includes("queueProcessUpdate(activeProcessId"), "模型/profile/reasoning 未走保存队列");
 assert(sessions.includes("worktreeLineCreateInFlight"), "并行线路创建缺少单飞请求护栏");
 assert(sessions.includes("worktreeLineCreateSequence"), "并行线路创建缺少进程内唯一序号");
-assert(sessions.includes("addButton.disabled = true"), "并行线路创建请求期间按钮未禁用");
-assert(sessions.includes("addButton.disabled = false"), "并行线路创建结束后按钮未恢复");
+assert(sessions.includes('const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean)'), "并行线路两个创建入口没有共用忙碌态");
+assert(sessions.includes('button.setAttribute("aria-busy", "true")'), "并行线路创建请求期间没有暴露忙碌态");
+assert(sessions.includes('button.removeAttribute("aria-busy")'), "并行线路创建结束后忙碌态没有恢复");
+assert(sessions.includes('linesAddLabel.textContent = t("创建中…")'), "线路页没有创建中反馈");
 assert(sessions.includes("Date.now()"), "并行线路名称没有使用毫秒级时间戳");
 const profileFunction = compose.match(/function applyProfileValue\(backendProfile\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFILE_STORAGE_KEY"), "切换线路不能回写全局 profile");

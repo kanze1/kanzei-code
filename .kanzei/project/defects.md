@@ -362,3 +362,17 @@
 - 标签: 流程
 - 根因: 引擎归档动作的切割/复制逻辑疑似把 D-312 之后的 D-289 字段行一并划入归档,并对 D-309 重复落盘;具体在 harness 归档实现,待定位。
 - 优先级: P2
+
+## D-318 运行中主线阻塞新建并行线路且按钮无反馈 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 中
+- 标签: 核心
+- 复现: 主线路正在运行并持有项目 writer lease 时，打开并行线路页点击新建线路；按钮无忙碌反馈，process_create 等待同一 writer lease，最长 120 秒内页面看起来无响应。
+- 根因: process_create(worktree_name)错误复用了源码 writer lease；该租约应只保护会改写既有工作区的写代码、合并和放弃，创建独立 ref/worktree 不应等待它。
+- 影响: 运行中的主线无法创建独立并行线路，直接阻断多线并行核心流程；用户会误以为按钮失效并重复点击。
+- 修复方向: 将建线/建树拆到独立 worktree 元数据串行闸；合并/放弃继续走 writer lease；两个新建入口同步展示创建中并防重入。
+- 验收: ①主线持有 writer lease 时新建线路不等待整轮结束；②同应用建线/建树仍串行且跨进程同名安全不回退；③线路页与侧栏两个入口创建期间同步禁用并显示忙碌态，完成或失败后恢复；④Rust 与前端并行线路回归测试通过。
+- refs: D-283 D-315 R-171
+- 证据等级: E2
+- 进展: 2026-08-13 完成：AppState 新增独立 worktree_ops 元数据闸，process_create(worktree_name) 与 worktree_create 共用该闸且不再排主线源码 writer lease；合并/放弃仍保留 writer lease。侧栏与线路页两个入口同步显示创建中、aria-busy 并防重复提交。验证：cargo test -p kanzei-app 137 passed；cargo clippy --workspace --all-targets -- -D warnings 通过；ui-runtime-smoke 1546 invokes/0 runtime errors，parallel-lines-regression 与 ui-i18n-smoke 通过。

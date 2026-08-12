@@ -5506,9 +5506,15 @@ const docsB = {
   await gotoProject(PROJECT, docsA);
   const beforeAdd = invokeArgs.length;
   const addButton = byId.get("worktree-add");
+  const linesAddButton = byId.get("lines-add");
+  linesAddButton.click();
   addButton.click();
-  addButton.click();
-  assert(addButton.disabled, "并行线路创建请求未返回前按钮没有禁用");
+  assert(addButton.disabled && linesAddButton.disabled, "并行线路创建期间两个入口没有同步禁用");
+  assert(
+    addButton.getAttribute("aria-busy") === "true" && linesAddButton.getAttribute("aria-busy") === "true",
+    "并行线路创建期间入口没有暴露 aria-busy",
+  );
+  assert(/创建中|Creating/.test(linesAddButton.textContent), "线路页按钮没有显示创建中反馈");
   await flush();
   const addCalls = invokeArgs.slice(beforeAdd);
   const processCreateCalls = addCalls.filter((entry) => entry.cmd === "process_create");
@@ -5519,7 +5525,12 @@ const docsB = {
       processCreateCalls[0].args?.trackerWrites === false,
     `新建线路没有原子发出唯一命名的 process_create(${JSON.stringify(addCalls)})`,
   );
-  assert(!addButton.disabled, "并行线路创建完成后按钮没有恢复");
+  assert(!addButton.disabled && !linesAddButton.disabled, "并行线路创建完成后两个入口没有恢复");
+  assert(
+    !addButton.hasAttribute("aria-busy") && !linesAddButton.hasAttribute("aria-busy") &&
+      /新建线路|New line/.test(linesAddButton.textContent),
+    "并行线路创建完成后忙碌状态或按钮文案没有恢复",
+  );
   assert(
     !addCalls.some((entry) => entry.cmd === "worktree_create"),
     "建线仍在调用只建树不绑进程的 worktree_create",
