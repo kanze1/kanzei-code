@@ -1,12 +1,16 @@
 //! 整文件替换的共享原语:tmp+rename 原子写(R-138)。
 //!
-//! 仓里只能有**一套**原子写/文件锁实现。docstore、test_record 以及后续任何
-//! "整读整写单个 markdown"的写入口都从这里取,不要各写各的——两套原语意味着
-//! 两套失败语义,并发排查时没人说得清哪一份才是真的。
+//! 仓里只能有**一套**原子写/文件锁实现。docstore、test_record、memory、files、
+//! auth/store 以及后续任何"整读整写单个 markdown/json"的写入口都从这里取,不要
+//! 各写各的——两套原语意味着两套失败语义,并发排查时没人说得清哪一份才是真的。
 //!
 //! 为什么必须原子:`std::fs::write` 是**先截断再写**。写到一半时另一个线程/
 //! 进程读到的是零长度或半截文件,而 docstore 的 `load()` 对空文件宽容返回
 //! `Ok(vec![])`——一次「成功但空」的快照就这样穿到前端(D-249 的第①层)。
+//!
+//! 本模块放在 kanzei-llm(**依赖图最底层**):kanzei-core/kanzei-tools/kanzei-app
+//! 都依赖它,而 auth/store.rs(凭证写回)在 llm 内部,只有把原语放这里才能让
+//! 最底层也共用同一套,而不是在 llm 里再养第二份(D-261)。
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -76,9 +80,76 @@ pub fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
     Err(std::io::Error::other(cleanup_hint(path, &tmp, last)))
 }
 
+/// CAS 变体:内容指纹匹配才替换(D-261 并轨 architecture.rs 的 replace_recoverably)。
+///
+/// 写临时文件后、rename 前校验**目标当前内容**的指纹仍等于 `expected_hash`,
+/// 不匹配则**放弃替换**并返回错误(目标原样未动)——调用方拿到错误后应重新
+/// get,而不是把并发期间的改动盖掉。返回 `Result<(), String>` 与旧
+/// `replace_recoverably` 保持一致,conventions/architecture 调用点无需改签名。
+///
+/// 成功路径与 [`write_atomic`] 相同:同目录临时文件 + 原子 rename,Windows 上
+/// 可原子覆盖已有目标,不需要 backup 三步走。失败路径保留临时文件供排查。
+pub fn write_atomic_cas(
+    path: &Path,
+    content: &str,
+    expected_hash: &str,
+    hash_of: impl Fn(&str) -> String,
+) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .ok_or_else(|| format!("{} 没有父目录,无法在同目录建临时文件", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
+    let tmp = temp_sibling(path, parent);
+
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&tmp)
+        .map_err(|e| format!("cannot create {}: {e}", tmp.display()))?;
+    if let Err(error) = file
+        .write_all(content.as_bytes())
+        .and_then(|()| file.sync_all())
+    {
+        drop(file);
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("cannot persist {}: {error}", tmp.display()));
+    }
+    drop(file);
+
+    let live = std::fs::read_to_string(path).unwrap_or_default();
+    let live_hash = hash_of(&live);
+    if live_hash != expected_hash {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "stale expected_hash `{expected_hash}` during final write; the file is now `{live_hash}`. Nothing was replaced. Re-run `get`."
+        ));
+    }
+
+    let mut last: Option<std::io::Error> = None;
+    for attempt in 0..RENAME_ATTEMPTS {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last = Some(error);
+                std::thread::sleep(Duration::from_millis(
+                    RENAME_BACKOFF_MS * (attempt as u64 + 1),
+                ));
+            }
+        }
+    }
+    let reason = last.map(|e| e.to_string()).unwrap_or_default();
+    Err(format!(
+        "原子替换 {} 失败: {reason}。新内容已完整写在 {},原文件未被破坏——\
+         重试本次操作,或确认没有进程占用目标后把临时文件改名回去。",
+        path.display(),
+        tmp.display(),
+    ))
+}
+
 /// 替换失败时的错误文本:点名目标、临时文件与恢复动作。
 ///
-/// 为什么**不删**临时文件(与 kanzei-llm/src/auth/store.rs 的取舍相反):凭证
+/// 为什么**不删**临时文件(与 kanzei-llm/src/auth/store.rs 的旧取舍相反):凭证
 /// 文件删了还能重新登录,而 tracker 文档的新内容是**内存里唯一的一份**——工具
 /// 一返回就没了,删掉等于把用户/agent 这次编辑直接丢掉。原文件在任何一条失败
 /// 路径上都未被触碰,所以"保留现场"是纯增益(R-138 验收④)。
@@ -377,6 +448,10 @@ mod tests {
         dir
     }
 
+    fn 指纹(s: &str) -> String {
+        format!("hash:{}", s.len())
+    }
+
     #[test]
     fn 原子写替换已有目标且不留临时文件() {
         let dir = 临时目录("replace");
@@ -545,6 +620,34 @@ mod tests {
             std::fs::read_to_string(dir.join(&留证[0])).unwrap(),
             "新内容"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn CAS指纹匹配时替换_不匹配时放弃且原文件不动() {
+        let dir = 临时目录("cas");
+        let path = dir.join("doc.md");
+        write_atomic(&path, "旧内容").unwrap();
+
+        // 指纹匹配:替换成功。
+        write_atomic_cas(&path, "新内容", &指纹("旧内容"), 指纹).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "新内容");
+
+        // 指纹不匹配:放弃替换,原文件保持"新内容"。
+        let err = write_atomic_cas(&path, "覆盖内容", &指纹("别的"), 指纹).unwrap_err();
+        assert!(err.contains("stale expected_hash"), "要点名 CAS 失败: {err}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "新内容",
+            "CAS 失败路径绝不能碰原文件"
+        );
+        // 临时文件被清理:内容没保留价值(目标已是并发方的新版本)。
+        let 残留: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(残留.is_empty(), "CAS 放弃后不该留临时文件");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

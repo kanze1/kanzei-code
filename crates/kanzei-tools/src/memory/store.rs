@@ -436,7 +436,8 @@ impl MemoryStore {
             Some(p) => p.to_path_buf(),
             None => self.root.join(format!("{}.md", entry.file_stem())),
         };
-        atomic_write(&path, &render_entry(entry))
+        crate::atomic_file::write_atomic(&path, &render_entry(entry))?;
+        Ok(())
     }
 
     /// 归档失效条目(D-231/R-165 验收③):deprecated/invalid 移入 archive/ 带墓碑。
@@ -484,7 +485,7 @@ impl MemoryStore {
         if candidates > 0 {
             index.push_str(&format!("\n({candidates} candidate 条待验证晋升)\n"));
         }
-        atomic_write(&self.index_md(), &index)?;
+        crate::atomic_file::write_atomic(&self.index_md(), &index)?;
 
         let conn = self.open_db()?;
         conn.execute("DELETE FROM memory_fts", [])?;
@@ -1110,7 +1111,7 @@ impl MemoryStore {
     pub fn clear_inbox(&self) -> anyhow::Result<()> {
         let path = self.root.join("inbox.md");
         if path.is_file() {
-            atomic_write(&path, "# Memory Inbox\n")?;
+            crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
         }
         Ok(())
     }
@@ -1156,7 +1157,7 @@ impl MemoryStore {
                 format!("{}\n", detail.trim())
             },
         ));
-        atomic_write(&path, &text)?;
+        crate::atomic_file::write_atomic(&path, &text)?;
         Ok(path)
     }
 
@@ -1238,7 +1239,7 @@ impl MemoryStore {
         if !next.ends_with('\n') {
             next.push('\n');
         }
-        atomic_write(&self.root.join("inbox.md"), &next)?;
+        crate::atomic_file::write_atomic(&self.root.join("inbox.md"), &next)?;
         Ok(removed)
     }
 
@@ -1296,7 +1297,7 @@ impl MemoryStore {
             let _ = self.write_entry(&entry, None);
         }
         let _ = self.refresh_derived();
-        let _ = atomic_write(
+        let _ = crate::atomic_file::write_atomic(
             &legacy,
             "# Memory\n\n(已迁移至 .kanzei/memory/,由 memory_search 检索;本文件不再使用。)\n",
         );
@@ -1454,14 +1455,6 @@ fn flush_cjk(cjk: &mut Vec<char>, terms: &mut Vec<String>) {
         }
     }
     cjk.clear();
-}
-
-/// tmp+rename 原子替换(std::fs::rename 在 Windows 用 MOVEFILE_REPLACE_EXISTING)。
-fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {
-    let tmp = path.with_extension("md.tmp");
-    std::fs::write(&tmp, content)?;
-    std::fs::rename(&tmp, path)?;
-    Ok(())
 }
 
 #[cfg(test)]

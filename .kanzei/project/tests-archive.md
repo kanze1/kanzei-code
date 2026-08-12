@@ -1877,3 +1877,20 @@
 - 摘要: conventions.md 项目文件删除通用节(§1~§3、§5、§7、§8、§10),保留项目特有 §4/§6/§9/§9.1;profiles.rs 测试 conventions_与提示词对三条定调保持同口径 真源从项目文件迁到 kanzei_harness::DEFAULT_CONVENTIONS,并新增反向断言(项目文件不得再含通用节)。cargo test -p kanzei-tools 256 全绿(含 conventions_ 两条)。
 - 关联: R-191
 - 收尾: 1786484486
+
+## T-1786484696 R-191 B6 注入测试四关键节断言 [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: R-191 B6:注入测试 required 数组补齐 §1.1/§1.3/§1.4/§1.25 四关键节断言(验收②)。cargo test -p kanzei-tools 全绿(conventions_ 两条 + 其余 254 项)。
+- 关联: R-191
+- 收尾: 1786484696
+
+## T-1786484828 R-191 关闭前全量测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: R-191 关闭前全量:cargo test --workspace 全绿(kanzei-tools 256、kanzei-harness 122、kanzei-core 110、kanzei-app 43、kanzei-llm 14 等,无失败)。
+- 关联: R-191
+- 收尾: 1786484828
+
+## T-1786500363 D-261 atomic_file 全仓单源化并轨 [passed]
+- 摘要: atomic_file 下沉 kanzei-llm(新增 write_atomic_cas),kanzei-tools 重导出;auth/store.rs、memory/store.rs、files.rs、architecture.rs/conventions.rs 四处第二套 tmp+rename 全部并轨,删除旧 kanzei-tools/src/atomic_file.rs。cargo test -p kanzei-llm -p kanzei-tools:249 passed;cargo check --workspace 通过。
+- 关联: D-261
+- 收尾: 1786500363

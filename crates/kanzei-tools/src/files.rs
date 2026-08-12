@@ -61,10 +61,7 @@ pub fn save_annotations(project_root: &Path, store: &AnnotationStore) -> std::io
     // 下次 load 解析失败回落 Default,整库标注静默清零(D-213 一类)。
     let text = serde_json::to_string_pretty(store)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, &path)?;
-    Ok(())
+    crate::atomic_file::write_atomic(&path, &text)
 }
 
 /// 内容指纹。凡是标注会覆盖的文件(代码/md)扫描时本来就读了全文,顺手 FNV-1a——

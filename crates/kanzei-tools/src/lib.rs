@@ -1,7 +1,9 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
 pub mod architecture;
-pub mod atomic_file;
+/// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
+/// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
+pub use kanzei_llm::atomic_file;
 mod background;
 mod base;
 mod bash;

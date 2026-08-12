@@ -21,7 +21,7 @@ use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::architecture::{content_hash, replace_recoverably};
+use crate::architecture::content_hash;
 
 /// 开发规范(相对项目根)。
 pub const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
@@ -210,7 +210,8 @@ fn write_patch(path: &Path, current: String, new_content: String, expected: &str
     } else {
         new_content
     };
-    if let Err(e) = replace_recoverably(path, &new_content, expected) {
+    if let Err(e) = crate::atomic_file::write_atomic_cas(path, &new_content, expected, content_hash)
+    {
         return ToolOutput::error(e);
     }
     let diff_lines = new_content.lines().count() as i64 - current.lines().count() as i64;

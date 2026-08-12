@@ -5,13 +5,13 @@
 - 复杂度: 大
 - 标签: 核心 后端 前端 并行 自举
 - 来源: 2026-08-12 用户连续截图与复现；全局扫描确认不是单一 CSS 问题，而是后端会话态、前端事件态、轮询快照、线路设置和 trace 落库粒度共同漂移。
-- 复现:
+- 复现: 
   1. 任务实际收到进度事件，左侧线路仍显示「空闲」，顶部 stop 不出现。
   2. 一轮结束后鞭挞仍会等待/续跑，但底部通过 `setStatus(..., false)` 显示普通空闲。
   3. 主线开启 `dev-auto`/鞭挞后切到未配置并行线，新线继承旧 profile、checkbox 或旧 timer。
   4. 运行中切线或重载，右侧活动记录要等轮末 trace 落库，轮内轨迹暂时消失。
-- 根因:
-  - `kz:done` 是轮末事件，旧投影把它当会话终态；`kz:idle` 才是运行循环结束。
+- 根因: 
+- `kz: done` 是轮末事件，旧投影把它当会话终态；`kz:idle` 才是运行循环结束。
   - 运行态既由后端 `runtime.running`、前端 `sessionStates`、`process_list`、`collaboration_snapshot` 投影，又被多个 handler 直接写状态，缺少单一投影出口。
   - 并行线路页依赖 3.5/8 秒轮询，实时事件与轮询没有明确优先级。
   - `run.trace` 主要在轮末收尾写入，活动回放天然是轮粒度。
@@ -20,7 +20,7 @@
 - 验收: 以 R-197 八条验收为准，额外保留两条反证：①`kz:done` 后模拟第二轮/排队输入仍显示运行；②主线鞭挞开启后切未配置并行线不会产生 `auto=true` 的目标 session 请求。
 - 证据等级: E1(用户复现 + 代码调用链核实，修复后需提升为 E2/E3)
 - 进展: 2026-08-12 已完成并发布。运行态以 session_id 实时事件为先、轮询仅校准；`kz:done` 与 `kz:idle` 分离；鞭挞等待保持可停止的独立状态；profile/auto/timer 按线路隔离；run.trace 增量落库并保留轮级汇总；历史继续挂在线路下。最终审计补上旧轮询快照覆盖实时事件/启动意图的竞态，并把 `kz:error` 分为非终态告警与终态失败。相关测试与安装核验见本次交付记录，WebView2 E2 受当前探针环境限制未计入通过证据。
-- 阻塞:
+- 阻塞: 
 
 ## D-209 对话落库粒度太粗(用户反馈,具体维度待澄清) [open] (medium)
 - refs: D-208 D-185
@@ -84,23 +84,6 @@
 2026-08-13 验收②复核:发现并清理一处伪阻塞漂移——R-176 阻塞字段写「未完成依赖: R-175」(内部顺序依赖,解除权在 agent),已清空阻塞字段、依赖关系保留在依赖字段,复核过程见本轮进展。其余条目阻塞字段均为合法外部阻塞(用户拍板/用户复查/环境工具),无伪可执行 doing(三个 doing 均带具名解除人),无挂起无载体。未升级 §1.1/取活器:本次漂移是单条误写,不是规则缺陷,§1.1 已覆盖此情形(「上游条目自身只是被自记阻塞(伪传递阻塞)」不算阻塞);继续观察,累计复现达阈值再升级。
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。复核已累计 3 轮(2026-08-13 ×2、2026-08-14 ×1),无同类复现。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
-
-## D-260 test_runs_snapshot 只读命令却写盘且不持任何锁:绕过不变量 8 的最后一个写点 [open] (medium)
-- 优先级: P2
-- 复杂度: 小
-- 标签: 后端
-- 证据等级: E1(读码核实两处调用链,2026-08-10 dev HEAD;行号以实读为准,R-138 的代理正在改 docs.rs)
-- 复现: `crates/kanzei-app/src/docs.rs` 的 `test_runs_snapshot` 是**同步只读命令**,直接转调 `kanzei_tools::test_record::test_runs_snapshot(&root)`,**不取任何锁**。而被调方在 `crates/kanzei-tools/src/test_record.rs` 里会真的写盘:发现 active 里有终态记录时,`std::fs::write(&archive_path, ...)` + `std::fs::write(&active_path, ...)` **改两个文件**。
-- 对照(同文件的两个兄弟命令都做了): 同一 docs.rs 里的 `test_run_record` 与 `test_runs_init_refs` 都先 `acquire_writer_lease` 再写(R-171 批4 模式,注释明写「不能绕过协调器」)。只有 `test_runs_snapshot` 这条读路径顺手写盘却什么都不持。
-- 影响: 这是设计不变量 8(「`test_record` 等写入口不得绕过协调器」,见 docs/design/parallel_read_serial_write_orchestration.md)的残留缺口。用户点开测试面板的那一刻,可以与 agent 那边的 `test_record` 写入撞在一起,两个写入者同时整文件重写 `tests.md` / `tests-archive.md`——与 D-249 描述的 `docs_snapshot` 竞态**同构**。
-- 修复口径(照抄 R-138 对 `docs_snapshot` 的处置,**不要挂写租约**): R-138 本轮对同文件 `docs_snapshot` 的处置是**毫秒级文件锁 + 限时 `try_lock`**(`crates/kanzei-tools/src/atomic_file.rs` 的 `FileLock`,拿不到就跳过归档、落 `warnings`),而不是挂写租约——`MemoryCoordinator::acquire_writer_lease` **无超时**,挂上去会让面板在 agent 跑一轮期间整段卡死,等于拿一个更严重的问题换一个更轻的。判据已写进不变量 8 的 2026-08-10 补注:**代理发起的写动作走租约;界面读路径顺手做的幂等维护走文件锁**。本条属后者。
-- 验收: ①`test_runs_snapshot` 的归档写盘被限时文件锁保护,拿不到锁时**跳过归档但正常返回读结果**(不阻塞面板、不报错弹窗),有测试;②并发「面板刷新 + agent `test_record`」的用例下,`tests.md` / `tests-archive.md` 不丢条目、不出现截断态,有回归;③归档写盘走原子写(与 D-261 并轨,不各写各的);④`test_runs_snapshot` 不引入写租约(有断言或注释锁定这条口径,防下一个人"顺手改成和兄弟命令一致"把面板卡死)。
-- refs: R-138 D-227 D-249 D-261 docs/design/parallel_read_serial_write_orchestration.md
-
-- 进展: 2026-08-13 核验(保持 open,不关闭):实质修复已由 D-261(dadf1ce,经 88b9cda 并入 dev)在 test_record.rs 中顺带交付,本条做核验记录(既有能力标注,非本次新写代码)。逐条证据:①归档写盘被限时文件锁保护、拿不到锁跳过且正常返回读结果——archive_terminal_records(test_record.rs:296-300)try_lock_exclusive(active_path, 200ms),拿不到锁 return Ok(());测试「快照归档拿不到锁时跳过而不是报错」(test_record.rs:1501-1534)。②并发面板刷新+agent test_record 不丢条目/不截断——三条既有用例组合覆盖:「外部持锁期间登记必须等待而不是抢先写入」(:1460-1494,agent 方向)、「快照归档拿不到锁时跳过而不是报错」(:1501-1534,面板方向)、「并发登记不撞号也不丢记录」(:1410-1452,8 线程无外部串行)——锁是同一把 atomic_file 独占句柄,任意两写者并发只落「等待/跳过/串行」三态之一。③归档写盘走原子写:write_atomic(archive_path, :340)与 write_atomic(active_path, :346),与 D-261 并轨无第二套。④不引入写租约:docs.rs test_runs_snapshot(:61-64)薄封装只转调,无 acquire_writer_lease;test_record.rs:285-288 注释明确锁定口径,防下一个人顺手改挂租约。
-
-**保持 open 的原因**:复杂度 medium,按 conventions §1.4 关闭前需跑 cargo test --workspace 全量;2026-08-13 无人值守会话的权限白名单无 cargo,本轮无法执行全量。全量由 D-261 关闭时(其验收③并轨第二套原子写后)或下次发版门禁(verify.ps1)兜底,与本条共享同一批代码改动。
-- 阻塞: 
 
 ## D-261 test_record 五处 std::fs::write 未并轨 atomic_file:跨进程 CAS 缺失,仓里两套写原语 [open] (medium)
 - 优先级: P3
@@ -333,3 +316,4 @@
 - 根因(待证): ①manager 消化 inbox note 时选错了目标条目(疑似按相似度挑中最近写入或得分最高的一条,而不是同主题那条);②memory update 对 description 是整值替换,不校验新 description 与该条目 title/正文是否同主题;③记忆写入没有并发保护,人工维护与轮末 manager 可以同时写同一个文件。
 - 规避: 做记忆维护前先停自动推进循环。
 - 优先级: P2
+

@@ -158,7 +158,9 @@ impl Tool for ArchitectureTool {
                         issues.join("\n"),
                     ));
                 }
-                if let Err(e) = replace_recoverably(&path, &content, &expected) {
+                if let Err(e) =
+                    crate::atomic_file::write_atomic_cas(&path, &content, &expected, content_hash)
+                {
                     return ToolOutput::error(e);
                 }
                 let diff_lines = content.lines().count() as i64 - current.lines().count() as i64;
@@ -187,72 +189,9 @@ fn read_index(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_default()
 }
 
-/// 同目录临时文件 + 可恢复替换。写临时文件后再次核对 CAS，避免校验期间的外部修改
-/// 被覆盖；Windows 不能原子覆盖已有目标，因此先保留 backup，替换失败会恢复原件。
-/// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
-pub(crate) fn replace_recoverably(
-    path: &Path,
-    content: &str,
-    expected_hash: &str,
-) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("{} has no parent", path.display()))?;
-    std::fs::create_dir_all(parent)
-        .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    let temp = parent.join(format!(".architecture-{}-{nonce}.tmp", std::process::id()));
-    let backup = parent.join(format!(".architecture-{}-{nonce}.bak", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(&temp)
-        .map_err(|e| format!("cannot create {}: {e}", temp.display()))?;
-    use std::io::Write;
-    if let Err(error) = file
-        .write_all(content.as_bytes())
-        .and_then(|_| file.sync_all())
-    {
-        let _ = std::fs::remove_file(&temp);
-        return Err(format!("cannot persist {}: {error}", temp.display()));
-    }
-    drop(file);
-
-    let live = read_index(path);
-    let live_hash = content_hash(&live);
-    if live_hash != expected_hash {
-        let _ = std::fs::remove_file(&temp);
-        return Err(format!(
-            "stale expected_hash `{expected_hash}` during final write; the file is now `{live_hash}`. Nothing was replaced. Re-run `get`."
-        ));
-    }
-
-    let had_target = path.exists();
-    if had_target {
-        std::fs::rename(path, &backup)
-            .map_err(|e| format!("cannot preserve {} before replacement: {e}", path.display()))?;
-    }
-    if let Err(error) = std::fs::rename(&temp, path) {
-        if had_target {
-            let _ = std::fs::rename(&backup, path);
-        }
-        let _ = std::fs::remove_file(&temp);
-        return Err(format!(
-            "cannot replace {}: {error}; original was restored",
-            path.display()
-        ));
-    }
-    if had_target {
-        let _ = std::fs::remove_file(&backup);
-    }
-    Ok(())
-}
-
 /// 内容指纹(CAS 用)。规范化行尾后再哈希:换行风格不同不该算作并发改动。
 /// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
+/// 写盘本体是 kanzei_llm::atomic_file::write_atomic_cas(D-261 并轨),这里只留指纹。
 pub(crate) fn content_hash(content: &str) -> String {
     let normalized = content.replace("\r\n", "\n");
     let mut hasher = std::collections::hash_map::DefaultHasher::new();

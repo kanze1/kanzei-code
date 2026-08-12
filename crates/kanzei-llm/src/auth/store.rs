@@ -15,6 +15,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::atomic_file;
 use crate::error::LlmError;
 
 /// 落盘刷新后的凭证。`disk_is_fresher(disk, mine)` 为真时放弃本次写入并返回磁盘上
@@ -33,42 +34,17 @@ pub fn commit(
             return Ok(disk);
         }
     }
-    atomic_write(path, next)?;
+    let serialized = serde_json::to_string_pretty(next)
+        .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
+    atomic_file::write_atomic(path, &serialized).map_err(|e| {
+        LlmError::Config(format!("原子替换 {} 失败: {e}", path.display()))
+    })?;
     Ok(next.clone())
 }
 
 fn read_json(path: &Path) -> Option<Value> {
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&text).ok()
-}
-
-fn atomic_write(path: &Path, value: &Value) -> Result<(), LlmError> {
-    let serialized = serde_json::to_string_pretty(value)
-        .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
-    // 临时文件必须与目标同目录:跨卷 rename 不是原子操作,某些实现还会直接失败。
-    // 名字带 pid,避免两个 kanzei 进程互相踩临时文件。
-    let tmp = path.with_extension(format!("kz{}.tmp", std::process::id()));
-    std::fs::write(&tmp, serialized.as_bytes())
-        .map_err(|e| LlmError::Config(format!("write {}: {e}", tmp.display())))?;
-
-    // Windows 上目标被别的进程打开时 rename 会短暂失败,重试几次即可;
-    // 彻底失败时删掉临时文件,绝不退回 truncate-then-write。
-    let mut last = None;
-    for attempt in 0..5 {
-        match std::fs::rename(&tmp, path) {
-            Ok(()) => return Ok(()),
-            Err(error) => {
-                last = Some(error);
-                std::thread::sleep(std::time::Duration::from_millis(40 * (attempt + 1)));
-            }
-        }
-    }
-    let _ = std::fs::remove_file(&tmp);
-    Err(LlmError::Config(format!(
-        "原子替换 {} 失败: {}。凭证保持原样未被破坏,稍后重试或重新登录。",
-        path.display(),
-        last.map(|e| e.to_string()).unwrap_or_default()
-    )))
 }
 
 /// 按毫秒时间戳字段比较新旧(Claude 的 claudeAiOauth.expiresAt)。

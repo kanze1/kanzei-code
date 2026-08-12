@@ -295,7 +295,7 @@ mod context_limit_tests {
         );
         config.fill_defaults();
 
-        assert_eq!(config.providers["deepseek"].context_limit, Some(128_000));
+        assert_eq!(config.providers["deepseek"].context_limit, Some(1_000_000));
         assert_eq!(config.providers["codex"].context_limit, Some(272_000));
         assert_eq!(config.providers["anthropic"].context_limit, Some(200_000));
         assert_eq!(config.providers["kimi"].context_limit, Some(1_000_000));
@@ -330,7 +330,7 @@ fn known_context_limit(name: &str, base_url: &str) -> Option<u64> {
         ("claude", 200_000),
         ("codex", 272_000),
         ("openai", 272_000),
-        ("deepseek", 128_000),
+        ("deepseek", 1_000_000),
         ("moonshot", 128_000),
         ("kimi", 128_000),
         ("ollama", 32_000),
@@ -692,7 +692,7 @@ impl KanzeiConfig {
                 api_key_env: Some("DEEPSEEK_API_KEY".into()),
                 api_key: None,
                 auth: None,
-                context_limit: Some(128_000),
+                context_limit: Some(1_000_000),
             });
         // context_limit 逐字段兜底(D-173)。
         //

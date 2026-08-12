@@ -2926,7 +2926,7 @@
 
 - 进展: 2026-08-13 代码交付(见上)。2026-08-15 用户重启引擎后执行真实清理:repair_reused_archived_id T-1786297655(四条→保留 i18n 第一条,其余改号 T-1786478785/786/787)、T-1786341674(两条→保留 tools 第一条,改号 T-1786478788);机械核验 `^## T-(\d+)` 364 条记录编号全部唯一(UNIQ-OK);修复动作有逐条输出、标题/状态/命令/摘要/关联字段一字未动;T-1786478774 记录终态 passed。验收①②③④全部满足,关闭。
 
-## D-283 自举轮提交前不跑 fmt/clippy/ui_lint,存量违规攒到发版才集中爆发 [wontfix] (low)
+## D-285 自举轮提交前不跑 fmt/clippy/ui_lint,存量违规攒到发版才集中爆发 [wontfix] (low)
 - 备注: 不建议直接在发版脚本里自动修复:那会让违规在无人察觉中被改写,与 D-183 强制停顿的设计意图相反。
 - 复现: 2026-08-12 发版前跑 scripts/verify.ps1,连撞三处存量违规,全部来自此前已提交的自举轮代码,均非本次改动引入:①cargo fmt 未归一(R-191 B5a dc087ae 的折行);②clippy -D warnings 红(conventions.rs 三处 unused_mut、tracker.rs 一处 question_mark,来自 587bca1/dc087ae);③ui_lint no-undef 红(D-278 b76a5f0 新增顶层函数 fastStatusText 后未重跑 scripts/gen-ui-lint-globals.mjs)。修掉这三处用了三个杂活提交(a9f78f2/d81ffd7/3f268a5)才进得了发版。
 - 影响: 每次发版都要先做几个与本次交付无关的杂活提交,发版动作被拖长;发版者要现场判断别人留下的违规该不该改;违规越攒越多时一次发版可能被拖成半小时的清理。
@@ -2945,3 +2945,29 @@
 - 根因: CLI 的 tracker 入口是位置参数薄封装。add 分支这次刚补上字段开关(--severity/--priority/--complexity/--tag/--field 键=值,提交 f104890 与后续),update 分支没有同步。
 - 优先级: P3
 - 进展: 2026-08-12 05:10 已交付(提交 cb09746):登记开关解析抽成 parse_tracker_flags,add 与 update 共用——--severity/-s、--priority/-p、--complexity、--tag、--field 键=值(可重复,能写 进展 等任意字段)。位置参数语义不变:add 拼标题,update 取第一个作 id、第二个作 status。验收证据:①新增单测 登记开关解析_字段与位置参数各归各位,覆盖字段与位置参数分离、值内等号只按第一个切、无字段开关时不产出空 fields 键;②实测走通全程——本次 D-281/D-282/D-284 与 R-194/R-195/R-196 六条登记全部经该开关写入完整字段(复现/根因/影响/期望/来源/现状/内容/边界/验收),且用 update --field 阻塞= 清掉了 R-191 的过期阻塞字段、写入进展;③全量 694 测试通过,cargo clippy --workspace --all-targets -- -D warnings 零告警。残余:本次修改在 build-3f268a5 之后,已安装的 kz 要等下次发版才带上该开关(仓内 target/release/kz.exe 已可用)。
+
+## D-286 deepseek provider 默认 context_limit 128k 与实际 1M 不符:UI 占用比例失真、压缩预检过早触发 [fixed] (medium)
+- 修复: config.rs 三处 deepseek 默认值 128_000 → 1_000_000:fill_defaults 内置 provider 默认、known_context_limit 回填表、context_limit_tests 断言。kimi/moonshot 保持 128k 不动。
+- 复现: kanzei.toml 的 [providers] 为空时走 fill_defaults 内置默认,deepseek provider 的 context_limit 硬编码 128_000(known_context_limit 与 fill_defaults 两处),而用户实际使用的 deepseek-v4-flash 模型上下文窗口为 1M。影响:①UI 占用比例按 128k 算,塞到 128k 就显示 100% 实际才用 12.8%;②drive.rs 压缩预检(context_budget_ratio 70%)与 run.rs 自动压缩(70%)都以 128k 为基准,约 90k 就开始压缩,严重浪费 1M 窗口。
+- 标签: 后端
+- 进展: 修复完成:config.rs 三处 128_000 → 1_000_000(known_context_limit 表、fill_defaults 内置 deepseek、测试断言),测试断言同步更新。验证:cargo test -p kanzei-harness context_limit 2 passed。残余:UI 打包进 exe,需用户重建 kzapp 后确认设置页 deepseek 占用比例正常;若用户实际跑 deepseek-chat(128k)需显式配置覆盖。
+- 验收: ①KanzeiConfig::default().fill_defaults() 后 deepseek.context_limit == Some(1_000_000),有测试;②known_context_limit("deepseek", ...) 返回 1_000_000,有测试;③provider 级单值机制不变(deepseek 其他模型如 deepseek-chat 若上下文更小,由用户显式配置覆盖)。
+- 优先级: P2
+
+## D-260 test_runs_snapshot 只读命令却写盘且不持任何锁:绕过不变量 8 的最后一个写点 [fixed] (medium)
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端
+- 证据等级: E1(读码核实两处调用链,2026-08-10 dev HEAD;行号以实读为准,R-138 的代理正在改 docs.rs)
+- 复现: `crates/kanzei-app/src/docs.rs` 的 `test_runs_snapshot` 是**同步只读命令**,直接转调 `kanzei_tools::test_record::test_runs_snapshot(&root)`,**不取任何锁**。而被调方在 `crates/kanzei-tools/src/test_record.rs` 里会真的写盘:发现 active 里有终态记录时,`std::fs::write(&archive_path, ...)` + `std::fs::write(&active_path, ...)` **改两个文件**。
+- 对照(同文件的两个兄弟命令都做了): 同一 docs.rs 里的 `test_run_record` 与 `test_runs_init_refs` 都先 `acquire_writer_lease` 再写(R-171 批4 模式,注释明写「不能绕过协调器」)。只有 `test_runs_snapshot` 这条读路径顺手写盘却什么都不持。
+- 影响: 这是设计不变量 8(「`test_record` 等写入口不得绕过协调器」,见 docs/design/parallel_read_serial_write_orchestration.md)的残留缺口。用户点开测试面板的那一刻,可以与 agent 那边的 `test_record` 写入撞在一起,两个写入者同时整文件重写 `tests.md` / `tests-archive.md`——与 D-249 描述的 `docs_snapshot` 竞态**同构**。
+- 修复口径(照抄 R-138 对 `docs_snapshot` 的处置,**不要挂写租约**): R-138 本轮对同文件 `docs_snapshot` 的处置是**毫秒级文件锁 + 限时 `try_lock`**(`crates/kanzei-tools/src/atomic_file.rs` 的 `FileLock`,拿不到就跳过归档、落 `warnings`),而不是挂写租约——`MemoryCoordinator::acquire_writer_lease` **无超时**,挂上去会让面板在 agent 跑一轮期间整段卡死,等于拿一个更严重的问题换一个更轻的。判据已写进不变量 8 的 2026-08-10 补注:**代理发起的写动作走租约;界面读路径顺手做的幂等维护走文件锁**。本条属后者。
+- 验收: ①`test_runs_snapshot` 的归档写盘被限时文件锁保护,拿不到锁时**跳过归档但正常返回读结果**(不阻塞面板、不报错弹窗),有测试;②并发「面板刷新 + agent `test_record`」的用例下,`tests.md` / `tests-archive.md` 不丢条目、不出现截断态,有回归;③归档写盘走原子写(与 D-261 并轨,不各写各的);④`test_runs_snapshot` 不引入写租约(有断言或注释锁定这条口径,防下一个人"顺手改成和兄弟命令一致"把面板卡死)。
+- refs: R-138 D-227 D-249 D-261 docs/design/parallel_read_serial_write_orchestration.md
+
+- 进展: 2026-08-13 核验(保持 open,不关闭):实质修复已由 D-261(dadf1ce,经 88b9cda 并入 dev)在 test_record.rs 中顺带交付,本条做核验记录(既有能力标注,非本次新写代码)。逐条证据:①归档写盘被限时文件锁保护、拿不到锁跳过且正常返回读结果——archive_terminal_records(test_record.rs:296-300)try_lock_exclusive(active_path, 200ms),拿不到锁 return Ok(());测试「快照归档拿不到锁时跳过而不是报错」(test_record.rs:1501-1534)。②并发面板刷新+agent test_record 不丢条目/不截断——三条既有用例组合覆盖:「外部持锁期间登记必须等待而不是抢先写入」(:1460-1494,agent 方向)、「快照归档拿不到锁时跳过而不是报错」(:1501-1534,面板方向)、「并发登记不撞号也不丢记录」(:1410-1452,8 线程无外部串行)——锁是同一把 atomic_file 独占句柄,任意两写者并发只落「等待/跳过/串行」三态之一。③归档写盘走原子写:write_atomic(archive_path, :340)与 write_atomic(active_path, :346),与 D-261 并轨无第二套。④不引入写租约:docs.rs test_runs_snapshot(:61-64)薄封装只转调,无 acquire_writer_lease;test_record.rs:285-288 注释明确锁定口径,防下一个人顺手改挂租约。2026-08-16 收口关闭:四条验收逐条复核证据仍在(D-261 主修复未回退,git log 88b9cda 仍在 dev 历史),无阻塞字段,按 defect-first 顶序收口。
+
+**保持 open 的原因**:复杂度 medium,按 conventions §1.4 关闭前需跑 cargo test --workspace 全量;2026-08-13 无人值守会话的权限白名单无 cargo,本轮无法执行全量。全量由 D-261 关闭时(其验收③并轨第二套原子写后)或下次发版门禁(verify.ps1)兜底,与本条共享同一批代码改动。
+- 阻塞: 
+
