@@ -99,6 +99,70 @@ fn legacy_date_only_build_requires_a_later_release_day() {
     ));
 }
 
+/// D-287/D-265:「没有可装的东西」有三种成因,渲染成同一句「已是最新」就会
+/// 骗人——用户看到的是「当前版本 a7a122a」配「已是最新(build-c99304f)」。
+/// 判定必须自己把成因说清楚,前端才有得可渲染。
+#[test]
+fn 更新检查把无新版的三种成因分开而不是一律说已是最新() {
+    use super::ReleaseVerdict;
+
+    // ①本地就是那个发布 —— 唯一有资格说「已是最新」的一态。
+    assert_eq!(
+        super::release_verdict(
+            "a7a122a 20260811224500",
+            "build-a7a122a",
+            Some("2026-08-11T22:46:00Z")
+        ),
+        ReleaseVerdict::Latest
+    );
+    // ②本地构建晚于最新发布(自举机常态):不是最新,是领先。
+    assert_eq!(
+        super::release_verdict(
+            "a7a122a 20260811224500",
+            "build-c99304f",
+            Some("2026-08-11T21:22:28Z")
+        ),
+        ReleaseVerdict::Ahead
+    );
+    // ③dev 构建没有可比基准(D-265):必须说无法比较,不能说已是最新。
+    assert_eq!(
+        super::release_verdict("dev", "build-c99304f", Some("2026-08-11T21:22:28Z")),
+        ReleaseVerdict::DevBuild
+    );
+    // ④有 hash 但拿不到发布时间 / 时间戳打平:同样无法比较,不许冒充最新。
+    assert_eq!(
+        super::release_verdict("a7a122a 20260811224500", "build-c99304f", None),
+        ReleaseVerdict::Unknown
+    );
+    assert_eq!(
+        super::release_verdict(
+            "a7a122a 20260811224500",
+            "build-c99304f",
+            Some("2026-08-11T22:45:00Z")
+        ),
+        ReleaseVerdict::Unknown
+    );
+    // ⑤真有新版仍然照旧判 Update,并且只有这一态允许 newer=true。
+    assert_eq!(
+        super::release_verdict(
+            "a7a122a 20260811224500",
+            "build-c99304f",
+            Some("2026-08-12T01:00:00Z")
+        ),
+        ReleaseVerdict::Update
+    );
+
+    for (verdict, status) in [
+        (ReleaseVerdict::Update, "update"),
+        (ReleaseVerdict::Latest, "latest"),
+        (ReleaseVerdict::Ahead, "ahead"),
+        (ReleaseVerdict::DevBuild, "dev"),
+        (ReleaseVerdict::Unknown, "unknown"),
+    ] {
+        assert_eq!(verdict.status(), status, "前端按 status 分支,取值不许漂移");
+    }
+}
+
 #[test]
 fn cli同步只升不降且识别不出版本时按旧处理() {
     let ours = "0c9f903 20260808120442";

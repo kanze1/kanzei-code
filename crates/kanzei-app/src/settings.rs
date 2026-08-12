@@ -447,7 +447,15 @@ pub(crate) fn settings_apply_providers(
             "auth",
             p.auth.as_ref().filter(|s| !s.is_empty()).cloned(),
         );
+        // D-288:与出厂默认相同的 context_limit **不落盘**。写进去等于把「今天的
+        // 默认」冻成用户配置——`settings_get` 发的是 fill_defaults 之后的值,用户
+        // 一次没碰过这个格子的「保存」就足以固化它;此后内置默认再改也追不上
+        // (实测用户的 deepseek 冻在 128000,内置早已是 1_000_000)。留空 = 跟随内置,
+        // 每次加载由 fill_defaults 补齐;真正手填的非默认值照旧原样写入。
         match p.context_limit {
+            Some(limit) if kanzei_harness::config::builtin_context_limit(&name) == Some(limit) => {
+                provider.remove("context_limit");
+            }
             Some(limit) => settings_set_value(provider, "context_limit", limit as i64),
             None => {
                 provider.remove("context_limit");
@@ -995,6 +1003,49 @@ mod tests {
             saved.providers.contains_key("keepme"),
             "空清单不该被当成「删光所有 provider」"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// D-288:设置页保存不得把出厂 context_limit 冻进用户 toml。冻住的后果是
+    /// 内置默认改了(deepseek 128k → 1M)用户永远追不上——`fill_defaults` 只补
+    /// `None`。这里同时钉住反面:用户手填的非默认值必须原样保留。
+    #[test]
+    fn 出厂上下文上限不落盘_手填值原样保留() {
+        let path = 临时配置("providers-context-limit");
+        std::fs::write(&path, "").unwrap();
+        let deepseek_default = kanzei_harness::config::builtin_context_limit("deepseek")
+            .expect("deepseek 是内置 provider,必须有出厂上限");
+        let provider = |limit: Option<u64>| ProviderPayload {
+            name: "deepseek".into(),
+            protocol: "openai".into(),
+            base_url: "https://api.deepseek.com".into(),
+            api_key_env: None,
+            api_key: None,
+            auth: None,
+            context_limit: limit,
+        };
+
+        // ①设置页回填的就是出厂值 → 不写进文件,加载时由 fill_defaults 补齐。
+        settings_save_at_path(空载荷(vec![provider(Some(deepseek_default))]), &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("context_limit"),
+            "出厂默认被冻进用户配置,以后改内置默认就追不上了:\n{text}"
+        );
+        let mut saved: KanzeiConfig = toml::from_str(&text).unwrap();
+        saved.fill_defaults();
+        assert_eq!(
+            saved.providers["deepseek"].context_limit,
+            Some(deepseek_default),
+            "留空必须跟随内置默认"
+        );
+
+        // ②用户真手填了别的数 → 原样落盘,不许被"这是默认"的判断吞掉。
+        settings_save_at_path(空载荷(vec![provider(Some(64_000))]), &path).unwrap();
+        let mut saved: KanzeiConfig =
+            toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        saved.fill_defaults();
+        assert_eq!(saved.providers["deepseek"].context_limit, Some(64_000));
         let _ = std::fs::remove_file(path);
     }
 

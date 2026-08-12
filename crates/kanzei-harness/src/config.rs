@@ -777,6 +777,21 @@ pub fn builtin_provider_names() -> &'static [&'static str] {
     &["anthropic", "ollama", "codex", "claude", "deepseek"]
 }
 
+/// 内置 provider 的出厂 `context_limit`(取自 fill_defaults 本身,不另立名单——
+/// 名单漂移比没有名单更糟,见 D-246)。
+///
+/// D-288:设置页保存时把**每个** provider 的 context_limit 都写进用户 toml,于是
+/// 一次「保存」就把当时的出厂默认冻成了用户配置。deepseek 的出厂值后来从 128k
+/// 改成 1M,用户那份 toml 却永远停在 128000——`fill_defaults` 只补 `None`,不会
+/// 覆盖已有值,所以内置默认再怎么改都追不上。设置页据此判断「这个数只是出厂默认」,
+/// 相同就不落盘,留空即跟随内置。
+pub fn builtin_context_limit(name: &str) -> Option<u64> {
+    let mut config = KanzeiConfig::default();
+    config.providers.clear();
+    config.fill_defaults();
+    config.providers.get(name).and_then(|p| p.context_limit)
+}
+
 fn merge_file(
     config: &mut KanzeiConfig,
     path: &Path,

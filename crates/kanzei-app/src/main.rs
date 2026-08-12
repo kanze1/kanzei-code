@@ -41,8 +41,8 @@ pub(crate) use settings::{ProviderPayload, SettingsPayload};
 
 #[cfg(test)]
 pub(crate) use update::{
-    installed_cli_is_older, pending_path, release_is_newer, update_helper_path, update_log_at,
-    validate_installer, wait_for_parent_exit,
+    installed_cli_is_older, pending_path, release_is_newer, release_verdict, update_helper_path,
+    update_log_at, validate_installer, wait_for_parent_exit, ReleaseVerdict,
 };
 
 pub(crate) use state::{

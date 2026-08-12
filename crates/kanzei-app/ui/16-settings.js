@@ -723,6 +723,27 @@ $("export-project").addEventListener("click", async () => {
 
 // ---------- 版本与更新(GitHub Releases 为源) ----------
 let updateUrl = null;
+// D-287:「没有可装的东西」有三种成因,以前一律渲染成「已是最新(<latest>)」——
+// 于是「当前版本 a7a122a」下面紧挨着「已是最新(build-c99304f)」,两个 hash 打架,
+// 看着就像更新检查坏了。只有 status=latest 这一态有资格说「已是最新」;本地领先
+// 与无法比较各自说自己的话(D-004:不做的理由要说出来),别人的 hash 一律标成
+// 「最新发布」,不冒充「当前」。
+function updateResultText(r) {
+  if (r.status === "none") return r.message;
+  const latest = `${t("最新发布")}:${r.latest}`;
+  switch (r.status) {
+    case "update":
+      return `${t("发现新版本")}:${r.latest}`;
+    case "ahead":
+      return `${t("本地构建晚于最新发布,无需更新")}(${latest})`;
+    case "dev":
+      return `${t("本地是开发构建,无法与发布版比较;要装发布版得手动运行安装器")}(${latest})`;
+    case "unknown":
+      return `${t("拿不到可比的构建时间,无法判断新旧")}(${latest})`;
+    default:
+      return `${t("已是最新")}(${r.latest || r.current})`;
+  }
+}
 $("update-check").addEventListener("click", async () => {
   $("update-result").textContent = t("检查中…");
   $("update-install").classList.add("hidden");
@@ -730,14 +751,10 @@ $("update-check").addEventListener("click", async () => {
   try {
     const r = await invoke("update_check");
     if (r.current) $("update-current").textContent = r.current;
-    if (r.status === "none") {
-      $("update-result").textContent = r.message;
-    } else if (r.newer && r.url) {
+    $("update-result").textContent = updateResultText(r);
+    if (r.newer && r.url) {
       updateUrl = r.url;
-      $("update-result").textContent = `${t("发现新版本")}:${r.latest}`;
       $("update-install").classList.remove("hidden");
-    } else {
-      $("update-result").textContent = `${t("已是最新")}(${r.latest || r.current})`;
     }
   } catch (err) {
     $("update-result").textContent = `${t("检查失败")}:${err}`;

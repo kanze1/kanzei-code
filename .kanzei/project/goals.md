@@ -3,7 +3,7 @@
 ## G-001 把 kanzei 打磨成日常主力开发工具 [active]
 - 类型: 长期
 - 说明: 方向性目标,不主动关闭;好用压倒一切(上下文透明/多agent协作/快/少打断/信息清晰)
-- 进展: 本轮(2026-08-10)完成 R-169+R-170 两条:鞭挞状态机引擎化——自主推进判定全部下沉 kanzei-harness/src/auto_run.rs(12 单测),backlog 单源下沉 kanzei-tools::tracker::backlog_status 供 app/CLI 共用,桌面端前端只执行 kz:done 携带的 autoAction 不再承载判定,CLI 轮末消费 backlog 单源(D-229 架构债消除);继续文案评估定案方案 A(保留降级)——默认从 1.2KB 引擎规则复读降为极简意图句,LEGACY/applyCadenceSettings/cadence 渲染/开发重心拼接全部删除(规则归 system prompt 与 harness)。全量测试与四条冒烟全绿,提交 7c99eff/eb7ae42/0dbb338 已 push。
+- 进展: 本轮(2026-08-16)完成 D-264:提交前 fmt/clippy 门禁代码强制——git.rs 新增 fmt_gate/clippy_gate 挂进 commit 源码分支,与 compile_gate 并列硬门禁(`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 任一不过即拦下提交并点名违规文件);守护测试比对 git.rs/ci.yml/verify.ps1 三处命令一致;§1.4 写入门禁条款。落地时门禁立即抓出两笔漏网(D-261 带入的 non_snake_case 测试名 + 4 文件 fmt 未归一),当场修复。kanzei-tools 253 单测全绿,全 workspace 全绿,已 push。此前的收口链:D-286/D-283/D-260/D-261(atomic_file 单源化)/D-239/D-263 均已完成。
 - 当前判断: 距离"日常主力开发工具"的差距不在功能数量而在可靠性与验收质量——上一轮的验证手段几乎清一色是语法检查,导致带病能力被判定为完成。近期重心应是 R-083(收口 P0 缺陷)、R-084(建立能捕获运行时错误的验收手段)、R-085(完成判定的执行约束),之后再谈新能力。
 
 ## G-002 可靠性、可用性与自举质量的长期基线 [active]

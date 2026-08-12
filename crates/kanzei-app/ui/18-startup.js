@@ -9,9 +9,12 @@
     log(`获取版本失败:${err}`, "warn");
   }
   // 启动静默检查更新(安装版通道):有新包只弹一条 toast,不打断;失败不打扰。
+  // D-265 验收④:dev 构建/本地领先这些「装不了」的成因不弹窗打扰,但结论必须
+  // 提前落进设置页——否则用户不点「检查更新」就永远不知道自己收不到更新。
   setTimeout(async () => {
     try {
       const r = await invoke("update_check");
+      $("update-result").textContent = updateResultText(r);
       if (r.newer && r.url) toast(`发现新版本 ${r.latest} — 设置页「检查更新」可一键安装`);
     } catch {}
   }, 3000);

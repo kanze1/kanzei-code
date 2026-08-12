@@ -1899,3 +1899,9 @@
 - 摘要: D-263:git stage 成功后对照工作区,把未纳入本次请求的未暂存改动点名写进返回(新增 unstaged_changes,git status --porcelain -z 解析);新增回归测试 stage_leaves_foreign_changes_unstaged_and_names_them 验证清单外改动不入暂存区、留在工作区、被点名。cargo test -p kanzei-tools 250 passed。
 - 关联: D-263
 - 收尾: 1786500794
+
+## T-1786501453 cargo test --workspace (D-264 门禁落地) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-264 提交前全量:全 workspace 测试全绿(kanzei-tools 253 passed 含新门禁三测试,其余 crate 全部 ok);全量 clippy -D warnings 绿;cargo fmt --check 绿。提交 e7f9716 之后无源码改动。
+- 关联: D-264
+- 收尾: 1786501453

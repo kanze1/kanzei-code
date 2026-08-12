@@ -96,22 +96,76 @@ pub(crate) fn image_replaced(
     }
 }
 
-pub(crate) fn release_is_newer(current_info: &str, tag: &str, published_at: Option<&str>) -> bool {
+/// 更新检查的判定结果。D-287:两态(有新版 / 已是最新)会把三件完全不同的事
+/// 糊成同一句「已是最新」——
+/// ①本地就是那个发布(**真的**最新);
+/// ②本地构建晚于最新发布(自举机的常态),于是界面显示成「当前版本 a7a122a」
+///   紧挨着「已是最新(build-c99304f)」,两个 hash 摆在一起自相矛盾;
+/// ③根本没法比(dev 构建没有构建时间戳,D-265)。
+/// 判定本身没错,错的是把「无法比较」和「本地领先」都说成「已是最新」。
+/// 每一态都必须能说出自己的理由(D-004:任何不做的理由都要说出来)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReleaseVerdict {
+    /// 发布比本地新,可以装。
+    Update,
+    /// 本地跑的就是最新发布。
+    Latest,
+    /// 本地构建晚于最新发布——没有可装的东西,但也不是「已是最新」。
+    Ahead,
+    /// 本地是开发构建(未注入 KANZEI_BUILD_INFO),与发布版没有可比的基准。
+    DevBuild,
+    /// 有 hash 但缺可比的时间戳(发布无 published_at,或戳相同而 hash 不同)。
+    Unknown,
+}
+
+impl ReleaseVerdict {
+    /// 前端按这个字符串分支渲染文案,不再自己拼「已是最新(别人的 hash)」。
+    pub(crate) fn status(self) -> &'static str {
+        match self {
+            Self::Update => "update",
+            Self::Latest => "latest",
+            Self::Ahead => "ahead",
+            Self::DevBuild => "dev",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+pub(crate) fn release_verdict(
+    current_info: &str,
+    tag: &str,
+    published_at: Option<&str>,
+) -> ReleaseVerdict {
     let current_hash = current_info.split_whitespace().next().unwrap_or("dev");
-    if current_hash == "dev" || tag.is_empty() || tag.contains(current_hash) {
-        return false;
+    if current_hash == "dev" {
+        return ReleaseVerdict::DevBuild;
     }
-    let Some((local_stamp, date_only)) = build_stamp(current_info) else {
-        return false;
-    };
-    let Some(release_stamp) = published_at.and_then(timestamp_digits) else {
-        return false;
-    };
-    if date_only {
-        release_stamp[..8] > local_stamp[..8]
-    } else {
-        release_stamp > local_stamp
+    if tag.is_empty() {
+        return ReleaseVerdict::Unknown;
     }
+    if tag.contains(current_hash) {
+        return ReleaseVerdict::Latest;
+    }
+    let (Some((local_stamp, date_only)), Some(release_stamp)) = (
+        build_stamp(current_info),
+        published_at.and_then(timestamp_digits),
+    ) else {
+        return ReleaseVerdict::Unknown;
+    };
+    // 老的 date-only 构建戳只精确到天,只能按天比——同一天分不出先后,判 Unknown。
+    let width = if date_only { 8 } else { 14 };
+    match release_stamp[..width].cmp(&local_stamp[..width]) {
+        std::cmp::Ordering::Greater => ReleaseVerdict::Update,
+        std::cmp::Ordering::Less => ReleaseVerdict::Ahead,
+        std::cmp::Ordering::Equal => ReleaseVerdict::Unknown,
+    }
+}
+
+/// 「有没有新版可装」= 五态里唯一的 `Update`。生产路径直接读 `release_verdict`
+/// (它还要区分 Ahead/DevBuild/Unknown 来决定文案),这里只留给既有回归测试用。
+#[cfg(test)]
+pub(crate) fn release_is_newer(current_info: &str, tag: &str, published_at: Option<&str>) -> bool {
+    release_verdict(current_info, tag, published_at) == ReleaseVerdict::Update
 }
 
 pub(crate) fn build_stamp(info: &str) -> Option<(String, bool)> {
@@ -177,9 +231,10 @@ pub(crate) async fn update_check_command() -> Result<serde_json::Value, String> 
     let published_at = body["published_at"]
         .as_str()
         .or_else(|| body["created_at"].as_str());
-    let newer = release_is_newer(current, &tag, published_at);
+    let verdict = release_verdict(current, &tag, published_at);
+    let newer = verdict == ReleaseVerdict::Update;
     Ok(
-        json!({ "current": current_hash, "latest": tag, "newer": newer, "url": url, "status": if newer { "update" } else { "latest" } }),
+        json!({ "current": current_hash, "latest": tag, "newer": newer, "url": url, "status": verdict.status() }),
     )
 }
 

@@ -1,5 +1,31 @@
 # Defects
 
+## D-287 更新检查两态不够用:「本地领先于最新发布」被渲染成「已是最新(别人的 hash)」 [fixed] (medium)
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 后端 发版
+- 证据等级: E1(2026-08-12 用户截图 + 代码自证 + 单测)
+- refs: D-265 D-004
+- 复现: 2026-08-12 用户设置页「版本与更新」显示 `当前版本 a7a122a` + 点「检查更新」得到 **「已是最新(build-c99304f)」**。两个不同的 hash 并排摆着还说「已是最新」,看上去像更新检查坏了。实测取证:`c99304f` 是 `a7a122a` 的祖先(`git merge-base --is-ancestor` 通过),GitHub 上 `build-a7a122a` 这个 release **不存在**(本地 package.ps1 打完直接装的,没发布)。
+- 根因: `release_is_newer` 的判定本身没错(本地构建时间戳晚于 release 的 published_at → 无新版),错的是**状态只有两态**。`update_check` 回 `status: if newer {"update"} else {"latest"}`,把三件不同的事糊成一句:①本地就是那个发布;②本地构建晚于最新发布(自举机常态);③根本无法比较(D-265 的 dev 构建)。前端 `16-settings.js` 在 else 分支里无脑打印 `r.latest`,于是把**别人的 hash** 塞进了「已是最新(…)」。
+- 影响: 与 D-265 同族——「发布了但仍在跑旧版」那条线的第四种表现。用户看到自相矛盾的两个 hash,唯一能做的是找人来读代码确认到底哪个在跑;而真正该说的一句话(「你手上这份比线上发布还新」)一次都没说出口。
+- 修复: `update.rs` 引入 `ReleaseVerdict` 五态(Update / Latest / Ahead / DevBuild / Unknown),`status()` 是前后端唯一契约;`release_is_newer` 退化成只判 Update 的测试用包装。前端 `updateResultText(r)` 按 status 一态一句,别人的 hash 一律标成「最新发布」,不再冒充「当前」;`18-startup.js` 的启动静默检查把结论直接写进设置页(不弹 toast),补上 D-265 验收④。
+- 验收: ①无新版的三种成因各有各的文案,只有 status=latest 说「已是最新」;②`release_verdict` 五态有单测,status 取值漂移当场红;③既有 `release_check_never_downgrades_a_newer_local_build` / `legacy_date_only_build_requires_a_later_release_day` 两条回归保持绿;④dev 构建不点「检查更新」也能在设置页看到「无法比较」。
+- 验证: cargo test -p kanzei-app 124 passed(含新增 `更新检查把无新版的三种成因分开而不是一律说已是最新`);cargo clippy -p kanzei-app --all-targets 零警告;node scripts/ui-lint-smoke.mjs / ui-i18n-smoke.mjs 通过。
+
+## D-288 设置页保存把出厂 context_limit 冻进用户 toml:内置默认后来改了永远追不上 [fixed] (medium)
+- 优先级: P1
+- 复杂度: 小
+- 标签: 后端 配置
+- 证据等级: E1(2026-08-12 用户配置实证 + git 历史比对 + 单测)
+- refs: D-173 D-246
+- 复现: 用户 `~/.kanzei/kanzei.toml` 里 `[providers.deepseek] context_limit = 128000`,而 DeepSeek 实际是 1M 窗口;内置默认 `fill_defaults` 早就是 `1_000_000`(`0c9f903` 引入时确为 128_000,后来改对了)。后果:UI 占用比例与压缩预检都按 128k 算基准,DeepSeek 跑到真实容量的 ~12% 就开始压缩。
+- 根因: `settings_get` 发给前端的是 **fill_defaults 之后**的值(含出厂 context_limit),设置页保存时 `settings_apply_providers` 又把**每个** provider 的该字段无条件写回文件。于是用户从没碰过那个格子,一次「保存」就把当时的出厂默认冻成了自己的配置;`fill_defaults` 只补 `None`、不覆盖已有值,内置默认此后再怎么改都追不上。这是「默认值被固化成用户配置」的通病,不止 deepseek 一个字段会中招。
+- 修复: `kanzei-harness::config::builtin_context_limit(name)` 直接取自 `fill_defaults`(不另立名单,避免 D-246 那种名单漂移);`settings_apply_providers` 遇到与出厂默认相同的值就**移除该键**而不是写入——留空 = 跟随内置,每次加载由 fill_defaults 补齐;用户手填的非默认值照旧原样落盘。用户配置里那行 128000 同时按此清掉。
+- 验收: ①保存出厂值后文件里不出现 `context_limit`,加载后生效值等于内置默认;②用户手填的非默认值原样保留;③单测覆盖正反两面。
+- 验证: cargo test -p kanzei-app -p kanzei-harness 234 passed(含新增 `出厂上下文上限不落盘_手填值原样保留`);clippy 零警告。
+- 残余: 只做了 context_limit 这一个字段。设置页其余「回填即落盘」的字段(limits/cadence 已各自有留空语义)未逐一复核,若再出现同类固化按本条同一手法处理。
+
 ## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] (high)
 - 优先级: P0
 - 复杂度: 大
@@ -85,55 +111,7 @@
 - 验收: ①当前三条已修,req get 各条目可见清理后口径(证据:R-101/R-157 有合法阻塞字段,R-151/R-162~R-167 依赖字段为空、进展注明解锁条件);②此后每轮取活前复核阻塞/依赖字段口径,若再次出现同类漂移(伪阻塞、伪可执行 doing、挂起无载体)→ 确认为规则缺陷,升级修 §1.1/取活器并记根因;③连续 10 轮无同类复现 → 用户确认后关闭本条。复核已累计 3 轮(2026-08-13 ×2、2026-08-14 ×1),无同类复现。
 - refs: R-101 R-157 R-151 R-162 R-163 R-164 R-165 R-166 R-167
 
-## D-261 test_record 五处 std::fs::write 未并轨 atomic_file:跨进程 CAS 缺失,仓里两套写原语 [fixed] (medium)
-- 优先级: P3
-- 复杂度: 小
-- 标签: 核心
-- 证据等级: E1(全文件 grep 实证 + 读码核实 R-138 新原语,2026-08-10 dev HEAD)
-- 来源: 2026-08-10 D-227 交付时的残余转出。D-227 本轮只做了 ①编号分配器(扫描已有集合单调推进,串行也保证唯一)与 ②拒写/定点替换(`ensure_id_unused` + 归档侧同号内容不同即拒);**跨进程 CAS 未做**。按裁决要**并轨到 R-138 新建的 `crates/kanzei-tools/src/atomic_file.rs`**,仓里只留一套原子写原语。
-- 复现(实证): `crates/kanzei-tools/src/test_record.rs` 的生产路径仍是**裸 `std::fs::write`** 五处(测试代码另计),全文件对 `atomic_file` 零引用。而 `crates/kanzei-tools/src/docstore.rs` 的四个整文件写点已经全部改成 `crate::atomic_file::write_atomic`。**同一个仓库里因此并存两套写语义**,这正是 atomic_file.rs 头注明令禁止的:「仓里只能有**一套**原子写/文件锁实现……两套原语意味着两套失败语义,并发排查时没人说得清哪一份才是真的」。
-- 影响: ①`std::fs::write` 是**先截断再写**,写到一半时另一个进程(kz CLI / 自举循环 / 第二个 kzapp)读到零长度或半截 `tests.md`——与 D-249 第①层同病;②「读 → 算下一个 id → 写」这段没有跨进程 CAS,分配器的单调推进只在**单进程内**成立,两个 OS 进程同时记录仍可能撞号(D-227 修的是同秒时间戳,不是跨进程竞态);③失败时没有 `atomic_file` 的"保留临时文件供排查"语义。
-- 修复方向: 五处生产写点全部改走 `atomic_file::write_atomic`;「读 → 分配 id → 写」整段用 `atomic_file` 的 `FileLock`(`lock_exclusive` / `try_lock_exclusive`)罩住,与 docstore 的 `TrackerTool` 写动作分支同源。注意 `FileLock` 是 `!Send`,不得跨 await 点持有。**不要另造锁**。
-- 验收: ①`crates/kanzei-tools/src/test_record.rs` 的生产路径不再出现裸 `std::fs::write`(可机械核验:该文件非 `#[cfg(test)]` 区域 grep `fs::write` 零命中);②「读→分配→写」整段持锁,两个进程并发 `test_record` 不撞号、不丢记录,有跨进程或多线程压测覆盖;③全仓只有 `atomic_file` 一套原子写/文件锁原语(grep 无第二处 tmp+rename 或独占句柄实现);④D-227 已交付的分配器与拒写逻辑既有测试保持绿。
-- refs: D-227 R-138 D-249 D-260
-- 进展: 主体已交付(dadf1ce)。2026-08-16 收口验收③(全仓单源化,commit e7f9716):atomic_file 从 kanzei-tools 下沉到 kanzei-llm(依赖图最底层,llm/tools/app 共用),kanzei-tools 用 pub use 重导出,现有 crate::atomic_file 引用零改动;新增 write_atomic_cas(写临时文件后、rename 前校验目标指纹,承接 architecture.rs replace_recoverably 的 CAS 语义,并删掉 Windows 上错误的 backup 三步走)。并轨四处第二套 tmp+rename:①kanzei-llm/src/auth/store.rs(凭证写回,本地 atomic_write 删除;失败保留现场语义对凭证更安全——新 token 是内存唯一一份);②kanzei-tools/src/memory/store.rs(本地 atomic_write 删除,7 个调用点改 write_atomic);③kanzei-tools/src/files.rs(save_annotations 改 write_atomic);④architecture.rs/conventions.rs(replace_recoverably 删除,两处调用点改 write_atomic_cas)。删除旧 crates/kanzei-tools/src/atomic_file.rs。验收③核验:全仓 grep 仅 kanzei-llm/src/atomic_file.rs 有 tmp+rename 实现(其余命中是 docstore/app 测试夹具故意 share_mode(0) 验证锁行为、auth/store 测试断言无残留 tmp,均非生产写原语)。验证:cargo test -p kanzei-llm -p kanzei-tools 249 passed(含新增 CAS 匹配/放弃用例)、cargo check --workspace 通过、cargo test --workspace 全量绿(详见 D-261 收口测试 T-1786500363)。验收①②④既有证据未回退(dadf1ce 在 dev 历史,e7f9716 之上机械守护测试仍在),四条验收全部达成,关闭。
-
-2026-08-13 验收③复核(grep 全仓 tmp+rename / 独占句柄):发现**至少两处第二套原子写实现**仍在仓内——①crates/kanzei-llm/src/auth/store.rs:50-58 自带 tmp+rename(`path.with_extension(format!("kz{}.tmp", ...))` + std::fs::rename,注释还写着「写临时文件再 rename 覆盖」);②crates/kanzei-tools/src/files.rs:64-66 自带 tmp+rename(`path.with_extension("json.tmp")` + rename)。kanzei-tools 内 docstore.rs 已全部引用 crate::atomic_file(308/316/345/348/461/523/608 均为 atomic_file 或 lock 封装)合规。验收③(全仓只有 atomic_file 一套原语)未达成,缺口精确位置如上,待并轨。
-  **未达成的验收③(全仓只留一套原子写原语)**:仓里仍有四处独立 tmp+rename,均不在本次改动面内——`crates/kanzei-llm/src/auth/store.rs:50`、`crates/kanzei-tools/src/architecture.rs:202`、`crates/kanzei-tools/src/files.rs:64`、`crates/kanzei-tools/src/memory/store.rs:1356`。本条据此保持 `open`,收口这四处即可关闭。
-  **另记一条本次实测的设计发现(与 R-182 同源)**:`lock_path_for` 把锁文件放在目标同目录,即 `<worktree>/.kanzei/project/tests.lock`。并行工作树各有自己的 `.kanzei/`,所以**各写各的 `tests.md` 时根本不会互斥**;互斥只在同一份 checkout 被多个进程打开时才成立。这与实测「两个 worktree 相隔 10 秒各 `kz defect add` 都拿到 D-267」是同一件事的两面——**锁生效的前提是文档只有一份**,落点见 R-182 内容①②。
-
-- 阻塞: 
-
-## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [fixed] (medium)
-- 优先级: P1
-- 复杂度: 小
-- 标签: 流程
-- 证据等级: E1(2026-08-11 实例,提交为证)
-- refs: R-181 D-264
-- 复现: 2026-08-11 凌晨,自举循环取活 R-174 期间,外部 agent 正在同一批文件上工作(尚未完成)。自举的 `92879e2`(R-174 B2)与 `25ea2c0`(R-174 B3)**把外部 agent 未完成的改动一并暂存并提交**——提交标题里的「含 R-173 遗留收尾」正是被裹进去的那部分。自举本身并不知道自己提交了什么额外内容。
-- 根因: 自举轮末提交时按「工作区里所有改动都是我的」暂存(`git add -A` / `git commit -a` 一类),而不是只 add 本轮实际动过的文件清单。这个假设在单写者下成立,在有外部 agent 或人手动改动时不成立。
-- 影响: ①**改动归属混乱**——两个来源的改动挤进同一个提交,事后拆分只能靠人读 diff;②**回滚锚点失效**——revert 该提交会连带撤销别人的工作;③被裹进来的改动**没有经过自举自己的门禁**(本次就带进了 8 处 fmt + 6 条 clippy 红灯,见 D-264);④外部 agent 那边看到的是「我没提交,但我的改动不见了/已提交」,极易误判。
-- 修复方向: 轮末提交改为**只暂存本轮明确改动过的文件**——引擎本来就知道自己调用过哪些写工具(edit/write/tracker/test_record 的目标路径都有记录),按那份清单 `git add <file>...`。若发现工作区里有清单之外的改动,**不要静默跳过也不要一并提交**,而是在提交说明或轨迹里明说「工作区另有 N 处非本轮改动,未纳入本次提交」(D-004 口径:任何不做的理由都要说出来)。
-- 边界: 这条与 R-181(跨 agent 写入互斥)互补不互替——R-181 让双方知道对方在写,本条保证**即使撞上了,损伤也只停在各自的文件里**。本条更便宜、更该先做。
-- 验收: ①构造「工作区有本轮之外的改动」场景,自举轮末提交**只包含本轮文件**,清单外的改动仍留在工作区;②提交说明或轨迹里对被跳过的改动有可见记录;③有回归测试覆盖「清单外改动不入暂存区」。
-
-- 进展: 2026-08-16 交付(commit 8c17e2b)。调查结论:提交由模型经结构化 git 工具发起,引擎无自动提交;bash 的 git mutation 已全拦截(bash.rs:598-601 测试),stage 已拒索引中外来路径(git.rs:274-283),但缺「工作区非本轮改动」的可见对照。交付:stage 成功后新增 unstaged_changes 对照(git status --porcelain -z 解析),把未纳入本次请求的未暂存改动点名写进返回(Note: the working tree also contains N change(s) NOT staged by this request...),不静默吞掉也不静默跳过。验收逐条:①构造「工作区有本轮之外改动」场景,自举 stage 只含本轮文件、清单外改动留在工作区——回归测试 stage_leaves_foreign_changes_unstaged_and_names_them(git.rs:1112-1158)断言暂存区恰为 mine.txt、theirs-new.txt 与 base.txt 原样未动;②对被跳过的改动有可见记录——stage 返回里点名列出(测试断言 content 含 NOT staged by this request 与两个外来文件路径);③回归测试覆盖「清单外改动不入暂存区」——测试同时断言 staged_paths == [mine.txt] 且外来文件未被触碰。验证:cargo test -p kanzei-tools 250 passed。既有防线(显式 files 才 stage、拒索引外来路径、bash 拦截 git add -A)互补,本条把最后的可见性缺口补上。残余说明:引擎仍无「本轮写过的文件」自动跟踪(需 harness 层工具轨迹扩展,R-181 互补项),stage 对照点名是当前成本最低的机械防线。
-
-## D-264 定向测试口径漏掉新增集成测试所在 crate:cargo test 全绿但 fmt/clippy 从未跑到 [open] (medium)
-- 优先级: P2
-- 复杂度: 小
-- 标签: 流程
-- 证据等级: E1(2026-08-11 实例,已修但机制未修)
-- refs: D-263 R-152
-- 复现: 2026-08-11 自举交付 R-174 批1-3,进展里写「定向:core 119/harness 82/tools 213/app 67 全绿」与「cargo test --workspace 全量全绿」——都属实。但它本轮**新增的两个集成测试**落在 `crates/kanzei/tests/`(`task_cancel_parallel.rs`、`max_tasks_parallel_dispatch.rs`),而 `cargo test --workspace` 会跑它们、`cargo fmt --all --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` **从头到尾没被跑过**。结果:8 处 fmt + 6 条 clippy 红灯随提交进库(已由 `06a2b87` 收口)。
-- 根因: conventions §1.3/§1.4 的定向验证口径是「动了 crates/ 跑 `cargo test -p <改动 crate>`」——它只提测试,**没提 fmt 与 clippy**,而 CI(`.github/workflows/ci.yml`)与发版门禁(`scripts/verify.ps1`)两处都把 fmt/clippy 列为必过项。规则层与门禁层不同步:按规则做到位,推上去照样红。
-- 影响: 红灯要等 push 后 CI 才暴露,而自举一轮可能提交多次;更糟的是**发版门禁会当场拦下**(本轮 `package.ps1` 的验证证据门禁就是这样拦住的),排查时要回溯好几个提交才找得到源头。
-- 修复方向(二选一或都做): ①把 fmt/clippy 写进 §1.4 的定向清单——每次提交前对**改动文件**跑 `rustfmt --edition 2021 <file>` 与对**改动 crate** 跑 `cargo clippy -p <crate> --all-targets -- -D warnings`(注意:本次那 6 条 clippy 只在编译 `-p kanzei` 时才暴露,只跑改动最多的那个 crate 不够,新增了测试文件就要连它所在的 crate 一起跑);②做成代码强制而非规则:轮末提交前引擎自动跑一次 fmt/clippy 定向检查,红了不许提交(conventions §4「任何『规则』能用代码强制的绝不只写进提示词」)。**推荐 ②**,因为 ① 已经写在规则里过一次而这次仍然漏了。
-- 验收: ①构造「新增文件带 fmt/clippy 违规」的场景,提交前被拦住并明说违规位置;②conventions §1.4 的定向清单与 CI/verify.ps1 的门禁清单**逐项对齐**,两处任一新增门禁时另一处必须同步(可加一条守护测试比对两份清单);③有回归覆盖。
-
-- 进展: 2026-08-13 已修复(代码强制,方向②):git.rs 新增 fmt_gate+clippy_gate 挂进 commit 源码分支,与 compile_gate 并列硬门禁——`cargo fmt --all -- --check` 与 `cargo clippy --workspace --all-targets -- -D warnings` 任一不过即拦下提交并点名违规文件(git.rs 375-505)。验收①:fmt_gate_rejects_unformatted_source_and_names_file / clippy_gate_rejects_lint_violation_and_names_file 两测试构造临时最小 cargo 工程带违规代码,断言被拦且报文件名(git.rs 1315-1365)。验收②:stage_fmt_clippy_gates_align_with_ci_and_verify 守护测试比对 git.rs 实现、ci.yml(.github/workflows/ci.yml:29-32)、scripts/verify.ps1 三处命令文本逐项一致,任一处改参数当场红(git.rs 1263-1296);§1.4 定向清单同步写入编译/format/lint 门禁条款(default_conventions.md §1.4),profiles.rs baseline 断言补 compile_gate。验收③:kanzei-tools 253 单测全绿。落地时门禁立即抓住两笔漏网:①D-261 迁移带入 kanzei-llm/atomic_file.rs 测试名 CAS 前缀 non_snake_case;②该提交 4 文件 8 处 fmt 未归一——均当场修复。遗留说明:进展记录提的第三个维度 ui_lint(gen-ui-lint-globals)走独立前端通道,由 ui-runtime/ui-lint-smoke 脚本与 CI 前端 job 覆盖,不在 Rust 提交门禁范围,已在 §1.4 注明不改动需同步;关闭本条。
-
-## D-265 dev 构建的更新检查谎报「已是最新」:release_is_newer 对 dev 直接返回 false,用户永远不知道该手动装 [open] (medium)
+## D-265 dev 构建的更新检查谎报「已是最新」:release_is_newer 对 dev 直接返回 false,用户永远不知道该手动装 [fixed] (medium)
 - 优先级: P1
 - 复杂度: 小
 - 标签: 发布
@@ -145,6 +123,7 @@
 - 为什么当初这么写(不要简单删掉那个分支): dev 构建没有可比的时间戳(`build_stamp` 需要 `KANZEI_BUILD_INFO` 的第二段),硬跟发布版比会得出无意义的结论。所以 `return false` 在**比较语义**上没错,错的是把「无法比较」渲染成「已是最新」。
 - 修复方向: 让 `update_check` 区分三态而不是两态——`latest`(真的最新)/ `update`(有新版)/ **`incomparable`**(本地是 dev 构建,无法与发布版比较)。第三态的文案必须明说:「本地为开发构建(dev),无法与发布版比较;最新发布是 build-xxxx,需要手动运行安装器」,并给出下载入口。D-004 口径:任何不做的理由都要说出来,绝不静默。
 - 验收: ①`KANZEI_BUILD_INFO` 未设时,设置页不再显示「已是最新」,而是明说无法比较 + 最新发布 tag + 手动安装指引;②发布构建的既有两态行为不变(有既有单测的保持绿);③`release_is_newer` 的三态判定有单测覆盖(dev / 同 hash / 更新的发布各一条);④启动时的静默检查在 dev 构建下也给出一次可见提示(不弹窗打扰,但设置页要能看到)。
+- 进展: 2026-08-12 随 D-287 一并修复(同一处状态机)。三态扩到五态:`ReleaseVerdict::{Update, Latest, Ahead, DevBuild, Unknown}`——本条要的 `incomparable` 拆成 `DevBuild`(没有构建戳)与 `Unknown`(有 hash 但拿不到/比不出发布时间),两者文案不同,后者不该说成「你在跑 dev 构建」。验收逐条:①dev 构建现在渲染「本地是开发构建,无法与发布版比较;要装发布版得手动运行安装器(最新发布:build-xxxx)」;②发布构建路径经由 `release_is_newer` 包装,两条既有回归单测未改一字仍绿;③五态各一条断言 + status 契约表(update_tests_update.rs);④`18-startup.js` 的启动静默检查把结论写进设置页 `#update-result`,不弹 toast。关闭本条。
 
 ## D-266 setup.exe 的 /S 静默安装在 kzapp 运行时静默无效:退出码 0、文件没换、无任何提示 [open] (medium)
 - 优先级: P1
