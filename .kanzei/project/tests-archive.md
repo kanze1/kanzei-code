@@ -2018,3 +2018,8 @@
 - 摘要: cargo test --workspace 全绿(kanzei-tools 260 passed 1 ignored、harness 114、core 137、app 143,0 failed)。D-276 复杂度=中,关闭前全量。
 - 关联: D-276
 - 收尾: 1786562252
+
+## T-1786562463 cargo test -p kanzei-tools --lib profiles (D-279) [passed]
+- 摘要: cargo test -p kanzei-tools --lib profiles:14 passed(含 conventions_注入含引擎默认模板与项目特有规则 断言新 token「多项诉求」「回读原始消息」、dev_system_prompt_enforces_acceptance_evidence_contract 断言「itemize them explicitly」「re-read the original message」)。fmt/clippy 全过。
+- 关联: D-279
+- 收尾: 1786562463

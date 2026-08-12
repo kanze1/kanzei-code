@@ -419,7 +419,13 @@ impl Component for DevProfile {
                          and display-only shells do not count. Mark reused behavior explicitly as \
                          existing capability rather than this delivery, and never narrow platform \
                          or scope qualifiers from the original acceptance text. If any item lacks \
-                         evidence, keep it active and record the gap. \
+                         evidence, keep it active and record the gap. When a single user \
+                         message contains multiple requests, itemize them explicitly at the \
+                         start of the turn and account for each one at the end (done / not \
+                         done / why) — an unfulfilled request must never be summarized as \
+                         done (D-279). When asked whether something was missed, re-read the \
+                         original message and check it item by item; never substitute an \
+                         adjacent action for the requested one. \
                          WIP limit: ONE executable item at a time across BOTH queues — a \
                          requirement in doing and a defect in fixing share the SAME single \
                          slot; finish it, park it, or close it before picking up another. An \
@@ -747,6 +753,8 @@ mod tests {
             "existing capability rather than this delivery",
             "never narrow platform or scope qualifiers",
             "keep it active and record the gap",
+            "itemize them explicitly",      // D-279:多项诉求逐项清单
+            "re-read the original message", // D-279:追问时回读核对
         ] {
             assert!(
                 system.contains(required),
@@ -1023,6 +1031,8 @@ mod tests {
             "任务级并行",                // §10
             "可用即关闭",                // §1.2
             "compile_gate",              // §1.4 提交前代码门禁(D-264)
+            "多项诉求",                  // §1.25 D-279:用户诉求层逐项清单
+            "回读原始消息",              // §1.25 D-279:追问时不得相邻动作顶替
         ] {
             assert!(
                 baseline.contains(required),
