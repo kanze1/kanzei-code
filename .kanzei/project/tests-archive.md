@@ -2028,3 +2028,8 @@
 - 摘要: cargo test -p kanzei-core --lib:143 passed(含 自举与并行线禁止用户询问 断言 AskPolicy::AutoAllow 不弹用户窗);cargo test -p kanzei-app:137 passed;node --check 08-compose.js 通过;fmt/clippy 全过。
 - 关联: D-281
 - 收尾: 1786562778
+
+## T-1786562856 cargo test --workspace (D-281 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(core 143、app 137、harness 114、tools 260,0 failed)。D-281 复杂度=中,关闭前全量。
+- 关联: D-281
+- 收尾: 1786562856
