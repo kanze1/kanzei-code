@@ -3545,3 +3545,16 @@
 - 复杂度: 小
 - 进展: 2026-08-16 取活。根因:轮内没有把用户单条消息的多项诉求拆成显式清单,收尾总结是自由文本不与原始诉求逐项对照;被追问时拿相邻动作顶替——与 §1.25 已禁止的「以相邻交付冒充验收」同源但发生在用户诉求层,现有约束未覆盖。修复(处置建议的最轻形态):把 §1.25 约束从验收层扩到用户诉求层。落地三处:①default_conventions.md §1.25 增两条(多项诉求轮首拆显式逐项清单+收尾逐项对照「已做/未做/为什么」漏项不得总结成完成;被追问时回读原始消息逐项核对不得相邻动作顶替);②profiles.rs dev system prompt 同步英文版条款(itemize them explicitly / re-read the original message,与引擎模板同口径防 D-242 半份真源);③守护测试断言新 token(profiles 14 passed T-1786562xxx)。复杂度=小,定向测试即可。关闭。
 
+## D-281 「自动放行」开关在自主推进/鞭挞轮静默失效,用户以为放了权实际没有 [fixed] (medium)
+- 复现: ①顶栏勾选「自动放行」;②开鞭挞、模式选自主推进;③自动轮里任何 Ask 档位的工具(如 conventions patch)仍被拒,报 permission requires user approval: ...; autonomous/parallel run skipped it;④界面没有任何提示说明该开关此刻无效。2026-08-12 R-191 批5b 因此连撞三轮才被发现。
+- 影响: 开关 tooltip 写的是「本次不再弹权限窗,全部自动放行(相当于 yolo)」,用户据此认为已全局放权,实际在最需要它的自动轮完全无效,且失效是静默的。「总是允许」同样顶不住:session_approved/session_rules 是 drive() 的局部变量(drive.rs:166/170),名字叫 session,作用域其实是一轮——这一轮点了总是允许,下一轮照样拦。
+- 期望: 二选一:①自动放行状态下传,自动轮改用 AskPolicy::AutoAllow 而不是 NonInteractive(仍落 PermissionResolved 事件保可审计);②至少在勾选时明示「本开关对鞭挞自动轮无效」,不让用户误以为已放权。
+- 标签: 核心
+- 根因: run.rs:128 把 autonomous 轮与并行线(process_id 以 p| 开头)的 AskPolicy 设为 NonInteractive;drive.rs:876 在调用 ask() 之前就短路返回 Gate::NonInteractive,kz:ask 事件根本不发出。而自动放行的实现(ui/07-events.js:416)是监听 kz:ask 事件替用户回 AllowOnce——没有事件就没有可放行的对象;07-events.js:411 另有一道防御把 source=autonomous/parallel 的询问直接丢弃。
+- 规避: 2026-08-12 已用 .kanzei/kanzei.toml 的 conventions patch allow 规则绕过单点,本条要解决的是开关本身的语义。
+- 优先级: P2
+
+- 复杂度: 中
+- 批次: 2/2
+- 进展: 2026-08-16 取活。根因链:kanzei-app run.rs:134 autonomous/parallel 轮设 AskPolicy::NonInteractive → drive.rs:876 短路 resolved(declined, noninteractive)且不发 kz:ask 事件 → 前端自动放行(07-events.js:439 监听 kz:ask 替用户回 once)没有可放行对象 → 开关在自动轮静默失效。修复方向①(根治):AskPolicy 加 AutoAllow 档——自动轮在用户勾选自动放行时用 AutoAllow 而非 NonInteractive,drive.rs 对 AutoAllow 直接 resolved(allow, auto_allow)放行(仍发 PermissionResolved 保可审计),不再短路;前端 run_prompt invoke 传 autoAllow(localStorage kz-auto-allow)。B1 完成:①core runner/mod.rs AskPolicy 增 AutoAllow(allows_user_prompt() false——放的是权限不是问题,守护测试断言);②core drive.rs 权限短路改 match——AutoAllow → resolved(allow, auto_allow) + continue 放行,其余非交互仍 declined;③kanzei-app run.rs run_prompt command 加 auto_allow 参数、run_task 加 auto_allow 透传,autonomous/parallel 轮勾选时用 AutoAllow;④前端 08-compose.js 三处 invoke 传 autoAllow(localStorage kz-auto-allow)。验证:core 143 passed(app 137)、node --check 过、fmt/clippy 全过(T-1786562778);commit 3dbfdf4。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786562xxx)。期望逐条对照:期望①「自动放行状态下传,自动轮改用 AskPolicy::AutoAllow 而不是 NonInteractive,仍落 PermissionResolved 事件保可审计」——已完整实现:状态经 run_prompt auto_allow 参数上传(drive.rs:879-882 对 AutoAllow resolved(allow, auto_allow) 放行,PermissionResolved 事件照发),autonomous/parallel 轮不再静默 declined;前端 07-events.js 434 的 parallel/autonomous 防御保留(AutoAllow 轮后端直接放行不发 ask 事件,该防御仅兜底异常)。期望②(勾选时明示无效)不再需要——①根治后开关对自动轮有效。关闭。
+
