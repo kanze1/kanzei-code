@@ -295,18 +295,28 @@ impl PhasePipeline {
                 let reports = reports.clone();
                 let tx = tx.clone();
                 let task: ScoutTask<'_> = Box::pin(async move {
-                    let output =
-                        kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx).await;
-                    let outcome = if output.is_error {
-                        ScoutOutcome::Failed(output.content.chars().take(200).collect())
-                    } else {
-                        ScoutOutcome::Completed
+                    let bound = std::time::Duration::from_secs(rt.timeout_secs);
+                    let (outcome, text, ok) = match tokio::time::timeout(
+                        bound,
+                        kanzei_core::run_read_agent(client, rt, ctx, role, prompt, tx),
+                    )
+                    .await
+                    {
+                        Ok(output) if output.is_error => (
+                            ScoutOutcome::Failed(output.content.chars().take(200).collect()),
+                            output.content,
+                            false,
+                        ),
+                        Ok(output) => (ScoutOutcome::Completed, output.content, true),
+                        Err(_) => (
+                            ScoutOutcome::TimedOut {
+                                after_secs: rt.timeout_secs,
+                            },
+                            format!("超时({}s 未返回)", rt.timeout_secs),
+                            false,
+                        ),
                     };
-                    reports.lock().unwrap().push(RoleReport {
-                        role,
-                        text: output.content,
-                        ok: !output.is_error,
-                    });
+                    reports.lock().unwrap().push(RoleReport { role, text, ok });
                     outcome
                 });
                 (role.to_string(), task)

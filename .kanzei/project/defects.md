@@ -77,7 +77,7 @@
 - refs: D-301
 - 进展: 2026-08-12 已修复:overlay! 宏与 unknown_keys 名单各补 barrier_timeout_secs,:363/:1032 两处注释更新;新增守护测试 limits_全字段_层叠往返不丢值_且名单穷举(TOML 显式赋全字段+unknown_keys 零告警+merge 后逐字段等于层值,同时堵住既有 unknown_keys_schema_matches_struct 对 [limits] 的 None 序列化盲区)。cargo test -p kanzei-harness --lib config 42 passed 0 failed。
 
-## D-301 编排派发的勘察/复核子代理没有 per-role 墙钟:注释承诺的「双层有界」内层在唯一生产路径上不存在 [open] (medium)
+## D-301 编排派发的勘察/复核子代理没有 per-role 墙钟:注释承诺的「双层有界」内层在唯一生产路径上不存在 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 小
@@ -87,6 +87,7 @@
 - 影响: 单个勘察/复核角色挂死会拖满整个屏障直到外层 barrier_timeout_secs(默认 1800s),且审计事件把它记成 barrier_timed_out——内层超时语义错位,排查方向被误导。
 - 验收: ①dispatch_roles 给每个角色 future 包 tokio::time::timeout(rt.timeout_secs),超时映射 ScoutOutcome::TimedOut;②单角色挂死时屏障在内层上界收敛且 barrier_timed_out=false;③定向测试。
 - refs: D-300 R-173
+- 进展: 2026-08-12 dispatch_roles 为每个角色包 tokio::time::timeout(rt.timeout_secs)，超时映射 ScoutOutcome::TimedOut 并上抛失败 ToolEnd；新增单角色挂死反证，1s 内层收敛且无 barrier_timed_out；kanzei-app 127 tests、workspace clippy/fmt 全绿。
 
 ## D-302 TaskCancellations 死 token:超时与整轮停止路径不清理注册表,stop_task 对已死子代理误报成功 [fixed] (medium)
 - severity: medium

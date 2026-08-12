@@ -767,6 +767,72 @@ async fn 编排派发的子代理上抛既有形状的进度事件() {
     std::fs::remove_dir_all(&fx.project).ok();
 }
 
+/// D-301:编排角色必须在自己的墙钟上界收敛,不能把唯一角色拖到外层屏障上界。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 编排单角色超时在内层收敛且不触发屏障超时() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (_stream, _) = listener.accept().await.unwrap();
+        std::future::pending::<()>().await;
+    });
+
+    let fx = fixture("per_role_timeout", address);
+    let mut rt = fx.subagent_rt();
+    rt.timeout_secs = 1;
+    let limits = kanzei_harness::config::Limits {
+        subagent_timeout_secs: Some(1),
+        barrier_timeout_secs: Some(3),
+        max_tasks_per_turn: Some(1),
+        ..Default::default()
+    };
+    let mut pipeline = PhasePipeline::start(
+        fx.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>,
+        fx.recorder.clone() as Arc<dyn PhaseObserver>,
+        fx.project.clone(),
+        fx.project.clone(),
+        "run_per_role_timeout",
+        "proc_per_role_timeout",
+        &limits,
+        None,
+    );
+    let seen: Arc<Mutex<Vec<kanzei_core::RunEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let mut on_event = move |event: kanzei_core::RunEvent| sink.lock().unwrap().push(event);
+
+    let brief = pipeline
+        .scout(&fx.client, &rt, &fx.ctx, "验证单角色墙钟", &mut on_event)
+        .await
+        .expect("角色超时应作为 ScoutOutcome 收敛,不应让流水线报错");
+    pipeline.abort("test done");
+    server.abort();
+
+    assert!(
+        brief.contains("超时(1s 未返回)"),
+        "模型简报必须点名角色超时: {brief}"
+    );
+    assert!(
+        !brief.contains("屏障自身触顶上界"),
+        "内层角色超时不应被误报成屏障触顶: {brief}"
+    );
+    let events = seen.lock().unwrap();
+    assert!(
+        events.iter().any(|event| matches!(
+            event,
+            kanzei_core::RunEvent::ToolEnd { id, ok: false, .. }
+                if id == "architecture_scout"
+        )),
+        "角色超时必须以失败 ToolEnd 终态上抛"
+    );
+    assert!(
+        !fx.events()
+            .iter()
+            .any(|event| event == "orchestration.barrier_timed_out"),
+        "角色已在内层收敛时不得产生 barrier_timed_out 事件"
+    );
+    std::fs::remove_dir_all(&fx.project).ok();
+}
+
 /// 复核有发现 → 跑修正段;历史必须接续,用量/步数必须合并。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn 复核有发现时修正段接续历史且用量合并() {
