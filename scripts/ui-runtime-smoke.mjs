@@ -5144,8 +5144,19 @@ const docsB = {
   // 打开收活面板:五格结构(本批:格1-4,格5 批5)。
   wtLane.querySelector(".line-harvest-toggle").click();
   await flush();
-  const panel = wtLane.querySelector(".line-harvest");
+  // flush 可能同时跑到线路定时刷新,因此必须从当前 DOM 按 process_id 取 lane,
+  // 不能继续使用刷新前已经脱离 DOM 的旧节点引用。
+  const openedWtLane = [...document.querySelectorAll("#lines-list .line-lane")]
+    .find((lane) => lane.dataset.processId === "p|bg");
+  const panel = openedWtLane?.querySelector(".line-harvest");
   assert(panel, "点击收活未展开五格面板");
+  // 自动刷新会重建线路卡片,但不应销毁用户已经展开且正在操作的收活面板。
+  sandbox.renderLines(payloads.collaboration_snapshot);
+  await flush();
+  const refreshedWtLane = [...document.querySelectorAll("#lines-list .line-lane")]
+    .find((lane) => lane.dataset.processId === "p|bg");
+  const refreshedPanel = refreshedWtLane?.querySelector(".line-harvest");
+  assert(refreshedPanel === panel, "线路刷新后收活面板被销毁或未按 process_id 复挂");
   // smoke 的 Element 不解析 innerHTML 拼的子节点,格号从面板文本提取数字序列。
   const panelText = panel.textContent;
   const stepNoSeq = ["1", "2", "3", "4", "5"].filter((no) => panelText.includes(no)).join("");

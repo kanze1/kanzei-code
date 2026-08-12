@@ -433,3 +433,17 @@
 - 标签: 流程
 - 阻塞: 
 - 优先级: P1
+
+## D-309 并行线路收活面板在自动刷新后消失 [fixed] (medium)
+- severity: medium
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 并行
+- 来源: 2026-08-12 用户反馈「并行线路展开打算收,自动刷新后展开的没了」。
+- 复现: 进入「并行线路」视图,点击某条工作树线路的「收活」展开五格面板,等待自动刷新或手动刷新线路;展开面板及已加载的 diff/门禁结果被移除。
+- 根因: `crates/kanzei-app/ui/20-lines.js:113-120` 的 `renderLines()` 每次刷新先对 `#lines-list` 调用 `replaceChildren()`,临时挂在 lane 下的 `.line-harvest` 与 `<details>` 展开状态没有按 `process_id` 保存和恢复。
+- 影响: 自动刷新期间用户正在进行的人读 diff、门禁和合并准备状态丢失,容易误以为操作未生效,也无法安全完成收活流程。
+- 验收: ①线路自动/手动刷新后同一 `process_id` 的收活面板仍展开;②面板内已加载 diff、已确认人读 diff、门禁结果和回写状态不丢;③改动文件展开状态保持;④线路消失时不错误复挂旧面板。
+- 证据等级: E1(用户复现+代码定位),修复后补 UI 运行时冒烟。
+- 状态: fixed
+- 进展: 2026-08-12 `20-lines.js` 刷新前按 process_id 暂存并复挂同一收活面板,保留 diff/确认/门禁/回写 DOM 状态,并恢复改动文件 details 展开状态;新增运行时冒烟覆盖自动刷新后面板仍在且同一 DOM 节点;node check、ui-lint-smoke(31 文件/1160 标识符)、parallel-lines-regression、ui-runtime-smoke(1350 次 invoke/0 错误)通过。

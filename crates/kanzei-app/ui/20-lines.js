@@ -104,6 +104,19 @@ function renderLineConflicts(lines) {
 function renderLines(lines) {
   collaborationLines = lines ?? [];
   const target = $("lines-list");
+  // 线路页按快照重绘是必要的,但收活面板不是快照字段:它承载用户已经加载的
+  // diff、门禁结果和确认状态。按 process_id 暂存并复挂,否则自动刷新会把用户
+  // 正在进行的收活流程整块销毁。线路消失时没有对应 lane,面板自然不会复挂。
+  const preservedHarvestPanels = new Map(
+    [...target.querySelectorAll(".line-lane[data-process-id] .line-harvest")]
+      .map((panel) => [panel.closest(".line-lane")?.dataset.processId, panel])
+      .filter(([processId]) => processId),
+  );
+  const expandedChangedFiles = new Set(
+    [...target.querySelectorAll(".line-lane[data-process-id]")]
+      .filter((lane) => lane.querySelector(".line-changed-files")?.open)
+      .map((lane) => lane.dataset.processId),
+  );
   target.replaceChildren();
   const runningCount = collaborationLines.filter((line) => line.running).length;
   const changedCount = new Set(
@@ -183,6 +196,7 @@ function renderLines(lines) {
       error.textContent = line.changed_files_error;
       changed.appendChild(error);
     }
+    changed.open = expandedChangedFiles.has(line.process_id);
 
     const actions = document.createElement("div");
     actions.className = "line-lane-actions";
@@ -213,6 +227,8 @@ function renderLines(lines) {
       actions.appendChild(harvest);
     }
     lane.append(head, claim, facts, changed, actions);
+    const preservedPanel = preservedHarvestPanels.get(line.process_id);
+    if (preservedPanel) lane.appendChild(preservedPanel);
     target.appendChild(lane);
   }
   renderLineConflicts(collaborationLines);
