@@ -158,6 +158,35 @@ function processRunning(item) {
   // 未收敛时则合并事件缓存与后端快照,覆盖事件丢失/乱序的窗口。
   return state.converged ? state.running : state.running || Boolean(item.running);
 }
+async function closeParallelProcess(processId) {
+  const item = processItems.find((candidate) => candidate.id === processId);
+  if (!item || item.id.startsWith("d|")) return;
+  const forProject = currentProject;
+  const wasActive = processId === activeProcessId;
+  const runningNow = processRunning(item);
+  const warning = runningNow
+    ? t("线路仍在运行，关闭会先停止并等待收口。")
+    : t("关闭会注销线路身份。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。");
+  if (!window.confirm(`${t("关闭线路")} ${item.label} (${item.id})？\n${warning}`)) return;
+  cancelAutoContinueTimer(item.session_id);
+  if (runningNow) transitionSession(item.session_id, "stopping");
+  try {
+    const result = await invoke("process_close", { processId });
+    if (currentProject !== forProject) return;
+    if (wasActive) {
+      activeProcessId = null;
+      activeSessionId = null;
+    }
+    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+    if (currentProject !== forProject) return;
+    if (wasActive && activeProcessId) await switchProcess(activeProcessId, true);
+    refreshGit();
+    toast(result || `${t("已关闭线路")} ${item.id}`);
+  } catch (error) {
+    transitionSession(item.session_id, item.running ? "running" : "idle");
+    toastError(`${t("关闭线路失败")}:${error}`);
+  }
+}
 function renderParallelTaskStatus(items) {
   const target = $("parallel-task-status");
   const count = $("parallel-task-count");
@@ -199,6 +228,18 @@ function renderParallelTaskStatus(items) {
       : `${authority}: ${t("点击切换到此线路")}`;
     row.addEventListener("click", () => void switchProcess(item.id));
     line.appendChild(row);
+    if (!item.id.startsWith("d|")) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "ghost mini danger parallel-line-close";
+      close.textContent = t("关闭");
+      close.title = t("关闭线路");
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void closeParallelProcess(item.id);
+      });
+      line.appendChild(close);
+    }
     const history = document.createElement("div");
     history.className = "parallel-line-history";
     history.dataset.processId = item.id;
@@ -395,8 +436,8 @@ async function refreshPendingAsks() {
 }
 
 
-async function switchProcess(processId) {
-  if (processId === activeProcessId) return;
+async function switchProcess(processId, forceReload = false) {
+  if (processId === activeProcessId && !forceReload) return;
   const target = processItems.find((item) => item.id === processId);
   if (!target) return;
   const switchGeneration = ++processSwitchGeneration;

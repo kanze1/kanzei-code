@@ -233,6 +233,14 @@ function renderLines(lines) {
       });
       actions.appendChild(harvest);
     }
+    if (!line.process_id.startsWith("d|")) {
+      const close = document.createElement("button");
+      close.type = "button";
+      close.className = "ghost mini danger line-close";
+      close.textContent = t("关闭线路");
+      close.addEventListener("click", () => void closeParallelProcess(line.process_id));
+      actions.appendChild(close);
+    }
     lane.append(head, claim, facts, changed, actions);
     const preservedPanel = preservedHarvestPanels.get(line.process_id);
     if (preservedPanel) lane.appendChild(preservedPanel);
@@ -261,7 +269,8 @@ function harvestClaimId(value) {
 function buildHarvestPanel(line, projectDir, agentCode) {
   const panel = document.createElement("div");
   panel.className = "line-harvest";
-  const trackerClaim = harvestClaimId(line.claim);
+  let trackerClaim = "";
+  let mergeCompleted = false;
   const title = document.createElement("h4");
   title.className = "line-harvest-title";
   title.textContent = `${t("收活")} · ${line.label} (${line.branch || line.process_id})`;
@@ -275,8 +284,17 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   reportHead.innerHTML = `<span class="harvest-step-no">1</span><strong>${t("读报告")}</strong><span class="harvest-step-state ok">${t("已展示")}</span>`;
   const reportBody = document.createElement("div");
   reportBody.className = "harvest-step-body";
-  const lines = [t("认领条目"), t("当前阶段"), t("改动文件")];
   reportBody.textContent = `${line.claim || t("未声明条目")} · ${line.phase || t("空闲")} · ${(line.changed_files ?? []).length} ${t("个文件")}`;
+  const trackerPicker = document.createElement("label");
+  trackerPicker.className = "harvest-tracker-picker";
+  const trackerPickerText = document.createElement("span");
+  trackerPickerText.textContent = t("对话回写条目");
+  const trackerSelect = document.createElement("select");
+  trackerSelect.className = "harvest-tracker-select";
+  trackerSelect.disabled = true;
+  trackerSelect.appendChild(new Option(t("读取线路对话中…"), ""));
+  trackerPicker.append(trackerPickerText, trackerSelect);
+  reportBody.appendChild(trackerPicker);
   report.append(reportHead, reportBody);
   panel.appendChild(report);
 
@@ -418,18 +436,9 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       stateTag.className = "harvest-step-state ok";
       stateTag.textContent = t("已合并");
       mergeHead.appendChild(stateTag);
-      // 合并成功不等于一定可回写:没有严格的 R-/D- claim 时不能制造可点击的
-      // 失败入口。合并结果已经落地,但 tracker 记录要由主代理手动登记。
-      if (trackerClaim) {
-        writebackButton.disabled = false;
-        writebackButton.textContent = t("回写 tracker");
-        writebackHint.textContent = `${trackerClaim} · ${t("由")} ${agentCode} ${t("线交付")}`;
-      } else {
-        writebackButton.disabled = true;
-        writebackButton.textContent = t("无有效条目");
-        writebackHint.textContent = t("当前线路未声明有效的 R-xxx / D-xxx 条目，合并已完成；请用主代理的 tracker 工具手动登记");
-        writebackHint.classList.add("warn-text");
-      }
+      // 合并结果与候选读取可任意先后到达；统一由同一函数投影第 5 格。
+      mergeCompleted = true;
+      syncWritebackAvailability();
     } catch (error) {
       mergeButton.disabled = false;
       mergeButton.textContent = t("合并到主线");
@@ -494,6 +503,57 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   writebackBody.append(writebackHint, writebackButton, writebackOutput);
   writebackStep.append(writebackHead, writebackBody);
   panel.appendChild(writebackStep);
+
+  function syncWritebackAvailability() {
+    if (!mergeCompleted) return;
+    if (trackerClaim) {
+      writebackButton.disabled = false;
+      writebackButton.textContent = t("回写 tracker");
+      writebackHint.textContent = `${trackerClaim} · ${t("由")} ${agentCode} ${t("线交付")}`;
+      writebackHint.classList.remove("warn-text");
+    } else {
+      writebackButton.disabled = true;
+      writebackButton.textContent = t("无有效条目");
+      writebackHint.textContent = t("当前线路对话中没有可确认的活动 R-xxx / D-xxx 条目，合并已完成；请用主代理的 tracker 工具手动登记");
+      writebackHint.classList.add("warn-text");
+    }
+  }
+
+  trackerSelect.addEventListener("change", () => {
+    trackerClaim = harvestClaimId(trackerSelect.value);
+    syncWritebackAvailability();
+  });
+
+  void (async () => {
+    try {
+      const candidates = await invoke("worktree_harvest_candidates", {
+        projectDir,
+        processId: line.process_id,
+      });
+      trackerSelect.replaceChildren();
+      if (!candidates.length) {
+        trackerSelect.appendChild(new Option(t("未从线路对话找到活动条目"), ""));
+        trackerSelect.disabled = true;
+      } else if (candidates.length === 1) {
+        trackerSelect.appendChild(new Option(candidates[0], candidates[0]));
+        trackerSelect.value = candidates[0];
+        trackerSelect.disabled = true;
+        trackerClaim = candidates[0];
+      } else {
+        trackerSelect.appendChild(new Option(t("请选择本次交付条目"), ""));
+        for (const candidate of candidates) trackerSelect.appendChild(new Option(candidate, candidate));
+        trackerSelect.disabled = false;
+        trackerClaim = "";
+      }
+      syncWritebackAvailability();
+    } catch (error) {
+      trackerSelect.replaceChildren(new Option(t("线路对话条目读取失败"), ""));
+      trackerSelect.disabled = true;
+      trackerClaim = "";
+      syncWritebackAvailability();
+      log(`${t("线路对话条目读取失败")}:${error}`, "warn");
+    }
+  })();
 
   return panel;
 }

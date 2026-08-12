@@ -61,6 +61,12 @@ assert(views.includes("if (!isCurrent()) return;"), "旧线路对话响应缺少
 const core = await readUi("01-core.js");
 assert(core.includes("handleBackgroundSessionDone(eventPayload.payload)"), "后台 done 事件副作用仍被路由层截断");
 assert(lines.includes("harvest.disabled = lineRunning"), "运行中线路仍可进入收活");
+assert(lines.includes('close.textContent = t("关闭线路")'), "线路页缺少关闭线路入口");
+assert(sessions.includes("async function closeParallelProcess(processId)"), "左侧线路状态缺少统一关闭流程");
+assert(sessions.includes('await invoke("process_close", { processId })'), "关闭线路没有调用后端 process_close");
+assert(sessions.includes("if (!item.id.startsWith(\"d|\"))"), "关闭入口没有排除默认主线路");
+assert(lines.includes('invoke("worktree_harvest_candidates"'), "收活没有读取线路对话中的 tracker 候选");
+assert(lines.includes("请选择本次交付条目"), "多条 tracker 候选缺少人工选择入口");
 assert(!sessions.includes('"worktree-merge"'), "侧栏不应保留绕过收活五格的直接合并按钮");
 assert(sessions.includes('"worktree-harvest"'), "侧栏工作树缺少统一收活入口");
 

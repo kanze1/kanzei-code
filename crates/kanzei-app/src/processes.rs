@@ -23,6 +23,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
+use kanzei_llm::{Message, Part};
+use kanzei_tools::docstore::DocStore;
 use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
 use serde_json::json;
 use tauri::State;
@@ -657,7 +659,10 @@ pub fn process_update(
 }
 
 #[tauri::command]
-pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(), String> {
+pub async fn process_close(
+    state: State<'_, AppState>,
+    process_id: String,
+) -> Result<String, String> {
     let process = state
         .processes
         .lock()
@@ -665,6 +670,11 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
         .get(&process_id)
         .cloned()
         .ok_or_else(|| format!("进程不存在: {process_id}"))?;
+    close_process(&state, &process).await
+}
+
+async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<String, String> {
+    let process_id = process.id.clone();
     let root = PathBuf::from(&process.project_dir);
     let session_id = process_session_id(&root, Some(&process_id));
     if process_id.starts_with("d|") {
@@ -690,16 +700,19 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
             .tracker_writes_enabled
             .store(false, Ordering::SeqCst);
         // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
-        persist_process(&root, &process)?;
+        persist_process(&root, process)?;
+        Ok("主线路已停止并复位".into())
     } else {
-        // 先处置工作树,再删绑定行。顺序是硬的:绑定行一删,这棵树在库里就再也查不到,
-        // 处置逻辑连它绑给谁都说不出来。
+        // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
+        // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
+        // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
+        unregister_parallel_process(state, &root, &process_id)?;
+        let killed = kanzei_tools::kill_background_processes_for_process(&root, &process_id).await;
         let disposal = process
             .worktree_path
             .as_deref()
             .map(|worktree| reclaim_worktree_on_close(&root, Path::new(worktree)));
-        unregister_parallel_process(&state, &root, &process_id)?;
-        if let Some(Err(kept)) = disposal {
+        if let Some(Err(kept)) = disposal.as_ref() {
             // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
             // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
             let state_path = kanzei_core::project_state_path(&root);
@@ -711,8 +724,22 @@ pub fn process_close(state: State<'_, AppState>, process_id: String) -> Result<(
                 &json!({ "process_id": process_id, "detail": kept }),
             );
         }
+        let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台进程"));
+        match disposal {
+            Some(Ok(())) => Ok(format!(
+                "已关闭线路 {process_id} 并回收已合并的干净工作树{}",
+                background.unwrap_or_default()
+            )),
+            Some(Err(kept)) => Ok(format!(
+                "已关闭线路 {process_id}；{kept}{}",
+                background.unwrap_or_default()
+            )),
+            None => Ok(format!(
+                "已关闭线路 {process_id}{}",
+                background.unwrap_or_default()
+            )),
+        }
     }
-    Ok(())
 }
 
 /// 注销一条非默认进程及其持久化登记。工作树已被成功摘除、启动恢复发现目录消失、
@@ -1624,6 +1651,58 @@ fn parse_harvest_claim(claim: &str) -> Result<(&str, &str), String> {
             "认领 `{claim}` 的条目类型不受收活回写支持(R/D 之外);请用主代理的 tracker 工具手动登记。"
         )),
     }
+}
+
+fn tracker_ids_in_text(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
+        .filter(|token| parse_harvest_claim(token).is_ok())
+}
+
+fn harvest_tracker_candidates_from_messages(root: &Path, messages: &[Message]) -> Vec<String> {
+    let mut existing = std::collections::HashSet::new();
+    for (kind, prefix) in [(&REQUIREMENTS, "R"), (&DEFECTS, "D")] {
+        if let Ok(entries) = DocStore::open(root, kind).load() {
+            existing.extend(
+                entries
+                    .into_iter()
+                    .filter(move |entry| entry.id.starts_with(prefix))
+                    .map(|entry| entry.id),
+            );
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut candidates = Vec::new();
+    // 最新消息优先。只读可见文本，不把工具参数/结果里的偶然 ID 当成交付声明；
+    // 同时要求 ID 当前真实存在，避免把示例 R-xxx 或已归档条目送进回写入口。
+    for message in messages.iter().rev() {
+        for part in message.parts.iter().rev() {
+            let Part::Text { text } = part else {
+                continue;
+            };
+            for id in tracker_ids_in_text(text) {
+                if existing.contains(id) && seen.insert(id.to_string()) {
+                    candidates.push(id.to_string());
+                }
+            }
+        }
+    }
+    candidates
+}
+
+/// D-314:收活第 5 格的条目候选来自**该线路**最新对话，并与主根活动 tracker
+/// 求交。接口只读，不改 runtime conversation，也不猜多候选的主次。
+#[tauri::command]
+pub fn worktree_harvest_candidates(
+    project_dir: String,
+    process_id: String,
+) -> Result<Vec<String>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
+    let session_id = process_session_id(&root, Some(&process_id));
+    let messages = crate::conversation::recover_messages_raw(&store, &session_id, None)
+        .map_err(|error| error.to_string())?;
+    Ok(harvest_tracker_candidates_from_messages(&root, &messages))
 }
 
 #[tauri::command]

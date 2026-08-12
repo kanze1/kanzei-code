@@ -15,11 +15,12 @@ use std::sync::Arc;
 use kanzei_harness::{Tool, ToolCtx};
 
 use super::{
-    acquire_project_write_lease_within, create_process, create_worktree,
+    acquire_project_write_lease_within, close_process, create_process, create_worktree,
     create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_and_unregister,
-    discard_worktree_checked, merge_worktree, parse_harvest_claim, reclaim_worktree_on_close,
-    restore_processes_from_store, rollback_worktree, unregister_parallel_process,
-    with_idle_bound_process, worktree_diff, worktree_status, worktree_target, WorktreeReceipt,
+    discard_worktree_checked, harvest_tracker_candidates_from_messages, merge_worktree,
+    parse_harvest_claim, reclaim_worktree_on_close, restore_processes_from_store,
+    rollback_worktree, unregister_parallel_process, with_idle_bound_process, worktree_diff,
+    worktree_status, worktree_target, WorktreeReceipt,
 };
 use crate::state::{ensure_default_process, process_session_id, AppState};
 
@@ -88,6 +89,79 @@ fn harvest_claim_only_accepts_strict_r_or_d_ids() {
     for claim in ["", "未声明条目", "R-184 额外文本", "R-", "G-12", "r-12"] {
         assert!(parse_harvest_claim(claim).is_err(), "应拒绝 claim: {claim}");
     }
+}
+
+#[test]
+fn harvest_candidates_只取线路对话中真实存在的活动条目且最新优先() {
+    let root = std::env::temp_dir().join(unique("kz-harvest-candidates"));
+    std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+    std::fs::write(
+        root.join(".kanzei/project/requirements.md"),
+        "# Requirements\n\n## R-001 真实需求 [open]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join(".kanzei/project/defects.md"),
+        "# Defects\n\n## D-297 真实缺陷 [open]\n",
+    )
+    .unwrap();
+    let messages = vec![
+        kanzei_llm::Message::user_text("先看 R-001，也提到不存在的 D-999"),
+        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
+            text: "当前实际交付 D-297；示例 R-xxx 不算条目".into(),
+        }]),
+    ];
+    assert_eq!(
+        harvest_tracker_candidates_from_messages(&root, &messages),
+        vec!["D-297", "R-001"]
+    );
+    cleanup(&root, &[]);
+}
+
+#[tokio::test]
+async fn close_process_先停止运行会话再回收已合并干净工作树并注销线路() {
+    let root = git_repo("kz-close-running-line");
+    let state = AppState::default();
+    let info = create_process(
+        &state,
+        root.to_str().unwrap(),
+        None,
+        None,
+        None,
+        Some(false),
+        Some(unique("close-line")),
+    )
+    .await
+    .unwrap();
+    let process = state
+        .processes
+        .lock()
+        .unwrap()
+        .get(&info.id)
+        .cloned()
+        .unwrap();
+    let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
+    let session_id = process_session_id(&root, Some(&info.id));
+    let runtime = crate::state::runtime_for(&state, &session_id);
+    // 真实运行路径里 session 一定先于 running 落库(finalize_interrupt 对不存在的
+    // 会话返回 QueryReturnedNoRows 是 store 的既有语义)。测试要模拟「运行中的线路
+    // 被关闭」,必须先建会话,否则收口在 UPDATE sessions 上 0 行而失败。
+    let state_path = kanzei_core::project_state_path(&root);
+    let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+    store
+        .create_session(&session_id, &root.display().to_string(), None)
+        .unwrap();
+    runtime
+        .running
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let result = close_process(&state, &process).await.unwrap();
+
+    assert!(!runtime.running.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!state.processes.lock().unwrap().contains_key(&info.id));
+    assert!(!worktree.exists(), "已合并且干净的工作树应自动回收");
+    assert!(result.contains("已关闭线路") && result.contains("回收"));
+    cleanup(&root, &[worktree]);
 }
 
 /// 测试里手工收尾用的凭据:分支停在哪儿现取,语义等价于「刚建出来还没动过」。

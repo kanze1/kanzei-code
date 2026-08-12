@@ -1917,3 +1917,18 @@
 - 摘要: 全量 workspace 绿:kanzei-tools 256 passed 含 R-201 raw_lines/raw_delete 回归;其余 crate 全部 ok(提交 800d5da 之后无源码改动)
 - 关联: R-201
 - 收尾: 1786514969
+
+## T-1786551906 cargo test -p kanzei-app (D-314/D-315) [passed]
+- 摘要: kanzei-app 132 passed 0 failed;含 close_process 新测试(补 create_session 修复构造缺陷)与 harvest_candidates 测试
+- 关联: D-314 D-315
+- 收尾: 1786551906
+
+## T-1786552000 D-314/D-315 前端冒烟五连 + 并行线路回归 [passed]
+- 摘要: UI 冒烟五连:node --check、ui-lint-smoke(重新生成 globals,1195 标识符 0 no-undef)、ui-i18n、ui-a11y、ui-markdown、ui-runtime(含 D-315 关闭入口断言与 D-314 候选选择断言)、parallel-lines-regression 全绿
+- 关联: D-314 D-315
+- 收尾: 1786552000
+
+## T-1786552075 cargo test -p kanzei-app (D-314/D-315 clippy 修复后复测) [passed]
+- 摘要: 修复 clippy needless_borrow(persist_process 去 &)后重跑:132 passed 0 failed
+- 关联: D-314 D-315
+- 收尾: 1786552075

@@ -773,6 +773,8 @@ const payloads = {
       changed_files: ["crates/shared.rs", "crates/branch.rs"],
     },
   ],
+  worktree_harvest_candidates: ["R-184"],
+  process_close: "已关闭线路 p|bg；工作树有独有内容，已保留",
   pending_asks_get: [],
   // primary 是探测不到的已存值(端点没实现 /models),必须原样保留;
   // effective 与全局不同 = 项目级覆盖,界面要明说。
@@ -5103,6 +5105,14 @@ const docsB = {
     !openCalls.some((entry) => entry.cmd === "worktree_merge"),
     "查看冲突预警不应偷偷触发合并",
   );
+  assert(document.querySelectorAll("#lines-list .line-close").length === 1, "非默认线路应有关闭入口，默认主线路不得显示关闭");
+  const closeCallsBefore = invokeArgs.length;
+  document.querySelector("#lines-list .line-close")?.click();
+  await flush();
+  assert(
+    invokeArgs.slice(closeCallsBefore).some((entry) => entry.cmd === "process_close" && entry.args?.processId === "p|bg"),
+    "线路页关闭按钮没有调用目标线路的 process_close",
+  );
   // D-304 验收②③:只有真实 claim 才出现「● 代号 被取得」；排在队首但无人认领不显示。
   const claimedSnapshot = [
     ...payloads.collaboration_snapshot,
@@ -5293,6 +5303,32 @@ const docsB = {
     "回写成功后格5 未进入已读/完成状态",
   );
 
+  // D-314:即使 collaboration claim 未声明，线路对话唯一候选也必须自动回显。
+  payloads.worktree_harvest_candidates = ["D-297"];
+  const conversationCandidatePanel = sandbox.buildHarvestPanel(
+    { ...payloads.collaboration_snapshot[1], claim: "未声明条目" },
+    PROJECT,
+    "A",
+  );
+  await flush();
+  assert(
+    conversationCandidatePanel.querySelector(".harvest-tracker-select")?.value === "D-297",
+    "线路对话唯一候选 D-297 没有自动选中",
+  );
+  payloads.worktree_harvest_candidates = ["D-297", "R-184"];
+  const multipleCandidatePanel = sandbox.buildHarvestPanel(
+    { ...payloads.collaboration_snapshot[1], claim: "未声明条目" },
+    PROJECT,
+    "A",
+  );
+  await flush();
+  const multipleCandidateSelect = multipleCandidatePanel.querySelector(".harvest-tracker-select");
+  assert(!multipleCandidateSelect?.disabled && multipleCandidateSelect?.value === "", "多条对话候选必须等待用户明确选择，不能自动猜一条");
+  multipleCandidateSelect.value = "D-297";
+  multipleCandidateSelect.dispatchEvent({ type: "change" });
+  assert(multipleCandidateSelect.value === "D-297", "多候选下用户选择 D-297 没有保留");
+  payloads.worktree_harvest_candidates = [];
+
   // D-310:没有真实 R-/D- claim 时,合并仍可完成,但格5不得伪装成可回写入口。
   document.querySelector('#lines-list .line-lane[data-process-id="p|bg"] .line-harvest-toggle')?.click();
   const originalClaim = payloads.collaboration_snapshot[1].claim;
@@ -5316,6 +5352,7 @@ const docsB = {
   await flush();
   const noClaimWriteback = noClaimPanel?.querySelector(".harvest-writeback-run");
   payloads.collaboration_snapshot[1].claim = originalClaim;
+  payloads.worktree_harvest_candidates = ["R-184"];
   assert(noClaimWriteback?.disabled, "无有效 claim 时格5 回写入口必须保持禁用");
   assert(
     (noClaimPanel?.querySelector(".harvest-writeback-output")?.textContent ?? "") === "",
