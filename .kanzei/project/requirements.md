@@ -36,7 +36,7 @@
 - 进展: 2026-08-16 只读勘察完成(两路 task 子代理并行):①消费点清单——crates/kanzei/tests/always_allow_bash.rs 4 处 spawn(L106-113/217-224/298-305/389-396,每处 HOME+USERPROFILE+KANZEI_HOME 三连,与 D-292 注释成对)、context_overflow_recovery.rs 的 run_cli_with_prior helper(L123-127,两测试共用,唯一'准夹具');②脚本侧遗漏:scripts/e2e-smoke.mjs:24 与 scripts/probe-webview-cdp.mjs:13 注入 USERPROFILE 但无 KANZEI_HOME,验收①迁移时应顺手补;③仓库无共享夹具模块、无 tempfile crate(临时目录均手工 temp_dir().join+remove_dir_all,无 RAII);④RAII guard 先例在 orchestration.rs:99-105(WriterLease drop 释放回调),夹具可复用此模式;⑤kanzei_home() 定义 harness/src/home.rs:19-24(KANZEI_HOME 优先,否则 dirs::home_dir()/.kanzei)。下一步需写代码:新建夹具模块 + 迁移 5 处消费点 + 守护测试 + cargo 验证。
 - 阻塞: 缺权限/环境(§1.1 类②):autonomous 档位下 edit(仅 style.css 一条白名单)、git stage/commit(kanzei.toml 无 action="git" 规则)、cargo test(无规则)全被权限拦截(本轮实测 edit .gitignore 与 git stage 均报 permission requires user approval)。R-200 需新建夹具文件+迁移测试+跑 cargo+提交,当前档位一步都执行不了。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(edit crates/kanzei/tests/**、结构化 git stage/commit、cargo test -p kanzei)后本代理续跑;或②用户切交互轮放行,本代理即可按已完成的勘察清单交付。解除人: 用户。
 
-## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open]
+## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open] [doing]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 记忆
@@ -45,6 +45,9 @@
 - 内容: promote 前校验每个 episode_id 真实存在(或改为引擎在轮末代填当轮 episode_id,manager 无需自报);record_memory_source 失败即回滚晋升。
 - 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
 - refs: R-165 R-195 R-214
+
+- 批次: 0/3
+- 进展: 2026-08-16 取活(requirements-first)。R-213 记忆 promote provenance 校验补真。勘察目标:memory/store.rs 的 promote 与 record_memory_source 实现、episode 表结构、manager 工具面(MemoryPromoteTool)能否拿真实 episode_id。B1:promote 前校验 episode_id 真实存在 + 写证据失败回滚;单测。B2:盘点存量 active 条目 memory_sources 零行数并处置。B3:全量+关闭。
 
 ## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [open]
 - 优先级: P2
