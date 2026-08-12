@@ -2078,3 +2078,8 @@
 - 摘要: cargo test -p kanzei-harness --lib auto_run:14 passed(含新测试 模式不匹配时引擎停止且计数不漂移——Stop(ProfileMismatch) 且 rounds 重置为 0);cargo test -p kanzei-app:137 passed;node --check 07/08-compose.js 通过;fmt/clippy 全过。
 - 关联: R-199
 - 收尾: 1786565739
+
+## T-1786565831 cargo test --workspace (R-199 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(harness 119、tools 263、core 143、app 137,0 failed)。R-199 跨 crate 改动保守跑全量确认无回归。
+- 关联: R-199
+- 收尾: 1786565831

@@ -45,8 +45,8 @@
 - 验收: ①前端不再持有任何引擎不知道的续跑否决条件;②否决发生时引擎侧计数不 +1;③harness 侧单测覆盖新增停止原因。
 - refs: D-291 R-169
 
-- 批次: 1/2
-- 进展: 2026-08-16 取活。R-199 纯后端权限模块任务,不依赖用户环境。B1 完成:①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch → ("ProfileMismatch", None);③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev,research/结对模式引擎判 Stop);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决(引擎已判,前端不再持否决权);⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786566xxx)。autoContinueAllowed 剩 3 处调用为「开关启动门禁」(勾选时提示模式不支持并自动关闭),非续跑否决,保留。B2 待:全量+关闭。
+- 批次: 2/2
+- 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786566xxx,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。
 
 ## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open]
 - 优先级: P2
