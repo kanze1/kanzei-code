@@ -61,10 +61,12 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: 2026-08-13 用户确认恢复推进,状态 todo→doing,阻塞字段清空。前置小缺陷链 D-188→D-187→D-185→D-184 已全部 fixed,技术前置满足;按 A 方案(WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 拉起 kzapp)开始走 harness 基座。
+- 进展: 2026-08-13 用户指示转入阻塞,剩余批次(B1 基座验证、B2 D-060、B3 D-086、B4 D-064、B5 D-066、B6 D-051/D-055/D-056、B7 R-139、B8 D-202)全部待用户放行运行验证后恢复。静态审查结论已落档(见前次进展)。批次 0/8。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 
+- 阻塞: 用户: R-101 剩余全部批次(B1 基座端到端验证起)都需要运行验证——node scripts/e2e-smoke.mjs、cargo build 等。autonomous 档位下 node/cargo 全被权限规则拦截,尝试在 .kanzei/kanzei.toml 加白名单与 edit 普通文件也被拒(M-041 档位限制)。2026-08-13 用户指示转入阻塞。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(node scripts/e2e-smoke.mjs、node --check *、cargo build -p kanzei-app)后本代理续跑;或②用户切交互轮跑 node scripts/e2e-smoke.mjs 完成基座验证(先 cargo build 确保 target/debug/kzapp.exe 含 695305d 的 CDP 注入),并把结果记入 tests.md。解除人: 用户。
+
+- 批次: 0/8
 
 ## R-135 开发与缺陷修复进度动画显示 [todo]
 - 优先级: P0
