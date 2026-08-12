@@ -88,7 +88,7 @@
 - 验收: ①dispatch_roles 给每个角色 future 包 tokio::time::timeout(rt.timeout_secs),超时映射 ScoutOutcome::TimedOut;②单角色挂死时屏障在内层上界收敛且 barrier_timed_out=false;③定向测试。
 - refs: D-300 R-173
 
-## D-302 TaskCancellations 死 token:超时与整轮停止路径不清理注册表,stop_task 对已死子代理误报成功 [open] (medium)
+## D-302 TaskCancellations 死 token:超时与整轮停止路径不清理注册表,stop_task 对已死子代理误报成功 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 小
@@ -98,6 +98,7 @@
 - 影响: 注册表随超时/停止积累死 token;stop_task 对已终态子代理返回成功,面板单条停止(R-174)的语义失真。
 - 验收: ①register 改为带 Drop 的 RAII guard(与 ReadPermit 同手法);②超时/整轮停止后注册表为空;③stop_task 对已终态 id 返回明确「已结束」而非成功。
 - refs: R-174
+- 进展: 2026-08-12 register 改为持有 Arc 注册表的 TaskCancellationGuard，Drop 覆盖正常/失败/取消/外层 timeout 丢弃 future 的清理；新增死 token 与终态停止反证测试，stop_task 已结束 id 保持明确错误；core 136 tests、workspace clippy/fmt 全绿。
 
 ## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
 - severity: medium

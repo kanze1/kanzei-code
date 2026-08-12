@@ -18,14 +18,29 @@ use super::{run_once, AskPolicy, RunnerConfig};
 pub struct TaskCancellations {
     inner: Mutex<HashMap<String, CancellationToken>>,
 }
+
+/// 取消注册表的 RAII 注册句柄。
+///
+/// `run_subagent` 外层有墙钟 timeout；future 被 timeout 丢弃时，await 之后的
+/// 手工 unregister 永远不会执行，因此注册必须由这个句柄的 Drop 负责回收。
+pub struct TaskCancellationGuard {
+    registry: Arc<TaskCancellations>,
+    id: String,
+    token: CancellationToken,
+}
+
 impl TaskCancellations {
-    pub fn register(&self, id: &str) -> CancellationToken {
+    pub fn register(self: &Arc<Self>, id: &str) -> TaskCancellationGuard {
         let token = CancellationToken::new();
         self.inner
             .lock()
             .unwrap()
             .insert(id.to_string(), token.clone());
-        token
+        TaskCancellationGuard {
+            registry: Arc::clone(self),
+            id: id.to_string(),
+            token,
+        }
     }
     /// 取消一个子代理;返回该 id 当时是否在运行(不在 = 已结束/不存在)。
     pub fn cancel(&self, id: &str) -> bool {
@@ -40,6 +55,18 @@ impl TaskCancellations {
     /// 子代理自然结束后清理注册(token 已失效或从未被 cancel);幂等。
     pub fn unregister(&self, id: &str) {
         self.inner.lock().unwrap().remove(id);
+    }
+}
+
+impl TaskCancellationGuard {
+    fn token(&self) -> &CancellationToken {
+        &self.token
+    }
+}
+
+impl Drop for TaskCancellationGuard {
+    fn drop(&mut self) {
+        self.registry.unregister(&self.id);
     }
 }
 
@@ -270,9 +297,9 @@ pub(crate) async fn run_subagent(
         .map(|reg| reg.register(parent_call_id));
     let mut fut = Box::pin(fut);
     let output = match &cancellation {
-        Some(token) => tokio::select! {
+        Some(guard) => tokio::select! {
             biased;
-            _ = token.cancelled() => {
+            _ = guard.token().cancelled() => {
                 let _ = progress.send(RunEvent::TaskProgress {
                     id: parent_call_id.to_string(),
                     text: "子代理已被停止".into(),
@@ -316,11 +343,7 @@ pub(crate) async fn run_subagent(
             Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
         },
     };
-    // 无论哪条路径结束(正常/失败/超时/取消),从注册表摘掉本 id——
-    // 取消时 cancel() 已移除,这里对已移除的幂等;防 timeout 提前 drop future 后残留死 token。
-    if let Some(reg) = rt.cancellations.as_ref() {
-        reg.unregister(parent_call_id);
-    }
+    // `cancellation` 的 Drop 负责正常、失败、取消和外层 timeout 的统一清理。
     output
 }
 
@@ -349,4 +372,21 @@ pub async fn run_read_agent(
         progress,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskCancellations;
+    use std::sync::Arc;
+
+    #[test]
+    fn cancellation_guard_drop_清理注册表且终态停止返回未运行() {
+        let registry = Arc::new(TaskCancellations::default());
+        let guard = registry.register("timed-out-task");
+        drop(guard);
+        assert!(
+            !registry.cancel("timed-out-task"),
+            "外层 timeout 丢弃 future 后，死 token 不得继续可取消"
+        );
+    }
 }

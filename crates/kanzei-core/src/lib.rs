@@ -21,7 +21,7 @@ pub use runner::{
     run_once_with_parts, run_read_agent, summarize_failures, summarize_metrics, summarize_tools,
     AskFuture, AskPolicy, AskReply, AskRequest, AskResponse, CompletedEntry, FailureSignal,
     RecallHit, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
-    RunnerConfig, SubagentRuntime, TaskCancellations,
+    RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations,
 };
 pub use store::{
     project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,
