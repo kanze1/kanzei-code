@@ -67,6 +67,8 @@
 - 验收: ①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。
 - refs: R-181 R-186
 
+- 进展: 2026-08-16 取活开始。验收:①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。已读码:orchestration_trace.rs 有 SessionEventObserver(with_observer 仅测试调用);run.rs plain 路径用 WriterLeaseTrace 持有 lease;state.rs:400 MemoryCoordinator::new() 构造未装配 observer。
+
 ## D-293 kanzei-tools 两条测试在全量并行下偶发红,单独跑必绿 [open] (medium)
 - severity: medium
 - 优先级: P2

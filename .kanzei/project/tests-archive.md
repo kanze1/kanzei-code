@@ -1947,3 +1947,8 @@
 - 摘要: D-298 定向验证:kanzei-core --lib 143 passed(含迁移备份只保留最近一版、freelist 超阈值 VACUUM 两条新测试)、kanzei-app 134 passed、fmt/clippy 绿
 - 关联: D-298
 - 收尾: 1786553151
+
+## T-1786553393 cargo test -p kanzei-app (D-303) [passed]
+- 摘要: D-303 定向验证:kanzei-app 135 passed(含新测试 writer_lease_trace_drop补写released_异常路径审计成对)、fmt/clippy 绿
+- 关联: D-303
+- 收尾: 1786553393

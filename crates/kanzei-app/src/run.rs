@@ -259,9 +259,18 @@ pub(crate) async fn run_task(
     )
     .await
     .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
-    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径
-    // 由协调器快照可见,租约不泄漏。流水线路径的租约由编排对象持有。
-    let _write_lease = plain_lease.map(|lease| WriterLeaseTrace { _lease: lease });
+    // 持有到 run_task 返回(Release 事件在尾部显式写);异常/abort 路径由
+    // WriterLeaseTrace::drop 补写 Released,acquired/released 始终成对(D-303)。
+    // 流水线路径的租约由编排对象持有。
+    let _write_lease = plain_lease.map(|lease| {
+        WriterLeaseTrace::new(
+            lease,
+            Arc::clone(&orchestration_trace),
+            ctx.project_root.clone(),
+            run_id.clone(),
+            process_id.clone(),
+        )
+    });
     // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
     // task 禁用(设计不变量 3/5)。
     //
@@ -1060,6 +1069,10 @@ pub(crate) async fn run_task(
                 process_id: process_id.clone(),
             },
         );
+        // 正常路径已落 Released,标记 guard 避免 Drop 重复补写(D-303)。
+        if let Some(trace) = &_write_lease {
+            trace.mark_released();
+        }
     }
     Ok(())
 }
@@ -1259,15 +1272,60 @@ pub(crate) async fn run_review_and_fixup(
 }
 
 /// R-171 批5:写租约轨迹 guard——持有租约到 run_task 返回。
-/// Released 事件在 run_task 正常路径显式写(见 run_task 尾部);异常/abort
-/// 路径由协调器快照可见(租约已释放),审计不丢持有者身份。
+///
+/// 正常路径在 run_task 尾部显式写 Released;异常/abort/停止路径走到这里时,
+/// Drop 补写 Released 事件,保证 queued→acquired→released 在 session_events
+/// 里成对可回放(D-303 验收②)。补写经同一 `OrchestrationEvent` 出口,与
+/// 正常路径的 Released 同源;`released` 标志防止正常路径已写时重复落一条。
 pub(crate) struct WriterLeaseTrace {
     pub(crate) _lease: kanzei_harness::orchestration::WriterLease,
+    observer: Arc<crate::orchestration_trace::SessionEventObserver>,
+    project_root: std::path::PathBuf,
+    run_id: String,
+    process_id: String,
+    released: std::sync::atomic::AtomicBool,
+}
+
+impl WriterLeaseTrace {
+    pub(crate) fn new(
+        lease: kanzei_harness::orchestration::WriterLease,
+        observer: Arc<crate::orchestration_trace::SessionEventObserver>,
+        project_root: std::path::PathBuf,
+        run_id: String,
+        process_id: String,
+    ) -> Self {
+        Self {
+            _lease: lease,
+            observer,
+            project_root,
+            run_id,
+            process_id,
+            released: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// 正常路径在写 Released 事件后调用,标记已释放,Drop 不再补写。
+    pub(crate) fn mark_released(&self) {
+        self.released
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
 impl Drop for WriterLeaseTrace {
     fn drop(&mut self) {
-        // 租约释放由 WriterLease 自身的 Drop 回调完成;此处仅确保持有至函数末尾。
+        if self.released.load(std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        // 异常/abort/停止路径:租约已由 WriterLease Drop 回调释放,这里补写审计事件,
+        // 让 acquired/released 在会话事件流里成对。落库失败只记日志,不阻断收尾。
+        use kanzei_harness::orchestration::PhaseObserver;
+        self.observer.observe(
+            &kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
+                project_root: self.project_root.clone(),
+                run_id: self.run_id.clone(),
+                process_id: self.process_id.clone(),
+            },
+        );
     }
 }
 

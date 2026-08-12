@@ -216,6 +216,69 @@ mod tests {
         std::fs::remove_dir_all(db.parent().unwrap()).ok();
     }
 
+    /// D-303 验收②:plain 路径异常/停止时,WriterLeaseTrace Drop 补写 Released,
+    /// acquired/released 在 session_events 里成对可回放。
+    #[tokio::test]
+    async fn writer_lease_trace_drop补写released_异常路径审计成对() {
+        use kanzei_harness::orchestration::OrchestrationEvent;
+        let db = temp_db("lease-drop");
+        let session_id = "ses_lease_drop";
+        {
+            let store = kanzei_core::SessionStore::open(&db).unwrap();
+            store.create_session(session_id, "C:/proj", None).unwrap();
+        }
+        let observer = Arc::new(SessionEventObserver::open(&db, session_id).unwrap());
+        // 模拟 run.rs plain 路径:queued + acquired 由 acquire_plain_lease_if_needed 发,
+        // 租约由 WriterLeaseTrace 持有;正常尾部会 mark_released,这里故意不调,
+        // 模拟异常/abort 路径直接 drop——Drop 必须补写 released。
+        let coordinator = MemoryCoordinator::new();
+        observer.observe(&OrchestrationEvent::WriterQueued {
+            project_root: std::path::PathBuf::from("C:/proj"),
+            run_id: "run_abort".into(),
+            process_id: "proc_abort".into(),
+            reason: "session writer run".into(),
+        });
+        observer.observe(&OrchestrationEvent::WriterAcquired {
+            project_root: std::path::PathBuf::from("C:/proj"),
+            run_id: "run_abort".into(),
+            process_id: "proc_abort".into(),
+        });
+        let lease = coordinator
+            .acquire_writer_lease(WriterLeaseRequest {
+                write_scope: std::path::PathBuf::from("C:/proj"),
+                run_id: "run_abort".into(),
+                process_id: "proc_abort".into(),
+                reason: "test".into(),
+            })
+            .await
+            .unwrap();
+        let _trace = crate::run::WriterLeaseTrace::new(
+            lease,
+            observer,
+            std::path::PathBuf::from("C:/proj"),
+            "run_abort".into(),
+            "proc_abort".into(),
+        );
+        // 不调 mark_released 直接 drop(_trace 离开作用域),模拟异常路径。
+        drop(_trace);
+
+        let store = kanzei_core::SessionStore::open(&db).unwrap();
+        let events = store.list_events(session_id, 0).unwrap();
+        let types: Vec<&str> = events.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(
+            types,
+            vec![
+                "orchestration.writer.queued",
+                "orchestration.writer.acquired",
+                "orchestration.writer.released"
+            ],
+            "异常路径 Drop 必须补写 released,acquired/released 成对"
+        );
+        assert_eq!(events[2].payload["run_id"], "run_abort");
+        assert_eq!(events[2].payload["process_id"], "proc_abort");
+        std::fs::remove_dir_all(db.parent().unwrap()).ok();
+    }
+
     /// 协调器自己发的写租约事件(跨进程排队/交接)同样经单一出口落库。
     #[tokio::test]
     async fn 协调器写租约事件经同一出口落库() {
