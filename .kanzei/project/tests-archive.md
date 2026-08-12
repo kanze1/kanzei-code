@@ -2033,3 +2033,8 @@
 - 摘要: cargo test --workspace 全绿(core 143、app 137、harness 114、tools 260,0 failed)。D-281 复杂度=中,关闭前全量。
 - 关联: D-281
 - 收尾: 1786562856
+
+## T-1786563579 cargo test -p kanzei-tools --lib memory + -p kanzei-app (D-282 B1) [passed]
+- 摘要: cargo test -p kanzei-tools --lib memory:77 passed(含 update拒绝主题漂移的description、update_cas拒绝过期expected_hash 两个新测试);cargo test -p kanzei-app:137 passed;fmt/clippy 全过。
+- 关联: D-282
+- 收尾: 1786563579

@@ -318,6 +318,17 @@ impl MemoryStore {
     }
 
     /// 演化:改内容/钩子/状态;created 与 extras 保留,updated 刷新。
+    ///
+    /// D-282 两道守卫:
+    /// ①**description 主题一致性**——新 description 必须与条目现有主题
+    ///   (title + 旧 description + body)有共同 token;交集为空说明疑似选错条目
+    ///   或主题漂移(实测:manager 把 tracker 字段语义条目 M-044 的 description
+    ///   换成 edit 主题内容),拒绝并给出旧/新对照(兼做 manager 的复盘轨迹)。
+    /// ②**CAS(expected_hash)**——与 conventions 工具同源:调用方先拿到条目
+    ///   当前渲染内容的 hash,update 时带回来校验;不一致说明期间有别的写,
+    ///   拒绝。用户定调 memory 不做跨进程锁(竞争留给 agent 事后解决),CAS
+    ///   是乐观并发保护,不引入锁。不传 expected_hash 则跳过(CAS 可选)。
+    #[allow(clippy::too_many_arguments)] // id+4 内容字段+hash+开关,D-282 需要全参
     pub fn update(
         &self,
         id: &str,
@@ -325,6 +336,8 @@ impl MemoryStore {
         description: Option<&str>,
         body: Option<&str>,
         status: Option<&str>,
+        expected_hash: Option<&str>,
+        enforce_topic: bool,
     ) -> anyhow::Result<MemoryEntry> {
         if let Some(status) = status {
             // 兼容旧档别名:stale → deprecated(R-165 兼容映射,写入侧统一归一化)。
@@ -337,10 +350,38 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
+        // D-282 ②:CAS——写前校验调用方看到的版本没被别人改过。
+        if let Some(expected) = expected_hash {
+            let current = crate::files::content_hash(render_entry(&entry).as_bytes());
+            if current != expected {
+                anyhow::bail!(
+                    "memory {id} 已被并发修改(expected_hash 不匹配):你拿到的是旧版本,\
+                     重读当前条目后合并再写。当前 hash: {current}"
+                );
+            }
+        }
         if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
             entry.title = title.into();
         }
         if let Some(desc) = description.map(str::trim).filter(|d| !d.is_empty()) {
+            // D-282 ①:description 主题一致性——新钩子必须与条目现有主题有共同词。
+            // context 含旧 description(演化延续性),阈值 <2 拒绝(单字交集常被
+            // 「确/配/理」这类通用字撞车,2 个以上才算有实质主题关联)。
+            // enforce_topic=false(A-005 UI 用户直写 / merge)豁免:用户有权写任何内容。
+            if enforce_topic {
+                let context = format!("{} {} {}", entry.title, entry.description, entry.body);
+                let overlap = topic_overlap(desc, &context);
+                if overlap < 2 {
+                    anyhow::bail!(
+                        "拒绝写入:新 description 与条目 {id} 的现有主题共同词过少({overlap}),\
+                         疑似选错条目或主题漂移(D-282)。旧 description: {:?}\n新 description: {:?}\n\
+                         若确为同主题演化,请在新 description 里保留至少两个旧主题关键词\
+                         (title/正文/旧钩子里的词)。",
+                        entry.description,
+                        desc,
+                    );
+                }
+            }
             entry.description = desc.into();
         }
         if let Some(body) = body {
@@ -900,7 +941,7 @@ impl MemoryStore {
                 }
             }
         }
-        let mut merged = self.update(primary, title, description, body, None)?;
+        let mut merged = self.update(primary, title, description, body, None, None, false)?;
         // D-215 引擎兜底:被并条目的复发指纹与来源引用不许静默蒸发——
         // 指纹丢了复发检测就瞎了,refs 丢了记忆与来源脱钩,这两样不能赌 manager 记得带。
         let mut carried_fps: Vec<String> = Vec::new();
@@ -1378,6 +1419,46 @@ fn segment_cjk(text: &str) -> String {
     out.trim().to_string()
 }
 
+/// D-282:主题 token 交集计数。英文按词(小写)、CJK 按单字,去掉高频虚词
+/// (的/了/是/在/与…),避免「新 description 全是通用字」被误判为同主题。
+/// 返回 0 表示两段文本没有共同主题词——description 与条目主题漂移的判据。
+fn topic_overlap(a: &str, b: &str) -> usize {
+    fn tokens(text: &str) -> std::collections::HashSet<String> {
+        let mut set = std::collections::HashSet::new();
+        let mut word = String::new();
+        for ch in text.chars() {
+            if ch.is_ascii_alphanumeric() {
+                word.push(ch.to_ascii_lowercase());
+            } else {
+                if word.len() >= 2 {
+                    set.insert(word.clone());
+                }
+                word.clear();
+                if is_cjk(ch) && !STOP_CHARS.contains(&ch) {
+                    set.insert(ch.to_string());
+                }
+            }
+        }
+        if word.len() >= 2 {
+            set.insert(word);
+        }
+        set
+    }
+    let ta = tokens(a);
+    let tb = tokens(b);
+    ta.intersection(&tb).count()
+}
+
+/// 主题判据里忽略的 CJK 虚词/通用字(单字交集噪音源)。
+const STOP_CHARS: &[char] = &[
+    '的', '了', '是', '在', '与', '和', '或', '及', '对', '为', '时', '要', '不', '会', '能', '可',
+    '等', '这', '那', '就', '也', '被', '把', '从', '到', '以', '于', '之', '其', '它', '他', '她',
+    '个', '条', '种', '次', '项', '处', '点', '段', '行', '列', '张', '件', '份', '页', '步', '轮',
+    '批', '并', '且', '但', '而', '若', '则', '即', '如', '虽', '还', '又', '再', '更', '最', '很',
+    '太', '仅', '只', '已', '未', '无', '有', '没', '别', '自', '各', '每', '某', '几', '两', '多',
+    '少', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千', '万', '零',
+];
+
 fn is_cjk(ch: char) -> bool {
     matches!(ch as u32,
         0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F)
@@ -1665,7 +1746,15 @@ mod tests {
         let (dir, store) = temp_store();
         let e = add(&store, "fact", "旧结论", "某场景必读", "V1");
         let updated = store
-            .update(&e.id, None, None, Some("V2 修订"), Some("stale"))
+            .update(
+                &e.id,
+                None,
+                None,
+                Some("V2 修订"),
+                Some("stale"),
+                None,
+                false,
+            )
             .unwrap();
         assert_eq!(updated.status, "deprecated"); // R-165:stale 兼容映射 deprecated
         assert_eq!(updated.body, "V2 修订");
@@ -1901,7 +1990,7 @@ mod tests {
         };
         // 设置 deprecated → refresh_derived 自动归档。
         store
-            .update(&entry.id, None, None, None, Some("deprecated"))
+            .update(&entry.id, None, None, None, Some("deprecated"), None, false)
             .unwrap();
         // 主目录已无该文件,archive/ 有墓碑。
         assert!(!store
@@ -1938,7 +2027,7 @@ mod tests {
             panic!("expected Added")
         };
         store
-            .update(&invalid.id, None, None, None, Some("invalid"))
+            .update(&invalid.id, None, None, None, Some("invalid"), None, false)
             .unwrap();
         assert!(!store.load_all().iter().any(|(_, e)| e.id == invalid.id));
         assert!(store
@@ -2047,7 +2136,15 @@ mod tests {
         store.to_shadow(&candidate.id).unwrap();
         // 用一次无关 update 触发 refresh_derived。
         store
-            .update(&active.id, Some("直写活跃条目改名"), None, None, None)
+            .update(
+                &active.id,
+                Some("直写活跃条目改名"),
+                None,
+                None,
+                None,
+                None,
+                false,
+            )
             .unwrap();
         assert!(
             store.load_all().iter().any(|(_, e)| e.id == candidate.id),
@@ -2072,7 +2169,9 @@ mod tests {
         add(&store, "fact", "一号", "钩子一", "x");
         let b = add(&store, "fact", "三号占位", "钩子三", "x");
         // 手工制造缺号:把 M-002 位空出来(改 id 为 M-003)
-        store.update(&b.id, None, None, None, None).unwrap();
+        store
+            .update(&b.id, None, None, None, None, None, false)
+            .unwrap();
         let path = store.root.join(format!("{}.md", b.file_stem()));
         let text = std::fs::read_to_string(&path)
             .unwrap()
@@ -2429,7 +2528,7 @@ mod tests {
         ));
         // 旧状态 stale 后,同 subject 可重新建立(active 才占键)。
         store
-            .update(&first.id, None, None, None, Some("stale"))
+            .update(&first.id, None, None, None, Some("stale"), None, false)
             .unwrap();
         assert!(matches!(
             store
@@ -2736,6 +2835,114 @@ mod tests {
                 .map(|h| (&h.entry.id, h.score))
                 .collect::<Vec<_>>()
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-282 ①:description 主题一致性。新 description 与条目现有主题无任何共同词
+    /// (title/正文)时拒绝——防 manager 把 tracker 字段语义条目的钩子换成 edit 主题
+    /// 内容(实测 M-044 被覆盖)。同主题演化放行。
+    #[test]
+    fn update拒绝主题漂移的description() {
+        let (dir, store) = temp_store();
+        let e = add(
+            &store,
+            "sop",
+            "tracker update 字段语义",
+            "处理 req/defect update 写字段时必读",
+            "中文键精确匹配;英文键会追加;多行会产生游离段落",
+        );
+        // 主题漂移:edit 替换主题与 tracker 字段语义交集 <2 → 拒绝(D-282 真实形态)。
+        let drifted = store
+            .update(
+                &e.id,
+                None,
+                Some("edit 替换时确认 allow_deletion 防止误删"),
+                None,
+                None,
+                None,
+                true,
+            )
+            .unwrap_err();
+        assert!(
+            drifted.to_string().contains("共同词过少"),
+            "漂移 description 必须被拒: {drifted}"
+        );
+        // 条目内容未被改写:description 仍是旧钩子(漂移被拒后原样保留)。
+        let after = store
+            .load_all()
+            .into_iter()
+            .find(|(_, x)| x.id == e.id)
+            .unwrap()
+            .1;
+        assert_eq!(
+            after.description, "处理 req/defect update 写字段时必读",
+            "漂移被拒后 description 不得被改写: {}",
+            after.description
+        );
+        // 同主题演化(保留旧主题词)放行。
+        store
+            .update(
+                &e.id,
+                None,
+                Some("处理 req/defect update 写字段时必读(含中文键/英文键/游离段落)"),
+                None,
+                None,
+                None,
+                true,
+            )
+            .unwrap();
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-282 ②:CAS——传 expected_hash 且期间有并发写时拒绝,防止人工维护与
+    /// 轮末 manager 互相覆盖。
+    #[test]
+    fn update_cas拒绝过期expected_hash() {
+        let (dir, store) = temp_store();
+        let e = add(&store, "fact", "主题甲", "钩子甲", "正文甲");
+        let render = |id: &str| {
+            let entry = store
+                .load_all()
+                .into_iter()
+                .find(|(_, x)| x.id == id)
+                .unwrap()
+                .1;
+            render_entry(&entry)
+        };
+        let stale_hash = crate::files::content_hash(render(&e.id).as_bytes());
+        // 期间别人改了条目(改 title)——模拟非 manager 写,豁免主题校验。
+        store
+            .update(&e.id, Some("主题甲改"), None, None, None, None, false)
+            .unwrap();
+        // 拿着旧 hash 再写 → 拒绝。
+        let cas_err = store
+            .update(
+                &e.id,
+                None,
+                Some("钩子甲修订"),
+                None,
+                None,
+                Some(&stale_hash),
+                true,
+            )
+            .unwrap_err();
+        assert!(
+            cas_err.to_string().contains("已被并发修改"),
+            "过期 hash 必须拒绝: {cas_err}"
+        );
+        // 用新 hash 写 → 放行。
+        let fresh_hash = crate::files::content_hash(render(&e.id).as_bytes());
+        store
+            .update(
+                &e.id,
+                None,
+                Some("钩子甲修订"),
+                None,
+                None,
+                Some(&fresh_hash),
+                true,
+            )
+            .unwrap();
         std::fs::remove_dir_all(dir).ok();
     }
 }

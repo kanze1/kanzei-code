@@ -191,6 +191,10 @@ struct UpdateInput {
     description: Option<String>,
     #[serde(default)]
     body: Option<String>,
+    /// D-282 ② CAS:调用方先拿到条目当前渲染 hash(可选;传则写前校验,
+    /// 期间有并发写即拒绝)。与 conventions 工具 expected_hash 同源。
+    #[serde(default)]
+    expected_hash: Option<String>,
 }
 
 pub struct MemoryUpdateTool;
@@ -244,6 +248,8 @@ impl Tool for MemoryUpdateTool {
             input.description.as_deref(),
             input.body.as_deref(),
             None,
+            input.expected_hash.as_deref(),
+            true, // D-282:manager 写路径强制 description 主题一致性(防选错条目覆盖)
         ) {
             Ok(e) => ToolOutput::ok(format!("updated {} [{}] {}", e.id, e.status, e.title)),
             Err(e) => ToolOutput::error(e.to_string()),
@@ -390,7 +396,15 @@ impl Tool for MemoryStaleTool {
                 None => return ToolOutput::error(format!("unknown memory id `{}`", input.id)),
             };
         let appended = format!("{}\n\n(stale: {reason})", found_body.trim_end());
-        match store.update(&found_id, None, None, Some(&appended), Some("stale")) {
+        match store.update(
+            &found_id,
+            None,
+            None,
+            Some(&appended),
+            Some("stale"),
+            None,
+            false,
+        ) {
             Ok(e) => ToolOutput::ok(format!("staled {} — {reason}", e.id)),
             Err(e) => ToolOutput::error(e.to_string()),
         }

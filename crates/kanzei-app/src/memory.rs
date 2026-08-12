@@ -164,7 +164,7 @@ pub(crate) fn memory_cleanup_demote(project_dir: String) -> Result<serde_json::V
                 continue;
             };
             if recalled >= 3 && fetched == 0 {
-                match store.update(&e.id, None, None, None, Some("stale")) {
+                match store.update(&e.id, None, None, None, Some("stale"), None, false) {
                     Ok(updated) => demoted.push(json!({"id": e.id, "title": updated.title})),
                     Err(err) => skipped.push(json!({"id": e.id, "reason": err.to_string()})),
                 }
@@ -193,6 +193,8 @@ pub(crate) fn memory_entry_save(
                     description.as_deref(),
                     body.as_deref(),
                     status.as_deref(),
+                    None,
+                    false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
                 )
                 .map_err(|e| e.to_string())?;
             return Ok(());
