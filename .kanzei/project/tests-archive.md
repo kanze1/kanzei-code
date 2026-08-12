@@ -2088,3 +2088,8 @@
 - 摘要: 发布树(kanzei-release,main 9d29a5a)cargo test --workspace 全绿(harness 119、tools 263、core 143、app 137,0 failed)。发版前全量。
 - 关联: 发版
 - 收尾: 1786574247
+
+## T-1786574944 node --check + ui-runtime-smoke (D-320 提交前) [passed]
+- 摘要: node --check 02-i18n.js/08-compose.js 通过;ui-runtime-smoke 21 项断言全绿(含 R-199 语义更新后的 D-291 场景),0 运行时错误。D-320 修复提交前验证。
+- 关联: D-320
+- 收尾: 1786574944
