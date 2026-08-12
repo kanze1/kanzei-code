@@ -112,7 +112,7 @@
 - 验收: ①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。
 - refs: R-181 R-186
 
-## D-304 parallel_lines_ui.md 状态头虚标:P1/P3/P6 宣称随 R-184 全部上线,实现整块缺席——文档为真源的自举返工源 [open] (medium)
+## D-304 parallel_lines_ui.md 状态头虚标:P1/P3/P6 宣称随 R-184 全部上线,实现整块缺席——文档为真源的自举返工源 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 中
@@ -122,7 +122,7 @@
 - 影响: 自举模式以设计文档为真源,虚标直接导致后续轮漏做或重复申报;D-207 的病根(界面展示推断值)因 P1 未落地继续存活。
 - 验收: ①修正状态头为「P1/P3/P6 部分交付」并逐项列残余;②P1 残余(删 isAgentNext 全链路+基于 collaboration_snapshot claim 的「● 代号 被取得」标记)落地,验收沿用该文 §10 的 2/3 原文;③「排在队首但无人取不出现标记」反证测试。
 - refs: R-184 D-207
-- 进展: 2026-08-12 验收①完成:parallel_lines_ui.md 状态头改「部分交付」并逐项列 P1/P3/P6 残余。验收②③(删 isAgentNext 全链路+「被取得」事实标记+反证冒烟)待修,已列入 Codex 交接清单。
+- 进展: 2026-08-12 验收①完成:parallel_lines_ui.md 状态头改「部分交付」并逐项列 P1/P3/P6 残余；验收②③完成:删除 isAgentNext/agent-next/下一个推断全链路，列表只依据运行中的 collaboration_snapshot claim 显示「● 代号 被取得」，补队首无人 claim 不显示标记反证；node check 4 文件、UI 冒烟 1338 invokes/0 运行时错误全绿。
 
 ## D-305 侧栏「隔离工作树」保留独立合并入口,绕过收活五格「必须人读 diff」强制格 [open] (medium)
 - severity: medium

@@ -194,6 +194,22 @@ async function jumpToEntry(ref) {
   revealEntryNode(target);
 }
 
+// D-304:只有 collaboration_snapshot 的运行中 claim 才能标「被取得」。
+// 队首、状态 doing 或前端排序都不是认领事实；没有 claim 的队首必须保持无标记。
+function claimedCollaborationLineFor(entry) {
+  const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
+    ? collaborationLines
+    : [];
+  const line = lines.find((candidate) => {
+    if (!candidate?.running) return false;
+    const ids = String(candidate.claim ?? "").match(/\b[RDGSTF]-\d+\b/g) ?? [];
+    return ids.includes(entry.id);
+  });
+  if (!line) return null;
+  const codes = typeof lineAgentCodes === "function" ? lineAgentCodes(lines) : new Map();
+  return { line, code: codes.get(line.process_id) ?? "?" };
+}
+
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
   const surface = docSurface(el);
   // 筛掉了多少条:用于"被筛空"时说清原因。列表凭空变空是最容易被当成数据丢失的
@@ -350,13 +366,10 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       ["阻塞", "blocked", "blocking"].includes(String(key).toLowerCase())
       && /外部|external|blocked/i.test(String(value))
     );
-    // 取活焦点标记(D-207):在做的高亮呼吸,下一个次亮。基于数据而非视图计算,
-    // 任何排序/分组/筛选下都标同一批条目——用户随便调视图,仍知道 agent 会怎么走。
+    // 当前在做保留运行证据焦点；排队顺序不再被前端推断成「下一个」。
     const isAgentActive = !entry.closed && agentFocus.active === entry.id;
-    const isAgentNext = !entry.closed && agentFocus.next === entry.id;
-    item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}${isAgentNext ? " agent-next" : ""}`;
+    item.className = `doc-item${entry.closed ? " closed" : ""}${blocked ? " blocked" : ""}${externalBlocked ? " external-blocked" : ""}${/^P[0-3]$/.test(pri) ? ` pri-${pri}` : ""}${isAgentActive ? " agent-active" : ""}`;
     if (isAgentActive) item.title = t("agent 正在做这一条");
-    else if (isAgentNext) item.title = t("agent 下一个会拿这一条(按取活顺序)");
     item.dataset.docId = entry.id;
 
     const row = document.createElement("div");
@@ -392,6 +405,14 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = localizedDocStatus(entry.status || "todo") + (entry.severity ? `/${entry.severity}` : "");
+    const claimed = claimedCollaborationLineFor(entry);
+    if (claimed) {
+      const claimBadge = document.createElement("span");
+      claimBadge.className = "doc-claim-fact";
+      claimBadge.textContent = `● ${claimed.code} ${t("被取得")}`;
+      claimBadge.title = `${claimed.line.claim} · ${claimed.line.phase || t("空闲")}`;
+      row.appendChild(claimBadge);
+    }
     // 复杂度(R-051):侧栏用三格电量图标表达体量，与左侧优先级色带同色并放在最前面。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {

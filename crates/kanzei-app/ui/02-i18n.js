@@ -92,7 +92,6 @@ const I18N_EN = {
   "打开失败": "Failed to open",
   "架构索引读取失败": "Failed to load architecture index",
   "先选择一个项目": "Select a project first",
-  "agent 下一个会拿这一条(按取活顺序)": "The agent will pick this item next (by work order)",
   // 侧栏「当前在做」焦点卡片:完整列表搬进单页视图后,侧栏只保留取活焦点这一条。
   "当前在做": "In progress now",
   "记需求": "Log item",
@@ -102,7 +101,7 @@ const I18N_EN = {
   "在完整列表中查看": "Show in the full list",
   "当前没有在做的条目": "Nothing is in progress",
   "队列已清空或全部被阻塞": "The queue is empty, or everything is blocked",
-  "下一个": "Next",
+  "被取得": "Claimed",
   "待办": "Backlog",
   "依据": "Basis",
   "本轮运行证据": "run evidence from this round",

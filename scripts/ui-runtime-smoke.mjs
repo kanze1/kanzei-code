@@ -1199,16 +1199,13 @@ assert(
 const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
-// D-207:取活焦点标记——在做的(doing/fixing)高亮,取活序下一个(defect-first 下
-// 第一个无阻塞的 open 缺陷)次亮。基于数据计算,与视图排序/分组无关。
+// D-304:排队顺序不再由前端推断；只有 collaboration_snapshot 的真实 claim 才能标记。
 {
   const active = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(active?.classList.contains("agent-active"), "doing 条目 R-001 未标记 agent-active(在做高亮丢失)");
   const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
-  assert(next?.classList.contains("agent-next"), "defect-first 下首个可开工缺陷 D-001 未标记 agent-next(取活预览丢失)");
   assert(!next.classList.contains("agent-active"), "open 条目不该被标成在做");
-  const notNext = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]');
-  assert(!notNext?.classList.contains("agent-next"), "缺陷队列有可开工项时,需求 R-002 不该被标为下一个");
+  assert(!next.classList.contains("doc-claim-fact"), "没有 collaboration_snapshot claim 的队首不应出现被取得标记");
 }
 // ---------- 侧栏「当前在做」焦点卡片:单条,不是列表、不是集合 ----------
 // 用户定调:侧栏只显示 agent 当前在做的那一条,且显示得完整一点。完整列表连同筛选、
@@ -1235,10 +1232,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   const testsBlock = html.slice(html.indexOf('id="documents-tests"'), html.indexOf('id="documents-dep-view"'));
   assert(testsBlock.includes('id="test-list"'), "测试记录列表不在单页 #documents-tests 内(仍挂在侧栏)");
   assert(listText("test-list").includes("冒烟测试"), "测试记录搬家后没渲染出桩数据");
-  // 「下一个」紧凑行:computeAgentFocus 给得出才渲染。
-  const nextRow = document.querySelector("#focus-body .focus-next");
-  assert(nextRow?.dataset.docId === "D-001", `焦点区「下一个」应指 D-001,实得 ${nextRow?.dataset.docId}`);
-  assert(nextRow?.textContent.includes("冒烟缺陷"), "「下一个」未给出标题");
+  assert(!document.querySelector("#focus-body .focus-next"), "焦点区不应渲染前端推断的下一个");
   // 待办计数补回被删列表的信息量。
   assert(/\d/.test(listText("focus-backlog")), "焦点区未给出待办计数");
 }
@@ -1265,7 +1259,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   await sandbox.refreshDocs();
   assert(!document.querySelector("#focus-body .focus-card"), "全部关闭时不该还有焦点卡片");
   assert(listText("focus-body").includes("当前没有在做的条目"), `焦点空态未说破:${listText("focus-body")}`);
-  assert(!document.querySelector("#focus-body .focus-next"), "拿不到「下一个」时不该留空壳");
+  assert(!document.querySelector("#focus-body .focus-next"), "焦点区不应保留下一个推断空壳");
   const emptyButton = document.querySelector("#focus-body .focus-empty button");
   assert(emptyButton, "焦点空态缺少「查看完整列表」入口");
   emptyButton.click();
@@ -1299,8 +1293,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   const secondDoing = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-002"]');
   assert(firstDoing?.classList.contains("agent-active"), "取活序第一条 doing 应标 agent-active(当前正在做)");
   assert(!secondDoing.classList.contains("agent-active"), "第二条 doing 只是已取未动,不该标 agent-active(active 是单条)");
-  const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
-  assert(next?.classList.contains("agent-next"), "active 之后取活序第一个可开工缺陷 D-001 仍应为下一个");
+  assert(!document.querySelector(".agent-next"), "删除下一个推断后不应产生 agent-next 标记");
   // WIP=1(2026-08-10 定调):两个队列共用同一个槽位,整个快照里被标「正在做」的只能有一条。
   assert(
     document.querySelectorAll("#documents-req-list .agent-active, #documents-defect-list .agent-active").length === 1,
@@ -1329,10 +1322,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     !document.querySelector('#documents-req-list .doc-item[data-doc-id="R-A"]')?.classList.contains("agent-active"),
     "两队共用一个槽:缺陷占了槽,需求侧的 doing 不该同时被标「正在做」",
   );
-  assert(
-    document.querySelector("#focus-body .focus-next")?.dataset.docId === "R-B",
-    "「当前」与「下一个」两个指针应各有值,不能塌成同一条",
-  );
+  assert(!document.querySelector("#focus-body .focus-next"), "焦点区不应渲染第二个推断指针");
   priority.value = savedPriority;
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
@@ -1350,14 +1340,12 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   const blockedDoing = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(blockedDoing?.classList.contains("blocked"), "阻塞 doing 应保留 blocked 标记(阻塞展示不受影响)");
   assert(!blockedDoing.classList.contains("agent-active"), "阻塞 doing 不该标 agent-active(运行焦点只标可执行条目)");
-  const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
-  assert(next?.classList.contains("agent-next"), "blocked doing 不应挡住 next:可开工缺陷 D-001 仍应为下一个");
+  assert(!document.querySelector(".agent-next"), "阻塞队列场景也不应产生下一个推断标记");
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
 // D-219 验收②:构造「2 个阻塞 doing + 可做 todo」场景——阻塞 doing 全部不计
-// WIP、不占运行焦点、不挡住 next;可开工 todo 仍是「下一个」。这是 §1.1
-// 「阻塞项不计入准入配额、不得误拒新条目」的前端投影:渲染与取活一致。
+// WIP、不占运行焦点。阻塞项只保留 blocked 展示，不生成排队推断标记。
 {
   const savedFocusDocs = structuredClone(payloads.docs_snapshot);
   payloads.docs_snapshot = {
@@ -1375,8 +1363,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   assert(activeCount === 0, "两个阻塞 doing 都不应标 agent-active(阻塞项不进 WIP 不占焦点),实际 {activeCount}");
   const blockedAll = document.querySelectorAll('#documents-req-list .doc-item[data-doc-id="R-001"], #documents-req-list .doc-item[data-doc-id="R-002"]');
   assert(blockedAll.length === 2 && [...blockedAll].every((el) => el.classList.contains("blocked")), "阻塞 doing 应保留 blocked 标记");
-  const next = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-003"]');
-  assert(next?.classList.contains("agent-next"), "阻塞 doing 不应挡住 next:可开工 todo R-003 仍应为下一个");
+  assert(!document.querySelector(".agent-next"), "阻塞队列场景也不应产生下一个推断标记");
   payloads.docs_snapshot = savedFocusDocs;
   await sandbox.refreshDocs();
 }
@@ -5087,6 +5074,25 @@ const docsB = {
     !openCalls.some((entry) => entry.cmd === "worktree_merge"),
     "查看冲突预警不应偷偷触发合并",
   );
+  // D-304 验收②③:只有真实 claim 才出现「● 代号 被取得」；排在队首但无人认领不显示。
+  const claimedSnapshot = [
+    ...payloads.collaboration_snapshot,
+    {
+      process_id: "p|claim", label: "认领线", branch: "claim-a1", worktree_path: "C:/smoke/wt/claim-a1",
+      claim: "R-001", phase: "实现", current_tool: "edit", running: true,
+      steps: 1, input_tokens: 10, output_tokens: 5, changed_files: [],
+    },
+  ];
+  sandbox.renderLines(claimedSnapshot);
+  const claimedRow = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
+  assert(claimedRow?.textContent.includes("● B"), `真实 claim 未渲染稳定线路代号:${claimedRow?.textContent}`);
+  assert(
+    claimedRow?.textContent.includes("被取得") || claimedRow?.textContent.includes("Claimed"),
+    `真实 claim 未渲染「被取得」事实文案:${claimedRow?.textContent}`,
+  );
+  const unclaimedHead = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
+  assert(!unclaimedHead?.querySelector(".doc-claim-fact"), "排在队首但无人 claim 的条目不应显示被取得标记");
+  sandbox.renderLines(payloads.collaboration_snapshot);
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道、冲突预警、语义提示仍渲染。
   for (const width of [800, 1024, 1280]) {
     windowShim.innerWidth = width;

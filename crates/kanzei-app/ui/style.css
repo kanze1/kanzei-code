@@ -153,18 +153,14 @@ body {
 .project-shared-warn.hidden { display: none; }
 .doc-item { padding: 3px 14px; display: flex; flex-wrap: wrap; gap: 7px; align-items: baseline; }
 .doc-item:hover { background: var(--panel2); }
-/* 取活焦点(D-207):在做的高亮呼吸,下一个次亮。基于数据计算,任何视图下都标同一批。 */
+/* 取活焦点(D-207):在做的高亮呼吸。排队顺序不由前端推断。 */
 .doc-item.agent-active {
   border-left: 3px solid var(--ok);
   padding-left: 11px;
   background: color-mix(in srgb, var(--ok) 9%, transparent);
   animation: agent-pulse 2.4s ease-in-out infinite;
 }
-.doc-item.agent-next {
-  border-left: 3px solid var(--info);
-  padding-left: 11px;
-  background: color-mix(in srgb, var(--info) 6%, transparent);
-}
+.doc-claim-fact { color: var(--ok); font-size: 11px; white-space: nowrap; }
 @keyframes agent-pulse {
   0%, 100% { border-left-color: var(--ok); }
   50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
@@ -193,13 +189,6 @@ body {
 .focus-card.blocked { border-left-color: var(--warn); }
 .focus-empty { padding: 2px 4px 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; font-size: 12px; }
 .focus-empty .dim { font-size: 11px; }
-.focus-next {
-  display: flex; align-items: baseline; gap: 6px; min-width: 0;
-  font-size: 11.5px; padding: 4px 6px;
-  border: 1px dashed var(--border); border-radius: var(--radius);
-}
-.focus-next-label { color: var(--info); flex-shrink: 0; }
-.focus-next-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #focus-backlog { padding: 4px 14px 2px; font-size: 11px; }
 /* 排序 vs 拖拽:两件事挨在一条工具条上极易混,常显说明是三重冗余里的第一重
    (另两重是非手动排序下的锁提示与 draggable=false)。 */

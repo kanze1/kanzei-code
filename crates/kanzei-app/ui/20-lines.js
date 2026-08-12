@@ -216,6 +216,10 @@ function renderLines(lines) {
     target.appendChild(lane);
   }
   renderLineConflicts(collaborationLines);
+  // D-304:协作快照是条目「被取得」标记的唯一事实源；刷新线路后同步重绘当前文档行。
+  if (typeof latestDocsSnapshot !== "undefined" && latestDocsSnapshot && typeof renderDocuments === "function") {
+    renderDocuments(latestDocsSnapshot);
+  }
 }
 
 // ---------- R-184 P5:收活五格(设计文档 §5) ----------

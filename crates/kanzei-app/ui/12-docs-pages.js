@@ -391,15 +391,12 @@ function highlightDependencyChain(clicked, entry, byId) {
   }
   clicked.scrollIntoView({ block: "nearest" });
 }
-// 取活焦点(D-207):在做的条目与 agent 下一个会拿的条目。数据取 scheduler 序的
-// snapshot(可执行在前+block_reasons),按当前 work-priority 跨需求/缺陷两队计算——
-// 这就是 agent 实际会走的顺序。结果只依赖数据,与视图排序/分组/筛选无关,
-// 所以无论用户怎么调整视图,标记始终落在同一批条目上:所见即取活。
+// 取活焦点(D-207):只保留当前在做的条目。排队顺序由后端真实 claim 决定,
+// 前端不再从状态和排序推断「下一个」。
 // 口径:active 是取活序第一个可执行的 doing/fixing(单条)——单线程下 agent 一次只推
 // 一条,多余的可执行 doing/fixing 只是"已取未动"的历史状态,不是正在做;blocked
-// 条目不计 WIP、不占运行焦点。next 是取活序第一个可开工条目(requirement-first
-// 先需求后缺陷)。
-let agentFocus = { active: null, next: null };
+// 条目不计 WIP、不占运行焦点。
+let agentFocus = { active: null, activeSource: null };
 // 运行事实(D-207 三修):本轮里 agent 实际动过谁——req/defect 更新与批次提交都带
 // 条目 ID,这是"正在做"的真源。文件状态推断只是兜底:缺陷优先下一条挂着 fixing
 // 的旧缺陷(如 D-202)会永远赢得指针,而 agent 实际在推别的条目(用户实测指着
@@ -414,7 +411,7 @@ function clearRuntimeFocus() {
 function computeAgentFocus(snapshot) {
   // activeSource:焦点卡片要能说出「凭什么指这一条」——runtime = 本轮运行证据命中,
   // order = 按取活序推断,null = 没有在做的条目。纯追加字段,不改单条语义。
-  const focus = { active: null, next: null, activeSource: null };
+  const focus = { active: null, activeSource: null };
   if (!snapshot) return focus;
   const reqs = snapshot.requirements ?? [];
   const defs = snapshot.defects ?? [];
@@ -443,25 +440,6 @@ function computeAgentFocus(snapshot) {
         focus.activeSource = "order";
         break;
       }
-    }
-  }
-  // 下一个 = 取活序里第一个可开工的 open/todo。状态与 active(doing/fixing)不重叠,
-  // 无需跳过 active 本身;它就是 agent 完成当前条目后下一个会拿起的。
-  const firstWorkable = (list, openStatus) =>
-    list.find(
-      (entry) =>
-        entry.status === openStatus &&
-        !(Array.isArray(entry.block_reasons) && entry.block_reasons.length)
-    );
-  const nextQueues =
-    selectedWorkPriority() === "requirement-first"
-      ? [[reqs, "todo"], [defs, "open"]]
-      : [[defs, "open"], [reqs, "todo"]];
-  for (const [list, openStatus] of nextQueues) {
-    const hit = firstWorkable(list, openStatus);
-    if (hit) {
-      focus.next = hit.id;
-      break;
     }
   }
   return focus;
@@ -648,28 +626,6 @@ function renderFocusPanel(snapshot) {
     open.addEventListener("click", openDocumentsView);
     empty.append(line, why, open);
     body.appendChild(empty);
-  }
-  // 「下一个」只在 computeAgentFocus 真给出时渲染:拿不到就不留空壳,不编。
-  const next = focusEntryOf(snapshot, agentFocus.next);
-  if (next) {
-    const row = document.createElement("div");
-    row.className = "focus-next";
-    row.dataset.docId = next.entry.id;
-    const label = document.createElement("span");
-    label.className = "focus-next-label";
-    label.textContent = `${t("下一个")}:`;
-    const text = document.createElement("span");
-    text.className = "focus-next-title";
-    text.setAttribute("data-i18n-raw", "");
-    text.textContent = `${next.entry.id} ${next.entry.title}`;
-    text.title = `${next.entry.id} ${next.entry.title}`;
-    const jump = document.createElement("button");
-    jump.type = "button";
-    jump.className = "ghost mini";
-    jump.textContent = t("在完整列表中查看");
-    jump.addEventListener("click", () => jumpToEntry(next.entry.id));
-    row.append(label, text, jump);
-    body.appendChild(row);
   }
   const backlog = $("focus-backlog");
   if (!backlog) return;
