@@ -9,6 +9,7 @@
   },
   "devDependencies": {
     "eslint": "^9.24.0",
-    "globals": "^17.9.0"
+    "globals": "^17.9.0",
+    "playwright-core": "^1.62.1"
   }
 }

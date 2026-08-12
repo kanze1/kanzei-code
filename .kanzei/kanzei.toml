@@ -147,3 +147,8 @@ effect = "allow"
 action = "conventions"
 resource = "patch"
 effect = "allow"
+
+[[permissions.rules]]
+action = "bash"
+resource = '{"command":"Get-ChildItem -Recurse -Depth 2 -Include *.ps1,*.toml,*.json,*.conf* -Path scripts,src-tauri,crates/kanzei-app 2>$null | Select-Object -First 5 FullName; Get-ChildItem scripts | Select-Object Name","workdir":"c:/users/kanzei/documents/kanzei code"}'
+effect = "allow"
