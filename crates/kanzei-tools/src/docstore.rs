@@ -144,6 +144,14 @@ pub struct Entry {
     pub fields: Vec<(String, String)>,
 }
 
+/// R-201:游离行的稳定标识——条目内从 1 起的序号 + 原文。
+/// 序号是删除动作的键(`delete_raw_line` 用 ordinal),原文供删除前核对。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawLine {
+    pub ordinal: usize,
+    pub text: String,
+}
+
 /// 单条目批次数上限(2026-08-10 用户定调:批数由 agent 按实际工作量自定,上限 10)。
 /// 这是**写入侧**门禁的判据,读路径不做钳制——理由见 declared_batch_progress。
 pub const MAX_BATCHES: u32 = 10;
@@ -744,6 +752,80 @@ impl DocStore {
             None => Ok(()),
         }
     }
+
+    /// R-201:某条目的游离行——解析时落在 `TemplateLine::Raw` 的行,字段体系外、
+    /// 任何 update 都触及不到的历史内容。返回条目内从 1 起的稳定序号与原文,
+    /// 序号即删除动作的键。读路径:依赖上次 `load()` 保存的模板。
+    pub fn raw_lines(&self, id: &str) -> Vec<RawLine> {
+        let preserved = self.preserved.lock().unwrap().clone();
+        let Some(template) = preserved else {
+            return Vec::new();
+        };
+        let Some(entry) = template.entries.iter().find(|e| e.id == id) else {
+            return Vec::new();
+        };
+        entry
+            .lines
+            .iter()
+            .filter_map(|line| match line {
+                TemplateLine::Raw(text) => Some(text.clone()),
+                TemplateLine::Field(_) => None,
+            })
+            .enumerate()
+            .map(|(index, text)| RawLine {
+                ordinal: index + 1,
+                text,
+            })
+            .collect()
+    }
+
+    /// R-201:按序号删除一条游离行。只从模板里移除那一条 Raw,字段与其余行
+    /// 一字不动(渲染仍走 `render_with_template`,模板里只剩没删的行)。
+    ///
+    /// 删除后必须把**修改后的模板**写回 preserved——否则同进程内下一次 save()
+    /// 会拿着旧模板把刚删掉的行又吐回来,「删了等于没删」(幂等③)。
+    pub fn delete_raw_line(&self, id: &str, ordinal: usize) -> std::io::Result<()> {
+        let _lock = self.lock()?;
+        if ordinal == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "ordinal 从 1 开始",
+            ));
+        }
+        let entries = self.load()?;
+        let mut template = self.preserved.lock().unwrap().clone().ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "没有可用的模板")
+        })?;
+        let Some(entry_template) = template.entries.iter_mut().find(|e| e.id == id) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{id} 不存在或没有可清理的模板"),
+            ));
+        };
+        // 定位第 ordinal 条 Raw 在 lines 里的下标:只数 Raw,Field 不占号。
+        let mut seen = 0usize;
+        let mut target = None;
+        for (index, line) in entry_template.lines.iter().enumerate() {
+            if let TemplateLine::Raw(_) = line {
+                seen += 1;
+                if seen == ordinal {
+                    target = Some(index);
+                    break;
+                }
+            }
+        }
+        let Some(index) = target else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{id} 只有 {seen} 条游离行,没有第 {ordinal} 条"),
+            ));
+        };
+        entry_template.lines.remove(index);
+        // 更新 preserved:同一实例后续 save() 必须基于删过的模板渲染。
+        *self.preserved.lock().unwrap() = Some(template.clone());
+        let text = render_with_template(self.kind, &entries, &template);
+        crate::atomic_file::write_atomic(&self.path, &text)
+    }
 }
 
 fn format_ids(prefix: &str, numbers: &[u32]) -> String {
@@ -1196,6 +1278,89 @@ mod tests {
 
         // 幂等:再存一次不会继续变形(游离段落当年正是靠这一步越积越多)。
         assert_eq!(render(&REQUIREMENTS, &back), text);
+    }
+
+    #[test]
+    fn 游离行列出与删除_其余内容一字不变_二次保存幂等() {
+        // R-201 验收①②③:raw_lines 稳定标识、raw_delete 只删指定行、删除后幂等。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-rawlines-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let path = dir.join(REQUIREMENTS.rel_path);
+        let text = "\
+# Requirements
+
+## R-001 条目 [todo]
+- 进展: 第一行
+- 优先级: P1
+历史手写段落一
+- 验收: 有验收
+历史手写段落二
+";
+        std::fs::write(&path, text).unwrap();
+
+        // ①列出:条目内从 1 起的序号 + 原文,稳定可辨。
+        // raw_lines 依赖最近一次 load() 保存的模板(工具路径恒先 load,此处显式)。
+        store.load().unwrap();
+        let raws = store.raw_lines("R-001");
+        assert_eq!(raws.len(), 2, "{raws:?}");
+        assert_eq!(raws[0].ordinal, 1);
+        assert!(raws[0].text.contains("历史手写段落一"), "{:?}", raws[0]);
+        assert_eq!(raws[1].ordinal, 2);
+        assert!(raws[1].text.contains("历史手写段落二"), "{:?}", raws[1]);
+        assert!(store.raw_lines("R-999").is_empty(), "未知 ID 应为空");
+
+        // ②删除第 2 条:文件里只少那一行,其余字节不变。
+        store.delete_raw_line("R-001", 2).unwrap();
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(!after.contains("历史手写段落二"), "{after}");
+        assert!(after.contains("历史手写段落一"), "{after}");
+        assert!(after.contains("## R-001 条目 [todo]"), "{after}");
+        assert!(after.contains("- 进展: 第一行"), "{after}");
+        assert!(after.contains("- 优先级: P1"), "{after}");
+        assert!(after.contains("- 验收: 有验收"), "{after}");
+
+        // ④字段体系完全不受影响。
+        let parsed = store.load().unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(
+            parsed[0].fields.len(),
+            3,
+            "删除游离行不得吞字段: {:?}",
+            parsed[0].fields
+        );
+        assert!(parsed[0]
+            .fields
+            .iter()
+            .any(|(k, v)| k == "进展" && v == "第一行"));
+
+        // ③二次保存幂等:已删行不会从模板里复活。
+        store.save(&parsed).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            after,
+            "再次保存不得复活已删行"
+        );
+
+        // 越界序号拒绝且不写盘。
+        let before = std::fs::read_to_string(&path).unwrap();
+        let err = store.delete_raw_line("R-001", 9).unwrap_err();
+        assert!(err.to_string().contains("只有 1 条"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "越界删除不得写盘"
+        );
+        assert!(store.delete_raw_line("R-001", 0).is_err(), "序号从 1 开始");
+
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

@@ -273,3 +273,12 @@
 - 标签: 流程
 - 阻塞: 
 - 优先级: P1
+
+## D-295 D-264 门禁与权限档位死锁:autonomous 轮 test_record 未白名单,任何 Rust 源码提交被拦 [open] (medium)
+- 复杂度: 小
+- 复现: autonomous/parallel 档位提交任何 Rust 源码:git commit 被 D-264 source_test_gate 拦下,要求一条暂存源码改动之后收尾的 passed 测试记录;test_record 工具调用报 permission requires user approval(实测 2 次,running 与 passed 均拒),.kanzei/kanzei.toml 无 test_record 规则且 edit 该文件也被拒——本代理无法自解,每次 Rust 提交都死锁。2026-08-16 R-201 首撞。
+- 影响: autonomous 自举轮无法落盘任何 Rust 改动:门禁设计(要求测试记录)与权限配置(未放行 test_record)互相矛盾,已验证的代码只能滞留在工作树,自举节奏被打断。
+- 来源: self-found
+- 标签: 流程
+- 解除动作: 在 .kanzei/kanzei.toml 加 `[[permissions.rules]] action = "test_record" resource = "*" effect = "allow"`(或交互轮逐次批准 test_record)。解除人: 用户。
+- 优先级: P1

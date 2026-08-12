@@ -35,6 +35,7 @@ const WRITE_ACTIONS: &[&str] = &[
     "archive",
     "reorder",
     REOPEN_ACTION,
+    "raw_delete",
     "repair_reused_id",
     "repair_missing_id",
     "void_id",
@@ -71,6 +72,9 @@ struct TrackerInput {
     /// void_id 必填:这个编号为什么不该有条目、依据是什么
     #[serde(default)]
     reason: Option<String>,
+    /// raw_delete 必填:raw_lines 输出里的 [n] 序号(要删除的第 n 条游离行)
+    #[serde(default)]
+    ordinal: Option<usize>,
 }
 
 #[async_trait]
@@ -86,6 +90,9 @@ impl Tool for TrackerTool {
             "Track {}s in the project doc. Actions: list, get(id), add(title, fields), \
              update(id, status/fields), close(id), archive (move terminal entries to the archive \
              file), reorder(order: complete id list — file order IS the user's dev order), \
+             raw_lines(id) (list this entry's stray non-addressable lines as [n] markers), \
+             raw_delete(id, ordinal=n) (delete exactly that stray line; all fields and other \
+             lines stay byte-identical), \
              repair_reused_id(id), repair_missing_id(id, title, ...) (put back an entry recovered \
              from git history at its original id), void_id(id, reason) (record that an allocated \
              id legitimately has no entry — the ONLY sanctioned way to settle a gap; never \
@@ -116,12 +123,14 @@ impl Tool for TrackerTool {
         let mut actions = vec![
             "list",
             "get",
+            "raw_lines",
             "add",
             "update",
             "close",
             "archive",
             "reorder",
             REOPEN_ACTION,
+            "raw_delete",
         ];
         actions.extend_from_slice(REPAIR_ACTIONS);
         let enums: [(&str, Option<Vec<String>>); 4] = [
@@ -286,6 +295,38 @@ impl Tool for TrackerTool {
                         None => ToolOutput::error(unknown_id(id, &entries)),
                     },
                 }
+            }
+            // R-201:列出条目的游离行——模板里不可寻址的 Raw 行,update 永远删不到。
+            // 每条给 [n] 序号 + 原文,序号即 raw_delete 的键;空行显式标出避免看不见。
+            "raw_lines" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for raw_lines");
+                };
+                if !entries.iter().any(|e| &e.id == id) {
+                    return ToolOutput::error(unknown_id(id, &entries));
+                }
+                let raws = store.raw_lines(id);
+                if raws.is_empty() {
+                    return ToolOutput::ok(format!("{id} 没有游离行(条目内每一行都是可寻址字段)"));
+                }
+                let rendered = raws
+                    .iter()
+                    .map(|raw| {
+                        let body = if raw.text.trim().is_empty() {
+                            "(空行)".to_string()
+                        } else {
+                            raw.text.clone()
+                        };
+                        format!("[{:>2}] {}", raw.ordinal, body)
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                ToolOutput::ok(format!(
+                    "{id} 的游离行共 {} 条(历史多行写法/手改留下的不可寻址内容,update 删不到)。\
+                     用 `{tool} raw_delete id={id} ordinal=<n>` 按序号删除单条:\n{rendered}",
+                    raws.len(),
+                    tool = self.tool_name,
+                ))
             }
             "repair_reused_id" => {
                 let Some(id) = &input.id else {
@@ -648,6 +689,26 @@ impl Tool for TrackerTool {
                     input.order.join(" → ")
                 ))
             }
+            // R-201:按序号删除一条游离行。删除走 docstore 的模板手术:只移除那一条
+            // Raw,字段与其余行一字不动,二次保存幂等(行已不在模板里,不会再生)。
+            "raw_delete" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for raw_delete");
+                };
+                let Some(ordinal) = input.ordinal else {
+                    return ToolOutput::error(
+                        "`ordinal` is required for raw_delete(取值见 raw_lines 输出的 [n])",
+                    );
+                };
+                match store.delete_raw_line(id, ordinal) {
+                    Ok(()) => ToolOutput::ok(format!(
+                        "已删除 {id} 的第 {ordinal} 条游离行;其余内容与字段一字不变。\
+                         可再 `{tool} raw_lines id={id}` 复查剩余游离行。",
+                        tool = self.tool_name,
+                    )),
+                    Err(e) => ToolOutput::error(format!("raw_delete failed: {e}")),
+                }
+            }
             // D-241:fixing 推不动时的合法退路。要求 id + reason(强制写理由),
             // 状态必须命中该文档类型的 reopen_from 集合,退回初始态并落进展。
             // 与「手改 markdown」的区别:reopen 走引擎,理由进文档,调度器下次
@@ -699,8 +760,8 @@ impl Tool for TrackerTool {
                 ))
             }
             other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: list | get | add | update | close | archive | \
-                 reorder | {} | {}",
+                "unknown action `{other}`; valid: list | get | raw_lines | add | update | close | \
+                 archive | reorder | raw_delete | {} | {}",
                 REOPEN_ACTION,
                 REPAIR_ACTIONS.join(" | ")
             )),
@@ -1336,7 +1397,15 @@ mod tests {
         };
         assert_eq!(tool.resources(&json!({"action": "list"})), ["read:list"]);
         assert_eq!(tool.resources(&json!({"action": "get"})), ["read:get"]);
+        assert_eq!(
+            tool.resources(&json!({"action": "raw_lines"})),
+            ["read:raw_lines"]
+        );
         assert_eq!(tool.resources(&json!({"action": "add"})), ["write:add"]);
+        assert_eq!(
+            tool.resources(&json!({"action": "raw_delete"})),
+            ["write:raw_delete"]
+        );
         assert_eq!(
             tool.resources(&json!({"action": "repair_missing_id"})),
             ["write:repair_missing_id"]
@@ -1430,6 +1499,102 @@ mod tests {
             err.contains("tracker integrity is broken"),
             "完整性破损必须拒绝回写: {err}"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-201 端到端:raw_lines 列出游离行(raw_delete 的标识来源),raw_delete
+    /// 删除单条后字段体系与文件其余字节不受影响。
+    #[tokio::test]
+    async fn raw_lines_raw_delete_清理游离行且字段不受影响() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-rawlines-tool-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let path = dir.join(REQUIREMENTS.rel_path);
+        // 直接手写带游离行的文档:引擎渲染路径不会产生游离行,必须从历史文件形态进入。
+        std::fs::write(
+            &path,
+            "\
+# Requirements
+
+## R-001 条目 [todo]
+- 进展: 第一行
+历史手写段落一
+- 验收: 有验收
+",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // ①列出:输出带 [n] 序号 + 原文,同时给删除指引。
+        let listed = tool
+            .execute(json!({"action": "raw_lines", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!listed.is_error, "{}", listed.content);
+        assert!(listed.content.contains("[ 1]"), "{}", listed.content);
+        assert!(
+            listed.content.contains("历史手写段落一"),
+            "{}",
+            listed.content
+        );
+        assert!(
+            listed.content.contains("raw_delete"),
+            "输出要指明删除动作: {}",
+            listed.content
+        );
+
+        // 未知 ID:拒绝并给出可用 ID。
+        let missing = tool
+            .execute(json!({"action": "raw_lines", "id": "R-999"}), &ctx)
+            .await;
+        assert!(missing.is_error, "{}", missing.content);
+
+        // ②删除第 1 条:文件里只少那一行,字段一行不动。
+        let deleted = tool
+            .execute(
+                json!({"action": "raw_delete", "id": "R-001", "ordinal": 1}),
+                &ctx,
+            )
+            .await;
+        assert!(!deleted.is_error, "{}", deleted.content);
+        assert!(
+            deleted.content.contains("已删除 R-001 的第 1 条游离行"),
+            "{}",
+            deleted.content
+        );
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(!after.contains("历史手写段落一"), "{after}");
+        assert!(after.contains("## R-001 条目 [todo]"), "{after}");
+        assert!(after.contains("- 进展: 第一行"), "{after}");
+        assert!(after.contains("- 验收: 有验收"), "{after}");
+
+        // ④字段解析不受影响。
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let parsed = store.load().unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].fields.len(), 2, "{:?}", parsed[0].fields);
+        assert!(parsed[0]
+            .fields
+            .iter()
+            .any(|(k, v)| k == "进展" && v == "第一行"));
+
+        // 缺少 ordinal:raw_delete 拒绝。
+        let no_ordinal = tool
+            .execute(json!({"action": "raw_delete", "id": "R-001"}), &ctx)
+            .await;
+        assert!(no_ordinal.is_error, "{}", no_ordinal.content);
+
         std::fs::remove_dir_all(dir).ok();
     }
 

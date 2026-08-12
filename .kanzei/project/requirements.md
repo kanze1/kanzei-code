@@ -1,6 +1,6 @@
 # Requirements
 
-## R-201 tracker 提供游离文本的清理通道:让"删得掉"成为工具能力而不是人工特权 [open]
+## R-201 tracker 提供游离文本的清理通道:让"删得掉"成为工具能力而不是人工特权 [open] [doing]
 - 优先级: P3
 - 复杂度: 中
 - 标签: 核心
@@ -10,6 +10,9 @@
 - 边界: 不改「字段值必须单行」这条不变式(D-294);不允许用它绕开字段体系写多行字段。
 - 验收: ①能列出某条目的游离行并稳定标识;②能按标识删除指定行,其余内容与字段一字不变;③删除后二次保存幂等;④有回归覆盖"删除后字段不受影响"。
 - refs: D-294 D-239
+
+- 进展: 实现+测试已完成:docstore.rs 新增 RawLine(raw_lines 列出/delete_raw_line 按序号删除,模板手术保其余字节不变+preserved 回写防复活),tracker.rs 新增 raw_lines/raw_delete 两 action(WRITE_ACTIONS/schema/description/resources 全登记);新回归 2 条(R-201 验收①②③④)+资源权限断言;kanzei-tools 256 passed 全绿。2026-08-12 交互轮解除:test_record 已放行(记录 T-1786514712 passed),D-264 source_test_gate 证据满足,提交落地后按验收逐项关闭。
+- 阻塞: 
 
 ## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [open]
 - 优先级: P2
@@ -105,10 +108,10 @@
 
 - 拆批: 2026-08-08 用户定调「拆出能先做的部分」: **本轮可做**——harness 基座本身(仓库补 package.json、选定并接入 WebView 驱动、安全启动真实 UI、截图与断言框架、失败非零退出),以及不涉及多会话的 E2:D-060 手写内容保留与并发写入、D-086 task→subagent read 拦截、D-064 注入故障的 run_task 收尾、D-066 真实 Window/provider 停止。基座 + 四条 E2 交付即可关闭本条;R-086 已于本轮按 §1.2 可用即关闭关闭,原「并入 R-086 验收」的三条桌面 E2(D-051 桌面权限弹窗真实 UI、D-055 切回进程补发 pending ask、D-056 运行中切项目终态复位)留在本条目验收清单执行。
 
-- 进展: 2026-08-13 用户指示转入阻塞,剩余批次(B1 基座验证、B2 D-060、B3 D-086、B4 D-064、B5 D-066、B6 D-051/D-055/D-056、B7 R-139、B8 D-202)全部待用户放行运行验证后恢复。静态审查结论已落档(见前次进展)。批次 0/8。
+- 进展: 2026-08-16 复核:阻塞解除条件①已满足(node --version/node --check 实测放行,cargo build -p kanzei-app 已启动未拦),当场清空阻塞,恢复推进 B1 基座验证。当前 target/debug/kzapp.exe 构建于 08-12 04:30,早于 CDP 注入提交 695305d(08-12 10:07),需重建后跑 node scripts/e2e-smoke.mjs。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 用户: R-101 剩余全部批次(B1 基座端到端验证起)都需要运行验证——node scripts/e2e-smoke.mjs、cargo build 等。autonomous 档位下 node/cargo 全被权限规则拦截,尝试在 .kanzei/kanzei.toml 加白名单与 edit 普通文件也被拒(M-041 档位限制)。2026-08-13 用户指示转入阻塞。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(node scripts/e2e-smoke.mjs、node --check *、cargo build -p kanzei-app)后本代理续跑;或②用户切交互轮跑 node scripts/e2e-smoke.mjs 完成基座验证(先 cargo build 确保 target/debug/kzapp.exe 含 695305d 的 CDP 注入),并把结果记入 tests.md。解除人: 用户。
+- 阻塞: 
 
 - 批次: 0/8
 

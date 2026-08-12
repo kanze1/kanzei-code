@@ -1905,3 +1905,9 @@
 - 摘要: D-264 提交前全量:全 workspace 测试全绿(kanzei-tools 253 passed 含新门禁三测试,其余 crate 全部 ok);全量 clippy -D warnings 绿;cargo fmt --check 绿。提交 e7f9716 之后无源码改动。
 - 关联: D-264
 - 收尾: 1786501453
+
+## T-1786514712 cargo test -p kanzei-tools (R-201 暂存代码) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 256 passed; 0 failed — 覆盖 R-201 新增 raw_lines/raw_delete 回归与资源权限断言
+- 关联: R-201 D-295
+- 收尾: 1786514712
