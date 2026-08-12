@@ -2083,3 +2083,8 @@
 - 摘要: cargo test --workspace 全绿(harness 119、tools 263、core 143、app 137,0 failed)。R-199 跨 crate 改动保守跑全量确认无回归。
 - 关联: R-199
 - 收尾: 1786565831
+
+## T-1786574247 cargo test --workspace (发版前全量,发布树 main 9d29a5a) [passed]
+- 摘要: 发布树(kanzei-release,main 9d29a5a)cargo test --workspace 全绿(harness 119、tools 263、core 143、app 137,0 failed)。发版前全量。
+- 关联: 发版
+- 收尾: 1786574247

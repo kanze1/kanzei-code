@@ -787,21 +787,14 @@ function updateLocalProcessItem(processId, fields) {
 }
 
 function syncAutoContinueWithProfile() {
+  // R-199:档位条件由引擎判定(decide→Stop/ProfileMismatch),前端不再持有否决权。
+  // 切换 profile 时**不**主动取消勾选——引擎会在下一轮 done 事件里判 Stop 并带
+  // reason,07-events.js 的 ProfileMismatch 分支负责取消勾选 + 显示原因。这里再
+  // 关一次会让「用户明明勾了、却被静默取消」的旧漂移复发(D-290/R-199)。
   if (autoContinueAllowed() || !$("auto-continue").checked) return;
-  $("auto-continue").checked = false;
+  // 非 dev-auto 且当前勾选:保留勾选,交给引擎下轮判定;仅同步本地存储供
+  // normalizeAutoState 冷启动读回时不被误判。
   rememberAutoUiState();
-  // 同上:回显算出来的「关」不得写进全局遗留键,否则下次冷启动 normalizeAutoState
-  // 会把它当成用户上次的选择(D-290)。
-  if (!applyingProfileEcho && activeProcessId?.startsWith("d|")) {
-    localStorage.setItem("kz-auto-continue", "0");
-  }
-  autoRounds = 0;
-  cancelAutoContinueTimer();
-  // R-169:模式不兼容时后端开关同步关闭。
-  void syncAutoRunState();
-  renderAutoStatus();
-  log(t("当前模式不支持鞭挞，已自动关闭"));
-  toast(t("鞭挞已关闭：当前进程不是自主推进模式"));
 }
 function applyProfileValue(backendProfile) {
   // D-290:没有进程身份就没有「该显示谁的档位」这个问题。此时既读不到本进程记忆,

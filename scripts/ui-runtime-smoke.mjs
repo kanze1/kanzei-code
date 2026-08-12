@@ -3837,24 +3837,34 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   const whipSession = "sess-smoke";
   byId.get("auto-continue").checked = true;
   sandbox.__kzTest.reset();
-  byId.get("profile-select").value = "dev-pair"; // 模式否决:最常见的一种(D-290 会让它自己变回来)
+  byId.get("profile-select").value = "dev-pair"; // R-199:档位否决已下沉引擎,前端不再持有
   handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: whipSession } });
   await flush();
+  // R-199:引擎 decide() 判档位(ProfileMismatch→Stop),前端只显示引擎结论;
+  // 这里模拟引擎已判 Continue,前端必须持续推进(不再有私有否决)。
+  // 时序容忍:flush 可能跨越 2 秒续跑间隔,phase 可能是 auto_pending(挂起中)
+  // 或 starting(已开跑)——两者都证明引擎放行后前端没有拦下。
+  const contPhase = sandbox.sessionState(whipSession).phase;
   assert(
-    sandbox.sessionState(whipSession).auto_pending === false,
-    "闸门拦下续跑后必须清 auto_pending,否则线路徽标与运行栏永久停在「等待下一轮」(D-291)",
+    contPhase === "auto_pending" || contPhase === "starting",
+    `R-199 后前端不再否决续跑(档位判定在引擎):Continue 后应挂起或已开跑,实得 phase=${contPhase}`,
   );
   assert(
-    byId.get("auto-status").textContent.includes("鞭挞未续跑"),
-    `闸门拦下续跑必须说明原因,实得 ${byId.get("auto-status")?.textContent}(D-291)`,
+    !byId.get("auto-status").textContent.includes("鞭挞未续跑"),
+    `引擎判 Continue 时前端不得拦下: ${byId.get("auto-status")?.textContent}(D-291/R-199)`,
   );
   // 非致命错误(terminal:false,如持久化告警)不得掐掉已排好的下一轮。
   byId.get("profile-select").value = "dev-auto";
   handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: whipSession } });
-  assert(sandbox.sessionState(whipSession).auto_pending === true, "前置失败:Continue 未挂起下一轮");
-  handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false } });
+  const ph2 = sandbox.sessionState(whipSession).phase;
   assert(
-    sandbox.sessionState(whipSession).auto_pending === true,
+    ph2 === "auto_pending" || ph2 === "starting",
+    `前置失败:Continue 未挂起/开跑下一轮, phase=${ph2}`,
+  );
+  handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false } });
+  const ph3 = sandbox.sessionState(whipSession).phase;
+  assert(
+    ph3 === "auto_pending" || ph3 === "starting",
     "非致命错误不得取消已排队的续跑(旧实现在函数开头无条件 cancelAutoContinueTimer,一条告警就让鞭挞永久停摆)(D-291)",
   );
 }
