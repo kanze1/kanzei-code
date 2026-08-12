@@ -173,8 +173,8 @@
 - 优先级: P2
 
 - 复杂度: 中
-- 批次: 1/2
-- 进展: 2026-08-16 取活。根因:①memory_update 对 description 整值替换,不校验新 description 与条目 title/正文是否同主题(store.rs update);②记忆条目写入无并发保护。勘察发现用户定调「memory 写入不做跨进程锁,竞争留给 agent 事后解决」(store.rs 第 4 行注释)——所以期望②不做 FileLock,改 CAS(expected_hash,conventions 先例)。B1 完成:①store.rs update 加 description 主题一致性校验(topic_overlap:CJK 单字+英文词去虚词,context=title+旧description+body,交集<2 拒绝,错误带旧/新对照=manager 复盘轨迹)+ CAS expected_hash 参数(传则写前比对 render_entry hash,不一致拒绝);②enforce_topic 开关:manager 写路径(MemoryUpdateTool)强制 true,UI 用户直写(memory_entry_save)/merge/stale 豁免 false(A-005 用户有权写任何内容);③manager.rs UpdateInput 加 expected_hash 透传;④新测试 2 个(update拒绝主题漂移的description/update_cas拒绝过期expected_hash)。验证:memory 77 passed + app 137 passed,fmt/clippy 全过(T-1786562xxx)。B2 待:关闭前全量+关闭。
+- 批次: 2/2
+- 进展: 2026-08-16 取活。根因:①memory_update 对 description 整值替换,不校验新 description 与条目 title/正文是否同主题(store.rs update);②记忆条目写入无并发保护。勘察发现用户定调「memory 写入不做跨进程锁,竞争留给 agent 事后解决」(store.rs 第 4 行注释)——期望②不做 FileLock,改 CAS(expected_hash,conventions 先例)。B1 完成(commit b5ba149):①store.rs update 加 description 主题一致性校验(topic_overlap:CJK 单字+英文词去虚词,context=title+旧description+body,交集<2 拒绝,错误带旧/新对照=manager 复盘轨迹)+ CAS expected_hash 参数(传则写前比对 render_entry hash,不一致拒绝);②enforce_topic 开关:manager 写路径(MemoryUpdateTool)强制 true,UI 用户直写(memory_entry_save)/merge/stale 豁免 false(A-005 用户有权写任何内容);③manager.rs UpdateInput 加 expected_hash 透传;④新测试 2 个(update拒绝主题漂移的description/update_cas拒绝过期expected_hash)。验证:memory 77 passed + app 137 passed,fmt/clippy 全过(T-1786563579)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 262)。三项期望逐条对照:①update 时新 description 与条目 title/正文主题不一致拒绝——store.update enforce_topic=true 时 topic_overlap<2 即拒(带旧/新对照),manager 路径强制开启,测试 update拒绝主题漂移的description 断言漂移被拒且条目未被改写;②记忆条目写入 CAS 式并发保护——store.update 新增 expected_hash 参数(写前比对 render_entry hash,不一致拒),conventions expected_hash 同源,UpdateInput 透传,测试 update_cas拒绝过期expected_hash 断言旧 hash 拒/新 hash 放行;不引入跨进程锁(尊重用户定调);③manager 选目标条目判据落轨迹——manager 是 LLM 决策,代码层落地为拒绝信息带旧/新 description 对照 + 条目 id,manager 可见可复盘(并入①实现)。关闭。
 
 ## D-289 R-101 harness CDP 注入缺 --remote-allow-origins:可能致 e2e-smoke connectOverCDP 握手失败 [open] (medium)
 - severity: medium
