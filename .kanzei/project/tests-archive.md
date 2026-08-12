@@ -1942,3 +1942,8 @@
 - 摘要: D-297 关闭前全量:cargo test --workspace 全绿(kanzei-app 134、kanzei-core 140、kanzei-tools 258 等);验收④量化测试(4000 事件下类型下推解析字节量降一个数量级)通过;fmt/clippy 绿
 - 关联: D-297
 - 收尾: 1786552909
+
+## T-1786553151 cargo test -p kanzei-core -p kanzei-app (D-298) [passed]
+- 摘要: D-298 定向验证:kanzei-core --lib 143 passed(含迁移备份只保留最近一版、freelist 超阈值 VACUUM 两条新测试)、kanzei-app 134 passed、fmt/clippy 绿
+- 关联: D-298
+- 收尾: 1786553151

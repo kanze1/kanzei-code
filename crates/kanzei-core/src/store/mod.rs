@@ -29,6 +29,12 @@ const SCHEMA_VERSION: i64 = 13;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
+/// D-298:housekeeping 节流窗口。open 高频(每个命令一次),VACUUM 与备份扫描
+/// 是重操作,默认 24 小时才评估一次;窗口内直接跳过。
+const HOUSEKEEPING_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
+/// D-298:freelist 死页占比超过该阈值才 VACUUM。实测主会话库 82MB 中约 68MB
+/// (83%)是 freelist,50% 是合理的触发线——低于它说明库还健康,不必付整理成本。
+const HOUSEKEEPING_FREELIST_THRESHOLD: f64 = 0.5;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {

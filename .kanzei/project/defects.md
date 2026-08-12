@@ -54,6 +54,8 @@
 - 验收: ①空闲时机条件整理:freelist 占比超阈值(如 50%)执行 VACUUM(或建库启用 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。
 - refs: D-297
 
+- 进展: 2026-08-16 取活开始。验收:①空闲时机条件整理(freelist 占比>50% VACUUM 或 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。已读码:backup_before_upgrade(session.rs)每次迁移 VACUUM INTO 新备份、recover_legacy_input_status 遍历全部 .bak 备份;无 VACUUM 调用。
+
 ## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
 - severity: medium
 - 优先级: P2

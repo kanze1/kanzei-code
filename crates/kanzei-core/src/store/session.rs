@@ -5,7 +5,10 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
-use super::{now_ms, Session, SessionStore, StoreError};
+use super::{
+    now_ms, Session, SessionStore, StoreError, HOUSEKEEPING_FREELIST_THRESHOLD,
+    HOUSEKEEPING_INTERVAL_MS,
+};
 
 impl SessionStore {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
@@ -26,6 +29,9 @@ impl SessionStore {
             path: Some(path.to_path_buf()),
         };
         store.migrate()?;
+        // D-298:空闲时机条件整理——freelist 死页超阈值才 VACUUM、迁移备份只留最近一版。
+        // 放在 open 末尾:任何打开库的路径(桌面命令/CLI/移动端)都会走到,无需单独调度。
+        let _ = store.maintain_housekeeping();
         Ok(store)
     }
 
@@ -89,6 +95,97 @@ impl SessionStore {
         )?;
         if changed == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows.into());
+        }
+        Ok(())
+    }
+
+    /// D-298:state.db 空闲时机条件整理。
+    ///
+    /// 两个动作都在 open 的公共路径上执行,但都用 schema_meta 节流(默认 24 小时
+    /// 一次),避免每次命令都付 VACUUM/备份扫描成本:
+    ///
+    /// 1. **freelist 死页回收**:`PRAGMA freelist_count / page_count` 占比超过
+    ///    [`HOUSEKEEPING_FREELIST_THRESHOLD`] 时执行 `VACUUM`,把频繁增删事件
+    ///    留下的死页还给磁盘。实测主会话库 82MB 中约 68MB 是 freelist 死页。
+    /// 2. **迁移备份只保留最近一版**:`state.db.v<N>.bak` 是升级时的退路,但只
+    ///    有最近一次迁移前的旧库才有回退价值,更早的备份永久占磁盘(D-298 实测
+    ///    9 份约 59MB),只保留版本号最大的那一份。
+    ///
+    /// 任一步失败都只记日志不阻断 open——整理是磁盘卫生,不是正确性。
+    pub(crate) fn maintain_housekeeping(&self) -> Result<(), StoreError> {
+        let Some(path) = &self.path else {
+            return Ok(());
+        };
+        let now = now_ms();
+        let last: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT value FROM schema_meta WHERE key = 'housekeeping_at'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok());
+        if last.is_some_and(|at| now.saturating_sub(at) < HOUSEKEEPING_INTERVAL_MS) {
+            return Ok(());
+        }
+        // 节流窗口内不再尝试;先记时间,失败也不反复重试(下次 open 若已过窗口仍会做)。
+        let _ = self.connection.execute(
+            "INSERT INTO schema_meta(key, value) VALUES ('housekeeping_at', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![now.to_string()],
+        );
+
+        // ① freelist 死页回收。VACUUM 不能在事务内,此处无活跃事务(open 刚完成 migrate)。
+        let freelist: i64 = self
+            .connection
+            .pragma_query_value(None, "freelist_count", |row| row.get(0))
+            .unwrap_or(0);
+        let pages: i64 = self
+            .connection
+            .pragma_query_value(None, "page_count", |row| row.get(0))
+            .unwrap_or(0);
+        if pages > 0 && freelist as f64 / pages as f64 > HOUSEKEEPING_FREELIST_THRESHOLD {
+            tracing::info!(
+                freelist,
+                pages,
+                "state.db freelist 死页超阈值,执行 VACUUM 回收"
+            );
+            let _ = self.connection.execute("VACUUM", []);
+        }
+
+        // ② 迁移备份只保留最近一版。备份命名 state.db.v<N>.bak,按版本号取最大。
+        if let Some(parent) = path.parent() {
+            let stem = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let mut backups: Vec<(i64, PathBuf)> = std::fs::read_dir(parent)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|entry| entry.path())
+                .filter_map(|candidate| {
+                    let name = candidate.file_name()?.to_string_lossy().into_owned();
+                    let version = name
+                        .strip_prefix(&format!("{stem}.v"))?
+                        .strip_suffix(".bak")?
+                        .parse::<i64>()
+                        .ok()?;
+                    Some((version, candidate))
+                })
+                .collect();
+            backups.sort_by_key(|(version, _)| *version);
+            if backups.len() > 1 {
+                let keep = backups.pop().map(|(_, p)| p).unwrap_or_default();
+                for (version, old) in backups {
+                    tracing::info!(version, "删除过期迁移备份 {}", old.display());
+                    let _ = std::fs::remove_file(&old);
+                }
+                let _ = keep;
+            }
         }
         Ok(())
     }
@@ -288,5 +385,99 @@ mod tests {
             super::session_identity(bare),
             r"c:\users\kanzei\documents\kanzei code"
         );
+    }
+
+    /// D-298 验收②:迁移备份只保留最近一版,更早的清理掉。
+    #[test]
+    fn 迁移备份只保留最近一版() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-housekeeping-bak-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store.create_session("ses", "C:/p", None).unwrap();
+        drop(store);
+        // 手工造三份备份(v4/v7/v12),模拟历史迁移残留。
+        for version in [4i64, 7, 12] {
+            std::fs::copy(&path, dir.join(format!("state.db.v{version}.bak"))).unwrap();
+        }
+        let store = SessionStore::open(&path).unwrap();
+        // 显式评估:清掉节流时间戳,否则本次 open 落在窗口内跳过整理。
+        store
+            .connection
+            .execute("DELETE FROM schema_meta WHERE key = 'housekeeping_at'", [])
+            .unwrap();
+        store.maintain_housekeeping().unwrap();
+        drop(store);
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with("state.db.v") && name.ends_with(".bak"))
+            .collect();
+        assert_eq!(backups.len(), 1, "只应保留最近一版备份,实得 {backups:?}");
+        assert_eq!(backups[0], "state.db.v12.bak", "应保留版本号最大的那份");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-298 验收③:freelist 死页超阈值时 VACUUM 把库文件收回活数据量级。
+    /// 通过大量增删制造 freelist,断言整理后 page_count 显著下降。
+    #[test]
+    fn freelist超阈值时vacuum回收死页() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-housekeeping-vacuum-{}-{}",
+            std::process::id(),
+            now_ms()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        {
+            let store = SessionStore::open(&path).unwrap();
+            store.create_session("ses", "C:/p", None).unwrap();
+            // 大量写入撑大库,再删除制造 freelist 死页。
+            for index in 0..2000 {
+                store
+                    .append_event(
+                        "ses",
+                        "run.trace",
+                        &serde_json::json!({"run_id": format!("run_{}", index / 10), "events": [{"kind": "tool.started", "id": index}]}),
+                    )
+                    .unwrap();
+            }
+            store
+                .connection
+                .execute("DELETE FROM session_events", [])
+                .unwrap();
+            let freelist: i64 = store
+                .connection
+                .pragma_query_value(None, "freelist_count", |row| row.get(0))
+                .unwrap();
+            let pages: i64 = store
+                .connection
+                .pragma_query_value(None, "page_count", |row| row.get(0))
+                .unwrap();
+            assert!(
+                pages > 0 && freelist as f64 / pages as f64 > 0.5,
+                "前置条件:freelist 占比应超阈值,实得 {freelist}/{pages}"
+            );
+            // 手动清空 housekeeping_at 让当前 open 立即评估,再触发 VACUUM。
+            store
+                .connection
+                .execute("DELETE FROM schema_meta WHERE key = 'housekeeping_at'", [])
+                .unwrap();
+            store.maintain_housekeeping().unwrap();
+            let after_pages: i64 = store
+                .connection
+                .pragma_query_value(None, "page_count", |row| row.get(0))
+                .unwrap();
+            assert!(
+                after_pages < pages,
+                "VACUUM 后 page_count 应下降:前 {pages} → 后 {after_pages}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
