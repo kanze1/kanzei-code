@@ -3514,3 +3514,18 @@
 
 - 进展: 2026-08-16 取活并修复。四处缺口逐一落地(commit c04f592):①发现式取根别名感知——discover_project_root_with_home 的 .kanzei 标记层若为 HOME 别名(词法不同但 is_same_dir 相同)同样跳过,身份比较只在词法不等且有标记的层发生,普通层仍纯词法 dir_key,不给配置加载引入 O(深度) 系统调用;②卷元数据读失败保守判同——same_dir_by_volume_metadata 的 fingerprint 拿不到身份时 return true(可能相同,由上层保守处置),不再 fail-open 放行 UNC 别名;③KANZEI_HOME 参与比较——is_home_root 拆出可测内核 is_home_root_with(home/kh 参数注入,不碰进程级环境变量),全局根与 root 本身或 root/.kanzei 同目录都算碰撞;④--project-root trim 对齐——parse_run_args 值 trim 与 KANZEI_PROJECT_ROOT 一致,reject_home 文案改为「全局配置根(HOME 或 KANZEI_HOME)」。新增测试 4 个(发现式取根对别名形态的home也拦得住/卷元数据读失败时保守判同而不是放行/kanzei_home指向项目根或其kanzei时被拦/project_root_flag_trims_whitespace_like_env_does),定向验证 kanzei-harness config 45 passed + kanzei bin 15+3 passed(T-1786561780),fmt/clippy 全过。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786561897,harness 114/tools 259/core 137/app 143)。四项验收逐条对照:①发现式取根对别名形态拦得住+性能实测——测试[发现式取根对别名形态的home也拦得住](cfg windows,尾随点别名,断言 discover 不再返回 home)通过;性能实测 20 层嵌套目录 50 次完整 kz CLI 启动 1593ms(31.9ms/次,含进程 spawn 大头),结构性保证 discover 普通层纯 dir_key(纯字符串折叠、零系统调用),is_same_dir(canonicalize)只在词法不等且有 .kanzei 标记的层发生(通常 1 次),非 O(深度) 系统调用;②卷元数据读失败保守——same_dir_by_volume_metadata fingerprint 失败(metadata 读失败/非目录/取不到 modified)return true,测试[卷元数据读失败时保守判同而不是放行](两个不存在路径断言 true,正常同/异目录语义不变)通过;③KANZEI_HOME 参与比较——is_home_root 经 is_home_root_with 同时比较 dirs::home_dir() 与 kanzei_home(),测试[kanzei_home指向项目根或其kanzei时被拦](场景 A kh=proj/.kanzei→拦、B kh=proj→拦、C 全局根在别处→不拦、D 真 HOME→拦)通过;告警=reject_home_as_project_root 文案改为「全局配置根(HOME 或 KANZEI_HOME)」(crates/kanzei/src/main.rs);④两条入口同一理由——parse_run_args 对 --project-root 值 trim 与 KANZEI_PROJECT_ROOT 对齐,测试[project_root_flag_trims_whitespace_like_env_does](带首尾空格值解析为 C:/x)通过;trim 后两入口走同一 reject_home 路径报同一条「主根写成 HOME」。关闭。
 
+## D-276 tracker 进展字段 update 语义陷阱:多行=追加游离段落、游离段落无删除通道 [fixed] (medium)
+- refs: D-239 D-204
+- 严重度: medium
+- 优先级: P2
+- 修复方向: ①update 进展字段统一为「替换整个进展块」(单行与多行同语义),或把多行追加改为追加到 `- 进展:` 行内;②提供显式删除/整理游离段落的能力(如 update 传特殊标记清空);③引擎在 update 后自检条目内重复段落并告警。
+- 复现: 2026-08-13 实测确认(defect update 进展字段):①传多行值(含换行)= 作为新游离段落追加到条目末尾,不替换 `- 进展:` 首行;②传单行值 = 替换首行,但已存在的游离段落(无 `- 键:` 前缀的文本行)永不清除;③没有任何删除通道:tracker 文件 direct write denied、git restore/checkout 被引擎拦截、shell 整文件重写被拦、edit/write 对 .kanzei/project 拒绝。D-239 因反复 update 积累 3 份「验收②复核」+ 2 份「第二轮复核」重复段落,越修越脏。
+- 影响: ①条目数据膨胀,重复段落混淆后续审计与记忆蒸馏;②清理死路:游离段落一旦产生,agent 侧任何工具都删不掉,只能用户手动 git 操作;③单行/多行语义不一致(替换 vs 追加),调用方无法预期;④D-239 验收②(复核口径漂移)因此类缺陷污染证据。
+- 标签: 核心
+- 证据等级: E1(2026-08-13 实测复现,含 diff 与 read 证据)
+
+- 批次: 2/2
+- 进展: 2026-08-16 取活。勘察发现三个修复方向中①②已由既有交付落地:D-294(commit 1c223f8 字段值写入侧强制单行,push_field 把多行折成空格,四渲染出口全走它,测试 字段值折成单行_不产生游离段落)堵死新增游离段落;R-201(commit 800d5da raw_lines/raw_delete 按序号删游离行)提供删除通道。但两笔交付当时未关联 D-276,条目仍开着。剩余:③引擎在 update 后自检条目内重复段落并告警(未做);端到端验证 update 多行值不再产游离段落 + raw_delete 能清历史残留;清理 D-239 历史积累的重复游离段落(影响④实例)。B1 完成:tracker.rs update|close 分支 save 后调 store.raw_lines(id) 自检,有游离段落则在返回里点名数量并指路 raw_lines/raw_delete;新增端到端测试 update多行值不新增游离段落且已有残留被自检点名(多行值折成单行字段、历史残留被点名、raw_delete 清完后不再告警),tracker 31 passed(T-1786562132),fmt/clippy 全过;commit 27606aa。B2 完成:真实环境验证——raw_delete 在真实 defects.md 上删除 D-239 游离段落成功(字段一字不变),D-239 历史重复内容段落已折进字段值无残留,仅剩格式空行(D-130 渲染固有产物,删后再生,属无害格式态);update 自检告警通道端到端测试已覆盖。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786561931 前一条,tools 260 passed)。三个修复方向逐条对照:①update 进展字段统一为替换整个块(单行与多行同语义)——既有能力 D-294 push_field 折行,本次端到端测试 update多行值不新增游离段落且已有残留被自检点名 断言「- 进展: 第一段 第二段 第三段」单行字段且「第二段不能变成新的游离段落」(crates/kanzei-tools/src/tracker.rs 测试,commit 27606aa);②显式删除/整理游离段落能力——既有能力 R-201 raw_lines/raw_delete,本次真实环境验证在 defects.md 删除 D-239 游离行成功(字段一字不变);③update 后自检重复段落并告警——本次交付 tracker.rs update|close save 后 store.raw_lines(id) 自检,有残留则返回点名数量并指路 raw_lines/raw_delete(修复方向③代码 + 端到端测试「清完后 update 不再告警」)。关闭。
+
+- 复杂度: 中
+
