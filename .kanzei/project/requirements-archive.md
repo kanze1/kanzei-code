@@ -2140,3 +2140,15 @@
 - 批次: 2/2
 - 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成(commit 59e2f05):①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565253)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)。四条验收逐条对照:①node scripts/e2e-smoke.mjs 命中 node scripts/*.mjs 并放行——测试 前缀白名单_放行匹配命令 断言 Effect::Allow(permission.rs 测试,commit 59e2f05);②node scripts/x.mjs; rm -rf / 不得命中——测试 前缀白名单_命令链接重定向回落ask 断言含 ;/&&/|/>/$(/反引号 全部 Effect::Ask(has_shell_meta 检测);③结构化 JSON 与纯字符串双形态——测试 前缀白名单_结构化与纯字符串双形态:纯字符串前缀规则不授权 JSON(既有保护保留)、JSON 资源经既有整串精确匹配路径正常;④D-051 既有回归保持绿——更新后的 前缀通配不放行未明确授权的命令(重定向/别名/其它程序/命令链接仍 Ask)+ 显式整体放行不受串联降级影响(yolo `*` 仍 Allow)全绿。关闭。
 
+## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open] [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 后端
+- 来源: D-291 修复时的残余项。
+- 内容: `autoContinueAllowed()`(模式必须为 dev-auto)是前端私有条件,而 auto_run.rs 的头注明确宣称判定归引擎、前端只执行。现状是引擎判 Continue 并把 `rounds` +1,前端可能否决——计数与实际轮次从此漂移。把档位作为输入并进 `AutoRunCtx`,由 `decide()` 给出 `Stop(ProfileMismatch)` 一类结果;或者取消这条双重开关(鞭挞开关本身已是意图表达)。
+- 验收: ①前端不再持有任何引擎不知道的续跑否决条件;②否决发生时引擎侧计数不 +1;③harness 侧单测覆盖新增停止原因。
+- refs: D-291 R-169
+
+- 批次: 2/2
+- 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786566xxx,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。
+
