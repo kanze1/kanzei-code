@@ -2058,3 +2058,8 @@
 - 摘要: cargo test -p kanzei-tools --lib docstore:19 passed(含新测试 archive_terminal_净化重复条目与孤儿字段——构造 D-309 重复两份+D-312 污染字段,archive_terminal 后重复收敛为一份、复现保留第一个非空、空字段阻塞删除、新终态条目正常归档)。fmt/clippy 全过。
 - 关联: D-316
 - 收尾: 1786564595
+
+## T-1786564679 cargo test --workspace (D-316 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(tools 263 passed 1 ignored、core 143、harness 114、app 137,0 failed)。D-316 复杂度=中,关闭前全量。
+- 关联: D-316
+- 收尾: 1786564679
