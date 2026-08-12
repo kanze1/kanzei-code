@@ -10,6 +10,9 @@
 - 验收: ①提供夹具并把已知消费点迁移过去;②加一条守护测试:测试代码里出现 `.env("USERPROFILE"` 而没有同时出现 `KANZEI_HOME` 即判红;③开发者本机全局配置的任意内容都不影响测试结果。
 - refs: D-292 D-187
 
+- 进展: 2026-08-16 只读勘察完成(两路 task 子代理并行):①消费点清单——crates/kanzei/tests/always_allow_bash.rs 4 处 spawn(L106-113/217-224/298-305/389-396,每处 HOME+USERPROFILE+KANZEI_HOME 三连,与 D-292 注释成对)、context_overflow_recovery.rs 的 run_cli_with_prior helper(L123-127,两测试共用,唯一'准夹具');②脚本侧遗漏:scripts/e2e-smoke.mjs:24 与 scripts/probe-webview-cdp.mjs:13 注入 USERPROFILE 但无 KANZEI_HOME,验收①迁移时应顺手补;③仓库无共享夹具模块、无 tempfile crate(临时目录均手工 temp_dir().join+remove_dir_all,无 RAII);④RAII guard 先例在 orchestration.rs:99-105(WriterLease drop 释放回调),夹具可复用此模式;⑤kanzei_home() 定义 harness/src/home.rs:19-24(KANZEI_HOME 优先,否则 dirs::home_dir()/.kanzei)。下一步需写代码:新建夹具模块 + 迁移 5 处消费点 + 守护测试 + cargo 验证。
+- 阻塞: 缺权限/环境(§1.1 类②):autonomous 档位下 edit(仅 style.css 一条白名单)、git stage/commit(kanzei.toml 无 action="git" 规则)、cargo test(无规则)全被权限拦截(本轮实测 edit .gitignore 与 git stage 均报 permission requires user approval)。R-200 需新建夹具文件+迁移测试+跑 cargo+提交,当前档位一步都执行不了。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(edit crates/kanzei/tests/**、结构化 git stage/commit、cargo test -p kanzei)后本代理续跑;或②用户切交互轮放行,本代理即可按已完成的勘察清单交付。解除人: 用户。
+
 ## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open]
 - 优先级: P2
 - 复杂度: 中

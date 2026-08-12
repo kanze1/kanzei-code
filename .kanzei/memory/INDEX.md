@@ -1,7 +1,7 @@
 # Memory Index (project)
 
 - M-001 [fact] 前端动态 i18n 必须保存源文案并在语言切换时重算 — 处理前端动态 i18n 中文内容无法回译/切换失效故障时必读
-- M-002 [preference] 开发重心:缺陷优先 — 取活/排优先级时必读:当前项目该先做什么
+- M-002 [preference] 开发重心:需求优先 — 取活/排优先级时必读:当前项目该先做什么
 - M-003 [fact] tracker 状态机只进不退,doing→todo 会被直接拒绝 — req/defect/goal 的 update 反复报 cannot move backward 时必读:状态只能沿列表顺序前进
 - M-004 [fact] TrackerTool req/defect list 阻塞感知稳定后置，不改写 Markdown 顺序 — 处理 TrackerTool req/defect list 输出、阻塞条目排序或相关回归测试时必读:list 具备阻塞感知稳定后置能力
 - M-005 [sop] .kanzei/project 托管文件禁止 edit,须用专用工具 — 处理 .kanzei/project 下文件 edit 被 ruleset 拒绝(permission denied / policy-managed)时必读
@@ -33,4 +33,4 @@
 - M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
 - M-044 [sop] tracker update 字段语义:中文键才精确匹配,英文键会追加,进展多行会产生永不可删的游离段落 — 处理 req/defect update 写字段(优先级/进展/阻塞)时必读:update 是整值替换不是增量合并;键名必须用中文键,英文键(priority/progress)会被当未知新键追加成重复脏字段;进展传多行值会作为新段落追加到条目末尾并产生无任何工具能删除的游离段落。正确做法:先 get 读旧值,把旧内容+新内容拼成单行再整体传。
 
-(5 candidate 条待验证晋升)
+(7 candidate 条待验证晋升)

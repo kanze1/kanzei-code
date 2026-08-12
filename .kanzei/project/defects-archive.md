@@ -3059,3 +3059,52 @@
 - 验收: ①`KANZEI_BUILD_INFO` 未设时,设置页不再显示「已是最新」,而是明说无法比较 + 最新发布 tag + 手动安装指引;②发布构建的既有两态行为不变(有既有单测的保持绿);③`release_is_newer` 的三态判定有单测覆盖(dev / 同 hash / 更新的发布各一条);④启动时的静默检查在 dev 构建下也给出一次可见提示(不弹窗打扰,但设置页要能看到)。
 - 进展: 2026-08-12 随 D-287 一并修复(同一处状态机)。三态扩到五态:`ReleaseVerdict::{Update, Latest, Ahead, DevBuild, Unknown}`——本条要的 `incomparable` 拆成 `DevBuild`(没有构建戳)与 `Unknown`(有 hash 但拿不到/比不出发布时间),两者文案不同,后者不该说成「你在跑 dev 构建」。验收逐条:①dev 构建现在渲染「本地是开发构建,无法与发布版比较;要装发布版得手动运行安装器(最新发布:build-xxxx)」;②发布构建路径经由 `release_is_newer` 包装,两条既有回归单测未改一字仍绿;③五态各一条断言 + status 契约表(update_tests_update.rs);④`18-startup.js` 的启动静默检查把结论写进设置页 `#update-result`,不弹 toast。关闭本条。
 
+## D-292 CLI E2E 测试的 HOME 隔离在 Windows 上失效:读开发者真实全局配置,全量测试挂死而非报红 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 测试 流程
+- 证据等级: E1(2026-08-12 实测挂死 16 分钟零 CPU,定位到进程后当场验证)
+- 复现: 在 `~/.kanzei/kanzei.toml` 加一条 `action="bash", resource="*"` 的 allow 规则,跑 `cargo test --workspace` → `always_allow_bash` 测试进程挂起,**永不超时、零 CPU、无输出**,整轮发版门禁卡死。
+- 根因: 这几个 E2E 测试 spawn `kz` 子进程时用 `.env("HOME")` + `.env("USERPROFILE")` 做隔离。但全局根解析走 `kanzei_home()` → `dirs::home_dir()`,而 `dirs` 在 **Windows 上用 known-folder API(SHGetKnownFolderPath),根本不读 USERPROFILE 环境变量**。于是子进程照样加载开发者真实的 `~/.kanzei/kanzei.toml`——测试的"隔离"是假的,一直如此,只是此前没人在全局配置里放行过 bash 所以没暴露。放行之后权限询问不再产生,测试写进 stdin 的那个 "a" 没有接收方,于是死等。
+- 影响: ①任何人只要全局放行 bash(本仓 2026-08-12 采纳方案 A 正是如此),全量测试直接挂死,发版门禁与 CI 一起卡住;②更广的问题是这些测试的结果本来就受开发者本机配置影响——绿不绿取决于 `~/.kanzei/kanzei.toml` 里写了什么,这是最难查的一类假绿/假红;③失败形态是**挂死不是报红**,比红灯难查得多(CI 上只能看到超时)。
+- 修复: 5 处 spawn 全部补 `.env("KANZEI_HOME", home.join(".kanzei"))`。`KANZEI_HOME` 是 harness/src/home.rs 明确定义的全局根隔离通道(D-187 收敛出来的唯一入口),优先级高于 `dirs::home_dir()`,跨平台一致。
+- 验收: ①全局配置里放行 bash 后 `cargo test -p kanzei --test always_allow_bash` 仍全绿;②5 处 spawn 无遗漏;③测试结果不再随开发者本机 `~/.kanzei/kanzei.toml` 变化。
+- 验证: 修复前该测试挂死 16 分钟(实测,进程零 CPU);修复后 `cargo test -p kanzei --test always_allow_bash --test context_overflow_recovery` 5 passed,1.17s + 0.15s。
+- 残余: 只补了 spawn 子进程这一类。仓内**同进程**读全局配置的测试是否也受污染未逐一排查;更彻底的做法是测试统一走一个设好 KANZEI_HOME 的夹具,而不是每处手写三个环境变量——单列 R-200。
+- refs: D-187 M-041 R-200
+
+## D-290 模式与鞭挞开关每次冷启动都被重置:回显算出来的值被当成用户意图写回存档 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 前端 自举
+- 证据等级: E1(2026-08-12 用户报「我每次打开都要重新设置」+ 读码定位 + 冒烟反验)
+- 来源: 用户 2026-08-12。用户明确指出这条早已提过——R-115/D-155 那轮(requirements-archive.md:891-898「四类设置跨重启保留」)确实修过 `processProfileUi` 落盘与回退链,但**只修了读的一半,写的一半仍在污染存档**,于是同一个症状复发。
+- 复现: 开 app → 模式选择器回到「结伴开发」、鞭挞开关回到未勾选(其余设置——侧栏宽度、筛选、继续文案——都正常保留,用户实测确认范围就这两个)。
+- 根因(两条写路径,互为补充,只修一条照样复发): 
+  ①`switchProcess` 拿 `$("profile-select").value` 当「旧进程的用户意图」写进 `kz-process-profile`(09-sessions.js:356-358)。选择器的值在**回显期间**是算出来的,不是用户选的——启动竞态里 `activeProcessId` 尚未就绪时 `applyProfileValue` 会按回退链算出 dev-pair 刷进控件,随后任何一次切线就把存档里的 dev-auto 覆盖成 dev-pair。
+  ②`applyProfileValue` 末尾的 `syncAutoContinueWithProfile()` 在模式不是 dev-auto 时关掉鞭挞,并**落盘**(`rememberAutoUiState()` + `kz-auto-continue="0"`)。于是①算错一次,②立刻把「关」写成用户意图,下次冷启动 `normalizeAutoState` 读回 false——**自我延续**,再也回不来。
+- 影响: 每次开 app 都要手动重设两个控件;更隐蔽的是它直接触发 D-291——模式被降级成结伴开发后 `autoContinueAllowed()` 恒 false,鞭挞开着却永远不续跑,且旧代码对此一声不吭。
+- 修复: ①`applyProfileValue` 在 `activeProcessId` 为空时直接返回(不知道该显示谁的档位就别动控件,掐掉整条降级链的起点);②新增 `applyingProfileEcho` 标志,回显期间 `rememberAutoUiState` 与 `kz-auto-continue` 写入一律短路——回显只同步控件,不产生"用户意图";③删掉 `switchProcess` 里那次 `processProfileUi.set(...)`,写盘只由 `profile-select` 的 change 事件负责(用户真的动手才算意图)。
+- 验收: ①回显路径不得写 `kz-auto-continue` 与 `kz-process-auto-state`;②`switchProcess` 不得再用选择器显示值覆盖旧进程档位;③冷启动后模式与鞭挞保持上次选择。
+- 验证: ui-runtime-smoke 新增 3 条断言(回显不写两处存档 + 源码守卫禁止 switchProcess 那次写盘)。**反验**:把 `applyingProfileEcho` 守卫改回旧行为,冒烟报「回显关掉的鞭挞不得写进全局 kz-auto-continue,实得 0」并失败,确认非恒绿。四条 UI 冒烟 + node --check 全绿。
+- refs: D-291 R-115 D-155
+
+## D-291 鞭挞续跑闸门静默否决:引擎判 Continue、前端不发也不吭声,界面永久停在「等待下一轮」 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 前端 自举
+- 证据等级: E1(2026-08-12 用户截图 + 读码定位 + 冒烟反验复现同一画面)
+- 来源: 用户 2026-08-12 截图:鞭挞芯片亮着、顶栏「本轮完成」,底部却是「空闲 · 鞭挞 · 等待下一轮」,此后再无动作。
+- 复现: 开鞭挞跑一轮;轮末引擎判定 Continue(前端据此置 `auto_pending=true`、显示「2 秒后继续」并挂定时器);2 秒后定时器的四个条件任一不满足 → 直接 `return`。
+- 根因: `scheduleAutoContinue`(08-compose.js:116-128)与 Nudge 分支(07-events.js:359-369)各有一份**复制**的 setTimeout,四道闸门(开关/暂停/本轮后停/模式)加 `!running` 全部**静默 return**:不发下一轮、不清 `auto_pending`、不清横幅、不写日志。界面于是永久钉在「等待下一轮」,而引擎侧 `rounds` 已经 +1——两边状态从此对不上。架构上这是 auto_run.rs 头注宣称「判定归引擎、前端只执行」之后,执行侧偷偷保留的一个引擎不知道的否决权。
+- 次因: `on("kz:error")` 在函数**开头**无条件 `cancelAutoContinueTimer()`(07-events.js:244),一条 `terminal:false` 的非致命告警(如持久化警告)就能掐掉已排好的下一轮,而 `auto_pending` 仍是 true——同样是永久停摆。
+- 影响: 自主推进随机停摆且无任何提示,用户只能靠盯界面发现;与 D-290 叠加后几乎必现(模式被降级 → `autoContinueAllowed()` 恒 false → 每轮都静默否决)。
+- 修复: ①闸门收敛成唯一实现 `autoContinueBlockedReason()` + `armAutoContinue()`,两处副本合并;②被拦下时走 `abortAutoContinue()`:清 `auto_pending`、清横幅、`#auto-status` 与日志写明原因(D-004:不做的理由必须说出来);③`running` 与那四条区别对待——它是瞬态(kz:done 有意不收回运行态,由 kz:idle 负责),改为最多再等 15 拍(约 30 秒)后才判定卡住并报出,不再一次不满足就永久放弃;④`cancelAutoContinueTimer()` 移进 `if (terminal)` 分支;⑤续跑收口对象改用本轮的 `p.sessionId`(并行线结束时 `activeSessionId` 可能已是别人)。
+- 验收: ①闸门拦下续跑后 `auto_pending` 必须清零;②必须显示未续跑的原因;③非致命错误不得取消已排队的续跑。
+- 验证: ui-runtime-smoke 新增 3 条断言逐条对应。**反验**:把 `abortAutoContinue` 改回静默 `return`,冒烟报「闸门拦下续跑后必须清 auto_pending」与「必须说明原因,实得 `自主推进 1/10 · 等待下一轮`」——**实得文本与用户截图逐字相同**,确认回归测试复现的就是本条。四条 UI 冒烟 + node --check 全绿。
+- 残余: `autoContinueAllowed()`(模式必须为 dev-auto)仍是前端私有条件,引擎的 `decide()` 并不知道它的存在,`rounds` 计数在被否决时仍会漂移。下沉进引擎属于结构改动,单列 R-199。
+- refs: D-290 R-169 R-199
+
