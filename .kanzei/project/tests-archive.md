@@ -2003,3 +2003,8 @@
 - 摘要: D-270 四处缺口修复定向验证:kanzei-harness config 45 passed(含新测试[发现式取根对别名形态的home也拦得住]/[卷元数据读失败时保守判同而不是放行]/[kanzei_home指向项目根或其kanzei时被拦]),kanzei bin 15+3 passed(含新测试 project_root_flag_trims_whitespace_like_env_does)。fmt/clippy 全过。
 - 关联: D-270
 - 收尾: 1786561780
+
+## T-1786561897 cargo test --workspace (D-270 关闭前全量 + 性能实测) [passed]
+- 摘要: cargo test --workspace 全绿(harness 114、tools 259、core 137、app 143,0 failed)。D-270 复杂度=中,关闭前全量。性能实测:20 层嵌套目录下 50 次完整 kz CLI 启动 1593ms(31.9ms/次,含进程 spawn),discover 普通层纯词法 dir_key、仅标记层 1 次 canonicalize,非 O(深度) 系统调用。
+- 关联: D-270
+- 收尾: 1786561897
