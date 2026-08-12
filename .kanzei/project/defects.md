@@ -163,19 +163,6 @@
 - status: fixing
 - 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,按钮新位置无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,长对话向上滚动,确认「回到最新」按钮悬浮在消息列表右下角、输入框上方(不再被遮挡),确认后关闭。解除人:用户。
 
-## D-282 memory-manager 并发 update 把记忆条目的 description 覆盖成别的主题 [fixing] (medium)
-- 复现: 2026-08-12 04:11 实际发生:人工合并重复记忆写入 M-044(主题:tracker update 字段语义)后一分钟内,轮末 memory-manager 对同一条目执行 update,把 description 换成 edit/old_string 的内容(那是 M-027 的主题),而 title 与正文仍是 tracker 字段语义,条目自相矛盾。已人工修回(提交 d4a4f08)。
-- 影响: description 是召回钩子(检索与注入都看它),写错等于把条目挂到错误场景:该被召回时不出现,不该出现时被注入。且覆盖是静默的,人工做记忆维护时会被无声顶掉,只能靠 git diff 事后发现。
-- 期望: ①update 时若新 description 与条目 title/正文主题明显不一致,拒绝或至少警告;②记忆条目写入加 CAS 式并发保护(conventions 工具已有 expected_hash 的先例);③manager 选目标条目的判据落轨迹,选错时可复盘。
-- 标签: 核心
-- 根因(待证): ①manager 消化 inbox note 时选错了目标条目(疑似按相似度挑中最近写入或得分最高的一条,而不是同主题那条);②memory update 对 description 是整值替换,不校验新 description 与该条目 title/正文是否同主题;③记忆写入没有并发保护,人工维护与轮末 manager 可以同时写同一个文件。
-- 规避: 做记忆维护前先停自动推进循环。
-- 优先级: P2
-
-- 复杂度: 中
-- 批次: 2/2
-- 进展: 2026-08-16 取活。根因:①memory_update 对 description 整值替换,不校验新 description 与条目 title/正文是否同主题(store.rs update);②记忆条目写入无并发保护。勘察发现用户定调「memory 写入不做跨进程锁,竞争留给 agent 事后解决」(store.rs 第 4 行注释)——期望②不做 FileLock,改 CAS(expected_hash,conventions 先例)。B1 完成(commit b5ba149):①store.rs update 加 description 主题一致性校验(topic_overlap:CJK 单字+英文词去虚词,context=title+旧description+body,交集<2 拒绝,错误带旧/新对照=manager 复盘轨迹)+ CAS expected_hash 参数(传则写前比对 render_entry hash,不一致拒绝);②enforce_topic 开关:manager 写路径(MemoryUpdateTool)强制 true,UI 用户直写(memory_entry_save)/merge/stale 豁免 false(A-005 用户有权写任何内容);③manager.rs UpdateInput 加 expected_hash 透传;④新测试 2 个(update拒绝主题漂移的description/update_cas拒绝过期expected_hash)。验证:memory 77 passed + app 137 passed,fmt/clippy 全过(T-1786563579)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 262)。三项期望逐条对照:①update 时新 description 与条目 title/正文主题不一致拒绝——store.update enforce_topic=true 时 topic_overlap<2 即拒(带旧/新对照),manager 路径强制开启,测试 update拒绝主题漂移的description 断言漂移被拒且条目未被改写;②记忆条目写入 CAS 式并发保护——store.update 新增 expected_hash 参数(写前比对 render_entry hash,不一致拒),conventions expected_hash 同源,UpdateInput 透传,测试 update_cas拒绝过期expected_hash 断言旧 hash 拒/新 hash 放行;不引入跨进程锁(尊重用户定调);③manager 选目标条目判据落轨迹——manager 是 LLM 决策,代码层落地为拒绝信息带旧/新 description 对照 + 条目 id,manager 可见可复盘(并入①实现)。关闭。
-
 ## D-289 R-101 harness CDP 注入缺 --remote-allow-origins:可能致 e2e-smoke connectOverCDP 握手失败 [open] (medium)
 - severity: medium
 - 优先级: P1
