@@ -15,6 +15,7 @@ function docSurface(listEl) {
 
 // 批量操作选中集:id → kind。跨重绘保留,否则 agent 的一次刷新就把选择清空了。
 const batchSelection = new Map();
+const archiveLoaders = new Map();
 
 function syncBatchBar() {
   const bar = $("documents-batch-bar");
@@ -151,10 +152,18 @@ function consumePendingJump() {
 function clearPendingJump() {
   pendingJumpId = null;
 }
-function jumpToEntry(ref) {
+async function jumpToEntry(ref) {
   const findAll = () =>
     [...document.querySelectorAll("[data-doc-id]")].filter((item) => item.dataset.docId === ref);
-  const matches = findAll();
+  let matches = findAll();
+  if (!matches.length) {
+    const kind = ref.startsWith("R-") ? "req" : ref.startsWith("D-") ? "defect" : ref.startsWith("G-") ? "goal" : ref.startsWith("S-") ? "source" : ref.startsWith("F-") ? "finding" : null;
+    const loader = kind ? archiveLoaders.get(kind) : null;
+    if (loader) {
+      await loader.load();
+      matches = findAll();
+    }
+  }
   if (!matches.length) {
     toast(`${t("找不到")} ${ref}`);
     return;
@@ -710,19 +719,37 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     foot.textContent = `${archivedCount} ${t("条")} ${t("已归档")} ▸`;
     const archive = document.createElement("div");
     archive.className = "doc-archive-list hidden";
-    for (const entry of archivedEntries) {
-      const row = document.createElement("div");
-      row.className = "archived-entry";
-      // 归档条目也要挂 id:被引用的条目多半正是已经做完归档的那些,没有它跳转必然落空。
-      row.dataset.docId = entry.id;
-      row.textContent = `${entry.id} ${entry.title} [${entry.status}]`;
-      archive.appendChild(row);
-    }
+    let archiveLoaded = false;
+    const renderArchiveEntries = (items) => {
+      archive.replaceChildren();
+      for (const entry of items) {
+        const row = document.createElement("div");
+        row.className = "archived-entry";
+        // 归档条目也要挂 id:被引用的条目多半正是已经做完归档的那些,没有它跳转必然落空。
+        row.dataset.docId = entry.id;
+        row.textContent = `${entry.id} ${entry.title} [${entry.status}]`;
+        archive.appendChild(row);
+      }
+      archiveLoaded = true;
+    };
+    const loadArchive = async () => {
+      if (archiveLoaded) return;
+      const items = await invoke("docs_archive_entries", { projectDir: currentProject, kind });
+      renderArchiveEntries(items);
+    };
+    archiveLoaders.set(kind, { load: loadArchive });
     foot.addEventListener("click", () => {
       archive.classList.toggle("hidden");
       const expanded = !archive.classList.contains("hidden");
       foot.setAttribute("aria-expanded", String(expanded));
       foot.textContent = `${archivedCount} ${t("条")} ${t("已归档")} ${expanded ? "▾" : "▸"}`;
+      if (expanded && !archiveLoaded) {
+        archive.textContent = t("加载中…");
+        loadArchive()
+          .catch((error) => {
+            archive.textContent = `${t("读取归档失败")}:${error}`;
+          });
+      }
     });
     foot.addEventListener("dblclick", () => openDocViewer(`${kind}-archive`));
     el.append(foot, archive);

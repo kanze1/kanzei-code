@@ -3,7 +3,7 @@
 use super::{
     export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload,
 };
-use crate::docs::docs_snapshot;
+use crate::docs::{docs_archive_entries, docs_snapshot};
 // R-153 批10:缺陷审查迁到 subagents、模型角色校验迁到 settings。
 use crate::settings::validate_model_roles;
 use crate::subagents::{defect_review, defect_review_report, defect_review_snapshot};
@@ -176,6 +176,59 @@ fn docs_snapshot_exposes_block_reasons_and_scheduler_order() {
     let requirements = docs_snapshot(root.display().to_string()).unwrap()["requirements"].clone();
     assert_eq!(requirements[0]["id"], "R-002");
     assert_eq!(requirements[1]["blocked"], true);
+    std::fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn docs_snapshot缓存依赖并按需加载归档正文() {
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-docs-cache-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let project = root.join(".kanzei/project");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::write(
+        project.join("requirements.md"),
+        "# Requirements\n\n## R-001 活跃需求 [todo]\n- 依赖: D-001\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("requirements-archive.md"),
+        "# Requirements Archive\n\n## R-000 已归档需求 [done]\n- 进展: 已完成\n",
+    )
+    .unwrap();
+
+    let started = std::time::Instant::now();
+    let snapshot = docs_snapshot(root.display().to_string()).unwrap();
+    let elapsed = started.elapsed();
+    let ipc_bytes = serde_json::to_vec(&snapshot).unwrap().len();
+    assert!(
+        snapshot.get("archived_entries").is_none(),
+        "归档正文不应随普通快照发送"
+    );
+    assert_eq!(snapshot["archived"]["req"], 1);
+    let archive = docs_archive_entries(root.display().to_string(), "req".into()).unwrap();
+    assert_eq!(archive[0]["id"], "R-000");
+    // 同一快照数据重建旧协议的 archived_entries,得到可复核的 IPC 基线,不伪造旧实现耗时。
+    let mut legacy = snapshot.clone();
+    legacy["archived_entries"] = serde_json::json!({
+        "req": archive,
+        "defect": [],
+        "goal": [],
+        "source": [],
+        "finding": []
+    });
+    let legacy_ipc_bytes = serde_json::to_vec(&legacy).unwrap().len();
+    println!(
+        "D-296 benchmark: IPC baseline={}bytes -> current={}bytes; current snapshot={}ms",
+        legacy_ipc_bytes,
+        ipc_bytes,
+        elapsed.as_millis(),
+    );
     std::fs::remove_dir_all(root).ok();
 }
 

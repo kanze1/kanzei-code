@@ -654,9 +654,9 @@ const payloads = {
     sources: [],
     findings: [],
     archived: { req: 1, defect: 2, goal: 0, source: 0, finding: 0 },
-    archived_entries: { req: [docEntry("R-000", "已归档需求", "done")], defect: [docEntry("D-000", "已归档缺陷", "fixed")], goal: [], source: [], finding: [] },
     conventions: { exists: true, headings: ["开发规则", "测试要求"] },
   },
+  docs_archive_entries: (args) => args?.kind === "req" ? [docEntry("R-000", "已归档需求", "done")] : [docEntry("D-000", "已归档缺陷", "fixed")],
   // R-122:架构浏览。含一篇未入册文档,验证"未入册"分组可见。
   architecture_snapshot: {
     index_path: "C:/smoke/parent/.kanzei/project/architecture/README.md",
@@ -1425,17 +1425,22 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   await sandbox.refreshDocs();
 }
 // D-166:引用跳转此前只认当前可见节点,已归档/被折叠的目标一律静默失败。
+const archiveToggle = document.querySelector("#documents-req-list .doc-archive-toggle");
+assert(archiveToggle, "归档入口未渲染");
+assert(!document.querySelector("#documents-req-list .doc-archive-list .archived-entry"), "归档条目不应在快照时提前加载");
+assert(archiveToggle.getAttribute("aria-expanded") === "false", "归档区应默认折叠");
+archiveToggle.click();
+await flush();
 const archivedRow = document.querySelector("#documents-req-list .doc-archive-list .archived-entry");
-assert(archivedRow?.dataset.docId === "R-000", "归档条目未挂 data-doc-id,引用跳转必然落空");
-assert(archivedRow.parentElement.classList.contains("hidden"), "归档区应默认折叠");
+assert(archivedRow?.dataset.docId === "R-000", "按需加载后归档条目未挂 data-doc-id,引用跳转必然落空");
 assert(typeof sandbox.jumpToEntry === "function", "jumpToEntry 未定义(引用跳转入口丢失)");
-sandbox.jumpToEntry("R-000");
+await sandbox.jumpToEntry("R-000");
 assert(
   !archivedRow.parentElement.classList.contains("hidden"),
   "跳转到归档条目时未掀开归档折叠区",
 );
 assert(archivedRow.classList.contains("ref-highlight"), "跳转后未高亮目标条目");
-sandbox.jumpToEntry("R-999");
+await sandbox.jumpToEntry("R-999");
 assert(
   listText("toast").includes("R-999"),
   `跳转到不存在的条目时应给出提示而不是静默失败,实得 toast: "${listText("toast")}"`,

@@ -1013,14 +1013,22 @@ pub fn schedule_for_display(
     entries: &[Entry],
 ) -> Result<Vec<ScheduledEntry>, String> {
     let states = dependency_states(ctx, kind, entries)?;
-    let scheduled = schedule_entries(entries, &states);
-    Ok(scheduled
+    Ok(schedule_for_display_with_states(entries, &states))
+}
+
+/// 已由调用方读取完整文档快照时,复用同一份依赖状态,避免 req/defect 各自重新扫盘。
+pub fn schedule_for_display_with_states(
+    entries: &[Entry],
+    states: &DependencyStates,
+) -> Vec<ScheduledEntry> {
+    let scheduled = schedule_entries(entries, states);
+    scheduled
         .into_iter()
         .map(|(entry, block_reasons)| ScheduledEntry {
             entry: entry.clone(),
             block_reasons,
         })
-        .collect())
+        .collect()
 }
 
 /// 当前可推进条目的「ID 标题」,按调度顺序取前 limit 条(阻塞的跳过)。
@@ -1096,7 +1104,7 @@ pub fn backlog_status(project_root: &std::path::Path) -> kanzei_harness::auto_ru
 }
 
 #[derive(Default)]
-struct DependencyStates {
+pub struct DependencyStates {
     terminal: BTreeMap<String, bool>,
     deps: BTreeMap<String, Vec<String>>,
 }
@@ -1146,24 +1154,13 @@ impl DependencyStates {
     }
 }
 
-fn dependency_states(
-    ctx: &ToolCtx,
-    current_kind: &DocKind,
-    current_entries: &[Entry],
-) -> Result<DependencyStates, String> {
+pub fn dependency_states_from_documents(
+    requirements: (&[Entry], &[Entry]),
+    defects: (&[Entry], &[Entry]),
+) -> DependencyStates {
     let mut states = DependencyStates::default();
-    for kind in [&REQUIREMENTS, &DEFECTS] {
-        let active = if kind.rel_path == current_kind.rel_path {
-            current_entries.to_vec()
-        } else {
-            DocStore::open(&ctx.project_root, kind)
-                .load()
-                .map_err(|e| format!("{}: {e}", kind.rel_path))?
-        };
-        let archived = DocStore::open(&ctx.project_root, kind)
-            .load_archive()
-            .map_err(|e| format!("{} archive: {e}", kind.rel_path))?;
-        for entry in active.into_iter().chain(archived) {
+    for (kind, (active, archived)) in [(&REQUIREMENTS, requirements), (&DEFECTS, defects)] {
+        for entry in active.iter().chain(archived.iter()) {
             let deps: Vec<String> = entry
                 .fields
                 .iter()
@@ -1175,11 +1172,42 @@ fn dependency_states(
                 kind.terminal.contains(&entry.status.as_str()),
             );
             if !deps.is_empty() {
-                states.deps.insert(entry.id, deps);
+                states.deps.insert(entry.id.clone(), deps);
             }
         }
     }
-    Ok(states)
+    states
+}
+
+fn dependency_states(
+    ctx: &ToolCtx,
+    current_kind: &DocKind,
+    current_entries: &[Entry],
+) -> Result<DependencyStates, String> {
+    let mut documents: [Vec<Entry>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let active = if kind.rel_path == current_kind.rel_path {
+            current_entries.to_vec()
+        } else {
+            DocStore::open(&ctx.project_root, kind)
+                .load()
+                .map_err(|e| format!("{}: {e}", kind.rel_path))?
+        };
+        let archived = DocStore::open(&ctx.project_root, kind)
+            .load_archive()
+            .map_err(|e| format!("{} archive: {e}", kind.rel_path))?;
+        let offset = if kind.rel_path == REQUIREMENTS.rel_path {
+            0
+        } else {
+            2
+        };
+        documents[offset] = active;
+        documents[offset + 1] = archived;
+    }
+    Ok(dependency_states_from_documents(
+        (&documents[0], &documents[1]),
+        (&documents[2], &documents[3]),
+    ))
 }
 
 /// 反向依赖图(R-111 验收②「条目详情含正反向链接」):id → 依赖它的条目 id 列表。
@@ -1192,6 +1220,11 @@ pub fn dependents_map(
     current_entries: &[Entry],
 ) -> Result<(DependencyMap, DependencyMap), String> {
     let states = dependency_states(ctx, current_kind, current_entries)?;
+    Ok(dependents_map_with_states(&states))
+}
+
+/// 从已缓存的依赖状态生成正向/反向链接,不再触发任何文件读取。
+pub fn dependents_map_with_states(states: &DependencyStates) -> (DependencyMap, DependencyMap) {
     let mut dependents: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for (from, deps) in &states.deps {
         for dep in deps {
@@ -1209,7 +1242,7 @@ pub fn dependents_map(
         list.sort();
         list.dedup();
     }
-    Ok((deps_map, dependents))
+    (deps_map, dependents)
 }
 
 fn schedule_entries<'a>(

@@ -132,6 +132,7 @@ fn main() {
             projects::projects_select,
             projects::workspace_snapshot,
             docs::docs_snapshot,
+            docs::docs_archive_entries,
             run::run_prompt,
             run::stop_run,
             run::stop_task,

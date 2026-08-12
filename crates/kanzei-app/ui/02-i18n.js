@@ -424,7 +424,7 @@ const I18N_EN = {
   "每轮的上下文占用、token、工具分布与冗余指标。统计口径与 R-099 的冗余治理度量同源，不各算各的。": "Context usage, tokens, tool distribution, and redundancy per round, using the same metrics as R-099.",
   "写入全局": "Save globally",
   ",项目级 .kanzei/kanzei.toml 会覆盖全局。": "; project .kanzei/kanzei.toml overrides global settings.",
-  "界面语言": "Interface language", "跟随系统": "Follow system", "简体中文": "Simplified Chinese", "English": "English",
+  "界面语言": "Interface language", "跟随系统": "Follow system", "简体中文": "Simplified Chinese", "English": "English", "读取归档失败": "Failed to read archive",
   "下载中…(应用将退出,安装完成后请手动启动)": "Downloading… (the app will exit; start it manually after installation)",
   "主循环": "Main loop",
   "子代理/杂活(本地模型)": "Subagents and background work (local model)",

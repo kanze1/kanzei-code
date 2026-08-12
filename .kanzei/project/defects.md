@@ -14,7 +14,7 @@
 - refs: D-266 D-287 D-265
 - 进展: 2026-08-12 已定位为更新交接 helper 在父进程退出后无条件重新 spawn kzapp，移除 run_install_helper 与 pending 更新路径的自动拉起，并把 UI/后端文案改为安装完成后手动启动；已通过 kanzei-app 定向 fmt/clippy/test 与 UI 语法/运行时冒烟，需重新打包安装后由用户执行关闭窗口并观察进程树的人工验证。
 
-## D-296 docs_snapshot 单次调用重复解析两份归档约 6 遍(~4.8MB)+ 1 次 git log,挂在每次文档刷新与每次 git 提交事件后 [open] (high)
+## D-296 docs_snapshot 单次调用重复解析两份归档约 6 遍(~4.8MB)+ 1 次 git log,挂在每次文档刷新与每次 git 提交事件后 [fixed] (high)
 - severity: high
 - 优先级: P1
 - 复杂度: 中
@@ -25,6 +25,7 @@
 - 影响: 挂在每次 tracker 变更与每次 git 提交事件后面;极可能是 R-193「plan 勾选响应延迟」的机制底座(R-193 只登记了前端症状)。归档只增不减,成本单调上升。
 - 验收: ①单次快照对每个 md 文件 read 计数 ≤1;②dependency_states 结果在 dependents_map/schedule_for_display 间复用;③归档条目改按需懒加载;④快照耗时与 IPC 字节前后基准对照,R-193 症状复测。
 - refs: R-193 D-209
+- 进展: 2026-08-12 docs_snapshot 建立 active/archive 单份缓存，tracker 复用 dependency_states，归档正文改为展开历史时调用 docs_archive_entries；同一夹具 IPC 基线 804 bytes→当前 607 bytes，当前快照 78ms，已通过 kanzei-app/kanzei-tools 定向测试、workspace fmt/clippy 与 UI 冒烟(0 运行时错误)。
 
 ## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [open] (high)
 - severity: high
