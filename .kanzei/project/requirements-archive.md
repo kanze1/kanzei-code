@@ -2126,3 +2126,17 @@
 - 进展: 关闭证据(2026-08-12):实现提交 800d5da,全量 cargo test --workspace 绿(T-1786514969,kanzei-tools 256 passed)。验收逐项:①列出游离行+稳定标识=docstore.rs raw_lines() 返回 RawLine{ordinal,text}+tracker.rs "raw_lines" action 输出 [n] 原文(tracker.rs:296-326);②按标识删除指定行、其余内容与字段一字不变=docstore.rs delete_raw_line() 模板手术只移除那一条 Raw(tracker.rs:692-712 接线),回归测试断言删除后文件仅少那一行、字段数与内容不变(docstore.rs 游离行列出与删除_其余内容一字不变_二次保存幂等);③删除后二次保存幂等=preserved 模板回写防复活,同测试断言 save() 后文件与删除后完全一致;④回归覆盖"删除后字段不受影响"=同测试 fields.len()==3 断言+tracker.rs raw_lines_raw_delete_清理游离行且字段不受影响 端到端。原阻塞(D-295)已解除:test_record 白名单入 kanzei.toml(6ef23cc)。
 - 阻塞: 
 
+## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open] [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 权限
+- 来源: 用户 2026-08-12 选定方案 A(全局 `bash resource="*"` 放行)时同步登记的正解。
+- 背景: 当前 bash 规则只有两种有效形态——整条 `*`(全放),或**逐字节相同**的整串(含结构化 `{"command":...}` JSON)。带 `*` 的规则会被 `command_chaining_escapes`(permission.rs:295)降级回 Ask,理由正当:`git *` 挡不住 `git status; rm -rf /`。但代价是中间档位不存在,用户只能在「全放」与「每碰一次墙加一条精确串」之间二选一;自主推进轮(NonInteractive)下 Ask 即 Deny,后者意味着每轮都可能卡死。
+- 内容: 规则支持声明可执行程序与参数前缀(如 `node scripts/*.mjs`、`cargo build*`),匹配前先解析命令而不是对整串做通配;命令里出现链接/重定向/子 shell(`;` `&&` `|` `$()` 反引号)一律不匹配前缀规则,回落 Ask——即保住 D-051 要防的那件事,同时让"只放行这个程序"可表达。
+- 边界: 不做 shell 语法的完整解析(那是无底洞);解析不出来就 fail-closed 回落 Ask。不改 Ask 在 NonInteractive 下等于 Deny 的既定语义。
+- 验收: ①`node scripts/e2e-smoke.mjs` 命中 `node scripts/*.mjs` 规则并放行;②`node scripts/x.mjs; rm -rf /` 不得命中该规则;③结构化 bash 资源(JSON)与纯字符串命令两种形态都覆盖;④D-051 既有回归保持绿。
+- refs: D-051 D-292
+
+- 批次: 2/2
+- 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成(commit 59e2f05):①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565253)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)。四条验收逐条对照:①node scripts/e2e-smoke.mjs 命中 node scripts/*.mjs 并放行——测试 前缀白名单_放行匹配命令 断言 Effect::Allow(permission.rs 测试,commit 59e2f05);②node scripts/x.mjs; rm -rf / 不得命中——测试 前缀白名单_命令链接重定向回落ask 断言含 ;/&&/|/>/$(/反引号 全部 Effect::Ask(has_shell_meta 检测);③结构化 JSON 与纯字符串双形态——测试 前缀白名单_结构化与纯字符串双形态:纯字符串前缀规则不授权 JSON(既有保护保留)、JSON 资源经既有整串精确匹配路径正常;④D-051 既有回归保持绿——更新后的 前缀通配不放行未明确授权的命令(重定向/别名/其它程序/命令链接仍 Ask)+ 显式整体放行不受串联降级影响(yolo `*` 仍 Allow)全绿。关闭。
+
