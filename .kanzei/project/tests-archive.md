@@ -1894,3 +1894,8 @@
 - 摘要: atomic_file 下沉 kanzei-llm(新增 write_atomic_cas),kanzei-tools 重导出;auth/store.rs、memory/store.rs、files.rs、architecture.rs/conventions.rs 四处第二套 tmp+rename 全部并轨,删除旧 kanzei-tools/src/atomic_file.rs。cargo test -p kanzei-llm -p kanzei-tools:249 passed;cargo check --workspace 通过。
 - 关联: D-261
 - 收尾: 1786500363
+
+## T-1786500794 D-263 git stage 清单外改动对照点名 [passed]
+- 摘要: D-263:git stage 成功后对照工作区,把未纳入本次请求的未暂存改动点名写进返回(新增 unstaged_changes,git status --porcelain -z 解析);新增回归测试 stage_leaves_foreign_changes_unstaged_and_names_them 验证清单外改动不入暂存区、留在工作区、被点名。cargo test -p kanzei-tools 250 passed。
+- 关联: D-263
+- 收尾: 1786500794

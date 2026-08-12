@@ -293,14 +293,59 @@ async fn stage(cwd: &Path, raw_files: &[String]) -> ToolOutput {
     if paths.is_empty() {
         return ToolOutput::error("nothing is staged after this request".to_string());
     }
-    ToolOutput::ok(format!(
+    // D-263:暂存成功后对照工作区,把「本次请求之外的未暂存改动」点名写进返回。
+    // 自举提交只该包含本轮显式列出的文件;工作区里若还有别的改动(他人/并发线/
+    // 未纳入本次提交的存量),不静默吞掉也不静默跳过,而是明确可见,由调用方决定
+    // 是否后续处理。这是对「git add -A 式整区暂存」的机械防线的一部分。
+    let unstaged = unstaged_changes(cwd).await.unwrap_or_default();
+    let mut base = format!(
         "staged {} file(s): {}\nstaged_hash: {hash}\nReview with `git diff` using staged=true, then commit with this exact expected_hash.",
         paths.len(), paths.join(", ")
-    )).with_display(serde_json::json!({
+    );
+    if !unstaged.is_empty() {
+        base.push_str(&format!(
+            "\nNote: the working tree also contains {} change(s) NOT staged by this request (left untouched): {}",
+            unstaged.len(),
+            unstaged.join(", ")
+        ));
+    }
+    ToolOutput::ok(base).with_display(serde_json::json!({
         "kind": "terminal",
         "command": "git stage (structured)",
         "output": diff.chars().take(4000).collect::<String>(),
     }))
+}
+
+/// 工作区里**未暂存**的改动(修改/删除/未跟踪),供 stage 后对照点名(D-263)。
+/// `git status --porcelain` 输出形如 ` M path`(修改)、` D path`(删除)、
+/// `?? path`(未跟踪);未跟踪目录会折叠成 `?? dir/` 一行,这里原样保留目录名。
+async fn unstaged_changes(cwd: &Path) -> Result<Vec<String>, String> {
+    let text = run_git(
+        cwd,
+        &["status", "--porcelain", "--untracked-files=all", "-z"],
+    )
+    .await?;
+    Ok(text
+        .split('\0')
+        .filter(|line| !line.is_empty())
+        .filter_map(|line| {
+            // -z 格式:XY<space>path(XY 两字符状态码)。
+            let bytes = line.as_bytes();
+            if bytes.len() < 4 || bytes[2] != b' ' {
+                return None;
+            }
+            let x = bytes[0] as char;
+            let y = bytes[1] as char;
+            // 已暂存的改动(X 位非空)不是"未纳入本次请求"的对象;只报未暂存部分。
+            let path_part = &line[3..];
+            let staged = x != ' ' && x != '?';
+            if staged && y == ' ' {
+                None
+            } else {
+                Some(path_part.to_string())
+            }
+        })
+        .collect())
 }
 
 /// 提交里算「源码」的路径。改这两棵树就要有测试背书;`.kanzei/` 下的文档不算。
@@ -1061,6 +1106,56 @@ prunable gitdir file points to non-existent location
             rejected.content.contains("staged content changed"),
             "{}",
             rejected.content
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-263:自举 stage 只暂存本次显式列出的文件,工作区里他人的改动
+    /// 留在原地,并且被点名可见(不静默吞掉也不静默跳过)。
+    #[tokio::test]
+    async fn stage_leaves_foreign_changes_unstaged_and_names_them() {
+        let root = temp_repo("d263");
+        commit_file(&root, "base.txt", "base\n", "初始提交");
+        // 本轮要提交的文件。
+        std::fs::write(root.join("mine.txt"), "mine\n").unwrap();
+        // 并发线/他人改的文件(未跟踪 + 已跟踪被改)。
+        std::fs::write(root.join("theirs-new.txt"), "theirs\n").unwrap();
+        std::fs::write(root.join("base.txt"), "base changed\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let staged = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["mine.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(!staged.is_error, "{}", staged.content);
+        // 只暂存了 mine.txt。
+        let staged_paths = staged_paths(&root).await.unwrap();
+        assert_eq!(staged_paths, vec!["mine.txt"], "清单外改动不得入暂存区");
+        // 他人的改动仍在工作区,且被点名。
+        assert_eq!(
+            std::fs::read_to_string(root.join("theirs-new.txt")).unwrap(),
+            "theirs\n",
+            "未跟踪的他人文件不能被动过"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("base.txt")).unwrap(),
+            "base changed\n",
+            "已跟踪的他人改动不能被动过"
+        );
+        assert!(
+            staged.content.contains("NOT staged by this request"),
+            "应点名未纳入的改动: {}",
+            staged.content
+        );
+        assert!(
+            staged.content.contains("theirs-new.txt") && staged.content.contains("base.txt"),
+            "点名的文件清单应覆盖他人改动: {}",
+            staged.content
         );
         std::fs::remove_dir_all(root).ok();
     }
