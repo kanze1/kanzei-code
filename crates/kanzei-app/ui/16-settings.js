@@ -1,5 +1,12 @@
 // ---------- 设置 ----------
 let settingsProviders = [];
+let languagePreferenceLoaded = null;
+let languagePreferenceDirty = false;
+
+function markLanguagePreferenceDirty() {
+  languagePreferenceDirty = true;
+  syncSettingsDirty();
+}
 
 async function testProvider(provider) {
   try {
@@ -190,6 +197,7 @@ async function loadPermissionRules() {
 // deepseek、运行却用 anthropic,而报错只说"provider anthropic 需要环境变量",
 // 完全看不出"你以为改了的那个根本没生效"。这里做脏状态可见。
 const SETTINGS_FORM_IDS = [
+  "language-select",
   "set-primary", "set-fast", "set-profile", "set-reasoning",
   "set-proxy-mode", "set-proxy-url",
   // 运行上限也算表单的一部分:漏登记就会出现"改了数字却没有未保存提示",
@@ -475,6 +483,12 @@ async function loadSettings() {
     return;
   }
   $("settings-path").textContent = s.path;
+  const storedLanguage = LANGUAGE_PREFERENCES.has(s.language)
+    ? s.language
+    : normalizeLanguagePreference(localStorage.getItem("kz-language"));
+  languagePreferenceLoaded = LANGUAGE_PREFERENCES.has(s.language) ? s.language : null;
+  languagePreferenceDirty = false;
+  setLanguagePreference(storedLanguage, { persist: false });
   // R-178 批4 D7 作用域选择器:settings_get 返回 projectConfig 时才允许选「本项目」。
   // 无项目上下文(未选中项目)时 project 选项禁用,避免把"全局"意图落进一个偶然的
   // 工作目录。
@@ -654,6 +668,8 @@ $("settings-save").addEventListener("click", async () => {
       scope,
       projectDir: scope === "project" ? currentProject : null,
       payload: {
+        // 未显式改过且后端返回 null 时继续传 null,不要因为表单默认中文就把默认键写入配置。
+        language: languagePreferenceDirty ? $("language-select").value : languagePreferenceLoaded,
         primary: $("set-primary").value,
         fast: $("set-fast").value,
         proxy,

@@ -3239,7 +3239,7 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   assert(payload, "点保存未调 settings_save");
   assert(
     Object.keys(payload ?? {}).sort().join(",")
-      === "cadence,codexFastMode,fast,limits,primary,profileDefault,providers,proxy,reasoning",
+      === "cadence,codexFastMode,fast,language,limits,primary,profileDefault,providers,proxy,reasoning",
     `settings_save 载荷顶层键集合变了: ${Object.keys(payload ?? {}).sort().join(",")}`,
   );
   // 根因终局判据:首次进设置页时两个角色 select 是零 option 的空壳,若实现仍是
@@ -3551,10 +3551,16 @@ assert(probeResults[3].result.includes("未知探针类型"), "未知探针类�
 // ---------- 语言切换：静态文本/属性与动态错误必须 zh→en→zh→en 可逆 ----------
 const languageControl = byId.get("language-select");
 const projectInit = byId.get("project-init");
+assert(languageControl.querySelectorAll("option").length === 3, "界面语言应提供跟随系统/中文/English 三个选项");
 // rail 上还有侧栏开合(无 data-view),对话按钮要按 data-view 精确取。
 const chatActivity = document.querySelectorAll(".activity-item").find((n) => n.dataset.view === "chat");
 assert(projectInit.getAttribute("title") === "初始化新项目目录", "HTML title 未进入真实冒烟 DOM");
 assert(chatActivity.getAttribute("aria-label") === "切换到对话", "HTML aria-label 未进入真实冒烟 DOM");
+languageControl.value = "system";
+languageControl.dispatchEvent({ type: "change" });
+await flush();
+assert(storage.get("kz-language") === "system", "跟随系统选择未持久化");
+assert(["zh-CN", "en"].includes(document.documentElement.lang), "跟随系统未解析成中文或英文界面");
 languageControl.value = "en";
 languageControl.dispatchEvent({ type: "change" });
 await flush();

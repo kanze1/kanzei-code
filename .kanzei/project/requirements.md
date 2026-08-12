@@ -1,6 +1,6 @@
 # Requirements
 
-## R-225 界面语言设置：跟随系统/中文/English，默认中文 [fixing]
+## R-225 界面语言设置：跟随系统/中文/English，默认中文 [fixed]
 - 优先级: P1
 - 复杂度: 小
 - 标签: 核心 前端 设置
@@ -10,6 +10,7 @@
 - 边界: 沿用现有 `ui/02-i18n.js` 翻译资源和 `settings.rs` 设置保存/加载链路，不引入新框架，不扩展第三种语言。
 - 验收: ①首次无配置启动显示中文；②设置页可选跟随系统/中文/English；③选择、保存、重启后仍恢复；④切换 English 后静态文案和动态状态文案同步变化；⑤UI runtime smoke 有控件、持久化和生效断言；⑥相关 Rust/UI 门禁通过。
 - refs: R-193 R-197
+- 进展: 2026-08-12 已接通 KanzeiConfig/settings_get/settings_save 与设置页语言全链路，新增跟随系统解析、默认中文及未显式设置不落盘语义；已通过 cargo fmt/clippy、cargo test -p kanzei-app(125 passed)、node --check 与 UI runtime smoke(0 运行时错误)。
 
 ## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [open]
 - 优先级: P2

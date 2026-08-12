@@ -10,6 +10,9 @@ use crate::permission::{is_structured_bash_resource, normalize_resource, Rule, B
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct KanzeiConfig {
+    /// 界面语言偏好:system/zh/en。None 保持默认中文且不写配置键。
+    #[serde(default)]
+    pub language: Option<String>,
     #[serde(default)]
     pub models: ModelRoles,
     #[serde(default)]
@@ -904,6 +907,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         value,
         "",
         &[
+            "language",
             "models",
             "providers",
             "proxy",
@@ -1004,6 +1008,9 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
 
 /// 标量覆盖、map 合并、规则追加(后层排后 → last-match-wins 自然让后层优先)。
 fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
+    if layer.language.is_some() {
+        base.language = layer.language;
+    }
     if layer.models.primary.is_some() {
         base.models.primary = layer.models.primary;
     }

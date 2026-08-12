@@ -92,6 +92,7 @@ fn 同一上级下的两个项目必须各自独立不串数据() {
 #[test]
 fn 保存前拦住指向不存在_provider_的模型角色() {
     let payload = |primary: &str| SettingsPayload {
+        language: None,
         primary: primary.into(),
         fast: String::new(),
         proxy: "env".into(),

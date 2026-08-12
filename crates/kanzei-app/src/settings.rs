@@ -11,6 +11,8 @@ use crate::AppState;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SettingsPayload {
+    #[serde(default)]
+    pub(crate) language: Option<String>,
     pub(crate) primary: String,
     pub(crate) fast: String,
     pub(crate) proxy: String,
@@ -214,6 +216,18 @@ pub(crate) fn settings_apply_scalar_fields(
     payload: &SettingsPayload,
 ) -> Result<(), String> {
     settings_apply_model_fields(doc, payload)?;
+    let language = payload
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(value) = language.as_deref() {
+        if !matches!(value, "system" | "zh" | "en") {
+            return Err(format!("不支持的界面语言:{value}"));
+        }
+    }
+    settings_set_or_remove(doc.as_table_mut(), "language", language);
     settings_set_or_reset(
         doc.as_table_mut(),
         "proxy",
@@ -527,6 +541,8 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         });
     json!({
         "path": path.display().to_string(), "primary": config.models.primary, "fast": config.models.fast,
+        // None 是未显式设置:前端按中文渲染,保存其它设置时仍不把默认值冻进配置。
+        "language": config.language,
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
         "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
@@ -768,6 +784,7 @@ mod tests {
                 .as_nanos()
         ));
         let payload = |limits: LimitsPayload| SettingsPayload {
+            language: None,
             primary: String::new(),
             fast: String::new(),
             proxy: "env".into(),
@@ -805,6 +822,39 @@ mod tests {
     }
 
     #[test]
+    fn 界面语言显式保存_未设置时不落盘默认键() {
+        let path = std::env::temp_dir().join(format!(
+            "kanzei-language-{}.toml",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut payload = 空载荷(vec![]);
+        payload.language = Some("en".into());
+        settings_save_at_path(payload, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            text.contains("language = \"en\""),
+            "显式语言偏好未写入:\n{text}"
+        );
+        let config: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(config.language.as_deref(), Some("en"));
+
+        let mut payload = 空载荷(vec![]);
+        payload.language = None;
+        settings_save_at_path(payload, &path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("language ="),
+            "未设置不应留下默认键:\n{text}"
+        );
+        let config: KanzeiConfig = toml::from_str(&text).unwrap();
+        assert_eq!(config.language, None);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
     fn settings_save_preserves_handwritten_permission_rules() {
         let path = std::env::temp_dir().join(format!(
             "kanzei-settings-{}.toml",
@@ -819,6 +869,7 @@ mod tests {
         ).unwrap();
         settings_save_at_path(
             SettingsPayload {
+                language: None,
                 primary: "anthropic:claude-sonnet-5".into(),
                 fast: String::new(),
                 proxy: "env".into(),
@@ -859,6 +910,7 @@ mod tests {
         ).unwrap();
         settings_save_at_path(
             SettingsPayload {
+                language: None,
                 primary: "anthropic:claude-opus-5".into(),
                 fast: "ollama:qwen3.5:4b".into(),
                 proxy: "env".into(),
@@ -914,6 +966,7 @@ mod tests {
         std::fs::write(&path, broken).unwrap();
         let result = settings_save_at_path(
             SettingsPayload {
+                language: None,
                 primary: "anthropic:claude-sonnet-5".into(),
                 fast: String::new(),
                 proxy: "env".into(),
@@ -938,6 +991,7 @@ mod tests {
 
     fn 空载荷(providers: Vec<ProviderPayload>) -> SettingsPayload {
         SettingsPayload {
+            language: None,
             primary: String::new(),
             fast: String::new(),
             proxy: "env".into(),
@@ -1104,6 +1158,7 @@ mod tests {
                 .as_nanos()
         ));
         let payload = |cadence: Option<CadencePayload>| SettingsPayload {
+            language: None,
             primary: String::new(),
             fast: String::new(),
             proxy: "env".into(),

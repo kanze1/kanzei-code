@@ -1,5 +1,13 @@
 // ---------- 启动 ----------
 (async () => {
+  // R-225:语言的持久化真源是全局配置;localStorage 只保留即时切换/旧版本迁移所需的
+  // 客户端缓存。未显式设置时维持中文默认,不向配置写入默认键。
+  try {
+    const settings = await invoke("settings_get", { projectDir: null });
+    if (LANGUAGE_PREFERENCES.has(settings.language)) syncLanguagePreferenceFromSettings(settings.language);
+  } catch (err) {
+    log(`读取界面语言偏好失败:${err}`, "warn");
+  }
   try {
     const info = await invoke("app_info");
     $("status-version").textContent = `v${info.version} (${info.build})`;

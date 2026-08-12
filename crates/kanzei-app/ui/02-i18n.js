@@ -424,7 +424,7 @@ const I18N_EN = {
   "每轮的上下文占用、token、工具分布与冗余指标。统计口径与 R-099 的冗余治理度量同源，不各算各的。": "Context usage, tokens, tool distribution, and redundancy per round, using the same metrics as R-099.",
   "写入全局": "Save globally",
   ",项目级 .kanzei/kanzei.toml 会覆盖全局。": "; project .kanzei/kanzei.toml overrides global settings.",
-  "界面语言": "Interface language",
+  "界面语言": "Interface language", "跟随系统": "Follow system", "简体中文": "Simplified Chinese", "English": "English",
   "下载中…(应用将退出,安装完成后请手动启动)": "Downloading… (the app will exit; start it manually after installation)",
   "主循环": "Main loop",
   "子代理/杂活(本地模型)": "Subagents and background work (local model)",
@@ -738,10 +738,10 @@ function localizeDynamic(value) {
   return out;
 }
 function languageIsEnglish() {
-  return (localStorage.getItem("kz-language") || "zh") === "en";
+  return resolveUiLanguage() === "en";
 }
 function t(key) {
-  const language = localStorage.getItem("kz-language") || "zh";
+  const language = resolveUiLanguage();
   return language === "en" ? (I18N_EN[key] || I18N_DYNAMIC_EN[key] || key) : key;
 }
 function localizedDocStatus(status) {
@@ -754,7 +754,7 @@ function applyLanguage() {
   // syncActivityPanel/syncSidebar/renderProviders/refreshDocs/refreshWorktrees/
   // refreshConversationList 重渲染。这里只做两件事:同步 <html lang> 与一次性应用静态
   // data-i18n-*(初始化与切语言各一次),不再全文档扫描文本节点改写(禁止事后扫描,D-202)。
-  const language = localStorage.getItem("kz-language") || "zh";
+  const language = resolveUiLanguage();
   document.documentElement.lang = language === "en" ? "en" : "zh-CN";
   applyDataI18nKeys(document.body, language);
 }
@@ -794,25 +794,44 @@ function applyDataI18nKeys(root, language) {
   }
 }
 const languageSelect = $("language-select");
-languageSelect.value = localStorage.getItem("kz-language") || "zh";
-languageSelect.addEventListener("change", () => {
-  localStorage.setItem("kz-language", languageSelect.value);
-  // R-140 批10:applyLanguage 已含 applyDataI18nKeys(document.body)——静态 data-i18n-*
-  // 一次性重算;动态面由下面这些渲染点入口重渲染(syncDynamicUiLanguage 重放状态/活动卡
-  // 的源文案,renderWorkspace/renderProviders/refreshDocs 等重建列表),不再需要 observer。
-  applyLanguage();
-  syncDynamicUiLanguage();
-  syncActivityPanel();
-  syncSidebar();
-  if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
-  $("status-tokens").title = t("点击查看上下文成分");
-  if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
-  if (document.body.classList.contains("documents-active")) refreshDocs();
-  if (currentProject) {
-    refreshWorktrees();
-    refreshConversationList();
+const LANGUAGE_PREFERENCES = new Set(["system", "zh", "en"]);
+function normalizeLanguagePreference(value) {
+  return LANGUAGE_PREFERENCES.has(value) ? value : "zh";
+}
+function resolveUiLanguage(preference = localStorage.getItem("kz-language")) {
+  const normalized = normalizeLanguagePreference(preference);
+  if (normalized !== "system") return normalized;
+  const systemLanguage = typeof navigator === "undefined" ? "" : navigator.language || "";
+  return /^zh(?:[-_]|$)/i.test(systemLanguage) ? "zh" : "en";
+}
+function setLanguagePreference(preference, { persist = true, rerender = true } = {}) {
+  const normalized = normalizeLanguagePreference(preference);
+  if (persist) localStorage.setItem("kz-language", normalized);
+  languageSelect.value = normalized;
+  if (rerender) {
+    applyLanguage();
+    syncDynamicUiLanguage();
+    syncActivityPanel();
+    syncSidebar();
+    if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
+    $("status-tokens").title = t("点击查看上下文成分");
+    if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
+    if (document.body.classList.contains("documents-active")) refreshDocs();
+    if (currentProject) {
+      refreshWorktrees();
+      refreshConversationList();
+    }
+    if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
+    updateAskQueueStatus();
   }
-  if (askActive) $("ask-title").textContent = askActive.kind === "question" ? t("需要你的回答") : t("权限请求");
-  updateAskQueueStatus();
+}
+function syncLanguagePreferenceFromSettings(preference) {
+  if (!LANGUAGE_PREFERENCES.has(preference)) return;
+  setLanguagePreference(preference);
+}
+languageSelect.value = normalizeLanguagePreference(localStorage.getItem("kz-language"));
+languageSelect.addEventListener("change", () => {
+  setLanguagePreference(languageSelect.value);
+  if (typeof markLanguagePreferenceDirty === "function") markLanguagePreferenceDirty();
 });
 applyLanguage();
