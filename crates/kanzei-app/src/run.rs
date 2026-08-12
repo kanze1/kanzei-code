@@ -65,6 +65,7 @@ pub(crate) async fn run_task(
     coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
     process_id: String,
     autonomous: bool,
+    auto_allow: bool,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
@@ -131,8 +132,15 @@ pub(crate) async fn run_task(
         &config,
         reasoning_override.as_deref(),
         &ctx.project_root,
+        // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
+        // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
+        // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
         if autonomous || process_id.starts_with("p|") {
-            kanzei_core::AskPolicy::NonInteractive
+            if auto_allow {
+                kanzei_core::AskPolicy::AutoAllow
+            } else {
+                kanzei_core::AskPolicy::NonInteractive
+            }
         } else {
             kanzei_core::AskPolicy::Interactive
         },
@@ -1982,8 +1990,11 @@ pub(crate) async fn run_prompt(
     attachments: Option<Vec<PromptAttachment>>,
     process_id: Option<String>,
     autonomous: Option<bool>,
+    auto_allow: Option<bool>,
 ) -> Result<(), String> {
     let autonomous = autonomous.unwrap_or(false);
+    // D-281:自动放行开关——autonomous/parallel 轮在用户勾选时传 AutoAllow。
+    let auto_allow = auto_allow.unwrap_or(false);
     let delivery = parse_delivery(delivery.as_deref()).map_err(|e| e.to_string())?;
     // 规范化主根:会话 id 与进程归属的身份键(canonicalize 过,形态唯一)。
     let project_root = crate::normalized_project_root(Path::new(&project_dir));
@@ -2096,6 +2107,7 @@ pub(crate) async fn run_prompt(
                 coordinator.clone(),
                 process_id_for_run.clone(),
                 autonomous,
+                auto_allow,
             )
             .await;
             if let Err(e) = &result {

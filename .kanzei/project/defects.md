@@ -163,7 +163,7 @@
 - status: fixing
 - 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,按钮新位置无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,长对话向上滚动,确认「回到最新」按钮悬浮在消息列表右下角、输入框上方(不再被遮挡),确认后关闭。解除人:用户。
 
-## D-281 「自动放行」开关在自主推进/鞭挞轮静默失效,用户以为放了权实际没有 [open] (medium)
+## D-281 「自动放行」开关在自主推进/鞭挞轮静默失效,用户以为放了权实际没有 [fixing] (medium)
 - 复现: ①顶栏勾选「自动放行」;②开鞭挞、模式选自主推进;③自动轮里任何 Ask 档位的工具(如 conventions patch)仍被拒,报 permission requires user approval: ...; autonomous/parallel run skipped it;④界面没有任何提示说明该开关此刻无效。2026-08-12 R-191 批5b 因此连撞三轮才被发现。
 - 影响: 开关 tooltip 写的是「本次不再弹权限窗,全部自动放行(相当于 yolo)」,用户据此认为已全局放权,实际在最需要它的自动轮完全无效,且失效是静默的。「总是允许」同样顶不住:session_approved/session_rules 是 drive() 的局部变量(drive.rs:166/170),名字叫 session,作用域其实是一轮——这一轮点了总是允许,下一轮照样拦。
 - 期望: 二选一:①自动放行状态下传,自动轮改用 AskPolicy::AutoAllow 而不是 NonInteractive(仍落 PermissionResolved 事件保可审计);②至少在勾选时明示「本开关对鞭挞自动轮无效」,不让用户误以为已放权。
@@ -171,6 +171,10 @@
 - 根因: run.rs:128 把 autonomous 轮与并行线(process_id 以 p| 开头)的 AskPolicy 设为 NonInteractive;drive.rs:876 在调用 ask() 之前就短路返回 Gate::NonInteractive,kz:ask 事件根本不发出。而自动放行的实现(ui/07-events.js:416)是监听 kz:ask 事件替用户回 AllowOnce——没有事件就没有可放行的对象;07-events.js:411 另有一道防御把 source=autonomous/parallel 的询问直接丢弃。
 - 规避: 2026-08-12 已用 .kanzei/kanzei.toml 的 conventions patch allow 规则绕过单点,本条要解决的是开关本身的语义。
 - 优先级: P2
+
+- 复杂度: 中
+- 批次: 1/2
+- 进展: 2026-08-16 取活。根因链:kanzei-app run.rs:134 autonomous/parallel 轮设 AskPolicy::NonInteractive → drive.rs:876 短路 resolved(declined, noninteractive)且不发 kz:ask 事件 → 前端自动放行(07-events.js:439 监听 kz:ask 替用户回 once)没有可放行对象 → 开关在自动轮静默失效。修复方向①(根治):AskPolicy 加 AutoAllow 档——自动轮在用户勾选自动放行时用 AutoAllow 而非 NonInteractive,drive.rs 对 AutoAllow 直接 resolved(allow, auto_allow)放行(仍发 PermissionResolved 保可审计),不再短路;前端 run_prompt invoke 传 autoAllow(localStorage kz-auto-allow)。B1 完成:①core runner/mod.rs AskPolicy 增 AutoAllow(allows_user_prompt() false——放的是权限不是问题,守护测试断言);②core drive.rs 权限短路改 match——AutoAllow → resolved(allow, auto_allow) + continue 放行,其余非交互仍 declined;③kanzei-app run.rs run_prompt command 加 auto_allow 参数、run_task 加 auto_allow 透传,autonomous/parallel 轮勾选时用 AutoAllow;④前端 08-compose.js 三处 invoke 传 autoAllow(localStorage kz-auto-allow)。验证:core 143 passed(app 137)、node --check 过、fmt/clippy 全过(T-1786562xxx)。B2 待:关闭前全量 + 关闭。
 
 ## D-282 memory-manager 并发 update 把记忆条目的 description 覆盖成别的主题 [open] (medium)
 - 复现: 2026-08-12 04:11 实际发生:人工合并重复记忆写入 M-044(主题:tracker update 字段语义)后一分钟内,轮末 memory-manager 对同一条目执行 update,把 description 换成 edit/old_string 的内容(那是 M-027 的主题),而 title 与正文仍是 tracker 字段语义,条目自相矛盾。已人工修回(提交 d4a4f08)。

@@ -209,6 +209,7 @@ async function sendAutoToSession(prompt, sessionId) {
       attachments: [],
       processId: item.id,
       autonomous: true,
+      autoAllow: localStorage.getItem("kz-auto-allow") === "1",
     });
   } catch (error) {
     transitionSession(sessionId, "failed");
@@ -311,6 +312,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
         attachments: promptAttachments,
         processId: activeProcessId,
         autonomous: auto,
+        autoAllow: localStorage.getItem("kz-auto-allow") === "1",
       });
       toast(localizeDynamic(delivery === "steer" ? "已插入当前会话，将优先执行" : "已加入队列，将按顺序执行"));
       await refreshPendingInputs();
@@ -372,6 +374,7 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
       attachments: promptAttachments.map((item) => ({ ...item })),
       processId: requestProcessId,
       autonomous: auto,
+      autoAllow: localStorage.getItem("kz-auto-allow") === "1",
     };
     if (!auto) lastRequest = request;
     await invoke("run_prompt", request);

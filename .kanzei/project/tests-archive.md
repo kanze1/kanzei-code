@@ -2023,3 +2023,8 @@
 - 摘要: cargo test -p kanzei-tools --lib profiles:14 passed(含 conventions_注入含引擎默认模板与项目特有规则 断言新 token「多项诉求」「回读原始消息」、dev_system_prompt_enforces_acceptance_evidence_contract 断言「itemize them explicitly」「re-read the original message」)。fmt/clippy 全过。
 - 关联: D-279
 - 收尾: 1786562463
+
+## T-1786562778 cargo test -p kanzei-core + -p kanzei-app (D-281 B1) [passed]
+- 摘要: cargo test -p kanzei-core --lib:143 passed(含 自举与并行线禁止用户询问 断言 AskPolicy::AutoAllow 不弹用户窗);cargo test -p kanzei-app:137 passed;node --check 08-compose.js 通过;fmt/clippy 全过。
+- 关联: D-281
+- 收尾: 1786562778

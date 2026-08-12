@@ -42,10 +42,17 @@ use event::{drain_task_events, preview};
 
 /// ASK 的交互边界。主代理的手动运行允许把问题交给用户；并行线与自举运行
 /// 必须非交互，否则一个后台 ASK 会把整条自动链路挂在桌面弹窗上。
+///
+/// D-281 第三档 `AutoAllow`：自动轮在用户勾选「自动放行」时的策略——不弹窗
+/// （`allows_user_prompt()` 仍 false），但权限询问**直接放行**并落
+/// `PermissionResolved(allow, "auto_allow")` 事件保可审计，而不是像
+/// `NonInteractive` 那样短路 declined。自动放行放的是**权限**；问题工具
+/// （question）没有自动回答语义，AutoAllow 下仍按非交互转工具错误。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AskPolicy {
     Interactive,
     NonInteractive,
+    AutoAllow,
 }
 
 impl AskPolicy {
@@ -199,6 +206,8 @@ mod tests {
     fn 自举与并行线禁止用户询问() {
         assert!(AskPolicy::Interactive.allows_user_prompt());
         assert!(!AskPolicy::NonInteractive.allows_user_prompt());
+        // D-281:AutoAllow 也不弹用户窗——自动放行放的是权限,不是问题。
+        assert!(!AskPolicy::AutoAllow.allows_user_prompt());
     }
 
     #[test]

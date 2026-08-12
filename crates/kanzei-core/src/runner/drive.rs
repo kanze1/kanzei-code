@@ -873,12 +873,21 @@ pub fn run_once_with_parts<'a>(
                                 resolved("allow", "session_rule");
                                 continue;
                             }
-                            if !config.ask_policy.allows_user_prompt() {
-                                resolved("declined", "noninteractive");
-                                gate_result = Gate::NonInteractive(format!(
-                                    "permission requires user approval: {action} on `{resource}`; autonomous/parallel run skipped it",
-                                ));
-                                break;
+                            match config.ask_policy {
+                                // D-281:自动放行——权限询问直接放行并落事件,不短路、
+                                // 不再需要前端替答(前端 07-events.js 只处理 Interactive 轮)。
+                                AskPolicy::AutoAllow => {
+                                    resolved("allow", "auto_allow");
+                                    continue;
+                                }
+                                _ if !config.ask_policy.allows_user_prompt() => {
+                                    resolved("declined", "noninteractive");
+                                    gate_result = Gate::NonInteractive(format!(
+                                        "permission requires user approval: {action} on `{resource}`; autonomous/parallel run skipped it",
+                                    ));
+                                    break;
+                                }
+                                _ => {}
                             }
                             match ask(AskRequest::Permission {
                                 action: action.to_string(),
