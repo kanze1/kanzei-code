@@ -3123,3 +3123,12 @@
 - 残余: 存量游离行全仓仍有约 304 行(defects 27 / requirements 16 / defects-archive 116 / requirements-archive 145),**未做机械清扫**——它们多数是早年多行写法留下的真实内容(如 D-261 的实测记录),逐行判断才能删,批量删会毁历史。机制已堵死,存量不再增长;要清理需要人工逐条判断,或先做 R-201 的清理通道。
 - refs: D-239 D-130 R-201
 
+## D-295 D-264 门禁与权限档位死锁:autonomous 轮 test_record 未白名单,任何 Rust 源码提交被拦 [fixed] (medium)
+- 复杂度: 小
+- 复现: autonomous/parallel 档位提交任何 Rust 源码:git commit 被 D-264 source_test_gate 拦下,要求一条暂存源码改动之后收尾的 passed 测试记录;test_record 工具调用报 permission requires user approval(实测 2 次,running 与 passed 均拒),.kanzei/kanzei.toml 无 test_record 规则且 edit 该文件也被拒——本代理无法自解,每次 Rust 提交都死锁。2026-08-16 R-201 首撞。
+- 影响: autonomous 自举轮无法落盘任何 Rust 改动:门禁设计(要求测试记录)与权限配置(未放行 test_record)互相矛盾,已验证的代码只能滞留在工作树,自举节奏被打断。
+- 来源: self-found
+- 标签: 流程
+- 解除动作: 在 .kanzei/kanzei.toml 加 `[[permissions.rules]] action = "test_record" resource = "*" effect = "allow"`(或交互轮逐次批准 test_record)。解除人: 用户。
+- 优先级: P1
+- 进展: 已修复(2026-08-12):kanzei.toml 新增 [[permissions.rules]] action="test_record" resource="*" effect="allow"(提交 6ef23cc,附注释说明 D-264 门禁与档位关系)。修复生效实证:同一轮内 test_record 两次调用成功并落盘 tests-archive.md(T-1786514712 R-201 定向、T-1786514969 R-201 关闭前全量),D-264 source_test_gate 因此拿到证据放行 800d5da 的 Rust 源码提交——死锁彻底解除,后续 autonomous 轮不再需要用户介入。
