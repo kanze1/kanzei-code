@@ -32,3 +32,7 @@ crates/kanzei-app/icons/ios/
 .target-merge/
 # R-142 前端 ESLint:npm 依赖是 devDependency 产物,不入库(冒烟依赖它,CI/发版前 npm ci)
 node_modules/
+
+# D-324 实验/诊断产物槽位:自举与手工实验的输出落这里,不是仓库资产
+output/
+.playwright-cli/

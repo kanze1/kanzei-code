@@ -186,3 +186,31 @@
 - 进展: 2026-08-16 取活诊断(9 轮实验,证据链完整)。已排除:①注入通道——环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 与 KANZEI_E2E_CDP additional_browser_args 两条路都传参成功(msedgewebview2.exe 命令行实证含 --remote-debugging-port/--remote-allow-origins/--remote-debugging-address);②参数格式——同参数字符串起 Edge(含非 headless)1 秒监听;③策略——HKCU/HKLM EdgeWebView/Edge DeveloperToolsAvailability 全空;④AppContainer/容器——whoami 无 AppContainerSid,Session 1 正常;⑤日志——--enable-logging=stderr --v=1 无 devtools 相关输出;⑥版本——WEBVIEW2_FIXED_VERSION 指定 151.0.4129.59 未生效(Tauri 仍用 78),151.0.4129.78 签名有效、安装完整;⑦进程树——renderer/gpu/network 完整,webview 已创建但 browser 进程不绑定端口、无 DevToolsActivePort 文件。结论:WebView2 Runtime 151 在当前机器不启动 DevTools HTTP 服务,与参数注入/代码路径/系统策略均无关。排除后剩余变量是 WebView2 Runtime 本身或其与系统环境的交互(需重装/更新 runtime 或换环境验证,或改用 WebDriver/tauri-driver 路线)。阻塞:解除人=用户。
 - 阻塞: WebView2 Runtime 151 在当前机器 DevTools 端口不绑定(9 轮实验证据链,见进展)。解除动作:①用户重装/更新 Microsoft Edge WebView2 Runtime 后重跑 e2e-smoke;或②用户提供 WebView2 DevTools 正常的环境验证;或③用户拍板改 WebDriver/tauri-driver 路线(不在本条范围内)。解除人:用户。
 
+## D-321 全局记忆删除无恢复源与注销通道:U-001~004 永久丢失,MISSING 文案误导指向不存在的 git [open] (medium)
+- 复现: 手动删除 ~/.kanzei/memory 下 U-001~004 文件后,memory_hits 表悬空 id 报 MISSING 且提示 restore from git,但该目录不在任何版本控制下;FTS/recalls/回收站均无正文,确认永久丢失
+- 影响: 全局记忆裸删即永久丢失;警告文案给出不可执行的恢复指引;悬空 id 无注销通道只能手术 index.db
+- 来源: 2026-08-13 会话复盘(已临时 git init ~/.kanzei/memory 兜底,见 M-059)
+- 标签: 后端
+- 优先级: P2
+
+## D-322 记忆更新/整合环节跨主题覆写存量未清:M-016/U-005 缝合、M-044 英文化,D-282 校验只防增量 [open] (medium)
+- 复现: M-016 原 docs 整理正文被删光换成三主题缝合;U-005 title 讲 R-163 而 description 讲 edit 指纹且与 M-032 重复;archive M-044 被英文化改写(文件名含 s0p 错字);INDEX candidate 计数改了条目行没加
+- 影响: 记忆可信度受损,检索命中错误主题;D-282 主题一致性校验上线前的存量脏数据无人回收
+- 来源: 2026-08-13 会话复盘(缝合体已归档留证:archive/M-016、全局 archive/U-005)
+- 标签: 后端
+- 优先级: P2
+
+## D-323 R-199 第 4 处前端私有否决残留:暂停恢复路径档位不匹配时静默不调度续跑,引擎不知情 [open] (medium)
+- 复现: 08-compose.js 约 643 行 auto-pause 恢复分支:!autoPaused 且勾选 auto-continue 时仍要 autoContinueAllowed() 才 scheduleAutoContinue,档位不是 dev-auto 就静默不调度,引擎计数与状态不知情;D-320 只修了 syncAutoContinueWithProfile 那处
+- 影响: R-199 验收①「前端不再持有任何引擎不知道的续跑否决条件」在暂停→恢复路径上仍未兑现
+- 来源: 2026-08-13 自举复盘(探查代理逐处核对 autoContinueAllowed 残留)
+- 标签: 前端
+- 优先级: P2
+
+## D-324 output/ 与 .playwright-cli/ 未入 gitignore 也不在 verify 洁净检查:实验产物无限累积 [fixed] (low)
+- 复现: git status 长期挂 30+ 个未跟踪实验产物(d268/d293 测试输出、0 字节失败实验空壳、旧截图);verify.ps1 洁净检查只扫 crates scripts .github 看不见
+- 影响: 工作区噪音累积,实验残留与交付物边界模糊
+- 来源: 2026-08-13 自举复盘
+- 标签: 流程
+- 优先级: P3
+- 进展: 2026-08-13 修复:.gitignore 追加 output/ 与 .playwright-cli/(带用途注释),git status 未跟踪噪音归零;verify.ps1 洁净检查扫 crates/scripts/.github 不受影响;磁盘上既有实验产物保留原位不入库
