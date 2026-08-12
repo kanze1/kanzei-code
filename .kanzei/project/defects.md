@@ -1,5 +1,131 @@
 # Defects
 
+## D-296 docs_snapshot 单次调用重复解析两份归档约 6 遍(~4.8MB)+ 1 次 git log,挂在每次文档刷新与每次 git 提交事件后 [open] (high)
+- severity: high
+- 优先级: P1
+- 复杂度: 中
+- 标签: 后端 效率
+- 来源: 2026-08-12 八维度审计(docs/design/audit_20260812_eight_dimensions.md §2);经反证代理独立重数确认。
+- 证据等级: E1(读码核实+文件大小实测:两份归档 314KB+482KB、活动文件 72KB+57KB)
+- 机制: docs.rs:146-290 一次快照里 batch_ids 循环 load 一遍 requirements/defects,load() 闭包对每 kind 再 load 一遍,req/defect 各调一次 dependents_map 与 schedule_for_display 且两者都进 dependency_states——两份归档合计被解析约 6 遍,另起一次 git log;DocStore::open 每次新实例,全链路无缓存,归档条目还整包塞进 IPC。
+- 影响: 挂在每次 tracker 变更与每次 git 提交事件后面;极可能是 R-193「plan 勾选响应延迟」的机制底座(R-193 只登记了前端症状)。归档只增不减,成本单调上升。
+- 验收: ①单次快照对每个 md 文件 read 计数 ≤1;②dependency_states 结果在 dependents_map/schedule_for_display 间复用;③归档条目改按需懒加载;④快照耗时与 IPC 字节前后基准对照,R-193 症状复测。
+- refs: R-193 D-209
+
+## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [open] (high)
+- severity: high
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 效率
+- 来源: 2026-08-12 八维度审计(§2);经反证代理确认。
+- 证据等级: E2(读码核实+state.db 实测:主会话 4333 条/8.9MB;run.trace 9.8MB 中 95% 来自 279 条非增量整包,单条最大 945.5KB)
+- 机制: conversation.rs:74-76/116-121/174-178 三处都调 store.list_events(session_id, 0);events.rs:24-35 无 event_type 过滤,每行 payload_json 全量 serde 解析。run.trace 无任何清理通道;整包来源是 flush_live_trace_locked 把未落盘尾部一次性打包(state.rs:203-230)。
+- 影响: 打开历史列表/查看轨迹/按序号恢复每次付整表解析;随使用时间单调变慢,无上限。这也把 D-209 的收敛范围量化到轨迹层(对话快照仅 0.05MB,轨迹才是 95% 落库体积)。
+- 验收: ①list_events 支持 event_type 下推过滤并补 (session_id,event_type,sequence) 复合索引;②三个调用点只取所需类型,按序号恢复改单行查询;③run.trace 定保留策略(每会话最近 N 轮)且整包补写按 ≤64KB 分批、TaskProgress 入参截断;④主会话规模下解析字节量降一个数量级。
+- refs: D-209 D-296
+
+## D-298 state.db 82MB 中约 68MB 是 freelist 死页从不 VACUUM,9 份迁移备份约 59MB 永不清理 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端
+- 来源: 2026-08-12 八维度审计(§2)。
+- 证据等级: E2(只读打开 state.db 实测:page_count×page_size=82.04MB,freelist_count=16551 页≈67.8MB;活数据合计约 10.5MB;.kanzei 下 state.db.v4~v11.bak 共 9 份≈59MB)
+- 机制: 代码无任何 VACUUM/auto_vacuum/incremental_vacuum 调用;迁移备份只增不删。
+- 影响: .kanzei 数据库相关占用约 145MB 而活数据仅约 11MB;备份随迁移版本无限增长。
+- 验收: ①空闲时机条件整理:freelist 占比超阈值(如 50%)执行 VACUUM(或建库启用 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。
+- refs: D-297
+
+## D-299 失败指纹粒度崩塌:bash 类失败常态塌缩成 [fp:bash|exit code:] 全类通配键,Tier0 注入与复发计数整类错配 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(§5);经反证代理确认「核心指控成立,无法反驳」。
+- 证据等级: E1(读码核实+.kanzei/memory 存量键实测:该指纹已同时挂 2 个条目,含 M-022)
+- 机制: bash 工具把输出统一渲染为首行「exit code: N」(bash.rs:268-271);failure_kind 只对三种 git fatal 行做根因特判,其余取首行抹数字(metrics.rs:391-419)——一切非 git-fatal 的 bash 失败(测试红/编译错/脚本崩)全部塌成 kind="exit code:"。另有 [fp:req|r-]、[fp:edit|...] 等同样过泛/残废的键。
+- 影响: 任何 bash 失败都 Tier0 注入 M-022 并投「记忆没进决策」的误导性修订笔记;复发计数按全类累加,遥测与晋升判据整体失真——这是现在每个自举轮都在发生的事。
+- 验收: ①failure_kind 对 bash/test 类输出取根因行(断言文本/error 行)构 kind;②写入侧拒绝过短或全类通配的 kind 成为条目指纹;③存量全类通配键拆分处置;④tier0 注入命中按真实同类失败复核。
+- refs: R-196 R-216 D-282
+
+## D-300 limits.barrier_timeout_secs 配置键失效:漏接 merge overlay 且 unknown_keys 名单缺失,设了静默不生效还误报未知键 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 harness
+- 来源: 2026-08-12 八维度审计(§6);主代理复核 overlay! 宏现状确认(10 个 limits 字段不含它)。
+- 证据等级: E1(读码核实:config.rs overlay! 宏与 unknown_keys 已知键名单双缺;:363 与 :1032 注释自认「就是这么漏的」但从无条目跟踪)
+- 机制: load_with_warnings_at_root 从 default 起经 merge() 层叠,全局层与项目层设的该值都被丢弃;既有测试全部绕过 merge 直接 toml::from_str,所以全绿。
+- 影响: 用户在任一配置文件设 barrier_timeout_secs 既不生效又收到「未知配置项已忽略」假告警;屏障超时只能用默认 1800s。
+- 验收: ①补 overlay 宏与 unknown_keys 名单各一行;②新增「Limits 全字段经 merge_file 层叠往返不丢值」的穷举守护测试防再漏;③项目层设任一 limits 键都生效且无假告警。
+- refs: D-301
+
+## D-301 编排派发的勘察/复核子代理没有 per-role 墙钟:注释承诺的「双层有界」内层在唯一生产路径上不存在 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 并行
+- 来源: 2026-08-12 八维度审计(§7)。
+- 证据等级: E1(读码核实:phase.rs:365-368 注释承诺内层由 subagent_timeout_secs 包住;rt.timeout_secs 全仓唯一消费点是 drive.rs:520 的模型自派 task 路径;编排路径 phase_pipeline.rs:294-311 直接 await run_read_agent 无 timeout 包装)
+- 影响: 单个勘察/复核角色挂死会拖满整个屏障直到外层 barrier_timeout_secs(默认 1800s),且审计事件把它记成 barrier_timed_out——内层超时语义错位,排查方向被误导。
+- 验收: ①dispatch_roles 给每个角色 future 包 tokio::time::timeout(rt.timeout_secs),超时映射 ScoutOutcome::TimedOut;②单角色挂死时屏障在内层上界收敛且 barrier_timed_out=false;③定向测试。
+- refs: D-300 R-173
+
+## D-302 TaskCancellations 死 token:超时与整轮停止路径不清理注册表,stop_task 对已死子代理误报成功 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 并行
+- 来源: 2026-08-12 八维度审计(§7)。
+- 证据等级: E1(读码核实:注册在 runner/subagent.rs:267-270,清理在 :319-323 函数末尾;drive.rs:520-533 用 tokio::time::timeout 包裹,超时即 drop future,末尾清理永不执行——:319 注释声称防的正是这个场景,但 await 后代码在 future 被 drop 时不可能运行)
+- 影响: 注册表随超时/停止积累死 token;stop_task 对已终态子代理返回成功,面板单条停止(R-174)的语义失真。
+- 验收: ①register 改为带 Drop 的 RAII guard(与 ReadPermit 同手法);②超时/整轮停止后注册表为空;③stop_task 对已终态 id 返回明确「已结束」而非成功。
+- refs: R-174
+
+## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 并行
+- 来源: 2026-08-12 八维度审计(§7)。
+- 证据等级: E1(读码核实:state.rs:400 用 MemoryCoordinator::new() 构造,with_observer 全仓仅测试调用;release_writer/cancel_waiter 的交接与取消事件在 core/orchestration.rs:132-139 notify 处全部丢弃;非流水线 Released 只在正常返回路径落库)
+- 影响: 停止一轮或异常路径后 session_events 里 writer acquired/released 不成对,写租约审计断档——多写入者问题排查时缺关键证据。
+- 验收: ①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。
+- refs: R-181 R-186
+
+## D-304 parallel_lines_ui.md 状态头虚标:P1/P3/P6 宣称随 R-184 全部上线,实现整块缺席——文档为真源的自举返工源 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端 文档 并行
+- 来源: 2026-08-12 八维度审计(§3 与 §7 两个维度独立发现交叉确认)。
+- 证据等级: E1(读码核实:该文:4 宣称已于 2026-08-11 全部上线;实测 ui/11-docs-list.js:347 isAgentNext 仍在渲染「下一个」推断值、backlog 无「被取得」事实标记、该文 §10 验收2「全仓 grep isAgentNext 零命中」不成立;泳道无三级卡住判据;16-settings.js 无按 agent 线级设置)
+- 影响: 自举模式以设计文档为真源,虚标直接导致后续轮漏做或重复申报;D-207 的病根(界面展示推断值)因 P1 未落地继续存活。
+- 验收: ①修正状态头为「P1/P3/P6 部分交付」并逐项列残余;②P1 残余(删 isAgentNext 全链路+基于 collaboration_snapshot claim 的「● 代号 被取得」标记)落地,验收沿用该文 §10 的 2/3 原文;③「排在队首但无人取不出现标记」反证测试。
+- refs: R-184 D-207
+
+## D-305 侧栏「隔离工作树」保留独立合并入口,绕过收活五格「必须人读 diff」强制格 [open] (medium)
+- severity: medium
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 并行
+- 来源: 2026-08-12 八维度审计(§3)。
+- 证据等级: E1(读码核实:09-sessions.js:20-24 每棵工作树渲染差异/合并/放弃按钮;:50-94 merge 路径经 confirmWorktreeMerge(20-lines.js:500-520,仅 window.confirm)直达 worktree_merge,不经过收活五格)
+- 影响: 收活五格的「已读 diff」是合并的唯一语义防线,另一入口整体绕过等于防线失效;两套合并流程纪律不一致。
+- 验收: ①全仓只有一条能触发 worktree_merge 的用户路径(侧栏降级为跳转入口或内嵌同一强制格);②「已读 diff」不可绕过有冒烟断言(删除断言即红)。
+- refs: R-179 D-304 R-222
+
+## D-306 空闲线路残留上一轮 stage 文案:线路按钮显示「○ 空闲 · <旧阶段>」自相矛盾 [open] (low)
+- severity: low
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§3);经反证代理确认机制确定性成立。
+- 证据等级: E1(读码核实:01-core.js:52-55 kz:status 写 state.stage,:88-102 终态收敛分支不清 stage/detail 且当场用残留值重画;09-sessions.js:147 轮询把 item.stage 回填进「空闲」)
+- 影响: 空闲线路状态行含上一轮阶段词,运行态一眼可读性受损。
+- 验收: ①终态收敛处重置 stage/detail;②停用空闲态轮询 stage 回填;③「空闲线路状态行不含旧阶段词」冒烟断言。
+- refs: D-283 R-197 R-206
+
 ## D-293 kanzei-tools 两条测试在全量并行下偶发红,单独跑必绿 [open] (medium)
 - severity: medium
 - 优先级: P2
@@ -15,6 +141,7 @@
 - 边界: 不要用「重跑就绿」结案,也不要直接给测试加 retry/ignore —— ①的失败形态可能是产品代码的真窗口,加 retry 等于把证据抹掉。
 - 验收: ①能稳定复现(例如加压并行 + 循环 N 次);②定位到是产品代码窗口还是测试自身不隔离,分别修;③连续 20 次全量 workspace 无同类偶发。
 - refs: D-249 D-261 R-200
+- 进展: 2026-08-12 审计轮读码把怀疑面显著收敛:docstore 条的失败形态(条目数 0)恰是 load() 对 NotFound 宽容返回 Ok(vec![]) 的形态(docstore.rs:328-338)而非解析半截文件的中间值,与 Windows rename(std::fs::rename=MoveFileExW,经反证代理核实 std 源码)的替换窗口高度吻合;read 条的「temp 不唯一」猜测基本排除。定向方向:构造读者循环打 write_atomic 的 rename 窗口加压证实/证伪,证实则读侧对本应存在文件的 NotFound 短重试或写侧改 ReplaceFileW;加压脚本载体已登记 R-211。详见 docs/design/audit_20260812_eight_dimensions.md §4。
 
 ## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] (high)
 - 优先级: P0

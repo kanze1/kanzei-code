@@ -33,6 +33,232 @@
 - 验收: ①前端不再持有任何引擎不知道的续跑否决条件;②否决发生时引擎侧计数不 +1;③harness 侧单测覆盖新增停止原因。
 - refs: D-291 R-169
 
+## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(docs/design/audit_20260812_eight_dimensions.md §5)。
+- 背景: memory_control_plane.md §6 的硬约束是「无来源不入 active」;实现只查 sources 数组非空——promote 不校验 episode_id 真实存在(memory/store.rs:392-397),record_memory_source 失败被 `let _` 吞掉后条目照样置 active(store.rs:414-427),而 manager 的工具面拿不到真实 episode_id 只能编造。控制平面「用数据判断记忆是否改善决策」的承诺因此不可兑付。
+- 内容: promote 前校验每个 episode_id 真实存在(或改为引擎在轮末代填当轮 episode_id,manager 无需自报);record_memory_source 失败即回滚晋升。
+- 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
+- refs: R-165 R-195 R-214
+
+## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(§5)。
+- 背景: telemetry.rs:136-141 注释写「available 为 active 记忆数」但 SQL 数的是 memory_sources 行;ACTION_CHANGED/OUTCOME_IMPROVED 两段无任何生产写入方永远为 0(:156-165);record_trigger 在 miss 时直接 return(mod.rs:616-619),recall_events 只有命中样本,trigger precision/recall 永远算不出;policy_action 按 failure_count 标注,与实际检索层级无关(mod.rs:641-647);memory_recalls「停写留读」的迁移承诺未兑现。
+- 内容: 五段漏斗每段接真实数据源或在展示层明示「未实装」;miss 也落一行(hits 空、retrieved_ids=[]);retrieve 返回携带实际命中层级并原样落 policy_action;完成 memory_recalls 停写收敛。
+- 验收: ①stats 漏斗五段有非测试数据源或显式 N/A 标注;②能从 recall_events 直接算出各触发类型 precision/recall;③memory_recalls 停写留读。
+- refs: R-161 R-196 R-213
+
+## R-215 inbox 消化协议改逐条销账:快照-消化-按条删除,并堵并发 append 与 next_id 竞态 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆 并行
+- 来源: 2026-08-12 八维度审计(§5)。「结构性死锁」定性经反证驳回(steps 是模型轮次而非工具调用数,通道能推进),但现存 13 条滞留 ≥1 天、并发竞态窗口真实存在。
+- 背景: manager 消化是「整箱进 prompt+末尾整箱清空」(manager.rs:420-426),清空窗口内其他自举进程 append 的 note 被无痕清除;append_note 是读全文-拼接-原子写回(store.rs:1122-1162),并发追加后写覆盖先写;next_id 扫描-分配可撞号。
+- 内容: 消化只删自己见过的 note(按指纹销账,discard_note 已有现成实现),新增的留箱;或按 note 一文件分片使追加天然无竞争;next_id 加同目录文件锁或冲突重试。
+- 验收: ①构造 20 条积压能在数轮内收敛到 0;②并发 append+consolidate 压测零丢 note;③「消化清空吃掉新 note」窗口有定向测试封死。
+- refs: R-195 D-282 D-299
+
+## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(§5)。M-055/M-056 于近似去重上线当天英文复述 M-044 并携带编造指纹——「假指纹立即污染注入」经反证驳回(FingerprintIndex 只收 active 且不扫标题),但穿透与伪造本身实证成立;另有 6 条交付状态类内容落进记忆与 tracker 重复。
+- 内容: ①classify_novelty 的 FTS 语义探测下沉进 store.add 作为硬闸(Uncertain 即拒并返回候选),查重范围扩到双 scope;②新条目携带的 [fp:] 必须与来源 note 中引擎生成的指纹逐字一致,拒绝自造;③标题/subject 命中「R-/D- 编号+已交付/勿重复/验收边界」形态时拒绝并指路 tracker(或强制挂 refs 并随条目关闭自动 deprecate)。
+- 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
+- refs: R-194 R-195 R-196 D-299 D-282
+
+## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§1/§3);session_state_and_line_runtime.md §2.2 承诺的具名状态机未落地。
+- 背景: 现状是 6 个布尔标志(ui/03-shell.js:78-88)被 4 个文件 12 处直写,全局 running 与 per-session 状态双真源;08-compose.js:273-283 与 :288-293 是一对紧邻重复写块(R-197 叠在旧块上的残渣)。新增任何事件类型都要手工复刻 6 标志更新规则,漂移一次就复发 D-283 类「运行中显示空闲」。停止交互缺设计基线的 stopping 态:本地乐观复位被在途进度事件翻回「运行中」,状态闪跳。
+- 内容: 提供唯一 mutator(applySessionEvent/applyLocalIntent),按设计 §2.2 把 6 标志折算成具名状态字段;删除重复写块;全局 running 改为派生;补 stopping 投影(点停止后按钮转「停止中…」禁用,进度事件不得翻回运行中,仅 kz:stopped/kz:idle/终态错误能离开)。
+- 验收: ①grep ui/ 目录 state.running 直写仅剩 mutator 一处;②D-283 两条反证冒烟保持绿;③「长工具运行中点停止无状态闪跳」冒烟断言;④删除 08-compose 重复块。
+- refs: D-283 R-197 R-199 D-306
+
+## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 harness 并行
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: task 子代理只有 read/glob/grep(tools/subagent.rs:14-25),task_spec 自述 cannot inspect git state;R-173 编排的勘察/复核角色走同一快照——查不了 git 历史、看不了文件地图,勘察质量有硬上限。
+- 内容: SubagentBase 加入 files、git(限 status/diff/log 只读子命令),保持全 allow 零 ask;webfetch 暂不加。
+- 验收: ①勘察角色能独立完成一个需要 git log 的勘察任务;②写类 git 子命令在子代理内被拒(定向测试);③既有只读语义测试全绿。
+- refs: R-173 R-174
+
+## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 harness 权限
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: websearch 只注册给 research(profiles.rs:552-554),webfetch 默认 Ask(base.rs:53)而 NonInteractive 下 Ask 即拒(drive.rs:876-881)——dev+autonomous 组合下模型没有一条合法联网路径,查 crate 文档、搜报错答案都做不到。
+- 内容: dev 档注册 websearch(默认 ask,交互轮可放行);为 webfetch/websearch 提供域名级白名单资源形态(如 resource="docs.rs/*" allow)使自主轮可精确授权。
+- 边界: 不改 Ask 在 NonInteractive 下等于 Deny 的语义(那是 R-183 的事);默认不放行任何域名。
+- 验收: ①交互轮 dev 可搜索;②自主轮按域名白名单放行 webfetch 有定向测试;③白名单外域名仍走 Ask。
+- refs: R-183 R-198
+
+## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 harness
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: known_context_limit 白名单外返回 None(config.rs:326-343),drive.rs:210 只在 Some 时做轮内预算——未知 provider 全程无主动压缩;被动恢复整个 run 只有 2 次(mod.rs:88,compaction.rs:124-141 只增不减)且一刀砍到 4000 字符,第 3 次 overflow 直接终止。
+- 内容: context_limit 未知时按保守默认(如 32k)启用主动压缩并在启动告警点名「该 provider 无上下文基准」;恢复计数在成功恢复且随后 N 步无 overflow 后衰减。
+- 验收: ①未知 provider 长跑不再第三次 overflow 直接终止(集成测试);②已知 provider 行为不变;③启动告警可见。
+- refs: D-288
+
+## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: 2026-08-12 八维度审计(§4);D-293 验收①「加压并行+循环 N 次」与③「连续 20 次全量无偶发」目前没有可执行载体,偶发红治理机制整体空白(无加压工具/隔离标记/失败率统计)。
+- 内容: scripts/ 落一条压测脚本(参数:目标 -p crate 或全量、轮数、并行度),统计失败率、存档失败输出;约定偶发红一律先跑它出数字再定位;顺带评估 cargo-nextest 的逐测试计时与显式重跑标记能力。
+- 验收: ①能机械产出「连续 20 次全绿」或「N 次内命中 M 次」结论;②失败输出自动存档可回查;③用它对 D-293 两条跑一轮出数字并回填该条。
+- refs: D-293 R-200
+
+## R-212 source_test_gate 从新近度升级到相关性:test_record 声明覆盖面,与暂存源码 crate 求交 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 测试 后端
+- 来源: 2026-08-12 八维度审计(§4)。
+- 背景: source_test_gate 只消费 last_passed_at 时间戳(git.rs:538-547)——任何 passed 记录可背书任何源码提交,前端冒烟记录能放行纯 Rust 提交。威胁模型不防说谎的模型,但要防「跑了 A 测试以为覆盖了 B」的诚实失误。
+- 内容: test_record 增加覆盖面声明(crate 列表或从命令解析);门禁将暂存源码所属 crate 与记录覆盖面求交,不相交即拦并提示该跑什么。
+- 边界: 不做 VerificationRun 全量体系(见审计 §11 候选池);不校验测试是否真跑过。
+- 验收: ①前端冒烟记录无法背书纯 Rust 提交(定向测试);②正常闭环(改 crate→测该 crate→记录→提交)不受阻;③拦截文案指明缺口。
+- refs: D-295 R-210
+
+## R-209 门禁清单机械同步守护:verify.ps1 与 ci.yml 逐项比对,CI 补 npm ci 与 ui-lint [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: 2026-08-12 八维度审计(§4);清单已实际漂移——R-142 的 ui_lint 只进了 verify.ps1(提交 8b918ed),ci.yml 无该步且缺 npm ci(eslint 依赖装不上),而 ci.yml 注释承诺「本清单必须与 verify.ps1 逐项同步」,守护测试只比对 fmt/clippy 两项。
+- 内容: 守护测试升级为机械比对两份清单的检查项集合(解析 verify.ps1 的 $checks 键与 ci.yml 步骤),任一侧增删即红;同步把 npm ci + ui-lint 补进 ci.yml。
+- 验收: ①故意单侧加一步时守护测试变红;②ci.yml 跑 ui-lint 通过;③git.rs 注释承诺改为指向守护测试或保持一致。
+- refs: R-142
+
+## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [open]
+- 优先级: P2
+- 复杂度: 大
+- 标签: 后端 前端 harness
+- 来源: 2026-08-12 八维度审计维度8;设计文档 docs/design/research_mode.md(§2 八个定调点待用户逐项确认后动工)。
+- 背景: research 模式骨架完整但形态错位(面向网络调研)且零使用(state.db 266 条 episodes 零调用 websearch/source/finding,.kanzei/research 全 git 历史只有空模板);真实勘察全在 dev 完成且结论无固定落点(勘察报告被 D-294 单行不变式折成单行塞进度字段);证据等级 E0-E4 被双重语义挪用;research/memory.md 是绕开记忆控制平面的第二套无校验记忆。
+- 内容: 按设计文档六批实施:①档位收口(桌面注册 ReadonlyProfile、bash 硬 deny+替代指引、files/git 只读入列)②topic 工件落点(.kanzei/research/<topic>/)③勘察证据等级 V 表进 conventions④回流通道(backlog 只读索引注入+finding→req/defect 草稿)⑤记忆一元化⑥三形态收敛(SCOUT_ROLES/task 勘察落同一工件)。
+- 边界: research 不可写 docs/design、不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。
+- 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
+- refs: D-276 R-201 D-304
+
+## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 并行
+- 来源: 2026-08-12 八维度审计(§7);parallel_lines_ui.md §5 明写「③门禁由 kanzei 跑:不能信线自己说的绿」与「④合并后再跑一次全量:两条线各自绿≠合起来绿」,实现中格3 可整体跳过(20-lines.js:287-294 点「我已读过 diff」同时解锁门禁与合并两钮,:334-339 门禁失败只渲染警示不禁用合并),合并后全量完全没有(:388-391 合并成功直接解锁格5)。
+- 内容: 格4 要求格3 本次会话内跑过,未跑或红灯时合并需显式「门禁未通过仍要合并」确认并落轨迹;合并成功后格5 前插入「合并后全量」一步。
+- 验收: ①未跑门禁时合并按钮带确认拦截(冒烟断言);②红灯覆盖确认落轨迹;③「合并后全量」步可跑且结果可见。
+- refs: D-305 R-179
+
+## R-223 权限被拦聚合呈现:自动轮每次跳过落可见 notice 或轮末汇总,「自动放行」挂常驻徽标并对齐语义 [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§3);07-events.js:432-436 对 autonomous/parallel 询问只在默认隐藏的运行日志留一行即丢弃,D-281 记载 R-191 因此连撞三轮才被发现;「自动放行」文案称「本次」实际跨重启持久化且折叠在菜单里无常驻标识。
+- 内容: 自动轮每次权限跳过在对话流落可见 notice 或轮末汇总「本轮 N 次被拦(动作/资源清单)」;「自动放行」开启时状态栏挂常驻警示徽标,tooltip 与持久化语义对齐(要么真的仅本次,要么明说会记住)。
+- 验收: ①自动轮被拦 ≥1 次时对话流可见;②开启自动放行后重启仍有常驻标识;③两条冒烟断言。
+- refs: D-281
+
+## R-220 kanzei.toml 用户面配置参考:由 unknown_keys 已知键名单驱动生成,测试锁定一致 [open]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 文档 harness
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: harness_m1.md:16-53 的配置样例停在 M1(缺 limits/cadence/embeddings/permissions.non_interactive 全部新节,profile 取值没提 readonly);用户只能读 config.rs 源码猜键名。
+- 内容: 生成配置参考(文档或 kz config schema 命令),覆盖全部可调键、一句话说明与默认值;加测试断言文档键表与 unknown_keys 已知键名单一致,防两处漂移。
+- 验收: ①全部已知键有说明与默认值;②单侧增删键时一致性测试变红;③D-300 修复后的 barrier_timeout_secs 在参考里可见。
+- refs: D-300 R-172
+
+## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [open]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: 2026-08-12 八维度审计(§4)。
+- 背景: 提交门禁对源码提交串行跑 cargo check 与 cargo clippy 全 workspace(git.rs:396/470-484,调用序 :584-596),clippy 语义覆盖 check,小步提交每次付双份全仓分析;verification.json 每步只有 "pass" 无时长,test_record 无 duration 字段,门禁最慢环节无从回答。
+- 内容: 删除 compile_gate(或降级为 clippy 输出缺位置信息时的诊断回退);verify.ps1 每步记秒数写进 verification.json 的 checks 值;test_record 加可选 duration 字段。
+- 验收: ①构造编译错误仍被拦且报错含 --> 位置;②单次源码提交门禁墙钟时间前后实测对照;③连续三次发版后能列出各步耗时。
+- refs: R-192 R-212
+
+## R-224 鞭挞勾选自动切自主推进:兑现 interaction_modes 的「直接勾连跑自动切」承诺 [open]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§3);interaction_modes.md:49 定案「想让它自己跑再切自主(或直接勾连跑,自动切)」,实现是拒绝+toast 让用户走三步且第一步必然失败(08-compose.js:605-616),模式选择器还藏在二级「更多」菜单。
+- 内容: 结伴模式下勾鞭挞自动切换到自主推进并落一条 notice 说明(research 下仍拒绝);若用户否决自动切,则至少把模式选择器提回顶栏一级。
+- 验收: ①空闲结伴态到鞭挞就绪 ≤1 次交互;②notice 可见,取消勾选切回;③冒烟断言。
+- refs: R-036
+
+## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [open]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);monolith_decomposition.md:25/69/192 三处写明两函数「只整体搬迁,内部拆分另立条目」,从未登记,现已分别涨到约 1010 行(app/run.rs:26-1035,20+ 参数挂 too_many_arguments)与约 987 行(core/runner/drive.rs:47-1034)。
+- 内容: run_task 按 装配/事件循环/轮末收尾 三段抽函数;run_once_with_parts 按 请求重试/工具批执行/收尾 分段。
+- 边界: 行为零变更;外部签名与 pub API 不变;不与功能改动同批。
+- 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
+- refs: R-153 R-155
+
+## R-204 tracker.rs 拆分:action 分发、取活调度、测试三域分离,调度成为独立可审计模块 [open]
+- 优先级: P3
+- 复杂度: 中
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);tracker.rs 2,988 行为全仓第一大文件:execute 的 match 从 :257 到 :787 十余臂内联,取活调度(schedule_entries/dependency_states/block_reasons/backlog_status/workable_titles,:956-1370)被 auto_run/CLI/docs/memory 四方消费,:1372 起 1,616 行测试同文件——恰是自举最高频改动面,取活语义(D-207 抱怨的源头)散落在工具文件里无人能单独审计。
+- 内容: 拆成 actions/(每 action 一函数)+ scheduling 独立模块(供四方统一消费)+ 测试分域下沉;execute 只剩路由。
+- 边界: 四个既有消费方调用点零改动;行为零变更。
+- 验收: ①调度逻辑有独立测试文件;②execute 只剩路由;③全仓测试绿。
+- refs: D-207 R-203
+
+## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [open]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);kanzei-tools 已 25,430 行成全仓最大 crate(超 app 的 15,994 与 core 的 11,781),memory/ 7,314 行寄居其中且 manager.rs:304 直开 kanzei_core::SessionStore、mod.rs:595 实现 kanzei_core::RecallPolicy——「工具层」坐在依赖图顶端,与 lib.rs 自述「内置工具+双模式 profile 组件」脱节,记忆控制平面(R-161~R-167 主战场)没有独立编译/测试边界。
+- 内容: memory/ 拆成 kanzei-memory crate(依赖 core+harness);kanzei-tools 回落到纯工具实现。
+- 边界: 纯搬迁行为零变更;pub API 经再导出保持调用点零改动;不与 R-204 同批。
+- 验收: ①kanzei-tools 不再依赖 kanzei-core;②memory 子系统独立编译与测试;③全仓测试绿。
+- refs: R-204 R-208
+
+## R-205 config.rs 拆出 project_root.rs 与 permission_persist.rs:D-270 修复的结构落点 [open]
+- 优先级: P3
+- 复杂度: 中
+- 标签: 后端 harness
+- 来源: 2026-08-12 八维度审计(§1);config.rs 2,684 行混装配置 schema/TOML 合并/权限规则持久化(:1067-1120)/项目根发现与文件系统身份判定(HOME 守卫全部实现,:1121-1357)四域,改权限形态(R-198)、改根发现(D-270)、改 schema 三类互不相干的工作在同一文件冲突。
+- 内容: 拆出 project_root.rs(根发现+文件系统身份,D-270 四缺口的修复落这里)与 permission_persist.rs(append_allow_rule/generalize_resource/digest);config.rs 收敛到 schema+merge+resolve。
+- 边界: pub API 经 lib.rs 再导出零变更;D-300 是两行修不必等本条,先行。
+- 验收: ①三文件职责如上;②API 面零变更;③全仓测试绿。
+- refs: D-270 D-300 R-198
+
+## R-207 worktree 生命周期下沉 kanzei-tools:建线/回执/回滚/合并预检桌面与 CLI 共用 [open]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 并行
+- 来源: 2026-08-12 八维度审计(§1);app/processes.rs 1,786 行四域混杂,worktree 业务(:777-1355)桌面独占并自带 git plumbing,与 tools/git.rs 双轨(全仓非测试 spawn git 35 处);kanzei/src/main.rs:702 注释自认「桌面端独占能力架构债」;R-183(kz 无人值守)与 R-181(外部 agent 入局)都需要 CLI 侧线管理能力。
+- 内容: worktree 生命周期(create/receipt/rollback/merge 预检/状态)下沉到 kanzei-tools 的 git 域或新 worktree 模块,桌面与 CLI 共用同一实现;processes.rs 只剩 Tauri 接线与 AppState 交互。
+- 验收: ①kz CLI 能调用同一实现完成建线/合并预检;②processes.rs 收敛;③既有 worktree 测试(含跨进程并发建树)全绿。
+- refs: R-183 R-181 R-179
+
+## R-208 新建 kanzei-base 零依赖底层 crate:承接 atomic_file 与 FileLock,解开 llm 寄居 [open]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);atomic_file.rs:11-14 自述因 llm 是依赖图最底层只能放这里(D-261 决策),消费方横跨 tools 与 llm;kanzei-harness 不依赖 llm,其 orchestration.rs:34/41 只能在注释里引用 FileLock 行为——R-181 的跨进程 lease 契约在 harness、原语在 llm,照单实施会撞依赖方向墙。
+- 内容: 新建 kanzei-base(或 kanzei-fs)零依赖 crate 承接 atomic_file/FileLock;llm/tools 改从它取;harness 增加对它的依赖。
+- 边界: 纯搬迁零行为变更;过渡期保留 re-export 避免大面积改 use。
+- 验收: ①kanzei-llm 不再导出文件系统原语;②kanzei-harness 可直接依赖该 crate;③全仓测试绿。
+- refs: R-181 R-203
+
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
 - 复杂度: 中
