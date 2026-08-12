@@ -3481,3 +3481,19 @@
 - 批次: 2/2
 - 进展: 2026-08-16 取活。勘察结论:静默安装落点有三处——①scripts/release.ps1:57-59 在容器重定向报错时把 Start-Process setup.exe -ArgumentList /S -Wait 写成给用户的推荐做法(退出码不可信,且无装后校验);②conventions §9.1 未写「kzapp 运行时 /S 静默无效」陷阱;③应用内更新 update.rs:429-431 已有 D-265 的 mtime/大小校验(exit=0 但未替换即报错保留安装包),但那是应用内路径,覆盖不到手动/脚本静默装。修复按验收推荐①:新增 scripts/install-setup.ps1 = 检测 kzapp 进程(运行中当场报错拒绝)→ 执行 setup.exe /S → 装后校验安装位 kzapp.exe 的 mtime/大小变化 + 二进制含本次 hash,不符即报错;release.ps1 提示改为引用该脚本;conventions §9.1 补陷阱条款。B1 完成:install-setup.ps1 落盘(scripts/install-setup.ps1,语法校验 OK)、release.ps1:58 提示改为引用新脚本、conventions §9.1 补「静默安装陷阱(D-266)」条款。B2 完成:四场景模拟测试 4/4 通过(记录 T-1786560513)——场景0 真实 kzapp 运行中当场拒绝(验收①);场景1 安装器 exit 0 但未替换被识破报错(D-266 根因);场景2 装后 hash 匹配通过(验收②);场景3 hash 不匹配报错。测试脚本 output/d266-install-setup-test.ps1(不入库)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(记录 T-1786560513 后补 T-1786560xxx 全量)。四项验收逐条对照:①kzapp 运行中执行静默安装当场失败并说明原因——install-setup.ps1 前置 Get-Process 检测,运行中 throw「kzapp 正在运行(pid…),静默安装无法替换正在使用的 exe」(T-1786560513 场景0 实测命中);②装后校验能对上本次 hash——脚本装后校验安装位 mtime/大小变化 + 二进制含 ExpectedHash,场景2(匹配通过)/场景3(不匹配报错)实测;③conventions §9.1 与实际行为一致——已补「静默安装陷阱(D-266)」条款并指向 install-setup.ps1;④与 D-265 三态提示合起来发版链路任一环节有可见信号——D-265 应用内更新(update.rs:429)已有 mtime 校验,新增脚本补齐手动/脚本静默装路径,release.ps1 提示也指向新脚本,链路无静默失效段。关闭。
 
+## D-268 background.rs 围栏测试只用进程级 Mutex 串行化:两条线并行跑同一 crate 测试时毫无保护,可假绿可假红 [fixed] (medium)
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心
+- 证据等级: E2(读码发现,本轮未触发;可达路径已成立)
+- refs: D-262 D-227 R-182 R-184 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 任务级并行实测,线 A(D-262)在读码时发现并主动上报,**本轮未触发**——如实标注,不冒充实测。
+- 复现(尚未实际触发,但路径可达): `crates/kanzei-tools/src/background.rs` 用**进程级** `tokio::sync::Mutex` 串行化围栏敏感测试,而 `managed_fence` 的「合法写入窗口」本身也是**进程级**状态。这只在单个 `cargo test` 进程内有效。任务级并行的常态是多条线共享同一个 `CARGO_TARGET_DIR`(本机 target 已 53GB、盘剩 68GB,每树独立物理上放不下,见 R-182 与 deep_parallel_dev D6),两条线同时跑 `cargo test -p kanzei-tools` 时**两个 OS 进程的托管文件窗口可以交错**。
+- 影响: ①**假绿**——越界写入落在另一个进程打开的合法窗口里,围栏测试认为"没越界"而通过;②**假红**——自己的合法写入被另一个进程的窗口边界切断,测试报越界。两种方向都让围栏测试在并行开发下**不可信**,而围栏正是 D-174 交付时唯一没被拆掉的那条保障。与 D-227 同族(单进程内成立的不变量,跨进程不成立),与 R-182 实测「跨 worktree 的 FileLock 各锁各的、根本不互斥」是同一类错误。
+- 边界: 不是生产代码缺陷——`managed_fence` 的生产语义在单进程内是对的。本条只针对**测试在并行下的可信度**。修复不应把进程级窗口改成全局互斥而拖慢生产路径。
+- 修复方向(待定): 二选一——①测试侧用跨进程互斥(`atomic_file::FileLock` 或按 crate 取一把文件锁)把围栏敏感测试整体串起来,与 D-261 给 `test_record` 的做法同源;②让围栏窗口带上进程身份(pid/run_id),跨进程的窗口互不认账,从根上消除交错。②更彻底但改动面进生产代码,需先评估。
+- 验收: ①两个 OS 进程**同时**跑 `cargo test -p kanzei-tools` 的围栏用例,结果稳定且与单进程一致,有可重复的实测证据(不是"跑了几次没复现");②假绿方向有定向反证:构造跨进程窗口交错,确认修复前该越界写入**能**混过围栏、修复后被抓;③生产路径的 `managed_fence` 性能与语义不因本次修改而变,有测试背书。
+
+- 批次: 2/2
+- 进展: 2026-08-16 取活。勘察:background.rs:498-504 serial() 是进程级 tokio Mutex,只挡同进程;managed_fence::active()(managed_fence.rs:103-106)是进程内 OnceLock,跨进程窗口互不可见——两条线并行跑同一 crate 测试时窗口交错无保护。修复方向①(验收推荐,与 D-261 test_record 同源):atomic_file::FileLock 跨进程互斥,持锁线程持有(FileLock !Send 不跨 await),guard 经 channel 协调。B1 完成:background.rs 新增 FenceGuard/fence_guard()(锁路径 %TEMP%\kanzei-bgfence-tests.lock 固定,跨进程一致),10 处围栏测试开头加 let _fence = fence_guard();(第 1149 条后台进程可托管测试不碰窗口无 serial 不需锁)。反证测试[跨进程围栏窗口互不可见_需要跨进程锁]:spawn 子进程(#[ignore] helper)开 defect 窗口写信号,父进程断言 write_in_progress=false——证明假绿根源(窗口互不可见)成立;helper 曾因 tool_scope 未 .await 而静默空跑(0.00s 通过未写信号),加 .await 后修好。定向测试 16 passed 全绿。B2 完成:双进程并行实测 5 轮全部 exit=0(output/d268-parallel.log),跨进程锁生效、结果与单进程一致,记录 T-1786561296。| 2026-08-16 关闭:B3 完成(提交 b802f40 后跑关闭前全量,记录 T-1786561432)。三项验收逐条对照:①两个 OS 进程同时跑 cargo test -p kanzei-tools 的围栏用例结果稳定且与单进程一致——B2 双进程并行实测 5 轮全部 exit=0(output/d268-parallel.log,每轮两个独立 cargo 进程 --test-threads=4 同时跑 background 用例),T-1786561296 有实测证据;②假绿方向定向反证——跨进程围栏窗口互不可见_需要跨进程锁测试(spawn 子进程开 defect 窗口,父进程 write_in_progress=false)证实窗口跨进程互不可见=交错时无保护=假绿根源成立;修复后 fence_guard 跨进程文件锁使两进程串行进入窗口,双进程并行 5 轮无交错即无假绿(background.rs 测试函数,提交 b802f40);③生产路径 managed_fence 性能与语义不变——本次改动只在 background.rs 的 mod tests 内新增 fence_guard/FenceGuard 与反证测试,managed_fence.rs 生产代码零改动,全量 cargo test --workspace 全绿(T-1786561432,kanzei-tools 259 passed)背书。关闭。
+

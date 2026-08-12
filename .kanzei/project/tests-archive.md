@@ -1988,3 +1988,13 @@
 - 摘要: B1 反证测试:跨进程围栏窗口互不可见(子进程 spawn 开 defect 窗口,父进程 write_in_progress=false,假绿根源成立)。B2 双进程并行实测:两个 cargo test -p kanzei-tools --lib background 进程同时跑 5 轮,全部 exit=0(修复后跨进程锁生效,结果与单进程一致)。
 - 关联: D-268
 - 收尾: 1786561296
+
+## T-1786561362 cargo test -p kanzei-tools --lib background (D-268 B1+B2 提交前) [passed]
+- 摘要: cargo test -p kanzei-tools --lib background:16 passed 0 failed(含跨进程围栏反证测试)。B1+B2 提交前定向复测。
+- 关联: D-268
+- 收尾: 1786561363
+
+## T-1786561432 cargo test --workspace (D-268 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(kanzei-tools 259 passed 1 ignored(子进程 helper)、core 137、app 143 等,0 failed)。D-268 复杂度=中,关闭前全量。生产路径 managed_fence 语义不变:本次只改 background.rs 测试模块(新增 fence_guard/FenceGuard 与反证测试),managed_fence.rs 生产代码零改动。
+- 关联: D-268
+- 收尾: 1786561432

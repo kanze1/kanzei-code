@@ -109,22 +109,6 @@
   ⑤bash `... | head -30; echo ...`。
   **归纳**:①②④⑤ 全是**复合命令**(`&&` / `;` / `|`),③ 是**未列入允许集的单个可执行**。两类都在改成单条纯命令后放行。对本条的三点含义:(a) 修复方向里「解析成子命令序列、要求每个都命中」的形状**已有活的参照实现**,不必再论证可行性;(b) 拦截必须**点名具体是哪一段**不被允许,否则无法自我修正——这是可用性的关键,不是锦上添花;(c) R-183 内容④的基础规则模板至少要覆盖 agent 实际会用的这批 shell 动词:`echo`/`head`/`tail`/`awk`/`grep`/`ls`,以及 PowerShell 的 `Select-Object`——它们几乎只出现在管道尾部做截断,危险面低但出现频率极高,是「不放行就寸步难行、放行也没什么风险」的典型。
 
-## D-268 background.rs 围栏测试只用进程级 Mutex 串行化:两条线并行跑同一 crate 测试时毫无保护,可假绿可假红 [fixing] (medium)
-- 优先级: P1
-- 复杂度: 中
-- 标签: 核心
-- 证据等级: E2(读码发现,本轮未触发;可达路径已成立)
-- refs: D-262 D-227 R-182 R-184 docs/design/parallel_read_serial_write_orchestration.md
-- 来源: 2026-08-11 任务级并行实测,线 A(D-262)在读码时发现并主动上报,**本轮未触发**——如实标注,不冒充实测。
-- 复现(尚未实际触发,但路径可达): `crates/kanzei-tools/src/background.rs` 用**进程级** `tokio::sync::Mutex` 串行化围栏敏感测试,而 `managed_fence` 的「合法写入窗口」本身也是**进程级**状态。这只在单个 `cargo test` 进程内有效。任务级并行的常态是多条线共享同一个 `CARGO_TARGET_DIR`(本机 target 已 53GB、盘剩 68GB,每树独立物理上放不下,见 R-182 与 deep_parallel_dev D6),两条线同时跑 `cargo test -p kanzei-tools` 时**两个 OS 进程的托管文件窗口可以交错**。
-- 影响: ①**假绿**——越界写入落在另一个进程打开的合法窗口里,围栏测试认为"没越界"而通过;②**假红**——自己的合法写入被另一个进程的窗口边界切断,测试报越界。两种方向都让围栏测试在并行开发下**不可信**,而围栏正是 D-174 交付时唯一没被拆掉的那条保障。与 D-227 同族(单进程内成立的不变量,跨进程不成立),与 R-182 实测「跨 worktree 的 FileLock 各锁各的、根本不互斥」是同一类错误。
-- 边界: 不是生产代码缺陷——`managed_fence` 的生产语义在单进程内是对的。本条只针对**测试在并行下的可信度**。修复不应把进程级窗口改成全局互斥而拖慢生产路径。
-- 修复方向(待定): 二选一——①测试侧用跨进程互斥(`atomic_file::FileLock` 或按 crate 取一把文件锁)把围栏敏感测试整体串起来,与 D-261 给 `test_record` 的做法同源;②让围栏窗口带上进程身份(pid/run_id),跨进程的窗口互不认账,从根上消除交错。②更彻底但改动面进生产代码,需先评估。
-- 验收: ①两个 OS 进程**同时**跑 `cargo test -p kanzei-tools` 的围栏用例,结果稳定且与单进程一致,有可重复的实测证据(不是"跑了几次没复现");②假绿方向有定向反证:构造跨进程窗口交错,确认修复前该越界写入**能**混过围栏、修复后被抓;③生产路径的 `managed_fence` 性能与语义不因本次修改而变,有测试背书。
-
-- 批次: 2/3
-- 进展: 2026-08-16 取活。勘察:background.rs:498-504 serial() 是进程级 tokio Mutex,只挡同进程;managed_fence::active()(managed_fence.rs:103-106)是进程内 OnceLock,跨进程窗口互不可见——两条线并行跑同一 crate 测试时窗口交错无保护。修复方向①(验收推荐,与 D-261 test_record 同源):atomic_file::FileLock 跨进程互斥,持锁线程持有(FileLock !Send 不跨 await),guard 经 channel 协调。B1 完成:background.rs 新增 FenceGuard/fence_guard()(锁路径 %TEMP%\kanzei-bgfence-tests.lock 固定,跨进程一致),10 处围栏测试开头加 let _fence = fence_guard();(第 1149 条后台进程可托管测试不碰窗口无 serial 不需锁)。反证测试[跨进程围栏窗口互不可见_需要跨进程锁]:spawn 子进程(#[ignore] helper)开 defect 窗口写信号,父进程断言 write_in_progress=false——证明假绿根源(窗口互不可见)成立;helper 曾因 tool_scope 未 .await 而静默空跑(0.00s 通过未写信号),加 .await 后修好。定向测试 16 passed 全绿。B2 完成:双进程并行实测 5 轮全部 exit=0(output/d268-parallel.log),跨进程锁生效、结果与单进程一致,记录 T-1786561xxx。B3 待:生产路径 managed_fence 语义不变验证 + 关闭前全量。
-
 ## D-270 显式主根的 HOME 守卫仍有四处缺口:发现式取根仍纯词法、KANZEI_HOME 不参与比较、卷元数据读失败 fail-open、两条入口 trim 不一致 [open] (medium)
 - 优先级: P1
 - 复杂度: 中
