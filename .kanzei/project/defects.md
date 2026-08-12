@@ -28,7 +28,7 @@
 
 - 进展: 2026-08-16 完成:后端 process_close 增强为 async——关闭顺序改为停止/注销→回收 owner 后台进程→处置工作树,返回带回收明细文案,工作树保留时落 worktree.orphaned 审计事件;前端 09-sessions.js closeParallelProcess(默认主线排除、运行中二次确认并置 stopping、成功后刷新进程/工作树/线路并安全切回主线),20-lines.js 线路卡片与左侧状态列表均加关闭按钮。Rust 反证 close_process_先停止运行会话再回收已合并干净工作树并注销线路(补 create_session 修正测试构造);UI 反证 runtime-smoke 断言非默认线路有关闭入口/默认主线不显示/点击调用目标 process_close。验证:cargo test -p kanzei-app 132 passed、fmt/clippy 绿、UI 冒烟五连+并行线路回归绿。提交 e1fb7cb。
 
-## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [open] (high)
+## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [fixed] (high)
 - severity: high
 - 优先级: P2
 - 复杂度: 中
@@ -40,7 +40,7 @@
 - 验收: ①list_events 支持 event_type 下推过滤并补 (session_id,event_type,sequence) 复合索引;②三个调用点只取所需类型,按序号恢复改单行查询;③run.trace 定保留策略(每会话最近 N 轮)且整包补写按 ≤64KB 分批、TaskProgress 入参截断;④主会话规模下解析字节量降一个数量级。
 - refs: D-209 D-296
 
-- 进展: 2026-08-16 B3/4 完成:①run.trace 保留策略——store.prune_trace_rounds 每会话保留最近 200 轮(TRACE_KEEP_ROUNDS),flush_live_run 收尾触发;②flush_live_trace_locked 整包按 ≤64KB 分批(事件顺序保持、outcome 只挂末批);③TaskProgress 入参落库截断到 4096 字符(TRACE_INPUT_KEEP_CHARS),UI 实时事件保留完整入参。新增测试:core prune/list_events_by_type/event_by_sequence 11 passed、app flush 分批与保留策略 2 passed、kanzei-app 134 passed、fmt/clippy 绿。批次: 3/4
+- 进展: 2026-08-16 B4/4 完成。验收对照:①events.rs list_events_by_type 下推 event_type+复合索引 session_events_session_type_sequence(schema.rs);②conversation.rs 三调用点改用下推、recover_messages_raw 改 event_by_sequence_and_type 单行;③prune_trace_rounds 每会话保留 200 轮(flush_live_run 收尾触发)、flush_live_trace_locked 整包≤64KB 分批、TaskProgress 入参截断 4096 字符(UI 保留完整);④量化测试(4000 事件)断言下推解析字节量比全表低一个数量级。验证:全量 cargo test --workspace 全绿(kanzei-app 134、kanzei-core 140、kanzei-tools 258),fmt/clippy 绿。提交 4055b6c、bde865d。批次: 4/4
 
 ## D-298 state.db 82MB 中约 68MB 是 freelist 死页从不 VACUUM,9 份迁移备份约 59MB 永不清理 [open] (medium)
 - severity: medium
