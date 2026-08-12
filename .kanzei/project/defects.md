@@ -56,7 +56,7 @@
 
 - 进展: 2026-08-16 完成。验收对照:①session.rs maintain_housekeeping 挂在 SessionStore::open 公共路径(桌面命令/CLI/移动端都走到),24h 节流,PRAGMA freelist_count/page_count 占比>50% 时 VACUUM;②同方法扫描 state.db.v<N>.bak 只保留版本号最大的一份(实测 9 份约 59MB 可清 8 份);③新测试 freelist超阈值时vacuum回收死页 断言 VACUUM 后 page_count 下降、迁移备份只保留最近一版 断言只剩 v12.bak。验证:kanzei-core 143 passed、kanzei-app 134 passed、fmt/clippy 绿。提交 c307f78。
 
-## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
+## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 小
@@ -67,7 +67,7 @@
 - 验收: ①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。
 - refs: R-181 R-186
 
-- 进展: 2026-08-16 取活开始。验收:①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。已读码:orchestration_trace.rs 有 SessionEventObserver(with_observer 仅测试调用);run.rs plain 路径用 WriterLeaseTrace 持有 lease;state.rs:400 MemoryCoordinator::new() 构造未装配 observer。
+- 进展: 2026-08-16 完成。验收对照:①run.rs WriterLeaseTrace 改造为持有 observer/project_root/run_id/process_id,新增 Drop 补写 WriterReleased;正常路径尾部写 Released 后调用 mark_released 防重复,异常/abort/停止路径 Drop 自动补写;②新测试 writer_lease_trace_drop补写released_异常路径审计成对(orchestration_trace.rs)验证 queued→acquired→released 三事件按序落库、run_id/process_id 字段正确。验证:kanzei-app 135 passed、fmt/clippy 绿。提交 ae37ab0。
 
 ## D-293 kanzei-tools 两条测试在全量并行下偶发红,单独跑必绿 [open] (medium)
 - severity: medium
