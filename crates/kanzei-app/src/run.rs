@@ -953,6 +953,11 @@ pub(crate) async fn run_task(
             halted: summary.halted_by_user,
             steps: summary.steps,
             tools: &tools_vec,
+            // R-199:档位条件下沉引擎——只有 dev-auto(profile=dev + agent=dev)
+            // 允许自动推进;research/结对模式引擎判 Stop(ProfileMismatch),前端
+            // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
+            auto_allowed: matches!(profile, kanzei_harness::ProfileKind::Dev)
+                && agent.name == "dev",
         };
         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
         let mut payload = crate::auto_run::serialize_action(

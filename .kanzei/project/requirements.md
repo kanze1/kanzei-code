@@ -36,7 +36,7 @@
 - 进展: 2026-08-16 只读勘察完成(两路 task 子代理并行):①消费点清单——crates/kanzei/tests/always_allow_bash.rs 4 处 spawn(L106-113/217-224/298-305/389-396,每处 HOME+USERPROFILE+KANZEI_HOME 三连,与 D-292 注释成对)、context_overflow_recovery.rs 的 run_cli_with_prior helper(L123-127,两测试共用,唯一'准夹具');②脚本侧遗漏:scripts/e2e-smoke.mjs:24 与 scripts/probe-webview-cdp.mjs:13 注入 USERPROFILE 但无 KANZEI_HOME,验收①迁移时应顺手补;③仓库无共享夹具模块、无 tempfile crate(临时目录均手工 temp_dir().join+remove_dir_all,无 RAII);④RAII guard 先例在 orchestration.rs:99-105(WriterLease drop 释放回调),夹具可复用此模式;⑤kanzei_home() 定义 harness/src/home.rs:19-24(KANZEI_HOME 优先,否则 dirs::home_dir()/.kanzei)。下一步需写代码:新建夹具模块 + 迁移 5 处消费点 + 守护测试 + cargo 验证。
 - 阻塞: 缺权限/环境(§1.1 类②):autonomous 档位下 edit(仅 style.css 一条白名单)、git stage/commit(kanzei.toml 无 action="git" 规则)、cargo test(无规则)全被权限拦截(本轮实测 edit .gitignore 与 git stage 均报 permission requires user approval)。R-200 需新建夹具文件+迁移测试+跑 cargo+提交,当前档位一步都执行不了。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(edit crates/kanzei/tests/**、结构化 git stage/commit、cargo test -p kanzei)后本代理续跑;或②用户切交互轮放行,本代理即可按已完成的勘察清单交付。解除人: 用户。
 
-## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open]
+## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open] [doing]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 前端 后端
@@ -44,6 +44,9 @@
 - 内容: `autoContinueAllowed()`(模式必须为 dev-auto)是前端私有条件,而 auto_run.rs 的头注明确宣称判定归引擎、前端只执行。现状是引擎判 Continue 并把 `rounds` +1,前端可能否决——计数与实际轮次从此漂移。把档位作为输入并进 `AutoRunCtx`,由 `decide()` 给出 `Stop(ProfileMismatch)` 一类结果;或者取消这条双重开关(鞭挞开关本身已是意图表达)。
 - 验收: ①前端不再持有任何引擎不知道的续跑否决条件;②否决发生时引擎侧计数不 +1;③harness 侧单测覆盖新增停止原因。
 - refs: D-291 R-169
+
+- 批次: 1/2
+- 进展: 2026-08-16 取活。R-199 纯后端权限模块任务,不依赖用户环境。B1 完成:①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch → ("ProfileMismatch", None);③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev,research/结对模式引擎判 Stop);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决(引擎已判,前端不再持否决权);⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786566xxx)。autoContinueAllowed 剩 3 处调用为「开关启动门禁」(勾选时提示模式不支持并自动关闭),非续跑否决,保留。B2 待:全量+关闭。
 
 ## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open]
 - 优先级: P2

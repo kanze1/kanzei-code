@@ -110,6 +110,7 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
                 AutoStopReason::StopAfterRound => ("StopAfterRound", None),
                 AutoStopReason::MaxRounds(max) => ("MaxRounds", Some(max)),
                 AutoStopReason::NoAction => ("NoAction", None),
+                AutoStopReason::ProfileMismatch => ("ProfileMismatch", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {

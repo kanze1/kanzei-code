@@ -404,6 +404,15 @@ on("kz:done", async (e) => {
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);
       log(t("自动推进停止:需求与缺陷已清空"));
+    } else if (reason === "ProfileMismatch") {
+      // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
+      $("auto-continue").checked = false;
+      localStorage.setItem("kz-auto-continue", "0");
+      void syncAutoRunState();
+      const msg = t("鞭挞已关闭,当前进程不是自主推进模式");
+      setAutoStopReason(msg);
+      addMessage("notice", `✅ ${msg}`);
+      log(t("自动推进停止:当前模式不匹配"));
     }
   }
   // NoContinue:用户拒绝/未开启——不续跑不重置,等手动输入重新武装。

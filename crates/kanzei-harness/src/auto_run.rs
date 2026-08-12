@@ -69,6 +69,9 @@ pub enum AutoStopReason {
     MaxRounds(u32),
     /// 连续两轮无实质动作。
     NoAction,
+    /// R-199:当前模式不允许自主推进(如 research/结对模式),引擎判定停止——
+    /// 档位作为输入进 AutoRunCtx,前端不再持有引擎不知道的否决权。
+    ProfileMismatch,
 }
 
 /// 轮末判定结果。
@@ -157,6 +160,8 @@ impl AutoRunState {
     /// ①backlog 全阻塞/清空最优先(前端 stopAutoWhenBacklogEmpty 最先跑);
     /// ②用户拒绝(halted)不续跑不重置;③暂停;④本轮后停;⑤连数上限;
     /// ⑥无动作(第一次 NUDGE/第二次停);⑦正常续跑。
+    /// R-199:档位检查在 backlog 之后——模式不匹配时引擎 Stop(ProfileMismatch)
+    /// 且计数不 +1(重置为 0),前端不再有第二次否决(计数与实际轮次不再漂移)。
     pub fn decide(&mut self, ctx: &AutoRunCtx) -> AutoRunAction {
         if ctx.backlog.should_stop() {
             let reason = match ctx.backlog {
@@ -165,6 +170,9 @@ impl AutoRunState {
                 _ => unreachable!(),
             };
             return self.stop_with(reason);
+        }
+        if !ctx.auto_allowed {
+            return self.stop_with(AutoStopReason::ProfileMismatch);
         }
         if ctx.halted {
             return AutoRunAction::NoContinue;
@@ -216,6 +224,8 @@ pub struct AutoRunCtx<'a> {
     pub steps: u32,
     /// 本轮实际调用的工具名列表(供空转画像判定)。
     pub tools: &'a [String],
+    /// R-199:当前模式是否允许自主推进(引擎知道的档位条件,前端不再持有)。
+    pub auto_allowed: bool,
 }
 
 #[cfg(test)]
@@ -232,7 +242,29 @@ mod tests {
             halted: false,
             steps: 1,
             tools,
+            auto_allowed: true,
         }
+    }
+
+    /// R-199:模式不允许自主推进时引擎 Stop(ProfileMismatch)且计数不 +1(重置)。
+    #[test]
+    fn 模式不匹配时引擎停止且计数不漂移() {
+        let mut state = AutoRunState::new(10);
+        state.rounds = 3; // 假设已跑了 3 轮
+        let tools = mk_tools(&["edit", "bash"]);
+        let ctx = AutoRunCtx {
+            auto_allowed: false,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::ProfileMismatch),
+            "模式不匹配必须 Stop(ProfileMismatch)"
+        );
+        assert_eq!(
+            state.rounds, 0,
+            "否决发生时引擎计数必须重置为 0,不再与前端轮次漂移"
+        );
     }
 
     #[test]
@@ -408,6 +440,7 @@ mod tests {
             halted: false,
             steps: 2,
             tools: &t,
+            auto_allowed: true,
         };
         assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
     }

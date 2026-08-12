@@ -152,12 +152,9 @@ function abortAutoContinue(reason, sessionId = activeSessionId) {
 // 由取消方自己收口,不在这里处理。
 function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
   if (!sessionId) return;
-  // 活动线路的模式控件是当前用户意图；后台线路没有共享 DOM，按该线保存的
-  // enabled/paused 配置运行，不能读取当前线路的 profile-select。
-  if (sessionId === activeSessionId && !autoContinueAllowed()) {
-    abortAutoContinue("当前模式不是自主推进", sessionId);
-    return;
-  }
+  // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
+  // 引擎在 decide() 已判 Stop(ProfileMismatch) 且计数不 +1;前端不再持有
+  // 引擎不知道的续跑否决权(计数与实际轮次不再漂移)。
   cancelAutoContinueTimer(sessionId);
   const generation = (sessionState(sessionId).auto_generation || 0) + 1;
   sessionState(sessionId).auto_generation = generation;
