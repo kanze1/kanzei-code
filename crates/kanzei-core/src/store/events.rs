@@ -273,6 +273,58 @@ mod tests {
         assert_eq!(store.prune_trace_rounds("ses_test", 99).unwrap(), 0);
     }
 
+    /// D-297 验收④:主会话规模(数千事件,run.trace 占绝大多数)下,按类型下推
+    /// 过滤的解析字节量比全表解析低一个数量级。解析成本正比于 payload 大小,
+    /// 用序列化总长近似(同一库、同一行的 payload 固定)。
+    #[test]
+    fn 主会话规模下类型下推解析字节量降一个数量级() {
+        let store = store();
+        // 模拟主会话实测分布:4333 条中 run.trace 占 95%+。这里 4000 条:3800 条
+        // run.trace(带实际大小的轨迹 payload),200 条 conversation.updated(对话快照)。
+        for index in 0..3800 {
+            store
+                .append_event(
+                    "ses_test",
+                    "run.trace",
+                    &serde_json::json!({
+                        "run_id": format!("run_{}", index / 20),
+                        "events": [
+                            {"kind": "tool.started", "id": format!("t{index}"), "name": "read", "summary": "s".repeat(120)},
+                            {"kind": "tool.completed", "id": format!("t{index}"), "ok": true, "durationMs": 12}
+                        ]
+                    }),
+                )
+                .unwrap();
+        }
+        for index in 0..200 {
+            store
+                .append_event(
+                    "ses_test",
+                    "conversation.updated",
+                    &serde_json::json!({"messages": [{"role": "user", "parts": [{"type": "text", "text": format!("消息 {index}")}]}]}),
+                )
+                .unwrap();
+        }
+        let all = store.list_events("ses_test", 0).unwrap();
+        let conversations = store
+            .list_events_by_type("ses_test", 0, "conversation.updated")
+            .unwrap();
+        let bytes_all: usize = all
+            .iter()
+            .map(|e| serde_json::to_string(&e.payload).map_or(0, |s| s.len()))
+            .sum();
+        let bytes_conv: usize = conversations
+            .iter()
+            .map(|e| serde_json::to_string(&e.payload).map_or(0, |s| s.len()))
+            .sum();
+        assert_eq!(all.len(), 4000);
+        assert_eq!(conversations.len(), 200);
+        assert!(
+            bytes_all >= bytes_conv * 10,
+            "类型下推解析字节量应比全表低一个数量级:全表 {bytes_all} vs 下推 {bytes_conv}"
+        );
+    }
+
     #[test]
     fn list_events_by_type_只返回指定类型并按下推过滤() {
         let store = store();

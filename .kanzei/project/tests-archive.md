@@ -1937,3 +1937,8 @@
 - 摘要: D-297 B1-B3:store::events 11 passed(含 list_events_by_type/event_by_sequence_and_type/prune_trace_rounds)、kanzei-app 134 passed(含 flush 分批/保留策略测试)、fmt/clippy 绿
 - 关联: D-297
 - 收尾: 1786552696
+
+## T-1786552909 cargo test --workspace (D-297 关闭前全量) [passed]
+- 摘要: D-297 关闭前全量:cargo test --workspace 全绿(kanzei-app 134、kanzei-core 140、kanzei-tools 258 等);验收④量化测试(4000 事件下类型下推解析字节量降一个数量级)通过;fmt/clippy 绿
+- 关联: D-297
+- 收尾: 1786552909
