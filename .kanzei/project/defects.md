@@ -1,6 +1,6 @@
 # Defects
 
-## D-314 收活回写只信线路 claim，忽略线路对话中已明确的 tracker 条目 [fixing] (high)
+## D-314 收活回写只信线路 claim，忽略线路对话中已明确的 tracker 条目 [fixed] (high)
 - severity: high
 - 优先级: P1
 - 复杂度: 中
@@ -12,7 +12,9 @@
 - 验收: ①后端从该线路最新对话提取并只返回 tracker 中真实存在的 R/D 条目；②唯一候选自动选择，多候选必须由用户明确选择；③没有候选仍保持禁用且不发回写；④补 Rust 与 UI 反证。
 - refs: R-226 R-222 D-310 D-297
 
-## D-315 并行线路缺少显式关闭入口，运行停止与线路生命周期无法收尾 [fixing] (high)
+- 进展: 2026-08-16 完成:后端新增 worktree_harvest_candidates(processes.rs)从线路最新对话提取 R/D 候选并与主根活动 tracker 求交只返回真实存在条目;前端 20-lines.js 收活格5 改为对话候选选择器(唯一自动选中、多候选人工选择、无候选禁用),09-sessions.js/20-lines.js 新增关闭线路入口并调用 process_close(默认主线排除、运行中二次确认先停止收口、成功后刷新并切回主线)。Rust 反证 harvest_candidates_只取线路对话中真实存在的活动条目且最新优先;UI 反证 runtime-smoke 断言关闭入口/process_close 调用/唯一候选自动选中/多候选人工选择。验证:cargo test -p kanzei-app 132 passed、fmt/clippy 绿、UI 冒烟五连+并行线路回归绿。提交 e1fb7cb。
+
+## D-315 并行线路缺少显式关闭入口，运行停止与线路生命周期无法收尾 [fixed] (high)
 - severity: high
 - 优先级: P1
 - 复杂度: 小
@@ -23,6 +25,8 @@
 - 影响: 已完成或不再需要的线路长期留在列表；运行会话、自动续行状态和工作树绑定无法由用户显式收尾。
 - 验收: ①非默认线路显示“关闭线路”，默认线路不显示；②运行线路关闭需二次确认并由后端先停止收口；③关闭成功后刷新线路/进程/工作树并安全切回主线；④有独有改动的工作树保留，已合并干净工作树自动回收；⑤补 UI 与后端既有语义回归。
 - refs: R-226 R-207 D-313
+
+- 进展: 2026-08-16 完成:后端 process_close 增强为 async——关闭顺序改为停止/注销→回收 owner 后台进程→处置工作树,返回带回收明细文案,工作树保留时落 worktree.orphaned 审计事件;前端 09-sessions.js closeParallelProcess(默认主线排除、运行中二次确认并置 stopping、成功后刷新进程/工作树/线路并安全切回主线),20-lines.js 线路卡片与左侧状态列表均加关闭按钮。Rust 反证 close_process_先停止运行会话再回收已合并干净工作树并注销线路(补 create_session 修正测试构造);UI 反证 runtime-smoke 断言非默认线路有关闭入口/默认主线不显示/点击调用目标 process_close。验证:cargo test -p kanzei-app 132 passed、fmt/clippy 绿、UI 冒烟五连+并行线路回归绿。提交 e1fb7cb。
 
 ## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [open] (high)
 - severity: high
