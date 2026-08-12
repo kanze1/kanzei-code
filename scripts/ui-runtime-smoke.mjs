@@ -5258,6 +5258,42 @@ const docsB = {
     panel.querySelector(".harvest-step.confirmed"),
     "回写成功后格5 未进入已读/完成状态",
   );
+
+  // D-310:没有真实 R-/D- claim 时,合并仍可完成,但格5不得伪装成可回写入口。
+  document.querySelector('#lines-list .line-lane[data-process-id="p|bg"] .line-harvest-toggle')?.click();
+  const originalClaim = payloads.collaboration_snapshot[1].claim;
+  payloads.collaboration_snapshot[1].claim = "未声明条目";
+  sandbox.renderLines(payloads.collaboration_snapshot);
+  await flush();
+  const noClaimLane = [...document.querySelectorAll("#lines-list .line-lane")]
+    .find((lane) => lane.dataset.processId === "p|bg");
+  noClaimLane?.querySelector(".line-harvest-toggle")?.click();
+  await flush();
+  const currentNoClaimLane = [...document.querySelectorAll("#lines-list .line-lane")]
+    .find((lane) => lane.dataset.processId === "p|bg");
+  const noClaimPanel = currentNoClaimLane?.querySelector(".line-harvest");
+  noClaimPanel?.querySelector(".harvest-diff-load")?.click();
+  await flush();
+  noClaimPanel?.querySelector(".harvest-read-confirm")?.click();
+  await flush();
+  noClaimPanel?.querySelector(".harvest-gate-run")?.click();
+  await flush();
+  noClaimPanel?.querySelector(".harvest-merge-run")?.click();
+  await flush();
+  const noClaimWriteback = noClaimPanel?.querySelector(".harvest-writeback-run");
+  payloads.collaboration_snapshot[1].claim = originalClaim;
+  assert(noClaimWriteback?.disabled, "无有效 claim 时格5 回写入口必须保持禁用");
+  assert(
+    (noClaimPanel?.querySelector(".harvest-writeback-output")?.textContent ?? "") === "",
+    "无有效 claim 时不应产生回写输出",
+  );
+  const noClaimCallsBefore = invokeArgs.length;
+  // 真实浏览器不会为 disabled button 派发 click;假 DOM 的 click 不模拟该规范门禁,
+  // 因而这里验证的是“禁用状态”本身,并确认未产生任何回写调用。
+  assert(
+    !invokeArgs.slice(noClaimCallsBefore).some((entry) => entry.cmd === "worktree_harvest_writeback"),
+    "无有效 claim 时不应调用 worktree_harvest_writeback",
+  );
 }
 
 // ---------- 线清单来自 git,前端不再持有清单状态(R-177 内容③ / D-251 / D-257) ----------

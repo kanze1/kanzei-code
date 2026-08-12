@@ -17,7 +17,7 @@ use kanzei_harness::{Tool, ToolCtx};
 use super::{
     acquire_project_write_lease_within, create_process, create_worktree,
     create_worktree_arbitrated, create_worktree_with_receipt, discard_worktree_and_unregister,
-    discard_worktree_checked, merge_worktree, reclaim_worktree_on_close,
+    discard_worktree_checked, merge_worktree, parse_harvest_claim, reclaim_worktree_on_close,
     restore_processes_from_store, rollback_worktree, worktree_diff, worktree_status,
     worktree_target, WorktreeReceipt,
 };
@@ -79,6 +79,15 @@ fn registry_has(root: &Path, worktree: &Path) -> bool {
 
 fn branch_exists(root: &Path, branch: &str) -> bool {
     !git(root, &["branch", "--list", branch]).trim().is_empty()
+}
+
+#[test]
+fn harvest_claim_only_accepts_strict_r_or_d_ids() {
+    assert_eq!(parse_harvest_claim("R-184"), Ok(("R", "184")));
+    assert_eq!(parse_harvest_claim("D-307"), Ok(("D", "307")));
+    for claim in ["", "未声明条目", "R-184 额外文本", "R-", "G-12", "r-12"] {
+        assert!(parse_harvest_claim(claim).is_err(), "应拒绝 claim: {claim}");
+    }
 }
 
 /// 测试里手工收尾用的凭据:分支停在哪儿现取,语义等价于「刚建出来还没动过」。

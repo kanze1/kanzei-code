@@ -246,9 +246,15 @@ function forProject() {
   return currentProject;
 }
 
+function harvestClaimId(value) {
+  const match = String(value ?? "").trim().match(/^(R|D)-(\d+)(?:\s|$)/);
+  return match ? `${match[1]}-${match[2]}` : "";
+}
+
 function buildHarvestPanel(line, projectDir, agentCode) {
   const panel = document.createElement("div");
   panel.className = "line-harvest";
+  const trackerClaim = harvestClaimId(line.claim);
   const title = document.createElement("h4");
   title.className = "line-harvest-title";
   title.textContent = `${t("收活")} · ${line.label} (${line.branch || line.process_id})`;
@@ -405,10 +411,18 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       stateTag.className = "harvest-step-state ok";
       stateTag.textContent = t("已合并");
       mergeHead.appendChild(stateTag);
-      // 合并完成后解锁格5(回写 tracker);refresh 延后到回写之后,免得重建清掉格5。
-      writebackButton.disabled = false;
-      writebackButton.textContent = t("回写 tracker");
-      writebackHint.textContent = `${line.claim || t("未声明条目")} · ${t("由")} ${agentCode} ${t("线交付")}`;
+      // 合并成功不等于一定可回写:没有严格的 R-/D- claim 时不能制造可点击的
+      // 失败入口。合并结果已经落地,但 tracker 记录要由主代理手动登记。
+      if (trackerClaim) {
+        writebackButton.disabled = false;
+        writebackButton.textContent = t("回写 tracker");
+        writebackHint.textContent = `${trackerClaim} · ${t("由")} ${agentCode} ${t("线交付")}`;
+      } else {
+        writebackButton.disabled = true;
+        writebackButton.textContent = t("无有效条目");
+        writebackHint.textContent = t("当前线路未声明有效的 R-xxx / D-xxx 条目，合并已完成；请用主代理的 tracker 工具手动登记");
+        writebackHint.classList.add("warn-text");
+      }
     } catch (error) {
       mergeButton.disabled = false;
       mergeButton.textContent = t("合并到主线");
@@ -448,7 +462,7 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       const result = await invoke("worktree_harvest_writeback", {
         projectDir,
         worktreePath: line.worktree_path,
-        claim: line.claim || "",
+        claim: trackerClaim,
         agentCode: agentCode,
         branch: line.branch || "",
       });

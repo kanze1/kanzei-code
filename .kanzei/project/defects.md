@@ -447,3 +447,17 @@
 - 证据等级: E1(用户复现+代码定位),修复后补 UI 运行时冒烟。
 - 状态: fixed
 - 进展: 2026-08-12 `20-lines.js` 刷新前按 process_id 暂存并复挂同一收活面板,保留 diff/确认/门禁/回写 DOM 状态,并恢复改动文件 details 展开状态;新增运行时冒烟覆盖自动刷新后面板仍在且同一 DOM 节点;node check、ui-lint-smoke(31 文件/1160 标识符)、parallel-lines-regression、ui-runtime-smoke(1350 次 invoke/0 错误)通过。
+
+## D-310 收活无 claim 仍解锁 tracker 回写 [fixed] (medium)
+- severity: medium
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 后端 并行
+- 来源: 2026-08-12 用户截图复现:线路合并成功后 claim 显示「未声明条目」,第 5 格仍显示「重试回写」并发起失败请求。
+- 复现:打开一条没有声明 R-xxx/D-xxx 条目的并行线,完成收活第 2 格确认、第 3 格门禁、第 4 格合并,点击第 5 格回写;日志报「认领 `未声明条目` 不是条目 ID」,用户已经完成的合并被错误地呈现为可重试回写。
+- 根因: `crates/kanzei-app/ui/20-lines.js` 第 408 行只按合并成功解锁回写,未校验 claim 是否为严格 R-数字/D-数字;后端 `worktree_harvest_writeback` 只按第一个 `-` 拆分,对自由文本和带尾随内容的 ID 校验不完整。
+- 影响: 第 5 格出现错误操作入口,产生无意义 IPC/红色日志;用户不知道合并已成功但 tracker 回写需要主代理手动登记。
+- 验收: ①无有效 claim 时合并仍成功,第 5 格保持禁用并明确提示主代理手动登记;②无效 claim 不调用 `worktree_harvest_writeback`;③有效 R-xxx/D-xxx claim 仍可正常回写;④后端拒绝空格、尾随文本和非 R/D 类型 claim。
+- 证据等级: E1(用户复现+前后端代码定位),修复后补前端运行时与 Rust 定向测试。
+- 状态: fixed
+- 进展: 2026-08-12 `20-lines.js` 提取严格 `R-数字`/`D-数字` claim;无有效 claim 时合并仍可完成,但第 5 格保持禁用并提示主代理手动登记,不再发起无效回写 IPC;`processes.rs` 抽出严格 claim 解析并拒绝空值、尾随文本、非 R/D 类型;新增 Rust 定向反证与 UI 无效 claim 冒烟。验证:node check、ui-runtime-smoke(1427 次 invoke/0 运行时错误)、ui-lint-smoke(31 文件/1162 标识符)、cargo fmt、cargo clippy、kanzei-app 定向测试通过。

@@ -1589,6 +1589,25 @@ pub async fn worktree_gate(
 /// claim 不是条目 ID(自由文本)时拒绝回写——宁可让用户看到"无法自动回写",
 /// 也不能猜一个 ID 写错条目。acceptance 检查在关闭时由主代理用自己的 tracker
 /// 工具做,不在这里越权。
+fn parse_harvest_claim(claim: &str) -> Result<(&str, &str), String> {
+    let Some((prefix, id)) = claim.split_once('-') else {
+        return Err(format!(
+            "认领 `{claim}` 不是条目 ID(应为 R-xxx / D-xxx),无法自动回写;请用主代理的 tracker 工具手动登记收活。"
+        ));
+    };
+    if id.is_empty() || !id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(format!(
+            "认领 `{claim}` 不是严格的 R-xxx / D-xxx 条目 ID,无法自动回写;请用主代理的 tracker 工具手动登记收活。"
+        ));
+    }
+    match prefix {
+        "R" | "D" => Ok((prefix, id)),
+        _ => Err(format!(
+            "认领 `{claim}` 的条目类型不受收活回写支持(R/D 之外);请用主代理的 tracker 工具手动登记。"
+        )),
+    }
+}
+
 #[tauri::command]
 pub async fn worktree_harvest_writeback(
     project_dir: String,
@@ -1600,19 +1619,11 @@ pub async fn worktree_harvest_writeback(
     let root = normalized_project_root(Path::new(&project_dir));
     // 收活对象必须是 git 认得的真实工作树(与 merge/gate 同一条路径校验),防越界。
     let _worktree = validate_worktree_path(&root, &worktree_path)?;
-    let Some((prefix, id)) = claim.split_once('-') else {
-        return Err(format!(
-            "认领 `{claim}` 不是条目 ID(应为 R-xxx / D-xxx),无法自动回写;请用主代理的 tracker 工具手动登记收活。"
-        ));
-    };
+    let (prefix, id) = parse_harvest_claim(&claim)?;
     let kind = match prefix {
         "R" => &REQUIREMENTS,
         "D" => &DEFECTS,
-        _ => {
-            return Err(format!(
-                "认领 `{claim}` 的条目类型不受收活回写支持(R/D 之外);请用主代理的 tracker 工具手动登记。"
-            ))
-        }
+        _ => unreachable!("parse_harvest_claim only returns R/D"),
     };
     let note =
         format!("由 {agent_code} 线交付并合并(branch {branch})。收活回写来自 {worktree_path}。");

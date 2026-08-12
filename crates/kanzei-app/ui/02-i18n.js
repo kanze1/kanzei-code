@@ -31,6 +31,8 @@ const I18N_EN = {
   "合并到主线": "Merge to main line",
   "合并中…": "Merging…",
   "已合并": "Merged",
+  "无有效条目": "No valid item",
+  "当前线路未声明有效的 R-xxx / D-xxx 条目，合并已完成；请用主代理的 tracker 工具手动登记": "This line has no valid R-xxx / D-xxx item. The merge is complete; use the primary agent's tracker tool to record it manually",
   "文件": "Files",
   "差异": "Diff",
   "工作树干净,没有未提交差异": "Worktree is clean, no uncommitted diff",
