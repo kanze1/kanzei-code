@@ -1,57 +1,28 @@
 # Defects
 
-## D-313 多线路仍共享可复用身份、全局自动定时器与项目级停止，导致状态/鞭挞/历史/后台进程串线 [fixed] (high)
-- severity: high
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心 后端 前端 并行 自举
-- 来源: 2026-08-12 用户要求全面扫描；静态全链路审计与现有测试覆盖反证确认。
-- 复现: ①删最高编号线路后重建，`pN`/session 被复用并可能继承旧前端缓存与历史；②后台线路收到 `kz:done + autoAction=Continue` 时 handler 被路由层截断；③两线鞭挞共享一个 timer，切线会取消旧线且触发时按当前活动线发送；④停止一线调用项目级后台进程回收；⑤停止前端立即乐观收敛为空闲，无 `stopping`；⑥运行中线路仍可合并/放弃；⑦A 线发送 IPC 在切到 B 后失败会把 B 标失败；⑧对话读接口会回写 runtime conversation。
-- 根因: R-197 只在既有单活动线结构上补了 session 缓存，未完成 R-206 的具名状态机/唯一 mutator，也未把 timer、控制事件副作用、后台进程和工作树生命周期真正下沉为 session/process 级。
-- 影响: 多线路自举不可靠，表现为运行显示空闲、停止按钮消失、鞭挞自动开启或停跑、历史/活动错线、停止或收活影响其他线路，严重时合入仍在变化的工作树。
-- 验收: 以 R-226 十批和十条验收为准；必须新增真实事件路由、删线重建、双 timer、跨线停止、切线 IPC 失败、运行中合并/放弃六组反证，不能只靠现有绿测结案。
-- refs: R-226 R-197 R-199 R-206 R-207 R-222 D-209 D-283 D-305 D-306
-- 进展: 2026-08-12 根因链已按 R-226 收口：线路 ID 退役账本、按 owner 停止、统一 finalize、运行线收活硬闸、按 session 控制事件/timer/发送失败与 stopping 投影、纯读历史恢复均已实现；新增删线重建、双 timer 后台续跑、owner 停止、运行中收活反证，相关 Rust/UI 门禁全绿，待最终包安装后执行真实双线 E2。
-
-## D-307 关闭 kzapp 后自动重新启动实例 [fixed] (high)
-- severity: high
-- 优先级: P0
-- 复杂度: 中
-- 标签: 核心 桌面 发布
-- 来源: 2026-08-12 用户交接复现「关闭 kzapp 后自动又启动一个实例」；需区分窗口关闭、更新重启、启动器转发、计划任务/自启与单实例插件路径。
-- 证据等级: E1(用户复现，根因待当前构建定位)
-- 复现: 启动已发布的 kzapp，关闭窗口或退出应用，观察退出后又出现新的 kzapp 实例。
-- 根因: 待定位；重点检查 `CloseRequested`/`ExitRequested`、托盘退出、single-instance、更新安装后的 relaunch、计划任务/自启及 `kz.exe`/`kzapp.exe` 父子进程关系。
-- 影响: 用户无法真正退出桌面端；自举或发布验收期间可能出现重复实例与状态串扰。
-- 验收: ①定位并修复导致自动重启的最小路径；②关闭窗口后进程树不再出现新的 kzapp；③更新安装/启动器/单实例路径不引入回归；④重新打包安装后完成一次人工关闭验证，人工步骤和结果写入进展。
-- refs: D-266 D-287 D-265
-- 进展: 2026-08-12 已定位为更新交接 helper 在父进程退出后无条件重新 spawn kzapp，移除 run_install_helper 与 pending 更新路径的自动拉起，并把 UI/后端文案改为安装完成后手动启动；已通过 kanzei-app 定向 fmt/clippy/test 与 UI 语法/运行时冒烟，需重新打包安装后由用户执行关闭窗口并观察进程树的人工验证。
-
-## D-308 R-225 新增 classic-script 全局未登记导致正式 UI lint 失败 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 小
-- 标签: 前端 测试 设置
-- 来源: 2026-08-12 正式 scripts/verify.ps1 发现 R-225 语言设置链路新增全局未同步到 UI lint 白名单。
-- 证据等级: E1(verify 实测:7 处 no-undef；运行时冒烟通过但发布 lint 门禁失败)
-- 机制: classic script 按序共享全局，R-225 的语言常量/函数及归档懒加载新增符号没有重新生成 scripts/ui-lint-globals.json。
-- 影响: 功能运行时可通过，但正式 verify 阶段被 UI lint 拦截，无法生成绑定 HEAD 的发版验证证据。
-- 验收: ①更新生成的全局清单且 no-undef 为 0；②完整 verify 通过并产出 dist/verification.json。
-- refs: R-225 D-296
-- 进展: 2026-08-12 已重新生成 scripts/ui-lint-globals.json，纳入 R-225 语言设置与 D-296 归档懒加载新增全局并清理已删除符号；ui-lint-smoke 31 文件/1157 标识符零错误，完整 verify 已通过并产出绑定 HEAD 的 dist/verification.json。
-
-## D-296 docs_snapshot 单次调用重复解析两份归档约 6 遍(~4.8MB)+ 1 次 git log,挂在每次文档刷新与每次 git 提交事件后 [fixed] (high)
+## D-314 收活回写只信线路 claim，忽略线路对话中已明确的 tracker 条目 [fixing] (high)
 - severity: high
 - 优先级: P1
 - 复杂度: 中
-- 标签: 后端 效率
-- 来源: 2026-08-12 八维度审计(docs/design/audit_20260812_eight_dimensions.md §2);经反证代理独立重数确认。
-- 证据等级: E1(读码核实+文件大小实测:两份归档 314KB+482KB、活动文件 72KB+57KB)
-- 机制: docs.rs:146-290 一次快照里 batch_ids 循环 load 一遍 requirements/defects,load() 闭包对每 kind 再 load 一遍,req/defect 各调一次 dependents_map 与 schedule_for_display 且两者都进 dependency_states——两份归档合计被解析约 6 遍,另起一次 git log;DocStore::open 每次新实例,全链路无缓存,归档条目还整包塞进 IPC。
-- 影响: 挂在每次 tracker 变更与每次 git 提交事件后面;极可能是 R-193「plan 勾选响应延迟」的机制底座(R-193 只登记了前端症状)。归档只增不减,成本单调上升。
-- 验收: ①单次快照对每个 md 文件 read 计数 ≤1;②dependency_states 结果在 dependents_map/schedule_for_display 间复用;③归档条目改按需懒加载;④快照耗时与 IPC 字节前后基准对照,R-193 症状复测。
-- refs: R-193 D-209
-- 进展: 2026-08-12 docs_snapshot 建立 active/archive 单份缓存，tracker 复用 dependency_states，归档正文改为展开历史时调用 docs_archive_entries；同一夹具 IPC 基线 804 bytes→当前 607 bytes，当前快照 78ms，已通过 kanzei-app/kanzei-tools 定向测试、workspace fmt/clippy 与 UI 冒烟(0 运行时错误)。
+- 标签: 前端 后端 并行 tracker
+- 来源: 2026-08-13 用户截图：并行线路对话已明确处理 D-297，收活第 5 格仍显示“当前线路未声明有效条目 / 无有效条目”。
+- 复现: 并行线创建时未在首段 prompt 声明严格 R-xxx/D-xxx，运行中对话随后明确读取并处理 D-297；完成 diff、门禁和合并后，第 5 格只读取 collaboration claim，无法回写真实交付条目。
+- 根因: `20-lines.js:buildHarvestPanel` 在面板构造时只调用 `harvestClaimId(line.claim)`，没有读取该线路会话历史，也没有给多条候选提供人工选择；`worktree_harvest_writeback` 因此拿不到对话里的真实条目。
+- 影响: 已完成合并的线路无法形成 tracker 回调，用户必须手动补记；收活第 5 格与对话事实脱节。
+- 验收: ①后端从该线路最新对话提取并只返回 tracker 中真实存在的 R/D 条目；②唯一候选自动选择，多候选必须由用户明确选择；③没有候选仍保持禁用且不发回写；④补 Rust 与 UI 反证。
+- refs: R-226 R-222 D-310 D-297
+
+## D-315 并行线路缺少显式关闭入口，运行停止与线路生命周期无法收尾 [fixing] (high)
+- severity: high
+- 优先级: P1
+- 复杂度: 小
+- 标签: 前端 并行 工作树
+- 来源: 2026-08-13 用户反馈“我想关闭并行线，关不掉”。
+- 复现: 线路页和左侧当前状态列表均只有切换、收活、历史删除等动作，没有调用既有 `process_close` 的关闭按钮；用户即使完成合并也无法从界面注销线路。
+- 根因: 后端已实现 `process_close → stop/finalize → reclaim_worktree_on_close → unregister_parallel_process`，但 classic-script UI 从未接入该命令。
+- 影响: 已完成或不再需要的线路长期留在列表；运行会话、自动续行状态和工作树绑定无法由用户显式收尾。
+- 验收: ①非默认线路显示“关闭线路”，默认线路不显示；②运行线路关闭需二次确认并由后端先停止收口；③关闭成功后刷新线路/进程/工作树并安全切回主线；④有独有改动的工作树保留，已合并干净工作树自动回收；⑤补 UI 与后端既有语义回归。
+- refs: R-226 R-207 D-313
 
 ## D-297 conversation_list/trace_get/按序号恢复全量解析整张 session_events,run.trace 无保留策略成本单调增长 [open] (high)
 - severity: high
@@ -77,56 +48,6 @@
 - 验收: ①空闲时机条件整理:freelist 占比超阈值(如 50%)执行 VACUUM(或建库启用 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。
 - refs: D-297
 
-## D-299 失败指纹粒度崩塌:bash 类失败常态塌缩成 [fp:bash|exit code:] 全类通配键,Tier0 注入与复发计数整类错配 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 中
-- 标签: 后端 记忆
-- 来源: 2026-08-12 八维度审计(§5);经反证代理确认「核心指控成立,无法反驳」。
-- 证据等级: E1(读码核实+.kanzei/memory 存量键实测:该指纹已同时挂 2 个条目,含 M-022)
-- 机制: bash 工具把输出统一渲染为首行「exit code: N」(bash.rs:268-271);failure_kind 只对三种 git fatal 行做根因特判,其余取首行抹数字(metrics.rs:391-419)——一切非 git-fatal 的 bash 失败(测试红/编译错/脚本崩)全部塌成 kind="exit code:"。另有 [fp:req|r-]、[fp:edit|...] 等同样过泛/残废的键。
-- 影响: 任何 bash 失败都 Tier0 注入 M-022 并投「记忆没进决策」的误导性修订笔记;复发计数按全类累加,遥测与晋升判据整体失真——这是现在每个自举轮都在发生的事。
-- 验收: ①failure_kind 对 bash/test 类输出取根因行(断言文本/error 行)构 kind;②写入侧拒绝过短或全类通配的 kind 成为条目指纹;③存量全类通配键拆分处置;④tier0 注入命中按真实同类失败复核。
-- refs: R-196 R-216 D-282
-- 进展: 2026-08-12 failure_kind 对 bash/test 输出跳过 exit code/process wrapper，优先断言/error/failed/panic 等根因行；写入侧拒绝过短与通配 kind，存量 exit code 键归一到 legacy generic 隔离键，不改 .kanzei/memory；core 135 tests、tools 257 tests、workspace clippy/fmt 全绿。
-
-## D-300 limits.barrier_timeout_secs 配置键失效:漏接 merge overlay 且 unknown_keys 名单缺失,设了静默不生效还误报未知键 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 小
-- 标签: 后端 harness
-- 来源: 2026-08-12 八维度审计(§6);主代理复核 overlay! 宏现状确认(10 个 limits 字段不含它)。
-- 证据等级: E1(读码核实:config.rs overlay! 宏与 unknown_keys 已知键名单双缺;:363 与 :1032 注释自认「就是这么漏的」但从无条目跟踪)
-- 机制: load_with_warnings_at_root 从 default 起经 merge() 层叠,全局层与项目层设的该值都被丢弃;既有测试全部绕过 merge 直接 toml::from_str,所以全绿。
-- 影响: 用户在任一配置文件设 barrier_timeout_secs 既不生效又收到「未知配置项已忽略」假告警;屏障超时只能用默认 1800s。
-- 验收: ①补 overlay 宏与 unknown_keys 名单各一行;②新增「Limits 全字段经 merge_file 层叠往返不丢值」的穷举守护测试防再漏;③项目层设任一 limits 键都生效且无假告警。
-- refs: D-301
-- 进展: 2026-08-12 已修复:overlay! 宏与 unknown_keys 名单各补 barrier_timeout_secs,:363/:1032 两处注释更新;新增守护测试 limits_全字段_层叠往返不丢值_且名单穷举(TOML 显式赋全字段+unknown_keys 零告警+merge 后逐字段等于层值,同时堵住既有 unknown_keys_schema_matches_struct 对 [limits] 的 None 序列化盲区)。cargo test -p kanzei-harness --lib config 42 passed 0 failed。
-
-## D-301 编排派发的勘察/复核子代理没有 per-role 墙钟:注释承诺的「双层有界」内层在唯一生产路径上不存在 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 小
-- 标签: 后端 并行
-- 来源: 2026-08-12 八维度审计(§7)。
-- 证据等级: E1(读码核实:phase.rs:365-368 注释承诺内层由 subagent_timeout_secs 包住;rt.timeout_secs 全仓唯一消费点是 drive.rs:520 的模型自派 task 路径;编排路径 phase_pipeline.rs:294-311 直接 await run_read_agent 无 timeout 包装)
-- 影响: 单个勘察/复核角色挂死会拖满整个屏障直到外层 barrier_timeout_secs(默认 1800s),且审计事件把它记成 barrier_timed_out——内层超时语义错位,排查方向被误导。
-- 验收: ①dispatch_roles 给每个角色 future 包 tokio::time::timeout(rt.timeout_secs),超时映射 ScoutOutcome::TimedOut;②单角色挂死时屏障在内层上界收敛且 barrier_timed_out=false;③定向测试。
-- refs: D-300 R-173
-- 进展: 2026-08-12 dispatch_roles 为每个角色包 tokio::time::timeout(rt.timeout_secs)，超时映射 ScoutOutcome::TimedOut 并上抛失败 ToolEnd；新增单角色挂死反证，1s 内层收敛且无 barrier_timed_out；kanzei-app 127 tests、workspace clippy/fmt 全绿。
-
-## D-302 TaskCancellations 死 token:超时与整轮停止路径不清理注册表,stop_task 对已死子代理误报成功 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 小
-- 标签: 后端 并行
-- 来源: 2026-08-12 八维度审计(§7)。
-- 证据等级: E1(读码核实:注册在 runner/subagent.rs:267-270,清理在 :319-323 函数末尾;drive.rs:520-533 用 tokio::time::timeout 包裹,超时即 drop future,末尾清理永不执行——:319 注释声称防的正是这个场景,但 await 后代码在 future 被 drop 时不可能运行)
-- 影响: 注册表随超时/停止积累死 token;stop_task 对已终态子代理返回成功,面板单条停止(R-174)的语义失真。
-- 验收: ①register 改为带 Drop 的 RAII guard(与 ReadPermit 同手法);②超时/整轮停止后注册表为空;③stop_task 对已终态 id 返回明确「已结束」而非成功。
-- refs: R-174
-- 进展: 2026-08-12 register 改为持有 Arc 注册表的 TaskCancellationGuard，Drop 覆盖正常/失败/取消/外层 timeout 丢弃 future 的清理；新增死 token 与终态停止反证测试，stop_task 已结束 id 保持明确错误；core 136 tests、workspace clippy/fmt 全绿。
-
 ## D-303 桌面协调器未装配 observer:停止/异常路径 writer 审计断档,租约事件不可回放 [open] (medium)
 - severity: medium
 - 优先级: P2
@@ -137,42 +58,6 @@
 - 影响: 停止一轮或异常路径后 session_events 里 writer acquired/released 不成对,写租约审计断档——多写入者问题排查时缺关键证据。
 - 验收: ①桌面端改用 with_observer 装配(或 plain 路径 WriterLeaseTrace 加 Drop 补写 Released);②停止一轮后 acquired/released 在 session_events 成对可回放。
 - refs: R-181 R-186
-
-## D-304 parallel_lines_ui.md 状态头虚标:P1/P3/P6 宣称随 R-184 全部上线,实现整块缺席——文档为真源的自举返工源 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 中
-- 标签: 前端 文档 并行
-- 来源: 2026-08-12 八维度审计(§3 与 §7 两个维度独立发现交叉确认)。
-- 证据等级: E1(读码核实:该文:4 宣称已于 2026-08-11 全部上线;实测 ui/11-docs-list.js:347 isAgentNext 仍在渲染「下一个」推断值、backlog 无「被取得」事实标记、该文 §10 验收2「全仓 grep isAgentNext 零命中」不成立;泳道无三级卡住判据;16-settings.js 无按 agent 线级设置)
-- 影响: 自举模式以设计文档为真源,虚标直接导致后续轮漏做或重复申报;D-207 的病根(界面展示推断值)因 P1 未落地继续存活。
-- 验收: ①修正状态头为「P1/P3/P6 部分交付」并逐项列残余;②P1 残余(删 isAgentNext 全链路+基于 collaboration_snapshot claim 的「● 代号 被取得」标记)落地,验收沿用该文 §10 的 2/3 原文;③「排在队首但无人取不出现标记」反证测试。
-- refs: R-184 D-207
-- 进展: 2026-08-12 验收①完成:parallel_lines_ui.md 状态头改「部分交付」并逐项列 P1/P3/P6 残余；验收②③完成:删除 isAgentNext/agent-next/下一个推断全链路，列表只依据运行中的 collaboration_snapshot claim 显示「● 代号 被取得」，补队首无人 claim 不显示标记反证；node check 4 文件、UI 冒烟 1338 invokes/0 运行时错误全绿。
-
-## D-305 侧栏「隔离工作树」保留独立合并入口,绕过收活五格「必须人读 diff」强制格 [fixed] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 小
-- 标签: 前端 并行
-- 来源: 2026-08-12 八维度审计(§3)。
-- 证据等级: E1(读码核实:09-sessions.js:20-24 每棵工作树渲染差异/合并/放弃按钮;:50-94 merge 路径经 confirmWorktreeMerge(20-lines.js:500-520,仅 window.confirm)直达 worktree_merge,不经过收活五格)
-- 影响: 收活五格的「已读 diff」是合并的唯一语义防线,另一入口整体绕过等于防线失效;两套合并流程纪律不一致。
-- 验收: ①全仓只有一条能触发 worktree_merge 的用户路径(侧栏降级为跳转入口或内嵌同一强制格);②「已读 diff」不可绕过有冒烟断言(删除断言即红)。
-- refs: R-179 D-304 R-222
-- 进展: 2026-08-12 侧栏删除直接合并按钮，改为切到绑定线路并进入同一收活五格；后端 `worktree_merge`/`worktree_discard` 另持线路 lifecycle 锁拒绝运行态，UI 冒烟与静态反证锁定单一用户合并路径。
-
-## D-306 空闲线路残留上一轮 stage 文案:线路按钮显示「○ 空闲 · <旧阶段>」自相矛盾 [fixed] (low)
-- severity: low
-- 优先级: P3
-- 复杂度: 小
-- 标签: 前端
-- 来源: 2026-08-12 八维度审计(§3);经反证代理确认机制确定性成立。
-- 证据等级: E1(读码核实:01-core.js:52-55 kz:status 写 state.stage,:88-102 终态收敛分支不清 stage/detail 且当场用残留值重画;09-sessions.js:147 轮询把 item.stage 回填进「空闲」)
-- 影响: 空闲线路状态行含上一轮阶段词,运行态一眼可读性受损。
-- 验收: ①终态收敛处重置 stage/detail;②停用空闲态轮询 stage 回填;③「空闲线路状态行不含旧阶段词」冒烟断言。
-- refs: D-283 R-197 R-206
-- 进展: 2026-08-12 会话终态统一清空 stage/detail，空闲 process_list 不再回填旧阶段，线路状态仅在真实运行态显示阶段；UI 冒烟新增「空闲第三线路不含旧测试阶段」反证。
 
 ## D-293 kanzei-tools 两条测试在全量并行下偶发红,单独跑必绿 [open] (medium)
 - severity: medium
@@ -446,61 +331,10 @@
 - 影响: scripts/e2e-smoke.mjs 可能 connectOverCDP 失败,harness 基座验证被卡;若 e2e-smoke 实际能连上则本条为误报,实测后关闭。
 - 来源: self-found(2026-08-13 R-101 静态审查)
 - 标签: 流程
-- 阻塞: 
-- 优先级: P1
 
-## D-309 并行线路收活面板在自动刷新后消失 [fixed] (medium)
-- severity: medium
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 并行
-- 来源: 2026-08-12 用户反馈「并行线路展开打算收,自动刷新后展开的没了」。
-- 复现: 进入「并行线路」视图,点击某条工作树线路的「收活」展开五格面板,等待自动刷新或手动刷新线路;展开面板及已加载的 diff/门禁结果被移除。
-- 根因: `crates/kanzei-app/ui/20-lines.js:113-120` 的 `renderLines()` 每次刷新先对 `#lines-list` 调用 `replaceChildren()`,临时挂在 lane 下的 `.line-harvest` 与 `<details>` 展开状态没有按 `process_id` 保存和恢复。
-- 影响: 自动刷新期间用户正在进行的人读 diff、门禁和合并准备状态丢失,容易误以为操作未生效,也无法安全完成收活流程。
-- 验收: ①线路自动/手动刷新后同一 `process_id` 的收活面板仍展开;②面板内已加载 diff、已确认人读 diff、门禁结果和回写状态不丢;③改动文件展开状态保持;④线路消失时不错误复挂旧面板。
-- 证据等级: E1(用户复现+代码定位),修复后补 UI 运行时冒烟。
-- 状态: fixed
-- 进展: 2026-08-12 `20-lines.js` 刷新前按 process_id 暂存并复挂同一收活面板,保留 diff/确认/门禁/回写 DOM 状态,并恢复改动文件 details 展开状态;新增运行时冒烟覆盖自动刷新后面板仍在且同一 DOM 节点;node check、ui-lint-smoke(31 文件/1160 标识符)、parallel-lines-regression、ui-runtime-smoke(1350 次 invoke/0 错误)通过。
-
-## D-310 收活无 claim 仍解锁 tracker 回写 [fixed] (medium)
-- severity: medium
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 后端 并行
-- 来源: 2026-08-12 用户截图复现:线路合并成功后 claim 显示「未声明条目」,第 5 格仍显示「重试回写」并发起失败请求。
-- 复现:打开一条没有声明 R-xxx/D-xxx 条目的并行线,完成收活第 2 格确认、第 3 格门禁、第 4 格合并,点击第 5 格回写;日志报「认领 `未声明条目` 不是条目 ID」,用户已经完成的合并被错误地呈现为可重试回写。
-- 根因: `crates/kanzei-app/ui/20-lines.js` 第 408 行只按合并成功解锁回写,未校验 claim 是否为严格 R-数字/D-数字;后端 `worktree_harvest_writeback` 只按第一个 `-` 拆分,对自由文本和带尾随内容的 ID 校验不完整。
-- 影响: 第 5 格出现错误操作入口,产生无意义 IPC/红色日志;用户不知道合并已成功但 tracker 回写需要主代理手动登记。
-- 验收: ①无有效 claim 时合并仍成功,第 5 格保持禁用并明确提示主代理手动登记;②无效 claim 不调用 `worktree_harvest_writeback`;③有效 R-xxx/D-xxx claim 仍可正常回写;④后端拒绝空格、尾随文本和非 R/D 类型 claim。
-- 证据等级: E1(用户复现+前后端代码定位),修复后补前端运行时与 Rust 定向测试。
-- 状态: fixed
-- 进展: 2026-08-12 `20-lines.js` 提取严格 `R-数字`/`D-数字` claim;无有效 claim 时合并仍可完成,但第 5 格保持禁用并提示主代理手动登记,不再发起无效回写 IPC;`processes.rs` 抽出严格 claim 解析并拒绝空值、尾随文本、非 R/D 类型;新增 Rust 定向反证与 UI 无效 claim 冒烟。验证:node check、ui-runtime-smoke(1427 次 invoke/0 运行时错误)、ui-lint-smoke(31 文件/1162 标识符)、cargo fmt、cargo clippy、kanzei-app 定向测试通过。
-
-## D-311 并行线路自动刷新时卡片重复播放进入动画 [fixed] (medium)
-- severity: medium
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 并行
-- 来源: 2026-08-12 用户反馈「前端刷新会闪一下」。
-- 复现: 打开并行线路视图,等待运行中线路自动刷新;每次 `renderLines()` 重建线路卡片时观察卡片短暂透明/下移后出现,页面表现为周期性闪烁。
-- 根因: `crates/kanzei-app/ui/style.css` 的 `.line-lane` 永久绑定 `line-lane-enter` 动画;自动刷新每次重新创建 lane,导致既有线路也重复播放首次加载动画。
-- 影响: 运行状态持续刷新时视图闪烁,用户对正在展开的线路和状态变化的感知不稳定。
-- 验收: ①首次进入与同一视图的自动/手动刷新均不播放线路卡片进入动效;②刷新不再给既有线路重复添加透明度/位移动画;③收活面板、改动文件展开状态和滚动位置不受影响;④补前端冒烟/静态回归护栏。
-- 证据等级: E1(用户反馈+代码定位),修复后补前端运行时与静态回归测试。
-- 状态: fixed
-- 进展: 2026-08-12 移除 `.line-lane` 及其进入动画定义;线路刷新继续保留收活面板、改动文件展开和刷新节流,但不再给重建卡片附加透明度/位移动画。新增静态护栏确认进入动画未回归,UI 运行时冒烟 1439 次 invoke/0 运行时错误、UI lint 31 文件/1162 标识符、并行线路回归通过。
-
-## D-312 并行线路创建名称按秒导致重复点击撞同一工作树 [fixed] (medium)
-- severity: medium
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 并行 工作树
-- 来源: 2026-08-12 用户截图复现:连续创建并行线路时反复报工作树 `line-20260812140701` 已绑定到线 `p3`。
-- 复现:在并行线路视图快速连续点击创建按钮,两次请求落在同一秒;前端生成相同的 `line-YYYYMMDDhhmmss` 名称,第二次复用同一工作树目录和分支,被后端一树一线校验拒绝。
-- 根因: `crates/kanzei-app/ui/09-sessions.js:createWorktreeLine` 只取精确到秒的时间戳命名,且请求等待期间按钮仍可再次触发;后端按设计正确拒绝已绑定工作树。
-- 影响: 用户看到创建并行线路失败和重复红色日志;快速操作无法创建第二条线,但已有 `p3` 工作树不应被误删或强制回收。
-- 验收: ①线路名包含毫秒/序号,连续创建请求不复用同名工作树;②创建请求在返回前按钮禁用且重复 click 只产生一次 `process_create`;③成功/失败后按钮都恢复可用;④已有一树一线后端保护与工作树现场不变。
-- 证据等级: E1(用户截图+前端代码定位+仓库工作树现场核对),修复后补 UI 运行时和静态回归测试。
-- 状态: fixed
-- 进展: 2026-08-12 将建线名改为毫秒时间戳+进程内序号;创建 IPC 单飞且按钮请求期间禁用,finally 恢复;新增双击只发一个 process_create 的 UI 冒烟与静态护栏。验证:node --check、ui-runtime-smoke(1439 次 invoke)、ui-lint-smoke、parallel-lines-regression 通过。
+## D-316 引擎归档动作产生重复条目与孤儿字段:archive 中 D-309 两份、open 的 D-289 字段被误切入且无工具清理通道 [open] (medium)
+- 复现: 上一轮关闭一批缺陷后,引擎自动归档把 fixed 条目移入 defects-archive.md 但未提交(工作树遗留)。实测归档产物两处脏数据:①D-309 在 archive 重复两份(3238/3252 行,内容完全相同);②open 的 D-289 字段行(复现/影响/来源/标签/阻塞/优先级)被误切进 archive 尾部,活动文件 D-289 字段随之下线。
+- 影响: archive 出现重复条目与孤儿字段行;活动文件 open 条目字段被误移(已用 defect update 手工补回 D-289,但 archive 尾部残留 6 行孤儿字段)。归档是引擎管理文件,edit 被 ruleset 拒绝、defect 工具不认归档条目,当前无合法清理通道——同类问题与 D-294 的「游离段落无删除通道」一致。
+- 标签: 流程
+- 根因: 引擎归档动作的切割/复制逻辑疑似把 D-312 之后的 D-289 字段行一并划入归档,并对 D-309 重复落盘;具体在 harness 归档实现,待定位。
+- 优先级: P2
