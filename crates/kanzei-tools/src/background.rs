@@ -503,6 +503,49 @@ mod tests {
         LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
     }
 
+    /// 跨进程围栏锁(D-268):`serial()` 只挡**同进程**;任务级并行时两条线共享
+    /// 同一个 CARGO_TARGET_DIR 并行跑 `cargo test -p kanzei-tools`,两个 OS 进程的
+    /// `managed_fence` 窗口(进程内 static)互不可见,可以交错——越界写落在另一进程
+    /// 的合法窗口里→假绿;自己的合法写被另一进程的窗口边界切断→假红。
+    ///
+    /// 与 D-261 给 `test_record` 的做法同源:用 `atomic_file::FileLock` 做跨进程互斥。
+    /// FileLock 是 `!Send`、不能跨 await,所以由**持锁线程**持有,本 guard 只持
+    /// channel 发送端;`Drop` 时通知持锁线程释放,线程退出时 OS 自动关句柄。
+    struct FenceGuard {
+        release: std::sync::mpsc::Sender<()>,
+    }
+
+    impl Drop for FenceGuard {
+        fn drop(&mut self) {
+            let _ = self.release.send(());
+        }
+    }
+
+    /// 取跨进程围栏锁。锁文件路径固定(不随 pid/时间变),两条线才锁到同一把。
+    /// 同步阻塞直到拿到——测试之间本来就该互等,拿不到锁的进程一直等。
+    fn fence_guard() -> FenceGuard {
+        let lock_path = std::env::temp_dir().join("kanzei-bgfence-tests.lock");
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<()>();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        std::thread::spawn(move || {
+            loop {
+                match crate::atomic_file::try_lock_exclusive(
+                    &lock_path,
+                    std::time::Duration::from_millis(500),
+                ) {
+                    Ok(Some(_lock)) => break,
+                    Ok(None) | Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                }
+            }
+            let _ = ready_tx.send(());
+            let _ = release_rx.recv(); // 等 guard Drop 后线程退出,FileLock 随之释放
+        });
+        ready_rx.recv().expect("持锁线程应就绪");
+        FenceGuard {
+            release: release_tx,
+        }
+    }
+
     fn temp_managed_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "kz-bgfence-{tag}-{}-{}",
@@ -673,6 +716,7 @@ mod tests {
     #[tokio::test]
     async fn 场景启动_托管项目后台任务登记owner与基线() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("start");
         let id = start_background(&root, "echo started", "run-start").await;
 
@@ -695,6 +739,7 @@ mod tests {
     #[tokio::test]
     async fn 按线路停止只回收目标owner的后台进程() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("stop-owner");
         let target = start_background(&root, linger(), "line-a").await;
         let sibling = start_background(&root, linger(), "line-b").await;
@@ -714,6 +759,7 @@ mod tests {
     #[tokio::test]
     async fn 场景轮询_读输出不误判托管树也不产生越界记录() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("poll");
         let id = start_background(&root, "echo polled", "run-poll").await;
         let ctx = ctx_for(&root, "run-poll");
@@ -768,6 +814,7 @@ mod tests {
     #[tokio::test]
     async fn 场景停止_走终止路径并做终态对账_进程树真的消失() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("stop");
         let (prelude, marker) = tree_prelude("stop");
         let command = format!("{prelude}{}{}", joiner(), linger());
@@ -816,6 +863,7 @@ mod tests {
     #[tokio::test]
     async fn 场景越界_后台写托管文档被隔离回滚并归因到owner_且进程树被终止() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("breach");
         let target = root.join(".kanzei/project/defects.md");
         // D-262 之前这里用的是"写完就自然退出"的命令,所以"越界即终止"根本无法断言
@@ -892,6 +940,7 @@ mod tests {
     #[tokio::test]
     async fn 场景并发_窗口内合法写入不误伤_窗口外同样写入被回滚() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("concurrent");
         let target = root.join(".kanzei/project/defects.md");
         let long_running = match crate::shell::detected_shell().name {
@@ -946,6 +995,7 @@ mod tests {
     #[tokio::test]
     async fn 窗口开着时守卫不推进基线_关闭后精确吸收() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("window-hold");
         let target = root.join(".kanzei/project/defects.md");
         let long_running = match crate::shell::detected_shell().name {
@@ -1009,6 +1059,7 @@ mod tests {
     #[tokio::test]
     async fn 窗口内后台写窗口外托管文件_关闭后仍被回滚且合法写入保留() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("window-outer");
         let target = root.join(".kanzei/project/defects.md");
         let memory_target = root.join(".kanzei/memory/M-999-x.md");
@@ -1058,6 +1109,7 @@ mod tests {
     #[tokio::test]
     async fn 后台写非托管路径畅通不误伤() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("unmanaged");
         let scratch = root.join("scratch.txt");
         let command = delayed_write_command(&scratch, "SCRATCH");
@@ -1099,6 +1151,7 @@ mod tests {
     #[tokio::test]
     async fn 托管树超限时后台任务被显式拒绝而不是静默放行() {
         let _serial = serial().lock().await;
+        let _fence = fence_guard();
         let root = temp_managed_project("limit");
         // 造一个超过单文件镜像上限的托管文件。
         let big = root.join(".kanzei/project/big.md");
@@ -1192,5 +1245,68 @@ mod tests {
         );
         // 已退出的进程再 stop 返回 false,不应报错
         assert!(!stop(&handle.id).await, "已结束的进程不该报告为被终止");
+    }
+
+    /// D-268 反证①(假绿根源):`managed_fence::active()` 是**进程内** static,
+    /// 另一个 OS 进程开着的窗口在本进程 `write_in_progress` 里**不可见**——
+    /// 这就是两条线并行跑同一 crate 测试时窗口交错无保护、越界写可蒙混的根因。
+    ///
+    /// 子进程 helper 由本测试 spawn,它打开 defect 窗口后写信号文件;本进程等
+    /// 到信号后断言 `write_in_progress(".kanzei/project/defects.md")` 为 false。
+    /// 若窗口跨进程可见(修复方向②那类"进程身份"方案),这里应为 true;当前
+    /// 修复方向①(跨进程文件锁)不改窗口语义,所以仍 false——反证锁的必要性。
+    #[test]
+    fn 跨进程围栏窗口互不可见_需要跨进程锁() {
+        let exe = std::env::current_exe().expect("测试二进制路径");
+        let signal = std::env::temp_dir().join(format!(
+            "kz-bgfence-cross-{}-{}.ready",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let signal_str = signal.display().to_string();
+        let mut child = std::process::Command::new(&exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "background::tests::子进程_打开defect窗口并写信号",
+                "--nocapture",
+            ])
+            .env("KZ_BGFENCE_SIGNAL", &signal_str)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn 子进程");
+        // 等子进程窗口打开(信号文件出现),最多 15 秒。
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        while !signal.exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert!(signal.exists(), "子进程应在 15s 内打开窗口并写信号文件");
+        // 关键断言:另一个进程的窗口在本进程不可见 → 交错时无保护(假绿根源)。
+        assert!(
+            !kanzei_harness::managed_fence::write_in_progress(".kanzei/project/defects.md"),
+            "跨进程窗口必须互不可见;若可见,修复方向①的锁就不必要了"
+        );
+        let _ = child.wait();
+        let _ = std::fs::remove_file(&signal);
+    }
+
+    /// D-268 子进程 helper:打开 defect 窗口,写信号文件,等 2 秒(让父进程有
+    /// 时间断言),然后自然关闭。仅由上面的跨进程反证测试 spawn 调用。
+    #[test]
+    #[ignore]
+    fn 子进程_打开defect窗口并写信号() {
+        let signal = std::env::var("KZ_BGFENCE_SIGNAL").expect("父进程应传信号文件路径");
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let _window = kanzei_harness::managed_fence::tool_scope("defect", async {
+                std::fs::write(&signal, "ready").expect("写信号文件");
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            })
+            .await;
+        });
     }
 }

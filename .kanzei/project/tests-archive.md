@@ -1983,3 +1983,8 @@
 - 摘要: cargo test --workspace 全绿(kanzei-tools 258、core 137、app 143 等,0 failed)。D-266 复杂度=中,关闭前全量。
 - 关联: D-266
 - 收尾: 1786560588
+
+## T-1786561296 D-268 跨进程围栏锁验证(反证+双进程并行 5 轮) [passed]
+- 摘要: B1 反证测试:跨进程围栏窗口互不可见(子进程 spawn 开 defect 窗口,父进程 write_in_progress=false,假绿根源成立)。B2 双进程并行实测:两个 cargo test -p kanzei-tools --lib background 进程同时跑 5 轮,全部 exit=0(修复后跨进程锁生效,结果与单进程一致)。
+- 关联: D-268
+- 收尾: 1786561296
