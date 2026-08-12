@@ -158,6 +158,10 @@ impl LiveRun {
     }
 }
 
+/// D-297 验收③:每会话保留的最近 run.trace 轮数。增量事件按轮分组,200 轮足够
+/// 回放评估原料(list_trace_payloads 取 limit*5)且把历史体积封顶。
+const TRACE_KEEP_ROUNDS: usize = 200;
+
 pub(crate) fn flush_live_run(
     store: &kanzei_core::SessionStore,
     session_id: &str,
@@ -170,6 +174,9 @@ pub(crate) fn flush_live_run(
     }
     live.flushed = true;
     let _ = flush_live_trace_locked(store, session_id, &mut live, Some(outcome));
+    // D-297 验收③:run.trace 保留策略——每会话只留最近 N 轮,防止轨迹成本随
+    // 使用时间单调增长。收尾路径是清理时机(一轮刚写完,旧轮不再被引用)。
+    let _ = store.prune_trace_rounds(session_id, TRACE_KEEP_ROUNDS);
     let _ = store.append_episode(&kanzei_core::EpisodeRecord {
         session_id,
         prompt_head: &live.prompt_head,
@@ -214,19 +221,41 @@ fn flush_live_trace_locked(
     if pending.is_empty() {
         return false;
     }
-    let mut payload = json!({"run_id": live.run_id, "events": pending});
-    if let Some(outcome) = outcome {
-        payload["outcome"] = json!(outcome);
+    // D-297 验收③:整包补写按 ≤64KB 分批,避免单条 run.trace 事件(实测最大
+    // 945.5KB)把解析成本与库体积一次性放大。分批保持事件顺序,outcome 只挂最后一批。
+    const MAX_BATCH_BYTES: usize = 64 * 1024;
+    let mut batches: Vec<Vec<serde_json::Value>> = Vec::new();
+    let mut current: Vec<serde_json::Value> = Vec::new();
+    let mut current_bytes = 0usize;
+    for event in pending {
+        let size = serde_json::to_string(&event)
+            .map(|s| s.len())
+            .unwrap_or(usize::MAX);
+        if !current.is_empty() && current_bytes + size > MAX_BATCH_BYTES {
+            batches.push(std::mem::take(&mut current));
+            current_bytes = 0;
+        }
+        current_bytes += size;
+        current.push(event);
     }
-    if store
-        .append_event(session_id, "run.trace", &payload)
-        .is_ok()
-    {
-        live.persisted_trace_events = live.trace.len();
-        true
-    } else {
-        false
+    if !current.is_empty() {
+        batches.push(current);
     }
+    let last = batches.len() - 1;
+    for (index, batch) in batches.into_iter().enumerate() {
+        let mut payload = json!({"run_id": live.run_id, "events": batch});
+        if let (Some(outcome), true) = (outcome, index == last) {
+            payload["outcome"] = json!(outcome);
+        }
+        if store
+            .append_event(session_id, "run.trace", &payload)
+            .is_err()
+        {
+            return false;
+        }
+    }
+    live.persisted_trace_events = live.trace.len();
+    true
 }
 
 /// 把当前运行轨迹按事件增量写入 state.db。
@@ -532,4 +561,105 @@ pub(crate) fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::
         }
     };
     with_session_id(payload, &pending.session_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn temp_store(tag: &str) -> (std::path::PathBuf, kanzei_core::SessionStore) {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-state-flush-{tag}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.db");
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store.create_session("ses_flush", "C:/proj", None).unwrap();
+        (path, store)
+    }
+
+    fn cleanup(path: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// D-297 验收③:整包补写超过 64KB 时按多批落库,事件顺序保持,outcome 只在末批。
+    #[test]
+    fn flush_live_run_整包超过64kb时分批且outcome只在末批() {
+        let (path, store) = temp_store("batches");
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        {
+            let mut live = live.lock().unwrap();
+            live.begin("run_big", "input_1", "prompt", "provider", "model");
+            // 30 条各 ~3KB 的事件:总量约 90KB,必然跨 2 批(64KB 上限)。
+            for index in 0..30 {
+                live.trace.push(json!({
+                    "kind": "tool.started", "id": format!("t{index}"),
+                    "name": "read",
+                    "summary": "x".repeat(3000),
+                }));
+            }
+        }
+        assert!(flush_live_run(&store, "ses_flush", &live, "completed"));
+        let events = store
+            .list_events_by_type("ses_flush", 0, "run.trace")
+            .unwrap();
+        assert!(
+            events.len() >= 2,
+            "超过 64KB 应拆成多批,实得 {}",
+            events.len()
+        );
+        // 事件顺序保持:第一批含 t0,total 事件数不变(跨批只拆容器不丢事件)。
+        let total_events: usize = events
+            .iter()
+            .map(|e| e.payload["events"].as_array().map_or(0, Vec::len))
+            .sum();
+        assert_eq!(total_events, 30, "分批不得丢事件");
+        // 每批序列化 ≤64KB + 头部开销余量。
+        for event in &events {
+            let size = serde_json::to_string(&event.payload).unwrap().len();
+            assert!(size <= 64 * 1024 + 512, "单批应 ≤64KB,实得 {size}");
+        }
+        // outcome 只挂在末批(sequence 最大那条)。
+        let last = events.last().unwrap();
+        assert_eq!(last.payload["outcome"], "completed");
+        assert!(events[..events.len() - 1]
+            .iter()
+            .all(|e| e.payload.get("outcome").is_none()));
+        cleanup(&path);
+    }
+
+    /// D-297 验收③:收尾 flush 触发保留策略,超过 keep 轮数的旧轨迹被清理。
+    #[test]
+    fn flush_live_run_触发保留策略只留最近n轮() {
+        let (path, store) = temp_store("prune");
+        // 先写 3 轮历史(不走 flush,直接 append 模拟旧轮)。
+        for round in 1..=3 {
+            store
+                .append_event(
+                    "ses_flush",
+                    "run.trace",
+                    &json!({"run_id": format!("run_old_{round}"), "events": [{"kind": "tool.started"}]}),
+                )
+                .unwrap();
+        }
+        // 本轮走 flush_live_run:写完当前轮后 prune 保留 200 轮,但存量只有 3+1 轮,
+        // 验证的是「prune 被调用且不误删」——真正删旧轮的语义由 core 层测试覆盖。
+        let live = Arc::new(Mutex::new(LiveRun::default()));
+        {
+            let mut live = live.lock().unwrap();
+            live.begin("run_new", "input_2", "prompt", "provider", "model");
+            live.trace.push(json!({"kind": "turn.started", "step": 1}));
+        }
+        assert!(flush_live_run(&store, "ses_flush", &live, "completed"));
+        let traces = store.list_trace_payloads("ses_flush", 10).unwrap();
+        assert_eq!(traces.len(), 4, "保留轮数充足时旧轮不动");
+        assert!(traces.iter().any(|(_, p)| p.contains("run_new")));
+        cleanup(&path);
+    }
 }

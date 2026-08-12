@@ -22,6 +22,11 @@ use crate::{
     PendingAsk, PromptAttachment, SessionRuntime,
 };
 
+/// D-297 验收③:TaskProgress 入参落 run.trace 时保留的字符上限。入参可能是完整
+/// 工具调用 JSON(子代理勘察可带大文件内容),截断到 4K 字符足够复核调用意图,
+/// 又不让单条轨迹事件把库体积与解析成本放大。
+const TRACE_INPUT_KEEP_CHARS: usize = 4096;
+
 #[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
 pub(crate) async fn run_task(
     window: &Window,
@@ -469,10 +474,12 @@ pub(crate) async fn run_task(
             }
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
             RunEvent::TaskProgress { id, text, trace } => {
-                let payload = json!({
+                // UI 实时事件保留完整入参(transcript 数据源,R-174);
+                // 落库副本把入参截断到上限,避免大入参撑爆 run.trace(D-297 验收③)。
+                let ui_payload = json!({
                     "id": id,
                     "text": text,
-                    "trace": trace.map(|item| json!({
+                    "trace": trace.as_ref().map(|item| json!({
                         "child_id": item.child_id,
                         "phase": item.phase,
                         "name": item.name,
@@ -480,15 +487,38 @@ pub(crate) async fn run_task(
                         "ok": item.ok,
                         "preview": item.preview,
                         "display": item.display,
+                        "input": item.input,
                     })),
                 });
+                let stored_payload = match &trace {
+                    Some(item) => json!({
+                        "id": id,
+                        "text": text,
+                        "trace": json!({
+                            "child_id": item.child_id,
+                            "phase": item.phase,
+                            "name": item.name,
+                            "summary": item.summary,
+                            "ok": item.ok,
+                            "preview": item.preview,
+                            "display": item.display,
+                            "input": item.input.as_ref().map(|input| {
+                                let text = serde_json::to_string(input).unwrap_or_default();
+                                let kept: String =
+                                    text.chars().take(TRACE_INPUT_KEEP_CHARS).collect();
+                                json!(kept)
+                            }),
+                        }),
+                    }),
+                    None => ui_payload.clone(),
+                };
                 record_live_trace_at_path(
                     &trace_state_path_for_events,
                     &trace_session_id_for_events,
                     &trace_log,
-                    payload.clone(),
+                    stored_payload,
                 );
-                emit_event("kz:task-progress", payload)
+                emit_event("kz:task-progress", ui_payload)
             }
             RunEvent::Retry {
                 attempt,

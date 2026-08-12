@@ -65,6 +65,9 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS session_events_session_sequence
                      ON session_events(session_id, sequence);
+                 -- D-297:event_type 下推过滤的复合索引,list_events_by_type 用。
+                 CREATE INDEX IF NOT EXISTS session_events_session_type_sequence
+                     ON session_events(session_id, event_type, sequence);
                  -- v5 状态机:pending → promoted → running → completed | failed | cancelled。
                  -- 少了 running/completed/failed 时,跑完的输入会永远停在 promoted,于是
                  -- 用户之后任何一次停止都会把历史上已经成功完成的输入一并改成

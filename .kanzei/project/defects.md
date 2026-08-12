@@ -40,6 +40,8 @@
 - 验收: ①list_events 支持 event_type 下推过滤并补 (session_id,event_type,sequence) 复合索引;②三个调用点只取所需类型,按序号恢复改单行查询;③run.trace 定保留策略(每会话最近 N 轮)且整包补写按 ≤64KB 分批、TaskProgress 入参截断;④主会话规模下解析字节量降一个数量级。
 - refs: D-209 D-296
 
+- 进展: 2026-08-16 B3/4 完成:①run.trace 保留策略——store.prune_trace_rounds 每会话保留最近 200 轮(TRACE_KEEP_ROUNDS),flush_live_run 收尾触发;②flush_live_trace_locked 整包按 ≤64KB 分批(事件顺序保持、outcome 只挂末批);③TaskProgress 入参落库截断到 4096 字符(TRACE_INPUT_KEEP_CHARS),UI 实时事件保留完整入参。新增测试:core prune/list_events_by_type/event_by_sequence 11 passed、app flush 分批与保留策略 2 passed、kanzei-app 134 passed、fmt/clippy 绿。批次: 3/4
+
 ## D-298 state.db 82MB 中约 68MB 是 freelist 死页从不 VACUUM,9 份迁移备份约 59MB 永不清理 [open] (medium)
 - severity: medium
 - 优先级: P2

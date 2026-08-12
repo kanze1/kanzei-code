@@ -34,6 +34,47 @@ impl SessionStore {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 按类型下推过滤的事件列表(D-297 验收①):event_type 进 WHERE 与复合索引
+    /// `(session_id, event_type, sequence)`,只解析所需类型的行——conversation_list /
+    /// conversation_trace_get / 按序号恢复不再为取一种事件而全表 serde 解析。
+    pub fn list_events_by_type(
+        &self,
+        session_id: &str,
+        after_sequence: i64,
+        event_type: &str,
+    ) -> Result<Vec<StoredEvent>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+                 FROM session_events
+                 WHERE session_id = ?1 AND sequence > ?2 AND event_type = ?3
+                 ORDER BY sequence",
+        )?;
+        let rows = statement.query_map(
+            params![session_id, after_sequence, event_type],
+            event_from_row,
+        )?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// 按类型取最小 sequence 的单个事件(D-297 验收②:按序号恢复改单行查询)。
+    pub fn event_by_sequence_and_type(
+        &self,
+        session_id: &str,
+        sequence: i64,
+        event_type: &str,
+    ) -> Result<Option<StoredEvent>, StoreError> {
+        self.connection
+            .query_row(
+                "SELECT event_id, session_id, sequence, event_type, payload_json, created_at
+                     FROM session_events
+                     WHERE session_id = ?1 AND sequence = ?2 AND event_type = ?3",
+                params![session_id, sequence, event_type],
+                event_from_row,
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
     /// 按 sequence 删除指定类型的事件(类型限定防止误删调度事件)。返回删除数。
     /// 用途:历史对话管理——快照删除不影响 prompt/session 生命周期事件。
     pub fn delete_events_by_sequence(
@@ -106,6 +147,34 @@ impl SessionStore {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
     }
+
+    /// D-297 验收③:run.trace 保留策略——每会话只保留最近 `keep_rounds` 轮的轨迹行。
+    /// 增量事件与整包补写共用顶层 `run_id` 字段(payload_json 内),按 run_id 分组、
+    /// 保留 sequence 最新的一组,更早的整组删除。返回删除的行数。
+    ///
+    /// 只清理 `run.trace` 类型,conversation.updated / orchestration.* 等审计事件不动。
+    /// SQLite 的 JSON1 在 bundled 构建里默认可用,json_extract 在这里提取 run_id。
+    pub fn prune_trace_rounds(
+        &self,
+        session_id: &str,
+        keep_rounds: usize,
+    ) -> Result<usize, StoreError> {
+        let changed = self.connection.execute(
+            "DELETE FROM session_events
+                 WHERE session_id = ?1 AND event_type = 'run.trace'
+                   AND json_extract(payload_json, '$.run_id') NOT IN (
+                       SELECT run_id FROM (
+                           SELECT DISTINCT json_extract(payload_json, '$.run_id') AS run_id
+                           FROM session_events
+                           WHERE session_id = ?1 AND event_type = 'run.trace'
+                           ORDER BY sequence DESC
+                           LIMIT ?2
+                       )
+                   )",
+            params![session_id, keep_rounds as i64],
+        )?;
+        Ok(changed)
+    }
 }
 
 /// 事件行解析。
@@ -164,6 +233,116 @@ pub(crate) fn append_event_tx(
 mod tests {
     use super::*;
     use crate::store::testutil::store;
+
+    #[test]
+    fn prune_trace_rounds_只保留最近n轮的run_trace() {
+        let store = store();
+        // 三轮运行:每轮一条整包 run.trace(run_id 顶层),另混入一条 conversation.updated。
+        for round in 1..=3 {
+            store
+                .append_event(
+                    "ses_test",
+                    "run.trace",
+                    &serde_json::json!({"run_id": format!("run_{round}"), "events": [{"kind": "tool.started"}]}),
+                )
+                .unwrap();
+        }
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({"messages": []}),
+            )
+            .unwrap();
+        let removed = store.prune_trace_rounds("ses_test", 2).unwrap();
+        assert_eq!(removed, 1, "只应删掉最旧一轮(run_1)的轨迹行");
+        let traces = store.list_trace_payloads("ses_test", 10).unwrap();
+        assert_eq!(traces.len(), 2, "保留最近两轮");
+        assert!(traces.iter().any(|(_, p)| p.contains("run_2")));
+        assert!(traces.iter().any(|(_, p)| p.contains("run_3")));
+        assert!(!traces.iter().any(|(_, p)| p.contains("run_1")));
+        // conversation.updated 不受影响。
+        assert!(
+            store
+                .list_events_by_type("ses_test", 0, "conversation.updated")
+                .unwrap()
+                .len()
+                == 1
+        );
+        // 保留轮数不小于现有轮数时不删除。
+        assert_eq!(store.prune_trace_rounds("ses_test", 99).unwrap(), 0);
+    }
+
+    #[test]
+    fn list_events_by_type_只返回指定类型并按下推过滤() {
+        let store = store();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({"messages": []}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "run.trace",
+                &serde_json::json!({"events": [{"kind": "tool.started"}]}),
+            )
+            .unwrap();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({"messages": [{"role": "user"}]}),
+            )
+            .unwrap();
+        let convs = store
+            .list_events_by_type("ses_test", 0, "conversation.updated")
+            .unwrap();
+        assert_eq!(convs.len(), 2, "只应返回 conversation.updated");
+        assert!(convs.iter().all(|e| e.event_type == "conversation.updated"));
+        let traces = store
+            .list_events_by_type("ses_test", 0, "run.trace")
+            .unwrap();
+        assert_eq!(traces.len(), 1, "只应返回 run.trace");
+        assert_eq!(traces[0].payload["events"][0]["kind"], "tool.started");
+        // after_sequence 与类型同时生效。
+        let after = store
+            .list_events_by_type("ses_test", 1, "conversation.updated")
+            .unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].sequence, 3);
+    }
+
+    #[test]
+    fn event_by_sequence_and_type_单行查询命中或为空() {
+        let store = store();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({"v": 1}),
+            )
+            .unwrap();
+        store
+            .append_event("ses_test", "run.trace", &serde_json::json!({"events": []}))
+            .unwrap();
+        let hit = store
+            .event_by_sequence_and_type("ses_test", 1, "conversation.updated")
+            .unwrap();
+        assert!(hit.is_some());
+        assert_eq!(hit.unwrap().payload["v"], 1);
+        // 同序号但类型不符:查不到,不误配。
+        assert!(store
+            .event_by_sequence_and_type("ses_test", 1, "run.trace")
+            .unwrap()
+            .is_none());
+        assert!(store
+            .event_by_sequence_and_type("ses_test", 99, "conversation.updated")
+            .unwrap()
+            .is_none());
+    }
 
     #[test]
     fn 事件序列按会话递增并可回放() {

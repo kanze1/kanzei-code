@@ -65,29 +65,26 @@ pub(crate) fn conversation_trace_get(
         .create_session(&session_id, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     let events = store
-        .list_events(&session_id, 0)
+        .list_events_by_type(&session_id, 0, "run.trace")
         .map_err(|e| e.to_string())?;
     let limit = sequence.unwrap_or(i64::MAX);
-    let mut segment_start = 0;
-    for event in &events {
-        if event.sequence > limit {
-            break;
-        }
-        if event.event_type == "conversation.updated"
-            && event.payload["messages"]
+    // 段边界来自 conversation.updated 的空快照;只取该类型最小必要行,不全表解析。
+    let segment_start = store
+        .list_events_by_type(&session_id, 0, "conversation.updated")
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|event| event.sequence <= limit)
+        .filter(|event| {
+            event.payload["messages"]
                 .as_array()
                 .is_some_and(Vec::is_empty)
-        {
-            segment_start = event.sequence;
-        }
-    }
+        })
+        .map(|event| event.sequence)
+        .next_back()
+        .unwrap_or(0);
     Ok(events
         .into_iter()
-        .filter(|event| {
-            event.event_type == "run.trace"
-                && event.sequence > segment_start
-                && event.sequence <= limit
-        })
+        .filter(|event| event.sequence > segment_start && event.sequence <= limit)
         .map(|event| event.payload)
         .collect())
 }
@@ -107,10 +104,9 @@ pub(crate) fn conversation_list(
     let mut segments: Vec<Vec<serde_json::Value>> = Vec::new();
     let mut open = false;
     for event in store
-        .list_events(&session_id, 0)
+        .list_events_by_type(&session_id, 0, "conversation.updated")
         .map_err(|e| e.to_string())?
         .into_iter()
-        .filter(|event| event.event_type == "conversation.updated")
     {
         let messages = event.payload["messages"].as_array();
         let count = messages.map_or(0, Vec::len);
@@ -165,10 +161,9 @@ pub(crate) fn recover_messages_raw(
     sequence: Option<i64>,
 ) -> anyhow::Result<Vec<kanzei_llm::Message>> {
     let event = match sequence {
-        Some(sequence) => store
-            .list_events(session_id, 0)?
-            .into_iter()
-            .find(|event| event.sequence == sequence && event.event_type == "conversation.updated"),
+        Some(sequence) => {
+            store.event_by_sequence_and_type(session_id, sequence, "conversation.updated")?
+        }
         None => store.latest_event(session_id, "conversation.updated")?,
     };
     let Some(event) = event else {

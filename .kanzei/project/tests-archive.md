@@ -1932,3 +1932,8 @@
 - 摘要: 修复 clippy needless_borrow(persist_process 去 &)后重跑:132 passed 0 failed
 - 关联: D-314 D-315
 - 收尾: 1786552075
+
+## T-1786552696 cargo test -p kanzei-core -p kanzei-app (D-297 B1-B3) [passed]
+- 摘要: D-297 B1-B3:store::events 11 passed(含 list_events_by_type/event_by_sequence_and_type/prune_trace_rounds)、kanzei-app 134 passed(含 flush 分批/保留策略测试)、fmt/clippy 绿
+- 关联: D-297
+- 收尾: 1786552696
