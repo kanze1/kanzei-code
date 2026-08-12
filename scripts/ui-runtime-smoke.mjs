@@ -1066,6 +1066,26 @@ try {
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
+// D-317:空配置必须停在明确的「未选择项目」状态，不能因渲染而触发项目级请求。
+// 后端另有纯函数反证锁死「不拿 current_dir 造项目」；这里验证 classic-script 的空态承载。
+{
+  const processListCalls = invokeLog.filter((cmd) => cmd === "process_list").length;
+  vm.runInContext("renderProjects({ current: null, projects: [], names: {} })", sandbox);
+  await flush();
+  assert(vm.runInContext("currentProject", sandbox) === null, "空项目偏好仍留下了当前项目");
+  assert(byId.get("project-list").children.length === 0, "空项目偏好仍渲染出项目卡片");
+  assert(byId.get("project-label").textContent.includes("未选择项目"), "空项目状态未显示『未选择项目』");
+  assert(byId.get("documents-project-select").disabled, "空项目状态下文档项目选择器仍可用");
+  assert(
+    invokeLog.filter((cmd) => cmd === "process_list").length === processListCalls,
+    "空项目状态仍请求了项目级 process_list"
+  );
+  vm.runInContext(
+    `renderProjects(${JSON.stringify(payloads.projects_get)})`,
+    sandbox
+  );
+  await flush();
+}
 const initialAutoState = invokeArgs.find(({ cmd, args }) =>
   cmd === "auto_state_update" && args?.sessionId === "sess-smoke" && args?.maxRounds === 3
 );

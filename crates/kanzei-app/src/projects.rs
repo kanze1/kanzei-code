@@ -22,23 +22,21 @@ fn strip_verbatim(p: PathBuf) -> String {
 
 #[tauri::command]
 pub fn projects_get() -> AppPrefs {
-    let mut prefs = load_prefs();
-    prefs.projects.retain(|p| Path::new(p).is_dir());
+    let prefs = normalize_prefs(load_prefs(), |path| Path::new(path).is_dir());
+    save_prefs(&prefs);
+    prefs
+}
+
+fn normalize_prefs(mut prefs: AppPrefs, mut project_exists: impl FnMut(&str) -> bool) -> AppPrefs {
+    prefs.projects.retain(|path| project_exists(path));
     prefs.names.retain(|path, _| prefs.projects.contains(path));
-    if prefs.projects.is_empty() {
-        if let Ok(cwd) = std::env::current_dir() {
-            prefs.projects.push(cwd.display().to_string());
-        }
-    }
-    if prefs
+    if !prefs
         .current
-        .as_deref()
-        .map(|c| !Path::new(c).is_dir())
-        .unwrap_or(true)
+        .as_ref()
+        .is_some_and(|current| prefs.projects.contains(current))
     {
         prefs.current = prefs.projects.first().cloned();
     }
-    save_prefs(&prefs);
     prefs
 }
 
@@ -427,4 +425,41 @@ pub(crate) fn workspace_snapshot() -> Result<serde_json::Value, String> {
         }));
     }
     Ok(json!({ "current": prefs.current, "projects": projects }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn empty_project_preferences_stay_empty() {
+        let prefs = normalize_prefs(AppPrefs::default(), |_| true);
+
+        assert!(prefs.projects.is_empty());
+        assert_eq!(prefs.current, None);
+        assert!(prefs.names.is_empty());
+    }
+
+    #[test]
+    fn invalid_projects_are_pruned_without_inventing_a_replacement() {
+        let prefs = AppPrefs {
+            projects: vec!["missing".into(), "kept".into()],
+            current: Some("missing".into()),
+            names: HashMap::from([
+                ("missing".into(), "旧项目".into()),
+                ("kept".into(), "保留项目".into()),
+            ]),
+        };
+
+        let prefs = normalize_prefs(prefs, |path| path == "kept");
+
+        assert_eq!(prefs.projects, ["kept"]);
+        assert_eq!(prefs.current.as_deref(), Some("kept"));
+        assert_eq!(prefs.names.len(), 1);
+        assert_eq!(
+            prefs.names.get("kept").map(String::as_str),
+            Some("保留项目")
+        );
+    }
 }

@@ -1,5 +1,19 @@
 # Defects
 
+## D-317 首次启动把进程工作目录自动登记为项目 [fixed] (high)
+- severity: high
+- 优先级: P1
+- 复杂度: 小
+- 标签: 桌面端 项目 首次启动
+- 来源: 2026-08-13 用户反馈：从官网下载安装后，应用未经过选择就默认打开 `kanzei code` 项目。
+- 复现: `~/.kanzei/app.json` 不存在或项目列表为空时，从任意目录启动 kzapp；项目列表自动出现该进程工作目录并被选中。
+- 根因: `projects_get` 在清理后列表为空时调用 `std::env::current_dir()` 并写回 `AppPrefs.projects`，把启动上下文误当成用户选择。
+- 影响: 安装包会泄漏构建/启动目录语义，首次启动可能直接读取非用户授权项目的文档、历史和状态。
+- 验收: ①空配置返回 `projects=[]、current=null`，不读取或持久化工作目录；②已登记的有效项目和当前选择继续保留；③前端空状态显示“未选择项目”，项目选择器禁用且不请求项目级进程；④补 Rust 与 UI 回归。
+- refs: R-115 D-170
+
+- 进展: 2026-08-13 完成：删除 `projects_get` 的 `current_dir` 回退，抽出偏好清理纯函数；空配置保持空，失效当前项目只从已登记有效项目中选择替代。补 2 条 Rust 单测与 UI 空项目反证；验证 `cargo test -p kanzei-app projects::tests` 2 passed，`node scripts/ui-runtime-smoke.mjs` 1546 invokes、0 runtime errors。
+
 ## D-314 收活回写只信线路 claim，忽略线路对话中已明确的 tracker 条目 [fixed] (high)
 - severity: high
 - 优先级: P1
