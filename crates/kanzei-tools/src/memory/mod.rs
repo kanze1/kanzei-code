@@ -677,6 +677,11 @@ pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSign
         if delivered >= MAX_FAILURE_NOTES_PER_RUN {
             break;
         }
+        if !kanzei_core::is_usable_failure_kind(&signal.kind) {
+            // D-299:exit code/过短 kind 只能说明外层失败,不能把所有 bash/test
+            // 错误压进同一条跨轮记忆,也不应继续污染 recurrence_counts。
+            continue;
+        }
         let fingerprint = format!("[fp:{}|{}]", signal.tool, signal.kind);
         if store.note_fingerprint_seen(&fingerprint) {
             continue;
@@ -1742,6 +1747,31 @@ mod tests {
         // 同一轮内指纹去重照旧生效:再采集不新增笔记。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 0);
         assert_eq!(store.pending_notes(), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn 过短或退出码通配指纹不写入记忆() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-generic-fp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        let signal = kanzei_core::FailureSignal {
+            tool: "bash".into(),
+            kind: "exit code:".into(),
+            sample: "exit code: 1".into(),
+            targets: vec!["cargo".into()],
+            count: 4,
+            recovered_by: None,
+        };
+        assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 0);
+        assert_eq!(store.pending_notes(), 0);
         std::fs::remove_dir_all(dir).ok();
     }
 

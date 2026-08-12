@@ -51,7 +51,7 @@
 - 验收: ①空闲时机条件整理:freelist 占比超阈值(如 50%)执行 VACUUM(或建库启用 auto_vacuum=INCREMENTAL+周期回收);②迁移备份只保留最近一版;③整理后库文件回到活数据量级。
 - refs: D-297
 
-## D-299 失败指纹粒度崩塌:bash 类失败常态塌缩成 [fp:bash|exit code:] 全类通配键,Tier0 注入与复发计数整类错配 [open] (medium)
+## D-299 失败指纹粒度崩塌:bash 类失败常态塌缩成 [fp:bash|exit code:] 全类通配键,Tier0 注入与复发计数整类错配 [fixed] (medium)
 - severity: medium
 - 优先级: P2
 - 复杂度: 中
@@ -62,6 +62,7 @@
 - 影响: 任何 bash 失败都 Tier0 注入 M-022 并投「记忆没进决策」的误导性修订笔记;复发计数按全类累加,遥测与晋升判据整体失真——这是现在每个自举轮都在发生的事。
 - 验收: ①failure_kind 对 bash/test 类输出取根因行(断言文本/error 行)构 kind;②写入侧拒绝过短或全类通配的 kind 成为条目指纹;③存量全类通配键拆分处置;④tier0 注入命中按真实同类失败复核。
 - refs: R-196 R-216 D-282
+- 进展: 2026-08-12 failure_kind 对 bash/test 输出跳过 exit code/process wrapper，优先断言/error/failed/panic 等根因行；写入侧拒绝过短与通配 kind，存量 exit code 键归一到 legacy generic 隔离键，不改 .kanzei/memory；core 135 tests、tools 257 tests、workspace clippy/fmt 全绿。
 
 ## D-300 limits.barrier_timeout_secs 配置键失效:漏接 merge overlay 且 unknown_keys 名单缺失,设了静默不生效还误报未知键 [fixed] (medium)
 - severity: medium

@@ -381,7 +381,13 @@ pub fn normalize_fp_marker(marker: &str) -> String {
     let Some((tool, kind)) = rest.split_once('|') else {
         return trimmed.to_string();
     };
-    format!("[fp:{}|{}]", tool.trim(), failure_kind(kind))
+    let normalized = failure_kind(kind);
+    let normalized = if is_usable_failure_kind(&normalized) {
+        normalized
+    } else {
+        "__legacy_generic__".into()
+    };
+    format!("[fp:{}|{}]", tool.trim(), normalized)
 }
 
 /// 错误指纹:首行小写 → 抹掉易变载荷 → 抹掉含路径分隔符的 token 与全部数字 →
@@ -402,6 +408,28 @@ pub(crate) fn failure_kind(content: &str) -> String {
                 || lower.contains("pathspec")
                 || lower.contains("did not match")
         })
+        .or_else(|| {
+            content.lines().find(|line| {
+                let lower = line.trim().to_lowercase();
+                !lower.is_empty()
+                    && !is_wrapper_failure_line(&lower)
+                    && [
+                        "assert",
+                        "error",
+                        "failed",
+                        "failure",
+                        "panic",
+                        "traceback",
+                        "not found",
+                        "cannot",
+                        "denied",
+                        "expected",
+                        "undefined",
+                    ]
+                    .iter()
+                    .any(|marker| lower.contains(marker))
+            })
+        })
         .unwrap_or(first_line);
     let root_line = mask_volatile_payload(root_line);
     let scrubbed: Vec<String> = root_line
@@ -416,6 +444,30 @@ pub(crate) fn failure_kind(content: &str) -> String {
         .filter(|token| !token.is_empty())
         .collect();
     scrubbed.join(" ").chars().take(80).collect()
+}
+
+fn is_wrapper_failure_line(line: &str) -> bool {
+    line.starts_with("exit code")
+        || line.starts_with("process exited")
+        || line.starts_with("command failed")
+        || line == "test failed"
+        || line == "tests failed"
+}
+
+/// 记忆写入侧的指纹质量闸:过短或只描述外层退出状态的值不能作为跨轮键。
+pub fn is_usable_failure_kind(kind: &str) -> bool {
+    let normalized = kind.trim().to_ascii_lowercase();
+    normalized.chars().count() >= 8
+        && !matches!(
+            normalized.as_str(),
+            "exit code:"
+                | "exit code"
+                | "test failed"
+                | "tests failed"
+                | "command failed"
+                | "unknown error"
+                | "*"
+        )
 }
 
 /// 目标键:路径类取最后一段(跨平台分隔符都算),命令取首词,其余取 id。
@@ -756,6 +808,22 @@ mod tests {
         // 无根因行时退回首行(既有行为不回归)。
         let single = failure_kind("old_string not found in C:/p/main.rs");
         assert!(single.contains("old_string not found"), "{single}");
+    }
+
+    #[test]
+    fn failure_kind_bash测试输出跳过退出包装行并拒绝通配键() {
+        let kind = failure_kind("exit code: 101\nerror: assertion `left == right` failed");
+        assert!(
+            kind.contains("error:") && kind.contains("assertion"),
+            "{kind}"
+        );
+        assert!(!is_usable_failure_kind("exit code:"));
+        assert!(!is_usable_failure_kind("error"));
+        assert!(is_usable_failure_kind(&kind));
+        assert_eq!(
+            normalize_fp_marker("[fp:bash|exit code:]"),
+            "[fp:bash|__legacy_generic__]"
+        );
     }
 
     #[test]
