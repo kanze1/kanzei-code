@@ -2013,3 +2013,8 @@
 - 摘要: cargo test -p kanzei-tools --lib tracker:31 passed(含新测试 update多行值不新增游离段落且已有残留被自检点名——多行值折单行不新增游离段落、历史残留被 update 自检告警点名、raw_delete 清完后不再告警)。fmt/clippy 全过。
 - 关联: D-276
 - 收尾: 1786562132
+
+## T-1786562252 cargo test --workspace (D-276 关闭前全量) [passed]
+- 摘要: cargo test --workspace 全绿(kanzei-tools 260 passed 1 ignored、harness 114、core 137、app 143,0 failed)。D-276 复杂度=中,关闭前全量。
+- 关联: D-276
+- 收尾: 1786562252

@@ -149,8 +149,10 @@
 - 标签: 核心
 - 证据等级: E1(2026-08-13 实测复现,含 diff 与 read 证据)
 
-- 批次: 1/2
-- 进展: 2026-08-16 取活。勘察发现三个修复方向中①②已由既有交付落地:D-294(commit 1c223f8 字段值写入侧强制单行,push_field 把多行折成空格,四渲染出口全走它,测试 字段值折成单行_不产生游离段落)堵死新增游离段落;R-201(commit 800d5da raw_lines/raw_delete 按序号删游离行)提供删除通道。但两笔交付当时未关联 D-276,条目仍开着。剩余:③引擎在 update 后自检条目内重复段落并告警(未做);端到端验证 update 多行值不再产游离段落 + raw_delete 能清历史残留;清理 D-239 历史积累的重复游离段落(影响④实例)。B1 完成:tracker.rs update|close 分支 save 后调 store.raw_lines(id) 自检,有游离段落则在返回里点名数量并指路 raw_lines/raw_delete;新增端到端测试 update多行值不新增游离段落且已有残留被自检点名(多行值折成单行字段、历史残留被点名、raw_delete 清完后不再告警),tracker 31 passed(T-1786562xxx),fmt/clippy 全过。B2 待:真实环境验证 + 清理 D-239 历史游离段落 + 关闭。
+- 批次: 2/2
+- 进展: 2026-08-16 取活。勘察发现三个修复方向中①②已由既有交付落地:D-294(commit 1c223f8 字段值写入侧强制单行,push_field 把多行折成空格,四渲染出口全走它,测试 字段值折成单行_不产生游离段落)堵死新增游离段落;R-201(commit 800d5da raw_lines/raw_delete 按序号删游离行)提供删除通道。但两笔交付当时未关联 D-276,条目仍开着。剩余:③引擎在 update 后自检条目内重复段落并告警(未做);端到端验证 update 多行值不再产游离段落 + raw_delete 能清历史残留;清理 D-239 历史积累的重复游离段落(影响④实例)。B1 完成:tracker.rs update|close 分支 save 后调 store.raw_lines(id) 自检,有游离段落则在返回里点名数量并指路 raw_lines/raw_delete;新增端到端测试 update多行值不新增游离段落且已有残留被自检点名(多行值折成单行字段、历史残留被点名、raw_delete 清完后不再告警),tracker 31 passed(T-1786562132),fmt/clippy 全过;commit 27606aa。B2 完成:真实环境验证——raw_delete 在真实 defects.md 上删除 D-239 游离段落成功(字段一字不变),D-239 历史重复内容段落已折进字段值无残留,仅剩格式空行(D-130 渲染固有产物,删后再生,属无害格式态);update 自检告警通道端到端测试已覆盖。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786561931 前一条,tools 260 passed)。三个修复方向逐条对照:①update 进展字段统一为替换整个块(单行与多行同语义)——既有能力 D-294 push_field 折行,本次端到端测试 update多行值不新增游离段落且已有残留被自检点名 断言「- 进展: 第一段 第二段 第三段」单行字段且「第二段不能变成新的游离段落」(crates/kanzei-tools/src/tracker.rs 测试,commit 27606aa);②显式删除/整理游离段落能力——既有能力 R-201 raw_lines/raw_delete,本次真实环境验证在 defects.md 删除 D-239 游离行成功(字段一字不变);③update 后自检重复段落并告警——本次交付 tracker.rs update|close save 后 store.raw_lines(id) 自检,有残留则返回点名数量并指路 raw_lines/raw_delete(修复方向③代码 + 端到端测试「清完后 update 不再告警」)。关闭。
+
+- 复杂度: 中
 
 ## D-278 子代理面板打开后无就绪状态:侧边栏小窗口看不到「子代理可用」文案(设置页有,面板没有) [fixing] (medium)
 - content: 侧边栏 ◉ 按钮打开的子代理面板(#agent-panel)只有「运行中/已完成/已关闭」三个分区,没有任何就绪/可用状态信息。设置页 fast 行已正确显示「✓ 子代理就绪(qwen3.5:4b)」(fast_model_status 返回 ready=true),但面板打开后用户看不到子代理是否可用——缺环时(Ollama 未装/服务未起/模型未拉)也无法从面板感知。
