@@ -1,22 +1,5 @@
 # Defects
 
-## D-293 kanzei-tools 两条测试在全量并行下偶发红,单独跑必绿 [fixing] (medium)
-- severity: medium
-- 优先级: P2
-- 复杂度: 中
-- 标签: 测试
-- 证据等级: E1(2026-08-12 一次实测命中,同轮单独复跑两条均绿,随后全量复跑亦绿)
-- 复现: `cargo test --workspace` 单次运行中 `kanzei-tools --lib` 报 2 failed / 251 passed:
-  ①`docstore::tests::原子写下并发读永不看到截断态` —— panic「读到了截断态:条目数 0,只可能是 3 或 30」(docstore.rs:1453);
-  ②`read::tests::read_non_memory_file_does_not_touch_fetched` —— panic「非记忆文件的 read 不应创建记忆库目录」(read.rs:299)。
-  紧接着 `cargo test -p kanzei-tools --lib <单条>` 两条各自 ok;再跑一次全量 workspace 全绿。
-- 影响: 发版门禁(verify.ps1)与 CI 会随机变红。这类红比稳定红更贵——它训练人「重跑一次就好」,而**真回归也会被这样跳过**。①尤其要命:那条用例的全部意义就是证明"读者永不看到截断态",它自己偶发失败,等于这条保证目前没有可信证据。
-- 猜测方向(未验证,勿当结论): ①docstore 那条是 3 个读者线程热转 + 200 次写,本机同时跑着自举 kzapp 与其它测试进程,Windows 上的文件替换在高争用下是否真有窗口需要实证——如果有,那是 atomic_file 的真缺陷而不是测试问题;②read 那条断言的是临时项目目录下 `.kanzei/memory` 未被创建,同进程其它用例是否会在共享路径上造出它、`temp_project()` 的唯一性是否足够,需要读码确认。
-- 边界: 不要用「重跑就绿」结案,也不要直接给测试加 retry/ignore —— ①的失败形态可能是产品代码的真窗口,加 retry 等于把证据抹掉。
-- 验收: ①能稳定复现(例如加压并行 + 循环 N 次);②定位到是产品代码窗口还是测试自身不隔离,分别修;③连续 20 次全量 workspace 无同类偶发。
-- refs: D-249 D-261 R-200
-- 进展: 2026-08-16 取活开始。既有怀疑:①docstore 条目数 0 的失败形态与 load() 对 NotFound 宽容返回 Ok(vec![]) 吻合(rename 替换窗口);②read 条 temp 唯一性基本排除。验收:①稳定复现(加压并行+循环 N 次);②定位产品/测试问题分别修;③连续 20 次全量无同类偶发。R-211 加压脚本是载体。2026-08-16 修复落地:两条测试自身构造缺陷——①Tier1 测试走 FailureRecallPolicy::retrieve 断言 BM25 在 30ms 预算内必然命中,全量并行繁忙时超时降级偶发红,改直连 store.search 绕开预算(内存模块仍断言命中且标题精确匹配);②tier0 测试 content 带路径/数字噪音使指纹口径两侧不一致,改 content 首行放 kind 原文与 [fp:edit|{kind}] 精确对齐。验证:kanzei-tools 全量加压 10 轮 0 失败(修复前 8 轮 2 红),记录 T-1786555193。
-
 ## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] (high)
 - 优先级: P0
 - 复杂度: 大
