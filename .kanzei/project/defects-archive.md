@@ -3582,3 +3582,11 @@
 - 批次: 2/2
 - 进展: 2026-08-16 取活。现状核实:①archive_terminal(docstore.rs)的 archived.extend(terminal) 只对模板去重、Entry 列表未按 id 去重——重复归档会二次追加(D-309 两份 3238/3252 实证);②D-289 的 6 行孤儿字段已污染进 archive 的 D-312 条目(复现/影响/来源/标签/阻塞/优先级 重复 key + 空阻塞)。B1 完成(commit 44c10cf):①archive_terminal 写回前调 normalize_archive 净化整个归档(按 id 去重保留先归档、每条目同 key 字段去重保留第一个非空、删空字段),净化有变化时即使无新终态条目也强制写回(archived 动作=清理通道);②extend 前 Entry 列表按 id 去重(与模板去重一致);③新测试 archive_terminal_净化重复条目与孤儿字段 构造 D-309 两份+D-312 污染,断言收敛;docstore 19 passed,fmt/clippy 全过(T-1786564595)。真实环境注意:当前 agent 会话的 defect 工具跑的是旧引擎,archive 实测返回 nothing to archive(旧代码无净化)——真实文件脏数据(D-309 重复/D-312 污染)会在引擎更新后的首次归档动作被自动收敛,净化逻辑已有单元测试背书。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786563xxx,tools 263)。逐条对照:①D-309 重复两份——根因 archive_terminal extend 未按 id 去重,已修(Entry 列表去重 + normalize_archive 整体净化),测试断言重复收敛为一份;②D-289 孤儿字段污染 D-312——normalize_archive 同 key 字段去重(保留第一个非空)+ 删空字段(如 `- 阻塞: `),测试断言复现保留原条目值、空阻塞被删;③无工具清理通道——已建立:任何归档动作(archived=清理通道)自动净化整个归档,无需新工具;净化有变化即强制写回。残余:当前工作树 defects-archive.md 的真实脏数据由含本修复的新引擎在首次归档动作自动收敛(代码已提交,引擎重启后生效),进展已记录。关闭。
 
+## D-320 R-199 遗留三处:鞭挞 i18n 缺 EN key、profile 切换仍静默取消勾选、smoke D-291 断言过时 [fixed] (medium)
+- 复杂度: 小
+- 复现: 发版 verify.ps1 门禁(2026-08-16)逮到 R-199 遗留三处:①02-i18n.js 缺 2 个 EN key(自动推进停止:当前模式不匹配/鞭挞已关闭,当前进程不是自主推进模式)——07-events.js ProfileMismatch 分支调用但表里没有;②08-compose.js syncAutoContinueWithProfile 仍在 profile change 时主动取消 auto-continue 勾选,与 R-199「档位否决下沉引擎、前端不再持有」冲突(D-290 旧漂移复发);③ui-runtime-smoke.mjs D-291 场景断言过时——设 dev-pair + Continue 期望前端拦下,但 R-199 后引擎判 Stop、前端不再拦。
+- 影响: 发版门禁(verify.ps1)ui_runtime 步红;R-199 的「前端不再否决」承诺在 profile 切换路径上未兑现(勾选被静默取消)。
+- 来源: self-found(发版 verify.ps1 门禁逮到)
+- 标签: 流程
+- 优先级: P2
+- 进展: 2026-08-16 发版 verify.ps1 门禁逮到 R-199 遗留三处,已修复(commit 866dfc2):①02-i18n.js 补 2 个 EN key(自动推进停止:当前模式不匹配/鞭挞已关闭,当前进程不是自主推进模式);②08-compose.js syncAutoContinueWithProfile 不再在 profile change 时主动取消勾选——档位否决下沉引擎,前端只显示引擎结论(07-events.js ProfileMismatch 分支负责取消+显示),D-290 旧漂移不复发;③ui-runtime-smoke.mjs D-291 场景断言改为引擎语义(dev-pair + Continue 时前端不拦,phase ∈ {auto_pending, starting} 都算推进,容忍 flush 跨 2 秒续跑间隔)。验证:node --check 通过、ui-runtime-smoke 21 项全绿、ui-i18n-smoke 通过(T-1786574944)。复杂度=小,前端修复定向验证即可。关闭。

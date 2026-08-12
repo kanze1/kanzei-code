@@ -186,10 +186,3 @@
 - 进展: 2026-08-16 取活诊断(9 轮实验,证据链完整)。已排除:①注入通道——环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 与 KANZEI_E2E_CDP additional_browser_args 两条路都传参成功(msedgewebview2.exe 命令行实证含 --remote-debugging-port/--remote-allow-origins/--remote-debugging-address);②参数格式——同参数字符串起 Edge(含非 headless)1 秒监听;③策略——HKCU/HKLM EdgeWebView/Edge DeveloperToolsAvailability 全空;④AppContainer/容器——whoami 无 AppContainerSid,Session 1 正常;⑤日志——--enable-logging=stderr --v=1 无 devtools 相关输出;⑥版本——WEBVIEW2_FIXED_VERSION 指定 151.0.4129.59 未生效(Tauri 仍用 78),151.0.4129.78 签名有效、安装完整;⑦进程树——renderer/gpu/network 完整,webview 已创建但 browser 进程不绑定端口、无 DevToolsActivePort 文件。结论:WebView2 Runtime 151 在当前机器不启动 DevTools HTTP 服务,与参数注入/代码路径/系统策略均无关。排除后剩余变量是 WebView2 Runtime 本身或其与系统环境的交互(需重装/更新 runtime 或换环境验证,或改用 WebDriver/tauri-driver 路线)。阻塞:解除人=用户。
 - 阻塞: WebView2 Runtime 151 在当前机器 DevTools 端口不绑定(9 轮实验证据链,见进展)。解除动作:①用户重装/更新 Microsoft Edge WebView2 Runtime 后重跑 e2e-smoke;或②用户提供 WebView2 DevTools 正常的环境验证;或③用户拍板改 WebDriver/tauri-driver 路线(不在本条范围内)。解除人:用户。
 
-## D-320 R-199 遗留三处:鞭挞 i18n 缺 EN key、profile 切换仍静默取消勾选、smoke D-291 断言过时 [open] (medium)
-- 复杂度: 小
-- 复现: 发版 verify.ps1 门禁(2026-08-16)逮到 R-199 遗留三处:①02-i18n.js 缺 2 个 EN key(自动推进停止:当前模式不匹配/鞭挞已关闭,当前进程不是自主推进模式)——07-events.js ProfileMismatch 分支调用但表里没有;②08-compose.js syncAutoContinueWithProfile 仍在 profile change 时主动取消 auto-continue 勾选,与 R-199「档位否决下沉引擎、前端不再持有」冲突(D-290 旧漂移复发);③ui-runtime-smoke.mjs D-291 场景断言过时——设 dev-pair + Continue 期望前端拦下,但 R-199 后引擎判 Stop、前端不再拦。
-- 影响: 发版门禁(verify.ps1)ui_runtime 步红;R-199 的「前端不再否决」承诺在 profile 切换路径上未兑现(勾选被静默取消)。
-- 来源: self-found(发版 verify.ps1 门禁逮到)
-- 标签: 流程
-- 优先级: P2
