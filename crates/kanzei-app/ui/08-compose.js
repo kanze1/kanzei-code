@@ -113,18 +113,60 @@ function cancelAutoContinueTimer() {
   autoContinueTimer = null;
   autoContinueGeneration += 1;
 }
-function scheduleAutoContinue() {
+// D-291:续跑闸门的**唯一**判据。原来这几个条件散在两处 setTimeout 里,任一不满足
+// 就 `return` ——不发下一轮、不清 auto_pending、不清横幅、不留一个字。界面于是永久
+// 钉在「鞭挞 · 等待下一轮」,而那一轮永远不会来(引擎侧还记着 rounds+1,两边状态从此
+// 对不上)。闸门必须集中且**开口说话**:不续跑可以,不说为什么不行(D-004 口径)。
+function autoContinueBlockedReason() {
+  if (!$("auto-continue").checked) return "鞭挞已关闭";
+  if (autoPaused) return "已暂停";
+  if (autoStopAfterRound) return "本轮后停";
+  if (!autoContinueAllowed()) return "当前模式不是自主推进";
+  return null;
+}
+// `running` 与上面四条不同:它是**瞬态**,不是用户意图。kz:done 有意不收回运行态
+// (07-events.js:328「真正收回由 kz:idle/kz:stopped 负责」),所以 2 秒到点时上一轮
+// 可能仍标着运行中——旧代码在这里静默放弃,一轮就此永远不来。正确语义是等它落地,
+// 但要有头:等满 AUTO_CONTINUE_RUNNING_GRACE 次还在跑,就当卡住了,报出来。
+const AUTO_CONTINUE_RUNNING_GRACE = 15;
+// 闸门拦下时收口:pending 必须落地,否则横幅与线路徽标一直显示「等待下一轮」。
+function abortAutoContinue(reason, sessionId = activeSessionId) {
+  if (sessionId) sessionState(sessionId).auto_pending = false;
+  clearRunPending();
+  renderAutoStatus(`${t("鞭挞未续跑")}:${t(reason)}`);
+  log(`${t("鞭挞未续跑")}:${t(reason)}`);
+  if (sessionId) refreshParallelTaskProjection(sessionId);
+}
+// 续跑定时器:闸门在**触发时刻**复查(2 秒内用户可能暂停/切模式/新一轮已开跑)。
+// generation 不符属于「被更新的一枪取代」,静默是对的——但那条路径的 pending
+// 由取消方自己收口,不在这里处理。
+function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0) {
   cancelAutoContinueTimer();
   const generation = autoContinueGeneration;
   autoContinueTimer = setTimeout(() => {
     autoContinueTimer = null;
-    if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
-    if ($("auto-continue").checked && autoContinueAllowed() && !running) {
-      if (activeSessionId) sessionState(activeSessionId).auto_pending = false;
-      clearRunPending();
-      sendText(continuePrompt(), { auto: true });
+    if (generation !== autoContinueGeneration) return;
+    const blocked = autoContinueBlockedReason();
+    if (blocked) {
+      abortAutoContinue(blocked, sessionId);
+      return;
     }
+    if (running) {
+      if (waited < AUTO_CONTINUE_RUNNING_GRACE) {
+        // 计数不复位、generation 顺延:再等一拍,不改任何用户可见状态。
+        armAutoContinue(prompt, sessionId, waited + 1);
+      } else {
+        abortAutoContinue("上一轮尚未结束", sessionId);
+      }
+      return;
+    }
+    if (sessionId) sessionState(sessionId).auto_pending = false;
+    clearRunPending();
+    sendText(prompt, { auto: true });
   }, 2000);
+}
+function scheduleAutoContinue() {
+  armAutoContinue(continuePrompt());
 }
 
 // R-169:全部阻塞/清空停止已下沉 harness backlog_status + auto_run 状态机,
@@ -631,8 +673,12 @@ function normalizeAutoState(value, processId) {
 function persistProcessAutoState() {
   writeJson(PROCESS_AUTO_STATE_KEY, Object.fromEntries(processAutoState));
 }
+// D-290:回显期间(applyProfileValue 把存档值刷回控件)一律不许落盘。控件在这一刻
+// 显示的是**算出来的值**,不是用户意图;把它当意图写回去,一次算错就永久固化——
+// 用户每次开 app 都得重设模式与鞭挞,正是这条路径自我延续的结果。
+let applyingProfileEcho = false;
 function rememberAutoUiState(processId = activeProcessId) {
-  if (!processId) return;
+  if (!processId || applyingProfileEcho) return;
   processAutoState.set(processId, {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
@@ -681,7 +727,11 @@ function syncAutoContinueWithProfile() {
   if (autoContinueAllowed() || !$("auto-continue").checked) return;
   $("auto-continue").checked = false;
   rememberAutoUiState();
-  if (activeProcessId?.startsWith("d|")) localStorage.setItem("kz-auto-continue", "0");
+  // 同上:回显算出来的「关」不得写进全局遗留键,否则下次冷启动 normalizeAutoState
+  // 会把它当成用户上次的选择(D-290)。
+  if (!applyingProfileEcho && activeProcessId?.startsWith("d|")) {
+    localStorage.setItem("kz-auto-continue", "0");
+  }
   autoRounds = 0;
   cancelAutoContinueTimer();
   // R-169:模式不兼容时后端开关同步关闭。
@@ -691,7 +741,12 @@ function syncAutoContinueWithProfile() {
   toast(t("鞭挞已关闭：当前进程不是自主推进模式"));
 }
 function applyProfileValue(backendProfile) {
-  const remembered = activeProcessId ? processProfileUi.get(activeProcessId) : null;
+  // D-290:没有进程身份就没有「该显示谁的档位」这个问题。此时既读不到本进程记忆,
+  // 回退链又会算出 dev-pair,把控件刷成结伴开发 —— 随后 syncAutoContinueWithProfile
+  // 顺手关掉鞭挞,下一次 switchProcess 再把这个假值写进存档。启动竞态里 activeProcessId
+  // 尚未就绪的那一瞬,就是整条降级链的起点。不知道就别动控件。
+  if (!activeProcessId) return;
+  const remembered = processProfileUi.get(activeProcessId);
   // 主线兼容旧的全局偏好；并行线没有本线设置时必须从安全默认 dev-pair 起步，
   // 不能因为主线曾选过 dev-auto 就让新线静默开启鞭挞。
   const globalChoice = localStorage.getItem(PROFILE_STORAGE_KEY);
@@ -700,7 +755,13 @@ function applyProfileValue(backendProfile) {
     : "dev-pair";
   if (backendProfile === "research") $("profile-select").value = "research";
   else $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
-  syncAutoContinueWithProfile();
+  // 回显期间关掉的鞭挞只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
+  applyingProfileEcho = true;
+  try {
+    syncAutoContinueWithProfile();
+  } finally {
+    applyingProfileEcho = false;
+  }
 }
 $("profile-select").addEventListener("change", () => {
   const value = $("profile-select").value;

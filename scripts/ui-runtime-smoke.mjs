@@ -3806,6 +3806,61 @@ sandbox.__kzTest.setRounds(4);
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: true, tools: { edit: 1 }, autoAction: { type: "NoContinue" }, sessionId: "sess-smoke" } });
 await flush();
 assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再续跑)");
+
+// ---------- D-291 续跑闸门必须出声 ----------
+// 引擎判 Continue、前端却不发下一轮,是允许的(模式/暂停/开关都能否决);**静默**不行。
+// 旧实现四个条件各自 `return`,auto_pending 留在 true,界面永久停在「等待下一轮」,
+// 而那一轮永远不来——用户看到的就是"鞭挞开着却不动"。
+{
+  const whipSession = "sess-smoke";
+  byId.get("auto-continue").checked = true;
+  sandbox.__kzTest.reset();
+  byId.get("profile-select").value = "dev-pair"; // 模式否决:最常见的一种(D-290 会让它自己变回来)
+  handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: whipSession } });
+  await flush();
+  assert(
+    sandbox.sessionState(whipSession).auto_pending === false,
+    "闸门拦下续跑后必须清 auto_pending,否则线路徽标与运行栏永久停在「等待下一轮」(D-291)",
+  );
+  assert(
+    byId.get("auto-status").textContent.includes("鞭挞未续跑"),
+    `闸门拦下续跑必须说明原因,实得 ${byId.get("auto-status")?.textContent}(D-291)`,
+  );
+  // 非致命错误(terminal:false,如持久化告警)不得掐掉已排好的下一轮。
+  byId.get("profile-select").value = "dev-auto";
+  handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: whipSession } });
+  assert(sandbox.sessionState(whipSession).auto_pending === true, "前置失败:Continue 未挂起下一轮");
+  handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false } });
+  assert(
+    sandbox.sessionState(whipSession).auto_pending === true,
+    "非致命错误不得取消已排队的续跑(旧实现在函数开头无条件 cancelAutoContinueTimer,一条告警就让鞭挞永久停摆)(D-291)",
+  );
+}
+
+// ---------- D-290 回显不得写盘 ----------
+// 「模式/鞭挞每次开 app 都要重设」的根:回显期间控件显示的是**算出来的值**,
+// 把它当用户意图写回存档,一次算错就永久固化,而且自我延续。
+{
+  const autoStateBefore = storage.get("kz-process-auto-state");
+  storage.set("kz-auto-continue", "1");
+  byId.get("auto-continue").checked = true;
+  storage.set("kz-profile", "dev-pair");
+  sandbox.applyProfileValue("dev"); // 回显把模式刷成结伴开发 → 顺带关掉鞭挞控件
+  assert(
+    storage.get("kz-auto-continue") === "1",
+    `回显关掉的鞭挞不得写进全局 kz-auto-continue,实得 ${storage.get("kz-auto-continue")}(D-290:下次冷启动会被当成用户上次的选择)`,
+  );
+  assert(
+    storage.get("kz-process-auto-state") === autoStateBefore,
+    "回显不得改写 kz-process-auto-state(D-290)",
+  );
+  storage.set("kz-profile", "dev-auto");
+}
+// 切进程时不得拿选择器当前值覆盖旧进程的档位存档:那个值在回显期间不是用户意图。
+// 这是上面那条的另一半——只修一处,另一处照样能把 dev-auto 覆盖成 dev-pair。
+if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").value)')) {
+  fail("switchProcess 又拿选择器显示值当旧进程的用户意图写盘(D-290);写盘只能发生在 profile-select 的 change 事件里");
+}
 // ---------- 「勘察复核」= 阶段流水线总闸(2026-08-11 换闸门) ----------
 // 闸门从 auto_runs[session].enabled 换成进程级开关后,「开鞭挞 = 每轮勘察+复核」这个
 // 旧心智模型不再成立。四种组合里只有「鞭挞开 + 闸门关」需要提示,这里把它和它的

@@ -241,7 +241,6 @@ on("kz:step", (e) => {
   log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
 });
 on("kz:error", (e) => {
-  cancelAutoContinueTimer();
   const payload = e.payload ?? {};
   const message = payload.message;
   const terminal = payload.terminal !== false;
@@ -249,6 +248,10 @@ on("kz:error", (e) => {
   // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
+    // D-291:取消续跑定时器只属于终态分支。原来它在函数开头无条件执行,一条
+    // terminal=false 的告警(比如持久化警告)就能掐掉已排好的下一轮,而 auto_pending
+    // 仍是 true——界面从此停在「等待下一轮」,不报错也不再动。
+    cancelAutoContinueTimer();
     stopElapsed();
     if (activeSessionId) {
       const state = sessionState(activeSessionId);
@@ -346,7 +349,9 @@ on("kz:done", async (e) => {
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     renderAutoStatus(`${t("自主推进")} ${autoRounds}/${max} · ${t("等待下一轮")}`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
-    scheduleAutoContinue();
+    // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
+    // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
+    armAutoContinue(continuePrompt(), p.sessionId);
   } else if (action.type === "Nudge") {
     autoRounds = action.rounds ?? autoRounds + 1;
     const max = action.max ?? autoContinueMax();
@@ -356,17 +361,9 @@ on("kz:done", async (e) => {
     if (p.sessionId) sessionState(p.sessionId).auto_pending = true;
     if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
-    cancelAutoContinueTimer();
-    const generation = autoContinueGeneration;
-    autoContinueTimer = setTimeout(() => {
-      autoContinueTimer = null;
-      if (generation !== autoContinueGeneration || autoPaused || autoStopAfterRound) return;
-      if ($("auto-continue").checked && autoContinueAllowed() && !running) {
-        if (p.sessionId) sessionState(p.sessionId).auto_pending = false;
-        clearRunPending();
-        sendText(action.prompt, { auto: true });
-      }
-    }, 2000);
+    // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
+    // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
+    armAutoContinue(action.prompt, p.sessionId);
   } else if (action.type === "Stop") {
     if (p.sessionId) sessionState(p.sessionId).auto_pending = false;
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();

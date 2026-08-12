@@ -1,5 +1,39 @@
 # Defects
 
+## D-290 模式与鞭挞开关每次冷启动都被重置:回显算出来的值被当成用户意图写回存档 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 前端 自举
+- 证据等级: E1(2026-08-12 用户报「我每次打开都要重新设置」+ 读码定位 + 冒烟反验)
+- 来源: 用户 2026-08-12。用户明确指出这条早已提过——R-115/D-155 那轮(requirements-archive.md:891-898「四类设置跨重启保留」)确实修过 `processProfileUi` 落盘与回退链,但**只修了读的一半,写的一半仍在污染存档**,于是同一个症状复发。
+- 复现: 开 app → 模式选择器回到「结伴开发」、鞭挞开关回到未勾选(其余设置——侧栏宽度、筛选、继续文案——都正常保留,用户实测确认范围就这两个)。
+- 根因(两条写路径,互为补充,只修一条照样复发):
+  ①`switchProcess` 拿 `$("profile-select").value` 当「旧进程的用户意图」写进 `kz-process-profile`(09-sessions.js:356-358)。选择器的值在**回显期间**是算出来的,不是用户选的——启动竞态里 `activeProcessId` 尚未就绪时 `applyProfileValue` 会按回退链算出 dev-pair 刷进控件,随后任何一次切线就把存档里的 dev-auto 覆盖成 dev-pair。
+  ②`applyProfileValue` 末尾的 `syncAutoContinueWithProfile()` 在模式不是 dev-auto 时关掉鞭挞,并**落盘**(`rememberAutoUiState()` + `kz-auto-continue="0"`)。于是①算错一次,②立刻把「关」写成用户意图,下次冷启动 `normalizeAutoState` 读回 false——**自我延续**,再也回不来。
+- 影响: 每次开 app 都要手动重设两个控件;更隐蔽的是它直接触发 D-291——模式被降级成结伴开发后 `autoContinueAllowed()` 恒 false,鞭挞开着却永远不续跑,且旧代码对此一声不吭。
+- 修复: ①`applyProfileValue` 在 `activeProcessId` 为空时直接返回(不知道该显示谁的档位就别动控件,掐掉整条降级链的起点);②新增 `applyingProfileEcho` 标志,回显期间 `rememberAutoUiState` 与 `kz-auto-continue` 写入一律短路——回显只同步控件,不产生"用户意图";③删掉 `switchProcess` 里那次 `processProfileUi.set(...)`,写盘只由 `profile-select` 的 change 事件负责(用户真的动手才算意图)。
+- 验收: ①回显路径不得写 `kz-auto-continue` 与 `kz-process-auto-state`;②`switchProcess` 不得再用选择器显示值覆盖旧进程档位;③冷启动后模式与鞭挞保持上次选择。
+- 验证: ui-runtime-smoke 新增 3 条断言(回显不写两处存档 + 源码守卫禁止 switchProcess 那次写盘)。**反验**:把 `applyingProfileEcho` 守卫改回旧行为,冒烟报「回显关掉的鞭挞不得写进全局 kz-auto-continue,实得 0」并失败,确认非恒绿。四条 UI 冒烟 + node --check 全绿。
+- refs: D-291 R-115 D-155
+
+## D-291 鞭挞续跑闸门静默否决:引擎判 Continue、前端不发也不吭声,界面永久停在「等待下一轮」 [fixed] (high)
+- severity: high
+- 优先级: P0
+- 复杂度: 小
+- 标签: 前端 自举
+- 证据等级: E1(2026-08-12 用户截图 + 读码定位 + 冒烟反验复现同一画面)
+- 来源: 用户 2026-08-12 截图:鞭挞芯片亮着、顶栏「本轮完成」,底部却是「空闲 · 鞭挞 · 等待下一轮」,此后再无动作。
+- 复现: 开鞭挞跑一轮;轮末引擎判定 Continue(前端据此置 `auto_pending=true`、显示「2 秒后继续」并挂定时器);2 秒后定时器的四个条件任一不满足 → 直接 `return`。
+- 根因: `scheduleAutoContinue`(08-compose.js:116-128)与 Nudge 分支(07-events.js:359-369)各有一份**复制**的 setTimeout,四道闸门(开关/暂停/本轮后停/模式)加 `!running` 全部**静默 return**:不发下一轮、不清 `auto_pending`、不清横幅、不写日志。界面于是永久钉在「等待下一轮」,而引擎侧 `rounds` 已经 +1——两边状态从此对不上。架构上这是 auto_run.rs 头注宣称「判定归引擎、前端只执行」之后,执行侧偷偷保留的一个引擎不知道的否决权。
+- 次因: `on("kz:error")` 在函数**开头**无条件 `cancelAutoContinueTimer()`(07-events.js:244),一条 `terminal:false` 的非致命告警(如持久化警告)就能掐掉已排好的下一轮,而 `auto_pending` 仍是 true——同样是永久停摆。
+- 影响: 自主推进随机停摆且无任何提示,用户只能靠盯界面发现;与 D-290 叠加后几乎必现(模式被降级 → `autoContinueAllowed()` 恒 false → 每轮都静默否决)。
+- 修复: ①闸门收敛成唯一实现 `autoContinueBlockedReason()` + `armAutoContinue()`,两处副本合并;②被拦下时走 `abortAutoContinue()`:清 `auto_pending`、清横幅、`#auto-status` 与日志写明原因(D-004:不做的理由必须说出来);③`running` 与那四条区别对待——它是瞬态(kz:done 有意不收回运行态,由 kz:idle 负责),改为最多再等 15 拍(约 30 秒)后才判定卡住并报出,不再一次不满足就永久放弃;④`cancelAutoContinueTimer()` 移进 `if (terminal)` 分支;⑤续跑收口对象改用本轮的 `p.sessionId`(并行线结束时 `activeSessionId` 可能已是别人)。
+- 验收: ①闸门拦下续跑后 `auto_pending` 必须清零;②必须显示未续跑的原因;③非致命错误不得取消已排队的续跑。
+- 验证: ui-runtime-smoke 新增 3 条断言逐条对应。**反验**:把 `abortAutoContinue` 改回静默 `return`,冒烟报「闸门拦下续跑后必须清 auto_pending」与「必须说明原因,实得 `自主推进 1/10 · 等待下一轮`」——**实得文本与用户截图逐字相同**,确认回归测试复现的就是本条。四条 UI 冒烟 + node --check 全绿。
+- 残余: `autoContinueAllowed()`(模式必须为 dev-auto)仍是前端私有条件,引擎的 `decide()` 并不知道它的存在,`rounds` 计数在被否决时仍会漂移。下沉进引擎属于结构改动,单列 R-199。
+- refs: D-290 R-169 R-199
+
 ## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] (high)
 - 优先级: P0
 - 复杂度: 大

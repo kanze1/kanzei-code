@@ -1,5 +1,25 @@
 # Requirements
 
+## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 权限
+- 来源: 用户 2026-08-12 选定方案 A(全局 `bash resource="*"` 放行)时同步登记的正解。
+- 背景: 当前 bash 规则只有两种有效形态——整条 `*`(全放),或**逐字节相同**的整串(含结构化 `{"command":...}` JSON)。带 `*` 的规则会被 `command_chaining_escapes`(permission.rs:295)降级回 Ask,理由正当:`git *` 挡不住 `git status; rm -rf /`。但代价是中间档位不存在,用户只能在「全放」与「每碰一次墙加一条精确串」之间二选一;自主推进轮(NonInteractive)下 Ask 即 Deny,后者意味着每轮都可能卡死。
+- 内容: 规则支持声明可执行程序与参数前缀(如 `node scripts/*.mjs`、`cargo build*`),匹配前先解析命令而不是对整串做通配;命令里出现链接/重定向/子 shell(`;` `&&` `|` `$()` 反引号)一律不匹配前缀规则,回落 Ask——即保住 D-051 要防的那件事,同时让"只放行这个程序"可表达。
+- 边界: 不做 shell 语法的完整解析(那是无底洞);解析不出来就 fail-closed 回落 Ask。不改 Ask 在 NonInteractive 下等于 Deny 的既定语义。
+- 验收: ①`node scripts/e2e-smoke.mjs` 命中 `node scripts/*.mjs` 规则并放行;②`node scripts/x.mjs; rm -rf /` 不得命中该规则;③结构化 bash 资源(JSON)与纯字符串命令两种形态都覆盖;④D-051 既有回归保持绿。
+- refs: D-051 M-041
+
+## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 后端
+- 来源: D-291 修复时的残余项。
+- 内容: `autoContinueAllowed()`(模式必须为 dev-auto)是前端私有条件,而 auto_run.rs 的头注明确宣称判定归引擎、前端只执行。现状是引擎判 Continue 并把 `rounds` +1,前端可能否决——计数与实际轮次从此漂移。把档位作为输入并进 `AutoRunCtx`,由 `decide()` 给出 `Stop(ProfileMismatch)` 一类结果;或者取消这条双重开关(鞭挞开关本身已是意图表达)。
+- 验收: ①前端不再持有任何引擎不知道的续跑否决条件;②否决发生时引擎侧计数不 +1;③harness 侧单测覆盖新增停止原因。
+- refs: D-291 R-169
+
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
 - 复杂度: 中

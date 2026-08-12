@@ -351,11 +351,14 @@ async function switchProcess(processId) {
   const forProject = currentProject;
   const isCurrentSwitch = () =>
     switchGeneration === processSwitchGeneration && currentProject === forProject;
-  // 后端只保存 dev/research；切换前先把前端的 dev-auto 档位绑定到旧进程，
-  // 这样回切时不会因后端 profile=dev 而退回 dev-pair。
+  // 后端只保存 dev/research;前端的 dev-auto 档位由 profile-select 的 change 事件
+  // 在**用户改动时**绑定到当时的进程,这里不再重复写一次。
+  //
+  // D-290:原来这里拿 `$("profile-select").value` 当「旧进程的用户意图」写盘。选择器
+  // 的值在回显期间是算出来的,不是用户选的——启动竞态里它可能还停在 dev-pair,于是
+  // 一次切线就把存档里的 dev-auto 覆盖成 dev-pair,下次冷启动读回 dev-pair,再顺手
+  // 关掉鞭挞……用户的表现就是「每次打开都要重新设模式和鞭挞」。回显不得写盘。
   if (activeProcessId) {
-    processProfileUi.set(activeProcessId, $("profile-select").value);
-    persistProcessProfiles();
     rememberAutoUiState(activeProcessId);
   }
   cancelAutoContinueTimer();
