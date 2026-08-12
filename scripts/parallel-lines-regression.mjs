@@ -41,6 +41,11 @@ assert(sessions.includes("loadConversation(null, switchGeneration)"), "对话恢
 
 assert(compose.includes("const processUpdateQueues = new Map()"), "进程设置缺少按线路保存队列");
 assert(compose.includes("queueProcessUpdate(activeProcessId"), "模型/profile/reasoning 未走保存队列");
+assert(sessions.includes("worktreeLineCreateInFlight"), "并行线路创建缺少单飞请求护栏");
+assert(sessions.includes("worktreeLineCreateSequence"), "并行线路创建缺少进程内唯一序号");
+assert(sessions.includes("addButton.disabled = true"), "并行线路创建请求期间按钮未禁用");
+assert(sessions.includes("addButton.disabled = false"), "并行线路创建结束后按钮未恢复");
+assert(sessions.includes("Date.now()"), "并行线路名称没有使用毫秒级时间戳");
 const profileFunction = compose.match(/function applyProfileValue\(backendProfile\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFILE_STORAGE_KEY"), "切换线路不能回写全局 profile");
 

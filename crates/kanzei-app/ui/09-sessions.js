@@ -1,4 +1,6 @@
 let worktreeItems = [];
+let worktreeLineCreateInFlight = false;
+let worktreeLineCreateSequence = 0;
 function renderWorktrees(items) {
   worktreeItems = items ?? [];
   const list = $("worktree-list");
@@ -97,10 +99,13 @@ async function handleWorktreeAction(item, action) {
 // 改动这一带时注意别再把它并进上面的函数尾行。
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
 async function createWorktreeLine() {
-  if (!currentProject) return;
+  if (!currentProject || worktreeLineCreateInFlight) return;
   // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
-  const name = `line-${new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14)}`;
+  worktreeLineCreateInFlight = true;
+  const addButton = $("worktree-add");
+  addButton.disabled = true;
+  const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
   try {
     // 建线必须原子完成「建 worktree + 注册进程绑定」；只调用 worktree_create 会留下
     // 一棵没有会话身份的孤树，看得见却不能并行跑任务。
@@ -116,6 +121,9 @@ async function createWorktreeLine() {
     toast(`${t("并行线路已创建")}:${item.branch || name}`);
   } catch (error) {
     toastError(`${t("创建并行线路失败")}:${error}`);
+  } finally {
+    worktreeLineCreateInFlight = false;
+    addButton.disabled = false;
   }
 }
 $("worktree-add").addEventListener("click", createWorktreeLine);

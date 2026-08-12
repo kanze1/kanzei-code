@@ -5411,15 +5411,21 @@ const docsB = {
   // ---------- ③ 建线原子创建「工作树 + 进程绑定」,前端不维护影子清单 ----------
   await gotoProject(PROJECT, docsA);
   const beforeAdd = invokeArgs.length;
-  byId.get("worktree-add").click();
+  const addButton = byId.get("worktree-add");
+  addButton.click();
+  addButton.click();
+  assert(addButton.disabled, "并行线路创建请求未返回前按钮没有禁用");
   await flush();
   const addCalls = invokeArgs.slice(beforeAdd);
+  const processCreateCalls = addCalls.filter((entry) => entry.cmd === "process_create");
   assert(
-    addCalls.some((entry) => entry.cmd === "process_create" && entry.args?.projectDir === PROJECT &&
-      entry.args?.worktreeName?.startsWith("line-") && entry.args?.phasePipeline === false &&
-      entry.args?.trackerWrites === false),
-    `新建线路没有原子发出带 worktreeName 的 process_create(${JSON.stringify(addCalls)})`,
+    processCreateCalls.length === 1 && processCreateCalls[0].args?.projectDir === PROJECT &&
+      /^line-\d+-\d+$/.test(processCreateCalls[0].args?.worktreeName ?? "") &&
+      processCreateCalls[0].args?.phasePipeline === false &&
+      processCreateCalls[0].args?.trackerWrites === false,
+    `新建线路没有原子发出唯一命名的 process_create(${JSON.stringify(addCalls)})`,
   );
+  assert(!addButton.disabled, "并行线路创建完成后按钮没有恢复");
   assert(
     !addCalls.some((entry) => entry.cmd === "worktree_create"),
     "建线仍在调用只建树不绑进程的 worktree_create",
