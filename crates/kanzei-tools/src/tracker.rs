@@ -641,7 +641,21 @@ impl Tool for TrackerTool {
                         store.path.display()
                     ));
                 }
-                ToolOutput::ok(format!("updated: {line}"))
+                // D-276 修复方向③:update 后自检游离段落并告警。push_field(D-294)
+                // 保证本次写入不新增游离段落,但历史多行/手改残留仍在字段体系外、
+                // update 触及不到——返回里点名并指路 raw_lines/raw_delete,否则
+                // 残留段落会一直藏到有人用 git 手工翻。
+                let raws = store.raw_lines(id);
+                if raws.is_empty() {
+                    ToolOutput::ok(format!("updated: {line}"))
+                } else {
+                    ToolOutput::ok(format!(
+                        "updated: {line}\n⚠ {id} 仍携带 {} 条不可寻址的游离段落(历史多行写法/手改残留,本次 update 不新增也不清除)。\
+                         用 `{tool} raw_lines id={id}` 查看、`{tool} raw_delete id={id} ordinal=<n>` 按序号清理。",
+                        raws.len(),
+                        tool = self.tool_name
+                    ))
+                }
             }
             // R-054:整表重排(文件顺序 = 开发顺序)。要求 order 是现有条目的完整置换,
             // 缺一多一都拒绝——引擎整读整写,天然与并发的状态更新互斥。
@@ -1627,6 +1641,103 @@ mod tests {
             .execute(json!({"action": "raw_delete", "id": "R-001"}), &ctx)
             .await;
         assert!(no_ordinal.is_error, "{}", no_ordinal.content);
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-276 端到端:update 传**多行**进展值时——①不新增游离段落(push_field 折行,
+    /// D-294 既有能力);②若条目已有历史游离段落,返回里自检告警并指路
+    /// raw_lines/raw_delete(修复方向③,本次交付);③raw_delete 清完后 update
+    /// 不再告警。
+    #[tokio::test]
+    async fn update多行值不新增游离段落且已有残留被自检点名() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-d276-update-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let path = dir.join(REQUIREMENTS.rel_path);
+        // 手写带一条历史游离段落的文档(引擎渲染路径不会产生游离行)。
+        std::fs::write(
+            &path,
+            "\
+# Requirements
+
+## R-001 条目 [todo]
+- 进展: 第一行
+历史手写段落一
+- 验收: 有验收
+",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // ①update 传多行进展值:第一段是首行,第二段会折行进同一字段(不新增游离段落)。
+        let updated = tool
+            .execute(
+                json!({"action": "update", "id": "R-001",
+                       "fields": {"进展": "第一段\n第二段\n第三段"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!updated.is_error, "{}", updated.content);
+        // 自检告警:仍有 1 条历史游离段落被点名 + 指路清理工具。
+        assert!(
+            updated.content.contains("游离段落"),
+            "update 后应自检告警残留: {}",
+            updated.content
+        );
+        assert!(
+            updated.content.contains("raw_lines") && updated.content.contains("raw_delete"),
+            "告警要指路清理通道: {}",
+            updated.content
+        );
+        // 文件里多行值被折成单行,且游离段落数量不变(仍是那 1 条历史残留)。
+        let after = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            after.contains("- 进展: 第一段 第二段 第三段"),
+            "多行值必须折成单行字段: {after}"
+        );
+        assert!(
+            after.contains("历史手写段落一"),
+            "历史游离段落仍存在(update 不新增也不清除): {after}"
+        );
+        assert!(
+            !after.contains("第二段\n-"),
+            "第二段不能变成新的游离段落: {after}"
+        );
+
+        // ②raw_delete 清掉历史残留后再 update:不再告警。
+        let deleted = tool
+            .execute(
+                json!({"action": "raw_delete", "id": "R-001", "ordinal": 1}),
+                &ctx,
+            )
+            .await;
+        assert!(!deleted.is_error, "{}", deleted.content);
+        let updated2 = tool
+            .execute(
+                json!({"action": "update", "id": "R-001",
+                       "fields": {"进展": "只有一段"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!updated2.is_error, "{}", updated2.content);
+        assert!(
+            !updated2.content.contains("游离段落"),
+            "清完后 update 不应再告警: {}",
+            updated2.content
+        );
 
         std::fs::remove_dir_all(dir).ok();
     }

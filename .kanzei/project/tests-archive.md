@@ -2008,3 +2008,8 @@
 - 摘要: cargo test --workspace 全绿(harness 114、tools 259、core 137、app 143,0 failed)。D-270 复杂度=中,关闭前全量。性能实测:20 层嵌套目录下 50 次完整 kz CLI 启动 1593ms(31.9ms/次,含进程 spawn),discover 普通层纯词法 dir_key、仅标记层 1 次 canonicalize,非 O(深度) 系统调用。
 - 关联: D-270
 - 收尾: 1786561897
+
+## T-1786562132 cargo test -p kanzei-tools --lib tracker (D-276 B1) [passed]
+- 摘要: cargo test -p kanzei-tools --lib tracker:31 passed(含新测试 update多行值不新增游离段落且已有残留被自检点名——多行值折单行不新增游离段落、历史残留被 update 自检告警点名、raw_delete 清完后不再告警)。fmt/clippy 全过。
+- 关联: D-276
+- 收尾: 1786562132
