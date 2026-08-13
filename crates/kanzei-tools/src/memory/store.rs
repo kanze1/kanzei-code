@@ -548,6 +548,48 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// FTS 派生物与文件真源的 id 集合比对(只看目录文件名,不读内容——检索热路径
+    /// 上的守护必须廉价)。任何差集都判失步;查询失败按未失步处理(刚建库的空表
+    /// 走正常路径,不在这里制造额外故障面)。
+    fn fts_desynced(&self, conn: &Connection) -> bool {
+        let mut fts_ids: Vec<String> =
+            match conn.prepare("SELECT id FROM memory_fts").and_then(|mut s| {
+                s.query_map([], |r| r.get::<_, String>(0))
+                    .map(|rows| rows.flatten().collect())
+            }) {
+                Ok(ids) => ids,
+                Err(_) => return false,
+            };
+        let mut file_ids: Vec<String> = Vec::new();
+        let Ok(dir) = std::fs::read_dir(&self.root) else {
+            return false;
+        };
+        for item in dir.flatten() {
+            let path = item.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("md") {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name == "INDEX.md" || name == "inbox.md" {
+                continue;
+            }
+            // 文件名形如 `M-009-slug.md`:id 是前两段(scope 前缀 + 编号)。
+            let mut parts = name.split('-');
+            if let (Some(prefix), Some(number)) = (parts.next(), parts.next()) {
+                if !number.is_empty() {
+                    file_ids.push(format!("{}-{number}", prefix.to_ascii_uppercase()));
+                }
+            }
+        }
+        fts_ids.sort();
+        fts_ids.dedup();
+        file_ids.sort();
+        file_ids.dedup();
+        fts_ids != file_ids
+    }
+
     fn open_db(&self) -> anyhow::Result<Connection> {
         std::fs::create_dir_all(&self.root)?;
         let conn = Connection::open(self.db_path())?;
@@ -702,7 +744,15 @@ impl MemoryStore {
         if match_expr.is_empty() {
             return Ok(Vec::new());
         }
-        let conn = self.open_db()?;
+        let mut conn = self.open_db()?;
+        // 索引一致性守护:FTS 是派生物,手动清理/外部写入会绕过写路径的增量维护,
+        // 失步后新条目检索不可见、已归档条目还在索引里(实证:2026-08-13 清理事故后
+        // M-058~062 对 BM25 完全不可见)。id 集合比对只读目录名,不读文件内容。
+        if self.fts_desynced(&conn) {
+            drop(conn);
+            self.refresh_derived()?;
+            conn = self.open_db()?;
+        }
         let mut sql = String::from(
             "SELECT id, snippet(memory_fts, -1, '[', ']', '…', 12), bm25(memory_fts)
              FROM memory_fts WHERE memory_fts MATCH ?1",
@@ -1571,6 +1621,34 @@ mod tests {
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
         }
+    }
+
+    #[test]
+    fn 检索守护_外部写入的文件失步后自动重建索引() {
+        // 2026-08-13 清理事故形态:手动移动/写入 .md 绕过写路径的增量维护,
+        // FTS 失步——新条目对 BM25 完全不可见、已归档条目仍在索引。
+        // search 前的 id 集合守护必须自动 refresh_derived。
+        let (dir, store) = temp_store();
+        add(&store, "fact", "常规条目", "常规检索钩子", "正文 A");
+        // 外部写入:直接落文件,不走 add(不触发派生物维护)。
+        std::fs::write(
+            store.root.join("M-099-外部恢复条目.md"),
+            "---\nid: M-099\nscope: project\ncategory: sop\ntitle: 外部恢复条目 quasar 约束\ndescription: 外部写入的检索钩子 quasar\nstatus: active\ncreated: 2026-08-13\nupdated: 2026-08-13\nsource: test\n---\n\n正文 quasar",
+        )
+        .unwrap();
+        let rows = store.search("quasar", None, Some("active"), 5).unwrap();
+        assert!(
+            rows.iter().any(|r| r.entry.id == "M-099"),
+            "失步守护必须重建索引,外部写入的条目才可检索: {rows:?}"
+        );
+        // 反向:外部删除(归档)后,索引里的幽灵条目不再命中。
+        std::fs::remove_file(store.root.join("M-099-外部恢复条目.md")).unwrap();
+        let rows = store.search("quasar", None, Some("active"), 5).unwrap();
+        assert!(
+            rows.iter().all(|r| r.entry.id != "M-099"),
+            "外部删除后幽灵条目不得再命中: {rows:?}"
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

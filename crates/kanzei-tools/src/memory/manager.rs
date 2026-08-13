@@ -396,6 +396,13 @@ impl Tool for MemoryStaleTool {
                 None => return ToolOutput::error(format!("unknown memory id `{}`", input.id)),
             };
         let appended = format!("{}\n\n(stale: {reason})", found_body.trim_end());
+        // 退役决策必须看得见利用率(2026-08-13 清理事故教训:采纳率最高的条目被
+        // 批量退役,零采纳的反而留下——归档决策与利用率数据脱节)。只报不拦。
+        let (recalled, fetched) = store
+            .recall_profile()
+            .get(&found_id)
+            .copied()
+            .unwrap_or((0, 0));
         match store.update(
             &found_id,
             None,
@@ -405,7 +412,18 @@ impl Tool for MemoryStaleTool {
             None,
             false,
         ) {
-            Ok(e) => ToolOutput::ok(format!("staled {} — {reason}", e.id)),
+            Ok(e) => {
+                let mut out = format!(
+                    "staled {} — {reason}(历史利用率:召回 {recalled}/采纳 {fetched})",
+                    e.id
+                );
+                if fetched >= 3 {
+                    out.push_str(
+                        "\n⚠ 该条目历史采纳次数不低——它被证明进过决策,确认退役是有意的(误伤请立即恢复为 active)",
+                    );
+                }
+                ToolOutput::ok(out)
+            }
             Err(e) => ToolOutput::error(e.to_string()),
         }
     }
