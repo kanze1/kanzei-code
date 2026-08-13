@@ -446,27 +446,51 @@ impl MemoryStore {
                 entry.status
             );
         }
-        entry.status = "active".into();
-        entry.updated = today();
-        self.write_entry(&entry, Some(&path))?;
         // 证据落 state.db memory_sources 表(与 episodes 同库,可 join)。
         // 仅 project scope 有 state.db(global 记忆无 episode 证据源)。
         let hash = source_hash.unwrap_or("compiler").to_string();
-        if self.scope == MemoryScope::Project {
+        let store = if self.scope == MemoryScope::Project {
             let db_path = self.root.join("..").join("state.db");
-            if let Ok(store) = kanzei_core::SessionStore::open(&db_path) {
-                for (episode_id, event_start, event_end) in sources {
-                    // episode_id 外键必须真实存在(state.db episodes),否则 INSERT 静默失败。
-                    let _ = store.record_memory_source(
-                        id,
-                        *episode_id,
-                        *event_start,
-                        *event_end,
-                        &hash,
+            match kanzei_core::SessionStore::open(&db_path) {
+                Ok(store) => Some(store),
+                Err(e) => anyhow::bail!(
+                    "cannot promote `{id}`: cannot open state.db for provenance check ({e}) — \
+                     证据落库失败,拒绝晋升"
+                ),
+            }
+        } else {
+            None
+        };
+        // R-213:promote 前校验每个 episode_id 真实存在——「无来源不入 active」必须是
+        // 「来源指向真实轮次」,而不是只看数组非空,否则 manager 编造 id 也能蒙混过关。
+        if let Some(store) = &store {
+            for (episode_id, _, _) in sources {
+                if !store.episode_exists(*episode_id)? {
+                    anyhow::bail!(
+                        "cannot promote `{id}`: episode_id {episode_id} does not exist in \
+                         state.db episodes — provenance requires real episodes, not fabricated ids"
                     );
                 }
             }
         }
+        // R-213:证据先落库、全部成功才置 active——写证据失败不产生 active 条目,
+        // 也不留下「active 却无证据」的半成品(回滚由顺序天然保证,无需手动回滚)。
+        if let Some(store) = &store {
+            for (episode_id, event_start, event_end) in sources {
+                if let Err(e) =
+                    store.record_memory_source(id, *episode_id, *event_start, *event_end, &hash)
+                {
+                    anyhow::bail!(
+                        "cannot promote `{id}`: failed to record memory_source evidence \
+                         (episode {episode_id}): {e} — promotion aborted, entry stays {}",
+                        entry.status
+                    );
+                }
+            }
+        }
+        entry.status = "active".into();
+        entry.updated = today();
+        self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
         Ok(entry)
     }
@@ -1875,9 +1899,14 @@ mod tests {
             .find(|(_, e)| e.id == candidate.id)
             .unwrap();
         assert_eq!(after.status, "candidate");
-        // 有证据 → 晋升 active
+        // 有证据 → 晋升 active(R-213:episode 必须真实存在,先 seed 真实轮次)
+        let eid = crate::memory::seed_episode(&dir, "ses");
         let promoted = store
-            .promote(&candidate.id, &[(1, Some(0), Some(10))], Some("test-hash"))
+            .promote(
+                &candidate.id,
+                &[(eid, Some(0), Some(10))],
+                Some("test-hash"),
+            )
             .unwrap();
         assert_eq!(promoted.status, "active");
         // 晋升后再次 promote 拒绝(candidate|shadow 才可晋升,active 不行)
@@ -2047,6 +2076,90 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// R-213 验收①:伪造 episode_id 的 promote 被拒——「无来源不入 active」必须是
+    /// 「来源指向真实轮次」,编造一个 episodes 表里不存在的 id 不得蒙混晋升。
+    #[test]
+    fn promote_rejects_fabricated_episode_id() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add(
+                "fact",
+                "伪造证据条目",
+                "伪造钩子",
+                "正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let AddOutcome::Added(candidate) = e else {
+            panic!("expected Added")
+        };
+        // state.db 里没有任何 episode,999_999 必然不存在。
+        let err = store
+            .promote(&candidate.id, &[(999_999, None, None)], None)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("does not exist"),
+            "伪造 episode_id 应被拒: {err}"
+        );
+        // 状态仍 candidate,未晋升。
+        let (_, after) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == candidate.id)
+            .unwrap();
+        assert_eq!(after.status, "candidate");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-213 验收②:写证据失败不产生 active 条目——episode 校验通过后,evidence
+    /// 落库若失败(如 memory_sources 表被破坏),promote 必须整体失败且条目保持原状态。
+    #[test]
+    fn promote_write_evidence_failure_does_not_activate() {
+        let (dir, store) = temp_store();
+        let e = store
+            .add(
+                "fact",
+                "证据写失败条目",
+                "写失败钩子",
+                "正文",
+                "memory-manager",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let AddOutcome::Added(candidate) = e else {
+            panic!("expected Added")
+        };
+        // seed 真实 episode,让 episode_exists 校验通过。
+        let eid = crate::memory::seed_episode(&dir, "ses");
+        // 人为制造证据写失败:drop memory_sources 表(migrate 版本已对齐不会再重建)。
+        let db = dir.join(".kanzei").join("state.db");
+        {
+            let conn = rusqlite::Connection::open(&db).unwrap();
+            conn.execute_batch("DROP TABLE memory_sources").unwrap();
+        }
+        let err = store
+            .promote(&candidate.id, &[(eid, Some(0), Some(5))], Some("test"))
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("failed to record memory_source evidence"),
+            "写证据失败应整体失败: {err}"
+        );
+        // 未晋升:仍是 candidate。
+        let (_, after) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == candidate.id)
+            .unwrap();
+        assert_eq!(after.status, "candidate");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// R-165 批3(验收③):deprecated/invalid 移入 archive/ 且默认检索不可见(D-231)。
     #[test]
     fn deprecated_moves_to_archive_and_hidden_from_search() {
@@ -2159,8 +2272,13 @@ mod tests {
         // shadow → active 仍需 provenance。
         let err = store.promote(&candidate.id, &[], None).unwrap_err();
         assert!(err.to_string().contains("no memory_sources evidence"));
+        let eid = crate::memory::seed_episode(&dir, "ses");
         let promoted = store
-            .promote(&candidate.id, &[(3, Some(0), Some(5))], Some("shadow-hash"))
+            .promote(
+                &candidate.id,
+                &[(eid, Some(0), Some(5))],
+                Some("shadow-hash"),
+            )
             .unwrap();
         assert_eq!(promoted.status, "active");
         // 进 active 后默认检索可见。

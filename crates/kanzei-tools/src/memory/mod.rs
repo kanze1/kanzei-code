@@ -1155,6 +1155,35 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// R-213:测试夹具——给 project scope 的临时库落一条真实 episode,返回其 episode_id。
+/// promote 现在校验 episode 真实存在,测试要带证据晋升必须先 seed 轮次。
+/// `pub(crate)` 而非 `pub(super)`(塞进 mod tests 里):replay_eval.rs 是 crate 顶层
+/// 模块,不在 memory 子树内,`pub(super)` 够不到。
+#[cfg(test)]
+pub(crate) fn seed_episode(project_root: &std::path::Path, session_id: &str) -> i64 {
+    let db = project_root.join(".kanzei").join("state.db");
+    let store = kanzei_core::SessionStore::open(&db).unwrap();
+    store
+        .append_episode(&kanzei_core::EpisodeRecord {
+            session_id,
+            prompt_head: "seed episode",
+            outcome: "ok",
+            steps: 1,
+            input_tokens: 1,
+            output_tokens: 1,
+            tools_json: "[]",
+            context_json: "{}",
+            metrics_json: "{}",
+            provider: "test",
+            model: "test",
+            run_id: "run",
+            input_id: "in",
+            duration_ms: 1,
+            overflow_json: "[]",
+        })
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1812,7 +1841,8 @@ mod tests {
             .find(|(_, e)| e.title == "edit 未命中先 read 重读")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&dir, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
 
         // 第二次同类失败:必须改投修订笔记,点名既有条目,不再原坑重投。
         assert_eq!(harvest_failures(&store, std::slice::from_ref(&signal)), 1);
@@ -2035,7 +2065,8 @@ source: user
             .find(|(_, e)| e.title == "edit 失败先 read")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 1);
         let hits = policy.retrieve(&t);
@@ -2073,7 +2104,8 @@ source: user
             .find(|(_, e)| e.title == "cargo test 环境约束")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
         // Tier1 通道的功能验证直接走 store.search(无 30ms 预算干扰)——预算降级是
         // 运行期保护,不该让测试在共享繁忙环境断言"必然命中"而偶发红(D-293)。
         let rows = store
@@ -2128,7 +2160,8 @@ source: user
             .find(|(_, e)| e.title == "edit 失败先 read")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 2);
         let hits = policy.retrieve(&t);
@@ -2242,7 +2275,8 @@ source: user
             .find(|(_, e)| e.title == "edit 失败先 read")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         // 第一次失败(fingerprint 命中,policy_action=fingerprint)。
         let t1 = trigger("edit", &kind, "main.rs", 1);
@@ -2294,7 +2328,8 @@ source: user
             .find(|(_, e)| e.title == "edit 失败先 read")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        store.promote(&cid, &[(1, None, None)], None).unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
+        store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let mut watch = kanzei_core::RecallWatch::new(Some(&policy));
         let calls = vec![(

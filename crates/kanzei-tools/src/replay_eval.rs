@@ -349,8 +349,9 @@ mod tests {
             .find(|(_, e)| e.title == "edit 失败处理")
             .map(|(p, e)| (e.id, p))
             .unwrap();
+        let eid = crate::memory::seed_episode(&root, "ses");
         store
-            .promote(&cand_id, &[(1, Some(0), Some(5))], Some("replay-test"))
+            .promote(&cand_id, &[(eid, Some(0), Some(5))], Some("replay-test"))
             .unwrap();
         // 构造带 embedder 的 provider(FakeEmbedder:同文本同向量,query 用相同文本必命中)。
         let mut provider = ReplayMemoryProvider::new(&root);

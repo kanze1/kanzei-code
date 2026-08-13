@@ -841,8 +841,9 @@ mod tests {
             .iter()
             .any(|(k, v)| k == "subject" && v == "安装通道"));
         // R-165:subject 状态不变量只约束 active——先 promote 带证据升 active,冲突才触发。
+        let eid = crate::memory::seed_episode(&dir, "ses");
         store
-            .promote(&entry.id, &[(1, None, None)], Some("test"))
+            .promote(&entry.id, &[(eid, None, None)], Some("test"))
             .unwrap();
 
         let conflict = MemoryAddTool

@@ -37,6 +37,21 @@ impl SessionStore {
         Ok(self.connection.last_insert_rowid())
     }
 
+    /// episode 是否真实存在(R-213:promote 前校验 provenance 证据指向真实轮次)。
+    /// 「无来源不入 active」的硬约束不能只看 sources 数组非空——episode_id 必须
+    /// 能在 episodes 表里查到,否则 manager 编造一个 id 也能蒙混过关。
+    pub fn episode_exists(&self, episode_id: i64) -> Result<bool, StoreError> {
+        let exists = self
+            .connection
+            .query_row(
+                "SELECT 1 FROM episodes WHERE episode_id = ?1",
+                params![episode_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?;
+        Ok(exists.is_some())
+    }
+
     /// 最近若干轮的运行归属(D-173):provider/model/run_id/input_id/duration_ms。
     /// 与 `recent_episodes` 分开取,免得那个本已臃肿的元组再长五格。
     #[allow(clippy::type_complexity)]
