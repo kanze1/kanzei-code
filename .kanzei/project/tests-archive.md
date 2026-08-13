@@ -2460,3 +2460,9 @@
 - 摘要: kanzei-core 147 + kanzei-app 139 + kanzei 17/3/4/2/2 全绿:R-176 B2 写子代理自持写租约(writable 字段 + acquire_subagent_permit + permit_kind 测试)
 - 关联: R-176
 - 收尾: 1786624780
+
+## T-1786625069 cargo test -p kanzei-core -p kanzei-app -p kanzei (R-176 B3) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app -p kanzei
+- 摘要: kanzei-core 148(含 B3 验收③顺序断言)+ kanzei-app 139 + kanzei 全绿:R-176 B3 权限询问先于取租约(ask_router 字段 + writable_granted 纯函数 + 拒绝不占租约)
+- 关联: R-176
+- 收尾: 1786625069

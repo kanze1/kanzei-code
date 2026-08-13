@@ -501,6 +501,7 @@ impl PhasePipeline {
             limits: template.limits.clone(),
             coordinator: template.coordinator.clone(),
             writable: template.writable,
+            ask_router: None,
             cancellations: template.cancellations.clone(),
             background: template.background,
             background_results: template.background_results.clone(),

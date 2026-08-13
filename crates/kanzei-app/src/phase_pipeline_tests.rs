@@ -148,6 +148,7 @@ impl Fixture {
             limits: self.config.limits.clone(),
             coordinator: Some(self.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
             writable: false,
+            ask_router: None,
             cancellations: None,
             background: false,
             background_results: None,

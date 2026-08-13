@@ -66,13 +66,13 @@
 - 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
-- 进展: B2 完成:子代理自持 write_scope 写租约——SubagentRuntime 新增 writable 字段(subagent.rs),run_subagent 执行前经 acquire_subagent_permit 申请许可:writable=true → acquire_writer_lease(write_scope=子代理代码树 ctx.cwd,同树排队跨树并行 R-182 口径,RAII 释放不留死锁)、false → 维持只读读槽(验收⑦不受影响);permit_kind 纯函数映射档位→许可类型(测试断言);8 处 SubagentRuntime 构造点补 writable:false(桌面 run.rs/phase_pipeline.rs/CLI/4 测试文件),行为零改变。kanzei-core 147 + kanzei-app 139 + kanzei 全绿,clippy/fmt 干净。B3(下一步):权限询问先于取租约——写子代理真实询问通道(现状 ask 恒 Deny subagent.rs:361),询问先于 acquire_writer_lease 的顺序断言=验收③。
+- 进展: B3 完成:权限询问先于取租约——SubagentRuntime 新增 ask_router 字段(subagent.rs,Arc<dyn Fn(AskRequest)->AskFuture>,桌面端可注入 kz:ask 通道);run_subagent writable 路径先经 ask_router 询问用户「subagent-write 允许?」,writable_granted 纯函数判定(Deny/Cancelled 直接返回错误、协调器无 writer 占用=验收③顺序断言),Allow 才 acquire_writer_lease;ask 闭包改为有 router 时真实路由、无 router 维持恒 Deny(只读子代理/CLI 无人应答);12 处构造点补 ask_router:None。验收③测试 writable_granted_rejects_deny_and_cancel_allows_only_allow。kanzei-core 148 + kanzei-app 139 + kanzei 全绿,clippy/fmt 干净。B4(下一步):写子代理改动按 owner 归因+可单独回滚=验收④⑤——利用 D-174 的 managed fence/背景进程归因体系,写子代理写文件时登记 owner(子代理 id),回滚按 owner 隔离。
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
-- 批次: 2/5
-- observed_head: 487f07eb36cb78f2a7ee4c638a32f84c39296d51
-- observed_worktree_hash: fnv1a64:a1079158656285d6
-- recorded_at: 1786624787206
+- 批次: 3/5
+- observed_head: 290d0ef858d018629db56a26b04bf6395730f304
+- observed_worktree_hash: fnv1a64:cf6a2b867360ce82
+- recorded_at: 1786625075612
 
 ## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [todo]
 - 优先级: P2

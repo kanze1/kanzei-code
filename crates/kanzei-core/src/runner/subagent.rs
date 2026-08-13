@@ -155,6 +155,11 @@ pub struct SubagentRuntime {
     /// 构建),执行前必须自己 acquire_writer_lease,不得继承主代理租约;false =
     /// 只读勘察/复核(现状,读槽登记)。装配点必须与快照配套:可写快照 ⇔ writable=true。
     pub writable: bool,
+    /// R-176 B3:写子代理的权限询问路由(可选)。writable=true 时把子代理内的
+    /// 权限询问转发到这里(桌面端 = kz:ask 事件 + oneshot 回传,与主对话同通道);
+    /// 询问发生在 acquire_writer_lease **之前**(验收③:用户拒绝后不得占用写租约)。
+    /// None(只读子代理/CLI 无 UI)维持 ask 恒 Deny(现状,无人应答)。
+    pub ask_router: Option<Arc<dyn Fn(AskRequest) -> AskFuture + Send + Sync>>,
     /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
     /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
     pub cancellations: Option<Arc<TaskCancellations>>,
@@ -243,6 +248,15 @@ pub(crate) fn permit_kind(writable: bool) -> PermitKind {
     } else {
         PermitKind::Reader
     }
+}
+
+/// R-176 验收③:权限询问结果 → 是否授予写租约。纯函数,测试断言「拒绝后不得
+/// 占用租约」——只有 AllowOnce/AlwaysAllow 才放行取租约,Deny/Cancelled 一律拒绝。
+pub(crate) fn writable_granted(decision: &AskResponse) -> bool {
+    matches!(
+        decision,
+        AskResponse::Permission(AskReply::AllowOnce | AskReply::AlwaysAllow)
+    )
 }
 
 #[cfg(test)]
@@ -415,12 +429,47 @@ pub(crate) async fn run_subagent(
             });
         }
     };
-    // R-176 B2:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过协调器
-    // (验收②);非写子代理维持只读读槽(现状,验收⑦不受影响)。
+    // R-176 B2/B3:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过
+    // 协调器(验收②)。**权限询问先于取租约**(验收③):先问用户"写子代理要获得
+    // 写权,允许吗?",Allow 才 acquire_writer_lease;Deny 直接返回、协调器无
+    // writer 占用。只读子代理维持读槽(现状,验收⑦不受影响)。
     // 两者都是 RAII:drop 时回调协调器释放,任何收尾路径不留死锁。
-    let _lease = acquire_subagent_permit(rt, ctx, parent_call_id).await;
-    let mut ask = |_request: AskRequest| -> AskFuture {
-        Box::pin(async { AskResponse::Permission(AskReply::Deny) })
+    let _lease = if rt.writable {
+        // 询问先于租约:拒绝后不得占用写租约(设计不变量 6,验收③)。
+        let decision = match rt.ask_router.as_ref() {
+            Some(router) => {
+                router(AskRequest::Permission {
+                    action: "subagent-write".into(),
+                    resource: ctx.cwd.display().to_string(),
+                })
+                .await
+            }
+            // 没有询问通道(CLI 无 UI):默认 Deny——宁可拒绝也不让看不见的
+            // 子代理拿写权(风险条款:用户看不见的进程在改仓库)。
+            None => AskResponse::Permission(AskReply::Deny),
+        };
+        let allowed = writable_granted(&decision);
+        if !allowed {
+            return kanzei_harness::ToolOutput::error(format!(
+                "writable subagent `{}` was denied write permission by the user; \
+                 no writer lease was acquired",
+                rt.agent.name
+            ));
+        }
+        acquire_subagent_permit(rt, ctx, parent_call_id).await
+    } else {
+        acquire_subagent_permit(rt, ctx, parent_call_id).await
+    };
+    // R-176 B3:写子代理的询问通道——有 ask_router 时把子代理内权限询问转发给
+    // 用户(与主对话同 UI 通道);没有(只读子代理/CLI)维持恒 Deny(无人应答)。
+    let mut ask = {
+        let router = rt.ask_router.clone();
+        move |request: AskRequest| -> AskFuture {
+            match &router {
+                Some(router) => router(request),
+                None => Box::pin(async { AskResponse::Permission(AskReply::Deny) }),
+            }
+        }
     };
     // R-175 B3:续跑恢复——同一 id 再次调用 run_subagent 时,从 transcripts 恢复
     // 此前完整历史作为 prior(验收④:续跑请求里可见此前 transcript,不是从空历史
@@ -607,5 +656,29 @@ mod tests {
         use super::{permit_kind, PermitKind};
         assert_eq!(permit_kind(true), PermitKind::Writer);
         assert_eq!(permit_kind(false), PermitKind::Reader);
+    }
+
+    /// R-176 验收③:权限询问先于取租约——拒绝/取消后**不得**授予写租约
+    /// (设计不变量 6:用户拒绝后不得占用写租约);只有 AllowOnce/AlwaysAllow
+    /// 才放行。纯函数断言顺序语义:询问结果 → 是否取租约。
+    #[test]
+    fn writable_granted_rejects_deny_and_cancel_allows_only_allow() {
+        use super::{writable_granted, AskReply, AskResponse};
+        assert!(
+            !writable_granted(&AskResponse::Permission(AskReply::Deny)),
+            "Deny 后不得取租约"
+        );
+        assert!(
+            !writable_granted(&AskResponse::Cancelled),
+            "取消后不得取租约"
+        );
+        assert!(
+            writable_granted(&AskResponse::Permission(AskReply::AllowOnce)),
+            "AllowOnce 可取租约"
+        );
+        assert!(
+            writable_granted(&AskResponse::Permission(AskReply::AlwaysAllow)),
+            "AlwaysAllow 可取租约"
+        );
     }
 }
