@@ -1077,6 +1077,19 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
                 }
             }
         }
+        // D-332:normalize 是统一 repair surface(dry-run 默认,apply 落盘)。
+        // CLI 形态:`kz req normalize` / `kz req normalize --apply` / `--status <合法值>`。
+        "normalize" => {
+            let _ = parse_tracker_flags(&args[2..], &mut input);
+            if args.iter().any(|a| a == "--apply") {
+                input["apply"] = serde_json::json!(true);
+            }
+            if let Some(pos) = args.iter().position(|a| a == "--status") {
+                if let Some(v) = args.get(pos + 1) {
+                    input["status"] = serde_json::json!(v);
+                }
+            }
+        }
         "raw_delete" => {
             let positional = parse_tracker_flags(&args[2..], &mut input);
             if let Some(id) = positional.first() {

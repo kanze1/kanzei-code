@@ -2255,3 +2255,17 @@
 - 摘要: 发版门禁十步全绿(含 R-209 新增 ui-lint 步),verification.json 绑定 0b40763。package.ps1 -Ack 8 打包通过(build-f6bd80f 后 8 提交:R-210/212/209/200),gh release build-0b40763 发布为 Latest。
 - 关联: R-200 R-212 R-209 R-210
 - 收尾: 1786610353
+
+## T-1786611994 cargo test -p kanzei-tools (D-332 B1) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.2s
+- 摘要: D-332 B1 fail-closed:docstore 非法状态解析 + work integrity_errors 隔离 + tracker 跳过。303 passed / 0 failed / 1 ignored。新增 invalid_status_marker_is_parsed_not_silently_dropped、invalid_lifecycle_is_quarantined_and_never_selected。
+- 关联: D-332
+- 收尾: 1786611994
+
+## T-1786612434 cargo test -p kanzei-tools -p kanzei (D-332 B2 normalize) [passed]
+- 命令: cargo test -p kanzei-tools && cargo test -p kanzei
+- 时长: 30.0s
+- 摘要: D-332 B2 tracker normalize:kanzei-tools 305 passed(新增 normalize_dry_run_reports_and_apply_fixes、normalize_reports_archived_mismatch_without_writing)、kanzei 15 passed、clippy -D warnings 干净。
+- 关联: D-332
+- 收尾: 1786612434

@@ -44,6 +44,7 @@ const WRITE_ACTIONS: &[&str] = &[
     "repair_reused_id",
     "repair_missing_id",
     "void_id",
+    "normalize",
 ];
 
 #[derive(Deserialize, JsonSchema)]
@@ -80,6 +81,9 @@ struct TrackerInput {
     /// raw_delete 必填:raw_lines 输出里的 [n] 序号(要删除的第 n 条游离行)
     #[serde(default)]
     ordinal: Option<usize>,
+    /// normalize 用:false(默认)= dry-run 只报告待修项;true = 实际写入修复。
+    #[serde(default)]
+    apply: bool,
 }
 
 #[async_trait]
@@ -266,6 +270,7 @@ impl Tool for TrackerTool {
         // 迫使当轮先把数据找回来。错误文本直接给出可执行的恢复路径,避免变成死锁。
         if WRITE_ACTIONS.contains(&input.action.as_str())
             && !REPAIR_ACTIONS.contains(&input.action.as_str())
+            && input.action != "normalize"
         {
             let issues = store.integrity_issues(&entries);
             if !issues.is_empty() {
@@ -916,6 +921,201 @@ impl Tool for TrackerTool {
                     )),
                     Err(e) => ToolOutput::error(format!("fix_terminal failed: {e}")),
                 }
+            }
+            // D-332 验收②:统一 repair surface——把散落在 fix_terminal / 手改 markdown /
+            // raw_delete 之间的修复动作收敛成一个机械、幂等、dry-run-first 的入口。
+            // 扫描活动 + 归档区,报告/修复:
+            //   ① invalid lifecycle(非空但不在合法枚举)——报告,apply 不自动猜(缺语义);
+            //   ② duplicate fields(同 key 多次出现,key 大小写不敏感)——apply 保留首条;
+            //   ③ 标题状态标记污染(title_status_marker 命中)——apply 剥离;
+            //   ④ 活动区出现终态 / 归档区出现非终态——报告,提示用 close/archive/reopen。
+            // dry-run 默认:只报告不写入;apply=true 才落盘。幂等:重复 apply 无新变化。
+            "normalize" => {
+                let apply = input.apply;
+                let mut findings: Vec<String> = Vec::new();
+                let mut fixed: Vec<String> = Vec::new();
+                let mut touched = false;
+
+                let mut normalize_entry = |entry: &mut Entry, region: &str| {
+                    let entry_id = entry.id.clone();
+                    // ④ 活动区终态:应归档(只报告,close 后由 archive 动作执行)
+                    if region == "active" && self.kind.terminal.contains(&entry.status.as_str()) {
+                        findings.push(format!(
+                            "{region} {entry_id}: terminal lifecycle `{}` — close 后应 archive",
+                            entry.status
+                        ));
+                        return;
+                    }
+                    // ① invalid lifecycle:dry-run 报告;apply 且调用方显式传 status=合法值时
+                    // 机械落盘(不猜语义——非法状态该变什么只有人知道,normalize 只做写入)。
+                    if !entry.status.is_empty()
+                        && !self.kind.statuses.contains(&entry.status.as_str())
+                    {
+                        if apply {
+                            if let Some(target) = input
+                                .status
+                                .as_deref()
+                                .filter(|s| self.kind.statuses.contains(s))
+                            {
+                                let old = entry.status.clone();
+                                findings.push(format!(
+                                    "{region} {entry_id}: invalid lifecycle `{old}` → fixed to `{target}`"
+                                ));
+                                entry.status = target.to_string();
+                                touched = true;
+                                fixed.push(format!(
+                                    "{region} {entry_id}: lifecycle `{old}` → `{target}`"
+                                ));
+                            } else {
+                                findings.push(format!(
+                                    "{region} {entry_id}: invalid lifecycle `{status}`; valid: {valid} \
+                                     (apply 需要 status=合法值才写入)",
+                                    status = entry.status,
+                                    valid = self.kind.statuses.join(" | "),
+                                ));
+                            }
+                        } else {
+                            findings.push(format!(
+                                "{region} {entry_id}: invalid lifecycle `{status}`; valid: {valid} \
+                                 (apply 需要 status=合法值才写入)",
+                                status = entry.status,
+                                valid = self.kind.statuses.join(" | "),
+                            ));
+                        }
+                    }
+                    // ② duplicate fields(key 大小写不敏感,如「优先级」vs「priority」)
+                    let mut seen: Vec<String> = Vec::new();
+                    let mut dropped = 0usize;
+                    entry.fields.retain(|(key, _)| {
+                        let norm = key.trim().to_ascii_lowercase();
+                        if seen.contains(&norm) {
+                            if dropped == 0 {
+                                findings.push(format!(
+                                    "{region} {entry_id}: duplicate field `{key}` (kept first, dropped rest)"
+                                ));
+                            }
+                            dropped += 1;
+                            false
+                        } else {
+                            seen.push(norm);
+                            true
+                        }
+                    });
+                    if dropped > 0 {
+                        touched = true;
+                        fixed.push(format!(
+                            "{region} {entry_id}: deduplicated {dropped} field(s)"
+                        ));
+                    }
+                    // ③ 标题状态标记污染(D-331 口径:状态的家是 header,不是标题)
+                    if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
+                        let stripped = crate::docstore::strip_status_markers(&entry.title);
+                        findings.push(format!(
+                            "{region} {entry_id}: title status marker `[{marker}]` → will strip to `{stripped}`"
+                        ));
+                        if apply {
+                            entry.title = stripped;
+                            touched = true;
+                            fixed.push(format!(
+                                "{region} {entry_id}: stripped title status marker [{marker}]",
+                            ));
+                        }
+                    }
+                };
+
+                for entry in entries.iter_mut() {
+                    normalize_entry(entry, "active");
+                }
+
+                // 归档区:非终态 = mismatch(终态是归档的合法形态,不动)
+                // 归档区只**报告**②③(重复字段/标题标记)——归档写通道不公开整表
+                // 保存(走 archive_terminal/fix_terminal),apply 不动归档,避免制造
+                // 第二套写路径;findings 里给出可执行的处置。
+                let archived = match store.load_archive() {
+                    Ok(a) => a,
+                    Err(e) => return ToolOutput::error(format!("cannot read archive: {e}")),
+                };
+                for entry in &archived {
+                    if !self.kind.terminal.contains(&entry.status.as_str()) {
+                        findings.push(format!(
+                            "archived {}: non-terminal lifecycle `{}` — 应终态(reopen/fix_terminal)",
+                            entry.id, entry.status
+                        ));
+                    }
+                    if !entry.status.is_empty()
+                        && !self.kind.statuses.contains(&entry.status.as_str())
+                    {
+                        findings.push(format!(
+                            "archived {}: invalid lifecycle `{}` — fix_terminal 纠错",
+                            entry.id, entry.status
+                        ));
+                    }
+                    if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
+                        findings.push(format!(
+                            "archived {}: title status marker `[{marker}]` — fix_terminal 纠错通道处理",
+                            entry.id
+                        ));
+                    }
+                    let mut seen: Vec<String> = Vec::new();
+                    for (key, _) in &entry.fields {
+                        let norm = key.trim().to_ascii_lowercase();
+                        if seen.contains(&norm) {
+                            findings.push(format!(
+                                "archived {}: duplicate field `{key}` — 需手动整理归档",
+                                entry.id
+                            ));
+                            break;
+                        }
+                        seen.push(norm);
+                    }
+                }
+
+                let header = format!(
+                    "normalize {} ({}): {} finding(s), {} fix(es)",
+                    self.kind.rel_path,
+                    if apply { "apply" } else { "dry-run" },
+                    findings.len(),
+                    fixed.len()
+                );
+                let body = if findings.is_empty() {
+                    "  无待修项(clean)".to_string()
+                } else {
+                    findings
+                        .iter()
+                        .map(|f| format!("  - {f}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                let mut content = format!("{header}\n{body}");
+                if !fixed.is_empty() {
+                    content.push_str(&format!(
+                        "\n  已修复:\n{}",
+                        fixed
+                            .iter()
+                            .map(|f| format!("    - {f}"))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ));
+                }
+                if !apply {
+                    content.push_str("\n  本次为 dry-run,未写盘。加 apply=true 执行修复。");
+                }
+
+                if apply {
+                    // 活动区写回(若活动区有改动)
+                    if touched {
+                        if let Err(e) = store.save(&entries) {
+                            return ToolOutput::error(format!(
+                                "cannot write {}: {e}",
+                                store.path.display()
+                            ));
+                        }
+                    }
+                    // 归档区修复(重复字段/标题标记)需要归档写通道,当前不公开整表
+                    // 保存;归档非终态 mismatch 走 reopen/fix_terminal。apply 只保证
+                    // 活动区落盘,归档区仍只报告——避免半公开 API 制造第二套写路径。
+                }
+                ToolOutput::ok(content)
             }
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: list | get | raw_lines | add | update | close | \
@@ -2417,6 +2617,177 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "归档无此 ID 应拒绝: {}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn normalize_dry_run_reports_and_apply_fixes() {
+        // D-332 验收②:normalize 是统一 repair surface——dry-run 只报告,
+        // apply 机械修复(重复字段去重、标题标记剥离、显式 status 修正非法 lifecycle),
+        // 幂等(重复 apply 无新变化)。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-normalize-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        // 构造污染:R-001 非法 lifecycle [open] + 标题带 [done] 标记 + 重复「优先级」字段;
+        // R-002 合法 todo。
+        let e1 = Entry {
+            id: "R-001".into(),
+            title: "某需求 [done] 标题".into(),
+            status: "open".into(), // requirement 无 open,非法
+            severity: None,
+            fields: vec![
+                ("优先级".into(), "P1".into()),
+                ("优先级".into(), "P2".into()), // 重复
+                ("标签".into(), "核心".into()),
+            ],
+        };
+        let e2 = Entry {
+            id: "R-002".into(),
+            title: "正常需求".into(),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![("优先级".into(), "P0".into())],
+        };
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        store.save(&[e1, e2]).unwrap();
+
+        // dry-run:只报告,不写入。
+        let out = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("dry-run"), "{}", out.content);
+        assert!(out.content.contains("R-001"), "{}", out.content);
+        assert!(
+            out.content.contains("invalid lifecycle `open`"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("duplicate field `优先级`"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("title status marker `[done]`"),
+            "{}",
+            out.content
+        );
+        // dry-run 不写盘
+        let loaded = store.load().unwrap();
+        assert_eq!(
+            loaded[0].status, "open",
+            "dry-run 不得改状态: {:?}",
+            loaded[0].status
+        );
+        assert_eq!(
+            loaded[0].fields.len(),
+            3,
+            "dry-run 不得去重: {:?}",
+            loaded[0].fields
+        );
+
+        // apply + status 修正:非法 lifecycle → todo,标题标记剥离,重复字段去重。
+        let out = tool
+            .execute(
+                json!({"action": "normalize", "apply": true, "status": "todo"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("apply"), "{}", out.content);
+        assert!(
+            out.content.contains("lifecycle `open` → `todo`"),
+            "{}",
+            out.content
+        );
+        assert!(out.content.contains("deduplicated"), "{}", out.content);
+        assert!(
+            out.content.contains("stripped title status marker"),
+            "{}",
+            out.content
+        );
+
+        let loaded = store.load().unwrap();
+        let r1 = loaded.iter().find(|x| x.id == "R-001").unwrap();
+        assert_eq!(r1.status, "todo", "非法 lifecycle 应被修正: {}", r1.status);
+        assert!(
+            !r1.title.contains("[done]"),
+            "标题标记应被剥离: {}",
+            r1.title
+        );
+        assert_eq!(r1.title, "某需求 标题", "标题应保留其余文字: {}", r1.title);
+        let prio: Vec<_> = r1.fields.iter().filter(|(k, _)| k == "优先级").collect();
+        assert_eq!(prio.len(), 1, "重复字段应去重: {:?}", r1.fields);
+
+        // 幂等:再次 dry-run 应无待修项。
+        let out = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("无待修项") || !out.content.contains("R-001"),
+            "{}",
+            out.content
+        );
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn normalize_reports_archived_mismatch_without_writing() {
+        // D-332:归档区非终态/非法 lifecycle 只报告(写通道不公开整表),apply 不动归档。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-normalize-arch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let store = DocStore::open(&dir, &DEFECTS);
+        // 直接写归档文件,模拟手改产生的归档区非终态条目。
+        std::fs::write(
+            store.archive_file(),
+            "# Defects\n\n## D-001 已修缺陷 [open] (medium)\n",
+        )
+        .unwrap();
+        std::fs::write(store.path.clone(), "# Defects\n").unwrap();
+
+        let out = tool
+            .execute(json!({"action": "normalize", "apply": true}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("archived D-001") && out.content.contains("non-terminal"),
+            "归档区非终态应被报告: {}",
+            out.content
+        );
+        // 归档文件未被 apply 改动(无整表写通道)
+        let archived = store.load_archive().unwrap();
+        assert_eq!(
+            archived[0].status, "open",
+            "apply 不得改动归档: {}",
+            archived[0].status
+        );
+
         std::fs::remove_dir_all(dir).ok();
     }
 
