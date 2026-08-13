@@ -60,6 +60,9 @@ struct TestRecordInput {
     /// 结果摘要(可选)
     #[serde(default)]
     summary: Option<String>,
+    /// 测试实际耗时秒数(可选,R-210:门禁最慢环节可量化);写入「时长」字段
+    #[serde(default)]
+    duration_secs: Option<f64>,
     /// 关联条目 ID 列表(如 ["D-201", "R-153"]);写入「关联」字段,
     /// 建立测试→缺陷/需求的映射,供按条目反查测试记录
     #[serde(default)]
@@ -191,7 +194,7 @@ impl Tool for TestRecordTool {
                 Err(err) => ToolOutput::error(err),
             };
         }
-        match record_test_run(
+        match record_test_run_with_duration(
             &root,
             input.id.as_deref(),
             &input.title,
@@ -199,6 +202,7 @@ impl Tool for TestRecordTool {
             input.command.as_deref(),
             input.summary.as_deref(),
             input.refs.as_deref(),
+            input.duration_secs,
         ) {
             Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
             Err(err) => ToolOutput::error(err),
@@ -405,6 +409,21 @@ pub fn record_test_run(
     summary: Option<&str>,
     refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
+    record_test_run_with_duration(root, id, title, status, command, summary, refs, None)
+}
+
+/// 同 [`record_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段。
+#[allow(clippy::too_many_arguments)] // 参数与 tests.md 记录字段一一对应,对象化会同时破坏全部调用方。
+pub fn record_test_run_with_duration(
+    root: &Path,
+    id: Option<&str>,
+    title: &str,
+    status: &str,
+    command: Option<&str>,
+    summary: Option<&str>,
+    refs: Option<&[String]>,
+    duration_secs: Option<f64>,
+) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
@@ -434,7 +453,15 @@ pub fn record_test_run(
                 "找不到测试记录 {wanted};省略 id 可新登记一条,或先用 test_record 列表核对 id"
             ));
         }
-        return append_test_run(root, title, status, command, summary, refs);
+        return append_test_run_with_duration(
+            root,
+            title,
+            status,
+            command,
+            summary,
+            refs,
+            duration_secs,
+        );
     };
     let record_id = record["id"].as_str().unwrap_or_default().to_string();
     let mut block = format!("## {record_id} {} [{status}]\n", title.trim());
@@ -453,6 +480,9 @@ pub fn record_test_run(
         .or_else(|| inherited("命令"))
     {
         block.push_str(&format!("- 命令: {command}\n"));
+    }
+    if let Some(secs) = duration_secs {
+        block.push_str(&format!("- 时长: {secs:.1}s\n"));
     }
     if let Some(summary) = summary
         .filter(|v| !v.trim().is_empty())
@@ -502,6 +532,19 @@ pub fn append_test_run(
     summary: Option<&str>,
     refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
+    append_test_run_with_duration(root, title, status, command, summary, refs, None)
+}
+
+/// 同 [`append_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段。
+pub fn append_test_run_with_duration(
+    root: &Path,
+    title: &str,
+    status: &str,
+    command: Option<&str>,
+    summary: Option<&str>,
+    refs: Option<&[String]>,
+    duration_secs: Option<f64>,
+) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
@@ -521,6 +564,9 @@ pub fn append_test_run(
     text.push_str(&format!("\n\n## {id} {} [{status}]\n", title.trim()));
     if let Some(command) = command.filter(|value| !value.trim().is_empty()) {
         text.push_str(&format!("- 命令: {}\n", command.trim()));
+    }
+    if let Some(secs) = duration_secs {
+        text.push_str(&format!("- 时长: {secs:.1}s\n"));
     }
     if let Some(summary) = summary.filter(|value| !value.trim().is_empty()) {
         text.push_str(&format!("- 摘要: {}\n", summary.trim()));
@@ -1127,6 +1173,60 @@ mod tests {
             "关联字段未写入归档:\n{archive_text}"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-210:duration_secs 写入「时长」字段且可往返解析(门禁最慢环节可量化)。
+    #[test]
+    fn duration_secs_writes_时长_field_and_roundtrips() {
+        let root = temp_project("duration");
+        let snapshot = append_test_run_with_duration(
+            &root,
+            "R-210 定向",
+            "passed",
+            Some("cargo test -p kanzei-tools"),
+            None,
+            None,
+            Some(12.345),
+        )
+        .unwrap();
+        let recorded_id = snapshot["recorded_id"].as_str().unwrap().to_string();
+        // 终态自动归档:时长字段应落在归档文件里,格式保留一位小数。
+        let archive_text = std::fs::read_to_string(root.join(TEST_RUNS_ARCHIVE_REL)).unwrap();
+        assert!(
+            archive_text.contains("- 时长: 12.3s"),
+            "时长字段未写入归档:\n{archive_text}"
+        );
+        // 往返:解析出的字段 key=时长 value=12.3s。
+        let (_, record) = read_test_records(&root.join(TEST_RUNS_ARCHIVE_REL))
+            .into_iter()
+            .find(|(_, r)| r["id"].as_str() == Some(recorded_id.as_str()))
+            .unwrap();
+        let dur = record["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["key"].as_str() == Some("时长"))
+            .and_then(|f| f["value"].as_str())
+            .unwrap();
+        assert_eq!(dur, "12.3s");
+        // 未提供 duration 时不得凭空出现时长行。
+        let root2 = temp_project("duration-none");
+        append_test_run(
+            &root2,
+            "plain record no extra field",
+            "passed",
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        let text2 = std::fs::read_to_string(root2.join(TEST_RUNS_ARCHIVE_REL)).unwrap();
+        assert!(
+            !text2.contains("时长"),
+            "未提供 duration 不应写时长行:\n{text2}"
+        );
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&root2).ok();
     }
 
     #[test]

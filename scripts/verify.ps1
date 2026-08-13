@@ -15,59 +15,52 @@ $full_hash = (git -C $root rev-parse HEAD).Trim()
 
 $checks = [ordered]@{}
 
-# 每条 native command 后立刻检查退出码，不把 LASTEXITCODE 跨函数/脚本块传递(D-255)。
-Write-Host "==> fmt" -ForegroundColor Cyan
-cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
-if ($LASTEXITCODE -ne 0) { throw "fmt 失败(exit=$LASTEXITCODE)" }
-$checks["fmt"] = "pass"
-
-# R-146(clippy)启用时必须同步修改 .github/workflows/ci.yml：两处门禁清单保持一致。
-Write-Host "==> clippy" -ForegroundColor Cyan
-cargo clippy --workspace --all-targets --manifest-path "$root\Cargo.toml" -- -D warnings
-if ($LASTEXITCODE -ne 0) { throw "clippy 失败(exit=$LASTEXITCODE)" }
-$checks["clippy"] = "pass"
-
-Write-Host "==> test" -ForegroundColor Cyan
-cargo test --workspace --manifest-path "$root\Cargo.toml"
-if ($LASTEXITCODE -ne 0) { throw "test 失败(exit=$LASTEXITCODE)" }
-$checks["test"] = "pass"
-
-Write-Host "==> ui_syntax" -ForegroundColor Cyan
-Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
-    node --check $_.FullName
-    if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
+# R-210:每步记秒数写进 verification.json 的 checks 值——门禁最慢环节从此可答。
+# 命令文本保持与 git.rs 门禁/ci.yml 逐项一致(守护测试 stage_fmt_clippy_gates_align_with_ci_and_verify 比对)。
+function Step-With-Timing {
+    param([string]$Key, [string]$Label, [scriptblock]$Body)
+    Write-Host "==> $Label" -ForegroundColor Cyan
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    & $Body
+    if ($LASTEXITCODE -ne 0) { throw "$Label 失败(exit=$LASTEXITCODE)" }
+    $sw.Stop()
+    $script:checks[$Key] = "pass $([math]::Round($sw.Elapsed.TotalSeconds, 1))s"
 }
-$checks["ui_syntax"] = "pass"
 
-Write-Host "==> ui_runtime" -ForegroundColor Cyan
-node "$root\scripts\ui-runtime-smoke.mjs"
-if ($LASTEXITCODE -ne 0) { throw "ui_runtime 失败(exit=$LASTEXITCODE)" }
-$checks["ui_runtime"] = "pass"
-
-Write-Host "==> ui_lint (R-142 no-undef)" -ForegroundColor Cyan
-node "$root\scripts\ui-lint-smoke.mjs"
-if ($LASTEXITCODE -ne 0) { throw "ui_lint 失败(exit=$LASTEXITCODE)" }
-$checks["ui_lint"] = "pass"
-
-Write-Host "==> parallel_lines_regression" -ForegroundColor Cyan
-node "$root\scripts\parallel-lines-regression.mjs"
-if ($LASTEXITCODE -ne 0) { throw "parallel_lines_regression 失败(exit=$LASTEXITCODE)" }
-$checks["parallel_lines_regression"] = "pass"
-
-Write-Host "==> ui_a11y" -ForegroundColor Cyan
-node "$root\scripts\ui-a11y-smoke.mjs"
-if ($LASTEXITCODE -ne 0) { throw "ui_a11y 失败(exit=$LASTEXITCODE)" }
-$checks["ui_a11y"] = "pass"
-
-Write-Host "==> ui_i18n" -ForegroundColor Cyan
-node "$root\scripts\ui-i18n-smoke.mjs"
-if ($LASTEXITCODE -ne 0) { throw "ui_i18n 失败(exit=$LASTEXITCODE)" }
-$checks["ui_i18n"] = "pass"
-
-Write-Host "==> ui_markdown" -ForegroundColor Cyan
-node "$root\scripts\ui-markdown-smoke.mjs"
-if ($LASTEXITCODE -ne 0) { throw "ui_markdown 失败(exit=$LASTEXITCODE)" }
-$checks["ui_markdown"] = "pass"
+Step-With-Timing "fmt" "fmt" {
+    cargo fmt --all --manifest-path "$root\Cargo.toml" -- --check
+}
+Step-With-Timing "clippy" "clippy" {
+    # R-146(clippy)启用时必须同步修改 .github/workflows/ci.yml：两处门禁清单保持一致。
+    cargo clippy --workspace --all-targets --manifest-path "$root\Cargo.toml" -- -D warnings
+}
+Step-With-Timing "test" "test" {
+    cargo test --workspace --manifest-path "$root\Cargo.toml"
+}
+Step-With-Timing "ui_syntax" "ui_syntax" {
+    Get-ChildItem "$root\crates\kanzei-app\ui\*.js" | ForEach-Object {
+        node --check $_.FullName
+        if ($LASTEXITCODE -ne 0) { throw "node --check 失败: $($_.Name)" }
+    }
+}
+Step-With-Timing "ui_runtime" "ui_runtime" {
+    node "$root\scripts\ui-runtime-smoke.mjs"
+}
+Step-With-Timing "ui_lint" "ui_lint (R-142 no-undef)" {
+    node "$root\scripts\ui-lint-smoke.mjs"
+}
+Step-With-Timing "parallel_lines_regression" "parallel_lines_regression" {
+    node "$root\scripts\parallel-lines-regression.mjs"
+}
+Step-With-Timing "ui_a11y" "ui_a11y" {
+    node "$root\scripts\ui-a11y-smoke.mjs"
+}
+Step-With-Timing "ui_i18n" "ui_i18n" {
+    node "$root\scripts\ui-i18n-smoke.mjs"
+}
+Step-With-Timing "ui_markdown" "ui_markdown" {
+    node "$root\scripts\ui-markdown-smoke.mjs"
+}
 
 New-Item -ItemType Directory -Force "$root\dist" | Out-Null
 [ordered]@{

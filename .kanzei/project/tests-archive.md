@@ -2189,3 +2189,21 @@
 - 摘要: 全 workspace 759 passed / 0 failed / 2 ignored(R-233 关闭前全量)。B1-B3 累积:意图词查询构造、hybrid embedder 接线、语义召回 e2e 全部并入,无回归。
 - 关联: R-233
 - 收尾: 1786604587
+
+## T-1786606045 R-210 定向:cargo test -p kanzei-tools git:: + test_record:: [passed]
+- 命令: cargo test -p kanzei-tools git::; cargo test -p kanzei-tools test_record::
+- 摘要: git:: 14 passed(含新验收①测试 clippy_gate_rejects_compile_error_with_position、对齐守护测试绿);test_record:: 29 passed(含 duration_secs 时长字段往返)。verify.ps1 语法解析通过。
+- 关联: R-210
+- 收尾: 1786606045
+
+## T-1786606081 R-210 fmt 后复测:cargo test -p kanzei-tools git:: + test_record:: [passed]
+- 命令: cargo test -p kanzei-tools git::; cargo test -p kanzei-tools test_record::
+- 摘要: fmt 后复测:git:: 14 passed(含 clippy_gate_rejects_compile_error_with_position 与对齐守护)、test_record:: 29 passed(含 duration 时长字段往返)。
+- 关联: R-210
+- 收尾: 1786606081
+
+## T-1786606121 R-210 clippy 修复后复测:cargo test -p kanzei-tools test_record:: [passed]
+- 命令: cargo test -p kanzei-tools test_record::
+- 摘要: 29 passed:clippy 修复(too_many_arguments allow)后复测,duration 时长字段往返仍绿。
+- 关联: R-210
+- 收尾: 1786606121

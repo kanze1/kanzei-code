@@ -364,7 +364,10 @@ fn modified_secs(path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-/// 编译门禁:提交源码前由工具**亲自**跑一次 `cargo check --workspace --all-targets`。
+/// 编译诊断回退(R-210):正常提交路径不再串行跑 cargo check——clippy_gate 的
+/// `cargo clippy --workspace --all-targets` 走同一编译管线(全 workspace 编译 +
+/// 类型检查),编译错误会被 clippy 拦截并带 `-->` 位置,双份全仓分析是纯冗余。
+/// 本函数只在 clippy 失败输出**缺位置信息**时作为诊断回退调用。
 ///
 /// 为什么不能只看测试记录:记录是 agent 自己写的。实测 2026-08-09 夜里,run.rs 里连续
 /// 混入四处「插入却把签名吃掉」的破损(`async fn fast_summarize -> ...` 少了参数、
@@ -493,10 +496,19 @@ async fn clippy_gate(cwd: &Path) -> Result<(), String> {
                 .filter(|l| l.starts_with("error") || l.trim_start().starts_with("-->"))
                 .take(16)
                 .collect();
-            Err(format!(
+            let mut message = format!(
                 "提交被拦下:`cargo clippy --workspace --all-targets -- -D warnings` 不过。\n{}",
                 head.join("\n")
-            ))
+            );
+            // R-210:clippy 全 workspace 编译覆盖 check,正常路径不再跑 check;
+            // 仅当 clippy 失败输出缺位置信息(编译错误应带 `-->`,缺了说明诊断
+            // 没透出来)时,降级跑 cargo check 补位置诊断。
+            if !stderr.contains("-->") {
+                if let Err(diag) = compile_gate(cwd).await {
+                    message.push_str(&format!("\n--- cargo check 诊断回退 ---\n{diag}"));
+                }
+            }
+            Err(message)
         }
         Err(error) => Err(format!(
             "提交被拦下:无法执行 cargo clippy({error})。装好 cargo/clippy 或在非 Rust 仓库里提交。"
@@ -582,12 +594,11 @@ async fn commit(
         ));
     }
     if paths.iter().any(|p| is_source_path(p)) {
-        // 顺序有讲究:先验编译(机械真值),再看测试记录(自报证据)。编译不过时
-        // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 与编译并列
-        // 为提交前硬门禁——规则层写过但自举漏了三次,必须代码强制。
-        if let Err(error) = compile_gate(cwd).await {
-            return ToolOutput::error(error);
-        }
+        // 顺序有讲究:先验门禁(机械真值),再看测试记录(自报证据)。编译不过时
+        // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 为提交前硬门禁
+        // ——规则层写过但自举漏了三次,必须代码强制。R-210:不再串行跑 cargo check
+        // (clippy 全 workspace 编译覆盖 check,双份全仓分析是纯冗余;clippy 输出
+        // 缺位置信息时才降级跑 check 补诊断)。
         if let Err(error) = fmt_gate(cwd).await {
             return ToolOutput::error(error);
         }
@@ -1370,6 +1381,41 @@ prunable gitdir file points to non-existent location
         assert!(err.contains("提交被拦下"), "应点名门禁: {err}");
         // 同上:Windows 输出反斜杠路径,断言文件名片段兼容两种分隔符。
         assert!(err.contains("lib.rs"), "应点名违规文件: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-210 验收①:删掉串行 cargo check 后,编译错误仍被 clippy_gate 拦下,
+    /// 且报错含 `-->` 位置——clippy 全 workspace 编译覆盖 check 的实证。
+    #[tokio::test]
+    async fn clippy_gate_rejects_compile_error_with_position() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-clippycomp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"clippy-compile-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .unwrap();
+        // 未定义符号:编译错误,不是 lint。check 删掉后必须仍被 clippy 拦截。
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn probe() -> i32 { undefined_symbol_here }\n",
+        )
+        .unwrap();
+
+        let err = clippy_gate(&dir).await.unwrap_err();
+        assert!(err.contains("提交被拦下"), "编译错误必须拦下提交: {err}");
+        assert!(
+            err.contains("-->"),
+            "报错必须含 --> 位置(clippy 编译覆盖 check 的实证): {err}"
+        );
+        assert!(err.contains("lib.rs"), "应点名出错文件: {err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

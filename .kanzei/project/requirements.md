@@ -1,6 +1,6 @@
 # Requirements
 
-## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [todo]
+## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [doing]
 - 优先级: P3
 - 复杂度: 小
 - 标签: 测试 流程
@@ -9,6 +9,11 @@
 - 内容: 删除 compile_gate(或降级为 clippy 输出缺位置信息时的诊断回退);verify.ps1 每步记秒数写进 verification.json 的 checks 值;test_record 加可选 duration 字段。
 - 验收: ①构造编译错误仍被拦且报错含 --> 位置;②单次源码提交门禁墙钟时间前后实测对照;③连续三次发版后能列出各步耗时。
 - refs: R-192 R-212
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-210
+- 进展: 2026-08-16(自动模式):① compile_gate 降级为诊断回退——commit 序列不再串行跑 cargo check(clippy 全 workspace 编译覆盖 check,双份全仓分析纯冗余;clippy_gate 失败输出缺 --> 位置时才降级跑 check 补诊断)。验收①测试 clippy_gate_rejects_compile_error_with_position:编译错误仍被 clippy_gate 拦下且报错含 --> 与文件名。② verify.ps1 每步计时:Step-With-Timing helper 把 10 步包进 Stopwatch,checks 值记 'pass N.Ns';命令文本保持与 git.rs/ci.yml 逐项一致(对齐守护测试绿)。③ test_record 加可选 duration_secs 字段 → '- 时长: N.Ns' 行(record_test_run_with_duration / append_test_run_with_duration 变体,既有调用零改动);时长往返测试绿(含未提供时长不写行断言)。验证:kanzei-tools git:: 14 + test_record:: 29 全绿,verify.ps1 语法解析通过。验收②③的墙钟观测随后续提交/发版落地(本提交仍由旧 harness 门禁背书,新行为自 harness 重建起生效)。
+- observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
+- observed_worktree_hash: fnv1a64:19ddc5a44f5d7826
+- recorded_at: 1786606040987
 
 ## R-212 source_test_gate 从新近度升级到相关性:test_record 声明覆盖面,与暂存源码 crate 求交 [todo]
 - 优先级: P2
