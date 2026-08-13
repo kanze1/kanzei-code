@@ -2283,3 +2283,10 @@
 - 摘要: D-332 B5 decision_locked:307 passed / 0 failed / 1 ignored。Resume/Start 时 decision_locked=true、WipViolation 时 false,resolved_control_prompt 文案追加冻结说明;work 9 passed;clippy 干净。
 - 关联: D-332
 - 收尾: 1786613195
+
+## T-1786613280 cargo test --workspace (D-332 B6 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 时长: 45.0s
+- 摘要: D-332 B6 关闭前全量:cargo test --workspace 全绿(kanzei-tools 307、app 138、core 145、harness 120、llm 52、kanzei 15+3+2+2+1+1+1+1+1+1+3,总计 793 passed / 0 failed)。D-332 六批全部落地。
+- 关联: D-332
+- 收尾: 1786613280
