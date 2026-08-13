@@ -2398,9 +2398,23 @@
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
 - 进展: 全部 5 批完成(B1 487f07e / B2 290d0ef / B3 674bf5a / B4 b77ac1d / B5 1dbf69e),关前全量 cargo test --workspace 全绿(T-1786626063)。验收证据逐条:①两写子代理租约不重叠可审计——B2 acquire_subagent_permit 走 MemoryCoordinator 同树 FIFO(write_scope),permit_kind 测试;②写工具强制经租约无旁路——B1 可写档位写权限不预设 Allow 由规则集裁决 + B2 可写路径代码强制 acquire_writer_lease;③询问先于取租约——B3 ask_router + writable_granted(Deny/Cancelled 拒绝不占租约)测试;④改动按 owner 归因——B4 SubagentChangeLog.record(owner=子代理 id)+ files_of 测试;⑤单独回滚不误伤——B4 rollback 只恢复该 owner 文件,测试验证其它 owner 与主代理改动保留;⑥面板展示持写权者/排队——B5 CollaborationLine writer_run_id/waiting_writers 从 coordinator.snapshot() 取,测试验证数据来自快照;⑦只读白名单未放宽——B1 回归测试(只读快照仍只含 read/glob/grep)。
-- 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
 - 批次: 5/5
 - observed_head: 1dbf69e525bfc09969b338fc99973e0723a59f34
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786626076642
+
+## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 前端 并行
+- 来源: 2026-08-12 八维度审计(§7);parallel_lines_ui.md §5 明写「③门禁由 kanzei 跑:不能信线自己说的绿」与「④合并后再跑一次全量:两条线各自绿≠合起来绿」,实现中格3 可整体跳过(20-lines.js:287-294 点「我已读过 diff」同时解锁门禁与合并两钮,:334-339 门禁失败只渲染警示不禁用合并),合并后全量完全没有(:388-391 合并成功直接解锁格5)。
+- 内容: 格4 要求格3 本次会话内跑过,未跑或红灯时合并需显式「门禁未通过仍要合并」确认并落轨迹;合并成功后格5 前插入「合并后全量」一步。
+- 验收: ①未跑门禁时合并按钮带确认拦截(冒烟断言);②红灯覆盖确认落轨迹;③「合并后全量」步可跑且结果可见。
+- refs: D-305 R-179
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-222
+- 批次: 1/1
+- 进展: 完成:收活五格补两道防线——①门禁成为合并前置:格2(人读 diff)确认后只解锁格3(门禁),门禁全绿才解锁格4(合并),未跑/红灯时合并按钮点击弹「门禁未通过/未运行,仍要继续合并吗」显式覆盖确认并落轨迹(console + activityLog);②合并成功后格5 前插入「合并后全量」步(主根 worktree_post_merge_gate,复用 gate_steps 不另造门禁定义),通过后解锁格6(回写 tracker,原格5 顺延)。验收:①未跑门禁合并带确认拦截(冒烟断言 gateOk/gateRan 时序);②红灯覆盖确认落轨迹(console.info + activityLog push);③合并后全量可跑且结果可见(冒烟断言 postMergeCalls + pass 结论)。i18n 新增 13 个 key,ui-lint-globals 重新生成。前端冒烟五连全过(21 组断言),kanzei-app 140 passed。
+- observed_head: 1dbf69e525bfc09969b338fc99973e0723a59f34
+- observed_worktree_hash: fnv1a64:025b4ad57056a73a
+- recorded_at: 1786626556939

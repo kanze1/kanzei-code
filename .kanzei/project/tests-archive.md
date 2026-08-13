@@ -2490,3 +2490,10 @@
 - 摘要: 前端冒烟五连全过(21 组断言含收活六格/门禁前置/合并后全量解锁时序)+ kanzei-app 140 passed:R-222 收活五格补两道防线
 - 关联: R-222
 - 收尾: 1786626511
+
+## T-1786626593 R-222 fmt 后复测(cargo app + ui-runtime) [passed]
+- 命令: cargo test -p kanzei-app + node scripts/ui-runtime-smoke.mjs
+- 摘要: fmt 后复测:kanzei-app 140 passed + ui-runtime-smoke 21 组断言全过(fmt 只触碰格式,行为不变)
+- 关联: R-222
+- 收尾: 1786626593
+- 源码指纹: c95f95d413711217
