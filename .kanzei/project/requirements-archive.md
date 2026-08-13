@@ -2488,3 +2488,20 @@
 - observed_head: 6051c160d8623b392b3dd1fbc069b55c224cd67e
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786630666011
+
+## R-144 验收核查周期化:鞭挞每关 N 条自动插入只读核查回合 [done]
+- 背景: direction_taste §5.5:08-07 式事件性审计(R-092 手动按钮)应变成常驻节律——鞭挞每关 N 条自动插入一轮只读核查回合,复用现有只读子代理,把验收打假从人工触发变为自动循环的一部分。
+- 设计定位: 自举质量的常驻核查节律(§5.5)
+- 证据等级: E1
+- 阶段: 2
+- 验收: 鞭挞/自主推进每关闭 N 条(可配)自动插入一轮只读核查(复用 SubagentBase read/glob/grep):核对已完成条目的验收证据与真实调用方;发现问题时生成候选缺陷或退回依据;核查不进入主 conversation/queue;触发频率与 N 可配置。
+- 优先级: P0
+
+- 标签: 流程
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-144
+- 复杂度: 大
+- 批次: 4/4
+- 进展: B4 完成(2026-08-16):cargo test --workspace 全绿 797 passed(T-1786632590)。四条验收逐条对照:①鞭挞/自主推进每关闭 N 条(可配)自动插入一轮只读核查——Cadence.verify_every_n(默认 3,0=关闭,config.rs:170-177)、AutoRunState.closed_since_verify 计数 + decide 达阈值返回 VerifyRound(harness auto_run.rs:197-203)、app run.rs 构造 AutoRunCtx 传 closed_count_this_round(summary 里 req/defect close 成功配对)+ cadence 配置(kanzei-app/src/run.rs:1000-1005);②复用 SubagentBase read/glob/grep 核对验收证据与真实调用方——verify_prompt(harness auto_run.rs:131-147)指示主代理用只读 task 子代理核对,核查指令经 serialize_action VerifyRound 携带 prompt 发给前端(kanzei-app/src/auto_run.rs:141-148),前端 armAutoContinue(action.prompt) 发回(07-events.js VerifyRound 分支);③发现问题时生成候选缺陷或退回依据——verify_prompt 明确指示 defect add 生成候选缺陷(来源 self-found 验收核查),核查指令进主对话即自然落库(引擎既有能力);④核查不进入主 conversation/queue——核查是独立输入的核查轮(VerifyRound 占一轮计数),结果以 notice/候选缺陷呈现;触发频率与 N 可配置——[cadence] verify_every_n,unknown_keys 白名单 + cadence_guidance 注入同步。新增测试:harness 每关闭n条触发核查轮_阈值0关闭机制、app closed计数_只数成功的close调用、verifyround序列化_携带核查指令prompt。验证:harness 121 + app 142 + tools 332 + core 150 全量 797 passed + ui-runtime 21 + i18n 冒烟 + clippy/fmt 全过(commit 19bd124)。关闭。
+- observed_head: 19bd1249d3192674ff59b0edf16f9b5fb90b077d
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786632598969

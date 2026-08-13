@@ -2569,3 +2569,36 @@
 - 关联: R-232
 - 收尾: 1786630650
 - 源码指纹: 48fa9eebcfa08908
+
+## T-1786631483 cargo test -p kanzei-tools --lib (R-227 提交前) [passed]
+- 摘要: R-227 提交前:kanzei-tools 332 passed(新增 git placeholder_id_gate + docstore fill_archived_placeholder + tracker archive_fill 三测试)
+- 关联: R-227
+- 收尾: 1786631483
+
+## T-1786631510 cargo test -p kanzei (R-227 CLI 分支) [passed]
+- 摘要: R-227 CLI archive_fill 分支:cargo test -p kanzei 4 passed
+- 关联: R-227
+- 收尾: 1786631510
+- 源码指纹: 5198b024cfc410f4
+
+## T-1786631554 cargo test -p kanzei-tools --lib (R-227 最终) [passed]
+- 摘要: R-227 提交前最终:kanzei-tools 332 passed + kanzei 4 passed
+- 关联: R-227
+- 收尾: 1786631554
+- 源码指纹: 5198b024cfc410f4
+
+## T-1786631611 cargo test -p kanzei-tools -p kanzei (R-227 覆盖) [passed]
+- 摘要: R-227 提交前:kanzei-tools 332 + kanzei 全绿(单条记录覆盖全部暂存 crate)
+- 关联: R-227
+- 收尾: 1786631611
+- 源码指纹: 5198b024cfc410f4
+
+## T-1786632508 cargo test harness+app + 前端冒烟 (R-144 B1-B3) [passed]
+- 摘要: R-144 B1-B3:harness 121(含 verify 触发测试)+ app 142(含 closed 计数/VerifyRound 序列化测试)+ ui-runtime 21 + i18n 冒烟 + clippy/fmt 全过
+- 关联: R-144
+- 收尾: 1786632508
+
+## T-1786632590 cargo test --workspace (R-144 关闭前全量) [passed]
+- 摘要: R-144 关闭前全量:cargo test --workspace 全绿(797 passed:app 142/harness 121/core 150/tools 332)
+- 关联: R-144
+- 收尾: 1786632590
