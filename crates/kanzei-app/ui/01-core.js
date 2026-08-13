@@ -40,15 +40,14 @@ function on(event, handler) {
     // converged。后端一次运行可以跨多轮(排队输入 promote 后接着跑),轮末的
     // kz:done 之后会话仍在跑,只有这条能把被前一轮 idle 焊住的状态解开。
     // 必须写在下面那句非活动会话 early-return 之前,否则后台会话永远收不到。
+    // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
     if (event === "kz:turn" && sessionId) {
-      const state = sessionState(sessionId);
-      state.phase = "running";
-      state.running = true;
-      state.converged = false;
-      state.auto_pending = false;
-      state.live_running = true;
-      state.local_start_pending = false;
-      state.terminal_status = "";
+      transitionSession(sessionId, "running", {
+        converged: false,
+        auto_pending: false,
+        local_start_pending: false,
+        terminal_status: "",
+      });
     }
     if (event === "kz:status" && sessionId) {
       const state = sessionState(sessionId);
@@ -59,16 +58,16 @@ function on(event, handler) {
     // 或工具进度。任何带会话身份的实时进度都说明该线路仍在运行,否则左侧线路按钮
     // 会在实际执行时显示「空闲」,直到下一次轮询或下一轮 turn 才被纠正。
     if (sessionId && SESSION_PROGRESS_EVENTS.has(event)) {
-      const state = sessionState(sessionId);
       // stopping 是用户已发出的控制意图；晚到的进度不能把停止按钮重新翻回运行态。
+      const state = sessionState(sessionId);
       if (state.phase === "stopping") return;
-      state.phase = "running";
-      state.running = true;
-      state.converged = false;
-      state.auto_pending = false;
-      state.live_running = true;
-      state.local_start_pending = false;
-      state.terminal_status = "";
+      // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
+      transitionSession(sessionId, "running", {
+        converged: false,
+        auto_pending: false,
+        local_start_pending: false,
+        terminal_status: "",
+      });
     }
     // 事件流是线路状态的实时投影入口。不能等 kz:done/kz:idle 或下一次
     // process_list 轮询，否则工具执行期间线路按钮和 stop 会按轮次滞后。
@@ -91,18 +90,14 @@ function on(event, handler) {
       // 失败(后端随后仍会发 kz:idle),拿它们收敛会让排队输入的第二轮起全程显示空闲。
       const terminalError = event === "kz:error" && eventPayload.payload?.terminal !== false;
       if (sessionId && (event === "kz:idle" || event === "kz:stopped" || terminalError)) {
-        const state = sessionState(sessionId);
-        state.phase = event === "kz:stopped" ? "stopped" : terminalError ? "failed" : state.auto_pending ? "auto_pending" : "idle";
-        state.running = false;
-        // 终态一经收敛,后续轮询的旧值(发出事件前采样的 running=true)不得把它
-        // 翻回——这是"不依赖当前视图"的最后一环;下一轮的 kz:turn 才能解除。
-        state.converged = true;
-        state.live_running = false;
-        state.local_start_pending = false;
-        state.stage = "空闲";
-        state.detail = "";
-        if (event === "kz:stopped") state.terminal_status = "已停止";
-        else if (terminalError) state.terminal_status = "出错";
+        const targetPhase =
+          event === "kz:stopped" ? "stopped" : terminalError ? "failed" : sessionState(sessionId).auto_pending ? "auto_pending" : "idle";
+        // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
+        // terminal_status 由 transitionSession 对 stopped/failed 分支折算,无需重复设置。
+        transitionSession(sessionId, targetPhase, {
+          stage: "空闲",
+          detail: "",
+        });
         if (typeof refreshParallelTaskProjection === "function") {
           refreshParallelTaskProjection(sessionId);
         }

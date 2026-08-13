@@ -276,6 +276,10 @@ function transitionSession(sessionId, phase, detail = {}) {
     state.converged = false;
     state.live_running = phase === "running" ? true : null;
     state.terminal_status = "";
+  } else if (phase === "stopping") {
+    // R-206:stopping 是用户已发出的控制意图——清掉实时事件权威(live_running),
+    // 否则 09-sessions 轮询校正会把停止中的会话翻回运行中(状态闪跳)。
+    state.live_running = false;
   } else if (["idle", "stopped", "failed"].includes(phase)) {
     state.converged = true;
     state.live_running = false;

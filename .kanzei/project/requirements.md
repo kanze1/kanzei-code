@@ -123,7 +123,7 @@
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
-## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [todo]
+## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [doing]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 前端
@@ -133,6 +133,7 @@
 - 验收: ①grep ui/ 目录 state.running 直写仅剩 mutator 一处;②D-283 两条反证冒烟保持绿;③「长工具运行中点停止无状态闪跳」冒烟断言;④删除 08-compose 重复块。
 - refs: D-283 R-197 R-199 D-306
 - 进展: 2026-08-12 R-226 已落具名 `phase`、统一 `transitionSession`、`stopping` 中间态及按活动 session 的运行控件投影；兼容旧路径仍保留 `running/converged/live_running` 字段，故本条不虚标完成，后续验收为删除全部直接字段写入并让全局 running 彻底只读派生。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-206
 
 ## R-224 鞭挞勾选自动切自主推进:兑现 interaction_modes 的「直接勾连跑自动切」承诺 [todo]
 - 优先级: P3

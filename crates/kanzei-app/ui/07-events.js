@@ -259,13 +259,9 @@ on("kz:error", (e) => {
     cancelAutoContinueTimer(payload.sessionId || activeSessionId);
     stopElapsed();
     if (activeSessionId) {
-      const state = sessionState(activeSessionId);
-      state.running = false;
-      state.converged = true;
-      state.auto_pending = false;
-      state.live_running = false;
-      state.local_start_pending = false;
-      state.terminal_status = "出错";
+      // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
+      // terminal_status 由 transitionSession failed 分支折算为「出错」。
+      transitionSession(activeSessionId, "failed");
     }
     setRunning(false, "出错");
     bgAbortRunning(`(${localizeDynamic("出错中止")})`);

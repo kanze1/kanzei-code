@@ -3801,6 +3801,33 @@ const backLine = document.querySelector("#parallel-task-status .parallel-task-ro
 assert(backLine?.textContent.includes("主会话"), "切回主会话后活动线路按钮未更新");
 assert(byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "默认线不应显示分支 tracker 开关");
 assert(byId.get("ask-overlay").classList.contains("hidden"), "切回主会话后残留后台 ask 弹窗");
+// R-206 验收③:长工具运行中点停止 → stopping 过渡态,晚到进度事件不得把
+// 停止按钮翻回运行中(无状态闪跳)。直接经 transitionSession 置 stopping
+// (与 stop 按钮 handler 的 872-873 行同源),再发进度事件断言不翻回。
+{
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  const mainState = sandbox.sessionState("sess-smoke");
+  assert(mainState.phase === "running", "前置:主会话应在运行中");
+  // 与 08-compose.js 停止按钮 handler 同源:置 stopping + setStopping。
+  vm.runInContext('transitionSession("sess-smoke", "stopping")', sandbox);
+  await flush();
+  assert(mainState.phase === "stopping", "点停止后 phase 未进入 stopping");
+  // stopping 期间 running=true 是设计语义(按钮显示「停止中…」而非消失);
+  // 要防的是 phase 闪跳回 running 与按钮可点化。验证 phase 稳定即可。
+  // 晚到的进度事件:不得翻回 running(01-core.js stopping 保护)。
+  handlers.get("kz:tool-progress")?.({ payload: { sessionId: "sess-smoke", name: "bash", detail: "仍在执行" } });
+  handlers.get("kz:status")?.({ payload: { sessionId: "sess-smoke", stage: "跑工具", detail: "" } });
+  await flush();
+  assert(mainState.phase === "stopping", "stopping 期间晚到进度事件把 phase 翻回 running(闪跳)");
+  // stopping 期间 running=true 是设计语义;关键防的是 live_running 权威残留
+  // 让后续轮询翻回 running 相位。断言相位稳定 + live_running 已清。
+  assert(mainState.live_running === false, "stopping 后 live_running 权威未清,轮询可把会话翻回运行中");
+  // 终态离开 stopping。
+  handlers.get("kz:stopped")?.({ payload: { sessionId: "sess-smoke" } });
+  await flush();
+  assert(mainState.phase === "stopped", "kz:stopped 后 phase 未离开 stopping");
+  assert(mainState.running === false, "stopped 后 running 未收敛为 false");
+}
 
 // 重建路径:后端 asks 表活得比 webview 久,界面重载后首次拿到进程列表必须补拉回来,
 // 否则重载前挂起的权限询问再也不出现,而后端还在 await 它的答复(验收:后端提供

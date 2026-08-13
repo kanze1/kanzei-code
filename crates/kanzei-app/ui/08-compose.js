@@ -343,19 +343,20 @@ async function sendText(prompt, { auto = false, promptAttachments = [] } = {}) {
   const requestProcessId = activeProcessId;
   const requestProject = currentProject;
   if (requestSessionId) {
-    const state = transitionSession(requestSessionId, "starting");
-    state.auto_pending = false;
-    // run_prompt 的 IPC 返回前，旧的 process_list 快照可能仍是 false；
-    // 在首个实时事件到达前不能让这份旧快照覆盖本次用户明确的启动意图。
-    state.live_running = null;
-    state.local_start_pending = true;
-    state.terminal_status = "";
+    // R-206:全部经 transitionSession 折算;补充 detail 一次传入,不再手工直写。
+    transitionSession(requestSessionId, "starting", {
+      auto_pending: false,
+      // run_prompt 的 IPC 返回前，旧的 process_list 快照可能仍是 false；
+      // 在首个实时事件到达前不能让这份旧快照覆盖本次用户明确的启动意图。
+      live_running: null,
+      local_start_pending: true,
+      terminal_status: "",
+    });
   }
   clearRunPending();
   setRunning(true, attachmentStatus);
-  // R-086:本轮运行开始,活动会话状态机同步为运行中——控制事件与状态机同源。
-  // converged 复位:新一轮可以覆盖旧终态。
-  if (requestSessionId) transitionSession(requestSessionId, "starting", { auto_pending: false });
+  // R-086/R-206:活动会话状态机已在上面 transitionSession("starting") 统一收敛,
+  // 这里不再重复调用——重复写块是 R-197 叠在旧块上的残渣(见 R-206 验收④)。
   startElapsed();
   log(`${auto ? t("鞭挞") : t("发送")}:${prompt.slice(0, 80)}`);
   try {

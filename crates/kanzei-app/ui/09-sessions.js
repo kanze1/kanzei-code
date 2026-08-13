@@ -325,20 +325,15 @@ function renderProcesses(items) {
     // 实时事件是运行态的高优先级来源。一次在飞的 process_list 请求可能在
     // 后端刚启动 session 前采样到 false，不能覆盖 kz:turn/status/tool 形成的
     // live_running=true；同理，用户刚点击发送时的本地启动意图也要跨过这个窗口。
+    // R-206:全部经 transitionSession 折算 phase→running 兼容字段,不再手工直写。
     if (state.live_running === true || (state.local_start_pending && !item.running)) {
-      state.running = true;
-      if (state.phase !== "stopping") state.phase = "running";
+      if (state.phase !== "stopping") transitionSession(item.session_id, "running");
     } else if (state.live_running === false) {
-      state.running = false;
-    } else {
-      state.running = Boolean(item.running);
-      if (item.running) {
-        state.phase = "running";
-        state.live_running = true;
-        state.local_start_pending = false;
-      } else if (!["auto_pending", "stopping", "stopped", "failed"].includes(state.phase)) {
-        state.phase = "idle";
-      }
+      if (["starting", "running"].includes(state.phase)) transitionSession(item.session_id, "idle");
+    } else if (item.running) {
+      transitionSession(item.session_id, "running", { local_start_pending: false });
+    } else if (!["auto_pending", "stopping", "stopped", "failed"].includes(state.phase)) {
+      transitionSession(item.session_id, "idle");
     }
   }
   if (!activeProcessId || !processItems.some((item) => item.id === activeProcessId)) {
