@@ -441,7 +441,9 @@ impl Tool for MemoryInboxClearTool {
     }
 
     fn description(&self) -> String {
-        "Clear the inbox after ALL notes are processed (added/updated/merged or judged NOOP)."
+        "Clear the ENTIRE inbox. Use ONLY as a last-resort cleanup after per-note \
+         memory_inbox_discard; prefer discarding each processed note by fingerprint so \
+         concurrently-appended notes are never eaten (R-215)."
             .into()
     }
 
@@ -454,6 +456,54 @@ impl Tool for MemoryInboxClearTool {
         match store.clear_inbox() {
             Ok(()) => ToolOutput::ok("inbox cleared"),
             Err(e) => ToolOutput::error(format!("cannot clear inbox: {e}")),
+        }
+    }
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct InboxDiscardInput {
+    /// 已处理 note 的指纹(摘要行或 `- summary:` 后的可辨识串)。删除按整个 note 块。
+    fingerprint: String,
+}
+
+/// R-215:逐条销账工具——处理完一条 note 后按指纹删除该条,不清整箱。
+/// 并发 append 的新 note 指纹不在已处理集,不会被误删(验收③窗口封死)。
+pub struct MemoryInboxDiscardTool;
+
+#[async_trait]
+impl Tool for MemoryInboxDiscardTool {
+    fn name(&self) -> &'static str {
+        "memory_inbox_discard"
+    }
+
+    fn description(&self) -> String {
+        "Remove ONE processed inbox note by fingerprint (summary substring). Use this \
+         after each note is added/merged/judged NOOP — never clear the whole inbox after \
+         processing only some notes (R-215: whole-inbox clear eats concurrently-appended \
+         notes). Params: fingerprint."
+            .into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(InboxDiscardInput)).unwrap()
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: InboxDiscardInput = match crate::parse_input(self, input) {
+            Ok(v) => v,
+            Err(out) => return out,
+        };
+        let store = MemoryStore::project(&ctx.project_root);
+        match store.discard_note(&input.fingerprint) {
+            Ok(true) => ToolOutput::ok(format!(
+                "discarded inbox note matching `{}`",
+                input.fingerprint
+            )),
+            Ok(false) => ToolOutput::error(format!(
+                "no inbox note matches fingerprint `{}`; nothing discarded",
+                input.fingerprint
+            )),
+            Err(e) => ToolOutput::error(format!("cannot discard inbox note: {e}")),
         }
     }
 }
@@ -485,6 +535,10 @@ impl Component for MemoryManagerComponent {
         draft
             .tools
             .insert("memory_inbox_clear", Arc::new(MemoryInboxClearTool));
+        // R-215:逐条销账工具——处理完每条 note 后按指纹删除,不清整箱。
+        draft
+            .tools
+            .insert("memory_inbox_discard", Arc::new(MemoryInboxDiscardTool));
         for tool in [
             "memory_search",
             "memory_stats",
@@ -494,6 +548,7 @@ impl Component for MemoryManagerComponent {
             "memory_merge",
             "memory_stale",
             "memory_inbox_clear",
+            "memory_inbox_discard",
         ] {
             draft.permissions.push(rule(tool, "*", Effect::Allow));
         }
@@ -600,6 +655,72 @@ mod tests {
             )
             .await;
         assert!(no_reason.is_error);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-215:memory_inbox_discard 逐条销账——处理完一条删该条,其余 note 存活;
+    /// 指纹不匹配报错;工具在 manager 装配线注册。
+    #[tokio::test]
+    async fn inbox_discard_逐条销账_保留未处理note() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-manager-discard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let store = MemoryStore::project(&dir);
+        store.append_note("已处理 note", "", "fact", &[]).unwrap();
+        store.append_note("未处理 note", "", "fact", &[]).unwrap();
+
+        // 销账已处理的:该条消失,未处理条存活。
+        let discarded = MemoryInboxDiscardTool
+            .execute(json!({"fingerprint": "已处理 note"}), &ctx)
+            .await;
+        assert!(!discarded.is_error, "{}", discarded.content);
+        assert!(
+            discarded.content.contains("discarded"),
+            "{}",
+            discarded.content
+        );
+        assert_eq!(store.pending_notes(), 1, "未处理 note 应留存");
+        assert!(store.read_inbox().contains("未处理 note"));
+
+        // 指纹不匹配:报错且不动箱。
+        let miss = MemoryInboxDiscardTool
+            .execute(json!({"fingerprint": "不存在的 note"}), &ctx)
+            .await;
+        assert!(miss.is_error, "{}", miss.content);
+        assert_eq!(store.pending_notes(), 1);
+
+        // 注册检查:discard 工具在 manager 装配线,权限 Allow。
+        let rctx = kanzei_harness::ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Research,
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
+        };
+        let mut harness = kanzei_harness::Harness::default();
+        harness.add(MemoryManagerComponent);
+        let snapshot = harness.resolve(&rctx).unwrap();
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|t| t.name())
+            .collect();
+        assert!(names.contains(&"memory_inbox_discard"), "{names:?}");
+        assert_eq!(
+            snapshot.evaluate("memory_inbox_discard", "*"),
+            Effect::Allow
+        );
+
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1004,8 +1125,12 @@ pub fn manager_agent() -> AgentDef {
                  A failure COUNT is signal strength, never content: \"edit failed 7 times\" \
                  means the same mistake recurred — it does NOT mean \"7 retries are needed\". \
                  Record the underlying constraint (quote the actual error text), not the \
-                 retry count. After processing ALL notes call memory_inbox_clear, then \
-                 reply with one summary line."
+                 retry count. After processing EACH note call memory_inbox_discard with \
+                 that note's fingerprint (per-note reconciliation, R-215: never clear the \
+                 whole inbox while notes are still being appended by other processes — a \
+                 whole-inbox clear silently eats concurrently-appended notes). Use \
+                 memory_inbox_clear ONLY as a last-resort cleanup. Then reply with one \
+                 summary line."
             .into(),
     }
 }

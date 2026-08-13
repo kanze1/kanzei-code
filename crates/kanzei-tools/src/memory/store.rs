@@ -293,8 +293,29 @@ impl MemoryStore {
             }
             extras
         };
+        // R-215:next_id 冲突重试——并发 add 各自基于旧快照算 max,可能同号;
+        // 第二个写者发现同 id 前缀文件已存在(被先写者占用)时重新取号,
+        // 而不是静默覆盖。乐观并发:不引入跨进程锁,冲突时重试分配。
+        let mut id = self.next_id(&entries);
+        let mut id_retries = 0u32;
+        loop {
+            let id_prefix = format!("{}-", id);
+            let taken = std::fs::read_dir(&self.root)
+                .map(|rd| {
+                    rd.flatten()
+                        .any(|item| item.file_name().to_string_lossy().starts_with(&id_prefix))
+                })
+                .unwrap_or(false);
+            if !taken || id_retries > 16 {
+                break;
+            }
+            id_retries += 1;
+            // 撞号:基于当前磁盘实际条目重新分配。
+            let occupied = self.load_all();
+            id = self.next_id(&occupied);
+        }
         let entry = MemoryEntry {
-            id: self.next_id(&entries),
+            id,
             scope: self.scope.label().into(),
             category: category.into(),
             title: title.into(),
@@ -1332,6 +1353,9 @@ impl MemoryStore {
     /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
     pub fn clear_inbox(&self) -> anyhow::Result<()> {
         let path = self.root.join("inbox.md");
+        // R-215:与 append_note 同锁——整箱清空是兜底操作,锁内执行避免与并发
+        // append 交错(append 持锁读-拼-写回,clear 持锁覆盖,不会互吃)。
+        let _lock = crate::atomic_file::lock_exclusive(&path)?;
         if path.is_file() {
             crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
         }
@@ -1350,6 +1374,10 @@ impl MemoryStore {
     ) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
+        // R-215:读-拼接-写回必须整体持锁——并发 append 若各读各的再各自写回,
+        // 后写者覆盖先写者,note 无痕丢失(store.rs 原实现)。锁与 discard_note/
+        // clear_inbox 共用同一把,消化与追加互斥。
+        let _lock = crate::atomic_file::lock_exclusive(&path)?;
         let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
         let refs_line = {
             let refs: Vec<&str> = refs
@@ -1423,6 +1451,10 @@ impl MemoryStore {
 
     /// 丢弃一条草稿(按其摘要里的指纹定位)。用户说不要的候选不该再进 manager 的消化范围。
     pub fn discard_note(&self, fingerprint: &str) -> anyhow::Result<bool> {
+        // R-215:与 append_note 共用同一把锁,消化与追加互斥——锁内读-改-写回,
+        // 不会把并发 append 的内容当旧快照覆盖掉。
+        let path = self.root.join("inbox.md");
+        let _lock = crate::atomic_file::lock_exclusive(&path)?;
         let text = self.read_inbox();
         if !text.contains(fingerprint) {
             return Ok(false);
@@ -2891,6 +2923,72 @@ mod tests {
         assert!(store.read_inbox().contains("纯 ui 改动只跑 node 检查"));
         store.clear_inbox().unwrap();
         assert_eq!(store.pending_notes(), 0);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-215 验收①:20 条积压逐条 discard 能在数轮内收敛到 0(逐条销账而非整箱清)。
+    #[test]
+    fn 二十条积压逐条销账收敛到零() {
+        let (dir, store) = temp_store();
+        for i in 0..20 {
+            store
+                .append_note(&format!("积压 note 第 {i} 条"), "", "fact", &[])
+                .unwrap();
+        }
+        assert_eq!(store.pending_notes(), 20);
+        // 逐条按指纹销账:每条处理后删该条,不碰其余。
+        for i in 0..20 {
+            let removed = store.discard_note(&format!("积压 note 第 {i} 条")).unwrap();
+            assert!(removed, "第 {i} 条应被销账");
+            assert_eq!(store.pending_notes(), 19 - i, "销账后应逐条减少");
+        }
+        assert_eq!(store.pending_notes(), 0, "20 条应收敛到 0");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-215 验收③:消化清空窗口封死——discard 只删已处理指纹,并发 append 的新
+    /// note 存活;整箱 clear 前先 discard 已见条,新 note 不被吃。
+    #[test]
+    fn 逐条销账不吃并发新note_窗口封死() {
+        let (dir, store) = temp_store();
+        store.append_note("已处理 note A", "", "fact", &[]).unwrap();
+        // 模拟处理完 A 后、清空前,并发 append 了 B。
+        store.append_note("并发新 note B", "", "fact", &[]).unwrap();
+        // 只销账已处理的 A,B 必须存活。
+        let removed = store.discard_note("已处理 note A").unwrap();
+        assert!(removed);
+        assert!(
+            store.read_inbox().contains("并发新 note B"),
+            "discard A 不得吃掉 B(窗口封死)"
+        );
+        assert_eq!(store.pending_notes(), 1, "B 应留在箱中待下轮处理");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-215 验收②:并发 append 压测零丢 note——多线程同时 append_note,全部落盘。
+    #[test]
+    fn 并发append零丢note() {
+        let (dir, store) = temp_store();
+        let store = std::sync::Arc::new(store);
+        let mut handles = Vec::new();
+        for i in 0..12 {
+            let store = store.clone();
+            handles.push(std::thread::spawn(move || {
+                store
+                    .append_note(&format!("并发 note {i}"), "", "fact", &[])
+                    .unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        assert_eq!(store.pending_notes(), 12, "12 条并发 append 一条都不能丢");
+        for i in 0..12 {
+            assert!(
+                store.read_inbox().contains(&format!("并发 note {i}")),
+                "note {i} 应落盘"
+            );
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 
