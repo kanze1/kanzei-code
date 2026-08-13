@@ -33,7 +33,58 @@ async fn 服务探测对未监听端口干脆返回_false_不悬挂() {
     );
 }
 
-/// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,
+/// R-188 验收①⑤:workspace 依赖边从真实 Cargo.toml 抽取(代码生成架构图数据源)。
+/// 构造临时 workspace(根 Cargo.toml + 三个 crate 及互依赖),断言边集合正确且去重。
+#[test]
+fn workspace图_从真实cargo_toml抽依赖边() {
+    use super::docs::build_workspace_graph;
+    let root = std::env::temp_dir().join(format!(
+        "kz-arch-graph-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(root.join("crates/kanzei-a")).unwrap();
+    std::fs::create_dir_all(root.join("crates/kanzei-b")).unwrap();
+    std::fs::create_dir_all(root.join("crates/kanzei-c")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace]\nmembers = [\n    \"crates/kanzei-a\",\n    \"crates/kanzei-b\",\n    \"crates/kanzei-c\",\n]\n\n[workspace.dependencies]\nkanzei-a = { path = \"crates/kanzei-a\" }\n",
+    )
+    .unwrap();
+    // a 无内部依赖;b 依赖 a(workspace 形态);c 依赖 a 与 b(path 形态)。
+    std::fs::write(
+        root.join("crates/kanzei-a/Cargo.toml"),
+        "[package]\nname = \"kanzei-a\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("crates/kanzei-b/Cargo.toml"),
+        "[package]\nname = \"kanzei-b\"\n[dependencies]\nkanzei-a.workspace = true\nserde = \"1\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("crates/kanzei-c/Cargo.toml"),
+        "[package]\nname = \"kanzei-c\"\n[dependencies]\nkanzei-a = { path = \"../kanzei-a\" }\nkanzei-b = { path = \"../kanzei-b\" }\n",
+    )
+    .unwrap();
+
+    let edges = build_workspace_graph(&root);
+    assert_eq!(
+        edges,
+        vec![
+            ("kanzei-b".to_string(), "kanzei-a".to_string()),
+            ("kanzei-c".to_string(), "kanzei-a".to_string()),
+            ("kanzei-c".to_string(), "kanzei-b".to_string()),
+        ],
+        "应抽取全部 kanzei-* 内部依赖边并排序: {edges:?}"
+    );
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,/// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,
 /// 供 UI 列出可读的冲突清单(而不是一句「有冲突」)。
 #[test]
 fn merge_tree_conflict_解析出文件路径列表() {

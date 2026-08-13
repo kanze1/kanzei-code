@@ -490,5 +490,55 @@ pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, S
         "index_path": index_path.display().to_string(),
         "index": index,
         "design_docs": docs,
+        // R-188:代码生成的架构图数据——workspace crate 依赖边 + 设计文档节点。
+        // 纯代码从 Cargo.toml 抽取,非文生图/预置图;前端据此渲染 mermaid。
+        "graph": build_workspace_graph(&root),
     }))
+}
+
+/// R-188 验收①:从 workspace 真实数据源(Cargo.toml members + 各 crate 的
+/// `kanzei-*` 依赖)抽取 crate 依赖边,供前端生成架构图。返回 (crate, 依赖)
+/// 二元组列表,边去重排序。解析不到任何 crate 时返回空(前端降级文字树)。
+pub(crate) fn build_workspace_graph(root: &std::path::Path) -> Vec<(String, String)> {
+    let Ok(workspace_toml) = std::fs::read_to_string(root.join("Cargo.toml")) else {
+        return Vec::new();
+    };
+    // members = ["crates/kanzei-harness", ...]
+    let members: Vec<String> = workspace_toml
+        .lines()
+        .skip_while(|l| l.trim() != "[workspace]")
+        .skip_while(|l| !l.contains("members"))
+        .take_while(|l| l.trim() != "]")
+        .filter_map(|l| {
+            l.trim()
+                .trim_matches(',')
+                .trim_matches('"')
+                .strip_prefix("crates/")
+                .map(str::to_string)
+        })
+        .collect();
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for member in &members {
+        let path = root.join("crates").join(member).join("Cargo.toml");
+        let Ok(toml) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        // 抓 `kanzei-xxx.workspace = true` 与 `kanzei-xxx = { path = ... }`
+        // 两种形态的 kanzei-* 依赖(内部 crate 依赖)。
+        for line in toml.lines() {
+            let trimmed = line.trim();
+            if let Some(dep) = trimmed
+                .strip_prefix("kanzei-")
+                .and_then(|rest| rest.split(['.', '=', ' ']).next())
+            {
+                let dep_name = format!("kanzei-{dep}");
+                if members.contains(&dep_name) && dep_name != *member {
+                    edges.push((member.clone(), dep_name));
+                }
+            }
+        }
+    }
+    edges.sort();
+    edges.dedup();
+    edges
 }
