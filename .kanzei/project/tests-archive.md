@@ -2766,3 +2766,23 @@
 - 关联: R-236 D-346
 - 收尾: 1786649540
 - 源码指纹: 42745d437e4ce2b8
+
+## T-1786651710 cargo test -p kanzei-tools --lib(D-341 fmt 后重跑) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: 352 passed; 0 failed; 1 ignored。含新测试 reconcile_candidates_auto_promote_deprecate_and_keep(复发≥3+真实episode 自动promote、超期自动deprecated归档、未达标保持candidate,文件/索引前后计数断言)。
+- 关联: D-341
+- 收尾: 1786651710
+- 源码指纹: 36f0324c7b256211
+
+## T-1786651768 cargo test -p kanzei -p kanzei-app(D-341 双端挂载) [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-app
+- 摘要: kanzei 3 passed(CLI 轮末调用编译+链路);kanzei-app 145 passed(桌面端轮末 reconcile 挂载编译+链路)。
+- 关联: D-341
+- 收尾: 1786651768
+- 源码指纹: 36f0324c7b256211
+
+## T-1786651907 cargo test --workspace(D-341 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 352 / kanzei 3,0 failed。D-341 关闭前全量。
+- 关联: D-341
+- 收尾: 1786651907

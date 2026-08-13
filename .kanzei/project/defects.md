@@ -100,17 +100,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
 
-## D-341 candidate 没有轮末自动处置调用方，长期停留在未验证状态 [fixing] (medium)
-- refs: R-195
-- 复现: R-195 现有 candidate 只能由 manager LLM 自主调用 memory_promote 或 memory_stale；MemoryStore 与轮末 consolidate 流程没有自动扫描 candidate 的判定入口。M-034/M-037/M-038 仍为 candidate。
-- 影响: candidate 不参与生产召回是既定边界，但没有自动晋升或清退闸门会使存量永久堆积，无法满足 R-195 的存量收敛与不单调增长验收。
-- 来源: self-found（R-195 代码勘察）
-- 标签: 核心
-- 进展: 待在 R-195 中实现自动 candidate reconciliation，并与 CLI/桌面端共享调用。
-- 验收: 轮末真实调用自动扫描 candidate；满足明确条件的 candidate 自动 promote 或 deprecated，未满足条件的不动；有机制测试与存量前后计数证据。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-341
-
 ## D-342 停止运行 = handle.abort() 硬杀,被打断轮的对话历史整轮丢失 [open] (high)
 - refs: R-236 docs/design/context_compaction.md
 - 复现: 自动推进中点「停止」再发新任务:stop_runtime_and_finalize(kanzei-app/src/state.rs:534)直接 handle.abort() 杀掉 run_task 的 future;而对话写回只在轮末(run.rs:1032 内存表、run.rs:1089 conversation.updated 事件),abort 永远到不了那两行 → 被打断轮的全部消息(可能几十步工具调用/改动/结论)从对话投影消失,下一轮 prior 停在上一轮轮末。模型于是称"之前没做过 X"(用户 2026-08-14 实测报告)。

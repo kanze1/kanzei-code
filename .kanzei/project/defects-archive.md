@@ -3948,3 +3948,17 @@
 - observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
 - observed_worktree_hash: fnv1a64:bd305948b988a8e5
 - recorded_at: 1786649450534
+
+## D-341 candidate 没有轮末自动处置调用方，长期停留在未验证状态 [fixed] (medium)
+- refs: R-195
+- 复现: R-195 现有 candidate 只能由 manager LLM 自主调用 memory_promote 或 memory_stale；MemoryStore 与轮末 consolidate 流程没有自动扫描 candidate 的判定入口。M-034/M-037/M-038 仍为 candidate。
+- 影响: candidate 不参与生产召回是既定边界，但没有自动晋升或清退闸门会使存量永久堆积，无法满足 R-195 的存量收敛与不单调增长验收。
+- 来源: self-found（R-195 代码勘察）
+- 标签: 核心
+- 进展: 已修复并关闭。①轮末真实调用:CLI kanzei/src/main.rs(consolidate_memory_inbox 之后)与桌面端 kanzei-app/src/run.rs(spawn consolidate 之后)各自调用 kanzei_tools::memory::reconcile_candidates,传当轮 current_episode_id,与 inbox 消化解耦(无草稿也跑);②判定规则复用既有 reconcile_candidates(store.rs):复发≥3+真实 episode+指纹→promote,超 14 天未处置→deprecated 归档,其余保持 candidate,未验证不注入边界不变;③机制测试 reconcile_candidates_auto_promote_deprecate_and_keep(store.rs tests)断言三条路径与文件/索引前后计数;CLI 打印处置报告(promote/deprecated/未动 + 文件/索引 before→after)。提交 dd5e5fd;定向:kanzei-tools 352 passed、kanzei 3 passed、kanzei-app 145 passed;关闭前全量 cargo test --workspace 全绿(T-1786651907)。
+- 验收: 轮末真实调用自动扫描 candidate；满足明确条件的 candidate 自动 promote 或 deprecated，未满足条件的不动；有机制测试与存量前后计数证据。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-341
+- observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786651911981
