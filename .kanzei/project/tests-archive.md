@@ -2516,3 +2516,9 @@
 - 摘要: kanzei-tools 325 passed:R-228 关闭门禁(前端标签条目需前端冒烟 passed)2 测试——识别(ui-*.mjs vs node --check vs cargo)+ 行为(前端被拒/非前端放行/补冒烟后可关)
 - 关联: R-228
 - 收尾: 1786627420
+
+## T-1786627520 cargo test --workspace (R-228 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:kanzei-tools 325、core 150、app 140、其余全过。R-228 关闭门禁(前端标签需前端冒烟 passed)关闭前验证。
+- 关联: R-228
+- 收尾: 1786627520
