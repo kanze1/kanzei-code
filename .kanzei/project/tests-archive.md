@@ -2886,3 +2886,21 @@
 - 摘要: 全量全绿:app 147 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-187 关闭前全量。
 - 关联: R-187
 - 收尾: 1786655610
+
+## T-1786655734 cargo test -p kanzei-app(R-188 B1 数据侧) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 148 passed; 0 failed。R-188 B1:architecture_snapshot 增加 graph 字段,build_workspace_graph 从 Cargo.toml 抽 crate 依赖边 + 单测。
+- 关联: R-188
+- 收尾: 1786655734
+
+## T-1786656088 R-188 B2 架构图前端冒烟集 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs && cargo test -p kanzei-app
+- 摘要: 前端五冒烟全绿(ui-runtime 含新增 R-188 断言:arch-graph SVG 渲染、节点/边计数、节点点击触发 docs_read_custom、文字树降级保留);kanzei-app 148 passed。
+- 关联: R-188
+- 收尾: 1786656088
+
+## T-1786656195 cargo test --workspace(R-188 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 148 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-188 关闭前全量(2 批完成)。
+- 关联: R-188
+- 收尾: 1786656195

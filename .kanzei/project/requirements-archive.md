@@ -2750,3 +2750,19 @@
 - observed_head: 85907fc021ee8e902c9cadbd474f9af0e82cfd4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786655624130
+
+## R-188 架构浏览直观化:代码生成的架构图渲染工具(harness/skills,非文生图) [done]
+- acceptance: ①工具从真实数据源(代码结构/依赖/设计文档)生成架构图,纯代码渲染,禁止文生图与预置图片;②架构浏览页显示生成的架构图,并随数据刷新;③图不可用时降级为现有文字视图,不空白;④图上节点可点击/定位到对应文档或代码;⑤生成链路有可运行的自动化验证。
+- complexity: 中
+- content: 架构浏览(architecture 索引/设计文档)当前只有文字树与索引列表,读起来很不直观。需要一个代码生成的架构图渲染工具(harness 或 skills 形态),自动从真实代码/文档数据生成架构图并嵌入浏览界面。硬约束:架构图必须是代码生成的(如 mermaid/graphviz/SVG),不是文生图,也不是预置的静态图片。
+- label: 核心
+- priority: P2
+- status: todo
+- 既有能力(§1.25 显式标注,不得重复申报为本次产出): 架构浏览页本身已存在(R-122)——后端 `architecture_snapshot` 只读命令供数据(架构索引正文 + docs/design 文档清单),前端 crates/kanzei-app/ui/19-arch.js:8-104 渲染「索引 + 设计文档树」,按索引状态分层(已入册的按索引章节分组、未入册的单列,让「有文档没入册」的缺口在界面上直接可见),点击条目走既有 Markdown 查看器 openDocViewer。本条是在这份既有数据源与视图之上**加图**,不是另起一个架构页;验收③的降级文字视图就是这棵既有的树,不要重写。
+- 现状(2026-08-12 读码核实,dev HEAD): 19-arch.js 全文 129 行,**无任何图形渲染**——零 svg/canvas/mermaid/graphviz 依赖,输出是纯 DOM 文本树;`architecture_snapshot` 也只回「索引文本 + 文档名/标题列表」,**不含依赖边、调用关系、模块归属等成图所需的结构化数据**。所以本条的第一道工作量在**数据侧**(从 crates 依赖、模块引用或设计文档里抽出可成图的节点与边),渲染选型(mermaid/graphviz/自绘 SVG)是第二道;验收①的「真实数据源」指的就是这层抽取,不能拿手写的图字面量顶替。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-188
+- 批次: 2/2
+- 进展: 2026-08-16 完成并关闭(2 批:4d9fb34 数据侧 + de5a346 前端)。验收逐条:①工具从真实数据源生成架构图,纯代码渲染,禁止文生图/预置图——architecture_snapshot 新增 graph 字段,build_workspace_graph 从 workspace Cargo.toml members + 各 crate 的 kanzei-* 依赖(workspace/path 两形态)抽取依赖边,单测覆盖;前端 renderArchGraph 自绘 SVG(零外部依赖,桌面端离线可用),非文生图/预置图;②架构浏览页显示生成的架构图并随 refreshArch 刷新——renderArch 调 renderArchGraph,index.html 加 #arch-graph 容器,刷新即重渲染;③图不可用时降级文字树不空白——图数据空或无 createElementNS 时 arch-graph 隐藏、renderArch 文字树照常渲染(renderArchGraph 调用包 try-catch,异常不中断),冒烟断言文字树保留;④节点可点击定位——openArchCrate 优先打开同名设计文档,否则 crate Cargo.toml(均经 docs_read_custom 只读),冒烟断言点击触发 docs_read_custom;⑤生成链路自动化验证——build_workspace_graph 单测 + ui-runtime-smoke R-188 断言(SVG 渲染/节点边计数/点击定位/降级)。既有能力标注:架构浏览页文字树与 architecture_snapshot 为 R-122 交付,未重写,作为降级视图复用。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656195)。
+- observed_head: de5a3466eb6c52b9b0be37e2e59610f3923e89cb
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786656204141
