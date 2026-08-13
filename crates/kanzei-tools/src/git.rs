@@ -63,7 +63,9 @@ impl Tool for GitTool {
         {
             action.insert(
                 "enum".into(),
-                serde_json::json!(["status", "diff", "log", "stage", "commit", "merge_ff"]),
+                serde_json::json!([
+                    "status", "diff", "log", "stage", "commit", "merge_ff", "finalize"
+                ]),
             );
         }
         schema
@@ -153,6 +155,9 @@ impl Tool for GitTool {
             "stage" => stage(&ctx.cwd, &input.files).await,
             "commit" => commit(ctx, input.message, input.expected_hash).await,
             "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
+            // D-334:finalize 事务化——Agent 一次调用,Harness 机械完成
+            // fmt → 相关测试 → test_record → stage → CAS commit,不再手动驾驶。
+            "finalize" => finalize(ctx, input.files, input.message).await,
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: status | diff | log | stage | commit | merge_ff"
             )),
@@ -750,6 +755,175 @@ async fn commit(
             ToolOutput::error(format!("commit succeeded but verification failed: {error}"))
         }
     }
+}
+
+/// D-334:finalize 事务化——把「fmt → 相关测试 → test_record → stage → CAS commit」
+/// 收敛为一次机械调用,Agent 不再手动驾驶 Harness 状态机。
+///
+/// 内部顺序(任一失败立即返回该阶段,不留半状态):
+///   1. `fmt_gate`(提交前代码门禁,D-264):fmt 不过先拦,省得 Agent 先 test 再被拦;
+///   2. `clippy_gate`:与 commit 一致的全仓 clippy 硬门禁;
+///   3. 按暂存源码推导相关 crate,构造定向测试命令(无 crate 改动时退化为
+///      `cargo test --workspace` 由调用方显式指定 —— 见参数说明);
+///   4. 跑测试(超时 10 分钟防挂死),失败返回测试输出;
+///   5. `test_record::record_test_run_with_duration` 记 passed(带 source_fingerprint,
+///      与 staged_source_fingerprint 一致,背书「这份源码测过」);
+///   6. `stage`(显式文件,与既有 stage 同语义);
+///   7. CAS commit(消费 stage 的 staged_hash,与既有 commit 同语义)。
+///
+/// 与手工「test→record→stage→commit」的差异:fmt/clippy 在测试**之前**拦,且全部
+/// 在一个调用内完成——Agent 只发一次 finalize,不手动编排每一步。
+async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) -> ToolOutput {
+    let cwd = &ctx.cwd;
+    let message = message.unwrap_or_default();
+    if message.trim().is_empty() {
+        return ToolOutput::error("`message` is required for finalize");
+    }
+    if files.is_empty() {
+        return ToolOutput::error(
+            "`files` is required for finalize: explicitly list the files to commit",
+        );
+    }
+    let sources: Vec<String> = files
+        .iter()
+        .filter(|p| p.ends_with(".rs") || p.ends_with("Cargo.toml"))
+        .cloned()
+        .collect();
+
+    // 1. fmt gate(先于测试——D-334 核心:别再「测完了才发现 fmt 没过」)。
+    if !sources.is_empty() {
+        if let Err(error) = fmt_gate(cwd).await {
+            return ToolOutput::error(format!(
+                "[finalize] fmt gate failed (before tests):\n{error}"
+            ));
+        }
+        if let Err(error) = clippy_gate(cwd).await {
+            return ToolOutput::error(format!(
+                "[finalize] clippy gate failed (before tests):\n{error}"
+            ));
+        }
+    }
+
+    // 2. 相关测试命令:暂存源码所属 crate 集合;无 crate 改动时退化为 workspace。
+    let staged_crates = source_crates(&sources);
+    let test_command = if staged_crates.is_empty() {
+        "cargo test --workspace".to_string()
+    } else {
+        staged_crates
+            .iter()
+            .map(|c| format!("cargo test -p {c}"))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    };
+
+    // 3. 跑测试(超时 10 分钟;失败返回测试输出,不 stage 不 commit)。
+    let started = std::time::Instant::now();
+    let mut command = if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(&test_command);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(&test_command);
+        c
+    };
+    command.current_dir(cwd);
+    crate::hide_console_async(&mut command);
+    let output =
+        match tokio::time::timeout(std::time::Duration::from_secs(600), command.output()).await {
+            Ok(out) => match out {
+                Ok(output) => output,
+                Err(error) => {
+                    return ToolOutput::error(format!(
+                        "[finalize] failed to run `{test_command}`: {error}"
+                    ))
+                }
+            },
+            Err(_) => {
+                return ToolOutput::error(format!(
+                    "[finalize] tests timed out after 600s: `{test_command}`"
+                ))
+            }
+        };
+    let duration_secs = started.elapsed().as_secs_f64();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: Vec<&str> = stderr
+            .lines()
+            .filter(|l| l.contains("test result") || l.starts_with("error"))
+            .take(12)
+            .collect();
+        return ToolOutput::error(format!(
+            "[finalize] tests failed: `{test_command}`\n{}",
+            tail.join("\n")
+        ));
+    }
+    let passed_summary = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| l.contains("test result: ok"))
+        .map(str::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+
+    // 4. test_record:记 passed,带 source_fingerprint(与暂存源码一致)与时长。
+    let fingerprint = staged_source_fingerprint(cwd).unwrap_or_default();
+    let summary = if passed_summary.is_empty() {
+        "finalize 测试通过(无 test result 行,或纯非 Rust 改动)".to_string()
+    } else {
+        passed_summary
+    };
+    if let Err(error) = crate::test_record::record_test_run_with_duration(
+        &ctx.project_root,
+        None,
+        &format!("git finalize (auto): {test_command}"),
+        "passed",
+        Some(&test_command),
+        Some(&summary),
+        None,
+        Some(duration_secs),
+        Some(&fingerprint),
+    ) {
+        return ToolOutput::error(format!("[finalize] test_record failed: {error}"));
+    }
+
+    // 5. stage(显式文件,与既有 stage 同语义)。
+    let staged = stage(cwd, &files).await;
+    let ToolOutput {
+        content,
+        is_error,
+        display,
+    } = staged;
+    if is_error {
+        return ToolOutput::error(format!("[finalize] stage failed:\n{content}"));
+    }
+    // stage 返回里解析 staged_hash(格式固定:含 `staged_hash: <hash>` 行)。
+    let Some(hash_line) = content.lines().find(|l| l.contains("staged_hash:")) else {
+        return ToolOutput::error(format!(
+            "[finalize] stage succeeded but staged_hash not found in output:\n{content}"
+        ));
+    };
+    let staged_hash = hash_line
+        .split("staged_hash:")
+        .nth(1)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+    if staged_hash.is_empty() {
+        return ToolOutput::error("[finalize] staged_hash empty after stage");
+    }
+
+    // 6. CAS commit(消费 staged_hash)。
+    let committed = commit(ctx, Some(message), Some(staged_hash.clone())).await;
+    if committed.is_error {
+        return ToolOutput::error(format!(
+            "[finalize] commit failed after successful stage+test (staged_hash {staged_hash}):\n{}",
+            committed.content
+        ));
+    }
+    ToolOutput::ok(format!(
+        "[finalize] complete: {test_command} passed in {duration_secs:.1}s → staged {staged_hash} → committed\n{content}\n{}",
+        committed.content
+    ))
+    .with_display(display.unwrap_or_else(|| serde_json::json!({ "kind": "terminal" })))
 }
 
 /// 引用名校验:只放行分支/标签的常规形态。拒绝 `-` 开头(选项注入)、区间语法
@@ -1604,6 +1778,107 @@ prunable gitdir file points to non-existent location
             "报错必须含 --> 位置(clippy 编译覆盖 check 的实证): {err}"
         );
         assert!(err.contains("lib.rs"), "应点名出错文件: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-334 验收②:finalize 在测试**之前**先拦 fmt——构造 fmt 不过的源码,
+    /// finalize 报 fmt gate 阶段,而不是先跑测试再在 commit 才拦。
+    #[tokio::test]
+    async fn finalize_rejects_fmt_before_tests() {
+        let dir = temp_repo("finalize-fmt");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"finalize-fmt-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // 故意不格式化:fmt gate 应拦截。
+        std::fs::write(dir.join("src/lib.rs"), "pub fn  x( ) -> i32 { 1 }\n").unwrap();
+        // test_record 需要项目骨架。
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let out = GitTool
+            .execute(
+                serde_json::json!({
+                    "action": "finalize",
+                    "files": ["src/lib.rs", "Cargo.toml"],
+                    "message": "finalize fmt gate test",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "fmt 不过必须拦下 finalize: {}", out.content);
+        assert!(
+            out.content.contains("fmt gate failed"),
+            "应点名 fmt gate 阶段: {}",
+            out.content
+        );
+        // 未被 stage、未提交——不留半状态。
+        let status = run_git(&dir, &["status", "--porcelain"]).await.unwrap();
+        assert!(
+            status.contains("??") || status.contains(" M"),
+            "fmt 拦截后不得 stage/commit: {status}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-334 成功路径:干净的最小工程,finalize 一次完成测试→record→stage→commit。
+    /// 断言:返回 complete、commit 出现在 git log、test_record 有 passed 记录。
+    #[tokio::test]
+    async fn finalize_runs_tests_records_stages_and_commits() {
+        let dir = temp_repo("finalize-ok");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"finalize-ok-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        // 干净且带一个会过的测试的源码(rustfmt 规范格式,过 fmt gate)。
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn x() -> i32 {\n    1\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn it_works() {\n        assert_eq!(crate::x(), 1);\n    }\n}\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        // 初始提交(empty repo 无法 stage 后看 log;先提交 README 占位)。
+        commit_file(&dir, "README.md", "finalize probe\n", "init");
+
+        let ctx = ToolCtx {
+            cwd: dir.clone(),
+            project_root: dir.clone(),
+            ..Default::default()
+        };
+        let out = GitTool
+            .execute(
+                serde_json::json!({
+                    "action": "finalize",
+                    "files": ["src/lib.rs", "Cargo.toml"],
+                    "message": "finalize success test",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "finalize 应成功: {}", out.content);
+        assert!(out.content.contains("complete"), "{}", out.content);
+
+        // commit 落地。
+        let log = run_git(&dir, &["log", "--oneline", "-1"]).await.unwrap();
+        assert!(
+            log.contains("finalize success test"),
+            "finalize 提交应出现在 log: {log}"
+        );
+        // test_record 有 passed 记录。
+        let records = crate::test_record::test_runs_snapshot(&dir).unwrap();
+        let text = serde_json::to_string(&records).unwrap_or_default();
+        assert!(
+            text.contains("git finalize (auto)") && text.contains("\"passed\""),
+            "finalize 应写 passed test_record: {text}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

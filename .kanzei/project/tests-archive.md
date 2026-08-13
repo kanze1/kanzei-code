@@ -2388,3 +2388,10 @@
 - 摘要: 发版 build-52935b6:verify.ps1 十步全绿(fmt/clippy/test/ui 六冒烟,证据写 dist/verification.json commit 52935b63),package.ps1 -Ack 19 -Publish 产出 kanzei-setup-52935b6.exe(12MB)并发布 GitHub release。覆盖 R-175(子代理后台化完整)、R-185(依赖判定)、D-333(归档去重)。
 - 关联: R-175 R-185 D-333
 - 收尾: 1786619347
+
+## T-1786619997 cargo test --workspace (D-334/D-335/D-336) [passed]
+- 命令: cargo test --workspace
+- 时长: 60.0s
+- 摘要: D-334/D-335/D-336 三问题修复:workspace 804 passed / 0 failed 全绿。D-334 finalize 事务化(git finalize 动作:fmt→clippy→相关测试→test_record→stage→CAS commit 一次完成,fmt 拦截测试+成功路径测试);D-335 harness 措辞与 WIP lease 解耦;D-336 normalize 归档非终态测试改名澄清+归档重复字段 apply 可修接线。clippy 干净。
+- 关联: D-334 D-335 D-336
+- 收尾: 1786619997

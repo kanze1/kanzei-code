@@ -2988,8 +2988,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn normalize_reports_archived_mismatch_without_writing() {
-        // D-332:归档区非终态/非法 lifecycle 只报告(写通道不公开整表),apply 不动归档。
+    async fn normalize_archived_non_terminal_reports_and_keeps_status() {
+        // D-336:归档区非终态 lifecycle 仍只报告(修复通道是 fix_terminal 纠错),
+        // apply 不改归档 status;归档**重复字段**由 apply 走 dedupe_archived_fields
+        // 修复(见 dedupe_archived_fields_merges_progress_and_keeps_first_of_others)。
         let dir = std::env::temp_dir().join(format!(
             "kz-normalize-arch-{}-{}",
             std::process::id(),
@@ -3024,11 +3026,11 @@ mod tests {
             "归档区非终态应被报告: {}",
             out.content
         );
-        // 归档文件未被 apply 改动(无整表写通道)
+        // 归档非终态 status 不被 apply 改动(fix_terminal 才是纠错通道)
         let archived = store.load_archive().unwrap();
         assert_eq!(
             archived[0].status, "open",
-            "apply 不得改动归档: {}",
+            "apply 不得改动归档 status: {}",
             archived[0].status
         );
 

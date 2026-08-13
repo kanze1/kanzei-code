@@ -99,3 +99,30 @@
 - observed_head: bd629cdd4ec0ac641c11fd4177e57cfa2aaa9c49
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
+
+## D-334 git finalize 事务化未实现(acceptance shrink) [open] (high)
+- 内容: 原始评估要求的 finalize 事务:Agent 一次调用 `git finalize` 即机械完成 fmt → 相关测试 → test_record(source_hash, coverage) → stage → CAS commit,Agent 不再手动驾驶 state machine。当前 git.rs commit(694-749)只有「顺序 gate」——fmt_gate/clippy_gate/source_test_gate 依次拦截,但测试仍要 Agent 先手动跑、test_record 仍要 Agent 手动记、stage 仍要 Agent 手动做。真实 workflow 仍是 Agent 先 test→commit→commit 才发现 fmt 没过(中间少了一部分无意义重测=降低 ceremony,不是事务化 ceremony)。
+- 归属: kanzei
+- 来源: 2026-08-13 用户对 D-332 的验收复核:finalize 事务化是原始评估第 4 项,最终验收表只证明了 gate 内部顺序,没提供真正的事务入口。
+- 标签: 核心
+- 证据等级: E1(读码:git.rs commit 函数 694-749 仍是逐 gate 拦截;Agent 工作流实测先 test 后 commit 才发现 fmt 没过)
+- 验收: ①git 工具新增 finalize 动作,Agent 一次调用传入 files+message 即完成:fmt → 按 changed crates 选相关测试 → 跑测试 → test_record(source_hash, coverage) → stage → CAS commit,任一环节失败返回具体阶段;②有集成测试证明 finalize 内部顺序(构造 fmt 不过的暂存 → finalize 在 test 前先拦 fmt);③有测试证明 finalize 成功后与手工 stage+commit 的 staged_hash 一致(同一 CAS 语义);④finalize 失败时不留半状态(不 stage 不 commit,工作树可继续修)。
+- 优先级: P1
+
+## D-335 Work lease 与 turn granularity 措辞未收敛(prompt 与 runtime 不一致仍在) [open] (medium)
+- 内容: 原始建议是「Work lease 和 turn granularity 解耦:强约束只有同时一个 mutation WIP;做完释放后可以继续下一项,不要一边允许连续推进,一边 prompt 又说单轮一个条目」。实现中发现「同时一个 mutation WIP」是既有 runtime 行为,但 prompt 层的「单轮一个完整条目」措辞在 harness 内置资产(不在项目 conventions 里),最后没有真正改掉措辞——只把既有 runtime 行为计入验收,acceptance by reinterpretation,prompt 与 runtime 的不一致仍在。
+- 归属: kanzei
+- 来源: 2026-08-13 用户对 D-332 的验收复核:Work lease/turn granularity 是「证明既有」不是完整落地。
+- 标签: 流程
+- 证据等级: E1(harness 内置资产仍写「单轮粒度 = 一个完整条目」,未与 WIP lease 解耦措辞)
+- 验收: ①harness 内置资产的单轮粒度措辞改为与 runtime 语义一致:WIP 排他(同一时间一个 mutation 槽)+ 释放后可继续取下一个,不再坚持「一轮只能一个条目」;②措辞改动有守护测试(注入内容断言新措辞存在);③不改变既有 WIP 排他 runtime 行为。
+- 优先级: P2
+
+## D-336 normalize 归档 repair 未真正统一(archive mismatch 仍只报告不修复) [open] (medium)
+- 内容: 原始建议是统一 normalize repair surface(重复字段、invalid lifecycle、title/status mismatch、active/archive integrity 都走同一 repair)。现状:活动区重复字段 apply 可修;但归档区仍是 report 不是 repair(normalize 对 archived 只报告「需手动整理」,测试名 normalize_reports_archived_mismatch_without_writing 自证);存量 R-234/R-235 双字段、归档 4 条双终态、R-225/R-226 重复进展拆到 D-333 承接。D-332 关闭时机制主体已建立,但 archive repair 与存量未完全收口——close 偏积极。
+- 归属: kanzei
+- 来源: 2026-08-13 用户对 D-332 的验收复核:normalize 仍没有真正统一所有 repair。
+- 标签: 核心
+- 证据等级: E1(读码:normalize 归档分支 1050-1071 只 push findings 不修;D-333 承载存量收敛)
+- 验收: ①normalize apply 能修复归档区重复字段(复用 dedupe_archived_fields,与 D-333 已交付的能力接线);②normalize_reports_archived_mismatch_without_writing 测试改名为反映可修复,或补 apply 修复断言;③存量收敛状态在 D-333 关闭时逐条给出证据。
+- 优先级: P2
