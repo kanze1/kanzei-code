@@ -134,10 +134,13 @@ impl ReplayMemoryProvider {
                     episode_id: None,
                     step_id: None,
                     trigger_type: "replay_eval",
-                    trigger_payload: &format!(
-                        "{{\"tool\":\"{}\",\"kind\":\"{}\"}}",
-                        trigger.tool, trigger.kind
-                    ),
+                    // serde_json 序列化:kind 是错误原文前缀,含引号/换行时手拼
+                    // JSON 会产出坏行(实测 recall_events 12% payload 解析不了)。
+                    trigger_payload: &serde_json::json!({
+                        "tool": trigger.tool,
+                        "kind": trigger.kind,
+                    })
+                    .to_string(),
                     policy_action: "hybrid",
                     query: &query_text.chars().take(120).collect::<String>(),
                     candidate_ids: &ids_json,

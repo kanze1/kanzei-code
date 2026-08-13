@@ -24,7 +24,7 @@ pub(crate) use context::*;
 mod compaction;
 mod drive;
 mod recall;
-pub use recall::{RecallHit, RecallPolicy, RecallTrigger, RecallWatch};
+pub use recall::{RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch};
 mod subagent;
 mod tool_exec;
 pub use drive::{run_once, run_once_with_parts};

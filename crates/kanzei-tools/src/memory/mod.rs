@@ -611,16 +611,39 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
     fn record_trigger(
         &self,
         trigger: &kanzei_core::RecallTrigger,
-        hits: &[kanzei_core::RecallHit],
+        retrieved: &[kanzei_core::RecallHit],
+        injected: &[kanzei_core::RecallHit],
         elapsed_ms: u64,
     ) {
-        if hits.is_empty() {
-            return;
-        }
-        let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
-        let Ok(ids_json) = serde_json::to_string(&ids) else {
+        // policy_action 反映实际发生的检索路径,不再按 target/count 猜标签
+        // (旧实现把"fingerprint"标给一切带 target 的触发,延迟统计随之失真):
+        // - tier0 命中 → materialize 的 source 前缀是 "memory:";
+        // - tier1 命中 → source 前缀是 "memory_search:";count≥2 时该次检索
+        //   换了 query(sample+target 都是新的),标 reretrieve;
+        // - 空结果 → miss(留痕才有 trigger precision 可算)。
+        let policy_action = if retrieved.is_empty() {
+            "miss"
+        } else if retrieved.iter().all(|h| h.source.starts_with("memory:")) {
+            "fingerprint"
+        } else if trigger.failure_count >= 2 {
+            "reretrieve"
+        } else {
+            "lexical"
+        };
+        let retrieved_ids: Vec<&str> = retrieved.iter().map(|h| h.id.as_str()).collect();
+        let injected_ids: Vec<&str> = injected.iter().map(|h| h.id.as_str()).collect();
+        let (Ok(retrieved_json), Ok(injected_json)) = (
+            serde_json::to_string(&retrieved_ids),
+            serde_json::to_string(&injected_ids),
+        ) else {
             return;
         };
+        let payload = serde_json::json!({
+            "tool": trigger.tool,
+            "kind": trigger.kind,
+            "count": trigger.failure_count,
+        })
+        .to_string();
         let path = self.project_root.join(".kanzei").join("state.db");
         let Ok(store) = kanzei_core::SessionStore::open(&path) else {
             return;
@@ -634,27 +657,52 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             episode_id: None,
             step_id: None,
             trigger_type: "event_recall",
-            trigger_payload: &format!(
-                "{{\"tool\":\"{}\",\"kind\":\"{}\",\"count\":{}}}",
-                trigger.tool, trigger.kind, trigger.failure_count
-            ),
-            policy_action: if trigger.failure_count >= 2 {
-                "reretrieve"
-            } else if trigger.target.is_empty() {
-                "lexical"
-            } else {
-                "fingerprint"
-            },
+            trigger_payload: &payload,
+            policy_action,
             query: &trigger.sample.chars().take(120).collect::<String>(),
-            candidate_ids: &ids_json,
-            retrieved_ids: &ids_json,
-            injected_ids: &ids_json,
-            lexical_ms: elapsed_ms,
+            candidate_ids: &retrieved_json,
+            retrieved_ids: &retrieved_json,
+            injected_ids: &injected_json,
+            // 延迟归到实际走过的通道:tier0 命中没进 BM25,lexical_ms 记 0。
+            lexical_ms: if policy_action == "fingerprint" {
+                0
+            } else {
+                elapsed_ms
+            },
             embed_ms: 0,
             vector_ms: 0,
             total_ms: elapsed_ms,
         };
         let _ = store.record_recall_event(&event);
+    }
+
+    fn record_outcomes(&self, outcomes: &[kanzei_core::RecallOutcome]) {
+        // ACTION_CHANGED 机械口径落 memory_eval(与漏斗 funnel_counts 的查询臂名
+        // 对齐):注入后同 (tool,kind) 到轮末未再失败 = success。此前该漏斗段
+        // 没有任何生产写入方,恒为 0。
+        if outcomes.is_empty() {
+            return;
+        }
+        let path = self.project_root.join(".kanzei").join("state.db");
+        let Ok(store) = kanzei_core::SessionStore::open(&path) else {
+            return;
+        };
+        for outcome in outcomes {
+            let case = format!("online:{}|{}", outcome.tool, outcome.kind);
+            let _ = store.record_memory_eval(
+                &outcome.memory_id,
+                &case,
+                "action_changed",
+                "online",
+                "v1",
+                outcome.changed,
+                0,
+                0,
+                0,
+                0,
+                None,
+            );
+        }
     }
 }
 
@@ -914,9 +962,6 @@ pub fn record_memory_search_telemetry(
     hits: &[SearchHit],
     injected: bool,
 ) {
-    if hits.is_empty() {
-        return;
-    }
     let path = project_root.join(".kanzei").join("state.db");
     let Ok(store) = kanzei_core::SessionStore::open(&path) else {
         return;
@@ -935,7 +980,9 @@ pub fn record_memory_search_telemetry(
         step_id: None,
         trigger_type: "memory_search",
         trigger_payload: "{}",
-        policy_action: "lexical",
+        // miss 也留痕(R-161):零命中的检索是"查了什么却什么都想不起来"的
+        // 直接证据,缺了它就永远看不见记忆缺口。
+        policy_action: if hits.is_empty() { "miss" } else { "lexical" },
         query,
         candidate_ids: &ids_json,
         retrieved_ids: &ids_json,
@@ -1010,6 +1057,8 @@ fn prompt_hints_with_budget(
     // 还会污染召回遥测(实证:M-002 召回 22 次全是噪声)。
     hits.retain(|h| h.entry.category != "preference");
     if hits.is_empty() {
+        // miss 也落遥测(R-161):开跑预检索零命中是记忆缺口的第一手证据。
+        record_memory_search_telemetry(project_root, prompt, &[], false);
         return None;
     }
     hits.sort_by(|a, b| {
@@ -2046,15 +2095,15 @@ source: user
         let t = trigger("edit", &kind, "main.rs", 2);
         let hits = policy.retrieve(&t);
         assert!(!hits.is_empty());
-        policy.record_trigger(&t, &hits, 3);
+        policy.record_trigger(&t, &hits, &hits, 3);
         // state.db 里应能查到 event_recall 记录(trigger/action/延迟)。
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let log = sstore.event_recall_log().unwrap();
         assert_eq!(log.len(), 1, "一次触发落一条 recall_event: {log:?}");
         assert_eq!(
-            log[0].2, "reretrieve",
-            "count≥2 时 policy_action 应为 reretrieve"
+            log[0].2, "fingerprint",
+            "tier0 命中就标 fingerprint——policy_action 反映实际检索路径,不再按失败次数猜"
         );
         assert!(
             log[0].1.contains("\"tool\":\"edit\"") && log[0].1.contains("\"count\":2"),
@@ -2065,10 +2114,73 @@ source: user
     }
 
     #[test]
-    fn 重复失败_re_retrieve换_query_遥测标_reretrieve() {
-        // R-162 内容④:同 (tool,kind) 失败 ≥2 次换 query——遥测 policy_action
-        // 标 reretrieve,禁止原 top-k 重塞的口径在 retrieve 侧由"每次新检索
-        // (不同 sample/已注入去重)"保证。这里验证落库字段正确。
+    fn miss与tier1标签_落库口径() {
+        // R-161 修复:miss 也落 recall_events(policy_action=miss,双列为空数组);
+        // tier1 命中(source=memory_search:)按失败次数标 lexical/reretrieve。
+        let root = temp_memory_root("misslabel");
+        let policy = FailureRecallPolicy::new(&root);
+        let t = trigger("bash", "some brand new failure", "build.rs", 1);
+        let hits = policy.retrieve(&t);
+        assert!(hits.is_empty(), "空库必然 miss");
+        policy.record_trigger(&t, &hits, &hits, 1);
+        // 伪造 tier1 命中(不依赖真实 BM25,预算降级会让并行测试偶发红,D-293)。
+        let tier1_hit = kanzei_core::RecallHit {
+            id: "M-X".into(),
+            category: "sop".into(),
+            action: "先看断言".into(),
+            status: "active".into(),
+            source: "memory_search:M-X".into(),
+        };
+        let t3 = trigger("bash", "some brand new failure", "build.rs", 3);
+        policy.record_trigger(&t3, std::slice::from_ref(&tier1_hit), &[], 7);
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let log = sstore.event_recall_log().unwrap();
+        let actions: Vec<&str> = log.iter().map(|(_, _, a, _)| a.as_str()).collect();
+        assert_eq!(
+            actions,
+            vec!["miss", "reretrieve"],
+            "miss 必须留痕;tier1 重查(count≥2)标 reretrieve: {log:?}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn 轮末对账写入memory_eval_action_changed臂() {
+        // R-161 修复:funnel 的 ACTION_CHANGED 段此前没有任何生产写入方,恒 0。
+        // record_outcomes 把注入后"同类失败是否停止"写进 memory_eval。
+        let root = temp_memory_root("outcome");
+        let policy = FailureRecallPolicy::new(&root);
+        policy.record_outcomes(&[
+            kanzei_core::RecallOutcome {
+                memory_id: "M-1".into(),
+                tool: "edit".into(),
+                kind: "old_string not found".into(),
+                changed: true,
+            },
+            kanzei_core::RecallOutcome {
+                memory_id: "M-2".into(),
+                tool: "bash".into(),
+                kind: "exit code:".into(),
+                changed: false,
+            },
+        ]);
+        let path = root.join(".kanzei").join("state.db");
+        let sstore = kanzei_core::SessionStore::open(&path).unwrap();
+        let funnel = sstore.funnel_counts(2).unwrap();
+        assert_eq!(
+            funnel.action_changed, 1,
+            "changed=true 的注入应计入 ACTION_CHANGED 段: {funnel:?}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn tier0命中标签恒为fingerprint_不随失败次数漂移() {
+        // R-161 修复:policy_action 反映实际检索路径。tier0 指纹命中没有换 query
+        // 重查,失败次数再高也标 fingerprint;reretrieve 只属于 tier1 重查
+        // (见 miss与tier1标签_落库口径)。旧实现按 count/target 猜标签,延迟
+        // 统计随之失真(fingerprint 平均 14ms > lexical 3ms 的假象)。
         let root = temp_memory_root("reretrieve");
         let store = MemoryStore::project(&root);
         // 指纹带进程 id,避免撞上真实 global 记忆库(测试隔离)。
@@ -2098,12 +2210,12 @@ source: user
         let t1 = trigger("edit", &kind, "main.rs", 1);
         let hits1 = policy.retrieve(&t1);
         assert_eq!(hits1.len(), 1);
-        policy.record_trigger(&t1, &hits1, 2);
-        // 第三次失败(≥2 → reretrieve)。
+        policy.record_trigger(&t1, &hits1, &hits1, 2);
+        // 第三次失败:tier0 仍命中 → 标签仍是 fingerprint(同轮去重后注入为空)。
         let t3 = trigger("edit", &kind, "main.rs", 3);
         let hits3 = policy.retrieve(&t3);
-        assert_eq!(hits3.len(), 1, "指纹仍命中,但动作标注要随失败次数升级");
-        policy.record_trigger(&t3, &hits3, 4);
+        assert_eq!(hits3.len(), 1, "指纹仍命中");
+        policy.record_trigger(&t3, &hits3, &[], 4);
 
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
@@ -2111,8 +2223,8 @@ source: user
         let actions: Vec<&str> = log.iter().map(|(_, _, a, _)| a.as_str()).collect();
         assert_eq!(
             actions,
-            vec!["fingerprint", "reretrieve"],
-            "失败次数升级必须把 policy_action 从 fingerprint 换成 reretrieve: {log:?}"
+            vec!["fingerprint", "fingerprint"],
+            "tier0 命中的标签不随失败次数漂移: {log:?}"
         );
         std::fs::remove_dir_all(root).ok();
     }

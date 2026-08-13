@@ -132,13 +132,10 @@ impl SessionStore {
         Ok(n)
     }
 
-    /// 机械口径：available 为 active 记忆数，其余阶段按 state.db 证据去重计数。
-    pub fn funnel_counts(&self) -> Result<FunnelCounts, StoreError> {
-        let available =
-            self.connection
-                .query_row("SELECT COUNT(*) FROM memory_sources", [], |row| {
-                    row.get::<_, i64>(0)
-                })?;
+    /// 机械口径：available 为 active 记忆数(由调用方从记忆库统计后传入——state.db
+    /// 不知道文件真源;旧实现数 memory_sources 行数,该表在 provenance 接线前恒为
+    /// 空,漏斗首段永远是 0),其余阶段按 state.db 证据去重计数。
+    pub fn funnel_counts(&self, available_active: u64) -> Result<FunnelCounts, StoreError> {
         let retrieved = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM (
                  SELECT value AS memory_id FROM recall_events, json_each(retrieved_ids)
@@ -153,6 +150,8 @@ impl SessionStore {
             [],
             |row| row.get::<_, i64>(0),
         )?;
+        // ACTION_CHANGED 的生产写入方是 RecallPolicy::record_outcomes(轮末对账,
+        // arm='action_changed');OUTCOME_IMPROVED 仍属离线回放评估(R-163/R-166)。
         let action_changed = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'action_changed' AND success = 1",
             [],
@@ -164,7 +163,7 @@ impl SessionStore {
             |row| row.get::<_, i64>(0),
         )?;
         Ok(FunnelCounts {
-            available: available as u64,
+            available: available_active,
             retrieved: retrieved as u64,
             injected: injected as u64,
             action_changed: action_changed as u64,
@@ -266,7 +265,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            store.funnel_counts().unwrap(),
+            store.funnel_counts(1).unwrap(),
             FunnelCounts {
                 available: 1,
                 retrieved: 1,

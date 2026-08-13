@@ -43,6 +43,18 @@ pub struct RecallHit {
     pub source: String,
 }
 
+/// 一次注入的轮末结局:注入后同 (tool, kind) 是否停止复发。
+/// 这是 ACTION_CHANGED 漏斗段的机械口径——"注入了但没拦住复发"与
+/// "注入后失败停止"在遥测里必须可区分,否则利用率只能凭感觉。
+#[derive(Debug, Clone)]
+pub struct RecallOutcome {
+    pub memory_id: String,
+    pub tool: String,
+    pub kind: String,
+    /// true = 注入后到轮末同 (tool,kind) 未再失败(行为改变);false = 又失败了。
+    pub changed: bool,
+}
+
 /// 召回策略接口(core 侧定义,CLI/桌面端注入 kanzei-tools 实现)。
 /// core 不依赖 tools:检索/遥测/超时降级全部在实现侧,本域只做触发判定、
 /// 去重与注入格式。
@@ -52,7 +64,20 @@ pub trait RecallPolicy: Send + Sync {
     fn retrieve(&self, trigger: &RecallTrigger) -> Vec<RecallHit>;
 
     /// 每次实际触发落遥测(trigger/action/延迟)。空实现 = 不落库。
-    fn record_trigger(&self, _trigger: &RecallTrigger, _hits: &[RecallHit], _elapsed_ms: u64) {}
+    /// `retrieved` 是检索原始结果(含同轮已注入而被去重的),`injected` 是真进
+    /// 本次结果文本的子集——两者都可为空,**miss 也必须留痕**,否则
+    /// trigger precision/recall 永远算不出来、记忆缺口(高频失败无覆盖)不可见。
+    fn record_trigger(
+        &self,
+        _trigger: &RecallTrigger,
+        _retrieved: &[RecallHit],
+        _injected: &[RecallHit],
+        _elapsed_ms: u64,
+    ) {
+    }
+
+    /// 轮末回收:每条注入的行为改变判定(ACTION_CHANGED)。空实现 = 不落库。
+    fn record_outcomes(&self, _outcomes: &[RecallOutcome]) {}
 }
 
 /// R-162 事件触发召回 watcher:状态按单次运行持有(与 RedundancyWatch 同规,
@@ -64,6 +89,9 @@ pub struct RecallWatch<'a> {
     /// 已注入条目 id(同轮同条目只注入一次,防刷屏——设计 §3.3 按条目去重,
     /// 不按 (tool,kind),否则同类失败换了个措辞就重复注入)。
     injected: HashSet<String>,
+    /// 待判定的注入结局:(memory_id, tool, kind, 注入时该 kind 的失败次数)。
+    /// Drop 时对账——若失败计数没再涨,判定 ACTION_CHANGED 成立。
+    pending: Vec<(String, String, String, usize)>,
     /// 注入的策略(检索 + 遥测)。
     policy: Option<&'a dyn RecallPolicy>,
 }
@@ -73,6 +101,7 @@ impl<'a> RecallWatch<'a> {
         Self {
             failures: HashMap::new(),
             injected: HashSet::new(),
+            pending: Vec::new(),
             policy,
         }
     }
@@ -117,19 +146,32 @@ impl<'a> RecallWatch<'a> {
                 failure_count: count,
             };
             let started = std::time::Instant::now();
-            let hits: Vec<RecallHit> = policy
-                .retrieve(&trigger)
-                .into_iter()
-                // 同轮同条目只注入一次:已注入的 id 直接丢弃,不重复塞。
-                .filter(|hit| self.injected.insert(hit.id.clone()))
+            let retrieved = policy.retrieve(&trigger);
+            let elapsed = started.elapsed().as_millis() as u64;
+            // 同轮同条目只注入一次:已注入的 id 从注入集丢弃,但保留在 retrieved
+            // 里落遥测——"检索到但没再注入"与"根本没检索到"是两种漏斗事实。
+            let hits: Vec<RecallHit> = retrieved
+                .iter()
+                .filter(|hit| !self.injected.contains(&hit.id))
+                .cloned()
                 .collect();
+            for hit in &hits {
+                self.injected.insert(hit.id.clone());
+            }
+            // miss 也落遥测(retrieved/injected 皆空):没有 miss 记录就永远
+            // 看不见"高频失败但零记忆覆盖"的缺口。
+            policy.record_trigger(&trigger, &retrieved, &hits, elapsed);
             if hits.is_empty() {
                 continue;
             }
-            let elapsed = started.elapsed().as_millis() as u64;
-            policy.record_trigger(&trigger, &hits, elapsed);
             // 追加 Packet 文本(与 [冗余提醒] 同机制:就地进结果文本,模型可见)。
             for hit in &hits {
+                self.pending.push((
+                    hit.id.clone(),
+                    trigger.tool.clone(),
+                    trigger.kind.clone(),
+                    trigger.failure_count,
+                ));
                 content.push_str(&format!(
                     "\n[记忆命中 {id} | {category}]\n\
                      行动: {action}\n\
@@ -142,6 +184,38 @@ impl<'a> RecallWatch<'a> {
                 ));
             }
         }
+    }
+}
+
+impl Drop for RecallWatch<'_> {
+    /// 轮末对账(所有退出路径统一覆盖,含错误提前返回):每条注入按
+    /// "注入后同 (tool,kind) 失败计数是否再涨"机械判定 ACTION_CHANGED,
+    /// 交给 policy 落库。无注入或无策略时零成本。
+    fn drop(&mut self) {
+        let Some(policy) = &self.policy else {
+            return;
+        };
+        if self.pending.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.pending);
+        let outcomes: Vec<RecallOutcome> = pending
+            .into_iter()
+            .map(|(memory_id, tool, kind, at_count)| {
+                let now = self
+                    .failures
+                    .get(&(tool.clone(), kind.clone()))
+                    .copied()
+                    .unwrap_or(0);
+                RecallOutcome {
+                    memory_id,
+                    tool,
+                    kind,
+                    changed: now <= at_count,
+                }
+            })
+            .collect();
+        policy.record_outcomes(&outcomes);
     }
 }
 
@@ -158,8 +232,34 @@ mod tests {
         fn retrieve(&self, _trigger: &RecallTrigger) -> Vec<RecallHit> {
             self.hits.clone()
         }
-        fn record_trigger(&self, _trigger: &RecallTrigger, _hits: &[RecallHit], _elapsed_ms: u64) {
-            // 测试策略不落遥测;触发次数经 retrieve 的 seen 计数验证。
+    }
+
+    /// 记录型策略:捕获每次 record_trigger 的 (retrieved, injected) 条数与
+    /// 轮末 outcomes,验证 miss 落库与 ACTION_CHANGED 对账。
+    struct RecordingPolicy {
+        hits: Vec<RecallHit>,
+        triggers: std::sync::Arc<std::sync::Mutex<Vec<(usize, usize)>>>,
+        outcomes: std::sync::Arc<std::sync::Mutex<Vec<RecallOutcome>>>,
+    }
+
+    impl RecallPolicy for RecordingPolicy {
+        fn retrieve(&self, _trigger: &RecallTrigger) -> Vec<RecallHit> {
+            self.hits.clone()
+        }
+        fn record_trigger(
+            &self,
+            _trigger: &RecallTrigger,
+            retrieved: &[RecallHit],
+            injected: &[RecallHit],
+            _elapsed_ms: u64,
+        ) {
+            self.triggers
+                .lock()
+                .unwrap()
+                .push((retrieved.len(), injected.len()));
+        }
+        fn record_outcomes(&self, outcomes: &[RecallOutcome]) {
+            self.outcomes.lock().unwrap().extend(outcomes.to_vec());
         }
     }
 
@@ -263,6 +363,138 @@ mod tests {
             panic!("expected ToolResult");
         };
         assert_eq!(content, "boom", "无策略必须原样保留结果文本");
+    }
+
+    #[test]
+    fn miss也落遥测_去重后零注入也留痕() {
+        // R-161 修复:此前命中为空直接 continue,miss 从不落库——trigger
+        // precision/recall 与"高频失败零覆盖"缺口分析都不可能。现在三种事实
+        // 都要可区分:命中且注入 / 检索到但同轮已注入(去重) / 彻底 miss。
+        let triggers = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let outcomes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let policy = RecordingPolicy {
+            hits: vec![hit("M-009", "sop")],
+            triggers: triggers.clone(),
+            outcomes: outcomes.clone(),
+        };
+        {
+            let mut watch = RecallWatch::new(Some(&policy));
+            let calls = vec![(
+                "c1".into(),
+                "edit".into(),
+                serde_json::json!({ "path": "src/lib.rs" }),
+                "".into(),
+            )];
+            let mut results = vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "old_string not found".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results); // 命中并注入:(1,1)
+            let mut results2 = vec![Part::ToolResult {
+                call_id: "c2".into(),
+                content: "old_string not found again".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results2); // 检索到但去重:(1,0)
+        }
+        assert_eq!(
+            triggers.lock().unwrap().clone(),
+            vec![(1, 1), (1, 0)],
+            "检索到但去重的触发必须留痕(retrieved=1, injected=0)"
+        );
+
+        // 彻底 miss:策略返回空,也必须留痕 (0,0)。
+        let triggers2 = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let policy_empty = RecordingPolicy {
+            hits: vec![],
+            triggers: triggers2.clone(),
+            outcomes: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+        };
+        {
+            let mut watch = RecallWatch::new(Some(&policy_empty));
+            let calls = vec![(
+                "c1".into(),
+                "bash".into(),
+                serde_json::json!({ "command": "cargo test" }),
+                "".into(),
+            )];
+            let mut results = vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "some new failure".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results);
+        }
+        assert_eq!(
+            triggers2.lock().unwrap().clone(),
+            vec![(0, 0)],
+            "miss 必须落遥测,否则记忆缺口不可见"
+        );
+    }
+
+    #[test]
+    fn 轮末对账_注入后复发judged_false_未复发judged_true() {
+        // ACTION_CHANGED 机械口径:注入后同 (tool,kind) 失败计数再涨 → false;
+        // 到轮末没再失败 → true。Drop 统一回收,所有退出路径都覆盖。
+        let outcomes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let policy = RecordingPolicy {
+            hits: vec![hit("M-009", "sop")],
+            triggers: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            outcomes: outcomes.clone(),
+        };
+        {
+            let mut watch = RecallWatch::new(Some(&policy));
+            let calls = vec![(
+                "c1".into(),
+                "edit".into(),
+                serde_json::json!({ "path": "src/lib.rs" }),
+                "".into(),
+            )];
+            let mut results = vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "old_string not found".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results); // 注入(count=1)
+                                                   // 同类复发:错误原文必须同 kind(failure_kind 按原文归一),
+                                                   // 换措辞会落进另一个 (tool,kind) 桶,对账就测不到复发。
+            let mut results2 = vec![Part::ToolResult {
+                call_id: "c2".into(),
+                content: "old_string not found".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results2); // 同类复发(count=2)
+        } // drop → 对账
+        let got = outcomes.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].memory_id, "M-009");
+        assert!(!got[0].changed, "注入后同类又失败,行为未改变: {got:?}");
+
+        let outcomes2 = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let policy2 = RecordingPolicy {
+            hits: vec![hit("M-009", "sop")],
+            triggers: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            outcomes: outcomes2.clone(),
+        };
+        {
+            let mut watch = RecallWatch::new(Some(&policy2));
+            let calls = vec![(
+                "c1".into(),
+                "edit".into(),
+                serde_json::json!({ "path": "src/lib.rs" }),
+                "".into(),
+            )];
+            let mut results = vec![Part::ToolResult {
+                call_id: "c1".into(),
+                content: "old_string not found".into(),
+                is_error: true,
+            }];
+            watch.note_step(&calls, &mut results); // 注入后不再失败
+        }
+        let got2 = outcomes2.lock().unwrap().clone();
+        assert_eq!(got2.len(), 1);
+        assert!(got2[0].changed, "注入后未再失败,行为改变成立: {got2:?}");
     }
 
     #[test]

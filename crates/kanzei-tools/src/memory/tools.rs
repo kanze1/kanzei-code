@@ -23,10 +23,19 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
 
 /// R-161:读项目 state.db 的五段漏斗计数(与 episodes 同库,CLI/桌面同源写入)。
 /// 库缺失或损坏时返回 None——遥测是诊断口径,不应让 stats 工具报错。
+/// AVAILABLE 段由这里从记忆库文件真源统计(project + global 两级 active 条目数),
+/// state.db 不知道文件真源——旧实现数恒空的 memory_sources,首段永远是 0。
 fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
     let state = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state).ok()?;
-    store.funnel_counts().ok()
+    let mut stores = vec![super::MemoryStore::project(&ctx.project_root)];
+    stores.extend(super::MemoryStore::global());
+    let active = stores
+        .iter()
+        .flat_map(|s| s.load_all())
+        .filter(|(_, e)| e.status == "active")
+        .count() as u64;
+    store.funnel_counts(active).ok()
 }
 
 #[derive(Deserialize, JsonSchema)]
@@ -451,8 +460,10 @@ mod tests {
             "{}",
             stats.content
         );
+        // AVAILABLE 段按记忆库文件真源统计(本测试恰有 1 条 active)——旧口径数
+        // 恒空的 memory_sources,首段永远 0,漏斗两端全是死数据。
         assert!(
-            stats.content.contains("漏斗 A→R→I→U→Y: 0/1/1/0/0"),
+            stats.content.contains("漏斗 A→R→I→U→Y: 1/1/1/0/0"),
             "{}",
             stats.content
         );
