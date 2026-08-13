@@ -86,7 +86,7 @@
 - status: fixing
 - 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,面板就绪状态行无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,打开侧边栏子代理面板确认显示「✓ 子代理就绪(qwen3.5:4b)」(或缺环文案),确认后关闭。解除人:用户。
 
-## D-280 「回到最新」按钮悬浮位置错误:相对 #main 硬编码 bottom:92px,被输入区遮挡 [open] (medium)
+## D-280 「回到最新」按钮悬浮位置错误:相对 #main 硬编码 bottom:92px,被输入区遮挡 [fixing] (medium)
 - content: 「回到最新」按钮(#jump-latest)悬浮位置错误:它用 position:absolute 相对 #main 定位,bottom:92px 是硬编码,而 #composer 实际高度约 120px+(padding 24 + textarea 3 行 + composer-bar),按钮被压在输入区里;附件条/继续文案面板展开时被遮挡更严重。
 - label: 前端
 - priority: P2
@@ -133,20 +133,3 @@
 - observed_head: 1b09a249d57dac40ac07a3d94fcd7ef641596888
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786599000900
-
-## D-331 归档终态无法安全修正且非法状态会污染缺陷标题，reopen 对归档 ID 误报 unknown id [fixing] (high)
-- refs: D-267 D-241 D-284 D-329
-- 复现: D-267 在 defects.md 中带缺陷状态机不支持的 [dropped]；close/archive 后工具未拒绝该标记，而是在标题继续追加 [fixed]，归档结果成为 [dropped] [fixed]。随后 defect reopen D-267：缺 reason 时先报参数错误，补 reason 后只查活动文档并报 unknown id，无法通过专用工具改为 wontfix。
-- 影响: 同一缺陷可同时呈现互相矛盾的终态，调度、统计和人工审计失真；agent 收到 unknown id 后无法区分真正不存在与已经归档，容易绕过专用工具手改托管文档，破坏原子写入、格式保护和审计链。
-- 期望: 缺陷写入口拒绝 dropped/done 等跨文档状态标记；活动操作遇到归档 ID 时返回“已归档”及允许动作；提供仅限终态到终态、强制 reason、不重新入队的归档纠错动作，并用它把 D-267 收敛为单一 [wontfix]。
-- 标签: 核心
-- 根因: DocStore 对标题中形似状态但不属于当前 DocKind 的标记缺少写入校验；close 渲染时把解析不到的 [dropped] 保留为标题正文并追加合法终态。TrackerTool get 可回落读取归档，但 update/reopen 只查活动 entries；reopen 的语义仅为 fixing→open，当前没有归档终态纠错动作。
-- 验收: ①缺陷 add/update/close 对标题或状态位置中的跨 DocKind 状态标记给出明确错误，测试覆盖 dropped 不得混入标题；②reopen/update 命中归档 ID 时不再报 unknown id，而是明确 archived 且 reopen 不适用；③新增受限归档终态纠错动作，只允许 fixed↔wontfix、必须 reason、保持条目在归档、原子写入并追加审计进展；④D-267 修复为单一 [wontfix]，原有关闭理由与自由文本逐字保留；⑤回归覆盖真实不存在 ID、活动 fixing→open、归档内容保真、并发锁与完整性门禁。
-- 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-331
-- 批次: 2/3
-- 进展: B1+B2 完成:①标题跨 DocKind 状态标记校验(add/update/repair_missing_id 拒绝,commit b140322);②reopen/update 对归档 ID 报 archived 而非 unknown id(同提交);③fix_terminal 归档终态纠错动作(docstore::correct_archived_terminal:终态间 fixed↔wontfix、强制 reason、保持归档、原子写入、清标题标记、进展留审计,commit cdc2cc3)+CLI 分支(930a806);单测 title_status_marker_rejected_on_all_write_actions / archived_id_reports_archived_not_unknown / fix_terminal_corrects_archived_status_and_strips_title_marker,tracker 37+docstore 20+kanzei 3 全绿。验收④(D-267 收敛为单一 [wontfix])机制已就绪但执行受阻:本会话 defect 工具面无 fix_terminal 动作(静态 schema),CLI 路径被托管文件沙箱拦截(写 .kanzei/memory/index.db 触发 BLOCKED+回滚)——解除人=下一轮 harness 工具注册(自动带出 fix_terminal)或用户交互轮执行 `kz tracker defect fix_terminal D-267 wontfix --reason <理由>`。B3 全量+关闭待④落地。
-- observed_head: 930a8065c238af8ea79ae5bfd39786aaf2515395
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786600881883
-- 阻塞: 验收④(D-267 收敛为单一 [wontfix])执行受阻(§1.1 类②缺通道):本会话 defect 工具面无 fix_terminal 动作(静态 schema 未含新动作),CLI 路径被托管文件沙箱拦截。机制已交付并单测(fix_terminal_corrects_archived_status_and_strips_title_marker)。解除动作: 下一轮 harness 工具注册后调 `defect fix_terminal D-267 status=wontfix reason=...`,或用户交互轮执行 `kz tracker defect fix_terminal D-267 wontfix --reason <理由>`;执行后即可完成验收④并关闭本条。解除人: 用户/下一轮工具面。

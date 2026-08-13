@@ -3630,7 +3630,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786598029507
 
-## D-267 bash 授权缺一个安全的中间档:只有「逐条逐字节精确」与「整体全放行」两端,无人值守只能靠 yolo [dropped] [fixed] (high)
+## D-267 bash 授权缺一个安全的中间档:只有「逐条逐字节精确」与「整体全放行」两端,无人值守只能靠 yolo [wontfix] (high)
 - **2026-08-11 关闭为 `dropped`(用户定调): 不做中间档,bash 非交互直接放行,防线整体挪到结果侧。**
   以下五条是关闭理由,按份量排序。**本条的现象描述与实测清单全部依然属实**——变的是处置,不是事实。
   1. **它挡不住有意的。** §0 定案 1 已经承认并接受:段级闸门是纯 shell 语法过滤器,对「被允许的**程序**本身是什么」一无所知。`cargo` 按设计编译并运行工作树里的代码(本仓 `build.rs` 与两个可运行 bin 都在),而 agent 持有 `edit` 权限。**任何黑名单都关不掉,危险性在程序语义里不在 shell 语法里。**
@@ -3664,6 +3664,7 @@
   ⑤bash `... | head -30; echo ...`。
   **归纳**:①②④⑤ 全是**复合命令**(`&&` / `;` / `|`),③ 是**未列入允许集的单个可执行**。两类都在改成单条纯命令后放行。对本条的三点含义:(a) 修复方向里「解析成子命令序列、要求每个都命中」的形状**已有活的参照实现**,不必再论证可行性;(b) 拦截必须**点名具体是哪一段**不被允许,否则无法自我修正——这是可用性的关键,不是锦上添花;(c) R-183 内容④的基础规则模板至少要覆盖 agent 实际会用的这批 shell 动词:`echo`/`head`/`tail`/`awk`/`grep`/`ls`,以及 PowerShell 的 `Select-Object`——它们几乎只出现在管道尾部做截断,危险面低但出现频率极高,是「不放行就寸步难行、放行也没什么风险」的典型。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-267
+- 进展: [terminal-fix 2026-08-13] fixed → wontfix: 账本维护(D-331 验收④):D-267 主张的「命令级权限中间档」已被用户定调砍掉(挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」),防线整体挪到结果侧检测与回滚(R-186 承接);原 [dropped] 标记非缺陷合法终态,收敛为单一 wontfix 保留审计链,原有关闭理由与自由文本逐字保留
 
 ## D-271 主对话切线程时消息短暂消失、侧栏只显示单条并行任务、子代理无关闭/删除生命周期 [closed] [fixed] (medium)
 - 优先级: P0
@@ -3735,3 +3736,20 @@
 - observed_head: 02ec7b20cba1490fe7bb0c6cc0d0907642c26db9
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786599769933
+
+## D-331 归档终态无法安全修正且非法状态会污染缺陷标题，reopen 对归档 ID 误报 unknown id [fixed] (high)
+- refs: D-267 D-241 D-284 D-329
+- 复现: D-267 在 defects.md 中带缺陷状态机不支持的 [dropped]；close/archive 后工具未拒绝该标记，而是在标题继续追加 [fixed]，归档结果成为 [dropped] [fixed]。随后 defect reopen D-267：缺 reason 时先报参数错误，补 reason 后只查活动文档并报 unknown id，无法通过专用工具改为 wontfix。
+- 影响: 同一缺陷可同时呈现互相矛盾的终态，调度、统计和人工审计失真；agent 收到 unknown id 后无法区分真正不存在与已经归档，容易绕过专用工具手改托管文档，破坏原子写入、格式保护和审计链。
+- 期望: 缺陷写入口拒绝 dropped/done 等跨文档状态标记；活动操作遇到归档 ID 时返回“已归档”及允许动作；提供仅限终态到终态、强制 reason、不重新入队的归档纠错动作，并用它把 D-267 收敛为单一 [wontfix]。
+- 标签: 核心
+- 根因: DocStore 对标题中形似状态但不属于当前 DocKind 的标记缺少写入校验；close 渲染时把解析不到的 [dropped] 保留为标题正文并追加合法终态。TrackerTool get 可回落读取归档，但 update/reopen 只查活动 entries；reopen 的语义仅为 fixing→open，当前没有归档终态纠错动作。
+- 验收: ①缺陷 add/update/close 对标题或状态位置中的跨 DocKind 状态标记给出明确错误，测试覆盖 dropped 不得混入标题；②reopen/update 命中归档 ID 时不再报 unknown id，而是明确 archived 且 reopen 不适用；③新增受限归档终态纠错动作，只允许 fixed↔wontfix、必须 reason、保持条目在归档、原子写入并追加审计进展；④D-267 修复为单一 [wontfix]，原有关闭理由与自由文本逐字保留；⑤回归覆盖真实不存在 ID、活动 fixing→open、归档内容保真、并发锁与完整性门禁。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-331
+- 批次: 3/3
+- 进展: B1+B2 完成:①标题跨 DocKind 状态标记校验(add/update/repair_missing_id 拒绝,commit b140322);②reopen/update 对归档 ID 报 archived 而非 unknown id(同提交);③fix_terminal 归档终态纠错动作(docstore::correct_archived_terminal:终态间 fixed↔wontfix、强制 reason、保持归档、原子写入、清标题标记、进展留审计,commit cdc2cc3)+CLI 分支(930a806);单测 title_status_marker_rejected_on_all_write_actions / archived_id_reports_archived_not_unknown / fix_terminal_corrects_archived_status_and_strips_title_marker,tracker 37+docstore 20+kanzei 3 全绿。 ‖ 2026-08-16 验收④执行:本会话工具面已刷新,req/defect fix_terminal 可用,已将 D-267 从 [dropped][fixed] 收敛为单一 [wontfix](理由含原关闭语义,审计保留)。验收①②③④⑤全部达成,关闭本条。
+- observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786605459728
+- 阻塞: 

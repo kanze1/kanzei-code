@@ -8,30 +8,7 @@
 - 验收: ① 对指定文件/crate 输出符号列表(函数/结构/impl);② 输出调用链或依赖关系(谁调用谁/依赖哪些 crate);③ 不必 read 全文即可定位质量热点(如 config.rs 2851 行的内部结构);④ 有真实调用方(agent 在评估/重构类任务中实际使用),不昺昺死在死代码。
 - 优先级: P1
 
-## R-226 多线路运行内核二次收口：身份永不复用、独立自动推进与停止/收活隔离 [fixed]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心 后端 前端 并行 自举 发布
-- 来源: 2026-08-12 用户要求全面扫描多线并行后确认继续修复并发版；R-197 虽归档为完成，但 R-206 与本轮反证证明其关键不变量尚未兑现。
-- 内容: 以持久唯一线路身份和 `session_id` 为中心，重新收口线路创建/注销、后端运行时、事件路由、自动推进、停止、对话恢复、工作树收活与前端状态投影；禁止任何全局 UI 状态或项目级清理跨线路生效。
-- 实现顺序（10 批）: ①反证测试基线；②线路身份永不复用与旧缓存清理；③统一注销/停止 finalize；④后台进程按 owner 回收；⑤运行中工作树禁止合并/放弃；⑥前端具名状态机与 stopping；⑦后台控制事件副作用按 session 执行；⑧自动推进定时器与设置按 session 隔离；⑨切线/发送/历史恢复竞态收口；⑩全量门禁、真实双线验收、打包发布。
-- 验收: ①删线重建不会复用 session 或继承历史/profile/鞭挞；②两线同时运行和自动推进互不取消、互不发送到对方；③停止 A 只停止 A 的 run、ask、队列和后台进程，B 保持运行；④运行中、停止中、等待下一轮、空闲由同一会话投影驱动，停止按钮不消失/闪跳；⑤后台 `kz:done` 能续跑并刷新所属历史；⑥运行线路不能合并或放弃工作树；⑦切线期间旧 IPC 失败不能污染新线；⑧活动与历史按 session 恢复且读接口不改写运行中上下文；⑨相关 Rust/UI 反证、workspace 门禁和真实桌面双线 E2 全绿；⑩发布包绑定最终 HEAD，安装实例版本与 hash 可核对。
-- refs: D-313 R-197 R-199 R-206 R-207 R-222 D-209 D-283 D-305 D-306
-- 进展: 2026-08-12 十批按依赖完成：schema v13 退役线路账本保证 session 身份不复用；关闭/注销/停止统一 finalize，后台进程按 owner 回收；工作树破坏操作持 lifecycle 锁并拒绝运行线；前端引入具名 phase、按 session timer 与后台 done 路由，切线不取消旧线，发送/停止捕获发起线路；历史读接口改纯读取；侧栏合并统一进入收活五格。证据：kanzei-app 130 tests、kanzei-tools owner 定向测试、workspace clippy、UI runtime 1496 invokes、UI lint 与 parallel-lines-regression 全绿；完整 workspace/verify 与真实桌面双线随本条发版收尾记录补充。
-
-## R-225 界面语言设置：跟随系统/中文/English，默认中文 [fixed]
-- 优先级: P1
-- 复杂度: 小
-- 标签: 核心 前端 设置
-- 归属: kanzei
-- 来源: 2026-08-12 用户交接要求「界面语言可设定，默认中文」。
-- 内容: 设置页提供「跟随系统/中文/English」下拉；默认值为中文；选择后即时生效或明确提示需要重载；语言选择持久化，未设置时不向配置文件写入无意义的默认键。
-- 边界: 沿用现有 `ui/02-i18n.js` 翻译资源和 `settings.rs` 设置保存/加载链路，不引入新框架，不扩展第三种语言。
-- 验收: ①首次无配置启动显示中文；②设置页可选跟随系统/中文/English；③选择、保存、重启后仍恢复；④切换 English 后静态文案和动态状态文案同步变化；⑤UI runtime smoke 有控件、持久化和生效断言；⑥相关 Rust/UI 门禁通过。
-- refs: R-193 R-197
-- 进展: 2026-08-12 已接通 KanzeiConfig/settings_get/settings_save 与设置页语言全链路，新增跟随系统解析、默认中文及未显式设置不落盘语义；已通过 cargo fmt/clippy、cargo test -p kanzei-app(125 passed)、node --check 与 UI runtime smoke(0 运行时错误)。
-
-## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [open]
+## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 记忆
@@ -41,7 +18,7 @@
 - 验收: ①stats 漏斗五段有非测试数据源或显式 N/A 标注;②能从 recall_events 直接算出各触发类型 precision/recall;③memory_recalls 停写留读。
 - refs: R-161 R-196 R-213
 
-## R-215 inbox 消化协议改逐条销账:快照-消化-按条删除,并堵并发 append 与 next_id 竞态 [open]
+## R-215 inbox 消化协议改逐条销账:快照-消化-按条删除,并堵并发 append 与 next_id 竞态 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 记忆 并行
@@ -51,7 +28,7 @@
 - 验收: ①构造 20 条积压能在数轮内收敛到 0;②并发 append+consolidate 压测零丢 note;③「消化清空吃掉新 note」窗口有定向测试封死。
 - refs: R-195 D-282 D-299
 
-## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [open]
+## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 记忆
@@ -60,7 +37,7 @@
 - 验收: ①复刻「英文改写 M-044」场景被拦并指路 memory_update(单测);②伪造指纹的 add 被拒;③存量 6 条交付状态记忆逐条处置;④各拦截路径有单测。
 - refs: R-194 R-195 R-196 D-299 D-282
 
-## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [open]
+## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 前端
@@ -71,7 +48,7 @@
 - refs: D-283 R-197 R-199 D-306
 - 进展: 2026-08-12 R-226 已落具名 `phase`、统一 `transitionSession`、`stopping` 中间态及按活动 session 的运行控件投影；兼容旧路径仍保留 `running/converged/live_running` 字段，故本条不虚标完成，后续验收为删除全部直接字段写入并让全局 running 彻底只读派生。
 
-## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [open]
+## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 后端 harness 并行
@@ -81,7 +58,7 @@
 - 验收: ①勘察角色能独立完成一个需要 git log 的勘察任务;②写类 git 子命令在子代理内被拒(定向测试);③既有只读语义测试全绿。
 - refs: R-173 R-174
 
-## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [open]
+## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 harness 权限
@@ -92,7 +69,7 @@
 - 验收: ①交互轮 dev 可搜索;②自主轮按域名白名单放行 webfetch 有定向测试;③白名单外域名仍走 Ask。
 - refs: R-183 R-198
 
-## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [open]
+## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 harness
@@ -102,7 +79,7 @@
 - 验收: ①未知 provider 长跑不再第三次 overflow 直接终止(集成测试);②已知 provider 行为不变;③启动告警可见。
 - refs: D-288
 
-## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [open]
+## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 测试 流程
@@ -111,7 +88,7 @@
 - 验收: ①能机械产出「连续 20 次全绿」或「N 次内命中 M 次」结论;②失败输出自动存档可回查;③用它对 D-293 两条跑一轮出数字并回填该条。
 - refs: D-293 R-200
 
-## R-212 source_test_gate 从新近度升级到相关性:test_record 声明覆盖面,与暂存源码 crate 求交 [open]
+## R-212 source_test_gate 从新近度升级到相关性:test_record 声明覆盖面,与暂存源码 crate 求交 [todo]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 测试 后端
@@ -122,7 +99,7 @@
 - 验收: ①前端冒烟记录无法背书纯 Rust 提交(定向测试);②正常闭环(改 crate→测该 crate→记录→提交)不受阻;③拦截文案指明缺口。
 - refs: D-295 R-210
 
-## R-209 门禁清单机械同步守护:verify.ps1 与 ci.yml 逐项比对,CI 补 npm ci 与 ui-lint [open]
+## R-209 门禁清单机械同步守护:verify.ps1 与 ci.yml 逐项比对,CI 补 npm ci 与 ui-lint [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 测试 流程
@@ -131,7 +108,7 @@
 - 验收: ①故意单侧加一步时守护测试变红;②ci.yml 跑 ui-lint 通过;③git.rs 注释承诺改为指向守护测试或保持一致。
 - refs: R-142
 
-## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [open]
+## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [todo]
 - 优先级: P2
 - 复杂度: 大
 - 标签: 后端 前端 harness
@@ -142,7 +119,7 @@
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304
 
-## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [open]
+## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 前端 并行
@@ -151,7 +128,7 @@
 - 验收: ①未跑门禁时合并按钮带确认拦截(冒烟断言);②红灯覆盖确认落轨迹;③「合并后全量」步可跑且结果可见。
 - refs: D-305 R-179
 
-## R-223 权限被拦聚合呈现:自动轮每次跳过落可见 notice 或轮末汇总,「自动放行」挂常驻徽标并对齐语义 [open]
+## R-223 权限被拦聚合呈现:自动轮每次跳过落可见 notice 或轮末汇总,「自动放行」挂常驻徽标并对齐语义 [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 前端
@@ -160,7 +137,7 @@
 - 验收: ①自动轮被拦 ≥1 次时对话流可见;②开启自动放行后重启仍有常驻标识;③两条冒烟断言。
 - refs: D-281
 
-## R-220 kanzei.toml 用户面配置参考:由 unknown_keys 已知键名单驱动生成,测试锁定一致 [open]
+## R-220 kanzei.toml 用户面配置参考:由 unknown_keys 已知键名单驱动生成,测试锁定一致 [todo]
 - 优先级: P3
 - 复杂度: 小
 - 标签: 文档 harness
@@ -170,7 +147,7 @@
 - 验收: ①全部已知键有说明与默认值;②单侧增删键时一致性测试变红;③D-300 修复后的 barrier_timeout_secs 在参考里可见。
 - refs: D-300 R-172
 
-## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [open]
+## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [todo]
 - 优先级: P3
 - 复杂度: 小
 - 标签: 测试 流程
@@ -180,7 +157,7 @@
 - 验收: ①构造编译错误仍被拦且报错含 --> 位置;②单次源码提交门禁墙钟时间前后实测对照;③连续三次发版后能列出各步耗时。
 - refs: R-192 R-212
 
-## R-224 鞭挞勾选自动切自主推进:兑现 interaction_modes 的「直接勾连跑自动切」承诺 [open]
+## R-224 鞭挞勾选自动切自主推进:兑现 interaction_modes 的「直接勾连跑自动切」承诺 [todo]
 - 优先级: P3
 - 复杂度: 小
 - 标签: 前端
@@ -189,7 +166,7 @@
 - 验收: ①空闲结伴态到鞭挞就绪 ≤1 次交互;②notice 可见,取消勾选切回;③冒烟断言。
 - refs: R-036
 
-## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [open]
+## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [todo]
 - 优先级: P3
 - 复杂度: 大
 - 标签: 后端 核心
@@ -199,7 +176,7 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 
-## R-204 tracker.rs 拆分:action 分发、取活调度、测试三域分离,调度成为独立可审计模块 [open]
+## R-204 tracker.rs 拆分:action 分发、取活调度、测试三域分离,调度成为独立可审计模块 [todo]
 - 优先级: P3
 - 复杂度: 中
 - 标签: 后端 核心
@@ -209,7 +186,7 @@
 - 验收: ①调度逻辑有独立测试文件;②execute 只剩路由;③全仓测试绿。
 - refs: D-207 R-203
 
-## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [open]
+## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [todo]
 - 优先级: P3
 - 复杂度: 大
 - 标签: 后端 核心
@@ -219,7 +196,7 @@
 - 验收: ①kanzei-tools 不再依赖 kanzei-core;②memory 子系统独立编译与测试;③全仓测试绿。
 - refs: R-204 R-208
 
-## R-205 config.rs 拆出 project_root.rs 与 permission_persist.rs:D-270 修复的结构落点 [open]
+## R-205 config.rs 拆出 project_root.rs 与 permission_persist.rs:D-270 修复的结构落点 [todo]
 - 优先级: P3
 - 复杂度: 中
 - 标签: 后端 harness
@@ -229,7 +206,7 @@
 - 验收: ①三文件职责如上;②API 面零变更;③全仓测试绿。
 - refs: D-270 D-300 R-198
 
-## R-207 worktree 生命周期下沉 kanzei-tools:建线/回执/回滚/合并预检桌面与 CLI 共用 [open]
+## R-207 worktree 生命周期下沉 kanzei-tools:建线/回执/回滚/合并预检桌面与 CLI 共用 [todo]
 - 优先级: P3
 - 复杂度: 大
 - 标签: 后端 并行
@@ -518,7 +495,7 @@
 - 验收: ①同值 update 返回 no-op 且文件字节不变(单测);②变更返回旧→新摘要;③close 幂等重入安全
 - 优先级: P2
 
-## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [open]
+## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [todo]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 测试 流程
@@ -628,7 +605,7 @@
 - 进展: 2026-08-13(D-239 验收②复核):清空伪阻塞字段——原「阻塞: 未完成依赖: R-175」是内部顺序依赖,解除权在 agent(做完 R-175 即可恢复取活),不属于外部阻塞四类,违反 §1.1。依赖关系保留在「依赖:」字段(R-175 未完成、无外部阻塞,是真实顺序前置);R-175 关闭后取活本条的判定以依赖字段为准,不再依赖阻塞字段。
 - 阻塞: 
 
-## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [open] [todo]
+## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [todo]
 - 优先级: P3
 - 内容: 对 28 条零证据 active 记忆逐条复核:保留(存量豁免,接受不可计量)或降级 candidate(严格符合无来源不入 active,代价是不可检索注入)。复核结果与依据落到 memory 系统设计文档或本条目关闭证据。
 - 复杂度: 小
@@ -637,3 +614,4 @@
 - 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 优先级: P3
+- 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
