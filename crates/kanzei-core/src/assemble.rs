@@ -36,7 +36,10 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
         ));
     }
 
-    match resolved.provider.protocol.as_str() {
+    match resolved
+        .provider
+        .effective_protocol(&resolved.provider_name)
+    {
         "anthropic" => {
             let key = api_key.ok_or_else(|| {
                 // 带上实际解析到的模型:用户常常以为自己已经换了 provider,而配置没生效
@@ -68,6 +71,18 @@ pub async fn build_route(resolved: &ResolvedModel, proxy: &ProxyConfig) -> anyho
             Ok(Route::openai_responses_at(
                 &resolved.provider.base_url,
                 headers,
+            ))
+        }
+        "deepseek-responses" => {
+            let key = api_key.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "provider `{}` 需要 API key；设置页直填 api_key 或配置 api_key_env",
+                    resolved.provider_name
+                )
+            })?;
+            Ok(Route::deepseek_responses_at(
+                &resolved.provider.base_url,
+                &key,
             ))
         }
         other => anyhow::bail!(

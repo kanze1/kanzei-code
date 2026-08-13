@@ -241,7 +241,7 @@ pub struct ModelRoles {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProviderConfig {
-    /// "anthropic" | "openai" | "openai-responses"
+    /// "anthropic" | "openai" | "openai-responses" | "deepseek-responses"
     pub protocol: String,
     pub base_url: String,
     #[serde(default)]
@@ -255,6 +255,26 @@ pub struct ProviderConfig {
     /// 上下文窗口(token)。用于界面占用比例显示与(M2)压缩预检。
     #[serde(default)]
     pub context_limit: Option<u64>,
+}
+
+impl ProviderConfig {
+    /// 返回运行时真正使用的 wire protocol。
+    ///
+    /// 旧版本把内置 DeepSeek 写成 `openai`。只对“内置名 + 官方地址”的旧配置
+    /// 升级到 Responses；自定义兼容服务和显式协议都保持用户原意。
+    pub fn effective_protocol<'a>(&'a self, provider_name: &str) -> &'a str {
+        if self.protocol == "openai"
+            && provider_name.eq_ignore_ascii_case("deepseek")
+            && self
+                .base_url
+                .trim_end_matches('/')
+                .eq_ignore_ascii_case("https://api.deepseek.com")
+        {
+            "deepseek-responses"
+        } else {
+            &self.protocol
+        }
+    }
 }
 
 #[cfg(test)]
@@ -321,6 +341,28 @@ mod context_limit_tests {
         }
         // 名单里不该有 fill_defaults 不保证的键(用户自定义的不能误标内置)。
         assert_eq!(config.providers.len(), builtin_provider_names().len());
+    }
+
+    #[test]
+    fn deepseek旧版内置配置升级responses_自定义服务不改写() {
+        let official = ProviderConfig {
+            protocol: "openai".into(),
+            base_url: "https://api.deepseek.com/".into(),
+            api_key_env: None,
+            api_key: None,
+            auth: None,
+            context_limit: None,
+        };
+        assert_eq!(
+            official.effective_protocol("deepseek"),
+            "deepseek-responses"
+        );
+
+        let custom = ProviderConfig {
+            base_url: "https://gateway.example/v1".into(),
+            ..official
+        };
+        assert_eq!(custom.effective_protocol("deepseek"), "openai");
     }
 }
 
@@ -687,11 +729,11 @@ impl KanzeiConfig {
                 auth: Some("claude".into()),
                 context_limit: Some(200_000),
             });
-        // DeepSeek 直连(OpenAI 兼容)。
+        // DeepSeek 原生 Responses API。
         self.providers
             .entry("deepseek".into())
             .or_insert(ProviderConfig {
-                protocol: "openai".into(),
+                protocol: "deepseek-responses".into(),
                 base_url: "https://api.deepseek.com".into(),
                 api_key_env: Some("DEEPSEEK_API_KEY".into()),
                 api_key: None,

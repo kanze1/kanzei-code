@@ -39,7 +39,7 @@ function renderProviders() {
 
     const tdProtocol = document.createElement("td");
     const protocolSelect = document.createElement("select");
-    for (const proto of ["anthropic", "openai", "openai-responses"]) {
+    for (const proto of ["anthropic", "openai", "openai-responses", "deepseek-responses"]) {
       const opt = document.createElement("option");
       opt.value = proto;
       opt.textContent = proto;

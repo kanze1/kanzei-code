@@ -7,6 +7,7 @@ use crate::event::LlmEvent;
 use crate::protocol::{self, ProtocolKind};
 use crate::proxy::{build_http_client, ProxyConfig};
 use crate::request::LlmRequest;
+use crate::request::Part;
 use crate::sse::SseParser;
 
 pub const MAX_TRANSPORT_RETRIES: u32 = 2;
@@ -73,6 +74,18 @@ impl Route {
         }
     }
 
+    /// DeepSeek Responses 端点。请求体使用独立方言，不能复用 Codex 的
+    /// encrypted reasoning/store/include 参数。
+    pub fn deepseek_responses_at(base_url: &str, api_key: &str) -> Route {
+        Route {
+            kind: ProtocolKind::DeepSeekResponses,
+            endpoint: Endpoint {
+                base_url: base_url.trim_end_matches('/').to_string(),
+                headers: vec![("authorization".into(), format!("Bearer {api_key}"))],
+            },
+        }
+    }
+
     /// OpenAI 兼容端点。本地服务(Ollama/LM Studio)不需要 key,传 None 即可。
     /// base_url 含版本前缀,如 `http://127.0.0.1:11434/v1`。
     pub fn openai_at(base_url: &str, api_key: Option<&str>) -> Route {
@@ -124,6 +137,18 @@ impl LlmClient {
     where
         F: FnMut(u32, std::time::Duration),
     {
+        if route.kind == ProtocolKind::DeepSeekResponses
+            && request
+                .messages
+                .iter()
+                .flat_map(|message| &message.parts)
+                .any(|part| matches!(part, Part::Image { .. } | Part::Document { .. }))
+        {
+            return Err(LlmError::Config(
+                "DeepSeek Responses 当前不支持图片或文件输入；请改用文本或选择支持附件的 provider"
+                    .into(),
+            ));
+        }
         let body = protocol::build_body(route.kind, request);
         let url = format!(
             "{}{}",

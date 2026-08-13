@@ -499,7 +499,9 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                     .map(|env| std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false))
             };
             json!({
-                "name": name, "protocol": p.protocol, "baseUrl": p.base_url,
+                // 旧版内置 DeepSeek 配置在设置页直接显示迁移后的有效协议；用户下次
+                // 保存时会自然落成 deepseek-responses，不再永久显示旧值。
+                "name": name, "protocol": p.effective_protocol(name), "baseUrl": p.base_url,
                 "apiKeyEnv": p.api_key_env, "apiKey": p.api_key, "keyPresent": key_present,
                 "auth": p.auth, "contextLimit": p.context_limit,
                 // R-184 P6(D-246):内置 provider 由 fill_defaults 无条件回填,
@@ -734,6 +736,24 @@ pub async fn provider_test(
                 request = request.header("x-api-key", key);
             }
             request
+        }
+        "deepseek-responses" => {
+            let Some(key) = &key else {
+                return Ok("✗ 缺少 DeepSeek API key——请直填 key 或配置 DEEPSEEK_API_KEY".into());
+            };
+            client
+                .post(format!("{base}/responses"))
+                .bearer_auth(key)
+                .json(&json!({
+                    "model": "deepseek-v4-flash",
+                    "input": [{
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Reply with OK."}],
+                    }],
+                    "max_output_tokens": 16,
+                    "stream": false,
+                }))
         }
         _ => {
             let mut request = client.get(format!("{base}/models"));
@@ -1057,6 +1077,35 @@ mod tests {
             saved.providers.contains_key("keepme"),
             "空清单不该被当成「删光所有 provider」"
         );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn provider直填密钥保存后可原样读回() {
+        let path = 临时配置("provider-api-key-roundtrip");
+        std::fs::write(&path, "").unwrap();
+        settings_save_at_path(
+            空载荷(vec![ProviderPayload {
+                name: "deepseek".into(),
+                protocol: "deepseek-responses".into(),
+                base_url: "https://api.deepseek.com".into(),
+                api_key_env: Some("DEEPSEEK_API_KEY".into()),
+                api_key: Some("sk-roundtrip-placeholder".into()),
+                auth: None,
+                context_limit: None,
+            }]),
+            &path,
+        )
+        .unwrap();
+
+        let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let provider = &saved.providers["deepseek"];
+        assert_eq!(
+            provider.api_key.as_deref(),
+            Some("sk-roundtrip-placeholder")
+        );
+        assert_eq!(provider.api_key_env.as_deref(), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(provider.protocol, "deepseek-responses");
         let _ = std::fs::remove_file(path);
     }
 

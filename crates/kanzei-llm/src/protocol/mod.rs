@@ -1,6 +1,7 @@
 //! 协议抽象:每种 wire API 提供 body 构造 + 流式状态机(SSE 事件 → LlmEvent)。
 
 pub mod anthropic;
+pub mod deepseek_responses;
 pub mod openai;
 pub mod openai_responses;
 
@@ -16,6 +17,8 @@ pub enum ProtocolKind {
     OpenAiChat,
     /// OpenAI Responses(Codex 订阅后端 / OpenAI 平台 /v1/responses)。
     OpenAiResponses,
+    /// DeepSeek 原生 Responses API（明文 reasoning 历史，无 store/include）。
+    DeepSeekResponses,
 }
 
 pub trait ProtocolState: Send {
@@ -27,6 +30,7 @@ pub fn build_body(kind: ProtocolKind, request: &LlmRequest) -> serde_json::Value
         ProtocolKind::AnthropicMessages => anthropic::build_body(request),
         ProtocolKind::OpenAiChat => openai::build_body(request),
         ProtocolKind::OpenAiResponses => openai_responses::build_body(request),
+        ProtocolKind::DeepSeekResponses => deepseek_responses::build_body(request),
     }
 }
 
@@ -35,6 +39,8 @@ pub fn make_state(kind: ProtocolKind) -> Box<dyn ProtocolState> {
         ProtocolKind::AnthropicMessages => Box::new(anthropic::AnthropicState::default()),
         ProtocolKind::OpenAiChat => Box::new(openai::OpenAiState::default()),
         ProtocolKind::OpenAiResponses => Box::new(openai_responses::ResponsesState::default()),
+        // DeepSeek 的 SSE 事件名与 Responses 状态机一致，差异只在请求方言。
+        ProtocolKind::DeepSeekResponses => Box::new(openai_responses::ResponsesState::default()),
     }
 }
 
@@ -45,5 +51,6 @@ pub fn request_path(kind: ProtocolKind) -> &'static str {
         ProtocolKind::OpenAiChat => "/chat/completions",
         // codex: base_url = https://chatgpt.com/backend-api/codex
         ProtocolKind::OpenAiResponses => "/responses",
+        ProtocolKind::DeepSeekResponses => "/responses",
     }
 }
