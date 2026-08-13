@@ -205,6 +205,7 @@ fn implementation_summary() -> kanzei_core::RunSummary {
             cache_read: 5,
             cache_write: 7,
         },
+        last_input_tokens: Some(100),
         steps: 3,
         halted_by_user: false,
         messages: vec![

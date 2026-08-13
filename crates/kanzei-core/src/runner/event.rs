@@ -125,6 +125,9 @@ pub(super) fn drain_task_events(
 pub struct RunSummary {
     pub text: String,
     pub usage: Usage,
+    /// 最近一次 provider 请求的真实 input token 数；None 表示本轮没有拿到有效 usage。
+    /// 轮末上下文触发优先使用它，避免把 system/tool schema 与附件再次按本地粗估计量。
+    pub last_input_tokens: Option<u64>,
     pub steps: u32,
     /// 用户拒绝权限导致的提前停止。
     pub halted_by_user: bool,

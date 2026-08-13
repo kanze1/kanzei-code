@@ -183,6 +183,8 @@ pub fn run_once_with_parts<'a>(
             parts: user_parts,
         });
         let mut total_usage = Usage::default();
+        // R-236 B1:轮末优先使用最近一次 provider usage.input；None 仅表示本轮没有有效 usage。
+        let mut last_input_tokens: Option<u64> = None;
         // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
         let mut final_text = String::new();
         let halt = config.halt.as_ref();
@@ -221,6 +223,7 @@ pub fn run_once_with_parts<'a>(
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
+                    last_input_tokens,
                     steps: step.saturating_sub(1),
                     halted_by_user: true,
                     messages,
@@ -476,6 +479,9 @@ pub fn run_once_with_parts<'a>(
                         LlmEvent::StepFinish { usage, reason } => {
                             calibration =
                                 update_calibration(calibration, last_estimated, usage.input);
+                            if usage.input > 0 {
+                                last_input_tokens = Some(usage.input);
+                            }
                             total_usage = add_usage(total_usage, usage);
                             finish = reason.clone();
                             // R-219:恢复计数随成功衰减——被动恢复成功且后续步正常结束,
@@ -493,6 +499,7 @@ pub fn run_once_with_parts<'a>(
                     return Ok(RunSummary {
                         text: final_text,
                         usage: total_usage,
+                        last_input_tokens,
                         steps: step,
                         halted_by_user: true,
                         messages,
@@ -560,6 +567,7 @@ pub fn run_once_with_parts<'a>(
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
+                    last_input_tokens,
                     steps: step,
                     // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
                     halted_by_user: halted(),
@@ -578,6 +586,7 @@ pub fn run_once_with_parts<'a>(
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
+                    last_input_tokens,
                     steps: step,
                     halted_by_user: true,
                     messages,
@@ -985,6 +994,7 @@ pub fn run_once_with_parts<'a>(
                         return Ok(RunSummary {
                             text: final_text,
                             usage: total_usage,
+                            last_input_tokens,
                             steps: step,
                             halted_by_user: true,
                             messages,
@@ -1229,6 +1239,7 @@ pub fn run_once_with_parts<'a>(
                             return Ok(RunSummary {
                                 text: final_text,
                                 usage: total_usage,
+                                last_input_tokens,
                                 steps: step,
                                 halted_by_user: true,
                                 messages,
@@ -1322,6 +1333,7 @@ pub fn run_once_with_parts<'a>(
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
+                    last_input_tokens,
                     steps: step,
                     halted_by_user: true,
                     messages,
@@ -1334,6 +1346,7 @@ pub fn run_once_with_parts<'a>(
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
+                    last_input_tokens,
                     steps: step,
                     halted_by_user: false,
                     messages,
@@ -1349,6 +1362,7 @@ pub fn run_once_with_parts<'a>(
         Ok(RunSummary {
             text: final_text,
             usage: total_usage,
+            last_input_tokens,
             steps: step,
             halted_by_user: false,
             messages,

@@ -2738,3 +2738,23 @@
 - 摘要: i18n 1067 keys/353 HTML/57 dynamic contracts；ESLint 31 文件 no-undef 零错误。
 - 关联: R-236
 - 收尾: 1786648782
+
+## T-1786649428 R-236/D-346 core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: 161 passed；新增固定负载对照：旧 0.7 线 6/7 次触发，新 headroom 线 3/7 次触发；覆盖 usage 透传相关 core 回归。
+- 关联: R-236 D-346
+- 收尾: 1786649428
+
+## T-1786649429 R-236/D-346 app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 16.1s
+- 摘要: 145 passed；新增轮末触发优先 provider usage.input、无 usage 回落估算单测。
+- 关联: R-236 D-346
+- 收尾: 1786649429
+
+## T-1786649430 R-236/D-346 Rust fmt 检查 [passed]
+- 命令: cargo fmt --all -- --check
+- 摘要: Rust 格式检查通过。
+- 关联: R-236 D-346
+- 收尾: 1786649430

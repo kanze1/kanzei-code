@@ -331,6 +331,34 @@ mod tests {
             "小请求不该越线"
         );
     }
+    /// R-236 验收④：固定同一组负载，对照遗留 0.7 比例线与 headroom 新线。
+    /// 这是可复现的机制测量，不冒充真实 provider 生产样本；生产轨迹仍由
+    /// ContextPruned/context.compacted 事件记录。
+    #[test]
+    fn 同一固定负载的压缩触发频率_旧线对照新线() {
+        let limit = 128_000u64;
+        let output = 8_192u32;
+        let buffer = 20_000u64;
+        let samples = [80_000, 90_000, 100_000, 105_000, 110_000, 115_000, 120_000];
+        let legacy_budget = (limit as f64 * CONTEXT_BUDGET_RATIO) as u64;
+        let current_budget = compaction_budget(limit, output, buffer);
+        let legacy_triggers = samples
+            .iter()
+            .filter(|tokens| **tokens > legacy_budget)
+            .count();
+        let current_triggers = samples
+            .iter()
+            .filter(|tokens| **tokens > current_budget)
+            .count();
+
+        assert_eq!(legacy_budget, 89_600);
+        assert_eq!(current_budget, 108_000);
+        assert_eq!(legacy_triggers, 6, "旧线应在 7 个样本中触发 6 次");
+        assert_eq!(current_triggers, 3, "新线应在 7 个样本中触发 3 次");
+        assert_eq!((legacy_triggers, samples.len()), (6, 7));
+        assert_eq!((current_triggers, samples.len()), (3, 7));
+    }
+
     /// R-236 B1:预算公式统一为 headroom 形态——limit − max(output, buffer),
     /// 封底 limit/4;轮内与轮末同一把尺,谁把比例线加回来先删这条。
     #[test]

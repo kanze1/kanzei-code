@@ -217,6 +217,7 @@ mod tests {
         let summary = kanzei_core::RunSummary {
             text: String::new(),
             usage: kanzei_llm::Usage::default(),
+            last_input_tokens: None,
             steps: 4,
             halted_by_user: false,
             messages: vec![

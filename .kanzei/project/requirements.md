@@ -412,8 +412,8 @@
 - 验收: ①B1:全仓只剩一处「纪要替换历史」实现(机械核验:grep 无第二套),轮末压缩后对话仍含任务定义原文与近期工作区逐字(实测轨迹);带 base64 附件的会话不再虚高误触发(定向测试)。②B2:纪要为固定段落模板且含失败尝试段;两次压缩走滚动合并,第二次压缩后纪要仍含首段关键实体(防退化定向测试);质量闸三向(precision/recall/胀检)各有单测,不达标回落节选且留轨迹。③B3:[models].compact 未配置时压缩请求实际走主模型、配置后走指定模型(测试断言请求 route);设置页可选。④B4:prune 只清已配对的旧工具结果、保护窗内不动、凑不满最小收益不做(单测);压缩触发频率前后对比有实测数字。⑤联测:发生过压缩的会话,插新任务后模型能复述目标与已完成工作(与 D-342 修复联合场景)。
 - 优先级: P1
 - 批次: 4/4
-- 进展: 本轮复核与验证：B1/B2/B4 的实现与调用链已由 crates/kanzei-core/src/runner/compaction.rs:54-110、120-223、348-385；crates/kanzei-core/src/runner/context.rs:82-129、257-290；crates/kanzei-core/src/runner/drive.rs:262-319；crates/kanzei-app/src/run.rs:1100-1199 逐段确认。B3 装配位于 crates/kanzei-app/src/run.rs:718-743，配置解析与回落测试位于 crates/kanzei-harness/src/config.rs:1595-1637；UI 设置真实消费者为 crates/kanzei-app/ui/16-settings.js:291-373、512、676 与 crates/kanzei-app/ui/15-views-misc.js:494。验证已记录：T-1786648777 core 160 passed、T-1786648778 harness 123 passed、T-1786648780 app 144 passed、T-1786648781 UI runtime passed、T-1786648782 UI i18n/ESLint passed。验收①-③已有代码/测试证据；验收④目前只有 ContextPruned/context.compacted 事件埋点（core runner/event.rs:103-109、app run.rs:499-524），尚无同一工作负载的前后触发频率数字；验收⑤尚无真实 provider 联测，当前环境未提供可复核的模型会话证据。未关闭，避免把已有单测冒充两项实测。下一步：补一组可复现的触发频率对照测量，并在真实 provider 凭据可用时执行压缩后插入新任务联测；若环境仍不可用，保留缺口并说明外部条件。
+- 进展: 本轮继续推进已完成：D-346 已修复并关闭，provider usage.input 已从 core runner 透传至 app 轮末触发线；固定同一负载的机制对照已补入 core 单测，旧 0.7 线触发 6/7，新 headroom 线触发 3/7。新增证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed。R-236 目前仅剩验收⑤：发生压缩后的真实 provider 联测（插入新任务并验证模型复述目标与已完成工作）；当前环境只有 MOONSHOT_API_KEY，项目配置未配置该 provider，且没有可复核的真实会话轨迹，因此保持 doing，不将机制单测冒充联测。下一步：获得可复核 provider 凭据/会话后执行联测；在此之前不再重复无效 e2e/CDP 路线。
 - 取活依据: engine:唯一可执行 WIP 是 R-236，必须先恢复它
 - observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
-- observed_worktree_hash: fnv1a64:fe871977f10a5179
-- recorded_at: 1786648839338
+- observed_worktree_hash: fnv1a64:bd305948b988a8e5
+- recorded_at: 1786649460027

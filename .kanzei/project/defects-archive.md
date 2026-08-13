@@ -3935,3 +3935,16 @@
 - 修复: 复合命令按 ;/&&/|| 分段并合并覆盖；同一源码指纹 passed 记录取 crate 并集；tracker schema 为 add 生成条件 required，新增受 enum 约束的顶层 tag/complexity 并落入既有中文字段。
 - 验收: coverage/last_passed 4 passed，tracker schema/add 2 passed；断言 tools+core 同指纹合并，req 顶层 complexity/tag 可直接落盘，defect/req 条件 required 与文档类型一致。
 - refs: R-237
+
+## D-346 R-236 轮末压缩触发仍用全量估算，未优先使用 provider usage.input [fixed] (medium)
+- 复现: 代码路径 crates/kanzei-app/src/run.rs:1106-1118 在轮末以 estimate_conversation_tokens(&conv) 判定是否超过 budget；同一轮真实 provider usage.input 只在 core runner/drive.rs:476-479 更新 calibration，未传入轮末判定。
+- 影响: R-236 B1 要求 provider usage.input 优先；轮末仍可能因本地估算偏高或偏低误触发/漏触发，附件与真实 provider 计量的修正不能完整覆盖轮末路径。
+- 来源: self-found；在逐条复核 R-236 验收与调用链时发现。
+- 标签: 核心
+- 进展: 已修复并验证：crates/kanzei-core/src/runner/event.rs:125-132 新增 RunSummary.last_input_tokens；crates/kanzei-core/src/runner/drive.rs:185-187、476-482 记录最近一次有效 provider usage.input，并在全部正常/停止/拒绝收尾路径透传；crates/kanzei-app/src/run.rs:30-39、1130 轮末优先 usage.input，无有效值回落 estimate_conversation_tokens；crates/kanzei-app/src/run.rs:2611-2632 新增优先/回落单测。证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed。逐条验收：①有有效 usage.input 时 compaction_input_tokens 返回该值，代码 run.rs:32-38 + 单测 run.rs:2618-2623；②无 usage 时回落 estimate_conversation_tokens，代码 run.rs:36-38 + 单测 run.rs:2625-2630；③实现已由 app 轮末调用 run.rs:1130 消费，非死代码。
+- 验收: 轮末压缩优先使用本轮/最近 provider usage.input，冷启动或无 usage 时才回落估算；补定向测试断言 usage 优先及无 usage 回落。
+- refs: R-236
+- 优先级: P1
+- observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
+- observed_worktree_hash: fnv1a64:bd305948b988a8e5
+- recorded_at: 1786649450534

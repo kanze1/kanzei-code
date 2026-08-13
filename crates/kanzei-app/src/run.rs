@@ -27,6 +27,17 @@ use crate::{
 /// 又不让单条轨迹事件把库体积与解析成本放大。
 const TRACE_INPUT_KEEP_CHARS: usize = 4096;
 
+/// R-236 B1：轮末触发线优先采用最近一次 provider 的真实 input usage；
+/// 本轮没有有效 usage（冷启动、provider 未上报或返回 0）时才回落本地估算。
+fn compaction_input_tokens(
+    last_input_tokens: Option<u64>,
+    messages: &[kanzei_llm::Message],
+) -> u64 {
+    last_input_tokens
+        .filter(|tokens| *tokens > 0)
+        .unwrap_or_else(|| kanzei_core::estimate_conversation_tokens(messages))
+}
+
 #[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
 pub(crate) async fn run_task(
     window: &Window,
@@ -1115,7 +1126,7 @@ pub(crate) async fn run_task(
             .get(&session_id)
             .cloned()
             .unwrap_or_default();
-        let mut estimate = kanzei_core::estimate_conversation_tokens(&conv);
+        let mut estimate = compaction_input_tokens(summary.last_input_tokens, &conv);
         // R-236 B4:轮末同样 L0 先行——机械清旧工具结果,清完够线就不动 LLM 纪要。
         if estimate > budget && conv.len() > 1 {
             let cleared = kanzei_core::prune_conversation(
@@ -2593,6 +2604,34 @@ mod assembly_tests {
     use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
     use std::path::PathBuf;
     use std::sync::Arc;
+
+    #[test]
+    fn 轮末压缩触发优先使用provider真实usage_无usage才估算() {
+        let messages = vec![kanzei_llm::Message::user_text("本地估算内容")];
+        let summary = kanzei_core::RunSummary {
+            text: String::new(),
+            usage: kanzei_llm::Usage::default(),
+            last_input_tokens: Some(321),
+            steps: 1,
+            halted_by_user: false,
+            messages: messages.clone(),
+            context_report: vec![],
+            overflow_traces: vec![],
+        };
+        assert_eq!(
+            super::compaction_input_tokens(summary.last_input_tokens, &messages),
+            321
+        );
+
+        let cold = kanzei_core::RunSummary {
+            last_input_tokens: None,
+            ..summary
+        };
+        assert_eq!(
+            super::compaction_input_tokens(cold.last_input_tokens, &messages),
+            kanzei_core::estimate_conversation_tokens(&messages)
+        );
+    }
 
     /// D-195:运行装配线必须注册前端自查段点名的每个工具。
     #[test]

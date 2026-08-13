@@ -148,6 +148,7 @@ fn defect_review_rejects_empty_model_report() {
     let empty = kanzei_core::RunSummary {
         text: "  ".into(),
         usage: kanzei_llm::Usage::default(),
+        last_input_tokens: None,
         steps: 1,
         halted_by_user: false,
         messages: vec![],
