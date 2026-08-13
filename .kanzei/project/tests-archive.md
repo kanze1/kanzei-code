@@ -2183,3 +2183,9 @@
 - 摘要: 88 passed。新增 prompt_hints_语义通道_词面不相关但语义相关可召回:「评估 harness 质量」纯 BM25(None)召回不到,接 TopicEmbedder 后 hybrid 召回「自举复盘 SOP」并注入(验收① e2e 证据)。
 - 关联: R-233
 - 收尾: 1786604416
+
+## T-1786604587 R-233 关闭前全量:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: 全 workspace 759 passed / 0 failed / 2 ignored(R-233 关闭前全量)。B1-B3 累积:意图词查询构造、hybrid embedder 接线、语义召回 e2e 全部并入,无回归。
+- 关联: R-233
+- 收尾: 1786604587

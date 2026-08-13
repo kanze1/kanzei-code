@@ -1,19 +1,5 @@
 # Requirements
 
-## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [doing]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 核心
-- 背景: 本轮复盘发现:prompt_hints(memory/mod.rs:996) → store.search → 纯 FTS5 BM25 词面匹配(store.rs:732);dense 通道未接 embedder 恒空(memory/index.rs:15-16 注释明示)。抽象意图查询(如「评估 harness 质量」)召回率天然低——M-061 自举复盘 SOP 正文无「harness/质量」字眼词面永命中不到,反而命中 M-008/M-032/M-027 等字面偶合条目(本轮实测 0/3 命中)。这是系统性设计缺口,不是逻辑 bug。
-- 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
-- 批次: 3/4
-- 进展: B3(2026-08-13):① 语义召回 e2e 验证落地。新增测试 prompt_hints_语义通道_词面不相关但语义相关可召回(mod.rs):TopicEmbedder 把含 评估/harness/质量/复盘/验收/证据 的文本映射到同一主题向量(同域余弦=1,其余按字符 hash 正交);query「评估 harness 质量」对条目「自举复盘 SOP」(正文无 评估/harness/质量 字眼)词面零重叠——无 embedder 时纯 BM25 不注入(对照),接 embedder 后 hybrid 经 dense 通道召回并注入(验收① e2e 证据)。已知特性:hybrid dense 通道无相似度阈值(dense_scan 取 top-N 即使 cos≈0),小库时 cos≈0 噪声可能进 top 候选、靠 RRF 排名沉底;不影响本验收,列为残余待 RRF 阈值评估。memory 88 测试全绿。下步 B4:全量+关闭。
-- observed_head: 7f3504488bc18294da80c24e7af12a805d44b1fc
-- observed_worktree_hash: fnv1a64:64f568563a62a8d3
-- recorded_at: 1786604423024
-
 ## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [todo]
 - 优先级: P1
 - 复杂度: 大

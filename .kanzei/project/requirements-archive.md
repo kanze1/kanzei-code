@@ -2176,3 +2176,17 @@
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786597713547
+
+## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 背景: 本轮复盘发现:prompt_hints(memory/mod.rs:996) → store.search → 纯 FTS5 BM25 词面匹配(store.rs:732);dense 通道未接 embedder 恒空(memory/index.rs:15-16 注释明示)。抽象意图查询(如「评估 harness 质量」)召回率天然低——M-061 自举复盘 SOP 正文无「harness/质量」字眼词面永命中不到,反而命中 M-008/M-032/M-027 等字面偶合条目(本轮实测 0/3 命中)。这是系统性设计缺口,不是逻辑 bug。
+- 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
+- 批次: 3/3
+- 进展: B1-B3(2026-08-13)代码批次完成:B1 query 构造升级(intent_query+INTENT_BOUNDARY+端到端召回测试,927ecc2);B2 embedder 接线(prompt_hints 第4参+hybrid 检索+ensure_vectors 差集维护+遥测记通道,7f35044);B3 语义召回 e2e(词面不相关但语义相关可召回,验收①,e63be64)。关闭前全量 cargo test --workspace 759 passed/0 failed/2 ignored(T-1786604587)。验收对照:① dense 通道=prompt_hints_with_budget 走 SqliteMemoryIndex::with_embedder+search_hybrid_entries(mod.rs:1080-1086)+ensure_vectors(index.rs);② query 构造升级=intent_query(store.rs:1677)接线 mod.rs:1062;③ hybrid RRF=search_hybrid(index.rs:337,k=60)+生产走 hybrid;④ 遥测=record_memory_search_telemetry 记 hybrid/lexical+分段耗时(mod.rs:994-1004),B2 测试断言通道区分。残余(不阻塞):dense 无相似度阈值小库噪声靠 RRF 沉底;真实 embedder 采纳率改善需配 [embeddings] 后由 recall_events 观测。
+- observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786604603727
