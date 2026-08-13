@@ -65,11 +65,11 @@
 - 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
-- 批次: 4/6
-- 进展: B1a+B1b+B2+B3 完成(2026-08-13,提交 8cd437d/a441df0/cf511ff/dfb1c29,批次 4/6):见前。B4 勘察完成——通知通道 + 三终态:①agent_notifications 落库需 SessionStore(store/notifications.rs append_notification_atomic),与 background_events 同理不能直接进 spawn(非 Send)——方案:SubagentRuntime 加 background_notifications: Option<Arc<dyn Fn(&str, &str) + Send + Sync>>(call_id, status),app 层 run.rs 包 append_notification_atomic;drive.rs spawn 块完成/失败/超时调它(验收⑦:复用既有表,有测试证明未新造并行通道);②三终态读槽释放(验收⑤):run_subagent 内 _read_permit 随函数返回 RAII 释放(函数返回=子代理跑完),三条路径(超时=timeout Err、失败=run_once Err、被停=cancelled 分支)都走函数返回——需集成测试断言 MemoryCoordinator::snapshot 的 active_readers 在终态后不含该子代理 run_id,覆盖三条路径。下一步(B4 实施):subagent.rs 加 background_notifications 字段+8 构造点、drive.rs spawn 块三终态调通知 sink、run.rs 接线、三终态读槽释放测试。批次 4/6。
-- observed_head: dfb1c29c66e1cef0195739dc14de6ad9da262986
+- 批次: 5/6
+- 进展: B1a+B1b+B2+B3+B4 完成(2026-08-13,提交 8cd437d/a441df0/cf511ff/dfb1c29/babdc34,批次 5/6):B4(babdc34)通知通道+三终态——①SubagentRuntime 加 background_notifications: Option<BackgroundNotificationSink>(type 别名 Arc<dyn Fn(&str,&str)+Send+Sync>);②drive.rs spawn 块完成/失败/超时调 notify(call_id, done|failed)(验收⑦:复用 agent_notifications 表,app 层 run.rs 包 append_notification_atomic,未新造通道);③验收⑤三终态读槽释放测试:失败(mock 500)、被停(cancellations.cancel)、超时(外部 timeout 丢弃 future,与 drive 同语义)三条路径都断言 MemoryCoordinator::snapshot 的 active_readers 终态后不含该 run_id;④验收⑦通知断言(完成收到 done)。workspace 800 passed 全绿、clippy 干净。B4 提交后 B5:重启可发现——注册表列出上次未终结子代理并给确定处置(继续或标失败),不留幽灵条目。
+- observed_head: babdc348fa75e2270bdbab7d1e9c7de9251c623c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786617362368
+- recorded_at: 1786618669139
 
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
