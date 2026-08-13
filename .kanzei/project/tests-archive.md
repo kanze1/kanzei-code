@@ -2612,3 +2612,14 @@
 - 摘要: R-192 关闭前全量:cargo test --workspace 全绿(798 passed:app 142/harness 121/core 150/tools 333)
 - 关联: R-192
 - 收尾: 1786632848
+
+## T-1786633065 cargo test -p kanzei-tools --lib (R-218) [passed]
+- 摘要: R-218 SubagentBase 扩容:kanzei-tools 333 passed(含 subagent 快照新断言:git 只读 action Allow/写 action Ask)+ core 编译 + clippy/fmt 全过
+- 关联: R-218
+- 收尾: 1786633065
+
+## T-1786633097 cargo test -p kanzei-tools -p kanzei-core (R-218) [passed]
+- 摘要: R-218 提交前:kanzei-tools 333 + kanzei-core 150 全绿(覆盖全部暂存 crate)
+- 关联: R-218
+- 收尾: 1786633097
+- 源码指纹: 28d3a0761dc7e41a

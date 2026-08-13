@@ -2516,3 +2516,18 @@
 - observed_head: f70f7eb392e2ce7e978d7863e8cf55e27fb22be0
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786632855951
+
+## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 后端 harness 并行
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: task 子代理只有 read/glob/grep(tools/subagent.rs:14-25),task_spec 自述 cannot inspect git state;R-173 编排的勘察/复核角色走同一快照——查不了 git 历史、看不了文件地图,勘察质量有硬上限。
+- 内容: SubagentBase 加入 files、git(限 status/diff/log 只读子命令),保持全 allow 零 ask;webfetch 暂不加。
+- 验收: ①勘察角色能独立完成一个需要 git log 的勘察任务;②写类 git 子命令在子代理内被拒(定向测试);③既有只读语义测试全绿。
+- refs: R-173 R-174
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-218
+- 进展: 2026-08-16 取活。实现(commit f5ba68f):SubagentBase(tools/subagent.rs:19-32)加入 files(FilesTool)与 git(GitTool),权限规则全 Allow 零 ask:read/glob/grep/files 用 rule(*,*,Allow),git 只对 status/diff/log 三个只读 action 放行——写类 action(stage/commit/merge_ff/finalize)不设规则,子代理内 ask 恒 Deny → 被拒(验收②)。同步更新 explore_agent 描述(subagent.rs:84-90)与 task_spec 描述(core runner/subagent.rs:269-281,原「cannot inspect git state」改为可查 status/diff/log)。测试:subagent_snapshot_is_read_only 更新为 5 件套断言(files Allow、git 只读 action Allow、写 action Ask),subagent_readonly_snapshot_unchanged_by_writable_component 更新(git 在场但写 action Ask)。验证:kanzei-tools 333 passed(T-1786633065)+ kanzei-core 150 passed(T-1786633097)+ clippy/fmt 全过。三条验收逐条对照:①勘察角色能独立完成需要 git log 的勘察任务——SubagentBase 快照 git log/status/diff 全 Allow,工具已装配(task_spec/explore 描述同步),勘察子代理可查 git 历史;②写类 git 子命令在子代理内被拒——快照测试断言 evaluate(git, stage/commit/merge_ff/finalize)==Ask,子代理内 ask 恒 Deny = 被拒;③既有只读语义测试全绿——subagent 4 passed(含快照用户 deny 生效/只读语义),kanzei-tools 全量 333 passed。关闭。
+- observed_head: f5ba68f5c9e04306cf287e715abd0aba6c91f443
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786633111867

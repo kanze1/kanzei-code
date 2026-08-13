@@ -63,17 +63,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786631684828
 
-## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [doing]
-- 优先级: P2
-- 复杂度: 小
-- 标签: 后端 harness 并行
-- 来源: 2026-08-12 八维度审计(§6)。
-- 背景: task 子代理只有 read/glob/grep(tools/subagent.rs:14-25),task_spec 自述 cannot inspect git state;R-173 编排的勘察/复核角色走同一快照——查不了 git 历史、看不了文件地图,勘察质量有硬上限。
-- 内容: SubagentBase 加入 files、git(限 status/diff/log 只读子命令),保持全 allow 零 ask;webfetch 暂不加。
-- 验收: ①勘察角色能独立完成一个需要 git log 的勘察任务;②写类 git 子命令在子代理内被拒(定向测试);③既有只读语义测试全绿。
-- refs: R-173 R-174
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-218
-
 ## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [todo]
 - 优先级: P1
 - 复杂度: 大
