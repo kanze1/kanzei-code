@@ -413,8 +413,17 @@ impl Tool for TrackerTool {
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
                 }
+                // D-330:priority 参数与 fields 里「优先级」键去重——调用方可能同时传两者,
+                // 直接 push 会双写同名字段(值相同冗余、值不同语义歧义)。语义与 update 分支
+                // (:664-673)一致:已存在(中文键或大小写不敏感的 priority)则覆盖,否则追加。
                 if let Some(priority) = input.priority {
-                    fields.push(("优先级".into(), priority));
+                    match fields
+                        .iter_mut()
+                        .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
+                    {
+                        Some((_, value)) => *value = priority,
+                        None => fields.push(("优先级".into(), priority)),
+                    }
                 }
                 let status = input
                     .status
@@ -534,8 +543,17 @@ impl Tool for TrackerTool {
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
                 }
+                // D-330:priority 参数与 fields 里「优先级」键去重——调用方可能同时传两者,
+                // 直接 push 会双写同名字段(值相同冗余、值不同语义歧义)。语义与 update 分支
+                // (:664-673)一致:已存在(中文键或大小写不敏感的 priority)则覆盖,否则追加。
                 if let Some(priority) = input.priority {
-                    fields.push(("优先级".into(), priority));
+                    match fields
+                        .iter_mut()
+                        .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
+                    {
+                        Some((_, value)) => *value = priority,
+                        None => fields.push(("优先级".into(), priority)),
+                    }
                 }
                 let severity = input
                     .severity
@@ -1539,6 +1557,76 @@ mod tests {
             tool.resources(&json!({"action": "repair_missing_id"})),
             ["write:repair_missing_id"]
         );
+    }
+
+    /// D-330:add/repair_missing_id 时 priority 参数与 fields 里「优先级」键只落一条——
+    /// 同传两者不再双写同名字段(值不同语义歧义),参数优先覆盖(fields 里值被顶掉)。
+    #[tokio::test]
+    async fn add_and_repair_dedupe_priority_param_with_fields_key() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-add-prio-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        // add:priority 参数 P1 + fields 里「优先级: P2」——只落一条,参数优先。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "双写优先级测试", "priority": "P1",
+                       "fields": {"复杂度": "小", "优先级": "P2", "标签": "后端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let entry = store
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.title == "双写优先级测试")
+            .expect("条目应存在");
+        let prio: Vec<_> = entry.fields.iter().filter(|(k, _)| k == "优先级").collect();
+        assert_eq!(
+            prio.len(),
+            1,
+            "add 优先级字段只应有一条: {:?}",
+            entry.fields
+        );
+        assert_eq!(prio[0].1, "P1", "priority 参数应覆盖 fields 里的值");
+        // repair_missing_id:同型——恢复缺失编号同时传两处优先级。
+        let out2 = tool
+            .execute(
+                json!({"action": "repair_missing_id", "id": "R-002", "title": "恢复条目",
+                       "priority": "P2", "fields": {"优先级": "P3", "标签": "后端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out2.is_error, "{}", out2.content);
+        let e2 = store
+            .load()
+            .unwrap()
+            .into_iter()
+            .find(|e| e.id == "R-002")
+            .expect("恢复条目应存在");
+        let prio2: Vec<_> = e2.fields.iter().filter(|(k, _)| k == "优先级").collect();
+        assert_eq!(
+            prio2.len(),
+            1,
+            "repair 优先级字段只应有一条: {:?}",
+            e2.fields
+        );
+        assert_eq!(prio2[0].1, "P2", "repair 的 priority 参数应覆盖 fields 值");
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
