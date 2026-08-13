@@ -2856,3 +2856,21 @@
 - 摘要: 全量全绿:app 146 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-190 关闭前全量。
 - 关联: R-190
 - 收尾: 1786654534
+
+## T-1786654859 cargo test -p kanzei-app(R-179 B1 后端) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 147 passed; 0 failed。R-179 B1:worktree_field 死分支清理(→worktree_current_branch)+ worktree_merge_preview 冲突预检命令 + parse_merge_tree_conflicts 单测。
+- 关联: R-179
+- 收尾: 1786654859
+
+## T-1786655181 R-179 B2 前端接线冒烟集 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs && cargo test -p kanzei-app
+- 摘要: 前端五冒烟全绿(ui-runtime 含新增 R-179 断言:buildDiffTree 接入、worktree_merge_preview 调用、建线成本提示、800/1024/1280 三档 lines-list);kanzei-app 147 passed。
+- 关联: R-179
+- 收尾: 1786655181
+
+## T-1786655288 cargo test --workspace(R-179 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 147 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-179 关闭前全量(2 批完成)。
+- 关联: R-179
+- 收尾: 1786655288

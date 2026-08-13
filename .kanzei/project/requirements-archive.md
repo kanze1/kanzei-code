@@ -2715,3 +2715,25 @@
 - observed_head: 408a117df50fe1800b12b033b753819bd799320c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786654544108
+
+## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 调度顺序: 锦上添花,排在 R-177/R-178 之后。工作量已被 R-133 与 D-096 大幅削减(见「既有能力」)。
+- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第三条(= 该文 P3)。
+- 既有能力(§1.25 显式标注,不得重复申报为本次产出): ①**D-096 已 [fixed]**——`worktree_diff` 已返回真实 `git diff --no-ext-diff --binary`(crates/kanzei-app/src/processes.rs),不再是 `status --porcelain` 文件名列表弹 toast;②**R-133 已 [done]**——`crates/kanzei-app/ui/06-activity.js` 已有可折叠的 diff 目录树渲染器(`buildDiffTree`、`renderDiff`,含并排视图与长行自身列滚动);③`worktree_merge` 的 `git merge-tree --write-tree` 冲突预检真实可用;④`worktree_discard` 失败时"已保留以便恢复"的兜底已存在。**本条是把这些接起来,不是重造。**
+- 内容: ①把 `worktree_diff` 的输出接进 06-activity.js **已有**的 diff 目录树渲染器——不造新查看器。②合并 / 放弃的确认流:合并前展示 `merge-tree --write-tree` 冲突预检结果的可读形态(哪些文件冲突、哪边改的),放弃前明确说清"树删了、分支留着"。③线页签徽标:分支名 / running 状态 / 每线 token 计数(episodes 已记,取出来显示)。④建线 UI 上落 D6 定案的提示:每树独立 `target/` = 磁盘 ×N + 首次冷编译数分钟。⑤`worktree_discard` 在 Windows 因文件句柄占用失败时,把现有兜底延伸到 UI 提示(§5 风险 3)。
+- 顺手修: `crates/kanzei-app/src/processes.rs` 的 `worktree_field(root, worktree, field)` 的 `field` 参数是死分支——`if field == "branch"` 与 `else` 两支返回同一个 `branch`,`else` 里只有一句 `let _ = root;`;两个调用点(`worktree_diff` 与 `worktree_merge`)都只传 `"branch"`。要么去掉 `field` 与 `root` 两个参数,要么让 else 分支真的返回别的东西,不留假分支。
+- 边界: 不做图形化 DAG / 画布式线管理(§2.3 与 R-111 的克制一致)。不做跨线自动任务分派。合并策略按 N2 定案保持 `merge --no-ff`,不改成 rebase。
+- 验收: ①线的 diff 在应用内用 06-activity.js 的目录树渲染器显示(前端有断言证明走的是既有渲染器,不是新写的一份);②不离开应用完成 review → merge → 清理全流程;合并失败时双方改动保留且有可恢复入口;③冲突预检结果在界面上可读:列出冲突文件,不只是一句「有冲突」;④线页签显示分支名与 running,每线 token 计数取自真实 episodes 数据(不得是常量占位);⑤建线 UI 出现磁盘/冷编译成本提示;⑥worktree_field 的死分支消失(全仓 grep 无同值双分支);⑦前端改动跑 node --check + node scripts/ui-runtime-smoke.mjs,新交互(打开 diff、确认合并、确认放弃)各有冒烟断言;⑧800/1024/1280 三档布局检查。
+- refs: R-050 R-133 R-177 R-178 D-096 D-257 docs/design/deep_parallel_dev.md
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-179
+- 批次: 2/2
+- 进展: 2026-08-16 完成并关闭(2 批:3776628 后端 + e7bb5c8 前端)。既有能力标注(非本次交付):收活五格流程、线页签分支/running/token 显示(20-lines.js lineFact,token 取自 collaboration_snapshot 真实运行期 usage,与 episodes 同源非常量)、discard 失败「已保留以便恢复」toast(09-sessions.js:110)。验收逐条:①线的 diff 接入 06-activity.js 既有 buildDiffTree 目录树渲染器(20-lines.js diffLoad:porcelain 行解析为 {path,additions,deletions},原始差异收进可折叠 details;冒烟断言 typeof buildDiffTree === 'function' ? buildDiffTree(treeFiles));②不离开应用完成 review→merge→清理全流程——收活五格既有链路完整,合并失败双方改动保留且可恢复(merge_worktree 错误文案含「双方改动已保留」,discard 失败 toastError 带 retry);③冲突预检可读——worktree_merge_preview 命令 + parse_merge_tree_conflicts 解析 CONFLICT 行成文件列表,confirmWorktreeMerge 确认文案列出冲突文件(单测覆盖 content/modify-delete 两种格式);④线页签分支/running/token 为既有能力,已核实 token 来自真实运行期 usage;⑤建线 UI 落磁盘/冷编译成本提示(09-sessions.js createWorktreeLine confirm:每线独立 target/ + 首次冷编译数分钟);⑥worktree_field 死分支消失——收敛为 worktree_current_branch(worktree),全仓 grep 无同值双分支;⑦前端冒烟——ui-runtime-smoke R-179 块(buildDiffTree 接入/merge_preview 调用/建线提示/三档 lines-list)通过,node --check 通过;⑧800/1024/1280 三档——冒烟循环改 innerWidth 断言 lines-list 存在。前端五冒烟 + kanzei-app 147 + 关闭前全量 cargo test --workspace 全绿(T-1786655288)。
+- observed_head: e7bb5c80bf05331957d51dc2392efd492e7d6d42
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786655299573

@@ -123,28 +123,6 @@
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
-## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [doing]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 前端
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
-- 调度顺序: 锦上添花,排在 R-177/R-178 之后。工作量已被 R-133 与 D-096 大幅削减(见「既有能力」)。
-- 来源: 2026-08-10 用户对 docs/design/deep_parallel_dev.md §6 逐条拍板后,R-050 关闭拆条的第三条(= 该文 P3)。
-- 既有能力(§1.25 显式标注,不得重复申报为本次产出): ①**D-096 已 [fixed]**——`worktree_diff` 已返回真实 `git diff --no-ext-diff --binary`(crates/kanzei-app/src/processes.rs),不再是 `status --porcelain` 文件名列表弹 toast;②**R-133 已 [done]**——`crates/kanzei-app/ui/06-activity.js` 已有可折叠的 diff 目录树渲染器(`buildDiffTree`、`renderDiff`,含并排视图与长行自身列滚动);③`worktree_merge` 的 `git merge-tree --write-tree` 冲突预检真实可用;④`worktree_discard` 失败时"已保留以便恢复"的兜底已存在。**本条是把这些接起来,不是重造。**
-- 内容: ①把 `worktree_diff` 的输出接进 06-activity.js **已有**的 diff 目录树渲染器——不造新查看器。②合并 / 放弃的确认流:合并前展示 `merge-tree --write-tree` 冲突预检结果的可读形态(哪些文件冲突、哪边改的),放弃前明确说清"树删了、分支留着"。③线页签徽标:分支名 / running 状态 / 每线 token 计数(episodes 已记,取出来显示)。④建线 UI 上落 D6 定案的提示:每树独立 `target/` = 磁盘 ×N + 首次冷编译数分钟。⑤`worktree_discard` 在 Windows 因文件句柄占用失败时,把现有兜底延伸到 UI 提示(§5 风险 3)。
-- 顺手修: `crates/kanzei-app/src/processes.rs` 的 `worktree_field(root, worktree, field)` 的 `field` 参数是死分支——`if field == "branch"` 与 `else` 两支返回同一个 `branch`,`else` 里只有一句 `let _ = root;`;两个调用点(`worktree_diff` 与 `worktree_merge`)都只传 `"branch"`。要么去掉 `field` 与 `root` 两个参数,要么让 else 分支真的返回别的东西,不留假分支。
-- 边界: 不做图形化 DAG / 画布式线管理(§2.3 与 R-111 的克制一致)。不做跨线自动任务分派。合并策略按 N2 定案保持 `merge --no-ff`,不改成 rebase。
-- 验收: ①线的 diff 在应用内用 06-activity.js 的目录树渲染器显示(前端有断言证明走的是既有渲染器,不是新写的一份)。②不离开应用完成 review → merge → 清理全流程;合并失败时双方改动保留且有可恢复入口(R-050 原验收原文)。③冲突预检结果在界面上可读:列出冲突文件,不只是一句"有冲突"。④线页签显示分支名与 running,每线 token 计数取自真实 episodes 数据(§1.25:不得是常量占位)。⑤建线 UI 出现磁盘/冷编译成本提示。⑥`worktree_field` 的死分支消失(全仓 grep 无同值双分支)。⑦前端改动跑 `node --check` + `node scripts/ui-runtime-smoke.mjs`,新交互(打开 diff、确认合并、确认放弃)各有冒烟断言(conventions §1.3)。⑧800/1024/1280 三档布局检查。
-- refs: R-050 R-133 R-177 R-178 D-096 D-257 docs/design/deep_parallel_dev.md
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-179
-- 批次: 1/2
-- 进展: 2026-08-16 B1 完成并提交(3776628):worktree_field 死分支收敛为 worktree_current_branch(验收⑥)、worktree_merge_preview 冲突预检命令(验收③)、parse_merge_tree_conflicts 单测,kanzei-app 147 passed。B2 剩余:①diff 接入 06-activity.js 既有 buildDiffTree/renderDiff;②合并/放弃确认流(冲突列表展示 + 放弃前明示「树删了分支留着」);③线页签(分支名/running/token 计数取自真实 episodes);④建线 UI 落磁盘/冷编译成本提示;⑤discard 失败 UI 提示;⑥冒烟断言 + 800/1024/1280 三档。设计冻结不变(不造新 diff 查看器、merge --no-ff、放弃语义不变)。
-- observed_head: 3776628c4f0719931a00239d4a77d385e3d60280
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786654899070
-
 ## R-187 面板与提示音管理功能设置 [todo]
 - priority: P2
 - 原始描述: 设置面板+各类提示音管理
