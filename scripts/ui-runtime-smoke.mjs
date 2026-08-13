@@ -1056,7 +1056,7 @@ if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeH
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
   vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; } };",
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
     sandbox,
     { filename: "__kzTest-hook.js" }
   );
@@ -3867,6 +3867,55 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     ph3 === "auto_pending" || ph3 === "starting",
     "非致命错误不得取消已排队的续跑(旧实现在函数开头无条件 cancelAutoContinueTimer,一条告警就让鞭挞永久停摆)(D-291)",
   );
+}
+
+// ---------- D-323 暂停→恢复路径不得持有前端私有否决 ----------
+// R-199 档位判定已下沉引擎(decide→Stop/ProfileMismatch 带 reason 可见收口);
+// 恢复分支若仍被 autoContinueAllowed() 静默拦下,引擎计数与状态不知情(验收①未兑现)。
+// 非 dev-auto 档位下恢复必须照样调度——档位不对由引擎下轮 done 判 Stop 收口。
+{
+  const savedProfileD323 = byId.get("profile-select").value;
+  byId.get("profile-select").value = "dev-pair"; // 非 dev-auto → autoContinueAllowed()=false
+  byId.get("auto-continue").checked = true;
+  sandbox.__kzTest.setPaused(false);
+  sandbox.__kzTest.reset();
+  // 确保轮间空闲:清掉上游遗留的续跑定时器,并把 running 全局拉回 false。
+  sandbox.__kzTest.cancelTimers();
+  // 进程刷新会按 item.running 重设 running(08-compose.js:881),必须把主会话
+  // 进程项置 idle 再渲染,否则任何刷新都会把 running 翻回 true。
+  const savedD323ProcessList = payloads.process_list;
+  payloads.process_list = (payloads.process_list ?? []).map((p) =>
+    p.session_id === "sess-smoke" ? { ...p, running: false } : p,
+  );
+  sandbox.renderProcesses(payloads.process_list);
+  sandbox.setRunning(false); // 03-shell 顶层函数声明在共享作用域,冒烟可直接调用
+  byId.get("auto-pause").click(); // 暂停(autoPaused → true)
+  const pausedText = byId.get("auto-pause").textContent;
+  const pausedVal = sandbox.__kzTest.paused();
+  byId.get("auto-pause").click(); // 恢复(autoPaused → false)→ 必须进入「2 秒后继续」分支
+  const resumedText = byId.get("auto-pause").textContent;
+  const resumedVal = sandbox.__kzTest.paused();
+  const statusMode = byId.get("status-mode")?.textContent;
+  const autoChecked = byId.get("auto-continue").checked;
+  payloads.process_list = savedD323ProcessList;
+  assert(
+    pausedText.includes("继续鞭挞") && pausedVal === true,
+    `D-323 前置:暂停点击未生效,pausedVal=${pausedVal},text=${pausedText}`,
+  );
+  assert(
+    resumedVal === false,
+    `D-323 前置:恢复点击未生效,pausedVal=${resumedVal},text=${resumedText}`,
+  );
+  assert(
+    byId.get("status-text").textContent.includes("鞭挞恢复"),
+    `D-323:恢复路径不得静默不调度(档位判定在引擎),status=${byId.get("status-text")?.textContent},mode=${statusMode},autoChecked=${autoChecked},btn=${resumedText}`,
+  );
+  assert(
+    sandbox.__kzTest.timerSessions().includes("sess-smoke"),
+    `D-323:恢复必须重新调度续跑定时器,timers=${sandbox.__kzTest.timerSessions().join(",")}`,
+  );
+  byId.get("profile-select").value = savedProfileD323;
+  sandbox.__kzTest.reset();
 }
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------

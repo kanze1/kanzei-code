@@ -640,7 +640,10 @@ $("auto-pause").addEventListener("click", () => {
   void syncAutoRunState();
   if (autoPaused) cancelAutoContinueTimer();
   // BUG 修复:恢复时如果正处于轮间空闲,必须重新调度,否则鞭挞静默死亡。
-  if (!autoPaused && !running && $("auto-continue").checked && autoContinueAllowed()) {
+  // R-199/D-323:档位条件下沉引擎,恢复路径不再持有前端私有否决——非 dev-auto 时
+  // 静默不调度会让引擎计数与状态不知情(验收①未兑现)。恢复一律重新调度,
+  // 档位不对由引擎下轮 done 判 Stop(ProfileMismatch) 带 reason 可见收口。
+  if (!autoPaused && !running && $("auto-continue").checked) {
     setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
     scheduleAutoContinue();
   }
