@@ -94,3 +94,8 @@
 - 验收: ①R-234/R-235 各只剩一个「优先级」字段,值与首个一致(有测试或工具输出证据);②归档 R-201/R-198/R-199/R-213 标题只剩单一终态标记,残留的 open 标记被剥离(有测试或工具输出证据);③R-225/R-226 归档重复「进展」字段收敛;④全程走专用工具(normalize apply / fix_terminal / req update),无手改 markdown。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-333
+- 进展: B1 完成(2026-08-13):验收②达成——归档区 R-201/R-198/R-199/R-213 的 [open][done] 双终态标记已用 fix_terminal 收敛为单一 [done](status 保持 done、标题残留 open 剥离、进展留 [terminal-fix] 审计,commit f3b7dcd)。剩余:验收①R-234/R-235 双「优先级」字段、验收③R-225/R-226 双「进展」字段——均需 normalize apply 去重,当前会话引擎旧编译无 normalize 动作(实测 req normalize 报 unknown action),CLI 写被围栏拦;引擎重启后执行 normalize apply 收敛。验收④全程走专用工具(fix_terminal/normalize/req update),无手改 markdown——B1 已满足,剩余部分同样只走工具。
+- 阻塞: 用户: 当前会话引擎(kzapp pid 13704)仍跑旧编译,D-332 交付的 normalize 动作在工具面不可用(实测 req normalize 报 unknown action);CLI 写盘被托管围栏拦截。验收①③(R-234/R-235 双优先级、R-225/R-226 双进展)必须走 normalize apply,需引擎重启后执行。解除动作: 用户重启 kzapp(关闭后重开),新工具面加载 normalize 后执行 `kz req normalize --apply` 或工具面 normalize 收敛剩余重复字段。解除人: 用户。
+- observed_head: bd629cdd4ec0ac641c11fd4177e57cfa2aaa9c49
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786613794715

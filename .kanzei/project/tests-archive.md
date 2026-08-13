@@ -2311,3 +2311,10 @@
 - 摘要: R-185 B2+B3 耦合证伪信号与判定留痕:310 passed / 0 failed / 1 ignored。新增 coupling_signals_detect_parallel_and_coupled_pairs(D-262/D-257/D-261 可并行、R-177/R-182 耦合)、dispatch_verdict_records_reason_and_gives_actionable_remedy(留痕+处置);clippy 干净。
 - 关联: R-185
 - 收尾: 1786614390
+
+## T-1786614494 cargo test --workspace (R-185 B4 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 时长: 45.0s
+- 摘要: R-185 B4 关闭前全量:cargo test --workspace 全绿(kanzei-tools 310、app 138、core 145、harness 120、llm 52、kanzei 31,总计 796 passed / 0 failed)。四批全部落地。
+- 关联: R-185
+- 收尾: 1786614494
