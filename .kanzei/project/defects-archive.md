@@ -3664,3 +3664,19 @@
   ⑤bash `... | head -30; echo ...`。
   **归纳**:①②④⑤ 全是**复合命令**(`&&` / `;` / `|`),③ 是**未列入允许集的单个可执行**。两类都在改成单条纯命令后放行。对本条的三点含义:(a) 修复方向里「解析成子命令序列、要求每个都命中」的形状**已有活的参照实现**,不必再论证可行性;(b) 拦截必须**点名具体是哪一段**不被允许,否则无法自我修正——这是可用性的关键,不是锦上添花;(c) R-183 内容④的基础规则模板至少要覆盖 agent 实际会用的这批 shell 动词:`echo`/`head`/`tail`/`awk`/`grep`/`ls`,以及 PowerShell 的 `Select-Object`——它们几乎只出现在管道尾部做截断,危险面低但出现频率极高,是「不放行就寸步难行、放行也没什么风险」的典型。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-267
+
+## D-271 主对话切线程时消息短暂消失、侧栏只显示单条并行任务、子代理无关闭/删除生命周期 [closed] [fixed] (medium)
+- 优先级: P0
+- 复杂度: 中
+- 标签: 前端 并行 子代理
+- 证据等级: E1(用户复现 + 运行时冒烟回归)
+- refs: R-174 R-184 D-263
+- 复现: 三条并行线运行时切换主对话线程，旧实现先清空消息再等待 IPC；迟到的旧线程历史还可能覆盖新线程。侧栏只显示单个“当前在做”焦点，未按 `process_list` 投影 N 条线路；子代理面板只有运行中/已完成，没有关闭与删除语义。
+- 影响: 切线期间对话区出现空白或串线，用户无法判断三条线各自是否运行/处于哪个阶段；已结束子代理只能长期堆积，无法收起或清理。
+- 修复: `conversation_get`/`conversation_trace_get` 锁定项目、进程和切换代次，目标历史完整恢复后再原子替换消息；侧栏按每个进程显示主代理/并行线、运行态、阶段并支持点击切换；子代理生命周期明确为 `running → finished → closed → deleted`，关闭/删除仅作用于当前 UI 条目，保留后端 transcript 与审计，停止仍调用真实 `stop_task`；主代理写入、比对、合并、发版边界同步写入系统提示与 task_spec，子代理工具白名单保持 `read/glob/grep`。
+- 验收: `node scripts/ui-runtime-smoke.mjs` 覆盖三线状态、切线不清空、关闭/重开/删除；`ui-i18n-smoke`、`ui-a11y-smoke`、`ui-markdown-smoke`、`parallel-lines-regression` 全绿；`cargo test -p kanzei-app` 112 passed、`cargo test -p kanzei-core` 130 passed。2026-08-11 随本次桌面端发版交付，待用户安装后进行最终桌面实测。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-271
+- 进展: 正式关闭(2026-08-16,修复本体是 R-174/R-184 既有交付,2026-08-11 随桌面端发版,本条只补关闭书据)。核验证据:①切线不清空=conversation.rs:39 conversation_get/process_session_id 按 process_id→session_id 隔离历史,目标历史完整恢复后原子替换;ui-runtime-smoke.mjs 断言两条线路各有历史容器且 historyCalls 按 process_id(d|smoke/p|bg);②侧栏按进程投影=01-core.js:74 process_list 轮询,每条线路独立按钮/运行态/阶段;③子代理生命周期 running→finished→closed→deleted=06-agent-panel.js:5-6(closed 只收当前 UI 条目,后端保留;deleted 只移除 UI 条目,停止仍走真实 stop_task)。验收引用的测试面在交付时全绿(冒烟四连+parallel-lines-regression+cargo test -p kanzei-app 112/kanzei-core 130)。残余:用户安装后最终桌面实测(用户侧验证项,2026-08-11 发版后持续使用无回归),转入 R-101 延期 E2 清单,不滞留本条(关闭边界:可用即关闭)。
+- observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786598338171
