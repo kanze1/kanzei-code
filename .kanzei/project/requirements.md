@@ -66,10 +66,10 @@
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
 - 批次: 4/6
-- 进展: B1a+B1b+B2+B3 完成(2026-08-13):B3(dfb1c29)transcript 持久化与按 id 续跑——①SubagentRuntime 加 transcripts: Option<TranscriptStore>(type 别名 Arc<Mutex<HashMap<String, Vec<Message>>>>,避免 clippy type_complexity);②run_subagent 两处 summary 分支(取消/正常)完成时把 summary.messages 存进 transcripts[parent_call_id];③run_subagent 的 prior 从 `&[]` 改为按 id 从 transcripts 恢复——同一 id 再次调用即带此前完整历史续跑(验收④,与 subagent.rs:189 旧空历史对照);④8 处构造点补 None;⑤验收④测试同一id续跑_prior恢复此前transcript_不重开空历史:第一次派发后 transcripts[id] 非空、续跑后更长、两轮回复都在 transcript 里(经 pub 入口 run_read_agent 走同一 run_subagent 实现)。workspace 799 passed 全绿、clippy 干净。B3 提交后 B4:通知通道(agent_notifications)+ 三终态确定归宿与读槽释放(超时/失败/被停)。
+- 进展: B1a+B1b+B2+B3 完成(2026-08-13,提交 8cd437d/a441df0/cf511ff/dfb1c29,批次 4/6):见前。B4 勘察完成——通知通道 + 三终态:①agent_notifications 落库需 SessionStore(store/notifications.rs append_notification_atomic),与 background_events 同理不能直接进 spawn(非 Send)——方案:SubagentRuntime 加 background_notifications: Option<Arc<dyn Fn(&str, &str) + Send + Sync>>(call_id, status),app 层 run.rs 包 append_notification_atomic;drive.rs spawn 块完成/失败/超时调它(验收⑦:复用既有表,有测试证明未新造并行通道);②三终态读槽释放(验收⑤):run_subagent 内 _read_permit 随函数返回 RAII 释放(函数返回=子代理跑完),三条路径(超时=timeout Err、失败=run_once Err、被停=cancelled 分支)都走函数返回——需集成测试断言 MemoryCoordinator::snapshot 的 active_readers 在终态后不含该子代理 run_id,覆盖三条路径。下一步(B4 实施):subagent.rs 加 background_notifications 字段+8 构造点、drive.rs spawn 块三终态调通知 sink、run.rs 接线、三终态读槽释放测试。批次 4/6。
 - observed_head: dfb1c29c66e1cef0195739dc14de6ad9da262986
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786617323981
+- recorded_at: 1786617362368
 
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
