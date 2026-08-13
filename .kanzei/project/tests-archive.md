@@ -2805,3 +2805,22 @@
 - 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-194 关闭前全量。
 - 关联: R-194
 - 收尾: 1786653273
+
+## T-1786653708 R-206 前端会话状态收口冒烟集 [passed]
+- 命令: node --check ui/*.js && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs
+- 摘要: 前端全绿:5 个改动 js node --check 通过;ui-runtime-smoke 通过(21 脚本 1684 invoke 0 错误,含新增 R-206 验收③ stopping 无闪跳断言:置 stopping 后晚到进度事件 phase 保持 stopping、live_running 权威已清);i18n/a11y/markdown 冒烟通过;parallel-lines 回归护栏通过(35 行断言已更新为 transitionSession detail 传参形态)。
+- 关联: R-206
+- 收尾: 1786653708
+
+## T-1786653754 cargo test -p kanzei-app(R-206 前端收口) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 145 passed; 0 failed。R-206 前端改动后 kanzei-app crate 定向测试(桌面端命令面无回归)。
+- 关联: R-206
+- 收尾: 1786653754
+- 源码指纹: cf3e5697699e5775
+
+## T-1786653832 cargo test --workspace(R-206 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-206 关闭前全量。
+- 关联: R-206
+- 收尾: 1786653832

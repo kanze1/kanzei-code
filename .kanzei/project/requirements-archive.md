@@ -2665,3 +2665,18 @@
 - observed_head: cc4bf877d17095f484d000937f0d9c22fbae7da5
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786653280356
+
+## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§1/§3);session_state_and_line_runtime.md §2.2 承诺的具名状态机未落地。
+- 背景: 现状是 6 个布尔标志(ui/03-shell.js:78-88)被 4 个文件 12 处直写,全局 running 与 per-session 状态双真源;08-compose.js:273-283 与 :288-293 是一对紧邻重复写块(R-197 叠在旧块上的残渣)。新增任何事件类型都要手工复刻 6 标志更新规则,漂移一次就复发 D-283 类「运行中显示空闲」。停止交互缺设计基线的 stopping 态:本地乐观复位被在途进度事件翻回「运行中」,状态闪跳。
+- 内容: 提供唯一 mutator(applySessionEvent/applyLocalIntent),按设计 §2.2 把 6 标志折算成具名状态字段;删除重复写块;全局 running 改为派生;补 stopping 投影(点停止后按钮转「停止中…」禁用,进度事件不得翻回运行中,仅 kz:stopped/kz:idle/终态错误能离开)。
+- 验收: ①grep ui/ 目录 state.running 直写仅剩 mutator 一处;②D-283 两条反证冒烟保持绿;③「长工具运行中点停止无状态闪跳」冒烟断言;④删除 08-compose 重复块。
+- refs: D-283 R-197 R-199 D-306
+- 进展: 2026-08-16 完成并关闭。验收逐条:①grep ui/ 目录 state.running 直写仅剩 mutator 一处(03-shell.js:273 transitionSession 内折算;01-core/07-events/08-compose/09-sessions 全部直写改走 transitionSession,兼容字段 converged/auto_pending/live_running/local_start_pending/terminal_status 同步收口);②D-283 两条反证冒烟保持绿(ui-runtime-smoke 3755『后台会话结束不应改变主会话视图的运行态』与 3791『converged 未生效』在本次改动后仍通过);③『长工具运行中点停止无状态闪跳』冒烟断言新增并通过(ui-runtime-smoke:R-206 验收③块——transitionSession 置 stopping 后发 tool-progress/status 晚到进度事件,phase 保持 stopping 不翻回 running、live_running 权威已清;配套修复 transitionSession stopping 分支清 live_running,否则 09-sessions 轮询会把停止中的会话翻回运行中);④08-compose 发送路径重复 transitionSession("starting") 写块已删(R-197 残渣)。提交 3f85860;前端五冒烟(ui-runtime/i18n/a11y/markdown/parallel-lines 护栏)全绿 + kanzei-app 145 passed;关闭前全量 cargo test --workspace 全绿(T-1786653832)。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-206
+- observed_head: 3f85860623b2e7e5f6dfcaae0fb2d89c3dbb153b
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786653840305
