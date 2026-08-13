@@ -199,7 +199,37 @@ impl Tool for TrackerTool {
             Ok(v) => v,
             Err(out) => return out,
         };
+        if input.action == "list"
+            && matches!(self.kind.prefix, "R" | "D")
+            && !matches!(
+                input.reason.as_deref(),
+                Some("deduplicate_registration" | "human_cli")
+            )
+        {
+            return ToolOutput::error(
+                "完整 requirement/defect 队列不是执行期上下文。取活请调用 `work next`；\
+                 只有登记前查重可用 reason=deduplicate_registration 显式读取。",
+            );
+        }
         let store = DocStore::open(&ctx.project_root, self.kind);
+        // 需求/缺陷的任何写都先拿双队列选择锁，再拿各自文档锁。`work claim`
+        // 使用相同顺序，因此“读两队列 → 判 WIP → 写一个队列”与普通 close/reopen
+        // 不会交错出两个 WIP。其余 tracker 文档不参与取活，不承担这笔串行成本。
+        let work_selection_path = ctx.project_root.join(".kanzei/project/work-selection");
+        let _work_selection_lock = if WRITE_ACTIONS.contains(&input.action.as_str())
+            && matches!(self.kind.prefix, "R" | "D")
+        {
+            match crate::atomic_file::lock_exclusive(&work_selection_path) {
+                Ok(lock) => Some(lock),
+                Err(error) => {
+                    return ToolOutput::error(format!(
+                        "cannot lock requirement/defect work selection: {error}"
+                    ))
+                }
+            }
+        } else {
+            None
+        };
         // R-138:写事务的锁必须罩住 **load … next_id … save** 整段,不能只锁 save。
         // 两个进程(kzapp / kz CLI / 自举循环)各自 load 到同一份条目、各自算出
         // 同一个 next_id、再各自整文件写回——后写的那个把前一个的新条目连同 ID
@@ -256,7 +286,15 @@ impl Tool for TrackerTool {
         let mut output = match input.action.as_str() {
             "list" => {
                 if entries.is_empty() {
-                    return ToolOutput::ok(format!("(no {}s yet)", self.noun));
+                    return ToolOutput::ok(
+                        serde_json::json!({
+                            "schema_version": 1,
+                            "kind": self.noun,
+                            "deadlocked": false,
+                            "entries": [],
+                        })
+                        .to_string(),
+                    );
                 }
                 let dependency_states = match dependency_states(ctx, self.kind, &entries) {
                     Ok(states) => states,
@@ -267,31 +305,42 @@ impl Tool for TrackerTool {
                     }
                 };
                 let scheduled = schedule_entries(&entries, &dependency_states);
-                let mut lines: Vec<String> = scheduled
+                let items: Vec<serde_json::Value> = scheduled
                     .iter()
-                    .map(|(entry, reasons)| render_scheduled_line(entry, reasons))
+                    .map(|(entry, reasons)| structured_entry(entry, reasons, false))
                     .collect();
                 // 饥饿保护:一条可执行都没有是队列的异常状态,不是"没活干"。不加这条横幅时
                 // agent 只看到满屏 [blocked:...] 就会判定无可推进项并停住,而阻塞理由多半是
                 // 它自己历轮写下的"需先确认方案"(D-163)。
-                if scheduled.iter().all(|(_, reasons)| !reasons.is_empty()) {
-                    lines.insert(0, deadlock_banner(scheduled.len(), self.noun));
-                }
-                ToolOutput::ok(lines.join("\n"))
+                let deadlocked = scheduled.iter().all(|(_, reasons)| !reasons.is_empty());
+                ToolOutput::ok(
+                    serde_json::to_string_pretty(&serde_json::json!({
+                        "schema_version": 1,
+                        "kind": self.noun,
+                        "deadlocked": deadlocked,
+                        "deadlock_guidance": deadlocked.then(|| deadlock_banner(scheduled.len(), self.noun)),
+                        "entries": items,
+                    }))
+                    .unwrap(),
+                )
             }
             "get" => {
                 let Some(id) = &input.id else {
                     return ToolOutput::error("`id` is required for get");
                 };
                 match entries.iter().find(|e| &e.id == id) {
-                    Some(e) => ToolOutput::ok(render_full(e)),
+                    Some(e) => ToolOutput::ok(
+                        serde_json::to_string_pretty(&structured_entry(e, &[], false)).unwrap(),
+                    ),
                     // 已归档条目仍可读:回落到 archive 文件(只读,不可 update)。
                     None => match store
                         .load_archive()
                         .ok()
                         .and_then(|arch| arch.into_iter().find(|e| &e.id == id))
                     {
-                        Some(e) => ToolOutput::ok(format!("{} (archived)", render_full(&e))),
+                        Some(e) => ToolOutput::ok(
+                            serde_json::to_string_pretty(&structured_entry(&e, &[], true)).unwrap(),
+                        ),
                         None => ToolOutput::error(unknown_id(id, &entries)),
                     },
                 }
@@ -533,6 +582,7 @@ impl Tool for TrackerTool {
                 if let Err(e) = self.check_refs(ctx, &input.refs, false) {
                     return ToolOutput::error(e);
                 }
+                let updates_progress = input.fields.contains_key("进展");
                 let target_status = if input.action == "close" {
                     // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
                     // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
@@ -625,6 +675,21 @@ impl Tool for TrackerTool {
                     match entry.fields.iter_mut().find(|(k, _)| *k == key) {
                         Some((_, slot)) => *slot = value,
                         None => entry.fields.push((key, value)),
+                    }
+                }
+                // 每次落「进展」都同时保存仓库锚点。后续取活会机械比较 HEAD /
+                // worktree 指纹，把历史叙事标为 current/stale/future/unanchored，
+                // 不再让一段未对齐当前代码的文字冒充事实。
+                if updates_progress {
+                    for (key, value) in crate::work::progress_anchor_fields(&ctx.cwd) {
+                        match entry
+                            .fields
+                            .iter_mut()
+                            .find(|(candidate, _)| *candidate == key)
+                        {
+                            Some((_, slot)) => *slot = value,
+                            None => entry.fields.push((key, value)),
+                        }
                     }
                 }
                 if !input.refs.is_empty() {
@@ -974,8 +1039,8 @@ pub struct ScheduledEntry {
 
 /// R-184 批5(收活格5):合并成功后,把线的交付回写**主根** tracker。
 ///
-/// 只追加「进展」字段、不改状态、不改标题——收活回写是事实记录,条目该不该
-/// done/open 仍由取活判定负责,这里不越权。走与 `TrackerTool::execute` 相同
+/// 追加「进展」与仓库 provenance 锚点、不改状态、不改标题——收活回写是事实记录,
+/// 条目该不该 done/open 仍由取活判定负责,这里不越权。走与 `TrackerTool::execute` 相同
 /// 的跨进程锁与完整性门禁(load … find … save 整段罩在锁里,两个 worktree
 /// 各自登记撞 D-267 的教训),所以绝不绕过 docstore 直接改文件。
 ///
@@ -1013,6 +1078,16 @@ pub fn append_progress(
             slot.push_str(&line);
         }
         None => entry.fields.push(("进展".into(), line)),
+    }
+    for (key, value) in crate::work::progress_anchor_fields(project_root) {
+        match entry
+            .fields
+            .iter_mut()
+            .find(|(candidate, _)| *candidate == key)
+        {
+            Some((_, slot)) => *slot = value,
+            None => entry.fields.push((key, value)),
+        }
     }
     store
         .save(&entries)
@@ -1322,13 +1397,28 @@ fn deadlock_banner(total: usize, noun: &str) -> String {
     )
 }
 
-fn render_scheduled_line(entry: &Entry, reasons: &[String]) -> String {
-    let line = render_line(entry);
-    if reasons.is_empty() {
-        line
-    } else {
-        format!("{line} [blocked: {}]", reasons.join("；"))
-    }
+fn structured_entry(entry: &Entry, reasons: &[String], archived: bool) -> serde_json::Value {
+    let priority = entry
+        .fields
+        .iter()
+        .find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority"))
+        .map(|(_, value)| value.clone());
+    let fields: Vec<serde_json::Value> = entry
+        .fields
+        .iter()
+        .map(|(name, value)| serde_json::json!({"name": name, "value": value}))
+        .collect();
+    serde_json::json!({
+        "id": entry.id,
+        "title": entry.title,
+        "lifecycle_status": entry.status,
+        "archived": archived,
+        "severity": entry.severity,
+        "priority": priority,
+        "blocked": !reasons.is_empty(),
+        "block_reasons": reasons,
+        "fields": fields,
+    })
 }
 
 fn is_blocker_key(key: &str) -> bool {
@@ -1396,14 +1486,6 @@ fn render_line(e: &Entry) -> String {
     format!("{} [{}]{sev} {}", e.id, e.status, e.title)
 }
 
-fn render_full(e: &Entry) -> String {
-    let mut out = render_line(e);
-    for (key, value) in &e.fields {
-        out.push_str(&format!("\n- {key}: {value}"));
-    }
-    out
-}
-
 fn unknown_id(id: &str, entries: &[Entry]) -> String {
     let known: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
     format!(
@@ -1459,7 +1541,43 @@ mod tests {
         );
     }
 
-    /// R-184 批5 收活格5:append_progress 只追加「进展」、不改状态/标题/其它字段。
+    #[tokio::test]
+    async fn requirement_defect_full_list_requires_explicit_dedup_reason() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-list-guard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[entry("R-001")])
+            .unwrap();
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let rejected = tool.execute(json!({"action": "list"}), &ctx).await;
+        assert!(rejected.is_error);
+        assert!(rejected.content.contains("work next"));
+        let allowed = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
+        assert!(!allowed.is_error, "{}", allowed.content);
+        let value: serde_json::Value = serde_json::from_str(&allowed.content).unwrap();
+        assert_eq!(value["entries"][0]["id"], "R-001");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-184 批5 收活格5:append_progress 追加进展与锚点,不改状态/标题/业务字段。
     #[test]
     fn append_progress_only_appends_progress_field_and_keeps_state() {
         let dir = std::env::temp_dir().join(format!(
@@ -1498,6 +1616,20 @@ mod tests {
             .fields
             .iter()
             .any(|(k, v)| k == "优先级" && v == "P1"));
+        for anchor in ["recorded_at", "observed_head", "observed_worktree_hash"] {
+            assert!(
+                updated.fields.iter().any(|(key, _)| key == anchor),
+                "缺进展 provenance 锚点 {anchor}: {:?}",
+                updated.fields
+            );
+        }
+        assert!(updated
+            .fields
+            .iter()
+            .any(|(key, value)| key == "recorded_at" && value.parse::<u128>().is_ok()));
+        assert!(updated.fields.iter().any(|(key, value)| {
+            key == "observed_worktree_hash" && value.starts_with("fnv1a64:")
+        }));
 
         // 无既有进展字段的条目:直接新建该字段。保存必须带上 R-001,否则覆盖丢条目。
         let e2 = entry("R-002");
@@ -2202,9 +2334,11 @@ mod tests {
 
         // 读操作必须仍然可用——否则模型无法诊断,就成了死锁。
         for action in ["list", "get"] {
-            let out = tool
-                .execute(json!({"action": action, "id": "R-001"}), &ctx)
-                .await;
+            let mut input = json!({"action": action, "id": "R-001"});
+            if action == "list" {
+                input["reason"] = json!("deduplicate_registration");
+            }
+            let out = tool.execute(input, &ctx).await;
             assert!(!out.is_error, "读操作不该被拦: {action} -> {}", out.content);
         }
         // 写操作全部被拒,且错误里给出可执行的恢复路径。
@@ -2471,7 +2605,7 @@ mod tests {
         };
         let out = tool
             .execute(
-                json!({"action": "list"}),
+                json!({"action": "list", "reason": "deduplicate_registration"}),
                 &ToolCtx::new(dir.clone(), dir.clone()),
             )
             .await;
@@ -2572,13 +2706,31 @@ mod tests {
         };
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
-        let lines: Vec<&str> = out.content.lines().collect();
-        assert!(lines[0].starts_with("R-002"), "{}", out.content);
-        assert!(lines[1].contains("R-001") && lines[1].contains("阻塞字段"));
-        assert!(lines[2].contains("R-003") && lines[2].contains("未完成依赖: R-002"));
-        assert!(lines[3].contains("R-004") && lines[3].contains("阶段门槛"));
+        let listed: serde_json::Value = serde_json::from_str(&out.content).unwrap();
+        let items = listed["entries"].as_array().unwrap();
+        assert_eq!(items[0]["id"], "R-002");
+        assert_eq!(items[1]["id"], "R-001");
+        assert!(items[1]["block_reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("阻塞字段"));
+        assert_eq!(items[2]["id"], "R-003");
+        assert!(items[2]["block_reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("未完成依赖: R-002"));
+        assert_eq!(items[3]["id"], "R-004");
+        assert!(items[3]["block_reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("阶段门槛"));
 
         // 解除两个阻塞后，原文档顺序自动恢复；没有持久化一份临时排序。
         let out = tool
@@ -2595,13 +2747,23 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
-        let lines: Vec<&str> = out.content.lines().collect();
-        assert!(lines[0].starts_with("R-001"), "{}", out.content);
-        assert!(lines[1].starts_with("R-002"), "{}", out.content);
-        assert!(lines[2].starts_with("R-003"), "{}", out.content);
-        assert!(lines[3].contains("R-004") && lines[3].contains("阶段门槛"));
+        let listed: serde_json::Value = serde_json::from_str(&out.content).unwrap();
+        let items = listed["entries"].as_array().unwrap();
+        assert_eq!(items[0]["id"], "R-001");
+        assert_eq!(items[1]["id"], "R-002");
+        assert_eq!(items[2]["id"], "R-003");
+        assert_eq!(items[3]["id"], "R-004");
+        assert!(items[3]["block_reasons"][0]
+            .as_str()
+            .unwrap()
+            .contains("阶段门槛"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2632,16 +2794,25 @@ mod tests {
         };
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(
-            out.content.starts_with("[调度死锁] 2 条requirement"),
-            "{}",
-            out.content
-        );
+        let listed: serde_json::Value = serde_json::from_str(&out.content).unwrap();
+        assert_eq!(listed["deadlocked"], true);
+        assert!(listed["deadlock_guidance"]
+            .as_str()
+            .unwrap()
+            .starts_with("[调度死锁] 2 条requirement"));
         // 横幅必须堵死"没有可执行条目"这条收尾话术,否则鞭挞照旧静默停。
         assert!(
-            out.content.contains("禁止以「没有可执行条目」"),
+            listed["deadlock_guidance"]
+                .as_str()
+                .unwrap()
+                .contains("禁止以「没有可执行条目」"),
             "{}",
             out.content
         );
@@ -2655,9 +2826,15 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(!out.content.contains("[调度死锁]"), "{}", out.content);
+        let listed: serde_json::Value = serde_json::from_str(&out.content).unwrap();
+        assert_eq!(listed["deadlocked"], false, "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -2689,12 +2866,19 @@ mod tests {
         };
         let ctx = ToolCtx::new(dir.clone(), dir.clone());
 
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
-        let cycle_line = out
-            .content
-            .lines()
-            .find(|l| l.starts_with("R-001"))
+        let listed: serde_json::Value = serde_json::from_str(&out.content).unwrap();
+        let items = listed["entries"].as_array().unwrap();
+        let cycle_line = items
+            .iter()
+            .find(|item| item["id"] == "R-001")
+            .and_then(|item| item["block_reasons"][0].as_str())
             .unwrap_or_default();
         assert!(
             cycle_line.contains("循环依赖: R-001 → R-002 → R-001"),
@@ -2702,10 +2886,10 @@ mod tests {
             out.content
         );
         assert!(cycle_line.contains("断掉其中一条边"), "{}", out.content);
-        let plain = out
-            .content
-            .lines()
-            .find(|l| l.starts_with("R-003"))
+        let plain = items
+            .iter()
+            .find(|item| item["id"] == "R-003")
+            .and_then(|item| item["block_reasons"][0].as_str())
             .unwrap_or_default();
         assert!(plain.contains("未完成依赖: R-004"), "{}", out.content);
         assert!(!plain.contains("循环依赖"), "{}", out.content);
@@ -2718,7 +2902,12 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        let out = tool.execute(json!({"action": "list"}), &ctx).await;
+        let out = tool
+            .execute(
+                json!({"action": "list", "reason": "deduplicate_registration"}),
+                &ctx,
+            )
+            .await;
         assert!(!out.is_error, "{}", out.content);
         assert!(!out.content.contains("循环依赖"), "{}", out.content);
         std::fs::remove_dir_all(dir).ok();

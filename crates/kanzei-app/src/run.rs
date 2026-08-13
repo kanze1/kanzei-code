@@ -99,6 +99,15 @@ pub(crate) async fn run_task(
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
     append_dev_guidance(&mut agent.system, profile, work_priority, &config);
+    if profile == kanzei_harness::ProfileKind::Dev {
+        agent
+            .system
+            .push_str(&kanzei_tools::resolved_control_prompt(
+                &cwd,
+                &project_root,
+                crate::auto_run::work_priority_enum(work_priority),
+            ));
+    }
     stage(
         "装配",
         format!(
@@ -126,7 +135,8 @@ pub(crate) async fn run_task(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
-    let ctx = ToolCtx::new(cwd, project_root.clone());
+    let ctx = ToolCtx::new(cwd, project_root.clone())
+        .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
     let runner_config = build_runner_config(
         &resolved,
         &config,
@@ -1460,7 +1470,9 @@ impl Component for TrackerWritePolicyComponent {
         if !self.block {
             return Ok(());
         }
-        for action in ["req", "defect", "goal", "decision", "source", "finding"] {
+        for action in [
+            "req", "defect", "goal", "decision", "source", "finding", "work",
+        ] {
             draft.permissions.push_denial_note(
                 Rule {
                     action: action.into(),
@@ -1475,12 +1487,11 @@ impl Component for TrackerWritePolicyComponent {
 }
 
 pub(crate) fn work_priority_guidance(work_priority: &str) -> String {
-    let (first, second) = if work_priority == "requirement-first" {
-        ("requirements.md", "defects.md")
-    } else {
-        ("defects.md", "requirements.md")
-    };
-    format!("\n\nWork selection mode for this run: {work_priority}. Scan {first} from top to bottom first; only after it has no workable item scan {second}. This run's selected mode overrides the default queue order in the surrounding project context.")
+    format!(
+        "\n\nWork selection mode input for this run: {work_priority}. The engine resolves this \
+         mode together with WIP, dependencies and blockers into the structured \
+         resolved-control-state below; that decision is authoritative."
+    )
 }
 
 /// D-245 验收①/③通路:把 kanzei.toml `[cadence]` 的生效节奏注入 system prompt。
@@ -1604,7 +1615,10 @@ pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_jso
                     json!({ "id": format!("{name}:{model}"), "label": format!("{name}:{model}") }),
                 );
             }
-        } else if provider.protocol == "openai" || provider.protocol == "openai-responses" {
+        } else if matches!(
+            provider.protocol.as_str(),
+            "openai" | "openai-responses" | "deepseek-responses"
+        ) {
             if provider.base_url.contains("11434") {
                 push_ollama_models(&mut items, name, &provider.base_url).await;
                 continue;

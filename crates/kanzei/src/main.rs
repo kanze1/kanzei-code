@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         Some("req" | "defect" | "source" | "finding" | "goal" | "decision") => {
             tracker_cli(&args).await
         }
+        Some("work") => work_cli(&args[1..]).await,
         Some("replay-eval") => replay_eval_cli(&args[1..]).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
@@ -68,6 +69,8 @@ fn usage_text() -> &'static str {
        kz run --new \"<prompt>\"  # 丢弃当前会话上下文并从新会话开始\n\
        kz run --readonly \"<prompt>\"  # 只读档位:读/检索放行,写与命令硬拒绝\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
+       kz work next [--requirement-first]  # 结构化取活裁决\n\
+       kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\
@@ -259,9 +262,18 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         .add(ConfigComponent);
     let snapshot = harness.resolve(&rctx)?;
 
-    let agent = snapshot
+    let mut agent = snapshot
         .select_agent(std::env::var("KANZEI_AGENT").ok().as_deref())?
         .clone();
+    if profile == ProfileKind::Dev {
+        agent
+            .system
+            .push_str(&kanzei_tools::resolved_control_prompt(
+                &cwd,
+                &project_root,
+                kanzei_harness::auto_run::WorkPriority::DefectFirst,
+            ));
+    }
 
     // 模型:KANZEI_MODEL 覆盖 agent 定义(快速试模型用)。R-178 P2 五层链 ①②③:
     // CLI 无线/进程概念(② 恒 None),本轮直选 = KANZEI_MODEL → agent 默认;
@@ -290,18 +302,20 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // cwd 是那棵树、主根是 .kanzei 托管文档的真源),所以两者必须分别传。
     //
     let (worktree_key, write_key) = cli_identity_keys(&cwd, &project_root);
-    let ctx = ToolCtx::new(cwd, project_root.clone()).with_identity(
-        worktree_key,
-        write_key,
-        format!(
-            "cli_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or_default()
-        ),
-        "cli".into(),
-    );
+    let ctx = ToolCtx::new(cwd, project_root.clone())
+        .with_work_priority(kanzei_harness::auto_run::WorkPriority::DefectFirst)
+        .with_identity(
+            worktree_key,
+            write_key,
+            format!(
+                "cli_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or_default()
+            ),
+            "cli".into(),
+        );
     let runner_config = RunnerConfig {
         model: resolved.model.clone(),
         max_tokens: config.limits.max_tokens(),
@@ -1006,6 +1020,10 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     };
     let action = args.get(1).map(String::as_str).unwrap_or("list");
     let mut input = serde_json::json!({ "action": action });
+    if action == "list" {
+        // 人在 CLI 主动查看仍允许；agent 运行期完整双队列由 tracker 守护拒绝。
+        input["reason"] = serde_json::json!("human_cli");
+    }
     match action {
         "get" | "close" | "update" | "repair_reused_id" => {
             // D-284:update 也要能写字段与进展。只收 id/status 的话 CLI 走不到关闭——
@@ -1056,6 +1074,40 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
     if output.is_error {
         eprintln!("{}", output.content);
         std::process::exit(1);
+    }
+    println!("{}", output.content);
+    Ok(())
+}
+
+async fn work_cli(args: &[String]) -> anyhow::Result<()> {
+    let action = args.first().map(String::as_str).unwrap_or("next");
+    if !matches!(action, "next" | "claim") {
+        anyhow::bail!("work action 必须是 next 或 claim");
+    }
+    let priority = if args.iter().any(|arg| arg == "--requirement-first") {
+        kanzei_harness::auto_run::WorkPriority::RequirementFirst
+    } else {
+        kanzei_harness::auto_run::WorkPriority::DefectFirst
+    };
+    let mut input = serde_json::json!({"action": action});
+    if action == "claim" {
+        let id = args
+            .get(1)
+            .filter(|id| !id.starts_with('-'))
+            .ok_or_else(|| anyhow::anyhow!("work claim 需要 R-xxx 或 D-xxx"))?;
+        input["id"] = serde_json::json!(id);
+        if let Some(position) = args.iter().position(|arg| arg == "--reason") {
+            if let Some(reason) = args.get(position + 1) {
+                input["reason"] = serde_json::json!(reason);
+            }
+        }
+    }
+    let cwd = std::env::current_dir()?;
+    let project_root = main_project_root(explicit_main_root(None).as_deref(), &cwd)?;
+    let ctx = ToolCtx::new(cwd, project_root).with_work_priority(priority);
+    let output = kanzei_tools::WorkTool.execute(input, &ctx).await;
+    if output.is_error {
+        anyhow::bail!(output.content);
     }
     println!("{}", output.content);
     Ok(())

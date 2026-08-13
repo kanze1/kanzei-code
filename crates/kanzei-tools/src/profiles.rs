@@ -10,6 +10,7 @@ use kanzei_harness::{
 
 use crate::docstore::{DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, REQUIREMENTS, SOURCES};
 use crate::tracker::TrackerTool;
+use crate::work::WorkTool;
 
 /// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
 /// (ui_dom / ui_console / ui_style / frontend_locate / frontend_check)只由桌面端的
@@ -54,9 +55,8 @@ pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
     out
 }
 
-/// 队列索引注入的折叠阈值:open 条目数超过它才折叠为计数 + 完整 id 列表。
-/// 曾按 30 条硬截断(57 条需求只显示 30 行 + "+27 more"),agent 看到的队列残缺、
-/// 界面零提示(取活顺序所见非所得,见 D-207)。现改为全量显示 open 条目,仅超阈值才折叠兜底。
+/// research 队列索引的折叠阈值。dev 的 requirements/defects 已由 `work`
+/// 注入单条 Resolved Control State，不再把完整双队列常驻上下文。
 const INDEX_LIMIT: usize = 500;
 /// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
 // dev/memory 注入预算移入 memory 模块与 prompt_hints 共用(D-216:同一口径)。
@@ -96,6 +96,10 @@ impl Component for DevProfile {
                 requires_refs: None,
             }),
         );
+        draft.tools.insert("work", Arc::new(WorkTool));
+        draft
+            .permissions
+            .push(rule("work", "read:next", Effect::Allow));
         // 设计决策沉淀(R-110):讨论定下的方案与取舍像需求/缺陷一样落条目。
         draft.tools.insert(
             "decision",
@@ -386,22 +390,16 @@ impl Component for DevProfile {
 
         draft.context.insert(
             "dev/project-docs",
-            source("dev/project-docs", |ctx: &ResolveCtx| {
-                let def = index_of(ctx, &DEFECTS, "Defects");
-                let req = index_of(ctx, &REQUIREMENTS, "Requirements");
-                if req.is_none() && def.is_none() {
-                    return Some(
-                        "<project-docs>\n(empty — record requirements with `req add`, defects with `defect add`)\n</project-docs>".into(),
-                    );
-                }
-                // 取活口径单源:必须与 dev system prompt 的取活显式序同义。此前这里
-                // 中文句写死"requirements 先"而同段英文句默认 defect-first,自相矛盾,
-                // 还与旧 M-002 记忆(需求恒优先)打架——同一契约不许多处各说各话。
-                Some(format!(
-                    "<project-docs>\n{}{}Pick the first queue by the work-priority mode in the run instruction (defect-first when no mode is supplied); scan it top-down by file order, then the other queue only when the first has no workable item. Priority labels are background info, not the ordering. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
-                    def.map(|s| s + "\n").unwrap_or_default(),
-                    req.map(|s| s + "\n").unwrap_or_default(),
-                ))
+            source("dev/project-docs", |_ctx: &ResolveCtx| {
+                Some(
+                    "<project-docs>\nThe engine injects one structured resolved-control-state; \
+                     full requirement/defect queues are deliberately not resident context. \
+                     Execute its Resume/Start decision. Call `work next` after tracker changes; \
+                     use `req get` / `defect get` only for a specific id. `work claim` is the \
+                     normal way to open a WIP slot; direct tracker document writes are denied.\n\
+                     </project-docs>"
+                        .into(),
+                )
             }),
         );
 
@@ -474,19 +472,15 @@ impl Component for DevProfile {
                          (user message / feedback / self-found) so it stays traceable. \
                          If the item genuinely needs batching, write `批次: 0/N` in the \
                          same call.
-                         Pick work with a fixed precedence — never re-derive or debate it: \
-                         (1) an executable item already in doing or fixing (no valid blocking \
-                         field, not user-parked) is resumed FIRST — the occupied WIP slot \
-                         outranks queue priority in every mode; (2) only when no executable \
-                         item exists, pick new work by the selected work-priority mode \
-                         appended for this run: scan the selected first queue top-down, then \
-                         the other queue only when the first has no workable item. When no \
-                         mode is supplied, use defect-first. Priority labels are background \
-                         info, not the ordering. While an item is in progress do NOT re-scan \
-                         the full queues (`req list` / `defect list`) — queues are read when \
-                         picking work and when deduplicating a new registration, nowhere \
-                         else; register mid-work discoveries (`defect add` with a ref) and \
-                         return to the active item. Non-semantic metadata artifacts (stray \
+                         Pick work only through the engine: call `work next` and execute its \
+                         authoritative Resume/Start/Blocked/WipViolation result — never \
+                         re-derive queue order or WIP precedence from tracker prose. Use \
+                         `work claim` to open the selected item; an override requires an \
+                         explicit reason and cannot bypass an existing Resume decision. \
+                         While an item is in progress do NOT re-scan the full queues \
+                         (`req list` / `defect list`); register mid-work discoveries \
+                         (`defect add` with a ref) and return to the active item. \
+                         Non-semantic metadata artifacts (stray \
                          lines, formatting residue) must not interrupt active implementation \
                          — register them and move on, unless they break tool parsing or the \
                          entry's own update. If NOTHING is workable \
@@ -850,15 +844,15 @@ mod tests {
         );
     }
 
-    /// 2026-08-13 用户定调(V4PRO 运行复盘):取活显式序 + 执行中不重扫队列 +
-    /// 批末进展必写可恢复状态 + 评估先读码。规则冲突自辩(defect-first vs WIP)与
-    /// 上下文浪费先在提示词单源立规;harness 侧下沉(work next)由 R-230 接力。
+    /// 2026-08-13 用户定调(V4PRO 运行复盘):取活裁决已经下沉 work 工具；
+    /// prompt 只保留“执行结果”，不得再复制一套队列算法形成双真源。
     #[test]
     fn dev_system_prompt_enforces_resume_precedence_and_context_discipline() {
         let system = dev_system_prompt("resume-precedence");
         for required in [
-            "outranks queue priority",
-            "never re-derive or debate",
+            "call `work next`",
+            "authoritative Resume/Start/Blocked/WipViolation",
+            "cannot bypass an existing Resume decision",
             "do NOT re-scan",
             "Non-semantic metadata artifacts",
             "recoverable state",
@@ -868,6 +862,12 @@ mod tests {
             assert!(
                 system.contains(required),
                 "取活显式序/上下文纪律真源缺失:dev system prompt 里没有 `{required}`"
+            );
+        }
+        for forbidden in ["outranks queue priority", "scan the selected first queue"] {
+            assert!(
+                !system.contains(forbidden),
+                "取活算法仍复制在 prompt 中，Resolved Control State 不是单一真源: {forbidden}"
             );
         }
     }
