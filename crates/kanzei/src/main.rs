@@ -1054,6 +1054,21 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
                 input["id"] = serde_json::json!(id);
             }
         }
+        // D-331:fix_terminal 是归档纠错动作,CLI 也要能直接调用(id + status + --reason)。
+        "fix_terminal" => {
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            if let Some(id) = positional.first() {
+                input["id"] = serde_json::json!(id);
+            }
+            if let Some(status) = positional.get(1) {
+                input["status"] = serde_json::json!(status);
+            }
+            if let Some(pos) = args.iter().position(|a| a == "--reason") {
+                if let Some(v) = args.get(pos + 1) {
+                    input["reason"] = serde_json::json!(v);
+                }
+            }
+        }
         "raw_delete" => {
             let positional = parse_tracker_flags(&args[2..], &mut input);
             if let Some(id) = positional.first() {
