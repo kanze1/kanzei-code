@@ -2269,3 +2269,10 @@
 - 摘要: D-332 B2 tracker normalize:kanzei-tools 305 passed(新增 normalize_dry_run_reports_and_apply_fixes、normalize_reports_archived_mismatch_without_writing)、kanzei 15 passed、clippy -D warnings 干净。
 - 关联: D-332
 - 收尾: 1786612434
+
+## T-1786613072 cargo test -p kanzei-tools (D-332 B4) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.7s
+- 摘要: D-332 B4 source hash 证据:307 passed / 0 failed / 1 ignored。新增 source_test_gate_prefers_fingerprint_over_mtime、staged_source_fingerprint_ignores_non_source_paths;git 模块 18 passed 连续 6 轮全绿;clippy -D warnings 干净。
+- 关联: D-332
+- 收尾: 1786613072

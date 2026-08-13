@@ -194,6 +194,13 @@ impl Tool for TestRecordTool {
                 Err(err) => ToolOutput::error(err),
             };
         }
+        // D-332 验收④:收尾(status != running)时记录暂存源码指纹,提交门禁优先比
+        // 指纹背书测试。拿不到 git 状态(非 git 目录/无暂存)时指纹为空,门禁退回 mtime。
+        let fingerprint = if input.status != "running" {
+            crate::git::staged_source_fingerprint(&ctx.cwd).unwrap_or_default()
+        } else {
+            String::new()
+        };
         match record_test_run_with_duration(
             &root,
             input.id.as_deref(),
@@ -203,6 +210,7 @@ impl Tool for TestRecordTool {
             input.summary.as_deref(),
             input.refs.as_deref(),
             input.duration_secs,
+            Some(&fingerprint),
         ) {
             Ok(snapshot) => ToolOutput::ok(render_snapshot(&snapshot)),
             Err(err) => ToolOutput::error(err),
@@ -409,10 +417,12 @@ pub fn record_test_run(
     summary: Option<&str>,
     refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
-    record_test_run_with_duration(root, id, title, status, command, summary, refs, None)
+    record_test_run_with_duration(root, id, title, status, command, summary, refs, None, None)
 }
 
-/// 同 [`record_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段。
+/// 同 [`record_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段;
+/// `source_fingerprint`(D-332)为收尾时暂存源码的指纹,写入「源码指纹」字段,
+/// 提交门禁优先用它判定测试背书,不再纯靠 mtime。
 #[allow(clippy::too_many_arguments)] // 参数与 tests.md 记录字段一一对应,对象化会同时破坏全部调用方。
 pub fn record_test_run_with_duration(
     root: &Path,
@@ -423,6 +433,7 @@ pub fn record_test_run_with_duration(
     summary: Option<&str>,
     refs: Option<&[String]>,
     duration_secs: Option<f64>,
+    source_fingerprint: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
@@ -461,6 +472,7 @@ pub fn record_test_run_with_duration(
             summary,
             refs,
             duration_secs,
+            source_fingerprint,
         );
     };
     let record_id = record["id"].as_str().unwrap_or_default().to_string();
@@ -502,6 +514,11 @@ pub fn record_test_run_with_duration(
         // 收尾时刻:记录 id 是**开始**时间,而提交门禁要问的是"测试跑完在改完代码之后吗"。
         // 必须单独落一个终点时间,否则先起 running 再改代码就能骗过门禁。
         block.push_str(&format!("- 收尾: {}\n", now_secs()));
+        // D-332 验收④:测试背书的源码指纹——收尾时记录暂存源码 hash,提交门禁
+        // 优先比指纹(而不是纯 mtime),fmt 后源码 diff 变 → 指纹变 → 要求重测。
+        if let Some(fp) = source_fingerprint.filter(|v| !v.trim().is_empty()) {
+            block.push_str(&format!("- 源码指纹: {}\n", fp.trim()));
+        }
     }
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     // 定点替换而不是 str::replace:后者会把**所有**字节相同的块一起换掉。
@@ -532,10 +549,12 @@ pub fn append_test_run(
     summary: Option<&str>,
     refs: Option<&[String]>,
 ) -> Result<serde_json::Value, String> {
-    append_test_run_with_duration(root, title, status, command, summary, refs, None)
+    append_test_run_with_duration(root, title, status, command, summary, refs, None, None)
 }
 
-/// 同 [`append_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段。
+/// 同 [`append_test_run`],额外携带测试耗时秒数(R-210)写入「时长」字段;
+/// `source_fingerprint`(D-332)收尾时写入「源码指纹」,提交门禁优先比指纹。
+#[allow(clippy::too_many_arguments)] // 参数与 tests.md 记录字段一一对应,对象化会同时破坏全部调用方。
 pub fn append_test_run_with_duration(
     root: &Path,
     title: &str,
@@ -544,6 +563,7 @@ pub fn append_test_run_with_duration(
     summary: Option<&str>,
     refs: Option<&[String]>,
     duration_secs: Option<f64>,
+    source_fingerprint: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
@@ -576,6 +596,10 @@ pub fn append_test_run_with_duration(
     }
     if status != "running" {
         text.push_str(&format!("- 收尾: {}\n", now_secs()));
+        // D-332:测试背书的源码指纹,提交门禁优先比指纹。
+        if let Some(fp) = source_fingerprint.filter(|v| !v.trim().is_empty()) {
+            text.push_str(&format!("- 源码指纹: {}\n", fp.trim()));
+        }
     }
     crate::atomic_file::write_atomic(&path, &text).map_err(|e| e.to_string())?;
     let mut snapshot = test_runs_snapshot(root)?;
@@ -675,12 +699,15 @@ fn record_command_text(record: &serde_json::Value) -> String {
         .unwrap_or_default()
 }
 
-/// 最近一条「通过」测试记录:(收尾时刻, 覆盖面, 命令文本)。active + archive 一起看。
+/// 最近一条「通过」测试记录:(收尾时刻, 覆盖面, 命令文本, 源码指纹)。
+/// active + archive 一起看。
 ///
 /// 取收尾时刻而不是记录 id:id 是测试**开始**的时间,先起 running 再改代码就能骗过门禁。
 /// R-212:覆盖面随记录一起回——门禁既要「改完重跑过」,又要「跑的是覆盖这份源码的测试」。
-pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String)> {
-    let mut newest: Option<(u64, TestCoverage, String)> = None;
+/// D-332:源码指纹随记录一起回——门禁优先比指纹而非纯 mtime,test_record 自己写
+/// tests.md 不会改变源码指纹,不再触发「自己让自己失效」的重测。
+pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
+    let mut newest: Option<(u64, TestCoverage, String, String)> = None;
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
             if record["status"].as_str() != Some("passed") {
@@ -703,7 +730,17 @@ pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String)> {
                 });
             if let Some(at) = finished {
                 let command = record_command_text(&record);
-                let candidate = (at, coverage_from_command(&command), command);
+                let fingerprint = record["fields"]
+                    .as_array()
+                    .and_then(|fields| {
+                        fields
+                            .iter()
+                            .find(|f| f["key"].as_str() == Some("源码指纹"))
+                            .and_then(|f| f["value"].as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                let candidate = (at, coverage_from_command(&command), command, fingerprint);
                 newest = Some(match newest {
                     Some(cur) if cur.0 >= at => cur,
                     _ => candidate,
@@ -717,7 +754,7 @@ pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String)> {
 /// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。R-212 门禁改走
 /// [`last_passed`] 拿覆盖面,本函数保留为纯时间戳视图(兼容既有调用方)。
 pub fn last_passed_at(root: &Path) -> Option<u64> {
-    last_passed(root).map(|(at, _, _)| at)
+    last_passed(root).map(|(at, _, _, _)| at)
 }
 
 /// 某条目(R-xxx/D-xxx)名下仍未收尾的 running 测试记录。
@@ -1198,7 +1235,7 @@ mod tests {
             ),
         )
         .unwrap();
-        let (at, coverage, command) = last_passed(&root).expect("必须有记录");
+        let (at, coverage, command, _fp) = last_passed(&root).expect("必须有记录");
         assert_eq!(at, now);
         assert_eq!(coverage, TestCoverage::NonRust);
         assert!(command.contains("ui-runtime-smoke"));
@@ -1208,7 +1245,7 @@ mod tests {
             format!("# Test Runs\n\n## T-{now} cargo test -p kanzei-llm (R-1 回归) [passed]\n- 收尾: {now}\n"),
         )
         .unwrap();
-        let (_, coverage, command) = last_passed(&root).unwrap();
+        let (_, coverage, command, _fp) = last_passed(&root).unwrap();
         assert_eq!(
             coverage,
             TestCoverage::Crates(vec!["kanzei-llm".to_string()])
@@ -1356,6 +1393,7 @@ mod tests {
             None,
             None,
             Some(12.345),
+            None,
         )
         .unwrap();
         let recorded_id = snapshot["recorded_id"].as_str().unwrap().to_string();

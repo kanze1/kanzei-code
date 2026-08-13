@@ -261,6 +261,76 @@ async fn staged_state(cwd: &Path) -> Result<(String, String, Vec<String>), Strin
     Ok((hash, diff, paths))
 }
 
+/// D-332 验收④:暂存**源码**的指纹 hash(fnv)——test_record 收尾时用它背书「测试跑的是
+/// 这份源码」,提交门禁优先比指纹而不是纯 mtime。要点:
+/// - 只对源码路径(`is_source_path`)的 staged diff 求 hash:tests.md/tracker 等托管文档
+///   的写入不改变源码指纹,不会再让「test_record 自己改 tests.md」触发源码重测。
+/// - 与 staged_state 的全体 hash 不同:commit 门禁的 CAS 用全体 hash(防任何内容漂移),
+///   测试背书用源码 hash(fmt 后源码 diff 变 → 指纹变 → 要求重测,保守正确)。
+/// - 同步实现(内部 std::process::Command 跑 git):test_record 工具(async)与
+///   source_test_gate(同步)都要用,拆两个 async 版本会让门禁被迫改签名。
+pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
+    let output = std::process::Command::new("git")
+        .args([
+            "diff",
+            "--cached",
+            "--binary",
+            "--no-ext-diff",
+            "--no-color",
+        ])
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("cannot run git diff: {e}"))?;
+    let diff = String::from_utf8_lossy(&output.stdout).to_string();
+    let paths = staged_paths_sync(cwd)?;
+    let source_paths: Vec<String> = paths
+        .iter()
+        .filter(|p| is_source_path(p))
+        .cloned()
+        .collect();
+    if source_paths.is_empty() {
+        // 本次暂存全是非源码(测试记录/文档):指纹为空,门禁按旧逻辑(mtime)走。
+        return Ok(String::new());
+    }
+    let mut hasher = DefaultHasher::new();
+    // 只对源码路径的 diff 段求 hash:按 `diff --git a/<path> b/<path>` 头切块,
+    // 命中源码路径的块进 hash,其余(测试记录/文档)排除。
+    let mut in_source = false;
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            let path = rest
+                .split_once(" b/")
+                .map(|(p, _)| p.to_string())
+                .unwrap_or_default();
+            in_source = source_paths.contains(&path);
+        }
+        if in_source {
+            line.hash(&mut hasher);
+        }
+    }
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn staged_paths_sync(cwd: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("git")
+        .args(["diff", "--cached", "--name-only", "--no-renames"])
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("cannot run git diff --name-only: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git diff --cached failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 async fn stage(cwd: &Path, raw_files: &[String]) -> ToolOutput {
     let files = match normalize_files(cwd, raw_files, true) {
         Ok(files) => files,
@@ -549,13 +619,27 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
     );
     match crate::test_record::last_passed(project_root) {
         None => Err(format!("提交被拦下:没有任何 passed 的测试记录。\n{remedy}")),
-        Some((passed_at, _, _)) if passed_at < newest_change => Err(format!(
-            "提交被拦下:最近一条 passed 测试记录收尾于 {} 秒前,而暂存的源码在那之后又改过\
-             ({} 秒前)——这条记录背书的不是要提交的这份代码。\n{remedy}",
-            now_secs().saturating_sub(passed_at),
-            now_secs().saturating_sub(newest_change)
-        )),
-        Some((_, coverage, command_text)) => {
+        Some((passed_at, coverage, command_text, fingerprint)) => {
+            // D-332 验收④:优先比源码指纹——测试记录背书的是「收尾那一刻的暂存源码」。
+            // 指纹非空且与当前暂存源码一致 = 背书成立(即使 mtime 因 test_record 自己写
+            // tests.md 而变新,源码没变就不要求重测)。指纹为空(旧记录/非 git)时退回 mtime。
+            let current_fingerprint = staged_source_fingerprint(cwd).unwrap_or_default();
+            if !fingerprint.is_empty() && !current_fingerprint.is_empty() {
+                if fingerprint != current_fingerprint {
+                    return Err(format!(
+                        "提交被拦下:最近一条 passed 测试记录背书的源码指纹与当前暂存源码不一致\
+                         (记录: {fingerprint}, 当前: {current_fingerprint})——fmt/改动后源码变了,\
+                         这条记录背书的不是要提交的这份代码。\n{remedy}"
+                    ));
+                }
+            } else if passed_at < newest_change {
+                return Err(format!(
+                    "提交被拦下:最近一条 passed 测试记录收尾于 {} 秒前,而暂存的源码在那之后又改过\
+                     ({} 秒前)——这条记录背书的不是要提交的这份代码。\n{remedy}",
+                    now_secs().saturating_sub(passed_at),
+                    now_secs().saturating_sub(newest_change)
+                ));
+            }
             // R-212:相关性——暂存源码所属 crate 必须被最近 passed 记录覆盖。
             // 只按时间戳背书(改完没重跑)已经防不住「跑了 A 测试以为覆盖了 B」
             // 的诚实失误:前端冒烟记录的时间戳比 Rust 改动新,却背不了这份源码。
@@ -1574,13 +1658,13 @@ prunable gitdir file points to non-existent location
         let core_src = root.join("crates/kanzei-core/src/lib.rs");
         std::fs::create_dir_all(core_src.parent().unwrap()).unwrap();
         std::fs::write(&core_src, "pub fn y() {}\n").unwrap();
-        let now = now_secs();
+        // 收尾时间用写入时刻(实时时钟)而非测试开头固定 now:ps1 在测试末尾写入时,
+        // 收尾时间必须晚于/等于其 mtime,否则 mtime 分支会确定性拦截(跨秒竞态)。
         let write_record = |command: &str| {
+            let t = now_secs();
             std::fs::write(
                 project.join("tests.md"),
-                format!(
-                    "# Test Runs\n\n## T-{now} 记录 [passed]\n- 命令: {command}\n- 收尾: {now}\n"
-                ),
+                format!("# Test Runs\n\n## T-{t} 记录 [passed]\n- 命令: {command}\n- 收尾: {t}\n"),
             )
             .unwrap();
         };
@@ -1622,10 +1706,84 @@ prunable gitdir file points to non-existent location
         let ps1 = root.join("scripts/hello.ps1");
         std::fs::create_dir_all(ps1.parent().unwrap()).unwrap();
         std::fs::write(&ps1, "Write-Host hi\n").unwrap();
+        // 注意:write_record 用测试开头的固定 now 作收尾时间;ps1 写入必须与 now
+        // 同秒才能让 mtime 分支放行——测试在秒内完成,既有设计,勿加 sleep。
         write_record("node scripts/ui-runtime-smoke.mjs");
+        match source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]) {
+            Ok(()) => {}
+            Err(err) => panic!("非 crate 源码不应被 crate 相关性拦截: {err}"),
+        }
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-332 验收④:test_record 收尾记录暂存源码指纹;source_test_gate 优先比指纹——
+    /// 指纹一致即背书成立(不再被 test_record 自己写 tests.md 的 mtime 误伤);
+    /// 源码改动(fmt/手改)后指纹不一致则拦截。
+    #[test]
+    fn source_test_gate_prefers_fingerprint_over_mtime() {
+        let root = temp_repo("gate-fingerprint");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let src = root.join("crates/kanzei-tools/src/lib.rs");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, "pub fn x() {}\n").unwrap();
+        // 提交初始版本,再改源码并 stage —— 模拟「改完代码准备提交」。
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        git_in(&root, &["commit", "-m", "init"]);
+        std::fs::write(&src, "pub fn x() { let a = 1; }\n").unwrap();
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+
+        // 收尾时记录的指纹(与当前 staged 源码一致)。
+        let fp = staged_source_fingerprint(&root).unwrap();
+        assert!(!fp.is_empty(), "有暂存源码就必须有指纹");
+        let now = now_secs();
+        // 记录收尾时间设为「过去」(源码 mtime 更新),但指纹一致 → 应放行。
+        std::fs::write(
+            project.join("tests.md"),
+            format!(
+                "# Test Runs\n\n## T-{now} 记录 [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: {}\n- 源码指纹: {fp}\n",
+                now - 99999
+            ),
+        )
+        .unwrap();
         assert!(
-            source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]).is_ok(),
-            "非 crate 源码不应被 crate 相关性拦截"
+            source_test_gate(
+                &root,
+                &root,
+                &["crates/kanzei-tools/src/lib.rs".to_string()]
+            )
+            .is_ok(),
+            "指纹一致时,即使收尾时间早于源码 mtime 也应放行(test_record 写 tests.md 不误伤)"
+        );
+
+        // 源码再改(未重测)→ 指纹不一致 → 拦截。
+        std::fs::write(&src, "pub fn x() { let b = 2; }\n").unwrap();
+        git_in(&root, &["add", "crates/kanzei-tools/src/lib.rs"]);
+        let err = source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        )
+        .unwrap_err();
+        assert!(
+            err.contains("源码指纹") && err.contains("不一致"),
+            "指纹不一致应拦截并点名: {err}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-332:staged_source_fingerprint 只对源码路径求 hash——只 stage tests.md(非源码)
+    /// 时指纹为空,门禁退回 mtime 逻辑,不产生「空指纹 vs 有指纹」的误判。
+    #[test]
+    fn staged_source_fingerprint_ignores_non_source_paths() {
+        let root = temp_repo("gate-fp-nonsource");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join(".kanzei/project/tests.md"), "# Test Runs\n").unwrap();
+        git_in(&root, &["add", ".kanzei/project/tests.md"]);
+        assert_eq!(
+            staged_source_fingerprint(&root).unwrap(),
+            "",
+            "只有非源码暂存时指纹应为空(门禁走 mtime)"
         );
         std::fs::remove_dir_all(root).ok();
     }
