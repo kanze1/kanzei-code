@@ -2904,3 +2904,15 @@
 - 摘要: 全量全绿:app 148 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-188 关闭前全量(2 批完成)。
 - 关联: R-188
 - 收尾: 1786656195
+
+## T-1786656482 R-189 主题切换冒烟集 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs && cargo test -p kanzei-app
+- 摘要: 前端五冒烟全绿(ui-runtime 含新增 R-189 断言:theme-toggle 存在、切亮色改 data-theme+持久化、切回暗色、Monaco 主题联动);kanzei-app 148 passed。
+- 关联: R-189
+- 收尾: 1786656482
+
+## T-1786656576 cargo test --workspace(R-189 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 148 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-189 关闭前全量(3 批完成)。
+- 关联: R-189
+- 收尾: 1786656576
