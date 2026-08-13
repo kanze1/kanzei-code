@@ -3721,3 +3721,17 @@
 - observed_head: c4f219d3accb6dd2dd9bc75b5c73e130266e4895
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786599542705
+
+## D-330 tracker add/repair_missing_id 时 priority 参数与 fields 里「优先级」键双写重复字段 [fixed] (medium)
+- 复杂度: 小
+- 复现: tracker add/repair_missing_id 分支(tracker.rs:484-489 与 :363-368)在 priority 参数有值时无条件 fields.push(("优先级", priority)),不去查 input.fields 里是否已有「优先级」键。调用方若同时传 priority 参数 + fields 里「优先级」键,Vec 里得到两条「优先级」字段。本轮 R-233/R-234 即踩中:值相同时两条相同字段冗余;值不同时(P1/P2)两条矛盾字段,下游读取语义不定。
+- 影响: add 静默写两条同名字段:值相同仅冗余,值不同则优先级字段语义歧义;update 分支(:614-621)已有正确合并去重逻辑,add/repair 分支未复用,是不一致缺陷。
+- 来源: 2026-08-16 本轮自举:R-233/R-234 add 时 priority 参数与 fields 里优先级键双写,get 显示两条「优先级: P1」,raw_lines 另有游离空行(已清)。
+- 标签: 后端
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-330
+- 进展: 修复(2026-08-16,commit 02ec7b2):tracker.rs add(:546-557)与 repair_missing_id(:416-427)分支的 priority 参数处理对齐 update 分支(:664-673)语义——已存在「优先级」键(中文键或大小写不敏感 priority)则覆盖为参数值,否则追加;不再无条件 push 造成双写。单测 add_and_repair_dedupe_priority_param_with_fields_key 覆盖两分支(参数优先覆盖 fields 值、只落一条),tracker 34 passed, fmt+clippy 干净。
+- 验收: ①add 同时传 priority 参数与 fields「优先级」键只落一条字段,参数优先——单测 add 分支断言 prio.len()==1 且值为参数值;②repair_missing_id 同型——单测 repair 分支断言;③update 分支既有行为不变(tracker 34 passed 含既有 update 测试,无回归)。
+- observed_head: 02ec7b20cba1490fe7bb0c6cc0d0907642c26db9
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786599769933

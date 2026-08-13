@@ -134,14 +134,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786599000900
 
-## D-330 tracker add/repair_missing_id 时 priority 参数与 fields 里「优先级」键双写重复字段 [open] (medium)
-- 复杂度: 小
-- 复现: tracker add/repair_missing_id 分支(tracker.rs:484-489 与 :363-368)在 priority 参数有值时无条件 fields.push(("优先级", priority)),不去查 input.fields 里是否已有「优先级」键。调用方若同时传 priority 参数 + fields 里「优先级」键,Vec 里得到两条「优先级」字段。本轮 R-233/R-234 即踩中:值相同时两条相同字段冗余;值不同时(P1/P2)两条矛盾字段,下游读取语义不定。
-- 影响: add 静默写两条同名字段:值相同仅冗余,值不同则优先级字段语义歧义;update 分支(:614-621)已有正确合并去重逻辑,add/repair 分支未复用,是不一致缺陷。
-- 来源: 2026-08-16 本轮自举:R-233/R-234 add 时 priority 参数与 fields 里优先级键双写,get 显示两条「优先级: P1」,raw_lines 另有游离空行(已清)。
-- 标签: 后端
-- 优先级: P2
-
 ## D-331 归档终态无法安全修正且非法状态会污染缺陷标题，reopen 对归档 ID 误报 unknown id [open] (high)
 - refs: D-267 D-241 D-284 D-329
 - 复现: D-267 在 defects.md 中带缺陷状态机不支持的 [dropped]；close/archive 后工具未拒绝该标记，而是在标题继续追加 [fixed]，归档结果成为 [dropped] [fixed]。随后 defect reopen D-267：缺 reason 时先报参数错误，补 reason 后只查活动文档并报 unknown id，无法通过专用工具改为 wontfix。

@@ -2129,3 +2129,9 @@
 - 摘要: D-323 修复:08-compose.js 暂停恢复路径移除 autoContinueAllowed 私有否决;ui-runtime-smoke 新增 D-323 断言(dev-pair 档位下暂停→恢复必须进入「2 秒后继续」分支并调度定时器,前置断言验证点击生效)21 组 0 运行时错误;i18n/a11y/markdown/parallel-lines 全绿。测试钩子加 paused()/cancelTimers()。
 - 关联: D-323
 - 收尾: 1786599513
+
+## T-1786599743 D-330 定向:tracker 优先级双写去重 [passed]
+- 命令: cargo test -p kanzei-tools --lib tracker && cargo test -p kanzei-tools add_and_repair_dedupe
+- 摘要: D-330 修复:tracker add/repair_missing_id 分支 priority 参数与 fields「优先级」键去重(复用 update 分支 :664-673 语义:已存在则覆盖,否则追加);tracker 34 passed 含新增 add_and_repair_dedupe_priority_param_with_fields_key;fmt+clippy 干净。
+- 关联: D-330
+- 收尾: 1786599743
