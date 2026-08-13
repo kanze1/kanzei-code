@@ -204,6 +204,7 @@
   "buildFilesTree",
   "buildFocusCard",
   "buildHarvestPanel",
+  "buildReasoningBlock",
   "buildToolBlock",
   "builtin",
   "button",

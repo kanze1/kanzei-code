@@ -374,32 +374,39 @@ function chatToolEnd(id, ok, preview, display) {
 }
 
 let currentReasoningHead = null;
+/// 思考块构造器:实时流与历史恢复(15-views-misc renderRecoveredMessages)共用,
+/// 两处观感必须一致;body.dataset.raw 始终持有完整思考文本——收起态的复制上下文靠它。
+function buildReasoningBlock(raw) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg reasoning";
+  const head = document.createElement("button");
+  head.type = "button";
+  head.className = "reasoning-head";
+  head.setAttribute("aria-label", t("展开或收起思考过程"));
+  head.setAttribute("aria-expanded", "false");
+  head.textContent = `· ${t("思考中…")}`;
+  const body = document.createElement("div");
+  body.className = "reasoning-body md hidden";
+  body.dataset.raw = raw;
+  body._head = head;
+  head.addEventListener("click", () => {
+    // 单行摘要没有可展开的正文,点了别装作有反应。
+    if (head.classList.contains("expandable")) {
+      body.classList.toggle("hidden");
+      head.setAttribute("aria-expanded", String(!body.classList.contains("hidden")));
+    }
+  });
+  wrap.append(head, body);
+  return { wrap, head, body };
+}
 function appendReasoning(text) {
   if (!currentReasoning) {
     // 思考块:每个思考段独立一块,头部实时显示摘要首行,默认折叠(R-015 修正)。
     clearEmptyState();
-    const wrap = document.createElement("div");
-    wrap.className = "msg reasoning";
-    const head = document.createElement("button");
-    head.type = "button";
-    head.className = "reasoning-head";
-    head.setAttribute("aria-label", t("展开或收起思考过程"));
-    head.setAttribute("aria-expanded", "false");
-    head.textContent = `· ${t("思考中…")}`;
-    const body = document.createElement("div");
-    body.className = "reasoning-body md hidden";
-    body.dataset.raw = "";
-    head.addEventListener("click", () => {
-      // 单行摘要没有可展开的正文,点了别装作有反应。
-      if (head.classList.contains("expandable")) {
-        body.classList.toggle("hidden");
-        head.setAttribute("aria-expanded", String(!body.classList.contains("hidden")));
-      }
-    });
-    wrap.append(head, body);
-    messages.appendChild(wrap);
-    currentReasoning = body;
-    currentReasoningHead = head;
+    const block = buildReasoningBlock("");
+    messages.appendChild(block.wrap);
+    currentReasoning = block.body;
+    currentReasoningHead = block.head;
   }
   currentReasoning.dataset.raw += text;
   // D-202:与 assistant 同样合帧,头部摘要跟着渲染一起更新(见 flushStreamRender)。

@@ -227,6 +227,16 @@ function renderRecoveredMessages(items) {
         }
         continue;
       }
+      if (part.type === "reasoning") {
+        // 思考块此前在恢复时被整个丢弃(循环只认 text/tool_*):重开会话后思维链从
+        // DOM 消失,复制上下文也拿不到。按实时同款折叠块恢复,完整 raw 进 dataset。
+        if (part.text?.trim()) {
+          const block = buildReasoningBlock(part.text);
+          messages.appendChild(block.wrap);
+          renderReasoningBlock(block.body);
+        }
+        continue;
+      }
       if (part.type !== "text" || !part.text?.trim()) continue;
       const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
       if (message.role === "assistant") {

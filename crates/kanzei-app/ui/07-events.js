@@ -594,13 +594,20 @@ $("copy-context").addEventListener("click", async () => {
       const raw = (el.dataset.raw ?? el.textContent).trim();
       if (raw) parts.push(`## ${t("助手")}\n${raw}`);
     } else if (el.classList.contains("reasoning")) {
+      // 完整思维链:收起态也全量导出(dataset.raw 一直在),不再截首行 160 字——
+      // 摘要贴给别的 AI 没有用,断链的思考等于没复制。
       const raw = el.querySelector(".reasoning-body")?.dataset.raw?.trim();
-      if (raw) parts.push(`> ${t("思考")}:${raw.split("\n").find(Boolean)?.slice(0, 160) ?? ""}`);
+      if (raw) parts.push(`### ${t("思考")}\n${raw.split("\n").map((line) => `> ${line}`).join("\n")}`);
     } else if (el.classList.contains("tool-chip")) {
       const head = el.querySelector(".head")?.textContent?.trim();
-      if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}`);
+      const result = el.querySelector(".result")?.textContent?.trim();
+      if (head) parts.push(`> ${t("工具")}:${head.slice(0, 200)}${result ? `\n> ${result.slice(0, 400)}` : ""}`);
     } else if (el.classList.contains("turn-divider")) {
       parts.push(`---\n${el.textContent}`);
+    } else if (el.classList.contains("msg")) {
+      // 其余消息形态(error 等)不再被静默跳过:主对话缺失错误上下文,导出就失真。
+      const text = el.textContent?.trim();
+      if (text) parts.push(`> ${text.slice(0, 500)}`);
     }
   }
   if (!parts.length) {
