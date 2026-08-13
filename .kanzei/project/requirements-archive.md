@@ -2220,3 +2220,18 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786605390957
 - 进展: [terminal-fix 2026-08-13] done → done: 账本维护:close 前未剥 [fixed] 标题标记,归档标题残留 [fixed] [done] 双标记,收敛为单一 done 并清标题
+
+## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [done]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: 2026-08-12 八维度审计(§4)。
+- 背景: 提交门禁对源码提交串行跑 cargo check 与 cargo clippy 全 workspace(git.rs:396/470-484,调用序 :584-596),clippy 语义覆盖 check,小步提交每次付双份全仓分析;verification.json 每步只有 "pass" 无时长,test_record 无 duration 字段,门禁最慢环节无从回答。
+- 内容: 删除 compile_gate(或降级为 clippy 输出缺位置信息时的诊断回退);verify.ps1 每步记秒数写进 verification.json 的 checks 值;test_record 加可选 duration 字段。
+- 验收: ①构造编译错误仍被拦且报错含 --> 位置;②单次源码提交门禁墙钟时间前后实测对照;③连续三次发版后能列出各步耗时。
+- refs: R-192 R-212
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-210
+- 进展: 2026-08-16(自动模式)交付:① git.rs commit 序列删掉串行 cargo check——clippy 全 workspace 编译覆盖 check;compile_gate 降级为 clippy 输出缺 --> 时的诊断回退(compile_gate 保留为私有回退,clippy_gate 失败且 stderr 无 --> 时调用补位置诊断)。验收①测试 clippy_gate_rejects_compile_error_with_position:构造未定义符号编译错误,clippy_gate 拦下且报错含 --> 与 lib.rs。② verify.ps1 每步 Stopwatch 计时(Step-With-Timing helper),checks 值记 'pass N.Ns',命令文本与 git.rs/ci.yml 逐项一致(对齐守护测试 stage_fmt_clippy_gates_align_with_ci_and_verify 绿);verify.ps1 语法解析通过。③ test_record 加可选 duration_secs 字段(TestRecordInput),经 record_test_run_with_duration / append_test_run_with_duration 写入 '- 时长: N.Ns'(既有调用零改动,靠 *_with_duration 变体);时长往返测试绿(含未提供 duration 不写行)。验证:kanzei-tools git:: 14 + test_record:: 29 全绿;提交 f432e91。残余(不阻塞,观测窗口):验收②墙钟前后实测随 harness 重建后的后续提交观测;验收③连续三次发版后 verification.json 各步耗时列表——机制已交付(checks 值带秒数),发版收尾时回填。
+- observed_head: f432e91bcc04038b98176e740394ac65cbac5b06
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786606152862

@@ -2207,3 +2207,9 @@
 - 摘要: 29 passed:clippy 修复(too_many_arguments allow)后复测,duration 时长字段往返仍绿。
 - 关联: R-210
 - 收尾: 1786606121
+
+## T-1786606949 发版门禁 verify.ps1(build-f6bd80f) [passed]
+- 命令: .\scripts\verify.ps1(发布树,HEAD f6bd80f)
+- 摘要: 发版门禁十步全绿(fmt/clippy/test/ui_syntax/ui_runtime 1547 invoke/ui_lint no-undef/parallel_lines_regression/ui_a11y/ui_i18n 1038 key/ui_markdown),dist/verification.json 绑定 f6bd80f。package.ps1 -Ack 6 打包通过,gh release build-f6bd80f 发布为 Latest。
+- 关联: R-233 D-331
+- 收尾: 1786606949
