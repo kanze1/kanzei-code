@@ -3612,3 +3612,21 @@
 - 标签: 后端
 - 优先级: P2
 - 进展: 2026-08-13 修复:①render_entry_with_template 渲染前裁掉模板尾部空 Raw(条目间距由 ensure_blank_separator 单源负责),追加字段紧跟末字段,新增测试 追加字段不产生游离空段且多轮写入稳定(两轮写入幂等);②main.rs tracker_cli 给 raw_lines/reopen/archive/void_id/repair_missing_id 接位置参数 id、raw_delete 接 id+序号。验证:cargo test -p kanzei-tools docstore:: 20 passed;新二进制端到端 raw_lines/raw_delete D-325 实测可用(证实游离段即空行,已清)
+
+## D-283 会话状态按轮次投影导致运行中显示空闲、停止按钮消失、鞭挞与活动记录串线 [done] [fixed] (high)
+- 优先级: P0
+- 复杂度: 大
+- 标签: 核心 后端 前端 并行 自举
+- 来源: 2026-08-12 用户连续截图与复现；全局扫描确认不是单一 CSS 问题，而是后端会话态、前端事件态、轮询快照、线路设置和 trace 落库粒度共同漂移。
+- 复现: ①任务实际收到进度事件,左侧线路仍显示「空闲」,顶部 stop 不出现;②一轮结束后鞭挞仍会等待/续跑,但底部 setStatus(false) 显示普通空闲;③主线开 dev-auto/鞭挞后切未配置并行线,新线继承旧 profile/checkbox/timer;④运行中切线或重载,右侧活动记录要等轮末 trace 落库,轮内轨迹暂时消失。
+- 根因: ①运行态由 runtime.running/sessionStates/process_list/collaboration_snapshot 多源投影且 handler 直写状态,无单一投影出口;②并行线路页依赖 3.5/8 秒轮询,实时事件与轮询无明确优先级;③run.trace 轮末收尾写入,活动回放天然轮粒度;④profile/auto UI 有全局 localStorage fallback,切线时先同步新 session 后应用目标设置,目标 profile 为空时不清理旧值。
+- `kz: done` 是轮末事件，旧投影把它当会话终态；`kz:idle` 才是运行循环结束。
+- 统一修复: 归并到 R-197，按其 10 批次执行；设计基线见 `docs/design/session_state_and_line_runtime.md`。
+- 验收: 以 R-197 八条验收为准，额外保留两条反证：①`kz:done` 后模拟第二轮/排队输入仍显示运行；②主线鞭挞开启后切未配置并行线不会产生 `auto=true` 的目标 session 请求。
+- 证据等级: E1(用户复现 + 代码调用链核实，修复后需提升为 E2/E3)
+- 进展: 正式关闭(2026-08-16,修复本体是 R-197 既有交付,本条只补关闭):主验收=R-197 八条,该需求已 done/归档(10 批+关闭前全量)。反证①有显式自动化证据:ui-runtime-smoke.mjs 断言 bgState.converged===false(kz:done 是轮末事件不得收敛会话终态,排队输入第二轮还要跑)+bgState.running===true(kz:done 后会话仍在跑);对应实现=run.rs:1068 kz:done/run.rs:2191 kz:idle 分离,01-core.js 事件流为线路状态实时投影入口、只有会话级终态才收敛。反证②=auto 状态按 sessionId 隔离(08-compose.js autoContinueTimers 以 sessionId 为键、auto_state_reset 随 activeSessionId 重置)+R-197「profile/auto/timer 按线路隔离」+parallel-lines-regression.mjs 线路隔离护栏(profile 隔离/刷新节流/切换代次/local_start_pending 防旧快照覆盖)。2026-08-12 已发布,持续使用无回归。残余缺口:WebView2 E2/E3 提升受本机 CDP 端口不绑定限制(M-062),转入 R-101 延期 E2 清单,不影响本条功能验收(关闭边界:可用即关闭,验证增强不滞留 fixing)。
+- 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-283
+- observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786598029507
