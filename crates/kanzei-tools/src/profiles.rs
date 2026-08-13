@@ -530,7 +530,22 @@ impl Component for DevProfile {
                          in parallel and keep your context clean. But when the defect or \
                          requirement already NAMES the file and function (根因/复现 cites \
                          paths), read those files directly — spawning a subagent to rediscover \
-                         a known location wastes a whole exploration pass."
+                         a known location wastes a whole exploration pass. \
+                         Lightweight fixed flows (R-192, for NEW project scenarios where the \
+                         full conventions are not yet in context): \
+                         — 缺陷登记: `defect add` with title + 复现/影响/来源 fields, \
+                         severity (high|medium|low), priority (P0|P1|P2|P3), 标签 from the \
+                         vocabulary (核心|后端|前端|模型|发布|流程) — the tool enforces this; \
+                         when fixing, update 进展 with commit + evidence, then `defect close`. \
+                         — 发版: run the project's release script (e.g. scripts/release.ps1) \
+                         which runs the full suite, installs the CLI and builds the desktop \
+                         app; confirm the running app was replaced (kz --version hash matches \
+                         HEAD) before telling the user the release is live. \
+                         — 新条目开工: `work next` → `work claim` → set 批次: 0/N if it needs \
+                         batching → finish → full suite if 复杂度 中/大 → `req update <id> done` \
+                         with per-验收 evidence. \
+                         These three flows are the fixed registration/close path; details \
+                         beyond them live in the project conventions, not here."
                     .into(),
             },
         );
@@ -1141,6 +1156,29 @@ mod tests {
                 system.contains(required),
                 "R-191 登记契约缺失:dev system prompt 里没有 `{required}`。\
                  引擎现在会拒缺字段的 add,提示词却没教字段清单。"
+            );
+        }
+    }
+
+    /// R-192:轻量级固定流程(发版/缺陷登记/新条目开工)必须注入 dev system——
+    /// 新项目场景下全文规范未在上下文里,agent 靠这段固定流程就能正确完成登记与关闭。
+    #[test]
+    fn dev_system_prompt_teaches_lightweight_fixed_flows() {
+        let system = dev_system_prompt("r192-flow");
+        for required in [
+            "Lightweight fixed flows (R-192",
+            "缺陷登记",
+            "defect add",
+            "发版",
+            "release.ps1",
+            "新条目开工",
+            "work next",
+            "per-验收 evidence",
+        ] {
+            assert!(
+                system.contains(required),
+                "R-192 轻量级固定流程缺失:dev system prompt 里没有 `{required}`。\
+                 新项目场景无法降低上下文依赖。"
             );
         }
     }
