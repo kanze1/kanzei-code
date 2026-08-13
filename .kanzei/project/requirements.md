@@ -530,22 +530,6 @@
 - 验收: ①门禁单测覆盖断言引证不足拒绝;②R-199 式未核实分类断言在门禁层不可复现;③无分类断言的关闭不受影响
 - 优先级: P2
 
-## R-230 work next/claim 调度决策下沉 harness:取活零推导 [todo]
-- 内容: 新增 work 类动作:next 按显式序计算 WorkDecision(Resume{id}|Start{id}|Blocked{ids}|WipViolation{ids})并返回 reason 码与 wip 快照;claim <id> 为显式 override 并落档原因;提示词侧取活规则收敛为「一律调 work next 按返回执行」。2026-08-13 已在 dev prompt 写入显式序(profiles.rs:resume 占槽项>队列优先级,守护测试覆盖),本条是它的 harness 确定性下沉——V4PRO 实测每次会话为 defect-first vs WIP 的仲裁自辩 500+ token,该决策 100% 可确定,按弱模型准绳应由代码一行给出
-- 复杂度: 中
-- 来源: 2026-08-13 V4PRO 运行复盘与调度设计讨论
-- 标签: 后端
-- 验收: ①next 四种决策各有单测(唯一可执行→Resume/零→按模式 Start/多→WipViolation/全部阻塞→Blocked);②返回含 reason 与 wip 快照可复述给用户;③claim override 落档;④dev prompt 同步改为按返回执行且守护测试更新
-- 优先级: P2
-
-## R-231 work context 轮首注入:执行中零全量 list,归档只准 get-by-id [todo]
-- 内容: 自举轮首注入改为「活动条目全文+批次/进展+refs 解析结果+相关记忆 hints」,req/defect 全量列表不再进上下文(现状 defects.md 44KB+requirements.md 95KB≈3.5 万 token/轮首);两个归档(322KB/559KB)只允许按 id 取条目;队列仅有的两次合法读取由 work next(R-230)与登记查重门禁承担。与记忆召回 prompt_hints 只注题+fetched 落表是同一模式
-- 复杂度: 中
-- 来源: 2026-08-13 上下文管理设计讨论(refs R-230)
-- 标签: 后端
-- 验收: ①轮首上下文含活动条目与 refs 不含全量列表(守护测试);②执行中全量 list 有护栏或审计计数;③改造前后轮首 token 对照留档
-- 优先级: P2
-
 ## R-232 tracker 写操作幂等化:同值 update 返回 no-op,变更返回 diff 摘要 [todo]
 - 内容: update/close 对未变更字段返回「no-op: 字段已是该值」且文件零写入;有变更时返回 旧→新 摘要。消灭「先决定改 X→发现已是 X→仍执行写操作」的冗余调用与模糊回执引发的二次确认循环(V4PRO 实测 批次 0/3 冗余 update)。D-329 已修游离空段,本条补反馈语义
 - 复杂度: 小

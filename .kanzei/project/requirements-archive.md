@@ -2152,3 +2152,26 @@
 - 批次: 2/2
 - 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786566xxx,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。
 
+## R-230 work next/claim 调度决策下沉 harness:取活零推导 [done]
+- 内容: 新增 work 类动作:next 按显式序计算 WorkDecision(Resume{id}|Start{id}|Blocked{ids}|WipViolation{ids})并返回 reason 码与 wip 快照;claim <id> 为显式 override 并落档原因;提示词侧取活规则收敛为「一律调 work next 按返回执行」。2026-08-13 已在 dev prompt 写入显式序(profiles.rs:resume 占槽项>队列优先级,守护测试覆盖),本条是它的 harness 确定性下沉——V4PRO 实测每次会话为 defect-first vs WIP 的仲裁自辩 500+ token,该决策 100% 可确定,按弱模型准绳应由代码一行给出
+- 复杂度: 中
+- 来源: 2026-08-13 V4PRO 运行复盘与调度设计讨论
+- 标签: 后端
+- 验收: ①next 四种决策各有单测(唯一可执行→Resume/零→按模式 Start/多→WipViolation/全部阻塞→Blocked);②返回含 reason 与 wip 快照可复述给用户;③claim override 落档;④dev prompt 同步改为按返回执行且守护测试更新
+- 优先级: P2
+- 进展: 2026-08-13 已完成。新增 work next/claim 确定性裁决，Resume/Start/Blocked/WipViolation 七组回归覆盖；claim 偏离默认选择必须记录原因且不能绕过 Resume；dev prompt 只执行引擎结果。验证：cargo test --workspace 全绿，cargo clippy --workspace --all-targets -- -D warnings 全绿。提交 4324bf7。
+- observed_head: 7ca4e6c04844836b534916c5e7a6a471f8427ceb
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786593955011
+
+## R-231 work context 轮首注入:执行中零全量 list,归档只准 get-by-id [done]
+- 内容: 自举轮首注入改为「活动条目全文+批次/进展+refs 解析结果+相关记忆 hints」,req/defect 全量列表不再进上下文(现状 defects.md 44KB+requirements.md 95KB≈3.5 万 token/轮首);两个归档(322KB/559KB)只允许按 id 取条目;队列仅有的两次合法读取由 work next(R-230)与登记查重门禁承担。与记忆召回 prompt_hints 只注题+fetched 落表是同一模式
+- 复杂度: 中
+- 来源: 2026-08-13 上下文管理设计讨论(refs R-230)
+- 标签: 后端
+- 验收: ①轮首上下文含活动条目与 refs 不含全量列表(守护测试);②执行中全量 list 有护栏或审计计数;③改造前后轮首 token 对照留档
+- 优先级: P2
+- 进展: 2026-08-13 已完成。轮首常驻上下文仅含选中项全文、结构化 refs 和 provenance，普通 Resume 不注入未选中或 blocked 集合；req/defect 全量 list 仅 human_cli 或登记查重可读。当前活动双队列 80161 字符（粗估 20041 token）降至裁决 3783 字符（粗估 946 token），缩减 95.3%。守护测试验证未选中标题不出现、未来进展标记 future_timestamp、归档 refs 可解析。提交 4324bf7。
+- observed_head: 7ca4e6c04844836b534916c5e7a6a471f8427ceb
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786593955427
