@@ -412,8 +412,19 @@
 - 验收: ①B1:全仓只剩一处「纪要替换历史」实现(机械核验:grep 无第二套),轮末压缩后对话仍含任务定义原文与近期工作区逐字(实测轨迹);带 base64 附件的会话不再虚高误触发(定向测试)。②B2:纪要为固定段落模板且含失败尝试段;两次压缩走滚动合并,第二次压缩后纪要仍含首段关键实体(防退化定向测试);质量闸三向(precision/recall/胀检)各有单测,不达标回落节选且留轨迹。③B3:[models].compact 未配置时压缩请求实际走主模型、配置后走指定模型(测试断言请求 route);设置页可选。④B4:prune 只清已配对的旧工具结果、保护窗内不动、凑不满最小收益不做(单测);压缩触发频率前后对比有实测数字。⑤联测:发生过压缩的会话,插新任务后模型能复述目标与已完成工作(与 D-342 修复联合场景)。
 - 优先级: P1
 - 批次: 4/4
-- 进展: 本轮继续推进已完成：D-346 已修复并关闭，provider usage.input 已从 core runner 透传至 app 轮末触发线；固定同一负载的机制对照已补入 core 单测，旧 0.7 线触发 6/7，新 headroom 线触发 3/7。新增证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed、T-1786649540 提交前 core/app 复测均通过。R-236 目前仅剩验收⑤：发生压缩后的真实 provider 联测（插入新任务并验证模型复述目标与已完成工作）；当前环境只有 MOONSHOT_API_KEY，项目配置未配置该 provider，且没有可复核的真实会话轨迹，因此保持 doing，不将机制单测冒充联测。下一步：获得可复核 provider 凭据/会话后执行联测；在此之前不再重复无效 e2e/CDP 路线。
+- 进展: 本轮继续推进已完成：D-346 已修复并关闭，provider usage.input 已从 core runner 透传至 app 轮末触发线；固定同一负载的机制对照已补入 core 单测，旧 0.7 线触发 6/7，新 headroom 线触发 3/7。新增证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed、T-1786649540 提交前 core/app 复测均通过。
+- 验收⑤联测证据(2026-08-14,Claude 用发版产物 kz.exe build-2b1ad60 实测,真实 provider deepseek:deepseek-v4-flash): 方法——临时项目把 [providers.deepseek].context_limit 压到 16000、[limits] max_tokens=1024/compact_buffer_tokens=2000(预算线 14000),kz run --readonly 分五轮喂入:R1 开场(head)、R2 关键事实(R-888 目标/compaction.rs 的 split_prior_digest/error[E0716] 报错原文)+填充、R3/R3b/R3c 纯填充;R3c 步首触发主动压缩,CLI 输出「上下文到线,已压缩:约 15968 → 6942 token(上限 16000,裁掉 6 条)」,关键事实全部位于被压中段。R4 考试(不许用工具纯文本作答):模型正确复述全部三项——目标编号 R-888、crates/kanzei-core/src/runner/compaction.rs 的 split_prior_digest、error[E0716] temporary value dropped while borrowed(含 let 绑定修复方式)。会话快照核验:压缩后 7 条消息,纪要消息为八段固定模板(目标/用户指令清单/关键决策与理由/已完成/失败尝试/当前状态/关键文件/下一步)且文件路径/函数名/报错串逐字保留——纪要由 deepseek-v4-flash(弱模型)生成并通过质量闸,证明模板+质量闸组合在弱模型下也能出合格纪要。注:联测未覆盖 D-342 停止路径(CLI halt 通道为 None,桌面端停止场景待用户新版实际使用验证);验收①-④已由前轮证据覆盖。五条验收至此齐备,可走关闭流程。
+- 联测环境说明: deepseek 凭据来自全局 ~/.kanzei/kanzei.toml 的直填 api_key(前轮「只有 MOONSHOT_API_KEY」的判断漏了这一来源);临时项目与输出留档于会话 scratchpad r236-live(out1-out4.log + state.db 会话快照)。
 - 取活依据: engine:唯一可执行 WIP 是 R-236，必须先恢复它
 - observed_head: ca68e80d92456ca8386f083e6b49383b244afddd
 - observed_worktree_hash: fnv1a64:fe871977f10a5179
 - recorded_at: 1786649572864
+
+## R-238 大文本交付通道:bash 命令行超长防护 + kz run 文件入口 [todo]
+- 内容: ①bash 工具执行前检测命令串长度,超过 Windows 命令行上限(32767 字符,按 30000 留余量判)直接返回结构化错误,不把命令交给 PowerShell 去 spawn 失败;错误文案给出两条正路——大文本先用 write 工具落文件再在命令里引用路径,或改用 ②。②kz CLI `run` 新增 `--prompt-file <path>`:从 UTF-8 文件读取 prompt,与位置参数互斥、可与 --new/--readonly 组合——自举/验收代理喂长材料从此有正门,不必塞 argv。③conventions 增补一条纪律:>8k 字符的文本不进命令行参数,一律文件中转(与①的错误文案同源,一处改两处跟)。
+- 来源: 2026-08-14 R-236 验收轮实测:自举代理把约 43 万字符的 prompt 塞进 `cargo run -p kanzei -- run --new <prompt>` 的命令行参数,Windows 32767 上限导致进程 spawn 失败(475ms 退出、PowerShell 异常 5 行、first.out 为空),连续多次同型试错;后续又因 write 工具大内容 JSON 失败绕路。根因是大文本没有交付正门,只能靠代理自己撞出来。Claude 接管联测时用「调小 context_limit + 分轮小消息」绕开了,但坑还在,下一个长输入场景会复发。
+- 复杂度: 小
+- refs: R-236 D-342
+- 标签: 核心
+- 验收: ①构造 >32767 字符的 bash 命令,工具返回结构化错误且文案含「文件中转」与「--prompt-file」指引,不发生真实 spawn(单测);②`kz run --prompt-file` 从文件读 prompt 跑通一轮(fake server 集成测试即可),文件不存在/非 UTF-8 有明确报错,与位置参数同给时拒绝;③conventions 文本落地,grep 单一来源;④现有 bash 短命令行为零回归(既有测试全绿)。
+- 优先级: P2
