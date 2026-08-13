@@ -2510,3 +2510,9 @@
 - 关联: R-223
 - 收尾: 1786627088
 - 源码指纹: 1a7412f041a540a9
+
+## T-1786627420 cargo test -p kanzei-tools (R-228) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: kanzei-tools 325 passed:R-228 关闭门禁(前端标签条目需前端冒烟 passed)2 测试——识别(ui-*.mjs vs node --check vs cargo)+ 行为(前端被拒/非前端放行/补冒烟后可关)
+- 关联: R-228
+- 收尾: 1786627420

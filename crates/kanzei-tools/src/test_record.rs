@@ -804,6 +804,60 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
     out
 }
 
+/// R-228:最近一条「通过」的**前端冒烟**测试记录(收尾时刻, 标题)。
+///
+/// 前端冒烟识别:命令或标题命中 `node scripts/ui-*.mjs` 的运行型冒烟
+/// (ui-runtime / ui-i18n / ui-lint / ui-a11y / ui-markdown)。`node --check`
+/// 只做语法检查不跑行为,不算冒烟(验收②:smoke 断言过时带病过关不可复现)。
+///
+/// 关闭门禁用:带「前端」标签的条目关闭前,必须已有前端冒烟 passed 记录
+/// (R-228 验收①:未跑 ui smoke 会被拒)。active + archive 一起看,取最新收尾。
+pub fn frontend_smoke_passed(root: &Path) -> Option<(u64, String)> {
+    let mut newest: Option<(u64, String)> = None;
+    for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
+        for (_, record) in read_test_records(&root.join(rel)) {
+            if record["status"].as_str() != Some("passed") {
+                continue;
+            }
+            let command = record_command_text(&record);
+            if !is_frontend_smoke(&command) {
+                continue;
+            }
+            let finished = record["fields"]
+                .as_array()
+                .and_then(|fields| {
+                    fields
+                        .iter()
+                        .find(|f| f["key"].as_str() == Some("收尾"))
+                        .and_then(|f| f["value"].as_str())
+                        .and_then(|v| v.trim().parse::<u64>().ok())
+                })
+                .or_else(|| {
+                    record["id"]
+                        .as_str()
+                        .and_then(|id| id.strip_prefix("T-"))
+                        .and_then(|s| s.parse::<u64>().ok())
+                });
+            if let Some(at) = finished {
+                let title = record["title"].as_str().unwrap_or_default().to_string();
+                newest = Some(match newest {
+                    Some(cur) if cur.0 >= at => cur,
+                    _ => (at, title),
+                });
+            }
+        }
+    }
+    newest
+}
+
+/// 是否前端运行型冒烟(`node scripts/ui-*.mjs`,不含 `--check` 语法检查)。
+fn is_frontend_smoke(command: &str) -> bool {
+    if !command.contains("node") || !command.contains("scripts/ui-") {
+        return false;
+    }
+    !command.contains("--check")
+}
+
 /// R-130:批量初始化/回填测试→条目映射。
 ///
 /// 旧测试记录没有「关联」字段,查询只能靠标题命中。这里扫描 tests.md 全部记录,
@@ -2072,6 +2126,44 @@ mod tests {
             )
             .await;
         assert!(!out2.is_error, "{}", out2.content);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-228 验收②:前端冒烟识别——`node scripts/ui-*.mjs` 运行型冒烟算,
+    /// `node --check`(纯语法)不算,`cargo test` 不算。取最近一条 passed。
+    #[test]
+    fn frontend_smoke_passed_recognizes_ui_smoke_and_ignores_syntax_and_cargo() {
+        let root = temp_project("frontend-gate");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        // 只有 cargo test passed:前端标签任务关闭应被拒(无前端冒烟)。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-1 cargo [passed]\n- 命令: cargo test --workspace\n- 收尾: 100\n",
+        )
+        .unwrap();
+        assert!(
+            frontend_smoke_passed(&root).is_none(),
+            "cargo test 不是前端冒烟"
+        );
+        // 只有 node --check:语法检查不算冒烟(验收②:smoke 断言过时才带病过关)。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-2 syntax [passed]\n- 命令: node --check ui/07-events.js\n- 收尾: 200\n",
+        )
+        .unwrap();
+        assert!(
+            frontend_smoke_passed(&root).is_none(),
+            "node --check 只查语法,不算前端冒烟"
+        );
+        // 前端运行型冒烟:识别通过,取最近收尾。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-3 runtime [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: 300\n\
+             \n## T-4 i18n [passed]\n- 命令: node scripts/ui-i18n-smoke.mjs\n- 收尾: 400\n",
+        )
+        .unwrap();
+        let got = frontend_smoke_passed(&root).expect("前端冒烟 passed 应被识别");
+        assert_eq!(got.0, 400, "应取最近一条前端冒烟:{got:?}");
         std::fs::remove_dir_all(&root).ok();
     }
 }

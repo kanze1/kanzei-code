@@ -622,6 +622,28 @@ impl Tool for TrackerTool {
                     return ToolOutput::error(e);
                 }
                 let updates_progress = input.fields.contains_key("进展");
+                // R-228 关闭门禁:带「前端」标签的条目关闭前必须已有前端冒烟 passed
+                // 测试记录(verify.ps1 六步前端 smoke 的一部分)。cargo test 全绿不等于
+                // 全量——前端标签任务可能改了 ui/*.js,只跑 Rust 测试发现不了 i18n 缺
+                // key、smoke 断言过时(D-320 根因)。非前端标签条目不受影响(验收③)。
+                if input.action == "close" {
+                    let tag = entries[pos]
+                        .fields
+                        .iter()
+                        .find(|(k, _)| k == "标签")
+                        .map(|(_, v)| v.as_str())
+                        .unwrap_or("");
+                    if tag.contains("前端")
+                        && crate::test_record::frontend_smoke_passed(&ctx.project_root).is_none()
+                    {
+                        return ToolOutput::error(format!(
+                            "{id} 带「前端」标签,但没有任何前端冒烟 passed 测试记录,不能关闭。\
+                             前端标签任务关闭前必须跑过 ui smoke(node scripts/ui-runtime-smoke.mjs / \
+                             ui-i18n-smoke.mjs / ui-lint-smoke.mjs 等)并用 test_record 记 passed;\
+                             cargo test --workspace 全绿不等于前端全量。"
+                        ));
+                    }
+                }
                 let target_status = if input.action == "close" {
                     // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
                     // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
@@ -2544,6 +2566,71 @@ mod tests {
         assert!(!out.is_error, "总数改成实际批数后应放行: {}", out.content);
         let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(saved[0].status, "done");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-228 验收①③:带「前端」标签的条目关闭前必须已有前端冒烟 passed 测试记录
+    /// ——没有则拒绝(验收①);非前端标签条目不受影响(验收③)。
+    #[tokio::test]
+    async fn 前端标签关闭需前端冒烟passed_非前端不受影响() {
+        let dir = std::env::temp_dir().join(format!("kz-frontend-close-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut front = entry("R-001");
+        front.status = "doing".into();
+        front.fields = vec![("标签".into(), "前端".into())];
+        let mut backend = entry("R-002");
+        backend.status = "doing".into();
+        backend.fields = vec![("标签".into(), "核心".into())];
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[front, backend])
+            .unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // 无任何前端冒烟 passed:前端标签条目关闭被拒,非前端放行。
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(
+            out.is_error && out.content.contains("前端"),
+            "前端标签条目无前端冒烟 passed 必须拒绝关闭: {}",
+            out.content
+        );
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-002"}), &ctx)
+            .await;
+        assert!(
+            !out.is_error,
+            "非前端标签条目不受前端门禁影响: {}",
+            out.content
+        );
+
+        // 补一条前端冒烟 passed:前端标签条目可关闭。
+        let rec_dir = dir.clone();
+        crate::test_record::append_test_run(
+            &rec_dir,
+            "node scripts/ui-runtime-smoke.mjs (R-228)",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs"),
+            None,
+            None,
+        )
+        .unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(
+            !out.is_error,
+            "有前端冒烟 passed 后前端标签条目应可关闭: {}",
+            out.content
+        );
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(saved[0].status, "done", "R-001 应已关闭");
         std::fs::remove_dir_all(dir).ok();
     }
 

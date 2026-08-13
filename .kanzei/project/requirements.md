@@ -49,13 +49,19 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-228 关闭门禁测试面跟标签走:前端标签任务 B2 全量必含 verify.ps1 的 ui_* smoke [todo]
+## R-228 关闭门禁测试面跟标签走:前端标签任务 B2 全量必含 verify.ps1 的 ui_* smoke [doing]
 - 内容: cargo test --workspace 全绿不等于全量——项目门禁口径是 verify.ps1 十步,其中六步是前端 smoke;带前端标签的 req/defect 在 B2 关闭前全量时必须跑 ui_syntax/ui_runtime/ui_lint/ui_i18n(可做成按标签选测试面的关闭门禁)
 - 复杂度: 中
 - 来源: 2026-08-13 自举复盘(D-320 三处中两处的共同根因)
 - 标签: 流程
 - 验收: ①前端标签任务关闭时未跑 ui smoke 会被拒;②D-320 类(i18n 缺 key、smoke 断言过时带病过关)在门禁层不可复现;③非前端任务不受影响
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-228
+- 批次: 1/1
+- 进展: 完成:关闭门禁测试面跟标签走——①test_record.rs 新增 frontend_smoke_passed(root):遍历 active+archive 找最近一条 passed 且命令命中 `node scripts/ui-*.mjs` 运行型冒烟(ui-runtime/i18n/lint/a11y/markdown)的记录,返回收尾时刻+标题;`node --check`(纯语法)与 cargo test 不算冒烟(验收②:smoke 断言过时带病过关不可复现——只有真跑过运行型冒烟才算数);②tracker.rs close 分支:条目标签含「前端」且无任何前端冒烟 passed 记录时拒绝关闭,文案点名「cargo test 全绿不等于前端全量」(验收①);非前端标签条目不受影响(验收③)。测试 2 个:frontend_smoke_passed_recognizes_ui_smoke_and_ignores_syntax_and_cargo(识别:ui-*.mjs 算、--check/cargo 不算、取最新收尾)、前端标签关闭需前端冒烟passed_非前端不受影响(行为:前端被拒→补冒烟后放行;核心标签放行)。kanzei-tools 325 passed、clippy/fmt 干净。
+- observed_head: 7b62fc686d4c7bdb469d6d809776dad49bd95e60
+- observed_worktree_hash: fnv1a64:b52720acb17dec52
+- recorded_at: 1786627427612
 
 ## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [todo]
 - 优先级: P2
