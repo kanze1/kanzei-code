@@ -2563,3 +2563,9 @@
 - 摘要: R-229 关闭前全量:cargo test --workspace 全绿(794 passed)
 - 关联: R-229
 - 收尾: 1786630228
+
+## T-1786630650 cargo test -p kanzei-tools --lib tracker:: (R-232 提交前) [passed]
+- 摘要: R-232 幂等化提交前复测:tracker 45 passed(含同值 update no-op 零写入 + close 幂等重入两新测试)
+- 关联: R-232
+- 收尾: 1786630650
+- 源码指纹: 48fa9eebcfa08908

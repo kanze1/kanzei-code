@@ -2475,3 +2475,16 @@
 - observed_head: 89abe7ef3bd760b54a526784b8685dc2e501523a
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786630234644
+
+## R-232 tracker 写操作幂等化:同值 update 返回 no-op,变更返回 diff 摘要 [done]
+- 内容: update/close 对未变更字段返回「no-op: 字段已是该值」且文件零写入;有变更时返回 旧→新 摘要。消灭「先决定改 X→发现已是 X→仍执行写操作」的冗余调用与模糊回执引发的二次确认循环(V4PRO 实测 批次 0/3 冗余 update)。D-329 已修游离空段,本条补反馈语义
+- 复杂度: 小
+- 来源: 2026-08-13 V4PRO 运行复盘(refs R-230 D-329)
+- 标签: 后端
+- 验收: ①同值 update 返回 no-op 且文件字节不变(单测);②变更返回旧→新摘要;③close 幂等重入安全
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-232
+- 进展: 2026-08-16 取活(engine:defect-first 队首)。实现(commit 6051c16):①tracker.rs update/close 分支在应用变更前克隆 before(kanzei-tools/src/tracker.rs:625-634),比较 user_visible_fields(before) 与 after——同值返回 no-op 且不调 store.save(文件零写入,验收①);②有变更时 field_diff_summary 输出 旧→新 摘要并追加进 updated 返回(验收②);③close 幂等重入:already_terminal(done/fixed)条目再次 close 跳过 R-228 前端冒烟/批次/R-229 分类断言/测试记录校验,目标仍是当前终态,无变更零写入、补字段可落盘(验收③)。新增辅助函数 user_visible_fields(剔除引擎锚点 recorded_at/observed_head/observed_worktree_hash,纳入 status/title/severity)与 field_diff_summary。两个新单测:同值update返回noop且文件字节不变_变更返回旧到新摘要 + close幂等重入_已终态条目再次关闭返回noop。验证:tracker 45 passed(T-1786630650)+ kanzei-tools 全 329 passed + fmt/clippy 全过。三条验收逐条对照:①同值 update 返回 no-op 且文件字节不变——测试断言 out.content 含 no-op 且前后文件字节相等(同值 update 必须零写入);②变更返回旧→新摘要——测试断言输出含「优先级: P1 → P2」且落盘;③close 幂等重入安全——测试用已 done 前端标签条目(无前端冒烟 passed)再次 close,断言不被 R-228 拦截、返回 no-op、文件字节不变、状态不回退;重入补字段(进展)可落盘。关闭。
+- observed_head: 6051c160d8623b392b3dd1fbc069b55c224cd67e
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786630666011
