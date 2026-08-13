@@ -2534,3 +2534,16 @@
 - 摘要: D-338 修复后压测:docstore::原子写 20 轮 0 失败(修复前 5%)+ read::read_non_memory 20 轮 0 失败,验收①②满足
 - 关联: D-338
 - 收尾: 1786629400
+
+## T-1786629487 cargo test -p kanzei-tools (D-338 修复) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: kanzei-tools 325 passed:D-338 修复(load 加锁与 save 互斥)全 crate 无回归
+- 关联: D-338
+- 收尾: 1786629487
+- 源码指纹: a09f8d8067ea8a91
+
+## T-1786629570 cargo test --workspace (D-338 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:kanzei-tools 325、core 150、app 140 等全部通过。D-338 关闭前验证。
+- 关联: D-338
+- 收尾: 1786629570
