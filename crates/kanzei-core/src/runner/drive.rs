@@ -207,8 +207,18 @@ pub fn run_once_with_parts<'a>(
             // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
             // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
             // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
-            if let Some(limit) = config.context_limit {
-                let budget = (limit as f64 * config.limits.context_budget_ratio()) as u64;
+            // R-219:context_limit 未知(白名单外 provider)时按保守默认 32k 启用主动
+            // 预算——未知不等于没有上限,放任涨到撞墙会把整个 run 拖进被动恢复;
+            // 启动时 tracing::warn 点名一次(可见不阻塞),不打断运行。
+            let effective_limit = config.context_limit.unwrap_or_else(|| {
+                tracing::warn!(
+                    "provider 无已知 context_limit,按保守默认 32k 做轮内预算; \
+                     撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)"
+                );
+                32_000
+            });
+            {
+                let budget = (effective_limit as f64 * config.limits.context_budget_ratio()) as u64;
                 let before = budgeted_tokens(&system, &messages, &specs, calibration);
                 if before > budget
                     && futile_compactions < MAX_FUTILE_COMPACTIONS
@@ -252,7 +262,7 @@ pub fn run_once_with_parts<'a>(
                             before_tokens: before,
                             after_tokens: after,
                             budget_tokens: budget,
-                            limit_tokens: limit,
+                            limit_tokens: effective_limit,
                             dropped_messages,
                         });
                     } else {
@@ -391,6 +401,11 @@ pub fn run_once_with_parts<'a>(
                                 update_calibration(calibration, last_estimated, usage.input);
                             total_usage = add_usage(total_usage, usage);
                             finish = reason.clone();
+                            // R-219:恢复计数随成功衰减——被动恢复成功且后续步正常结束,
+                            // 计数逐步回落,长跑不会因早先一次 overflow 就永久锁定在
+                            // 「已恢复 2 次,下一次直接终止」。每成功一步减 1(封底 0),
+                            // 让恢复额度在长时间稳定运行后重新充满。
+                            overflow_recoveries = decay_overflow_recoveries(overflow_recoveries);
                             on_event(RunEvent::StepEnd { usage, reason });
                         }
                         _ => {}

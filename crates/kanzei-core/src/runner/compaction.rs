@@ -140,6 +140,14 @@ pub(crate) fn recover_context_overflow(
     true
 }
 
+/// R-219:恢复计数随成功衰减。每成功一步调用一次,计数 -1(封底 0)。
+/// 长跑中 overflow 后跟成功步,计数逐步回落,恢复额度在稳定运行后重新充满——
+/// 不会因早先一次 overflow 就永久锁定在「已恢复 2 次,下一次直接终止」。
+/// 与 recover_context_overflow 的 `*recoveries += 1` 对称:溢出 +1、成功 -1。
+pub(crate) fn decay_overflow_recoveries(recoveries: u32) -> u32 {
+    recoveries.saturating_sub(1)
+}
+
 /// 被压缩丢弃的消息段的轨迹摘要(R-106):工具画像 + 失败信号 + 文本预览,
 /// 随 episode 沉淀,让激进压缩不再无声丢弃轨迹。
 pub(crate) fn dropped_trace(messages: &[Message]) -> String {
@@ -265,6 +273,22 @@ mod tests {
     use super::*;
     use crate::runner::context::{clip, estimate_prompt_tokens};
     use kanzei_llm::{Message, Part};
+
+    /// R-219:恢复计数随成功衰减——每次成功 -1,封底 0,长跑后可重新充满。
+    #[test]
+    fn 恢复计数随成功衰减_封底为零() {
+        assert_eq!(decay_overflow_recoveries(2), 1);
+        assert_eq!(decay_overflow_recoveries(1), 0);
+        assert_eq!(decay_overflow_recoveries(0), 0, "封底 0,不借成负数");
+        // 溢出 +1 与成功 -1 对称:两次 overflow 各恢复后各成功一步,回到 0。
+        let mut recoveries = 0;
+        recoveries += 1;
+        recoveries = decay_overflow_recoveries(recoveries);
+        assert_eq!(recoveries, 0);
+        recoveries += 1;
+        recoveries = decay_overflow_recoveries(recoveries);
+        assert_eq!(recoveries, 0, "长期稳定运行后恢复额度重新充满");
+    }
 
     /// D-181:主动压缩必须保住**任务定义**与**近期工作区**,只压中段。
     /// 旧实现直接复用应急函数,一次从预算线砍到约 2k(97%),而且留下的是最旧的
