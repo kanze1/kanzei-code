@@ -1,12 +1,18 @@
 # Requirements
 
-## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [todo]
+## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [doing]
 - 优先级: P1
 - 复杂度: 大
 - 标签: 核心
 - 背景: 本轮复盘发现:prompt_hints(memory/mod.rs:996) → store.search → 纯 FTS5 BM25 词面匹配(store.rs:732);dense 通道未接 embedder 恒空(memory/index.rs:15-16 注释明示)。抽象意图查询(如「评估 harness 质量」)召回率天然低——M-061 自举复盘 SOP 正文无「harness/质量」字眼词面永命中不到,反而命中 M-008/M-032/M-027 等字面偶合条目(本轮实测 0/3 命中)。这是系统性设计缺口,不是逻辑 bug。
 - 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
+- 批次: 1/4
+- 进展: B1(2026-08-13):② query 构造升级落地。intent_query(store.rs:1677)从 prompt 提取意图词:ASCII≥2字母原样保留,CJK 按 INTENT_BOUNDARY(纯功能字/数字/语气字/方向补语)切段,≤4字整段短语+≥3字段补交bigram(跨词边界段只给整段短语会漏词,「批发版」=「这批」+「发版」)、>4字段交bigram,去重封顶24词。边界表把实词词素移出——原表 项/条/页/步/行/处/轮/可/能/自 当边界会把 项目/条目/页面/步骤/执行/处理/本轮/可靠/能力/自举 拆没(单测「步骤」断言当场暴露)。prompt_hints_with_budget(mod.rs:1053)改用 intent 检索,空意图提前返回(遥测记 miss),遥测/去重键仍用原始 prompt。修正上一轮未验证实现的缺陷并把单测升级为端到端召回断言(temp_store+store.search 真命中「发版 SOP」条目,而非只查字符串包含)。memory 模块 85 测试全绿。下步 B2:embedder 接线。
+- observed_head: 930a8065c238af8ea79ae5bfd39786aaf2515395
+- observed_worktree_hash: fnv1a64:3f8a86c6e8dcfd42
+- recorded_at: 1786603691653
 
 ## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [todo]
 - 优先级: P1

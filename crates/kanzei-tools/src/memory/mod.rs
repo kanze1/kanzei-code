@@ -1048,8 +1048,15 @@ fn prompt_hints_with_budget(
     let mut hits: Vec<SearchHit> = Vec::new();
     let mut stores = vec![MemoryStore::project(project_root)];
     stores.extend(MemoryStore::global());
+    // R-233 ②:搜索用意图词(去虚词边界提取内容段),整句 prompt 的 bigram
+    // 会被虚词错位(「批发/版出」匹配不到「发版」);遥测与去重仍用原始 prompt。
+    let intent = crate::memory::store::intent_query(prompt);
+    if intent.trim().is_empty() {
+        record_memory_search_telemetry(project_root, prompt, &[], false);
+        return None;
+    }
     for store in &stores {
-        if let Ok(found) = store.search(prompt, None, Some("active"), 3) {
+        if let Ok(found) = store.search(&intent, None, Some("active"), 3) {
             hits.extend(found);
         }
     }
