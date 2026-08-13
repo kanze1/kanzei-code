@@ -576,6 +576,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             coordinator: None,
             // R-174:CLI 单运行无前端停止按钮,不挂取消注册表。
             cancellations: None,
+            // R-175:CLI 单运行保持轮内等齐语义,不开后台模式。
+            background: false,
         }
     };
 

@@ -686,6 +686,9 @@ pub(crate) async fn run_task(
                 as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
             // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
             cancellations: Some(task_cancellations),
+            // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline
+            // (编排角色)开启——run.rs 是用户直连对话,不后台化。
+            background: false,
         })
     };
 

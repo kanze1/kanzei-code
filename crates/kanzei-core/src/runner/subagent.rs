@@ -72,6 +72,7 @@ impl Drop for TaskCancellationGuard {
 
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
+#[derive(Clone)]
 pub struct SubagentRuntime {
     pub snapshot: Arc<HarnessSnapshot>,
     pub agent: AgentDef,
@@ -95,6 +96,10 @@ pub struct SubagentRuntime {
     /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
     /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
     pub cancellations: Option<Arc<TaskCancellations>>,
+    /// R-175:后台模式。false(默认)= 轮内一次性调用:drive.rs 派发后等齐全部
+    /// task 才继续;true = 后台化:派发即返回句柄,主代理本轮继续做别的,
+    /// 子代理跨轮存活(注册表 + 持久化,见 R-175 内容①②)。
+    pub background: bool,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

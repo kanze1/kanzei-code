@@ -194,6 +194,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         limits: config.limits.clone(),
         coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
         cancellations: None,
+        background: false,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
