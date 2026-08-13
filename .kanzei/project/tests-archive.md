@@ -2231,3 +2231,15 @@
 - 摘要: 全 workspace 761 passed / 0 failed / 2 ignored(R-212 关闭前全量)。source_test_gate 相关性判据并入无回归。
 - 关联: R-212
 - 收尾: 1786608051
+
+## T-1786608296 R-209 定向:cargo test -p kanzei-tools git:: + ui 冒烟集 [passed]
+- 命令: cargo test -p kanzei-tools git::; node --check crates/kanzei-app/ui/*.js + 六条 ui 冒烟
+- 摘要: git:: 16 passed(守护测试升级 gate_checklists_align_across_git_verify_and_ci:verify.ps1 检查键集合==固定清单、ci.yml 逐键标记、smoke 脚本两侧同现同隐、npm ci 必需);ui_syntax 21 文件 node --check + ui-runtime(1547 invoke)/ui-lint(31 文件 no-undef 0 错)/parallel-lines/a11y/i18n(1038 key)/markdown 全绿。
+- 关联: R-209
+- 收尾: 1786608296
+
+## T-1786608340 R-209 fmt 后复测:gate_checklists 守护测试 [passed]
+- 命令: cargo test -p kanzei-tools git::tests::gate_checklists_align_across_git_verify_and_ci
+- 摘要: fmt 后复测:守护测试 gate_checklists_align_across_git_verify_and_ci 通过(verify/ci 完整检查项集合机械同步)。
+- 关联: R-209
+- 收尾: 1786608340

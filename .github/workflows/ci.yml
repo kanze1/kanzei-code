@@ -24,8 +24,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      # 本清单必须与 scripts/verify.ps1 同步维护；两处启用/禁用 fmt、clippy 时必须一起变更。
-      # fmt 闸门(R-156 交付启用)：全仓格式化收敛完成。
+      # R-209:前端检查依赖 eslint(ui-lint-smoke.mjs),先 npm ci 装齐依赖。
+      - name: npm ci
+        run: npm ci
+      # 本清单必须与 scripts/verify.ps1 逐项同步(R-209 守护测试
+      # gate_checklists_align_across_git_verify_and_ci 机械比对,任一侧增删一步即红)。
       - name: fmt
         run: cargo fmt --all -- --check
       - name: clippy
@@ -37,6 +40,7 @@ jobs:
         run: |
           for f in crates/kanzei-app/ui/*.js; do node --check "$f"; done
           node scripts/ui-runtime-smoke.mjs
+          node scripts/ui-lint-smoke.mjs
           node scripts/parallel-lines-regression.mjs
           node scripts/ui-a11y-smoke.mjs
           node scripts/ui-i18n-smoke.mjs

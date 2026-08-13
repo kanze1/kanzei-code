@@ -1319,11 +1319,15 @@ prunable gitdir file points to non-existent location
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// D-264 验收②:git.rs 提交门禁的 fmt/clippy 命令与 CI(ci.yml)和发版门禁
-    /// (verify.ps1)逐项对齐——任何一处新增/删除门禁时另两处必须同步。
-    /// 三处任一同级命令被改动(比如只改参数),本测试当场红。
+    /// D-264 验收② + R-209:git.rs 提交门禁、发版门禁(verify.ps1)与 CI(ci.yml)
+    /// 的**完整检查项集合**机械同步——任一侧增删一步即红(不再只比对 fmt/clippy 两项)。
+    ///
+    /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
+    /// {fmt, clippy, test, ui_syntax, ui_runtime, ui_lint, parallel_lines_regression,
+    /// ui_a11y, ui_i18n, ui_markdown};每个键在 ci.yml 里有对应标记(命令文本或
+    /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
     #[test]
-    fn stage_fmt_clippy_gates_align_with_ci_and_verify() {
+    fn gate_checklists_align_across_git_verify_and_ci() {
         // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是
         // crates/kanzei-tools,上溯两级即仓库根。
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1334,34 +1338,93 @@ prunable gitdir file points to non-existent location
         let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).unwrap();
         let verify = std::fs::read_to_string(repo_root.join("scripts/verify.ps1")).unwrap();
 
-        // 与 fmt_gate/clippy_gate 相同的命令形态。
-        let fmt = "cargo fmt --all -- --check";
-        let clippy = "cargo clippy --workspace --all-targets -- -D warnings";
+        // ① verify.ps1 检查键集合(Step-With-Timing "<key>")必须等于固定清单。
+        fn verify_check_keys(text: &str) -> std::collections::BTreeSet<String> {
+            let mut keys = std::collections::BTreeSet::new();
+            let needle = "Step-With-Timing \"";
+            let mut start = 0;
+            while let Some(pos) = text[start..].find(needle) {
+                let after = start + pos + needle.len();
+                let key_end = text[after..]
+                    .find('"')
+                    .map(|e| after + e)
+                    .unwrap_or(text.len());
+                keys.insert(text[after..key_end].to_string());
+                start = key_end;
+            }
+            keys
+        }
+        let expected: std::collections::BTreeSet<String> = [
+            "fmt",
+            "clippy",
+            "test",
+            "ui_syntax",
+            "ui_runtime",
+            "ui_lint",
+            "parallel_lines_regression",
+            "ui_a11y",
+            "ui_i18n",
+            "ui_markdown",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let actual = verify_check_keys(&verify);
+        assert_eq!(
+            actual, expected,
+            "verify.ps1 检查键集合必须等于固定清单——新增/删除门禁时 ci.yml 与 git.rs 也要同步"
+        );
 
+        // ② 每个键在 ci.yml 有对应标记(命令文本或 smoke 脚本名)。
+        let markers: [(&str, &str); 10] = [
+            ("fmt", "cargo fmt --all -- --check"),
+            ("clippy", "cargo clippy --workspace --all-targets"),
+            ("test", "cargo test --workspace"),
+            ("ui_syntax", "node --check"),
+            ("ui_runtime", "ui-runtime-smoke.mjs"),
+            ("ui_lint", "ui-lint-smoke.mjs"),
+            ("parallel_lines_regression", "parallel-lines-regression.mjs"),
+            ("ui_a11y", "ui-a11y-smoke.mjs"),
+            ("ui_i18n", "ui-i18n-smoke.mjs"),
+            ("ui_markdown", "ui-markdown-smoke.mjs"),
+        ];
+        for (key, marker) in markers {
+            assert!(ci.contains(marker), "ci.yml 缺检查 {key}(标记 {marker})");
+        }
+
+        // ③ 反向:smoke 脚本在两侧同现同隐;npm ci 必须存在(ui-lint 依赖 eslint)。
+        for script in [
+            "ui-runtime-smoke.mjs",
+            "ui-lint-smoke.mjs",
+            "parallel-lines-regression.mjs",
+            "ui-a11y-smoke.mjs",
+            "ui-i18n-smoke.mjs",
+            "ui-markdown-smoke.mjs",
+        ] {
+            assert_eq!(
+                ci.contains(script),
+                verify.contains(script),
+                "smoke 脚本 {script} 必须在 verify.ps1 与 ci.yml 两侧同现同隐"
+            );
+        }
         assert!(
-            ci.contains("cargo fmt --all -- --check"),
-            "ci.yml 必须含 fmt 检查: {fmt}"
+            ci.contains("npm ci"),
+            "ci.yml 必须 npm ci(ui-lint 依赖 eslint)"
         );
-        assert!(
-            ci.contains("cargo clippy --workspace --all-targets -- -D warnings"),
-            "ci.yml 必须含 clippy 检查: {clippy}"
-        );
-        assert!(
-            verify.contains("cargo fmt --all"),
-            "verify.ps1 必须含 fmt 检查"
-        );
-        assert!(
-            verify.contains("cargo clippy --workspace --all-targets"),
-            "verify.ps1 必须含 clippy 检查"
-        );
-        // 本文件(门禁实现)也含同一命令文本。file!() 是编译期相对路径,运行时
-        // cwd 不可靠,用 CARGO_MANIFEST_DIR 拼接绝对路径。
+
+        // ④ 门禁实现(git.rs 本文件)也含同一命令文本。
         let this = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/git.rs"),
         )
         .unwrap();
-        assert!(this.contains(fmt), "fmt_gate 命令与 CI 不一致");
-        assert!(this.contains(clippy), "clippy_gate 命令与 CI 不一致");
+        assert!(
+            this.contains("cargo fmt --all -- --check"),
+            "fmt_gate 命令与 CI 不一致"
+        );
+        assert!(
+            this.contains("cargo clippy --workspace --all-targets -- -D warnings"),
+            "clippy_gate 命令与 CI 不一致"
+        );
     }
 
     /// D-264 验收①:构造「新增文件带 fmt 违规」场景,提交前被拦并明说违规位置。

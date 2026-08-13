@@ -16,7 +16,7 @@ $full_hash = (git -C $root rev-parse HEAD).Trim()
 $checks = [ordered]@{}
 
 # R-210:每步记秒数写进 verification.json 的 checks 值——门禁最慢环节从此可答。
-# 命令文本保持与 git.rs 门禁/ci.yml 逐项一致(守护测试 stage_fmt_clippy_gates_align_with_ci_and_verify 比对)。
+# 命令文本保持与 git.rs 门禁/ci.yml 逐项一致(守护测试 gate_checklists_align_across_git_verify_and_ci 机械比对完整检查项集合)。
 function Step-With-Timing {
     param([string]$Key, [string]$Label, [scriptblock]$Body)
     Write-Host "==> $Label" -ForegroundColor Cyan
