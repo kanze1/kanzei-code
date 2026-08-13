@@ -49,28 +49,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [doing]
-- 优先级: P0
-- 复杂度: 大
-- 标签: 核心
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
-- 依赖: R-173
-- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调,四轴(后台化 / 子代理能写 / 并发度放开 / 可对话)**都要但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。本条吃「后台化」与「可对话」两轴,详细定调背景见 R-174 来源字段。
-- 设计定位: 四轴分级第 2 级——把子代理从「轮内一次性调用」升级为有生命周期、有身份、可续谈的长期对象
-- 现状(读码实证): ①子代理是**轮内并发、主代理必须等齐**:crates/kanzei-core/src/runner/drive.rs:410-503 把本轮所有 task 调用收进 `FuturesUnordered`,用 `tokio::select!`(:481-501)循环消费,全部归位后主代理才继续——派发方被钉在原地等最慢的那个。②`SubagentRuntime` 是纯进程内对象(crates/kanzei-core/src/runner/subagent.rs:14-34),返回即死,transcript 不持久化。③续跑无地基:run_subagent 调 run_once 时 prior 传的是空历史(subagent.rs:189 `&[]`),没有可续的上下文。④超时是纯兜底墙钟(drive.rs:462-475,`rt.timeout_secs` 默认 900,见 crates/kanzei-harness/src/config.rs:81-83)。⑤读槽是 RAII 释放(subagent.rs:163-176 `_read_permit` 随函数返回自动 drop),后台化后函数不再随子代理生命周期返回,这条释放路径必然失效。⑥R-174 记录的前置回归同样适用:桌面端主对话因 run.rs:107-108 无条件 `ReadParallelWriteSerial` 而根本不注册 task 工具,后台化在桌面端可达之前必须先由 R-173 修好。
-- 内容: ①drive.rs:410-503 的「派发—等齐—归位」语义改为可选:后台模式下 task 派发后立即返回句柄,主代理本轮继续做别的,不再被 select! 循环阻塞。②跨轮子代理注册表:跨会话存活、崩溃/重启后可发现——不能只活在内存里。③完成/失败/超时**发通知回主对话**:复用既有 `agent_notifications` 表(crates/kanzei-core/src/store/notifications.rs)与 session_events 轨迹,**不新造通道**。④子代理 transcript 持久化,支持按 id 恢复上下文并追加消息续跑(「可对话」轴)。⑤所有终态确定、不得悬挂:超时 / 失败 / 被停三条路径都要落确定终态并释放读槽——RAII 失效后需要显式释放路径(设计不变量 7:停止、关闭、panic 收尾和窗口退出都必须释放并给排队者确定终态)。⑥屏障、终态、编排事件轨迹一律复用 R-173 的阶段编排对象,**不另造一套**。
-- 边界: 后台子代理仍受只读白名单约束——crates/kanzei-tools/src/subagent.rs:13-25 构造时只装 read/glob/grep,ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179);写权是 R-176 的事,两条需求不混做。面板呈现(Running/Finished 分区、单条停止、transcript 查看)属 R-174,本条只负责让后台条目有真实数据与真实停止通道可被它消费。
-- 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
-- refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
-- 批次: 5/6
-- 进展: B1a+B1b+B2+B3+B4 完成(2026-08-13,提交 8cd437d/a441df0/cf511ff/dfb1c29/babdc34,批次 5/6):B4(babdc34)通知通道+三终态——①SubagentRuntime 加 background_notifications: Option<BackgroundNotificationSink>(type 别名 Arc<dyn Fn(&str,&str)+Send+Sync>);②drive.rs spawn 块完成/失败/超时调 notify(call_id, done|failed)(验收⑦:复用 agent_notifications 表,app 层 run.rs 包 append_notification_atomic,未新造通道);③验收⑤三终态读槽释放测试:失败(mock 500)、被停(cancellations.cancel)、超时(外部 timeout 丢弃 future,与 drive 同语义)三条路径都断言 MemoryCoordinator::snapshot 的 active_readers 终态后不含该 run_id;④验收⑦通知断言(完成收到 done)。workspace 800 passed 全绿、clippy 干净。B4 提交后 B5:重启可发现——注册表列出上次未终结子代理并给确定处置(继续或标失败),不留幽灵条目。
-- observed_head: babdc348fa75e2270bdbab7d1e9c7de9251c623c
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786618669139
-
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
 - 复杂度: 中
