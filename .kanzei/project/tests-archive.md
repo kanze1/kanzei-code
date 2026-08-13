@@ -2318,3 +2318,10 @@
 - 摘要: R-185 B4 关闭前全量:cargo test --workspace 全绿(kanzei-tools 310、app 138、core 145、harness 120、llm 52、kanzei 31,总计 796 passed / 0 failed)。四批全部落地。
 - 关联: R-185
 - 收尾: 1786614494
+
+## T-1786614983 cargo test -p kanzei-core -p kanzei-app -p kanzei (R-175 B1a) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app -p kanzei
+- 时长: 18.0s
+- 摘要: R-175 B1a 字段地基:core 145 + app 138 + kanzei 31 全绿,clippy 干净。SubagentRuntime 加 background 字段 + derive Clone,7 处构造点补默认 false(保持等齐语义)。
+- 关联: R-175
+- 收尾: 1786614983

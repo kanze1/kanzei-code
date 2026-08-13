@@ -49,7 +49,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [todo]
+## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [doing]
 - 优先级: P0
 - 复杂度: 大
 - 标签: 核心
@@ -64,6 +64,12 @@
 - 边界: 后台子代理仍受只读白名单约束——crates/kanzei-tools/src/subagent.rs:13-25 构造时只装 read/glob/grep,ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179);写权是 R-176 的事,两条需求不混做。面板呈现(Running/Finished 分区、单条停止、transcript 查看)属 R-174,本条只负责让后台条目有真实数据与真实停止通道可被它消费。
 - 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
+- 批次: 1/6
+- 进展: B1a 完成并提交(8cd437d):SubagentRuntime 加 background 字段 + derive Clone(后台化地基),7 处构造点补默认 false(CLI main.rs、桌面 run.rs、phase_pipeline.rs、4 个测试构造点),kanzei-core 145 + app 138 + kanzei 31 全绿、clippy 干净。B1b(下一步,独立批次):drive.rs:468-561 task 段加 background 分支——rt.background=true 时每个 task 立即 tokio::spawn(run_subagent_owned:client/rt/ctx clone 后移入 async 块),返回 JoinHandle 进后台注册表,主代理本轮**不等待**直接继续普通工具段(:563 起);本轮 task 的 ToolResult 填「已后台派发,句柄 <id>」占位(真实结果经既有 progress 通道回传 ToolEnd + 后续轮次查询);读槽在 spawn 的 async 块内显式 drop(不依赖 run_subagent 返回的 RAII);等齐路径(background=false)一字不改。验收①的时间线交错证据由 B1b 测试提供(派发时间戳 < 主代理后续工具调用时间戳)。
+- observed_head: 8cd437d3d42d5af25b61041c83dbd959eb58d5a4
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786615009941
 
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
