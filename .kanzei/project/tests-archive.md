@@ -2304,3 +2304,10 @@
 - 摘要: R-185 B1 依赖/前置语义分离:308 passed / 0 failed / 1 ignored。新增 prerequisites_do_not_block_but_dependencies_do(前置不阻塞+依赖照常阻塞+prerequisites 暴露);clippy 干净。
 - 关联: R-185
 - 收尾: 1786614067
+
+## T-1786614390 cargo test -p kanzei-tools (R-185 B2+B3) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.3s
+- 摘要: R-185 B2+B3 耦合证伪信号与判定留痕:310 passed / 0 failed / 1 ignored。新增 coupling_signals_detect_parallel_and_coupled_pairs(D-262/D-257/D-261 可并行、R-177/R-182 耦合)、dispatch_verdict_records_reason_and_gives_actionable_remedy(留痕+处置);clippy 干净。
+- 关联: R-185
+- 收尾: 1786614390

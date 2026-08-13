@@ -1796,6 +1796,103 @@ pub(crate) fn tracker_ids(value: &str) -> Vec<String> {
     ids
 }
 
+/// R-185 验收①:同批派发前的**耦合证伪信号**——两条目能否同时并行开,从推断
+/// 变成可机械计算的判定。当前信号(按成本排序):
+/// 1. **refs 互指**:A.refs 含 B 或 B.refs 含 A → 强耦合(语义上互相依赖)。
+/// 2. **文件/路径面求交**:正文(含全部字段值)中点名的路径(如 `crates/kanzei-tools/
+///    src/shell.rs`、`docs/design/xxx.md`)有重叠 → 文本层可能撞车。
+///
+/// 返回 `(是否耦合, 留痕说明)`。纯函数,不读盘——调用方传 Entry 即可。
+///
+/// 边界(R-185):这是**文本层**信号,不承诺语义撞车检测(R-182 已明确不做事后
+/// 检测);信号用来收窄和提醒,最终判定仍可由人拍板,但拍板必须留痕(验收③)。
+pub fn coupling_signals(a: &Entry, b: &Entry) -> (bool, Vec<String>) {
+    let mut reasons = Vec::new();
+    // 信号 1:refs 互指——A.refs 含 B.id 或 B.refs 含 A.id
+    let a_refs = a.refs();
+    let b_refs = b.refs();
+    for id in &a_refs {
+        if *id == b.id {
+            reasons.push(format!("refs 互指: {} 引用 {}", a.id, id));
+        }
+    }
+    for id in &b_refs {
+        if *id == a.id {
+            reasons.push(format!("refs 互指: {} 引用 {}", b.id, id));
+        }
+    }
+    // 信号 2:文件/路径面求交(正文所有字段值里提取 crates/ 与 docs/ 路径)
+    let a_paths = entry_paths(a);
+    let b_paths = entry_paths(b);
+    let overlap: Vec<&String> = a_paths.iter().filter(|p| b_paths.contains(*p)).collect();
+    for p in overlap {
+        reasons.push(format!("路径重叠: {p}"));
+    }
+    reasons.sort();
+    reasons.dedup();
+    (!reasons.is_empty(), reasons)
+}
+
+/// R-185 验收③④:同批派发的**判定留痕 + 可执行处置**。对两条目跑 coupling_signals,
+/// 输出一段自包含的留痕文本(「当时凭什么判定这两条能否并行」),耦合时给出可执行的
+/// 处置(串行化/合并/指定先后),而不是一句警告。留痕文本可直接进协作上下文/
+/// 派发记录,合并后若真出语义问题能回查当初的判据。
+pub fn dispatch_verdict(a: &Entry, b: &Entry) -> String {
+    let (coupled, reasons) = coupling_signals(a, b);
+    let date = crate::memory::today();
+    if !coupled {
+        format!(
+            "[dispatch {date}] {a_id} ∥ {b_id} 可并行:耦合证伪通过,无 refs 互指、无路径重叠。\
+             留痕判据:{}",
+            if reasons.is_empty() {
+                "refs 不相指且路径面不相交".to_string()
+            } else {
+                reasons.join("; ")
+            },
+            a_id = a.id,
+            b_id = b.id,
+        )
+    } else {
+        format!(
+            "[dispatch {date}] {a_id} 与 {b_id} 判定为耦合,不得同批并行。信号:{}。\
+             处置(选一,拍板必须留痕):\
+             ①串行化——按文件顺序先后做,后做的基于前做的结果;\
+             ②合并成一条——两条并成同一条需求/缺陷由同一线完成;\
+             ③指定先后——明确谁先落地,后落地者按前者的新接口重新适配。",
+            reasons.join("; "),
+            a_id = a.id,
+            b_id = b.id,
+        )
+    }
+}
+
+/// 从条目正文(标题 + 全部字段值)提取代码/文档路径(crates/ 与 docs/ 开头的 token)。
+fn entry_paths(entry: &Entry) -> Vec<String> {
+    let mut text = entry.title.clone();
+    for (_, value) in &entry.fields {
+        text.push('\n');
+        text.push_str(value);
+    }
+    // 匹配 crates/<...>/ 与 docs/<...> 形式的路径 token(到空白/标点为止)。
+    let mut paths = Vec::new();
+    let mut rest = text.as_str();
+    while let Some(start) = rest.find("crates/").or_else(|| rest.find("docs/")) {
+        let tail = &rest[start..];
+        let end = tail
+            .find(|c: char| {
+                c.is_whitespace()
+                    || matches!(c, '，' | '。' | '；' | '、' | ')' | '(' | '"' | '\'' | '`')
+            })
+            .unwrap_or(tail.len());
+        let path = tail[..end].trim_end_matches([',', '.', ':', ';']);
+        if !path.is_empty() && !paths.contains(&path.to_string()) {
+            paths.push(path.to_string());
+        }
+        rest = &tail[end.max(1)..];
+    }
+    paths
+}
+
 fn render_line(e: &Entry) -> String {
     let sev = e
         .severity
@@ -1835,7 +1932,7 @@ fn archived_or_unknown(id: &str, entries: &[Entry], store: &DocStore, tool: &str
 
 #[cfg(test)]
 mod tests {
-    use super::TrackerTool;
+    use super::{coupling_signals, dispatch_verdict, TrackerTool};
     use crate::docstore::{DocStore, Entry, DEFECTS, GOALS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
@@ -1849,6 +1946,124 @@ mod tests {
             severity: None,
             fields: vec![],
         }
+    }
+
+    /// R-185 验收①:耦合证伪信号对真实历史条目两个方向都成立——
+    /// D-262/D-257/D-261(文件面不重叠)判可并行;R-177/R-182(主根重定向两半,
+    /// 文件面强重叠)判耦合。纯函数,构造与历史条目同构的字段即可。
+    #[test]
+    fn coupling_signals_detect_parallel_and_coupled_pairs() {
+        // 可并行三缺陷:各点不同文件,refs 不互指。
+        let d262 = Entry {
+            id: "D-262".into(),
+            title: "shell kill_tree".into(),
+            status: "fixed".into(),
+            severity: Some("medium".into()),
+            fields: vec![(
+                "复现".into(),
+                "crates/kanzei-tools/src/shell.rs 的 kill_tree".into(),
+            )],
+        };
+        let d257 = Entry {
+            id: "D-257".into(),
+            title: "worktrees-refresh".into(),
+            status: "fixed".into(),
+            severity: Some("medium".into()),
+            fields: vec![(
+                "复现".into(),
+                "crates/kanzei-app/ui/index.html:79 按钮".into(),
+            )],
+        };
+        let d261 = Entry {
+            id: "D-261".into(),
+            title: "test_record atomic".into(),
+            status: "fixed".into(),
+            severity: Some("medium".into()),
+            fields: vec![(
+                "复现".into(),
+                "crates/kanzei-tools/src/test_record.rs 与 atomic_file.rs".into(),
+            )],
+        };
+        for (a, b) in [(&d262, &d257), (&d262, &d261), (&d257, &d261)] {
+            let (coupled, reasons) = coupling_signals(a, b);
+            assert!(
+                !coupled,
+                "{} 与 {} 应判可并行,却报耦合: {reasons:?}",
+                a.id, b.id
+            );
+        }
+
+        // 已知耦合:R-177 与 R-182 都深度触碰 crates/kanzei-app/src/ 与
+        // docs/design/deep_parallel_dev.md,且 R-182 refs 含 R-177。
+        let r177 = Entry {
+            id: "R-177".into(),
+            title: "线绑 worktree 后端".into(),
+            status: "done".into(),
+            severity: None,
+            fields: vec![
+                ("内容".into(), "process_create 建线,ProcessHandle.worktree_path(crates/kanzei-app/src/processes.rs、src/state.rs),见 docs/design/deep_parallel_dev.md §6".into()),
+                ("refs".into(), "R-050".into()),
+            ],
+        };
+        let r182 = Entry {
+            id: "R-182".into(),
+            title: "撤销项目级单 writer".into(),
+            status: "done".into(),
+            severity: None,
+            fields: vec![
+                ("内容".into(), "worktree 与主根重定向,文档单份靠主根(docs/design/deep_parallel_dev.md、docs/design/parallel_read_serial_write_orchestration.md)".into()),
+                ("refs".into(), "R-171 R-177 R-138".into()),
+            ],
+        };
+        let (coupled, reasons) = coupling_signals(&r177, &r182);
+        assert!(coupled, "R-177 与 R-182 应判耦合");
+        assert!(
+            reasons.iter().any(|r| r.contains("refs 互指")),
+            "应含 refs 互指信号: {reasons:?}"
+        );
+        assert!(
+            reasons
+                .iter()
+                .any(|r| r.contains("路径重叠") && r.contains("deep_parallel_dev")),
+            "应含文件面重叠信号: {reasons:?}"
+        );
+    }
+
+    /// R-185 验收③④:判定留痕可回查,耦合时处置可执行(不是一句警告)。
+    #[test]
+    fn dispatch_verdict_records_reason_and_gives_actionable_remedy() {
+        let a = Entry {
+            id: "R-200".into(),
+            title: "测试隔离夹具".into(),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![("内容".into(), "crates/kanzei/src/lib.rs 的 TestHome".into())],
+        };
+        let b = Entry {
+            id: "R-201".into(),
+            title: "游离行清理通道".into(),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![(
+                "内容".into(),
+                "crates/kanzei-tools/src/docstore.rs 的 raw_lines".into(),
+            )],
+        };
+        // 可并行:留痕文本自包含「凭什么」
+        let ok = dispatch_verdict(&a, &b);
+        assert!(ok.contains("可并行"), "{ok}");
+        assert!(ok.contains("耦合证伪通过"), "{ok}");
+        assert!(ok.contains("refs 不相指"), "留痕要能回查判据: {ok}");
+
+        // 耦合:处置是可执行的(串行化/合并/指定先后),不是一句警告——
+        // R-201 与 R-202 都改 docstore.rs(同文件),判耦合。
+        let mut c = b.clone();
+        c.id = "R-202".into();
+        let coupled = dispatch_verdict(&b, &c);
+        assert!(coupled.contains("不得同批并行"), "{coupled}");
+        assert!(coupled.contains("串行化"), "处置必须可执行: {coupled}");
+        assert!(coupled.contains("合并成一条"), "处置必须可执行: {coupled}");
+        assert!(coupled.contains("指定先后"), "处置必须可执行: {coupled}");
     }
 
     #[test]

@@ -70,11 +70,11 @@
 - 依赖: 
 - 前置(不写进依赖,按 D-239 教训): 与 R-182/R-184 同族,三条构成任务级并行的最小可用集——R-182 拆掉多余的锁、R-184 让各方知道彼此在写、本条决定**哪些能同时写**。缺任何一条,并行都会以不同方式出事。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-185
-- 批次: 1/4
-- 进展: B1 完成(2026-08-13):依赖/前置语义分离——①tracker.rs 新增 is_prerequisite_key(前置/prerequisite/prereq/before,非阻塞),is_dependency_key 保持只认「依赖」(阻塞,旧值自动按阻塞迁移满足验收⑤);②block_reasons 只对「依赖」阻塞,「前置」不进阻塞判定(注释显式钉死);③work.rs WorkItem 新增 prerequisites 字段,item() 从「前置:」解析条目 ID 暴露(协作上下文消费),CLI work next 实测 R-185 带 prerequisites=[R-182 R-184 R-177];④R-185 自身加正式「前置: R-182 R-184 R-177」字段,旧「前置(不写进依赖)」注释字段保留为历史说明;⑤测试 prerequisites_do_not_block_but_dependencies_do(前置不阻塞+依赖不存在/未完成照常阻塞+prerequisites 暴露)。kanzei-tools 308 passed、clippy 干净。B1 提交后 B2:耦合证伪信号(文件/路径面求交+refs 互指,对 D-262/D-257/D-261 判可并行、R-177/R-182 判耦合)。
-- observed_head: bd629cdd4ec0ac641c11fd4177e57cfa2aaa9c49
-- observed_worktree_hash: fnv1a64:0341d105a1fad0bd
-- recorded_at: 1786614063691
+- 批次: 3/4
+- 进展: B2+B3 完成(2026-08-13):①耦合证伪信号——tracker.rs coupling_signals(a,b):refs 互指(仅当 A.refs 含 B.id 或 B.refs 含 A.id)+ 文件/路径面求交(entry_paths 提取 crates//docs/ 路径),纯函数不读盘;②dispatch_verdict(a,b):判定留痕文本(自包含「凭什么」+日期)+ 耦合时三类可执行处置(串行化/合并成一条/指定先后)。测试:coupling_signals_detect_parallel_and_coupled_pairs(真实历史同构:D-262/D-257/D-261 文件面不重叠判可并行;R-177/R-182 同触 deep_parallel_dev.md + R-182 refs 含 R-177 判耦合)、dispatch_verdict_records_reason_and_gives_actionable_remedy(留痕可回查 + 处置可执行)。kanzei-tools 310 passed、clippy -D warnings 干净。B2/B3 提交后 B4:与 R-184 边界文档 + 全量验证 + 关闭。
+- observed_head: 5a5f12c38aa9c90cf1a15395484926834ce36fe3
+- observed_worktree_hash: fnv1a64:fad7126543981e43
+- recorded_at: 1786614387084
 - 前置: R-182 R-184 R-177
 
 ## R-175 子代理后台化:跨轮存活、主代理派发不阻塞、可对话续跑 [todo]
