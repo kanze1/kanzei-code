@@ -80,17 +80,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633950047
 
-## R-215 inbox 消化协议改逐条销账:快照-消化-按条删除,并堵并发 append 与 next_id 竞态 [doing]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 后端 记忆 并行
-- 来源: 2026-08-12 八维度审计(§5)。「结构性死锁」定性经反证驳回(steps 是模型轮次而非工具调用数,通道能推进),但现存 13 条滞留 ≥1 天、并发竞态窗口真实存在。
-- 背景: manager 消化是「整箱进 prompt+末尾整箱清空」(manager.rs:420-426),清空窗口内其他自举进程 append 的 note 被无痕清除;append_note 是读全文-拼接-原子写回(store.rs:1122-1162),并发追加后写覆盖先写;next_id 扫描-分配可撞号。
-- 内容: 消化只删自己见过的 note(按指纹销账,discard_note 已有现成实现),新增的留箱;或按 note 一文件分片使追加天然无竞争;next_id 加同目录文件锁或冲突重试。
-- 验收: ①构造 20 条积压能在数轮内收敛到 0;②并发 append+consolidate 压测零丢 note;③「消化清空吃掉新 note」窗口有定向测试封死。
-- refs: R-195 D-282 D-299
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-215
-
 ## R-216 记忆写入侧质量三闸:近似去重下沉 store.add 双 scope、[fp:] 指纹一致性校验、tracker 交付状态内容拒收 [todo]
 - 优先级: P2
 - 复杂度: 中

@@ -2653,3 +2653,13 @@
 - 摘要: R-219 关闭前全量:cargo test --workspace 全绿(805 passed:app 142/harness 121/core 151/tools 339)
 - 关联: R-219
 - 收尾: 1786635201
+
+## T-1786635549 cargo test -p kanzei-tools --lib (R-215) [passed]
+- 摘要: R-215:kanzei-tools 343 passed(新增 20 条逐条销账/并发 append 零丢/discard 不吃新 note/discard 工具端到端 4 测试)+ clippy/fmt 全过
+- 关联: R-215
+- 收尾: 1786635549
+
+## T-1786635630 cargo test --workspace (R-215 关闭前全量) [passed]
+- 摘要: R-215 关闭前全量:cargo test --workspace 全绿(809 passed:app 142/harness 121/core 151/tools 343)
+- 关联: R-215
+- 收尾: 1786635630
