@@ -80,17 +80,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633950047
 
-## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [doing]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 后端 harness
-- 来源: 2026-08-12 八维度审计(§6)。
-- 背景: known_context_limit 白名单外返回 None(config.rs:326-343),drive.rs:210 只在 Some 时做轮内预算——未知 provider 全程无主动压缩;被动恢复整个 run 只有 2 次(mod.rs:88,compaction.rs:124-141 只增不减)且一刀砍到 4000 字符,第 3 次 overflow 直接终止。
-- 内容: context_limit 未知时按保守默认(如 32k)启用主动压缩并在启动告警点名「该 provider 无上下文基准」;恢复计数在成功恢复且随后 N 步无 overflow 后衰减。
-- 验收: ①未知 provider 长跑不再第三次 overflow 直接终止(集成测试);②已知 provider 行为不变;③启动告警可见。
-- refs: D-288
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-219
-
 ## R-215 inbox 消化协议改逐条销账:快照-消化-按条删除,并堵并发 append 与 next_id 竞态 [todo]
 - 优先级: P2
 - 复杂度: 中

@@ -2643,3 +2643,13 @@
 - 摘要: R-217 关闭前全量:cargo test --workspace 全绿(804 passed:app 142/harness 121/core 150/tools 339)
 - 关联: R-217
 - 收尾: 1786634298
+
+## T-1786635116 cargo test -p kanzei-core (R-219) [passed]
+- 摘要: R-219:kanzei-core 151 passed(新增恢复计数衰减单测)+ clippy/fmt 全过
+- 关联: R-219
+- 收尾: 1786635116
+
+## T-1786635201 cargo test --workspace (R-219 关闭前全量) [passed]
+- 摘要: R-219 关闭前全量:cargo test --workspace 全绿(805 passed:app 142/harness 121/core 151/tools 339)
+- 关联: R-219
+- 收尾: 1786635201

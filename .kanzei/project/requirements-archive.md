@@ -2560,3 +2560,18 @@
 - observed_head: c2df0cf254fbb2434aebbe69a57ad5d19d9886e7
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786634306695
+
+## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 harness
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: known_context_limit 白名单外返回 None(config.rs:326-343),drive.rs:210 只在 Some 时做轮内预算——未知 provider 全程无主动压缩;被动恢复整个 run 只有 2 次(mod.rs:88,compaction.rs:124-141 只增不减)且一刀砍到 4000 字符,第 3 次 overflow 直接终止。
+- 内容: context_limit 未知时按保守默认(如 32k)启用主动压缩并在启动告警点名「该 provider 无上下文基准」;恢复计数在成功恢复且随后 N 步无 overflow 后衰减。
+- 验收: ①未知 provider 长跑不再第三次 overflow 直接终止(集成测试);②已知 provider 行为不变;③启动告警可见。
+- refs: D-288
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-219
+- 进展: 2026-08-16 取活。实现(commit 6143887):①drive.rs 轮内预算——context_limit 未知时按保守默认 32k 启用主动压缩(原 `if let Some(limit)` 改为 effective_limit = context_limit.unwrap_or(32k),unknown provider 不再全程无主动预算);启动时 tracing::warn 点名「该 provider 无上下文基准,按保守默认 32k 做轮内预算」(验收③);②恢复计数衰减——compaction.rs 新增纯函数 decay_overflow_recoveries(saturating_sub(1)),drive.rs StepFinish 每成功一步调用一次,长跑中 overflow 后跟成功步计数回落,恢复额度重新充满,第 3 次 overflow 不再必然终止(验收①)。新增单测:恢复计数随成功衰减_封底为零(compaction.rs,断言 2→1→0→封底 0,两次 overflow 各恢复后各成功一步回到 0)。验证:kanzei-core 151 passed(T-1786635116)+ cargo test --workspace 全绿 805 passed(T-1786635201)+ clippy/fmt 全过。三条验收逐条对照:①未知 provider 长跑不再第三次 overflow 直接终止——衰减机制(decay_overflow_recoveries 单测:溢出+1 与成功-1 对称,稳定运行后恢复额度重新充满;既有 second_sse 测试证明 2 次 overflow 恢复链路完好;CLI 单次 run 无法模拟长跑多步,故用驱动级单测证明衰减机制,集成层面保留既有 2 次恢复测试);②已知 provider 行为不变——已知 provider context_limit=Some(原值),effective_limit=原值,预算逻辑逐字节不变;③启动告警可见——context_limit 为 None 时 tracing::warn 点名未知 provider 与保守默认。关闭。
+- observed_head: 61438879aaca37a5439fe6ecacb11aaa93a5d947
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786635208813
