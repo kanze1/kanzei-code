@@ -179,6 +179,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
                 events_for_sink.lock().unwrap().push(payload);
             },
         )),
+        transcripts: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
@@ -293,5 +294,133 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
+    std::fs::remove_dir_all(&project).ok();
+}
+
+/// R-175 B3 验收④:transcript 持久化 + 按 id 恢复续跑——同一 id 第二次调用
+/// run_subagent 时,prior 应包含此前完整历史(不是从空历史重开)。
+///
+/// 场景:mock 服务器回两条响应(第一轮子代理的文本回复 + 续跑轮的子代理文本回复)。
+/// 第一次 run_subagent(id=X, prompt "first task")完成后 transcripts[X] 落库;
+/// 第二次 run_subagent(id=X, prompt "continue task")从 transcripts[X] 恢复 prior。
+/// 断言的证据:
+///   ① transcripts[X] 第一次调用后有历史(非空);
+///   ② 第二次调用后 transcripts[X] 比第一次更长(续跑把新轮历史追加进同一 id);
+///   ③ 第一次调用的回复文本出现在续跑后的 transcript 里(此前历史确实被带上)。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let project = std::env::temp_dir().join(format!("kz-r175-b3-{}-{suffix}", std::process::id()));
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+
+    let first_reply = "first task reply text";
+    let second_reply = "continue task reply text";
+    let _server = tokio::spawn(async move {
+        let _ = serve_response(&listener, text_response(first_reply)).await;
+        let _ = serve_response(&listener, text_response(second_reply)).await;
+    });
+
+    let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: project.clone(),
+        project_root: project.clone(),
+        config: config.clone(),
+    };
+    let mut sub_harness = Harness::default();
+    sub_harness.add(kanzei_tools::SubagentBase);
+    let sub_snapshot = sub_harness.resolve(&rctx).unwrap();
+
+    let coordinator = Arc::new(kanzei_core::orchestration::MemoryCoordinator::default());
+    let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
+    let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let transcripts: Arc<Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>> =
+        Arc::new(Mutex::new(std::collections::HashMap::new()));
+    let subagent_rt = kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot,
+        agent: kanzei_tools::explore_agent(),
+        fast: (route.clone(), "mock".to_string()),
+        primary: (route.clone(), "mock".to_string()),
+        fast_service_tier: None,
+        primary_service_tier: None,
+        max_tokens: 256,
+        timeout_secs: 30,
+        limits: config.limits.clone(),
+        coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        cancellations: None,
+        background: false,
+        background_results: None,
+        background_events: None,
+        transcripts: Some(transcripts.clone()),
+    };
+    let ctx = ToolCtx::new(project.clone(), project.clone());
+    let id = "call_task_b3".to_string();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<kanzei_core::RunEvent>();
+
+    // 第一次派发(run_read_agent 是 pub 入口,内部走 run_subagent,同一 agent_id
+    // 续跑时 transcripts 恢复 prior——与 task 派发路径共用同一实现)。
+    let first =
+        kanzei_core::run_read_agent(&client, &subagent_rt, &ctx, &id, "first task", tx.clone())
+            .await;
+    assert!(!first.is_error, "第一次派发应成功: {}", first.content);
+    assert!(first.content.contains(first_reply), "第一次回复应可见");
+
+    // ① transcripts[id] 第一次调用后有历史(非空)。
+    let first_len = transcripts.lock().unwrap().get(&id).map(|m| m.len());
+    let first_len = first_len.expect("第一次派发后 transcripts[id] 应有历史");
+    assert!(first_len > 0, "transcript 不应为空");
+
+    // 第二次续跑(同 id)。
+    let second = kanzei_core::run_read_agent(
+        &client,
+        &subagent_rt,
+        &ctx,
+        &id,
+        "continue task",
+        tx.clone(),
+    )
+    .await;
+    assert!(!second.is_error, "续跑应成功: {}", second.content);
+    assert!(second.content.contains(second_reply), "续跑回复应可见");
+
+    // ② 续跑后 transcript 更长(新轮历史追加进同一 id,不是覆盖成空)。
+    let second_len = transcripts
+        .lock()
+        .unwrap()
+        .get(&id)
+        .map(|m| m.len())
+        .expect("续跑后 transcripts[id] 应有历史");
+    assert!(
+        second_len > first_len,
+        "续跑应把新轮历史追加进同一 id: first={first_len}, second={second_len}"
+    );
+
+    // ③ 第一次回复文本出现在续跑后的 transcript 里(此前历史被带上,非空重开)。
+    let all_text: String = transcripts
+        .lock()
+        .unwrap()
+        .get(&id)
+        .unwrap()
+        .iter()
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| match p {
+            kanzei_llm::Part::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        all_text.contains(first_reply) && all_text.contains(second_reply),
+        "续跑 transcript 应含两轮回复: {all_text}"
+    );
+
+    drop(rx);
+    let _ = _server.await;
     std::fs::remove_dir_all(&project).ok();
 }

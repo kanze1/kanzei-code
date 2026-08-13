@@ -2360,3 +2360,10 @@
 - 摘要: D-333 B2 归档去重:311 passed / 0 failed / 1 ignored。docstore.dedupe_archived_fields(进展合并内容、其它保留首条、幂等)+ normalize apply 归档区接线 + fix_terminal 审计进展改合并(防新增重复);新增 dedupe_archived_fields_merges_progress_and_keeps_first_of_others 测试。
 - 关联: D-333
 - 收尾: 1786616833
+
+## T-1786617310 cargo test --workspace (R-175 B3) [passed]
+- 命令: cargo test --workspace
+- 时长: 50.0s
+- 摘要: R-175 B3 transcript 持久化+续跑:workspace 799 passed / 0 failed 全绿。SubagentRuntime 加 transcripts(TranscriptStore 类型别名,按 id 存消息历史),run_subagent 完成时存 summary.messages、prior 从 transcripts 按 id 恢复;验收④测试同一id续跑_prior恢复此前transcript_不重开空历史:第一次派发后有历史、续跑后更长、两轮回复都可见。clippy 干净。
+- 关联: R-175
+- 收尾: 1786617310

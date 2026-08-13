@@ -151,6 +151,7 @@ impl Fixture {
             background: false,
             background_results: None,
             background_events: None,
+            transcripts: None,
         }
     }
 

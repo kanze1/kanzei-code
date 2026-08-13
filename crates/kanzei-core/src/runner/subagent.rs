@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::{AgentDef, HarnessSnapshot, ToolCtx};
-use kanzei_llm::{LlmClient, ReasoningEffort, Route, ToolSpec, Usage};
+use kanzei_llm::{LlmClient, Message, ReasoningEffort, Route, ToolSpec, Usage};
 use tokio_util::sync::CancellationToken;
 
 use super::event::{AskFuture, AskReply, AskRequest, AskResponse, RunEvent, TaskTrace};
@@ -77,6 +77,11 @@ impl Drop for TaskCancellationGuard {
 /// Connection 非 Send)直接进 spawn 的限制。type 别名:避免 clippy type_complexity。
 pub type BackgroundEventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 
+/// R-175 B3:子代理 transcript 暂存类型(进程内,按 id → 消息历史)。
+/// type 别名:避免 clippy type_complexity。
+pub type TranscriptStore =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>>;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 #[derive(Clone)]
@@ -122,6 +127,12 @@ pub struct SubagentRuntime {
     /// 绕开 SessionStore(rusqlite Connection 非 Send)直接进 spawn 的限制。
     /// None = CLI/测试不落库。
     pub background_events: Option<BackgroundEventSink>,
+    /// R-175 B3:子代理 transcript 持久化(进程内,按 id)。run_subagent 完成后把
+    /// 完整消息历史存进这里,续跑入口按 id 恢复 prior(验收④:续跑请求里可见此前
+    /// transcript,不是从空历史重开——对照现状 subagent.rs 的 `&[]`)。
+    /// 跨会话持久化由 session_events 的 task.lifecycle + B5 注册表承接。
+    /// None = 非后台模式不启用续跑。
+    pub transcripts: Option<TranscriptStore>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {
@@ -300,6 +311,14 @@ pub(crate) async fn run_subagent(
     let mut ask = |_request: AskRequest| -> AskFuture {
         Box::pin(async { AskResponse::Permission(AskReply::Deny) })
     };
+    // R-175 B3:续跑恢复——同一 id 再次调用 run_subagent 时,从 transcripts 恢复
+    // 此前完整历史作为 prior(验收④:续跑请求里可见此前 transcript,不是从空历史
+    // 重开)。首次派发(无历史)行为不变,仍从空 prior 开始。
+    let prior: Vec<Message> = rt
+        .transcripts
+        .as_ref()
+        .and_then(|store| store.lock().unwrap().get(parent_call_id).cloned())
+        .unwrap_or_default();
     // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
     let fut = run_once(
         client,
@@ -310,7 +329,7 @@ pub(crate) async fn run_subagent(
         ctx,
         &prompt,
         None,
-        &[],
+        &prior,
         None,
         &mut on_event,
         &mut ask,
@@ -348,6 +367,14 @@ pub(crate) async fn run_subagent(
             }
             result = &mut fut => match result {
                 Ok(summary) => {
+                    // R-175 B3:transcript 持久化——完成时把完整消息历史按 id 存进
+                    // transcripts,续跑入口据此恢复 prior(验收④)。
+                    if let Some(store) = rt.transcripts.as_ref() {
+                        store
+                            .lock()
+                            .unwrap()
+                            .insert(parent_call_id.to_string(), summary.messages.clone());
+                    }
                     let text = if summary.text.trim().is_empty() {
                         "(subagent finished without a text answer)".to_string()
                     } else {
@@ -360,6 +387,13 @@ pub(crate) async fn run_subagent(
         },
         None => match fut.await {
             Ok(summary) => {
+                // R-175 B3:同上,无取消注册表时也要存 transcript。
+                if let Some(store) = rt.transcripts.as_ref() {
+                    store
+                        .lock()
+                        .unwrap()
+                        .insert(parent_call_id.to_string(), summary.messages.clone());
+                }
                 let text = if summary.text.trim().is_empty() {
                     "(subagent finished without a text answer)".to_string()
                 } else {
