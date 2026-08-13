@@ -2650,3 +2650,18 @@
 - observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786652609215
+
+## R-194 全局(用户级)记忆的上线或废弃决策:7 条候选 0 条 active,历史召回 0 次 [done]
+- 内容: 二选一并落地:①上线——给全局记忆一条可执行的晋升路径(谁在什么时候按什么证据把 U-00X 升 active),并把现有 7 条逐条处置;②废弃——明确不做用户级记忆,把检索路径里的全局 store 分支摘掉,不留一个永远空转的二级库。
+- 复杂度: 中
+- 来源: 2026-08-12 记忆系统运行分析(依据 index.db 遥测):~/.kanzei/memory 里 7 条条目全是 candidate、0 条 active、INDEX.md 正文为空,memory_recalls 表零行——用户级记忆自建立以来从未参与过任何一轮决策。
+- 标签: 核心
+- 现状: 检索只看 active(memory/mod.rs 的 prompt_hints 走 search(..., Some("active"), 3);memory_search 工具 status 默认也是 active),candidate 不进召回;全局库没有任何晋升动作被执行过,7 条自 2026-08-11 起原地不动。
+- 边界: 不改「未验证不注入」的既有取舍(R-165);本条只解决全局库要么没人晋升、要么根本不该存在这个二选一。
+- 验收: ①决策写进 docs/design 的记忆相关文档,给出理由;②若上线:全局库至少 1 条 active,且 index.db 的 memory_recalls 有真实召回行(不是构造的测试数据);③若废弃:检索路径不再遍历全局 store,有定向测试断言,且现有 7 条有明确去向(归档或删除)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-194
+- 进展: 2026-08-16 完成并关闭,选**废弃**方向。决策理由:全局库自建立以来 0 active、0 召回(index.db memory_recalls 0 行、recurrence_counts 0 行),9 条候选 5 条指纹与项目记忆完全重复(同一失败双投:U-007≈M-065、U-008≈M-066、U-009≈M-069、U-011≈M-019),真正跨项目的仅 1 条;跨项目偏好已由配置文件(kanzei.toml)与系统提示(dev 常驻)承载,为 0 消费方的二级库造晋升路径违背『不造占坑能力』。落地:①检索路径 8 处摘除全局 store 遍历(index.rs with_embedder/tier1、mod.rs FingerprintIndex::build/resident_index/FailureRecallPolicy new/tier1、profiles.rs dev/memory 常驻、tools.rs project_funnel_counts),memory_search scope=global 显式返回废弃提示;②存量 9 条候选置 deprecated 归档至 ~/.kanzei/memory/archive/ 并重建 INDEX.md;③docs/design/memory_system.md 记录废弃决策(scope 表与 category 默认 scope 列同步标注);④定向测试 全局记忆废弃_检索常驻召回均不再遍历全局store(kanzei-tools index.rs tests)断言 hybrid 检索/常驻索引/指纹索引/失败召回四处均不含全局 active 条目、项目条目照常可见。提交 cc4bf87;kanzei-tools 353 passed + kanzei/kanzei-app 编译通过;关闭前全量 cargo test --workspace 全绿(T-1786653273)。验收①决策写入 memory_system.md;②走废弃分支不适用;③检索路径不再遍历全局 store(8 处)+ 定向测试断言 + 9 条有明确去向(归档 archive/)。
+- observed_head: cc4bf877d17095f484d000937f0d9c22fbae7da5
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786653280356

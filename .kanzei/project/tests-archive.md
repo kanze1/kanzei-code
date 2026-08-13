@@ -2786,3 +2786,22 @@
 - 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 352 / kanzei 3,0 failed。D-341 关闭前全量。
 - 关联: D-341
 - 收尾: 1786651907
+
+## T-1786653117 cargo test -p kanzei-tools(R-194 全局记忆废弃) [passed]
+- 命令: cargo test -p kanzei-tools --lib && cargo build -p kanzei -p kanzei-app
+- 摘要: kanzei-tools 353 passed(含新测试 全局记忆废弃_检索常驻召回均不再遍历全局store,断言 hybrid 检索/常驻索引/指纹索引/失败召回四处都不含全局 active 条目、项目条目照常可见);kanzei/kanzei-app 编译通过。
+- 关联: R-194
+- 收尾: 1786653117
+
+## T-1786653186 cargo test -p kanzei-tools(R-194 fmt 后重跑) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: 353 passed; 0 failed; 1 ignored。fmt 后重跑(R-194 全局记忆废弃:检索 8 处摘除 global + 新测试断言四处路径不含全局条目)。
+- 关联: R-194
+- 收尾: 1786653186
+- 源码指纹: a61cae7b0ee4d9d7
+
+## T-1786653273 cargo test --workspace(R-194 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-194 关闭前全量。
+- 关联: R-194
+- 收尾: 1786653273
