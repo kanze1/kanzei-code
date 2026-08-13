@@ -82,6 +82,10 @@ pub type BackgroundEventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync
 pub type TranscriptStore =
     std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<kanzei_llm::Message>>>>;
 
+/// R-175 B4:后台子代理完成/失败/超时发通知回主对话的回调类型(call_id, status)。
+/// type 别名:避免 clippy type_complexity。
+pub type BackgroundNotificationSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 #[derive(Clone)]
@@ -133,6 +137,12 @@ pub struct SubagentRuntime {
     /// 跨会话持久化由 session_events 的 task.lifecycle + B5 注册表承接。
     /// None = 非后台模式不启用续跑。
     pub transcripts: Option<TranscriptStore>,
+    /// R-175 B4:后台子代理完成/失败/超时**发通知回主对话**的回调(验收⑦:复用既有
+    /// `agent_notifications` 表,不新造通道)。与 background_events 同理,SessionStore
+    /// 非 Send 不能直接进 spawn——app 层(run.rs)把 append_notification_atomic 包进
+    /// 闭包传入;sink(call_id, status)在 drive.rs spawn 块三终态(完成/失败/超时)
+    /// 时调用,status ∈ done|failed|timeout。None = CLI/测试不通知。
+    pub background_notifications: Option<BackgroundNotificationSink>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

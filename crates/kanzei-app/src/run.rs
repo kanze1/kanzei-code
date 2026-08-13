@@ -695,6 +695,8 @@ pub(crate) async fn run_task(
             background_events: None,
             // R-175 B3:主对话不后台化,不启用 transcript 续跑。
             transcripts: None,
+            // R-175 B4:主对话不后台化,不发后台通知。
+            background_notifications: None,
         })
     };
 

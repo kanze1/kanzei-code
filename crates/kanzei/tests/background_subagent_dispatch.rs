@@ -159,6 +159,10 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
     > = Arc::new(Mutex::new(std::collections::HashMap::new()));
     // R-175 B2 验收⑥:事件可回放——sink 收集后台子代理生命周期事件。
     let background_events: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    // R-175 B4 验收⑦:通知收集(call_id, status)。闭包 move 一份,断言用另一份。
+    let notifications_for_sink: Arc<Mutex<Vec<(String, String)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let notifications_for_sink_closed = notifications_for_sink.clone();
     let events_for_sink = background_events.clone();
     let subagent_rt = kanzei_core::SubagentRuntime {
         snapshot: sub_snapshot,
@@ -180,6 +184,14 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
             },
         )),
         transcripts: None,
+        // R-175 B4 验收⑦:通知走既有 agent_notifications 表——测试用 sink 收集
+        // (call_id, status),断言后台子代理完成时收到 done(未新造并行通道)。
+        background_notifications: Some(Arc::new(move |call_id: &str, status: &str| {
+            notifications_for_sink_closed
+                .lock()
+                .unwrap()
+                .push((call_id.to_string(), status.to_string()));
+        })),
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
@@ -294,6 +306,24 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 
+    // R-175 B4 验收⑦:通知走既有 agent_notifications 表——完成时收到 (id, done)。
+    let deadline_notify = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let notified = {
+            let all = notifications_for_sink.lock().unwrap();
+            all.iter()
+                .any(|(id, status)| id == &task_id && status == "done")
+        };
+        if notified {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline_notify,
+            "5 秒内应收到完成通知"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+
     std::fs::remove_dir_all(&project).ok();
 }
 
@@ -358,6 +388,7 @@ async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
         background_results: None,
         background_events: None,
         transcripts: Some(transcripts.clone()),
+        background_notifications: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
     let id = "call_task_b3".to_string();
@@ -422,5 +453,255 @@ async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
 
     drop(rx);
     let _ = _server.await;
+    std::fs::remove_dir_all(&project).ok();
+}
+
+/// R-175 B4 验收⑤:三种终态(失败/被停)都有确定归宿且读槽被释放——协调器快照
+/// 在终态后不再残留该子代理的读者身份。超时路径由 drive.rs 后台分支的 timeout
+/// 兜底(见 background_subagent_dispatch 的 drive 集成测试),这里覆盖 run_subagent
+/// 直接路径的失败与被停两条;超时在 drive.rs 层(唯一包 timeout 的地方)。
+///
+/// 场景编排:
+///   - 失败:mock SSE 回 HTTP 500 → run_once 报错 → run_subagent 返回 error,
+///     `_read_permit` RAII 随函数返回释放;
+///   - 被停:cancellations 注册表 cancel(id) → select! 的 cancelled 分支返回 error,
+///     `_read_permit` 随函数返回释放。
+/// 两条路径断言:协调器 snapshot().active_readers 不再包含该子代理的 run_id。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 失败与被停终态_读槽均释放_快照无残留读者() {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let project = std::env::temp_dir().join(format!("kz-r175-b4-{}-{suffix}", std::process::id()));
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: project.clone(),
+        project_root: project.clone(),
+        config: config.clone(),
+    };
+    let mut sub_harness = Harness::default();
+    sub_harness.add(kanzei_tools::SubagentBase);
+    let sub_snapshot = sub_harness.resolve(&rctx).unwrap();
+
+    let recorder = Arc::new(Recorder::default());
+    let coordinator = Arc::new(
+        kanzei_core::orchestration::MemoryCoordinator::with_observer(
+            recorder.clone() as Arc<dyn PhaseObserver>
+        ),
+    );
+    let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let ctx = ToolCtx::new(project.clone(), project.clone());
+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<kanzei_core::RunEvent>();
+
+    // ---- 失败路径:mock SSE 回 HTTP 500,run_once 报错 ----
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut chunk = [0_u8; 4096];
+        let _ = stream.read(&mut chunk).await;
+        let body = "internal error";
+        let head = format!(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        let _ = stream.write_all(head.as_bytes()).await;
+        let _ = stream.write_all(body.as_bytes()).await;
+    });
+    let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
+    let subagent_rt = kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot.clone(),
+        agent: kanzei_tools::explore_agent(),
+        fast: (route.clone(), "mock".to_string()),
+        primary: (route.clone(), "mock".to_string()),
+        fast_service_tier: None,
+        primary_service_tier: None,
+        max_tokens: 256,
+        timeout_secs: 30,
+        limits: config.limits.clone(),
+        coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        cancellations: None,
+        background: false,
+        background_results: None,
+        background_events: None,
+        transcripts: None,
+        background_notifications: None,
+    };
+    let fail_id = "call_task_fail".to_string();
+    let failed = kanzei_core::run_read_agent(
+        &client,
+        &subagent_rt,
+        &ctx,
+        &fail_id,
+        "will fail",
+        tx.clone(),
+    )
+    .await;
+    assert!(
+        failed.is_error,
+        "mock 500 应使子代理失败: {}",
+        failed.content
+    );
+    let _ = server.await;
+    // 失败终态:快照不再残留该读者的身份。
+    let snap = coordinator.snapshot(&project);
+    assert!(
+        !snap.active_readers.iter().any(|r| r == &fail_id),
+        "失败终态后读槽应释放,active_readers 不得含 {fail_id}: {:?}",
+        snap.active_readers
+    );
+
+    // ---- 被停路径:cancellations 注册表 cancel(id) ----
+    let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address2 = listener2.local_addr().unwrap();
+    let (hang_tx, hang_rx) = tokio::sync::oneshot::channel::<()>();
+    let server2 = tokio::spawn(async move {
+        let (mut stream, _) = listener2.accept().await.unwrap();
+        let _ = hang_tx.send(());
+        let mut chunk = [0_u8; 4096];
+        let _ = stream.read(&mut chunk).await; // 挂起直到连接被取消关闭
+    });
+    let route2 = kanzei_llm::Route::openai_at(&format!("http://{address2}/v1"), Some("test-key"));
+    let cancellations = Arc::new(kanzei_core::TaskCancellations::default());
+    let subagent_rt2 = kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot,
+        agent: kanzei_tools::explore_agent(),
+        fast: (route2.clone(), "mock".to_string()),
+        primary: (route2.clone(), "mock".to_string()),
+        fast_service_tier: None,
+        primary_service_tier: None,
+        max_tokens: 256,
+        timeout_secs: 30,
+        limits: config.limits.clone(),
+        coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        cancellations: Some(cancellations.clone()),
+        background: false,
+        background_results: None,
+        background_events: None,
+        transcripts: None,
+        background_notifications: None,
+    };
+    let stop_id = "call_task_stop".to_string();
+    let stop_runner = tokio::spawn({
+        let client = client.clone();
+        let ctx = ctx.clone();
+        let tx = tx.clone();
+        let id = stop_id.clone();
+        async move { kanzei_core::run_read_agent(&client, &subagent_rt2, &ctx, &id, "hang", tx).await }
+    });
+    let _ = hang_rx.await; // 子代理已挂起并持有读槽
+    let cancelled = cancellations.cancel(&stop_id);
+    assert!(cancelled, "stop_task 应命中运行中的子代理");
+    let output = stop_runner.await.unwrap();
+    assert!(
+        output.is_error,
+        "被停子代理应返回 error: {}",
+        output.content
+    );
+    let _ = server2.await;
+    // 被停终态:快照不再残留该读者的身份。
+    let snap2 = coordinator.snapshot(&project);
+    assert!(
+        !snap2.active_readers.iter().any(|r| r == &stop_id),
+        "被停终态后读槽应释放,active_readers 不得含 {stop_id}: {:?}",
+        snap2.active_readers
+    );
+
+    std::fs::remove_dir_all(&project).ok();
+}
+
+/// R-175 B4 验收⑤第三条路径:超时——drive.rs 后台分支用 `tokio::time::timeout`
+/// 兜底墙钟,超时后丢弃 run_subagent future,读槽随 future drop 的 RAII 释放。
+/// 本测试直接验证同一语义:mock 服务器 accept 后**挂起不回应**,外部
+/// tokio::time::timeout 把 run_read_agent future 丢弃,断言快照无残留读者。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 超时终态_读槽释放_快照无残留读者() {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let project =
+        std::env::temp_dir().join(format!("kz-r175-b4-tmo-{}-{suffix}", std::process::id()));
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let id = "call_task_timeout".to_string();
+
+    // 服务器 accept 后挂起不回应(读一次请求后永久等待,直到客户端超时断开)。
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut chunk = [0_u8; 4096];
+        let _ = stream.read(&mut chunk).await;
+        let mut sink = [0_u8; 4096];
+        let _ = stream.read(&mut sink).await; // 挂起:不写任何响应
+        drop(stream);
+    });
+
+    let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: project.clone(),
+        project_root: project.clone(),
+        config: config.clone(),
+    };
+    let mut sub_harness = Harness::default();
+    sub_harness.add(kanzei_tools::SubagentBase);
+    let sub_snapshot = sub_harness.resolve(&rctx).unwrap();
+    let coordinator = Arc::new(kanzei_core::orchestration::MemoryCoordinator::default());
+    let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
+    let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let ctx = ToolCtx::new(project.clone(), project.clone());
+    let subagent_rt = kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot,
+        agent: kanzei_tools::explore_agent(),
+        fast: (route.clone(), "mock".to_string()),
+        primary: (route.clone(), "mock".to_string()),
+        fast_service_tier: None,
+        primary_service_tier: None,
+        max_tokens: 256,
+        timeout_secs: 30,
+        limits: config.limits.clone(),
+        coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        cancellations: None,
+        background: false,
+        background_results: None,
+        background_events: None,
+        transcripts: None,
+        background_notifications: None,
+    };
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<kanzei_core::RunEvent>();
+
+    // 子代理持有读槽(挂起中);外部 1 秒 timeout 丢弃 future——与 drive.rs 的
+    // `tokio::time::timeout(bound, run_subagent(...))` 是同一丢弃语义。
+    let timed_out = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        kanzei_core::run_read_agent(
+            &client,
+            &subagent_rt,
+            &ctx,
+            &id,
+            "hang until timeout",
+            tx.clone(),
+        ),
+    )
+    .await;
+    assert!(
+        timed_out.is_err(),
+        "挂起的子代理应在 1 秒后超时(future 被丢弃)"
+    );
+    let _ = server.await;
+    // 超时终态:读槽随 future drop 释放,快照不再含该子代理的读者身份。
+    let snap = coordinator.snapshot(&project);
+    assert!(
+        !snap.active_readers.iter().any(|r| r == &id),
+        "超时终态后读槽应释放,active_readers 不得含 {id}: {:?}",
+        snap.active_readers
+    );
+    drop(rx);
     std::fs::remove_dir_all(&project).ok();
 }

@@ -191,6 +191,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         background_results: None,
         background_events: None,
         transcripts: None,
+        background_notifications: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),

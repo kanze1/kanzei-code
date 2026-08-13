@@ -536,6 +536,7 @@ pub fn run_once_with_parts<'a>(
                             let input = input.clone();
                             let results = rt.background_results.clone();
                             let events = rt.background_events.clone();
+                            let notifications = rt.background_notifications.clone();
                             let timeout_secs = rt.timeout_secs;
                             tokio::spawn(async move {
                                 let bound = std::time::Duration::from_secs(timeout_secs);
@@ -569,6 +570,15 @@ pub fn run_once_with_parts<'a>(
                                             "ok": !output.is_error,
                                             "preview": preview(&output.content),
                                         }),
+                                    );
+                                }
+                                // R-175 B4:发通知回主对话——复用 agent_notifications 表。
+                                // 三终态(完成/失败/超时)统一走这里,status ∈ done|failed|
+                                // timeout;主对话据此知道后台子代理的确定归宿(验收⑦)。
+                                if let Some(notify) = notifications {
+                                    notify(
+                                        &call_id,
+                                        if output.is_error { "failed" } else { "done" },
                                     );
                                 }
                             });

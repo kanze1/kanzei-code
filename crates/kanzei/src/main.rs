@@ -584,6 +584,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             background_events: None,
             // R-175 B3:CLI 单运行不启用 transcript 续跑。
             transcripts: None,
+            // R-175 B4:CLI 单运行不发后台通知。
+            background_notifications: None,
         }
     };
 

@@ -152,6 +152,7 @@ impl Fixture {
             background_results: None,
             background_events: None,
             transcripts: None,
+            background_notifications: None,
         }
     }
 
