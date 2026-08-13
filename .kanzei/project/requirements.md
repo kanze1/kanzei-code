@@ -63,13 +63,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786631684828
 
-## R-192 SOP增加轻量级注册流程（发版/缺陷登记） [doing]
-- 复杂度: 中
-- 标签: 核心
-- 验收: 支持新项目场景下的简化固定流程，降低上下文依赖
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-192
-
 ## R-218 SubagentBase 只读工具面扩容:files 与 git 只读子命令入列,勘察角色能查 git 历史 [todo]
 - 优先级: P2
 - 复杂度: 小

@@ -2505,3 +2505,14 @@
 - observed_head: 19bd1249d3192674ff59b0edf16f9b5fb90b077d
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786632598969
+
+## R-192 SOP增加轻量级注册流程（发版/缺陷登记） [done]
+- 复杂度: 中
+- 标签: 核心
+- 验收: 支持新项目场景下的简化固定流程，降低上下文依赖
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-192
+- 进展: 2026-08-16 取活。R-192 自登记起只有 复杂度/标签/验收/优先级 四字段,无「内容」;验收原文「支持新项目场景下的简化固定流程,降低上下文依赖」。勘察:R-192 被 R-210 在 refs 引用(提交门禁减重源头之一),git 历史无更多上下文;自动运行无法向用户提问,按验收原文最小合理实现——在 dev system prompt(profiles.rs)追加「Lightweight fixed flows (R-192)」三段固定流程:①缺陷登记(defect add 必填字段 + 修复后 defect close);②发版(跑 release.ps1 → 全量 → 装 CLI → 构建桌面端 → kz --version hash 与 HEAD 一致才报发版完成);③新条目开工(work next → claim → 批次 → 完成 → 中/大复杂度全量 → req update done 带逐条验收证据)。三段流程让新项目 agent 不依赖完整长上下文即可正确完成登记/发版/关闭——降低上下文依赖,对应验收。新增守护测试 dev_system_prompt_teaches_lightweight_fixed_flows(profiles.rs)断言 8 个关键 token。验证:kanzei-tools 333 passed(T-1786632765)+ cargo test --workspace 全绿 798 passed(T-1786632848)+ clippy/fmt 全过(commit f70f7eb)。验收逐条对照:验收原文只有一条「支持新项目场景下的简化固定流程,降低上下文依赖」——dev system 注入的三段固定流程(缺陷登记/发版/新条目开工)在新项目上下文未加载完整 conventions 时即可执行,守护测试锁定注入不漂移,满足验收。关闭。
+- observed_head: f70f7eb392e2ce7e978d7863e8cf55e27fb22be0
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786632855951
