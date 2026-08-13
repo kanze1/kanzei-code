@@ -21,10 +21,22 @@ impl Component for SubagentBase {
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        // R-218:勘察角色扩容——files(文件地图)与 git 只读子命令(status/diff/log,
+        // 查 git 历史与工作树状态)。保持全 allow 零 ask:files 纯只读;git 只对
+        // 只读 action 放行,写类 action(stage/commit/merge_ff/finalize)不设规则,
+        // 子代理内 ask 恒 Deny → 被拒(验收②)。webfetch 暂不加(网络面未审计)。
+        draft
+            .tools
+            .insert("files", Arc::new(crate::files::FilesTool));
+        draft.tools.insert("git", Arc::new(crate::git::GitTool));
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
+            rule("files", "*", Effect::Allow),
+            rule("git", "status", Effect::Allow),
+            rule("git", "diff", Effect::Allow),
+            rule("git", "log", Effect::Allow),
         ]);
         Ok(())
     }
@@ -71,11 +83,12 @@ pub fn explore_agent() -> AgentDef {
         model: "fast".into(),
         mode: AgentMode::Subagent,
         steps: 12,
-        system: "You are a read-only exploration subagent with tools read/glob/grep. \
-                 Complete the given task precisely and reply with ONLY the requested \
-                 information: file paths with line numbers, code excerpts, or a short \
-                 factual summary. No preamble, no suggestions. If nothing is found, \
-                 state that explicitly."
+        system: "You are a read-only exploration subagent with tools read/glob/grep/files \
+                 and git read-only subcommands (status/diff/log). Complete the given task \
+                 precisely and reply with ONLY the requested information: file paths with \
+                 line numbers, code excerpts, git history facts, or a short factual \
+                 summary. No preamble, no suggestions. If nothing is found, state that \
+                 explicitly."
             .into(),
     }
 }
@@ -142,12 +155,29 @@ mod tests {
             .iter()
             .map(|t| t.name())
             .collect();
-        assert_eq!(names.len(), 3);
-        for name in ["read", "glob", "grep"] {
+        // R-218:只读快照扩容为 read/glob/grep/files/git(5 件)。files 纯只读;
+        // git 只对 status/diff/log 放行(写 action 不在 Allow 规则里 → 子代理内被拒)。
+        assert_eq!(names.len(), 5);
+        for name in ["read", "glob", "grep", "files"] {
             assert!(names.contains(&name), "missing {name}");
             assert_eq!(
                 snapshot.evaluate(name, "anything"),
                 kanzei_harness::Effect::Allow
+            );
+        }
+        assert!(names.contains(&"git"), "missing git");
+        for read_action in ["status", "diff", "log"] {
+            assert_eq!(
+                snapshot.evaluate("git", read_action),
+                kanzei_harness::Effect::Allow,
+                "git {read_action} 必须放行"
+            );
+        }
+        for write_action in ["stage", "commit", "merge_ff", "finalize"] {
+            assert_eq!(
+                snapshot.evaluate("git", write_action),
+                kanzei_harness::Effect::Ask,
+                "git {write_action} 不得放行(ask 恒 Deny → 被拒)"
             );
         }
     }
@@ -174,10 +204,14 @@ mod tests {
         assert!(
             !names
                 .iter()
-                .any(|n| matches!(*n, "edit" | "write" | "bash" | "git")),
+                .any(|n| matches!(*n, "edit" | "write" | "bash")),
             "只读子代理快照不得含写工具: {names:?}"
         );
-        assert_eq!(names.len(), 3, "只读快照必须仍是 read/glob/grep 三件套");
+        // R-218:git 进入只读快照但只放行只读 action——工具在场不等于写权限在场。
+        assert!(names.contains(&"git"), "git 应在只读快照(只读子命令)");
+        assert_eq!(snapshot.evaluate("git", "commit"), Effect::Ask);
+        // 只读快照必须仍是 5 件套(read/glob/grep/files/git)。
+        assert_eq!(names.len(), 5, "只读快照工具面: {names:?}");
     }
 
     /// R-176 B1:可写子代理档位含写工具;写工具权限**不预设 Allow**
