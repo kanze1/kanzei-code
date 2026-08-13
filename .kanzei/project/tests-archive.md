@@ -2478,3 +2478,9 @@
 - 摘要: kanzei-app 140 passed(含 B5 验收⑥测试:CollaborationLine writer/waiting 来自协调器快照)
 - 关联: R-176
 - 收尾: 1786625960
+
+## T-1786626063 cargo test --workspace (R-176 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:kanzei-tools 323、core 150、app 140、kanzei 17+3,0 failed。R-176 五批交付(可写档位/自持租约/询问先于租约/归因回滚/面板展示)关闭前验证。
+- 关联: R-176
+- 收尾: 1786626063

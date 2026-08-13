@@ -2379,3 +2379,28 @@
 - observed_head: 6ef64abae45aacec58f7d9d969d3a4d78fd0108f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786623927113
+
+## R-176 写子代理:自持写租约的并行实现线,协调器 FIFO 排队与改动可归因 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
+- 依赖: R-173 R-175
+- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调,四轴**都要但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。本条吃「子代理能写」轴,详细定调背景见 R-174 来源字段。用户明确要比参照物更激进——参照物的子代理仍是只读探索,kanzei 要让子代理自己拿写租约、成为真正的并行实现线。
+- 设计定位: 四轴分级第 3 级——把「并行只读勘察 + 单 writer 串行实现」升级为「多条写实现线由协调器排队串行安全落地」
+- 现状(读码实证): ①只读白名单在**构造时**强制:crates/kanzei-tools/src/subagent.rs:13-25 的 `SubagentBase::contribute` 只 insert read/glob/grep 三个工具并只放行这三条规则,写/命令/联网在代码层面不存在(桌面端装配点 crates/kanzei-app/src/run.rs:456-461);子代理内 ask 一律 Deny(crates/kanzei-core/src/runner/subagent.rs:177-179)。②写租约地基**已就位**:契约在 crates/kanzei-harness/src/orchestration.rs(`acquire_read_slot` :195、`acquire_writer_lease` :198),内存实现 `MemoryCoordinator` 在 crates/kanzei-core/src/orchestration.rs(:191-243 独占 + FIFO 排队、:95-137 释放并唤醒队首、:244 取消等待者给确定终态、:274 快照),读槽 `acquire_read_slot`(:167-190)无条件放行(读写可共存,设计不变量 9)。③子代理侧只登记读槽(crates/kanzei-core/src/runner/subagent.rs:163-176),从不申请写租约。④R-174 记录的前置回归同样适用(run.rs:107-108 + drive.rs:57 使桌面端 task 全禁)。
+- 内容: ①打破只读白名单:新增**可写子代理档位**(独立组件与快照,不是给现有只读档位加工具——只读档位的白名单是审计资产,设计不变量 1 要求构造后与执行前各复核一次)。②**每个写子代理必须自己 `acquire_writer_lease`**,不得继承主代理的租约、不得绕过协调器(设计不变量 3「同一规范化 project_root 同时最多一个 writer_run_id」、4「不允许在两个工具调用之间切换写代理」、8「写工具不得绕过协调器」)。③写子代理之间由协调器 **FIFO 排队**,不是禁止并发申请——这正是 R-171 租约相对「硬禁写」的价值所在,`MemoryCoordinator` 的独占+FIFO+RAII 释放已实现,本条是把它接到子代理侧。④**权限询问必须发生在取租约之前**(设计不变量 6:用户拒绝后不得占用写租约);现状写子代理没有询问通道(ask 恒 Deny),必须换成真实询问路由并保证询问先于租约。⑤与 D-174 的后台 shell 归因体系对齐:writer 释放租约前必须收尾,不得留下仍在写的后台进程(设计不变量 7)。
+- 风险(本条是四轴里风险最集中的一条,必须写在验收之前): 写子代理 + 后台化 = **用户看不见的进程在改仓库**。三条护栏缺一不可关闭:(a) 每个写子代理的改动可归因——改了哪些文件、是哪个子代理 id 写的;(b) 单个写子代理的改动可**单独回滚**,不误伤其它写子代理与主代理的改动;(c) 面板上可见**正在写的是谁**、谁在排队。
+- 边界: worktree 绑定不在本条(那是 R-050 的批1);本条只保证「多个写子代理在**同一工作树**上串行安全」。后台化本身属 R-175,本条只在其之上加写权。
+- 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
+- refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
+
+- 进展: 全部 5 批完成(B1 487f07e / B2 290d0ef / B3 674bf5a / B4 b77ac1d / B5 1dbf69e),关前全量 cargo test --workspace 全绿(T-1786626063)。验收证据逐条:①两写子代理租约不重叠可审计——B2 acquire_subagent_permit 走 MemoryCoordinator 同树 FIFO(write_scope),permit_kind 测试;②写工具强制经租约无旁路——B1 可写档位写权限不预设 Allow 由规则集裁决 + B2 可写路径代码强制 acquire_writer_lease;③询问先于取租约——B3 ask_router + writable_granted(Deny/Cancelled 拒绝不占租约)测试;④改动按 owner 归因——B4 SubagentChangeLog.record(owner=子代理 id)+ files_of 测试;⑤单独回滚不误伤——B4 rollback 只恢复该 owner 文件,测试验证其它 owner 与主代理改动保留;⑥面板展示持写权者/排队——B5 CollaborationLine writer_run_id/waiting_writers 从 coordinator.snapshot() 取,测试验证数据来自快照;⑦只读白名单未放宽——B1 回归测试(只读快照仍只含 read/glob/grep)。
+- 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
+- 批次: 5/5
+- observed_head: 1dbf69e525bfc09969b338fc99973e0723a59f34
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786626076642
