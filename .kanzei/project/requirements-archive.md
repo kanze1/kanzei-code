@@ -2235,3 +2235,20 @@
 - observed_head: f432e91bcc04038b98176e740394ac65cbac5b06
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786606152862
+
+## R-212 source_test_gate 从新近度升级到相关性:test_record 声明覆盖面,与暂存源码 crate 求交 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 测试 后端
+- 来源: 2026-08-12 八维度审计(§4)。
+- 背景: source_test_gate 只消费 last_passed_at 时间戳(git.rs:538-547)——任何 passed 记录可背书任何源码提交,前端冒烟记录能放行纯 Rust 提交。威胁模型不防说谎的模型,但要防「跑了 A 测试以为覆盖了 B」的诚实失误。
+- 内容: test_record 增加覆盖面声明(crate 列表或从命令解析);门禁将暂存源码所属 crate 与记录覆盖面求交,不相交即拦并提示该跑什么。
+- 边界: 不做 VerificationRun 全量体系(见审计 §11 候选池);不校验测试是否真跑过。
+- 验收: ①前端冒烟记录无法背书纯 Rust 提交(定向测试);②正常闭环(改 crate→测该 crate→记录→提交)不受阻;③拦截文案指明缺口。
+- refs: D-295 R-210
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-212
+- 批次: 1/1
+- 进展: R-212 交付并关闭前全量验证(2026-08-13):实现见 B1(0095fb8)。验收对照:① 前端冒烟记录无法背书纯 Rust 提交——source_test_gate_frontend_smoke_cannot_back_rust_change:记录命令 node scripts/ui-runtime-smoke.mjs、暂存 crates/kanzei-tools 源码,时间戳满足但覆盖面 NonRust → 拦下并点名 crate/记录类型/应跑命令;② 正常闭环不受阻——source_test_gate_coverage_intersects_with_staged_crates:定向 cargo test -p kanzei-tools 背书 kanzei-tools、cargo test --workspace 背书任意 crate、scripts/ 非 crate 源码豁免;③ 拦截文案指明缺口——不匹配时文案含 暂存 crate 名、记录覆盖面类型(crate X/非 Rust)、应跑 cargo test -p <crate>。全量 cargo test --workspace 761 passed/0 failed(T-1786608051)。残余(不阻塞):记录覆盖面仅从命令解析,手动改 tests.md 可伪造覆盖面(威胁模型不防说谎的模型,与边界一致)。
+- observed_head: 0095fb863dc447993f7a3fa85f7c7b723d661541
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786608059692

@@ -2225,3 +2225,9 @@
 - 摘要: fmt 后复测:git:: 16 + test_record:: 31 全绿(source_test_gate 相关性 + coverage 解析不变)。
 - 关联: R-212
 - 收尾: 1786607938
+
+## T-1786608051 R-212 关闭前全量:cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: 全 workspace 761 passed / 0 failed / 2 ignored(R-212 关闭前全量)。source_test_gate 相关性判据并入无回归。
+- 关联: R-212
+- 收尾: 1786608051
