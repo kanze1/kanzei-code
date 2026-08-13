@@ -65,11 +65,11 @@
 - 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
-- 批次: 3/6
-- 进展: B1a+B1b+B2 完成(2026-08-13):B2(cf511ff)后台子代理生命周期事件落库——①SubagentRuntime 加 background_events: Option<BackgroundEventSink>(type 别名 Arc<dyn Fn(&str,serde_json::Value)+Send+Sync>,绕开 SessionStore rusqlite Connection 非 Send 直接进 spawn);②drive.rs background 分支 spawn 块在完成/失败/超时调 sink(call_id, json{kind:task.lifecycle, id, state:done|failed, ok, preview})写 session_events,事件可回放(验收⑥);③8 处构造点补字段(run.rs 主对话 background:false 不后台化 sink=None 正确,phase_pipeline runtime_as 透传 template 字段供编排角色后台化时用);④测试 background_subagent_dispatch 加事件断言:5 秒内收到 task.lifecycle 且 state=done。workspace 798 passed 全绿、clippy 干净。B2 提交后 B3:transcript 持久化 + 按 id 恢复续跑(可对话轴,run_subagent prior 从空历史改为可恢复上下文)。
-- observed_head: cf511ff94e2f4741d4863508c931942051e96f26
+- 批次: 4/6
+- 进展: B1a+B1b+B2+B3 完成(2026-08-13):B3(dfb1c29)transcript 持久化与按 id 续跑——①SubagentRuntime 加 transcripts: Option<TranscriptStore>(type 别名 Arc<Mutex<HashMap<String, Vec<Message>>>>,避免 clippy type_complexity);②run_subagent 两处 summary 分支(取消/正常)完成时把 summary.messages 存进 transcripts[parent_call_id];③run_subagent 的 prior 从 `&[]` 改为按 id 从 transcripts 恢复——同一 id 再次调用即带此前完整历史续跑(验收④,与 subagent.rs:189 旧空历史对照);④8 处构造点补 None;⑤验收④测试同一id续跑_prior恢复此前transcript_不重开空历史:第一次派发后 transcripts[id] 非空、续跑后更长、两轮回复都在 transcript 里(经 pub 入口 run_read_agent 走同一 run_subagent 实现)。workspace 799 passed 全绿、clippy 干净。B3 提交后 B4:通知通道(agent_notifications)+ 三终态确定归宿与读槽释放(超时/失败/被停)。
+- observed_head: dfb1c29c66e1cef0195739dc14de6ad9da262986
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786616052872
+- recorded_at: 1786617323981
 
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
@@ -212,7 +212,6 @@
 - 标签: 核心
 - 背景: 评估代码质量时粒度停在文件级+文本匹配级:files 给行数、grep 给正则命中、read 给逐行文本。中间缺符号/结构级视图(依赖关系、调用链、函数列表),导致质量评估只能「读全文(重)」或「靠行数猜(浮)」,没有中间档。本轮评估 harness 质量时暴露:靠 files 行数+测试数量下结论,未读一行代码。
 - 验收: ① 对指定文件/crate 输出符号列表(函数/结构/impl);② 输出调用链或依赖关系(谁调用谁/依赖哪些 crate);③ 不必 read 全文即可定位质量热点(如 config.rs 2851 行的内部结构);④ 有真实调用方(agent 在评估/重构类任务中实际使用),不昺昺死在死代码。
-- 优先级: P1
 
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [todo]
 - 优先级: P2
@@ -313,7 +312,6 @@
 - 标签: 后端
 - 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
-- 优先级: P3
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
 ## R-206 前端会话运行态收口具名状态机:唯一 mutator,全局 running 降为派生视图,补 stopping 中间态 [todo]
