@@ -2267,3 +2267,20 @@
 - observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786608363728
+
+## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: D-292 修复时的残余项。
+- 内容: 仓里凡是会读全局根(`~/.kanzei`)的测试,统一走一个夹具:建临时目录、设 `KANZEI_HOME`、返回 guard 负责清理。现状是每处 spawn 手写 HOME/USERPROFILE/KANZEI_HOME 三个变量,漏一个就退回读开发者本机配置——D-292 正是漏了第三个,而且漏了很久没人发现,因为它只在特定全局配置下才炸。
+- 边界: 不改 `kanzei_home()` 的优先级语义;不强制所有测试都用夹具,只覆盖会碰全局根的。
+- 验收: ①提供夹具并把已知消费点迁移过去;②加一条守护测试:测试代码里出现 `.env("USERPROFILE"` 而没有同时出现 `KANZEI_HOME` 即判红;③开发者本机全局配置的任意内容都不影响测试结果。
+- refs: D-292 D-187
+
+- 进展: R-200 交付并关闭(2026-08-13,d7236ad):验收对照——① 夹具+迁移:TestHome(tests/common/mod.rs)建临时 HOME + HOME/USERPROFILE/KANZEI_HOME 三连 + Drop 清理,apply() 结构保证不漏;迁移 always_allow_bash.rs 4 处 spawn、context_overflow_recovery.rs run_cli_with_prior helper、e2e-smoke.mjs/probe-webview-cdp.mjs 补 KANZEI_HOME;② 守护测试:global_home_guard.rs test_spawns_isolate_kanzei_home_alongside_userprofile 扫描 tests/*.rs 与两脚本,出现 .env("USERPROFILE",)/USERPROFILE: 而无 KANZEI_HOME 即红(当前零命中);③ 本机全局配置不影响测试:迁移后所有子进程走 TestHome(KANZEI_HOME→临时目录,kanzei_home() 优先读),在本机带真实 ~/.kanzei 配置下全绿(实证)。验证:cargo test -p kanzei 全绿(T-1786609889)。阻塞字段已清(用户 2026-08-13 授权并加白名单)。
+- 阻塞: 
+- 批次: 1/1
+- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786609910895
