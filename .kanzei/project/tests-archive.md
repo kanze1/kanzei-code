@@ -2824,3 +2824,16 @@
 - 摘要: 全量全绿:app 145 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-206 关闭前全量。
 - 关联: R-206
 - 收尾: 1786653832
+
+## T-1786654000 R-224 鞭挞勾选自动切冒烟集 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs
+- 摘要: 前端全绿:ui-runtime-smoke 通过(含新增 R-224 断言:结伴勾鞭挞自动切 dev-auto + notice 可见、research 拒绝复位);i18n/a11y/markdown 冒烟通过;parallel-lines 护栏通过;i18n 资源表新增 3 条 R-224 文案。
+- 关联: R-224
+- 收尾: 1786654000
+
+## T-1786654048 cargo test -p kanzei-app(R-224 鞭挞自动切) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 145 passed; 0 failed。R-224 前端改动后 kanzei-app crate 定向测试(桌面端命令面无回归)。
+- 关联: R-224
+- 收尾: 1786654048
+- 源码指纹: aaf0e57a69b3c3b1

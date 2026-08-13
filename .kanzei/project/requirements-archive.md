@@ -2680,3 +2680,17 @@
 - observed_head: 3f85860623b2e7e5f6dfcaae0fb2d89c3dbb153b
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786653840305
+
+## R-224 鞭挞勾选自动切自主推进:兑现 interaction_modes 的「直接勾连跑自动切」承诺 [done]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 来源: 2026-08-12 八维度审计(§3);interaction_modes.md:49 定案「想让它自己跑再切自主(或直接勾连跑,自动切)」,实现是拒绝+toast 让用户走三步且第一步必然失败(08-compose.js:605-616),模式选择器还藏在二级「更多」菜单。
+- 内容: 结伴模式下勾鞭挞自动切换到自主推进并落一条 notice 说明(research 下仍拒绝);若用户否决自动切,则至少把模式选择器提回顶栏一级。
+- 验收: ①空闲结伴态到鞭挞就绪 ≤1 次交互;②notice 可见,取消勾选切回;③冒烟断言。
+- refs: R-036
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-224
+- 进展: 2026-08-16 完成并关闭。验收逐条:①空闲结伴态到鞭挞就绪 ≤1 次交互——08-compose.js auto-continue change 处理:dev-pair 勾鞭挞即自动切 dev-auto(同步 localStorage kz-profile / processProfileUi / 后端 process_update profile=dev),零额外点击;②notice 可见——addMessage('notice', t('已切换到自主推进以启用鞭挞')) 在自动切时落一条,冒烟断言 textContent 含「已切换到自主推进」;取消勾选即回到结伴(勾选复位、模式保持 dev-auto 不悄悄回切);research 勾鞭挞仍拒绝(复位勾选 + toast「鞭挞不适用于研究模式」,模式不变);③冒烟断言——ui-runtime-smoke 新增 R-224 块(结伴勾选断言 profile 切 dev-auto、勾选保持、notice 可见;research 勾选断言拒绝复位且模式不变)通过。i18n 资源表新增/替换 3 条文案。提交 9e48a2a;前端五冒烟 + parallel-lines 护栏 + kanzei-app 145 passed 全绿(复杂度小,定向验证即关闭,不跑全量)。
+- observed_head: 9e48a2a95f63d18eb885cd56e913eb1045157b0c
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786654070476
