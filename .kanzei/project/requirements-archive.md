@@ -2337,3 +2337,23 @@
 - observed_head: c09e44f66e99d3f643dd8c2979873e2c2ea3e3ed
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786618963768
+
+## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(读码核实 crates/kanzei-tools/src/background.rs,2026-08-10 dev HEAD)
+- 来源: 2026-08-10 D-174 交付时的安全降级转出。D-174 本轮取的口径是「后台任务生命周期 ⊆ owner run」——后台任务登记 `BackgroundOwner{run_id, process_id, 写仲裁键}`,owner run 收尾时一并收尾,好处是不会留下用户看不见的进程在改仓库。代价是 dev server 一类**需要跨 run 存活**的服务做不了。
+- 现状(读码实证): ①`BackgroundHandle.owner: BackgroundOwner` 已登记归属身份(background.rs:29/55),跨 owner 收尾判定消费它;②后台日志**只在内存**——`MAX_BACKGROUND_OUTPUT = 256 * 1024`(background.rs:23),超限「丢头留尾」并标记截断(:131),**不落盘、不进 state.db**,进程一退历史全没;③没有任何注册表让后台任务活过 owner run。
+- 内容: ①受管后台服务档位:生命周期显式脱离 owner run(用户或 agent 明确声明"这是长驻服务"),与"跟随 owner run"的默认档位并存,不是把默认改掉。②长驻服务的注册表跨 run 可发现,重启后能列出仍在跑的服务并给确定处置(接管 / 标失败 / 杀掉),不留幽灵进程。③后台日志落盘可回看,取代现在的内存 256 KiB 丢头留尾;落盘不得让日志变成新的写冲突源(走 R-138 的原子写原语,不另造)。④长驻服务仍受 D-174 的托管路径归因与越界回滚约束——脱离 owner run 不等于脱离文件隔离。
+- 边界: 不做通用的服务编排/健康检查/自动重启;不把默认档位改成长驻(D-174 的安全降级是有意为之)。子代理后台化属 R-175,两者语义相关但不是同一件事——R-175 管的是**子代理**跨轮存活,本条管的是**shell 后台进程**跨 run 存活;实现时共用注册表与终态口径,不要各造一套。
+- 验收: ①声明为长驻的后台服务在 owner run 结束后仍在跑,且能被查询到状态;默认档位的后台任务行为不变(owner run 收尾即收尾),有测试区分两档。②强杀 kzapp 后重开,注册表能列出上次未终结的长驻服务并给出确定处置,不留幽灵条目。③后台日志落盘:超过 256 KiB 的输出不再丢头,重启后仍可回看,有测试。④长驻服务写入托管路径(`.kanzei/project`、`.kanzei/memory`)仍被 D-174 的归因/回滚拦下,有回归覆盖。⑤日志落盘走 `crates/kanzei-tools/src/atomic_file.rs` 的原语,全仓不出现第二套写原语。
+- refs: D-174 R-175 R-138 R-097
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-180
+- 批次: 3/3
+- 进展: 全部批次完成(e3ad720 B1 / a318b7c B2 / f02fb3d B3),B3 后收尾核对与关闭前全量已做。验收证据:①长驻跨 owner 存活:persistent 字段 background.rs:61, finish_foreign_owners 跳过 :448, kill_project/kill_process 跳过 :708/:732, 两档区分测试;②强杀重开注册表:PersistentEntry 落盘 temp/kanzei-bg-logs/<hash>/registry.json(registry_path :522, save_registry :538), register 登记 :182-200, 自然退出移除 :256-270, stop 移除 :695-698, discover_persistent :559 / mark_registry_failed :570 / adopt_persistent :587 / kill_registered :646, process 工具 discover/adopt/kill :156-225, 幽灵清理测试;③日志落盘不丢头:full_output 全量+节流 write_atomic :206-249, 测试超256k;④长驻写托管路径仍被归因/回滚:守卫 :376-426, register/adopt 都挂守卫 :264/:636, 两条越界回归测试;⑤全仓单源 write_atomic:kanzei-llm/src/atomic_file.rs:39, kanzei-tools 经 lib.rs:6 pub use 单源引用(D-261 并轨), background.rs :237/:249/:541 三处全部走 crate::atomic_file。关闭前全量 cargo test --workspace 全绿(T-1786623266, kanzei-tools 321 含三批 10 个新测试)。
+- observed_head: f02fb3daaa453933203471c70fe172a394e2e561
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786623299975

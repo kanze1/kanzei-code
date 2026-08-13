@@ -2423,3 +2423,16 @@
 - 摘要: kanzei-app 139 passed;kanzei-core/kanzei-tools/kanzei 全绿;UI 运行时冒烟通过(含新增 D-337 多选四场景断言);fmt/clippy 干净
 - 关联: D-337
 - 收尾: 1786621875
+
+## T-1786623183 cargo test -p kanzei-tools (R-180 B3) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: 321 passed / 1 ignored: R-180 B3 跨 run 注册表(discover/adopt/kill + 注册表落盘 + 回收跳过长驻)+ B1/B2 既有背景/围栏测试全绿
+- 关联: R-180
+- 收尾: 1786623183
+- 源码指纹: c11614f9a8d710e2
+
+## T-1786623266 cargo test --workspace (R-180 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:kanzei-tools 321(含 R-180 三批 10 个新增测试)、其余 crate 全过,0 failed
+- 关联: R-180
+- 收尾: 1786623266
