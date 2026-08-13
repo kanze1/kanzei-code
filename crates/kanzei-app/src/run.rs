@@ -845,6 +845,8 @@ pub(crate) async fn run_task(
                 // 候选(项目 inbox)。候选箱语义不变:SOP 只产候选等用户一键采纳,agent 不自决入库。
                 kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run);
                 // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
+                // R-213:当轮 episode_id 代填给轮末 memory manager(同 CLI 路径)。
+                let mut current_episode_id: Option<i64> = None;
                 if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
                     session_id: &session_id,
                     prompt_head: &prompt,
@@ -877,6 +879,7 @@ pub(crate) async fn run_task(
                 }) {
                     // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
                     let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+                    current_episode_id = Some(episode_id);
                 }
                 let _ = store.finish_input(&promoted_input_id, true);
                 // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
@@ -892,6 +895,7 @@ pub(crate) async fn run_task(
                 // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
                 tauri::async_runtime::spawn(memory::consolidate_memory_inbox(
                     ctx.project_root.display().to_string(),
+                    current_episode_id,
                 ));
             }
             Err(error) => {

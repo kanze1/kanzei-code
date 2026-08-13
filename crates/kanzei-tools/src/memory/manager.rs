@@ -919,6 +919,38 @@ mod tests {
         assert_eq!(entry.refs(), vec!["R-070".to_string()]);
         std::fs::remove_dir_all(dir).ok();
     }
+
+    /// R-213:引擎轮末代填当轮 episode_id——manager 拿不到真实 id,注入后 prompt 里才有
+    /// 可用的证据来源;无当轮 episode(手动触发)时不注入,不编造。
+    #[test]
+    fn consolidation_prompt_injects_episode_id() {
+        let p = consolidation_prompt("note 1", None);
+        assert!(p.contains("note 1"), "inbox 内容必须在: {p}");
+        assert!(!p.contains("episode_id="), "无当轮 episode 时不应注入: {p}");
+        let p2 = consolidation_prompt("note 1", Some(42));
+        assert!(p2.contains("episode_id=42"), "应注入当轮 episode_id: {p2}");
+        assert!(
+            p2.contains("memory_promote") && p2.contains("编造"),
+            "应提示 provenance 硬校验: {p2}"
+        );
+    }
+}
+
+/// 轮末记忆整理 prompt 的单一构造点(R-213):CLI 与桌面端共用,注入当轮 episode_id。
+/// manager 在轮内自报不出真实 episode id(episode 轮末才落库、list_episodes 不含 id),
+/// 引擎把刚落库的当轮 id 代填进来,memory_promote 的 provenance 校验才放行真实晋升;
+/// 无当轮 episode(如手动触发整理)则不注入,manager 只能降级为消化草稿。
+pub fn consolidation_prompt(inbox: &str, current_episode_id: Option<i64>) -> String {
+    let mut prompt =
+        format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
+    if let Some(eid) = current_episode_id {
+        prompt.push_str(&format!(
+            "\n\n本轮轮次已落库:episode_id={eid}(state.db episodes 真实存在)。\
+             memory_promote 的证据来源必须用它——provenance 硬校验要求 episode_id 真实存在,\
+             编造或乱填的 id 会被整体拒绝。"
+        ));
+    }
+    prompt
 }
 
 /// manager 迷你 run 的 agent 定义(fast 档,调用方 fast 失败可升级 primary)。

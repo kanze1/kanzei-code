@@ -11,7 +11,7 @@ mod store;
 mod tools;
 
 pub use index::{IndexHit, IndexQuery, MemoryIndex, SqliteMemoryIndex};
-pub use manager::{manager_agent, MemoryManagerComponent};
+pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent};
 pub use store::{AddOutcome, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit};
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 

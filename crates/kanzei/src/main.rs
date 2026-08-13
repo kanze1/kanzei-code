@@ -677,6 +677,9 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }
     }
     // episode 落库(R-106):机械轨迹画像,R-099 度量与记忆系统共用。失败不影响本轮。
+    // R-213:当轮 episode_id 留到轮末代填给 memory manager——episode 轮末才落库,
+    // manager 在轮内自报不出真实 id,不代填则 provenance 校验会拦下一切晋升。
+    let mut current_episode_id: Option<i64> = None;
     {
         let outcome = if summary.halted_by_user {
             "halted"
@@ -709,12 +712,14 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }) {
             // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
             let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+            current_episode_id = Some(episode_id);
         }
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
         let _ = store.finish_input(&promoted.input_id, true);
     }
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
-    consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx).await;
+    // R-213:把当轮 episode_id 代填给 manager,晋升证据才能指向真实轮次。
+    consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await;
     // R-169:CLI 轮末消费自主推进状态机的 backlog 单源(与桌面端同一实现,
     // kanzei_tools::tracker::backlog_status;D-229 类桌面端独占能力架构债消除)。
     // CLI 无交互循环不做自动续跑,只在无可推进条目时提示,与桌面端刹车一致。
@@ -845,6 +850,7 @@ async fn consolidate_memory_inbox(
     client: &LlmClient,
     rctx: &ResolveCtx,
     ctx: &ToolCtx,
+    current_episode_id: Option<i64>,
 ) {
     let store = kanzei_tools::memory::MemoryStore::project(&ctx.project_root);
     if store.pending_notes() == 0 {
@@ -857,7 +863,10 @@ async fn consolidate_memory_inbox(
         return;
     };
     let agent = kanzei_tools::memory::manager_agent();
-    let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
+    // R-213:引擎轮末代填当轮 episode_id——manager 在轮内自报不出真实 id(episode 轮末
+    // 才落库、list_episodes 不含 id),不注入的话 memory_promote 的 provenance 校验会
+    // 拦下一切晋升,候选记忆永远升不了 active。
+    let prompt = kanzei_tools::memory::consolidation_prompt(&inbox, current_episode_id);
     // primary 优先(fast 兜底):记忆会注入之后每一轮的上下文,写错一条就长期误导。
     // 实测 fast(qwen3.5:4b)把失败**次数**误读成事实内容,生成了"需要约 7 次重试才能成功"
     // 这种编造结论(M-003 已人工校正)。manager 每轮至多跑一次、prompt 仅数 KB,

@@ -309,14 +309,15 @@ pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
 
 #[tauri::command]
 pub(crate) async fn memory_consolidate(project_dir: String) -> Result<serde_json::Value, String> {
-    consolidate_memory_inbox(project_dir.clone()).await;
+    // 手动触发(设置页按钮)不在轮末序列里,没有"当轮 episode"可代填。
+    consolidate_memory_inbox(project_dir.clone(), None).await;
     let cwd = PathBuf::from(&project_dir);
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
     let store = kanzei_tools::memory::MemoryStore::project(&root);
     Ok(json!({"pending": store.pending_notes()}))
 }
 
-pub(crate) async fn consolidate_memory_inbox(project_dir: String) {
+pub(crate) async fn consolidate_memory_inbox(project_dir: String, current_episode_id: Option<i64>) {
     let cwd = PathBuf::from(&project_dir);
     let project_root =
         kanzei_harness::config::discover_project_root(&cwd).unwrap_or_else(|| cwd.clone());
@@ -354,7 +355,9 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String) {
         project_root: project_root.clone(),
         ..Default::default()
     };
-    let prompt = format!("Consolidate these inbox notes into durable memory entries:\n\n{inbox}");
+    // R-213:引擎轮末代填当轮 episode_id——manager 自报不出真实 id(episode 轮末才落库、
+    // list_episodes 不含 id),不注入则 memory_promote 的 provenance 校验拦下一切晋升。
+    let prompt = kanzei_tools::memory::consolidation_prompt(&inbox, current_episode_id);
     for role in ["primary", "fast"] {
         let Ok(resolved) = config.resolve_model(role) else {
             continue;
