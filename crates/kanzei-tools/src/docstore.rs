@@ -12,6 +12,39 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+/// 跨 DocKind 的全部状态标记(D-331):标题里出现 `[X]`(X ∈ 此集合)就是把状态机
+/// 标记写进了标题——header 渲染会变成 `[X] [status]` 双终态(如 D-267 的
+/// `[dropped] [fixed]`),调度/统计/审计同时看到两个矛盾终态。
+pub const ALL_STATUS_TOKENS: &[&str] = &[
+    "todo",
+    "doing",
+    "done",
+    "dropped", // requirements / findings
+    "open",
+    "fixing",
+    "fixed",
+    "wontfix", // defects
+    "active",
+    "archived",
+    "paused",
+    "achieved", // sources / goals
+    "draft",
+    "confirmed",
+    "accepted",
+    "superseded",
+    "rejected", // findings / decisions
+];
+
+/// 标题中是否含跨 DocKind 状态标记(形如 `[done]` / `[dropped]`,大小写不敏感)。
+/// 状态的家是 header 方括号,不是标题——标题带状态标记即污染(D-331)。
+pub fn title_status_marker(title: &str) -> Option<&'static str> {
+    let lower = title.to_ascii_lowercase();
+    ALL_STATUS_TOKENS
+        .iter()
+        .find(|tok| lower.contains(&format!("[{tok}]")))
+        .copied()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DocKind {
     /// 相对项目根,如 ".kanzei/project/requirements.md"。

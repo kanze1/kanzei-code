@@ -400,6 +400,9 @@ impl Tool for TrackerTool {
                          title from git history, do not invent one",
                     );
                 };
+                if let Some(title_err) = self.check_title(title) {
+                    return ToolOutput::error(title_err);
+                }
                 if let Some(sev_err) = self.check_severity(&input.severity) {
                     return ToolOutput::error(sev_err);
                 }
@@ -518,6 +521,9 @@ impl Tool for TrackerTool {
                 let Some(title) = input.title.as_deref().filter(|t| !t.trim().is_empty()) else {
                     return ToolOutput::error("`title` is required for add");
                 };
+                if let Some(title_err) = self.check_title(title) {
+                    return ToolOutput::error(title_err);
+                }
                 // R-191:登记硬约束(缺必填字段即拒,提示补什么)。
                 if let Some(required_err) = self.check_add_required(&input) {
                     return ToolOutput::error(required_err);
@@ -582,7 +588,12 @@ impl Tool for TrackerTool {
                     return ToolOutput::error("`id` is required");
                 };
                 let Some(pos) = entries.iter().position(|e| &e.id == id) else {
-                    return ToolOutput::error(unknown_id(id, &entries));
+                    return ToolOutput::error(archived_or_unknown(
+                        id,
+                        &entries,
+                        &store,
+                        self.tool_name,
+                    ));
                 };
                 if let Some(sev_err) = self.check_severity(&input.severity) {
                     return ToolOutput::error(sev_err);
@@ -674,6 +685,9 @@ impl Tool for TrackerTool {
                     entry.status = status;
                 }
                 if let Some(title) = input.title.filter(|t| !t.trim().is_empty()) {
+                    if let Some(title_err) = self.check_title(&title) {
+                        return ToolOutput::error(title_err);
+                    }
                     entry.title = title.trim().to_string();
                 }
                 if input.severity.is_some() && self.kind.severities.is_some() {
@@ -825,7 +839,12 @@ impl Tool for TrackerTool {
                     );
                 };
                 let Some(pos) = entries.iter().position(|e| &e.id == id) else {
-                    return ToolOutput::error(unknown_id(id, &entries));
+                    return ToolOutput::error(archived_or_unknown(
+                        id,
+                        &entries,
+                        &store,
+                        self.tool_name,
+                    ));
                 };
                 let current = &entries[pos];
                 if !self.kind.reopen_from.contains(&current.status.as_str()) {
@@ -934,6 +953,19 @@ impl TrackerTool {
             .and_then(crate::docstore::declared_batch_progress)
             .map(|(_, total)| total);
         crate::docstore::check_declared_batches(value, existing_total).err()
+    }
+
+    /// D-331:标题不得携带跨 DocKind 状态标记(`[done]`/`[dropped]` 等)——状态的家是
+    /// header 方括号(引擎维护),写进标题会渲染成 `[dropped] [fixed]` 双终态污染。
+    fn check_title(&self, title: &str) -> Option<String> {
+        crate::docstore::title_status_marker(title).map(|marker| {
+            format!(
+                "title must not carry a status marker `[{marker}]` — the status lives in the \
+                 header bracket (engine-managed); writing it into the title produces \
+                 double-terminal headers like `[dropped] [fixed]` (D-331). Remove the marker \
+                 from the title."
+            )
+        })
     }
 
     fn check_tag(&self, fields: &BTreeMap<String, String>) -> Option<String> {
@@ -1514,6 +1546,22 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
             known.join(", ")
         }
     )
+}
+
+/// 活动 entries 找不到时:区分「已归档」与「真不存在」。归档条目不是 unknown——
+/// 误导 agent 以为 ID 不存在而绕过专用工具手改托管文档,会破坏原子写入与审计链
+/// (D-331:reopen 对归档 ID 误报 unknown id,把 D-267 的 [dropped] [fixed] 留在归档)。
+fn archived_or_unknown(id: &str, entries: &[Entry], store: &DocStore, tool: &str) -> String {
+    let archived = store.load_archive().unwrap_or_default();
+    if archived.iter().any(|e| e.id == id) {
+        format!(
+            "`{id}` is archived — this action does not apply to terminal entries. \
+             To correct a wrong terminal status (e.g. fixed should be wontfix), use \
+             `{tool} fix_terminal id={id} status=<fixed|wontfix> reason=<why>`."
+        )
+    } else {
+        unknown_id(id, entries)
+    }
 }
 
 #[cfg(test)]
@@ -2110,6 +2158,121 @@ mod tests {
             )
             .await;
         assert!(out.is_error, "done 不可 reopen: {}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-331 验收①:add/update/repair_missing_id 拒绝标题里的跨 DocKind 状态标记
+    /// (`[dropped]`/`[done]` 等)——状态的家是 header 方括号,标题带标记会渲染成
+    /// 双终态污染(如 D-267 的 `[dropped] [fixed]`)。
+    #[tokio::test]
+    async fn title_status_marker_rejected_on_all_write_actions() {
+        let dir = std::env::temp_dir().join(format!("kz-title-marker-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        // add:dropped 是 requirements/findings 的状态,不是缺陷状态 → 标题不得携带。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "某缺陷 [dropped]", "priority": "P2", "severity": "medium",
+                       "fields": {"复杂度": "小", "标签": "后端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "add 应拒绝标题状态标记: {}", out.content);
+        assert!(out.content.contains("status marker"), "{}", out.content);
+        // update:改标题携带 [done] → 拒绝。
+        let mut e = entry("D-001");
+        e.status = "open".into();
+        DocStore::open(&dir, &DEFECTS).save(&[e]).unwrap();
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "D-001", "title": "完成 [done] 的标题"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "update 应拒绝标题状态标记: {}", out.content);
+        assert!(out.content.contains("status marker"), "{}", out.content);
+        // repair_missing_id 同型。
+        let out = tool
+            .execute(
+                json!({"action": "repair_missing_id", "id": "D-002", "title": "恢复 [fixed]",
+                       "priority": "P2", "fields": {"标签": "后端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            out.is_error,
+            "repair_missing_id 应拒绝标题状态标记: {}",
+            out.content
+        );
+        assert!(out.content.contains("status marker"), "{}", out.content);
+        // 合法标题照常放行(不带方括号状态标记)。
+        let out = tool
+            .execute(
+                json!({"action": "add", "title": "正常标题", "priority": "P2", "severity": "medium",
+                       "fields": {"复杂度": "小", "标签": "后端"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "合法标题应放行: {}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-331 验收②:reopen/update 命中归档 ID 时不再报 unknown id,而是明确 archived
+    /// 且该动作不适用——agent 不会误以为 ID 不存在而绕过专用工具手改托管文档。
+    #[tokio::test]
+    async fn archived_id_reports_archived_not_unknown() {
+        let dir = std::env::temp_dir().join(format!("kz-archived-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        // 归档里放一个终态条目,活动文件为空。
+        let mut e = entry("D-001");
+        e.status = "fixed".into();
+        e.title = "已归档缺陷".into();
+        let store = DocStore::open(&dir, &DEFECTS);
+        store.save(&[e]).unwrap();
+        store.archive_terminal().unwrap();
+        assert!(store.load().unwrap().is_empty(), "活动文件应为空");
+        assert_eq!(store.load_archive().unwrap()[0].id, "D-001");
+        // reopen 归档 ID:不再 unknown id,而是 archived + 指向纠错动作。
+        let out = tool
+            .execute(
+                json!({"action": "reopen", "id": "D-001", "reason": "想拉回来"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "归档条目 reopen 应被拒: {}", out.content);
+        assert!(out.content.contains("archived"), "{}", out.content);
+        assert!(!out.content.contains("unknown id"), "{}", out.content);
+        assert!(out.content.contains("fix_terminal"), "{}", out.content);
+        // update 归档 ID 同理。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "D-001", "fields": {"进展": "x"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "归档条目 update 应被拒: {}", out.content);
+        assert!(out.content.contains("archived"), "{}", out.content);
+        // 真不存在的 ID 仍报 unknown id(回归⑤)。
+        let out = tool
+            .execute(
+                json!({"action": "reopen", "id": "D-999", "reason": "x"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.content.contains("unknown id"), "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 
