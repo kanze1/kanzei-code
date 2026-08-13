@@ -99,3 +99,12 @@
 - observed_head: bd629cdd4ec0ac641c11fd4177e57cfa2aaa9c49
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
+
+## D-338 原子写并发读测试仍偶发红(5% 失败率),读到截断态——D-293 修复未覆盖根因 [open] (medium)
+- 复杂度: 中
+- 复现: pwsh -NoProfile -File scripts/stress-test.ps1 -Target kanzei-tools -Filter 'docstore::tests::原子写' -Rounds 20;第 18 轮 FAILED,panic at docstore.rs:2181 '读到了截断态:条目数 X,只可能是 3 或 30'。
+- 来源: 2026-08-16 R-211 压测脚本实测:docstore::tests::原子写下并发读 20 轮中第 18 轮失败(5% 失败率),读到了截断态(条目数非 3 非 30)。D-293 标 fixed 但偶发红仍存在——stress-test.ps1 抓到真现场(存档 output/stress-20260813-213107/round-18.log)。
+- 标签: 后端
+- 根因待查: save 走 atomic_file::write_atomic(tmp+rename)。Windows rename 覆盖与读者 open 的竞态疑似导致读者读到中间态——但 rename 覆盖理论上原子。需查:①load 是否在 save 写 tmp 时读到 tmp 文件(读者 open 目标 path 不该);②Windows MoveFileEx 覆盖语义下旧句柄是否可能读到截断。D-293 当时的修复可能只修了并发隔离没修到根因。
+- 验收: ①stress-test 对 docstore::tests::原子写 连续 20 轮全绿;②对 read::tests::read_non_memory 连续 20 轮全绿;③定位根因并修复(不是 retry/ignore 掩盖)。
+- 优先级: P2

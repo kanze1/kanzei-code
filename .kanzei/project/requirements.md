@@ -49,7 +49,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [todo]
+## R-211 偶发红加压脚本:循环 N 次定向/全量测试、统计失败率并存档输出,作为 D-293 验收载体 [doing]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 测试 流程
@@ -57,6 +57,12 @@
 - 内容: scripts/ 落一条压测脚本(参数:目标 -p crate 或全量、轮数、并行度),统计失败率、存档失败输出;约定偶发红一律先跑它出数字再定位;顺带评估 cargo-nextest 的逐测试计时与显式重跑标记能力。
 - 验收: ①能机械产出「连续 20 次全绿」或「N 次内命中 M 次」结论;②失败输出自动存档可回查;③用它对 D-293 两条跑一轮出数字并回填该条。
 - refs: D-293 R-200
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-211
+- 批次: 1/1
+- 进展: 完成:scripts/stress-test.ps1 压测脚本——参数 Target(-p crate 或空=全量)/Rounds/Parallel(1-4,仅单 crate)/Filter;逐轮跑 cargo test,统计失败率,输出机械结论「连续 N 次全绿」或「N 次内命中 M 次失败(第 X 轮)」(验收①);失败输出自动存档 output/stress-<时间戳>/round-N.log + summary.txt(验收②);约定偶发红先跑它出数字再定位。实测:全量 3 轮✓、单 crate 并行 2 轮✓、read::read_non_memory 20 轮 0 失败(0%)、docstore::原子写 20 轮 1 失败(5%,第 18 轮)——**抓到 D-293 修复后仍存在的真实偶发红**,新登记 D-338(读到截断态,docstore.rs:2181);全量 20 轮后台跑(超时阈值 10 分钟不够)。验收③:对 D-293 两条跑出数字 read 0%/docstore 5% 并回填。顺带评估:未用 cargo-nextest(逐测试计时属增强,现有脚本已满足载体需求)。
+- observed_head: babc9754d63d0fa1eb6caf40594e41ff2b9408fd
+- observed_worktree_hash: fnv1a64:44e6bb2deb156440
+- recorded_at: 1786628546027
 
 ## R-229 关闭证据分类断言机器检查:「剩余/其余 N 处均为 X」式断言必须逐处带 file:line 引证,不足即拒 [todo]
 - 内容: 关闭门禁增加证据文本检查:出现「剩余/其余 N 处」类分类断言时,关闭文本必须逐处点名 file:line 并引码,引证数不足 N 即拒关闭;根因是 R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对(产出 D-320/D-323)

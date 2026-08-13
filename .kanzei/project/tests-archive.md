@@ -2522,3 +2522,9 @@
 - 摘要: 全量全绿:kanzei-tools 325、core 150、app 140、其余全过。R-228 关闭门禁(前端标签需前端冒烟 passed)关闭前验证。
 - 关联: R-228
 - 收尾: 1786627520
+
+## T-1786628553 R-211 压测脚本多模式验证 [passed]
+- 命令: pwsh -NoProfile -File scripts/stress-test.ps1 (多模式验证)
+- 摘要: stress-test.ps1 多模式验证:全量3轮✓/并行2轮✓/read 20轮0失败/docstore 原子写20轮1失败(抓到 D-338 截断态,5%)
+- 关联: R-211 D-338
+- 收尾: 1786628553
