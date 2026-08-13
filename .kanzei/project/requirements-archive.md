@@ -2694,3 +2694,24 @@
 - observed_head: 9e48a2a95f63d18eb885cd56e913eb1045157b0c
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786654070476
+
+## R-190 fast 本地模型 Ollama 的自动开启与常驻运行状态 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(现状逐点读码核实,行号为 2026-08-12 dev HEAD)
+- 来源: 2026-08-12 用户原话:「fast 的本地模型 ollama 需要能我们自动安装开启,能看到运行状态」。同一条消息里的另两项已登记为 R-188/R-189,本条是当时漏登的第三项(见 D-279)。
+- 既有能力(§1.25 显式标注,不得重复申报为本次产出): **「自动安装」已经做完了,不要重做**——R-136 [done] 交付 `fast_model_setup`(crates/kanzei-app/src/fast_model.rs:36-150):winget 静默装 Ollama(:46-76)→ 起 `ollama serve` 并轮询 20 秒(:78-103)→ `/api/pull` 流式拉模型、百分比与 MB 进度发 `kz:fast-setup` 事件(:105-147),每步幂等、失败停在哪步说清下一步;`fast_model_status`(:12-31)返回 installed/serviceUp/modelPresent/ready 四态;设置页有状态行 `#fast-status` 与「一键就绪子代理」按钮(ui/index.html:446-449、ui/16-settings.js:373-421)。另 D-278 已把同源就绪文案接进子代理面板头部(fastStatusText 共享函数)。
+- 现状缺口(本条只补这两件): ①**没有「自动开启」**——服务只在用户手点「一键就绪」时被拉起(16-settings.js:409),应用启动时既不检测也不拉起。开机后没起 Ollama、或服务中途退出,fast 子代理杂活(记忆整理/快速记录)就**静默失效**,除非用户主动翻到设置页才看得见。②**运行状态不是常驻的**——`refreshFastStatus()` 只有两个调用点(16-settings.js:420 一键完成后、:542 设置视图打开时),是一次性快照文本,既不轮询也不随事件更新;D-278 把它扩到了子代理面板,但仍是「打开面板时查一次」,面板开着期间服务挂掉不会反映。
+- 内容: ①**启动即保活**:应用启动时,若 fast 解析到本地 Ollama 且 CLI 已安装但服务未运行,自动拉起 `ollama serve`(复用 fast_model.rs 既有起服务分支,不新写一套);服务在运行期掉线时能重新拉起或至少把状态如实翻红。②**常驻运行状态**:fast 运行态在设置页与子代理面板之外也看得见(状态栏或活动栏指示),且**状态随真实探测变化而更新**,不是打开某个视图才刷一次。③状态语义沿用 R-136 四态(未安装/服务未运行/模型未拉取/就绪)与 D-278 的 `fastStatusText` 共享函数,不新造第三套口径。
+- 边界: 不改一键安装链路本身(R-136 既有)。**自动开启只覆盖「起已装的服务」**——安装 Ollama(数百 MB)与拉模型(以 GB 计)仍需用户点一次,R-136「未经确认的后台大流量下载不可接受」的设计取舍不推翻。fast 指向非本地 Ollama 的 provider 时一律不托管(fast_model.rs:152-161 既有行为),启动路径同样零动作。不做跨平台安装(winget 为 Windows 专用,现状如此)。
+- 验收: ①自动开启实测:Ollama 已安装、服务未运行的状态下启动应用,服务被自动拉起、状态转就绪,有实测轨迹或日志证据(只断言函数返回不算);②不越界:未安装 Ollama 时启动应用不触发 winget 安装、不拉模型,只如实报告缺环,有定向测试;③fast 指向外部 provider 时启动路径零动作,有测试;④运行状态在设置页/子代理面板之外可见,且把 Ollama 服务停掉后界面状态能转为「服务未运行」、重新起来后能转回就绪——不需要重开视图,有实测证据;⑤前端改动有冒烟断言(node --check + node scripts/ui-runtime-smoke.mjs),新增的状态指示与状态刷新各有断言;⑥R-136 既有 Rust 2 项(拉取进度行解析、服务探测对未监听端口不悬挂)与冒烟 6 项、D-278 的 fastStatusText 断言全部保持绿。
+- refs: R-136 D-278 D-167 D-279
+- 依赖: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-190
+- 进展: 2026-08-16 完成并关闭。既有能力标注:自动安装(fast_model_setup)为 R-136 已交付,本条未重做。验收逐条:①自动开启——fast_model.rs 新增 fast_model_ensure_running:fast 指向本地 Ollama(ollama_fast_target 11434 判据)且 CLI 已装但服务未运行 → spawn `ollama serve` 并轮询 20s;main.rs setup 挂后台调用;决策纯函数 fast_ensure_decision 测试覆盖「已装未运行→拉起」(返回 true);②不越界——fast_ensure_decision(false,*)→ false 断言(未安装绝不触发 winget/拉模型),R-136 一键安装链路未改;③外部 provider 零动作——ollama_fast_target 非 11434 端口返回 None,ensure 立即 false(测试断言 managed 语义);④常驻运行状态——ui/03-shell.js 新增 #status-fast 状态栏指示 + FAST_STATUS_POLL_MS=10s 轮询调 fast_model_status,服务停掉自动翻 warn 红、恢复自动转就绪(无需重开视图),复用 D-278 fastStatusText 共享口径;冒烟断言验证 fastStatusTimer 已注册 + 桩 serviceUp=false 时显示「服务未运行」+ warn-text;⑤前端冒烟断言——ui-runtime-smoke R-190 块(#status-fast 存在/内容/定时器),node --check 通过;⑥R-136 既有 2 项(拉取进度解析/服务探测不悬挂)与 D-278 fastStatusText 断言保持绿(kanzei-app 146 passed 含全部既有)。提交 408a117;前端五冒烟 + kanzei-app 146 + 关闭前全量 cargo test --workspace 全绿(T-1786654534)。
+- observed_head: 408a117df50fe1800b12b033b753819bd799320c
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786654544108

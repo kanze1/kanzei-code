@@ -2837,3 +2837,22 @@
 - 关联: R-224
 - 收尾: 1786654048
 - 源码指纹: aaf0e57a69b3c3b1
+
+## T-1786654402 R-190 Ollama 启动保活与常驻状态测试集 [passed]
+- 命令: cargo test -p kanzei-app && node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs
+- 摘要: kanzei-app 146 passed(含新测试 启动保活决策只有已装且服务未运行才动作:未安装/已运行零动作、已装未运行才拉起);前端五冒烟全绿(ui-runtime 含新增 R-190 断言:#status-fast 常驻指示显示「服务未运行」+ warn-text + fastStatusTimer 轮询已注册;ui-i18n 含 status-fast data-i18n-title 登记)。
+- 关联: R-190
+- 收尾: 1786654402
+
+## T-1786654456 cargo test -p kanzei-app(R-190 fmt 后重跑) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 146 passed; 0 failed。fmt 后重跑(R-190 启动保活+常驻状态,含新决策测试)。
+- 关联: R-190
+- 收尾: 1786654456
+- 源码指纹: 8cbfbec90fd03707
+
+## T-1786654534 cargo test --workspace(R-190 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 146 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-190 关闭前全量。
+- 关联: R-190
+- 收尾: 1786654534
