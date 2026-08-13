@@ -289,16 +289,13 @@ impl Component for DevProfile {
                 // preference = 常驻定调(开发重心、验收口径…),必须全文注入才有约束力;
                 // fact/sop 只给索引行,正文按需检索(否则预算爆掉)。
                 let mut directives: Vec<String> = Vec::new();
-                let mut stores = vec![crate::memory::MemoryStore::project(&ctx.project_root)];
-                stores.extend(crate::memory::MemoryStore::global());
-                for store in &stores {
-                    for (_, e) in store.load_all() {
-                        if e.status != "active" || e.category != "preference" {
-                            continue;
-                        }
-                        let body: String = e.body.chars().take(600).collect();
-                        directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
+                // R-194:全局记忆废弃,常驻 preference 只收项目 store。
+                for (_, e) in crate::memory::MemoryStore::project(&ctx.project_root).load_all() {
+                    if e.status != "active" || e.category != "preference" {
+                        continue;
                     }
+                    let body: String = e.body.chars().take(600).collect();
+                    directives.push(format!("{} {}\n{}", e.id, e.title, body.trim()));
                 }
                 // 索引行预算走查与 prompt_hints 共用同一实现(D-216):
                 // 两边口径一致,hints 才知道哪些条目已经在这里、不必重复整行。

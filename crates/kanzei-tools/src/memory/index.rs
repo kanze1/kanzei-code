@@ -136,15 +136,14 @@ impl SqliteMemoryIndex {
     pub fn with_embedder(project_root: &Path, embedder: Option<Arc<dyn Embedder>>) -> Self {
         let fp = FingerprintIndex::build(project_root);
         let mut entries: HashMap<String, MemoryEntry> = HashMap::new();
-        let mut stores = vec![MemoryStore::project(project_root)];
-        stores.extend(MemoryStore::global());
-        for store in &stores {
-            for (_, entry) in store.load_all() {
-                if entry.status != "active" {
-                    continue;
-                }
-                entries.insert(entry.id.clone(), entry.clone());
+        // R-194:全局(用户级)记忆废弃——检索只消费项目 store。全局库 0 active、
+        // 0 召回且 5/9 候选与项目重复(同一失败双投),跨项目偏好已有配置文件与
+        // 系统提示承载,不再让空转的二级库参与任何注入/检索。
+        for (_, entry) in MemoryStore::project(project_root).load_all() {
+            if entry.status != "active" {
+                continue;
             }
+            entries.insert(entry.id.clone(), entry.clone());
         }
         Self {
             project_root: project_root.to_path_buf(),
@@ -221,14 +220,12 @@ impl SqliteMemoryIndex {
     }
 
     /// Tier1:BM25(store.search 已做 bm25 + 采纳率决策加权 + active 排序;R-150 起 hits 不参与排序)。
+    /// R-194:全局记忆废弃,只检索项目 store。
     fn tier1(&self, query: &str, limit: usize) -> Vec<IndexHit> {
         let mut hits: Vec<IndexHit> = Vec::new();
-        let mut stores = vec![MemoryStore::project(&self.project_root)];
-        stores.extend(MemoryStore::global());
-        for store in &stores {
-            let Ok(rows) = store.search(query, None, Some("active"), limit) else {
-                continue;
-            };
+        if let Ok(rows) =
+            MemoryStore::project(&self.project_root).search(query, None, Some("active"), limit)
+        {
             for SearchHit { entry, score, .. } in rows {
                 hits.push(IndexHit::from_entry(&entry, score));
             }
@@ -667,6 +664,7 @@ mod tests {
     use super::*;
     use crate::memory::store::AddOutcome;
     use crate::memory::MemoryScope;
+    use kanzei_core::RecallPolicy;
 
     fn temp_root() -> (PathBuf, MemoryStore) {
         let dir = std::env::temp_dir().join(format!(
@@ -1104,5 +1102,103 @@ mod tests {
             assert_eq!(timing.vector_ms, 0, "无 embedder 时 vector 段必须为 0");
             assert_eq!(timing.total(), timing.lexical_ms);
         }
+    }
+
+    /// R-194:全局(用户级)记忆废弃——检索/常驻/失败召回路径不再遍历全局 store。
+    /// 在临时 HOME 下构造全局 active 条目,断言各路径都看不见它;项目 store
+    /// 条目照常可见(证明摘除的是全局分支,不是整个检索)。
+    #[test]
+    fn 全局记忆废弃_检索常驻召回均不再遍历全局store() {
+        // 临时 HOME,让 MemoryStore::global() 指向可控目录。
+        let home = std::env::temp_dir().join(format!(
+            "kz-home-r194-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&home).unwrap();
+        std::env::set_var("KANZEI_HOME", &home);
+
+        // 项目 store + 全局 store 各放一条 active 条目。
+        let (root, project) = temp_root();
+        let project_entry = add(
+            &project,
+            "sop",
+            "R-194 项目检索钩子",
+            "项目条目必须仍可被检索",
+            "项目 store 的 active 条目正文",
+        );
+        let global = MemoryStore::global().expect("临时 HOME 下应能打开全局 store");
+        let global_entry = match global
+            .add(
+                "sop",
+                "R-194 全局废弃钩子",
+                "全局条目不得再被检索",
+                "全局 store 的 active 条目正文",
+                "user",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(e) => e,
+            other => panic!("expected Added, got {other:?}"),
+        };
+        assert_eq!(
+            global_entry.status, "active",
+            "全局条目必须 active 才能测出检索是否遍历"
+        );
+
+        // ① hybrid 检索(含 lexical Tier1):只应命中项目条目。
+        let index = SqliteMemoryIndex::new(&root);
+        let (hits, _) = index.search_hybrid_with_timing(&IndexQuery::text("R-194"), 5);
+        assert!(
+            hits.iter().any(|h| h.id == project_entry.id),
+            "项目条目必须仍可检索: {:?}",
+            hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+        );
+        assert!(
+            hits.iter().all(|h| h.id != global_entry.id),
+            "全局条目不得出现在检索结果: {:?}",
+            hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+        );
+
+        // ② 常驻索引 resident_index:不含全局条目。
+        let (lines, ids, _) = crate::memory::resident_index(&root, 4096);
+        assert!(ids.contains(&project_entry.id), "项目条目应在常驻索引");
+        assert!(
+            !ids.contains(&global_entry.id),
+            "全局条目不得进常驻索引: {lines:?}"
+        );
+
+        // ③ 指纹索引 FingerprintIndex::build:只收项目条目。
+        let fp_map = crate::memory::FingerprintIndex::build(&root);
+        let all_ids: std::collections::HashSet<String> =
+            fp_map.values().flatten().cloned().collect();
+        assert!(
+            !all_ids.contains(&global_entry.id),
+            "全局条目指纹不得进指纹索引: {all_ids:?}"
+        );
+
+        // ④ 失败召回 FailureRecallPolicy::new:快照不含全局条目。
+        let policy = crate::memory::FailureRecallPolicy::new(&root);
+        let tier1_hits = policy.retrieve(&kanzei_core::RecallTrigger {
+            tool: "bash".into(),
+            kind: "test".into(),
+            sample: "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
+            target: String::new(),
+            failure_count: 1,
+        });
+        assert!(
+            tier1_hits.iter().all(|h| h.id != global_entry.id),
+            "失败召回不得返回全局条目: {:?}",
+            tier1_hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+        );
+
+        std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&root).ok();
     }
 }

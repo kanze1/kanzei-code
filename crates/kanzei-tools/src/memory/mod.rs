@@ -346,15 +346,12 @@ impl FingerprintIndex {
     pub fn build(project_root: &std::path::Path) -> std::collections::HashMap<String, Vec<String>> {
         let mut map: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
-        let mut stores = vec![MemoryStore::project(project_root)];
-        stores.extend(MemoryStore::global());
-        for store in &stores {
-            for (_, entry) in store.load_all() {
-                if entry.status != "active" {
-                    continue;
-                }
-                Self::insert_into(&mut map, &entry);
+        // R-194:全局记忆废弃,指纹索引只收项目 store 的 active 条目。
+        for (_, entry) in MemoryStore::project(project_root).load_all() {
+            if entry.status != "active" {
+                continue;
             }
+            Self::insert_into(&mut map, &entry);
         }
         map
     }
@@ -415,21 +412,18 @@ pub fn resident_index(
     budget: usize,
 ) -> (Vec<String>, std::collections::HashSet<String>, usize) {
     let mut all: Vec<(MemoryEntry, String)> = Vec::new();
-    let mut stores = vec![MemoryStore::project(project_root)];
-    stores.extend(MemoryStore::global());
-    for store in &stores {
-        for (_, e) in store.load_all() {
-            if e.status != "active" || e.category == "preference" {
-                continue;
-            }
-            all.push((
-                e.clone(),
-                format!(
-                    "{} [{}/{}] {} — {}",
-                    e.id, e.scope, e.category, e.title, e.description
-                ),
-            ));
+    // R-194:全局记忆废弃,常驻索引只收项目 store 的 active 条目。
+    for (_, e) in MemoryStore::project(project_root).load_all() {
+        if e.status != "active" || e.category == "preference" {
+            continue;
         }
+        all.push((
+            e.clone(),
+            format!(
+                "{} [{}/{}] {} — {}",
+                e.id, e.scope, e.category, e.title, e.description
+            ),
+        ));
     }
     // D-230:装箱前按价值排序,取代原先 id 升序的先到先得——老条目凭枚举顺序
     // 霸占预算、新条目(往往正是当前最相关的)被系统性折叠。价值 = updated
@@ -496,15 +490,12 @@ impl FailureRecallPolicy {
         let index = FingerprintIndex::build(project_root);
         let mut entries: std::collections::HashMap<String, MemoryEntry> =
             std::collections::HashMap::new();
-        let mut stores = vec![MemoryStore::project(project_root)];
-        stores.extend(MemoryStore::global());
-        for store in &stores {
-            for (_, entry) in store.load_all() {
-                if entry.status != "active" {
-                    continue;
-                }
-                entries.insert(entry.id.clone(), entry.clone());
+        // R-194:全局记忆废弃,失败召回快照只收项目 store 的 active 条目。
+        for (_, entry) in MemoryStore::project(project_root).load_all() {
+            if entry.status != "active" {
+                continue;
             }
+            entries.insert(entry.id.clone(), entry.clone());
         }
         Self {
             project_root: project_root.to_path_buf(),
@@ -549,31 +540,28 @@ impl FailureRecallPolicy {
             query.push_str(&trigger.target);
         }
         let mut hits = Vec::new();
-        for store in [
-            MemoryStore::project(&self.project_root),
-            MemoryStore::global().unwrap_or_else(|| MemoryStore::project(&self.project_root)),
-        ] {
-            if started.elapsed().as_millis() > TIER1_BUDGET_MS {
-                return Vec::new(); // 超时降级:不阻塞主循环。
-            }
-            let Ok(rows) = store.search(&query, None, Some("active"), 3) else {
-                continue;
-            };
-            for row in rows {
-                if self.entries.contains_key(&row.entry.id) {
-                    hits.push(kanzei_core::RecallHit {
-                        id: row.entry.id.clone(),
-                        category: row.entry.category.clone(),
-                        action: row.entry.description.clone(),
-                        status: row.entry.status.clone(),
-                        source: format!("memory_search:{}", row.entry.id),
-                        policy_action: if trigger.failure_count >= 2 {
-                            "reretrieve".into()
-                        } else {
-                            "lexical".into()
-                        },
-                    });
-                }
+        // R-194:全局记忆废弃,失败召回 Tier1 只检索项目 store。
+        let store = MemoryStore::project(&self.project_root);
+        if started.elapsed().as_millis() > TIER1_BUDGET_MS {
+            return Vec::new(); // 超时降级:不阻塞主循环。
+        }
+        let Ok(rows) = store.search(&query, None, Some("active"), 3) else {
+            return hits;
+        };
+        for row in rows {
+            if self.entries.contains_key(&row.entry.id) {
+                hits.push(kanzei_core::RecallHit {
+                    id: row.entry.id.clone(),
+                    category: row.entry.category.clone(),
+                    action: row.entry.description.clone(),
+                    status: row.entry.status.clone(),
+                    source: format!("memory_search:{}", row.entry.id),
+                    policy_action: if trigger.failure_count >= 2 {
+                        "reretrieve".into()
+                    } else {
+                        "lexical".into()
+                    },
+                });
             }
         }
         hits

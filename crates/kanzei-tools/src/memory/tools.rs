@@ -13,11 +13,9 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
     if scope == "all" || scope == "project" {
         out.push(MemoryStore::project(&ctx.project_root));
     }
-    if scope == "all" || scope == "global" {
-        if let Some(global) = MemoryStore::global() {
-            out.push(global);
-        }
-    }
+    // R-194:全局(用户级)记忆废弃——scope=global/all 不再返回全局 store。
+    // 全局库 0 active、0 召回且候选与项目重复,跨项目偏好由配置文件与
+    // 系统提示承载;保留显式报错让调用方知道该 scope 已不可用。
     out
 }
 
@@ -28,11 +26,10 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
 fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
     let state = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state).ok()?;
-    let mut stores = vec![super::MemoryStore::project(&ctx.project_root)];
-    stores.extend(super::MemoryStore::global());
-    let active = stores
-        .iter()
-        .flat_map(|s| s.load_all())
+    // R-194:全局记忆废弃,AVAILABLE 段只数项目 store 的 active 条目。
+    let active = super::MemoryStore::project(&ctx.project_root)
+        .load_all()
+        .into_iter()
         .filter(|(_, e)| e.status == "active")
         .count() as u64;
     store.funnel_counts(active).ok()
@@ -80,6 +77,13 @@ impl Tool for MemorySearchTool {
         let scope = input.scope.as_deref().unwrap_or("all");
         if !["all", "global", "project"].contains(&scope) {
             return ToolOutput::error("scope must be all | global | project");
+        }
+        // R-194:全局记忆废弃——scope=global 不再检索任何内容,明确提示去向。
+        if scope == "global" {
+            return ToolOutput::ok(
+                "(全局/用户级记忆已于 R-194 废弃:全局库 0 召回、0 active 且候选与项目重复,\
+                 跨项目偏好由配置文件与系统提示承载。请用 scope=project 检索项目记忆)",
+            );
         }
         let status = match input.status.as_deref() {
             None => Some("active"),

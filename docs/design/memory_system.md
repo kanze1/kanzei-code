@@ -17,15 +17,15 @@
 物理上两个 scope,语义上五个 category,一条记忆 = 一个 markdown 文件 + frontmatter。
 
 **scope(存放位置,决定共享范围)**
-- `global` → `~/.kanzei/memory/`:跨项目生效。个人偏好、机器环境、通用习惯。
+- `global` → `~/.kanzei/memory/`:**已废弃(R-194,2026-08-16)**。设计上用于跨项目偏好/机器环境/通用习惯,但自建立以来 0 active、0 召回,且候选与项目记忆高度重复(同一失败双投);检索/常驻/失败召回路径已不再遍历全局 store,跨项目偏好由配置文件(kanzei.toml)与系统提示(conventions/dev 常驻)承载。存量条目已归档至 `archive/`。
 - `project` → `<项目>/.kanzei/memory/`:仅本项目。项目事实、架构决策、项目 SOP。
 
 **category(frontmatter 字段,决定注入与检索策略)**
 
 | category | 内容 | 典型例子 | 默认 scope |
 | --- | --- | --- | --- |
-| preference | 用户偏好与定调 | 不带署名;可用即关闭;一轮一个完整条目 | global |
-| habit | 命令执行习惯/环境事实 | gh 要走 127.0.0.1:12000 代理;纯 ui/ 改动跑 node 检查不跑 cargo | global |
+| preference | 用户偏好与定调 | 不带署名;可用即关闭;一轮一个完整条目 | project(global 已废弃,R-194) |
+| habit | 命令执行习惯/环境事实 | gh 要走 127.0.0.1:12000 代理;纯 ui/ 改动跑 node 检查不跑 cargo | project(global 已废弃,R-194) |
 | fact | 项目事实/根因/坑 | CRLF 是 edit 未命中头号原因;NSIS 装在 AppData 与 cargo bin 是两个通道 | project |
 | sop | 流程手册(playbook) | 发版 SOP;更新失败恢复 SOP;缺陷收口 SOP | project |
 | episode | 情景摘要(轮次做了什么/学到什么/花费) | 引擎自动生成,人一般只读 | project |
