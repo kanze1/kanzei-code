@@ -19,9 +19,9 @@ pub use phase::{PhaseOrchestrator, ScoutTask};
 pub use runner::{
     compact_conversation, compaction_budget, completed_entry, estimate_conversation_tokens,
     is_usable_failure_kind, mask_volatile_payload, normalize_fp_marker,
-    pending_background_subagents, run_once, run_once_with_parts, run_read_agent,
-    summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskPolicy, AskReply,
-    AskRequest, AskResponse, CancellationToken, CompletedEntry, FailureSignal, RecallHit,
+    pending_background_subagents, prune_conversation, run_once, run_once_with_parts,
+    run_read_agent, summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskPolicy,
+    AskReply, AskRequest, AskResponse, CancellationToken, CompletedEntry, FailureSignal, RecallHit,
     RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
     RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations,
 };

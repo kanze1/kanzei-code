@@ -496,6 +496,33 @@ pub(crate) async fn run_task(
                     }),
                 )
             }
+            // R-236 B4:L0 机械清理——先于 LLM 纪要,零幻觉;轨迹留档让
+            // 「压缩触发频率下降」可度量。
+            RunEvent::ContextPruned {
+                cleared_results,
+                before_tokens,
+                after_tokens,
+            } => {
+                record_live_trace_at_path(
+                    &trace_state_path_for_events,
+                    &trace_session_id_for_events,
+                    &trace_log,
+                    json!({
+                        "kind": "context.pruned", "cleared": cleared_results,
+                        "before": before_tokens, "after": after_tokens, "at": now_ms(),
+                    }),
+                );
+                emit_event(
+                    "kz:status",
+                    json!({
+                        "stage": "压缩",
+                        "detail": format!(
+                            "已机械清理 {cleared_results} 条旧工具结果({}k → {}k token),未动 LLM 纪要",
+                            before_tokens / 1000, after_tokens / 1000
+                        ),
+                    }),
+                )
+            }
             RunEvent::PermissionResolved {
                 tool_call_id,
                 action,
@@ -1088,7 +1115,31 @@ pub(crate) async fn run_task(
             .get(&session_id)
             .cloned()
             .unwrap_or_default();
-        let estimate = kanzei_core::estimate_conversation_tokens(&conv);
+        let mut estimate = kanzei_core::estimate_conversation_tokens(&conv);
+        // R-236 B4:轮末同样 L0 先行——机械清旧工具结果,清完够线就不动 LLM 纪要。
+        if estimate > budget && conv.len() > 1 {
+            let cleared = kanzei_core::prune_conversation(
+                &mut conv,
+                config.limits.prune_protect_tokens(),
+                config.limits.prune_min_gain_tokens(),
+            );
+            if cleared > 0 {
+                let after_prune = kanzei_core::estimate_conversation_tokens(&conv);
+                stage(
+                    "压缩",
+                    format!(
+                        "已机械清理 {cleared} 条旧工具结果({}k → {}k token)",
+                        estimate / 1000,
+                        after_prune / 1000
+                    ),
+                );
+                estimate = after_prune;
+                conversation
+                    .lock()
+                    .unwrap()
+                    .insert(session_id.clone(), conv.clone());
+            }
+        }
         if estimate > budget && conv.len() > 1 {
             stage(
                 "压缩",

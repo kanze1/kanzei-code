@@ -477,6 +477,16 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 "\x1b[90m上下文到线,已压缩:约 {before_tokens} → {after_tokens} token(上限 {limit_tokens},裁掉 {dropped_messages} 条)\x1b[0m"
             );
         }
+        RunEvent::ContextPruned {
+            cleared_results,
+            before_tokens,
+            after_tokens,
+        } => {
+            let _ = writeln!(
+                stdout,
+                "\x1b[90m已机械清理 {cleared_results} 条旧工具结果:约 {before_tokens} → {after_tokens} token(零 LLM)\x1b[0m"
+            );
+        }
         // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
         RunEvent::PermissionResolved {
             action,

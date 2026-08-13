@@ -38,6 +38,78 @@ const DIGEST_MERGE_RULES: &str = "合并维护同一份纪要:<prior-summary> �
 <conversation> 是更新,与 prior-summary 冲突时以 conversation 为准;已完成的事项从「当前状态」挪进「已完成」;\
 阻塞解除的要更新。输出仍是固定段落模板。";
 
+/// R-236 B4:prune 占位符。只清**已配对**的旧工具结果正文,调用与配对关系原样
+/// 保留(filter_message_history 语义不变,历史里不出现孤儿)。
+pub(crate) const PRUNED_PLACEHOLDER: &str =
+    "[旧工具结果已清理(prune):内容已被后续步骤消化;如需原文用工具重取]";
+
+/// 小于此字节数的工具结果不清:占位符本身也占地方,清小结果是负收益。
+const PRUNE_MIN_RESULT_BYTES: usize = 600;
+
+/// R-236 B4:L0 机械清理——LLM 纪要之前的零幻觉减负层(工具输出占上下文的大头,
+/// observation masking 在多项对照里以零成本拿走大部分收益)。
+/// 保护窗:从最新往回 `protect_tokens` 的消息 + 最近两个用户轮之后的一切,逐字
+/// 不动;更旧的 ToolResult 正文替换为占位符。可回收量不足 `min_gain_tokens`
+/// 整体不做——不值得打破缓存前缀,攒够量一次清(amortized)。返回清理条数。
+pub(crate) fn prune_old_tool_results(
+    messages: &mut [Message],
+    protect_tokens: u64,
+    min_gain_tokens: u64,
+) -> usize {
+    // 边界一:token 保护窗(从尾部累计)。
+    let mut token_boundary = messages.len();
+    let mut accumulated = 0u64;
+    while token_boundary > 0 {
+        let cost =
+            serde_json::to_string(&messages[token_boundary - 1]).map_or(0, |t| t.len()) as u64 / 4;
+        if accumulated + cost > protect_tokens {
+            break;
+        }
+        accumulated += cost;
+        token_boundary -= 1;
+    }
+    // 边界二:用户轮对齐——倒数第二条用户文本消息之后的一律保护。
+    // 不足两条用户消息时整段保护(边界 0),prune 保守不动手。
+    let mut user_seen = 0;
+    let mut user_boundary = 0;
+    for (index, message) in messages.iter().enumerate().rev() {
+        if is_text_user_message(message) {
+            user_seen += 1;
+            if user_seen == 2 {
+                user_boundary = index;
+                break;
+            }
+        }
+    }
+    let boundary = token_boundary.min(user_boundary);
+    let reclaimable = |content: &str| content.len() > PRUNE_MIN_RESULT_BYTES;
+    let gain: u64 = messages[..boundary]
+        .iter()
+        .flat_map(|message| &message.parts)
+        .filter_map(|part| match part {
+            Part::ToolResult { content, .. } if reclaimable(content) => {
+                Some((content.len() - PRUNED_PLACEHOLDER.len()) as u64 / 4)
+            }
+            _ => None,
+        })
+        .sum();
+    if gain < min_gain_tokens {
+        return 0;
+    }
+    let mut cleared = 0;
+    for message in &mut messages[..boundary] {
+        for part in &mut message.parts {
+            if let Part::ToolResult { content, .. } = part {
+                if reclaimable(content) {
+                    *content = PRUNED_PLACEHOLDER.to_string();
+                    cleared += 1;
+                }
+            }
+        }
+    }
+    cleared
+}
+
 /// 主动压缩:保住任务定义与近期工作区,只把中段交给 fast 模型出纪要。
 ///
 /// 与应急路径 `compact_messages_for_retry` 的分工是刻意的:那条路发生在
@@ -531,6 +603,98 @@ mod tests {
             "首条任务定义 + 纪要 + 近期若干条都要在,实得 {}",
             messages.len()
         );
+    }
+
+    /// R-236 B4:prune 只清保护窗之外的**已配对**旧工具结果——近期窗口与最近
+    /// 两个用户轮逐字不动;清完配对关系完整(filter 后逐字节不变)。
+    #[test]
+    fn prune清旧工具结果_保护窗与用户轮不动_配对完整() {
+        let big = "y".repeat(4_000);
+        let mut messages = vec![Message::user_text("任务定义")];
+        for i in 0..8 {
+            messages.push(Message::assistant(vec![Part::ToolCall {
+                id: format!("old{i}"),
+                name: "read".into(),
+                input: serde_json::json!({"path": format!("src/f{i}.rs")}),
+            }]));
+            messages.push(Message::tool_results(vec![Part::ToolResult {
+                call_id: format!("old{i}"),
+                content: big.clone(),
+                is_error: false,
+            }]));
+        }
+        messages.push(Message::user_text("第二条用户消息:继续"));
+        messages.push(Message::assistant(vec![Part::ToolCall {
+            id: "recent".into(),
+            name: "read".into(),
+            input: serde_json::json!({"path": "src/recent.rs"}),
+        }]));
+        messages.push(Message::tool_results(vec![Part::ToolResult {
+            call_id: "recent".into(),
+            content: big.clone(),
+            is_error: false,
+        }]));
+        messages.push(Message::user_text("最近用户消息"));
+
+        // 保护窗设小(2k token),最小收益 1k:旧结果该清、近期与用户轮后的不动。
+        let cleared = prune_old_tool_results(&mut messages, 2_000, 1_000);
+        assert!(cleared >= 4, "旧工具结果应被清理,实清 {cleared}");
+        let texts: Vec<&str> = messages
+            .iter()
+            .flat_map(|m| &m.parts)
+            .filter_map(|p| match p {
+                Part::ToolResult {
+                    call_id, content, ..
+                } => Some((call_id.as_str(), content.as_str())),
+                _ => None,
+            })
+            .map(|(id, c)| if c == PRUNED_PLACEHOLDER { id } else { "" })
+            .collect();
+        // recent(倒数第二条用户消息之后)必须原样。
+        let recent_intact = messages.iter().flat_map(|m| &m.parts).any(|p| {
+            matches!(p, Part::ToolResult { call_id, content, .. }
+                if call_id == "recent" && content.len() > 3_000)
+        });
+        assert!(recent_intact, "保护窗内的结果不许动:{texts:?}");
+        // 配对完整:filter 后逐字节不变。
+        let filtered = crate::history::filter_message_history(&messages);
+        assert_eq!(
+            serde_json::to_string(&filtered).unwrap(),
+            serde_json::to_string(&messages).unwrap(),
+            "prune 不许制造孤儿"
+        );
+
+        // 最小收益门槛:收益凑不满就整体不做(别为几百 token 打破缓存前缀)。
+        let mut small = vec![
+            Message::user_text("任务"),
+            Message::assistant(vec![Part::ToolCall {
+                id: "s1".into(),
+                name: "read".into(),
+                input: serde_json::json!({}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "s1".into(),
+                content: "z".repeat(1_000),
+                is_error: false,
+            }]),
+            Message::user_text("再一条"),
+            Message::user_text("当前"),
+        ];
+        assert_eq!(prune_old_tool_results(&mut small, 100, 50_000), 0);
+        // 不足两条用户消息:保守不动手。
+        let mut bare = vec![
+            Message::assistant(vec![Part::ToolCall {
+                id: "b1".into(),
+                name: "read".into(),
+                input: serde_json::json!({}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "b1".into(),
+                content: "z".repeat(9_000),
+                is_error: false,
+            }]),
+        ];
+        assert_eq!(prune_old_tool_results(&mut bare, 100, 100), 0);
     }
 
     /// R-236 B2:滚动合并的拆分——中段里的旧纪要(哨兵识别)被拆成 prior,

@@ -144,6 +144,16 @@ pub fn estimate_conversation_tokens(messages: &[Message]) -> u64 {
     context::estimate_prompt_tokens(&[], messages, &[])
 }
 
+/// R-236 B4:轮末的 L0 机械清理(kanzei-app 轮末在 LLM 纪要之前调用)。
+/// 与轮内 prune 同一份实现;返回清理条数,0 = 不够收益没动手。
+pub fn prune_conversation(
+    messages: &mut [Message],
+    protect_tokens: u64,
+    min_gain_tokens: u64,
+) -> usize {
+    prune_old_tool_results(messages, protect_tokens, min_gain_tokens)
+}
+
 #[cfg(test)]
 pub(crate) mod testutil {
     use kanzei_llm::{Message, Part};

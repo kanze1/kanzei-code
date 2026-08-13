@@ -265,7 +265,25 @@ pub fn run_once_with_parts<'a>(
                     config.max_tokens,
                     config.limits.compact_buffer_tokens(),
                 );
-                let before = budgeted_tokens(&system, &messages, &specs, calibration);
+                let mut before = budgeted_tokens(&system, &messages, &specs, calibration);
+                // R-236 B4:L0 prune 先行——超线时先机械清旧工具结果(零幻觉零
+                // LLM),清完够线就不必动纪要;凑不满最小收益 prune 自己会放弃。
+                if before > budget && messages.len() > 1 {
+                    let cleared = prune_old_tool_results(
+                        &mut messages,
+                        config.limits.prune_protect_tokens(),
+                        config.limits.prune_min_gain_tokens(),
+                    );
+                    if cleared > 0 {
+                        let after_prune = budgeted_tokens(&system, &messages, &specs, calibration);
+                        on_event(RunEvent::ContextPruned {
+                            cleared_results: cleared,
+                            before_tokens: before,
+                            after_tokens: after_prune,
+                        });
+                        before = after_prune;
+                    }
+                }
                 if before > budget
                     && futile_compactions < MAX_FUTILE_COMPACTIONS
                     && messages.len() > 1

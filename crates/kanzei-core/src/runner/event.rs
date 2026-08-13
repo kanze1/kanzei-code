@@ -100,6 +100,13 @@ pub enum RunEvent {
         limit_tokens: u64,
         dropped_messages: usize,
     },
+    /// R-236 B4:L0 机械清理——旧工具结果正文替换为占位符,零 LLM 调用。
+    /// 先于 LLM 纪要执行;这条事件让「压缩触发频率下降」可被度量。
+    ContextPruned {
+        cleared_results: usize,
+        before_tokens: u64,
+        after_tokens: u64,
+    },
     StepEnd {
         usage: Usage,
         reason: FinishReason,
