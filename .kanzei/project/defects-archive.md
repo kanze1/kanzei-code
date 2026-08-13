@@ -2894,7 +2894,6 @@
 ③窗口内合法写入不误伤 + 越界被识别:场景⑤(窗口内写入保留、窗口外同写入回滚到基线)保持绿;新增「窗口内后台写窗口外托管文件_关闭后仍被回滚且合法写入保留」(memory 文件被回滚、defects.md 合法写入保留、归因记录点名越界路径)。
 ④镜像上限被突破显式拒绝:新增「托管树超限时后台任务被显式拒绝而不是静默放行」(>4 MiB 单文件,报 refused before execution,注册表无残留);前台 bash 的 is_complete 拒绝早已存在(bash.rs:155-162),后台同路径覆盖。
 验证:cargo test -p kanzei-tools 244 passed / kanzei-harness 110 passed / fmt/clippy 全绿 / 下游 kanzei-core + kanzei check 过。
-- 阻塞: 
 
 ## D-277 NSIS 安装包 exe 图标是 Tauri 默认图标:需显式配置 installerIcon(任务栏正常仅安装器不对) [fixed] (medium)
 - priority: P3
@@ -2921,8 +2920,6 @@
 - refs: D-227 D-004
 
 - 状态: fixing
-
-- 阻塞: 
 
 - 进展: 2026-08-13 代码交付(见上)。2026-08-15 用户重启引擎后执行真实清理:repair_reused_archived_id T-1786297655(四条→保留 i18n 第一条,其余改号 T-1786478785/786/787)、T-1786341674(两条→保留 tools 第一条,改号 T-1786478788);机械核验 `^## T-(\d+)` 364 条记录编号全部唯一(UNIQ-OK);修复动作有逐条输出、标题/状态/命令/摘要/关联字段一字未动;T-1786478774 记录终态 passed。验收①②③④全部满足,关闭。
 
@@ -2969,7 +2966,6 @@
 - 进展: 2026-08-13 核验(保持 open,不关闭):实质修复已由 D-261(dadf1ce,经 88b9cda 并入 dev)在 test_record.rs 中顺带交付,本条做核验记录(既有能力标注,非本次新写代码)。逐条证据:①归档写盘被限时文件锁保护、拿不到锁跳过且正常返回读结果——archive_terminal_records(test_record.rs:296-300)try_lock_exclusive(active_path, 200ms),拿不到锁 return Ok(());测试「快照归档拿不到锁时跳过而不是报错」(test_record.rs:1501-1534)。②并发面板刷新+agent test_record 不丢条目/不截断——三条既有用例组合覆盖:「外部持锁期间登记必须等待而不是抢先写入」(:1460-1494,agent 方向)、「快照归档拿不到锁时跳过而不是报错」(:1501-1534,面板方向)、「并发登记不撞号也不丢记录」(:1410-1452,8 线程无外部串行)——锁是同一把 atomic_file 独占句柄,任意两写者并发只落「等待/跳过/串行」三态之一。③归档写盘走原子写:write_atomic(archive_path, :340)与 write_atomic(active_path, :346),与 D-261 并轨无第二套。④不引入写租约:docs.rs test_runs_snapshot(:61-64)薄封装只转调,无 acquire_writer_lease;test_record.rs:285-288 注释明确锁定口径,防下一个人顺手改挂租约。2026-08-16 收口关闭:四条验收逐条复核证据仍在(D-261 主修复未回退,git log 88b9cda 仍在 dev 历史),无阻塞字段,按 defect-first 顶序收口。
 
 **保持 open 的原因**:复杂度 medium,按 conventions §1.4 关闭前需跑 cargo test --workspace 全量;2026-08-13 无人值守会话的权限白名单无 cargo,本轮无法执行全量。全量由 D-261 关闭时(其验收③并轨第二套原子写后)或下次发版门禁(verify.ps1)兜底,与本条共享同一批代码改动。
-- 阻塞: 
 
 ## D-261 test_record 五处 std::fs::write 未并轨 atomic_file:跨进程 CAS 缺失,仓里两套写原语 [fixed] (medium)
 - 优先级: P3
@@ -2987,8 +2983,6 @@
 2026-08-13 验收③复核(grep 全仓 tmp+rename / 独占句柄):发现**至少两处第二套原子写实现**仍在仓内——①crates/kanzei-llm/src/auth/store.rs:50-58 自带 tmp+rename(`path.with_extension(format!("kz{}.tmp", ...))` + std::fs::rename,注释还写着「写临时文件再 rename 覆盖」);②crates/kanzei-tools/src/files.rs:64-66 自带 tmp+rename(`path.with_extension("json.tmp")` + rename)。kanzei-tools 内 docstore.rs 已全部引用 crate::atomic_file(308/316/345/348/461/523/608 均为 atomic_file 或 lock 封装)合规。验收③(全仓只有 atomic_file 一套原语)未达成,缺口精确位置如上,待并轨。
   **未达成的验收③(全仓只留一套原子写原语)**:仓里仍有四处独立 tmp+rename,均不在本次改动面内——`crates/kanzei-llm/src/auth/store.rs:50`、`crates/kanzei-tools/src/architecture.rs:202`、`crates/kanzei-tools/src/files.rs:64`、`crates/kanzei-tools/src/memory/store.rs:1356`。本条据此保持 `open`,收口这四处即可关闭。
   **另记一条本次实测的设计发现(与 R-182 同源)**:`lock_path_for` 把锁文件放在目标同目录,即 `<worktree>/.kanzei/project/tests.lock`。并行工作树各有自己的 `.kanzei/`,所以**各写各的 `tests.md` 时根本不会互斥**;互斥只在同一份 checkout 被多个进程打开时才成立。这与实测「两个 worktree 相隔 10 秒各 `kz defect add` 都拿到 D-267」是同一件事的两面——**锁生效的前提是文档只有一份**,落点见 R-182 内容①②。
-
-- 阻塞: 
 
 ## D-263 自举提交时暂存了非本轮改动:应只 git add 明确文件,否则并发写入被静默卷进他人提交 [fixed] (medium)
 - 优先级: P1
@@ -3249,20 +3243,6 @@
 - 状态: fixed
 - 进展: 2026-08-12 `20-lines.js` 刷新前按 process_id 暂存并复挂同一收活面板,保留 diff/确认/门禁/回写 DOM 状态,并恢复改动文件 details 展开状态;新增运行时冒烟覆盖自动刷新后面板仍在且同一 DOM 节点;node check、ui-lint-smoke(31 文件/1160 标识符)、parallel-lines-regression、ui-runtime-smoke(1350 次 invoke/0 错误)通过。
 
-## D-309 并行线路收活面板在自动刷新后消失 [fixed] (medium)
-- severity: medium
-- 优先级: P1
-- 复杂度: 小
-- 标签: 前端 并行
-- 来源: 2026-08-12 用户反馈「并行线路展开打算收,自动刷新后展开的没了」。
-- 复现: 进入「并行线路」视图,点击某条工作树线路的「收活」展开五格面板,等待自动刷新或手动刷新线路;展开面板及已加载的 diff/门禁结果被移除。
-- 根因: `crates/kanzei-app/ui/20-lines.js:113-120` 的 `renderLines()` 每次刷新先对 `#lines-list` 调用 `replaceChildren()`,临时挂在 lane 下的 `.line-harvest` 与 `<details>` 展开状态没有按 `process_id` 保存和恢复。
-- 影响: 自动刷新期间用户正在进行的人读 diff、门禁和合并准备状态丢失,容易误以为操作未生效,也无法安全完成收活流程。
-- 验收: ①线路自动/手动刷新后同一 `process_id` 的收活面板仍展开;②面板内已加载 diff、已确认人读 diff、门禁结果和回写状态不丢;③改动文件展开状态保持;④线路消失时不错误复挂旧面板。
-- 证据等级: E1(用户复现+代码定位),修复后补 UI 运行时冒烟。
-- 状态: fixed
-- 进展: 2026-08-12 `20-lines.js` 刷新前按 process_id 暂存并复挂同一收活面板,保留 diff/确认/门禁/回写 DOM 状态,并恢复改动文件 details 展开状态;新增运行时冒烟覆盖自动刷新后面板仍在且同一 DOM 节点;node check、ui-lint-smoke(31 文件/1160 标识符)、parallel-lines-regression、ui-runtime-smoke(1350 次 invoke/0 错误)通过。
-
 ## D-310 收活无 claim 仍解锁 tracker 回写 [fixed] (medium)
 - severity: medium
 - 优先级: P1
@@ -3341,12 +3321,6 @@
 - 证据等级: E1(用户截图+前端代码定位+仓库工作树现场核对),修复后补 UI 运行时和静态回归测试。
 - 状态: fixed
 - 进展: 2026-08-12 将建线名改为毫秒时间戳+进程内序号;创建 IPC 单飞且按钮请求期间禁用,finally 恢复;新增双击只发一个 process_create 的 UI 冒烟与静态护栏。验证:node --check、ui-runtime-smoke(1439 次 invoke)、ui-lint-smoke、parallel-lines-regression 通过。
-- 复现: R-101 harness 基座静态审查:crates/kanzei-app/src/main.rs:110-116 的 KANZEI_E2E_CDP 注入只加 --remote-debugging-port=<port>,未加 --remote-allow-origins=*;同轮实验脚本 output/e2e-exp/env-var-exp.mjs:16 加了 --remote-allow-origins=*(且 .playwright-cli 08-11 快照证明 CLI 曾连上)。WebView2 基于 Chromium,自 M111 起 CDP 要求显式 origin 白名单,否则非 DevTools 客户端(playwright-core connectOverCDP)握手被拒。
-- 影响: scripts/e2e-smoke.mjs 可能 connectOverCDP 失败,harness 基座验证被卡;若 e2e-smoke 实际能连上则本条为误报,实测后关闭。
-- 来源: self-found(2026-08-13 R-101 静态审查)
-- 标签: 流程
-- 阻塞: 
-- 优先级: P1
 
 ## D-314 收活回写只信线路 claim，忽略线路对话中已明确的 tracker 条目 [fixed] (high)
 - severity: high
@@ -3590,3 +3564,11 @@
 - 标签: 流程
 - 优先级: P2
 - 进展: 2026-08-16 发版 verify.ps1 门禁逮到 R-199 遗留三处,已修复(commit 866dfc2):①02-i18n.js 补 2 个 EN key(自动推进停止:当前模式不匹配/鞭挞已关闭,当前进程不是自主推进模式);②08-compose.js syncAutoContinueWithProfile 不再在 profile change 时主动取消勾选——档位否决下沉引擎,前端只显示引擎结论(07-events.js ProfileMismatch 分支负责取消+显示),D-290 旧漂移不复发;③ui-runtime-smoke.mjs D-291 场景断言改为引擎语义(dev-pair + Continue 时前端不拦,phase ∈ {auto_pending, starting} 都算推进,容忍 flush 跨 2 秒续跑间隔)。验证:node --check 通过、ui-runtime-smoke 21 项全绿、ui-i18n-smoke 通过(T-1786574944)。复杂度=小,前端修复定向验证即可。关闭。
+
+## D-324 output/ 与 .playwright-cli/ 未入 gitignore 也不在 verify 洁净检查:实验产物无限累积 [fixed] (low)
+- 复现: git status 长期挂 30+ 个未跟踪实验产物(d268/d293 测试输出、0 字节失败实验空壳、旧截图);verify.ps1 洁净检查只扫 crates scripts .github 看不见
+- 影响: 工作区噪音累积,实验残留与交付物边界模糊
+- 来源: 2026-08-13 自举复盘
+- 标签: 流程
+- 优先级: P3
+- 进展: 2026-08-13 修复:.gitignore 追加 output/ 与 .playwright-cli/(带用途注释),git status 未跟踪噪音归零;verify.ps1 洁净检查扫 crates/scripts/.github 不受影响;磁盘上既有实验产物保留原位不入库

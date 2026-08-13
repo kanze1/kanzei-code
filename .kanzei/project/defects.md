@@ -207,10 +207,42 @@
 - 标签: 前端
 - 优先级: P2
 
-## D-324 output/ 与 .playwright-cli/ 未入 gitignore 也不在 verify 洁净检查:实验产物无限累积 [fixed] (low)
-- 复现: git status 长期挂 30+ 个未跟踪实验产物(d268/d293 测试输出、0 字节失败实验空壳、旧截图);verify.ps1 洁净检查只扫 crates scripts .github 看不见
-- 影响: 工作区噪音累积,实验残留与交付物边界模糊
-- 来源: 2026-08-13 自举复盘
-- 标签: 流程
-- 优先级: P3
-- 进展: 2026-08-13 修复:.gitignore 追加 output/ 与 .playwright-cli/(带用途注释),git status 未跟踪噪音归零;verify.ps1 洁净检查扫 crates/scripts/.github 不受影响;磁盘上既有实验产物保留原位不入库
+## D-325 会话恢复丢弃思考块:renderRecoveredMessages 只认 text/tool_*,重开会话后思维链从 DOM 消失 [fixed] (medium)
+- 复现: 15-views-misc.js renderRecoveredMessages 的 parts 循环里 reasoning 类型 part 落到 type!==text 的 continue,历史消息里的 Part::Reasoning(request.rs 有该变体且 conversation_get 全文返回)整个不渲染;重开会话或切进程后思考块消失,复制上下文也拿不到
+- 影响: 历史会话的思维链不可见不可复制;主对话恢复后信息量骤降
+- 来源: 用户反馈 2026-08-13(复制上下文在主对话里不好用)
+- 标签: 前端
+- 优先级: P2
+- 进展: 2026-08-13 修复:05-chat-render.js 抽出 buildReasoningBlock 构造器(实时/恢复共用,dataset.raw 恒持全文),15-views-misc.js renderRecoveredMessages 增 reasoning 分支按实时同款折叠块恢复并 renderReasoningBlock 渲染。验证:node --check 3 文件通过,gen-ui-lint-globals 同步(1197 标识符),ui-lint/ui-i18n/ui-runtime 冒烟全绿(21 文件 1545 invoke 0 运行时错误)
+
+## D-326 复制上下文导出不完整:思考块只取首行 160 字、工具块无结果行、error 消息被静默跳过 [fixed] (medium)
+- 复现: 07-events.js copy-context 处理器:reasoning 分支 raw.split 首行 slice(0,160);tool-chip 只导出 head 前 200 字不带 result 行;error 等其余 msg 形态没有分支直接丢弃——导出的 markdown 贴给其他 AI 时思维链断裂、错误上下文缺失
+- 影响: 复制上下文的核心用途(贴给其他 AI)失真,收起的思维链等于没复制
+- 来源: 用户反馈 2026-08-13(右上角复制上下文不含收起的思维链)
+- 标签: 前端
+- 优先级: P2
+- 进展: 2026-08-13 修复:07-events.js copy-context——reasoning 导出完整 raw 全文(### 思考 + 逐行引用,不再截 160 字),tool-chip 追加 result 行(≤400 字),新增 msg 通用回落分支(error 等不再静默丢弃,≤500 字)。验证:与 D-325 同批,node --check + ui-lint + ui-i18n + ui-runtime 冒烟全绿
+
+## D-327 files 工具 top 视图忽略 path 作用域:静默返回全仓库重文件而非子树 [fixed] (low)
+- 复现: files.rs execute 里 input.top 为 Some 时 render_top 直接吃全量 entries,path 前缀只在 None 树形分支应用;调 files(path=crates/kanzei-harness, top=15) 返回的是整仓 top15,拿到错作用域数据且不报错
+- 影响: agent 以为拿到子树重文件实际是全仓数据,判断被静默污染;V4PRO 自我复盘实测踩中并如实上报
+- 来源: V4PRO 自举会话自述 2026-08-13,交互会话已在 files.rs:442 核实
+- 标签: 后端
+- 优先级: P2
+- 进展: 2026-08-13 修复:files.rs execute 把 path 前缀提到两分支共用,top 分支先按 starts_with 裁剪 entries 再 render_top(口径与 render_tree 一致);新增 tokio 测试 top视图尊重path作用域(path=docs 时含 docs/note.md 不含 src/big.rs)。验证:cargo test -p kanzei-tools files:: 20 passed
+
+## D-328 归档净化误删真内容:按 key 去重吃掉同名不同内容的叙事字段,空值口径误杀多行字段表头 [fixed] (high)
+- 复现: docstore.rs normalize_archive(约 555-574 行)两条口径过宽:①seen_keys 按字段名去重只留第一条,D-179 系条目两行「- 验证(2026-08-08):」内容不同(v6/v7),v7 迁移验证证据(含 workspace 269 项通过)被当重复删除;②值为空即删,但「- 实测(…): 」「- 根因(…): 」是多行字段表头(值在续行),表头被删后续行挂错归属。R-213 在途轮触发,工作区 defects-archive.md 三行真内容被删,尚未提交,git HEAD 可恢复
+- 影响: 归档净化静默吃掉真实证据行,证据链缺损,极易随下一次 tracker 提交固化成永久丢失
+- 来源: 交互会话在途审查 2026-08-13(git diff 对 HEAD 逐行核对,三行均确认唯一出现非重复)
+- 标签: 后端
+- 优先级: P1
+- 进展: 2026-08-13 修复:normalize_archive 两条口径收窄——同 key 去重改为同 (key,value) 逐字比对(同名不同内容是叙事不得去重),空值删除只限「阻塞」键(多行字段表头值在续行,删表头续行成孤儿);archive_terminal 注释同步。误删三行(D-179 系 v7 验证、D-312 实测表头、根因表头)已按 git HEAD 逐字回填并核实唯一。验证:cargo test -p kanzei-tools docstore:: 20 passed(改写 归档净化 测试为新口径:逐字重复收敛/同名不同内容保留/空阻塞删/空值表头留)
+
+## D-329 tracker 写路径每次 update/close 追加游离空段;kz CLI raw_lines/raw_delete 未接 id 位置参数 [fixed] (low)
+- 复现: ①D-325/D-326 实测:add --field 建条目后,每次 update/close 告警的不可寻址游离段落数从 1 涨到 2(写路径在字段前留空行段);②kz defect raw_lines D-325 报 id is required——main.rs tracker_cli 的 action 分派只给 get/close/update/repair_reused_id 接位置参数 id,raw_lines/raw_delete/reopen 等落 _ 分支,CLI 清理通道不可用
+- 影响: 游离段落随写操作累积(M-057 记载的脏数据模式复发),且 CLI 侧无法自查自清
+- 来源: 交互会话实测 2026-08-13
+- 标签: 后端
+- 优先级: P2
+- 进展: 2026-08-13 修复:①render_entry_with_template 渲染前裁掉模板尾部空 Raw(条目间距由 ensure_blank_separator 单源负责),追加字段紧跟末字段,新增测试 追加字段不产生游离空段且多轮写入稳定(两轮写入幂等);②main.rs tracker_cli 给 raw_lines/reopen/archive/void_id/repair_missing_id 接位置参数 id、raw_delete 接 id+序号。验证:cargo test -p kanzei-tools docstore:: 20 passed;新二进制端到端 raw_lines/raw_delete D-325 实测可用(证实游离段即空行,已清)

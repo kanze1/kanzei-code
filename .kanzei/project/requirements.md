@@ -45,9 +45,8 @@
 - 内容: promote 前校验每个 episode_id 真实存在(或改为引擎在轮末代填当轮 episode_id,manager 无需自报);record_memory_source 失败即回滚晋升。
 - 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
 - refs: R-165 R-195 R-214
-
-- 批次: 0/3
-- 进展: 2026-08-16 取活(requirements-first)。R-213 记忆 promote provenance 校验补真。勘察目标:memory/store.rs 的 promote 与 record_memory_source 实现、episode 表结构、manager 工具面(MemoryPromoteTool)能否拿真实 episode_id。B1:promote 前校验 episode_id 真实存在 + 写证据失败回滚;单测。B2:盘点存量 active 条目 memory_sources 零行数并处置。B3:全量+关闭。
+- 批次: 1/3
+- 进展: 2026-08-16 取活(requirements-first)。R-213 记忆 promote provenance 校验补真。勘察目标:memory/store.rs 的 promote 与 record_memory_source 实现、episode 表结构、manager 工具面(MemoryPromoteTool)能否拿真实 episode_id。B1:promote 前校验 episode_id 真实存在 + 写证据失败回滚;单测。B2:盘点存量 active 条目 memory_sources 零行数并处置。B3:全量+关闭。 | 2026-08-13 交接(V4PRO 轮被用户中止,交互会话在途审查,下一轮从这里接):①勘察结论=manager 拿不到真实 episode_id(episode 轮末才落库、轮内 id 不存在、list_episodes 返回不含 id)——只上校验闸门会让 memory_promote 谁也过不去,需求给的另一条路「引擎轮末代填」才是通路,B2 前必须先定这个方向;②B1 已交付但未提交(在工作区):episodes.rs episode_exists、store.rs promote 前校验+失败回滚、mod.rs seed_episode 夹具;未交付:单测与 11 处旧测试迁移(store.rs:1840/1845/2123、mod.rs:1754/1977/2015/2070/2121/2173、manager.rs:827、replay_eval.rs:350,最后一处 pub(super) 可见性够不到),当前 cargo test -p kanzei-tools 必红;③返工建议:把顺序倒成「证据先落库、成功再置 active」,store.rs:499 的 let _ 吞错、refresh_derived 盖住主诊断、多来源部分失败孤儿行三个问题一起消失;④归档误删已单独登记 D-328 并由交互会话修复回填,别把 defects-archive 的删除当上一轮正常改动提交
 
 ## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [open]
 - 优先级: P2
@@ -623,4 +622,28 @@
 - 来源: 2026-08-13 自举复盘改进建议第 2 条
 - 标签: 流程
 - 验收: ①门禁单测覆盖断言引证不足拒绝;②R-199 式未核实分类断言在门禁层不可复现;③无分类断言的关闭不受影响
+- 优先级: P2
+
+## R-230 work next/claim 调度决策下沉 harness:取活零推导 [todo]
+- 内容: 新增 work 类动作:next 按显式序计算 WorkDecision(Resume{id}|Start{id}|Blocked{ids}|WipViolation{ids})并返回 reason 码与 wip 快照;claim <id> 为显式 override 并落档原因;提示词侧取活规则收敛为「一律调 work next 按返回执行」。2026-08-13 已在 dev prompt 写入显式序(profiles.rs:resume 占槽项>队列优先级,守护测试覆盖),本条是它的 harness 确定性下沉——V4PRO 实测每次会话为 defect-first vs WIP 的仲裁自辩 500+ token,该决策 100% 可确定,按弱模型准绳应由代码一行给出
+- 复杂度: 中
+- 来源: 2026-08-13 V4PRO 运行复盘与调度设计讨论
+- 标签: 后端
+- 验收: ①next 四种决策各有单测(唯一可执行→Resume/零→按模式 Start/多→WipViolation/全部阻塞→Blocked);②返回含 reason 与 wip 快照可复述给用户;③claim override 落档;④dev prompt 同步改为按返回执行且守护测试更新
+- 优先级: P2
+
+## R-231 work context 轮首注入:执行中零全量 list,归档只准 get-by-id [todo]
+- 内容: 自举轮首注入改为「活动条目全文+批次/进展+refs 解析结果+相关记忆 hints」,req/defect 全量列表不再进上下文(现状 defects.md 44KB+requirements.md 95KB≈3.5 万 token/轮首);两个归档(322KB/559KB)只允许按 id 取条目;队列仅有的两次合法读取由 work next(R-230)与登记查重门禁承担。与记忆召回 prompt_hints 只注题+fetched 落表是同一模式
+- 复杂度: 中
+- 来源: 2026-08-13 上下文管理设计讨论(refs R-230)
+- 标签: 后端
+- 验收: ①轮首上下文含活动条目与 refs 不含全量列表(守护测试);②执行中全量 list 有护栏或审计计数;③改造前后轮首 token 对照留档
+- 优先级: P2
+
+## R-232 tracker 写操作幂等化:同值 update 返回 no-op,变更返回 diff 摘要 [todo]
+- 内容: update/close 对未变更字段返回「no-op: 字段已是该值」且文件零写入;有变更时返回 旧→新 摘要。消灭「先决定改 X→发现已是 X→仍执行写操作」的冗余调用与模糊回执引发的二次确认循环(V4PRO 实测 批次 0/3 冗余 update)。D-329 已修游离空段,本条补反馈语义
+- 复杂度: 小
+- 来源: 2026-08-13 V4PRO 运行复盘(refs R-230 D-329)
+- 标签: 后端
+- 验收: ①同值 update 返回 no-op 且文件字节不变(单测);②变更返回旧→新摘要;③close 幂等重入安全
 - 优先级: P2
