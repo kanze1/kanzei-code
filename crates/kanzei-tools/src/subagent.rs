@@ -66,6 +66,9 @@ impl Component for WritableSubagentBase {
             .insert("edit", Arc::new(crate::edit::EditTool::default()));
         draft
             .tools
+            .insert("insert", Arc::new(crate::edit::InsertTool));
+        draft
+            .tools
             .insert("write", Arc::new(crate::write::WriteTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
@@ -106,7 +109,7 @@ pub fn writer_agent() -> AgentDef {
         model: "primary".into(),
         mode: AgentMode::Subagent,
         steps: 24,
-        system: "You are a writable implementation subagent. You may edit/write files and \
+        system: "You are a writable implementation subagent. You may edit/insert/write files and \
                  run bash/git, but every write action must go through the coordinator \
                  lease and permission rules — never bypass them. You are accountable for \
                  every file you change: report exactly which files you touched and why. \
@@ -210,7 +213,7 @@ mod tests {
         assert!(
             !names
                 .iter()
-                .any(|n| matches!(*n, "edit" | "write" | "bash")),
+                .any(|n| matches!(*n, "edit" | "insert" | "write" | "bash")),
             "只读子代理快照不得含写工具: {names:?}"
         );
         // R-218:git 进入只读快照但只放行只读 action——工具在场不等于写权限在场。
@@ -244,7 +247,9 @@ mod tests {
             .iter()
             .map(|t| t.name())
             .collect();
-        for name in ["read", "glob", "grep", "edit", "write", "bash", "git"] {
+        for name in [
+            "read", "glob", "grep", "edit", "insert", "write", "bash", "git",
+        ] {
             assert!(names.contains(&name), "可写档位缺 {name}: {names:?}");
         }
         // 只读工具保持 Allow。

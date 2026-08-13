@@ -2878,6 +2878,33 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(x2.querySelector(".tool-msg-raw") === null, "成功短结果不该出展开区(展开了还是那一行 = 假承诺)");
   assert(!x2.classList.contains("has-detail"), "成功短结果不该标 has-detail");
 
+  // 结构化终态:no-op/受控拒绝/真实故障必须三分，不能继续全部画成红叉。
+  index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "XNOOP", name: "edit", summary: "ui/noop.js" } });
+  toolEnd({ payload: { id: "XNOOP", name: "edit", ok: false, outcome: "noop", code: "EDIT_IDENTICAL_INPUT", preview: "无需修改", display: null } });
+  await flush();
+  const xNoop = toolMsgAt(index);
+  assert(xNoop.classList.contains("noop") && !xNoop.classList.contains("err"), "no-op 仍被渲染成真实失败");
+  assert(xNoop.querySelector(".tool-msg-status")?.textContent === "↪", "no-op 缺少独立形状标记");
+
+  index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "XWARN", name: "edit", summary: "ui/warn.js" } });
+  toolEnd({ payload: { id: "XWARN", name: "edit", ok: false, outcome: "needs_correction", code: "EDIT_ANCHOR_NOT_FOUND", preview: "请重读锚点", display: null } });
+  await flush();
+  const xWarn = toolMsgAt(index);
+  assert(xWarn.classList.contains("warn") && !xWarn.classList.contains("err"), "受控拒绝仍被渲染成真实失败");
+  assert(xWarn.querySelector(".tool-msg-status")?.textContent === "⚠", "受控拒绝缺少警告形状标记");
+  const warnActivity = document.querySelector("#bg-list .bg-entry[data-bg-id=XWARN]");
+  assert(warnActivity?.dataset.bgStatus === "warn", "活动栏没有保留受控拒绝终态");
+
+  index = document.querySelectorAll("#messages .tool-msg").length;
+  toolStart({ payload: { id: "XFAIL", name: "edit", summary: "ui/fail.js" } });
+  toolEnd({ payload: { id: "XFAIL", name: "edit", ok: false, outcome: "failed", code: "EDIT_WRITE_FAILED", preview: "磁盘写入失败", display: null } });
+  await flush();
+  const xFail = toolMsgAt(index);
+  assert(xFail.classList.contains("err"), "真实执行故障没有保留失败态");
+  assert(xFail.querySelector(".tool-msg-status")?.textContent === "✗", "真实执行故障图标漂移");
+
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
   index = document.querySelectorAll("#messages .tool-msg").length;
   toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js" } });

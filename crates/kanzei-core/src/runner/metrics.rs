@@ -54,6 +54,11 @@ pub struct RunMetrics {
     /// 工具调用总次数与失败次数。
     pub total_calls: usize,
     pub failed_calls: usize,
+    /// 工具按设计拒绝了调用(no-op/需要修正/需要确认),不计真实故障。
+    #[serde(default)]
+    pub tool_rejections: usize,
+    #[serde(default)]
+    pub edit_rejections: usize,
     /// R-100 冗余机械门禁触发计数(就地提醒,不阻断):同一工作树无变化的重复
     /// git status/diff、无文件变更的重复全量测试、缺陷记录已含路径仍调 task。
     /// 提醒文本带 `[冗余提醒]` 前缀进入工具结果,这里按前缀归类计数。
@@ -130,6 +135,15 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
                         }
                         continue;
                     }
+                    if is_expected_tool_rejection(content) {
+                        metrics.tool_rejections += 1;
+                        if let Some((name, _)) = calls.get(call_id) {
+                            if name == "edit" || name == "multiedit" || name == "insert" {
+                                metrics.edit_rejections += 1;
+                            }
+                        }
+                        continue;
+                    }
                     metrics.failed_calls += 1;
                     if let Some((name, _)) = calls.get(call_id) {
                         if name == "edit" || name == "multiedit" {
@@ -142,6 +156,16 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
         }
     }
     metrics
+}
+
+/// ToolOutput 回喂模型时为预期拒绝附加的稳定头。旧轨迹没有该头,自然按旧语义统计。
+pub(crate) fn is_expected_tool_rejection(content: &str) -> bool {
+    let Some(header) = content.lines().next() else {
+        return false;
+    };
+    header.starts_with("[tool_outcome=noop ")
+        || header.starts_with("[tool_outcome=needs_correction ")
+        || header.starts_with("[tool_outcome=needs_confirmation ")
 }
 
 pub(crate) fn is_git_query(input: &serde_json::Value) -> bool {
@@ -266,6 +290,9 @@ pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
                         continue;
                     };
                     if *is_error {
+                        if is_expected_tool_rejection(content) {
+                            continue;
+                        }
                         let kind = failure_kind(content);
                         let position = match signals
                             .iter()
@@ -530,6 +557,30 @@ mod tests {
 
         // 无 edit 时未命中率是 0 而不是除零。
         assert_eq!(summarize_metrics(&[]).edit_miss_rate(), 0.0);
+    }
+
+    #[test]
+    fn 受控拒绝不污染真实失败指标和记忆信号() {
+        let messages = vec![
+            call("e1", "edit", "path", "src/lib.rs"),
+            result(
+                "e1",
+                "[tool_outcome=needs_correction code=EDIT_INSERTION_WOULD_REPLACE_ANCHOR]\n请改用 insert",
+                true,
+            ),
+            call("e2", "edit", "path", "src/lib.rs"),
+            result(
+                "e2",
+                "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\n无需修改",
+                true,
+            ),
+        ];
+        let metrics = summarize_metrics(&messages);
+        assert_eq!(metrics.tool_rejections, 2);
+        assert_eq!(metrics.edit_rejections, 2);
+        assert_eq!(metrics.failed_calls, 0);
+        assert_eq!(metrics.edit_misses, 0);
+        assert!(summarize_failures(&messages).is_empty());
     }
 
     #[test]

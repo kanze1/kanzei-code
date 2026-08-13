@@ -271,11 +271,24 @@ function buildToolBlock(name, input) {
 
 /// 收尾:状态图标 + 结果摘要行 + 折叠详情(摘要之外的剩余输出 + 完整入参)。
 /// ⎿ 行与详情是同一份文本切出来的两段,同一段文字在一个工具块里只出现一次。
-function fillToolBlock(block, { ok, content, display, input }) {
+function toolOutcomeView(ok, outcome) {
+  const state = outcome || (ok ? "success" : "failed");
+  if (state === "noop") return { state, cls: "noop", icon: "↪" };
+  if (state === "needs_correction" || state === "needs_confirmation") {
+    return { state, cls: "warn", icon: "⚠" };
+  }
+  return state === "success"
+    ? { state, cls: "ok", icon: "⏺" }
+    : { state, cls: "err", icon: "✗" };
+}
+
+function fillToolBlock(block, { ok, outcome, content, display, input }) {
+  const view = toolOutcomeView(ok, outcome);
   block.wrap.classList.remove("running");
-  block.wrap.classList.add(ok ? "ok" : "err");
+  block.wrap.classList.add(view.cls);
+  block.wrap.dataset.toolOutcome = view.state;
   // 形状与颜色双重区分:只靠颜色对色盲不可辨(D-105 无障碍口径)。
-  block.icon.textContent = ok ? "⏺" : "✗";
+  block.icon.textContent = view.icon;
   const { text: summary, rest } = toolResultSplit(content, !ok);
   block.result.textContent = `⎿ ${summary}`;
   block.result.classList.remove("hidden");
@@ -363,14 +376,14 @@ function chatToolStart(id, name, summary, input) {
   }
   scrollBottom();
 }
-function chatToolEnd(id, ok, preview, display) {
+function chatToolEnd(id, ok, preview, display, outcome) {
   const block = chatToolBlocks.get(id);
   if (!block) return;
   // 注意语义:实时事件里的 preview 是后端 runner::preview 的单行摘要(首行 120 字 +
   // " (+N lines)"),不是完整输出。展开区因此只会拿到这一行的尾巴——这是事实,别为了
   // "聊天里也想看全输出"再往 detail 里塞一份 preview,那正是双写的来路。完整输出看
   // 活动面板的 terminal display(走 display.full)或历史回放。
-  fillToolBlock(block, { ok, content: preview, display });
+  fillToolBlock(block, { ok, outcome, content: preview, display });
 }
 
 let currentReasoningHead = null;

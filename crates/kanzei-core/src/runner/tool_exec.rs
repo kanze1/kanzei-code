@@ -117,14 +117,17 @@ pub(crate) async fn execute_prepared_tools(
                         id: id.clone(),
                         name,
                         ok: !output.is_error,
+                        outcome: output.outcome.as_str().into(),
+                        code: output.code.map(str::to_owned),
                         preview: preview(&output.content),
                         display: output.display.clone(),
                     });
+                    let model_content = output.model_content();
                     results.push((
                         index,
                         Part::ToolResult {
                             call_id: id,
-                            content: output.content,
+                            content: model_content,
                             is_error: output.is_error,
                         },
                     ));

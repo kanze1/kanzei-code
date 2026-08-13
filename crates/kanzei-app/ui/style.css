@@ -869,6 +869,8 @@ button:disabled { opacity: .45; cursor: default; }
 .bg-entry .bg-meta { color: var(--dim); font-size: 10.5px; }
 .bg-entry.running .bg-title::before { content: "● "; color: var(--warn); animation: pulse 1s infinite; }
 .bg-entry.ok .bg-title::before { content: "✓ "; color: var(--ok); }
+.bg-entry.noop .bg-title::before { content: "↪ "; color: var(--dim); }
+.bg-entry.warn .bg-title::before { content: "⚠ "; color: var(--warn, #e0af68); }
 .bg-entry.err .bg-title::before { content: "✗ "; color: var(--err); }
 .bg-entry.has-detail .bg-title { cursor: pointer; }
 /* R-095:工具名与目标分列——拼成一行长文本会被 ellipsis 从尾部截掉,
@@ -984,6 +986,8 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .bg-child-head { color: var(--info); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bg-child-meta { color: var(--dim); margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
 .bg-child.ok { border-left-color: var(--ok); }
+.bg-child.noop { border-left-color: var(--dim); }
+.bg-child.warn { border-left-color: var(--warn, #e0af68); }
 .bg-child.err { border-left-color: var(--err); }
 .bg-child.running { border-left-color: var(--warn); }
 .bg-detail.hidden { display: none; }
@@ -1405,6 +1409,8 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .tool-msg-status { width: 12px; flex: none; }
 .tool-msg.running .tool-msg-status { color: var(--accent); }
 .tool-msg.ok .tool-msg-status { color: var(--ok, #9ece6a); }
+.tool-msg.noop .tool-msg-status { color: var(--dim, #8a8a8a); }
+.tool-msg.warn .tool-msg-status { color: var(--warn, #e0af68); }
 .tool-msg.err .tool-msg-status { color: var(--err, #f7768e); }
 .tool-msg-name { font-weight: 600; flex: none; }
 .tool-msg-arg {
@@ -1417,6 +1423,7 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tool-msg.err .tool-msg-result { color: var(--err, #f7768e); }
+.tool-msg.warn .tool-msg-result { color: var(--warn, #e0af68); }
 .tool-msg-detail { margin: 2px 0 6px 18px; }
 .tool-msg-raw {
   margin: 2px 0; padding: 6px 8px; font-size: 11.5px; line-height: 1.45;

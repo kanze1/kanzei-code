@@ -193,7 +193,12 @@ on("kz:task-progress", (e) => {
 });
 on("kz:tool-end", (e) => {
   const p = e.payload;
-  log(`${t("工具结果")} ${p.name}: ${p.ok ? t("成功") : t("失败")} — ${p.preview}`, p.ok ? "" : "warn");
+  const outcome = p.outcome || (p.ok ? "success" : "failed");
+  const outcomeLabel = outcome === "noop" ? t("无需修改")
+    : outcome === "needs_confirmation" ? t("需要确认")
+      : outcome === "needs_correction" ? t("需要修正")
+        : p.ok ? t("成功") : t("失败");
+  log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${p.preview}`, outcome === "success" ? "" : "warn");
   // 工作焦点:req/defect/goal 的增改结果最能代表"它在干哪件事"。
   if (p.ok && ["req", "defect", "goal"].includes(p.name)) {
     liveSet("live-focus", `◉ ${p.preview.replace(/^(updated|added):?\s*/, "").slice(0, 60)}`);
@@ -218,7 +223,7 @@ on("kz:tool-end", (e) => {
   if (p.display?.kind === "todo") {
     renderTodoPanel(p.display.items || [], p.display.done || 0, p.display.total || 0);
   }
-  chatToolEnd(p.id, p.ok, p.preview, p.display);
+  chatToolEnd(p.id, p.ok, p.preview, p.display, outcome);
   recordDiffSummary(p.display);
   // R-174:子代理终态进子代理面板 finished 区(task 类顶层 tool-end 只来自父任务收尾,
   // 或被停后补发)。
@@ -226,7 +231,7 @@ on("kz:tool-end", (e) => {
   // 活动栏统一保留工具轨迹；历史兼容待定路径仍由 bgFinishQuiet 收尾，
   // 随后由 bgEnd 更新完成态和错误详情。
   bgFinishQuiet(p.id, p.ok);
-  bgEnd(p.id, p.ok, p.preview, p.display);
+  bgEnd(p.id, p.ok, p.preview, p.display, outcome);
   setStatus("运行中", true);
 });
 on("kz:step", (e) => {
@@ -316,15 +321,15 @@ on("kz:idle", () => {
 
 on("kz:done", async (e) => {
   const p = e.payload;
-  setAutoStopReason(p.halted ? t("用户拒绝后停止") : t("本轮完成"));
+  setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : t("本轮完成"));
 
   addMessage(
     "notice",
-    `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按你的拒绝停止")}` : ""}`
+    `${t("完成")} · steps ${p.steps}${p.history ? ` · 会话 ${p.history} 条` : ""}${p.halted ? ` · ${t("按停止/拒绝收尾")}` : ""}`
   );
   log(`${t("运行完成")}: ${p.steps} ${t("轮")}, ${t("耗时")} ${((Date.now() - runStart) / 1000).toFixed(1)}s`);
   stopElapsed();
-  notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按你的拒绝停止") : `${t("完成")} ${p.steps} ${t("轮")}`);
+  notifyRunState(p.halted ? "stopped" : "completed", p.halted ? t("按停止/拒绝收尾") : `${t("完成")} ${p.steps} ${t("轮")}`);
   // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
   // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
   if (p.sessionId) refreshParallelTaskProjection(p.sessionId);

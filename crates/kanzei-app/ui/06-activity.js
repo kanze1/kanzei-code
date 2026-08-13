@@ -633,8 +633,10 @@ function bgProgress(id, text, trace) {
       entry.el.classList.add("has-detail");
     }
   } else if (child) {
+    const view = activityOutcomeView(trace.ok, trace.outcome);
     child.row.classList.remove("running");
-    child.row.classList.add(trace.ok ? "ok" : "err");
+    child.row.classList.add(view.cls);
+    child.row.dataset.toolOutcome = view.state;
     child.meta.textContent = trace.preview || (trace.ok ? t("完成") : t("失败"));
     appendDisplayBlock(child.row, trace.display);
   }
@@ -642,9 +644,17 @@ function bgProgress(id, text, trace) {
   if (!entry.done) bgTick(entry);
 }
 
-function bgEnd(id, ok, preview, display) {
+function activityOutcomeView(ok, outcome) {
+  const state = outcome || (ok ? "success" : "failed");
+  if (state === "noop") return { state, cls: "noop" };
+  if (state === "needs_correction" || state === "needs_confirmation") return { state, cls: "warn" };
+  return state === "success" ? { state, cls: "ok" } : { state, cls: "err" };
+}
+
+function bgEnd(id, ok, preview, display, outcome) {
   const entry = bgEntries.get(id);
   if (!entry) return;
+  const view = activityOutcomeView(ok, outcome);
   // 实时流是执行期的临时视图,终态由 display 的完整输出接管,避免同一份输出双份并存。
   if (entry.live) {
     entry.live.remove();
@@ -652,19 +662,31 @@ function bgEnd(id, ok, preview, display) {
   }
   entry.done = true;
   entry.el.classList.remove("running");
-  entry.el.classList.add(ok ? "ok" : "err");
+  entry.el.classList.add(view.cls);
+  entry.el.dataset.toolOutcome = view.state;
   // 超时角色后端固定发 ok=false + preview「(超时,未产出结果)」。它与"跑了但失败"
   // 是两回事:超时说明该角色被屏障砍掉、什么都没产出,视觉上必须能与失败分开。
   const timedOut = !ok && /超时/.test(String(preview ?? ""));
   if (timedOut) entry.el.classList.add("timeout");
-  entry.el.dataset.bgStatus = ok ? "ok" : timedOut ? "timeout" : "err";
+  entry.el.dataset.bgStatus = timedOut ? "timeout" : view.cls;
   bgSetCurrentTool(entry, null, false);
   entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
   // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
   // 看不出成没成,也看不出子代理到底干了多少活(R-095 验收 ⑤)。
   const ms = Date.now() - entry.startedAt;
   const elapsed = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-  const bits = [ok ? `✓ ${t("成功")}` : timedOut ? `⏱ ${t("超时")}` : `✕ ${t("失败")}`, elapsed];
+  const statusText = view.state === "noop"
+    ? `↪ ${t("无需修改")}`
+    : view.state === "needs_confirmation"
+      ? `⚠ ${t("需要确认")}`
+      : view.state === "needs_correction"
+        ? `⚠ ${t("需要修正")}`
+        : ok
+          ? `✓ ${t("成功")}`
+          : timedOut
+            ? `⏱ ${t("超时")}`
+            : `✕ ${t("失败")}`;
+  const bits = [statusText, elapsed];
   if (entry.type === "agent") bits.push(`${t("内部调用")} ${entry.children.size}`);
   entry.meta.textContent = bits.join(" · ");
   // 结构化详情进面板内展开区(diff/终端/新建/todo)。
@@ -675,7 +697,7 @@ function bgEnd(id, ok, preview, display) {
     entry.target.textContent += `  +${d.additions} −${d.deletions}`;
   }
   appendDisplayBlock(entry.detail, d);
-  if (!ok && preview) {
+  if (view.state === "failed" && preview) {
     const err = document.createElement("div");
     err.className = "tool-display term";
     err.textContent = preview;
@@ -705,10 +727,13 @@ function renderRecoveredTraces(payloads) {
         if (bgFinishQuiet(event.id, event.ok !== false)) continue;
         const entry = bgEntries.get(event.id);
         if (!entry) continue;
+        const view = activityOutcomeView(event.ok !== false, event.outcome);
         entry.done = true;
         entry.el.classList.remove("running");
         const failed = event.ok === false;
-        entry.el.classList.add(failed ? "err" : "ok");
+        entry.el.classList.add(view.cls);
+        entry.el.dataset.toolOutcome = view.state;
+        entry.el.dataset.bgStatus = view.cls;
         entry.prog.textContent = failed && event.error ? String(event.error) : t("历史轨迹");
         const seconds = Number(event.durationMs);
         entry.meta.textContent =

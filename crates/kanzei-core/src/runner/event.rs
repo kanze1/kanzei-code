@@ -11,6 +11,8 @@ pub struct TaskTrace {
     pub name: String,
     pub summary: Option<String>,
     pub ok: Option<bool>,
+    pub outcome: Option<String>,
+    pub code: Option<String>,
     pub preview: Option<String>,
     pub display: Option<serde_json::Value>,
     /// R-174:子代理内部工具调用的**完整入参** JSON(transcript 数据源,验收⑤)。
@@ -50,6 +52,10 @@ pub enum RunEvent {
         id: String,
         name: String,
         ok: bool,
+        /// 机器可读终态:success|noop|needs_correction|needs_confirmation|failed。
+        outcome: String,
+        /// 稳定错误码；文案变化不应影响恢复策略、指标或 UI 分类。
+        code: Option<String>,
         preview: String,
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,

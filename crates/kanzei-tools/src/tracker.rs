@@ -70,6 +70,12 @@ struct TrackerInput {
     /// 排期优先级(取值见 enum);与 severity 不是一回事,别互相代填
     #[serde(default)]
     priority: Option<String>,
+    /// add/update 的受控标签；写入文档字段「标签」。
+    #[serde(default)]
+    tag: Option<String>,
+    /// requirement add/update 的复杂度(小|中|大)；写入文档字段「复杂度」。
+    #[serde(default)]
+    complexity: Option<String>,
     /// 自由字段,如 {"验收": "...", "复现": "..."}
     #[serde(default)]
     fields: BTreeMap<String, String>,
@@ -128,6 +134,12 @@ impl Tool for TrackerTool {
         if self.requires_refs.is_some() {
             d.push_str(" `refs` (source IDs) is REQUIRED on add.");
         }
+        if self.kind.tags.is_some() {
+            d.push_str(" On add, pass the controlled `tag` as a top-level field.");
+        }
+        if self.kind.priorities.is_some() && self.kind.severities.is_none() {
+            d.push_str(" Requirement add also requires top-level `complexity` (小|中|大).");
+        }
         d
     }
 
@@ -149,7 +161,7 @@ impl Tool for TrackerTool {
             "raw_delete",
         ];
         actions.extend_from_slice(REPAIR_ACTIONS);
-        let enums: [(&str, Option<Vec<String>>); 4] = [
+        let enums: [(&str, Option<Vec<String>>); 6] = [
             (
                 "action",
                 Some(actions.iter().map(|s| s.to_string()).collect()),
@@ -169,6 +181,17 @@ impl Tool for TrackerTool {
                 self.kind
                     .priorities
                     .map(|values| values.iter().map(|s| s.to_string()).collect()),
+            ),
+            (
+                "tag",
+                self.kind
+                    .tags
+                    .map(|values| values.iter().map(|s| s.to_string()).collect()),
+            ),
+            (
+                "complexity",
+                (self.kind.priorities.is_some() && self.kind.severities.is_none())
+                    .then(|| ["小", "中", "大"].into_iter().map(str::to_string).collect()),
             ),
         ];
         for (field, values) in enums {
@@ -192,6 +215,33 @@ impl Tool for TrackerTool {
                 slot.insert("enum".into(), serde_json::json!(values));
             }
         }
+        let mut required = vec!["title"];
+        if self.kind.priorities.is_some() {
+            required.push("priority");
+        }
+        if self.kind.severities.is_some() {
+            required.push("severity");
+        }
+        if self.kind.tags.is_some() {
+            required.push("tag");
+        }
+        if self.kind.priorities.is_some() && self.kind.severities.is_none() {
+            required.push("complexity");
+        }
+        if self.requires_refs.is_some() {
+            required.push("refs");
+        }
+        let mut then_schema = serde_json::json!({ "required": required });
+        if self.requires_refs.is_some() {
+            then_schema["properties"] = serde_json::json!({ "refs": { "minItems": 1 } });
+        }
+        schema["allOf"] = serde_json::json!([{
+            "if": {
+                "properties": { "action": { "const": "add" } },
+                "required": ["action"]
+            },
+            "then": then_schema
+        }]);
         schema
     }
 
@@ -211,10 +261,17 @@ impl Tool for TrackerTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: TrackerInput = match crate::parse_input(self, input) {
+        let mut input: TrackerInput = match crate::parse_input(self, input) {
             Ok(v) => v,
             Err(out) => return out,
         };
+        // 顶层结构化字段落到既有文档字段体系；顶层值优先，避免同一调用双写冲突。
+        if let Some(tag) = input.tag.take() {
+            input.fields.insert("标签".into(), tag);
+        }
+        if let Some(complexity) = input.complexity.take() {
+            input.fields.insert("复杂度".into(), complexity);
+        }
         if input.action == "list"
             && matches!(self.kind.prefix, "R" | "D")
             && !matches!(
@@ -429,6 +486,9 @@ impl Tool for TrackerTool {
                 if let Some(tag_err) = self.check_tag(&input.fields) {
                     return ToolOutput::error(tag_err);
                 }
+                if let Some(complexity_err) = self.check_complexity(&input.fields) {
+                    return ToolOutput::error(complexity_err);
+                }
                 let mut fields: Vec<(String, String)> = input.fields.into_iter().collect();
                 if !input.refs.is_empty() {
                     fields.push(("refs".into(), input.refs.join(" ")));
@@ -554,6 +614,9 @@ impl Tool for TrackerTool {
                 if let Some(tag_err) = self.check_tag(&input.fields) {
                     return ToolOutput::error(tag_err);
                 }
+                if let Some(complexity_err) = self.check_complexity(&input.fields) {
+                    return ToolOutput::error(complexity_err);
+                }
                 // 新建没有既有批次值:严格按上限约束。
                 if let Some(batch_err) = self.check_batches(&input.fields, None) {
                     return ToolOutput::error(batch_err);
@@ -620,6 +683,9 @@ impl Tool for TrackerTool {
                 }
                 if let Some(tag_err) = self.check_tag(&input.fields) {
                     return ToolOutput::error(tag_err);
+                }
+                if let Some(complexity_err) = self.check_complexity(&input.fields) {
+                    return ToolOutput::error(complexity_err);
                 }
                 // 以条目现有的批次总数为基准:存量 >10 的条目照常逐批推进,只拦抬高。
                 if let Some(batch_err) = self.check_batches(&input.fields, Some(&entries[pos])) {
@@ -1340,6 +1406,21 @@ impl TrackerTool {
                 bad.join(" "),
                 valid.join(" | ")
             ))
+        }
+    }
+
+    fn check_complexity(&self, fields: &BTreeMap<String, String>) -> Option<String> {
+        if self.kind.priorities.is_none() || self.kind.severities.is_some() {
+            return None;
+        }
+        let (_, value) = fields
+            .iter()
+            .find(|(key, _)| **key == "复杂度" || key.eq_ignore_ascii_case("complexity"))?;
+        let value = value.trim();
+        if ["小", "中", "大"].contains(&value) {
+            None
+        } else {
+            Some(format!("invalid complexity `{value}`; valid: 小 | 中 | 大"))
         }
     }
 
@@ -4145,6 +4226,11 @@ mod tests {
             schema["properties"]["priority"]["enum"],
             json!(["P0", "P1", "P2", "P3"])
         );
+        assert!(schema["properties"].get("complexity").is_none());
+        let defect_required = schema["allOf"][0]["then"]["required"].as_array().unwrap();
+        for field in ["title", "severity", "priority", "tag"] {
+            assert!(defect_required.iter().any(|value| value == field));
+        }
         assert_eq!(
             schema["properties"]["status"]["enum"],
             json!(["open", "fixing", "fixed", "wontfix"])
@@ -4176,6 +4262,18 @@ mod tests {
             schema["properties"]["priority"]["enum"],
             json!(["P0", "P1", "P2", "P3"])
         );
+        assert_eq!(
+            schema["properties"]["complexity"]["enum"],
+            json!(["小", "中", "大"])
+        );
+        assert_eq!(
+            schema["properties"]["tag"]["enum"],
+            json!(["核心", "后端", "前端", "模型", "发布", "流程"])
+        );
+        let req_required = schema["allOf"][0]["then"]["required"].as_array().unwrap();
+        for field in ["title", "priority", "tag", "complexity"] {
+            assert!(req_required.iter().any(|value| value == field));
+        }
     }
 
     #[tokio::test]
@@ -4716,6 +4814,32 @@ mod tests {
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
+
+        // schema 暴露的顶层字段必须直接可执行，不能再逼模型猜 fields 中文键。
+        let out = req_tool
+            .execute(
+                json!({"action": "add", "title": "顶层字段", "priority": "P2",
+                       "complexity": "小", "tag": "后端"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let req_text = std::fs::read_to_string(dir.join(REQUIREMENTS.rel_path)).unwrap();
+        assert!(req_text.contains("- 复杂度: 小"), "{req_text}");
+        assert!(req_text.contains("- 标签: 后端"), "{req_text}");
+        let invalid = req_tool
+            .execute(
+                json!({"action": "add", "title": "非法复杂度", "priority": "P2",
+                       "complexity": "巨大", "tag": "后端"}),
+                &ctx,
+            )
+            .await;
+        assert!(invalid.is_error);
+        assert!(
+            invalid.content.contains("valid: 小 | 中 | 大"),
+            "{}",
+            invalid.content
+        );
 
         // defect:缺 severity → 拒绝;补全 → 放行。
         let def_tool = TrackerTool {

@@ -161,7 +161,7 @@ impl Component for DevProfile {
         // 每条 deny 都必须挂上它的合法替代路径:resolve 会校验那个工具真的注册了,
         // 拒绝理由也由此推导,不会再固定说一句不存在的 "use the dedicated tool"。
         // 顺序=特化在前、兜底在后;managed_for 取首个命中。
-        for action in ["write", "edit"] {
+        for action in ["write", "edit", "insert"] {
             for (resource, tool, note) in [
                 (
                     "*.kanzei/project/architecture/*",
@@ -517,9 +517,18 @@ impl Component for DevProfile {
                          Never run a full suite while a file is still mid-edit, and never \
                          re-run a suite that nothing changed since. The release gate \
                          (verify.ps1) and CI run their own full suite; that one is not \
-                         yours to skip. Editing files: use \
-                         `edit`; if it misses twice it shows the file's real content — align \
-                         to that, never rewrite whole files via shell. Memory: BEFORE \
+                         yours to skip. Before the first write for a medium or large change, \
+                         emit a compact Design freeze with exactly four facts: invariants, \
+                         authoritative data sources, files expected to change, and minimum \
+                         tests. Keep that contract stable during implementation; revise it \
+                         only when new read or test evidence invalidates a fact. Editing files: use \
+                         `edit` for replacement and `insert` for additions; both show actual \
+                         file context on the first anchor mismatch — align to that, never \
+                         retry the same-shaped call or rewrite whole files via shell. Recovery \
+                         is deterministic: an insertion-clobber rejection means switch to \
+                         `insert`; a missing/non-unique anchor means re-read and rebuild the \
+                         anchor; identical old/new means stop and re-check whether work remains. \
+                         Memory: BEFORE \
                          exploring a problem the memory index hints at, `memory_search` it; \
                          facts you confirmed that future sessions would otherwise re-derive \
                          (root causes, environment constraints, user decisions, dead ends) \
@@ -604,7 +613,7 @@ impl Component for ResearchProfile {
         );
 
         // 写权限收窄:仅 .kanzei/research/** 可写(report.md 等自由写作);其余 deny。
-        for action in ["write", "edit"] {
+        for action in ["write", "edit", "insert"] {
             draft.permissions.push(rule(action, "*", Effect::Deny));
             draft
                 .permissions
@@ -690,11 +699,11 @@ impl Component for ReadonlyProfile {
         // 写与命令:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
         // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
         // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
-        for action in ["write", "edit", "bash"] {
+        for action in ["write", "edit", "insert", "bash"] {
             draft.permissions.push_managed_hard_deny(
                 rule(action, "*", Effect::Deny),
                 None,
-                Some("只读档位:write/edit/bash 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
+                Some("只读档位:write/edit/insert/bash 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改则告诉用户手动执行"),
             );
         }
         // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。
@@ -911,6 +920,23 @@ mod tests {
             "旧口径残留:提示词仍要求「每次提交前全量一次」,与 §1.4 的\
              「中/大条目关闭前」直接冲突。"
         );
+    }
+
+    #[test]
+    fn dev_system_prompt_freezes_design_and_maps_edit_recovery() {
+        let system = dev_system_prompt("r236-design-freeze");
+        assert!(system.contains("Design freeze"));
+        for fact in [
+            "invariants",
+            "authoritative data sources",
+            "files expected to change",
+            "minimum tests",
+        ] {
+            assert!(system.contains(fact), "missing design-freeze fact: {fact}");
+        }
+        assert!(system.contains("insertion-clobber rejection means switch to `insert`"));
+        assert!(system.contains("missing/non-unique anchor means re-read"));
+        assert!(system.contains("identical old/new means stop"));
     }
 
     /// 三条定调的两份真源必须同口径:通用规则由引擎模板注入(R-191 单源,
@@ -1461,7 +1487,7 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
 
         // 写与命令:整体 deny(工具会被摘除,模型看不见)。
-        for action in ["write", "edit", "bash"] {
+        for action in ["write", "edit", "insert", "bash"] {
             assert_eq!(
                 snapshot.evaluate(action, "*"),
                 Effect::Deny,
@@ -1495,7 +1521,7 @@ mod tests {
             .iter()
             .map(|t| t.name())
             .collect();
-        for gone in ["write", "edit", "bash"] {
+        for gone in ["write", "edit", "insert", "bash"] {
             assert!(
                 !names.contains(&gone),
                 "{gone} 应被整体摘除,实际工具表: {names:?}"
@@ -1511,7 +1537,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("快照里缺少 {action}"))
         };
         // 写/命令:Deny 且 fully_denied(工具整体摘除)。
-        for action in ["write", "edit", "bash"] {
+        for action in ["write", "edit", "insert", "bash"] {
             let item = by_action(action);
             assert_eq!(item.effect, Effect::Deny, "{action} 快照应为 Deny");
             assert!(item.fully_denied, "{action} 快照应标记 fully_denied");

@@ -519,6 +519,8 @@ pub fn run_once_with_parts<'a>(
                             id: id.clone(),
                             name: "task".into(),
                             ok: false,
+                            outcome: output.outcome.as_str().into(),
+                            code: output.code.map(str::to_owned),
                             preview: preview(&output.content),
                             display: output.display.clone(),
                         });
@@ -654,6 +656,8 @@ pub fn run_once_with_parts<'a>(
                                             id: id.clone(),
                                             name: "task".into(),
                                             ok: !output.is_error,
+                                            outcome: output.outcome.as_str().into(),
+                                            code: output.code.map(str::to_owned),
                                             preview: preview(&output.content),
                                             display: output.display.clone(),
                                         });
@@ -737,9 +741,10 @@ pub fn run_once_with_parts<'a>(
                         let output = task_results.remove(&id).unwrap_or_else(|| {
                             kanzei_harness::ToolOutput::error("internal: task result missing")
                         });
+                        let model_content = output.model_content();
                         slots[index] = Some(Part::ToolResult {
                             call_id: id,
-                            content: output.content,
+                            content: model_content,
                             is_error: output.is_error,
                         });
                         continue;
@@ -782,12 +787,15 @@ pub fn run_once_with_parts<'a>(
                             id: id.clone(),
                             name,
                             ok: false,
+                            outcome: output.outcome.as_str().into(),
+                            code: output.code.map(str::to_owned),
                             preview: preview(&output.content),
                             display: None,
                         });
+                        let model_content = output.model_content();
                         slots[index] = Some(Part::ToolResult {
                             call_id: id,
-                            content: output.content,
+                            content: model_content,
                             is_error: true,
                         });
                         continue;
@@ -830,9 +838,10 @@ pub fn run_once_with_parts<'a>(
                         let output = task_results.remove(&id).unwrap_or_else(|| {
                             kanzei_harness::ToolOutput::error("internal: task result missing")
                         });
+                        let model_content = output.model_content();
                         results.push(Part::ToolResult {
                             call_id: id,
-                            content: output.content,
+                            content: model_content,
                             is_error: output.is_error,
                         });
                         continue;
@@ -916,12 +925,15 @@ pub fn run_once_with_parts<'a>(
                             id: id.clone(),
                             name: name.clone(),
                             ok: !output.is_error,
+                            outcome: output.outcome.as_str().into(),
+                            code: output.code.map(str::to_owned),
                             preview: preview(&output.content),
                             display: output.display.clone(),
                         });
+                        let model_content = output.model_content();
                         results.push(Part::ToolResult {
                             call_id: id,
-                            content: output.content,
+                            content: model_content,
                             is_error: output.is_error,
                         });
                         continue;
@@ -1047,6 +1059,8 @@ pub fn run_once_with_parts<'a>(
                                 id: id.clone(),
                                 name: name.clone(),
                                 ok: false,
+                                outcome: "failed".into(),
+                                code: Some("USER_DECLINED".into()),
                                 preview: "(user declined)".into(),
                                 display: None,
                             });
@@ -1111,12 +1125,15 @@ pub fn run_once_with_parts<'a>(
                         id: id.clone(),
                         name: name.clone(),
                         ok: !output.is_error,
+                        outcome: output.outcome.as_str().into(),
+                        code: output.code.map(str::to_owned),
                         preview: preview(&output.content),
                         display: output.display.clone(),
                     });
+                    let model_content = output.model_content();
                     results.push(Part::ToolResult {
                         call_id: id,
-                        content: output.content,
+                        content: model_content,
                         is_error: output.is_error,
                     });
                 }

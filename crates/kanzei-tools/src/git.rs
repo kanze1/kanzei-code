@@ -978,6 +978,7 @@ async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) ->
         content,
         is_error,
         display,
+        ..
     } = staged;
     if is_error {
         return ToolOutput::error(format!("[finalize] stage failed:\n{content}"));

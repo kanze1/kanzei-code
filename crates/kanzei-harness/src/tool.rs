@@ -1,6 +1,39 @@
 use async_trait::async_trait;
 use serde_json::Value;
 
+/// 工具终态的机器可读分类。
+///
+/// `is_error` 仍保留给 provider 协议：需要模型修正/确认的调用必须继续以 error
+/// 回喂，不能让模型误以为已经落盘。`outcome` 服务于 UI、轨迹、指标与记忆，避免
+/// 把安全拒绝、no-op 和真实执行故障揉成同一种“失败”。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolOutcome {
+    Success,
+    NoOp,
+    NeedsCorrection,
+    NeedsConfirmation,
+    Failed,
+}
+
+impl ToolOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::NoOp => "noop",
+            Self::NeedsCorrection => "needs_correction",
+            Self::NeedsConfirmation => "needs_confirmation",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn is_expected_rejection(self) -> bool {
+        matches!(
+            self,
+            Self::NoOp | Self::NeedsCorrection | Self::NeedsConfirmation
+        )
+    }
+}
+
 /// 工具执行上下文。
 #[derive(Debug, Clone)]
 pub struct ToolCtx {
@@ -145,6 +178,10 @@ impl ToolConcurrency {
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// UI/轨迹/指标使用的结构化终态；与 provider 的 `is_error` 正交。
+    pub outcome: ToolOutcome,
+    /// 稳定错误码，供恢复策略和离线评估使用；人类文案可独立演进。
+    pub code: Option<&'static str>,
     /// 面向 UI 的结构化展示(diff/终端块等),模型看不到,只给人看。
     /// 形如 {"kind":"diff","path":...,"diff":...} / {"kind":"terminal",...}。
     pub display: Option<serde_json::Value>,
@@ -155,6 +192,8 @@ impl ToolOutput {
         ToolOutput {
             content: content.into(),
             is_error: false,
+            outcome: ToolOutcome::Success,
+            code: None,
             display: None,
         }
     }
@@ -163,7 +202,58 @@ impl ToolOutput {
         ToolOutput {
             content: content.into(),
             is_error: true,
+            outcome: ToolOutcome::Failed,
+            code: None,
             display: None,
+        }
+    }
+
+    pub fn noop(code: &'static str, content: impl Into<String>) -> Self {
+        Self::rejected(ToolOutcome::NoOp, code, content)
+    }
+
+    pub fn needs_correction(code: &'static str, content: impl Into<String>) -> Self {
+        Self::rejected(ToolOutcome::NeedsCorrection, code, content)
+    }
+
+    pub fn needs_confirmation(code: &'static str, content: impl Into<String>) -> Self {
+        Self::rejected(ToolOutcome::NeedsConfirmation, code, content)
+    }
+
+    pub fn failed(code: &'static str, content: impl Into<String>) -> Self {
+        ToolOutput {
+            content: content.into(),
+            is_error: true,
+            outcome: ToolOutcome::Failed,
+            code: Some(code),
+            display: None,
+        }
+    }
+
+    fn rejected(outcome: ToolOutcome, code: &'static str, content: impl Into<String>) -> Self {
+        debug_assert!(outcome.is_expected_rejection());
+        ToolOutput {
+            content: content.into(),
+            // provider 仍须把它当成需要处理的结果，避免 no-op/保护门禁被当完成。
+            is_error: true,
+            outcome,
+            code: Some(code),
+            display: None,
+        }
+    }
+
+    /// 回喂模型的内容携带稳定机器头；UI 继续使用无头的 `content`。
+    pub fn model_content(&self) -> String {
+        if !self.outcome.is_expected_rejection() {
+            return self.content.clone();
+        }
+        match self.code {
+            Some(code) => format!(
+                "[tool_outcome={} code={code}]\n{}",
+                self.outcome.as_str(),
+                self.content
+            ),
+            None => format!("[tool_outcome={}]\n{}", self.outcome.as_str(), self.content),
         }
     }
 
@@ -202,7 +292,7 @@ pub trait Tool: Send + Sync {
 
 /// 输入解析失败时给模型的纠错反馈(设计红线 1:不崩溃、告知正确格式)。
 pub fn repair_hint(tool: &dyn Tool, raw_input: &str, problem: &str) -> ToolOutput {
-    ToolOutput::error(format!(
+    ToolOutput::needs_correction("INVALID_TOOL_INPUT", format!(
         "Invalid input for tool `{}`: {problem}\nYour raw input was: {}\nExpected JSON schema:\n{}\nRetry the tool call with corrected JSON.",
         tool.name(),
         truncate(raw_input, 500),
@@ -219,7 +309,7 @@ fn truncate(s: &str, max: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{ToolConcurrency, ToolCtx};
+    use super::{ToolConcurrency, ToolCtx, ToolOutcome, ToolOutput};
     use std::path::{Path, PathBuf};
 
     /// 复刻 `git worktree add` 之后的真实磁盘形态:
@@ -251,6 +341,18 @@ mod tests {
 
     fn cleanup(base: &Path) {
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn structured_outcome_keeps_provider_error_and_machine_code_separate() {
+        let output = ToolOutput::needs_correction("EDIT_ANCHOR_NOT_FOUND", "re-read target");
+        assert!(output.is_error, "模型必须继续看到需要纠正的 tool error");
+        assert_eq!(output.outcome, ToolOutcome::NeedsCorrection);
+        assert_eq!(output.code, Some("EDIT_ANCHOR_NOT_FOUND"));
+        assert_eq!(
+            output.model_content(),
+            "[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\nre-read target"
+        );
     }
 
     #[test]

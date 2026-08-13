@@ -364,6 +364,8 @@ impl PhasePipeline {
                 id: role.to_string(),
                 name: "task".into(),
                 ok,
+                outcome: if ok { "success" } else { "failed" }.into(),
+                code: None,
                 preview,
                 display: None,
             });

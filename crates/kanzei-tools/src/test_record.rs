@@ -636,6 +636,19 @@ impl TestCoverage {
             TestCoverage::NonRust => "非 Rust(前端冒烟/流程脚本)".to_string(),
         }
     }
+
+    fn union(self, other: TestCoverage) -> TestCoverage {
+        match (self, other) {
+            (TestCoverage::Workspace, _) | (_, TestCoverage::Workspace) => TestCoverage::Workspace,
+            (TestCoverage::NonRust, coverage) | (coverage, TestCoverage::NonRust) => coverage,
+            (TestCoverage::Crates(mut left), TestCoverage::Crates(right)) => {
+                left.extend(right);
+                left.sort();
+                left.dedup();
+                TestCoverage::Crates(left)
+            }
+        }
+    }
 }
 
 /// 从测试命令提取覆盖面(R-212)。
@@ -644,6 +657,19 @@ impl TestCoverage {
 /// verify.ps1、cargo build 等)一律 NonRust——它们编译不了测试目标,背不了
 /// 源码提交(R-158 教训同源:跑了 cargo check 就提交,reasoning effort 被顶掉)。
 pub fn coverage_from_command(command: &str) -> TestCoverage {
+    let normalized = command
+        .replace("&&", "\n")
+        .replace("||", "\n")
+        .replace(';', "\n");
+    normalized
+        .lines()
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(coverage_from_single_command)
+        .fold(TestCoverage::NonRust, TestCoverage::union)
+}
+
+fn coverage_from_single_command(command: &str) -> TestCoverage {
     let tokens: Vec<&str> = command.split_whitespace().collect();
     let is_cargo_test = tokens
         .first()
@@ -707,7 +733,7 @@ fn record_command_text(record: &serde_json::Value) -> String {
 /// D-332:源码指纹随记录一起回——门禁优先比指纹而非纯 mtime,test_record 自己写
 /// tests.md 不会改变源码指纹,不再触发「自己让自己失效」的重测。
 pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
-    let mut newest: Option<(u64, TestCoverage, String, String)> = None;
+    let mut passed: Vec<(u64, TestCoverage, String, String)> = Vec::new();
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
             if record["status"].as_str() != Some("passed") {
@@ -741,14 +767,31 @@ pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String, String)> {
                     })
                     .unwrap_or_default();
                 let candidate = (at, coverage_from_command(&command), command, fingerprint);
-                newest = Some(match newest {
-                    Some(cur) if cur.0 >= at => cur,
-                    _ => candidate,
-                });
+                passed.push(candidate);
             }
         }
     }
-    newest
+    let newest = passed.iter().max_by_key(|record| record.0)?.clone();
+    if newest.3.is_empty() {
+        return Some(newest);
+    }
+
+    // 同一份暂存源码可以由多条定向测试共同背书。只取最后一条会把前一条覆盖面
+    // 丢掉，导致「tools + core 都通过」仍被误判为只测了最后那个 crate。
+    let mut coverage = TestCoverage::NonRust;
+    let mut commands: Vec<String> = Vec::new();
+    let mut at = 0;
+    for (finished, item_coverage, command, fingerprint) in passed {
+        if fingerprint != newest.3 {
+            continue;
+        }
+        at = at.max(finished);
+        coverage = coverage.union(item_coverage);
+        if !commands.contains(&command) {
+            commands.push(command);
+        }
+    }
+    Some((at, coverage, commands.join(" && "), newest.3))
 }
 
 /// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。R-212 门禁改走
@@ -1267,6 +1310,14 @@ mod tests {
             C::Workspace
         );
         assert_eq!(coverage_from_command("cargo test"), C::Workspace);
+        assert_eq!(
+            coverage_from_command("cargo test -p kanzei-tools; cargo test -p kanzei-core"),
+            C::Crates(vec!["kanzei-core".to_string(), "kanzei-tools".to_string()])
+        );
+        assert_eq!(
+            coverage_from_command("node scripts/ui-runtime-smoke.mjs && cargo test -p kanzei-app"),
+            C::Crates(vec!["kanzei-app".to_string()])
+        );
         // 覆盖面语义:covers 判定。
         let crates = C::Crates(vec!["kanzei-tools".to_string()]);
         assert!(crates.covers("kanzei-tools"));
@@ -1305,6 +1356,30 @@ mod tests {
             TestCoverage::Crates(vec!["kanzei-llm".to_string()])
         );
         assert!(command.contains("kanzei-llm"));
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn last_passed_unions_records_for_same_source_fingerprint() {
+        let root = temp_project("coverage-union");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let now = now_secs();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!(
+                "# Test Runs\n\n## T-{now} tools [passed]\n- 命令: cargo test -p kanzei-tools\n- 收尾: {now}\n- 源码指纹: fp-one\n\n## T-{} core [passed]\n- 命令: cargo test -p kanzei-core\n- 收尾: {}\n- 源码指纹: fp-one\n",
+                now + 1,
+                now + 1,
+            ),
+        )
+        .unwrap();
+        let (_, coverage, command, fingerprint) = last_passed(&root).unwrap();
+        assert_eq!(
+            coverage,
+            TestCoverage::Crates(vec!["kanzei-core".into(), "kanzei-tools".into()])
+        );
+        assert!(command.contains("kanzei-tools") && command.contains("kanzei-core"));
+        assert_eq!(fingerprint, "fp-one");
         std::fs::remove_dir_all(root).ok();
     }
 

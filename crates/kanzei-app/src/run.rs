@@ -423,6 +423,8 @@ pub(crate) async fn run_task(
                 id,
                 name,
                 ok,
+                outcome,
+                code,
                 preview,
                 display,
             } => {
@@ -440,6 +442,7 @@ pub(crate) async fn run_task(
                     &trace_log,
                     json!({
                         "kind": "tool.completed", "id": id, "name": name, "ok": ok,
+                        "outcome": outcome, "code": code,
                         "durationMs": elapsed_ms(&id), "at": now_ms(),
                         // 失败原因要留档,成功的预览不必——轨迹不是第二份对话记录。
                         "error": (!ok).then(|| preview.chars().take(400).collect::<String>()),
@@ -447,7 +450,7 @@ pub(crate) async fn run_task(
                 );
                 emit_event(
                     "kz:tool-end",
-                    json!({ "id": id, "name": name, "ok": ok, "preview": preview, "display": display }),
+                    json!({ "id": id, "name": name, "ok": ok, "outcome": outcome, "code": code, "preview": preview, "display": display }),
                 )
             }
             // 轮内主动压缩:UI 要看得见"什么时候让的路、让掉了多少",
@@ -512,6 +515,8 @@ pub(crate) async fn run_task(
                         "name": item.name,
                         "summary": item.summary,
                         "ok": item.ok,
+                        "outcome": item.outcome,
+                        "code": item.code,
                         "preview": item.preview,
                         "display": item.display,
                         "input": item.input,
@@ -527,6 +532,8 @@ pub(crate) async fn run_task(
                             "name": item.name,
                             "summary": item.summary,
                             "ok": item.ok,
+                            "outcome": item.outcome,
+                            "code": item.code,
                             "preview": item.preview,
                             "display": item.display,
                             "input": item.input.as_ref().map(|input| {

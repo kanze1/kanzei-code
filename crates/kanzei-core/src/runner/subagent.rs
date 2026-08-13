@@ -448,7 +448,7 @@ pub(crate) async fn run_subagent(
         // R-176 B4:写子代理改动归因——写工具(edit/write)的 path 入参登记进台账,
         // 首次触碰时快照原内容。只有 writable 子代理带 change_log 才采集。
         if let Some(log) = change_log.as_ref() {
-            if matches!(event, RunEvent::ToolStart { ref name, .. } if name == "edit" || name == "write")
+            if matches!(event, RunEvent::ToolStart { ref name, .. } if name == "edit" || name == "insert" || name == "write")
             {
                 if let Some(path) = event_input_path(&event) {
                     log.record(&change_owner, &change_root, &path);
@@ -467,6 +467,8 @@ pub(crate) async fn run_subagent(
                 name,
                 summary: Some(summary),
                 ok: None,
+                outcome: None,
+                code: None,
                 preview: None,
                 display: None,
                 // R-174:完整入参原文进 trace,面板/transcript 可展开复核「到底拿什么调的」。
@@ -477,6 +479,8 @@ pub(crate) async fn run_subagent(
                 id,
                 name,
                 ok,
+                outcome,
+                code,
                 preview,
                 display,
             } => Some(TaskTrace {
@@ -485,6 +489,8 @@ pub(crate) async fn run_subagent(
                 name,
                 summary: None,
                 ok: Some(ok),
+                outcome: Some(outcome),
+                code,
                 preview: Some(preview),
                 display,
                 input: None,
@@ -504,6 +510,8 @@ pub(crate) async fn run_subagent(
                     name: String::new(),
                     summary: None,
                     ok: None,
+                    outcome: None,
+                    code: None,
                     preview: None,
                     display: None,
                     input: None,
@@ -612,6 +620,8 @@ pub(crate) async fn run_subagent(
                         name: String::new(),
                         summary: None,
                         ok: None,
+                        outcome: None,
+                        code: None,
                         preview: None,
                         display: None,
                         input: None,

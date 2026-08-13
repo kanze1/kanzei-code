@@ -2606,3 +2606,13 @@
 - recorded_at: 1786640547198
 - 取活依据: engine:唯一可执行 WIP 是 R-214，必须先恢复它
 - 批次: 2/2
+
+## R-237 编辑工具可恢复性与结果语义分层 [done]
+- 优先级: P1
+- 复杂度: 中
+- 标签: 核心 后端 前端
+- 来源: 2026-08-14 用户提供 Codex Luna 5.6 编辑轨迹并批准 B1-B5 修复方案。
+- 内容: 为 ToolOutput 增加 success/noop/needs_correction/needs_confirmation/failed 与稳定 code；新增唯一锚点 insert；受控拒绝不再污染失败指标/记忆；复合测试命令与同源码指纹 passed 记录取覆盖并集；tracker add schema 暴露条件必填字段；开发提示加入四项 Design freeze 与确定性编辑恢复映射。
+- 验收: ①UI 区分无需修改、需要修正/确认与真实失败；②edit 第一次锚点失败返回实际片段，插入改走原生 insert 且锚点不丢；③受控拒绝不计 failed_calls/edit_misses、不触发失败记忆；④复合命令与同指纹多记录覆盖面合并；⑤req/defect add schema 在调用前暴露真实必填字段；⑥中/大改动首次写入前冻结不变量/数据源/文件/最小测试。
+- 进展: 完成 B1-B5。定向验证：edit/insert 8 passed，runner metrics 14 passed，recall 7 passed，coverage/last_passed 4 passed，tracker schema/add 2 passed，design-freeze 1 passed；UI 运行时冒烟通过(21 个脚本、1682 次 invoke、0 运行时错误)；cargo test --workspace 全绿。设计见 docs/design/tool_edit_recovery.md。正式发版仍以 scripts/release.ps1 安装门禁和安装后版本核对为准。
+- refs: D-343 D-344 D-345 docs/design/tool_edit_recovery.md

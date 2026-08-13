@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// 连续未命中达到该次数后,反馈附带文件实际片段。
-const MISSES_BEFORE_EXCERPT: u32 = 2;
+const MISSES_BEFORE_EXCERPT: u32 = 1;
 const EXCERPT_LINES: usize = 40;
 const EXCERPT_MAX_CHARS: usize = 3000;
 
@@ -122,10 +122,14 @@ impl Tool for EditTool {
             Err(out) => return out,
         };
         if input.old_string == input.new_string {
-            return ToolOutput::error("old_string and new_string are identical — nothing to do");
+            return ToolOutput::noop(
+                "EDIT_IDENTICAL_INPUT",
+                "old_string and new_string are identical — nothing to do",
+            );
         }
         if input.old_string.is_empty() {
-            return ToolOutput::error(
+            return ToolOutput::needs_correction(
+                "EDIT_EMPTY_ANCHOR",
                 "old_string must not be empty (use the write tool to create files)",
             );
         }
@@ -134,18 +138,27 @@ impl Tool for EditTool {
             .join(kanzei_harness::permission::normalize_resource(&input.path));
         match tokio::fs::metadata(&path).await {
             Ok(meta) if meta.len() > MAX_FILE_BYTES => {
-                return ToolOutput::error(format!(
-                    "{} is too large ({} bytes)",
-                    path.display(),
-                    meta.len()
-                ))
+                return ToolOutput::failed(
+                    "EDIT_FILE_TOO_LARGE",
+                    format!("{} is too large ({} bytes)", path.display(), meta.len()),
+                )
             }
-            Err(e) => return ToolOutput::error(format!("cannot access {}: {e}", path.display())),
+            Err(e) => {
+                return ToolOutput::failed(
+                    "EDIT_FILE_UNAVAILABLE",
+                    format!("cannot access {}: {e}", path.display()),
+                )
+            }
             _ => {}
         }
         let content = match tokio::fs::read_to_string(&path).await {
             Ok(c) => c,
-            Err(e) => return ToolOutput::error(format!("cannot read {}: {e}", path.display())),
+            Err(e) => {
+                return ToolOutput::failed(
+                    "EDIT_READ_FAILED",
+                    format!("cannot read {}: {e}", path.display()),
+                )
+            }
         };
 
         // 第一层:逐字节精确匹配。
@@ -174,14 +187,15 @@ impl Tool for EditTool {
         }
         if count > 1 && !input.replace_all {
             let miss_count = self.record_miss(&path);
-            return ToolOutput::error(format!(
-                "old_string matches {count} locations in {}; make it unique with more context, or set replace_all=true.{}",
+            return ToolOutput::needs_correction("EDIT_ANCHOR_NOT_UNIQUE", format!(
+                "old_string matches {count} locations in {}; make it unique with more context, or set replace_all=true.{}\nActual file context around the first match:\n{}",
                 path.display(),
                 if miss_count >= MISSES_BEFORE_EXCERPT {
                     "\nDo NOT fall back to rewriting the whole file via shell — add surrounding lines to old_string until it is unique."
                 } else {
                     ""
-                }
+                },
+                excerpt_around(&content, input.old_string.lines().next().unwrap_or("")),
             ));
         }
 
@@ -199,17 +213,22 @@ impl Tool for EditTool {
         // 要插入就把原文原样含进 new_string;确实是替换就显式说一声。
         let insertion_shaped_clobber = new_line_count > old_line_count && !dropped.is_empty();
         if insertion_shaped_clobber && !input.allow_deletion {
-            return ToolOutput::error(format!(
-                "这次替换看着像插入(新文本多了 {} 行),却没保住 old_string 里的原文——\
+            return ToolOutput::needs_correction(
+                "EDIT_INSERTION_WOULD_REPLACE_ANCHOR",
+                format!(
+                    "这次替换看着像插入(新文本多了 {} 行),却没保住 old_string 里的原文——\
                  十有八九是想在附近加内容,结果把匹配到的那段顶掉了。\
-                 要插入就把下面这些行原样写进 new_string;确实是要替换掉它们,就置 allow_deletion=true。\
+                 要插入请改用 insert 工具;确实是要替换掉它们,就置 allow_deletion=true。\
                  \n未被保留的原文:\n{}",
-                new_line_count - old_line_count,
-                preview_lines(&dropped)
-            ));
+                    new_line_count - old_line_count,
+                    preview_lines(&dropped)
+                ),
+            );
         }
         if net_deleted >= NET_DELETE_CONFIRM_LINES && !input.allow_deletion {
-            return ToolOutput::error(format!(
+            return ToolOutput::needs_confirmation(
+                "EDIT_NET_DELETION_REQUIRES_CONFIRMATION",
+                format!(
                 "这次替换净删除 {net_deleted} 行({old_line_count} 行换成 {new_line_count} 行{})。\
                  确实要删就把 allow_deletion 置 true 重来;若本意是新增内容,\
                  说明 old_string 匹配到了不该动的位置——缩小 old_string 或改成插入式替换\
@@ -220,7 +239,8 @@ impl Tool for EditTool {
                     String::new()
                 },
                 preview_lines(&dropped)
-            ));
+            ),
+            );
         }
         let updated = if input.replace_all {
             haystack.replace(&old_string, &new_string)
@@ -234,7 +254,10 @@ impl Tool for EditTool {
             updated
         };
         if let Err(e) = tokio::fs::write(&path, updated.as_bytes()).await {
-            return ToolOutput::error(format!("cannot write {}: {e}", path.display()));
+            return ToolOutput::failed(
+                "EDIT_WRITE_FAILED",
+                format!("cannot write {}: {e}", path.display()),
+            );
         }
         self.misses.lock().unwrap().remove(&path);
         let mut message = format!(
@@ -288,7 +311,7 @@ impl EditTool {
                 excerpt_around(content, first_line.trim())
             ));
         }
-        ToolOutput::error(message)
+        ToolOutput::needs_correction("EDIT_ANCHOR_NOT_FOUND", message)
     }
 }
 
@@ -323,10 +346,175 @@ fn excerpt_around(content: &str, anchor: &str) -> String {
     out
 }
 
+#[derive(Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum InsertPosition {
+    Before,
+    After,
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct InsertInput {
+    /// 文件路径(绝对或相对 cwd)
+    #[serde(alias = "file_path", alias = "filepath", alias = "file")]
+    path: String,
+    /// 用于定位插入点的原文；必须精确且唯一命中，锚点本身不会被修改。
+    #[serde(alias = "old_string", alias = "search")]
+    anchor: String,
+    /// 在锚点之前或之后原样插入的文本。
+    #[serde(alias = "new_string", alias = "text")]
+    content: String,
+    position: InsertPosition,
+}
+
+/// 原生插入工具：锚点只用于定位，生成结果时永远原样保留。
+pub struct InsertTool;
+
+#[async_trait]
+impl Tool for InsertTool {
+    fn name(&self) -> &'static str {
+        "insert"
+    }
+
+    fn description(&self) -> String {
+        "Insert content before or after an exact unique anchor without replacing the anchor. Params: path, anchor, content, position (before|after). Content is inserted verbatim; include the desired newlines in content.".into()
+    }
+
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::to_value(schemars::schema_for!(InsertInput)).unwrap()
+    }
+
+    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
+        vec![input["path"].as_str().unwrap_or("*").to_string()]
+    }
+
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::write_worktree(ctx)
+    }
+
+    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: InsertInput = match crate::parse_input(self, input) {
+            Ok(value) => value,
+            Err(output) => return output,
+        };
+        if input.anchor.is_empty() {
+            return ToolOutput::needs_correction("INSERT_EMPTY_ANCHOR", "anchor must not be empty");
+        }
+        if input.content.is_empty() {
+            return ToolOutput::noop(
+                "INSERT_EMPTY_CONTENT",
+                "content is empty — nothing to insert",
+            );
+        }
+
+        let path = ctx
+            .cwd
+            .join(kanzei_harness::permission::normalize_resource(&input.path));
+        match tokio::fs::metadata(&path).await {
+            Ok(meta) if meta.len() > MAX_FILE_BYTES => {
+                return ToolOutput::failed(
+                    "INSERT_FILE_TOO_LARGE",
+                    format!("{} is too large ({} bytes)", path.display(), meta.len()),
+                )
+            }
+            Err(error) => {
+                return ToolOutput::failed(
+                    "INSERT_FILE_UNAVAILABLE",
+                    format!("cannot access {}: {error}", path.display()),
+                )
+            }
+            _ => {}
+        }
+        let original = match tokio::fs::read_to_string(&path).await {
+            Ok(content) => content,
+            Err(error) => {
+                return ToolOutput::failed(
+                    "INSERT_READ_FAILED",
+                    format!("cannot read {}: {error}", path.display()),
+                )
+            }
+        };
+
+        let mut haystack = original.clone();
+        let mut anchor = input.anchor.clone();
+        let mut inserted = input.content.clone();
+        let mut normalized_endings = false;
+        let mut count = haystack.matches(&anchor).count();
+        if count == 0 {
+            let normalized = original.replace("\r\n", "\n");
+            let normalized_anchor = input.anchor.replace("\r\n", "\n");
+            let normalized_count = normalized.matches(&normalized_anchor).count();
+            if normalized_count > 0 {
+                haystack = normalized;
+                anchor = normalized_anchor;
+                inserted = input.content.replace("\r\n", "\n");
+                count = normalized_count;
+                normalized_endings = true;
+            }
+        }
+        if count == 0 {
+            return ToolOutput::needs_correction(
+                "INSERT_ANCHOR_NOT_FOUND",
+                format!(
+                    "anchor not found in {} — re-read and copy the exact text. Actual file context:\n{}",
+                    path.display(),
+                    excerpt_around(&original, input.anchor.lines().next().unwrap_or("")),
+                ),
+            );
+        }
+        if count > 1 {
+            return ToolOutput::needs_correction(
+                "INSERT_ANCHOR_NOT_UNIQUE",
+                format!(
+                    "anchor matches {count} locations in {}; add surrounding lines until it is unique. Actual context around the first match:\n{}",
+                    path.display(),
+                    excerpt_around(&original, input.anchor.lines().next().unwrap_or("")),
+                ),
+            );
+        }
+
+        let replacement = match input.position {
+            InsertPosition::Before => format!("{inserted}{anchor}"),
+            InsertPosition::After => format!("{anchor}{inserted}"),
+        };
+        let updated = haystack.replacen(&anchor, &replacement, 1);
+        let updated = if normalized_endings && dominant_crlf(&original) {
+            updated.replace('\n', "\r\n")
+        } else {
+            updated
+        };
+        if let Err(error) = tokio::fs::write(&path, updated.as_bytes()).await {
+            return ToolOutput::failed(
+                "INSERT_WRITE_FAILED",
+                format!("cannot write {}: {error}", path.display()),
+            );
+        }
+        let mut message = format!(
+            "inserted content {} unique anchor in {}",
+            match input.position {
+                InsertPosition::Before => "before",
+                InsertPosition::After => "after",
+            },
+            path.display()
+        );
+        if normalized_endings {
+            message.push_str(" (line endings differed and were normalized automatically)");
+        }
+        if let Some(warning) = crate::write::validate_syntax(&path, &updated) {
+            message.push_str(&format!("\nWARNING: {warning}"));
+        }
+        ToolOutput::ok(message).with_display(crate::write::diff_display(
+            &input.path,
+            &original,
+            &updated,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::EditTool;
-    use kanzei_harness::{Tool, ToolCtx};
+    use super::{EditTool, InsertTool};
+    use kanzei_harness::{Tool, ToolCtx, ToolOutcome};
     use serde_json::json;
 
     fn setup(name: &str, content: &str) -> (std::path::PathBuf, ToolCtx) {
@@ -360,6 +548,8 @@ mod tests {
         });
         let out = EditTool::default().execute(call.clone(), &ctx).await;
         assert!(out.is_error, "插入却吃掉锚点必须拦下: {}", out.content);
+        assert_eq!(out.outcome, ToolOutcome::NeedsCorrection);
+        assert_eq!(out.code, Some("EDIT_INSERTION_WOULD_REPLACE_ANCHOR"));
         assert!(
             out.content.contains("pub(crate) fn build("),
             "要指出丢了哪一行: {}",
@@ -392,6 +582,7 @@ mod tests {
         let del = json!({"path": "target.txt", "old_string": "a\nb\nc\nd", "new_string": "a"});
         let out = EditTool::default().execute(del.clone(), &ctx).await;
         assert!(out.is_error, "净删除 3 行必须先拦下来: {}", out.content);
+        assert_eq!(out.outcome, ToolOutcome::NeedsConfirmation);
         assert!(out.content.contains("allow_deletion"), "{}", out.content);
         assert!(
             out.content.contains("- b"),
@@ -469,7 +660,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn second_consecutive_miss_includes_file_excerpt() {
+    async fn first_miss_includes_file_excerpt() {
         let (dir, ctx) = setup("miss", "line one\nline two has anchor\nline three\n");
         let tool = EditTool::default();
         let miss =
@@ -477,10 +668,12 @@ mod tests {
         let first = tool.execute(miss.clone(), &ctx).await;
         assert!(first.is_error);
         assert!(
-            !first.content.contains("line three"),
-            "首次未命中不附全文: {}",
+            first.content.contains("line two has anchor"),
+            "首次未命中就必须给实际上下文: {}",
             first.content
         );
+        assert_eq!(first.outcome, ToolOutcome::NeedsCorrection);
+        assert_eq!(first.code, Some("EDIT_ANCHOR_NOT_FOUND"));
         let second = tool.execute(miss, &ctx).await;
         assert!(second.is_error);
         assert!(
@@ -508,9 +701,77 @@ mod tests {
             )
             .await;
         assert!(
-            !third.content.contains("ACTUAL content"),
-            "成功后计数应清零: {}",
+            third.content.contains("Consecutive miss #1"),
+            "成功后未命中计数应从 1 重新开始: {}",
             third.content
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn identical_edit_is_noop_not_failure() {
+        let (dir, ctx) = setup("noop", "same\n");
+        let out = EditTool::default()
+            .execute(
+                json!({"path": "target.txt", "old_string": "same", "new_string": "same"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "provider 仍需阻止模型把 no-op 当落盘成功");
+        assert_eq!(out.outcome, ToolOutcome::NoOp);
+        assert_eq!(out.code, Some("EDIT_IDENTICAL_INPUT"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn insert_preserves_unique_anchor_before_and_after() {
+        for (position, expected) in [
+            ("before", "head\nnew\nANCHOR\ntail\n"),
+            ("after", "head\nANCHOR\nnew\ntail\n"),
+        ] {
+            let (dir, ctx) = setup(position, "head\nANCHOR\ntail\n");
+            let out = InsertTool
+                .execute(
+                    json!({
+                        "path": "target.txt",
+                        "anchor": "ANCHOR\n",
+                        "content": "new\n",
+                        "position": position,
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(!out.is_error, "{}", out.content);
+            assert_eq!(
+                std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+                expected
+            );
+            std::fs::remove_dir_all(dir).ok();
+        }
+    }
+
+    #[tokio::test]
+    async fn insert_rejects_missing_and_non_unique_anchor_without_writing() {
+        let (dir, ctx) = setup("insert-guards", "same\nsame\n");
+        let tool = InsertTool;
+        let missing = tool
+            .execute(
+                json!({"path": "target.txt", "anchor": "absent", "content": "x", "position": "before"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(missing.code, Some("INSERT_ANCHOR_NOT_FOUND"));
+        assert!(missing.content.contains("Actual file context"));
+        let repeated = tool
+            .execute(
+                json!({"path": "target.txt", "anchor": "same", "content": "x", "position": "after"}),
+                &ctx,
+            )
+            .await;
+        assert_eq!(repeated.code, Some("INSERT_ANCHOR_NOT_UNIQUE"));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("target.txt")).unwrap(),
+            "same\nsame\n"
         );
         std::fs::remove_dir_all(dir).ok();
     }

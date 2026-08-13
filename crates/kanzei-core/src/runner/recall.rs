@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 
 use kanzei_llm::Part;
 
-use super::metrics::{failure_kind, failure_target};
+use super::metrics::{failure_kind, failure_target, is_expected_tool_rejection};
 
 /// 一次工具失败触发的召回请求。RecallWatch 构造它,policy 决定怎么查。
 #[derive(Debug, Clone)]
@@ -129,6 +129,9 @@ impl<'a> RecallWatch<'a> {
                 continue;
             };
             if !*is_error {
+                continue;
+            }
+            if is_expected_tool_rejection(content) {
                 continue;
             }
             let kind = failure_kind(content);
@@ -346,6 +349,31 @@ mod tests {
             panic!("expected ToolResult");
         };
         assert_eq!(content, "ok", "成功结果不得触发召回");
+    }
+
+    #[test]
+    fn 受控拒绝不触发失败记忆召回() {
+        let policy = FakePolicy {
+            hits: vec![hit("M-009", "sop")],
+        };
+        let mut watch = RecallWatch::new(Some(&policy));
+        let calls = vec![(
+            "c1".into(),
+            "edit".into(),
+            serde_json::json!({ "path": "src/lib.rs" }),
+            "".into(),
+        )];
+        let original = "[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\n请重读锚点";
+        let mut results = vec![Part::ToolResult {
+            call_id: "c1".into(),
+            content: original.into(),
+            is_error: true,
+        }];
+        watch.note_step(&calls, &mut results);
+        let Part::ToolResult { content, .. } = &results[0] else {
+            panic!("expected ToolResult");
+        };
+        assert_eq!(content, original, "保护门禁不得召回失败记忆或追加 Packet");
     }
 
     #[test]

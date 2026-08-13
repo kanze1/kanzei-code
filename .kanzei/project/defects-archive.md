@@ -3905,3 +3905,33 @@
 - observed_head: 7403ff8e8866228d0e21283f2b58d60b9df36777
 - observed_worktree_hash: fnv1a64:25c52307ba5eca33
 - recorded_at: 1786640486703
+
+## D-343 edit 安全门禁与 no-op 全部显示并统计为真实失败 [fixed] (medium)
+- 严重度: medium
+- 优先级: P1
+- 标签: 核心 前端
+- 来源: 2026-08-14 用户提供的 Luna 编辑轨迹。
+- 复现: 插入形状覆盖锚点、净删除待确认、old/new 相同均返回 is_error；旧事件/UI/metrics/RecallWatch 只有成功/失败二态，导致保护门禁全红、failed_calls/edit_misses 虚高并生成失败记忆。
+- 修复: ToolOutput 与 RunEvent 增加 outcome/code；provider 仍接收 error 以继续修正，UI 按四类形状/颜色展示；metrics、summarize_failures、RecallWatch 跳过 noop/needs_correction/needs_confirmation；旧轨迹无结构化头时保持兼容。
+- 验收: metrics 14 passed、recall 7 passed、UI runtime smoke 与 cargo test --workspace 通过；受控拒绝用例断言 failed_calls=0、edit_misses=0、无 FailureSignal、无记忆 Packet。
+- refs: R-237
+
+## D-344 edit 承担插入导致锚点覆盖式失败和盲重试 [fixed] (medium)
+- 严重度: medium
+- 优先级: P1
+- 标签: 后端
+- 来源: 2026-08-14 用户轨迹中两次 insertion-clobber 保护拒绝与一次 identical no-op。
+- 复现: 模型只能把插入模拟成 old_string/new_string 替换，漏带锚点即被门禁拒绝；首次缺失反馈信息不足时会继续同形重试。
+- 修复: 新增 insert(path, anchor, content, position)，锚点必须精确唯一且永远保留；edit/insert 第一次缺失或非唯一即返回带行号实际片段与稳定恢复代码；提示词把插入拒绝固定映射到 insert，禁止同形盲试。
+- 验收: edit/insert 8 passed，覆盖 before/after、锚点保留、缺失/非唯一零写入、CRLF 保持、identical=noop、净删除=needs_confirmation。
+- refs: R-237
+
+## D-345 测试覆盖与 tracker schema 在执行后才暴露真实契约 [fixed] (medium)
+- 严重度: medium
+- 优先级: P1
+- 标签: 后端 流程
+- 来源: 2026-08-14 工具失败复盘。
+- 复现: coverage_from_command 用 split_whitespace 误解析分号/&& 复合命令，last_passed 只取最后一条 passed；TrackerInput 字段全 optional，req/defect add 的必填复杂度/严重度/优先级/标签仅在 execute 后报错。
+- 修复: 复合命令按 ;/&&/|| 分段并合并覆盖；同一源码指纹 passed 记录取 crate 并集；tracker schema 为 add 生成条件 required，新增受 enum 约束的顶层 tag/complexity 并落入既有中文字段。
+- 验收: coverage/last_passed 4 passed，tracker schema/add 2 passed；断言 tools+core 同指纹合并，req 顶层 complexity/tag 可直接落盘，defect/req 条件 required 与文档类型一致。
+- refs: R-237

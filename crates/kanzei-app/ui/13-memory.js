@@ -86,7 +86,7 @@ function renderMetrics(rounds) {
     const stats = document.createElement("div");
     stats.className = "metrics-round-stats dim";
     stats.textContent = round.measured
-      ? `${t("终端")} ${m.terminal_calls ?? 0} · git ${m.git_calls ?? 0}(${m.git_groups ?? 0} ${t("组")}) · edit ${m.edit_misses ?? 0}/${m.edit_calls ?? 0} ${t("未命中")} · ${t("子代理")} ${m.subagent_calls ?? 0} · ${t("失败")} ${m.failed_calls ?? 0}/${m.total_calls ?? 0} · ${t("上下文")} ${contextTotal}${redundantLine(m)}`
+      ? `${t("终端")} ${m.terminal_calls ?? 0} · git ${m.git_calls ?? 0}(${m.git_groups ?? 0} ${t("组")}) · edit ${m.edit_misses ?? 0}/${m.edit_calls ?? 0} ${t("故障")} (${m.edit_rejections ?? 0} ${t("受控拒绝")}) · ${t("子代理")} ${m.subagent_calls ?? 0} · ${t("失败")} ${m.failed_calls ?? 0}/${m.total_calls ?? 0} · ${t("上下文")} ${contextTotal}${redundantLine(m)}`
       : t("该轮早于度量落地,无画像");
     const tools = document.createElement("div");
     tools.className = "metrics-round-tools dim";

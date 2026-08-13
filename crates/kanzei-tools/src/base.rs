@@ -17,6 +17,9 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("edit", Arc::new(crate::edit::EditTool::default()));
+        draft
+            .tools
+            .insert("insert", Arc::new(crate::edit::InsertTool));
         draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
         draft
             .tools
@@ -59,6 +62,7 @@ impl Component for BaseComponent {
             rule("question", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
+            rule("insert", "*", Effect::Ask),
             rule("bash", "*", Effect::Ask),
             rule("webfetch", "*", Effect::Ask),
             rule("websearch", "*", Effect::Ask),
