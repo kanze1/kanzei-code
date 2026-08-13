@@ -2874,3 +2874,15 @@
 - 摘要: 全量全绿:app 147 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-179 关闭前全量(2 批完成)。
 - 关联: R-179
 - 收尾: 1786655288
+
+## T-1786655517 R-187 提示音管理设置冒烟集 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs && cargo test -p kanzei-app
+- 摘要: 前端五冒烟全绿(ui-runtime 含新增 R-187 断言:提示音控件存在、默认全开音量 0.12、总开关关闭后 soundEnabledFor 全 false);kanzei-app 147 passed。
+- 关联: R-187
+- 收尾: 1786655517
+
+## T-1786655610 cargo test --workspace(R-187 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:app 147 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-187 关闭前全量。
+- 关联: R-187
+- 收尾: 1786655610

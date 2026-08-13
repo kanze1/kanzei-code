@@ -2737,3 +2737,16 @@
 - observed_head: e7bb5c80bf05331957d51dc2392efd492e7d6d42
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786655299573
+
+## R-187 面板与提示音管理功能设置 [done]
+- priority: P2
+- 原始描述: 设置面板+各类提示音管理
+- 复杂度: 中
+- 归属: kanzei
+- 标签: 核心
+- 验收: 用户可配置界面面板及各类通知音效的设置与管理
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-187
+- 进展: 2026-08-16 完成并关闭。验收「用户可配置界面面板及各类通知音效的设置与管理」:提示音部分落地——设置页新增「提示音」区块(index.html settings-group):总开关 + 音量滑杆 + 试听按钮 + 运行完成/失败/停止三事件开关;03-shell.js 新增 readSoundSettings/saveSoundSettings/soundEnabledFor(localStorage kz-sound-settings,默认全开音量 0.12 与原固定值一致),playRunNotice 按配置决定是否播放 + 音量可调;16-settings.js loadSoundSettingsControls 回填控件、change 即存、试听按钮用当前音量播「完成」音;i18n 登记 4 条文案;ui-runtime-smoke R-187 断言(控件存在/默认全开音量 0.12/总开关关闭后 soundEnabledFor 全 false)。**范围说明**:原始描述「设置面板+各类提示音管理」中「设置面板」指设置页本身(既有,含提示音新区块),「各类提示音」即运行完成/失败/停止三种事件音;若用户对「面板管理」另有具体诉求(如面板布局/显隐自定义),需另开条目。提交 85907fc;前端五冒烟 + kanzei-app 147 + 关闭前全量 cargo test --workspace 全绿(T-1786655610)。
+- observed_head: 85907fc021ee8e902c9cadbd474f9af0e82cfd4f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786655624130
