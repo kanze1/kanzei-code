@@ -153,9 +153,25 @@ fn fnv1a64(chunks: &[&[u8]]) -> String {
 }
 
 pub fn repo_observation(cwd: &std::path::Path) -> RepoObservation {
-    let head = String::from_utf8_lossy(&command_output(cwd, &["rev-parse", "HEAD"]))
-        .trim()
-        .to_string();
+    // 托管 tracker 的独立提交不会改变代码事实，不能让刚落的 progress 在配对文档
+    // commit 后立刻变 stale。优先锚到最近一次非 `.kanzei` 提交；纯文档仓才回退 HEAD。
+    let source_head = command_output(
+        cwd,
+        &[
+            "log",
+            "-1",
+            "--format=%H",
+            "--",
+            ".",
+            ":(exclude).kanzei/**",
+        ],
+    );
+    let mut head = String::from_utf8_lossy(&source_head).trim().to_string();
+    if head.is_empty() {
+        head = String::from_utf8_lossy(&command_output(cwd, &["rev-parse", "HEAD"]))
+            .trim()
+            .to_string();
+    }
     let status = command_output(
         cwd,
         &[
@@ -875,6 +891,46 @@ mod tests {
             .reasons
             .iter()
             .any(|reason| reason.contains("2099-01-01")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn managed_tracker_commit_does_not_invalidate_source_head_anchor() {
+        let dir = fixture("managed-head");
+        let git = |args: &[&str]| {
+            let status = Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "--quiet"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Kanzei Test"]);
+        std::fs::write(dir.join("source.txt"), "source").unwrap();
+        git(&["add", "source.txt"]);
+        git(&["commit", "--quiet", "-m", "source"]);
+        let source_observation = repo_observation(&dir);
+
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n",
+        )
+        .unwrap();
+        git(&["add", ".kanzei/project/requirements.md"]);
+        git(&["commit", "--quiet", "-m", "tracker"]);
+        let tracker_observation = repo_observation(&dir);
+
+        assert_eq!(
+            source_observation.observed_head,
+            tracker_observation.observed_head
+        );
+        let actual_head = String::from_utf8_lossy(&command_output(&dir, &["rev-parse", "HEAD"]))
+            .trim()
+            .to_string();
+        assert_ne!(tracker_observation.observed_head, actual_head);
         let _ = std::fs::remove_dir_all(dir);
     }
 
