@@ -3707,3 +3707,17 @@
 - observed_head: 1b09a249d57dac40ac07a3d94fcd7ef641596888
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786598787874
+
+## D-323 R-199 第 4 处前端私有否决残留:暂停恢复路径档位不匹配时静默不调度续跑,引擎不知情 [fixed] (medium)
+- 复现: 08-compose.js 约 643 行 auto-pause 恢复分支:!autoPaused 且勾选 auto-continue 时仍要 autoContinueAllowed() 才 scheduleAutoContinue,档位不是 dev-auto 就静默不调度,引擎计数与状态不知情;D-320 只修了 syncAutoContinueWithProfile 那处
+- 影响: R-199 验收①「前端不再持有任何引擎不知道的续跑否决条件」在暂停→恢复路径上仍未兑现
+- 来源: 2026-08-13 自举复盘(探查代理逐处核对 autoContinueAllowed 残留)
+- 标签: 前端
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-323
+- 复杂度: 小
+- 进展: 修复(2026-08-16,commit c4f219d):08-compose.js 暂停恢复分支(643 行)移除 autoContinueAllowed() 私有否决,对齐 armAutoContinue(155-157)与勾选路径(692)语义——恢复一律重新调度,档位不对由引擎下轮 done 判 Stop(ProfileMismatch) 带 reason 可见收口(07-events.js ProfileMismatch 分支取消勾选+显示原因)。新增 ui-runtime-smoke D-323 断言:dev-pair 档位下暂停→恢复必须进入「2 秒后继续」分支并调度续跑定时器(含点击生效前置断言 paused()/resumedVal),测试钩子补 paused()/cancelTimers()。五条冒烟全绿 0 运行时错误(T-1786599513)。
+- 验收: ①暂停→恢复路径在非 dev-auto 档位下不再静默不调度——ui-runtime-smoke D-323 断言(dev-pair 档位下恢复进入「2 秒后继续」分支并调度定时器,冒烟绿);②前端不再持有引擎不知道的续跑否决条件(R-199 验收①)——恢复分支与 armAutoContinue 一致移除 autoContinueAllowed(),档位判定唯一在引擎 decide();③既有 D-291 断言(引擎判 Continue 前端不得拦下)与其余四冒烟保持绿,无回归。
+- observed_head: c4f219d3accb6dd2dd9bc75b5c73e130266e4895
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786599542705

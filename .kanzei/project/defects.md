@@ -134,13 +134,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786599000900
 
-## D-323 R-199 第 4 处前端私有否决残留:暂停恢复路径档位不匹配时静默不调度续跑,引擎不知情 [open] (medium)
-- 复现: 08-compose.js 约 643 行 auto-pause 恢复分支:!autoPaused 且勾选 auto-continue 时仍要 autoContinueAllowed() 才 scheduleAutoContinue,档位不是 dev-auto 就静默不调度,引擎计数与状态不知情;D-320 只修了 syncAutoContinueWithProfile 那处
-- 影响: R-199 验收①「前端不再持有任何引擎不知道的续跑否决条件」在暂停→恢复路径上仍未兑现
-- 来源: 2026-08-13 自举复盘(探查代理逐处核对 autoContinueAllowed 残留)
-- 标签: 前端
-- 优先级: P2
-
 ## D-330 tracker add/repair_missing_id 时 priority 参数与 fields 里「优先级」键双写重复字段 [open] (medium)
 - 复杂度: 小
 - 复现: tracker add/repair_missing_id 分支(tracker.rs:484-489 与 :363-368)在 priority 参数有值时无条件 fields.push(("优先级", priority)),不去查 input.fields 里是否已有「优先级」键。调用方若同时传 priority 参数 + fields 里「优先级」键,Vec 里得到两条「优先级」字段。本轮 R-233/R-234 即踩中:值相同时两条相同字段冗余;值不同时(P1/P2)两条矛盾字段,下游读取语义不定。

@@ -2123,3 +2123,9 @@
 - 摘要: D-321 修复:memory 87 passed(含新增 void_id_acknowledges_gap_and_message_is_honest / void_id_validates_and_is_idempotent / voided_id_resurrected_is_flagged / missing_message_honors_git_presence);fmt/clippy 干净。
 - 关联: D-321
 - 收尾: 1786598760
+
+## T-1786599513 D-323 前端冒烟:暂停恢复无私有否决 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs && node scripts/parallel-lines-regression.mjs
+- 摘要: D-323 修复:08-compose.js 暂停恢复路径移除 autoContinueAllowed 私有否决;ui-runtime-smoke 新增 D-323 断言(dev-pair 档位下暂停→恢复必须进入「2 秒后继续」分支并调度定时器,前置断言验证点击生效)21 组 0 运行时错误;i18n/a11y/markdown/parallel-lines 全绿。测试钩子加 paused()/cancelTimers()。
+- 关联: D-323
+- 收尾: 1786599513
