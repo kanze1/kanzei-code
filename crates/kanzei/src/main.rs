@@ -567,6 +567,22 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             .as_ref()
             .map(|(_, _, tier)| tier.clone())
             .unwrap_or_else(|| primary_tier.clone());
+        // R-236 B3:压缩纪要模型——[models].compact 显式配置才建独立路由;
+        // 缺省传 None,运行时回落主模型(digest_model),少建一条重复路由。
+        let compact = match config
+            .models
+            .compact
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
+            Some(_) => match config.resolve_model("compact") {
+                Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
+                    .ok()
+                    .map(|cr| (cr, r.model.clone(), config.service_tier_for(&r))),
+                Err(_) => None,
+            },
+            None => None,
+        };
         kanzei_core::SubagentRuntime {
             snapshot: sub_snapshot,
             agent: kanzei_tools::explore_agent(),
@@ -576,6 +592,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             primary: (route.clone(), resolved.model.clone()),
             fast_service_tier: fast_tier,
             primary_service_tier: primary_tier,
+            compact,
             max_tokens: config.limits.subagent_max_tokens(),
             // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
             timeout_secs: config.limits.subagent_timeout_secs(),

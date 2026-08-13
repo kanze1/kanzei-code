@@ -191,6 +191,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         primary: (route.clone(), "mock".to_string()),
         fast_service_tier: None,
         primary_service_tier: None,
+        compact: None,
         max_tokens: 256,
         timeout_secs: 30,
         limits: config.limits.clone(),

@@ -397,6 +397,8 @@ const I18N_EN = {
   "复制运行日志": "Copy runtime log",
   "清空": "Clear",
   "清空日志": "Clear log",
+  "上下文压缩纪要(空=跟随主模型)": "Context compaction digest (empty = follow primary)",
+  "压缩纪要用哪个模型;留空跟随主模型(推荐:弱模型纪要会让续跑质量明显下降)": "Model for compaction digests; leave empty to follow primary (recommended: weak-model digests visibly hurt continuation quality)",
   "git 分支 · 未提交改动": "Git branch · uncommitted changes",
   "上下文占用": "Context usage",
   "查看上下文成分": "View context components",

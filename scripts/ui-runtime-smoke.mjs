@@ -3280,7 +3280,7 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   assert(payload, "点保存未调 settings_save");
   assert(
     Object.keys(payload ?? {}).sort().join(",")
-      === "cadence,codexFastMode,fast,language,limits,primary,profileDefault,providers,proxy,reasoning",
+      === "cadence,codexFastMode,compact,fast,language,limits,primary,profileDefault,providers,proxy,reasoning",
     `settings_save 载荷顶层键集合变了: ${Object.keys(payload ?? {}).sort().join(",")}`,
   );
   // 根因终局判据:首次进设置页时两个角色 select 是零 option 的空壳,若实现仍是

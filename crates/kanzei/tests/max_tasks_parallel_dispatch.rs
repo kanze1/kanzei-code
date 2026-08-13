@@ -182,6 +182,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         primary: (route.clone(), "mock".to_string()),
         fast_service_tier: None,
         primary_service_tier: None,
+        compact: None,
         max_tokens: 256,
         timeout_secs: 60,
         limits: config.limits.clone(),

@@ -213,6 +213,7 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
         primary: (route.clone(), "mock".to_string()),
         fast_service_tier: None,
         primary_service_tier: None,
+        compact: None,
         max_tokens: 256,
         timeout_secs: 30,
         limits: config.limits.clone(),

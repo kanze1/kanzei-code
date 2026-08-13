@@ -498,6 +498,8 @@ impl PhasePipeline {
             primary,
             fast_service_tier: fast_tier,
             primary_service_tier: primary_tier,
+            // R-236 B3:压缩模型随模板传递(角色代理不改纪要模型语义)。
+            compact: template.compact.clone(),
             max_tokens: template.max_tokens,
             timeout_secs: template.timeout_secs,
             limits: template.limits.clone(),

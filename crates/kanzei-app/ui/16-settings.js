@@ -198,7 +198,7 @@ async function loadPermissionRules() {
 // 完全看不出"你以为改了的那个根本没生效"。这里做脏状态可见。
 const SETTINGS_FORM_IDS = [
   "language-select",
-  "set-primary", "set-fast", "set-profile", "set-reasoning",
+  "set-primary", "set-fast", "set-compact", "set-profile", "set-reasoning",
   "set-proxy-mode", "set-proxy-url",
   // 运行上限也算表单的一部分:漏登记就会出现"改了数字却没有未保存提示",
   // 而这正是 D-157 那条"界面显示 A、运行用 B"的复现路径。
@@ -288,14 +288,14 @@ let knownModelIds = [];
 /// 「未设」,用户改别的字段点一次保存就把 [models] primary/fast 从 kanzei.toml 里删掉,
 /// 运行回落内置默认——正是 08-compose.js:747 记下的同一个坑,顶栏躲过了,这里没有。
 async function fillKnownModels(desired = null) {
-  const roles = [[$("set-primary"), "primary"], [$("set-fast"), "fast"]].filter(([el]) => el);
+  const roles = [[$("set-primary"), "primary"], [$("set-fast"), "fast"], [$("set-compact"), "compact"]].filter(([el]) => el);
   if (!roles.length) return;
   // 不传 desired 时,基准要在 await 之前取——探测可能耗时数秒,期间用户仍能改下拉。
   const current = desired ? null : roles.map(([el]) => el.value);
   try {
     const models = await invoke("models_list", { projectDir: currentProject });
     // 角色不能再指向角色(primary → primary 会绕成死循环)。
-    knownModelIds = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast");
+    knownModelIds = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
   } catch {
     knownModelIds = [];
   }
@@ -370,6 +370,7 @@ function wireManualModelRole(id) {
 }
 wireManualModelRole("set-primary");
 wireManualModelRole("set-fast");
+wireManualModelRole("set-compact");
 $("models-refresh")?.addEventListener("click", async () => {
   await fillKnownModels();
   toast(`${t("已重新探测")}:${knownModelIds.length}`);
@@ -508,7 +509,7 @@ async function loadSettings() {
   // select 赋没有匹配项的值按规范只会把它打到空串。基准一空,探测不到的已存模型就被
   // 静默清成「未设」,而 markSettingsSaved() 还把这个已经被清空的状态当成干净基线
   // (角标不亮,零告警),用户改任意别的字段点保存,后端就把 [models] 的键删了。
-  await fillKnownModels({ primary: s.primary ?? "", fast: s.fast ?? "" });
+  await fillKnownModels({ primary: s.primary ?? "", fast: s.fast ?? "", compact: s.compact ?? "" });
   // 配置里可能是 readonly 这种下拉没有的合法档位:没有兜底 option 就会变空串。
   ensureSelectOption($("set-profile"), s.profileDefault);
   $("set-profile").value = s.profileDefault;
@@ -672,6 +673,7 @@ $("settings-save").addEventListener("click", async () => {
         language: languagePreferenceDirty ? $("language-select").value : languagePreferenceLoaded,
         primary: $("set-primary").value,
         fast: $("set-fast").value,
+        compact: $("set-compact") ? $("set-compact").value : "",
         proxy,
         profileDefault: $("set-profile").value,
         reasoning: $("set-reasoning").value,

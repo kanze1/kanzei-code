@@ -171,6 +171,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         primary: (route.clone(), "mock".to_string()),
         fast_service_tier: None,
         primary_service_tier: None,
+        compact: None,
         max_tokens: 256,
         timeout_secs: 30,
         limits: config.limits.clone(),

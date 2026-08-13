@@ -234,17 +234,10 @@ pub(crate) fn extract_file_names(text: &str) -> HashSet<String> {
     out
 }
 
-/// 纪要质量门槛:长度下限 + 关键文件保留率。
-///
-/// fast 模型纪要最常见的失败是泛化成"进行了一些修改",一个文件都不提——
-/// 压完模型不知道自己在干什么,原地重做。机械校验:中段里出现过 ≥2 个文件
-/// 而纪要一个都没提 → 不可信,调用方回落到原文节选(节选是原文,不可能丢)。
-pub(crate) fn digest_plausible(middle: &[Message], digest: &str) -> bool {
-    if digest.chars().count() < 60 {
-        return false;
-    }
+/// 把消息段拼成质量校验用的语料(文本 + 工具名/入参 + 工具结果)。
+pub(crate) fn message_corpus(messages: &[Message]) -> String {
     let mut source = String::new();
-    for message in middle {
+    for message in messages {
         for part in &message.parts {
             match part {
                 Part::Text { text } => source.push_str(text),
@@ -258,11 +251,42 @@ pub(crate) fn digest_plausible(middle: &[Message], digest: &str) -> bool {
         }
         source.push('\n');
     }
-    let files = extract_file_names(&source);
-    if files.len() < 2 {
-        return true; // 没几个文件可校验,长度门槛兜底。
+    source
+}
+
+/// 纪要质量门槛(R-236 B2 升级为双向):长度下限 + recall + precision。
+///
+/// - **recall**(D-181 原有):fast 模型纪要最常见的失败是泛化成"进行了一些修改",
+///   一个文件都不提——语料里出现过 ≥2 个文件而纪要一个都没提 → 不可信。
+/// - **precision**(B2 新增):反向防编造——纪要提到的文件**过半**在语料里不存在,
+///   说明文件清单是幻觉出来的(实体级忠实度校验,先例见 arXiv:2102.09130),同样
+///   不可信。不达标由调用方重试一次或回落原文节选(节选是原文,不可能编)。
+pub(crate) fn digest_acceptable(corpus: &str, digest: &str) -> bool {
+    if digest.chars().count() < 60 {
+        return false;
     }
-    files.iter().any(|f| digest.contains(f.as_str()))
+    let source_files = extract_file_names(corpus);
+    let digest_files = extract_file_names(digest);
+    if source_files.len() >= 2 {
+        // recall:语料里有文件可校验,纪要至少要保留其一。
+        if !digest_files
+            .iter()
+            .any(|file| source_files.contains(file.as_str()))
+        {
+            return false;
+        }
+    }
+    if !digest_files.is_empty() {
+        // precision:纪要文件清单过半不在语料 → 编造,拒。
+        let unknown = digest_files
+            .iter()
+            .filter(|file| !source_files.contains(file.as_str()))
+            .count();
+        if unknown * 2 > digest_files.len() {
+            return false;
+        }
+    }
+    true
 }
 pub(super) fn is_text_user_message(message: &Message) -> bool {
     message.role == Role::User
@@ -480,10 +504,10 @@ mod tests {
         trim_tail(&mut plain, &system, &[], budget, 1.0, &mut plain_traces);
         assert!(estimate_prompt_tokens(&system, &plain, &[]) <= budget);
     }
-    /// 纪要质量:泛化纪要(一个文件都不提)判定不可信、回落到原文节选;
-    /// 保留了关键文件的纪要放行;太短同样不可信。
+    /// 纪要质量(R-236 B2 双向):泛化纪要(recall 失守)与编造文件清单
+    /// (precision 失守)都判不可信、回落原文节选;保留关键文件且不编造的放行。
     #[test]
-    fn 纪要质量校验拒绝泛化纪要() {
+    fn 纪要质量校验_泛化与编造双向拒绝() {
         let middle = vec![
             Message::user_text("改了 crates/kanzei-core/src/runner.rs 的压缩逻辑"),
             Message::assistant(vec![Part::ToolCall {
@@ -497,23 +521,30 @@ mod tests {
                 is_error: false,
             }]),
         ];
-        // 泛化纪要:一个文件都不提 → 不可信。
-        assert!(!digest_plausible(
-            &middle,
+        let corpus = message_corpus(&middle);
+        // 泛化纪要:一个文件都不提 → recall 失守,不可信。
+        assert!(!digest_acceptable(
+            &corpus,
             "对项目进行了若干修改,修复了多个问题,下一步继续推进。"
         ));
-        // 提到任一关键文件 → 可信(长度也要过门槛,真实纪要约数百字)。
-        assert!(digest_plausible(
-            &middle,
+        // 提到关键文件且没编造 → 可信。
+        assert!(digest_acceptable(
+            &corpus,
             "本次改动集中在 runner.rs 的上下文压缩路径:新增 trim_tail 与纪要质量校验,\
              store.rs 的迁移逻辑尚未处理,下一步补上对应测试并跑全量回归。"
         ));
+        // precision:文件清单过半是语料里不存在的 → 编造,拒。
+        assert!(!digest_acceptable(
+            &corpus,
+            "本次修改了 runner.rs、helper.rs、pipeline.rs 与 scheduler.rs 四个文件,\
+             重构了调度与压缩路径,下一步跑回归验证整体行为。"
+        ));
         // 太短 → 不可信。
-        assert!(!digest_plausible(&middle, "修了 bug。"));
-        // 中段几乎没文件 → 长度门槛兜底,不误杀(纪要足够具体)。
-        let bare = vec![Message::user_text("纯对话轮次,没有文件操作")];
-        assert!(digest_plausible(
-            &bare,
+        assert!(!digest_acceptable(&corpus, "修了 bug。"));
+        // 语料几乎没文件 → 长度门槛兜底,不误杀(纪要足够具体)。
+        let bare_corpus = message_corpus(&[Message::user_text("纯对话轮次,没有文件操作")]);
+        assert!(digest_acceptable(
+            &bare_corpus,
             "讨论了方案 A 与方案 B 的取舍,结论是 A 优于 B:改动面最小、风险可控,且与既有抽象保持一致;\
              下一步与用户确认接口约定后再动手实现。"
         ));

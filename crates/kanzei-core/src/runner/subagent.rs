@@ -205,6 +205,11 @@ pub struct SubagentRuntime {
     /// 所以不能共用一个值——用哪条路由就带哪条的档位。
     pub fast_service_tier: Option<String>,
     pub primary_service_tier: Option<String>,
+    /// R-236 B3:压缩纪要专用模型(route, model, service_tier)。None = 跟随主模型。
+    /// 默认主模型是刻意的纠偏:纪要质量随模型能力显著变化(同一 agent 只换
+    /// summarizer 的消融差 8pp),旧实现写死 fast 正是「弱模型压缩省小钱、下游
+    /// 续跑赔大钱」;用户要省钱就显式配 `[models].compact`,质量闸兜底。
+    pub compact: Option<(Route, String, Option<String>)>,
     pub max_tokens: u32,
     /// 单个子代理的墙钟上限(秒):本地模型多轮可能极慢,必须有界。
     pub timeout_secs: u64,
@@ -264,6 +269,20 @@ pub struct SubagentRuntime {
     /// 闭包传入;sink(call_id, status)在 drive.rs spawn 块三终态(完成/失败/超时)
     /// 时调用,status ∈ done|failed|timeout。None = CLI/测试不通知。
     pub background_notifications: Option<BackgroundNotificationSink>,
+}
+
+impl SubagentRuntime {
+    /// R-236 B3:纪要模型解析——`[models].compact` 显式配置优先,缺省回落主模型。
+    pub fn digest_model(&self) -> (&Route, String, Option<String>) {
+        match &self.compact {
+            Some((route, model, tier)) => (route, model.clone(), tier.clone()),
+            None => (
+                &self.primary.0,
+                self.primary.1.clone(),
+                self.primary_service_tier.clone(),
+            ),
+        }
+    }
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

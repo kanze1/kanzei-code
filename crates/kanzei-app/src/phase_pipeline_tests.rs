@@ -143,6 +143,7 @@ impl Fixture {
             primary: (self.route.clone(), "mock".into()),
             fast_service_tier: None,
             primary_service_tier: None,
+            compact: None,
             max_tokens: 256,
             timeout_secs: 30,
             limits: self.config.limits.clone(),

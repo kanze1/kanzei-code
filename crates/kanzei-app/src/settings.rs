@@ -15,6 +15,9 @@ pub(crate) struct SettingsPayload {
     pub(crate) language: Option<String>,
     pub(crate) primary: String,
     pub(crate) fast: String,
+    /// R-236 B3:压缩纪要模型。空 = 跟随主模型(不落盘)。
+    #[serde(default)]
+    pub(crate) compact: String,
     pub(crate) proxy: String,
     #[serde(default)]
     pub(crate) reasoning: Option<String>,
@@ -174,7 +177,11 @@ pub(crate) fn validate_model_roles(payload: &SettingsPayload) -> Result<(), Stri
         );
     }
     probe.fill_defaults();
-    for (role, value) in [("primary", &payload.primary), ("fast", &payload.fast)] {
+    for (role, value) in [
+        ("primary", &payload.primary),
+        ("fast", &payload.fast),
+        ("compact", &payload.compact),
+    ] {
         let spec = value.trim();
         if spec.is_empty() {
             continue;
@@ -274,6 +281,12 @@ pub(crate) fn settings_apply_model_fields(
         models,
         "fast",
         Some(payload.fast.trim().to_string()).filter(|s| !s.is_empty()),
+    );
+    // R-236 B3:compact 留空 = 键移除(跟随主模型),不把回落值冻进配置。
+    settings_set_or_remove(
+        models,
+        "compact",
+        Some(payload.compact.trim().to_string()).filter(|s| !s.is_empty()),
     );
     settings_set_or_reset(
         models,
@@ -523,6 +536,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         .map(|merged| {
             json!({
                 "primary": merged.models.primary, "fast": merged.models.fast,
+                "compact": merged.models.compact,
                 "reasoning": merged.models.reasoning,
                 "codexFastMode": merged.models.codex_fast_mode.unwrap_or(false),
                 "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
@@ -543,6 +557,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         });
     json!({
         "path": path.display().to_string(), "primary": config.models.primary, "fast": config.models.fast,
+        "compact": config.models.compact,
         // None 是未显式设置:前端按中文渲染,保存其它设置时仍不把默认值冻进配置。
         "language": config.language,
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
@@ -807,6 +822,7 @@ mod tests {
             language: None,
             primary: String::new(),
             fast: String::new(),
+            compact: String::new(),
             proxy: "env".into(),
             reasoning: None,
             codex_fast_mode: false,
@@ -892,6 +908,7 @@ mod tests {
                 language: None,
                 primary: "anthropic:claude-sonnet-5".into(),
                 fast: String::new(),
+                compact: String::new(),
                 proxy: "env".into(),
                 reasoning: None,
                 codex_fast_mode: false,
@@ -933,6 +950,7 @@ mod tests {
                 language: None,
                 primary: "anthropic:claude-opus-5".into(),
                 fast: "ollama:qwen3.5:4b".into(),
+                compact: String::new(),
                 proxy: "env".into(),
                 reasoning: Some("high".into()),
                 codex_fast_mode: true,
@@ -989,6 +1007,7 @@ mod tests {
                 language: None,
                 primary: "anthropic:claude-sonnet-5".into(),
                 fast: String::new(),
+                compact: String::new(),
                 proxy: "env".into(),
                 reasoning: None,
                 codex_fast_mode: false,
@@ -1014,6 +1033,7 @@ mod tests {
             language: None,
             primary: String::new(),
             fast: String::new(),
+            compact: String::new(),
             proxy: "env".into(),
             reasoning: None,
             codex_fast_mode: false,
@@ -1210,6 +1230,7 @@ mod tests {
             language: None,
             primary: String::new(),
             fast: String::new(),
+            compact: String::new(),
             proxy: "env".into(),
             reasoning: None,
             codex_fast_mode: false,

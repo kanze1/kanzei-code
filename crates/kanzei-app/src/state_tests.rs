@@ -95,6 +95,7 @@ fn 保存前拦住指向不存在_provider_的模型角色() {
         language: None,
         primary: primary.into(),
         fast: String::new(),
+        compact: String::new(),
         proxy: "env".into(),
         reasoning: None,
         codex_fast_mode: false,

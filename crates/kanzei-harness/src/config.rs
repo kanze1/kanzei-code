@@ -268,6 +268,13 @@ pub struct ModelRoles {
     /// 白白让勘察质量降级。
     #[serde(default)]
     pub scout: Option<String>,
+    /// R-236 B3:上下文压缩纪要用哪条路由。取值与 primary/fast 同一套解析。
+    ///
+    /// `None` = 跟随 **primary**(不是 fast——这是对旧实现的刻意纠偏:纪要质量
+    /// 随模型能力显著变化,弱模型摘要在长任务上有 -8pp 的实测消融;主流实现的
+    /// 缺省也都是主模型)。想省钱就显式配弱模型,压缩质量闸负责兜底。
+    #[serde(default)]
+    pub compact: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -813,6 +820,14 @@ impl KanzeiConfig {
         let spec = match reference {
             "primary" => self.models.primary.as_deref().unwrap_or_default(),
             "fast" => self.models.fast.as_deref().unwrap_or_default(),
+            // R-236 B3:compact 未配置回落 primary(纪要默认跟随主模型)。
+            "compact" => self
+                .models
+                .compact
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .or(self.models.primary.as_deref())
+                .unwrap_or_default(),
             direct => direct,
         };
         let (provider_name, model) = spec.split_once(':').ok_or_else(|| {
@@ -996,7 +1011,14 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         check(
             models,
             "models",
-            &["primary", "fast", "reasoning", "codex_fast_mode", "scout"],
+            &[
+                "primary",
+                "fast",
+                "reasoning",
+                "codex_fast_mode",
+                "scout",
+                "compact",
+            ],
             &mut out,
         );
     }
@@ -1104,6 +1126,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     }
     if layer.models.scout.is_some() {
         base.models.scout = layer.models.scout;
+    }
+    if layer.models.compact.is_some() {
+        base.models.compact = layer.models.compact;
     }
     base.providers.extend(layer.providers);
     if layer.proxy.is_some() {
@@ -1564,6 +1589,50 @@ mod tests {
         assert!(
             !warnings.iter().any(|w| w.contains("scout")),
             "scout 是已知键,不该被报成未知: {warnings:?}"
+        );
+    }
+
+    /// R-236 B3:compact 角色——缺省回落 **primary**(不是 fast:弱模型纪要有
+    /// -8pp 实测消融),显式配置走独立解析;层叠与未知键体检同 scout 一套规矩。
+    #[test]
+    fn compact_角色_缺省回落primary_显式配置与层叠生效() {
+        // 缺省:resolve_model("compact") 必须解析到 primary 指向的模型。
+        let mut c: KanzeiConfig =
+            toml::from_str("[models]\nprimary = \"deepseek:dsv4\"\n").unwrap();
+        c.fill_defaults();
+        let resolved = c.resolve_model("compact").expect("缺省必须回落 primary");
+        assert_eq!(resolved.model, "dsv4");
+        assert_eq!(resolved.provider_name, "deepseek");
+        // 空串视同未设,同样回落。
+        let mut blank: KanzeiConfig =
+            toml::from_str("[models]\nprimary = \"deepseek:dsv4\"\ncompact = \"  \"\n").unwrap();
+        blank.fill_defaults();
+        assert_eq!(blank.resolve_model("compact").unwrap().model, "dsv4");
+        // 显式配置:走自己的指向,不再跟随 primary。
+        let mut explicit: KanzeiConfig = toml::from_str(
+            "[models]\nprimary = \"deepseek:dsv4\"\ncompact = \"claude:claude-sonnet-4-6\"\n",
+        )
+        .unwrap();
+        explicit.fill_defaults();
+        assert_eq!(
+            explicit.resolve_model("compact").unwrap().model,
+            "claude-sonnet-4-6"
+        );
+        // 层叠:项目层没写 compact 不得打回默认;写了才覆盖。
+        let mut base: KanzeiConfig =
+            toml::from_str("[models]\nprimary = \"a:b\"\ncompact = \"fast\"\n").unwrap();
+        let layer: KanzeiConfig = toml::from_str("[models]\nprimary = \"c:d\"\n").unwrap();
+        merge(&mut base, layer);
+        assert_eq!(base.models.compact.as_deref(), Some("fast"));
+        let layer2: KanzeiConfig = toml::from_str("[models]\ncompact = \"primary\"\n").unwrap();
+        merge(&mut base, layer2);
+        assert_eq!(base.models.compact.as_deref(), Some("primary"));
+        // 未知键体检:compact 是已知键。
+        let value: toml::Value = toml::from_str("[models]\ncompact = \"primary\"\n").unwrap();
+        let warnings = unknown_keys(&value);
+        assert!(
+            !warnings.iter().any(|w| w.contains("compact")),
+            "compact 是已知键,不该被报成未知: {warnings:?}"
         );
     }
 
