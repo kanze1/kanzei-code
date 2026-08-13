@@ -6,7 +6,7 @@
 验证节奏、代码修改原则、命名风格、测试与文档纪律、任务级并行——由 kanzei 引擎
 内置注入(R-191,单源 kanzei-harness),所有项目默认一致,不要抄到这里:在项目
 文件里复制通用规则只会漂移。
-
+- 对话与思考一律使用中文。
 ## 4. 架构与契约规则(kanzei 版)
 
 - `kanzei-llm` 的 `LlmEvent` / `Part` / `LlmRequest` 变更，必须同步全部三个协议实现（anthropic / openai / openai_responses）和 runner，不允许只改一处。
@@ -23,6 +23,13 @@
 - `.kanzei/project/` 下的需求、缺陷、规范文档是项目资产，随代码一起提交；`.kanzei/summaries/` 对话总结与临时文件不提交。
 - commit message 使用中文或英文均可，但一律**不带任何 Co-Authored-By 署名**。
 - push 前设置代理：`$env:HTTPS_PROXY = "http://127.0.0.1:12000"`。
+
+## 6.1 外部 agent 协作纪律(R-181 降级交付)
+
+- **kanzei 不做跨进程写租约**——源码并发由 worktree 物理隔离 + git 三方合并/`merge-tree` 预检承担,文档侧互斥由 R-138 `FileLock` 解决(R-182 实测结论)。不要实现 `kz lock acquire|release`,那条路已关闭。
+- **外部 agent(Claude Code / Cursor / 手动改)动仓库前,先跑 `kz lock status`**:它是只读可见性入口,报主根、cwd、git 工作树未提交改动与活跃线。看到别人正在写的文件就换 worktree 或先沟通,不要闷头写同一段。
+- **提交只暂存自己明确修改的文件**(D-263):`git add <file>` 逐文件,禁止 `git add .` / 目录级扫入——外部 agent 未完成的改动会被静默卷进他人提交,归属混了、CI 红了、两边都不知道对方在写。
+- **检测 ≠ 互斥**:`kz lock status` 只提供可见信号,不拦截写入;真正的强隔离是独立 worktree(R-177/R-182)。
 
 ## 9. kanzei 本仓库:构建与发版(优先级高于上文通用规则)
 
