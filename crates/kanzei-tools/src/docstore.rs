@@ -476,7 +476,8 @@ impl DocStore {
     /// 返回被移动的条目 ID——调用方必须能告知"哪些条目去了哪个文件"(D-112)。
     ///
     /// D-316:写回前对**整个归档**做净化——按 id 去重(保留先归档的那份)与
-    /// 每条目同 key 字段去重(保留第一个非空)。历史脏数据(重复条目 D-309、
+    /// 每条目字段收敛(同 (key,value) 去重、删空 `阻塞`;口径详见
+    /// normalize_archive 的 D-328 说明)。历史脏数据(重复条目 D-309、
     /// 误切进归档的孤儿字段 D-289)会在任意一次归档动作时被收敛;净化有变化
     /// 时即使没有新终态条目也强制写回(archived 动作 = 清理通道)。
     pub fn archive_terminal(&self) -> std::io::Result<Vec<String>> {
@@ -488,7 +489,7 @@ impl DocStore {
             .into_iter()
             .partition(|e| self.kind.terminal.contains(&e.status.as_str()));
         let mut archived = self.load_archive()?;
-        // D-316 净化:按 id 去重(保留先归档),每条目同 key 字段去重(保留第一个非空)。
+        // D-316 净化:按 id 去重(保留先归档)+ 条目内字段收敛(D-328 口径)。
         let before_len = archived.len();
         archived = Self::normalize_archive(archived);
         let cleaned = archived.len() != before_len;
@@ -550,8 +551,15 @@ impl DocStore {
         Ok(moved)
     }
 
-    /// D-316 归档净化:按 id 去重(保留先归档的一份),每条目同 key 字段去重
-    /// (保留第一个非空)。历史脏数据(重复条目、误切进归档的孤儿字段)经此收敛。
+    /// D-316 归档净化:按 id 去重(保留先归档的一份)+ 条目内字段收敛。
+    ///
+    /// D-328 收窄两条口径——净化的对象是"结构性脏数据",不是叙事内容:
+    /// - 同 key 去重必须比对整个 (key, value):同名不同内容是合法叙事(同一条目
+    ///   两行「验证(…)」各讲一次迁移),按 key 吃掉第二条就是删证据,实测吃掉了
+    ///   D-179 系 v7 迁移的验证记录。
+    /// - 空值只删 `阻塞`:多行字段的表头(`- 实测(…): `,值在续行 Raw 里)在字段
+    ///   模型里同样是空值,删表头会让续行挂错归属。空 `阻塞` 是 D-289 确认的
+    ///   结构垃圾;其余空字段宁可留着难看,也不替内容做主。
     fn normalize_archive(entries: Vec<Entry>) -> Vec<Entry> {
         let mut seen_ids = std::collections::HashSet::new();
         let mut out = Vec::new();
@@ -559,14 +567,14 @@ impl DocStore {
             if !seen_ids.insert(entry.id.clone()) {
                 continue; // 同 id 重复:保留先归档的那份
             }
-            let mut seen_keys = std::collections::HashSet::new();
+            let mut seen_fields = std::collections::HashSet::new();
             entry.fields.retain(|(key, value)| {
                 let key = key.trim();
                 let value = value.trim();
-                if key.is_empty() || value.is_empty() {
-                    return false; // 删空字段(D-289 误切的 `- 阻塞: ` 等)
+                if key.is_empty() || (value.is_empty() && key == "阻塞") {
+                    return false;
                 }
-                seen_keys.insert(key.to_string())
+                seen_fields.insert((key.to_string(), value.to_string()))
             });
             out.push(entry);
         }
@@ -1052,8 +1060,18 @@ fn render_with_template(kind: &DocKind, entries: &[Entry], template: &DocumentTe
 
 fn render_entry_with_template(out: &mut String, entry: &Entry, template: &EntryTemplate) {
     render_heading(out, entry);
+    // D-329:模板尾部的空行是条目间距的残影(间距由 ensure_blank_separator 统一
+    // 负责)。原样渲染会让追加的新字段落在空行之后——每次 update/close 都多出一段
+    // 不可寻址的游离空段,且随写次数累积。渲染时裁掉尾部空 Raw,新字段紧跟末字段。
+    let mut line_count = template.lines.len();
+    while line_count > 0 {
+        match &template.lines[line_count - 1] {
+            TemplateLine::Raw(raw) if raw.trim().is_empty() => line_count -= 1,
+            _ => break,
+        }
+    }
     let mut used = vec![false; entry.fields.len()];
-    for line in &template.lines {
+    for line in &template.lines[..line_count] {
         match line {
             TemplateLine::Raw(raw) => {
                 // 连续空行折叠为一个(D-130):条目内部堆积的空行是引擎自己吐出来的,
@@ -1557,7 +1575,8 @@ mod tests {
                 .collect(),
         };
         // 直接构造脏归档:活动文件放一个 done 条目触发归档,归档文件预置
-        // D-309 重复两份 + D-312 被孤儿字段污染(复现 撞 key、阻塞 空字段)。
+        // D-309 重复两份 + D-312 字段脏数据(逐字重复的 复现、同 key 不同内容的
+        // 验证、空 阻塞、空值多行表头 实测)。D-328 口径:只删结构垃圾,不删叙事。
         store.save(&[mk("R-100", vec![])]).unwrap();
         std::fs::write(
             store.archive_file(),
@@ -1575,8 +1594,11 @@ mod tests {
 ## D-312 被污染 [fixed] (medium)
 - 复现: 原条目复现
 - 影响: 原条目影响
-- 复现: 孤儿误切复现
-- 阻塞: 
+- 复现: 原条目复现
+- 验证(2026-08-08): v6 迁移全绿
+- 验证(2026-08-08): v7 从备份恢复,workspace 269 项通过
+- 实测(2026-08-11):
+- 阻塞:
 ",
         )
         .unwrap();
@@ -1585,19 +1607,81 @@ mod tests {
         // D-309 只剩一份。
         let d309: Vec<&Entry> = archived.iter().filter(|e| e.id == "D-309").collect();
         assert_eq!(d309.len(), 1, "重复条目必须被收敛: {archived:?}");
-        // D-312 的孤儿字段被清:复现 只保留第一个非空、空字段 阻塞 删除。
         let d312 = archived.iter().find(|e| e.id == "D-312").unwrap();
-        let mut seen = std::collections::HashMap::new();
-        for (k, v) in &d312.fields {
-            seen.entry(k.as_str()).or_insert(v.as_str());
-        }
-        assert_eq!(seen.get("复现"), Some(&"原条目复现"), "{:?}", d312.fields);
+        // 逐字重复的 复现 收敛为一份。
+        let repro: Vec<_> = d312.fields.iter().filter(|(k, _)| k == "复现").collect();
+        assert_eq!(repro.len(), 1, "逐字重复字段必须收敛: {:?}", d312.fields);
+        // 同 key 不同内容的 验证 两条都必须活着(D-328:按 key 吃第二条就是删证据)。
+        let proofs: Vec<_> = d312
+            .fields
+            .iter()
+            .filter(|(k, _)| k == "验证(2026-08-08)")
+            .collect();
+        assert_eq!(
+            proofs.len(),
+            2,
+            "同名不同内容是叙事,不得去重: {:?}",
+            d312.fields
+        );
+        // 空 阻塞 删除;空值多行表头 实测 保留(值在续行里,删表头续行就成孤儿)。
         assert!(!d312
             .fields
             .iter()
             .any(|(k, v)| k == "阻塞" && v.trim().is_empty()));
+        assert!(
+            d312.fields.iter().any(|(k, _)| k == "实测(2026-08-11)"),
+            "空值多行表头不得误杀: {:?}",
+            d312.fields
+        );
         // R-100 也进来了。
         assert!(archived.iter().any(|e| e.id == "R-100"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-329:模板尾部空行是条目间距残影,渲染时必须裁掉——否则每次 update/close
+    /// 追加的新字段都落在空行之后,不可寻址的游离空段随写次数累积(D-325 实测 1→2)。
+    #[test]
+    fn 追加字段不产生游离空段且多轮写入稳定() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-append-no-stray-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        let file = dir.join(".kanzei/project/requirements.md");
+        std::fs::write(
+            &file,
+            "# Requirements\n\n## R-001 甲 [open]\n- 复现: 甲\n\n## R-002 乙 [open]\n- 复现: 乙\n",
+        )
+        .unwrap();
+        let mut entries = store.load().unwrap();
+        entries[0]
+            .fields
+            .push(("进展".to_string(), "第一轮".to_string()));
+        store.save(&entries).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            text.contains("- 复现: 甲\n- 进展: 第一轮"),
+            "追加字段必须紧跟末字段,不得隔空行:\n{text}"
+        );
+        // 第二轮写入不得累积新的空段(幂等)。
+        let mut entries = store.load().unwrap();
+        let progress = entries[0]
+            .fields
+            .iter_mut()
+            .find(|(k, _)| k == "进展")
+            .unwrap();
+        progress.1 = "第二轮".to_string();
+        store.save(&entries).unwrap();
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            text.contains("- 复现: 甲\n- 进展: 第二轮"),
+            "多轮写入后字段仍须紧凑:\n{text}"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

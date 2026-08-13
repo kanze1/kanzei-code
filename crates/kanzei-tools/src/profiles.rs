@@ -425,7 +425,10 @@ impl Component for DevProfile {
                          done / why) — an unfulfilled request must never be summarized as \
                          done (D-279). When asked whether something was missed, re-read the \
                          original message and check it item by item; never substitute an \
-                         adjacent action for the requested one. \
+                         adjacent action for the requested one. For assessment, review or \
+                         retrospective requests, read representative code samples and consult \
+                         the memory index for a matching SOP before concluding — line counts, \
+                         test counts and tracker history alone are not depth evidence. \
                          WIP limit: ONE executable item at a time across BOTH queues — a \
                          requirement in doing and a defect in fixing share the SAME single \
                          slot; finish it, park it, or close it before picking up another. An \
@@ -442,7 +445,12 @@ impl Component for DevProfile {
                          to write the batch table into the entry as `批次: 0/N` (N chosen by \
                          you, N <= 10). After each finished batch update it to `批次: k/N` — \
                          the sidebar cells are the only place your progress is visible from \
-                         outside, and an unfilled cell reads as no progress. Every batch \
+                         outside, and an unfilled cell reads as no progress. At every batch \
+                         end also write the recoverable state into the entry's 进展 field — \
+                         what landed (files), key findings and decisions, and the next \
+                         concrete step: a fresh session must be able to resume from the entry \
+                         alone, and findings living only in the conversation are lost work. \
+                         Every batch \
                          commit's subject must carry the marker `<ID> B<k>` (for example \
                          `R-161 B3`): the engine derives real progress from commit subjects, \
                          so an unmarked commit does not count toward it. At close time the \
@@ -461,9 +469,22 @@ impl Component for DevProfile {
                          (user message / feedback / self-found) so it stays traceable. \
                          If the item genuinely needs batching, write `批次: 0/N` in the \
                          same call.
-                         Pick work according to the selected work-priority mode appended for this run: \
-                         scan the selected first queue top-down, then the other queue only when the \
-                         first has no workable item. When no mode is supplied, use defect-first. Priority labels are background info, not the ordering. If NOTHING is workable \
+                         Pick work with a fixed precedence — never re-derive or debate it: \
+                         (1) an executable item already in doing or fixing (no valid blocking \
+                         field, not user-parked) is resumed FIRST — the occupied WIP slot \
+                         outranks queue priority in every mode; (2) only when no executable \
+                         item exists, pick new work by the selected work-priority mode \
+                         appended for this run: scan the selected first queue top-down, then \
+                         the other queue only when the first has no workable item. When no \
+                         mode is supplied, use defect-first. Priority labels are background \
+                         info, not the ordering. While an item is in progress do NOT re-scan \
+                         the full queues (`req list` / `defect list`) — queues are read when \
+                         picking work and when deduplicating a new registration, nowhere \
+                         else; register mid-work discoveries (`defect add` with a ref) and \
+                         return to the active item. Non-semantic metadata artifacts (stray \
+                         lines, formatting residue) must not interrupt active implementation \
+                         — register them and move on, unless they break tool parsing or the \
+                         entry's own update. If NOTHING is workable \
                          (all blocked/waiting on外部), reply in PLAIN TEXT only — no tool \
                          calls, no 'still blocked' journal entries in goals, no empty commits; \
                          a text-only reply is the signal that stops the auto-continue loop. \
@@ -812,6 +833,28 @@ mod tests {
             "D-219 旧口径残留:WIP 仍写着「最多 2 个 requirements in doing」,\
              与新的单槽口径互斥,模型会按就近句取其一。"
         );
+    }
+
+    /// 2026-08-13 用户定调(V4PRO 运行复盘):取活显式序 + 执行中不重扫队列 +
+    /// 批末进展必写可恢复状态 + 评估先读码。规则冲突自辩(defect-first vs WIP)与
+    /// 上下文浪费先在提示词单源立规;harness 侧下沉(work next)由 R-230 接力。
+    #[test]
+    fn dev_system_prompt_enforces_resume_precedence_and_context_discipline() {
+        let system = dev_system_prompt("resume-precedence");
+        for required in [
+            "outranks queue priority",
+            "never re-derive or debate",
+            "do NOT re-scan",
+            "Non-semantic metadata artifacts",
+            "recoverable state",
+            "resume from the entry alone",
+            "read representative code samples",
+        ] {
+            assert!(
+                system.contains(required),
+                "取活显式序/上下文纪律真源缺失:dev system prompt 里没有 `{required}`"
+            );
+        }
     }
 
     /// 2026-08-10 用户定调③:全量测试只服务于中/大条目的收口,不再挂在每次提交上。

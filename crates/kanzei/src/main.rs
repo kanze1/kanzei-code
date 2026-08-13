@@ -1018,6 +1018,24 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
                 input["status"] = serde_json::json!(status);
             }
         }
+        // D-329:这些动作原先落在 `_ => {}`,位置参数 id 根本没接——CLI 一律报
+        // "id is required",工具自己指路的清理通道(raw_lines/raw_delete)在命令行侧
+        // 不可用。raw_delete 的第二个位置参数是序号。
+        "raw_lines" | "reopen" | "archive" | "void_id" | "repair_missing_id" => {
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            if let Some(id) = positional.first() {
+                input["id"] = serde_json::json!(id);
+            }
+        }
+        "raw_delete" => {
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            if let Some(id) = positional.first() {
+                input["id"] = serde_json::json!(id);
+            }
+            if let Some(ordinal) = positional.get(1).and_then(|raw| raw.parse::<u64>().ok()) {
+                input["ordinal"] = serde_json::json!(ordinal);
+            }
+        }
         "add" => {
             let positional = parse_tracker_flags(&args[2..], &mut input);
             input["title"] = serde_json::json!(positional.join(" "));

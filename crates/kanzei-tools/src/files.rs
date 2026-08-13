@@ -433,21 +433,26 @@ impl Tool for FilesTool {
         // project_root,凡仓库源码走 cwd」——read/glob/grep/write/edit 早就走 cwd,
         // 这里若还取主根,同一个 agent 会在两棵树之间读写:files 列主树的文件,
         // edit 按 cwd 落 worktree。
-        let entries = scan(&ctx.cwd);
+        let mut entries = scan(&ctx.cwd);
         if entries.is_empty() {
             return ToolOutput::ok("(no files)".to_string());
         }
         // 批注是 `.kanzei/file-annotations.json`,主根一份的资产,取 project_root 不变。
         let annotations = load_annotations(&ctx.project_root);
+        let prefix = input
+            .path
+            .as_deref()
+            .map(|p| p.trim_matches('/').replace('\\', "/"));
         let text = match input.top {
-            Some(top) => render_top(&entries, &annotations, top.clamp(1, 100)),
-            None => {
-                let prefix = input
-                    .path
-                    .as_deref()
-                    .map(|p| p.trim_matches('/').replace('\\', "/"));
-                render_tree(&entries, &annotations, prefix.as_deref())
+            Some(top) => {
+                // D-327:top 视图曾丢掉 path 作用域,静默返回全仓重文件——拿到错
+                // 作用域的数据不报错,比报错更危险。裁剪口径与 render_tree 一致。
+                if let Some(prefix) = prefix.as_deref() {
+                    entries.retain(|e| e.path.starts_with(prefix));
+                }
+                render_top(&entries, &annotations, top.clamp(1, 100))
             }
+            None => render_tree(&entries, &annotations, prefix.as_deref()),
         };
         ToolOutput::ok(text)
     }
@@ -505,6 +510,28 @@ mod tests {
         );
         std::fs::remove_dir_all(&worktree).ok();
         std::fs::remove_dir_all(&main_root).ok();
+    }
+
+    /// D-327:top 视图必须尊重 path 作用域——曾静默返回全仓重文件。
+    #[tokio::test]
+    async fn top视图尊重path作用域() {
+        let root = fixture("top-scope");
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let out = FilesTool
+            .execute(serde_json::json!({"path": "docs", "top": 5}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("docs/note.md"), "{}", out.content);
+        assert!(
+            !out.content.contains("src/big.rs"),
+            "top 不得越出 path 作用域: {}",
+            out.content
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
