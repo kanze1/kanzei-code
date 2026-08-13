@@ -124,6 +124,7 @@ const I18N_EN = {
   "未入册": "not indexed",
   "暂无设计文档": "No design docs",
   "架构索引": "Architecture index",
+  "架构图": "Architecture graph",
   "在查看器中打开架构索引": "Open the architecture index in the viewer",
   "设计文档树": "Design doc tree",
   "打开": "Open",

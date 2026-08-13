@@ -491,6 +491,7 @@ const document = {
   hidden: false,
   title: "",
   createElement: (tag) => { const el = new Element(tag); el.ownerDocument = document; return el; },
+  createElementNS: (_ns, tag) => { const el = new Element(tag); el.ownerDocument = document; return el; },
   createTextNode: (text) => { const n = new TextNode(text); n.ownerDocument = document; return n; },
   createTreeWalker: (root = body) => {
     if (root === body) fullDocumentWalks += 1;
@@ -664,6 +665,16 @@ const payloads = {
     design_docs: [
       { name: "direction_taste.md", title: "方向基线", bytes: 512 },
       { name: "memory_system.md", title: "Memory 系统设计基线", bytes: 2048 },
+    ],
+    // R-188:workspace crate 依赖边(代码生成架构图数据源)。
+    graph: [
+      ["kanzei-app", "kanzei-core"],
+      ["kanzei-app", "kanzei-tools"],
+      ["kanzei", "kanzei-tools"],
+      ["kanzei-tools", "kanzei-harness"],
+      ["kanzei-tools", "kanzei-llm"],
+      ["kanzei-tools", "kanzei-core"],
+      ["kanzei-core", "kanzei-harness"],
     ],
   },
   docs_read_custom: { path: "C:/smoke/parent/docs/design/memory_system.md", name: "memory_system.md", content: "# Memory 系统设计基线\n\n冒烟内容。" },
@@ -6027,6 +6038,40 @@ const docsB = {
   assert(disabled === false, "R-187:总开关关闭后提示音不应播放");
   // 恢复默认,避免污染后续用例。
   vm.runInContext('saveSoundSettings({enabled:true, volume:0.12, completed:true, failed:true, stopped:true})', sandbox);
+}
+
+// ---------- R-188 架构图:代码生成的 SVG 依赖图 ----------
+// 架构浏览页在文字树之外渲染依赖图 SVG;图数据为空时隐藏降级文字树。
+{
+  // 先切到架构视图触发 refreshArch。
+  document.querySelector('.activity-item[data-view="arch"]')?.click();
+  await flush();
+  const graphHost = byId.get("arch-graph");
+  assert(graphHost, "R-188:架构浏览页缺少 #arch-graph 图容器");
+  const svg = graphHost.querySelector("svg.arch-svg");
+  assert(svg, "R-188:架构图未渲染为 SVG(应代码生成,非文生图/预置图)");
+  assert(
+    svg.querySelectorAll("g.arch-node").length >= 6,
+    `R-188:SVG 节点数不足(桩 graph 有 6 crate),实得 ${svg.querySelectorAll("g.arch-node").length}`,
+  );
+  assert(
+    svg.querySelectorAll("line").length >= 6,
+    `R-188:SVG 依赖边数不足(桩 graph 有 6 边),实得 ${svg.querySelectorAll("line").length}`,
+  );
+  // 图渲染不替换文字树(降级视图仍在)。
+  assert(
+    (byId.get("arch-tree")?.childNodes?.length ?? byId.get("arch-tree")?.childElementCount ?? 0) > 0,
+    "R-188:架构图渲染后文字树被清空(降级视图必须保留)",
+  );
+  // 节点可点击定位(点击 app 节点应尝试打开 crate Cargo.toml)。
+  const appNode = [...svg.querySelectorAll("g.arch-node")].find((g) => g.getAttribute("aria-label") === "kanzei-app");
+  assert(appNode, "R-188:SVG 缺少 kanzei-app 节点");
+  appNode.dispatchEvent({ type: "click", preventDefault() {}, stopPropagation() {} });
+  await flush();
+  assert(
+    invokeLog.some((cmd) => cmd === "docs_read_custom"),
+    "R-188:点击图节点未触发文档/Cargo 定位读取",
+  );
 }
 
 // ---------- R-190 常驻 fast 模型状态指示 ----------

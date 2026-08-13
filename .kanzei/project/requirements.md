@@ -133,11 +133,11 @@
 - 既有能力(§1.25 显式标注,不得重复申报为本次产出): 架构浏览页本身已存在(R-122)——后端 `architecture_snapshot` 只读命令供数据(架构索引正文 + docs/design 文档清单),前端 crates/kanzei-app/ui/19-arch.js:8-104 渲染「索引 + 设计文档树」,按索引状态分层(已入册的按索引章节分组、未入册的单列,让「有文档没入册」的缺口在界面上直接可见),点击条目走既有 Markdown 查看器 openDocViewer。本条是在这份既有数据源与视图之上**加图**,不是另起一个架构页;验收③的降级文字视图就是这棵既有的树,不要重写。
 - 现状(2026-08-12 读码核实,dev HEAD): 19-arch.js 全文 129 行,**无任何图形渲染**——零 svg/canvas/mermaid/graphviz 依赖,输出是纯 DOM 文本树;`architecture_snapshot` 也只回「索引文本 + 文档名/标题列表」,**不含依赖边、调用关系、模块归属等成图所需的结构化数据**。所以本条的第一道工作量在**数据侧**(从 crates 依赖、模块引用或设计文档里抽出可成图的节点与边),渲染选型(mermaid/graphviz/自绘 SVG)是第二道;验收①的「真实数据源」指的就是这层抽取,不能拿手写的图字面量顶替。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-188
-- 批次: 0/2
-- 进展: 2026-08-16 认领并勘察。既有能力:架构浏览页(19-arch.js 文字树 + architecture_snapshot)为 R-122 交付,不重写。现状:architecture_snapshot 无成图数据(仅索引文本 + 文档名列表),19-arch.js 零图形依赖。批次:B1=数据侧(architecture_snapshot 增加 graph 字段:从 workspace Cargo.toml members + 各 crate kanzei-* 依赖抽 crate 依赖边 + 设计文档节点,单测);B2=前端(mermaid 渲染图 + 节点点击 + 不可用降级文字树 + 冒烟断言)。设计冻结:纯代码生成 mermaid,禁止文生图/预置图;渲染失败降级既有文字树不空白;验收①真实数据源=workspace 依赖边与设计文档清单。
-- observed_head: 85907fc021ee8e902c9cadbd474f9af0e82cfd4f
+- 批次: 1/2
+- 进展: 2026-08-16 B1 完成并提交(4d9fb34):architecture_snapshot 增加 graph 字段,build_workspace_graph 从 Cargo.toml 抽 crate 依赖边(单测覆盖 workspace/path 两形态),kanzei-app 148 passed。B2 剩余:①19-arch.js 用 graph 数据渲染 mermaid 架构图;②节点点击定位到设计文档/代码;③图不可用时降级既有文字树不空白;④冒烟断言;⑤关闭前全量。
+- observed_head: 4d9fb34db0d5429368dc83672f6e71d94fbb3b11
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786655666011
+- recorded_at: 1786655766085
 
 ## R-189 亮色主题:前端渲染器换色结构化评估与第二套配色 [todo]
 - acceptance: ①前端渲染器颜色来源结构评估:颜色集中在可换色层(变量/类)还是散落硬编码,评估结论写入需求进展或设计文档;②亮色主题完整可用:全局一键切换暗/亮并持久化;③亮/暗两套主题在 800/1024/1280 与纯键盘下均可达可用对比度;④换色改动不引入新框架,沿用现有渲染器结构。

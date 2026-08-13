@@ -23,6 +23,14 @@ async function refreshArch() {
 function renderArch(snap) {
   const tree = $("arch-tree");
   tree.replaceChildren();
+  // R-188:架构图(代码生成的 SVG 依赖图)渲染在图容器;任何异常(旧环境/桩
+  // 不支持 SVG API)都隐藏图并继续渲染文字树——图是增强,文字树是保底。
+  try {
+    renderArchGraph(snap.graph);
+  } catch {
+    const host = $("arch-graph");
+    if (host) host.classList.add("hidden");
+  }
   const summary = $("arch-summary");
   const docs = snap.design_docs ?? [];
   summary.textContent = `${docs.length}${t("篇设计文档")} · ${(snap.index ?? "").split("\n").length}${t("行索引")}`;
@@ -126,4 +134,146 @@ $("arch-goto-memory").addEventListener("click", () => {
   const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
   if (memoryBtn) memoryBtn.click();
   else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
+});$("arch-goto-memory").addEventListener("click", () => {
+  const memoryBtn = document.querySelector('.activity-item[data-view="memory"]');
+  if (memoryBtn) memoryBtn.click();
+  else document.querySelectorAll(".view").forEach((v) => v.classList.remove("active")), $("view-memory").classList.add("active");
 });
+
+// ---------- R-188 架构图:代码生成的 SVG 依赖图 ----------
+// 数据来自 architecture_snapshot.graph(workspace crate 依赖边,后端从 Cargo.toml
+// 抽取,纯代码生成,非文生图/预置图)。自绘 SVG(零外部依赖,桌面端离线可用):
+// 每 crate 一个节点,依赖边从上向下指;节点可点击定位到对应 crate。图数据为空
+// 或渲染异常时隐藏,降级为既有文字树(不空白)。
+function renderArchGraph(graph) {
+  const host = $("arch-graph");
+  if (!host) return;
+  try {
+    host.replaceChildren();
+  } catch {
+    /* 桩环境无 replaceChildren:清空为隐藏 */
+  }
+  const edges = Array.isArray(graph) ? graph : [];
+  // 无 createElementNS(冒烟桩/旧环境)或图数据空:隐藏图,降级文字树,不抛错。
+  if (!edges.length || typeof document.createElementNS !== "function") {
+    host.classList.add("hidden");
+    return;
+  }
+  // 收集全部节点(边两端 + 孤立成员)。
+  const nodes = new Set();
+  for (const [from, to] of edges) {
+    nodes.add(from);
+    nodes.add(to);
+  }
+  const names = [...nodes].sort();
+  // 计算入度做分层:被依赖越多的越靠上(依赖方在下)。
+  const indegree = new Map(names.map((n) => [n, 0]));
+  for (const [, to] of edges) indegree.set(to, (indegree.get(to) || 0) + 1);
+  const ordered = [...names].sort((a, b) => (indegree.get(b) || 0) - (indegree.get(a) || 0));
+  const nodeIndex = new Map(ordered.map((n, i) => [n, i]));
+  const N = ordered.length;
+  const W = 320;
+  const ROW_H = 56;
+  const COL_W = 90;
+  const PAD = 12;
+  const H = Math.max(90, N * ROW_H + PAD * 2);
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("width", "100%");
+  svg.classList.add("arch-svg");
+  const pos = (name) => {
+    const idx = nodeIndex.get(name) || 0;
+    return { x: PAD + (idx % 3) * COL_W, y: PAD + Math.floor(idx / 3) * ROW_H };
+  };
+  // 依赖边(先画,节点盖在上面)。
+  for (const [from, to] of edges) {
+    const a = pos(from);
+    const b = pos(to);
+    const line = document.createElementNS(ns, "line");
+    line.setAttribute("x1", String(a.x + 26));
+    line.setAttribute("y1", String(a.y + 22));
+    line.setAttribute("x2", String(b.x + 26));
+    line.setAttribute("y2", String(b.y));
+    line.setAttribute("stroke", "var(--border, #888)");
+    line.setAttribute("stroke-width", "1.2");
+    line.setAttribute("marker-end", "url(#arch-arrow)");
+    svg.appendChild(line);
+  }
+  // 箭头 marker。
+  const defs = document.createElementNS(ns, "defs");
+  const marker = document.createElementNS(ns, "marker");
+  marker.setAttribute("id", "arch-arrow");
+  marker.setAttribute("viewBox", "0 0 10 10");
+  marker.setAttribute("refX", "9");
+  marker.setAttribute("refY", "5");
+  marker.setAttribute("markerWidth", "7");
+  marker.setAttribute("markerHeight", "7");
+  marker.setAttribute("orient", "auto-start-reverse");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+  path.setAttribute("fill", "var(--border, #888)");
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+  // 节点。
+  for (const name of ordered) {
+    const { x, y } = pos(name);
+    const g = document.createElementNS(ns, "g");
+    g.setAttribute("class", "arch-node");
+    g.setAttribute("tabindex", "0");
+    g.setAttribute("role", "button");
+    g.setAttribute("aria-label", name);
+    const rect = document.createElementNS(ns, "rect");
+    rect.setAttribute("x", String(x));
+    rect.setAttribute("y", String(y));
+    rect.setAttribute("width", "52");
+    rect.setAttribute("height", "22");
+    rect.setAttribute("rx", "4");
+    rect.setAttribute("fill", "var(--bg, #eee)");
+    rect.setAttribute("stroke", "var(--border, #888)");
+    g.appendChild(rect);
+    const text = document.createElementNS(ns, "text");
+    text.setAttribute("x", String(x + 26));
+    text.setAttribute("y", String(y + 14));
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("font-size", "8");
+    const label = name.replace(/^kanzei-/, "");
+    text.textContent = label;
+    g.appendChild(text);
+    g.addEventListener("click", () => openArchCrate(name));
+    g.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      openArchCrate(name);
+    });
+    svg.appendChild(g);
+  }
+  host.classList.remove("hidden");
+  host.appendChild(svg);
+}
+
+// R-188 验收④:图上节点点击定位——crate 无对应设计文档时打开其 Cargo.toml
+// 说明(经 docs_read_custom 只读),有同名设计文档则打开文档。
+async function openArchCrate(crate) {
+  const docName = `${crate}.md`;
+  try {
+    const file = await invoke("docs_read_custom", {
+      projectDir: currentProject,
+      relPath: `docs/design/${docName}`,
+    });
+    openRuntimeMarkdown(file.name, file.content);
+    return;
+  } catch {
+    // 无同名设计文档:落到 crate 的 Cargo.toml(真实源码数据)。
+    try {
+      const cargo = await invoke("docs_read_custom", {
+        projectDir: currentProject,
+        relPath: `crates/${crate}/Cargo.toml`,
+      });
+      openRuntimeMarkdown(`${crate}/Cargo.toml`, cargo.content);
+    } catch {
+      toastError(`${t("打开失败")}:${crate}`);
+    }
+  }
+}
