@@ -134,7 +134,11 @@ fn defect_review_snapshot_is_strictly_read_only() {
         .map(|tool| tool.name().to_string())
         .collect();
     names.sort();
-    assert_eq!(names, vec!["glob", "grep", "read"]);
+    // R-218/R-234 扩容:只读快照含 files/git/glob/grep/read/symbols,全部只读。
+    assert_eq!(
+        names,
+        vec!["files", "git", "glob", "grep", "read", "symbols"]
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

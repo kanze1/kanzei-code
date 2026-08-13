@@ -158,9 +158,11 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         .map(|t| t.name())
         .collect();
     sub_tools.sort_unstable();
+    // R-218/R-234 扩容:只读快照现为 files/git/glob/grep/read/symbols 六件——
+    // 全部只读(无 edit/write/bash),仍是 writer 阶段跑 task 安全的前提。
     assert_eq!(
         sub_tools,
-        vec!["glob", "grep", "read"],
+        vec!["files", "git", "glob", "grep", "read", "symbols"],
         "子代理快照必须只有只读工具——这是 writer 阶段跑 task 安全的前提"
     );
 

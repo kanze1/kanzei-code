@@ -646,13 +646,19 @@ async fn 超时终态_读槽释放_快照无残留读者() {
     let address = listener.local_addr().unwrap();
     let id = "call_task_timeout".to_string();
 
-    // 服务器 accept 后挂起不回应(读一次请求后永久等待,直到客户端超时断开)。
+    // 服务器 accept 后挂起不回应:读完任意大小的请求体(可能分块到达,不能假设
+    // 请求体 ≤ 某固定字节——工具 schema 增多会撑大请求,R-234 实测),然后不再
+    // 写任何响应,保持连接直到客户端超时断开(read 返回 0/错误)再 drop。
     let server = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
-        let mut chunk = [0_u8; 4096];
-        let _ = stream.read(&mut chunk).await;
-        let mut sink = [0_u8; 4096];
-        let _ = stream.read(&mut sink).await; // 挂起:不写任何响应
+        let mut chunk = [0_u8; 65536];
+        // 读完全部请求体后不再写响应;客户端超时断开后 read 返回 0,循环退出。
+        while stream
+            .read(&mut chunk)
+            .await
+            .map(|n| n > 0)
+            .unwrap_or(false)
+        {}
         drop(stream);
     });
 
