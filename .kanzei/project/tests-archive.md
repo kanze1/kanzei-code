@@ -2093,3 +2093,27 @@
 - 摘要: node --check 02-i18n.js/08-compose.js 通过;ui-runtime-smoke 21 项断言全绿(含 R-199 语义更新后的 D-291 场景),0 运行时错误。D-320 修复提交前验证。
 - 关联: D-320
 - 收尾: 1786574944
+
+## T-1786585564 cargo test --workspace 发版门禁全量 [passed]
+- 命令: cargo test --workspace
+- 摘要: 268 passed, 0 failed, 1 ignored(4 crate + doc-tests)。R-213 半成品 stash 后红灯消除。
+- 关联: R-233 R-234
+- 收尾: 1786585564
+
+## T-1786595715 R-213 B1 定向:kanzei-core store + kanzei-tools memory/replay_eval/manager/promote [passed]
+- 命令: cargo test -p kanzei-core store && cargo test -p kanzei-tools memory && cargo test -p kanzei-tools replay_eval && cargo test -p kanzei-tools manager && cargo test -p kanzei-tools promote_
+- 摘要: episode_exists 新增后 promote 返工(证据先落库、成功才置 active + episode 真实存在校验),迁移 11 处旧测试硬编码 episode_id,新增 promote_rejects_fabricated_episode_id / promote_write_evidence_failure_does_not_activate 两单测。kanzei-core store 53 passed;kanzei-tools memory 82 + replay_eval 5 + manager 7 + promote_ 4 全绿。
+- 关联: R-213
+- 收尾: 1786595715
+
+## T-1786597508 R-213 B2a 定向:kanzei-tools memory + consolidation_prompt + promote_ [passed]
+- 命令: cargo test -p kanzei-tools memory && cargo test -p kanzei-tools consolidation_prompt && cargo test -p kanzei-tools promote_
+- 摘要: R-213 B2a 引擎轮末代填:memory 83 passed(含新增 consolidation_prompt_injects_episode_id);promote_ 4 passed(B1 验收①② promote_rejects_fabricated_episode_id / promote_write_evidence_failure_does_not_activate 仍在);fmt/clippy 无警告。
+- 关联: R-213
+- 收尾: 1786597508
+
+## T-1786597693 cargo test --workspace (R-213 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 743 passed, 0 failed, 2 ignored(全 workspace 含 doc-tests)。R-213 B3 关闭前全量:引擎代填(45fd276)+ B1 门禁(23338eb)全绿。
+- 关联: R-213
+- 收尾: 1786597693

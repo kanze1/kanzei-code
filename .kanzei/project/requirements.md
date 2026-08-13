@@ -39,18 +39,6 @@
 - refs: R-193 R-197
 - 进展: 2026-08-12 已接通 KanzeiConfig/settings_get/settings_save 与设置页语言全链路，新增跟随系统解析、默认中文及未显式设置不落盘语义；已通过 cargo fmt/clippy、cargo test -p kanzei-app(125 passed)、node --check 与 UI runtime smoke(0 运行时错误)。
 
-## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open] [doing]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 后端 记忆
-- 来源: 2026-08-12 八维度审计(docs/design/audit_20260812_eight_dimensions.md §5)。
-- 背景: memory_control_plane.md §6 的硬约束是「无来源不入 active」;实现只查 sources 数组非空——promote 不校验 episode_id 真实存在(memory/store.rs:392-397),record_memory_source 失败被 `let _` 吞掉后条目照样置 active(store.rs:414-427),而 manager 的工具面拿不到真实 episode_id 只能编造。控制平面「用数据判断记忆是否改善决策」的承诺因此不可兑付。
-- 内容: promote 前校验每个 episode_id 真实存在(或改为引擎在轮末代填当轮 episode_id,manager 无需自报);record_memory_source 失败即回滚晋升。
-- 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
-- refs: R-165 R-195 R-214
-- 批次: 1/3
-- 进展: 2026-08-16 取活(requirements-first)。R-213 记忆 promote provenance 校验补真。勘察目标:memory/store.rs 的 promote 与 record_memory_source 实现、episode 表结构、manager 工具面(MemoryPromoteTool)能否拿真实 episode_id。B1:promote 前校验 episode_id 真实存在 + 写证据失败回滚;单测。B2:盘点存量 active 条目 memory_sources 零行数并处置。B3:全量+关闭。 | 2026-08-13 交接(V4PRO 轮被用户中止,交互会话在途审查,下一轮从这里接):①勘察结论=manager 拿不到真实 episode_id(episode 轮末才落库、轮内 id 不存在、list_episodes 返回不含 id)——只上校验闸门会让 memory_promote 谁也过不去,需求给的另一条路「引擎轮末代填」才是通路,B2 前必须先定这个方向;②B1 已交付但未提交(在工作区):episodes.rs episode_exists、store.rs promote 前校验+失败回滚、mod.rs seed_episode 夹具;未交付:单测与 11 处旧测试迁移(store.rs:1840/1845/2123、mod.rs:1754/1977/2015/2070/2121/2173、manager.rs:827、replay_eval.rs:350,最后一处 pub(super) 可见性够不到),当前 cargo test -p kanzei-tools 必红;③返工建议:把顺序倒成「证据先落库、成功再置 active」,store.rs:499 的 let _ 吞错、refresh_derived 盖住主诊断、多来源部分失败孤儿行三个问题一起消失;④归档误删已单独登记 D-328 并由交互会话修复回填,别把 defects-archive 的删除当上一轮正常改动提交
-
 ## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [open]
 - 优先级: P2
 - 复杂度: 中
@@ -647,3 +635,13 @@
 
 - 进展: 2026-08-13(D-239 验收②复核):清空伪阻塞字段——原「阻塞: 未完成依赖: R-175」是内部顺序依赖,解除权在 agent(做完 R-175 即可恢复取活),不属于外部阻塞四类,违反 §1.1。依赖关系保留在「依赖:」字段(R-175 未完成、无外部阻塞,是真实顺序前置);R-175 关闭后取活本条的判定以依赖字段为准,不再依赖阻塞字段。
 - 阻塞: 
+
+## R-235 存量 28 条零证据 active 记忆逐条复核:保留(存量豁免)或降级 candidate,用户拍板 [open] [todo]
+- 优先级: P3
+- 内容: 对 28 条零证据 active 记忆逐条复核:保留(存量豁免,接受不可计量)或降级 candidate(严格符合无来源不入 active,代价是不可检索注入)。复核结果与依据落到 memory 系统设计文档或本条目关闭证据。
+- 复杂度: 小
+- 来源: R-213 关闭时盘点发现(R-213 验收③处置的承接)
+- 标签: 后端
+- 背景: R-213 盘点:state.db 311 条 episode、memory_sources 0 行,project 域 28 条 active 记忆(M-001~M-063)全部零证据(global 域无条目)。这些是 provenance 门禁上线前由用户/交互会话/manager 产生的既有资产,source 字段均无机器可链接的 run_id,历史回填=变相伪造,不可行。R-213 的处置定为存量豁免+文档化,但控制平面「用数据判断记忆是否改善决策」对这些条目无法计量,保留还是逐条降级应由用户拍板。
+- 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
+- 优先级: P3

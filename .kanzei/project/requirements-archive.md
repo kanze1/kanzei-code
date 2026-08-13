@@ -140,7 +140,6 @@
 - 内容: 右侧活动面板当前会因工具运行、事件刷新或视图变化出现自动打开/自动关闭，导致活动轨迹不稳定、用户无法持续观察。用户主动开启后，面板应保持开启，不得被事件流程擅自收起；关闭也必须由用户主动操作。
 - 来源: 用户反馈:右侧活动开启后不要一会开一会关
 - 验收: 1.用户打开右侧活动面板后,连续触发多个工具调用、完成运行、切换对话/视图,面板始终保持打开; 2.面板内容刷新不改变开关状态; 3.只有用户点击关闭/收起操作才关闭; 4.用户主动关闭后,后续普通工具事件不得自动打开; 5.重启后的默认状态按产品设定稳定,不出现闪烁或事件驱动的开关跳变。
-- 优先级: P0
 - 实现计划: 将右侧活动面板改为持久化用户开关,不再由 bg-list 内容或工具事件自动切换;新增顶栏活动开关,打开后保持显示,关闭后事件不得自动打开。
 - 验收准备: 覆盖工具开始/结束、turn 清理、停止、项目切换和重启状态。
 - 实现: 新增持久化的右侧活动面板用户开关与顶栏“活动”按钮;bgSync仅同步用户开关,工具开始/结束、turn清理、停止和项目切换不再擅自开关;活动列表增加滚动高度约束。
@@ -152,7 +151,6 @@
 - 内容: 当前桌面端缺少完整的项目生命周期入口:首次使用时无法明确初始化项目配置/工作区,已配置多个项目时缺少项目切换入口,项目列表缺少新增、移除、重命名、路径查看与当前项目状态管理。需要建立项目管理 UI,并保证切换后对话、配置、运行上下文不会误串。
 - 来源: 用户反馈:项目初始化,项目切换与管理能力几乎没有
 - 验收: 1.首次启动或无项目时有明确的项目初始化引导,可选择/创建工作目录并完成基础配置; 2.顶栏或侧栏可查看当前项目并切换已登记项目; 3.支持新增、移除、重命名项目及查看项目路径,移除需确认且不删除磁盘文件; 4.切换项目后刷新项目相关文档、目标/需求、历史会话和运行状态,禁止跨项目串数据; 5.项目列表与当前项目选择重启后保持。
-- 优先级: P1
 - 实现计划: 在现有项目路径列表基础上增加向后兼容的名称映射;提供初始化目录命令与 UI 入口;支持项目重命名并持久化;切换/初始化后统一刷新会话、文档、模型、Git、队列和右侧面板状态。
 - 验收准备: 覆盖空项目/初始化、切换、重命名、移除确认、重启读取与项目数据刷新。
 - 实现: AppPrefs 增加向后兼容的 names 映射;新增 projects_init/projects_rename command;初始化创建项目目录与 .kanzei 配置目录;项目列表新增初始化和重命名入口,移除增加确认;切换/新增/初始化/移除当前项目刷新会话、文档、模型、Git、队列和面板。
@@ -435,7 +433,6 @@
 - 内容: 网络连接、超时、DNS 等临时错误支持有限次数、递增退避的自动重试，并在重试中向用户显示状态；上下文超限不得按网络错误无限重试。
 - 来源: 用户反馈：将网络错误重试机制纳入需求队列。
 - 验收: 网络临时错误按配置/默认上限重试并退避；重试次数耗尽后返回明确错误；用户可见正在重试与最终失败；非临时错误不重试；请求已产生工具副作用后不得盲目重放。
-- 优先级: P1
 - 核查(2026-08-07): 达标。验收逐条成立:仅 connect/timeout 重试、上限 2 次退避 500/1000ms、UI 状态条与 CLI 双端可见、耗尽后可手动重试、流建立后绝不重放(工具副作用安全)。真实增量是收窄错误分类(移除误纳的 is_request)与 on_retry 回调打通全链路可见性。遗留:唯一新测试只断言常量,无 mock 服务器级行为验证。
 
 ## R-077 优化历史对话勾选框与本地模型集成 [done]
@@ -620,8 +617,6 @@
 - 阶段: 0
 - 验收: ①列表有清晰阻塞标识；②详情展示阻塞原因、依据、解除条件、下一步及依赖；③阻塞条目与可执行条目可筛选；④自动后置顺序与页面显示一致；⑤缺少阻塞说明的条目有可见提示；⑥补前端运行时冒烟与数据展示回归。
 
-- 阻塞: 
-
 - 验证: crates/kanzei-app/src/main.rs:update_tests::docs_snapshot_exposes_block_reasons_and_scheduler_order；crates/kanzei-app/ui/index.html；crates/kanzei-app/ui/main.js；cargo test --workspace；4 个 UI smoke
 
 ## R-119 支持记忆和需求工作相关导出配置 [done]
@@ -639,7 +634,6 @@
 - 优先级: P1
 
 - 进展: 已完成（沿用既有实现）：R-119 的设置页工作资料导出已满足本条验收，包含可配置导出项、目录选择、真实 `export_project_data` Tauri 调用和实际路径显示。位置：crates/kanzei-app/src/main.rs 的 export_pick_dir/export_project_data；ui/index.html 与 ui/main.js 的工作资料导出区。验证：export_project_data_copies_selected_work_materials、node --check、ui-runtime-smoke、ui-i18n-smoke。
-- 阻塞: 
 
 - 验证: 沿用 R-119 实现；cargo test -p kanzei-app export_project_data_copies_selected_work_materials；node --check；ui-runtime-smoke；ui-i18n-smoke
 
@@ -2017,8 +2011,6 @@
 - 批次: 3/3
 - 进展: 批1: kanzei.toml [cadence] 配置结构 + serde default + 加载接线 + 旧配置默认行为单测。批2: 注入提示词参数化(DEFAULT_CONTINUE_PROMPT 规则 6 + LEGACY 静默升级)+ 测试。批3(本轮): 设置页新增「验证与提交节奏」组(index.html + 02-i18n.js 登记 16 条新键 + 16-settings.js CADENCE_FIELDS/collectCadence/回填/透传),后端 settings.rs 增 CadencePayload + settings_apply_cadence 接线 settings_save(枚举白名单校验,非法值不写;全空清旧键回落默认;载荷缺 cadence 不动既有节),往返单测「节奏字段_写入读回_清空移除_不串改其他键」绿;同时修复批2 接线 bug:cadenceSettings 只声明未赋值、启动块把静态 DEFAULT 固化进 textarea 导致配置 cadence 永远到不了提示词——新增 applyCadenceSettings(未自定义时随生效节奏重渲染)+ 18-startup「节奏配置」步骤 + 16-settings loadSettings 同步;冒烟预置 LEGACY 夹具断言升级+节奏渲染+表单回填+保存载荷透传,四条冒烟与 kanzei-app 45 单测全绿。验收④✓(LEGACY 升级断言)、③✓(表单读/存/脏状态+往返)、①✓(配置 cadence 渲染进继续文案有冒烟断言)。验收⑤未达成:conventions.md 为模型只读托管资产且无专用工具(edit 被 ruleset 拒绝,shell 旁路被检测回滚),「引擎已接管」标注需用户手写或专用工具落地,已记 D-235;R-157 保持 doing 待⑤。依赖 R-153/R-154 已关闭移入 refs。2026-08-13 验收⑤达成:conventions §1.4 首行已通过 conventions patch 标注「引擎已接管(R-157):生效参数以 kanzei.toml [cadence] 为准,改参数走设置页「验证与提交节奏」或直接编辑 kanzei.toml,不要手改本节默认值」(用户 2026-08-13 批准);关闭前全量 cargo test --workspace 全绿(T-1786473325,kanzei-tools 247/kanzei-app 120/kanzei-core 132/kanzei-harness 110/kanzei-llm 43/集成 3+1,0 failed)。验收①~⑤全部达成,关闭本条。
 
-- 阻塞: 
-
 ## R-164 记忆混合检索:fingerprint+BM25+向量三通道与 RRF 融合 [done]
 - 优先级: P0
 - 复杂度: 大
@@ -2060,8 +2052,6 @@
 
 - 批次: 4/4
 
-- 阻塞: 
-
 ## R-191 约束下沉 harness:通用开发规则引擎化,跨项目上下文与硬约束一致 [done]
 - refs: D-279 R-190 R-136 R-157 D-278
 - 优先级: P1
@@ -2076,8 +2066,6 @@
 - 验收: ①拆分分析落地:通用/项目特有分类表写入本条进展,harness 内置模板与分类一致;②新项目一致性:conv-init 生成的文件含完整通用规则(不再四行空壳),有模板生成测试断言关键节存在(§1.1 阻塞口径/§1.3 批次/§1.4 节奏/§1.25 验收证据);③登记硬约束:req add 缺 复杂度 报错、defect add 缺 severity/priority 报错,报错信息提示补什么字段,有定向测试;profile 提示词含登记字段清单(可 grep 断言);④kanzei conventions.md 通用节与引擎模板不重复(单源),项目特有节(§4/§6/§9)保留,文档与实现一致;⑤不回归:既有 req add 正常路径(带全字段)行为不变,kanzei 存量条目不受影响,相关 crate 定向测试全绿,关闭前全量测试通过。
 - 批次: 6/6
 - 进展: 批6 收口核对(2026-08-15):验收逐条证据如下。①拆分分类表:通用=§1.1 取活/阻塞、§1.2 关闭边界、§1.25 验收证据、§1.35 标签与依赖、§1.3 批次、§1.4 节奏、§2 代码原则、§3 命名、§5 终端、§6 通用分支纪律、§7 测试、§8 文档、§10 并行——全部进 kanzei-harness/assets/default_conventions.md;项目特有=§4 架构契约/§6 kanzei 分支/§9 构建发版(含 9.1)——留在项目 conventions.md。②conv-init 生成项目特有骨架(docs.rs:42-73 注明通用规则由引擎注入),注入测试断言四关键节(profiles.rs:1015-1027 required 数组含 §1.1 阻塞口径/§1.3 批次/§1.4 节奏/§1.25 验收证据)。③登记硬约束:req add 缺复杂度/priority/标签即拒、defect add 缺 severity/priority/标签即拒(tracker.rs 与 B3 测试 add_requires_registration_fields),dev prompt 含登记契约(B4 测试可 grep 断言)。④kanzei conventions.md 已删全部通用节,只留 §4/§6/§9/§9.1(commit 56cb17c),profiles.rs 同口径测试真源迁引擎模板并加单源防回归断言。⑤存量 req add 正常路径不变(带全字段行为不变,既有 8 处裸 add 已补登记字段),定向测试全绿,全量待跑。
-
-- 阻塞: 
 
 ## R-197 会话运行态、并行线路与任务设置统一收口 [done]
 - 优先级: P0
@@ -2110,7 +2098,6 @@
   7. 历史对话继续挂在所属线路下，主线与并行线查询、删除、打开均不串 session。
   8. 相关 Rust、UI 冒烟、a11y、i18n、并行线路回归、构建和真实桌面验收全部有证据；未更新运行实例不得报告发版完成。
 - 进展: 2026-08-12 完成 10/10 批次。设计基线、后端 session 状态/实时 trace 抽象、前端三态投影、线路设置隔离、历史归属、回归门禁和发布均已落地。最终审计又补上两处竞态：旧 `process_list` 快照不能覆盖实时运行事件或发送后的启动意图；`kz:error` 通过 `terminal` 字段区分持久化告警与终态失败。`cargo test -p kanzei-app` 122 项、clippy、UI runtime/a11y/i18n/Markdown/ESLint/并行线路回归全绿；最终安装位 hash、版本和构建位一致性以本次发布交接记录为准。真实 WebView2 CDP E2 在当前环境因探针查询系统进程超时未完成，未将其冒烟结果计为通过。
-- 阻塞: 
 
 ## R-201 tracker 提供游离文本的清理通道:让"删得掉"成为工具能力而不是人工特权 [open] [done]
 - 优先级: P3
@@ -2124,7 +2111,6 @@
 - refs: D-294 D-239
 
 - 进展: 关闭证据(2026-08-12):实现提交 800d5da,全量 cargo test --workspace 绿(T-1786514969,kanzei-tools 256 passed)。验收逐项:①列出游离行+稳定标识=docstore.rs raw_lines() 返回 RawLine{ordinal,text}+tracker.rs "raw_lines" action 输出 [n] 原文(tracker.rs:296-326);②按标识删除指定行、其余内容与字段一字不变=docstore.rs delete_raw_line() 模板手术只移除那一条 Raw(tracker.rs:692-712 接线),回归测试断言删除后文件仅少那一行、字段数与内容不变(docstore.rs 游离行列出与删除_其余内容一字不变_二次保存幂等);③删除后二次保存幂等=preserved 模板回写防复活,同测试断言 save() 后文件与删除后完全一致;④回归覆盖"删除后字段不受影响"=同测试 fields.len()==3 断言+tracker.rs raw_lines_raw_delete_清理游离行且字段不受影响 端到端。原阻塞(D-295)已解除:test_record 白名单入 kanzei.toml(6ef23cc)。
-- 阻塞: 
 
 ## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open] [done]
 - 优先级: P2
@@ -2175,3 +2161,18 @@
 - observed_head: 7ca4e6c04844836b534916c5e7a6a471f8427ceb
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786593955427
+
+## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open] [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(docs/design/audit_20260812_eight_dimensions.md §5)。
+- 背景: memory_control_plane.md §6 的硬约束是「无来源不入 active」;实现只查 sources 数组非空——promote 不校验 episode_id 真实存在(memory/store.rs:392-397),record_memory_source 失败被 `let _` 吞掉后条目照样置 active(store.rs:414-427),而 manager 的工具面拿不到真实 episode_id 只能编造。控制平面「用数据判断记忆是否改善决策」的承诺因此不可兑付。
+- 内容: promote 前校验每个 episode_id 真实存在(或改为引擎在轮末代填当轮 episode_id,manager 无需自报);record_memory_source 失败即回滚晋升。
+- 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
+- refs: R-165 R-195 R-214
+- 批次: 2/2
+- 进展: B3 完成:cargo test --workspace 743 passed/0 failed/2 ignored(T-1786597693);fmt+clippy 无警告。B1 门禁+引擎代填全绿后关闭。验收逐项:①store.rs promote() episode_exists 校验(episode_exists 在 kanzei-core/src/store/episodes.rs:43-53)+单测 promote_rejects_fabricated_episode_id(store.rs:2079-2108,commit 23338eb);②promote() 证据先落库、record_memory_source 失败即整体失败、成功才置 active(store.rs:446-497),单测 promote_write_evidence_failure_does_not_activate(store.rs:2111-2152);③盘点=311 episode / memory_sources 0 行 / project 28 条 active 全零证据 / global 无条目,处置=存量豁免+文档化(可逆),逐条复核承接为 R-235。方向问题(manager 拿不到真实 episode_id)由引擎轮末代填解决(commit 45fd276,CLI main.rs+桌面 run.rs 传 episode_id 进 consolidation_prompt)。
+- observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786597713547
