@@ -99,3 +99,23 @@
 - observed_head: bd629cdd4ec0ac641c11fd4177e57cfa2aaa9c49
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
+
+## D-341 candidate 没有轮末自动处置调用方，长期停留在未验证状态 [open] (medium)
+- refs: R-195
+- 复现: R-195 现有 candidate 只能由 manager LLM 自主调用 memory_promote 或 memory_stale；MemoryStore 与轮末 consolidate 流程没有自动扫描 candidate 的判定入口。M-034/M-037/M-038 仍为 candidate。
+- 影响: candidate 不参与生产召回是既定边界，但没有自动晋升或清退闸门会使存量永久堆积，无法满足 R-195 的存量收敛与不单调增长验收。
+- 来源: self-found（R-195 代码勘察）
+- 标签: 核心
+- 进展: 待在 R-195 中实现自动 candidate reconciliation，并与 CLI/桌面端共享调用。
+- 验收: 轮末真实调用自动扫描 candidate；满足明确条件的 candidate 自动 promote 或 deprecated，未满足条件的不动；有机制测试与存量前后计数证据。
+- 优先级: P1
+
+## D-342 停止运行 = handle.abort() 硬杀,被打断轮的对话历史整轮丢失 [open] (high)
+- refs: R-236 docs/design/context_compaction.md
+- 复现: 自动推进中点「停止」再发新任务:stop_runtime_and_finalize(kanzei-app/src/state.rs:534)直接 handle.abort() 杀掉 run_task 的 future;而对话写回只在轮末(run.rs:1032 内存表、run.rs:1089 conversation.updated 事件),abort 永远到不了那两行 → 被打断轮的全部消息(可能几十步工具调用/改动/结论)从对话投影消失,下一轮 prior 停在上一轮轮末。模型于是称"之前没做过 X"(用户 2026-08-14 实测报告)。
+- 影响: 打断+插临时任务是自动推进的高频交互,每次都让模型对被打断轮完全失忆;episode/run.trace 有留档但那是回放用的,模型看不到。runner 侧没有优雅停止:halted_by_user=true 唯一产生路径是权限弹窗被拒(kanzei-core/src/runner/drive.rs:1059),步循环里没有任何 halt 检查点。
+- 来源: 用户报告(2026-08-14 自动推进打断丢上下文)+ 读码定位
+- 标签: 核心
+- 进展: 已交付(2026-08-14,commit cbe768a,Claude 直接实施):①RunnerConfig 新增 halt: Option<CancellationToken>,drive.rs 四类检查点(步首/流内 select/工具间/步末)+ 并行 wave 与 task 等待的 halt 分支,全部以取消占位配对后 halted_by_user=true 正常返回;②stop_runtime_and_finalize 改协作式(置位令牌+清 ask+立即取消队列,不立即 abort),STOP_GRACE_SECS=30 兜底硬杀按 run 代数防误杀(stale_run_needs_abort 纯函数);关线/注销走 halt_runtime_immediately 保持立即终态化;③集成测试 crates/kanzei/tests/cooperative_halt.rs 两场景(步首收尾 prior 完整交还;执行中停止取消占位无孤儿)+ process_tests 协作式停止/代数判定单测。验证:workspace 全量 869 passed + clippy 0 警告。待核查轮按验收①②③⑤复核后关闭(验收②的「模型可复述」需真实模型场景,联 R-236 联测)。
+- 验收: ①自动推进中途停止后,conversation_get 能看到被打断轮已完成步骤的消息(实测轨迹,不是只断言函数返回);②停止后立刻发新任务,新一轮 prior 含被打断轮内容,模型可复述被打断轮做过的事;③停止响应有上界:当前工具执行结束即停,不等整轮跑完;④abort 兜底路径保留(防挂死)且有测试,正常停止不走它;⑤停止仍取消排队输入并释放写租约(现有 finalize_interrupt 语义无回归)。
+- 优先级: P1

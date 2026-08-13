@@ -95,7 +95,7 @@
 - observed_worktree_hash: fnv1a64:025c9fc9adc6d9d2
 - recorded_at: 1786637389551
 
-## R-195 candidate 记忆的晋升与清退闭环:存量 5 条无人验收,最后一次晋升停在 2026-08-10 [todo]
+## R-195 candidate 记忆的晋升与清退闭环:存量 5 条无人验收,最后一次晋升停在 2026-08-10 [doing]
 - 内容: 给 candidate 定一条会被执行的闸门,形态不在本条强行拍板:或按复发计数自动晋升(计数已可用),或轮末/每 N 轮让 manager 逐条判定晋升与清退,超期未处置的自动 deprecate 归档。同时把存量 5 条走一遍该流程。
 - 复杂度: 中
 - 来源: 2026-08-12 记忆库存清理:22 条 candidate 里 15 条是重复或空正文条目(已置 deprecated 归档,见提交 2bc5899/216120e),剩 5 条 M-034/M-035/M-037/M-038/M-040 自 2026-08-10 起无人处置;最后一次成功晋升是 M-032(2026-08-10 21:31)。
@@ -104,6 +104,12 @@
 - 边界: 不改「未验证不注入」的取舍(R-165):本条不是要让 candidate 参与召回,而是不让它永远躺着。已在 f104890 落地的部分(candidate 对去重与复发检测可见)不重做。
 - 验收: ①存量 5 条 candidate 全部有归宿(晋升 active 或 deprecated 归档),逐条给出依据;②有机制测试:满足条件的 candidate 能被自动处置,不满足的不动;③candidate 存量不再单调增长——用 index.db 与文件数给出前后对照。
 - 优先级: P2
+- 批次: 0/2
+- 进展: 已按 engine 取活，开始核查 candidate 的现有生成、晋升、清退调用链与存量条目；本条拟分两批：B1 落地可执行的自动处置闸门与机制测试，B2 处理存量 5 条并补前后数量证据。下一步读取 manager/store/轮末调用方，确定不改变未验证不注入边界的最小方案。
+- observed_head: 59fa9883591d53a124dc78f820e3076db2586754
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786640815418
+- 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
 
 ## R-196 记忆系统三处修复的效果复核:按 index.db 遥测与修复前基线对照 [todo]
 - 内容: 新版本(build-3f268a5 起)跑够样本后重跑同一组查询对照四项:①自动轮采纳率是否高于 22.5%(检索键从模板 prompt 换成取活条目标题的直接效果);②空轮比例是否下降;③recurrence_counts 是否出现 >=2 的计数(指纹归一是否真的让同坑塌成一条);④candidate 新增速度是否下降(空正文与近似重复门禁是否真拦住了)。
@@ -392,3 +398,16 @@
 
 - 进展: 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
 - 阻塞: 用户: 需对移动端三条验收(双向通信/通知推送/子代理升级容器)排期并确认交付载体(真实手机端工程或 web 模拟端)。解除动作:用户拍板移动端交付形态与排期,再按新载体拆子需求动工。
+
+## R-236 上下文压缩重设计:删轮末整段替换、滚动合并半结构化纪要、可配置压缩模型 [doing]
+- 内容: 按 docs/design/context_compaction.md(2026-08-14 定稿,含 10 家社区实现源码级调研与文献依据)实施,四批:B1 单一实现收口——删 app 轮末 R-021 整段替换(run.rs:1037-1077),轮末接 core compact_with_digest,触发公式统一为 `tokens > limit − max(output, buffer 20k)`,token 计量改 provider usage.input 优先且附件不按 base64 字节估算;B2 纪要质量——半结构化固定段落模板(目标/用户指令清单/关键决策/已完成/失败尝试含报错逐字/当前状态/关键文件/下一步)、预算 max_tokens 2048、再压缩走「旧纪要+新增原文」滚动合并、防注入护栏、质量闸升级 precision(纪要实体必须源于原文)+recall(原文关键实体必须保留)+胀检(压完不缩即弃用)、机械事实清单双通道(触碰文件/命令/提交号/close 编号由代码抽取不经 LLM);B3 `[models].compact` 压缩模型角色——解析链 compact 显式配置→缺省主模型(不是 fast:弱模型摘要有 -8pp 实证),config 白名单+设置页下拉+service_tier_for 统一入口;B4 L0 prune 机械清理——旧工具结果替换占位符,保护窗 40k/最小收益 20k 可配,先于 LLM 纪要执行。
+- 为什么是这个形态: 现状是两套压缩并存,app 轮末那套(整段历史→弱模型 300 字纪要,无质量闸)把 core 轮内体面压缩(R-155/D-181)的成果推倒,是用户实测「打断插任务模型失忆」的主因之一(另一半是 D-342)。调研结论:10 家主流实现没有任何一家做整段替换;主流纪要预算 1k-4k token;纪要模型能力差距有直接消融证据(Haiku 22/50 vs Sonnet 26/50);滚动合并是防纪要套纪要退化的成熟方案(opencode/OpenHands/LangMem 三家同款)。
+- 复杂度: 中
+- 来源: 用户报告(2026-08-14 自动推进打断丢上下文)+ 用户指示「压缩纪要可以选用什么模型压缩,好好设计一下怎么压缩,先调查文献和社区」;调研与设计已完成落档。
+- refs: D-342 D-181 D-206 R-155 R-219 docs/design/context_compaction.md
+- 标签: 核心
+- 边界: 不做蒸馏专用压缩模型;不依赖 provider 服务端压缩 API;不动 memory 系统;L2 应急路径(compact_messages_for_retry/aggressively)行为不变;停止语义归 D-342 不在本条。
+- 验收: ①B1:全仓只剩一处「纪要替换历史」实现(机械核验:grep 无第二套),轮末压缩后对话仍含任务定义原文与近期工作区逐字(实测轨迹);带 base64 附件的会话不再虚高误触发(定向测试)。②B2:纪要为固定段落模板且含失败尝试段;两次压缩走滚动合并,第二次压缩后纪要仍含首段关键实体(防退化定向测试);质量闸三向(precision/recall/胀检)各有单测,不达标回落节选且留轨迹。③B3:[models].compact 未配置时压缩请求实际走主模型、配置后走指定模型(测试断言请求 route);设置页可选。④B4:prune 只清已配对的旧工具结果、保护窗内不动、凑不满最小收益不做(单测);压缩触发频率前后对比有实测数字。⑤联测:发生过压缩的会话,插新任务后模型能复述目标与已完成工作(与 D-342 修复联合场景)。
+- 优先级: P1
+- 批次: 4/4(B1-B4 代码全部交付,余验收④的触发频率实测与⑤真实模型联测)
+- 进展: B1-B4 已交付(2026-08-14,Claude 直接实施,提交 6d783a6/9270a05/79d3c4e):B1——删 run.rs R-021 整段替换与 render_transcript,轮末接 core compact_conversation 同一实现;触发线统一 compaction_budget(limit−max(output,buffer 20k),封底 limit/4,[limits].compact_buffer_tokens 可配);估算改附件固定成本(ATTACHMENT_TOKEN_COST=1500,定向测试:1MB base64 图不再估成 26 万 token)。B2——DIGEST_SYSTEM 八段固定模板(含失败尝试/用户指令清单/防注入护栏),max_tokens 2048;滚动合并(split_prior_digest + DIGEST_MERGE_RULES,递归深度恒 1);机械事实清单 fact_ledger(文件/命令/成功 close 编号/提交号,零 LLM);质量闸 digest_acceptable(recall+precision)+胀检+同参重试一次,回落节选保旧纪要。B3——[models].compact 角色(解析回落 primary、层叠合并、白名单、设置页下拉含手填,UI 冒烟契约更新);SubagentRuntime.compact + digest_model() 缺省主模型(纠偏旧实现写死 fast)。B4——prune_old_tool_results(保护窗 40k+用户轮对齐+最小收益 20k 门槛,只清已配对结果),轮内轮末先于纪要执行,ContextPruned 事件落轨迹(context.pruned)可度量触发频率。验证:workspace 869 passed + clippy 0 + UI 运行时/i18n 冒烟通过。设计权威 docs/design/context_compaction.md(commit d4729ac)。
