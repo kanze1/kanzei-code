@@ -238,7 +238,21 @@ fn preserve_case_path(raw: &str) -> String {
 }
 
 async fn staged_paths(cwd: &Path) -> Result<Vec<String>, String> {
-    let text = run_git(cwd, &["diff", "--cached", "--name-only", "--no-renames"]).await?;
+    // D-347:必须 -c core.quotepath=false——git 默认对非 ASCII 路径输出带引号的
+    // 八进制转义("docs/\347\233\256\345\275\225.md"),与请求的真实 UTF-8 路径
+    // 比较必不相等,含中文文件名的暂存区会让后续 stage 全部误判 foreign。
+    let text = run_git(
+        cwd,
+        &[
+            "-c",
+            "core.quotepath=false",
+            "diff",
+            "--cached",
+            "--name-only",
+            "--no-renames",
+        ],
+    )
+    .await?;
     Ok(text
         .lines()
         .map(str::trim)
@@ -318,7 +332,14 @@ pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
 
 fn staged_paths_sync(cwd: &Path) -> Result<Vec<String>, String> {
     let output = std::process::Command::new("git")
-        .args(["diff", "--cached", "--name-only", "--no-renames"])
+        .args([
+            "-c",
+            "core.quotepath=false", // D-347:非 ASCII 路径以真实 UTF-8 返回,与请求路径可比
+            "diff",
+            "--cached",
+            "--name-only",
+            "--no-renames",
+        ])
         .current_dir(cwd)
         .output()
         .map_err(|e| format!("cannot run git diff --name-only: {e}"))?;
@@ -1422,6 +1443,56 @@ prunable gitdir file points to non-existent location
         assert!(index.contains(&"INDEX.md".to_string()), "{index:?}");
         assert!(index.contains(&"Cargo.lock".to_string()), "{index:?}");
         assert!(!index.contains(&"index.md".to_string()), "{index:?}");
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// D-347:含非 ASCII(中文)文件名的暂存区,后续 stage 必须能被正常追加/覆盖。
+    /// 根因是 staged_paths 读 index 路径时 git 默认 core.quotepath=true 输出带引号的
+    /// 八进制转义,与请求的真实 UTF-8 路径比较必不相等——即使请求已显式包含该中文
+    /// 路径,也会被误判为"index 里存在请求外路径"而拒绝(D-263 的覆盖检查是字面
+    /// 集合比较,不能因表示形式不同而误判)。
+    #[tokio::test]
+    async fn stage_after_non_ascii_path_is_not_foreign() {
+        let root = temp_repo("cn");
+        std::fs::write(root.join("目录.md"), "# 手册\n").unwrap();
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        let ctx = ToolCtx {
+            cwd: root.clone(),
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let first = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["目录.md"]}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !first.is_error,
+            "首次 stage 中文路径失败: {}",
+            first.content
+        );
+        // 修复前:existing 里是转义串,请求已显式包含"目录.md"仍被拒(foreign 误报)。
+        // D-263 覆盖检查要求请求列出全部既有路径,这里完整列出 = 正常追加语义。
+        let second = GitTool
+            .execute(
+                serde_json::json!({"action":"stage","files":["目录.md","a.txt"]}),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !second.is_error,
+            "请求已包含中文路径仍被误判 foreign: {}",
+            second.content
+        );
+        // 暂存区路径必须以真实 UTF-8 呈现,而不是转义形式。
+        let paths = staged_paths(&root).await.unwrap();
+        assert!(paths.contains(&"目录.md".to_string()), "{paths:?}");
+        assert!(paths.contains(&"a.txt".to_string()), "{paths:?}");
+        assert!(
+            !paths.iter().any(|p| p.contains("\\347")),
+            "路径仍是 quotepath 转义形式: {paths:?}"
+        );
         std::fs::remove_dir_all(root).ok();
     }
 
