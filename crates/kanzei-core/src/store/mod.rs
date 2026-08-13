@@ -134,7 +134,7 @@ mod telemetry;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
 pub use processes::StoredProcess;
-pub use telemetry::{FunnelCounts, RecallEvent};
+pub use telemetry::{FunnelCounts, RecallEvent, RecallMetrics};
 
 pub use session::{project_session_id, project_state_path};
 

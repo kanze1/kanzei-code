@@ -118,6 +118,7 @@ impl ReplayMemoryProvider {
                 action: h.action.clone(),
                 status: h.status.clone(),
                 source: format!("memory_hybrid:{}", h.id),
+                policy_action: "hybrid".into(),
             })
             .collect();
         // 落 recall_events(与运行时 event_recall 同表,trigger_type 区分来源)。

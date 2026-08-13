@@ -2663,3 +2663,29 @@
 - 摘要: R-215 关闭前全量:cargo test --workspace 全绿(809 passed:app 142/harness 121/core 151/tools 343)
 - 关联: R-215
 - 收尾: 1786635630
+
+## T-1786637399 cargo test -p kanzei-tools --lib memory:: (R-216 收口) [passed]
+- 摘要: R-216 收口:memory 95 passed(新增 3 验收测试)+ kanzei-tools 346 + clippy/fmt 全过
+- 关联: R-216
+- 收尾: 1786637399
+
+## T-1786640103 R-214 定向遥测与 memory 测试 [failed]
+- 命令: cargo test -p kanzei-core --lib telemetry && cargo test -p kanzei-tools --lib memory::
+- 时长: 15.0s
+- 摘要: kanzei-core telemetry 2 passed；kanzei-tools memory 94 passed、1 failed。唯一失败为 stats 旧断言期待 OUTCOME_IMPROVED=0，实际新契约为 N/A；同时出现未使用 head 警告。
+- 关联: R-214
+- 收尾: 1786640103
+
+## T-1786640368 R-214 定向遥测与 memory 测试（修复后） [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core --lib telemetry; cargo test -p kanzei-tools --lib memory::
+- 时长: 14.0s
+- 摘要: cargo fmt 通过；kanzei-core telemetry 3/3 通过；kanzei-tools memory 95/95 通过。覆盖显式 policy_action、miss、recall_events precision/recall、stats N/A、legacy memory_recalls 停写与历史留读。
+- 关联: R-214 D-339 D-340
+- 收尾: 1786640368
+
+## T-1786640465 R-214 定向测试最终复测 [passed]
+- 命令: cargo fmt --all; cargo test -p kanzei-core --lib telemetry; cargo test -p kanzei-tools --lib memory::
+- 时长: 8.0s
+- 摘要: cargo fmt 与定向测试全绿：core telemetry 3/3；tools memory 95/95。
+- 关联: R-214 D-339 D-340
+- 收尾: 1786640465

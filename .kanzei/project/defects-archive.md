@@ -3879,3 +3879,29 @@
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-338
 - 修复: load() 开头加 `let _lock = self.lock()?;` 与 save() 同一把 FileLock 互斥:读者在 save 持锁期间等待,rename 完成后才读,永远看到完整快照,不再有中间态窗口。FileLock 同线程重入安全(depth 计数),内部持锁路径调 load 不自锁死。非 retry/ignore——是读写互斥消除窗口。
 - 根因: load() 不加锁,与 save() 的 FileLock 无互斥。save 走 atomic_file::write_atomic(tmp+rename),Windows 上 rename 覆盖目标与读者 open 目标之间有竞态窗口——读者在替换瞬间 open 得到 NotFound,load 对 NotFound 宽容返回 Ok(vec![]) = 「读到 0 条」的假空快照(docstore.rs:2181 断言条目数只能 3 或 30)。D-293 当时把偶发归因到 memory 模块(跨 crate 干扰)并修了 memory/mod.rs,未覆盖此根因;D-338 用单条 Filter 压测(排除跨 crate 干扰)20 轮 1 失败,证明确实是 docstore 自身读写窗口。
+
+## D-339 失败召回 policy_action 仍由 failure_count 反推而非检索结果携带 [fixed] (medium)
+- 复现: FailureRecallPolicy::record_trigger 在 crates/kanzei-tools/src/memory/mod.rs:625-633 依据 source 与 trigger.failure_count 判定 policy_action；retrieve 只返回 Vec<RecallHit>，miss/重检索层级未显式返回。
+- 影响: recall_events 的 policy_action 可能把实际 lexical 结果标成 reretrieve，无法按真实检索层级核对延迟与漏斗。
+- 来源: self-found（R-214 代码勘察）
+- 标签: 核心
+- 验收: 逐项核对：①检索结果携带实际层级——RecallHit.policy_action 与 Tier0/Tier1 构造位置；②record_trigger 原样落库——memory/mod.rs:625-630 与 RecallEvent:656-663；③Tier0/lexical/reretrieve/miss——memory/mod.rs:2333-2364、:2397-2440 测试覆盖。
+- refs: R-214
+- 优先级: P1
+- 进展: 结项证据：RecallHit 显式层级在 crates/kanzei-core/src/runner/recall.rs:38-48；Tier1 lexical/reretrieve 在 crates/kanzei-tools/src/memory/mod.rs:561-572，Tier0 fingerprint 在 :586-596；record_trigger 原样写 policy_action、miss 记 miss 在 :625-630；miss/reretrieve 测试 :2333-2364，Tier0 测试 :2397-2440；T-1786640465 全绿。
+- observed_head: 7403ff8e8866228d0e21283f2b58d60b9df36777
+- observed_worktree_hash: fnv1a64:25c52307ba5eca33
+- recorded_at: 1786640486373
+
+## D-340 prompt_hints 仍向 legacy memory_recalls 写入召回记录 [fixed] (medium)
+- 复现: crates/kanzei-tools/src/memory/mod.rs:1150-1161 在 prompt_hints_with_budget 真实注入后调用 MemoryStore::record_recall；设计 docs/design/memory_control_plane.md:74 要求 index.db memory_recalls 停写留读。
+- 影响: index.db 继续增长并使旧 fetched/采纳口径与 state.db recall_events 双写漂移，迁移承诺未兑现。
+- 来源: self-found（R-214 代码勘察）
+- 标签: 核心
+- 验收: 逐项核对：①生产 prompt_hints 不新增 memory_recalls——mod.rs:1140-1143；②历史 recalls()/mark_recall_fetched() 留读/回填——store.rs:789-848、read.rs:226-285；③重复判断使用 state.db——telemetry.rs:213-232、mod.rs:1103-1122。
+- refs: R-214
+- 优先级: P1
+- 进展: 结项证据：prompt_hints 生产路径在 crates/kanzei-tools/src/memory/mod.rs:1140-1143 仅写 state.db recall_events，不再调用 record_recall；重复判断改查 state.db latest_memory_search 在 :1103-1122 与 crates/kanzei-core/src/store/telemetry.rs:213-232；legacy recalls()/mark_recall_fetched() 保留在 crates/kanzei-tools/src/memory/store.rs:789-848，ReadTool 回填测试 crates/kanzei-tools/src/read.rs:226-285；停写断言 memory/mod.rs:1867-1875；T-1786640465 全绿。
+- observed_head: 7403ff8e8866228d0e21283f2b58d60b9df36777
+- observed_worktree_hash: fnv1a64:25c52307ba5eca33
+- recorded_at: 1786640486703

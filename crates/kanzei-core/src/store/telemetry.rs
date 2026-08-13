@@ -1,6 +1,6 @@
 //! 记忆漏斗遥测(R-161)。事实写入 state.db，CLI 与桌面端共享此接口。
 
-use rusqlite::params;
+use rusqlite::{params, OptionalExtension};
 
 use super::{now_ms, SessionStore, StoreError};
 
@@ -11,6 +11,20 @@ pub struct FunnelCounts {
     pub injected: u64,
     pub action_changed: u64,
     pub outcome_improved: u64,
+    /// 当前无在线写入方；展示层据此显示 N/A 而不是把离线缺口当作 0。
+    pub outcome_improved_available: bool,
+}
+
+/// 从 recall_events 直接聚合每类触发的检索/注入覆盖率。
+/// 这是运行时可计算的 operational precision/recall，不混入离线 memory_eval。
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecallMetrics {
+    pub trigger_type: String,
+    pub events: u64,
+    pub retrieved_events: u64,
+    pub injected_events: u64,
+    pub precision: f64,
+    pub recall: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -150,28 +164,80 @@ impl SessionStore {
             [],
             |row| row.get::<_, i64>(0),
         )?;
-        // ACTION_CHANGED 的生产写入方是 RecallPolicy::record_outcomes(轮末对账,
-        // arm='action_changed');OUTCOME_IMPROVED 仍属离线回放评估(R-163/R-166)。
+        // arm='action_changed' 由 RecallPolicy::record_outcomes 写入。
         let action_changed = self.connection.query_row(
             "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'action_changed' AND success = 1",
             [],
             |row| row.get::<_, i64>(0),
         )?;
-        let outcome_improved = self.connection.query_row(
-            "SELECT COUNT(DISTINCT memory_id) FROM memory_eval WHERE arm = 'outcome_improved' AND success = 1",
-            [],
-            |row| row.get::<_, i64>(0),
-        )?;
+        // OUTCOME_IMPROVED 目前没有在线写入方；展示层必须标记 N/A。
+        let outcome_improved = 0;
         Ok(FunnelCounts {
             available: available_active,
             retrieved: retrieved as u64,
             injected: injected as u64,
             action_changed: action_changed as u64,
-            outcome_improved: outcome_improved as u64,
+            outcome_improved,
+            outcome_improved_available: false,
         })
     }
 
-    /// R-162 事件召回明细查询(可观测性 + 测试断言):
+    /// 直接按 recall_events 聚合每类触发的检索/注入覆盖率。
+    /// precision = injected / retrieved，recall = retrieved / all trigger events；
+    /// miss 作为 retrieved=0 的分母保留，因而可从落库事实复算。
+    pub fn recall_metrics(&self) -> Result<Vec<RecallMetrics>, StoreError> {
+        let mut statement = self.connection.prepare(
+            "SELECT trigger_type,
+                    COUNT(*) AS events,
+                    SUM(CASE WHEN json_array_length(retrieved_ids) > 0 THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN json_array_length(injected_ids) > 0 THEN 1 ELSE 0 END)
+             FROM recall_events
+             GROUP BY trigger_type ORDER BY trigger_type",
+        )?;
+        let rows = statement.query_map([], |row| {
+            let events = row.get::<_, i64>(1)? as u64;
+            let retrieved = row.get::<_, i64>(2)? as u64;
+            let injected = row.get::<_, i64>(3)? as u64;
+            Ok(RecallMetrics {
+                trigger_type: row.get(0)?,
+                events,
+                retrieved_events: retrieved,
+                injected_events: injected,
+                precision: if retrieved == 0 {
+                    0.0
+                } else {
+                    injected as f64 / retrieved as f64
+                },
+                recall: if events == 0 {
+                    0.0
+                } else {
+                    retrieved as f64 / events as f64
+                },
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// 返回最近一次 memory_search 的时间、原始 query 与 retrieved id 集，供重复注入抑制。
+    /// 去重依据与生产遥测同在 state.db；不再读取 legacy index.db 的 memory_recalls。
+    pub fn latest_memory_search(&self) -> Result<Option<(i64, String, Vec<String>)>, StoreError> {
+        let row: Option<(i64, String, String)> = self
+            .connection
+            .query_row(
+                "SELECT created_at, query, retrieved_ids FROM recall_events
+                 WHERE trigger_type = 'memory_search'
+                 ORDER BY created_at DESC, recall_id DESC LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+        let Some((at, query, ids_json)) = row else {
+            return Ok(None);
+        };
+        let ids = serde_json::from_str(&ids_json).unwrap_or_default();
+        Ok(Some((at, query, ids)))
+    }
+
     /// 返回 recall_events 里 trigger_type='event_recall' 的行
     /// (recall_id, trigger_payload, policy_action, query),按 created_at 升序。
     pub fn event_recall_log(&self) -> Result<Vec<(String, String, String, String)>, StoreError> {
@@ -271,9 +337,62 @@ mod tests {
                 retrieved: 1,
                 injected: 1,
                 action_changed: 1,
-                outcome_improved: 1
+                outcome_improved: 0,
+                outcome_improved_available: false,
             }
         );
+    }
+
+    #[test]
+    fn recall_metrics_按触发类型从recall_events计算覆盖率() {
+        let store = store();
+        for event in [
+            RecallEvent {
+                recall_id: "metrics-hit",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "tool_failure",
+                trigger_payload: "{}",
+                policy_action: "lexical",
+                query: "failure",
+                candidate_ids: "[\"M-1\"]",
+                retrieved_ids: "[\"M-1\"]",
+                injected_ids: "[\"M-1\"]",
+                lexical_ms: 1,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 1,
+            },
+            RecallEvent {
+                recall_id: "metrics-miss",
+                episode_id: None,
+                step_id: None,
+                trigger_type: "tool_failure",
+                trigger_payload: "{}",
+                policy_action: "miss",
+                query: "new failure",
+                candidate_ids: "[]",
+                retrieved_ids: "[]",
+                injected_ids: "[]",
+                lexical_ms: 1,
+                embed_ms: 0,
+                vector_ms: 0,
+                total_ms: 1,
+            },
+        ] {
+            store.record_recall_event(&event).unwrap();
+        }
+        let metric = store
+            .recall_metrics()
+            .unwrap()
+            .into_iter()
+            .find(|metric| metric.trigger_type == "tool_failure")
+            .unwrap();
+        assert_eq!(metric.events, 2);
+        assert_eq!(metric.retrieved_events, 1);
+        assert_eq!(metric.injected_events, 1);
+        assert_eq!(metric.precision, 1.0);
+        assert_eq!(metric.recall, 0.5);
     }
 
     #[test]

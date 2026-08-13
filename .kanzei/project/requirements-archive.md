@@ -2590,3 +2590,19 @@
 - observed_head: a104ba12af981e0e591aff0c9a5057385ce2f854
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786635640566
+
+## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 记忆
+- 来源: 2026-08-12 八维度审计(§5)。
+- 背景: telemetry.rs:136-141 注释写「available 为 active 记忆数」但 SQL 数的是 memory_sources 行;ACTION_CHANGED/OUTCOME_IMPROVED 两段无任何生产写入方永远为 0(:156-165);record_trigger 在 miss 时直接 return(mod.rs:616-619),recall_events 只有命中样本,trigger precision/recall 永远算不出;policy_action 按 failure_count 标注,与实际检索层级无关(mod.rs:641-647);memory_recalls「停写留读」的迁移承诺未兑现。
+- 内容: 五段漏斗每段接真实数据源或在展示层明示「未实装」;miss 也落一行(hits 空、retrieved_ids=[]);retrieve 返回携带实际命中层级并原样落 policy_action;完成 memory_recalls 停写收敛。
+- 验收: ①stats 漏斗五段有非测试数据源或显式 N/A 标注;②能从 recall_events 直接算出各触发类型 precision/recall;③memory_recalls 停写留读。
+- refs: R-161 R-196 R-213
+- 进展: 结项逐项证据：①stats 五段各接真实/显式口径——AVAILABLE 从 active 文件真源统计于 crates/kanzei-tools/src/memory/tools.rs:28-38；RETRIEVED/INJECTED 从 state.db recall_events 去重于 crates/kanzei-core/src/store/telemetry.rs:151-165；ACTION_CHANGED 由 FailureRecallPolicy::record_outcomes 写入 memory_eval 于 crates/kanzei-tools/src/memory/mod.rs:680-705 并由 funnel_counts:168-182 统计；OUTCOME_IMPROVED 无在线写入方，由 FunnelCounts.outcome_improved_available 与 memory/tools.rs:275-291 显式显示 N/A；②recall_events 直接计算各触发类型 precision/recall 于 telemetry.rs:185-210，stats 消费于 memory/tools.rs:281-305，测试 telemetry.rs:344-397；miss 仍落空数组/ miss 于 memory/mod.rs:625-630、2333-2364；③memory_recalls 停写留读——prompt_hints 只写 state.db 于 memory/mod.rs:1139-1143，重复判断用 telemetry.rs:213-232，历史 recalls()/mark_recall_fetched() 保留于 memory/store.rs:789-848，ReadTool 回填测试 read.rs:226-285。验证 T-1786640465 全绿；D-339/D-340 fixed。
+- observed_head: 7403ff8e8866228d0e21283f2b58d60b9df36777
+- observed_worktree_hash: fnv1a64:bb0d2fe121984939
+- recorded_at: 1786640547198
+- 取活依据: engine:唯一可执行 WIP 是 R-214，必须先恢复它
+- 批次: 2/2

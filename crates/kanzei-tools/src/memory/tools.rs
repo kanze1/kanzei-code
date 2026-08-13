@@ -273,14 +273,32 @@ impl Tool for MemoryStatsTool {
             // 记进项目 state.db 的 recall_events)。
             if store.scope.label() == "project" {
                 if let Some(funnel) = project_funnel_counts(ctx) {
+                    let outcome = if funnel.outcome_improved_available {
+                        funnel.outcome_improved.to_string()
+                    } else {
+                        "N/A".into()
+                    };
                     out.push_str(&format!(
                         "\n  漏斗 A→R→I→U→Y: {}/{}/{}/{}/{} (available/retrieved/injected/action_changed/outcome_improved)",
                         funnel.available,
                         funnel.retrieved,
                         funnel.injected,
                         funnel.action_changed,
-                        funnel.outcome_improved
+                        outcome
                     ));
+                    if let Ok(db) = kanzei_core::SessionStore::open(
+                        &kanzei_core::project_state_path(&ctx.project_root),
+                    ) {
+                        if let Ok(metrics) = db.recall_metrics() {
+                            for metric in metrics {
+                                out.push_str(&format!(
+                                    "\n  触发 {}: events={} retrieved={} injected={} precision={:.2} recall={:.2}",
+                                    metric.trigger_type, metric.events, metric.retrieved_events,
+                                    metric.injected_events, metric.precision, metric.recall
+                                ));
+                            }
+                        }
+                    }
                 }
             }
             let pending = store.pending_notes();
@@ -478,7 +496,14 @@ mod tests {
         // AVAILABLE 段按记忆库文件真源统计(本测试恰有 1 条 active)——旧口径数
         // 恒空的 memory_sources,首段永远 0,漏斗两端全是死数据。
         assert!(
-            stats.content.contains("漏斗 A→R→I→U→Y: 1/1/1/0/0"),
+            stats.content.contains("漏斗 A→R→I→U→Y: 1/1/1/0/N/A"),
+            "{}",
+            stats.content
+        );
+        assert!(
+            stats.content.contains(
+                "触发 memory_search: events=1 retrieved=1 injected=1 precision=1.00 recall=1.00"
+            ),
             "{}",
             stats.content
         );

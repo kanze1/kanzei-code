@@ -95,16 +95,6 @@
 - observed_worktree_hash: fnv1a64:025c9fc9adc6d9d2
 - recorded_at: 1786637389551
 
-## R-214 记忆漏斗遥测口径修正:AVAILABLE 按 active 计、miss 落库、policy_action 记真实层级、memory_recalls 按承诺停写 [todo]
-- 优先级: P2
-- 复杂度: 中
-- 标签: 后端 记忆
-- 来源: 2026-08-12 八维度审计(§5)。
-- 背景: telemetry.rs:136-141 注释写「available 为 active 记忆数」但 SQL 数的是 memory_sources 行;ACTION_CHANGED/OUTCOME_IMPROVED 两段无任何生产写入方永远为 0(:156-165);record_trigger 在 miss 时直接 return(mod.rs:616-619),recall_events 只有命中样本,trigger precision/recall 永远算不出;policy_action 按 failure_count 标注,与实际检索层级无关(mod.rs:641-647);memory_recalls「停写留读」的迁移承诺未兑现。
-- 内容: 五段漏斗每段接真实数据源或在展示层明示「未实装」;miss 也落一行(hits 空、retrieved_ids=[]);retrieve 返回携带实际命中层级并原样落 policy_action;完成 memory_recalls 停写收敛。
-- 验收: ①stats 漏斗五段有非测试数据源或显式 N/A 标注;②能从 recall_events 直接算出各触发类型 precision/recall;③memory_recalls 停写留读。
-- refs: R-161 R-196 R-213
-
 ## R-195 candidate 记忆的晋升与清退闭环:存量 5 条无人验收,最后一次晋升停在 2026-08-10 [todo]
 - 内容: 给 candidate 定一条会被执行的闸门,形态不在本条强行拍板:或按复发计数自动晋升(计数已可用),或轮末/每 N 轮让 manager 逐条判定晋升与清退,超期未处置的自动 deprecate 归档。同时把存量 5 条走一遍该流程。
 - 复杂度: 中

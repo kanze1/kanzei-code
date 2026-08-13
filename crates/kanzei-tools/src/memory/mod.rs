@@ -564,6 +564,11 @@ impl FailureRecallPolicy {
                         action: row.entry.description.clone(),
                         status: row.entry.status.clone(),
                         source: format!("memory_search:{}", row.entry.id),
+                        policy_action: if trigger.failure_count >= 2 {
+                            "reretrieve".into()
+                        } else {
+                            "lexical".into()
+                        },
                     });
                 }
             }
@@ -587,6 +592,7 @@ impl FailureRecallPolicy {
                     "memory:{}",
                     entry.fingerprint().unwrap_or_else(|| entry.id.clone())
                 ),
+                policy_action: "fingerprint".into(),
             });
         }
         out
@@ -616,21 +622,11 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
         injected: &[kanzei_core::RecallHit],
         elapsed_ms: u64,
     ) {
-        // policy_action 反映实际发生的检索路径,不再按 target/count 猜标签
-        // (旧实现把"fingerprint"标给一切带 target 的触发,延迟统计随之失真):
-        // - tier0 命中 → materialize 的 source 前缀是 "memory:";
-        // - tier1 命中 → source 前缀是 "memory_search:";count≥2 时该次检索
-        //   换了 query(sample+target 都是新的),标 reretrieve;
-        // - 空结果 → miss(留痕才有 trigger precision 可算)。
-        let policy_action = if retrieved.is_empty() {
-            "miss"
-        } else if retrieved.iter().all(|h| h.source.starts_with("memory:")) {
-            "fingerprint"
-        } else if trigger.failure_count >= 2 {
-            "reretrieve"
-        } else {
-            "lexical"
-        };
+        // policy_action 由 Retriever 随命中结果携带；miss 没有命中层级时记 miss。
+        let policy_action = retrieved
+            .first()
+            .map(|hit| hit.policy_action.as_str())
+            .unwrap_or("miss");
         let retrieved_ids: Vec<&str> = retrieved.iter().map(|h| h.id.as_str()).collect();
         let injected_ids: Vec<&str> = injected.iter().map(|h| h.id.as_str()).collect();
         let (Ok(retrieved_json), Ok(injected_json)) = (
@@ -1065,8 +1061,6 @@ fn prompt_hints_with_budget(
     } else {
         "lexical"
     };
-    let mut stores = vec![MemoryStore::project(project_root)];
-    stores.extend(MemoryStore::global());
     // R-233 ②:搜索用意图词(去虚词边界提取内容段),整句 prompt 的 bigram
     // 会被虚词错位(「批发/版出」匹配不到「发版」);遥测与去重仍用原始 prompt。
     let intent = crate::memory::store::intent_query(prompt);
@@ -1106,24 +1100,22 @@ fn prompt_hints_with_budget(
     // continue 链共享消息历史,上一轮的 hints 还在上下文里,重复注入是纯噪声,
     // 还把召回遥测刷成"高召回零采纳"的假象。query 或命中集任一变化照常注入。
     {
-        let head: String = prompt.chars().take(160).collect();
-        let mut current_ids: Vec<&str> = hits.iter().map(|h| h.entry.id.as_str()).collect();
+        let mut current_ids: Vec<String> = hits.iter().map(|h| h.entry.id.clone()).collect();
         current_ids.sort_unstable();
-        let project = &stores[0];
-        if let Some(last) = project.recalls(1).into_iter().next() {
-            let mut last_ids: Vec<&str> = last.hits.iter().map(|h| h.id.as_str()).collect();
-            last_ids.sort_unstable();
-            // 30 分钟时间窗:continue 链的轮间隔远小于它;跨会话冷启动(新上下文
-            // 里没有旧 hints)超窗后照常注入,不被历史误抑制。
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0);
-            if last.prompt_head == head
-                && last_ids == current_ids
-                && now.saturating_sub(last.at) < 30 * 60 * 1000
-            {
-                return None;
+        let state_path = project_root.join(".kanzei").join("state.db");
+        if let Ok(state) = kanzei_core::SessionStore::open(&state_path) {
+            if let Ok(Some((last_at, last_query, mut last_ids))) = state.latest_memory_search() {
+                last_ids.sort_unstable();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                if last_query == prompt
+                    && last_ids == current_ids
+                    && now.saturating_sub(last_at) < 30 * 60 * 1000
+                {
+                    return None;
+                }
             }
         }
     }
@@ -1147,19 +1139,8 @@ fn prompt_hints_with_budget(
         "<memory-hints>\n与本任务可能相关的既有记忆(memory_search 或 read 返回的 file 查看正文):\n{}\n</memory-hints>",
         lines.join("\n")
     );
-    // R-125:召回明细落库,记的是"召回了什么、得分多少、注入了多少字节"。
-    // 没有这一步就没有任何评估手段——只能凭感觉判断记忆有没有用。
-    // 按条目所属 scope 分别落到各自的 index.db,查询时再合并。
-    for store in &stores {
-        let own: Vec<SearchHit> = hits
-            .iter()
-            .filter(|h| h.entry.scope == store.scope.label())
-            .cloned()
-            .collect();
-        if !own.is_empty() {
-            store.record_recall(prompt, &own, block.len());
-        }
-    }
+    // R-125 的 legacy memory_recalls 已停写，保留 recalls()/mark_recall_fetched()
+    // 供历史 index.db 留读与 ReadTool 回填；当前真源是 state.db recall_events。
     record_memory_search_telemetry(project_root, prompt, &hits, true, channel, &timing);
     Some(block)
 }
@@ -1885,11 +1866,8 @@ mod tests {
         // preference 全文常驻,hints 不提、遥测不记。
         assert!(!block.contains("M-003"), "preference 不该进 hints: {block}");
         assert!(
-            store
-                .recalls(10)
-                .iter()
-                .all(|r| r.hits.iter().all(|h| h.id != "M-003")),
-            "preference 不该进召回遥测",
+            store.recalls(10).is_empty(),
+            "prompt_hints 生产路径不得继续写入 legacy memory_recalls"
         );
         std::fs::remove_dir_all(dir).ok();
     }
@@ -2369,6 +2347,7 @@ source: user
             action: "先看断言".into(),
             status: "active".into(),
             source: "memory_search:M-X".into(),
+            policy_action: "reretrieve".into(),
         };
         let t3 = trigger("bash", "some brand new failure", "build.rs", 3);
         policy.record_trigger(&t3, std::slice::from_ref(&tier1_hit), &[], 7);
@@ -2407,10 +2386,9 @@ source: user
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let funnel = sstore.funnel_counts(2).unwrap();
-        assert_eq!(
-            funnel.action_changed, 1,
-            "changed=true 的注入应计入 ACTION_CHANGED 段: {funnel:?}"
-        );
+        assert_eq!(funnel.action_changed, 1);
+        assert!(!funnel.outcome_improved_available);
+
         std::fs::remove_dir_all(root).ok();
     }
 

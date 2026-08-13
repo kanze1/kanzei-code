@@ -41,6 +41,9 @@ pub struct RecallHit {
     pub action: String,
     pub status: String,
     pub source: String,
+    /// 实际命中的检索层级。由 Retriever 填写，遥测必须原样记录，不能由
+    /// 触发次数或其它旁路字段反推。
+    pub policy_action: String,
 }
 
 /// 一次注入的轮末结局:注入后同 (tool, kind) 是否停止复发。
@@ -270,6 +273,7 @@ mod tests {
             action: "先 read 重建 old_string 再重试".into(),
             status: "active".into(),
             source: "episode E-1 步 3".into(),
+            policy_action: "fingerprint".into(),
         }
     }
 
