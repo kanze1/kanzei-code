@@ -3680,3 +3680,17 @@
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786598338171
+
+## D-272 并行线/自举 ASK 串到用户弹窗并中断自动推进 [closed] [fixed] (high)
+- 来源: 2026-08-11 用户复现——代理线调用 ASK 时弹窗出现在主用户界面，自举运行被迫等待或停止。
+- 根因: 所有 `AskRequest` 默认复用桌面端用户询问闭包；运行模式没有把“可等待用户”与“后台自动推进”区分开，前端也没有按 ASK 来源做最后一道隔离。
+- 修复: `RunnerConfig.ask_policy` 明确区分 `Interactive` 与 `NonInteractive`。主线手动运行保持交互；并行进程与自举续跑使用非交互策略：权限 ASK 转成可回喂模型的错误并继续，`question` 转成明确的不可询问工具错误，不创建 `PendingAsk`、不发用户弹窗。ASK 事件附带 `source`，前端对旧运行/异常事件再做并行、自举来源拦截。子代理继续保持只读与硬拒绝 ASK。
+- 边界: 当前交付解决“不会串到用户”的安全行为；真正的代理间问答需独立的带 source/target 的内部消息通道，后续另立需求，不复用用户 ASK。
+- 验收: `cargo check --workspace` 通过；`kanzei-core` 的 ASK 策略单测通过；UI 事件回归确认后台来源不进入用户 ASK 队列；桌面安装后需实际启动三线并开启自举，确认无弹窗且线路继续推进。
+- 证据等级: E1(读码 + 编译/定向测试)，桌面最终验收待用户安装后实测。
+- refs: D-271 R-169 R-174
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-272
+- 进展: 正式关闭(2026-08-16,修复本体是既有交付,本条只补关闭书据)。核验证据:①AskPolicy 枚举 Interactive/NonInteractive/AutoAllow + allows_user_prompt(kanzei-core/src/runner/mod.rs:52-58),单测断言 Interactive 允许提问、NonInteractive 不允许(mod.rs:207-208);②drive.rs:774/876-928 NonInteractive 路径:权限 ASK 转 Gate::NonInteractive 错误回喂模型、question 转工具错误、不建 PendingAsk;③前端防御:07-events.js:438-441 on(kz:ask) 对旧运行/异常来源再拦一道。并行/自举运行配置 NonInteractive(ask_policy),主线手动保持 Interactive。边界(代理间问答需独立内部通道)已写在条目,另立需求不复用用户 ASK。残余:用户桌面安装后三线+自举无弹窗实测(用户侧),转入 R-101 延期 E2 清单,不滞留本条。
+- observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786598388023
