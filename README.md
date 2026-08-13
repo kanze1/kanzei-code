@@ -25,6 +25,21 @@ kanzei 会把决策、证据和开发经验沉淀为可检查、可编辑、可�
 
 设计原则只有一句：**为好用和优雅不妥协。** kanzei 是个人日常开发工具，不做多租户和企业管理层。
 
+## 设计目标
+
+kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要被长期保存、持续召回和复用，而不是随上下文压缩消失。具体目标：
+
+- **永久工作优先**：外部记忆是独立控制面，跨会话保留；会话可恢复、轨迹可回放；agent 用自己维护的 backlog 开发自己，不依赖微调模型参数。
+- **好用压倒一切**：上下文透明、少打断、信息清晰；个人日常开发工具，不做多租户和企业管理层。
+- **真正的任务级并行**：每条开发线独立 worktree、分支与运行目录，多条线同时写各自的代码树。
+- **受控合并**：跨线文件交集提前预警 + Git 文本预检 + `--no-ff` 合并；文本层已检查、语义层未检查的边界始终明示。
+- **规则写在代码里**：权限、状态机、托管文档格式与写入边界由注册表与拦截器执行，能用代码强制的绝不只写进提示词。
+- **复刻优先，创新只投护城河**：Claude Code 已解决的问题先复刻其行为契约，压缩与选择性丢弃后落地；记忆控制面、上下文可见性等护城河区持续领先。
+- **工单就是文件**：需求、缺陷、目标、来源均为普通 Markdown，人与 agent 编辑同一份事实源，排序即执行优先级。
+- **中英文并重**：界面文案可翻译，对话内容与用户数据展示层永不触碰；翻译发生在渲染点，漏译可机械检出。
+
+方向基线详见 [`docs/design/direction_taste.md`](docs/design/direction_taste.md)。
+
 ## 一条任务如何完成
 
 ```text
@@ -89,6 +104,16 @@ kanzei 会把决策、证据和开发经验沉淀为可检查、可编辑、可�
 
 需求与缺陷记录在 `.kanzei/project/`，设计文档在 `docs/design/`，参考资料在 `docs/reference/`。
 
+## 开发指南
+
+kanzei 是一个 Rust workspace + Tauri 桌面端 + 静态前端的自举项目——它用自己维护的 backlog 开发自己。
+
+- **分支与发布**：日常开发提交到 `dev` 分支；`main` 只接收来自 dev 的 `--ff-only` 合并，保持随时可发布。发布从独立发布树执行 `scripts/package.ps1`，桌面端唯一安装位是 `%LOCALAPPDATA%\kanzei\kzapp.exe`。
+- **测试**：改动哪个 crate 跑哪个 crate 的定向测试（`cargo test -p <crate>`）；纯前端改动跑 `node --check` + `scripts/ui-*-smoke.mjs` 冒烟；全量 `cargo test --workspace` 在发版前与关闭中/大复杂度条目时执行。
+- **提交门禁**：提交 Rust 代码前，编译、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings` 由结构化 git 工具强制检查，任一不过即拦下提交并点名违规文件。
+- **规范**：开发规则单源在引擎内置通用规范 + 本项目 `.kanzei/project/conventions.md`；需求/缺陷/目标记录在 `.kanzei/project/`，随代码一起提交。
+- **外部 agent 协作**：动仓库前先 `kz lock status` 查看活跃线与未提交改动；提交只暂存自己明确修改的文件，禁止 `git add .`。
+
 ---
 
 ## English
@@ -108,6 +133,31 @@ kanzei stores decisions, evidence, and development experience in inspectable, ed
 - **Observable execution**: context, compaction, tools, permissions, line status, and conflict warnings remain visible
 
 The current parallel mode checks file overlap and Git text merges. It does not yet detect semantic conflicts across files or behavior.
+
+### Design goals
+
+kanzei is built for **permanent work**: decisions, evidence, and experience are kept, recalled, and reused across sessions instead of vanishing with context compaction.
+
+- **Permanent work first**: external memory is an independent control plane that survives across sessions; sessions can be recovered and traces replayed; the agent develops itself from its own backlog without fine-tuning model parameters.
+- **Usability over everything**: transparent context, fewer interruptions, clear information; a personal daily tool, not multi-tenant enterprise software.
+- **Real task-level parallelism**: each line owns a worktree, branch, and runtime directory, writing its own code tree concurrently.
+- **Controlled integration**: early cross-line file-overlap warnings, Git merge preflight, and `--no-ff` merges; the "text checked, semantics unchecked" boundary is always explicit.
+- **Rules in code**: permissions, state machines, managed-document formats, and write boundaries are enforced by registries and interceptors; anything enforceable in code is not left to prompts.
+- **Replicate first, innovate only in the moat**: behaviors Claude Code already solved are replicated (compressed and selectively trimmed) before improving; the memory control plane and context observability keep leading.
+- **Tickets are files**: requirements, defects, goals, and sources are plain Markdown shared by user and agent as one source of truth; file order is execution order.
+- **Chinese and English both matter**: UI copy is translatable; conversation content and user data are never touched at the display layer; translation happens at render points and missing keys are caught mechanically.
+
+The direction baseline lives in [`docs/design/direction_taste.md`](docs/design/direction_taste.md).
+
+### Development guide
+
+kanzei is a self-hosting Rust workspace + Tauri desktop app + static frontend: it develops itself from its own backlog.
+
+- **Branches and releases**: day-to-day work lands on `dev`; `main` only receives `--ff-only` merges from `dev` and stays releasable. Releases run from a dedicated release worktree via `scripts/package.ps1`; the desktop app's single install location is `%LOCALAPPDATA%\kanzei\kzapp.exe`.
+- **Testing**: run targeted tests for the crate you change (`cargo test -p <crate>`); pure-frontend changes run `node --check` plus `scripts/ui-*-smoke.mjs`; the full `cargo test --workspace` runs before releases and when closing medium/large requirements.
+- **Commit gates**: before committing Rust code, compile, `cargo fmt --all -- --check`, and `cargo clippy --workspace --all-targets -- -D warnings` are enforced by the structured git tool; any failure blocks the commit and names the offending files.
+- **Conventions**: dev rules come from the engine-embedded generic conventions plus this project's `.kanzei/project/conventions.md`; requirements/defects/goals live in `.kanzei/project/` and are committed with the code.
+- **External agent collaboration**: run `kz lock status` before touching the repo to see active lines and uncommitted changes; stage only the files you explicitly changed, never `git add .`.
 
 ### Install
 
