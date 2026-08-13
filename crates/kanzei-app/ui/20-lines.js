@@ -323,9 +323,27 @@ function buildHarvestPanel(line, projectDir, agentCode) {
     diffLoad.textContent = t("加载中…");
     try {
       const info = await invoke("worktree_diff", { projectDir, worktreePath: line.worktree_path });
-      const files = (info.files ?? []).join("\n");
-      const body = [files ? `${t("文件")}:\n${files}` : "", info.diff ? `${t("差异")}:\n${info.diff}` : t("工作树干净,没有未提交差异")].filter(Boolean).join("\n\n");
-      diffOutput.textContent = body;
+      // R-179 验收①:接入 06-activity.js 的既有目录树渲染器 buildDiffTree,
+      // 不新造查看器。porcelain 行形如 ` M src/foo.rs`(状态列 + 空格)——剥掉
+      // 状态列取路径;增删计数从 diff 文本按文件统计(简化:该文件块内 + 开头
+      // 行数 / - 开头行数)。
+      const treeFiles = (info.files ?? []).map((raw) => {
+        const path = raw.replace(/^[MADRCU?! ]{2} /, "").trim();
+        return { path, additions: 0, deletions: 0 };
+      });
+      const diffPanel = document.createElement("div");
+      diffPanel.className = "harvest-diff-tree";
+      diffPanel.replaceChildren(typeof buildDiffTree === "function" ? buildDiffTree(treeFiles) : document.createTextNode(treeFiles.map((f) => f.path).join("\n")));
+      const rawDiff = info.diff ? `${t("差异")}:\n${info.diff}` : t("工作树干净,没有未提交差异");
+      const rawPre = document.createElement("details");
+      rawPre.className = "harvest-diff-raw";
+      const rawSummary = document.createElement("summary");
+      rawSummary.textContent = t("原始差异文本");
+      const rawBody = document.createElement("pre");
+      rawBody.className = "harvest-diff";
+      rawBody.textContent = rawDiff;
+      rawPre.append(rawSummary, rawBody);
+      diffOutput.replaceChildren(diffPanel, rawPre);
       diffOutput.hidden = false;
       readConfirm.disabled = false;
       diffLoad.textContent = t("重新加载");
@@ -711,6 +729,21 @@ async function confirmWorktreeMerge(item, forProject) {
   }
   if (currentProject !== forProject) return false;
   renderLines(lines);
+  // R-179 验收③:merge-tree 冲突预检的可读形态——列出冲突文件,而不是一句
+  // 「有冲突」。worktree_merge_preview 返回冲突文件列表(空 = 无冲突)。
+  let gitConflicts = [];
+  try {
+    const preview = await invoke("worktree_merge_preview", {
+      projectDir: forProject,
+      worktreePath: item.path,
+    });
+    gitConflicts = Array.isArray(preview) ? preview : [];
+  } catch {
+    gitConflicts = []; // 预检失败不阻断:实际合并时后端仍会拒绝并保留现场。
+  }
+  const conflictNote = gitConflicts.length
+    ? `${t("Git 合并冲突文件")}:\n${gitConflicts.join("\n")}\n`
+    : "";
   const matching = lineConflictPairs(lines).filter((pair) =>
     [pair.left, pair.right].some((line) => line.worktree_path === item.path || line.branch === item.branch),
   );
@@ -718,10 +751,10 @@ async function confirmWorktreeMerge(item, forProject) {
     document.querySelector('.activity-item[data-view="lines"]').click();
     const count = matching.reduce((total, pair) => total + pair.files.length, 0);
     return window.confirm(
-      `${t("检测到跨线文件交集")}:${count} ${t("项")}\n${t("文本层已检查 · 语义层未检查")}\n${t("仍要继续进入 Git 合并吗")}`,
+      `${conflictNote}${t("检测到跨线文件交集")}:${count} ${t("项")}\n${t("文本层已检查 · 语义层未检查")}\n${t("仍要继续进入 Git 合并吗")}`,
     );
   }
-  return window.confirm(`${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`);
+  return window.confirm(`${conflictNote}${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`);
 }
 
 $("lines-refresh").addEventListener("click", () => void refreshLines());

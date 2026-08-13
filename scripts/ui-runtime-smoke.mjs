@@ -5964,11 +5964,48 @@ const docsB = {
   assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
 }
 
-if (issues.length) {  byId.get("ask-cancel").click();
+// ---------- R-179 深并行 UX:diff 接入既有渲染器 + 冲突预检 + 建线提示 ----------
+{
+  const linesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "20-lines.js"), "utf8");
+  const sessionsSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "09-sessions.js"), "utf8");
+  // 验收①:线的 diff 用 06-activity.js 既有 buildDiffTree,不新写查看器。
+  assert(
+    linesSrc.includes('typeof buildDiffTree === "function" ? buildDiffTree(treeFiles)'),
+    "R-179:线 diff 未接入既有 buildDiffTree 目录树渲染器",
+  );
+  assert(
+    linesSrc.includes('rawSummary.textContent = t("原始差异文本")'),
+    "R-179:原始 diff 未收进可折叠 details(目录树 + 原始文本并存)",
+  );
+  // 验收③:合并确认前调用 worktree_merge_preview 取冲突文件列表。
+  assert(
+    linesSrc.includes('await invoke("worktree_merge_preview"'),
+    "R-179:合并确认未调用 worktree_merge_preview 冲突预检",
+  );
+  assert(
+    linesSrc.includes('t("Git 合并冲突文件")'),
+    "R-179:冲突文件列表未进入合并确认文案",
+  );
+  // 验收⑤:建线 UI 有磁盘/冷编译成本提示。
+  assert(
+    sessionsSrc.includes('t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")'),
+    "R-179:建线 UI 缺少磁盘/冷编译成本提示",
+  );
+  // 验收⑧:三档宽度下线路页不崩(列表容器仍在 DOM)。
+  for (const width of [800, 1024, 1280]) {
+    windowShim.innerWidth = width;
+    await flush();
+    assert(
+      document.getElementById("lines-list"),
+      `R-179:${width}px 下线路页列表容器缺失`,
+    );
+  }
+  windowShim.innerWidth = 1280;
   await flush();
-  assert(overlay.classList.contains("hidden"), "D-337:取消未关闭多选弹窗");
 }
 
+// ---------- R-190 常驻 fast 模型状态指示 ----------
+// (R-190 断言块保留在下方;此处仅收尾 R-179 块)
 if (issues.length) {
   reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

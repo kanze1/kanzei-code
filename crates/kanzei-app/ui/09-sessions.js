@@ -116,6 +116,9 @@ async function handleWorktreeAction(item, action) {
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
 async function createWorktreeLine() {
   if (!currentProject || worktreeLineCreateInFlight) return;
+  // R-179 内容④:建线成本提示(D6 定案)——每树独立 target/ = 磁盘占用 ×N,
+  // 首次冷编译需数分钟。让用户在建线前知道代价,不是悄悄发生。
+  if (!window.confirm(`${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。\n${t("继续创建吗")}`)) return;
   // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
   worktreeLineCreateInFlight = true;
