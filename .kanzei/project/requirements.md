@@ -49,13 +49,19 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-227 占位符测试 ID 提交门禁:tracker diff 出现 T-…xxx 即拒,存量 8 处回填或标注不可考 [todo]
+## R-227 占位符测试 ID 提交门禁:tracker diff 出现 T-…xxx 即拒,存量 8 处回填或标注不可考 [doing]
 - 内容: commit 门禁扫描 tracker 文件 diff,出现 T-\d+xxx 形态的占位符测试 ID 即拒绝提交;配套要求 test_record 落盘后与引用它的证据同批入库,消灭隔时凭记忆写证据;存量 8 处(requirements-archive 2 处、defects-archive 6 处)回填真值或标注不可考
 - 复杂度: 小
 - 来源: 2026-08-13 自举复盘(R-198/R-199 关闭证据均含占位符,复发模式)
 - 标签: 流程
 - 验收: ①门禁单测覆盖占位符拒绝;②存量 8 处处置完毕;③新增关闭证据无占位符
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-227
+- 进展: 2026-08-16 取活。B1 完成(commit 635db58):①commit 门禁 placeholder_id_gate(git.rs)——tracker 文件 diff 出现 `T-<数字>xxx` 占位符即拒,只扫 tracker 路径,真实 10 位 ID 放行;②归档回填通道 fill_archived_placeholder(docstore.rs,与 dedupe 同锁同写路径,恰好命中一次,歧义拒绝)+ tracker 动作 archive_fill + CLI 分支(kz req archive_fill <id> <old> <new>);③存量 8 处占位符已全部定位并查明真实 ID:requirements-archive R-198 T-1786565xxx→T-1786565346、R-199 T-1786566xxx→T-1786565831;defects-archive D-219 T-1786451xxx→T-1786451434、D-266 T-1786560xxx→T-1786560588、D-279 T-1786562xxx→T-1786562463、D-281 T-1786562xxx→T-1786562856、D-282 T-1786563xxx→T-1786563655、D-316 T-1786563xxx→T-1786564679(真值均核自 tests-archive 对应记录)。验证:kanzei-tools 332 passed + kanzei 4 passed(T-1786631611)+ fmt/clippy 全过。验收①门禁单测覆盖占位符拒绝——placeholder_id_gate_拒绝占位符_放行真实_id与非tracker 测试通过;验收③新增关闭证据无占位符——门禁在 commit 层拦截,本提交无占位符。验收②存量 8 处处置:需用 archive_fill 动作回填,但当前引擎进程运行旧代码(archive_fill 报 unknown action,valid 列表不含它),归档文件又被 ruleset+managed-files 双重保护无法直改——处置待引擎重启加载新代码后执行 archive_fill。
+- 阻塞: 待引擎重启加载 archive_fill 动作后执行存量 8 处回填(解除人:引擎下次启动;回填映射见进展)
+- observed_head: 635db584872ab3d177751206a72fae384c33f102
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786631684828
 
 ## R-144 验收核查周期化:鞭挞每关 N 条自动插入只读核查回合 [todo]
 - 背景: direction_taste §5.5:08-07 式事件性审计(R-092 手动按钮)应变成常驻节律——鞭挞每关 N 条自动插入一轮只读核查回合,复用现有只读子代理,把验收打假从人工触发变为自动循环的一部分。
