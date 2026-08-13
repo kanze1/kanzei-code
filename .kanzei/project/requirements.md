@@ -63,7 +63,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786631684828
 
-## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [todo]
+## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [doing]
 - 优先级: P2
 - 复杂度: 大
 - 标签: 后端 前端 harness
@@ -73,6 +73,12 @@
 - 边界: research 不可写 docs/design、不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
+- 进展: 2026-08-16 取活。勘察结论:R-221 的设计真源 docs/design/research_mode.md 状态为「设计基线草案(2026-08-12 八维度审计维度8 产出;定调点待用户逐项确认后转正)」——§2 的八个定调点(主形态/工件落点/证据等级 V 表/回流通道/记忆一元化/档位矩阵/可写 docs 边界/三形态收敛)全部标注「待用户确认」,括号内为本设计的默认建议。按 §1「需求边界不清楚时必须先提问确认,不允许在关键问题上自行假设后直接实现」,八个定调点未获用户拍板前实施会踩边界(如「research 不可写 docs/design」「证据等级单列 V 表」都是用户层面决策)。现状盘点(供解除阻塞后立即开工):批1 档位收口的 files/git 只读已在 R-218 完成(SubagentBase 6 件套),ReadonlyProfile 与 bash 硬 deny+替代指引是既有模式(profiles.rs:652-658 先例);批2-批6 的 topic 工件/证据口径/回流/记忆/三形态均未动。阻塞:等用户对 research_mode.md §2 八个定调点逐项拍板(解除人:用户;方案与默认建议已在 docs/design/research_mode.md §2)。
+- 阻塞: docs/design/research_mode.md §2 八个定调点待用户逐项确认后转正(解除人:用户拍板;方案与默认建议在 §2,agent 无权自行假设后实施)
+- observed_head: b644f1657f2aadede85b26ef65050605740ceb04
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786633950047
 
 ## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [todo]
 - 优先级: P2
