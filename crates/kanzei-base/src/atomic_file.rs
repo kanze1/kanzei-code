@@ -8,9 +8,10 @@
 //! 进程读到的是零长度或半截文件,而 docstore 的 `load()` 对空文件宽容返回
 //! `Ok(vec![])`——一次「成功但空」的快照就这样穿到前端(D-249 的第①层)。
 //!
-//! 本模块放在 kanzei-llm(**依赖图最底层**):kanzei-core/kanzei-tools/kanzei-app
-//! 都依赖它,而 auth/store.rs(凭证写回)在 llm 内部,只有把原语放这里才能让
-//! 最底层也共用同一套,而不是在 llm 里再养第二份(D-261)。
+//! 本模块原寄居 kanzei-llm(D-261:llm 是依赖图最底层,当时只有放这里才能让
+//! 最底层共用同一套)。R-208 拆出 kanzei-base 零依赖 crate 承接:llm/tools 从
+//! 这里取,harness 也能直接依赖(否则 R-181 的跨进程 lease 契约在 harness、
+//! 原语在 llm,照单实施会撞依赖方向墙)。纯搬迁零行为变更。
 
 use std::collections::HashMap;
 use std::io::Write;

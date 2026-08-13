@@ -191,7 +191,8 @@ fn read_index(path: &Path) -> String {
 
 /// 内容指纹(CAS 用)。规范化行尾后再哈希:换行风格不同不该算作并发改动。
 /// pub(crate):conventions 工具复用同一套 CAS 原语(D-235),仓里不养第二份。
-/// 写盘本体是 kanzei_llm::atomic_file::write_atomic_cas(D-261 并轨),这里只留指纹。
+/// 写盘本体是 kanzei_base::atomic_file::write_atomic_cas(D-261 并轨,R-208 迁出),
+/// 这里只留指纹。
 pub(crate) fn content_hash(content: &str) -> String {
     let normalized = content.replace("\r\n", "\n");
     let mut hasher = std::collections::hash_map::DefaultHasher::new();

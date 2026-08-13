@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kanzei-base.workspace = true
 tokio.workspace = true
 futures.workspace = true
 bytes.workspace = true

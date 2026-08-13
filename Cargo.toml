@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/kanzei-base",
     "crates/kanzei-harness",
     "crates/kanzei-llm",
     "crates/kanzei-core",
@@ -15,6 +16,7 @@ edition = "2021"
 license = "PolyForm-Noncommercial-1.0.0"
 
 [workspace.dependencies]
+kanzei-base = { path = "crates/kanzei-base" }
 kanzei-harness = { path = "crates/kanzei-harness" }
 kanzei-llm = { path = "crates/kanzei-llm" }
 kanzei-core = { path = "crates/kanzei-core" }

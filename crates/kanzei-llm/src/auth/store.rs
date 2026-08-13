@@ -15,8 +15,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::atomic_file;
 use crate::error::LlmError;
+use kanzei_base::atomic_file;
 
 /// 落盘刷新后的凭证。`disk_is_fresher(disk, mine)` 为真时放弃本次写入并返回磁盘上
 /// 那份——调用方必须改用返回值构造请求头,因为自己手里的 token 可能已被对方轮换作废。

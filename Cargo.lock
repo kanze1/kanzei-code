@@ -2204,6 +2204,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanzei-base"
+version = "0.1.0"
+
+[[package]]
 name = "kanzei-core"
 version = "0.1.0"
 dependencies = [
@@ -2228,6 +2232,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "dirs 5.0.1",
+ "kanzei-base",
  "schemars 0.8.22",
  "serde",
  "serde_json",
@@ -2247,6 +2252,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures",
+ "kanzei-base",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -2269,6 +2275,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "kanzei-base",
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",

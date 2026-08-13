@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+kanzei-base.workspace = true
 async-trait.workspace = true
 serde.workspace = true
 serde_json.workspace = true
