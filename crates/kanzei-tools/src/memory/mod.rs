@@ -10,7 +10,7 @@ mod manager;
 mod store;
 mod tools;
 
-pub use index::{IndexHit, IndexQuery, MemoryIndex, SqliteMemoryIndex};
+pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent};
 pub use store::{AddOutcome, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit};
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use crate::docstore::{
     DocStore, DECISIONS, DEFECTS, FINDINGS, GOALS, MEMORY, REQUIREMENTS, SOURCES,
 };
+use crate::embed::Embedder;
 use kanzei_harness::ToolCtx;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -931,16 +932,20 @@ pub fn harvest_end_of_run(
     (delivered, sop, fact)
 }
 
-/// 开跑预检索(R-106):拿本轮的检索键对两级记忆做一次 BM25,命中则返回
-/// 提示块(只给索引行不给正文,拉正文是模型自己的决定)。无命中返回 None。
+/// 开跑预检索(R-106):拿本轮的检索键对两级记忆做混合检索(lexical BM25 +
+/// 可选 dense embedder + RRF,R-233),命中则返回提示块(只给索引行不给正文,
+/// 拉正文是模型自己的决定)。无命中返回 None。
 ///
 /// `autonomous`(自主推进/鞭挞轮)时**不拿 prompt 当检索键**:那是一段每轮
 /// 一字不差的模板,拿它检索等于每轮注入同一批条目。改用 tracker 的取活条目
 /// 标题;没有可推进项就不注入(那种轮次本来也没什么可召回的)。
+///
+/// `embedder` 为 None 时 hybrid 自动退化为纯 lexical(功能完整,不依赖向量)。
 pub fn prompt_hints(
     project_root: &std::path::Path,
     prompt: &str,
     autonomous: bool,
+    embedder: Option<std::sync::Arc<dyn Embedder>>,
 ) -> Option<String> {
     let query = if autonomous {
         let titles = crate::tracker::workable_titles(project_root, 2);
@@ -951,16 +956,23 @@ pub fn prompt_hints(
     } else {
         prompt.to_string()
     };
-    prompt_hints_with_budget(project_root, &query, MEMORY_CONTEXT_BUDGET)
+    prompt_hints_with_budget(project_root, &query, MEMORY_CONTEXT_BUDGET, embedder)
 }
 
 /// 把一次实际记忆检索写入 state.db。CLI 的开跑预检索、memory_search 工具和
 /// 桌面端搜索页都经过这里，避免三条入口各自维护漏斗口径。
+///
+/// `channel` 是实际走的检索通道:无 embedder 时 `"lexical"`,接了 embedder
+/// 跑 hybrid 时 `"hybrid"`(R-233 ④:召回遥测要能区分通道,否则看不出语义
+/// 通道是否改善了采纳率);hits 为空时 policy_action 统一记 `"miss"`。
+/// `timing` 为各段耗时(lexical/embed/vector),纯 lexical 路径传默认值。
 pub fn record_memory_search_telemetry(
     project_root: &std::path::Path,
     query: &str,
     hits: &[SearchHit],
     injected: bool,
+    channel: &str,
+    timing: &index::RetrievalTiming,
 ) {
     let path = project_root.join(".kanzei").join("state.db");
     let Ok(store) = kanzei_core::SessionStore::open(&path) else {
@@ -982,15 +994,15 @@ pub fn record_memory_search_telemetry(
         trigger_payload: "{}",
         // miss 也留痕(R-161):零命中的检索是"查了什么却什么都想不起来"的
         // 直接证据,缺了它就永远看不见记忆缺口。
-        policy_action: if hits.is_empty() { "miss" } else { "lexical" },
+        policy_action: if hits.is_empty() { "miss" } else { channel },
         query,
         candidate_ids: &ids_json,
         retrieved_ids: &ids_json,
         injected_ids: if injected { &ids_json } else { "[]" },
-        lexical_ms: 0,
-        embed_ms: 0,
-        vector_ms: 0,
-        total_ms: 0,
+        lexical_ms: timing.lexical_ms,
+        embed_ms: timing.embed_ms,
+        vector_ms: timing.vector_ms,
+        total_ms: timing.total(),
     };
     let _ = store.record_recall_event(&event);
 }
@@ -1044,28 +1056,43 @@ fn prompt_hints_with_budget(
     project_root: &std::path::Path,
     prompt: &str,
     budget: usize,
+    embedder: Option<std::sync::Arc<dyn Embedder>>,
 ) -> Option<String> {
-    let mut hits: Vec<SearchHit> = Vec::new();
+    // R-233 ④:遥测记真实通道——接了 embedder 就是 hybrid(即使 dense 内部
+    // 降级,embed/vector 耗时也如实落库),没接就是 lexical。
+    let channel = if embedder.is_some() {
+        "hybrid"
+    } else {
+        "lexical"
+    };
     let mut stores = vec![MemoryStore::project(project_root)];
     stores.extend(MemoryStore::global());
     // R-233 ②:搜索用意图词(去虚词边界提取内容段),整句 prompt 的 bigram
     // 会被虚词错位(「批发/版出」匹配不到「发版」);遥测与去重仍用原始 prompt。
     let intent = crate::memory::store::intent_query(prompt);
     if intent.trim().is_empty() {
-        record_memory_search_telemetry(project_root, prompt, &[], false);
+        record_memory_search_telemetry(
+            project_root,
+            prompt,
+            &[],
+            false,
+            channel,
+            &index::RetrievalTiming::default(),
+        );
         return None;
     }
-    for store in &stores {
-        if let Ok(found) = store.search(&intent, None, Some("active"), 3) {
-            hits.extend(found);
-        }
-    }
+    // R-233 ①③:hybrid 检索(dense embedder + RRF)。无 embedder 时 search_hybrid
+    // 自动退化 lexical;ensure_vectors 按 id 差集补/删向量,失败不阻塞(降级)。
+    let mut memory_index = SqliteMemoryIndex::with_embedder(project_root, embedder);
+    let _ = memory_index.ensure_vectors();
+    let (found, timing) = memory_index.search_hybrid_entries(&index::IndexQuery::text(&intent), 3);
+    let mut hits = found;
     // D-216:preference 正文全文常驻(STANDING DIRECTIVES),hints 再提是零信息,
     // 还会污染召回遥测(实证:M-002 召回 22 次全是噪声)。
     hits.retain(|h| h.entry.category != "preference");
     if hits.is_empty() {
         // miss 也落遥测(R-161):开跑预检索零命中是记忆缺口的第一手证据。
-        record_memory_search_telemetry(project_root, prompt, &[], false);
+        record_memory_search_telemetry(project_root, prompt, &[], false, channel, &timing);
         return None;
     }
     hits.sort_by(|a, b| {
@@ -1133,7 +1160,7 @@ fn prompt_hints_with_budget(
             store.record_recall(prompt, &own, block.len());
         }
     }
-    record_memory_search_telemetry(project_root, prompt, &hits, true);
+    record_memory_search_telemetry(project_root, prompt, &hits, true, channel, &timing);
     Some(block)
 }
 
@@ -1330,29 +1357,93 @@ mod tests {
             AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
-        let hit = prompt_hints(&dir, "帮我把这一批发版出去", false);
+        let hit = prompt_hints(&dir, "帮我把这一批发版出去", false, None);
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
         // 连续轮次同 query 同命中集不重复注入(自主轮固定检索键的实证噪声:
         // 单条目连续注入 138 次仅 25 次采纳)——continue 链共享历史,上一轮
         // 的 hints 还在上下文里。
         assert!(
-            prompt_hints(&dir, "帮我把这一批发版出去", false).is_none(),
+            prompt_hints(&dir, "帮我把这一批发版出去", false, None).is_none(),
             "同 query 同命中集 30 分钟内不得重复注入"
         );
         // query 变化照常注入(命中同一条目也算新语境)。
         assert!(
-            prompt_hints(&dir, "发版流程要走哪些步骤", false).is_some(),
+            prompt_hints(&dir, "发版流程要走哪些步骤", false, None).is_some(),
             "query 变化后应恢复注入"
         );
-        assert!(prompt_hints(&dir, "完全无关的宇宙话题", false).is_none());
+        assert!(prompt_hints(&dir, "完全无关的宇宙话题", false, None).is_none());
         // 自动轮不拿 prompt 当检索键:这个临时项目没有 tracker 取活条目,
         // 于是不注入——而不是用模板 prompt 去捞一批不相干的条目回来。
         assert!(
-            prompt_hints(&dir, "帮我把这一批发版出去", true).is_none(),
+            prompt_hints(&dir, "帮我把这一批发版出去", true, None).is_none(),
             "自动轮应改用取活条目做检索键,无取活项时不注入"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn prompt_hints_hybrid通道与遥测_按embedder区分() {
+        // R-233 B2:接 embedder 后 prompt_hints 走 hybrid,遥测 policy_action 记
+        // "hybrid";无 embedder 退化为纯 lexical,遥测记 "lexical"。召回本身都
+        // 注入(发版词面命中),区别在 state.db recall_events 的通道与 embed 段。
+        fn last_policy(db: &std::path::Path) -> (String, i64) {
+            let conn = rusqlite::Connection::open(db).unwrap();
+            conn.query_row(
+                "SELECT policy_action, embed_ms FROM recall_events
+                 ORDER BY created_at DESC, recall_id DESC LIMIT 1",
+                [],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .unwrap()
+        }
+        let mk = |tag: &str| {
+            let dir = std::env::temp_dir().join(format!(
+                "{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let store = MemoryStore::project(&dir);
+            store
+                .add(
+                    "sop",
+                    "发版 SOP 两条通道",
+                    "发版发布安装更新必读",
+                    "package.ps1",
+                    "user",
+                    &[],
+                    None,
+                    false,
+                )
+                .unwrap();
+            dir
+        };
+        // 场景1:无 embedder → lexical,embed 段 0。
+        let dir1 = mk("kz-hints-lex");
+        let hit1 = prompt_hints(&dir1, "帮我把这一批发版出去", false, None);
+        assert!(hit1.is_some());
+        let (action1, embed1) = last_policy(&dir1.join(".kanzei").join("state.db"));
+        assert_eq!(
+            action1, "lexical",
+            "无 embedder 时遥测必须记 lexical: {action1}"
+        );
+        assert_eq!(embed1, 0, "无 embedder 时 embed 段必须为 0: {embed1}");
+        // 场景2:有 FakeEmbedder → hybrid 通道(即使 dense 相似度有限,通道如实记)。
+        let dir2 = mk("kz-hints-hyb");
+        let embedder = std::sync::Arc::new(crate::embed::FakeEmbedder::new(8));
+        let hit2 = prompt_hints(&dir2, "帮我把这一批发版出去", false, Some(embedder));
+        assert!(hit2.is_some());
+        let (action2, _embed2) = last_policy(&dir2.join(".kanzei").join("state.db"));
+        assert_eq!(
+            action2, "hybrid",
+            "接 embedder 后遥测必须记 hybrid: {action2}"
+        );
+        std::fs::remove_dir_all(dir1).ok();
+        std::fs::remove_dir_all(dir2).ok();
     }
 
     #[test]
@@ -1708,7 +1799,7 @@ mod tests {
         assert!(ids.contains("M-001"), "{ids:?}");
         assert_eq!(folded, 1);
 
-        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80).unwrap();
+        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 80, None).unwrap();
         // 常驻条目只给指向,不再重复 description 整行。
         assert!(
             block.contains("M-001 发版短条目(见 memory-index)"),

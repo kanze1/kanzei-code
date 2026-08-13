@@ -248,7 +248,14 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
         })
         .collect();
     if !all_hits.is_empty() {
-        kanzei_tools::memory::record_memory_search_telemetry(&root, &query, &all_hits, false);
+        kanzei_tools::memory::record_memory_search_telemetry(
+            &root,
+            &query,
+            &all_hits,
+            false,
+            "lexical",
+            &kanzei_tools::memory::RetrievalTiming::default(),
+        );
     }
     json!(out)
 }

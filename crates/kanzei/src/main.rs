@@ -583,7 +583,15 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
     // CLI 的 `kz run` 一律是用户显式发起的一轮,prompt 就是真实检索键(非自动轮)。
-    let memory_hints = kanzei_tools::memory::prompt_hints(&ctx.project_root, &prompt, false);
+    let memory_hints = kanzei_tools::memory::prompt_hints(
+        &ctx.project_root,
+        &prompt,
+        false,
+        // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
+        kanzei_tools::embed::embedder_from_config(&config)
+            .ok()
+            .flatten(),
+    );
     let run_prompt = prompt.clone();
     let run_result = tokio::select! {
         result = run_once(

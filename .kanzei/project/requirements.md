@@ -8,11 +8,11 @@
 - 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
-- 批次: 1/4
-- 进展: B1(2026-08-13):② query 构造升级落地。intent_query(store.rs:1677)从 prompt 提取意图词:ASCII≥2字母原样保留,CJK 按 INTENT_BOUNDARY(纯功能字/数字/语气字/方向补语)切段,≤4字整段短语+≥3字段补交bigram(跨词边界段只给整段短语会漏词,「批发版」=「这批」+「发版」)、>4字段交bigram,去重封顶24词。边界表把实词词素移出——原表 项/条/页/步/行/处/轮/可/能/自 当边界会把 项目/条目/页面/步骤/执行/处理/本轮/可靠/能力/自举 拆没(单测「步骤」断言当场暴露)。prompt_hints_with_budget(mod.rs:1053)改用 intent 检索,空意图提前返回(遥测记 miss),遥测/去重键仍用原始 prompt。修正上一轮未验证实现的缺陷并把单测升级为端到端召回断言(temp_store+store.search 真命中「发版 SOP」条目,而非只查字符串包含)。memory 模块 85 测试全绿。下步 B2:embedder 接线。
-- observed_head: 930a8065c238af8ea79ae5bfd39786aaf2515395
-- observed_worktree_hash: fnv1a64:3f8a86c6e8dcfd42
-- recorded_at: 1786603691653
+- 批次: 2/4
+- 进展: B2(2026-08-13):①③ embedder 接线落地。prompt_hints/mod.rs 增第4参 Option<Arc<dyn Embedder>>(CLI main.rs:586 + 桌面 run.rs:716 用 embedder_from_config(&config).ok().flatten() 注入);prompt_hints_with_budget 改走 SqliteMemoryIndex::with_embedder + search_hybrid_entries(hybrid RRF,无 embedder 自动退化 lexical),索引构造后调 ensure_vectors(index.rs:按 id 差集补缺失/清孤儿,生产无 upsert 维护,全量 rebuild 会每轮重嵌,故用差集增量)。④ record_memory_search_telemetry 增 channel+timing 参数,policy_action 记 hybrid/lexical(空命中仍 miss),lexical/embed/vector 耗时落库;桌面搜索页(tools.rs:108/memory.rs:251)传 lexical+默认 timing。B2 测试:ensure_vectors 冷启动补齐/幂等/外部新增补/归档清孤儿;prompt_hints hybrid 通道遥测区分(87 memory 测试全绿,app 138、kanzei 3 全绿)。下步 B3:语义召回 e2e(语义感知假 embedder:词面不相关但语义相关可召回)。
+- observed_head: 927ecc2a7f089356f7bf8ceeac616dd899a9512f
+- observed_worktree_hash: fnv1a64:50f0438a81383db1
+- recorded_at: 1786604240409
 
 ## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [todo]
 - 优先级: P1

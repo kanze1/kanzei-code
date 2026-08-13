@@ -105,7 +105,14 @@ impl Tool for MemorySearchTool {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         all_hits.truncate(limit);
-        super::record_memory_search_telemetry(&ctx.project_root, &input.query, &all_hits, true);
+        super::record_memory_search_telemetry(
+            &ctx.project_root,
+            &input.query,
+            &all_hits,
+            true,
+            "lexical",
+            &crate::memory::index::RetrievalTiming::default(),
+        );
         if all_hits.is_empty() {
             return ToolOutput::ok(format!(
                 "(no memory matched `{}` — if you learn something reusable here, record it with memory_note)",
@@ -446,7 +453,14 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         // R-161:state.db 同源记录一条检索遥测,stats 要能看到五段漏斗计数。
-        crate::memory::record_memory_search_telemetry(&ctx.project_root, "要发版了", &hits, true);
+        crate::memory::record_memory_search_telemetry(
+            &ctx.project_root,
+            "要发版了",
+            &hits,
+            true,
+            "lexical",
+            &crate::memory::index::RetrievalTiming::default(),
+        );
         let stats = MemoryStatsTool.execute(json!({}), &ctx).await;
         assert!(!stats.is_error);
         assert!(stats.content.contains("召回 3/采纳 0"), "{}", stats.content);

@@ -12,13 +12,12 @@
 //! - [`MemoryIndex`]:检索 + 维护接口,供回放台三臂对比(验收③)与运行时召回共用;
 //! - [`SqliteMemoryIndex`]:默认实现。lexical 通道复用 [`super::FingerprintIndex`]
 //!   (Tier0 fingerprint 精确)与 [`super::MemoryStore::search`](Tier1 BM25,FTS5),
-//!   与 FailureRecallPolicy 同源;dense 通道本批未接 embedder → 恒空;
-//!   hybrid 在无 embedder 时自动退化为 lexical(验收①:功能完整,不依赖向量)。
+//!   与 FailureRecallPolicy 同源;dense 通道接 [`crate::embed::Embedder`]
+//!   (embedder_from_config),R-233 起由 prompt_hints 生产接线启用——向量表按
+//!   id 差集增量维护(ensure_vectors),冷启动/外部写入后只补缺失清孤儿,
+//!   不每次全量重嵌;无 embedder 时 hybrid 自动退化为 lexical(验收①)。
 //! - upsert/remove 增量维护内存索引(同 FailureRecallPolicy 写时增量语义),
 //!   rebuild 全量重扫文件系统。
-//!
-//! 向量通道(验收②④)由后续批次在 index.db 增加向量列 + Embedder 实现后
-//! 在此接入,本批保持接口稳定(方法签名不随通道落地而变)。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -593,6 +592,74 @@ impl SqliteMemoryIndex {
         fused.truncate(limit);
         (fused, timing)
     }
+
+    /// 向量表与 active 条目集合按 id 差集增量补/删(R-233 生产接线):
+    /// 冷启动/外部写入后 dense 通道缺条目 → 只补缺失、清孤儿,避免每次
+    /// 检索全量重嵌(本地 embedder 也要省,远程 API 更不能每轮全量)。
+    /// 正文更新不触发重算(向量按 id 存,增量语义保留旧向量——与 FTS 的
+    /// refresh 口径一致,更新条目由写路径 upsert 负责)。无 embedder 直接成功。
+    pub fn ensure_vectors(&mut self) -> anyhow::Result<()> {
+        if self.embedder.is_none() {
+            return Ok(());
+        }
+        let conn = self.open_vector_db()?;
+        let mut vec_ids: std::collections::HashSet<String> = conn
+            .prepare("SELECT id FROM memory_vectors")?
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        // 补缺失:entries(active 快照)里有、向量表没有的条目。
+        for (id, entry) in &self.entries {
+            if vec_ids.contains(id) {
+                continue;
+            }
+            if let Some(vec) = self.vectorize(entry) {
+                conn.execute(
+                    "INSERT INTO memory_vectors(id, dim, vector, updated)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![id, vec.len() as i64, Self::vector_to_blob(&vec), now_ms],
+                )?;
+                vec_ids.insert(id.clone());
+            }
+        }
+        // 清孤儿:向量表里有、entries 没有的(条目被删/归档/移出 active)。
+        for id in &vec_ids {
+            if !self.entries.contains_key(id) {
+                conn.execute(
+                    "DELETE FROM memory_vectors WHERE id = ?1",
+                    rusqlite::params![id],
+                )?;
+            }
+        }
+        Ok(())
+    }
+
+    /// hybrid 检索并物化为完整条目(R-233 prompt_hints 消费侧):[`IndexHit`]
+    /// 只带 id/category/action/status,注入提示块需要 title/description/scope,
+    /// 这里用条目快照补全成 [`SearchHit`];RRF 相关度分数保留在 score。
+    pub fn search_hybrid_entries(
+        &self,
+        query: &IndexQuery,
+        limit: usize,
+    ) -> (Vec<SearchHit>, RetrievalTiming) {
+        let (hits, timing) = self.search_hybrid_with_timing(query, limit);
+        let out = hits
+            .into_iter()
+            .filter_map(|h| {
+                self.entries.get(&h.id).map(|e| SearchHit {
+                    entry: e.clone(),
+                    path: PathBuf::new(),
+                    snippet: String::new(),
+                    hits: 0,
+                    score: h.score,
+                })
+            })
+            .collect();
+        (out, timing)
+    }
 }
 
 #[cfg(test)]
@@ -815,6 +882,76 @@ mod tests {
                 .unwrap();
             assert_eq!(count, 0, "remove 后向量必须删除");
         }
+    }
+
+    #[test]
+    fn ensure_vectors_按id差集补缺失清孤儿() {
+        // R-233 生产接线:冷启动/外部写入后向量表缺条目,ensure_vectors 增量补。
+        let (root, store) = temp_root();
+        let e1 = add(&store, "fact", "A 概念", "A 的描述", "A 的正文");
+        let e2 = add(&store, "fact", "B 概念", "B 的描述", "B 的正文");
+        let embedder = Arc::new(crate::embed::FakeEmbedder::new(4));
+        let mut index = SqliteMemoryIndex::with_embedder(&root, Some(embedder));
+
+        // 冷启动:with_embedder 不生成向量,ensure_vectors 补齐两条 active。
+        index.ensure_vectors().unwrap();
+        {
+            let conn = index.open_vector_db().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memory_vectors", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 2, "冷启动后两条 active 都要有向量: {count}");
+        }
+        // 再调一次:无新增无删除 → 幂等,不重复插。
+        index.ensure_vectors().unwrap();
+        {
+            let conn = index.open_vector_db().unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM memory_vectors", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(count, 2, "幂等:无变化不得重复插: {count}");
+        }
+
+        // 外部新增条目(绕过 upsert)→ 新快照按 id 差集补缺失。
+        let e3 = add(&store, "fact", "C 概念", "C 的描述", "C 的正文");
+        let mut index2 =
+            SqliteMemoryIndex::with_embedder(&root, Some(index.embedder.clone().unwrap()));
+        index2.ensure_vectors().unwrap();
+        {
+            let conn = index2.open_vector_db().unwrap();
+            let rows: Vec<String> = conn
+                .prepare("SELECT id FROM memory_vectors ORDER BY id")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(
+                rows.contains(&e1.id) && rows.contains(&e2.id) && rows.contains(&e3.id),
+                "新增条目必须补向量: {rows:?}"
+            );
+        }
+
+        // 归档条目(非 active,文件移出主目录)→ 新快照没有它 → 清孤儿。
+        store
+            .update(&e1.id, None, None, None, Some("deprecated"), None, false)
+            .unwrap();
+        let mut index3 =
+            SqliteMemoryIndex::with_embedder(&root, Some(index2.embedder.clone().unwrap()));
+        index3.ensure_vectors().unwrap();
+        {
+            let conn = index3.open_vector_db().unwrap();
+            let rows: Vec<String> = conn
+                .prepare("SELECT id FROM memory_vectors ORDER BY id")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap();
+            assert!(!rows.contains(&e1.id), "归档条目向量必须清除: {rows:?}");
+            assert!(rows.contains(&e2.id) && rows.contains(&e3.id), "{rows:?}");
+        }
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

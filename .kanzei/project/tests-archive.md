@@ -2159,3 +2159,21 @@
 - 摘要: D-331 B3 全量:cargo test --workspace 749 passed/0 failed/2 ignored。B1+B2(B 标题状态标记校验+归档 ID 报错+fix_terminal 动作+CLI 分支)全绿;验收④待工具面刷新后执行。
 - 关联: D-331
 - 收尾: 1786600974
+
+## T-1786603782 cargo test -p kanzei-tools memory::(R-233 B1 query 构造升级) [passed]
+- 命令: cargo test -p kanzei-tools memory::
+- 摘要: 85 passed: intent_query 意图词提取(虚词边界切段/≥3字段补bigram/封顶24词)端到端召回断言命中「发版 SOP」条目;prompt_hints_with_budget 接线(空意图提前返回记 miss);既有 store/mod/tools 记忆测试无回归。
+- 关联: R-233
+- 收尾: 1786603782
+
+## T-1786604228 R-233 B2 定向:cargo test -p kanzei-tools memory:: + kanzei-app + kanzei [passed]
+- 命令: cargo test -p kanzei-tools memory::; cargo test -p kanzei-app; cargo test -p kanzei
+- 摘要: kanzei-tools memory 87 passed(新增 ensure_vectors 差集补删、prompt_hints hybrid 通道遥测);kanzei-app 138 passed;kanzei 3 passed。B2 接线编译+测试全绿。
+- 关联: R-233
+- 收尾: 1786604228
+
+## T-1786604322 R-233 B2 fmt 后复测:cargo test -p kanzei-tools memory:: + kanzei-app + kanzei [passed]
+- 命令: cargo test -p kanzei-tools memory::; cargo test -p kanzei-app; cargo test -p kanzei
+- 摘要: fmt 后复测:kanzei-tools memory 87 passed、kanzei-app 138 passed、kanzei 3 passed(B2 接线)。
+- 关联: R-233
+- 收尾: 1786604322
