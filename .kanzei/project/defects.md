@@ -121,13 +121,6 @@
 - 进展: 2026-08-16 取活诊断(9 轮实验,证据链完整)。已排除:①注入通道——环境变量 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 与 KANZEI_E2E_CDP additional_browser_args 两条路都传参成功(msedgewebview2.exe 命令行实证含 --remote-debugging-port/--remote-allow-origins/--remote-debugging-address);②参数格式——同参数字符串起 Edge(含非 headless)1 秒监听;③策略——HKCU/HKLM EdgeWebView/Edge DeveloperToolsAvailability 全空;④AppContainer/容器——whoami 无 AppContainerSid,Session 1 正常;⑤日志——--enable-logging=stderr --v=1 无 devtools 相关输出;⑥版本——WEBVIEW2_FIXED_VERSION 指定 151.0.4129.59 未生效(Tauri 仍用 78),151.0.4129.78 签名有效、安装完整;⑦进程树——renderer/gpu/network 完整,webview 已创建但 browser 进程不绑定端口、无 DevToolsActivePort 文件。结论:WebView2 Runtime 151 在当前机器不启动 DevTools HTTP 服务,与参数注入/代码路径/系统策略均无关。排除后剩余变量是 WebView2 Runtime 本身或其与系统环境的交互(需重装/更新 runtime 或换环境验证,或改用 WebDriver/tauri-driver 路线)。阻塞:解除人=用户。
 - 阻塞: WebView2 Runtime 151 在当前机器 DevTools 端口不绑定(9 轮实验证据链,见进展)。解除动作:①用户重装/更新 Microsoft Edge WebView2 Runtime 后重跑 e2e-smoke;或②用户提供 WebView2 DevTools 正常的环境验证;或③用户拍板改 WebDriver/tauri-driver 路线(不在本条范围内)。解除人:用户。
 
-## D-321 全局记忆删除无恢复源与注销通道:U-001~004 永久丢失,MISSING 文案误导指向不存在的 git [open] (medium)
-- 复现: 手动删除 ~/.kanzei/memory 下 U-001~004 文件后,memory_hits 表悬空 id 报 MISSING 且提示 restore from git,但该目录不在任何版本控制下;FTS/recalls/回收站均无正文,确认永久丢失
-- 影响: 全局记忆裸删即永久丢失;警告文案给出不可执行的恢复指引;悬空 id 无注销通道只能手术 index.db
-- 来源: 2026-08-13 会话复盘(已临时 git init ~/.kanzei/memory 兜底,见 M-059)
-- 标签: 后端
-- 优先级: P2
-
 ## D-322 记忆更新/整合环节跨主题覆写存量未清:M-016/U-005 缝合、M-044 英文化,D-282 校验只防增量 [open] (medium)
 - 复现: M-016 原 docs 整理正文被删光换成三主题缝合;U-005 title 讲 R-163 而 description 讲 edit 指纹且与 M-032 重复;archive M-044 被英文化改写(文件名含 s0p 错字);INDEX candidate 计数改了条目行没加
 - 影响: 记忆可信度受损,检索命中错误主题;D-282 主题一致性校验上线前的存量脏数据无人回收
@@ -149,3 +142,13 @@
 - 来源: 2026-08-16 本轮自举:R-233/R-234 add 时 priority 参数与 fields 里优先级键双写,get 显示两条「优先级: P1」,raw_lines 另有游离空行(已清)。
 - 标签: 后端
 - 优先级: P2
+
+## D-331 归档终态无法安全修正且非法状态会污染缺陷标题，reopen 对归档 ID 误报 unknown id [open] (high)
+- refs: D-267 D-241 D-284 D-329
+- 复现: D-267 在 defects.md 中带缺陷状态机不支持的 [dropped]；close/archive 后工具未拒绝该标记，而是在标题继续追加 [fixed]，归档结果成为 [dropped] [fixed]。随后 defect reopen D-267：缺 reason 时先报参数错误，补 reason 后只查活动文档并报 unknown id，无法通过专用工具改为 wontfix。
+- 影响: 同一缺陷可同时呈现互相矛盾的终态，调度、统计和人工审计失真；agent 收到 unknown id 后无法区分真正不存在与已经归档，容易绕过专用工具手改托管文档，破坏原子写入、格式保护和审计链。
+- 期望: 缺陷写入口拒绝 dropped/done 等跨文档状态标记；活动操作遇到归档 ID 时返回“已归档”及允许动作；提供仅限终态到终态、强制 reason、不重新入队的归档纠错动作，并用它把 D-267 收敛为单一 [wontfix]。
+- 标签: 核心
+- 根因: DocStore 对标题中形似状态但不属于当前 DocKind 的标记缺少写入校验；close 渲染时把解析不到的 [dropped] 保留为标题正文并追加合法终态。TrackerTool get 可回落读取归档，但 update/reopen 只查活动 entries；reopen 的语义仅为 fixing→open，当前没有归档终态纠错动作。
+- 验收: ①缺陷 add/update/close 对标题或状态位置中的跨 DocKind 状态标记给出明确错误，测试覆盖 dropped 不得混入标题；②reopen/update 命中归档 ID 时不再报 unknown id，而是明确 archived 且 reopen 不适用；③新增受限归档终态纠错动作，只允许 fixed↔wontfix、必须 reason、保持条目在归档、原子写入并追加审计进展；④D-267 修复为单一 [wontfix]，原有关闭理由与自由文本逐字保留；⑤回归覆盖真实不存在 ID、活动 fixing→open、归档内容保真、并发锁与完整性门禁。
+- 优先级: P0

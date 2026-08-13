@@ -2117,3 +2117,9 @@
 - 摘要: 743 passed, 0 failed, 2 ignored(全 workspace 含 doc-tests)。R-213 B3 关闭前全量:引擎代填(45fd276)+ B1 门禁(23338eb)全绿。
 - 关联: R-213
 - 收尾: 1786597693
+
+## T-1786598760 D-321 定向:memory void 台账+文案诚实 [passed]
+- 命令: cargo test -p kanzei-tools memory && cargo test -p kanzei-tools void && cargo test -p kanzei-tools missing_message
+- 摘要: D-321 修复:memory 87 passed(含新增 void_id_acknowledges_gap_and_message_is_honest / void_id_validates_and_is_idempotent / voided_id_resurrected_is_flagged / missing_message_honors_git_presence);fmt/clippy 干净。
+- 关联: D-321
+- 收尾: 1786598760

@@ -3694,3 +3694,16 @@
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786598388023
+
+## D-321 全局记忆删除无恢复源与注销通道:U-001~004 永久丢失,MISSING 文案误导指向不存在的 git [fixed] (medium)
+- 复现: 手动删除 ~/.kanzei/memory 下 U-001~004 文件后,memory_hits 表悬空 id 报 MISSING 且提示 restore from git,但该目录不在任何版本控制下;FTS/recalls/回收站均无正文,确认永久丢失
+- 影响: 全局记忆裸删即永久丢失;警告文案给出不可执行的恢复指引;悬空 id 无注销通道只能手术 index.db
+- 来源: 2026-08-13 会话复盘(已临时 git init ~/.kanzei/memory 兜底,见 M-059)
+- 标签: 后端
+- 优先级: P2
+- 复杂度: 小
+- 进展: 修复(2026-08-16,commit 1b09a24):①voided_ids()/void_id() 台账(crates/kanzei-tools/src/memory/store.rs,行格式 `- M-xxx: 理由`,与 docstore.rs:598 同型;校验理由≥4/前缀合法/条目不在活动与归档,重复注销幂等);②integrity_issues 把 voided 编号计入已交代缺号(不再报 MISSING),注销后又出现条目(手工改号/恢复)点名复活;③文案诚实:under_git()(根+祖先至多 8 层探测 .git)为真才提示 restore from git,否则给『检查回收站/备份 + voided-ids.md 注销』可执行处置。消费端=记忆页 integrity 报告(kanzei-app/src/memory.rs:40 直接透传 Vec<String>,无前端改动)。4 个新单测(注销后不再报 / 校验与幂等 / 复活检测 / git 文案两分支),cargo test -p kanzei-tools memory 87 passed,fmt+clippy 干净。
+- 验收: ①MISSING 文案不再无条件指引 git 恢复:目录在 git 版本控制下才提示 restore from git,无 git 时给可执行处置(检查回收站/备份+voided-ids.md 注销)——单测 missing_message_honors_git_presence / void_id_acknowledges_gap_and_message_is_honest;②存在注销通道:缺号登记 voided-ids.md 后 integrity 不再报 MISSING——单测 void_id_acknowledges_gap_and_message_is_honest;③注销有前置校验(理由≥4、编号前缀合法、条目不存在于活动/归档)且幂等——单测 void_id_validates_and_is_idempotent;④注销后又出现条目(复活)必须可见——单测 voided_id_resurrected_is_flagged。
+- observed_head: 1b09a249d57dac40ac07a3d94fcd7ef641596888
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786598787874
