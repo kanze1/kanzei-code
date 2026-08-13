@@ -175,6 +175,18 @@ impl Tool for MemoryAddTool {
                 e.title,
                 e.id
             )),
+            // R-216:语义探测不确定 → 拒并返回候选,要求先 update 既有条目。
+            Ok(AddOutcome::Uncertain(candidates)) => {
+                let cand = candidates
+                    .iter()
+                    .map(|e| format!("{} `{}`", e.id, e.title))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                ToolOutput::error(format!(
+                    "语义探测命中既有记忆(候选: {cand})——新条目疑似改写/复述既有条目。\
+                     先用 memory_update 演化对应条目,而不是新增重复;确属新知识可 force=true 跳过语义闸。"
+                ))
+            }
             Err(e) => ToolOutput::error(e.to_string()),
         }
     }
@@ -817,6 +829,11 @@ mod tests {
             ..Default::default()
         };
         let store = MemoryStore::project(&dir);
+        // R-216:指纹必须来自来源 note(inbox)才放行——fixture 先注入来源 note,
+        // 再 memory_add 携带同指纹(测 merge 守恒闸,而非指纹闸本身)。
+        store
+            .append_note("合并守恒测试来源", "[fp:abc]", "fact", &[])
+            .unwrap();
         // 建两条可合并的记忆(同 fingerprint 才能过保守闸;守恒闸在保守闸之前)。
         for (title, desc, body) in [
             ("合并守恒测试主", "钩子主", "内容 [fp:abc]"),
@@ -882,6 +899,17 @@ mod tests {
             project_root: dir.clone(),
             ..Default::default()
         };
+        // R-216:指纹必须来自来源 note(inbox)才放行——fixture 先注入来源 note,
+        // 再 memory_add 携带同指纹(验证 update 不许弄丢指纹的路径,而非指纹闸)。
+        let store = MemoryStore::project(&dir);
+        store
+            .append_note(
+                "edit 未命中先 read",
+                "判据 [fp:edit|not found]",
+                "fact",
+                &[],
+            )
+            .unwrap();
         let added = MemoryAddTool
             .execute(
                 json!({"scope": "project", "category": "fact", "title": "edit 未命中先 read",

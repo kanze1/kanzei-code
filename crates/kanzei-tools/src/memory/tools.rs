@@ -184,7 +184,8 @@ impl Tool for MemoryNoteTool {
         let store = MemoryStore::project(&ctx.project_root);
         // R-165 批2 novelty gate(验收④):投递前机械三档分流——
         // 明显重复直接 NOOP(不占 LLM run 与 inbox),记遥测;新/不确定才进 inbox。
-        let novelty =
+        // R-216:返回 (判定, 候选),Uncertain 也直接进 inbox 交 manager(候选仅 add 硬闸用)。
+        let (novelty, _candidates) =
             store.classify_novelty(&input.summary, input.detail.as_deref().unwrap_or(""), "");
         if novelty == super::Novelty::Duplicate {
             store.record_novelty(&novelty, "", &input.summary);

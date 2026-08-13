@@ -690,12 +690,13 @@ mod tests {
         body: &str,
     ) -> MemoryEntry {
         match store
-            .add(category, title, desc, body, "user", &[], None, false)
+            .add(category, title, desc, body, "user", &[], None, true)
             .unwrap()
         {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
+            AddOutcome::Uncertain(cands) => panic!("unexpected uncertain: {:?}", cands),
         }
     }
 

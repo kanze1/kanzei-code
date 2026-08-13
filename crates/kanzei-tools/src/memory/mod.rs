@@ -1993,7 +1993,9 @@ mod tests {
                 "memory-manager",
                 &[],
                 None,
-                false,
+                // force:fixture 模拟 manager 已消费 note 后的建条目(inbox 已清,
+                // 指纹来源随清空消失);此处测复发改投流程,不是 R-216 指纹闸。
+                true,
             )
             .unwrap()
         {
@@ -2221,7 +2223,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                false,
+                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -2316,7 +2318,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                false,
+                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -2431,7 +2433,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                false,
+                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -2484,7 +2486,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                false,
+                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索(Packet 注入只看 active)。

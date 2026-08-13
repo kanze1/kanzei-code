@@ -49,6 +49,7 @@ fn now_ms() -> i64 {
 }
 
 /// add 的去重门禁结果。
+#[derive(Debug)]
 pub enum AddOutcome {
     Added(MemoryEntry),
     /// 精确标题重复:拒绝写入并返回既有条目(要求转 update 或 force)。
@@ -56,6 +57,9 @@ pub enum AddOutcome {
     /// 状态不变量(R-149):同 scope+category+subject 至多一条 active。
     /// 冲突返回既有条目,force 不可绕——状态就地覆盖(memory_update),绝不并存。
     SubjectConflict(MemoryEntry),
+    /// R-216:语义探测不确定(有 FTS 命中但非精确)——拒绝写入并返回候选条目,
+    /// 要求先用 memory_update 更新既有条目或明确 force。近似去重的硬闸。
+    Uncertain(Vec<MemoryEntry>),
 }
 
 /// R-165 批2 novelty gate 三档分流结果。
@@ -93,6 +97,15 @@ pub fn decision_weight(recalled: u64, fetched: u64) -> f64 {
 pub struct MemoryStore {
     pub scope: MemoryScope,
     pub root: PathBuf,
+}
+
+impl Clone for MemoryStore {
+    fn clone(&self) -> Self {
+        MemoryStore {
+            scope: self.scope,
+            root: self.root.clone(),
+        }
+    }
 }
 
 impl MemoryStore {
@@ -236,10 +249,11 @@ impl MemoryStore {
                  put the actual finding (what happened, what to do instead) in the body"
             );
         }
+        // 状态不变量先于标题去重与 R-216 语义闸,且不受 force 影响:状态就地覆盖,
+        // 绝不并存。同 scope+category+subject 至多一条 active——同 subject 的 add
+        // 必须先报 SubjectConflict,不能先被语义闸拦成 Uncertain(测试锚点)。
         let subject = subject.map(str::trim).filter(|s| !s.is_empty());
         let entries = self.load_all();
-        // 状态不变量先于标题去重,且不受 force 影响:状态就地覆盖,绝不并存。
-        // 仅 active 持有 subject——candidate 未验证不占状态槽(R-165)。
         if let Some(subject) = subject {
             if let Some((_, existing)) = entries.iter().find(|(_, e)| {
                 e.status == "active"
@@ -247,6 +261,63 @@ impl MemoryStore {
                     && e.extras.iter().any(|(k, v)| k == "subject" && v == subject)
             }) {
                 return Ok(AddOutcome::SubjectConflict(existing.clone()));
+            }
+        }
+        // R-216 三闸:记忆写入侧质量闸门,全部为硬拒。force=true = 显式跳过
+        // (用户/调用方声明「这是新知识,不查重不查指纹」),与既有 duplicate
+        // 去重的 force 语义一致。
+        // ① 交付状态拒收:标题/subject 命中「R-/D- 编号 + 已交付/勿重复/验收边界」
+        //    形态时,这是 tracker 的状态,不是记忆——拒绝并指路 tracker。
+        let title_lc = title.to_lowercase();
+        let subject_lc = subject.map(str::to_lowercase).unwrap_or_default();
+        let is_delivery_state = ["已交付", "勿重复", "验收边界", "delivered", "do not repeat"]
+            .iter()
+            .any(|kw| {
+                title_lc.contains(&kw.to_lowercase()) || subject_lc.contains(&kw.to_lowercase())
+            });
+        if !force && is_delivery_state && has_tracker_id(title) {
+            anyhow::bail!(
+                "标题/subject 命中交付状态形态(R-/D- 编号 + 已交付/勿重复/验收边界)——\
+                 这是 tracker 条目的状态,不是记忆。\
+                 记忆记「怎么做」的约束,不记「哪个条目交付了」;交付状态请写在 requirements/defects 里,refs 引用即可。"
+            );
+        }
+        // ② 指纹一致性:新条目携带 [fp:] 必须与来源 note 中引擎生成的指纹逐字一致。
+        //    拒绝自造指纹(实证:M-055/M-056 编造 [fp:...] 冒充引擎生成)。
+        let fp_markers = super::fp_markers(body);
+        if !force && !fp_markers.is_empty() {
+            let inbox = self.read_inbox();
+            let existing_fps = {
+                let mut fps = Vec::new();
+                for (_, e) in self.load_all() {
+                    fps.extend(super::fp_markers(&e.body));
+                }
+                if let Some(global) = MemoryStore::global() {
+                    for (_, e) in global.load_all() {
+                        fps.extend(super::fp_markers(&e.body));
+                    }
+                }
+                fps
+            };
+            for fp in &fp_markers {
+                let legit = inbox.contains(fp.as_str()) || existing_fps.contains(fp);
+                if !legit {
+                    anyhow::bail!(
+                        "body 携带指纹 {fp} 但该指纹不存在于 inbox 来源 note 或任何既有条目——\
+                         指纹是引擎从失败信号生成的,禁止自造(实证 M-055/M-056)。\
+                         去掉自造指纹,或先用 memory_note 记录真实来源。"
+                    );
+                }
+            }
+        }
+        // ③ 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选。
+        if !force {
+            let (novelty, candidates) = self.classify_novelty(title, description, body);
+            if novelty == Novelty::Uncertain {
+                let cand: Vec<MemoryEntry> = candidates.into_iter().collect();
+                if !cand.is_empty() {
+                    return Ok(AddOutcome::Uncertain(cand));
+                }
             }
         }
         if !force {
@@ -891,20 +962,57 @@ impl MemoryStore {
     /// 不确定 → 才起 LLM 判断(验收④)。
     /// 机械判据:标题规范化精确命中既有 active 记忆 = 明显重复;
     /// FTS 无任何命中 = 明显新;有命中但非精确 = 不确定。
-    pub fn classify_novelty(&self, title: &str, description: &str, body: &str) -> Novelty {
+    /// R-165 批2 novelty gate:R-216 下沉为 add 硬闸,并扩到双 scope 探测
+    /// (project + global 都查 active)。返回 (判定, 候选)。语义探测 = description+body
+    /// 的 FTS 命中:有命中即 Uncertain(候选返回),无命中 New;精确标题重复 Duplicate。
+    pub fn classify_novelty(
+        &self,
+        title: &str,
+        description: &str,
+        body: &str,
+    ) -> (Novelty, Vec<MemoryEntry>) {
         let normalized = normalize_title(title);
         let entries = self.load_all();
         let dup = entries
             .iter()
             .any(|(_, e)| e.status == "active" && normalize_title(&e.title) == normalized);
         if dup {
-            return Novelty::Duplicate;
+            return (Novelty::Duplicate, Vec::new());
         }
         // 用描述+正文做 FTS 探测:有明显语义命中即不确定,否则新。
         let probe = format!("{} {}", description, body);
-        match self.search(&probe, None, Some("active"), 3) {
-            Ok(hits) if !hits.is_empty() => Novelty::Uncertain,
-            _ => Novelty::New,
+        let mut candidates = Vec::new();
+        // 双 scope:project 的 add 要同时看 global 的 active,避免英文改写 M-044 类
+        // 穿透(project 里没有原条目,global 里有)。global 的 add 只看自身。
+        let mut scopes: Vec<MemoryStore> = Vec::new();
+        scopes.push(self.clone());
+        if self.scope == MemoryScope::Project {
+            if let Some(global) = MemoryStore::global() {
+                scopes.push(global);
+            }
+        }
+        for scope in &scopes {
+            if let Ok(hits) = scope.search(&probe, None, Some("active"), 3) {
+                for hit in hits {
+                    // R-216:只有「与新增标题语义高度重合」的候选才算 Uncertain——
+                    // FTS 命中但标题包含度低于去重阈值(0.55)的是相关但不同的新知识,
+                    // 不能拦(否则合法新增被误伤)。英文改写 M-044 类:改写标题与原标题
+                    // 切词后包含度高,仍会被拦(验收①)。
+                    let containment = title_containment(title, &hit.entry.title);
+                    if containment >= TITLE_DUP_THRESHOLD
+                        && !candidates
+                            .iter()
+                            .any(|c: &MemoryEntry| c.id == hit.entry.id)
+                    {
+                        candidates.push(hit.entry);
+                    }
+                }
+            }
+        }
+        if !candidates.is_empty() {
+            (Novelty::Uncertain, candidates)
+        } else {
+            (Novelty::New, Vec::new())
         }
     }
 
@@ -1247,6 +1355,10 @@ impl MemoryStore {
             AddOutcome::Added(entry)
             | AddOutcome::Duplicate(entry)
             | AddOutcome::SubjectConflict(entry) => Ok(entry),
+            // force=true 已跳过语义闸,Uncertain 不应出现;保守处理为取候选首条。
+            AddOutcome::Uncertain(mut candidates) => Ok(candidates
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("force add failed: no entry"))?),
         }
     }
 
@@ -1558,6 +1670,26 @@ impl MemoryStore {
     }
 }
 
+/// R-216:标题是否含 tracker 条目编号(R-xxx / D-xxx)。
+fn has_tracker_id(title: &str) -> bool {
+    let upper = title.to_uppercase();
+    for prefix in ["R-", "D-"] {
+        if let Some(rest) = upper.strip_prefix(prefix) {
+            if rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return true;
+            }
+        }
+        // 也可能编号在中间:「关于 R-012 的交付状态」。
+        for (idx, _) in upper.match_indices(prefix) {
+            let after = &upper[idx + 2..];
+            if after.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn normalize_title(title: &str) -> String {
     title
         .chars()
@@ -1856,13 +1988,16 @@ mod tests {
         desc: &str,
         body: &str,
     ) -> MemoryEntry {
+        // force=true:测试 fixture 刻意构造批量条目,语义闸(R-216)会误拦「改写复述」,
+        // 而 fixture 的目的正是造数据验证其它路径;真实 memory_add 不走这里。
         match store
-            .add(category, title, desc, body, "user", &[], None, false)
+            .add(category, title, desc, body, "user", &[], None, true)
             .unwrap()
         {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate of {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
+            AddOutcome::Uncertain(cands) => panic!("unexpected uncertain: {:?}", cands),
         }
     }
 
@@ -2181,22 +2316,46 @@ mod tests {
             )
             .unwrap();
         // 明显重复:规范化标题精确命中 active 记忆。
-        let dup = store.classify_novelty("GH 网络代理", "push 前必读", "");
+        let (dup, _) = store.classify_novelty("GH 网络代理", "push 前必读", "");
         assert_eq!(dup, Novelty::Duplicate, "规范化标题应命中 active 记忆");
         // 明显新:无重叠词。
-        let fresh = store.classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "");
+        let (fresh, _) = store.classify_novelty("diff 树渲染优化", "R-133 diff 渲染", "");
         assert_eq!(fresh, Novelty::New, "无关主题应判明显新");
-        // 不确定:有语义命中但标题不同(代理相关)。
-        let uncertain = store.classify_novelty("网络代理配置", "HTTPS_PROXY 与代理地址", "");
+        // 不确定:有语义命中且标题高度重合——先建一条长标题条目,再 classify 一个
+        // 共享 ≥8 token 的改写标题(R-216 口径:共享 token ≥8 且比例 ≥0.55)。
+        let base = "secure configuring github network proxy connection and verification";
+        store
+            .add(
+                "fact",
+                base,
+                "HTTPS_PROXY 与代理地址",
+                "HTTPS_PROXY=http://127.0.0.1:12000",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        // 英文改写(调序+换词,共享全部 8+ token):R-216 验收①「英文改写 M-044 被拦」。
+        let (uncertain, candidates) = store.classify_novelty(
+            "verification and secure connection of github network proxy configuring",
+            "HTTPS_PROXY 与代理地址",
+            "",
+        );
         assert_eq!(
             uncertain,
             Novelty::Uncertain,
-            "语义相关但非精确应留 LLM 判断"
+            "高度重合英文改写应判不确定(留 add 硬闸拦截,验收①)"
+        );
+        assert!(!candidates.is_empty(), "Uncertain 应返回候选条目");
+        assert!(
+            candidates.iter().any(|c| c.title == base),
+            "候选应含被改写的基础条目"
         );
         // 计数遥测落库。
         store.record_novelty(&dup, "", "GH 网络代理");
         store.record_novelty(&fresh, "", "diff 树渲染优化");
-        store.record_novelty(&uncertain, "", "网络代理配置");
+        store.record_novelty(&uncertain, "", base);
         let conn = store.open_db().unwrap();
         let total: i64 = conn
             .query_row("SELECT COUNT(*) FROM novelty_events", [], |r| r.get(0))
@@ -2818,6 +2977,11 @@ mod tests {
     #[test]
     fn merge_conservative_gate_requires_shared_fingerprint_or_confirmed() {
         let (dir, store) = temp_store();
+        // R-216:指纹必须来自来源 note 才放行——先注入来源,再测 merge 保守闸
+        // (保守闸本身验证共享指纹放行,不是指纹闸)。
+        store
+            .append_note("edit 未命中来源", "[fp:edit|not found]", "fact", &[])
+            .unwrap();
         let a = add(&store, "fact", "主题甲", "钩子甲", "正文甲");
         let b = add(&store, "fact", "主题乙", "钩子乙", "正文乙");
         // 无 confirmed、无共享指纹 → 拒绝。
@@ -3012,6 +3176,7 @@ mod tests {
             AddOutcome::Added(e) => e,
             AddOutcome::Duplicate(e) => panic!("unexpected duplicate {}", e.id),
             AddOutcome::SubjectConflict(e) => panic!("unexpected subject conflict with {}", e.id),
+            AddOutcome::Uncertain(cands) => panic!("unexpected uncertain: {:?}", cands),
         };
         assert_eq!(entry.refs(), vec!["R-070".to_string(), "D-200".to_string()]);
         // 落盘文件里真能看到 refs 键,重读后仍还原。
@@ -3295,7 +3460,9 @@ mod tests {
                 "memory-manager",
                 &[],
                 None,
-                false,
+                // force:fixture 自造指纹验证 find_by_marker 归一,非真实写入口径
+                // (R-216 指纹闸要求指纹先有来源 note;此处测的是 find 而非闸门)。
+                true,
             )
             .unwrap()
         {
@@ -3311,6 +3478,125 @@ mod tests {
                 .map(|e| e.id),
             Some(entry.id.clone()),
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-216 验收②④:伪造指纹的 add 被拒——指纹必须来自 inbox 来源 note 或既有条目。
+    #[test]
+    fn 自造指纹的add被拒_来源note指纹放行() {
+        let (dir, store) = temp_store();
+        // 自造指纹(无来源)→ 拒绝。
+        let err = store
+            .add(
+                "fact",
+                "伪造指纹条目",
+                "钩子",
+                "正文 [fp:madeup|something]",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("禁止自造"), "{err}");
+        // 来源 note 注入同指纹 → 放行。
+        store
+            .append_note("来源 note", "[fp:madeup|something]", "fact", &[])
+            .unwrap();
+        let ok = store
+            .add(
+                "fact",
+                "合法指纹条目",
+                "钩子",
+                "正文 [fp:madeup|something]",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(matches!(ok, AddOutcome::Added(_)), "来源指纹应放行");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-216 验收③④:标题命中交付状态形态(R-/D- 编号 + 已交付/勿重复/验收边界)→ 拒,
+    /// 指路 tracker。交付状态是 tracker 的事,记忆记「怎么做」不记「哪个交付了」。
+    #[test]
+    fn 交付状态内容被拒并指路tracker() {
+        let (dir, store) = temp_store();
+        for bad_title in [
+            "R-012 已交付,勿重复",
+            "关于 D-044 的验收边界已达成",
+            "R-055 delivered, do not repeat",
+        ] {
+            let err = store
+                .add("fact", bad_title, "钩子", "正文", "user", &[], None, false)
+                .unwrap_err();
+            assert!(
+                err.to_string().contains("tracker") && err.to_string().contains("交付"),
+                "应指路 tracker: {err}"
+            );
+        }
+        // 正常知识标题(含 R-/D- 引用但不含交付状态词)不受影响。
+        let ok = store
+            .add(
+                "fact",
+                "R-012 实现里 bash 前缀匹配的判定",
+                "钩子",
+                "正文",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        assert!(
+            matches!(ok, AddOutcome::Added(_)),
+            "含 R- 引用但非交付状态应放行"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-216 验收①④:英文改写 M-044 场景被 add 硬闸拦截并返回候选,指路 memory_update。
+    #[test]
+    fn 英文改写被add硬闸拦截返回候选() {
+        let (dir, store) = temp_store();
+        let base = "secure configuring github network proxy connection and verification";
+        store
+            .add(
+                "fact",
+                base,
+                "HTTPS_PROXY 与代理地址",
+                "HTTPS_PROXY=http://127.0.0.1:12000",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        // 英文改写(共享 ≥8 token):Uncertain → add 硬闸拒并返回候选。
+        let out = store
+            .add(
+                "fact",
+                "verification and secure connection of github network proxy configuring",
+                "HTTPS_PROXY 与代理地址",
+                "HTTPS_PROXY=http://127.0.0.1:12000",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        match out {
+            AddOutcome::Uncertain(candidates) => {
+                assert!(
+                    candidates.iter().any(|c| c.title == base),
+                    "候选应含被改写的基础条目: {:?}",
+                    candidates
+                );
+            }
+            other => panic!("英文改写应被 Uncertain 硬闸拦截: {other:?}"),
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -3372,6 +3658,10 @@ mod tests {
     fn merge_自动搬运被并条目的指纹与refs() {
         // D-215:合并不许静默丢掉复发检测键与来源链——这不能赌 manager 记得带。
         let (dir, store) = temp_store();
+        // R-216:指纹来源——先注入 inbox 来源 note,再 add 携带同指纹(测 merge 兜底)。
+        store
+            .append_note("edit 未命中来源", "[fp:edit|not found]", "fact", &[])
+            .unwrap();
         let a = add(&store, "fact", "edit 未命中主因", "edit 失败必读", "判据 A");
         let b = match store
             .add(
