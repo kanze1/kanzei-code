@@ -2409,3 +2409,10 @@
 - 摘要: R-180 B1 persistent 档位:314 passed / 0 failed。BackgroundProcess 加 persistent 字段(默认 false=跟随 owner run),register 加参数,bash 工具 persistent 输入透传,finish_foreign_owners 跳过 persistent;测试 persistent_长驻服务跨owner存活_默认档位照常收尾(两档对比:run-B 收尾只收默认、persistent 存活)。clippy 干净。
 - 关联: R-180
 - 收尾: 1786620654
+
+## T-1786621170 cargo test -p kanzei-tools (R-180 B2) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.3s
+- 摘要: R-180 B2 日志落盘:315 passed / 0 failed。persistent 服务全量输出(full_output 不丢头)+ 节流 write_atomic 落盘(temp/kanzei-bg-logs/<项目hash>/<id>.log,验收⑤原语);process output action 对 persistent 读 full_log + 显示落盘路径;测试 persistent_日志落盘_超256k不丢头_退出后可回看(300KiB 输出,落盘文件>256KiB 且含开头,full_log 全量)。clippy 干净。
+- 关联: R-180
+- 收尾: 1786621170

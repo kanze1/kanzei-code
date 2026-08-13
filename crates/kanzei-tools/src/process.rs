@@ -104,18 +104,29 @@ impl Tool for ProcessTool {
                     Some(Some(code)) => format!("exited({code})"),
                     Some(None) => "terminated".to_string(),
                 };
-                let body = p.output();
+                // R-180 B2:persistent 服务读**全量**日志(内存不丢头);非 persistent
+                // 维持原状(内存尾部)。log_path 是落盘位置,供跨 run 回看。
+                let body = if p.persistent {
+                    p.full_log()
+                } else {
+                    p.output()
+                };
                 let body = if body.trim().is_empty() {
                     "(no output yet)".to_string()
                 } else {
                     body
                 };
-                let head = if p.truncated() {
+                let log_hint = p
+                    .log_path
+                    .as_ref()
+                    .map(|path| format!("\n[persistent log on disk: {}]", path.display()))
+                    .unwrap_or_default();
+                let head = if p.truncated() && !p.persistent {
                     format!("state: {state}\n[earlier output dropped — showing tail]\n")
                 } else {
                     format!("state: {state}\n")
                 };
-                let rendered = format!("{head}{body}{}", breach_report(&p));
+                let rendered = format!("{head}{body}{log_hint}{}", breach_report(&p));
                 ToolOutput::ok(rendered.clone()).with_display(serde_json::json!({
                     "kind": "terminal",
                     "command": p.command,

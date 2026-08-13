@@ -59,6 +59,12 @@ pub struct BackgroundProcess {
     /// (D-174 安全降级);true = 生命周期显式脱离 owner run:finish_foreign_owners
     /// 跳过它,跨 run 存活(注册表/日志落盘见 B2/B3)。
     pub persistent: bool,
+    /// R-180 B2:落盘日志路径(仅 persistent 服务有)。输出全量写这里(atomic_file
+    /// 原语,验收⑤),重启后按路径回看(验收③)——不碰托管树/不进 git。
+    pub log_path: Option<PathBuf>,
+    /// R-180 B2:persistent 服务的**全量**输出(不丢头)。非 persistent 仍走
+    /// output(内存 256K 丢头留尾)。收集线程同时维护 full_output 与 output。
+    full_output: Arc<Mutex<Vec<u8>>>,
     pub started_at_ms: u128,
     pid: Option<u32>,
     output: Arc<Mutex<Vec<u8>>>,
@@ -100,6 +106,13 @@ impl BackgroundProcess {
     /// 当前已捕获的输出(stdout 与 stderr 合并,按到达顺序)。
     pub fn output(&self) -> String {
         let buf = self.output.lock().unwrap();
+        String::from_utf8_lossy(&buf).into_owned()
+    }
+
+    /// R-180 B2:persistent 服务的**全量**输出(不丢头)。非 persistent 服务
+    /// full_output 为空,用 [`Self::output`](内存尾部)即可。
+    pub fn full_log(&self) -> String {
+        let buf = self.full_output.lock().unwrap();
         String::from_utf8_lossy(&buf).into_owned()
     }
 
@@ -153,6 +166,18 @@ pub fn register(
     let truncated = Arc::new(AtomicBool::new(false));
     let exit: Arc<Mutex<Option<Option<i32>>>> = Arc::new(Mutex::new(None));
     let pid = child.id();
+    // R-180 B2:persistent 服务的落盘路径——系统 temp 下按项目根区分,不碰托管树。
+    // 跨 run 可定位:同项目根 → 同目录,重启后按 project_root 找到全部历史日志。
+    let log_path = if persistent {
+        let dir = std::env::temp_dir()
+            .join("kanzei-bg-logs")
+            .join(project_hash(project_root));
+        std::fs::create_dir_all(&dir).ok();
+        Some(dir.join(format!("{id}.log")))
+    } else {
+        None
+    };
+    let full_output = Arc::new(Mutex::new(Vec::new()));
 
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
@@ -163,21 +188,45 @@ pub fn register(
     {
         let output = output.clone();
         let truncated = truncated.clone();
+        let full_output = full_output.clone();
+        let log_path = log_path.clone();
         tokio::spawn(async move {
             let mut chunk = [0u8; 8192];
-            match stream {
-                Ok(mut out) => loop {
-                    match out.read(&mut chunk).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => append_bounded(&output, &truncated, &chunk[..n]),
+            let mut since_flush = std::time::Instant::now();
+            let mut stream = stream;
+            loop {
+                let read = match &mut stream {
+                    Ok(out) => out.read(&mut chunk).await,
+                    Err(err) => err.read(&mut chunk).await,
+                };
+                match read {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        append_bounded(&output, &truncated, &chunk[..n]);
+                        // persistent:全量保留 + 节流落盘(≥5s 或 ≥64KiB 写一次,
+                        // atomic_file 原语;高频小日志不每 chunk 全量重写)。
+                        if let Some(path) = &log_path {
+                            let mut full = full_output.lock().unwrap();
+                            full.extend_from_slice(&chunk[..n]);
+                            let big = full.len() >= 64 * 1024
+                                && since_flush.elapsed() >= std::time::Duration::from_secs(2);
+                            let slow = since_flush.elapsed() >= std::time::Duration::from_secs(5);
+                            if big || slow {
+                                let text = String::from_utf8_lossy(&full).into_owned();
+                                drop(full);
+                                let _ = crate::atomic_file::write_atomic(path, &text);
+                                since_flush = std::time::Instant::now();
+                            }
+                        }
                     }
-                },
-                Err(mut err) => loop {
-                    match err.read(&mut chunk).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => append_bounded(&output, &truncated, &chunk[..n]),
-                    }
-                },
+                }
+            }
+            // 退出前最终落盘一次(补上节流窗口内没写的内容)。
+            if let Some(path) = &log_path {
+                let full = full_output.lock().unwrap();
+                let text = String::from_utf8_lossy(&full).into_owned();
+                drop(full);
+                let _ = crate::atomic_file::write_atomic(path, &text);
             }
         });
     }
@@ -197,6 +246,8 @@ pub fn register(
         workdir: workdir.display().to_string(),
         owner,
         persistent,
+        log_path,
+        full_output,
         started_at_ms: now_ms(),
         pid,
         output,
@@ -411,6 +462,15 @@ pub(crate) fn now_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or_default()
+}
+
+/// R-180 B2:项目根的稳定短标识(落盘日志目录用)。同一项目根永远映射到同一
+/// 目录,跨 run/跨进程可定位历史日志;不同项目根不互相污染。
+fn project_hash(root: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    root.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 pub fn get(id: &str) -> Option<Arc<BackgroundProcess>> {
@@ -1390,6 +1450,71 @@ mod tests {
         )
         .await;
         assert!(gone, "默认档位应在 owner run 收尾时被收掉");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收③:persistent 服务日志落盘——输出超 256 KiB 不丢头,进程退出后
+    /// 落盘文件可回看(含最开头的内容,不是内存丢头留尾)。
+    #[tokio::test]
+    async fn persistent_日志落盘_超256k不丢头_退出后可回看() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("logdisk");
+        // 输出 ~300KiB(pwsh:3000 行 × 100 字符),超过内存 256KiB 上限。
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({
+                    "command": "1..3000 | ForEach-Object { 'x' * 100 }",
+                    "background": true,
+                    "persistent": true,
+                }),
+                &ctx_for(&root, "run-A"),
+            )
+            .await;
+        assert!(!out.is_error, "persistent 后台启动失败: {}", out.content);
+        let id = out
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+
+        // 等进程自然退出(输出完即退)。
+        let exited = wait_until(|| get(&id).map(|p| !p.is_running()).unwrap_or(true), 5000).await;
+        assert!(exited, "输出 300KiB 的命令应自然退出");
+
+        let process = get(&id).expect("进程应还在注册表");
+        let log_path = process
+            .log_path
+            .clone()
+            .expect("persistent 服务应有落盘路径");
+        // 等退出前最终落盘完成(收集线程在进程退出后写最后一块)。
+        let mut content = String::new();
+        for _ in 0..40 {
+            content = std::fs::read_to_string(&log_path).unwrap_or_default();
+            if !content.is_empty() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        assert!(
+            content.len() > 256 * 1024,
+            "落盘日志应超过 256KiB(不丢头,全量): {}",
+            content.len()
+        );
+        // 最开头的内容在:不是丢头留尾。
+        assert!(
+            content.starts_with(&"x".repeat(100)),
+            "落盘日志应含最开头的内容(不丢头): {:?}",
+            &content[..content.len().min(120)]
+        );
+        // full_log() 同样保留全量(内存侧消费者)。
+        let full = process.full_log();
+        assert!(
+            full.len() > 256 * 1024 && full.starts_with(&"x".repeat(100)),
+            "full_log 也应含全量不丢头: len={}",
+            full.len()
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }
