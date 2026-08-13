@@ -333,6 +333,8 @@ on("kz:done", async (e) => {
   refreshConversationList();
   // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
   liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} ${t("完成")}`);
+  // R-223:轮末汇总「本轮 N 次被拦(动作/资源清单)」——被拦 ≥1 次时对话流可见。
+  summaryBlockedAsks();
   refreshDocs();
   refreshGit();
   refreshPendingInputs();
@@ -461,6 +463,39 @@ function askQueueFor(sessionId) {
   return queue;
 }
 
+// R-223:自动轮权限被拦的聚合呈现——每次跳过落可见 notice,轮末汇总。
+// 数组元素 {action|question, resource, at}。kz:ask 的 parallel/autonomous 跳过
+// 分支记录;kz:idle 轮末汇总「本轮 N 次被拦(动作/资源清单)」。
+const blockedAsks = [];
+let blockedAskSummaryShown = false;
+
+function recordBlockedAsk(payload) {
+  const item = {
+    what: payload.action || payload.question || "ASK",
+    resource: payload.resource || "",
+    at: new Date().toISOString(),
+  };
+  blockedAsks.push(item);
+  blockedAskSummaryShown = false;
+  const label = payload.action
+    ? `${payload.action}${payload.resource ? ` · ${payload.resource}` : ""}`
+    : payload.question;
+  addMessage("notice", `⚠️ ${t("权限被拦已跳过")}: ${label}`);
+  return item;
+}
+
+function summaryBlockedAsks() {
+  if (!blockedAsks.length || blockedAskSummaryShown) return;
+  blockedAskSummaryShown = true;
+  const items = blockedAsks
+    .map((item) => (item.resource ? `${item.what} · ${item.resource}` : item.what))
+    .join("; ");
+  addMessage(
+    "notice",
+    `⚠️ ${t("本轮权限被拦")} ${blockedAsks.length} ${t("次")}${items ? ` — ${items}` : ""}`,
+  );
+}
+
 on("kz:ask", (e) => {
   const sessionId = askSessionId(e.payload);
   e.payload.sessionId = sessionId;
@@ -468,6 +503,7 @@ on("kz:ask", (e) => {
   // 或第三方事件把并行/自举线的询问冒泡到当前用户弹窗。
   if (e.payload.source === "parallel" || e.payload.source === "autonomous") {
     log(`${t("后台询问已跳过")}: ${e.payload.action || e.payload.question || "ASK"}`);
+    recordBlockedAsk(e.payload);
     return;
   }
   // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
@@ -482,11 +518,19 @@ on("kz:ask", (e) => {
   if (sessionId === activeSessionId) pumpAsk();
 });
 
+// R-223:「自动放行」常驻警示徽标——开启时状态栏可见,重启后仍显示
+// (localStorage 持久化,语义是"会记住"而非"仅本次")。
+function syncAutoAllowBadge() {
+  const on = $("auto-allow").checked;
+  $("status-auto-allow").classList.toggle("hidden", !on);
+}
 $("auto-allow").checked = localStorage.getItem("kz-auto-allow") === "1";
 $("auto-allow").addEventListener("change", () => {
   localStorage.setItem("kz-auto-allow", $("auto-allow").checked ? "1" : "0");
-  log($("auto-allow").checked ? t("已开启自动放行(本会话所有权限询问直接通过)") : t("已关闭自动放行"));
+  syncAutoAllowBadge();
+  log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住,跨重启仍生效)") : t("已关闭自动放行"));
 });
+syncAutoAllowBadge();
 
 function updateAskQueueStatus() {
   const queue = activeSessionId ? askQueueFor(activeSessionId) : [];

@@ -8,6 +8,11 @@ const I18N_EN = {
   "线路运行中，停止并等待收口后才能收活": "Stop the running line and wait for it to settle before harvesting",
   "该工作树没有绑定线路，不能进入收活流程": "This worktree is not bound to a line and cannot be harvested",
   "后台询问已跳过": "Background ASK skipped",
+  "权限被拦已跳过": "Permission blocked, skipped",
+  "本轮权限被拦": "permissions blocked this round",
+  "自动放行已开启:所有权限询问直接通过,此选择会被记住并跨重启生效": "Auto-allow is on: all permission requests pass automatically; this choice is remembered and persists across restarts",
+  "已开启自动放行(所有权限询问直接通过;此选择会被记住,跨重启仍生效)": "Auto-allow enabled (all permission requests pass automatically; this choice is remembered and persists across restarts)",
+  "次": "times",
   "并行线路": "Parallel lines",
   "切换到并行线路": "Switch to parallel lines",
   "每条线绑定独立分支与工作树；状态和文件交集来自当前运行现场。": "Each line is bound to its own branch and worktree; status and file overlap come from the live runtime.",
@@ -352,7 +357,7 @@ const I18N_EN = {
   "暂停/恢复自动鞭挞": "Pause or resume auto-run",
   "当前轮完成后停止鞭挞": "Stop auto-run after this round",
   "鞭挞上限(1-100)": "Auto-run limit (1–100)",
-  "本次不再弹权限窗,全部自动放行(相当于 yolo)": "Automatically allow all permissions for this session",
+  "自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)": "Auto-allow: all permission requests pass automatically; this choice is remembered and persists across restarts (yolo)",
   "创建隔离 Git 工作树线程": "Create isolated Git worktree thread",
   // 「勘察复核」= 阶段流水线总闸(2026-08-11 用户定调)。它不是「有没有子代理」的开关
   // ——关着的时候模型照样能自己派 task,所以文案与译名都不能再出现「启用子代理」的说法。

@@ -3631,6 +3631,61 @@ languageControl.dispatchEvent({ type: "change" });
 await flush();
 assert(listText("ask-title") === "Permission request", "权限标题二次切英文失败");
 
+// ---------- R-223 权限被拦聚合呈现:①被拦落可见 notice + 轮末汇总 ②自动放行常驻徽标 ----------
+{
+  const askHandler = handlers.get("kz:ask");
+  // 断言①a:autonomous 权限询问跳过 → 对话流落可见 notice(不只隐藏日志)。
+  askHandler?.({
+    payload: {
+      id: 901, sessionId: "sess-smoke", kind: "permission",
+      action: "edit", resource: "src/a.rs", remember: "src/*",
+      source: "autonomous",
+    },
+  });
+  await flush();
+  const notices = [...document.querySelectorAll(".msg.notice")];
+  assert(
+    notices.some((n) =>
+      (n.textContent.includes("权限被拦已跳过") || n.textContent.includes("Permission blocked, skipped")) &&
+      n.textContent.includes("edit"),
+    ),
+    `autonomous 权限被拦应在对话流落可见 notice(实得: ${notices.map((n) => n.textContent).join(" | ")})`,
+  );
+  // 断言①b:轮末汇总(kz:done 携带 steps)→ 「本轮 N 次被拦」。
+  const doneHandler = handlers.get("kz:done");
+  doneHandler?.({ payload: { sessionId: "sess-smoke", steps: 2 } });
+  await flush();
+  assert(
+    [...document.querySelectorAll(".msg.notice")].some((n) =>
+      (n.textContent.includes("本轮权限被拦") || n.textContent.includes("permissions blocked this round")) &&
+      n.textContent.includes("edit"),
+    ),
+    "轮末应汇总「本轮 N 次被拦(动作/资源清单)」",
+  );
+  // 断言②:开启自动放行 → 状态栏常驻警示徽标可见;localStorage 持久化(模拟重启后仍可见)。
+  const autoAllow = byId.get("auto-allow");
+  autoAllow.checked = true;
+  autoAllow.dispatchEvent({ type: "change" });
+  await flush();
+  const badge = byId.get("status-auto-allow");
+  assert(
+    badge && !badge.classList.contains("hidden"),
+    "开启自动放行后状态栏应挂常驻警示徽标",
+  );
+  assert(
+    storage.get("kz-auto-allow") === "1",
+    "自动放行选择必须持久化到 localStorage(跨重启)",
+  );
+  // 模拟重启:徽标初始化逻辑在 07-events.js 顶部,直接重建可见性。
+  autoAllow.checked = false;
+  autoAllow.dispatchEvent({ type: "change" });
+  await flush();
+  assert(
+    badge.classList.contains("hidden"),
+    "关闭自动放行后徽标应隐藏",
+  );
+}
+
 // ---------- R-086 多会话并发:控制事件按 sessionId 收敛,切回可见可答复、不丢不串 ----------
 // 前置:清空上面语言切换测试留下的主会话 ask(91/92 仍在队列,askActive=91)。
 if (byId.get("ask-allow")) byId.get("ask-allow").click();

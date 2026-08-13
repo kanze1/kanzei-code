@@ -128,7 +128,7 @@
                 <input type="checkbox" id="auto-stop-round" /> <span data-i18n-key="本轮后停">本轮后停</span>
               </label>
               <input id="auto-max" class="auto-max" type="number" min="1" max="100" step="1" value="10" title="鞭挞上限(1-100)" data-i18n-title="鞭挞上限(1-100)" />
-              <label id="auto-allow-wrap" title="本次不再弹权限窗,全部自动放行(相当于 yolo)" data-i18n-title="本次不再弹权限窗,全部自动放行(相当于 yolo)">
+              <label id="auto-allow-wrap" title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)" data-i18n-title="自动放行:所有权限询问直接通过;此选择会被记住,跨重启仍生效(相当于 yolo)">
                 <input type="checkbox" id="auto-allow" /> <span data-i18n-key="自动放行">自动放行</span>
               </label>
               <button id="worktree-add" class="icon-btn" title="创建隔离 Git 工作树线程" data-i18n-title="创建隔离 Git 工作树线程" aria-label="创建隔离 Git 工作树线程">⑂</button>
@@ -652,6 +652,7 @@
           <span id="status-text">空闲</span>
           <span id="status-elapsed"></span>
           <span id="status-git" title="git 分支 · 未提交改动" data-i18n-title="git 分支 · 未提交改动"></span>
+          <span id="status-auto-allow" class="hidden status-auto-allow" title="自动放行已开启:所有权限询问直接通过,此选择会被记住并跨重启生效" data-i18n-title="自动放行已开启:所有权限询问直接通过,此选择会被记住并跨重启生效">⚡ <span data-i18n-key="自动放行">自动放行</span></span>
         </div>
         <div class="status-right">
           <span id="ctx-bar" class="hidden" title="上下文占用" data-i18n-title="上下文占用"><i id="ctx-bar-fill"></i></span>

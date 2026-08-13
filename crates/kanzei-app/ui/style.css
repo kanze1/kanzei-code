@@ -1210,6 +1210,17 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .diff-stat { color: var(--dim); font-size: 11px; margin-left: 8px; }
 .tool-chip.ok .diff-stat { color: var(--ok); }
 #status-git { opacity: .85; }
+/* R-223:「自动放行」常驻警示徽标——警示色,提示"权限门禁已松开且会记住"。 */
+#status-auto-allow {
+  color: #e8b04b;
+  border: 1px solid rgba(232, 176, 75, .55);
+  border-radius: 3px;
+  padding: 0 6px;
+  margin-left: 8px;
+  font-size: 11px;
+  cursor: default;
+  white-space: nowrap;
+}
 
 /* ---------- 目标模式(R-019 二期):连跑/新建/进展 ---------- */
 /* (连跑胶囊样式与自动放行统一,见上方开关胶囊段) */
