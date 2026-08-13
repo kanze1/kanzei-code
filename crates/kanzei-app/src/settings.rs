@@ -655,10 +655,62 @@ pub fn settings_save(
 /// 且用户没表过态就自动开 Fast mode"从此永久失效——用户只是想看一眼配置长什么样,
 /// 却把一个自己从没碰过的开关关死了。留空即默认,这是整套配置的基本约定。
 pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
+    // R-172:骨架注释只给「有哪些节、哪些键、取值范围」的线索,全部以 # 注释给出,
+    // 一个生效键都不写——写进任何显式值都会绕过 fill_defaults 的默认(与当年
+    // codex_fast_mode = false 同一个坑)。模板本身必须仍是合法 TOML(全注释)。
     let template = "\
 # kanzei 全局配置。留空 = 用内置默认;设置页里改的也是这个文件。\n\
-# 常用节:[models] primary/fast/reasoning、proxy、[profile] default、\n\
-#         [limits]、[cadence]、[providers.<名字>]\n";
+# 下面是各节的骨架示例(键名 + 取值范围)。全部是注释,不写任何生效值。\n\
+#\n\
+# [models]\n\
+#   primary = \"角色名或 provider:model\"        # 主对话模型\n\
+#   fast = \"角色名或 provider:model\"           # 快速子代理/机械检索\n\
+#   scout = \"角色名或 provider:model\"          # 勘察/复核只读代理(默认跟随 fast)\n\
+#   compact = \"角色名或 provider:model\"        # 上下文压缩纪要(默认跟随 primary)\n\
+#   reasoning = \"off\" | \"low\" | \"medium\" | \"high\"\n\
+#   codex_fast_mode = true | false              # 同模型走高消耗 priority 档\n\
+#\n\
+# [providers.<名字>]                            # 名字自取,models 里按名字引用\n\
+#   protocol = \"anthropic\" | \"openai\" | \"openai-responses\" | \"deepseek-responses\"\n\
+#   base_url = \"https://...\"                   # 端点地址\n\
+#   api_key_env = \"环境变量名\"                  # 从环境变量取密钥(推荐)\n\
+#   api_key = \"明文密钥\"                        # 直填密钥(明文存盘,自担风险)\n\
+#   auth = \"codex\" | \"claude\"                 # 复用 CLI 登录态(可选)\n\
+#   context_limit = 200000                      # 上下文窗口 token 数(可选)\n\
+#\n\
+# [limits]\n\
+#   max_tokens = 4096                           # 单轮输出上限\n\
+#   subagent_max_tokens = 4096\n\
+#   subagent_timeout_secs = 900\n\
+#   barrier_timeout_secs = 3600\n\
+#   context_budget_ratio = 0.7                  # 0.0 ~ 1.0\n\
+#   recent_verbatim_ratio = 0.35                # 0.0 ~ 1.0\n\
+#   max_tasks_per_turn = 8\n\
+#   max_parallel_tools = 8\n\
+#   transport_retries = 2\n\
+#   rate_limit_retries = 2\n\
+#   stream_restarts = 2\n\
+#   compact_buffer_tokens = 8000\n\
+#   prune_protect_tokens = 2000\n\
+#   prune_min_gain_tokens = 512\n\
+#\n\
+# [proxy]\n\
+#   proxy = \"http://host:port\" | \"env\"        # env = 用环境变量代理设置\n\
+#\n\
+# [cadence]\n\
+#   full_test = \"entry_close\" | \"every_commit\" | \"every_n_batches\" | \"release_only\"\n\
+#   full_test_batches = 3                       # full_test = every_n_batches 时的间隔\n\
+#   targeted_test = \"every_commit\" | \"off\"\n\
+#   commit = \"per_batch\" | \"per_entry\"\n\
+#   push = \"per_entry\" | \"per_commit\" | \"periodic\"\n\
+#   verify_every_n = 3                          # 自主推进每关 N 条插入只读核查;0 = 关闭\n\
+#\n\
+# [profile]\n\
+#   default = \"dev\" | \"research\" | \"readonly\"\n\
+#\n\
+# [permissions]\n\
+#   non_interactive = \"deny\" | \"rules_only\" | \"allow_listed\"\n\
+#   # rules = [{ action = \"bash\", resource = \"...\", effect = \"allow\" }, ...]\n";
     let doc: toml_edit::DocumentMut = template
         .parse()
         .map_err(|e| format!("内置配置模板不是合法 toml(这是 bug): {e}"))?;
@@ -1178,7 +1230,10 @@ mod tests {
         settings_bootstrap_file(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(
-            !text.contains("codex_fast_mode"),
+            !text.lines().any(|line| {
+                let t = line.trim_start();
+                t.starts_with("codex_fast_mode") && t.contains('=')
+            }),
             "新建的配置写死了开关,「未设」与 false 从此不可区分:\n{text}"
         );
         let mut config: KanzeiConfig = toml::from_str(&text).unwrap();
@@ -1191,6 +1246,91 @@ mod tests {
             config.models.codex_fast_mode,
             Some(true),
             "留空才能让 codex:gpt-5.6-luna 的 Fast mode 自动开启继续生效"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// R-172:新建配置的注释模板必须给出各节骨架(键名 + 取值范围),但全是注释,
+    /// 一个生效键都不能有——写进任何显式值都会被当成用户设定、绕过 fill_defaults。
+    #[test]
+    fn 配置模板_骨架注释齐全_且解析后等价于全默认() {
+        let path = 临时配置("bootstrap-skeleton");
+        settings_bootstrap_file(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        // ① 五节骨架注释都必须在。
+        for needle in [
+            "# [models]",
+            "#   primary =",
+            "#   reasoning =",
+            "# [providers.",
+            "#   protocol =",
+            "# [limits]",
+            "#   max_tokens =",
+            "# [proxy]",
+            "#   proxy =",
+            "# [cadence]",
+            "#   full_test =",
+            "#   verify_every_n =",
+        ] {
+            assert!(text.contains(needle), "模板缺骨架注释「{needle}」:\n{text}");
+        }
+        // ② 解析后与 KanzeiConfig::default() 逐字段一致(等价于全默认)。
+        let config: kanzei_harness::KanzeiConfig = toml::from_str(&text).unwrap();
+        let default = kanzei_harness::KanzeiConfig::default();
+        assert_eq!(config.models.primary, default.models.primary);
+        assert_eq!(config.models.fast, default.models.fast);
+        assert_eq!(config.models.reasoning, default.models.reasoning);
+        assert_eq!(
+            config.models.codex_fast_mode,
+            default.models.codex_fast_mode
+        );
+        assert_eq!(config.models.scout, default.models.scout);
+        assert_eq!(config.models.compact, default.models.compact);
+        assert!(
+            config.providers.is_empty(),
+            "模板不得带任何 provider: {:?}",
+            config.providers
+        );
+        assert_eq!(config.proxy, default.proxy);
+        assert_eq!(config.profile.default, default.profile.default);
+        assert_eq!(config.permissions.rules.len(), 0, "模板不得带任何权限规则");
+        assert_eq!(
+            config.permissions.non_interactive,
+            default.permissions.non_interactive
+        );
+        assert_eq!(config.limits.max_tokens, default.limits.max_tokens);
+        assert_eq!(
+            config.limits.subagent_timeout_secs,
+            default.limits.subagent_timeout_secs
+        );
+        assert_eq!(
+            config.limits.context_budget_ratio,
+            default.limits.context_budget_ratio
+        );
+        assert_eq!(
+            config.limits.max_parallel_tools,
+            default.limits.max_parallel_tools
+        );
+        assert_eq!(config.cadence.full_test, default.cadence.full_test);
+        assert_eq!(config.cadence.targeted_test, default.cadence.targeted_test);
+        assert_eq!(config.cadence.commit, default.cadence.commit);
+        assert_eq!(config.cadence.push, default.cadence.push);
+        assert_eq!(
+            config.cadence.verify_every_n,
+            default.cadence.verify_every_n
+        );
+        // ③ 模板文本里不能出现任何「键 = 生效值」形态(等号后非注释的显式赋值)。
+        // 骨架行全部以 # 开头;若有人把某行写活,这里会抓到非注释的 key = value。
+        let live_assignments: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                let t = line.trim();
+                !t.is_empty() && !t.starts_with('#') && t.contains('=') && !t.starts_with("[")
+            })
+            .collect();
+        assert!(
+            live_assignments.is_empty(),
+            "模板出现了生效的显式赋值(必须全部是注释): {live_assignments:?}\n{text}"
         );
         let _ = std::fs::remove_file(path);
     }
