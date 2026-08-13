@@ -1659,7 +1659,9 @@ fn schedule_entries<'a>(
     executable
 }
 
-fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
+/// 单条目的阻塞理由:「阻塞」字段 + 未完成「依赖」+ 阶段门槛 + 循环依赖。
+/// pub(crate):work.rs 的 R-185 测试断言「前置」不阻塞、依赖照常阻塞。
+pub(crate) fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
     let mut reasons = Vec::new();
     // 环上的条目永远等不到依赖完成。只报"未完成依赖"会让 agent 一轮轮空等一个
     // 不可能到来的前置,所以直接点出环并要求断边(D-163)。
@@ -1669,6 +1671,8 @@ fn block_reasons(entry: &Entry, states: &DependencyStates) -> Vec<String> {
             reasons.push(format!("阻塞字段: {}", value.trim()));
         }
         if is_dependency_key(key) && cycle.is_none() {
+            // R-185:只有「依赖」是阻塞依赖(调度跳过)。「前置」不在此列——
+            // 它是可并行但需在协作上下文显式说明的关系,见 is_prerequisite_key。
             for id in tracker_ids(value) {
                 match states.get(&id) {
                     Some(true) => {}
@@ -1736,6 +1740,15 @@ fn is_dependency_key(key: &str) -> bool {
     key.trim() == "依赖" || matches!(lower.as_str(), "dependency" | "dependencies" | "depends_on")
 }
 
+/// R-185:非阻塞前置。「依赖」= 阻塞依赖(调度器必须跳过),「前置」= 可并行但要在
+/// 协作上下文里对另一条线显式说明。两者语义分离后,「前置」不再需要用
+/// 「前置(不写进依赖字段,按 D-239 教训)」这种注释绕过字段缺陷(R-177/R-182 的
+/// 既有注释即该惯例的实证)。调度器只对「依赖」跳过,「前置」不进阻塞判定。
+pub(crate) fn is_prerequisite_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    key.trim() == "前置" || matches!(lower.as_str(), "prerequisite" | "prereq" | "before")
+}
+
 fn is_stage_key(key: &str) -> bool {
     let lower = key.trim().to_ascii_lowercase();
     key.trim() == "阶段" || matches!(lower.as_str(), "stage" | "phase")
@@ -1759,7 +1772,8 @@ fn is_deferred_stage(value: &str) -> bool {
 }
 
 /// 从自由文本中提取 R-001/D-002 形式的追踪 ID,兼容中文标点和说明文字。
-fn tracker_ids(value: &str) -> Vec<String> {
+/// pub(crate):work.rs 解析「前置」字段时复用(R-185)。
+pub(crate) fn tracker_ids(value: &str) -> Vec<String> {
     let chars: Vec<char> = value.chars().collect();
     let mut ids = Vec::new();
     let mut i = 0;

@@ -2297,3 +2297,10 @@
 - 摘要: D-332 发版:verify.ps1 十步全绿(verification.json 绑定 82fa56a),package.ps1 -Ack 8 -Publish 产出 kanzei-setup-82fa56a.exe(12MB)并发布 GitHub release build-82fa56a。本机安装被 kzapp 运行中拦截(pid 13704),待用户关闭后重跑 install-setup.ps1。
 - 关联: D-332
 - 收尾: 1786613581
+
+## T-1786614067 cargo test -p kanzei-tools (R-185 B1) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.9s
+- 摘要: R-185 B1 依赖/前置语义分离:308 passed / 0 failed / 1 ignored。新增 prerequisites_do_not_block_but_dependencies_do(前置不阻塞+依赖照常阻塞+prerequisites 暴露);clippy 干净。
+- 关联: R-185
+- 收尾: 1786614067

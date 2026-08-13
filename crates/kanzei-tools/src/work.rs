@@ -46,6 +46,10 @@ pub struct WorkItem {
     pub priority: Option<String>,
     /// 保留原文档字段顺序与同名多值；不能收成 map，否则合法的多条验证证据会丢失。
     pub fields: Vec<WorkField>,
+    /// R-185:非阻塞前置(「前置:」字段解析出的条目 ID)。可并行,但要在协作
+    /// 上下文里对另一条线显式说明——与「依赖」(阻塞,调度跳过)语义分离。
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
     pub references: Vec<WorkReference>,
     pub blocked: bool,
     pub block_reasons: Vec<String>,
@@ -360,6 +364,14 @@ fn item(
                 name: name.clone(),
                 value: value.clone(),
             })
+            .collect(),
+        // R-185:前置(非阻塞)解析——「前置:」字段里的条目 ID 单独暴露,供协作
+        // 上下文/派发器显式说明;与「依赖」(阻塞)分离,不参与调度跳过。
+        prerequisites: entry
+            .fields
+            .iter()
+            .filter(|(key, _)| crate::tracker::is_prerequisite_key(key))
+            .flat_map(|(_, value)| crate::tracker::tracker_ids(value))
             .collect(),
         references: entry
             .refs()
@@ -817,6 +829,7 @@ impl Tool for WorkTool {
 mod tests {
     use super::*;
     use crate::docstore::Entry;
+    use crate::tracker::DependencyStates;
 
     fn entry(id: &str, status: &str) -> Entry {
         Entry {
@@ -981,6 +994,79 @@ mod tests {
             .iter()
             .any(|reason| reason.contains("2099-01-01")));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prerequisites_do_not_block_but_dependencies_do() {
+        // R-185 验收②:「前置」与「依赖」语义分离——调度器只对「依赖」(阻塞)跳过,
+        // 「前置」(非阻塞)不阻塞,并在 WorkItem.prerequisites 里显式暴露供协作上下文消费。
+        let dir = fixture("prereq");
+        let mut with_prereq = entry("R-001", "todo");
+        with_prereq
+            .fields
+            .push(("前置".into(), "R-002 R-003".into()));
+        let mut with_dep = entry("R-004", "todo");
+        with_dep.fields.push(("依赖".into(), "R-999".into()));
+        let mut pending_dep = entry("R-005", "todo");
+        // 未完成的依赖:R-006 存在但非终态 → 阻塞
+        pending_dep.fields.push(("依赖".into(), "R-006".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[
+                with_prereq.clone(),
+                with_dep.clone(),
+                pending_dep.clone(),
+                entry("R-006", "todo"),
+            ])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "open")])
+            .unwrap();
+
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        // R-001 带「前置」但不阻塞 → 应被选中(requirement-first 队首)
+        let selected = state.selected.expect("R-001 不应被前置阻塞");
+        assert_eq!(selected.id, "R-001", "前置不得阻塞调度");
+        assert!(
+            selected.block_reasons.is_empty(),
+            "{:?}",
+            selected.block_reasons
+        );
+        // WorkItem.prerequisites 显式暴露(R-002/R-003)
+        assert_eq!(
+            selected.prerequisites,
+            vec!["R-002".to_string(), "R-003".to_string()],
+            "前置应解析进 prerequisites: {:?}",
+            selected.prerequisites
+        );
+
+        // R-004 依赖不存在的 R-999 → 阻塞;R-005 依赖未完成的 R-006 → 阻塞
+        // (R-001 是队首被选,但 R-004/R-005 的阻塞应在 blocked 判定可见——
+        // 用 schedule 单测直接断言 block_reasons)
+        let loaded = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        let states = dependency_states_from_documents((&loaded, &[]), (&[], &[]));
+        let reasons_004 = loaded
+            .iter()
+            .find(|e| e.id == "R-004")
+            .map(|e| block_reasons_for_test(e, &states))
+            .unwrap();
+        assert!(
+            reasons_004.iter().any(|r| r.contains("依赖不存在")),
+            "依赖不存在应阻塞: {reasons_004:?}"
+        );
+        let reasons_005 = loaded
+            .iter()
+            .find(|e| e.id == "R-005")
+            .map(|e| block_reasons_for_test(e, &states))
+            .unwrap();
+        assert!(
+            reasons_005.iter().any(|r| r.contains("未完成依赖")),
+            "未完成依赖应阻塞: {reasons_005:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn block_reasons_for_test(entry: &Entry, states: &DependencyStates) -> Vec<String> {
+        crate::tracker::block_reasons(entry, states)
     }
 
     #[test]
