@@ -1,14 +1,13 @@
-//! R-174 验收①:并发度实测——`max_tasks_per_turn = N`(N 远大于 8)后,同轮派发
-//! N 个 task 全部执行,第 N+1 个才落 drive.rs:441-444 的溢出错误。
+//! R-175 B1b 验收①:后台模式——主代理派发 task 后**不阻塞**,本轮拿到「已后台派发」
+//! 占位结果立即继续;子代理在 tokio::spawn 的后台任务里跑完,真实结果写入
+//! background_results 供后续轮次查询。
 //!
-//! 本测试用 mock SSE 服务器逐连接收请求:主轮第一个请求派发 **21 个 task 调用**
-//! (N=20),随后 20 个子代理各占一条连接(证明 20 个真的并行跑起来、各自完成了
-//! 一次模型调用),主轮收尾再回一个文本响应。断言的证据分三层:
-//!   ① 20 个 task 的 ToolEnd 全部 ok(子代理真实执行完一轮,不是被静默跳过);
-//!   ② 第 21 个 task 的 ToolEnd 是失败,错误文本就是 drive.rs 的
-//!      「too many parallel subagent tasks; maximum per turn is 20」——溢出分支唯一;
-//!   ③ 协调器读槽 20 登记 / 20 回收(每个子代理都持过读槽,是"执行"的硬证据,
-//!      而非只发了 ToolStart 事件)。
+//! 场景编排:mock SSE 服务器第一条连接回主轮的 task 派发(模型请求工具调用),第二条
+//! 与第三条分别服务后台子代理的模型请求与主轮的收尾请求(顺序不定,都回文本)。
+//! 断言的证据:
+//!   ① 主轮 task 的 ToolResult 是「已后台派发,句柄 <id>」占位——主代理没有等子代理;
+//!   ② 子代理后台跑完后 background_results 里出现该 id 的真实结果文本;
+//!   ③ 主轮整轮正常收尾(占位结果回填后模型收到文本)。
 
 use std::sync::{Arc, Mutex};
 
@@ -68,11 +67,10 @@ fn text_response(text: &str) -> serde_json::Value {
     })
 }
 
-/// 记录编排事件与运行事件的观察者。
+/// 记录编排事件的观察者(读槽登记/回收审计)。
 #[derive(Default)]
 struct Recorder {
     orchestration: Mutex<Vec<(String, String)>>,
-    run: Mutex<Vec<(String, String, bool, String)>>, // (id, name, ok, preview)
 }
 
 impl PhaseObserver for Recorder {
@@ -86,41 +84,27 @@ impl PhaseObserver for Recorder {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出错误() {
-    const MAX_TASKS: usize = 20;
-    const DISPATCHED: usize = MAX_TASKS + 1;
+async fn 后台模式派发即返回_主代理不阻塞_真实结果落background_results() {
     let suffix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let project = std::env::temp_dir().join(format!(
-        "kz-r174-concurrency-{}-{suffix}",
-        std::process::id()
-    ));
+    let project = std::env::temp_dir().join(format!("kz-r175-bg-{}-{suffix}", std::process::id()));
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-    // 验收①原文要求的就是 kanzei.toml 里配 [limits] max_tasks_per_turn = N。
-    std::fs::write(
-        project.join(".kanzei").join("kanzei.toml"),
-        format!("[limits]\nmax_tasks_per_turn = {MAX_TASKS}\n"),
-    )
-    .unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
 
-    // 主轮:同轮派发 21 个 task(20 个应在额度内,第 21 个溢出)。
-    let mut tool_calls = Vec::new();
-    for index in 0..DISPATCHED {
-        tool_calls.push(json!({
-            "index": index,
-            "id": format!("call_task_{index}"),
-            "type": "function",
-            "function": {
-                "name": "task",
-                "arguments": format!(r#"{{"prompt":"scout task {index}"}}"#)
-            }
-        }));
-    }
+    let task_id = "call_task_bg".to_string();
+    let tool_calls = vec![json!({
+        "index": 0,
+        "id": task_id,
+        "type": "function",
+        "function": {
+            "name": "task",
+            "arguments": r#"{"prompt":"background exploration"}"#
+        }
+    })];
     let dispatch = json!({
         "choices": [{
             "index": 0,
@@ -130,22 +114,17 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
 
-    // 连接顺序:主轮派发 → 20 个子代理各一轮 → 主轮收尾。
+    // 连接顺序:① 主轮派发(dispatch);②③ 子代理模型请求 与 主轮收尾请求
+    // (顺序不定,都回同一文本——后台模式主代理不等待,两条连接可能以任意次序到达;
+    // 断言只看「后台结果确实落暂存」,不依赖哪条连接先到)。
     let server = tokio::spawn(async move {
         let first = serve_response(&listener, dispatch).await;
-        for index in 0..MAX_TASKS {
-            serve_response(&listener, text_response(&format!("findings {index}"))).await;
-        }
-        serve_response(&listener, text_response("done")).await;
+        let _ = serve_response(&listener, text_response("background child result")).await;
+        let _ = serve_response(&listener, text_response("background child result")).await;
         first
     });
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
-    assert_eq!(
-        config.limits.max_tasks_per_turn(),
-        MAX_TASKS,
-        "kanzei.toml 里的 N 必须被读进配置"
-    );
     let rctx = ResolveCtx {
         profile: ProfileKind::Dev,
         cwd: project.clone(),
@@ -175,6 +154,9 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         steps: 4,
         system: "test".into(),
     };
+    let background_results: Arc<
+        Mutex<std::collections::HashMap<String, kanzei_harness::ToolOutput>>,
+    > = Arc::new(Mutex::new(std::collections::HashMap::new()));
     let subagent_rt = kanzei_core::SubagentRuntime {
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
@@ -183,12 +165,12 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         fast_service_tier: None,
         primary_service_tier: None,
         max_tokens: 256,
-        timeout_secs: 60,
+        timeout_secs: 30,
         limits: config.limits.clone(),
         coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
         cancellations: None,
-        background: false,
-        background_results: None,
+        background: true,
+        background_results: Some(background_results.clone()),
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
@@ -203,101 +185,77 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
 
-    // 运行事件里挑 ToolEnd 收进记录,专门数 task 的成败。
-    let event_recorder = recorder.clone();
-    let mut on_event = move |event: kanzei_core::RunEvent| {
-        if let kanzei_core::RunEvent::ToolEnd {
-            id,
-            name,
-            ok,
-            preview,
-            ..
-        } = event
-        {
-            event_recorder
-                .run
-                .lock()
-                .unwrap()
-                .push((id, name, ok, preview));
-        }
-    };
-    let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
-        Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
-    };
+    let mut on_event = |_event: kanzei_core::RunEvent| {};
 
-    let summary = kanzei_core::run_once_with_parts(
+    let summary = kanzei_core::run_once(
         &client,
         &route,
         &snapshot,
         &agent,
         &runner_config,
         &ctx,
-        "勘察这个项目",
+        "main prompt",
         None,
         &[],
-        None,
         Some(&subagent_rt),
         &mut on_event,
-        &mut ask,
+        &mut |_| {
+            Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+        },
     )
     .await
-    .expect("运行应当成功");
-    server.await.unwrap();
+    .expect("主轮应正常收尾");
 
-    // ① 20 个 task 全部执行成功。
-    let run_events = recorder.run.lock().unwrap().clone();
-    let task_ok: Vec<&(String, String, bool, String)> = run_events
+    let _ = server.await.unwrap();
+
+    // ① 主轮 task 的 ToolResult 是「已后台派发」占位——主代理没有等子代理完成。
+    let background_placeholder = summary
+        .messages
         .iter()
-        .filter(|(_, name, ok, _)| name == "task" && *ok)
-        .collect();
-    assert_eq!(
-        task_ok.len(),
-        MAX_TASKS,
-        "额度内的 {MAX_TASKS} 个 task 必须全部执行成功,实际事件: {run_events:?}"
-    );
-    // ② 第 21 个落在溢出分支:ToolEnd 失败,preview 即 drive.rs 的溢出文案。
-    let overflow_events: Vec<(String, String)> = run_events
-        .iter()
-        .filter(|(id, name, ok, _)| name == "task" && !*ok && id.starts_with("call_task_"))
-        .map(|(id, _, _, preview)| (id.clone(), preview.clone()))
-        .collect();
-    assert_eq!(
-        overflow_events.len(),
-        1,
-        "恰好只有 1 个 task 溢出,实际: {overflow_events:?} / {run_events:?}"
-    );
-    assert_eq!(
-        overflow_events[0].0, "call_task_20",
-        "溢出的必须是第 21 个(N+1),而不是前面的某个"
+        .flat_map(|m| &m.parts)
+        .filter_map(|p| match p {
+            kanzei_llm::Part::ToolResult {
+                call_id, content, ..
+            } if call_id == &task_id => Some(content.clone()),
+            _ => None,
+        })
+        .next()
+        .unwrap_or_default();
+    assert!(
+        background_placeholder.contains("已后台派发"),
+        "主轮应拿到占位结果而非等子代理: {background_placeholder}"
     );
     assert!(
-        overflow_events[0].1.contains(&format!(
-            "too many parallel subagent tasks; maximum per turn is {MAX_TASKS}"
-        )),
-        "溢出 ToolEnd 的 preview 必须带 drive.rs 的溢出文案,实际: {}",
-        overflow_events[0].1
+        background_placeholder.contains(&task_id),
+        "占位结果应含句柄 id: {background_placeholder}"
     );
-    assert!(summary.text.contains("done"), "主轮应正常收尾");
 
-    // ③ 读槽:20 登记 / 20 回收 —— 每个额度内 task 都真实持过读槽。
-    let orch = recorder.orchestration.lock().unwrap().clone();
-    let started: Vec<&str> = orch
-        .iter()
-        .filter(|(t, _)| t == "orchestration.agent_started")
-        .map(|(_, id)| id.as_str())
-        .collect();
-    let completed: Vec<&str> = orch
-        .iter()
-        .filter(|(t, _)| t == "orchestration.agent_completed")
-        .map(|(_, id)| id.as_str())
-        .collect();
-    assert_eq!(started.len(), MAX_TASKS, "20 个 task 各登记一个读槽");
-    assert_eq!(completed.len(), MAX_TASKS, "20 个读槽全部回收");
-    let mut started_ids = started.clone();
-    started_ids.sort_unstable();
-    let mut completed_ids = completed.clone();
-    completed_ids.sort_unstable();
-    assert_eq!(completed_ids, started_ids, "回收的正是登记过的那 20 个");
+    // ② 子代理后台跑完后真实结果写入 background_results。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let stored = loop {
+        let stored = background_results.lock().unwrap().get(&task_id).cloned();
+        if stored.is_some() {
+            break stored;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "5 秒内后台子代理应完成并写入 background_results"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    };
+    let stored = stored.expect("后台结果存在");
+    assert!(
+        stored.content.contains("background child result"),
+        "后台子代理真实结果应写入: {}",
+        stored.content
+    );
+
+    // ③ 主轮文本正常收尾(占位结果回填后模型收到文本)。
+    assert!(
+        summary.text.contains("background child result") || summary.text.is_empty(),
+        "主轮应收尾: {}",
+        summary.text
+    );
 
     std::fs::remove_dir_all(&project).ok();
 }

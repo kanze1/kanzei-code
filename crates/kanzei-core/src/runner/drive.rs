@@ -512,7 +512,59 @@ pub fn run_once_with_parts<'a>(
                     // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
                     // 完成一个立刻报一个 ToolEnd——不再等最慢的,UI 全程有反馈。
                     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
-                    let mut jobs: futures::stream::FuturesUnordered<_> = task_calls
+                    if rt.background {
+                        // R-175 B1b:后台模式——派发即返回,主代理本轮不等待。
+                        // 每个 task 立即 spawn:client/rt/ctx clone 后移入 async 块,
+                        // 返回 JoinHandle;本轮 ToolResult 填「已后台派发,句柄 <id>」
+                        // 占位,真实结果经 progress 通道回传 ToolEnd + 写入
+                        // background_results 暂存,供后续轮次查询(验收②)。
+                        // 读槽:run_subagent 内 `_read_permit` 是函数局部变量,随
+                        // run_subagent 返回即释放(函数返回 = 子代理跑完)——后台
+                        // 化不需要额外显式 drop,因为 spawn 块 await 的就是
+                        // run_subagent 的完整生命周期。progress 通道 rx 在主代理侧
+                        // drop,子代理内 send 失败静默忽略(既有 `let _ =` 容忍),
+                        // 完成结果走 background_results,不依赖事件流。
+                        for (id, input, _) in &task_calls {
+                            let tx = tx.clone();
+                            // `client`/`rt`/`ctx` 是 &'a 引用;`(&T).clone()` 会解析到
+                            // `impl Clone for &T`(返回引用),move 进 'static async 块就
+                            // 逃逸。`(*x).clone()` 强制调用值类型的 Clone,产生 owned。
+                            let client: LlmClient = (*client).clone();
+                            let rt: SubagentRuntime = (*rt).clone();
+                            let ctx: ToolCtx = ctx.clone();
+                            let call_id = id.clone();
+                            let input = input.clone();
+                            let results = rt.background_results.clone();
+                            let timeout_secs = rt.timeout_secs;
+                            tokio::spawn(async move {
+                                let bound = std::time::Duration::from_secs(timeout_secs);
+                                let output = match tokio::time::timeout(
+                                    bound,
+                                    run_subagent(&client, &rt, &ctx, &call_id, &input, tx),
+                                )
+                                .await
+                                {
+                                    Ok(output) => output,
+                                    Err(_) => kanzei_harness::ToolOutput::error(format!(
+                                        "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
+                                        timeout_secs
+                                    )),
+                                };
+                                if let Some(results) = results {
+                                    results.lock().unwrap().insert(call_id.clone(), output);
+                                }
+                            });
+                            task_results.insert(
+                                id.clone(),
+                                kanzei_harness::ToolOutput::ok(format!(
+                                    "已后台派发,句柄 {id};真实结果将经通知/后续轮次查询回传(R-175 后台模式)"
+                                )),
+                            );
+                        }
+                        drop(rx);
+                        // 主代理不 drain、不 select! 等待——直接继续普通工具段。
+                    } else {
+                        let mut jobs: futures::stream::FuturesUnordered<_> = task_calls
                     .iter()
                     .map(|(id, input, _)| {
                         let tx = tx.clone();
@@ -535,26 +587,27 @@ pub fn run_once_with_parts<'a>(
                         }
                     })
                     .collect();
-                    drop(tx);
-                    loop {
-                        tokio::select! {
-                            next = jobs.next() => match next {
-                                Some((id, output)) => {
-                                    on_event(RunEvent::ToolEnd {
-                                        id: id.clone(),
-                                        name: "task".into(),
-                                        ok: !output.is_error,
-                                        preview: preview(&output.content),
-                                        display: output.display.clone(),
-                                    });
-                                    task_results.insert(id, output);
-                                }
-                                None => {
-                                    drain_task_events(&mut rx, on_event);
-                                    break;
-                                }
-                            },
-                            Some(event) = rx.recv() => on_event(event),
+                        drop(tx);
+                        loop {
+                            tokio::select! {
+                                next = jobs.next() => match next {
+                                    Some((id, output)) => {
+                                        on_event(RunEvent::ToolEnd {
+                                            id: id.clone(),
+                                            name: "task".into(),
+                                            ok: !output.is_error,
+                                            preview: preview(&output.content),
+                                            display: output.display.clone(),
+                                        });
+                                        task_results.insert(id, output);
+                                    }
+                                    None => {
+                                        drain_task_events(&mut rx, on_event);
+                                        break;
+                                    }
+                                },
+                                Some(event) = rx.recv() => on_event(event),
+                            }
                         }
                     }
                 }

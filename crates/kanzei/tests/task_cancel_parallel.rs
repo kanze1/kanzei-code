@@ -177,6 +177,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
         cancellations: Some(cancellations.clone()),
         background: false,
+        background_results: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),

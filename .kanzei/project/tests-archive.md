@@ -2325,3 +2325,10 @@
 - 摘要: R-175 B1a 字段地基:core 145 + app 138 + kanzei 31 全绿,clippy 干净。SubagentRuntime 加 background 字段 + derive Clone,7 处构造点补默认 false(保持等齐语义)。
 - 关联: R-175
 - 收尾: 1786614983
+
+## T-1786615421 cargo test -p kanzei-core -p kanzei-llm -p kanzei (R-175 B1b) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-llm -p kanzei
+- 时长: 20.0s
+- 摘要: R-175 B1b 后台模式派发不阻塞:core 145 + llm 52 + kanzei 32 全绿(含新增 background_subagent_dispatch 验收①测试:主轮拿「已后台派发」占位、后台子代理结果落 background_results),clippy 干净。drive.rs task 段加 background 分支(spawn 即返回,等齐路径不动),LlmClient derive Clone。
+- 关联: R-175
+- 收尾: 1786615421

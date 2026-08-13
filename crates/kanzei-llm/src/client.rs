@@ -103,6 +103,9 @@ impl Route {
     }
 }
 
+/// R-175 B1b:derive Clone——后台模式 tokio::spawn 需把 client move 进 'static
+/// async 块,主代理与后台子代理各持一份 owned(内部 reqwest::Client 是 Clone)。
+#[derive(Clone)]
 pub struct LlmClient {
     http: reqwest::Client,
 }

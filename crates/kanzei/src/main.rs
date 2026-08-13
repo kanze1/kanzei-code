@@ -578,6 +578,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             cancellations: None,
             // R-175:CLI 单运行保持轮内等齐语义,不开后台模式。
             background: false,
+            // R-175 B1b:CLI 单运行无后台结果暂存。
+            background_results: None,
         }
     };
 

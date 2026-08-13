@@ -100,6 +100,14 @@ pub struct SubagentRuntime {
     /// task 才继续;true = 后台化:派发即返回句柄,主代理本轮继续做别的,
     /// 子代理跨轮存活(注册表 + 持久化,见 R-175 内容①②)。
     pub background: bool,
+    /// R-175 B1b:后台子代理完成结果的暂存(进程内)。background=true 时 spawn 的
+    /// 子代理跑完把 ToolOutput 写进这里,主代理后续轮次按 id 查询;跨会话持久化
+    /// 与通知回传在 B2/B3 承接。None = 非后台模式不使用。
+    pub background_results: Option<
+        std::sync::Arc<
+            std::sync::Mutex<std::collections::HashMap<String, kanzei_harness::ToolOutput>>,
+        >,
+    >,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

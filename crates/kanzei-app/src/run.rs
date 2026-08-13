@@ -689,6 +689,8 @@ pub(crate) async fn run_task(
             // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline
             // (编排角色)开启——run.rs 是用户直连对话,不后台化。
             background: false,
+            // R-175 B1b:主对话无后台结果暂存。
+            background_results: None,
         })
     };
 
