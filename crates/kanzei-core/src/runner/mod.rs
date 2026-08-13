@@ -16,6 +16,9 @@ use kanzei_llm::{
 
 mod event;
 pub use event::*;
+/// D-342:协作式停止的信号类型对外再导出——桌面端(kanzei-app)不用为此单独
+/// 引 tokio-util,与 TaskCancellations 用的是同一个类型。
+pub use tokio_util::sync::CancellationToken;
 mod metrics;
 pub use metrics::*;
 mod context;
@@ -81,6 +84,11 @@ pub struct RunnerConfig {
     pub execution_policy: kanzei_harness::orchestration::ExecutionPolicy,
     /// 权限/问题询问策略；默认由调用方显式选择，避免后台运行意外弹窗。
     pub ask_policy: AskPolicy,
+    /// D-342 协作式停止:cancel 后,run 在最近的安全检查点(步首/流内/工具间)
+    /// 以 `halted_by_user=true` **正常返回**——messages 完整交还调用方走轮末写回,
+    /// 被打断轮不再从对话投影里消失。None = 无停止通道,行为与引入前一致。
+    /// 硬 abort 只准做超时兜底,不准做第一停止手段(那正是 D-342 的根因)。
+    pub halt: Option<CancellationToken>,
 }
 
 /// 单轮子代理上限：并行仍保持，但避免模型一次生成过多请求拖垮连接/本地模型。

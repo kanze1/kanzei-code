@@ -382,6 +382,7 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String, current_episod
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
             ask_policy: kanzei_core::AskPolicy::NonInteractive,
+            halt: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {

@@ -195,6 +195,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         recall: None,
         execution_policy: ExecutionPolicy::ReadParallelWriteSerial,
         ask_policy: kanzei_core::AskPolicy::Interactive,
+        halt: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
 

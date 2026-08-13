@@ -66,12 +66,22 @@ pub(crate) async fn run_task(
     process_id: String,
     autonomous: bool,
     auto_allow: bool,
+    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
+    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
+    halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+    run_generation: Arc<AtomicU64>,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
     let stage = |name: &str, detail: String| {
         *current_stage.lock().unwrap() = name.to_string();
         emit_stage(window, &session_id, name, detail);
     };
+
+    // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
+    // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
+    run_generation.fetch_add(1, Ordering::SeqCst);
+    let halt_token = kanzei_core::CancellationToken::new();
+    *halt_slot.lock().unwrap() = Some(halt_token.clone());
 
     let cwd = PathBuf::from(&project_dir);
     anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
@@ -154,6 +164,8 @@ pub(crate) async fn run_task(
         } else {
             kanzei_core::AskPolicy::Interactive
         },
+        // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
+        Some(halt_token.clone()),
     );
     let ask_source = if autonomous {
         "autonomous"
@@ -1138,6 +1150,8 @@ pub(crate) async fn run_task(
             trace.mark_released();
         }
     }
+    // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
+    halt_slot.lock().unwrap().take();
     Ok(())
 }
 #[tauri::command]
@@ -1399,6 +1413,7 @@ pub(crate) fn build_runner_config(
     reasoning_override: Option<&str>,
     project_root: &std::path::Path,
     ask_policy: kanzei_core::AskPolicy,
+    halt: Option<kanzei_core::CancellationToken>,
 ) -> kanzei_core::RunnerConfig {
     kanzei_core::RunnerConfig {
         model: resolved.model.clone(),
@@ -1418,6 +1433,7 @@ pub(crate) fn build_runner_config(
         // 按执行策略传入 ReadParallelWriteSerial。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         ask_policy,
+        halt,
     }
 }
 
@@ -1896,8 +1912,10 @@ pub(crate) fn stop_run(
             let session_id = target_session
                 .clone()
                 .unwrap_or_else(|| kanzei_core::project_session_id(&root));
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
-                .and_then(|store| stop_runtime_and_finalize(&runtime, &store, &session_id))
+            let state_path = kanzei_core::project_state_path(&root);
+            kanzei_core::SessionStore::open(&state_path).and_then(|store| {
+                stop_runtime_and_finalize(&runtime, &store, &state_path, &session_id)
+            })
         });
         cancelled = result;
     }
@@ -2127,6 +2145,9 @@ pub(crate) async fn run_prompt(
     let conversation = runtime.conversation.clone();
     let live_run = runtime.live.clone();
     let task_cancellations = runtime.task_cancellations.clone();
+    // D-342:停止令牌槽与 run 代数随 run_task 走(协作式停止接线)。
+    let halt_slot = runtime.halt.clone();
+    let run_generation = runtime.run_generation.clone();
     let runtime_for_task = runtime.clone();
     let current_stage = runtime.stage.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
@@ -2176,6 +2197,8 @@ pub(crate) async fn run_prompt(
                 process_id_for_run.clone(),
                 autonomous,
                 auto_allow,
+                halt_slot.clone(),
+                run_generation.clone(),
             )
             .await;
             if let Err(e) = &result {

@@ -171,6 +171,7 @@ impl Fixture {
             execution_policy:
                 kanzei_harness::orchestration::ExecutionPolicy::ReadParallelWriteSerial,
             ask_policy: kanzei_core::AskPolicy::Interactive,
+            halt: None,
         }
     }
 

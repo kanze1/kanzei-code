@@ -31,8 +31,8 @@ use tauri::State;
 
 use crate::state::hidden_command;
 use crate::{
-    ensure_default_process, normalized_project_root, process_info, process_session_id,
-    stop_runtime_and_finalize, AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
+    ensure_default_process, halt_runtime_immediately, normalized_project_root, process_info,
+    process_session_id, AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
 };
 
 #[tauri::command]
@@ -682,7 +682,7 @@ async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<Stri
         let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
         if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
             if runtime.running.load(Ordering::SeqCst) {
-                stop_runtime_and_finalize(&runtime, &store, &session_id)
+                halt_runtime_immediately(&runtime, &store, &session_id)
                     .map_err(|e| format!("关闭主线路时收口会话失败: {e}"))?;
             } else {
                 runtime.asks.lock().unwrap().clear();
@@ -760,7 +760,7 @@ pub(crate) fn unregister_parallel_process(
         if runtime.running.load(Ordering::SeqCst) {
             // 注销是运行会话的终点，不能只 abort future。统一出口会先落在飞轨迹、
             // 清 ask，再把 promoted/running/pending 输入收敛为 cancelled。
-            stop_runtime_and_finalize(&runtime, &store, &session_id)
+            halt_runtime_immediately(&runtime, &store, &session_id)
                 .map_err(|e| format!("注销线路时收口会话失败: {e}"))?;
         } else {
             // runtime 容器会在首次历史读取/ask 恢复时提前存在；空闲容器没有

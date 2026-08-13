@@ -113,6 +113,7 @@ pub(crate) async fn quick_req(
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
             ask_policy: kanzei_core::AskPolicy::NonInteractive,
+            halt: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
@@ -304,6 +305,7 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
             ask_policy: kanzei_core::AskPolicy::NonInteractive,
+            halt: None,
         };
         let mut on_event = |_event: RunEvent| {};
         let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture {

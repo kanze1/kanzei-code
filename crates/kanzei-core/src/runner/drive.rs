@@ -8,6 +8,31 @@
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
 
+/// D-342:停止信号等待器。halt 未配置时永不就绪——select 里这个分支等价于不存在,
+/// CLI(无停止通道)与引入前逐字节同行为。
+async fn halt_signalled(halt: Option<&CancellationToken>) {
+    match halt {
+        Some(token) => token.cancelled().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// D-342:停止后未执行的工具调用统一以「取消占位」配对,与权限拒绝占位同款形态,
+/// 保证 calls[i]↔results[i] 对齐、历史里没有孤儿 ToolCall。
+fn append_halted_tool_results(
+    results: &mut Vec<Part>,
+    calls: &[(String, String, serde_json::Value, String)],
+    from_index: usize,
+) {
+    for (id, _, _, _) in calls.iter().skip(from_index) {
+        results.push(Part::ToolResult {
+            call_id: id.clone(),
+            content: "cancelled: run stopped by user before this tool executed".into(),
+            is_error: true,
+        });
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // 公开驱动边界，收拢为参数对象会同时扰动所有递归调用方。
 pub fn run_once<'a>(
     client: &'a LlmClient,
@@ -158,7 +183,10 @@ pub fn run_once_with_parts<'a>(
             parts: user_parts,
         });
         let mut total_usage = Usage::default();
-        let mut final_text: String;
+        // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
+        let mut final_text = String::new();
+        let halt = config.halt.as_ref();
+        let halted = || halt.is_some_and(|token| token.is_cancelled());
         // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
         // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
         let max_steps = agent.steps;
@@ -187,6 +215,19 @@ pub fn run_once_with_parts<'a>(
         let mut step = 0u32;
         loop {
             step += 1;
+            // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
+            // 正常收尾——messages 完整交还,调用方照常走轮末写回。
+            if halted() {
+                return Ok(RunSummary {
+                    text: final_text,
+                    usage: total_usage,
+                    steps: step.saturating_sub(1),
+                    halted_by_user: true,
+                    messages,
+                    context_report: context_report.clone(),
+                    overflow_traces: overflow_traces.clone(),
+                });
+            }
             // R-184:只有显式标记的动态源在轮内刷新。它作为本步临时 system 段
             // 替换,不 push 进 messages,因此内容变化不会把旧协作块逐轮堆进历史。
             if step > 1 {
@@ -342,8 +383,21 @@ pub fn run_once_with_parts<'a>(
                 let mut calls: Vec<(String, String, serde_json::Value, String)> = Vec::new();
                 let mut finish = FinishReason::EndTurn;
                 let mut stream_error: Option<kanzei_llm::LlmError> = None;
+                let mut halted_mid_stream = false;
 
-                while let Some(event) = stream.next().await {
+                loop {
+                    // D-342 流内检查点:停止时丢弃本步半成品(messages 尚未被本步
+                    // 触碰),立即收尾——不等模型把整步吐完。
+                    let event = tokio::select! {
+                        event = stream.next() => match event {
+                            Some(event) => event,
+                            None => break,
+                        },
+                        _ = halt_signalled(halt) => {
+                            halted_mid_stream = true;
+                            break;
+                        }
+                    };
                     let event = match event {
                         Ok(event) => event,
                         Err(error) => {
@@ -412,6 +466,17 @@ pub fn run_once_with_parts<'a>(
                     }
                 }
 
+                if halted_mid_stream {
+                    return Ok(RunSummary {
+                        text: final_text,
+                        usage: total_usage,
+                        steps: step,
+                        halted_by_user: true,
+                        messages,
+                        context_report: context_report.clone(),
+                        overflow_traces: overflow_traces.clone(),
+                    });
+                }
                 match stream_error {
                     None => {
                         for (_, text) in std::mem::take(&mut text_buffers) {
@@ -473,7 +538,25 @@ pub fn run_once_with_parts<'a>(
                     text: final_text,
                     usage: total_usage,
                     steps: step,
-                    halted_by_user: false,
+                    // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
+                    halted_by_user: halted(),
+                    messages,
+                    context_report: context_report.clone(),
+                    overflow_traces: overflow_traces.clone(),
+                });
+            }
+
+            // D-342:模型产出了工具调用但停止已置位——一个工具都不执行,全部以
+            // 取消占位配对(与权限拒绝同款形态),halted 正常收尾。
+            if halted() {
+                let mut results = Vec::new();
+                append_halted_tool_results(&mut results, &calls, 0);
+                messages.push(Message::tool_results(results));
+                return Ok(RunSummary {
+                    text: final_text,
+                    usage: total_usage,
+                    steps: step,
+                    halted_by_user: true,
                     messages,
                     context_report: context_report.clone(),
                     overflow_traces: overflow_traces.clone(),
@@ -669,7 +752,21 @@ pub fn run_once_with_parts<'a>(
                                     }
                                 },
                                 Some(event) = rx.recv() => on_event(event),
+                                // D-342:停止时不再等剩余子代理(futures 随 break 被
+                                // drop,注册守卫 RAII 释放读槽);缺席结果在下面统一
+                                // 用取消占位补齐配对。
+                                _ = halt_signalled(halt) => {
+                                    drain_task_events(&mut rx, on_event);
+                                    break;
+                                }
                             }
+                        }
+                        // D-342:halt 提前退出时补齐缺席的 task 结果;正常路径全员
+                        // 已有终态,entry 不命中,零行为差异。
+                        for (id, _, _) in &task_calls {
+                            task_results.entry(id.clone()).or_insert_with(|| {
+                                kanzei_harness::ToolOutput::error("cancelled: run stopped by user")
+                            });
                         }
                     }
                 }
@@ -810,15 +907,40 @@ pub fn run_once_with_parts<'a>(
                         concurrency,
                     });
                 }
-                for (index, result) in execute_prepared_tools(
-                    prepared,
-                    ctx,
-                    config.limits.max_parallel_tools(),
-                    on_event,
-                )
-                .await
-                {
-                    slots[index] = Some(result);
+                // D-342:并行 wave 对停止敏感——select 退出即 drop 在飞工具 future,
+                // 缺席槽位用取消占位补齐,calls↔results 配对不破。块作用域保证 wave
+                // future(借着 on_event)在补占位前已释放。
+                let wave_results = {
+                    let wave = execute_prepared_tools(
+                        prepared,
+                        ctx,
+                        config.limits.max_parallel_tools(),
+                        on_event,
+                    );
+                    tokio::pin!(wave);
+                    tokio::select! {
+                        results = &mut wave => Some(results),
+                        _ = halt_signalled(halt) => None,
+                    }
+                };
+                match wave_results {
+                    Some(list) => {
+                        for (index, result) in list {
+                            slots[index] = Some(result);
+                        }
+                    }
+                    None => {
+                        for (index, (id, _, _, _)) in calls.iter().enumerate() {
+                            if slots[index].is_none() {
+                                slots[index] = Some(Part::ToolResult {
+                                    call_id: id.clone(),
+                                    content: "cancelled: run stopped by user during execution"
+                                        .into(),
+                                    is_error: true,
+                                });
+                            }
+                        }
+                    }
                 }
                 slots
                     .into_iter()
@@ -832,6 +954,21 @@ pub fn run_once_with_parts<'a>(
                 // (R-155 设计要点 3)。calls.len() == results.len() 由 note_step 的 debug_assert 兜底。
                 for (call_index, (id, name, input, raw_input)) in calls.iter().cloned().enumerate()
                 {
+                    // D-342 工具间检查点:上一个工具执行期间收到停止,剩余调用全部
+                    // 取消占位配对后 halted 收尾——已完成的结果原样保留在历史里。
+                    if halted() {
+                        append_halted_tool_results(&mut results, &calls, call_index);
+                        messages.push(Message::tool_results(results));
+                        return Ok(RunSummary {
+                            text: final_text,
+                            usage: total_usage,
+                            steps: step,
+                            halted_by_user: true,
+                            messages,
+                            context_report: context_report.clone(),
+                            overflow_traces: overflow_traces.clone(),
+                        });
+                    }
                     // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
                     // ToolEnd 已在并行阶段按完成顺序上报过,这里只归位结果。
                     if name == "task" && subagent.is_some() {
@@ -1112,6 +1249,14 @@ pub fn run_once_with_parts<'a>(
                                             on_event(RunEvent::ToolProgress { id: pid, chunk });
                                         }
                                         output = &mut exec => break output,
+                                        // D-342:执行中的工具对停止敏感——drop future
+                                        // 即中断执行(bash 子进程随之回收),以取消
+                                        // 错误配对;下一轮 for 循环的检查点负责收尾。
+                                        _ = halt_signalled(halt) => {
+                                            break kanzei_harness::ToolOutput::error(
+                                                "cancelled: run stopped by user during execution",
+                                            );
+                                        }
                                     }
                                 };
                                 while let Ok((pid, chunk)) = progress_rx.try_recv() {
@@ -1146,6 +1291,21 @@ pub fn run_once_with_parts<'a>(
             // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
             recall.note_step(&calls, &mut results);
             messages.push(Message::tool_results(results));
+
+            // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
+            // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
+            // 从这里返回。
+            if halted() {
+                return Ok(RunSummary {
+                    text: final_text,
+                    usage: total_usage,
+                    steps: step,
+                    halted_by_user: true,
+                    messages,
+                    context_report: context_report.clone(),
+                    overflow_traces: overflow_traces.clone(),
+                });
+            }
 
             if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
                 return Ok(RunSummary {

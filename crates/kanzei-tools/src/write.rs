@@ -384,6 +384,7 @@ mod tests {
             recall: None,
             execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
             ask_policy: kanzei_core::AskPolicy::Interactive,
+            halt: None,
         };
         let tool_ctx = ToolCtx {
             cwd: root.clone(),

@@ -117,6 +117,7 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         recall: None,
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         ask_policy: kanzei_core::AskPolicy::Interactive,
+        halt: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
 

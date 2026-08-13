@@ -54,16 +54,83 @@ fn stopping_after_promote_cancels_promoted_and_pending_inputs_atomically() {
             .input_id,
         "promoted"
     );
-    let runtime = SessionRuntime::default();
+    let runtime = Arc::new(SessionRuntime::default());
     runtime.running.store(true, Ordering::SeqCst);
     assert_eq!(
-        stop_runtime_and_finalize(&runtime, &store, session_id).unwrap(),
+        stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap(),
         2
     );
     assert!(!runtime.running.load(Ordering::SeqCst));
     assert!(store.list_pending_inputs(session_id).unwrap().is_empty());
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+/// D-342:有活跃 run(令牌在槽、running=true)时,停止走**协作式**——令牌被
+/// cancel、pending ask 被清、队列被取消,但 running 不立即翻 false、不立即 abort:
+/// run 要在检查点自行收尾并走轮末写回,这正是「被打断轮对话消失」的修复本体。
+#[test]
+fn 协作式停止_置位令牌不立即终态化_队列仍即刻取消() {
+    let root = std::env::temp_dir().join(format!(
+        "kz-stop-graceful-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
+    let session_id = "session_stop_graceful";
+    store
+        .create_session(session_id, &root.display().to_string(), None)
+        .unwrap();
+    store
+        .admit_input(session_id, "queued", "排队中", kanzei_core::Delivery::Queue)
+        .unwrap();
+    let runtime = Arc::new(SessionRuntime::default());
+    runtime.running.store(true, Ordering::SeqCst);
+    let token = kanzei_core::CancellationToken::new();
+    *runtime.halt.lock().unwrap() = Some(token.clone());
+    let (sender, _receiver) = oneshot::channel();
+    runtime.asks.lock().unwrap().insert(
+        1,
+        PendingAsk {
+            sender,
+            request: kanzei_core::AskRequest::Permission {
+                action: "bash".into(),
+                resource: "cargo test".into(),
+            },
+            action: "bash".into(),
+            resource: "cargo test".into(),
+            project_root: root.clone(),
+            session_id: session_id.into(),
+        },
+    );
+
+    let cancelled =
+        stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+
+    assert_eq!(cancelled, 1, "排队输入立即取消");
+    assert!(token.is_cancelled(), "停止令牌必须被置位");
+    assert!(runtime.halt.lock().unwrap().is_none(), "令牌被 stop 取走");
+    assert!(runtime.asks.lock().unwrap().is_empty(), "pending ask 被清");
+    assert!(
+        runtime.running.load(Ordering::SeqCst),
+        "协作式停止不立即翻 running——run 要自行收尾走轮末写回"
+    );
+    drop(store);
+    std::fs::remove_dir_all(root).ok();
+}
+
+/// D-342:兜底硬杀判定——只有「代数未换 && 仍在运行」才硬杀;宽限期内新开的
+/// run(代数 +1)不受上一次停止的兜底波及。
+#[test]
+fn 兜底硬杀只认停止时那一代() {
+    use crate::state::stale_run_needs_abort;
+    assert!(stale_run_needs_abort(7, 7, true), "同代且在跑:该硬杀");
+    assert!(!stale_run_needs_abort(8, 7, true), "换代:新 run 不能被误杀");
+    assert!(!stale_run_needs_abort(7, 7, false), "已收尾:无需硬杀");
 }
 
 #[test]
@@ -82,7 +149,7 @@ fn 停止时在飞轨迹与episode先落库再abort() {
     store
         .create_session(session_id, &root.display().to_string(), None)
         .unwrap();
-    let runtime = SessionRuntime::default();
+    let runtime = Arc::new(SessionRuntime::default());
     runtime.running.store(true, Ordering::SeqCst);
     {
         let mut live = runtime.live.lock().unwrap();
@@ -97,14 +164,15 @@ fn 停止时在飞轨迹与episode先落库再abort() {
         live.trace
             .push(serde_json::json!({"kind": "tool.completed", "name": "bash"}));
     }
-    stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
+    // 令牌槽为空(无活跃令牌)→ 停止走立即终态化路径,行为与 D-342 之前一致。
+    stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
     let trace = store
         .latest_event(session_id, "run.trace")
         .unwrap()
         .unwrap();
     assert_eq!(trace.payload["outcome"], "halted");
     assert_eq!(store.list_episodes(session_id, 5).unwrap().len(), 1);
-    stop_runtime_and_finalize(&runtime, &store, session_id).unwrap();
+    stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
     assert_eq!(store.list_episodes(session_id, 5).unwrap().len(), 1);
     drop(store);
     std::fs::remove_dir_all(root).unwrap();

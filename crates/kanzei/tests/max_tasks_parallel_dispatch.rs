@@ -206,6 +206,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         recall: None,
         execution_policy: ExecutionPolicy::ReadParallelWriteSerial,
         ask_policy: kanzei_core::AskPolicy::Interactive,
+        halt: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
 

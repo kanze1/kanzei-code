@@ -206,6 +206,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         recall: None,
         execution_policy: ExecutionPolicy::ReadParallelWriteSerial,
         ask_policy: kanzei_core::AskPolicy::Interactive,
+        halt: None,
     };
     let ctx = ToolCtx::new(project.clone(), project.clone());
 

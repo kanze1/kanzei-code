@@ -425,6 +425,7 @@ pub(crate) async fn run_subagent(
         // R-171:子代理是只读勘察/复核,不参与写仲裁,用默认执行策略。
         execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
         ask_policy: AskPolicy::NonInteractive,
+        halt: None,
     };
     let mut total_usage = Usage::default();
     // R-176 B4:写子代理改动台账——拦截写工具(edit/write)调用,记录 owner →

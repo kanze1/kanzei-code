@@ -113,6 +113,13 @@ pub(crate) struct SessionRuntime {
     /// R-174:本会话运行中的子代理取消注册表。`stop_task` 命令按 id 命中即取消,
     /// run_task 构造 SubagentRuntime 时把它塞进 `cancellations` 字段,单一实例共享。
     pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
+    /// D-342 协作式停止:当前 run 的停止令牌,每次 run_task 开始时换新。
+    /// stop 取走并 cancel → run 在安全检查点以 halted **正常收尾**(轮末写回对话),
+    /// None = 无活跃 run(此时停止走立即终态化的旧路径)。
+    pub(crate) halt: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+    /// D-342:run 代数。兜底硬杀只对「停止时那一代」生效——宽限期内用户又发了
+    /// 新任务时,代数已换,不得误杀新 run。
+    pub(crate) run_generation: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
@@ -387,6 +394,8 @@ impl Default for SessionRuntime {
             live: Arc::new(Mutex::new(LiveRun::default())),
             stage: Arc::new(Mutex::new("空闲".into())),
             task_cancellations: Arc::new(kanzei_core::TaskCancellations::default()),
+            halt: Arc::new(Mutex::new(None)),
+            run_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -531,7 +540,84 @@ pub(crate) fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRunt
         .or_insert_with(|| Arc::new(SessionRuntime::default()))
         .clone()
 }
+/// D-342:兜底硬杀前的宽限期。协作式停止下 run 会在最近的检查点(步首/流内/
+/// 工具间)自行收尾并走轮末写回;只有工具挂死等异常才等到这个上限。
+pub(crate) const STOP_GRACE_SECS: u64 = 30;
+
+/// D-342 协作式停止(用户点「停止」走这里):置位停止令牌让 run 自行收尾,
+/// **不立即 abort**——abort 到不了轮末写回,被打断轮的对话会整轮消失,这正是
+/// D-342 的根因。队列清理(finalize_interrupt)仍然立即执行;兜底硬杀在宽限期
+/// 后按代数比对触发,不误杀停止后新开的 run。
+/// 关线/注销等终点动作请用 [`halt_runtime_immediately`](自 stop_runtime_and_finalize
+/// 拆出的旧路径)——那里随后就删工作树,不能让 run 多活 30 秒。
 pub(crate) fn stop_runtime_and_finalize(
+    runtime: &Arc<SessionRuntime>,
+    store: &kanzei_core::SessionStore,
+    state_path: &Path,
+    session_id: &str,
+) -> Result<usize, kanzei_core::StoreError> {
+    let _lifecycle = runtime.lifecycle.lock().unwrap();
+    let halt_token = runtime.halt.lock().unwrap().take();
+    match halt_token {
+        Some(token) if runtime.running.load(Ordering::SeqCst) => {
+            token.cancel();
+            // 挂在权限/问题弹窗上的 run:清 pending ask,sender drop → Cancelled →
+            // 既有 UserDeclined 路径立刻 halted 收尾,不用等检查点。
+            runtime.asks.lock().unwrap().clear();
+            let generation = runtime.run_generation.load(Ordering::SeqCst);
+            let runtime_bg = Arc::clone(runtime);
+            let state_path = state_path.to_path_buf();
+            let session_bg = session_id.to_string();
+            // 兜底走独立线程(纯同步动作):不依赖 tauri/tokio 运行时,单测里也能构造。
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(STOP_GRACE_SECS));
+                let _lifecycle = runtime_bg.lifecycle.lock().unwrap();
+                if stale_run_needs_abort(
+                    runtime_bg.run_generation.load(Ordering::SeqCst),
+                    generation,
+                    runtime_bg.running.load(Ordering::SeqCst),
+                ) {
+                    // 兜底:run 没能在宽限期内自行收尾(工具挂死等),回到硬杀,
+                    // 轨迹/episode 先落库再 abort(与旧路径同序)。
+                    if let Ok(store) = kanzei_core::SessionStore::open(&state_path) {
+                        flush_live_run(&store, &session_bg, &runtime_bg.live, "halted");
+                    }
+                    if let Some(handle) = runtime_bg.current_run.lock().unwrap().take() {
+                        handle.abort();
+                    }
+                    runtime_bg.running.store(false, Ordering::SeqCst);
+                    *runtime_bg.stage.lock().unwrap() = "空闲".into();
+                }
+            });
+            store.finalize_interrupt(session_id)
+        }
+        // 无活跃 run(或令牌已被上一轮收走):立即终态化,与旧行为一致。
+        _ => {
+            flush_live_run(store, session_id, &runtime.live, "halted");
+            if let Some(handle) = runtime.current_run.lock().unwrap().take() {
+                handle.abort();
+            }
+            runtime.asks.lock().unwrap().clear();
+            runtime.running.store(false, Ordering::SeqCst);
+            *runtime.stage.lock().unwrap() = "空闲".into();
+            store.finalize_interrupt(session_id)
+        }
+    }
+}
+
+/// D-342:兜底硬杀的判定,抽成纯函数锁语义——只有「代数未换 && 仍在运行」才硬杀;
+/// 宽限期内新开的 run(代数已 +1)不受停止兜底波及。
+pub(crate) fn stale_run_needs_abort(
+    current_generation: u64,
+    stop_generation: u64,
+    running: bool,
+) -> bool {
+    running && current_generation == stop_generation
+}
+
+/// 关线/注销的立即终态化(旧 stop_runtime_and_finalize 原样保留):调用方随后要
+/// 删工作树/退役身份,不能给 run 宽限期。
+pub(crate) fn halt_runtime_immediately(
     runtime: &SessionRuntime,
     store: &kanzei_core::SessionStore,
     session_id: &str,
