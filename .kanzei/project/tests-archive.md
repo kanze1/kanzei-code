@@ -2484,3 +2484,9 @@
 - 摘要: 全量全绿:kanzei-tools 323、core 150、app 140、kanzei 17+3,0 failed。R-176 五批交付(可写档位/自持租约/询问先于租约/归因回滚/面板展示)关闭前验证。
 - 关联: R-176
 - 收尾: 1786626063
+
+## T-1786626511 R-222 前端冒烟五连 + cargo test -p kanzei-app [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs + ui-i18n/lint/a11y/markdown + cargo test -p kanzei-app
+- 摘要: 前端冒烟五连全过(21 组断言含收活六格/门禁前置/合并后全量解锁时序)+ kanzei-app 140 passed:R-222 收活五格补两道防线
+- 关联: R-222
+- 收尾: 1786626511

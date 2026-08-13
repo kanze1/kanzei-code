@@ -340,8 +340,8 @@ function buildHarvestPanel(line, projectDir, agentCode) {
     diffStep.classList.add("confirmed");
     readConfirm.disabled = true;
     readConfirm.textContent = t("已确认");
+    // R-222:格2 确认只解锁格3(门禁)——合并必须等门禁跑过或显式覆盖。
     gateButton.disabled = false;
-    mergeButton.disabled = false;
   });
   diffBody.append(diffLoad, diffOutput, readConfirm);
   diffStep.append(diffHead, diffBody);
@@ -388,11 +388,17 @@ function buildHarvestPanel(line, projectDir, agentCode) {
         warn.className = "harvest-gate-warn";
         warn.textContent = t("门禁未通过:请先在线上修复,再重跑");
         gateOutput.appendChild(warn);
+        // R-222:门禁红灯时合并按钮保持禁用——只能走显式覆盖确认。
+        mergeButton.dataset.gateOk = "0";
       } else {
         const pass = document.createElement("p");
         pass.className = "harvest-gate-pass";
         pass.textContent = t("门禁通过");
         gateOutput.appendChild(pass);
+        // R-222:门禁通过才解锁合并(防线①:门禁是合并前置)。
+        mergeButton.dataset.gateOk = "1";
+        mergeButton.dataset.gateRan = "1";
+        mergeButton.disabled = false;
       }
       gateButton.disabled = false;
       gateButton.textContent = t("重跑门禁");
@@ -420,6 +426,26 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   mergeButton.disabled = true;
   mergeButton.textContent = t("合并到主线");
   mergeButton.addEventListener("click", async () => {
+    // R-222 防线①:合并前置门禁——未跑或红灯时需显式覆盖确认并落轨迹。
+    const gateOk = mergeButton.dataset.gateOk === "1";
+    const gateRan = mergeButton.dataset.gateRan === "1";
+    if (!gateRan || !gateOk) {
+      const reason = gateRan ? t("门禁未通过") : t("门禁未运行");
+      const ok = window.confirm(
+        `${reason}。${t("合并前请先在线上跑通门禁;仍要继续合并吗")}\n${t("覆盖确认将记录到活动轨迹")}`,
+      );
+      if (!ok) return;
+      // 覆盖确认落轨迹:活动面板能回溯「谁在什么状态下强行合并」。
+      console.info(`[harvest-override] merge without passing gate (${reason}) for ${line.branch || line.process_id}`);
+      if (window.__activityLog) {
+        window.__activityLog.push({
+          kind: "harvest-override",
+          at: new Date().toISOString(),
+          branch: line.branch || line.process_id,
+          reason,
+        });
+      }
+    }
     const item = { path: line.worktree_path, branch: line.branch };
     const ok = await confirmWorktreeMerge(item, projectDir);
     if (!ok) return;
@@ -438,6 +464,8 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       mergeHead.appendChild(stateTag);
       // 合并结果与候选读取可任意先后到达；统一由同一函数投影第 5 格。
       mergeCompleted = true;
+      // R-222 防线②:合并成功后解锁「合并后全量」步骤(格5 前)。
+      postMergeButton.disabled = false;
       syncWritebackAvailability();
     } catch (error) {
       mergeButton.disabled = false;
@@ -449,14 +477,81 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   mergeStep.append(mergeHead, mergeBody);
   panel.appendChild(mergeStep);
 
-  // 格5 回写 tracker:合并完成后把线交付落主根一份(设计文档 §5 ⑤)。
+  // R-222 防线②:合并后全量——两条线各自绿≠合起来绿(设计文档 §5 ④)。
+  // 合并成功后在**主根**跑全量门禁,结果可见;通过后解锁格5 回写。
+  const postMergeStep = document.createElement("div");
+  postMergeStep.className = "harvest-step";
+  const postMergeHead = document.createElement("div");
+  postMergeHead.className = "harvest-step-head";
+  postMergeHead.innerHTML = `<span class="harvest-step-no">5</span><strong>${t("合并后全量")}</strong>`;
+  const postMergeBody = document.createElement("div");
+  postMergeBody.className = "harvest-step-body";
+  const postMergeButton = document.createElement("button");
+  postMergeButton.type = "button";
+  postMergeButton.className = "ghost mini harvest-postmerge-run";
+  postMergeButton.disabled = true;
+  postMergeButton.textContent = t("合并后全量(主根)");
+  const postMergeOutput = document.createElement("div");
+  postMergeOutput.className = "harvest-gate-result";
+  postMergeButton.addEventListener("click", async () => {
+    postMergeButton.disabled = true;
+    postMergeButton.textContent = t("运行中…");
+    postMergeOutput.replaceChildren();
+    try {
+      const steps = await invoke("worktree_post_merge_gate", { projectDir });
+      for (const step of steps) {
+        const row = document.createElement("div");
+        row.className = `harvest-gate-step ${step.ok ? "ok" : "err"}`;
+        const mark = document.createElement("span");
+        mark.className = "harvest-gate-mark";
+        mark.textContent = step.ok ? "✓" : "✗";
+        const name = document.createElement("code");
+        name.textContent = step.name;
+        const detail = document.createElement("pre");
+        detail.textContent = step.summary || t("(无输出)");
+        row.append(mark, name, detail);
+        postMergeOutput.appendChild(row);
+      }
+      const anyFail = steps.some((step) => !step.ok);
+      if (anyFail) {
+        const warn = document.createElement("p");
+        warn.className = "harvest-gate-warn";
+        warn.textContent = t("合并后全量未通过:请修复主根后重跑");
+        postMergeOutput.appendChild(warn);
+        postMergeButton.disabled = false;
+        postMergeButton.textContent = t("重跑合并后全量");
+      } else {
+        const pass = document.createElement("p");
+        pass.className = "harvest-gate-pass";
+        pass.textContent = t("合并后全量通过");
+        postMergeOutput.appendChild(pass);
+        postMergeStep.classList.add("confirmed");
+        const stateTag = document.createElement("span");
+        stateTag.className = "harvest-step-state ok";
+        stateTag.textContent = t("已通过");
+        postMergeHead.appendChild(stateTag);
+        postMergeButton.textContent = t("已通过");
+        // 合并后全量通过才解锁格5 回写。
+        syncWritebackAvailability();
+      }
+    } catch (error) {
+      postMergeButton.disabled = false;
+      postMergeButton.textContent = t("重跑合并后全量");
+      toastError(`${t("合并后全量执行失败")}:${error}`);
+    }
+  });
+  postMergeBody.append(postMergeButton, postMergeOutput);
+  postMergeStep.append(postMergeHead, postMergeBody);
+  panel.appendChild(postMergeStep);
+
+  // 格6 回写 tracker:合并完成后把线交付落主根一份(设计文档 §5 ⑤)。
   // 只追加进展不改状态;claim 不是条目 ID 时后端拒绝,不让用户误以为已登记。
-  // 未合并前禁用——②不可跳过同时约束③④⑤(设计文档 §10 验收5)。
+  // 合并后全量通过前禁用——R-222:回写以合并后全量绿为前置。
   const writebackStep = document.createElement("div");
   writebackStep.className = "harvest-step";
   const writebackHead = document.createElement("div");
   writebackHead.className = "harvest-step-head";
-  writebackHead.innerHTML = `<span class="harvest-step-no">5</span><strong>${t("回写 tracker")}</strong>`;
+  writebackHead.innerHTML = `<span class="harvest-step-no">6</span><strong>${t("回写 tracker")}</strong>`;
   const writebackBody = document.createElement("div");
   writebackBody.className = "harvest-step-body";
   const writebackHint = document.createElement("p");
@@ -505,7 +600,16 @@ function buildHarvestPanel(line, projectDir, agentCode) {
   panel.appendChild(writebackStep);
 
   function syncWritebackAvailability() {
+    // R-222:回写需 合并完成 + 合并后全量通过 双前置(防线②)。
     if (!mergeCompleted) return;
+    const postMergeOk = postMergeStep.classList.contains("confirmed");
+    if (!postMergeOk) {
+      writebackButton.disabled = true;
+      writebackButton.textContent = t("需先跑合并后全量");
+      writebackHint.textContent = t("合并后全量通过后才能回写 tracker");
+      writebackHint.classList.add("warn-text");
+      return;
+    }
     if (trackerClaim) {
       writebackButton.disabled = false;
       writebackButton.textContent = t("回写 tracker");

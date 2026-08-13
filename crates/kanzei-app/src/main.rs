@@ -204,6 +204,7 @@ fn main() {
             processes::worktree_merge,
             processes::worktree_discard,
             processes::worktree_gate,
+            processes::worktree_post_merge_gate,
             processes::worktree_harvest_candidates,
             processes::worktree_harvest_writeback,
             docs::test_runs_snapshot,

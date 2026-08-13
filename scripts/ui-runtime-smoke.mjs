@@ -5251,6 +5251,13 @@ const docsB = {
     { name: "test", ok: true, summary: "test result: ok. 118 passed" },
     { name: "ui-smoke", ok: true, summary: "UI 运行时冒烟通过" },
   ];
+  // R-222 防线②:合并后全量复用同一门禁步骤(主根),桩同值。
+  payloads.worktree_post_merge_gate = [
+    { name: "fmt", ok: true, summary: "" },
+    { name: "clippy", ok: true, summary: "" },
+    { name: "test", ok: true, summary: "test result: ok. 120 passed" },
+    { name: "ui-smoke", ok: true, summary: "UI 运行时冒烟通过" },
+  ];
   // 五格块先于下方工作树清单块执行,worktree_merge 桩在此补齐(下方同值覆盖无害)。
   payloads.worktree_merge = "已合并工作树分支 thread-a1;工作树仍保留,可检查后显式放弃";
   payloads.worktree_harvest_writeback = "已回写 R-184 收活记录。当前进展:\n2026-08-11 收活回写: 由 A 线交付并合并(branch thread-a1)。";
@@ -5264,7 +5271,7 @@ const docsB = {
     "收活按钮出现在了错误的线上(应属于带工作树的后台会话)",
   );
 
-  // 打开收活面板:五格结构(本批:格1-4,格5 批5)。
+  // 打开收活面板:六格结构(格1-4 收活,格5 合并后全量 R-222,格6 回写)。
   wtLane.querySelector(".line-harvest-toggle").click();
   await flush();
   // flush 可能同时跑到线路定时刷新,因此必须从当前 DOM 按 process_id 取 lane,
@@ -5282,19 +5289,20 @@ const docsB = {
   assert(refreshedPanel === panel, "线路刷新后收活面板被销毁或未按 process_id 复挂");
   // smoke 的 Element 不解析 innerHTML 拼的子节点,格号从面板文本提取数字序列。
   const panelText = panel.textContent;
-  const stepNoSeq = ["1", "2", "3", "4", "5"].filter((no) => panelText.includes(no)).join("");
-  assert(stepNoSeq === "12345", `收活面板应呈现 1/2/3/4/5 五格(实得 ${stepNoSeq})`);
+  const stepNoSeq = ["1", "2", "3", "4", "5", "6"].filter((no) => panelText.includes(no)).join("");
+  assert(stepNoSeq === "123456", `收活面板应呈现 1/2/3/4/5/6 六格(实得 ${stepNoSeq})`);
 
-  // ② 不可跳过:未读 diff 前,格3(门禁)、格4(合并)、格5(回写)必须全部禁用。
+  // ② 不可跳过:未读 diff 前,格3(门禁)、格4(合并)、格5(合并后全量)、格6(回写)必须全部禁用。
   const gateRun = panel.querySelector(".harvest-gate-run");
   const mergeRun = panel.querySelector(".harvest-merge-run");
   const readConfirm = panel.querySelector(".harvest-read-confirm");
+  const postMergeRun = panel.querySelector(".harvest-postmerge-run");
   const writebackRun = panel.querySelector(".harvest-writeback-run");
-  assert(gateRun && mergeRun && readConfirm && writebackRun, "收活面板缺少格2确认/格3门禁/格4合并/格5回写控件");
+  assert(gateRun && mergeRun && readConfirm && postMergeRun && writebackRun, "收活面板缺少格2确认/格3门禁/格4合并/格5合并后全量/格6回写控件");
   assert(readConfirm.disabled, "未加载差异时「我已读过 diff」应禁用");
   assert(
-    gateRun.disabled && mergeRun.disabled && writebackRun.disabled,
-    "② 不可跳过:未读 diff 前格3/格4/格5必须全部禁用",
+    gateRun.disabled && mergeRun.disabled && postMergeRun.disabled && writebackRun.disabled,
+    "② 不可跳过:未读 diff 前格3/格4/格5/格6必须全部禁用",
   );
 
   // 加载差异 → 确认 → 解锁格3/格4。
@@ -5309,10 +5317,14 @@ const docsB = {
     panel.querySelector(".harvest-step.confirmed"),
     "确认后格2未进入已读状态(confirmed)",
   );
-  assert(!gateRun.disabled && !mergeRun.disabled, "② 不可跳过:已读 diff 后格3/格4应解锁");
+  assert(!gateRun.disabled, "② 不可跳过:已读 diff 后格3(门禁)应解锁");
+  assert(
+    mergeRun.disabled,
+    "R-222 防线①:已读 diff 后格4(合并)必须仍禁用——合并前置是门禁,不是读 diff",
+  );
   assert(
     writebackRun.disabled,
-    "格5 回写必须等合并完成才解锁:已读 diff 后不应可用(② 不可跳过 + ⑤ 在④之后)",
+    "格5/格6 必须等合并+合并后全量完成才解锁:已读 diff 后不应可用(② 不可跳过)",
   );
 
   // 格3 门禁:worktree_gate 被真实调用,步骤结果渲染进面板。
@@ -5335,6 +5347,10 @@ const docsB = {
       panel.querySelector(".harvest-gate-pass")?.textContent.includes("All gates passed"),
     "门禁全过未显示通过结论",
   );
+  assert(
+    !mergeRun.disabled,
+    "R-222 防线①:门禁通过后格4(合并)才解锁",
+  );
 
   // 格4 合并:确认后调用 worktree_merge。
   const mergeCallsBefore = invokeArgs.length;
@@ -5352,13 +5368,43 @@ const docsB = {
     `合并成功后未显示合并结果,panel 文本: ${(panel?.textContent ?? "panel 已摘除").slice(0, 200)}`,
   );
 
-  // 格5 回写 tracker:合并成功后解锁,点击调用 worktree_harvest_writeback 并渲染结果。
-  const writebackOutput = panel.querySelector(".harvest-writeback-output");
-  assert(writebackRun && writebackOutput, "收活面板缺少格5 回写控件");
+  // R-222 防线②:合并成功后解锁格5(合并后全量);格6 回写仍需合并后全量通过。
+  assert(postMergeRun, "收活面板缺少格5「合并后全量」按钮");
+  assert(
+    !postMergeRun.disabled,
+    "合并成功后格5(合并后全量)按钮必须解锁",
+  );
+  assert(
+    writebackRun.disabled,
+    "R-222 防线②:合并后全量通过前,格6 回写必须保持禁用",
+  );
+
+  // 合并后全量:主根调用 worktree_post_merge_gate,通过后解锁格6 回写。
+  const postMergeCallsBefore = invokeArgs.length;
+  postMergeRun.click();
+  for (let i = 0; i < 12; i += 1) await settle();
+  await flush();
+  const postMergeCalls = invokeArgs
+    .slice(postMergeCallsBefore)
+    .filter((e) => e.cmd === "worktree_post_merge_gate");
+  assert(
+    postMergeCalls.length === 1,
+    `合并后全量应调用 worktree_post_merge_gate(${JSON.stringify(postMergeCalls)})`,
+  );
+  const postMergeStepEl = postMergeRun.closest(".harvest-step");
+  assert(
+    postMergeStepEl.querySelector(".harvest-gate-pass")?.textContent.includes("合并后全量通过") ||
+      postMergeStepEl.querySelector(".harvest-gate-pass")?.textContent.includes("Post-merge suite passed"),
+    "合并后全量通过未显示结论",
+  );
   assert(
     !writebackRun.disabled,
-    "合并成功后格5 回写按钮必须解锁(②不可跳过已过,设计文档 §10 验收5)",
+    "合并后全量通过后格6 回写才解锁",
   );
+
+  // 格6 回写 tracker:合并+合并后全量通过后,点击调用 worktree_harvest_writeback 并渲染结果。
+  const writebackOutput = panel.querySelector(".harvest-writeback-output");
+  assert(writebackRun && writebackOutput, "收活面板缺少格6 回写控件");
   const writebackCallsBefore = invokeArgs.length;
   writebackRun.click();
   for (let i = 0; i < 12; i += 1) await settle();
@@ -5371,15 +5417,15 @@ const docsB = {
       writebackCalls[0].args?.worktreePath === "C:/smoke/wt/thread-a1" &&
       writebackCalls[0].args?.claim.includes("R-184") &&
       writebackCalls[0].args?.branch === "thread-a1",
-    `格5 回写没有带正确参数调用 worktree_harvest_writeback(${JSON.stringify(writebackCalls)})`,
+    `格6 回写没有带正确参数调用 worktree_harvest_writeback(${JSON.stringify(writebackCalls)})`,
   );
   assert(
     (writebackOutput?.textContent ?? "").includes("已回写 R-184 收活记录"),
-    `格5 回写成功后未渲染结果(实得: ${writebackOutput?.textContent ?? "(无)"})`,
+    `格6 回写成功后未渲染结果(实得: ${writebackOutput?.textContent ?? "(无)"})`,
   );
   assert(
     panel.querySelector(".harvest-step.confirmed"),
-    "回写成功后格5 未进入已读/完成状态",
+    "回写成功后格6 未进入已读/完成状态",
   );
 
   // D-314:即使 collaboration claim 未声明，线路对话唯一候选也必须自动回显。

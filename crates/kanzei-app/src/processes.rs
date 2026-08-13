@@ -1623,6 +1623,16 @@ pub async fn worktree_gate(
     Ok(run_worktree_gate(&worktree).await)
 }
 
+/// R-222 防线②:合并后全量——两条线各自绿≠合起来绿(设计文档 §5 ④)。
+/// 合并成功后在主根跑与收活门禁相同的步骤(fmt/clippy/test/ui-smoke),
+/// 结果可见;通过后前端才解锁回写 tracker。复用 `run_worktree_gate`
+/// (gate_steps 按目录探测),不另造一套门禁定义。
+#[tauri::command]
+pub async fn worktree_post_merge_gate(project_dir: String) -> Result<Vec<GateStep>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    Ok(run_worktree_gate(&root).await)
+}
+
 /// R-184 批5(收活格5):合并成功后,把线的交付回写**主根** tracker。
 ///
 /// 设计文档 §5 ⑤:回写必须走 tracker 工具落主根一份,标记带取得者代号;线全程
