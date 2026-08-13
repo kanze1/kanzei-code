@@ -1446,6 +1446,74 @@ mod tests {
         std::fs::remove_dir_all(dir2).ok();
     }
 
+    /// R-233 B3 验收①:语义感知假 embedder——含评估域关键词(评估/harness/
+    /// 质量/复盘/验收/证据)的文本映射到同一主题向量(同域余弦=1),其余文本
+    /// 按字符 hash(与主题向量正交)。query 与条目词面零重叠时,dense 通道
+    /// 仍能召回;纯 BM25 同 query 召回不到。
+    struct TopicEmbedder;
+    const EVAL_TOPIC_WORDS: &[&str] = &["评估", "harness", "质量", "复盘", "验收", "证据"];
+    impl crate::embed::Embedder for TopicEmbedder {
+        fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(texts
+                .iter()
+                .map(|text| {
+                    if EVAL_TOPIC_WORDS.iter().any(|w| text.contains(w)) {
+                        // 主题向量:评估域(同域余弦=1,与其它文本正交)。
+                        vec![1.0, 0.0, 0.0, 0.0]
+                    } else {
+                        // 非评估域:确定性 hash 向量(与主题向量正交区分)。
+                        let mut seed = 0u64;
+                        for ch in text.chars() {
+                            seed = seed.wrapping_mul(31).wrapping_add(ch as u64);
+                        }
+                        vec![0.0, (seed % 1000) as f32 / 500.0 - 1.0, 0.5, 0.0]
+                    }
+                })
+                .collect())
+        }
+    }
+
+    #[test]
+    fn prompt_hints_语义通道_词面不相关但语义相关可召回() {
+        // R-233 验收①:「评估 harness 质量」→「自举复盘 SOP」词面零重叠
+        // (SOP 正文无 评估/harness/质量 字眼),纯 BM25 召回不到;接语义感知
+        // embedder 后 dense 通道命中并注入。
+        let dir = std::env::temp_dir().join(format!(
+            "kz-hints-sem-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = MemoryStore::project(&dir);
+        store
+            .add(
+                "sop",
+                "自举复盘 SOP",
+                "审提交流水、验收证据、测试面匹配、证据链、残留",
+                "每次自举运行结束后做复盘时必读,方法来自 2026-08-13 对 R-199 运行的复盘",
+                "user",
+                &[],
+                None,
+                false,
+            )
+            .unwrap();
+        let query = "评估 harness 质量";
+        // 对照:无 embedder → 纯 BM25 词面零重叠 → 不注入。
+        assert!(
+            prompt_hints(&dir, query, false, None).is_none(),
+            "词面零重叠时纯 BM25 必须召回不到(对照)"
+        );
+        // 语义通道:同 query 经 dense 召回 SOP 条目并注入。
+        let embedder = std::sync::Arc::new(TopicEmbedder);
+        let hit = prompt_hints(&dir, query, false, Some(embedder));
+        let block = hit.expect("语义通道必须召回 SOP 条目");
+        assert!(block.contains("M-001"), "提示块应含 SOP 索引行: {block}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn sop_候选只投一次且给足提炼原料() {
         let dir = std::env::temp_dir().join(format!(

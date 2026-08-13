@@ -8,11 +8,11 @@
 - 验收: ① 落地 dense 通道:接 embedder 后同 query 能召回词面不相关但语义相关的 SOP/fact 条目;② query 构造升级:从用户 prompt 提取意图词而非原样整句进 FTS;③ hybrid RRF 融合(memory/index.rs:337 已有框架,补 embedder 即生效);④ 召回遥测(record_recall)显示相关条目采纳率改善,不靠感觉评估。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-233
-- 批次: 2/4
-- 进展: B2(2026-08-13):①③ embedder 接线落地。prompt_hints/mod.rs 增第4参 Option<Arc<dyn Embedder>>(CLI main.rs:586 + 桌面 run.rs:716 用 embedder_from_config(&config).ok().flatten() 注入);prompt_hints_with_budget 改走 SqliteMemoryIndex::with_embedder + search_hybrid_entries(hybrid RRF,无 embedder 自动退化 lexical),索引构造后调 ensure_vectors(index.rs:按 id 差集补缺失/清孤儿,生产无 upsert 维护,全量 rebuild 会每轮重嵌,故用差集增量)。④ record_memory_search_telemetry 增 channel+timing 参数,policy_action 记 hybrid/lexical(空命中仍 miss),lexical/embed/vector 耗时落库;桌面搜索页(tools.rs:108/memory.rs:251)传 lexical+默认 timing。B2 测试:ensure_vectors 冷启动补齐/幂等/外部新增补/归档清孤儿;prompt_hints hybrid 通道遥测区分(87 memory 测试全绿,app 138、kanzei 3 全绿)。下步 B3:语义召回 e2e(语义感知假 embedder:词面不相关但语义相关可召回)。
-- observed_head: 927ecc2a7f089356f7bf8ceeac616dd899a9512f
-- observed_worktree_hash: fnv1a64:50f0438a81383db1
-- recorded_at: 1786604240409
+- 批次: 3/4
+- 进展: B3(2026-08-13):① 语义召回 e2e 验证落地。新增测试 prompt_hints_语义通道_词面不相关但语义相关可召回(mod.rs):TopicEmbedder 把含 评估/harness/质量/复盘/验收/证据 的文本映射到同一主题向量(同域余弦=1,其余按字符 hash 正交);query「评估 harness 质量」对条目「自举复盘 SOP」(正文无 评估/harness/质量 字眼)词面零重叠——无 embedder 时纯 BM25 不注入(对照),接 embedder 后 hybrid 经 dense 通道召回并注入(验收① e2e 证据)。已知特性:hybrid dense 通道无相似度阈值(dense_scan 取 top-N 即使 cos≈0),小库时 cos≈0 噪声可能进 top 候选、靠 RRF 排名沉底;不影响本验收,列为残余待 RRF 阈值评估。memory 88 测试全绿。下步 B4:全量+关闭。
+- observed_head: 7f3504488bc18294da80c24e7af12a805d44b1fc
+- observed_worktree_hash: fnv1a64:64f568563a62a8d3
+- recorded_at: 1786604423024
 
 ## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [todo]
 - 优先级: P1

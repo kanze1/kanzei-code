@@ -2177,3 +2177,9 @@
 - 摘要: fmt 后复测:kanzei-tools memory 87 passed、kanzei-app 138 passed、kanzei 3 passed(B2 接线)。
 - 关联: R-233
 - 收尾: 1786604322
+
+## T-1786604416 R-233 B3 定向:cargo test -p kanzei-tools memory::(语义召回 e2e) [passed]
+- 命令: cargo test -p kanzei-tools memory::
+- 摘要: 88 passed。新增 prompt_hints_语义通道_词面不相关但语义相关可召回:「评估 harness 质量」纯 BM25(None)召回不到,接 TopicEmbedder 后 hybrid 召回「自举复盘 SOP」并注入(验收① e2e 证据)。
+- 关联: R-233
+- 收尾: 1786604416
