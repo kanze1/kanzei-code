@@ -21,6 +21,17 @@ struct WebFetchInput {
 
 pub struct WebFetchTool;
 
+/// R-217:URL 资源规范化——去掉 scheme,保留 域名+路径(+端口)。
+/// `https://docs.rs/crate/x` → `docs.rs/crate/x`,`http://example.com` → `example.com/`。
+/// 这样权限规则可用 `docs.rs/*` 形态做域名级白名单,与既有 wildcard_match 直接配合。
+pub fn normalize_url_resource(url: &str) -> String {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    rest.trim_end_matches('/').to_string()
+}
+
 #[async_trait]
 impl Tool for WebFetchTool {
     fn name(&self) -> &'static str {
@@ -37,7 +48,11 @@ impl Tool for WebFetchTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        vec![input["url"].as_str().unwrap_or("*").to_string()]
+        // R-217:资源形态 = 域名+路径(去掉 scheme),使规则可用 `docs.rs/*` 精确白名单。
+        // 规则如 rule("webfetch", "docs.rs/*", Allow) 匹配 https://docs.rs/... 与
+        // http://docs.rs/...;`*` 匹配一切(默认 Ask 不因形态变化而放宽)。
+        let url = input["url"].as_str().unwrap_or("*");
+        vec![normalize_url_resource(url)]
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -188,7 +203,27 @@ pub(crate) fn html_to_text(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::html_to_text;
+    use super::{html_to_text, normalize_url_resource};
+
+    /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
+    #[test]
+    fn url资源规范化_去掉scheme保留域名路径() {
+        assert_eq!(
+            normalize_url_resource("https://docs.rs/crate/x"),
+            "docs.rs/crate/x"
+        );
+        assert_eq!(
+            normalize_url_resource("http://example.com/page"),
+            "example.com/page"
+        );
+        assert_eq!(normalize_url_resource("https://example.com"), "example.com");
+        assert_eq!(
+            normalize_url_resource("https://example.com/"),
+            "example.com"
+        );
+        // 非 http 前缀原样保留(不误伤)。
+        assert_eq!(normalize_url_resource("ftp://x/y"), "ftp://x/y");
+    }
 
     /// R-182 内容④:代理配置是**主根**资产,从 worktree 跑时不能读分支副本。
     ///

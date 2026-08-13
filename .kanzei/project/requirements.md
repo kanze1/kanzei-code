@@ -80,7 +80,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633950047
 
-## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [todo]
+## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [doing]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 harness 权限
@@ -90,6 +90,7 @@
 - 边界: 不改 Ask 在 NonInteractive 下等于 Deny 的语义(那是 R-183 的事);默认不放行任何域名。
 - 验收: ①交互轮 dev 可搜索;②自主轮按域名白名单放行 webfetch 有定向测试;③白名单外域名仍走 Ask。
 - refs: R-183 R-198
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-217
 
 ## R-219 context_limit 未知的 provider 启用保守压缩预算,overflow 恢复计数随成功衰减 [todo]
 - 优先级: P2

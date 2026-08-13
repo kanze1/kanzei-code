@@ -40,6 +40,11 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
+        // R-217:websearch 注册进基础档位(dev 可用),默认 Ask——交互轮放行,
+        // 自主轮 NonInteractive 下 Ask 即拒;域名白名单规则可精确放行。
+        draft
+            .tools
+            .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
 
         // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
@@ -56,6 +61,7 @@ impl Component for BaseComponent {
             rule("edit", "*", Effect::Ask),
             rule("bash", "*", Effect::Ask),
             rule("webfetch", "*", Effect::Ask),
+            rule("websearch", "*", Effect::Ask),
         ]);
 
         draft.context.insert(

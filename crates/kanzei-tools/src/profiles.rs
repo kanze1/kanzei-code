@@ -972,6 +972,78 @@ mod tests {
         }
     }
 
+    /// R-217:dev 档注册 websearch 且默认 Ask(自主轮 NonInteractive 下即拒,
+    /// 交互轮可放行);域名白名单规则可精确放行 webfetch/websearch。
+    #[test]
+    fn dev档注册websearch默认ask_域名白名单可精确放行() {
+        let root = PathBuf::from("C:/kanzei-r217-test");
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(KanzeiConfig::default()),
+        };
+        let mut harness = Harness::default();
+        harness.add(crate::base::BaseComponent).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|t| t.name())
+            .collect();
+        assert!(
+            names.contains(&"websearch"),
+            "dev 档必须有 websearch: {names:?}"
+        );
+        assert_eq!(
+            snapshot.evaluate("websearch", "*"),
+            kanzei_harness::Effect::Ask,
+            "websearch 默认 Ask"
+        );
+        assert_eq!(
+            snapshot.evaluate("webfetch", "*"),
+            kanzei_harness::Effect::Ask,
+            "webfetch 默认 Ask"
+        );
+
+        // 域名白名单:rule("webfetch", "docs.rs/*", Allow) 匹配规范化资源。
+        let mut config = KanzeiConfig::default();
+        config
+            .permissions
+            .rules
+            .push(rule("webfetch", "docs.rs/*", Effect::Allow));
+        config
+            .permissions
+            .rules
+            .push(rule("websearch", "html.duckduckgo.com/*", Effect::Allow));
+        let allow_ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: root.clone(),
+            project_root: root,
+            config: Arc::new(config),
+        };
+        let mut allow_harness = Harness::default();
+        allow_harness
+            .add(crate::base::BaseComponent)
+            .add(ConfigComponent);
+        let snap2 = allow_harness.resolve(&allow_ctx).unwrap();
+        assert_eq!(
+            snap2.evaluate("webfetch", "docs.rs/crate/tokio"),
+            kanzei_harness::Effect::Allow,
+            "docs.rs/* 白名单应放行 docs.rs 域名"
+        );
+        assert_eq!(
+            snap2.evaluate("webfetch", "example.com/x"),
+            kanzei_harness::Effect::Ask,
+            "白名单外域名仍走 Ask"
+        );
+        assert_eq!(
+            snap2.evaluate("websearch", "html.duckduckgo.com/html"),
+            kanzei_harness::Effect::Allow,
+            "websearch 域名白名单应放行"
+        );
+    }
+
     /// D-195:提示词点名的工具必须在同一条装配线上注册。
     ///
     /// D-190 把前端自查段抽成函数,但组件注册(桌面端 5583 行)与提示词追加(5596 行)
