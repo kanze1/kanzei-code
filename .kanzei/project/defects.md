@@ -119,3 +119,13 @@
 - 进展: 已交付(2026-08-14,commit cbe768a,Claude 直接实施):①RunnerConfig 新增 halt: Option<CancellationToken>,drive.rs 四类检查点(步首/流内 select/工具间/步末)+ 并行 wave 与 task 等待的 halt 分支,全部以取消占位配对后 halted_by_user=true 正常返回;②stop_runtime_and_finalize 改协作式(置位令牌+清 ask+立即取消队列,不立即 abort),STOP_GRACE_SECS=30 兜底硬杀按 run 代数防误杀(stale_run_needs_abort 纯函数);关线/注销走 halt_runtime_immediately 保持立即终态化;③集成测试 crates/kanzei/tests/cooperative_halt.rs 两场景(步首收尾 prior 完整交还;执行中停止取消占位无孤儿)+ process_tests 协作式停止/代数判定单测。验证:workspace 全量 869 passed + clippy 0 警告。待核查轮按验收①②③⑤复核后关闭(验收②的「模型可复述」需真实模型场景,联 R-236 联测)。
 - 验收: ①自动推进中途停止后,conversation_get 能看到被打断轮已完成步骤的消息(实测轨迹,不是只断言函数返回);②停止后立刻发新任务,新一轮 prior 含被打断轮内容,模型可复述被打断轮做过的事;③停止响应有上界:当前工具执行结束即停,不等整轮跑完;④abort 兜底路径保留(防挂死)且有测试,正常停止不走它;⑤停止仍取消排队输入并释放写租约(现有 finalize_interrupt 语义无回归)。
 - 优先级: P1
+
+## D-346 R-236 轮末压缩触发仍用全量估算，未优先使用 provider usage.input [open] (medium)
+- 复现: 代码路径 crates/kanzei-app/src/run.rs:1106-1118 在轮末以 estimate_conversation_tokens(&conv) 判定是否超过 budget；同一轮真实 provider usage.input 只在 core runner/drive.rs:476-479 更新 calibration，未传入轮末判定。
+- 影响: R-236 B1 要求 provider usage.input 优先；轮末仍可能因本地估算偏高或偏低误触发/漏触发，附件与真实 provider 计量的修正不能完整覆盖轮末路径。
+- 来源: self-found；在逐条复核 R-236 验收与调用链时发现。
+- 标签: 核心
+- 进展: 已登记，暂不抢占当前 R-236 requirement 的唯一 executable WIP 槽；待 R-236 结项或停放后按 engine 取活修复。
+- 验收: 轮末压缩优先使用本轮/最近 provider usage.input，冷启动或无 usage 时才回落估算；补定向测试断言 usage 优先及无 usage 回落。
+- refs: R-236
+- 优先级: P1

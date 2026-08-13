@@ -105,11 +105,13 @@
 - 验收: ①存量 5 条 candidate 全部有归宿(晋升 active 或 deprecated 归档),逐条给出依据;②有机制测试:满足条件的 candidate 能被自动处置,不满足的不动;③candidate 存量不再单调增长——用 index.db 与文件数给出前后对照。
 - 优先级: P2
 - 批次: 0/2
-- 进展: 已按 engine 取活，开始核查 candidate 的现有生成、晋升、清退调用链与存量条目；本条拟分两批：B1 落地可执行的自动处置闸门与机制测试，B2 处理存量 5 条并补前后数量证据。下一步读取 manager/store/轮末调用方，确定不改变未验证不注入边界的最小方案。
-- observed_head: 59fa9883591d53a124dc78f820e3076db2586754
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786640815418
+- 进展: 用户于本轮明确选择暂存本条，暂不推进；保留原验收与 0/2 计划，待 R-236 释放 WIP 槽后再恢复。来源：用户本轮选择 1。
+- observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
+- observed_worktree_hash: fnv1a64:fe871977f10a5179
+- recorded_at: 1786648602102
 - 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
+- 用户挂起: 是；用户明确选择暂存 R-195，待 R-236 完成后恢复。
+- 阻塞: 用户明确挂起；解除人：用户，待 R-236 完成后决定恢复本条。
 
 ## R-196 记忆系统三处修复的效果复核:按 index.db 遥测与修复前基线对照 [todo]
 - 内容: 新版本(build-3f268a5 起)跑够样本后重跑同一组查询对照四项:①自动轮采纳率是否高于 22.5%(检索键从模板 prompt 换成取活条目标题的直接效果);②空轮比例是否下降;③recurrence_counts 是否出现 >=2 的计数(指纹归一是否真的让同坑塌成一条);④candidate 新增速度是否下降(空正文与近似重复门禁是否真拦住了)。
@@ -409,5 +411,9 @@
 - 边界: 不做蒸馏专用压缩模型;不依赖 provider 服务端压缩 API;不动 memory 系统;L2 应急路径(compact_messages_for_retry/aggressively)行为不变;停止语义归 D-342 不在本条。
 - 验收: ①B1:全仓只剩一处「纪要替换历史」实现(机械核验:grep 无第二套),轮末压缩后对话仍含任务定义原文与近期工作区逐字(实测轨迹);带 base64 附件的会话不再虚高误触发(定向测试)。②B2:纪要为固定段落模板且含失败尝试段;两次压缩走滚动合并,第二次压缩后纪要仍含首段关键实体(防退化定向测试);质量闸三向(precision/recall/胀检)各有单测,不达标回落节选且留轨迹。③B3:[models].compact 未配置时压缩请求实际走主模型、配置后走指定模型(测试断言请求 route);设置页可选。④B4:prune 只清已配对的旧工具结果、保护窗内不动、凑不满最小收益不做(单测);压缩触发频率前后对比有实测数字。⑤联测:发生过压缩的会话,插新任务后模型能复述目标与已完成工作(与 D-342 修复联合场景)。
 - 优先级: P1
-- 批次: 4/4(B1-B4 代码全部交付,余验收④的触发频率实测与⑤真实模型联测)
-- 进展: B1-B4 已交付(2026-08-14,Claude 直接实施,提交 6d783a6/9270a05/79d3c4e):B1——删 run.rs R-021 整段替换与 render_transcript,轮末接 core compact_conversation 同一实现;触发线统一 compaction_budget(limit−max(output,buffer 20k),封底 limit/4,[limits].compact_buffer_tokens 可配);估算改附件固定成本(ATTACHMENT_TOKEN_COST=1500,定向测试:1MB base64 图不再估成 26 万 token)。B2——DIGEST_SYSTEM 八段固定模板(含失败尝试/用户指令清单/防注入护栏),max_tokens 2048;滚动合并(split_prior_digest + DIGEST_MERGE_RULES,递归深度恒 1);机械事实清单 fact_ledger(文件/命令/成功 close 编号/提交号,零 LLM);质量闸 digest_acceptable(recall+precision)+胀检+同参重试一次,回落节选保旧纪要。B3——[models].compact 角色(解析回落 primary、层叠合并、白名单、设置页下拉含手填,UI 冒烟契约更新);SubagentRuntime.compact + digest_model() 缺省主模型(纠偏旧实现写死 fast)。B4——prune_old_tool_results(保护窗 40k+用户轮对齐+最小收益 20k 门槛,只清已配对结果),轮内轮末先于纪要执行,ContextPruned 事件落轨迹(context.pruned)可度量触发频率。验证:workspace 869 passed + clippy 0 + UI 运行时/i18n 冒烟通过。设计权威 docs/design/context_compaction.md(commit d4729ac)。
+- 批次: 4/4
+- 进展: 本轮复核与验证：B1/B2/B4 的实现与调用链已由 crates/kanzei-core/src/runner/compaction.rs:54-110、120-223、348-385；crates/kanzei-core/src/runner/context.rs:82-129、257-290；crates/kanzei-core/src/runner/drive.rs:262-319；crates/kanzei-app/src/run.rs:1100-1199 逐段确认。B3 装配位于 crates/kanzei-app/src/run.rs:718-743，配置解析与回落测试位于 crates/kanzei-harness/src/config.rs:1595-1637；UI 设置真实消费者为 crates/kanzei-app/ui/16-settings.js:291-373、512、676 与 crates/kanzei-app/ui/15-views-misc.js:494。验证已记录：T-1786648777 core 160 passed、T-1786648778 harness 123 passed、T-1786648780 app 144 passed、T-1786648781 UI runtime passed、T-1786648782 UI i18n/ESLint passed。验收①-③已有代码/测试证据；验收④目前只有 ContextPruned/context.compacted 事件埋点（core runner/event.rs:103-109、app run.rs:499-524），尚无同一工作负载的前后触发频率数字；验收⑤尚无真实 provider 联测，当前环境未提供可复核的模型会话证据。未关闭，避免把已有单测冒充两项实测。下一步：补一组可复现的触发频率对照测量，并在真实 provider 凭据可用时执行压缩后插入新任务联测；若环境仍不可用，保留缺口并说明外部条件。
+- 取活依据: engine:唯一可执行 WIP 是 R-236，必须先恢复它
+- observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
+- observed_worktree_hash: fnv1a64:fe871977f10a5179
+- recorded_at: 1786648839338

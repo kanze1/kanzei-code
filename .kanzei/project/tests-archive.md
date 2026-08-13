@@ -2689,3 +2689,52 @@
 - 摘要: cargo fmt 与定向测试全绿：core telemetry 3/3；tools memory 95/95。
 - 关联: R-214 D-339 D-340
 - 收尾: 1786640465
+
+## T-1786640652 R-214 提交前全 crate 定向测试 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-tools
+- 时长: 32.0s
+- 摘要: 提交前全 crate 验证通过：kanzei-core 152/152；kanzei-tools 346/346，另 1 个 doc test ignored。覆盖源码所属两个 crate。
+- 关联: R-214 D-339 D-340
+- 收尾: 1786640652
+- 源码指纹: 4d9980a175509166
+
+## T-1786640717 R-214 提交前合并 crate 测试 [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-tools
+- 时长: 29.0s
+- 摘要: 提交前覆盖合并后的两个 crate：kanzei-core 152/152；kanzei-tools 346/346，doc tests 1 ignored；全绿。
+- 关联: R-214 D-339 D-340
+- 收尾: 1786640717
+- 源码指纹: 4d9980a175509166
+
+## T-1786648777 R-236 kanzei-core 定向测试 [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.3s
+- 摘要: 160 passed；覆盖 headroom、附件固定成本、滚动合并、质量闸、prune 保护窗/配对/最小收益与应急路径。
+- 关联: R-236
+- 收尾: 1786648777
+
+## T-1786648778 R-236 kanzei-harness 配置定向测试 [passed]
+- 命令: cargo test -p kanzei-harness
+- 时长: 0.1s
+- 摘要: 123 passed；覆盖 [models].compact 缺省回落 primary、显式路由、层叠与未知键体检。
+- 关联: R-236
+- 收尾: 1786648778
+
+## T-1786648780 R-236 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 14.4s
+- 摘要: 144 passed；覆盖轮末压缩调用链、compact 模型装配、事件与设置相关回归。
+- 关联: R-236
+- 收尾: 1786648780
+
+## T-1786648781 R-236 UI 运行时冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: 21 个 ui/*.js 按序执行、1682 次 invoke、9 个主视图切换，0 运行时错误。
+- 关联: R-236
+- 收尾: 1786648781
+
+## T-1786648782 R-236 UI i18n/ESLint 冒烟 [passed]
+- 命令: node scripts/ui-i18n-smoke.mjs; node scripts/ui-lint-smoke.mjs
+- 摘要: i18n 1067 keys/353 HTML/57 dynamic contracts；ESLint 31 文件 no-undef 零错误。
+- 关联: R-236
+- 收尾: 1786648782
