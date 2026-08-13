@@ -49,7 +49,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-176 写子代理:自持写租约的并行实现线,协调器 FIFO 排队与改动可归因 [todo]
+## R-176 写子代理:自持写租约的并行实现线,协调器 FIFO 排队与改动可归因 [doing]
 - 优先级: P1
 - 复杂度: 大
 - 标签: 核心
@@ -66,8 +66,13 @@
 - 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
-- 进展: 2026-08-13(D-239 验收②复核):清空伪阻塞字段——原「阻塞: 未完成依赖: R-175」是内部顺序依赖,解除权在 agent(做完 R-175 即可恢复取活),不属于外部阻塞四类,违反 §1.1。依赖关系保留在「依赖:」字段(R-175 未完成、无外部阻塞,是真实顺序前置);R-175 关闭后取活本条的判定以依赖字段为准,不再依赖阻塞字段。
+- 进展: B1 完成:可写子代理档位——WritableSubagentBase 组件(subagent.rs,装配 read/glob/grep/edit/write/bash/git,只读三件套保持 Allow,写工具权限不预设 Allow 由 harness 规则集裁决=验收②前提)+ writer_agent() 定义;lib.rs 导出;2 测试新增(只读白名单未被放宽=验收⑦回归、可写档位含写工具且用户 deny 生效)。kanzei-tools 323 passed、clippy/fmt 干净。B2(下一步):子代理自持 write_scope 写租约——run_subagent 可写路径在执行写工具前 acquire_writer_lease(RAII 释放,write_scope=子代理代码树),FIFO 不重叠+事件审计测试=验收①②;桌面端装配点(run.rs:655-701)接可写档位。
 - 阻塞: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
+- 批次: 1/5
+- observed_head: 6ef64abae45aacec58f7d9d969d3a4d78fd0108f
+- observed_worktree_hash: fnv1a64:3f95e17caf84d75e
+- recorded_at: 1786624256915
 
 ## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [todo]
 - 优先级: P2

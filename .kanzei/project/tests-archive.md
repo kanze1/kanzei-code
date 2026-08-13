@@ -2448,3 +2448,9 @@
 - 摘要: 全量全绿:kanzei 17+3(含 2 新 lock 测试)、kanzei-tools 321、其余 crate 全过,0 failed。R-181 降级交付(kz lock status)关闭前验证。
 - 关联: R-181
 - 收尾: 1786623912
+
+## T-1786624250 cargo test -p kanzei-tools (R-176 B1) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: kanzei-tools 323 passed: R-176 B1 可写子代理档位(WritableSubagentBase + writer_agent, 4 subagent 测试含只读白名单回归)
+- 关联: R-176
+- 收尾: 1786624250

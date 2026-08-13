@@ -47,7 +47,7 @@ pub use profiles::{
     ResearchProfile,
 };
 pub use shell::detected_shell;
-pub use subagent::{explore_agent, SubagentBase};
+pub use subagent::{explore_agent, writer_agent, SubagentBase, WritableSubagentBase};
 pub use work::{resolve_work_decision, resolved_control_prompt, WorkDecision, WorkTool};
 
 use kanzei_harness::Tool;

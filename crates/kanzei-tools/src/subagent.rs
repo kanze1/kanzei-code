@@ -1,5 +1,11 @@
 //! 子代理组件(R-004/R-012):task 工具派生的只读探索代理。
 //! 快照只含 read/glob/grep——写/命令/联网在代码层面就不存在,无需权限弹窗。
+//!
+//! R-176:新增**可写子代理档位** `WritableSubagentBase`。它是独立组件,不是给
+//! 只读档位加工具——只读白名单是审计资产,构造后与执行前各复核一次(验收⑦)。
+//! 可写档位装配 read/glob/grep/edit/write/bash/git,**写工具的权限不预设 Allow**:
+//! 由 harness 权限规则裁决(用户 deny 就拒绝),只有只读工具保留 Allow。写子代理
+//! 必须自己 `acquire_writer_lease`(B2),不得继承主代理租约、不得绕过协调器。
 
 use std::sync::Arc;
 
@@ -24,6 +30,39 @@ impl Component for SubagentBase {
     }
 }
 
+/// R-176 B1:可写子代理档位——装配写工具,但写权限不预设 Allow。
+///
+/// 与 [`SubagentBase`] 的区别只在工具面:只读档位代码层面不存在写工具
+/// (审计资产,验收⑦);可写档位把写工具**装配进来**,权限交给 harness 规则集
+/// 裁决——用户/项目的 deny 规则原样生效,写子代理不是免死金牌。
+/// 装配点必须与 B2 的写租约强制成对:写子代理执行任何写工具前要先
+/// `acquire_writer_lease`(写工具不得绕过协调器,验收②)。
+pub struct WritableSubagentBase;
+
+impl Component for WritableSubagentBase {
+    fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+        draft.tools.insert("read", Arc::new(crate::read::ReadTool));
+        draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
+        draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
+        draft
+            .tools
+            .insert("edit", Arc::new(crate::edit::EditTool::default()));
+        draft
+            .tools
+            .insert("write", Arc::new(crate::write::WriteTool));
+        draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
+        draft.tools.insert("git", Arc::new(crate::git::GitTool));
+        // 只读三件套沿用全放行(无人应答权限询问);写工具不预设 Allow——
+        // 由 harness 权限规则集(用户/项目规则)裁决,deny 即拒绝。
+        draft.permissions.extend([
+            rule("read", "*", Effect::Allow),
+            rule("glob", "*", Effect::Allow),
+            rule("grep", "*", Effect::Allow),
+        ]);
+        Ok(())
+    }
+}
+
 /// explore 子代理定义:小步数、结果即报告。
 pub fn explore_agent() -> AgentDef {
     AgentDef {
@@ -37,6 +76,24 @@ pub fn explore_agent() -> AgentDef {
                  information: file paths with line numbers, code excerpts, or a short \
                  factual summary. No preamble, no suggestions. If nothing is found, \
                  state that explicitly."
+            .into(),
+    }
+}
+
+/// R-176 B1:可写子代理定义。写工具受权限门禁约束,不得绕过协调器。
+pub fn writer_agent() -> AgentDef {
+    AgentDef {
+        name: "writer".into(),
+        profile: ProfileScope::All,
+        model: "primary".into(),
+        mode: AgentMode::Subagent,
+        steps: 24,
+        system: "You are a writable implementation subagent. You may edit/write files and \
+                 run bash/git, but every write action must go through the coordinator \
+                 lease and permission rules — never bypass them. You are accountable for \
+                 every file you change: report exactly which files you touched and why. \
+                 Prefer small, verifiable steps; run the relevant tests before claiming \
+                 completion."
             .into(),
     }
 }
@@ -93,5 +150,72 @@ mod tests {
                 kanzei_harness::Effect::Allow
             );
         }
+    }
+
+    /// R-176 验收⑦回归:只读子代理档位的白名单**未被本条放宽**——
+    /// SubagentBase 仍只含 read/glob/grep,写工具在代码层面不存在。
+    #[test]
+    fn subagent_readonly_snapshot_unchanged_by_writable_component() {
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: std::env::temp_dir(),
+            project_root: std::env::temp_dir(),
+            config: std::sync::Arc::new(KanzeiConfig::default()),
+        };
+        // 只读档位单独装配:写工具绝不允许出现在只读快照里。
+        let mut read_only = Harness::default();
+        read_only.add(SubagentBase);
+        let snapshot = read_only.resolve(&ctx).unwrap();
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|t| t.name())
+            .collect();
+        assert!(
+            !names
+                .iter()
+                .any(|n| matches!(*n, "edit" | "write" | "bash" | "git")),
+            "只读子代理快照不得含写工具: {names:?}"
+        );
+        assert_eq!(names.len(), 3, "只读快照必须仍是 read/glob/grep 三件套");
+    }
+
+    /// R-176 B1:可写子代理档位含写工具;写工具权限**不预设 Allow**
+    /// (用户 deny 规则必须原样生效),只读工具保持 Allow。
+    #[test]
+    fn writable_subagent_has_write_tools_but_permissions_follow_rules() {
+        let mut config = KanzeiConfig::default();
+        // 用户显式 deny bash 的某条资源:可写子代理里必须生效。
+        config
+            .permissions
+            .rules
+            .push(rule("bash", "rm -rf *", Effect::Deny));
+        let ctx = ResolveCtx {
+            profile: ProfileKind::Dev,
+            cwd: std::env::temp_dir(),
+            project_root: std::env::temp_dir(),
+            config: std::sync::Arc::new(config),
+        };
+        let mut harness = Harness::default();
+        harness.add(WritableSubagentBase).add(ConfigComponent);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let names: Vec<&str> = snapshot
+            .materialize_tools()
+            .iter()
+            .map(|t| t.name())
+            .collect();
+        for name in ["read", "glob", "grep", "edit", "write", "bash", "git"] {
+            assert!(names.contains(&name), "可写档位缺 {name}: {names:?}");
+        }
+        // 只读工具保持 Allow。
+        for name in ["read", "glob", "grep"] {
+            assert_eq!(snapshot.evaluate(name, "anything"), Effect::Allow);
+        }
+        // 写工具权限不预设 Allow:用户 deny 生效,其它资源按规则集(无匹配默认询问)。
+        assert_eq!(
+            snapshot.evaluate("bash", "rm -rf *"),
+            Effect::Deny,
+            "用户 deny 规则必须在可写子代理里生效"
+        );
     }
 }
