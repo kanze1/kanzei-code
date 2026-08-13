@@ -2357,3 +2357,25 @@
 - observed_head: f02fb3daaa453933203471c70fe172a394e2e561
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786623299975
+
+## R-181 跨 agent 源码写入互斥:写租约延伸到外部进程,kz lock 让外部 agent 也能入局 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(2026-08-11 真实撞车实例,有提交为证)
+- refs: R-171 R-173 R-138 D-263 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 凌晨的一次真实撞车。用户在外部 agent(Claude Code)里派了一个子代理改 `app/run.rs`/`state.rs`/`processes.rs`/`phase_pipeline.rs`,同时桌面端自举循环取活 R-174 并在同一批文件上工作。结果:自举的两次提交(`92879e2`/`25ea2c0`)把外部代理**尚未完成的改动一并扫进了自己的提交**(标题里的「含 R-173 遗留收尾」就是被裹进去的那部分),并留下 8 处 fmt + 6 条 clippy 红灯。改动没丢,但归属混了、CI 红了、两边都不知道对方在写。
+- 现状与缺口: R-171 交付的项目级单 writer 是 `AppState` 里的**进程内内存实现**(`crates/kanzei-core/src/orchestration.rs` 的 `MemoryCoordinator`)。它保护的是**kanzei 自己的 agent 之间**——主对话、task 子代理、旁路 Tauri 命令。它看不见:①外部 agent(Claude Code / Cursor / 人手动改);②`kz` CLI(`crates/kanzei/src/main.rs` 的 tracker 子命令 `coordinator: None`);③第二个 kzapp 实例。设计基线 `parallel_read_serial_write_orchestration.md` 的「TODO 与后续风险」第 5 条早就点名了这个缺口(「未来多个 OS 进程同时打开同一项目时,AppState 内存协调器不可见;P3 必须用文件锁或持久 lease 扩展同一接口」)——**2026-08-11 它不再是「未来」,已经发生了**。R-138 已交付的跨进程文件锁(`crates/kanzei-tools/src/atomic_file.rs` 的 `FileLock`,Windows `share_mode(0)` 独占句柄,零新依赖)只保护 docstore 的 tracker 文件,**保护不了 `crates/**` 源码**。
+- 方向修订(2026-08-11,R-182 定调后): **本条原文不重写,但主张已被推翻一半。** 原方向是「把写租约延伸到外部进程,让外部 agent 也来取锁」;R-182 的实测把口径改成「分支干、合并、冲突检测解决、文档一份唯一」后,这个方向对**源码**不再成立:①源码根本不需要跨进程互斥——worktree 已经物理隔离,冲突交给 git 三方合并与 `merge-tree` 预检(R-182 实测③:三条线各改自己那段,顺序合并全干净);②**锁只能约束进得来的人,检测能约束所有人**——本条自己的「边界」就写着「不做强制拦截外部进程的写(做不到,也不该做)」,而外部 agent、手动改、第二个 kzapp **全都要过 git**,检测面天然覆盖全员,租约天然覆盖不了。仍然成立的是**文档侧**:tracker 的「读→分配 ID→写」需要互斥,但那已由 R-138 的 `FileLock` 在**单份主根**上解决(R-182 实测②),不需要 run 级租约。
+  **本条的存留形态待定**:剩余真实价值可能只有「让外部写入者**可见**」(谁在写、写了多久、动了哪些文件),即从「取锁入口」改为「**声明与检测入口**」。取活前先按 R-182 的结论重估本条是否还需要独立交付,不排除降级或并入 R-182。**来源字段记录的那次真实撞车(`92879e2`/`25ea2c0` 卷入他人改动)依然有效**——但它的根治是 D-263(只 add 明确文件)+ worktree 隔离,不是写租约。
+- 内容: ①把写租约扩成**跨进程**实现:复用 `atomic_file::FileLock` 的独占句柄手法,在主根落一个持久 lease(持有者 = pid + run_id + 取得时刻 + 用途),`ProjectExecutionCoordinator` 接口不变(设计基线明写「换插不换契约」);②新增 `kz lock <acquire|release|status>` CLI,让**外部 agent 也能入局**——外部 agent 不受 kanzei 的 runner 约束,唯一可行的是给它一个能主动调用的通道,并把「动仓库前先 `kz lock acquire`」写进 conventions;③引擎侧在取活前检查外部 lease,被占时**明说谁占着、占了多久**并等待或跳过,不得静默继续(D-004 口径);④崩溃不留死锁:独占句柄随进程退出由 OS 关闭,非 Windows 走 mtime 陈旧摘除,与 `FileLock` 同一套;⑤lease 事件进 session_events,与 R-171 的 `writer.*` 同一出口。
+- 边界: 不做强制拦截外部进程的写(做不到,也不该做);本条是**协作式**互斥——提供机制 + 可见信号,让双方都能知道对方在写。真正的强隔离是 worktree(R-177),两者互补不互替。
+- 验收: ①两个 OS 进程(kzapp + kz CLI)同时申请写租约,实际持有区间不重叠且顺序可审计;②`kz lock status` 能报出当前持有者(pid/run_id/取得时刻/用途)与等待队列;③引擎取活时被外部 lease 占住,轨迹里有可见记录并说明持有者,不是静默跳过或静默继续;④强杀持有进程后 lease 自动失效,下一个申请者能立刻拿到(崩溃不留死锁,有实测);⑤`ProjectExecutionCoordinator` 的调用契约未变(现有 runner/旁路调用点零改动,有编译期证据);⑥conventions 补一节「外部 agent 动仓库前的取锁纪律」。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-181
+- 批次: 1/1
+- 进展: 降级交付完成:按 2026-08-11 R-182 定调,跨进程写租约主张被推翻,本条降级为「外部写入者声明与检测入口」。交付(6ef64ab):`kz lock status` CLI(main.rs lock_cli + lock_status_report)——报主根/cwd/git 工作树未提交改动(外部 agent 痕迹可见)/活跃线(state.db processes),只读不阻塞,state.db 缺失走降级文案;2 测试。conventions §6.1 外部 agent 协作纪律。关闭前全量 cargo test --workspace 全绿(T-1786623912)。降级后验收逐条:①原「两进程写租约不重叠」→R-182 推翻(无 run 级租约;kz lock status 无锁可并跑,纯函数无共享状态);②原「报持有者/等待队列」→降级为报主根/cwd/工作树改动/活跃线;③原「引擎取活被外部 lease 占住」→R-182 撤销 run 级租约后不适用;④原「强杀 lease 失效」→无 lease 不适用;⑤协调器契约未变→零改动(仅 main.rs CLI 分发,core/tools 未动,编译证据);⑥conventions 纪律→§6.1 落地。
+- observed_head: 6ef64abae45aacec58f7d9d969d3a4d78fd0108f
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786623927113

@@ -2442,3 +2442,9 @@
 - 摘要: kanzei crate 17 lib + 3 worktree 集成 + 2 新 lock 测试全绿: kz lock status CLI(降级可见性入口)+ conventions §6.1
 - 关联: R-181
 - 收尾: 1786623838
+
+## T-1786623912 cargo test --workspace (R-181 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: 全量全绿:kanzei 17+3(含 2 新 lock 测试)、kanzei-tools 321、其余 crate 全过,0 failed。R-181 降级交付(kz lock status)关闭前验证。
+- 关联: R-181
+- 收尾: 1786623912
