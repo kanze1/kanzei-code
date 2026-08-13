@@ -506,3 +506,27 @@ $("summarize-btn").addEventListener("click", async () => {
 for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goal-open", "goal"], ["report-open", "report"]]) {
   $(btn).addEventListener("click", () => openDocViewer(kind));
 }
+
+// ---------- R-147 使用手册:读取 docs/目录.md 并渲染到对话区顶部 ----------
+// 内容来源是项目根下 docs/目录.md(项目使用手册与作者说明文字),不存在时不显示区块。
+// 启动与切换项目都会触发(见 09-sessions.js renderProjects 与 18-startup.js),此处只负责读与渲染。
+async function refreshManual() {
+  const panel = $("manual-panel");
+  const body = $("manual-body");
+  if (!panel || !body || !currentProject) return;
+  try {
+    const r = await invoke("file_preview", { projectDir: currentProject, path: "docs/目录.md" });
+    if (r.binary) throw new Error(t("手册文件不是文本"));
+    const html = renderMarkdown(r.content || "");
+    body.innerHTML = html;
+    const hint = $("manual-toggle-hint");
+    if (hint) hint.textContent = `(${t("点击展开")})`;
+    panel.classList.remove("hidden");
+  } catch (err) {
+    // 没有手册文件(如其它项目)时保持隐藏,不算错误;只有面板已挂载过内容后失败才提示。
+    if (!panel.classList.contains("hidden")) log(`使用手册刷新失败:${err}`, "warn");
+    panel.classList.add("hidden");
+    body.innerHTML = "";
+  }
+}
+

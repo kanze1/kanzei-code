@@ -632,6 +632,8 @@ function renderProjects(prefs) {
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
   restoreProjectPrefs();
   checkProjectIsolation();
+  // R-147:手册内容随项目走——启动首次确定项目与切换/移除项目时都刷新一次。
+  if (typeof refreshManual === "function") refreshManual();
   if (previousProject !== currentProject) {
     activeProcessId = null;
     activeSessionId = null;

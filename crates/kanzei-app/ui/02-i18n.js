@@ -1,4 +1,7 @@
 const I18N_EN = {
+  "使用手册": "Manual",
+  "点击展开": "click to expand",
+  "手册文件不是文本": "Manual file is not text",
   "停止中…": "Stopping…",
   "鞭挞续跑失败": "Auto-continue failed",
   "发送失败": "Send failed",

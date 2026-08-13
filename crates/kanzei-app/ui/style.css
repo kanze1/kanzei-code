@@ -580,6 +580,26 @@ select {
    `messages.innerHTML = ""`,一清就把按钮删了,之后 updateLatestButton 拿到
    null 直接抛 TypeError(2026-08-12 实测:恢复历史与新建并行线路全崩)。 */
 #chat-area { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+/* R-147 使用手册:对话区顶部独立折叠区块。默认 .hidden 收起,展开后内容给上界
+   内部滚动,不让一份长手册把对话区挤没。 */
+.manual-panel { flex: 0 0 auto; margin: 10px 18px 0; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--panel); }
+.manual-panel > summary {
+  padding: 8px 12px; cursor: pointer; list-style: none; user-select: none;
+  font-size: 13px; font-weight: 600; color: var(--fg-strong); border-radius: 6px;
+  display: flex; align-items: baseline; gap: 8px;
+}
+.manual-panel > summary::-webkit-details-marker { display: none; }
+.manual-panel > summary::before { content: "▸"; color: var(--fg-dim); font-size: 10px; transition: transform 0.12s ease; }
+.manual-panel[open] > summary::before { transform: rotate(90deg); }
+.manual-panel > summary:hover { background: var(--panel2); }
+.manual-panel > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.manual-body { max-height: 34vh; overflow-y: auto; padding: 4px 14px 12px; font-size: 12.5px; line-height: 1.55; }
+.manual-body > :first-child { margin-top: 8px; }
+.manual-body h1, .manual-body h2, .manual-body h3 { margin: 14px 0 6px; }
+.manual-body p, .manual-body ul, .manual-body ol, .manual-body table { margin: 6px 0; }
+.manual-body table { border-collapse: collapse; }
+.manual-body td, .manual-body th { border: 1px solid var(--border-soft); padding: 3px 8px; }
+.manual-body pre { overflow-x: auto; background: var(--panel2); padding: 8px; border-radius: 4px; }
 #messages { flex: 1; overflow-y: auto; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
 #jump-latest { position: absolute; right: 22px; bottom: 14px; z-index: 2; box-shadow: 0 2px 8px #0008; }
 #messages .message-body { min-width: 0; }

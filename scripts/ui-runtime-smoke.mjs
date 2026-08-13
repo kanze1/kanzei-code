@@ -648,6 +648,8 @@ const payloads = {
     dirNotes: { "src": "源码目录" },
     unannotated: 1,
   },
+  // R-147:使用手册内容源——docs/目录.md 的文件预览桩。
+  file_preview: { content: "# 使用手册\n\n冒烟手册段落:kanzei 使用说明与作者的话。", binary: false, truncated: false, size: 96 },
   docs_snapshot: {
     requirements: [docEntry("R-001", "冒烟需求", "doing", { complexity: "中", batches: { done: 3, total: 11 }, fields: [["备注", "待更新"], ["验收", "这是一条刻意超过六十字符的长验收文本,用来验证编辑表单会把段落型字段升级为多行文本域,而不是塞进单行输入框把值截断到看不见"]], dependencies: [], dependents: ["R-002"] }), docEntry("R-002", "冒烟需求二", "todo", { batches: { done: 0, total: 1 }, dependencies: ["R-001"], dependents: [] })],
     defects: [docEntry("D-001", "冒烟缺陷", "open", { severity: "medium", fields: [["复现", "待澄清: 用户视角的易用性还是模型可消费性?"]] })],
@@ -1077,6 +1079,31 @@ try {
 await flush();
 assert(invokeLog.includes("projects_get"), `初始化未调用 projects_get(启动序列断裂),已见调用: ${invokeLog.join(",")}`);
 assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
+// R-147 使用手册:启动后随项目自动读取 docs/目录.md 渲染到对话区顶部;读取失败
+// (项目没有手册文件)时区块保持隐藏,不显示空壳、不遮挡对话。
+{
+  const manualPanel = byId.get("manual-panel");
+  const manualBody = byId.get("manual-body");
+  assert(manualPanel && manualBody, "使用手册区块未渲染(index.html 缺 manual-panel/manual-body)");
+  assert(
+    invokeArgs.some(({ cmd, args }) => cmd === "file_preview" && args?.path === "docs/目录.md"),
+    "启动后未读取 docs/目录.md(使用手册加载链路断了)",
+  );
+  assert(!manualPanel.classList.contains("hidden"), "有手册内容时使用手册区块应可见(仍 hidden)");
+  assert(
+    manualBody.textContent.includes("冒烟手册段落"),
+    `手册内容未渲染进 manual-body: "${manualBody.textContent.slice(0, 80)}"`,
+  );
+  // 无手册文件的项目:读取失败 → 区块隐藏;恢复读取后重新显示。
+  invokeFailures.set("file_preview", "无法打开 docs/目录.md");
+  await sandbox.refreshManual();
+  await flush();
+  assert(manualPanel.classList.contains("hidden"), "手册读取失败时区块应隐藏(不显示空壳)");
+  invokeFailures.delete("file_preview");
+  await sandbox.refreshManual();
+  await flush();
+  assert(!manualPanel.classList.contains("hidden"), "恢复读取后区块未重新显示");
+}
 // D-317:空配置必须停在明确的「未选择项目」状态，不能因渲染而触发项目级请求。
 // 后端另有纯函数反证锁死「不拿 current_dir 造项目」；这里验证 classic-script 的空态承载。
 {

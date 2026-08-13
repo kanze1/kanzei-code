@@ -164,6 +164,12 @@
           </details>
         </header>
         <div id="chat-area">
+          <!-- R-147:页面顶部独立「使用手册」区块——展示 docs/目录.md(项目使用手册
+               与作者说明文字),可折叠,默认收起不遮挡对话。 -->
+          <details id="manual-panel" class="manual-panel hidden">
+            <summary class="manual-summary"><span data-i18n-key="使用手册">使用手册</span> <span id="manual-toggle-hint" class="dim"></span></summary>
+            <div id="manual-body" class="manual-body"></div>
+          </details>
           <section id="messages">
             <div id="empty-state">
               <div class="logo-mark">K</div>
