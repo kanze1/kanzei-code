@@ -449,7 +449,7 @@
 - 验收: ①全部已知键有说明与默认值;②单侧增删键时一致性测试变红;③D-300 修复后的 barrier_timeout_secs 在参考里可见。
 - refs: D-300 R-172
 
-## R-208 新建 kanzei-base 零依赖底层 crate:承接 atomic_file 与 FileLock,解开 llm 寄居 [open]
+## R-208 新建 kanzei-base 零依赖底层 crate:承接 atomic_file 与 FileLock,解开 llm 寄居 [todo]
 - 优先级: P3
 - 复杂度: 小
 - 标签: 后端 核心
@@ -458,6 +458,10 @@
 - 边界: 纯搬迁零行为变更;过渡期保留 re-export 避免大面积改 use。
 - 验收: ①kanzei-llm 不再导出文件系统原语;②kanzei-harness 可直接依赖该 crate;③全仓测试绿。
 - refs: R-181 R-203
+- 进展: 2026-08-13 D-332 B3 存量收敛:本条标题 [open] 为非法 lifecycle 污染(requirement 合法枚举 todo/doing/done/dropped),经 normalize 识别并修正为 todo;标题状态标记已剥离。原状态为 todo(未开工)。
+- observed_head: 7f3822b37f847661673732dc8df1154d421aa1f8
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786612470593
 
 ## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [todo]
 - 优先级: P3

@@ -7,14 +7,14 @@
 - 影响: 治理系统对自己最关键的控制状态采用 permissive parsing——已完成需求可能被重新执行(重复工作/错误工作);修复动作不存在导致脏数据永久积压;验证 pipeline 组合摩擦让每条提交多 5-6 次机械 tool call;Agent 把 token 花在反刍已冻结决策上。两份评估一致认定:fail-open 是当前最值得优先修的治理缺陷(P0),其余是 P1 摩擦。
 - 来源: 用户消息(2026-08-13 两份运行评估合并:16:52 首评 + 16:54 补评「两个结合起来」),第一份结尾明确指令「把这个分析登记成最新的缺陷,然后把这个缺陷排序成当前的第一个任务,解决并发版」
 - 标签: 核心
-- 进展: B2 完成(2026-08-13):tracker normalize 统一 repair surface 落地——①TrackerInput 加 apply 字段;②normalize 动作(dry-run 默认/apply 落盘):invalid lifecycle 报告 + apply 时显式 status 参数机械写入(不猜语义)、duplicate fields 同 key 大小写不敏感去重保留首条、标题状态标记剥离(strip_status_markers)、活动区终态报告应归档、归档区非终态/非法/重复字段只报告(归档写通道不公开整表,走 fix_terminal/reopen);③normalize 豁免 D-140 完整性门禁(dry-run 是只读诊断,apply 是修复动作);④CLI 分支 kz req|defect normalize [--apply] [--status X]。测试:normalize_dry_run_reports_and_apply_fixes(污染构造→dry-run 报告不改→apply 修 lifecycle/去重/剥标记→幂等复查)、normalize_reports_archived_mismatch_without_writing(归档只报告不写)新增通过;kanzei-tools 305 passed、kanzei 15 passed、clippy -D warnings 干净。B2 提交后 B3:存量污染收敛(R-208 用 normalize 修复)。
+- 进展: B3 存量收敛(2026-08-13,部分完成):①R-208 已收敛——非法 lifecycle [open] 经 req update 修正为 todo、标题剥离 [open](工具通道,非 CLI);②CLI 侧 kz req normalize dry-run 实测工作:识别活动区 R-234/R-235 重复优先级字段、R-208 非法 open、归档区 R-201/R-198/R-199/R-213 [open][done] 双终态污染、R-225/R-226 重复进展字段;但 CLI apply 写盘被托管围栏拦截(CLI 非合法写通道,正确);③工具通道(req update)对存量双字段无法去重(update 只覆盖首个匹配)——证明 normalize apply 是唯一合法 repair 面,需引擎重启后经工具执行;④R-208 收敛完成,其余存量(R-234/R-235 双字段、归档 4 条双终态)登记为 D-333 待引擎重启后用 normalize/fix_terminal 收敛。B3 验收①(work next 不选非法条目)由 B1 测试覆盖,②(存量收敛)由 R-208 + D-333 承接。
 - 验收: ①未知/畸形 lifecycle(requirement 出现 `[open]`/`[fixed]` 等)解析后进入 INVALID,`work next` 永不选中,integrity 错误明示条目与非法值(有测试:构造 `[open]` 污染需求,断言 work next 不选它且报 integrity 错误);②存在统一 repair surface(`tracker normalize` 或等价):能机械、幂等、dry-run-first 修复 invalid lifecycle、duplicate fields、title/status mismatch、multi-marker、archive/active mismatch;存量 R-208/R-233 污染用工具收敛(有测试);③验证 pipeline 重排:fmt 在 test 之前执行,commit gate 不再在提交时第一次暴露 fmt 问题(有测试断言 commit 前已 fmt);④test evidence 绑定 source/staged hash,不再纯靠 mtime;fmt 后若仅 non-semantic 变换,Harness 判定可复用或自动重测(有测试);⑤test_record 写入不再让 staged set 抖动(Harness 自动纳入 expected set 或独立 ledger)(有测试);⑥work next 裁决后给 decision_locked 信号,无新 control-plane fact 时不再被重新讨论(结构化证据);⑦work lease 与 turn granularity 解耦:强约束 = 同时一个 mutation WIP,做完释放后可继续下一项(调度语义明确,有测试);⑧全量 workspace 测试绿,发版。
 - 优先级: P0
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-332
-- 批次: 2/6
-- observed_head: 5784b631989a1e2e74571ef6236b55ef144bf341
-- observed_worktree_hash: fnv1a64:483a81b35697fb47
-- recorded_at: 1786612431361
+- 批次: 3/6
+- observed_head: 7f3822b37f847661673732dc8df1154d421aa1f8
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786612524367
 
 ## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixing] (medium)
 - refs: D-205 R-105 R-107
@@ -99,3 +99,13 @@
 - 进展: 2026-08-10 取活时仍待澄清:候选 a)恢复丢轮内进度 b)工具轨迹糊成一批 c)只能按整轮拿消息 d)其他——机制现状已核实(三层都是轮粒度),按 D-205 教训不代用户猜死;本轮跳过,待用户确认维度后改写验收再取活。
 
 - 阻塞: 用户: 2026-08-09 用户原话「落库对话粒度太粗」的具体痛点维度待指认(候选 a 恢复丢轮内进度 / b 工具轨迹糊成一批 / c 只能按整轮拿消息 / d 其他)——按 D-205 教训不代用户猜死。解除动作: 用户在 a/b/c/d 中指认具体痛点(或给出等价目标),再改写验收取活。解除人: 用户。
+
+## D-333 存量 tracker 污染收敛:活动区双优先级字段、归档区双终态标记、重复进展字段(D-330/D-331 修复前残留) [open] (low)
+- refs: D-332 D-331 D-330
+- 复杂度: 小
+- 复现: normalize dry-run 全仓扫描实测检出(2026-08-13,CLI kz req normalize):活动区 R-234/R-235 各带重复「优先级」字段(D-330 修复前的存量);归档区 R-201/R-198/R-199/R-213 标题为 [open][done] 双终态标记(D-331 修复前的存量,parser 只剥最后一个 done,[open] 残留标题);归档区 R-225/R-226 重复「进展」字段。当前会话引擎跑旧编译,工具通道(req update)对存量双字段无法去重(update 只覆盖首个匹配),CLI normalize apply 写盘被托管围栏拦截。
+- 影响: 重复字段让 UI 显示歧义(哪个优先级生效未知);归档双终态标记污染统计与审计;这些是 D-330/D-331 修复前的存量,合法修复面 normalize/fix_terminal 已存在但需引擎重启后执行。
+- 来源: self-found(D-332 B3 存量收敛时 normalize 扫描检出)
+- 标签: 核心
+- 验收: ①R-234/R-235 各只剩一个「优先级」字段,值与首个一致(有测试或工具输出证据);②归档 R-201/R-198/R-199/R-213 标题只剩单一终态标记,残留的 open 标记被剥离(有测试或工具输出证据);③R-225/R-226 归档重复「进展」字段收敛;④全程走专用工具(normalize apply / fix_terminal / req update),无手改 markdown。
+- 优先级: P1
