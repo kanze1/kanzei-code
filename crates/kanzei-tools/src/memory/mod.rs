@@ -1067,6 +1067,32 @@ fn prompt_hints_with_budget(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     hits.truncate(3);
+    // 连续轮次同 query 同命中集不重复注入:自主轮拿固定的取活标题做检索键,
+    // 每轮塞同一批索引行(实证:单条目连续注入 138 次仅 25 次采纳,后段归零)。
+    // continue 链共享消息历史,上一轮的 hints 还在上下文里,重复注入是纯噪声,
+    // 还把召回遥测刷成"高召回零采纳"的假象。query 或命中集任一变化照常注入。
+    {
+        let head: String = prompt.chars().take(160).collect();
+        let mut current_ids: Vec<&str> = hits.iter().map(|h| h.entry.id.as_str()).collect();
+        current_ids.sort_unstable();
+        let project = &stores[0];
+        if let Some(last) = project.recalls(1).into_iter().next() {
+            let mut last_ids: Vec<&str> = last.hits.iter().map(|h| h.id.as_str()).collect();
+            last_ids.sort_unstable();
+            // 30 分钟时间窗:continue 链的轮间隔远小于它;跨会话冷启动(新上下文
+            // 里没有旧 hints)超窗后照常注入,不被历史误抑制。
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            if last.prompt_head == head
+                && last_ids == current_ids
+                && now.saturating_sub(last.at) < 30 * 60 * 1000
+            {
+                return None;
+            }
+        }
+    }
     // D-216:已在常驻索引里的条目只给指向不重复整行(重复的大头是 description);
     // 被预算折叠掉的条目才值得在这里给全行。
     let (_, resident_ids, _) = resident_index(project_root, budget);
@@ -1271,6 +1297,18 @@ mod tests {
         let hit = prompt_hints(&dir, "帮我把这一批发版出去", false);
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
+        // 连续轮次同 query 同命中集不重复注入(自主轮固定检索键的实证噪声:
+        // 单条目连续注入 138 次仅 25 次采纳)——continue 链共享历史,上一轮
+        // 的 hints 还在上下文里。
+        assert!(
+            prompt_hints(&dir, "帮我把这一批发版出去", false).is_none(),
+            "同 query 同命中集 30 分钟内不得重复注入"
+        );
+        // query 变化照常注入(命中同一条目也算新语境)。
+        assert!(
+            prompt_hints(&dir, "发版流程要走哪些步骤", false).is_some(),
+            "query 变化后应恢复注入"
+        );
         assert!(prompt_hints(&dir, "完全无关的宇宙话题", false).is_none());
         // 自动轮不拿 prompt 当检索键:这个临时项目没有 tracker 取活条目,
         // 于是不注入——而不是用模板 prompt 去捞一批不相干的条目回来。
