@@ -81,6 +81,10 @@ pub enum AutoRunAction {
     Continue,
     /// 无动作第一次:追加一条具体推进指令(计数已 +1,占一轮)。
     Nudge,
+    /// R-144:已关闭 N 条,插入一轮只读验收核查(计数已 +1,占一轮;核查
+    /// 复用 SubagentBase read/glob/grep,核对验收证据与真实调用方,发现问题
+    /// 生成候选缺陷或退回依据,不进入主 conversation/queue)。
+    VerifyRound,
     /// 停止(计数已重置;携带原因供 UI 展示)。
     Stop(AutoStopReason),
     /// 用户拒绝/手动停止本轮:不续跑、不重置计数(等手动输入重新武装)。
@@ -124,6 +128,24 @@ pub fn nudge_prompt(work_priority: WorkPriority) -> String {
     )
 }
 
+/// R-144:验收核查轮指令。自主推进每关闭 N 条后,引擎生成这条核查指令作为下一轮
+/// 输入——主代理用只读 task 子代理(read/glob/grep,SubagentBase)核对最近关闭
+/// 条目的验收证据与真实调用方,发现「宣称完成但无证据/无调用方」即生成候选缺陷
+/// (defect add)或退回依据。核查不进入主 conversation/queue:它是一条独立输入,
+/// 结果以 notice/候选缺陷形式可见,不污染主对话历史。与 nudge_prompt 同哲学:
+/// 模板在引擎,前端不持文案。
+pub fn verify_prompt() -> String {
+    "验收核查轮:自主推进已连续关闭 N 条,现在插入一轮只读验收核查(不进入主对话历史)。\n\
+     用 task 子代理(只读 read/glob/grep)核对最近关闭的若干条目:\n\
+     第一,逐条读其关闭证据(进展/验收字段),核对引用的测试 ID 是否真实存在于 tests 记录,\n\
+     file:line 是否真实存在;\n\
+     第二,核对「声称完成的能力」是否有真实调用方或消费者——死代码、只展示未接入的界面壳不算完成;\n\
+     第三,发现「宣称完成但证据不足/无调用方」的条目:用 defect add 生成候选缺陷(标注严重度与优先级,\n\
+     来源写 self-found 验收核查),或给出退回依据(进展里写明缺口)。\n\
+     核查完成后继续正常推进。"
+        .to_string()
+}
+
 /// 自主推进状态:跨轮计数与用户一次性意图。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AutoRunState {
@@ -137,6 +159,9 @@ pub struct AutoRunState {
     pub stop_after_round: bool,
     /// 连续无实质动作的轮数:第一次追加推进指令,第二次才停。
     no_action_rounds: u32,
+    /// R-144:自上次核查以来累计关闭的条目数。达阈值(verify_every_n)即触发
+    /// 一轮只读验收核查,触发后归零。
+    pub closed_since_verify: u32,
 }
 
 impl AutoRunState {
@@ -147,6 +172,7 @@ impl AutoRunState {
             paused: false,
             stop_after_round: false,
             no_action_rounds: 0,
+            closed_since_verify: 0,
         }
     }
 
@@ -154,6 +180,7 @@ impl AutoRunState {
     pub fn reset(&mut self) {
         self.rounds = 0;
         self.no_action_rounds = 0;
+        self.closed_since_verify = 0;
     }
 
     /// 轮末判定。判定顺序与前端 07-events.js:288-352 完全一致:
@@ -196,6 +223,14 @@ impl AutoRunState {
             return self.stop_with(AutoStopReason::NoAction);
         }
         self.no_action_rounds = 0;
+        // R-144:先累加本轮关闭数,达阈值(>0 且 >=N)则插入一轮只读验收核查
+        // (计数 +1 占一轮;核查由调用方执行,归零后再续跑)。
+        self.closed_since_verify += ctx.closed_this_round;
+        if ctx.verify_every_n > 0 && self.closed_since_verify >= ctx.verify_every_n {
+            self.closed_since_verify = 0;
+            self.rounds += 1;
+            return AutoRunAction::VerifyRound;
+        }
         self.rounds += 1;
         AutoRunAction::Continue
     }
@@ -226,6 +261,10 @@ pub struct AutoRunCtx<'a> {
     pub tools: &'a [String],
     /// R-199:当前模式是否允许自主推进(引擎知道的档位条件,前端不再持有)。
     pub auto_allowed: bool,
+    /// R-144:本轮实际关闭的条目数(req/defect close 成功计数)。
+    pub closed_this_round: u32,
+    /// R-144:验收核查阈值——每关闭 N 条插入一轮只读核查;0 = 关闭该机制。
+    pub verify_every_n: u32,
 }
 
 #[cfg(test)]
@@ -243,6 +282,8 @@ mod tests {
             steps: 1,
             tools,
             auto_allowed: true,
+            closed_this_round: 0,
+            verify_every_n: 0,
         }
     }
 
@@ -350,6 +391,61 @@ mod tests {
         assert_eq!(state.rounds, 0);
     }
 
+    /// R-144 B1:每关闭 N 条触发一轮只读核查(VerifyRound),触发后计数归零;
+    /// verify_every_n=0 关闭机制;未达阈值正常续跑。
+    #[test]
+    fn 每关闭n条触发核查轮_阈值0关闭机制() {
+        // 阈值 3:两轮各关 1 + 2 条 → 第 2 轮末触发 VerifyRound。
+        let mut state = AutoRunState::new(10);
+        let ok = AutoRunCtx {
+            steps: 2,
+            tools: &mk_tools(&["req", "edit"]),
+            closed_this_round: 1,
+            verify_every_n: 3,
+            ..ctx_with_tools(&[])
+        };
+        assert_eq!(state.decide(&ok), AutoRunAction::Continue);
+        assert_eq!(state.closed_since_verify, 1, "未达阈值只累计");
+        let ok2 = AutoRunCtx {
+            steps: 2,
+            tools: &mk_tools(&["req", "edit"]),
+            closed_this_round: 2,
+            verify_every_n: 3,
+            ..ctx_with_tools(&[])
+        };
+        assert_eq!(
+            state.decide(&ok2),
+            AutoRunAction::VerifyRound,
+            "累计达 3 必须触发核查轮"
+        );
+        assert_eq!(state.closed_since_verify, 0, "触发后计数归零");
+        assert_eq!(state.rounds, 2, "核查轮占一轮计数");
+
+        // 阈值 0 = 关闭机制:关闭再多也直接续跑。
+        let mut off = AutoRunState::new(10);
+        let close_many = AutoRunCtx {
+            steps: 2,
+            tools: &mk_tools(&["req", "edit"]),
+            closed_this_round: 99,
+            verify_every_n: 0,
+            ..ctx_with_tools(&[])
+        };
+        assert_eq!(off.decide(&close_many), AutoRunAction::Continue);
+        assert_eq!(off.closed_since_verify, 99, "机制关闭时累计无意义但不阻断");
+
+        // 单轮关闭超过阈值:当场触发。
+        let mut burst = AutoRunState::new(10);
+        let burst_ctx = AutoRunCtx {
+            steps: 2,
+            tools: &mk_tools(&["req", "edit"]),
+            closed_this_round: 5,
+            verify_every_n: 3,
+            ..ctx_with_tools(&[])
+        };
+        assert_eq!(burst.decide(&burst_ctx), AutoRunAction::VerifyRound);
+        assert_eq!(burst.closed_since_verify, 0);
+    }
+
     #[test]
     fn 暂停时停止_恢复后继续() {
         let mut state = AutoRunState::new(10);
@@ -441,6 +537,8 @@ mod tests {
             steps: 2,
             tools: &t,
             auto_allowed: true,
+            closed_this_round: 0,
+            verify_every_n: 0,
         };
         assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
     }

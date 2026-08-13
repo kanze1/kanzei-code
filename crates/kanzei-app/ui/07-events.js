@@ -366,6 +366,20 @@ on("kz:done", async (e) => {
     // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
     // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
     armAutoContinue(action.prompt, p.sessionId);
+  } else if (action.type === "VerifyRound") {
+    // R-144:已关闭 N 条,插入一轮只读验收核查(SubagentBase read/glob/grep)。
+    // 核查不进入主 conversation/queue:核查指令(action.prompt,引擎生成)作为
+    // 下一轮输入发回,主代理用只读 task 子代理核对验收证据与真实调用方,
+    // 发现问题生成候选缺陷或退回依据;前端只显示状态并继续。
+    autoRounds = action.rounds ?? autoRounds + 1;
+    const max = action.max ?? autoContinueMax();
+    addMessage("notice", t("已关闭 N 条,插入一轮只读验收核查(核对验收证据与真实调用方)"));
+    log(`${t("鞭挞")}:${t("验收核查轮")}`);
+    renderAutoStatus(`${t("验收核查轮")} ${autoRounds}/${max}`);
+    if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: autoRounds });
+    if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("验收核查轮")} ${autoRounds}/${max} · 2 ${t("秒后继续")}…`);
+    if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
+    armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
   } else if (action.type === "Stop") {
     if (p.sessionId) transitionSession(p.sessionId, "idle");
     if (!p.sessionId || p.sessionId === activeSessionId) clearRunPending();

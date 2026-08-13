@@ -996,6 +996,12 @@ pub(crate) async fn run_task(
             // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
             auto_allowed: matches!(profile, kanzei_harness::ProfileKind::Dev)
                 && agent.name == "dev",
+            // R-144:本轮关闭条目数(工具画像里 req/defect close 成功计数)。
+            closed_this_round: crate::auto_run::closed_count_this_round(&summary),
+            // R-144:核查阈值取自 cadence 配置;0 = 关闭该机制。
+            verify_every_n: kanzei_harness::KanzeiConfig::load_at_root(&project_root)
+                .map(|c| c.cadence.verify_every_n)
+                .unwrap_or(0),
         };
         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
         let mut payload = crate::auto_run::serialize_action(
@@ -1563,6 +1569,12 @@ pub(crate) fn cadence_guidance(cadence: &kanzei_harness::config::Cadence) -> Str
             parts.push("push on a periodic schedule, not after every entry".into())
         }
         PushCadence::PerEntry => {}
+    }
+    if cadence.verify_every_n > 0 {
+        parts.push(format!(
+            "auto-verify: a read-only acceptance check round runs every {} closed entries",
+            cadence.verify_every_n
+        ));
     }
     if parts.is_empty() {
         return String::new();
@@ -2538,6 +2550,7 @@ mod assembly_tests {
             targeted_test: TargetedTestCadence::Off,
             commit: CommitCadence::PerEntry,
             push: PushCadence::PerCommit,
+            verify_every_n: 0,
         };
         let text = super::cadence_guidance(&custom);
         assert!(text.contains("every 3 batches"), "{text}");

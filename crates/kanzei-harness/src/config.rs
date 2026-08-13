@@ -167,6 +167,16 @@ pub struct Cadence {
     /// push 频率:条目完成后 push(默认)| 每提交后 push | 定期(与 R-143 并轨)。
     #[serde(default)]
     pub push: PushCadence,
+    /// R-144:验收核查节律——自主推进(鞭挞)每关闭 N 条自动插入一轮只读核查
+    /// (复用 SubagentBase read/glob/grep,核对已完成条目的验收证据与真实调用方,
+    /// 发现问题生成候选缺陷或退回依据,不进入主 conversation/queue)。
+    /// 0 = 关闭该机制(默认 3)。
+    #[serde(default = "default_verify_every_n")]
+    pub verify_every_n: u32,
+}
+
+fn default_verify_every_n() -> u32 {
+    3
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
@@ -1022,6 +1032,7 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
                 "targeted_test",
                 "commit",
                 "push",
+                "verify_every_n",
             ],
             &mut out,
         );

@@ -89,6 +89,39 @@ pub fn decide_auto_run(ctrl: &mut AutoRunController, ctx: AutoRunCtx) -> AutoRun
     ctrl.state.decide(&ctx)
 }
 
+/// R-144:统计本轮实际**成功关闭**的条目数。只数 req/defect 工具调用中
+/// action=close 且对应 ToolResult 非 error 的——「调用了 close」不等于「关闭成功」,
+/// 被门禁拦下的 close(R-228/R-229 等)不算数,否则核查节律会被失败调用刷阈值。
+/// 配对方式:先收集 close 调用的 call_id,遇到对应 ToolResult 且 !is_error 时 +1。
+pub fn closed_count_this_round(summary: &kanzei_core::RunSummary) -> u32 {
+    use kanzei_llm::Part;
+    use std::collections::BTreeSet;
+    let mut close_ids: BTreeSet<String> = BTreeSet::new();
+    let mut done: BTreeSet<String> = BTreeSet::new();
+    let mut count = 0u32;
+    for message in &summary.messages {
+        for part in &message.parts {
+            match part {
+                Part::ToolCall { id, name, input } => {
+                    let is_close = matches!(name.as_str(), "req" | "defect")
+                        && input.get("action").and_then(serde_json::Value::as_str) == Some("close");
+                    if is_close {
+                        close_ids.insert(id.clone());
+                    }
+                }
+                Part::ToolResult {
+                    call_id, is_error, ..
+                } if close_ids.contains(call_id) && !done.contains(call_id) => {
+                    done.insert(call_id.clone());
+                    count += u32::from(!is_error);
+                }
+                _ => {}
+            }
+        }
+    }
+    count
+}
+
 /// backlog 判定(R-169):实现已下沉 kanzei-tools::tracker::backlog_status,
 /// 桌面端与 CLI 共用同一实现(D-229 架构债消除)。此处只做转发,不留第二份逻辑。
 pub fn backlog_status(project_root: &Path) -> BacklogStatus {
@@ -101,6 +134,14 @@ pub fn serialize_action(action: AutoRunAction, work_priority: WorkPriority) -> s
     match action {
         AutoRunAction::Continue => json!({ "type": "Continue" }),
         AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt(work_priority) }),
+        // R-144:核查轮——前端收到后把核查指令作为下一轮输入发回(与 Nudge 同款
+        // 机制),主代理用只读 task 子代理(read/glob/grep)核对最近关闭条目的
+        // 验收证据与真实调用方;发现问题生成候选缺陷或退回依据。核查指令由引擎
+        // 生成(harness verify_prompt),前端不持模板——与 nudge_prompt 同一哲学。
+        AutoRunAction::VerifyRound => json!({
+            "type": "VerifyRound",
+            "prompt": kanzei_harness::auto_run::verify_prompt(),
+        }),
         AutoRunAction::NoContinue => json!({ "type": "NoContinue" }),
         AutoRunAction::Stop(reason) => {
             let (reason_str, max) = match reason {
@@ -132,7 +173,6 @@ pub fn work_priority_enum(v: &str) -> WorkPriority {
 #[cfg(test)]
 mod tests {
     use super::{apply_state_update, AutoRunController};
-
     #[test]
     fn 开关切换会清空本会话旧轮数_上限保持边界约束() {
         let mut ctrl = AutoRunController {
@@ -163,5 +203,72 @@ mod tests {
         assert_eq!(first.state.rounds, 4);
         assert_eq!(second.state.rounds, 0);
         assert_eq!(second.state.max_rounds, 2);
+    }
+
+    /// R-144:closed_count_this_round 只数「action=close 且结果非 error」的 req/defect
+    /// 调用——被门禁拦下的 close 不算(否则核查节律被失败调用刷阈值)。
+    #[test]
+    fn closed计数_只数成功的close调用_失败与其它工具不计() {
+        use kanzei_llm::{Message, Part};
+        let msg = |parts: Vec<Part>| Message {
+            role: kanzei_llm::Role::User,
+            parts,
+        };
+        let summary = kanzei_core::RunSummary {
+            text: String::new(),
+            usage: kanzei_llm::Usage::default(),
+            steps: 4,
+            halted_by_user: false,
+            messages: vec![
+                msg(vec![Part::ToolCall {
+                    id: "c1".into(),
+                    name: "req".into(),
+                    input: serde_json::json!({"action": "close", "id": "R-001"}),
+                }]),
+                msg(vec![Part::ToolResult {
+                    call_id: "c1".into(),
+                    content: "closed".into(),
+                    is_error: false,
+                }]),
+                msg(vec![Part::ToolCall {
+                    id: "c2".into(),
+                    name: "defect".into(),
+                    input: serde_json::json!({"action": "close", "id": "D-001"}),
+                }]),
+                msg(vec![Part::ToolResult {
+                    call_id: "c2".into(),
+                    content: "门禁拒绝".into(),
+                    is_error: true,
+                }]),
+                msg(vec![Part::ToolCall {
+                    id: "c3".into(),
+                    name: "req".into(),
+                    input: serde_json::json!({"action": "update", "id": "R-002"}),
+                }]),
+                msg(vec![Part::ToolResult {
+                    call_id: "c3".into(),
+                    content: "updated".into(),
+                    is_error: false,
+                }]),
+            ],
+            context_report: vec![],
+            overflow_traces: vec![],
+        };
+        // c1 成功 close → 计 1;c2 close 失败 → 不计;c3 是 update → 不计。
+        assert_eq!(super::closed_count_this_round(&summary), 1);
+    }
+
+    /// R-144:VerifyRound 序列化必须携带引擎生成的核查指令 prompt(前端据此发回
+    /// 核查轮输入),不能是空壳。
+    #[test]
+    fn verifyround序列化_携带核查指令prompt() {
+        let v = super::serialize_action(
+            kanzei_harness::auto_run::AutoRunAction::VerifyRound,
+            super::WorkPriority::DefectFirst,
+        );
+        assert_eq!(v["type"], "VerifyRound");
+        let prompt = v["prompt"].as_str().unwrap_or("");
+        assert!(prompt.contains("验收核查"), "{prompt}");
+        assert!(prompt.contains("只读"), "{prompt}");
     }
 }

@@ -226,7 +226,7 @@ function handleBackgroundSessionDone(payload) {
   const action = payload.autoAction || { type: "NoContinue" };
   const state = sessionState(sessionId);
   state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
-  if (action.type === "Continue" || action.type === "Nudge") {
+  if (action.type === "Continue" || action.type === "Nudge" || action.type === "VerifyRound") {
     transitionSession(sessionId, "auto_pending", { auto_rounds: state.auto_rounds });
     refreshParallelTaskProjection(sessionId);
     armAutoContinue(action.type === "Nudge" ? action.prompt : DEFAULT_CONTINUE_PROMPT, sessionId);
