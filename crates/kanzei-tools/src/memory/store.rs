@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
 
-use super::{parse_entry, render_entry, today, MemoryEntry, MemoryScope, CATEGORIES, STATUSES};
+use super::{
+    date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, CATEGORIES, STATUSES,
+};
 
 /// 检索结果(含派生指标)。
 #[derive(Debug, Clone)]
@@ -71,6 +73,18 @@ pub enum Novelty {
     Duplicate,
     /// 不确定:有语义命中但非精确,才起 LLM 判断。
     Uncertain,
+}
+
+/// 一轮 candidate 自动处置的可审计结果。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CandidateReconcileReport {
+    pub candidate_files_before: usize,
+    pub candidate_files_after: usize,
+    pub candidate_index_before: usize,
+    pub candidate_index_after: usize,
+    pub promoted: Vec<String>,
+    pub deprecated: Vec<String>,
+    pub untouched: Vec<String>,
 }
 
 impl Novelty {
@@ -585,6 +599,100 @@ impl MemoryStore {
         self.write_entry(&entry, Some(&path))?;
         self.refresh_derived()?;
         Ok(entry)
+    }
+
+    /// 自动处置 candidate(R-195):
+    /// - 有真实当轮 episode、复发计数≥3 且带 fingerprint → promote(active);
+    /// - 没有晋升条件且超过 max_age_days 个日历日未处置 → deprecated 并归档;
+    /// - 其余保持 candidate,不改变「未验证不注入」边界。
+    ///
+    /// 这是确定性的轮末闸门,不依赖 manager 是否正确调用工具。晋升仍复用
+    /// promote 的 provenance 硬约束;清退复用 update/archive_dead,保留可追溯墓碑。
+    pub fn reconcile_candidates(
+        &self,
+        current_episode_id: Option<i64>,
+        max_age_days: i64,
+    ) -> anyhow::Result<CandidateReconcileReport> {
+        let before = self.load_all();
+        let mut report = CandidateReconcileReport {
+            candidate_files_before: before
+                .iter()
+                .filter(|(_, entry)| entry.status == "candidate")
+                .count(),
+            candidate_index_before: self.candidate_index_count(),
+            ..Default::default()
+        };
+        let today_days = date_days(&today());
+        let age_limit = max_age_days.max(1);
+        for (path, entry) in before {
+            if entry.status != "candidate" {
+                continue;
+            }
+            let recurrence = entry
+                .fingerprint()
+                .as_deref()
+                .map(|fingerprint| self.recurrence_count(fingerprint))
+                .unwrap_or(0);
+            if current_episode_id.is_some_and(|episode_id| {
+                recurrence >= 3
+                    && entry.fingerprint().is_some()
+                    && self
+                        .promote(
+                            &entry.id,
+                            &[(episode_id, None, None)],
+                            Some("candidate-reconcile"),
+                        )
+                        .is_ok()
+            }) {
+                report.promoted.push(entry.id);
+                continue;
+            }
+            let age = today_days
+                .zip(date_days(&entry.updated))
+                .map(|(now, updated)| now.saturating_sub(updated));
+            if age.is_some_and(|days| days >= age_limit) {
+                let reason = format!(
+                    "(auto-deprecated: candidate 超过 {age_limit} 个日历日未完成晋升，\
+                     无满足条件的 recurrence/provenance；原路径 {})",
+                    path.display()
+                );
+                let body = format!("{}\n\n{reason}", entry.body.trim_end());
+                if self
+                    .update(
+                        &entry.id,
+                        None,
+                        None,
+                        Some(&body),
+                        Some("deprecated"),
+                        None,
+                        false,
+                    )
+                    .is_ok()
+                {
+                    report.deprecated.push(entry.id);
+                    continue;
+                }
+            }
+            report.untouched.push(entry.id);
+        }
+        let after = self.load_all();
+        report.candidate_files_after = after
+            .iter()
+            .filter(|(_, entry)| entry.status == "candidate")
+            .count();
+        report.candidate_index_after = self.candidate_index_count();
+        Ok(report)
+    }
+
+    fn candidate_index_count(&self) -> usize {
+        let Ok(conn) = self.open_db() else { return 0 };
+        conn.query_row(
+            "SELECT COUNT(*) FROM memory_fts WHERE status = 'candidate'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count.max(0) as usize)
+        .unwrap_or(0)
     }
 
     fn write_entry(&self, entry: &MemoryEntry, existing_path: Option<&Path>) -> anyhow::Result<()> {
@@ -3820,6 +3928,106 @@ mod tests {
                 true,
             )
             .unwrap();
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-341 验收②:轮末自动处置机制测试——满足条件的 candidate 自动 promote,
+    /// 超期未处置自动 deprecated,未满足条件的不动;存量前后计数(文件+索引)可审计。
+    #[test]
+    fn reconcile_candidates_auto_promote_deprecate_and_keep() {
+        let (dir, store) = temp_store();
+        // ① 可晋升 candidate:带指纹 + 复发≥3 + 真实 episode(provenance 硬约束)。
+        let fp = format!("[fp:edit|reconcile #{}-{}]", std::process::id(), "r");
+        for _ in 0..3 {
+            store.bump_recurrence(&fp);
+        }
+        let AddOutcome::Added(promotable) = store
+            .add(
+                "sop",
+                "reconcile 可晋升",
+                "自动晋升钩子",
+                &format!("正文 {fp}"),
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        else {
+            panic!("expected Added")
+        };
+        assert_eq!(promotable.status, "candidate");
+        // ② 超期 candidate:手写 30 天前的文件(updated 远早于 max_age_days)。
+        let old_name = "M-990-超期候选.md";
+        std::fs::write(
+            store.root.join(old_name),
+            "---\nid: M-990\nscope: project\ncategory: sop\ntitle: reconcile 超期\ndescription: 超期钩子\nstatus: candidate\ncreated: 2026-07-01\nupdated: 2026-07-01\nsource: memory-manager\n---\n\n正文",
+        )
+        .unwrap();
+        // ③ 未达标 candidate:无指纹、updated 今天 → 不动。
+        let AddOutcome::Added(keep) = store
+            .add(
+                "sop",
+                "reconcile 未达标",
+                "未达标钩子",
+                "正文无指纹",
+                "memory-manager",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        else {
+            panic!("expected Added")
+        };
+        assert_eq!(keep.status, "candidate");
+        // 手写文件进 FTS,让索引计数与文件计数一致(存量 before 可审计)。
+        store.refresh_derived().unwrap();
+        let eid = crate::memory::seed_episode(&dir, "ses");
+        let report = store.reconcile_candidates(Some(eid), 14).unwrap();
+        let promotable_id = promotable.id.clone();
+        let keep_id = keep.id.clone();
+        assert_eq!(
+            report.promoted,
+            vec![promotable_id.clone()],
+            "复发≥3 + 真实 episode 应自动晋升"
+        );
+        assert_eq!(report.deprecated, vec!["M-990"], "超期未处置应自动清退");
+        assert_eq!(
+            report.untouched,
+            vec![keep_id.clone()],
+            "未达标应保持 candidate"
+        );
+        assert_eq!(report.candidate_files_before, 3, "存量 3 条 candidate 文件");
+        assert_eq!(
+            report.candidate_files_after, 1,
+            "promote + deprecated 后只剩未达标 1 条"
+        );
+        assert_eq!(report.candidate_index_before, 3, "索引与文件一致(before)");
+        assert_eq!(report.candidate_index_after, 1, "索引与文件一致(after)");
+        // 状态落地:promote → active(主目录文件仍在);deprecated → 归档(主目录无文件)。
+        let (_, p) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == promotable_id)
+            .unwrap();
+        assert_eq!(p.status, "active", "晋升条目必须落 active");
+        assert!(!store.root.join(old_name).exists(), "超期文件应移出主目录");
+        assert!(
+            store.load_archived_ids().contains(&"M-990".to_string()),
+            "归档 ID 保留防复用"
+        );
+        // 不满足条件的不动:keep 仍是 candidate、文件仍在主目录(未验证不注入边界不变)。
+        let (_, k) = store
+            .load_all()
+            .into_iter()
+            .find(|(_, e)| e.id == keep_id)
+            .unwrap();
+        assert_eq!(k.status, "candidate", "未达标条目必须保持 candidate");
+        assert!(
+            store.root.join(format!("{}.md", keep.file_stem())).exists(),
+            "未达标条目文件必须留在主目录"
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

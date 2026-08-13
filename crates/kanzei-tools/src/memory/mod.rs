@@ -12,7 +12,10 @@ mod tools;
 
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use manager::{consolidation_prompt, manager_agent, MemoryManagerComponent};
-pub use store::{AddOutcome, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit};
+pub use store::{
+    AddOutcome, CandidateReconcileReport, MemoryStore, Novelty, RecallHit, RecallRound, SearchHit,
+};
+
 pub use tools::{MemoryNoteTool, MemorySearchTool, MemoryStatsTool};
 
 use std::path::PathBuf;
@@ -928,6 +931,29 @@ pub fn harvest_end_of_run(
     (delivered, sop, fact)
 }
 
+/// candidate 自动处置的默认时限(R-195/D-341):超过 N 个日历日仍未满足
+/// 晋升条件(复发≥3 + 真实当轮 episode)的 candidate 自动 deprecated 归档。
+/// 取 14 天:给「复发计数随轮次增长」留足观察窗口,又不让存量无限堆积。
+pub const CANDIDATE_MAX_AGE_DAYS: i64 = 14;
+
+/// 轮末自动处置 candidate 的共享入口(R-195/D-341):CLI 与桌面端各在轮末
+/// episode 落库后调用一次,保证「判定动作真实被执行」,不依赖 manager 是否
+/// 自主调用 memory_promote/memory_stale。
+///
+/// 判定规则与 `MemoryStore::reconcile_candidates` 一致:
+/// - 有真实当轮 episode、复发计数≥3 且带 fingerprint → promote(active);
+/// - 没有晋升条件且超过 `max_age_days` 个日历日未处置 → deprecated 并归档;
+/// - 其余保持 candidate(不改变「未验证不注入」边界)。
+///
+/// 返回报告含存量前后计数(文件数与 FTS 索引数),供调用方打日志留证据。
+pub fn reconcile_candidates(
+    project_root: &std::path::Path,
+    current_episode_id: Option<i64>,
+    max_age_days: i64,
+) -> anyhow::Result<CandidateReconcileReport> {
+    MemoryStore::project(project_root).reconcile_candidates(current_episode_id, max_age_days)
+}
+
 /// 开跑预检索(R-106):拿本轮的检索键对两级记忆做混合检索(lexical BM25 +
 /// 可选 dense embedder + RRF,R-233),命中则返回提示块(只给索引行不给正文,
 /// 拉正文是模型自己的决定)。无命中返回 None。
@@ -1154,6 +1180,25 @@ pub fn today() -> String {
     let days = ms / 86_400_000;
     let (y, m, d) = civil_from_days(days);
     format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// YYYY-MM-DD → epoch day; invalid dates return None so hand-edited entries are left untouched.
+pub(super) fn date_days(value: &str) -> Option<i64> {
+    let mut parts = value.split('-');
+    let year: i64 = parts.next()?.parse().ok()?;
+    let month: i64 = parts.next()?.parse().ok()?;
+    let day: i64 = parts.next()?.parse().ok()?;
+    if parts.next().is_some() || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+    // Howard Hinnant's civil-from-days inverse, sufficient for date age comparisons.
+    let y = year - i64::from(month <= 2);
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = month + if month > 2 { -3 } else { 9 };
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    Some(era * 146097 + doe)
 }
 
 /// Howard Hinnant 的 civil_from_days:epoch 天数 → (年,月,日)。

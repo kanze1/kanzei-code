@@ -995,6 +995,14 @@ pub(crate) async fn run_task(
                     ctx.project_root.display().to_string(),
                     current_episode_id,
                 ));
+                // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
+                // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
+                // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。
+                let _ = kanzei_tools::memory::reconcile_candidates(
+                    &ctx.project_root,
+                    current_episode_id,
+                    kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
+                );
             }
             Err(error) => {
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {

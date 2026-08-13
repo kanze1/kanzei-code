@@ -777,6 +777,29 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // 轮末记忆整理(R-105):inbox 有草稿才起 manager 迷你 run,尽力而为。
     // R-213:把当轮 episode_id 代填给 manager,晋升证据才能指向真实轮次。
     consolidate_memory_inbox(&config, &proxy, &client, &rctx, &ctx, current_episode_id).await;
+    // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
+    // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
+    // 与 inbox 消化解耦:没有草稿也要跑,否则 candidate 永远躺着无人验收。
+    // 机械判定不依赖 LLM,失败不阻塞收尾(报告仅用于打日志留证据)。
+    if let Ok(report) = kanzei_tools::memory::reconcile_candidates(
+        &ctx.project_root,
+        current_episode_id,
+        kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
+    ) {
+        if !report.promoted.is_empty() || !report.deprecated.is_empty() {
+            eprintln!(
+                "\x1b[90m(memory: candidate 自动处置: promote {} / deprecated {} / 未动 {} \
+                 (文件 {}→{}, 索引 {}→{})\x1b[0m",
+                report.promoted.len(),
+                report.deprecated.len(),
+                report.untouched.len(),
+                report.candidate_files_before,
+                report.candidate_files_after,
+                report.candidate_index_before,
+                report.candidate_index_after,
+            );
+        }
+    }
     // R-169:CLI 轮末消费自主推进状态机的 backlog 单源(与桌面端同一实现,
     // kanzei_tools::tracker::backlog_status;D-229 类桌面端独占能力架构债消除)。
     // CLI 无交互循环不做自动续跑,只在无可推进条目时提示,与桌面端刹车一致。
