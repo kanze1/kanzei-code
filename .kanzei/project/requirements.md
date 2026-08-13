@@ -123,7 +123,7 @@
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
-## R-189 亮色主题:前端渲染器换色结构化评估与第二套配色 [todo]
+## R-189 亮色主题:前端渲染器换色结构化评估与第二套配色 [doing]
 - acceptance: ①前端渲染器颜色来源结构评估:颜色集中在可换色层(变量/类)还是散落硬编码,评估结论写入需求进展或设计文档;②亮色主题完整可用:全局一键切换暗/亮并持久化;③亮/暗两套主题在 800/1024/1280 与纯键盘下均可达可用对比度;④换色改动不引入新框架,沿用现有渲染器结构。
 - complexity: 中
 - content: 当前桌面端只有暗色主题。需要先评估现有前端渲染器代码的颜色来源是否结构化(颜色是否集中在可换色层如 CSS 变量/主题类,还是散落硬编码),再设计并落地一套亮色主题。
@@ -131,6 +131,12 @@
 - priority: P2
 - status: todo
 - 现状评估(2026-08-12 读码核实,dev HEAD;直接对应验收①): **结构上适合换色,工作量在收口不在重构。** ①**颜色只有一处**——`crates/kanzei-app/ui/style.css`(1519 行)之外零颜色:20 个 ui/*.js 与 index.html 里的 hex/rgb/hsl 字面量各 **0** 处,没有任何 JS 在计算或写入颜色,所以换色是纯 CSS 的事,不用碰渲染逻辑。②**可换色层已经存在**——`:root`(style.css:3-18)定义 22 个**语义命名**的 token(--bg/--panel/--panel2/--input/--border/--border-soft/--fg/--fg-strong/--dim/--accent/--accent-hover/--accent-soft/--ok/--err/--warn/--info/--alert/--danger/--muted/--statusbar/--statusbar-run/--line-color),全文 **639 处 var() 引用 vs 116 处颜色字面量**,约 85% 已 token 化;命名是语义而非色值(不是 --gray-1 那种),亮色版可直接换值、不改任何引用点。③**剩余 116 处字面量分四类,处置不同**:(a) 由调色板派生的半透明叠加与阴影——rgba(208,104,78,.16)=--err、rgba(14,99,156,.18)=--accent、#0008 阴影等约 30 处,换成 `color-mix(in srgb, var(--x) N%, transparent)` 即可自动跟随主题,不需新增基色;(b) **暗色专属的徽章/状态胶囊底色**——#3a221c/#3d2a10/#16283a/#3d3113/#22301c(:382-392)与 #2a8a4233/#b34a4a33/#8883(:279-281)约 15 处,**亮色下不能复用,必须成对给值**,是本条真正的设计工作量;(c) 未 token 化的框架面——活动栏 #1a1a1a(:52)、滚动条 #383838/#4a4a4a(:46-47)、代码块与工具输出底 #0a0a0a/#0d0d0d(:1009/1146/1167/1170)、danger 按钮 #5a2c1a(:632)等约 20 处,机械提升为新 token 即可;(d) diff/语法着色 #a5c98f/#dd8d72/#f7768e/#e0af68(:1176-1177 等)约 15 处,与写死的 `color:#fff`(强调按钮/状态栏,:584/630/649/658 等)约 10 处——后者需要一个 --on-accent。④**两个 CSS 够不着的换色面(最易漏,单列)**:`color-scheme: dark`(style.css:17)决定原生控件(勾选框/下拉弹层/日期选择/文本光标)按深色还是浅色渲染,必须随主题走,否则亮色下原生控件仍是深色变体——该行注释里记着 D-154 的教训;Monaco 编辑器 `theme: "vs-dark"` 写死在 ui/17-files.js:223,CSS 变量到不了它,切主题时须同步 `monaco.editor.setTheme`。⑤**落地路径**:`:root` 拆成 `[data-theme="dark"]`/`[data-theme="light"]` 两组 token(默认 dark 保持现状零回归)+ 把 (a)(c)(d) 约 65 处字面量提升为 token + (b) 约 15 处成对给亮色值 + 上述两个非 CSS 面挂到同一开关;全程不引入新框架,与验收④一致。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-189
+- 批次: 0/3
+- 进展: 2026-08-16 认领并核实评估(:root 22 语义 token + color-scheme:dark 确认;639 处 var vs 116 处字面量,85% 已 token 化)。批次:B1=token 基建(style.css :root 拆 [data-theme=dark] 默认 + [data-theme=light] 亮色组;暗色专属徽章/状态胶囊 15 处成对给亮色值;framework 面 20 处机械提升 token;diff/语法着色 + on-accent 处理;color-scheme 随主题);B2=前端开关(03-shell.js 主题切换 + localStorage 持久化 + index.html 按钮 + Monaco setTheme 随主题 17-files.js + color-scheme 联动);B3=冒烟断言(三档 + 纯键盘对比度 + 切换持久化 + Monaco setTheme)+ 全量。设计冻结:默认 dark 零回归、换色纯 CSS 不碰渲染逻辑、不引入新框架(验收④)。
+- observed_head: de5a3466eb6c52b9b0be37e2e59610f3923e89cb
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786656246555
 
 ## R-193 plan勾选响应延迟优化需求 [todo]
 - 复杂度: 中

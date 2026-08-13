@@ -217,10 +217,13 @@ async function openFilePreview(file) {
     $("files-editor").classList.remove("hidden");
     const monaco = await loadMonaco();
     if (!filesEditor) {
+      // R-189:Monaco 主题跟随全局(暗=vs-dark/亮=vs);CSS 变量到不了 Monaco,
+      // 用与 03-shell.js 相同的主题源,初始即正确。
+      const monacoTheme = typeof currentTheme === "function" && currentTheme() === "light" ? "vs" : "vs-dark";
       filesEditor = monaco.editor.create($("files-editor"), {
         readOnly: true,
         automaticLayout: true,
-        theme: "vs-dark",
+        theme: monacoTheme,
         minimap: { enabled: true },
         fontSize: 13,
         scrollBeyondLastLine: false,

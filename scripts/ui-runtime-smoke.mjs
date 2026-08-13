@@ -6090,6 +6090,30 @@ const docsB = {
   assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
 }
 
+// ---------- R-189 亮色主题:切换持久化 + Monaco setTheme 联动 ----------
+{
+  const themeBtn = byId.get("theme-toggle");
+  assert(themeBtn, "R-189:状态栏缺少主题切换按钮");
+  // 默认暗色(现状零回归)。
+  assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:默认主题应为暗色(或未设=暗)");
+  // 切亮色:html[data-theme=light] + localStorage 持久化。
+  themeBtn.click();
+  await flush();
+  assert(document.documentElement.getAttribute("data-theme") === "light", "R-189:点击切换后 data-theme 未变 light");
+  assert(storage.get("kz-theme") === "light", "R-189:亮色主题未持久化到 localStorage");
+  // 切回暗色,保持默认。
+  themeBtn.click();
+  await flush();
+  assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:切回暗色失败");
+  assert(storage.get("kz-theme") === "dark", "R-189:暗色未持久化");
+  // Monaco setTheme 联动:17-files.js 创建编辑器时按当前主题选 vs/vs-dark。
+  const filesSrc = await readFile(resolve(root, "crates", "kanzei-app", "ui", "17-files.js"), "utf8");
+  assert(
+    filesSrc.includes('currentTheme() === "light" ? "vs" : "vs-dark"'),
+    "R-189:Monaco 编辑器主题未跟随全局主题",
+  );
+}
+
 if (issues.length) {
   reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

@@ -495,6 +495,35 @@ function clearRunPending() {
   stop.textContent = t("停止");
 }
 
+// ---------- R-189 主题切换:暗/亮持久化 ----------
+// 默认暗色(现状);切亮色改 html[data-theme="light"],CSS token 组接管换色;
+// 原生控件 color-scheme 已随 token 组同步;Monaco 主题由 17-files.js 读这里。
+const THEME_STORAGE_KEY = "kz-theme";
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  // Monaco 已初始化时同步编辑器主题(vs-dark/vs)。
+  if (typeof monaco !== "undefined" && monaco.editor) {
+    monaco.editor.setTheme(theme === "light" ? "vs" : "vs-dark");
+  }
+  const btn = $("theme-toggle");
+  if (btn) {
+    btn.textContent = theme === "light" ? t("暗色") : t("亮色");
+    btn.setAttribute("aria-label", theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题"));
+    btn.title = theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题");
+  }
+}
+function initTheme() {
+  const saved = localStorage.getItem(THEME_STORAGE_KEY);
+  const theme = saved === "light" || saved === "dark" ? saved : "dark";
+  applyTheme(theme);
+}
+initTheme();
+$("theme-toggle")?.addEventListener("click", () => applyTheme(currentTheme() === "light" ? "dark" : "light"));
+
 // ---------- R-190 常驻 fast 模型状态 ----------
 // 状态栏 #status-fast 显示 fast 子代理模型运行态:未托管时隐藏,托管时显示
 // fastStatusText 的短文案并随真实探测每 10 秒刷新——Ollama 服务停掉后状态
