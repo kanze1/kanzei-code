@@ -2252,3 +2252,18 @@
 - observed_head: 0095fb863dc447993f7a3fa85f7c7b723d661541
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786608059692
+
+## R-209 门禁清单机械同步守护:verify.ps1 与 ci.yml 逐项比对,CI 补 npm ci 与 ui-lint [done]
+- 优先级: P2
+- 复杂度: 小
+- 标签: 测试 流程
+- 来源: 2026-08-12 八维度审计(§4);清单已实际漂移——R-142 的 ui_lint 只进了 verify.ps1(提交 8b918ed),ci.yml 无该步且缺 npm ci(eslint 依赖装不上),而 ci.yml 注释承诺「本清单必须与 verify.ps1 逐项同步」,守护测试只比对 fmt/clippy 两项。
+- 内容: 守护测试升级为机械比对两份清单的检查项集合(解析 verify.ps1 的 $checks 键与 ci.yml 步骤),任一侧增删即红;同步把 npm ci + ui-lint 补进 ci.yml。
+- 验收: ①故意单侧加一步时守护测试变红;②ci.yml 跑 ui-lint 通过;③git.rs 注释承诺改为指向守护测试或保持一致。
+- refs: R-142
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-209
+- 批次: 1/1
+- 进展: R-209 交付并关闭(2026-08-13,d124749):验收对照——① 单侧加一步守护测试变红:gate_checklists_align_across_git_verify_and_ci 双向比对(verify.ps1 Step-With-Timing 键集合==固定清单 10 键 + ci.yml 每键标记覆盖 + smoke 脚本两侧同现同隐 + npm ci 必需),任一侧增删即集合不等变红(修复前 ci.yml 缺 ui-lint/npm ci 时本测试必红);② ci.yml 跑 ui-lint 通过:ci.yml 已补 npm ci(eslint 依赖,package-lock.json 在库)+ ui-lint-smoke.mjs 进 ui smoke,本地六条冒烟全绿(ui-lint 31 文件 no-undef 0 错、ui-runtime 1547 invoke 等,T-1786608296);③ git.rs 注释承诺指向守护测试:git.rs 测试 doc、ci.yml 注释、verify.ps1 注释三处统一引用 gate_checklists_align_across_git_verify_and_ci。
+- observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786608363728
