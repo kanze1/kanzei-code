@@ -2454,3 +2454,9 @@
 - 摘要: kanzei-tools 323 passed: R-176 B1 可写子代理档位(WritableSubagentBase + writer_agent, 4 subagent 测试含只读白名单回归)
 - 关联: R-176
 - 收尾: 1786624250
+
+## T-1786624780 cargo test -p kanzei-core -p kanzei-app -p kanzei (R-176 B2) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app -p kanzei
+- 摘要: kanzei-core 147 + kanzei-app 139 + kanzei 17/3/4/2/2 全绿:R-176 B2 写子代理自持写租约(writable 字段 + acquire_subagent_permit + permit_kind 测试)
+- 关联: R-176
+- 收尾: 1786624780

@@ -186,6 +186,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         timeout_secs: 60,
         limits: config.limits.clone(),
         coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        writable: false,
         cancellations: None,
         background: false,
         background_results: None,

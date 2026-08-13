@@ -685,6 +685,8 @@ pub(crate) async fn run_task(
             // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
             coordinator: Some(Arc::clone(&coordinator)
                 as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
+            // R-176 B2:主对话的 task 子代理是只读勘察/复核——不启用可写档位。
+            writable: false,
             // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
             cancellations: Some(task_cancellations),
             // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline

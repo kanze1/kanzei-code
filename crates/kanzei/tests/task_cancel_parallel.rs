@@ -175,6 +175,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         timeout_secs: 30,
         limits: config.limits.clone(),
         coordinator: Some(coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+        writable: false,
         cancellations: Some(cancellations.clone()),
         background: false,
         background_results: None,

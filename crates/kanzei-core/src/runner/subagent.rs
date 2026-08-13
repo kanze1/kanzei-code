@@ -147,8 +147,14 @@ pub struct SubagentRuntime {
     pub limits: kanzei_harness::config::Limits,
     /// R-171 批6:项目级协调器(可选)。Some 时子代理执行前申请读槽登记
     /// 「并行查」身份,结束 RAII 释放;None(纯 CLI 单运行/测试)不登记。
+    /// R-176 B2:writable=true 时改为申请 **write_scope 写租约**(不继承主代理
+    /// 租约,write_scope = 子代理代码树),同一棵树上的两个 writer 仍排队。
     pub coordinator:
         Option<std::sync::Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
+    /// R-176 B2:可写档位。true = 快照含写工具(由调用方用 WritableSubagentBase
+    /// 构建),执行前必须自己 acquire_writer_lease,不得继承主代理租约;false =
+    /// 只读勘察/复核(现状,读槽登记)。装配点必须与快照配套:可写快照 ⇔ writable=true。
+    pub writable: bool,
     /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
     /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
     pub cancellations: Option<Arc<TaskCancellations>>,
@@ -213,6 +219,71 @@ pub(crate) fn task_spec() -> ToolSpec {
             },
             "required": ["prompt"]
         }),
+    }
+}
+
+/// R-176 B2:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过协调器
+/// (验收②);非写子代理维持只读读槽(现状,验收⑦不受影响)。
+///
+/// 两者都是 RAII:drop 时回调协调器释放,任何收尾路径不留死锁。用枚举统一
+/// 持有类型,避免 if/else 分支类型不同(WriterLease vs ReadPermit)。
+/// 字段只需持有到函数结束(释放即生效),生产路径不读——dead_code 是 RAII 常态。
+#[allow(dead_code)]
+pub(crate) enum SubagentPermit {
+    Writer(kanzei_harness::orchestration::WriterLease),
+    Reader(kanzei_harness::orchestration::ReadPermit),
+}
+
+/// R-176 B2:档位 → 许可类型的映射(纯函数,测试可直接断言)。
+/// writable=true → Writer(写租约);false → Reader(读槽)。
+#[cfg(test)]
+pub(crate) fn permit_kind(writable: bool) -> PermitKind {
+    if writable {
+        PermitKind::Writer
+    } else {
+        PermitKind::Reader
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PermitKind {
+    Writer,
+    Reader,
+}
+
+pub(crate) async fn acquire_subagent_permit(
+    rt: &SubagentRuntime,
+    ctx: &ToolCtx,
+    parent_call_id: &str,
+) -> Option<SubagentPermit> {
+    let coord = rt.coordinator.as_ref()?;
+    if rt.writable {
+        coord
+            .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+                // write_scope = 子代理的代码树(与主对话本轮一致:线 = worktree)。
+                // 同树两个 writer 排队,跨树并行(R-182 口径)。
+                write_scope: ctx.cwd.clone(),
+                run_id: parent_call_id.to_string(),
+                process_id: rt.agent.name.clone(),
+                reason: format!("writable subagent `{}`", rt.agent.name),
+            })
+            .await
+            .ok()
+            .map(SubagentPermit::Writer)
+    } else {
+        // R-171 批6:只读子代理申请读槽登记并行身份,结束自动释放。
+        // 读槽只登记不阻塞(wave 并行),与 writer 租约是两套互不干扰的机制。
+        coord
+            .acquire_read_slot(kanzei_harness::orchestration::ReadSlotRequest {
+                project_root: ctx.project_root.clone(),
+                run_id: parent_call_id.to_string(),
+                process_id: rt.agent.name.clone(),
+                agent_name: rt.agent.name.clone(),
+            })
+            .await
+            .ok()
+            .map(SubagentPermit::Reader)
     }
 }
 
@@ -344,20 +415,10 @@ pub(crate) async fn run_subagent(
             });
         }
     };
-    // R-171 批6:子代理是只读勘察/复核——申请读槽登记并行身份,结束自动释放。
-    // 读槽只登记不阻塞(wave 并行),与 writer 租约是两套互不干扰的机制。
-    let _read_permit = match rt.coordinator.as_ref() {
-        Some(coord) => coord
-            .acquire_read_slot(kanzei_harness::orchestration::ReadSlotRequest {
-                project_root: ctx.project_root.clone(),
-                run_id: parent_call_id.to_string(),
-                process_id: rt.agent.name.clone(),
-                agent_name: rt.agent.name.clone(),
-            })
-            .await
-            .ok(),
-        None => None,
-    };
+    // R-176 B2:写子代理自持 write_scope 写租约——不继承主代理租约、不绕过协调器
+    // (验收②);非写子代理维持只读读槽(现状,验收⑦不受影响)。
+    // 两者都是 RAII:drop 时回调协调器释放,任何收尾路径不留死锁。
+    let _lease = acquire_subagent_permit(rt, ctx, parent_call_id).await;
     let mut ask = |_request: AskRequest| -> AskFuture {
         Box::pin(async { AskResponse::Permission(AskReply::Deny) })
     };
@@ -537,5 +598,14 @@ mod tests {
             vec!["A".to_string()],
             "只应列出 running 无终态的 A: {pending:?}"
         );
+    }
+
+    /// R-176 验收②:档位 → 许可类型映射——writable=true 走 writer lease、
+    /// false 走 read slot。纯函数断言,不依赖完整 SubagentRuntime 构造。
+    #[test]
+    fn writable_maps_to_writer_permit_reader_maps_to_read_slot() {
+        use super::{permit_kind, PermitKind};
+        assert_eq!(permit_kind(true), PermitKind::Writer);
+        assert_eq!(permit_kind(false), PermitKind::Reader);
     }
 }

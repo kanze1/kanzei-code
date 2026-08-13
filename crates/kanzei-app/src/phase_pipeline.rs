@@ -500,6 +500,7 @@ impl PhasePipeline {
             timeout_secs: template.timeout_secs,
             limits: template.limits.clone(),
             coordinator: template.coordinator.clone(),
+            writable: template.writable,
             cancellations: template.cancellations.clone(),
             background: template.background,
             background_results: template.background_results.clone(),

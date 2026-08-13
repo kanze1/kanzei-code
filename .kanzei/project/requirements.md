@@ -66,13 +66,13 @@
 - 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
-- 进展: B1 完成:可写子代理档位——WritableSubagentBase 组件(subagent.rs,装配 read/glob/grep/edit/write/bash/git,只读三件套保持 Allow,写工具权限不预设 Allow 由 harness 规则集裁决=验收②前提)+ writer_agent() 定义;lib.rs 导出;2 测试新增(只读白名单未被放宽=验收⑦回归、可写档位含写工具且用户 deny 生效)。kanzei-tools 323 passed、clippy/fmt 干净。B2(下一步):子代理自持 write_scope 写租约——run_subagent 可写路径在执行写工具前 acquire_writer_lease(RAII 释放,write_scope=子代理代码树),FIFO 不重叠+事件审计测试=验收①②;桌面端装配点(run.rs:655-701)接可写档位。
+- 进展: B2 完成:子代理自持 write_scope 写租约——SubagentRuntime 新增 writable 字段(subagent.rs),run_subagent 执行前经 acquire_subagent_permit 申请许可:writable=true → acquire_writer_lease(write_scope=子代理代码树 ctx.cwd,同树排队跨树并行 R-182 口径,RAII 释放不留死锁)、false → 维持只读读槽(验收⑦不受影响);permit_kind 纯函数映射档位→许可类型(测试断言);8 处 SubagentRuntime 构造点补 writable:false(桌面 run.rs/phase_pipeline.rs/CLI/4 测试文件),行为零改变。kanzei-core 147 + kanzei-app 139 + kanzei 全绿,clippy/fmt 干净。B3(下一步):权限询问先于取租约——写子代理真实询问通道(现状 ask 恒 Deny subagent.rs:361),询问先于 acquire_writer_lease 的顺序断言=验收③。
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
-- 批次: 1/5
-- observed_head: 6ef64abae45aacec58f7d9d969d3a4d78fd0108f
-- observed_worktree_hash: fnv1a64:3f95e17caf84d75e
-- recorded_at: 1786624256915
+- 批次: 2/5
+- observed_head: 487f07eb36cb78f2a7ee4c638a32f84c39296d51
+- observed_worktree_hash: fnv1a64:a1079158656285d6
+- recorded_at: 1786624787206
 
 ## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [todo]
 - 优先级: P2

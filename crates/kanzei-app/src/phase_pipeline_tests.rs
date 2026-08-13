@@ -147,6 +147,7 @@ impl Fixture {
             timeout_secs: 30,
             limits: self.config.limits.clone(),
             coordinator: Some(self.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
+            writable: false,
             cancellations: None,
             background: false,
             background_results: None,
