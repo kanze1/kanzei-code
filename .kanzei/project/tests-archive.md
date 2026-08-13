@@ -2633,3 +2633,13 @@
 - 摘要: R-234 关闭前全量:cargo test --workspace 全绿(802 passed:app 142/harness 121/core 150/tools 337)+ clippy/fmt 全过
 - 关联: R-234
 - 收尾: 1786633882
+
+## T-1786634220 cargo test -p kanzei-tools -p kanzei-app (R-217) [passed]
+- 摘要: R-217 dev 联网:kanzei-tools 339 passed(新增 webfetch URL 资源规范化 + dev 档 websearch 默认 Ask/域名白名单测试)+ app 142 + clippy/fmt 全过
+- 关联: R-217
+- 收尾: 1786634220
+
+## T-1786634298 cargo test --workspace (R-217 关闭前全量) [passed]
+- 摘要: R-217 关闭前全量:cargo test --workspace 全绿(804 passed:app 142/harness 121/core 150/tools 339)
+- 关联: R-217
+- 收尾: 1786634298

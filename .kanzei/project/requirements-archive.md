@@ -2544,3 +2544,19 @@
 - observed_head: b644f1657f2aadede85b26ef65050605740ceb04
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633905961
+
+## R-217 dev 档联网能力:websearch 注册进 dev(默认 ask),webfetch/websearch 支持域名级白名单规则 [done]
+- 优先级: P2
+- 复杂度: 中
+- 标签: 后端 harness 权限
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: websearch 只注册给 research(profiles.rs:552-554),webfetch 默认 Ask(base.rs:53)而 NonInteractive 下 Ask 即拒(drive.rs:876-881)——dev+autonomous 组合下模型没有一条合法联网路径,查 crate 文档、搜报错答案都做不到。
+- 内容: dev 档注册 websearch(默认 ask,交互轮可放行);为 webfetch/websearch 提供域名级白名单资源形态(如 resource="docs.rs/*" allow)使自主轮可精确授权。
+- 边界: 不改 Ask 在 NonInteractive 下等于 Deny 的语义(那是 R-183 的事);默认不放行任何域名。
+- 验收: ①交互轮 dev 可搜索;②自主轮按域名白名单放行 webfetch 有定向测试;③白名单外域名仍走 Ask。
+- refs: R-183 R-198
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-217
+- 进展: 2026-08-16 取活。实现(commit c2df0cf):①dev 档联网——websearch 注册进 BaseComponent(base.rs:46-47),所有档位默认可用,权限 Ask(交互轮可放行,自主轮 NonInteractive 下 Ask 即拒,边界语义不变);②域名级白名单——webfetch.rs 新增 normalize_url_resource(去 scheme 保留 域名+路径),WebFetchTool.resources 返回规范化资源,规则 `docs.rs/*` 形态与既有 wildcard_match 直接配合;websearch 的 resources 已返回 SEARCH_URL(html.duckduckgo.com/html),同样支持域名规则;默认不放行任何域名(边界:默认 Ask)。新增测试:webfetch url资源规范化_去掉scheme保留域名路径、profiles dev档注册websearch默认ask_域名白名单可精确放行(白名单内 Allow、白名单外 Ask)。验证:kanzei-tools 339 passed(T-1786634220)+ cargo test --workspace 全绿 804 passed(T-1786634298)+ clippy/fmt 全过。三条验收逐条对照:①交互轮 dev 可搜索——websearch 注册进 dev 档(默认 Ask,交互轮可放行);②自主轮按域名白名单放行 webfetch 有定向测试——dev档注册websearch默认ask_域名白名单可精确放行 断言 docs.rs/* 白名单放行 docs.rs 域名、websearch 白名单放行 html.duckduckgo.com;③白名单外域名仍走 Ask——同测试断言 example.com/x 返回 Ask。关闭。
+- observed_head: c2df0cf254fbb2434aebbe69a57ad5d19d9886e7
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786634306695
