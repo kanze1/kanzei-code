@@ -2290,3 +2290,10 @@
 - 摘要: D-332 B6 关闭前全量:cargo test --workspace 全绿(kanzei-tools 307、app 138、core 145、harness 120、llm 52、kanzei 15+3+2+2+1+1+1+1+1+1+3,总计 793 passed / 0 failed)。D-332 六批全部落地。
 - 关联: D-332
 - 收尾: 1786613280
+
+## T-1786613581 D-332 发版 verify+package (build-82fa56a) [passed]
+- 命令: .\scripts\verify.ps1 + .\scripts\package.ps1 -Ack 8 -Publish (release tree, HEAD 82fa56a)
+- 时长: 420.0s
+- 摘要: D-332 发版:verify.ps1 十步全绿(verification.json 绑定 82fa56a),package.ps1 -Ack 8 -Publish 产出 kanzei-setup-82fa56a.exe(12MB)并发布 GitHub release build-82fa56a。本机安装被 kzapp 运行中拦截(pid 13704),待用户关闭后重跑 install-setup.ps1。
+- 关联: D-332
+- 收尾: 1786613581
