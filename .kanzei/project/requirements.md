@@ -65,11 +65,11 @@
 - 验收: ①主代理派发后不阻塞的实证:同一轮内 task 派发时间戳与主代理后续工具调用时间戳**交错**(时间线证据),而非全部排在最慢子代理完成之后;②跨轮存活可实证:第 N 轮派发的子代理在第 N+1 轮仍在运行且可被查询到状态;③重启后能发现在跑的子代理:强杀进程后重开,注册表能列出上次未终结的子代理并给出确定处置(继续或标失败),不留幽灵条目;④给正在跑的子代理发消息能带原上下文续跑——续跑请求里可见此前 transcript,不是从空历史重开(与 subagent.rs:189 现状对照可验);⑤三种终态(超时/失败/被停)都有确定归宿且读槽被释放:协调器快照(`MemoryCoordinator::snapshot`,crates/kanzei-core/src/orchestration.rs:274)在终态后不再残留该子代理的读者身份,有测试覆盖三条路径;⑥事件可回放:后台子代理的生命周期事件落 session_events,重启后能按 id 回放完整轨迹;⑦通知走既有 `agent_notifications` 表(有测试证明未新造并行通道)。
 - refs: R-174 R-176 R-095 R-171 docs/design/parallel_read_serial_write_orchestration.md
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-175
-- 批次: 2/6
-- 进展: B1a+B1b 完成(2026-08-13):B1a(8cd437d)SubagentRuntime 加 background 字段+derive Clone,7 处构造点补默认 false;B1b(a441df0)drive.rs:515-568 task 段加 background 分支——rt.background=true 时每个 task 立即 tokio::spawn((*client).clone()/(*rt).clone()/ctx.clone() 移入 async 块,返回后本轮 ToolResult 填「已后台派发,句柄 <id>」占位,真实结果写入 background_results 暂存,主代理不 drain 不 select! 直接继续普通工具段;等齐路径(background=false)一字不改;读槽由 run_subagent 内 _read_permit 局部变量随返回释放(函数返回=子代理跑完,后台化无需额外显式 drop);LlmClient derive Clone(后台 spawn 需 owned)。验收①集成测试 background_subagent_dispatch:主轮拿「已后台派发」占位(不等待)、后台子代理结果落 background_results、主轮正常收尾。workspace 798 passed 全绿、clippy 干净。B1b 提交后 B2:跨轮子代理注册表(跨会话存活/可发现,落 session_events)。
-- observed_head: a441df049b7ee7e808b52ac22166dfa1f14defb4
+- 批次: 3/6
+- 进展: B1a+B1b+B2 完成(2026-08-13):B2(cf511ff)后台子代理生命周期事件落库——①SubagentRuntime 加 background_events: Option<BackgroundEventSink>(type 别名 Arc<dyn Fn(&str,serde_json::Value)+Send+Sync>,绕开 SessionStore rusqlite Connection 非 Send 直接进 spawn);②drive.rs background 分支 spawn 块在完成/失败/超时调 sink(call_id, json{kind:task.lifecycle, id, state:done|failed, ok, preview})写 session_events,事件可回放(验收⑥);③8 处构造点补字段(run.rs 主对话 background:false 不后台化 sink=None 正确,phase_pipeline runtime_as 透传 template 字段供编排角色后台化时用);④测试 background_subagent_dispatch 加事件断言:5 秒内收到 task.lifecycle 且 state=done。workspace 798 passed 全绿、clippy 干净。B2 提交后 B3:transcript 持久化 + 按 id 恢复续跑(可对话轴,run_subagent prior 从空历史改为可恢复上下文)。
+- observed_head: cf511ff94e2f4741d4863508c931942051e96f26
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786615578854
+- recorded_at: 1786616052872
 
 ## R-180 跨 run 长驻的受管后台服务:生命周期脱离 owner run,日志落盘可回看 [todo]
 - 优先级: P2
