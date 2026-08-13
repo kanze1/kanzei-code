@@ -2395,3 +2395,10 @@
 - 摘要: D-334/D-335/D-336 三问题修复:workspace 804 passed / 0 failed 全绿。D-334 finalize 事务化(git finalize 动作:fmt→clippy→相关测试→test_record→stage→CAS commit 一次完成,fmt 拦截测试+成功路径测试);D-335 harness 措辞与 WIP lease 解耦;D-336 normalize 归档非终态测试改名澄清+归档重复字段 apply 可修接线。clippy 干净。
 - 关联: D-334 D-335 D-336
 - 收尾: 1786619997
+
+## T-1786620252 发版 verify+package (build-2b95bf6) [passed]
+- 命令: verify.ps1 + package.ps1 -Ack 3 -Publish (build-2b95bf6)
+- 时长: 300.0s
+- 摘要: 发版 build-2b95bf6:verify.ps1 十步全绿(证据 commit 2b95bf6),package.ps1 -Ack 3 -Publish 产出 kanzei-setup-2b95bf6.exe(12MB)并发布 GitHub release。覆盖 D-334(finalize 事务化)/D-335(措辞收敛)/D-336(normalize 归档 repair 澄清)。
+- 关联: D-334 D-335 D-336
+- 收尾: 1786620252
