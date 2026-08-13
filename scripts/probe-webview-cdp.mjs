@@ -10,7 +10,8 @@ const sandbox = mkdtempSync(join(tmpdir(), "kz-e2e-probe-"));
 const userData = join(sandbox, "webview");
 const home = join(sandbox, "home");
 const PORT = 9333;
-const env = { ...process.env, USERPROFILE: home, WEBVIEW2_USER_DATA_FOLDER: userData, KANZEI_E2E_CDP: String(PORT) };
+// R-200:全局根隔离三连(HOME/USERPROFILE/KANZEI_HOME)缺一即退回读开发者真实配置。
+const env = { ...process.env, HOME: home, USERPROFILE: home, KANZEI_HOME: join(home, ".kanzei"), WEBVIEW2_USER_DATA_FOLDER: userData, KANZEI_E2E_CDP: String(PORT) };
 const child = spawn(exe, [], { env });
 await new Promise((r) => setTimeout(r, 8000));
 console.log(`kzapp pid=${child.pid} 存活: ${child.exitCode === null}`);

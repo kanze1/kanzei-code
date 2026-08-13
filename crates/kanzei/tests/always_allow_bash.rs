@@ -7,6 +7,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::Command;
 
+mod common;
+
 async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
     let (mut stream, _) = listener.accept().await.unwrap();
     let mut request = Vec::new();
@@ -54,10 +56,9 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         "kanzei-cli-bash-e2-{}-{suffix}",
         std::process::id()
     ));
-    let home = root.join("home");
+    let home_guard = common::TestHome::new("bash-e2");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -100,17 +101,11 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         serve_response(&listener, second_response).await;
     });
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["run", "执行 bash E2"])
-        .current_dir(&project)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
-        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
-        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
-        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
-        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
-        .env("KANZEI_HOME", home.join(".kanzei"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd.args(["run", "执行 bash E2"]).current_dir(&project);
+    // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.apply(&mut cmd);
+    let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -165,10 +160,9 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         .as_nanos();
     let root =
         std::env::temp_dir().join(format!("kanzei-cli-d054-{}-{suffix}", std::process::id()));
-    let home = root.join("home");
+    let home_guard = common::TestHome::new("bash-d054");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -211,17 +205,11 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     });
     let server = tokio::spawn(async move { serve_response(&listener, response).await });
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["run", "拒绝第二个工具"])
-        .current_dir(&project)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
-        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
-        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
-        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
-        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
-        .env("KANZEI_HOME", home.join(".kanzei"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd.args(["run", "拒绝第二个工具"]).current_dir(&project);
+    // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.apply(&mut cmd);
+    let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -292,17 +280,11 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
     let server2 = tokio::spawn(async move { serve_response(&listener2, response2).await });
-    let output2 = Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["run", "拒绝后继续对话"])
-        .current_dir(&project)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
-        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
-        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
-        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
-        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
-        .env("KANZEI_HOME", home.join(".kanzei"))
+    let mut cmd2 = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd2.args(["run", "拒绝后继续对话"]).current_dir(&project);
+    // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.apply(&mut cmd2);
+    let output2 = cmd2
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
@@ -336,10 +318,9 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
         "kanzei-cli-legacy-d054-{}-{suffix}",
         std::process::id()
     ));
-    let home = root.join("home");
+    let home_guard = common::TestHome::new("bash-legacy");
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
 
     let state_path = kanzei_core::project_state_path(&project);
     let store = kanzei_core::SessionStore::open(&state_path).unwrap();
@@ -383,17 +364,11 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
     });
     let server = tokio::spawn(async move { serve_response(&listener, response).await });
 
-    let output = Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["run", "继续旧会话"])
-        .current_dir(&project)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        // D-292:Windows 上 `dirs::home_dir()` 走 known-folder API,**不认**
-        // USERPROFILE 环境变量——只设上面两个,子进程照样读开发者真实的
-        // `~/.kanzei/kanzei.toml`。开发者一旦在那里放行 bash,权限询问不再出现,
-        // 本测试等一个永不到来的提示,表现为整轮 cargo test 挂死(不是报红)。
-        // KANZEI_HOME 是全局根的官方隔离通道(harness/src/home.rs),必须一起设。
-        .env("KANZEI_HOME", home.join(".kanzei"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd.args(["run", "继续旧会话"]).current_dir(&project);
+    // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.apply(&mut cmd);
+    let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")

@@ -2243,3 +2243,9 @@
 - 摘要: fmt 后复测:守护测试 gate_checklists_align_across_git_verify_and_ci 通过(verify/ci 完整检查项集合机械同步)。
 - 关联: R-209
 - 收尾: 1786608340
+
+## T-1786609889 R-200 定向:cargo test -p kanzei(夹具迁移+守护测试) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: kanzei 全测试绿:always_allow_bash 3(迁移 4 处 spawn 到 TestHome::apply)、context_overflow_recovery 2(helper 迁移)、global_home_guard 1(守护测试:USERPROFILE 无 KANZEI_HOME 即红,当前零命中)。
+- 关联: R-200
+- 收尾: 1786609889

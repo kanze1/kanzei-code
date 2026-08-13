@@ -23,6 +23,9 @@ const env = {
   ...process.env,
   USERPROFILE: home,
   HOME: home,
+  // R-200:全局根隔离三连缺一即退回读开发者真实 ~/.kanzei(Windows dirs::home_dir()
+  // 不认 USERPROFILE,KANZEI_HOME 是官方隔离通道),kzapp 会读取它。
+  KANZEI_HOME: join(home, ".kanzei"),
   WEBVIEW2_USER_DATA_FOLDER: userData,
   KANZEI_E2E_CDP: String(PORT),
 };

@@ -1,6 +1,6 @@
 # Requirements
 
-## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [todo]
+## R-200 测试统一走全局根隔离夹具,不再每处手写环境变量 [doing]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 测试 流程
@@ -10,10 +10,14 @@
 - 验收: ①提供夹具并把已知消费点迁移过去;②加一条守护测试:测试代码里出现 `.env("USERPROFILE"` 而没有同时出现 `KANZEI_HOME` 即判红;③开发者本机全局配置的任意内容都不影响测试结果。
 - refs: D-292 D-187
 
-- 进展: 2026-08-16 只读勘察完成(两路 task 子代理并行):①消费点清单——crates/kanzei/tests/always_allow_bash.rs 4 处 spawn(L106-113/217-224/298-305/389-396,每处 HOME+USERPROFILE+KANZEI_HOME 三连,与 D-292 注释成对)、context_overflow_recovery.rs 的 run_cli_with_prior helper(L123-127,两测试共用,唯一'准夹具');②脚本侧遗漏:scripts/e2e-smoke.mjs:24 与 scripts/probe-webview-cdp.mjs:13 注入 USERPROFILE 但无 KANZEI_HOME,验收①迁移时应顺手补;③仓库无共享夹具模块、无 tempfile crate(临时目录均手工 temp_dir().join+remove_dir_all,无 RAII);④RAII guard 先例在 orchestration.rs:99-105(WriterLease drop 释放回调),夹具可复用此模式;⑤kanzei_home() 定义 harness/src/home.rs:19-24(KANZEI_HOME 优先,否则 dirs::home_dir()/.kanzei)。下一步需写代码:新建夹具模块 + 迁移 5 处消费点 + 守护测试 + cargo 验证。
-- 阻塞: 缺权限/环境(§1.1 类②):autonomous 档位下 edit(仅 style.css 一条白名单)、git stage/commit(kanzei.toml 无 action="git" 规则)、cargo test(无规则)全被权限拦截(本轮实测 edit .gitignore 与 git stage 均报 permission requires user approval)。R-200 需新建夹具文件+迁移测试+跑 cargo+提交,当前档位一步都执行不了。解除动作: ①用户在 .kanzei/kanzei.toml 加白名单(edit crates/kanzei/tests/**、结构化 git stage/commit、cargo test -p kanzei)后本代理续跑;或②用户切交互轮放行,本代理即可按已完成的勘察清单交付。解除人: 用户。
+- 进展: R-200 交付(2026-08-13):①夹具 crates/kanzei/tests/common/mod.rs——TestHome(临时 HOME 目录 + HOME/USERPROFILE/KANZEI_HOME 三连 + Drop 清理),apply() 一次性应用三连,漏一不可由结构保证;迁移消费点:always_allow_bash.rs 4 处 spawn、context_overflow_recovery.rs run_cli_with_prior helper、scripts/e2e-smoke.mjs 与 probe-webview-cdp.mjs 补 KANZEI_HOME;②守护测试 crates/kanzei/tests/global_home_guard.rs:扫描 tests/*.rs 与两个脚本,出现 .env("USERPROFILE",)/USERPROFILE: 而无 KANZEI_HOME 即红(当前零命中);③开发者本机全局配置不影响测试——迁移后所有子进程走 TestHome(KANZEI_HOME 指临时目录,kanzei_home() 优先读),本机带真实 ~/.kanzei 配置下全绿(实证)。验证:cargo test -p kanzei 全绿(T-1786608863)。
+- 阻塞: 
+- 批次: 1/1
+- observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
+- observed_worktree_hash: fnv1a64:f7c6fedabb3c3552
+- recorded_at: 1786609889661
 
-## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [todo]
+## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [doing]
 - 优先级: P0
 - 复杂度: 中
 - 标签: 核心
@@ -29,6 +33,12 @@
 - 验收: ①A 线执行 `cd <B线树> && <写操作>` 后:改动被检测、被隔离留证、被回滚,B 线的工作树**逐字节复原**,有实测轨迹(不是只断言函数返回);②归因正确:轨迹里指出是哪条线(owner run)越的界;③**`cargo run` 里 build.rs 写别人的树**同样被抓——这条是本条相对闸门的核心优势,必须有定向测试;④托管文档的既有保护行为无回归(D-174 既有测试全绿);⑤性能:单条 bash 的快照开销有实测数字,N 条线时不随 N 线性劣化到不可用(给出实测,不接受"看起来还行");⑥越界事件与 R-184 冲突带共用同一份数据,不存在两套采集(机械核验:grep 只有一处采集点)。
 - 依赖: 
 - 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-186
+- 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。
+- 阻塞: 用户: 2026-08-13 用户明确指示「先做 R-200 再发版,不是做这条」,本条暂缓。解除动作: 用户说恢复推进时按队列取活(R-200 及其后续完成后再开)。解除人: 用户。
+- observed_head: d124749aabe65ec0cde4f2280c9583dd4f33be40
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786609593506
 
 ## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [todo]
 - **2026-08-11 改写(用户定调,随 D-267 关闭为 dropped)**: 原标题里的「permission 规则 worktree 继承主根、可审计预授权集」两项**作废**——它们服务的是 D-267 的中间档,而中间档已被砍掉(理由见 D-267 关闭说明:挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」)。**本条大幅缩小**:非交互模式下 bash 直接放行,防线整体挪到结果侧(R-186)。

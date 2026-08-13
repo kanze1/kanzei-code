@@ -6,6 +6,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 
+mod common;
+
 async fn read_request(stream: &mut TcpStream) -> Value {
     let mut request = Vec::new();
     let mut chunk = [0_u8; 4096];
@@ -86,10 +88,9 @@ async fn run_cli_with_prior(
     responses: Vec<Value>,
 ) -> (std::path::PathBuf, std::process::Output, Vec<Value>) {
     let root = temp_root(test_name);
-    let home = root.join("home");
+    let home_guard = common::TestHome::new(test_name);
     let project = root.join("project");
     std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-    std::fs::create_dir_all(&home).unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -117,14 +118,11 @@ async fn run_cli_with_prior(
     drop(store);
 
     let server = tokio::spawn(serve_sequence(listener, responses));
-    let output = Command::new(env!("CARGO_BIN_EXE_kz"))
-        .args(["run", prompt])
-        .current_dir(&project)
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        // D-292:Windows 的 dirs::home_dir() 不认 USERPROFILE,须一并设 KANZEI_HOME,
-        // 否则子进程读的是开发者真实全局配置。
-        .env("KANZEI_HOME", home.join(".kanzei"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd.args(["run", prompt]).current_dir(&project);
+    // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
+    home_guard.apply(&mut cmd);
+    let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
         .env("KANZEI_PROFILE", "dev")
