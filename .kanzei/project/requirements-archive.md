@@ -2616,3 +2616,37 @@
 - 验收: ①UI 区分无需修改、需要修正/确认与真实失败；②edit 第一次锚点失败返回实际片段，插入改走原生 insert 且锚点不丢；③受控拒绝不计 failed_calls/edit_misses、不触发失败记忆；④复合命令与同指纹多记录覆盖面合并；⑤req/defect add schema 在调用前暴露真实必填字段；⑥中/大改动首次写入前冻结不变量/数据源/文件/最小测试。
 - 进展: 完成 B1-B5。定向验证：edit/insert 8 passed，runner metrics 14 passed，recall 7 passed，coverage/last_passed 4 passed，tracker schema/add 2 passed，design-freeze 1 passed；UI 运行时冒烟通过(21 个脚本、1682 次 invoke、0 运行时错误)；cargo test --workspace 全绿。设计见 docs/design/tool_edit_recovery.md。正式发版仍以 scripts/release.ps1 安装门禁和安装后版本核对为准。
 - refs: D-343 D-344 D-345 docs/design/tool_edit_recovery.md
+
+## R-236 上下文压缩重设计:删轮末整段替换、滚动合并半结构化纪要、可配置压缩模型 [done]
+- 内容: 按 docs/design/context_compaction.md(2026-08-14 定稿,含 10 家社区实现源码级调研与文献依据)实施,四批:B1 单一实现收口——删 app 轮末 R-021 整段替换(run.rs:1037-1077),轮末接 core compact_with_digest,触发公式统一为 `tokens > limit − max(output, buffer 20k)`,token 计量改 provider usage.input 优先且附件不按 base64 字节估算;B2 纪要质量——半结构化固定段落模板(目标/用户指令清单/关键决策/已完成/失败尝试含报错逐字/当前状态/关键文件/下一步)、预算 max_tokens 2048、再压缩走「旧纪要+新增原文」滚动合并、防注入护栏、质量闸升级 precision(纪要实体必须源于原文)+recall(原文关键实体必须保留)+胀检(压完不缩即弃用)、机械事实清单双通道(触碰文件/命令/提交号/close 编号由代码抽取不经 LLM);B3 `[models].compact` 压缩模型角色——解析链 compact 显式配置→缺省主模型(不是 fast:弱模型摘要有 -8pp 实证),config 白名单+设置页下拉+service_tier_for 统一入口;B4 L0 prune 机械清理——旧工具结果替换占位符,保护窗 40k/最小收益 20k 可配,先于 LLM 纪要执行。
+- 为什么是这个形态: 现状是两套压缩并存,app 轮末那套(整段历史→弱模型 300 字纪要,无质量闸)把 core 轮内体面压缩(R-155/D-181)的成果推倒,是用户实测「打断插任务模型失忆」的主因之一(另一半是 D-342)。调研结论:10 家主流实现没有任何一家做整段替换;主流纪要预算 1k-4k token;纪要模型能力差距有直接消融证据(Haiku 22/50 vs Sonnet 26/50);滚动合并是防纪要套纪要退化的成熟方案(opencode/OpenHands/LangMem 三家同款)。
+- 复杂度: 中
+- 来源: 用户报告(2026-08-14 自动推进打断丢上下文)+ 用户指示「压缩纪要可以选用什么模型压缩,好好设计一下怎么压缩,先调查文献和社区」;调研与设计已完成落档。
+- refs: D-342 D-181 D-206 R-155 R-219 docs/design/context_compaction.md
+- 标签: 核心
+- 边界: 不做蒸馏专用压缩模型;不依赖 provider 服务端压缩 API;不动 memory 系统;L2 应急路径(compact_messages_for_retry/aggressively)行为不变;停止语义归 D-342 不在本条。
+- 验收: ①B1:全仓只剩一处「纪要替换历史」实现(机械核验:grep 无第二套),轮末压缩后对话仍含任务定义原文与近期工作区逐字(实测轨迹);带 base64 附件的会话不再虚高误触发(定向测试)。②B2:纪要为固定段落模板且含失败尝试段;两次压缩走滚动合并,第二次压缩后纪要仍含首段关键实体(防退化定向测试);质量闸三向(precision/recall/胀检)各有单测,不达标回落节选且留轨迹。③B3:[models].compact 未配置时压缩请求实际走主模型、配置后走指定模型(测试断言请求 route);设置页可选。④B4:prune 只清已配对的旧工具结果、保护窗内不动、凑不满最小收益不做(单测);压缩触发频率前后对比有实测数字。⑤联测:发生过压缩的会话,插新任务后模型能复述目标与已完成工作(与 D-342 修复联合场景)。
+- 优先级: P1
+- 批次: 4/4
+- 进展: 本轮继续推进已完成：D-346 已修复并关闭，provider usage.input 已从 core runner 透传至 app 轮末触发线；固定同一负载的机制对照已补入 core 单测，旧 0.7 线触发 6/7，新 headroom 线触发 3/7。新增证据：T-1786649428 core 161 passed、T-1786649429 app 145 passed、T-1786649430 fmt passed、T-1786649540 提交前 core/app 复测均通过。
+- 验收⑤联测证据(2026-08-14,Claude 用发版产物 kz.exe build-2b1ad60 实测,真实 provider deepseek: deepseek-v4-flash): 方法——临时项目把 [providers.deepseek].context_limit 压到 16000、[limits] max_tokens=1024/compact_buffer_tokens=2000(预算线 14000),kz run --readonly 分五轮喂入:R1 开场(head)、R2 关键事实(R-888 目标/compaction.rs 的 split_prior_digest/error[E0716] 报错原文)+填充、R3/R3b/R3c 纯填充;R3c 步首触发主动压缩,CLI 输出「上下文到线,已压缩:约 15968 → 6942 token(上限 16000,裁掉 6 条)」,关键事实全部位于被压中段。R4 考试(不许用工具纯文本作答):模型正确复述全部三项——目标编号 R-888、crates/kanzei-core/src/runner/compaction.rs 的 split_prior_digest、error[E0716] temporary value dropped while borrowed(含 let 绑定修复方式)。会话快照核验:压缩后 7 条消息,纪要消息为八段固定模板(目标/用户指令清单/关键决策与理由/已完成/失败尝试/当前状态/关键文件/下一步)且文件路径/函数名/报错串逐字保留——纪要由 deepseek-v4-flash(弱模型)生成并通过质量闸,证明模板+质量闸组合在弱模型下也能出合格纪要。注:联测未覆盖 D-342 停止路径(CLI halt 通道为 None,桌面端停止场景待用户新版实际使用验证);验收①-④已由前轮证据覆盖。五条验收至此齐备,可走关闭流程。
+- 联测环境说明: deepseek 凭据来自全局 ~/.kanzei/kanzei.toml 的直填 api_key(前轮「只有 MOONSHOT_API_KEY」的判断漏了这一来源);临时项目与输出留档于会话 scratchpad r236-live(out1-out4.log + state.db 会话快照)。
+- 取活依据: engine:唯一可执行 WIP 是 R-236，必须先恢复它
+- observed_head: ca68e80d92456ca8386f083e6b49383b244afddd
+- observed_worktree_hash: fnv1a64:fe871977f10a5179
+- recorded_at: 1786649572864
+
+## R-196 记忆系统三处修复的效果复核:按 index.db 遥测与修复前基线对照 [done]
+- 内容: 新版本(build-3f268a5 起)跑够样本后重跑同一组查询对照四项:①自动轮采纳率是否高于 22.5%(检索键从模板 prompt 换成取活条目标题的直接效果);②空轮比例是否下降;③recurrence_counts 是否出现 >=2 的计数(指纹归一是否真的让同坑塌成一条);④candidate 新增速度是否下降(空正文与近似重复门禁是否真拦住了)。
+- 基线(index.db 遥测,2026-08-08 至 08-11,修复前): 累计 224 轮召回 / 523 条注入 / 159 条被拉取 = 采纳率 30.4%;拆开看:自动轮 161 轮 351 条注入 采纳率 22.5%,用户提问轮 63 轮 172 条注入 采纳率 46.5%;08-11 当天空轮(整轮一条也没拉)36/38;单条最极端 M-006 被注入 101 次只被拉 18 次、M-018 注入 28 次 0 采纳;recurrence_counts 里 11 个指纹全部停在 1;22 条 candidate 历史召回 0 次。
+- 复杂度: 小
+- 来源: 2026-08-12 提交 f104890 修了三处记忆病灶(自动轮召回检索键、失败指纹归一化、manager 跨状态去重),修复前的基线已完整量化,必须回头验证修的是不是真病灶。
+- 标签: 核心
+- 边界: 只做度量与结论,不在本条里改实现;若某项没改善,记录原因并另开条目,不在本条无限追修。
+- 验收: ①样本量说明(建议自动轮 >=50 轮)与四项对照数据写进本条进展;②任一指标未改善的,写明判断原因并给出后续条目编号;③查询口径与基线一致(同样从 .kanzei/memory/index.db 的 memory_recalls / recurrence_counts 取数),口径不同不算数。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-196
+- 进展: 2026-08-16 复核完成并关闭。四项对照结论与口径说明见进展(自动轮采纳率未改善 2.2% vs 基线 21.0%、空轮比例未改善、recurrence 计数改善确认、candidate 增速降 63% 且空正文门禁确认拦截);未改善项判断原因已写明,后续复测条目 R-239 已登记。本条为纯度量任务,无代码改动,定向核查(index.db 取数脚本)完成即关闭。
+- observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786652609215
