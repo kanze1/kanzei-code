@@ -535,6 +535,7 @@ pub fn run_once_with_parts<'a>(
                             let call_id = id.clone();
                             let input = input.clone();
                             let results = rt.background_results.clone();
+                            let events = rt.background_events.clone();
                             let timeout_secs = rt.timeout_secs;
                             tokio::spawn(async move {
                                 let bound = std::time::Duration::from_secs(timeout_secs);
@@ -551,7 +552,24 @@ pub fn run_once_with_parts<'a>(
                                     )),
                                 };
                                 if let Some(results) = results {
-                                    results.lock().unwrap().insert(call_id.clone(), output);
+                                    results
+                                        .lock()
+                                        .unwrap()
+                                        .insert(call_id.clone(), output.clone());
+                                }
+                                // R-175 B2:生命周期事件落 session_events——完成/失败/超时
+                                // 统一记一条 task.lifecycle(含终态),可回放、可审计。
+                                if let Some(sink) = events {
+                                    sink(
+                                        &call_id,
+                                        serde_json::json!({
+                                            "kind": "task.lifecycle",
+                                            "id": call_id,
+                                            "state": if output.is_error { "failed" } else { "done" },
+                                            "ok": !output.is_error,
+                                            "preview": preview(&output.content),
+                                        }),
+                                    );
                                 }
                             });
                             task_results.insert(

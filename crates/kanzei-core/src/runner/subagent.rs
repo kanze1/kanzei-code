@@ -70,6 +70,13 @@ impl Drop for TaskCancellationGuard {
     }
 }
 
+/// R-175 B2:后台子代理生命周期事件落库的回调类型。`Arc<dyn Fn>` 可 Clone,
+/// 不破坏 SubagentRuntime 的 derive Clone;app 层(run.rs)把 record_live_trace_at_path
+/// 包进闭包传入,drive.rs background 分支的 spawn 块在完成/失败/超时时调
+/// sink(call_id, payload)写 session_events——绕开 SessionStore(rusqlite
+/// Connection 非 Send)直接进 spawn 的限制。type 别名:避免 clippy type_complexity。
+pub type BackgroundEventSink = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 #[derive(Clone)]
@@ -108,6 +115,13 @@ pub struct SubagentRuntime {
             std::sync::Mutex<std::collections::HashMap<String, kanzei_harness::ToolOutput>>,
         >,
     >,
+    /// R-175 B2:后台子代理生命周期事件落库的回调(跨轮注册表 / 事件可回放)。
+    /// `Arc<dyn Fn>` 可 Clone,不破坏上面的 derive Clone;app 层(run.rs)把
+    /// record_live_trace_at_path 包进闭包传入,drive.rs background 分支的 spawn
+    /// 块在完成/失败/超时时调 sink(call_id, payload)写 session_events——
+    /// 绕开 SessionStore(rusqlite Connection 非 Send)直接进 spawn 的限制。
+    /// None = CLI/测试不落库。
+    pub background_events: Option<BackgroundEventSink>,
 }
 
 pub(crate) fn task_spec() -> ToolSpec {

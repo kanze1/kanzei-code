@@ -196,6 +196,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         cancellations: None,
         background: false,
         background_results: None,
+        background_events: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),

@@ -150,6 +150,7 @@ impl Fixture {
             cancellations: None,
             background: false,
             background_results: None,
+            background_events: None,
         }
     }
 

@@ -503,6 +503,7 @@ impl PhasePipeline {
             cancellations: template.cancellations.clone(),
             background: template.background,
             background_results: template.background_results.clone(),
+            background_events: template.background_events.clone(),
         }
     }
 }

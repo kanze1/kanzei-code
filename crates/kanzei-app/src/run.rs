@@ -691,6 +691,8 @@ pub(crate) async fn run_task(
             background: false,
             // R-175 B1b:主对话无后台结果暂存。
             background_results: None,
+            // R-175 B2:主对话无后台生命周期事件落库(仅编排角色后台化时开)。
+            background_events: None,
         })
     };
 

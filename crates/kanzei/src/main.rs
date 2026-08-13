@@ -580,6 +580,8 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             background: false,
             // R-175 B1b:CLI 单运行无后台结果暂存。
             background_results: None,
+            // R-175 B2:CLI 单运行不落后台生命周期事件。
+            background_events: None,
         }
     };
 

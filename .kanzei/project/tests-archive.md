@@ -2332,3 +2332,24 @@
 - 摘要: R-175 B1b 后台模式派发不阻塞:core 145 + llm 52 + kanzei 32 全绿(含新增 background_subagent_dispatch 验收①测试:主轮拿「已后台派发」占位、后台子代理结果落 background_results),clippy 干净。drive.rs task 段加 background 分支(spawn 即返回,等齐路径不动),LlmClient derive Clone。
 - 关联: R-175
 - 收尾: 1786615421
+
+## T-1786615489 cargo test -p kanzei-app (R-175 B1b) [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 13.1s
+- 摘要: R-175 B1b 补 kanzei-app(构造点 background_results: None):138 passed / 0 failed。
+- 关联: R-175
+- 收尾: 1786615489
+
+## T-1786615565 cargo test --workspace (R-175 B1b 全量) [passed]
+- 命令: cargo test --workspace
+- 时长: 45.0s
+- 摘要: R-175 B1b 关闭前全量:cargo test --workspace 全绿(kanzei-tools 310、app 138、core 145、harness 120、llm 52、kanzei 33,总计 798 passed / 0 failed),含新增 background_subagent_dispatch 后台模式测试。
+- 关联: R-175
+- 收尾: 1786615565
+
+## T-1786616031 cargo test --workspace (R-175 B2) [passed]
+- 命令: cargo test --workspace
+- 时长: 45.0s
+- 摘要: R-175 B2 生命周期事件落库:workspace 798 passed / 0 failed 全绿。SubagentRuntime 加 background_events sink(Arc<dyn Fn> 类型别名),drive.rs spawn 块完成/失败/超时调 sink 写 task.lifecycle,测试断言事件可回放(done 终态);clippy 干净。
+- 关联: R-175
+- 收尾: 1786616031

@@ -157,6 +157,9 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
     let background_results: Arc<
         Mutex<std::collections::HashMap<String, kanzei_harness::ToolOutput>>,
     > = Arc::new(Mutex::new(std::collections::HashMap::new()));
+    // R-175 B2 验收⑥:事件可回放——sink 收集后台子代理生命周期事件。
+    let background_events: Arc<Mutex<Vec<serde_json::Value>>> = Arc::new(Mutex::new(Vec::new()));
+    let events_for_sink = background_events.clone();
     let subagent_rt = kanzei_core::SubagentRuntime {
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),
@@ -171,6 +174,11 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         cancellations: None,
         background: true,
         background_results: Some(background_results.clone()),
+        background_events: Some(Arc::new(
+            move |_call_id: &str, payload: serde_json::Value| {
+                events_for_sink.lock().unwrap().push(payload);
+            },
+        )),
     };
     let runner_config = kanzei_core::RunnerConfig {
         model: "mock".into(),
@@ -256,6 +264,34 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         "主轮应收尾: {}",
         summary.text
     );
+
+    // R-175 B2 验收⑥:生命周期事件可回放——sink 收到 task.lifecycle(done 终态)。
+    let deadline_events = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let lifecycle = {
+            let events = background_events.lock().unwrap();
+            events
+                .iter()
+                .find(|e| {
+                    e.get("kind").and_then(|k| k.as_str()) == Some("task.lifecycle")
+                        && e.get("id").and_then(|i| i.as_str()) == Some(&task_id)
+                })
+                .cloned()
+        };
+        if let Some(lifecycle) = lifecycle {
+            assert_eq!(
+                lifecycle.get("state").and_then(|s| s.as_str()),
+                Some("done"),
+                "后台子代理完成应记 done 终态: {lifecycle:?}"
+            );
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline_events,
+            "5 秒内应收到 task.lifecycle 事件"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 
     std::fs::remove_dir_all(&project).ok();
 }
