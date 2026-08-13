@@ -25,6 +25,7 @@ mod context;
 mod redundancy;
 pub(crate) use context::*;
 mod compaction;
+pub use context::compaction_budget;
 mod drive;
 mod recall;
 pub use recall::{RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch};
@@ -114,6 +115,34 @@ pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
 /// 压完仍超线 / 中段为空压不动 = 无进展,连续两次就停(head+当前消息本身超线,
 /// trim_tail 都救不了,交给被动恢复,别空转)。
 pub(super) const MAX_FUTILE_COMPACTIONS: u32 = 2;
+
+/// R-236 B1:轮末压缩与轮内共用同一份实现(kanzei-app 轮末调用这里)。全仓只允许
+/// 这一处「纪要替换历史」——app 层 R-021 的整段替换已删,谁要再添第二套先读 D-181
+/// 与 docs/design/context_compaction.md。
+pub async fn compact_conversation(
+    client: &LlmClient,
+    subagent: Option<&SubagentRuntime>,
+    messages: &mut Vec<Message>,
+    budget: u64,
+    overflow_traces: &mut Vec<String>,
+    recent_verbatim_ratio: f64,
+) -> usize {
+    compact_with_digest(
+        client,
+        subagent,
+        messages,
+        budget,
+        overflow_traces,
+        recent_verbatim_ratio,
+    )
+    .await
+}
+
+/// R-236 B1:对话历史的 token 粗估——轮末口径 = 轮内口径(同一估算器,附件按
+/// 固定成本,不按 base64 字节),消灭「带附件必误触发压缩」。
+pub fn estimate_conversation_tokens(messages: &[Message]) -> u64 {
+    context::estimate_prompt_tokens(&[], messages, &[])
+}
 
 #[cfg(test)]
 pub(crate) mod testutil {

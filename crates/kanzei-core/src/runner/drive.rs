@@ -259,7 +259,12 @@ pub fn run_once_with_parts<'a>(
                 32_000
             });
             {
-                let budget = (effective_limit as f64 * config.limits.context_budget_ratio()) as u64;
+                // R-236 B1:触发线换 headroom 公式(与轮末同一把尺,见 compaction_budget)。
+                let budget = compaction_budget(
+                    effective_limit,
+                    config.max_tokens,
+                    config.limits.compact_buffer_tokens(),
+                );
                 let before = budgeted_tokens(&system, &messages, &specs, calibration);
                 if before > budget
                     && futile_compactions < MAX_FUTILE_COMPACTIONS

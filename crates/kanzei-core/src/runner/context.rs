@@ -79,17 +79,50 @@ pub(crate) fn clip(text: &str, max_chars: usize) -> String {
     }
     out
 }
+/// R-236 B1:附件(Image/Document)的固定 token 成本。它们的 data 是 base64,
+/// 按字节数/4 估算会把一张截图算成几万 token——带附件的会话每轮"必超线",
+/// 压缩被虚高误触发。provider 侧图片实际计费在千 token 量级,取保守固定值。
+pub(crate) const ATTACHMENT_TOKEN_COST: u64 = 1_500;
+
+/// R-236 B1:压缩触发线/预算线的统一公式,轮内与轮末同一把尺:
+/// `budget = limit − max(单步输出上限, headroom buffer)`,封底 `limit/4`。
+/// 旧比例线(×0.7)在大窗口上白白放弃三成窗口;headroom 预留是 10 家主流实现的
+/// 共识形态(opencode `limit − max(output, 20k)` 同款)。`context_budget_ratio`
+/// 配置键保留但不再被触发路径消费。
+pub fn compaction_budget(context_limit: u64, max_output_tokens: u32, buffer_tokens: u64) -> u64 {
+    context_limit
+        .saturating_sub((max_output_tokens as u64).max(buffer_tokens))
+        .max(context_limit / 4)
+}
+
 /// 本步请求的 token 粗估:system + 历史 + **工具 schema**。
 ///
 /// 工具 schema 必须计入——它每一步都整份重发,在工具多的 profile 下是常驻大头,
-/// 漏算就会让预算长期偏低、该压的时候不压。粒度沿用 len/4,与既有压缩预检同源。
+/// 漏算就会让预算长期偏低、该压的时候不压。粒度沿用 len/4,与既有压缩预检同源;
+/// 附件不按 base64 字节算,按固定成本(R-236 B1,见 ATTACHMENT_TOKEN_COST)。
 pub(crate) fn estimate_prompt_tokens(
     system: &[String],
     messages: &[Message],
     specs: &[ToolSpec],
 ) -> u64 {
     let system_bytes: usize = system.iter().map(String::len).sum();
-    let message_bytes = serde_json::to_string(messages).map_or(0, |text| text.len());
+    let message_bytes: usize = messages
+        .iter()
+        .map(|message| {
+            message
+                .parts
+                .iter()
+                .map(|part| match part {
+                    Part::Image { .. } | Part::Document { .. } => {
+                        (ATTACHMENT_TOKEN_COST * 4) as usize
+                    }
+                    other => serde_json::to_string(other).map_or(0, |text| text.len()),
+                })
+                .sum::<usize>()
+                // 消息外壳(role 字段与括号)的近似,对齐旧的整段序列化口径。
+                + 24
+        })
+        .sum();
     let spec_bytes: usize = specs
         .iter()
         .map(|spec| spec.name.len() + spec.description.len() + spec.input_schema.to_string().len())
@@ -274,6 +307,46 @@ mod tests {
             "小请求不该越线"
         );
     }
+    /// R-236 B1:预算公式统一为 headroom 形态——limit − max(output, buffer),
+    /// 封底 limit/4;轮内与轮末同一把尺,谁把比例线加回来先删这条。
+    #[test]
+    fn 压缩预算_headroom公式_封底四分之一() {
+        // 常规:128k 窗口、8k 输出、20k buffer → 108k(比旧 0.7 线多用近 20k 窗口)。
+        assert_eq!(compaction_budget(128_000, 8_192, 20_000), 108_000);
+        // 输出上限大于 buffer 时取输出上限。
+        assert_eq!(compaction_budget(128_000, 32_000, 20_000), 96_000);
+        // 保守默认 32k(R-219 未知 provider):32k − 20k = 12k,高于封底 8k。
+        assert_eq!(compaction_budget(32_000, 8_192, 20_000), 12_000);
+        // 小窗口:headroom 会归零,封底 limit/4 兜住,预算永不为 0。
+        assert_eq!(compaction_budget(16_000, 8_192, 20_000), 4_000);
+    }
+
+    /// R-236 B1:附件按固定成本估算,不按 base64 字节——带一张截图的会话不再
+    /// 被虚高几万 token、每轮误触发压缩。
+    #[test]
+    fn 附件估算按固定成本_不按base64字节() {
+        // 约 1MB base64:旧口径(整段序列化 len/4)会估出 ~26 万 token。
+        let big_image = Message {
+            role: kanzei_llm::Role::User,
+            parts: vec![Part::Image {
+                media_type: "image/png".into(),
+                data: "A".repeat(1_000_000),
+            }],
+        };
+        let with_image = estimate_prompt_tokens(&[], std::slice::from_ref(&big_image), &[]);
+        assert!(
+            with_image <= ATTACHMENT_TOKEN_COST + 100,
+            "附件必须按固定成本(≈{ATTACHMENT_TOKEN_COST})计,实得 {with_image}"
+        );
+        // 文本消息口径不变:len/4 量级。
+        let text = Message::user_text("x".repeat(4_000));
+        let text_estimate = estimate_prompt_tokens(&[], std::slice::from_ref(&text), &[]);
+        assert!(
+            (900..=1_300).contains(&text_estimate),
+            "纯文本估算应保持 len/4 量级,实得 {text_estimate}"
+        );
+    }
+
     /// 中文场景下 clip 的上限必须是字符数,而不是被字节余额放大三倍。
     #[test]
     fn clip按字符截断且中文不超额() {

@@ -75,6 +75,18 @@ pub struct Limits {
     /// 流中断后重放本轮的次数上限
     #[serde(default)]
     pub stream_restarts: Option<u32>,
+    /// R-236 B1:压缩触发的 headroom 预留(tokens)。触发线 = context_limit −
+    /// max(max_tokens, 本值);对齐 opencode 的 `limit − max(output, buffer 20k)`,
+    /// 替代旧的 context_budget_ratio 比例线(该键保留但不再被触发路径消费)。
+    #[serde(default)]
+    pub compact_buffer_tokens: Option<u64>,
+    /// R-236 B4:prune(机械清理旧工具结果)保护窗——最近这么多 token 的工具
+    /// 结果与最近两个用户轮逐字保留,不清。
+    #[serde(default)]
+    pub prune_protect_tokens: Option<u64>,
+    /// R-236 B4:prune 最小收益门槛——可回收量低于此值就不做(不值得打破缓存前缀)。
+    #[serde(default)]
+    pub prune_min_gain_tokens: Option<u64>,
 }
 
 impl Limits {
@@ -105,6 +117,15 @@ impl Limits {
     }
     pub fn recent_verbatim_ratio(&self) -> f64 {
         self.recent_verbatim_ratio.unwrap_or(0.35).clamp(0.05, 0.9)
+    }
+    pub fn compact_buffer_tokens(&self) -> u64 {
+        self.compact_buffer_tokens.unwrap_or(20_000).max(1_000)
+    }
+    pub fn prune_protect_tokens(&self) -> u64 {
+        self.prune_protect_tokens.unwrap_or(40_000)
+    }
+    pub fn prune_min_gain_tokens(&self) -> u64 {
+        self.prune_min_gain_tokens.unwrap_or(20_000)
     }
     pub fn max_tasks_per_turn(&self) -> usize {
         // R-174:默认从 8 上调到 16——用户要「远不止 8」(2026-08-10 看过 Claude Code
@@ -998,6 +1019,9 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
                 "transport_retries",
                 "rate_limit_retries",
                 "stream_restarts",
+                "compact_buffer_tokens",
+                "prune_protect_tokens",
+                "prune_min_gain_tokens",
             ],
             &mut out,
         );
@@ -1115,6 +1139,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         transport_retries,
         rate_limit_retries,
         stream_restarts,
+        compact_buffer_tokens,
+        prune_protect_tokens,
+        prune_min_gain_tokens,
     );
     // [embeddings] 逐字段覆盖(与 [limits] 同规:项目层只覆盖写了的那几个键)。
     if layer.embeddings.provider.is_some() {
@@ -2731,6 +2758,9 @@ max_parallel_tools = 6
 transport_retries = 7
 rate_limit_retries = 8
 stream_restarts = 9
+compact_buffer_tokens = 10
+prune_protect_tokens = 11
+prune_min_gain_tokens = 12
 "#;
         // ①穷举完整性:结构体的每个字段都必须在上面的 TOML 里显式赋了值。
         let layer: KanzeiConfig = toml::from_str(layer_toml).unwrap();

@@ -1053,44 +1053,87 @@ pub(crate) async fn run_task(
         .unwrap()
         .insert(session_id.clone(), summary.messages);
 
-    // R-021 自动压缩:历史估算超过上下文上限 70% 时,fast 模型出纪要并替换历史。
-    // 估算用 len/4(与压缩预检同源的粗粒度);失败保留原历史,绝不丢上下文。
+    // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
+    // 工作区逐字、只压中段、纪要过质量闸,失败回落原文节选。R-021 那套「整段历史
+    // → 单条 300 字纪要」已删:那正是 D-181 在 core 侧修掉的失败模式(压完模型
+    // 不知道自己做过什么),也是用户实测「打断插任务模型失忆」的主因之一。
+    // 触发线与轮内同一把尺(compaction_budget:limit − max(output, buffer));
+    // 估算同一口径(附件按固定成本,不按 base64 字节——消灭带附件必误触发)。
     if let Some(limit) = resolved.provider.context_limit {
-        let estimate = {
-            let conversations = conversation.lock().unwrap();
-            let conv = conversations.get(&session_id).cloned().unwrap_or_default();
-            serde_json::to_string(&conv)
-                .map(|s| s.len() as u64 / 4)
-                .unwrap_or(0)
-        };
-        if estimate > limit * 7 / 10 {
+        let budget = kanzei_core::compaction_budget(
+            limit,
+            config.limits.max_tokens(),
+            config.limits.compact_buffer_tokens(),
+        );
+        let mut conv = conversation
+            .lock()
+            .unwrap()
+            .get(&session_id)
+            .cloned()
+            .unwrap_or_default();
+        let estimate = kanzei_core::estimate_conversation_tokens(&conv);
+        if estimate > budget && conv.len() > 1 {
             stage(
                 "压缩",
                 format!(
-                    "历史约 {}k token,超过 {}k 的 70%,自动压缩中…",
+                    "会话历史约 {}k token 超预算 {}k(上限 {}k),压缩中段…",
                     estimate / 1000,
+                    budget / 1000,
                     limit / 1000
                 ),
             );
-            let transcript = {
-                let conversations = conversation.lock().unwrap();
-                let conv = conversations.get(&session_id).cloned().unwrap_or_default();
-                render_transcript(&conv)
-            };
-            match fast_summarize(&ctx.cwd, &transcript).await {
-                Ok(digest) => {
-                    conversation.lock().unwrap().insert(
-                        session_id.clone(),
-                        vec![kanzei_llm::Message::user_text(format!(
-                            "(系统:此前对话已自动压缩为以下纪要,基于它继续)\n{digest}"
-                        ))],
-                    );
-                    let _ = window.emit(
-                        "kz:compacted",
-                        with_session_id(json!({ "summary": digest }), &session_id),
-                    );
+            let mut compact_traces = Vec::new();
+            let dropped = kanzei_core::compact_conversation(
+                &client,
+                subagent_rt.as_ref(),
+                &mut conv,
+                budget,
+                &mut compact_traces,
+                config.limits.recent_verbatim_ratio(),
+            )
+            .await;
+            if dropped > 0 {
+                let after = kanzei_core::estimate_conversation_tokens(&conv);
+                // 纪要预览:替换消息的正文(UI 压缩条目用)。
+                let digest_preview = conv
+                    .iter()
+                    .flat_map(|m| &m.parts)
+                    .find_map(|p| match p {
+                        kanzei_llm::Part::Text { text } if text.starts_with("(系统:此前") => {
+                            Some(text.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                conversation
+                    .lock()
+                    .unwrap()
+                    .insert(session_id.clone(), conv);
+                // 被压段的轨迹摘要随轮末落 live trace,复盘可查(与轮内 overflow 同源语义)。
+                for trace in compact_traces {
+                    let mut live = live.lock().unwrap();
+                    live.trace
+                        .push(json!({ "kind": "compaction.dropped", "detail": trace }));
                 }
-                Err(e) => stage("压缩", format!("压缩失败:{e}(保留原历史)")),
+                stage(
+                    "压缩",
+                    format!(
+                        "压缩完成:{}k → {}k token,压掉 {dropped} 条中段消息",
+                        estimate / 1000,
+                        after / 1000
+                    ),
+                );
+                let _ = window.emit(
+                    "kz:compacted",
+                    with_session_id(
+                        json!({ "summary": digest_preview, "dropped": dropped, "before": estimate, "after": after }),
+                        &session_id,
+                    ),
+                );
+            } else {
+                // 中段为空压不动(超线来自任务定义/近期工作区本身):保留原历史,
+                // 交给轮内的 trim_tail/被动恢复,不在轮末冒进。
+                stage("压缩", "中段为空压不动,保留原历史".into());
             }
         }
     }
@@ -1819,35 +1862,8 @@ pub(crate) async fn fast_summarize(cwd: &Path, transcript: &str) -> Result<Strin
     Ok(summary)
 }
 
-pub(crate) fn render_transcript(messages: &[kanzei_llm::Message]) -> String {
-    let mut out = String::new();
-    'outer: for message in messages {
-        for part in &message.parts {
-            match part {
-                kanzei_llm::Part::Text { text } => {
-                    out.push_str(match message.role {
-                        kanzei_llm::Role::User => "[用户] ",
-                        kanzei_llm::Role::Assistant => "[助手] ",
-                    });
-                    out.push_str(text);
-                    out.push('\n');
-                }
-                kanzei_llm::Part::ToolCall { name, input, .. } => {
-                    out.push_str(&format!("[工具调用] {name} {input}\n"))
-                }
-                kanzei_llm::Part::ToolResult { content, .. } => {
-                    let snippet: String = content.chars().take(1500).collect();
-                    out.push_str(&format!("[工具结果] {snippet}\n"));
-                }
-                _ => {}
-            }
-            if out.len() > 100_000 {
-                break 'outer;
-            }
-        }
-    }
-    out
-}
+// render_transcript 已随 R-021 轮末整段替换一并删除(R-236 B1):轮末压缩的
+// 纪要输入渲染统一走 core 的 render_for_digest,不留第二份渲染实现。
 
 #[tauri::command]
 pub(crate) async fn summarize_chat(
