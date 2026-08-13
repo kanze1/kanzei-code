@@ -49,21 +49,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-223 权限被拦聚合呈现:自动轮每次跳过落可见 notice 或轮末汇总,「自动放行」挂常驻徽标并对齐语义 [doing]
-- 优先级: P2
-- 复杂度: 小
-- 标签: 前端
-- 来源: 2026-08-12 八维度审计(§3);07-events.js:432-436 对 autonomous/parallel 询问只在默认隐藏的运行日志留一行即丢弃,D-281 记载 R-191 因此连撞三轮才被发现;「自动放行」文案称「本次」实际跨重启持久化且折叠在菜单里无常驻标识。
-- 内容: 自动轮每次权限跳过在对话流落可见 notice 或轮末汇总「本轮 N 次被拦(动作/资源清单)」;「自动放行」开启时状态栏挂常驻警示徽标,tooltip 与持久化语义对齐(要么真的仅本次,要么明说会记住)。
-- 验收: ①自动轮被拦 ≥1 次时对话流可见;②开启自动放行后重启仍有常驻标识;③两条冒烟断言。
-- refs: D-281
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-223
-- 批次: 1/1
-- 进展: 完成:权限被拦聚合呈现——①自动轮(autonomous/parallel)权限询问被拦时,07-events.js 的 kz:ask 跳过分支调 recordBlockedAsk:每次落对话流可见 notice(⚠️ 权限被拦已跳过: action · resource),kz:done 轮末 summaryBlockedAsks 汇总「本轮 N 次被拦(动作/资源清单)」(被拦 ≥1 次才可见,blockedAskSummaryShown 防重复);②「自动放行」开启时状态栏挂常驻警示徽标 #status-auto-allow(警示色,index.html + style.css),syncAutoAllowBadge 随开关/初始化同步,localStorage kz-auto-allow 持久化跨重启仍显示;tooltip 语义对齐——「本次不再弹权限窗」改为「此选择会被记住,跨重启仍生效」(index.html + i18n key)。i18n 新增 4 key(权限被拦已跳过/本轮权限被拦/次/两个自动放行文案),ui-lint-globals 重新生成。验收:①被拦 ≥1 次对话流可见——冒烟断言(autonomous ask → notice + kz:done 轮末汇总);②重启后徽标常驻——localStorage 断言;③两条冒烟断言全过。前端冒烟五连全过(21 组断言,ui-runtime 1682 invoke)。
-- observed_head: 8534f4e8d7358a870085cf22fe5a9f47e42d38ba
-- observed_worktree_hash: fnv1a64:5d189a7d794ee0bb
-- recorded_at: 1786627048192
-
 ## R-228 关闭门禁测试面跟标签走:前端标签任务 B2 全量必含 verify.ps1 的 ui_* smoke [todo]
 - 内容: cargo test --workspace 全绿不等于全量——项目门禁口径是 verify.ps1 十步,其中六步是前端 smoke;带前端标签的 req/defect 在 B2 关闭前全量时必须跑 ui_syntax/ui_runtime/ui_lint/ui_i18n(可做成按标签选测试面的关闭门禁)
 - 复杂度: 中
