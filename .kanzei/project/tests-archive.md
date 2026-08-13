@@ -2381,3 +2381,10 @@
 - 摘要: R-175 B5 重启可发现:workspace 801 passed / 0 failed 全绿。drive.rs spawn 块派发即记 running 事件(与 done/failed 终态并列);新增 pending_background_subagents 纯函数——从 session_events 回放找「running 无终态」的 id(重启后列出上次未终结子代理,给出确定处置标失败,不留幽灵);验收③测试 pending_background_subagents_只列running无终态_终态不残留(A running 列出,B done/C failed 不残留)。clippy 干净。
 - 关联: R-175
 - 收尾: 1786618924
+
+## T-1786619347 发版 verify+package (build-52935b6) [passed]
+- 命令: verify.ps1 + package.ps1 -Ack 19 -Publish (build-52935b6)
+- 时长: 420.0s
+- 摘要: 发版 build-52935b6:verify.ps1 十步全绿(fmt/clippy/test/ui 六冒烟,证据写 dist/verification.json commit 52935b63),package.ps1 -Ack 19 -Publish 产出 kanzei-setup-52935b6.exe(12MB)并发布 GitHub release。覆盖 R-175(子代理后台化完整)、R-185(依赖判定)、D-333(归档去重)。
+- 关联: R-175 R-185 D-333
+- 收尾: 1786619347
