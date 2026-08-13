@@ -6120,7 +6120,12 @@ const docsB = {
 // ---------- R-189 亮色主题:切换持久化 + Monaco setTheme 联动 ----------
 {
   const themeBtn = byId.get("theme-toggle");
-  assert(themeBtn, "R-189:状态栏缺少主题切换按钮");
+  assert(themeBtn, "R-189:侧栏缺少主题切换按钮");
+  assert(!html.includes('id="theme-toggle" class="statusbar-btn"'), "D-348:主题按钮仍在状态栏");
+  assert(html.indexOf('id="theme-toggle"') < html.indexOf('id="statusbar"'), "D-348:主题按钮未放入侧栏");
+  assert(/\.msg\.assistant[^{]*\{[^}]*color:\s*var\(--fg-strong\)/.test(style), "D-348:正文未使用亮色主题前景 token");
+  assert(/\.tool-display\.term[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:运行输出未使用主题前景 token");
+  assert(/#statusbar[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:状态栏控件未使用主题前景 token");
   // 默认暗色(现状零回归)。
   assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:默认主题应为暗色(或未设=暗)");
   // 切亮色:html[data-theme=light] + localStorage 持久化。

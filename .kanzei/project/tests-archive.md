@@ -2995,3 +2995,17 @@
 - 关联: R-208
 - 收尾: 1786660219
 - 源码指纹: c7d8a3b75acde213
+
+## T-1786661661 D-348 前端主题与侧边栏运行时冒烟 [passed]
+- 命令: node --check scripts/ui-runtime-smoke.mjs; node --check crates/kanzei-app/ui/*.js; node scripts/ui-runtime-smoke.mjs; frontend_check style.css
+- 摘要: 通过：21 个 UI 脚本按序执行，初始化 1790 次 invoke，9 个主视图切换，0 运行时错误；CSS 花括号配对正常；新增断言覆盖主题按钮侧栏位置、正文/运行输出/状态栏主题 token。
+- 关联: D-348
+- 收尾: 1786661661
+
+## T-1786661751 D-348 kanzei-app 定向测试 [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 17.2s
+- 摘要: 149 passed, 0 failed；kanzei-app 定向测试通过，覆盖本次前端所属 crate 的提交门禁。
+- 关联: D-348
+- 收尾: 1786661751
+- 源码指纹: e661dc709dd92b48

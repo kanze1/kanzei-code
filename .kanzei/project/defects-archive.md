@@ -3976,3 +3976,16 @@
 - recorded_at: 1786660058469
 - 阻塞: 用户: 当前引擎为旧编译版,git 工具仍以 quotepath 转义逻辑运行,含 docs/目录.md 的暂存区会让任何 stage 误判 foreign;工具无 unstage,bash git reset 被引擎拦截。解除动作: 用户在项目根执行一次 `git reset`(清空暂存区,工作树不动)后,agent 一次性重建暂存并分两笔提交(R-147 与 D-347)。解除人: 用户。
 - 验收证据: 验收①「stage 含中文文件名文件后再追加 stage 其它文件不再被误判 foreign」——git.rs staged_paths/staged_paths_sync 均加 -c core.quotepath=false,回归测试 stage_after_non_ascii_path_is_not_foreign(stage 目录.md 后带完整清单重 stage 成功)通过;本轮实际提交链即真实证据:R-147 含 docs/目录.md 的 8 文件成功 stage+commit(20df0de)。验收②「staged_paths/staged_paths_sync 输出真实 UTF-8 路径」——两处命令加 -c core.quotepath=false,测试断言 staged_paths 返回真实路径且不含 \347 转义。验收③「有回归测试覆盖非 ASCII 路径场景」——stage_after_non_ascii_path_is_not_foreign 测试。验收④「既有 stage/commit 全量测试不回归」——cargo test -p kanzei-tools --lib git:: 22 passed(含既有 stage 测试)。
+
+## D-348 亮色主题显示异常且主题按钮位于错误的顶部工具栏 [fixed] (medium)
+- 复现: 用户在亮色主题下打开会话界面；截图显示正文/运行日志区域的亮色显示异常，主题相关按钮出现在顶部工具栏。
+- 影响: 亮色主题内容可读性与布局受影响，主题切换入口不符合侧边栏交互约定。
+- 来源: 用户消息与截图
+- 标签: 前端
+- 验收: 逐项证据：1) 亮色主题下正文/运行日志/控件可读且布局正常：style.css:25-29,54-58,103,636,695,704,1218,1233,1257 使用暗/亮主题 token；T-1786661661 运行时冒烟通过。2) 主题按钮从状态栏移入侧边栏：index.html:109-114 新位置，原 index.html:703 已删除；smoke:6124-6125 机械断言。3) 既有主题切换仍可用且有前端运行时冒烟：03-shell.js:498-525 保留真实 click 消费、localStorage 与 Monaco 联动；smoke:6129-6143 验证暗亮切换、持久化与联动；T-1786661661 通过。
+- 优先级: P2
+- 取活依据: engine:唯一可执行 WIP 是 D-348，必须先恢复它
+- 进展: 已完成并验证。①亮色主题正文与控件：crates/kanzei-app/ui/style.css:25-29、54-58 新增暗/亮主题 activity/code token；:103、:636、:695、:704、:1218、:1233、:1257 改为主题变量，覆盖活动栏、状态栏、正文、内联代码、终端运行输出和 diff 摘要；②按钮位置：crates/kanzei-app/ui/index.html:109-114 将 #theme-toggle 放入 #sidebar 的主题分区，并删除原 statusbar 位置 index.html:703；③既有主题能力沿用 crates/kanzei-app/ui/03-shell.js:498-525，真实消费者仍为 #theme-toggle，保留持久化与 Monaco 联动；④验证：T-1786661661，node --check 全部 UI JS + scripts/ui-runtime-smoke.mjs、CSS frontend_check、ui-runtime-smoke 通过（21 个脚本、1790 次 invoke、9 个视图、0 运行时错误）；smoke 新增 scripts/ui-runtime-smoke.mjs:6123-6128 断言侧栏位置与亮色 token。
+- observed_head: a1e06c2abd03c843cc9ba0b01061ca0f0a71c1e8
+- observed_worktree_hash: fnv1a64:e160909ef5544b91
+- recorded_at: 1786661677509
