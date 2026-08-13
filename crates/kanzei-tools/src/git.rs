@@ -429,6 +429,84 @@ fn is_source_path(path: &str) -> bool {
     (path.starts_with("crates/") || path.starts_with("scripts/")) && !path.contains("/.kanzei/")
 }
 
+/// 提交里算「tracker 文档」的路径:需求/缺陷/测试记录及其归档。
+/// R-227 门禁只扫这些文件——占位符测试 ID 只可能出现在关闭证据/进展叙述里。
+fn is_tracker_path(path: &str) -> bool {
+    let path = path.replace('\\', "/");
+    let file = path.rsplit('/').next().unwrap_or(&path);
+    matches!(
+        file,
+        "requirements.md"
+            | "requirements-archive.md"
+            | "defects.md"
+            | "defects-archive.md"
+            | "tests.md"
+            | "tests-archive.md"
+    )
+}
+
+/// R-227:占位符测试 ID 门禁。tracker 文件 diff 里出现 `T-\d+xxx` 形态的占位符
+/// (真实测试 ID 是 `T-<10位时间戳>` 如 `T-1786565253`;占位符是数字后直接跟 xxx)
+/// 即拒——把「全量跑过但没记 test_record」写成占位符,等于隔时凭记忆写证据,
+/// R-198/R-199 的关闭证据就是这么漏出 D-320 的。只扫 tracker 文件的 diff 块,
+/// 新增行(以 `+` 开头)与删除行(以 `-` 开头)都查:占位符不该出现在任何一侧。
+fn placeholder_id_gate(diff: &str, paths: &[String]) -> Result<(), String> {
+    let tracker: Vec<String> = paths
+        .iter()
+        .filter(|p| is_tracker_path(p))
+        .cloned()
+        .collect();
+    if tracker.is_empty() {
+        return Ok(());
+    }
+    // 占位符模式:`T-` + 至少一位数字 + `xxx`(数字不能为空,避免误伤 `T-xxx` 说明文字;
+    // 也不能是完整 10 位时间戳——那是真 ID)。真实 ID 之后绝不该跟 `xxx`。
+    // 手写扫描替代 regex:找 `T-` 后数连续数字,数字后紧跟 `xxx` 即命中。
+    let is_placeholder = |line: &str| {
+        let bytes = line.as_bytes();
+        let mut i = 0usize;
+        while i + 6 <= bytes.len() {
+            if &bytes[i..i + 2] == b"T-" {
+                let mut j = i + 2;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j > i + 2 && line[j..].starts_with("xxx") {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
+    };
+    let mut hits: Vec<String> = Vec::new();
+    for line in diff.lines() {
+        if is_placeholder(line) {
+            hits.push(line.trim().to_string());
+        }
+    }
+    if hits.is_empty() {
+        return Ok(());
+    }
+    let truncated: Vec<String> = hits
+        .iter()
+        .map(|l| {
+            if l.chars().count() > 160 {
+                format!("{}…", l.chars().take(160).collect::<String>())
+            } else {
+                l.clone()
+            }
+        })
+        .collect();
+    Err(format!(
+        "tracker 文件 diff 出现 {} 处占位符测试 ID(`T-<数字>xxx` 形态):\n{}\n\
+         占位符 = 把「测试跑过但没记 test_record」隔时凭记忆写进证据,正是 D-320 根因链。\
+         先 test_record 记真实 ID 再引用;存量占位符用 `archive_fill` 回填真值。",
+        truncated.len(),
+        truncated.join("\n")
+    ))
+}
+
 fn modified_secs(path: &Path) -> Option<u64> {
     std::fs::metadata(path)
         .ok()?
@@ -711,7 +789,7 @@ async fn commit(
             "`expected_hash` is required; call `stage` and review its staged diff first",
         );
     };
-    let (current_hash, _, paths) = match staged_state(cwd).await {
+    let (current_hash, staged_diff, paths) = match staged_state(cwd).await {
         Ok(state) => state,
         Err(error) => return ToolOutput::error(error),
     };
@@ -722,6 +800,14 @@ async fn commit(
         return ToolOutput::error(format!(
             "staged content changed: expected `{expected_hash}`, current `{current_hash}`. Re-run stage/diff and review the new index before committing."
         ));
+    }
+    // R-227:占位符测试 ID 门禁——tracker 文件 diff 里出现 `T-\d+xxx` 形态的占位符
+    // (真实测试 ID 是 `T-<10位时间戳>`,占位符是数字后接 xxx)即拒绝提交。存量 8 处
+    // (R-198/R-199/D-219/D-266/D-279/D-281/D-282/D-316 关闭证据)曾把「全量跑过但
+    // 没记 test_record」写成占位符,隔时凭记忆写证据导致 R-198/R-199 的关闭证据含
+    // 占位符仍无人核对(D-320 根因链)。门禁只扫 tracker 文件,源码 diff 不受影响。
+    if let Err(error) = placeholder_id_gate(&staged_diff, &paths) {
+        return ToolOutput::error(error);
     }
     if paths.iter().any(|p| is_source_path(p)) {
         // 顺序有讲究:先验门禁(机械真值),再看测试记录(自报证据)。编译不过时
@@ -1140,6 +1226,49 @@ fn hide_console_window(_command: &mut tokio::process::Command) {}
 mod tests {
     use super::*;
     use kanzei_harness::Tool;
+
+    /// R-227 验收①:tracker diff 出现 `T-<数字>xxx` 占位符即拒;真实 10 位 ID 放行;
+    /// 非 tracker 文件不受影响;无占位符放行。
+    #[test]
+    fn placeholder_id_gate_拒绝占位符_放行真实_id与非tracker() {
+        // 占位符在 tracker 文件里 → 拒。
+        let diff = "\
+diff --git a/.kanzei/project/requirements-archive.md b/.kanzei/project/requirements-archive.md
+index 0000000..1111111 100644
+--- a/.kanzei/project/requirements-archive.md
++++ b/.kanzei/project/requirements-archive.md
+@@ -1,1 +1,1 @@
+- 全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)";
+        let paths = vec![".kanzei/project/requirements-archive.md".into()];
+        let err = placeholder_id_gate(diff, &paths).unwrap_err();
+        assert!(err.contains("占位符"), "{err}");
+        assert!(err.contains("T-1786565xxx"), "{err}");
+
+        // 真实 10 位 ID → 放行。
+        let real = "\
+diff --git a/.kanzei/project/requirements-archive.md b/.kanzei/project/requirements-archive.md
++ 全量 cargo test --workspace 全绿(T-1786565346,harness 118)";
+        assert!(
+            placeholder_id_gate(real, &paths).is_ok(),
+            "真实 ID 必须放行"
+        );
+
+        // 无占位符 → 放行。
+        let clean = "\
+diff --git a/.kanzei/project/requirements.md b/.kanzei/project/requirements.md
++ - 进展: 实现已落地,验证通过";
+        assert!(placeholder_id_gate(clean, &paths).is_ok());
+
+        // 非 tracker 文件即使含 `T-123xxx` 也不拦(源码/文档不在门禁范围)。
+        let source = "\
+diff --git a/crates/kanzei-tools/src/tracker.rs b/crates/kanzei-tools/src/tracker.rs
++ // T-123xxx 这里不是占位符,是代码示例";
+        let source_paths = vec!["crates/kanzei-tools/src/tracker.rs".into()];
+        assert!(placeholder_id_gate(source, &source_paths).is_ok());
+
+        // 无 tracker 路径 → 直接放行(不扫)。
+        assert!(placeholder_id_gate(diff, &source_paths).is_ok());
+    }
 
     /// R-177 内容③:解析器抽出来即补单测——它此前零直接覆盖,只被 merge_ff 间接用到。
     /// 表驱动覆盖 `--porcelain` 的全部行形态。

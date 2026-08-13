@@ -40,6 +40,7 @@ const WRITE_ACTIONS: &[&str] = &[
     "reorder",
     REOPEN_ACTION,
     FIX_TERMINAL_ACTION,
+    "archive_fill",
     "raw_delete",
     "repair_reused_id",
     "repair_missing_id",
@@ -81,6 +82,12 @@ struct TrackerInput {
     /// raw_delete 必填:raw_lines 输出里的 [n] 序号(要删除的第 n 条游离行)
     #[serde(default)]
     ordinal: Option<usize>,
+    /// archive_fill 必填:归档条目字段里要被替换的占位符原文(如 `T-1786565xxx`)
+    #[serde(default)]
+    old: Option<String>,
+    /// archive_fill 必填:替换后的真实值(如 `T-1786565346`)
+    #[serde(default)]
+    new: Option<String>,
     /// normalize 用:false(默认)= dry-run 只报告待修项;true = 实际写入修复。
     #[serde(default)]
     apply: bool,
@@ -981,6 +988,33 @@ impl Tool for TrackerTool {
                         self.kind.rel_path,
                     )),
                     Err(e) => ToolOutput::error(format!("fix_terminal failed: {e}")),
+                }
+            }
+            // R-227:归档条目字段里的占位符测试 ID 回填。占位符 `T-<数字>xxx` 是
+            // 「全量跑过但没记 test_record、隔时凭记忆写证据」的产物(R-198/R-199/
+            // D-219/D-266/D-279/D-281/D-282/D-316 关闭证据存量 8 处)。回填 =
+            // 把占位符替换为 test_record 落盘的真实 ID;docstore 侧要求恰好命中一次。
+            "archive_fill" => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for archive_fill");
+                };
+                let (Some(old), Some(new)) = (input.old.as_deref(), input.new.as_deref()) else {
+                    return ToolOutput::error(
+                        "`old` and `new` are required for archive_fill: old = 占位符原文 \
+                         (如 `T-1786565xxx`),new = test_record 落盘的真实 ID(如 `T-1786565346`)",
+                    );
+                };
+                match store.fill_archived_placeholder(id, old, new) {
+                    Ok(0) => ToolOutput::error(format!(
+                        "archive_fill: 在归档 {id} 里没找到 `{old}`,没有可回填的占位符"
+                    )),
+                    Ok(count) => ToolOutput::ok(format!(
+                        "archive_fill: 归档 {id} 回填 {count} 处占位符 `{old}` → `{new}`。\n\
+                         与 test_record 落盘的真实 ID 对齐(关门禁 R-227)。\n\
+                         提交时带上 `{}` 及其归档文件。",
+                        self.kind.rel_path,
+                    )),
+                    Err(e) => ToolOutput::error(format!("archive_fill failed: {e}")),
                 }
             }
             // D-332 验收②:统一 repair surface——把散落在 fix_terminal / 手改 markdown /
@@ -2619,6 +2653,67 @@ mod tests {
         assert!(out.content.contains("进展"), "{}", out.content);
         let after_bytes = std::fs::read(&path).unwrap();
         assert_ne!(before_bytes, after_bytes, "补字段应落盘");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-227 验收②配套:archive_fill 通过 tracker 动作回填归档条目占位符。
+    #[tokio::test]
+    async fn archive_fill_回填归档占位符_缺参报错() {
+        let dir = std::env::temp_dir().join(format!("kz-archive-fill-tool-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        // 走正常归档路径:活动条目标记 done → archive_terminal 落归档,满足完整性门禁。
+        // 注意用 R-001 低位 id:UNACCOUNTED 检查是 1..=max 连续序列,R-198 会触发
+        // R-001..R-197 缺失(execute 入口有完整性门禁;docstore 层测试可直接用 R-198)。
+        let mut e = entry("R-001");
+        e.status = "done".into();
+        e.fields = vec![(
+            "进展".into(),
+            "全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)".into(),
+        )];
+        store.save(&[e]).unwrap();
+        store.archive_terminal().unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // 缺 old/new → 报错。
+        let out = tool
+            .execute(json!({"action": "archive_fill", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("old"), "{}", out.content);
+
+        // 正常回填。
+        let out = tool
+            .execute(
+                json!({"action": "archive_fill", "id": "R-001",
+                       "old": "T-1786565xxx", "new": "T-1786565346"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("T-1786565346"), "{}", out.content);
+        let archived = store.load_archive().unwrap();
+        let r001 = archived.iter().find(|e| e.id == "R-001").unwrap();
+        assert!(r001
+            .fields
+            .iter()
+            .any(|(_, v)| v.contains("T-1786565346") && !v.contains("xxx")));
+
+        // 找不到占位符 → 报错。
+        let out = tool
+            .execute(
+                json!({"action": "archive_fill", "id": "R-001",
+                       "old": "T-9999999999xxx", "new": "T-1786565346"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 

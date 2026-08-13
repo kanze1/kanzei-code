@@ -748,6 +748,73 @@ impl DocStore {
         Ok((true, removed))
     }
 
+    /// R-227:归档条目字段里的占位符测试 ID 回填。占位符形态 `T-<数字>xxx`
+    /// (真实测试 ID 是 `T-<10位时间戳>`),曾出现在 R-198/R-199/D-219/D-266/D-279/
+    /// D-281/D-282/D-316 关闭证据里。回填 = 把占位符替换为 test_record 落盘的真实 ID。
+    /// 与 dedupe_archived_fields 共用同一把锁与写路径(load_archive → 改 →
+    /// render_with_template → write_atomic),不制造第二套整表写 API。
+    /// `old` 必须恰好命中一次(0 次=没找到,多次=有歧义),替换后返回真实替换次数。
+    /// 要求 reason 非空,记录在返回里由调用方展示(不进条目,避免污染审计流水)。
+    pub fn fill_archived_placeholder(
+        &self,
+        id: &str,
+        old: &str,
+        new: &str,
+    ) -> std::io::Result<usize> {
+        let _lock = self.lock()?;
+        let mut archived = self.load_archive()?;
+        let Some(pos) = archived.iter().position(|e| e.id == id) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no archived entry {id}"),
+            ));
+        };
+        // 遍历全部字段值做替换,统计总命中次数(0=没找到,>1=有歧义)。
+        let mut replaced = 0usize;
+        for (_, value) in archived[pos].fields.iter_mut() {
+            let mut count = 0usize;
+            let mut rest = value.as_str();
+            let mut parts = Vec::new();
+            while let Some(idx) = rest.find(old) {
+                parts.push(&rest[..idx]);
+                parts.push(new);
+                rest = &rest[idx + old.len()..];
+                count += 1;
+            }
+            if count > 0 {
+                replaced += count;
+                parts.push(rest);
+                *value = parts.concat();
+            }
+        }
+        if replaced == 0 {
+            return Ok(0);
+        }
+        if replaced > 1 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("placeholder `{old}` matched {replaced} times in archived {id}; refuse ambiguous fill"),
+            ));
+        }
+        let template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(DocumentTemplate {
+                preamble: Vec::new(),
+                entries: Vec::new(),
+            });
+        let archived_text = render_with_template(self.kind, &archived, &template);
+        let text = archived_text.replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
+        Ok(replaced)
+    }
+
     /// D-316 归档净化:按 id 去重(保留先归档的一份)+ 条目内字段收敛。
     ///
     /// D-328 收窄两条口径——净化的对象是"结构性脏数据",不是叙事内容:
@@ -1942,6 +2009,71 @@ mod tests {
         // 不存在的 id 安全返回无变化。
         let (changed_missing, removed_missing) = store.dedupe_archived_fields("R-999").unwrap();
         assert!(!changed_missing && removed_missing == 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-227:归档条目占位符测试 ID 回填——恰好命中一次替换,幂等(已回填再填=0),
+    /// 找不到/多次命中拒绝,写路径与 dedupe 同锁同渲染。
+    #[test]
+    fn fill_archived_placeholder_回填占位符且拒绝歧义() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-archive-fill-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        std::fs::write(
+            store.archive_file(),
+            "# Requirements Archive\n\n\
+             ## R-198 某需求 [done]\n\
+             - 进展: 全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)\n",
+        )
+        .unwrap();
+
+        // 恰好命中一次 → 替换成功。
+        let replaced = store
+            .fill_archived_placeholder("R-198", "T-1786565xxx", "T-1786565346")
+            .unwrap();
+        assert_eq!(replaced, 1);
+        let archived = store.load_archive().unwrap();
+        let r198 = archived.iter().find(|e| e.id == "R-198").unwrap();
+        let progress = r198
+            .fields
+            .iter()
+            .find(|(k, _)| k == "进展")
+            .map(|(_, v)| v.as_str())
+            .unwrap();
+        assert!(progress.contains("T-1786565346"), "{progress}");
+        assert!(!progress.contains("T-1786565xxx"), "{progress}");
+
+        // 幂等:已回填再填同一占位符 = 0,不写。
+        let again = store
+            .fill_archived_placeholder("R-198", "T-1786565xxx", "T-1786565346")
+            .unwrap();
+        assert_eq!(again, 0, "已回填的占位符不应再命中");
+
+        // 找不到的 id → 报错。
+        let err = store
+            .fill_archived_placeholder("R-999", "T-1786565xxx", "T-1786565346")
+            .unwrap_err();
+        assert!(err.to_string().contains("R-999"), "{err}");
+
+        // 多次命中 → 拒绝(有歧义)。
+        std::fs::write(
+            store.archive_file(),
+            "# Requirements Archive\n\n\
+             ## D-001 某缺陷 [fixed] (medium)\n\
+             - 复现: T-1786562xxx 出现两次 T-1786562xxx\n",
+        )
+        .unwrap();
+        let err = store
+            .fill_archived_placeholder("D-001", "T-1786562xxx", "T-1786562463")
+            .unwrap_err();
+        assert!(err.to_string().contains("ambiguous"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

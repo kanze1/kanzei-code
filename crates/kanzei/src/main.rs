@@ -1111,6 +1111,20 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
                 }
             }
         }
+        // R-227:archive_fill 回填归档条目里的占位符测试 ID。
+        // CLI 形态:`kz req archive_fill <id> <old> <new>`。
+        "archive_fill" => {
+            let positional = parse_tracker_flags(&args[2..], &mut input);
+            if let Some(id) = positional.first() {
+                input["id"] = serde_json::json!(id);
+            }
+            if let Some(old) = positional.get(1) {
+                input["old"] = serde_json::json!(old);
+            }
+            if let Some(new) = positional.get(2) {
+                input["new"] = serde_json::json!(new);
+            }
+        }
         "raw_delete" => {
             let positional = parse_tracker_flags(&args[2..], &mut input);
             if let Some(id) = positional.first() {
