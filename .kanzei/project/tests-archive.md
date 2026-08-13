@@ -2402,3 +2402,10 @@
 - 摘要: 发版 build-2b95bf6:verify.ps1 十步全绿(证据 commit 2b95bf6),package.ps1 -Ack 3 -Publish 产出 kanzei-setup-2b95bf6.exe(12MB)并发布 GitHub release。覆盖 D-334(finalize 事务化)/D-335(措辞收敛)/D-336(normalize 归档 repair 澄清)。
 - 关联: D-334 D-335 D-336
 - 收尾: 1786620252
+
+## T-1786620654 cargo test -p kanzei-tools (R-180 B1) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 26.4s
+- 摘要: R-180 B1 persistent 档位:314 passed / 0 failed。BackgroundProcess 加 persistent 字段(默认 false=跟随 owner run),register 加参数,bash 工具 persistent 输入透传,finish_foreign_owners 跳过 persistent;测试 persistent_长驻服务跨owner存活_默认档位照常收尾(两档对比:run-B 收尾只收默认、persistent 存活)。clippy 干净。
+- 关联: R-180
+- 收尾: 1786620654

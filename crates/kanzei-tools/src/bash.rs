@@ -35,6 +35,12 @@ struct BashInput {
     /// 后台运行:立刻返回进程句柄,用 process 工具查输出/停止(长驻服务、watch 用)
     #[serde(default)]
     background: bool,
+    /// R-180:长驻档位(仅 background=true 有意义)。默认 false = 跟随 owner run
+    /// (owner run 收尾即收尾,D-174 安全降级);true = 生命周期显式脱离 owner run,
+    /// 跨 run 存活,由注册表/日志落盘承接(R-180 B2/B3)。只有用户或 agent 明确
+    /// 声明"这是长驻服务"时才置 true——不改变默认档位。
+    #[serde(default)]
+    persistent: bool,
 }
 
 pub struct BashTool;
@@ -203,6 +209,8 @@ impl Tool for BashTool {
                 &workdir,
                 background_owner(ctx),
                 managed_before,
+                // R-180:长驻档位透传。persistent=true 时 owner run 收尾不再收它。
+                input.persistent,
             );
             let rendered = format!(
                 "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n\

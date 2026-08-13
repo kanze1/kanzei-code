@@ -55,6 +55,10 @@ pub struct BackgroundProcess {
     pub workdir: String,
     /// 归属身份:租约体系里这个后台任务算谁的。
     pub owner: BackgroundOwner,
+    /// R-180:长驻档位。false(默认)= 跟随 owner run:owner run 收尾时一并收尾
+    /// (D-174 安全降级);true = 生命周期显式脱离 owner run:finish_foreign_owners
+    /// 跳过它,跨 run 存活(注册表/日志落盘见 B2/B3)。
+    pub persistent: bool,
     pub started_at_ms: u128,
     pid: Option<u32>,
     output: Arc<Mutex<Vec<u8>>>,
@@ -142,6 +146,7 @@ pub fn register(
     workdir: &Path,
     owner: BackgroundOwner,
     baseline: ManagedSnapshot,
+    persistent: bool,
 ) -> Arc<BackgroundProcess> {
     let id = next_id();
     let output = Arc::new(Mutex::new(Vec::new()));
@@ -191,6 +196,7 @@ pub fn register(
         project_root: project_root.display().to_string(),
         workdir: workdir.display().to_string(),
         owner,
+        persistent,
         started_at_ms: now_ms(),
         pid,
         output,
@@ -385,6 +391,10 @@ pub async fn finish_foreign_owners(project_root: &Path, current_run_id: Option<&
     let mut finished = 0usize;
     for process in list(project_root) {
         if !process.is_running() || process.owner.run_id == current {
+            continue;
+        }
+        // R-180:长驻服务显式脱离 owner run——收尾时跳过,跨 run 存活。
+        if process.persistent {
             continue;
         }
         if let Some(pid) = process.pid {
@@ -1221,6 +1231,7 @@ mod tests {
             &root,
             test_owner(),
             ManagedSnapshot::capture(&root),
+            false,
         );
         assert!(get(&handle.id).is_some(), "进程应登记在注册表");
         assert_eq!(handle.owner, test_owner(), "后台任务必须带 owner 身份");
@@ -1308,5 +1319,77 @@ mod tests {
             })
             .await;
         });
+    }
+
+    /// R-180 验收①:persistent 档位脱离 owner run——finish_foreign_owners 跳过它;
+    /// 默认档位(background=true 不带 persistent)照常被 owner run 收尾。两档对比。
+    #[tokio::test]
+    async fn persistent_长驻服务跨owner存活_默认档位照常收尾() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("persist");
+        // 两个进程都登记到 run-A;run-B 收尾时,persistent 必须留下、默认必须被杀。
+        let persist_id = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": "sleep 5", "background": true, "persistent": true }),
+                &ctx_for(&root, "run-A"),
+            )
+            .await;
+        assert!(
+            !persist_id.is_error,
+            "persistent 后台启动失败: {}",
+            persist_id.content
+        );
+        let persist_id = persist_id
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+
+        let default_id = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": "sleep 5", "background": true }),
+                &ctx_for(&root, "run-A"),
+            )
+            .await;
+        assert!(
+            !default_id.is_error,
+            "默认后台启动失败: {}",
+            default_id.content
+        );
+        let default_id = default_id
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+
+        // 两个都在跑。
+        assert!(
+            get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
+            "persistent 应在跑"
+        );
+        assert!(
+            get(&default_id).map(|p| p.is_running()).unwrap_or(false),
+            "默认应在跑"
+        );
+
+        // run-B 收尾(run-A 是 foreign owner):persistent 存活,默认被收。
+        let finished = crate::background::finish_foreign_owners(&root, Some("run-B")).await;
+        assert_eq!(finished, 1, "只应收掉默认档位那一个: {finished}");
+        assert!(
+            get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
+            "persistent 长驻服务在 owner run 结束后仍应存活"
+        );
+        // 默认档位已退出(收尾杀掉了)——exit 标志由异步 wait 任务设置,轮询等待。
+        let gone = wait_until(
+            || get(&default_id).map(|p| !p.is_running()).unwrap_or(true),
+            3000,
+        )
+        .await;
+        assert!(gone, "默认档位应在 owner run 收尾时被收掉");
+        std::fs::remove_dir_all(&root).ok();
     }
 }
