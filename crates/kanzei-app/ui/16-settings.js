@@ -554,7 +554,47 @@ async function loadSettings() {
   // 刚从磁盘读回来 = 干净态,以此为基准比对后续改动。
   markSettingsSaved();
   loadPermissionRules();
+  // R-187:提示音是本地偏好(不进 kanzei.toml),设置页控件回填 + change 即存。
+  loadSoundSettingsControls();
 }
+
+function loadSoundSettingsControls() {
+  const s = readSoundSettings();
+  const set = (id, value) => {
+    const el = $(id);
+    if (el) el.value = value;
+  };
+  const setChecked = (id, checked) => {
+    const el = $(id);
+    if (el) el.checked = checked;
+  };
+  setChecked("set-sound-enabled", s.enabled);
+  set("set-sound-volume", String(Math.round(s.volume * 100)));
+  setChecked("set-sound-completed", s.completed);
+  setChecked("set-sound-failed", s.failed);
+  setChecked("set-sound-stopped", s.stopped);
+}
+
+function bindSoundSettingsControls() {
+  const collect = () => ({
+    enabled: $("set-sound-enabled")?.checked ?? true,
+    volume: (Number($("set-sound-volume")?.value ?? 12)) / 100,
+    completed: $("set-sound-completed")?.checked ?? true,
+    failed: $("set-sound-failed")?.checked ?? true,
+    stopped: $("set-sound-stopped")?.checked ?? true,
+  });
+  for (const id of ["set-sound-enabled", "set-sound-volume", "set-sound-completed", "set-sound-failed", "set-sound-stopped"]) {
+    $(id)?.addEventListener("change", () => saveSoundSettings(collect()));
+    $(id)?.addEventListener("input", () => saveSoundSettings(collect()));
+  }
+  // 试听:用当前音量播一次「完成」音,让用户调完能立即听到效果。
+  $("sound-preview")?.addEventListener("click", () => {
+    const s = collect();
+    saveSoundSettings(s);
+    playRunNotice("completed");
+  });
+}
+bindSoundSettingsControls();
 for (const id of SETTINGS_FORM_IDS) {
   $(id)?.addEventListener("input", syncSettingsDirty);
   $(id)?.addEventListener("change", syncSettingsDirty);

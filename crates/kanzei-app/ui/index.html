@@ -628,6 +628,35 @@
             <span id="update-result" class="dim"></span>
           </div>
           </details>
+          <details class="settings-group" open>
+            <summary data-i18n-key="提示音">提示音</summary>
+            <div class="form-row">
+              <label><span data-i18n-key="启用提示音">启用提示音</span></label>
+              <input type="checkbox" id="set-sound-enabled" checked>
+            </div>
+            <div class="form-row">
+              <label><span data-i18n-key="音量">音量</span></label>
+              <input type="range" id="set-sound-volume" min="0" max="100" value="12">
+              <button id="sound-preview" class="ghost mini" type="button" data-i18n-key="试听">试听</button>
+            </div>
+            <div class="form-row">
+              <label><span data-i18n-key="运行完成">运行完成</span></label>
+              <input type="checkbox" id="set-sound-completed" checked>
+            </div>
+            <div class="form-row">
+              <label><span data-i18n-key="运行失败">运行失败</span></label>
+              <input type="checkbox" id="set-sound-failed" checked>
+            </div>
+            <div class="form-row">
+              <label><span data-i18n-key="运行已停止">运行已停止</span></label>
+              <input type="checkbox" id="set-sound-stopped" checked>
+            </div>
+          </details>
+
+          <div class="settings-actions">
+            <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>            <span id="update-result" class="dim"></span>
+          </div>
+          </details>
 
           <div class="settings-actions">
             <span id="settings-dirty" class="settings-dirty hidden" role="status" data-i18n-key="未保存 — 改动要点「保存」才会写入配置并生效">未保存 — 改动要点「保存」才会写入配置并生效</span>

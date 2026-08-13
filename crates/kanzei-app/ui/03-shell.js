@@ -152,7 +152,39 @@ function toastError(text, options = {}) {
 let completionAudioContext = null;
 const baseTitle = document.title;
 
+// R-187:提示音配置——总开关 + 分事件开关 + 音量(0-1)。持久化在 localStorage,
+// 设置页「提示音」区块可改,默认全部开启、音量 0.12(与原固定音量一致)。
+const SOUND_STORAGE_KEY = "kz-sound-settings";
+function readSoundSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SOUND_STORAGE_KEY) || "null");
+    if (parsed && typeof parsed === "object") {
+      return {
+        enabled: parsed.enabled !== false,
+        volume: Number.isFinite(parsed.volume) ? Math.min(1, Math.max(0, parsed.volume)) : 0.12,
+        completed: parsed.completed !== false,
+        failed: parsed.failed !== false,
+        stopped: parsed.stopped !== false,
+      };
+    }
+  } catch {
+    /* 损坏的配置回退默认 */
+  }
+  return { enabled: true, volume: 0.12, completed: true, failed: true, stopped: true };
+}
+function saveSoundSettings(settings) {
+  localStorage.setItem(SOUND_STORAGE_KEY, JSON.stringify(settings));
+}
+function soundEnabledFor(kind) {
+  const s = readSoundSettings();
+  if (!s.enabled) return false;
+  if (kind === "failed") return s.failed;
+  if (kind === "stopped") return s.stopped;
+  return s.completed;
+}
+
 function playRunNotice(kind) {
+  if (!soundEnabledFor(kind)) return;
   try {
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtor) return;
@@ -160,13 +192,14 @@ function playRunNotice(kind) {
     if (completionAudioContext.state === "suspended") completionAudioContext.resume().catch(() => {});
     const now = completionAudioContext.currentTime;
     const frequencies = kind === "failed" ? [220, 165] : kind === "stopped" ? [330] : [523, 659];
+    const volume = readSoundSettings().volume;
     frequencies.forEach((frequency, index) => {
       const oscillator = completionAudioContext.createOscillator();
       const gain = completionAudioContext.createGain();
       oscillator.frequency.value = frequency;
       oscillator.type = "sine";
       gain.gain.setValueAtTime(0.0001, now + index * 0.11);
-      gain.gain.exponentialRampToValueAtTime(0.12, now + index * 0.11 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(volume, now + index * 0.11 + 0.01);
       gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.11 + 0.1);
       oscillator.connect(gain).connect(completionAudioContext.destination);
       oscillator.start(now + index * 0.11);

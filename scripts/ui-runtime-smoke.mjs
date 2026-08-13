@@ -6004,8 +6004,47 @@ const docsB = {
   await flush();
 }
 
+// ---------- R-187 提示音管理设置 ----------
+// 设置页「提示音」区块控件存在;playRunNotice 读 localStorage 配置(总开关关掉
+// 时不播放,音量可调)。
+{
+  const settingsView = document.getElementById("view-settings");
+  if (settingsView) settingsView.classList.remove("hidden");
+  await flush();
+  assert(byId.get("set-sound-enabled"), "R-187:设置页缺少提示音总开关");
+  assert(byId.get("set-sound-volume"), "R-187:设置页缺少音量滑杆");
+  assert(byId.get("set-sound-completed"), "R-187:设置页缺少运行完成开关");
+  assert(byId.get("set-sound-failed"), "R-187:设置页缺少运行失败开关");
+  assert(byId.get("set-sound-stopped"), "R-187:设置页缺少运行已停止开关");
+  assert(byId.get("sound-preview"), "R-187:设置页缺少试听按钮");
+  // 默认配置:全部开启、音量 0.12。
+  const defaultSound = vm.runInContext("readSoundSettings()", sandbox);
+  assert(defaultSound.enabled && defaultSound.completed && defaultSound.failed && defaultSound.stopped,
+    `R-187:默认提示音配置应为全开,实得 ${JSON.stringify(defaultSound)}`);
+  assert(Math.abs(defaultSound.volume - 0.12) < 0.001, `R-187:默认音量应为 0.12,实得 ${defaultSound.volume}`);
+  // 关闭总开关后 soundEnabledFor 对任何 kind 都返回 false(不播放)。
+  const disabled = vm.runInContext('(function(){ saveSoundSettings({enabled:false, volume:0.12, completed:true, failed:true, stopped:true}); return soundEnabledFor("completed") && soundEnabledFor("failed"); })()', sandbox);
+  assert(disabled === false, "R-187:总开关关闭后提示音不应播放");
+  // 恢复默认,避免污染后续用例。
+  vm.runInContext('saveSoundSettings({enabled:true, volume:0.12, completed:true, failed:true, stopped:true})', sandbox);
+}
+
 // ---------- R-190 常驻 fast 模型状态指示 ----------
-// (R-190 断言块保留在下方;此处仅收尾 R-179 块)
+// 状态栏 #status-fast 在托管且未就绪时显示缺环文案(桩:serviceUp=false);
+// 且轮询函数已注册(fastStatusTimer 非空),说明常驻刷新不是一次性快照。
+{
+  const fastEl = byId.get("status-fast");
+  assert(fastEl, "R-190:状态栏缺少 #status-fast 常驻指示位");
+  await flush();
+  assert(
+    fastEl.textContent.includes("服务未运行"),
+    `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
+  );
+  assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");
+  const timerRegistered = vm.runInContext("typeof fastStatusTimer !== 'undefined' && fastStatusTimer !== null", sandbox);
+  assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
+}
+
 if (issues.length) {
   reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);
