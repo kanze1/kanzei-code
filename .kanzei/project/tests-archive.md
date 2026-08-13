@@ -2547,3 +2547,19 @@
 - 摘要: 全量全绿:kanzei-tools 325、core 150、app 140 等全部通过。D-338 关闭前验证。
 - 关联: D-338
 - 收尾: 1786629570
+
+## T-1786630038 cargo test -p kanzei-tools --lib tracker:: (R-229) [passed]
+- 摘要: R-229 关闭门禁:新增 classification_claims/file_line_citations/check_close_classification_evidence,2 个新测试(引证不足拒 + 无断言不受影响),tracker 43 passed
+- 关联: R-229
+- 收尾: 1786630038
+
+## T-1786630105 cargo test -p kanzei-tools --lib tracker:: (R-229 提交前) [passed]
+- 摘要: R-229 关闭门禁(注释格式修复后)复测:tracker 43 passed,含分类断言引证不足拒绝 + 无断言不受影响两新测试
+- 关联: R-229
+- 收尾: 1786630105
+- 源码指纹: c12e89493290edc1
+
+## T-1786630228 cargo test --workspace (R-229 关闭前全量) [passed]
+- 摘要: R-229 关闭前全量:cargo test --workspace 全绿(794 passed)
+- 关联: R-229
+- 收尾: 1786630228

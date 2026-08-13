@@ -2462,3 +2462,16 @@
 - observed_head: babc9754d63d0fa1eb6caf40594e41ff2b9408fd
 - observed_worktree_hash: fnv1a64:44e6bb2deb156440
 - recorded_at: 1786628546027
+
+## R-229 关闭证据分类断言机器检查:「剩余/其余 N 处均为 X」式断言必须逐处带 file:line 引证,不足即拒 [done]
+- 内容: 关闭门禁增加证据文本检查:出现「剩余/其余 N 处」类分类断言时,关闭文本必须逐处点名 file:line 并引码,引证数不足 N 即拒关闭;根因是 R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对(产出 D-320/D-323)
+- 复杂度: 中
+- 来源: 2026-08-13 自举复盘改进建议第 2 条
+- 标签: 流程
+- 验收: ①门禁单测覆盖断言引证不足拒绝;②R-199 式未核实分类断言在门禁层不可复现;③无分类断言的关闭不受影响
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-229
+- 进展: 2026-08-16 取活(engine:defect-first 队首)。实现(commit 89abe7e):关闭门禁在 tracker.rs close 分支 merged 构造后接入 check_close_classification_evidence(kanzei-tools/src/tracker.rs:660-666 调用),新增三个纯函数:classification_claims(识别「剩余/其余 N 处」断言,只认数字+处,「剩余价值」不算)、file_line_citations(数 [路径/]文件.扩展名:行号 引证,去重,排除 R-199:/12:30 类)、check_close_classification_evidence(声称总处数 vs 引证数,不足即拒)。两个新单测:分类断言引证不足拒绝关闭_r199式无引证不可复现(0 引证拒、2<3 拒、3==3 放行)+ 无分类断言关闭不受影响。验证:tracker 43 passed(T-1786630105)+ cargo test --workspace 全绿 794 passed(T-1786630228)+ fmt/clippy 全过。三条验收逐条对照:①门禁单测覆盖断言引证不足拒绝——测试 分类断言引证不足拒绝关闭_r199式无引证不可复现 断言 0 引证与 2<3 均 is_error;②R-199 式未核实分类断言在门禁层不可复现——同测试用 R-199 原文「剩余 3 处 autoContinueAllowed 为…非续跑否决」无任何 file:line 即被拒;③无分类断言的关闭不受影响——测试 无分类断言关闭不受影响 断言放行且状态转 done,「剩余价值」非断言用法不误伤。关闭。
+- observed_head: 89abe7ef3bd760b54a526784b8685dc2e501523a
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786630234644
