@@ -4028,6 +4028,51 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
 }
 
 // ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
+
+// ---------- R-224 鞭挞勾选自动切自主推进 ----------
+// 结伴(dev-pair)勾鞭挞 → 自动切 dev-auto + notice;research 勾鞭挞 → 拒绝并复位。
+{
+  const savedProfileR224 = byId.get("profile-select").value;
+  // ① 结伴勾鞭挞:自动切 dev-auto,notice 可见,鞭挞保持勾选。
+  byId.get("profile-select").value = "dev-pair";
+  byId.get("auto-continue").checked = true;
+  sandbox.__kzTest.cancelTimers();
+  byId.get("auto-continue").dispatchEvent({ type: "change" });
+  await flush();
+  assert(
+    byId.get("profile-select").value === "dev-auto",
+    `R-224:结伴勾鞭挞未自动切到 dev-auto,实际=${byId.get("profile-select").value}`,
+  );
+  assert(
+    byId.get("auto-continue").checked === true,
+    "R-224:自动切模式后鞭挞勾选被复位(应保持勾选)",
+  );
+  assert(
+    [...document.querySelectorAll("#messages .msg, #messages div")].some((el) =>
+      el.textContent.includes("已切换到自主推进"),
+    ),
+    "R-224:自动切模式未落 notice 说明",
+  );
+  // ② research 勾鞭挞:拒绝并复位勾选,模式不变。
+  byId.get("profile-select").value = "research";
+  byId.get("auto-continue").checked = true;
+  byId.get("auto-continue").dispatchEvent({ type: "change" });
+  await flush();
+  assert(
+    byId.get("auto-continue").checked === false,
+    "R-224:research 勾鞭挞未被拒绝复位",
+  );
+  assert(
+    byId.get("profile-select").value === "research",
+    "R-224:research 拒绝路径不应改模式",
+  );
+  // 收尾恢复。
+  byId.get("auto-continue").checked = false;
+  byId.get("profile-select").value = savedProfileR224;
+  sandbox.__kzTest.cancelTimers();
+}
+
+// ---------- R-226 后台控制事件与双线路 timer 必须按 session 隔离 ----------
 {
   const lines = [
     { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },

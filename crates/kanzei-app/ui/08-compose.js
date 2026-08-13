@@ -671,16 +671,32 @@ $("auto-max").addEventListener("change", () => {
   log(`${t("鞭挞上限已设为")} ${max} ${t("轮")}`);
 });
 $("auto-continue").addEventListener("change", () => {
-  if ($("auto-continue").checked && !autoContinueAllowed()) {
+  if ($("auto-continue").checked && $("profile-select").value === "research") {
+    // R-224:research 档位仍拒绝——研究模式无自主推进语义,自动切会掩盖误操作。
     $("auto-continue").checked = false;
     localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
     rememberAutoUiState();
     void syncAutoRunState();
-    toast(t("鞭挞仅适用于自主推进模式，请先切换模式"));
-    log(t("鞭挞未开启:结伴开发模式不支持自动续跑"));
+    toast(t("鞭挞不适用于研究模式"));
+    log(t("鞭挞未开启:研究模式不支持自动续跑"));
     return;
+  }
+  if ($("auto-continue").checked && $("profile-select").value === "dev-pair") {
+    // R-224:结伴模式勾鞭挞 → 自动切到自主推进(interaction_modes 承诺「直接勾连跑,自动切」)。
+    // 用户意图明确(勾鞭挞),自动切档位省去「先切模式再勾」两步;落 notice 说明已切换,
+    // 用户取消勾选即回到结伴(模式选择器保持 dev-auto,不悄悄回切)。
+    $("profile-select").value = "dev-auto";
+    localStorage.setItem(PROFILE_STORAGE_KEY, "dev-auto");
+    if (activeProcessId) {
+      processProfileUi.set(activeProcessId, "dev-auto");
+      persistProcessProfiles();
+      updateLocalProcessItem(activeProcessId, { profile: "dev" });
+      queueProcessUpdate(activeProcessId, { profile: "dev" })
+        .catch((error) => reportPersistentError(`${t("进程模式保存失败")}:${error}`));
+    }
+    addMessage("notice", t("已切换到自主推进以启用鞭挞"));
   }
   localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
