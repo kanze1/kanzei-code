@@ -657,6 +657,13 @@ impl Tool for TrackerTool {
                         }
                         probe
                     };
+                    // R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须
+                    // 逐处带 file:line 引证,引证数不足断言声称的总处数即拒关闭。
+                    // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
+                    // 产出 D-320/D-323;无分类断言的关闭不受影响。)
+                    if let Some(evidence_err) = check_close_classification_evidence(&merged) {
+                        return ToolOutput::error(format!("{id} {evidence_err}"));
+                    }
                     let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
                         .ok()
                         .filter(|done| *done > 0);
@@ -1903,6 +1910,109 @@ pub fn dispatch_verdict(a: &Entry, b: &Entry) -> String {
     }
 }
 
+/// R-229:收集关闭文本里的「剩余/其余 N 处」式分类断言声明的 N。
+/// 只认「剩余/其余 + 数字 + 处」的形态(允许空白),如「剩余 3 处」「其余 2 处」;
+/// 「剩余价值」这类无数字的用法不算断言。返回每个断言声明的处数。
+fn classification_claims(text: &str) -> Vec<usize> {
+    let mut claims = Vec::new();
+    let mut from = 0usize;
+    while from < text.len() {
+        let tail = &text[from..];
+        let rem = tail.find("剩余");
+        let oth = tail.find("其余");
+        let pos = match (rem, oth) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => break,
+        };
+        // 标记后跳过空白,再数数字,数字后再跳过空白,期待「处」。
+        let after = tail[pos + 6..].trim_start();
+        let digits_len = after
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_digit())
+            .map(|(i, c)| i + c.len_utf8())
+            .last()
+            .unwrap_or(0);
+        if digits_len > 0 {
+            let n: usize = after[..digits_len].parse().unwrap_or(0);
+            let rest = after[digits_len..].trim_start();
+            if rest.starts_with('处') && n > 0 {
+                claims.push(n);
+            }
+        }
+        // 越过本次标记继续扫:pos 相对 tail(从 from 开始的切片),标记本身 6 字节,
+        // 从这里推进必然落在字符边界上(「剩余/其余」是 3 个 CJK 字符,6 字节整)。
+        from += pos + 6;
+    }
+    claims
+}
+
+/// R-229:数文本里 `[路径/]文件名.扩展名:行号` 形态的 file:line 引证,去重。
+/// 只认 ASCII 路径字符(字母数字 `.` `/` `\` `-` `_`) + 冒号 + 数字,避免把
+/// 「R-199:」「12:30」之类误算成引证。
+fn file_line_citations(text: &str) -> BTreeSet<String> {
+    let mut cites = BTreeSet::new();
+    let bytes = text.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b':' {
+            // 回扫 token 起点(路径字符)。
+            let mut j = i;
+            while j > 0
+                && (bytes[j - 1].is_ascii_alphanumeric() || b"./\\-_".contains(&bytes[j - 1]))
+            {
+                j -= 1;
+            }
+            let token = &text[j..i];
+            // 必须以 `.扩展名` 结尾(扩展名非空字母数字),且含点——排除 `R-199`、`12` 等。
+            let has_ext = token
+                .rsplit_once('.')
+                .map(|(_, e)| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
+                .unwrap_or(false);
+            // 冒号后必须是数字(行号)。
+            let mut k = i + 1;
+            while k < bytes.len() && bytes[k].is_ascii_digit() {
+                k += 1;
+            }
+            if has_ext && k > i + 1 {
+                cites.insert(format!("{token}:{}", &text[i + 1..k]));
+            }
+            i = k.max(i + 1);
+        } else {
+            i += 1;
+        }
+    }
+    cites
+}
+
+/// R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须逐处带
+/// file:line 引证,引证数(去重)不足断言声称的总处数即拒。根因:R-199 关闭证据
+/// 把完整否决误归为「非续跑否决」且无人核对(产出 D-320/D-323)。无断言不受影响。
+fn check_close_classification_evidence(entry: &Entry) -> Option<String> {
+    let mut text = entry.title.clone();
+    for (_, value) in &entry.fields {
+        text.push('\n');
+        text.push_str(value);
+    }
+    let claims = classification_claims(&text);
+    if claims.is_empty() {
+        return None; // 验收③:无分类断言的关闭不受影响。
+    }
+    let required: usize = claims.iter().sum();
+    let cites = file_line_citations(&text);
+    if cites.len() < required {
+        Some(format!(
+            "关闭证据含「剩余/其余 N 处」式分类断言(共声称 {required} 处:{claims:?}),\
+             但只找到 {} 处 file:line 引证,引证数不足即拒(R-229)。\
+             分类断言必须逐处点名 file:line 并引码,如 `crates/kanzei-app/ui/08-compose.js:643`。",
+            cites.len()
+        ))
+    } else {
+        None
+    }
+}
+
 /// 从条目正文(标题 + 全部字段值)提取代码/文档路径(crates/ 与 docs/ 开头的 token)。
 fn entry_paths(entry: &Entry) -> Vec<String> {
     let mut text = entry.title.clone();
@@ -2631,6 +2741,98 @@ mod tests {
         );
         let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(saved[0].status, "done", "R-001 应已关闭");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-229 验收①:关闭证据含「剩余/其余 N 处」式分类断言但引证数不足 → 拒绝关闭。
+    /// 验收②:R-199 式未核实分类断言(「剩余 3 处均为 X」无任何 file:line)在门禁层不可复现。
+    #[tokio::test]
+    async fn 分类断言引证不足拒绝关闭_r199式无引证不可复现() {
+        let dir = std::env::temp_dir().join(format!("kz-class-close-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        // R-199 式原文:断言剩余 3 处,但没有任何 file:line 引证。
+        e.fields = vec![(
+            "进展".into(),
+            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决".into(),
+        )];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        // 断言声称 3 处,引证 0 处 → 拒。
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "引证不足必须拒绝: {}", out.content);
+        assert!(out.content.contains("R-229"), "{}", out.content);
+        assert!(out.content.contains("3"), "{}", out.content);
+
+        // 引证数不足(2 < 3)仍拒。
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![(
+            "进展".into(),
+            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」:ui/08-compose.js:155、\
+             ui/07-events.js:88 两处已核,第三处待核"
+                .into(),
+        )];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(out.is_error, "引证 2 < 3 必须拒绝: {}", out.content);
+
+        // 引证数足够(3 == 3)→ 放行。
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![(
+            "进展".into(),
+            "剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决: \
+             ①ui/08-compose.js:155 ②ui/07-events.js:88 ③ui/07-events.js:90"
+                .into(),
+        )];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "引证足够应放行: {}", out.content);
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(saved[0].status, "done", "R-001 应已关闭");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-229 验收③:无分类断言的关闭不受影响;「剩余价值」这类无数字用法不算断言。
+    #[tokio::test]
+    async fn 无分类断言关闭不受影响() {
+        let dir = std::env::temp_dir().join(format!("kz-class-close-free-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        // 无「剩余/其余 N 处」断言,仅普通叙述;含「剩余价值」非断言用法。
+        e.fields = vec![("进展".into(),
+            "实现已落地,验证通过。剩余价值是声明与检测入口。crates/kanzei-tools/src/tracker.rs:100 为既有实现。".into())];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "无分类断言不受影响: {}", out.content);
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(saved[0].status, "done");
         std::fs::remove_dir_all(dir).ok();
     }
 
