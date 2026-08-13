@@ -2276,3 +2276,10 @@
 - 摘要: D-332 B4 source hash 证据:307 passed / 0 failed / 1 ignored。新增 source_test_gate_prefers_fingerprint_over_mtime、staged_source_fingerprint_ignores_non_source_paths;git 模块 18 passed 连续 6 轮全绿;clippy -D warnings 干净。
 - 关联: D-332
 - 收尾: 1786613072
+
+## T-1786613195 cargo test -p kanzei-tools (D-332 B5 decision_locked) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 27.1s
+- 摘要: D-332 B5 decision_locked:307 passed / 0 failed / 1 ignored。Resume/Start 时 decision_locked=true、WipViolation 时 false,resolved_control_prompt 文案追加冻结说明;work 9 passed;clippy 干净。
+- 关联: D-332
+- 收尾: 1786613195

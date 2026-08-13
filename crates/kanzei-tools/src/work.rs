@@ -110,6 +110,11 @@ pub struct ResolvedControlState {
     pub selected: Option<WorkItem>,
     pub executable_wip: Vec<WorkItemSummary>,
     pub blocked_items: Vec<WorkItemSummary>,
+    /// D-332 验收⑥:裁决被冻结的标志。Resume/Start 一旦给出且没有新的控制面事实
+    /// (队列变化/阻塞解除/用户指示),Agent 不应重新讨论「做不做/做哪个」——
+    /// 评估实测:同一 scope decision 反复反刍几千 token,边际信息增益≈0。
+    /// 新事实出现后调用 `work next` 刷新,decision_locked 随新裁决更新。
+    pub decision_locked: bool,
     /// D-332:生命周期非法的条目(未知/畸形状态)。调度器对其 fail-closed:
     /// 不进 WIP、不进候选、不进 blocked,只在这里明示,等 tracker normalize 修复。
     #[serde(default)]
@@ -594,6 +599,7 @@ pub fn resolve_work_decision(
         }
     };
 
+    let decision_locked = matches!(decision, WorkDecision::Resume | WorkDecision::Start);
     Ok(ResolvedControlState {
         schema_version: 1,
         work_priority: priority_name(priority).into(),
@@ -602,6 +608,7 @@ pub fn resolve_work_decision(
         selected,
         executable_wip: executable_wip.iter().map(WorkItemSummary::from).collect(),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
+        decision_locked,
         integrity_errors,
     })
 }
@@ -618,7 +625,9 @@ pub fn resolved_control_prompt(
     format!(
         "\n\n<resolved-control-state>\n{state}\n</resolved-control-state>\n\
          This block is the engine's authoritative work decision for the turn. Execute it; do not \
-         re-arbitrate queue priority from tracker prose. Call `work next` to refresh after state changes."
+         re-arbitrate queue priority from tracker prose. Call `work next` to refresh after state changes.\n\
+         decision_locked=true 时该裁决已冻结:没有新的控制面事实(队列变化/阻塞解除/用户指示)就\
+         不要重新讨论做哪个、做不做——直接执行 selected。\n"
     )
 }
 
@@ -841,6 +850,9 @@ mod tests {
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
         assert_eq!(state.decision, WorkDecision::Resume);
         assert_eq!(state.selected.unwrap().id, "R-001");
+        // D-332 验收⑥:Resume 裁决一旦给出,decision_locked 必须为 true——
+        // Agent 不该再重新讨论「做不做 R-001」(评估实测反复反刍已冻结决策)。
+        assert!(state.decision_locked, "Resume 决策必须冻结");
 
         DocStore::open(&dir, &DEFECTS)
             .save(&[entry("D-001", "fixing")])
@@ -848,6 +860,8 @@ mod tests {
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
         assert_eq!(state.decision, WorkDecision::WipViolation);
         assert_eq!(state.executable_wip.len(), 2);
+        // WipViolation 不是有效裁决,不冻结——必须先收敛 WIP 再取活。
+        assert!(!state.decision_locked, "WipViolation 不得冻结决策");
         let _ = std::fs::remove_dir_all(dir);
     }
 

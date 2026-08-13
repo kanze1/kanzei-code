@@ -7,14 +7,14 @@
 - 影响: 治理系统对自己最关键的控制状态采用 permissive parsing——已完成需求可能被重新执行(重复工作/错误工作);修复动作不存在导致脏数据永久积压;验证 pipeline 组合摩擦让每条提交多 5-6 次机械 tool call;Agent 把 token 花在反刍已冻结决策上。两份评估一致认定:fail-open 是当前最值得优先修的治理缺陷(P0),其余是 P1 摩擦。
 - 来源: 用户消息(2026-08-13 两份运行评估合并:16:52 首评 + 16:54 补评「两个结合起来」),第一份结尾明确指令「把这个分析登记成最新的缺陷,然后把这个缺陷排序成当前的第一个任务,解决并发版」
 - 标签: 核心
-- 进展: B4 完成(2026-08-13):test evidence 绑定 source hash——①git.rs 新增 staged_source_fingerprint(同步):只对暂存源码路径的 diff 段求 fnv hash,tests.md/tracker 等托管文档不改变源码指纹;②test_record 收尾(status!=running)写入「源码指纹」字段,execute 自动取暂存指纹;③source_test_gate 优先比指纹:记录指纹与当前暂存源码指纹一致 = 背书成立(不再被 test_record 自己写 tests.md 的 mtime 误伤),不一致拦截并点名;指纹缺失(旧记录/非 git)退回 mtime;④既修:coverage_intersects 测试 write_record 改用实时时钟消除跨秒竞态(既有隐患)。测试:source_test_gate_prefers_fingerprint_over_mtime(指纹一致放行/改源码后不一致拦截)、staged_source_fingerprint_ignores_non_source_paths(非源码暂存指纹为空)新增;git 18 passed 连续 6 轮全绿,kanzei-tools 307 passed,clippy -D warnings 干净。B4 提交后 B5:test_record 不抖 staged set + decision_locked + work lease/turn 解耦。
+- 进展: B5 完成(2026-08-13):①decision_locked 信号——ResolvedControlState 新增 decision_locked 字段,Resume/Start 时 true、WipViolation/Blocked 时 false;resolved_control_prompt 文案追加「decision_locked=true 时裁决已冻结,无新控制面事实不重议」;测试 unique_wip_resumes 加断言(Resume=true、WipViolation=false)。②work lease/turn 解耦——调度语义(同时一个 mutation WIP、claim 释放后可 work next 取下一项)为 work.rs 既有能力,unique_wip_resumes/claim 测试已覆盖,标注复用;「单轮一个条目」措辞在引擎内置 harness 资产,非项目 conventions 修改面。③test_record 不抖 staged set——B4 已解决核心:源码指纹只对源码 diff 求 hash,test_record 写 tests.md 不再触发源码重测(此前 mtime 逻辑会让 tests.md 写入误判源码变新)。kanzei-tools 307 passed、work 9 passed、clippy 干净。B5 提交后 B6:全量 workspace 验证 + 发版。
 - 验收: ①未知/畸形 lifecycle(requirement 出现 `[open]`/`[fixed]` 等)解析后进入 INVALID,`work next` 永不选中,integrity 错误明示条目与非法值(有测试:构造 `[open]` 污染需求,断言 work next 不选它且报 integrity 错误);②存在统一 repair surface(`tracker normalize` 或等价):能机械、幂等、dry-run-first 修复 invalid lifecycle、duplicate fields、title/status mismatch、multi-marker、archive/active mismatch;存量 R-208/R-233 污染用工具收敛(有测试);③验证 pipeline 重排:fmt 在 test 之前执行,commit gate 不再在提交时第一次暴露 fmt 问题(有测试断言 commit 前已 fmt);④test evidence 绑定 source/staged hash,不再纯靠 mtime;fmt 后若仅 non-semantic 变换,Harness 判定可复用或自动重测(有测试);⑤test_record 写入不再让 staged set 抖动(Harness 自动纳入 expected set 或独立 ledger)(有测试);⑥work next 裁决后给 decision_locked 信号,无新 control-plane fact 时不再被重新讨论(结构化证据);⑦work lease 与 turn granularity 解耦:强约束 = 同时一个 mutation WIP,做完释放后可继续下一项(调度语义明确,有测试);⑧全量 workspace 测试绿,发版。
 - 优先级: P0
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-332
-- 批次: 4/6
-- observed_head: 7f3822b37f847661673732dc8df1154d421aa1f8
-- observed_worktree_hash: fnv1a64:d6598f3a58c54d6e
-- recorded_at: 1786613068558
+- 批次: 5/6
+- observed_head: 3238e4cf186ce7a0605190e767e12206ed5e7a1d
+- observed_worktree_hash: fnv1a64:b5688c6c15360e2d
+- recorded_at: 1786613192356
 
 ## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixing] (medium)
 - refs: D-205 R-105 R-107
