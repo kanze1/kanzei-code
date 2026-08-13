@@ -547,16 +547,57 @@ fn source_test_gate(project_root: &Path, cwd: &Path, paths: &[String]) -> Result
          cargo check 不算——它编译不了测试目标,R-158 那处被顶掉的 reasoning effort 就是这么漏过去的。",
         if sources.len() > 5 { format!("\n  - …还有 {} 个文件", sources.len() - 5) } else { String::new() }
     );
-    match crate::test_record::last_passed_at(project_root) {
+    match crate::test_record::last_passed(project_root) {
         None => Err(format!("提交被拦下:没有任何 passed 的测试记录。\n{remedy}")),
-        Some(passed_at) if passed_at < newest_change => Err(format!(
+        Some((passed_at, _, _)) if passed_at < newest_change => Err(format!(
             "提交被拦下:最近一条 passed 测试记录收尾于 {} 秒前,而暂存的源码在那之后又改过\
              ({} 秒前)——这条记录背书的不是要提交的这份代码。\n{remedy}",
             now_secs().saturating_sub(passed_at),
             now_secs().saturating_sub(newest_change)
         )),
-        Some(_) => Ok(()),
+        Some((_, coverage, command_text)) => {
+            // R-212:相关性——暂存源码所属 crate 必须被最近 passed 记录覆盖。
+            // 只按时间戳背书(改完没重跑)已经防不住「跑了 A 测试以为覆盖了 B」
+            // 的诚实失误:前端冒烟记录的时间戳比 Rust 改动新,却背不了这份源码。
+            let staged = source_crates(paths);
+            let missing: Vec<String> = staged
+                .iter()
+                .filter(|c| !coverage.covers(c))
+                .cloned()
+                .collect();
+            if missing.is_empty() {
+                return Ok(());
+            }
+            let run_hint = missing
+                .iter()
+                .map(|c| format!("cargo test -p {c}"))
+                .collect::<Vec<_>>()
+                .join("、");
+            Err(format!(
+                "提交被拦下:最近一条 passed 测试记录(命令: {command_text})的覆盖面是 {}——\
+                 不覆盖本次暂存源码所属 crate:{}。\n\
+                 做法:跑 `{run_hint}`(或 `cargo test --workspace`),再用 test_record 记一条 \
+                 status=passed(带上命令与摘要),然后重新 commit。cargo check 不算——它编译不了\
+                 测试目标,R-158 那处被顶掉的 reasoning effort 就是这么漏过去的。",
+                coverage.describe(),
+                missing.join(", "),
+            ))
+        }
     }
+}
+
+/// 暂存源码所属 crate 集合(路径 `crates/<name>/...` → <name>;scripts/ 等不在 crate 内)。
+fn source_crates(paths: &[String]) -> std::collections::BTreeSet<String> {
+    paths
+        .iter()
+        .map(|p| p.replace('\\', "/"))
+        .filter(|p| p.starts_with("crates/"))
+        .filter_map(|p| {
+            let mut parts = p.split('/');
+            let _ = parts.next(); // "crates"
+            parts.next().map(|name| name.to_string())
+        })
+        .collect()
 }
 
 fn now_secs() -> u64 {
@@ -1417,5 +1458,112 @@ prunable gitdir file points to non-existent location
         );
         assert!(err.contains("lib.rs"), "应点名出错文件: {err}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// R-212 验收①:前端冒烟记录(非 Rust)不能背书 Rust 源码提交——时间戳比
+    /// 改动新也不行,覆盖面不匹配即拦。
+    #[test]
+    fn source_test_gate_frontend_smoke_cannot_back_rust_change() {
+        let root = temp_repo("gate-frontend");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let src = root.join("crates/kanzei-tools/src/lib.rs");
+        std::fs::create_dir_all(src.parent().unwrap()).unwrap();
+        std::fs::write(&src, "pub fn x() {}\n").unwrap();
+        // 最近 passed 记录是前端冒烟,收尾 = 现在(时序满足,只测相关性)。
+        let now = now_secs();
+        std::fs::write(
+            project.join("tests.md"),
+            format!(
+                "# Test Runs\n\n## T-{now} 前端冒烟 [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: {now}\n"
+            ),
+        )
+        .unwrap();
+        let err = source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        )
+        .unwrap_err();
+        assert!(err.contains("kanzei-tools"), "缺口应点名 crate: {err}");
+        assert!(
+            err.contains("前端冒烟") || err.contains("非 Rust"),
+            "应指明记录覆盖面类型: {err}"
+        );
+        assert!(
+            err.contains("cargo test -p kanzei-tools"),
+            "应指明该跑什么: {err}"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// R-212 验收②③:覆盖面与暂存 crate 求交——定向记录背书对应 crate、workspace
+    /// 记录背书任意 crate、不匹配时拦截并点名缺口;非 crate 源码(scripts/)不受
+    /// crate 相关性约束。
+    #[test]
+    fn source_test_gate_coverage_intersects_with_staged_crates() {
+        let root = temp_repo("gate-coverage");
+        let project = root.join(".kanzei").join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let tools_src = root.join("crates/kanzei-tools/src/lib.rs");
+        std::fs::create_dir_all(tools_src.parent().unwrap()).unwrap();
+        std::fs::write(&tools_src, "pub fn x() {}\n").unwrap();
+        let core_src = root.join("crates/kanzei-core/src/lib.rs");
+        std::fs::create_dir_all(core_src.parent().unwrap()).unwrap();
+        std::fs::write(&core_src, "pub fn y() {}\n").unwrap();
+        let now = now_secs();
+        let write_record = |command: &str| {
+            std::fs::write(
+                project.join("tests.md"),
+                format!(
+                    "# Test Runs\n\n## T-{now} 记录 [passed]\n- 命令: {command}\n- 收尾: {now}\n"
+                ),
+            )
+            .unwrap();
+        };
+        // 定向记录背书对应 crate。
+        write_record("cargo test -p kanzei-tools");
+        assert!(
+            source_test_gate(
+                &root,
+                &root,
+                &["crates/kanzei-tools/src/lib.rs".to_string()]
+            )
+            .is_ok(),
+            "定向记录必须背书对应 crate"
+        );
+        // workspace 记录背书任意 crate。
+        write_record("cargo test --workspace");
+        assert!(
+            source_test_gate(&root, &root, &["crates/kanzei-core/src/lib.rs".to_string()]).is_ok(),
+            "workspace 记录必须背书任意 crate"
+        );
+        // 不匹配:kanzei-core 记录背书不了 kanzei-tools 改动,拦截文案点名缺口。
+        write_record("cargo test -p kanzei-core");
+        let err = source_test_gate(
+            &root,
+            &root,
+            &["crates/kanzei-tools/src/lib.rs".to_string()],
+        )
+        .unwrap_err();
+        assert!(err.contains("kanzei-tools"), "应点名暂存 crate: {err}");
+        assert!(
+            err.contains("kanzei-core"),
+            "应指出记录覆盖了别的 crate: {err}"
+        );
+        assert!(
+            err.contains("cargo test -p kanzei-tools"),
+            "应指明该跑什么: {err}"
+        );
+        // 非 crate 源码(scripts/)不受 crate 相关性约束,前端记录可背书。
+        let ps1 = root.join("scripts/hello.ps1");
+        std::fs::create_dir_all(ps1.parent().unwrap()).unwrap();
+        std::fs::write(&ps1, "Write-Host hi\n").unwrap();
+        write_record("node scripts/ui-runtime-smoke.mjs");
+        assert!(
+            source_test_gate(&root, &root, &["scripts/hello.ps1".to_string()]).is_ok(),
+            "非 crate 源码不应被 crate 相关性拦截"
+        );
+        std::fs::remove_dir_all(root).ok();
     }
 }

@@ -11,6 +11,11 @@
 - 验收: ①前端冒烟记录无法背书纯 Rust 提交(定向测试);②正常闭环(改 crate→测该 crate→记录→提交)不受阻;③拦截文案指明缺口。
 - refs: D-295 R-210
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-212
+- 批次: 1/1
+- 进展: R-212 交付:source_test_gate 从新近度升级到相关性。test_record.rs:新增 TestCoverage(Workspace/Crates/NonRust)+ coverage_from_command(解析 cargo test 的 -p/--package/--workspace,其余命令=NonRust)+ last_passed(返回 收尾时刻+覆盖面+命令,last_passed_at 保留为包装);git.rs:新增 source_crates(路径 crates/<name>/ → crate 集合),source_test_gate 在时间戳判据之后加相关性判据——暂存源码所属 crate 与最近 passed 记录覆盖面求交,不相交即拦并点名缺口与应跑命令(cargo test -p <crate> 或 --workspace)。验收:①前端冒烟记录无法背书 Rust 提交(source_test_gate_frontend_smoke_cannot_back_rust_change);②正常闭环定向/workspace 记录背书对应 crate 不受阻、scripts 非 crate 源码豁免;③拦截文案点名 crate 与覆盖面类型并指明该跑什么。验证:git:: 16 + test_record:: 31 全绿(T-1786607880)。
+- observed_head: f432e91bcc04038b98176e740394ac65cbac5b06
+- observed_worktree_hash: fnv1a64:35693b9bf5fc4a6e
+- recorded_at: 1786607891825
 
 ## R-209 门禁清单机械同步守护:verify.ps1 与 ci.yml 逐项比对,CI 补 npm ci 与 ui-lint [todo]
 - 优先级: P2

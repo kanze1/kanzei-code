@@ -2213,3 +2213,15 @@
 - 摘要: 发版门禁十步全绿(fmt/clippy/test/ui_syntax/ui_runtime 1547 invoke/ui_lint no-undef/parallel_lines_regression/ui_a11y/ui_i18n 1038 key/ui_markdown),dist/verification.json 绑定 f6bd80f。package.ps1 -Ack 6 打包通过,gh release build-f6bd80f 发布为 Latest。
 - 关联: R-233 D-331
 - 收尾: 1786606949
+
+## T-1786607880 R-212 定向:cargo test -p kanzei-tools git:: + test_record:: [passed]
+- 命令: cargo test -p kanzei-tools git::; cargo test -p kanzei-tools test_record::
+- 摘要: git:: 16 passed(新增 source_test_gate 相关性两测:前端冒烟不能背书 Rust 提交、覆盖面求交+缺口点名+scripts 豁免);test_record:: 31 passed(新增 coverage_from_command 解析、last_passed 覆盖面返回)。
+- 关联: R-212
+- 收尾: 1786607880
+
+## T-1786607938 R-212 fmt 后复测:cargo test -p kanzei-tools git:: + test_record:: [passed]
+- 命令: cargo test -p kanzei-tools git::; cargo test -p kanzei-tools test_record::
+- 摘要: fmt 后复测:git:: 16 + test_record:: 31 全绿(source_test_gate 相关性 + coverage 解析不变)。
+- 关联: R-212
+- 收尾: 1786607938

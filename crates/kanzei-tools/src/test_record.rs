@@ -583,11 +583,104 @@ pub fn append_test_run_with_duration(
     Ok(snapshot)
 }
 
-/// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。active + archive 一起看。
+/// R-212:一条 passed 测试记录背书的代码范围(覆盖面)。
+#[derive(Debug, Clone, PartialEq)]
+pub enum TestCoverage {
+    /// 覆盖全部 workspace crate(`cargo test --workspace`,或仓库根裸 `cargo test`)。
+    Workspace,
+    /// 覆盖指定 crate 列表(`cargo test -p X -p Y`)。
+    Crates(Vec<String>),
+    /// 非 Rust 测试(前端冒烟/流程脚本),不覆盖任何 crate。
+    NonRust,
+}
+
+impl TestCoverage {
+    /// 该覆盖面是否背书 crate_name 的改动。
+    pub fn covers(&self, crate_name: &str) -> bool {
+        match self {
+            TestCoverage::Workspace => true,
+            TestCoverage::Crates(list) => list.iter().any(|c| c == crate_name),
+            TestCoverage::NonRust => false,
+        }
+    }
+
+    /// 人类可读描述(门禁拦截文案用)。
+    pub fn describe(&self) -> String {
+        match self {
+            TestCoverage::Workspace => "workspace 全量".to_string(),
+            TestCoverage::Crates(list) => format!("crate {}", list.join(", ")),
+            TestCoverage::NonRust => "非 Rust(前端冒烟/流程脚本)".to_string(),
+        }
+    }
+}
+
+/// 从测试命令提取覆盖面(R-212)。
+///
+/// 只认 cargo test 的 `-p/--package` 与 `--workspace`;其余命令(node 冒烟、
+/// verify.ps1、cargo build 等)一律 NonRust——它们编译不了测试目标,背不了
+/// 源码提交(R-158 教训同源:跑了 cargo check 就提交,reasoning effort 被顶掉)。
+pub fn coverage_from_command(command: &str) -> TestCoverage {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    let is_cargo_test = tokens
+        .first()
+        .map(|t| t.trim_end_matches(".exe") == "cargo")
+        .unwrap_or(false)
+        && tokens.get(1).map(|t| *t == "test").unwrap_or(false);
+    if !is_cargo_test {
+        return TestCoverage::NonRust;
+    }
+    if tokens.contains(&"--workspace") {
+        return TestCoverage::Workspace;
+    }
+    let mut crates: Vec<String> = Vec::new();
+    let mut i = 2;
+    while i < tokens.len() {
+        let tok = tokens[i];
+        if tok == "-p" || tok == "--package" {
+            if let Some(name) = tokens.get(i + 1) {
+                crates.push((*name).to_string());
+                i += 2;
+                continue;
+            }
+        } else if let Some(name) = tok.strip_prefix("-p") {
+            if !name.is_empty() && !name.starts_with('-') {
+                crates.push(name.to_string());
+            }
+        }
+        i += 1;
+    }
+    if crates.is_empty() {
+        // 裸 `cargo test`(无 -p 无 --workspace):仓库根跑 = workspace 全量。
+        TestCoverage::Workspace
+    } else {
+        crates.sort();
+        crates.dedup();
+        TestCoverage::Crates(crates)
+    }
+}
+
+/// 记录的命令文本:优先「命令」字段,缺失(老记录)时用标题兜底——标题通常
+/// 就是命令的复述("cargo test -p kanzei-llm (R-xxx …)")。
+fn record_command_text(record: &serde_json::Value) -> String {
+    record["fields"]
+        .as_array()
+        .and_then(|fields| {
+            fields
+                .iter()
+                .find(|f| f["key"].as_str() == Some("命令"))
+                .and_then(|f| f["value"].as_str())
+                .map(|s| s.to_string())
+        })
+        .or_else(|| record["title"].as_str().map(|s| s.to_string()))
+        .unwrap_or_default()
+}
+
+/// 最近一条「通过」测试记录:(收尾时刻, 覆盖面, 命令文本)。active + archive 一起看。
 ///
 /// 取收尾时刻而不是记录 id:id 是测试**开始**的时间,先起 running 再改代码就能骗过门禁。
-pub fn last_passed_at(root: &Path) -> Option<u64> {
-    let mut newest = None;
+/// R-212:覆盖面随记录一起回——门禁既要「改完重跑过」,又要「跑的是覆盖这份源码的测试」。
+pub fn last_passed(root: &Path) -> Option<(u64, TestCoverage, String)> {
+    let mut newest: Option<(u64, TestCoverage, String)> = None;
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
             if record["status"].as_str() != Some("passed") {
@@ -609,11 +702,22 @@ pub fn last_passed_at(root: &Path) -> Option<u64> {
                         .and_then(|s| s.parse::<u64>().ok())
                 });
             if let Some(at) = finished {
-                newest = Some(newest.map_or(at, |cur: u64| cur.max(at)));
+                let command = record_command_text(&record);
+                let candidate = (at, coverage_from_command(&command), command);
+                newest = Some(match newest {
+                    Some(cur) if cur.0 >= at => cur,
+                    _ => candidate,
+                });
             }
         }
     }
     newest
+}
+
+/// 最近一次「通过」的测试是什么时候收尾的(epoch 秒)。R-212 门禁改走
+/// [`last_passed`] 拿覆盖面,本函数保留为纯时间戳视图(兼容既有调用方)。
+pub fn last_passed_at(root: &Path) -> Option<u64> {
+    last_passed(root).map(|(at, _, _)| at)
 }
 
 /// 某条目(R-xxx/D-xxx)名下仍未收尾的 running 测试记录。
@@ -1045,6 +1149,71 @@ mod tests {
             at >= started + 3000,
             "取的必须是收尾时刻({at})而不是开始时刻({started})——否则先起 running 再改代码就能骗过提交门禁"
         );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// R-212:coverage_from_command 从命令提取覆盖面——-p/--package/--workspace/
+    /// 非 cargo 命令四类,裸 cargo test 视为 workspace(仓库根默认全量)。
+    #[test]
+    fn coverage_from_command_parses_cargo_flags() {
+        use TestCoverage as C;
+        assert_eq!(
+            coverage_from_command("node scripts/ui-runtime-smoke.mjs"),
+            C::NonRust
+        );
+        assert_eq!(coverage_from_command("verify.ps1"), C::NonRust);
+        assert_eq!(coverage_from_command("cargo build --release"), C::NonRust);
+        assert_eq!(
+            coverage_from_command("cargo test -p kanzei-tools --lib memory::"),
+            C::Crates(vec!["kanzei-tools".to_string()])
+        );
+        assert_eq!(
+            coverage_from_command("cargo test -p kanzei-tools -p kanzei-core"),
+            C::Crates(vec!["kanzei-core".to_string(), "kanzei-tools".to_string()])
+        );
+        assert_eq!(
+            coverage_from_command("cargo test --workspace --all-targets"),
+            C::Workspace
+        );
+        assert_eq!(coverage_from_command("cargo test"), C::Workspace);
+        // 覆盖面语义:covers 判定。
+        let crates = C::Crates(vec!["kanzei-tools".to_string()]);
+        assert!(crates.covers("kanzei-tools"));
+        assert!(!crates.covers("kanzei-core"));
+        assert!(C::Workspace.covers("kanzei-app"));
+        assert!(!C::NonRust.covers("kanzei-tools"));
+    }
+
+    /// R-212:last_passed 随时间戳一起返回覆盖面——前端冒烟记录是 NonRust,
+    /// 定向 cargo test 是 Crates,老记录(无命令字段)从标题兜底提取。
+    #[test]
+    fn last_passed_returns_coverage_and_command() {
+        let root = temp_project("coverage");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let now = now_secs();
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!(
+                "# Test Runs\n\n## T-{now} 前端冒烟 [passed]\n- 命令: node scripts/ui-runtime-smoke.mjs\n- 收尾: {now}\n"
+            ),
+        )
+        .unwrap();
+        let (at, coverage, command) = last_passed(&root).expect("必须有记录");
+        assert_eq!(at, now);
+        assert_eq!(coverage, TestCoverage::NonRust);
+        assert!(command.contains("ui-runtime-smoke"));
+        // 老记录无命令字段 → 从标题兜底("cargo test -p kanzei-llm (R-1 …)")。
+        std::fs::write(
+            root.join(TEST_RUNS_REL),
+            format!("# Test Runs\n\n## T-{now} cargo test -p kanzei-llm (R-1 回归) [passed]\n- 收尾: {now}\n"),
+        )
+        .unwrap();
+        let (_, coverage, command) = last_passed(&root).unwrap();
+        assert_eq!(
+            coverage,
+            TestCoverage::Crates(vec!["kanzei-llm".to_string()])
+        );
+        assert!(command.contains("kanzei-llm"));
         std::fs::remove_dir_all(root).ok();
     }
 
