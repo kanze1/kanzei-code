@@ -25,6 +25,10 @@ struct GrepInput {
     /// 只列出含匹配的文件路径
     #[serde(default)]
     files_only: bool,
+    /// 统计模式:返回每个文件的匹配行数 + 总数,不返回具体行。
+    /// 完整扫描(不早停)——"数数/聚合"本就要求全量,与默认的 head-limit 早停是两种语义。
+    #[serde(default)]
+    count: bool,
 }
 
 pub struct GrepTool;
@@ -36,7 +40,7 @@ impl Tool for GrepTool {
     }
 
     fn description(&self) -> String {
-        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only.".into()
+        "Search file contents by regex (ripgrep engine), early-stops at limit. Params: pattern; optional path, glob, limit, files_only, count (per-file match counts + total, full scan).".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -85,6 +89,10 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
         None => None,
     };
     let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
+
+    if input.count {
+        return run_count(base, &input, &matcher, &glob_matcher);
+    }
 
     let mut searcher = SearcherBuilder::new()
         .binary_detection(BinaryDetection::quit(0))
@@ -155,4 +163,137 @@ fn run_grep(base: &std::path::Path, input: GrepInput) -> Result<String, String> 
         ));
     }
     Ok(out)
+}
+
+/// 统计模式:每个文件的匹配行数 + 总数。完整扫描,不做 head-limit 早停——
+/// "数数"的要求就是全量,与默认搜索的早停语义不同;这是用户主动选择的聚合通道,
+/// 不是默认路径上的全仓扫描。
+fn run_count(
+    base: &std::path::Path,
+    input: &GrepInput,
+    matcher: &grep_regex::RegexMatcher,
+    glob_matcher: &Option<globset::GlobMatcher>,
+) -> Result<String, String> {
+    use grep_searcher::sinks::UTF8;
+    use grep_searcher::{BinaryDetection, SearcherBuilder};
+
+    let mut searcher = SearcherBuilder::new()
+        .binary_detection(BinaryDetection::quit(0))
+        .build();
+
+    let mut file_counts: Vec<(String, u64)> = Vec::new();
+    for entry in ignore::WalkBuilder::new(base)
+        .hidden(false)
+        .build()
+        .flatten()
+    {
+        if !entry.file_type().map(|t| t.is_file()).unwrap_or(false) {
+            continue;
+        }
+        let rel = entry
+            .path()
+            .strip_prefix(base)
+            .unwrap_or(entry.path())
+            .to_string_lossy()
+            .replace('\\', "/");
+        if let Some(gm) = glob_matcher {
+            let name = entry
+                .path()
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
+            if !gm.is_match(&rel) && !gm.is_match(name.as_ref()) {
+                continue;
+            }
+        }
+        let mut count = 0u64;
+        let _ = searcher.search_path(
+            matcher,
+            entry.path(),
+            UTF8(|_, _| {
+                count += 1;
+                Ok(true)
+            }),
+        );
+        if count > 0 {
+            file_counts.push((rel, count));
+        }
+    }
+
+    if file_counts.is_empty() {
+        return Ok(format!("(no matches for `{}`)", input.pattern));
+    }
+    let total: u64 = file_counts.iter().map(|(_, c)| c).sum();
+    let mut out = file_counts
+        .iter()
+        .map(|(f, c)| format!("{f}: {c}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    out.push_str(&format!(
+        "\n(total {total} matches in {} files)",
+        file_counts.len()
+    ));
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn fixture(tag: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kz-grep-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "fn one() {}\nfn two() {}\n").unwrap();
+        std::fs::write(root.join("src/b.rs"), "// no match here\n").unwrap();
+        std::fs::write(root.join("docs/c.md"), "fn doc() {}\n").unwrap();
+        root
+    }
+
+    /// count 模式:每文件匹配行数 + 总数,完整扫描不早停。
+    #[test]
+    fn count模式按文件计数并汇总() {
+        let root = fixture("count");
+        let input = GrepInput {
+            pattern: "fn".into(),
+            path: None,
+            glob: None,
+            limit: None,
+            files_only: false,
+            count: true,
+        };
+        let matcher = grep_regex::RegexMatcher::new("fn").unwrap();
+        let out = run_count(&root, &input, &matcher, &None).unwrap();
+        assert!(out.contains("src/a.rs: 2"), "{out}");
+        assert!(out.contains("docs/c.md: 1"), "{out}");
+        assert!(!out.contains("src/b.rs"), "{out}");
+        assert!(out.contains("(total 3 matches in 2 files)"), "{out}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// count 模式无命中时给明确的空结果,而不是空字符串。
+    #[test]
+    fn count模式无命中返回明确空结果() {
+        let root = fixture("count-none");
+        let input = GrepInput {
+            pattern: "zzz_none_zzz".into(),
+            path: None,
+            glob: None,
+            limit: None,
+            files_only: false,
+            count: true,
+        };
+        let matcher = grep_regex::RegexMatcher::new("zzz_none_zzz").unwrap();
+        let out = run_count(&root, &input, &matcher, &None).unwrap();
+        assert_eq!(out, "(no matches for `zzz_none_zzz`)");
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

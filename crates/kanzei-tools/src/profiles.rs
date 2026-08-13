@@ -54,8 +54,10 @@ pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
     out
 }
 
-/// 索引注入的预算上限(条数;超出折叠为计数)。
-const INDEX_LIMIT: usize = 30;
+/// 队列索引注入的折叠阈值:open 条目数超过它才折叠为计数 + 完整 id 列表。
+/// 曾按 30 条硬截断(57 条需求只显示 30 行 + "+27 more"),agent 看到的队列残缺、
+/// 界面零提示(取活顺序所见非所得,见 D-207)。现改为全量显示 open 条目,仅超阈值才折叠兜底。
+const INDEX_LIMIT: usize = 500;
 /// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
 // dev/memory 注入预算移入 memory 模块与 prompt_hints 共用(D-216:同一口径)。
 use crate::memory::MEMORY_CONTEXT_BUDGET;
@@ -393,7 +395,7 @@ impl Component for DevProfile {
                     );
                 }
                 Some(format!(
-                    "<project-docs>\n{}{}Use the selected work-priority mode from the run instruction to choose between the requirements and defects queues; when no mode is supplied, use defects-first. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
+                    "<project-docs>\n取活顺序:按 requirements.md 文件顺序自上而下,再 defects.md;priority 只做背景,不改变顺序。\n{}{}Use the selected work-priority mode from the run instruction to choose between the requirements and defects queues; when no mode is supplied, use defects-first. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
                     def.map(|s| s + "\n").unwrap_or_default(),
                     req.map(|s| s + "\n").unwrap_or_default(),
                 ))
@@ -735,7 +737,17 @@ fn index_of(
         })
         .collect();
     if open.len() > INDEX_LIMIT {
-        lines.push(format!("… +{} more open", open.len() - INDEX_LIMIT));
+        let folded: Vec<&str> = open
+            .iter()
+            .skip(INDEX_LIMIT)
+            .map(|e| e.id.as_str())
+            .collect();
+        lines.push(format!(
+            "… +{} more open ({}), read `{}` or use the tracker list tool for the full queue",
+            open.len() - INDEX_LIMIT,
+            folded.join(", "),
+            kind.rel_path
+        ));
     }
     Some(format!(
         "{label} ({} open, {closed} closed):\n{}",
