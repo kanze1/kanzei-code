@@ -48,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some("work") => work_cli(&args[1..]).await,
         Some("lock") => lock_cli(&args[1..]).await,
+        Some("config") => config_cli(&args[1..]),
         Some("replay-eval") => replay_eval_cli(&args[1..]).await,
         Some("run") => run_cli(&args[1..]).await,
         Some(_) => run_cli(&args).await,
@@ -74,6 +75,7 @@ fn usage_text() -> &'static str {
        kz work next [--requirement-first]  # 结构化取活裁决\n\
        kz work claim <id> [--reason <text>] # 原子占用 selected；覆盖时理由必填\n\
        kz lock status                       # 外部写入者可见性:主根/git 工作树改动/活跃线(R-181)\n\
+       kz config schema                     # kanzei.toml 用户面配置参考:全部已知键+说明+默认值(R-220)\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\
@@ -1253,6 +1255,19 @@ async fn work_cli(args: &[String]) -> anyhow::Result<()> {
 /// 租约。剩余真实价值是**声明与检测入口**:外部 agent(Claude Code / Cursor /
 /// 手动改)不受 kanzei runner 约束,它动仓库前需要一条通道看清"现在谁在写、改了
 /// 哪些文件、有哪些活跃线"。本条交付的就是这条只读通道,不做互斥(协作式可见性)。
+/// `kz config schema`:打印 kanzei.toml 用户面配置参考(R-220)。
+///
+/// 内容由 kanzei-harness::config::config_reference() 生成(与 unknown_keys
+/// 已知键名单同源),覆盖全部可调键的一句话说明与默认值/取值范围。
+fn config_cli(args: &[String]) -> anyhow::Result<()> {
+    let action = args.first().map(String::as_str).unwrap_or("schema");
+    if action != "schema" {
+        anyhow::bail!("kz config 只支持 schema(用户面配置参考)。用法:`kz config schema`");
+    }
+    print!("{}", kanzei_harness::config::config_reference());
+    Ok(())
+}
+
 async fn lock_cli(args: &[String]) -> anyhow::Result<()> {
     let action = args.first().map(String::as_str).unwrap_or("status");
     if action != "status" {

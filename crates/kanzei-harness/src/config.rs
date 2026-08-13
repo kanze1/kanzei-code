@@ -973,6 +973,67 @@ fn rule_digest(rules: &[&Rule]) -> String {
     out
 }
 
+/// kanzei.toml 各节已知键名单(R-220 单源)。
+///
+/// `unknown_keys` 的已知清单、用户面配置参考 `config_reference` 都从这里取——
+/// 增删键只改一处,`config_reference_covers_all_known_keys` 测试守护参考不丢键,
+/// `unknown_keys_schema_matches_struct` 守护名单不与结构体漂移。
+pub(crate) const TOP_LEVEL_KEYS: &[&str] = &[
+    "language",
+    "models",
+    "providers",
+    "proxy",
+    "profile",
+    "permissions",
+    "limits",
+    "cadence",
+    "embeddings",
+];
+pub(crate) const MODELS_KEYS: &[&str] = &[
+    "primary",
+    "fast",
+    "reasoning",
+    "codex_fast_mode",
+    "scout",
+    "compact",
+];
+pub(crate) const EMBEDDINGS_KEYS: &[&str] = &["provider", "model"];
+pub(crate) const LIMITS_KEYS: &[&str] = &[
+    "max_tokens",
+    "subagent_max_tokens",
+    "subagent_timeout_secs",
+    "barrier_timeout_secs",
+    "context_budget_ratio",
+    "recent_verbatim_ratio",
+    "max_tasks_per_turn",
+    "max_parallel_tools",
+    "transport_retries",
+    "rate_limit_retries",
+    "stream_restarts",
+    "compact_buffer_tokens",
+    "prune_protect_tokens",
+    "prune_min_gain_tokens",
+];
+pub(crate) const PROVIDER_KEYS: &[&str] = &[
+    "protocol",
+    "base_url",
+    "api_key_env",
+    "api_key",
+    "auth",
+    "context_limit",
+];
+pub(crate) const PROFILE_KEYS: &[&str] = &["default"];
+pub(crate) const CADENCE_KEYS: &[&str] = &[
+    "full_test",
+    "full_test_batches",
+    "targeted_test",
+    "commit",
+    "push",
+    "verify_every_n",
+];
+pub(crate) const PERMISSIONS_KEYS: &[&str] = &["rules", "non_interactive"];
+pub(crate) const PERMISSION_RULE_KEYS: &[&str] = &["action", "resource", "effect"];
+
 /// 列出 schema 未识别的键路径。schema 变更时同步维护;
 /// `unknown_keys_schema_matches_struct` 测试守护两者不漂移。
 fn unknown_keys(value: &toml::Value) -> Vec<String> {
@@ -991,118 +1052,172 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
         }
     }
     let mut out = Vec::new();
-    check(
-        value,
-        "",
-        &[
-            "language",
-            "models",
-            "providers",
-            "proxy",
-            "profile",
-            "permissions",
-            "limits",
-            "cadence",
-            "embeddings",
-        ],
-        &mut out,
-    );
+    check(value, "", TOP_LEVEL_KEYS, &mut out);
     if let Some(models) = value.get("models") {
-        check(
-            models,
-            "models",
-            &[
-                "primary",
-                "fast",
-                "reasoning",
-                "codex_fast_mode",
-                "scout",
-                "compact",
-            ],
-            &mut out,
-        );
+        check(models, "models", MODELS_KEYS, &mut out);
     }
     if let Some(embeddings) = value.get("embeddings") {
-        check(embeddings, "embeddings", &["provider", "model"], &mut out);
+        check(embeddings, "embeddings", EMBEDDINGS_KEYS, &mut out);
     }
     if let Some(limits) = value.get("limits") {
-        check(
-            limits,
-            "limits",
-            &[
-                "max_tokens",
-                "subagent_max_tokens",
-                "subagent_timeout_secs",
-                "barrier_timeout_secs",
-                "context_budget_ratio",
-                "recent_verbatim_ratio",
-                "max_tasks_per_turn",
-                "max_parallel_tools",
-                "transport_retries",
-                "rate_limit_retries",
-                "stream_restarts",
-                "compact_buffer_tokens",
-                "prune_protect_tokens",
-                "prune_min_gain_tokens",
-            ],
-            &mut out,
-        );
+        check(limits, "limits", LIMITS_KEYS, &mut out);
     }
     if let Some(providers) = value.get("providers").and_then(|p| p.as_table()) {
         for (name, provider) in providers {
             check(
                 provider,
                 &format!("providers.{name}"),
-                &[
-                    "protocol",
-                    "base_url",
-                    "api_key_env",
-                    "api_key",
-                    "auth",
-                    "context_limit",
-                ],
+                PROVIDER_KEYS,
                 &mut out,
             );
         }
     }
     if let Some(profile) = value.get("profile") {
-        check(profile, "profile", &["default"], &mut out);
+        check(profile, "profile", PROFILE_KEYS, &mut out);
     }
     if let Some(cadence) = value.get("cadence") {
-        check(
-            cadence,
-            "cadence",
-            &[
-                "full_test",
-                "full_test_batches",
-                "targeted_test",
-                "commit",
-                "push",
-                "verify_every_n",
-            ],
-            &mut out,
-        );
+        check(cadence, "cadence", CADENCE_KEYS, &mut out);
     }
     if let Some(permissions) = value.get("permissions") {
         // 三处接线之一:新键要进这份已知键清单,否则用户一写就收到"未知配置项"假告警。
-        check(
-            permissions,
-            "permissions",
-            &["rules", "non_interactive"],
-            &mut out,
-        );
+        check(permissions, "permissions", PERMISSIONS_KEYS, &mut out);
         if let Some(rules) = permissions.get("rules").and_then(|r| r.as_array()) {
             for (index, rule) in rules.iter().enumerate() {
                 check(
                     rule,
                     &format!("permissions.rules[{index}]"),
-                    &["action", "resource", "effect"],
+                    PERMISSION_RULE_KEYS,
                     &mut out,
                 );
             }
         }
     }
     out
+}
+
+/// R-220:用户面配置参考——覆盖全部已知键,一句话说明 + 默认值/取值范围。
+///
+/// 由上方各节已知键常量驱动生成:增删键只改常量,参考自动跟随;
+/// `config_reference_covers_all_known_keys` 测试守护参考不丢键、不凭空多键。
+/// 输出是纯注释 TOML(每个键一行 `# 键 = 默认/取值 说明`),可直接作为
+/// `kz config schema` 命令的 stdout。
+pub fn config_reference() -> String {
+    let mut out = String::from(
+        "# kanzei.toml 配置参考(R-220)。留空 = 用内置默认;设置页改的也是这个文件。\n\
+         # 取值用 | 分隔合法项;默认值是内置默认。\n\
+         # language = system | zh | en  界面语言(默认 zh)\n\
+         #\n",
+    );
+    let models_desc = |key: &str| -> &str {
+        match key {
+            "primary" => " = <角色名或 provider:model>  主对话模型(默认 unset,回退内置)",
+            "fast" => " = <角色名或 provider:model>  快速子代理/机械检索(默认 unset)",
+            "scout" => " = <角色名或 provider:model>  勘察/复核只读代理(默认跟随 fast)",
+            "compact" => " = <角色名或 provider:model>  上下文压缩纪要(默认跟随 primary)",
+            "reasoning" => " = off | low | medium | high  思考强度(默认 off)",
+            "codex_fast_mode" => " = true | false  同模型走高消耗 priority 档(默认未设)",
+            _ => "",
+        }
+    };
+    let provider_desc = |key: &str| -> &str {
+        match key {
+            "protocol" => " = anthropic | openai | openai-responses | deepseek-responses",
+            "base_url" => " = https://...  端点地址(必填)",
+            "api_key_env" => " = <环境变量名>  从环境变量取密钥(推荐)",
+            "api_key" => " = <明文>  直填密钥,明文存盘自担风险",
+            "auth" => " = codex | claude  复用 CLI 登录态(可选)",
+            "context_limit" => " = <u64>  上下文窗口 token 数(默认由 builtin_context_limit 决定)",
+            _ => "",
+        }
+    };
+    let limits_desc = |key: &str| -> &str {
+        match key {
+            "max_tokens" => " = <u32>  单轮输出上限(默认 4096)",
+            "subagent_max_tokens" => " = <u32>  子代理输出上限(默认 4096)",
+            "subagent_timeout_secs" => " = <u64>  子代理超时秒数(默认 900)",
+            "barrier_timeout_secs" => " = <u64>  阶段屏障超时秒数(默认 3600)",
+            "context_budget_ratio" => " = <f64 0.0~1.0>  上下文预算比例(默认 0.7)",
+            "recent_verbatim_ratio" => " = <f64 0.0~1.0>  最近内容原样保留比例(默认 0.35)",
+            "max_tasks_per_turn" => " = <usize>  单轮并行子代理上限(默认 8)",
+            "max_parallel_tools" => " = <usize>  单轮并行工具上限(默认 8)",
+            "transport_retries" => " = <u32>  传输重试次数(默认 2)",
+            "rate_limit_retries" => " = <u32>  限流重试次数(默认 2)",
+            "stream_restarts" => " = <u32>  流重启次数(默认 2)",
+            "compact_buffer_tokens" => " = <u64>  压缩保留缓冲 token(默认 8000)",
+            "prune_protect_tokens" => " = <u64>  裁剪保护 token(默认 2000)",
+            "prune_min_gain_tokens" => " = <u64>  裁剪最小收益 token(默认 512)",
+            _ => "",
+        }
+    };
+    let cadence_desc = |key: &str| -> &str {
+        match key {
+            "full_test" => {
+                " = entry_close | every_commit | every_n_batches | release_only(默认 entry_close)"
+            }
+            "full_test_batches" => " = <u32>  full_test=every_n_batches 时的批次间隔(默认 null)",
+            "targeted_test" => " = every_commit | off(默认 every_commit)",
+            "commit" => " = per_batch | per_entry(默认 per_batch)",
+            "push" => " = per_entry | per_commit | periodic(默认 per_entry)",
+            "verify_every_n" => " = <u32>  自主推进每关 N 条插入只读核查;0=关闭(默认 3)",
+            _ => "",
+        }
+    };
+    let profile_desc = |key: &str| -> &str {
+        match key {
+            "default" => " = dev | research | readonly(默认 dev)",
+            _ => "",
+        }
+    };
+    let permissions_desc = |key: &str| -> &str {
+        match key {
+            "rules" => " = [{ action, resource, effect }, ...]  有序规则,last-match-wins",
+            "non_interactive" => " = deny | rules_only | allow_listed(默认 deny)",
+            _ => "",
+        }
+    };
+    let rule_desc = |key: &str| -> &str {
+        match key {
+            "action" => " = bash | write | edit | ...",
+            "resource" => " = <资源描述>",
+            "effect" => " = allow | deny",
+            _ => "",
+        }
+    };
+    let embeddings_desc = |key: &str| -> &str {
+        match key {
+            "provider" => " = <provider 名>  嵌入通道(默认未设=不启用)",
+            "model" => " = <模型名>  嵌入模型(默认未设)",
+            _ => "",
+        }
+    };
+    emit_section(&mut out, "models", MODELS_KEYS, &models_desc);
+    emit_section(&mut out, "providers.<名字>", PROVIDER_KEYS, &provider_desc);
+    emit_section(&mut out, "limits", LIMITS_KEYS, &limits_desc);
+    out.push_str("# [proxy]\n#   proxy = env | off | http://host:port  (默认 env,读环境变量)\n\n");
+    emit_section(&mut out, "cadence", CADENCE_KEYS, &cadence_desc);
+    emit_section(&mut out, "profile", PROFILE_KEYS, &profile_desc);
+    emit_section(&mut out, "permissions", PERMISSIONS_KEYS, &permissions_desc);
+    out.push_str("#   [[permissions.rules]]\n");
+    for key in PERMISSION_RULE_KEYS {
+        out.push_str(&format!("#     {key}{}\n", rule_desc(key)));
+    }
+    out.push_str("#\n");
+    emit_section(&mut out, "embeddings", EMBEDDINGS_KEYS, &embeddings_desc);
+    out
+}
+
+/// 把一节已知键 + 描述写成参考注释行。
+fn emit_section(
+    out: &mut String,
+    name: &str,
+    keys: &[&str],
+    describe: &dyn Fn(&str) -> &'static str,
+) {
+    out.push_str(&format!("# [{name}]\n"));
+    for key in keys {
+        out.push_str(&format!("#   {key}{}\n", describe(key)));
+    }
+    out.push('\n');
 }
 
 /// 标量覆盖、map 合并、规则追加(后层排后 → last-match-wins 自然让后层优先)。
@@ -2052,6 +2167,81 @@ typo_fielt = true
         });
         let raw: toml::Value = toml::from_str(&toml::to_string_pretty(&config).unwrap()).unwrap();
         assert_eq!(unknown_keys(&raw), Vec::<String>::new());
+    }
+
+    /// R-220 验收②:配置参考与 known_keys 名单必须同源不漂移。
+    /// 每个已知键都在参考里出现一次,参考里也不能出现名单外的键。
+    #[test]
+    fn config_reference_covers_all_known_keys() {
+        let reference = config_reference();
+        // R-220 验收③:D-300 修复后的键必须能在用户面参考里看到。
+        assert!(
+            reference.contains("barrier_timeout_secs"),
+            "config_reference 缺 barrier_timeout_secs(D-300 修复键必须可见):\n{reference}"
+        );
+        let mut all_keys: Vec<&str> = Vec::new();
+        all_keys.extend(TOP_LEVEL_KEYS.iter().copied());
+        all_keys.extend(MODELS_KEYS.iter().copied());
+        all_keys.extend(EMBEDDINGS_KEYS.iter().copied());
+        all_keys.extend(LIMITS_KEYS.iter().copied());
+        all_keys.extend(PROVIDER_KEYS.iter().copied());
+        all_keys.extend(PROFILE_KEYS.iter().copied());
+        all_keys.extend(CADENCE_KEYS.iter().copied());
+        all_keys.extend(PERMISSIONS_KEYS.iter().copied());
+        all_keys.extend(PERMISSION_RULE_KEYS.iter().copied());
+        for key in &all_keys {
+            let needle = if TOP_LEVEL_KEYS.contains(key) {
+                // 顶层键:language 是标量(# language = ...),providers 是动态节
+                // (# [providers.<名字>]),其余是静态节(# [models] 等)。
+                if *key == "language" {
+                    format!("# {key} =")
+                } else if *key == "providers" {
+                    "# [providers.<名字>]".to_string()
+                } else {
+                    format!("# [{key}]")
+                }
+            } else if PERMISSION_RULE_KEYS.contains(key) {
+                format!("#     {key}")
+            } else {
+                format!("#   {key}")
+            };
+            assert!(
+                reference.contains(&needle),
+                "config_reference 缺少已知键「{key}」(needle `{needle}`)——增删键必须同步更新参考:\n{reference}"
+            );
+        }
+        // 反向:参考里以 `#   <键>` 开头的键必须在名单里(防参考凭空多键)。
+        for line in reference.lines() {
+            let Some(tail) = line.strip_prefix("#   ") else {
+                continue;
+            };
+            let key = tail.split_whitespace().next().unwrap_or("");
+            // `#   [[permissions.rules]]` 是数组表头不是键;键行形如 `#   key = ...`。
+            if key.starts_with('[') || key.starts_with("]]") {
+                continue;
+            }
+            assert!(
+                all_keys.contains(&key),
+                "config_reference 出现名单外的键「{key}」——名单增删后参考也要同步:\n{line}"
+            );
+        }
+        // 反向:参考里以 `# [<节>]` 开头的节名必须是顶层已知键。
+        for line in reference.lines() {
+            let Some(name) = line
+                .strip_prefix("# [")
+                .and_then(|rest| rest.strip_suffix(']'))
+            else {
+                continue;
+            };
+            // 动态节名(providers.<名字>)与数组表(permissions.rules)不是顶层已知键,跳过。
+            if !name.chars().all(|c| c.is_ascii_lowercase()) {
+                continue;
+            }
+            assert!(
+                TOP_LEVEL_KEYS.contains(&name),
+                "config_reference 出现名单外的顶层节「{name}」——顶层键增删后参考也要同步:\n{line}"
+            );
+        }
     }
 
     #[test]
