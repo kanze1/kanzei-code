@@ -2531,3 +2531,16 @@
 - observed_head: f5ba68f5c9e04306cf287e715abd0aba6c91f443
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786633111867
+
+## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [done]
+- 优先级: P1
+- 复杂度: 大
+- 标签: 核心
+- 背景: 评估代码质量时粒度停在文件级+文本匹配级:files 给行数、grep 给正则命中、read 给逐行文本。中间缺符号/结构级视图(依赖关系、调用链、函数列表),导致质量评估只能「读全文(重)」或「靠行数猜(浮)」,没有中间档。本轮评估 harness 质量时暴露:靠 files 行数+测试数量下结论,未读一行代码。
+- 验收: ① 对指定文件/crate 输出符号列表(函数/结构/impl);② 输出调用链或依赖关系(谁调用谁/依赖哪些 crate);③ 不必 read 全文即可定位质量热点(如 config.rs 2851 行的内部结构);④ 有真实调用方(agent 在评估/重构类任务中实际使用),不昺昺死在死代码。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-234
+- 批次: 4/4
+- 进展: B4 完成(2026-08-16):全量发现 2 个回归并修复——①background_subagent_dispatch 超时测试的 mock 服务器假设请求体≤4096,工具 schema 增多后请求变大,服务器第二个 read 读到 EOF 正常完成而非超时;改为循环读任意大小请求体后挂起(commit b644f16);②parallel_scouting_under_serial_writer 与 app state_tests 断言子代理快照 3 件套,更新为 6 件套(files/git/glob/grep/read/symbols,commit b644f16)。cargo test --workspace 全绿 802 passed(T-1786633882)+ clippy/fmt 全过。四条验收逐条对照:①对指定文件/crate 输出符号列表(函数/结构/impl/enum,带行号与可见性)——symbols 工具(symbols.rs scan_symbols),目录递归收集 .rs;②输出调用链——callers 参数列出对指定符号的全部引用点(file:line,排除定义行);③不必 read 全文即可定位质量热点——symbols 输出 fn/struct/impl 行号地图,callers 给调用关系,介于 files(行数)与 read(全文)之间;④有真实调用方——symbols 装配进 BaseComponent(主代理)与 SubagentBase(勘察子代理),explore_agent/task_spec 描述同步,agent 评估/重构任务可直接调用。B1 符号提取 3 测试 + B2 callers 1 测试 + 快照断言更新。关闭。
+- observed_head: b644f1657f2aadede85b26ef65050605740ceb04
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786633905961

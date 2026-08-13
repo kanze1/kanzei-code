@@ -63,19 +63,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786631684828
 
-## R-234 代码符号/结构级视图工具:依赖关系、调用链、函数列表,填补 files 行数与 read 全文之间的粒度空白 [doing]
-- 优先级: P1
-- 复杂度: 大
-- 标签: 核心
-- 背景: 评估代码质量时粒度停在文件级+文本匹配级:files 给行数、grep 给正则命中、read 给逐行文本。中间缺符号/结构级视图(依赖关系、调用链、函数列表),导致质量评估只能「读全文(重)」或「靠行数猜(浮)」,没有中间档。本轮评估 harness 质量时暴露:靠 files 行数+测试数量下结论,未读一行代码。
-- 验收: ① 对指定文件/crate 输出符号列表(函数/结构/impl);② 输出调用链或依赖关系(谁调用谁/依赖哪些 crate);③ 不必 read 全文即可定位质量热点(如 config.rs 2851 行的内部结构);④ 有真实调用方(agent 在评估/重构类任务中实际使用),不昺昺死在死代码。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-234
-- 批次: 0/4
-- 进展: 2026-08-16 取活。规划 4 批:B1 符号提取器(symbols 工具,轻量行级扫描 fn/struct/impl/pub,不引入重依赖);B2 调用链/依赖关系(谁调用谁、crate 依赖);B3 装配进工具面(SubagentBase/主代理)+ 定向测试 + 真实调用方; B4 全量 + 关闭。勘察:FilesTool 现状(files.rs:403-459)只给行数/树,read 给全文,grep 给正则——中间缺符号级视图正是本条目要补的;Rust 解析不引 syn(重依赖),用手写行级扫描(与 R-154 拆分的轻量哲学一致)。
-- observed_head: f5ba68f5c9e04306cf287e715abd0aba6c91f443
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786633147718
-
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [todo]
 - 优先级: P2
 - 复杂度: 大
