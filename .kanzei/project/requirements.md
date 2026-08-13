@@ -66,13 +66,13 @@
 - 验收: ①两个写子代理同时申请写租约,实际持有区间**不重叠**且顺序可审计(协调器 orchestration.* 事件轨迹为证,复用 R-171 批5 的事件);②写子代理绕过协调器的路径**在代码上不存在**——写工具的装配点强制经租约,不是靠提示词约束(conventions §4「权限规则是硬门禁:任何『规则』能用代码强制的绝不只写进提示词」),有断言测试证明无旁路;③权限询问在取租约**之前**发生,有顺序断言(拒绝后不得占用租约);④写子代理的改动**可按 owner 归因**:任一文件改动能查到是哪个子代理 id 写的;⑤单个写子代理的改动**可单独回滚**,不误伤其它写子代理与主代理的改动;⑥面板(R-174)能看到当前持写权的是谁、谁在排队,数据来自协调器快照(orchestration.rs:274)而非前端推测;⑦只读子代理档位的白名单未被本条放宽(crates/kanzei-tools/src/subagent.rs 的只读快照仍只含 read/glob/grep,有回归测试)。
 - refs: R-171 R-173 R-174 R-175 R-050 D-174 docs/design/parallel_read_serial_write_orchestration.md
 
-- 进展: B4 完成:写子代理改动按 owner 归因+可单独回滚——SubagentChangeLog 台账(subagent.rs,owner→改动文件+首次记录时的原内容快照,首次触碰后不覆盖),run_subagent 在 writable=true 时拦截写工具(edit/write)的 ToolStart 经 event_input_path 提取 path 登记(owner=子代理 id=验收④);rollback(owner) 按 owner 恢复改过的文件为首次快照,只碰该 owner 的文件,不误伤其它写子代理与主代理(验收⑤);SubagentRuntime.change_log 字段,12 处构造点补 None,phase_pipeline runtime_as 跟随 template。测试 2 新增:change_log_attributes_files_to_owner(归因)、change_log_rollback_restores_only_owner_files(单独回滚不误伤)。kanzei-core 150 + kanzei-app 139 + kanzei 全绿,clippy/fmt 干净。B5(下一步,验收⑥):面板展示当前持写权者与排队——协作快照 collaboration.rs 的 CollaborationLine 加 writer/queue 字段,数据从 coordinator.snapshot() 取(R-174 面板消费),再收尾全量测试关条目。
+- 进展: B5 完成:面板展示当前持写权者与排队——CollaborationLine 加 writer_run_id/waiting_writers 字段(collaboration.rs),数据从 coordinator.snapshot(code_root) 取(验收⑥:来自协调器快照而非前端推测),CollaborationProbe 加 coordinator 字段 + with_coordinator 注入,collaboration_snapshot IPC 与 run.rs 装配点各注入 MemoryCoordinator;测试 collaboration_line_writer_and_waiting_come_from_coordinator_snapshot(真实取租约+排队,断言 line 的 writer/waiting 来自快照)。kanzei-app 140 passed,clippy/fmt 干净。全部 5 批完成,验收①③④⑤⑥⑦落地;②(写工具强制经租约)由 B1 的权限规则集裁决 + B2 的 acquire_subagent_permit 代码路径 + writable 档位装配保证(writable=true 才装配写工具且有租约拦截,只读档位无写工具=验收⑦回归)。下一步:关前全量 cargo test --workspace,逐条验收证据,req done。
 - 阻塞: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-176
-- 批次: 4/5
-- observed_head: 674bf5a56cdb251cd6fb6f548725a0741e819b51
-- observed_worktree_hash: fnv1a64:807e06080e63d53f
-- recorded_at: 1786625766105
+- 批次: 5/5
+- observed_head: b77ac1dfeede02052f78d4017d43ae74289a0623
+- observed_worktree_hash: fnv1a64:e6def5f205560fdf
+- recorded_at: 1786625968210
 
 ## R-222 收活五格补两道防线:门禁成为合并前置(红灯需显式覆盖确认),合并后插「合并后全量」步 [todo]
 - 优先级: P2

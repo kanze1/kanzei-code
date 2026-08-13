@@ -2472,3 +2472,9 @@
 - 摘要: kanzei-core 150(含 B4 验收④⑤归因/回滚测试)+ kanzei-app 139 + kanzei 全绿:R-176 B4 写子代理改动台账(SubagentChangeLog,owner→文件+首次快照,按 owner 单独回滚不误伤)
 - 关联: R-176
 - 收尾: 1786625758
+
+## T-1786625960 cargo test -p kanzei-app (R-176 B5) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 140 passed(含 B5 验收⑥测试:CollaborationLine writer/waiting 来自协调器快照)
+- 关联: R-176
+- 收尾: 1786625960

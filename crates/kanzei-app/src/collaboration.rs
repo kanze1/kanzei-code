@@ -26,6 +26,13 @@ pub(crate) struct CollaborationLine {
     pub(crate) changed_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) changed_files_error: Option<String>,
+    /// R-176 B5(验收⑥):当前持写权者(协调器快照 writer_run_id,数据来自
+    /// coordinator.snapshot() 而非前端推测)。None = 该代码树无 writer。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) writer_run_id: Option<String>,
+    /// R-176 B5(验收⑥):该代码树等待写租约的排队者(协调器快照 waiting_writers)。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) waiting_writers: Vec<String>,
 }
 
 /// 只持 AppState 内可克隆的共享字段,供 harness source/tool 在 run_task 生命周期内读取。
@@ -35,6 +42,8 @@ pub(crate) struct CollaborationProbe {
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     origin_project: PathBuf,
     current_process_id: String,
+    /// R-176 B5(验收⑥):项目级协调器——writer/waiting 数据真源,面板只读快照。
+    coordinator: Option<Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
 }
 
 impl CollaborationProbe {
@@ -49,7 +58,17 @@ impl CollaborationProbe {
             runtimes,
             origin_project,
             current_process_id,
+            coordinator: None,
         }
+    }
+
+    /// R-176 B5:注入协调器快照源。装配点在 run_task/协作快照 IPC。
+    pub(crate) fn with_coordinator(
+        mut self,
+        coordinator: Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>,
+    ) -> Self {
+        self.coordinator = Some(coordinator);
+        self
     }
 
     /// 当前项目里其它正在运行的线。锁内只克隆句柄;git 与 live 采样全部在锁外。
@@ -107,6 +126,17 @@ impl CollaborationProbe {
                     .as_deref()
                     .map(PathBuf::from)
                     .unwrap_or_else(|| self.origin_project.clone());
+                // R-176 B5(验收⑥):writer/waiting 数据来自协调器快照,不是前端
+                // 推测。按每条线的代码树(write_scope)查——同树 writer 与排队者
+                // 对这条线可见;跨树并行互不干扰(R-182 口径)。
+                let (writer_run_id, waiting_writers) = self
+                    .coordinator
+                    .as_ref()
+                    .map(|coord| {
+                        let snap = coord.snapshot(&code_root);
+                        (snap.writer_run_id, snap.waiting_writers)
+                    })
+                    .unwrap_or((None, Vec::new()));
                 let (changed_files, changed_files_error) = changed_files(
                     &self.origin_project,
                     &code_root,
@@ -131,6 +161,8 @@ impl CollaborationProbe {
                     output_tokens,
                     changed_files,
                     changed_files_error,
+                    writer_run_id,
+                    waiting_writers,
                 })
             })
             .collect::<Vec<_>>();
@@ -313,7 +345,9 @@ pub(crate) async fn collaboration_snapshot(
         state.runtimes.clone(),
         root,
         String::new(),
-    );
+    )
+    .with_coordinator(Arc::clone(&state.coordinator)
+        as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>);
     // git status/diff 在大仓可能到秒级；轮询 IPC 用阻塞线程池采样，不能占住
     // Tauri 命令执行线程拖慢其它线路的发送、停止与权限响应。
     tauri::async_runtime::spawn_blocking(move || probe.all_lines())
@@ -562,5 +596,72 @@ mod tests {
         drop(snapshot);
         drop(harness);
         std::fs::remove_dir_all(root).ok();
+    }
+
+    /// R-176 验收⑥:协作面板的 writer/waiting 数据来自协调器快照,不是前端推测。
+    /// 用真实 MemoryCoordinator:先占住写租约,再采样 CollaborationLine,断言
+    /// writer_run_id 与 waiting_writers 从 snapshot() 取到(而非空)。
+    #[tokio::test]
+    async fn collaboration_line_writer_and_waiting_come_from_coordinator_snapshot() {
+        use kanzei_core::orchestration::MemoryCoordinator;
+        use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLeaseRequest};
+        let root = std::env::temp_dir().join(format!(
+            "kz-collab-writer-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let canonical = crate::normalized_project_root(&root);
+        let coordinator: Arc<dyn ProjectExecutionCoordinator> = Arc::new(MemoryCoordinator::new());
+
+        // 真实占用 write_scope = 主根:writer=line-a,排队=line-b。
+        let _lease = coordinator
+            .acquire_writer_lease(WriterLeaseRequest {
+                write_scope: canonical.clone(),
+                run_id: "line-a".into(),
+                process_id: "p-a".into(),
+                reason: "test".into(),
+            })
+            .await
+            .unwrap();
+        let _waiter = tokio::spawn({
+            let coord = coordinator.clone();
+            let scope = canonical.clone();
+            async move {
+                let _ = coord
+                    .acquire_writer_lease(WriterLeaseRequest {
+                        write_scope: scope,
+                        run_id: "line-b".into(),
+                        process_id: "p-b".into(),
+                        reason: "test".into(),
+                    })
+                    .await;
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // 用带协调器的 Probe 采样:line 的 writer/waiting 必须来自快照。
+        let state = AppState::default();
+        let current = ensure_default_process(&state, &canonical);
+        let probe = CollaborationProbe::new(
+            state.processes.clone(),
+            state.runtimes.clone(),
+            canonical.clone(),
+            current.id.clone(),
+        )
+        .with_coordinator(coordinator);
+        let lines = probe.all_lines();
+        // current(主树)的 writer 与 waiting 就是协调器快照的内容。
+        assert!(
+            lines.iter().any(|line| {
+                line.writer_run_id.as_deref() == Some("line-a")
+                    && line.waiting_writers.contains(&"line-b".to_string())
+            }),
+            "writer/waiting 必须来自协调器快照: {lines:?}"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 }

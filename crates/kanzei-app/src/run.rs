@@ -2120,7 +2120,9 @@ pub(crate) async fn run_prompt(
         state.runtimes.clone(),
         project_root.clone(),
         process.id.clone(),
-    );
+    )
+    .with_coordinator(Arc::clone(&coordinator)
+        as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>);
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = None;
         let mut next_prompt = prompt;
