@@ -11,7 +11,8 @@
   --alert: #e8842a;
   --danger: var(--err); --muted: var(--dim);
   --statusbar: #181818; --statusbar-run: #4a3a12;
-  --mono: "Cascadia Code", Consolas, "Courier New", monospace;
+  --statusbar-fg: #d4d4d4; --statusbar-run-fg: #f5e6b3;
+  --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
   --radius: 6px;
   /* 原生控件(勾选框、下拉弹层、日期选择、文本光标)默认按浅色渲染,在深色界面里
      会是一块刺眼的白底。声明配色让浏览器用深色变体——这是全局一次性的解法,
@@ -46,7 +47,8 @@
   --ok: #2f7d32; --err: #b3261e; --warn: #9a6700; --info: #0969da;
   --alert: #c2410c;
   --danger: var(--err); --muted: var(--dim);
-  --statusbar: #ffffff; --statusbar-run: #fef3c7;
+  --statusbar: #ffffff; --statusbar-run: #f6df9f;
+  --statusbar-fg: #1f2933; --statusbar-run-fg: #3f2a00;
   color-scheme: light;
   --badge-err: #fdecea; --badge-warn: #fff7e6; --badge-info: #e8f1fb;
   --badge-alert: #fdf1e3; --badge-ok: #e9f6e9;
@@ -69,7 +71,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 html, body, #app { height: 100%; }
 body {
   background: var(--bg); color: var(--fg);
-  font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px;
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
   overflow: hidden; user-select: none;
 }
 #messages, #prompt, input, textarea, .doc-item, code { user-select: text; }
@@ -632,7 +635,7 @@ select {
 }
 #empty-state .hint { font-size: 12px; }
 
-.msg { line-height: 1.65; animation: fadein .15s ease; }
+.msg { line-height: 1.68; animation: fadein .15s ease; }
 @keyframes fadein { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
 .msg.user {
   align-self: flex-end; background: var(--accent); color: #fff;
@@ -641,14 +644,17 @@ select {
 }
 .message-attachments { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; padding-top: 5px; border-top: 1px solid #ffffff44; font-size: 11px; }
 .message-attachment { opacity: .92; overflow-wrap: anywhere; }
-.msg.assistant { white-space: pre-wrap; word-break: break-word; max-width: 92%; color: var(--fg-strong); }
+.msg.assistant {
+  white-space: pre-wrap; word-break: break-word; max-width: 92%;
+  color: var(--fg-strong); font-size: 15px; line-height: 1.72;
+}
 .msg.reasoning {
-  color: var(--dim); white-space: pre-wrap; font-size: 12px; max-width: 92%;
+  color: var(--dim); white-space: pre-wrap; font-size: 13px; max-width: 92%;
   border-left: 2px solid var(--border); padding-left: 10px;
 }
 .tool-chip {
   background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--radius);
-  padding: 7px 11px; font-family: var(--mono); font-size: 12px;
+  padding: 7px 11px; font-family: var(--mono); font-size: 13px;
   display: flex; flex-direction: column; gap: 3px; max-width: 92%;
 }
 .tool-chip .head { color: var(--info); word-break: break-all; }
@@ -700,16 +706,16 @@ button:disabled { opacity: .45; cursor: default; }
 
 /* ---------- 状态栏 ---------- */
 #statusbar {
-  height: 24px; background: var(--statusbar); color: var(--fg); flex-shrink: 0;
+  height: 24px; background: var(--statusbar); color: var(--statusbar-fg); flex-shrink: 0;
   display: flex; align-items: center; justify-content: space-between; padding: 0 12px;
-  font-size: 11.5px; transition: background .25s;
+  font-size: 12px; font-weight: 500; transition: background .25s, color .25s;
 }
-#statusbar.running { background: var(--statusbar-run); }
+#statusbar.running { background: var(--statusbar-run); color: var(--statusbar-run-fg); }
 .status-left, .status-right { display: flex; align-items: center; gap: 10px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .dot.idle { background: var(--dot-idle); }
 .dot.run { background: var(--dot-run); }
-#status-mode { color: var(--fg-strong); font-weight: 600; }
+#status-mode { color: inherit; font-weight: 650; }
 
 #workspace-scroll, #documents-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 26px 34px 40px; }
 /* 独立文档页滚动到底时，末行需要越过底部状态栏的安全区。 */
@@ -832,15 +838,15 @@ button:disabled { opacity: .45; cursor: default; }
 }
 #log-lines {
   flex: 1; overflow-y: auto; padding: 6px 12px;
-  font-family: var(--mono); font-size: 11.5px; line-height: 1.7; user-select: text;
+  font-family: var(--mono); font-size: 13px; line-height: 1.65; user-select: text;
 }
-.log-line { color: var(--dim); white-space: pre-wrap; word-break: break-all; }
+.log-line { color: var(--fg); white-space: pre-wrap; word-break: break-all; }
 .log-line.warn { color: var(--warn); }
 .log-line.err { color: var(--err); }
 
 /* ---------- 状态栏补充 ---------- */
 #status-elapsed { opacity: .85; }
-#status-version { opacity: .7; font-size: 11px; }
+#status-version { color: inherit; opacity: .86; font-size: 11.5px; }
 .statusbar-btn {
   background: transparent; border: none; color: inherit; cursor: pointer;
   font-size: 11.5px; padding: 0 6px; opacity: .9;
@@ -1080,14 +1086,16 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 }
 #ctx-bar.warn #ctx-bar-fill { background: var(--warn); }
 
-/* 回放里的工具痕迹:一行淡色,不喧宾夺主 */
-.tool-chip.replay { padding: 4px 10px; opacity: .55; font-size: 11.5px; }
+/* D-351:历史工具痕迹也是复盘事实,不能给整个块设 opacity——子元素的 dim 色再
+   乘一次透明度后,亮色主题会接近白色。层级只用语义前景色表达。 */
+.tool-chip.replay { padding: 4px 10px; opacity: 1; font-size: 13px; }
+.tool-chip.replay .result { color: var(--fg); }
 .tool-chip.replay-tool { max-width: 92%; }
 .tool-chip.replay-tool .head { cursor: pointer; }
 .replay-tool-body {
   margin: 4px 0 0; padding: 8px; max-height: 320px; overflow: auto;
   background: var(--code-bg); border: 1px solid var(--border-soft); color: var(--fg);
-  white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.5 var(--mono);
+  white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.55 var(--mono);
 }
 
 /* ---------- 应用内文档查看器 ---------- */
@@ -1225,11 +1233,11 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .msg.md pre.code, .reasoning-body pre.code {
   background: var(--code-output-bg); border: 1px solid var(--border-soft); border-radius: 4px;
   padding: 8px 10px; margin: 6px 0; overflow-x: auto;
-  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  font-family: var(--mono); font-size: 13px; line-height: 1.58;
 }
 .msg.md code, .reasoning-body code {
   background: var(--code-inline); border-radius: 3px; padding: 1px 5px;
-  font-family: var(--mono); font-size: 12px;
+  font-family: var(--mono); font-size: 13px;
 }
 .msg.md p { margin: 5px 0; }
 .msg.md ul, .msg.md ol { margin: 6px 0; padding-left: 24px; }
@@ -1241,7 +1249,7 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .md-h { display: block; margin: 8px 0 2px; color: var(--fg-strong); }
 .tool-display {
   margin-top: 6px; border-radius: 4px; overflow-x: auto;
-  font-family: var(--mono); font-size: 12px; line-height: 1.5; user-select: text;
+  font-family: var(--mono); font-size: 13px; line-height: 1.58; user-select: text;
 }
 .tool-display.term {
   background: var(--code-bg); border: 1px solid var(--border-soft);
@@ -1473,7 +1481,7 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .tool-msg-head {
   display: flex; gap: 6px; align-items: baseline; width: 100%;
   background: transparent; border: none; color: var(--fg);
-  font-size: 12.5px; padding: 1px 0 1px 2px; cursor: default; text-align: left;
+  font-size: 13.5px; padding: 1px 0 1px 2px; cursor: default; text-align: left;
   font-family: var(--mono, ui-monospace, monospace);
 }
 .tool-msg.has-detail .tool-msg-head { cursor: pointer; }
@@ -1491,7 +1499,7 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
 }
 .tool-msg-result {
-  margin: 0 0 2px 18px; font-size: 12px; color: var(--dim, #8a8a8a);
+  margin: 0 0 2px 18px; font-size: 13px; color: var(--dim, #8a8a8a);
   font-family: var(--mono, ui-monospace, monospace);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -1499,11 +1507,11 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .tool-msg.warn .tool-msg-result { color: var(--warn); }
 .tool-msg-detail { margin: 2px 0 6px 18px; }
 .tool-msg-raw {
-  margin: 2px 0; padding: 6px 8px; font-size: 11.5px; line-height: 1.45;
+  margin: 2px 0; padding: 6px 8px; font-size: 13px; line-height: 1.55;
   background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
   max-height: 420px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
-.tool-msg-raw.args { opacity: 0.75; }
+.tool-msg-raw.args { color: var(--dim); opacity: 1; }
 
 /* ---------- 文件导览(R-148) ---------- */
 /* D-212:不得写 `#view-files { display:flex }`——ID 特异性会无条件压过 `.view` 的

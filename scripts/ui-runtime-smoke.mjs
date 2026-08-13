@@ -6194,7 +6194,15 @@ const docsB = {
   assert(html.indexOf('id="theme-toggle"') < html.indexOf('id="statusbar"'), "D-348:主题按钮未放入侧栏");
   assert(/\.msg\.assistant[^{]*\{[^}]*color:\s*var\(--fg-strong\)/.test(style), "D-348:正文未使用亮色主题前景 token");
   assert(/\.tool-display\.term[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:运行输出未使用主题前景 token");
-  assert(/#statusbar[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:状态栏控件未使用主题前景 token");
+  assert(/#statusbar[^{]*\{[^}]*color:\s*var\(--statusbar-fg\)/.test(style), "D-351:状态栏未使用独立前景 token");
+  assert(/#statusbar\.running[^{]*\{[^}]*color:\s*var\(--statusbar-run-fg\)/.test(style), "D-351:运行态状态栏未使用可读前景 token");
+  assert(/\.msg\.assistant[^{]*\{[^}]*font-size:\s*15px/.test(style), "D-351:assistant 正文字号未提升到 15px");
+  assert(/#log-lines[^{]*\{[^}]*font-size:\s*13px/.test(style), "D-351:运行日志字号低于 13px");
+  assert(/\.tool-chip\s*\{[^}]*font-size:\s*13px/.test(style), "D-351:旧式工具卡片字号低于 13px");
+  assert(/\.tool-msg-result[^{]*\{[^}]*font-size:\s*13px/.test(style), "D-351:工具结果字号低于 13px");
+  assert(/\.replay-tool-body[^{]*\{[^}]*font:\s*13px\//.test(style), "D-351:历史工具详情字号低于 13px");
+  assert(/\.tool-chip\.replay[^{]*\{[^}]*opacity:\s*1/.test(style), "D-351:历史工具块仍被整体淡化");
+  assert(!/\.tool-msg-raw\.args[^{]*\{[^}]*opacity:\s*0?\.[0-9]+/.test(style), "D-351:工具入参仍被透明度二次淡化");
   // 默认暗色(现状零回归)。
   assert(document.documentElement.getAttribute("data-theme") !== "light", "R-189:默认主题应为暗色(或未设=暗)");
   // 切亮色:html[data-theme=light] + localStorage 持久化。
