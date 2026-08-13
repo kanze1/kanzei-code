@@ -25,15 +25,20 @@ impl Component for SubagentBase {
         // 查 git 历史与工作树状态)。保持全 allow 零 ask:files 纯只读;git 只对
         // 只读 action 放行,写类 action(stage/commit/merge_ff/finalize)不设规则,
         // 子代理内 ask 恒 Deny → 被拒(验收②)。webfetch 暂不加(网络面未审计)。
+        // R-234:symbols 符号级视图,勘察/质量评估用,纯只读。
         draft
             .tools
             .insert("files", Arc::new(crate::files::FilesTool));
+        draft
+            .tools
+            .insert("symbols", Arc::new(crate::symbols::SymbolsTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
             rule("files", "*", Effect::Allow),
+            rule("symbols", "*", Effect::Allow),
             rule("git", "status", Effect::Allow),
             rule("git", "diff", Effect::Allow),
             rule("git", "log", Effect::Allow),
@@ -83,12 +88,12 @@ pub fn explore_agent() -> AgentDef {
         model: "fast".into(),
         mode: AgentMode::Subagent,
         steps: 12,
-        system: "You are a read-only exploration subagent with tools read/glob/grep/files \
-                 and git read-only subcommands (status/diff/log). Complete the given task \
-                 precisely and reply with ONLY the requested information: file paths with \
-                 line numbers, code excerpts, git history facts, or a short factual \
-                 summary. No preamble, no suggestions. If nothing is found, state that \
-                 explicitly."
+        system: "You are a read-only exploration subagent with tools read/glob/grep/files/\
+                 symbols and git read-only subcommands (status/diff/log). Complete the \
+                 given task precisely and reply with ONLY the requested information: file \
+                 paths with line numbers, code excerpts, symbol maps, git history facts, or \
+                 a short factual summary. No preamble, no suggestions. If nothing is found, \
+                 state that explicitly."
             .into(),
     }
 }
@@ -157,8 +162,9 @@ mod tests {
             .collect();
         // R-218:只读快照扩容为 read/glob/grep/files/git(5 件)。files 纯只读;
         // git 只对 status/diff/log 放行(写 action 不在 Allow 规则里 → 子代理内被拒)。
-        assert_eq!(names.len(), 5);
-        for name in ["read", "glob", "grep", "files"] {
+        // R-234:symbols 符号视图加入,只读快照 6 件套。
+        assert_eq!(names.len(), 6);
+        for name in ["read", "glob", "grep", "files", "symbols"] {
             assert!(names.contains(&name), "missing {name}");
             assert_eq!(
                 snapshot.evaluate(name, "anything"),
@@ -210,8 +216,8 @@ mod tests {
         // R-218:git 进入只读快照但只放行只读 action——工具在场不等于写权限在场。
         assert!(names.contains(&"git"), "git 应在只读快照(只读子命令)");
         assert_eq!(snapshot.evaluate("git", "commit"), Effect::Ask);
-        // 只读快照必须仍是 5 件套(read/glob/grep/files/git)。
-        assert_eq!(names.len(), 5, "只读快照工具面: {names:?}");
+        // R-234:symbols 符号视图加入只读快照(6 件套)。
+        assert_eq!(names.len(), 6, "只读快照工具面: {names:?}");
     }
 
     /// R-176 B1:可写子代理档位含写工具;写工具权限**不预设 Allow**
