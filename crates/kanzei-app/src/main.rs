@@ -119,6 +119,11 @@ fn main() {
                 }
             }
             builder.build()?;
+            // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
+            // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
+            tauri::async_runtime::spawn(async move {
+                let _ = fast_model::fast_model_ensure_running().await;
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

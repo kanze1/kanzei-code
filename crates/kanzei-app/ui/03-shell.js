@@ -462,3 +462,46 @@ function clearRunPending() {
   stop.textContent = t("停止");
 }
 
+// ---------- R-190 常驻 fast 模型状态 ----------
+// 状态栏 #status-fast 显示 fast 子代理模型运行态:未托管时隐藏,托管时显示
+// fastStatusText 的短文案并随真实探测每 10 秒刷新——Ollama 服务停掉后状态
+// 自动翻红、重新起来后自动转回就绪,无需重开任何视图。
+const FAST_STATUS_POLL_MS = 10000;
+let fastStatusTimer = null;
+async function refreshFastStatusBar() {
+  const el = $("status-fast");
+  if (!el) return;
+  let s;
+  try {
+    s = await invoke("fast_model_status");
+  } catch {
+    return; // 命令不可用(旧引擎):保持现状不报错。
+  }
+  if (!s.managed) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+  const st = typeof fastStatusText === "function" ? fastStatusText(s) : null;
+  const short = st
+    ? s.ready
+      ? `✓ ${t("子代理就绪")}`
+      : !s.installed
+        ? `⚠ ${t("Ollama 未安装")}`
+        : !s.serviceUp
+          ? `⚠ ${t("Ollama 服务未运行")}`
+          : `⚠ ${t("模型未拉取")}`
+    : "";
+  el.textContent = short;
+  el.classList.remove("hidden");
+  el.classList.toggle("warn-text", Boolean(st?.warn));
+}
+function startFastStatusBar() {
+  clearInterval(fastStatusTimer);
+  void refreshFastStatusBar();
+  fastStatusTimer = setInterval(() => void refreshFastStatusBar(), FAST_STATUS_POLL_MS);
+}
+// 依赖 06-agent-panel.js 的 fastStatusText;06 在 03 之后加载,轮询首跑在
+// DOM 就绪且脚本全部加载后,这里直接启动(函数调用发生在事件循环,届时已定义)。
+startFastStatusBar();
+

@@ -5947,6 +5947,28 @@ const docsB = {
   assert(overlay.classList.contains("hidden"), "D-337:取消未关闭多选弹窗");
 }
 
+// ---------- R-190 常驻 fast 模型状态指示 ----------
+// 状态栏 #status-fast 在托管且未就绪时显示缺环文案(桩:serviceUp=false);
+// 且轮询函数已注册(fastStatusTimer 非空),说明常驻刷新不是一次性快照。
+{
+  const fastEl = byId.get("status-fast");
+  assert(fastEl, "R-190:状态栏缺少 #status-fast 常驻指示位");
+  await flush();
+  // 首次轮询已跑(启动即查),桩状态 serviceUp=false → 显示「服务未运行」并标 warn。
+  assert(
+    fastEl.textContent.includes("服务未运行"),
+    `R-190:常驻指示未反映服务未运行,实得 "${fastEl.textContent}"`,
+  );
+  assert(fastEl.classList.contains("warn-text"), "R-190:未就绪时指示应标红(warn-text)");
+  const timerRegistered = vm.runInContext("typeof fastStatusTimer !== 'undefined' && fastStatusTimer !== null", sandbox);
+  assert(timerRegistered, "R-190:常驻轮询定时器未注册(状态不会随真实探测更新)");
+}
+
+if (issues.length) {  byId.get("ask-cancel").click();
+  await flush();
+  assert(overlay.classList.contains("hidden"), "D-337:取消未关闭多选弹窗");
+}
+
 if (issues.length) {
   reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

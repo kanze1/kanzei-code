@@ -33,6 +33,23 @@ async fn 服务探测对未监听端口干脆返回_false_不悬挂() {
     );
 }
 
+/// R-190 验收②③不越界:未安装 / 已运行 → 保活零动作;只有「已装且服务未运行」
+/// 才需要拉起。纯函数决策,不依赖真实环境(测试机可能恰好装了 ollama)。
+#[tokio::test]
+async fn 启动保活决策只有已装且服务未运行才动作() {
+    use super::fast_model::fast_ensure_decision;
+    // 未安装:任何服务状态都不该触发安装/拉取。
+    assert!(!fast_ensure_decision(false, false), "未安装不得触发动作");
+    assert!(
+        !fast_ensure_decision(false, true),
+        "未安装且服务在跑(矛盾态)也不动作"
+    );
+    // 已装且服务已运行:无需动作。
+    assert!(!fast_ensure_decision(true, true), "已就绪不得重复拉起");
+    // 已装且服务未运行:唯一需要拉起的组合。
+    assert!(fast_ensure_decision(true, false), "已装未运行必须拉起");
+}
+
 #[test]
 fn installer_validation_rejects_truncated_and_non_executable_payloads() {
     let html = format!("<html>{}</html>", "x".repeat(2 << 20));

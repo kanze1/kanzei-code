@@ -229,3 +229,46 @@ pub(crate) fn pull_progress_text(line: &serde_json::Value) -> Option<String> {
         _ => Some(status.to_string()),
     }
 }
+
+/// R-190 启动即保活:应用启动时调用。fast 指向本地 Ollama 且 CLI 已安装但服务
+/// 未运行时,自动拉起 `ollama serve`(复用 R-136 起服务分支,不新写一套);
+/// 未安装 / fast 指向外部 provider / 服务已运行 → 零动作。绝不触发 winget 安装
+/// 或模型拉取(R-136「未经确认的后台大流量下载不可接受」边界不推翻)。
+/// 返回保活是否发生动作(供日志与测试断言),失败不阻塞应用启动。
+pub async fn fast_model_ensure_running() -> bool {
+    let Some((base_url, _)) = ollama_fast_target() else {
+        return false; // 外部 provider 或解析失败:不托管。
+    };
+    let installed = ollama_cli_installed();
+    let service_up = ollama_service_up(&base_url).await;
+    if !fast_ensure_decision(installed, service_up) {
+        return false; // 未安装 / 已运行:零动作。
+    }
+    // 服务未运行且 CLI 已装:自动拉起。
+    let mut cmd = Command::new("ollama");
+    cmd.arg("serve");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd.stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if cmd.spawn().is_err() {
+        return false; // 起服务失败:状态由常驻探测如实翻红,不阻塞启动。
+    }
+    // 轮询等待就绪(与 R-136 同款,20 秒上限)。
+    for _ in 0..40 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if ollama_service_up(&base_url).await {
+            return true;
+        }
+    }
+    false
+}
+
+/// R-190 保活决策纯函数:只有「CLI 已安装 && 服务未运行」才需要拉起;
+/// 其余(未安装 / 已运行)一律零动作。抽出来供定向测试,不依赖真实环境。
+pub(crate) fn fast_ensure_decision(installed: bool, service_up: bool) -> bool {
+    installed && !service_up
+}
