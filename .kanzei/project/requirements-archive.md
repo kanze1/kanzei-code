@@ -2099,7 +2099,7 @@
   8. 相关 Rust、UI 冒烟、a11y、i18n、并行线路回归、构建和真实桌面验收全部有证据；未更新运行实例不得报告发版完成。
 - 进展: 2026-08-12 完成 10/10 批次。设计基线、后端 session 状态/实时 trace 抽象、前端三态投影、线路设置隔离、历史归属、回归门禁和发布均已落地。最终审计又补上两处竞态：旧 `process_list` 快照不能覆盖实时运行事件或发送后的启动意图；`kz:error` 通过 `terminal` 字段区分持久化告警与终态失败。`cargo test -p kanzei-app` 122 项、clippy、UI runtime/a11y/i18n/Markdown/ESLint/并行线路回归全绿；最终安装位 hash、版本和构建位一致性以本次发布交接记录为准。真实 WebView2 CDP E2 在当前环境因探针查询系统进程超时未完成，未将其冒烟结果计为通过。
 
-## R-201 tracker 提供游离文本的清理通道:让"删得掉"成为工具能力而不是人工特权 [open] [done]
+## R-201 tracker 提供游离文本的清理通道:让"删得掉"成为工具能力而不是人工特权 [done]
 - 优先级: P3
 - 复杂度: 中
 - 标签: 核心
@@ -2111,8 +2111,9 @@
 - refs: D-294 D-239
 
 - 进展: 关闭证据(2026-08-12):实现提交 800d5da,全量 cargo test --workspace 绿(T-1786514969,kanzei-tools 256 passed)。验收逐项:①列出游离行+稳定标识=docstore.rs raw_lines() 返回 RawLine{ordinal,text}+tracker.rs "raw_lines" action 输出 [n] 原文(tracker.rs:296-326);②按标识删除指定行、其余内容与字段一字不变=docstore.rs delete_raw_line() 模板手术只移除那一条 Raw(tracker.rs:692-712 接线),回归测试断言删除后文件仅少那一行、字段数与内容不变(docstore.rs 游离行列出与删除_其余内容一字不变_二次保存幂等);③删除后二次保存幂等=preserved 模板回写防复活,同测试断言 save() 后文件与删除后完全一致;④回归覆盖"删除后字段不受影响"=同测试 fields.len()==3 断言+tracker.rs raw_lines_raw_delete_清理游离行且字段不受影响 端到端。原阻塞(D-295)已解除:test_record 白名单入 kanzei.toml(6ef23cc)。
+- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
-## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [open] [done]
+## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [done]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 权限
@@ -2125,8 +2126,9 @@
 
 - 批次: 2/2
 - 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成(commit 59e2f05):①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565253)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)。四条验收逐条对照:①node scripts/e2e-smoke.mjs 命中 node scripts/*.mjs 并放行——测试 前缀白名单_放行匹配命令 断言 Effect::Allow(permission.rs 测试,commit 59e2f05);②node scripts/x.mjs; rm -rf / 不得命中——测试 前缀白名单_命令链接重定向回落ask 断言含 ;/&&/|/>/$(/反引号 全部 Effect::Ask(has_shell_meta 检测);③结构化 JSON 与纯字符串双形态——测试 前缀白名单_结构化与纯字符串双形态:纯字符串前缀规则不授权 JSON(既有保护保留)、JSON 资源经既有整串精确匹配路径正常;④D-051 既有回归保持绿——更新后的 前缀通配不放行未明确授权的命令(重定向/别名/其它程序/命令链接仍 Ask)+ 显式整体放行不受串联降级影响(yolo `*` 仍 Allow)全绿。关闭。
+- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
-## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [open] [done]
+## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [done]
 - 优先级: P2
 - 复杂度: 小
 - 标签: 前端 后端
@@ -2137,6 +2139,7 @@
 
 - 批次: 2/2
 - 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786566xxx,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。
+- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-230 work next/claim 调度决策下沉 harness:取活零推导 [done]
 - 内容: 新增 work 类动作:next 按显式序计算 WorkDecision(Resume{id}|Start{id}|Blocked{ids}|WipViolation{ids})并返回 reason 码与 wip 快照;claim <id> 为显式 override 并落档原因;提示词侧取活规则收敛为「一律调 work next 按返回执行」。2026-08-13 已在 dev prompt 写入显式序(profiles.rs:resume 占槽项>队列优先级,守护测试覆盖),本条是它的 harness 确定性下沉——V4PRO 实测每次会话为 defect-first vs WIP 的仲裁自辩 500+ token,该决策 100% 可确定,按弱模型准绳应由代码一行给出
@@ -2162,7 +2165,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786593955427
 
-## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [open] [done]
+## R-213 记忆 promote 的 provenance 校验补真:episode 必须真实存在,写证据失败即回滚晋升 [done]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 后端 记忆
@@ -2176,6 +2179,7 @@
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786597713547
+- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [done]
 - 优先级: P1
