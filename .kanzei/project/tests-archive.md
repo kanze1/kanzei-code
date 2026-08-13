@@ -2135,3 +2135,27 @@
 - 摘要: D-330 修复:tracker add/repair_missing_id 分支 priority 参数与 fields「优先级」键去重(复用 update 分支 :664-673 语义:已存在则覆盖,否则追加);tracker 34 passed 含新增 add_and_repair_dedupe_priority_param_with_fields_key;fmt+clippy 干净。
 - 关联: D-330
 - 收尾: 1786599743
+
+## T-1786600332 D-331 B1 定向:标题状态标记+归档 ID 报错 [passed]
+- 命令: cargo test -p kanzei-tools --lib tracker
+- 摘要: D-331 B1:title 跨 DocKind 状态标记校验(add/update/repair_missing_id 拒绝 [dropped]/[done] 等)+ reopen/update 对归档 ID 报 archived 而非 unknown id(fix_terminal 指引);新增 title_status_marker_rejected_on_all_write_actions / archived_id_reports_archived_not_unknown,tracker 36 passed, fmt+clippy 干净。
+- 关联: D-331
+- 收尾: 1786600332
+
+## T-1786600590 D-331 B2 定向:fix_terminal 归档纠错 [passed]
+- 命令: cargo test -p kanzei-tools --lib tracker && cargo test -p kanzei-tools --lib docstore
+- 摘要: D-331 B2:fix_terminal 归档终态纠错动作(docstore::correct_archived_terminal:终态间 fixed↔wontfix、强制 reason、保持归档、原子写入、清标题跨 DocKind 状态标记、进展留审计);tracker 37 + docstore 20 passed 含新增 fix_terminal_corrects_archived_status_and_strips_title_marker;fmt+clippy 干净。
+- 关联: D-331
+- 收尾: 1786600590
+
+## T-1786600789 D-331 B2b 定向:CLI fix_terminal 分支 [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-tools --lib tracker
+- 摘要: D-331 B2b:CLI fix_terminal 分支(位置参数 id/status + --reason,消费者通路);kanzei 3 passed + tracker 37 passed;fmt+clippy 干净。
+- 关联: D-331
+- 收尾: 1786600789
+
+## T-1786600974 cargo test --workspace (D-331 B3) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-331 B3 全量:cargo test --workspace 749 passed/0 failed/2 ignored。B1+B2(B 标题状态标记校验+归档 ID 报错+fix_terminal 动作+CLI 分支)全绿;验收④待工具面刷新后执行。
+- 关联: D-331
+- 收尾: 1786600974
