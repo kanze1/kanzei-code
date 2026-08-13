@@ -1111,9 +1111,24 @@ impl Tool for TrackerTool {
                             ));
                         }
                     }
-                    // 归档区修复(重复字段/标题标记)需要归档写通道,当前不公开整表
-                    // 保存;归档非终态 mismatch 走 reopen/fix_terminal。apply 只保证
-                    // 活动区落盘,归档区仍只报告——避免半公开 API 制造第二套写路径。
+                    // 归档区修复:D-333 验收③——重复字段经 dedupe_archived_fields
+                    // 收敛(进展合并内容,其余保留首条),与 correct_archived_terminal
+                    // 共用锁与写路径,不制造第二套整表写 API。
+                    for entry in &archived {
+                        match store.dedupe_archived_fields(&entry.id) {
+                            Ok((true, removed)) => fixed.push(format!(
+                                "archived {}: deduplicated {removed} field(s)",
+                                entry.id
+                            )),
+                            Ok((false, _)) => {}
+                            Err(e) => {
+                                return ToolOutput::error(format!(
+                                    "cannot dedupe archived {}: {e}",
+                                    entry.id
+                                ))
+                            }
+                        }
+                    }
                 }
                 ToolOutput::ok(content)
             }

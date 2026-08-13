@@ -2353,3 +2353,10 @@
 - 摘要: R-175 B2 生命周期事件落库:workspace 798 passed / 0 failed 全绿。SubagentRuntime 加 background_events sink(Arc<dyn Fn> 类型别名),drive.rs spawn 块完成/失败/超时调 sink 写 task.lifecycle,测试断言事件可回放(done 终态);clippy 干净。
 - 关联: R-175
 - 收尾: 1786616031
+
+## T-1786616833 cargo test -p kanzei-tools (D-333 B2 归档去重) [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 29.7s
+- 摘要: D-333 B2 归档去重:311 passed / 0 failed / 1 ignored。docstore.dedupe_archived_fields(进展合并内容、其它保留首条、幂等)+ normalize apply 归档区接线 + fix_terminal 审计进展改合并(防新增重复);新增 dedupe_archived_fields_merges_progress_and_keeps_first_of_others 测试。
+- 关联: D-333
+- 收尾: 1786616833

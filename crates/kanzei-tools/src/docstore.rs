@@ -652,7 +652,17 @@ impl DocStore {
         let entry = &mut archived[pos];
         entry.status = new_status.to_string();
         entry.title = cleaned_title;
-        entry.fields.push(("进展".into(), note.clone()));
+        // D-333:审计进展**合并**进既有「进展」字段,而不是 push 第二条——归档区
+        // 条目大多已带原始进展,fix_terminal 再 push 一条会形成重复「进展」字段
+        // (normalize 扫描实测检出 R-201/R-198/R-199/R-213/R-225/R-226 六条)。
+        // 口径与 tracker.rs append_progress 一致:有则换行追加,无则新建。
+        match entry.fields.iter_mut().find(|(key, _)| key == "进展") {
+            Some((_, slot)) => {
+                slot.push('\n');
+                slot.push_str(&note);
+            }
+            None => entry.fields.push(("进展".into(), note)),
+        }
         let template = self
             .preserved_archive
             .lock()
@@ -673,6 +683,61 @@ impl DocStore {
         }
         crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
         Ok((old_status, new_status.to_string()))
+    }
+
+    /// D-333:归档条目字段去重。归档写通道不公开整表保存,但 D-333 验收③要求
+    /// 归档重复字段能收敛——这里提供一个**定向**归档字段修复,与
+    /// correct_archived_terminal 共用同一把锁与写路径(load_archive → 改 →
+    /// render_with_template → write_atomic),不制造第二套整表写 API。
+    /// 去重口径:同 key(大小写不敏感)保留首条;「进展」例外——重复的进展
+    /// **合并内容**(换行连接),因为进展是审计流水,丢任何一条都破坏证据链
+    /// (fix_terminal 追加的 [terminal-fix] 与原始进展都必须保留)。
+    /// 返回 (是否真的去重了, 去除的字段数)。
+    pub fn dedupe_archived_fields(&self, id: &str) -> std::io::Result<(bool, usize)> {
+        let _lock = self.lock()?;
+        let mut archived = self.load_archive()?;
+        let Some(pos) = archived.iter().position(|e| e.id == id) else {
+            return Ok((false, 0));
+        };
+        let mut kept: Vec<(String, String)> = Vec::new();
+        let mut removed = 0usize;
+        for (key, value) in archived[pos].fields.drain(..) {
+            let norm = key.trim().to_ascii_lowercase();
+            if let Some((kept_key, kept_value)) = kept
+                .iter_mut()
+                .find(|(k, _)| k.trim().to_ascii_lowercase() == norm)
+            {
+                removed += 1;
+                // 进展合并内容,其余保留首条。
+                if kept_key.eq_ignore_ascii_case("进展") {
+                    kept_value.push('\n');
+                    kept_value.push_str(&value);
+                }
+            } else {
+                kept.push((key, value));
+            }
+        }
+        archived[pos].fields = kept;
+        if removed == 0 {
+            return Ok((false, 0));
+        }
+        let template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(DocumentTemplate {
+                preamble: Vec::new(),
+                entries: Vec::new(),
+            });
+        let archived_text = render_with_template(self.kind, &archived, &template);
+        let text = archived_text.replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
+        Ok((true, removed))
     }
 
     /// D-316 归档净化:按 id 去重(保留先归档的一份)+ 条目内字段收敛。
@@ -1818,6 +1883,57 @@ mod tests {
         );
         // R-100 也进来了。
         assert!(archived.iter().any(|e| e.id == "R-100"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-333:归档字段去重——重复「进展」合并内容(审计不丢),其它重复字段保留首条。
+    #[test]
+    fn dedupe_archived_fields_merges_progress_and_keeps_first_of_others() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-dedupe-arch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&dir, &REQUIREMENTS);
+        std::fs::write(
+            store.archive_file(),
+            "# Requirements Archive\n\n\
+             ## R-201 某需求 [done]\n\
+             - 进展: 原始进展第一段\n\
+             - 优先级: P1\n\
+             - 进展: [terminal-fix 2026-08-13] done → done: 审计进展第二段\n\
+             - 优先级: P2\n",
+        )
+        .unwrap();
+
+        let (changed, removed) = store.dedupe_archived_fields("R-201").unwrap();
+        assert!(changed, "应有去重发生");
+        assert_eq!(removed, 2, "两条重复(进展 + 优先级)应被去除");
+
+        let archived = store.load_archive().unwrap();
+        let r201 = archived.iter().find(|e| e.id == "R-201").unwrap();
+        let progresses: Vec<_> = r201.fields.iter().filter(|(k, _)| k == "进展").collect();
+        assert_eq!(progresses.len(), 1, "进展应合并为一条: {:?}", r201.fields);
+        assert!(
+            progresses[0].1.contains("原始进展第一段") && progresses[0].1.contains("terminal-fix"),
+            "进展内容必须都保留(审计不丢): {}",
+            progresses[0].1
+        );
+        let priorities: Vec<_> = r201.fields.iter().filter(|(k, _)| k == "优先级").collect();
+        assert_eq!(priorities.len(), 1, "优先级应保留首条: {:?}", r201.fields);
+        assert_eq!(priorities[0].1, "P1", "应保留首条 P1 而非 P2");
+
+        // 幂等:再次去重无变化。
+        let (changed_again, removed_again) = store.dedupe_archived_fields("R-201").unwrap();
+        assert!(!changed_again && removed_again == 0, "重复去重应幂等无变化");
+
+        // 不存在的 id 安全返回无变化。
+        let (changed_missing, removed_missing) = store.dedupe_archived_fields("R-999").unwrap();
+        assert!(!changed_missing && removed_missing == 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 
