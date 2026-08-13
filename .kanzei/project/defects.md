@@ -100,7 +100,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
 
-## D-338 原子写并发读测试仍偶发红(5% 失败率),读到截断态——D-293 修复未覆盖根因 [open] (medium)
+## D-338 原子写并发读测试仍偶发红(5% 失败率),读到截断态——D-293 修复未覆盖根因 [fixing] (medium)
 - 复杂度: 中
 - 复现: pwsh -NoProfile -File scripts/stress-test.ps1 -Target kanzei-tools -Filter 'docstore::tests::原子写' -Rounds 20;第 18 轮 FAILED,panic at docstore.rs:2181 '读到了截断态:条目数 X,只可能是 3 或 30'。
 - 来源: 2026-08-16 R-211 压测脚本实测:docstore::tests::原子写下并发读 20 轮中第 18 轮失败(5% 失败率),读到了截断态(条目数非 3 非 30)。D-293 标 fixed 但偶发红仍存在——stress-test.ps1 抓到真现场(存档 output/stress-20260813-213107/round-18.log)。
@@ -108,3 +108,6 @@
 - 根因待查: save 走 atomic_file::write_atomic(tmp+rename)。Windows rename 覆盖与读者 open 的竞态疑似导致读者读到中间态——但 rename 覆盖理论上原子。需查:①load 是否在 save 写 tmp 时读到 tmp 文件(读者 open 目标 path 不该);②Windows MoveFileEx 覆盖语义下旧句柄是否可能读到截断。D-293 当时的修复可能只修了并发隔离没修到根因。
 - 验收: ①stress-test 对 docstore::tests::原子写 连续 20 轮全绿;②对 read::tests::read_non_memory 连续 20 轮全绿;③定位根因并修复(不是 retry/ignore 掩盖)。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-338
+- 修复: load() 开头加 `let _lock = self.lock()?;` 与 save() 同一把 FileLock 互斥:读者在 save 持锁期间等待,rename 完成后才读,永远看到完整快照,不再有中间态窗口。FileLock 同线程重入安全(depth 计数),内部持锁路径调 load 不自锁死。非 retry/ignore——是读写互斥消除窗口。
+- 根因: load() 不加锁,与 save() 的 FileLock 无互斥。save 走 atomic_file::write_atomic(tmp+rename),Windows 上 rename 覆盖目标与读者 open 目标之间有竞态窗口——读者在替换瞬间 open 得到 NotFound,load 对 NotFound 宽容返回 Ok(vec![]) = 「读到 0 条」的假空快照(docstore.rs:2181 断言条目数只能 3 或 30)。D-293 当时把偶发归因到 memory 模块(跨 crate 干扰)并修了 memory/mod.rs,未覆盖此根因;D-338 用单条 Filter 压测(排除跨 crate 干扰)20 轮 1 失败,证明确实是 docstore 自身读写窗口。

@@ -2528,3 +2528,9 @@
 - 摘要: stress-test.ps1 多模式验证:全量3轮✓/并行2轮✓/read 20轮0失败/docstore 原子写20轮1失败(抓到 D-338 截断态,5%)
 - 关联: R-211 D-338
 - 收尾: 1786628553
+
+## T-1786629400 D-338 修复后压测 20 轮 ×2 [passed]
+- 命令: pwsh -NoProfile -File scripts/stress-test.ps1 -Target kanzei-tools -Filter 'docstore::tests::原子写' -Rounds 20 + read 20 轮
+- 摘要: D-338 修复后压测:docstore::原子写 20 轮 0 失败(修复前 5%)+ read::read_non_memory 20 轮 0 失败,验收①②满足
+- 关联: D-338
+- 收尾: 1786629400

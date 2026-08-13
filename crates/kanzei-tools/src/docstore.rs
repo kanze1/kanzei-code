@@ -379,6 +379,14 @@ impl DocStore {
     }
 
     pub fn load(&self) -> std::io::Result<Vec<Entry>> {
+        // D-338:load 与 save 同一把锁互斥。save 是 tmp+rename 原子替换,但
+        // Windows 上 rename 覆盖目标与读者 open 目标之间有竞态窗口——读者在
+        // 替换瞬间 open 会 NotFound,load 对 NotFound 宽容返回 Ok(vec![]) =
+        // 「读到 0 条」的假空快照(D-338 压测 20 轮 1 次失败,条目数 0)。
+        // 持同一把 FileLock 后,读者在 save 持锁期间等待,rename 完成后才读,
+        // 永远看到完整快照(3 或 30),不再有中间态窗口。FileLock 同线程重入
+        // 安全(depth 计数),内部持锁路径调 load 不会自锁死。
+        let _lock = self.lock()?;
         match std::fs::read_to_string(&self.path) {
             Ok(text) => {
                 let parsed = parse_document(self.kind, &text);
