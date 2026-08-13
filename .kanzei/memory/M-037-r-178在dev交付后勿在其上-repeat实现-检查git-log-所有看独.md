@@ -2,11 +2,11 @@
 id: M-037
 scope: project
 category: fact
-title: R-178在dev交付后勿在其上 repeat实现 -检查git log--所有看独立表列方案是否冲突再动
-description: 检查目标 R/SO/REQ 条目是否已按另一交付线关闭 —动工前 git log --all核对互斥关系避免重复实现
+title: 动工前先 git log --all 核对条目是否已被其他并行线交付,防重复实现
+description: 接手 R/D 条目动工前必读:先 git log --all 查该目标是否已在别的线交付关闭;发现重复以 dev 权威为准弃并,不要在其上重复实现
 status: candidate
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-08-13
 source: memory-manager
 ---
 

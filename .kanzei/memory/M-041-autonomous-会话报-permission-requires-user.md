@@ -4,9 +4,9 @@ scope: project
 category: sop
 title: autonomous 会话报 permission requires user approval 是档位限制,不是死路
 description: 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
-status: deprecated
+status: active
 created: 2026-08-11
-updated: 2026-08-12
+updated: 2026-08-13
 source: memory-manager;2026-08-12 库存合并(三次同类复发)
 supersedes: M-042 M-043
 refs: D-239 R-157 R-164 D-259
@@ -24,4 +24,9 @@ refs: D-239 R-157 R-164 D-259
 
 **反面教训**:这条第一次记录后又原样复发两次,原因是当时的条目停在 candidate、召回和复发检测都只看 active,等于记了个寂寞。合并晋升为 active 就是修这个。
 
-**注意**:这类错误无法靠 Tier0 指纹精确命中——引擎生成的 fingerprint 会把整条命令 JSON 拼进 kind(如 ``[fp:bash|permission requires user approval: bash on `{"command":"Get-ChildItem …]``),命令一变指纹就变,所以本条不写 fingerprint 字段,靠 description 的召回钩子和 Tier1 命中。
+**指纹**(2026-08-13 更新):failure_kind 现已抹掉路径与载荷,该类错误的 kind 稳定为「permission requires user approval: <tool> on ; run skipped it」,可以精确匹配了:
+[fp:bash|permission requires user approval: bash on ; run skipped it]
+[fp:edit|permission requires user approval: edit on ; run skipped it]
+[fp:test_record|permission requires user approval: test_record on ; run skipped it]
+
+恢复记录(2026-08-13):本条 08-12 被批量退役属误伤——事件日志显示该失败类近 3 日仍在复发,且历史采纳数据证明其决策价值;经用户指示的记忆清理恢复为 active。

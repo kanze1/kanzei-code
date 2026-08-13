@@ -4,14 +4,16 @@ scope: project
 category: fact
 title: R-164 replay-eval 评估台交付与 R-178 manual_models已关闭事实
 description: 处理 R-164/kz replay-eval 回放/评判工具调用时必读｜复现四批交付架构与判据细节
-status: candidate
+status: deprecated
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-08-13
 source: memory-manager
 refs: R-163 R-178
 subject: replay_eval/req_178_status
+superseded_by: M-032
 ---
 
+> 墓碑(2026-08-13):库存合并——R-163 交付事实与 M-032(已并 M-033/M-036)逐句重复,R-178 查重教训与 M-037 重复。
 R-163 记忆回放评估台已交付：六臂对照量化记忆决策价值，CLI `kz replay-eval`可重复执行。
 
 四批交付要点:
