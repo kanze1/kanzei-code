@@ -3989,3 +3989,17 @@
 - observed_head: a1e06c2abd03c843cc9ba0b01061ca0f0a71c1e8
 - observed_worktree_hash: fnv1a64:e160909ef5544b91
 - recorded_at: 1786661677509
+
+## D-350 子代理页面展开和 plan 展开后的弹窗没有关闭按钮 [fixed] (medium)
+- 复现: 在桌面端打开子代理(subagent)页面展开视图,以及 plan 展开后的弹窗,弹窗上没有关闭按钮,用户无法通过点击关闭。
+- 影响: 弹窗无法关闭,用户被卡在展开视图里,只能靠其它手段离开,破坏日常可用性。
+- 来源: 用户消息(2026-08-16)
+- 标签: 前端
+- 优先级: P1
+- 取活依据: override:用户 2026-08-16 直接报告 D-350(子代理展开/plan 展开弹窗无关闭按钮),属当前轮次明确指示,优先于队列默认选择 R-203
+- 进展: 根因:①#todo-panel(当前计划/plan)由 renderTodoPanel 纯按数据自动显隐,无任何手动关闭入口,且工具事件重渲染会把面板弹回;②#agent-panel(子代理)头部只有清空按钮,关闭需靠 rail 上的 ◉ 开关,面板内无 ✕。修复:①index.html 两个面板头部各加 ✕(#todo-close/#agent-close);②07-events.js renderTodoPanel 增加 todoPanelUserClosed 手动关闭标志,用户关闭后同轮工具事件重渲染不再弹回,计划清空(新会话/重放)后复位允许下轮自动弹出,并绑定 #todo-close;③06-agent-panel.js 新增 agentClosePanel():只关子代理面板,活动面板恢复到 activityPanelOpen 既有状态,绑定 #agent-close;④style.css 面板头部 flex 布局 + ✕ 贴右;⑤02-i18n.js 新增两个 i18n 键。验证:node --check 全过;ui-runtime-smoke(新增 D-350 断言块:展开→✕关闭→重渲染不弹回→清空复位→新计划重弹)通过;ui-i18n-smoke 通过;ui-lint-smoke 通过(ui-lint-globals.json 重新生成纳入 agentClosePanel/todoPanelUserClosed);ui-a11y-smoke 通过;frontend_check 花括号配对正常。
+- observed_head: dd28f9bf3cf079b37782003efc48608964e27dfd
+- observed_worktree_hash: fnv1a64:51b5a3427af7a40a
+- recorded_at: 1786663461260
+- 证据等级: E2(静态断言 + 运行时冒烟全绿)
+- 验收: ①子代理面板(#agent-panel)头部有 ✕ 关闭按钮:index.html 752 行 <button id="agent-close">;点击调 06-agent-panel.js agentClosePanel(),面板收起且活动面板恢复到 activityPanelOpen 既有状态(syncActivityPanel),不误弹;②plan 面板(#todo-panel)头部有 ✕:index.html 716-718 行 <button id="todo-close">;点击调 07-events.js 绑定,置 todoPanelUserClosed 后隐藏;③用户关闭后同轮工具事件重渲染不再弹回(renderTodoPanel 45-54 行判断 todoPanelUserClosed),计划清空后复位(53 行),下轮新计划可再次自动弹出;④i18n 键 02-i18n.js 213 行新增「关闭当前计划面板/关闭子代理面板」;⑤样式 style.css #todo-panel .bg-head flex + #agent-close 贴右;⑥验证:node --check 全过、ui-runtime-smoke 新增 D-350 断言块(展开→✕关闭→重渲染不弹回→清空复位→新计划重弹)通过、ui-i18n-smoke/ui-lint-smoke/ui-a11y-smoke 通过、frontend_check 花括号配对正常。

@@ -5328,6 +5328,75 @@ const docsB = {
   agentToggle.click();
   assert(agentPanel.classList.contains("hidden"), "断言结束后 #agent-panel 未收起");
 }
+// ---------- D-350 面板 ✕ 关闭按钮:当前计划面板与子代理面板头部的显式关闭入口 ----------
+{
+  // 子代理面板:展开后头部应有 ✕(#agent-close),点击后面板收起,且不误弹活动面板
+  // (agentClosePanel 恢复 activityPanelOpen 决定的状态)。
+  const agentPanel = byId.get("agent-panel");
+  const bgPanel = byId.get("bg-panel");
+  const agentClose = byId.get("agent-close");
+  assert(agentClose, "D-350:子代理面板头部缺少 ✕ 关闭按钮(#agent-close)");
+  assert(
+    agentClose.title && agentClose.title.length > 0,
+    "D-350:#agent-close 缺少 title 提示",
+  );
+  byId.get("agent-toggle").click(); // 展开子代理面板
+  await flush();
+  assert(!agentPanel.classList.contains("hidden"), "D-350:前置失败——#agent-panel 未展开");
+  agentClose.click();
+  await flush();
+  assert(agentPanel.classList.contains("hidden"), "D-350:点击 #agent-close 后 #agent-panel 未收起");
+  assert(
+    bgPanel.classList.contains("hidden"),
+    "D-350:agentClosePanel 误弹了活动面板(应回到 activityPanelOpen 状态)",
+  );
+  byId.get("agent-toggle").click(); // 复位互斥状态
+  await flush();
+
+  // 当前计划面板:todo display 弹出面板后,头部应有 ✕(#todo-close),点击后收起,
+  // 且同轮后续工具事件的重新渲染不得把面板弹回;计划清空后复位,下轮可再自动弹出。
+  const todoPanel = byId.get("todo-panel");
+  const todoClose = byId.get("todo-close");
+  assert(todoClose, "D-350:当前计划面板头部缺少 ✕ 关闭按钮(#todo-close)");
+  const eA2 = handlers.get("kz:tool-end");
+  eA2({
+    payload: {
+      id: "todo-d350", name: "todowrite", ok: true, preview: "计划",
+      display: { kind: "todo", items: [{ status: "doing", content: "第一步" }], done: 0, total: 1 },
+    },
+  });
+  await flush();
+  assert(!todoPanel.classList.contains("hidden"), "D-350:前置失败——todo display 未弹出 #todo-panel");
+  todoClose.click();
+  await flush();
+  assert(todoPanel.classList.contains("hidden"), "D-350:点击 #todo-close 后 #todo-panel 未收起");
+  // 同轮后续工具事件(同一份/新 todo 内容)不应把用户主动关闭的面板弹回。
+  eA2({
+    payload: {
+      id: "todo-d350b", name: "todowrite", ok: true, preview: "计划",
+      display: { kind: "todo", items: [{ status: "doing", content: "第一步" }, { status: "todo", content: "第二步" }], done: 0, total: 2 },
+    },
+  });
+  await flush();
+  assert(todoPanel.classList.contains("hidden"), "D-350:用户关闭后工具事件重渲染又把 #todo-panel 弹回");
+  // 计划清空(新会话/历史重放)后复位标志:下轮新计划应能再次自动弹出。
+  eA2({
+    payload: {
+      id: "todo-d350c", name: "todowrite", ok: true, preview: "计划",
+      display: { kind: "todo", items: [], done: 0, total: 0 },
+    },
+  });
+  await flush();
+  assert(todoPanel.classList.contains("hidden"), "D-350:计划清空后 #todo-panel 应保持隐藏");
+  eA2({
+    payload: {
+      id: "todo-d350d", name: "todowrite", ok: true, preview: "计划",
+      display: { kind: "todo", items: [{ status: "doing", content: "新一轮第一步" }], done: 0, total: 1 },
+    },
+  });
+  await flush();
+  assert(!todoPanel.classList.contains("hidden"), "D-350:新计划未在清空后重新自动弹出(复位失败)");
+}
 
 // ---------- R-184 B 面:真实并列视图与合并前冲突预警 ----------
 {

@@ -104,6 +104,17 @@ function agentTogglePanel() {
   if (agentPanelOpen) refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
 }
 
+// D-350:面板头部 ✕ 关闭。与 agentTogglePanel 的互斥切换不同,这里只关子代理面板,
+// 并把活动面板恢复到用户既有的 activityPanelOpen 状态,不强行弹开。
+function agentClosePanel() {
+  agentPanelOpen = false;
+  $("agent-panel").classList.add("hidden");
+  syncActivityPanel(); // bg-panel 回到 activityPanelOpen 决定的状态
+  $("agent-toggle").classList.remove("active");
+  $("agent-toggle").setAttribute("aria-expanded", "false");
+  $("agent-toggle").title = t("打开子代理面板");
+}
+
 function agentStart(id, name, summary, input, sessionId = activeSessionId) {
   if (!id) return;
   const phase = name === "task" ? orchPhaseOf(input) : null;
@@ -340,6 +351,7 @@ function agentClearFinished() {
 function agentPanelSetup() {
   const toggle = $("agent-toggle");
   toggle.addEventListener("click", agentTogglePanel);
+  $("agent-close").addEventListener("click", agentClosePanel);
   $("agent-clear").addEventListener("click", agentClearFinished);
   // D-278:一键就绪进度事件也同步刷新面板状态行(面板开着时在设置页操作,回到面板即最新)。
   on("kz:fast-setup", () => {

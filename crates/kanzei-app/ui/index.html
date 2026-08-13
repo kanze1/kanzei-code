@@ -713,7 +713,9 @@
     </main>
 
     <aside id="todo-panel" class="hidden">
-      <div class="bg-head"><span data-i18n-key="当前计划">当前计划</span> <span id="todo-count"></span></div>
+      <div class="bg-head"><span data-i18n-key="当前计划">当前计划</span> <span id="todo-count"></span>
+        <button type="button" id="todo-close" class="icon-btn" title="关闭当前计划面板" data-i18n-title="关闭当前计划面板" aria-label="关闭当前计划面板" data-i18n-aria-label="关闭当前计划面板">✕</button>
+      </div>
       <div id="todo-list"></div>
     </aside>
 
@@ -748,6 +750,7 @@
         <span id="agent-running-count" class="dim"></span>
         <span id="agent-finished-count" class="dim"></span>
         <button type="button" id="agent-clear" class="ghost mini hidden" title="清空已完成和已关闭的子代理条目" data-i18n-title="清空已完成和已关闭的子代理条目" data-i18n-key="清空">清空</button>
+        <button type="button" id="agent-close" class="icon-btn" title="关闭子代理面板" data-i18n-title="关闭子代理面板" aria-label="关闭子代理面板" data-i18n-aria-label="关闭子代理面板">✕</button>
       </div>
       <div id="agent-panel-status" class="agent-panel-status hidden" role="status"></div>
       <div class="bg-sections">
