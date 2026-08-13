@@ -123,7 +123,7 @@
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
-## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [todo]
+## R-179 深并行 UX:worktree diff 接入既有目录树渲染器、合并放弃确认流、线页签仪表 [doing]
 - 优先级: P2
 - 复杂度: 中
 - 标签: 前端
@@ -138,6 +138,12 @@
 - 边界: 不做图形化 DAG / 画布式线管理(§2.3 与 R-111 的克制一致)。不做跨线自动任务分派。合并策略按 N2 定案保持 `merge --no-ff`,不改成 rebase。
 - 验收: ①线的 diff 在应用内用 06-activity.js 的目录树渲染器显示(前端有断言证明走的是既有渲染器,不是新写的一份)。②不离开应用完成 review → merge → 清理全流程;合并失败时双方改动保留且有可恢复入口(R-050 原验收原文)。③冲突预检结果在界面上可读:列出冲突文件,不只是一句"有冲突"。④线页签显示分支名与 running,每线 token 计数取自真实 episodes 数据(§1.25:不得是常量占位)。⑤建线 UI 出现磁盘/冷编译成本提示。⑥`worktree_field` 的死分支消失(全仓 grep 无同值双分支)。⑦前端改动跑 `node --check` + `node scripts/ui-runtime-smoke.mjs`,新交互(打开 diff、确认合并、确认放弃)各有冒烟断言(conventions §1.3)。⑧800/1024/1280 三档布局检查。
 - refs: R-050 R-133 R-177 R-178 D-096 D-257 docs/design/deep_parallel_dev.md
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-179
+- 批次: 0/2
+- 进展: 2026-08-16 认领并勘察。既有能力确认:worktree_diff 返回真实 diff(processes.rs:1798)、06-activity.js buildDiffTree/renderDiff 目录树渲染器已存在、worktree_merge 的 merge-tree 冲突预检真实可用、worktree_discard 有兜底。剩余工作全是接线:①worktree_field 死分支清理(顺手修);②merge 冲突预检结果透出到前端(冲突文件列表);③diff 接入既有渲染器 + 合并/放弃确认流 + 线页签(分支名/running/token)+ 建线成本提示 + discard 失败 UI 提示;④冒烟断言与三档布局。批次: B1=后端(死分支+冲突预检字段+discard 兜底透出);B2=前端接线+冒烟+三档。设计冻结:不造新 diff 查看器、merge --no-ff 不变、放弃语义不变。
+- observed_head: 408a117df50fe1800b12b033b753819bd799320c
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786654619123
 
 ## R-187 面板与提示音管理功能设置 [todo]
 - priority: P2

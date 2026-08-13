@@ -144,7 +144,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         .filter(|record| !stale_ids.iter().any(|id| id == &record.process_id))
         .map(|record| {
             let branch = record.worktree_path.as_deref().and_then(|path| {
-                worktree_field(root, Path::new(path), "branch")
+                worktree_current_branch(Path::new(path))
                     .ok()
                     .map(|branch| branch.trim_start_matches("refs/heads/").to_string())
             });
@@ -820,7 +820,7 @@ fn prune_missing_worktree_processes(state: &AppState, root: &Path) -> Result<(),
 ///
 /// `Err(说明)` = 没删,说明里带着路径、分支与可执行的回收命令(调用方落进审计流)。
 fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String> {
-    let branch = worktree_field(root, worktree, "branch")
+    let branch = worktree_current_branch(worktree)
         .map_err(|error| format!("工作树 {} 的分支查不出来: {error}", worktree.display()))?;
     let (files, _) = worktree_status(root, worktree)
         .map_err(|error| format!("工作树 {} 的状态查不出来: {error}", worktree.display()))?;
@@ -1338,7 +1338,10 @@ fn discard_worktree(root: &Path, receipt: &WorktreeReceipt) -> Result<(), String
     Err(lines.join("\n"))
 }
 
-fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, String> {
+/// 取工作树当前分支。R-179 顺手修:原 `worktree_field(root, worktree, field)`
+/// 的 `field` 参数是死分支——`"branch"` 与 else 两支返回同一个值;调用点全部
+/// 只传 `"branch"`,故收敛为单值函数,去掉 `field` 与 `root` 两个死参数。
+fn worktree_current_branch(worktree: &Path) -> Result<String, String> {
     let output = worktree_command(worktree, &["branch", "--show-current"])?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -1347,12 +1350,7 @@ fn worktree_field(root: &Path, worktree: &Path, field: &str) -> Result<String, S
     if branch.is_empty() || branch == "HEAD" {
         return Err(format!("工作树没有可合并分支: {}", worktree.display()));
     }
-    if field == "branch" {
-        Ok(branch)
-    } else {
-        let _ = root;
-        Ok(branch)
-    }
+    Ok(branch)
 }
 
 /// 校验一条 worktree 路径:**必须是 git 自己认得的工作树**,且不是主根。
@@ -1798,7 +1796,7 @@ pub fn worktree_list(
 pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<WorktreeInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let branch = worktree_field(&root, &worktree, "branch")?;
+    let branch = worktree_current_branch(&worktree)?;
     let (files, diff) = worktree_status(&root, &worktree)?;
     Ok(WorktreeInfo {
         path: git_arg_path(&worktree),
@@ -1814,11 +1812,13 @@ pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<Workt
 /// merge-tree 预检到 `--no-ff` 合并的完整可观察语义。
 fn merge_worktree(root: &Path, worktree_path: &str) -> Result<String, String> {
     let worktree = validate_worktree_path(root, worktree_path)?;
-    let branch = worktree_field(root, &worktree, "branch")?;
+    let branch = worktree_current_branch(&worktree)?;
     let check = worktree_command(root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
     if !check.status.success() {
+        let conflicts = parse_merge_tree_conflicts(&check.stdout);
         return Err(format!(
-            "合并前冲突检测失败,双方改动已保留:\n{}",
+            "合并前冲突检测失败,双方改动已保留。冲突文件:\n{}\n{}",
+            conflicts.join("\n"),
             String::from_utf8_lossy(&check.stdout)
         ));
     }
@@ -1832,6 +1832,53 @@ fn merge_worktree(root: &Path, worktree_path: &str) -> Result<String, String> {
     Ok(format!(
         "已合并工作树分支 {branch};工作树仍保留,可检查后显式放弃"
     ))
+}
+
+/// R-179 验收③:合并前冲突预检的**可读形态**——从 `merge-tree --write-tree`
+/// 输出提取 CONFLICT 行中的文件名,供 UI 列出「哪些文件冲突」,而不是一句
+/// 「有冲突」。提取不到冲突行时返回空列表(调用方回退到原始输出)。
+pub(crate) fn parse_merge_tree_conflicts(stdout: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(stdout);
+    text.lines()
+        .filter(|line| line.contains("CONFLICT"))
+        .map(|line| {
+            // 标准格式两种:
+            //  `CONFLICT (content): Merge conflict in src/foo.rs` — 路径在
+            //   小写 "conflict in " 之后(内容冲突);
+            //  `CONFLICT (modify/delete): src/gone.rs deleted in HEAD ...` —
+            //   路径紧跟冒号(修改/删除类)。先找小写 "conflict in "(内容类,
+            //   冒号后是 "Merge conflict in ..."),再回退冒号后的首个路径段;
+            //   都没有就整行(至少列出冲突标记)。
+            if let Some((_, path)) = line.split_once("conflict in ") {
+                return path.trim().to_string();
+            }
+            line.split_once(": ")
+                .map(|(_, rest)| {
+                    rest.split_once(' ')
+                        .map(|(path, _)| path.to_string())
+                        .unwrap_or_else(|| rest.trim().to_string())
+                })
+                .unwrap_or_else(|| line.trim().to_string())
+        })
+        .collect()
+}
+
+/// R-179 验收②③:合并前的冲突预检命令——UI 在确认合并前调用,返回冲突文件
+/// 列表(可读形态)。无冲突返回空列表,命令本身不执行合并。
+#[tauri::command]
+pub fn worktree_merge_preview(
+    project_dir: String,
+    worktree_path: String,
+) -> Result<Vec<String>, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    let branch = worktree_current_branch(&worktree)?;
+    let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
+    if check.status.success() {
+        return Ok(Vec::new());
+    }
+    let conflicts = parse_merge_tree_conflicts(&check.stdout);
+    Ok(conflicts)
 }
 
 #[tauri::command]

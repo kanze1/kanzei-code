@@ -207,6 +207,7 @@ fn main() {
             processes::worktree_list,
             processes::worktree_diff,
             processes::worktree_merge,
+            processes::worktree_merge_preview,
             processes::worktree_discard,
             processes::worktree_gate,
             processes::worktree_post_merge_gate,

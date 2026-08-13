@@ -33,7 +33,26 @@ async fn 服务探测对未监听端口干脆返回_false_不悬挂() {
     );
 }
 
-/// R-190 验收②③不越界:未安装 / 已运行 → 保活零动作;只有「已装且服务未运行」
+/// R-179 验收③:merge-tree 冲突输出解析——提取 CONFLICT 行的文件路径,
+/// 供 UI 列出可读的冲突清单(而不是一句「有冲突」)。
+#[test]
+fn merge_tree_conflict_解析出文件路径列表() {
+    use super::processes::parse_merge_tree_conflicts;
+    let sample = b"Auto-merging src/foo.rs\nCONFLICT (content): Merge conflict in src/foo.rs\nAuto-merging src/bar.rs\nCONFLICT (modify/delete): src/gone.rs deleted in HEAD and modified in feature\n";
+    let conflicts = parse_merge_tree_conflicts(sample);
+    assert_eq!(
+        conflicts,
+        vec!["src/foo.rs".to_string(), "src/gone.rs".to_string()],
+        "应提取每个 CONFLICT 行的 `in ` 之后路径: {conflicts:?}"
+    );
+    // 无冲突输出 → 空列表。
+    assert!(parse_merge_tree_conflicts(b"tree 1234\n").is_empty());
+    // 非标准形态(取不到 in 路径) → 整行兜底,至少列出冲突标记。
+    let odd = parse_merge_tree_conflicts(b"CONFLICT weird");
+    assert_eq!(odd, vec!["CONFLICT weird".to_string()]);
+}
+
+/// R-190 验收②③不越界:未安装 / 已运行 → 保活零动作;只有「已装且服务未运行」/// R-190 验收②③不越界:未安装 / 已运行 → 保活零动作;只有「已装且服务未运行」
 /// 才需要拉起。纯函数决策,不依赖真实环境(测试机可能恰好装了 ollama)。
 #[tokio::test]
 async fn 启动保活决策只有已装且服务未运行才动作() {
