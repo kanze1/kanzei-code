@@ -2766,3 +2766,90 @@
 - observed_head: de5a3466eb6c52b9b0be37e2e59610f3923e89cb
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786656204141
+
+## R-189 亮色主题:前端渲染器换色结构化评估与第二套配色 [done]
+- acceptance: ①前端渲染器颜色来源结构评估:颜色集中在可换色层(变量/类)还是散落硬编码,评估结论写入需求进展或设计文档;②亮色主题完整可用:全局一键切换暗/亮并持久化;③亮/暗两套主题在 800/1024/1280 与纯键盘下均可达可用对比度;④换色改动不引入新框架,沿用现有渲染器结构。
+- complexity: 中
+- content: 当前桌面端只有暗色主题。需要先评估现有前端渲染器代码的颜色来源是否结构化(颜色是否集中在可换色层如 CSS 变量/主题类,还是散落硬编码),再设计并落地一套亮色主题。
+- label: 前端
+- priority: P2
+- status: todo
+- 现状评估(2026-08-12 读码核实,dev HEAD;直接对应验收①): 结构上适合换色,工作量在收口不在重构。颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量,换色纯 CSS;剩余字面量分四类(a 半透明叠加保留/b 徽章底色成对给亮色值/c 框架面提升 token/d diff语法着色与 on-accent)。两处非 CSS 换色面:color-scheme 与 Monaco setTheme。落地:拆 [data-theme] 两组 token + 字面量提升 + 非 CSS 面同一开关。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-189
+- 批次: 3/3
+- 进展: 2026-08-16 完成并关闭(提交 1fb30eb)。验收①评估结论写入「现状评估」字段:颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量;剩余字面量四类处置,手动 token 化引用点逐处引证:滚动条 style.css:77-78→--scrollbar/--scrollbar-hover;活动栏 style.css:83→--activitybar;workspace 状态 style.css:297-299→--badge-ok-soft/--badge-warn-soft/--badge-soft;优先级徽章 style.css:400-402→--badge-err/--badge-warn/--badge-info;状态胶囊 style.css:408-410→--badge-alert/--badge-info/--badge-ok;danger 按钮 style.css:649-650→--danger-btn+--on-accent;代码块/工具输出底 style.css:1047/1184/1205/1208→--code-bg/--code-output-bg;warn 徽章底 style.css:1166→--badge-warn;diff 着色 style.css:1214-1215/1239-1240/1242-1243→--diff-add/--diff-del;warn/err fallback style.css:904/1321/1444-1445/1456-1457→--warn/--err;线路主题色 style.css:441-444→--line-1..4;状态点 style.css:673-674→--dot-idle/--dot-run;diff 行号 style.css:1212→--diff-line-number;语法着色 style.css:1223-1226→--syntax-comment/--syntax-string/--syntax-number/--syntax-keyword;日志金字 style.css:1250→--log-gold;未入册头 style.css:1547→--arch-unindexed;新 token 定义 style.css:21-29(dark)/style.css:42-48(light),成对给亮色值。验收②[data-theme=light] style.css:32-48 + 03-shell.js:466-497 currentTheme/applyTheme/initTheme + localStorage kz-theme 持久化(默认 dark 零回归)+ index.html:667 theme-toggle + 17-files.js:222-228 Monaco setTheme(vs/vs-dark);color-scheme style.css:19/41 随主题(D-154 原生控件)。验收③ui-runtime-smoke.mjs:6084-6117 R-189 断言(切换/持久化/Monaco 联动)+ 既有 a11y 冒烟(纯键盘语义)+ R-179 三档循环(800/1024/1280)。验收④换色纯 CSS + Monaco setTheme,未引入新框架,沿用 :root token 结构。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656576)。
+- observed_head: 1fb30ebff4553181f4de5344479c2dd991093cc1
+- observed_worktree_hash: fnv1a64:8c41ba37517e4824
+- recorded_at: 1786656720597
+- 现状评估: **结构上适合换色,工作量在收口不在重构(2026-08-12 读码核实)。** ①颜色只有一处——`crates/kanzei-app/ui/style.css` 之外零颜色:20 个 ui/*.js 与 index.html 里没有任何 JS 计算或写入颜色,换色是纯 CSS 的事,不碰渲染逻辑。②可换色层已存在——`:root` 定义 22 个语义命名 token(--bg/--panel/--fg/--accent/--ok/--err 等),全文绝大多数颜色引用走 var(),命名是语义而非色值,亮色版可直接换值。③剩余字面量分四类处置:(a) 由调色板派生的半透明叠加与阴影(rgba(208,104,78,.16) 等,天然跨主题保留);(b) 暗色专属的徽章/状态胶囊底色(亮色下不能复用,必须成对给值,是本条真正的设计工作量);(c) 未 token 化的框架面(活动栏/滚动条/代码块底/danger 按钮,机械提升为新 token);(d) diff/语法着色与强调按钮前景(后者需 --on-accent)。④两个 CSS 够不着的换色面:`color-scheme: dark`(style.css:19,决定原生控件深浅变体,D-154 教训)与 Monaco 编辑器 `theme: "vs-dark"`(17-files.js:223,须同步 setTheme)。⑤落地路径:`:root` 拆成 [data-theme=dark]/[data-theme=light] 两组 token(默认 dark 零回归)+ 字面量提升 token + 两处非 CSS 面挂同一开关;不引入新框架。
+
+## R-147 增加使用手册与作者话内容板块 [done]
+- 复杂度: 中
+- 归属: kanzei
+- 验收: 页面顶部新增独立区块，展示项目使用手册和来自作者的说明文字
+- 优先级: P1
+- 取活依据: engine:唯一可执行 WIP 是 R-147，必须先恢复它
+- 进展: 2026-08-16 交付:①index.html:166-172 #chat-area 顶部新增 <details id="manual-panel">(summary「使用手册」+ #manual-body),位于 #messages 之前,默认 hidden+收起不遮挡对话;②15-views-misc.js 新增 async refreshManual():file_preview 读 docs/目录.md(真实数据源,非展示壳)→ renderMarkdown 渲染进 #manual-body,读取失败保持隐藏不显示空壳;③09-sessions.js renderProjects(currentProject 更新处)调用 refreshManual——启动首次确定项目、切换项目、移除项目三条路径都刷新,是唯一真实调用方;④02-i18n.js 登记「使用手册/点击展开/手册文件不是文本」3 词条(M-014 静态中文登记);⑤style.css 新增 .manual-panel 折叠样式(参照 settings-group,内容 max-height 34vh 内部滚动);⑥docs/目录.md 为手册内容源(项目心智模型/目录结构/推荐阅读顺序+作者说明文字)。验证:ui-runtime-smoke 新增 file_preview 桩与两条断言(有内容渲染可见/读取失败隐藏、恢复重新显示),i18n/lint/a11y/markdown 冒烟全绿,cargo test --workspace 全绿(T-1786657249)。
+- 验收证据: 验收原文「页面顶部新增独立区块,展示项目使用手册和来自作者的说明文字」——①区块:index.html:169 <details id="manual-panel" class="manual-panel hidden"> 在 #chat-area 顶部(#messages 之前),折叠样式 style.css:584-600;②展示内容:refreshManual(15-views-misc.js)以 file_preview 读 docs/目录.md 为真实数据源,renderMarkdown 渲染进 #manual-body;docs/目录.md 全文为项目使用手册(心智模型/根目录/目录结构/前端文件/推荐阅读顺序)+作者说明文字(开头「我已经按当前工作区做完只读梳理…」);③调用方:09-sessions.js:635 renderProjects 每次 currentProject 确定/切换时调用 refreshManual,启动链(18-startup 的 renderProjects)与切项目/移除项目均经过它;④自动化验证:ui-runtime-smoke.mjs 新增 file_preview 桩与断言(手册渲染可见、读取失败隐藏、恢复重新显示),ui-i18n/ui-lint/ui-a11y/ui-markdown 冒烟全绿,cargo test --workspace 全绿(T-1786657249)。
+- observed_head: 273c4a3cc6138331a4c07469127773835af001ef
+- observed_worktree_hash: fnv1a64:3cea6831be337da9
+- recorded_at: 1786657366690
+
+## R-160 README添加项目设计目标说明 [done]
+- priority: P2
+- 原始描述: readme里加一些设计目标，比如专为永久工作设计等等
+- 复杂度: 中
+- 归属: kanzei
+- 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-160
+- 进展: 2026-08-16 交付:README.md 新增两节(中英双语同步)——①「## 设计目标」(中文)与「### Design goals」(英文):首条即「永久工作优先/Permanent work first」(外部记忆跨会话保留、会话可恢复、轨迹可回放、agent 自举),后续「好用压倒一切/Usability over everything」「真正的任务级并行/Real task-level parallelism」「受控合并/Controlled integration」「规则写在代码里/Rules in code」「复刻优先,创新只投护城河/Replicate first, innovate only in the moat」「工单就是文件/Tickets are files」「中英文并重/Chinese and English both matter」共 8 条,末尾链接方向基线 docs/design/direction_taste.md;②「## 开发指南」与「### Development guide」:分支与发布(dev 开发/main 只收 ff 合并/发布树 package.ps1/唯一安装位)、测试(定向+冒烟+全量触发点)、提交门禁(fmt/clippy 强制)、规范单源、外部 agent 协作(kz lock status、禁止 git add .)。验证:cargo test --workspace 全绿(T-1786658480)。
+- 验收证据: 验收原文「README中包含明确的设计目标和开发指南,如永久工作支持等核心特性说明」——①设计目标:README.md「## 设计目标」节(约 28-44 行)首条「永久工作优先:外部记忆是独立控制面,跨会话保留;会话可恢复、轨迹可回放;agent 用自己维护的 backlog 开发自己」,共 8 条明确目标并链接 docs/design/direction_taste.md;英文同构「### Design goals」(约 137-152 行);②开发指南:README.md「## 开发指南」节(约 107-115 行,分支/测试/门禁/规范/协作 5 条),英文「### Development guide」(约 154-162 行);③核心特性说明:永久工作(①首条)、任务级并行、受控合并、规则写在代码里、复刻优先等均成节;④验证:cargo test --workspace 全绿(T-1786658480)。
+- observed_head: 273c4a3cc6138331a4c07469127773835af001ef
+- observed_worktree_hash: fnv1a64:07011c83ec0b20ac
+- recorded_at: 1786658592507
+
+## R-172 新建配置文件的注释模板补齐各节骨架示例 [done]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 前端
+- 归属: kanzei
+- 来源: 2026-08-10 设置页全字段走查。settings_open 原先在新建配置时把 `codex_fast_mode = false` 合成进载荷写死(已作为缺陷修掉),现改为写纯注释模板。用户定调:**保留注释模板**(不回退成 0 字节空文件),但当前模板只有三行注释,全新环境下打开「配置原文」看不到有哪些节可写,第一次上手缺线索。
+- 内容: 把新建配置的注释模板补成带各节骨架的注释示例(至少覆盖 [models]、[providers.X]、[limits]、[proxy]、[cadence] 的键名与取值范围),全部以注释形式给出——**不得写成生效的显式值**,否则会被当成用户设定、绕过 fill_defaults 的默认(这正是被修掉的那个 bug 的形态)。
+- 边界: 只动模板文本;不改 settings_open 的写入时机与「留空即默认」语义;模板内容写进文件、不是界面文案,不受 ui-i18n-smoke 约束。
+- 验收: ①全新环境下 settings_open 产出的文件含各节骨架注释;②解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致);③不引入任何生效的显式值。
+- 进展: 2026-08-16 交付:settings.rs:657 settings_bootstrap_file 把三行注释模板补成各节骨架注释——[models](primary/fast/scout/compact/reasoning/codex_fast_mode 键名+取值范围)、[providers.<名字>](protocol 四枚举/base_url/api_key_env/api_key/auth/context_limit)、[limits](14 个键+取值)、[proxy](env 或 URL)、[cadence](full_test 四档/full_test_batches/targeted_test/commit/push/verify_every_n)、[profile]、[permissions] 全部以 # 注释给出,零生效值;模板仍合法 TOML(settings_write_document 解析通过)。新增单测「配置模板_骨架注释齐全_且解析后等价于全默认」:①断言五节骨架注释都在;②toml 解析后与 KanzeiConfig::default() 逐字段一致;③断言无非注释的 key = value 行(不引入生效显式值)。修正旧测试「打开配置原文_新建文件不把_codex_fast_mode_写死成_false」:原断言 !text.contains("codex_fast_mode") 过严(注释键名也算命中),改为只查非注释的 codex_fast_mode 赋值行,保留「新文件必须未表态」语义。验证:cargo test -p kanzei-app settings:: 14 passed,fmt/clippy 全绿。
+- 验收证据: 验收①「全新环境下 settings_open 产出的文件含各节骨架注释」——settings.rs:657-704 settings_bootstrap_file 模板含 [models]/[providers.X]/[limits]/[proxy]/[cadence] 各节键名与取值范围注释;settings_open(settings.rs:669)文件不存在时调用该函数;新增单测断言五节骨架注释(needle 列表)全部出现。验收②「解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致)」——新增单测 settings.rs 配置模板_骨架注释齐全_且解析后等价于全默认:toml::from_str 后与 KanzeiConfig::default() 逐字段对比(models 六字段/providers 空/proxy/profile/permissions/limits 五字段/cadence 五字段)。验收③「不引入任何生效的显式值」——同测试断言模板无非注释的 key = value 行(live_assignments 为空);旧测试改后只拦截生效赋值,config.models.codex_fast_mode == None 语义保留。
+- observed_head: 273c4a3cc6138331a4c07469127773835af001ef
+- observed_worktree_hash: fnv1a64:d70610e294d8b51b
+- recorded_at: 1786658839331
+
+## R-220 kanzei.toml 用户面配置参考:由 unknown_keys 已知键名单驱动生成,测试锁定一致 [done]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 文档 harness
+- 来源: 2026-08-12 八维度审计(§6)。
+- 背景: harness_m1.md:16-53 的配置样例停在 M1(缺 limits/cadence/embeddings/permissions.non_interactive 全部新节,profile 取值没提 readonly);用户只能读 config.rs 源码猜键名。
+- 内容: 生成配置参考(文档或 kz config schema 命令),覆盖全部可调键、一句话说明与默认值;加测试断言文档键表与 unknown_keys 已知键名单一致,防两处漂移。
+- 验收: ①全部已知键有说明与默认值;②单侧增删键时一致性测试变红;③D-300 修复后的 barrier_timeout_secs 在参考里可见。
+- refs: D-300 R-172
+- 进展: 2026-08-16 交付:①config.rs 把 unknown_keys 手写名单提取为各节已知键常量(TOP_LEVEL_KEYS/MODELS_KEYS/EMBEDDINGS_KEYS/LIMITS_KEYS/PROVIDER_KEYS/PROFILE_KEYS/CADENCE_KEYS/PERMISSIONS_KEYS/PERMISSION_RULE_KEYS),unknown_keys 改为引用常量——名单单源,增删键只改一处;②新增 pub fn config_reference() 由常量驱动生成用户面配置参考(纯注释 TOML,每节每键一行 `# 键 = 取值范围/默认值 说明`),覆盖全部已知键(含 language 顶层标量、providers.<名字> 动态节、permissions.rules 数组表);③kz main.rs 新增 `kz config schema` 子命令(usage 同步),打印 config_reference();④新增守护测试 config_reference_covers_all_known_keys:参考包含每个已知键(顶层节/动态节/规则键按各自形态),反向断言参考不出现名单外键;另加 barrier_timeout_secs 显式断言(D-300 修复键可见)。验证:cargo test -p kanzei-harness config:: 48 passed(含新测试)、cargo test -p kanzei 17 passed、fmt/clippy 全绿。
+- 验收证据: 验收①「全部已知键有说明与默认值」——config_reference(config.rs)遍历九个已知键常量,每键输出 `# 键 = 取值范围/默认值 说明` 行,覆盖 models 6 键/providers 6 键/limits 14 键(含 barrier_timeout_secs)/cadence 6 键/profile/embeddings/permissions 及 rules 3 键/proxy/language;`kz config schema`(main.rs config_cli)为真实消费者。验收②「单侧增删键时一致性测试变红」——config_reference_covers_all_known_keys 测试:参考缺失任一已知键即红(正向),参考出现名单外键即红(反向两条:子键形态 + 顶层节形态);名单增删后参考由常量自动跟随,若改名单不改参考生成则正向断言红,若参考手工多写键则反向断言红。验收③「D-300 修复后的 barrier_timeout_secs 在参考里可见」——测试显式断言 reference.contains("barrier_timeout_secs"),且 LIMITS_KEYS 含该键、emit_section 输出 limits 节。
+- observed_head: 273c4a3cc6138331a4c07469127773835af001ef
+- observed_worktree_hash: fnv1a64:bd331b4adc8345ef
+- recorded_at: 1786659418707
+
+## R-208 新建 kanzei-base 零依赖底层 crate:承接 atomic_file 与 FileLock,解开 llm 寄居 [done]
+- 优先级: P3
+- 复杂度: 小
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);atomic_file.rs:11-14 自述因 llm 是依赖图最底层只能放这里(D-261 决策),消费方横跨 tools 与 llm;kanzei-harness 不依赖 llm,其 orchestration.rs:34/41 只能在注释里引用 FileLock 行为——R-181 的跨进程 lease 契约在 harness、原语在 llm,照单实施会撞依赖方向墙。
+- 内容: 新建 kanzei-base(或 kanzei-fs)零依赖 crate 承接 atomic_file/FileLock;llm/tools 改从它取;harness 增加对它的依赖。
+- 边界: 纯搬迁零行为变更;过渡期保留 re-export 避免大面积改 use。
+- 验收: ①kanzei-llm 不再导出文件系统原语;②kanzei-harness 可直接依赖该 crate;③全仓测试绿。
+- refs: R-181 R-203
+- 进展: 2026-08-16 交付:新建 kanzei-base 零依赖 crate(Cargo.toml [dependencies] 为空,lib.rs 声明 pub mod atomic_file)。atomic_file.rs(657 行,纯 std)从 kanzei-llm/src 整体迁入 kanzei-base/src,头部注释改写(D-261 决策 + R-208 迁出说明),逻辑零变更;原 kanzei-llm/src/atomic_file.rs 删除、lib.rs 移除 pub mod atomic_file(验收①:llm 不再导出文件系统原语);auth/store.rs use 改 kanzei_base::atomic_file;llm/tools/harness 三个 Cargo.toml 增加 kanzei-base.workspace = true;kanzei-tools lib.rs re-export 改 kanzei_base::atomic_file(保留 pub use,工具内部 crate::atomic_file::* 全部零改动);architecture.rs 注释引用更新。workspace Cargo.toml members + workspace.dependencies 注册 kanzei-base。验收③全仓测试:cargo test --workspace 全绿(无 FAILED/error),fmt/clippy 全绿。
+- observed_head: 273c4a3cc6138331a4c07469127773835af001ef
+- observed_worktree_hash: fnv1a64:c97180595f4232f8
+- recorded_at: 1786659778448
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-208
+- 验收证据: 验收①「kanzei-llm 不再导出文件系统原语」——crates/kanzei-llm/src/lib.rs 已删 `pub mod atomic_file;` 行,原 atomic_file.rs 已物理删除(Remove-Item 后 Test-Path False);llm 内部唯一消费方 auth/store.rs:18 改为 `use kanzei_base::atomic_file;`。验收②「kanzei-harness 可直接依赖该 crate」——crates/kanzei-harness/Cargo.toml 新增 `kanzei-base.workspace = true` 且 cargo check --workspace 编译通过(harness 是依赖方之一)。验收③「全仓测试绿」——cargo test --workspace 全绿(T-1786659557),fmt/clippy 全绿。边界「纯搬迁零行为变更;过渡期保留 re-export」——atomic_file.rs 内容除头部注释外逐字搬迁;kanzei-tools/src/lib.rs:6 保留 `pub use kanzei_base::atomic_file;`,工具内部 20+ 处 crate::atomic_file::* 调用零改动。消费方链:kanzei-base ← llm/tools/harness 均编译通过。

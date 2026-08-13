@@ -123,22 +123,6 @@
 - 验收: ①28 条清单逐条给出保留/降级结论与依据;②结论落地(设计文档或关闭证据);③如选择降级,操作后搜索不再命中 candidate 条目。
 - 阻塞: 用户: 28 条零证据 active 记忆保留(存量豁免)或降级 candidate 需用户逐条拍板,解除权不在 agent。解除动作: 用户给出拍板结论(全部保留 / 逐条降级清单)后按结论落地并关闭。解除人: 用户。
 
-## R-189 亮色主题:前端渲染器换色结构化评估与第二套配色 [done]
-- acceptance: ①前端渲染器颜色来源结构评估:颜色集中在可换色层(变量/类)还是散落硬编码,评估结论写入需求进展或设计文档;②亮色主题完整可用:全局一键切换暗/亮并持久化;③亮/暗两套主题在 800/1024/1280 与纯键盘下均可达可用对比度;④换色改动不引入新框架,沿用现有渲染器结构。
-- complexity: 中
-- content: 当前桌面端只有暗色主题。需要先评估现有前端渲染器代码的颜色来源是否结构化(颜色是否集中在可换色层如 CSS 变量/主题类,还是散落硬编码),再设计并落地一套亮色主题。
-- label: 前端
-- priority: P2
-- status: todo
-- 现状评估(2026-08-12 读码核实,dev HEAD;直接对应验收①): 结构上适合换色,工作量在收口不在重构。颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量,换色纯 CSS;剩余字面量分四类(a 半透明叠加保留/b 徽章底色成对给亮色值/c 框架面提升 token/d diff语法着色与 on-accent)。两处非 CSS 换色面:color-scheme 与 Monaco setTheme。落地:拆 [data-theme] 两组 token + 字面量提升 + 非 CSS 面同一开关。
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-189
-- 批次: 3/3
-- 进展: 2026-08-16 完成并关闭(提交 1fb30eb)。验收①评估结论写入「现状评估」字段:颜色集中在 style.css :root 语义 token,ui/*.js 与 index.html 零颜色字面量;剩余字面量四类处置,手动 token 化引用点逐处引证:滚动条 style.css:77-78→--scrollbar/--scrollbar-hover;活动栏 style.css:83→--activitybar;workspace 状态 style.css:297-299→--badge-ok-soft/--badge-warn-soft/--badge-soft;优先级徽章 style.css:400-402→--badge-err/--badge-warn/--badge-info;状态胶囊 style.css:408-410→--badge-alert/--badge-info/--badge-ok;danger 按钮 style.css:649-650→--danger-btn+--on-accent;代码块/工具输出底 style.css:1047/1184/1205/1208→--code-bg/--code-output-bg;warn 徽章底 style.css:1166→--badge-warn;diff 着色 style.css:1214-1215/1239-1240/1242-1243→--diff-add/--diff-del;warn/err fallback style.css:904/1321/1444-1445/1456-1457→--warn/--err;线路主题色 style.css:441-444→--line-1..4;状态点 style.css:673-674→--dot-idle/--dot-run;diff 行号 style.css:1212→--diff-line-number;语法着色 style.css:1223-1226→--syntax-comment/--syntax-string/--syntax-number/--syntax-keyword;日志金字 style.css:1250→--log-gold;未入册头 style.css:1547→--arch-unindexed;新 token 定义 style.css:21-29(dark)/style.css:42-48(light),成对给亮色值。验收②[data-theme=light] style.css:32-48 + 03-shell.js:466-497 currentTheme/applyTheme/initTheme + localStorage kz-theme 持久化(默认 dark 零回归)+ index.html:667 theme-toggle + 17-files.js:222-228 Monaco setTheme(vs/vs-dark);color-scheme style.css:19/41 随主题(D-154 原生控件)。验收③ui-runtime-smoke.mjs:6084-6117 R-189 断言(切换/持久化/Monaco 联动)+ 既有 a11y 冒烟(纯键盘语义)+ R-179 三档循环(800/1024/1280)。验收④换色纯 CSS + Monaco setTheme,未引入新框架,沿用 :root token 结构。前端五冒烟 + kanzei-app 148 + 关闭前全量 cargo test --workspace 全绿(T-1786656576)。
-- observed_head: 1fb30ebff4553181f4de5344479c2dd991093cc1
-- observed_worktree_hash: fnv1a64:8c41ba37517e4824
-- recorded_at: 1786656720597
-- 现状评估: **结构上适合换色,工作量在收口不在重构(2026-08-12 读码核实)。** ①颜色只有一处——`crates/kanzei-app/ui/style.css` 之外零颜色:20 个 ui/*.js 与 index.html 里没有任何 JS 计算或写入颜色,换色是纯 CSS 的事,不碰渲染逻辑。②可换色层已存在——`:root` 定义 22 个语义命名 token(--bg/--panel/--fg/--accent/--ok/--err 等),全文绝大多数颜色引用走 var(),命名是语义而非色值,亮色版可直接换值。③剩余字面量分四类处置:(a) 由调色板派生的半透明叠加与阴影(rgba(208,104,78,.16) 等,天然跨主题保留);(b) 暗色专属的徽章/状态胶囊底色(亮色下不能复用,必须成对给值,是本条真正的设计工作量);(c) 未 token 化的框架面(活动栏/滚动条/代码块底/danger 按钮,机械提升为新 token);(d) diff/语法着色与强调按钮前景(后者需 --on-accent)。④两个 CSS 够不着的换色面:`color-scheme: dark`(style.css:19,决定原生控件深浅变体,D-154 教训)与 Monaco 编辑器 `theme: "vs-dark"`(17-files.js:223,须同步 setTheme)。⑤落地路径:`:root` 拆成 [data-theme=dark]/[data-theme=light] 两组 token(默认 dark 零回归)+ 字面量提升 token + 两处非 CSS 面挂同一开关;不引入新框架。
-
 ## R-193 plan勾选响应延迟优化需求 [doing]
 - 复杂度: 中
 - 标签: 前端
@@ -151,53 +135,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786656932641
 - 阻塞: 用户: R-193 缺内容/来源/交互定义,验收仅一句『plan勾选项点击后即时视觉反馈和状态更新』;需用户澄清:①plan 指哪个面板(当前计划 todo 面板还是其它);②勾选动作状态写哪里(前端视觉 / 后端命令持久化);③当前『响应延迟』的具体场景。解除动作:用户给出澄清后实现。解除人: 用户。
-
-## R-147 增加使用手册与作者话内容板块 [todo]
-- 复杂度: 中
-- 归属: kanzei
-- 验收: 页面顶部新增独立区块，展示项目使用手册和来自作者的说明文字
-- 优先级: P1
-
-## R-160 README添加项目设计目标说明 [todo]
-- priority: P2
-- 原始描述: readme里加一些设计目标，比如专为永久工作设计等等
-- 复杂度: 中
-- 归属: kanzei
-- 验收: README中包含明确的设计目标和开发指南，如永久工作支持等核心特性说明
-
-## R-172 新建配置文件的注释模板补齐各节骨架示例 [todo]
-- 优先级: P3
-- 复杂度: 小
-- 标签: 前端
-- 归属: kanzei
-- 来源: 2026-08-10 设置页全字段走查。settings_open 原先在新建配置时把 `codex_fast_mode = false` 合成进载荷写死(已作为缺陷修掉),现改为写纯注释模板。用户定调:**保留注释模板**(不回退成 0 字节空文件),但当前模板只有三行注释,全新环境下打开「配置原文」看不到有哪些节可写,第一次上手缺线索。
-- 内容: 把新建配置的注释模板补成带各节骨架的注释示例(至少覆盖 [models]、[providers.X]、[limits]、[proxy]、[cadence] 的键名与取值范围),全部以注释形式给出——**不得写成生效的显式值**,否则会被当成用户设定、绕过 fill_defaults 的默认(这正是被修掉的那个 bug 的形态)。
-- 边界: 只动模板文本;不改 settings_open 的写入时机与「留空即默认」语义;模板内容写进文件、不是界面文案,不受 ui-i18n-smoke 约束。
-- 验收: ①全新环境下 settings_open 产出的文件含各节骨架注释;②解析后配置仍等价于全默认(有单测:模板文件 load 后与 KanzeiConfig::default() 一致);③不引入任何生效的显式值。
-
-## R-220 kanzei.toml 用户面配置参考:由 unknown_keys 已知键名单驱动生成,测试锁定一致 [todo]
-- 优先级: P3
-- 复杂度: 小
-- 标签: 文档 harness
-- 来源: 2026-08-12 八维度审计(§6)。
-- 背景: harness_m1.md:16-53 的配置样例停在 M1(缺 limits/cadence/embeddings/permissions.non_interactive 全部新节,profile 取值没提 readonly);用户只能读 config.rs 源码猜键名。
-- 内容: 生成配置参考(文档或 kz config schema 命令),覆盖全部可调键、一句话说明与默认值;加测试断言文档键表与 unknown_keys 已知键名单一致,防两处漂移。
-- 验收: ①全部已知键有说明与默认值;②单侧增删键时一致性测试变红;③D-300 修复后的 barrier_timeout_secs 在参考里可见。
-- refs: D-300 R-172
-
-## R-208 新建 kanzei-base 零依赖底层 crate:承接 atomic_file 与 FileLock,解开 llm 寄居 [todo]
-- 优先级: P3
-- 复杂度: 小
-- 标签: 后端 核心
-- 来源: 2026-08-12 八维度审计(§1);atomic_file.rs:11-14 自述因 llm 是依赖图最底层只能放这里(D-261 决策),消费方横跨 tools 与 llm;kanzei-harness 不依赖 llm,其 orchestration.rs:34/41 只能在注释里引用 FileLock 行为——R-181 的跨进程 lease 契约在 harness、原语在 llm,照单实施会撞依赖方向墙。
-- 内容: 新建 kanzei-base(或 kanzei-fs)零依赖 crate 承接 atomic_file/FileLock;llm/tools 改从它取;harness 增加对它的依赖。
-- 边界: 纯搬迁零行为变更;过渡期保留 re-export 避免大面积改 use。
-- 验收: ①kanzei-llm 不再导出文件系统原语;②kanzei-harness 可直接依赖该 crate;③全仓测试绿。
-- refs: R-181 R-203
-- 进展: 2026-08-13 D-332 B3 存量收敛:本条标题 [open] 为非法 lifecycle 污染(requirement 合法枚举 todo/doing/done/dropped),经 normalize 识别并修正为 todo;标题状态标记已剥离。原状态为 todo(未开工)。
-- observed_head: 7f3822b37f847661673732dc8df1154d421aa1f8
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786612470593
 
 ## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [todo]
 - 优先级: P3
@@ -342,3 +279,11 @@
 - 标签: 核心
 - 边界: 只做度量与结论,不改实现;若样本仍偏置,继续记录原因,不在本条追修。
 - 验收: ①样本为正常开发节奏(非单条线密集自动推进)的自动轮 >=50 轮,写明轮次构成(标题分布/间隔);②重跑与 R-196 同口径的采纳率与空轮比例对照,给出与基线(21.0%/67.6%)和 R-196 修复后值(2.2%/93.3%)的三点对比;③若仍未改善,写明判断原因并指向修复条目标号;若改善,记录修复①实际生效的样本条件。
+
+## R-240 细化运行完成指标统计 [todo]
+- priority: P2
+- 原始描述: 能更详细的查看各类运行和完成过程种的指标，比如做完不同种类的不同复杂度需求使用的token，方便我们针对上下文和harness等进行优化
+- 复杂度: 中
+- 归属: kanzei
+- 标签: 流程
+- 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。

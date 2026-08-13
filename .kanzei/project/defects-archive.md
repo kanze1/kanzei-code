@@ -3962,3 +3962,17 @@
 - observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786651911981
+
+## D-347 git stage 对非 ASCII(中文)文件名误判 foreign,追加 stage 被拒死锁 [fixed] (medium)
+- 复现: git stage 含中文文件名的文件(如 docs/目录.md,首次 stage 成功)后,再 stage 其它文件必被拒:git.rs staged_paths/staged_paths_sync 用 `git diff --cached --name-only --no-renames` 读 index 路径,git 默认 core.quotepath=true 把非 ASCII 路径输出成带引号转义串("docs/\347\233\256\345\275\225.md"),与请求的真实路径 docs/目录.md 比较不相等 → foreign 非空 → 拒绝。实测:R-147 首次 stage 11 文件成功(含 docs/目录.md),随后重新 stage 12 文件(含 15-views-misc.js 修复)被拒,报 foreign: "docs/\347\233\256\345\275\225.md"。bash `git reset` 被引擎拦截,工具无 unstage,形成死锁,只能靠用户手动 reset 或一次性空 index 重建。
+- 影响: 任何含非 ASCII 文件名的提交都无法增量/完整 stage,提交流程被卡死,需人工干预(unstage)。kanzei 自举提交(中文需求/记忆文件名很常见)会反复触发。
+- 来源: self-found(R-147 提交时)
+- 标签: 核心
+- 进展: 2026-08-16 修复提交(19aeb22)。根因:staged_paths/staged_paths_sync 用 git diff --cached --name-only 读 index 路径,git 默认 core.quotepath=true 把非 ASCII 路径输出成带引号八进制转义,与请求真实 UTF-8 路径字面比较失败 → 即使请求已显式包含中文路径也被误判 foreign,含 docs/目录.md 的暂存区让所有后续 stage 死锁。修复:两处命令加 -c core.quotepath=false。回归测试 stage_after_non_ascii_path_is_not_foreign 覆盖。验证:cargo test -p kanzei-tools --lib git:: 22 passed。
+- 验收: ①stage 含中文文件名文件后再追加 stage 其它文件不再被误判 foreign;②staged_paths/staged_paths_sync 输出真实 UTF-8 路径(加 -c core.quotepath=false 或 -z);③有回归测试覆盖非 ASCII 路径场景;④既有 stage/commit 全量测试不回归。
+- 优先级: P1
+- observed_head: 19aeb226ffafd968d2359fdae930d99ba482493d
+- observed_worktree_hash: fnv1a64:a6a47aef755ecee2
+- recorded_at: 1786660058469
+- 阻塞: 用户: 当前引擎为旧编译版,git 工具仍以 quotepath 转义逻辑运行,含 docs/目录.md 的暂存区会让任何 stage 误判 foreign;工具无 unstage,bash git reset 被引擎拦截。解除动作: 用户在项目根执行一次 `git reset`(清空暂存区,工作树不动)后,agent 一次性重建暂存并分两笔提交(R-147 与 D-347)。解除人: 用户。
+- 验收证据: 验收①「stage 含中文文件名文件后再追加 stage 其它文件不再被误判 foreign」——git.rs staged_paths/staged_paths_sync 均加 -c core.quotepath=false,回归测试 stage_after_non_ascii_path_is_not_foreign(stage 目录.md 后带完整清单重 stage 成功)通过;本轮实际提交链即真实证据:R-147 含 docs/目录.md 的 8 文件成功 stage+commit(20df0de)。验收②「staged_paths/staged_paths_sync 输出真实 UTF-8 路径」——两处命令加 -c core.quotepath=false,测试断言 staged_paths 返回真实路径且不含 \347 转义。验收③「有回归测试覆盖非 ASCII 路径场景」——stage_after_non_ascii_path_is_not_foreign 测试。验收④「既有 stage/commit 全量测试不回归」——cargo test -p kanzei-tools --lib git:: 22 passed(含既有 stage 测试)。

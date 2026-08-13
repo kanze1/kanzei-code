@@ -2916,3 +2916,82 @@
 - 摘要: 全量全绿:app 148 / core 161 / harness 123 / llm 52 / tools 353 / kanzei 3,0 failed。R-189 关闭前全量(3 批完成)。
 - 关联: R-189
 - 收尾: 1786656576
+
+## T-1786656785 R-189 关闭补强冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs
+- 摘要: style.css 第二轮 token 化后冒烟通过(ui-runtime + i18n)。
+- 关联: R-189
+- 收尾: 1786656785
+- 源码指纹: 677159e3ca9e6de4
+
+## T-1786656839 cargo test -p kanzei-app(R-189 补强复测) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: 148 passed; 0 failed。R-189 第二轮 token 化(style.css)后 kanzei-app 定向复测。
+- 关联: R-189
+- 收尾: 1786656839
+- 源码指纹: 677159e3ca9e6de4
+
+## T-1786657249 cargo test --workspace (R-147 关闭前全量) [passed]
+- 摘要: 全量全绿(R-147 关闭前全量;前端改动不涉 crates/)。
+- 关联: R-147
+- 收尾: 1786657345
+
+## T-1786658480 cargo test --workspace (R-160 关闭前全量) [passed]
+- 摘要: 全量全绿(R-160 关闭前全量;README 文档改动,不涉 crates 代码)。
+- 关联: R-160
+- 收尾: 1786658569
+- 源码指纹: 63f28a9c7862cc96
+
+## T-1786658852 cargo test -p kanzei-app settings:: (R-172) [passed]
+- 摘要: settings:: 14 passed(R-172 复杂度=小,定向测试即可,不跑全量)。模板骨架注释+等价全默认单测通过,旧 codex_fast_mode 测试语义修正后通过。
+- 关联: R-172
+- 收尾: 1786658852
+- 源码指纹: 63f28a9c7862cc96
+
+## T-1786659431 cargo test -p kanzei-harness config:: + -p kanzei (R-220) [passed]
+- 摘要: config:: 48 passed(R-220 复杂度=小,定向即可)+ kanzei 17 passed(CLI 编译)。配置参考生成器 + 一致性守护测试全绿。
+- 关联: R-220
+- 收尾: 1786659431
+- 源码指纹: 63f28a9c7862cc96
+
+## T-1786659557 cargo test --workspace (R-208 全仓测试绿) [passed]
+- 摘要: 全量全绿(R-208 验收③全仓测试绿)。kanzei-base 新建后 workspace 编译 + 全量测试通过,无 FAILED/error。
+- 关联: R-208
+- 收尾: 1786659674
+- 源码指纹: 63f28a9c7862cc96
+
+## T-1786659963 R-147 提交前前端冒烟三连 [passed]
+- 摘要: 前端冒烟集通过(ui-runtime 1790 invoke 0 错 / i18n 1088 key / lint no-undef 0)。R-147 提交前背书(R-208 全量后 fmt 源码指纹变化,补最新记录)。
+- 关联: R-147
+- 收尾: 1786659963
+- 源码指纹: cbf735ee5343e315
+
+## T-1786659999 cargo test -p kanzei-app (R-147 提交门禁) [passed]
+- 摘要: 149 passed; 0 failed。R-147 提交门禁:kanzei-app crate 定向测试(前端改动面)。
+- 关联: R-147
+- 收尾: 1786659999
+- 源码指纹: cbf735ee5343e315
+
+## T-1786660044 cargo test -p kanzei-tools --lib git:: (D-347 提交门禁) [passed]
+- 摘要: git:: 22 passed(D-347 quotepath 修复含新回归测试 stage_after_non_ascii_path_is_not_foreign)。
+- 关联: D-347
+- 收尾: 1786660044
+- 源码指纹: 473d6d5d3a860a04
+
+## T-1786660085 cargo test -p kanzei-app settings:: (R-172 提交门禁) [passed]
+- 摘要: settings:: 14 passed(R-172 提交门禁:模板骨架+等价全默认单测)。
+- 关联: R-172
+- 收尾: 1786660085
+- 源码指纹: eb9e39830d809061
+
+## T-1786660131 cargo test -p kanzei-harness config:: + -p kanzei (R-220 提交门禁) [passed]
+- 摘要: harness config:: 48 passed + kanzei 17 passed(R-220 提交门禁:配置参考+一致性测试+CLI)。
+- 关联: R-220
+- 收尾: 1786660131
+- 源码指纹: 6e60e6f47ac49e95
+
+## T-1786660219 cargo test --workspace (R-208 提交门禁) [passed]
+- 摘要: 全量全绿(R-208 提交门禁:kanzei-base 拆 crate 后 workspace 全量测试)。
+- 关联: R-208
+- 收尾: 1786660219
+- 源码指纹: c7d8a3b75acde213

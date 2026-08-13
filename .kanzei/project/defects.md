@@ -100,12 +100,17 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786613794715
 
-## D-342 停止运行 = handle.abort() 硬杀,被打断轮的对话历史整轮丢失 [open] (high)
+## D-342 停止运行 = handle.abort() 硬杀,被打断轮的对话历史整轮丢失 [fixing] (high)
 - refs: R-236 docs/design/context_compaction.md
 - 复现: 自动推进中点「停止」再发新任务:stop_runtime_and_finalize(kanzei-app/src/state.rs:534)直接 handle.abort() 杀掉 run_task 的 future;而对话写回只在轮末(run.rs:1032 内存表、run.rs:1089 conversation.updated 事件),abort 永远到不了那两行 → 被打断轮的全部消息(可能几十步工具调用/改动/结论)从对话投影消失,下一轮 prior 停在上一轮轮末。模型于是称"之前没做过 X"(用户 2026-08-14 实测报告)。
 - 影响: 打断+插临时任务是自动推进的高频交互,每次都让模型对被打断轮完全失忆;episode/run.trace 有留档但那是回放用的,模型看不到。runner 侧没有优雅停止:halted_by_user=true 唯一产生路径是权限弹窗被拒(kanzei-core/src/runner/drive.rs:1059),步循环里没有任何 halt 检查点。
 - 来源: 用户报告(2026-08-14 自动推进打断丢上下文)+ 读码定位
 - 标签: 核心
-- 进展: 已交付(2026-08-14,commit cbe768a,Claude 直接实施):①RunnerConfig 新增 halt: Option<CancellationToken>,drive.rs 四类检查点(步首/流内 select/工具间/步末)+ 并行 wave 与 task 等待的 halt 分支,全部以取消占位配对后 halted_by_user=true 正常返回;②stop_runtime_and_finalize 改协作式(置位令牌+清 ask+立即取消队列,不立即 abort),STOP_GRACE_SECS=30 兜底硬杀按 run 代数防误杀(stale_run_needs_abort 纯函数);关线/注销走 halt_runtime_immediately 保持立即终态化;③集成测试 crates/kanzei/tests/cooperative_halt.rs 两场景(步首收尾 prior 完整交还;执行中停止取消占位无孤儿)+ process_tests 协作式停止/代数判定单测。验证:workspace 全量 869 passed + clippy 0 警告。待核查轮按验收①②③⑤复核后关闭(验收②的「模型可复述」需真实模型场景,联 R-236 联测)。
+- 进展: 2026-08-16 复核轮:实现(commit cbe768a)与既有测试逐条核对完毕。验收①③④⑤证据齐备:①cooperative_halt.rs 测试①(halted 轮 messages 完整交还:prior+本轮用户消息)+ run.rs:1114-1117 写内存表、run.rs:1228-1244 conversation.updated 事件落库 + conversation.rs:158 recover_messages_raw 从事件恢复 + conversation_tests.rs:94-107 写回→恢复链路测试;③drive.rs 步首 222/流内 select 422/工具间 790/步末 991 四类检查点 + cooperative_halt.rs 测试②(执行中停止挂起子代理被打断、取消占位配对、filter 后逐字节无孤儿);④state.rs:610 stale_run_needs_abort 纯函数 + process_tests.rs:129 兜底硬杀只认停止时那一代测试 + process_tests.rs:73 正常停止置令牌不 abort;⑤process_tests.rs:114 排队输入即刻取消(cancelled==1)+ finalize_interrupt 在 state.rs:592/603/633 全部路径保留。验收②机制部分(新一轮 prior 含被打断轮内容)由 cooperative_halt 测试①(prior 原样在 messages)与 run.rs:699 conversation_prior 取内存表证明;但「模型可复述被打断轮做过的事」需真实模型桌面端场景——R-236 联测(requirements-archive R-236 验收⑤)明确未覆盖 D-342 停止路径(CLI halt 通道为 None,桌面端停止场景待用户新版实际使用验证),本复核轮无真实 provider 桌面端联测条件,该项缺口保持。
 - 验收: ①自动推进中途停止后,conversation_get 能看到被打断轮已完成步骤的消息(实测轨迹,不是只断言函数返回);②停止后立刻发新任务,新一轮 prior 含被打断轮内容,模型可复述被打断轮做过的事;③停止响应有上界:当前工具执行结束即停,不等整轮跑完;④abort 兜底路径保留(防挂死)且有测试,正常停止不走它;⑤停止仍取消排队输入并释放写租约(现有 finalize_interrupt 语义无回归)。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-342
+- 阻塞: 用户: 需在桌面端新版(含 cbe768a 及后续)实际点「停止」后立刻发新任务,验证模型能复述被打断轮做过的事(验收②后半)。解除动作:用户实测并反馈结果后,再补关验收②。
+- observed_head: dd5e5fd66bfe1387331ccac3f449f51924d7a103
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786652156479
