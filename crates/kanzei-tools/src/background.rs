@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once, OnceLock};
 
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 
 use crate::managed::ManagedSnapshot;
@@ -28,7 +29,7 @@ const GUARD_TICK: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// 后台任务的归属身份(D-174 验收①"可归因")。来自 ToolCtx 的 R-171 双键;
 /// CLI 等未绑定身份的路径登记 `unowned`,如实表示"不知道属于谁"。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundOwner {
     pub run_id: String,
     pub process_id: String,
@@ -178,6 +179,25 @@ pub fn register(
         None
     };
     let full_output = Arc::new(Mutex::new(Vec::new()));
+    // R-180 B3:persistent 服务登记跨 run 注册表(与日志同目录,atomic_file 原语)。
+    // 强杀 kzapp 后 wait 任务没机会跑,条目残留在磁盘——正是"重启后能列出上次
+    // 未终结长驻服务"的数据来源;自然退出/显式 stop 时从注册表移除(见下)。
+    if persistent {
+        let entry = PersistentEntry {
+            id: id.clone(),
+            command: command.clone(),
+            project_root: project_root.display().to_string(),
+            workdir: workdir.display().to_string(),
+            owner: owner.clone(),
+            started_at_ms: now_ms(),
+            pid: pid.unwrap_or(0),
+            log: format!("{id}.log"),
+        };
+        let mut entries = load_registry(project_root);
+        entries.retain(|e| e.id != id);
+        entries.push(entry);
+        save_registry(project_root, &entries);
+    }
 
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
@@ -233,9 +253,18 @@ pub fn register(
 
     {
         let exit = exit.clone();
+        // R-180 B3:persistent 服务自然退出时从跨 run 注册表移除条目,不留幽灵
+        // (强杀 kzapp 时 wait 任务没机会跑,条目残留在磁盘,由重启后的 discover
+        // 按 pid 活性判定:pid 死 → 标失败清理;pid 活 → 接管/杀掉)。
+        let reg_root = project_root.to_path_buf();
+        let reg_id = id.clone();
+        let reg_persistent = persistent;
         tokio::spawn(async move {
             let status = child.wait().await.ok().and_then(|s| s.code());
             *exit.lock().unwrap() = Some(status);
+            if reg_persistent {
+                remove_registry_entry(&reg_root, &reg_id);
+            }
         });
     }
 
@@ -473,6 +502,162 @@ fn project_hash(root: &Path) -> String {
     format!("{:016x}", hasher.finish())
 }
 
+/// R-180 B3:跨 run 注册表条目——persistent 服务的持久化登记。
+///
+/// 落盘于 `<temp>/kanzei-bg-logs/<项目hash>/registry.json`(与日志同目录,项目级
+/// 发现基于该目录)。全部字段可序列化,重启后按此重建内存对象(接管/杀掉/标失败)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersistentEntry {
+    pub id: String,
+    pub command: String,
+    pub project_root: String,
+    pub workdir: String,
+    pub owner: BackgroundOwner,
+    pub started_at_ms: u128,
+    pub pid: u32,
+    /// 日志文件名(registry 同目录下)。
+    pub log: String,
+}
+
+fn registry_path(project_root: &Path) -> PathBuf {
+    std::env::temp_dir()
+        .join("kanzei-bg-logs")
+        .join(project_hash(project_root))
+        .join("registry.json")
+}
+
+fn load_registry(project_root: &Path) -> Vec<PersistentEntry> {
+    let path = registry_path(project_root);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    serde_json::from_str(&text).unwrap_or_default()
+}
+
+/// 写注册表走 atomic_file 原语(验收⑤:全仓不出现第二套写原语)。
+fn save_registry(project_root: &Path, entries: &[PersistentEntry]) {
+    let path = registry_path(project_root);
+    if let Ok(text) = serde_json::to_string_pretty(entries) {
+        let _ = crate::atomic_file::write_atomic(&path, &text);
+    }
+}
+
+/// 从注册表移除指定条目。进程自然退出/显式停止/被杀后调用,不留幽灵条目。
+fn remove_registry_entry(project_root: &Path, id: &str) {
+    let mut entries = load_registry(project_root);
+    let before = entries.len();
+    entries.retain(|e| e.id != id);
+    if entries.len() != before {
+        save_registry(project_root, &entries);
+    }
+}
+
+/// R-180 验收②:列出跨 run 注册表中上次登记的 persistent 服务,并给出 pid 活性。
+///
+/// 返回 `(条目, pid 是否存活)`。幽灵条目(pid 已死——强杀 kzapp 后进程没能活下来)
+/// 由调用方用 [`mark_registry_failed`] 标失败并清理,本函数只读不写。
+pub fn discover_persistent(project_root: &Path) -> Vec<(PersistentEntry, bool)> {
+    load_registry(project_root)
+        .into_iter()
+        .map(|entry| {
+            let alive = crate::shell::process_alive(entry.pid);
+            (entry, alive)
+        })
+        .collect()
+}
+
+/// 把注册表条目标记为失败并移除(pid 已死的幽灵条目)。返回是否命中。
+pub fn mark_registry_failed(project_root: &Path, id: &str) -> bool {
+    let mut entries = load_registry(project_root);
+    let before = entries.len();
+    entries.retain(|e| e.id != id);
+    if entries.len() != before {
+        save_registry(project_root, &entries);
+        true
+    } else {
+        false
+    }
+}
+
+/// R-180 验收②"接管":把注册表里 pid 仍存活的长驻服务接回当前进程的内存注册表,
+/// 之后可用 process output/stop 操作。返回 None = 条目不存在或 pid 已死。
+///
+/// 接管后重新拍基线并挂守卫:长驻服务脱离 owner run 不等于脱离文件隔离(D-174
+/// 归因/回滚约束原样生效,验收④)。
+pub async fn adopt_persistent(project_root: &Path, id: &str) -> Option<Arc<BackgroundProcess>> {
+    let entries = load_registry(project_root);
+    let entry = entries.iter().find(|e| e.id == id)?.clone();
+    if !crate::shell::process_alive(entry.pid) {
+        return None;
+    }
+    let log_path = std::env::temp_dir()
+        .join("kanzei-bg-logs")
+        .join(project_hash(project_root))
+        .join(&entry.log);
+    let full_output = Arc::new(Mutex::new(std::fs::read(&log_path).unwrap_or_default()));
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let truncated = Arc::new(AtomicBool::new(false));
+    let exit: Arc<Mutex<Option<Option<i32>>>> = Arc::new(Mutex::new(None));
+    // 没有子进程句柄可 wait,用 pid 活性轮询推进 exit:pid 消失即视为终止。
+    let exit_watch = exit.clone();
+    let watch_pid = entry.pid;
+    tokio::spawn(async move {
+        loop {
+            if !crate::shell::process_alive(watch_pid) {
+                *exit_watch.lock().unwrap() = Some(None);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+    let baseline = Arc::new(Mutex::new(ManagedSnapshot::capture(project_root)));
+    let process = Arc::new(BackgroundProcess {
+        id: entry.id.clone(),
+        command: entry.command.clone(),
+        project_root: entry.project_root.clone(),
+        workdir: entry.workdir.clone(),
+        owner: entry.owner.clone(),
+        persistent: true,
+        log_path: Some(log_path),
+        full_output,
+        started_at_ms: entry.started_at_ms,
+        pid: Some(entry.pid),
+        output,
+        truncated,
+        exit,
+        baseline,
+        breaches: Arc::new(Mutex::new(Vec::new())),
+    });
+    registry()
+        .lock()
+        .unwrap()
+        .insert(process.id.clone(), process.clone());
+    if crate::managed::managed_scope_exists(project_root) {
+        install_window_observer_once();
+        spawn_guard(process.clone());
+    }
+    Some(process)
+}
+
+/// R-180 验收②"杀掉":终止注册表里长驻服务的进程树并移除条目。
+///
+/// 若该服务已接回内存注册表(adopt 过),先做终态对账再清出磁盘注册表;
+/// 内存对象保留在注册表供 output 回看最后日志(与 stop 语义一致)。
+pub async fn kill_registered(project_root: &Path, id: &str) -> bool {
+    let entries = load_registry(project_root);
+    let Some(entry) = entries.iter().find(|e| e.id == id).cloned() else {
+        return false;
+    };
+    if crate::shell::process_alive(entry.pid) {
+        crate::shell::kill_tree(entry.pid).await;
+    }
+    if let Some(p) = get(id) {
+        reconcile(&p, false).await;
+    }
+    remove_registry_entry(project_root, id);
+    true
+}
+
 pub fn get(id: &str) -> Option<Arc<BackgroundProcess>> {
     registry().lock().unwrap().get(id).cloned()
 }
@@ -506,6 +691,10 @@ pub async fn stop(id: &str) -> bool {
         crate::shell::kill_tree(pid).await;
     }
     reconcile(&process, false).await;
+    // R-180 B3:显式停止 persistent 服务 = 终态,同步清出跨 run 注册表,不留幽灵。
+    if process.persistent {
+        remove_registry_entry(Path::new(&process.project_root), &process.id);
+    }
     true
 }
 
@@ -519,6 +708,11 @@ pub async fn stop(id: &str) -> bool {
 pub async fn kill_project(project_root: &Path) -> usize {
     let mut killed = 0usize;
     for process in list(project_root) {
+        // R-180 B3:长驻服务不被"运行停止回收"误杀——生命周期已显式脱离 owner
+        // run(验收①),只能由 process stop/kill 或注册表处置显式终止。
+        if process.persistent {
+            continue;
+        }
         if process.is_running() {
             if let Some(pid) = process.pid {
                 crate::shell::kill_tree(pid).await;
@@ -538,6 +732,11 @@ pub async fn kill_process(project_root: &Path, process_id: &str) -> usize {
         .into_iter()
         .filter(|process| process.owner.process_id == process_id)
     {
+        // R-180 B3:线路停止同样不回收长驻服务——persistent 的生命周期已显式
+        // 脱离 owner run(验收①),与 kill_project 同一口径。
+        if process.persistent {
+            continue;
+        }
         if process.is_running() {
             if let Some(pid) = process.pid {
                 crate::shell::kill_tree(pid).await;
@@ -1515,6 +1714,328 @@ mod tests {
             "full_log 也应含全量不丢头: len={}",
             full.len()
         );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收②:persistent 服务登记跨 run 注册表(磁盘),重启后 discover 能列出
+    /// 未终结的服务并给出处置——adopt 接管、kill 杀掉,处置后条目清除不留幽灵。
+    #[tokio::test]
+    async fn persistent_注册表登记_强杀后重开可发现_可接管可杀掉() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("registry");
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
+                &ctx_for(&root, "run-A"),
+            )
+            .await;
+        assert!(!out.is_error, "persistent 后台启动失败: {}", out.content);
+        let id = out
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+
+        // 注册表文件已落盘,条目登记了 id/pid/owner/日志名。
+        let path = registry_path(&root);
+        let text = std::fs::read_to_string(&path).expect("注册表文件应存在");
+        assert!(text.contains(&id), "注册表应含条目: {text}");
+        assert!(text.contains("run-A"), "条目应带 owner: {text}");
+
+        // 模拟"强杀 kzapp 后重开":内存注册表已经没了,但磁盘注册表还在——
+        // discover 从磁盘读,pid 活性判定为 running。
+        let entries = discover_persistent(&root);
+        let (entry, alive) = entries
+            .iter()
+            .find(|(e, _)| e.id == id)
+            .expect("discover 应列出上次未终结的服务");
+        assert!(alive, "pid 存活应为 running");
+        assert_eq!(entry.command, linger(), "条目应保留原始命令");
+
+        // 接管:重建内存对象,pid 一致、is_running 成立、日志路径可回看。
+        let adopted = adopt_persistent(&root, &id)
+            .await
+            .expect("running 服务应可接管");
+        assert!(adopted.is_running(), "接管后应视为运行中");
+        assert_eq!(adopted.pid, Some(entry.pid), "接管应保持原 pid");
+        assert!(adopted.log_path.is_some(), "接管后日志路径应可回看");
+        assert_eq!(adopted.owner.run_id, "run-A", "接管保留 owner 归因");
+
+        // 杀掉:进程树真的消失,注册表条目清除(不留幽灵)。
+        assert!(kill_registered(&root, &id).await, "kill 应命中注册表条目");
+        let gone = wait_until(|| !crate::shell::process_alive(entry.pid), 15_000).await;
+        assert!(gone, "kill 后进程树必须真的消失");
+        assert!(
+            discover_persistent(&root).is_empty(),
+            "处置后注册表应清空,不留幽灵条目"
+        );
+        std::fs::remove_file(registry_path(&root)).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收②:幽灵条目(pid 已死的注册表残留)被 discover 标失败并清出,
+    /// 日志文件保留(回看不受影响)。
+    #[tokio::test]
+    async fn persistent_幽灵条目_discover标失败并清理不留幽灵() {
+        let root = temp_managed_project("ghost");
+        // 手工造一个 pid 必死的条目(不存在的 pid)。
+        let ghost = PersistentEntry {
+            id: "bg-ghost".into(),
+            command: "ghost command".into(),
+            project_root: root.display().to_string(),
+            workdir: root.display().to_string(),
+            owner: BackgroundOwner {
+                run_id: "run-dead".into(),
+                process_id: "proc-dead".into(),
+                write_key: "key-dead".into(),
+            },
+            started_at_ms: now_ms(),
+            pid: u32::MAX - 1,
+            log: "bg-ghost.log".into(),
+        };
+        save_registry(&root, &[ghost]);
+
+        let out = crate::process::ProcessTool
+            .execute(
+                serde_json::json!({"action": "discover"}),
+                &ctx_for(&root, "run-new"),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("bg-ghost [failed (pruned)]"),
+            "幽灵条目应标失败并清理: {}",
+            out.content
+        );
+        assert!(
+            discover_persistent(&root).is_empty(),
+            "幽灵条目清出后注册表不应残留"
+        );
+        std::fs::remove_file(registry_path(&root)).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收④:persistent 档位写托管路径仍被 D-174 的归因/回滚拦下——
+    /// 脱离 owner run 不等于脱离文件隔离。越界即终止进程树,归因记录点名 owner。
+    #[tokio::test]
+    async fn persistent_写托管路径仍被隔离回滚并归因到owner() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("persist-breach");
+        let target = root.join(".kanzei/project/defects.md");
+        let (prelude, marker) = tree_prelude("persist-breach");
+        let command = format!(
+            "{prelude}{j}{}{j}{}",
+            delayed_write_command(&target, "PERSIST-BREACH"),
+            linger(),
+            j = joiner()
+        );
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": command, "background": true, "persistent": true }),
+                &ctx_for(&root, "run-pb"),
+            )
+            .await;
+        assert!(!out.is_error, "persistent 后台启动失败: {}", out.content);
+        let id = out
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+        let root_pid = get(&id).unwrap().pid.expect("后台任务应有 pid");
+        let grandchild = require_grandchild(grandchild_pid(&marker).await);
+
+        let process = get(&id).unwrap();
+        assert!(
+            wait_until(|| !process.breaches().is_empty(), 10_000).await,
+            "persistent 越界写必须被守卫抓到"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            ORIGINAL_DEFECTS,
+            "persistent 越界写入必须被回滚"
+        );
+        assert!(
+            process.breaches()[0]
+                .touched
+                .iter()
+                .any(|p| p.ends_with("defects.md")),
+            "归因记录要点名被改的路径"
+        );
+        assert_tree_gone(root_pid, grandchild, "persistent 越界即终止").await;
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收④+②:adopt 接管的长驻服务仍受守卫约束——接管后写托管路径
+    /// 一样被回滚并终止,脱离 owner run 不等于脱离文件隔离。
+    #[tokio::test]
+    async fn persistent_adopt后写托管路径仍被回滚_守卫继续生效() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("adopt-breach");
+        let target = root.join(".kanzei/project/defects.md");
+        // 起一个**无守卫**的长进程(std::process::Command,不进后台注册表),避免
+        // 原 register 的守卫抢占对账——真实重启场景里原守卫已随 kzapp 消亡。
+        let shell = crate::shell::detected_shell();
+        let mut child = std::process::Command::new(&shell.program)
+            .args(&shell.args)
+            .arg("Start-Sleep -Seconds 300")
+            .current_dir(&root)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn 长进程");
+        let pid = child.id();
+        let entry = PersistentEntry {
+            id: "bg-adopt".into(),
+            command: "Start-Sleep -Seconds 300".into(),
+            project_root: root.display().to_string(),
+            workdir: root.display().to_string(),
+            owner: BackgroundOwner {
+                run_id: "run-ab".into(),
+                process_id: "proc-ab".into(),
+                write_key: "key-ab".into(),
+            },
+            started_at_ms: now_ms(),
+            pid,
+            log: "bg-adopt.log".into(),
+        };
+        save_registry(&root, &[entry]);
+
+        // adopt 接管:重建内存对象并重新挂守卫(基于接管时重拍的基线)。
+        let adopted = adopt_persistent(&root, "bg-adopt")
+            .await
+            .expect("running 服务应可接管");
+        assert_eq!(adopted.pid, Some(pid), "接管保持原 pid");
+
+        // 接管后写托管路径:adopted 的守卫(唯一的守卫)必须回滚并终止进程树。
+        std::fs::write(&target, "ADOPT-BREACH").unwrap();
+        assert!(
+            wait_until(|| !adopted.breaches().is_empty(), 10_000).await,
+            "接管后的守卫必须继续对账"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).unwrap(),
+            ORIGINAL_DEFECTS,
+            "接管后越界写入必须回滚"
+        );
+        assert!(
+            adopted.breaches()[0]
+                .touched
+                .iter()
+                .any(|p| p.ends_with("defects.md")),
+            "归因记录要点名被改的路径"
+        );
+        // 越界即终止:adopted 进程被守卫杀掉(pid 活性轮询把 exit 推进为终止)。
+        let gone = wait_until(|| !crate::shell::process_alive(pid), 15_000).await;
+        assert!(gone, "adopt 后越界仍应终止进程树");
+        let not_running = wait_until(|| !adopted.is_running(), 5_000).await;
+        assert!(not_running, "adopted 进程被杀后 is_running 应为 false");
+        let _ = child.wait();
+        std::fs::remove_file(registry_path(&root)).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-180 验收①:运行停止回收(kill_project / kill_process)跳过 persistent——
+    /// 长驻服务的生命周期已显式脱离 owner run,只能由 process stop/kill 或
+    /// 注册表处置显式终止;默认档位照常回收。
+    #[tokio::test]
+    async fn persistent_项目回收跳过_默认档位照常回收() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("reap");
+        let default_id = start_background(&root, linger(), "run-reap").await;
+        let persist_real = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
+                &ctx_for(&root, "run-reap"),
+            )
+            .await;
+        assert!(!persist_real.is_error, "{}", persist_real.content);
+        let persist_id = persist_real
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+
+        assert!(get(&default_id).unwrap().is_running());
+        assert!(get(&persist_id).unwrap().is_running());
+
+        // kill_project 回收:persistent 必须活,默认档位必须死。
+        let killed = kill_project(&root).await;
+        assert!(killed >= 1, "默认档位应被回收: {killed}");
+        let default_gone = wait_until(
+            || get(&default_id).map(|p| !p.is_running()).unwrap_or(true),
+            15_000,
+        )
+        .await;
+        assert!(default_gone, "默认档位应在项目回收时被收掉");
+        assert!(
+            get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
+            "persistent 长驻服务不得被项目回收误杀"
+        );
+        // 显式处置才能终止 persistent。
+        assert!(stop(&persist_id).await);
+        let gone = wait_until(|| !get(&persist_id).unwrap().is_running(), 15_000).await;
+        assert!(gone, "显式 stop 应能终止 persistent 服务");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// process 工具 discover/adopt/kill 全链路走工具面(验收②的消费者视角)。
+    #[tokio::test]
+    async fn process_工具_discover_adopt_kill_全链路() {
+        let _guard = fence_guard();
+        let root = temp_managed_project("proc-registry");
+        let out = crate::bash::BashTool
+            .execute(
+                serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
+                &ctx_for(&root, "run-proc"),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        let id = out
+            .content
+            .lines()
+            .find_map(|line| line.strip_prefix("process_id: "))
+            .expect("应有 process_id")
+            .trim()
+            .to_string();
+        let ctx = ctx_for(&root, "run-proc");
+
+        let discovered = crate::process::ProcessTool
+            .execute(serde_json::json!({"action": "discover"}), &ctx)
+            .await;
+        assert!(!discovered.is_error, "{}", discovered.content);
+        assert!(
+            discovered.content.contains(&format!("{id} [running]")),
+            "discover 应列出 running 状态: {}",
+            discovered.content
+        );
+        assert!(
+            discovered.content.contains("\"action\":\"adopt\"")
+                && discovered.content.contains("\"action\":\"kill\""),
+            "discover 应给出接管/杀掉两种处置: {}",
+            discovered.content
+        );
+
+        let adopted = crate::process::ProcessTool
+            .execute(serde_json::json!({"action": "adopt", "id": id}), &ctx)
+            .await;
+        assert!(!adopted.is_error, "{}", adopted.content);
+        assert!(adopted.content.contains("adopted"), "{}", adopted.content);
+        assert!(get(&id).unwrap().is_running(), "接管后应运行中");
+
+        let killed = crate::process::ProcessTool
+            .execute(serde_json::json!({"action": "kill", "id": id}), &ctx)
+            .await;
+        assert!(!killed.is_error, "{}", killed.content);
+        assert!(killed.content.contains("killed"), "{}", killed.content);
+        assert!(discover_persistent(&root).is_empty(), "kill 后注册表应清空");
+        std::fs::remove_file(registry_path(&root)).ok();
         std::fs::remove_dir_all(&root).ok();
     }
 }
