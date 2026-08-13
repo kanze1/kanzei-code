@@ -3752,4 +3752,50 @@
 - observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786605459728
-- 阻塞: 
+
+## D-207 取活顺序所见非所得:视图排序与优先级徽章都不参与取活,界面零提示 [fixed] (medium)
+- refs: R-054 R-111
+- 复现: 2026-08-09 用户反馈"取需求和缺陷的顺序看不懂了,因为侧边栏可以调整顺序"。机制现状:①取活真序 = md 文件物理顺序从上到下(dev prompt "Scan from top to bottom",schedule_entries 只后置阻塞项、不改文件);②侧栏拖拽(manual 排序+无筛选时)经 docs_update reorder **写回文件**,真的改变取活顺序;③侧栏另有 id/状态/复杂度/优先级四种视图排序(main.js filterRequirements),**只改显示**;④优先级徽章 P0~P3 完全不参与取活(prompt 明言 "Priority labels are background info, not the ordering")。
+- 影响: 选了任何视图排序后,用户看到的顺序与 agent 取活顺序完全无关,界面没有任何提示;优先级徽章满屏,人天然以为按 P0→P3 取活,实际一票不投——近期把 5 条需求升 P0(576d725)在取活上零效果,用户的调度意图静默落空。三种顺序语义(文件序=取活序/视图序/优先级暗示序)混在同一个列表上,只在"manual+无筛选"时才重合。
+- 根因: R-054 定了"文件顺序即开发顺序"的单一真源,后续视图排序与优先级徽章叠上去时,没有同步交代它们与真源的关系;取活规则只写在 prompt 里,UI 侧无任何投影。
+- 验收: ①非 manual 排序视图下,侧栏显式提示"当前显示顺序≠取活顺序"(或等价视觉语言);②有一处能看到真序:取活预览(下一条会被拿的条目有标记,阻塞项显示跳过原因)或一键切回文件序;③优先级二选一——要么参与取活(prompt 与 schedule 同步改,并写清与文件序的优先关系),要么在 UI 上明示"仅参考,不影响取活";④用户复查确认能看懂"agent 下一个会拿哪条、为什么"。
+- 证据等级: E1(代码四处机制实证 + 用户反馈)
+- 优先级: P1
+- 标签: 前端
+
+- 进展: 2026-08-09 部分交付…(前文保留);2026-08-10 用户反馈验收④未过:blocked doing 被渲染成「运行中」——computeAgentFocus 修复①:active 排除 entry.blocked;2026-08-10 再反馈:active 集合无意义,退化为单条——computeAgentFocus 改为取活序第一个可执行的 doing/fixing 单条 id。①②③已交付。 ‖ 2026-08-13 用户装 build-0b40763 后目视确认:侧栏取活焦点现为单任务显示,确认能看懂「下一个会拿哪条」,验收④通过,关闭本条。
+
+- 阻塞: 验收④用户复查:ui 资源打包进 exe,需用户跑 release.ps1 重建 kzapp 后实际查看侧栏取活焦点并确认能看懂;解除人=用户(重建+复查后确认即关闭)。
+- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786610851224
+
+## D-278 子代理面板打开后无就绪状态:侧边栏小窗口看不到「子代理可用」文案(设置页有,面板没有) [fixed] (medium)
+- content: 侧边栏 ◉ 按钮打开的子代理面板(#agent-panel)只有「运行中/已完成/已关闭」三个分区,没有任何就绪/可用状态信息。设置页 fast 行已正确显示「✓ 子代理就绪(qwen3.5:4b)」(fast_model_status 返回 ready=true),但面板打开后用户看不到子代理是否可用——缺环时(Ollama 未装/服务未起/模型未拉)也无法从面板感知。
+- label: 前端
+- priority: P2
+- severity: medium
+- 修复: 面板头部加状态行:打开面板时 invoke fast_model_status 并按 managed/ready 显示与设置页同源的文案(就绪/未安装/服务未运行/模型未拉取/外部 provider)。文案计算抽成共享函数 fastStatusText(s) 供设置页与面板同源,避免两处漂移。
+- 复现: 1) 打开设置页确认 fast 行显示就绪(或缺环文案);2) 点侧边栏 ◉ 打开子代理面板;3) 面板内只有空的三分区,无任何就绪/可用文案。
+- 根因: R-174 子代理面板只消费 RunEvent 渲染运行记录,未接入 fast_model_status 就绪数据源;就绪状态只在设置页(refreshFastStatus)渲染过一次,面板打开时无独立查询与展示。
+- 进展: 修复完成:①index.html 面板头部加 #agent-panel-status 状态行;②06-agent-panel.js 新增 fastStatusText(s) 共享函数与 refreshAgentPanelStatus;③16-settings.js refreshFastStatus 复用 fastStatusText,设置页与面板同源;④style.css .agent-panel-status 样式。验证:node --check、frontend_check、ui-runtime-smoke、cargo test -p kanzei-app 全绿。 ‖ 2026-08-13 用户装 build-0b40763 后目视确认:打开子代理面板头部显示就绪状态文案,验收通过,关闭本条。
+- status: fixing
+- 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,面板就绪状态行无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,打开侧边栏子代理面板确认显示「✓ 子代理就绪(qwen3.5:4b)」(或缺环文案),确认后关闭。解除人:用户。
+- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786610851513
+
+## D-280 「回到最新」按钮悬浮位置错误:相对 #main 硬编码 bottom:92px,被输入区遮挡 [fixed] (medium)
+- content: 「回到最新」按钮(#jump-latest)悬浮位置错误:它用 position:absolute 相对 #main 定位,bottom:92px 是硬编码,而 #composer 实际高度约 120px+(padding 24 + textarea 3 行 + composer-bar),按钮被压在输入区里;附件条/继续文案面板展开时被遮挡更严重。
+- label: 前端
+- priority: P2
+- severity: low
+- 修复: 把按钮移进 #messages 内部并给 #messages 加 position:relative,按钮改为 right:22px;bottom:14px 相对消息区右下角悬浮,composer 高度变化不再影响;删除已失效的 #messages + #jump-latest 兄弟选择器规则。
+- 复现: 1) 长对话向上滚动,出现「回到最新」按钮;2) 按钮落在输入框区域内/紧贴输入框,而不是悬浮在消息列表右下角。
+- 根因: #jump-latest 是 #messages 的兄弟节点,包含块是 #main(position:relative),bottom:92px 相对整个主视图底部,与 composer 真实高度不耦合。
+- 进展: 修复完成:①index.html 把 #jump-latest 移进 #messages 内部;②style.css #messages 加 position:relative,#jump-latest 改 right:22px;bottom:14px,删除失效兄弟选择器。验证:frontend_check、ui-runtime-smoke 全绿。 ‖ 2026-08-13 用户装 build-0b40763 后目视确认:「回到最新」按钮悬浮在消息列表右下角、输入框上方,不再被遮挡,验收通过,关闭本条。
+- status: fixing
+- 阻塞: 外部阻塞(验收确认):ui 资源打包进 exe,当前运行中的 kzapp 是旧构建,按钮新位置无法目视。解除动作:用户跑 release.ps1 重建 kzapp 后,长对话向上滚动,确认「回到最新」按钮悬浮在消息列表右下角、输入框上方(不再被遮挡),确认后关闭。解除人:用户。
+- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
+- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
+- recorded_at: 1786610851817

@@ -2249,3 +2249,9 @@
 - 摘要: kanzei 全测试绿:always_allow_bash 3(迁移 4 处 spawn 到 TestHome::apply)、context_overflow_recovery 2(helper 迁移)、global_home_guard 1(守护测试:USERPROFILE 无 KANZEI_HOME 即红,当前零命中)。
 - 关联: R-200
 - 收尾: 1786609889
+
+## T-1786610353 发版门禁 verify.ps1(build-0b40763) [passed]
+- 命令: .\scripts\verify.ps1(发布树,HEAD 0b40763)
+- 摘要: 发版门禁十步全绿(含 R-209 新增 ui-lint 步),verification.json 绑定 0b40763。package.ps1 -Ack 8 打包通过(build-f6bd80f 后 8 提交:R-210/212/209/200),gh release build-0b40763 发布为 Latest。
+- 关联: R-200 R-212 R-209 R-210
+- 收尾: 1786610353
