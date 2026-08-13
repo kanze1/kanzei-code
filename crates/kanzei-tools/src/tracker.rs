@@ -622,11 +622,20 @@ impl Tool for TrackerTool {
                     return ToolOutput::error(e);
                 }
                 let updates_progress = input.fields.contains_key("进展");
+                // R-232:幂等化需要"变更前"快照。锚点字段(recorded_at/observed_head/
+                // observed_worktree_hash)是引擎维护的仓库指纹,不属于用户可见变更,
+                // 同值 update 连锚点都不刷新(文件零写入,验收①)。
+                let before = entries[pos].clone();
+                // R-232 验收③:close 幂等重入——已终态(done/fixed)条目再次 close
+                // 不是新关闭,不重跑关闭门禁(前端冒烟/分类断言/批次/测试记录校验),
+                // 目标仍是当前终态;字段合并照常,让"补字段的重入"可写。
+                let already_terminal = self.kind.terminal.contains(&entries[pos].status.as_str());
                 // R-228 关闭门禁:带「前端」标签的条目关闭前必须已有前端冒烟 passed
                 // 测试记录(verify.ps1 六步前端 smoke 的一部分)。cargo test 全绿不等于
                 // 全量——前端标签任务可能改了 ui/*.js,只跑 Rust 测试发现不了 i18n 缺
                 // key、smoke 断言过时(D-320 根因)。非前端标签条目不受影响(验收③)。
-                if input.action == "close" {
+                // R-232:终态重入跳过——已关闭条目的再次 close 不是新关闭,不再要求冒烟。
+                if input.action == "close" && !already_terminal {
                     let tag = entries[pos]
                         .fields
                         .iter()
@@ -645,74 +654,85 @@ impl Tool for TrackerTool {
                     }
                 }
                 let target_status = if input.action == "close" {
-                    // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
-                    // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
-                    let merged = {
-                        let mut probe = entries[pos].clone();
-                        for (key, value) in &input.fields {
-                            match probe.fields.iter_mut().find(|(k, _)| k == key) {
-                                Some((_, slot)) => *slot = value.clone(),
-                                None => probe.fields.push((key.clone(), value.clone())),
+                    // R-232 验收③:close 幂等重入——已终态条目再次 close 不是新关闭,
+                    // 跳过批次/断言/测试记录等关闭校验,目标仍是当前终态。
+                    // 字段合并照常(重入可补字段),无变更时下方 no-op 判定会零写入返回。
+                    if already_terminal {
+                        Some(entries[pos].status.clone())
+                    } else {
+                        // 批次没走完不能关:格子是给人看进度的,关闭时还剩空格,要么是漏了批次,
+                        // 要么是总数当初估多了——两种都要说清楚,不能默默把空格留在那儿。
+                        let merged = {
+                            let mut probe = entries[pos].clone();
+                            for (key, value) in &input.fields {
+                                match probe.fields.iter_mut().find(|(k, _)| k == key) {
+                                    Some((_, slot)) => *slot = value.clone(),
+                                    None => probe.fields.push((key.clone(), value.clone())),
+                                }
+                            }
+                            probe
+                        };
+                        // R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须
+                        // 逐处带 file:line 引证,引证数不足断言声称的总处数即拒关闭。
+                        // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
+                        // 产出 D-320/D-323;无分类断言的关闭不受影响。)
+                        if let Some(evidence_err) = check_close_classification_evidence(&merged) {
+                            return ToolOutput::error(format!("{id} {evidence_err}"));
+                        }
+                        let derived_done =
+                            crate::git_batches::completed_batches(&ctx.project_root, id)
+                                .ok()
+                                .filter(|done| *done > 0);
+                        if let (Some((declared_done, declared_total)), Some(derived_done)) = (
+                            crate::docstore::declared_batch_progress(&merged),
+                            derived_done,
+                        ) {
+                            if declared_done != derived_done {
+                                return ToolOutput::error(format!(
+                                    "{id} 的手写批次是 {declared_done}/{declared_total},但 Git 提交历史标记数为 {derived_done};请先核对并更新批次字段后再关闭。"
+                                ));
                             }
                         }
-                        probe
-                    };
-                    // R-229 关闭门禁:出现「剩余/其余 N 处」式分类断言时,关闭文本必须
-                    // 逐处带 file:line 引证,引证数不足断言声称的总处数即拒关闭。
-                    // (根因:R-199 关闭证据把完整否决误归为「非续跑否决」且无人核对,
-                    // 产出 D-320/D-323;无分类断言的关闭不受影响。)
-                    if let Some(evidence_err) = check_close_classification_evidence(&merged) {
-                        return ToolOutput::error(format!("{id} {evidence_err}"));
-                    }
-                    let derived_done = crate::git_batches::completed_batches(&ctx.project_root, id)
-                        .ok()
-                        .filter(|done| *done > 0);
-                    if let (Some((declared_done, declared_total)), Some(derived_done)) = (
-                        crate::docstore::declared_batch_progress(&merged),
-                        derived_done,
-                    ) {
-                        if declared_done != derived_done {
+                        let (done, total) = crate::docstore::batch_progress_with_derived_done(
+                            &merged,
+                            derived_done,
+                        );
+                        if total > 1 && done < total {
                             return ToolOutput::error(format!(
-                                "{id} 的手写批次是 {declared_done}/{declared_total},但 Git 提交历史标记数为 {derived_done};请先核对并更新批次字段后再关闭。"
+                                "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
+                                 (`批次: {done}/{done}`——当初估多了是正常的,改它比留着空格诚实);\
+                                 还有批次没做就先做完再关。"
                             ));
                         }
+                        // 关闭前必须先收尾该条目名下的测试记录:一条挂着的 running 与"根本没跑"
+                        // 无法区分,带着它关闭等于把未验证当成已验证入账。
+                        let unclosed =
+                            crate::test_record::unclosed_running_for(&ctx.project_root, id);
+                        if !unclosed.is_empty() {
+                            return ToolOutput::error(format!(
+                                "{id} 名下还有 {} 条 running 测试记录没收尾,不能关闭:\n{}\n\
+                                 跑完就用 test_record 带上对应 id 记终态(passed/failed/skipped);\
+                                 确实不跑了记 skipped 并写明原因。",
+                                unclosed.len(),
+                                unclosed
+                                    .iter()
+                                    .map(|(rid, title)| format!("  - {rid} {title}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            ));
+                        }
+                        let status = input
+                            .status
+                            .clone()
+                            .unwrap_or_else(|| self.kind.terminal[0].to_string());
+                        if !self.kind.terminal.contains(&status.as_str()) {
+                            return ToolOutput::error(format!(
+                                "close target must be terminal: {}",
+                                self.kind.terminal.join(" | ")
+                            ));
+                        }
+                        Some(status)
                     }
-                    let (done, total) =
-                        crate::docstore::batch_progress_with_derived_done(&merged, derived_done);
-                    if total > 1 && done < total {
-                        return ToolOutput::error(format!(
-                            "{id} 批次未走完({done}/{total}),不能关闭。真做完了就把总数改成实际批数\
-                             (`批次: {done}/{done}`——当初估多了是正常的,改它比留着空格诚实);\
-                             还有批次没做就先做完再关。"
-                        ));
-                    }
-                    // 关闭前必须先收尾该条目名下的测试记录:一条挂着的 running 与"根本没跑"
-                    // 无法区分,带着它关闭等于把未验证当成已验证入账。
-                    let unclosed = crate::test_record::unclosed_running_for(&ctx.project_root, id);
-                    if !unclosed.is_empty() {
-                        return ToolOutput::error(format!(
-                            "{id} 名下还有 {} 条 running 测试记录没收尾,不能关闭:\n{}\n\
-                             跑完就用 test_record 带上对应 id 记终态(passed/failed/skipped);\
-                             确实不跑了记 skipped 并写明原因。",
-                            unclosed.len(),
-                            unclosed
-                                .iter()
-                                .map(|(rid, title)| format!("  - {rid} {title}"))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        ));
-                    }
-                    let status = input
-                        .status
-                        .clone()
-                        .unwrap_or_else(|| self.kind.terminal[0].to_string());
-                    if !self.kind.terminal.contains(&status.as_str()) {
-                        return ToolOutput::error(format!(
-                            "close target must be terminal: {}",
-                            self.kind.terminal.join(" | ")
-                        ));
-                    }
-                    Some(status)
                 } else {
                     input.status.clone()
                 };
@@ -770,6 +790,18 @@ impl Tool for TrackerTool {
                         None => entry.fields.push(("refs".into(), joined)),
                     }
                 }
+                // R-232 幂等判定:用户可见变更(忽略引擎锚点)不存在 → no-op,零写入。
+                // 锚点字段(recorded_at/observed_head/observed_worktree_hash)是仓库指纹,
+                // 由「进展」落笔时引擎维护;同值 update 不刷新它们,文件字节保持原样。
+                let before_visible = user_visible_fields(&before);
+                let after_visible = user_visible_fields(&entries[pos]);
+                if before_visible == after_visible {
+                    return ToolOutput::ok(format!(
+                        "no-op: {id} 字段已是该值,未写入(旧→新无差异)。"
+                    ));
+                }
+                // 有变更:返回 旧→新 摘要,再落盘。
+                let diff_summary = field_diff_summary(&before_visible, &after_visible);
                 let line = render_line(&entries[pos]);
                 if let Err(e) = store.save(&entries) {
                     return ToolOutput::error(format!(
@@ -783,10 +815,10 @@ impl Tool for TrackerTool {
                 // 残留段落会一直藏到有人用 git 手工翻。
                 let raws = store.raw_lines(id);
                 if raws.is_empty() {
-                    ToolOutput::ok(format!("updated: {line}"))
+                    ToolOutput::ok(format!("updated: {line}\n变更: {diff_summary}"))
                 } else {
                     ToolOutput::ok(format!(
-                        "updated: {line}\n⚠ {id} 仍携带 {} 条不可寻址的游离段落(历史多行写法/手改残留,本次 update 不新增也不清除)。\
+                        "updated: {line}\n变更: {diff_summary}\n⚠ {id} 仍携带 {} 条不可寻址的游离段落(历史多行写法/手改残留,本次 update 不新增也不清除)。\
                          用 `{tool} raw_lines id={id}` 查看、`{tool} raw_delete id={id} ordinal=<n>` 按序号清理。",
                         raws.len(),
                         tool = self.tool_name
@@ -2014,6 +2046,62 @@ fn check_close_classification_evidence(entry: &Entry) -> Option<String> {
 }
 
 /// 从条目正文(标题 + 全部字段值)提取代码/文档路径(crates/ 与 docs/ 开头的 token)。
+/// R-232:条目的用户可见字段视图——剔除引擎维护的仓库锚点键,并把 status/title/
+/// severity 一并纳入比较(close 改状态、update 改标题都算用户变更)。锚点
+/// (recorded_at/observed_head/observed_worktree_hash)由「进展」落笔时随
+/// progress_anchor_fields 写入,是机械指纹而非用户意图;同值 update 不刷新它们。
+fn user_visible_fields(entry: &Entry) -> Vec<(String, String)> {
+    const ANCHOR_KEYS: &[&str] = &["recorded_at", "observed_head", "observed_worktree_hash"];
+    let mut visible = vec![("状态".into(), entry.status.clone())];
+    visible.push(("标题".into(), entry.title.clone()));
+    if let Some(sev) = &entry.severity {
+        visible.push(("severity".into(), sev.clone()));
+    }
+    visible.extend(
+        entry
+            .fields
+            .iter()
+            .filter(|(k, _)| !ANCHOR_KEYS.contains(&k.as_str()))
+            .cloned(),
+    );
+    visible.sort_by(|a, b| a.0.cmp(&b.0));
+    visible
+}
+
+/// R-232:两条用户可见字段视图的 旧→新 差异摘要。逐字段列出变化的键,
+/// 格式 `字段: 旧 → 新`,多字段用 `; ` 连接。无差异返回空串(调用方先判 no-op)。
+fn field_diff_summary(before: &[(String, String)], after: &[(String, String)]) -> String {
+    let keys = {
+        let mut all = BTreeSet::new();
+        for (k, _) in before {
+            all.insert(k.clone());
+        }
+        for (k, _) in after {
+            all.insert(k.clone());
+        }
+        all
+    };
+    let mut parts = Vec::new();
+    for key in keys {
+        let old = before
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str());
+        let new = after
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str());
+        if old != new {
+            parts.push(format!(
+                "{key}: {} → {}",
+                old.unwrap_or("∅"),
+                new.unwrap_or("∅")
+            ));
+        }
+    }
+    parts.join("; ")
+}
+
 fn entry_paths(entry: &Entry) -> Vec<String> {
     let mut text = entry.title.clone();
     for (_, value) in &entry.fields {
@@ -2420,6 +2508,117 @@ mod tests {
         let after = store.load().unwrap();
         assert_eq!(after.len(), before.len(), "未知 ID 不得写盘");
 
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-232 验收①:同值 update 返回 no-op 且文件字节不变。
+    /// 验收②:变更 update 返回 旧→新 摘要。
+    #[tokio::test]
+    async fn 同值update返回noop且文件字节不变_变更返回旧到新摘要() {
+        let dir = std::env::temp_dir().join(format!("kz-idem-update-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "doing".into();
+        e.fields = vec![
+            ("优先级".into(), "P1".into()),
+            ("进展".into(), "2026-08-10 既有".into()),
+        ];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let path = dir.join(".kanzei/project/requirements.md");
+
+        // 同值 update:no-op + 文件字节不变。
+        let before_bytes = std::fs::read(&path).unwrap();
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001",
+                       "fields": {"优先级": "P1", "进展": "2026-08-10 既有"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("no-op"), "{}", out.content);
+        let after_bytes = std::fs::read(&path).unwrap();
+        assert_eq!(before_bytes, after_bytes, "同值 update 必须零写入");
+
+        // 变更 update:返回 旧→新 摘要且落盘。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"优先级": "P2"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("优先级: P1 → P2"), "{}", out.content);
+        let after_bytes = std::fs::read(&path).unwrap();
+        assert!(
+            after_bytes.windows(b"P2".len()).any(|w| w == b"P2"),
+            "变更必须落盘"
+        );
+        assert_ne!(before_bytes, after_bytes, "变更必须改变文件");
+
+        // 变更后同值再 update:又是 no-op。
+        let out = tool
+            .execute(
+                json!({"action": "update", "id": "R-001", "fields": {"优先级": "P2"}}),
+                &ctx,
+            )
+            .await;
+        assert!(out.content.contains("no-op"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// R-232 验收③:close 幂等重入安全——已 done 条目再次 close 返回 no-op,
+    /// 不再跑关闭门禁(前端冒烟/批次/分类断言),且文件字节不变。
+    #[tokio::test]
+    async fn close幂等重入_已终态条目再次关闭返回noop() {
+        let dir = std::env::temp_dir().join(format!("kz-idem-close-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let mut e = entry("R-001");
+        e.status = "done".into();
+        e.fields = vec![
+            ("标签".into(), "前端".into()),
+            ("批次".into(), "1/1".into()),
+        ];
+        DocStore::open(&dir, &REQUIREMENTS).save(&[e]).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "req",
+            noun: "requirement",
+            kind: &REQUIREMENTS,
+            requires_refs: None,
+        };
+        let path = dir.join(".kanzei/project/requirements.md");
+        let before_bytes = std::fs::read(&path).unwrap();
+
+        // 已 done 的前端标签条目:无前端冒烟 passed 也不应被 R-228 拦(重入非新关闭)。
+        let out = tool
+            .execute(json!({"action": "close", "id": "R-001"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("no-op"), "{}", out.content);
+        let after_bytes = std::fs::read(&path).unwrap();
+        assert_eq!(before_bytes, after_bytes, "重入 close 必须零写入");
+        let saved = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(saved[0].status, "done", "状态不得回退");
+
+        // 重入带字段补写:不是纯 no-op,允许落盘(有真实变更)。
+        let out = tool
+            .execute(
+                json!({"action": "close", "id": "R-001", "fields": {"进展": "2026-08-16 补记"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.content.contains("进展"), "{}", out.content);
+        let after_bytes = std::fs::read(&path).unwrap();
+        assert_ne!(before_bytes, after_bytes, "补字段应落盘");
         std::fs::remove_dir_all(dir).ok();
     }
 

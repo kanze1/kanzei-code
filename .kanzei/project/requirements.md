@@ -49,13 +49,14 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-232 tracker 写操作幂等化:同值 update 返回 no-op,变更返回 diff 摘要 [todo]
+## R-232 tracker 写操作幂等化:同值 update 返回 no-op,变更返回 diff 摘要 [doing]
 - 内容: update/close 对未变更字段返回「no-op: 字段已是该值」且文件零写入;有变更时返回 旧→新 摘要。消灭「先决定改 X→发现已是 X→仍执行写操作」的冗余调用与模糊回执引发的二次确认循环(V4PRO 实测 批次 0/3 冗余 update)。D-329 已修游离空段,本条补反馈语义
 - 复杂度: 小
 - 来源: 2026-08-13 V4PRO 运行复盘(refs R-230 D-329)
 - 标签: 后端
 - 验收: ①同值 update 返回 no-op 且文件字节不变(单测);②变更返回旧→新摘要;③close 幂等重入安全
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-232
 
 ## R-227 占位符测试 ID 提交门禁:tracker diff 出现 T-…xxx 即拒,存量 8 处回填或标注不可考 [todo]
 - 内容: commit 门禁扫描 tracker 文件 diff,出现 T-\d+xxx 形态的占位符测试 ID 即拒绝提交;配套要求 test_record 落盘后与引用它的证据同批入库,消灭隔时凭记忆写证据;存量 8 处(requirements-archive 2 处、defects-archive 6 处)回填真值或标注不可考
