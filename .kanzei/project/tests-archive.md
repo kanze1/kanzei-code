@@ -2374,3 +2374,10 @@
 - 摘要: R-175 B4 通知通道+三终态读槽释放:workspace 800 passed / 0 failed 全绿。SubagentRuntime 加 background_notifications(BackgroundNotificationSink 类型别名),drive.rs spawn 块完成/失败/超时调通知 sink(call_id, done|failed);验收⑤测试失败与被停终态_读槽均释放(快照无残留读者)+ 超时终态_读槽释放(外部 timeout 丢弃 future 与 drive 同语义);验收⑦通知断言(完成收到 done)。clippy 干净。
 - 关联: R-175
 - 收尾: 1786618647
+
+## T-1786618924 cargo test --workspace (R-175 B5) [passed]
+- 命令: cargo test --workspace
+- 时长: 58.0s
+- 摘要: R-175 B5 重启可发现:workspace 801 passed / 0 failed 全绿。drive.rs spawn 块派发即记 running 事件(与 done/failed 终态并列);新增 pending_background_subagents 纯函数——从 session_events 回放找「running 无终态」的 id(重启后列出上次未终结子代理,给出确定处置标失败,不留幽灵);验收③测试 pending_background_subagents_只列running无终态_终态不残留(A running 列出,B done/C failed 不残留)。clippy 干净。
+- 关联: R-175
+- 收尾: 1786618924

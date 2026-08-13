@@ -539,6 +539,21 @@ pub fn run_once_with_parts<'a>(
                             let notifications = rt.background_notifications.clone();
                             let timeout_secs = rt.timeout_secs;
                             tokio::spawn(async move {
+                                // R-175 B5:派发即记 running 事件——重启后从 session_events
+                                // 找「有 running 无后续终态」的 id,即上次未终结的子代理
+                                // (验收③:注册表能列出并给确定处置,不留幽灵条目)。
+                                if let Some(sink) = events.as_ref() {
+                                    sink(
+                                        &call_id,
+                                        serde_json::json!({
+                                            "kind": "task.lifecycle",
+                                            "id": call_id,
+                                            "state": "running",
+                                            "ok": null,
+                                            "preview": null,
+                                        }),
+                                    );
+                                }
                                 let bound = std::time::Duration::from_secs(timeout_secs);
                                 let output = match tokio::time::timeout(
                                     bound,

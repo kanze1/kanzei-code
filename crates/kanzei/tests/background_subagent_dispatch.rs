@@ -279,6 +279,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
     );
 
     // R-175 B2 验收⑥:生命周期事件可回放——sink 收到 task.lifecycle(done 终态)。
+    // B5 起有两条 task.lifecycle:先 running(派发)后 done(完成),断言必须匹配 done。
     let deadline_events = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         let lifecycle = {
@@ -288,6 +289,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
                 .find(|e| {
                     e.get("kind").and_then(|k| k.as_str()) == Some("task.lifecycle")
                         && e.get("id").and_then(|i| i.as_str()) == Some(&task_id)
+                        && e.get("state").and_then(|s| s.as_str()) == Some("done")
                 })
                 .cloned()
         };

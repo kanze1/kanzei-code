@@ -86,6 +86,46 @@ pub type TranscriptStore =
 /// type 别名:避免 clippy type_complexity。
 pub type BackgroundNotificationSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
+/// R-175 B5:重启可发现——从 session_events 回放,找出「上次未终结」的后台子代理。
+///
+/// 后台子代理的 task.lifecycle 事件(running / done / failed)经 background_events
+/// sink 落 session_events。进程强杀后重开,内存注册表已丢,但事件轨迹还在:按 id
+/// 聚合全部 task.lifecycle,若最后一个 state 是 `running`(无后续 done/failed),
+/// 说明该子代理在进程死亡时仍在跑——给出确定处置(标失败,不放幽灵条目)。
+///
+/// 返回未终结子代理的 id 列表(去重、按首见顺序)。
+pub fn pending_background_subagents(events: &[crate::store::StoredEvent]) -> Vec<String> {
+    let mut latest: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for event in events {
+        if event.event_type != "run.trace" {
+            continue;
+        }
+        let Some(items) = event.payload.get("events").and_then(|e| e.as_array()) else {
+            continue;
+        };
+        for item in items {
+            if item.get("kind").and_then(|k| k.as_str()) != Some("task.lifecycle") {
+                continue;
+            }
+            let Some(id) = item.get("id").and_then(|i| i.as_str()) else {
+                continue;
+            };
+            let Some(state) = item.get("state").and_then(|s| s.as_str()) else {
+                continue;
+            };
+            if !latest.contains_key(id) {
+                order.push(id.to_string());
+            }
+            latest.insert(id.to_string(), state.to_string());
+        }
+    }
+    order
+        .into_iter()
+        .filter(|id| latest.get(id).map(|s| s.as_str()) == Some("running"))
+        .collect()
+}
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 #[derive(Clone)]
@@ -458,6 +498,44 @@ mod tests {
         assert!(
             !registry.cancel("timed-out-task"),
             "外层 timeout 丢弃 future 后，死 token 不得继续可取消"
+        );
+    }
+
+    /// R-175 B5 验收③:重启可发现——从 session_events 回放,找「running 无终态」的子代理;
+    /// 有 done/failed 终态的不得残留(不留幽灵条目)。
+    #[test]
+    fn pending_background_subagents_只列running无终态_终态不残留() {
+        let trace = |id: &str, state: &str| crate::store::StoredEvent {
+            event_id: format!("ev_{id}_{state}"),
+            session_id: "ses".into(),
+            sequence: 1,
+            event_type: "run.trace".into(),
+            payload: serde_json::json!({
+                "run_id": "r",
+                "events": [{
+                    "kind": "task.lifecycle",
+                    "id": id,
+                    "state": state,
+                }],
+                "partial": true,
+            }),
+            created_at: 1,
+        };
+        // 子代理 A:running 无终态(强杀时仍在跑)→ 必须列出。
+        // 子代理 B:running → done(正常完成)→ 不得列出。
+        // 子代理 C:running → failed(失败终态)→ 不得列出。
+        let events = vec![
+            trace("A", "running"),
+            trace("B", "running"),
+            trace("B", "done"),
+            trace("C", "running"),
+            trace("C", "failed"),
+        ];
+        let pending = super::pending_background_subagents(&events);
+        assert_eq!(
+            pending,
+            vec!["A".to_string()],
+            "只应列出 running 无终态的 A: {pending:?}"
         );
     }
 }
