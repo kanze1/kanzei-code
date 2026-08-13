@@ -394,8 +394,11 @@ impl Component for DevProfile {
                         "<project-docs>\n(empty — record requirements with `req add`, defects with `defect add`)\n</project-docs>".into(),
                     );
                 }
+                // 取活口径单源:必须与 dev system prompt 的取活显式序同义。此前这里
+                // 中文句写死"requirements 先"而同段英文句默认 defect-first,自相矛盾,
+                // 还与旧 M-002 记忆(需求恒优先)打架——同一契约不许多处各说各话。
                 Some(format!(
-                    "<project-docs>\n取活顺序:按 requirements.md 文件顺序自上而下,再 defects.md;priority 只做背景,不改变顺序。\n{}{}Use the selected work-priority mode from the run instruction to choose between the requirements and defects queues; when no mode is supplied, use defects-first. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
+                    "<project-docs>\n{}{}Pick the first queue by the work-priority mode in the run instruction (defect-first when no mode is supplied); scan it top-down by file order, then the other queue only when the first has no workable item. Priority labels are background info, not the ordering. Use req/defect tools to read or update; direct writes are denied.\n</project-docs>",
                     def.map(|s| s + "\n").unwrap_or_default(),
                     req.map(|s| s + "\n").unwrap_or_default(),
                 ))
