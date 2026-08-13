@@ -1076,12 +1076,21 @@ fn parse_heading(kind: &DocKind, rest: &str) -> Entry {
                 }
             }
         }
-        // status 同样必须命中合法枚举才剥离,否则标题里的方括号(如 "支持 vec[index] 语法"、
-        // "处理 [DONE] 帧")会被截断成非法状态并永久固化(D-070,与 D-002 同族)。
+        // status 剥离判据(D-332 重构):只有「方括号在尾部且 [ 前是空白」才是状态标记
+        // 形态——`vec[index]` 的 [ 前是字母、`[DONE] 帧` 的 ] 不在尾部,两者都不是状态
+        // 标记,原样保留(D-070 与 D-002 同族)。形态符合时**合法/非法都剥离**:非法
+        // candidate(如 requirement 上的 `[open]`)保留在 status 字段里,由调度层
+        // fail-closed(INVALID + integrity 报错),不再静默变空字符串被当成可执行。
         if t.ends_with(']') {
             if let Some(pos) = t.rfind('[') {
                 let candidate = t[pos + 1..t.len() - 1].trim();
-                if kind.statuses.contains(&candidate) {
+                let preceded_by_space = pos > 0
+                    && t[..pos]
+                        .chars()
+                        .last()
+                        .map(|c| c.is_whitespace())
+                        .unwrap_or(false);
+                if preceded_by_space && !candidate.is_empty() {
                     status = candidate.to_string();
                     title = t[..pos].trim_end().to_string();
                     continue;
@@ -1595,6 +1604,56 @@ mod tests {
         let parsed = parse(&REQUIREMENTS, "## R-103 普通标题 [done]\n");
         assert_eq!(parsed[0].title, "普通标题");
         assert_eq!(parsed[0].status, "done");
+    }
+
+    /// D-332:非法状态标记(requirement 上的 [open]/[fixed])必须被识别为非法 lifecycle,
+    /// 不能静默留在标题里、status 解析为空——那样调度层会把空 lifecycle 当「非终态、
+    /// 未阻塞、可执行」。形态判据:方括号在尾部且 [ 前是空白;非法值也剥离进 status。
+    #[test]
+    fn invalid_status_marker_is_parsed_not_silently_dropped() {
+        // requirement 上出现 [open](合法枚举是 todo/doing/done/dropped)
+        let parsed = parse(
+            &REQUIREMENTS,
+            "## R-200 新建 kanzei-base 零依赖 crate [open]\n",
+        );
+        assert_eq!(parsed[0].id, "R-200");
+        assert_eq!(parsed[0].title, "新建 kanzei-base 零依赖 crate");
+        assert_eq!(
+            parsed[0].status, "open",
+            "非法值必须进 status,由调度层 fail-closed"
+        );
+
+        // [fixed] 同理
+        let parsed = parse(&REQUIREMENTS, "## R-201 某需求 [fixed]\n");
+        assert_eq!(parsed[0].status, "fixed");
+
+        // defect 上出现 [done](合法枚举是 open/fixing/fixed/wontfix)
+        let parsed = parse(&DEFECTS, "## D-201 某缺陷 [done]\n");
+        assert_eq!(parsed[0].status, "done");
+
+        // 标题自带方括号仍必须原样保留:非状态标记形态
+        // (a) [ 前是字母不是空白 —— vec[index]
+        let parsed = parse(&REQUIREMENTS, "## R-202 支持 vec[index]\n");
+        assert_eq!(parsed[0].title, "支持 vec[index]");
+        assert_eq!(parsed[0].status, "");
+        // (b) ] 不在尾部 —— [DONE] 帧
+        let parsed = parse(&REQUIREMENTS, "## R-203 处理 [DONE] 帧\n");
+        assert_eq!(parsed[0].title, "处理 [DONE] 帧");
+        assert_eq!(parsed[0].status, "");
+
+        // roundtrip:非法状态剥离后 render 应还原原文(标题 + [非法值])
+        let entries = vec![Entry {
+            id: "R-200".into(),
+            title: "新建 kanzei-base 零依赖 crate".into(),
+            status: "open".into(),
+            severity: None,
+            fields: vec![],
+        }];
+        let text = render(&REQUIREMENTS, &entries);
+        assert!(
+            text.contains("## R-200 新建 kanzei-base 零依赖 crate [open]"),
+            "render 必须保留非法状态标记: {text}"
+        );
     }
 
     #[test]

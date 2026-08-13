@@ -68,6 +68,18 @@ pub struct WorkReference {
     pub exists: bool,
 }
 
+/// D-332:控制面脏数据的明示载体——条目生命周期非法(未知/畸形状态)时,
+/// 调度器把它隔离到 integrity_errors,**永不进入** work next 的 WIP/候选/blocked,
+/// 不再把「解析失败」静默降级成「非终态、未阻塞、可执行」。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IntegrityError {
+    pub id: String,
+    pub kind: String,
+    pub field: String,
+    pub value: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkItemSummary {
     pub id: String,
@@ -98,6 +110,10 @@ pub struct ResolvedControlState {
     pub selected: Option<WorkItem>,
     pub executable_wip: Vec<WorkItemSummary>,
     pub blocked_items: Vec<WorkItemSummary>,
+    /// D-332:生命周期非法的条目(未知/畸形状态)。调度器对其 fail-closed:
+    /// 不进 WIP、不进候选、不进 blocked,只在这里明示,等 tracker normalize 修复。
+    #[serde(default)]
+    pub integrity_errors: Vec<IntegrityError>,
 }
 
 #[derive(Debug, Clone)]
@@ -428,15 +444,41 @@ pub fn resolve_work_decision(
 
     let mut executable_wip = Vec::new();
     let mut blocked_items = Vec::new();
+    let mut integrity_errors = Vec::new();
     for (kind, scheduled, wip_status) in [
         (&REQUIREMENTS, &scheduled_requirements, "doing"),
         (&DEFECTS, &scheduled_defects, "fixing"),
     ] {
         for scheduled_item in scheduled {
-            if kind
-                .terminal
-                .contains(&scheduled_item.entry.status.as_str())
-            {
+            let status = scheduled_item.entry.status.as_str();
+            // D-332 fail-closed:状态非空但不在合法枚举 = 控制面脏数据。
+            // 隔离到 integrity_errors,永不进 WIP/候选/blocked——不再把解析失败
+            // 静默当成「非终态、未阻塞、可执行」(曾让 [open]/[fixed] 污染的需求
+            // 重新被取活)。
+            if !status.is_empty() && !kind.statuses.contains(&status) {
+                integrity_errors.push(IntegrityError {
+                    id: scheduled_item.entry.id.clone(),
+                    kind: if kind.prefix == "R" {
+                        "requirement".into()
+                    } else {
+                        "defect".into()
+                    },
+                    field: "lifecycle".into(),
+                    value: status.to_string(),
+                    message: format!(
+                        "invalid {} lifecycle `{}`; valid: {}",
+                        if kind.prefix == "R" {
+                            "requirement"
+                        } else {
+                            "defect"
+                        },
+                        status,
+                        kind.statuses.join(" | ")
+                    ),
+                });
+                continue;
+            }
+            if kind.terminal.contains(&status) {
                 continue;
             }
             let view = item(
@@ -453,6 +495,21 @@ pub fn resolve_work_decision(
             }
         }
     }
+
+    // D-332:非法条目存在时,调度器即使有候选也要在原因里点名,让修复通道
+    // (tracker normalize)和被隔离的条目对用户可见。
+    let integrity_banner = if integrity_errors.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n[tracker integrity degraded]\n{}\n",
+            integrity_errors
+                .iter()
+                .map(|e| format!("  {}: invalid {} lifecycle [{}]", e.id, e.kind, e.value))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
 
     let (decision, reason, selected) = match executable_wip.as_slice() {
         [only] => (
@@ -481,19 +538,23 @@ pub fn resolve_work_decision(
             };
             let candidate = queues.into_iter().find_map(|(kind, scheduled)| {
                 scheduled.iter().find_map(|scheduled_item| {
-                    (!kind
-                        .terminal
-                        .contains(&scheduled_item.entry.status.as_str())
-                        && scheduled_item.block_reasons.is_empty())
-                    .then(|| {
-                        item(
+                    let status = scheduled_item.entry.status.as_str();
+                    // D-332:非法 lifecycle 同样排除出候选(已在 integrity_errors 隔离)。
+                    if !status.is_empty() && !kind.statuses.contains(&status) {
+                        None
+                    } else if !kind.terminal.contains(&status)
+                        && scheduled_item.block_reasons.is_empty()
+                    {
+                        Some(item(
                             kind,
                             &scheduled_item.entry,
                             Vec::new(),
                             &observation,
                             &reference_index,
-                        )
-                    })
+                        ))
+                    } else {
+                        None
+                    }
                 })
             });
             match candidate {
@@ -511,6 +572,19 @@ pub fn resolve_work_decision(
                     "所有非终态条目都带有效阻塞；需要复核阻塞或请求外部解锁".into(),
                     None,
                 ),
+                None if !integrity_errors.is_empty() => (
+                    WorkDecision::Blocked,
+                    format!(
+                        "所有非终态条目都因生命周期非法被隔离(D-332 fail-closed)；\
+                         先修复 integrity 再取活：{}",
+                        integrity_errors
+                            .iter()
+                            .map(|e| format!("{} [{}]", e.id, e.value))
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    ),
+                    None,
+                ),
                 None => (
                     WorkDecision::Empty,
                     "需求与缺陷队列均无活动条目".into(),
@@ -524,10 +598,11 @@ pub fn resolve_work_decision(
         schema_version: 1,
         work_priority: priority_name(priority).into(),
         decision,
-        reason,
+        reason: format!("{reason}{integrity_banner}"),
         selected,
         executable_wip: executable_wip.iter().map(WorkItemSummary::from).collect(),
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
+        integrity_errors,
     })
 }
 
@@ -891,6 +966,46 @@ mod tests {
             .reasons
             .iter()
             .any(|reason| reason.contains("2099-01-01")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn invalid_lifecycle_is_quarantined_and_never_selected() {
+        // D-332:非法 lifecycle(requirement 上的 [open])被隔离进 integrity_errors,
+        // 永不进 WIP/候选/blocked——不再像以前那样被当成可执行重新取活。
+        let dir = fixture("invalid-lifecycle");
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[entry("R-208", "open"), entry("R-001", "todo")])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-001", "open")])
+            .unwrap();
+
+        // 无 WIP 时,非法条目不得被选为 Start 候选(defect-first 应选 D-001)
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start);
+        assert_eq!(state.selected.unwrap().id, "D-001");
+        assert_eq!(state.integrity_errors.len(), 1);
+        assert_eq!(state.integrity_errors[0].id, "R-208");
+        assert_eq!(state.integrity_errors[0].value, "open");
+        assert!(state.reason.contains("[tracker integrity degraded]"));
+        assert!(state.reason.contains("R-208"));
+
+        // requirement-first 时应跳过 R-208,选合法的 R-001
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
+        assert_eq!(state.selected.unwrap().id, "R-001");
+
+        // 全队列只剩非法条目时 → Blocked(fail-closed,不是 Empty 也不是 Start)
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[entry("R-208", "open")])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS)
+            .save(&[entry("D-999", "fixed")])
+            .unwrap();
+        let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Blocked);
+        assert!(state.reason.contains("生命周期非法被隔离"));
+        assert!(state.selected.is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

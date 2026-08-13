@@ -1236,6 +1236,12 @@ pub fn workable_titles(project_root: &std::path::Path, limit: usize) -> Vec<Stri
             if kind.terminal.contains(&item.entry.status.as_str()) {
                 continue;
             }
+            // D-332:非法 lifecycle(未知/畸形状态)不参与取活候选——调度器对
+            // 控制面脏数据 fail-closed,不让污染条目混进可推进标题。
+            if !item.entry.status.is_empty() && !kind.statuses.contains(&item.entry.status.as_str())
+            {
+                continue;
+            }
             if !item.block_reasons.is_empty() {
                 continue;
             }
@@ -1268,6 +1274,12 @@ pub fn backlog_status(project_root: &std::path::Path) -> kanzei_harness::auto_ru
         };
         for item in scheduled {
             if kind.terminal.contains(&item.entry.status.as_str()) {
+                continue;
+            }
+            // D-332:非法 lifecycle 不算活动条目——它已被隔离为 integrity 错误,
+            // 不能计入「active」,否则 backlog 判定会把它误算成可推进项。
+            if !item.entry.status.is_empty() && !kind.statuses.contains(&item.entry.status.as_str())
+            {
                 continue;
             }
             active += 1;

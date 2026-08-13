@@ -1,5 +1,21 @@
 # Defects
 
+## D-332 治理控制面三硬伤:tracker lifecycle fail-open、存量污染无 normalize 修复通道、验证 ceremony 循环(两份运行评估合并) [fixing] (high)
+- refs: R-233 R-210 R-212 R-209 R-200 D-267 D-330 D-331 R-208 D-209
+- 复杂度: 大
+- 复现: ①**tracker lifecycle fail-open**:requirements.md 存量 `[open]`(R-208 等)不被 docstore.rs:1084 剥离(不在合法枚举)→ lifecycle_status 解析为空字符串;work.rs:482-497 候选筛选只查 `!terminal.contains(status)`,空状态不在终态枚举 → 被当作「非终态、未阻塞、可执行」,已关闭/污染的条目可能被 work next 重新取活。②**存量污染无合法 repair 通道**:R-233/R-234 重复 `优先级` 字段,D-330 只防新增;direct tracker write 被拒、raw_delete 只删游离行 → 合法状态不可达(Raw write denied + Official API incapable = 合法状态不可达)。③**验证 ceremony 循环**:test → stage → commit → fmt 拦 → cargo fmt → source hash 变 → restage → 测试证据过期 → retest → test_record → tests-archive 变 → restage → commit(R-233 B2 实测完整发生一遍;每步单独合理,组合无拓扑排序)。④**test evidence 靠 mtime**:fmt 后纯 non-semantic 变换也强制重测,Harness 无法自行判定是否需要重测。⑤**work next 裁决后无 decision_locked**:Agent 反复讨论已冻结的决策(R-183 场景),无控制面事实变化也重复推理。
+- 影响: 治理系统对自己最关键的控制状态采用 permissive parsing——已完成需求可能被重新执行(重复工作/错误工作);修复动作不存在导致脏数据永久积压;验证 pipeline 组合摩擦让每条提交多 5-6 次机械 tool call;Agent 把 token 花在反刍已冻结决策上。两份评估一致认定:fail-open 是当前最值得优先修的治理缺陷(P0),其余是 P1 摩擦。
+- 来源: 用户消息(2026-08-13 两份运行评估合并:16:52 首评 + 16:54 补评「两个结合起来」),第一份结尾明确指令「把这个分析登记成最新的缺陷,然后把这个缺陷排序成当前的第一个任务,解决并发版」
+- 标签: 核心
+- 进展: B1 完成(2026-08-13):①docstore.rs parse_heading 状态剥离判据重构——尾部 ] 且 [ 前空白才视为状态标记形态,合法/非法都剥离进 status(非法值保留原文语义,render roundtrip 不变);`vec[index]`([ 前字母)、`[DONE] 帧`(] 不在尾部)仍原样保留(D-070 兼容)。②work.rs:ResolvedControlState 新增 integrity_errors 字段(D-332 fail-closed 载体);resolve_work_decision 收集循环与 Start 候选都排除非空非法 status,全非法时决策=Blocked 并点名;reason 追加 [tracker integrity degraded] 横幅。③tracker.rs workable_titles/backlog_status 同样跳过非法生命周期。测试:docstore invalid_status_marker_is_parsed_not_silently_dropped + work invalid_lifecycle_is_quarantined_and_never_selected 新增通过;kanzei-tools 303 passed 全绿。注意:当前会话引擎(kzapp)仍跑旧编译,work next 输出看不到 integrity_errors,重启后生效;代码证据以测试为准。B1 提交后 B2:tracker normalize(repair surface 统一:invalid lifecycle/duplicate fields/title-status mismatch/multi-marker/archive mismatch,机械幂等 dry-run-first)。
+- 验收: ①未知/畸形 lifecycle(requirement 出现 `[open]`/`[fixed]` 等)解析后进入 INVALID,`work next` 永不选中,integrity 错误明示条目与非法值(有测试:构造 `[open]` 污染需求,断言 work next 不选它且报 integrity 错误);②存在统一 repair surface(`tracker normalize` 或等价):能机械、幂等、dry-run-first 修复 invalid lifecycle、duplicate fields、title/status mismatch、multi-marker、archive/active mismatch;存量 R-208/R-233 污染用工具收敛(有测试);③验证 pipeline 重排:fmt 在 test 之前执行,commit gate 不再在提交时第一次暴露 fmt 问题(有测试断言 commit 前已 fmt);④test evidence 绑定 source/staged hash,不再纯靠 mtime;fmt 后若仅 non-semantic 变换,Harness 判定可复用或自动重测(有测试);⑤test_record 写入不再让 staged set 抖动(Harness 自动纳入 expected set 或独立 ledger)(有测试);⑥work next 裁决后给 decision_locked 信号,无新 control-plane fact 时不再被重新讨论(结构化证据);⑦work lease 与 turn granularity 解耦:强约束 = 同时一个 mutation WIP,做完释放后可继续下一项(调度语义明确,有测试);⑧全量 workspace 测试绿,发版。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-332
+- 批次: 1/6
+- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
+- observed_worktree_hash: fnv1a64:078856cdc0487451
+- recorded_at: 1786611964152
+
 ## D-204 SOP 用户易用性不佳:总结质量/查看展示/产生时机三处都不行 [fixing] (medium)
 - refs: D-205 R-105 R-107
 - 原始描述: SOP易用程度有问题，似乎总结的不太好
