@@ -45,6 +45,26 @@ pub fn title_status_marker(title: &str) -> Option<&'static str> {
         .copied()
 }
 
+/// 清除标题里的全部跨 DocKind 状态标记(D-331 纠错用):反复移除 `[token]`
+/// (大小写不敏感)直到干净,再把多余空白折叠。只删标记,其余标题逐字保留。
+pub fn strip_status_markers(title: &str) -> String {
+    let mut out = title.to_string();
+    loop {
+        let lower = out.to_ascii_lowercase();
+        let found = ALL_STATUS_TOKENS.iter().find_map(|tok| {
+            let needle = format!("[{tok}]");
+            lower.find(&needle).map(|idx| (idx, needle.len()))
+        });
+        match found {
+            Some((idx, len)) => {
+                out.replace_range(idx..idx + len, "");
+            }
+            None => break,
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DocKind {
     /// 相对项目根,如 ".kanzei/project/requirements.md"。
@@ -582,6 +602,77 @@ impl DocStore {
         crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
         self.save(&live)?;
         Ok(moved)
+    }
+
+    /// D-331:受限的归档终态纠错——只允许在当前 DocKind 的终态集合内改(fixed↔wontfix
+    /// 等),必须写明 reason(追加进进展作审计),条目保持在归档、原子写入,标题里的
+    /// 跨 DocKind 状态标记一并清除(那是历史写入口校验缺失时混进标题的污染,
+    /// 如 D-267 的 [dropped])。返回 (old_status, new_status)。
+    pub fn correct_archived_terminal(
+        &self,
+        id: &str,
+        new_status: &str,
+        reason: &str,
+    ) -> std::io::Result<(String, String)> {
+        // 事务锁罩住 load:并发纠错不能各自读到旧归档再互相覆盖。
+        let _lock = self.lock()?;
+        let mut archived = self.load_archive()?;
+        let Some(pos) = archived.iter().position(|e| e.id == id) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("`{id}` not found in the archive"),
+            ));
+        };
+        if !self.kind.terminal.contains(&new_status) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "`{new_status}` is not a terminal status for `{}`; valid: {}",
+                    self.kind.prefix,
+                    self.kind.terminal.join(" | ")
+                ),
+            ));
+        }
+        let reason = reason.trim();
+        if reason.len() < 4 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "terminal correction requires a reason explaining the change",
+            ));
+        }
+        let old_status = archived[pos].status.clone();
+        let cleaned_title = strip_status_markers(&archived[pos].title);
+        let note = format!(
+            "[terminal-fix {}] {} → {}: {}",
+            crate::memory::today(),
+            old_status,
+            new_status,
+            reason
+        );
+        let entry = &mut archived[pos];
+        entry.status = new_status.to_string();
+        entry.title = cleaned_title;
+        entry.fields.push(("进展".into(), note.clone()));
+        let template = self
+            .preserved_archive
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or(DocumentTemplate {
+                preamble: Vec::new(),
+                entries: Vec::new(),
+            });
+        let archived_text = render_with_template(self.kind, &archived, &template);
+        let text = archived_text.replacen(
+            &format!("# {}\n", self.kind.heading),
+            &format!("# {} Archive\n", self.kind.heading),
+            1,
+        );
+        if let Some(parent) = self.archive_file().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::atomic_file::write_atomic(&self.archive_file(), &text)?;
+        Ok((old_status, new_status.to_string()))
     }
 
     /// D-316 归档净化:按 id 去重(保留先归档的一份)+ 条目内字段收敛。

@@ -28,6 +28,10 @@ const REPAIR_ACTIONS: &[&str] = &["repair_reused_id", "repair_missing_id", "void
 /// 所以仍走完整性门禁(拒绝在破损状态下 reopen)。
 const REOPEN_ACTION: &str = "reopen";
 
+/// D-331:归档终态纠错(fixed↔wontfix)。只改终态、强制 reason、条目保持归档,
+/// 写回时清除标题里的跨 DocKind 状态标记污染。走完整性门禁(破损文档不接受纠错)。
+const FIX_TERMINAL_ACTION: &str = "fix_terminal";
+
 const WRITE_ACTIONS: &[&str] = &[
     "add",
     "update",
@@ -35,6 +39,7 @@ const WRITE_ACTIONS: &[&str] = &[
     "archive",
     "reorder",
     REOPEN_ACTION,
+    FIX_TERMINAL_ACTION,
     "raw_delete",
     "repair_reused_id",
     "repair_missing_id",
@@ -875,10 +880,48 @@ impl Tool for TrackerTool {
                     back_to, entries[pos].title
                 ))
             }
+            // D-331:归档终态纠错——只允许终态到终态(fixed↔wontfix),强制 reason,
+            // 条目保持归档、原子写入、进展留审计。归档 ID 不再是死胡同(D-267 的
+            // [dropped] [fixed] 双终态就是没有此通道时留下的)。
+            FIX_TERMINAL_ACTION => {
+                let Some(id) = &input.id else {
+                    return ToolOutput::error("`id` is required for fix_terminal");
+                };
+                let Some(status) = input
+                    .status
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                else {
+                    return ToolOutput::error(
+                        "`status` is required for fix_terminal (one of the terminal statuses)",
+                    );
+                };
+                let Some(reason) = input
+                    .reason
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty())
+                else {
+                    return ToolOutput::error(
+                        "`reason` is required for fix_terminal: say why the archived terminal \
+                         status is being corrected",
+                    );
+                };
+                match store.correct_archived_terminal(id, status, reason) {
+                    Ok((old, new)) => ToolOutput::ok(format!(
+                        "corrected archived {id} terminal: {old} → {new} (stays archived).\n\
+                         Commit `{}` and its archive file together.",
+                        self.kind.rel_path,
+                    )),
+                    Err(e) => ToolOutput::error(format!("fix_terminal failed: {e}")),
+                }
+            }
             other => ToolOutput::error(format!(
                 "unknown action `{other}`; valid: list | get | raw_lines | add | update | close | \
-                 archive | reorder | raw_delete | {} | {}",
+                 archive | reorder | raw_delete | {} | {} | {}",
                 REOPEN_ACTION,
+                FIX_TERMINAL_ACTION,
                 REPAIR_ACTIONS.join(" | ")
             )),
         };
@@ -2273,6 +2316,95 @@ mod tests {
             )
             .await;
         assert!(out.content.contains("unknown id"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-331 验收③④:fix_terminal 把归档终态从 fixed 纠为 wontfix,保持归档、
+    /// 清除标题里的跨 DocKind 状态标记污染(D-267 的 [dropped])、进展留审计;
+    /// 非法终态/缺理由/归档无此 ID 都拒绝。
+    #[tokio::test]
+    async fn fix_terminal_corrects_archived_status_and_strips_title_marker() {
+        let dir = std::env::temp_dir().join(format!("kz-fix-terminal-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        // 归档一个 fixed 条目,标题带 [dropped] 污染(复现 D-267 形态)。
+        let mut e = entry("D-001");
+        e.status = "fixed".into();
+        e.title = "某缺陷 [dropped] 标题".into();
+        let store = DocStore::open(&dir, &DEFECTS);
+        store.save(&[e]).unwrap();
+        store.archive_terminal().unwrap();
+        // 纠为 wontfix。
+        let out = tool
+            .execute(
+                json!({"action": "fix_terminal", "id": "D-001", "status": "wontfix",
+                       "reason": "用户 2026-08-11 定调不做中间档,应记 wontfix 而非 fixed"}),
+                &ctx,
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("fixed") && out.content.contains("wontfix"),
+            "{}",
+            out.content
+        );
+        // 条目仍在归档、状态已改、标题标记被清、进展留审计。
+        let archived = store.load_archive().unwrap();
+        let entry = archived
+            .iter()
+            .find(|x| x.id == "D-001")
+            .expect("条目应留在归档");
+        assert_eq!(entry.status, "wontfix");
+        assert!(
+            !entry.title.contains("[dropped]"),
+            "标题状态标记应被清除: {}",
+            entry.title
+        );
+        assert!(
+            entry.title.contains("某缺陷") && entry.title.contains("标题"),
+            "其余标题逐字保留: {}",
+            entry.title
+        );
+        assert!(
+            entry.fields.iter().any(|(k, v)| k == "进展"
+                && v.contains("[terminal-fix")
+                && v.contains("fixed")
+                && v.contains("wontfix")),
+            "进展应留纠错审计: {:?}",
+            entry.fields
+        );
+        assert!(store.load().unwrap().is_empty(), "活动文件不应出现该条目");
+        // 非法终态(open 不是终态)拒绝。
+        let out = tool
+            .execute(
+                json!({"action": "fix_terminal", "id": "D-001", "status": "open", "reason": "想退回"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "非终态不得作为纠错目标: {}", out.content);
+        assert!(out.content.contains("terminal"), "{}", out.content);
+        // 缺理由拒绝。
+        let out = tool
+            .execute(
+                json!({"action": "fix_terminal", "id": "D-001", "status": "fixed"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "纠错必须给理由: {}", out.content);
+        // 归档里不存在的 ID 拒绝。
+        let out = tool
+            .execute(
+                json!({"action": "fix_terminal", "id": "D-999", "status": "fixed", "reason": "x x x"}),
+                &ctx,
+            )
+            .await;
+        assert!(out.is_error, "归档无此 ID 应拒绝: {}", out.content);
         std::fs::remove_dir_all(dir).ok();
     }
 
