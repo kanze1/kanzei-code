@@ -126,6 +126,71 @@ pub fn pending_background_subagents(events: &[crate::store::StoredEvent]) -> Vec
         .collect()
 }
 
+/// R-176 B4:写子代理改动台账——owner(子代理 id)→ 改动文件 + 首次记录时的原内容。
+///
+/// 采集点:run_subagent 在 writable=true 时拦截写工具(edit/write)的调用,把
+/// 目标路径与**首次**记录时的文件内容存进来(后续对同一文件的再次写入不覆盖
+/// 原内容快照——回滚要恢复到"这个子代理第一次碰它之前"的样子)。
+///
+/// 回滚语义(验收⑤):按 owner 恢复它改过的文件为原内容,只碰该 owner 的文件,
+/// 不误伤其它写子代理与主代理的改动。文件原内容快照在内存,进程退出即丢
+/// (跨 run 的归因/回滚不在本条——那是 git 的工作树层能力)。
+#[derive(Default)]
+pub struct SubagentChangeLog {
+    inner: std::sync::Mutex<
+        std::collections::HashMap<String, std::collections::BTreeMap<String, Vec<u8>>>,
+    >,
+}
+
+impl SubagentChangeLog {
+    /// 记录一次写工具调用:owner 首次触碰某文件时快照其当前内容。
+    /// `project_root` 用于把相对路径解析成绝对路径;`path` 来自工具入参。
+    pub fn record(&self, owner: &str, project_root: &std::path::Path, path: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        let owner_map = inner.entry(owner.to_string()).or_default();
+        if owner_map.contains_key(path) {
+            return; // 已快照过,保持首次内容
+        }
+        let full = project_root.join(path.trim_start_matches(['/', '\\']));
+        let content = std::fs::read(&full).unwrap_or_default();
+        owner_map.insert(path.to_string(), content);
+    }
+
+    /// 该 owner 改过的文件(按首次记录顺序)。空 = 该子代理没碰过写工具。
+    pub fn files_of(&self, owner: &str) -> Vec<String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(owner)
+            .map(|map| map.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// 按 owner 回滚:把它改过的每个文件恢复为首次记录时的内容(写回快照)。
+    /// 返回恢复的文件数。只碰该 owner 的文件——其它 owner 与主代理的改动
+    /// 原样保留(验收⑤:单独回滚不误伤)。
+    pub fn rollback(&self, owner: &str, project_root: &std::path::Path) -> usize {
+        let files: Vec<(String, Vec<u8>)> = {
+            let inner = self.inner.lock().unwrap();
+            inner
+                .get(owner)
+                .map(|map| map.iter().map(|(p, c)| (p.clone(), c.clone())).collect())
+                .unwrap_or_default()
+        };
+        let mut restored = 0usize;
+        for (path, content) in &files {
+            let full = project_root.join(path.trim_start_matches(['/', '\\']));
+            if let Some(parent) = full.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            if std::fs::write(&full, content).is_ok() {
+                restored += 1;
+            }
+        }
+        restored
+    }
+}
+
 /// task 子代理运行时(R-004/R-012)。快照由调用方用 SubagentBase 组件构建,
 /// 代码层面只含只读工具——子代理无人应答权限询问,必须做到零 ask。
 #[derive(Clone)]
@@ -160,6 +225,11 @@ pub struct SubagentRuntime {
     /// 询问发生在 acquire_writer_lease **之前**(验收③:用户拒绝后不得占用写租约)。
     /// None(只读子代理/CLI 无 UI)维持 ask 恒 Deny(现状,无人应答)。
     pub ask_router: Option<Arc<dyn Fn(AskRequest) -> AskFuture + Send + Sync>>,
+    /// R-176 B4:写子代理改动台账(可选)。writable=true 且 Some 时,run_subagent
+    /// 拦截写工具(edit/write)的调用,记录 owner(子代理 id)→ 改动文件 + 首次
+    /// 记录时的原内容;回滚按 owner 恢复这些文件,不误伤其它(验收④⑤)。
+    /// None(只读子代理/CLI 无 UI)不采集。
+    pub change_log: Option<Arc<SubagentChangeLog>>,
     /// R-174:单条停止注册表(可选)。Some 时 drive/phase_pipeline 在子代理 future
     /// 上挂取消 token,`stop_task` 命令按 id 命中即取消;None(测试/CLI 单运行)不挂。
     pub cancellations: Option<Arc<TaskCancellations>>,
@@ -301,6 +371,17 @@ pub(crate) async fn acquire_subagent_permit(
     }
 }
 
+/// R-176 B4:从 ToolStart 事件提取写工具的 path 入参(edit/write 共用 `path` 字段)。
+fn event_input_path(event: &RunEvent) -> Option<String> {
+    match event {
+        RunEvent::ToolStart { input, .. } => input
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
 /// 跑一个子代理:独立的只读快照 + 空历史,结果文本即 tool result。
 /// 子代理内 ask 一律 Deny(无人应答);run_once 递归经 dyn Box 断开无限类型。
 /// 内部轮次/工具事件折叠成 TaskProgress 经 progress 通道上抛(UI 实时可见)。
@@ -345,6 +426,11 @@ pub(crate) async fn run_subagent(
         ask_policy: AskPolicy::NonInteractive,
     };
     let mut total_usage = Usage::default();
+    // R-176 B4:写子代理改动台账——拦截写工具(edit/write)调用,记录 owner →
+    // 改动文件 + 首次原内容。闭包捕获 Arc 克隆(非 'static,生命周期不逃逸)。
+    let change_log = rt.change_log.clone();
+    let change_root = ctx.project_root.clone();
+    let change_owner = parent_call_id.to_string();
     let mut on_event = |event: RunEvent| {
         let text = match &event {
             RunEvent::TurnStart { step, max_steps } => Some(if *max_steps > 0 {
@@ -358,6 +444,16 @@ pub(crate) async fn run_subagent(
             }
             _ => None,
         };
+        // R-176 B4:写子代理改动归因——写工具(edit/write)的 path 入参登记进台账,
+        // 首次触碰时快照原内容。只有 writable 子代理带 change_log 才采集。
+        if let Some(log) = change_log.as_ref() {
+            if matches!(event, RunEvent::ToolStart { ref name, .. } if name == "edit" || name == "write")
+            {
+                if let Some(path) = event_input_path(&event) {
+                    log.record(&change_owner, &change_root, &path);
+                }
+            }
+        }
         let trace = match event {
             RunEvent::ToolStart {
                 id,
@@ -680,5 +776,96 @@ mod tests {
             writable_granted(&AskResponse::Permission(AskReply::AlwaysAllow)),
             "AlwaysAllow 可取租约"
         );
+    }
+
+    /// R-176 验收④:写子代理的改动可按 owner 归因——台账记录后,任一文件
+    /// 能查到是哪个子代理 id 改的(owner → 文件清单)。
+    #[test]
+    fn change_log_attributes_files_to_owner() {
+        use super::SubagentChangeLog;
+        let log = SubagentChangeLog::default();
+        let root = std::env::temp_dir().join(format!(
+            "kz-change-attr-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "ORIGINAL-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "ORIGINAL-B").unwrap();
+
+        // 子代理 sub-A 改 a.rs;子代理 sub-B 改 b.rs。
+        log.record("sub-A", &root, "src/a.rs");
+        log.record("sub-B", &root, "src/b.rs");
+        // sub-A 再改 a.rs(第二次不覆盖首次快照)。
+        log.record("sub-A", &root, "src/a.rs");
+
+        assert_eq!(
+            log.files_of("sub-A"),
+            vec!["src/a.rs".to_string()],
+            "sub-A 只改过 a.rs"
+        );
+        assert_eq!(
+            log.files_of("sub-B"),
+            vec!["src/b.rs".to_string()],
+            "sub-B 只改过 b.rs"
+        );
+        assert!(log.files_of("sub-none").is_empty());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-176 验收⑤:单个写子代理的改动可**单独回滚**——只恢复该 owner 改过的
+    /// 文件,其它 owner 与主代理的改动原样保留(不误伤)。
+    #[test]
+    fn change_log_rollback_restores_only_owner_files() {
+        use super::SubagentChangeLog;
+        let log = SubagentChangeLog::default();
+        let root = std::env::temp_dir().join(format!(
+            "kz-change-rollback-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/a.rs"), "ORIGINAL-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "ORIGINAL-B").unwrap();
+
+        // 两个写子代理各自改自己的文件。
+        log.record("sub-A", &root, "src/a.rs");
+        log.record("sub-B", &root, "src/b.rs");
+        // 子代理改完(写工具落盘)之后,主代理又改了一个无关文件。
+        std::fs::write(root.join("src/a.rs"), "CHANGED-BY-A").unwrap();
+        std::fs::write(root.join("src/b.rs"), "CHANGED-BY-B").unwrap();
+        std::fs::write(root.join("src/main.rs"), "MAIN-OWN").unwrap();
+
+        // 单独回滚 sub-A:只恢复 a.rs 为首次快照 ORIGINAL-A。
+        assert_eq!(log.rollback("sub-A", &root), 1, "只恢复 A 的 1 个文件");
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/a.rs")).unwrap(),
+            "ORIGINAL-A",
+            "A 的文件恢复到首次快照"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
+            "CHANGED-BY-B",
+            "B 的改动不得被 A 的回滚误伤"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/main.rs")).unwrap(),
+            "MAIN-OWN",
+            "主代理的改动不得被 A 的回滚误伤"
+        );
+
+        // 回滚 sub-B:b.rs 也恢复,其它不受影响。
+        assert_eq!(log.rollback("sub-B", &root), 1);
+        assert_eq!(
+            std::fs::read_to_string(root.join("src/b.rs")).unwrap(),
+            "ORIGINAL-B"
+        );
+        std::fs::remove_dir_all(&root).ok();
     }
 }

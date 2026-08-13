@@ -688,6 +688,7 @@ pub(crate) async fn run_task(
             // R-176 B2:主对话的 task 子代理是只读勘察/复核——不启用可写档位。
             writable: false,
             ask_router: None,
+            change_log: None,
             // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
             cancellations: Some(task_cancellations),
             // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline

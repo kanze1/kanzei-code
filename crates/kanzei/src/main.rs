@@ -584,6 +584,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             // R-176 B2:CLI 单运行的 task 子代理只读勘察,不启用可写档位。
             writable: false,
             ask_router: None,
+            change_log: None,
             // R-174:CLI 单运行无前端停止按钮,不挂取消注册表。
             cancellations: None,
             // R-175:CLI 单运行保持轮内等齐语义,不开后台模式。

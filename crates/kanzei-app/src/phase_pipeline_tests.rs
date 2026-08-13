@@ -149,6 +149,7 @@ impl Fixture {
             coordinator: Some(self.coordinator.clone() as Arc<dyn ProjectExecutionCoordinator>),
             writable: false,
             ask_router: None,
+            change_log: None,
             cancellations: None,
             background: false,
             background_results: None,

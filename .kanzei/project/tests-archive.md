@@ -2466,3 +2466,9 @@
 - 摘要: kanzei-core 148(含 B3 验收③顺序断言)+ kanzei-app 139 + kanzei 全绿:R-176 B3 权限询问先于取租约(ask_router 字段 + writable_granted 纯函数 + 拒绝不占租约)
 - 关联: R-176
 - 收尾: 1786625069
+
+## T-1786625758 cargo test -p kanzei-core -p kanzei-app -p kanzei (R-176 B4) [passed]
+- 命令: cargo test -p kanzei-core -p kanzei-app -p kanzei
+- 摘要: kanzei-core 150(含 B4 验收④⑤归因/回滚测试)+ kanzei-app 139 + kanzei 全绿:R-176 B4 写子代理改动台账(SubagentChangeLog,owner→文件+首次快照,按 owner 单独回滚不误伤)
+- 关联: R-176
+- 收尾: 1786625758
