@@ -950,25 +950,132 @@ impl MemoryStore {
                 .parse::<u32>()
                 .ok()
         };
-        let numbers: std::collections::BTreeSet<u32> = entries
+        let archived = self.load_archived_ids();
+        let voided = self.voided_ids();
+        let mut numbers: std::collections::BTreeSet<u32> = entries
             .iter()
             .map(|(_, e)| e.id.as_str())
-            .chain(self.load_archived_ids().iter().map(String::as_str))
+            .chain(archived.iter().map(String::as_str))
             .filter_map(parse)
             .collect();
+        // D-321:登记在 voided-ids.md 里的编号是"已交代的缺号",不再是账实不符。
+        numbers.extend(voided.keys().copied());
+        // 登记为 voided 的编号如果又出现了条目(手工改号/恢复),账实不符,必须可见。
+        for (number, reason) in &voided {
+            let alive = entries.iter().any(|(_, e)| parse(&e.id) == Some(*number))
+                || archived.iter().any(|id| parse(id) == Some(*number));
+            if alive {
+                issues.push(format!(
+                    "{prefix}-{number:03} recorded as voided ({reason}) but an entry exists — \
+                     delete the voided-ids.md line or renumber the entry"
+                ));
+            }
+        }
         if let Some(&max) = numbers.iter().max() {
             let missing: Vec<String> = (1..=max)
                 .filter(|n| !numbers.contains(n))
                 .map(|n| format!("{prefix}-{n:03}"))
                 .collect();
             if !missing.is_empty() {
-                issues.push(format!(
-                    "MISSING ids (data loss? restore from git): {}",
-                    missing.join(", ")
-                ));
+                // D-321:文案必须诚实——只有目录真在 git 版本控制下才指引 restore from git;
+                // 否则给出可执行的处置(检查回收站/备份,或登记 voided-ids.md 注销)。
+                let hint = if self.under_git() {
+                    "data loss? restore from git; or acknowledge the gap via voided-ids.md"
+                } else {
+                    "data loss (no git backup) — check recycle bin/backup, or acknowledge \
+                     the gap via voided-ids.md"
+                };
+                issues.push(format!("MISSING ids ({hint}): {}", missing.join(", ")));
             }
         }
         issues
+    }
+
+    /// id 字符串 → 编号(M-042 → 42)。不符合本 scope 前缀返回 None。
+    fn id_number(&self, id: &str) -> Option<u32> {
+        let prefix = self.scope.prefix();
+        id.strip_prefix(prefix)?
+            .strip_prefix('-')?
+            .parse::<u32>()
+            .ok()
+    }
+
+    /// voided 台账文件(D-321 注销通道):删除/丢失的编号登记在此,integrity 不再当
+    /// 账实不符报 MISSING;与 markdown 条目同哲学——人可编辑,行格式 `- M-xxx: 理由`。
+    fn voided_ledger_file(&self) -> PathBuf {
+        self.root.join("voided-ids.md")
+    }
+
+    /// 已注销编号 → 理由。解析宽容:认不出的行忽略。
+    pub fn voided_ids(&self) -> std::collections::BTreeMap<u32, String> {
+        let mut out = std::collections::BTreeMap::new();
+        let Ok(text) = std::fs::read_to_string(self.voided_ledger_file()) else {
+            return out;
+        };
+        for line in text.lines() {
+            let Some(body) = line.trim().strip_prefix("- ") else {
+                continue;
+            };
+            let Some((id, reason)) = body.split_once(':') else {
+                continue;
+            };
+            if let Some(number) = self.id_number(id.trim()) {
+                out.insert(number, reason.trim().to_string());
+            }
+        }
+        out
+    }
+
+    /// 主动注销一个缺失编号(如误删后确认无法恢复)。理由必填,且该编号当前必须真的
+    /// 不存在于活动/归档——拿它去"清掉"一个还活着的条目是删数据,不是记账。
+    pub fn void_id(&self, id: &str, reason: &str) -> anyhow::Result<()> {
+        let reason = reason.trim();
+        if reason.len() < 4 {
+            anyhow::bail!("废弃编号必须写明理由(为什么这个号不该有条目、依据是什么)");
+        }
+        let Some(number) = self.id_number(id) else {
+            anyhow::bail!("`{id}` 不是 {} 前缀的合法编号", self.scope.prefix());
+        };
+        if self.load_all().iter().any(|(_, e)| e.id == id)
+            || self.load_archived_ids().iter().any(|a| a == id)
+        {
+            anyhow::bail!(
+                "{id} 仍存在于活动或归档中,不能作为空洞注销;要终结它请用 memory_deprecate/清理流程"
+            );
+        }
+        if self.voided_ids().contains_key(&number) {
+            return Ok(());
+        }
+        let path = self.voided_ledger_file();
+        let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| {
+            format!(
+                "# {} Memory ID Ledger\n\n引擎维护:记录被主动废弃的编号及理由。\n\
+                 缺号只有登记在此才算已交代;其余缺号 = 账实不符,必须查清。\n",
+                self.scope.label()
+            )
+        });
+        if !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str(&format!("- {id}: {reason}\n"));
+        std::fs::write(&path, text)?;
+        Ok(())
+    }
+
+    /// 记忆根目录(或任一祖先,最多上溯 8 层)是否在 git 版本控制下——决定 MISSING
+    /// 文案能否指引 restore from git(D-321:U-001~004 目录不在版本控制却提示 git 恢复,误导)。
+    fn under_git(&self) -> bool {
+        let mut dir: Option<&std::path::Path> = Some(&self.root);
+        for _ in 0..8 {
+            let Some(d) = dir else {
+                break;
+            };
+            if d.join(".git").exists() {
+                return true;
+            }
+            dir = d.parent();
+        }
+        false
     }
 
     /// 合并重复:并入首个 id(保住最老引用),其余 stale 并留 superseded_by 墓碑链接。
@@ -2375,6 +2482,116 @@ mod tests {
         std::fs::write(&path, text).unwrap();
         let issues = store.integrity_issues();
         assert!(issues.iter().any(|i| i.contains("M-002")), "{issues:?}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-321:注销通道——缺号登记到 voided-ids.md 后 integrity 不再报 MISSING;
+    /// 文案在无 git 时给可执行处置(检查备份/注销),而不是误导性 git 恢复指引。
+    #[test]
+    fn void_id_acknowledges_gap_and_message_is_honest() {
+        let (dir, store) = temp_store();
+        add(&store, "fact", "一号", "钩子一", "x");
+        let b = add(&store, "fact", "三号占位", "钩子三", "x");
+        // 手工制造缺号:把 M-002 位空出(改 id 为 M-003)
+        let path = store.root.join(format!("{}.md", b.file_stem()));
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("id: M-002", "id: M-003");
+        std::fs::write(&path, text).unwrap();
+        // 临时目录无 git → 文案不得指引 git 恢复,必须给可执行处置
+        let issues = store.integrity_issues();
+        let missing = issues
+            .iter()
+            .find(|i| i.contains("MISSING ids"))
+            .expect("应有 MISSING 报告");
+        assert!(missing.contains("no git backup"), "{missing}");
+        assert!(!missing.contains("restore from git"), "{missing}");
+        assert!(missing.contains("voided-ids.md"), "{missing}");
+        // 注销 M-002(确认丢失)→ 不再报 MISSING
+        store.void_id("M-002", "误删且无备份,确认丢失").unwrap();
+        let issues = store.integrity_issues();
+        assert!(
+            !issues.iter().any(|i| i.contains("M-002")),
+            "注销后不得再报 M-002: {issues:?}"
+        );
+        // 台账落盘且人可读
+        let ledger = std::fs::read_to_string(store.voided_ledger_file()).unwrap();
+        assert!(
+            ledger.contains("- M-002: 误删且无备份,确认丢失"),
+            "{ledger}"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-321:注销前置校验——活着的条目/短理由/错前缀都拒;重复注销幂等。
+    #[test]
+    fn void_id_validates_and_is_idempotent() {
+        let (dir, store) = temp_store();
+        let a = add(&store, "fact", "活条目", "钩子", "x");
+        let err = store.void_id(&a.id, "想清掉活条目").unwrap_err();
+        assert!(err.to_string().contains("仍存在于活动或归档"), "{err}");
+        let err = store.void_id("M-999", "短").unwrap_err();
+        assert!(err.to_string().contains("理由"), "{err}");
+        let err = store.void_id("D-999", "理由足够长但前缀错").unwrap_err();
+        assert!(err.to_string().contains("不是"), "{err}");
+        // 缺号注销:两次调用幂等(第二次 Ok 且不重复写行)
+        store.void_id("M-999", "测试注销的缺号").unwrap();
+        store.void_id("M-999", "测试注销的缺号").unwrap();
+        let ledger = std::fs::read_to_string(store.voided_ledger_file()).unwrap();
+        assert_eq!(ledger.matches("- M-999:").count(), 1, "{ledger}");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-321:登记为 voided 的编号若又出现条目(手工改号/恢复),账实不符必须可见。
+    #[test]
+    fn voided_id_resurrected_is_flagged() {
+        let (dir, store) = temp_store();
+        let a = add(&store, "fact", "一号", "钩子一", "x");
+        let b = add(&store, "fact", "二号", "钩子二", "x");
+        // 制造缺号:删掉 M-002 文件
+        let path = store.root.join(format!("{}.md", b.file_stem()));
+        std::fs::remove_file(&path).unwrap();
+        store.void_id("M-002", "二号被误删").unwrap();
+        assert!(
+            !store.integrity_issues().iter().any(|i| i.contains("M-002")),
+            "注销后缺号不应再报"
+        );
+        // 把 M-001 改号成 M-002(模拟手工恢复),复活必须被点名
+        let p1 = store.root.join(format!("{}.md", a.file_stem()));
+        let text = std::fs::read_to_string(&p1)
+            .unwrap()
+            .replace("id: M-001", "id: M-002");
+        std::fs::write(&p1, text).unwrap();
+        let issues = store.integrity_issues();
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.contains("recorded as voided") && i.contains("M-002")),
+            "{issues:?}"
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// D-321:文案诚实性——目录在 git 版本控制下才指引 restore from git。
+    #[test]
+    fn missing_message_honors_git_presence() {
+        let (dir, store) = temp_store();
+        // 临时目录根放一个 .git,祖先探测应命中
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        add(&store, "fact", "一号", "钩子一", "x");
+        let b = add(&store, "fact", "三号占位", "钩子三", "x");
+        let path = store.root.join(format!("{}.md", b.file_stem()));
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("id: M-002", "id: M-003");
+        std::fs::write(&path, text).unwrap();
+        let issues = store.integrity_issues();
+        let missing = issues
+            .iter()
+            .find(|i| i.contains("MISSING ids"))
+            .expect("应有 MISSING 报告");
+        assert!(missing.contains("restore from git"), "{missing}");
+        assert!(!missing.contains("no git backup"), "{missing}");
         std::fs::remove_dir_all(dir).ok();
     }
 
