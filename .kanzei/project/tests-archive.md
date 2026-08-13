@@ -2758,3 +2758,11 @@
 - 摘要: Rust 格式检查通过。
 - 关联: R-236 D-346
 - 收尾: 1786649430
+
+## T-1786649540 R-236/D-346 提交前 Rust 定向复测 [passed]
+- 命令: cargo test -p kanzei-core; cargo test -p kanzei-app
+- 时长: 15.1s
+- 摘要: 提交前复测：kanzei-core 161 passed、kanzei-app 145 passed。
+- 关联: R-236 D-346
+- 收尾: 1786649540
+- 源码指纹: 42745d437e4ce2b8
