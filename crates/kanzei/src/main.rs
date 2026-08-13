@@ -497,9 +497,13 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 question,
                 options,
                 default,
+                multiple,
             } => {
                 eprint!("\x1b[33m? {question}");
                 if !options.is_empty() {
+                    if multiple {
+                        eprint!(" [可多选,逗号分隔]");
+                    }
                     eprint!(" [{}]", options.join(" / "));
                 }
                 if let Some(default) = default {

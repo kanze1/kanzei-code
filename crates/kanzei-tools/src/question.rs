@@ -16,6 +16,9 @@ struct QuestionInput {
     /// 可选默认答案。
     #[serde(default)]
     default: Option<String>,
+    /// 是否允许用户多选(默认 false:点一个选项即提交)。
+    #[serde(default)]
+    multiple: bool,
 }
 
 pub struct QuestionTool;
@@ -27,7 +30,7 @@ impl Tool for QuestionTool {
     }
 
     fn description(&self) -> String {
-        "Ask the user a structured question. Params: question; optional options and default. Use for clarification instead of guessing.".into()
+        "Ask the user a structured question. Params: question; optional options, default and multiple (multi-select). Use for clarification instead of guessing.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {

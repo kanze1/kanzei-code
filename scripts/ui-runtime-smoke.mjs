@@ -5645,6 +5645,108 @@ const docsB = {
   await flush();
 }
 
+// ---------- D-337:ask 弹窗 question 档位的多选(声明多选时点选项不再立即提交) ----------
+// 老行为:question 的每个选项是"点击即提交"的按钮,问题文本写着「可多选」也选不了多个。
+// 新契约:multiple=true 或问题文本声明多选(兜底)时,选项变成可勾选,提交回答才汇总;
+// 默认档位(未声明多选)点击即提交的行为保持不变。
+{
+  const overlay = byId.get("ask-overlay");
+  const answerCalls = () => invokeArgs.filter(({ cmd }) => cmd === "answer_ask");
+  vm.runInContext('activeSessionId = "sess-smoke"', sandbox);
+  const clearAsks = async () => {
+    while (!overlay.classList.contains("hidden") && byId.get("ask-cancel")) {
+      byId.get("ask-cancel").click();
+      await flush();
+    }
+  };
+  await clearAsks();
+
+  // ① 显式 multiple=true:点选项只切换勾选,提交回答才汇总(所选选项 + 补充文本)。
+  askHandler?.({
+    payload: {
+      id: 701, sessionId: "sess-smoke", kind: "question",
+      question: "问题 701", options: ["A 选项一", "B 选项二"], default: "", multiple: true,
+    },
+  });
+  await flush();
+  assert(!overlay.classList.contains("hidden"), "D-337:多选 question 弹窗未弹出");
+  const optionsBox = byId.get("ask-options");
+  assert(optionsBox.classList.contains("multi"), "D-337:multiple=true 时选项容器未标 multi");
+  const optionButtons = [...optionsBox.querySelectorAll(".ask-option")];
+  assert(optionButtons.length === 2, `D-337:多选选项数不对:${optionButtons.length}`);
+  const beforeClicks = answerCalls().length;
+  optionButtons[0].click();
+  await flush();
+  assert(answerCalls().length === beforeClicks, "D-337:多选档位点一个选项就立即提交了(老 bug 复发)");
+  assert(optionButtons[0].classList.contains("selected"), "D-337:点过的选项没有选中标记");
+  assert(optionButtons[0].getAttribute("aria-pressed") === "true", "D-337:选中选项 aria-pressed 未置 true");
+  optionButtons[1].click();
+  assert(optionButtons[1].classList.contains("selected"), "D-337:第二个选项未选中");
+  optionButtons[0].click();
+  assert(!optionButtons[0].classList.contains("selected"), "D-337:再点一次应取消选中");
+  optionButtons[0].click();
+  assert(byId.get("ask-submit").disabled === false, "D-337:已选选项时提交按钮仍被禁用");
+  byId.get("ask-answer").value = "补充说明文字";
+  byId.get("ask-answer").dispatchEvent({ type: "input" });
+  byId.get("ask-submit").click();
+  await flush();
+  const multiAnswer = answerCalls().at(-1)?.args;
+  assert(
+    multiAnswer && multiAnswer.reply === "B 选项二\nA 选项一\n补充说明文字",
+    `D-337:多选提交的汇总不对(应按勾选顺序含所选选项与补充文本):${JSON.stringify(multiAnswer)}`,
+  );
+  assert(overlay.classList.contains("hidden"), "D-337:多选提交后弹窗未关闭");
+  await clearAsks();
+
+  // ② 文本声明「可多选」的兜底:工具没传 multiple 也进多选档位(历史问题文本的形态)。
+  askHandler?.({
+    payload: {
+      id: 702, sessionId: "sess-smoke", kind: "question",
+      question: "你观察到的不匹配具体指哪一块?(可多选/补充)",
+      options: ["A 测试节奏", "B 提交粒度"], default: "", multiple: false,
+    },
+  });
+  await flush();
+  assert(byId.get("ask-options").classList.contains("multi"), "D-337:问题文本声明「可多选」未进入多选档位");
+  [...byId.get("ask-options").querySelectorAll(".ask-option")].forEach((button) => button.click());
+  byId.get("ask-submit").click();
+  await flush();
+  assert(
+    answerCalls().at(-1)?.args?.reply === "A 测试节奏\nB 提交粒度",
+    `D-337:文本兜底多选的提交不对:${JSON.stringify(answerCalls().at(-1)?.args)}`,
+  );
+  await clearAsks();
+
+  // ③ 非多选档位(默认)行为不变:点一个选项立即提交。
+  askHandler?.({
+    payload: {
+      id: 703, sessionId: "sess-smoke", kind: "question",
+      question: "单选问题", options: ["甲", "乙"], default: "",
+    },
+  });
+  await flush();
+  assert(!byId.get("ask-options").classList.contains("multi"), "D-337:默认档位误进了多选");
+  const beforeSingle = answerCalls().length;
+  [...byId.get("ask-options").querySelectorAll(".ask-option")][1].click();
+  await flush();
+  assert(answerCalls().length === beforeSingle + 1, "D-337:非多选档位点选项未立即提交");
+  assert(answerCalls().at(-1)?.args?.reply === "乙", `D-337:非多选档位提交的不是所点选项:${JSON.stringify(answerCalls().at(-1)?.args)}`);
+  await clearAsks();
+
+  // ④ 多选档位空选空文本时提交按钮禁用(离开必须经由「取消」)。
+  askHandler?.({
+    payload: {
+      id: 704, sessionId: "sess-smoke", kind: "question",
+      question: "空选测试", options: ["唯一"], default: "", multiple: true,
+    },
+  });
+  await flush();
+  assert(byId.get("ask-submit").disabled === true, "D-337:多选空选空文本时提交按钮应禁用");
+  byId.get("ask-cancel").click();
+  await flush();
+  assert(overlay.classList.contains("hidden"), "D-337:取消未关闭多选弹窗");
+}
+
 if (issues.length) {
   reportedIssues = true;
   console.error(`UI 运行时冒烟失败(${issues.length} 处):`);

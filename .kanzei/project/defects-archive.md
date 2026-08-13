@@ -3853,3 +3853,17 @@
 - 证据等级: E1(读码:normalize 归档分支 1050-1071 只 push findings 不修;D-333 承载存量收敛)
 - 验收: ①normalize apply 能修复归档区重复字段(复用 dedupe_archived_fields,与 D-333 已交付的能力接线);②normalize_reports_archived_mismatch_without_writing 测试改名为反映可修复,或补 apply 修复断言;③存量收敛状态在 D-333 关闭时逐条给出证据。
 - 优先级: P2
+
+## D-337 ask 弹窗 question 档位:声明「可多选」的选项点击单个即提交,无多选通道 [fixed] (medium)
+- 严重度: medium
+- 优先级: P1
+- 复现: agent 通过 question 工具提问并给出选项,问题文本声明「可多选」(如「你观察到的不匹配具体指哪一块?(可多选/补充)」)时,ask 弹窗把每个选项渲染成点击即提交的按钮——点一个选项立即 answerAsk(option) 提交,无法先选多个再统一提交;question 工具 schema 也没有 multiple 字段表达多选意图,前端无从判断。
+- 归属: kanzei
+- 来源: 2026-08-16 用户实测报告
+- 标签: 前端
+- 验收: ①question 工具 schema 支持 multiple 字段(默认 false,向后兼容),经 AskRequest → kz:ask payload → pending_ask_payload 全链路透传;②前端 multiple=true 或多选意图(问题文本含「可多选」等)时,选项渲染为可勾选、点击只切换不提交,提交回答按钮汇总所选选项(+可选补充文本)一次性提交;非多选档位行为不变(点击即提交);③有自动化测试覆盖 payload 透传与两档行为区分。
+- 根因: question 工具 schema 没有 multiple 字段,前端把每个选项都渲染成「点击即提交」按钮——工具无法表达多选意图,前端也没有多选交互,问题文本声明「可多选」时点一个就直接 answerAsk(option) 提交了。
+- 进展: 2026-08-16 修复完成:①question 工具 schema 新增 multiple(默认 false,向后兼容),经 AskRequest::Question → drive.rs 解析 → run.rs kz:ask payload → state.rs pending_ask_payload 全链路透传;②前端 07-events.js 新增 isMultiSelectAsk(显式 multiple 或问题文本含「多选」兜底)+ 多选渲染(选项点击只切换勾选,提交回答按钮汇总所选选项 + 补充文本一次性提交),非多选档位点击即提交行为不变;③测试:permission_tests.rs 新增 pending_ask_payload_carries_question_multiple(payload 透传 true/false 两档),ui-runtime-smoke.mjs 新增 D-337 四场景断言(显式多选/文本兜底/默认档位/空选禁用)。kanzei-app 139 passed、core/tools/kanzei 全绿、UI 冒烟通过、fmt/clippy 干净。
+- observed_head: a318b7c36abec8305c9de300f7c802b1a7a34934
+- observed_worktree_hash: fnv1a64:8c50a1d32a4e3997
+- recorded_at: 1786621885230

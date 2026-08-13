@@ -2416,3 +2416,10 @@
 - 摘要: R-180 B2 日志落盘:315 passed / 0 failed。persistent 服务全量输出(full_output 不丢头)+ 节流 write_atomic 落盘(temp/kanzei-bg-logs/<项目hash>/<id>.log,验收⑤原语);process output action 对 persistent 读 full_log + 显示落盘路径;测试 persistent_日志落盘_超256k不丢头_退出后可回看(300KiB 输出,落盘文件>256KiB 且含开头,full_log 全量)。clippy 干净。
 - 关联: R-180
 - 收尾: 1786621170
+
+## T-1786621875 D-337:ask 多选档位——payload 透传 + 前端多选渲染 + 冒烟断言 [passed]
+- 命令: cargo test -p kanzei-app -p kanzei-core -p kanzei-tools -p kanzei; node scripts/ui-runtime-smoke.mjs; cargo fmt --all -- --check; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 120.0s
+- 摘要: kanzei-app 139 passed;kanzei-core/kanzei-tools/kanzei 全绿;UI 运行时冒烟通过(含新增 D-337 多选四场景断言);fmt/clippy 干净
+- 关联: D-337
+- 收尾: 1786621875

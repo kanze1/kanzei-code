@@ -603,10 +603,11 @@ pub(crate) async fn run_task(
                 question,
                 options,
                 default,
+                multiple,
             } => (
                 "question".into(),
                 question.clone(),
-                json!({ "kind": "question", "id": id, "question": question, "options": options, "default": default }),
+                json!({ "kind": "question", "id": id, "question": question, "options": options, "default": default, "multiple": multiple }),
             ),
         };
         let payload = with_session_id(payload, &ask_session_id);

@@ -179,6 +179,7 @@ fn pending_ask_lookup_stays_with_its_runtime_container() {
                 question: "继续?".into(),
                 options: Vec::new(),
                 default: None,
+                multiple: false,
             },
             action: "question".into(),
             resource: "继续?".into(),

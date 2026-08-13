@@ -30,6 +30,48 @@ fn pending_ask_payload_can_rebuild_permission_dialog() {
 }
 
 #[test]
+fn pending_ask_payload_carries_question_multiple() {
+    // D-337:question 档位的 multiple 必须经 pending_ask_payload 透传,否则重启恢复
+    // 或切换会话重弹时,多选档位会静默退化成"点一个即提交"。
+    let (sender, _receiver) = oneshot::channel();
+    let pending = PendingAsk {
+        sender,
+        request: kanzei_core::AskRequest::Question {
+            question: "哪个?".into(),
+            options: vec!["甲".into(), "乙".into()],
+            default: None,
+            multiple: true,
+        },
+        action: "question".into(),
+        resource: "哪个?".into(),
+        project_root: "C:/project".into(),
+        session_id: "session#q1".into(),
+    };
+    let payload = pending_ask_payload(9, &pending);
+    assert_eq!(payload["kind"], "question");
+    assert_eq!(payload["multiple"], true);
+    assert_eq!(payload["options"][0], "甲");
+    assert_eq!(payload["sessionId"], "session#q1");
+
+    // 默认档位(未声明)透传 false,不把历史问题误判成多选。
+    let (sender, _receiver) = oneshot::channel();
+    let single = PendingAsk {
+        sender,
+        request: kanzei_core::AskRequest::Question {
+            question: "哪个?".into(),
+            options: vec!["甲".into()],
+            default: None,
+            multiple: false,
+        },
+        action: "question".into(),
+        resource: "哪个?".into(),
+        project_root: "C:/project".into(),
+        session_id: "session#q2".into(),
+    };
+    assert_eq!(pending_ask_payload(10, &single)["multiple"], false);
+}
+
+#[test]
 fn persist_always_allow_success_returns_always_allow_and_path() {
     let root = std::env::temp_dir().join(format!(
         "kanzei-app-always-ok-{}-{}",

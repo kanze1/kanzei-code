@@ -421,6 +421,32 @@ on("kz:done", async (e) => {
 // ---------- 权限弹窗 ----------
 const askQueues = new Map();
 let askActive = null;
+// D-337:多选档位下已勾选的选项(question 弹窗);非多选档位不消费。
+let askSelectedOptions = [];
+
+function isMultiSelectAsk(ask) {
+  if (!ask || ask.kind !== "question") return false;
+  if (ask.multiple) return true;
+  // 工具没传 multiple 但问题文本声明了多选(如「可多选/补充」)时兜底;
+  // 声明有 `multiple` 字段后应显式传值,这里只兜历史行为。
+  return /多选|multi[- ]?select/i.test(ask.question || "");
+}
+
+function currentQuestionAnswer() {
+  if (!askActive || askActive.kind !== "question") return "";
+  const parts = [];
+  if (askSelectedOptions.length) parts.push(askSelectedOptions.join("\n"));
+  const text = $("ask-answer").value.trim();
+  if (text) parts.push(text);
+  return parts.join("\n");
+}
+
+function updateAskSubmitState() {
+  if (!askActive || askActive.kind !== "question") return;
+  const multi = isMultiSelectAsk(askActive);
+  $("ask-submit").disabled =
+    multi && askSelectedOptions.length === 0 && !$("ask-answer").value.trim();
+}
 
 function askSessionId(payload) {
   return payload?.sessionId || activeSessionId || "__default__";
@@ -497,17 +523,39 @@ function pumpAsk() {
   $("question-buttons").classList.toggle("hidden", !question);
   if (question) {
     $("ask-question").textContent = askActive.question;
+    const multi = isMultiSelectAsk(askActive);
+    askSelectedOptions.length = 0;
     const options = $("ask-options");
     options.innerHTML = "";
+    options.classList.toggle("multi", multi);
     for (const option of askActive.options || []) {
       const button = document.createElement("button");
       button.className = "ghost ask-option";
+      button.type = "button";
       button.textContent = option;
-      button.addEventListener("click", () => answerAsk(option));
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", () => {
+        if (!multi) {
+          answerAsk(option);
+          return;
+        }
+        const index = askSelectedOptions.indexOf(option);
+        if (index >= 0) {
+          askSelectedOptions.splice(index, 1);
+        } else {
+          askSelectedOptions.push(option);
+        }
+        const selected = index < 0;
+        button.classList.toggle("selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
+        updateAskSubmitState();
+      });
       options.appendChild(button);
     }
     $("ask-answer").value = askActive.default || "";
+    $("ask-answer").placeholder = multi ? t("补充说明(可选)") : t("输入你的回答");
     setTimeout(() => $("ask-answer").focus(), 0);
+    updateAskSubmitState();
   } else {
     $("ask-action").textContent = askActive.action;
     $("ask-resource").textContent = askActive.resource;
@@ -550,10 +598,11 @@ $("ask-deny").addEventListener("click", () => answerAsk("deny"));
 $("ask-always").addEventListener("click", () => answerAsk("always"));
 $("ask-allow").addEventListener("click", () => answerAsk("once"));
 $("ask-cancel").addEventListener("click", () => answerAsk("cancel"));
-$("ask-submit").addEventListener("click", () => answerAsk($("ask-answer").value.trim()));
+$("ask-submit").addEventListener("click", () => answerAsk(currentQuestionAnswer()));
 $("ask-answer").addEventListener("keydown", (event) => {
-  if (event.key === "Enter") answerAsk($("ask-answer").value.trim());
+  if (event.key === "Enter") answerAsk(currentQuestionAnswer());
 });
+$("ask-answer").addEventListener("input", updateAskSubmitState);
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
   if (!$('ask-overlay').classList.contains("hidden") && askActive) {

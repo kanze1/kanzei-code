@@ -149,6 +149,7 @@ pub enum AskRequest {
         question: String,
         options: Vec<String>,
         default: Option<String>,
+        multiple: bool,
     },
 }
 

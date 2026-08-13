@@ -865,6 +865,10 @@ pub fn run_once_with_parts<'a>(
                             .get("default")
                             .and_then(|v| v.as_str())
                             .map(str::to_owned);
+                        let multiple = input
+                            .get("multiple")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
                         let output = if question.is_empty() {
                             kanzei_harness::ToolOutput::error("question must not be empty")
                         } else if !config.ask_policy.allows_user_prompt() {
@@ -878,6 +882,7 @@ pub fn run_once_with_parts<'a>(
                                 question: question.to_owned(),
                                 options,
                                 default,
+                                multiple,
                             })
                             .await
                             {

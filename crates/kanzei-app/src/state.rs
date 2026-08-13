@@ -563,8 +563,9 @@ pub(crate) fn pending_ask_payload(id: u64, pending: &PendingAsk) -> serde_json::
             question,
             options,
             default,
+            multiple,
         } => {
-            json!({"kind":"question","id":id,"question":question,"options":options,"default":default})
+            json!({"kind":"question","id":id,"question":question,"options":options,"default":default,"multiple":multiple})
         }
     };
     with_session_id(payload, &pending.session_id)

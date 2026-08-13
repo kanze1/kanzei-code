@@ -385,6 +385,7 @@ const I18N_EN = {
   "按成败状态筛选": "Filter by result",
   "按子代理角色筛选": "Filter by subagent role",
   "输入你的回答": "Enter your answer",
+  "补充说明(可选)": "Optional note",
   "写入项目 .kanzei/kanzei.toml,之后不再询问": "Save to project .kanzei/kanzei.toml and stop asking",
   "在外部编辑器打开": "Open in external editor",
   "关闭": "Close",
