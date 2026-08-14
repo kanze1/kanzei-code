@@ -3575,3 +3575,17 @@
 - 关联: D-369
 - 收尾: 1786746587
 - 源码指纹: 9be6473d17367204
+
+## T-1786748186 cargo test -p kanzei-memory [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: D-366 B1 检索边界重构后 memory crate 全量 128 测试绿(含检索行为快照 top-k 对照、零采纳沉底/preference 豁免经 index 决策排序、失步守护/shadow 过滤经候选集)
+- 关联: D-366
+- 收尾: 1786748186
+- 源码指纹: 107d059216338161
+
+## T-1786748277 cargo test -p kanzei-tools -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-tools -p kanzei-app
+- 摘要: D-366 B1 跨 crate 接线后 kanzei-tools + kanzei-app 251 测试绿(read.rs 测试改走 index.search_entries;app 桌面搜索页接线编译+测试通过)
+- 关联: D-366
+- 收尾: 1786748277
+- 源码指纹: 107d059216338161
