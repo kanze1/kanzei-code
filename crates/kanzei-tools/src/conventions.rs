@@ -210,6 +210,14 @@ fn write_patch(path: &Path, current: String, new_content: String, expected: &str
     } else {
         new_content
     };
+    // D-364:conventions.md 与 bash 围栏共用同一把锁——围栏命令窗口内,并发 patch
+    // 在锁上等待,命令结束后落盘,不会被围栏的快照回滚误抹掉。CAS 防并发手改,
+    // 锁防围栏误回滚,两者互补。expected 若是窗口前读的,等锁拿到后 CAS 会如实报
+    // stale,绝不假成功。
+    let _lock = match crate::atomic_file::lock_exclusive(path) {
+        Ok(lock) => lock,
+        Err(e) => return ToolOutput::error(format!("cannot lock {CONVENTIONS_REL}: {e}")),
+    };
     if let Err(e) = crate::atomic_file::write_atomic_cas(path, &new_content, expected, content_hash)
     {
         return ToolOutput::error(e);

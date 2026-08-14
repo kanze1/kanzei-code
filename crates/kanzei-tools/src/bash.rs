@@ -12,8 +12,8 @@ use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
 use crate::managed::{
-    enforce_managed_files, managed_scope_exists, ManagedSnapshot, MANAGED_SNAPSHOT_FILE_LIMIT,
-    MANAGED_SNAPSHOT_MAX_FILES,
+    acquire_managed_locks, enforce_managed_files, managed_scope_exists, ManagedSnapshot,
+    MANAGED_SNAPSHOT_FILE_LIMIT, MANAGED_SNAPSHOT_MAX_FILES,
 };
 use crate::shell::{detected_shell, kill_tree};
 
@@ -264,19 +264,6 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         return ToolOutput::error(format!("workdir does not exist: {}", workdir.display()));
     }
 
-    // D-173 硬围栏:托管文档只能走专用工具,而"能不能绕过"绝不能靠猜命令文本。
-    // [System.IO.File]::WriteAllText、重定向、python/node 一行流、git checkout 单文件
-    // 都能避开任何字符串匹配,所以这里改成**结果侧**判定:跑之前拍下托管目录的镜像,
-    // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
-    let managed_before = ManagedSnapshot::capture(&ctx.project_root);
-    if !managed_before.is_complete() {
-        return ToolOutput::error(format!(
-            "bash refused before execution: the managed-document snapshot is incomplete \
-                 (more than {MANAGED_SNAPSHOT_MAX_FILES} files or a file over \
-                 {MANAGED_SNAPSHOT_FILE_LIMIT} bytes). A shell command cannot run when its \
-                 protected-path effects cannot be fully rolled back."
-        ));
-    }
     // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
     // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
     if input.background && managed_scope_exists(&ctx.project_root) {
@@ -289,6 +276,36 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     // 「后台任务生命周期 ⊆ owner run」时才成立——跨 run 存活会让本 run 的
     // 专用工具写入被上一个 run 的守卫误判成越界。
     crate::background::finish_foreign_owners(&ctx.project_root, ctx.run_id.as_deref()).await;
+
+    // D-364:命令执行期间持有全部已知托管文档的写锁,把**另一个进程**的合法并发
+    // 写入(自举轮跑 bash 时外部 `kz req add`)挡在围栏窗口之外。围栏的归因判据是
+    // 「命令前后托管树快照一致」,窗口内任何变化都会被当成 bash 越界整体回滚——不
+    // 持锁的话,CLI 在窗口内写入的条目会被围栏当越界抹掉,报 added 却查无此条。
+    // 持锁后:并发写者在窗口内等锁、命令结束落盘、不被误回滚;超过预算则写者明确
+    // 报错。后台任务不在此列:命令已脱离本 run,由后台守卫按自己的生命周期对账。
+    let _managed_locks = if input.background {
+        None
+    } else {
+        match acquire_managed_locks(&ctx.project_root) {
+            Ok(locks) => Some(locks),
+            Err(e) => return ToolOutput::error(format!("bash refused before execution: {e}")),
+        }
+    };
+    // D-173 硬围栏:托管文档只能走专用工具,而"能不能绕过"绝不能靠猜命令文本。
+    // [System.IO.File]::WriteAllText、重定向、python/node 一行流、git checkout 单文件
+    // 都能避开任何字符串匹配,所以这里改成**结果侧**判定:跑之前拍下托管目录的镜像,
+    // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
+    // 快照必须拍在持锁之后:锁文件(运行时产物,已进 .gitignore)要同时出现在前后
+    // 两张镜像里,否则会被围栏当成命令新建的文件误删。
+    let managed_before = ManagedSnapshot::capture(&ctx.project_root);
+    if !managed_before.is_complete() {
+        return ToolOutput::error(format!(
+            "bash refused before execution: the managed-document snapshot is incomplete \
+                 (more than {MANAGED_SNAPSHOT_MAX_FILES} files or a file over \
+                 {MANAGED_SNAPSHOT_FILE_LIMIT} bytes). A shell command cannot run when its \
+                 protected-path effects cannot be fully rolled back."
+        ));
+    }
 
     let shell = detected_shell();
     let mut command = tokio::process::Command::new(&shell.program);

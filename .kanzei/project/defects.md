@@ -85,7 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-364 托管文档并发写丢条目:kz req add 报 added 成功但条目被并发写者整体覆盖消失 [open] (high)
+## D-364 托管文档并发写丢条目:kz req add 报 added 成功但条目被并发写者整体覆盖消失 [fixing] (high)
 - refs: R-138 R-177 R-182 M-012 D-267
 - 复杂度: 中
 - 复现: 2026-08-15 04:00-04:10 实测,当场命中两次。环境:kzapp(pid 38688)内有自举轮正在写 .kanzei/project/(文件 mtime 实证:conventions.md 04:06:53、tests.md 04:09:02、requirements.md 04:09:13 相继被写),同时在主根用 kz req add 登记条目。第一次:add 输出 added R-254,紧接着的下一条 add 又被分配到 R-254,复核 requirements.md 发现前一条整体消失(标题、全部字段一并没了,不是截断);第二次同型:输出 added R-257 后,下一条 add 又拿到 R-257,前一条消失。改成 add 后立即 Select-String 复核 + 重试才落住(最终补登为 R-255 与 R-258)。
@@ -95,6 +95,12 @@
 - 根因假设(未定位,待读码): docstore 的 读全文-改-整体回写 不是跨进程原子的,或 R-138 FileLock 的加锁范围没覆盖 桌面端进程 与 kz CLI 进程 这两个写者(锁只在单进程内生效,或只锁单个文档路径而 id 分配读的是另一份快照)。需确认:①FileLock 实际加锁位置与持有时长;②next_id 计算与写盘是否在同一临界区;③桌面端写托管文档走的是不是同一条 docstore 路径。
 - 验收: ①并发场景有确定性回归测试(两个进程同时 add),后写者不得覆盖先写者;②失败时工具必须报错,禁止回 added——宁可失败也不能假成功;③id 分配与写入在同一临界区完成,不出现同 id 二次分配;④桌面端自举轮在跑时,外部 kz req/defect add 能稳定落住(实测,不是只跑单测)。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-364
+- 批次: 1/2
+- 进展: B1 完成:①managed.rs 新增 ManagedLocks/acquire_managed_locks——bash 命令窗口内经专用线程持有 8 个已知托管活动文档的 FileLock(R/D/G/A/M + tests/conventions/architecture),释放先发信号再 join;collect_files 排除 .lock 文件(独占句柄读 metadata 被拒导致快照误判不完整,D-364 实测);②bash.rs 前台路径接入:后台检查→finish_foreign_owners→持锁→capture→执行→enforce→释放;后台任务不持锁(守卫自行对账);③conventions.rs write_patch 加锁与围栏共用;④单测 2 条(持锁挡并发写者/越界写仍回滚/释放后写者成功 + 文档清单覆盖四族)。定向:cargo test -p kanzei-tools 250 绿(T-1786743031)。B2 待办:端到端回归测试 + 全量 + 关闭。
+- observed_head: f5ad4421e94db56c50a6ec26baa586ce0ca96077
+- observed_worktree_hash: fnv1a64:f321498bd0d86286
+- recorded_at: 1786743040715
 
 ## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [open] (medium)
 - refs: R-207 R-254 R-177
