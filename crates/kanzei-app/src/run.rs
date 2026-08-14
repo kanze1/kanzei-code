@@ -878,6 +878,549 @@ async fn build_subagent_runtime(
     }))
 }
 
+/// R-202 批2:run_task 的事件循环段(原 run_task :1043-1188)——会话恢复 → 附件提示 →
+/// 记忆预检索 → 勘察(scout)→ 主循环(run_once_with_parts)→ 复核修正(run_review_and_fixup)。
+/// 行为零变更:先恢复 prior,再注入记忆提示,再按流水线状态机 scout/begin_implementation,
+/// 最后 run_once + 复核。返回 (run_result, prior):prior 供轮末 typed shadow 报告与
+/// 本轮切片使用。
+#[allow(clippy::too_many_arguments)]
+async fn run_execution_loop(
+    stage: &(dyn Fn(&str, String) + Sync),
+    initial_parts: &[kanzei_llm::Part],
+    prompt: &str,
+    ctx: &ToolCtx,
+    autonomous: bool,
+    config: &kanzei_harness::KanzeiConfig,
+    pipeline: &mut Option<crate::phase_pipeline::PhasePipeline>,
+    subagent_rt: &Option<kanzei_core::SubagentRuntime>,
+    client: &kanzei_llm::LlmClient,
+    route: &kanzei_llm::Route,
+    snapshot: &Arc<kanzei_harness::HarnessSnapshot>,
+    agent: &kanzei_harness::AgentDef,
+    runner_config: &kanzei_core::RunnerConfig,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+    ask: &mut (dyn FnMut(kanzei_core::AskRequest) -> AskFuture + Send),
+    prior: &[kanzei_llm::Message],
+) -> Result<kanzei_core::RunSummary, anyhow::Error> {
+    if !initial_parts.is_empty() {
+        let image_count = initial_parts
+            .iter()
+            .filter(|part| matches!(part, kanzei_llm::Part::Image { .. }))
+            .count();
+        let document_count = initial_parts
+            .iter()
+            .filter(|part| matches!(part, kanzei_llm::Part::Document { .. }))
+            .count();
+        stage(
+            "附件",
+            format!(
+                "已接收 {} 个附件，转换为 {} 个图片、{} 个文档输入，准备发送给 agent",
+                initial_parts.len(),
+                image_count,
+                document_count
+            ),
+        );
+    }
+
+    // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
+    // D-185:提示块不再拼进 run_prompt,改由 run_once 作为本轮 system 一次性注入——
+    // 拼进去会随 User message 进 messages → 落 conversations → 下轮回灌累积。
+    let memory_hints = kanzei_tools::memory::prompt_hints(
+        &ctx.project_root,
+        prompt,
+        autonomous,
+        // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
+        kanzei_tools::embed::embedder_from_config(config)
+            .ok()
+            .flatten(),
+    );
+    let mut run_prompt = prompt.to_string();
+    // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
+    // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,
+    // 而 synthesis 的唯一入边是 `scout` 里的汇总屏障(不变量 2)。
+    if let Some(pipeline) = pipeline.as_mut() {
+        match subagent_rt.as_ref() {
+            Some(template) => {
+                stage(
+                    "勘察",
+                    format!(
+                        "并行只读勘察中(最多 {} 个角色)…",
+                        config.limits.max_tasks_per_turn()
+                    ),
+                );
+                match pipeline
+                    .scout(client, template, ctx, prompt, on_event)
+                    .await
+                {
+                    Ok(brief) => {
+                        stage("屏障", "勘察全部进入终态,开始申请写租约".into());
+                        run_prompt = format!("{brief}\n\n{run_prompt}");
+                    }
+                    Err(error) => {
+                        // 勘察失败不该让这一轮跑不成:按无勘察继续,但**不静默**——
+                        // 阶段面板上有这一行,轨迹里有 barrier 事件可查。
+                        stage("勘察", format!("勘察阶段失败,本轮无勘察简报:{error}"));
+                    }
+                }
+            }
+            None => {
+                // 子代理关闭时没有勘察能力:空屏障照样走一遍,轨迹里留下
+                // agent_count=0 的 barrier,而不是让阶段序列缺一截。
+                let _ = pipeline.scout_skipped().await;
+            }
+        }
+        pipeline
+            .begin_implementation()
+            .await
+            .map_err(|e| anyhow::anyhow!("无法进入实现阶段: {e}"))?;
+    }
+    let run_result = run_once_with_parts(
+        client,
+        route,
+        snapshot,
+        agent,
+        runner_config,
+        ctx,
+        &run_prompt,
+        memory_hints.as_deref(),
+        prior,
+        (!initial_parts.is_empty()).then_some(initial_parts),
+        subagent_rt.as_ref(),
+        on_event,
+        ask,
+    )
+    .await;
+    // R-173 批6 · 集成 → 复核屏障 → 复核 → 修正。
+    //
+    // 复核屏障(`review` 内的第一句)会**交出写租约**,所以复核代理审的是稳定快照
+    // (不变量 9)。只有复核真有发现时才会有第二段 run_once;无发现时本轮的
+    // run_once 次数与引入前一样是 1 次。
+    let run_result = match (pipeline.as_mut(), run_result) {
+        (Some(pipeline), Ok(summary)) => {
+            let merged = run_review_and_fixup(
+                pipeline,
+                client,
+                route,
+                snapshot,
+                agent,
+                runner_config,
+                ctx,
+                prompt,
+                subagent_rt.as_ref(),
+                summary,
+                on_event,
+                ask,
+                stage,
+            )
+            .await;
+            pipeline.finish();
+            merged
+        }
+        (Some(pipeline), Err(error)) => {
+            // 运行失败:不变量 7——任意结束路径都要交出租约并给确定终态。
+            pipeline.abort("run failed");
+            Err(error)
+        }
+        (None, result) => result,
+    };
+    run_result
+}
+
+/// R-202 批2:run_task 轮末收尾段前半——打开 final_store 并把本轮终态落库:
+/// typed writer 终态/会话状态/run.completed|run.failed 事件/episode 落库/轮末采集/
+/// 记忆整理。返回重开的 SessionStore 供后续 conversation.updated 与 trace flush 使用;
+/// 打开失败不阻断(错误已上报,返回 None)。
+#[allow(clippy::too_many_arguments)]
+fn persist_round_outcome(
+    state_path: &std::path::Path,
+    window: &Window,
+    session_id: &str,
+    run_result: &Result<kanzei_core::RunSummary, anyhow::Error>,
+    typed_writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
+    prior: &[kanzei_llm::Message],
+    ctx: &ToolCtx,
+    prompt: &str,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    run_id: &str,
+    promoted_input_id: &str,
+    run_started: &std::time::Instant,
+    run_epoch_ms: i64,
+    live: &Arc<Mutex<LiveRun>>,
+) -> Option<kanzei_core::SessionStore> {
+    let final_store = match kanzei_core::SessionStore::open(state_path) {
+        Ok(store) => Some(store),
+        Err(error) => {
+            report_persistence_failure(window, session_id, "打开会话数据库", error);
+            None
+        }
+    };
+    if let Some(store) = final_store.as_ref() {
+        match run_result {
+            Ok(summary) => {
+                typed_writer
+                    .lock()
+                    .unwrap()
+                    .finish(if summary.halted_by_user {
+                        typed_events::TerminalFact::Stopped
+                    } else {
+                        typed_events::TerminalFact::Completed
+                    });
+                if let Err(error) = store.set_status(session_id, "idle") {
+                    report_persistence_failure(window, session_id, "写入 idle 状态", error);
+                }
+                if let Err(error) = store.append_event(
+                    session_id,
+                    "session.status_changed",
+                    &json!({ "status": "idle" }),
+                ) {
+                    report_persistence_failure(window, session_id, "写入完成状态事件", error);
+                }
+                if let Err(error) = store.append_event(
+                    session_id,
+                    "run.completed",
+                    &json!({
+                        "steps": summary.steps,
+                        "halted_by_user": summary.halted_by_user,
+                        "input": summary.usage.input,
+                        "output": summary.usage.output,
+                        // 上下文账单(R-106):各注入源字符数,UI 与度量共用。
+                        "context": summary.context_report,
+                    }),
+                ) {
+                    report_persistence_failure(window, session_id, "写入完成事件", error);
+                }
+                // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
+                // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
+                let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
+                // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼
+                // → 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact
+                // 候选(项目 inbox)。候选箱语义不变:SOP 只产候选等用户一键采纳,agent 不自决入库。
+                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, prompt, this_run);
+                // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
+                // R-213:当轮 episode_id 代填给轮末 memory manager(同 CLI 路径)。
+                let mut current_episode_id: Option<i64> = None;
+                if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
+                    session_id,
+                    prompt_head: prompt,
+                    outcome: if summary.halted_by_user {
+                        "halted"
+                    } else {
+                        "completed"
+                    },
+                    steps: summary.steps,
+                    input_tokens: summary.usage.input,
+                    output_tokens: summary.usage.output,
+                    tools_json: &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
+                        .unwrap_or_default(),
+                    context_json: &serde_json::to_string(&summary.context_report)
+                        .unwrap_or_default(),
+                    // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
+                    metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
+                        .unwrap_or_default(),
+                    // D-173:轮次归属与墙钟。缺了它们,复盘只能从"当前配置"反推模型,
+                    // 而配置随时会变——最基本的事实都无法证伪。
+                    provider: &resolved.provider_name,
+                    model: &resolved.model,
+                    run_id,
+                    input_id: promoted_input_id,
+                    duration_ms: run_started.elapsed().as_millis() as u64,
+                    // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
+                    // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
+                    overflow_json: &serde_json::to_string(&summary.overflow_traces)
+                        .unwrap_or_default(),
+                }) {
+                    // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
+                    let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
+                    current_episode_id = Some(episode_id);
+                }
+                let _ = store.finish_input(promoted_input_id, true);
+                // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
+                // flush_live_run 不该再补一条信息量更少的(D-179)。
+                live.lock().unwrap().flushed = true;
+                if let Err(error) =
+                    append_run_notification(store, session_id, "succeeded", "任务完成", false)
+                {
+                    report_persistence_failure(window, session_id, "写入完成通知", error);
+                }
+                // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
+                // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
+                // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
+                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(
+                    ctx.project_root.display().to_string(),
+                    current_episode_id,
+                ));
+                // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
+                // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
+                // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。
+                let _ = kanzei_tools::memory::reconcile_candidates(
+                    &ctx.project_root,
+                    current_episode_id,
+                    kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
+                );
+            }
+            Err(error) => {
+                typed_writer
+                    .lock()
+                    .unwrap()
+                    .finish(typed_events::TerminalFact::Failed(error.to_string()));
+                typed_writer.lock().unwrap().write_shadow_report(prior);
+                if let Err(persistence_error) = store.set_status(session_id, "failed") {
+                    report_persistence_failure(
+                        window,
+                        session_id,
+                        "写入失败状态",
+                        persistence_error,
+                    );
+                }
+                if let Err(persistence_error) = store.append_event(
+                    session_id,
+                    "session.status_changed",
+                    &json!({ "status": "failed" }),
+                ) {
+                    report_persistence_failure(
+                        window,
+                        session_id,
+                        "写入失败状态事件",
+                        persistence_error,
+                    );
+                }
+                if let Err(persistence_error) = store.append_event(
+                    session_id,
+                    "run.failed",
+                    &json!({ "error": error.to_string() }),
+                ) {
+                    report_persistence_failure(
+                        window,
+                        session_id,
+                        "写入失败事件",
+                        persistence_error,
+                    );
+                }
+                // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
+                // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
+                flush_live_run(store, session_id, live, "failed");
+                let _ = store.finish_input(promoted_input_id, false);
+                if let Err(persistence_error) =
+                    append_run_notification(store, session_id, "failed", error.to_string(), false)
+                {
+                    report_persistence_failure(
+                        window,
+                        session_id,
+                        "写入失败通知",
+                        persistence_error,
+                    );
+                }
+            }
+        }
+    }
+    final_store
+}
+
+/// R-202 批2:run_task 轮末收尾段后半——对话落库 → 轮末压缩(R-236 B1/B4)→
+/// conversation.updated 与 typed shadow 报告 → kz:done → 写租约 Released →
+/// 停止令牌回收。行为零变更:压缩触发线/口径/事件顺序与内联时一致。
+#[allow(clippy::too_many_arguments)]
+async fn finalize_round(
+    conversation: &Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    session_id: &str,
+    summary: &kanzei_core::RunSummary,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    config: &kanzei_harness::KanzeiConfig,
+    stage: &(dyn Fn(&str, String) + Sync),
+    client: &kanzei_llm::LlmClient,
+    subagent_rt: &Option<kanzei_core::SubagentRuntime>,
+    final_store: Option<kanzei_core::SessionStore>,
+    live: &Arc<Mutex<LiveRun>>,
+    typed_writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
+    typed_flush_task: tauri::async_runtime::JoinHandle<()>,
+    window: &Window,
+    history_len: usize,
+    this_run_tools: &std::collections::BTreeMap<String, usize>,
+    auto_action_json: &serde_json::Value,
+    phase_pipeline_enabled: bool,
+    writer_event: &(dyn Fn(kanzei_harness::orchestration::OrchestrationEvent) + Sync),
+    ctx: &ToolCtx,
+    run_id: &str,
+    process_id: &str,
+    _write_lease: &Option<WriterLeaseTrace>,
+    halt_slot: &Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+) -> anyhow::Result<()> {
+    conversation
+        .lock()
+        .unwrap()
+        .insert(session_id.to_string(), summary.messages.clone());
+
+    // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
+    // 工作区逐字、只压中段、纪要过质量闸,失败回落原文节选。R-021 那套「整段历史
+    // → 单条 300 字纪要」已删:那正是 D-181 在 core 侧修掉的失败模式(压完模型
+    // 不知道自己做过什么),也是用户实测「打断插任务模型失忆」的主因之一。
+    // 触发线与轮内同一把尺(compaction_budget:limit − max(output, buffer));
+    // 估算同一口径(附件按固定成本,不按 base64 字节——消灭带附件必误触发)。
+    if let Some(limit) = resolved.provider.context_limit {
+        let budget = kanzei_core::compaction_budget(
+            limit,
+            config.limits.max_tokens(),
+            config.limits.compact_buffer_tokens(),
+        );
+        let mut conv = conversation
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut estimate = compaction_input_tokens(summary.last_input_tokens, &conv);
+        // R-236 B4:轮末同样 L0 先行——机械清旧工具结果,清完够线就不动 LLM 纪要。
+        if estimate > budget && conv.len() > 1 {
+            let cleared = kanzei_core::prune_conversation(
+                &mut conv,
+                config.limits.prune_protect_tokens(),
+                config.limits.prune_min_gain_tokens(),
+            );
+            if cleared > 0 {
+                let after_prune = kanzei_core::estimate_conversation_tokens(&conv);
+                stage(
+                    "压缩",
+                    format!(
+                        "已机械清理 {cleared} 条旧工具结果({}k → {}k token)",
+                        estimate / 1000,
+                        after_prune / 1000
+                    ),
+                );
+                estimate = after_prune;
+                conversation
+                    .lock()
+                    .unwrap()
+                    .insert(session_id.to_string(), conv.clone());
+            }
+        }
+        if estimate > budget && conv.len() > 1 {
+            stage(
+                "压缩",
+                format!(
+                    "会话历史约 {}k token 超预算 {}k(上限 {}k),压缩中段…",
+                    estimate / 1000,
+                    budget / 1000,
+                    limit / 1000
+                ),
+            );
+            let mut compact_traces = Vec::new();
+            let dropped = kanzei_core::compact_conversation(
+                client,
+                subagent_rt.as_ref(),
+                &mut conv,
+                budget,
+                &mut compact_traces,
+                config.limits.recent_verbatim_ratio(),
+            )
+            .await;
+            if dropped > 0 {
+                let after = kanzei_core::estimate_conversation_tokens(&conv);
+                // 纪要预览:替换消息的正文(UI 压缩条目用)。
+                let digest_preview = conv
+                    .iter()
+                    .flat_map(|m| &m.parts)
+                    .find_map(|p| match p {
+                        kanzei_llm::Part::Text { text } if text.starts_with("(系统:此前") => {
+                            Some(text.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                conversation
+                    .lock()
+                    .unwrap()
+                    .insert(session_id.to_string(), conv);
+                // 被压段的轨迹摘要随轮末落 live trace,复盘可查(与轮内 overflow 同源语义)。
+                for trace in compact_traces {
+                    let mut live = live.lock().unwrap();
+                    live.trace
+                        .push(json!({ "kind": "compaction.dropped", "detail": trace }));
+                }
+                stage(
+                    "压缩",
+                    format!(
+                        "压缩完成:{}k → {}k token,压掉 {dropped} 条中段消息",
+                        estimate / 1000,
+                        after / 1000
+                    ),
+                );
+                let _ = window.emit(
+                    "kz:compacted",
+                    with_session_id(
+                        json!({ "summary": digest_preview, "dropped": dropped, "before": estimate, "after": after }),
+                        session_id,
+                    ),
+                );
+            } else {
+                // 中段为空压不动(超线来自任务定义/近期工作区本身):保留原历史,
+                // 交给轮内的 trim_tail/被动恢复,不在轮末冒进。
+                stage("压缩", "中段为空压不动,保留原历史".into());
+            }
+        }
+    }
+
+    let messages = conversation
+        .lock()
+        .unwrap()
+        .get(session_id)
+        .cloned()
+        .unwrap_or_default();
+    if let Some(store) = final_store.as_ref() {
+        // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
+        // 轮末再把整轮复制一遍造成回放重复。
+        flush_live_trace(store, session_id, live);
+        if let Err(error) = store.append_event(
+            session_id,
+            "conversation.updated",
+            &json!({ "messages": messages }),
+        ) {
+            report_persistence_failure(window, session_id, "写入对话历史", error);
+        }
+        typed_writer.lock().unwrap().write_shadow_report(&messages);
+    }
+    typed_flush_task.abort();
+    let _ = window.emit(
+        "kz:done",
+        with_session_id(
+            json!({
+                "steps": summary.steps,
+                "halted": summary.halted_by_user,
+                "history": history_len,
+                "input": summary.usage.input,
+                "output": summary.usage.output,
+                "cacheRead": summary.usage.cache_read,
+                "cacheWrite": summary.usage.cache_write,
+                "tools": this_run_tools,
+                "autoAction": auto_action_json,
+            }),
+            session_id,
+        ),
+    );
+    // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
+    // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
+    // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
+    //
+    // 批6:**仅非流水线路径**发这一条。流水线路径的租约归编排对象管,它在复核屏障
+    // 和收尾时已经各发过一次 released——这里再发一条会在轨迹里凭空多出一次释放,
+    // 回放时看起来像"释放了两次"。
+    if !phase_pipeline_enabled {
+        writer_event(
+            kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
+                project_root: ctx.project_root.clone(),
+                run_id: run_id.to_string(),
+                process_id: process_id.to_string(),
+            },
+        );
+        // 正常路径已落 Released,标记 guard 避免 Drop 重复补写(D-303)。
+        if let Some(trace) = _write_lease {
+            trace.mark_released();
+        }
+    }
+    // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
+    halt_slot.lock().unwrap().take();
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
 pub(crate) async fn run_task(
     window: &Window,
@@ -1041,6 +1584,8 @@ pub(crate) async fn run_task(
     );
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
+    // (同步完成——SessionStore 非 Sync,跨 await 持引用会破坏 future Send 约束,
+    // 故 prior 在 run_task 恢复、run_execution_loop 只消费它,行为与内联时一致。)
     let persisted = conversation::recover_messages(&store, &session_id)?;
     let prior = conversation::conversation_prior(&conversation, &session_id, persisted);
     if !prior.is_empty() {
@@ -1048,13 +1593,9 @@ pub(crate) async fn run_task(
     }
 
     // task 子代理运行时:独立只读快照;fast 角色缺席时两个档位都退回主模型。
-    //
     // **无条件构造**(2026-08-11 用户定调):模型自己派 `task` 这条路永远开着,不受
-    // 「勘察复核」开关控制。以前它受 subagent_enabled 门控,关掉就连子代理运行时都
-    // 没有——而那个开关现在的语义是「每轮强制勘察+复核」,拿它去掐模型自派的能力
-    // 是两件事混在一个布尔上。仍保留 Option 外壳:run_once_with_parts 与
-    // run_review_and_fixup 的形参是 Option<&SubagentRuntime>,且它们的测试覆盖了
-    // None(无勘察/复核角色)那条路。
+    // 「勘察复核」开关控制。构造与 prior 恢复无数据依赖(顺序互换行为不变,失败
+    // 同样提前终止本轮),故先构造再进 run_execution_loop。
     let subagent_rt = build_subagent_runtime(
         &rctx,
         &config,
@@ -1066,293 +1607,44 @@ pub(crate) async fn run_task(
     )
     .await?;
 
-    if !initial_parts.is_empty() {
-        let image_count = initial_parts
-            .iter()
-            .filter(|part| matches!(part, kanzei_llm::Part::Image { .. }))
-            .count();
-        let document_count = initial_parts
-            .iter()
-            .filter(|part| matches!(part, kanzei_llm::Part::Document { .. }))
-            .count();
-        stage(
-            "附件",
-            format!(
-                "已接收 {} 个附件，转换为 {} 个图片、{} 个文档输入，准备发送给 agent",
-                initial_parts.len(),
-                image_count,
-                document_count
-            ),
-        );
-    }
-
-    // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
-    // D-185:提示块不再拼进 run_prompt,改由 run_once 作为本轮 system 一次性注入——
-    // 拼进去会随 User message 进 messages → 落 conversations → 下轮回灌累积。
-    let memory_hints = kanzei_tools::memory::prompt_hints(
-        &ctx.project_root,
+    // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环
+    // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。
+    let run_result = run_execution_loop(
+        &stage,
+        &initial_parts,
         &prompt,
+        &ctx,
         autonomous,
-        // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-        kanzei_tools::embed::embedder_from_config(&config)
-            .ok()
-            .flatten(),
-    );
-    let mut run_prompt = prompt.clone();
-    // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
-    // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,
-    // 而 synthesis 的唯一入边是 `scout` 里的汇总屏障(不变量 2)。
-    if let Some(pipeline) = pipeline.as_mut() {
-        match subagent_rt.as_ref() {
-            Some(template) => {
-                stage(
-                    "勘察",
-                    format!(
-                        "并行只读勘察中(最多 {} 个角色)…",
-                        config.limits.max_tasks_per_turn()
-                    ),
-                );
-                match pipeline
-                    .scout(&client, template, &ctx, &prompt, &mut on_event)
-                    .await
-                {
-                    Ok(brief) => {
-                        stage("屏障", "勘察全部进入终态,开始申请写租约".into());
-                        run_prompt = format!("{brief}\n\n{run_prompt}");
-                    }
-                    Err(error) => {
-                        // 勘察失败不该让这一轮跑不成:按无勘察继续,但**不静默**——
-                        // 阶段面板上有这一行,轨迹里有 barrier 事件可查。
-                        stage("勘察", format!("勘察阶段失败,本轮无勘察简报:{error}"));
-                    }
-                }
-            }
-            None => {
-                // 子代理关闭时没有勘察能力:空屏障照样走一遍,轨迹里留下
-                // agent_count=0 的 barrier,而不是让阶段序列缺一截。
-                let _ = pipeline.scout_skipped().await;
-            }
-        }
-        pipeline
-            .begin_implementation()
-            .await
-            .map_err(|e| anyhow::anyhow!("无法进入实现阶段: {e}"))?;
-    }
-    let run_result = run_once_with_parts(
+        &config,
+        &mut pipeline,
+        &subagent_rt,
         &client,
         &route,
         &snapshot,
         &agent,
         &runner_config,
-        &ctx,
-        &run_prompt,
-        memory_hints.as_deref(),
-        &prior,
-        (!initial_parts.is_empty()).then_some(initial_parts.as_slice()),
-        subagent_rt.as_ref(),
         &mut on_event,
         &mut ask,
+        &prior,
     )
     .await;
-    // R-173 批6 · 集成 → 复核屏障 → 复核 → 修正。
-    //
-    // 复核屏障(`review` 内的第一句)会**交出写租约**,所以复核代理审的是稳定快照
-    // (不变量 9)。只有复核真有发现时才会有第二段 run_once;无发现时本轮的
-    // run_once 次数与引入前一样是 1 次。
-    let run_result = match (pipeline.as_mut(), run_result) {
-        (Some(pipeline), Ok(summary)) => {
-            let merged = run_review_and_fixup(
-                pipeline,
-                &client,
-                &route,
-                &snapshot,
-                &agent,
-                &runner_config,
-                &ctx,
-                &prompt,
-                subagent_rt.as_ref(),
-                summary,
-                &mut on_event,
-                &mut ask,
-                &stage,
-            )
-            .await;
-            pipeline.finish();
-            merged
-        }
-        (Some(pipeline), Err(error)) => {
-            // 运行失败:不变量 7——任意结束路径都要交出租约并给确定终态。
-            pipeline.abort("run failed");
-            Err(error)
-        }
-        (None, result) => result,
-    };
-    let final_store = match kanzei_core::SessionStore::open(&state_path) {
-        Ok(store) => Some(store),
-        Err(error) => {
-            report_persistence_failure(window, &session_id, "打开会话数据库", error);
-            None
-        }
-    };
-    if let Some(store) = final_store.as_ref() {
-        match &run_result {
-            Ok(summary) => {
-                typed_writer
-                    .lock()
-                    .unwrap()
-                    .finish(if summary.halted_by_user {
-                        typed_events::TerminalFact::Stopped
-                    } else {
-                        typed_events::TerminalFact::Completed
-                    });
-                if let Err(error) = store.set_status(&session_id, "idle") {
-                    report_persistence_failure(window, &session_id, "写入 idle 状态", error);
-                }
-                if let Err(error) = store.append_event(
-                    &session_id,
-                    "session.status_changed",
-                    &json!({ "status": "idle" }),
-                ) {
-                    report_persistence_failure(window, &session_id, "写入完成状态事件", error);
-                }
-                if let Err(error) = store.append_event(
-                    &session_id,
-                    "run.completed",
-                    &json!({
-                        "steps": summary.steps,
-                        "halted_by_user": summary.halted_by_user,
-                        "input": summary.usage.input,
-                        "output": summary.usage.output,
-                        // 上下文账单(R-106):各注入源字符数,UI 与度量共用。
-                        "context": summary.context_report,
-                    }),
-                ) {
-                    report_persistence_failure(window, &session_id, "写入完成事件", error);
-                }
-                // 本轮切片:summary.messages = prior + 本轮;统计与失败提炼都只看本轮,
-                // 否则历史失败反复上报、工具计数累计全历史(R-099 基线失真)。
-                let this_run = &summary.messages[prior.len().min(summary.messages.len())..];
-                // 轮末采集(D-229/D-214):CLI 与桌面端共用 harvest_end_of_run——失败提炼
-                // → 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact
-                // 候选(项目 inbox)。候选箱语义不变:SOP 只产候选等用户一键采纳,agent 不自决入库。
-                kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, &prompt, this_run);
-                // episode 落库(R-106):机械轨迹画像。失败不阻塞收尾。
-                // R-213:当轮 episode_id 代填给轮末 memory manager(同 CLI 路径)。
-                let mut current_episode_id: Option<i64> = None;
-                if let Ok(episode_id) = store.append_episode(&kanzei_core::EpisodeRecord {
-                    session_id: &session_id,
-                    prompt_head: &prompt,
-                    outcome: if summary.halted_by_user {
-                        "halted"
-                    } else {
-                        "completed"
-                    },
-                    steps: summary.steps,
-                    input_tokens: summary.usage.input,
-                    output_tokens: summary.usage.output,
-                    tools_json: &serde_json::to_string(&kanzei_core::summarize_tools(this_run))
-                        .unwrap_or_default(),
-                    context_json: &serde_json::to_string(&summary.context_report)
-                        .unwrap_or_default(),
-                    // R-099 调用画像:与冗余治理共用同一份口径,别处不再各算各的。
-                    metrics_json: &serde_json::to_string(&kanzei_core::summarize_metrics(this_run))
-                        .unwrap_or_default(),
-                    // D-173:轮次归属与墙钟。缺了它们,复盘只能从"当前配置"反推模型,
-                    // 而配置随时会变——最基本的事实都无法证伪。
-                    provider: &resolved.provider_name,
-                    model: &resolved.model,
-                    run_id: &run_id,
-                    input_id: &promoted_input_id,
-                    duration_ms: run_started.elapsed().as_millis() as u64,
-                    // R-106:上下文溢出压缩丢弃的轨迹段沉淀为 episode 的一部分,
-                    // 让溢出路径不再无声丢弃轨迹,复盘时可通过 episodes.overflow_json 查回。
-                    overflow_json: &serde_json::to_string(&summary.overflow_traces)
-                        .unwrap_or_default(),
-                }) {
-                    // R-161:本轮开跑预检索的 recall_events 归因到该 episode,可 join 查询。
-                    let _ = store.link_recall_events_to_episode(episode_id, run_epoch_ms);
-                    current_episode_id = Some(episode_id);
-                }
-                let _ = store.finish_input(&promoted_input_id, true);
-                // 富 episode(带工具画像/上下文账单)已写,标记防重:停止路径的
-                // flush_live_run 不该再补一条信息量更少的(D-179)。
-                live.lock().unwrap().flushed = true;
-                if let Err(error) =
-                    append_run_notification(store, &session_id, "succeeded", "任务完成", false)
-                {
-                    report_persistence_failure(window, &session_id, "写入完成通知", error);
-                }
-                // 轮末记忆整理(R-105):独立任务消化 inbox 草稿,不阻塞完成事件。
-                // 传**主根**:记忆是主根一份的资产,而 project_dir 线上线后是 worktree,
-                // 传它会让 memory 内部的发现式取根拐进分支副本(R-177 内容⑧同一条判据)。
-                tauri::async_runtime::spawn(memory::consolidate_memory_inbox(
-                    ctx.project_root.display().to_string(),
-                    current_episode_id,
-                ));
-                // D-341/R-195:轮末自动处置 candidate——有真实当轮 episode 且复发≥3 的
-                // 自动 promote,超期未处置的自动 deprecated 归档,其余保持 candidate。
-                // 与 inbox 消化解耦(没有草稿也要跑)且机械判定不走 LLM;失败不阻塞收尾。
-                let _ = kanzei_tools::memory::reconcile_candidates(
-                    &ctx.project_root,
-                    current_episode_id,
-                    kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
-                );
-            }
-            Err(error) => {
-                typed_writer
-                    .lock()
-                    .unwrap()
-                    .finish(typed_events::TerminalFact::Failed(error.to_string()));
-                typed_writer.lock().unwrap().write_shadow_report(&prior);
-                if let Err(persistence_error) = store.set_status(&session_id, "failed") {
-                    report_persistence_failure(
-                        window,
-                        &session_id,
-                        "写入失败状态",
-                        persistence_error,
-                    );
-                }
-                if let Err(persistence_error) = store.append_event(
-                    &session_id,
-                    "session.status_changed",
-                    &json!({ "status": "failed" }),
-                ) {
-                    report_persistence_failure(
-                        window,
-                        &session_id,
-                        "写入失败状态事件",
-                        persistence_error,
-                    );
-                }
-                if let Err(persistence_error) = store.append_event(
-                    &session_id,
-                    "run.failed",
-                    &json!({ "error": error.to_string() }),
-                ) {
-                    report_persistence_failure(
-                        window,
-                        &session_id,
-                        "写入失败事件",
-                        persistence_error,
-                    );
-                }
-                // 失败轮次原先在 `let summary = run_result?;` 处提前返回,轨迹与
-                // episode 一并丢失——和被停止的轮次是同一个洞(D-179)。
-                flush_live_run(store, &session_id, &live, "failed");
-                let _ = store.finish_input(&promoted_input_id, false);
-                if let Err(persistence_error) =
-                    append_run_notification(store, &session_id, "failed", error.to_string(), false)
-                {
-                    report_persistence_failure(
-                        window,
-                        &session_id,
-                        "写入失败通知",
-                        persistence_error,
-                    );
-                }
-            }
-        }
-    }
+    // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
+    let final_store = persist_round_outcome(
+        &state_path,
+        window,
+        &session_id,
+        &run_result,
+        &typed_writer,
+        &prior,
+        &ctx,
+        &prompt,
+        &resolved,
+        &run_id,
+        &promoted_input_id,
+        &run_started,
+        run_epoch_ms,
+        &live,
+    );
     let summary = run_result?;
 
     let history_len = summary.messages.len();
@@ -1410,179 +1702,33 @@ pub(crate) async fn run_task(
         },
     )
     .await;
-    conversation
-        .lock()
-        .unwrap()
-        .insert(session_id.clone(), summary.messages);
-
-    // R-236 B1:轮末压缩走 core 同一份 compact_with_digest——保任务定义、保近期
-    // 工作区逐字、只压中段、纪要过质量闸,失败回落原文节选。R-021 那套「整段历史
-    // → 单条 300 字纪要」已删:那正是 D-181 在 core 侧修掉的失败模式(压完模型
-    // 不知道自己做过什么),也是用户实测「打断插任务模型失忆」的主因之一。
-    // 触发线与轮内同一把尺(compaction_budget:limit − max(output, buffer));
-    // 估算同一口径(附件按固定成本,不按 base64 字节——消灭带附件必误触发)。
-    if let Some(limit) = resolved.provider.context_limit {
-        let budget = kanzei_core::compaction_budget(
-            limit,
-            config.limits.max_tokens(),
-            config.limits.compact_buffer_tokens(),
-        );
-        let mut conv = conversation
-            .lock()
-            .unwrap()
-            .get(&session_id)
-            .cloned()
-            .unwrap_or_default();
-        let mut estimate = compaction_input_tokens(summary.last_input_tokens, &conv);
-        // R-236 B4:轮末同样 L0 先行——机械清旧工具结果,清完够线就不动 LLM 纪要。
-        if estimate > budget && conv.len() > 1 {
-            let cleared = kanzei_core::prune_conversation(
-                &mut conv,
-                config.limits.prune_protect_tokens(),
-                config.limits.prune_min_gain_tokens(),
-            );
-            if cleared > 0 {
-                let after_prune = kanzei_core::estimate_conversation_tokens(&conv);
-                stage(
-                    "压缩",
-                    format!(
-                        "已机械清理 {cleared} 条旧工具结果({}k → {}k token)",
-                        estimate / 1000,
-                        after_prune / 1000
-                    ),
-                );
-                estimate = after_prune;
-                conversation
-                    .lock()
-                    .unwrap()
-                    .insert(session_id.clone(), conv.clone());
-            }
-        }
-        if estimate > budget && conv.len() > 1 {
-            stage(
-                "压缩",
-                format!(
-                    "会话历史约 {}k token 超预算 {}k(上限 {}k),压缩中段…",
-                    estimate / 1000,
-                    budget / 1000,
-                    limit / 1000
-                ),
-            );
-            let mut compact_traces = Vec::new();
-            let dropped = kanzei_core::compact_conversation(
-                &client,
-                subagent_rt.as_ref(),
-                &mut conv,
-                budget,
-                &mut compact_traces,
-                config.limits.recent_verbatim_ratio(),
-            )
-            .await;
-            if dropped > 0 {
-                let after = kanzei_core::estimate_conversation_tokens(&conv);
-                // 纪要预览:替换消息的正文(UI 压缩条目用)。
-                let digest_preview = conv
-                    .iter()
-                    .flat_map(|m| &m.parts)
-                    .find_map(|p| match p {
-                        kanzei_llm::Part::Text { text } if text.starts_with("(系统:此前") => {
-                            Some(text.clone())
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or_default();
-                conversation
-                    .lock()
-                    .unwrap()
-                    .insert(session_id.clone(), conv);
-                // 被压段的轨迹摘要随轮末落 live trace,复盘可查(与轮内 overflow 同源语义)。
-                for trace in compact_traces {
-                    let mut live = live.lock().unwrap();
-                    live.trace
-                        .push(json!({ "kind": "compaction.dropped", "detail": trace }));
-                }
-                stage(
-                    "压缩",
-                    format!(
-                        "压缩完成:{}k → {}k token,压掉 {dropped} 条中段消息",
-                        estimate / 1000,
-                        after / 1000
-                    ),
-                );
-                let _ = window.emit(
-                    "kz:compacted",
-                    with_session_id(
-                        json!({ "summary": digest_preview, "dropped": dropped, "before": estimate, "after": after }),
-                        &session_id,
-                    ),
-                );
-            } else {
-                // 中段为空压不动(超线来自任务定义/近期工作区本身):保留原历史,
-                // 交给轮内的 trim_tail/被动恢复,不在轮末冒进。
-                stage("压缩", "中段为空压不动,保留原历史".into());
-            }
-        }
-    }
-
-    let messages = conversation
-        .lock()
-        .unwrap()
-        .get(&session_id)
-        .cloned()
-        .unwrap_or_default();
-    if let Some(store) = final_store.as_ref() {
-        // 轨迹已在运行中按事件增量写入；这里仅补写实时写入失败的尾部，避免
-        // 轮末再把整轮复制一遍造成回放重复。
-        flush_live_trace(store, &session_id, &live);
-        if let Err(error) = store.append_event(
-            &session_id,
-            "conversation.updated",
-            &json!({ "messages": messages }),
-        ) {
-            report_persistence_failure(window, &session_id, "写入对话历史", error);
-        }
-        typed_writer.lock().unwrap().write_shadow_report(&messages);
-    }
-    typed_flush_task.abort();
-    let _ = window.emit(
-        "kz:done",
-        with_session_id(
-            json!({
-                "steps": summary.steps,
-                "halted": summary.halted_by_user,
-                "history": history_len,
-                "input": summary.usage.input,
-                "output": summary.usage.output,
-                "cacheRead": summary.usage.cache_read,
-                "cacheWrite": summary.usage.cache_write,
-                "tools": this_run_tools,
-                "autoAction": auto_action_json,
-            }),
-            &session_id,
-        ),
-    );
-    // R-171 批5:正常路径显式写 Released 事件(审计闭环 queued→acquired→released)。
-    // 失败/取消路径由协调器快照保证租约不泄漏(WriterLease Drop 回调),审计不缺持有者。
-    // R-173 批5:同样经 OrchestrationEvent 单一出口,与上面两条 writer 事件同源。
-    //
-    // 批6:**仅非流水线路径**发这一条。流水线路径的租约归编排对象管,它在复核屏障
-    // 和收尾时已经各发过一次 released——这里再发一条会在轨迹里凭空多出一次释放,
-    // 回放时看起来像"释放了两次"。
-    if !phase_pipeline_enabled {
-        writer_event(
-            kanzei_harness::orchestration::OrchestrationEvent::WriterReleased {
-                project_root: ctx.project_root.clone(),
-                run_id: run_id.clone(),
-                process_id: process_id.clone(),
-            },
-        );
-        // 正常路径已落 Released,标记 guard 避免 Drop 重复补写(D-303)。
-        if let Some(trace) = &_write_lease {
-            trace.mark_released();
-        }
-    }
-    // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
-    halt_slot.lock().unwrap().take();
+    // R-202 批2:轮末收尾段后半(对话落库/轮末压缩/kz:done/租约释放/令牌回收)收敛。
+    finalize_round(
+        &conversation,
+        &session_id,
+        &summary,
+        &resolved,
+        &config,
+        &stage,
+        &client,
+        &subagent_rt,
+        final_store,
+        &live,
+        &typed_writer,
+        typed_flush_task,
+        window,
+        history_len,
+        &this_run_tools,
+        &auto_action_json,
+        phase_pipeline_enabled,
+        &writer_event,
+        &ctx,
+        &run_id,
+        &process_id,
+        &_write_lease,
+        &halt_slot,
+    )
+    .await?;
     Ok(())
 }
 #[tauri::command]
