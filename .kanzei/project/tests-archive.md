@@ -3438,3 +3438,10 @@
 - 摘要: R-244 B3:bash 三条硬防线抽成单调 Guard(整文件覆写/超长/git mutation),execute 走 pipeline;bash 19(含 3 guard 契约)+ tools 248 passed 零回归
 - 关联: R-244
 - 收尾: 1786740723
+
+## T-1786740962 R-244 B4 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 30.0s
+- 摘要: R-244 B4:grep 迁移走统一 pipeline,SubagentBase 只读族(read/glob/grep)全走通道;tools 248 passed 零回归
+- 关联: R-244
+- 收尾: 1786740962

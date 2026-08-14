@@ -52,23 +52,41 @@ impl Tool for GrepTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: GrepInput = match crate::parse_input(self, input) {
-            Ok(v) => v,
-            Err(out) => return out,
-        };
-        let base = match &input.path {
-            Some(p) => ctx.cwd.join(p),
-            None => ctx.cwd.clone(),
-        };
-        if !base.exists() {
-            return ToolOutput::error(format!("path not found: {}", base.display()));
-        }
-        let result = tokio::task::spawn_blocking(move || run_grep(&base, input)).await;
-        match result {
-            Ok(Ok(text)) => ToolOutput::ok(text),
-            Ok(Err(e)) => ToolOutput::error(e),
-            Err(e) => ToolOutput::error(format!("grep task panicked: {e}")),
-        }
+        // R-244 批4:grep 迁移走统一 pipeline(与 read/glob 同构;guards/策略/
+        // 观察者现阶段空,权限判定在 drive 层)。SubagentBase 只读族至此全走通道。
+        let input2 = input.clone();
+        let ctx2 = ctx.clone();
+        kanzei_harness::tool_pipeline::run_tool_pipeline(
+            "grep",
+            input,
+            ctx,
+            &[],
+            async move { grep_body(self, &input2, &ctx2).await },
+            &[],
+            &[],
+        )
+        .await
+    }
+}
+
+/// R-244 批4:grep 工具本体(原 execute 主体),供 pipeline body 调用。
+async fn grep_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    let input: GrepInput = match crate::parse_input(tool, input.clone()) {
+        Ok(v) => v,
+        Err(out) => return out,
+    };
+    let base = match &input.path {
+        Some(p) => ctx.cwd.join(p),
+        None => ctx.cwd.clone(),
+    };
+    if !base.exists() {
+        return ToolOutput::error(format!("path not found: {}", base.display()));
+    }
+    let result = tokio::task::spawn_blocking(move || run_grep(&base, input)).await;
+    match result {
+        Ok(Ok(text)) => ToolOutput::ok(text),
+        Ok(Err(e)) => ToolOutput::error(e),
+        Err(e) => ToolOutput::error(format!("grep task panicked: {e}")),
     }
 }
 

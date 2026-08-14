@@ -205,17 +205,17 @@
 - 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
 - 前置: R-241
 - 复杂度: 大
-- 批次: 2/5
+- 批次: 3/5
 - 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
 - 标签: 核心
 - 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
 - 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
-- 进展: 批2 完成(2026-08-16,提交 84461ec)。read 迁移走统一 pipeline(read_body 抽离,execute 调 run_tool_pipeline;R-161 fetched 回填保留在 body 内)。验证:read 7 passed + 全仓编译绿(T-1786740054);fmt/clippy 绿;push 已到 origin/dev。批3(bash,核心价值):把 bash execute 内散落的硬防线(D-113 整文件覆写/R-238 超长防护/git_mutation 拦截)抽成 ToolGuard,execute 调 pipeline(guards + body=bash_body),managed fence 结果侧逻辑保留在 body;guard 契约测试(三条防线在 pipeline 层拒绝);批4:子代理 task(SubagentBase 只读快照走 pipeline);批5:收口(无双执行断言 + Ruleset 回归逐字节一致 + 全量)。
-- observed_head: 84461ecb854f425a1f99f74e57b87e15e0b506d2
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786740091159
+- 进展: 批3 完成(2026-08-16,提交 51ddb45)。bash 三条硬防线(D-113 整文件覆写/R-238 超长/git_mutation)抽成单调 ToolGuard(FullFileWriteGuard/CommandLengthGuard/GitMutationGuard,bash_guards() 顺序与原 execute 防线一致),execute 改调 run_tool_pipeline(guards + body=bash_body);managed fence/progress/timeout 保留在 body。guard 契约测试 3 个(整文件覆写拒绝且 Get-Content 不误伤/超长拒绝含两条正路/git 写拒读放行)。验证:bash 19(含 3 guard)+ kanzei-tools 248 passed 零回归(T-1786740723);fmt/clippy 绿;push 已到 origin/dev。批4:grep 迁移(SubagentBase 只读族收口:read/glob/grep 全走 pipeline)+ 子代理验证;批5:收口(无双执行断言 + Ruleset 回归逐字节一致 + 全量)。
+- observed_head: 51ddb45bf03b1dffb98af027241163a13dc1e71a
+- observed_worktree_hash: fnv1a64:d2e058c0c37b9281
+- recorded_at: 1786740783421
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
