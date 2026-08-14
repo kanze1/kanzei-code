@@ -1798,12 +1798,14 @@ pub(crate) async fn maybe_push_after_commit(
         return;
     }
     on_stage("推送", "本轮有提交,自动 git push…".into());
-    let output = tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(cwd)
-        .arg("push")
-        .output()
-        .await;
+    let mut command = tokio::process::Command::new("git");
+    // D-369:auto_push 在桌面端(GUI 无控制台)跑 git push,不隐藏会被 Windows
+    // 新建控制台窗口——每次自动提交后都弹黑窗。与 state.rs hidden_command 同纪律。
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command.arg("-C").arg(cwd).arg("push").output().await;
     let entry = match output {
         Ok(out) if out.status.success() => {
             json!({ "kind": "push", "ok": true, "at": now_ms() })

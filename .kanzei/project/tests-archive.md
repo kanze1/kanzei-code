@@ -3555,3 +3555,16 @@
 - 摘要: R-262 task 描述强化:core subagent 7 绿 + max_tasks_parallel_dispatch(20 并行实测) + parallel_scouting 全绿。描述新增「独立勘察拆多个 task 同轮并行(上限 max_tasks_per_turn),并行显著快于串行」。全仓无矛盾单派建议。
 - 关联: R-262
 - 收尾: 1786745928
+
+## T-1786746380 cargo test git:: + kanzei-app (D-369 黑窗修复) [passed]
+- 命令: cargo test -p kanzei-tools --lib git:: && cargo test -p kanzei-app
+- 摘要: D-369 修复验证:git 门禁 23 绿 + kanzei-app 163 绿。修复三处未隐藏窗口的 git 子进程:git.rs staged_source_fingerprint/staged_paths_sync(crate::hide_console)+ run.rs auto_push git push(creation_flags CREATE_NO_WINDOW)。
+- 关联: D-369
+- 收尾: 1786746380
+
+## T-1786746530 cargo test kanzei-app + git:: (D-369 复测) [passed]
+- 命令: cargo test -p kanzei-app && cargo test -p kanzei-tools --lib git::
+- 摘要: D-369 复测:kanzei-app 163 绿 + git 23 绿(use CommandExt 移除后,creation_flags 为 tokio 固有方法)。
+- 关联: D-369
+- 收尾: 1786746530
+- 源码指纹: 704c316438cffba8

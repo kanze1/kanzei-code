@@ -4274,3 +4274,16 @@
 - observed_head: 3c4b132c531066bd56041e18de21b8c0bd4f817d
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786744312146
+
+## D-369 提交门禁路径 git 子进程未隐藏控制台窗口:提交时弹黑色终端闪现 [fixed] (medium)
+- 复现: kzapp(桌面端,GUI 进程无控制台)里执行提交相关操作——structured git commit 门禁、test_record 收尾背书——每次弹一个黑色终端窗口闪一下。用户原话:「只要涉及的项目就会弹一个黑色的中端闪一下」(2026-08-15)。
+- 影响: 提交/测试记录每次操作都弹黑色终端闪现,体验噪音;与 D-238 已修的同类问题同源(隐藏控制台窗口),属漏网。不丢数据。
+- 来源: 2026-08-15 用户反馈
+- 标签: 核心
+- 根因: crates/kanzei-tools/src/git.rs 的 staged_source_fingerprint(L310)与 staged_paths_sync(L352)用 std::process::Command::new("git") 直接跑 git,未调用 crate::hide_console(同步隐藏工具,lib.rs:100)。kzapp 是 GUI 进程无控制台,子进程跑控制台程序 git 时 Windows 会给它新建控制台窗口——这两个函数在提交门禁(source_test_gate/commit)与 test_record 收尾时每次必跑,于是每次提交弹黑窗。D-238 修过 async 路径(tokio Command + hide_console_async,git.rs:599/637/700/981/1248),这两处同步路径漏网。
+- 验收: ①staged_source_fingerprint 与 staged_paths_sync 的 git 子进程隐藏控制台窗口(调用 crate::hide_console);②提交门禁路径不再弹黑窗(机械验证:两处 Command 均带隐藏标志);③既有 git 门禁测试全绿 + kanzei-tools 定向全绿。
+- 优先级: P1
+- 进展: 验收逐条对照:①staged_source_fingerprint 与 staged_paths_sync 的 git 子进程隐藏控制台窗口——crates/kanzei-tools/src/git.rs L310/L356 加 crate::hide_console(同步隐藏,lib.rs:100,内部 creation_flags CREATE_NO_WINDOW);另查 run.rs:1801 auto_push 的 git push(tokio)同为漏网,加 creation_flags 0x08000000;②提交门禁路径不再弹黑窗——机械验证:三处 git 子进程均带隐藏标志(其余生产路径 files.rs/git_batches.rs/worktree.rs 已隐藏,排查确认);③既有 git 门禁测试全绿 + kanzei-tools 定向全绿——git:: 23 绿 + kanzei-app 163 绿(T-1786746380)。根因:D-238 修 async 路径(tokio+hide_console_async)时漏掉两处同步 std::process::Command git 调用与 auto_push 的 tokio git push;kzapp 是 GUI 无控制台,子进程跑 git 被 Windows 新建控制台 → 每次提交/自动 push 弹黑窗。
+- observed_head: 0120eba434621b4a3881834020439aaf42a78c97
+- observed_worktree_hash: fnv1a64:4849abc10a3ea88b
+- recorded_at: 1786746391148

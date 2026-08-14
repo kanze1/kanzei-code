@@ -307,7 +307,11 @@ async fn staged_state(cwd: &Path) -> Result<(String, String, Vec<String>), Strin
 /// - 同步实现(内部 std::process::Command 跑 git):test_record 工具(async)与
 ///   source_test_gate(同步)都要用,拆两个 async 版本会让门禁被迫改签名。
 pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    // D-369:kzapp 是 GUI 进程无控制台,子进程跑 git 不隐藏会被 Windows 新建控制台
+    // 窗口——提交门禁每次调用都弹黑窗闪现。与 D-238 的 async 路径同纪律。
+    crate::hide_console(&mut command);
+    let output = command
         .args([
             "diff",
             "--cached",
@@ -349,7 +353,11 @@ pub fn staged_source_fingerprint(cwd: &Path) -> Result<String, String> {
 }
 
 fn staged_paths_sync(cwd: &Path) -> Result<Vec<String>, String> {
-    let output = std::process::Command::new("git")
+    let mut command = std::process::Command::new("git");
+    // D-369:同 staged_source_fingerprint——GUI 进程跑 git 必须隐藏控制台窗口,
+    // 否则提交门禁每次弹黑窗。
+    crate::hide_console(&mut command);
+    let output = command
         .args([
             "-c",
             "core.quotepath=false", // D-347:非 ASCII 路径以真实 UTF-8 返回,与请求路径可比
