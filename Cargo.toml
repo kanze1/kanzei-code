@@ -28,6 +28,8 @@ tokio = { version = "1", features = ["full"] }
 # R-249:read 读图片需在 Rust 侧做 base64(桌面端附件的编码在 JS 侧,复用不了)。
 # 0.22 已在 Cargo.lock 中(reqwest 传递依赖),提为直接依赖不新增下载。
 base64 = "0.22"
+# R-249 批2:窗口截图的 PNG 编码。0.17 已在 Cargo.lock 中,不新增下载。
+png = "0.17"
 tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3"
 bytes = "1"

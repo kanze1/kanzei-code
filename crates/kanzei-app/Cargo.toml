@@ -28,6 +28,8 @@ serde.workspace = true
 serde_json.workspace = true
 # UI 自查工具(R-126)在本 crate 定义:它们要访问真实运行中的窗口,天然属于应用层。
 async-trait.workspace = true
+base64.workspace = true
+png.workspace = true
 schemars.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
@@ -35,4 +37,16 @@ tracing-subscriber.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # D-240:安装助手必须按真实进程句柄判断父进程退出，不能从 tasklist 的本地化文本猜测。
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+# R-249 批2 追加 Gdi + WindowsAndMessaging:窗口截图走 Win32。复用这里已有的
+# windows-sys(而不是另引 windows crate)——同一套 API 的两份绑定共存只会让
+# 「该用哪个」在后面每次改动时重新问一遍。其它平台由 screenshot.rs 的 cfg 分支
+# 返回「未实现」,不编译失败。
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_WindowsAndMessaging",
+    # R-249 批2:验证用例要自己声明 DPI 感知,否则拿到的是虚拟化坐标。
+    "Win32_UI_HiDpi",
+] }
+

@@ -59,6 +59,21 @@ pub(crate) static UI_PROBES: std::sync::LazyLock<
 pub(crate) static UI_PROBE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub(crate) static UI_PROBE_EMIT: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
     std::sync::OnceLock::new();
+/// R-249 批2:主窗口的原生句柄。与 UI_PROBE_EMIT 同一手法——建窗口时装一次,
+/// 工具侧只认这个静态,不依赖 tauri 类型,截图模块因此可以纯 Win32 无 tauri 依赖。
+pub(crate) static UI_WINDOW_HANDLE: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
+
+/// R-249 批2:抓当前窗口画面,返回 PNG 字节。
+///
+/// 与 ui_dom/ui_style 是**互补**关系而非替代:那两个给结构与数值(为什么没显示、
+/// 盒模型多大),这个给「实际长什么样」。对齐、遮挡、观感一类问题只有像素能回答。
+pub(crate) fn ui_screenshot_png() -> Result<Vec<u8>, String> {
+    let Some(&handle) = UI_WINDOW_HANDLE.get() else {
+        return Err("窗口截图不可用:桌面窗口未就绪(CLI 环境下没有可截的界面)".into());
+    };
+    let (rgba, width, height) = crate::screenshot::capture_window(handle)?;
+    crate::screenshot::encode_png(&rgba, width, height)
+}
 
 pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value, String> {
     let Some(emit) = UI_PROBE_EMIT.get() else {

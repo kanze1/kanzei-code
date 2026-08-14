@@ -26,6 +26,7 @@ mod prefs;
 mod processes;
 mod projects;
 mod run;
+mod screenshot;
 mod settings;
 mod state;
 mod subagents;
@@ -119,7 +120,16 @@ fn main() {
                     ));
                 }
             }
-            builder.build()?;
+            let main_window = builder.build()?;
+            // R-249 批2:窗口句柄装进静态,截图工具据此抓真实画面。取不到句柄
+            // (非 Windows / 平台不支持)时不装——工具会如实报「窗口未就绪」,
+            // 而不是拿一个假句柄去抓出别人的窗口。
+            #[cfg(windows)]
+            if let Ok(hwnd) = main_window.hwnd() {
+                let _ = state::UI_WINDOW_HANDLE.set(hwnd.0 as isize);
+            }
+            #[cfg(not(windows))]
+            let _ = &main_window;
             // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
             // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
             tauri::async_runtime::spawn(async move {

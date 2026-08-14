@@ -119,6 +119,52 @@ impl kanzei_harness::Tool for UiStyleTool {
     }
 }
 
+/// R-249 批2:窗口截图。ui_dom/ui_style 读得到结构与数值,但看不见渲染结果——
+/// 对齐、遮挡、观感一类问题只有像素能回答。
+struct UiScreenshotTool;
+#[async_trait::async_trait]
+impl kanzei_harness::Tool for UiScreenshotTool {
+    fn name(&self) -> &'static str {
+        "ui_screenshot"
+    }
+    fn description(&self) -> String {
+        "截取当前运行中窗口的实际画面,以图片返回。ui_dom/ui_style 给的是结构与数值,\
+         这个给的是「看起来到底什么样」——对齐、间距、配色、观感只能靠它判断。\
+         改完前端先用 ui_dom 确认结构、再用本工具确认观感。\
+         注意:抓的是屏幕上该窗口矩形区域的像素,**压在上面的其它窗口会一并入画**。\
+         看到画面里有明显不属于本应用的内容时,说明窗口被遮挡了——按那部分下判断是错的,\
+         请说明情况而不是硬解读。整幅空白会直接报错,但部分遮挡检测不到。只读。"
+            .into()
+    }
+    fn input_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {}})
+    }
+    async fn execute(
+        &self,
+        _input: serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> kanzei_harness::ToolOutput {
+        // 抓图是同步的 GDI 调用,挪到阻塞线程池——别占着 async 执行器。
+        let captured = tokio::task::spawn_blocking(crate::state::ui_screenshot_png).await;
+        match captured {
+            Ok(Ok(png)) => {
+                use base64::Engine;
+                let bytes = png.len();
+                let data = base64::engine::general_purpose::STANDARD.encode(&png);
+                kanzei_harness::ToolOutput::ok(format!(
+                    "[screenshot] 当前窗口画面 (image/png, {bytes} bytes) — 已作为图片附在本次结果里。"
+                ))
+                .with_images(vec![kanzei_harness::ToolImage {
+                    media_type: "image/png".into(),
+                    data,
+                }])
+            }
+            Ok(Err(e)) => kanzei_harness::ToolOutput::error(e),
+            Err(e) => kanzei_harness::ToolOutput::error(format!("截图任务异常: {e}")),
+        }
+    }
+}
+
 pub(crate) struct FrontendToolsComponent;
 impl kanzei_harness::Component for FrontendToolsComponent {
     fn contribute(
@@ -129,6 +175,9 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
         draft.tools.insert("ui_style", Arc::new(UiStyleTool));
+        draft
+            .tools
+            .insert("ui_screenshot", Arc::new(UiScreenshotTool));
         draft.tools.insert(
             "frontend_locate",
             Arc::new(kanzei_tools::frontend::FrontendLocateTool),
@@ -141,6 +190,8 @@ impl kanzei_harness::Component for FrontendToolsComponent {
             "ui_dom",
             "ui_console",
             "ui_style",
+            // 截图是纯读:不改任何文件、不动窗口状态,与其余 UI 自查同档放行。
+            "ui_screenshot",
             "frontend_locate",
             "frontend_check",
         ] {
