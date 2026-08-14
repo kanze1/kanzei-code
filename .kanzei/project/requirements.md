@@ -325,3 +325,40 @@
 - 阻塞: 等待前置事件和 Tool Pipeline 契约稳定；用户决定是否交给自举。
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
+
+## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
+- refs: R-221 docs/design/research_mode.md
+- 依赖: R-221
+- 内容: 把「先查已有方案再动手」从用户每次口头要求变成 harness 的默认动作。①触发判据机械可判、不交模型自由裁量:项目根首次初始化 `.kanzei/`、req add 时 refs 为空且标签为核心、用户显式发起,三者之一成立即触发;②产物落 `.kanzei/research/<topic>/prior-art.md`,每条结论含「方案名 + 出处(URL 或 file:line) + 与本课题的差异 + 采用或不采用的理由」,**外部已有实现**(开源方案、协议、公开设计)与**仓内既有设计**(docs/design/**、requirements/defects 现存与 archive)两侧都必须覆盖;③新方向判定成立而无对照工件时,req add 要求 refs 指向该工件,或由用户显式豁免并留痕。
+- 复杂度: 中
+- 批次: 0/3
+- 来源: 2026-08-14 用户观察——开新项目应先深度调研已有方案与设计,不适合从零开始;这是当前 coding agent 的通病(非得用户主动请求才去调研),直接影响自举质量。
+- 标签: 核心
+- 边界: 不是每条需求都调研,只在触发判据成立时启动;判据必须机械可判,不接受模型自行裁量「这算不算新方向」。websearch 轮次设上限,不做无限扩散爬取。本条只产出对照工件与开工门禁,不改 req/defect 状态机,也不自动把调研结论写成条目——那是 R-221 定调点4 的回流通道。
+- 阻塞: 与 research_mode.md §1「网络检索降级为辅助工具」的定调直接相反:prior-art 场景下网络检索是主力而非辅助。需用户在 R-221 §2 拍板时一并新增第 9 条定调点——research 承担两类形态(内部代码勘察 / 外部方案先行调研),二者工件与证据口径分列。该定调点未拍板前本条不开工。
+- 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
+- 优先级: P1
+
+## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [todo]
+- refs: R-014 R-101 R-244 R-245
+- 依赖: R-244
+- 内容: 现状 `ToolOutput.content` 只有 String(kanzei-harness/src/tool.rs:178),任何工具都无法把图片交给模型;`Part::Image` 的三协议映射早在 R-014 交付,但入口只有桌面端用户附件(kanzei-app/src/state.rs:29)。本条把 ToolOutput 扩成可携带 image part,并打通两个消费点:①`read` 读图片文件(PNG/JPEG/WebP/GIF)按 media_type 编码返回;②UI 自检补截图通道——现有 `ui_probe` 窗口通道加 `screenshot`,让 ui_dom/ui_style 的结构读数配上真实渲染画面。
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 2026-08-14 三系统工具面对照(DeepSeek harness / Claude Code / kanzei):read_image 是唯一的能力硬缺口。桌面端 ui_dom/ui_console/ui_style 能读结构与数值但看不见渲染结果,对齐、遮挡、观感一类问题无法自查。
+- 标签: 核心
+- 边界: ToolOutput 是 harness 核心契约,R-244 明确要冻结「ToolOutput 公共契约」、R-245 要把它改成 Inline/Spilled 二态——本条**不得抢在 R-244 之前改这个结构**,否则必然返工。图片体积走 R-245 的 spill 口径,不在 ToolOutput 内联大 base64。不实现 UI 点击/输入/滚动(那是 R-101 的 E2 harness 范围),本条只做「看得见」不做「动得了」。deepseek_responses 协议当前丢弃 Image part,本条不负责补齐该 provider,但要在 provider 不支持时给出显式降级提示,不静默丢弃。
+- 阻塞: 等 R-244 冻结 ToolOutput 公共契约与 Result Policy;R-245 的 spill 口径需同步确定图片类 artifact 的落点。R-244 本身尚待用户决定是否列入主任务——该决定即本条的解除条件。
+- 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
+- 优先级: P1
+
+## R-250 子代理结构化返回:task 支持 schema,主代理零解析 [todo]
+- refs: R-004 R-012 R-176 R-218 R-246 docs/design/subagent_management.md
+- 内容: 现状 explore/writer 子代理只返回自由文本(subagent.rs:94、112 的系统提示都是「reply with ONLY the requested information」),主代理必须自己从散文里解析结论——弱模型在这一步的读错是自举质量的直接损耗。本条给 `task` 工具加可选 `schema` 字段:传入 JSON Schema 时子代理被强制以该结构返回,校验在工具层完成,不合规即让子代理重试,主代理拿到的是已验证对象。
+- 复杂度: 中
+- 批次: 0/2
+- 来源: 2026-08-14 三系统工具面对照:DeepSeek 与 Claude Code 的子代理均支持结构化返回,kanzei 缺。对照结论——kanzei 子代理的**安全模型**(只读白名单代码层隔离、写租约走协调器、权限规则原样生效)比两者都扎实,缺的是**效率与可控性**。
+- 标签: 核心
+- 边界: 只做返回侧的 schema 约束,不做 fork(继承主对话历史)、不做运行中查看与追加指令、不做嵌套派生——这三条各自独立评估,其中 fork 与 R-246 的 child agents owner 语义相关,不在本条抢跑。schema 为可选字段,不传时行为与现状逐字节一致。
+- 验收: ①传 schema 时返回值经校验,不合规触发子代理重试且重试次数有上限;②不传 schema 时既有 explore/writer 行为无回归(机械核验:现有子代理测试全绿);③同轮多个并行 task 各自独立校验,互不影响;④校验失败的诊断指出是哪个字段不合规,不是笼统报错;⑤只读子代理白名单不因本条放宽(沿用 R-176 验收⑦的复核手法)。
+- 优先级: P2
