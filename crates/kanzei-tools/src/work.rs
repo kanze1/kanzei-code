@@ -54,6 +54,10 @@ pub struct WorkItem {
     pub blocked: bool,
     pub block_reasons: Vec<String>,
     pub progress_provenance: ProgressProvenance,
+    /// D-354:持有该条目的线(「取得线」字段,claim 时写入)。None = 默认线持有
+    /// (含并行化之前的历史 WIP)。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claimed_by: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -123,6 +127,13 @@ pub struct ResolvedControlState {
     /// 不进 WIP、不进候选、不进 blocked,只在这里明示,等 tracker normalize 修复。
     #[serde(default)]
     pub integrity_errors: Vec<IntegrityError>,
+    /// D-354:本次裁决的线身份。None = 主根默认线。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<String>,
+    /// D-354:其他线正持有的 WIP 条目。对本线是只读背景(协作可见性),
+    /// 不参与本线的 Resume/WipViolation/候选裁决。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub foreign_wip: Vec<WorkItemSummary>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +175,28 @@ fn command_output(cwd: &std::path::Path, args: &[&str]) -> Vec<u8> {
         .filter(|output| output.status.success())
         .map(|output| output.stdout)
         .unwrap_or_default()
+}
+
+/// 线身份(D-354):cwd 与主根不同目录 = 并行线(worktree),身份取其 git 分支名,
+/// 拿不到分支(裸目录/detached)回落目录名;cwd == 主根 = 默认线,身份为 None。
+/// 「取得线」字段与此对齐:条目无该字段 = 默认线持有。这让 WIP 纪律从项目级
+/// 收窄为线级——没有它,主线 claim 一条后其他线的裁决永远是 Resume 主线条目
+/// 或 WipViolation,任务级并行结构性无法开始。
+pub fn line_identity(cwd: &std::path::Path, project_root: &std::path::Path) -> Option<String> {
+    let canon =
+        |path: &std::path::Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if canon(cwd) == canon(project_root) {
+        return None;
+    }
+    let branch =
+        String::from_utf8_lossy(&command_output(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]))
+            .trim()
+            .to_string();
+    if !branch.is_empty() && branch != "HEAD" {
+        return Some(branch);
+    }
+    cwd.file_name()
+        .map(|name| name.to_string_lossy().to_string())
 }
 
 fn fnv1a64(chunks: &[&[u8]]) -> String {
@@ -390,6 +423,7 @@ fn item(
         blocked: !block_reasons.is_empty(),
         block_reasons,
         progress_provenance: provenance(entry, observation),
+        claimed_by: field(entry, "取得线").map(str::to_string),
     }
 }
 
@@ -458,9 +492,13 @@ pub fn resolve_work_decision(
     let observation = repo_observation(cwd);
     let scheduled_requirements = schedule_for_display_with_states(&requirements, &states);
     let scheduled_defects = schedule_for_display_with_states(&defects, &states);
+    // D-354:WIP 纪律按线圈定。他线持有的 WIP 不进本线的 Resume/WipViolation,
+    // 也不进本线候选——每条线在自己的 WIP 集合里遵守单 WIP。
+    let me = line_identity(cwd, project_root);
 
     let mut executable_wip = Vec::new();
     let mut blocked_items = Vec::new();
+    let mut foreign_wip: Vec<WorkItemSummary> = Vec::new();
     let mut integrity_errors = Vec::new();
     for (kind, scheduled, wip_status) in [
         (&REQUIREMENTS, &scheduled_requirements, "doing"),
@@ -505,7 +543,11 @@ pub fn resolve_work_decision(
                 &observation,
                 &reference_index,
             );
-            if view.blocked {
+            if view.lifecycle_status == wip_status && view.claimed_by.as_deref() != me.as_deref() {
+                // 他线的 WIP:只作背景可见,不进本线任何裁决(blocked 也不进——
+                // 它的阻塞该由持有线处理)。
+                foreign_wip.push(WorkItemSummary::from(&view));
+            } else if view.blocked {
                 blocked_items.push(view);
             } else if view.lifecycle_status == wip_status {
                 executable_wip.push(view);
@@ -554,10 +596,18 @@ pub fn resolve_work_decision(
                 ],
             };
             let candidate = queues.into_iter().find_map(|(kind, scheduled)| {
+                let wip_status = if kind.prefix == "R" {
+                    "doing"
+                } else {
+                    "fixing"
+                };
                 scheduled.iter().find_map(|scheduled_item| {
                     let status = scheduled_item.entry.status.as_str();
                     // D-332:非法 lifecycle 同样排除出候选(已在 integrity_errors 隔离)。
-                    if !status.is_empty() && !kind.statuses.contains(&status) {
+                    // D-354:WIP 态条目也不是候选——本线的 WIP 走 Resume,他线的
+                    // WIP 归持有线,都轮不到 Start。
+                    let invalid = !status.is_empty() && !kind.statuses.contains(&status);
+                    if invalid || status == wip_status {
                         None
                     } else if !kind.terminal.contains(&status)
                         && scheduled_item.block_reasons.is_empty()
@@ -602,6 +652,21 @@ pub fn resolve_work_decision(
                     ),
                     None,
                 ),
+                None if !foreign_wip.is_empty() => (
+                    WorkDecision::Empty,
+                    format!(
+                        "本线({})无可取条目:{} 个活动条目由其他线持有({});\
+                         等待他线交付或由用户另行派发",
+                        me.as_deref().unwrap_or("主线"),
+                        foreign_wip.len(),
+                        foreign_wip
+                            .iter()
+                            .map(|item| item.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join("、")
+                    ),
+                    None,
+                ),
                 None => (
                     WorkDecision::Empty,
                     "需求与缺陷队列均无活动条目".into(),
@@ -622,6 +687,8 @@ pub fn resolve_work_decision(
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
         decision_locked,
         integrity_errors,
+        line: me,
+        foreign_wip,
     })
 }
 
@@ -666,7 +733,9 @@ impl Tool for WorkTool {
     fn description(&self) -> String {
         "Resolve the authoritative requirement/defect work decision. `next` returns structured \
          Resume/Start/Blocked/WipViolation; `claim(id)` atomically starts the selected item. \
-         Queue priority comes from the run and cannot be overridden by tool input."
+         WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
+         background) and are never selected for this line; claiming one requires an explicit \
+         takeover reason. Queue priority comes from the run and cannot be overridden by tool input."
             .into()
     }
 
@@ -736,12 +805,35 @@ impl Tool for WorkTool {
                 ));
             }
             WorkDecision::Blocked | WorkDecision::Empty => {
-                return ToolOutput::error(format!(
-                    "当前裁决是 {:?}: {}",
-                    state.decision, state.reason
-                ));
+                // D-354:Empty/Blocked 里仍可能有他线持有的条目——带非空 reason 的
+                // 接管(线停机/用户改派)要能走通,不能被"无可取条目"一票否决。
+                let foreign_takeover = state.foreign_wip.iter().any(|item| item.id == id)
+                    && input
+                        .reason
+                        .as_deref()
+                        .is_some_and(|reason| !reason.trim().is_empty());
+                if !foreign_takeover {
+                    return ToolOutput::error(format!(
+                        "当前裁决是 {:?}: {}",
+                        state.decision, state.reason
+                    ));
+                }
             }
             WorkDecision::Resume | WorkDecision::Start => {}
+        }
+        // D-354:他线持有的条目不能顺手 claim——报错要指明「被谁持有」,而不是
+        // 笼统的"偏离默认选择"。接管(线死了/用户改派)走 override 通道:带非空
+        // reason,接管成功会改写「取得线」并把依据留在审计字段。
+        if state.foreign_wip.iter().any(|item| item.id == id)
+            && input
+                .reason
+                .as_deref()
+                .is_none_or(|reason| reason.trim().is_empty())
+        {
+            return ToolOutput::error(format!(
+                "{id} 正被其他线持有(见 foreign_wip),不能重复 claim;\
+                 确要接管须提供非空 reason(留取活覆盖审计,接管会改写取得线)"
+            ));
         }
         let is_default = state.selected.as_ref().is_some_and(|item| item.id == id);
         if !is_default
@@ -777,6 +869,7 @@ impl Tool for WorkTool {
         if kind.terminal.contains(&entries[position].status.as_str()) {
             return ToolOutput::error(format!("{id} 已是终态，不能 claim"));
         }
+        let me = line_identity(&ctx.cwd, &ctx.project_root);
         if !is_default {
             let refreshed = resolve_work_decision(&ctx.cwd, &ctx.project_root, ctx.work_priority)
                 .ok()
@@ -810,6 +903,23 @@ impl Tool for WorkTool {
             Some((_, value)) => *value = audit,
             None => entries[position].fields.push(("取活依据".into(), audit)),
         }
+        // D-354:落「取得线」事实(设计 parallel_lines_ui §1.2:被取得是事实不是推断)。
+        // 默认线不写字段(无字段 = 默认线),接管时清掉他线残留。
+        match &me {
+            Some(line) => {
+                match entries[position]
+                    .fields
+                    .iter_mut()
+                    .find(|(key, _)| key == "取得线")
+                {
+                    Some((_, value)) => *value = line.clone(),
+                    None => entries[position]
+                        .fields
+                        .push(("取得线".into(), line.clone())),
+                }
+            }
+            None => entries[position].fields.retain(|(key, _)| key != "取得线"),
+        }
         if let Err(error) = store.save(&entries) {
             return ToolOutput::error(format!("cannot save claim: {error}"));
         }
@@ -818,6 +928,7 @@ impl Tool for WorkTool {
                 "claimed": id,
                 "lifecycle_status": wip_status,
                 "override": !is_default,
+                "line": me,
                 "work_priority": priority_name(ctx.work_priority),
             })
             .to_string(),
@@ -1147,6 +1258,120 @@ mod tests {
             .to_string();
         assert_ne!(tracker_observation.observed_head, actual_head);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// D-354:任务级并行的取活底座。他线持有的 WIP 不进本线裁决,本线能 Start
+    /// 未被持有的队首;claim 落「取得线」事实;主根默认线行为完全不变。
+    #[tokio::test]
+    async fn 并行线取活_他线wip不挡本线start_claim落取得线() {
+        let main = fixture("line-main");
+        let line_a = fixture("line-par-a");
+        // 主线(默认线)已持有 D-001:无「取得线」字段 = 默认线持有。
+        DocStore::open(&main, &DEFECTS)
+            .save(&[entry("D-001", "fixing"), entry("D-002", "open")])
+            .unwrap();
+        DocStore::open(&main, &REQUIREMENTS)
+            .save(&[entry("R-001", "todo")])
+            .unwrap();
+
+        // 线视角:D-001 是他线 WIP → 只进 foreign_wip;本线无 WIP → Start(D-002)。
+        // 旧引擎在这里给 Resume(D-001),第二条线永远无法开工——正是 D-354 的病根。
+        let state = resolve_work_decision(&line_a, &main, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Start, "{}", state.reason);
+        assert_eq!(state.selected.as_ref().unwrap().id, "D-002");
+        assert_eq!(state.executable_wip.len(), 0, "他线 WIP 不得进本线 WIP");
+        assert_eq!(state.foreign_wip.len(), 1);
+        assert_eq!(state.foreign_wip[0].id, "D-001");
+        let line_name = state.line.clone().expect("并行线必须有线身份");
+
+        // 线 claim 引擎选中的 D-002:成功,落「取得线」。
+        let ctx = ToolCtx::new(line_a.clone(), main.clone())
+            .with_work_priority(WorkPriority::DefectFirst);
+        let claimed = WorkTool
+            .execute(json!({ "action": "claim", "id": "D-002" }), &ctx)
+            .await;
+        assert!(!claimed.is_error, "{}", claimed.content);
+        let defects = DocStore::open(&main, &DEFECTS).load().unwrap();
+        let d002 = defects.iter().find(|entry| entry.id == "D-002").unwrap();
+        assert_eq!(d002.status, "fixing");
+        assert_eq!(field(d002, "取得线"), Some(line_name.as_str()));
+
+        // 线视角复查:Resume 自己的 D-002。
+        let state = resolve_work_decision(&line_a, &main, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Resume);
+        assert_eq!(state.selected.unwrap().id, "D-002");
+
+        // 主线视角完全不变:Resume 自己的 D-001,不是 WipViolation。
+        let main_state = resolve_work_decision(&main, &main, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(
+            main_state.decision,
+            WorkDecision::Resume,
+            "{}",
+            main_state.reason
+        );
+        assert_eq!(main_state.selected.unwrap().id, "D-001");
+        assert_eq!(
+            main_state.foreign_wip.len(),
+            1,
+            "线持有的 D-002 应作背景可见"
+        );
+        assert!(main_state.line.is_none(), "主根默认线身份为 None");
+        let _ = std::fs::remove_dir_all(main);
+        let _ = std::fs::remove_dir_all(line_a);
+    }
+
+    /// D-354:他线持有的条目 claim 必须被拒(除非带接管 reason);全部活动条目
+    /// 被他线持有时本线裁决为 Empty 并说明持有方,不误报队列已清空可停机。
+    #[tokio::test]
+    async fn 并行线取活_他线条目拒绝顺手claim_全被持有时明示() {
+        let main = fixture("line-guard-main");
+        let line_b = fixture("line-guard-b");
+        let mut held = entry("D-001", "fixing");
+        held.fields.push(("取得线".into(), "par/other".into()));
+        DocStore::open(&main, &DEFECTS).save(&[held]).unwrap();
+        DocStore::open(&main, &REQUIREMENTS).save(&[]).unwrap();
+
+        // 全部活动条目被他线持有 → Empty,reason 点名持有情况。
+        let state = resolve_work_decision(&line_b, &main, WorkPriority::DefectFirst).unwrap();
+        assert_eq!(state.decision, WorkDecision::Empty);
+        assert!(
+            state.reason.contains("其他线持有"),
+            "reason 应点名被持有: {}",
+            state.reason
+        );
+
+        // 无 reason 的 claim 被拒,错误信息指向持有事实。
+        let ctx = ToolCtx::new(line_b.clone(), main.clone())
+            .with_work_priority(WorkPriority::DefectFirst);
+        let rejected = WorkTool
+            .execute(json!({ "action": "claim", "id": "D-001" }), &ctx)
+            .await;
+        assert!(rejected.is_error);
+        assert!(
+            rejected.content.contains("其他线持有"),
+            "{}",
+            rejected.content
+        );
+        let defects = DocStore::open(&main, &DEFECTS).load().unwrap();
+        assert_eq!(field(&defects[0], "取得线"), Some("par/other"));
+
+        // 带 reason 的接管:改写「取得线」为本线。
+        let takeover = WorkTool
+            .execute(
+                json!({
+                    "action": "claim",
+                    "id": "D-001",
+                    "reason": "par/other 线已停机,用户指示本线接管",
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!takeover.is_error, "{}", takeover.content);
+        let defects = DocStore::open(&main, &DEFECTS).load().unwrap();
+        let owner = field(&defects[0], "取得线").unwrap().to_string();
+        assert_ne!(owner, "par/other", "接管必须改写取得线");
+        let _ = std::fs::remove_dir_all(main);
+        let _ = std::fs::remove_dir_all(line_b);
     }
 
     #[tokio::test]
