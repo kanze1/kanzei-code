@@ -117,3 +117,13 @@
 - 根因: actions.rs:967 的 content 在归档 dedupe 循环(982-1004)之前就拼好了,循环里 push 进 fixed 的条目不再进输出;findings 的「需手动整理归档」文案是 apply 具备归档去重能力之前写下的,能力补上后没跟着改。
 - 验收: ①apply 输出的 fix 计数与「已修复」段包含归档 dedupe 结果(单测:构造归档重复字段 → apply 输出 fix(es) >= 1 且列出条目 id);②findings 文案改为指向 apply 可修,不再说「需手动整理归档」;③dry-run 仍不写盘(既有断言保持);④非进展字段的 dedupe 只保首条这一取舍在文案里写明(D-180 两条内容不同的「验证」字段会因此丢一条)。
 - 优先级: P3
+
+## D-359 kz reopen CLI 不解析 --reason:强制必填的 reason 在命令行侧无法传,合法退路不可用 [open] (medium)
+- refs: D-329 R-183
+- 复杂度: 小
+- 复现: 2026-08-14 实测:`kz req reopen R-183 --reason "..."` 报 "`reason` is required for reopen"。main.rs:1208 的 reopen 分支只从 positional 取 id,--reason 及其取值被 parse_tracker_flags 当成普通 positional 丢在后面,input["reason"] 从未被填。fix_terminal 分支(main.rs:1223)专门写了 --reason 解析,reopen/void_id 没跟上。
+- 影响: reopen 是「fixing/doing 推不动时的合法退路」,强制 reason 是它的设计前提,而 CLI 侧永远给不出 reason = 这条退路在命令行完全不可用。实测后果:R-183 是 engine 自动认领却从未开工的僵尸 doing,清掉阻塞后立刻与 R-202 构成 2 个可执行 WIP,work next 判 wip_violation 禁止全线取活;想退回 todo 却退不了(update 拒绝 doing→todo 逆向迁移),只能把阻塞原样挂回去。
+- 标签: 流程
+- 根因: D-329 给 reopen/archive/void_id 等补了 positional id,但没补它们各自的必填参数;reason 的解析只在 fix_terminal 分支里单独实现,没有下沉成公共 flag。
+- 验收: ①`kz req reopen <id> --reason "..."` 能落 reason 并把状态退回初始态(集成测试或 CLI 单测);②缺 --reason 时仍报错拒绝(不许空理由绕过);③--reason 解析下沉为公共 flag,fix_terminal 与 reopen 共用一处,void_id 等同族动作的必填参数一并核对补齐;④R-183 用修好的通道退回 todo,阻塞字段清空。
+- 优先级: P2
