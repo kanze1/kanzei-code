@@ -1765,3 +1765,17 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .workspace-line-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-line-stage { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-line-branch { font-family: var(--mono); font-size: 10.5px; }
+
+/* 本轮改动条:贴在输入框上方,总量在右、文件清单可展开。 */
+.change-bar { margin-bottom: 6px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--panel); font-size: 11.5px; }
+.change-bar-head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 4px 8px; border: 0; background: transparent; color: var(--dim); font: inherit; cursor: pointer; }
+.change-bar-head:hover { color: var(--fg); }
+.change-bar-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.change-bar-repo { color: var(--fg); }
+.change-bar-branch { font-family: var(--mono); }
+.change-add { color: var(--ok); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.change-del { color: var(--err); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.change-bar-files { display: flex; flex-direction: column; gap: 1px; max-height: 30vh; overflow-y: auto; padding: 2px 8px 6px; }
+.change-file { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.change-file-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-family: var(--mono); font-size: 11px; }
+.change-file-tag { flex: 0 0 auto; font-size: 10.5px; }

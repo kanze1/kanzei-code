@@ -183,6 +183,20 @@
             <span class="dim"><span data-i18n-key="排队输入">排队输入</span> <em id="queue-count"></em></span>
             <div id="queue-list" class="queue-list"></div>
           </div>
+          <!-- 本轮改动条:贴在输入框上方,给出仓库/分支与 +增/−删 总量,可展开按文件看。
+               无改动时整条不出现——它是「我这一轮把工作树改成了什么样」的答案,
+               没有答案就不该占一行。 -->
+          <div id="change-bar" class="change-bar hidden">
+            <button type="button" id="change-bar-toggle" class="change-bar-head" aria-expanded="false" aria-controls="change-bar-files" title="展开或收起本轮改动的文件清单" data-i18n-title="展开或收起本轮改动的文件清单">
+              <span class="change-bar-caret" aria-hidden="true">▸</span>
+              <span id="change-bar-repo" class="change-bar-repo"></span>
+              <span id="change-bar-branch" class="change-bar-branch dim"></span>
+              <span class="spacer"></span>
+              <span id="change-bar-add" class="change-add"></span>
+              <span id="change-bar-del" class="change-del"></span>
+            </button>
+            <div id="change-bar-files" class="change-bar-files hidden"></div>
+          </div>
           <!-- 鞭挞控制台:常驻只放**状态**(开关/轮次/阶段/停机原因),设置全收进弹出面板。
                原来这些挤在顶栏——那是全屏唯一一条 nowrap 且已在做减法的容器,窄窗口下
                @media 直接把鞭挞状态 display:none 掉;而轮次只在瞬时调用里出现,下一帧就被

@@ -28,11 +28,46 @@ pub async fn git_status(project_dir: String) -> Result<serde_json::Value, String
                 .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
         };
         let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]);
-        let changes = run(&["status", "--porcelain"])
-            .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
-            .unwrap_or(0);
+        let porcelain = run(&["status", "--porcelain"]).unwrap_or_default();
+        let changes = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
         let last = run(&["log", "-1", "--format=%h %s"]);
-        json!({ "branch": branch, "changes": changes, "last": last })
+        // 逐文件增删:输入框上方的「本轮改动」条要按文件展开,不能只给一个改动数。
+        // 基线取 HEAD(未提交的全部改动)——用户问的是「我这一轮把工作树改成了什么样」。
+        // 二进制文件 numstat 给 `-`,记 0 并标出来,别把它算成 0 行改动骗人。
+        let mut files: Vec<serde_json::Value> = Vec::new();
+        let mut additions = 0u64;
+        let mut deletions = 0u64;
+        for line in run(&["diff", "--numstat", "HEAD"])
+            .unwrap_or_default()
+            .lines()
+        {
+            let mut parts = line.split('\t');
+            let (add, del, path) = (parts.next(), parts.next(), parts.next());
+            let (Some(add), Some(del), Some(path)) = (add, del, path) else {
+                continue;
+            };
+            let binary = add == "-" || del == "-";
+            let add: u64 = add.parse().unwrap_or(0);
+            let del: u64 = del.parse().unwrap_or(0);
+            additions += add;
+            deletions += del;
+            files.push(
+                json!({ "path": path, "additions": add, "deletions": del, "binary": binary }),
+            );
+        }
+        // 未跟踪文件不进 diff --numstat,但它们确实是本轮的产物,漏掉会让统计偏小。
+        for line in porcelain.lines() {
+            let Some(path) = line.strip_prefix("?? ") else {
+                continue;
+            };
+            files.push(
+                json!({ "path": path.trim(), "additions": 0, "deletions": 0, "untracked": true }),
+            );
+        }
+        json!({
+            "branch": branch, "changes": changes, "last": last,
+            "additions": additions, "deletions": deletions, "files": files,
+        })
     })
     .await
     .map_err(|e| e.to_string())

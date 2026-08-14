@@ -170,6 +170,68 @@ $("viewer-external").addEventListener("click", () => {
 });
 
 // ---------- git 状态 ----------
+// 输入框上方的「本轮改动」条。数据取 git 真源(git_status 的 numstat),不靠把
+// kz:tool-end 的 diff 事件在前端累加——事件累加会漏掉手工改动、漏掉 agent 用 bash
+// 改的文件,而且切会话/重连后归零,给出的数字与工作树对不上。
+let changeBarOpen = false;
+function renderChangeBar(status) {
+  const bar = $("change-bar");
+  if (!bar) return;
+  const files = status?.files ?? [];
+  const additions = status?.additions ?? 0;
+  const deletions = status?.deletions ?? 0;
+  // 没有改动就整条收起来:它是「这一轮把工作树改成了什么样」的答案,没答案不占位置。
+  if (!files.length) {
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  $("change-bar-repo").textContent = `${files.length} ${t("个文件")}`;
+  $("change-bar-branch").textContent = status?.branch ? `⎇ ${status.branch}` : "";
+  $("change-bar-add").textContent = `+${additions}`;
+  $("change-bar-del").textContent = `−${deletions}`;
+  const box = $("change-bar-files");
+  box.classList.toggle("hidden", !changeBarOpen);
+  $("change-bar-toggle").setAttribute("aria-expanded", String(changeBarOpen));
+  const caret = $("change-bar-toggle").querySelector(".change-bar-caret");
+  if (caret) caret.textContent = changeBarOpen ? "▾" : "▸";
+  if (!changeBarOpen) return;
+  box.replaceChildren();
+  for (const file of files) {
+    const row = document.createElement("div");
+    row.className = "change-file";
+    const path = document.createElement("span");
+    path.className = "change-file-path";
+    path.textContent = file.path;
+    path.title = file.path;
+    row.appendChild(path);
+    if (file.untracked) {
+      const tag = document.createElement("span");
+      tag.className = "change-file-tag dim";
+      tag.textContent = t("未跟踪");
+      row.appendChild(tag);
+    } else if (file.binary) {
+      const tag = document.createElement("span");
+      tag.className = "change-file-tag dim";
+      tag.textContent = t("二进制");
+      row.appendChild(tag);
+    } else {
+      const add = document.createElement("span");
+      add.className = "change-add";
+      add.textContent = `+${file.additions}`;
+      const del = document.createElement("span");
+      del.className = "change-del";
+      del.textContent = `−${file.deletions}`;
+      row.append(add, del);
+    }
+    box.appendChild(row);
+  }
+}
+$("change-bar-toggle")?.addEventListener("click", () => {
+  changeBarOpen = !changeBarOpen;
+  void refreshGit();
+});
+
 async function refreshGit() {
   if (!currentProject) return;
   try {
@@ -178,8 +240,10 @@ async function refreshGit() {
       ? `⎇ ${g.branch}${g.changes ? ` +${g.changes}` : ""}`
       : "";
     $("status-git").title = g.last ? `${t("最近提交")}:${g.last}` : "";
+    renderChangeBar(g);
   } catch {
     $("status-git").textContent = "";
+    renderChangeBar(null);
   }
 }
 
