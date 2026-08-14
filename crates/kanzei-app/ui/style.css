@@ -900,7 +900,22 @@ button:disabled { opacity: .45; cursor: default; }
   padding: 8px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--dim); border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
 }
-#bg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+#bg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
+/* 三段:运行中常驻置顶,需要关注次之,已完成折叠在最后。长跑任务不会被一串
+   已完成刷走,而失败的也不会被自动收走——收错地方比不收更糟。 */
+#bg-list > .bg-section { display: flex; flex-direction: column; gap: 6px; }
+#bg-running, #bg-attention, #bg-done { display: flex; flex-direction: column; gap: 6px; }
+#bg-list .bg-section-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim);
+  padding: 2px 2px 0; border-top: 1px solid var(--border-soft);
+}
+/* 运行中的段头钉住:面板滚动时「现在有几个终端在跑」始终可读 */
+#bg-section-running .bg-section-title { position: sticky; top: -8px; z-index: 1; background: var(--panel); }
+button.bg-section-toggle { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#bg-section-attention .bg-section-title { color: var(--err); border-top-color: var(--err); }
+.bg-empty { color: var(--dim); font-size: 11px; padding: 2px 2px 4px; }
 /* R-174:子代理面板——与活动面板平级的独立右侧面板,Running/Finished 两区。 */
 #agent-panel {
   width: 300px; background: var(--panel); border-left: 1px solid var(--border-soft);

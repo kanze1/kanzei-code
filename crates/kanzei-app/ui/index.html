@@ -798,7 +798,7 @@
     </aside>
 
     <aside id="bg-panel" class="hidden">
-      <div class="bg-head"><span data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span></div>
+      <div class="bg-head"><span data-i18n-key="活动">活动</span> <span id="bg-count" class="dim"></span> <span id="diff-summary-toggle" class="diff-summary-label"></span><span class="spacer"></span><button type="button" id="bg-clear-done" class="ghost mini hidden" title="清空已完成的活动条目" data-i18n-title="清空已完成的活动条目"><span data-i18n-key="清空">清空</span></button></div>
       <div class="bg-filters">
         <select id="bg-type-filter" class="doc-filter" title="按工具类型筛选" data-i18n-title="按工具类型筛选">
           <option value="all" data-i18n-key="全部类型">全部类型</option>
@@ -820,7 +820,26 @@
         </select>
       </div>
       <div id="diff-summary" class="diff-summary hidden"></div>
-      <div id="bg-list"></div>
+      <!-- 活动面板分三段:在跑的常驻置顶,成功完成的自动收进折叠区,失败/需确认的
+           留在可见处。长时间任务(全量测试那种)于是不会被一串已完成刷走。 -->
+      <div id="bg-list">
+        <div class="bg-section" id="bg-section-running">
+          <div class="bg-section-title"><span data-i18n-key="运行中">运行中</span> <span id="bg-running-count" class="dim"></span></div>
+          <div id="bg-running"></div>
+          <div id="bg-running-empty" class="bg-empty" data-i18n-key="没有在跑的工具">没有在跑的工具</div>
+        </div>
+        <div class="bg-section hidden" id="bg-section-attention">
+          <div class="bg-section-title"><span data-i18n-key="需要关注">需要关注</span> <span id="bg-attention-count" class="dim"></span></div>
+          <div id="bg-attention"></div>
+        </div>
+        <div class="bg-section hidden" id="bg-section-done">
+          <button type="button" id="bg-done-toggle" class="bg-section-title bg-section-toggle" aria-expanded="false" aria-controls="bg-done" title="展开或收起已完成的活动条目" data-i18n-title="展开或收起已完成的活动条目">
+            <span class="bg-section-caret" aria-hidden="true">▸</span>
+            <span data-i18n-key="已完成">已完成</span> <span id="bg-done-count" class="dim"></span>
+          </button>
+          <div id="bg-done" class="hidden"></div>
+        </div>
+      </div>
     </aside>
 
     <aside id="agent-panel" class="hidden">

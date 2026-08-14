@@ -83,6 +83,7 @@ function bgSync() {
   syncBgRoleFilterOptions();
   applyBgFilters();
   renderBgGroups();
+  renderBgSections();
 }
 
 // R-184 P2:角色筛选下拉的选项随条目动态刷新(全部 + 当前有 role 的去重角色),
@@ -196,41 +197,98 @@ function applyBgFilters() {
 // R-173:编排派发的子代理按 input.phase 分区(勘察 / 复核)。这是用户要的 Running/
 // Finished 分区的雏形,复用 #bg-list 而不是另起一个平行面板——独立子代理面板归 R-174,
 // 本轮只把丢掉的信息接回来。
-const bgGroups = new Map(); // phase -> {wrap, head, body}
-function bgGroupBody(phase) {
-  const list = $("bg-list");
-  if (!phase) return list;
-  let group = bgGroups.get(phase);
+const bgGroups = new Map(); // `${section}|${phase}` -> {wrap, head, body}
+const BG_SECTION_BODY = { running: "bg-running", attention: "bg-attention", done: "bg-done" };
+let bgDoneOpen = localStorage.getItem("kz-bg-done-open") === "1";
+// 条目该落哪一段。成功判据只认 ToolEnd 的机器可读 outcome(经 activityOutcomeView
+// 折算成 cls),不看文案、不反推 DOM:成功与 noop 收进折叠区,其余(失败/需确认/
+// 需修正/超时)留在「需要关注」——收错地方比不收更糟。
+function bgSectionFor(entry) {
+  if (!entry.done) return "running";
+  return entry.cls === "ok" || entry.cls === "noop" ? "done" : "attention";
+}
+function bgPlace(entry) {
+  const section = bgSectionFor(entry);
+  if (entry.section === section && entry.el.parentNode) return;
+  entry.section = section;
+  entry.el.dataset.bgSection = section;
+  bgGroupBody(entry.phase, section).appendChild(entry.el);
+}
+function bgGroupBody(phase, section = "running") {
+  const host = $(BG_SECTION_BODY[section]) ?? $("bg-list");
+  if (!phase) return host;
+  // 分组键带上段:同一个 phase 在三段里各有一份组容器,否则条目落位后又被组容器拽回去。
+  const key = `${section}|${phase}`;
+  let group = bgGroups.get(key);
   if (!group) {
     const wrap = document.createElement("div");
     wrap.className = `bg-group bg-group-${phase}`;
     wrap.dataset.bgPhase = phase;
+    wrap.dataset.bgSection = section;
     const head = document.createElement("div");
     head.className = "bg-group-head";
     const body = document.createElement("div");
     body.className = "bg-group-body";
     wrap.append(head, body);
-    list.appendChild(wrap);
-    group = { wrap, head, body };
-    bgGroups.set(phase, group);
+    host.appendChild(wrap);
+    group = { wrap, head, body, phase, section };
+    bgGroups.set(key, group);
   }
   return group.body;
 }
 // 组标题给"完成数/总数",这是本轮最直接的推进度读数;整组被筛选清空就收起,
 // 不留一个指向空气的标题。
 function renderBgGroups() {
-  for (const [phase, group] of bgGroups) {
-    const rows = [...bgEntries.values()].filter((entry) => entry.phase === phase);
-    if (!rows.length) {
+  for (const [key, group] of bgGroups) {
+    const mine = [...bgEntries.values()].filter((e) => e.phase === group.phase && e.section === group.section);
+    if (!mine.length) {
       group.wrap.remove();
-      bgGroups.delete(phase);
+      bgGroups.delete(key);
       continue;
     }
-    const done = rows.filter((entry) => entry.done).length;
-    group.head.textContent = `${orchPhaseLabel(phase)} · ${done}/${rows.length}`;
-    group.wrap.dataset.bgGroupDone = `${done}/${rows.length}`;
-    group.wrap.classList.toggle("hidden", !rows.some((entry) => !entry.el.classList.contains("hidden")));
+    // 分母用**跨段**的全量:段内分母会让「勘察 · 0/2」和「勘察 · 3/3」同屏自相矛盾。
+    const all = [...bgEntries.values()].filter((e) => e.phase === group.phase);
+    const done = all.filter((entry) => entry.done).length;
+    group.head.textContent = `${orchPhaseLabel(group.phase)} · ${done}/${all.length}`;
+    group.wrap.dataset.bgGroupDone = `${done}/${all.length}`;
+    group.wrap.classList.toggle("hidden", !mine.some((entry) => !entry.el.classList.contains("hidden")));
   }
+}
+// 三段的计数、空态与折叠。运行中那段额外给出终端条数——用户开这个面板就是要看
+// 「现在有几个终端在跑、跑的是什么」。
+function renderBgSections() {
+  const visible = (section) => [...bgEntries.values()]
+    .filter((e) => e.section === section && !e.el.classList.contains("hidden"));
+  const running = visible("running");
+  const attention = visible("attention");
+  const done = visible("done");
+  const terminals = running.filter((e) => e.name === "bash" || e.type === "bash").length;
+  const runCount = $("bg-running-count");
+  if (runCount) {
+    runCount.textContent = running.length
+      ? (terminals ? `${running.length} · ${t("终端")} ${terminals}` : String(running.length))
+      : "";
+  }
+  const emptyRow = $("bg-running-empty");
+  if (emptyRow) emptyRow.classList.toggle("hidden", running.length > 0);
+  const attentionSection = $("bg-section-attention");
+  if (attentionSection) attentionSection.classList.toggle("hidden", attention.length === 0);
+  const attentionCount = $("bg-attention-count");
+  if (attentionCount) attentionCount.textContent = attention.length ? String(attention.length) : "";
+  const doneSection = $("bg-section-done");
+  if (doneSection) doneSection.classList.toggle("hidden", done.length === 0);
+  const doneCount = $("bg-done-count");
+  if (doneCount) doneCount.textContent = done.length ? String(done.length) : "";
+  const doneBody = $("bg-done");
+  const toggle = $("bg-done-toggle");
+  if (doneBody) doneBody.classList.toggle("hidden", !bgDoneOpen);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", String(bgDoneOpen));
+    const caret = toggle.querySelector(".bg-section-caret");
+    if (caret) caret.textContent = bgDoneOpen ? "▾" : "▸";
+  }
+  const clear = $("bg-clear-done");
+  if (clear) clear.classList.toggle("hidden", done.length === 0);
 }
 
 /// 差异汇总必须独立于活动面板的过滤:diff 来自 write/edit,而这两个工具已不进活动面板,
@@ -296,6 +354,10 @@ function bgRestart(id, summary, input, sessionId = activeSessionId) {
   entry.el.classList.remove("ok", "err", "timeout", "has-detail");
   entry.el.classList.add("running");
   entry.el.dataset.bgStatus = "running";
+  // 同名角色第二轮:从折叠区回到运行中段,否则重跑的东西藏在收起来的抽屉里。
+  entry.cls = null;
+  entry.outcomeState = null;
+  bgPlace(entry);
   entry.prog.textContent = `… ${t("子代理启动中")}`;
   entry.detail.innerHTML = "";
   entry.detail.classList.add("hidden");
@@ -377,27 +439,30 @@ function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
     }
   });
   el.append(title, prog, ...(current ? [current] : []), meta, actions, detail);
-  bgGroupBody(phase).appendChild(el);
-  const list = $("bg-list");
   const entry = {
     // summary 存显示值:它的两个消费方(重跑填词、导出文件头)都是把它当"人类可读的一行标识"用,
     // 且都在同一段文本里另附了完整入参 JSON,存裸 JSON 只会变成两份 JSON 叠在一起。
     el, title, target, prog, current, meta, detail, actions, type, name, phase, summary: shown, input, sessionId,
     role: phase ? id : null, children: new Map(), startedAt: Date.now(), done: false,
+    // 落位判据存在条目上,不从 DOM class 反推(反推在 warn/noop 上一直是错的)。
+    cls: null, outcomeState: null, section: null,
   };
   bgEntries.set(id, entry);
+  bgPlace(entry);
   bgAppendArgs(entry, input);
   bgTick(entry);
   // 上限裁剪改按登记表走:条目现在可能嵌在分组容器里,再按 #bg-list 的直接子节点裁剪
   // 会把整组连同其中多条一起摘掉、却只注销一个 id,剩下的 id 变成指向游离节点的幽灵条目。
+  // 优先摘已完成的:在跑的条目正是用户开着这个面板要看的东西,绝不能被裁掉。
   while (bgEntries.size > BG_MAX) {
-    const oldestId = bgEntries.keys().next().value;
-    bgEntries.get(oldestId)?.el.remove();
-    bgEntries.delete(oldestId);
+    const victim = [...bgEntries].find(([, e]) => e.section === "done")
+      ?? [...bgEntries].find(([, e]) => e.done);
+    if (!victim) break;
+    victim[1].el.remove();
+    bgEntries.delete(victim[0]);
   }
   bgRenderActions(id, entry);
   bgSync();
-  list.scrollTop = list.scrollHeight;
 }
 
 // 每条的可操作项。运行中的后台进程/子代理能单独停;结束后能重跑;
@@ -661,6 +726,9 @@ function bgEnd(id, ok, preview, display, outcome) {
     entry.live = null;
   }
   entry.done = true;
+  // 落位判据存条目上:成功/noop 收进折叠区,其余留在「需要关注」。
+  entry.cls = view.cls;
+  entry.outcomeState = view.state;
   entry.el.classList.remove("running");
   entry.el.classList.add(view.cls);
   entry.el.dataset.toolOutcome = view.state;
@@ -669,6 +737,8 @@ function bgEnd(id, ok, preview, display, outcome) {
   const timedOut = !ok && /超时/.test(String(preview ?? ""));
   if (timedOut) entry.el.classList.add("timeout");
   entry.el.dataset.bgStatus = timedOut ? "timeout" : view.cls;
+  // 超时归「需要关注」:cls 已是 err,bgSectionFor 自然把它留在可见处。
+  bgPlace(entry);
   bgSetCurrentTool(entry, null, false);
   entry.prog.textContent = preview || (ok ? t("完成") : t("失败"));
   // 元信息一行说清:成败、耗时、子代理内部调用数。此前只有一个秒数,
@@ -765,7 +835,12 @@ function bgClear() {
   bgPending.clear();
   bgGroups.clear();
   diffSummary.clear();
-  $("bg-list").innerHTML = "";
+  // 只清三段的**内容**,不能 innerHTML="" 整个 #bg-list——那会把三段骨架
+  // (段头/空态行/折叠按钮)一起冲掉,之后所有条目都无处可落,活动面板永久变空白。
+  for (const id of Object.values(BG_SECTION_BODY)) {
+    const host = $(id);
+    if (host) host.replaceChildren();
+  }
   renderDiffSummary();
   bgSync();
 }

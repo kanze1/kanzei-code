@@ -94,8 +94,11 @@ function addCompactionEntry(summary) {
     detail.classList.toggle("hidden");
     title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
   });
-  $("bg-list").appendChild(el);
-  while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
+  // 压缩/总结这类通知也落「运行中」段。原来直接挂 #bg-list 并按 firstElementChild
+  // 裁剪——分段之后那会把段骨架当成最老的条目摘掉。裁剪只在本段内按 .bg-entry 走。
+  const notices = $("bg-running") ?? $("bg-list");
+  notices.appendChild(el);
+  while (notices.querySelectorAll(".bg-entry").length > BG_MAX) notices.querySelector(".bg-entry").remove();
   lastCompactionEntry = el;
 }
 
@@ -116,8 +119,11 @@ function addSummaryEntry(summary, path = "") {
     detail.classList.toggle("hidden");
     title.setAttribute("aria-expanded", String(!detail.classList.contains("hidden")));
   });
-  $("bg-list").appendChild(el);
-  while ($("bg-list").childElementCount > BG_MAX) $("bg-list").firstElementChild.remove();
+  // 压缩/总结这类通知也落「运行中」段。原来直接挂 #bg-list 并按 firstElementChild
+  // 裁剪——分段之后那会把段骨架当成最老的条目摘掉。裁剪只在本段内按 .bg-entry 走。
+  const notices = $("bg-running") ?? $("bg-list");
+  notices.appendChild(el);
+  while (notices.querySelectorAll(".bg-entry").length > BG_MAX) notices.querySelector(".bg-entry").remove();
   return el;
 }
 function renderContextDetail() {

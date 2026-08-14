@@ -602,6 +602,22 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
   }
 }
 
+// 活动面板三段是真实嵌套:#bg-list > .bg-section > #bg-running|#bg-attention|#bg-done,
+// 条目落在段容器里而不再是 #bg-list 的直接子节点。扁平造的话所有 `#bg-list .bg-entry`
+// 断言全部落空(与上面 TABLE→tbody 同一类缺口)。
+for (const [sectionId, bodyId] of [
+  ["bg-section-running", "bg-running"],
+  ["bg-section-attention", "bg-attention"],
+  ["bg-section-done", "bg-done"],
+]) {
+  const section = byId.get(sectionId);
+  const sectionBody = byId.get(bodyId);
+
+  if (!section || !sectionBody) continue;
+  section.appendChild(sectionBody);
+  byId.get("bg-list")?.appendChild(section);
+}
+
 // 主视图切换按钮只有 class 没有 id,上面那轮按 id 造不出它们;这里按 class 补造,
 // 并在下面对"切换数为 0"直接判失败。
 for (const match of html.matchAll(/<button[^>]*class="activity-item[^"]*"[^>]*data-view="([\w-]+)"[^>]*>/g)) {
@@ -2744,8 +2760,14 @@ statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 // 活动面板是它们唯一的可见处。此前 name 恒为 "task" 被 R-168 一刀切静默,于是 5 勘察 +
 // 3 复核的轮次/工具进度整批落空。区分依据是后端给的 input.phase(scouting/review)。
 const orchEntry = (role) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === role);
-const orchGroup = (phase) => document.querySelector(`.bg-group[data-bg-phase=${phase}]`);
-const orchGroupHead = (phase) => orchGroup(phase)?.querySelector(".bg-group-head")?.textContent ?? "";
+// 活动面板分三段之后,同一个 phase 在「运行中/需要关注/已完成」里各有一份组容器
+// (跑完的勘察收进折叠区,还在跑的留在上面)。所以「这个阶段有几条」必须跨段求和,
+// 只看第一个组会随条目落位漂移;组头的完成数本来就是跨段算的,取任一份都一样。
+const orchGroups = (phase) => [...document.querySelectorAll(`.bg-group[data-bg-phase=${phase}]`)];
+const orchGroup = (phase) => orchGroups(phase)[0];
+const orchPhaseEntries = (phase) => orchGroups(phase).flatMap((g) => [...g.querySelectorAll(".bg-entry")]);
+const orchGroupHead = (phase) => orchGroups(phase)
+  .map((g) => g.querySelector(".bg-group-head")?.textContent ?? "").find((text) => text) ?? "";
 const scoutRoles = ["architecture_scout", "runtime_scout", "test_scout"];
 // ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
 for (const role of scoutRoles) {
@@ -2824,11 +2846,11 @@ for (const role of ["spec_reviewer", "risk_reviewer"]) {
 }
 await flush();
 assert(orchGroup("review"), "复核子代理未单独分区");
-assert(orchGroup("review").querySelectorAll(".bg-entry").length === 2, "复核分组内条目数不对");
+assert(orchPhaseEntries("review").length === 2, "复核分组内条目数不对");
 assert(orchGroupHead("review").includes("复核"), `复核分组标题缺阶段名,实得 "${orchGroupHead("review")}"`);
 assert(orchEntry("spec_reviewer")?.querySelector(".bg-phase-badge")?.textContent === "复核", "复核条目阶段标记不对");
 assert(
-  orchGroup("scouting").querySelectorAll(".bg-entry").length === 3,
+  orchPhaseEntries("scouting").length === 3,
   "复核条目串进了勘察分组",
 );
 // ⑧ 角色名跨轮复用:同名角色再次派发要原地复位,否则第二轮的进度全写进上一轮那条终态行。
@@ -2836,7 +2858,7 @@ toolStart({ payload: { id: "architecture_scout", name: "task", summary: "archite
 await flush();
 assert(orchEntry("architecture_scout")?.dataset.bgStatus === "running",
   `同名角色第二轮派发未复位,实得 "${orchEntry("architecture_scout")?.dataset.bgStatus}"(面板会定格在上一轮)`);
-assert(orchGroup("scouting").querySelectorAll(".bg-entry").length === 3, "同名角色复位时把条目复制了一份");
+assert(orchPhaseEntries("scouting").length === 3, "同名角色复位时把条目复制了一份");
 assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,实得 "${orchGroupHead("scouting")}"`);
 toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null } });
 await flush();

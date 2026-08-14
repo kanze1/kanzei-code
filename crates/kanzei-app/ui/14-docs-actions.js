@@ -100,20 +100,40 @@ async function runDefectReview() {
 }
 $("defect-review").addEventListener("click", runDefectReview);
 
+// 三个筛选改完都要重算段计数:筛掉一半条目而段头还写着原来的数,
+// 比不显示更误导(「运行中 5」但底下一条都没有)。
 $("bg-type-filter").addEventListener("change", (e) => {
   bgFilters.type = e.target.value;
   localStorage.setItem("kz-bg-type", bgFilters.type);
   applyBgFilters();
+  renderBgSections();
 });
 $("bg-status-filter").addEventListener("change", (e) => {
   bgFilters.status = e.target.value;
   localStorage.setItem("kz-bg-status", bgFilters.status);
   applyBgFilters();
+  renderBgSections();
 });
 $("bg-role-filter").addEventListener("change", (e) => {
   bgFilters.role = e.target.value;
   localStorage.setItem("kz-bg-role", bgFilters.role);
   applyBgFilters();
+  renderBgSections();
+});
+// 已完成段的折叠:记住用户的选择,别每次刷新都弹回收起。
+$("bg-done-toggle").addEventListener("click", () => {
+  bgDoneOpen = !bgDoneOpen;
+  localStorage.setItem("kz-bg-done-open", bgDoneOpen ? "1" : "0");
+  renderBgSections();
+});
+// 清空只摘已完成那一段——在跑的和需要关注的一条都不动。
+$("bg-clear-done").addEventListener("click", () => {
+  for (const [id, entry] of [...bgEntries]) {
+    if (entry.section !== "done") continue;
+    entry.el.remove();
+    bgEntries.delete(id);
+  }
+  bgSync();
 });
 $("bg-type-filter").value = bgFilters.type;
 $("bg-status-filter").value = bgFilters.status;
