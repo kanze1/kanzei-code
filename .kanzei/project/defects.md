@@ -96,11 +96,11 @@
 - 验收: ①并发场景有确定性回归测试(两个进程同时 add),后写者不得覆盖先写者;②失败时工具必须报错,禁止回 added——宁可失败也不能假成功;③id 分配与写入在同一临界区完成,不出现同 id 二次分配;④桌面端自举轮在跑时,外部 kz req/defect add 能稳定落住(实测,不是只跑单测)。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-364
-- 批次: 1/2
-- 进展: B1 完成:①managed.rs 新增 ManagedLocks/acquire_managed_locks——bash 命令窗口内经专用线程持有 8 个已知托管活动文档的 FileLock(R/D/G/A/M + tests/conventions/architecture),释放先发信号再 join;collect_files 排除 .lock 文件(独占句柄读 metadata 被拒导致快照误判不完整,D-364 实测);②bash.rs 前台路径接入:后台检查→finish_foreign_owners→持锁→capture→执行→enforce→释放;后台任务不持锁(守卫自行对账);③conventions.rs write_patch 加锁与围栏共用;④单测 2 条(持锁挡并发写者/越界写仍回滚/释放后写者成功 + 文档清单覆盖四族)。定向:cargo test -p kanzei-tools 250 绿(T-1786743031)。B2 待办:端到端回归测试 + 全量 + 关闭。
-- observed_head: f5ad4421e94db56c50a6ec26baa586ce0ca96077
-- observed_worktree_hash: fnv1a64:f321498bd0d86286
-- recorded_at: 1786743040715
+- 批次: 2/2
+- 进展: B2 完成:端到端回归 4 条(crates/kanzei/tests/d364_concurrent_doc_add.rs)——①围栏持锁窗口内 CLI add 等待后落住编号唯一(验收④机械形态);②窗口超 CLI 3s 锁预算时 CLI 明确报错退出、绝不回 added(验收②);③双 CLI 进程真并发 add 编号互异条目齐全(验收①后写不覆盖);④真 BashTool 围栏窗口内并发 CLI add 不被误回滚(走真实 acquire_managed_locks 管线)。反证已做:禁用围栏持锁后④精确复现 D-364 丢失([managed-files] BLOCKED AND ROLLED BACK, requirements.md 被回滚)——测试咬得住回归。kanzei-tools 250 绿 + d364 e2e 4/4 绿(T-1786743149)。待办:全量 + 逐条验收对照 + 关闭。
+- observed_head: 6b8799e1cf8345383800f4b1c48df4f1c8b09687
+- observed_worktree_hash: fnv1a64:7d352a5c997bbee0
+- recorded_at: 1786743164964
 
 ## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [open] (medium)
 - refs: R-207 R-254 R-177

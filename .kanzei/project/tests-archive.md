@@ -3452,3 +3452,29 @@
 - 摘要: R-244 关闭前全量:workspace 全绿 0 failed(kzapp 163/core 193/harness 143/llm 44/base 128/tools 248 等)
 - 关联: R-244
 - 收尾: 1786741238
+
+## T-1786743031 cargo test -p kanzei-tools --lib (D-364 围栏持锁修复) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: D-364 修复定向测试:250 通过(含新增 managed 持锁回归单测 2 条 + 既有 bash 围栏测试恢复全绿)。修复 = bash 围栏命令窗口持托管文档锁(managed.rs ManagedLocks + bash.rs 接入 + conventions write_patch 加锁)。
+- 关联: D-364
+- 收尾: 1786743031
+
+## T-1786743032 cargo test -p kanzei --test d364_concurrent_doc_add (D-364 并发登记端到端) [passed]
+- 命令: cargo test -p kanzei --test d364_concurrent_doc_add
+- 摘要: D-364 端到端回归 4/4:①围栏持锁窗口内 CLI add 等待后落住编号唯一;②窗口超 CLI 3s 锁预算时 CLI 明确报错绝不回 added;③双 CLI 进程真并发 add 编号互异条目齐全;④真 BashTool 围栏窗口内并发 CLI add 不被误回滚。反证:禁用持锁后④精确复现 D-364 丢失([managed-files] BLOCKED AND ROLLED BACK, requirements.md 被回滚)。
+- 关联: D-364
+- 收尾: 1786743032
+
+## T-1786743149 cargo test -p kanzei-tools + d364 e2e (fmt 后复测, D-364) [passed]
+- 命令: cargo test -p kanzei-tools --lib && cargo test -p kanzei --test d364_concurrent_doc_add
+- 摘要: fmt 归一后复测:kanzei-tools 250 绿 + d364 端到端 4/4 绿(D-364 B1+B2 代码面)。
+- 关联: D-364
+- 收尾: 1786743149
+- 源码指纹: 930277ec30f2b09d
+
+## T-1786743227 cargo test -p kanzei-tools + d364 e2e (B2 提交门禁, D-364) [passed]
+- 命令: cargo test -p kanzei-tools --lib && cargo test -p kanzei --test d364_concurrent_doc_add
+- 摘要: B2 提交前复测:kanzei-tools 250 绿 + d364 e2e 4/4 绿(暂存指纹背书)。
+- 关联: D-364
+- 收尾: 1786743227
+- 源码指纹: f8c581d558a3c26f

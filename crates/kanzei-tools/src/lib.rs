@@ -12,7 +12,7 @@ pub use kanzei_memory::memory;
 pub use kanzei_memory::replay_eval;
 mod background;
 mod base;
-mod bash;
+pub mod bash;
 pub mod conventions;
 mod edit;
 pub mod files;
