@@ -431,154 +431,24 @@ async fn assemble_run(
     })
 }
 
-#[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
-pub(crate) async fn run_task(
-    window: &Window,
-    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
-    ask_seq: Arc<AtomicU64>,
-    prompt: String,
-    attachments: Option<Vec<PromptAttachment>>,
-    project_dir: String,
-    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
-    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
-    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
-    main_root: PathBuf,
-    session_id: String,
-    // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
-    // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
-    phase_pipeline_enabled: bool,
-    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
-    block_tracker_writes: bool,
-    collaboration_probe: crate::collaboration::CollaborationProbe,
-    current_stage: Arc<Mutex<String>>,
-    profile: Option<String>,
-    agent_name: Option<String>,
-    model_override: Option<String>,
-    work_priority: Option<String>,
-    reasoning_override: Option<String>,
-    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
-    live_run: Arc<Mutex<LiveRun>>,
-    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
-    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
-    task_cancellations: Arc<kanzei_core::TaskCancellations>,
-    auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
-    delivery: kanzei_core::Delivery,
-    promoted_input: Option<kanzei_core::AdmittedInput>,
-    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
-    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
-    coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
-    process_id: String,
-    autonomous: bool,
-    auto_allow: bool,
-    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
-    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
-    halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
-    run_generation: Arc<AtomicU64>,
-) -> anyhow::Result<()> {
-    // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
-    let stage = |name: &str, detail: String| {
-        *current_stage.lock().unwrap() = name.to_string();
-        emit_stage(window, &session_id, name, detail);
-    };
-
-    // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
-    // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
-    run_generation.fetch_add(1, Ordering::SeqCst);
-    let halt_token = kanzei_core::CancellationToken::new();
-    *halt_slot.lock().unwrap() = Some(halt_token.clone());
-
-    let RunAssembly {
-        project_root,
-        config,
-        profile,
-        rctx,
-        snapshot,
-        agent,
-        work_priority,
-        resolved,
-        proxy,
-        route,
-        client,
-        runner_config,
-        ask_source,
-        state_path,
-        store,
-        run_id,
-        promoted_input_id,
-        prompt,
-        initial_parts,
-        typed_writer,
-        typed_flush_task,
-        run_started,
-        run_epoch_ms,
-        orchestration_trace,
-        mut pipeline,
-        _write_lease,
-        ctx,
-    } = assemble_run(
-        window,
-        &stage,
-        &project_dir,
-        main_root,
-        attachments,
-        prompt,
-        &session_id,
-        phase_pipeline_enabled,
-        block_tracker_writes,
-        collaboration_probe,
-        profile,
-        agent_name,
-        model_override,
-        work_priority,
-        reasoning_override,
-        delivery,
-        promoted_input,
-        &coordinator,
-        &process_id,
-        autonomous,
-        auto_allow,
-        halt_token,
-    )
-    .await?;
-
-    let event_window = window.clone();
-    let session_id_for_events = session_id.clone();
-    let emit_event = move |name: &str, payload: serde_json::Value| {
-        event_window.emit(name, with_session_id(payload, &session_id_for_events))
-    };
-    // R-202 批1:writer 事件闭包原在装配段内联,随 assemble_run 收敛后由
-    // 解构出的 orchestration_trace 重建——单一出口语义不变(OrchestrationEvent 落
-    // session_events),正常路径收尾与 WriterLeaseTrace::drop 兜底都用它。
-    let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
-        use kanzei_harness::orchestration::PhaseObserver;
-        orchestration_trace.observe(&event);
-    };
-    // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
-    let live = live_run.clone();
-    live.lock().unwrap().begin(
-        &run_id,
-        &promoted_input_id,
-        &prompt,
-        &resolved.provider_name,
-        &resolved.model,
-    );
-    let trace_log = live.clone();
-    let trace_state_path_for_events = state_path.clone();
-    let trace_session_id_for_events = session_id.clone();
-    let typed_writer_for_events = Arc::clone(&typed_writer);
-    // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
-    // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
-    // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
-    let tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>> =
-        Arc::new(Mutex::new(HashMap::new()));
-    // R-143:自举循环批次提交后自动 push 的检测位。ToolStart(action=commit)置 pending,
-    // ToolEnd(ok=true)把 pending 提升为 committed;失败/非 commit 只清 pending。
-    // 轮末(decide_auto_run 之后)读 committed,true 才触发 push。
-    let committed_this_round = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let pending_commit_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let round_committed = committed_this_round.clone();
-    let round_pending = pending_commit_call.clone();
-    let mut on_event = move |event: RunEvent| {
+/// R-202 批2:构造 run_task 的 RunEvent 处理器闭包(原 run_task 内联的 on_event)。
+/// D-173 可观测性:主代理工具调用实时转发 UI 并按 id 记开始时刻;R-143:git commit
+/// 检测位在 ToolStart(action=commit)/ToolEnd(ok=true) 置位/提升;轨迹与 typed writer
+/// 增量落库。返回的闭包与内联定义时行为逐字节一致。
+#[allow(clippy::too_many_arguments)]
+fn build_event_handler(
+    emit_event: impl Fn(&str, serde_json::Value) -> tauri::Result<()> + 'static,
+    tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>>,
+    trace_log: Arc<Mutex<LiveRun>>,
+    trace_state_path_for_events: PathBuf,
+    trace_session_id_for_events: String,
+    typed_writer_for_events: Arc<Mutex<typed_events::TypedEventWriter>>,
+    committed_this_round: Arc<std::sync::atomic::AtomicBool>,
+    pending_commit_call: Arc<std::sync::atomic::AtomicBool>,
+) -> impl FnMut(RunEvent) {
+    let round_committed = committed_this_round;
+    let round_pending = pending_commit_call;
+    move |event: RunEvent| {
         let elapsed_ms = |id: &str| -> Option<u128> {
             tool_started
                 .lock()
@@ -861,12 +731,23 @@ pub(crate) async fn run_task(
                 )
             }
         };
-    };
+    }
+}
 
+/// R-202 批2:构造 run_task 的权限/提问询问处理器闭包(原 run_task 内联的 ask)。
+/// 请求经 kz:ask 事件发给前端,应答挂 pending asks 表等待 answer_ask 回填。
+fn build_ask_handler(
+    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    ask_seq: Arc<AtomicU64>,
+    ask_source: &'static str,
+    window: &Window,
+    project_root: PathBuf,
+    session_id: String,
+) -> impl FnMut(kanzei_core::AskRequest) -> AskFuture {
     let ask_window = window.clone();
-    let ask_root = ctx.project_root.clone();
-    let ask_session_id = session_id.clone();
-    let mut ask = move |request: kanzei_core::AskRequest| -> AskFuture {
+    let ask_root = project_root;
+    let ask_session_id = session_id;
+    move |request: kanzei_core::AskRequest| -> AskFuture {
         let (sender, receiver) = oneshot::channel();
         let id = ask_seq.fetch_add(1, Ordering::SeqCst);
         let (action, resource, payload) = match &request {
@@ -911,7 +792,253 @@ pub(crate) async fn run_task(
                 .await
                 .unwrap_or(kanzei_core::AskResponse::Cancelled)
         })
+    }
+}
+
+/// R-202 批2:构造 task 子代理运行时(原 run_task 内联的 subagent_rt 块)。
+/// 独立只读快照;fast 角色缺席时两个档位都退回主模型。**无条件构造**(2026-08-11
+/// 用户定调):模型自己派 `task` 这条路永远开着。None 路径(run_once_with_parts /
+/// run_review_and_fixup 的 Option<&SubagentRuntime> 形参)行为不变。
+#[allow(clippy::too_many_arguments)]
+async fn build_subagent_runtime(
+    rctx: &ResolveCtx,
+    config: &KanzeiConfig,
+    proxy: &kanzei_llm::ProxyConfig,
+    resolved: &kanzei_harness::config::ResolvedModel,
+    route: &kanzei_llm::Route,
+    coordinator: &Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    task_cancellations: Arc<kanzei_core::TaskCancellations>,
+) -> anyhow::Result<Option<kanzei_core::SubagentRuntime>> {
+    let mut sub_harness = Harness::default();
+    sub_harness
+        .add(kanzei_tools::SubagentBase)
+        .add(ConfigComponent);
+    let sub_snapshot = sub_harness.resolve(rctx)?;
+    let fast = match config.resolve_model("fast") {
+        Ok(r) => (kanzei_core::build_route(&r, proxy).await)
+            .ok()
+            .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
+        Err(_) => None,
     };
+    let primary_tier = config.service_tier_for(resolved);
+    let fast_tier = fast
+        .as_ref()
+        .map(|(_, _, tier)| tier.clone())
+        .unwrap_or_else(|| primary_tier.clone());
+    // R-236 B3:压缩纪要模型——[models].compact 显式配置才建独立路由;
+    // 缺省传 None,运行时回落主模型(digest_model),少建一条重复路由。
+    let compact = match config
+        .models
+        .compact
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(_) => match config.resolve_model("compact") {
+            Ok(r) => (kanzei_core::build_route(&r, proxy).await)
+                .ok()
+                .map(|cr| (cr, r.model.clone(), config.service_tier_for(&r))),
+            Err(_) => None,
+        },
+        None => None,
+    };
+    Ok(Some(kanzei_core::SubagentRuntime {
+        snapshot: sub_snapshot,
+        agent: kanzei_tools::explore_agent(),
+        fast: fast
+            .map(|(r, m, _)| (r, m))
+            .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
+        primary: (route.clone(), resolved.model.clone()),
+        fast_service_tier: fast_tier,
+        primary_service_tier: primary_tier,
+        compact,
+        max_tokens: config.limits.subagent_max_tokens(),
+        // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
+        timeout_secs: config.limits.subagent_timeout_secs(),
+        limits: config.limits.clone(),
+        // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
+        coordinator: Some(Arc::clone(coordinator)
+            as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
+        // R-176 B2:主对话的 task 子代理是只读勘察/复核——不启用可写档位。
+        writable: false,
+        ask_router: None,
+        change_log: None,
+        // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
+        cancellations: Some(task_cancellations),
+        // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline
+        // (编排角色)开启——run.rs 是用户直连对话,不后台化。
+        background: false,
+        // R-175 B1b:主对话无后台结果暂存。
+        background_results: None,
+        // R-175 B2:主对话无后台生命周期事件落库(仅编排角色后台化时开)。
+        background_events: None,
+        // R-175 B3:主对话不后台化,不启用 transcript 续跑。
+        transcripts: None,
+        // R-175 B4:主对话不后台化,不发后台通知。
+        background_notifications: None,
+    }))
+}
+
+#[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
+pub(crate) async fn run_task(
+    window: &Window,
+    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    ask_seq: Arc<AtomicU64>,
+    prompt: String,
+    attachments: Option<Vec<PromptAttachment>>,
+    project_dir: String,
+    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
+    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
+    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
+    main_root: PathBuf,
+    session_id: String,
+    // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
+    // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
+    phase_pipeline_enabled: bool,
+    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
+    block_tracker_writes: bool,
+    collaboration_probe: crate::collaboration::CollaborationProbe,
+    current_stage: Arc<Mutex<String>>,
+    profile: Option<String>,
+    agent_name: Option<String>,
+    model_override: Option<String>,
+    work_priority: Option<String>,
+    reasoning_override: Option<String>,
+    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    live_run: Arc<Mutex<LiveRun>>,
+    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
+    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
+    task_cancellations: Arc<kanzei_core::TaskCancellations>,
+    auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
+    delivery: kanzei_core::Delivery,
+    promoted_input: Option<kanzei_core::AdmittedInput>,
+    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
+    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
+    coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    process_id: String,
+    autonomous: bool,
+    auto_allow: bool,
+    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
+    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
+    halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+    run_generation: Arc<AtomicU64>,
+) -> anyhow::Result<()> {
+    // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
+    let stage = |name: &str, detail: String| {
+        *current_stage.lock().unwrap() = name.to_string();
+        emit_stage(window, &session_id, name, detail);
+    };
+
+    // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
+    // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
+    run_generation.fetch_add(1, Ordering::SeqCst);
+    let halt_token = kanzei_core::CancellationToken::new();
+    *halt_slot.lock().unwrap() = Some(halt_token.clone());
+
+    let RunAssembly {
+        project_root,
+        config,
+        profile,
+        rctx,
+        snapshot,
+        agent,
+        work_priority,
+        resolved,
+        proxy,
+        route,
+        client,
+        runner_config,
+        ask_source,
+        state_path,
+        store,
+        run_id,
+        promoted_input_id,
+        prompt,
+        initial_parts,
+        typed_writer,
+        typed_flush_task,
+        run_started,
+        run_epoch_ms,
+        orchestration_trace,
+        mut pipeline,
+        _write_lease,
+        ctx,
+    } = assemble_run(
+        window,
+        &stage,
+        &project_dir,
+        main_root,
+        attachments,
+        prompt,
+        &session_id,
+        phase_pipeline_enabled,
+        block_tracker_writes,
+        collaboration_probe,
+        profile,
+        agent_name,
+        model_override,
+        work_priority,
+        reasoning_override,
+        delivery,
+        promoted_input,
+        &coordinator,
+        &process_id,
+        autonomous,
+        auto_allow,
+        halt_token,
+    )
+    .await?;
+
+    let event_window = window.clone();
+    let session_id_for_events = session_id.clone();
+    let emit_event = move |name: &str, payload: serde_json::Value| {
+        event_window.emit(name, with_session_id(payload, &session_id_for_events))
+    };
+    // R-202 批1:writer 事件闭包原在装配段内联,随 assemble_run 收敛后由
+    // 解构出的 orchestration_trace 重建——单一出口语义不变(OrchestrationEvent 落
+    // session_events),正常路径收尾与 WriterLeaseTrace::drop 兜底都用它。
+    let writer_event = |event: kanzei_harness::orchestration::OrchestrationEvent| {
+        use kanzei_harness::orchestration::PhaseObserver;
+        orchestration_trace.observe(&event);
+    };
+    // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
+    let live = live_run.clone();
+    live.lock().unwrap().begin(
+        &run_id,
+        &promoted_input_id,
+        &prompt,
+        &resolved.provider_name,
+        &resolved.model,
+    );
+    let trace_log = live.clone();
+    // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
+    // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
+    // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
+    let tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>> =
+        Arc::new(Mutex::new(HashMap::new()));
+    // R-143:自举循环批次提交后自动 push 的检测位。ToolStart(action=commit)置 pending,
+    // ToolEnd(ok=true)把 pending 提升为 committed;失败/非 commit 只清 pending。
+    // 轮末(decide_auto_run 之后)读 committed,true 才触发 push。
+    let committed_this_round = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let pending_commit_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut on_event = build_event_handler(
+        emit_event,
+        tool_started,
+        trace_log,
+        state_path.clone(),
+        session_id.clone(),
+        typed_writer.clone(),
+        committed_this_round.clone(),
+        pending_commit_call,
+    );
+
+    let mut ask = build_ask_handler(
+        asks,
+        ask_seq,
+        ask_source,
+        window,
+        ctx.project_root.clone(),
+        session_id.clone(),
+    );
 
     // 会话连续:同项目续上内存历史；应用重启后从事件日志恢复最近一次完整消息投影。
     let persisted = conversation::recover_messages(&store, &session_id)?;
@@ -928,75 +1055,16 @@ pub(crate) async fn run_task(
     // 是两件事混在一个布尔上。仍保留 Option 外壳:run_once_with_parts 与
     // run_review_and_fixup 的形参是 Option<&SubagentRuntime>,且它们的测试覆盖了
     // None(无勘察/复核角色)那条路。
-    let subagent_rt = {
-        let mut sub_harness = Harness::default();
-        sub_harness
-            .add(kanzei_tools::SubagentBase)
-            .add(ConfigComponent);
-        let sub_snapshot = sub_harness.resolve(&rctx)?;
-        let fast = match config.resolve_model("fast") {
-            Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
-                .ok()
-                .map(|fr| (fr, r.model.clone(), config.service_tier_for(&r))),
-            Err(_) => None,
-        };
-        let primary_tier = config.service_tier_for(&resolved);
-        let fast_tier = fast
-            .as_ref()
-            .map(|(_, _, tier)| tier.clone())
-            .unwrap_or_else(|| primary_tier.clone());
-        // R-236 B3:压缩纪要模型——[models].compact 显式配置才建独立路由;
-        // 缺省传 None,运行时回落主模型(digest_model),少建一条重复路由。
-        let compact = match config
-            .models
-            .compact
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            Some(_) => match config.resolve_model("compact") {
-                Ok(r) => (kanzei_core::build_route(&r, &proxy).await)
-                    .ok()
-                    .map(|cr| (cr, r.model.clone(), config.service_tier_for(&r))),
-                Err(_) => None,
-            },
-            None => None,
-        };
-        Some(kanzei_core::SubagentRuntime {
-            snapshot: sub_snapshot,
-            agent: kanzei_tools::explore_agent(),
-            fast: fast
-                .map(|(r, m, _)| (r, m))
-                .unwrap_or_else(|| (route.clone(), resolved.model.clone())),
-            primary: (route.clone(), resolved.model.clone()),
-            fast_service_tier: fast_tier,
-            primary_service_tier: primary_tier,
-            compact,
-            max_tokens: config.limits.subagent_max_tokens(),
-            // 纯兜底(用户定调:不设短限),防子代理失控挂死整轮。
-            timeout_secs: config.limits.subagent_timeout_secs(),
-            limits: config.limits.clone(),
-            // R-171 批6:task 子代理登记读槽(并行查身份可见,结束自动释放)。
-            coordinator: Some(Arc::clone(&coordinator)
-                as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>),
-            // R-176 B2:主对话的 task 子代理是只读勘察/复核——不启用可写档位。
-            writable: false,
-            ask_router: None,
-            change_log: None,
-            // R-174:主对话 run 持单条停止注册表,stop_task 命令按 id 命中取消。
-            cancellations: Some(task_cancellations),
-            // R-175:桌面端主对话本轮保持等齐语义;后台模式由 phase_pipeline
-            // (编排角色)开启——run.rs 是用户直连对话,不后台化。
-            background: false,
-            // R-175 B1b:主对话无后台结果暂存。
-            background_results: None,
-            // R-175 B2:主对话无后台生命周期事件落库(仅编排角色后台化时开)。
-            background_events: None,
-            // R-175 B3:主对话不后台化,不启用 transcript 续跑。
-            transcripts: None,
-            // R-175 B4:主对话不后台化,不发后台通知。
-            background_notifications: None,
-        })
-    };
+    let subagent_rt = build_subagent_runtime(
+        &rctx,
+        &config,
+        &proxy,
+        &resolved,
+        &route,
+        &coordinator,
+        task_cancellations,
+    )
+    .await?;
 
     if !initial_parts.is_empty() {
         let image_count = initial_parts
