@@ -1,6 +1,7 @@
 # research 模式设计:从网络调研壳到「先计划后自举」的勘察载体
 
-- 状态: 设计基线草案(2026-08-12,八维度审计维度8 产出;定调点待用户逐项确认后转正)
+- 状态: **重写中**(2026-08-14 用户定调否决 §1 原命题——research 是独立深度研究模式,不是「先计划后自举」载体;§2 逐条标注 作废/已定/待重推,详见该节。§3 之后各节按旧命题写成,**未同步**,重推前不得据其实施)
+- 排期: 实施在 dev 稳定之后(2026-08-14 用户定调);本轮只定性不开工
 - 实施条目: R-221(分批见 §6)
 - 前置文档: [interaction_modes.md](interaction_modes.md)(模式体系)、harness_m1.md §5(research 原始承诺)、[memory_control_plane.md](memory_control_plane.md)(记忆边界)、[parallel_read_serial_write_orchestration.md](parallel_read_serial_write_orchestration.md)(SCOUT_ROLES)
 - 审计证据: [audit_20260812_eight_dimensions.md](audit_20260812_eight_dimensions.md) §8
@@ -18,20 +19,29 @@
 - harness_m1.md §5 承诺 `.kanzei/research/<topic>/` 按主题分目录,实现是全局平铺单文件——两个课题互相覆盖。
 - readonly 档位桌面端不可达(装配线不注册 ReadonlyProfile),档位矩阵需一并收口。
 
-## 1. 重定位(核心命题)
+## 1. 定位(核心命题,2026-08-14 用户定调)
 
-**research 模式 = 「先计划后自举」工作流的正式载体。** 主形态从网络调研改为**代码库勘察**:产出带 file:line 证据的勘察报告与结构化发现,网络检索(websearch/webfetch)降级为辅助工具。研究的终点不是报告本身,而是**可被 dev 轮直接消费的计划**——设计文档草稿、需求/缺陷草稿、以及可回溯的证据链。
+**research 模式 = 独立的深度研究模式,不是「先计划后自举」的载体。**
 
-## 2. 定调点(逐项待用户确认;括号内为本设计的默认建议)
+- **主形态**=深度分析调研(autoresearch 形态):对**文献**与**仓库**两类对象做深度检索、交叉验证与综述。
+- **产出物**=论文级工件:正文、LaTeX 源码、图表、参考文献。研究的终点是可发布、可归档的成果本身,不是给 dev 轮消费的计划。
+- **网络检索(websearch/webfetch)是主力工具**,不是辅助。
+- **绝对独立**:不与 dev 侧的代码库勘察合并。模型自派 task 勘察与 SCOUT_ROLES 编排勘察是 dev 的能力,各归各,不收敛到本模式。
 
-1. **主形态**=代码库勘察,网络调研为辅(建议:是)。
-2. **工件落点**=`.kanzei/research/<topic>/report.md`,兑现 harness_m1 §5 的 topic 维度;tracker 条目进展字段只写一行摘要+报告路径引用(建议:是——这同时是 D-276/D-294 一系的根治面:多行内容有了合法去处,进展字段回归单行摘要)。
-3. **勘察证据等级单列 V 表**,与验证体系 E0-E4 彻底分家:V0=目录/命名推测、V1=读码核实(file:line)、V2=运行时实测、V3=用户复现。写进 conventions,tracker 条目「证据等级」字段按新口径标注(建议:是;存量条目不回改,新条目起用)。
-4. **回流通道**:research 档注入 backlog 只读索引与 conventions、放行 memory_search,并提供 finding→req/defect 的草稿转化(给 research 档 req/defect 的 get+add 子集,add 产物默认 [todo] 待 dev 轮确认)(建议:是)。
-5. **记忆一元化**:废弃 research/memory.md 的自由文本注入,研究结论统一走 memory_note→manager 晋升;来源约束复用 validate_source_refs 的 S-/F- 硬校验(机制已在 memory/mod.rs:255-296)(建议:是)。
-6. **档位矩阵**:research=只读勘察档——read/glob/grep/files/git 只读/webfetch/websearch 放行,write 仅 `.kanzei/research/**`,bash 硬 deny 并带替代指引(复用 ReadonlyProfile 的 managed hard-deny 手法,profiles.rs:652-658 先例)。readonly 档与 research 并存:readonly=纯只读,research=只读+研究工件写权;桌面端补注册 ReadonlyProfile 或在文档明示 CLI-only(建议:并存,桌面补注册)。
-7. **research 是否可写 docs/design/*.md**:不可。设计文档草稿落 `.kanzei/research/<topic>/`,经用户或 dev 轮验收后转正到 docs/design 与 backlog——转正是 dev 的活,保住「research 无副作用」的档位语义(建议:是)。
-8. **三形态收敛**:research 模式、模型自派 task 勘察、SCOUT_ROLES 编排勘察,三者产出同一工件格式、同一证据口径、同一落点(后两者可选落盘)(建议:是,分批最后做)。
+> **作废声明(2026-08-14)**:本节此前版本(2026-08-12 草案)主张「research = 先计划后自举的正式载体,主形态从网络调研改为代码库勘察,网络检索降级为辅助工具」。该命题已被用户明确否定,连带 §2 定调点 1 与 8 作废。
+>
+> 需要留意:dev 侧「先计划后自举」的**勘察工件无固定落点**这个问题(§0 记录的现状——勘察结论只活在当轮对话里,或被 D-294 单行不变式折进 tracker 进展字段)**依然存在且未解决**。它是 dev 的课题,需另立条目承接,不再由 research 模式代管。
+
+## 2. 定调点(2026-08-14 用户逐项过审;状态见每条行首标记)
+
+1. ~~**主形态**=代码库勘察,网络调研为辅~~ —— **【作废】** 用户定调 research 为独立深度研究模式,见 §1。
+2. **【待重推】工件落点**:原案 `.kanzei/research/<topic>/report.md`,兑现 harness_m1 §5 的 topic 维度;tracker 进展字段只写一行摘要 + 报告路径引用(顺带根治 D-276/D-294 一系:多行内容有了合法去处,进展字段回归单行摘要)。**动机成立**,但目录结构须按新定位重推——论文形态要容纳 `paper.tex`、`figures/`、`refs.bib`,不是单个 report.md。
+3. **【已定 2026-08-14】勘察证据等级单列 V 表**,与验证体系 E0-E4 彻底分家:V0=目录/命名推测、V1=读码核实(file:line)、V2=运行时实测、V3=用户复现。写进 conventions,tracker 条目「证据等级」字段按新口径标注;存量条目不回改,新条目起用。**待扩**:现四档全是代码调查口径,文献调研需要另一套等级(一手文献 / 同行评议 / 二手引用 / 预印本 等),扩展方案随 §1 重定位一并给出。
+4. **【待重推】回流通道**:原案 research 档注入 backlog 只读索引与 conventions、放行 memory_search,并提供 finding→req/defect 的草稿转化(get+add 子集,add 产物默认 [todo] 待 dev 轮确认)。research 独立后,该回流是否仍属本模式职责需重新判断。
+5. **【待复核】记忆一元化**:废弃 research/memory.md 的自由文本注入,研究结论统一走 memory_note→manager 晋升;来源约束复用 validate_source_refs 的 S-/F- 硬校验(机制已在 memory/mod.rs:255-296)。大概率仍成立,但需按新定位复核——论文级工件的**引用管理**(refs.bib)与**记忆晋升**是两件事,不能混为一谈。
+6. **【待重推,已知冲突】档位矩阵**:原案 research=只读勘察档——read/glob/grep/files/git 只读/webfetch/websearch 放行,write 仅 `.kanzei/research/**`,**bash 硬 deny** 并带替代指引(复用 ReadonlyProfile 的 managed hard-deny 手法,profiles.rs:652-658 先例)。**与新定位直接冲突**:产出 LaTeX 要跑编译(pdflatex/tectonic),出图表要跑绘图,bash 全禁即做不了。重推方向二选一——(a) bash 限定为 `.kanzei/research/**` 内的编译/绘图命令白名单;(b) 提供专用 latex/plot 工具通道(与 architecture/conventions 专用写通道同一手法,合法路径必须可达)。「readonly 与 research 并存」「桌面端补注册 ReadonlyProfile」两条不受本冲突影响。
+7. **【待重推】research 是否可写 `docs/design/*.md`**:原案不可,草稿落 `.kanzei/research/<topic>/`,经用户或 dev 轮验收后转正。新定位下 research 产出的是论文而非设计文档,本条的问法需重新表述。
+8. ~~**三形态收敛**~~ —— **【作废】** research 独立后,不再与模型自派 task 勘察、SCOUT_ROLES 编排勘察收敛为同一工件格式、证据口径与落点。
 
 ## 3. 工件设计
 
