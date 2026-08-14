@@ -125,7 +125,8 @@ document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
     if (view === "metrics") refreshMetrics();
     if (view === "files") showFilesView();
     if (view === "arch") refreshArch();
-    if (view === "lines") refreshLines();
+    // 工作树清单现在是线路页的一块内容(侧栏只读),进页面要一并拉。
+    if (view === "lines") { refreshLines(); refreshWorktrees(); }
     if (view !== "files") filesViewLeft();
   });
 });

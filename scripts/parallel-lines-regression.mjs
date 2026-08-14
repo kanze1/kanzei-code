@@ -80,7 +80,19 @@ assert(sessions.includes('await invoke("process_close", { processId })'), "关�
 assert(sessions.includes("if (!item.id.startsWith(\"d|\"))"), "关闭入口没有排除默认主线路");
 assert(lines.includes('invoke("worktree_harvest_candidates"'), "收活没有读取线路对话中的 tracker 候选");
 assert(lines.includes("请选择本次交付条目"), "多条 tracker 候选缺少人工选择入口");
-assert(!sessions.includes('"worktree-merge"'), "侧栏不应保留绕过收活五格的直接合并按钮");
-assert(sessions.includes('"worktree-harvest"'), "侧栏工作树缺少统一收活入口");
+// D-305 的性质不变:不得存在绕过收活六格的直接合并入口。侧栏工作树已降级为只读呈现,
+// 收活/放弃迁到并行线路页的工作树操作台——入口还在,只是换了地方,所以这两条改成
+// 「合并按钮哪儿都不许有」+「收活入口仍然存在(现在由 renderLinesWorktrees 提供)」。
+assert(!sessions.includes('"worktree-merge"'), "不应保留绕过收活六格的直接合并按钮");
+assert(sessions.includes('"worktree-harvest"'), "工作树缺少统一收活入口");
+assert(
+  sessions.includes("function renderLinesWorktrees"),
+  "并行线路页缺少工作树操作台(侧栏只读之后,孤儿树就没有出口了)",
+);
+assert(
+  /renderWorktrees[\s\S]{0,900}?\n}/.test(sessions)
+    && !/renderWorktrees[\s\S]{0,900}?createElement\("button"\)/.test(sessions),
+  "侧栏 renderWorktrees 不得再造按钮(操作全在并行线路页)",
+);
 
 console.log("并行线路回归护栏通过:刷新节流、左侧线路状态/切换代次、设置串行保存和 profile 隔离");

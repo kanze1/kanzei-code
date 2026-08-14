@@ -4630,7 +4630,7 @@ assert(
   assert(sectionTitle("当前状态") === "Current status", `英文态侧栏「当前状态」未翻译,实际 "${sectionTitle("当前状态")}"`);
   assert(sectionTitle("开发规范") === "Conventions", `英文态侧栏「开发规范」未翻译,实际 "${sectionTitle("开发规范")}"`);
   assert(titleOf("project-init") === "Initialize a new project directory", `英文态 project-init title 未翻译,实际 "${titleOf("project-init")}"`);
-  assert(titleOf("worktrees-refresh") === "Refresh worktree changes", `英文态 worktrees-refresh title 未翻译,实际 "${titleOf("worktrees-refresh")}"`);
+  assert(sectionTitle("隔离工作树") === "Isolated worktrees", `英文态侧栏「隔离工作树」未翻译,实际 "${sectionTitle("隔离工作树")}"`);
 
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
@@ -6043,13 +6043,23 @@ const docsB = {
 
   // ---------- ⓪ 刷新按钮真的能刷新(D-257) ----------
   // 拦的是「按钮在 index.html 里,监听器却不在任何 JS 里」这个形态:7c5f022 抽
-  // handleWorktreeAction 时,函数收尾的 `}` 吃掉了下一行 `$("worktrees-refresh")
-  // .addEventListener` 的前半段,剩下 `}("click", refreshWorktrees);` —— 语法合法、
-  // `node --check` 通过、静态 grep 也只在标记里看得见那个 id,唯独点下去什么都不发生。
-  // 所以断言必须是**点击后真的打出了 IPC**,不能退化成「源码里有这个字符串」。
+  // handleWorktreeAction 时,函数收尾的 `}` 吃掉了下一行 addEventListener 的前半段,
+  // 剩下 `}("click", refreshWorktrees);` —— 语法合法、`node --check` 通过、静态 grep
+  // 也只在标记里看得见那个 id,唯独点下去什么都不发生。所以断言必须是**点击后真的
+  // 打出了 IPC**,不能退化成「源码里有这个字符串」。
+  // 侧栏「隔离工作树」已降级为只读呈现(按钮全迁到并行线路页),手动刷新的落点因此
+  // 换成线路页的 #lines-refresh —— 护栏等价重写到新入口,不是删掉。
   await gotoProject(PROJECT, docsA);
-  const refreshBtn = byId.get("worktrees-refresh");
-  assert(refreshBtn, "侧栏「隔离工作树」的刷新按钮 #worktrees-refresh 不在 index.html 里了(界面承诺的手动刷新能力消失)");
+  const refreshBtn = byId.get("lines-refresh");
+  assert(refreshBtn, "并行线路页的刷新按钮 #lines-refresh 不在 index.html 里了(工作树清单失去唯一手动刷新入口)");
+  assert(
+    !byId.get("worktrees-refresh"),
+    "侧栏不该再有工作树刷新按钮(按钮已迁到并行线路页,侧栏只做只读呈现)",
+  );
+  assert(
+    !document.querySelector("#worktree-list button"),
+    "侧栏工作树清单不得再出现任何按钮(操作全在并行线路页)",
+  );
   if (refreshBtn) {
     const beforeRefreshClick = invokeArgs.length;
     refreshBtn.click();
@@ -6057,12 +6067,12 @@ const docsB = {
     const refreshCalls = invokeArgs.slice(beforeRefreshClick).filter((entry) => String(entry.cmd).startsWith("worktree_"));
     assert(
       refreshCalls.some((entry) => entry.cmd === "worktree_list" && entry.args?.projectDir === PROJECT),
-      "点击 #worktrees-refresh 没有触发 worktree_list:按钮没有绑上 refreshWorktrees" +
+      "点击 #lines-refresh 没有触发 worktree_list:按钮没有绑上 refreshWorktrees" +
         `(本次点击后的 worktree IPC:${JSON.stringify(refreshCalls)})`,
     );
     assert(
       document.querySelectorAll("#worktree-list .worktree-entry").length === 2,
-      "点击 #worktrees-refresh 后工作树清单没有按 git 返回的数据重渲染(拉回来了却没画上去)",
+      "点击 #lines-refresh 后工作树清单没有按 git 返回的数据重渲染(拉回来了却没画上去)",
     );
     // 清单不再逐条 worktree_diff:一次 IPC 拿全,清单越长省得越多。
     assert(
@@ -6176,8 +6186,9 @@ const docsB = {
   // 目录作为 cwd 发送，直到 provider/tool 报“工作目录不存在”才暴露。这个断言
   // 要求放弃动作后至少重新拉进程和工作树两份真源。
   await gotoProject(PROJECT, docsA);
-  const discardButton = document.querySelector("#worktree-list .worktree-discard");
-  assert(discardButton, "工作树条目缺少放弃按钮，无法关闭绑定线路");
+  // 放弃按钮已迁到并行线路页的工作树操作台;侧栏只读,那里才有线路上下文。
+  const discardButton = document.querySelector("#lines-worktree-list .worktree-discard");
+  assert(discardButton, "并行线路页的工作树清单缺少放弃按钮,孤儿树没有任何出口");
   if (discardButton) {
     const beforeDiscard = invokeArgs.length;
     discardButton.click();

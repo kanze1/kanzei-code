@@ -1739,3 +1739,20 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .tool-icon-tracker { color: var(--info); }
 .tool-icon-agent { color: var(--accent-hover); }
 .tool-icon-net { color: var(--info); }
+
+/* 侧栏隔离工作树:只读两行(分支 / 归属与改动量),无按钮。 */
+.worktree-readonly .worktree-entry { display: flex; flex-direction: column; gap: 1px; padding: 3px 14px; }
+.worktree-readonly .worktree-branch { color: var(--fg); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worktree-readonly .worktree-meta { color: var(--dim); font-size: 10.5px; }
+.worktree-readonly .worktree-entry.dirty .worktree-meta { color: var(--warn); }
+/* 线路页的工作树操作台:一行一棵,右侧放操作。 */
+.lines-worktree-list { display: flex; flex-direction: column; gap: 6px; }
+.lines-worktree-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 6px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius); background: var(--panel);
+}
+.lines-worktree-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 220px; }
+.lines-worktree-branch { color: var(--fg); font-size: 12.5px; }
+.lines-worktree-meta { color: var(--dim); font-size: 11px; }
+.lines-worktree-actions { display: flex; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; }
+.line-lane-actions { flex-wrap: wrap; }

@@ -12,28 +12,30 @@ function renderWorktrees(items) {
     list.appendChild(empty);
     return;
   }
+  // 侧栏只做**只读呈现**:分支 + 改动量,一颗按钮都不放。差异/收活/放弃全部迁到
+  // 并行线路页——那里才有线路上下文(哪条线在跑、收活六格在哪)。侧栏的职责是
+  // 「扫一眼有几棵、脏不脏」;把三颗按钮塞进两百来像素宽的行里既挤又容易误点。
+  const dirty = worktreeItems.filter((item) => !item.clean).length;
+  const count = $("worktree-count");
+  if (count) {
+    count.textContent = dirty
+      ? `${worktreeItems.length} · ${dirty} ${t("棵有改动")}`
+      : String(worktreeItems.length);
+  }
   for (const item of worktreeItems) {
     const row = document.createElement("div");
-    row.className = "worktree-entry";
-    const label = document.createElement("div");
-    label.textContent = `${item.branch} · ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
-    label.title = item.path;
-    const actions = document.createElement("div");
-    for (const [text, action] of [[t("差异"), "diff"], [t("收活"), "harvest"], [t("放弃"), "discard"]]) {
-      const button = document.createElement("button");
-      button.className = `ghost mini ${action === "harvest" ? "worktree-harvest" : action === "discard" ? "worktree-discard" : ""}`;
-      button.textContent = text;
-      const bound = processItems.find((process) => process.id === item.bound_process);
-      if (action !== "diff" && bound && processRunning(bound)) {
-        button.disabled = true;
-        button.title = t("线路运行中，停止并等待收口后才能操作工作树");
-      }
-      button.addEventListener("click", () => handleWorktreeAction(item, action));
-      actions.appendChild(button);
-    }
-    row.append(label, actions);
+    row.className = `worktree-entry${item.clean ? "" : " dirty"}`;
+    row.title = item.path;
+    const head = document.createElement("div");
+    head.className = "worktree-branch";
+    head.textContent = item.branch;
+    const meta = document.createElement("div");
+    meta.className = "worktree-meta";
+    meta.textContent = item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`;
+    row.append(head, meta);
     list.appendChild(row);
   }
+  if (typeof renderLinesWorktrees === "function") renderLinesWorktrees();
 }
 // R-177 内容③:清单真源是 `git worktree list --porcelain`(后端 worktree_list),
 // 前端不再持有任何清单状态。原先存在 localStorage["kz-worktrees:*"] 里,于是三件事
@@ -110,10 +112,62 @@ async function handleWorktreeAction(item, action) {
     toastError(String(error), { retry: () => handleWorktreeAction(item, action) });
   }
 }
-// D-257:这一行曾被 7c5f022 抽 handleWorktreeAction 时的收尾 `}` 吃掉前半段,只剩
-// `}("click", refreshWorktrees);` —— 语法合法、node --check 通过,按钮却全仓无监听器。
-// 改动这一带时注意别再把它并进上面的函数尾行。
-$("worktrees-refresh").addEventListener("click", refreshWorktrees);
+// 并行线路页的工作树清单:侧栏只读之后,差异/收活/放弃都落在这里。
+// 已绑定线路的行给「收活」(跳到对应 lane 展开收活六格),孤儿树给「差异 / 放弃」——
+// 后者是它今天唯一的出口,侧栏按钮撤掉后必须在这里补上,否则只能回 git 命令行收拾。
+function renderLinesWorktrees() {
+  const list = $("lines-worktree-list");
+  if (!list) return;
+  list.replaceChildren();
+  if (!worktreeItems.length) {
+    const empty = document.createElement("div");
+    empty.className = "doc-empty";
+    empty.textContent = t("暂无隔离工作树");
+    list.appendChild(empty);
+    return;
+  }
+  for (const item of worktreeItems) {
+    const row = document.createElement("div");
+    row.className = "lines-worktree-row";
+    const main = document.createElement("div");
+    main.className = "lines-worktree-main";
+    const branch = document.createElement("div");
+    branch.className = "lines-worktree-branch";
+    branch.textContent = item.branch;
+    const meta = document.createElement("div");
+    meta.className = "lines-worktree-meta";
+    const bound = processItems.find((process) => process.id === item.bound_process);
+    const boundText = bound ? `${t("线路")} ${bound.label || bound.id}` : t("未绑定线路");
+    meta.textContent = `${boundText} · ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
+    meta.title = item.path;
+    main.append(branch, meta);
+    const actions = document.createElement("div");
+    actions.className = "lines-worktree-actions";
+    const running = bound && processRunning(bound);
+    const add = (text, cls, handler, disabled, why) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `ghost mini ${cls}`;
+      button.textContent = text;
+      if (disabled) {
+        button.disabled = true;
+        button.title = why;
+      } else {
+        button.addEventListener("click", handler);
+      }
+      actions.appendChild(button);
+    };
+    add(t("差异"), "lines-worktree-diff", () => handleWorktreeAction(item, "diff"), false, "");
+    if (item.bound_process) {
+      add(t("收活"), "worktree-harvest", () => handleWorktreeAction(item, "harvest"),
+        running, t("线路运行中，停止并等待收口后才能操作工作树"));
+    }
+    add(t("放弃"), "worktree-discard", () => handleWorktreeAction(item, "discard"),
+      running, t("线路运行中，停止并等待收口后才能操作工作树"));
+    row.append(main, actions);
+    list.appendChild(row);
+  }
+}
 async function createWorktreeLine(event) {
   if (!currentProject || worktreeLineCreateInFlight) return;
   const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";

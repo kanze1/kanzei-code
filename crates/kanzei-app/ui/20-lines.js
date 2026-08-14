@@ -792,6 +792,7 @@ async function confirmWorktreeMerge(item, forProject) {
   return window.confirm(`${conflictNote}${t("当前未发现跨线文件交集")}。${t("文本层已检查 · 语义层未检查")}。\n${t("继续进入 Git 合并吗")}`);
 }
 
-$("lines-refresh").addEventListener("click", () => void refreshLines());
+// 侧栏的 ↻ 撤掉之后,这一颗要同时刷线路与工作树清单——否则孤儿树没有任何刷新入口。
+$("lines-refresh").addEventListener("click", () => { void refreshLines(); void refreshWorktrees(); });
 $("lines-work-item").addEventListener("change", () => renderLineWorkItemOptions());
 $("lines-add").addEventListener("click", createWorktreeLine);

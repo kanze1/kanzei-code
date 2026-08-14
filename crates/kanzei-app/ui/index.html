@@ -73,8 +73,10 @@
         <div id="focus-backlog" class="dim" role="group" title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。" data-i18n-title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">
-        <div class="section-title"><span data-i18n-key="隔离工作树">隔离工作树</span><button id="worktrees-refresh" class="icon-btn" title="刷新工作树差异" data-i18n-title="刷新工作树差异" aria-label="刷新工作树差异">↻</button></div>
-        <div id="worktree-list" class="doc-list"></div>
+        <!-- 只读呈现:一颗按钮都不放。差异/收活/放弃全在并行线路页(那里有线路上下文),
+             刷新跟着线路页的 ↻ 走。 -->
+        <div class="section-title"><span><span data-i18n-key="隔离工作树">隔离工作树</span> <em id="worktree-count"></em></span></div>
+        <div id="worktree-list" class="doc-list worktree-readonly"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="goals">
         <div class="section-title">
@@ -327,6 +329,16 @@
               <span class="dim" data-i18n-key="运行中线路会自动刷新">运行中线路会自动刷新</span>
             </div>
             <div id="lines-list" class="lines-list"></div>
+          </section>
+          <!-- 隔离工作树的操作台。侧栏只读之后,差异/放弃全在这里;而且这里能看见
+               「没绑定线路」的孤儿树(手工 git worktree add 出来的、或线路关掉后残留的)——
+               collaboration_snapshot 只遍历已注册进程,那些树在运行现场里天然不可见。 -->
+          <section id="lines-worktrees" class="lines-section" aria-labelledby="lines-worktrees-title">
+            <div class="lines-section-head">
+              <h2 id="lines-worktrees-title" data-i18n-key="隔离工作树">隔离工作树</h2>
+              <span class="dim" data-i18n-key="清单来自 git worktree list,手工建的树也在内">清单来自 git worktree list,手工建的树也在内</span>
+            </div>
+            <div id="lines-worktree-list" class="lines-worktree-list"></div>
           </section>
           <section id="lines-conflicts" class="lines-section lines-conflicts" aria-labelledby="lines-conflicts-title">
             <div class="lines-section-head">
