@@ -938,13 +938,46 @@ pub(crate) fn normalize(
         for (key, _) in &entry.fields {
             let norm = key.trim().to_ascii_lowercase();
             if seen.contains(&norm) {
+                // D-358:这句原本写「需手动整理归档」——那是 apply 还不会去重时留下的
+                // 文案,能力补上后没跟着改。上一轮就是照这句话把 D-333 验收③判成
+                // 不可修、挂了个「解除人=用户」的阻塞,而实际上一条 apply 就修完了。
+                // 「进展」按内容合并不丢字,其余字段只保首个非空——两条内容不同的
+                // 同名字段(如 D-180 的两条「验证」)会丢掉后一条,故一并写明。
                 findings.push(format!(
-                    "archived {}: duplicate field `{key}` — 需手动整理归档",
+                    "archived {}: duplicate field `{key}` — apply 可自动收敛\
+                     (进展合并内容,其余保留首个非空:同名字段内容不同则后者丢弃)",
                     entry.id
                 ));
                 break;
             }
             seen.push(norm);
+        }
+    }
+
+    // D-358:写盘必须发生在拼输出**之前**。原来这一段在 content 拼好之后才跑,
+    // 归档去重 push 进 fixed 的条目一条也进不了输出——实测修了 6 条却报「0 fix(es)」、
+    // 连「已修复」段都没有。工具少报自己的工作,在证据驱动的流程里等于说谎。
+    if apply {
+        // 活动区写回(若活动区有改动)
+        if touched {
+            if let Err(e) = store.save(entries) {
+                return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
+            }
+        }
+        // 归档区修复:D-333 验收③——重复字段经 dedupe_archived_fields
+        // 收敛(进展合并内容,其余保留首条),与 correct_archived_terminal
+        // 共用锁与写路径,不制造第二套整表写 API。
+        for entry in &archived {
+            match store.dedupe_archived_fields(&entry.id) {
+                Ok((true, removed)) => fixed.push(format!(
+                    "archived {}: deduplicated {removed} field(s)",
+                    entry.id
+                )),
+                Ok((false, _)) => {}
+                Err(e) => {
+                    return ToolOutput::error(format!("cannot dedupe archived {}: {e}", entry.id))
+                }
+            }
         }
     }
 
@@ -977,30 +1010,6 @@ pub(crate) fn normalize(
     }
     if !apply {
         content.push_str("\n  本次为 dry-run,未写盘。加 apply=true 执行修复。");
-    }
-
-    if apply {
-        // 活动区写回(若活动区有改动)
-        if touched {
-            if let Err(e) = store.save(entries) {
-                return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));
-            }
-        }
-        // 归档区修复:D-333 验收③——重复字段经 dedupe_archived_fields
-        // 收敛(进展合并内容,其余保留首条),与 correct_archived_terminal
-        // 共用锁与写路径,不制造第二套整表写 API。
-        for entry in &archived {
-            match store.dedupe_archived_fields(&entry.id) {
-                Ok((true, removed)) => fixed.push(format!(
-                    "archived {}: deduplicated {removed} field(s)",
-                    entry.id
-                )),
-                Ok((false, _)) => {}
-                Err(e) => {
-                    return ToolOutput::error(format!("cannot dedupe archived {}: {e}", entry.id))
-                }
-            }
-        }
     }
     ToolOutput::ok(content)
 }

@@ -1115,6 +1115,16 @@ fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value) -> Vec<St
                     input["priority"] = serde_json::json!(v);
                 }
             }
+            // D-359:`--reason` 下沉为公共 flag。原先只有 fix_terminal 分支单独解析它,
+            // 于是 reopen / void_id 这些**强制必填 reason** 的动作在命令行侧永远给不出
+            // reason——`kz req reopen R-183 --reason "..."` 只会回一句 "`reason` is
+            // required"。reopen 是「doing/fixing 推不动时退回初始态」的合法退路,退路
+            // 在 CLI 不可用,僵尸 doing 就只能靠往阻塞字段里塞理由来挪出 WIP 槽(D-359 现场)。
+            "--reason" => {
+                if let Some(v) = rest.next() {
+                    input["reason"] = serde_json::json!(v);
+                }
+            }
             "--complexity" => {
                 if let Some(v) = rest.next() {
                     fields.insert("复杂度".into(), serde_json::json!(v));
@@ -1212,6 +1222,7 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
             }
         }
         // D-331:fix_terminal 是归档纠错动作,CLI 也要能直接调用(id + status + --reason)。
+        // D-359:--reason 已由 parse_tracker_flags 统一解析,这里不再单独扫一遍 args。
         "fix_terminal" => {
             let positional = parse_tracker_flags(&args[2..], &mut input);
             if let Some(id) = positional.first() {
@@ -1219,11 +1230,6 @@ async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
             }
             if let Some(status) = positional.get(1) {
                 input["status"] = serde_json::json!(status);
-            }
-            if let Some(pos) = args.iter().position(|a| a == "--reason") {
-                if let Some(v) = args.get(pos + 1) {
-                    input["reason"] = serde_json::json!(v);
-                }
             }
         }
         // D-332:normalize 是统一 repair surface(dry-run 默认,apply 落盘)。
@@ -1494,6 +1500,41 @@ mod tests {
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
+
+    /// D-359:`--reason` 是公共 flag,reopen/void_id/fix_terminal 共用一处解析。
+    /// 这三个动作都**强制必填** reason,而解析原先只写在 fix_terminal 分支里,
+    /// 于是 `kz req reopen R-183 --reason "..."` 永远得到 "`reason` is required"。
+    #[test]
+    fn reason_是公共flag_不再被当成位置参数() {
+        let args: Vec<String> = ["R-183", "--reason", "让位对象已归档,退回队列重新取活"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut input = serde_json::json!({ "action": "reopen" });
+        let positional = parse_tracker_flags(&args, &mut input);
+        assert_eq!(input["reason"], "让位对象已归档,退回队列重新取活");
+        assert_eq!(
+            positional,
+            vec!["R-183"],
+            "--reason 及其取值不得混进位置参数(否则 update/close 会把它当成 status)"
+        );
+
+        // 不给 --reason 时不得凭空造一个:必填校验留在动作层,CLI 只负责传达。
+        let bare: Vec<String> = ["R-183"].iter().map(|s| s.to_string()).collect();
+        let mut bare_input = serde_json::json!({ "action": "reopen" });
+        parse_tracker_flags(&bare, &mut bare_input);
+        assert_eq!(bare_input["reason"], serde_json::Value::Null);
+
+        // fix_terminal 的 id/status 位置参数不因 --reason 插在中间而错位。
+        let mixed: Vec<String> = ["D-172", "--reason", "归档终态纠错", "fixed"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut mixed_input = serde_json::json!({ "action": "fix_terminal" });
+        let mixed_positional = parse_tracker_flags(&mixed, &mut mixed_input);
+        assert_eq!(mixed_positional, vec!["D-172", "fixed"]);
+        assert_eq!(mixed_input["reason"], "归档终态纠错");
+    }
 
     /// 登记开关解析:add 与 update 共用一套,位置参数语义不变。
     /// 没有这套开关时 `kz defect add` 一律被 R-191 B3 的登记门禁拒掉,

@@ -1965,6 +1965,74 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// D-358:apply 真去重了就得报出来。归档去重原先跑在输出拼装**之后**,
+    /// push 进 fixed 的条目一条也进不了 content——实测修了 6 条却报「0 fix(es)」、
+    /// 连「已修复」段都没有。工具少报自己的工作,在证据驱动的流程里等于说谎:
+    /// 上一轮正是照着这个输出把 D-333 验收③判成不可修、挂了个用户阻塞。
+    /// dry-run 的 findings 文案同步改成「apply 可自动收敛」,不再说「需手动整理归档」。
+    #[tokio::test]
+    async fn normalize_apply_如实报出归档去重条数() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-normalize-report-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let tool = TrackerTool {
+            tool_name: "defect",
+            noun: "defect",
+            kind: &DEFECTS,
+            requires_refs: None,
+        };
+        let store = DocStore::open(&dir, &DEFECTS);
+        // 归档条目带两份「进展」:D-330/D-331 修复前的存量形态。
+        std::fs::write(
+            store.archive_file(),
+            "# Defects\n\n## D-001 已修缺陷 [fixed] (medium)\n\
+             - 进展: 第一段证据\n- 进展: 第二段证据\n",
+        )
+        .unwrap();
+        std::fs::write(store.path.clone(), "# Defects\n").unwrap();
+
+        // dry-run:报告要指向 apply 可修,不能再说「需手动整理归档」。
+        let dry = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(!dry.is_error, "{}", dry.content);
+        assert!(
+            dry.content.contains("apply 可自动收敛") && !dry.content.contains("需手动整理归档"),
+            "dry-run 文案不得否认 apply 的能力: {}",
+            dry.content
+        );
+
+        // apply:计数与「已修复」段都要如实带上归档去重。
+        let out = tool
+            .execute(json!({"action": "normalize", "apply": true}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            !out.content.contains("0 fix(es)"),
+            "真去重了就不能报 0 fix(es): {}",
+            out.content
+        );
+        assert!(
+            out.content.contains("已修复") && out.content.contains("D-001"),
+            "「已修复」段必须列出被去重的归档条目: {}",
+            out.content
+        );
+        // 复查:重复字段真的收敛了(报告与事实一致,不是只改了输出)。
+        let again = tool.execute(json!({"action": "normalize"}), &ctx).await;
+        assert!(
+            !again.content.contains("duplicate field"),
+            "apply 之后不该再有重复字段: {}",
+            again.content
+        );
+
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// 写入侧门禁必须真的接上:docstore::check_declared_batches 有实现有单测,但没有
     /// 调用方时「上限 10」只是提示词里的一句话(§1.25:没有消费者不算交付)。
     /// 同时钉死作用域——只校验**本次传入**的字段值,归档里 11/11 的历史条目照常关得掉。

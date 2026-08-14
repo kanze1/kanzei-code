@@ -500,10 +500,21 @@ fn placeholder_id_gate(diff: &str, paths: &[String]) -> Result<(), String> {
         }
         false
     };
+    // D-357:只扫**新增行**。删除行里的占位符正是这次提交要清掉的东西,连它一起拒,
+    // 等于门禁把自己配套的清理通道(archive_fill 回填)堵死——回填之后的 diff 必然
+    // 带着 8 行 `-...T-1786565xxx...`,提交一次拒一次。人还能在 shell 里绕过去,
+    // 自举 agent 只能走结构化 git 工具,没有退路,于是「按门禁要求回填」这件事
+    // 在 agent 手里永远做不完。`+++ b/path` 是文件头不是内容,先剔掉。
     let mut hits: Vec<String> = Vec::new();
     for line in diff.lines() {
-        if is_placeholder(line) {
-            hits.push(line.trim().to_string());
+        let Some(added) = line.strip_prefix('+') else {
+            continue;
+        };
+        if added.starts_with("++") {
+            continue;
+        }
+        if is_placeholder(added) {
+            hits.push(added.trim().to_string());
         }
     }
     if hits.is_empty() {
@@ -1253,14 +1264,14 @@ mod tests {
     /// 非 tracker 文件不受影响;无占位符放行。
     #[test]
     fn placeholder_id_gate_拒绝占位符_放行真实_id与非tracker() {
-        // 占位符在 tracker 文件里 → 拒。
+        // 新增行带占位符 → 拒。
         let diff = "\
 diff --git a/.kanzei/project/requirements-archive.md b/.kanzei/project/requirements-archive.md
 index 0000000..1111111 100644
 --- a/.kanzei/project/requirements-archive.md
 +++ b/.kanzei/project/requirements-archive.md
 @@ -1,1 +1,1 @@
-- 全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)";
++- 全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)";
         let paths = vec![".kanzei/project/requirements-archive.md".into()];
         let err = placeholder_id_gate(diff, &paths).unwrap_err();
         assert!(err.contains("占位符"), "{err}");
@@ -1290,6 +1301,47 @@ diff --git a/crates/kanzei-tools/src/tracker.rs b/crates/kanzei-tools/src/tracke
 
         // 无 tracker 路径 → 直接放行(不扫)。
         assert!(placeholder_id_gate(diff, &source_paths).is_ok());
+
+        // D-357 验收①:只删占位符的 diff 必须放行。archive_fill 回填后的清理提交
+        // 就是这个形态——删掉带占位符的旧行、写回带真值的新行。连它一起拒,门禁
+        // 就把自己配套的清理通道堵死了。
+        let cleanup = "\
+diff --git a/.kanzei/project/requirements-archive.md b/.kanzei/project/requirements-archive.md
+--- a/.kanzei/project/requirements-archive.md
++++ b/.kanzei/project/requirements-archive.md
+@@ -1,1 +1,1 @@
+-- 全量 cargo test --workspace 全绿(T-1786565xxx,harness 118)
++- 全量 cargo test --workspace 全绿(T-1786565346,harness 118)";
+        assert!(
+            placeholder_id_gate(cleanup, &paths).is_ok(),
+            "回填清理提交(删占位符、加真值)必须放行,否则 archive_fill 的成果提交不出去"
+        );
+
+        // D-357 验收③:diff 文件头不参与判定。`+++ b/xxx` 以 `+` 开头,但它是头不是内容。
+        let header_only = "\
+diff --git a/.kanzei/project/T-1786565xxx.md b/.kanzei/project/T-1786565xxx.md
+--- a/.kanzei/project/T-1786565xxx.md
++++ b/.kanzei/project/T-1786565xxx.md
+@@ -1,1 +1,1 @@
++- 进展: 一切正常";
+        assert!(
+            placeholder_id_gate(header_only, &paths).is_ok(),
+            "占位符只出现在 diff 文件头里时不该拦"
+        );
+
+        // D-357 验收④:同一 diff 既删旧占位符又加新占位符 → 仍拒(新增的那个才是罪)。
+        let mixed = "\
+diff --git a/.kanzei/project/requirements-archive.md b/.kanzei/project/requirements-archive.md
+--- a/.kanzei/project/requirements-archive.md
++++ b/.kanzei/project/requirements-archive.md
+@@ -1,2 +1,2 @@
+-- 旧证据(T-1786565xxx)
++- 新证据(T-1786566xxx)";
+        let mixed_err = placeholder_id_gate(mixed, &paths).unwrap_err();
+        assert!(
+            mixed_err.contains("T-1786566xxx") && !mixed_err.contains("T-1786565xxx"),
+            "只该点名新增的那个占位符,不该把被删掉的也算进去:{mixed_err}"
+        );
     }
 
     /// R-177 内容③:解析器抽出来即补单测——它此前零直接覆盖,只被 merge_ff 间接用到。

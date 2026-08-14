@@ -23,7 +23,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786609593506
 
-## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [doing]
+## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [todo]
 - **2026-08-11 改写(用户定调,随 D-267 关闭为 dropped)**: 原标题里的「permission 规则 worktree 继承主根、可审计预授权集」两项**作废**——它们服务的是 D-267 的中间档,而中间档已被砍掉(理由见 D-267 关闭说明:挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」)。**本条大幅缩小**:非交互模式下 bash 直接放行,防线整体挪到结果侧(R-186)。
   下方原「内容」「验收」保留作为历史,**实施以本节为准**。
 - 优先级: P0
@@ -44,10 +44,11 @@
 - 依赖: 
 - 取活依据: 
 - 进展: 2026-08-13 让位(用户 park):D-332(两份运行评估合并的治理三硬伤)按用户指令排第一并优先解决,本条暂停。本条此前为 engine 自动认领(doing)但从未开工(无进展锚点)。
-- 阻塞: 2026-08-14 复核:原阻塞(让位 D-332)的解除条件已达成——D-332 已 fixed 并归档,不再是阻塞。本条改挂的是新的、真实的障碍:R-183 的 doing 是 engine 自动认领留下的空档(进展自述从未开工、无进展锚点),而 R-202 正占着唯一 WIP 槽——两个可执行 doing 会让 work next 直接判 wip_violation、禁止全线取活(本轮实测过)。正路是 reopen 退回 todo 重新入队,但 CLI 的 reopen 不解析 --reason(见 D-359),而 reopen 强制要 reason,退路在命令行侧不可用;update 又拒绝 doing→todo 逆向迁移。解除动作: ①修 D-359 后 `kz req reopen R-183 --reason ...` 退回 todo,或②在桌面端工具面直接调 reopen(工具面能传 reason),或③R-202 关闭腾出槽位后直接续做本条。解除人: agent(三条任一,不需要用户拍板)。
+- 阻塞: 
 - observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
+- 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
