@@ -1,6 +1,6 @@
 # DeepSeek Harness 约束驱动的运行时升级
 
-- 状态：设计基线草案
+- 状态：设计基线；R-241 已实现并进入 shadow 观察，R-242 尚未切换真源
 - 日期：2026-08-14
 - 关联需求：R-241、R-242、R-243、R-244、R-245、R-246
 - 关联缺陷：D-209、D-349
@@ -148,6 +148,21 @@ flowchart LR
 
 R-241 只实现 shadow projector：继续使用旧 `conversation.updated` 路径，同时计算新投影并报告差异。R-242 达到切换门槛后才替换读路径。
 
+### R-241 已实现边界
+
+- Core 契约位于 `crates/kanzei-core/src/store/typed.rs`。存储事件统一使用 `session.*` 前缀，第一版包含 `legacy_seeded`、turn 开始/停止/完成/失败、user commit、assistant draft/commit/interrupted、tool called/result committed/result interrupted。
+- `RunEvent::AssistantMessageCommitted` 在任何工具副作用开始前发出；`RunEvent::ToolResultsCommitted` 在整组工具结果真正进入 history 时发出。权限拒绝、工具错误、停止占位和多工具部分完成因此与旧 messages 使用同一份结构化结果。
+- CLI 与桌面端共用 `TypedSessionWriter`。可见草稿达到 2,048 个字符立即写批次，较短草稿由 250 ms 定时检查保证在 750 ms 年龄阈值后写入；恢复承诺仍以最近一次成功提交的批次为界。
+- `prepare_typed_session` 在新 turn 前先幂等 seed 最新 `conversation.updated`，再把上次遗留的 open draft/tool 闭合为 interrupted + failed；恢复只追加终态，绝不执行工具。
+- `conversation_shadow_get` 是只读 Tauri 命令，返回 `projection.surface_messages`、`projection.transcript_messages`、`interrupted_assistants`、diagnostics 和 legacy comparison。现有 `conversation_get` 与模型 prior 未切换。
+- 每轮结束另写 `session.shadow_compared`，包含两侧 SHA-256、消息数、首个差异位置、中断数、诊断和 typed 写入错误。
+
+### Schema、兼容与回滚
+
+R-241 没有新增表、列、索引或 SQLite schema version，直接复用既有 `session_events` 的事务 sequence、唯一约束与复合索引，因此不需要数据库 migration、数据回填或迁移备份。事件 payload 固定 `format_version = 1`；未知版本在进入 invariant/投影前被拒绝，不能静默按 v1 解释。
+
+旧数据由带 `source_event_id`、`source_sequence`、`source_hash` 的 `session.legacy_seeded` 保存 provenance；同一 legacy source 重复准备为 no-op。Shadow 期间回滚只需撤回 CLI/桌面 writer 接线并忽略新增 `session.*` 事实，`conversation.updated` 从未停止写入，现有 UI 和模型 prior 不受影响。已经追加的 typed facts 无需删除，也不得借回滚改写。
+
 ## 清空、删除与安全整理
 
 ### 清空
@@ -281,11 +296,11 @@ R-180 已经交付的 persistent 服务不能重做。它必须通过 adoption �
 ## 变更记录
 
 - 2026-08-14：建立设计草案；纳入用户确认的确定性删除、部分 assistant 恢复和无自动过期/显式整理边界；拆分 R-241～R-246，收敛 D-209，新增 D-349 与 A-012 草案。
+- 2026-08-14：完成 R-241 shadow 实现：冻结 format v1 与提交前 invariant，接入 CLI/桌面双写、750 ms/2,048 字符草稿批次、legacy seed、崩溃闭合、确定性 projector、只读 shadow 命令和逐轮差异事件；复用既有 `session_events`，无 schema migration。
 
 ## TODO 与后续风险
 
-- TODO(R-241)：通过 telemetry 决定 assistant draft 的时间/字节批次，避免逐 token 写放大。
-- TODO(R-241)：确定 typed event payload 的 Rust schema 和 `format_version` 升级策略。
+- TODO(R-242)：在切换真源前收集 `session.shadow_compared` 的真实轮次样本，分类解释非相等路径，并为 format version 升级增加正式迁移器。
 - TODO(R-242/R-245)：实现前确认“安全整理”对正在运行的多连接如何进入静止窗口。
 - TODO(R-245)：确认 `.kanzei/artifacts/tool_results/` 与 R-180 系统临时日志的最终迁移/共用边界。
 - 风险：迁移备份包含删除前正文。任何“安全整理完成”判定都必须覆盖备份清单。

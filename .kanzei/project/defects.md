@@ -79,17 +79,15 @@
 - 证据等级: E3(用户再次确认三项痛点和部分生成恢复需求；现有轮级机制已读码核实)
 - 优先级: P1
 - 标签: 核心
-
-- 进展: 2026-08-16 取活调研(claim 权限受阻,规则已加白名单 facbca6 下 run 生效):机制现状已读码核实——①run.rs:1238 轮末整包写 conversation.updated 快照,恢复走 conversation.rs recover_messages 取 latest_event,轮内零落盘;②run.trace 已在运行中按事件增量写(record_live_trace)+ 轮末 flush_live_trace 补尾部,不再是整轮一包;③session_events 表已具备 typed event 载体:event_id/sequence/event_type/payload_json/created_at + UNIQUE(session_id,sequence) + (session_id,event_type,sequence) 复合索引(schema.rs:57-70),append_event 事务内分配 sequence(events.rs:207),增量 typed events 可直接落此表;④D-209 验收①③④的实现面 = 新增 typed event 写入点(user message 落盘后、assistant draft 有界批次、tool call 执行前、tool result 后、turn 终态) + 恢复投影器;验收②的 interrupted 草稿投影与验收⑤的 D-342 回归在切真源时保持。下一步:权限放开后 claim D-209,按 R-241 第一批(typed events + shadow projector,保留旧读路径)实现。
-
+- 进展: 已由 R-241 完整修复。user、assistant 可见草稿/commit、tool call/result、turn terminal 依序增量落 session_events；最近成功草稿批次可在重启后投影为明确 interrupted assistant，模型 surface 不把它伪装成完整回答；open tool 恢复为 interrupted 且不重放副作用；权限拒绝、工具错误和多工具部分完成均有确定结果配对。只读 shadow 与逐轮报告已接入，旧读路径保留。T-1786672324：D-342 停止/Ctrl+C 3 项、全 workspace、clippy all-targets 全绿。
 - 阻塞: 无
 - 修复方向: 以 SQLite typed session events 为运行时会话真源；user/assistant/tool/终态按发生顺序增量落库。可见 assistant 流式内容按有界批次追加 draft chunk，最终追加 committed 或 interrupted 终态；中断草稿可在 UI/审计中回放，但不伪装成完整 assistant message。
 - 影响: 崩溃、停止或异常中断后，已发生的轮内事实和部分生成内容不能被完整恢复；下一轮模型、用户历史与审计视图看到的事实可能不一致。D-342 已修正常停止的整轮写回，但不能替代逐事件持久化和异常中断恢复。
-- observed_head: fadca1bb39624d0a77795c1c160265b4c5cfe954
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786667468241
+- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
+- observed_worktree_hash: fnv1a64:aa29e71147a914cf
+- recorded_at: 1786672416153
 - 取活依据: override:用户 2026-08-16 交互轮批准(上一轮 claim 被 autonomous 档位权限拦截,已加白名单 facbca6 并提交);引擎 defect-first 裁决队首即为 D-209,调研已完成,按 R-241 第一批实现 typed events + shadow projector
-- 批次: 0/5
+- 批次: 4/4
 
 ## D-333 存量 tracker 污染收敛:活动区双优先级字段、归档区双终态标记、重复进展字段(D-330/D-331 修复前残留) [fixing] (low)
 - refs: D-332 D-331 D-330
@@ -134,61 +132,3 @@
 - 阻塞: 等待 R-244 Tool Pipeline 结果阶段稳定并由 R-245 实施；当前先作为事实丢失缺陷登记。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
-
-## D-351 亮色主题更新后仍不可读：D-348 发布验收失败 [fixed] (high)
-- refs: D-348
-- 复杂度: 小
-- 复现: 用户安装应用内更新后再次打开亮色主题；底部运行状态栏仍是浅黄底白字，主对话历史工具记录接近白色，正文、代码与工具日志字号偏小，实际 WebView 无法清晰阅读。截图底栏版本为 v0.1.0 (660309d)，未包含 D-348 修复提交 dd28f9b。
-- 影响: 亮色主题核心对话和运行状态不可读；首轮仅靠静态 token 断言关闭，且发布包未包含修复提交，造成源码状态与用户实际版本验收脱节。
-- 来源: 用户更新后验收失败与截图（2026-08-14）
-- 标签: 前端
-- 验收: ①亮色实际 Chromium/WebView 下 assistant 正文、内联/块代码、实时及历史工具记录清晰可读；②运行中状态栏使用深色前景，自动放行、版本、模式均达到可读对比；③正文默认约 15px、工具/代码/日志不低于 13px，历史记录不再整块 opacity 淡化；④暗色主题无回归；⑤真实浏览器亮/暗截图与 computed style 证据通过；⑥交付版本号所示提交必须包含本修复，不能再以源码静态测试代替发布包验收。
-- 优先级: P1
-- 取活依据: override:用户明确报告更新后 D-348 验收失败，先于 R-241 修复实际可读性与发布边界。
-- 进展: 用户已安装正式版本 build-ddc3ae4 并于 2026-08-14 明确回复“好了”，确认亮色主题实机验收通过；发布物提交、SHA-256、Chromium 明暗主题与全量门禁证据见前序进展。
-- 阻塞: 
-- observed_head: fadca1bb39624d0a77795c1c160265b4c5cfe954
-- observed_worktree_hash: fnv1a64:60d770116d544c70
-- recorded_at: 1786668580363
-
-## D-352 edit 工具插入形状判据误拦增长式改写,弱模型陷入 insert 污染死循环 [fixed] (high)
-- 复杂度: 小
-- 复现: 自举线在 run.rs 用 edit 把 match 分支改写为更长版本:新行数 +8 且被改行不在 new_string 原样出现,EDIT_INSERTION_WOULD_REPLACE_ANCHOR 连拦四次;提示指向 insert,DeepSeek 按提示插入注释污染文件后陷入清理-重试死循环(用户 2026-08-14 现场记录)
-- 影响: 自举对既有代码的增长式改写高频受阻;edit→insert 的错误指引让弱模型污染源码;R-241/D-209 实施直接被卡
-- 标签: 核心
-- 根因: 判据 new_line_count>old_line_count 且 dropped 非空,把「任一原文行被改动」当成误顶信号;增长式改写天然改动被匹配行,最常见合法编辑被整类拦死
-- 验收: ①保住任一原文行的增长式改写放行并在 NOTE 报被改行;②原文全丢的插入形状(R-153 实况)仍拦截;③提示词首选 allow_deletion,insert 仅限真插入;④回归测试锁死两侧
-- 优先级: P1
-- 进展: 提交 5ddfdf8:insertion_shaped_clobber 改为 new>old 且 dropped==原文非空行全数(原文全丢才拦);提示词首选 allow_deletion、insert 仅限真插入;新增回归测试「增长式改写保住部分原文必须放行」,原真阳性测试「插入形状却顶掉锚点必须拦下来」保持通过
-- 验证: 隔离工作树(HEAD+本改动)cargo fmt --check/clippy/cargo test -p kanzei-tools 全绿(357 passed),edit:: 9 测含新回归全过
-- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
-- observed_worktree_hash: fnv1a64:ca27b1fc4343f6d7
-- recorded_at: 1786670168566
-
-## D-353 鞭挞开关跨项目/跨线泄漏:全局键回落继承,停机收口改错线 [fixed] (high)
-- 复杂度: 小
-- 复现: A 项目开鞭挞后打开 B 项目,B 的默认线首次显示即开启并被 applyAutoUiState 固化为 B 的存档;后台线 BacklogEmpty/AllBlocked/ProfileMismatch 停机时,当前线的鞭挞勾选框被清掉、全局键置 0
-- 影响: 鞭挞状态跨项目串线成事实上的全局唯一开关;后台线停机污染当前线用户选择
-- 标签: 前端
-- 根因: ①normalizeAutoState 对无记录默认线回落读全局 localStorage 键 kz-auto-continue;②07-events kz:done Stop 分支无条件改当前可见勾选框并写全局键;③后台会话 done 路由到 handleBackgroundSessionDone,Stop 分支完全不落该线存档,回显与引擎停机对不上
-- 验收: ①无记录线路默认关,不读全局键;②kz-auto-continue 读写全数删除并清存量键;③停机收口按 sessionId 落所属线存档并同步该线后端状态机,当前线控件不被他线事件改动;④runtime 冒烟断言锁死三条
-- 优先级: P1
-- 进展: 提交 2d2a78f:normalizeAutoState 删全局键回落(无记录默认关),kz-auto-continue 全部读写删除并启动清存量;新增 applyAutoStopToSession 按 sessionId 落所属线存档并同步该线后端状态机,07-events 四处停机分支与 handleBackgroundSessionDone Stop 分支接入;runtime 冒烟加三条 D-353 断言
-- 验证: 隔离工作树 ui-runtime-smoke(21 文件 0 运行时错误,含新断言)/ui-i18n/ui-a11y 全过;主树 ui-lint-smoke no-undef 零错误,globals 清单同步
-- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
-- observed_worktree_hash: fnv1a64:ca27b1fc4343f6d7
-- recorded_at: 1786670183574
-
-## D-354 并行线取活结构性不可能:WIP 纪律是项目级单 WIP,无「被取得」事实 [fixed] (high)
-- 复杂度: 中
-- 复现: 主线 claim 任一条目后,任何并行线 work next 只会得到 Resume(主线条目)或 WipViolation;claim 其他条目被「不能再开第二个 WIP」拒绝——线应当取一个不被他线持有的条目、绑定后开工,实际永远无法开始(用户 2026-08-14 反馈)
-- 影响: 任务级并行(R-184/R-185 链)在取活层被一票否决,并行线只能靠人工喂 prompt
-- 标签: 核心
-- 根因: resolve_work_decision 的 executable_wip 是全项目共集,无线身份概念;claim 只写取活依据不记持有线;设计 parallel_lines_ui §1.2「被取得是事实」从未落地到引擎
-- 验收: ①线身份=worktree 分支名(主根默认线为 None,拿不到分支回落目录名);②他线 WIP 归 foreign_wip 背景,不进本线 Resume/WipViolation/候选;③claim 落「取得线」字段,他线条目无 reason 拒绝、带 reason 接管并改写取得线;④全部活动条目被他线持有时裁决 Empty 并点名持有;⑤主根单线行为不变,新旧路径单测锁死
-- 优先级: P1
-- 进展: 提交 1550b9c:line_identity(worktree 分支名,主根为 None);resolve_work_decision 按线圈定 executable_wip,他线 WIP 进 foreign_wip 不进候选;claim 落「取得线」、他线条目无 reason 拒绝、带 reason 接管改写、Empty/Blocked 裁决下带 reason 的接管放行;ResolvedControlState 增 line/foreign_wip 字段(增量,无既有消费方破坏)
-- 验证: 隔离工作树 cargo test -p kanzei-tools 全绿 357 passed:既有 work:: 10 测不变,新增「并行线取活_他线wip不挡本线start_claim落取得线」「并行线取活_他线条目拒绝顺手claim_全被持有时明示」2 测通过;clippy 无警告
-- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
-- observed_worktree_hash: fnv1a64:ca27b1fc4343f6d7
-- recorded_at: 1786670184191
