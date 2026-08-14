@@ -173,15 +173,6 @@
 - 进展: 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
 - 阻塞: 用户: 需对移动端三条验收(双向通信/通知推送/子代理升级容器)排期并确认交付载体(真实手机端工程或 web 模拟端)。解除动作:用户拍板移动端交付形态与排期,再按新载体拆子需求动工。
 
-## R-238 大文本交付通道:bash 命令行超长防护 + kz run 文件入口 [todo]
-- 内容: ①bash 工具执行前检测命令串长度,超过 Windows 命令行上限(32767 字符,按 30000 留余量判)直接返回结构化错误,不把命令交给 PowerShell 去 spawn 失败;错误文案给出两条正路——大文本先用 write 工具落文件再在命令里引用路径,或改用 ②。②kz CLI `run` 新增 `--prompt-file <path>`:从 UTF-8 文件读取 prompt,与位置参数互斥、可与 --new/--readonly 组合——自举/验收代理喂长材料从此有正门,不必塞 argv。③conventions 增补一条纪律:>8k 字符的文本不进命令行参数,一律文件中转(与①的错误文案同源,一处改两处跟)。
-- 来源: 2026-08-14 R-236 验收轮实测:自举代理把约 43 万字符的 prompt 塞进 `cargo run -p kanzei -- run --new <prompt>` 的命令行参数,Windows 32767 上限导致进程 spawn 失败(475ms 退出、PowerShell 异常 5 行、first.out 为空),连续多次同型试错;后续又因 write 工具大内容 JSON 失败绕路。根因是大文本没有交付正门,只能靠代理自己撞出来。Claude 接管联测时用「调小 context_limit + 分轮小消息」绕开了,但坑还在,下一个长输入场景会复发。
-- 复杂度: 小
-- refs: R-236 D-342
-- 标签: 核心
-- 验收: ①构造 >32767 字符的 bash 命令,工具返回结构化错误且文案含「文件中转」与「--prompt-file」指引,不发生真实 spawn(单测);②`kz run --prompt-file` 从文件读 prompt 跑通一轮(fake server 集成测试即可),文件不存在/非 UTF-8 有明确报错,与位置参数同给时拒绝;③conventions 文本落地,grep 单一来源;④现有 bash 短命令行为零回归(既有测试全绿)。
-- 优先级: P2
-
 ## R-239 记忆自动轮采纳率与空轮比例的正常节奏复测(排除 R-226 样本偏置) [todo]
 - 优先级: P3
 - 内容: R-196 复核发现:修复后(08-12~08-14)自动轮采纳率 2.2%(基线 21.0%)、空轮比例 93.3%(基线 67.6%),两项未改善;但样本高度偏置(R-226 单条线自动推进轮占 22/45,全部 0 fetched),无法区分『修复①无效』与『样本失真』。本条在正常开发节奏(多任务并行、用户轮与自动轮混合)下再测一轮:自动轮 >=50 轮样本,重跑同一组查询对照采纳率与空轮比例,判断修复①检索键切换是否真的无效,还是 R-226 轮次形态造成的假象。
@@ -310,4 +301,63 @@
 - 来源: 2026-08-14 用户提的十条前端改造之六。原话:目标现在似乎没用?目标区可以改成我们用户侧输入的一些比较原始的设计需求想法,也就是待拆解成需求和缺陷的源。勘察证实 goals 线确实零消费者:取活引擎(work.rs)不看目标,鞭挞的推进指令(auto_run.rs)只点名 requirements.md/defects.md,前端除了渲染三条也没有别的用途。
 - 标签: 核心
 - 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
+- 优先级: P2
+
+## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [todo]
+- refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md
+- 为什么是这个形态: 不是"文件大",是整个桌面 Agent Runtime 的 application service 树被压进一个 .rs。call tree 本身合理(run_prompt 到 run_task 到 assemble/execution/persist),问题在于旁边还夹着 models_list/summarize_chat 这类与运行编排无关的 IPC;而 build_event_handler 把 UI 投影/typed event 持久化/trace/metrics/LiveRun 五种投影揉成一个 giant reducer——加一个 RunEvent 就要读懂整个 runtime。R-153 把 app/main.rs 6413 行拆出 run.rs 时它还只是"运行主链路",此后 memory/scout/review/phase pipeline/write lease/子代理/autonomous 逐个叠进来,重新长成 attractor。
+- 内容: ①先迁非编排 IPC(纯搬迁零风险):app_info/models_list/summarize_chat/stop_run/stop_task/pending_asks_get/answer_ask/run_metrics 移出到 commands 侧模块;②build_event_handler 按投影拆 sink——UiEventSink/TypedEventSink/TraceSink/MetricsSink/LiveRunSink + 一个 fanout 广播,新增 RunEvent 只碰对应 sink;③assemble_run 按生命周期切三层——RuntimeDeps(不变依赖:config/profile/harness/agent/model/route/client/RunnerConfig)、SessionContext(会话事务:SessionStore/create session/admit input/attachment/TypedEventWriter/flush task)、RoundContext(单轮:run id/timing/trace/pipeline/write lease/身份);严禁做成一个 28 字段的 RunContext,那只是把 parameter monolith 换成 context monolith;④persist_round_outcome + finalize_round 独立成 persistence 模块(怎么跑 与 跑完怎么落库 是两个变更理由);⑤run_execution_loop 的隐式流水线(recovery→attachment→memory 预检索→scout→run_once→review/fixup)与 review/fixup 的 primary→critic→corrective 复合阶段,给出显式输入输出边界;⑥build_subagent_runtime 独立成模块。
+- 复杂度: 大
+- 来源: 2026-08-15 用户提供的第二轮巨石扫描(按当日 main 源码逐文件读 + 本轮机器复核生产行数),本条是其排序里的 R1。
+- 标签: 核心
+- 现状(2026-08-15 实测 dev@f09242c): crates/kanzei-app/src/run.rs 总 3268 行、生产码 2885 行(同文件测试仅 383 行),全仓生产行数第一。单文件内同住:装配 assemble_run(L79-438,359 行)、事件归约 build_event_handler(L452-762,310 行)、ask 处理 build_ask_handler(L763)、子代理 runtime build_subagent_runtime(L827)、执行流水线 run_execution_loop(L911-1057)、落库 persist_round_outcome(L1058-1246) 与 finalize_round(L1247-1771,524 行)、以及 9 个 tauri command(app_info/models_list/pending_asks_get/answer_ask/summarize_chat/stop_run/stop_task/run_prompt/run_metrics)。全仓 9 处 clippy::too_many_arguments 全在本文件,是最高密度。
+- 边界: 零行为变更、零 IPC 契约变更(命令名与入参返回结构一字不动,ui/*.js 不改);不做 Desktop/CLI 合流(另立条目);不改 phase_pipeline / write lease / 记忆召回语义;不引入新的 async 抽象层或 trait 体操,普通函数与结构体能表达就不要 trait;搬迁批 diff 只允许 move + use + 可见性调整,出现逻辑 diff 即回退重来(沿用 monolith_decomposition.md 执行纪律 4)。
+- 验收: ①run.rs 生产行数 ≤ 400(只留 mod 声明与装配),按生产行数口径核,不用 wc -l;②每个新模块文件头 //! 写清独立理由(照抄 files_view.rs 模式);③本文件 9 处 too_many_arguments 至少消掉 6 处,且不得靠塞进一个大 context struct——必须能指出每个新参数组对应哪一层生命周期;④kanzei-app 全量 + 四条前端冒烟 + cargo test --workspace 全绿;⑤可局部推理实测:新增一个 RunEvent 变体的改动面只落在对应 sink,给出实际 diff 作为证据,不接受"看起来更清楚了"。
+- 优先级: P0
+
+## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [todo]
+- refs: R-207 R-177 R-182 D-176 D-267 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition.md
+- 内容: ①按变更理由切两组:process 侧(registry / lifecycle / persistence / commands)与 workspace 侧(lifecycle / merge / gate / harvest);②完成 R-207 的下沉收尾——本文件仍有 19 处 wt:: 转发壳,函数体只是转调 kanzei_tools::worktree,注释自述"实现已下沉",两层抽象长期并存(见配套缺陷),删壳让调用点直接用下沉后的实现;③把文件头 L3-18 那条只靠注释维持的硬不变式类型化:project_dir/origin_project 恒为主根、工作树只由 worktree_path 承担 → 引入 ProjectRoot / WorktreeRoot 两个 newtype,让 rustc 替注释站岗;④集成门禁(fmt/clippy/test/ui-smoke + 合并后主根全量)独立成模块,它是 Integration Gate 子系统,不是 Process 子系统。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R3。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei-app/src/processes.rs 总 1651 行、生产码 1628 行(同文件测试仅 23 行,真测试在同级 worktree_tests.rs 2437 行),48 个函数、4 处 clippy::too_many_arguments。它不是 Process Manager,是并行开发子系统总入口:进程注册与编号(process_index/register_process/next_process_index)、进程持久化、运行时控制(process_update/process_close/close_process)、工作树生命周期(worktree_create/list/diff/discard/reclaim)、写租约(acquire_project_write_lease)、集成门禁(gate_steps/run_gate_step/worktree_gate/worktree_post_merge_gate,fmt+clippy+test+ui-smoke)、合并工作流(merge_worktree/merge_preview/merge_and_release)、tracker 收割回写(harvest_candidates/harvest_writeback)。process_close 一个函数同时收三条生命周期:逻辑进程、执行运行时、工作区。
+- 边界: 零行为变更;不改进程编号规则、state.db 落点、session_id 推导(D-176 红线)、并行线 UI 契约与 IPC 命令面;不动 git 合并策略与 merge-tree 预检;newtype 化只做 processes.rs 与其直接调用点,不做全仓路径类型统一(那会把 diff 铺到所有 crate)。
+- 验收: ①processes.rs 生产行数 ≤ 400;②wt:: 转发壳数量为 0(机械核验 grep);③主根与工作树根传反时编译不过——给出一个被注释掉的反例或 trybuild 式断言,不接受"改完看着对";④worktree_tests.rs 2437 行全绿 + kanzei-app 全量 + workspace 全量绿;⑤实跑一次并行线闭环(建线→跑→门禁→合并→收割→关线)无回归。
+- 优先级: P1
+
+## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [todo]
+- refs: R-216 R-195 R-235 R-155 docs/design/memory_control_plane.md docs/design/monolith_decomposition.md
+- 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
+- 内容: 分三刀,每刀独立可提交可回滚。第一刀(零行为变更,最容易):inbox 一族、migrate_legacy、hit_profile/hits_map 三块迁出成 memory/inbox.rs、memory/migration.rs、memory/telemetry.rs。第二刀:准入策略从 add 提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹与新颖度),生命周期从 promote/deprecate 提成 MemoryLifecycle(candidate 老化、晋升、清退、provenance 门禁),Store 只接 save/load。第三刀:检索与排序迁进 retrieval 子目录并与 memory/index.rs 收口(见配套缺陷:index 反过来调 store.search 取 BM25,排序有两个落点)。最终 MemoryStore 只剩 load/save/archive/事务原子性。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R2。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei-memory/src/memory/store.rs 总 4085 行,其中同文件测试 2012 行、生产码 2073 行(生产行数全仓第三)。名字叫 Store,实际至少七种变更理由同居:①文件持久化与归档(L1-212);②add(L232 起)不是 CRUD 而是 校验→准入策略→指纹/新颖度→同名判重→subject 冲突→落盘→派生索引刷新 一条链;③promote(L533 起)带 provenance 硬门禁(episode 必须真实存在、证据先落库才转 active);④candidate→active→deprecated 生命周期状态机;⑤检索与排序(search L960:BM25 + 状态加权 + 采纳率决策加权 + 命中追踪 + snippet);⑥ID ledger/void/重复合并/完整性审计;⑦效果画像 hit_profile(L1529)/hits_map(L1551);⑧收件箱 read_inbox/clear_inbox/append_note/pending_notes(L1569-1727);⑨migrate_legacy(L1728)迁旧版 memory.md。
+- 边界: 不改记忆的对外语义与 CLI/桌面/工具契约(kz memory、Memory 页、memory 工具一字不动);不动 SQLite schema 与派生索引结构;不趁机改召回排序权重(那是 R-150 系的独立话题,混进来无法归因);不删零调用 pub 方法。
+- 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
+- 优先级: P0
+
+## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
+- refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
+- 为什么是这个形态: 两端各写一遍编排的直接代价是 每加一个运行期能力就要改两处,而且只有一处会被真正验证(桌面端有人用、CLI 靠自举跑);R-183 的非交互放行、R-186 的越界回滚、记忆召回这些都落在编排层,双份实现会持续漂移。把 main.rs 切成 8 个文件解决不了这个,共用 service 才能。
+- 内容: ①抽出 RunService(或等价的单一编排入口),桌面 run_prompt 与 CLI run 都只调它;②两端差异收敛成三个注入点——事件汇(UI EventSink vs 终端 EventSink)、询问路由(交互 AskRouter vs 非交互 AskRouter)、运行策略(桌面 RuntimePolicy vs CLI RuntimePolicy);③CLI 侧剩下的 replay eval / memory manager / tracker / work / config / lock / worktree 各自成模块,main.rs 收敛为命令分发 + 装配;④先做只读对照:把两边的装配步骤逐项列表比对,差异逐条判定是 有意的 还是 漂移的,漂移的先对齐再合并——不要在合并动作里顺手改行为。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R4;收益最大、风险也最大,排在前三条把边界稳定下来之后。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei/src/main.rs 总 2216 行、生产码 1590 行。问题不是 CLI 子命令多,是它自己又实现了一遍 harness 装配、agent 选择、模型解析、LLM route、RunnerConfig、ToolCtx、记忆召回、typed events、run_once、Ctrl-C 处理、落库——与桌面端 run.rs 的 assemble_run 概念重复。此外还叠着 replay eval、memory manager、tracker CLI、work CLI、config、lock、worktree 等适配层,形态是 CLI presentation + application orchestration + domain adapters 三合一。
+- 边界: 排在 R-253/R-254/R-255 之后,前三条未稳定前不动(边界还在漂就合不出正确的公共面);不改 CLI 命令面与桌面 IPC 面;不引入新的运行期能力;合并过程中发现的行为差异一律登记为独立缺陷,不在本条顺手改。
+- 验收: ①harness 装配/agent 选择/模型解析/RunnerConfig/ToolCtx/记忆召回/typed events/run_once 只有一处实现(机械核验:grep 只剩一个装配点);②桌面端与 CLI 各跑一次真实闭环(改代码→跑测试→提交)无回归;③kz main.rs 生产行数 ≤ 500;④第③步的漂移对照表落进设计文档,逐条给出 有意/漂移 判定;⑤workspace 全量绿 + 前端冒烟绿。
+- 优先级: P1
+
+## R-257 第二梯队模块化:drive.rs(1826)/docstore.rs(1417)/git.rs(1257)/harness config.rs(1218) 按域切分 [todo]
+- refs: R-155 R-202 R-204 R-253 R-257 docs/design/monolith_decomposition.md
+- 为什么优先级低于前四条: ②③④ 的职责虽多,但都围绕单一 bounded context(结构化文档存储 / git 交付 / 配置),是 large cohesive module 而非 God Module,不改动就不痛;真正需要盯的是 ①drive.rs 与 ③git.rs 的 finalize——前者是运行核心,后者已经跨出适配器语义。
+- 内容: ①drive.rs:先做只读复查,判定 R-202 之后剩下的 1826 行里哪些是 模型循环本体(应留)、哪些是 可迁出的子域(工具执行/重试/流恢复/指标),再决定切法——本条不预设结论,复查结论回填本条后再排批次;②docstore.rs 切 model/parse/render/repository/archive/validation;③git.rs 切 tool/commands/diff/finalize,finalize 明确按 workflow 对待而不是一个 git action;④config.rs 按配置域分组,测试随域下沉。
+- 复杂度: 中
+- 来源: 2026-08-15 第二轮巨石扫描 R5,外加机器复核补上的 drive.rs。
+- 标签: 后端
+- 现状(2026-08-15 实测生产行数): ①crates/kanzei-core/src/runner/drive.rs 2058 总/1826 生产/7 处 too_many_arguments——R-155 B8 只做整体搬迁、R-202 拆了 run_task 与 run_once_with_parts 内部,但它仍是模型循环的核心且是全仓生产行数第四,这轮用户榜单漏了它,列本条队首;②crates/kanzei-memory/src/docstore.rs 2471/1417——requirements/defects/sources/findings 四类的统一结构化 markdown engine,parsing/status 语义/锁/原子改写/归档/ID/raw-line 保真/模板同居;③crates/kanzei-tools/src/git.rs 2318/1257——GitTool 从 status/diff/log/stage/commit 长到 finalize 交付工作流(跑门禁、记 test_record、提交、返回 complete),已从 git 命令适配器扩张成 delivery workflow;④crates/kanzei-harness/src/config.rs 2937/1218——测试占 1719 行,生产码偏大但不失控。
+- 边界: 零行为变更、零外部 API 面变更(沿用 R-155 的顶层再导出纪律);不与 R-253/R-254/R-255 并发执行(大搬迁互相冲突,见 monolith_decomposition.md 执行纪律 3);drive.rs 一项若复查结论是"当前形态合理",允许只写结论不动代码,但结论必须落进本条。
+- 验收: ①四个文件各自给出拆解前后生产行数对照(按 R-257 的口径,不用 wc -l);②外部 API 面零变更断言(下游 crate cargo check 通过);③各 crate 定向测试 + workspace 全量绿;④drive.rs 的复查结论(拆或不拆、理由)明确落在本条进展里;⑤git.rs finalize 迁出后,git 只读命令与交付工作流的调用方各跑一次真实验证。
 - 优先级: P2

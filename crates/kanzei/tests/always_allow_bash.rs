@@ -462,3 +462,75 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
     assert!(!String::from_utf8_lossy(&request).contains("legacy_orphan"));
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cli_prompt_file_feeds_big_prompt_without_argv() {
+    // R-238 ②:`kz run --prompt-file` 从 UTF-8 文件读 prompt 跑通一轮——大文本
+    // 交付不进命令行参数(避开 Windows 32767 上限),这是验收②的正门。
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "kanzei-cli-promptfile-{}-{suffix}",
+        std::process::id()
+    ));
+    let home_guard = common::TestHome::new("prompt-file");
+    let project = root.join("project");
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    std::fs::write(
+        project.join(".kanzei/kanzei.toml"),
+        format!(
+            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address}/v1\"\n"
+        ),
+    )
+    .unwrap();
+
+    let response = json!({
+        "choices": [{
+            "index": 0,
+            "delta": {"content": "prompt received"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1}
+    });
+    let server = tokio::spawn(async move {
+        serve_response_within(&listener, response, "单轮文本响应").await;
+    });
+
+    // 大文本(>8k 字符)写进文件,不进 argv。
+    let prompt_path = project.join("big-prompt.txt");
+    let big_prompt = "任务:读完这份材料后给出总结。\n".to_string() + &"内容".repeat(4200);
+    std::fs::write(&prompt_path, &big_prompt).unwrap();
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
+    cmd.arg("run")
+        .arg("--prompt-file")
+        .arg(&prompt_path)
+        .current_dir(&project);
+    home_guard.apply(&mut cmd);
+    let mut child = cmd
+        .env("KANZEI_MODEL", "mock:test-model")
+        .env("KANZEI_AGENT", "dev-pair")
+        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROXY", "off")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdin.take().unwrap());
+    let output = child.wait_with_output().await.unwrap();
+    server.await.unwrap();
+
+    assert!(
+        output.status.success(),
+        "--prompt-file 应跑通一轮:stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

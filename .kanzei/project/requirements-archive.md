@@ -3002,9 +3002,23 @@
 - 依赖: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
 - 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。
-- 阻塞: 
 - observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786737755878
 - 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
 - 批次: 3/3
+
+## R-238 大文本交付通道:bash 命令行超长防护 + kz run 文件入口 [done]
+- 内容: ①bash 工具执行前检测命令串长度,超过 Windows 命令行上限(32767 字符,按 30000 留余量判)直接返回结构化错误,不把命令交给 PowerShell 去 spawn 失败;错误文案给出两条正路——大文本先用 write 工具落文件再在命令里引用路径,或改用 ②。②kz CLI `run` 新增 `--prompt-file <path>`:从 UTF-8 文件读取 prompt,与位置参数互斥、可与 --new/--readonly 组合——自举/验收代理喂长材料从此有正门,不必塞 argv。③conventions 增补一条纪律:>8k 字符的文本不进命令行参数,一律文件中转(与①的错误文案同源,一处改两处跟)。
+- 来源: 2026-08-14 R-236 验收轮实测:自举代理把约 43 万字符的 prompt 塞进 `cargo run -p kanzei -- run --new <prompt>` 的命令行参数,Windows 32767 上限导致进程 spawn 失败(475ms 退出、PowerShell 异常 5 行、first.out 为空),连续多次同型试错;后续又因 write 工具大内容 JSON 失败绕路。根因是大文本没有交付正门,只能靠代理自己撞出来。Claude 接管联测时用「调小 context_limit + 分轮小消息」绕开了,但坑还在,下一个长输入场景会复发。
+- 复杂度: 小
+- refs: R-236 D-342
+- 标签: 核心
+- 验收: ①构造 >32767 字符的 bash 命令,工具返回结构化错误且文案含「文件中转」与「--prompt-file」指引,不发生真实 spawn(单测);②`kz run --prompt-file` 从文件读 prompt 跑通一轮(fake server 集成测试即可),文件不存在/非 UTF-8 有明确报错,与位置参数同给时拒绝;③conventions 文本落地,grep 单一来源;④现有 bash 短命令行为零回归(既有测试全绿)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-238
+- 批次: 1/1
+- 进展: 完成(2026-08-16)。验收对照:①bash 超长防护——kanzei-tools/src/bash.rs MAX_COMMAND_CHARS=30000,execute 在 D-113 门禁后按 UTF-16 代码单元计数(Windows 32767 上限口径),超限直接 ToolOutput::error 不发生 spawn;文案含「文件中转」与「--prompt-file」两条正路;单测 `超长命令_结构化拒绝不spawn且文案给两条正路`(32000+ 字符)。②kz run --prompt-file——main.rs RunArgs.prompt_file + parse_run_args 消费;resolve_run_prompt 纯函数(位置参数互斥拒绝/文件缺失·非 UTF-8 明确报错/正常读取),run_cli 接入;集成测试 cli_prompt_file_feeds_big_prompt_without_argv(mock server 单轮,>8k 字符文件 prompt 跑通一轮);单测 4 个(读文件/互斥/缺文件报错/flag 解析)。③conventions §4 追加纪律「>8k 字符的文本不进命令行参数,一律文件中转」,与 bash.rs 错误文案同源同指向(write 落文件引用路径 / --prompt-file)。④零回归:bash 16(含既有短命令)、kanzei 30、always_allow_bash 4 全过(T-1786738142);fmt/clippy 绿。关闭。
+- observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
+- observed_worktree_hash: fnv1a64:8d4d9b85f60953ff
+- recorded_at: 1786738153383

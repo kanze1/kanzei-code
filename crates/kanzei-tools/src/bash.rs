@@ -21,6 +21,11 @@ const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 
+/// R-238 ①:Windows 命令行上限 32767 字符(UTF-16 代码单元)。超长命令交给
+/// PowerShell spawn 必然失败(实测 475ms 退出、first.out 为空)。按 30000 留余量,
+/// 超过直接结构化拒绝,不给 spawn 机会。
+const MAX_COMMAND_CHARS: usize = 30_000;
+
 /// R-183 内容②(验收③):worktree 里权限判定的 workdir 视图按**主根**。
 ///
 /// worktree 是主根代码树的 git checkout,同一相对路径的命令在两棵树里等价。
@@ -138,6 +143,16 @@ impl Tool for BashTool {
                  tools' syntax validation and diff display. Use `edit` for targeted changes \
                  (it tolerates line-ending differences and, after two misses, shows you the \
                  file's actual content) or `write` to create/replace a file deliberately."
+            ));
+        }
+        // R-238 ①:命令串超长防护——按 UTF-16 代码单元计(Windows 命令行上限口径),
+        // 超过 30000 直接结构化拒绝,不发生真实 spawn。
+        let cmd_units = input.command.encode_utf16().count();
+        if cmd_units > MAX_COMMAND_CHARS {
+            return ToolOutput::error(format!(
+                "命令过长({cmd_units} UTF-16 字符,上限 {MAX_COMMAND_CHARS}):Windows 无法 spawn \
+                 超过 32767 字符的命令行。大文本请用文件中转:先用 `write` 工具落文件、命令里 \
+                 引用路径;或以 `kz run --prompt-file <path>` 作为 prompt 交付。"
             ));
         }
         let timeout = Duration::from_millis(
@@ -1110,5 +1125,30 @@ mod tests {
                 ctx.cwd.display()
             );
         }
+    }
+
+    // ══ R-238 ①:命令串超长防护(验收①)══
+
+    #[tokio::test]
+    async fn 超长命令_结构化拒绝不spawn且文案给两条正路() {
+        // Windows 命令行上限 32767(UTF-16 单元);按 30000 留余量拒绝。
+        let long_command = "echo x".to_string() + &"a".repeat(32_000);
+        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
+        let output = BashTool
+            .execute(
+                serde_json::json!({ "command": long_command, "timeout_ms": 100 }),
+                &ctx,
+            )
+            .await;
+        assert!(output.is_error, "超长命令必须返回结构化错误");
+        let content = output.content.clone();
+        assert!(
+            content.contains("文件中转"),
+            "文案必须指向文件中转正路: {content}"
+        );
+        assert!(
+            content.contains("--prompt-file"),
+            "文案必须指向 --prompt-file 正路: {content}"
+        );
     }
 }

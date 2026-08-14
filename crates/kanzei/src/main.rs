@@ -106,17 +106,22 @@ struct RunArgs {
     /// R-183:非交互(无 TTY)allowlist,格式 `action:resource`,可重复。
     /// 仅在 permissions.non_interactive = "allow_listed" 时参与决策。
     allow: Vec<String>,
+    /// R-238 ②:从 UTF-8 文件读取 prompt(大文本交付正门,不进命令行参数)。
+    /// 与位置参数 prompt 互斥;可与 --new/--readonly/--allow 组合。
+    prompt_file: Option<std::path::PathBuf>,
 }
 
 const PROJECT_ROOT_FLAG: &str = "--project-root";
 const PROJECT_ROOT_ENV: &str = "KANZEI_PROJECT_ROOT";
 const ALLOW_FLAG: &str = "--allow";
+const PROMPT_FILE_FLAG: &str = "--prompt-file";
 
 fn parse_run_args(args: &[String]) -> RunArgs {
     let new_session = args.iter().any(|arg| arg == "--new");
     let readonly = args.iter().any(|arg| arg == "--readonly");
     let mut project_root = None;
     let mut allow: Vec<String> = Vec::new();
+    let mut prompt_file = None;
     let mut words: Vec<&str> = Vec::new();
     let mut index = 0;
     while index < args.len() {
@@ -142,6 +147,14 @@ fn parse_run_args(args: &[String]) -> RunArgs {
                     index += 1;
                 }
             }
+            PROMPT_FILE_FLAG => {
+                // R-238 ②:大文本 prompt 从文件读(不进命令行参数,避开 Windows
+                // 32767 上限)。缺值只吃 flag,互斥/报错在 run_cli 侧。
+                if let Some(value) = args.get(index + 1) {
+                    prompt_file = Some(std::path::PathBuf::from(value));
+                    index += 1;
+                }
+            }
             _ => words.push(arg),
         }
         index += 1;
@@ -152,6 +165,33 @@ fn parse_run_args(args: &[String]) -> RunArgs {
         project_root,
         prompt: words.join(" "),
         allow,
+        prompt_file,
+    }
+}
+
+/// R-238 ②:解析 run 的 prompt 真源——`--prompt-file` 优先且与位置参数互斥。
+///
+/// 返回 (prompt, 错误文案)。互斥/缺文件/非 UTF-8 都在这里给出明确报错,不进
+/// run_cli 的模型路径。抽成纯函数只为可测:run_cli 要真跑一整轮才走得到。
+fn resolve_run_prompt(
+    positional: &str,
+    prompt_file: Option<&std::path::Path>,
+) -> Result<String, String> {
+    let Some(path) = prompt_file else {
+        return Ok(positional.to_string());
+    };
+    if !positional.trim().is_empty() {
+        return Err(format!(
+            "--prompt-file 与位置参数互斥:已给位置 prompt,又指定了 `{}`;大文本走文件、小提示走参数,二选一。",
+            path.display()
+        ));
+    }
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(text),
+        Err(error) => Err(format!(
+            "无法读取 --prompt-file `{}`: {error}(需存在且为 UTF-8 编码)。",
+            path.display()
+        )),
     }
 }
 
@@ -299,7 +339,17 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         project_root: root_flag,
         prompt,
         allow,
+        prompt_file,
     } = parse_run_args(args);
+    // R-238 ②:prompt 真源解析(--prompt-file 与位置参数互斥,失败给出明确报错)。
+    let prompt = match resolve_run_prompt(&prompt, prompt_file.as_deref()) {
+        Ok(text) => text,
+        Err(message) => {
+            eprintln!("\x1b[31m{message}\x1b[0m");
+            usage();
+            std::process::exit(2);
+        }
+    };
     if prompt.trim().is_empty() {
         usage();
         std::process::exit(2);
@@ -1593,8 +1643,8 @@ mod tests {
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
         lock_status_report, main_project_root, non_interactive_decision, parse_allowlist,
-        parse_run_args, parse_tracker_flags, persist_always_allow, usage_text, RunArgs,
-        PROJECT_ROOT_ENV,
+        parse_run_args, parse_tracker_flags, persist_always_allow, resolve_run_prompt, usage_text,
+        RunArgs, PROJECT_ROOT_ENV,
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
@@ -1694,11 +1744,22 @@ mod tests {
             project_root: None,
             prompt: prompt.to_string(),
             allow: Vec::new(),
+            prompt_file: None,
         }
     }
 
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|a| a.to_string()).collect()
+    }
+
+    fn unique(name: &str) -> String {
+        format!(
+            "{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
     }
 
     /// R-182 验收⑤:从 worktree 跑 `kz` 时两把键必须分叉。
@@ -2212,5 +2273,58 @@ mod tests {
         assert_eq!(run.allow, vec!["bash:git status", "bash:cargo test"]);
         assert_eq!(run.prompt, "跑测试");
         assert!(run.readonly);
+    }
+
+    // ══ R-238 ②:--prompt-file 大文本交付(验收②)══
+
+    #[test]
+    fn resolve_run_prompt_从文件读取大文本() {
+        let dir = std::env::temp_dir().join(unique("kz-prompt-file"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prompt.txt");
+        let big = "第一行任务说明\n".to_string() + &"内容".repeat(5000);
+        std::fs::write(&path, &big).unwrap();
+        let resolved = resolve_run_prompt("", Some(&path)).unwrap();
+        assert_eq!(resolved, big, "大文本应从文件原样读出,不进命令行参数");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_run_prompt_与位置参数互斥() {
+        let dir = std::env::temp_dir().join(unique("kz-prompt-mutex"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prompt.txt");
+        std::fs::write(&path, "file content").unwrap();
+        let err = resolve_run_prompt("位置 prompt", Some(&path)).unwrap_err();
+        assert!(
+            err.contains("互斥"),
+            "同时给出位置参数与 --prompt-file 必须拒绝: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_run_prompt_文件不存在给出明确报错() {
+        let missing = std::path::PathBuf::from("Z:/definitely/not/exists/prompt.txt");
+        let err = resolve_run_prompt("", Some(&missing)).unwrap_err();
+        assert!(
+            err.contains("无法读取 --prompt-file") && err.contains("UTF-8"),
+            "缺文件/非 UTF-8 都要有明确报错: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_run_args_prompt_file_flag() {
+        let args: Vec<String> = ["--prompt-file", "C:/tmp/big.txt", "--new", "--readonly"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let run = parse_run_args(&args);
+        assert_eq!(
+            run.prompt_file,
+            Some(std::path::PathBuf::from("C:/tmp/big.txt"))
+        );
+        assert!(run.new_session && run.readonly);
+        assert!(run.prompt.is_empty(), "文件入口下不应有位置 prompt");
     }
 }

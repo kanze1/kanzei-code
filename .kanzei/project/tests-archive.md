@@ -3381,3 +3381,10 @@
 - 摘要: R-183 关闭前全量复核(HEAD 87471a2,含 D-363 桩服务器超时修复):workspace 全绿 0 failed(kzapp 160/core 193/harness 138/llm 44/base 128/tools 244/memory 9 等;挂死已修,非交互 E2E 通过)
 - 关联: R-183
 - 收尾: 1786737712
+
+## T-1786738142 R-238 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools --lib bash:: && cargo test -p kanzei --bin kz && cargo test -p kanzei --test always_allow_bash
+- 时长: 10.0s
+- 摘要: R-238 定向:bash 16(含超长防护)、kanzei 30(含 --prompt-file 解析/互斥/读文件)、集成 4(含 prompt-file 跑通一轮)全过;fmt/clippy 绿
+- 关联: R-238
+- 收尾: 1786738142

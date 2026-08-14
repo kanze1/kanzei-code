@@ -15,6 +15,7 @@
 - `kanzei.toml` 配置 schema 变更必须向后兼容（serde default），设置页表单必须透传新字段，禁止保存时丢字段。
 - 权限规则是硬门禁：任何"规则"能用代码强制的绝不只写进提示词。
 - M2 起 SQLite 表结构变更需附迁移与回滚说明。
+- **>8k 字符的文本不进命令行参数**(R-238):bash 命令串与 `kz run` 位置 prompt 都受 Windows 命令行 32767 字符上限约束,大文本一律**文件中转**——先用 `write` 工具落文件、命令里引用路径,或以 `kz run --prompt-file <path>` 交付。超长命令由 bash 工具在 spawn 前结构化拒绝(文案同源,见 `kanzei-tools/src/bash.rs` 的 `MAX_COMMAND_CHARS`;不要绕开防护,不要用等价命令换拼法把长文本塞进 shell)。
 
 ## 6. 分支与提交流程(kanzei 版)
 
