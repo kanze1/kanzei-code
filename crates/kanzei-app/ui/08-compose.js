@@ -796,11 +796,22 @@ $("auto-continue").addEventListener("change", () => {
     scheduleAutoContinue();
   }
 });
+// 研究区(来源/发现/report)只在 research 档出现。dev 档下这两条文档线零写入方
+// (提示词里根本没有 source/finding 工具)、零消费者,常驻侧栏就是两个永远的「(空)」:
+// 占着位置,还让人以为功能坏了。语义处置留给 R-221 research 模式重定位,这里先按档位收起。
+// 不挂进 syncAutoContinueWithProfile:那个函数中间有早退分支,挂进去会漏调。
+function syncResearchSectionVisibility() {
+  const section = $("research-section");
+  if (!section) return;
+  section.classList.toggle("hidden", $("profile-select")?.value !== "research");
+}
 const PROFILE_STORAGE_KEY = "kz-profile";
 const savedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
 if (["dev-pair", "dev-auto", "research"].includes(savedProfile)) {
   $("profile-select").value = savedProfile;
 }
+// 冷启动也要对齐一次:HTML 里默认 hidden,存的档位若是 research 得把它放出来。
+syncResearchSectionVisibility();
 // 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的鞭挞档位,按进程单独记住,
 // 否则切换进程回显时自主推进会被静默降级成结伴开发。
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
@@ -948,9 +959,11 @@ function applyProfileValue(backendProfile) {
   } finally {
     applyingProfileEcho = false;
   }
+  syncResearchSectionVisibility();
 }
 $("profile-select").addEventListener("change", () => {
   const value = $("profile-select").value;
+  syncResearchSectionVisibility();
   localStorage.setItem(PROFILE_STORAGE_KEY, value);
   if (activeProcessId) {
     processProfileUi.set(activeProcessId, value);

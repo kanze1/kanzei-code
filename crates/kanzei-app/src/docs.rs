@@ -178,7 +178,19 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     };
     // D-296:一次快照建立单份 active/archive 读缓存。后续批次、计数、依赖、调度与
     // IPC 组装都只消费这份缓存,不再让同一个 md 文件被不同闭包重复解析。
-    let kinds = [&REQUIREMENTS, &DEFECTS, &GOALS, &SOURCES, &FINDINGS];
+    // source/finding 这两条线零写入方(dev 档提示词里没有 source/finding 工具)、
+    // 零消费者,绝大多数项目里文件根本不存在。可 DocStore::open + load 会为了取锁
+    // create_dir_all 父目录并造一个 .lock 文件——每次快照都在给一条没人用的线造垃圾,
+    // 还让前端拿到两个恒空数组去渲染两块永远的「(空)」。文件不存在就不入列;
+    // 下游全部走 active_entries/archived_entries 的 &[] 回落,一行都不用改。
+    let mut kinds: Vec<&'static kanzei_tools::docstore::DocKind> =
+        vec![&REQUIREMENTS, &DEFECTS, &GOALS];
+    for optional in [&SOURCES, &FINDINGS] {
+        let store = DocStore::open(&root, optional);
+        if store.path.is_file() || store.archive_file().is_file() {
+            kinds.push(optional);
+        }
+    }
     let mut active: BTreeMap<&'static str, Vec<kanzei_tools::docstore::Entry>> = BTreeMap::new();
     let mut archived_docs: BTreeMap<&'static str, Vec<kanzei_tools::docstore::Entry>> =
         BTreeMap::new();

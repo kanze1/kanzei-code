@@ -86,7 +86,10 @@
         </div>
         <div id="goal-list" class="doc-list"></div>
       </div>
-      <div class="sidebar-section" data-collapse-key="research" id="research-section">
+      <!-- 研究区只属于 research 档。source/finding 这两条文档线在 dev 档下零写入方
+           (提示词里根本没让 agent 写)、零消费者,常驻侧栏只会永远显示两个「(空)」。
+           默认隐藏,切到 research 档才出现;语义留给 R-221 research 模式重定位时再定。 -->
+      <div class="sidebar-section hidden" data-collapse-key="research" id="research-section">
         <div class="section-title">
           <span><span data-i18n-key="研究">研究</span> <em id="research-count"></em></span>
           <button id="report-open" class="icon-btn" title="打开 research/report.md" data-i18n-title="打开 research/report.md" aria-label="打开 research/report.md">↗</button>

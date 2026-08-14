@@ -21,6 +21,21 @@ const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 
+/// R-183 内容②(验收③):worktree 里权限判定的 workdir 视图按**主根**。
+///
+/// worktree 是主根代码树的 git checkout,同一相对路径的命令在两棵树里等价。
+/// 资源 workdir 若落在 cwd(worktree)下,把前缀替换回主根——主根配置的
+/// permission 规则因此能命中,线一启动就有授权(R-182 主根重定向同一条原则)。
+/// 只影响**权限判定文本**,命令实际执行目录仍是 worktree(execute 用未映射值)。
+fn permission_workdir_view(ctx: &ToolCtx, workdir: &Path) -> std::path::PathBuf {
+    if ctx.worktree_key.is_some() {
+        if let Ok(rel) = workdir.strip_prefix(&ctx.cwd) {
+            return ctx.project_root.join(rel);
+        }
+    }
+    workdir.to_path_buf()
+}
+
 #[derive(Deserialize, JsonSchema)]
 struct BashInput {
     /// 要执行的命令
@@ -100,7 +115,7 @@ impl Tool for BashTool {
         vec![serde_json::json!({
             "command": command,
             "workdir": kanzei_harness::permission::normalize_resource(
-                &effective_workdir.display().to_string(),
+                &permission_workdir_view(ctx, &effective_workdir).display().to_string(),
             ),
         })
         .to_string()]
@@ -1028,5 +1043,72 @@ mod tests {
             resource["workdir"],
             kanzei_harness::permission::normalize_resource("C:/project")
         );
+    }
+
+    // ══ R-183 验收③:worktree 里主根规则命中 ══
+
+    #[test]
+    fn 权限workdir视图_worktree映射回主根() {
+        // worktree 里 cwd 是树、project_root 是主根:同相对位置的资源视图按主根。
+        let ctx = ToolCtx {
+            cwd: PathBuf::from("C:/repo-worktree"),
+            project_root: PathBuf::from("C:/repo"),
+            worktree_key: Some("line-a".into()),
+            ..Default::default()
+        };
+        let resource: serde_json::Value = serde_json::from_str(
+            &BashTool.resources_with_ctx(
+                &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
+                &ctx,
+            )[0],
+        )
+        .unwrap();
+        assert_eq!(
+            resource["workdir"],
+            kanzei_harness::permission::normalize_resource("C:/repo/crates/foo"),
+            "worktree 下的 workdir 视图按主根解析,主根规则才能命中"
+        );
+    }
+
+    #[test]
+    fn 同一规则_主根与worktree下匹配结果一致() {
+        // 验收③:同一条规则(workdir 按主根写),在主根与 worktree 两种 ctx 下
+        // evaluate 结果一致——线一启动就有授权,不会因路径变体被 Ask 卡死。
+        let rs = kanzei_harness::permission::Ruleset::new(vec![kanzei_harness::permission::Rule {
+            action: "bash".into(),
+            resource: serde_json::json!({
+                "command": "git status",
+                "workdir": kanzei_harness::permission::normalize_resource("C:/repo/crates/foo"),
+            })
+            .to_string(),
+            effect: kanzei_harness::permission::Effect::Allow,
+        }]);
+        for ctx in [
+            // 主根直接运行。
+            ToolCtx {
+                cwd: PathBuf::from("C:/repo"),
+                project_root: PathBuf::from("C:/repo"),
+                ..Default::default()
+            },
+            // worktree 运行(树 ≠ 主根)。
+            ToolCtx {
+                cwd: PathBuf::from("C:/repo-worktree"),
+                project_root: PathBuf::from("C:/repo"),
+                worktree_key: Some("line-a".into()),
+                ..Default::default()
+            },
+        ] {
+            let resource = BashTool.resources_with_ctx(
+                &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
+                &ctx,
+            )[0]
+            .clone();
+            assert_eq!(
+                rs.evaluate("bash", &resource),
+                kanzei_harness::permission::Effect::Allow,
+                "同一条主根规则在 cwd={} 下应一致命中",
+                ctx.cwd.display()
+            );
+        }
     }
 }
