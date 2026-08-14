@@ -1756,3 +1756,12 @@ button.mini { font-size: 11px; padding: 2px 8px; }
 .lines-worktree-meta { color: var(--dim); font-size: 11px; }
 .lines-worktree-actions { display: flex; gap: 6px; flex: 0 0 auto; flex-wrap: wrap; }
 .line-lane-actions { flex-wrap: wrap; }
+
+/* 工作区的线级现场:每条线一行(运行点 / 名字 / 阶段 / 分支)。 */
+.workspace-lines { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); }
+.workspace-line { display: flex; align-items: baseline; gap: 6px; font-size: 11.5px; min-width: 0; }
+.workspace-line-dot { color: var(--dim); font-size: 9px; }
+.workspace-line.running .workspace-line-dot { color: var(--warn); }
+.workspace-line-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-line-stage { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-line-branch { font-family: var(--mono); font-size: 10.5px; }

@@ -160,6 +160,7 @@ const I18N_EN = {
   "待办": "Backlog",
   "待办总数": "Backlog total",
   "鞭挞控制台": "Auto-run console",
+  "条线": "lines",
   "棵有改动": "with changes",
   "未绑定线路": "No line bound",
   "线路": "Line",

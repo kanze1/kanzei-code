@@ -1058,6 +1058,7 @@
   "runTokens",
   "running",
   "runningCount",
+  "runningLines",
   "runningNow",
   "runtimeFocusId",
   "s",

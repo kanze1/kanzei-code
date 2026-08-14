@@ -396,8 +396,14 @@ pub(crate) fn base_name_for_snapshot(path: &str) -> String {
     base_name(path)
 }
 
+/// 工作区 = **跨项目的运行现场**:一眼看出哪个项目在跑、跑的是哪条线、卡在哪。
+/// 原来这里只给「项目 + 当前对话 + 最近活动」——那些侧栏和文档页里全都有,
+/// 等于把别处的信息又摆了一遍。真正只有这里能回答的是「另外那个项目现在怎么样」,
+/// 所以补 lines:每条线的运行态、阶段、正在用的工具、归属分支。
 #[tauri::command]
-pub(crate) fn workspace_snapshot() -> Result<serde_json::Value, String> {
+pub(crate) fn workspace_snapshot(
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<serde_json::Value, String> {
     let prefs = projects_get();
     let mut projects = Vec::new();
     for path in &prefs.projects {
@@ -413,6 +419,27 @@ pub(crate) fn workspace_snapshot() -> Result<serde_json::Value, String> {
         let pending = crate::processes::list_pending_inputs(path.clone(), None).unwrap_or_default();
         let recent = crate::conversation::conversation_trace_get(path.clone(), None, None)
             .unwrap_or_default();
+        // 线级现场。process_list 已经做了「恢复注册 + 剪掉死线」,直接复用它的结论,
+        // 不在这里另写一套枚举——两套口径迟早会对不上。
+        let lines = crate::processes::process_list(state.clone(), path.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|info| {
+                json!({
+                    "id": info.id,
+                    "label": info.label,
+                    "running": info.running,
+                    "stage": info.stage,
+                    "branch": info.branch,
+                    "worktree_path": info.worktree_path,
+                    "profile": info.profile,
+                })
+            })
+            .collect::<Vec<_>>();
+        let running_lines = lines
+            .iter()
+            .filter(|line| line["running"].as_bool() == Some(true))
+            .count();
         projects.push(json!({
             "path": path,
             "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name_for_snapshot(path)),
@@ -422,6 +449,8 @@ pub(crate) fn workspace_snapshot() -> Result<serde_json::Value, String> {
             "pending_count": pending.len(),
             "conversation": conversations.first(),
             "recent_activity": recent.into_iter().rev().take(8).collect::<Vec<_>>(),
+            "lines": lines,
+            "running_lines": running_lines,
         }));
     }
     Ok(json!({ "current": prefs.current, "projects": projects }))

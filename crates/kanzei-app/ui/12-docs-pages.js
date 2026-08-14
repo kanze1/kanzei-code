@@ -32,7 +32,13 @@ function renderWorkspace(snapshot) {
     title.textContent = project.name;
     const status = document.createElement("span");
     status.className = `workspace-status ${project.status}`;
-    status.textContent = project.status === "running" ? t("运行中") : project.status === "failed" ? t("失败") : t("空闲");
+    // 项目级状态用**线级事实**兜一层:会话 status 可能停在旧值,而「有几条线真在跑」
+    // 是当下的。两者不一致时以线为准——用户问的是「现在」。
+    const runningLines = project.running_lines ?? 0;
+    status.textContent = runningLines
+      ? `${t("运行中")} · ${runningLines} ${t("条线")}`
+      : project.status === "running" ? t("运行中") : project.status === "failed" ? t("失败") : t("空闲");
+    if (runningLines) status.classList.add("running");
     head.append(title, status);
     const path = document.createElement("div");
     path.className = "dim workspace-path";
@@ -53,6 +59,37 @@ function renderWorkspace(snapshot) {
     queue.className = "workspace-meta dim";
     queue.textContent = `${t("排队")} ${project.pending_count ?? 0} ${t("条")} · ${t("更新于")} ${formatWorkspaceTime(project.updated_at)}`;
     card.append(head, path, summary, activity, queue);
+    // 线级现场:工作区的存在理由就是回答「另外那个项目现在怎么样」。项目名 + 当前对话
+    // 侧栏里全有,只有「哪条线在跑、跑到哪个阶段」是这里独有的。
+    const lines = project.lines ?? [];
+    if (lines.length) {
+      const box = document.createElement("div");
+      box.className = "workspace-lines";
+      for (const line of lines) {
+        const row = document.createElement("div");
+        row.className = `workspace-line${line.running ? " running" : ""}`;
+        const dot = document.createElement("span");
+        dot.className = "workspace-line-dot";
+        dot.setAttribute("aria-hidden", "true");
+        dot.textContent = line.running ? "●" : "○";
+        const name = document.createElement("span");
+        name.className = "workspace-line-name";
+        name.textContent = line.label || line.id;
+        const stage = document.createElement("span");
+        stage.className = "workspace-line-stage dim";
+        // 运行态才说阶段;空闲线报阶段只会让人误以为它在动。
+        stage.textContent = line.running ? (line.stage || t("运行中")) : t("空闲");
+        row.append(dot, name, stage);
+        if (line.branch) {
+          const branch = document.createElement("span");
+          branch.className = "workspace-line-branch dim";
+          branch.textContent = line.branch;
+          row.appendChild(branch);
+        }
+        box.appendChild(row);
+      }
+      card.appendChild(box);
+    }
     card.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
