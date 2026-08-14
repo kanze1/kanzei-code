@@ -3595,3 +3595,9 @@
 - 摘要: D-366 B2 验证:memory crate 129 测试全绿(128+新增 decision_weight 边界测试;含检索行为快照 top-k 对照、零采纳沉底/preference 豁免经 index、失步守护/shadow 过滤经候选集);grep 机械核验通过(decision_weight 定义与调用、score 加权只在 index.rs)
 - 关联: D-366
 - 收尾: 1786748359
+
+## T-1786748571 cargo test --workspace (D-366 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-366 关闭前全量:cargo test --workspace 全绿(kanzei-memory 129 + kanzei-tools 251 + 其余 crate;检索边界重构无回归)
+- 关联: D-366
+- 收尾: 1786748571

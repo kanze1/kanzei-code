@@ -4287,3 +4287,22 @@
 - observed_head: 0120eba434621b4a3881834020439aaf42a78c97
 - observed_worktree_hash: fnv1a64:4849abc10a3ea88b
 - recorded_at: 1786746391148
+
+## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [fixed] (medium)
+- refs: R-255 R-150 docs/design/memory_control_plane.md
+- 备注: 修复由 R-255 第三刀承载,本条独立登记是为了把"边界在哪"这个判断先固定下来,避免 R-255 执行时临时决定。
+- 复杂度: 中
+- 复现: 2026-08-15 dev@f09242c 读码:crates/kanzei-memory/src/memory/store.rs L960 的 MemoryStore::search 里实现了 BM25 + 状态加权 + 采纳率决策加权 + active 排序 + 命中追踪 + snippet;而 crates/kanzei-memory/src/memory/index.rs(1204 总/661 生产)L222-227 的 Tier1 又反过来调 MemoryStore::project(root).search(...),其文件头 L14 与 L222 的注释都写明"store.search 已做 bm25 + 采纳率决策加权 + active 排序"。也就是 Index 是检索门面,真正的排序住在 Store 里。
+- 影响: ①排序调权要改 store,但读代码的人会先去 index 找,认知落点与实现落点错位;②index 想换检索后端(向量/混合)时被 store 的 SQL 实现绑死;③这是 R-255 里最难迁出的一块——store.rs 2073 行生产码中检索是唯一有下游依赖的部分,边界不先定清楚,第三刀会卡住;④记忆研究要做召回实验时,policy(怎么排)与 storage(怎么存)改在同一个文件里,无法独立归因。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①BM25 与状态/采纳率加权的实现只出现在检索侧一处(机械核验 grep),store 不再持有 ranking;②index 与 store 的依赖方向单一,不存在 index 调 store 再由 store 做排序的回环;③同一组 query 在改动前后 top-k 命中集合一致(给出对照);④memory crate 全量绿。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-366
+- 批次: 3/3
+- 进展: B2 验证+B3 收口(2026-08-16):①grep 机械核验——decision_weight 定义(index.rs L34)与全部调用(L262)+score 加权(-bm25 L256/decision_weight L262/状态×0.5 L266)只在 index.rs;store.rs 无任何排序/加权调用(search_candidates 纯候选集+record_hits 观测)。②依赖方向核验——index 调 store(search_candidates/recall_profile/record_hits),store 生产代码无 index 引用(仅测试),classify_novelty 用候选集,无回环。③对照锚点:检索行为快照测试(改动前捕获 6 组 query top-k 集合固化为期望)重构后通过。④全量:cargo test -p kanzei-memory 129 绿(T-1786748359),cargo test --workspace 全绿(T-1786748396)。提交:d477a68(B1 源码)+37aa8d8(B1 tracker)+98c4dbe(B1 tests)+b88e8b5(B2 decision_weight 测试)+9ceb87e(B2 tests),已 push dev。验收四项全部达成,准备关闭。
+- observed_head: b88e8b5013f05ee2d64bb43ed6c3f62d742c267f
+- observed_worktree_hash: fnv1a64:779319680107149f
+- recorded_at: 1786748571435
+- 状态: fixed
+- 验收核验: ①grep 机械核验:decision_weight 定义(index.rs L34)与全部调用(L262)+score 加权(-bm25 L256/decision_weight L262/状态×0.5 L266)只在 index.rs;store.rs 无排序/加权调用。②依赖方向:index 调 store(search_candidates/recall_profile/record_hits),store 生产代码无 index 引用(仅测试),classify_novelty 用候选集+bm25 序,无回环。③对照:检索行为快照测试(index.rs tests 检索行为快照_改动前后topk命中集合一致)改动前捕获 6 组 query top-k 集合固化为期望,重构后通过。④全量:cargo test -p kanzei-memory 129 绿(T-1786748359)+cargo test --workspace 全绿(T-1786748571)。
