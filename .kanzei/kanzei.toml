@@ -166,3 +166,9 @@ effect = "allow"
 action = "process"
 resource = "process output"
 effect = "allow"
+
+# D-209 取活:autonomous 档位放行 work claim(引擎裁决 defect-first 队首 D-209)
+[[permissions.rules]]
+action = "work"
+resource = "write:claim"
+effect = "allow"
