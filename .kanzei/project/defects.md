@@ -85,7 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [open] (medium)
+## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [fixing] (medium)
 - refs: R-255 R-150 docs/design/memory_control_plane.md
 - 备注: 修复由 R-255 第三刀承载,本条独立登记是为了把"边界在哪"这个判断先固定下来,避免 R-255 执行时临时决定。
 - 复杂度: 中
@@ -95,6 +95,12 @@
 - 标签: 核心
 - 验收: ①BM25 与状态/采纳率加权的实现只出现在检索侧一处(机械核验 grep),store 不再持有 ranking;②index 与 store 的依赖方向单一,不存在 index 调 store 再由 store 做排序的回环;③同一组 query 在改动前后 top-k 命中集合一致(给出对照);④memory crate 全量绿。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-366
+- 批次: 1/3
+- 进展: B1 落地(2026-08-16):store.rs 的 search 收缩为 search_candidates(query,category,status)->Vec<SearchCandidate>(bm25 候选+status/shadow 过滤+一致性守护,snippet 已 unsegment,无任何加权/排序/limit 截断)+新增 record_hits(ids)(观测);decision_weight 定义移入 index.rs。index.rs 成为 ranking 唯一实现处:tier1 叠加采纳率/状态权重+排序截断,tier0 指纹物化,新增 pub search_entries(query,category,status,limit)->Vec<SearchHit>(统一入口+记 hits)、内部 lexical_hits(不记,hybrid 融合复用)、record_hits_for;trait search_lexical/search_hybrid/search_hybrid_with_timing 改走新通道,最终命中统一记 hits。消费方全部改走 index:tools.rs memory_search 工具用 search_entries,mod.rs FailureRecallPolicy.tier1 用 search_lexical,app/memory.rs memory_search_page 用 search_entries,kanzei-tools/read.rs 测试改 index;store.rs classify_novelty 用 search_candidates+bm25 序 take(3)(避免 store→index 回环;无召回历史时与旧决策排序 top3 一致)。测试:store.rs 存储语义断言改 search_candidates,ranking 断言(零采纳沉底/preference 豁免/hits 计数)改经 index;decision_weight 边界测试随定义迁 index.rs 待补。快照测试(检索行为快照_改动前后topk命中集合一致)在改动前捕获、已固化断言且通过=验收③对照成立。kanzei-memory 128 测试全绿,clippy --workspace -D warnings 绿,fmt 已格式化。下一步:B2 验证(补 decision_weight 边界测试到 index.rs+grep 机械核验①+对照证据整理+memory crate 全量复跑)。
+- observed_head: 8b64ef1faac25058b493ddf793be6da638d1fd61
+- observed_worktree_hash: fnv1a64:fa59de67817445e8
+- recorded_at: 1786748155673
 
 ## D-367 主根与工作树根的硬不变式只靠文件头注释站岗:类型上都是 PathBuf,传反了编译器不报错 [open] (medium)
 - refs: R-254 R-177 R-182 D-176 D-267
