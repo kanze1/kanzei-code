@@ -27,6 +27,18 @@ use super::store::SearchHit;
 use super::{FingerprintIndex, MemoryEntry, MemoryStore};
 use crate::embed::Embedder;
 
+/// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
+/// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
+/// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
+/// D-366:排序决策只属于检索侧,定义与调用都在本模块(store 不再持有 ranking)。
+pub fn decision_weight(recalled: u64, fetched: u64) -> f64 {
+    if recalled < 3 {
+        return 1.0;
+    }
+    let rate = fetched.min(recalled) as f64 / recalled as f64;
+    0.6 + 0.7 * rate
+}
+
 /// 一次检索请求:文本与指纹触发二选一(可同时携带)。
 #[derive(Debug, Clone, Default)]
 pub struct IndexQuery {
@@ -219,24 +231,113 @@ impl SqliteMemoryIndex {
             .collect()
     }
 
-    /// Tier1:BM25(store.search 已做 bm25 + 采纳率决策加权 + active 排序;R-150 起 hits 不参与排序)。
-    /// R-194:全局记忆废弃,只检索项目 store。
-    fn tier1(&self, query: &str, limit: usize) -> Vec<IndexHit> {
-        let mut hits: Vec<IndexHit> = Vec::new();
-        if let Ok(rows) =
-            MemoryStore::project(&self.project_root).search(query, None, Some("active"), limit)
-        {
-            for SearchHit { entry, score, .. } in rows {
-                hits.push(IndexHit::from_entry(&entry, score));
+    /// Tier1:BM25 候选 + 决策排序(ranking 唯一实现处,D-366)。
+    /// store.search_candidates 只给 bm25 相关度与候选,采纳率/状态加权、排序截断
+    /// 都在这里;R-150 起 hits 不参与排序。R-194:全局记忆废弃,只检索项目 store。
+    /// 返回完整 SearchHit(snippet/path/hits 来自存储候选)。
+    fn tier1(
+        &self,
+        query: &str,
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Vec<SearchHit> {
+        let store = MemoryStore::project(&self.project_root);
+        let Ok(cands) = store.search_candidates(query, category, status) else {
+            return Vec::new();
+        };
+        let recall_stats = store.recall_profile();
+        let mut out: Vec<SearchHit> = Vec::new();
+        for c in cands {
+            // bm25 越小越相关(fts5 返回负值);取负得正相关度。
+            // R-150:退役 hits 乘子——搜索命中是自增强循环(常被搜到→排更前→更常被搜到),
+            // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
+            // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
+            let mut score = -c.bm25;
+            // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
+            // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
+            // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
+            if c.entry.category != "preference" {
+                if let Some(&(recalled, fetched)) = recall_stats.get(&c.entry.id) {
+                    score *= decision_weight(recalled, fetched);
+                }
             }
+            if c.entry.status != "active" {
+                score *= 0.5;
+            }
+            out.push(SearchHit {
+                entry: c.entry,
+                path: c.path,
+                snippet: c.snippet,
+                hits: c.hits,
+                score,
+            });
         }
-        hits.sort_by(|a, b| {
+        out.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        hits.truncate(limit);
-        hits
+        out.truncate(limit);
+        out
+    }
+
+    /// 内部 lexical 通道(不记 hits):Tier0 指纹优先,miss 走 BM25 候选 + 决策排序。
+    /// 供公开入口 search_entries(统一记 hits)与 hybrid 融合(融合后统一记)复用,
+    /// 避免同一轮检索的中间通道重复记录命中观测。
+    fn lexical_hits(
+        &self,
+        query: &IndexQuery,
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Vec<SearchHit> {
+        if let Some(fp_key) = &query.fingerprint {
+            let hits = self.tier0(fp_key);
+            if !hits.is_empty() {
+                // Tier0 命中:用条目快照物化(无 snippet/path——指纹命中是精确定位)。
+                return hits
+                    .into_iter()
+                    .filter_map(|h| {
+                        self.entries.get(&h.id).map(|e| SearchHit {
+                            entry: e.clone(),
+                            path: PathBuf::new(),
+                            snippet: String::new(),
+                            hits: 0,
+                            score: h.score,
+                        })
+                    })
+                    .collect();
+            }
+        }
+        if query.text.trim().is_empty() {
+            return Vec::new();
+        }
+        self.tier1(&query.text, category, status, limit)
+    }
+
+    /// 统一检索入口(lexical 决策排序,记命中观测):Tier0 指纹优先,miss 走 BM25
+    /// 候选 + 决策排序。category/status 过滤与 MemoryStore 候选语义一致;返回完整
+    /// SearchHit。D-366:消费方(tools/桌面/失败召回)一律经此入口,不再直调 store.search。
+    pub fn search_entries(
+        &self,
+        query: &IndexQuery,
+        category: Option<&str>,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Vec<SearchHit> {
+        let out = self.lexical_hits(query, category, status, limit);
+        self.record_hits_for(&out);
+        out
+    }
+
+    /// 检索副作用(观测,R-125):对最终命中的条目 hits+1。纯探测/内部通道不记。
+    fn record_hits_for(&self, hits: &[SearchHit]) {
+        if hits.is_empty() {
+            return;
+        }
+        let store = MemoryStore::project(&self.project_root);
+        store.record_hits(&hits.iter().map(|h| h.entry.id.clone()).collect::<Vec<_>>());
     }
 
     /// 从向量库读全部 (id, 向量),brute-force 余弦检索(R-164 内容③)。
@@ -312,17 +413,11 @@ impl SqliteMemoryIndex {
 
 impl MemoryIndex for SqliteMemoryIndex {
     fn search_lexical(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
-        // Tier0 优先:指纹命中即返回,不往下查(与 FailureRecallPolicy 同语义)。
-        if let Some(fp_key) = &query.fingerprint {
-            let hits = self.tier0(fp_key);
-            if !hits.is_empty() {
-                return hits;
-            }
-        }
-        if query.text.trim().is_empty() {
-            return Vec::new();
-        }
-        self.tier1(&query.text, limit)
+        // D-366:统一入口(search_entries 内部完成决策排序并记命中观测)。
+        self.search_entries(query, None, Some("active"), limit)
+            .into_iter()
+            .map(|h| IndexHit::from_entry(&h.entry, h.score))
+            .collect()
     }
 
     fn search_dense(&self, query: &IndexQuery, limit: usize) -> Vec<IndexHit> {
@@ -339,19 +434,25 @@ impl MemoryIndex for SqliteMemoryIndex {
         const RRF_K: f64 = 60.0;
         const LEXICAL_TOP: usize = 10;
         const DENSE_TOP: usize = 10;
-        let lexical = self.search_lexical(query, LEXICAL_TOP);
+        // D-366:hybrid 内部走不记 hits 的 lexical 通道,融合后统一记(避免重复观测)。
+        let lexical = self.lexical_hits(query, None, Some("active"), LEXICAL_TOP);
         let dense = self.search_dense(query, DENSE_TOP);
         if dense.is_empty() {
             // dense 通道配置了但没结果(空表/embedding 失败)→ 退化为 lexical。
-            return lexical;
+            // 这是公开入口的最终结果:记 hits 并物化为 IndexHit。
+            self.record_hits_for(&lexical);
+            return lexical
+                .into_iter()
+                .map(|h| IndexHit::from_entry(&h.entry, h.score))
+                .collect();
         }
         let mut rrf: std::collections::HashMap<String, (f64, IndexHit)> =
             std::collections::HashMap::new();
         // rank 从 1 开始;RRF score = Σ 1/(k + rank)。
         for (rank, hit) in lexical.into_iter().enumerate() {
             let entry = rrf
-                .entry(hit.id.clone())
-                .or_insert_with(|| (0.0, hit.clone()));
+                .entry(hit.entry.id.clone())
+                .or_insert_with(|| (0.0, IndexHit::from_entry(&hit.entry, 0.0)));
             entry.0 += 1.0 / (RRF_K + (rank as f64 + 1.0));
         }
         for (rank, hit) in dense.into_iter().enumerate() {
@@ -373,6 +474,9 @@ impl MemoryIndex for SqliteMemoryIndex {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         fused.truncate(limit);
+        // 最终命中记 hits(R-125 观测,hybrid 记融合结果而非中间通道)。
+        let store = MemoryStore::project(&self.project_root);
+        store.record_hits(&fused.iter().map(|h| h.id.clone()).collect::<Vec<_>>());
         fused
     }
 
@@ -527,12 +631,13 @@ impl SqliteMemoryIndex {
             return (hits, timing);
         };
         // 与 search_hybrid 相同的 RRF 融合,但记录各段耗时。
+        // D-366:内部走不记 hits 的 lexical 通道,最终结果统一记。
         const RRF_K: f64 = 60.0;
         const LEXICAL_TOP: usize = 10;
         const DENSE_TOP: usize = 10;
 
         let started = std::time::Instant::now();
-        let lexical = self.search_lexical(query, LEXICAL_TOP);
+        let lexical = self.lexical_hits(query, None, Some("active"), LEXICAL_TOP);
         timing.lexical_ms = started.elapsed().as_millis() as u64;
 
         // query 向量化(embed 段)。
@@ -558,14 +663,20 @@ impl SqliteMemoryIndex {
         timing.vector_ms = vec_started.elapsed().as_millis() as u64;
 
         if dense.is_empty() {
-            return (lexical, timing);
+            // dense 无结果 → 退化为 lexical(公开入口最终结果:记 hits 并物化)。
+            self.record_hits_for(&lexical);
+            let out = lexical
+                .into_iter()
+                .map(|h| IndexHit::from_entry(&h.entry, h.score))
+                .collect();
+            return (out, timing);
         }
         let mut rrf: std::collections::HashMap<String, (f64, IndexHit)> =
             std::collections::HashMap::new();
         for (rank, hit) in lexical.into_iter().enumerate() {
             let entry = rrf
-                .entry(hit.id.clone())
-                .or_insert_with(|| (0.0, hit.clone()));
+                .entry(hit.entry.id.clone())
+                .or_insert_with(|| (0.0, IndexHit::from_entry(&hit.entry, 0.0)));
             entry.0 += 1.0 / (RRF_K + (rank as f64 + 1.0));
         }
         for (rank, hit) in dense.into_iter().enumerate() {
@@ -587,6 +698,9 @@ impl SqliteMemoryIndex {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         fused.truncate(limit);
+        // 最终命中记 hits(R-125 观测)。
+        let store = MemoryStore::project(&self.project_root);
+        store.record_hits(&fused.iter().map(|h| h.id.clone()).collect::<Vec<_>>());
         (fused, timing)
     }
 
@@ -1199,6 +1313,69 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-366 验收③对照锚点:同一组 query 在检索边界重构前后 top-k 命中集合一致。
+    /// 期望值来自 2026-08-16 改动前(store.search 持有 ranking 时)的实际运行快照:
+    /// "edit old_string"→[M-001];"cargo build"→[M-002];"git merge 冲突"→[M-003,M-004];
+    /// "代理"→[M-004];"memory_note"→[M-005];"完全不存在 的 词"→[M-005]("的"单字 FTS 命中)。
+    #[test]
+    fn 检索行为快照_改动前后topk命中集合一致() {
+        let (root, store) = temp_root();
+        let _ = add(
+            &store,
+            "sop",
+            "edit old_string 找不到时先 read 重建",
+            "工具 edit 失败 old_string not found 时,先 read 目标文件重建 old_string 再重试",
+            "[fp:edit|old_string not found]\n先 read 文件,确认实际内容后再 edit。",
+        );
+        let _ = add(
+            &store,
+            "fact",
+            "cargo build 依赖缓存",
+            "cargo build 偶发网络错误,重试即可",
+            "cargo build 依赖下载失败时清理缓存后重试。",
+        );
+        let _ = add(
+            &store,
+            "sop",
+            "git merge 冲突三方合并",
+            "git merge 冲突时先看三方,再决定保留哪边",
+            "git merge 冲突解决:ours/theirs 与三方合并。",
+        );
+        let _ = add(
+            &store,
+            "fact",
+            "HTTPS_PROXY 代理设置",
+            "git push 与 GitHub 访问需要本地代理",
+            "PowerShell 里先设置 HTTPS_PROXY 代理再执行 git push。",
+        );
+        let _ = add(
+            &store,
+            "sop",
+            "memory_note 用法与 refs",
+            "memory_note 投递草稿到记忆收件箱,refs 必须真实存在",
+            "memory_note 的 refs 引用必须指向真实条目。",
+        );
+        let index = SqliteMemoryIndex::new(&root);
+        // (query, k, 期望命中 id 集合)——顺序不参与断言(验收③以集合为准)。
+        let cases: Vec<(&str, usize, &[&str])> = vec![
+            ("edit old_string", 3, &["M-001"]),
+            ("cargo build", 3, &["M-002"]),
+            ("git merge 冲突", 3, &["M-003", "M-004"]),
+            ("代理", 3, &["M-004"]),
+            ("memory_note", 3, &["M-005"]),
+            ("完全不存在 的 词", 3, &["M-005"]),
+        ];
+        for (q, k, want_ids) in cases {
+            let hits = index.search_lexical(&IndexQuery::text(q), k);
+            let got: std::collections::HashSet<String> =
+                hits.iter().map(|h| h.id.clone()).collect();
+            let want: std::collections::HashSet<String> =
+                want_ids.iter().map(|s| s.to_string()).collect();
+            assert_eq!(got, want, "query {q:?} top{k} 命中集合与改动前快照漂移");
+        }
         std::fs::remove_dir_all(&root).ok();
     }
 }

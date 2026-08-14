@@ -229,18 +229,14 @@ pub(crate) fn memory_search_page(project_dir: String, query: String) -> serde_js
     let root = kanzei_harness::config::discover_project_root(&cwd).unwrap_or(cwd);
     // R-161 桌面端同源:与 memory_search 工具/CLI 开跑预检索走同一漏斗口径,
     // 命中即记 RETRIEVED(桌面搜索页只展示、不进 LLM 上下文,故 injected=false)。
-    let mut all_hits: Vec<kanzei_tools::memory::SearchHit> = Vec::new();
-    for store in memory_stores_for(&project_dir) {
-        if let Ok(found) = store.search(&query, None, None, 8) {
-            all_hits.extend(found);
-        }
-    }
-    all_hits.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    all_hits.truncate(8);
+    // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
+    let index = kanzei_tools::memory::SqliteMemoryIndex::new(&root);
+    let all_hits: Vec<kanzei_tools::memory::SearchHit> = index.search_entries(
+        &kanzei_tools::memory::IndexQuery::text(&query),
+        None,
+        None,
+        8,
+    );
     let out: Vec<serde_json::Value> = all_hits
         .iter()
         .map(|h| {

@@ -463,7 +463,7 @@ fn id_number(id: &str) -> u64 {
 /// 检索分级(设计 §3.2,超时降级不阻塞):
 /// - Tier0 fingerprint 精确匹配:内存 FingerprintIndex(p95<5ms)。指纹 = `[fp:tool|kind]`
 ///   或条目正文 `[fp:...]` 标记;命中即返回,不往下查。
-/// - Tier1 BM25:miss 时用错误原文+目标构 query 走 store.search(p95<10ms)。
+/// - Tier1 BM25:miss 时用错误原文+目标构 query 走统一检索门面 SqliteMemoryIndex::search_lexical(p95<10ms)。
 /// - ReRetrieve:同 (tool,kind) 本轮失败 ≥2 次时换 query(加目标文件与意图词),
 ///   禁止把上一次的原 top-k 原样重塞。
 /// - 超时降级:Tier1 若超预算直接返回空(不阻塞主循环)。
@@ -541,21 +541,19 @@ impl FailureRecallPolicy {
         }
         let mut hits = Vec::new();
         // R-194:全局记忆废弃,失败召回 Tier1 只检索项目 store。
-        let store = MemoryStore::project(&self.project_root);
+        // D-366:检索走统一门面(index.search_lexical 完成决策排序,ranking 只在此处)。
         if started.elapsed().as_millis() > TIER1_BUDGET_MS {
             return Vec::new(); // 超时降级:不阻塞主循环。
         }
-        let Ok(rows) = store.search(&query, None, Some("active"), 3) else {
-            return hits;
-        };
-        for row in rows {
-            if self.entries.contains_key(&row.entry.id) {
+        let index = SqliteMemoryIndex::new(&self.project_root);
+        for hit in index.search_lexical(&IndexQuery::text(&query), 3) {
+            if self.entries.contains_key(&hit.id) {
                 hits.push(kanzei_core::RecallHit {
-                    id: row.entry.id.clone(),
-                    category: row.entry.category.clone(),
-                    action: row.entry.description.clone(),
-                    status: row.entry.status.clone(),
-                    source: format!("memory_search:{}", row.entry.id),
+                    id: hit.id.clone(),
+                    category: hit.category.clone(),
+                    action: hit.action.clone(),
+                    status: hit.status.clone(),
+                    source: format!("memory_search:{}", hit.id),
                     policy_action: if trigger.failure_count >= 2 {
                         "reretrieve".into()
                     } else {
@@ -1799,7 +1797,9 @@ mod tests {
             AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
-        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        // D-366:决策排序在检索门面,经 index 取命中。
+        let index = SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         let recall_id = store.record_recall("要发版", &hits, 256);
         let (path, _) = store
             .load_all()
@@ -2285,10 +2285,11 @@ source: user
             .unwrap();
         let eid = crate::memory::seed_episode(&root, "ses");
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
-        // Tier1 通道的功能验证直接走 store.search(无 30ms 预算干扰)——预算降级是
+        // Tier1 通道的功能验证直接走存储候选集(无 30ms 预算干扰)——预算降级是
         // 运行期保护,不该让测试在共享繁忙环境断言"必然命中"而偶发红(D-293)。
+        // D-366:候选集访问不排序,断言只查命中集合。
         let rows = store
-            .search("cargo test 需要 HTTPS_PROXY 代理", None, Some("active"), 3)
+            .search_candidates("cargo test 需要 HTTPS_PROXY 代理", None, Some("active"))
             .unwrap();
         assert!(
             !rows.is_empty(),

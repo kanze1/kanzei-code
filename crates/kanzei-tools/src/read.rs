@@ -348,7 +348,14 @@ mod tests {
             crate::memory::AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
-        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        // D-366:决策排序在检索门面(kanzei_tools::memory = kanzei_memory re-export)。
+        let index = crate::memory::SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(
+            &crate::memory::IndexQuery::text("发版"),
+            None,
+            Some("active"),
+            5,
+        );
         assert!(!hits.is_empty());
         // 制造一次召回:此时 fetched=0(召回≠采纳)。
         let recall_id = store.record_recall("这轮要发版", &hits, 128);

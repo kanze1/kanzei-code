@@ -6,7 +6,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use super::{MemoryStore, SearchHit};
+use super::{IndexQuery, MemoryStore, SearchHit, SqliteMemoryIndex};
 
 fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
     let mut out = Vec::new();
@@ -96,19 +96,14 @@ impl Tool for MemorySearchTool {
             }
         };
         let limit = input.limit.unwrap_or(5).clamp(1, 10);
-        let mut all_hits: Vec<SearchHit> = Vec::new();
-        for store in stores_for(ctx, scope) {
-            match store.search(&input.query, input.category.as_deref(), status, limit) {
-                Ok(hits) => all_hits.extend(hits),
-                Err(e) => return ToolOutput::error(format!("memory search failed: {e}")),
-            }
-        }
-        all_hits.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        all_hits.truncate(limit);
+        // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
+        let index = SqliteMemoryIndex::new(&ctx.project_root);
+        let all_hits: Vec<SearchHit> = index.search_entries(
+            &IndexQuery::text(&input.query),
+            input.category.as_deref(),
+            status,
+            limit,
+        );
         super::record_memory_search_telemetry(
             &ctx.project_root,
             &input.query,
@@ -469,7 +464,9 @@ mod tests {
             crate::memory::AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
-        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        // D-366:决策排序在检索门面,经 index 取命中。
+        let index = SqliteMemoryIndex::new(&ctx.project_root);
+        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert!(!hits.is_empty());
         for _ in 0..3 {
             store.record_recall("要发版了", &hits, 128);

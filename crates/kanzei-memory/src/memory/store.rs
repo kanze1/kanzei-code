@@ -21,6 +21,18 @@ pub struct SearchHit {
     pub score: f64,
 }
 
+/// FTS 候选(存储侧原始命中):bm25 相关度随候选返回,不含任何决策加权。
+/// 排序/加权决策由检索门面(SqliteMemoryIndex)统一实现(D-366 边界切净)。
+#[derive(Debug, Clone)]
+pub struct SearchCandidate {
+    pub entry: MemoryEntry,
+    pub path: PathBuf,
+    pub snippet: String,
+    pub hits: u64,
+    /// FTS5 bm25 原始相关度(负值,越小越相关)。检索侧取负并叠加决策权重。
+    pub bm25: f64,
+}
+
 /// 一次开跑预检索的完整明细(R-125):召回了什么、为什么召回、注入了多少。
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct RecallRound {
@@ -100,14 +112,7 @@ impl Novelty {
 /// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
 /// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
 /// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
-pub fn decision_weight(recalled: u64, fetched: u64) -> f64 {
-    if recalled < 3 {
-        return 1.0;
-    }
-    let rate = fetched.min(recalled) as f64 / recalled as f64;
-    0.6 + 0.7 * rate
-}
-
+/// D-366:排序决策属于检索门面,定义在 index.rs(此处不再使用)。
 pub struct MemoryStore {
     pub scope: MemoryScope,
     pub root: PathBuf,
@@ -955,23 +960,22 @@ impl MemoryStore {
         rounds
     }
 
-    /// FTS 检索:bm25 取 topN 后按采纳率决策权重与 active 加权在 Rust 侧重排。
-    /// 命中仍计 hits(R-125 观测),但 R-150 起 hits 不再参与排序(自增强退役)。
-    pub fn search(
+    /// FTS 候选集访问(存储侧):bm25 取候选 + status/shadow 过滤,不做任何
+    /// 排序/加权决策——ranking 只属于检索门面(SqliteMemoryIndex,D-366)。
+    /// 一致性守护保留在热路径:FTS 是派生物,失步自动重建(实证:2026-08-13
+    /// 清理事故后 M-058~062 对 BM25 完全不可见;id 集合比对只读目录名)。
+    /// 返回按 bm25 升序(FTS5 负值,越小越相关)的完整候选,由检索侧截断。
+    pub fn search_candidates(
         &self,
         query: &str,
         category: Option<&str>,
         status: Option<&str>,
-        limit: usize,
-    ) -> anyhow::Result<Vec<SearchHit>> {
+    ) -> anyhow::Result<Vec<SearchCandidate>> {
         let match_expr = fts_query(query);
         if match_expr.is_empty() {
             return Ok(Vec::new());
         }
         let mut conn = self.open_db()?;
-        // 索引一致性守护:FTS 是派生物,手动清理/外部写入会绕过写路径的增量维护,
-        // 失步后新条目检索不可见、已归档条目还在索引里(实证:2026-08-13 清理事故后
-        // M-058~062 对 BM25 完全不可见)。id 集合比对只读目录名,不读文件内容。
         if self.fts_desynced(&conn) {
             drop(conn);
             self.refresh_derived()?;
@@ -999,8 +1003,7 @@ impl MemoryStore {
                 .collect::<Result<_, _>>()?,
         };
         let entries = self.load_all();
-        let recall_stats = self.recall_profile();
-        let mut hits_out: Vec<SearchHit> = Vec::new();
+        let mut out: Vec<SearchCandidate> = Vec::new();
         for (id, snippet, bm25) in rows {
             let Some((path, entry)) = entries.iter().find(|(_, e)| e.id == id) else {
                 continue; // 索引落后于文件:integrity_issues 会报,检索先跳过。
@@ -1022,48 +1025,30 @@ impl MemoryStore {
                     |r| r.get(0),
                 )
                 .unwrap_or(0);
-            // bm25 越小越相关(fts5 返回负值);取负得正相关度。
-            // R-150:退役 hits 乘子——搜索命中是自增强循环(常被搜到→排更前→更常被搜到),
-            // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
-            // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
-            let mut score = -bm25;
-            // R-149:反复被召回却从不被采纳的条目 = 语义显著但决策无关,温和沉底。
-            // preference 豁免:其正文全文常驻(STANDING DIRECTIVES),模型永远不需要
-            // 再拉正文,采纳率结构性偏低、无意义(实证:M-002 召回 22 采纳 4)。
-            if entry.category != "preference" {
-                if let Some(&(recalled, fetched)) = recall_stats.get(&id) {
-                    score *= decision_weight(recalled, fetched);
-                }
-            }
-            if entry.status != "active" {
-                score *= 0.5;
-            }
-            hits_out.push(SearchHit {
+            out.push(SearchCandidate {
                 entry: entry.clone(),
                 path: path.clone(),
                 snippet: unsegment_cjk(&snippet),
                 hits: hit_count,
-                score,
+                bm25,
             });
         }
-        hits_out.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        hits_out.truncate(limit);
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        for hit in &hits_out {
-            conn.execute(
+        Ok(out)
+    }
+
+    /// 检索命中追踪(观测,R-125):对最终命中的条目 hits+1。
+    /// hits 不参与排序(R-150 自增强退役),只作效果画像;由检索门面在
+    /// 决策排序完成后调用(纯探测不记,避免污染观测)。
+    pub fn record_hits(&self, ids: &[String]) {
+        let Ok(conn) = self.open_db() else { return };
+        let now = now_ms();
+        for id in ids {
+            let _ = conn.execute(
                 "INSERT INTO memory_hits(id, hits, last_hit_at) VALUES (?1, 1, ?2)
                  ON CONFLICT(id) DO UPDATE SET hits = hits + 1, last_hit_at = ?2",
-                params![hit.entry.id, now_ms],
-            )?;
+                params![id, now],
+            );
         }
-        Ok(hits_out)
     }
 
     /// R-165 批2 novelty gate 三档:明显新 → PROPOSE、明显重复 → NOOP、
@@ -1100,8 +1085,10 @@ impl MemoryStore {
             }
         }
         for scope in &scopes {
-            if let Ok(hits) = scope.search(&probe, None, Some("active"), 3) {
-                for hit in hits {
+            // D-366:novelty 探测用存储侧候选集(不排序),取 bm25 序 top3——无召回
+            // 历史时 decision_weight=1.0,与旧 search 的决策排序 top3 完全一致。
+            if let Ok(cands) = scope.search_candidates(&probe, None, Some("active")) {
+                for hit in cands.into_iter().take(3) {
                     // R-216:只有「与新增标题语义高度重合」的候选才算 Uncertain——
                     // FTS 命中但标题包含度低于去重阈值(0.55)的是相关但不同的新知识,
                     // 不能拦(否则合法新增被误伤)。英文改写 M-044 类:改写标题与原标题
@@ -2074,6 +2061,8 @@ fn flush_cjk(cjk: &mut Vec<char>, terms: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // D-366:检索排序决策在 index,测试里需要"决策排序后 top-k"语义时经检索门面。
+    use crate::memory::index::{IndexQuery, SqliteMemoryIndex};
 
     fn temp_store() -> (PathBuf, MemoryStore) {
         let dir = std::env::temp_dir().join(format!(
@@ -2122,14 +2111,18 @@ mod tests {
             "---\nid: M-099\nscope: project\ncategory: sop\ntitle: 外部恢复条目 quasar 约束\ndescription: 外部写入的检索钩子 quasar\nstatus: active\ncreated: 2026-08-13\nupdated: 2026-08-13\nsource: test\n---\n\n正文 quasar",
         )
         .unwrap();
-        let rows = store.search("quasar", None, Some("active"), 5).unwrap();
+        let rows = store
+            .search_candidates("quasar", None, Some("active"))
+            .unwrap();
         assert!(
             rows.iter().any(|r| r.entry.id == "M-099"),
             "失步守护必须重建索引,外部写入的条目才可检索: {rows:?}"
         );
         // 反向:外部删除(归档)后,索引里的幽灵条目不再命中。
         std::fs::remove_file(store.root.join("M-099-外部恢复条目.md")).unwrap();
-        let rows = store.search("quasar", None, Some("active"), 5).unwrap();
+        let rows = store
+            .search_candidates("quasar", None, Some("active"))
+            .unwrap();
         assert!(
             rows.iter().all(|r| r.entry.id != "M-099"),
             "外部删除后幽灵条目不得再命中: {rows:?}"
@@ -2219,7 +2212,9 @@ mod tests {
             "发版发布安装更新相关必读",
             "package.ps1 -Publish 后静默装 setup",
         );
-        let hits = store.search("发版 更新", None, Some("active"), 5).unwrap();
+        // D-366:排序决策在检索门面,这里经 index 取决策排序后的 top-k。
+        let index = SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5);
         assert_eq!(
             hits[0].entry.id,
             "M-002",
@@ -2231,14 +2226,14 @@ mod tests {
             "snippet 高亮: {}",
             hits[0].snippet
         );
-        // 命中计数生效
-        let again = store.search("发版", None, None, 5).unwrap();
+        // 命中计数生效(search_entries 在决策排序后记 record_hits)
+        let again = index.search_entries(&IndexQuery::text("发版"), None, None, 5);
         assert!(again[0].hits >= 1);
         // 删库重建:真源是文件
         drop(again);
         std::fs::remove_file(store.db_path()).unwrap();
         store.refresh_derived().unwrap();
-        let rebuilt = store.search("CRLF", None, None, 5).unwrap();
+        let rebuilt = index.search_entries(&IndexQuery::text("CRLF"), None, None, 5);
         assert_eq!(rebuilt[0].entry.id, "M-001");
         std::fs::remove_dir_all(dir).ok();
     }
@@ -2260,7 +2255,8 @@ mod tests {
             "发版发布安装更新必读",
             "package.ps1 -Publish",
         );
-        let hits = store.search("发版 更新", None, Some("active"), 5).unwrap();
+        let index = SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(&IndexQuery::text("发版 更新"), None, Some("active"), 5);
         assert!(!hits.is_empty());
 
         let recall_id = store.record_recall("这轮要发版", &hits, 512);
@@ -2323,8 +2319,10 @@ mod tests {
         assert_eq!(updated.status, "deprecated"); // R-165:stale 兼容映射 deprecated
         assert_eq!(updated.body, "V2 修订");
         assert_eq!(updated.created, e.created);
-        // stale 默认不出现在 active 过滤下
-        let active_only = store.search("结论", None, Some("active"), 5).unwrap();
+        // stale 默认不出现在 active 过滤下(存储侧候选集过滤语义)
+        let active_only = store
+            .search_candidates("结论", None, Some("active"))
+            .unwrap();
         assert!(active_only.is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
@@ -2680,12 +2678,7 @@ mod tests {
             "发布版本的操作步骤正文",
         );
         let rows = store
-            .search(
-                &intent_query("帮我把这一批发版出去"),
-                None,
-                Some("active"),
-                5,
-            )
+            .search_candidates(&intent_query("帮我把这一批发版出去"), None, Some("active"))
             .unwrap();
         assert!(
             rows.iter().any(|r| r.entry.id == e.id),
@@ -2730,7 +2723,7 @@ mod tests {
         assert!(store.load_all().iter().all(|(_, e)| e.id != entry.id));
         assert!(store.load_archived_ids().contains(&entry.id));
         // 默认检索(search 无 status 过滤或 active 过滤)都不可见。
-        let hits = store.search("将被推翻", None, None, 5).unwrap();
+        let hits = store.search_candidates("将被推翻", None, None).unwrap();
         assert!(
             hits.iter().all(|h| h.entry.id != entry.id),
             "归档条目不得被检索"
@@ -2787,18 +2780,22 @@ mod tests {
         let shadowed = store.to_shadow(&candidate.id).unwrap();
         assert_eq!(shadowed.status, "shadow");
         // 默认检索与 active 过滤都不可见(不注入生产)。
-        let hits_default = store.search("影子评估", None, None, 5).unwrap();
+        let hits_default = store.search_candidates("影子评估", None, None).unwrap();
         assert!(
             hits_default.iter().all(|h| h.entry.id != candidate.id),
             "shadow 不得进默认检索"
         );
-        let hits_active = store.search("影子评估", None, Some("active"), 5).unwrap();
+        let hits_active = store
+            .search_candidates("影子评估", None, Some("active"))
+            .unwrap();
         assert!(
             hits_active.iter().all(|h| h.entry.id != candidate.id),
             "shadow 不得冒充 active"
         );
         // 显式查 shadow 可见(评估器通道)。
-        let hits_shadow = store.search("影子评估", None, Some("shadow"), 5).unwrap();
+        let hits_shadow = store
+            .search_candidates("影子评估", None, Some("shadow"))
+            .unwrap();
         assert!(
             hits_shadow.iter().any(|h| h.entry.id == candidate.id),
             "显式查 shadow 应可见"
@@ -2816,7 +2813,7 @@ mod tests {
             .unwrap();
         assert_eq!(promoted.status, "active");
         // 进 active 后默认检索可见。
-        let hits_after = store.search("影子评估", None, None, 5).unwrap();
+        let hits_after = store.search_candidates("影子评估", None, None).unwrap();
         assert!(
             hits_after.iter().any(|h| h.entry.id == candidate.id),
             "active 后应可检索"
@@ -3709,19 +3706,6 @@ mod tests {
     }
 
     #[test]
-    fn decision_weight_边界与单调性() {
-        // 样本不足(召回<3)不动分。
-        assert_eq!(decision_weight(0, 0), 1.0);
-        assert_eq!(decision_weight(2, 0), 1.0);
-        // 零采纳沉到下限 0.6,全采纳升到 1.3,中间线性。
-        assert!((decision_weight(3, 0) - 0.6).abs() < 1e-9);
-        assert!((decision_weight(4, 4) - 1.3).abs() < 1e-9);
-        assert!((decision_weight(10, 5) - 0.95).abs() < 1e-9);
-        // 脏数据防御:fetched > recalled 按全采纳截断。
-        assert!((decision_weight(3, 9) - 1.3).abs() < 1e-9);
-    }
-
-    #[test]
     fn 零采纳条目在检索里沉底_高采纳浮上() {
         let (dir, store) = temp_store();
         // 两条在 bm25 上等价的条目(标题仅一字之差,description/body 同构)。
@@ -3739,7 +3723,9 @@ mod tests {
             "发版发布安装更新必读",
             "正文等长条目二",
         );
-        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        // D-366:排序决策在检索门面,经 index 取决策排序结果。
+        let index = SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(hits.len(), 2);
         let (a, b) = ("M-001".to_string(), "M-002".to_string());
         // 各召回 3 轮:甲从未被拉正文,乙每轮都被拉。recall_id 以毫秒为键,轮间隔 2ms。
@@ -3752,7 +3738,7 @@ mod tests {
         assert_eq!(profile.get(&a), Some(&(3, 0)), "{profile:?}");
         assert_eq!(profile.get(&b), Some(&(3, 3)), "{profile:?}");
         // 乙(×1.3)必须压过甲(×0.6),无论 bm25 平局时的原始顺序。
-        let ranked = store.search("发版", None, Some("active"), 5).unwrap();
+        let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(
             ranked[0].entry.id,
             b,
@@ -3847,14 +3833,16 @@ mod tests {
             "发版发布安装更新必读",
             "正文等长条目二",
         );
-        let hits = store.search("发版", None, Some("active"), 5).unwrap();
+        // D-366:排序决策在检索门面,经 index 取决策排序结果。
+        let index = SqliteMemoryIndex::new(&dir);
+        let hits = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(hits.len(), 2);
         for _ in 0..3 {
             store.record_recall("要发版了", &hits, 256);
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
         // 两条同为召回 3/采纳 0:fact 吃 ×0.6,preference 保持 ×1.0 → 严格高分在前。
-        let ranked = store.search("发版", None, Some("active"), 5).unwrap();
+        let ranked = index.search_entries(&IndexQuery::text("发版"), None, Some("active"), 5);
         assert_eq!(
             ranked[0].entry.category,
             "preference",
