@@ -181,11 +181,11 @@
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-240
-- 批次: 0/3
-- 进展: 2026-08-16 认领。侦察:episodes 表已存每轮 input_tokens/output_tokens/steps/tools_json/context_json/metrics_json/prompt_head/provider/model(kanzei-core store/episodes.rs:12-25,双端 append_episode 落库);已有 run_metrics 命令(kanzei-app run.rs:2865)读 recent_episodes 返回 rounds;前端 13-memory.js refreshMetrics/renderMetrics 渲染每轮指标面板(R-099 口径)。缺口:无「按需求类型(R-/D-)与复杂度(小/中/大)聚合」视图——prompt_head 里含需求 ID(R-xxx),但没提取也没关联 requirements.md 的复杂度/标签。批次:1=后端 run_metrics_by_category 命令(prompt_head 提取需求 ID → 解析 requirements.md 复杂度/类型 → 按 (kind, complexity) 聚合 count/tokens/steps/duration)+ 单测;2=前端 metrics 面板加分类聚合区块(13-memory.js/index.html/i18n)+ 冒烟;3=全量 + 收口。
-- observed_head: fc0c559d3a92346d8dfbe50c8aa46b84dfa02dde
+- 批次: 1/3
+- 进展: 批1 完成(2026-08-16,提交 cee6af1)。后端 run_metrics_by_category 命令(注册 invoke_handler):①extract_ticket_id 从 prompt_head 提取 R-/D- ID;②ticket_complexity 解析 requirements.md/defects.md 的 `## ID` 段落 `- 复杂度:` 行(小/中/大);③aggregate_run_metrics 纯函数按 (kind, complexity) 聚合 count/sum·avg input·output·steps + uncategorized;④tauri 命令读 recent_episodes(limit 默认 200)返回 groups。单测 3 个(提取 ID 场景/ticket_complexity 文档解析/聚合分组)。验证:kanzei-app 163 passed(T-1786738940);fmt/clippy 绿;push 已到 origin/dev。批2:前端 13-memory.js 指标面板加分类聚合区块(invoke run_metrics_by_category,渲染 groups 表格)+ i18n + 冒烟;批3:全量 + 收口。
+- observed_head: cee6af1dd6e91e52158362d787d0f8e7a5826e0a
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786738700236
+- recorded_at: 1786738973359
 
 ## R-242 会话投影真源切换与分段清空恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
@@ -301,7 +301,7 @@
 - 优先级: P2
 
 ## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [todo]
-- refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md
+- refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md docs/design/monolith_decomposition_round2.md(批次地图:A 节)
 - 为什么是这个形态: 不是"文件大",是整个桌面 Agent Runtime 的 application service 树被压进一个 .rs。call tree 本身合理(run_prompt 到 run_task 到 assemble/execution/persist),问题在于旁边还夹着 models_list/summarize_chat 这类与运行编排无关的 IPC;而 build_event_handler 把 UI 投影/typed event 持久化/trace/metrics/LiveRun 五种投影揉成一个 giant reducer——加一个 RunEvent 就要读懂整个 runtime。R-153 把 app/main.rs 6413 行拆出 run.rs 时它还只是"运行主链路",此后 memory/scout/review/phase pipeline/write lease/子代理/autonomous 逐个叠进来,重新长成 attractor。
 - 内容: ①先迁非编排 IPC(纯搬迁零风险):app_info/models_list/summarize_chat/stop_run/stop_task/pending_asks_get/answer_ask/run_metrics 移出到 commands 侧模块;②build_event_handler 按投影拆 sink——UiEventSink/TypedEventSink/TraceSink/MetricsSink/LiveRunSink + 一个 fanout 广播,新增 RunEvent 只碰对应 sink;③assemble_run 按生命周期切三层——RuntimeDeps(不变依赖:config/profile/harness/agent/model/route/client/RunnerConfig)、SessionContext(会话事务:SessionStore/create session/admit input/attachment/TypedEventWriter/flush task)、RoundContext(单轮:run id/timing/trace/pipeline/write lease/身份);严禁做成一个 28 字段的 RunContext,那只是把 parameter monolith 换成 context monolith;④persist_round_outcome + finalize_round 独立成 persistence 模块(怎么跑 与 跑完怎么落库 是两个变更理由);⑤run_execution_loop 的隐式流水线(recovery→attachment→memory 预检索→scout→run_once→review/fixup)与 review/fixup 的 primary→critic→corrective 复合阶段,给出显式输入输出边界;⑥build_subagent_runtime 独立成模块。
 - 复杂度: 大
@@ -313,7 +313,7 @@
 - 优先级: P0
 
 ## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [todo]
-- refs: R-207 R-177 R-182 D-176 D-267 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition.md
+- refs: R-207 R-177 R-182 D-176 D-267 D-365 D-367 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition_round2.md(批次地图:C 节)
 - 内容: ①按变更理由切两组:process 侧(registry / lifecycle / persistence / commands)与 workspace 侧(lifecycle / merge / gate / harvest);②完成 R-207 的下沉收尾——本文件仍有 19 处 wt:: 转发壳,函数体只是转调 kanzei_tools::worktree,注释自述"实现已下沉",两层抽象长期并存(见配套缺陷),删壳让调用点直接用下沉后的实现;③把文件头 L3-18 那条只靠注释维持的硬不变式类型化:project_dir/origin_project 恒为主根、工作树只由 worktree_path 承担 → 引入 ProjectRoot / WorktreeRoot 两个 newtype,让 rustc 替注释站岗;④集成门禁(fmt/clippy/test/ui-smoke + 合并后主根全量)独立成模块,它是 Integration Gate 子系统,不是 Process 子系统。
 - 复杂度: 大
 - 来源: 2026-08-15 第二轮巨石扫描 R3。
@@ -324,7 +324,7 @@
 - 优先级: P1
 
 ## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [todo]
-- refs: R-216 R-195 R-235 R-155 docs/design/memory_control_plane.md docs/design/monolith_decomposition.md
+- refs: R-216 R-195 R-235 R-155 D-366 docs/design/memory_control_plane.md docs/design/monolith_decomposition_round2.md(批次地图:B 节)
 - 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
 - 内容: 分三刀,每刀独立可提交可回滚。第一刀(零行为变更,最容易):inbox 一族、migrate_legacy、hit_profile/hits_map 三块迁出成 memory/inbox.rs、memory/migration.rs、memory/telemetry.rs。第二刀:准入策略从 add 提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹与新颖度),生命周期从 promote/deprecate 提成 MemoryLifecycle(candidate 老化、晋升、清退、provenance 门禁),Store 只接 save/load。第三刀:检索与排序迁进 retrieval 子目录并与 memory/index.rs 收口(见配套缺陷:index 反过来调 store.search 取 BM25,排序有两个落点)。最终 MemoryStore 只剩 load/save/archive/事务原子性。
 - 复杂度: 大

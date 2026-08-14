@@ -33,11 +33,63 @@ async function refreshMetrics() {
     return;
   }
   try {
-    const data = await invoke("run_metrics", { projectDir: currentProject, limit: 20 });
+    const [data, cats] = await Promise.all([
+      invoke("run_metrics", { projectDir: currentProject, limit: 20 }),
+      invoke("run_metrics_by_category", { projectDir: currentProject, limit: 200 }),
+    ]);
     renderMetrics(data?.rounds ?? []);
+    renderMetricsCategories(cats ?? {});
   } catch (err) {
     toastError(`${t("运行画像加载失败")}:${err}`, { retry: refreshMetrics });
   }
+}
+
+// R-240:按需求类型(R-/D-)与复杂度(小/中/大)聚合的 token 指标,方便针对
+// 上下文与 harness 做优化分析。
+function renderMetricsCategories(cats) {
+  const box = $("metrics-categories");
+  box.innerHTML = "";
+  const groups = cats.groups ?? [];
+  if (!groups.length) {
+    return;
+  }
+  const head = document.createElement("div");
+  head.className = "metrics-trend-head dim";
+  head.textContent = t("按分类聚合(类型 × 复杂度)");
+  const table = document.createElement("table");
+  table.className = "metrics-cat-table";
+  const headRow = document.createElement("tr");
+  for (const cell of [t("类型"), t("复杂度"), t("轮数"), t("输入合计"), t("输出合计"), t("平均输入"), t("平均输出")]) {
+    const th = document.createElement("th");
+    th.textContent = cell;
+    headRow.appendChild(th);
+  }
+  table.appendChild(headRow);
+  for (const g of groups) {
+    const tr = document.createElement("tr");
+    for (const value of [
+      g.kind, g.complexity, g.count,
+      g.sumInput, g.sumOutput,
+      Math.round(g.avgInput), Math.round(g.avgOutput),
+    ]) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  const unc = cats.uncategorized ?? { count: 0 };
+  if (unc.count > 0) {
+    const tr = document.createElement("tr");
+    tr.className = "dim";
+    for (const value of [t("未归类"), "—", unc.count, unc.sumInput ?? 0, unc.sumOutput ?? 0, "—", "—"]) {
+      const td = document.createElement("td");
+      td.textContent = value;
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  box.append(head, table);
 }
 
 function renderMetrics(rounds) {

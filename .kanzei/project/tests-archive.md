@@ -3395,3 +3395,10 @@
 - 摘要: R-240 B1 后端聚合命令:run_metrics_by_category + extract_ticket_id/ticket_complexity/aggregate_run_metrics,163 passed(含 3 新单测);fmt/clippy 绿
 - 关联: R-240
 - 收尾: 1786738940
+
+## T-1786739120 R-240 B2 前端冒烟 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-lint-smoke.mjs && node scripts/ui-a11y-smoke.mjs
+- 时长: 30.0s
+- 摘要: R-240 B2 前端分类聚合区块:runtime(21 js 0 错)/i18n(146 键)/lint(1350 标识符)/a11y 冒烟全过
+- 关联: R-240
+- 收尾: 1786739120

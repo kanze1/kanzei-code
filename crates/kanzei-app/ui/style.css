@@ -1044,7 +1044,13 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 .metrics-cell { display: flex; flex-direction: column; gap: 2px; min-width: 120px; font-size: 11px; }
 .metrics-cell strong { font-size: 16px; color: var(--fg-strong); font-family: var(--mono); }
 .metrics-rounds { display: flex; flex-direction: column; gap: 8px; }
-.metrics-round { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 4px; padding: 8px 10px; }
+.metrics-round { background: var(--panel); border: 1px solid var(--border-soft); border-radius: 4px; padding: 8px 10px; }/* R-240:按类型/复杂度聚合表 */
+.metrics-categories { margin: 0 0 16px; padding: 10px 12px; background: var(--panel2); border: 1px solid var(--border-soft); border-radius: var(--radius); }
+.metrics-cat-table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: var(--mono); }
+.metrics-cat-table th, .metrics-cat-table td { text-align: right; padding: 3px 8px; border-bottom: 1px solid var(--border-soft); }
+.metrics-cat-table th:first-child, .metrics-cat-table td:first-child, .metrics-cat-table th:nth-child(2), .metrics-cat-table td:nth-child(2) { text-align: left; }
+.metrics-cat-table th { font-weight: 600; color: var(--fg-strong); font-family: var(--sans); }
+
 .metrics-round.halted { border-left: 2px solid var(--warn); }
 .metrics-round-head { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; }
 .metrics-round-prompt { font-size: 11.5px; margin: 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
