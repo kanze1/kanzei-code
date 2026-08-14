@@ -3445,3 +3445,10 @@
 - 摘要: R-244 B4:grep 迁移走统一 pipeline,SubagentBase 只读族(read/glob/grep)全走通道;tools 248 passed 零回归
 - 关联: R-244
 - 收尾: 1786740962
+
+## T-1786741238 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 50.0s
+- 摘要: R-244 关闭前全量:workspace 全绿 0 failed(kzapp 163/core 193/harness 143/llm 44/base 128/tools 248 等)
+- 关联: R-244
+- 收尾: 1786741238

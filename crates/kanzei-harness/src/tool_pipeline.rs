@@ -266,4 +266,24 @@ mod tests {
         assert!(out.is_error);
         assert_eq!(out.content, "boom");
     }
+
+    #[tokio::test]
+    async fn pipeline_body_恰好执行一次_无双执行() {
+        // R-244 验收⑥:工具走统一通道但无双执行——body 必须恰好执行一次,
+        // pipeline 不产生第二遍执行(迁移工具 execute 调 pipeline,body 是独立函数)。
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        let calls = Arc::new(AtomicU32::new(0));
+        let calls2 = Arc::clone(&calls);
+        let body = async move {
+            calls2.fetch_add(1, Ordering::SeqCst);
+            ToolOutput::ok("once")
+        };
+        run_tool_pipeline("probe", json!({}), &ctx(), &[], body, &[], &[]).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "body 必须恰好执行一次(无双执行)"
+        );
+    }
 }

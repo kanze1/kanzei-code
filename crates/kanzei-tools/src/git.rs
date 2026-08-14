@@ -83,85 +83,103 @@ impl Tool for GitTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: GitInput = match crate::parse_input(self, input) {
-            Ok(value) => value,
-            Err(output) => return output,
-        };
-        if let Err(error) = ensure_repository(&ctx.cwd).await {
-            return ToolOutput::error(error);
-        }
-        match input.action.as_str() {
-            "status" => match run_git(&ctx.cwd, &["status", "--short", "--branch"]).await {
+        // R-244 批5:git 工具走统一 pipeline(guards/策略/观察者现阶段空,
+        // 权限判定在 drive 层;body = 原 execute 逻辑)。
+        let input2 = input.clone();
+        let ctx2 = ctx.clone();
+        kanzei_harness::tool_pipeline::run_tool_pipeline(
+            "git",
+            input,
+            ctx,
+            &[],
+            async move { git_body(self, &input2, &ctx2).await },
+            &[],
+            &[],
+        )
+        .await
+    }
+}
+
+/// R-244 批5:git 工具本体(原 execute 主体),供 pipeline body 调用。
+async fn git_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    let input: GitInput = match crate::parse_input(tool, input.clone()) {
+        Ok(value) => value,
+        Err(output) => return output,
+    };
+    if let Err(error) = ensure_repository(&ctx.cwd).await {
+        return ToolOutput::error(error);
+    }
+    match input.action.as_str() {
+        "status" => match run_git(&ctx.cwd, &["status", "--short", "--branch"]).await {
+            Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
+                "(clean worktree)".into()
+            } else {
+                text
+            }),
+            Err(error) => ToolOutput::error(error),
+        },
+        "diff" => {
+            let files = match normalize_files(&ctx.cwd, &input.files, false) {
+                Ok(files) => files,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let mut args = vec![
+                "diff".to_string(),
+                "--no-ext-diff".into(),
+                "--no-color".into(),
+            ];
+            if input.staged {
+                args.push("--cached".into());
+            }
+            if !files.is_empty() {
+                args.push("--".into());
+                args.extend(files);
+            }
+            match run_git_owned(&ctx.cwd, &args).await {
                 Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
-                    "(clean worktree)".into()
+                    "(no diff)".into()
                 } else {
                     text
                 }),
                 Err(error) => ToolOutput::error(error),
-            },
-            "diff" => {
-                let files = match normalize_files(&ctx.cwd, &input.files, false) {
-                    Ok(files) => files,
-                    Err(error) => return ToolOutput::error(error),
-                };
-                let mut args = vec![
-                    "diff".to_string(),
-                    "--no-ext-diff".into(),
-                    "--no-color".into(),
-                ];
-                if input.staged {
-                    args.push("--cached".into());
-                }
-                if !files.is_empty() {
-                    args.push("--".into());
-                    args.extend(files);
-                }
-                match run_git_owned(&ctx.cwd, &args).await {
-                    Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
-                        "(no diff)".into()
-                    } else {
-                        text
-                    }),
-                    Err(error) => ToolOutput::error(error),
-                }
             }
-            // 只读查询,模型排查"最近改了什么/某文件何时动过"的高频入口——
-            // 没有它模型只能转投 bash(每次 ask)或干脆瞎猜(D-208 实测被拒)。
-            "log" => {
-                let files = match normalize_files(&ctx.cwd, &input.files, false) {
-                    Ok(files) => files,
-                    Err(error) => return ToolOutput::error(error),
-                };
-                let count = input.count.unwrap_or(20).clamp(1, 200);
-                let mut args = vec![
-                    "log".to_string(),
-                    format!("--format=%h %ad %an | %s"),
-                    "--date=format:%m-%d %H:%M".into(),
-                    format!("-{count}"),
-                ];
-                if !files.is_empty() {
-                    args.push("--".into());
-                    args.extend(files);
-                }
-                match run_git_owned(&ctx.cwd, &args).await {
-                    Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
-                        "(no commits)".into()
-                    } else {
-                        text
-                    }),
-                    Err(error) => ToolOutput::error(error),
-                }
-            }
-            "stage" => stage(&ctx.cwd, &input.files).await,
-            "commit" => commit(ctx, input.message, input.expected_hash).await,
-            "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
-            // D-334:finalize 事务化——Agent 一次调用,Harness 机械完成
-            // fmt → 相关测试 → test_record → stage → CAS commit,不再手动驾驶。
-            "finalize" => finalize(ctx, input.files, input.message).await,
-            other => ToolOutput::error(format!(
-                "unknown action `{other}`; valid: status | diff | log | stage | commit | merge_ff"
-            )),
         }
+        // 只读查询,模型排查"最近改了什么/某文件何时动过"的高频入口——
+        // 没有它模型只能转投 bash(每次 ask)或干脆瞎猜(D-208 实测被拒)。
+        "log" => {
+            let files = match normalize_files(&ctx.cwd, &input.files, false) {
+                Ok(files) => files,
+                Err(error) => return ToolOutput::error(error),
+            };
+            let count = input.count.unwrap_or(20).clamp(1, 200);
+            let mut args = vec![
+                "log".to_string(),
+                format!("--format=%h %ad %an | %s"),
+                "--date=format:%m-%d %H:%M".into(),
+                format!("-{count}"),
+            ];
+            if !files.is_empty() {
+                args.push("--".into());
+                args.extend(files);
+            }
+            match run_git_owned(&ctx.cwd, &args).await {
+                Ok(text) => ToolOutput::ok(if text.trim().is_empty() {
+                    "(no commits)".into()
+                } else {
+                    text
+                }),
+                Err(error) => ToolOutput::error(error),
+            }
+        }
+        "stage" => stage(&ctx.cwd, &input.files).await,
+        "commit" => commit(ctx, input.message, input.expected_hash).await,
+        "merge_ff" => merge_ff(&ctx.cwd, input.from, input.into).await,
+        // D-334:finalize 事务化——Agent 一次调用,Harness 机械完成
+        // fmt → 相关测试 → test_record → stage → CAS commit,不再手动驾驶。
+        "finalize" => finalize(ctx, input.files, input.message).await,
+        other => ToolOutput::error(format!(
+            "unknown action `{other}`; valid: status | diff | log | stage | commit | merge_ff"
+        )),
     }
 }
 

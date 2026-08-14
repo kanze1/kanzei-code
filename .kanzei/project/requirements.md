@@ -205,17 +205,17 @@
 - 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
 - 前置: R-241
 - 复杂度: 大
-- 批次: 3/5
+- 批次: 4/5
 - 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
 - 标签: 核心
 - 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
 - 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
-- 进展: 批3 完成(2026-08-16,提交 51ddb45)。bash 三条硬防线(D-113 整文件覆写/R-238 超长/git_mutation)抽成单调 ToolGuard(FullFileWriteGuard/CommandLengthGuard/GitMutationGuard,bash_guards() 顺序与原 execute 防线一致),execute 改调 run_tool_pipeline(guards + body=bash_body);managed fence/progress/timeout 保留在 body。guard 契约测试 3 个(整文件覆写拒绝且 Get-Content 不误伤/超长拒绝含两条正路/git 写拒读放行)。验证:bash 19(含 3 guard)+ kanzei-tools 248 passed 零回归(T-1786740723);fmt/clippy 绿;push 已到 origin/dev。批4:grep 迁移(SubagentBase 只读族收口:read/glob/grep 全走 pipeline)+ 子代理验证;批5:收口(无双执行断言 + Ruleset 回归逐字节一致 + 全量)。
-- observed_head: 51ddb45bf03b1dffb98af027241163a13dc1e71a
+- 进展: 批4 完成(2026-08-16,提交 d196c96)。grep 迁移走统一 pipeline(grep_body 抽离),SubagentBase 只读族(read/glob/grep)全走通道;子代理执行(run_subagent)内工具即这三个,已覆盖。验证:grep 2 + kanzei-tools 248 passed 零回归(T-1786740962);fmt/clippy 绿;push 已到 origin/dev。批5(收口):git 工具迁移(验收⑥ read/bash/git/子代理 全走通道)+ 无双执行断言(每工具 execute 只经 pipeline 一次)+ Ruleset 回归逐字节一致(全量)+ cargo test --workspace + 关闭。
+- observed_head: d196c960ea3ab5e04ad4736dd8a06a90e3a5c42f
 - observed_worktree_hash: fnv1a64:d2e058c0c37b9281
-- recorded_at: 1786740783421
+- recorded_at: 1786740991610
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
@@ -358,3 +358,13 @@
 - 边界: 不做提交闸门、不做 CI 硬失败;不引入外部复杂度分析工具进依赖树;扇入扇出若实现成本高可降级为仅统计 use 行数并在条目里说明,不为指标齐全拖成大工程。
 - 验收: ①对 crates/kanzei-tools/src/tracker.rs 报生产 660 行而非 3253;②对 crates/kanzei-app/src/run.rs 报生产 2885 行;③对 crates/kanzei-app/src/processes.rs 报生产 1628 行(验证 cfg(test) 块识别正确,不被 L468 的外挂测试模块声明骗过);④输出全仓 Top-20 榜单,drive.rs 出现在前五;⑤conventions 文本落地且 grep 单一来源;⑥基线快照可被后续拆解条目引用做前后对照。
 - 优先级: P1
+
+## R-259 pipeline Wrap 阶段收敛:timeout/cancellation/progress 只在 wrapper 实现一处(R-244 残余) [todo]
+- refs: R-244
+- 优先级: P3
+- 内容: R-244 收口后残余(验收④未完全收敛):把 timeout/cancellation/progress 从 runner 层(drive.rs 串行 progress 旁路 + tool_exec.rs 并行 progress 通道 + bash_body 内 timeout)抽象进 harness tool_pipeline 的 Wrap 阶段,使「timeout/cancellation/progress 只在 wrapper 实现一处」字面成立。骨架已立(ToolPhase::Wrap 预留),本条目做收敛 + 契约测试(同一工具串行/并行路径走同一 wrapper,行为逐字节一致)。
+- 前置: R-244
+- 复杂度: 中
+- 来源: R-244 批5 收口时验收④评估:progress 现实现于 runner 层两处(串行旁路/并行通道),timeout 在 bash body——功能统一但未字面收敛进 pipeline Wrap 阶段。
+- 标签: 核心
+- 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
