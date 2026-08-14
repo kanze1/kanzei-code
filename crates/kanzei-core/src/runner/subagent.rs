@@ -285,6 +285,16 @@ impl SubagentRuntime {
     }
 }
 
+/// R-250:schema 不合规的重试上限。1 次已经能救绝大多数「裹了围栏 / 少个字段」,
+/// 再多就是子代理根本不理解这个 schema——继续烧 token 不如把原文交回主代理。
+const MAX_SCHEMA_RETRIES: u32 = 1;
+
+/// 一跑的终态:要么拿到 summary 可以校验,要么是不该重试的硬失败(被停/报错)。
+enum Attempt {
+    Finished(crate::runner::RunSummary),
+    Fatal(kanzei_harness::ToolOutput),
+}
+
 pub(crate) fn task_spec() -> ToolSpec {
     ToolSpec {
         name: "task".into(),
@@ -296,7 +306,10 @@ pub(crate) fn task_spec() -> ToolSpec {
                       authority-bearing actions belong to the primary agent. Params: \
                       prompt (self-contained instruction saying exactly what to find and \
                       what to report back); optional model: \"fast\" (default, local model, \
-                      mechanical searches) | \"primary\" (tasks needing code comprehension). \
+                      mechanical searches) | \"primary\" (tasks needing code comprehension); \
+                      optional schema: a JSON Schema — when given, the subagent must answer \
+                      with JSON matching it and you receive the validated object instead of \
+                      prose, so you never have to parse a summary. \
                       Multiple task calls in one turn run in parallel."
             .into(),
         input_schema: serde_json::json!({
@@ -310,6 +323,10 @@ pub(crate) fn task_spec() -> ToolSpec {
                     "type": "string",
                     "enum": ["fast", "primary"],
                     "description": "fast = local small model (default); primary = main model"
+                },
+                "schema": {
+                    "type": "object",
+                    "description": "Optional JSON Schema the answer must match. Supported keywords: type, required, properties, items, enum. Use it whenever you want structured data back rather than a written summary."
                 }
             },
             "required": ["prompt"]
@@ -424,6 +441,11 @@ pub(crate) async fn run_subagent(
             "task requires a `prompt` string: a self-contained exploration instruction",
         );
     }
+    // R-250:可选返回契约。不传时下面所有 schema 分支都不进,行为与之前逐字节一致。
+    let schema: Option<serde_json::Value> = input
+        .get("schema")
+        .filter(|v| v.is_object() && !v.as_object().is_some_and(|o| o.is_empty()))
+        .cloned();
     let (route, model, service_tier) = match input.get("model").and_then(|v| v.as_str()) {
         Some("primary") => (&rt.primary.0, &rt.primary.1, &rt.primary_service_tier),
         _ => (&rt.fast.0, &rt.fast.1, &rt.fast_service_tier),
@@ -602,97 +624,157 @@ pub(crate) async fn run_subagent(
     // R-175 B3:续跑恢复——同一 id 再次调用 run_subagent 时,从 transcripts 恢复
     // 此前完整历史作为 prior(验收④:续跑请求里可见此前 transcript,不是从空历史
     // 重开)。首次派发(无历史)行为不变,仍从空 prior 开始。
-    let prior: Vec<Message> = rt
+    let mut prior: Vec<Message> = rt
         .transcripts
         .as_ref()
         .and_then(|store| store.lock().unwrap().get(parent_call_id).cloned())
         .unwrap_or_default();
-    // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
-    let fut = run_once(
-        client,
-        route,
-        &rt.snapshot,
-        &rt.agent,
-        &config,
-        ctx,
-        &prompt,
-        None,
-        &prior,
-        None,
-        &mut on_event,
-        &mut ask,
-    );
+    // R-250:本轮要投递给子代理的指令。首跑=原 prompt;schema 不合规重试时换成
+    // 纠错指令,并把上一跑的完整历史当 prior 续上——重跑整个子代理太贵,而且
+    // 它已经查到的东西不该丢。
+    let mut turn_prompt = match schema.as_ref() {
+        Some(schema) => format!(
+            "{prompt}\n\n---\nAnswer with JSON ONLY — no prose, no markdown fence — \
+             matching exactly this JSON Schema:\n{}",
+            serde_json::to_string_pretty(schema).unwrap_or_else(|_| schema.to_string())
+        ),
+        None => prompt.clone(),
+    };
+    let mut schema_attempt: u32 = 0;
     // R-174:单条停止——注册表 Some 时注册本子代理的取消 token,`stop_task` 命中后
     // 立即触发 select 分支,以「被停」终态返回;读槽 `_read_permit` 随函数返回由 RAII
     // 释放。drive.rs 的 timeout 仍在外层墙钟兜底,二者正交(取消先到先得)。
+    //
+    // R-250:注册在**重试循环之外**——每跑一轮重注册会在两轮之间留出一个未注册的
+    // 窗口,那个窗口里的 stop_task 会静默落空。
     let cancellation = rt
         .cancellations
         .as_ref()
         .map(|reg| reg.register(parent_call_id));
-    let mut fut = Box::pin(fut);
-    let output = match &cancellation {
-        Some(guard) => tokio::select! {
-            biased;
-            _ = guard.token().cancelled() => {
-                let _ = progress.send(RunEvent::TaskProgress {
-                    id: parent_call_id.to_string(),
-                    text: "子代理已被停止".into(),
-                    trace: Some(TaskTrace {
-                        child_id: parent_call_id.to_string(),
-                        phase: "cancelled".into(),
-                        name: String::new(),
-                        summary: None,
-                        ok: None,
-                        outcome: None,
-                        code: None,
-                        preview: None,
-                        display: None,
-                        input: None,
-                        usage: None,
-                    }),
-                });
-                kanzei_harness::ToolOutput::error(format!(
-                    "subagent {parent_call_id} was stopped by the user"
-                ))
+    let output = loop {
+        // R-250:fut 借着 prior/turn_prompt,必须在本块结束前 drop,
+        // 循环末尾才能把这两个变量换成下一轮的值。
+        let attempt_result = {
+            // run_once 本身返回 boxed future,递归的无限类型在其签名处已断开。
+            let fut = run_once(
+                client,
+                route,
+                &rt.snapshot,
+                &rt.agent,
+                &config,
+                ctx,
+                &turn_prompt,
+                None,
+                &prior,
+                None,
+                &mut on_event,
+                &mut ask,
+            );
+            let mut fut = Box::pin(fut);
+            match &cancellation {
+                Some(guard) => tokio::select! {
+                biased;
+                _ = guard.token().cancelled() => {
+                    let _ = progress.send(RunEvent::TaskProgress {
+                        id: parent_call_id.to_string(),
+                        text: "子代理已被停止".into(),
+                        trace: Some(TaskTrace {
+                            child_id: parent_call_id.to_string(),
+                            phase: "cancelled".into(),
+                            name: String::new(),
+                            summary: None,
+                            ok: None,
+                            outcome: None,
+                            code: None,
+                            preview: None,
+                            display: None,
+                            input: None,
+                            usage: None,
+                        }),
+                    });
+                    Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
+                        "subagent {parent_call_id} was stopped by the user"
+                    )))
+                }
+                result = &mut fut => match result {
+                    Ok(summary) => Attempt::Finished(summary),
+                    Err(e) => Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
+                        "subagent failed: {e}"
+                    ))),
+                },
+                    },
+                None => match fut.await {
+                    Ok(summary) => Attempt::Finished(summary),
+                    Err(e) => Attempt::Fatal(kanzei_harness::ToolOutput::error(format!(
+                        "subagent failed: {e}"
+                    ))),
+                },
             }
-            result = &mut fut => match result {
-                Ok(summary) => {
-                    // R-175 B3:transcript 持久化——完成时把完整消息历史按 id 存进
-                    // transcripts,续跑入口据此恢复 prior(验收④)。
-                    if let Some(store) = rt.transcripts.as_ref() {
-                        store
-                            .lock()
-                            .unwrap()
-                            .insert(parent_call_id.to_string(), summary.messages.clone());
+        };
+
+        let summary = match attempt_result {
+            Attempt::Fatal(output) => break output,
+            Attempt::Finished(summary) => summary,
+        };
+        // R-175 B3:transcript 持久化——完成时把完整消息历史按 id 存进 transcripts,
+        // 续跑入口据此恢复 prior。重试轮同样要存:否则一旦最终失败,已经查到的东西
+        // 全丢,主代理连「它查过什么」都看不到。
+        if let Some(store) = rt.transcripts.as_ref() {
+            store
+                .lock()
+                .unwrap()
+                .insert(parent_call_id.to_string(), summary.messages.clone());
+        }
+        let text = if summary.text.trim().is_empty() {
+            "(subagent finished without a text answer)".to_string()
+        } else {
+            summary.text.clone()
+        };
+
+        // R-250:没传 schema 时,下面整段都不执行——行为与本条目之前逐字节一致。
+        let Some(schema) = schema.as_ref() else {
+            break kanzei_harness::ToolOutput::ok(text);
+        };
+        let problem = match crate::runner::schema_check::extract_json(&text) {
+            None => "the answer is not JSON at all".to_string(),
+            Some(value) => {
+                match crate::runner::schema_check::validate(&value, schema, "$") {
+                    // 合规:回喂**规范化后的 JSON**,不是模型的原文——原文可能裹着
+                    // 围栏或前言,主代理还得再剥一层,那就白校验了。
+                    None => {
+                        break kanzei_harness::ToolOutput::ok(
+                            serde_json::to_string_pretty(&value)
+                                .unwrap_or_else(|_| value.to_string()),
+                        )
                     }
-                    let text = if summary.text.trim().is_empty() {
-                        "(subagent finished without a text answer)".to_string()
-                    } else {
-                        summary.text
-                    };
-                    kanzei_harness::ToolOutput::ok(text)
+                    Some(problem) => problem,
                 }
-                Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
-            },
-        },
-        None => match fut.await {
-            Ok(summary) => {
-                // R-175 B3:同上,无取消注册表时也要存 transcript。
-                if let Some(store) = rt.transcripts.as_ref() {
-                    store
-                        .lock()
-                        .unwrap()
-                        .insert(parent_call_id.to_string(), summary.messages.clone());
-                }
-                let text = if summary.text.trim().is_empty() {
-                    "(subagent finished without a text answer)".to_string()
-                } else {
-                    summary.text
-                };
-                kanzei_harness::ToolOutput::ok(text)
             }
-            Err(e) => kanzei_harness::ToolOutput::error(format!("subagent failed: {e}")),
-        },
+        };
+
+        if schema_attempt >= MAX_SCHEMA_RETRIES {
+            // 重试用尽:如实报错并**带上最后一次原文**。主代理据此还能自己救,
+            // 比只告诉它「子代理不合规」有用得多。
+            break kanzei_harness::ToolOutput::error(format!(
+                "subagent answer did not match the requested schema after                  {} attempt(s). Last problem: {problem}
+Last raw answer:
+{text}",
+                MAX_SCHEMA_RETRIES + 1
+            ));
+        }
+        schema_attempt += 1;
+        let _ = progress.send(RunEvent::TaskProgress {
+            id: parent_call_id.to_string(),
+            text: format!("返回不合 schema,重试第 {schema_attempt} 次:{problem}"),
+            trace: None,
+        });
+        // 续上已有历史,只补一条纠错指令——不重跑整个子代理。
+        prior = summary.messages;
+        turn_prompt = format!(
+            "Your previous answer did not match the required JSON Schema.
+             Problem: {problem}
+             Reply again with JSON ONLY (no prose, no markdown fence) matching the schema              exactly. Keep the findings you already have; only fix the shape."
+        );
     };
     // `cancellation` 的 Drop 负责正常、失败、取消和外层 timeout 的统一清理。
     output
@@ -901,5 +983,26 @@ mod tests {
             "ORIGINAL-B"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-250:schema 是可选入参,必须真的出现在工具面上——不然模型看不到就永远不会传。
+    #[test]
+    fn task_spec_exposes_optional_schema() {
+        let spec = super::task_spec();
+        let properties = spec.input_schema["properties"].as_object().unwrap();
+        assert!(properties.contains_key("schema"), "task 未暴露 schema 入参");
+        // 必填项仍然只有 prompt:传 schema 是可选的,老调用方式一个字不用改。
+        let required: Vec<&str> = spec.input_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(required, vec!["prompt"], "schema 不得变成必填");
+        // 描述里要写清楚它的用途,否则模型不知道什么时候该用。
+        assert!(
+            spec.description.contains("schema"),
+            "工具描述里没提 schema,模型不会主动使用"
+        );
     }
 }

@@ -475,9 +475,13 @@ mod tests {
     async fn text_read_keeps_images_empty() {
         // 回归:文本路径的 images 必须恒空,否则等于给每条工具结果加了一个空 Part。
         let (dir, ctx) = temp_project();
-        std::fs::write(dir.join("a.md"), "line1
+        std::fs::write(
+            dir.join("a.md"),
+            "line1
 line2
-").unwrap();
+",
+        )
+        .unwrap();
         let out = ReadTool.execute(json!({"path": "a.md"}), &ctx).await;
         assert!(!out.is_error, "{}", out.content);
         assert!(out.images.is_empty());
