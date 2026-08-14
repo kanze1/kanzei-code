@@ -63,14 +63,14 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786631684828
 
-## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施「先计划后自举」勘察载体 [doing]
+## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
 - 复杂度: 大
 - 标签: 后端 前端 harness
 - 来源: 2026-08-12 八维度审计维度8;设计文档 docs/design/research_mode.md(§2 八个定调点待用户逐项确认后动工)。
 - 背景: research 模式骨架完整但形态错位(面向网络调研)且零使用(state.db 266 条 episodes 零调用 websearch/source/finding,.kanzei/research 全 git 历史只有空模板);真实勘察全在 dev 完成且结论无固定落点(勘察报告被 D-294 单行不变式折成单行塞进度字段);证据等级 E0-E4 被双重语义挪用;research/memory.md 是绕开记忆控制平面的第二套无校验记忆。
-- 内容: 按设计文档六批实施:①档位收口(桌面注册 ReadonlyProfile、bash 硬 deny+替代指引、files/git 只读入列)②topic 工件落点(.kanzei/research/<topic>/)③勘察证据等级 V 表进 conventions④回流通道(backlog 只读索引注入+finding→req/defect 草稿)⑤记忆一元化⑥三形态收敛(SCOUT_ROLES/task 勘察落同一工件)。
-- 边界: research 不可写 docs/design、不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。
+- 内容: 原按设计文档六批实施,2026-08-14 用户定调后重排:①档位收口(桌面注册 ReadonlyProfile、files/git 只读入列)——**bash 硬 deny 一项作废**,新定位要跑 LaTeX 编译与绘图,须改为白名单或专用工具通道;②topic 工件落点——**待重推**,论文形态需容纳 paper.tex/figures/refs.bib,不是单个 report.md;③证据等级 V 表进 conventions——**已定**,四档待按文献口径扩展;④回流通道(finding→req/defect 草稿)——**待重推**,research 独立后是否仍属本模式职责需重判;⑤记忆一元化——**待复核**,论文引用管理(refs.bib)与记忆晋升是两件事;⑥三形态收敛——**作废**,research 独立后不与 dev 侧 task 勘察/SCOUT_ROLES 收敛。
+- 边界: research 不可提交 git、不动既有条目状态(add 草稿除外);不做报告 schema 校验。「不可写 docs/design」一条待重推(新定位下产出是论文而非设计文档,问法需重新表述)。**dev 侧「先计划后自举」的勘察工件落点问题不由本条承接**——那是独立课题,需另立条目。
 - 验收: 以设计文档 §7 总则为准——一条真实 R- 条目的 勘察→报告→登记→dev 实施 完整链路有轨迹;每批验收见设计文档 §6。
 - refs: D-276 R-201 D-304
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-221
@@ -361,4 +361,10 @@
 - 标签: 核心
 - 边界: 只做返回侧的 schema 约束,不做 fork(继承主对话历史)、不做运行中查看与追加指令、不做嵌套派生——这三条各自独立评估,其中 fork 与 R-246 的 child agents owner 语义相关,不在本条抢跑。schema 为可选字段,不传时行为与现状逐字节一致。
 - 验收: ①传 schema 时返回值经校验,不合规触发子代理重试且重试次数有上限;②不传 schema 时既有 explore/writer 行为无回归(机械核验:现有子代理测试全绿);③同轮多个并行 task 各自独立校验,互不影响;④校验失败的诊断指出是哪个字段不合规,不是笼统报错;⑤只读子代理白名单不因本条放宽(沿用 R-176 验收⑦的复核手法)。
+- 优先级: P2
+
+## R-251 试用手册配置移至设置模块 [todo]
+- 复杂度: 小
+- 标签: 流程
+- 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
 - 优先级: P2
