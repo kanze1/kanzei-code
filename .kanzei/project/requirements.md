@@ -205,17 +205,17 @@
 - 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
 - 前置: R-241
 - 复杂度: 大
-- 批次: 0/5
+- 批次: 1/5
 - 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
 - 标签: 核心
 - 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
 - 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
-- 进展: 2026-08-16 认领(主线串行)。前提 R-241 已 done(typed event 冻结)。侦察:现有执行散在 drive.rs(串行门禁/权限/进度/timeout/cancel)与 tool_exec.rs(并行 wave);Tool trait(harness tool.rs:291)只有 name/action/resources/concurrency/execute,无阶段。批1(最小验证):harness 新模块 tool_pipeline.rs 定义固定阶段骨架(parse/materialize→policy→guards→wrappers→body→result policies→observers),复用 Ruleset/hard_denies/managed fence 不重写;迁移一个无副作用工具(glob)走统一通道;契约测试(阶段顺序/policy 不覆盖 guard deny/observer 抛错不改终态但留遥测/唯一 final result);批2-4 分族迁移 read/bash/git/子代理;批5 收口(无双执行断言 + 全量)。
-- observed_head: bb075018df4cd6aa41280be52573ca15bc96b4d4
+- 进展: 批1 完成(2026-08-16,提交 51c797d)。harness 新模块 tool_pipeline.rs:ToolPhase 枚举(Parse/Policy/Guard/Wrap/Body/ResultPolicy/Observe)+ ToolGuard(单调防线,拒绝即拦截)+ ToolResultPolicy(就地后处理)+ ToolObserver(只读,抛错被 catch 不改终态)+ run_tool_pipeline(body 闭包参数避免递归)。契约测试 4 个:guard 拒绝不执行 body 且返回唯一拒绝结果(验收③反证)/阶段顺序固定+policy 生效/observer 抛错不改终态(验收⑤)/失败拒绝都返回唯一结果(验收⑦)。glob 迁移:execute 调 run_tool_pipeline(body=glob_body 原逻辑),guards/策略/观察者现阶段空(权限在 drive 层)。验证:harness tool_pipeline 4 passed + kanzei-tools 245 passed 零回归(T-1786739923);fmt/clippy 绿;push 已到 origin/dev。批2:read 迁移(只读族)+ 若可行 git 只读子命令;批3:bash;批4:子代理 task;批5:收口(无双执行断言 + 全量 + 验收② Ruleset 回归逐字节一致)。
+- observed_head: 51c797d2729673775a638588cef851cfce3367c2
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786739489365
+- recorded_at: 1786739965384
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]

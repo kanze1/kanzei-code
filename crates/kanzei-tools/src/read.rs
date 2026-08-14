@@ -62,37 +62,55 @@ impl Tool for ReadTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: ReadInput = match crate::parse_input(self, input) {
-            Ok(v) => v,
-            Err(out) => return out,
-        };
-        let path = ctx
-            .cwd
-            .join(kanzei_harness::permission::normalize_resource(&input.path));
-        let path_for_read = path.clone();
-        let result = tokio::task::spawn_blocking(move || read_any(&path_for_read, &input)).await;
-        match result {
-            Ok(Ok(ReadPayload::Text(text))) => {
-                // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
-                // 回填 fetched(与 memory_search 回填同口径,CLI/桌面同源)。
-                crate::memory::mark_memory_file_read(&ctx.project_root, &path);
-                ToolOutput::ok(text)
-            }
-            Ok(Ok(ReadPayload::Image {
-                media_type,
-                data,
-                bytes,
-            })) => {
-                // 文本位仍要给一句实话:模型看得到图,但轨迹与 UI 只留这行。
-                let summary = format!(
-                    "[image] {} ({media_type}, {bytes} bytes) — attached to this tool result.",
-                    path.display()
-                );
-                ToolOutput::ok(summary).with_images(vec![ToolImage { media_type, data }])
-            }
-            Ok(Err(e)) => ToolOutput::error(e),
-            Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
+        // R-244 批2:read 迁移走统一 pipeline 通道(与 glob 同构;guards/策略/
+        // 观察者现阶段空,权限判定在 drive 层)。
+        let input2 = input.clone();
+        let ctx2 = ctx.clone();
+        kanzei_harness::tool_pipeline::run_tool_pipeline(
+            "read",
+            input,
+            ctx,
+            &[],
+            async move { read_body(self, &input2, &ctx2).await },
+            &[],
+            &[],
+        )
+        .await
+    }
+}
+
+/// R-244 批2:read 工具本体(原 execute 主体),供 pipeline body 调用。
+async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    let input: ReadInput = match crate::parse_input(tool, input.clone()) {
+        Ok(v) => v,
+        Err(out) => return out,
+    };
+    let path = ctx
+        .cwd
+        .join(kanzei_harness::permission::normalize_resource(&input.path));
+    let path_for_read = path.clone();
+    let result = tokio::task::spawn_blocking(move || read_any(&path_for_read, &input)).await;
+    match result {
+        Ok(Ok(ReadPayload::Text(text))) => {
+            // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
+            // 回填 fetched(与 memory_search 回填同口径,CLI/桌面同源)。
+            crate::memory::mark_memory_file_read(&ctx.project_root, &path);
+            ToolOutput::ok(text)
         }
+        Ok(Ok(ReadPayload::Image {
+            media_type,
+            data,
+            bytes,
+        })) => {
+            // 文本位仍要给一句实话:模型看得到图,但轨迹与 UI 只留这行。
+            let summary = format!(
+                "[image] {} ({media_type}, {bytes} bytes) — attached to this tool result.",
+                path.display()
+            );
+            ToolOutput::ok(summary).with_images(vec![ToolImage { media_type, data }])
+        }
+        Ok(Err(e)) => ToolOutput::error(e),
+        Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
     }
 }
 

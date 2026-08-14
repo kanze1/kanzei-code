@@ -3424,3 +3424,10 @@
 - 摘要: R-244 B1:tool_pipeline 骨架 4 契约测试(guard 拒绝/阶段顺序/observer 抛错/唯一结果)+ glob 迁移走统一通道,kanzei-tools 245 passed 零回归
 - 关联: R-244
 - 收尾: 1786739923
+
+## T-1786740054 R-244 B2 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools --lib read::
+- 时长: 0.1s
+- 摘要: R-244 B2:read 迁移走统一 pipeline 通道,read 7 passed + 全仓编译绿
+- 关联: R-244
+- 收尾: 1786740054
