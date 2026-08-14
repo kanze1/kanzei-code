@@ -164,7 +164,7 @@
 
 - 批次: 3/5
 
-- 阻塞: 用户: 2026-08-11 定调「先不装,等下次发版一起实测」验收⑦(桌面端主对话实测面板真出现子代理条目)。解除动作: 下次发版构建新版 kzapp 后,用户在桌面端主对话实测面板出现子代理条目,确认后关闭本条。解除人: 用户。
+- 阻塞: 2026-08-14 前置已满足:新版 build-9a06e05 已发布(dist/kanzei-setup-9a06e05.exe),原阻塞「先不装,等下次发版一起实测」的等待对象到位。剩验收⑦一条实测动作:装新版后在桌面端主对话发一个会派子代理的任务,看独立 Running/Finished 面板是否真出现子代理条目(以及单条停止与完整 transcript 是否可用)。解除动作: 用户实测并确认后关闭本条。解除人: 用户。
 
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
@@ -183,7 +183,7 @@
 - 进展: 2026-08-16 复核:阻塞解除条件①已满足(node --version/node --check 实测放行,cargo build -p kanzei-app 已启动未拦),当场清空阻塞,恢复推进 B1 基座验证。当前 target/debug/kzapp.exe 构建于 08-12 04:30,早于 CDP 注入提交 695305d(08-12 10:07),需重建后跑 node scripts/e2e-smoke.mjs。
 - 状态纠正(2026-08-09): doing→todo。用户已挂起本条,实际不在推进中,却按旧 §1.1 口径占用 doing 名额,与 R-148 一起把 R-153 拒之门外(见 D-219)。恢复推进时再转 doing;挂起前提的小缺陷中 D-185/D-184 仍 open。
 
-- 阻塞: 用户: 2026-08-13 定调 park 本条、专注 D-318,B1 基座验证(重建 kzapp 跑 node scripts/e2e-smoke.mjs)暂停。解除动作: 用户说恢复推进时,重建 kzapp 后继续验证 B1 基座。解除人: 用户。
+- 阻塞: 2026-08-14 分成两半看:①「重建 kzapp」这一半已达成——build-9a06e05 已发布,含 CDP 注入提交 695305d 之后的全部代码,不再是 08-12 的旧构建;②真正卡住的是 D-319——WebView2 Runtime 151 在本机 DevTools 端口不绑定(9 轮实验证据链),e2e-smoke connectOverCDP 20 秒超时,换新构建也绕不过环境问题。另有用户 2026-08-13 的 park 定调(专注 D-318,D-318 现已 fixed 归档)。解除动作: 先解决 D-319(重装/更新 WebView2 Runtime,或拍板改 WebDriver/tauri-driver 路线),再用新版跑 node scripts/e2e-smoke.mjs 验证 B1 基座。解除人: 用户(D-319 那条)。
 
 - 批次: 0/8
 
@@ -251,7 +251,7 @@
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
 - 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
-- 阻塞: 等待含 R-241 的安装版本产生真实 shadow 样本并达到门槛：至少30个真实 turn；typed_write_errors 为0；正常可比较 turn 全部 equal=true；停止、权限拒绝、工具错误、多工具部分完成及受控 draft/tool 重启路径均有可解释证据。
+- 阻塞: 2026-08-14 前置已满足一半:含 R-241 的安装版本已发布(build-9a06e05,R-241 typed event 真源已 done 并归档;此前装机版停在 08-09,根本产不出 shadow 样本)。剩的是攒样本,不是等决策:装新版后正常使用,直到达到门槛——至少 30 个真实 turn;typed_write_errors 为 0;正常可比较 turn 全部 equal=true;停止、权限拒绝、工具错误、多工具部分完成及受控 draft/tool 重启路径均有可解释证据。解除动作: 用户装新版后正常用几天,样本达标即开工五条读路径真源切换(R-243 随后串行)。解除人: 使用量自然积累(不需要拍板)。
 - 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
 
