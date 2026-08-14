@@ -3324,3 +3324,18 @@
 - 摘要: R-202 B2b 提交门禁:run_execution_loop/persist_round_outcome/finalize_round 抽离后 run_task 主体 266 行(<300),kanzei-app 定向测试 159 passed/0 failed
 - 关联: R-202
 - 收尾: 1786709830
+
+## T-1786727002 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: R-202 B3 请求重试段抽取后全量单测:186 passed, 0 failed(含 doc-tests)
+- 关联: R-202
+- 收尾: 1786727002
+- 源码指纹: 87c2d8a12f6e30e2
+
+## T-1786727211 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.6s
+- 摘要: R-202 B4 task 子代理段抽取后:186 passed, 0 failed
+- 关联: R-202
+- 收尾: 1786727211

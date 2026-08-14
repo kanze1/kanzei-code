@@ -133,11 +133,11 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 2/5
-- 进展: 批2 完成(2026-08-14)。2a:闭包构造抽离——build_event_handler(RunEvent 处理器,284 行内联闭包收敛为返回闭包,含工具轨迹/token 计数/git commit 检测位/typed 增量双写)/build_ask_handler(权限询问)/build_subagent_runtime(task 子代理),run_task 主体 -410 行(提交 79ab205)。2b:run_execution_loop(附件/记忆预检索/勘察/主循环/复核修正;prior 恢复外置 run_task 同步——SessionStore 非 Sync 不可跨 await 持引用,保持 `?` 传播语义)/persist_round_outcome(终态落库:typed 终态/会话状态/episode/轮末采集/记忆整理)/finalize_round(对话落库/轮末压缩 R-236 B1+B4/kz:done/租约 Released/令牌回收),run_task 主体 455→266 行(验收③ run_task 侧达成,提交 9631367)。行为零变更:外部签名逐字节不变、错误传播/事件顺序/压缩触发线一致。验证:cargo test -p kanzei-app 每步 159 passed(T-1786709384/9830);fmt 过;编译零警告。批3:run_once_with_parts 侦察+请求重试段;批5 收口补独立单测(验收①:run_execution_loop 等段单测)与全量。
-- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- 批次: 3/5
+- 进展: 批3 完成(2026-08-16)。run_once_with_parts 侦察完毕(108-1436,主体 1328 行):装配(127-252)/主循环(253-1423:步首检查点·预算·请求重试·消息提交·task 子代理·工具批执行·note_step·收尾检查点)/最终收尾。3a:请求重试段(382-587)抽为 stream_request_step + StepOutcome 枚举——request 重建/建流/SSE 消费/overflow·transport 重放整体搬入,可变运行态(calibration/last_input_tokens/total_usage/overflow_recoveries/overflow_traces/messages)经 &mut 传入,halted_mid_stream 提前退出改由 StepOutcome::Stopped 表达、调用方构造与原先逐字段相同的 RunSummary;run_once_with_parts 主体 1328→1160 行(提交 a379116)。行为零变更:事件顺序/错误传播/停止语义逐点核对,唯一适配是 system.to_vec()/specs 直传/解引用赋值。验证:cargo test -p kanzei-core 186 passed(T-1786727002);fmt/clippy 全绿;push 已到 origin/dev。批4:工具批执行段(task 子代理段 635-842 + can_parallel_tools 预检/并行 wave/串行路径)抽函数;批5:收口补独立单测(验收①)与 cargo test --workspace 全量(验收②)。
+- observed_head: a37911620c262b4c597e853fc68536c078ffc8a3
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786709892063
+- recorded_at: 1786727027471
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0

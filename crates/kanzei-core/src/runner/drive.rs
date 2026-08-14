@@ -467,214 +467,10 @@ pub fn run_once_with_parts<'a>(
                 });
             }
 
-            // ---- task 子代理:同轮多个 task 并行执行。只读快照无副作用,与任何工具并发都安全 ----
+            // R-202 批4:task 子代理段(并行/后台两种派发 + 溢出上限 + 取消占位补齐)
+            // 抽离为 run_subagent_calls,返回本步 task 结果表。
             let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
-                std::collections::HashMap::new();
-            if let Some(rt) = subagent {
-                let mut task_calls: Vec<(String, serde_json::Value, String)> = calls
-                    .iter()
-                    .filter(|(_, name, _, _)| name == "task")
-                    .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
-                    .collect();
-                if !task_calls.is_empty() {
-                    let max_tasks = config.limits.max_tasks_per_turn();
-                    let overflow = if task_calls.len() > max_tasks {
-                        task_calls.split_off(max_tasks)
-                    } else {
-                        Vec::new()
-                    };
-                    for (id, input, raw) in &task_calls {
-                        on_event(RunEvent::ToolStart {
-                            id: id.clone(),
-                            name: "task".into(),
-                            summary: summarize_input(input, raw),
-                            input: input.clone(),
-                        });
-                    }
-                    for (id, input, raw) in &overflow {
-                        on_event(RunEvent::ToolStart {
-                            id: id.clone(),
-                            name: "task".into(),
-                            summary: summarize_input(input, raw),
-                            input: input.clone(),
-                        });
-                        let output = kanzei_harness::ToolOutput::error(format!(
-                            "too many parallel subagent tasks; maximum per turn is {}",
-                            max_tasks
-                        ));
-                        on_event(RunEvent::ToolEnd {
-                            id: id.clone(),
-                            name: "task".into(),
-                            ok: false,
-                            outcome: output.outcome.as_str().into(),
-                            code: output.code.map(str::to_owned),
-                            preview: preview(&output.content),
-                            display: output.display.clone(),
-                        });
-                        task_results.insert(id.clone(), output);
-                    }
-                    // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
-                    // 完成一个立刻报一个 ToolEnd——不再等最慢的,UI 全程有反馈。
-                    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
-                    if rt.background {
-                        // R-175 B1b:后台模式——派发即返回,主代理本轮不等待。
-                        // 每个 task 立即 spawn:client/rt/ctx clone 后移入 async 块,
-                        // 返回 JoinHandle;本轮 ToolResult 填「已后台派发,句柄 <id>」
-                        // 占位,真实结果经 progress 通道回传 ToolEnd + 写入
-                        // background_results 暂存,供后续轮次查询(验收②)。
-                        // 读槽:run_subagent 内 `_read_permit` 是函数局部变量,随
-                        // run_subagent 返回即释放(函数返回 = 子代理跑完)——后台
-                        // 化不需要额外显式 drop,因为 spawn 块 await 的就是
-                        // run_subagent 的完整生命周期。progress 通道 rx 在主代理侧
-                        // drop,子代理内 send 失败静默忽略(既有 `let _ =` 容忍),
-                        // 完成结果走 background_results,不依赖事件流。
-                        for (id, input, _) in &task_calls {
-                            let tx = tx.clone();
-                            // `client`/`rt`/`ctx` 是 &'a 引用;`(&T).clone()` 会解析到
-                            // `impl Clone for &T`(返回引用),move 进 'static async 块就
-                            // 逃逸。`(*x).clone()` 强制调用值类型的 Clone,产生 owned。
-                            let client: LlmClient = (*client).clone();
-                            let rt: SubagentRuntime = (*rt).clone();
-                            let ctx: ToolCtx = ctx.clone();
-                            let call_id = id.clone();
-                            let input = input.clone();
-                            let results = rt.background_results.clone();
-                            let events = rt.background_events.clone();
-                            let notifications = rt.background_notifications.clone();
-                            let timeout_secs = rt.timeout_secs;
-                            tokio::spawn(async move {
-                                // R-175 B5:派发即记 running 事件——重启后从 session_events
-                                // 找「有 running 无后续终态」的 id,即上次未终结的子代理
-                                // (验收③:注册表能列出并给确定处置,不留幽灵条目)。
-                                if let Some(sink) = events.as_ref() {
-                                    sink(
-                                        &call_id,
-                                        serde_json::json!({
-                                            "kind": "task.lifecycle",
-                                            "id": call_id,
-                                            "state": "running",
-                                            "ok": null,
-                                            "preview": null,
-                                        }),
-                                    );
-                                }
-                                let bound = std::time::Duration::from_secs(timeout_secs);
-                                let output = match tokio::time::timeout(
-                                    bound,
-                                    run_subagent(&client, &rt, &ctx, &call_id, &input, tx),
-                                )
-                                .await
-                                {
-                                    Ok(output) => output,
-                                    Err(_) => kanzei_harness::ToolOutput::error(format!(
-                                        "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
-                                        timeout_secs
-                                    )),
-                                };
-                                if let Some(results) = results {
-                                    results
-                                        .lock()
-                                        .unwrap()
-                                        .insert(call_id.clone(), output.clone());
-                                }
-                                // R-175 B2:生命周期事件落 session_events——完成/失败/超时
-                                // 统一记一条 task.lifecycle(含终态),可回放、可审计。
-                                if let Some(sink) = events {
-                                    sink(
-                                        &call_id,
-                                        serde_json::json!({
-                                            "kind": "task.lifecycle",
-                                            "id": call_id,
-                                            "state": if output.is_error { "failed" } else { "done" },
-                                            "ok": !output.is_error,
-                                            "preview": preview(&output.content),
-                                        }),
-                                    );
-                                }
-                                // R-175 B4:发通知回主对话——复用 agent_notifications 表。
-                                // 三终态(完成/失败/超时)统一走这里,status ∈ done|failed|
-                                // timeout;主对话据此知道后台子代理的确定归宿(验收⑦)。
-                                if let Some(notify) = notifications {
-                                    notify(
-                                        &call_id,
-                                        if output.is_error { "failed" } else { "done" },
-                                    );
-                                }
-                            });
-                            task_results.insert(
-                                id.clone(),
-                                kanzei_harness::ToolOutput::ok(format!(
-                                    "已后台派发,句柄 {id};真实结果将经通知/后续轮次查询回传(R-175 后台模式)"
-                                )),
-                            );
-                        }
-                        drop(rx);
-                        // 主代理不 drain、不 select! 等待——直接继续普通工具段。
-                    } else {
-                        let mut jobs: futures::stream::FuturesUnordered<_> = task_calls
-                    .iter()
-                    .map(|(id, input, _)| {
-                        let tx = tx.clone();
-                        async move {
-                            let bound = std::time::Duration::from_secs(rt.timeout_secs);
-                            let output = match tokio::time::timeout(
-                                bound,
-                                run_subagent(client, rt, ctx, id, input, tx),
-                            )
-                            .await
-                            {
-                                Ok(output) => output,
-                                // 纯兜底(默认 15 分钟):防失控,不是性能预算。
-                                Err(_) => kanzei_harness::ToolOutput::error(format!(
-                                    "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
-                                    rt.timeout_secs
-                                )),
-                            };
-                            (id.clone(), output)
-                        }
-                    })
-                    .collect();
-                        drop(tx);
-                        loop {
-                            tokio::select! {
-                                next = jobs.next() => match next {
-                                    Some((id, output)) => {
-                                        on_event(RunEvent::ToolEnd {
-                                            id: id.clone(),
-                                            name: "task".into(),
-                                            ok: !output.is_error,
-                                            outcome: output.outcome.as_str().into(),
-                                            code: output.code.map(str::to_owned),
-                                            preview: preview(&output.content),
-                                            display: output.display.clone(),
-                                        });
-                                        task_results.insert(id, output);
-                                    }
-                                    None => {
-                                        drain_task_events(&mut rx, on_event);
-                                        break;
-                                    }
-                                },
-                                Some(event) = rx.recv() => on_event(event),
-                                // D-342:停止时不再等剩余子代理(futures 随 break 被
-                                // drop,注册守卫 RAII 释放读槽);缺席结果在下面统一
-                                // 用取消占位补齐配对。
-                                _ = halt_signalled(halt) => {
-                                    drain_task_events(&mut rx, on_event);
-                                    break;
-                                }
-                            }
-                        }
-                        // D-342:halt 提前退出时补齐缺席的 task 结果;正常路径全员
-                        // 已有终态,entry 不命中,零行为差异。
-                        for (id, _, _) in &task_calls {
-                            task_results.entry(id.clone()).or_insert_with(|| {
-                                kanzei_harness::ToolOutput::error("cancelled: run stopped by user")
-                            });
-                        }
-                    }
-                }
-            }
+                run_subagent_calls(subagent, client, ctx, config, &calls, halt, on_event).await;
 
             // R-171 批2:writer 阶段(ReadWriteSerial)强制普通工具串行——
             // max in-flight=1 且结果按模型调用顺序归位(验收③)。设计文档不变量 5。
@@ -1504,4 +1300,230 @@ async fn stream_request_step(
             Some(error) => return Err(error.into()),
         }
     }
+}
+
+/// R-202 批4:task 子代理段——同轮多个 task 的并行/后台两种派发、每轮数量上限、
+/// 进度通道事件转发与 D-342 停止时的取消占位补齐。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - 前台模式:FuturesUnordered 并行执行,完成一个立即 ToolEnd,全部结束后
+///   drain 进度通道;halt 提前退出时缺席结果以取消占位补齐配对。
+/// - 后台模式:立即 spawn 每个 task,本轮 ToolResult 填「已后台派发」占位,
+///   生命周期事件与终态通知按 R-175 落 session_events / background_results。
+/// - 溢出数量上限(max_tasks_per_turn)的调用以 ToolOutput::error 即时回喂。
+async fn run_subagent_calls(
+    subagent: Option<&SubagentRuntime>,
+    client: &LlmClient,
+    ctx: &ToolCtx,
+    config: &RunnerConfig,
+    calls: &[(String, String, serde_json::Value, String)],
+    halt: Option<&CancellationToken>,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> std::collections::HashMap<String, kanzei_harness::ToolOutput> {
+    // ---- task 子代理:同轮多个 task 并行执行。只读快照无副作用,与任何工具并发都安全 ----
+    let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
+        std::collections::HashMap::new();
+    if let Some(rt) = subagent {
+        let mut task_calls: Vec<(String, serde_json::Value, String)> = calls
+            .iter()
+            .filter(|(_, name, _, _)| name == "task")
+            .map(|(id, _, input, raw)| (id.clone(), input.clone(), raw.clone()))
+            .collect();
+        if !task_calls.is_empty() {
+            let max_tasks = config.limits.max_tasks_per_turn();
+            let overflow = if task_calls.len() > max_tasks {
+                task_calls.split_off(max_tasks)
+            } else {
+                Vec::new()
+            };
+            for (id, input, raw) in &task_calls {
+                on_event(RunEvent::ToolStart {
+                    id: id.clone(),
+                    name: "task".into(),
+                    summary: summarize_input(input, raw),
+                    input: input.clone(),
+                });
+            }
+            for (id, input, raw) in &overflow {
+                on_event(RunEvent::ToolStart {
+                    id: id.clone(),
+                    name: "task".into(),
+                    summary: summarize_input(input, raw),
+                    input: input.clone(),
+                });
+                let output = kanzei_harness::ToolOutput::error(format!(
+                    "too many parallel subagent tasks; maximum per turn is {}",
+                    max_tasks
+                ));
+                on_event(RunEvent::ToolEnd {
+                    id: id.clone(),
+                    name: "task".into(),
+                    ok: false,
+                    outcome: output.outcome.as_str().into(),
+                    code: output.code.map(str::to_owned),
+                    preview: preview(&output.content),
+                    display: output.display.clone(),
+                });
+                task_results.insert(id.clone(), output);
+            }
+            // 进度通道:子代理内部事件(轮次/工具)转成 TaskProgress 实时上抛,
+            // 完成一个立刻报一个 ToolEnd——不再等最慢的,UI 全程有反馈。
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
+            if rt.background {
+                // R-175 B1b:后台模式——派发即返回,主代理本轮不等待。
+                // 每个 task 立即 spawn:client/rt/ctx clone 后移入 async 块,
+                // 返回 JoinHandle;本轮 ToolResult 填「已后台派发,句柄 <id>」
+                // 占位,真实结果经 progress 通道回传 ToolEnd + 写入
+                // background_results 暂存,供后续轮次查询(验收②)。
+                // 读槽:run_subagent 内 `_read_permit` 是函数局部变量,随
+                // run_subagent 返回即释放(函数返回 = 子代理跑完)——后台
+                // 化不需要额外显式 drop,因为 spawn 块 await 的就是
+                // run_subagent 的完整生命周期。progress 通道 rx 在主代理侧
+                // drop,子代理内 send 失败静默忽略(既有 `let _ =` 容忍),
+                // 完成结果走 background_results,不依赖事件流。
+                for (id, input, _) in &task_calls {
+                    let tx = tx.clone();
+                    // `client`/`rt`/`ctx` 是 &'a 引用;`(&T).clone()` 会解析到
+                    // `impl Clone for &T`(返回引用),move 进 'static async 块就
+                    // 逃逸。`(*x).clone()` 强制调用值类型的 Clone,产生 owned。
+                    let client: LlmClient = (*client).clone();
+                    let rt: SubagentRuntime = (*rt).clone();
+                    let ctx: ToolCtx = ctx.clone();
+                    let call_id = id.clone();
+                    let input = input.clone();
+                    let results = rt.background_results.clone();
+                    let events = rt.background_events.clone();
+                    let notifications = rt.background_notifications.clone();
+                    let timeout_secs = rt.timeout_secs;
+                    tokio::spawn(async move {
+                        // R-175 B5:派发即记 running 事件——重启后从 session_events
+                        // 找「有 running 无后续终态」的 id,即上次未终结的子代理
+                        // (验收③:注册表能列出并给确定处置,不留幽灵条目)。
+                        if let Some(sink) = events.as_ref() {
+                            sink(
+                                &call_id,
+                                serde_json::json!({
+                                    "kind": "task.lifecycle",
+                                    "id": call_id,
+                                    "state": "running",
+                                    "ok": null,
+                                    "preview": null,
+                                }),
+                            );
+                        }
+                        let bound = std::time::Duration::from_secs(timeout_secs);
+                        let output = match tokio::time::timeout(
+                            bound,
+                            run_subagent(&client, &rt, &ctx, &call_id, &input, tx),
+                        )
+                        .await
+                        {
+                            Ok(output) => output,
+                            Err(_) => kanzei_harness::ToolOutput::error(format!(
+                                "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
+                                timeout_secs
+                            )),
+                        };
+                        if let Some(results) = results {
+                            results
+                                .lock()
+                                .unwrap()
+                                .insert(call_id.clone(), output.clone());
+                        }
+                        // R-175 B2:生命周期事件落 session_events——完成/失败/超时
+                        // 统一记一条 task.lifecycle(含终态),可回放、可审计。
+                        if let Some(sink) = events {
+                            sink(
+                                &call_id,
+                                serde_json::json!({
+                                    "kind": "task.lifecycle",
+                                    "id": call_id,
+                                    "state": if output.is_error { "failed" } else { "done" },
+                                    "ok": !output.is_error,
+                                    "preview": preview(&output.content),
+                                }),
+                            );
+                        }
+                        // R-175 B4:发通知回主对话——复用 agent_notifications 表。
+                        // 三终态(完成/失败/超时)统一走这里,status ∈ done|failed|
+                        // timeout;主对话据此知道后台子代理的确定归宿(验收⑦)。
+                        if let Some(notify) = notifications {
+                            notify(&call_id, if output.is_error { "failed" } else { "done" });
+                        }
+                    });
+                    task_results.insert(
+                        id.clone(),
+                        kanzei_harness::ToolOutput::ok(format!(
+                            "已后台派发,句柄 {id};真实结果将经通知/后续轮次查询回传(R-175 后台模式)"
+                        )),
+                    );
+                }
+                drop(rx);
+                // 主代理不 drain、不 select! 等待——直接继续普通工具段。
+            } else {
+                let mut jobs: futures::stream::FuturesUnordered<_> = task_calls
+                    .iter()
+                    .map(|(id, input, _)| {
+                        let tx = tx.clone();
+                        async move {
+                            let bound = std::time::Duration::from_secs(rt.timeout_secs);
+                            let output = match tokio::time::timeout(
+                                bound,
+                                run_subagent(client, rt, ctx, id, input, tx),
+                            )
+                            .await
+                            {
+                                Ok(output) => output,
+                                // 纯兜底(默认 15 分钟):防失控,不是性能预算。
+                                Err(_) => kanzei_harness::ToolOutput::error(format!(
+                                    "subagent hit the {}s wall-clock safety limit — split the task into narrower pieces",
+                                    rt.timeout_secs
+                                )),
+                            };
+                            (id.clone(), output)
+                        }
+                    })
+                    .collect();
+                drop(tx);
+                loop {
+                    tokio::select! {
+                        next = jobs.next() => match next {
+                            Some((id, output)) => {
+                                on_event(RunEvent::ToolEnd {
+                                    id: id.clone(),
+                                    name: "task".into(),
+                                    ok: !output.is_error,
+                                    outcome: output.outcome.as_str().into(),
+                                    code: output.code.map(str::to_owned),
+                                    preview: preview(&output.content),
+                                    display: output.display.clone(),
+                                });
+                                task_results.insert(id, output);
+                            }
+                            None => {
+                                drain_task_events(&mut rx, on_event);
+                                break;
+                            }
+                        },
+                        Some(event) = rx.recv() => on_event(event),
+                        // D-342:停止时不再等剩余子代理(futures 随 break 被
+                        // drop,注册守卫 RAII 释放读槽);缺席结果在下面统一
+                        // 用取消占位补齐配对。
+                        _ = halt_signalled(halt) => {
+                            drain_task_events(&mut rx, on_event);
+                            break;
+                        }
+                    }
+                }
+                // D-342:halt 提前退出时补齐缺席的 task 结果;正常路径全员
+                // 已有终态,entry 不命中,零行为差异。
+                for (id, _, _) in &task_calls {
+                    task_results.entry(id.clone()).or_insert_with(|| {
+                        kanzei_harness::ToolOutput::error("cancelled: run stopped by user")
+                    });
+                }
+            }
+        }
+    }
+    task_results
 }
