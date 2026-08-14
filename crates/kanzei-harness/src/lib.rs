@@ -13,6 +13,8 @@ pub mod managed_fence;
 pub mod markdown;
 pub mod orchestration;
 pub mod permission;
+/// R-205:权限规则持久化(config.rs 拆出)。
+pub mod permission_persist;
 pub mod progress;
 /// R-205:项目根发现与 HOME 守卫(config.rs 拆出,D-270 修复落点)。
 pub mod project_root;
