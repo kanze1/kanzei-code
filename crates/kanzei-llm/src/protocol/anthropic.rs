@@ -1,5 +1,5 @@
 //! Anthropic Messages 协议:body 构造 + SSE 状态机。
-//! 参照 docs/reference/src/anthropic-messages.ts 与官方流式事件序列:
+//! 参照官方流式事件序列:
 //! message_start → content_block_start/delta/stop* → message_delta → message_stop。
 
 use std::collections::{HashMap, HashSet};

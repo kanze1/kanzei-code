@@ -317,7 +317,9 @@ created/idle -> closed
 
 ### 附录 A.6 POC 验收入口
 
-使用 `.\scripts\r050-poc-check.ps1` 可重复运行 R-050 当前只读准备测试：
+> R-050 已 `[dropped]`，配套的 `scripts/r050-poc-check.ps1` 随之删除(2026-08-15)。以下三步保留作历史记录，手工执行仍等价。
+
+原脚本可重复运行 R-050 当前只读准备测试：
 
 1. `cargo test -p kanzei-core`：包含跨 session 事件回放和队列停止隔离测试；
 2. `cargo test -p kanzei-app`：桌面端回归；
