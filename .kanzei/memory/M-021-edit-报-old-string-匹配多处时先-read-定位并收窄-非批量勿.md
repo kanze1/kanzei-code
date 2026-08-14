@@ -2,8 +2,8 @@
 id: M-021
 scope: project
 category: sop
-title: edit 报 old_string 匹配多处时先 read 定位并收窄，非批量勿设 replace_all
-description: 处理 edit 报“old_string matches N locations”时必读：不要重复提交同一个宽泛 old_string；先 read 当前目标文件并用文件路径、函数/区块边界及邻近行构造唯一上下文，确认仅命中 1 处后再 edit。只有明确要改全部命中时才设 replace_all=true，并先核对每个命中范围。
+title: Edit old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进 — 非唯一匹配勿设 replace_all，否则批量替换风险不可控
+description: old_string not found + must match exactly whitespace:先 read 重读磁盘实际内容再精确构造 old_string。报错自带 "Closest line..."提示揭示真实排版(多 key 挤同一行/按每行一个构造)。已复发于 main.rs #[test]缩进，判据含「未命中全文+whitespace strict」而非单次尝试
 status: active
 created: 2026-08-09
 updated: 2026-08-13
