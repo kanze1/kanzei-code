@@ -3037,3 +3037,17 @@
 - observed_head: fc0c559d3a92346d8dfbe50c8aa46b84dfa02dde
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786738575095
+
+## R-240 细化运行完成指标统计 [done]
+- priority: P2
+- 原始描述: 能更详细的查看各类运行和完成过程种的指标，比如做完不同种类的不同复杂度需求使用的token，方便我们针对上下文和harness等进行优化
+- 复杂度: 中
+- 归属: kanzei
+- 标签: 流程
+- 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-240
+- 批次: 3/3
+- 进展: 批3 完成(2026-08-16),条目收口。验收对照:可按需求类型与复杂度查看运行及完成过程指标并统计 token——①后端 `crates/kanzei-app/src/run.rs` run_metrics_by_category 命令(invoke_handler 已注册):extract_ticket_id 从 prompt_head 提取 R-/D- ID,ticket_complexity 解析 requirements.md/defects.md 复杂度(小/中/大),aggregate_run_metrics 按 (类型, 复杂度) 聚合 count/sum·avg input·output·steps + uncategorized(单测 3 个:ID 提取/复杂度解析/聚合分组,cee6af1);②前端 `ui/13-memory.js` renderMetricsCategories 在运行画像面板渲染「按分类聚合」表格(index.html metrics-categories 容器 + i18n 8 键 + style.css 样式,bb07501);③token 统计来自 episodes 表 input_tokens/output_tokens(每轮持久化)。全量:cargo test --workspace 全绿 0 failed(T-1786739400,含 kzapp 163/core 193/harness 138/llm 44/base 128/tools 245)。前端冒烟 runtime/i18n/lint/a11y 全过(T-1786739120)。关闭。
+- observed_head: bb075018df4cd6aa41280be52573ca15bc96b4d4
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786739410865

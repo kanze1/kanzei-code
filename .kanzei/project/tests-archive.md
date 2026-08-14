@@ -3402,3 +3402,18 @@
 - 摘要: R-240 B2 前端分类聚合区块:runtime(21 js 0 错)/i18n(146 键)/lint(1350 标识符)/a11y 冒烟全过
 - 关联: R-240
 - 收尾: 1786739120
+
+## T-1786739243 cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 时长: 24.0s
+- 摘要: R-240 B2 提交门禁:kanzei-app 163 passed(前端分类区块合入前)
+- 关联: R-240
+- 收尾: 1786739243
+- 源码指纹: 528296b026b41f09
+
+## T-1786739400 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 80.0s
+- 摘要: R-240 关闭前全量:workspace 全绿 0 failed(kzapp 163/core 193/harness 138/llm 44/base 128/tools 245 等)
+- 关联: R-240
+- 收尾: 1786739400

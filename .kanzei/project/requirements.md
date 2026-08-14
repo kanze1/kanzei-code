@@ -173,20 +173,6 @@
 - 进展: 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
 - 阻塞: 用户: 需对移动端三条验收(双向通信/通知推送/子代理升级容器)排期并确认交付载体(真实手机端工程或 web 模拟端)。解除动作:用户拍板移动端交付形态与排期,再按新载体拆子需求动工。
 
-## R-240 细化运行完成指标统计 [doing]
-- priority: P2
-- 原始描述: 能更详细的查看各类运行和完成过程种的指标，比如做完不同种类的不同复杂度需求使用的token，方便我们针对上下文和harness等进行优化
-- 复杂度: 中
-- 归属: kanzei
-- 标签: 流程
-- 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-240
-- 批次: 1/3
-- 进展: 批1 完成(2026-08-16,提交 cee6af1)。后端 run_metrics_by_category 命令(注册 invoke_handler):①extract_ticket_id 从 prompt_head 提取 R-/D- ID;②ticket_complexity 解析 requirements.md/defects.md 的 `## ID` 段落 `- 复杂度:` 行(小/中/大);③aggregate_run_metrics 纯函数按 (kind, complexity) 聚合 count/sum·avg input·output·steps + uncategorized;④tauri 命令读 recent_episodes(limit 默认 200)返回 groups。单测 3 个(提取 ID 场景/ticket_complexity 文档解析/聚合分组)。验证:kanzei-app 163 passed(T-1786738940);fmt/clippy 绿;push 已到 origin/dev。批2:前端 13-memory.js 指标面板加分类聚合区块(invoke run_metrics_by_category,渲染 groups 表格)+ i18n + 冒烟;批3:全量 + 收口。
-- observed_head: cee6af1dd6e91e52158362d787d0f8e7a5826e0a
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786738973359
-
 ## R-242 会话投影真源切换与分段清空恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-241
