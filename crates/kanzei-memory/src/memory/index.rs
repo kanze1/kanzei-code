@@ -1378,4 +1378,17 @@ mod tests {
         }
         std::fs::remove_dir_all(&root).ok();
     }
+
+    #[test]
+    fn decision_weight_边界与单调性() {
+        // 样本不足(召回<3)不动分。
+        assert_eq!(decision_weight(0, 0), 1.0);
+        assert_eq!(decision_weight(2, 0), 1.0);
+        // 零采纳沉到下限 0.6,全采纳升到 1.3,中间线性。
+        assert!((decision_weight(3, 0) - 0.6).abs() < 1e-9);
+        assert!((decision_weight(4, 4) - 1.3).abs() < 1e-9);
+        assert!((decision_weight(10, 5) - 0.95).abs() < 1e-9);
+        // 脏数据防御:fetched > recalled 按全采纳截断。
+        assert!((decision_weight(3, 9) - 1.3).abs() < 1e-9);
+    }
 }
