@@ -3312,3 +3312,15 @@
 - 关联: R-202
 - 收尾: 1786708807
 - 源码指纹: 5bc4ade109746b8e
+
+## T-1786709384 R-202 B2a 提交门禁: cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-202 B2a 提交门禁:闭包构造抽离(build_event_handler/build_ask_handler/build_subagent_runtime)后 kanzei-app 定向测试 159 passed/0 failed
+- 关联: R-202
+- 收尾: 1786709384
+
+## T-1786709830 R-202 B2b 提交门禁: cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-202 B2b 提交门禁:run_execution_loop/persist_round_outcome/finalize_round 抽离后 run_task 主体 266 行(<300),kanzei-app 定向测试 159 passed/0 failed
+- 关联: R-202
+- 收尾: 1786709830
