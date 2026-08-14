@@ -3305,3 +3305,10 @@
 - 摘要: R-204 关闭前全量:cargo test --workspace 全绿(exit 0,各 crate 全过;kanzei-tools lib 241 passed 收尾)——复杂度中条目关闭门禁
 - 关联: R-204
 - 收尾: 1786708021
+
+## T-1786708807 R-202 B1 提交门禁: cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-202 B1 提交门禁:run_task 装配段抽函数后 kanzei-app 定向测试 159 passed/0 failed(含 run:: 相关测试)
+- 关联: R-202
+- 收尾: 1786708807
+- 源码指纹: 5bc4ade109746b8e
