@@ -3828,10 +3828,16 @@ assert(chatActivity.getAttribute("aria-label") === "Switch to chat", "静态 ari
 // terminal=true 的真正运行失败会收口为 Error。
 handlers.get("kz:turn")?.({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
 await flush();
+expectedPersistentError = "smoke persistence warning";
+const persistentWarningHitsBefore = expectedPersistentHits;
+const nonterminalErrorCount = document.querySelectorAll(".error-level").length;
 handlers.get("kz:error")?.({ payload: { message: "smoke persistence warning", terminal: false, sessionId: "sess-smoke" } });
 await flush();
 assert(listText("status-mode").includes("Running"), `非终态错误不应收回运行态: "${listText("status-mode")}"`);
 assert(!byId.get("stop").classList.contains("hidden"), "非终态错误期间停止按钮不应消失");
+assert(document.querySelectorAll(".error-level").length === nonterminalErrorCount, "非终态错误不应渲染为对话中的错误卡");
+assert(expectedPersistentHits > persistentWarningHitsBefore, "非终态错误应进入持久化告警通道");
+expectedPersistentError = null;
 handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
 await flush();
 assert(listText("status-text").includes("Error"), `英文动态错误状态未翻译: "${listText("status-text")}"`);
@@ -4185,12 +4191,14 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     ph2 === "auto_pending" || ph2 === "starting",
     `前置失败:Continue 未挂起/开跑下一轮, phase=${ph2}`,
   );
+  expectedPersistentError = "持久化告警(非致命)";
   handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false } });
   const ph3 = sandbox.sessionState(whipSession).phase;
   assert(
     ph3 === "auto_pending" || ph3 === "starting",
     "非致命错误不得取消已排队的续跑(旧实现在函数开头无条件 cancelAutoContinueTimer,一条告警就让鞭挞永久停摆)(D-291)",
   );
+  expectedPersistentError = null;
 }
 
 // ---------- D-323 暂停→恢复路径不得持有前端私有否决 ----------

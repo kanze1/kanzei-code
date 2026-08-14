@@ -26,6 +26,11 @@ assert(!lines.includes("line-lane-initial"), "线路刷新不应重新挂载进�
 const style = await readUi("style.css");
 assert(!/\.line-lane\s*\{[^}]*animation\s*:/.test(style), "线路基础卡片不应在每次刷新时重复播放进入动画");
 assert(!style.includes("line-lane-enter"), "线路刷新不应保留会造成闪烁的进入动画");
+assert(style.includes(".lines-header > div:first-child"), "线路页标题区域缺少窄区宽度约束");
+assert(style.includes("@media (max-width: 1400px)"), "线路页缺少按主区窄态换行规则");
+const run = await readFile(resolve(root, "crates", "kanzei-app", "src", "run.rs"), "utf8");
+assert(run.includes('"kz:stopped"'), "停止无运行态没有幂等收口事件");
+assert(run.includes('"already_idle": true'), "停止无运行态没有标记已空闲结果");
 assert(!/open\.addEventListener\([\s\S]{0,220}?await refreshProcesses\(\)/.test(lines), "线路切换前不应额外刷新进程列表");
 
 assert(sessions.includes("processRefreshInFlight"), "进程刷新缺少单飞请求护栏");

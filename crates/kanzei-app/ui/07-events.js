@@ -265,7 +265,8 @@ on("kz:error", (e) => {
   const payload = e.payload ?? {};
   const message = payload.message;
   const terminal = payload.terminal !== false;
-  reportError(message);
+  if (terminal) reportError(message);
+  else reportPersistentError(message);
   // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
   // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
   if (terminal) {
@@ -799,4 +800,3 @@ $("jump-latest").addEventListener("click", () => {
   scrollBottom(true);
   messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
 });
-

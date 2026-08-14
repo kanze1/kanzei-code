@@ -2475,24 +2475,22 @@ pub(crate) fn stop_run(
         .lock()
         .unwrap()
         .iter()
-        .filter(|(session_id, runtime)| {
+        .filter(|(session_id, _runtime)| {
             target_session
                 .as_ref()
                 .is_none_or(|target| target == *session_id)
-                && runtime.running.load(Ordering::SeqCst)
         })
         .map(|(_, runtime)| runtime.clone())
         .collect();
     if runtimes.is_empty() {
-        let message = "目标项目当前没有可停止的运行".to_string();
         let _ = window.emit(
-            "kz:error",
+            "kz:stopped",
             with_session_id(
-                json!({ "message": message.clone(), "terminal": false }),
+                json!({ "cancelled_queue": 0, "already_idle": true }),
                 target_session.as_deref().unwrap_or(""),
             ),
         );
-        return Err(message);
+        return Ok(());
     }
     let mut cancelled = None;
     for runtime in runtimes {
