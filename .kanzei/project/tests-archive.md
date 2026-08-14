@@ -3211,3 +3211,15 @@
 - 摘要: R-205 关闭前全量:全部 crate 0 failed(harness 130/tools 236/memory 128/app 154+44/core 172/llm 44/base 9/kanzei 17+3)
 - 关联: R-205
 - 收尾: 1786695613
+
+## T-1786698638 D-355 全量: cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量测试全绿(复杂度中条目关闭前)
+- 关联: D-355
+- 收尾: 1786698638
+
+## T-1786698640 D-355 冒烟: ui-runtime-smoke + 变异 d355ClearActive/d355LoadConvGuard [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs (默认 + KZ_SMOKE_MUTATE=d355ClearActive + =d355LoadConvGuard)
+- 摘要: 默认全绿(1962 invoke);d355ClearActive 变异红(残留 A 进程 id 未清空)、d355LoadConvGuard 变异红(迟到 B 历史覆盖 A);既有 d251/d257 变异仍判红;ui-lint/i18n/markdown/a11y 冒烟全绿
+- 关联: D-355
+- 收尾: 1786698640

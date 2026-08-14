@@ -173,8 +173,13 @@ let syncedRunningProcessId = null;
 let syncedRunningState = null;
 // 已向后端补拉过待答队列的会话,防止每次进程列表刷新都打一次 pending_asks_get。
 let askSyncedSession = null;
-let processRefreshInFlight = null;
-let processRefreshQueued = false;
+// D-355:process_list 单飞去项目化。旧的全局 inFlight/queued 不携带请求所属项目——
+// 项目 A 的 process_list 在途时切到 B,B 的 refreshProcesses 命中 A 的 inFlight 后返回
+// A 的 Promise,loadConversation 误等它,等到的却是「A 的列表完成」而 B 的 activeProcessId
+// 仍是 null,于是 B 的 conversation_get 永远不发出,切仓库后目标对话不恢复。现在按项目
+// 键控:同项目去重(合并并发调用),跨项目各自独立请求,返回的 Promise 恒为「本项目
+// 列表刷新完成」——等待方(loadConversation)等到的就是 B 自己的列表。
+const processRefreshInFlight = new Map();
 let processSwitchGeneration = 0;
 function processRunning(item) {
   const state = sessionState(item.session_id);
@@ -409,27 +414,23 @@ function renderProcesses(items) {
 }
 
 async function refreshProcesses() {
-  if (!currentProject) return;
-  if (processRefreshInFlight) {
-    processRefreshQueued = true;
-    return processRefreshInFlight;
-  }
+  if (!currentProject) return null;
   const forProject = currentProject;
-  processRefreshInFlight = (async () => {
+  // 同项目在途请求直接复用:合并并发调用,后端不会同时吃两份同项目清单。
+  const existing = processRefreshInFlight.get(forProject);
+  if (existing) return existing;
+  const promise = (async () => {
     try {
       const items = await invoke("process_list", { projectDir: forProject });
       if (currentProject === forProject) renderProcesses(items);
     } catch (err) {
       if (currentProject === forProject) log(`${t("进程列表刷新失败")}:${err}`, "warn");
     } finally {
-      processRefreshInFlight = null;
-      if (processRefreshQueued) {
-        processRefreshQueued = false;
-        void refreshProcesses();
-      }
+      processRefreshInFlight.delete(forProject);
     }
   })();
-  return processRefreshInFlight;
+  processRefreshInFlight.set(forProject, promise);
+  return promise;
 }
 
 async function refreshPendingAsks() {
@@ -674,16 +675,10 @@ function renderProjects(prefs) {
       try {
         const wasCurrent = currentProject === path;
         const next = await invoke("projects_remove", { path });
-        renderProjects(next);
-        if (wasCurrent && currentProject !== path) {
-          clearChat();
-          bgClear();
-          renderTodoPanel([], 0, 0);
-          await loadConversation();
-          await refreshDocs();
-          await loadModels();
-          refreshGit();
-          await refreshPendingInputs();
+        if (wasCurrent) {
+          await enterProject(next);
+        } else {
+          renderProjects(next);
         }
       } catch (err) {
         toastError(String(err));
@@ -711,27 +706,36 @@ function renderProjects(prefs) {
       item.click();
     });
     item.addEventListener("click", async () => {
-      const previous = currentProject;
-      renderProjects(await invoke("projects_select", { path }));
-      if (previous && previous !== path) {
-        // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
-        // 丢弃,新项目会永久卡在"运行中"(发送键禁用)。refreshProcesses 会带回真实状态。
-        setRunning(false, t("空闲"));
-        clearChat();
-        bgClear();
-        renderTodoPanel([], 0, 0);
-        await loadConversation();
-      }
-      refreshDocs();
-      loadModels();
-      refreshGit();
-      refreshPendingInputs();
+      await enterProject(await invoke("projects_select", { path }));
     });
     list.appendChild(item);
   }
   $("project-label").textContent = prefs.current ?? `(${localizeDynamic("未选择项目")})`;
   syncDocumentsProjectSelect(prefs);
   refreshProcesses();
+}
+
+// D-355:切项目统一事务。侧栏点击、Workspace 卡片/文档页下拉、添加/移除/初始化项目
+// 全部走这里,把「目标 process_list → 选定 active session → conversation_get」组成
+// 同一个可等待的原子链:
+//  - 目标历史完整返回前**不清空旧消息**——renderRecoveredMessages 在 conversation_get
+//    落地时一次性替换,失败时旧内容仍在,不会出现「切换后空白 + 无法恢复」的假象;
+//  - 迟到的旧项目响应由各自的 project/generation 守卫丢弃,不能覆盖新目标。
+// 没切换项目(点当前项/重命名)时只刷周边,不重载对话。
+async function enterProject(prefs, options = {}) {
+  const previous = currentProject;
+  renderProjects(prefs);
+  if (previous !== currentProject) {
+    // 运行状态属于会话:切项目后必须按目标项目重算,否则旧项目的 kz:done 被会话过滤器
+    // 丢弃,新项目会永久卡在「运行中」(发送键禁用)。refreshProcesses 会带回真实状态。
+    setRunning(false, t("空闲"));
+    await loadConversation();
+    if (options.notice) addMessage("notice", options.notice);
+  }
+  await refreshDocs();
+  await loadModels();
+  refreshGit();
+  await refreshPendingInputs();
 }
 
 $("project-init").addEventListener("click", async () => {
@@ -744,13 +748,7 @@ $("project-init").addEventListener("click", async () => {
       path: path.trim(),
       name: name.trim() || null,
     });
-    renderProjects(prefs);
-    clearChat(t("已初始化并切换到新项目"));
-    await loadConversation();
-    await refreshDocs();
-    await loadModels();
-    refreshGit();
-    await refreshPendingInputs();
+    await enterProject(prefs, { notice: t("已初始化并切换到新项目") });
     toast(t("项目初始化完成"));
   } catch (err) {
     toastError(String(err));
@@ -760,22 +758,7 @@ $("project-init").addEventListener("click", async () => {
 $("project-add").addEventListener("click", async () => {
   try {
     const prefs = await invoke("projects_pick");
-    if (prefs) {
-      const previous = currentProject;
-      renderProjects(prefs);
-      if (previous !== currentProject) {
-        clearChat();
-        bgClear();
-        renderTodoPanel([], 0, 0);
-        await loadConversation();
-        await refreshDocs();
-        await loadModels();
-        refreshGit();
-        await refreshPendingInputs();
-      } else {
-        await refreshDocs();
-      }
-    }
+    if (prefs) await enterProject(prefs);
   } catch (err) {
     toastError(String(err));
   }

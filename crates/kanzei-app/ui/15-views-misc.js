@@ -263,6 +263,9 @@ async function loadConversation(sequence = null, switchGeneration = null) {
   if (!currentProject) return;
   // 启动时项目列表与历史恢复并行触发,先确保进程列表已选出主会话,再锁定
   // processId。否则首次 conversation_get 可能带着 null,历史会被竞态丢掉。
+  // D-355:refreshProcesses 按项目键控(单飞去项目化),这里 await 到的是**当前项目**
+  // 自己的列表刷新 Promise——A 的 process_list 在途时切到 B,等到的就是 B 的列表,
+  // B 的 activeProcessId 就绪后 conversation_get 才带着 B 的 projectDir/processId 发出。
   if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
   if (!currentProject || !activeProcessId) return;
   // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。

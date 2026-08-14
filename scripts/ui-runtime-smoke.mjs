@@ -33,6 +33,20 @@ if (SMOKE_MUTATE) {
       pattern: /\$\("worktrees-refresh"\)\.addEventListener\("click", refreshWorktrees\);/,
       replace: "",
     },
+    // D-355:切项目时 renderProjects 必须清空 activeProcessId。删了它,切到新项目后
+    // 残留旧项目的进程 id,loadConversation 就不会等新项目的 process_list,直接拿旧
+    // 进程 id 发 conversation_get——新项目的对话永远不恢复。
+    d355ClearActive: {
+      pattern: /if \(previousProject !== currentProject\) \{\r?\n(\s*)activeProcessId = null;\r?\n(\s*)activeSessionId = null;/,
+      replace: "if (previousProject !== currentProject) {\n$2activeSessionId = null;",
+    },
+    // D-355:loadConversation 在 conversation_get 落地后的 isCurrent 守卫。删了它,
+    // 迟到的旧目标历史会覆盖已经切走的新目标(切 B 后 B 的对话恢复迟到,B 的历史被
+    // 画进已切回 A 的消息区)。
+    d355LoadConvGuard: {
+      pattern: /if \(!isCurrent\(\)\) return;\r?\n(\s*renderRecoveredMessages\(history\);)/,
+      replace: "$1",
+    },
   };
   const mutation = mutations[SMOKE_MUTATE];
   if (!mutation) {
@@ -6268,6 +6282,134 @@ const docsB = {
     filesSrc.includes('currentTheme() === "light" ? "vs" : "vs-dark"'),
     "R-189:Monaco 编辑器主题未跟随全局主题",
   );
+}
+
+// ---------- D-355:切项目时 process_list 单飞跨项目错等导致目标对话不恢复 ----------
+// 旧实现:processRefreshInFlight/Queued 是跨项目全局单飞,不携带请求所属项目。项目 A 的
+// process_list 在途时切到 B,B 的 refreshProcesses 命中 A 的 inFlight 后返回 A 的 Promise,
+// loadConversation 误等它,等到的却是「A 的列表完成」而 B 的 activeProcessId 仍是 null,
+// 于是 B 的 conversation_get 永远不发出——切仓库后目标对话不恢复(空白/旧快照),数据其实
+// 还在 SQLite 里。新实现按项目键控:返回的 Promise 恒为「本项目列表刷新完成」。
+{
+  const savedProcessList = payloads.process_list;
+  const savedConversationGet = payloads.conversation_get;
+  const A_PROC = "d|smoke";
+  const B_PROC = "d|proj-b";
+  const A_HISTORY = "冒烟历史消息";
+  const B_HISTORY = "乙项目的历史消息";
+  // 两个项目的进程列表与历史必须不同,才能判「以 B 的 projectDir/processId 调
+  // conversation_get」而不是复用了 A 的结果。
+  payloads.process_list = (args) =>
+    args?.projectDir === PROJECT_B
+      ? [{ id: B_PROC, label: "乙主会话", session_id: "sess-b", running: false, branch: "main", authority: "primary" }]
+      : savedProcessList;
+  payloads.conversation_get = (args) =>
+    args?.projectDir === PROJECT_B
+      ? [{ role: "user", parts: [{ type: "text", text: B_HISTORY }] }]
+      : savedConversationGet;
+  const projPayload = (path) => ({
+    current: path,
+    projects: [PROJECT, PROJECT_B],
+    names: { [PROJECT]: "smoke", [PROJECT_B]: "smoke-b" },
+  });
+  const visibleHistory = () => [...document.querySelectorAll("#messages .message-body")]
+    .map((el) => el.textContent)
+    .join("\n");
+
+  // ---------- ① 卡住项目 A 的 process_list 后切 B ----------
+  // B 必须实际等待 B 自己的 process_list(旧实现会命中 A 的全局单飞直接复用),并以
+  // B 的 projectDir/processId 调 conversation_get;迟到的 A 响应不得覆盖 B。
+  await gotoProject(PROJECT, docsA);
+  let releaseGate;
+  invokeGates.set("process_list", new Promise((resolve) => { releaseGate = resolve; }));
+  const aRefresh = sandbox.refreshProcesses(); // 项目 A 的请求在途,卡在闸门上
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "process_list" && invokeArgs.at(-1)?.args?.projectDir === PROJECT,
+    `前置失败:项目 A 的 process_list 没有在途(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("process_list"); // 只卡住上面那一次:已在 await 的调用握着自己那个 promise
+  const processListBefore = invokeArgs.filter((entry) => entry.cmd === "process_list").length;
+  payloads.docs_snapshot = docsB;
+  payloads.projects_select = projPayload(PROJECT_B);
+  const bSwitch = sandbox.selectWorkspaceProject(PROJECT_B); // 切到 B,等待 B 自己的 process_list
+  await settle();
+  const afterSwitchCalls = invokeArgs.filter((entry) => entry.cmd === "process_list");
+  assert(
+    afterSwitchCalls.length === processListBefore + 1
+      && afterSwitchCalls.at(-1)?.args?.projectDir === PROJECT_B,
+    `切到 B 没有实际发出 B 自己的 process_list(旧实现命中 A 的全局单飞直接返回 A 的 Promise):` +
+      `${JSON.stringify(afterSwitchCalls)}`,
+  );
+  releaseGate(); // 放行:A 的响应落地(项目已切走,守卫丢弃),B 的响应落地 → activeProcessId 就绪
+  await bSwitch;
+  await flush();
+  const getCalls = invokeArgs.filter((entry) => entry.cmd === "conversation_get");
+  assert(
+    getCalls.some((entry) => entry.args?.projectDir === PROJECT_B && entry.args?.processId === B_PROC),
+    `conversation_get 没有以 B 的 projectDir/processId 发出(旧实现:B 的 activeProcessId 从未被填充,` +
+      `conversation_get 永不触发,目标对话不恢复):${JSON.stringify(getCalls)}`,
+  );
+  assert(
+    visibleHistory().includes(B_HISTORY),
+    `切到 B 后主对话没有显示 B 的历史消息(目标对话不恢复,显示空白或旧上下文):"${visibleHistory()}"`,
+  );
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === B_PROC,
+    `B 的活动进程不是 B 自己的(d355ClearActive 变异会把 A 的进程残留进来):${vm.runInContext("activeProcessId", sandbox)}`,
+  );
+  await aRefresh; // 让 A 的在途 promise 完全落地,确认它没有把 B 顶掉
+  assert(
+    vm.runInContext("activeProcessId", sandbox) === B_PROC,
+    "A 的 process_list 在途响应落地后覆盖了 B 的活动进程(项目守卫缺失)",
+  );
+
+  // ---------- ② B 的 conversation_get 迟到落地不得覆盖已切回的目标(验收②) ----------
+  // 这条同时是 d355LoadConvGuard 变异的判红点:删掉 loadConversation 的 isCurrent 守卫后,
+  // B 的历史会被画进已切回 A 的消息区。
+  await gotoProject(PROJECT, docsA);
+  let releaseConv;
+  invokeGates.set("conversation_get", new Promise((resolve) => { releaseConv = resolve; }));
+  payloads.docs_snapshot = docsB;
+  payloads.projects_select = projPayload(PROJECT_B);
+  const bSwitchLate = sandbox.selectWorkspaceProject(PROJECT_B); // B 的 conversation_get 卡在闸门
+  await settle();
+  assert(
+    invokeArgs.at(-1)?.cmd === "conversation_get" && invokeArgs.at(-1)?.args?.projectDir === PROJECT_B,
+    `前置失败:B 的 conversation_get 没有在途(${JSON.stringify(invokeArgs.at(-1))})`,
+  );
+  invokeGates.delete("conversation_get"); // 只卡住 B 那一次:已在 await 的调用握着自己那个 promise
+  // 切回 A 前必须把 projects_select 桩改回 A:桩是按命令返回固定值的,不改的话
+  // selectWorkspaceProject(PROJECT) 拿到的还是 B 的 prefs,「切回 A」实际切回了 B,
+  // bSwitchLate 的 isCurrent 会误判为当前目标,迟到历史照样覆盖(这是测试桩陷阱)。
+  payloads.projects_select = projPayload(PROJECT);
+  const aSwitchBack = sandbox.selectWorkspaceProject(PROJECT); // 切回 A,conversation_get 不再卡
+  await aSwitchBack;
+  await flush();
+  assert(
+    vm.runInContext("currentProject", sandbox) === PROJECT,
+    `前置失败:切回 A 后 currentProject 不是 A(${vm.runInContext("currentProject", sandbox)})`,
+  );
+  assert(
+    visibleHistory().includes(A_HISTORY),
+    `前置失败:切回 A 后主对话没有显示 A 的历史("${visibleHistory()}")`,
+  );
+  releaseConv(); // B 的响应现在才落地:无守卫时它会覆盖 A 的历史
+  await bSwitchLate;
+  await flush();
+  assert(
+    visibleHistory().includes(A_HISTORY) && !visibleHistory().includes(B_HISTORY),
+    `迟到的 B 历史覆盖了已切换目标的 A 历史(loadConversation 的 isCurrent 守卫缺失):"${visibleHistory()}"`,
+  );
+
+  // 收尾:还原桩与项目选择,回到项目 A 的干净状态。
+  payloads.process_list = savedProcessList;
+  payloads.conversation_get = savedConversationGet;
+  delete payloads.projects_select;
+  payloads.docs_snapshot = savedDocsPayload;
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+  assert(visibleHistory().includes(A_HISTORY), "D-355 收尾失败:项目 A 的历史没有恢复");
 }
 
 if (issues.length) {

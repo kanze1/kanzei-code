@@ -114,7 +114,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-355 切项目时 process_list 单飞跨项目错等导致目标对话不恢复 [open] (high)
+## D-355 切项目时 process_list 单飞跨项目错等导致目标对话不恢复 [fixed] (high)
 - refs: R-197 R-242 docs/design/session_state_and_line_runtime.md
 - 复杂度: 中
 - 复现: 项目 A 的 process_list 请求仍在途时切到项目 B：renderProjects 先清空 activeProcessId/activeSessionId；B 的 refreshProcesses 命中全局 processRefreshInFlight 后返回 A 的 Promise；loadConversation 也误等该 Promise，A 响应因 currentProject 已变化被丢弃，调用方随后因 B 仍无 activeProcessId 直接返回；排队的 B 刷新只恢复线路列表，不再次触发 conversation_get。项目切换路径又在目标历史返回前 clearChat，最终显示空白或旧上下文。
@@ -125,6 +125,12 @@
 - 证据等级: E2：静态调用链可确定复现；Kanzei 与 Akashic-AgentOS 两个 state.db 均保有完整快照，排除物理删除。
 - 验收: ①UI runtime 用闸门卡住项目 A 的 process_list 后切 B，必须实际等待 B 自己的 process_list，并以 B 的 projectDir/processId 调 conversation_get；②目标历史完整返回前不清空旧消息，迟到的 A 响应不能覆盖 B；③侧栏、Workspace、文档页、添加/移除/初始化项目全部复用同一切换事务；④删除任一项目/generation 守卫时冒烟判红，既有 D-250/D-251 跨项目回归保持通过。
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-355
+- 证据: 验收①ui-runtime-smoke.mjs D-355 用例①:闸门卡 A 的 process_list 后切 B,断言 process_list 第二次调用 projectDir=PROJECT_B、conversation_get args 为 {projectDir:project-b, processId:d|proj-b}、消息区含乙历史。验收②D-355 用例②:B 的 conversation_get 卡闸门→切回 A→放行,断言 A 历史保留且 B 历史不覆盖(默认绿,d355LoadConvGuard 变异红)。验收③enterProject 单点(09-sessions.js:725),5 个入口全部调用(709/679/751/761 + 12-docs-pages.js:10)。验收④变异表 d355ClearActive/d355LoadConvGuard(ui-runtime-smoke.mjs 变异注册)判红,既有 D-250/D-251 用例(5039-6000 行)与 d251/d257 变异保持通过。
+- 进展: 修复完成(2026-08-16)。①refreshProcesses 单飞去项目化:全局 inFlight/queued 改为按项目键控 Map(09-sessions.js:182),返回的 Promise 恒为「本项目列表刷新完成」——A 在途时切 B,B 实际发出自己的 process_list 并等待,loadConversation(15-views-misc.js:266-269)等到的就是 B 的列表,conversation_get 带 B 的 projectDir/processId。②新增 enterProject 统一切换事务(09-sessions.js:725-739):目标 process_list→activeProcessId→conversation_get 原子链,目标历史返回前不清空旧消息(renderRecoveredMessages 一次性替换),迟到的 A 响应由 project/generation 守卫丢弃。③侧栏(09-sessions.js:709)、Workspace/文档页下拉(12-docs-pages.js:6-13)、添加(09-sessions.js:761)、移除(09-sessions.js:679)、初始化(09-sessions.js:751)全部复用 enterProject。验证:ui-runtime-smoke 默认全绿(1962 invoke)+ 新增 D-355 用例(闸门卡 A 的 process_list 后切 B,断言 B 的 process_list 实际发出、conversation_get 用 B_PROC、B 历史渲染、迟到 B 响应不覆盖 A);变异 d355ClearActive(删 renderProjects 清空 activeProcessId)与 d355LoadConvGuard(删 loadConversation isCurrent)均判红,既有 d251/d257 变异仍判红;ui-lint/i18n/markdown/a11y 冒烟全绿;cargo test --workspace 全绿(T-1786698638)。
+- observed_head: ed06b969f419b779c1c17dea7c0e81a65fb45397
+- observed_worktree_hash: fnv1a64:eb72595d56cc7bb8
+- recorded_at: 1786698652434
 
 ## D-356 运行中切线路只恢复旧快照且轮末不回灌导致对话上下文回滚 [open] (high)
 - refs: R-241 R-242 D-342 docs/design/session_state_and_line_runtime.md

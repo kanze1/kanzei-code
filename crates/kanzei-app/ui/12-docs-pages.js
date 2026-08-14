@@ -5,20 +5,9 @@ function formatWorkspaceTime(value) {
 
 async function selectWorkspaceProject(path) {
   try {
-    const previous = currentProject;
-    renderProjects(await invoke("projects_select", { path }));
-    if (previous !== path) {
-      setRunning(false, "空闲");
-      clearChat();
-      bgClear();
-      renderTodoPanel([], 0, 0);
-      await loadConversation();
-      await refreshDocs();
-      await loadModels();
-      refreshGit();
-      await refreshPendingInputs();
-      await refreshProcesses();
-    }
+    // D-355:Workspace 卡片与文档页下拉复用同一切换事务(enterProject)——
+    // 目标 process_list → active session → conversation_get 原子链一致。
+    await enterProject(await invoke("projects_select", { path }));
     refreshWorkspace();
   } catch (error) {
     toastError(`切换项目失败:${error}`);
