@@ -206,19 +206,29 @@ impl Tool for EditTool {
         let occurrences = if input.replace_all { count } else { 1 };
         let net_deleted = old_line_count.saturating_sub(new_line_count) * occurrences;
         let dropped = dropped_lines(&old_string, &new_string);
-        // 「本想插入,却把锚点吃掉了」:新文本比原文更长(明显是在加东西),却没保住
-        // 匹配到的原文行。三次实测都是这个形状——R-158 顶掉 Responses 的 reasoning
+        // 「本想插入,却把锚点吃掉了」:新文本比原文更长(明显是在加东西),原文行却
+        // **一行都没保住**。三次实测都是这个形状——R-158 顶掉 Responses 的 reasoning
         // effort、删掉设置页思考强度说明,以及 R-153 批10 把 `pub(crate) fn
         // build_runner_config(` 换成了新函数的开头(净 +6 行,纯行数门禁拦不住)。
-        // 要插入就把原文原样含进 new_string;确实是替换就显式说一声。
-        let insertion_shaped_clobber = new_line_count > old_line_count && !dropped.is_empty();
+        //
+        // 判据必须是「全部丢失」而不是「任一丢失」:改写一段代码成更长的版本时,
+        // 被改的那几行天然不在 new_string 里原样出现——按「任一丢失」拦,等于把
+        // 最常见的合法编辑(增长式改写)整类拦死。D-352 实测:弱模型被连拦四次,
+        // 按提示转投 insert 反而把注释插错位置污染文件,陷入清理-重试死循环。
+        // 只要 new_string 保住了哪怕一行原文,就说明模型看见并保留了上下文,
+        // 是改写不是误顶;真正的误顶(锚点整个消失)仍然全数命中这个判据。
+        let old_nonempty_lines = old_string.lines().filter(|l| !l.trim().is_empty()).count();
+        let insertion_shaped_clobber = new_line_count > old_line_count
+            && old_nonempty_lines > 0
+            && dropped.len() == old_nonempty_lines;
         if insertion_shaped_clobber && !input.allow_deletion {
             return ToolOutput::needs_correction(
                 "EDIT_INSERTION_WOULD_REPLACE_ANCHOR",
                 format!(
-                    "这次替换看着像插入(新文本多了 {} 行),却没保住 old_string 里的原文——\
+                    "这次替换看着像插入(新文本多了 {} 行),old_string 的原文却一行都没保留——\
                  十有八九是想在附近加内容,结果把匹配到的那段顶掉了。\
-                 要插入请改用 insert 工具;确实是要替换掉它们,就置 allow_deletion=true。\
+                 如果这就是有意的整段改写:原样重发这次调用并置 allow_deletion=true 即可放行。\
+                 如果本意是插入新内容:把原文原样包含进 new_string,或改用 insert 工具。\
                  \n未被保留的原文:\n{}",
                     new_line_count - old_line_count,
                     preview_lines(&dropped)
@@ -573,6 +583,39 @@ mod tests {
             )
             .await;
         assert!(!ok.is_error, "保住原文的插入不该被拦: {}", ok.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn 增长式改写保住部分原文必须放行() {
+        // D-352 实况:把 match 的一个分支改写成更长的块——原分支行被改动(不在
+        // new_string 里原样出现),但上下文行原样保留。旧判据「任一原文行丢失即拦」
+        // 把这类最常见的合法改写整类拦死,弱模型被连拦四次后转投 insert 污染文件。
+        let (dir, ctx) = setup(
+            "rewrite",
+            "match ev {\n    RunEvent::Text(text) => emit(\"kz:text\", text),\n    _ => {}\n}\n",
+        );
+        let out = EditTool::default()
+            .execute(
+                json!({
+                    "path": "target.txt",
+                    "old_string": "match ev {\n    RunEvent::Text(text) => emit(\"kz:text\", text),\n    _ => {}",
+                    "new_string": "match ev {\n    RunEvent::Text(text) => {\n        push_text(&text);\n        emit(\"kz:text\", text);\n    }\n    _ => {}"
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(
+            !out.is_error,
+            "增长式改写保住了上下文行,不得拦截: {}",
+            out.content
+        );
+        // 被改动的原行仍要在 NOTE 里报出来,供模型自查是否误吃邻居。
+        assert!(
+            out.content.contains("NOTE"),
+            "改写丢行仍需提示: {}",
+            out.content
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 
