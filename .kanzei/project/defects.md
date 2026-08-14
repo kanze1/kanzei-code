@@ -85,23 +85,6 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-367 主根与工作树根的硬不变式只靠文件头注释站岗:类型上都是 PathBuf,传反了编译器不报错 [fixing] (medium)
-- refs: R-254 R-177 R-182 D-176 D-267
-- 备注: 修复由 R-254 的内容③承载;本条独立登记是因为它是一条独立成立的结构性风险,不随 R-254 是否拆解而消失。
-- 复杂度: 中
-- 复现: crates/kanzei-app/src/processes.rs 文件头 L3-18 用一整段 //! 注释锁定不变式:ProcessHandle.project_dir 与 origin_project 恒为主根,执行工作树只由 worktree_path 承担;注释自己逐条列出违反后果——p{n} 进程编号按 project_dir 分桶,存成 worktree 后每棵树各自从 p1 开始立刻撞车;process_update/process_close 用 project_dir 反推 root 开 state.db,存成 worktree 会把库落进工作树,线一关连库一起没;state.rs 的 process_info 用 project_dir 算 session_id,存成 worktree 等于给同一条线换身份串,会话历史集体失联(D-176 红线)。但类型上二者都是普通字符串/PathBuf,传反了 rustc 一声不吭。
-- 影响: 后果全是运行时才暴露的重症(编号撞车、state.db 落错位置随工作树一起删、会话身份断裂),而防线是"改本文件前先读这一段注释"。同族现场已经发生过:D-267/R-182 里发现式取根命中了 worktree 中被 checkout 出来的 .kanzei 分支副本,两棵树相隔 10 秒各跑 kz defect add,各自在自己的副本上算 next_id,都拿到 D-267。注释挡不住这类错误,类型可以。R-254 会大幅搬动这个文件,搬动期间正是最容易传反的时候。
-- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
-- 标签: 核心
-- 验收: ①主根与工作树根是两个不同类型(newtype),互相传反编译不过——给出实证(被注释掉的反例 + 编译错误原文,或等价断言),不接受"改完看着对";②processes.rs 文件头那段注释从"改前必读的纪律"降级为"设计说明",即注释没了也不会写错;③进程编号、state.db 落点、session_id 推导三条行为零回归(worktree_tests.rs 全绿 + 实跑一次建线到关线闭环)。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-367
-- 批次: 0/3
-- 进展: 设计定稿(2026-08-16):定义 ProjectRoot(PathBuf)/WorktreeRoot(PathBuf) 两个 newtype;ProcessHandle.project_dir/origin_project 改 ProjectRoot、worktree_path 改 Option<WorktreeRoot>(state.rs 定义);ProcessInfo 保持 String(IPC 契约零改动,process_info 构造时转换);StoredProcess(kanzei-core store/processes.rs)保持 String,转换在 app 边界;session_id/编号/state.db 推导逻辑不变只换类型。反例实证(验收①):改造后临时传反一次拿 rustc E0308 原文,固化为注释。批次:B1=state.rs newtype+ProcessHandle 类型化+processes.rs 全部使用点(kanzei-app 编译过),B2=run.rs/collaboration.rs 外围+worktree_tests/process_tests 断言改造+反例实证+worktree_tests 全绿+实跑闭环,B3=注释降级+全量+关闭。下一步:B1 读 processes.rs create/update/close/register 全段。
-- observed_head: b88e8b5013f05ee2d64bb43ed6c3f62d742c267f
-- observed_worktree_hash: fnv1a64:779319680107149f
-- recorded_at: 1786748794846
-
 ## D-368 围栏窗口内 .kanzei/memory/ 动态文件并发合法写仍可能被 bash 围栏误回滚(D-364 同族残余) [open] (medium)
 - 复现: D-364 修复只覆盖 known_active_doc_paths(requirements/defects/goals/decisions/memory.md/tests/conventions/architecture 八个活动文档)。`.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)无法预锁:bash 围栏命令窗口内,另一进程/另一 run 的 memory 工具合法新建或写入这些文件,围栏 after 快照会把它们当 bash 越界 created/modified 回滚删除。memory 条目写路径(kanzei-memory/src/memory/store.rs:704 write_atomic 无锁)是否已由调用方持锁需确认。
 - 影响: 同 D-364 的静默丢失类别,但收敛到 .kanzei/memory/ 动态文件:并发 memory_add/记忆整理在自举轮 bash 窗口内被围栏误回滚。频率低于 tracker 登记,但丢的是记忆条目,同样报成功却查无此条。

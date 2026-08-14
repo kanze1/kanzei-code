@@ -4306,3 +4306,21 @@
 - recorded_at: 1786748571435
 - 状态: fixed
 - 验收核验: ①grep 机械核验:decision_weight 定义(index.rs L34)与全部调用(L262)+score 加权(-bm25 L256/decision_weight L262/状态×0.5 L266)只在 index.rs;store.rs 无排序/加权调用。②依赖方向:index 调 store(search_candidates/recall_profile/record_hits),store 生产代码无 index 引用(仅测试),classify_novelty 用候选集+bm25 序,无回环。③对照:检索行为快照测试(index.rs tests 检索行为快照_改动前后topk命中集合一致)改动前捕获 6 组 query top-k 集合固化为期望,重构后通过。④全量:cargo test -p kanzei-memory 129 绿(T-1786748359)+cargo test --workspace 全绿(T-1786748571)。
+
+## D-367 主根与工作树根的硬不变式只靠文件头注释站岗:类型上都是 PathBuf,传反了编译器不报错 [fixed] (medium)
+- refs: R-254 R-177 R-182 D-176 D-267
+- 备注: 修复由 R-254 的内容③承载;本条独立登记是因为它是一条独立成立的结构性风险,不随 R-254 是否拆解而消失。
+- 复杂度: 中
+- 复现: crates/kanzei-app/src/processes.rs 文件头 L3-18 用一整段 //! 注释锁定不变式:ProcessHandle.project_dir 与 origin_project 恒为主根,执行工作树只由 worktree_path 承担;注释自己逐条列出违反后果——p{n} 进程编号按 project_dir 分桶,存成 worktree 后每棵树各自从 p1 开始立刻撞车;process_update/process_close 用 project_dir 反推 root 开 state.db,存成 worktree 会把库落进工作树,线一关连库一起没;state.rs 的 process_info 用 project_dir 算 session_id,存成 worktree 等于给同一条线换身份串,会话历史集体失联(D-176 红线)。但类型上二者都是普通字符串/PathBuf,传反了 rustc 一声不吭。
+- 影响: 后果全是运行时才暴露的重症(编号撞车、state.db 落错位置随工作树一起删、会话身份断裂),而防线是"改本文件前先读这一段注释"。同族现场已经发生过:D-267/R-182 里发现式取根命中了 worktree 中被 checkout 出来的 .kanzei 分支副本,两棵树相隔 10 秒各跑 kz defect add,各自在自己的副本上算 next_id,都拿到 D-267。注释挡不住这类错误,类型可以。R-254 会大幅搬动这个文件,搬动期间正是最容易传反的时候。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①主根与工作树根是两个不同类型(newtype),互相传反编译不过——给出实证(被注释掉的反例 + 编译错误原文,或等价断言),不接受"改完看着对";②processes.rs 文件头那段注释从"改前必读的纪律"降级为"设计说明",即注释没了也不会写错;③进程编号、state.db 落点、session_id 推导三条行为零回归(worktree_tests.rs 全绿 + 实跑一次建线到关线闭环)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-367
+- 批次: 3/3
+- 进展: B2 收口(2026-08-16):全量 cargo test --workspace 全绿(T-1786749513)。验收逐项核验:①实证=反例 let _counterexample: &WorktreeRoot = &process.project_dir 编译报 rustc E0308(expected &WorktreeRoot, found &ProjectRoot),错误原文固化在 state.rs ProjectRoot 注释;②processes.rs 文件头注释从『F4 定死,先读这一段再改本文件』降级为『设计说明』并注明类型层已强制(ProjectRoot/WorktreeRoot 不同型);③worktree_tests 全绿(含 project_dir恒主根三构造点、建线后worktree_path真实路径、删树后会话历史回放、注销后不复用旧session身份)+ close_process 建线→关线闭环单独实跑 ok。进程编号(next_process_index 按 project_dir.0 分桶)、state.db 落点(update/close 用 &project_dir.0 反推)、session_id(process_info 用 &project_dir.0 算)推导逻辑与改动前逐字节一致,只换类型。提交 43658d2+7b06df4 已 push。准备关闭。
+- observed_head: 7b06df42a2a093d690d2fcbee2b91bf4cb8c32ae
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786749437446
+- 验收核验: ①主根/工作树根类型化:ProjectRoot/WorktreeRoot newtype(state.rs),反例 &WorktreeRoot = &process.project_dir 编译报 E0308(expected &WorktreeRoot, found &ProjectRoot),原文固化在 ProjectRoot 注释——互相传反编译不过的实证成立。②processes.rs 文件头注释已降级:标题从『F4 定死,先读这一段再改本文件』改为『F4 定死,设计说明』,并注明『这段约束已由类型层强制(D-367)…互相传反编译不过』——注释没了也不会写错。③三条行为零回归:进程编号 next_process_index 按 project_dir.0 分桶、state.db 落点 process_update/process_close 用 &project_dir.0 反推、session_id process_info 用 &project_dir.0 推导,逻辑与改动前逐字节一致只换类型;worktree_tests 全绿(含 project_dir恒主根三构造点/建线后真实路径/删树后会话历史回放/注销后不复用旧身份)+ close_process 建线→关线闭环实跑 ok;cargo test --workspace 全绿(T-1786749437)。

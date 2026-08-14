@@ -3607,3 +3607,15 @@
 - 摘要: D-367 B1 类型化后 kanzei-app 163 测试全绿(含 worktree_tests 全部:project_dir恒主根三构造点、建线后worktree_path是真实路径、close_process建线→关线闭环、删树后会话历史回放等);反例实证捕获 rustc E0308(expected &WorktreeRoot, found &ProjectRoot)
 - 关联: D-367
 - 收尾: 1786749312
+
+## T-1786749346 node --check ui/07-events.js (D-367 遗留配套) [passed]
+- 命令: node --check crates/kanzei-app/ui/07-events.js
+- 摘要: D-367 遗留配套前端(07-events.js 移除 meta 误设等待模型响应)node --check 通过
+- 关联: D-367
+- 收尾: 1786749346
+
+## T-1786749437 cargo test --workspace (D-367 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-367 关闭前全量:cargo test --workspace 全绿(kanzei-app 163 + kanzei-tools 251 + kanzei-memory 129 + 其余 crate;主根/工作树根类型化无回归)
+- 关联: D-367
+- 收尾: 1786749437
