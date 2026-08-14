@@ -233,6 +233,14 @@ function handleBackgroundSessionDone(payload) {
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
+    // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的鞭挞存档
+    // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
+    // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
+    if (["AllBlocked", "BacklogEmpty", "ProfileMismatch"].includes(action.reason)) {
+      applyAutoStopToSession(sessionId, { enabled: false });
+    } else if (action.reason === "StopAfterRound") {
+      applyAutoStopToSession(sessionId, { stopAfterRound: false });
+    }
     refreshParallelTaskProjection(sessionId);
   }
 }
@@ -496,7 +504,7 @@ promptBox.addEventListener("input", () => {
 function stopAutoForManualInput() {
   if (!$('auto-continue').checked) return false;
   $('auto-continue').checked = false;
-  localStorage.setItem("kz-auto-continue", "0");
+  rememberAutoUiState();
   autoRounds = 0;
   noActionRounds = 0;
   cancelAutoContinueTimer();
@@ -609,7 +617,10 @@ $("continue-toggle").addEventListener("click", () => {
   $("continue-toggle").textContent = t(open ? "收起文案" : "继续文案");
   if (open) $("continue-prompt").focus();
 });
-$("auto-continue").checked = localStorage.getItem("kz-auto-continue") === "1";
+// 鞭挞开关是线路级状态,唯一真源是 kz-process-auto-state(按 processId 分键)。
+// 旧全局键 kz-auto-continue 让 A 项目的勾选漏进 B 项目的默认线并被固化——
+// 启动回显、停机收口、无记录回落全部不得再碰全局键;存量键就地清除。
+localStorage.removeItem("kz-auto-continue");
 renderAutoStatus();
 // R-170:LEGACY 升级机制已删除(规则剥离后无「历史默认需升级」契约错位)。
 // 存什么读什么:用户自定义文案原样保留;删空回落极简默认。
@@ -674,7 +685,6 @@ $("auto-continue").addEventListener("change", () => {
   if ($("auto-continue").checked && $("profile-select").value === "research") {
     // R-224:research 档位仍拒绝——研究模式无自主推进语义,自动切会掩盖误操作。
     $("auto-continue").checked = false;
-    localStorage.setItem("kz-auto-continue", "0");
     autoRounds = 0;
     cancelAutoContinueTimer();
     rememberAutoUiState();
@@ -698,7 +708,6 @@ $("auto-continue").addEventListener("change", () => {
     }
     addMessage("notice", t("已切换到自主推进以启用鞭挞"));
   }
-  localStorage.setItem("kz-auto-continue", $("auto-continue").checked ? "1" : "0");
   autoRounds = 0;
   rememberAutoUiState();
   // 开鞭挞的这一刻就要看到「勘察复核未开」提示,而不是等下一轮结束才显示。
@@ -740,13 +749,14 @@ const PROCESS_AUTO_STATE_KEY = "kz-process-auto-state";
 const processAutoState = new Map(
   Object.entries(readJson(PROCESS_AUTO_STATE_KEY, {})).filter(([, value]) => value && typeof value === "object"),
 );
-function normalizeAutoState(value, processId) {
+function normalizeAutoState(value, _processId) {
   const storedMax = Number.parseInt(value?.maxRounds, 10);
   const legacyMax = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
   return {
-    enabled: value?.enabled === undefined
-      ? Boolean(processId?.startsWith("d|") && localStorage.getItem("kz-auto-continue") === "1")
-      : value.enabled === true,
+    // 无记录 = 关。旧实现让默认线回落读全局 kz-auto-continue,于是 A 项目开鞭挞、
+    // B 项目首次打开就继承为开,还随 applyAutoUiState 落盘固化成 B 的"用户选择"。
+    // 鞭挞是否开启只能来自用户在**该线路**上的显式勾选。
+    enabled: value?.enabled === true,
     paused: value?.paused === true,
     stopAfterRound: value?.stopAfterRound === true,
     maxRounds: Number.isFinite(storedMax)
@@ -770,6 +780,33 @@ function rememberAutoUiState(processId = activeProcessId) {
     maxRounds: autoContinueMax(),
   });
   persistProcessAutoState();
+}
+// 引擎停机收口(AllBlocked/BacklogEmpty/ProfileMismatch/本轮后停)必须落在**停机会话
+// 所属的线**上:kz:done 可能来自后台线甚至另一个项目的线,直接改当前可见勾选框
+// 会把别的线的用户选择清掉——全局键时代「跨项目唯一状态」的另一半病根。
+function applyAutoStopToSession(sessionId, patch) {
+  const item = processItems.find((candidate) => candidate.session_id === sessionId);
+  if (item) {
+    const next = normalizeAutoState(processAutoState.get(item.id), item.id);
+    Object.assign(next, patch);
+    processAutoState.set(item.id, next);
+    persistProcessAutoState();
+  }
+  if (!sessionId || sessionId === activeSessionId) {
+    if (patch.enabled !== undefined) $("auto-continue").checked = patch.enabled;
+    if (patch.stopAfterRound !== undefined) {
+      autoStopAfterRound = patch.stopAfterRound;
+      $("auto-stop-round").checked = patch.stopAfterRound;
+    }
+    void syncAutoRunState();
+  } else {
+    // 非当前线:后端状态机也要知道,否则该线下轮 done 仍按旧开关判定。
+    void invoke("auto_state_update", {
+      sessionId,
+      enabled: patch.enabled,
+      stopAfterRound: patch.stopAfterRound,
+    });
+  }
 }
 function applyAutoUiState(processId) {
   const next = normalizeAutoState(processAutoState.get(processId), processId);

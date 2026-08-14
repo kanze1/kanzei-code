@@ -1069,7 +1069,7 @@ if (probeHits < 2) fail(`注入初始化异常探针失败:累计命中 ${probeH
 // 不拼进任何脚本文件——拆分后它属于冒烟注入层,不属于生产代码。
 try {
   vm.runInContext(
-    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
+    "globalThis.__kzTest = { rounds: () => autoRounds, noAction: () => noActionRounds, stopReason: () => autoStopReason, timerSessions: () => [...autoContinueTimers.keys()], setAutoState: (id, value) => processAutoState.set(id, value), getAutoState: (id) => processAutoState.get(id), setRounds: (v) => { autoRounds = v; }, setStopAfterRound: (v) => { autoStopAfterRound = v; }, setPaused: (v) => { autoPaused = v; }, paused: () => autoPaused, reset: () => { autoRounds = 0; noActionRounds = 0; autoStopAfterRound = false; autoPaused = false; }, cancelTimers: () => { for (const s of [...autoContinueTimers.keys()]) cancelAutoContinueTimer(s); } };",
     sandbox,
     { filename: "__kzTest-hook.js" }
   );
@@ -4160,6 +4160,37 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
 // 这是上面那条的另一半——只修一处,另一处照样能把 dev-auto 覆盖成 dev-pair。
 if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").value)')) {
   fail("switchProcess 又拿选择器显示值当旧进程的用户意图写盘(D-290);写盘只能发生在 profile-select 的 change 事件里");
+}
+// ---------- D-353 鞭挞开关是线路级状态:不回落全局键,停机不污染他线 ----------
+// 病根有两半:①无记录的默认线回落读全局 kz-auto-continue,A 项目的勾选漏成 B 项目
+// 的初始状态并被固化;②引擎停机(AllBlocked/BacklogEmpty/ProfileMismatch)无条件改
+// 当前可见勾选框——kz:done 来自后台线时清掉的是**别的线**的用户选择。
+{
+  // ① 无记录线路必须默认关,不得继承全局键。
+  storage.set("kz-auto-continue", "1");
+  const fresh = sandbox.normalizeAutoState(undefined, "d|C:/other-project");
+  assert(fresh.enabled === false, "D-353:无记录线路必须默认关,不得继承全局 kz-auto-continue");
+  storage.delete("kz-auto-continue");
+  // ② 后台线引擎停机只落到该线自己的存档与后端,不碰当前线勾选框。
+  const isolationLines = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+    { id: "p|bg-iso", label: "后台隔离", session_id: "sess-bg-iso", running: false, project_dir: "C:/smoke", origin_project: "C:/smoke" },
+  ];
+  const savedIsolationList = payloads.process_list;
+  payloads.process_list = isolationLines;
+  sandbox.renderProcesses(isolationLines);
+  sandbox.__kzTest.setAutoState("p|bg-iso", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  byId.get("auto-continue").checked = true;
+  handlers.get("kz:done")?.({ payload: { steps: 1, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "BacklogEmpty" }, sessionId: "sess-bg-iso" } });
+  await flush();
+  assert(byId.get("auto-continue").checked === true, "D-353:后台线停机不得清掉当前线的鞭挞勾选(跨线污染)");
+  assert(sandbox.__kzTest.getAutoState("p|bg-iso")?.enabled === false, "D-353:后台线停机必须把该线自己的鞭挞存档置关");
+  const bgStopSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-iso");
+  assert(bgStopSync?.args?.enabled === false, "D-353:后台线停机必须同步该线后端状态机(auto_state_update enabled=false)");
+  payloads.process_list = savedIsolationList;
+  sandbox.renderProcesses(savedIsolationList);
+  sandbox.__kzTest.cancelTimers();
+  byId.get("auto-continue").checked = false;
 }
 // ---------- 「勘察复核」= 阶段流水线总闸(2026-08-11 换闸门) ----------
 // 闸门从 auto_runs[session].enabled 换成进程级开关后,「开鞭挞 = 每轮勘察+复核」这个

@@ -402,9 +402,7 @@ on("kz:done", async (e) => {
       addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,点顶栏「继续鞭挞」恢复")}`);
       setAutoStopReason("已暂停");
     } else if (reason === "StopAfterRound") {
-      $("auto-stop-round").checked = false;
-      autoStopAfterRound = false;
-      void syncAutoRunState();
+      applyAutoStopToSession(p.sessionId || activeSessionId, { stopAfterRound: false });
       addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
       log(`${t("鞭挞停止")}:${t("本轮后停")}`);
       setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
@@ -416,26 +414,20 @@ on("kz:done", async (e) => {
       log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
       setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
     } else if (reason === "AllBlocked") {
-      $("auto-continue").checked = false;
-      localStorage.setItem("kz-auto-continue", "0");
-      void syncAutoRunState();
+      applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
       const msg = t("需求与缺陷全部被阻塞，自动推进已停止");
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);
       log(t("自动推进停止:需求与缺陷全部被阻塞"));
     } else if (reason === "BacklogEmpty") {
-      $("auto-continue").checked = false;
-      localStorage.setItem("kz-auto-continue", "0");
-      void syncAutoRunState();
+      applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
       const msg = t("需求与缺陷已清空，自动推进已停止");
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);
       log(t("自动推进停止:需求与缺陷已清空"));
     } else if (reason === "ProfileMismatch") {
       // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
-      $("auto-continue").checked = false;
-      localStorage.setItem("kz-auto-continue", "0");
-      void syncAutoRunState();
+      applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
       const msg = t("鞭挞已关闭,当前进程不是自主推进模式");
       setAutoStopReason(msg);
       addMessage("notice", `✅ ${msg}`);

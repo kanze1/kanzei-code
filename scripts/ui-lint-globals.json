@@ -115,6 +115,7 @@
   "appendDisplayBlock",
   "appendReasoning",
   "apply",
+  "applyAutoStopToSession",
   "applyAutoUiState",
   "applyBatch",
   "applyBgFilters",
