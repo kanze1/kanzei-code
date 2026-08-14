@@ -3504,3 +3504,16 @@
 - 关联: D-365
 - 收尾: 1786744288
 - 源码指纹: 4f118c359ff0d35f
+
+## T-1786744592 前端冒烟集 (R-260 侧边栏轮询) [passed]
+- 命令: node --check ui/01-core.js && node scripts/ui-runtime-smoke.mjs && node scripts/ui-lint-smoke.mjs && node scripts/ui-i18n-smoke.mjs && node scripts/ui-a11y-smoke.mjs && node scripts/ui-markdown-smoke.mjs
+- 摘要: R-260 前端冒烟集:node --check + ui-runtime 21 项 + ui-lint 31 文件零错 + i18n/a11y/markdown 全过。改动 = 01-core.js 加 process_list 3s 定时轮询。
+- 关联: R-260
+- 收尾: 1786744592
+
+## T-1786744653 cargo test -p kanzei-app (R-260 提交门禁) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: R-260 提交门禁:kanzei-app 163 全绿(前端 01-core.js 轮询改动,后端无改动但门禁要求 crate 背书)。
+- 关联: R-260
+- 收尾: 1786744653
+- 源码指纹: b53f288075ab0294

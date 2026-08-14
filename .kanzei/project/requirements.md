@@ -351,9 +351,14 @@
 - 标签: 核心
 - 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
 
-## R-260 侧边栏刷新机制问题 [todo]
+## R-260 侧边栏刷新机制问题 [doing]
 - 原始描述: 左侧的在做侧边栏的任务。似乎刷新的机制有问题并没有有及时刷新
 - 复杂度: 中
 - 标签: 前端
 - 验收: 左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据
 - 优先级: P2
+- 状态: doing
+- 进展: 根因(读码实证):侧边栏「并行任务」列表(#parallel-task-status)由 refreshProcesses→invoke(process_list)驱动,但 process_list 没有任何定时轮询——01-core.js 事件处理与 09-sessions.js renderProcesses 校正逻辑(L391「事件可能丢失」)都假定「下一次 process_list 轮询」兜底,轮询定时器从未实现。后端 processes.rs 也不 emit 进程级事件。于是:事件偶发丢失、外部创建/注销进程、列表结构变化时,侧边栏滞留旧内容直到下次手动操作。修复:01-core.js 加 process_list 3s 定时轮询(setInterval,typeof refreshProcesses 守卫,refreshProcesses 内部按项目单飞去重,轮询安全)。前端冒烟 6 项全过(T-1786744592)。
+- observed_head: 3c4b132c531066bd56041e18de21b8c0bd4f817d
+- observed_worktree_hash: fnv1a64:4b6c228f2ed530b3
+- recorded_at: 1786744602562

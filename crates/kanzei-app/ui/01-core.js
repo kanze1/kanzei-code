@@ -155,4 +155,12 @@ function agentRoleAccent(role) {
 }
 
 const messages = $("messages");
-const promptBox = $("prompt");
+const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事件处理与 09-sessions 的 renderProcesses
+// 校正逻辑都假定「下一次 process_list 轮询」会兜底事件丢失与列表结构变化(外部创建/
+// 注销进程、Tauri 事件偶发丢失),但轮询定时器从未实现——侧边栏任务列表只能靠事件
+// 投影 + 用户操作刷新,事件一丢或列表结构一变就滞留到下一次手动操作。3s 一轮:
+// 工具执行期间能及时看到运行状态变化;process_list 后端是内存 + stat 轻量查询,
+// refreshProcesses 内部已按项目单飞去重(processRefreshInFlight),频繁调用安全。
+setInterval(() => {
+  if (typeof refreshProcesses === "function") refreshProcesses();
+}, 3000);
