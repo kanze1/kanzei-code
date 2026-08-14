@@ -133,11 +133,11 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 3/7
-- 进展: 批4 完成(2026-08-16)。task 子代理段(原 470-676)抽为 run_subagent_calls:前台 FuturesUnordered 并行 + 后台立即 spawn 派发 + max_tasks 溢出上限 + D-342 取消占位补齐全部搬入,返回 task_results 表;run_once_with_parts 主体 1160→960 行(提交 a8fbc7d)。行为零变更:事件顺序(ToolStart/ToolEnd/progress 通道转发)/后台 R-175 生命周期落库/停止占位语义逐点核对。验证:cargo test -p kanzei-core 186 passed(T-1786727211);fmt/clippy 全绿;push 已到 origin/dev。批次调整为 3/7:批5 普通工具执行段(can_parallel_tools 预检/并行 wave/串行路径,原 679-1219)抽 execute_tool_calls;批6 收尾段(消息提交/note_step/检查点/最终构造)与 run_once_with_parts 主体 <300 行确认(验收③);批7 独立单测(验收①)+ cargo test --workspace 全量(验收②)。
-- observed_head: a8fbc7dee6800f9c46f018d8d288129130db7a66
+- 批次: 4/7
+- 进展: 批5 完成(2026-08-16)。普通工具执行段(原 475-1014)抽为 execute_tool_calls + ToolRunOutcome 枚举:并行预检(can_parallel_tools:serial_writer 强制串行/权限 Ask 批准判定/≥2 普通工具)/并行 wave(slots 下标对齐 + D-342 停止 drop 在飞 future + 取消占位补齐)/串行路径(工具间停止检查点、question 交互、权限 Gate 门禁、progress 旁路)整体搬入;串行路径两处提前退出(halted 检查点、UserDeclined)改由 ToolRunOutcome::Stopped 表达、调用方构造与原先逐字段相同的 RunSummary,commit_tool_results 落库逻辑保留在函数内(messages &mut);run_once_with_parts 主体 960→460 行(提交 67e1425)。行为零变更:事件顺序/权限判定/停止语义/对齐不变式逐点核对。验证:cargo test -p kanzei-core 186 passed(T-1786727523);fmt/clippy 全绿;push 已到 origin/dev。批6:收尾段(消息提交/note_step/步末检查点/最终构造)抽函数 + run_once_with_parts 主体 <300 行确认(验收③);批7 独立单测(验收①)+ cargo test --workspace 全量(验收②)。
+- observed_head: 67e1425f9e026cbecc5fac3c37c54d2eda196426
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786727270003
+- recorded_at: 1786727550105
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0

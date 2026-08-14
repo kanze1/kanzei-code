@@ -3346,3 +3346,10 @@
 - 摘要: R-202 B5 普通工具执行段抽取后:186 passed, 0 failed;主体 460 行
 - 关联: R-202
 - 收尾: 1786727523
+
+## T-1786727914 cargo test -p kanzei-core [passed]
+- 命令: cargo test -p kanzei-core
+- 时长: 0.4s
+- 摘要: R-202 B6 装配+收尾+预算段抽取后:186 passed, 0 failed;主体 262 行(验收③达成)
+- 关联: R-202
+- 收尾: 1786727914

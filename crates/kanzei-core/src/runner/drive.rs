@@ -124,133 +124,40 @@ pub fn run_once_with_parts<'a>(
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     Box::pin(async move {
-        let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
-        let mut specs: Vec<ToolSpec> = tools
-            .iter()
-            .map(|t| ToolSpec {
-                name: t.name().to_string(),
-                description: t.description(),
-                input_schema: t.input_schema(),
-            })
-            .collect();
-        if subagent.is_some() {
-            // R-173 批4.5:task 注册**不再受执行策略门控**。
-            //
-            // 为什么这样安全:只读子代理产不出写入,这是**构造层面**的事实,不靠运行时
-            // 判断——`kanzei_tools::SubagentBase` 只 insert read/glob/grep 三个工具
-            // (`crates/kanzei-tools/src/subagent.rs`),子代理快照里根本不存在写工具;
-            // 且子代理内 `ask` 恒 Deny(见 `runner/subagent.rs` 的 run_subagent),
-            // 无人应答的权限询问也不可能被放行。所以 writer 阶段跑 task 破坏不了单写语义。
-            //
-            // 串行强制**不动**:它只作用于普通工具,在下面那条独立分支上
-            // (`let serial_writer = config.execution_policy.is_serial_writer()`),
-            // task 从来不走那条路——同轮的 task 调用在更上面的块里先行结算。
-            //
-            // R-171 曾把注册挂在 `!is_serial_writer()` 上,而桌面端主对话无条件设
-            // ReadParallelWriteSerial,结果是主对话根本不注册 task、「并行查」被整个
-            // 关掉、读槽登记代码不可达。口径修订与完整论证见
-            // `docs/design/parallel_read_serial_write_orchestration.md` 的
-            // 「阶段契约」表下「2026-08-10 口径修订(implementation 阶段的 task)」一节。
-            specs.push(task_spec());
-        }
-
-        // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
-        let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();
-        let (mut refreshable_baseline, refreshable_report) =
-            snapshot.refreshable_system_baseline_with_report();
-        context_report.extend(refreshable_report);
-        if !agent.system.trim().is_empty() {
-            context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
-        }
-        // 工具 schema 是每轮上下文里最大的一块之一(桌面 dev 档 26 个工具的完整 JSON
-        // Schema),estimate_prompt_tokens 也把它算进 prompt。账单要回答"本轮上下文里
-        // 有什么、各占多少",漏掉它等于漏掉最大的那一项(R-106)。
-        let spec_chars: usize = specs
-            .iter()
-            .map(|spec| {
-                spec.name.chars().count()
-                    + spec.description.chars().count()
-                    + spec.input_schema.to_string().chars().count()
-            })
-            .sum();
-        if spec_chars > 0 {
-            context_report.push(("tools/schema".into(), spec_chars));
-        }
-        // D-185:记忆提示块是稳定 system 段(每步都在,同 agent/system),但**不进
-        // messages**——messages 是持久化与回灌的载体,进去就会被逐轮累积回灌。
-        // context_report 单独记 memory/hints,让注入 token 账单能看到 hint 段的占比。
-        if let Some(hints) = memory_hints {
-            if !hints.trim().is_empty() {
-                context_report.push(("memory/hints".into(), hints.chars().count()));
-            }
-        }
-        let mut stable_system: Vec<String> = [agent.system.clone(), baseline]
-            .into_iter()
-            .filter(|s| !s.trim().is_empty())
-            .collect();
-        if let Some(hints) = memory_hints {
-            if !hints.trim().is_empty() {
-                stable_system.push(hints.to_string());
-            }
-        }
-
-        // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
-        // 在尚未触发上下文压缩时就把非法消息交给 provider。
-        let mut messages: Vec<Message> = crate::history::filter_message_history(prior);
-        let user_parts = match initial_parts {
-            Some(parts) => {
-                let mut parts = parts.to_vec();
-                if !prompt.is_empty() {
-                    parts.insert(
-                        0,
-                        Part::Text {
-                            text: prompt.to_string(),
-                        },
-                    );
-                }
-                parts
-            }
-            None => vec![Part::Text {
-                text: prompt.to_string(),
-            }],
-        };
-        messages.push(Message {
-            role: Role::User,
-            parts: user_parts,
-        });
-        let mut total_usage = Usage::default();
-        // R-236 B1:轮末优先使用最近一次 provider usage.input；None 仅表示本轮没有有效 usage。
-        let mut last_input_tokens: Option<u64> = None;
-        // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
-        let mut final_text = String::new();
+        // R-202 批6:装配段(工具/specs/system 分块/消息初始化/各类运行态)抽离为
+        // assemble_run_once,返回 RunOnceAssembly;halt/halted 借用 config 留本地。
+        let RunOnceAssembly {
+            tools,
+            specs,
+            context_report,
+            stable_system,
+            mut refreshable_baseline,
+            mut messages,
+            mut total_usage,
+            mut last_input_tokens,
+            mut final_text,
+            max_steps,
+            mut session_approved,
+            mut session_rules,
+            mut overflow_recoveries,
+            mut futile_compactions,
+            mut overflow_traces,
+            mut calibration,
+            mut redundancy,
+            mut recall,
+            mut step,
+        } = assemble_run_once(
+            snapshot,
+            agent,
+            config,
+            prompt,
+            memory_hints,
+            prior,
+            initial_parts,
+            subagent,
+        );
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
-        // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
-        // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
-        let max_steps = agent.steps;
-        // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
-        let mut session_approved: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
-        // "总是允许"的会话内即时生效层(D-006):快照是开跑时定死的,新写入的规则
-        // 本次运行读不到——泛化 pattern 记在这里,同类资源当场不再询问。
-        let mut session_rules: Vec<(String, String)> = Vec::new();
-
-        let mut overflow_recoveries = 0;
-        // 主动压缩的连续无效计数(D-206),与被动恢复各记各的。只数"压了没用",
-        // 成功的压缩清零——压缩是常规运营动作,不设总量配额。
-        let mut futile_compactions = 0u32;
-        let mut overflow_traces: Vec<String> = Vec::new();
-        // 估算校准:len/4 粗估对中文 \uXXXX 转义、工具输出密集的会话有系统性偏差,
-        // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
-        // 每步拿到 provider 真实 input tokens 后 EMA 更新。
-        let mut calibration = 1.0f64;
-        // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
-        let mut redundancy = RedundancyWatch::default();
-        // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。
-        // 策略从 config 借用(不拥有);None = 关闭召回,零行为变化。
-        let mut recall = RecallWatch::new(config.recall.as_deref());
-
-        let mut step = 0u32;
         loop {
             step += 1;
             // D-342 步首检查点:停止已置位就不再发起新的 provider 请求,以 halted
@@ -283,98 +190,21 @@ pub fn run_once_with_parts<'a>(
             // 成本失控几乎都始于无人察觉的目标漂移。
             let budget_checkpoint = is_budget_checkpoint(step);
 
-            // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
-            // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
-            // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
-            // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
-            // R-219:context_limit 未知(白名单外 provider)时按保守默认 32k 启用主动
-            // 预算——未知不等于没有上限,放任涨到撞墙会把整个 run 拖进被动恢复;
-            // 启动时 tracing::warn 点名一次(可见不阻塞),不打断运行。
-            let effective_limit = config.context_limit.unwrap_or_else(|| {
-                tracing::warn!(
-                    "provider 无已知 context_limit,按保守默认 32k 做轮内预算; \
-                     撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)"
-                );
-                32_000
-            });
-            {
-                // R-236 B1:触发线换 headroom 公式(与轮末同一把尺,见 compaction_budget)。
-                let budget = compaction_budget(
-                    effective_limit,
-                    config.max_tokens,
-                    config.limits.compact_buffer_tokens(),
-                );
-                let mut before = budgeted_tokens(&system, &messages, &specs, calibration);
-                // R-236 B4:L0 prune 先行——超线时先机械清旧工具结果(零幻觉零
-                // LLM),清完够线就不必动纪要;凑不满最小收益 prune 自己会放弃。
-                if before > budget && messages.len() > 1 {
-                    let cleared = prune_old_tool_results(
-                        &mut messages,
-                        config.limits.prune_protect_tokens(),
-                        config.limits.prune_min_gain_tokens(),
-                    );
-                    if cleared > 0 {
-                        let after_prune = budgeted_tokens(&system, &messages, &specs, calibration);
-                        on_event(RunEvent::ContextPruned {
-                            cleared_results: cleared,
-                            before_tokens: before,
-                            after_tokens: after_prune,
-                        });
-                        before = after_prune;
-                    }
-                }
-                if before > budget
-                    && futile_compactions < MAX_FUTILE_COMPACTIONS
-                    && messages.len() > 1
-                {
-                    let dropped_messages = compact_with_digest(
-                        client,
-                        subagent,
-                        &mut messages,
-                        budget,
-                        &mut overflow_traces,
-                        config.limits.recent_verbatim_ratio(),
-                    )
-                    .await;
-                    if dropped_messages > 0 {
-                        // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
-                        // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
-                        // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
-                        // trim_tail 拿同一个 calibration:两边必须用同一把尺子量同一条
-                        // 预算线,否则它按原始口径够线就收手,这里看还超线(D-203)。
-                        if budgeted_tokens(&system, &messages, &specs, calibration) > budget {
-                            trim_tail(
-                                &mut messages,
-                                &system,
-                                &specs,
-                                budget,
-                                calibration,
-                                &mut overflow_traces,
-                            );
-                        }
-                        let after = budgeted_tokens(&system, &messages, &specs, calibration);
-                        // D-206:只按"有没有用"记账。压回线内 = 压缩在正常工作,清零、
-                        // 下次照压;压完(连 trim_tail 都上了)仍超线 = head+当前消息
-                        // 本身超线,连续两次就停,交给撞墙后的被动恢复,别空转。
-                        if after <= budget {
-                            futile_compactions = 0;
-                        } else {
-                            futile_compactions += 1;
-                        }
-                        on_event(RunEvent::ContextCompacted {
-                            before_tokens: before,
-                            after_tokens: after,
-                            budget_tokens: budget,
-                            limit_tokens: effective_limit,
-                            dropped_messages,
-                        });
-                    } else {
-                        // 中段为空压不动:不发事件(没骗 UI),但要计无效——否则每步
-                        // 白跑一次 compact,同样是注释里说的空转。
-                        futile_compactions += 1;
-                    }
-                }
-            }
+            // R-202 批6:轮内上下文预算(主动 prune/压缩/trim,含 D-206 无效计数
+            // 与 R-219 保守默认 32k)抽离为 enforce_context_budget。
+            enforce_context_budget(
+                client,
+                subagent,
+                config,
+                &system,
+                &specs,
+                &mut messages,
+                calibration,
+                &mut futile_compactions,
+                &mut overflow_traces,
+                on_event,
+            )
+            .await;
 
             // Provider 可能比本地配置更严格地计算上下文(尤其是工具 schema)。
             // 建流前和 HTTP 200 后 SSE 流内都可能报告 context overflow，必须走同一套
@@ -421,50 +251,30 @@ pub fn run_once_with_parts<'a>(
                 }
             };
 
-            final_text = parts
-                .iter()
-                .filter_map(|p| match p {
-                    Part::Text { text } => Some(text.as_str()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            if !parts.is_empty() {
-                commit_assistant_message(&mut messages, parts, step, on_event);
-            }
-
-            if calls.is_empty() {
-                return Ok(RunSummary {
-                    text: final_text,
-                    usage: total_usage,
-                    last_input_tokens,
-                    steps: step,
-                    // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
-                    halted_by_user: halted(),
-                    messages,
-                    context_report: context_report.clone(),
-                    overflow_traces: overflow_traces.clone(),
-                });
-            }
-
-            // D-342:模型产出了工具调用但停止已置位——一个工具都不执行,全部以
-            // 取消占位配对(与权限拒绝同款形态),halted 正常收尾。
-            if halted() {
-                let mut results = Vec::new();
-                append_halted_tool_results(&mut results, &calls, 0);
-                // 本步工具一个都没执行,不可能有图片。
-                commit_tool_results(&mut messages, results, Vec::new(), step, on_event);
-                return Ok(RunSummary {
-                    text: final_text,
-                    usage: total_usage,
-                    last_input_tokens,
-                    steps: step,
-                    halted_by_user: true,
-                    messages,
-                    context_report: context_report.clone(),
-                    overflow_traces: overflow_traces.clone(),
-                });
+            // R-202 批6:步骤消息提交与纯文本/停止收尾抽离为 commit_step_messages;
+            // 提前返回(calls 空 / 停止占位)以 StepMessageOutcome::Return 表达。
+            match commit_step_messages(
+                parts,
+                &calls,
+                &mut final_text,
+                &mut messages,
+                step,
+                halt,
+                on_event,
+            ) {
+                StepMessageOutcome::Proceed => {}
+                StepMessageOutcome::Return { halted_by_user } => {
+                    return Ok(RunSummary {
+                        text: final_text,
+                        usage: total_usage,
+                        last_input_tokens,
+                        steps: step,
+                        halted_by_user,
+                        messages,
+                        context_report: context_report.clone(),
+                        overflow_traces: overflow_traces.clone(),
+                    });
+                }
             }
 
             // R-202 批4:task 子代理段(并行/后台两种派发 + 溢出上限 + 取消占位补齐)
@@ -512,44 +322,36 @@ pub fn run_once_with_parts<'a>(
                     });
                 }
             };
-            // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
-            // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
-            redundancy.note_step(&ctx.project_root, &calls, &mut results);
-            // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
-            // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
-            recall.note_step(&calls, &mut results);
-            commit_tool_results(&mut messages, results, pending_images, step, on_event);
-
-            // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
-            // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
-            // 从这里返回。
-            if halted() {
-                return Ok(RunSummary {
-                    text: final_text,
-                    usage: total_usage,
-                    last_input_tokens,
-                    steps: step,
-                    halted_by_user: true,
-                    messages,
-                    context_report: context_report.clone(),
-                    overflow_traces: overflow_traces.clone(),
-                });
-            }
-
-            if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
-                return Ok(RunSummary {
-                    text: final_text,
-                    usage: total_usage,
-                    last_input_tokens,
-                    steps: step,
-                    halted_by_user: false,
-                    messages,
-                    context_report: context_report.clone(),
-                    overflow_traces: overflow_traces.clone(),
-                });
-            }
-            if last_step {
-                break;
+            // R-202 批6:步骤收尾(冗余/召回注入 + 工具结果落库 + 步末检查点 +
+            // MaxTokens/Refusal 终止 + last_step 收敛)抽离为 finalize_step。
+            match finalize_step(
+                ctx,
+                &calls,
+                &mut results,
+                pending_images,
+                &mut messages,
+                step,
+                &finish,
+                last_step,
+                halt,
+                &mut redundancy,
+                &mut recall,
+                on_event,
+            ) {
+                StepFinalOutcome::Continue => {}
+                StepFinalOutcome::Break => break,
+                StepFinalOutcome::Return { halted_by_user } => {
+                    return Ok(RunSummary {
+                        text: final_text,
+                        usage: total_usage,
+                        last_input_tokens,
+                        steps: step,
+                        halted_by_user,
+                        messages,
+                        context_report: context_report.clone(),
+                        overflow_traces: overflow_traces.clone(),
+                    });
+                }
             }
         }
 
@@ -1574,4 +1376,434 @@ async fn execute_tool_calls(
         results,
         pending_images,
     })
+}
+/// R-202 批6:run_once_with_parts 装配段产物。
+///
+/// 装配(工具/specs/system 分块/消息初始化/各类运行态)一次性完成,调用方解构后
+/// 变量名与内联时代逐字节一致,后续主循环零改动。halt/halted 借用 config 不进入
+/// struct(生命周期留在调用方)。
+struct RunOnceAssembly<'a> {
+    tools: Vec<Arc<dyn Tool>>,
+    specs: Vec<ToolSpec>,
+    context_report: Vec<(String, usize)>,
+    stable_system: Vec<String>,
+    refreshable_baseline: String,
+    messages: Vec<Message>,
+    total_usage: Usage,
+    last_input_tokens: Option<u64>,
+    final_text: String,
+    max_steps: u32,
+    session_approved: std::collections::HashSet<(String, String)>,
+    session_rules: Vec<(String, String)>,
+    overflow_recoveries: u32,
+    futile_compactions: u32,
+    overflow_traces: Vec<String>,
+    calibration: f64,
+    redundancy: RedundancyWatch,
+    recall: RecallWatch<'a>,
+    step: u32,
+}
+
+/// R-202 批6:run_once_with_parts 装配段——工具物化、task 注册、system 分块
+/// (agent/baseline/记忆提示)、context_report 账单、prior 清洗与用户消息装载、
+/// 以及全部轮级运行态(usage/停止文本/会话批准/压缩计数/校准/冗余门禁/召回)
+/// 的初始化。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - task 注册仍只发生在 subagent.is_some()(R-173 批4.5 口径,见内联注释);
+/// - baseline 进 Context Epoch,refreshable_baseline 每步在调用方刷新;
+/// - messages 先经 filter_message_history 清洗孤儿工具 part,再装载用户消息;
+/// - halted 闭包与 config.halt 生命周期耦合,留在调用方构造。
+#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
+fn assemble_run_once<'a>(
+    snapshot: &HarnessSnapshot,
+    agent: &AgentDef,
+    config: &'a RunnerConfig,
+    prompt: &str,
+    memory_hints: Option<&str>,
+    prior: &[Message],
+    initial_parts: Option<&[Part]>,
+    subagent: Option<&SubagentRuntime>,
+) -> RunOnceAssembly<'a> {
+    let tools: Vec<Arc<dyn Tool>> = snapshot.materialize_tools();
+    let mut specs: Vec<ToolSpec> = tools
+        .iter()
+        .map(|t| ToolSpec {
+            name: t.name().to_string(),
+            description: t.description(),
+            input_schema: t.input_schema(),
+        })
+        .collect();
+    if subagent.is_some() {
+        // R-173 批4.5:task 注册**不再受执行策略门控**。
+        //
+        // 为什么这样安全:只读子代理产不出写入,这是**构造层面**的事实,不靠运行时
+        // 判断——`kanzei_tools::SubagentBase` 只 insert read/glob/grep 三个工具
+        // (`crates/kanzei-tools/src/subagent.rs`),子代理快照里根本不存在写工具;
+        // 且子代理内 `ask` 恒 Deny(见 `runner/subagent.rs` 的 run_subagent),
+        // 无人应答的权限询问也不可能被放行。所以 writer 阶段跑 task 破坏不了单写语义。
+        //
+        // 串行强制**不动**:它只作用于普通工具,在下面那条独立分支上
+        // (`let serial_writer = config.execution_policy.is_serial_writer()`),
+        // task 从来不走那条路——同轮的 task 调用在更上面的块里先行结算。
+        //
+        // R-171 曾把注册挂在 `!is_serial_writer()` 上,而桌面端主对话无条件设
+        // ReadParallelWriteSerial,结果是主对话根本不注册 task、「并行查」被整个
+        // 关掉、读槽登记代码不可达。口径修订与完整论证见
+        // `docs/design/parallel_read_serial_write_orchestration.md` 的
+        // 「阶段契约」表下「2026-08-10 口径修订(implementation 阶段的 task)」一节。
+        specs.push(task_spec());
+    }
+
+    // system 分块:agent 提示词 + harness baseline(M2 起 baseline 进 Context Epoch)。
+    let (baseline, mut context_report) = snapshot.stable_system_baseline_with_report();
+    let (refreshable_baseline, refreshable_report) =
+        snapshot.refreshable_system_baseline_with_report();
+    context_report.extend(refreshable_report);
+    if !agent.system.trim().is_empty() {
+        context_report.insert(0, ("agent/system".into(), agent.system.chars().count()));
+    }
+    // 工具 schema 是每轮上下文里最大的一块之一(桌面 dev 档 26 个工具的完整 JSON
+    // Schema),estimate_prompt_tokens 也把它算进 prompt。账单要回答"本轮上下文里
+    // 有什么、各占多少",漏掉它等于漏掉最大的那一项(R-106)。
+    let spec_chars: usize = specs
+        .iter()
+        .map(|spec| {
+            spec.name.chars().count()
+                + spec.description.chars().count()
+                + spec.input_schema.to_string().chars().count()
+        })
+        .sum();
+    if spec_chars > 0 {
+        context_report.push(("tools/schema".into(), spec_chars));
+    }
+    // D-185:记忆提示块是稳定 system 段(每步都在,同 agent/system),但**不进
+    // messages**——messages 是持久化与回灌的载体,进去就会被逐轮累积回灌。
+    // context_report 单独记 memory/hints,让注入 token 账单能看到 hint 段的占比。
+    if let Some(hints) = memory_hints {
+        if !hints.trim().is_empty() {
+            context_report.push(("memory/hints".into(), hints.chars().count()));
+        }
+    }
+    let mut stable_system: Vec<String> = [agent.system.clone(), baseline]
+        .into_iter()
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    if let Some(hints) = memory_hints {
+        if !hints.trim().is_empty() {
+            stable_system.push(hints.to_string());
+        }
+    }
+
+    // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
+    // 在尚未触发上下文压缩时就把非法消息交给 provider。
+    let mut messages: Vec<Message> = crate::history::filter_message_history(prior);
+    let user_parts = match initial_parts {
+        Some(parts) => {
+            let mut parts = parts.to_vec();
+            if !prompt.is_empty() {
+                parts.insert(
+                    0,
+                    Part::Text {
+                        text: prompt.to_string(),
+                    },
+                );
+            }
+            parts
+        }
+        None => vec![Part::Text {
+            text: prompt.to_string(),
+        }],
+    };
+    messages.push(Message {
+        role: Role::User,
+        parts: user_parts,
+    });
+    let total_usage = Usage::default();
+    // R-236 B1:轮末优先使用最近一次 provider usage.input；None 仅表示本轮没有有效 usage。
+    let last_input_tokens: Option<u64> = None;
+    // D-342:停止检查点用。提前初始化——halted 提前返回时它是「最近一步的文本」。
+    let final_text = String::new();
+    // steps 语义:0 = 无上限(用户定调:不设人为轮数天花板——停止权在用户按钮
+    // 与上下文管理,不在计数器)。>0 时保留封顶,最后一步收工具+收尾指令。
+    let max_steps = agent.steps;
+    // 本次运行内已放行的 (action, resource):同一资源不重复问(用户反馈:别烦我)。
+    let session_approved: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    // "总是允许"的会话内即时生效层(D-006):快照是开跑时定死的,新写入的规则
+    // 本次运行读不到——泛化 pattern 记在这里,同类资源当场不再询问。
+    let session_rules: Vec<(String, String)> = Vec::new();
+
+    let overflow_recoveries = 0;
+    // 主动压缩的连续无效计数(D-206),与被动恢复各记各的。只数"压了没用",
+    // 成功的压缩清零——压缩是常规运营动作,不设总量配额。
+    let futile_compactions = 0u32;
+    let overflow_traces: Vec<String> = Vec::new();
+    // 估算校准:len/4 粗估对中文 \uXXXX 转义、工具输出密集的会话有系统性偏差,
+    // 预算线 0.7 的语义要靠真实 usage 反推的滑动因子校准才有意义。初始 1.0,
+    // 每步拿到 provider 真实 input tokens 后 EMA 更新。
+    let calibration = 1.0f64;
+    // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
+    let redundancy = RedundancyWatch::default();
+    // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。
+    // 策略从 config 借用(不拥有);None = 关闭召回,零行为变化。
+    let recall = RecallWatch::new(config.recall.as_deref());
+
+    let step = 0u32;
+    RunOnceAssembly {
+        tools,
+        specs,
+        context_report,
+        stable_system,
+        refreshable_baseline,
+        messages,
+        total_usage,
+        last_input_tokens,
+        final_text,
+        max_steps,
+        session_approved,
+        session_rules,
+        overflow_recoveries,
+        futile_compactions,
+        overflow_traces,
+        calibration,
+        redundancy,
+        recall,
+        step,
+    }
+}
+/// R-202 批6:步骤消息提交段的产物。
+enum StepMessageOutcome {
+    /// 消息已提交、存在待执行工具调用,继续工具批执行。
+    Proceed,
+    /// 提前收尾(calls 为空 = 纯文本步 / D-342 停止占位),调用方构造 RunSummary。
+    Return { halted_by_user: bool },
+}
+
+/// R-202 批6:步骤消息提交——final_text 提取、assistant 消息落库、以及
+/// 「无工具调用」与「产出了调用但停止已置位」两条提前收尾路径。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - final_text 只取 Text part 拼接(推理/工具调用不进收尾文本);
+/// - calls 为空 → halted_by_user 如实反映停止状态(D-342);
+/// - 停止已置位 → 全部调用以取消占位配对后 halted 收尾。
+fn commit_step_messages(
+    parts: Vec<Part>,
+    calls: &[(String, String, serde_json::Value, String)],
+    final_text: &mut String,
+    messages: &mut Vec<Message>,
+    step: u32,
+    halt: Option<&CancellationToken>,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> StepMessageOutcome {
+    *final_text = parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if !parts.is_empty() {
+        commit_assistant_message(messages, parts, step, on_event);
+    }
+
+    if calls.is_empty() {
+        return StepMessageOutcome::Return {
+            // D-342:纯文本步收尾时停止可能已置位,如实标 halted。
+            halted_by_user: halt.is_some_and(|token| token.is_cancelled()),
+        };
+    }
+
+    // D-342:模型产出了工具调用但停止已置位——一个工具都不执行,全部以
+    // 取消占位配对(与权限拒绝同款形态),halted 正常收尾。
+    if halt.is_some_and(|token| token.is_cancelled()) {
+        let mut results = Vec::new();
+        append_halted_tool_results(&mut results, calls, 0);
+        // 本步工具一个都没执行,不可能有图片。
+        commit_tool_results(messages, results, Vec::new(), step, on_event);
+        return StepMessageOutcome::Return {
+            halted_by_user: true,
+        };
+    }
+    StepMessageOutcome::Proceed
+}
+
+/// R-202 批6:步骤收尾段的产物。
+enum StepFinalOutcome {
+    /// 本步工具结果已落库,进入下一轮。
+    Continue,
+    /// last_step 收敛:跳出主循环,走最终 RunSummary 构造。
+    Break,
+    /// 步末停止检查点 / MaxTokens·Refusal 终止:调用方构造 RunSummary。
+    Return { halted_by_user: bool },
+}
+
+/// R-202 批6:步骤收尾——冗余提醒与失败召回注入、工具结果落库、步末停止检查点、
+/// MaxTokens/Refusal 终止判定与 last_step 收敛。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - redundancy.note_step / recall.note_step 先于结果回喂(R-100/R-162 同钩位);
+/// - commit_tool_results 合流 pending_images(R-249);
+/// - 步末检查点要求本步工具全部有终态(真实或取消占位),配对完整才收尾;
+/// - MaxTokens/Refusal 与 last_step 的收敛顺序不变。
+#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
+fn finalize_step(
+    ctx: &ToolCtx,
+    calls: &[(String, String, serde_json::Value, String)],
+    results: &mut Vec<Part>,
+    pending_images: Vec<Part>,
+    messages: &mut Vec<Message>,
+    step: u32,
+    finish: &FinishReason,
+    last_step: bool,
+    halt: Option<&CancellationToken>,
+    redundancy: &mut RedundancyWatch,
+    recall: &mut RecallWatch<'_>,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> StepFinalOutcome {
+    // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
+    // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
+    redundancy.note_step(&ctx.project_root, calls, results);
+    // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
+    // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
+    recall.note_step(calls, results);
+    commit_tool_results(
+        messages,
+        std::mem::take(results),
+        pending_images,
+        step,
+        on_event,
+    );
+
+    // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
+    // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
+    // 从这里返回。
+    if halt.is_some_and(|token| token.is_cancelled()) {
+        return StepFinalOutcome::Return {
+            halted_by_user: true,
+        };
+    }
+    if matches!(finish, FinishReason::MaxTokens | FinishReason::Refusal) {
+        return StepFinalOutcome::Return {
+            halted_by_user: false,
+        };
+    }
+    if last_step {
+        return StepFinalOutcome::Break;
+    }
+    StepFinalOutcome::Continue
+}
+/// R-202 批6:轮内上下文预算——每步开跑前的主动 prune / 压缩 / trim。
+///
+/// 行为与原内联段逐字节对齐(行为零变更):
+/// - R-219:context_limit 未知时按保守默认 32k 启用主动预算,首次 tracing::warn
+///   点名一次(可见不阻塞);
+/// - R-236 B1:触发线 headroom 公式;R-236 B4:L0 prune 先行,凑不满最小收益自弃;
+/// - D-206:只按"有没有用"记账——压回线内清零,压不动(连 trim_tail 都上了)仍
+///   超线则递增,连续 MAX_FUTILE_COMPACTIONS 次后交给撞墙的被动恢复;
+/// - D-203:trim_tail 与预算检查用同一个 calibration 口径。
+#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
+async fn enforce_context_budget(
+    client: &LlmClient,
+    subagent: Option<&SubagentRuntime>,
+    config: &RunnerConfig,
+    system: &[String],
+    specs: &[ToolSpec],
+    messages: &mut Vec<Message>,
+    calibration: f64,
+    futile_compactions: &mut u32,
+    overflow_traces: &mut Vec<String>,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) {
+    // 轮内上下文预算(D-176)。压缩检查原先只写在**一轮结束之后**,而长轮与
+    // 自动续跑恰恰是最需要它的场景:一轮不结束就一次也轮不到。实测一次 41
+    // 分钟的运行里检查点执行了 0 次,用户按停止后更是直接跳过收尾,全程只能
+    // 等 provider 报 overflow 再被动裁剪。这里在每步开跑前主动估一次。
+    // R-219:context_limit 未知(白名单外 provider)时按保守默认 32k 启用主动
+    // 预算——未知不等于没有上限,放任涨到撞墙会把整个 run 拖进被动恢复;
+    // 启动时 tracing::warn 点名一次(可见不阻塞),不打断运行。
+    let effective_limit = config.context_limit.unwrap_or_else(|| {
+        tracing::warn!(
+            "provider 无已知 context_limit,按保守默认 32k 做轮内预算; \
+             撞墙前的主动压缩只降级不终止(第三次 overflow 仍会被动终止)"
+        );
+        32_000
+    });
+    {
+        // R-236 B1:触发线换 headroom 公式(与轮末同一把尺,见 compaction_budget)。
+        let budget = compaction_budget(
+            effective_limit,
+            config.max_tokens,
+            config.limits.compact_buffer_tokens(),
+        );
+        let mut before = budgeted_tokens(system, messages, specs, calibration);
+        // R-236 B4:L0 prune 先行——超线时先机械清旧工具结果(零幻觉零
+        // LLM),清完够线就不必动纪要;凑不满最小收益 prune 自己会放弃。
+        if before > budget && messages.len() > 1 {
+            let cleared = prune_old_tool_results(
+                messages,
+                config.limits.prune_protect_tokens(),
+                config.limits.prune_min_gain_tokens(),
+            );
+            if cleared > 0 {
+                let after_prune = budgeted_tokens(system, messages, specs, calibration);
+                on_event(RunEvent::ContextPruned {
+                    cleared_results: cleared,
+                    before_tokens: before,
+                    after_tokens: after_prune,
+                });
+                before = after_prune;
+            }
+        }
+        if before > budget && *futile_compactions < MAX_FUTILE_COMPACTIONS && messages.len() > 1 {
+            let dropped_messages = compact_with_digest(
+                client,
+                subagent,
+                messages,
+                budget,
+                overflow_traces,
+                config.limits.recent_verbatim_ratio(),
+            )
+            .await;
+            if dropped_messages > 0 {
+                // 压了还超线:tail 太大或 head 太大。再砍 tail 到预算内,否则
+                // 下一步预算检查立刻再压——连续两次压缩 = 缓存前缀两次全量
+                // 重算(cache_write 双倍),省下的 token 不够补缓存成本。
+                // trim_tail 拿同一个 calibration:两边必须用同一把尺子量同一条
+                // 预算线,否则它按原始口径够线就收手,这里看还超线(D-203)。
+                if budgeted_tokens(system, messages, specs, calibration) > budget {
+                    trim_tail(
+                        messages,
+                        system,
+                        specs,
+                        budget,
+                        calibration,
+                        overflow_traces,
+                    );
+                }
+                let after = budgeted_tokens(system, messages, specs, calibration);
+                // D-206:只按"有没有用"记账。压回线内 = 压缩在正常工作,清零、
+                // 下次照压;压完(连 trim_tail 都上了)仍超线 = head+当前消息
+                // 本身超线,连续两次就停,交给撞墙后的被动恢复,别空转。
+                if after <= budget {
+                    *futile_compactions = 0;
+                } else {
+                    *futile_compactions += 1;
+                }
+                on_event(RunEvent::ContextCompacted {
+                    before_tokens: before,
+                    after_tokens: after,
+                    budget_tokens: budget,
+                    limit_tokens: effective_limit,
+                    dropped_messages,
+                });
+            } else {
+                // 中段为空压不动:不发事件(没骗 UI),但要计无效——否则每步
+                // 白跑一次 compact,同样是注释里说的空转。
+                *futile_compactions += 1;
+            }
+        }
+    }
 }
