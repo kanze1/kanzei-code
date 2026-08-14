@@ -4258,3 +4258,19 @@
 - observed_head: 598410da36023618dc45cc343866aeccd3e7b417
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786743702244
+
+## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [fixed] (medium)
+- refs: R-207 R-254 R-177
+- 备注: 修复动作可并入 R-254 的内容②,本条独立登记是为了让 R-207 的收尾缺口在缺陷队列里可见,不被"R-207 已 done"掩盖。
+- 复杂度: 小
+- 复现: 2026-08-15 dev@f09242c 实测:Select-String -Path crates/kanzei-app/src/processes.rs -Pattern wt:: 命中 19 处。worktree_target/worktree_status/branch_exists/rev_parse/git_worktrees/validate_worktree_path 等函数体只是转调 kanzei_tools::worktree 的同名实现,代码注释自述"实现已下沉 kanzei-tools::worktree(R-207)"。R-207 在归档里状态是 done。
+- 影响: 下沉的收益(桌面与 CLI 共用一份工作树实现)只兑现了一半:实现虽在一处,调用侧仍隔着一层桌面私有壳,改工作树行为要先判断改哪层;新代码不知道该调壳还是调下沉实现,两条路都能编译;processes.rs 的 1628 行生产码里这一层是纯噪声,推高了 R-254 拆解的读码成本。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①processes.rs 中 wt:: 转发壳数量为 0(机械核验 grep),调用点直接用 kanzei_tools::worktree;②worktree_tests.rs 全绿 + kanzei-app 全量绿;③若某个壳确有存在理由(如桌面侧要做额外的路径规范化),在删壳批里写明理由并保留,不允许"看着像转发就删"。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-365
+- 进展: 验收逐条对照:①processes.rs 中 wt:: 转发壳数量为 0——机械核验(fn xxx { wt::xxx } 形态 grep 为空),16 个纯转发壳全部删除,调用点直接 wt::xxx(= kanzei_tools::worktree);②worktree_tests.rs 全绿 + kanzei-app 全量绿——cargo test -p kanzei-app 163 全绿(T-1786744288),worktree_tests/update_tests_update 均含在内;③有存在理由的壳保留——reclaim_worktree_on_close/discard_worktree_checked 是真实函数(函数体含自有逻辑,非纯转发)非壳,予以保留;确认无「看着像转发就删」的误删。改动:processes.rs 删 16 壳 + 49 处调用点改 wt:: 直调;worktree_tests.rs use 改从 kanzei_tools::worktree 导入 8 项 + super::worktree_key 改直接调用;update_tests_update.rs 的 parse_merge_tree_conflicts 导入改道。两层抽象(桌面壳 + 下沉实现)消除,只剩 kanzei-tools 一份实现(R-207 收益兑现)。
+- observed_head: 3c4b132c531066bd56041e18de21b8c0bd4f817d
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786744312146

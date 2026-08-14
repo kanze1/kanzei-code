@@ -85,22 +85,6 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [fixing] (medium)
-- refs: R-207 R-254 R-177
-- 备注: 修复动作可并入 R-254 的内容②,本条独立登记是为了让 R-207 的收尾缺口在缺陷队列里可见,不被"R-207 已 done"掩盖。
-- 复杂度: 小
-- 复现: 2026-08-15 dev@f09242c 实测:Select-String -Path crates/kanzei-app/src/processes.rs -Pattern wt:: 命中 19 处。worktree_target/worktree_status/branch_exists/rev_parse/git_worktrees/validate_worktree_path 等函数体只是转调 kanzei_tools::worktree 的同名实现,代码注释自述"实现已下沉 kanzei-tools::worktree(R-207)"。R-207 在归档里状态是 done。
-- 影响: 下沉的收益(桌面与 CLI 共用一份工作树实现)只兑现了一半:实现虽在一处,调用侧仍隔着一层桌面私有壳,改工作树行为要先判断改哪层;新代码不知道该调壳还是调下沉实现,两条路都能编译;processes.rs 的 1628 行生产码里这一层是纯噪声,推高了 R-254 拆解的读码成本。
-- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
-- 标签: 核心
-- 验收: ①processes.rs 中 wt:: 转发壳数量为 0(机械核验 grep),调用点直接用 kanzei_tools::worktree;②worktree_tests.rs 全绿 + kanzei-app 全量绿;③若某个壳确有存在理由(如桌面侧要做额外的路径规范化),在删壳批里写明理由并保留,不允许"看着像转发就删"。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-365
-- 进展: 16 个 wt:: 转发壳全部删除(processes.rs 984-1079 区 14 个 + 1498-1507 区 2 个),调用点改直调 kanzei_tools::worktree(wt::):processes.rs 内 49 处 + worktree_tests.rs use 改从 kanzei_tools::worktree 导入(create_worktree/create_worktree_with_receipt/merge_worktree/rollback_worktree/worktree_key/worktree_status/worktree_target/WorktreeReceipt)+ super::worktree_key 改直接调用 + update_tests_update.rs 的 parse_merge_tree_conflicts 导入改道。验收①机械核验:转发壳形态(fn xxx { wt::xxx })为 0,残留裸名仅注释引用;验收③:reclaim_worktree_on_close/discard_worktree_checked 是真实函数(函数体有自有逻辑)非壳,保留。验收②:worktree_tests 含在 kanzei-app 全量 163 绿(T-1786744159)。
-- observed_head: 598410da36023618dc45cc343866aeccd3e7b417
-- observed_worktree_hash: fnv1a64:04db57725f09b1d2
-- recorded_at: 1786744166278
-
 ## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [open] (medium)
 - refs: R-255 R-150 docs/design/memory_control_plane.md
 - 备注: 修复由 R-255 第三刀承载,本条独立登记是为了把"边界在哪"这个判断先固定下来,避免 R-255 执行时临时决定。
