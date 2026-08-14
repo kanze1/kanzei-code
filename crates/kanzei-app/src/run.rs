@@ -18,8 +18,8 @@ use tokio::sync::oneshot;
 use crate::{
     conversation, ensure_default_process, flush_live_run, flush_live_trace, memory,
     process_session_id, prompt_attachment_parts, record_live_trace, record_live_trace_at_path,
-    runtime_for, stop_runtime_and_finalize, take_pending_ask, with_session_id, AppState, LiveRun,
-    PendingAsk, PromptAttachment, SessionRuntime,
+    runtime_for, stop_runtime_and_finalize, take_pending_ask, typed_events, with_session_id,
+    AppState, LiveRun, PendingAsk, PromptAttachment, SessionRuntime,
 };
 
 /// D-297 验收③:TaskProgress 入参落 run.trace 时保留的字符上限。入参可能是完整
@@ -222,6 +222,16 @@ pub(crate) async fn run_task(
         )?;
     }
     let prompt = promoted.prompt;
+    let initial_parts = prompt_attachment_parts(attachments.unwrap_or_default())?;
+    let mut typed_user_parts = initial_parts.clone();
+    if !prompt.is_empty() {
+        typed_user_parts.insert(
+            0,
+            kanzei_llm::Part::Text {
+                text: prompt.clone(),
+            },
+        );
+    }
     // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
     // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
     let promoted_input_id = promoted.input_id.clone();
@@ -233,6 +243,40 @@ pub(crate) async fn run_task(
             .map(|d| d.as_nanos())
             .unwrap_or_default()
     );
+    // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
+    // open draft/tool；再提交本轮 user fact。失败只留在 writer report，不改变旧主路径。
+    let typed_writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
+        &state_path,
+        &session_id,
+        &run_id,
+    )));
+    if let Err(error) = typed_events::prepare_session(&store, &session_id) {
+        typed_writer.lock().unwrap().record_error(error);
+    }
+    typed_writer.lock().unwrap().user_message(
+        &promoted_input_id,
+        kanzei_llm::Message {
+            role: kanzei_llm::Role::User,
+            parts: typed_user_parts,
+        },
+    );
+    // 单独的弱引用定时 flush：provider 静默时仍满足 750ms 持久化上界；run 正常
+    // 终态后观察到 terminal 退出，run 被强制 abort 后所有强引用释放，Weak 失效退出。
+    let typed_flush_writer = Arc::downgrade(&typed_writer);
+    let typed_flush_task = tauri::async_runtime::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        loop {
+            interval.tick().await;
+            let Some(writer) = typed_flush_writer.upgrade() else {
+                break;
+            };
+            let mut writer = writer.lock().unwrap();
+            writer.flush_due();
+            if writer.is_terminal() {
+                break;
+            }
+        }
+    });
     let run_started = std::time::Instant::now();
     // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
     // 先于 episode 落库,只能靠时间窗归因到本轮,与 CLI 同一口径)。
@@ -371,6 +415,7 @@ pub(crate) async fn run_task(
     let trace_log = live.clone();
     let trace_state_path_for_events = state_path.clone();
     let trace_session_id_for_events = session_id.clone();
+    let typed_writer_for_events = Arc::clone(&typed_writer);
     // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
     // 于是"时间花在模型、shell 还是等用户""用户点了几次权限"事后统统无从查证,
     // 只能从最终对话快照反推。这里按 id 记开始时刻,收尾时连耗时一起写进 run.trace。
@@ -405,10 +450,24 @@ pub(crate) async fn run_task(
                         "kind": "turn.started", "step": step, "at": now_ms(),
                     }),
                 );
+                typed_writer_for_events
+                    .lock()
+                    .unwrap()
+                    .turn_started(step, max_steps);
                 emit_event("kz:turn", json!({ "step": step, "maxSteps": max_steps }))
             }
-            RunEvent::Text(text) => emit_event("kz:text", json!({ "text": text })),
+            RunEvent::Text(text) => {
+                typed_writer_for_events.lock().unwrap().push_text(&text);
+                emit_event("kz:text", json!({ "text": text }))
+            }
             RunEvent::Reasoning(text) => emit_event("kz:reasoning", json!({ "text": text })),
+            RunEvent::AssistantMessageCommitted { step, message } => {
+                typed_writer_for_events
+                    .lock()
+                    .unwrap()
+                    .assistant_committed(step, message);
+                Ok(())
+            }
             RunEvent::ToolStart {
                 id,
                 name,
@@ -475,6 +534,13 @@ pub(crate) async fn run_task(
                     "kz:tool-end",
                     json!({ "id": id, "name": name, "ok": ok, "outcome": outcome, "code": code, "preview": preview, "display": display }),
                 )
+            }
+            RunEvent::ToolResultsCommitted { step, message } => {
+                typed_writer_for_events
+                    .lock()
+                    .unwrap()
+                    .tool_results_committed(step, message);
+                Ok(())
             }
             // 轮内主动压缩:UI 要看得见"什么时候让的路、让掉了多少",
             // 否则历史突然变短只会被当成 bug(D-176)。
@@ -617,15 +683,18 @@ pub(crate) async fn run_task(
                 attempt,
                 max,
                 delay_ms,
-            } => emit_event(
-                "kz:stream-restart",
-                json!({
+            } => {
+                typed_writer_for_events.lock().unwrap().stream_restarted();
+                emit_event(
+                    "kz:stream-restart",
+                    json!({
                     "attempt": attempt,
                     "max": max,
                     "delayMs": delay_ms,
                     "detail": format!("连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms"),
-                }),
-            ),
+                    }),
+                )
+            }
             // 每步累计:停止时 episode 才有真实 token 数,而不是写个 0 冒充。
             RunEvent::StepEnd { usage, .. } => {
                 {
@@ -779,7 +848,6 @@ pub(crate) async fn run_task(
         })
     };
 
-    let initial_parts = prompt_attachment_parts(attachments.unwrap_or_default())?;
     if !initial_parts.is_empty() {
         let image_count = initial_parts
             .iter()
@@ -911,6 +979,14 @@ pub(crate) async fn run_task(
     if let Some(store) = final_store.as_ref() {
         match &run_result {
             Ok(summary) => {
+                typed_writer
+                    .lock()
+                    .unwrap()
+                    .finish(if summary.halted_by_user {
+                        typed_events::TerminalFact::Stopped
+                    } else {
+                        typed_events::TerminalFact::Completed
+                    });
                 if let Err(error) = store.set_status(&session_id, "idle") {
                     report_persistence_failure(window, &session_id, "写入 idle 状态", error);
                 }
@@ -1005,6 +1081,11 @@ pub(crate) async fn run_task(
                 );
             }
             Err(error) => {
+                typed_writer
+                    .lock()
+                    .unwrap()
+                    .finish(typed_events::TerminalFact::Failed(error.to_string()));
+                typed_writer.lock().unwrap().write_shadow_report(&prior);
                 if let Err(persistence_error) = store.set_status(&session_id, "failed") {
                     report_persistence_failure(
                         window,
@@ -1242,7 +1323,9 @@ pub(crate) async fn run_task(
         ) {
             report_persistence_failure(window, &session_id, "写入对话历史", error);
         }
+        typed_writer.lock().unwrap().write_shadow_report(&messages);
     }
+    typed_flush_task.abort();
     let _ = window.emit(
         "kz:done",
         with_session_id(

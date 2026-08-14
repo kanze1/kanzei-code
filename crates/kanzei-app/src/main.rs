@@ -29,6 +29,7 @@ mod run;
 mod settings;
 mod state;
 mod subagents;
+mod typed_events;
 mod update;
 
 #[cfg(test)]

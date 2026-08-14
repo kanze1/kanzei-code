@@ -33,6 +33,12 @@ pub enum RunEvent {
     },
     Text(String),
     Reasoning(String),
+    /// provider 一步的 assistant 消息已完整组装并进入 history。它先于任何工具
+    /// 副作用发出，因此持久化层可在同一事务提交 assistant + tool_called 事实。
+    AssistantMessageCommitted {
+        step: u32,
+        message: Message,
+    },
     ToolStart {
         /// 工具调用 id:并行工具(task)结束顺序不定,UI 靠它配对 start/end。
         id: String,
@@ -59,6 +65,12 @@ pub enum RunEvent {
         preview: String,
         /// 结构化展示(diff/终端块),见 ToolOutput::display。
         display: Option<serde_json::Value>,
+    },
+    /// 本步整组工具结果已进入 history。包含真实结果、权限拒绝、未知工具和停止
+    /// 占位；持久化层由此生成与模型 prior 一致的 tool result facts。
+    ToolResultsCommitted {
+        step: u32,
+        message: Message,
     },
     /// 子代理运行中的实时状态(轮次/正在用的工具),挂在对应 task 块上。
     TaskProgress {

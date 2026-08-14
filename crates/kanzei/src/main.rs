@@ -5,7 +5,7 @@
 
 use std::io::Write as _;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_core::{run_once, RunEvent, RunnerConfig};
@@ -387,6 +387,19 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         "run_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
+    // R-241：CLI 与桌面端共用同一个 typed writer 和投影契约。
+    let typed_writer = Arc::new(Mutex::new(kanzei_core::TypedSessionWriter::new(
+        &state_path,
+        &session_id,
+        &run_id,
+    )));
+    if let Err(error) = kanzei_core::prepare_typed_session(&store, &session_id) {
+        typed_writer.lock().unwrap().record_error(error);
+    }
+    typed_writer
+        .lock()
+        .unwrap()
+        .user_message(&promoted.input_id, kanzei_llm::Message::user_text(&prompt));
     let run_started = std::time::Instant::now();
     // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
     // 先于 episode 落库,只能靠时间窗归因到本轮)。
@@ -415,8 +428,13 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     );
 
     let mut stdout = std::io::stdout();
+    let typed_writer_for_events = Arc::clone(&typed_writer);
     let mut on_event = move |event: RunEvent| match event {
         RunEvent::TurnStart { step, max_steps } => {
+            typed_writer_for_events
+                .lock()
+                .unwrap()
+                .turn_started(step, max_steps);
             if step > 1 {
                 let label = if max_steps > 0 {
                     format!("第 {step}/{max_steps} 轮")
@@ -427,10 +445,19 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             }
         }
         RunEvent::Text(text) => {
+            typed_writer_for_events.lock().unwrap().push_text(&text);
             let _ = write!(stdout, "{text}");
             let _ = stdout.flush();
         }
         RunEvent::Reasoning(_) => {}
+        RunEvent::AssistantMessageCommitted { step, message } => typed_writer_for_events
+            .lock()
+            .unwrap()
+            .assistant_committed(step, message),
+        RunEvent::ToolResultsCommitted { step, message } => typed_writer_for_events
+            .lock()
+            .unwrap()
+            .tool_results_committed(step, message),
         RunEvent::ToolStart { name, summary, .. } => {
             let _ = writeln!(stdout, "\n\x1b[36m● {name}\x1b[0m {summary}");
         }
@@ -454,6 +481,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             max,
             delay_ms,
         } => {
+            typed_writer_for_events.lock().unwrap().stream_restarted();
             let _ = writeln!(
                 stdout,
                 "\x1b[33m连接中断,重新请求本轮 {attempt}/{max},等待 {delay_ms}ms(本轮工具尚未执行,不会重复副作用)\x1b[0m"
@@ -644,6 +672,21 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             .flatten(),
     );
     let run_prompt = prompt.clone();
+    let typed_flush_writer = Arc::downgrade(&typed_writer);
+    let typed_flush_task = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        loop {
+            interval.tick().await;
+            let Some(writer) = typed_flush_writer.upgrade() else {
+                break;
+            };
+            let mut writer = writer.lock().unwrap();
+            writer.flush_due();
+            if writer.is_terminal() {
+                break;
+            }
+        }
+    });
     let run_result = tokio::select! {
         result = run_once(
             &client,
@@ -663,6 +706,16 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             // 收尾逻辑在 SessionStore::finalize_interrupt 内原子完成并有测试覆盖;
             // 这里只负责把信号接到该入口。
             let store = kanzei_core::SessionStore::open(&state_path)?;
+            typed_writer
+                .lock()
+                .unwrap()
+                .finish(kanzei_core::SessionTurnTerminal::Stopped);
+            let legacy: Vec<kanzei_llm::Message> = store
+                .latest_event(&session_id, "conversation.updated")?
+                .and_then(|event| serde_json::from_value(event.payload["messages"].clone()).ok())
+                .unwrap_or_default();
+            typed_writer.lock().unwrap().write_shadow_report(&legacy);
+            typed_flush_task.abort();
             store.finalize_interrupt(&session_id)?;
             eprintln!("\n\x1b[33m(stopped by Ctrl+C)\x1b[0m");
             return Ok(());
@@ -671,6 +724,14 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let store = kanzei_core::SessionStore::open(&state_path)?;
     match &run_result {
         Ok(summary) => {
+            typed_writer
+                .lock()
+                .unwrap()
+                .finish(if summary.halted_by_user {
+                    kanzei_core::SessionTurnTerminal::Stopped
+                } else {
+                    kanzei_core::SessionTurnTerminal::Completed
+                });
             store.set_status(&session_id, "idle")?;
             store.append_event(
                 &session_id,
@@ -682,8 +743,17 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 "conversation.updated",
                 &serde_json::json!({ "messages": summary.messages }),
             )?;
+            typed_writer
+                .lock()
+                .unwrap()
+                .write_shadow_report(&summary.messages);
         }
         Err(error) => {
+            typed_writer
+                .lock()
+                .unwrap()
+                .finish(kanzei_core::SessionTurnTerminal::Failed(error.to_string()));
+            typed_writer.lock().unwrap().write_shadow_report(&prior);
             store.set_status(&session_id, "failed")?;
             store.append_event(
                 &session_id,
@@ -697,6 +767,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             )?;
         }
     }
+    typed_flush_task.abort();
     let summary = run_result?;
 
     if summary.halted_by_user {

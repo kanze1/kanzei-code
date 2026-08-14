@@ -538,6 +538,9 @@ pub(crate) async fn run_subagent(
                     usage: Some(total_usage),
                 })
             }
+            RunEvent::AssistantMessageCommitted { .. } | RunEvent::ToolResultsCommitted { .. } => {
+                None
+            }
             _ => None,
         };
         if let Some(text) = text {

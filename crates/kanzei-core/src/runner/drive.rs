@@ -33,6 +33,34 @@ fn append_halted_tool_results(
     }
 }
 
+fn commit_assistant_message(
+    messages: &mut Vec<Message>,
+    parts: Vec<Part>,
+    step: u32,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) {
+    let message = Message::assistant(parts);
+    on_event(RunEvent::AssistantMessageCommitted {
+        step,
+        message: message.clone(),
+    });
+    messages.push(message);
+}
+
+fn commit_tool_results(
+    messages: &mut Vec<Message>,
+    results: Vec<Part>,
+    step: u32,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) {
+    let message = Message::tool_results(results);
+    on_event(RunEvent::ToolResultsCommitted {
+        step,
+        message: message.clone(),
+    });
+    messages.push(message);
+}
+
 #[allow(clippy::too_many_arguments)] // 公开驱动边界，收拢为参数对象会同时扰动所有递归调用方。
 pub fn run_once<'a>(
     client: &'a LlmClient,
@@ -560,7 +588,7 @@ pub fn run_once_with_parts<'a>(
                 .join("\n");
 
             if !parts.is_empty() {
-                messages.push(Message::assistant(parts));
+                commit_assistant_message(&mut messages, parts, step, on_event);
             }
 
             if calls.is_empty() {
@@ -582,7 +610,7 @@ pub fn run_once_with_parts<'a>(
             if halted() {
                 let mut results = Vec::new();
                 append_halted_tool_results(&mut results, &calls, 0);
-                messages.push(Message::tool_results(results));
+                commit_tool_results(&mut messages, results, step, on_event);
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
@@ -990,7 +1018,7 @@ pub fn run_once_with_parts<'a>(
                     // 取消占位配对后 halted 收尾——已完成的结果原样保留在历史里。
                     if halted() {
                         append_halted_tool_results(&mut results, &calls, call_index);
-                        messages.push(Message::tool_results(results));
+                        commit_tool_results(&mut messages, results, step, on_event);
                         return Ok(RunSummary {
                             text: final_text,
                             usage: total_usage,
@@ -1235,7 +1263,7 @@ pub fn run_once_with_parts<'a>(
                                 display: None,
                             });
                             append_declined_tool_results(&mut results, &calls, call_index);
-                            messages.push(Message::tool_results(results));
+                            commit_tool_results(&mut messages, results, step, on_event);
                             return Ok(RunSummary {
                                 text: final_text,
                                 usage: total_usage,
@@ -1324,7 +1352,7 @@ pub fn run_once_with_parts<'a>(
             // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
             // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
             recall.note_step(&calls, &mut results);
-            messages.push(Message::tool_results(results));
+            commit_tool_results(&mut messages, results, step, on_event);
 
             // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
             // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
