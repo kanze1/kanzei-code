@@ -84,3 +84,47 @@
 - 阻塞: 等待 R-244 Tool Pipeline 结果阶段稳定并由 R-245 实施。R-244 已于 2026-08-14 由用户定调列入主任务、主线串行做,依赖链有确定落点,不再是「等用户决定」。当前仍作为事实丢失缺陷登记(high),不单独修——在 R-244/R-245 的 Result Policy 与 spill 落点上一并解决。解除人: 依赖自然解除。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
+
+## D-364 托管文档并发写丢条目:kz req add 报 added 成功但条目被并发写者整体覆盖消失 [open] (high)
+- refs: R-138 R-177 R-182 M-012 D-267
+- 复杂度: 中
+- 复现: 2026-08-15 04:00-04:10 实测,当场命中两次。环境:kzapp(pid 38688)内有自举轮正在写 .kanzei/project/(文件 mtime 实证:conventions.md 04:06:53、tests.md 04:09:02、requirements.md 04:09:13 相继被写),同时在主根用 kz req add 登记条目。第一次:add 输出 added R-254,紧接着的下一条 add 又被分配到 R-254,复核 requirements.md 发现前一条整体消失(标题、全部字段一并没了,不是截断);第二次同型:输出 added R-257 后,下一条 add 又拿到 R-257,前一条消失。改成 add 后立即 Select-String 复核 + 重试才落住(最终补登为 R-255 与 R-258)。
+- 影响: 静默数据丢失,而且是最坏形态:工具明确回 added <id> 并给出编号,调用方(人或 agent)据此认为登记完成继续往下走,甚至在别处 refs 这个 id,而条目根本不在文件里。自举并发是本仓既定玩法(R-177/R-182 的前提),这个丢失面对每一次 桌面端自举轮 + 外部 agent 登记 都成立;同一 id 被二次分配还会撞上 M-012 的完整性门禁(活动与归档同 id 会拒绝所有 tracker 写)。本条不是理论风险,是本轮登记过程中真实发生的两次。
+- 来源: self-found(2026-08-15 登记第二轮巨石拆解条目时当场命中)
+- 标签: 核心
+- 根因假设(未定位,待读码): docstore 的 读全文-改-整体回写 不是跨进程原子的,或 R-138 FileLock 的加锁范围没覆盖 桌面端进程 与 kz CLI 进程 这两个写者(锁只在单进程内生效,或只锁单个文档路径而 id 分配读的是另一份快照)。需确认:①FileLock 实际加锁位置与持有时长;②next_id 计算与写盘是否在同一临界区;③桌面端写托管文档走的是不是同一条 docstore 路径。
+- 验收: ①并发场景有确定性回归测试(两个进程同时 add),后写者不得覆盖先写者;②失败时工具必须报错,禁止回 added——宁可失败也不能假成功;③id 分配与写入在同一临界区完成,不出现同 id 二次分配;④桌面端自举轮在跑时,外部 kz req/defect add 能稳定落住(实测,不是只跑单测)。
+- 优先级: P1
+
+## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [open] (medium)
+- refs: R-207 R-254 R-177
+- 备注: 修复动作可并入 R-254 的内容②,本条独立登记是为了让 R-207 的收尾缺口在缺陷队列里可见,不被"R-207 已 done"掩盖。
+- 复杂度: 小
+- 复现: 2026-08-15 dev@f09242c 实测:Select-String -Path crates/kanzei-app/src/processes.rs -Pattern wt:: 命中 19 处。worktree_target/worktree_status/branch_exists/rev_parse/git_worktrees/validate_worktree_path 等函数体只是转调 kanzei_tools::worktree 的同名实现,代码注释自述"实现已下沉 kanzei-tools::worktree(R-207)"。R-207 在归档里状态是 done。
+- 影响: 下沉的收益(桌面与 CLI 共用一份工作树实现)只兑现了一半:实现虽在一处,调用侧仍隔着一层桌面私有壳,改工作树行为要先判断改哪层;新代码不知道该调壳还是调下沉实现,两条路都能编译;processes.rs 的 1628 行生产码里这一层是纯噪声,推高了 R-254 拆解的读码成本。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①processes.rs 中 wt:: 转发壳数量为 0(机械核验 grep),调用点直接用 kanzei_tools::worktree;②worktree_tests.rs 全绿 + kanzei-app 全量绿;③若某个壳确有存在理由(如桌面侧要做额外的路径规范化),在删壳批里写明理由并保留,不允许"看着像转发就删"。
+- 优先级: P2
+
+## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [open] (medium)
+- refs: R-255 R-150 docs/design/memory_control_plane.md
+- 备注: 修复由 R-255 第三刀承载,本条独立登记是为了把"边界在哪"这个判断先固定下来,避免 R-255 执行时临时决定。
+- 复杂度: 中
+- 复现: 2026-08-15 dev@f09242c 读码:crates/kanzei-memory/src/memory/store.rs L960 的 MemoryStore::search 里实现了 BM25 + 状态加权 + 采纳率决策加权 + active 排序 + 命中追踪 + snippet;而 crates/kanzei-memory/src/memory/index.rs(1204 总/661 生产)L222-227 的 Tier1 又反过来调 MemoryStore::project(root).search(...),其文件头 L14 与 L222 的注释都写明"store.search 已做 bm25 + 采纳率决策加权 + active 排序"。也就是 Index 是检索门面,真正的排序住在 Store 里。
+- 影响: ①排序调权要改 store,但读代码的人会先去 index 找,认知落点与实现落点错位;②index 想换检索后端(向量/混合)时被 store 的 SQL 实现绑死;③这是 R-255 里最难迁出的一块——store.rs 2073 行生产码中检索是唯一有下游依赖的部分,边界不先定清楚,第三刀会卡住;④记忆研究要做召回实验时,policy(怎么排)与 storage(怎么存)改在同一个文件里,无法独立归因。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①BM25 与状态/采纳率加权的实现只出现在检索侧一处(机械核验 grep),store 不再持有 ranking;②index 与 store 的依赖方向单一,不存在 index 调 store 再由 store 做排序的回环;③同一组 query 在改动前后 top-k 命中集合一致(给出对照);④memory crate 全量绿。
+- 优先级: P2
+
+## D-367 主根与工作树根的硬不变式只靠文件头注释站岗:类型上都是 PathBuf,传反了编译器不报错 [open] (medium)
+- refs: R-254 R-177 R-182 D-176 D-267
+- 备注: 修复由 R-254 的内容③承载;本条独立登记是因为它是一条独立成立的结构性风险,不随 R-254 是否拆解而消失。
+- 复杂度: 中
+- 复现: crates/kanzei-app/src/processes.rs 文件头 L3-18 用一整段 //! 注释锁定不变式:ProcessHandle.project_dir 与 origin_project 恒为主根,执行工作树只由 worktree_path 承担;注释自己逐条列出违反后果——p{n} 进程编号按 project_dir 分桶,存成 worktree 后每棵树各自从 p1 开始立刻撞车;process_update/process_close 用 project_dir 反推 root 开 state.db,存成 worktree 会把库落进工作树,线一关连库一起没;state.rs 的 process_info 用 project_dir 算 session_id,存成 worktree 等于给同一条线换身份串,会话历史集体失联(D-176 红线)。但类型上二者都是普通字符串/PathBuf,传反了 rustc 一声不吭。
+- 影响: 后果全是运行时才暴露的重症(编号撞车、state.db 落错位置随工作树一起删、会话身份断裂),而防线是"改本文件前先读这一段注释"。同族现场已经发生过:D-267/R-182 里发现式取根命中了 worktree 中被 checkout 出来的 .kanzei 分支副本,两棵树相隔 10 秒各跑 kz defect add,各自在自己的副本上算 next_id,都拿到 D-267。注释挡不住这类错误,类型可以。R-254 会大幅搬动这个文件,搬动期间正是最容易传反的时候。
+- 来源: self-found(2026-08-15 第二轮巨石扫描读码时发现)
+- 标签: 核心
+- 验收: ①主根与工作树根是两个不同类型(newtype),互相传反编译不过——给出实证(被注释掉的反例 + 编译错误原文,或等价断言),不接受"改完看着对";②processes.rs 文件头那段注释从"改前必读的纪律"降级为"设计说明",即注释没了也不会写错;③进程编号、state.db 落点、session_id 推导三条行为零回归(worktree_tests.rs 全绿 + 实跑一次建线到关线闭环)。
+- 优先级: P2
