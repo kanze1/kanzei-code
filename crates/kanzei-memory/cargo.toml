@@ -1,0 +1,24 @@
+[package]
+name = "kanzei-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures.workspace = true
+kanzei-base.workspace = true
+kanzei-harness.workspace = true
+kanzei-llm.workspace = true
+kanzei-core.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+rusqlite.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

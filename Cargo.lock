@@ -2265,6 +2265,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanzei-memory"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "kanzei-base",
+ "kanzei-core",
+ "kanzei-harness",
+ "kanzei-llm",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
 name = "kanzei-tools"
 version = "0.1.0"
 dependencies = [

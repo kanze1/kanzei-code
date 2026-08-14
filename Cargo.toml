@@ -5,6 +5,7 @@ members = [
     "crates/kanzei-harness",
     "crates/kanzei-llm",
     "crates/kanzei-core",
+    "crates/kanzei-memory",
     "crates/kanzei-tools",
     "crates/kanzei",
     "crates/kanzei-app",
@@ -20,6 +21,7 @@ kanzei-base = { path = "crates/kanzei-base" }
 kanzei-harness = { path = "crates/kanzei-harness" }
 kanzei-llm = { path = "crates/kanzei-llm" }
 kanzei-core = { path = "crates/kanzei-core" }
+kanzei-memory = { path = "crates/kanzei-memory" }
 kanzei-tools = { path = "crates/kanzei-tools" }
 
 tokio = { version = "1", features = ["full"] }
