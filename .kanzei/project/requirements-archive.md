@@ -2863,7 +2863,6 @@
 - 标签: 核心
 - 边界: SQLite 是运行时会话、事件、线路、运行状态真源；Markdown 只用于需求/缺陷/设计/长期记忆及会话导出，不作为高频事件真源。不逐 token 落库，assistant 可见增量按有界时间/字节批次持久化为 draft；draft 只有 committed 后才成为正式 assistant message，中断则保留为 interrupted 诊断记录。第一批不停止 conversation.updated、不切 UI、不改 Compaction 存储语义。
 - 迁移与回滚: 新增 schema/version 与索引必须提供 Alembic 等价的 Rust SQLite 迁移、升级前备份和旧数据兼容；legacy 导入幂等且不伪造历史细节。Shadow 阶段保留旧读写路径，关闭新双写即可回滚；投影缓存可删除重建，原事件不得依赖缓存。
-- 阻塞:
 - 验收: ①并发追加 sequence 不重号不丢号；②user/assistant draft/tool/终态每类事件均有 round-trip 测试；③生成中强杀后可回放有界的 interrupted assistant 草稿，且模型 prior 不把它当完整回答；④legacy 导入重复执行幂等并保留 provenance；⑤projector 从同一日志重复回放逐字节一致；⑥shadow comparison 对正常、停止、权限拒绝、工具错误、多工具部分完成路径给出差异报告；⑦SessionInvariant 在提交前拒绝重复 result、跨 step 配对和非法终态。
 - 优先级: P0
 - 取活依据: override:用户确认 D-351 实机验收通过并明确授权取活 R-241，2026-08-14。
@@ -2871,3 +2870,17 @@
 - observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
 - observed_worktree_hash: fnv1a64:aa29e71147a914cf
 - recorded_at: 1786672415435
+
+## R-247 开线即绑定:选条目起线、「被取得」标记接取得线真源、线级取活写权限口径 [done]
+- 内容: D-354 已落引擎层线级 claim(「取得线」字段)。本需求补 UI 与流程面:①开线区选条目→起线时即以该线身份 claim(设计 parallel_lines_ui P7 的绑定动作);②backlog「被取得」标记与泳道 claim 显示改读「取得线」字段,替代 claim_from_prompt 的 prompt 头猜测(D-304 口径:协作快照是唯一事实源);③线级取活写权限口径:work claim 属于取活动作,评估对分支线默认放行 write:claim(或开线绑定时由主进程代 claim),不再要求先手动开「允许写主根追踪器」才能取活;④线停机/关闭/合并收活时「取得线」的释放流程
+- 前置: D-354
+- 复杂度: 中
+- 标签: 流程
+- 验收: ①从并行视图选一个未被持有的条目起线,该条目立即带该线「取得线」标记;②backlog 与泳道显示的持有关系与 tracker 字段一致,prompt 猜测路径删除;③新开的线不需要手动开 tracker 写开关即可完成取活绑定;④线关闭或收活合并后条目持有释放或转终态,有断言
+- 优先级: P1
+- 取活依据: override:override:用户已认可推进 R-247 到适合自举的阶段；先完成开线绑定、取得线真源与收线释放闭环。
+- 批次: 3/3
+- 进展: 2026-08-14 B1 完成:主进程在 process_create 建树注册后以新分支身份复用 WorkTool 原子 claim，失败整体回滚；分支 tracker_writes 仍默认关闭；关闭/放弃在统一注销出口 release，合并成功后立即 release 且保留线路供后置门禁；协作快照改读 tracker 取得线并删除 prompt 猜测。反证:kanzei-tools release 测试 1 passed；kanzei-app 开线绑定/失败回滚/合并释放 3 passed；协作快照真源测试 1 passed。 | 2026-08-14 B2 完成:并行页新增未持有条目选择器与按条目开线，process_create 携带 work_item_id；backlog 直接读 docs_snapshot.claimed_by，空闲持有仍显示，prompt 解析静态反证锁死；关闭/放弃/合并后立即刷新文档投影。验证:UI runtime 1830 invokes/0 error、parallel-lines-regression、lint 1282 globals、i18n 1100 keys、a11y、markdown 全绿。 | 2026-08-14 B3 完成:设计文档同步取得线真源、原子开线与显式释放语义；浏览器验收覆盖 1280 桌面深色/亮色和 620 窄屏，选择器与按钮无重叠、无横向溢出，亮色下拉文字 rgb(31,41,51)/背景 rgb(232,231,227)。预览宿主桩与本地服务均已撤销。
+- observed_head: 3c7824c1493b11e66ed628beab1ca8286c8fca7b
+- observed_worktree_hash: fnv1a64:53a0da8f0141c57e
+- recorded_at: 1786677413822
