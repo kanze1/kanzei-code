@@ -5,6 +5,7 @@
 - 关联需求:R-153(app/main.rs)、R-154(ui/main.js)、R-155(runner.rs+store.rs);前置 R-152(CI 安全网)
 - 关联缺陷:无
 - 关联决策:A-008
+- **后续:本文覆盖的是第一轮(2026-08-09)。第二轮拆解对象(`app/run.rs`、`memory/store.rs`、`app/processes.rs`)见 [monolith_decomposition_round2.md](monolith_decomposition_round2.md)——本文拆出的 `run.rs` 六天后重新长成 2885 行生产码,那正是第二轮要解决的分层问题。**
 
 > **行号基准:commit c339b58(2026-08-09)。** 执行时一律以**符号名**定位,行号只作导航参考;若执行时行号明显对不上,说明有并发提交插入,先 `git log` 核对再动手。
 
