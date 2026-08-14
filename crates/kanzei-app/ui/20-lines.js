@@ -22,6 +22,33 @@ function lineAgentCodes(lines) {
   return codes;
 }
 
+// R-247:开线区只列当前可领取(todo/open)、未阻塞的 R/D 条目。最终 claim 仍由
+// 后端 WorkTool 原子校验；这里负责让用户先选事实对象，不在前端复制调度器。
+function renderLineWorkItemOptions(snapshot = null) {
+  const select = $("lines-work-item");
+  const add = $("lines-add");
+  if (!select || !add) return;
+  const source = snapshot ?? (typeof latestDocsSnapshot !== "undefined" ? latestDocsSnapshot : null);
+  const candidates = [
+    ...(source?.requirements ?? []),
+    ...(source?.defects ?? []),
+  ].filter((entry) => !entry.closed && !entry.blocked && ["todo", "open"].includes(entry.status));
+  const previous = select.value;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = t(candidates.length ? "选择未被持有的条目…" : "当前没有可开线条目");
+  select.replaceChildren(placeholder);
+  for (const entry of candidates) {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = `${entry.id} · ${entry.title}`;
+    select.appendChild(option);
+  }
+  select.value = candidates.some((entry) => entry.id === previous) ? previous : "";
+  select.disabled = worktreeLineCreateInFlight || candidates.length === 0;
+  add.disabled = worktreeLineCreateInFlight || !select.value;
+}
+
 function normalizedChangedFile(path) {
   return String(path).replaceAll("\\", "/").toLocaleLowerCase();
 }
@@ -167,7 +194,11 @@ function renderLines(lines) {
 
     const claim = document.createElement("p");
     claim.className = "line-claim";
-    claim.textContent = line.claim || t("未声明条目");
+    claim.textContent = line.claim || t("未取得条目");
+    if (line.claim_error) {
+      claim.classList.add("error");
+      claim.title = line.claim_error;
+    }
 
     const facts = document.createElement("div");
     facts.className = "line-facts";
@@ -247,7 +278,7 @@ function renderLines(lines) {
     target.appendChild(lane);
   }
   renderLineConflicts(collaborationLines);
-  // D-304:协作快照是条目「被取得」标记的唯一事实源；刷新线路后同步重绘当前文档行。
+  // R-247:协作快照与文档快照都来自同一 tracker 取得线；线路代号变化后同步重绘 badge。
   if (typeof latestDocsSnapshot !== "undefined" && latestDocsSnapshot && typeof renderDocuments === "function") {
     renderDocuments(latestDocsSnapshot);
   }
@@ -485,6 +516,10 @@ function buildHarvestPanel(line, projectDir, agentCode) {
       // R-222 防线②:合并成功后解锁「合并后全量」步骤(格5 前)。
       postMergeButton.disabled = false;
       syncWritebackAvailability();
+      // R-247:后端已在合并成功后释放取得线；立即刷新两份只读投影，不能等下一次
+      // 定时轮询让 backlog 和泳道短暂继续显示旧持有者。
+      void refreshDocs();
+      void refreshLines();
     } catch (error) {
       mergeButton.disabled = false;
       mergeButton.textContent = t("合并到主线");
@@ -758,4 +793,5 @@ async function confirmWorktreeMerge(item, forProject) {
 }
 
 $("lines-refresh").addEventListener("click", () => void refreshLines());
+$("lines-work-item").addEventListener("change", () => renderLineWorkItemOptions());
 $("lines-add").addEventListener("click", createWorktreeLine);

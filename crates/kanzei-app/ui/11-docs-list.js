@@ -194,20 +194,25 @@ async function jumpToEntry(ref) {
   revealEntryNode(target);
 }
 
-// D-304:只有 collaboration_snapshot 的运行中 claim 才能标「被取得」。
-// 队首、状态 doing 或前端排序都不是认领事实；没有 claim 的队首必须保持无标记。
+// R-247:「被取得」只读 docs_snapshot 暴露的 tracker 取得线事实。
+// 显式取得线按 branch 对上协作快照；doing/fixing 且无字段是 D-354 定义的默认线持有。
+// 运行/空闲不改变持有关系，prompt 文本和前端排序均不参与。
 function claimedCollaborationLineFor(entry) {
   const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
     ? collaborationLines
     : [];
-  const line = lines.find((candidate) => {
-    if (!candidate?.running) return false;
-    const ids = String(candidate.claim ?? "").match(/\b[RDGSTF]-\d+\b/g) ?? [];
-    return ids.includes(entry.id);
-  });
-  if (!line) return null;
+  const explicitOwner = String(entry.claimed_by ?? "").trim();
+  const defaultOwned = !explicitOwner && ["doing", "fixing"].includes(entry.status);
+  if (!explicitOwner && !defaultOwned) return null;
+  const line = explicitOwner
+    ? lines.find((candidate) => candidate?.branch === explicitOwner)
+    : lines.find((candidate) => !candidate?.worktree_path);
   const codes = typeof lineAgentCodes === "function" ? lineAgentCodes(lines) : new Map();
-  return { line, code: codes.get(line.process_id) ?? "?" };
+  return {
+    line: line ?? null,
+    code: line ? (codes.get(line.process_id) ?? "?") : "?",
+    owner: explicitOwner || line?.branch || t("默认线"),
+  };
 }
 
 function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
@@ -410,7 +415,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       const claimBadge = document.createElement("span");
       claimBadge.className = "doc-claim-fact";
       claimBadge.textContent = `● ${claimed.code} ${t("被取得")}`;
-      claimBadge.title = `${claimed.line.claim} · ${claimed.line.phase || t("空闲")}`;
+      claimBadge.title = `${entry.id} · ${t("取得线")}: ${claimed.owner}${claimed.line?.phase ? ` · ${claimed.line.phase}` : ""}`;
       row.appendChild(claimBadge);
     }
     // 复杂度(R-051):侧栏用三格电量图标表达体量，与左侧优先级色带同色并放在最前面。

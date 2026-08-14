@@ -775,13 +775,13 @@ const payloads = {
   collaboration_snapshot: [
     {
       process_id: "d|smoke", label: "主会话", branch: "main", worktree_path: null,
-      claim: "R-184 并行主线", phase: "复核", current_tool: null, running: false,
+      claim: "R-001", phase: "复核", current_tool: null, running: false,
       steps: 8, input_tokens: 2400, output_tokens: 600,
       changed_files: ["crates/shared.rs", "docs/main.md"],
     },
     {
       process_id: "p|bg", label: "后台会话", branch: "thread-a1", worktree_path: "C:/smoke/wt/thread-a1",
-      claim: "R-184 并行分支", phase: "实现", current_tool: "edit", running: true,
+      claim: "未取得条目", phase: "实现", current_tool: "edit", running: true,
       steps: 3, input_tokens: 1200, output_tokens: 300,
       changed_files: ["crates/shared.rs", "crates/branch.rs"],
     },
@@ -1259,7 +1259,7 @@ assert(
 const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list");
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
-// D-304:排队顺序不再由前端推断；只有 collaboration_snapshot 的真实 claim 才能标记。
+// R-247:排队顺序不参与；doing/fixing 无显式取得线按 D-354 归默认线，open 队首无标记。
 {
   const active = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(active?.classList.contains("agent-active"), "doing 条目 R-001 未标记 agent-active(在做高亮丢失)");
@@ -5449,8 +5449,8 @@ const docsB = {
   const linesText = lanes.map((lane) => lane.textContent).join("\n");
   const claims = document.querySelectorAll("#lines-list .line-claim").map((node) => node.textContent);
   assert(
-    claims.length === 2 && claims.every((claim) => claim.startsWith("R-184")) && new Set(claims).size === 2,
-    `并列视图没有分别显示两条真实 claim(${JSON.stringify(claims)})`,
+    claims.length === 2 && claims.includes("R-001") && claims.some((claim) => /未取得条目|No claimed item/.test(claim)),
+    `并列视图没有按 tracker 取得线分别显示 claim(${JSON.stringify(claims)})`,
   );
   // 冒烟前半段已切到英文；固定标签和恰好命中词典的中文值会被本地化，下面只断言
   // 语言无关的现场值，阶段另允许中英两种等价值。
@@ -5484,12 +5484,15 @@ const docsB = {
     invokeArgs.slice(closeCallsBefore).some((entry) => entry.cmd === "process_close" && entry.args?.processId === "p|bg"),
     "线路页关闭按钮没有调用目标线路的 process_close",
   );
-  // D-304 验收②③:只有真实 claim 才出现「● 代号 被取得」；排在队首但无人认领不显示。
+  // R-247 验收②:badge 只读 docs_snapshot 的 claimed_by；线即使空闲也仍是持有者。
+  const claimedDocs = structuredClone(savedDocsPayload);
+  claimedDocs.requirements[0].claimed_by = "claim-a1";
+  sandbox.renderDocuments(claimedDocs);
   const claimedSnapshot = [
     ...payloads.collaboration_snapshot,
     {
       process_id: "p|claim", label: "认领线", branch: "claim-a1", worktree_path: "C:/smoke/wt/claim-a1",
-      claim: "R-001", phase: "实现", current_tool: "edit", running: true,
+      claim: "R-001", phase: "空闲", current_tool: null, running: false,
       steps: 1, input_tokens: 10, output_tokens: 5, changed_files: [],
     },
   ];
@@ -5502,6 +5505,7 @@ const docsB = {
   );
   const unclaimedHead = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(!unclaimedHead?.querySelector(".doc-claim-fact"), "排在队首但无人 claim 的条目不应显示被取得标记");
+  sandbox.renderDocuments(savedDocsPayload);
   sandbox.renderLines(payloads.collaboration_snapshot);
   await flush();
   assert(
@@ -5559,7 +5563,7 @@ const docsB = {
   assert(withHarvest.length === 1, `收活按钮应只出现在带工作树的线上(实得 ${withHarvest.length})`);
   const wtLane = withHarvest[0];
   assert(
-    (wtLane.querySelector(".line-claim")?.textContent ?? "").includes("R-184 并行分支"),
+    /未取得条目|No claimed item/.test(wtLane.querySelector(".line-claim")?.textContent ?? ""),
     "收活按钮出现在了错误的线上(应属于带工作树的后台会话)",
   );
 
@@ -5904,6 +5908,17 @@ const docsB = {
   const beforeAdd = invokeArgs.length;
   const addButton = byId.get("worktree-add");
   const linesAddButton = byId.get("lines-add");
+  const workItemSelect = byId.get("lines-work-item");
+  assert(
+    workItemSelect?.options.some((option) => option.value === "D-001"),
+    "开线区没有列出未被持有且未阻塞的 D-001",
+  );
+  workItemSelect.value = "";
+  workItemSelect.dispatchEvent({ type: "change" });
+  assert(linesAddButton.disabled, "未选择条目时按条目开线按钮必须保持禁用");
+  workItemSelect.value = "D-001";
+  workItemSelect.dispatchEvent({ type: "change" });
+  assert(!linesAddButton.disabled, "选择可领取条目后按条目开线按钮仍未解锁");
   linesAddButton.click();
   addButton.click();
   assert(addButton.disabled && linesAddButton.disabled, "并行线路创建期间两个入口没有同步禁用");
@@ -5919,13 +5934,14 @@ const docsB = {
     processCreateCalls.length === 1 && processCreateCalls[0].args?.projectDir === PROJECT &&
       /^line-\d+-\d+$/.test(processCreateCalls[0].args?.worktreeName ?? "") &&
       processCreateCalls[0].args?.phasePipeline === false &&
-      processCreateCalls[0].args?.trackerWrites === false,
+      processCreateCalls[0].args?.trackerWrites === false &&
+      processCreateCalls[0].args?.workItemId === "D-001",
     `新建线路没有原子发出唯一命名的 process_create(${JSON.stringify(addCalls)})`,
   );
   assert(!addButton.disabled && !linesAddButton.disabled, "并行线路创建完成后两个入口没有恢复");
   assert(
     !addButton.hasAttribute("aria-busy") && !linesAddButton.hasAttribute("aria-busy") &&
-      /新建线路|New line/.test(linesAddButton.textContent),
+      /按条目开线|Open line for item/.test(linesAddButton.textContent),
     "并行线路创建完成后忙碌状态或按钮文案没有恢复",
   );
   assert(

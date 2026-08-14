@@ -235,8 +235,14 @@
               <p class="dim" data-i18n-key="每条线绑定独立分支与工作树；状态和文件交集来自当前运行现场。">每条线绑定独立分支与工作树；状态和文件交集来自当前运行现场。</p>
             </div>
             <div class="lines-actions">
+              <label class="lines-work-picker" for="lines-work-item">
+                <span data-i18n-key="开线条目">开线条目</span>
+                <select id="lines-work-item" aria-label="选择要绑定的新线路条目" data-i18n-aria-label="选择要绑定的新线路条目">
+                  <option value="" data-i18n-key="选择未被持有的条目…">选择未被持有的条目…</option>
+                </select>
+              </label>
               <button id="lines-refresh" class="ghost" type="button"><span data-i18n-key="刷新">刷新</span></button>
-              <button id="lines-add" class="primary" type="button"><span data-i18n-key="新建线路">新建线路</span></button>
+              <button id="lines-add" class="primary" type="button" disabled><span data-i18n-key="按条目开线">按条目开线</span></button>
             </div>
           </header>
           <div id="lines-summary" class="lines-summary" role="status" aria-live="polite"></div>

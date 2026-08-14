@@ -96,7 +96,7 @@ async function handleWorktreeAction(item, action) {
     if (action === "discard") {
       // 放弃现在会在后端原子注销绑定进程。三份 UI 投影必须一起刷新；只刷新
       // git 工作树清单会把一个已不存在 cwd 的旧线路页签留在前端。
-      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
       if (currentProject !== forProject) return;
       if (discardingActiveLine && !processItems.some((process) => process.id === activeProcessId)) {
         const fallback = processItems.find((process) => process.id.startsWith("d|")) || processItems[0];
@@ -114,21 +114,30 @@ async function handleWorktreeAction(item, action) {
 // `}("click", refreshWorktrees);` —— 语法合法、node --check 通过,按钮却全仓无监听器。
 // 改动这一带时注意别再把它并进上面的函数尾行。
 $("worktrees-refresh").addEventListener("click", refreshWorktrees);
-async function createWorktreeLine() {
+async function createWorktreeLine(event) {
   if (!currentProject || worktreeLineCreateInFlight) return;
+  const fromLinesView = (event?.currentTarget?.id || event?.target?.id) === "lines-add";
+  const workItemId = fromLinesView ? String($("lines-work-item")?.value ?? "").trim() : "";
+  if (fromLinesView && !workItemId) {
+    toastError(t("请先选择要绑定的条目"));
+    return;
+  }
   // R-179 内容④:建线成本提示(D6 定案)——每树独立 target/ = 磁盘占用 ×N,
   // 首次冷编译需数分钟。让用户在建线前知道代价,不是悄悄发生。
-  if (!window.confirm(`${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。\n${t("继续创建吗")}`)) return;
+  const binding = workItemId ? `\n${t("开线条目")}:${workItemId}` : "";
+  if (!window.confirm(`${t("创建并行线路将新建独立工作树")}:${t("每线独立 target/ 目录,磁盘占用随线路数成倍增加;首次冷编译需数分钟")}。${binding}\n${t("继续创建吗")}`)) return;
   // 同 handleWorktreeAction(D-251):projectDir 在 await 前认领。
   const forProject = currentProject;
   worktreeLineCreateInFlight = true;
   const addButtons = [$("worktree-add"), $("lines-add")].filter(Boolean);
+  const workItemSelect = $("lines-work-item");
   // 真实 DOM 取内层 i18n span；运行时测试桩没有复建 id 节点的子树，回退到按钮本身。
   const linesAddLabel = $("lines-add")?.querySelector("[data-i18n-key]") || $("lines-add");
   for (const button of addButtons) {
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
   }
+  if (workItemSelect) workItemSelect.disabled = true;
   if (linesAddLabel) linesAddLabel.textContent = t("创建中…");
   const name = `line-${Date.now()}-${worktreeLineCreateSequence += 1}`;
   try {
@@ -139,20 +148,22 @@ async function createWorktreeLine() {
       worktreeName: name,
       phasePipeline: false,
       trackerWrites: false,
+      ...(workItemId ? { workItemId } : {}),
     });
     if (currentProject !== forProject) return;
-    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
     await switchProcess(item.id);
-    toast(`${t("并行线路已创建")}:${item.branch || name}`);
+    toast(`${t("并行线路已创建")}:${item.branch || name}${workItemId ? ` · ${workItemId}` : ""}`);
   } catch (error) {
     toastError(`${t("创建并行线路失败")}:${error}`);
   } finally {
     worktreeLineCreateInFlight = false;
     for (const button of addButtons) {
-      button.disabled = false;
+      button.disabled = button.id === "lines-add" && !String(workItemSelect?.value ?? "").trim();
       button.removeAttribute("aria-busy");
     }
-    if (linesAddLabel) linesAddLabel.textContent = t("新建线路");
+    if (workItemSelect) workItemSelect.disabled = workItemSelect.options.length <= 1;
+    if (linesAddLabel) linesAddLabel.textContent = t("按条目开线");
   }
 }
 $("worktree-add").addEventListener("click", createWorktreeLine);
@@ -190,7 +201,7 @@ async function closeParallelProcess(processId) {
       activeProcessId = null;
       activeSessionId = null;
     }
-    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines()]);
+    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
     if (currentProject !== forProject) return;
     if (wasActive && activeProcessId) await switchProcess(activeProcessId, true);
     refreshGit();

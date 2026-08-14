@@ -6,11 +6,13 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const readUi = (name) => readFile(resolve(root, "crates", "kanzei-app", "ui", name), "utf8");
-const [lines, sessions, compose, views] = await Promise.all([
+const [lines, sessions, compose, views, docsList, index] = await Promise.all([
   readUi("20-lines.js"),
   readUi("09-sessions.js"),
   readUi("08-compose.js"),
   readUi("15-views-misc.js"),
+  readUi("11-docs-list.js"),
+  readUi("index.html"),
 ]);
 
 function assert(condition, message) {
@@ -54,6 +56,15 @@ assert(sessions.includes('button.setAttribute("aria-busy", "true")'), "并行线
 assert(sessions.includes('button.removeAttribute("aria-busy")'), "并行线路创建结束后忙碌态没有恢复");
 assert(sessions.includes('linesAddLabel.textContent = t("创建中…")'), "线路页没有创建中反馈");
 assert(sessions.includes("Date.now()"), "并行线路名称没有使用毫秒级时间戳");
+assert(index.includes('id="lines-work-item"'), "并行视图缺少开线条目选择器");
+assert(lines.includes('function renderLineWorkItemOptions(snapshot = null)'), "开线条目选择器缺少 tracker 快照投影");
+assert(sessions.includes('...(workItemId ? { workItemId } : {})'), "process_create 没有携带用户选择的条目 ID");
+assert(sessions.includes('trackerWrites: false'), "开线绑定不得顺带开放通用 tracker 写权限");
+assert(docsList.includes('entry.claimed_by'), "backlog 被取得标记没有读取 tracker claimed_by");
+assert(!docsList.includes('String(candidate.claim ?? "").match'), "backlog 又回退到解析线路 prompt/claim 文本");
+const collaboration = await readFile(resolve(root, "crates", "kanzei-app", "src", "collaboration.rs"), "utf8");
+assert(!collaboration.includes("claim_from_prompt"), "协作快照仍保留 prompt 头猜测取得条目的路径");
+assert(collaboration.includes("active_claims_by_line"), "协作快照没有接入 tracker 取得线真源");
 const profileFunction = compose.match(/function applyProfileValue\(backendProfile\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
 assert(profileFunction && !profileFunction.includes("localStorage.setItem(PROFILE_STORAGE_KEY"), "切换线路不能回写全局 profile");
 

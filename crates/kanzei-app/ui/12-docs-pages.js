@@ -235,6 +235,7 @@ function syncDocumentFilters(snapshot) {
 }
 function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
+  if (typeof renderLineWorkItemOptions === "function") renderLineWorkItemOptions(snapshot);
   // tab 直调不经 renderDocsSnapshot,work-priority 可能刚切过——重算一次,幂等。
   agentFocus = computeAgentFocus(snapshot);
   const reqList = $("documents-req-list");

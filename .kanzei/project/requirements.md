@@ -363,8 +363,8 @@
 - 验收: ①从并行视图选一个未被持有的条目起线,该条目立即带该线「取得线」标记;②backlog 与泳道显示的持有关系与 tracker 字段一致,prompt 猜测路径删除;③新开的线不需要手动开 tracker 写开关即可完成取活绑定;④线关闭或收活合并后条目持有释放或转终态,有断言
 - 优先级: P1
 - 取活依据: override:override:用户已认可推进 R-247 到适合自举的阶段；先完成开线绑定、取得线真源与收线释放闭环。
-- 批次: 1/3
-- 进展: 2026-08-14 B1 完成:主进程在 process_create 建树注册后以新分支身份复用 WorkTool 原子 claim，失败整体回滚；分支 tracker_writes 仍默认关闭；关闭/放弃在统一注销出口 release，合并成功后立即 release 且保留线路供后置门禁；协作快照改读 tracker 取得线并删除 prompt 猜测。反证:kanzei-tools release 测试 1 passed；kanzei-app 开线绑定/失败回滚/合并释放 3 passed；协作快照真源测试 1 passed。
-- observed_head: 3f152c985c469bc7a76f03f219476a4c17c921d8
-- observed_worktree_hash: fnv1a64:2ad99976f744883c
-- recorded_at: 1786675259874
+- 批次: 2/3
+- 进展: 2026-08-14 B1 完成:主进程在 process_create 建树注册后以新分支身份复用 WorkTool 原子 claim，失败整体回滚；分支 tracker_writes 仍默认关闭；关闭/放弃在统一注销出口 release，合并成功后立即 release 且保留线路供后置门禁；协作快照改读 tracker 取得线并删除 prompt 猜测。反证:kanzei-tools release 测试 1 passed；kanzei-app 开线绑定/失败回滚/合并释放 3 passed；协作快照真源测试 1 passed。 | 2026-08-14 B2 完成:并行页新增未持有条目选择器与按条目开线，process_create 携带 work_item_id；backlog 直接读 docs_snapshot.claimed_by，空闲持有仍显示，prompt 解析静态反证锁死；关闭/放弃/合并后立即刷新文档投影。验证:UI runtime 1830 invokes/0 error、parallel-lines-regression、lint 1282 globals、i18n 1100 keys、a11y、markdown 全绿。
+- observed_head: c42ad3fcd4a9e7b43afe4e31ea3becf75b0aa8cc
+- observed_worktree_hash: fnv1a64:e75bc45ba6c5290a
+- recorded_at: 1786676246565
