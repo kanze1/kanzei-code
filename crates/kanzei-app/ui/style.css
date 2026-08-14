@@ -1728,3 +1728,14 @@ button.mini { font-size: 11px; padding: 2px 8px; }
   border: 1px solid var(--warn); border-radius: var(--radius);
   background: var(--panel2); color: var(--fg);
 }
+
+/* 工具类型图标:24×24 内联描边 SVG,stroke=currentColor —— 颜色一律由下面的 color 给,
+   主题切换只改 token 不碰这里。图标标「组」、文字标「身份」,颜色是第三通道:
+   形状与紧邻的工具名文本已足够区分,去掉颜色信息量不减(D-105)。 */
+.tool-icon { flex: none; width: 15px; height: 15px; align-self: center; color: var(--dim); }
+.tool-icon svg { width: 15px; height: 15px; display: block; }
+.tool-icon-write, .tool-icon-exec { color: var(--warn); }
+.tool-icon-vcs { color: var(--ok); }
+.tool-icon-tracker { color: var(--info); }
+.tool-icon-agent { color: var(--accent-hover); }
+.tool-icon-net { color: var(--info); }

@@ -3347,6 +3347,26 @@ assert(
   );
 }
 
+// 工具图标分类覆盖率:真实存在的工具一个都不许落到兜底扳手。清单来自 crates/kanzei-tools
+// 各 Tool 实现的 fn name()——后端加了新工具而前端忘了归类,这条会红,而不是悄悄画个扳手。
+{
+  const realTools = [
+    "read", "files", "symbols", "write", "edit", "insert", "bash", "process",
+    "grep", "glob", "git", "webfetch", "websearch", "todowrite", "work",
+    "test_record", "architecture", "conventions", "question", "task",
+    "req", "defect", "goal", "decision", "source", "finding",
+    "frontend_locate", "frontend_check", "memory_note", "memory_search",
+    "ui_dom", "ui_console", "ui_style",
+  ];
+  const fellBack = realTools.filter((name) => sandbox.toolIconId(name) === "wrench");
+  assert(
+    fellBack.length === 0,
+    `这些真实工具没有归类,落到了兜底扳手:${fellBack.join(", ")}`,
+  );
+  // 反证:没见过的工具**应该**落兜底,不能因为前缀匹配太宽而误判。
+  assert(sandbox.toolIconId("something_new") === "wrench", "未知工具应落兜底图标");
+}
+
 assert(html.includes('id="set-codex-fast-mode"'), "设置页缺少 Codex Fast mode 开关标记");
 // 运行上限([limits]):读、存、脏状态三条线缺一条就是"界面显示 A、运行用 B"(D-157)。
 {

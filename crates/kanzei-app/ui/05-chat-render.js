@@ -176,6 +176,85 @@ function appendAssistant(text) {
 // 形态对齐 Claude Code:一行 `工具名(主要参数)` + 一行 `⎿ 结果摘要`,详情默认折叠。
 // 实时与历史回放共用同一个构造器,两处观感必须一致。
 
+// ---------- 工具类型图标(按语义分组的 24×24 单色描边内联 SVG) ----------
+// 与活动栏既有 SVG 同一套参数:fill=none / stroke=currentColor / stroke-width=1.7 /
+// round 端点。stroke=currentColor 是「跟随主题」的全部机关——颜色只由 CSS 的 color 给,
+// 亮暗主题切换零改动。口径:**图标标「组」,文字标「身份」**。同组多工具共用一个字形,
+// 区分靠紧邻的 .tool-msg-name(D-105:不得只靠颜色/形状区分,文本始终在场)。
+// 这条口径同时让 memory_* / ui_* / frontend_* 的前缀兜底成为正确行为而不是将就。
+const TOOL_ICON_PATHS = {
+  file: "M7 3h6l4.2 4.2V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z M13 3v4.5h4.2 M9 13h6 M9 16.5h4",
+  folder: "M4 6a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z",
+  braces: "M9.6 3.8c-2.2 0-2.2 2.6-2.2 4.4S6.6 11.4 5 11.4v1.2c1.6 0 2.4 1.4 2.4 3.2s0 4.4 2.2 4.4 M14.4 3.8c2.2 0 2.2 2.6 2.2 4.4s.8 3.2 2.4 3.2v1.2c-1.6 0-2.4 1.4-2.4 3.2s0 4.4-2.2 4.4",
+  pencil: "M4 20.2h3.9L19.4 8.7a1.9 1.9 0 0 0 0-2.7l-1.4-1.4a1.9 1.9 0 0 0-2.7 0L4 16.3v3.9Z M14.6 5.9l3.5 3.5",
+  terminal: "M3.5 5.5h17a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1Z M6.5 9.5 9.5 12l-3 2.5 M12.5 14.5h5",
+  search: "M10.8 4a6.8 6.8 0 1 0 0 13.6 6.8 6.8 0 0 0 0-13.6Z M15.8 15.8 20.5 20.5",
+  wildcard: "M12 4.5v15 M5.5 8.2l13 7.6 M18.5 8.2l-13 7.6",
+  branch: "M7 4.6a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4Z M7 15a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4Z M17 4.6a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4Z M7 9v6 M17 9v1.4c0 2.2-1.8 4-4 4h-2.4",
+  link: "M10.2 13.8a4.2 4.2 0 0 0 6 0l2.6-2.6a4.2 4.2 0 0 0-6-6l-1.3 1.3 M13.8 10.2a4.2 4.2 0 0 0-6 0l-2.6 2.6a4.2 4.2 0 0 0 6 6l1.3-1.3",
+  globe: "M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6Z M3.4 9.6h17.2 M3.4 14.4h17.2 M12 3.2c2.4 2.6 3.6 5.6 3.6 8.8S14.4 18.2 12 20.8 8.4 15.2 8.4 12 9.6 5.8 12 3.2Z",
+  clipboard: "M9.2 4.2h5.6v2.6H9.2z M15.6 5.5h1.9a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1H6.5a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1h1.9 M9 13.4l2 2 4-4",
+  bug: "M8.4 9.2a3.6 3.6 0 0 1 7.2 0v3.4a3.6 3.6 0 0 1-7.2 0V9.2Z M9.4 7 8 5.4 M14.6 7 16 5.4 M8.4 11H5 M15.6 11H19 M8.7 14.6 5.8 16.6 M15.3 14.6l2.9 2 M12 16.2v4.4",
+  target: "M12 3.6a8.4 8.4 0 1 0 0 16.8 8.4 8.4 0 0 0 0-16.8Z M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Z",
+  fork: "M4 7.5h4.6l3.4 4.5 3.4-4.5H20 M17.2 4.7 20 7.5l-2.8 2.8 M4 16.5h4.6l1.9-2.5 M17.2 13.7 20 16.5l-2.8 2.8 M13.6 16.5H20",
+  book: "M4.5 5.4A2.4 2.4 0 0 1 6.9 3h12.6v14.4H6.9a2.4 2.4 0 0 0-2.4 2.4V5.4Z M4.5 19.8A2.4 2.4 0 0 0 6.9 21h12.6v-3.6",
+  bulb: "M12 3.2a6 6 0 0 0-3.4 10.9c.6.4 1 1.1 1 1.9h4.8c0-.8.4-1.5 1-1.9A6 6 0 0 0 12 3.2Z M9.8 18.4h4.4 M10.6 21h2.8",
+  checklist: "M4 6.4 5.6 8l2.6-3 M4 12.4 5.6 14l2.6-3 M4 18.4 5.6 20l2.6-3 M11.4 6.6H20 M11.4 12.6H20 M11.4 18.6H20",
+  inbox: "M4 14.6v3.9a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-3.9 M8.2 10.4 12 14.2l3.8-3.8 M12 3.6v10.6",
+  layers: "M12 3.2 20 7.6 12 12 4 7.6l8-4.4Z M4 12l8 4.4 8-4.4 M4 16.4l8 4.4 8-4.4",
+  fanout: "M12 3.4a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Z M6 15.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Z M18 15.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8Z M12 8.2v3.6 M6 15.6v-3.8h12v3.8",
+  boxlines: "M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z M7 9h10 M7 12h6 M7 15h4",
+  ruler: "M3.6 14.2 14.2 3.6a1.2 1.2 0 0 1 1.7 0l4.5 4.5a1.2 1.2 0 0 1 0 1.7L9.8 20.4a1.2 1.2 0 0 1-1.7 0l-4.5-4.5a1.2 1.2 0 0 1 0-1.7Z M8 9.8l2 2 M11 6.8l2 2 M14.2 13.2l2 2 M11.2 16.2l2 2",
+  flask: "M9.8 3h4.4 M10.6 3v6.4L5.4 18a2 2 0 0 0 1.7 3h9.8a2 2 0 0 0 1.7-3l-5.2-8.6V3 M8 14.6h8",
+  question: "M12 3.2a8.8 8.8 0 1 0 0 17.6 8.8 8.8 0 0 0 0-17.6Z M9.6 9.4a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.7 M12 16.9h.01",
+  window: "M3.6 5.4h16.8a1 1 0 0 1 1 1v11.2a1 1 0 0 1-1 1H3.6a1 1 0 0 1-1-1V6.4a1 1 0 0 1 1-1Z M2.6 9.6h18.8 M5.6 7.5h.01 M8 7.5h.01",
+  people: "M9.4 4.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z M3.4 20.4c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2 M16.4 6.2a2.8 2.8 0 1 1 0 5.6 M17.4 14.4c2.4.4 4.2 2.1 4.2 5",
+  wrench: "M14.6 4.4a4.6 4.6 0 0 0-5.7 5.7l-4.7 4.7a1.5 1.5 0 0 0 0 2.1l2.9 2.9a1.5 1.5 0 0 0 2.1 0l4.7-4.7a4.6 4.6 0 0 0 5.7-5.7l-3 3-2.8-.7-.7-2.8 3-3Z",
+};
+// 工具名 → [组, 字形]。组决定配色与语义归属,字形决定画什么。
+const TOOL_GROUPS = {
+  read: ["read", "file"], files: ["read", "folder"], symbols: ["read", "braces"],
+  write: ["write", "pencil"], edit: ["write", "pencil"], insert: ["write", "pencil"],
+  multiedit: ["write", "pencil"],
+  bash: ["exec", "terminal"], process: ["exec", "terminal"],
+  grep: ["search", "search"], glob: ["search", "wildcard"],
+  git: ["vcs", "branch"],
+  webfetch: ["net", "link"], websearch: ["net", "globe"],
+  req: ["tracker", "clipboard"], defect: ["tracker", "bug"], goal: ["tracker", "target"],
+  decision: ["tracker", "fork"], source: ["tracker", "book"], finding: ["tracker", "bulb"],
+  todowrite: ["plan", "checklist"], work: ["plan", "inbox"],
+  task: ["agent", "fanout"],
+  architecture: ["asset", "boxlines"], conventions: ["asset", "ruler"], test_record: ["asset", "flask"],
+  question: ["ask", "question"],
+  collaboration_status: ["collab", "people"],
+};
+// 前缀兜底:memory_* 与 ui_*/frontend_* 各自同组同字形——「图标标组」这条口径下
+// 这是正确行为,顺带让后端新增同族工具时前端零改动、不落 wrench 兜底。
+const TOOL_GROUP_PREFIXES = [
+  ["memory_", ["memory", "layers"]],
+  ["ui_", ["ui", "window"]],
+  ["frontend_", ["ui", "window"]],
+];
+function toolGroupEntry(name) {
+  const key = String(name ?? "").trim().toLowerCase();
+  if (TOOL_GROUPS[key]) return TOOL_GROUPS[key];
+  for (const [prefix, entry] of TOOL_GROUP_PREFIXES) if (key.startsWith(prefix)) return entry;
+  return ["other", "wrench"];
+}
+function toolIconId(name) { return toolGroupEntry(name)[1]; }
+/// 图标节点。innerHTML 拼的是常量路径字面量,没有任何外部输入进得来。
+/// 组与字形一并写进 data-*:只断言画了图标看不出「画对了但归错组」。
+function toolIconNode(name) {
+  const [group, icon] = toolGroupEntry(name);
+  const span = document.createElement("span");
+  span.className = `tool-icon tool-icon-${group}`;
+  span.setAttribute("aria-hidden", "true"); // 纯装饰:身份由紧邻的工具名文本承载
+  span.dataset.toolIcon = icon;
+  span.dataset.toolGroup = group;
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="${TOOL_ICON_PATHS[icon]}"/></svg>`;
+  return span;
+}
+
 /// 工具调用的人类摘要:取该工具最有信息量的那个参数,而不是整坨 JSON。
 function toolCallSummary(name, input) {
   const source = input && typeof input === "object" ? input : {};
@@ -253,7 +332,9 @@ function buildToolBlock(name, input) {
   arg.className = "tool-msg-arg";
   const summary = toolCallSummary(name, input);
   arg.textContent = summary ? `(${summary})` : "";
-  head.append(icon, label, arg);
+  // 类型图标与成败字形**并存**:.tool-msg-status 承载的是「形状 + 颜色双重区分」的
+  // 无障碍承诺(D-105),不能被类型图标顶掉。成败在前,类型在后,再是工具名。
+  head.append(icon, toolIconNode(name), label, arg);
   // 可访问名带上参数;"展开或收起"只进 aria-label,绝不进可见文本。
   head.setAttribute("aria-label", `${name} ${summary} — ${t("展开或收起工具详情")}`);
   const result = document.createElement("div");
