@@ -5,7 +5,7 @@
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 
 use async_trait::async_trait;
-use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
+use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolImage, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -13,6 +13,10 @@ const DEFAULT_LIMIT: usize = 2000;
 const MAX_LINE_CHARS: usize = 500;
 const MAX_OUTPUT_BYTES: usize = 256 * 1024;
 const TAIL_CHUNK: u64 = 64 * 1024;
+/// R-249:图片原始字节上限。base64 后约 4/3 倍,3.75 MiB → 5 MB,贴着
+/// Anthropic 单图 5 MB 的硬限。超限直接拒绝并说明,不静默截断
+/// ——截断的图片解不出来,provider 400 的报错会指向别处,很难查。
+const MAX_IMAGE_BYTES: usize = 3_932_160;
 
 #[derive(Deserialize, JsonSchema)]
 struct ReadInput {
@@ -39,7 +43,10 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> String {
-        "Read a text file. Params: path; optional offset (1-based line), limit (max lines), tail (last N lines).".into()
+        "Read a file. Text files: params path; optional offset (1-based line), limit (max lines), \
+         tail (last N lines). Image files (PNG/JPEG/WebP/GIF) are detected by content and returned \
+         as a viewable image — offset/limit/tail do not apply to them."
+            .into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -63,13 +70,25 @@ impl Tool for ReadTool {
             .cwd
             .join(kanzei_harness::permission::normalize_resource(&input.path));
         let path_for_read = path.clone();
-        let result = tokio::task::spawn_blocking(move || read_sync(&path_for_read, &input)).await;
+        let result = tokio::task::spawn_blocking(move || read_any(&path_for_read, &input)).await;
         match result {
-            Ok(Ok(text)) => {
+            Ok(Ok(ReadPayload::Text(text))) => {
                 // R-161 采纳盲区:read 读记忆文件正文 = 这次召回起了作用,
                 // 回填 fetched(与 memory_search 回填同口径,CLI/桌面同源)。
                 crate::memory::mark_memory_file_read(&ctx.project_root, &path);
                 ToolOutput::ok(text)
+            }
+            Ok(Ok(ReadPayload::Image {
+                media_type,
+                data,
+                bytes,
+            })) => {
+                // 文本位仍要给一句实话:模型看得到图,但轨迹与 UI 只留这行。
+                let summary = format!(
+                    "[image] {} ({media_type}, {bytes} bytes) — attached to this tool result.",
+                    path.display()
+                );
+                ToolOutput::ok(summary).with_images(vec![ToolImage { media_type, data }])
             }
             Ok(Err(e)) => ToolOutput::error(e),
             Err(e) => ToolOutput::error(format!("read task panicked: {e}")),
@@ -77,7 +96,39 @@ impl Tool for ReadTool {
     }
 }
 
-fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String> {
+/// read 的两种载荷。图片不走行切分,offset/limit/tail 对它没有意义。
+enum ReadPayload {
+    Text(String),
+    Image {
+        media_type: String,
+        data: String,
+        bytes: usize,
+    },
+}
+
+/// R-249:**按内容判定**图片,不看扩展名。
+///
+/// 扩展名会骗人:`.png` 结尾的其实是 jpeg 时,media_type 与实际字节不符,
+/// provider 直接 400,而报错指向请求体、不指向这个文件,极难定位。magic bytes
+/// 同时让没有扩展名的截图也能读。
+fn sniff_image(head: &[u8]) -> Option<&'static str> {
+    if head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("image/png");
+    }
+    if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    // WebP = RIFF 容器,第 8..12 字节是 "WEBP"。
+    if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    None
+}
+
+fn read_any(path: &std::path::Path, input: &ReadInput) -> Result<ReadPayload, String> {
     let mut file =
         std::fs::File::open(path).map_err(|e| format!("cannot open {}: {e}", path.display()))?;
     let meta = file.metadata().map_err(|e| e.to_string())?;
@@ -85,20 +136,54 @@ fn read_sync(path: &std::path::Path, input: &ReadInput) -> Result<String, String
         return Err(format!("{} is a directory", path.display()));
     }
 
-    // 二进制探测:前 8KiB 含 NUL 即拒绝。
+    let mut head = [0u8; 12];
+    let n = file.read(&mut head).map_err(|e| e.to_string())?;
+    if let Some(media_type) = sniff_image(&head[..n]) {
+        let bytes = meta.len() as usize;
+        if bytes > MAX_IMAGE_BYTES {
+            return Err(format!(
+                "{} is {bytes} bytes ({media_type}); the limit is {MAX_IMAGE_BYTES} bytes \
+                 (~5 MB once base64-encoded). Resize or crop it first.",
+                path.display()
+            ));
+        }
+        file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        let mut raw = Vec::with_capacity(bytes);
+        file.read_to_end(&mut raw).map_err(|e| e.to_string())?;
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(&raw);
+        return Ok(ReadPayload::Image {
+            media_type: media_type.to_string(),
+            data,
+            bytes: raw.len(),
+        });
+    }
+
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    read_sync_from(file, meta.len(), path, input).map(ReadPayload::Text)
+}
+
+/// 文本读取正文。文件已开好、图片已在 [`read_any`] 里分流走,这里只管文本。
+fn read_sync_from(
+    mut file: std::fs::File,
+    len: u64,
+    path: &std::path::Path,
+    input: &ReadInput,
+) -> Result<String, String> {
+    // 二进制探测:前 8KiB 含 NUL 即拒绝。图片不会走到这里(read_any 已按 magic
+    // bytes 分流),所以这条拒绝仍然只针对「既不是文本也不是可视图片」的字节流。
     let mut probe = [0u8; 8192];
     let n = file.read(&mut probe).map_err(|e| e.to_string())?;
     if probe[..n].contains(&0) {
         return Err(format!(
-            "{} looks binary ({} bytes); read refuses binary files",
-            path.display(),
-            meta.len()
+            "{} looks binary ({len} bytes); read refuses binary files",
+            path.display()
         ));
     }
     file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
 
     if let Some(tail) = input.tail {
-        return read_tail(&mut file, meta.len(), tail);
+        return read_tail(&mut file, len, tail);
     }
 
     let offset = input.offset.unwrap_or(1).max(1);
@@ -300,6 +385,102 @@ mod tests {
             !dir.join(".kanzei").join("memory").exists(),
             "非记忆文件的 read 不应创建记忆库目录"
         );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    // ---- R-249:图片读取 ----
+
+    /// 1x1 PNG(最小合法 PNG),用于走通 magic bytes → base64 → ToolImage 全链路。
+    fn tiny_png() -> Vec<u8> {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD
+            .decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+            )
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn read_png_returns_image_part() {
+        let (dir, ctx) = temp_project();
+        let png = dir.join("shot.png");
+        std::fs::write(&png, tiny_png()).unwrap();
+        let out = ReadTool.execute(json!({"path": "shot.png"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(out.images.len(), 1, "PNG 必须作为图片返回");
+        assert_eq!(out.images[0].media_type, "image/png");
+        assert!(!out.images[0].data.is_empty(), "base64 载荷为空");
+        // 文本位仍要说清楚发生了什么(轨迹与 UI 只看得到这行)。
+        assert!(out.content.contains("[image]"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn read_detects_image_by_content_not_extension() {
+        // 扩展名撒谎时必须以内容为准:media_type 与真实字节不符会让 provider 400,
+        // 且报错指向请求体、不指向这个文件,极难定位。
+        let (dir, ctx) = temp_project();
+        std::fs::write(dir.join("actually-png.txt"), tiny_png()).unwrap();
+        let out = ReadTool
+            .execute(json!({"path": "actually-png.txt"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(out.images.len(), 1);
+        assert_eq!(out.images[0].media_type, "image/png");
+
+        // 反向:.png 结尾但内容是纯文本 → 走文本路径,不伪造 image/png。
+        std::fs::write(dir.join("actually-text.png"), "just text").unwrap();
+        let out = ReadTool
+            .execute(json!({"path": "actually-text.png"}), &ctx)
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.images.is_empty(), "纯文本不得被当成图片");
+        assert!(out.content.contains("just text"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn sniff_covers_four_formats_and_rejects_others() {
+        assert_eq!(sniff_image(&tiny_png()), Some("image/png"));
+        assert_eq!(sniff_image(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("image/jpeg"));
+        assert_eq!(sniff_image(b"GIF89a....."), Some("image/gif"));
+        let mut webp = b"RIFF".to_vec();
+        webp.extend_from_slice(&[0, 0, 0, 0]);
+        webp.extend_from_slice(b"WEBP");
+        assert_eq!(sniff_image(&webp), Some("image/webp"));
+        // RIFF 容器但不是 WebP(如 wav)不得误判。
+        let mut wav = b"RIFF".to_vec();
+        wav.extend_from_slice(&[0, 0, 0, 0]);
+        wav.extend_from_slice(b"WAVE");
+        assert_eq!(sniff_image(&wav), None);
+        assert_eq!(sniff_image(b"# markdown"), None);
+        assert_eq!(sniff_image(b""), None);
+    }
+
+    #[tokio::test]
+    async fn oversized_image_is_rejected_not_truncated() {
+        // 截断的图片解不出来,provider 的 400 会指向请求体而不是这个文件。
+        let (dir, ctx) = temp_project();
+        let mut big = tiny_png();
+        big.resize(MAX_IMAGE_BYTES + 1, 0u8);
+        std::fs::write(dir.join("big.png"), &big).unwrap();
+        let out = ReadTool.execute(json!({"path": "big.png"}), &ctx).await;
+        assert!(out.is_error, "超限图片必须报错");
+        assert!(out.images.is_empty());
+        assert!(out.content.contains("limit"), "{}", out.content);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[tokio::test]
+    async fn text_read_keeps_images_empty() {
+        // 回归:文本路径的 images 必须恒空,否则等于给每条工具结果加了一个空 Part。
+        let (dir, ctx) = temp_project();
+        std::fs::write(dir.join("a.md"), "line1
+line2
+").unwrap();
+        let out = ReadTool.execute(json!({"path": "a.md"}), &ctx).await;
+        assert!(!out.is_error, "{}", out.content);
+        assert!(out.images.is_empty());
         std::fs::remove_dir_all(dir).ok();
     }
 }

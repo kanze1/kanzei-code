@@ -63,12 +63,59 @@ pub(crate) fn build_tool_execution_waves_with(
     waves
 }
 
+/// R-249:把 ToolOutput 的图片转成 llm Part;provider 不支持时降级为文本说明。
+///
+/// 返回 `(图片 Part, 需要追加到工具结果文本的说明)`。
+///
+/// 并行与串行两条执行路径都要做这层转换,必须共用一份——media_type 口径分叉的话,
+/// 同一个工具在两条路径下会给 provider 发出不同的请求体,而这种差异只在其中一条
+/// 路径上复现,极难定位。
+///
+/// **为什么降级要发生在这里,而不是靠 client.rs 那道硬拒绝**:那条会让整个请求
+/// 失败,而图片一旦进了 messages 就跟着历史每轮重发——等于一次 read 图片就把这条
+/// 对话在该 provider 上永久打死。所以图片必须在进历史**之前**被拦下,并如实告诉
+/// 模型它没拿到图,好让它改走别的手段。静默丢弃是最坏的一种:模型会以为自己看过了。
+pub(crate) fn tool_images_to_parts(
+    output: &kanzei_harness::ToolOutput,
+    images_supported: bool,
+) -> (Vec<Part>, Option<String>) {
+    if output.images.is_empty() {
+        return (Vec::new(), None);
+    }
+    if !images_supported {
+        return (
+            Vec::new(),
+            Some(format!(
+                "\n[image not delivered: the active provider does not accept image input; \
+                 {} image(s) were dropped. You did NOT see them — do not describe their contents.]",
+                output.images.len()
+            )),
+        );
+    }
+    let parts = output
+        .images
+        .iter()
+        .map(|image| Part::Image {
+            media_type: image.media_type.clone(),
+            data: image.data.clone(),
+        })
+        .collect();
+    (parts, None)
+}
+
+/// 返回 (下标, ToolResult, 该结果附带的图片 Part)。
+///
+/// 图片**不能**混进 results 向量:那里 `results[i] ↔ calls[i]` 是硬约定
+/// (note_step 的 debug_assert 锁着)。它们由调用方单独收集,统一追加到
+/// tool_results 消息尾部——Anthropic 要求 tool_result 块排在 user 消息最前,
+/// 所以只能后缀不能前插。
 pub(crate) async fn execute_prepared_tools(
     calls: Vec<PreparedToolCall>,
     ctx: &ToolCtx,
     max_parallel: usize,
+    images_supported: bool,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
-) -> Vec<(usize, Part)> {
+) -> Vec<(usize, Part, Vec<Part>)> {
     let mut results = Vec::new();
     // 进度旁路:每个调用带自己 id 的 ProgressHandle,共用一条通道;
     // 收集循环里边等完成边转发增量输出,UI 才能在长任务执行中看到"跑到哪了"。
@@ -122,7 +169,12 @@ pub(crate) async fn execute_prepared_tools(
                         preview: preview(&output.content),
                         display: output.display.clone(),
                     });
-                    let model_content = output.model_content();
+                    let mut model_content = output.model_content();
+                    let (images, dropped_note) =
+                        tool_images_to_parts(&output, images_supported);
+                    if let Some(note) = dropped_note {
+                        model_content.push_str(&note);
+                    }
                     results.push((
                         index,
                         Part::ToolResult {
@@ -130,12 +182,13 @@ pub(crate) async fn execute_prepared_tools(
                             content: model_content,
                             is_error: output.is_error,
                         },
+                        images,
                     ));
                 }
             }
         }
     }
-    results.sort_by_key(|(index, _)| *index);
+    results.sort_by_key(|(index, _, _)| *index);
     results
 }
 
@@ -252,6 +305,7 @@ mod tests {
             calls,
             &ctx,
             super::MAX_PARALLEL_TOOLS_PER_WAVE,
+            true,
             &mut on_event,
         )
         .await;
@@ -303,6 +357,7 @@ mod tests {
             calls,
             &ctx,
             super::MAX_PARALLEL_TOOLS_PER_WAVE,
+            true,
             &mut on_event,
         )
         .await;
@@ -311,7 +366,7 @@ mod tests {
         assert_eq!(
             results
                 .iter()
-                .map(|(_, part)| match part {
+                .map(|(_, part, _)| match part {
                     Part::ToolResult { call_id, .. } => call_id.as_str(),
                     _ => unreachable!(),
                 })
@@ -402,7 +457,7 @@ mod tests {
         ];
         let ctx = ToolCtx::new(std::env::temp_dir(), std::env::temp_dir());
         let mut on_event = |_event| {};
-        let results = execute_prepared_tools(calls, &ctx, 1, &mut on_event).await;
+        let results = execute_prepared_tools(calls, &ctx, 1, true, &mut on_event).await;
 
         assert_eq!(
             max_in_flight.load(Ordering::SeqCst),
@@ -411,7 +466,8 @@ mod tests {
         );
         assert_eq!(results.len(), 3);
         // 结果按下标与调用顺序对齐。
-        for (idx, (call_index, part)) in results.iter().enumerate() {
+        for (idx, (call_index, part, images)) in results.iter().enumerate() {
+            assert!(images.is_empty(), "纯文本工具不得产生图片 Part");
             assert_eq!(*call_index, idx);
             let expect_id = format!("call_{}", idx + 1);
             assert!(matches!(
@@ -419,6 +475,54 @@ mod tests {
                 Part::ToolResult { call_id, is_error: false, .. }
                     if *call_id == expect_id
             ));
+        }
+    }
+
+    // ---- R-249:图片投递与降级 ----
+
+    fn output_with_images(n: usize) -> ToolOutput {
+        ToolOutput::ok("done").with_images(
+            (0..n)
+                .map(|i| kanzei_harness::ToolImage {
+                    media_type: "image/png".into(),
+                    data: format!("payload{i}"),
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn images_pass_through_when_provider_supports_them() {
+        let (parts, note) = tool_images_to_parts(&output_with_images(2), true);
+        assert_eq!(parts.len(), 2);
+        assert!(note.is_none(), "支持图片时不应产生降级说明");
+        assert!(matches!(
+            &parts[0],
+            Part::Image { media_type, data } if media_type == "image/png" && data == "payload0"
+        ));
+    }
+
+    #[test]
+    fn images_degrade_to_explicit_note_when_unsupported() {
+        // 关键不变式:不支持时**一个 Image part 都不能进历史**。进了历史就会跟着
+        // 每一轮重发,client.rs 的硬拒绝会让这条对话在该 provider 上永久不可用。
+        let (parts, note) = tool_images_to_parts(&output_with_images(3), false);
+        assert!(parts.is_empty(), "不支持图片时不得放行任何 Image part");
+        let note = note.expect("必须给出显式降级说明,不能静默丢弃");
+        assert!(note.contains('3'), "说明里要写清丢了几张: {note}");
+        assert!(
+            note.contains("did NOT see"),
+            "必须明确告诉模型它没看到图,否则它会照着文本编内容: {note}"
+        );
+    }
+
+    #[test]
+    fn no_images_means_no_note_on_either_path() {
+        // 回归:纯文本工具的返回在两种能力下都必须逐字节不变。
+        for supported in [true, false] {
+            let (parts, note) = tool_images_to_parts(&ToolOutput::ok("plain"), supported);
+            assert!(parts.is_empty());
+            assert!(note.is_none());
         }
     }
 }

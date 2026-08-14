@@ -39,6 +39,16 @@ pub struct Route {
 }
 
 impl Route {
+    /// 本路由能否接收图片/文档输入(R-249)。
+    ///
+    /// 唯一真源:请求前的硬拒绝(见 `stream_with_retry`)与工具结果的图片投递
+    /// (kanzei-core 的 tool_images_to_parts)共用这一处判断。两边各写一个 match
+    /// 迟早会漂移,而漂移的表现是「硬拒绝放行了、投递却丢图」这类只在特定 provider
+    /// 上复现的静默错误。
+    pub fn supports_images(&self) -> bool {
+        self.kind != ProtocolKind::DeepSeekResponses
+    }
+
     pub fn anthropic(api_key: &str) -> Route {
         Route::anthropic_at("https://api.anthropic.com", api_key)
     }
@@ -140,7 +150,7 @@ impl LlmClient {
     where
         F: FnMut(u32, std::time::Duration),
     {
-        if route.kind == ProtocolKind::DeepSeekResponses
+        if !route.supports_images()
             && request
                 .messages
                 .iter()

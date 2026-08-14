@@ -174,6 +174,14 @@ impl ToolConcurrency {
     }
 }
 
+/// 工具随结果回喂模型的图片(R-249)。与 `kanzei_llm::Part::Image` 同形:
+/// `data` 是 base64,**不含** `data:` 前缀。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolImage {
+    pub media_type: String,
+    pub data: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolOutput {
     pub content: String,
@@ -185,6 +193,10 @@ pub struct ToolOutput {
     /// 面向 UI 的结构化展示(diff/终端块等),模型看不到,只给人看。
     /// 形如 {"kind":"diff","path":...,"diff":...} / {"kind":"terminal",...}。
     pub display: Option<serde_json::Value>,
+    /// R-249:随工具结果一并回喂模型的图片。空 vec = 纯文本结果,与既有行为逐字节一致。
+    /// 投递形态是「同一条 tool_results 消息里,ToolResult 之后追加 Part::Image」——
+    /// 协议层已有通用 Image 映射(anthropic/openai/openai_responses),无需改协议。
+    pub images: Vec<ToolImage>,
 }
 
 impl ToolOutput {
@@ -195,6 +207,7 @@ impl ToolOutput {
             outcome: ToolOutcome::Success,
             code: None,
             display: None,
+            images: Vec::new(),
         }
     }
 
@@ -205,6 +218,7 @@ impl ToolOutput {
             outcome: ToolOutcome::Failed,
             code: None,
             display: None,
+            images: Vec::new(),
         }
     }
 
@@ -227,6 +241,7 @@ impl ToolOutput {
             outcome: ToolOutcome::Failed,
             code: Some(code),
             display: None,
+            images: Vec::new(),
         }
     }
 
@@ -239,6 +254,7 @@ impl ToolOutput {
             outcome,
             code: Some(code),
             display: None,
+            images: Vec::new(),
         }
     }
 
@@ -259,6 +275,12 @@ impl ToolOutput {
 
     pub fn with_display(mut self, display: serde_json::Value) -> Self {
         self.display = Some(display);
+        self
+    }
+
+    /// R-249:挂上随结果回喂模型的图片。
+    pub fn with_images(mut self, images: Vec<ToolImage>) -> Self {
+        self.images = images;
         self
     }
 }

@@ -39,4 +39,4 @@ pub use orchestration::{
 pub use permission::{Effect, ManagedResource, Rule, Ruleset};
 pub use registry::Registry;
 pub use repair::tolerant_parse;
-pub use tool::{Tool, ToolConcurrency, ToolCtx, ToolOutcome, ToolOutput};
+pub use tool::{Tool, ToolConcurrency, ToolCtx, ToolImage, ToolOutcome, ToolOutput};

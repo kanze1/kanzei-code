@@ -47,12 +47,20 @@ fn commit_assistant_message(
     messages.push(message);
 }
 
+/// R-249:`images` 追加在**所有** ToolResult 之后。
+///
+/// Anthropic 要求 tool_result 块位于 user 消息最前,图片前插会 400;而 results
+/// 内部的 `results[i] ↔ calls[i]` 对齐由 note_step 的 debug_assert 锁着,也不允许
+/// 在中间插入。两条约束合起来,唯一合法位置就是尾部。
 fn commit_tool_results(
     messages: &mut Vec<Message>,
     results: Vec<Part>,
+    images: Vec<Part>,
     step: u32,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) {
+    let mut results = results;
+    results.extend(images);
     let message = Message::tool_results(results);
     on_event(RunEvent::ToolResultsCommitted {
         step,
@@ -610,7 +618,8 @@ pub fn run_once_with_parts<'a>(
             if halted() {
                 let mut results = Vec::new();
                 append_halted_tool_results(&mut results, &calls, 0);
-                commit_tool_results(&mut messages, results, step, on_event);
+                // 本步工具一个都没执行,不可能有图片。
+                commit_tool_results(&mut messages, results, Vec::new(), step, on_event);
                 return Ok(RunSummary {
                     text: final_text,
                     usage: total_usage,
@@ -889,6 +898,11 @@ pub fn run_once_with_parts<'a>(
 
             // 并行 wave:results[i] 与 calls[i] 按下标对齐(R-155 设计要点 3),
             // 与串行路径共用同一对齐约定,note_step 里的 debug_assert 兜底锁住。
+            // R-249:图片附件与 results 分开收集,合流在 commit_tool_results。
+            // 能力判定按本轮实际路由算一次:不支持时图片在进 messages 前就被换成
+            // 文本说明,不会污染后续每一轮的历史。
+            let images_supported = route.supports_images();
+            let mut pending_images: Vec<Part> = Vec::new();
             let mut results = if can_parallel_tools {
                 let mut slots: Vec<Option<Part>> =
                     std::iter::repeat_with(|| None).take(calls.len()).collect();
@@ -975,6 +989,7 @@ pub fn run_once_with_parts<'a>(
                         prepared,
                         ctx,
                         config.limits.max_parallel_tools(),
+                        images_supported,
                         on_event,
                     );
                     tokio::pin!(wave);
@@ -985,8 +1000,10 @@ pub fn run_once_with_parts<'a>(
                 };
                 match wave_results {
                     Some(list) => {
-                        for (index, result) in list {
+                        for (index, result, images) in list {
                             slots[index] = Some(result);
+                            // R-249:按 index 升序抵达,追加顺序即调用顺序。
+                            pending_images.extend(images);
                         }
                     }
                     None => {
@@ -1018,7 +1035,13 @@ pub fn run_once_with_parts<'a>(
                     // 取消占位配对后 halted 收尾——已完成的结果原样保留在历史里。
                     if halted() {
                         append_halted_tool_results(&mut results, &calls, call_index);
-                        commit_tool_results(&mut messages, results, step, on_event);
+                        commit_tool_results(
+                            &mut messages,
+                            results,
+                            std::mem::take(&mut pending_images),
+                            step,
+                            on_event,
+                        );
                         return Ok(RunSummary {
                             text: final_text,
                             usage: total_usage,
@@ -1263,7 +1286,13 @@ pub fn run_once_with_parts<'a>(
                                 display: None,
                             });
                             append_declined_tool_results(&mut results, &calls, call_index);
-                            commit_tool_results(&mut messages, results, step, on_event);
+                            commit_tool_results(
+                                &mut messages,
+                                results,
+                                std::mem::take(&mut pending_images),
+                                step,
+                                on_event,
+                            );
                             return Ok(RunSummary {
                                 text: final_text,
                                 usage: total_usage,
@@ -1337,7 +1366,13 @@ pub fn run_once_with_parts<'a>(
                         preview: preview(&output.content),
                         display: output.display.clone(),
                     });
-                    let model_content = output.model_content();
+                    let mut model_content = output.model_content();
+                    let (images, dropped_note) =
+                        crate::runner::tool_exec::tool_images_to_parts(&output, images_supported);
+                    if let Some(note) = dropped_note {
+                        model_content.push_str(&note);
+                    }
+                    pending_images.extend(images);
                     results.push(Part::ToolResult {
                         call_id: id,
                         content: model_content,
@@ -1352,7 +1387,7 @@ pub fn run_once_with_parts<'a>(
             // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
             // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
             recall.note_step(&calls, &mut results);
-            commit_tool_results(&mut messages, results, step, on_event);
+            commit_tool_results(&mut messages, results, pending_images, step, on_event);
 
             // D-342 步末检查点:本步工具已全部有终态(真实或取消占位),停止在此
             // 收尾——配对完整,下一轮 prior 无孤儿。并行 wave 被停止打断的路径
