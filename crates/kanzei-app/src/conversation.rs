@@ -51,6 +51,31 @@ pub(crate) fn conversation_get(
     recover_messages_raw(&store, &session_id, sequence).map_err(|e| e.to_string())
 }
 
+/// R-241 只读 shadow 入口：返回 typed-events 投影、现有快照比较和中断草稿诊断。
+///
+/// 该命令不会把投影写回运行态，也不会切换当前模型上下文的数据源。
+#[tauri::command]
+pub(crate) fn conversation_shadow_get(
+    project_dir: String,
+    process_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let root = normalized_project_root(Path::new(&project_dir));
+    let session_id = process_session_id(&root, process_id.as_deref());
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    let facts = store
+        .list_session_facts(&session_id)
+        .map_err(|e| e.to_string())?;
+    let projection = kanzei_core::project_session_facts(&facts);
+    let legacy = recover_messages_raw(&store, &session_id, None).map_err(|e| e.to_string())?;
+    let comparison = kanzei_core::compare_shadow(&projection, &legacy);
+    Ok(json!({
+        "session_id": session_id,
+        "comparison": comparison,
+        "projection": projection,
+    }))
+}
+
 #[tauri::command]
 pub(crate) fn conversation_trace_get(
     project_dir: String,
@@ -200,4 +225,52 @@ pub(crate) fn conversation_prior(
         *conv = persisted;
     }
     conv.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_project_root(label: &str) -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "kanzei-conversation-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn shadow_get_returns_projection_and_comparison_without_switching_source() {
+        let root = test_project_root("shadow");
+        let canonical = normalized_project_root(&root);
+        let session_id = process_session_id(&canonical, None);
+        {
+            let store =
+                kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical))
+                    .unwrap();
+            store
+                .create_session(&session_id, &canonical.display().to_string(), None)
+                .unwrap();
+            store
+                .append_event(
+                    &session_id,
+                    "conversation.updated",
+                    &json!({ "messages": [kanzei_llm::Message::user_text("已有历史")] }),
+                )
+                .unwrap();
+            kanzei_core::prepare_typed_session(&store, &session_id).unwrap();
+        }
+
+        let report = conversation_shadow_get(canonical.display().to_string(), None).unwrap();
+        assert_eq!(report["session_id"], session_id);
+        assert_eq!(report["comparison"]["equal"], true);
+        assert_eq!(report["projection"]["surface_messages"][0]["role"], "user");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

@@ -194,6 +194,7 @@ fn main() {
             docs::docs_read_custom,
             docs::architecture_snapshot,
             conversation::conversation_get,
+            conversation::conversation_shadow_get,
             conversation::conversation_trace_get,
             conversation::conversation_list,
             processes::list_pending_inputs,

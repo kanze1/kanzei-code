@@ -261,6 +261,30 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     assert!(
         matches!(results[1], kanzei_llm::Part::ToolResult { call_id, is_error: true, content } if call_id == "call_bash_d054" && content.contains("declined"))
     );
+    let typed_facts = store.list_session_facts(&session_id).unwrap();
+    let typed_projection = kanzei_core::project_session_facts(&typed_facts);
+    let typed_comparison = kanzei_core::compare_shadow(&typed_projection, &messages);
+    assert!(
+        typed_comparison.equal,
+        "拒绝/部分完成路径的 shadow 应与快照相等"
+    );
+    assert!(typed_facts.iter().any(|(_, envelope)| matches!(
+        &envelope.fact,
+        kanzei_core::SessionFact::ToolResultCommitted {
+            call_id,
+            is_error: true,
+            ..
+        } if call_id == "call_bash_d054"
+    )));
+    assert!(typed_facts
+        .iter()
+        .any(|(_, envelope)| matches!(&envelope.fact, kanzei_core::SessionFact::TurnStopped)));
+    let shadow = store
+        .latest_event(&session_id, "session.shadow_compared")
+        .unwrap()
+        .expect("CLI 轮末应写 shadow report");
+    assert_eq!(shadow.payload["equal"], true);
+    assert_eq!(shadow.payload["typed_write_errors"], json!([]));
 
     let listener2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address2 = listener2.local_addr().unwrap();
