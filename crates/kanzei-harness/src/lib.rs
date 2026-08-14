@@ -14,6 +14,8 @@ pub mod markdown;
 pub mod orchestration;
 pub mod permission;
 pub mod progress;
+/// R-205:项目根发现与 HOME 守卫(config.rs 拆出,D-270 修复落点)。
+pub mod project_root;
 pub mod registry;
 pub mod repair;
 pub mod tool;

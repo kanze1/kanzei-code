@@ -1347,10 +1347,11 @@ pub fn generalize_resource(action: &str, resource: &str) -> String {
     resource.to_string()
 }
 
-/// 从 cwd 向上找 `.kanzei/kanzei.toml`。
-pub fn discover_project_config(cwd: &Path) -> Option<PathBuf> {
-    discover_project_root(cwd).map(|root| root.join(".kanzei").join("kanzei.toml"))
-}
+/// R-205:根发现与 HOME 守卫域已拆至 `crate::project_root`(含 D-270 修复落点)。
+/// 这里 re-export 保持 `config::xxx` 调用点零变更。
+pub use crate::project_root::{
+    discover_project_config, discover_project_root, is_home_root, resolve_project_root,
+};
 
 /// R-178 P2:五层模型解析链的前三层(引用层)合并——本轮直选 → 线持久选择 → agent 默认。
 ///
@@ -1379,246 +1380,15 @@ pub fn resolve_model_chain(
         .unwrap_or_else(|| agent_model.to_string())
 }
 
-/// 项目根 = 向上**最近**的含 `.kanzei/` 或 `.git/` 的目录;都没有则 cwd 本身。
-///
-/// 两条约束都是踩出来的,别再退回去:
-/// ① `.kanzei` 不许无视距离压过 `.git`。原实现撞到任何 `.kanzei` 就立即返回,`.git`
-///    只记 fallback 且要等循环走完才用,于是 `~/Documents/某仓库`(有 .git、没 .kanzei)
-///    会一路走到 HOME,仓库自己的 `.git` 被丢掉。
-/// ② HOME 自己的 `.kanzei` 不算项目标记——它是**全局**配置根(kanzei.toml、memory、
-///    app.json),必然存在,于是成了 HOME 下所有无标记目录的磁铁。实测后果:`~/.kanzei`
-///    里已经躺着 `project/` 与 `state.db` 这类只该出现在项目里的产物。
-///    HOME 的 `.git`(dotfiles 仓库)仍然算标记,那是货真价实的仓库。
-pub fn discover_project_root(cwd: &Path) -> Option<PathBuf> {
-    discover_project_root_with_home(cwd, dirs::home_dir().as_deref())
-}
-
-/// 显式主根优先于发现式取根:参数 > 环境变量 > 发现式(现状)。
-///
-/// R-182 内容②。`explicit` 由调用方按「`--project-root` 参数 > `KANZEI_PROJECT_ROOT`
-/// 环境变量」合成后传进来;为 `None` 时逐字节退回今天的发现式行为
-/// (`discover_project_root(cwd)`,兜底 cwd 本身)。
-///
-/// 实测背景(D-267):两棵 worktree 相隔 10 秒各跑一次 `kz defect add`,**都拿到 D-267**——
-/// `.kanzei/project/*.md` 被 git 跟踪,`git worktree add` 把它们 checkout 成分支副本,
-/// 发现式取根在 worktree 里第一层就命中那份副本,两条线各自在自己的副本上分配编号。
-/// 显式主根就是这条路的出口。
-///
-/// **两个根是正交的两件事,别再混**(D-187 的教训):
-/// - `KANZEI_PROJECT_ROOT` 改的是**项目根**——`.kanzei/project/*.md`、state.db、项目记忆;
-/// - `KANZEI_HOME` 改的是**全局根**——`~/.kanzei/kanzei.toml`、全局记忆、app.json。
-///   设了其中一个不会影响另一个。
-///
-/// **不做 canonicalize**:与 run.rs 同源的理由——Windows 上 `canonicalize` 产出
-/// `\\?\C:\…` 形态,用户已经写下的绝对路径权限规则会一夜之间集体失配。
-pub fn resolve_project_root(explicit: Option<&Path>, cwd: &Path) -> anyhow::Result<PathBuf> {
-    let Some(explicit) = explicit else {
-        return Ok(discover_project_root(cwd).unwrap_or_else(|| cwd.to_path_buf()));
-    };
-    if !explicit.exists() {
-        anyhow::bail!(
-            "显式主根(--project-root / KANZEI_PROJECT_ROOT)指向的路径不存在: {}",
-            explicit.display()
-        );
-    }
-    if !explicit.is_dir() {
-        anyhow::bail!(
-            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不是目录: {}",
-            explicit.display()
-        );
-    }
-    // worktree 的 `.git` 是**文件**不是目录,所以这里目录/文件都算标记;
-    // `.kanzei` 则必须是目录(托管文档挂在它下面)。
-    let has_marker = explicit.join(".kanzei").is_dir() || explicit.join(".git").exists();
-    if !has_marker {
-        anyhow::bail!(
-            "显式主根(--project-root / KANZEI_PROJECT_ROOT)不像项目根:{} 下既没有 .kanzei 目录也没有 .git。\n\
-             主根是放 .kanzei/project/*.md 与 state.db 的那个目录;确实想把它当项目,就先 mkdir .kanzei。",
-            explicit.display()
-        );
-    }
-    Ok(explicit.to_path_buf())
-}
-
-/// 目录比较用的形态:剥 Windows 扩展长度前缀、统一分隔符、折叠 `.` / `..`、去尾分隔符,
-/// Windows 上再小写。
-///
-/// 裸 `==` 比较不够(D-194):`dirs::home_dir()` 给 `C:\Users\kanzei`,而走上来的祖先
-/// 可能是 `c:\users\kanzei`(shell 里键入的大小写)或 `\\?\C:\Users\kanzei`(canonicalize
-/// 的产物)——任一形态对不上,HOME 判断就静默失效,`~/.kanzei` 立刻变回项目根磁铁。
-/// 同一个坑 kanzei-core 的 `session_identity` 已经踩过一次(同一项目裂成两条会话线)。
-/// 这里是纯比较、不进哈希,所以可以比那边更狠:分隔符也一并统一。
-///
-/// **`.` / `..` 必须折叠**,而且这是 R-182 新入口打开的洞、不是历史遗留:根从
-/// `current_dir()` 来的时候不可能带 `.`/`..` 段,`--project-root` / `KANZEI_PROJECT_ROOT`
-/// 收的却是用户任意书写的路径串。`C:\Users\kanzei\.` 与 `C:\Users\kanzei\Documents\..`
-/// 在文件系统看来就是 HOME,`resolve_project_root` 的标记校验对它们照样成立
-/// (HOME 下有 `.kanzei`),于是两道拦截**全部静默通过**,project 级 state.db 被写进
-/// `~/.kanzei`——实测发生过。
-///
-/// 折叠**复用 `permission::normalize_resource`**(权限决策的同一份实现,D-050),不另写
-/// 第二份:两份词法折叠一旦漂移,就是"权限那边算出来的路径"和"取根这边算出来的路径"
-/// 指向两个地方。
-///
-/// **本函数自身仍然是纯词法的**:不碰文件系统、不解符号链接,也不会把用户写的裸路径
-/// 变成 `\\?\` 形态。词法折叠单独用赢不了别名(见 [`is_same_dir`]),但它是**永远可用**
-/// 的那一层:路径不存在或读不到时 `canonicalize` 给不出身份,这里的结论就是最后的兜底。
-fn dir_key(path: &Path) -> String {
-    let raw = path.to_string_lossy();
-    let stripped = raw
-        .strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| raw.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or_else(|| raw.to_string());
-    // 分隔符与大小写只在 Windows 上等价;Linux 下 `C:` 与 `c:` 是两个目录,
-    // 归一过头会把不同路径判成同一个。
-    #[cfg(windows)]
-    let unified = stripped.replace('/', "\\").to_lowercase();
-    #[cfg(not(windows))]
-    let unified = stripped;
-    let key = normalize_resource(&unified);
-    key.trim_end_matches(['\\', '/']).to_string()
-}
-
-/// 两个路径串指的是不是**同一个目录**。
-///
-/// D-194 补漏二:**词法规则补不完**,别再往 [`dir_key`] 里加规则了。实测(Windows 11)
-/// 下面这些写法在磁盘上就是同一个目录,而纯词法折叠一条都认不出来:
-/// - `C:\Users\kanzei.` —— Windows 剥掉末段的尾随点;`kanzei.` 对折叠来说是个普通段名,
-///   既不是 `.` 也不是 `..`,于是 `c:/users/kanzei.` ≠ `c:/users/kanzei`。
-/// - `\\localhost\C$\Users\kanzei` / `\\127.0.0.1\C$\Users\kanzei` —— 归一成
-///   `//localhost/c$/users/kanzei`,与盘符形态永不相等。这**不纯是对抗构造**:网络/漫游
-///   profile 下 UNC 本来就是合法写法。
-/// - 符号链接、junction、`subst` 虚拟盘、8.3 短名 —— 凡「词法不同、文件系统同一」的别名,
-///   再补多少条词法规则也补不完。
-///
-/// 所以改用**文件系统身份**:两侧各做一次 `std::fs::canonicalize`。实测它把 junction、
-/// 8.3 短名、`subst` 虚拟盘、尾随点、大小写、`\\?\` 前缀一律解成同一个 `\\?\C:\…` 形态。
-///
-/// **这与「显式主根不做 canonicalize」不矛盾——两条说的是不同的事。**
-/// 那条顾虑(见 [`resolve_project_root`] 与测试 `显式主根不做canonicalize`)反对的是把
-/// canonicalize 的产物**当作项目根存下去 / 传下去**:`\\?\` 形态会让用户已经写在配置里的
-/// 绝对路径权限规则集体失配。而这里的 canonicalize **只活在本次相等判断内部**——不返回、
-/// 不存储、不进哈希、不传给任何下游;`resolve_project_root` 返回的仍是用户写下的原串,
-/// 下游看到的形态一个字节没变(那条测试原样保留,正是用来钉住存储/传播侧没变的)。
-///
-/// canonicalize 失败(路径不存在、无读权限)时**回落到词法折叠**——拿不到身份不等于放行。
-fn is_same_dir(a: &Path, b: &Path) -> bool {
-    // ① 词法层永远先跑:它不需要路径存在,也是 canonicalize 失败时的兜底。
-    //    只加不减——加上身份层之后,今天能认出来的写法一条都不会变得认不出来。
-    if dir_key(a) == dir_key(b) {
-        return true;
-    }
-    let (Ok(ca), Ok(cb)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) else {
-        return false;
-    };
-    // ② 身份层:同一命名空间内 canonicalize 就是唯一名字,别名到这里全部坍缩。
-    if dir_key(&ca) == dir_key(&cb) {
-        return true;
-    }
-    // ③ 跨命名空间:canonicalize **不**把 UNC 归到盘符形态(实测
-    //    `\\localhost\C$\Users\kanzei` → `\\?\UNC\localhost\C$\Users\kanzei`),所以 ② 在
-    //    「一侧 UNC、一侧盘符」时必然判不等。只在这种情况下再走一层判据。
-    if !is_unc_key(&dir_key(&ca)) && !is_unc_key(&dir_key(&cb)) {
-        return false;
-    }
-    same_dir_by_volume_metadata(&ca, &cb)
-}
-
-/// [`dir_key`] 产出的 UNC 形态(`\\host\share\…` → `//host/share/…`)。
-fn is_unc_key(key: &str) -> bool {
-    key.starts_with("//")
-}
-
-/// 跨命名空间的同一性:比对目录**自身**的卷级元数据(创建时间 + 修改时间,均 100ns 精度)。
-/// 这两个属性存在卷上,透过盘符还是透过 UNC 读到的是同一份——实测一致。
-///
-/// **诚实说明它不是句柄级身份**:句柄级身份要 `GetFileInformationByHandle` 的
-/// `(volume_serial_number, file_index)`,std 里对应 `windows_by_handle`,**至今未稳定**
-/// (rustc 1.97 实测 E0658),而本 crate 不引入 winapi 依赖去换这一处判据。
-///
-/// 判错方向是可陈述的:元数据相等 → 判成同一个目录 → **多拦一个 HOME**(更严,可见地报错);
-/// 元数据不等 → 判成不同 → 退回 ② 的结论。D-270 缺口②修正:读失败/非目录/取不到时间
-/// 时**保守判同**(返回 true)——拿不到身份就当作可能相同,由上层保守处置,不再放行
-/// (原实现 return false 是 fail-open,与它自己的注释「只会偏保守」相悖)。
-/// 唯一会偏放行的窗口是「两次读之间 HOME 自身的 mtime 被别的进程改掉」,所以读两轮:
-/// 第一轮不等就整组重读一次,那个窗口需要连续两次都撞上才成立。
-fn same_dir_by_volume_metadata(a: &Path, b: &Path) -> bool {
-    fn fingerprint(path: &Path) -> Option<(Option<std::time::SystemTime>, std::time::SystemTime)> {
-        let meta = std::fs::metadata(path).ok()?;
-        if !meta.is_dir() {
-            return None;
-        }
-        Some((meta.created().ok(), meta.modified().ok()?))
-    }
-    for _ in 0..2 {
-        let (Some(fa), Some(fb)) = (fingerprint(a), fingerprint(b)) else {
-            return true; // 拿不到身份 → 可能相同 → 保守判同
-        };
-        if fa == fb {
-            return true;
-        }
-    }
-    false
-}
-
-/// 解析出的项目根是不是 HOME 本身。
-///
-/// D-189 让 HOME 的 `.kanzei` 不再把子目录吸上去,但在 HOME 里**直接**开跑这条路还通着:
-/// 一路向上找不到任何标记时兜底返回 cwd,而 cwd 就是 HOME。此时项目级产物(state.db、
-/// project/、memory/)会落进 `~/.kanzei`——那是全局配置根,两边数据就此混在一起
-/// (D-186 的残留正是这么来的)。调用方拿这个判据在开跑前拦下来。
-///
-/// 相等判断委托 [`is_same_dir`](词法折叠 + 文件系统身份),别名形态在那里说明。
-/// D-270 缺口③:`KANZEI_HOME` 也参与比较——全局根(KANZEI_HOME 或默认 `~/.kanzei`)
-/// 与 root 本身或 root 的 `.kanzei` 同目录时都算碰撞,项目产物会写进全局根。
-pub fn is_home_root(root: &Path) -> bool {
-    is_home_root_with(
-        root,
-        dirs::home_dir().as_deref(),
-        crate::home::kanzei_home().as_deref(),
-    )
-}
-
-/// [`is_home_root`] 的可测内核:home 与全局根都作为参数注入,测试不碰进程级
-/// `KANZEI_HOME`(与 home.rs 的顺序测试并行跑会互踩环境变量)。
-fn is_home_root_with(root: &Path, home: Option<&Path>, kh: Option<&Path>) -> bool {
-    if home.is_some_and(|h| is_same_dir(h, root)) {
-        return true;
-    }
-    let Some(kh) = kh else {
-        return false;
-    };
-    // root 本身就是全局根,或 root 的 `.kanzei` 就是全局根(KANZEI_HOME 指到
-    // 项目自己的 `.kanzei` 的场景):两种都是项目产物落进全局配置根的碰撞。
-    is_same_dir(kh, root) || is_same_dir(kh, &root.join(".kanzei"))
-}
-
-fn discover_project_root_with_home(cwd: &Path, home: Option<&Path>) -> Option<PathBuf> {
-    let home_key = home.map(dir_key);
-    let mut dir = Some(cwd);
-    while let Some(d) = dir {
-        let kanzei_marker = d.join(".kanzei").is_dir();
-        let git_marker = d.join(".git").is_dir();
-        let lexically_home = home_key.as_ref().is_some_and(|h| *h == dir_key(d));
-        // D-270 缺口①:发现式取根对别名形态的 HOME 也要拦得住——`.kanzei` 标记层
-        // 若是 HOME 的别名(词法不同但文件系统身份相同,如尾随点 / UNC),同样跳过
-        // 继续向上,不再把别名 HOME 当项目根返回。身份比较(`is_same_dir`)只发生在
-        // 词法不等**且有 `.kanzei` 标记**的层:普通层仍是纯词法 `dir_key`,不会给
-        // 每次配置加载引入 O(深度) 次 canonicalize 系统调用。
-        let alias_home =
-            !lexically_home && kanzei_marker && home.is_some_and(|h| is_same_dir(h, d));
-        if (kanzei_marker && !lexically_home && !alias_home) || git_marker {
-            return Some(d.to_path_buf());
-        }
-        dir = d.parent();
-    }
-    Some(cwd.to_path_buf())
-}
-
+/// R-205:五层链 ①②③ 引用合并见上;④⑤ 由 load_with_warnings + fill_defaults 承担。
+/// 根发现/显式主根/HOME 守卫(含目录身份判定)已拆至 `crate::project_root`
+/// (re-export 见文件头,D-270 修复落点在该文件)。
 #[cfg(test)]
 mod tests {
     use super::*;
+    // R-205:project_root 域测试仍驻留本文件,经 glob 导入 crate::project_root 的
+    // pub(crate) 判定函数(实现已单源在 project_root.rs)。
+    use crate::project_root::*;
 
     #[test]
     fn defaults_and_model_resolution() {
