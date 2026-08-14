@@ -200,7 +200,7 @@
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 
-## R-244 统一 Tool Pipeline：Policy、单调 Guard、Wrapper、Result Policy 与 Observer [todo]
+## R-244 统一 Tool Pipeline：Policy、单调 Guard、Wrapper、Result Policy 与 Observer [doing]
 - refs: D-209 R-180 R-174 docs/design/deepseek_harness_upgrade.md
 - 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
 - 前置: R-241
@@ -212,10 +212,11 @@
 - 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
-- 进展: 2026-08-14 用户定调:R-244 列入主任务,由主线串行实施(与 R-242/R-243 同一条线,不拆给并行自举线)。另一半前提「与 R-241 的事件类型需先冻结」也已达成——R-241 已 done 并归档,typed event 真源冻结。两条阻塞前提均消失,阻塞字段清空,按 P1 入队。
-- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- 进展: 2026-08-16 认领(主线串行)。前提 R-241 已 done(typed event 冻结)。侦察:现有执行散在 drive.rs(串行门禁/权限/进度/timeout/cancel)与 tool_exec.rs(并行 wave);Tool trait(harness tool.rs:291)只有 name/action/resources/concurrency/execute,无阶段。批1(最小验证):harness 新模块 tool_pipeline.rs 定义固定阶段骨架(parse/materialize→policy→guards→wrappers→body→result policies→observers),复用 Ruleset/hard_denies/managed fence 不重写;迁移一个无副作用工具(glob)走统一通道;契约测试(阶段顺序/policy 不覆盖 guard deny/observer 抛错不改终态但留遥测/唯一 final result);批2-4 分族迁移 read/bash/git/子代理;批5 收口(无双执行断言 + 全量)。
+- observed_head: bb075018df4cd6aa41280be52573ca15bc96b4d4
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786712688355
+- recorded_at: 1786739489365
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md

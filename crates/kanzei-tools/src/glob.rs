@@ -43,26 +43,45 @@ impl Tool for GlobTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: GlobInput = match crate::parse_input(self, input) {
-            Ok(v) => v,
-            Err(out) => return out,
-        };
-        let base = match &input.path {
-            Some(p) => ctx.cwd.join(p),
-            None => ctx.cwd.clone(),
-        };
-        if !base.is_dir() {
-            return ToolOutput::error(format!("directory not found: {}", base.display()));
-        }
-        let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
-        let pattern = input.pattern.clone();
+        // R-244 批1:glob 作为无副作用工具走统一 pipeline 通道。guards/结果策略/
+        // 观察者现阶段为空(权限判定在 drive 层),body = 原 glob 逻辑;通道验证后
+        // 其余工具分族迁移(批2-4)。
+        let input2 = input.clone();
+        let ctx2 = ctx.clone();
+        kanzei_harness::tool_pipeline::run_tool_pipeline(
+            "glob",
+            input,
+            ctx,
+            &[],
+            async move { glob_body(self, &input2, &ctx2).await },
+            &[],
+            &[],
+        )
+        .await
+    }
+}
 
-        let result = tokio::task::spawn_blocking(move || run_glob(&base, &pattern, limit)).await;
-        match result {
-            Ok(Ok(text)) => ToolOutput::ok(text),
-            Ok(Err(e)) => ToolOutput::error(e),
-            Err(e) => ToolOutput::error(format!("glob task panicked: {e}")),
-        }
+/// R-244 批1:glob 工具本体(原 execute 主体),供 pipeline body 调用。
+async fn glob_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    let input: GlobInput = match crate::parse_input(tool, input.clone()) {
+        Ok(v) => v,
+        Err(out) => return out,
+    };
+    let base = match &input.path {
+        Some(p) => ctx.cwd.join(p),
+        None => ctx.cwd.clone(),
+    };
+    if !base.is_dir() {
+        return ToolOutput::error(format!("directory not found: {}", base.display()));
+    }
+    let limit = input.limit.unwrap_or(DEFAULT_LIMIT).max(1);
+    let pattern = input.pattern.clone();
+
+    let result = tokio::task::spawn_blocking(move || run_glob(&base, &pattern, limit)).await;
+    match result {
+        Ok(Ok(text)) => ToolOutput::ok(text),
+        Ok(Err(e)) => ToolOutput::error(e),
+        Err(e) => ToolOutput::error(format!("glob task panicked: {e}")),
     }
 }
 

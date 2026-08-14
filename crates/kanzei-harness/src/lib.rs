@@ -21,6 +21,7 @@ pub mod project_root;
 pub mod registry;
 pub mod repair;
 pub mod tool;
+pub mod tool_pipeline;
 
 pub use config::{KanzeiConfig, ResolvedModel};
 pub use context::{refreshing_source, source, ContextSource};

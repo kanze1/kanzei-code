@@ -3417,3 +3417,10 @@
 - 摘要: R-240 关闭前全量:workspace 全绿 0 failed(kzapp 163/core 193/harness 138/llm 44/base 128/tools 245 等)
 - 关联: R-240
 - 收尾: 1786739400
+
+## T-1786739923 R-244 B1 定向测试 [passed]
+- 命令: cargo test -p kanzei-harness --lib tool_pipeline && cargo test -p kanzei-tools
+- 时长: 32.0s
+- 摘要: R-244 B1:tool_pipeline 骨架 4 契约测试(guard 拒绝/阶段顺序/observer 抛错/唯一结果)+ glob 迁移走统一通道,kanzei-tools 245 passed 零回归
+- 关联: R-244
+- 收尾: 1786739923
