@@ -3543,3 +3543,9 @@
 - 关联: R-261
 - 收尾: 1786745568
 - 源码指纹: ff0158619c219963
+
+## T-1786745728 cargo test --workspace (R-261 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-261 关闭前全量:workspace 全绿(kanzei-tools 251 含新守护测试,kanzei-app 163)。
+- 关联: R-261
+- 收尾: 1786745728

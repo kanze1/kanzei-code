@@ -3080,3 +3080,16 @@
 - observed_head: 1cea2a86d9808bb0996f90cdcfa64e0769d395c4
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786744753379
+
+## R-261 提交门禁路径效率优化:纯前端改动免 Rust 测试背书 + fmt/clippy 门禁并行 [done]
+- 内容: ①纯前端改动(仅 ui/*.js/css/html 前端资源,无 Rust 源码)提交时,source_test_gate 不再归因为 kanzei-app 的 Rust source,不要求 cargo test -p kanzei-app——前端冒烟集(node --check + ui-runtime/lint/i18n/a11y/markdown,R-228 已强制前端标签条目关闭前有 passed 冒烟)背书即可。本轮 R-260 改 10 行 js 被拦 2 次、被迫重跑 163 个 Rust 测试,零信息量。②staged 含 Rust 源码时规则不变(仍按 crate 要求测试背书,R-212 守护「前端冒烟不能背书 Rust 改动」保持)。③提交门禁 fmt_gate 与 clippy_gate 并行执行(互不依赖,join 合并错误),门禁总耗时下降。
+- 复杂度: 中
+- 来源: 2026-08-15 用户反馈:「现有的测试和提交的路径似乎可以在优化一下效率」,经调研确认两个低效点后用户拍板方向(问题1-A/B)
+- 标签: 流程
+- 验收: ①纯前端改动(仅 ui/ 资源)提交不再被 source_test_gate 拦(不要求 cargo test -p kanzei-app),前端冒烟 passed 记录背书即可;②staged 含 Rust 源码时行为不变:仍要求对应 crate 测试背书,守护测试 source_test_gate_frontend_smoke_cannot_back_rust_change 全绿;③fmt/clippy 门禁并行执行,提交门禁不因串行多等;④既有 commit 门禁守护测试全绿 + kanzei-tools 定向测试全绿。
+- 优先级: P2
+- 取活依据: override:用户 2026-08-15 明确拍板方向(问题1-A/B:纯前端改动免 Rust 测试背书 + fmt/clippy 门禁并行),R-261 为已确认的优化需求,需立即实现
+- 进展: 验收逐条对照:①纯前端改动(仅 ui/ 资源)提交不再被 source_test_gate 拦——守护测试「纯前端ui资源不算rust源码_门禁放行而rust源码规则不变」验证 source_test_gate 对纯前端 staged 放行、staged_source_fingerprint 为空;②staged 含 Rust 源码时行为不变——is_source_path 对 .rs/scripts 仍为 true,R-212 守护 source_test_gate_frontend_smoke_cannot_back_rust_change 全绿;③fmt/clippy 门禁并行——commit 门禁与 finalize 均改 tokio::join! 并行执行;④既有 commit 门禁守护测试全绿 + kanzei-tools 251 定向绿(T-1786745568) + 全量 workspace 全绿(T-1786745728)。实现位置:crates/kanzei-tools/src/git.rs is_source_path(L466 排除 crates/kanzei-app/ui/)、commit 门禁(L868-874 join!)、finalize(L930-941 join!)。
+- observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786745736067
