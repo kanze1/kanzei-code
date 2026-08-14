@@ -80,11 +80,14 @@
 - 优先级: P1
 - 标签: 核心
 
-- 进展: 2026-08-10 取活时仍待澄清:候选 a)恢复丢轮内进度 b)工具轨迹糊成一批 c)只能按整轮拿消息 d)其他——机制现状已核实(三层都是轮粒度),按 D-205 教训不代用户猜死;本轮跳过,待用户确认维度后改写验收再取活。
+- 进展: 2026-08-16 取活调研(claim 权限受阻,规则已加白名单 facbca6 下 run 生效):机制现状已读码核实——①run.rs:1238 轮末整包写 conversation.updated 快照,恢复走 conversation.rs recover_messages 取 latest_event,轮内零落盘;②run.trace 已在运行中按事件增量写(record_live_trace)+ 轮末 flush_live_trace 补尾部,不再是整轮一包;③session_events 表已具备 typed event 载体:event_id/sequence/event_type/payload_json/created_at + UNIQUE(session_id,sequence) + (session_id,event_type,sequence) 复合索引(schema.rs:57-70),append_event 事务内分配 sequence(events.rs:207),增量 typed events 可直接落此表;④D-209 验收①③④的实现面 = 新增 typed event 写入点(user message 落盘后、assistant draft 有界批次、tool call 执行前、tool result 后、turn 终态) + 恢复投影器;验收②的 interrupted 草稿投影与验收⑤的 D-342 回归在切真源时保持。下一步:权限放开后 claim D-209,按 R-241 第一批(typed events + shadow projector,保留旧读路径)实现。
 
 - 阻塞: 无
 - 修复方向: 以 SQLite typed session events 为运行时会话真源；user/assistant/tool/终态按发生顺序增量落库。可见 assistant 流式内容按有界批次追加 draft chunk，最终追加 committed 或 interrupted 终态；中断草稿可在 UI/审计中回放，但不伪装成完整 assistant message。
 - 影响: 崩溃、停止或异常中断后，已发生的轮内事实和部分生成内容不能被完整恢复；下一轮模型、用户历史与审计视图看到的事实可能不一致。D-342 已修正常停止的整轮写回，但不能替代逐事件持久化和异常中断恢复。
+- observed_head: fadca1bb39624d0a77795c1c160265b4c5cfe954
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786667468241
 
 ## D-333 存量 tracker 污染收敛:活动区双优先级字段、归档区双终态标记、重复进展字段(D-330/D-331 修复前残留) [fixing] (low)
 - refs: D-332 D-331 D-330
