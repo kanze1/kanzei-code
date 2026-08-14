@@ -2984,3 +2984,27 @@
 - observed_head: 8c82a33e0512f799eedf3d10be164e5a8305e510
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786728349760
+
+## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [done]
+- **2026-08-11 改写(用户定调,随 D-267 关闭为 dropped)**: 原标题里的「permission 规则 worktree 继承主根、可审计预授权集」两项**作废**——它们服务的是 D-267 的中间档,而中间档已被砍掉(理由见 D-267 关闭说明:挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」)。**本条大幅缩小**:非交互模式下 bash 直接放行,防线整体挪到结果侧(R-186)。
+- 优先级: P0
+- 复杂度: 中
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(2026-08-11 实测三次全失败 + 读码定位)
+- refs: R-182 R-177 R-030 docs/design/parallel_read_serial_write_orchestration.md
+- 来源: 2026-08-11 搭任务级并行实测时,**`kz run` 在 worktree 里无法无人值守跑**,是当天唯一让实验彻底停摆的硬卡点(另一个候选载体 `claude -p` 因 OAuth token 被吊销同样不可用)。任务级并行的前提是「N 条线各自跑到底」,没有这个通道就只能靠外部 CLI。
+- 现状与缺口(逐点读码核实): 
+- 内容: ①非交互检测 + 显式策略:无 TTY 时不再落 Deny,改为按配置的**非交互默认策略**(建议三态:`deny`(现状,保守) / `rules-only`(只认预授权规则,规则外拒) / `allow-listed`(规则 + 本次运行的显式 allowlist));策略必须显式配置,**不提供"全放行"的隐式默认**。②permission 规则的 worktree 继承:worktree 内运行时,规则匹配按**主根**而非 cwd 解析 workdir(与 R-182 的主根重定向同一条原则),避免线一启动就没有任何授权。③可审计:非交互模式下每一次自动放行都落轨迹(动作、资源、命中的规则、时刻),`kz` 退出时给出汇总;拒绝同样可见(D-004 口径)。④补齐开发所需的基础规则模板(cargo/node/git 的只读与构建子集),放进新建配置的注释模板(与 R-172 同族)。
+- 边界: 不做「全部自动同意」的开关——那等于把权限系统关掉,与仓库既有的硬 deny 纪律冲突。不改 profile/agent 体系。不做桌面端的无人值守(桌面端有 UI 可问,不是同一个问题)。
+- 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
+- 依赖: 
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
+- 进展: 批3 完成(2026-08-16),条目收口。验收对照(逐项引用实现位置):①`kz run` 无 TTY 无人值守闭环——E2E `crates/kanzei/tests/always_allow_bash.rs:92 cli_allow_listed_executes_bash_without_tty`(用户 D-363 落地,非交互 allow_listed + `--allow bash:*` 下 bash 真执行、本轮成功,反证 --allow 一次性不落常驻规则);worktree 后台跑的前提由验收③覆盖。②三态各有测试、缺省 deny——`crates/kanzei-harness/src/config.rs` `non_interactive_三态解析`/`non_interactive_缺省与非法取值_fail_closed回落deny`(缺键/空串/非法全回落 Deny,旧配置不变)+ main.rs 决策三态测试。③worktree 主根规则命中——`crates/kanzei-tools/src/bash.rs:30 permission_workdir_view`(worktree_key 存在时 workdir 视图按主根,仅权限判定文本、执行目录不变)+ 测试 `权限workdir视图_worktree映射回主根`/`同一规则_主根与worktree下匹配结果一致`(7db3b48)。④自动放行轨迹含规则原文——`permission.rs evaluate_with_rule`(last-match-wins 命中规则,硬 deny/无匹配 None)+ `event.rs:84 PermissionResolved.rule` + drive.rs 串行门禁/并行 wave 两评估站点填 describe_rule + CLI 打印 `[规则: ...]`(ba0726f)。⑤无 TTY 检测有测试——`main.rs interactive_stdin()`(stdin.is_terminal 显式检测,不靠读 EOF)+ non_interactive_decision 测试(批1,caa9d62)。全量:cargo test --workspace 全绿 0 failed(T-1786737712 复核,含 D-363 桩服务器超时修复)。边界遵守:无全放行隐式默认(allow_listed 需显式 --allow)、不改 profile/agent、不做桌面端。关闭。
+- 阻塞: 
+- observed_head: 87471a232e7946d358ecb7e21565318f8961d42f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786737755878
+- 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
+- 批次: 3/3

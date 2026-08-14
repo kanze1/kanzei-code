@@ -3374,3 +3374,10 @@
 - 摘要: R-183 B2 轨迹规则原文:permission 30(含 evaluate_with_rule 3 个)+ core 193 + kanzei 26 + app 160 全过;fmt/clippy 绿
 - 关联: R-183
 - 收尾: 1786731021
+
+## T-1786737712 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 60.0s
+- 摘要: R-183 关闭前全量复核(HEAD 87471a2,含 D-363 桩服务器超时修复):workspace 全绿 0 failed(kzapp 160/core 193/harness 138/llm 44/base 128/tools 244/memory 9 等;挂死已修,非交互 E2E 通过)
+- 关联: R-183
+- 收尾: 1786737712
