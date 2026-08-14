@@ -114,3 +114,33 @@
 - 根因: D-329 给 reopen/archive/void_id 等补了 positional id,但没补它们各自的必填参数;reason 的解析只在 fix_terminal 分支里单独实现,没有下沉成公共 flag。
 - 验收: ①`kz req reopen <id> --reason "..."` 能落 reason 并把状态退回初始态(集成测试或 CLI 单测);②缺 --reason 时仍报错拒绝(不许空理由绕过);③--reason 解析下沉为公共 flag,fix_terminal 与 reopen 共用一处,void_id 等同族动作的必填参数一并核对补齐;④R-183 用修好的通道退回 todo,阻塞字段清空。
 - 优先级: P2
+
+## D-360 「被取得」标记退回推断:所有 doing 无条件标记,取得线不存在时代号渲染成问号 [open] (medium)
+- refs: R-247 D-329
+- 复杂度: 小
+- 复现: 2026-08-14 用户截图:文档页分组视图「核心·13」里 5 条显示「● ? 被取得」(R-202/R-186/R-183/R-195/R-249),8 条 todo 条目无标记——被标的恰好是全部 doing 条目。而此刻 kzapp 引擎已于 20:18 退出(state.db-wal 已 checkpoint 清除、Get-Process kzapp 为空),没有任何线在持有任何条目;代号位还是个光秃秃的问号。
+- 影响: 这个徽标存在的全部意义就是回答「被哪条线取得」,答不出「谁」时它是纯噪音;而现在更糟——它在引擎根本没运行时宣称 5 条需求有人在做。用户按它判断「哪些在推进」会得到完全错误的图像。现有反证测试 ui-runtime-smoke.mjs:1294 只构造了「排在队首但无人 claim」的非 doing 条目,正好绕开这条推断路径,所以一路绿着。
+- 标签: 前端
+- 根因: 两处叠加。①11-docs-list.js:205 `const defaultOwned = !explicitOwner && ["doing","fixing"].includes(entry.status)`——没有 claimed_by 就按状态推断「默认线持有」。这正是 parallel_lines_ui §1.2「被取得是事实,不是推断」明令删掉的东西(R-247 交付、D-329 复核过「全仓 grep isAgentNext 零命中」),推断值换了个名字回来了:isAgentNext 没了,defaultOwned 顶上。②11-docs-list.js:213 `code: line ? (codes.get(line.process_id) ?? "?") : "?"`——找不到对应线时仍然渲染徽标,只是把代号打成问号。
+- 验收: ①无 claimed_by 的 doing/fixing 条目不显示「被取得」标记(断言补在 ui-runtime-smoke.mjs:1294 现有反证旁,构造 doing 且无 claim 的条目);②有 claimed_by 但该线不在 collaborationLines 里时,不渲染徽标(或明确渲染「取得线已离线」),不得出现代号为 "?" 的徽标;③真实 claim 仍正常渲染「● 代号 被取得」(ui-runtime-smoke.mjs:5529 既有断言保持绿);④全仓 grep 确认无第二处按状态推断持有的代码。
+- 优先级: P2
+
+## D-361 task 被算作非进展工具:整轮派子代理干活被判空转,连两轮鞭挞自停 [open] (high)
+- refs: R-169 R-174 R-076
+- 复杂度: 中
+- 复现: 2026-08-14 用户报告「鞭挞会被子代理终结」。代码核实成立:kanzei-harness/src/auto_run.rs:28 的 NON_PROGRESS_TOOLS 常量里含 "task";has_progress_tools(同文件 32-36)的判据是「本轮至少有一个不在该表里的工具」才算有进展。于是主代理把活整轮派给 task 子代理时,画像里只有 task 一项 → has_progress_tools=false → decide() 的 `no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools)` 为真 → 第一次返回 Nudge(rounds+1),紧接着第二次就 stop_with(AutoStopReason::NoAction)。连着两轮派子代理,鞭挞自停。
+- 影响: 与「用子代理分担」这条正路直接对冲:模型越守规矩地委派,鞭挞越快自杀,而且停止原因报的是 NoAction(空转)——对用户是误导,那轮实际干了活。子代理越好用,这条越疼。
+- 标签: 核心
+- 根因: 主轮的工具画像只统计主 conversation 的本轮消息切片(run.rs:1653 `summarize_tools(&summary.messages[prior.len()..])`),子代理内部调用的 read/grep/edit 全在子代理自己的消息列表里,不进主轮画像——主轮能看见的只有一次 task 调用与它的返回。而 task 又被登记为非进展工具,于是「把活派出去」在鞭挞眼里等价于「什么都没干」。task 当初进这张表大概是防「反复派子代理查东西却不落地」的空转,但代价是把正常委派也一起打死了。
+- 验收: ①整轮只调 task、且子代理确有实质工具调用时,decide 不判 NoAction(单测:构造 tools=["task"] + 子代理画像有 edit,断言不返回 Stop(NoAction));②子代理的工具画像上卷进主轮画像(或等价机制,如 task 结果携带子代理 tools 摘要),口径写进 auto_run 的模块注释;③真正空转的轮仍判 NoAction——task 派出去但子代理自己也没动作时,反证测试断言照旧 Nudge/Stop;④NON_PROGRESS_TOOLS 其余成员语义不变,既有鞭挞测试(harness auto_run)全绿。
+- 优先级: P1
+
+## D-362 文档页列表行内元素流式排列:可选徽标把优先级/复杂度/标题三列推得行行错位 [open] (low)
+- refs: D-360
+- 复杂度: 小
+- 复现: 2026-08-14 用户截图(文档页分组视图「核心·13」):同一列表 13 行,优先级徽标出现在 7 个不同横坐标,标题起点 13 行几乎各不相同——R-238 的 P2 在 x≈101,R-195 的 P2 在 x≈330,相差两百多像素。肉眼扫不出「哪些是 P0」,得逐行读。
+- 影响: 列表的价值是横向扫读(一眼看出优先级分布、哪些被阻塞),列错位之后只能逐行读,等于把列表退化成一堆句子。条目越多越明显。
+- 标签: 前端
+- 根因: 11-docs-list.js 的 doc-row 是纯流式行:勾选框 → 被取得徽标(可选)→ 批次进度格(可选,格数还随批次总数 1~12 变宽)→ 阻塞徽标(可选)→ 待澄清徽标(可选)→ 优先级 → 复杂度 → 标题,全部 appendChild 顺次排列。可选元素的有无与宽窄直接把后面所有列往右推,行与行之间没有任何列对齐机制。侧栏窄、行少时看不出来,文档页宽列表 13 行摊开就全散了。
+- 验收: ①文档页列表的优先级/复杂度/标题三列在同组内左对齐(grid 固定列宽或等价方案),可选徽标的有无不影响后续列起点;②侧栏窄列表形态不回归(它本来就该紧凑,不强求同一套列宽);③批次格宽度随格数变化时不破坏对齐;④ui-runtime-smoke 与 ui-a11y 冒烟保持绿。
+- 优先级: P3
