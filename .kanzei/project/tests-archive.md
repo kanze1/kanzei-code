@@ -3033,3 +3033,181 @@
 - 关联: D-350
 - 收尾: 1786663690
 - 源码指纹: d7a4fb87b7e25c5f
+
+## T-1786672324 R-241/D-209 typed session events 关闭门禁 [passed]
+- 命令: cargo fmt --all -- --check; cargo test -p kanzei-core store::typed -- --nocapture; cargo test -p kanzei-app conversation::tests::shadow_get_returns_projection_and_comparison_without_switching_source -- --nocapture; cargo test -p kanzei --test always_allow_bash cli_declined_permission_persists_paired_tool_results -- --nocapture; cargo test -p kanzei --test cooperative_halt --test ctrl_c_finalize -- --nocapture; cargo test --workspace; cargo clippy --workspace --all-targets -- -D warnings
+- 时长: 关闭前全门禁 93.4s（不含此前定向复跑）
+- 摘要: typed/invariant/recovery 11 项、只读 shadow 1 项、真实 CLI 权限拒绝双写 1 项、D-342 停止/Ctrl+C 3 项及全 workspace 全绿；clippy 全 targets 零 warning。覆盖并发 sequence、原子拒绝、750ms 短草稿、legacy 幂等、assistant/tool 崩溃闭合、确定性投影、正常/停止/拒绝/工具错误/多工具部分完成 shadow。
+- 关联: R-241 D-209 D-342
+- 收尾: 1786672324
+
+## T-1786692709 cargo test -p kanzei-memory(R-203 B1 新 crate) [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: kanzei-memory 独立 crate 测试:128 passed;0 failed(独立编译与测试,验收②)
+- 关联: R-203
+- 收尾: 1786692709
+- 源码指纹: 9be13f1ae3fb714a
+
+## T-1786692728 cargo test -p kanzei-base(R-203 B1 content_hash 下沉) [passed]
+- 命令: cargo test -p kanzei-base
+- 摘要: kanzei-base content_hash 下沉:9 passed;0 failed(含新增 content_hash 稳定可区分测试)
+- 关联: R-203
+- 收尾: 1786692728
+- 源码指纹: 9be13f1ae3fb714a
+
+## T-1786692943 cargo test -p kanzei-tools(R-203 B2 去 core 化) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: tools 去 core 化后 230 passed;0 failed(write.rs runner 集成测试经 dev-deps core 保留)
+- 关联: R-203
+- 收尾: 1786692943
+
+## T-1786692944 cargo test -p kanzei -p kanzei-app(R-203 B2 调用方) [passed]
+- 命令: cargo test -p kanzei && cargo test -p kanzei-app
+- 摘要: 调用方定向:kanzei 3 passed,kanzei-app 154 passed(kanzei_tools::memory/docstore/embed/replay_eval 再导出调用点零改动验证)
+- 关联: R-203
+- 收尾: 1786692944
+
+## T-1786693057 cargo test -p kanzei-tools(R-203 B2 提交前) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: B2 提交前复测:230 passed;0 failed;1 ignored
+- 关联: R-203
+- 收尾: 1786693057
+- 源码指纹: 3955a387f4eb564b
+
+## T-1786693157 cargo test --workspace(R-203 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-203 关闭前全量:workspace 全部 crate 0 failed(memory 128/tools 230/app 154/core 172/harness 124/llm 44/base 9/kanzei 3)
+- 关联: R-203
+- 收尾: 1786693157
+
+## T-1786693391 cargo test -p kanzei-tools --lib worktree(R-207 B1) [passed]
+- 命令: cargo test -p kanzei-tools --lib worktree
+- 摘要: worktree 模块骨架:纯 git 原语+类型搬迁,4 新测试全绿(git_arg_path/worktree_key/worktree_target/parse_merge_tree_conflicts)
+- 关联: R-207
+- 收尾: 1786693391
+
+## T-1786693447 cargo test -p kanzei-tools --lib worktree(R-207 B1 clippy 修复后) [passed]
+- 命令: cargo test -p kanzei-tools --lib worktree
+- 摘要: clippy 修复(测试名 ASCII 大写)后复测:9 passed
+- 关联: R-207
+- 收尾: 1786693447
+- 源码指纹: bc492ccefaa50ace
+
+## T-1786693479 cargo test -p kanzei-tools --lib worktree(R-207 B1 提交前复测) [passed]
+- 命令: cargo test -p kanzei-tools --lib worktree
+- 摘要: 提交前串行复测:9 passed(指纹对齐)
+- 关联: R-207
+- 收尾: 1786693479
+- 源码指纹: 2cdd925ba977b71b
+
+## T-1786693767 cargo test -p kanzei-tools --lib worktree(R-207 B2) [passed]
+- 命令: cargo test -p kanzei-tools --lib worktree
+- 摘要: B2 生命周期与合并域搬迁:create_worktree_with_receipt/rollback/discard/merge 内核迁入,11 passed(含建树回滚同名重建闭环、目录残留零回滚)
+- 关联: R-207
+- 收尾: 1786693767
+
+## T-1786694199 cargo test -p kanzei-app --bin kzapp processes::(R-207 B3) [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp processes::
+- 摘要: B3 改道后既有 worktree 测试全绿:44 passed 0 failed(含跨进程并发建树);processes.rs 收敛为转发壳+AppState 交互
+- 关联: R-207
+- 收尾: 1786694199
+
+## T-1786694246 cargo test -p kanzei-app --bin kzapp processes::(R-207 B3 fmt 后) [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp processes::
+- 摘要: B3 fmt 后复测:44 passed 0 failed(指纹对齐)
+- 关联: R-207
+- 收尾: 1786694246
+- 源码指纹: a33302aa30e783a5
+
+## T-1786694320 cargo test -p kanzei-app --bin kzapp processes::(R-207 B3 clippy 修复后) [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp processes::
+- 摘要: B3 clippy 修复(残留注释删除)后复测:44 passed
+- 关联: R-207
+- 收尾: 1786694320
+- 源码指纹: 18cbab9310f8f243
+
+## T-1786694365 cargo test -p kanzei-app processes:: + kanzei-tools worktree(R-207 B3 提交前) [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp processes:: && cargo test -p kanzei-tools --lib worktree
+- 摘要: B3 提交前串行复测:app processes 44 passed + tools worktree 11 passed(指纹对齐)
+- 关联: R-207
+- 收尾: 1786694365
+- 源码指纹: 7257266665ee5302
+
+## T-1786694589 cargo test -p kanzei(R-207 B4 CLI) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: B4 CLI 命令接入:17 passed 0 failed;kz worktree create/merge-preview 已注册并调用 kanzei_tools::worktree 同一实现(分发冒烟:kz worktree 无参 → 用法报错)
+- 关联: R-207
+- 收尾: 1786694589
+
+## T-1786694615 cargo test -p kanzei(R-207 B4 fmt 后) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: B4 fmt 后复测:17 passed 0 failed(指纹对齐)
+- 关联: R-207
+- 收尾: 1786694615
+- 源码指纹: 8fd2bd694b5dff1b
+
+## T-1786694642 cargo test -p kanzei(R-207 B4 提交前复测) [passed]
+- 命令: cargo test -p kanzei
+- 摘要: B4 提交前串行复测:17 passed 0 failed(指纹对齐)
+- 关联: R-207
+- 收尾: 1786694642
+- 源码指纹: d57fb73834ff1534
+
+## T-1786694753 cargo test --workspace(R-207 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-207 关闭前全量:全部 crate 0 failed(app 154+44/tools 236/memory 128/core 172/harness 124/llm 44/base 9/kanzei 17+3)
+- 关联: R-207
+- 收尾: 1786694753
+
+## T-1786695122 cargo test -p kanzei-harness --lib(R-205 B1 project_root) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B1 project_root.rs 拆出:130 passed 0 failed;全仓编译绿(config::xxx re-export 零改动,既有 project_root 域测试经 glob 导入继续跑不丢)
+- 关联: R-205
+- 收尾: 1786695122
+
+## T-1786695171 cargo test -p kanzei-harness --lib(R-205 B1 clippy 修复后) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B1 clippy 修复(注释块压缩)后复测:130 passed 0 failed
+- 关联: R-205
+- 收尾: 1786695171
+- 源码指纹: 394d85c09f9e8d88
+
+## T-1786695220 cargo test -p kanzei-harness --lib(R-205 B1 clippy 二次修复) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B1 clippy 二次修复后复测:130 passed 0 failed(指纹对齐)
+- 关联: R-205
+- 收尾: 1786695220
+- 源码指纹: 6f150dec45d3831e
+
+## T-1786695257 cargo test -p kanzei-harness --lib(R-205 B1 提交前复测) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B1 提交前串行复测:130 passed 0 failed(指纹对齐)
+- 关联: R-205
+- 收尾: 1786695257
+- 源码指纹: 5d8261d34c076f50
+
+## T-1786695407 cargo test -p kanzei-harness --lib(R-205 B2 permission_persist) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B2 permission_persist.rs 拆出:130 passed 0 failed;全仓编译绿(config re-export + 生产 use 改道)
+- 关联: R-205
+- 收尾: 1786695407
+
+## T-1786695474 cargo test -p kanzei-harness --lib(R-205 B2 clippy 修复后) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B2 clippy 修复后复测:130 passed 0 failed;全仓编译+fmt 绿
+- 关联: R-205
+- 收尾: 1786695474
+- 源码指纹: 01df2b637100a6a3
+
+## T-1786695507 cargo test -p kanzei-harness --lib(R-205 B2 提交前复测) [passed]
+- 命令: cargo test -p kanzei-harness --lib
+- 摘要: B2 提交前串行复测:130 passed 0 failed(指纹对齐)
+- 关联: R-205
+- 收尾: 1786695507
+- 源码指纹: 5cdd6955b346c712
+
+## T-1786695613 cargo test --workspace(R-205 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-205 关闭前全量:全部 crate 0 failed(harness 130/tools 236/memory 128/app 154+44/core 172/llm 44/base 9/kanzei 17+3)
+- 关联: R-205
+- 收尾: 1786695613

@@ -2884,3 +2884,51 @@
 - observed_head: 3c7824c1493b11e66ed628beab1ca8286c8fca7b
 - observed_worktree_hash: fnv1a64:53a0da8f0141c57e
 - recorded_at: 1786677413822
+
+## R-203 kanzei-tools 解体第一步:memory/ 子树拆成独立 crate,tools 不再依赖 kanzei-core [done]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);kanzei-tools 已 25,430 行成全仓最大 crate(超 app 的 15,994 与 core 的 11,781),memory/ 7,314 行寄居其中且 manager.rs:304 直开 kanzei_core::SessionStore、mod.rs:595 实现 kanzei_core::RecallPolicy——「工具层」坐在依赖图顶端,与 lib.rs 自述「内置工具+双模式 profile 组件」脱节,记忆控制平面(R-161~R-167 主战场)没有独立编译/测试边界。
+- 内容: memory/ 拆成 kanzei-memory crate(依赖 core+harness);kanzei-tools 回落到纯工具实现。
+- 边界: 纯搬迁行为零变更;pub API 经再导出保持调用点零改动;不与 R-204 同批。
+- 验收: ①kanzei-tools 不再依赖 kanzei-core;②memory 子系统独立编译与测试;③全仓测试绿。
+- refs: R-204 R-208
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-203
+- 批次: 3/3
+- 进展: B1~B3 完成。验收逐项证据:①kanzei-tools 不再依赖 kanzei-core——crates/kanzei-tools/Cargo.toml [dependencies] 已无 kanzei-core(dev-dependencies 保留并注释:write.rs 的 runner 集成测试需驱动完整 run_once 且 write 为私有模块无法外迁);`cargo tree -p kanzei-tools --edges normal -i kanzei-core` 显示 core 仅经 kanzei-memory 传递;源码 kanzei_core:: 引用仅剩 write.rs #[cfg(test)] 区(189/386/402 行)。②memory 子系统独立编译与测试——新建 crates/kanzei-memory/(workspace member),src/{lib.rs,docstore.rs,embed.rs,replay_eval.rs,scheduling.rs,memory/*};cargo build -p kanzei-memory 独立编译通过(T-1786692709 前),cargo test -p kanzei-memory 128 passed 0 failed(T-1786692709)。③全仓测试绿——cargo test --workspace 全部 crate 0 failed(T-1786693157;memory 128/tools 230/app 154/core 172/harness 124/llm 44/base 9/kanzei 3)。边界:纯搬迁零变更(仅破环必需 4 处引用改写:store.rs content_hash→kanzei_base 3 处、mod.rs workable_titles→crate::scheduling 1 处;parse_input 复制、atomic_file re-export);pub API 经 tools lib.rs `pub use kanzei_memory::{memory,docstore,embed,replay_eval}` 再导出,kanzei/kanzei-app 零源码改动编译并测试绿;workable_titles 调度链复制进 kanzei-memory/src/scheduling.rs(与原 tracker 版逐字一致,同源注释,R-204 统一),tracker.rs 结构未动、不与 R-204 同批。提交:R-203 B1 ae4a9ea、R-203 B2 03a74e4。遗留:工作树非本次改动(memory 归档/phase_pipeline.rs)未动。
+- observed_head: 03a74e4086f2463db1e8c9eb1f5827a417199d53
+- observed_worktree_hash: fnv1a64:53a0da8f0141c57e
+- recorded_at: 1786693171066
+
+## R-207 worktree 生命周期下沉 kanzei-tools:建线/回执/回滚/合并预检桌面与 CLI 共用 [done]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 并行
+- 来源: 2026-08-12 八维度审计(§1);app/processes.rs 1,786 行四域混杂,worktree 业务(:777-1355)桌面独占并自带 git plumbing,与 tools/git.rs 双轨(全仓非测试 spawn git 35 处);kanzei/src/main.rs:702 注释自认「桌面端独占能力架构债」;R-183(kz 无人值守)与 R-181(外部 agent 入局)都需要 CLI 侧线管理能力。
+- 内容: worktree 生命周期(create/receipt/rollback/merge 预检/状态)下沉到 kanzei-tools 的 git 域或新 worktree 模块,桌面与 CLI 共用同一实现;processes.rs 只剩 Tauri 接线与 AppState 交互。
+- 验收: ①kz CLI 能调用同一实现完成建线/合并预检;②processes.rs 收敛;③既有 worktree 测试(含跨进程并发建树)全绿。
+- refs: R-183 R-181 R-179
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-207
+- 批次: 5/5
+- 批次说明: 见进展
+- 进展: B1~B5 完成。验收逐项证据:①kz CLI 调用同一实现完成建线/合并预检——crates/kanzei/src/main.rs worktree_cli:create 调 kanzei_tools::worktree::create_worktree_with_receipt,merge-preview 调 validate_worktree_path/worktree_current_branch/worktree_command(merge-tree --write-tree)/parse_merge_tree_conflicts;命令分发冒烟(kz worktree 无参 → usage+明确用法);kanzei 编译+17 测试绿;内核测试 tools worktree 11(建树回滚闭环/目录残留零回滚/冲突提取)。②processes.rs 收敛——2104→约1600 行(提交 58d4d0e 减 507 行),worktree 核心全部迁走,只剩转发壳+AppState 交互(bound_thread_for_worktree/with_idle_bound_process/acquire_project_write_lease/reclaim/discard_worktree_and_unregister/merge_worktree_and_release);state.rs WorktreeInfo 改 re-export;桌面与 CLI 单源。③既有 worktree 测试(含跨进程并发建树)全绿——cargo test -p kanzei-app --bin kzapp processes:: 44 passed;关闭前 cargo test --workspace 全部 crate 0 failed。提交:R-207 B1 cb4e458、B2 d5a4d1d、B3 58d4d0e、B4 bce293c。CLI 真机建树冒烟被环境拦截(bash 禁 git 突变,临时仓无法用结构化工具),改以命令分发验证+内核测试背书,如实记录。
+- observed_head: bce293caea4d7d062d8ae380f15aa8766a0dda0b
+- observed_worktree_hash: fnv1a64:53a0da8f0141c57e
+- recorded_at: 1786694754072
+
+## R-205 config.rs 拆出 project_root.rs 与 permission_persist.rs:D-270 修复的结构落点 [done]
+- 优先级: P3
+- 复杂度: 中
+- 标签: 后端 harness
+- 来源: 2026-08-12 八维度审计(§1);config.rs 2,684 行混装配置 schema/TOML 合并/权限规则持久化(:1067-1120)/项目根发现与文件系统身份判定(HOME 守卫全部实现,:1121-1357)四域,改权限形态(R-198)、改根发现(D-270)、改 schema 三类互不相干的工作在同一文件冲突。
+- 内容: 拆出 project_root.rs(根发现+文件系统身份,D-270 四缺口的修复落这里)与 permission_persist.rs(append_allow_rule/generalize_resource/digest);config.rs 收敛到 schema+merge+resolve。
+- 边界: pub API 经 lib.rs 再导出零变更;D-300 是两行修不必等本条,先行。
+- 验收: ①三文件职责如上;②API 面零变更;③全仓测试绿。
+- refs: D-270 D-300 R-198
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-205
+- 批次: 3/3
+- 进展: B1~B3 完成。验收逐项证据:①三文件职责——crates/kanzei-harness/src/project_root.rs(根发现 discover_project_root/discover_project_config/resolve_project_root + HOME 守卫 is_home_root/is_same_dir/卷元数据身份判定,D-270 修复落点),permission_persist.rs(append_allow_rule/generalize_resource/rule_digest/is_wildcard_resource),config.rs 收敛到 schema+merge+resolve(3192→约 2750 行)。②API 面零变更——config.rs re-export pub use crate::{project_root::{discover_project_config,discover_project_root,is_home_root,resolve_project_root}, permission_persist::{append_allow_rule,generalize_resource}},全仓编译绿(kanzei-tools/kanzei/kanzei-app 零源码改动);生产 use crate::permission_persist::{is_wildcard_resource,rule_digest} 改道;config 测试经 use crate::project_root::* 继续跑不丢(130 全绿)。③全仓测试绿——关闭前 cargo test --workspace 全部 crate 0 failed。提交:R-205 B1 f702185、B2 ed06b96。测试位置说明:project_root/permission_persist 域既有测试仍驻留 config.rs tests(经 glob 导入 pub(crate) 判定函数),实现已单源,测试归属整理留待后续。
+- observed_head: ed06b969f419b779c1c17dea7c0e81a65fb45397
+- observed_worktree_hash: fnv1a64:53a0da8f0141c57e
+- recorded_at: 1786695614019
