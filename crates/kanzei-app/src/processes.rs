@@ -803,9 +803,11 @@ async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<Stri
             );
         }
         let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台进程"));
-        let release = (!released.is_empty())
-            .then(|| format!("；已释放取活绑定 {}", released.join(", ")))
-            .unwrap_or_default();
+        let release = if released.is_empty() {
+            String::new()
+        } else {
+            format!("；已释放取活绑定 {}", released.join(", "))
+        };
         match disposal {
             Some(Ok(())) => Ok(format!(
                 "已关闭线路 {process_id} 并回收已合并的干净工作树{}{release}",
