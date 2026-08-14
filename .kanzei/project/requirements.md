@@ -288,30 +288,30 @@
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
 
-## R-242 会话真源切换、确定性清空删除与投影恢复 [todo]
+## R-242 会话投影真源切换与分段清空恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-241
-- 内容: shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复切到事件投影；停止新增 conversation.updated，进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment；删除会话经风险确认后，在一个可恢复失败的事务中物理删除该会话事件、投影缓存和所引用 Spill artifact。
+- 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
-- 批次: 0/5
+- 批次: 0/4
 - 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
 - 标签: 核心
-- 边界: 清空不删除原始事件；删除分两级说明：确认事务提交后，产品层确定性不可检索且重启不复生；若用户在“存储与整理”中继续执行安全擦除，则还要处理 SQLite freelist、WAL 与迁移备份。删除前弹窗列出会话、运行轨迹、未完成草稿、工具 artifact，以及“仅删除”或“删除并安全整理”的差异；用户取消零写入。
-- 迁移与回滚: 切换按读路径逐项 feature gate；旧 snapshot 在观察期只读保留，验证期结束后再停止新增。数据库迁移前备份；物理删除事务失败必须整体回滚并报告未删除。安全整理在会话删除事务之后独立执行：先阻止新写入/等待连接静止，再处理 WAL checkpoint、VACUUM/secure_delete 与包含该会话数据的旧迁移备份；失败必须明确报告“产品层已删除、磁盘整理未完成”，不可宣称安全擦除。
-- 阻塞: 等待 R-241 shadow comparison 达标且用户从登记方案中选为核心。
-- 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④清空后新 segment prior 为空但旧 segment 可审计；⑤删除弹窗明确且取消零写入；确认删除后事件、投影与引用 artifact 在产品层不可检索且重启不复生；⑥删除事务任一点故障注入整体回滚；⑦“删除并安全整理”成功后 WAL 已截断、freelist/旧内容经受控 VACUUM 或 secure_delete 处置，包含旧正文的迁移备份一并列出并由用户确认删除；⑧旧 snapshot 与 projection 对照达到门槛后才关闭 feature gate。
+- 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
+- 迁移与回滚: 不新增表、列或索引时不创建空 migration。切换按五条读路径分别启用 feature gate，legacy snapshot 在观察期只读保留；任一路径出现未知差异即回退该路径。全部 gate 稳定后才停止新增 conversation.updated，既有 snapshot 不删除。
+- 阻塞: 等待含 R-241 的安装版本产生真实 shadow 样本并达到门槛：至少30个真实 turn；typed_write_errors 为0；正常可比较 turn 全部 equal=true；停止、权限拒绝、工具错误、多工具部分完成及受控 draft/tool 重启路径均有可解释证据。
+- 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④conversation.reset 后新 segment prior 为空但旧 segment 可审计，重复 reset 幂等；⑤至少30个真实 shadow turn 达标，typed_write_errors=0、正常可比较 turn 全部 equal=true、未知差异为0；⑥五条 feature gate 可独立回滚，回滚后 legacy 行为与切换前一致；⑦对照稳定后停止新增 conversation.updated，既有 snapshot 仍可只读回放。
 - 优先级: P1
 
 ## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
 - refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
-- 依赖: R-241
+- 依赖: R-242
 - 内容: 将现有 compact_with_digest 的存储语义改为 compaction_started→compaction_summary→surface_replaced→compaction_ended 追加事务；模型上下文只消费 surface projection，原始 Session 事件不修改不删除；连续压缩走已交付滚动合并。
 - 复杂度: 中
 - 批次: 0/3
 - 来源: DeepSeek Harness compaction 事件事务；复用已交付 R-236 的纪要模型、模板和质量闸。
 - 标签: 核心
-- 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 失败保留原 surface，未完成事务在恢复时显式失效。
-- 阻塞: 等待 R-241 typed events 与 projector；是否进入核心批次由用户决定。
+- 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 只在 R-242 正式 surface projection 上追加事务，失败保留原 surface，未完成事务在恢复时显式失效；不修改 format_version=1 的既有消息事实。
+- 阻塞: 等待 R-242 完成五条读路径真源切换并冻结正式 SessionProjection/segment 语义；R-243 与 R-242 由同一主线串行实施，不交给并行自举线。
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 
@@ -329,17 +329,17 @@
 - 优先级: P1
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
-- refs: D-209 R-180 D-297 D-298 docs/design/deepseek_harness_upgrade.md
-- 依赖: R-244
-- 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash/git/test_record/web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供“存储与整理”入口：按类别/会话/日期/大小预览占用，支持清理无引用 artifact、删除已选会话及其 artifact、SQLite checkpoint/VACUUM 安全整理、迁移备份管理；默认不自动过期。
+- refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
+- 依赖: R-242 R-244
+- 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash、git、test_record、web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供存储与整理入口，按类别、会话、日期、大小预览占用，支持清理无引用 artifact；经风险确认后，用可恢复失败的删除计划物理删除已选会话的事件、投影和引用 artifact；并支持 SQLite checkpoint、VACUUM 与迁移备份管理。默认不自动过期。
 - 复杂度: 大
 - 批次: 0/5
 - 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
 - 标签: 核心
-- 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通删除保证产品不可检索；安全整理才处理 SQLite freelist/WAL/含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，因此不能把 DELETE 行等同磁盘字节已擦除。显式整理不是定时任务。
+- 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通会话删除保证产品不可检索且重启不复生；安全整理才处理 SQLite freelist、WAL 和含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，不能把 DELETE 行等同磁盘字节已擦除。弹窗必须区分仅删除与删除并安全整理，取消零写入；显式整理不是定时任务。
 - 迁移与回滚: artifact 原子写入后再提交引用事件；任一步失败不得留下有效事件指向缺失文件。删除使用引用图和事务清单，失败可重试；schema 迁移前备份。关闭 Spill 可回到 Inline，但已有引用仍必须可读。
-- 阻塞: 等待 R-244 统一 Result Policy；是否进入核心批次由用户决定。
-- 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦物理删除会话同步删除引用 artifact；⑧安全整理仅在运行静止时执行，成功后 checkpoint/VACUUM 结果与备份处置可核对，busy/失败不静默；⑨权限、路径逃逸、不可预测文件名和磁盘配额有测试。
+- 阻塞: 等待 R-242 固定 segment/会话投影边界，等待 R-244 统一 Result Policy 与 ToolOutput 公共契约；契约冻结后 telemetry、artifact 适配和整理 UI 可拆给自举线，物理删除与安全整理事务仍由主线审查。
+- 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦删除弹窗列出会话事件、轨迹、草稿与 artifact，仅删除和删除并安全整理差异明确，取消零写入；⑧确认删除后事件、投影和引用 artifact 产品层不可检索且重启不复生，删除计划任一点失败可恢复重试；⑨安全整理仅在运行静止时执行，成功后 checkpoint、VACUUM 与备份处置可核对，busy 或失败不静默；⑩权限、路径逃逸、不可预测文件名和磁盘配额有测试。
 - 优先级: P1
 
 ## R-246 LineRuntime 统一资源 owner：幂等 dispose 与持久服务显式移交 [todo]

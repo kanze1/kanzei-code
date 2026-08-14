@@ -171,6 +171,8 @@ R-241 没有新增表、列、索引或 SQLite schema version，直接复用既�
 
 ### 删除
 
+实现归属调整（2026-08-14）：R-242 只切换事件投影真源并实现 segment reset；会话事件、投影和引用 artifact 的确定性删除计划，以及 WAL/freelist/迁移备份安全整理，统一由 R-245 实现。这样 R-242 不依赖尚未存在的 Spill artifact，也不会与整理入口重复建设。
+
 “删除会话”弹窗必须列出将删除的：
 
 - 消息、流式草稿与运行轨迹；
@@ -275,7 +277,7 @@ R-180 已经交付的 persistent 服务不能重做。它必须通过 adoption �
 | 顺序 | 条目 | 进入下一阶段的门槛 |
 | --- | --- | --- |
 | 1 | R-241 Typed Events + Shadow Projection | 所有终态路径闭合；legacy 迁移幂等；shadow 差异可解释 |
-| 2 | R-242 会话真源切换 | 故障注入无已发生事实丢失；五条读路径一致 |
+| 2 | R-242 会话投影真源切换与 segment reset | 至少 30 个真实 shadow turn 达标；故障注入无已发生事实丢失；五条读路径一致 |
 | 3 | R-243 Surface Compaction | raw hash 不变；连续压缩 replay 一致 |
 | 4 | R-244 Tool Pipeline | 现有权限语义无回归；阶段顺序与唯一结果成立 |
 | 5 | R-245 Spill + 整理 | 无悬空引用；重启可回读；整理 dry-run 与结果可核对 |
@@ -297,6 +299,7 @@ R-180 已经交付的 persistent 服务不能重做。它必须通过 adoption �
 
 - 2026-08-14：建立设计草案；纳入用户确认的确定性删除、部分 assistant 恢复和无自动过期/显式整理边界；拆分 R-241～R-246，收敛 D-209，新增 D-349 与 A-012 草案。
 - 2026-08-14：完成 R-241 shadow 实现：冻结 format v1 与提交前 invariant，接入 CLI/桌面双写、750 ms/2,048 字符草稿批次、legacy seed、崩溃闭合、确定性 projector、只读 shadow 命令和逐轮差异事件；复用既有 `session_events`，无 schema migration。
+- 2026-08-14：根据自举就绪度评估重整后续边界：R-242 收敛为五条读路径真源切换与 segment reset，真实 shadow gate 固定为至少 30 turn；R-243 改为依赖 R-242；会话物理删除、artifact 联动与安全整理统一归入 R-245。
 
 ## TODO 与后续风险
 
