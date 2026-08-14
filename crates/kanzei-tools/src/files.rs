@@ -97,18 +97,8 @@ fn is_vendor_rel(rel: &str) -> bool {
     })
 }
 
-fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
-pub fn content_hash(bytes: &[u8]) -> String {
-    format!("fnv-{:016x}", fnv1a(bytes))
-}
+/// 内容指纹(R-203 下沉 kanzei-base 单源:memory 与 files 共用,不再养第二份)。
+pub use kanzei_base::content_hash;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {

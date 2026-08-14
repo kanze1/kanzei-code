@@ -4,13 +4,17 @@ pub mod architecture;
 /// 原子写原语下沉到 kanzei-llm(依赖图最底层,D-261):llm 的 auth/store 与
 /// tools 的 docstore/test_record/memory/files 共用同一套,仓里不再养第二份。
 pub use kanzei_base::atomic_file;
+/// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
+/// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
+pub use kanzei_memory::docstore;
+pub use kanzei_memory::embed;
+pub use kanzei_memory::memory;
+pub use kanzei_memory::replay_eval;
 mod background;
 mod base;
 mod bash;
 pub mod conventions;
-pub mod docstore;
 mod edit;
-pub mod embed;
 pub mod files;
 pub mod frontend;
 mod git;
@@ -18,7 +22,6 @@ pub mod git_batches;
 mod glob;
 mod grep;
 mod managed;
-pub mod memory;
 mod process;
 mod question;
 mod read;
@@ -32,7 +35,6 @@ pub mod work;
 mod write;
 
 pub mod profiles;
-pub mod replay_eval;
 pub mod subagent;
 pub mod symbols;
 

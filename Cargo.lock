@@ -2301,6 +2301,7 @@ dependencies = [
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
+ "kanzei-memory",
  "reqwest 0.12.28",
  "rusqlite",
  "schemars 0.8.22",
