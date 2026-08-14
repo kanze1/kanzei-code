@@ -326,12 +326,40 @@ pub(crate) fn record_live_trace_at_path(
     }
 }
 
+/// 主根:项目规范化根目录(`normalized_project_root` 的产物)。
+/// 与 [`WorktreeRoot`] 是**不同类型**——主根与工作树根互相传反在编译期报错,
+/// 不再靠「改本文件前先读字段口径注释」的纪律站岗(D-367)。
+///
+/// 反例实证(2026-08-16 实际编译捕获,rustc E0308):
+/// ```text
+/// let _counterexample: &WorktreeRoot = &process.project_dir;  // project_dir: ProjectRoot
+/// error[E0308]: mismatched types
+///    = note: expected reference `&WorktreeRoot`
+///             found reference `&ProjectRoot`
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ProjectRoot(pub PathBuf);
+
+/// 工作树根:一条线的执行工作树目录(git worktree 路径)。
+/// 与 [`ProjectRoot`] 类型不同,传给需要主根的地方编译不过(D-367)。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct WorktreeRoot(pub PathBuf);
+
+impl WorktreeRoot {
+    pub fn as_path(&self) -> &Path {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ProcessHandle {
     pub(crate) id: String,
-    pub(crate) origin_project: String,
-    pub(crate) project_dir: String,
-    pub(crate) worktree_path: Option<String>,
+    /// 恒为主根(`normalized_project_root` 的规范化形态),绝不存工作树路径。
+    pub(crate) origin_project: ProjectRoot,
+    /// 恒为主根:进程编号按它分桶、state.db 按它定位、session_id 按它推导。
+    pub(crate) project_dir: ProjectRoot,
+    /// 执行工作树**只**由这个字段承担;类型与主根不同,传反编译不过。
+    pub(crate) worktree_path: Option<WorktreeRoot>,
     /// git 工作树对应的真实分支名。默认线为 None;分支线由 git 真源恢复。
     pub(crate) branch: Option<String>,
     pub(crate) model: Arc<Mutex<Option<String>>>,
@@ -478,8 +506,8 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
         .entry(id.clone())
         .or_insert_with(|| ProcessHandle {
             id: id.clone(),
-            origin_project: root.display().to_string(),
-            project_dir: root.display().to_string(),
+            origin_project: ProjectRoot(root.to_path_buf()),
+            project_dir: ProjectRoot(root.to_path_buf()),
             worktree_path: None,
             branch: None,
             model: Arc::new(Mutex::new(None)),
@@ -494,8 +522,9 @@ pub(crate) fn ensure_default_process(state: &AppState, root: &Path) -> ProcessHa
         .clone()
 }
 pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> ProcessInfo {
-    let root = PathBuf::from(&process.project_dir);
-    let session_id = process_session_id(&root, Some(&process.id));
+    // D-367:project_dir 是 ProjectRoot(恒主根),直接取路径算 session_id。
+    let root = &process.project_dir.0;
+    let session_id = process_session_id(root, Some(&process.id));
     let running = state
         .runtimes
         .lock()
@@ -511,9 +540,13 @@ pub(crate) fn process_info(state: &AppState, process: &ProcessHandle) -> Process
         .unwrap_or_else(|| "空闲".into());
     ProcessInfo {
         id: process.id.clone(),
-        origin_project: process.origin_project.clone(),
-        project_dir: process.project_dir.clone(),
-        worktree_path: process.worktree_path.clone(),
+        // ProcessInfo 是 IPC 输出类型,保持 String(前端契约不变)。
+        origin_project: process.origin_project.0.display().to_string(),
+        project_dir: process.project_dir.0.display().to_string(),
+        worktree_path: process
+            .worktree_path
+            .as_ref()
+            .map(|worktree| worktree.0.display().to_string()),
         branch: process.branch.clone(),
         session_id,
         model: process.model.lock().unwrap().clone(),

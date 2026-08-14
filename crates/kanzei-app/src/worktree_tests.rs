@@ -1323,7 +1323,7 @@ async fn project_dir恒主根_三个构造点逐处成立() {
 
     // 构造点 1:默认进程。
     let default = ensure_default_process(&state, &canonical);
-    assert_eq!(default.project_dir, expected);
+    assert_eq!(default.project_dir.0, canonical);
     assert_eq!(default.worktree_path, None);
 
     // 构造点 2:建线(带 worktree —— 这是唯一可能把树路径渗进 project_dir 的入口)。
@@ -1347,12 +1347,18 @@ async fn project_dir恒主根_三个构造点逐处成立() {
     restore_processes_from_store(&state, &canonical).unwrap();
     let processes = state.processes.lock().unwrap();
     let restored = processes.get(&info.id).expect("这条线必须能从库里恢复出来");
-    assert_eq!(restored.project_dir, expected, "回读之后仍须是主根");
-    assert_eq!(restored.origin_project, expected);
-    assert_eq!(restored.worktree_path, info.worktree_path);
+    assert_eq!(restored.project_dir.0, canonical, "回读之后仍须是主根");
+    assert_eq!(restored.origin_project.0, canonical);
+    assert_eq!(
+        restored
+            .worktree_path
+            .as_ref()
+            .map(|worktree| worktree.0.display().to_string()),
+        info.worktree_path
+    );
     for process in processes.values() {
         assert_eq!(
-            process.project_dir, expected,
+            process.project_dir.0, canonical,
             "内存表里每一条线的 project_dir 都必须是主根"
         );
     }

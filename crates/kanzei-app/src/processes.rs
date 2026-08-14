@@ -1,10 +1,13 @@
 //! Process and worktree commands.
 //!
-//! # 字段口径(F4 定死,先读这一段再改本文件)
+//! # 字段口径(F4 定死,设计说明)
 //!
 //! `ProcessHandle.project_dir` 与 `ProcessHandle.origin_project` **恒为主根**
 //! (`normalized_project_root` 的规范化形态);一条线的执行工作树**只**由
-//! `worktree_path` 承担。这不是风格偏好,是四处反推主根的代码逼出来的硬约束:
+//! `worktree_path` 承担。这段约束已由**类型层强制**(D-367):`project_dir` /
+//! `origin_project` 是 [`ProjectRoot`](crate::ProjectRoot),`worktree_path` 是
+//! [`WorktreeRoot`](crate::WorktreeRoot),两者是不同的 newtype,互相传反编译不过。
+//! 下面列的是这段不变式为什么存在(四处反推主根的代码依赖它):
 //!
 //! - 本文件 `create_process` 的 `p{n}` 计数按 `project_dir` 分桶——改存 worktree
 //!   后每棵树各自从 p1 开始,编号立刻撞车;
@@ -32,7 +35,8 @@ use tauri::State;
 
 use crate::{
     ensure_default_process, halt_runtime_immediately, normalized_project_root, process_info,
-    process_session_id, AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
+    process_session_id, AppState, ProcessHandle, ProcessInfo, ProjectRoot, WorktreeInfo,
+    WorktreeRoot,
 };
 use kanzei_tools::worktree as wt;
 
@@ -98,7 +102,7 @@ pub fn process_list(
     let processes = state.processes.lock().unwrap();
     let mut result = processes
         .values()
-        .filter(|process| process.origin_project == root.display().to_string())
+        .filter(|process| process.origin_project.0 == root)
         .map(|process| process_info(&state, process))
         .collect::<Vec<_>>();
     if !result.iter().any(|item| item.id == default.id) {
@@ -158,9 +162,13 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
             .entry(record.process_id.clone())
             .or_insert_with(|| ProcessHandle {
                 id: record.process_id.clone(),
-                origin_project: record.origin_project.clone(),
-                project_dir: record.project_dir.clone(),
-                worktree_path: record.worktree_path.clone(),
+                // D-367:库值是 String,恢复时转类型化主根/工作树根。
+                origin_project: ProjectRoot(PathBuf::from(&record.origin_project)),
+                project_dir: ProjectRoot(PathBuf::from(&record.project_dir)),
+                worktree_path: record
+                    .worktree_path
+                    .as_ref()
+                    .map(|path| WorktreeRoot(PathBuf::from(path))),
                 branch: restored_branch.clone(),
                 model: Arc::new(Mutex::new(None)),
                 profile: Arc::new(Mutex::new(None)),
@@ -220,9 +228,12 @@ pub(crate) fn persist_process(root: &Path, process: &ProcessHandle) -> Result<()
     store
         .upsert_process(&kanzei_core::StoredProcess {
             process_id: process.id.clone(),
-            origin_project: process.origin_project.clone(),
-            project_dir: process.project_dir.clone(),
-            worktree_path: process.worktree_path.clone(),
+            origin_project: process.origin_project.0.display().to_string(),
+            project_dir: process.project_dir.0.display().to_string(),
+            worktree_path: process
+                .worktree_path
+                .as_ref()
+                .map(|worktree| worktree.0.display().to_string()),
             model: process.model.lock().unwrap().clone(),
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
@@ -386,7 +397,11 @@ pub(crate) async fn create_process_with_tracker(
         None => None,
     };
     let (worktree_path, branch, receipt) = match created {
-        Some((info, receipt)) => (Some(info.path), Some(info.branch), Some(receipt)),
+        Some((info, receipt)) => (
+            Some(WorktreeRoot(PathBuf::from(info.path))),
+            Some(info.branch),
+            Some(receipt),
+        ),
         None => (None, None, None),
     };
 
@@ -514,8 +529,8 @@ fn bound_thread_for_worktree(
             .find(|process| {
                 process
                     .worktree_path
-                    .as_deref()
-                    .is_some_and(|path| wt::worktree_key(Path::new(path)) == key)
+                    .as_ref()
+                    .is_some_and(|worktree| wt::worktree_key(worktree.as_path()) == key)
             })
             .map(|process| process.id.clone())
     };
@@ -571,7 +586,7 @@ fn register_process(
     state: &AppState,
     root: &Path,
     project: &str,
-    worktree_path: Option<String>,
+    worktree_path: Option<WorktreeRoot>,
     branch: Option<String>,
     planned: Option<(&Path, &str)>,
     settings: ThreadSettings,
@@ -591,8 +606,8 @@ fn register_process(
         if let Some(bound) = processes.values().find(|process| {
             process
                 .worktree_path
-                .as_deref()
-                .is_some_and(|path| wt::worktree_key(Path::new(path)) == key)
+                .as_ref()
+                .is_some_and(|worktree| wt::worktree_key(worktree.as_path()) == key)
         }) {
             return Err(bound_error(target, &bound.id));
         }
@@ -617,8 +632,9 @@ fn register_process(
 
     let process = ProcessHandle {
         id: format!("p{next}|{project}"),
-        origin_project: project.to_string(),
-        project_dir: project.to_string(),
+        // D-367:project_dir/origin_project 恒主根(类型化);worktree 只进 worktree_path。
+        origin_project: ProjectRoot(root.to_path_buf()),
+        project_dir: ProjectRoot(root.to_path_buf()),
         worktree_path,
         branch,
         model: Arc::new(Mutex::new(model.filter(|value| !value.trim().is_empty()))),
@@ -635,9 +651,12 @@ fn register_process(
     let fresh = store
         .insert_new_process(&kanzei_core::StoredProcess {
             process_id: process.id.clone(),
-            origin_project: process.origin_project.clone(),
-            project_dir: process.project_dir.clone(),
-            worktree_path: process.worktree_path.clone(),
+            origin_project: process.origin_project.0.display().to_string(),
+            project_dir: process.project_dir.0.display().to_string(),
+            worktree_path: process
+                .worktree_path
+                .as_ref()
+                .map(|worktree| worktree.0.display().to_string()),
             model: process.model.lock().unwrap().clone(),
             profile: process.profile.lock().unwrap().clone(),
             reasoning: process.reasoning.lock().unwrap().clone(),
@@ -668,7 +687,7 @@ fn next_process_index(
 ) -> u64 {
     let from_memory = processes
         .values()
-        .filter(|process| process.project_dir == project)
+        .filter(|process| process.project_dir.0.display().to_string() == project)
         .filter_map(|process| process_index(&process.id));
     let from_store = stored
         .iter()
@@ -729,10 +748,10 @@ pub fn process_update(
             .store(tracker_writes, Ordering::SeqCst);
     }
     // R-178 D3:任何字段变更同步落库(含默认进程——它是「主对话」的模型/开关状态,
-    // 重启后要用库值回填)。
-    let root = normalized_project_root(Path::new(&process.project_dir));
-    persist_process(&root, &process)?;
-    mark_project_restored(&state, &root);
+    // 重启后要用库值回填)。D-367:project_dir 恒主根,直接取类型化路径。
+    let root = &process.project_dir.0;
+    persist_process(root, &process)?;
+    mark_project_restored(&state, root);
     Ok(process_info(&state, &process))
 }
 
@@ -753,10 +772,11 @@ pub async fn process_close(
 
 async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<String, String> {
     let process_id = process.id.clone();
-    let root = PathBuf::from(&process.project_dir);
-    let session_id = process_session_id(&root, Some(&process_id));
+    // D-367:project_dir 恒主根(ProjectRoot),直接取路径。
+    let root = &process.project_dir.0;
+    let session_id = process_session_id(root, Some(&process_id));
     if process_id.starts_with("d|") {
-        let state_path = kanzei_core::project_state_path(&root);
+        let state_path = kanzei_core::project_state_path(root);
         let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
         if let Some(runtime) = state.runtimes.lock().unwrap().get(&session_id).cloned() {
             if runtime.running.load(Ordering::SeqCst) {
@@ -778,22 +798,22 @@ async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<Stri
             .tracker_writes_enabled
             .store(false, Ordering::SeqCst);
         // R-178 D3:复位后的空状态也要落库,否则重启后库里的旧值又回填回来。
-        persist_process(&root, process)?;
+        persist_process(root, process)?;
         Ok("主线路已停止并复位".into())
     } else {
         // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
         // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
         // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
-        let released = unregister_parallel_process(state, &root, &process_id)?;
-        let killed = kanzei_tools::kill_background_processes_for_process(&root, &process_id).await;
+        let released = unregister_parallel_process(state, root, &process_id)?;
+        let killed = kanzei_tools::kill_background_processes_for_process(root, &process_id).await;
         let disposal = process
             .worktree_path
-            .as_deref()
-            .map(|worktree| reclaim_worktree_on_close(&root, Path::new(worktree)));
+            .as_ref()
+            .map(|worktree| reclaim_worktree_on_close(root, worktree.as_path()));
         if let Some(Err(kept)) = disposal.as_ref() {
             // 留下来的树此刻已经无主(绑定行删了)。它至少得在**审计流里可发现**,
             // 否则磁盘上有树、库里没线、界面上没入口,三缺一地彻底失联。
-            let state_path = kanzei_core::project_state_path(&root);
+            let state_path = kanzei_core::project_state_path(root);
             let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
             let _ = store.create_session(&session_id, &root.display().to_string(), None);
             let _ = store.append_event(
@@ -885,11 +905,11 @@ fn prune_missing_worktree_processes(state: &AppState, root: &Path) -> Result<(),
         .unwrap()
         .values()
         .filter(|process| {
-            process.origin_project == project
+            process.origin_project.0.display().to_string() == project
                 && process
                     .worktree_path
-                    .as_deref()
-                    .is_some_and(|path| !Path::new(path).is_dir())
+                    .as_ref()
+                    .is_some_and(|worktree| !worktree.0.is_dir())
         })
         .map(|process| process.id.clone())
         .collect::<Vec<_>>();
@@ -1353,8 +1373,8 @@ pub fn worktree_list(
         .unwrap()
         .values()
         .filter_map(|process| {
-            let path = process.worktree_path.as_ref()?;
-            Some((wt::worktree_key(Path::new(path)), process.id.clone()))
+            let worktree = process.worktree_path.as_ref()?;
+            Some((wt::worktree_key(worktree.as_path()), process.id.clone()))
         })
         .collect();
     let mut out = Vec::new();

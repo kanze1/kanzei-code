@@ -91,7 +91,7 @@ impl CollaborationProbe {
             .unwrap()
             .values()
             .filter(|process| {
-                process.origin_project == origin
+                process.origin_project.0.display().to_string() == origin
                     && (include_current || process.id != self.current_process_id)
             })
             .cloned()
@@ -127,8 +127,8 @@ impl CollaborationProbe {
                     .unwrap_or_else(|| "空闲".into());
                 let code_root = process
                     .worktree_path
-                    .as_deref()
-                    .map(PathBuf::from)
+                    .as_ref()
+                    .map(|worktree| worktree.0.clone())
                     .unwrap_or_else(|| self.origin_project.clone());
                 // R-176 B5(验收⑥):writer/waiting 数据来自协调器快照,不是前端
                 // 推测。按每条线的代码树(write_scope)查——同树 writer 与排队者
@@ -167,7 +167,10 @@ impl CollaborationProbe {
                     label: process_label(&process),
                     process_id: process.id,
                     branch,
-                    worktree_path: process.worktree_path,
+                    worktree_path: process
+                        .worktree_path
+                        .as_ref()
+                        .map(|worktree| worktree.0.display().to_string()),
                     claim,
                     claim_error,
                     phase,
@@ -479,11 +482,11 @@ mod tests {
 
         let other = ProcessHandle {
             id: format!("p1|{}", canonical.display()),
-            origin_project: canonical.display().to_string(),
-            project_dir: canonical.display().to_string(),
+            origin_project: crate::ProjectRoot(canonical.clone()),
+            project_dir: crate::ProjectRoot(canonical.clone()),
             // 该测试不需要另建真实 worktree，但必须标成分支线，才能验证
             // 「取得线=分支名」而非默认线(None)的 tracker 归属。
-            worktree_path: Some(canonical.display().to_string()),
+            worktree_path: Some(crate::WorktreeRoot(canonical.clone())),
             branch: Some("kanzei/thread-r184".into()),
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),

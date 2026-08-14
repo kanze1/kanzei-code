@@ -160,7 +160,6 @@ async fn assemble_run(
         ),
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
-    stage("请求", "已发起,等待模型响应…".into());
     let client = new_llm_client(&proxy)?;
     let ctx = ToolCtx::new(cwd.clone(), project_root.clone())
         .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
@@ -332,6 +331,14 @@ async fn assemble_run(
     .await;
     // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
     // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
+    // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。
+    // 这一段等待发生在真正发出模型请求之前,不能把它投影成“等待模型响应”。
+    if pipeline.is_none() {
+        stage(
+            "排队",
+            "等待当前代码树写入槽；同一工作树上的线路将按顺序执行…".into(),
+        );
+    }
     let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
         pipeline.is_some(),
         coordinator.as_ref(),
@@ -998,6 +1005,7 @@ async fn run_execution_loop(
             .await
             .map_err(|e| anyhow::anyhow!("无法进入实现阶段: {e}"))?;
     }
+    stage("请求", "已取得工作树写入槽，正在等待模型首响应…".into());
     let run_result = run_once_with_parts(
         client,
         route,
@@ -2688,15 +2696,15 @@ pub(crate) async fn run_prompt(
         // 恒主根,两值今天恒等;改的是**意图**——归属问的是「这条线是从哪个项目开出来
         // 的」,不是「它此刻在哪棵树上跑」。将来若 project_dir 再指向别处,这里不会
         // 跟着把线自己拒掉。
-        if process.origin_project != project_root.display().to_string() {
+        if process.origin_project.0 != project_root {
             return Err("进程不属于当前项目".into());
         }
         process
     } else {
         ensure_default_process(&state, &project_root)
     };
-    if let Some(worktree_path) = process.worktree_path.as_deref() {
-        if !Path::new(worktree_path).is_dir() {
+    if let Some(worktree) = process.worktree_path.as_ref() {
+        if !worktree.0.is_dir() {
             crate::processes::unregister_parallel_process(&state, &project_root, &process.id)?;
             return Err(format!(
                 "隔离工作树已不存在，已移除失效线路 {}；请切回主线后重试",
@@ -2704,7 +2712,11 @@ pub(crate) async fn run_prompt(
             ));
         }
     }
-    let code_root = code_root_for(process.worktree_path.as_deref(), &project_dir);
+    let worktree_opt = process
+        .worktree_path
+        .as_ref()
+        .map(|worktree| worktree.0.display().to_string());
+    let code_root = code_root_for(worktree_opt.as_deref(), &project_dir);
     let session_id = process_session_id(&project_root, Some(&process.id));
     let profile = profile.or_else(|| process.profile.lock().unwrap().clone());
     let model = model.or_else(|| process.model.lock().unwrap().clone());

@@ -278,8 +278,8 @@ fn process_persist_then_restart_restores_line_state() {
     // ---- 第一次运行:一条非默认线,线级字段已设置,落库 ----
     let line = crate::state::ProcessHandle {
         id: format!("p1|{}", canonical.display()),
-        origin_project: canonical.display().to_string(),
-        project_dir: canonical.display().to_string(),
+        origin_project: crate::ProjectRoot(canonical.clone()),
+        project_dir: crate::ProjectRoot(canonical.clone()),
         worktree_path: None,
         branch: None,
         model: Arc::new(std::sync::Mutex::new(Some(
@@ -298,7 +298,7 @@ fn process_persist_then_restart_restores_line_state() {
     restore_processes_from_store(&restarted, &canonical).unwrap();
     let processes = restarted.processes.lock().unwrap();
     let restored = processes.get(&line.id).expect("重启后线页签丢失");
-    assert_eq!(restored.origin_project, canonical.display().to_string());
+    assert_eq!(restored.origin_project.0, canonical);
     assert_eq!(
         restored.model.lock().unwrap().as_deref(),
         Some("deepseek:deepseek-v4-flash")
@@ -356,8 +356,8 @@ fn repeated_process_restore_does_not_overwrite_live_settings() {
     let canonical = crate::normalized_project_root(&root);
     let stored = crate::state::ProcessHandle {
         id: format!("p1|{}", canonical.display()),
-        origin_project: canonical.display().to_string(),
-        project_dir: canonical.display().to_string(),
+        origin_project: crate::ProjectRoot(canonical.clone()),
+        project_dir: crate::ProjectRoot(canonical.clone()),
         worktree_path: None,
         branch: None,
         model: Arc::new(std::sync::Mutex::new(Some("old-model".into()))),
@@ -414,8 +414,8 @@ fn process_restore_is_isolated_per_project() {
     // A 项目写一条线。
     let line = crate::state::ProcessHandle {
         id: format!("p1|{}", canonical_a.display()),
-        origin_project: canonical_a.display().to_string(),
-        project_dir: canonical_a.display().to_string(),
+        origin_project: crate::ProjectRoot(canonical_a.clone()),
+        project_dir: crate::ProjectRoot(canonical_a.clone()),
         worktree_path: None,
         branch: None,
         model: Arc::new(std::sync::Mutex::new(Some(

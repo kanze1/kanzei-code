@@ -53,7 +53,7 @@ pub(crate) use state::{
     prompt_attachment_parts, record_live_trace, record_live_trace_at_path, runtime_for,
     stop_runtime_and_finalize, take_pending_ask, ui_probe, ui_probe_result, with_session_id,
     AppState, LiveRun, MobileService, MobileServiceInfo, PendingAsk, ProcessHandle, ProcessInfo,
-    PromptAttachment, SessionRuntime, WorktreeInfo, UI_PROBE_EMIT,
+    ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo, WorktreeRoot, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]
