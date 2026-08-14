@@ -3478,3 +3478,9 @@
 - 关联: D-364
 - 收尾: 1786743227
 - 源码指纹: f8c581d558a3c26f
+
+## T-1786743624 cargo test --workspace (D-364 关闭前全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: D-364 关闭前全量:workspace 全绿(kanzei-app 163 含 process_restore_is_isolated_per_project;B3 修复 acquire 只在托管目录取锁,消除 %TEMP% 被 bash 测试当 project_root 时的 .kanzei 污染)。Temp\.kanzei 清理后未被重建。
+- 关联: D-364
+- 收尾: 1786743624

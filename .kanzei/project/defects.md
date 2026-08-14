@@ -96,11 +96,11 @@
 - 验收: ①并发场景有确定性回归测试(两个进程同时 add),后写者不得覆盖先写者;②失败时工具必须报错,禁止回 added——宁可失败也不能假成功;③id 分配与写入在同一临界区完成,不出现同 id 二次分配;④桌面端自举轮在跑时,外部 kz req/defect add 能稳定落住(实测,不是只跑单测)。
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-364
-- 批次: 2/2
-- 进展: B2 完成:端到端回归 4 条(crates/kanzei/tests/d364_concurrent_doc_add.rs)——①围栏持锁窗口内 CLI add 等待后落住编号唯一(验收④机械形态);②窗口超 CLI 3s 锁预算时 CLI 明确报错退出、绝不回 added(验收②);③双 CLI 进程真并发 add 编号互异条目齐全(验收①后写不覆盖);④真 BashTool 围栏窗口内并发 CLI add 不被误回滚(走真实 acquire_managed_locks 管线)。反证已做:禁用围栏持锁后④精确复现 D-364 丢失([managed-files] BLOCKED AND ROLLED BACK, requirements.md 被回滚)——测试咬得住回归。kanzei-tools 250 绿 + d364 e2e 4/4 绿(T-1786743149)。待办:全量 + 逐条验收对照 + 关闭。
-- observed_head: 6b8799e1cf8345383800f4b1c48df4f1c8b09687
-- observed_worktree_hash: fnv1a64:7d352a5c997bbee0
-- recorded_at: 1786743164964
+- 批次: 3/3
+- 进展: B3 完成(修复 B1 副作用):acquire_managed_locks 增加托管门槛——根下无 .kanzei(非托管目录)返回空锁组,不再 create_dir_all 造 .kanzei/project/*.lock。实测:既有测试 timeout_kills_command 用 project_root=%TEMP% 跑 bash,B1 取锁把 Temp\.kanzei 造出,该标记让临时目录向上解析成同一项目根,process_restore_is_isolated_per_project 挂。修复+清理 Temp\.kanzei 后全量 workspace 全绿(T-1786743624),Temp\.kanzei 不再重建。验收逐条:①d364 e2e ③双 CLI 真并发编号互异条目齐全+managed 单测;②e2e ②超锁预算 CLI 明确报错无 added;③tracker.rs:328 load→next_id→save 同一临界区+e2e ③编号互异;④e2e ①④真围栏窗口内 CLI add 落住(含反证:禁用持锁复现 D-364 丢失)。
+- observed_head: 75baebda24bb349147d0dcdc81dfdf558ab4208e
+- observed_worktree_hash: fnv1a64:cfb617418eacb80d
+- recorded_at: 1786743648038
 
 ## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [open] (medium)
 - refs: R-207 R-254 R-177

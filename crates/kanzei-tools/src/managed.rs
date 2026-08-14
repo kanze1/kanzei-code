@@ -236,6 +236,17 @@ pub(crate) struct ManagedLocks {
     join: Option<std::thread::JoinHandle<()>>,
 }
 
+impl ManagedLocks {
+    /// 非托管目录的空锁组:不持任何锁,Drop 无副作用(发信号到无人接收的 channel)。
+    fn noop() -> Self {
+        let (release, _rx) = std::sync::mpsc::channel();
+        ManagedLocks {
+            release,
+            join: None,
+        }
+    }
+}
+
 impl Drop for ManagedLocks {
     fn drop(&mut self) {
         let _ = self.release.send(());
@@ -247,7 +258,17 @@ impl Drop for ManagedLocks {
 
 /// 获取全部已知托管文档的活动文件锁。任一文件在预算内取不到(另一个进程正持锁)
 /// 即整体失败:围栏拿不全锁就不能保证归因正确,宁可拒绝 bash 也不能带病回滚。
+///
+/// **非托管目录零副作用(D-364 B3)**:根下没有 `.kanzei` 就没有托管文档可保护,
+/// 直接返回空锁组——`try_lock_exclusive` 会 `create_dir_all` 父目录,在一个不是
+/// 项目的目录里执行 bash 时,光取锁就把 `.kanzei/project/` 连同一堆 `.lock` 造了
+/// 出来,那个 `.kanzei` 反过来成了「这里是项目根」的标记,污染目录发现(实测:
+/// `%TEMP%` 被 bash 测试当 project_root 跑一次后,`Temp\.kanzei` 让所有临时目录
+/// 向上解析成同一个项目根,进程恢复隔离测试全挂)。
 pub(crate) fn acquire_managed_locks(project_root: &Path) -> Result<ManagedLocks, String> {
+    if !managed_scope_exists(project_root) {
+        return Ok(ManagedLocks::noop());
+    }
     let paths = known_active_doc_paths(project_root);
     let (result_tx, result_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
