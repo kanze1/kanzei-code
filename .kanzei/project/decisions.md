@@ -77,3 +77,11 @@
 - 依据: 2026-08-10 deep research——Mem0 V3 从 semantic-only 转 hybrid(semantic+BM25+entity);Qdrant Edge 出现使嵌入式 hybrid 不再需要自拼引擎(但 v1 仍 SQLite-first);DeMem 证明语义相似≠决策等价,故向量不得作为 merge 判据。coding memory 的 exact token(错误码/符号/命令)信息密度高于 embedding,lexical 降级路径必须始终完整。
 - refs: R-164 R-103 A-001 docs/design/memory_control_plane.md
 - 备注: 部分推翻 A-001(仅其「不用向量」子句;文件优先/不要知识图谱引擎/不用外部框架/子代理管记忆均不动)。memory_system.md §0 对应条款随本决策废止。
+
+## A-012 运行时会话事实用 SQLite，Markdown 用于可读治理与长期记忆 [draft]
+- refs: A-001 A-005 D-209 D-349 R-241 R-242 R-245 docs/design/deepseek_harness_upgrade.md
+- 依据: 会话事件需要原子 sequence、事务、并发追加、索引查询、崩溃恢复和确定性物理删除；用 Markdown 实现会重新制造 WAL、索引、事务和局部更新协议。Markdown 的优势是人可读、可编辑、可 Git 审计，适合低频治理与长期记忆，不适合每秒流式追加。压缩属于 surface projection：无论底层是 SQLite 还是文件，都应保留 raw facts 并生成可替换投影。
+- 决定: 运行时会话、typed events、流式草稿、工具调用结果引用、线路与运行状态以项目 state.db 为权威真源；Markdown 继续作为需求/缺陷/设计/长期记忆的权威载体，也可由会话事件生成可读导出，但不承担高频运行事件真源。
+- 日期: 2026-08-14
+- 状态说明: 本条先登记为 draft，待用户审核 docs/design/deepseek_harness_upgrade.md 后转 accepted。
+- 边界: 不把 state.db 里的会话正文复制成双真源 MD；会话导出 MD 是带 session_id、event_sequence、format_version 的派生工件，可删除重建。Memory 文件仍遵守 A-001/A-005 的文件优先决策，其 provenance 指向 session/event，Memory 不承担会话恢复。

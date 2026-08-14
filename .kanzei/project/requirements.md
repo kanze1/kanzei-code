@@ -287,3 +287,83 @@
 - 归属: kanzei
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
+
+## R-241 Session 事件真源与 Shadow Projection：typed event、流式草稿恢复、legacy 迁移 [todo]
+- refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
+- 内容: 冻结最小 typed event 词表与 format_version；为每会话分配原子 sequence；user message、assistant draft chunk/commit、tool call/result、turn stop/complete/fail 按发生顺序双写；从最新 legacy conversation.updated 快照生成带 provenance 的 seed；新增只读 shadow projector，与现有 messages 快照逐轮比较，第一批不切换 UI 和模型 prior。
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 2026-08-14 DeepSeek Harness 对照评审与用户边界确认；参考 docs/reference/deepseek_harness_reference_20260814.md。
+- 标签: 核心
+- 边界: SQLite 是运行时会话、事件、线路、运行状态真源；Markdown 只用于需求/缺陷/设计/长期记忆及会话导出，不作为高频事件真源。不逐 token 落库，assistant 可见增量按有界时间/字节批次持久化为 draft；draft 只有 committed 后才成为正式 assistant message，中断则保留为 interrupted 诊断记录。第一批不停止 conversation.updated、不切 UI、不改 Compaction 存储语义。
+- 迁移与回滚: 新增 schema/version 与索引必须提供 Alembic 等价的 Rust SQLite 迁移、升级前备份和旧数据兼容；legacy 导入幂等且不伪造历史细节。Shadow 阶段保留旧读写路径，关闭新双写即可回滚；投影缓存可删除重建，原事件不得依赖缓存。
+- 阻塞: 等待用户从登记方案中选为核心后取活；未授权进入运行时代码实现。
+- 验收: ①并发追加 sequence 不重号不丢号；②user/assistant draft/tool/终态每类事件均有 round-trip 测试；③生成中强杀后可回放有界的 interrupted assistant 草稿，且模型 prior 不把它当完整回答；④legacy 导入重复执行幂等并保留 provenance；⑤projector 从同一日志重复回放逐字节一致；⑥shadow comparison 对正常、停止、权限拒绝、工具错误、多工具部分完成路径给出差异报告；⑦SessionInvariant 在提交前拒绝重复 result、跨 step 配对和非法终态。
+- 优先级: P0
+
+## R-242 会话真源切换、确定性清空删除与投影恢复 [todo]
+- refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
+- 依赖: R-241
+- 内容: shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复切到事件投影；停止新增 conversation.updated，进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment；删除会话经风险确认后，在一个可恢复失败的事务中物理删除该会话事件、投影缓存和所引用 Spill artifact。
+- 复杂度: 大
+- 批次: 0/5
+- 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
+- 标签: 核心
+- 边界: 清空不删除原始事件；删除分两级说明：确认事务提交后，产品层确定性不可检索且重启不复生；若用户在“存储与整理”中继续执行安全擦除，则还要处理 SQLite freelist、WAL 与迁移备份。删除前弹窗列出会话、运行轨迹、未完成草稿、工具 artifact，以及“仅删除”或“删除并安全整理”的差异；用户取消零写入。
+- 迁移与回滚: 切换按读路径逐项 feature gate；旧 snapshot 在观察期只读保留，验证期结束后再停止新增。数据库迁移前备份；物理删除事务失败必须整体回滚并报告未删除。安全整理在会话删除事务之后独立执行：先阻止新写入/等待连接静止，再处理 WAL checkpoint、VACUUM/secure_delete 与包含该会话数据的旧迁移备份；失败必须明确报告“产品层已删除、磁盘整理未完成”，不可宣称安全擦除。
+- 阻塞: 等待 R-241 shadow comparison 达标且用户从登记方案中选为核心。
+- 验收: ①五条读路径从同一事件日志恢复一致消息；②user/assistant/tool 各安全边界强杀后重启无已发生事实丢失；③孤立 tool call 投影为 interrupted 且不自动重放；④清空后新 segment prior 为空但旧 segment 可审计；⑤删除弹窗明确且取消零写入；确认删除后事件、投影与引用 artifact 在产品层不可检索且重启不复生；⑥删除事务任一点故障注入整体回滚；⑦“删除并安全整理”成功后 WAL 已截断、freelist/旧内容经受控 VACUUM 或 secure_delete 处置，包含旧正文的迁移备份一并列出并由用户确认删除；⑧旧 snapshot 与 projection 对照达到门槛后才关闭 feature gate。
+- 优先级: P1
+
+## R-243 Surface Compaction 追加事务：原始事件不变、上下文由 surface 投影 [todo]
+- refs: R-236 D-209 docs/design/context_compaction.md docs/design/deepseek_harness_upgrade.md
+- 依赖: R-241
+- 内容: 将现有 compact_with_digest 的存储语义改为 compaction_started→compaction_summary→surface_replaced→compaction_ended 追加事务；模型上下文只消费 surface projection，原始 Session 事件不修改不删除；连续压缩走已交付滚动合并。
+- 复杂度: 中
+- 批次: 0/3
+- 来源: DeepSeek Harness compaction 事件事务；复用已交付 R-236 的纪要模型、模板和质量闸。
+- 标签: 核心
+- 边界: 不重写 R-236 纪要算法、压缩模型配置和质量闸；不把 Memory 作为对话恢复源。Compaction 失败保留原 surface，未完成事务在恢复时显式失效。
+- 阻塞: 等待 R-241 typed events 与 projector；是否进入核心批次由用户决定。
+- 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
+- 优先级: P1
+
+## R-244 统一 Tool Pipeline：Policy、单调 Guard、Wrapper、Result Policy 与 Observer [todo]
+- refs: D-209 R-180 R-174 docs/design/deepseek_harness_upgrade.md
+- 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
+- 前置: R-241
+- 复杂度: 大
+- 批次: 0/5
+- 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
+- 标签: 核心
+- 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
+- 阻塞: 等待用户决定是否列入主任务；与 R-241 的事件类型需先冻结。
+- 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
+- 优先级: P1
+
+## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
+- refs: D-209 R-180 D-297 D-298 docs/design/deepseek_harness_upgrade.md
+- 依赖: R-244
+- 内容: 统一工具结果为 Inline 或 Spilled{preview,artifact_id,bytes,sha256,retrieval_hint}；read 优先指向原文件 offset/limit，bash/git/test_record/web 等完整原文进入与 state.db 同生命周期的 Git 忽略运行目录。提供“存储与整理”入口：按类别/会话/日期/大小预览占用，支持清理无引用 artifact、删除已选会话及其 artifact、SQLite checkpoint/VACUUM 安全整理、迁移备份管理；默认不自动过期。
+- 复杂度: 大
+- 批次: 0/5
+- 来源: DeepSeek Harness spill policy、本地 state.db 输出分布统计，以及用户确认“不自动过期但需要显式整理入口”。
+- 标签: 核心
+- 边界: 任何事件仍引用的 artifact 不得被静默清理；整理前显示预计释放空间和不可恢复范围，执行后给清单与实际释放量。32 KiB 先做 shadow telemetry。普通删除保证产品不可检索；安全整理才处理 SQLite freelist/WAL/含旧正文备份。当前库为 WAL、secure_delete=OFF、auto_vacuum=NONE，因此不能把 DELETE 行等同磁盘字节已擦除。显式整理不是定时任务。
+- 迁移与回滚: artifact 原子写入后再提交引用事件；任一步失败不得留下有效事件指向缺失文件。删除使用引用图和事务清单，失败可重试；schema 迁移前备份。关闭 Spill 可回到 Inline，但已有引用仍必须可读。
+- 阻塞: 等待 R-244 统一 Result Policy；是否进入核心批次由用户决定。
+- 验收: ①32 KiB shadow telemetry 不改变模型输入并产出按工具分布；②Spill 原文 sha256 与工具原输出一致，重启后可取回；③事件提交与 artifact 写入故障注入无悬空引用；④明确无自动过期任务；⑤整理入口列出总占用、数据库、WAL、freelist、artifact、无引用文件和迁移备份并支持 dry-run；⑥清理引用中 artifact 被拒，清理无引用 artifact 成功且释放量可核对；⑦物理删除会话同步删除引用 artifact；⑧安全整理仅在运行静止时执行，成功后 checkpoint/VACUUM 结果与备份处置可核对，busy/失败不静默；⑨权限、路径逃逸、不可预测文件名和磁盘配额有测试。
+- 优先级: P1
+
+## R-246 LineRuntime 统一资源 owner：幂等 dispose 与持久服务显式移交 [todo]
+- refs: R-174 R-175 R-180 D-275 docs/design/session_state_and_line_runtime.md docs/design/deepseek_harness_upgrade.md
+- 内容: 建立 LineRuntime，统一持有 cancellation token、active run、child agents、transcript projection、background results、notifications、background processes、writer/read leases、worktree binding 和 temporary artifacts。dispose 幂等且并发调用共享同一完成 future；persistent 服务必须通过 adoption 事件显式移交 ProjectRuntime。
+- 前置: R-241 R-244
+- 复杂度: 大
+- 批次: 0/5
+- 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
+- 标签: 核心
+- 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
+- 阻塞: 等待前置事件和 Tool Pipeline 契约稳定；用户决定是否交给自举。
+- 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
+- 优先级: P2

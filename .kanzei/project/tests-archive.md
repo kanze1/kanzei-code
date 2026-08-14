@@ -3009,3 +3009,27 @@
 - 关联: D-348
 - 收尾: 1786661751
 - 源码指纹: e661dc709dd92b48
+
+## T-1786662086 发布前全 workspace 测试 [passed]
+- 命令: cargo test --workspace
+- 摘要: 发布前全 workspace 测试全部通过；各 crate 测试通过，kanzei-tools 354 passed、1 ignored，未见失败。桌面端因运行中未覆盖安装，release.ps1 已生成 pending 文件。
+- 收尾: 1786662086
+
+## T-1786662103 桌面端安装位占用检查 [skipped]
+- 命令: Get-Process kzapp; Get-ChildItem "$env:LOCALAPPDATA\kanzei"
+- 摘要: 开发通道构建与全量测试已通过，但当前 kzapp.exe 正在运行，安装位无法覆盖；release.ps1 已进入延后安装路径。未强杀用户进程。
+- 收尾: 1786662103
+
+## T-1786663637 ui-runtime-smoke D-350 断言块(格式修复后) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: 格式修复(07-events.js/ui-runtime-smoke.mjs 换行)后重跑:D-350 断言块(子代理 ✕ 关闭、todo ✕ 关闭、重渲染不弹回、清空复位、新计划重弹)与全量初始化/视图切换 0 运行时错误
+- 关联: D-350
+- 收尾: 1786663637
+- 源码指纹: d7a4fb87b7e25c5f
+
+## T-1786663690 cargo test -p kanzei-app (D-350 提交门禁) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-350 提交门禁:149 passed,0 failed(桌面端 crate 定向,前端 ui/*.js 改动无 Rust 编译影响)
+- 关联: D-350
+- 收尾: 1786663690
+- 源码指纹: d7a4fb87b7e25c5f
