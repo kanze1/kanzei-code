@@ -44,7 +44,7 @@
 - 依赖: 
 - 取活依据: 
 - 进展: 2026-08-13 让位(用户 park):D-332(两份运行评估合并的治理三硬伤)按用户指令排第一并优先解决,本条暂停。本条此前为 engine 自动认领(doing)但从未开工(无进展锚点)。
-- 阻塞: 用户: 2026-08-13 用户两份运行评估明确指令「把这个分析登记成最新的缺陷,然后把这个缺陷排序成当前的第一个任务,解决并发版」——D-332 优先,本条让位。解除动作: D-332 关闭后按队列恢复本条。解除人: 用户。
+- 阻塞: 2026-08-14 复核:原阻塞(让位 D-332)的解除条件已达成——D-332 已 fixed 并归档,不再是阻塞。本条改挂的是新的、真实的障碍:R-183 的 doing 是 engine 自动认领留下的空档(进展自述从未开工、无进展锚点),而 R-202 正占着唯一 WIP 槽——两个可执行 doing 会让 work next 直接判 wip_violation、禁止全线取活(本轮实测过)。正路是 reopen 退回 todo 重新入队,但 CLI 的 reopen 不解析 --reason(见 D-359),而 reopen 强制要 reason,退路在命令行侧不可用;update 又拒绝 doing→todo 逆向迁移。解除动作: ①修 D-359 后 `kz req reopen R-183 --reason ...` 退回 todo,或②在桌面端工具面直接调 reopen(工具面能传 reason),或③R-202 关闭腾出槽位后直接续做本条。解除人: agent(三条任一,不需要用户拍板)。
 - observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
@@ -132,11 +132,11 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 1/5
-- 进展: 批1 完成(2026-08-14):run_task 装配段抽函数——新建 RunAssembly struct(装配产物聚合,28 字段)+ async fn assemble_run(原 :85-399 全部搬移:配置加载/harness+agent/模型解析/鉴权+route/client/会话创建+输入提升/typed 双写+弱引用 flush/session running/写租约(OrchestrationEvent 单一出口)/执行身份(with_identity)+kz:meta),run_task 主体解构后继续三段编排;writer_event 闭包由解构出的 orchestration_trace 重建,单一出口语义不变。行为零变更:run_task 外部签名(pub(crate),25 参数)逐字节不变;时序/阶段汇报/错误信息/状态机转移与内联时一致。验证:cargo test -p kanzei-app 159 passed/0 failed(T-1786708807);cargo fmt --check 过;编译零警告。提交 a7b66d5 已 push。批2:run_task 事件循环+轮末收尾段抽函数+独立单测。
-- observed_head: a7b66d533fe208511265c792dc9e9fb39467641f
+- 批次: 2/5
+- 进展: 批2 完成(2026-08-14)。2a:闭包构造抽离——build_event_handler(RunEvent 处理器,284 行内联闭包收敛为返回闭包,含工具轨迹/token 计数/git commit 检测位/typed 增量双写)/build_ask_handler(权限询问)/build_subagent_runtime(task 子代理),run_task 主体 -410 行(提交 79ab205)。2b:run_execution_loop(附件/记忆预检索/勘察/主循环/复核修正;prior 恢复外置 run_task 同步——SessionStore 非 Sync 不可跨 await 持引用,保持 `?` 传播语义)/persist_round_outcome(终态落库:typed 终态/会话状态/episode/轮末采集/记忆整理)/finalize_round(对话落库/轮末压缩 R-236 B1+B4/kz:done/租约 Released/令牌回收),run_task 主体 455→266 行(验收③ run_task 侧达成,提交 9631367)。行为零变更:外部签名逐字节不变、错误传播/事件顺序/压缩触发线一致。验证:cargo test -p kanzei-app 每步 159 passed(T-1786709384/9830);fmt 过;编译零警告。批3:run_once_with_parts 侦察+请求重试段;批5 收口补独立单测(验收①:run_execution_loop 等段单测)与全量。
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786708849420
+- recorded_at: 1786709892063
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
