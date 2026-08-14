@@ -3223,3 +3223,10 @@
 - 摘要: 默认全绿(1962 invoke);d355ClearActive 变异红(残留 A 进程 id 未清空)、d355LoadConvGuard 变异红(迟到 B 历史覆盖 A);既有 d251/d257 变异仍判红;ui-lint/i18n/markdown/a11y 冒烟全绿
 - 关联: D-355
 - 收尾: 1786698640
+
+## T-1786698746 D-355 提交门禁: cargo test -p kanzei-app [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: kanzei-app 定向测试 154 passed(提交门禁:最近一条测试记录必须覆盖源码 crate)
+- 关联: D-355
+- 收尾: 1786698746
+- 源码指纹: 70dae0d843ba4373
