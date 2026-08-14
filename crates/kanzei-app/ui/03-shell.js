@@ -113,9 +113,12 @@ document.querySelectorAll(".activity-item[data-view]").forEach((item) => {
     item.setAttribute("aria-current", "page");
     const view = item.dataset.view;
     document.body.classList.toggle("documents-active", view === "documents");
+    // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
+    // 填了一半没保存的表单会静悄悄回滚成磁盘值。
+    const previousView = document.querySelector(".view.active")?.id;
     document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
     $(`view-${view}`).classList.add("active");
-    if (view === "settings") loadSettings();
+    if (view === "settings" && previousView !== "view-settings") loadSettings();
     if (view === "workspace") refreshWorkspace();
     if (view === "documents") refreshDocs();
     if (view === "memory") refreshMemory();

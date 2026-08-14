@@ -490,6 +490,12 @@
         <div id="settings-scroll">
           <h1 data-i18n-key="设置">设置</h1>
           <p class="dim"><span data-i18n-key="写入全局">写入全局 </span><code id="settings-path"></code><span data-i18n-key=",项目级 .kanzei/kanzei.toml 会覆盖全局。">,项目级 .kanzei/kanzei.toml 会覆盖全局。</span></p>
+          <!-- 表单有未保存改动时,磁盘值不覆盖它——但必须把「为什么这次没刷新」说出来,
+               否则用户以为界面卡了。默认隐藏,只在真拦下一次回填时出现。 -->
+          <div id="settings-stale" class="settings-stale hidden" role="status" aria-live="polite">
+            <span data-i18n-key="表单有未保存的改动,已跳过这次刷新(磁盘上的配置可能更新了)">表单有未保存的改动,已跳过这次刷新(磁盘上的配置可能更新了)</span>
+            <button type="button" id="settings-discard" class="ghost mini" title="丢弃未保存的改动并重新读取磁盘配置" data-i18n-title="丢弃未保存的改动并重新读取磁盘配置"><span data-i18n-key="丢弃改动并重载">丢弃改动并重载</span></button>
+          </div>
 
           <section id="about-kanzei" class="about-panel" aria-labelledby="about-kanzei-title">
             <h2 id="about-kanzei-title" data-i18n-key="关于 kanzei">关于 kanzei</h2>

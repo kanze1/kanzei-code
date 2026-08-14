@@ -3317,6 +3317,36 @@ assert(
   "改了表单却没有「未保存」提示(界面显示 A、运行用 B 就是这么来的)",
 );
 
+// 脏值守卫:表单有未保存改动时,再来一次 loadSettings 不得用磁盘值覆盖它。
+// 这正是用户报的「正在填配置,页面突然刷新了」——旧实现里 loadSettings 中间挂着
+// 一段数秒的模型探测 await,resolve 后整表重建,输入连同焦点一起消失,而且紧接着
+// markSettingsSaved 把这个被抹平的状态记成干净基线,「未保存」角标从头到尾没亮过。
+{
+  const dirtyValue = "留住我";
+  const url = document.querySelector("#providers-table tbody input");
+  if (url) {
+    url.value = dirtyValue;
+    url.dispatchEvent({ type: "input" });
+  }
+  await sandbox.loadSettings();
+  await flush();
+  assert(
+    !url || url.value === dirtyValue,
+    `表单有未保存改动时 loadSettings 不得覆盖输入,实得 "${url?.value}"`,
+  );
+  assert(
+    !byId.get("settings-stale")?.classList.contains("hidden"),
+    "拦下一次回填却不说原因,用户只会以为界面卡住了",
+  );
+  // 丢弃改动 = 显式放行覆盖,这条退路必须真的能走通。
+  byId.get("settings-discard")?.dispatchEvent({ type: "click" });
+  await flush();
+  assert(
+    byId.get("settings-stale")?.classList.contains("hidden"),
+    "丢弃改动后提示条应消失(否则用户不知道自己已经回到干净态)",
+  );
+}
+
 assert(html.includes('id="set-codex-fast-mode"'), "设置页缺少 Codex Fast mode 开关标记");
 // 运行上限([limits]):读、存、脏状态三条线缺一条就是"界面显示 A、运行用 B"(D-157)。
 {

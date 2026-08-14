@@ -287,18 +287,14 @@ let knownModelIds = [];
 /// 那两行赋值等于没写。基准一空,下面的手填兜底 option 就不会建,已存的模型被静默清成
 /// 「未设」,用户改别的字段点一次保存就把 [models] primary/fast 从 kanzei.toml 里删掉,
 /// 运行回落内置默认——正是 08-compose.js:747 记下的同一个坑,顶栏躲过了,这里没有。
-async function fillKnownModels(desired = null) {
+// 只重建 option、**永不主动改 value**:desired 只在首次回填那一次给,之后一律
+// 以下拉当前值为准(那可能正是用户刚选的)。原来这个函数把「网络探测」和「写表单」
+// 焊在一起,await 期间用户填的东西会被 resolve 后的全量重建整个抹掉。
+function applyModelOptions(desired, ids) {
   const roles = [[$("set-primary"), "primary"], [$("set-fast"), "fast"], [$("set-compact"), "compact"]].filter(([el]) => el);
   if (!roles.length) return;
-  // 不传 desired 时,基准要在 await 之前取——探测可能耗时数秒,期间用户仍能改下拉。
   const current = desired ? null : roles.map(([el]) => el.value);
-  try {
-    const models = await invoke("models_list", { projectDir: currentProject });
-    // 角色不能再指向角色(primary → primary 会绕成死循环)。
-    knownModelIds = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
-  } catch {
-    knownModelIds = [];
-  }
+  knownModelIds = ids;
   roles.forEach(([select, role], index) => {
     const keep = desired ? (desired[role] ?? "") : current[index];
     select.innerHTML = "";
@@ -329,6 +325,23 @@ async function fillKnownModels(desired = null) {
     // 选中「未设」。任何时候都不会出现"赋了个无效值 → 静默变空串"。
     select.value = keep ?? "";
   });
+}
+// 探测彻底移出加载的关键路径:它只补下拉选项,不碰任何 value,而且带令牌——
+// 用户在这几秒里切走或重载过设置页,迟到的结果直接丢弃。
+// (models_list 串行探测每个 provider 六秒超时,配几个远端就能拖十几秒,
+// 这段时间里页面是可交互的,原来 resolve 之后一次全量重建就把输入吃掉了。)
+async function probeModelsAndMergeOptions(token) {
+  let ids;
+  try {
+    const models = await invoke("models_list", { projectDir: currentProject });
+    // 角色不能再指向角色(primary → primary 会绕成死循环)。
+    ids = models.map((m) => m.id).filter((id) => id !== "primary" && id !== "fast" && id !== "compact");
+  } catch {
+    return;
+  }
+  if (token !== settingsLoadToken) return;
+  applyModelOptions(null, ids);
+  syncSettingsDirty();
 }
 
 /// 下拉里没有这个值就补一个兜底 option。选项表写死在 index.html 里,而配置文件的合法
@@ -372,7 +385,7 @@ wireManualModelRole("set-primary");
 wireManualModelRole("set-fast");
 wireManualModelRole("set-compact");
 $("models-refresh")?.addEventListener("click", async () => {
-  await fillKnownModels();
+  await probeModelsAndMergeOptions(settingsLoadToken);
   toast(`${t("已重新探测")}:${knownModelIds.length}`);
 });
 
@@ -417,7 +430,7 @@ $("fast-setup")?.addEventListener("click", async () => {
   try {
     const done = await invoke("fast_model_setup");
     toast(done);
-    await fillKnownModels();
+    await probeModelsAndMergeOptions(settingsLoadToken);
   } catch (err) {
     toastError(`${t("子代理安装失败")}:${err}`);
   } finally {
@@ -473,7 +486,27 @@ function collectLimits() {
   return out;
 }
 
-async function loadSettings() {
+// 每次加载自增;await 回来对不上就说明用户已经切走/重载过,回填一律丢弃。
+let settingsLoadToken = 0;
+// 首次成功回填后置 true。没有它的话,空表单的指纹和「干净基线」永远对不上,
+// 脏值守卫会在第一次加载时就把自己挡掉。
+let settingsHydrated = false;
+// 表单有未保存改动时**拒绝**用磁盘值覆盖,并把「为什么没刷新」说出来——
+// 静悄悄地把用户填了一半的东西回滚成磁盘值,正是「突然刷新」最恼人的那一下。
+function showSettingsStale() {
+  const el = $("settings-stale");
+  if (el) el.classList.remove("hidden");
+}
+function hideSettingsStale() {
+  const el = $("settings-stale");
+  if (el) el.classList.add("hidden");
+}
+$("settings-discard")?.addEventListener("click", () => {
+  settingsHydrated = false;
+  void loadSettings({ force: true });
+});
+async function loadSettings({ force = false } = {}) {
+  const token = ++settingsLoadToken;
   let s;
   try {
     s = await invoke("settings_get", { projectDir: currentProject });
@@ -483,13 +516,32 @@ async function loadSettings() {
     toastError(`${t("设置读取失败")}:${err}`, { retry: loadSettings });
     return;
   }
+  if (token !== settingsLoadToken) return;
+  // 只读区永远允许更新:它一行 input 都不碰,刷新它不会吃掉任何输入。
   $("settings-path").textContent = s.path;
+  renderEffectiveNotice(s);
+  loadPermissionRules();
+  refreshFastStatus();
+  if (!force && settingsHydrated && settingsFingerprint() !== settingsSnapshot) {
+    showSettingsStale();
+    return;
+  }
+  hideSettingsStale();
+  hydrateSettingsForm(s);
+  settingsHydrated = true;
+  // 探测不再挡在回填前面(原来是 await,几秒后 resolve 再整表重建)。
+  void probeModelsAndMergeOptions(token);
+}
+function hydrateSettingsForm(s) {
   const storedLanguage = LANGUAGE_PREFERENCES.has(s.language)
     ? s.language
     : normalizeLanguagePreference(localStorage.getItem("kz-language"));
   languagePreferenceLoaded = LANGUAGE_PREFERENCES.has(s.language) ? s.language : null;
   languagePreferenceDirty = false;
-  setLanguagePreference(storedLanguage, { persist: false });
+  // rerender:false —— persist:false 时语言压根没变,整串重渲(applyLanguage +
+  // 侧栏 + 工作区 + refreshWorktrees + refreshConversationList + 多画一遍 provider 表)
+  // 是纯白干,还让整个界面在进设置页时抖一下。
+  setLanguagePreference(storedLanguage, { persist: false, rerender: false });
   // R-178 批4 D7 作用域选择器:settings_get 返回 projectConfig 时才允许选「本项目」。
   // 无项目上下文(未选中项目)时 project 选项禁用,避免把"全局"意图落进一个偶然的
   // 工作目录。
@@ -509,7 +561,8 @@ async function loadSettings() {
   // select 赋没有匹配项的值按规范只会把它打到空串。基准一空,探测不到的已存模型就被
   // 静默清成「未设」,而 markSettingsSaved() 还把这个已经被清空的状态当成干净基线
   // (角标不亮,零告警),用户改任意别的字段点保存,后端就把 [models] 的键删了。
-  await fillKnownModels({ primary: s.primary ?? "", fast: s.fast ?? "", compact: s.compact ?? "" });
+  // 同步回填,零 IPC:用上一次探测到的 knownModelIds 建选项,探测在后台单独跑。
+  applyModelOptions({ primary: s.primary ?? "", fast: s.fast ?? "", compact: s.compact ?? "" }, knownModelIds);
   // 配置里可能是 readonly 这种下拉没有的合法档位:没有兜底 option 就会变空串。
   ensureSelectOption($("set-profile"), s.profileDefault);
   $("set-profile").value = s.profileDefault;
@@ -549,11 +602,8 @@ async function loadSettings() {
   // R-170:cadence 表单回填即止,不再联动继续文案(规则剥离,文案仅承载用户意图)。
   settingsProviders = s.providers;
   renderProviders();
-  renderEffectiveNotice(s);
-  refreshFastStatus();
   // 刚从磁盘读回来 = 干净态,以此为基准比对后续改动。
   markSettingsSaved();
-  loadPermissionRules();
   // R-187:提示音是本地偏好(不进 kanzei.toml),设置页控件回填 + change 即存。
   loadSoundSettingsControls();
 }
@@ -735,7 +785,9 @@ $("settings-save").addEventListener("click", async () => {
       },
     });
     toast(t("已保存"));
-    loadSettings();
+    // force:刚存完就是干净态,但指纹要等 markSettingsSaved 才更新,不 force 会被
+    // 脏值守卫挡住,用户看到一个莫名其妙的「磁盘上的配置已更新」。
+    loadSettings({ force: true });
   } catch (err) {
     toastError(`${t("保存失败")}: ${err}`, { retry: () => $("settings-save").click() });
   }
