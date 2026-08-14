@@ -43,13 +43,13 @@
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
 - 依赖: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
-- 进展: 批1 完成(2026-08-16,提交 caa9d62)。kz run 主路径接入 non_interactive_policy:①interactive_stdin()(stdin.is_terminal 显式检测,非 TTY=非交互,验收⑤不靠读 EOF 倒推);②non_interactive_decision() 纯函数——Deny/RulesOnly 拒、AllowListed 查 --allow allowlist(resource_match_for_action 与规则同一把尺,非结构化 pattern 不授权结构化 bash 资源,D-269 口径);③RunArgs 加 --allow action:resource(可重复),parse_run_args 消费;④ask 闭包 Permission 分支非交互时不读 stdin,按策略决策(拒绝/放行都走 drive 层 PermissionResolved 落轨迹)。测试:config.rs 补三态解析 + 缺省/非法 fail-closed 回落 deny + 告警(验收②,2 个);main.rs 补决策三态/allowlist 命中·未命中·action 不匹配/纯字符串不授权结构化/parse_allowlist/--allow 解析(8 个)。kanzei 26 passed、harness config 50 passed;fmt/clippy 全绿。批2:轨迹含命中的规则原文(验收④)——Ruleset::evaluate_with_rule + RunEvent::PermissionResolved.rule + CLI 打印/汇总;批3:worktree 主根规则命中测试(验收③)+ 非交互闭环集成验证(验收①)+ 全量。
+- 进展: 批2 完成(2026-08-16,提交 ba0726f)。轨迹含命中规则原文(验收④):①Ruleset::evaluate_with_rule(与 evaluate 同一判定,额外返回 last-match-wins 命中的普通规则;硬 deny/无匹配 None,D-051 降级仍如实返回规则)+ HarnessSnapshot::evaluate_with_rule 委托;②RunEvent::PermissionResolved 加 rule: Option<String>;③drive.rs 两处 ruleset 评估站点(串行门禁/并行 wave deny)改用 evaluate_with_rule 填规则原文,describe_rule 展示格式 `action resource => effect`;会话层决策 rule=None;④CLI 打印 deny/会话层决策时附 [规则: ...](run.rs 消费点补 .. 解构)。测试:permission.rs 补 evaluate_with_rule 三场景(命中返回/硬 deny None/无匹配 Ask-None)。验证:permission 30 + core 193 + kanzei 26 + app 160 全过(T-1786731021);fmt/clippy 绿;push 已到 origin/dev。批3(收口):验收③ worktree 主根规则命中测试(BashTool workdir 来源确认——规则匹配是否按主根,补测试断言同规则主根/worktree 一致)+ 验收① 非交互闭环集成验证 + 全量。
 - 阻塞: 
-- observed_head: caa9d6243713e112d1ef5a60ba0424f6edf5ed1a
+- observed_head: ba0726ff938021de1abf68831a1b5daabc26d0ba
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786729519214
+- recorded_at: 1786731061013
 - 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
-- 批次: 1/3
+- 批次: 2/3
 
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
@@ -329,4 +329,13 @@
 - 复杂度: 小
 - 标签: 流程
 - 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
+- 优先级: P2
+
+## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [todo]
+- 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。
+- 备注: 本条与其余九条一起勘察,唯独它需要动 13 个文件,其中 crates/kanzei-app/src/run.rs 的动作表有一行 goal→idea——那是与后端自举线唯一抢文件的地方。用户 2026-08-14 拍板:其余九条本轮做完发版,本条另登需求进队列,等 R-202 收尾后单独做。完整勘察(文件锚点/DOM/状态机/门禁设计)见会话记录。
+- 复杂度: 大
+- 来源: 2026-08-14 用户提的十条前端改造之六。原话:目标现在似乎没用?目标区可以改成我们用户侧输入的一些比较原始的设计需求想法,也就是待拆解成需求和缺陷的源。勘察证实 goals 线确实零消费者:取活引擎(work.rs)不看目标,鞭挞的推进指令(auto_run.rs)只点名 requirements.md/defects.md,前端除了渲染三条也没有别的用途。
+- 标签: 核心
+- 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
 - 优先级: P2
