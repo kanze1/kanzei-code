@@ -49,20 +49,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786611671592
 
-## R-227 占位符测试 ID 提交门禁:tracker diff 出现 T-…xxx 即拒,存量 8 处回填或标注不可考 [doing]
-- 内容: commit 门禁扫描 tracker 文件 diff,出现 T-\d+xxx 形态的占位符测试 ID 即拒绝提交;配套要求 test_record 落盘后与引用它的证据同批入库,消灭隔时凭记忆写证据;存量 8 处(requirements-archive 2 处、defects-archive 6 处)回填真值或标注不可考
-- 复杂度: 小
-- 来源: 2026-08-13 自举复盘(R-198/R-199 关闭证据均含占位符,复发模式)
-- 标签: 流程
-- 验收: ①门禁单测覆盖占位符拒绝;②存量 8 处处置完毕;③新增关闭证据无占位符
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-227
-- 进展: 2026-08-16 取活。B1 完成(commit 635db58):①commit 门禁 placeholder_id_gate(git.rs)——tracker 文件 diff 出现 `T-<数字>xxx` 占位符即拒,只扫 tracker 路径,真实 10 位 ID 放行;②归档回填通道 fill_archived_placeholder(docstore.rs,与 dedupe 同锁同写路径,恰好命中一次,歧义拒绝)+ tracker 动作 archive_fill + CLI 分支(kz req archive_fill <id> <old> <new>);③存量 8 处占位符已全部定位并查明真实 ID:requirements-archive R-198 T-1786565xxx→T-1786565346、R-199 T-1786566xxx→T-1786565831;defects-archive D-219 T-1786451xxx→T-1786451434、D-266 T-1786560xxx→T-1786560588、D-279 T-1786562xxx→T-1786562463、D-281 T-1786562xxx→T-1786562856、D-282 T-1786563xxx→T-1786563655、D-316 T-1786563xxx→T-1786564679(真值均核自 tests-archive 对应记录)。验证:kanzei-tools 332 passed + kanzei 4 passed(T-1786631611)+ fmt/clippy 全过。验收①门禁单测覆盖占位符拒绝——placeholder_id_gate_拒绝占位符_放行真实_id与非tracker 测试通过;验收③新增关闭证据无占位符——门禁在 commit 层拦截,本提交无占位符。验收②存量 8 处处置:需用 archive_fill 动作回填,但当前引擎进程运行旧代码(archive_fill 报 unknown action,valid 列表不含它),归档文件又被 ruleset+managed-files 双重保护无法直改——处置待引擎重启加载新代码后执行 archive_fill。
-- 阻塞: 待引擎重启加载 archive_fill 动作后执行存量 8 处回填(解除人:引擎下次启动;回填映射见进展)
-- observed_head: 635db584872ab3d177751206a72fae384c33f102
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786631684828
-
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
 - 复杂度: 大
@@ -136,7 +122,7 @@
 - recorded_at: 1786656932641
 - 阻塞: 用户: R-193 缺内容/来源/交互定义,验收仅一句『plan勾选项点击后即时视觉反馈和状态更新』;需用户澄清:①plan 指哪个面板(当前计划 todo 面板还是其它);②勾选动作状态写哪里(前端视觉 / 后端命令持久化);③当前『响应延迟』的具体场景。解除动作:用户给出澄清后实现。解除人: 用户。
 
-## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [todo]
+## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [doing]
 - 优先级: P3
 - 复杂度: 大
 - 标签: 后端 核心
@@ -145,6 +131,12 @@
 - 边界: 行为零变更;外部签名与 pub API 不变;不与功能改动同批。
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
+- 批次: 1/5
+- 进展: 批1 完成(2026-08-14):run_task 装配段抽函数——新建 RunAssembly struct(装配产物聚合,28 字段)+ async fn assemble_run(原 :85-399 全部搬移:配置加载/harness+agent/模型解析/鉴权+route/client/会话创建+输入提升/typed 双写+弱引用 flush/session running/写租约(OrchestrationEvent 单一出口)/执行身份(with_identity)+kz:meta),run_task 主体解构后继续三段编排;writer_event 闭包由解构出的 orchestration_trace 重建,单一出口语义不变。行为零变更:run_task 外部签名(pub(crate),25 参数)逐字节不变;时序/阶段汇报/错误信息/状态机转移与内联时一致。验证:cargo test -p kanzei-app 159 passed/0 failed(T-1786708807);cargo fmt --check 过;编译零警告。提交 a7b66d5 已 push。批2:run_task 事件循环+轮末收尾段抽函数+独立单测。
+- observed_head: a7b66d533fe208511265c792dc9e9fb39467641f
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786708849420
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
