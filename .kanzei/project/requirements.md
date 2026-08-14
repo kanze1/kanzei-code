@@ -200,24 +200,6 @@
 - 验收: ①压缩前后 raw event hash 不变；②边界上的 tool call/result 必须完整配对，否则拒绝压缩；③不完整 compaction transaction 重启后不生效且有可见诊断；④连续两次压缩 replay 一致，首段关键实体仍保留；⑤模型 surface 变短但 transcript/audit 仍能回看原文；⑥R-236 全部压缩回归保持通过。
 - 优先级: P1
 
-## R-244 统一 Tool Pipeline：Policy、单调 Guard、Wrapper、Result Policy 与 Observer [doing]
-- refs: D-209 R-180 R-174 docs/design/deepseek_harness_upgrade.md
-- 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
-- 前置: R-241
-- 复杂度: 大
-- 批次: 4/5
-- 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
-- 标签: 核心
-- 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
-- 阻塞: 
-- 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
-- 优先级: P1
-- 进展: 批4 完成(2026-08-16,提交 d196c96)。grep 迁移走统一 pipeline(grep_body 抽离),SubagentBase 只读族(read/glob/grep)全走通道;子代理执行(run_subagent)内工具即这三个,已覆盖。验证:grep 2 + kanzei-tools 248 passed 零回归(T-1786740962);fmt/clippy 绿;push 已到 origin/dev。批5(收口):git 工具迁移(验收⑥ read/bash/git/子代理 全走通道)+ 无双执行断言(每工具 execute 只经 pipeline 一次)+ Ruleset 回归逐字节一致(全量)+ cargo test --workspace + 关闭。
-- observed_head: d196c960ea3ab5e04ad4736dd8a06a90e3a5c42f
-- observed_worktree_hash: fnv1a64:d2e058c0c37b9281
-- recorded_at: 1786740991610
-- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
-
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
 - refs: D-209 R-180 D-297 D-298 R-242 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-242 R-244
