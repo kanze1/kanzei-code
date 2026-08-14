@@ -37,7 +37,7 @@ fn unique(tag: &str) -> String {
 }
 
 fn git(root: &Path, args: &[&str]) -> String {
-    let output = super::hidden_command("git")
+    let output = crate::state::hidden_command("git")
         .args(args)
         .current_dir(root)
         .output()
@@ -1915,7 +1915,7 @@ fn 跨进程并发建同名树_赢家的树与分支完好无损() {
     let mut kids = Vec::new();
     for _ in 0..2 {
         kids.push(
-            super::hidden_command(&exe.display().to_string())
+            crate::state::hidden_command(&exe.display().to_string())
                 .args([
                     CROSS_PROCESS_CHILD,
                     "--exact",

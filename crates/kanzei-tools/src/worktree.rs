@@ -47,7 +47,7 @@ pub struct WorktreeReceipt {
 }
 
 /// 执行 git 命令(禁止创建控制台窗口,D-238 同源)。
-fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
+pub fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
     let mut command = std::process::Command::new("git");
     #[cfg(windows)]
     crate::hide_console(&mut command);
@@ -335,7 +335,7 @@ fn branch_claim_error(root: &Path, branch: &str, worktree: &Path, git_error: &st
 
 /// 本地分支是否已经存在。用 `rev-parse --verify` 走全名 `refs/heads/<branch>`,
 /// 不用 `branch --list`(那是 glob 匹配)。
-fn branch_exists(root: &Path, branch: &str) -> bool {
+pub fn branch_exists(root: &Path, branch: &str) -> bool {
     let refname = format!("refs/heads/{branch}");
     worktree_command(root, &["rev-parse", "--verify", "--quiet", &refname])
         .map(|output| output.status.success())
@@ -353,7 +353,7 @@ fn is_object_name(value: &str) -> bool {
 ///
 /// 全零对象名必须挡掉:`git update-ref -d <ref> 000…0` 不是「比较后删除」,
 /// 它的语义是另一回事,拿它当判据等于把 CAS 退化成无条件删除。
-fn rev_parse(root: &Path, refname: &str) -> Option<String> {
+pub fn rev_parse(root: &Path, refname: &str) -> Option<String> {
     let output = worktree_command(root, &["rev-parse", "--verify", "--quiet", refname]).ok()?;
     if !output.status.success() {
         return None;
@@ -469,7 +469,7 @@ pub fn rollback_worktree(root: &Path, receipt: &WorktreeReceipt) -> Result<(), S
 ///
 /// D-004 口径:回滚收不干净是用户**必须**知道的事(不清理掉,这个工作树名字就一直
 /// 用不了),不能像老版那样 `let _ =` 吞掉。
-fn with_residue(error: String, rollback: Result<(), String>) -> String {
+pub fn with_residue(error: String, rollback: Result<(), String>) -> String {
     match rollback {
         Ok(()) => error,
         Err(residue) => format!("{error}\n{residue}"),
@@ -493,7 +493,7 @@ fn with_residue(error: String, rollback: Result<(), String>) -> String {
 /// 替代品是定点摘除:删目录之前先从 `<worktree>/.git` 读出这棵树自己的管理目录,
 /// 目录删掉之后只删那一个。实测 git 在 add 失败时会自己清掉半成品登记项,所以这条
 /// 路多数时候无事可做——但它至少不会碰别人。
-fn discard_worktree(root: &Path, receipt: &WorktreeReceipt) -> Result<(), String> {
+pub fn discard_worktree(root: &Path, receipt: &WorktreeReceipt) -> Result<(), String> {
     let target = git_arg_path(&receipt.worktree);
     let removed = worktree_command(root, &["worktree", "remove", "--force", &target])
         .map(|output| output.status.success())

@@ -370,18 +370,8 @@ pub(crate) struct MobileServiceInfo {
     pub(crate) address: String,
     pub(crate) token: String,
 }
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct WorktreeInfo {
-    pub(crate) path: String,
-    pub(crate) branch: String,
-    pub(crate) files: Vec<String>,
-    pub(crate) clean: bool,
-    pub(crate) diff: String,
-    /// 占着这棵树的线 id(R-177 内容③:清单来自 git,绑定关系来自进程表)。
-    /// None = git 认得这棵树但没有线绑着它(手工建的,或者线已经关了)。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) bound_process: Option<String>,
-}
+/// Worktree 信息类型下沉 kanzei-tools(R-207),这里 re-export 保持引用点零改动。
+pub(crate) use kanzei_tools::worktree::WorktreeInfo;
 
 impl Default for SessionRuntime {
     fn default() -> Self {
