@@ -26,6 +26,9 @@ pub use runner::{
     RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations,
 };
 pub use store::{
-    project_session_id, project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts,
-    RecallEvent, RecallMetrics, Session, SessionStore, StoreError, StoredEvent, StoredProcess,
+    compare_shadow, prepare_typed_session, project_session_facts, project_session_id,
+    project_state_path, AdmittedInput, Delivery, EpisodeRecord, FunnelCounts, RecallEvent,
+    RecallMetrics, Session, SessionFact, SessionFactEnvelope, SessionFactError, SessionInvariant,
+    SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison, StoreError,
+    StoredEvent, StoredProcess, TypedSessionWriter,
 };
