@@ -3568,3 +3568,10 @@
 - 关联: D-369
 - 收尾: 1786746530
 - 源码指纹: 704c316438cffba8
+
+## T-1786746587 cargo test git:: + kanzei-app (D-369 暂存后复测) [passed]
+- 命令: cargo test -p kanzei-tools --lib git:: && cargo test -p kanzei-app
+- 摘要: D-369 暂存后复测:git 23 + kanzei-app 163 全绿(指纹背书)。
+- 关联: D-369
+- 收尾: 1786746587
+- 源码指纹: 9be6473d17367204
