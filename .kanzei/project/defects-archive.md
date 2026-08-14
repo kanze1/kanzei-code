@@ -4128,7 +4128,19 @@
 - 优先级: P1
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-333
 - 进展: B1 完成(2026-08-13):验收②达成——归档区 R-201/R-198/R-199/R-213 的 [open][done] 双终态标记已用 fix_terminal 收敛为单一 [done](status 保持 done、标题残留 open 剥离、进展留 [terminal-fix] 审计,commit f3b7dcd)。| 2026-08-14 B2 完成,四条验收齐:①R-234/R-235 双「优先级」字段——逐条查文件确认各只剩一个(活动区 R-235 优先级 P3 单份;归档区 R-234 优先级 P1 单份),normalize 全仓 dry-run 亦报 0 finding;②见 B1;③R-225/R-226 归档重复「进展」——`kz req normalize --apply` 执行 dedupe_archived_fields 收敛,连同 B1 fix_terminal 副产的 R-201/R-198/R-199/R-213 重复进展共 6 条一并合并(进展按内容合并不丢字:回填后归档仍有 6 处 [terminal-fix] 审计原文,numstat 12 删 6 增 = 每条两行并一行),apply 后 normalize dry-run = 0 finding(clean);④全程走专用工具——fix_terminal(B1)/ archive_fill / normalize --apply / raw_delete,零手改 markdown。前置阻塞已自然解除:引擎已重启(kzapp pid 28956),CLI 侧 normalize/archive_fill 实测可写盘,原「旧编译无 normalize + CLI 被围栏拦」两条均不复存在。附带两处工具面观察已另立缺陷:normalize apply 报「0 fix(es)」但实际修了 6 条(fixed 列表在归档循环之前就拼进输出),且 dry-run 文案「需手动整理归档」与 apply 真实能力矛盾——正是这句话让上一轮判定本条不可修。defects 侧 normalize 未 apply:D-180 有两条内容不同的「验证(2026-08-08)」字段,非进展字段 dedupe 只保首条会丢 v7 那条,留待单独处置。
-- 阻塞: 
 - observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786709969731
+
+## D-322 记忆更新/整合环节跨主题覆写存量未清:M-016/U-005 缝合、M-044 英文化,D-282 校验只防增量 [fixed] (medium)
+- 复现: M-016 原 docs 整理正文被删光换成三主题缝合;U-005 title 讲 R-163 而 description 讲 edit 指纹且与 M-032 重复;archive M-044 被英文化改写(文件名含 s0p 错字);INDEX candidate 计数改了条目行没加
+- 影响: 记忆可信度受损,检索命中错误主题;D-282 主题一致性校验上线前的存量脏数据无人回收
+- 来源: 2026-08-13 会话复盘(缝合体已归档留证:archive/M-016、全局 archive/U-005)
+- 标签: 后端
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-322
+- 进展: 勘察完成(2026-08-16):三处损坏条目定位并确认恢复源(原文见 git 历史)。| 2026-08-14 修复完成,三处手术全部执行(用户在交互会话授权,正是原阻塞写明的解除动作):①M-016——从 git show 32cc02f 的原文写回 .kanzei/memory/archive/M-016-docs-目录整理-...md,title/description/正文六条 docs 整理结论逐条对回,清掉「权限拒绝转交互轮」三主题缝合体;status 保持 active、created/source 不动,仅 updated 改为恢复日期,并在文末留恢复记录。②M-044——从 git show d4a4f08 的中文原文写回,同时还原被改坏的文件名(M-044-defect-req-s0p-field-replacement-semanti.md → M-044-defect-update-字段键名与多字段处理-sop-防英文-key-追加与.md,s0p 错字消失);status 保持当前的 deprecated 不因恢复内容而复活;文末除恢复记录外另加时效修正——原文第 3 条「游离段落永远删不掉」在 D-329 之后已不成立(raw_lines/raw_delete 通道存在,本轮在 R-227 上实测有效)。③U-005(全局仓)——原文确认不可恢复(全局仓 ced6352 建仓时即以缝合体归档留证),按勘察结论处置:status candidate → deprecated,description 从「edit 指纹」(M-027 的主题)改写为「已废弃 + 指向项目域 M-032」的准确召回钩子,正文原样保留作留证;动全局仓前先把原文件与 index.db 备份到会话 scratchpad。④三处一致性核对:归档条目不进 load_all/FTS/检索(store.rs:711 明文),项目 INDEX.md 只列 active 条目、不含 M-016/M-044,全局 INDEX.md 只有表头无条目行——本次三处编辑不产生 index.db 与 INDEX.md 失步,无需重建派生物。残留观察(不在本条范围):M-016 的 status 是 active 却躺在 archive/ 目录里,archive_dead 只搬 deprecated/invalid,它是被别的路径放进去的,内容已恢复但检索仍够不到它。
+- 阻塞: 
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786713041326
