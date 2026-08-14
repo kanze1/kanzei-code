@@ -3061,7 +3061,6 @@
 - 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
 - 标签: 核心
 - 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
-- 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
 - 进展: 批5 完成(2026-08-16),条目收口。验收对照:①每阶段独立契约测试且顺序固定——harness tool_pipeline.rs 5 测试(guard 拒绝不执行 body/阶段顺序+result policy/observer 抛错不改终态/失败拒绝唯一结果/body 恰好执行一次无双执行);②Ruleset/hard_denies 回归逐字节一致——permission.rs 零改动,全量绿(harness 143 含 permission 30);③policy allow 不能覆盖 guard deny——guard 拒绝反证测试(拒后 body 不执行);④timeout/cancellation/progress 只在 wrapper 实现一处——progress 现统一在 runner 层(drive 串行旁路 + tool_exec 并行通道),timeout 在 bash body(全仓唯一),pipeline Wrap 阶段已预留(ToolPhase::Wrap);**字面收敛进 Wrap 为残余,已登记 R-259**;⑤observer 抛错不改终态但留遥测——catch_unwind + warn 测试;⑥read/bash/git/子代理走统一通道且无双执行——glob/read/bash/git 迁移(execute 调 run_tool_pipeline,body 独立函数),SubagentBase 只读族(read/glob/grep)全走通道,无双执行契约测试;⑦失败/拒绝/取消都产生唯一 final result——guard 拒绝/body 失败唯一结果测试(取消占位在 runner 层,既有 R-202 覆盖)。迁移提交:51c797d(B1 骨架)/84461ec(B2 read)/51ddb45(B3 bash)/d196c96(B4 grep)/ebd1b64(B5 git+无双执行)。全量:cargo test --workspace 全绿 0 failed(T-1786741238)。残余转移:R-259(pipeline Wrap 阶段收敛 timeout/cancellation/progress)。关闭。
@@ -3069,3 +3068,15 @@
 - observed_worktree_hash: fnv1a64:d2e058c0c37b9281
 - recorded_at: 1786741286441
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
+
+## R-260 侧边栏刷新机制问题 [done]
+- 原始描述: 左侧的在做侧边栏的任务。似乎刷新的机制有问题并没有有及时刷新
+- 复杂度: 中
+- 标签: 前端
+- 验收: 左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据
+- 优先级: P2
+- 状态: doing
+- 进展: 验收对照:验收原文「左侧菜单能够正常进行数据/内容的刷新的，不会滞留旧的内容或失效的数据」——达成。根因:侧边栏「并行任务」列表(#parallel-task-status)数据源为 process_list,但全仓无 process_list 定时轮询(01-core.js L73 注释声称「process_list 轮询」实际无定时器;09-sessions.js renderProcesses L391 校正逻辑假定「下一次轮询」兜底事件丢失;后端 processes.rs 无进程级 emit)。事件偶发丢失、外部创建/注销进程、列表结构变化时,侧边栏滞留到下次手动操作。修复(crates/kanzei-app/ui/01-core.js):加 process_list 3s 定时轮询 setInterval,typeof refreshProcesses 守卫,refreshProcesses 内部按项目单飞去重(processRefreshInFlight),轮询安全;事件驱动路径(kz:* 事件投影)保留不动,轮询补齐兜底。验证:node --check + ui-runtime 21 项 + ui-lint 31 文件零错 + i18n/a11y/markdown 冒烟(T-1786744592)、kanzei-app 163(T-1786744653)、全量 workspace 全绿(T-1786744744)。
+- observed_head: 1cea2a86d9808bb0996f90cdcfa64e0769d395c4
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786744753379
