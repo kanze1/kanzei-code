@@ -3093,3 +3093,16 @@
 - observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786745736067
+
+## R-262 task 子代理并行派发引导:强化工具描述引导同轮多派独立勘察 [done]
+- 内容: 引擎已支持同轮多 task 并行(run_subagent_calls FuturesUnordered,max_tasks_per_turn 默认 16,测试证明 20 并行可执行),task 工具描述已有「Multiple task calls in one turn run in parallel」——但主模型使用习惯是每次只派一个 task,串行勘察效率低。优化:强化 task 工具描述与系统提示,明确引导「把相互独立的勘察/查找拆成多个 task 同一轮并行派发(上限 max_tasks_per_turn),并行显著提速」,让模型从习惯单派转向习惯多派。
+- 复杂度: 小
+- 来源: 2026-08-15 用户反馈:「每次只派一个其实效率很低可以考虑把派子代理的并行强度提高一点」,经调研确认非引擎限制而是模型使用习惯,用户拍板方向(问题2-A)
+- 标签: 核心
+- 验收: ①task 工具描述包含明确的并行派发引导(独立问题拆多个 task 同轮并行,点名上限);②系统提示/约定无与此矛盾的单派建议;③既有 task 并发测试(max_tasks_parallel_dispatch 等)全绿;④自举环境实测同轮多派可达(非只跑单测)。
+- 优先级: P2
+- 取活依据: override:用户 2026-08-15 明确拍板方向(问题2-A:强化 task 工具描述/系统提示引导「独立勘察拆多个 task 同轮并行派发」),R-262 为已确认优化需求,继续实现
+- 进展: 验收逐条对照:①task 工具描述含明确并行派发引导——crates/kanzei-core/src/runner/subagent.rs task_spec() description 新增「独立勘察/查找问题拆成多个 task 调用在同一轮派发(上限 max_tasks_per_turn),并行显著快于串行勘察」,取代原有单句说明;②系统提示/约定无矛盾单派建议——全仓搜索「一次只派一个/串行勘察/one at a time」仅命中本次新增引导文本自身;③既有 task 并发测试全绿——max_tasks_parallel_dispatch(20 并行实测)+ parallel_scouting_under_serial_writer + core runner::subagent 7 项全过(T-1786745928);④自举实测——本轮开头双 task 并行调研即实测同轮多派可达,且 R-174 测试证明 20 并行可执行。引擎侧本就支持同轮多 task(FuturesUnordered,默认上限 16),本项补齐使用引导。
+- observed_head: 87f5b4c5cc3c93b3d611a63c4463ef2e810ebeb2
+- observed_worktree_hash: fnv1a64:255559cce223d55d
+- recorded_at: 1786745938931
