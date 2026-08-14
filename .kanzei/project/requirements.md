@@ -133,11 +133,11 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 4/7
-- 进展: 批5 完成(2026-08-16)。普通工具执行段(原 475-1014)抽为 execute_tool_calls + ToolRunOutcome 枚举:并行预检(can_parallel_tools:serial_writer 强制串行/权限 Ask 批准判定/≥2 普通工具)/并行 wave(slots 下标对齐 + D-342 停止 drop 在飞 future + 取消占位补齐)/串行路径(工具间停止检查点、question 交互、权限 Gate 门禁、progress 旁路)整体搬入;串行路径两处提前退出(halted 检查点、UserDeclined)改由 ToolRunOutcome::Stopped 表达、调用方构造与原先逐字段相同的 RunSummary,commit_tool_results 落库逻辑保留在函数内(messages &mut);run_once_with_parts 主体 960→460 行(提交 67e1425)。行为零变更:事件顺序/权限判定/停止语义/对齐不变式逐点核对。验证:cargo test -p kanzei-core 186 passed(T-1786727523);fmt/clippy 全绿;push 已到 origin/dev。批6:收尾段(消息提交/note_step/步末检查点/最终构造)抽函数 + run_once_with_parts 主体 <300 行确认(验收③);批7 独立单测(验收①)+ cargo test --workspace 全量(验收②)。
-- observed_head: 67e1425f9e026cbecc5fac3c37c54d2eda196426
+- 批次: 5/7
+- 进展: 批6 完成(2026-08-16)。run_once_with_parts 主体 460→262 行:①装配段(工具/specs/system 分块/消息初始化/运行态)抽 assemble_run_once 返回 RunOnceAssembly<'a>(调用方解构、变量名不变,halt/halted 留本地);②步骤消息提交+纯文本/停止收尾抽 commit_step_messages(StepMessageOutcome::Return{halted_by_user});③步骤收尾(冗余/召回注入+结果落库+步末检查点+MaxTokens/Refusal+last_step)抽 finalize_step(StepFinalOutcome::Continue/Break/Return);④轮内上下文预算(prune/compact/trim,D-206 无效计数/R-219 默认 32k)抽 enforce_context_budget。行为零变更:事件顺序/停止语义/压缩触发线/对齐不变式逐点核对;提交 dc5062c。验证:cargo test -p kanzei-core 186 passed(T-1786727914);fmt/clippy 全绿;push 已到 origin/dev。验收③达成:run_task 266 行(批2)+ run_once_with_parts 262 行,均 <300。批7(收口):补独立单测(验收①:assemble_run_once/commit_step_messages/finalize_step/enforce_context_budget/stream_request_step 等段)与 cargo test --workspace 全量(验收②),清理 R-202 游离段落,关闭条目。
+- observed_head: dc5062c5bd528c6db5cdf9a1428686bb3a06cc5c
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786727550105
+- recorded_at: 1786727940323
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0

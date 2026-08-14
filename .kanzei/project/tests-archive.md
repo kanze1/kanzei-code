@@ -3353,3 +3353,10 @@
 - 摘要: R-202 B6 装配+收尾+预算段抽取后:186 passed, 0 failed;主体 262 行(验收③达成)
 - 关联: R-202
 - 收尾: 1786727914
+
+## T-1786728314 cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 时长: 70.0s
+- 摘要: R-202 批7 关闭前全量:workspace 全绿(含新增 7 个段函数单测;kanzei-core 193 passed;首轮 flaky 的 kzapp 认领回滚测试重跑通过)
+- 关联: R-202
+- 收尾: 1786728314

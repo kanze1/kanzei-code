@@ -1807,3 +1807,237 @@ async fn enforce_context_budget(
         }
     }
 }
+/// R-202 批7:段函数独立单测(验收①)。commit_step_messages / finalize_step 是
+/// 抽离后具备独立输入输出边界的纯逻辑段,不依赖 provider/网络/重夹具即可验证。
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn bash_call(id: &str) -> (String, String, serde_json::Value, String) {
+        (
+            id.to_string(),
+            "bash".to_string(),
+            json!({ "command": "echo hi" }),
+            "{}".to_string(),
+        )
+    }
+
+    #[test]
+    fn commit_step_messages_纯文本步_更新final_text并提交assistant() {
+        let mut messages: Vec<Message> = Vec::new();
+        let mut final_text = String::new();
+        let mut events: Vec<RunEvent> = Vec::new();
+        let outcome = commit_step_messages(
+            vec![
+                Part::Text {
+                    text: "第一段".into(),
+                },
+                Part::Text {
+                    text: "第二段".into(),
+                },
+            ],
+            &[],
+            &mut final_text,
+            &mut messages,
+            1,
+            None,
+            &mut |ev| events.push(ev),
+        );
+        // 纯文本步:calls 为空 → Return{halted_by_user:false},停止未置位。
+        assert!(matches!(
+            outcome,
+            StepMessageOutcome::Return {
+                halted_by_user: false
+            }
+        ));
+        // final_text 只拼 Text part。
+        assert_eq!(final_text, "第一段\n第二段");
+        // assistant 消息已落库,AssistantMessageCommitted 已上抛。
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].role, Role::Assistant));
+        assert!(events
+            .iter()
+            .any(|ev| matches!(ev, RunEvent::AssistantMessageCommitted { .. })));
+    }
+
+    #[test]
+    fn commit_step_messages_有工具调用_继续执行() {
+        let mut messages: Vec<Message> = Vec::new();
+        let mut final_text = String::new();
+        let calls = vec![bash_call("c1")];
+        let outcome = commit_step_messages(
+            vec![Part::Text {
+                text: "plan".into(),
+            }],
+            &calls,
+            &mut final_text,
+            &mut messages,
+            1,
+            None,
+            &mut |_| {},
+        );
+        // 有工具调用且未停止 → Proceed,交给工具批执行。
+        assert!(matches!(outcome, StepMessageOutcome::Proceed));
+        assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn commit_step_messages_停止已置位_取消占位收尾() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let mut messages: Vec<Message> = Vec::new();
+        let mut final_text = String::new();
+        let calls = vec![bash_call("c1")];
+        let outcome = commit_step_messages(
+            vec![Part::Text { text: "t".into() }],
+            &calls,
+            &mut final_text,
+            &mut messages,
+            1,
+            Some(&token),
+            &mut |_| {},
+        );
+        // 模型产出了调用但停止已置位:一个工具都不执行,取消占位配对后 halted 收尾。
+        assert!(matches!(
+            outcome,
+            StepMessageOutcome::Return {
+                halted_by_user: true
+            }
+        ));
+        // assistant + tool_results(取消占位,user 角色)。
+        assert_eq!(messages.len(), 2);
+        let last = messages.last().unwrap();
+        assert!(matches!(last.role, Role::User));
+        assert!(last
+            .parts
+            .iter()
+            .any(|p| matches!(p, Part::ToolResult { is_error: true, .. })));
+    }
+
+    #[test]
+    fn finalize_step_正常落库_继续下一轮() {
+        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
+        let mut messages: Vec<Message> = Vec::new();
+        let mut results = vec![Part::ToolResult {
+            call_id: "c1".into(),
+            content: "ok".into(),
+            is_error: false,
+        }];
+        let calls = vec![bash_call("c1")];
+        let outcome = finalize_step(
+            &ctx,
+            &calls,
+            &mut results,
+            Vec::new(),
+            &mut messages,
+            1,
+            &FinishReason::EndTurn,
+            false,
+            None,
+            &mut RedundancyWatch::default(),
+            &mut RecallWatch::new(None),
+            &mut |_| {},
+        );
+        assert!(matches!(outcome, StepFinalOutcome::Continue));
+        // 工具结果以 user 角色落库,结果已从 results 取走(mem::take)。
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0].role, Role::User));
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn finalize_step_max_tokens_返回非halted() {
+        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
+        let mut messages: Vec<Message> = Vec::new();
+        // note_step 的 debug_assert 要求 calls↔results 下标对齐(对齐不变式)。
+        let mut results = vec![Part::ToolResult {
+            call_id: "c1".into(),
+            content: "ok".into(),
+            is_error: false,
+        }];
+        let calls = vec![bash_call("c1")];
+        let outcome = finalize_step(
+            &ctx,
+            &calls,
+            &mut results,
+            Vec::new(),
+            &mut messages,
+            1,
+            &FinishReason::MaxTokens,
+            false,
+            None,
+            &mut RedundancyWatch::default(),
+            &mut RecallWatch::new(None),
+            &mut |_| {},
+        );
+        // MaxTokens/Refusal:步末终止但非用户停止。
+        assert!(matches!(
+            outcome,
+            StepFinalOutcome::Return {
+                halted_by_user: false
+            }
+        ));
+    }
+
+    #[test]
+    fn finalize_step_last_step_break收敛() {
+        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
+        let mut messages: Vec<Message> = Vec::new();
+        let mut results = vec![Part::ToolResult {
+            call_id: "c1".into(),
+            content: "ok".into(),
+            is_error: false,
+        }];
+        let calls = vec![bash_call("c1")];
+        let outcome = finalize_step(
+            &ctx,
+            &calls,
+            &mut results,
+            Vec::new(),
+            &mut messages,
+            1,
+            &FinishReason::EndTurn,
+            true,
+            None,
+            &mut RedundancyWatch::default(),
+            &mut RecallWatch::new(None),
+            &mut |_| {},
+        );
+        assert!(matches!(outcome, StepFinalOutcome::Break));
+    }
+
+    #[test]
+    fn finalize_step_停止置位_返回halted() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
+        let mut messages: Vec<Message> = Vec::new();
+        let mut results = vec![Part::ToolResult {
+            call_id: "c1".into(),
+            content: "ok".into(),
+            is_error: false,
+        }];
+        let calls = vec![bash_call("c1")];
+        let outcome = finalize_step(
+            &ctx,
+            &calls,
+            &mut results,
+            Vec::new(),
+            &mut messages,
+            1,
+            &FinishReason::EndTurn,
+            false,
+            Some(&token),
+            &mut RedundancyWatch::default(),
+            &mut RecallWatch::new(None),
+            &mut |_| {},
+        );
+        assert!(matches!(
+            outcome,
+            StepFinalOutcome::Return {
+                halted_by_user: true
+            }
+        ));
+    }
+}
