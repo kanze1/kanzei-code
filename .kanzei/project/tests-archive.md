@@ -3523,3 +3523,23 @@
 - 摘要: R-260 关闭前全量:workspace 全绿(含 kanzei-app 163)。前端轮询改动不影响后端,全量确认无回归。
 - 关联: R-260
 - 收尾: 1786744744
+
+## T-1786745419 cargo test -p kanzei-tools --lib (R-261 提交门禁优化) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-261 提交门禁优化:251 全绿(新增「纯前端ui资源不算rust源码_门禁放行而rust源码规则不变」守护测试)。改动:is_source_path 排除 crates/kanzei-app/ui/ 前端资源;commit 门禁与 finalize 的 fmt/clippy 并行(tokio::join!)。
+- 关联: R-261
+- 收尾: 1786745419
+
+## T-1786745493 cargo test -p kanzei-tools --lib (R-261 fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-261 fmt 后复测:kanzei-tools 251 全绿。
+- 关联: R-261
+- 收尾: 1786745493
+- 源码指纹: bfb78213eb5c58a2
+
+## T-1786745568 cargo test -p kanzei-tools --lib (R-261 提交门禁复测) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-261 提交门禁复测:kanzei-tools 251 全绿(指纹背书)。
+- 关联: R-261
+- 收尾: 1786745568
+- 源码指纹: ff0158619c219963

@@ -463,9 +463,18 @@ async fn unstaged_changes(cwd: &Path) -> Result<Vec<String>, String> {
 }
 
 /// 提交里算「源码」的路径。改这两棵树就要有测试背书;`.kanzei/` 下的文档不算。
+///
+/// R-261:kanzei-app/ui/ 下的纯前端资源(js/css/html)不算 Rust source——它们由前端
+/// 冒烟集(node --check + ui-runtime/lint/i18n/a11y/markdown,R-228 强制前端标签条目
+/// 关闭前有 passed 冒烟)背书,要求 cargo test -p kanzei-app 跑全套 Rust 测试对它们
+/// 零信息量(实测 R-260 改 10 行 js 被迫重跑 163 个 Rust 测试)。staged 同时含 Rust
+/// 源码与前端资源时,Rust 部分仍按原规则要求测试背书,不受影响。
 fn is_source_path(path: &str) -> bool {
     let path = path.replace('\\', "/");
-    (path.starts_with("crates/") || path.starts_with("scripts/")) && !path.contains("/.kanzei/")
+    let frontend_resource = path.starts_with("crates/kanzei-app/ui/");
+    (path.starts_with("crates/") || path.starts_with("scripts/"))
+        && !path.contains("/.kanzei/")
+        && !frontend_resource
 }
 
 /// 提交里算「tracker 文档」的路径:需求/缺陷/测试记录及其归档。
@@ -865,10 +874,13 @@ async fn commit(
         // ——规则层写过但自举漏了三次,必须代码强制。R-210:不再串行跑 cargo check
         // (clippy 全 workspace 编译覆盖 check,双份全仓分析是纯冗余;clippy 输出
         // 缺位置信息时才降级跑 check 补诊断)。
-        if let Err(error) = fmt_gate(cwd).await {
+        // R-261:fmt 与 clippy 互不依赖,并行执行——fmt --check 只读不写 target,
+        // 与 clippy 的增量编译无资源竞争,串行只会让门禁多等一份时间。
+        let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
+        if let Err(error) = fmt_result {
             return ToolOutput::error(error);
         }
-        if let Err(error) = clippy_gate(cwd).await {
+        if let Err(error) = clippy_result {
             return ToolOutput::error(error);
         }
     }
@@ -927,13 +939,15 @@ async fn finalize(ctx: &ToolCtx, files: Vec<String>, message: Option<String>) ->
         .collect();
 
     // 1. fmt gate(先于测试——D-334 核心:别再「测完了才发现 fmt 没过」)。
+    // R-261:fmt 与 clippy 互不依赖,并行执行,与 commit 门禁同一节奏。
     if !sources.is_empty() {
-        if let Err(error) = fmt_gate(cwd).await {
+        let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
+        if let Err(error) = fmt_result {
             return ToolOutput::error(format!(
                 "[finalize] fmt gate failed (before tests):\n{error}"
             ));
         }
-        if let Err(error) = clippy_gate(cwd).await {
+        if let Err(error) = clippy_result {
             return ToolOutput::error(format!(
                 "[finalize] clippy gate failed (before tests):\n{error}"
             ));
@@ -2330,6 +2344,46 @@ prunable gitdir file points to non-existent location
             staged_source_fingerprint(&root).unwrap(),
             "",
             "只有非源码暂存时指纹应为空(门禁走 mtime)"
+        );
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    /// R-261:纯前端资源(kanzei-app/ui/ 下 js/css/html)不算 Rust source——
+    /// 它们由前端冒烟集背书,不要求 cargo test -p kanzei-app 跑全套 Rust 测试。
+    /// staged 同时含 Rust 源码时,Rust 部分仍按原规则要求测试背书。
+    #[test]
+    fn 纯前端ui资源不算rust源码_门禁放行而rust源码规则不变() {
+        assert!(!is_source_path("crates/kanzei-app/ui/01-core.js"));
+        assert!(!is_source_path("crates/kanzei-app/ui/style.css"));
+        assert!(!is_source_path("crates/kanzei-app/ui/index.html"));
+        assert!(
+            is_source_path("crates/kanzei-tools/src/lib.rs"),
+            "Rust 源码仍算 source"
+        );
+        assert!(is_source_path("scripts/verify.ps1"), "scripts 仍算 source");
+
+        // 纯前端 staged:source_test_gate 放行(无 Rust 源码 → 不需要测试背书)。
+        let root = temp_repo("gate-frontend-only");
+        std::fs::create_dir_all(root.join("crates/kanzei-app/ui")).unwrap();
+        std::fs::write(
+            root.join("crates/kanzei-app/ui/01-core.js"),
+            "console.log('x');\n",
+        )
+        .unwrap();
+        git_in(&root, &["add", "crates/kanzei-app/ui/01-core.js"]);
+        assert_eq!(
+            staged_source_fingerprint(&root).unwrap(),
+            "",
+            "纯前端暂存指纹应为空(不算 Rust source)"
+        );
+        assert!(
+            source_test_gate(
+                &root,
+                &root,
+                &["crates/kanzei-app/ui/01-core.js".to_string()],
+            )
+            .is_ok(),
+            "纯前端改动不得被 source_test_gate 拦"
         );
         std::fs::remove_dir_all(root).ok();
     }
