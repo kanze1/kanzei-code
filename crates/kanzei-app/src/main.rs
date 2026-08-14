@@ -180,6 +180,7 @@ fn main() {
             memory::memory_note_candidates,
             memory::memory_note_discard,
             run::run_metrics,
+            run::run_metrics_by_category,
             projects::project_root_info,
             projects::project_detach,
             projects::projects_isolation_report,

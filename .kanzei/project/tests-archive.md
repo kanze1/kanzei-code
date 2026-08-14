@@ -3388,3 +3388,10 @@
 - 摘要: R-238 定向:bash 16(含超长防护)、kanzei 30(含 --prompt-file 解析/互斥/读文件)、集成 4(含 prompt-file 跑通一轮)全过;fmt/clippy 绿
 - 关联: R-238
 - 收尾: 1786738142
+
+## T-1786738940 R-240 B1 定向测试 [passed]
+- 命令: cargo test -p kanzei-app --bin kzapp
+- 时长: 20.0s
+- 摘要: R-240 B1 后端聚合命令:run_metrics_by_category + extract_ticket_id/ticket_complexity/aggregate_run_metrics,163 passed(含 3 新单测);fmt/clippy 绿
+- 关联: R-240
+- 收尾: 1786738940

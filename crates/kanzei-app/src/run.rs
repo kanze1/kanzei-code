@@ -2881,6 +2881,145 @@ pub(crate) fn run_metrics(
     Ok(serde_json::json!({ "rounds": rounds }))
 }
 
+/// R-240:从 prompt_head 提取需求 ID(`R-123` / `D-321`),取第一个命中。
+/// 自举/取活轮的 prompt 以条目标题开头(R-xxx …),用户轮通常无——据此归类。
+fn extract_ticket_id(prompt_head: &str) -> Option<String> {
+    let bytes = prompt_head.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        if (bytes[i] == b'R' || bytes[i] == b'D') && bytes[i + 1] == b'-' {
+            let mut j = i + 2;
+            let mut num = String::new();
+            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                num.push(bytes[j] as char);
+                j += 1;
+            }
+            if !num.is_empty() {
+                return Some(format!("{}-{num}", bytes[i] as char));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// R-240:从需求/缺陷文档解析 `<id>` 的复杂度字段(小/中/大)。
+/// 读 `.kanzei/project/requirements.md` 与 `defects.md`,`## {id} ` 段落内扫
+/// `- 复杂度: X` 行。找不到或字段缺失返回 None(归类为「未知」)。
+fn ticket_complexity(project_root: &Path, id: &str) -> Option<String> {
+    for name in ["requirements.md", "defects.md"] {
+        let text = std::fs::read_to_string(project_root.join(".kanzei/project").join(name)).ok()?;
+        let marker = format!("## {id} ");
+        let Some(pos) = text.find(&marker) else {
+            continue;
+        };
+        let rest = &text[pos..];
+        let section_end = rest.find("\n## ").unwrap_or(rest.len());
+        for line in rest[..section_end].lines() {
+            let line = line.trim();
+            if let Some(value) = line.strip_prefix("- 复杂度:") {
+                let value = value.trim();
+                if value == "小" || value == "中" || value == "大" {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// R-240:按 (类型, 复杂度) 聚合运行指标。纯函数,可单测。
+/// rows 取 (prompt_head, outcome, steps, input_tokens, output_tokens)。
+/// 返回:groups 数组(每项 count/sumInput/sumOutput/sumSteps/avgSteps + 分类键)
+/// + uncategorized(未提取到需求 ID 的轮次合计)。
+fn aggregate_run_metrics(
+    rows: &[(String, String, u32, u64, u64)],
+    metas: &HashMap<String, String>,
+) -> serde_json::Value {
+    use std::collections::BTreeMap;
+    let mut groups: BTreeMap<(String, String), (u32, u64, u64, u64)> = BTreeMap::new();
+    let mut other: (u32, u64, u64, u64) = (0, 0, 0, 0);
+    for (prompt, _, steps, input, output) in rows {
+        let target = match extract_ticket_id(prompt) {
+            Some(id) => {
+                let kind = if id.starts_with('D') { "D" } else { "R" };
+                let complexity = metas
+                    .get(&id)
+                    .cloned()
+                    .unwrap_or_else(|| "未知".to_string());
+                groups
+                    .entry((kind.to_string(), complexity))
+                    .or_insert((0, 0, 0, 0))
+            }
+            None => &mut other,
+        };
+        target.0 += 1;
+        target.1 += input;
+        target.2 += output;
+        target.3 += *steps as u64;
+    }
+    let group_values: Vec<serde_json::Value> = groups
+        .into_iter()
+        .map(
+            |((kind, complexity), (count, sum_input, sum_output, sum_steps))| {
+                serde_json::json!({
+                    "kind": kind,
+                    "complexity": complexity,
+                    "count": count,
+                    "sumInput": sum_input,
+                    "sumOutput": sum_output,
+                    "sumSteps": sum_steps,
+                    "avgInput": if count > 0 { sum_input as f64 / count as f64 } else { 0.0 },
+                    "avgOutput": if count > 0 { sum_output as f64 / count as f64 } else { 0.0 },
+                    "avgSteps": if count > 0 { sum_steps as f64 / count as f64 } else { 0.0 },
+                })
+            },
+        )
+        .collect();
+    serde_json::json!({
+        "groups": group_values,
+        "uncategorized": {
+            "count": other.0,
+            "sumInput": other.1,
+            "sumOutput": other.2,
+            "sumSteps": other.3,
+        }
+    })
+}
+
+/// R-240:按需求类型(R-/D-)与复杂度(小/中/大)聚合的运行时指标。
+/// 数据源 = episodes 表(prompt_head 提取需求 ID → requirements/defects 文档取复杂度)。
+/// 返回 groups(按分类的 count/token 合计与均值)+ uncategorized(无 ID 轮)。
+#[tauri::command]
+pub(crate) fn run_metrics_by_category(
+    project_dir: String,
+    limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
+    let root = PathBuf::from(&project_dir);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+        .map_err(|e| e.to_string())?;
+    let session_id = kanzei_core::project_session_id(&root);
+    let limit = limit.unwrap_or(200).clamp(1, 1000);
+    let rows = store
+        .recent_episodes(&session_id, limit)
+        .map_err(|e| e.to_string())?;
+    let mut metas: HashMap<String, String> = HashMap::new();
+    for (_, prompt, _, _, _, _, _, _, _) in &rows {
+        if let Some(id) = extract_ticket_id(prompt) {
+            metas.entry(id.clone()).or_insert_with(|| {
+                ticket_complexity(&root, &id).unwrap_or_else(|| "未知".to_string())
+            });
+        }
+    }
+    let mapped: Vec<(String, String, u32, u64, u64)> = rows
+        .iter()
+        .map(|(_, prompt, outcome, steps, input, output, _, _, _)| {
+            (prompt.clone(), outcome.clone(), *steps, *input, *output)
+        })
+        .collect();
+    Ok(aggregate_run_metrics(&mapped, &metas))
+}
+
 #[cfg(test)]
 mod worktree_run_tests {
     use std::path::PathBuf;
@@ -3264,5 +3403,111 @@ mod assembly_tests {
             &config,
         );
         assert!(research.is_empty());
+    }
+
+    // ══ R-240:按需求类型/复杂度聚合运行指标 ══
+
+    #[test]
+    fn extract_ticket_id_识别r与d条目() {
+        use super::extract_ticket_id;
+        assert_eq!(
+            extract_ticket_id("R-202 run_task 拆分"),
+            Some("R-202".into())
+        );
+        assert_eq!(extract_ticket_id("D-321 修复"), Some("D-321".into()));
+        assert_eq!(extract_ticket_id("继续推进，规则按系统提示执行"), None);
+        assert_eq!(extract_ticket_id(""), None);
+        // 非需求编号的 R- 不误认(后面无数字)。
+        assert_eq!(extract_ticket_id("README 说明"), None);
+        // 多个编号取第一个。
+        assert_eq!(
+            extract_ticket_id("R-183 与 R-186 联动"),
+            Some("R-183".into())
+        );
+    }
+
+    #[test]
+    fn ticket_complexity_从文档段落解析() {
+        use super::ticket_complexity;
+        let dir = std::env::temp_dir().join(format!(
+            "kz-ticket-meta-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-101 示例 [doing]\n- 优先级: P0\n- 复杂度: 中\n- 标签: 核心\n\n## R-102 无复杂度 [doing]\n- 优先级: P1\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join(".kanzei/project/defects.md"),
+            "# Defects\n\n## D-201 缺陷 [fixing]\n- 复杂度: 小\n",
+        )
+        .unwrap();
+        assert_eq!(ticket_complexity(&dir, "R-101").as_deref(), Some("中"));
+        assert_eq!(ticket_complexity(&dir, "D-201").as_deref(), Some("小"));
+        assert_eq!(
+            ticket_complexity(&dir, "R-102"),
+            None,
+            "无复杂度字段 → None"
+        );
+        assert_eq!(
+            ticket_complexity(&dir, "R-999"),
+            None,
+            "不存在的条目 → None"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn aggregate_run_metrics_按类型与复杂度分组() {
+        use super::aggregate_run_metrics;
+        use std::collections::HashMap;
+        let rows: Vec<(String, String, u32, u64, u64)> = vec![
+            (
+                "R-101 中复杂度任务".into(),
+                "completed".into(),
+                5,
+                1000,
+                200,
+            ),
+            (
+                "R-101 中复杂度任务(二次)".into(),
+                "completed".into(),
+                3,
+                800,
+                100,
+            ),
+            ("R-102 小复杂度任务".into(), "completed".into(), 2, 300, 50),
+            ("D-201 缺陷修复".into(), "completed".into(), 1, 150, 30),
+            ("继续推进".into(), "completed".into(), 4, 500, 80),
+        ];
+        let mut metas = HashMap::new();
+        metas.insert("R-101".into(), "中".into());
+        metas.insert("R-102".into(), "小".into());
+        metas.insert("D-201".into(), "小".into());
+        let out = aggregate_run_metrics(&rows, &metas);
+        let groups = out["groups"].as_array().unwrap();
+        assert_eq!(groups.len(), 3, "三个分类:R-中/R-小/D-小");
+        let r101 = groups
+            .iter()
+            .find(|g| g["kind"] == "R" && g["complexity"] == "中")
+            .unwrap();
+        assert_eq!(r101["count"], 2);
+        assert_eq!(r101["sumInput"], 1800);
+        assert_eq!(r101["sumOutput"], 300);
+        assert_eq!(r101["sumSteps"], 8);
+        let d201 = groups
+            .iter()
+            .find(|g| g["kind"] == "D" && g["complexity"] == "小")
+            .unwrap();
+        assert_eq!(d201["count"], 1);
+        // 无 ID 轮进 uncategorized。
+        assert_eq!(out["uncategorized"]["count"], 1);
+        assert_eq!(out["uncategorized"]["sumInput"], 500);
     }
 }

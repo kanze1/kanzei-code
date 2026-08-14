@@ -173,13 +173,19 @@
 - 进展: 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
 - 阻塞: 用户: 需对移动端三条验收(双向通信/通知推送/子代理升级容器)排期并确认交付载体(真实手机端工程或 web 模拟端)。解除动作:用户拍板移动端交付形态与排期,再按新载体拆子需求动工。
 
-## R-240 细化运行完成指标统计 [todo]
+## R-240 细化运行完成指标统计 [doing]
 - priority: P2
 - 原始描述: 能更详细的查看各类运行和完成过程种的指标，比如做完不同种类的不同复杂度需求使用的token，方便我们针对上下文和harness等进行优化
 - 复杂度: 中
 - 归属: kanzei
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
+- 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-240
+- 批次: 0/3
+- 进展: 2026-08-16 认领。侦察:episodes 表已存每轮 input_tokens/output_tokens/steps/tools_json/context_json/metrics_json/prompt_head/provider/model(kanzei-core store/episodes.rs:12-25,双端 append_episode 落库);已有 run_metrics 命令(kanzei-app run.rs:2865)读 recent_episodes 返回 rounds;前端 13-memory.js refreshMetrics/renderMetrics 渲染每轮指标面板(R-099 口径)。缺口:无「按需求类型(R-/D-)与复杂度(小/中/大)聚合」视图——prompt_head 里含需求 ID(R-xxx),但没提取也没关联 requirements.md 的复杂度/标签。批次:1=后端 run_metrics_by_category 命令(prompt_head 提取需求 ID → 解析 requirements.md 复杂度/类型 → 按 (kind, complexity) 聚合 count/tokens/steps/duration)+ 单测;2=前端 metrics 面板加分类聚合区块(13-memory.js/index.html/i18n)+ 冒烟;3=全量 + 收口。
+- observed_head: fc0c559d3a92346d8dfbe50c8aa46b84dfa02dde
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786738700236
 
 ## R-242 会话投影真源切换与分段清空恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
