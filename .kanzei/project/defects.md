@@ -85,24 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-364 托管文档并发写丢条目:kz req add 报 added 成功但条目被并发写者整体覆盖消失 [fixed] (high)
-- refs: R-138 R-177 R-182 M-012 D-267
-- 复杂度: 中
-- 复现: 2026-08-15 04:00-04:10 实测,当场命中两次。环境:kzapp(pid 38688)内有自举轮正在写 .kanzei/project/(文件 mtime 实证:conventions.md 04:06:53、tests.md 04:09:02、requirements.md 04:09:13 相继被写),同时在主根用 kz req add 登记条目。第一次:add 输出 added R-254,紧接着的下一条 add 又被分配到 R-254,复核 requirements.md 发现前一条整体消失(标题、全部字段一并没了,不是截断);第二次同型:输出 added R-257 后,下一条 add 又拿到 R-257,前一条消失。改成 add 后立即 Select-String 复核 + 重试才落住(最终补登为 R-255 与 R-258)。
-- 影响: 静默数据丢失,而且是最坏形态:工具明确回 added <id> 并给出编号,调用方(人或 agent)据此认为登记完成继续往下走,甚至在别处 refs 这个 id,而条目根本不在文件里。自举并发是本仓既定玩法(R-177/R-182 的前提),这个丢失面对每一次 桌面端自举轮 + 外部 agent 登记 都成立;同一 id 被二次分配还会撞上 M-012 的完整性门禁(活动与归档同 id 会拒绝所有 tracker 写)。本条不是理论风险,是本轮登记过程中真实发生的两次。
-- 来源: self-found(2026-08-15 登记第二轮巨石拆解条目时当场命中)
-- 标签: 核心
-- 根因假设(未定位,待读码): docstore 的 读全文-改-整体回写 不是跨进程原子的,或 R-138 FileLock 的加锁范围没覆盖 桌面端进程 与 kz CLI 进程 这两个写者(锁只在单进程内生效,或只锁单个文档路径而 id 分配读的是另一份快照)。需确认:①FileLock 实际加锁位置与持有时长;②next_id 计算与写盘是否在同一临界区;③桌面端写托管文档走的是不是同一条 docstore 路径。
-- 验收: ①并发场景有确定性回归测试(两个进程同时 add),后写者不得覆盖先写者;②失败时工具必须报错,禁止回 added——宁可失败也不能假成功;③id 分配与写入在同一临界区完成,不出现同 id 二次分配;④桌面端自举轮在跑时,外部 kz req/defect add 能稳定落住(实测,不是只跑单测)。
-- 优先级: P1
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-364
-- 批次: 3/3
-- 进展: 验收逐条对照(证据均在已提交代码):①两个进程同时 add 后写不覆盖——crates/kanzei/tests/d364_concurrent_doc_add.rs「两个cli进程真并发add编号互异条目齐全」(双真 OS 进程同时 spawn add→编号互异、两条都在 requirements.md)+ managed.rs 单测「持锁挡并发写者_越界写仍回滚_释放后写者成功」(围栏窗口内并发写者被锁挡、释放后落盘不被回滚);②失败必须报错禁回 added——同文件「窗口超过锁预算时cli明确报错绝不回added」(持锁 3.8s>CLI 3s 预算→退出码非 0、stderr 点名写锁、stdout 无 added);③id 分配与写入同一临界区——crates/kanzei-tools/src/tracker.rs:328 _write_lock 罩住 load(341)→next_id(actions.rs:326)→save(357)整段,e2e ③两并发 add 编号互异证明同 id 二次分配不再发生;④自举轮在跑时外部 add 稳定落住——同文件「围栏持锁窗口内cli登记等待后落住编号唯一」+「真bash围栏窗口内并发cli登记不被误回滚」(走真实 BashTool 管线:acquire_managed_locks→capture→执行→enforce,CLI add 落盘、围栏不误报 [managed-files]);反证已做:禁用围栏持锁后④精确复现 D-364 丢失([managed-files] BLOCKED AND ROLLED BACK,requirements.md 被回滚),测试咬得住回归。全量 cargo test --workspace 全绿(T-1786743624)。残余转移:known_active_doc_paths 只覆盖八个活动文档,.kanzei/memory/ 动态文件的同类并发回滚风险登记为 D-368。
-- observed_head: 598410da36023618dc45cc343866aeccd3e7b417
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786743702244
-
-## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [open] (medium)
+## D-365 R-207 worktree 下沉停在中间态:processes.rs 仍留 19 处 wt:: 转发壳,两层抽象长期并存 [fixing] (medium)
 - refs: R-207 R-254 R-177
 - 备注: 修复动作可并入 R-254 的内容②,本条独立登记是为了让 R-207 的收尾缺口在缺陷队列里可见,不被"R-207 已 done"掩盖。
 - 复杂度: 小
@@ -112,6 +95,11 @@
 - 标签: 核心
 - 验收: ①processes.rs 中 wt:: 转发壳数量为 0(机械核验 grep),调用点直接用 kanzei_tools::worktree;②worktree_tests.rs 全绿 + kanzei-app 全量绿;③若某个壳确有存在理由(如桌面侧要做额外的路径规范化),在删壳批里写明理由并保留,不允许"看着像转发就删"。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-365
+- 进展: 16 个 wt:: 转发壳全部删除(processes.rs 984-1079 区 14 个 + 1498-1507 区 2 个),调用点改直调 kanzei_tools::worktree(wt::):processes.rs 内 49 处 + worktree_tests.rs use 改从 kanzei_tools::worktree 导入(create_worktree/create_worktree_with_receipt/merge_worktree/rollback_worktree/worktree_key/worktree_status/worktree_target/WorktreeReceipt)+ super::worktree_key 改直接调用 + update_tests_update.rs 的 parse_merge_tree_conflicts 导入改道。验收①机械核验:转发壳形态(fn xxx { wt::xxx })为 0,残留裸名仅注释引用;验收③:reclaim_worktree_on_close/discard_worktree_checked 是真实函数(函数体有自有逻辑)非壳,保留。验收②:worktree_tests 含在 kanzei-app 全量 163 绿(T-1786744159)。
+- observed_head: 598410da36023618dc45cc343866aeccd3e7b417
+- observed_worktree_hash: fnv1a64:04db57725f09b1d2
+- recorded_at: 1786744166278
 
 ## D-366 MemoryStore 与 MemoryIndex 检索边界未切净:排序实现在 store,index 反过来调 store.search 取 BM25 [open] (medium)
 - refs: R-255 R-150 docs/design/memory_control_plane.md

@@ -3484,3 +3484,23 @@
 - 摘要: D-364 关闭前全量:workspace 全绿(kanzei-app 163 含 process_restore_is_isolated_per_project;B3 修复 acquire 只在托管目录取锁,消除 %TEMP% 被 bash 测试当 project_root 时的 .kanzei 污染)。Temp\.kanzei 清理后未被重建。
 - 关联: D-364
 - 收尾: 1786743624
+
+## T-1786744159 cargo test -p kanzei-app (D-365 转发壳删除) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-365 删壳后 kanzei-app 全量 163 绿(worktree_tests 含在列)。16 个 wt:: 转发壳删除,processes.rs/worktree_tests.rs/update_tests_update.rs 调用点改直调 kanzei_tools::worktree;grep 转发壳形态为 0,残留裸名仅注释引用。
+- 关联: D-365
+- 收尾: 1786744159
+
+## T-1786744233 cargo test -p kanzei-app (D-365 fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-365 fmt 后复测:kanzei-app 163 全绿。
+- 关联: D-365
+- 收尾: 1786744233
+- 源码指纹: 46e44edaa6eec2f6
+
+## T-1786744288 cargo test -p kanzei-app (D-365 提交门禁复测) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-365 提交门禁复测:kanzei-app 163 全绿。
+- 关联: D-365
+- 收尾: 1786744288
+- 源码指纹: 4f118c359ff0d35f

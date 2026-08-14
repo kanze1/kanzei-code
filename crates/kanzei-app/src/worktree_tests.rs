@@ -16,14 +16,18 @@ use kanzei_harness::{Tool, ToolCtx};
 
 use super::{
     acquire_project_write_lease_within, close_process, create_process,
-    create_process_with_work_item, create_worktree, create_worktree_arbitrated,
-    create_worktree_with_receipt, discard_worktree_and_unregister, discard_worktree_checked,
-    harvest_tracker_candidates_from_messages, merge_worktree, merge_worktree_and_release,
+    create_process_with_work_item, create_worktree_arbitrated, discard_worktree_and_unregister,
+    discard_worktree_checked, harvest_tracker_candidates_from_messages, merge_worktree_and_release,
     parse_harvest_claim, reclaim_worktree_on_close, restore_processes_from_store,
-    rollback_worktree, unregister_parallel_process, with_idle_bound_process, worktree_diff,
+    unregister_parallel_process, with_idle_bound_process, worktree_diff,
+};
+// D-365:R-207 下沉后 worktree 实现只在 kanzei-tools,processes.rs 的转发壳已删,
+// 测试直接从这里取,不再隔一层桌面私有壳。
+use crate::state::{ensure_default_process, process_session_id, AppState};
+use kanzei_tools::worktree::{
+    create_worktree, create_worktree_with_receipt, merge_worktree, rollback_worktree, worktree_key,
     worktree_status, worktree_target, WorktreeReceipt,
 };
-use crate::state::{ensure_default_process, process_session_id, AppState};
 
 fn unique(tag: &str) -> String {
     format!(
@@ -72,11 +76,11 @@ fn worktree_registry(root: &Path) -> String {
 
 /// git 的工作树清单里有没有这条路径(按 `worktree_key` 归一比,避开大小写/分隔符差异)。
 fn registry_has(root: &Path, worktree: &Path) -> bool {
-    let key = super::worktree_key(worktree);
+    let key = worktree_key(worktree);
     worktree_registry(root)
         .lines()
         .filter_map(|line| line.strip_prefix("worktree "))
-        .any(|path| super::worktree_key(Path::new(path.trim())) == key)
+        .any(|path| worktree_key(Path::new(path.trim())) == key)
 }
 
 fn branch_exists(root: &Path, branch: &str) -> bool {

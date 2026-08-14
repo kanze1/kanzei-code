@@ -35,7 +35,6 @@ use crate::{
     process_session_id, AppState, ProcessHandle, ProcessInfo, WorktreeInfo,
 };
 use kanzei_tools::worktree as wt;
-use kanzei_tools::worktree::WorktreeReceipt;
 
 #[tauri::command]
 pub fn list_pending_inputs(
@@ -146,7 +145,7 @@ pub(crate) fn restore_processes_from_store(state: &AppState, root: &Path) -> Res
         .filter(|record| !stale_ids.iter().any(|id| id == &record.process_id))
         .map(|record| {
             let branch = record.worktree_path.as_deref().and_then(|path| {
-                worktree_current_branch(Path::new(path))
+                wt::worktree_current_branch(Path::new(path))
                     .ok()
                     .map(|branch| branch.trim_start_matches("refs/heads/").to_string())
             });
@@ -369,8 +368,8 @@ pub(crate) async fn create_process_with_tracker(
     //    一棵**仍被库里某条线绑着、且可能带未提交改动**的活树,还完全不点名那条线。
     let planned = match worktree_name.as_deref() {
         Some(name) => {
-            let (target, _) = worktree_target(&root, name)?;
-            let key = worktree_key(&target);
+            let (target, _) = wt::worktree_target(&root, name)?;
+            let key = wt::worktree_key(&target);
             if let Some(bound) = bound_thread_for_worktree(state, &root, &project, &key)? {
                 return Err(bound_error(&target, &bound));
             }
@@ -383,7 +382,7 @@ pub(crate) async fn create_process_with_tracker(
     //    跨进程正确性仍由 create_worktree_with_receipt 的 git ref CAS 兜着。
     //    失败直接返回:create_worktree 自己已经把残留收干净(收不掉的会在错误里点名)。
     let created = match worktree_name.as_deref() {
-        Some(name) => Some(create_worktree_with_receipt(&root, name)?),
+        Some(name) => Some(wt::create_worktree_with_receipt(&root, name)?),
         None => None,
     };
     let (worktree_path, branch, receipt) = match created {
@@ -415,7 +414,7 @@ pub(crate) async fn create_process_with_tracker(
         Ok(info) => info,
         Err(error) => {
             return Err(match receipt.as_ref() {
-                Some(receipt) => with_residue(error, rollback_worktree(&root, receipt)),
+                Some(receipt) => wt::with_residue(error, wt::rollback_worktree(&root, receipt)),
                 None => error,
             });
         }
@@ -425,9 +424,9 @@ pub(crate) async fn create_process_with_tracker(
             let cleanup = unregister_parallel_process(state, &root, &info.id)
                 .map(|_| ())
                 .map_err(|cleanup| format!("注销半绑定线路失败: {cleanup}"));
-            let error = with_residue(error, cleanup);
+            let error = wt::with_residue(error, cleanup);
             return Err(match receipt.as_ref() {
-                Some(receipt) => with_residue(error, rollback_worktree(&root, receipt)),
+                Some(receipt) => wt::with_residue(error, wt::rollback_worktree(&root, receipt)),
                 None => error,
             });
         }
@@ -516,7 +515,7 @@ fn bound_thread_for_worktree(
                 process
                     .worktree_path
                     .as_deref()
-                    .is_some_and(|path| worktree_key(Path::new(path)) == key)
+                    .is_some_and(|path| wt::worktree_key(Path::new(path)) == key)
             })
             .map(|process| process.id.clone())
     };
@@ -539,7 +538,7 @@ fn stored_bound_thread(stored: &[kanzei_core::StoredProcess], key: &str) -> Opti
             record
                 .worktree_path
                 .as_deref()
-                .is_some_and(|path| worktree_key(Path::new(path)) == key)
+                .is_some_and(|path| wt::worktree_key(Path::new(path)) == key)
         })
         .map(|record| record.process_id.clone())
 }
@@ -593,7 +592,7 @@ fn register_process(
             process
                 .worktree_path
                 .as_deref()
-                .is_some_and(|path| worktree_key(Path::new(path)) == key)
+                .is_some_and(|path| wt::worktree_key(Path::new(path)) == key)
         }) {
             return Err(bound_error(target, &bound.id));
         }
@@ -917,16 +916,16 @@ fn prune_missing_worktree_processes(state: &AppState, root: &Path) -> Result<(),
 ///
 /// `Err(说明)` = 没删,说明里带着路径、分支与可执行的回收命令(调用方落进审计流)。
 fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String> {
-    let branch = worktree_current_branch(worktree)
+    let branch = wt::worktree_current_branch(worktree)
         .map_err(|error| format!("工作树 {} 的分支查不出来: {error}", worktree.display()))?;
-    let (files, _) = worktree_status(root, worktree)
+    let (files, _) = wt::worktree_status(root, worktree)
         .map_err(|error| format!("工作树 {} 的状态查不出来: {error}", worktree.display()))?;
     let recycle_hint = format!(
         "回收命令:`git -C \"{}\" worktree remove --force \"{}\"` 与 \
          `git -C \"{}\" branch -D {branch}`",
-        git_arg_path(root),
-        git_arg_path(worktree),
-        git_arg_path(root),
+        wt::git_arg_path(root),
+        wt::git_arg_path(worktree),
+        wt::git_arg_path(root),
     );
     if !files.is_empty() {
         return Err(format!(
@@ -935,7 +934,7 @@ fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String>
             files.len(),
         ));
     }
-    let merged = worktree_command(root, &["merge-base", "--is-ancestor", &branch, "HEAD"])
+    let merged = wt::worktree_command(root, &["merge-base", "--is-ancestor", &branch, "HEAD"])
         .map(|output| output.status.success())
         .unwrap_or(false);
     if !merged {
@@ -947,8 +946,8 @@ fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String>
     }
     // 干净且已合并:先摘树(不加 --force —— 上面刚验过干净,真要 force 才删得掉说明
     // 判断和现实对不上,那就该保留),再按 sha 做 CAS 删分支。
-    let sha = rev_parse(root, &format!("refs/heads/{branch}"));
-    let removed = worktree_command(root, &["worktree", "remove", &git_arg_path(worktree)])
+    let sha = wt::rev_parse(root, &format!("refs/heads/{branch}"));
+    let removed = wt::worktree_command(root, &["worktree", "remove", &wt::git_arg_path(worktree)])
         .map(|output| output.status.success())
         .unwrap_or(false);
     if !removed {
@@ -961,13 +960,13 @@ fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String>
     match sha {
         Some(sha) => {
             let refname = format!("refs/heads/{branch}");
-            let _ = worktree_command(root, &["update-ref", "-d", &refname, &sha]);
-            if branch_exists(root, &branch) {
+            let _ = wt::worktree_command(root, &["update-ref", "-d", &refname, &sha]);
+            if wt::branch_exists(root, &branch) {
                 return Err(format!(
                     "工作树 {} 已摘掉,但分支 {branch} 没删成(它可能已经不在关线时那个 \
                      sha 上)。若确认可丢弃:`git -C \"{}\" branch -D {branch}`",
                     worktree.display(),
-                    git_arg_path(root),
+                    wt::git_arg_path(root),
                 ));
             }
             Ok(())
@@ -976,106 +975,9 @@ fn reclaim_worktree_on_close(root: &Path, worktree: &Path) -> Result<(), String>
             "工作树 {} 已摘掉,但分支 {branch} 的 sha 解析不出来,没敢删它。\
              若确认可丢弃:`git -C \"{}\" branch -D {branch}`",
             worktree.display(),
-            git_arg_path(root),
+            wt::git_arg_path(root),
         )),
     }
-}
-
-/// 执行 git 命令(实现下沉 kanzei-tools::worktree,R-207,本文件只剩转发壳)。
-fn worktree_command(root: &Path, args: &[&str]) -> Result<std::process::Output, String> {
-    wt::worktree_command(root, args)
-}
-
-/// 路径转 git 命令行参数形态(实现下沉 kanzei-tools::worktree,R-207)。
-fn git_arg_path(path: &Path) -> String {
-    wt::git_arg_path(path)
-}
-
-/// 一树一线查重路径键(实现下沉 kanzei-tools::worktree,R-207)。
-fn worktree_key(path: &Path) -> String {
-    wt::worktree_key(path)
-}
-
-/// 工作树的目标路径与分支名——只算不落盘。
-///
-/// 与 `create_worktree` 分开,是因为一树一线查重要在建树**之前**拿到目标路径
-/// (D4 定案:目标树已被绑定则拒绝,此时一棵树都不许多出来)。
-///
-/// 实现已下沉 kanzei-tools::worktree(R-207),本文件经 `wt::` 前缀调用。
-pub(crate) fn worktree_target(root: &Path, name: &str) -> Result<(PathBuf, String), String> {
-    wt::worktree_target(root, name)
-}
-
-/// 工作树的真实工作区状态:未提交文件清单 + diff。
-///
-/// `create_worktree` 与 `worktree_diff` 共用同一次探测。建线以前返回的是硬编码
-/// 乐观值(空 files / clean=true / 空 diff),收活流程会把「线还有活没提交」当成
-/// 干净合并——那是丢工作,不是显示问题。
-pub(crate) fn worktree_status(
-    root: &Path,
-    worktree: &Path,
-) -> Result<(Vec<String>, String), String> {
-    wt::worktree_status(root, worktree)
-}
-
-/// 本地分支是否已经存在。用 `rev-parse --verify` 走全名 `refs/heads/<branch>`,
-/// 不用 `branch --list`(那是 glob 匹配)。实现下沉 kanzei-tools::worktree(R-207)。
-fn branch_exists(root: &Path, branch: &str) -> bool {
-    wt::branch_exists(root, branch)
-}
-
-/// 解析一个 ref 的对象名;解析不出来(不存在 / git 出错 / 形态不对)返回 None。
-/// 实现下沉 kanzei-tools::worktree(R-207)。
-fn rev_parse(root: &Path, refname: &str) -> Option<String> {
-    wt::rev_parse(root, refname)
-}
-
-/// 建工作树(非 Tauri 内核):`worktree_create` 命令与 `create_process` 建线共用。
-/// 实现(原子认领/凭据回滚/prune 禁区)已下沉 kanzei-tools::worktree(R-207),
-/// 本文件只剩转发壳;并发语义见 `wt::create_worktree_with_receipt` 的文档。
-pub(crate) fn create_worktree(root: &Path, name: &str) -> Result<WorktreeInfo, String> {
-    wt::create_worktree(root, name)
-}
-
-/// [`create_worktree`] 加一张回滚凭据:建线要拿它在落库失败时回滚(转发壳,R-207)。
-pub(crate) fn create_worktree_with_receipt(
-    root: &Path,
-    name: &str,
-) -> Result<(WorktreeInfo, WorktreeReceipt), String> {
-    wt::create_worktree_with_receipt(root, name)
-}
-
-/// 回收一条建到一半的线:摘工作树 + 按凭据删分支(转发壳,R-207)。
-///
-/// `Err(残留说明)` = 有东西没收掉,里面点名了残留路径和可执行的清理动作。
-pub(crate) fn rollback_worktree(root: &Path, receipt: &WorktreeReceipt) -> Result<(), String> {
-    wt::rollback_worktree(root, receipt)
-}
-
-/// 把失败原因与回滚残留拼成一条错误(转发壳,R-207)。
-///
-/// D-004 口径:回滚收不干净是用户**必须**知道的事(不清理掉,这个工作树名字就一直
-/// 用不了),不能像老版那样 `let _ =` 吞掉。
-fn with_residue(error: String, rollback: Result<(), String>) -> String {
-    wt::with_residue(error, rollback)
-}
-
-/// 回滚的实现:先 remove 工作树(分支正被它 checkout,不先摘就删不掉),再按凭据删分支。
-///
-/// 取工作树当前分支。实现下沉 kanzei-tools::worktree(R-207)。
-fn worktree_current_branch(worktree: &Path) -> Result<String, String> {
-    wt::worktree_current_branch(worktree)
-}
-
-/// 校验一条 worktree 路径:**必须是 git 自己认得的工作树**,且不是主根。
-/// 实现下沉 kanzei-tools::worktree(R-207,判据见 `wt::validate_worktree_path`)。
-fn validate_worktree_path(root: &Path, worktree_path: &str) -> Result<PathBuf, String> {
-    wt::validate_worktree_path(root, worktree_path)
-}
-
-/// 本项目在 git 眼里的全部工作树(**含主树自己**)。实现下沉 kanzei-tools::worktree(R-207)。
-fn git_worktrees(root: &Path) -> Result<Vec<kanzei_tools::WorktreeEntry>, String> {
-    wt::git_worktrees(root)
 }
 
 /// 项目写租约的获取上界。
@@ -1179,7 +1081,7 @@ pub(crate) async fn create_worktree_arbitrated(
     name: &str,
 ) -> Result<WorktreeInfo, String> {
     let _worktree_guard = state.worktree_ops.lock().await;
-    create_worktree(root, name)
+    wt::create_worktree(root, name)
 }
 
 #[tauri::command]
@@ -1304,7 +1206,7 @@ pub async fn worktree_gate(
     worktree_path: String,
 ) -> Result<Vec<GateStep>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
+    let worktree = wt::validate_worktree_path(&root, &worktree_path)?;
     Ok(run_worktree_gate(&worktree).await)
 }
 
@@ -1410,7 +1312,7 @@ pub async fn worktree_harvest_writeback(
 ) -> Result<String, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     // 收活对象必须是 git 认得的真实工作树(与 merge/gate 同一条路径校验),防越界。
-    let _worktree = validate_worktree_path(&root, &worktree_path)?;
+    let _worktree = wt::validate_worktree_path(&root, &worktree_path)?;
     let (prefix, id) = parse_harvest_claim(&claim)?;
     let kind = match prefix {
         "R" => &REQUIREMENTS,
@@ -1444,7 +1346,7 @@ pub fn worktree_list(
     project_dir: String,
 ) -> Result<Vec<WorktreeInfo>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    let root_key = worktree_key(&root);
+    let root_key = wt::worktree_key(&root);
     let bound: std::collections::BTreeMap<String, String> = state
         .processes
         .lock()
@@ -1452,20 +1354,20 @@ pub fn worktree_list(
         .values()
         .filter_map(|process| {
             let path = process.worktree_path.as_ref()?;
-            Some((worktree_key(Path::new(path)), process.id.clone()))
+            Some((wt::worktree_key(Path::new(path)), process.id.clone()))
         })
         .collect();
     let mut out = Vec::new();
-    for entry in git_worktrees(&root)? {
-        let key = worktree_key(&entry.path);
+    for entry in wt::git_worktrees(&root)? {
+        let key = wt::worktree_key(&entry.path);
         if key == root_key || entry.bare || entry.prunable {
             continue;
         }
         // 探测失败不整条丢:树在清单里但状态取不到,用户更需要看见它并知道为什么。
-        let (files, diff) = worktree_status(&root, &entry.path)
+        let (files, diff) = wt::worktree_status(&root, &entry.path)
             .unwrap_or_else(|error| (vec![format!("(状态不可读: {error})")], String::new()));
         out.push(WorktreeInfo {
-            path: git_arg_path(&entry.path),
+            path: wt::git_arg_path(&entry.path),
             branch: entry
                 .branch
                 .clone()
@@ -1482,28 +1384,17 @@ pub fn worktree_list(
 #[tauri::command]
 pub fn worktree_diff(project_dir: String, worktree_path: String) -> Result<WorktreeInfo, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let branch = worktree_current_branch(&worktree)?;
-    let (files, diff) = worktree_status(&root, &worktree)?;
+    let worktree = wt::validate_worktree_path(&root, &worktree_path)?;
+    let branch = wt::worktree_current_branch(&worktree)?;
+    let (files, diff) = wt::worktree_status(&root, &worktree)?;
     Ok(WorktreeInfo {
-        path: git_arg_path(&worktree),
+        path: wt::git_arg_path(&worktree),
         branch,
         clean: files.is_empty(),
         files,
         diff,
         bound_process: None,
     })
-}
-
-/// 合并命令的可测试内核。写租约由 Tauri 命令在调用前获取；实现(merge-tree 预检
-/// + `--no-ff` 落地)已下沉 kanzei-tools::worktree(R-207),本文件只剩转发壳。
-fn merge_worktree(root: &Path, worktree_path: &str) -> Result<String, String> {
-    wt::merge_worktree(root, worktree_path)
-}
-
-/// R-179 验收③:合并前冲突预检的**可读形态**(转发壳,R-207)。
-pub(crate) fn parse_merge_tree_conflicts(stdout: &[u8]) -> Vec<String> {
-    wt::parse_merge_tree_conflicts(stdout)
 }
 
 /// R-179 验收②③:合并前的冲突预检命令——UI 在确认合并前调用,返回冲突文件
@@ -1514,13 +1405,13 @@ pub fn worktree_merge_preview(
     worktree_path: String,
 ) -> Result<Vec<String>, String> {
     let root = normalized_project_root(Path::new(&project_dir));
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
-    let branch = worktree_current_branch(&worktree)?;
-    let check = worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
+    let worktree = wt::validate_worktree_path(&root, &worktree_path)?;
+    let branch = wt::worktree_current_branch(&worktree)?;
+    let check = wt::worktree_command(&root, &["merge-tree", "--write-tree", "HEAD", &branch])?;
     if check.status.success() {
         return Ok(Vec::new());
     }
-    let conflicts = parse_merge_tree_conflicts(&check.stdout);
+    let conflicts = wt::parse_merge_tree_conflicts(&check.stdout);
     Ok(conflicts)
 }
 
@@ -1543,12 +1434,12 @@ fn merge_worktree_and_release(
     root: &Path,
     worktree_path: &str,
 ) -> Result<String, String> {
-    let worktree = validate_worktree_path(root, worktree_path)?;
+    let worktree = wt::validate_worktree_path(root, worktree_path)?;
     let project = root.display().to_string();
-    let bound = bound_thread_for_worktree(state, root, &project, &worktree_key(&worktree))?;
-    let branch = worktree_current_branch(&worktree)?;
+    let bound = bound_thread_for_worktree(state, root, &project, &wt::worktree_key(&worktree))?;
+    let branch = wt::worktree_current_branch(&worktree)?;
     let merged = with_idle_bound_process(state, root, &worktree, "合并", || {
-        merge_worktree(root, worktree_path)
+        wt::merge_worktree(root, worktree_path)
     })?;
     if bound.is_none() {
         return Ok(merged);
@@ -1574,7 +1465,7 @@ fn with_idle_bound_process<T>(
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
     let project = root.display().to_string();
-    let bound = bound_thread_for_worktree(state, root, &project, &worktree_key(worktree))?;
+    let bound = bound_thread_for_worktree(state, root, &project, &wt::worktree_key(worktree))?;
     let runtime = bound.as_deref().and_then(|process_id| {
         let session_id = process_session_id(root, Some(process_id));
         state.runtimes.lock().unwrap().get(&session_id).cloned()
@@ -1594,10 +1485,10 @@ fn with_idle_bound_process<T>(
 /// 放弃命令的可测试内核。未提交改动时 git 必须拒绝并保留现场；写租约仍由
 /// Tauri 命令承担，不把协调器行为混进结果测试。
 fn discard_worktree_checked(root: &Path, worktree_path: &str) -> Result<String, String> {
-    let worktree = validate_worktree_path(root, worktree_path)?;
+    let worktree = wt::validate_worktree_path(root, worktree_path)?;
     // git 收不下 `\\?\` 前缀的参数(见 `git_arg_path`),而 validate 出来的正是
     // canonicalize 的产物——不剥这一层,放弃工作树在 Windows 上永远失败。
-    let output = worktree_command(root, &["worktree", "remove", &git_arg_path(&worktree)])?;
+    let output = wt::worktree_command(root, &["worktree", "remove", &wt::git_arg_path(&worktree)])?;
     if !output.status.success() {
         return Err(format!(
             "工作树未放弃: 工作树可能仍有未提交改动,已保留以便恢复:\n{}",
@@ -1618,12 +1509,12 @@ fn discard_worktree_and_unregister(
     root: &Path,
     worktree_path: &str,
 ) -> Result<String, String> {
-    let worktree = validate_worktree_path(root, worktree_path)?;
+    let worktree = wt::validate_worktree_path(root, worktree_path)?;
     let project = root.display().to_string();
     let bound_process_id =
-        bound_thread_for_worktree(state, root, &project, &worktree_key(&worktree))?;
+        bound_thread_for_worktree(state, root, &project, &wt::worktree_key(&worktree))?;
     let result = with_idle_bound_process(state, root, &worktree, "放弃", || {
-        discard_worktree_checked(root, &git_arg_path(&worktree))
+        discard_worktree_checked(root, &wt::git_arg_path(&worktree))
     })?;
     if let Some(process_id) = bound_process_id {
         unregister_parallel_process(state, root, &process_id)?;

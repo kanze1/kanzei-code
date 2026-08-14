@@ -88,7 +88,7 @@ fn workspace图_从真实cargo_toml抽依赖边() {
 /// 供 UI 列出可读的冲突清单(而不是一句「有冲突」)。
 #[test]
 fn merge_tree_conflict_解析出文件路径列表() {
-    use super::processes::parse_merge_tree_conflicts;
+    use kanzei_tools::worktree::parse_merge_tree_conflicts;
     let sample = b"Auto-merging src/foo.rs\nCONFLICT (content): Merge conflict in src/foo.rs\nAuto-merging src/bar.rs\nCONFLICT (modify/delete): src/gone.rs deleted in HEAD and modified in feature\n";
     let conflicts = parse_merge_tree_conflicts(sample);
     assert_eq!(
