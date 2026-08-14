@@ -3260,3 +3260,48 @@
 - 摘要: R-249 批1 与 R-250 交付后全量门禁:26 个测试二进制全绿(kanzei-core 175→186,kanzei-tools 235→242),新增 21 条(read 图片 5 + 图片降级 3 + schema 校验器 10 + 工具面守卫 1 + 并发路径图片空断言 2);clippy --all-targets 零告警;fmt 已跑
 - 关联: R-249 R-250
 - 收尾: 1786703740
+
+## T-1786705800 R-249 批2 截图通道: 实窗抓取验证 + 全量 [passed]
+- 命令: KZ_SHOT_OUT=<png> cargo test -p kanzei-app screenshot_live -- --nocapture; cargo test --workspace; cargo clippy --workspace --all-targets
+- 摘要: 实窗验证三轮才对——①未声明 DPI 感知,GetWindowRect 返回虚拟化坐标(2582px 窗口报成 1295px),抓到横跨多窗口的错误区域,looks_blank 放行、用例假绿;②补 DPI 感知后矩形正确,但屏幕 DC 抓取拿到的是压在上面的编辑器界面(完全遮挡),内容丰富仍然假绿;③改 PrintWindow+PW_RENDERFULLCONTENT 离屏渲染后,在窗口被完全遮挡状态下抓到 kzapp 自己的完整界面 2582×1390,人眼比对与用户实拍逐项一致。全量 26 个测试二进制全绿,clippy 零告警
+- 关联: R-249
+- 收尾: 1786705800
+
+## T-1786706855 R-204 B1 定向: cargo test -p kanzei-tools --lib (fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-204 B1 提交门禁:fmt 后复测——kanzei-tools lib 241 passed/0 failed(1 ignored),scheduling 模块拆出行为零变更
+- 关联: R-204
+- 收尾: 1786706855
+- 源码指纹: 3a36c6e728831124
+
+## T-1786707072 R-204 B2a 定向: cargo test -p kanzei-tools --lib (调度测试下沉) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-204 批2a 提交门禁:调度测试下沉 scheduling_tests.rs(5 测试独立文件全绿),kanzei-tools lib 241 passed/0 failed
+- 关联: R-204
+- 收尾: 1786707072
+
+## T-1786707138 R-204 B2a 定向复测: cargo test -p kanzei-tools --lib (fmt 后) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-204 B2a 提交门禁:fmt 后复测 kanzei-tools lib 241 passed/0 failed(1 ignored),调度测试下沉后无回归
+- 关联: R-204
+- 收尾: 1786707138
+- 源码指纹: 9bb020d11ef629cd
+
+## T-1786707206 R-204 B2a 定向复测2: cargo test -p kanzei-tools --lib (指纹对齐) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-204 B2a 提交门禁(指纹重对齐):kanzei-tools lib 241 passed/0 failed(1 ignored)
+- 关联: R-204
+- 收尾: 1786707206
+- 源码指纹: 263a42de67ae33da
+
+## T-1786707841 R-204 B2b 定向: cargo test -p kanzei-tools --lib (actions 拆出) [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-204 B2b 提交门禁:actions.rs 拆出(15 action 函数+辅助下沉),execute 只剩路由;kanzei-tools lib 241 passed/0 failed,clippy -D warnings 全绿
+- 关联: R-204
+- 收尾: 1786707841
+
+## T-1786708021 R-204 关闭前全量: cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: R-204 关闭前全量:cargo test --workspace 全绿(exit 0,各 crate 全过;kanzei-tools lib 241 passed 收尾)——复杂度中条目关闭门禁
+- 关联: R-204
+- 收尾: 1786708021

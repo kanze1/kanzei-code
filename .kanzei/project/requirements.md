@@ -136,16 +136,6 @@
 - recorded_at: 1786656932641
 - 阻塞: 用户: R-193 缺内容/来源/交互定义,验收仅一句『plan勾选项点击后即时视觉反馈和状态更新』;需用户澄清:①plan 指哪个面板(当前计划 todo 面板还是其它);②勾选动作状态写哪里(前端视觉 / 后端命令持久化);③当前『响应延迟』的具体场景。解除动作:用户给出澄清后实现。解除人: 用户。
 
-## R-204 tracker.rs 拆分:action 分发、取活调度、测试三域分离,调度成为独立可审计模块 [todo]
-- 优先级: P3
-- 复杂度: 中
-- 标签: 后端 核心
-- 来源: 2026-08-12 八维度审计(§1);tracker.rs 2,988 行为全仓第一大文件:execute 的 match 从 :257 到 :787 十余臂内联,取活调度(schedule_entries/dependency_states/block_reasons/backlog_status/workable_titles,:956-1370)被 auto_run/CLI/docs/memory 四方消费,:1372 起 1,616 行测试同文件——恰是自举最高频改动面,取活语义(D-207 抱怨的源头)散落在工具文件里无人能单独审计。
-- 内容: 拆成 actions/(每 action 一函数)+ scheduling 独立模块(供四方统一消费)+ 测试分域下沉;execute 只剩路由。
-- 边界: 四个既有消费方调用点零改动;行为零变更。
-- 验收: ①调度逻辑有独立测试文件;②execute 只剩路由;③全仓测试绿。
-- refs: D-207 R-203
-
 ## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [todo]
 - 优先级: P3
 - 复杂度: 大
@@ -352,19 +342,6 @@
 - 阻塞: 批1 已解除(协议层无需改动,不依赖 R-244)。批3 仍等 R-244 冻结 ToolOutput 公共契约与 Result Policy、R-245 确定图片类 artifact 的 spill 落点;R-244 是否列入主任务待用户决定。批2 无阻塞,可随时开工。
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
-
-## R-250 子代理结构化返回:task 支持 schema,主代理零解析 [done]
-- refs: R-004 R-012 R-176 R-218 R-246 docs/design/subagent_management.md
-- 内容: 现状 explore/writer 子代理只返回自由文本(subagent.rs:94、112 的系统提示都是「reply with ONLY the requested information」),主代理必须自己从散文里解析结论——弱模型在这一步的读错是自举质量的直接损耗。本条给 `task` 工具加可选 `schema` 字段:传入 JSON Schema 时子代理被强制以该结构返回,校验在工具层完成,不合规即让子代理重试,主代理拿到的是已验证对象。
-- 复杂度: 中
-- 批次: 0/2
-- 来源: 2026-08-14 三系统工具面对照:DeepSeek 与 Claude Code 的子代理均支持结构化返回,kanzei 缺。对照结论——kanzei 子代理的**安全模型**(只读白名单代码层隔离、写租约走协调器、权限规则原样生效)比两者都扎实,缺的是**效率与可控性**。
-- 标签: 核心
-- 边界: 只做返回侧的 schema 约束,不做 fork(继承主对话历史)、不做运行中查看与追加指令、不做嵌套派生——这三条各自独立评估,其中 fork 与 R-246 的 child agents owner 语义相关,不在本条抢跑。schema 为可选字段,不传时行为与现状逐字节一致。
-- 验收: ①传 schema 时返回值经校验,不合规触发子代理重试且重试次数有上限;②不传 schema 时既有 explore/writer 行为无回归(机械核验:现有子代理测试全绿);③同轮多个并行 task 各自独立校验,互不影响;④校验失败的诊断指出是哪个字段不合规,不是笼统报错;⑤只读子代理白名单不因本条放宽(沿用 R-176 验收⑦的复核手法)。
-- 验收逐条对照(2026-08-14 交付 12098eb): ①schema_check::validate 校验通过才回喂,不合规续上已有历史补纠错指令重跑,MAX_SCHEMA_RETRIES=1 为上限,用尽后把最后原文一并交回主代理;②不传 schema 时 `let Some(schema) = schema.as_ref() else { break ok(text) }` 早退,后续分支全不执行——现有 7 条子代理测试与 kanzei-app 154 条全绿;③校验发生在 run_subagent 内,每个 task 调用各跑一份,同轮并行互不共享状态;④诊断带 JSON 指针路径与期望/实际类型(如 `$.findings[0]: missing required field \`line\``),3 条定向测试锁住 required/type/enum 三类诊断内容;⑤本条未碰 SubagentBase,只读白名单一字未动,R-176 验收⑦的复核测试保持通过。额外:取消 token 注册移出重试循环——每轮重注册会在两轮之间留未注册窗口,那里的 stop_task 会静默落空。
-- 收尾: 2026-08-14;测试记录 T-1786703740
-- 优先级: P2
 
 ## R-251 试用手册配置移至设置模块 [todo]
 - 复杂度: 小

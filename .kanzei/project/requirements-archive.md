@@ -2932,3 +2932,32 @@
 - observed_head: ed06b969f419b779c1c17dea7c0e81a65fb45397
 - observed_worktree_hash: fnv1a64:53a0da8f0141c57e
 - recorded_at: 1786695614019
+
+## R-250 子代理结构化返回:task 支持 schema,主代理零解析 [done]
+- refs: R-004 R-012 R-176 R-218 R-246 docs/design/subagent_management.md
+- 内容: 现状 explore/writer 子代理只返回自由文本(subagent.rs:94、112 的系统提示都是「reply with ONLY the requested information」),主代理必须自己从散文里解析结论——弱模型在这一步的读错是自举质量的直接损耗。本条给 `task` 工具加可选 `schema` 字段:传入 JSON Schema 时子代理被强制以该结构返回,校验在工具层完成,不合规即让子代理重试,主代理拿到的是已验证对象。
+- 复杂度: 中
+- 批次: 0/2
+- 来源: 2026-08-14 三系统工具面对照:DeepSeek 与 Claude Code 的子代理均支持结构化返回,kanzei 缺。对照结论——kanzei 子代理的**安全模型**(只读白名单代码层隔离、写租约走协调器、权限规则原样生效)比两者都扎实,缺的是**效率与可控性**。
+- 标签: 核心
+- 边界: 只做返回侧的 schema 约束,不做 fork(继承主对话历史)、不做运行中查看与追加指令、不做嵌套派生——这三条各自独立评估,其中 fork 与 R-246 的 child agents owner 语义相关,不在本条抢跑。schema 为可选字段,不传时行为与现状逐字节一致。
+- 验收: ①传 schema 时返回值经校验,不合规触发子代理重试且重试次数有上限;②不传 schema 时既有 explore/writer 行为无回归(机械核验:现有子代理测试全绿);③同轮多个并行 task 各自独立校验,互不影响;④校验失败的诊断指出是哪个字段不合规,不是笼统报错;⑤只读子代理白名单不因本条放宽(沿用 R-176 验收⑦的复核手法)。
+- 验收逐条对照(2026-08-14 交付 12098eb): ①schema_check::validate 校验通过才回喂,不合规续上已有历史补纠错指令重跑,MAX_SCHEMA_RETRIES=1 为上限,用尽后把最后原文一并交回主代理;②不传 schema 时 `let Some(schema) = schema.as_ref() else { break ok(text) }` 早退,后续分支全不执行——现有 7 条子代理测试与 kanzei-app 154 条全绿;③校验发生在 run_subagent 内,每个 task 调用各跑一份,同轮并行互不共享状态;④诊断带 JSON 指针路径与期望/实际类型(如 `$.findings[0]: missing required field \`line\``),3 条定向测试锁住 required/type/enum 三类诊断内容;⑤本条未碰 SubagentBase,只读白名单一字未动,R-176 验收⑦的复核测试保持通过。额外:取消 token 注册移出重试循环——每轮重注册会在两轮之间留未注册窗口,那里的 stop_task 会静默落空。
+- 收尾: 2026-08-14;测试记录 T-1786703740
+- 优先级: P2
+
+## R-204 tracker.rs 拆分:action 分发、取活调度、测试三域分离,调度成为独立可审计模块 [done]
+- 优先级: P3
+- 复杂度: 中
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);tracker.rs 2,988 行为全仓第一大文件:execute 的 match 从 :257 到 :787 十余臂内联,取活调度(schedule_entries/dependency_states/block_reasons/backlog_status/workable_titles,:956-1370)被 auto_run/CLI/docs/memory 四方消费,:1372 起 1,616 行测试同文件——恰是自举最高频改动面,取活语义(D-207 抱怨的源头)散落在工具文件里无人能单独审计。
+- 内容: 拆成 actions/(每 action 一函数)+ scheduling 独立模块(供四方统一消费)+ 测试分域下沉;execute 只剩路由。
+- 边界: 四个既有消费方调用点零改动;行为零变更。
+- 验收: ①调度逻辑有独立测试文件;②execute 只剩路由;③全仓测试绿。
+- refs: D-207 R-203
+- 批次: 2/2
+- 进展: 批1 完成(2026-08-14):scheduling 模块拆出——新建 crates/kanzei-tools/src/tracker/scheduling.rs(调度域全部:append_progress/schedule_for_display(_with_states)/workable_titles/backlog_status/DependencyStates/dependency_states(_from_documents)/dependents_map(_with_states)/schedule_entries/block_reasons/deadlock_banner/structured_entry/is_*键判断/tracker_ids/coupling_signals/dispatch_verdict/entry_paths);tracker.rs 收窄:删搬走代码(~500 行),加 pub mod scheduling + pub use 再导出(消费方 kanzei_tools::tracker::xxx 路径零改动)+ pub(crate) use is_prerequisite_key/tracker_ids(work.rs 主逻辑)+ cfg(test) block_reasons(work.rs 测试);execute 的 list 分支经 use scheduling::{dependency_states,schedule_entries,structured_entry,deadlock_banner} 继续工作。验证:cargo check -p kanzei-tools 零警告零错误;cargo test -p kanzei-tools --lib 241 passed/0 failed(原 46 tracker:: 含 coupling/dispatch/backlog 测试经 re-export 全绿)。途中误删 render_line 签名行已当场补回。批2:调度测试下沉 scheduling_tests.rs(验收①)+ actions.rs 拆出 execute 路由化(验收②)。 || 批2a 完成(2026-08-14):调度测试下沉 scheduling_tests.rs(coupling_signals/dispatch_verdict/dependents_map/backlog_status 三态与读取失败 5 测试独立文件,直接 use scheduling 模块),tracker.rs tests 仅留 Tool 行为测试;kanzei-tools lib 241 passed。 || 批2b 完成(2026-08-14):actions.rs 拆出——execute 十余臂路由化(每个 action 一函数:list/get/raw_lines/repair_reused_id/repair_missing_id/void_id/archive/add/update_close/reorder/raw_delete/reopen/fix_terminal/archive_fill/normalize),execute 只剩解析/归一化/list 拒绝/锁/load/完整性门禁 + match 路由 + D-112 尾门禁(验收②);辅助函数(classification_claims/file_line_citations/check_close_classification_evidence/user_visible_fields/field_diff_summary/archived_or_unknown)下沉 actions.rs,render_line/unknown_id 留 tracker.rs(check_refs 用);校验方法仍挂 TrackerTool。clippy ptr_arg 修复(&mut [Entry]),cargo clippy --workspace -D warnings 全绿;kanzei-tools lib 241 passed/0 failed(行为零变更,提交 e57e6f5)。批3:全量 cargo test --workspace(复杂度中关闭前)+ 关闭。
+- observed_head: e57e6f59fd106a379b44dea5f8c8d680b7148f3a
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786707865718
+- 证据: 验收①调度逻辑有独立测试文件:crates/kanzei-tools/src/tracker/scheduling_tests.rs(coupling_signals/dispatch_verdict/dependents_map/backlog_status 三态与读取失败 5 测试直接 use scheduling 模块),cargo test -p kanzei-tools --lib scheduling 5 passed;tracker.rs tests 仅留 Tool 行为测试。验收②execute 只剩路由:tracker.rs execute = 解析 input→顶层字段归一化→list 拒绝→work_selection 锁→docstore 锁→load→完整性写门禁→match 一行调用 actions::xxx(self,input,ctx,&store,&mut entries)(15 action)→other 错误→D-112 尾门禁;每个 action 独立函数在 tracker/actions.rs(list/get/raw_lines/repair_reused_id/repair_missing_id/void_id/archive/add/update_close/reorder/raw_delete/reopen/fix_terminal/archive_fill/normalize)。验收③全仓测试绿:cargo test --workspace 全绿(T-1786708021);cargo clippy --workspace --all-targets -- -D warnings 全绿;cargo fmt --check 过。边界零改动:kanzei_tools::tracker::xxx 全部 pub use 再导出——kanzei-app docs.rs(dependency_states_from_documents/dependents_map_with_states/schedule_for_display_with_states)/auto_run.rs(backlog_status)/processes.rs(append_progress)/harness_ext.rs(TrackerTool)、kanzei main.rs(backlog_status/TrackerTool)调用点零改动;行为零变更:kanzei-tools lib 241 passed/0 failed(每批验证),提交 c2204b4/232c1a6/e57e6f5。
