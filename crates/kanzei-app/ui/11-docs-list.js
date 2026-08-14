@@ -201,17 +201,38 @@ function claimedCollaborationLineFor(entry) {
   const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
     ? collaborationLines
     : [];
-  const explicitOwner = String(entry.claimed_by ?? "").trim();
-  const defaultOwned = !explicitOwner && ["doing", "fixing"].includes(entry.status);
-  if (!explicitOwner && !defaultOwned) return null;
-  const line = explicitOwner
-    ? lines.find((candidate) => candidate?.branch === explicitOwner)
-    : lines.find((candidate) => !candidate?.worktree_path);
   const codes = typeof lineAgentCodes === "function" ? lineAgentCodes(lines) : new Map();
+  const explicitOwner = String(entry.claimed_by ?? "").trim();
+  if (explicitOwner) {
+    // D-360:取得线必须此刻真在线。claimed_by 是历史事实,线可能早退出了(进程崩掉、
+    // 用户关窗)。此前这里在找不到线时照样渲染徽标、把代号打成 "?"——而「被哪条线
+    // 取得」正是这个徽标存在的全部意义,答不出就不该显示。
+    const owned = lines.find((candidate) => candidate?.branch === explicitOwner);
+    if (!owned) return null;
+    return {
+      line: owned,
+      // 线在线却没分到代号属于异常兜底:退回分支名,绝不再出现问号。
+      code: codes.get(owned.process_id) || explicitOwner,
+      owner: explicitOwner,
+    };
+  }
+  // 没有「取得线」字段 = 默认线持有——这是 D-354 定的编码(work.rs:989「默认线不写
+  // 字段」)。但同一个形态也是「根本没人拿」,所以解码要补两个前提,缺一个就不是事实:
+  //   ① 默认线此刻真的在线。引擎没运行时列表里一条线都没有,原来的代码却照样把每条
+  //      doing 标成被取得(用户截图:kzapp 已退出,5 条 doing 全带着「● ? 被取得」)。
+  //   ② 这一条正是默认线占着的那个 WIP。单线程下 agent 一次只推一条,其余可执行
+  //      doing 只是「已取未动」的历史状态;原来的代码按 status ∈ {doing,fixing} 一刀切,
+  //      于是 5 条 doing 同时归属同一条线——而一条线最多持有一条。
+  // 判据直接用 agentFocus.active(12-docs-pages.js 的取活焦点真源,与 agent-active
+  // 高亮同源),不在这里另写一套「谁是当前 WIP」的推断。
+  const primary = lines.find((candidate) => !candidate?.worktree_path);
+  if (!primary) return null;
+  const focused = typeof agentFocus !== "undefined" && agentFocus?.active === entry.id;
+  if (!focused) return null;
   return {
-    line: line ?? null,
-    code: line ? (codes.get(line.process_id) ?? "?") : "?",
-    owner: explicitOwner || line?.branch || t("默认线"),
+    line: primary,
+    code: codes.get(primary.process_id) || primary.branch || t("默认线"),
+    owner: primary.branch || t("默认线"),
   };
 }
 
@@ -381,8 +402,16 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     row.className = "doc-row";
     row.setAttribute("role", "button");
     row.tabIndex = 0;
+    // D-362:文档页把可选徽标(被取得/批次格/阻塞/待澄清)收进标题右侧的 doc-flags,
+    // 不再插在优先级前面。它们有无与宽窄各不相同,插在前面就把优先级/复杂度/标题
+    // 三列逐行推歪(实测 13 行出现 7 个不同的优先级横坐标,列表没法横向扫读)。
+    // 挪到标题之后,三列起点只由固定宽度的勾选框/优先级/复杂度决定,行行一致;
+    // 徽标自己在右端聚成一簇。侧栏不动——那里行窄、条目少,原地更紧凑(验收②)。
+    const onDocsPage = surface === "documents";
+    const flags = [];
+    const placeFlag = (node) => (onDocsPage ? flags.push(node) : row.appendChild(node));
     // 批量操作只在文档页:侧栏一行要尽量轻,多一个勾选框就多一层视觉噪音。
-    if (surface === "documents" && (kind === "req" || kind === "defect") && !entry.closed) {
+    if (onDocsPage && (kind === "req" || kind === "defect") && !entry.closed) {
       const pick = document.createElement("input");
       pick.type = "checkbox";
       pick.className = "doc-pick";
@@ -395,6 +424,12 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
         syncBatchBar();
       });
       row.appendChild(pick);
+    } else if (onDocsPage && (kind === "req" || kind === "defect")) {
+      // 已关闭条目没有勾选框:留一个等宽占位,否则这一行的三列整体左移一个框宽。
+      const space = document.createElement("span");
+      space.className = "doc-pick-space";
+      space.setAttribute("aria-hidden", "true");
+      row.appendChild(space);
     }
     row.setAttribute("aria-label", `${entry.id} ${entry.title}，${t("按 Enter 展开详情")}`);
     row.title = `${entry.id} ${entry.title}(${t("点击展开")})`;
@@ -416,7 +451,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       claimBadge.className = "doc-claim-fact";
       claimBadge.textContent = `● ${claimed.code} ${t("被取得")}`;
       claimBadge.title = `${entry.id} · ${t("取得线")}: ${claimed.owner}${claimed.line?.phase ? ` · ${claimed.line.phase}` : ""}`;
-      row.appendChild(claimBadge);
+      placeFlag(claimBadge);
     }
     // 复杂度(R-051):侧栏用三格电量图标表达体量，与左侧优先级色带同色并放在最前面。
     const cx = (entry.complexity || "").trim();
@@ -450,7 +485,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
           cell.setAttribute("aria-hidden", "true");
           meter.appendChild(cell);
         }
-        row.appendChild(meter);
+        placeFlag(meter);
       }
     }
     if (blocked || externalBlocked) {
@@ -458,7 +493,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
       blockedBadge.className = "blocked-badge";
       blockedBadge.textContent = t("阻塞");
       blockedBadge.title = blockedReasons.length ? blockedReasons.join("；") : t("阻塞原因");
-      row.appendChild(blockedBadge);
+      placeFlag(blockedBadge);
     }
     // D-205 验收③:待澄清徽标——快记推断不出复现时如实写「复现: 待澄清: …」,这类
     // 条目等用户补话,侧栏必须一眼可辨,否则伪复现坑下游(D-204:用户说"SOP 易用程度"
@@ -470,7 +505,7 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
         clarify.className = "clarify-badge";
         clarify.textContent = t("待澄清");
         clarify.title = String(reproField[1]).slice(0, 160);
-        row.appendChild(clarify);
+        placeFlag(clarify);
       }
     }
     // 拖拽重排:需求仅手动且无筛选；缺陷仅完整列表，避免提交不完整顺序。
@@ -533,6 +568,14 @@ function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NE
     title.className = "title";
     title.textContent = entry.title;
     row.appendChild(title);
+    // D-362:文档页的可选徽标在标题之后成簇落地(标题 flex:1 会把它们顶到右端)。
+    // 空数组不建容器,免得每行多一个空节点。
+    if (flags.length) {
+      const flagBox = document.createElement("span");
+      flagBox.className = "doc-flags";
+      for (const node of flags) flagBox.appendChild(node);
+      row.appendChild(flagBox);
+    }
     item.appendChild(row);
 
     // 展开面板:完整标题、字段、合法的状态流转按钮(与硬门禁同一套规则)。

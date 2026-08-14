@@ -4140,7 +4140,51 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-322
 - 进展: 勘察完成(2026-08-16):三处损坏条目定位并确认恢复源(原文见 git 历史)。| 2026-08-14 修复完成,三处手术全部执行(用户在交互会话授权,正是原阻塞写明的解除动作):①M-016——从 git show 32cc02f 的原文写回 .kanzei/memory/archive/M-016-docs-目录整理-...md,title/description/正文六条 docs 整理结论逐条对回,清掉「权限拒绝转交互轮」三主题缝合体;status 保持 active、created/source 不动,仅 updated 改为恢复日期,并在文末留恢复记录。②M-044——从 git show d4a4f08 的中文原文写回,同时还原被改坏的文件名(M-044-defect-req-s0p-field-replacement-semanti.md → M-044-defect-update-字段键名与多字段处理-sop-防英文-key-追加与.md,s0p 错字消失);status 保持当前的 deprecated 不因恢复内容而复活;文末除恢复记录外另加时效修正——原文第 3 条「游离段落永远删不掉」在 D-329 之后已不成立(raw_lines/raw_delete 通道存在,本轮在 R-227 上实测有效)。③U-005(全局仓)——原文确认不可恢复(全局仓 ced6352 建仓时即以缝合体归档留证),按勘察结论处置:status candidate → deprecated,description 从「edit 指纹」(M-027 的主题)改写为「已废弃 + 指向项目域 M-032」的准确召回钩子,正文原样保留作留证;动全局仓前先把原文件与 index.db 备份到会话 scratchpad。④三处一致性核对:归档条目不进 load_all/FTS/检索(store.rs:711 明文),项目 INDEX.md 只列 active 条目、不含 M-016/M-044,全局 INDEX.md 只有表头无条目行——本次三处编辑不产生 index.db 与 INDEX.md 失步,无需重建派生物。残留观察(不在本条范围):M-016 的 status 是 active 却躺在 archive/ 目录里,archive_dead 只搬 deprecated/invalid,它是被别的路径放进去的,内容已恢复但检索仍够不到它。
-- 阻塞: 
 - observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786713041326
+
+## D-360 「被取得」标记退回推断:所有 doing 无条件标记,取得线不存在时代号渲染成问号 [fixed] (medium)
+- refs: R-247 D-329
+- 复杂度: 小
+- 复现: 2026-08-14 用户截图:文档页分组视图「核心·13」里 5 条显示「● ? 被取得」(R-202/R-186/R-183/R-195/R-249),8 条 todo 条目无标记——被标的恰好是全部 doing 条目。而此刻 kzapp 引擎已于 20:18 退出(state.db-wal 已 checkpoint 清除、Get-Process kzapp 为空),没有任何线在持有任何条目;代号位还是个光秃秃的问号。
+- 影响: 这个徽标存在的全部意义就是回答「被哪条线取得」,答不出「谁」时它是纯噪音;而现在更糟——它在引擎根本没运行时宣称 5 条需求有人在做。用户按它判断「哪些在推进」会得到完全错误的图像。现有反证测试 ui-runtime-smoke.mjs:1294 只构造了「排在队首但无人 claim」的非 doing 条目,正好绕开这条推断路径,所以一路绿着。
+- 标签: 前端
+- 根因: 两处叠加。①11-docs-list.js:205 `const defaultOwned = !explicitOwner && ["doing","fixing"].includes(entry.status)`——没有 claimed_by 就按状态推断「默认线持有」。这正是 parallel_lines_ui §1.2「被取得是事实,不是推断」明令删掉的东西(R-247 交付、D-329 复核过「全仓 grep isAgentNext 零命中」),推断值换了个名字回来了:isAgentNext 没了,defaultOwned 顶上。②11-docs-list.js:213 `code: line ? (codes.get(line.process_id) ?? "?") : "?"`——找不到对应线时仍然渲染徽标,只是把代号打成问号。
+- 验收: ①无 claimed_by 的 doing/fixing 条目不显示「被取得」标记(断言补在 ui-runtime-smoke.mjs:1294 现有反证旁,构造 doing 且无 claim 的条目);②有 claimed_by 但该线不在 collaborationLines 里时,不渲染徽标(或明确渲染「取得线已离线」),不得出现代号为 "?" 的徽标;③真实 claim 仍正常渲染「● 代号 被取得」(ui-runtime-smoke.mjs:5529 既有断言保持绿);④全仓 grep 确认无第二处按状态推断持有的代码。
+- 优先级: P2
+- 进展: 2026-08-14 修复完成,过程中修正了自己的第一版判断。第一版把 defaultOwned 整条删掉、只认 claimed_by,写完去查写入侧才发现错了:work.rs:989 明写「默认线不写字段(无字段 = 默认线)」——这条推断不是多余的,它是 D-354 定的编码,删掉等于默认线的在做条目永远不显示徽标。真正的缺陷是解码漏了两个前提。最终改法(11-docs-list.js claimedCollaborationLineFor 重写):①显式 claimed_by 分支——取得线必须此刻真在 collaborationLines 里;找不到就返回 null 不渲染,不再「照渲染 + 代号打问号」。线在线却没分到代号时退回分支名兜底,代码里已无任何产生 "?" 的路径。②无字段分支(默认线)——补两个前提:默认线此刻真在线(lines 里有 worktree_path 为空的那条),且 agentFocus.active === 本条目。第二个前提直接复用 12-docs-pages.js 的取活焦点真源(与 agent-active 高亮同源),不在这里另写一套「谁是当前 WIP」的推断。这两条正好对上现场的两个错:引擎没运行时一条线都没有(用户截图:kzapp 20:18 已退出,5 条 doing 全带「● ? 被取得」),以及 5 条 doing 同时归属同一条线(而一条线最多持有一条)。四条验收逐条对照:①无 claimed_by 的 doing 不再无条件显示——ui-runtime-smoke 早期块新增断言(该处尚未渲染任何线路,正是引擎没跑的形态,断言 R-001 虽 agent-active 但无徽标);②claimed_by 指向的线不在 collaborationLines 时不渲染、且不得出现问号代号——并行线路段新增用例甲(claimed_by=claim-a1 但线列表里没有 claim-a1 → 无徽标)与用例乙(默认线在线且占着 R-001 → 有徽标且断言文本不含 "?");③真实 claim 仍正常渲染「● 代号 被取得」——既有断言(claimedRow 含 "● B" 与「被取得」)保持绿;④全仓无第二处按状态推断持有——grep isAgentNext/defaultOwned/includes(entry.status) 全仓,仅 20-lines.js:35 一处命中且语义无关(筛可派发的 todo/open 下拉项,不是持有推断)。另加用例丙:renderLines([]) 后文档页两列表零徽标。验证:node scripts/ui-runtime-smoke.mjs 通过(21 个 ui/*.js、2030 次 invoke、0 运行时错误)、ui-lint/i18n/a11y/markdown 四个静态冒烟 + parallel-lines-regression 全通过;cargo test --workspace 940 passed / 0 failed。注:本轮未落 test_record —— kz CLI 无 test_record 入口,命令与结果如实记在此处。
+- 阻塞: 
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- observed_worktree_hash: fnv1a64:5b76daea4bc9f605
+- recorded_at: 1786725336123
+
+## D-361 task 被算作非进展工具:整轮派子代理干活被判空转,连两轮鞭挞自停 [fixed] (high)
+- refs: R-169 R-174 R-076
+- 复杂度: 中
+- 复现: 2026-08-14 用户报告「鞭挞会被子代理终结」。代码核实成立:kanzei-harness/src/auto_run.rs:28 的 NON_PROGRESS_TOOLS 常量里含 "task";has_progress_tools(同文件 32-36)的判据是「本轮至少有一个不在该表里的工具」才算有进展。于是主代理把活整轮派给 task 子代理时,画像里只有 task 一项 → has_progress_tools=false → decide() 的 `no_action = ctx.steps <= 1 || !has_progress_tools(ctx.tools)` 为真 → 第一次返回 Nudge(rounds+1),紧接着第二次就 stop_with(AutoStopReason::NoAction)。连着两轮派子代理,鞭挞自停。
+- 影响: 与「用子代理分担」这条正路直接对冲:模型越守规矩地委派,鞭挞越快自杀,而且停止原因报的是 NoAction(空转)——对用户是误导,那轮实际干了活。子代理越好用,这条越疼。
+- 标签: 核心
+- 根因: 主轮的工具画像只统计主 conversation 的本轮消息切片(run.rs:1653 `summarize_tools(&summary.messages[prior.len()..])`),子代理内部调用的 read/grep/edit 全在子代理自己的消息列表里,不进主轮画像——主轮能看见的只有一次 task 调用与它的返回。而 task 又被登记为非进展工具,于是「把活派出去」在鞭挞眼里等价于「什么都没干」。task 当初进这张表大概是防「反复派子代理查东西却不落地」的空转,但代价是把正常委派也一起打死了。
+- 验收: ①整轮只调 task、且子代理确有实质工具调用时,decide 不判 NoAction(单测:构造 tools=["task"] + 子代理画像有 edit,断言不返回 Stop(NoAction));②子代理的工具画像上卷进主轮画像(或等价机制,如 task 结果携带子代理 tools 摘要),口径写进 auto_run 的模块注释;③真正空转的轮仍判 NoAction——task 派出去但子代理自己也没动作时,反证测试断言照旧 Nudge/Stop;④NON_PROGRESS_TOOLS 其余成员语义不变,既有鞭挞测试(harness auto_run)全绿。
+- 优先级: P1
+- 进展: 2026-08-14 修复完成。改法不是把 task 从 NON_PROGRESS_TOOLS 里删掉(那会放过「反复派子代理查东西却不落地」的真空转),而是把子代理的工具画像上卷进主轮画像,让委派轮按子代理实际干了什么判定。三处改动:①kanzei-app/src/run.rs——build_event_handler 新增 subagent_tools 参数,TaskProgress 臂经新函数 subagent_round_tool 收集 phase=="end" 的工具名(只认已完成的调用:start 会与 end 重复计同一次,usage/cancelled 不带工具名,空名不计);run_task 轮末的 tools_vec 改为「主轮画像 ∪ 本轮子代理画像」的并集。②kanzei-core/src/lib.rs——TaskTrace 补进根 re-export(app 侧要按类型写判据)。③kanzei-harness/src/auto_run.rs——把 task 在表里的特殊语义写进 NON_PROGRESS_TOOLS 的文档注释:派子代理本身不算进展、子代理干的活算,调用方必须先上卷再传进来。四条验收逐条对照:①整轮只调 task 且子代理有实质调用时不判 NoAction——harness 新测试 委派轮上卷子代理画像后不判空转(tools=["task","edit"] 断言 Continue);②子代理画像上卷进主轮画像 + 口径写进 auto_run 文档注释——已落地(见上①③);③真正空转的轮仍判 NoAction——harness 新测试 子代理也没动作的委派轮仍判无动作(tools=["task"] 断言第一次 Nudge、第二次 Stop(NoAction)),另有 task_单独不算进展工具_上卷后算 锁住 has_progress_tools 三态;④NON_PROGRESS_TOOLS 其余成员语义不变、既有测试全绿——常量未改一个字,harness 133 passed。app 侧另加 子代理画像上卷只认已完成的工具调用 单测锁 subagent_round_tool 的四种 trace 形态。验证:cargo test --workspace exit=0、940 passed / 0 failed;cargo fmt --all --check 过;cargo clippy --workspace --all-targets -D warnings 过。注:本轮未落 test_record —— kz CLI 没有 test_record 入口(只有 req/defect/source/finding/goal/decision),命令与结果如实记在此处,可原样复跑。
+- 阻塞: 
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- observed_worktree_hash: fnv1a64:5b76daea4bc9f605
+- recorded_at: 1786725299904
+
+## D-362 文档页列表行内元素流式排列:可选徽标把优先级/复杂度/标题三列推得行行错位 [fixed] (low)
+- refs: D-360
+- 复杂度: 小
+- 复现: 2026-08-14 用户截图(文档页分组视图「核心·13」):同一列表 13 行,优先级徽标出现在 7 个不同横坐标,标题起点 13 行几乎各不相同——R-238 的 P2 在 x≈101,R-195 的 P2 在 x≈330,相差两百多像素。肉眼扫不出「哪些是 P0」,得逐行读。
+- 影响: 列表的价值是横向扫读(一眼看出优先级分布、哪些被阻塞),列错位之后只能逐行读,等于把列表退化成一堆句子。条目越多越明显。
+- 标签: 前端
+- 根因: 11-docs-list.js 的 doc-row 是纯流式行:勾选框 → 被取得徽标(可选)→ 批次进度格(可选,格数还随批次总数 1~12 变宽)→ 阻塞徽标(可选)→ 待澄清徽标(可选)→ 优先级 → 复杂度 → 标题,全部 appendChild 顺次排列。可选元素的有无与宽窄直接把后面所有列往右推,行与行之间没有任何列对齐机制。侧栏窄、行少时看不出来,文档页宽列表 13 行摊开就全散了。
+- 验收: ①文档页列表的优先级/复杂度/标题三列在同组内左对齐(grid 固定列宽或等价方案),可选徽标的有无不影响后续列起点;②侧栏窄列表形态不回归(它本来就该紧凑,不强求同一套列宽);③批次格宽度随格数变化时不破坏对齐;④ui-runtime-smoke 与 ui-a11y 冒烟保持绿。
+- 优先级: P3
+- 进展: 2026-08-14 修复完成。原打算给每列定固定像素宽,查 i18n 后否掉了:阻塞→Blocked、待澄清→Needs clarification,英文下固定宽要么截断要么全行留白。改成结构上让开——文档页把四个可选徽标(被取得/批次进度格/阻塞/待澄清)收进标题之后的 .doc-flags 簇,不再插在优先级前面。11-docs-list.js 新增 placeFlag(node):surface==="documents" 时收进 flags 数组,其余(侧栏)原地 appendChild,四处徽标各改一行;标题渲染后若 flags 非空才建 .doc-flags 容器(空数组不建,免得每行多一个空节点)。已关闭条目没有勾选框,补一个 .doc-pick-space 等宽占位,否则那一行三列整体左移一个框宽。style.css 加三条规则(.doc-flags 为 flex:0 0 auto 的行内簇;.doc-pick / .doc-pick-space 同为 flex:0 0 13px)。这样优先级/复杂度/标题三列的起点只由固定宽度的勾选框(13px)、优先级(36px)、复杂度(68px)决定,与「这一行有没有阻塞徽标」无关;徽标被 title 的 flex:1 1 auto 顶到右端聚成一簇,压缩由标题的 ellipsis 承担。四条验收逐条对照:①三列左对齐——ui-runtime-smoke 新增结构不变量断言(遍历两个文档列表的每一行:优先级之前不得出现 doc-claim-fact/complexity-meter/blocked-badge/clarify-badge 任一,且 .doc-flags 若存在必须是行内最后一个元素)。像素位置在冒烟环境里量不了,但「优先级之前只允许固定宽度元素」是对齐的充要条件,行行成立则三列必然对齐;②侧栏形态不回归——placeFlag 只在 documents 面改道,侧栏的 append 顺序逐字节不变;③批次格宽度随格数变化不破坏对齐——批次格已在 .doc-flags 里,根本不在三列之前,格数再变也影响不到;④既有冒烟保持绿——ui-runtime-smoke 通过(2030 次 invoke、0 运行时错误)、ui-a11y/ui-i18n/ui-lint/ui-markdown 与 parallel-lines-regression 全通过(改动新增了 onDocsPage/flags/placeFlag/flagBox 等顶层标识符,已重跑 gen-ui-lint-globals.mjs 同步清单,1296 个标识符)。注:本轮未落 test_record —— kz CLI 无 test_record 入口,命令与结果如实记在此处。
+- 阻塞: 
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- observed_worktree_hash: fnv1a64:5b76daea4bc9f605
+- recorded_at: 1786725362386

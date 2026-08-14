@@ -23,7 +23,7 @@ pub use runner::{
     run_read_agent, summarize_failures, summarize_metrics, summarize_tools, AskFuture, AskPolicy,
     AskReply, AskRequest, AskResponse, CancellationToken, CompletedEntry, FailureSignal, RecallHit,
     RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch, RunEvent, RunMetrics, RunSummary,
-    RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations,
+    RunnerConfig, SubagentRuntime, TaskCancellationGuard, TaskCancellations, TaskTrace,
 };
 pub use store::{
     compare_shadow, prepare_typed_session, project_session_facts, project_session_id,

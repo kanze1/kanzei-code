@@ -431,6 +431,19 @@ async fn assemble_run(
     })
 }
 
+/// D-361:一条子代理 trace 是否该把工具名计入本轮画像,是则给出名字。
+///
+/// 只认 `phase == "end"`——那是子代理内部一次工具调用**已完成**的信号(subagent.rs
+/// 由 ToolEnd 折算)。`start` 会重复计同一次调用,`usage`/`cancelled` 根本不带工具名。
+/// 名字空白的 trace 不计:空名进画像等于凭空造出一个「有进展工具」。
+fn subagent_round_tool(trace: &kanzei_core::TaskTrace) -> Option<&str> {
+    if trace.phase != "end" {
+        return None;
+    }
+    let name = trace.name.trim();
+    (!name.is_empty()).then_some(name)
+}
+
 /// R-202 批2:构造 run_task 的 RunEvent 处理器闭包(原 run_task 内联的 on_event)。
 /// D-173 可观测性:主代理工具调用实时转发 UI 并按 id 记开始时刻;R-143:git commit
 /// 检测位在 ToolStart(action=commit)/ToolEnd(ok=true) 置位/提升;轨迹与 typed writer
@@ -445,6 +458,7 @@ fn build_event_handler(
     typed_writer_for_events: Arc<Mutex<typed_events::TypedEventWriter>>,
     committed_this_round: Arc<std::sync::atomic::AtomicBool>,
     pending_commit_call: Arc<std::sync::atomic::AtomicBool>,
+    subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
 ) -> impl FnMut(RunEvent) {
     let round_committed = committed_this_round;
     let round_pending = pending_commit_call;
@@ -640,6 +654,15 @@ fn build_event_handler(
             }
             // 子代理实时状态:挂到对应 task 块的进度行,并附带可展开的子工具轨迹。
             RunEvent::TaskProgress { id, text, trace } => {
+                // D-361:子代理内部完成的工具调用,名字上卷进本轮画像。主轮画像只切
+                // 主 conversation 的消息(轮末 summarize_tools),子代理的 read/grep/edit
+                // 全在它自己的消息里——主轮看得见的只有一次 task 调用,而 task 本身在
+                // NON_PROGRESS_TOOLS 里。不上卷的话「整轮把活派给子代理」在鞭挞眼里
+                // 等于什么都没干:第一轮 Nudge、第二轮 Stop(NoAction),越守规矩地委派
+                // 越快自停,停止原因还误报成「空转」。
+                if let Some(name) = trace.as_ref().and_then(subagent_round_tool) {
+                    subagent_tools.lock().unwrap().insert(name.to_string());
+                }
                 // UI 实时事件保留完整入参(transcript 数据源,R-174);
                 // 落库副本把入参截断到上限,避免大入参撑爆 run.trace(D-297 验收③)。
                 let ui_payload = json!({
@@ -1563,6 +1586,10 @@ pub(crate) async fn run_task(
     // 轮末(decide_auto_run 之后)读 committed,true 才触发 push。
     let committed_this_round = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let pending_commit_call = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // D-361:本轮子代理内部用过的工具名。事件处理器边跑边收,轮末并进鞭挞的工具
+    // 画像——委派出去的活也是活,不能因为主轮只留下一个 task 调用就判成空转。
+    let subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
+        Arc::new(Mutex::new(std::collections::BTreeSet::new()));
     let mut on_event = build_event_handler(
         emit_event,
         tool_started,
@@ -1572,6 +1599,7 @@ pub(crate) async fn run_task(
         typed_writer.clone(),
         committed_this_round.clone(),
         pending_commit_call,
+        subagent_tools.clone(),
     );
 
     let mut ask = build_ask_handler(
@@ -1655,7 +1683,16 @@ pub(crate) async fn run_task(
     // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
     // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
     let backlog = crate::auto_run::backlog_status(&project_root);
-    let tools_vec: Vec<String> = this_run_tools.keys().cloned().collect();
+    // D-361:主轮画像 + 本轮子代理内部用过的工具。前者只切主 conversation,派出去的
+    // 活在它里面只剩一个 task 调用;两者合并后,「委派」按子代理实际干了什么判定,
+    // 而不是按主轮留下的那一行痕迹判定。子代理确实什么也没干时,合并后仍只有 task,
+    // 空转判定照旧生效(has_progress_tools 的语义没被削弱)。
+    let tools_vec: Vec<String> = {
+        let mut names: std::collections::BTreeSet<String> =
+            this_run_tools.keys().cloned().collect();
+        names.extend(subagent_tools.lock().unwrap().iter().cloned());
+        names.into_iter().collect()
+    };
     let auto_action_json = {
         let mut controllers = auto_runs.lock().unwrap();
         let ctrl = controllers.entry(session_id.clone()).or_default();
@@ -3059,6 +3096,49 @@ mod assembly_tests {
     use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
     use std::path::PathBuf;
     use std::sync::Arc;
+
+    /// D-361:只有「子代理内部一次工具调用已完成」的 trace 才计入本轮画像。
+    #[test]
+    fn 子代理画像上卷只认已完成的工具调用() {
+        let trace = |phase: &str, name: &str| kanzei_core::TaskTrace {
+            child_id: "child-1".into(),
+            phase: phase.into(),
+            name: name.into(),
+            summary: None,
+            ok: None,
+            outcome: None,
+            code: None,
+            preview: None,
+            display: None,
+            input: None,
+            usage: None,
+        };
+        assert_eq!(
+            super::subagent_round_tool(&trace("end", "edit")),
+            Some("edit"),
+            "子代理调完 edit 必须上卷进画像"
+        );
+        assert_eq!(
+            super::subagent_round_tool(&trace("start", "edit")),
+            None,
+            "start 会与 end 重复计同一次调用,不计"
+        );
+        assert_eq!(
+            super::subagent_round_tool(&trace("usage", "")),
+            None,
+            "usage trace 不带工具名,不计"
+        );
+        assert_eq!(
+            super::subagent_round_tool(&trace("cancelled", "")),
+            None,
+            "取消 trace 不带工具名,不计"
+        );
+        assert_eq!(
+            super::subagent_round_tool(&trace("end", "   ")),
+            None,
+            "空名不得凭空造出一个「有进展工具」"
+        );
+    }
 
     #[test]
     fn 轮末压缩触发优先使用provider真实usage_无usage才估算() {

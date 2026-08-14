@@ -12,6 +12,13 @@
 /// 模型不能再靠 memory_note 或无关读取绕过刹车(D-044 教训的硬化,原 R-076 画像)。
 /// bash/git/edit/write/tracker 等可能改变状态的工具不在列:名称粒度分不出
 /// git status 与 git commit,误判成空转的代价(真干活被打断)比漏判高。
+///
+/// `task` 在列,但它的语义与其余成员不同,别照字面理解:**派子代理本身不算进展,
+/// 子代理干的活算**。调用方在轮末必须把子代理内部用过的工具名并进画像再传进来
+/// (桌面端见 run.rs 的 subagent_round_tool / subagent_tools),否则「整轮把活派出去」
+/// 会只剩一个 task 留在画像里、被判空转——第一轮 Nudge、第二轮 Stop(NoAction),
+/// 越守规矩地委派越快自停(D-361 现场)。上卷之后语义才自洽:子代理真干了活,
+/// 画像里就有它调的 edit/bash;子代理也空手而归,画像里仍只有 task,刹车照旧生效。
 pub const NON_PROGRESS_TOOLS: &[&str] = &[
     "memory_note",
     "memory_search",
@@ -285,6 +292,65 @@ mod tests {
             closed_this_round: 0,
             verify_every_n: 0,
         }
+    }
+
+    /// D-361:委派轮不是空转轮。子代理内部用过的工具由调用方上卷进画像后,
+    /// 「整轮只调 task」的委派必须能正常续跑;子代理也没动作时刹车照旧。
+    #[test]
+    fn 委派轮上卷子代理画像后不判空转() {
+        let mut state = AutoRunState::new(10);
+        state.rounds = 1; // no_action 只在 rounds > 0 时才触发,先跑过一轮
+                          // 主轮只留下一个 task 调用,上卷后画像里带上子代理真正调过的 edit。
+        let tools = mk_tools(&["task", "edit"]);
+        let ctx = AutoRunCtx {
+            steps: 2,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Continue,
+            "子代理干了实质活的委派轮必须续跑,不能判成空转"
+        );
+    }
+
+    /// D-361 反证:上卷之后刹车不能被削弱——子代理空手而归时画像里仍只有 task,
+    /// 依旧走无动作路径(第一次 Nudge,第二次 Stop(NoAction))。
+    #[test]
+    fn 子代理也没动作的委派轮仍判无动作() {
+        let mut state = AutoRunState::new(10);
+        state.rounds = 1;
+        let tools = mk_tools(&["task"]);
+        let ctx = AutoRunCtx {
+            steps: 2,
+            ..ctx_with_tools(&tools)
+        };
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Nudge,
+            "子代理也空转时第一次应 Nudge"
+        );
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::NoAction),
+            "连续两轮无动作仍须停,上卷不得削弱刹车"
+        );
+    }
+
+    /// D-361:task 单独出现不算进展,与子代理上卷的工具名区分开。
+    #[test]
+    fn task_单独不算进展工具_上卷后算() {
+        assert!(
+            !has_progress_tools(&mk_tools(&["task"])),
+            "只派子代理、子代理什么也没干,不算实质进展"
+        );
+        assert!(
+            has_progress_tools(&mk_tools(&["task", "edit"])),
+            "子代理调过 edit,上卷后整轮必须算实质进展"
+        );
+        assert!(
+            !has_progress_tools(&mk_tools(&["task", "read", "grep"])),
+            "子代理只读不写,仍是查询类画像,不算进展"
+        );
     }
 
     /// R-199:模式不允许自主推进时引擎 Stop(ProfileMismatch)且计数不 +1(重置)。

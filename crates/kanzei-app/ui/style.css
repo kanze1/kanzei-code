@@ -1138,6 +1138,13 @@ button.ghost.danger:hover { background: rgba(208, 104, 78, .14); }
 .complexity-cell.filled { background: var(--dim); border-color: var(--dim); }
 .doc-row .complexity-badge { flex: 0 0 68px; text-align: center; white-space: nowrap; }
 .doc-row .title { flex: 1 1 auto; min-width: 0; }
+/* D-362:文档页的可选徽标簇。挪到标题之后,优先级/复杂度/标题三列的起点就只由
+   固定宽度的勾选框/优先级/复杂度决定,不再被「这一行有没有阻塞徽标」推歪。
+   flex:0 0 auto = 徽标按自身宽度占位,压缩由标题(flex:1 1 auto + ellipsis)承担。 */
+.documents-list .doc-row .doc-flags { display: flex; align-items: baseline; gap: 6px; flex: 0 0 auto; }
+/* 已关闭条目没有勾选框,留等宽占位,免得整行三列左移一个框宽。 */
+.documents-list .doc-row .doc-pick-space { flex: 0 0 13px; }
+.documents-list .doc-row .doc-pick { flex: 0 0 13px; }
 @media (max-width: 760px) { .documents-list .doc-row .complexity-badge { flex-basis: 58px; } .documents-list .doc-row .st { flex-basis: 60px; } }
 .doc-row { display: flex; gap: 6px; align-items: baseline; cursor: pointer; min-width: 0; }
 .doc-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

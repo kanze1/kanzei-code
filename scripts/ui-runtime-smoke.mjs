@@ -1286,12 +1286,41 @@ const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_list")
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
 // R-247:排队顺序不参与；doing/fixing 无显式取得线按 D-354 归默认线，open 队首无标记。
+// D-360:此处尚未渲染任何线路(collaborationLines 为空)——这正是「引擎没在跑」的形态,
+// 一条线都没有就没有任何「被取得」事实可言,doing 也不例外。三种解码前提的完整覆盖
+// 在下面并行线路那段(取得线离线/默认线持有/一条线都没有)。
 {
   const active = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(active?.classList.contains("agent-active"), "doing 条目 R-001 未标记 agent-active(在做高亮丢失)");
+  assert(
+    !active?.querySelector(".doc-claim-fact"),
+    "没有任何线在运行时,doing 条目不得被标成被取得(D-360:按状态一刀切的推断已废除)",
+  );
   const next = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(!next.classList.contains("agent-active"), "open 条目不该被标成在做");
   assert(!next.classList.contains("doc-claim-fact"), "没有 collaboration_snapshot claim 的队首不应出现被取得标记");
+}
+// D-362:文档页行内三列对齐的结构保证——可选徽标一律在标题之后成簇,不得插在
+// 优先级前面。像素位置在这个环境里量不了,但「优先级之前只允许固定宽度元素」
+// 这条结构不变量正是对齐的充要条件,行行成立则三列必然对齐。
+{
+  const optional = ["doc-claim-fact", "complexity-meter", "blocked-badge", "clarify-badge"];
+  const rows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
+  assert(rows.length > 0, "文档页列表应有行可检");
+  for (const row of rows) {
+    const kids = [...row.children];
+    const priAt = kids.findIndex((n) => n.classList.contains("pri-badge"));
+    if (priAt < 0) continue;
+    const early = kids.slice(0, priAt).filter((n) => optional.some((cls) => n.classList.contains(cls)));
+    assert(
+      early.length === 0,
+      `可选徽标不得排在优先级之前(会把三列推歪):${early.map((n) => n.className).join(",")}`,
+    );
+    const flagBox = kids.find((n) => n.classList.contains("doc-flags"));
+    if (flagBox) {
+      assert(kids[kids.length - 1] === flagBox, "doc-flags 必须是行内最后一个元素(排在标题之后)");
+    }
+  }
 }
 // ---------- 侧栏「当前在做」焦点卡片:单条,不是列表、不是集合 ----------
 // 用户定调:侧栏只显示 agent 当前在做的那一条,且显示得完整一点。完整列表连同筛选、
@@ -5531,6 +5560,33 @@ const docsB = {
   );
   const unclaimedHead = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
   assert(!unclaimedHead?.querySelector(".doc-claim-fact"), "排在队首但无人 claim 的条目不应显示被取得标记");
+  // D-360 甲:claimed_by 还指着 claim-a1,但线列表里已经没有这条线(进程崩掉/用户关窗)。
+  // 事实过期了,徽标答不出「被谁取得」——此前会照渲染,只把代号打成 "?"。
+  sandbox.renderLines(payloads.collaboration_snapshot);
+  const staleClaim = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
+  assert(
+    !staleClaim?.querySelector(".doc-claim-fact"),
+    "claimed_by 指向的线已不在线时不得显示被取得标记(代号无从谈起)",
+  );
+  // D-360 乙:回到无 claimed_by 的文档 = D-354 的「无字段 = 默认线」编码。默认线
+  // (d|smoke,worktree_path=null)在线、且 R-001 正是它占着的 WIP,此时徽标应该出现,
+  // 且必须给得出真代号——绝不能是问号。
+  sandbox.renderDocuments(savedDocsPayload);
+  sandbox.renderLines(payloads.collaboration_snapshot);
+  const defaultHeld = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-claim-fact');
+  assert(defaultHeld, "默认线在线且占着 R-001 时应显示被取得标记(D-354 编码:无字段=默认线)");
+  assert(
+    !defaultHeld.textContent.includes("?"),
+    `被取得徽标不得出现问号代号:${defaultHeld.textContent}`,
+  );
+  // D-360 丙:引擎根本没在运行(一条线都没有)——用户截图的现场。此前每条 doing
+  // 都会按状态推断成「默认线持有」,5 条 doing 一起带上「● ? 被取得」。
+  sandbox.renderLines([]);
+  sandbox.renderDocuments(savedDocsPayload);
+  assert(
+    document.querySelectorAll("#documents-req-list .doc-claim-fact, #documents-defect-list .doc-claim-fact").length === 0,
+    "没有任何线在运行时,列表里不得出现任何被取得标记",
+  );
   sandbox.renderDocuments(savedDocsPayload);
   sandbox.renderLines(payloads.collaboration_snapshot);
   await flush();
