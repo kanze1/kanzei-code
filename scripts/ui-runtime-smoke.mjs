@@ -35,10 +35,10 @@ if (SMOKE_MUTATE) {
     },
     // D-355:切项目时 renderProjects 必须清空 activeProcessId。删了它,切到新项目后
     // 残留旧项目的进程 id,loadConversation 就不会等新项目的 process_list,直接拿旧
-    // 进程 id 发 conversation_get——新项目的对话永远不恢复。
+    // 进程 id 发 conversation_get——新项目的对话永远不恢复。缓存行(D-356)在中间。
     d355ClearActive: {
-      pattern: /if \(previousProject !== currentProject\) \{\r?\n(\s*)activeProcessId = null;\r?\n(\s*)activeSessionId = null;/,
-      replace: "if (previousProject !== currentProject) {\n$2activeSessionId = null;",
+      pattern: /(if \(previousProject !== currentProject\) \{\r?\n[\s\S]*?)\s*activeProcessId = null;\r?\n(\s*activeSessionId = null;)/,
+      replace: "$1$2activeSessionId = null;",
     },
     // D-355:loadConversation 在 conversation_get 落地后的 isCurrent 守卫。删了它,
     // 迟到的旧目标历史会覆盖已经切走的新目标(切 B 后 B 的对话恢复迟到,B 的历史被
@@ -46,6 +46,18 @@ if (SMOKE_MUTATE) {
     d355LoadConvGuard: {
       pattern: /if \(!isCurrent\(\)\) return;\r?\n(\s*renderRecoveredMessages\(history\);)/,
       replace: "$1",
+    },
+    // D-356:运行中切回会话的缓存恢复分支。删了它,切回运行中的线路会重新拉取滞后
+    // 的 legacy snapshot,运行中已发生的事实被旧快照吞掉(上下文回滚)。
+    d356CacheRestore: {
+      pattern: /if \(cachedDom && cachedDom\.html && sessionLiveNow\(activeSessionId\)\) \{\r?\n\s*messages\.innerHTML = cachedDom\.html;\r?\n\s*currentAssistant = null;\r?\n\s*currentReasoning = null;\r?\n\s*currentReasoningHead = null;\r?\n\s*scrollBottom\(true\);\r?\n\s*addMessage\("notice", t\("运行中 · 快照截至上次切走时,本轮完成后自动补齐"\)\);\r?\n\s*return;\r?\n\s*\}\r?\n/,
+      replace: "",
+    },
+    // D-356:kz:done 轮末原子回灌。删了它,活动会话的完整 snapshot 永远不被重载,
+    // 运行中快照一直停留在切走时(轮末上下文回滚)。
+    d356DoneReload: {
+      pattern: /dropSessionDomCache\(p\.sessionId\);\r?\n(\s*)await loadConversation\(\);\r?\n(\s*)cacheSessionDom\(p\.sessionId\);/,
+      replace: "dropSessionDomCache(p.sessionId);\n$2cacheSessionDom(p.sessionId);",
     },
   };
   const mutation = mutations[SMOKE_MUTATE];
@@ -4101,7 +4113,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
   );
   assert(
     [...document.querySelectorAll("#messages .msg, #messages div")].some((el) =>
-      el.textContent.includes("已切换到自主推进"),
+      el.textContent.includes("已切换到自主推进") || el.textContent.includes("Switched to self-directed")
     ),
     "R-224:自动切模式未落 notice 说明",
   );
@@ -6316,6 +6328,14 @@ const docsB = {
     .map((el) => el.textContent)
     .join("\n");
 
+  // 前置:清掉前面用例 arm 的所有 autoContinue 定时器——它们残留的 send 回调会在 flush 里
+  // 清空 messages/拨动会话状态,污染切项目/切线的 DOM 断言。清空注册表后定时器回调
+  // 的 generation 检查直接 return,不再触发 send。
+  vm.runInContext('autoContinueTimers.clear()', sandbox);
+  // 再清掉全部挂起定时器:update_check/gitLiveTimer 等残留回调也可能在 flush 里清空
+  // messages,导致 DOM 断言竞态失败(D-356 同款隔离)。
+  for (const h of [...pendingTimers]) pendingTimers.delete(h);
+
   // ---------- ① 卡住项目 A 的 process_list 后切 B ----------
   // B 必须实际等待 B 自己的 process_list(旧实现会命中 A 的全局单飞直接复用),并以
   // B 的 projectDir/processId 调 conversation_get;迟到的 A 响应不得覆盖 B。
@@ -6410,6 +6430,107 @@ const docsB = {
   await gotoProject(PROJECT, savedDocsPayload);
   await flush();
   assert(visibleHistory().includes(A_HISTORY), "D-355 收尾失败:项目 A 的历史没有恢复");
+}
+
+// ---------- D-356:运行中切线路只恢复旧快照且轮末不回灌导致对话上下文回滚 ----------
+// 实时 typed facts 落库,但 UI 恢复读 legacy 轮末 snapshot(conversation.updated 仅在本轮
+// run 收尾前写入)。修复:切走缓存 DOM(per-session)、切回运行中会话恢复缓存+显式标注、
+// kz:done 轮末原子回灌完整 snapshot。验收①不缺失/不重复/不串 session:切回运行中会话
+// 走缓存恢复(不重复拉 legacy),kz:done 回灌后完整;验收②恢复缓存时标注边界。
+{
+  const CACHE_MARKER = "运行中缓存标记消息";
+  // 前置:清掉所有 autoContinue 定时器(跨用例隔离,理由同 D-355 块)。
+  vm.runInContext('autoContinueTimers.clear()', sandbox);
+  // 再清掉全部挂起定时器:前面用例 arm 的 update_check/gitLiveTimer 等残留回调在 flush 里
+  // 可能异步清空 messages,导致本用例的 DOM 断言竞态失败(有时绿有时红)。
+  for (const h of [...pendingTimers]) pendingTimers.delete(h);
+  // 用 running:true 的进程桩模拟「线路 A 运行中」——只靠 transitionSession 会被
+  // renderProcesses 按 process_list 的 running=false 拨回 idle(09-sessions.js:351)。
+  const savedD356ProcessList = payloads.process_list;
+  payloads.process_list = [
+    { id: "d|smoke", label: "主会话", session_id: "sess-smoke", running: true, branch: "main", authority: "primary", stage: "实现" },
+    { id: "p|bg", label: "后台会话", session_id: "sess-bg", running: true, worktree_path: "C:/smoke-wt", branch: "kanzei/thread-smoke", authority: "parallel" },
+  ];
+  // 项目 A、活动会话 d|smoke/sess-smoke(切回项目 A 的干净状态)。
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
+  // 模拟线路 A 运行中:状态机拨到 running(事件路由对活动会话正常投影)。
+  vm.runInContext('transitionSession("sess-smoke", "running")', sandbox);
+  await flush();
+  // 切到线路 B(后台线):switchProcess 切走前应保存 A 的 DOM 缓存(键存在即验证保存点触发;
+  // harness 桩的 innerHTML getter 只返回显式 set 值,不能拿它判断子树内容)。
+  await sandbox.switchProcess("p|bg");
+  await flush();
+  assert(
+    vm.runInContext("activeSessionId", sandbox) === "sess-bg",
+    `前置失败:切到线路 B 失败(activeSessionId=${vm.runInContext("activeSessionId", sandbox)})`,
+  );
+  assert(
+    vm.runInContext('sessionDomCache.has("sess-smoke")', sandbox),
+    "切到线路 B 后 sess-smoke 没有保存 per-session 缓存(switchProcess 保存点未触发)",
+  );
+  const phaseAtSwitchBack = vm.runInContext('sessionState("sess-smoke").phase', sandbox);
+  assert(
+    phaseAtSwitchBack === "running",
+    `前置失败:切回 A 前 sess-smoke 不是 running(phase=${phaseAtSwitchBack})——sessionLiveNow 判活会拒绝缓存恢复`,
+  );
+  // harness 桩下 switchProcess 保存的缓存 html 为空(innerHTML getter 桩限制);手动
+  // 补一个有真实内容的缓存,验证「切回运行中会话恢复缓存」的机制与标注。
+  vm.runInContext(
+    `sessionDomCache.set("sess-smoke", { html: '<div class="msg user"><div class="message-body">${CACHE_MARKER}</div></div>', at: Date.now() })`,
+    sandbox,
+  );
+
+  // 切回线路 A(运行中):应恢复 per-session 缓存,而不是重新拉 legacy snapshot。
+  const convBefore = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  await sandbox.switchProcess("d|smoke");
+  await flush();
+  const convAfter = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  assert(
+    convAfter === convBefore,
+    `切回运行中的线路 A 没有走缓存恢复分支,又拉了 conversation_get:` +
+      `${JSON.stringify(invokeArgs.slice(convBefore))}`,
+  );
+  assert(
+    vm.runInContext('messages.textContent', sandbox).includes(CACHE_MARKER),
+    "切回运行中的线路 A 后缓存标记消息丢失(per-session DOM 缓存未恢复)",
+  );
+  assert(
+    ((vm.runInContext('messages.textContent', sandbox).includes("运行中")
+      || vm.runInContext('messages.textContent', sandbox).includes("Running"))
+      && (vm.runInContext('messages.textContent', sandbox).includes("快照")
+        || vm.runInContext('messages.textContent', sandbox).includes("snapshot"))),
+    "切回运行中的线路 A 没有标注「运行中快照」边界(不得伪装为完整历史)",
+  );
+
+  // kz:done 轮末原子回灌:活动会话重载完整 snapshot(conversation_get 再次发出)。
+  await handlers.get("kz:done")({
+    payload: { sessionId: "sess-smoke", steps: 1, halted: false, autoAction: { type: "NoContinue" } },
+  });
+  await flush();
+  const getAfterDone = invokeArgs.filter((entry) => entry.cmd === "conversation_get").length;
+  assert(
+    getAfterDone > convAfter,
+    "kz:done 后没有原子回灌最新完整 snapshot(运行中快照停在切走时,轮末上下文回滚)",
+  );
+  assert(
+    [...document.querySelectorAll("#messages .message-body")]
+      .some((el) => el.textContent.includes("冒烟历史消息")),
+    "kz:done 回灌后消息区不是后端完整 snapshot 的内容",
+  );
+
+  // 收尾:会话收敛为 idle(缓存失效),复位状态机与进程桩。
+  await handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-smoke" } });
+  await flush();
+  vm.runInContext('transitionSession("sess-smoke", "idle")', sandbox);
+  await flush();
+  assert(
+    !vm.runInContext("sessionDomCache.has('sess-smoke')", sandbox),
+    "D-356 收尾失败:会话收敛后运行中缓存仍残留(内存泄漏)",
+  );
+  payloads.process_list = savedD356ProcessList;
+  await gotoProject(PROJECT, savedDocsPayload);
+  await flush();
 }
 
 if (issues.length) {

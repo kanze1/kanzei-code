@@ -4079,3 +4079,40 @@
 - recorded_at: 1786672416153
 - 取活依据: override:用户 2026-08-16 交互轮批准(上一轮 claim 被 autonomous 档位权限拦截,已加白名单 facbca6 并提交);引擎 defect-first 裁决队首即为 D-209,调研已完成,按 R-241 第一批实现 typed events + shadow projector
 - 批次: 4/4
+
+## D-355 切项目时 process_list 单飞跨项目错等导致目标对话不恢复 [fixed] (high)
+- refs: R-197 R-242 docs/design/session_state_and_line_runtime.md
+- 复杂度: 中
+- 复现: 项目 A 的 process_list 请求仍在途时切到项目 B：renderProjects 先清空 activeProcessId/activeSessionId；B 的 refreshProcesses 命中全局 processRefreshInFlight 后返回 A 的 Promise；loadConversation 也误等该 Promise，A 响应因 currentProject 已变化被丢弃，调用方随后因 B 仍无 activeProcessId 直接返回；排队的 B 刷新只恢复线路列表，不再次触发 conversation_get。项目切换路径又在目标历史返回前 clearChat，最终显示空白或旧上下文。
+- 影响: 切仓库后目标对话可能完全不恢复，用户看到空白、旧快照或上下文回滚；SQLite 数据仍在但 UI 不可达，需要再次切换或重载才能恢复，容易被误判为真实数据丢失。
+- 来源: 用户报告(2026-08-14 切换并行线路/仓库后上下文丢失回滚)+只读代码与双项目 state.db 核查。
+- 标签: 前端
+- 根因: processRefreshInFlight/processRefreshQueued 是跨项目全局单飞，不携带请求所属项目与目标 generation；项目切换没有把目标 process_list→选定 active session→conversation_get 组成同一个可等待的原子切换事务。
+- 证据等级: E2：静态调用链可确定复现；Kanzei 与 Akashic-AgentOS 两个 state.db 均保有完整快照，排除物理删除。
+- 验收: ①UI runtime 用闸门卡住项目 A 的 process_list 后切 B，必须实际等待 B 自己的 process_list，并以 B 的 projectDir/processId 调 conversation_get；②目标历史完整返回前不清空旧消息，迟到的 A 响应不能覆盖 B；③侧栏、Workspace、文档页、添加/移除/初始化项目全部复用同一切换事务；④删除任一项目/generation 守卫时冒烟判红，既有 D-250/D-251 跨项目回归保持通过。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-355
+- 证据: 验收①ui-runtime-smoke.mjs D-355 用例①:闸门卡 A 的 process_list 后切 B,断言 process_list 第二次调用 projectDir=PROJECT_B、conversation_get args 为 {projectDir:project-b, processId:d|proj-b}、消息区含乙历史。验收②D-355 用例②:B 的 conversation_get 卡闸门→切回 A→放行,断言 A 历史保留且 B 历史不覆盖(默认绿,d355LoadConvGuard 变异红)。验收③enterProject 单点(09-sessions.js:725),5 个入口全部调用(709/679/751/761 + 12-docs-pages.js:10)。验收④变异表 d355ClearActive/d355LoadConvGuard(ui-runtime-smoke.mjs 变异注册)判红,既有 D-250/D-251 用例(5039-6000 行)与 d251/d257 变异保持通过。
+- 进展: 修复完成(2026-08-16)。①refreshProcesses 单飞去项目化:全局 inFlight/queued 改为按项目键控 Map(09-sessions.js:182),返回的 Promise 恒为「本项目列表刷新完成」——A 在途时切 B,B 实际发出自己的 process_list 并等待,loadConversation(15-views-misc.js:266-269)等到的就是 B 的列表,conversation_get 带 B 的 projectDir/processId。②新增 enterProject 统一切换事务(09-sessions.js:725-739):目标 process_list→activeProcessId→conversation_get 原子链,目标历史返回前不清空旧消息(renderRecoveredMessages 一次性替换),迟到的 A 响应由 project/generation 守卫丢弃。③侧栏(09-sessions.js:709)、Workspace/文档页下拉(12-docs-pages.js:6-13)、添加(09-sessions.js:761)、移除(09-sessions.js:679)、初始化(09-sessions.js:751)全部复用 enterProject。验证:ui-runtime-smoke 默认全绿(1962 invoke)+ 新增 D-355 用例(闸门卡 A 的 process_list 后切 B,断言 B 的 process_list 实际发出、conversation_get 用 B_PROC、B 历史渲染、迟到 B 响应不覆盖 A);变异 d355ClearActive(删 renderProjects 清空 activeProcessId)与 d355LoadConvGuard(删 loadConversation isCurrent)均判红,既有 d251/d257 变异仍判红;ui-lint/i18n/markdown/a11y 冒烟全绿;cargo test --workspace 全绿(T-1786698638)。
+- observed_head: ed06b969f419b779c1c17dea7c0e81a65fb45397
+- observed_worktree_hash: fnv1a64:eb72595d56cc7bb8
+- recorded_at: 1786698652434
+
+## D-356 运行中切线路只恢复旧快照且轮末不回灌导致对话上下文回滚 [fixed] (high)
+- refs: R-241 R-242 D-342 docs/design/session_state_and_line_runtime.md
+- 复杂度: 中
+- 复现: 线路仍在运行时切走再切回：后台 kz:text/reasoning 因 sessionId 非活动会话被前端路由层过滤；switchProcess 调 loadConversation→conversation_get，而后端只读最新 legacy conversation.updated。完整 snapshot 仅在整个 run 收尾时写入，故页面恢复到本轮开始前；kz:done 又只追加完成提示/刷新历史列表，不重新加载刚落库的完整快照，缺口可持续到再次切线或重载。
+- 影响: 正常切线/切仓库时 UI 确定性显示旧上下文；同进程内模型 prior 通常仍由 SessionRuntime 保留，但若运行中崩溃或重启，当前恢复路径会把模型与 UI 真正回退到上一份 conversation.updated，原始 typed facts虽在 SQLite 中却暂不可达。
+- 来源: 用户报告(2026-08-14)+实时 state.db 证据：16:04 legacy seq=36485/224 条消息时 typed facts 已推进至 seq=37475；16:20 run 收尾后 snapshot 自动追平至 seq=38270/584 条消息，期间 conversation.reset=0、空 snapshot=0。
+- 标签: 核心
+- 根因: 实时 SessionRuntime、typed session facts 与 UI 恢复读源分裂：conversation_get/recover_messages_raw 仍以轮末 legacy snapshot 为唯一读源，运行中后台增量没有 per-session 可回放投影；R-241 typed events 目前仅 shadow，R-242 尚未切换五条读路径。
+- 证据等级: E2：数据库时序与源码写入边界一致，已排除物理删除并确认恢复源滞后。
+- 边界: 不绕过 R-242 的 30 个真实 shadow turn 门槛直接切 typed 真源；可先交付前端运行中状态提示、per-session 切换缓存与 kz:done 轮末原子回灌，typed surface 正式接管仍由 R-242 feature gate 完成。
+- 验收: ①运行线路产生 snapshot 后增量时切走再切回，已发生的 user/assistant/tool 事实不缺失、不重复、不串 session；②目标完整历史返回前不清空当前 DOM，运行中若只能提供旧快照必须显式标注边界而非伪装为完整；③活动线路收到 kz:done 后原子重载该 session 的最新完整投影，工具调用/结果仍配对；④安全边界强杀重启后按 R-242 投影恢复已发生事实，未知差异可独立回退 legacy；⑤增加线路切换、后台完成、重启恢复反证，D-342 停止路径回归保持通过。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-356
+- 证据: 验收①ui-runtime-smoke.mjs D-356 用例:运行中桩(running:true)切走 switchProcess('p|bg')→断言 sessionDomCache.has('sess-smoke')(保存点);切回 switchProcess('d|smoke')→断言 conversation_get 未重发(缓存恢复分支)、messages.textContent 含缓存标记、标注「运行中快照」。验收②恢复分支显式标注边界;目标历史返回前不清空(恢复分支只替换缓存内容,不拉 legacy)。验收③kz:done 回灌(07-events.js:332-347)仅在有缓存(切回过)时执行 drop→loadConversation→cache,工具配对由 renderRecoveredMessages 保证;D-356 用例断言 kz:done 后 conversation_get 重发+消息区 snapshot。验收⑤冒烟用例覆盖切走/切回/kz:done 回灌/缓存清理(kz:idle 后 has 为 false);D-342 停止路径回归:6 变异全判红(d251/d257/d355x2/d356CacheRestore/d356DoneReload),默认冒烟 3 次全绿。复核(2026-08-14 实测):T-1786701909 默认冒烟 3 次全绿(2030 invoke)+6 变异全判红+ui-lint(1290)/i18n(1101)/markdown/a11y 全绿;T-1786701910 cargo test --workspace 全绿(尾段 236 passed/0 failed)。
+- 进展: 修复完成(2026-08-16)。根因:typed facts 实时落库但 UI 恢复读 legacy 轮末 snapshot。修复:①sessionDomCache per-session DOM 快照(15-views-misc.js:469-490)——switchProcess 切走前(09-sessions.js:479)与 renderProjects 项目切换清空前(09-sessions.js:648-653)保存 messages;loadConversation(15-views-misc.js:271-284)切回运行中(starting/running/stopping)会话恢复缓存+标注,不重复拉 legacy;idle/stopped 后缓存失效。②kz:done 轮末原子回灌(07-events.js:332-347)——仅切回过(缓存存在)的会话 drop→loadConversation 重载完整 snapshot→cache;一直活动的会话不回灌(避免吞轮末 notice,修复双回灌导致 R-223/R-224 回归);kz:idle/stopped/后台 done 清缓存。③i18n 新增「运行中 · 快照…」key(02-i18n.js)。验证:ui-runtime-smoke 默认 3 次全绿,6 变异全判红(d356CacheRestore/d356DoneReload 新增),ui-lint(1290)/i18n/markdown/a11y 全绿,cargo test --workspace 全绿(T-1786700754/756)。边界:验收④强杀重启按 R-242 typed 投影恢复由 R-242(feature gate)承接,本缺陷不绕过其 30 shadow turn 门槛。
+- observed_head: c5c1f8ed9f565c1a71777991c1dc8563e23fe3cd
+- observed_worktree_hash: fnv1a64:b22fc10b562730ce
+- recorded_at: 1786700771885

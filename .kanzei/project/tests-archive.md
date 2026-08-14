@@ -3230,3 +3230,27 @@
 - 关联: D-355
 - 收尾: 1786698746
 - 源码指纹: 70dae0d843ba4373
+
+## T-1786700754 D-356 全量: cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: workspace 全量测试全绿(复杂度中条目关闭前)
+- 关联: D-356
+- 收尾: 1786700754
+
+## T-1786700756 D-356 冒烟: ui-runtime-smoke + 6 变异 + 前端四连 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs (默认 + 6 变异) + 其余前端冒烟
+- 摘要: D-356 冒烟:默认 3 次全绿;6 变异(d251/d257/d355ClearActive/d355LoadConvGuard/d356CacheRestore/d356DoneReload)全判红;ui-lint(1290)/i18n/markdown/a11y 全绿
+- 关联: D-355 D-356
+- 收尾: 1786700756
+
+## T-1786701909 D-356 冒烟: ui-runtime-smoke + 6 变异 + 前端四连 [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; KZ_SMOKE_MUTATE=* node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs; node scripts/ui-a11y-smoke.mjs
+- 摘要: 本次实跑:ui-runtime-smoke 默认 3 次全绿(2030 invoke);6 变异 d251/d257/d355ClearActive/d355LoadConvGuard/d356CacheRestore/d356DoneReload 全判红;ui-lint(1290 标识符)/i18n(1101 key)/markdown/a11y 全绿
+- 关联: D-356
+- 收尾: 1786701909
+
+## T-1786701910 D-356 全量: cargo test --workspace [passed]
+- 命令: cargo test --workspace
+- 摘要: cargo test --workspace 全量全绿(exit 0;尾段 236 passed / 0 failed,各 crate 全过)——复杂度中条目关闭前门禁
+- 关联: D-356
+- 收尾: 1786702030

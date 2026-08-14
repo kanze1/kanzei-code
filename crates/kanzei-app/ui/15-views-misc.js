@@ -268,6 +268,20 @@ async function loadConversation(sequence = null, switchGeneration = null) {
   // B 的 activeProcessId 就绪后 conversation_get 才带着 B 的 projectDir/processId 发出。
   if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
   if (!currentProject || !activeProcessId) return;
+  // D-356:运行中切回——恢复 per-session DOM 快照(切走时保存),不重复拉取可能滞后
+  // 的 legacy snapshot。会话仍在运行/轮末未收敛时缓存是更近的真源;本轮完成后由
+  // kz:done 回灌完整 snapshot 替换。恢复时显式标注边界,不伪装成完整历史。
+  const cachedDom = activeSessionId ? sessionDomCache.get(activeSessionId) : null;
+  if (cachedDom && cachedDom.html && sessionLiveNow(activeSessionId)) {
+    messages.innerHTML = cachedDom.html;
+    currentAssistant = null;
+    currentReasoning = null;
+    currentReasoningHead = null;
+    scrollBottom(true);
+    addMessage("notice", t("运行中 · 快照截至上次切走时,本轮完成后自动补齐"));
+    return;
+  }
+  if (cachedDom) dropSessionDomCache(activeSessionId);
   // 线程切换是异步的:conversation_get 与 trace_get 之间用户可能再次切线。
   // 两个 IPC 必须锁定同一项目/同一进程,且晚返回的旧请求不能覆盖当前线程。
   const forProject = currentProject;
@@ -450,6 +464,30 @@ async function refreshConversationList() {
 }
 
 // ---------- 新对话 ----------
+// D-356:运行中切线路不再回退到轮末 legacy 快照。切走时把当前 DOM 存成 per-session
+// 快照;切回运行中的会话先恢复快照(已发生事实不缺失、不重复、不串 session),并显式
+// 标注「快照截至切走时」;本轮真正收尾(kz:done,后端已写完整 snapshot)后由
+// loadConversation 原子回灌替换。idle/stopped 后缓存自然失效(会话不再判活)。
+const sessionDomCache = new Map();
+const SESSION_DOM_CACHE_MAX = 30;
+function cacheSessionDom(sessionId) {
+  if (!sessionId) return;
+  sessionDomCache.set(sessionId, { html: messages.innerHTML, at: Date.now() });
+  if (sessionDomCache.size > SESSION_DOM_CACHE_MAX) {
+    const oldest = [...sessionDomCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) sessionDomCache.delete(oldest[0]);
+  }
+}
+function dropSessionDomCache(sessionId) {
+  if (sessionId) sessionDomCache.delete(sessionId);
+}
+// 会话是否仍处于「真正运行中/未落完整快照」:是则缓存是比 legacy 快照更近的真源,
+// 切回时优先恢复缓存而不是拉取可能滞后的 conversation.updated。
+// 口径:只有 starting/running/stopping 判活——kz:done 已发(auto_pending/round_finished)
+// 或会话已收敛(idle/stopped/failed)时,后端已写完整 snapshot,正常走 loadConversation。
+function sessionLiveNow(sessionId) {
+  return ["starting", "running", "stopping"].includes(sessionState(sessionId).phase);
+}
 function clearChat(noticeText) {
   messages.innerHTML = "";
   currentAssistant = null;
