@@ -3601,3 +3601,9 @@
 - 摘要: D-366 关闭前全量:cargo test --workspace 全绿(kanzei-memory 129 + kanzei-tools 251 + 其余 crate;检索边界重构无回归)
 - 关联: D-366
 - 收尾: 1786748571
+
+## T-1786749312 cargo test -p kanzei-app (D-367 B1) [passed]
+- 命令: cargo test -p kanzei-app
+- 摘要: D-367 B1 类型化后 kanzei-app 163 测试全绿(含 worktree_tests 全部:project_dir恒主根三构造点、建线后worktree_path是真实路径、close_process建线→关线闭环、删树后会话历史回放等);反例实证捕获 rustc E0308(expected &WorktreeRoot, found &ProjectRoot)
+- 关联: D-367
+- 收尾: 1786749312

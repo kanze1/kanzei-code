@@ -10,7 +10,6 @@ on("kz:meta", (e) => {
   $("status-model").textContent = `${e.payload.model} · ${e.payload.profile}`;
   ctxLimit = e.payload.contextLimit ?? null;
   log(`模型 ${e.payload.model} · agent ${e.payload.agent} · profile ${e.payload.profile}${ctxLimit ? ` · 上下文上限 ${Math.round(ctxLimit / 1000)}k` : ""}`);
-  if (running) setStatus("等待模型响应", true);
 });
 on("kz:turn", (e) => {
   const p = e.payload;
