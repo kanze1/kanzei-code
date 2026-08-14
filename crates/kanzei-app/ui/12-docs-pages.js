@@ -89,6 +89,14 @@ const documentStatusOptions = {
   req: [["all", "全部状态"], ["todo", "todo"], ["doing", "doing"], ["done", "done"], ["dropped", "dropped"]],
   defect: [["all", "全部状态"], ["open", "open"], ["fixing", "fixing"], ["fixed", "fixed"], ["wontfix", "wontfix"]],
 };
+// 取活口径的合法 lifecycle:从状态筛选选项派生,不再抄第三份状态表。
+// 与引擎 DocKind.statuses(crates/kanzei-memory/src/docstore.rs)逐字对应。
+const DOC_LIFECYCLE_STATUSES = Object.freeze(Object.fromEntries(
+  Object.entries(documentStatusOptions).map(([kind, options]) => [
+    kind,
+    Object.freeze(options.map(([value]) => value).filter((value) => value !== "all")),
+  ]),
+));
 // 「对照」模式下筛选同时作用于两个队列——并排看的前提就是同一套条件,
 // 各筛各的等于没在对照。单类型模式只作用于当前那一个。
 // 注意适用范围:这是 **applyDocFilter(用户主动调控件)** 的写入目标。
@@ -594,6 +602,55 @@ function buildFocusCard(entry, kind) {
   card.appendChild(actions);
   return card;
 }
+// 侧栏待办计数:三个数字必须构成一棵加法树——总数 = Σ(可执行 + 阻塞)。
+// 口径**逐条复刻引擎** backlog_status(crates/kanzei-tools/src/tracker/scheduling.rs),
+// 前端一个字都不另造:closed 是后端按 DocKind.terminal 判的,blocked 是
+// schedule_for_display 的 !block_reasons.is_empty(),与 kz work next 同源。
+function backlogTally(entries, kind) {
+  const legal = DOC_LIFECYCLE_STATUSES[kind] ?? [];
+  const tally = { active: 0, workable: 0, blocked: 0, invalid: 0 };
+  for (const entry of entries) {
+    if (entry?.closed) continue;
+    const status = String(entry?.status ?? "");
+    // D-332:非法 lifecycle 被引擎隔离为 integrity 错误,不算活动条目也不参与取活。
+    // 这里单独计数而不是静默丢弃——丢了会让总数对不上列表长度,又是一次「数字对不上」。
+    if (status && !legal.includes(status)) { tally.invalid += 1; continue; }
+    tally.active += 1;
+    if (entryBlocked(entry)) tally.blocked += 1;
+    else tally.workable += 1;
+  }
+  return tally;
+}
+// 一个「标签 数字」对。标签挂 data-i18n-key 交给 applyDataI18nKeys 就地翻译,
+// 不依赖 refreshDocs 重渲——切语言时侧栏未必在文档视图里,拿不到那次刷新。
+function backlogStat(labelKey, value, cls) {
+  const stat = document.createElement("span");
+  stat.className = `backlog-stat ${cls}`;
+  const label = document.createElement("span");
+  label.className = "backlog-label";
+  label.dataset.i18nKey = labelKey;
+  label.textContent = t(labelKey);
+  const num = document.createElement("b");
+  num.className = "backlog-num";
+  num.textContent = String(value);
+  stat.append(label, num);
+  return stat;
+}
+function backlogRow(kindKey, kind, tally) {
+  const row = document.createElement("div");
+  row.className = "backlog-row";
+  row.dataset.kind = kind;
+  const name = document.createElement("span");
+  name.className = "backlog-kind";
+  name.dataset.i18nKey = kindKey;
+  name.textContent = t(kindKey);
+  row.append(
+    name,
+    backlogStat("可执行", tally.workable, "workable"),
+    backlogStat("阻塞", tally.blocked, "blocked"),
+  );
+  return row;
+}
 function renderFocusPanel(snapshot) {
   const body = $("focus-body");
   if (!body) return;
@@ -619,12 +676,26 @@ function renderFocusPanel(snapshot) {
   }
   const backlog = $("focus-backlog");
   if (!backlog) return;
-  const reqs = snapshot?.requirements ?? [];
-  const defects = snapshot?.defects ?? [];
-  const openReq = reqs.filter((entry) => !entry.closed).length;
-  const openDefect = defects.filter((entry) => !entry.closed).length;
-  const blockedCount = [...reqs, ...defects].filter((entry) => !entry.closed && entryBlocked(entry)).length;
-  backlog.textContent = `${t("待办")} ${openReq} ${t("需求")} · ${openDefect} ${t("缺陷")} · ${blockedCount} ${t("阻塞")}`;
+  // 原来这里是一行三个数字:`待办 22 需求 · 6 缺陷 · 22 阻塞`。三个数字是三种分母
+  // (只需求 / 只缺陷 / 需求∪缺陷),却排成并列结构;更糟的是本机数据下合并阻塞数
+  // 恰好等于未关闭需求数,整行可以被读成「22 条需求,其中 22 条阻塞」。而用户真正
+  // 要的量——「现在还有几条能立刻开工」——根本不在屏幕上,得心算 28−22,还算不出
+  // 是需求那边有 6 条还是缺陷那边有 6 条(实际缺陷一条都推不动)。
+  const req = backlogTally(snapshot?.requirements ?? [], "req");
+  const defect = backlogTally(snapshot?.defects ?? [], "defect");
+  const total = document.createElement("div");
+  total.className = "backlog-total";
+  total.appendChild(backlogStat("待办总数", req.active + defect.active, "total"));
+  backlog.replaceChildren(total, backlogRow("需求", "req", req), backlogRow("缺陷", "defect", defect));
+  const invalid = req.invalid + defect.invalid;
+  // 只在真出现时才占一行。总数刻意不含它们(引擎也不取活),但列表里看得见,
+  // 不点名就又变成「数字对不上」。
+  if (invalid) {
+    const row = document.createElement("div");
+    row.className = "backlog-row invalid";
+    row.appendChild(backlogStat("状态异常", invalid, "invalid"));
+    backlog.appendChild(row);
+  }
 }
 
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。

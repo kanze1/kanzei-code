@@ -1351,6 +1351,56 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   // 待办计数补回被删列表的信息量。
   assert(/\d/.test(listText("focus-backlog")), "焦点区未给出待办计数");
 }
+// 待办计数的加法树:总数 = Σ(可执行 + 阻塞)。原来这里只断言「有个数字」,
+// 于是三个数字用三种分母(只需求 / 只缺陷 / 需求∪缺陷)一路绿着——用户读成
+// 「22 条需求其中 22 条阻塞」才发现。这条不变式失守就是那个歧义复发。
+{
+  const savedBacklogDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    ...savedBacklogDocs,
+    requirements: [
+      docEntry("R-101", "可执行需求", "todo"),
+      docEntry("R-102", "阻塞需求", "todo", { blocked: true, block_reasons: ["等用户拍板"] }),
+      docEntry("R-103", "已关闭需求", "done", { closed: true }),
+    ],
+    defects: [
+      docEntry("D-101", "阻塞缺陷", "open", { blocked: true, block_reasons: ["等依赖"] }),
+      docEntry("D-102", "已修缺陷", "fixed", { closed: true }),
+    ],
+  };
+  // 刷新入口必须是 renderDocsSnapshot——#focus-backlog 只挂在它上面,
+  // renderDocuments 不碰焦点面板(踩过:读到的是上一次渲染的 DOM,断言恒真)。
+  sandbox.renderDocsSnapshot(payloads.docs_snapshot);
+  const cell = (sel) => document.querySelector(`#focus-backlog ${sel} .backlog-num`)?.textContent ?? "";
+  const total = cell(".backlog-total .backlog-stat.total");
+  const reqReady = cell('[data-kind="req"] .backlog-stat.workable');
+  const reqBlocked = cell('[data-kind="req"] .backlog-stat.blocked');
+  const defReady = cell('[data-kind="defect"] .backlog-stat.workable');
+  const defBlocked = cell('[data-kind="defect"] .backlog-stat.blocked');
+  assert(reqReady === "1" && reqBlocked === "1", `需求应为 可执行1/阻塞1,实得 ${reqReady}/${reqBlocked}`);
+  assert(defReady === "0" && defBlocked === "1", `缺陷应为 可执行0/阻塞1,实得 ${defReady}/${defBlocked}`);
+  assert(total === "3", `已关闭条目不得计入总数,应为 3 实得 ${total}`);
+  assert(
+    Number(total) === Number(reqReady) + Number(reqBlocked) + Number(defReady) + Number(defBlocked),
+    `加法树失守:${total} ≠ ${reqReady}+${reqBlocked}+${defReady}+${defBlocked}`,
+  );
+  // D-332:非法 lifecycle 引擎不取活,前端也不能悄悄算进总数——单列一行点名。
+  payloads.docs_snapshot = {
+    ...payloads.docs_snapshot,
+    requirements: [...payloads.docs_snapshot.requirements, docEntry("R-109", "僵尸状态", "zombie")],
+  };
+  sandbox.renderDocsSnapshot(payloads.docs_snapshot);
+  assert(
+    cell(".backlog-total .backlog-stat.total") === "3",
+    "非法 lifecycle 条目不得计入待办总数(引擎 backlog_status 同样跳过)",
+  );
+  assert(
+    cell(".backlog-row.invalid .backlog-stat.invalid") === "1",
+    "非法 lifecycle 条目必须单列「状态异常」行点名,不能静默丢弃",
+  );
+  payloads.docs_snapshot = savedBacklogDocs;
+  sandbox.renderDocsSnapshot(savedBacklogDocs);
+}
 // 焦点卡片的状态流转按钮:取活时要能直接切状态,这条链路不能因为列表搬家而断掉。
 {
   const actionButton = document.querySelector("#focus-body .doc-actions button");
@@ -4265,10 +4315,24 @@ assert(
   invokeArgs.findLast(({ cmd }) => cmd === "process_update")?.args?.phasePipeline === false,
   `关闭勘察复核未以 phasePipeline 发给后端:${JSON.stringify(invokeArgs.findLast(({ cmd }) => cmd === "process_update"))}`
 );
-assert(
-  byId.get("auto-status").textContent.includes("勘察复核未开"),
-  `鞭挞开着而勘察复核关着时,自主推进面板必须明说:${byId.get("auto-status")?.textContent}`
-);
+// 原来这里断言的是「鞭挞开着而勘察复核关着时,状态栏必须写一句 勘察复核未开」——
+// 那句话是补救:开关埋在顶栏「更多」里看不见,只好用一行状态文本去骂人。开关搬进
+// 鞭挞控制台后本身常驻可见、带一句说明,补救就不该再存在(否则状态槽又被塞进
+// 第四种语义)。新契约:开关在控制台里、可见、未勾选,状态槽不掺和这件事。
+{
+  const consoleBar = byId.get("autorun-bar");
+  assert(consoleBar, "鞭挞控制台 #autorun-bar 不存在(控件仍留在顶栏?)");
+  assert(
+    html.slice(html.indexOf('id="autorun-bar"'), html.indexOf('id="composer-bar"'))
+      .includes('id="process-phase-pipeline"'),
+    "「勘察复核」开关必须落在鞭挞控制台里,不能还挂在顶栏「更多」",
+  );
+  assert(!pipelineToggle.checked, "勘察复核此刻应为关闭态");
+  assert(
+    !byId.get("auto-status").textContent.includes("勘察复核未开"),
+    `开关已常驻可见,状态槽不应再塞这句补救文案:${byId.get("auto-status")?.textContent}`,
+  );
+}
 // 打开闸门:后端回显跟着变(桩模拟 process_list 的新值),提示随即消失。
 payloads.process_list[0].phase_pipeline = true;
 pipelineToggle.checked = true;

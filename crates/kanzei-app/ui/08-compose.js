@@ -66,16 +66,52 @@ async function loadWorkFocus() {
 function phasePipelineOn() {
   return $("process-phase-pipeline")?.checked === true;
 }
-function renderAutoStatus(text = autoStopReason) {
-  const el = $("auto-status");
-  if (!el) return;
+// 鞭挞状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
+// 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是
+// autoStopReason——于是任何无参重绘(renderProcesses → renderAutoStatus())都等于
+// 「把 DOM 回写成上一次的停止原因」。实测链路:kz:done 先 setAutoStopReason("本轮完成"),
+// 再写「3/34 · 等待下一轮」,紧接着 kz:idle → renderProcesses → 无参重绘,轮次在下一帧
+// 就被抹回「本轮完成」。所以「跑到第几轮」这条最该一眼可见的信息,真跑起来时看不见。
+let autoHint = "";
+const AUTO_PHASE_LABEL = {
+  off: "鞭挞已关闭", running: "推进中", pending: "等待下一轮", paused: "已暂停", idle: "待命",
+};
+function autoRunPhase() {
+  if (!$("auto-continue")?.checked) return "off";
+  const state = activeSessionId ? sessionState(activeSessionId) : null;
+  if (state && ["starting", "running"].includes(state.phase)) return "running";
+  if (state && state.phase === "auto_pending") return "pending";
+  if (autoPaused) return "paused";
+  return "idle";
+}
+function renderAutoRun() {
+  const bar = $("autorun-bar");
+  if (!bar) return;
   const max = autoContinueMax();
-  const base = text || `${t("连续推进上限")} ${max}`;
-  // 自主推进**不再**自带七阶段(闸门已换成进程级「勘察复核」开关)。用户此前的心智
-  // 模型是「开鞭挞 = 每轮勘察+复核」,不说出来就会以为勘察静默失效了——所以鞭挞
-  // 开着而流水线关着时必须在这里明说,而不是让他从没有勘察块反推。
-  const hint = $("auto-continue")?.checked && !phasePipelineOn() ? ` · ${t("勘察复核未开(每轮直接实现)")}` : "";
-  el.textContent = localizeDynamic(`${base}${hint}`);
+  const phase = autoRunPhase();
+  const armed = $("auto-continue")?.checked === true;
+  bar.dataset.phase = phase;
+  bar.classList.toggle("armed", armed);
+  $("auto-round-now").textContent = String(autoRounds);
+  $("auto-round-max").textContent = String(max);
+  const progress = $("auto-progress");
+  progress.style.setProperty("--auto-progress", `${Math.min(100, (autoRounds / max) * 100)}%`);
+  progress.setAttribute("aria-label", `${t("鞭挞轮次")} ${autoRounds}/${max}`);
+  $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
+  // 原因槽:一次性提示优先(无动作/验收核查/未续跑),否则显示停机原因;推进中不显示。
+  const reason = autoHint || (["off", "idle", "paused"].includes(phase) ? autoStopReason : "");
+  const el = $("auto-status");
+  el.textContent = reason ? localizeDynamic(reason) : "";
+  el.classList.toggle("hidden", !reason);
+  el.classList.toggle("ok", /已清空|全部被阻塞/.test(reason));
+  $("auto-resume").classList.toggle("hidden", !(autoStopReason && !autoHint && ["off", "idle"].includes(phase)));
+  const pause = $("auto-pause");
+  if (pause) pause.setAttribute("aria-pressed", String(autoPaused));
+}
+// 兼容既有 9 个调用点:带参 = 写一次性提示槽,无参 = 纯重绘(不再回写原因)。
+function renderAutoStatus(text) {
+  if (text !== undefined) autoHint = text;
+  renderAutoRun();
 }
 // R-170:继续文案 = 用户附加意图 + 极简默认兜底。开发重心/引擎规则已由
 // run.rs work_priority_guidance + memory preference 注入 system prompt,不再拼接。
@@ -85,7 +121,8 @@ function continuePrompt() {
 
 function setAutoStopReason(reason) {
   autoStopReason = reason;
-  renderAutoStatus(reason);
+  autoHint = "";
+  renderAutoRun();
 }
 function autoContinueAllowed() {
   return $("profile-select").value === "dev-auto";
@@ -646,6 +683,39 @@ autoStopAfterRound = false;
 // 启动时等 activeSessionId 就绪后同步所有控件；仅同步 enabled 会让已保存的轮数上限
 // 在后端回落为默认 10，造成展示与实际安全上限不一致。
 void syncAutoRunState();
+// 停机原因徽标旁的一键复跑:达上限时引擎不关 enabled,清零轮次重排即可;
+// AllBlocked/BacklogEmpty/ProfileMismatch 会把 checked 置 false,那时先把开关打开,
+// 复用 change 分支既有的档位提示,不在这里再判一次。
+$("auto-resume").addEventListener("click", () => {
+  const toggle = $("auto-continue");
+  if (!toggle.checked) {
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event("change"));
+    return;
+  }
+  autoRounds = 0;
+  setAutoStopReason("");
+  resetAutoRunState();
+  setStatus(`${t("鞭挞恢复")},2 ${t("秒后继续")}…`, false);
+  scheduleAutoContinue();
+});
+// 面板开着时数字键直接命中对应行(参照 Claude 的 Mode 菜单)。只在 details[open]
+// 且焦点不在输入框里时生效——否则会把用户在上限框里敲的数字吞掉。
+$("autorun-more").addEventListener("keydown", (event) => {
+  if (!$("autorun-more").open) return;
+  const tag = String(event.target?.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "select" || tag === "textarea") return;
+  const row = $("autorun-more").querySelector(`.menu-row[data-shortcut="${event.key}"]`);
+  if (!row) return;
+  event.preventDefault();
+  const control = row.querySelector('input[type="checkbox"]') || row.querySelector("button");
+  if (!control) return;
+  if (control.tagName.toLowerCase() === "button") control.click();
+  else {
+    control.checked = !control.checked;
+    control.dispatchEvent(new Event("change"));
+  }
+});
 $("auto-pause").addEventListener("click", () => {
   autoPaused = !autoPaused;
   rememberAutoUiState();

@@ -348,7 +348,10 @@ on("kz:done", async (e) => {
       dropSessionDomCache(p.sessionId);
     }
   }
-  setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : t("本轮完成"));
+  // 「本轮完成」是**阶段**不是**停机原因**,写进原因槽等于每轮都往里灌一句与
+  // 「为什么不再继续」无关的话——而原因槽是无参重绘的回落值,灌进去之后轮次
+  // 「3/34」下一帧就被它顶掉。正常完成时清空原因槽,阶段交给 renderAutoRun 算。
+  setAutoStopReason(p.halted ? t("按停止/拒绝收尾") : "");
 
   addMessage(
     "notice",

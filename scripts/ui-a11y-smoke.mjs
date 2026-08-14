@@ -30,8 +30,12 @@ assert.match(js, /doc-row[\s\S]*aria-expanded/);
 assert.match(js, /workspace-card[\s\S]*card\.click\(\)/);
 assert.match(js, /remove\.setAttribute\("aria-label"/);
 assert.match(js, /rename\.setAttribute\("aria-label"/);
-assert.match(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{[\s\S]*opacity: 0/);
-assert.doesNotMatch(css, /#auto-allow-wrap input, #auto-continue-wrap input\s*\{\s*display:\s*none/);
+// 胶囊开关把原生勾选框视觉隐藏,必须用 opacity:0 保留可聚焦——display:none 会把它
+// 从 tab 序里摘掉,键盘用户就切不动鞭挞。#auto-allow-wrap 已随鞭挞控制台改成菜单行,
+// 勾选框恢复可见,不再走这套隐藏;仍用胶囊的只剩 #auto-continue-wrap。
+assert.match(css, /#auto-continue-wrap input\s*\{[\s\S]*opacity: 0/);
+assert.doesNotMatch(css, /#auto-continue-wrap input\s*\{\s*display:\s*none/);
+assert.match(css, /\.menu-row\b/, "鞭挞设置面板的行式布局丢失");
 assert.match(css, /:focus-visible/);
 assert.equal((js.match(/function reportError\(/g) || []).length, 1, "reportError 只能有一个定义");
 assert.match(js, /function toastError\(text, options = \{\}\) \{\s*reportPersistentError\(text, options\);/);
@@ -111,7 +115,11 @@ assert.match(html, /id="continue-panel"[\s\S]*id="continue-prompt"/);
 assert.match(html, /id="continue-toggle"[\s\S]*id="continue-btn"/);
 assert.match(css, /#continue-panel[\s\S]*grid-template-columns: auto minmax\(0, 1fr\)/);
 assert.match(css, /#topbar[\s\S]*flex-wrap: nowrap/);
-assert.match(css, /@media \(max-width: 1024px\)[\s\S]*#topbar \.crumb, #auto-status \{ display: none; \}/);
+// 窄窗口下顶栏做减法。原来这里连 #auto-status 一起藏——鞭挞的停机原因是窄屏第一个
+// 被丢掉的东西。它已随控制台搬进 composer(flex-wrap,不靠隐藏让位),这条只该管 crumb;
+// 反证:#auto-status 不得再出现在任何 display:none 的媒体查询里。
+assert.match(css, /@media \(max-width: 1024px\)[\s\S]*#topbar \.crumb \{ display: none; \}/);
+assert.doesNotMatch(css, /#auto-status[^{}]*\{\s*display: none/, "鞭挞停机原因不得在窄窗口下被整个藏掉");
 assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与左侧线路状态按钮重复");
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
 assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
