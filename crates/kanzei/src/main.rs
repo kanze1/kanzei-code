@@ -103,15 +103,20 @@ struct RunArgs {
     readonly: bool,
     project_root: Option<std::path::PathBuf>,
     prompt: String,
+    /// R-183:非交互(无 TTY)allowlist,格式 `action:resource`,可重复。
+    /// 仅在 permissions.non_interactive = "allow_listed" 时参与决策。
+    allow: Vec<String>,
 }
 
 const PROJECT_ROOT_FLAG: &str = "--project-root";
 const PROJECT_ROOT_ENV: &str = "KANZEI_PROJECT_ROOT";
+const ALLOW_FLAG: &str = "--allow";
 
 fn parse_run_args(args: &[String]) -> RunArgs {
     let new_session = args.iter().any(|arg| arg == "--new");
     let readonly = args.iter().any(|arg| arg == "--readonly");
     let mut project_root = None;
+    let mut allow: Vec<String> = Vec::new();
     let mut words: Vec<&str> = Vec::new();
     let mut index = 0;
     while index < args.len() {
@@ -129,6 +134,14 @@ fn parse_run_args(args: &[String]) -> RunArgs {
                     index += 1;
                 }
             }
+            ALLOW_FLAG => {
+                // R-183:非交互 allowlist 条目,格式 `action:resource`。缺值只吃
+                // flag(解析侧静默跳过,不把 "--allow" 当提示词)。
+                if let Some(value) = args.get(index + 1) {
+                    allow.push(value.clone());
+                    index += 1;
+                }
+            }
             _ => words.push(arg),
         }
         index += 1;
@@ -138,6 +151,64 @@ fn parse_run_args(args: &[String]) -> RunArgs {
         readonly,
         project_root,
         prompt: words.join(" "),
+        allow,
+    }
+}
+
+/// R-183:CLI 是否具备交互应答能力——stdin 必须是 TTY 才算可交互。
+/// 管道/重定向/CI/后台(stdin 关闭)一律视为非交互,不靠"读到 EOF"倒推(验收⑤)。
+fn interactive_stdin() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+}
+
+/// R-183:`--allow action:resource` 条目解析。首个 `:` 前是 action,其余是 resource
+/// (resource 可含 `:` 或通配)。非法条目跳过并点名,避免静默丢规则。
+fn parse_allowlist(items: &[String]) -> Vec<(String, String)> {
+    items
+        .iter()
+        .filter_map(|item| {
+            let (action, resource) = item.split_once(':')?;
+            let action = action.trim();
+            let resource = resource.trim();
+            if action.is_empty() || resource.is_empty() {
+                eprintln!("\x1b[33m--allow 忽略非法条目: `{item}`(应为 action:resource)\x1b[0m");
+                return None;
+            }
+            Some((action.to_string(), resource.to_string()))
+        })
+        .collect()
+}
+
+/// R-183:非交互下的权限决策(纯函数,无 I/O,可单测——验收②⑤)。
+///
+/// - `Deny` / `RulesOnly`:规则外一律拒绝(与现状一致;RulesOnly 语义 = 只认预授权规则)。
+/// - `AllowListed`:规则外先查本次显式 allowlist,命中放行一次,否则拒绝。
+///
+/// 匹配复用 `resource_match_for_action`,与规则集同一把尺(bash 结构化 JSON 资源
+/// 需写结构化或通配 pattern,见 permission.rs D-269 口径)。
+fn non_interactive_decision(
+    policy: kanzei_harness::config::NonInteractive,
+    allowlist: &[(String, String)],
+    action: &str,
+    resource: &str,
+) -> kanzei_core::AskReply {
+    match policy {
+        kanzei_harness::config::NonInteractive::Deny
+        | kanzei_harness::config::NonInteractive::RulesOnly => kanzei_core::AskReply::Deny,
+        kanzei_harness::config::NonInteractive::AllowListed => {
+            let hit = allowlist.iter().any(|(a, pattern)| {
+                a == action
+                    && kanzei_harness::permission::resource_match_for_action(
+                        action, pattern, resource,
+                    )
+            });
+            if hit {
+                kanzei_core::AskReply::AllowOnce
+            } else {
+                kanzei_core::AskReply::Deny
+            }
+        }
     }
 }
 
@@ -227,6 +298,7 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         readonly,
         project_root: root_flag,
         prompt,
+        allow,
     } = parse_run_args(args);
     if prompt.trim().is_empty() {
         usage();
@@ -538,6 +610,13 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         RunEvent::StepEnd { .. } => {}
     };
     let ask_root = ctx.project_root.clone();
+    // R-183:非交互分流参数在闭包外算好(开跑时定格),move 进闭包:
+    // - interactive:stdin 是否 TTY(管道/重定向/后台 = 非交互,不读 stdin);
+    // - non_interactive_policy:配置的三态策略(缺省 deny,fail-closed);
+    // - allowlist:--allow 解析结果(仅 allow_listed 档参与决策)。
+    let interactive = interactive_stdin();
+    let non_interactive_policy = config.non_interactive_policy();
+    let allowlist = parse_allowlist(&allow);
     let mut ask = move |request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
         let response = match request {
             kanzei_core::AskRequest::Question {
@@ -565,28 +644,40 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
                 }
             }
             kanzei_core::AskRequest::Permission { action, resource } => {
-                eprint!("\x1b[33m? {action}: {resource} [y 一次 / a 总是 / N 拒绝]\x1b[0m ");
-                let mut line = String::new();
-                let reply = if std::io::stdin().read_line(&mut line).is_ok() {
-                    match line.trim() {
-                        "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
-                        "a" | "A" | "always" => {
-                            match persist_always_allow(&ask_root, &action, &resource) {
-                                Ok(reply) => reply,
-                                Err(error) => {
-                                    eprintln!(
-                                        "\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m"
-                                    );
-                                    kanzei_core::AskReply::Deny
+                if !interactive {
+                    // R-183:非交互通道不读 stdin,按配置策略分流(缺省 deny)。
+                    // 拒绝/放行都走 drive 层的 PermissionResolved 事件落轨迹。
+                    let reply = non_interactive_decision(
+                        non_interactive_policy,
+                        &allowlist,
+                        &action,
+                        &resource,
+                    );
+                    kanzei_core::AskResponse::Permission(reply)
+                } else {
+                    eprint!("\x1b[33m? {action}: {resource} [y 一次 / a 总是 / N 拒绝]\x1b[0m ");
+                    let mut line = String::new();
+                    let reply = if std::io::stdin().read_line(&mut line).is_ok() {
+                        match line.trim() {
+                            "y" | "Y" | "yes" => kanzei_core::AskReply::AllowOnce,
+                            "a" | "A" | "always" => {
+                                match persist_always_allow(&ask_root, &action, &resource) {
+                                    Ok(reply) => reply,
+                                    Err(error) => {
+                                        eprintln!(
+                                            "\x1b[31m总是允许规则保存失败: {error};本次拒绝\x1b[0m"
+                                        );
+                                        kanzei_core::AskReply::Deny
+                                    }
                                 }
                             }
+                            _ => kanzei_core::AskReply::Deny,
                         }
-                        _ => kanzei_core::AskReply::Deny,
-                    }
-                } else {
-                    kanzei_core::AskReply::Deny
-                };
-                kanzei_core::AskResponse::Permission(reply)
+                    } else {
+                        kanzei_core::AskReply::Deny
+                    };
+                    kanzei_core::AskResponse::Permission(reply)
+                }
             }
         };
         Box::pin(async move { response })
@@ -1495,8 +1586,9 @@ fn lock_status_report(project_root: &Path, cwd: &Path) -> Vec<String> {
 mod tests {
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
-        lock_status_report, main_project_root, parse_run_args, parse_tracker_flags,
-        persist_always_allow, usage_text, RunArgs, PROJECT_ROOT_ENV,
+        lock_status_report, main_project_root, non_interactive_decision, parse_allowlist,
+        parse_run_args, parse_tracker_flags, persist_always_allow, usage_text, RunArgs,
+        PROJECT_ROOT_ENV,
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
@@ -1595,6 +1687,7 @@ mod tests {
             readonly,
             project_root: None,
             prompt: prompt.to_string(),
+            allow: Vec::new(),
         }
     }
 
@@ -1973,5 +2066,145 @@ mod tests {
             "无仓库时应给工作树状态或 git 报错: {joined}"
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    // ══ R-183 非交互通道:三态策略决策与 allowlist 解析(验收②⑤)══
+
+    #[test]
+    fn non_interactive_deny_规则外一律拒绝() {
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::Deny,
+            &[],
+            "bash",
+            r#"{"command":"git status","workdir":"C:/p"}"#,
+        );
+        assert_eq!(
+            reply,
+            AskReply::Deny,
+            "deny 档:任何 Ask 一律拒绝(现状,缺省)"
+        );
+    }
+
+    #[test]
+    fn non_interactive_rules_only_不查allowlist_直接拒绝() {
+        // RulesOnly = 只认预授权规则,Ask 即拒;即使 allowlist 命中也不放行。
+        let allowlist = vec![(
+            "bash".to_string(),
+            r#"{"command":"git status","workdir":"C:/p"}"#.to_string(),
+        )];
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::RulesOnly,
+            &allowlist,
+            "bash",
+            r#"{"command":"git status","workdir":"C:/p"}"#,
+        );
+        assert_eq!(
+            reply,
+            AskReply::Deny,
+            "rules_only 档:规则外拒绝,allowlist 不参与"
+        );
+    }
+
+    #[test]
+    fn non_interactive_allow_listed_命中allowlist放行() {
+        // bash 结构化资源须以结构化 pattern 授权(与规则集同一把尺,permission.rs D-269)。
+        let allowlist = vec![(
+            "bash".to_string(),
+            r#"{"command":"git status","workdir":"C:/p"}"#.to_string(),
+        )];
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::AllowListed,
+            &allowlist,
+            "bash",
+            r#"{"command":"git status","workdir":"C:/p"}"#,
+        );
+        assert_eq!(
+            reply,
+            AskReply::AllowOnce,
+            "allow_listed 档:规则外命中本次 allowlist 放行"
+        );
+    }
+
+    #[test]
+    fn non_interactive_allow_listed_未命中拒绝() {
+        let allowlist = vec![(
+            "bash".to_string(),
+            r#"{"command":"git status","workdir":"C:/p"}"#.to_string(),
+        )];
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::AllowListed,
+            &allowlist,
+            "bash",
+            r#"{"command":"cargo test","workdir":"C:/p"}"#,
+        );
+        assert_eq!(
+            reply,
+            AskReply::Deny,
+            "allow_listed 档:规则外未命中 allowlist 拒绝"
+        );
+    }
+
+    #[test]
+    fn non_interactive_allow_listed_纯字符串pattern不授权结构化资源() {
+        // 与规则集同口径:非结构化 pattern 不得授权结构化 bash 请求(D-269 防线)。
+        let allowlist = vec![("bash".to_string(), "git *".to_string())];
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::AllowListed,
+            &allowlist,
+            "bash",
+            r#"{"command":"git status","workdir":"C:/p"}"#,
+        );
+        assert_eq!(reply, AskReply::Deny, "纯字符串 pattern 对结构化资源不命中");
+    }
+
+    #[test]
+    fn non_interactive_allow_listed_action不匹配拒绝() {
+        // 同一条 resource 规则,action 不同不得放行(allowlist 是 (action, resource) 对)。
+        let allowlist = vec![("bash".to_string(), "git *".to_string())];
+        let reply = non_interactive_decision(
+            kanzei_harness::config::NonInteractive::AllowListed,
+            &allowlist,
+            "read",
+            "git status",
+        );
+        assert_eq!(reply, AskReply::Deny);
+    }
+
+    #[test]
+    fn parse_allowlist_解析与非法条目跳过() {
+        let parsed = parse_allowlist(&[
+            "bash:git status".to_string(),
+            "bash:git commit -m \"x:y\"".to_string(),
+            "非法条目".to_string(),
+            "read:".to_string(),
+            ":empty_action".to_string(),
+        ]);
+        assert_eq!(
+            parsed,
+            vec![
+                ("bash".to_string(), "git status".to_string()),
+                ("bash".to_string(), "git commit -m \"x:y\"".to_string()),
+            ],
+            "首个冒号切 action/resource;resource 可含冒号;空 action 或空 resource 跳过"
+        );
+    }
+
+    #[test]
+    fn parse_run_args_allow_flag_可重复收集() {
+        let args: Vec<String> = [
+            "--allow",
+            "bash:git status",
+            "--readonly",
+            "--allow",
+            "bash:cargo test",
+            "跑测试",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let run = parse_run_args(&args);
+        assert_eq!(run.allow, vec!["bash:git status", "bash:cargo test"]);
+        assert_eq!(run.prompt, "跑测试");
+        assert!(run.readonly);
     }
 }

@@ -3360,3 +3360,10 @@
 - 摘要: R-202 批7 关闭前全量:workspace 全绿(含新增 7 个段函数单测;kanzei-core 193 passed;首轮 flaky 的 kzapp 认领回滚测试重跑通过)
 - 关联: R-202
 - 收尾: 1786728314
+
+## T-1786729486 R-183 B1 非交互分流定向测试 [passed]
+- 命令: cargo test -p kanzei --bin kz && cargo test -p kanzei-harness --lib config::
+- 时长: 0.2s
+- 摘要: R-183 B1:非交互决策纯函数三态+allowlist 解析+parse_run_args --allow(kanzei 26 passed)+config 三态/fail-closed(50 passed)
+- 关联: R-183
+- 收尾: 1786729486

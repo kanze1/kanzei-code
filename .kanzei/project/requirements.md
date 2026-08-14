@@ -23,7 +23,7 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786609593506
 
-## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [todo]
+## R-183 kz 无人值守执行通道:非交互直接放行 bash + 可审计轨迹(原「预授权集」随 D-267 作废) [doing]
 - **2026-08-11 改写(用户定调,随 D-267 关闭为 dropped)**: 原标题里的「permission 规则 worktree 继承主根、可审计预授权集」两项**作废**——它们服务的是 D-267 的中间档,而中间档已被砍掉(理由见 D-267 关闭说明:挡不住有意的、被绕过两次、威胁模型里没有「模型是敌人」)。**本条大幅缩小**:非交互模式下 bash 直接放行,防线整体挪到结果侧(R-186)。
   下方原「内容」「验收」保留作为历史,**实施以本节为准**。
 - 优先级: P0
@@ -42,13 +42,14 @@
 - 边界: 不做「全部自动同意」的开关——那等于把权限系统关掉,与仓库既有的硬 deny 纪律冲突。不改 profile/agent 体系。不做桌面端的无人值守(桌面端有 UI 可问,不是同一个问题)。
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
 - 依赖: 
-- 取活依据: 
-- 进展: 2026-08-13 让位(用户 park):D-332(两份运行评估合并的治理三硬伤)按用户指令排第一并优先解决,本条暂停。本条此前为 engine 自动认领(doing)但从未开工(无进展锚点)。
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
+- 进展: 2026-08-16 认领(engine 按 defect-first 队首)。侦察结论:config.rs:455-625 已实现 NonInteractive 三态(Deny/RulesOnly/AllowListed)+ parse + 缺省 Deny + 不可识别告警;AskPolicy(kanzei-core runner/mod.rs:58)已具 Interactive/NonInteractive/AutoAllow;但 kz run 主路径(main.rs:346)恒 AskPolicy::Interactive,非 TTY 时 ask 闭包(541-593)读 stdin EOF → Deny——验收①的核心缺口;PermissionResolved(core event.rs:84)只有 action/resource/decision/source,不含规则原文(验收④缺口);RunArgs(main.rs:101)无 allowlist 载体(验收① allow-listed 档缺口);Ruleset::evaluate 返回 Effect 不返回命中规则(验收④缺口)。批次:1=CLI 非交互分流(ask 闭包按 non_interactive_policy 分流 + --allow flag + 三态/检测测试,验收②⑤);2=轨迹含规则原文(evaluate_with_rule + PermissionResolved.rule + CLI 汇总,验收④);3=worktree 主根规则命中测试 + 非交互闭环集成验证 + 全量(验收①③)。
 - 阻塞: 
-- observed_head: d7236ada9b95c92e8e232aaeaaf4acf38796c323
-- observed_worktree_hash: fnv1a64:794cece9eb0bfcad
-- recorded_at: 1786611671592
+- observed_head: 8c82a33e0512f799eedf3d10be164e5a8305e510
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786728562698
 - 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
+- 批次: 0/3
 
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
@@ -122,22 +123,6 @@
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786656932641
 - 阻塞: 用户: R-193 缺内容/来源/交互定义,验收仅一句『plan勾选项点击后即时视觉反馈和状态更新』;需用户澄清:①plan 指哪个面板(当前计划 todo 面板还是其它);②勾选动作状态写哪里(前端视觉 / 后端命令持久化);③当前『响应延迟』的具体场景。解除动作:用户给出澄清后实现。解除人: 用户。
-
-## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [doing]
-- 优先级: P3
-- 复杂度: 大
-- 标签: 后端 核心
-- 来源: 2026-08-12 八维度审计(§1);monolith_decomposition.md:25/69/192 三处写明两函数「只整体搬迁,内部拆分另立条目」,从未登记,现已分别涨到约 1010 行(app/run.rs:26-1035,20+ 参数挂 too_many_arguments)与约 987 行(core/runner/drive.rs:47-1034)。
-- 内容: run_task 按 装配/事件循环/轮末收尾 三段抽函数;run_once_with_parts 按 请求重试/工具批执行/收尾 分段。
-- 边界: 行为零变更;外部签名与 pub API 不变;不与功能改动同批。
-- 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
-- refs: R-153 R-155
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 5/7
-- 进展: 批6 完成(2026-08-16)。run_once_with_parts 主体 460→262 行:①装配段(工具/specs/system 分块/消息初始化/运行态)抽 assemble_run_once 返回 RunOnceAssembly<'a>(调用方解构、变量名不变,halt/halted 留本地);②步骤消息提交+纯文本/停止收尾抽 commit_step_messages(StepMessageOutcome::Return{halted_by_user});③步骤收尾(冗余/召回注入+结果落库+步末检查点+MaxTokens/Refusal+last_step)抽 finalize_step(StepFinalOutcome::Continue/Break/Return);④轮内上下文预算(prune/compact/trim,D-206 无效计数/R-219 默认 32k)抽 enforce_context_budget。行为零变更:事件顺序/停止语义/压缩触发线/对齐不变式逐点核对;提交 dc5062c。验证:cargo test -p kanzei-core 186 passed(T-1786727914);fmt/clippy 全绿;push 已到 origin/dev。验收③达成:run_task 266 行(批2)+ run_once_with_parts 262 行,均 <300。批7(收口):补独立单测(验收①:assemble_run_once/commit_step_messages/finalize_step/enforce_context_budget/stream_request_step 等段)与 cargo test --workspace 全量(验收②),清理 R-202 游离段落,关闭条目。
-- observed_head: dc5062c5bd528c6db5cdf9a1428686bb3a06cc5c
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786727940323
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0

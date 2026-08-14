@@ -2881,4 +2881,57 @@ reasoning = "high"
         // 非法档位要报错,不能静默吞成默认——否则设置页拼错字用户还以为是默认生效。
         assert!(toml::from_str::<KanzeiConfig>("[cadence]\nfull_test = \"daily\"\n").is_err());
     }
+
+    // ══ R-183 内容①:非交互三态策略解析与 fail-closed(验收②)══
+
+    #[test]
+    fn non_interactive_三态解析() {
+        use crate::config::NonInteractive;
+        assert_eq!(NonInteractive::parse("deny"), Some(NonInteractive::Deny));
+        assert_eq!(
+            NonInteractive::parse("rules_only"),
+            Some(NonInteractive::RulesOnly)
+        );
+        assert_eq!(
+            NonInteractive::parse("allow_listed"),
+            Some(NonInteractive::AllowListed)
+        );
+        // 大小写与首尾空白宽容。
+        assert_eq!(
+            NonInteractive::parse("  Rules_Only "),
+            Some(NonInteractive::RulesOnly)
+        );
+    }
+
+    #[test]
+    fn non_interactive_缺省与非法取值_fail_closed回落deny() {
+        // 缺键、空串、无法识别的取值一律回落 Deny——旧配置逐字节不变(验收②)。
+        let empty: KanzeiConfig = toml::from_str("").unwrap();
+        assert_eq!(
+            empty.non_interactive_policy(),
+            crate::config::NonInteractive::Deny
+        );
+        let blank: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"\"\n").unwrap();
+        assert_eq!(
+            blank.non_interactive_policy(),
+            crate::config::NonInteractive::Deny
+        );
+        let junk: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"bogus\"\n").unwrap();
+        assert_eq!(
+            junk.non_interactive_policy(),
+            crate::config::NonInteractive::Deny
+        );
+        // 非法取值必须给告警,否则用户以为开了 rules_only 实际每次停机还归不到因。
+        assert!(junk.non_interactive_policy_warning().is_some());
+        assert!(empty.non_interactive_policy_warning().is_none());
+        let rules: KanzeiConfig =
+            toml::from_str("[permissions]\nnon_interactive = \"rules_only\"\n").unwrap();
+        assert_eq!(
+            rules.non_interactive_policy(),
+            crate::config::NonInteractive::RulesOnly
+        );
+        assert!(rules.non_interactive_policy_warning().is_none());
+    }
 }

@@ -2965,7 +2965,22 @@
 - 优先级: P2
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-227
 - 进展: 2026-08-16 取活。B1 完成(commit 635db58):①commit 门禁 placeholder_id_gate(git.rs)——tracker 文件 diff 出现占位符测试 ID(T- 加数字再跟三个 x)即拒,只扫 tracker 路径,真实 10 位 ID 放行;②归档回填通道 fill_archived_placeholder(docstore.rs,与 dedupe 同锁同写路径,恰好命中一次,歧义拒绝)+ tracker 动作 archive_fill + CLI 分支 kz req archive_fill。验证:kanzei-tools 332 passed + kanzei 4 passed(T-1786631611)+ fmt/clippy 全过。| 2026-08-14 验收②完成:引擎已重启(kzapp pid 28956),archive_fill 通道可用,存量 8 处占位符全部回填真值,每条真值先核对 tests-archive 记录标题再写——requirements-archive:R-198→T-1786565346(cargo test --workspace R-198 关闭前全量)、R-199→T-1786565831(R-199 关闭前全量,原占位符前缀 1786566 系手写笔误,真值为 1786565831);defects-archive:D-219→T-1786451434(D-219 冒烟:2 阻塞 doing 不误拒新条目)、D-266→T-1786560588、D-279→T-1786562463(cargo test -p kanzei-tools --lib profiles)、D-281→T-1786562856、D-282→T-1786563655、D-316→T-1786564679(原占位符前缀 1786563 系笔误,真值 1786564679),未特别标注者均为该缺陷关闭前 workspace 全量。回填后全仓扫描两份归档:零占位符残留。本条 进展 字段同批重写,清掉自身携带的 8 个占位符字面量(否则门禁会拒绝任何触及本行的提交)。三条验收逐条对照:①门禁单测覆盖占位符拒绝——placeholder_id_gate 单测(B1,T-1786631611);②存量 8 处处置完毕——8/8 回填且真值与 tests-archive 记录标题逐条对上;③新增关闭证据无占位符——门禁在 commit 层机械拦截。
-- 阻塞: 
 - observed_head: 79ab205c7fa101fab4fc20153ce1e86dc089f55d
 - observed_worktree_hash: fnv1a64:dbc4e711d4d470fa
 - recorded_at: 1786709613992
+
+## R-202 run_task 与 run_once_with_parts 内部分段拆分:补登 monolith_decomposition 的「另立条目」承诺 [done]
+- 优先级: P3
+- 复杂度: 大
+- 标签: 后端 核心
+- 来源: 2026-08-12 八维度审计(§1);monolith_decomposition.md:25/69/192 三处写明两函数「只整体搬迁,内部拆分另立条目」,从未登记,现已分别涨到约 1010 行(app/run.rs:26-1035,20+ 参数挂 too_many_arguments)与约 987 行(core/runner/drive.rs:47-1034)。
+- 内容: run_task 按 装配/事件循环/轮末收尾 三段抽函数;run_once_with_parts 按 请求重试/工具批执行/收尾 分段。
+- 边界: 行为零变更;外部签名与 pub API 不变;不与功能改动同批。
+- 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
+- refs: R-153 R-155
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
+- 批次: 7/7
+- 进展: 批7 完成(2026-08-16),条目收口。验收对照:①每段可独立单测——drive.rs 新增 #[cfg(test)] mod tests,7 个单测覆盖 commit_step_messages(纯文本步 final_text 更新+assistant 落库/有工具调用 Proceed/停止置位取消占位收尾)与 finalize_step(正常落库 Continue/MaxTokens Return{false}/last_step Break/停止 Return{true}),全部独立构造输入验证输出(cargo test -p kanzei-core runner::drive 7 passed);run_task 侧段函数由既有 kanzei-app 测试覆盖。②cargo test --workspace 全绿——T-1786728314:kanzei-core 193、kzapp 160、kz 133、harness 44、llm 128、tools 242 等全部 ok 0 failed(首轮 kzapp 认领回滚测试 flaky,重跑通过,与本次改动无关)。③两函数主体 <300 行——run_task 266 行(批2)、run_once_with_parts 262 行(批6)。边界:外部签名/pub API 逐字节不变,全部抽取为私有内部函数;行为零变更每批核对(事件顺序/停止语义/压缩触发线/对齐不变式)。提交 8c82a33;push 已到 origin/dev;游离空行已清理。关闭。
+- observed_head: 8c82a33e0512f799eedf3d10be164e5a8305e510
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786728349760
