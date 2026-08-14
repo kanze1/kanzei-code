@@ -3254,3 +3254,9 @@
 - 摘要: cargo test --workspace 全量全绿(exit 0;尾段 236 passed / 0 failed,各 crate 全过)——复杂度中条目关闭前门禁
 - 关联: D-356
 - 收尾: 1786702030
+
+## T-1786703740 R-249/R-250 全量: cargo test --workspace + clippy [passed]
+- 命令: cargo test --workspace; cargo clippy --workspace --all-targets; cargo fmt --all
+- 摘要: R-249 批1 与 R-250 交付后全量门禁:26 个测试二进制全绿(kanzei-core 175→186,kanzei-tools 235→242),新增 21 条(read 图片 5 + 图片降级 3 + schema 校验器 10 + 工具面守卫 1 + 并发路径图片空断言 2);clippy --all-targets 零告警;fmt 已跑
+- 关联: R-249 R-250
+- 收尾: 1786703740

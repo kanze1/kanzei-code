@@ -104,7 +104,7 @@
 - 边界: 不改「未验证不注入」的取舍(R-165):本条不是要让 candidate 参与召回,而是不让它永远躺着。已在 f104890 落地的部分(candidate 对去重与复发检测可见)不重做。
 - 验收: ①存量 5 条 candidate 全部有归宿(晋升 active 或 deprecated 归档),逐条给出依据;②有机制测试:满足条件的 candidate 能被自动处置,不满足的不动;③candidate 存量不再单调增长——用 index.db 与文件数给出前后对照。
 - 优先级: P2
-- 批次: 0/2
+- 批次: 2/2
 - 进展: 用户于本轮明确选择暂存本条，暂不推进；保留原验收与 0/2 计划，待 R-236 释放 WIP 槽后再恢复。来源：用户本轮选择 1。
 - observed_head: 79d3c4e383a13032ff26c4cd0a13bcd74128c2f2
 - observed_worktree_hash: fnv1a64:fe871977f10a5179
@@ -264,7 +264,7 @@
 - 依赖: R-241
 - 内容: 在 shadow gate 通过后，将 conversation_get/list、runner prior、子代理 transcript 和 UI 历史恢复逐项切到事件投影；进程内 Vec<Message> 仅作缓存。清空对话追加 conversation.reset 并开启新 segment，新 segment 的模型 prior 为空，旧 segment 仍可审计。验证期保留 legacy snapshot 只读对照，五条读路径全部稳定后停止新增 conversation.updated。
 - 复杂度: 大
-- 批次: 0/4
+- 批次: 1/4
 - 来源: 2026-08-14 DeepSeek Harness 升级方案；用户确认清空保留、删除确定性物理清除并弹窗提示风险。
 - 标签: 核心
 - 边界: 本需求只负责事件投影真源切换与 segment reset，不实现会话物理删除、Spill artifact 联动删除、WAL/VACUUM 或迁移备份安全整理；这些统一由 R-245 的删除计划与显式整理入口承担。第一批不改事件 format_version 与 SessionFact 公共词表；任一读路径可通过 feature gate 独立回退 legacy snapshot。
@@ -339,7 +339,7 @@
 - 验收: ①三种触发判据各有定向测试,未触发的普通条目不受影响;②prior-art.md 每条结论都带出处,无出处结论被机械拒绝(复用 V0 标注同一套校验);③外部与仓内两侧覆盖各有独立断言,只查一侧不算通过;④新方向下 req add 缺 refs 被拒,豁免路径留痕可审计;⑤websearch 轮次上限有实测,超限给明确诊断而非静默截断;⑥既有 req add 路径无回归。
 - 优先级: P1
 
-## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [todo]
+## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
 - 依赖: R-244
 - 内容: 现状 `ToolOutput.content` 只有 String(kanzei-harness/src/tool.rs:178),任何工具都无法把图片交给模型;`Part::Image` 的三协议映射早在 R-014 交付,但入口只有桌面端用户附件(kanzei-app/src/state.rs:29)。本条把 ToolOutput 扩成可携带 image part,并打通两个消费点:①`read` 读图片文件(PNG/JPEG/WebP/GIF)按 media_type 编码返回;②UI 自检补截图通道——现有 `ui_probe` 窗口通道加 `screenshot`,让 ui_dom/ui_style 的结构读数配上真实渲染画面。
@@ -348,11 +348,12 @@
 - 来源: 2026-08-14 三系统工具面对照(DeepSeek harness / Claude Code / kanzei):read_image 是唯一的能力硬缺口。桌面端 ui_dom/ui_console/ui_style 能读结构与数值但看不见渲染结果,对齐、遮挡、观感一类问题无法自查。
 - 标签: 核心
 - 边界: ToolOutput 是 harness 核心契约,R-244 明确要冻结「ToolOutput 公共契约」、R-245 要把它改成 Inline/Spilled 二态——本条**不得抢在 R-244 之前改这个结构**,否则必然返工。图片体积走 R-245 的 spill 口径,不在 ToolOutput 内联大 base64。不实现 UI 点击/输入/滚动(那是 R-101 的 E2 harness 范围),本条只做「看得见」不做「动得了」。deepseek_responses 协议当前丢弃 Image part,本条不负责补齐该 provider,但要在 provider 不支持时给出显式降级提示,不静默丢弃。
-- 阻塞: 等 R-244 冻结 ToolOutput 公共契约与 Result Policy;R-245 的 spill 口径需同步确定图片类 artifact 的落点。R-244 本身尚待用户决定是否列入主任务——该决定即本条的解除条件。
+- 进展: 2026-08-14 批1 交付(1831239)。勘察修正了原条目的一处前提:`Part::Image` 的三协议映射早在 R-014 就通了,缺的只是**工具侧出口**,协议层零改动即可打通——不必等 R-244。实现:①ToolOutput 增 images 载荷(空 vec 与既有行为逐字节一致,53 处 `ToolOutput {` 里只有 4 个真构造点,其余是解构模式);②read 按 magic bytes 而非扩展名识图(PNG/JPEG/WebP/GIF),扩展名撒谎会让 media_type 与真实字节不符、provider 400 且报错指向请求体;③图片 Part 只能追加在所有 ToolResult 之后——Anthropic 要求 tool_result 块在 user 消息最前,而 results[i]↔calls[i] 由 note_step 的 debug_assert 锁着,中间也不能插;④provider 不支持时**在进 messages 前**降级为显式文本说明,判据收敛为 Route::supports_images() 与 client.rs 硬拒绝共用一处。新增 10 条测试。**剩余批次**:批2 ui_probe screenshot 通道(桌面端,本批未做);批3 图片 artifact 走 R-245 spill(仍等 R-244/R-245);批4 deepseek 协议补齐(不在本条范围,只保证降级不静默)。
+- 阻塞: 批1 已解除(协议层无需改动,不依赖 R-244)。批3 仍等 R-244 冻结 ToolOutput 公共契约与 Result Policy、R-245 确定图片类 artifact 的 spill 落点;R-244 是否列入主任务待用户决定。批2 无阻塞,可随时开工。
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-250 子代理结构化返回:task 支持 schema,主代理零解析 [todo]
+## R-250 子代理结构化返回:task 支持 schema,主代理零解析 [done]
 - refs: R-004 R-012 R-176 R-218 R-246 docs/design/subagent_management.md
 - 内容: 现状 explore/writer 子代理只返回自由文本(subagent.rs:94、112 的系统提示都是「reply with ONLY the requested information」),主代理必须自己从散文里解析结论——弱模型在这一步的读错是自举质量的直接损耗。本条给 `task` 工具加可选 `schema` 字段:传入 JSON Schema 时子代理被强制以该结构返回,校验在工具层完成,不合规即让子代理重试,主代理拿到的是已验证对象。
 - 复杂度: 中
@@ -361,6 +362,8 @@
 - 标签: 核心
 - 边界: 只做返回侧的 schema 约束,不做 fork(继承主对话历史)、不做运行中查看与追加指令、不做嵌套派生——这三条各自独立评估,其中 fork 与 R-246 的 child agents owner 语义相关,不在本条抢跑。schema 为可选字段,不传时行为与现状逐字节一致。
 - 验收: ①传 schema 时返回值经校验,不合规触发子代理重试且重试次数有上限;②不传 schema 时既有 explore/writer 行为无回归(机械核验:现有子代理测试全绿);③同轮多个并行 task 各自独立校验,互不影响;④校验失败的诊断指出是哪个字段不合规,不是笼统报错;⑤只读子代理白名单不因本条放宽(沿用 R-176 验收⑦的复核手法)。
+- 验收逐条对照(2026-08-14 交付 12098eb): ①schema_check::validate 校验通过才回喂,不合规续上已有历史补纠错指令重跑,MAX_SCHEMA_RETRIES=1 为上限,用尽后把最后原文一并交回主代理;②不传 schema 时 `let Some(schema) = schema.as_ref() else { break ok(text) }` 早退,后续分支全不执行——现有 7 条子代理测试与 kanzei-app 154 条全绿;③校验发生在 run_subagent 内,每个 task 调用各跑一份,同轮并行互不共享状态;④诊断带 JSON 指针路径与期望/实际类型(如 `$.findings[0]: missing required field \`line\``),3 条定向测试锁住 required/type/enum 三类诊断内容;⑤本条未碰 SubagentBase,只读白名单一字未动,R-176 验收⑦的复核测试保持通过。额外:取消 token 注册移出重试循环——每轮重注册会在两轮之间留未注册窗口,那里的 stop_task 会静默落空。
+- 收尾: 2026-08-14;测试记录 T-1786703740
 - 优先级: P2
 
 ## R-251 试用手册配置移至设置模块 [todo]
