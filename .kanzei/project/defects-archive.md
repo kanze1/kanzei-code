@@ -4116,3 +4116,19 @@
 - observed_head: c5c1f8ed9f565c1a71777991c1dc8563e23fe3cd
 - observed_worktree_hash: fnv1a64:b22fc10b562730ce
 - recorded_at: 1786700771885
+
+## D-333 存量 tracker 污染收敛:活动区双优先级字段、归档区双终态标记、重复进展字段(D-330/D-331 修复前残留) [fixed] (low)
+- refs: D-332 D-331 D-330 D-357 D-358
+- 复杂度: 小
+- 复现: normalize dry-run 全仓扫描实测检出(2026-08-13,CLI kz req normalize):活动区 R-234/R-235 各带重复「优先级」字段(D-330 修复前的存量);归档区 R-201/R-198/R-199/R-213 标题为 [open][done] 双终态标记(D-331 修复前的存量,parser 只剥最后一个 done,[open] 残留标题);归档区 R-225/R-226 重复「进展」字段。当前会话引擎跑旧编译,工具通道(req update)对存量双字段无法去重(update 只覆盖首个匹配),CLI normalize apply 写盘被托管围栏拦截。
+- 影响: 重复字段让 UI 显示歧义(哪个优先级生效未知);归档双终态标记污染统计与审计;这些是 D-330/D-331 修复前的存量,合法修复面 normalize/fix_terminal 已存在但需引擎重启后执行。
+- 来源: self-found(D-332 B3 存量收敛时 normalize 扫描检出)
+- 标签: 核心
+- 验收: ①R-234/R-235 各只剩一个「优先级」字段,值与首个一致(有测试或工具输出证据);②归档 R-201/R-198/R-199/R-213 标题只剩单一终态标记,残留的 open 标记被剥离(有测试或工具输出证据);③R-225/R-226 归档重复「进展」字段收敛;④全程走专用工具(normalize apply / fix_terminal / req update),无手改 markdown。
+- 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-333
+- 进展: B1 完成(2026-08-13):验收②达成——归档区 R-201/R-198/R-199/R-213 的 [open][done] 双终态标记已用 fix_terminal 收敛为单一 [done](status 保持 done、标题残留 open 剥离、进展留 [terminal-fix] 审计,commit f3b7dcd)。| 2026-08-14 B2 完成,四条验收齐:①R-234/R-235 双「优先级」字段——逐条查文件确认各只剩一个(活动区 R-235 优先级 P3 单份;归档区 R-234 优先级 P1 单份),normalize 全仓 dry-run 亦报 0 finding;②见 B1;③R-225/R-226 归档重复「进展」——`kz req normalize --apply` 执行 dedupe_archived_fields 收敛,连同 B1 fix_terminal 副产的 R-201/R-198/R-199/R-213 重复进展共 6 条一并合并(进展按内容合并不丢字:回填后归档仍有 6 处 [terminal-fix] 审计原文,numstat 12 删 6 增 = 每条两行并一行),apply 后 normalize dry-run = 0 finding(clean);④全程走专用工具——fix_terminal(B1)/ archive_fill / normalize --apply / raw_delete,零手改 markdown。前置阻塞已自然解除:引擎已重启(kzapp pid 28956),CLI 侧 normalize/archive_fill 实测可写盘,原「旧编译无 normalize + CLI 被围栏拦」两条均不复存在。附带两处工具面观察已另立缺陷:normalize apply 报「0 fix(es)」但实际修了 6 条(fixed 列表在归档循环之前就拼进输出),且 dry-run 文案「需手动整理归档」与 apply 真实能力矛盾——正是这句话让上一轮判定本条不可修。defects 侧 normalize 未 apply:D-180 有两条内容不同的「验证(2026-08-08)」字段,非进展字段 dedupe 只保首条会丢 v7 那条,留待单独处置。
+- 阻塞: 
+- observed_head: 96313679e027a6ca76aa2003e85a46cc0109bb80
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786709969731

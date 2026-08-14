@@ -2110,8 +2110,7 @@
 - 验收: ①能列出某条目的游离行并稳定标识;②能按标识删除指定行,其余内容与字段一字不变;③删除后二次保存幂等;④有回归覆盖"删除后字段不受影响"。
 - refs: D-294 D-239
 
-- 进展: 关闭证据(2026-08-12):实现提交 800d5da,全量 cargo test --workspace 绿(T-1786514969,kanzei-tools 256 passed)。验收逐项:①列出游离行+稳定标识=docstore.rs raw_lines() 返回 RawLine{ordinal,text}+tracker.rs "raw_lines" action 输出 [n] 原文(tracker.rs:296-326);②按标识删除指定行、其余内容与字段一字不变=docstore.rs delete_raw_line() 模板手术只移除那一条 Raw(tracker.rs:692-712 接线),回归测试断言删除后文件仅少那一行、字段数与内容不变(docstore.rs 游离行列出与删除_其余内容一字不变_二次保存幂等);③删除后二次保存幂等=preserved 模板回写防复活,同测试断言 save() 后文件与删除后完全一致;④回归覆盖"删除后字段不受影响"=同测试 fields.len()==3 断言+tracker.rs raw_lines_raw_delete_清理游离行且字段不受影响 端到端。原阻塞(D-295)已解除:test_record 白名单入 kanzei.toml(6ef23cc)。
-- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
+- 进展: 关闭证据(2026-08-12):实现提交 800d5da,全量 cargo test --workspace 绿(T-1786514969,kanzei-tools 256 passed)。验收逐项:①列出游离行+稳定标识=docstore.rs raw_lines() 返回 RawLine{ordinal,text}+tracker.rs "raw_lines" action 输出 [n] 原文(tracker.rs:296-326);②按标识删除指定行、其余内容与字段一字不变=docstore.rs delete_raw_line() 模板手术只移除那一条 Raw(tracker.rs:692-712 接线),回归测试断言删除后文件仅少那一行、字段数与内容不变(docstore.rs 游离行列出与删除_其余内容一字不变_二次保存幂等);③删除后二次保存幂等=preserved 模板回写防复活,同测试断言 save() 后文件与删除后完全一致;④回归覆盖"删除后字段不受影响"=同测试 fields.len()==3 断言+tracker.rs raw_lines_raw_delete_清理游离行且字段不受影响 端到端。原阻塞(D-295)已解除:test_record 白名单入 kanzei.toml(6ef23cc)。 [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-198 bash 权限规则支持「程序名 + 参数前缀」白名单,不再整串通配 [done]
 - 优先级: P2
@@ -2125,8 +2124,7 @@
 - refs: D-051 D-292
 
 - 批次: 2/2
-- 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成(commit 59e2f05):①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565253)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565346,harness 118)。四条验收逐条对照:①node scripts/e2e-smoke.mjs 命中 node scripts/*.mjs 并放行——测试 前缀白名单_放行匹配命令 断言 Effect::Allow(permission.rs 测试,commit 59e2f05);②node scripts/x.mjs; rm -rf / 不得命中——测试 前缀白名单_命令链接重定向回落ask 断言含 ;/&&/|/>/$(/反引号 全部 Effect::Ask(has_shell_meta 检测);③结构化 JSON 与纯字符串双形态——测试 前缀白名单_结构化与纯字符串双形态:纯字符串前缀规则不授权 JSON(既有保护保留)、JSON 资源经既有整串精确匹配路径正常;④D-051 既有回归保持绿——更新后的 前缀通配不放行未明确授权的命令(重定向/别名/其它程序/命令链接仍 Ask)+ 显式整体放行不受串联降级影响(yolo `*` 仍 Allow)全绿。关闭。
-- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
+- 进展: 2026-08-16 取活(defects 队列全阻塞,转 requirements)。R-198 纯后端权限模块任务,不依赖用户环境。B1 完成(commit 59e2f05):①permission.rs 新增 bash_prefix_match(程序名精确匹配 + 参数前缀通配 + 引号感知 split_first_token + has_shell_meta 检测 `;` `&&` `|` `>` `<` `$(` 反引号等 shell 结构);②evaluate 里 command_chaining_escapes 降级逻辑接入——命中前缀白名单则放行,否则维持 Ask(D-051 防线在解析层保留);③验收测试 4 个(node scripts/*.mjs 放行匹配/命令链接重定向回落 Ask/结构化 JSON 与纯字符串双形态/非本程序与 yolo 保持);④D-051 前缀通配测试语义更新(git status 现放行,重定向/别名/其它程序/命令链接仍 Ask)。permission 28 passed,fmt/clippy 全过(T-1786565253)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565346,harness 118)。四条验收逐条对照:①node scripts/e2e-smoke.mjs 命中 node scripts/*.mjs 并放行——测试 前缀白名单_放行匹配命令 断言 Effect::Allow(permission.rs 测试,commit 59e2f05);②node scripts/x.mjs; rm -rf / 不得命中——测试 前缀白名单_命令链接重定向回落ask 断言含 ;/&&/|/>/$(/反引号 全部 Effect::Ask(has_shell_meta 检测);③结构化 JSON 与纯字符串双形态——测试 前缀白名单_结构化与纯字符串双形态:纯字符串前缀规则不授权 JSON(既有保护保留)、JSON 资源经既有整串精确匹配路径正常;④D-051 既有回归保持绿——更新后的 前缀通配不放行未明确授权的命令(重定向/别名/其它程序/命令链接仍 Ask)+ 显式整体放行不受串联降级影响(yolo `*` 仍 Allow)全绿。关闭。 [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-199 鞭挞续跑的模式条件下沉引擎:前端不得保留引擎不知道的否决权 [done]
 - 优先级: P2
@@ -2138,8 +2136,7 @@
 - refs: D-291 R-169
 
 - 批次: 2/2
-- 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565831,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。
-- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
+- 进展: 2026-08-16 取活。B1 完成(commit fd42c26):①harness auto_run.rs——AutoStopReason 加 ProfileMismatch、AutoRunCtx 加 auto_allowed: bool、decide() 在 backlog 检查后加 !auto_allowed → stop_with(ProfileMismatch)(计数重置为 0 不 +1);②app auto_run.rs serialize_action 加 ProfileMismatch 映射;③app run.rs 构造 AutoRunCtx 传 auto_allowed(dev-auto = profile Dev && agent name dev);④前端 08-compose.js armAutoContinue 移除 autoContinueAllowed() 私有否决;⑤前端 07-events.js Stop 分支加 ProfileMismatch 显示(关开关+提示,复用既有 i18n key);⑥harness 新测试 模式不匹配时引擎停止且计数不漂移。验证:harness auto_run 14 passed + app 137 passed + node --check 07/08 通过 + fmt/clippy 全过(T-1786565739)。| 2026-08-16 关闭:全量 cargo test --workspace 全绿(T-1786565831,harness 119)。三条验收逐条对照:①前端不再持有任何引擎不知道的续跑否决条件——armAutoContinue 的 autoContinueAllowed() 否决已移除(08-compose.js),档位条件唯一真源在引擎 decide()(auto_run.rs !auto_allowed → Stop(ProfileMismatch)),剩余 3 处 autoContinueAllowed 为「开关启动门禁」(勾选时提示),非续跑否决;②否决发生时引擎侧计数不 +1——decide 的 stop_with(ProfileMismatch) 将 rounds 重置为 0,harness 测试 模式不匹配时引擎停止且计数不漂移 断言 Stop + rounds==0;③harness 侧单测覆盖新增停止原因——测试 模式不匹配时引擎停止且计数不漂移 覆盖 ProfileMismatch(harness auto_run.rs,commit fd42c26)。关闭。 [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-230 work next/claim 调度决策下沉 harness:取活零推导 [done]
 - 内容: 新增 work 类动作:next 按显式序计算 WorkDecision(Resume{id}|Start{id}|Blocked{ids}|WipViolation{ids})并返回 reason 码与 wip 快照;claim <id> 为显式 override 并落档原因;提示词侧取活规则收敛为「一律调 work next 按返回执行」。2026-08-13 已在 dev prompt 写入显式序(profiles.rs:resume 占槽项>队列优先级,守护测试覆盖),本条是它的 harness 确定性下沉——V4PRO 实测每次会话为 defect-first vs WIP 的仲裁自辩 500+ token,该决策 100% 可确定,按弱模型准绳应由代码一行给出
@@ -2175,11 +2172,10 @@
 - 验收: ①伪造 episode_id 的 promote 被拒(单测);②写证据失败不产生 active 条目;③盘点存量 active 条目在 memory_sources 里零行的数量并处置。
 - refs: R-165 R-195 R-214
 - 批次: 2/2
-- 进展: B3 完成:cargo test --workspace 743 passed/0 failed/2 ignored(T-1786597693);fmt+clippy 无警告。B1 门禁+引擎代填全绿后关闭。验收逐项:①store.rs promote() episode_exists 校验(episode_exists 在 kanzei-core/src/store/episodes.rs:43-53)+单测 promote_rejects_fabricated_episode_id(store.rs:2079-2108,commit 23338eb);②promote() 证据先落库、record_memory_source 失败即整体失败、成功才置 active(store.rs:446-497),单测 promote_write_evidence_failure_does_not_activate(store.rs:2111-2152);③盘点=311 episode / memory_sources 0 行 / project 28 条 active 全零证据 / global 无条目,处置=存量豁免+文档化(可逆),逐条复核承接为 R-235。方向问题(manager 拿不到真实 episode_id)由引擎轮末代填解决(commit 45fd276,CLI main.rs+桌面 run.rs 传 episode_id 进 consolidation_prompt)。
+- 进展: B3 完成:cargo test --workspace 743 passed/0 failed/2 ignored(T-1786597693);fmt+clippy 无警告。B1 门禁+引擎代填全绿后关闭。验收逐项:①store.rs promote() episode_exists 校验(episode_exists 在 kanzei-core/src/store/episodes.rs:43-53)+单测 promote_rejects_fabricated_episode_id(store.rs:2079-2108,commit 23338eb);②promote() 证据先落库、record_memory_source 失败即整体失败、成功才置 active(store.rs:446-497),单测 promote_write_evidence_failure_does_not_activate(store.rs:2111-2152);③盘点=311 episode / memory_sources 0 行 / project 28 条 active 全零证据 / global 无条目,处置=存量豁免+文档化(可逆),逐条复核承接为 R-235。方向问题(manager 拿不到真实 episode_id)由引擎轮末代填解决(commit 45fd276,CLI main.rs+桌面 run.rs 传 episode_id 进 consolidation_prompt)。 [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 - observed_head: 45fd276e9ac4ac6a23c0027b801f95d6c6c3fe4f
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786597713547
-- 进展: [terminal-fix 2026-08-13] done → done: D-333 收敛:标题残留 [open] 双终态标记为 D-331 修复前存量,status 已是 done,剥离标题标记
 
 ## R-233 记忆召回补语义通道:prompt_hints 从纯 BM25 词面升级到 hybrid(dense embedder + RRF),并改 query 构造 [done]
 - 优先级: P1
@@ -2203,11 +2199,10 @@
 - 实现顺序（10 批）: ①反证测试基线；②线路身份永不复用与旧缓存清理；③统一注销/停止 finalize；④后台进程按 owner 回收；⑤运行中工作树禁止合并/放弃；⑥前端具名状态机与 stopping；⑦后台控制事件副作用按 session 执行；⑧自动推进定时器与设置按 session 隔离；⑨切线/发送/历史恢复竞态收口；⑩全量门禁、真实双线验收、打包发布。
 - 验收: ①删线重建不会复用 session 或继承历史/profile/鞭挞；②两线同时运行和自动推进互不取消、互不发送到对方；③停止 A 只停止 A 的 run、ask、队列和后台进程，B 保持运行；④运行中、停止中、等待下一轮、空闲由同一会话投影驱动，停止按钮不消失/闪跳；⑤后台 `kz:done` 能续跑并刷新所属历史；⑥运行线路不能合并或放弃工作树；⑦切线期间旧 IPC 失败不能污染新线；⑧活动与历史按 session 恢复且读接口不改写运行中上下文；⑨相关 Rust/UI 反证、workspace 门禁和真实桌面双线 E2 全绿；⑩发布包绑定最终 HEAD，安装实例版本与 hash 可核对。
 - refs: D-313 R-197 R-199 R-206 R-207 R-222 D-209 D-283 D-305 D-306
-- 进展: 2026-08-12 十批按依赖完成:…(原进展全文保留);‖ 2026-08-16 账本维护证据核验(原 [fixed] 污染标记,核验后转 done):实现提交 0a682bb(多线路运行内核与收活隔离收口);代码实证 ui/03-shell.js transitionSession/phase 具名状态机、09-sessions/20-lines 按 session 投影;parallel-lines-regression 套件存在且近期绿(T-1786552000)。验收 ①-⑧ 逐批交付证据见上;⑨ workspace 门禁当前全量 759 passed 覆盖代码面,真实桌面双线 E2 与 ⑩ 发布包绑定随下次发版收尾(残余,转发布清单,按 §1.2 可用即关闭)。
+- 进展: 2026-08-12 十批按依赖完成:…(原进展全文保留);‖ 2026-08-16 账本维护证据核验(原 [fixed] 污染标记,核验后转 done):实现提交 0a682bb(多线路运行内核与收活隔离收口);代码实证 ui/03-shell.js transitionSession/phase 具名状态机、09-sessions/20-lines 按 session 投影;parallel-lines-regression 套件存在且近期绿(T-1786552000)。验收 ①-⑧ 逐批交付证据见上;⑨ workspace 门禁当前全量 759 passed 覆盖代码面,真实桌面双线 E2 与 ⑩ 发布包绑定随下次发版收尾(残余,转发布清单,按 §1.2 可用即关闭)。 [terminal-fix 2026-08-13] done → done: 账本维护:close 前未剥 [fixed] 标题标记,归档标题残留 [fixed] [done] 双标记,收敛为单一 done 并清标题
 - observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786605391269
-- 进展: [terminal-fix 2026-08-13] done → done: 账本维护:close 前未剥 [fixed] 标题标记,归档标题残留 [fixed] [done] 双标记,收敛为单一 done 并清标题
 
 ## R-225 界面语言设置：跟随系统/中文/English，默认中文 [done]
 - 优先级: P1
@@ -2219,11 +2214,10 @@
 - 边界: 沿用现有 `ui/02-i18n.js` 翻译资源和 `settings.rs` 设置保存/加载链路，不引入新框架，不扩展第三种语言。
 - 验收: ①首次无配置启动显示中文；②设置页可选跟随系统/中文/English；③选择、保存、重启后仍恢复；④切换 English 后静态文案和动态状态文案同步变化；⑤UI runtime smoke 有控件、持久化和生效断言；⑥相关 Rust/UI 门禁通过。
 - refs: R-193 R-197
-- 进展: 2026-08-12 已接通 KanzeiConfig/settings_get/settings_save 与设置页语言全链路,新增跟随系统解析、默认中文及未显式设置不落盘语义;已通过 cargo fmt/clippy、cargo test -p kanzei-app(125 passed)、node --check 与 UI runtime smoke(0 运行时错误)。 ‖ 2026-08-16 账本维护证据核验(原 [fixed] 污染标记,核验后转 done):实现提交 bc27f1d(界面语言设置全链路)+ 41baef4(D-308 补齐 R-225 UI lint 全局清单);代码实证 settings.rs language 字段、ui/02-i18n.js 翻译资源、16-settings.js 语言下拉、index.html 控件;当前 workspace 759 passed 含 kanzei-app 138 passed。残余:进展内引用的 smoke 断言无 tests.md 记录链接(验证证据链缺口,按 §1.2 可用即关闭,不阻塞)。
+- 进展: 2026-08-12 已接通 KanzeiConfig/settings_get/settings_save 与设置页语言全链路,新增跟随系统解析、默认中文及未显式设置不落盘语义;已通过 cargo fmt/clippy、cargo test -p kanzei-app(125 passed)、node --check 与 UI runtime smoke(0 运行时错误)。 ‖ 2026-08-16 账本维护证据核验(原 [fixed] 污染标记,核验后转 done):实现提交 bc27f1d(界面语言设置全链路)+ 41baef4(D-308 补齐 R-225 UI lint 全局清单);代码实证 settings.rs language 字段、ui/02-i18n.js 翻译资源、16-settings.js 语言下拉、index.html 控件;当前 workspace 759 passed 含 kanzei-app 138 passed。残余:进展内引用的 smoke 断言无 tests.md 记录链接(验证证据链缺口,按 §1.2 可用即关闭,不阻塞)。 [terminal-fix 2026-08-13] done → done: 账本维护:close 前未剥 [fixed] 标题标记,归档标题残留 [fixed] [done] 双标记,收敛为单一 done 并清标题
 - observed_head: e63be64ecd503b28359eeacdcf354b5fb8bc5340
 - observed_worktree_hash: fnv1a64:794cece9eb0bfcad
 - recorded_at: 1786605390957
-- 进展: [terminal-fix 2026-08-13] done → done: 账本维护:close 前未剥 [fixed] 标题标记,归档标题残留 [fixed] [done] 双标记,收敛为单一 done 并清标题
 
 ## R-210 提交门禁减重与耗时可见:去 cargo check 冗余,verify/test_record 记录时长 [done]
 - 优先级: P3
