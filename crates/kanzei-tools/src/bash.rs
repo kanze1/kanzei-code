@@ -26,6 +26,98 @@ const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
 /// 超过直接结构化拒绝,不给 spawn 机会。
 const MAX_COMMAND_CHARS: usize = 30_000;
 
+/// R-244 批3:D-113 整文件覆写防线作为单调 Guard。命令串含整文件覆写 cmdlet
+/// (Set-Content/Out-File 等)即拒绝——绕 edit/write 的语法校验与 diff 展示。
+struct FullFileWriteGuard;
+
+impl kanzei_harness::tool_pipeline::ToolGuard for FullFileWriteGuard {
+    fn name(&self) -> &'static str {
+        "full-file-write"
+    }
+    fn check(
+        &self,
+        _tool_name: &str,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Result<(), String> {
+        let command = input["command"].as_str().unwrap_or("");
+        let Some(cmdlet) = full_file_write_cmdlet(command) else {
+            return Ok(());
+        };
+        Err(format!(
+            "`{cmdlet}` is blocked: whole-file rewrites via shell bypass the edit/write \
+             tools' syntax validation and diff display. Use `edit` for targeted changes \
+             (it tolerates line-ending differences and, after two misses, shows you the \
+             file's actual content) or `write` to create/replace a file deliberately."
+        ))
+    }
+}
+
+/// R-244 批3:R-238 ①超长防护作为单调 Guard。命令串超 30000 UTF-16 单元即拒绝,
+/// 不发生真实 spawn;文案给文件中转与 --prompt-file 两条正路。
+struct CommandLengthGuard;
+
+impl kanzei_harness::tool_pipeline::ToolGuard for CommandLengthGuard {
+    fn name(&self) -> &'static str {
+        "command-length"
+    }
+    fn check(
+        &self,
+        _tool_name: &str,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Result<(), String> {
+        let command = input["command"].as_str().unwrap_or("");
+        let cmd_units = command.encode_utf16().count();
+        if cmd_units <= MAX_COMMAND_CHARS {
+            return Ok(());
+        }
+        Err(format!(
+            "命令过长({cmd_units} UTF-16 字符,上限 {MAX_COMMAND_CHARS}):Windows 无法 spawn \
+             超过 32767 字符的命令行。大文本请用文件中转:先用 `write` 工具落文件、命令里 \
+             引用路径;或以 `kz run --prompt-file <path>` 作为 prompt 交付。"
+        ))
+    }
+}
+
+/// R-244 批3:git 写操作防线作为单调 Guard。bash 里的 `git add/commit` 等写子命令
+/// 一律拒绝,必须走结构化 git 工具(读子命令 status/diff 等放行)。
+struct GitMutationGuard;
+
+impl kanzei_harness::tool_pipeline::ToolGuard for GitMutationGuard {
+    fn name(&self) -> &'static str {
+        "git-mutation"
+    }
+    fn check(
+        &self,
+        _tool_name: &str,
+        input: &serde_json::Value,
+        _ctx: &ToolCtx,
+    ) -> Result<(), String> {
+        let command = input["command"].as_str().unwrap_or("");
+        let Some(form) = git_mutation_form(command) else {
+            return Ok(());
+        };
+        Err(format!(
+            "`{form}` is blocked in bash: Git mutations must use the structured `git` tool. \
+             Use `git stage` with explicit files, review its staged_hash/diff, then `git commit` \
+             with that hash. Fast-forward merges go through `git merge_ff` (from/into; it finds \
+             the worktree where `into` is checked out). Other branch/index mutations not covered \
+             by that tool require the user to run them directly; do not route them through \
+             another shell spelling."
+        ))
+    }
+}
+
+/// R-244 批3:bash 的三条单调 Guard,按原 execute 的防线顺序排列。
+fn bash_guards() -> Vec<std::sync::Arc<dyn kanzei_harness::tool_pipeline::ToolGuard>> {
+    vec![
+        std::sync::Arc::new(FullFileWriteGuard),
+        std::sync::Arc::new(CommandLengthGuard),
+        std::sync::Arc::new(GitMutationGuard),
+    ]
+}
+
 /// R-183 内容②(验收③):worktree 里权限判定的 workdir 视图按**主根**。
 ///
 /// worktree 是主根代码树的 git checkout,同一相对路径的命令在两棵树里等价。
@@ -132,242 +224,229 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: BashInput = match crate::parse_input(self, input) {
-            Ok(v) => v,
-            Err(out) => return out,
-        };
-        // D-113 硬门禁:整文件覆写 cmdlet 绕过 edit/write 的语法校验与 diff 展示,一律拦截。
-        if let Some(cmdlet) = full_file_write_cmdlet(&input.command) {
-            return ToolOutput::error(format!(
-                "`{cmdlet}` is blocked: whole-file rewrites via shell bypass the edit/write \
-                 tools' syntax validation and diff display. Use `edit` for targeted changes \
-                 (it tolerates line-ending differences and, after two misses, shows you the \
-                 file's actual content) or `write` to create/replace a file deliberately."
-            ));
-        }
-        // R-238 ①:命令串超长防护——按 UTF-16 代码单元计(Windows 命令行上限口径),
-        // 超过 30000 直接结构化拒绝,不发生真实 spawn。
-        let cmd_units = input.command.encode_utf16().count();
-        if cmd_units > MAX_COMMAND_CHARS {
-            return ToolOutput::error(format!(
-                "命令过长({cmd_units} UTF-16 字符,上限 {MAX_COMMAND_CHARS}):Windows 无法 spawn \
-                 超过 32767 字符的命令行。大文本请用文件中转:先用 `write` 工具落文件、命令里 \
-                 引用路径;或以 `kz run --prompt-file <path>` 作为 prompt 交付。"
-            ));
-        }
-        let timeout = Duration::from_millis(
-            input
-                .timeout_ms
-                .unwrap_or(DEFAULT_TIMEOUT_MS)
-                .min(MAX_TIMEOUT_MS),
-        );
-        let workdir = match &input.workdir {
-            Some(dir) => ctx
-                .cwd
-                .join(kanzei_harness::permission::normalize_resource(dir)),
-            None => ctx.cwd.clone(),
-        };
-        if !workdir.is_dir() {
-            return ToolOutput::error(format!("workdir does not exist: {}", workdir.display()));
-        }
+        // R-244 批3:bash 走统一 pipeline——三条硬防线(D-113 整文件覆写 / R-238
+        // 超长 / git mutation)是单调 Guard,policy allow 不能覆盖 guard deny;
+        // body 保留 workdir/managed fence/执行/进度等原逻辑。
+        let input2 = input.clone();
+        let ctx2 = ctx.clone();
+        kanzei_harness::tool_pipeline::run_tool_pipeline(
+            "bash",
+            input,
+            ctx,
+            &bash_guards(),
+            async move { bash_body(self, &input2, &ctx2).await },
+            &[],
+            &[],
+        )
+        .await
+    }
+}
 
-        // Git 写操作必须走结构化 git 工具。只拦截写子命令，status/diff/log/show 等读操作
-        // 仍可在 shell 中执行；这样权限和暂存区 CAS 不会被 `git add/commit` 文本旁路。
-        if let Some(form) = git_mutation_form(&input.command) {
-            return ToolOutput::error(format!(
-                "`{form}` is blocked in bash: Git mutations must use the structured `git` tool. \
-                 Use `git stage` with explicit files, review its staged_hash/diff, then `git commit` \
-                 with that hash. Fast-forward merges go through `git merge_ff` (from/into; it finds \
-                 the worktree where `into` is checked out). Other branch/index mutations not covered \
-                 by that tool require the user to run them directly; do not route them through \
-                 another shell spelling."
-            ));
-        }
+/// R-244 批3:bash 工具本体(原 execute 去三条防线后),供 pipeline body 调用。
+async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+    let input: BashInput = match crate::parse_input(tool, input.clone()) {
+        Ok(v) => v,
+        Err(out) => return out,
+    };
+    let timeout = Duration::from_millis(
+        input
+            .timeout_ms
+            .unwrap_or(DEFAULT_TIMEOUT_MS)
+            .min(MAX_TIMEOUT_MS),
+    );
+    let workdir = match &input.workdir {
+        Some(dir) => ctx
+            .cwd
+            .join(kanzei_harness::permission::normalize_resource(dir)),
+        None => ctx.cwd.clone(),
+    };
+    if !workdir.is_dir() {
+        return ToolOutput::error(format!("workdir does not exist: {}", workdir.display()));
+    }
 
-        // D-173 硬围栏:托管文档只能走专用工具,而"能不能绕过"绝不能靠猜命令文本。
-        // [System.IO.File]::WriteAllText、重定向、python/node 一行流、git checkout 单文件
-        // 都能避开任何字符串匹配,所以这里改成**结果侧**判定:跑之前拍下托管目录的镜像,
-        // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
-        let managed_before = ManagedSnapshot::capture(&ctx.project_root);
-        if !managed_before.is_complete() {
-            return ToolOutput::error(format!(
-                "bash refused before execution: the managed-document snapshot is incomplete \
+    // D-173 硬围栏:托管文档只能走专用工具,而"能不能绕过"绝不能靠猜命令文本。
+    // [System.IO.File]::WriteAllText、重定向、python/node 一行流、git checkout 单文件
+    // 都能避开任何字符串匹配,所以这里改成**结果侧**判定:跑之前拍下托管目录的镜像,
+    // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
+    let managed_before = ManagedSnapshot::capture(&ctx.project_root);
+    if !managed_before.is_complete() {
+        return ToolOutput::error(format!(
+            "bash refused before execution: the managed-document snapshot is incomplete \
                  (more than {MANAGED_SNAPSHOT_MAX_FILES} files or a file over \
                  {MANAGED_SNAPSHOT_FILE_LIMIT} bytes). A shell command cannot run when its \
                  protected-path effects cannot be fully rolled back."
-            ));
+        ));
+    }
+    // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
+    // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
+    if input.background && managed_scope_exists(&ctx.project_root) {
+        if let Some(breach) = background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir) {
+            return ToolOutput::error(breach);
         }
-        // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
-        // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
-        if input.background && managed_scope_exists(&ctx.project_root) {
-            if let Some(breach) = background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir) {
-                return ToolOutput::error(breach);
-            }
-        }
-        // D-174 生命周期包含关系:上一个 run 遗留的后台任务在这里收尾。守卫把
-        // "没有专用工具窗口解释的托管变化"一律判给后台进程,这个判据只有在
-        // 「后台任务生命周期 ⊆ owner run」时才成立——跨 run 存活会让本 run 的
-        // 专用工具写入被上一个 run 的守卫误判成越界。
-        crate::background::finish_foreign_owners(&ctx.project_root, ctx.run_id.as_deref()).await;
+    }
+    // D-174 生命周期包含关系:上一个 run 遗留的后台任务在这里收尾。守卫把
+    // "没有专用工具窗口解释的托管变化"一律判给后台进程,这个判据只有在
+    // 「后台任务生命周期 ⊆ owner run」时才成立——跨 run 存活会让本 run 的
+    // 专用工具写入被上一个 run 的守卫误判成越界。
+    crate::background::finish_foreign_owners(&ctx.project_root, ctx.run_id.as_deref()).await;
 
-        let shell = detected_shell();
-        let mut command = tokio::process::Command::new(&shell.program);
-        command
-            .args(&shell.args)
-            .arg(&input.command)
-            .current_dir(&workdir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        hide_console_window(&mut command);
+    let shell = detected_shell();
+    let mut command = tokio::process::Command::new(&shell.program);
+    command
+        .args(&shell.args)
+        .arg(&input.command)
+        .current_dir(&workdir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    hide_console_window(&mut command);
 
-        let mut child = match command.spawn() {
-            Ok(c) => c,
-            Err(e) => return ToolOutput::error(format!("failed to spawn {}: {e}", shell.name)),
-        };
+    let mut child = match command.spawn() {
+        Ok(c) => c,
+        Err(e) => return ToolOutput::error(format!("failed to spawn {}: {e}", shell.name)),
+    };
 
-        // 后台模式:交给注册表托管,立刻返回句柄,不等它结束也不受 timeout 约束。
-        if input.background {
-            // 归因地基:owner 身份来自 ToolCtx(R-171 双键),托管基线就是本次
-            // spawn 之前刚拍下的 managed_before——后台守卫的对账起点必须是
-            // "进程还没跑起来"的那一刻,晚一点都会把自己的副作用算进基线。
-            let process = crate::background::register(
-                child,
-                input.command.clone(),
-                &ctx.project_root,
-                &workdir,
-                background_owner(ctx),
-                managed_before,
-                // R-180:长驻档位透传。persistent=true 时 owner run 收尾不再收它。
-                input.persistent,
-            );
-            let rendered = format!(
-                "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n\
+    // 后台模式:交给注册表托管,立刻返回句柄,不等它结束也不受 timeout 约束。
+    if input.background {
+        // 归因地基:owner 身份来自 ToolCtx(R-171 双键),托管基线就是本次
+        // spawn 之前刚拍下的 managed_before——后台守卫的对账起点必须是
+        // "进程还没跑起来"的那一刻,晚一点都会把自己的副作用算进基线。
+        let process = crate::background::register(
+            child,
+            input.command.clone(),
+            &ctx.project_root,
+            &workdir,
+            background_owner(ctx),
+            managed_before,
+            // R-180:长驻档位透传。persistent=true 时 owner run 收尾不再收它。
+            input.persistent,
+        );
+        let rendered = format!(
+            "background: true\nprocess_id: {}\npid: {}\ncommand: {}\n\
                  Use the `process` tool: {{\"action\":\"output\",\"id\":\"{}\"}} to read output, \
                  {{\"action\":\"stop\",\"id\":\"{}\"}} to terminate.",
-                process.id,
-                process.pid().map_or("unknown".into(), |p| p.to_string()),
-                input.command,
-                process.id,
-                process.id,
+            process.id,
+            process.pid().map_or("unknown".into(), |p| p.to_string()),
+            input.command,
+            process.id,
+            process.id,
+        );
+        return ToolOutput::ok(rendered).with_display(serde_json::json!({
+            "kind": "terminal",
+            "command": input.command,
+            "background": true,
+            "processId": process.id,
+            "output": "(后台运行中,用 process 工具查看输出)",
+        }));
+    }
+
+    let pid = child.id();
+
+    let mut stdout = child.stdout.take().expect("stdout piped");
+    let mut stderr = child.stderr.take().expect("stderr piped");
+    // 缓冲放在 future 外:超时把整个 future drop 掉时,已经读到的输出必须还在,
+    // 否则模型对"卡在哪一步"一无所知,只能盲目加大 timeout 重跑并重复副作用(D-062)。
+    let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
+    let capture = {
+        let out_buf = &mut out_buf;
+        let err_buf = &mut err_buf;
+        async move {
+            // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
+            let (a, b) = tokio::join!(
+                read_capped(&mut stdout, out_buf),
+                read_capped(&mut stderr, err_buf)
             );
-            return ToolOutput::ok(rendered).with_display(serde_json::json!({
+            let status = child.wait().await;
+            (status, a, b)
+        }
+    };
+
+    let outcome = tokio::time::timeout(timeout, capture).await;
+    match outcome {
+        Ok((status, out_capped, err_capped)) => {
+            let mut text = String::from_utf8_lossy(&out_buf).into_owned();
+            if out_capped {
+                text.push_str("\n[stdout truncated at 1 MiB]");
+            }
+            if !err_buf.is_empty() {
+                text.push_str("\n[stderr]\n");
+                text.push_str(&String::from_utf8_lossy(&err_buf));
+                if err_capped {
+                    text.push_str("\n[stderr truncated at 1 MiB]");
+                }
+            }
+            let code = status.as_ref().ok().and_then(|s| s.code());
+            let ok = code == Some(0);
+            let text = if text.trim().is_empty() {
+                "(no output)".to_string()
+            } else {
+                text
+            };
+            let mut rendered = format!(
+                "exit code: {}\n{text}",
+                code.map_or("unknown".into(), |c| c.to_string())
+            );
+            let breach = enforce_managed_files(&ctx.project_root, managed_before);
+            if let Some(report) = &breach {
+                rendered.push('\n');
+                rendered.push_str(report);
+            }
+            let display = serde_json::json!({
                 "kind": "terminal",
                 "command": input.command,
-                "background": true,
-                "processId": process.id,
-                "output": "(后台运行中,用 process 工具查看输出)",
-            }));
+                "exitCode": code,
+                "output": text.chars().take(4000).collect::<String>(),
+                // D-237:活动面板要能看到 bash 的"实际内容",4000 截断对长输出
+                // (cargo test 等)直接丢后半段。完整输出随 display 透传,
+                // 前端 detail 展开区消费;上限 200k 防事件体被单条输出打爆。
+                "full": text.chars().take(200_000).collect::<String>(),
+            });
+            let output = if ok && breach.is_none() {
+                ToolOutput::ok(rendered)
+            } else {
+                ToolOutput::error(rendered)
+            };
+            output.with_display(display)
         }
-
-        let pid = child.id();
-
-        let mut stdout = child.stdout.take().expect("stdout piped");
-        let mut stderr = child.stderr.take().expect("stderr piped");
-        // 缓冲放在 future 外:超时把整个 future drop 掉时,已经读到的输出必须还在,
-        // 否则模型对"卡在哪一步"一无所知,只能盲目加大 timeout 重跑并重复副作用(D-062)。
-        let (mut out_buf, mut err_buf) = (Vec::new(), Vec::new());
-        let capture = {
-            let out_buf = &mut out_buf;
-            let err_buf = &mut err_buf;
-            async move {
-                // 有界读取:两条流各自最多 MAX_CAPTURE_BYTES,超出丢弃(内存红线)。
-                let (a, b) = tokio::join!(
-                    read_capped(&mut stdout, out_buf),
-                    read_capped(&mut stderr, err_buf)
-                );
-                let status = child.wait().await;
-                (status, a, b)
+        Err(_) => {
+            if let Some(pid) = pid {
+                kill_tree(pid).await;
             }
-        };
-
-        let outcome = tokio::time::timeout(timeout, capture).await;
-        match outcome {
-            Ok((status, out_capped, err_capped)) => {
-                let mut text = String::from_utf8_lossy(&out_buf).into_owned();
-                if out_capped {
-                    text.push_str("\n[stdout truncated at 1 MiB]");
-                }
-                if !err_buf.is_empty() {
-                    text.push_str("\n[stderr]\n");
-                    text.push_str(&String::from_utf8_lossy(&err_buf));
-                    if err_capped {
-                        text.push_str("\n[stderr truncated at 1 MiB]");
-                    }
-                }
-                let code = status.as_ref().ok().and_then(|s| s.code());
-                let ok = code == Some(0);
-                let text = if text.trim().is_empty() {
-                    "(no output)".to_string()
-                } else {
-                    text
-                };
-                let mut rendered = format!(
-                    "exit code: {}\n{text}",
-                    code.map_or("unknown".into(), |c| c.to_string())
-                );
-                let breach = enforce_managed_files(&ctx.project_root, managed_before);
-                if let Some(report) = &breach {
-                    rendered.push('\n');
-                    rendered.push_str(report);
-                }
-                let display = serde_json::json!({
-                    "kind": "terminal",
-                    "command": input.command,
-                    "exitCode": code,
-                    "output": text.chars().take(4000).collect::<String>(),
-                    // D-237:活动面板要能看到 bash 的"实际内容",4000 截断对长输出
-                    // (cargo test 等)直接丢后半段。完整输出随 display 透传,
-                    // 前端 detail 展开区消费;上限 200k 防事件体被单条输出打爆。
-                    "full": text.chars().take(200_000).collect::<String>(),
-                });
-                let output = if ok && breach.is_none() {
-                    ToolOutput::ok(rendered)
-                } else {
-                    ToolOutput::error(rendered)
-                };
-                output.with_display(display)
-            }
-            Err(_) => {
-                if let Some(pid) = pid {
-                    kill_tree(pid).await;
-                }
-                // 超时是可预期结果:结构化告知,并回传已捕获的输出(卡在哪一步全靠它)。
-                let mut text = format!(
+            // 超时是可预期结果:结构化告知,并回传已捕获的输出(卡在哪一步全靠它)。
+            let mut text = format!(
                     "timeout: true — command did not finish within {} ms and was killed. Retry with a larger timeout_ms if needed.",
                     timeout.as_millis()
                 );
-                let partial_out = String::from_utf8_lossy(&out_buf).into_owned();
-                let partial_err = String::from_utf8_lossy(&err_buf).into_owned();
-                if partial_out.trim().is_empty() && partial_err.trim().is_empty() {
-                    text.push_str("\n[no output captured before timeout]");
-                } else {
-                    if !partial_out.trim().is_empty() {
-                        text.push_str("\n[partial stdout before timeout]\n");
-                        text.push_str(&partial_out);
-                    }
-                    if !partial_err.trim().is_empty() {
-                        text.push_str("\n[partial stderr before timeout]\n");
-                        text.push_str(&partial_err);
-                    }
+            let partial_out = String::from_utf8_lossy(&out_buf).into_owned();
+            let partial_err = String::from_utf8_lossy(&err_buf).into_owned();
+            if partial_out.trim().is_empty() && partial_err.trim().is_empty() {
+                text.push_str("\n[no output captured before timeout]");
+            } else {
+                if !partial_out.trim().is_empty() {
+                    text.push_str("\n[partial stdout before timeout]\n");
+                    text.push_str(&partial_out);
                 }
-                // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑。
-                if let Some(report) = enforce_managed_files(&ctx.project_root, managed_before) {
-                    text.push('\n');
-                    text.push_str(&report);
+                if !partial_err.trim().is_empty() {
+                    text.push_str("\n[partial stderr before timeout]\n");
+                    text.push_str(&partial_err);
                 }
-                let display = serde_json::json!({
-                    "kind": "terminal",
-                    "command": input.command,
-                    "exitCode": serde_json::Value::Null,
-                    "timeout": true,
-                    "output": text.chars().take(4000).collect::<String>(),
-                    "full": text.chars().take(200_000).collect::<String>(),
-                });
-                // 超时不是成功:按错误返回,上层不再把它计入正常完成。
-                ToolOutput::error(text).with_display(display)
             }
+            // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑。
+            if let Some(report) = enforce_managed_files(&ctx.project_root, managed_before) {
+                text.push('\n');
+                text.push_str(&report);
+            }
+            let display = serde_json::json!({
+                "kind": "terminal",
+                "command": input.command,
+                "exitCode": serde_json::Value::Null,
+                "timeout": true,
+                "output": text.chars().take(4000).collect::<String>(),
+                "full": text.chars().take(200_000).collect::<String>(),
+            });
+            // 超时不是成功:按错误返回,上层不再把它计入正常完成。
+            ToolOutput::error(text).with_display(display)
         }
     }
 }
@@ -557,9 +636,13 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::{full_file_write_cmdlet, git_mutation_form, in_managed_dir, BashTool};
+    use super::{
+        full_file_write_cmdlet, git_mutation_form, in_managed_dir, BashTool, CommandLengthGuard,
+        FullFileWriteGuard, GitMutationGuard,
+    };
     use crate::managed::ManagedSnapshot;
     use kanzei_harness::{Tool, ToolCtx};
+    use serde_json::json;
     use std::path::PathBuf;
 
     fn temp_project(tag: &str) -> PathBuf {
@@ -1150,5 +1233,85 @@ mod tests {
             content.contains("--prompt-file"),
             "文案必须指向 --prompt-file 正路: {content}"
         );
+    }
+
+    // ══ R-244 批3:bash 三条防线在 pipeline 层(guard)拒绝 ══
+
+    fn guard_ctx() -> ToolCtx {
+        ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."))
+    }
+
+    #[test]
+    fn 防线guard_整文件覆写拒绝() {
+        use kanzei_harness::tool_pipeline::ToolGuard;
+        let g = FullFileWriteGuard;
+        assert!(g
+            .check(
+                "bash",
+                &json!({"command": "Set-Content a.txt 'x'"}),
+                &guard_ctx()
+            )
+            .is_err());
+        assert!(
+            g.check(
+                "bash",
+                &json!({"command": "Get-Content a.txt"}),
+                &guard_ctx()
+            )
+            .is_ok(),
+            "Get-Content 不误伤"
+        );
+        assert!(g
+            .check("bash", &json!({"command": "echo hi"}), &guard_ctx())
+            .is_ok());
+    }
+
+    #[test]
+    fn 防线guard_超长命令拒绝() {
+        use kanzei_harness::tool_pipeline::ToolGuard;
+        let g = CommandLengthGuard;
+        let long = "echo x".to_string() + &"a".repeat(32_000);
+        let err = g
+            .check("bash", &json!({"command": long}), &guard_ctx())
+            .unwrap_err();
+        assert!(
+            err.contains("文件中转") && err.contains("--prompt-file"),
+            "{err}"
+        );
+        assert!(g
+            .check("bash", &json!({"command": "git status"}), &guard_ctx())
+            .is_ok());
+    }
+
+    #[test]
+    fn 防线guard_git写操作拒绝读操作放行() {
+        use kanzei_harness::tool_pipeline::ToolGuard;
+        let g = GitMutationGuard;
+        assert!(g
+            .check(
+                "bash",
+                &json!({"command": "git add src/main.rs"}),
+                &guard_ctx()
+            )
+            .is_err());
+        assert!(g
+            .check(
+                "bash",
+                &json!({"command": "git commit -m 'x'"}),
+                &guard_ctx()
+            )
+            .is_err());
+        assert!(
+            g.check("bash", &json!({"command": "git status"}), &guard_ctx())
+                .is_ok(),
+            "读子命令放行"
+        );
+        assert!(g
+            .check(
+                "bash",
+                &json!({"command": "git log --oneline"}),
+                &guard_ctx()
+            )
+            .is_ok());
     }
 }

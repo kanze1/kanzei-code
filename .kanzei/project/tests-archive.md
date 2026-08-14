@@ -3431,3 +3431,10 @@
 - 摘要: R-244 B2:read 迁移走统一 pipeline 通道,read 7 passed + 全仓编译绿
 - 关联: R-244
 - 收尾: 1786740054
+
+## T-1786740723 R-244 B3 定向测试 [passed]
+- 命令: cargo test -p kanzei-tools
+- 时长: 28.0s
+- 摘要: R-244 B3:bash 三条硬防线抽成单调 Guard(整文件覆写/超长/git mutation),execute 走 pipeline;bash 19(含 3 guard 契约)+ tools 248 passed 零回归
+- 关联: R-244
+- 收尾: 1786740723

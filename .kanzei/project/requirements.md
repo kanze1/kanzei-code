@@ -205,17 +205,17 @@
 - 内容: 在 kanzei-harness 建立固定工具阶段 parse/materialize→policy allow/deny/ask→monotonic guards→execution wrappers→tool body→result policies→immutable observers；复用现有 Ruleset 普通规则、hard_denies、managed fence、timeout、progress、cancellation、recall 与 trace，不重写规则引擎。
 - 前置: R-241
 - 复杂度: 大
-- 批次: 1/5
+- 批次: 2/5
 - 来源: DeepSeek Harness tool execution pipeline 对照；Kanzei 当前阶段散落在 drive.rs 和工具内部。
 - 标签: 核心
 - 边界: 现有权限行为必须逐条保持；hard deny、托管文件与 writer ownership 属不可逆 Guard，后续 hook 不得放宽。Observer 只能观察最终结果，不得修改 ToolOutput 或反向影响执行。第一批仅迁移一个无副作用工具验证流水线，再分族迁移。
 - 阻塞: 
 - 验收: ①每阶段有独立契约测试且顺序固定；②现有 Ruleset/hard_denies 回归逐字节一致；③policy allow 不能覆盖 Guard deny，有反证测试；④timeout/cancellation/progress 只在 wrapper 实现一处；⑤observer 抛错不改变工具事实终态但留下遥测；⑥至少 read/bash/git/子代理工具走统一通道且无双执行；⑦失败、拒绝、取消路径都产生唯一 final result。
 - 优先级: P1
-- 进展: 批1 完成(2026-08-16,提交 51c797d)。harness 新模块 tool_pipeline.rs:ToolPhase 枚举(Parse/Policy/Guard/Wrap/Body/ResultPolicy/Observe)+ ToolGuard(单调防线,拒绝即拦截)+ ToolResultPolicy(就地后处理)+ ToolObserver(只读,抛错被 catch 不改终态)+ run_tool_pipeline(body 闭包参数避免递归)。契约测试 4 个:guard 拒绝不执行 body 且返回唯一拒绝结果(验收③反证)/阶段顺序固定+policy 生效/observer 抛错不改终态(验收⑤)/失败拒绝都返回唯一结果(验收⑦)。glob 迁移:execute 调 run_tool_pipeline(body=glob_body 原逻辑),guards/策略/观察者现阶段空(权限在 drive 层)。验证:harness tool_pipeline 4 passed + kanzei-tools 245 passed 零回归(T-1786739923);fmt/clippy 绿;push 已到 origin/dev。批2:read 迁移(只读族)+ 若可行 git 只读子命令;批3:bash;批4:子代理 task;批5:收口(无双执行断言 + 全量 + 验收② Ruleset 回归逐字节一致)。
-- observed_head: 51c797d2729673775a638588cef851cfce3367c2
+- 进展: 批2 完成(2026-08-16,提交 84461ec)。read 迁移走统一 pipeline(read_body 抽离,execute 调 run_tool_pipeline;R-161 fetched 回填保留在 body 内)。验证:read 7 passed + 全仓编译绿(T-1786740054);fmt/clippy 绿;push 已到 origin/dev。批3(bash,核心价值):把 bash execute 内散落的硬防线(D-113 整文件覆写/R-238 超长防护/git_mutation 拦截)抽成 ToolGuard,execute 调 pipeline(guards + body=bash_body),managed fence 结果侧逻辑保留在 body;guard 契约测试(三条防线在 pipeline 层拒绝);批4:子代理 task(SubagentBase 只读快照走 pipeline);批5:收口(无双执行断言 + Ruleset 回归逐字节一致 + 全量)。
+- observed_head: 84461ecb854f425a1f99f74e57b87e15e0b506d2
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786739965384
+- recorded_at: 1786740091159
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-244
 
 ## R-245 Tool Result Spill 与显式空间整理：完整 artifact、可恢复引用、无自动过期 [todo]
@@ -277,6 +277,8 @@
 - 标签: 流程
 - 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
 - 优先级: P2
+- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
+- 取活释放: line=kanzei/thread-line-1786740134961-1;reason=parallel-line-unregister;at_ms=1786740473264
 
 ## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [todo]
 - 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。
