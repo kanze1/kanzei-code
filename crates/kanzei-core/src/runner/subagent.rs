@@ -310,7 +310,11 @@ pub(crate) fn task_spec() -> ToolSpec {
                       optional schema: a JSON Schema — when given, the subagent must answer \
                       with JSON matching it and you receive the validated object instead of \
                       prose, so you never have to parse a summary. \
-                      Multiple task calls in one turn run in parallel."
+                      Multiple task calls in one turn run in parallel — when you have several \
+                      independent scouting/finding questions (different files, regions, or \
+                      aspects of the codebase), dispatch them as SEPARATE task calls in the \
+                      SAME turn (up to max_tasks_per_turn) instead of one at a time; parallel \
+                      dispatch is significantly faster than serial scouting."
             .into(),
         input_schema: serde_json::json!({
             "type": "object",

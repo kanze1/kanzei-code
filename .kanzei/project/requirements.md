@@ -351,14 +351,6 @@
 - 标签: 核心
 - 验收: ①timeout/cancellation/progress 三能力都只在一处 wrapper 实现,工具 body 不再含三者的实现代码;②bash 超时/进度行为与 R-244 前逐字节一致(既有测试全绿);③串行与并行执行路径共用同一 wrapper 实现;④cargo test --workspace 全绿。
 
-## R-262 task 子代理并行派发引导:强化工具描述引导同轮多派独立勘察 [todo]
-- 内容: 引擎已支持同轮多 task 并行(run_subagent_calls FuturesUnordered,max_tasks_per_turn 默认 16,测试证明 20 并行可执行),task 工具描述已有「Multiple task calls in one turn run in parallel」——但主模型使用习惯是每次只派一个 task,串行勘察效率低。优化:强化 task 工具描述与系统提示,明确引导「把相互独立的勘察/查找拆成多个 task 同一轮并行派发(上限 max_tasks_per_turn),并行显著提速」,让模型从习惯单派转向习惯多派。
-- 复杂度: 小
-- 来源: 2026-08-15 用户反馈:「每次只派一个其实效率很低可以考虑把派子代理的并行强度提高一点」,经调研确认非引擎限制而是模型使用习惯,用户拍板方向(问题2-A)
-- 标签: 核心
-- 验收: ①task 工具描述包含明确的并行派发引导(独立问题拆多个 task 同轮并行,点名上限);②系统提示/约定无与此矛盾的单派建议;③既有 task 并发测试(max_tasks_parallel_dispatch 等)全绿;④自举环境实测同轮多派可达(非只跑单测)。
-- 优先级: P2
-
 ## R-263 设置面板暴露子代理并行上限(max_tasks_per_turn) [todo]
 - 内容: 子代理并行上限 max_tasks_per_turn 目前只在 kanzei.toml [limits] 手写配置(默认 16),设置面板无入口。用户想「把派子代理的并行强度提高一点」——需要可视化入口:设置页新增「子代理并行上限」输入(数字,1~N),保存写入 kanzei.toml [limits] max_tasks_per_turn(向后兼容 serde default),并透传生效。
 - 复杂度: 中

@@ -3549,3 +3549,9 @@
 - 摘要: R-261 关闭前全量:workspace 全绿(kanzei-tools 251 含新守护测试,kanzei-app 163)。
 - 关联: R-261
 - 收尾: 1786745728
+
+## T-1786745928 cargo test core subagent + task 并发集成 (R-262) [passed]
+- 命令: cargo test -p kanzei-core runner::subagent && cargo test -p kanzei --test max_tasks_parallel_dispatch && cargo test -p kanzei --test parallel_scouting_under_serial_writer
+- 摘要: R-262 task 描述强化:core subagent 7 绿 + max_tasks_parallel_dispatch(20 并行实测) + parallel_scouting 全绿。描述新增「独立勘察拆多个 task 同轮并行(上限 max_tasks_per_turn),并行显著快于串行」。全仓无矛盾单派建议。
+- 关联: R-262
+- 收尾: 1786745928
