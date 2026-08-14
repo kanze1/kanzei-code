@@ -32,6 +32,8 @@ pub mod tracker;
 mod webfetch;
 mod websearch;
 pub mod work;
+/// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。
+pub mod worktree;
 mod write;
 
 pub mod profiles;
