@@ -133,11 +133,11 @@
 - 验收: ①每段可独立单测;②cargo test --workspace 全绿;③两函数主体各降到 300 行以下。
 - refs: R-153 R-155
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-202
-- 批次: 3/5
-- 进展: 批3 完成(2026-08-16)。run_once_with_parts 侦察完毕(108-1436,主体 1328 行):装配(127-252)/主循环(253-1423:步首检查点·预算·请求重试·消息提交·task 子代理·工具批执行·note_step·收尾检查点)/最终收尾。3a:请求重试段(382-587)抽为 stream_request_step + StepOutcome 枚举——request 重建/建流/SSE 消费/overflow·transport 重放整体搬入,可变运行态(calibration/last_input_tokens/total_usage/overflow_recoveries/overflow_traces/messages)经 &mut 传入,halted_mid_stream 提前退出改由 StepOutcome::Stopped 表达、调用方构造与原先逐字段相同的 RunSummary;run_once_with_parts 主体 1328→1160 行(提交 a379116)。行为零变更:事件顺序/错误传播/停止语义逐点核对,唯一适配是 system.to_vec()/specs 直传/解引用赋值。验证:cargo test -p kanzei-core 186 passed(T-1786727002);fmt/clippy 全绿;push 已到 origin/dev。批4:工具批执行段(task 子代理段 635-842 + can_parallel_tools 预检/并行 wave/串行路径)抽函数;批5:收口补独立单测(验收①)与 cargo test --workspace 全量(验收②)。
-- observed_head: a37911620c262b4c597e853fc68536c078ffc8a3
+- 批次: 3/7
+- 进展: 批4 完成(2026-08-16)。task 子代理段(原 470-676)抽为 run_subagent_calls:前台 FuturesUnordered 并行 + 后台立即 spawn 派发 + max_tasks 溢出上限 + D-342 取消占位补齐全部搬入,返回 task_results 表;run_once_with_parts 主体 1160→960 行(提交 a8fbc7d)。行为零变更:事件顺序(ToolStart/ToolEnd/progress 通道转发)/后台 R-175 生命周期落库/停止占位语义逐点核对。验证:cargo test -p kanzei-core 186 passed(T-1786727211);fmt/clippy 全绿;push 已到 origin/dev。批次调整为 3/7:批5 普通工具执行段(can_parallel_tools 预检/并行 wave/串行路径,原 679-1219)抽 execute_tool_calls;批6 收尾段(消息提交/note_step/检查点/最终构造)与 run_once_with_parts 主体 <300 行确认(验收③);批7 独立单测(验收①)+ cargo test --workspace 全量(验收②)。
+- observed_head: a8fbc7dee6800f9c46f018d8d288129130db7a66
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786727027471
+- recorded_at: 1786727270003
 
 ## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
 - 优先级: P0
