@@ -3367,3 +3367,10 @@
 - 摘要: R-183 B1:非交互决策纯函数三态+allowlist 解析+parse_run_args --allow(kanzei 26 passed)+config 三态/fail-closed(50 passed)
 - 关联: R-183
 - 收尾: 1786729486
+
+## T-1786731021 R-183 B2 定向测试 [passed]
+- 命令: cargo test -p kanzei-harness --lib permission:: && cargo test -p kanzei-core && cargo test -p kanzei --bin kz && cargo test -p kanzei-app
+- 时长: 20.0s
+- 摘要: R-183 B2 轨迹规则原文:permission 30(含 evaluate_with_rule 3 个)+ core 193 + kanzei 26 + app 160 全过;fmt/clippy 绿
+- 关联: R-183
+- 收尾: 1786731021

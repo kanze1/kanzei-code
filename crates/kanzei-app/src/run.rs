@@ -640,6 +640,7 @@ fn build_event_handler(
                 resource,
                 decision,
                 source,
+                ..
             } => {
                 record_live_trace_at_path(
                     &trace_state_path_for_events,

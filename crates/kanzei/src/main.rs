@@ -593,17 +593,23 @@ async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             );
         }
         // 规则直接判定的不打扰终端;需要人介入或被硬门禁挡下的才出声(D-173)。
+        // R-183:deny/会话层决策打印命中的规则原文(验收④轨迹)。
         RunEvent::PermissionResolved {
             action,
             resource,
             decision,
             source,
+            rule,
             ..
         } => {
             if source != "ruleset" || decision == "deny" {
+                let rule_text = rule
+                    .as_deref()
+                    .map(|r| format!(" [规则: {r}]"))
+                    .unwrap_or_default();
                 let _ = writeln!(
                     stdout,
-                    "  \x1b[90m权限 {action} {resource} → {decision}({source})\x1b[0m"
+                    "  \x1b[90m权限 {action} {resource} → {decision}({source}){rule_text}\x1b[0m"
                 );
             }
         }

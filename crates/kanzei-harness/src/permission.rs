@@ -155,6 +155,39 @@ impl Ruleset {
         rule.effect
     }
 
+    /// R-183:与 [`evaluate`] 同一判定,额外返回命中的普通规则原文(last-match-wins)。
+    ///
+    /// - 硬 deny 优先,此时无普通规则可归属 → `(Deny, None)`;
+    /// - 无普通规则匹配 → `(Ask, None)`;
+    /// - 命中普通规则 → `(effect, Some(rule))`;D-051 把 allow 降级为 Ask 时规则
+    ///   仍如实返回(它确实是"命中的规则",只是被 chaining 防线挡了)。
+    pub fn evaluate_with_rule(&self, action: &str, resource: &str) -> (Effect, Option<&Rule>) {
+        if self.hard_denies.iter().any(|r| {
+            wildcard_match(&r.action, action)
+                && resource_match_for_action(action, &r.resource, resource)
+        }) {
+            return (Effect::Deny, None);
+        }
+        let matched = self.rules.iter().rev().find(|r| {
+            wildcard_match(&r.action, action)
+                && resource_match_for_action(action, &r.resource, resource)
+        });
+        let Some(rule) = matched else {
+            return (Effect::Ask, None);
+        };
+        if rule.effect == Effect::Allow
+            && command_chaining_escapes(action, resource, &rule.resource)
+        {
+            // D-051:通配规则默认降级 Ask。R-198:若规则是「程序名+参数前缀」
+            // 形态且命令安全匹配(程序名一致、无 shell 结构、参数前缀通配命中),
+            // 则放行——这是显式的中间档位,不再是整串通配的隐患。
+            if !(action == BASH_ACTION && bash_prefix_match(&rule.resource, resource)) {
+                return (Effect::Ask, Some(rule));
+            }
+        }
+        (rule.effect, Some(rule))
+    }
+
     /// 某 action 是否被整体 deny(resource "*")——materialize 时直接摘掉该工具。
     pub fn action_fully_denied(&self, action: &str) -> bool {
         matches!(self.evaluate(action, "*"), Effect::Deny)
@@ -1055,5 +1088,60 @@ mod tests {
         }]);
         assert!(rs.action_fully_denied("task"));
         assert!(!rs.action_fully_denied("bash"));
+    }
+
+    // ══ R-183:评估带命中规则原文(验收④轨迹)══
+
+    #[test]
+    fn evaluate_with_rule_命中返回规则原文() {
+        let rs = Ruleset::new(vec![
+            Rule {
+                action: "bash".into(),
+                resource: "git *".into(),
+                effect: Effect::Allow,
+            },
+            Rule {
+                action: "bash".into(),
+                resource: "git status".into(),
+                effect: Effect::Allow,
+            },
+        ]);
+        let (effect, rule) = rs.evaluate_with_rule("bash", "git status");
+        assert_eq!(effect, Effect::Allow);
+        // last-match-wins:后注册的 `git status` 命中。
+        let rule = rule.expect("命中规则应返回");
+        assert_eq!(rule.resource, "git status");
+        assert_eq!(rule.action, "bash");
+        assert_eq!(rule.effect, Effect::Allow);
+    }
+
+    #[test]
+    fn evaluate_with_rule_硬deny无普通规则归属() {
+        // 硬 deny 优先:hard_denies 里的规则先判。
+        let mut rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "git status".into(),
+            effect: Effect::Allow,
+        }]);
+        rs.push_hard_deny(Rule {
+            action: "bash".into(),
+            resource: "*".into(),
+            effect: Effect::Deny,
+        });
+        let (effect, rule) = rs.evaluate_with_rule("bash", "git status");
+        assert_eq!(effect, Effect::Deny);
+        assert!(rule.is_none(), "硬 deny 无普通规则可归属");
+    }
+
+    #[test]
+    fn evaluate_with_rule_无匹配返回_ask且无规则() {
+        let rs = Ruleset::new(vec![Rule {
+            action: "bash".into(),
+            resource: "git *".into(),
+            effect: Effect::Allow,
+        }]);
+        let (effect, rule) = rs.evaluate_with_rule("bash", "cargo test");
+        assert_eq!(effect, Effect::Ask);
+        assert!(rule.is_none());
     }
 }

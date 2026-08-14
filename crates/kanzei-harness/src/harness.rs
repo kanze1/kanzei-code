@@ -191,6 +191,15 @@ impl HarnessSnapshot {
         self.draft.permissions.evaluate(action, resource)
     }
 
+    /// R-183:与 [`evaluate`] 同一判定,额外返回命中的规则原文(可审计轨迹用)。
+    pub fn evaluate_with_rule(
+        &self,
+        action: &str,
+        resource: &str,
+    ) -> (Effect, Option<&crate::permission::Rule>) {
+        self.draft.permissions.evaluate_with_rule(action, resource)
+    }
+
     /// 档位权限快照(R-102):列出每个已注册工具的整体决策。
     ///
     /// 快照语义 = 该工具在 `*` 资源上的最终效果(Allow/Deny/Ask),以及它是否被

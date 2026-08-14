@@ -89,6 +89,9 @@ pub enum RunEvent {
         decision: &'static str,
         /// ruleset | session_approved | session_rule | user
         source: &'static str,
+        /// R-183:命中的规则原文(仅 source=ruleset 且命中普通规则时有值;
+        /// 硬 deny / 无规则匹配 / 会话层决策为 None)。用于可审计轨迹。
+        rule: Option<String>,
     },
     /// 流建立前的临时网络错误重试,不会重放已建立流或工具副作用。
     Retry {

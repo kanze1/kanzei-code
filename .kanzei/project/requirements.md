@@ -43,13 +43,13 @@
 - 验收: ①`kz run` 在 worktree 里后台运行(stdin 关闭)能完成一次真实的「改代码 → `cargo test` → 提交」闭环,不因权限被拒而中断;②非交互默认策略三态各有测试,**缺省仍是 `deny`**(不改变现有用户的行为,旧配置无该键时行为不变);③从 worktree 运行时,主根的 permission 规则能命中(有测试直接断言同一条规则在主根与 worktree 下匹配结果一致);④每次自动放行有可查轨迹,含命中的规则原文;⑤无 TTY 检测本身有测试(不是靠"读到 EOF"倒推)。
 - 依赖: 
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-183
-- 进展: 2026-08-16 认领(engine 按 defect-first 队首)。侦察结论:config.rs:455-625 已实现 NonInteractive 三态(Deny/RulesOnly/AllowListed)+ parse + 缺省 Deny + 不可识别告警;AskPolicy(kanzei-core runner/mod.rs:58)已具 Interactive/NonInteractive/AutoAllow;但 kz run 主路径(main.rs:346)恒 AskPolicy::Interactive,非 TTY 时 ask 闭包(541-593)读 stdin EOF → Deny——验收①的核心缺口;PermissionResolved(core event.rs:84)只有 action/resource/decision/source,不含规则原文(验收④缺口);RunArgs(main.rs:101)无 allowlist 载体(验收① allow-listed 档缺口);Ruleset::evaluate 返回 Effect 不返回命中规则(验收④缺口)。批次:1=CLI 非交互分流(ask 闭包按 non_interactive_policy 分流 + --allow flag + 三态/检测测试,验收②⑤);2=轨迹含规则原文(evaluate_with_rule + PermissionResolved.rule + CLI 汇总,验收④);3=worktree 主根规则命中测试 + 非交互闭环集成验证 + 全量(验收①③)。
+- 进展: 批1 完成(2026-08-16,提交 caa9d62)。kz run 主路径接入 non_interactive_policy:①interactive_stdin()(stdin.is_terminal 显式检测,非 TTY=非交互,验收⑤不靠读 EOF 倒推);②non_interactive_decision() 纯函数——Deny/RulesOnly 拒、AllowListed 查 --allow allowlist(resource_match_for_action 与规则同一把尺,非结构化 pattern 不授权结构化 bash 资源,D-269 口径);③RunArgs 加 --allow action:resource(可重复),parse_run_args 消费;④ask 闭包 Permission 分支非交互时不读 stdin,按策略决策(拒绝/放行都走 drive 层 PermissionResolved 落轨迹)。测试:config.rs 补三态解析 + 缺省/非法 fail-closed 回落 deny + 告警(验收②,2 个);main.rs 补决策三态/allowlist 命中·未命中·action 不匹配/纯字符串不授权结构化/parse_allowlist/--allow 解析(8 个)。kanzei 26 passed、harness config 50 passed;fmt/clippy 全绿。批2:轨迹含命中的规则原文(验收④)——Ruleset::evaluate_with_rule + RunEvent::PermissionResolved.rule + CLI 打印/汇总;批3:worktree 主根规则命中测试(验收③)+ 非交互闭环集成验证(验收①)+ 全量。
 - 阻塞: 
-- observed_head: 8c82a33e0512f799eedf3d10be164e5a8305e510
+- observed_head: caa9d6243713e112d1ef5a60ba0424f6edf5ed1a
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786728562698
+- recorded_at: 1786729519214
 - 进展: [reopen 2026-08-14] D-359 修复后用正路退回:原阻塞(让位 D-332)的解除条件早已达成(D-332 已 fixed 归档);本条 doing 是 engine 自动认领留下的空档,进展字段自述从未开工、无进展锚点。退回 todo 按 P0 重新入队,不再靠往阻塞字段塞理由把它挪出 WIP 槽。
-- 批次: 0/3
+- 批次: 1/3
 
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2

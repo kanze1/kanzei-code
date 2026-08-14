@@ -8,6 +8,11 @@
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
 
+/// R-183:命中规则的展示原文,用于 PermissionResolved.rule 轨迹(验收④)。
+fn describe_rule(rule: &kanzei_harness::permission::Rule) -> String {
+    format!("{} `{}` => {:?}", rule.action, rule.resource, rule.effect)
+}
+
 /// D-342:停止信号等待器。halt 未配置时永不就绪——select 里这个分支等价于不存在,
 /// CLI(无停止通道)与引入前逐字节同行为。
 async fn halt_signalled(halt: Option<&CancellationToken>) {
@@ -969,12 +974,18 @@ async fn execute_tool_calls(
                 })
                 .find(|resource| snapshot.evaluate(action, resource) == Effect::Deny);
             if let Some(resource) = denied {
+                // R-183:deny 判定带命中的规则原文(验收④轨迹;硬 deny 无普通规则 → None)。
+                let rule = snapshot
+                    .evaluate_with_rule(action, &resource)
+                    .1
+                    .map(describe_rule);
                 on_event(RunEvent::PermissionResolved {
                     tool_call_id: id.clone(),
                     action: action.to_string(),
                     resource: resource.clone(),
                     decision: "deny",
                     source: "ruleset",
+                    rule,
                 });
                 let output = kanzei_harness::ToolOutput::error(format!(
                     "permission denied by ruleset: {action} on `{resource}`.\n{}",
@@ -1188,24 +1199,26 @@ async fn execute_tool_calls(
                 // `*` 才能活到 pattern 成形,D-051 的串联降级才不会被绕开。
                 let normalized =
                     kanzei_harness::permission::normalize_resource_for_action(action, &resource);
-                let mut resolved = |decision, source| {
+                // R-183:ruleset 判定带命中的规则原文(验收④轨迹)。
+                let mut resolved = |decision, source, rule: Option<String>| {
                     on_event(RunEvent::PermissionResolved {
                         tool_call_id: id.clone(),
                         action: action.to_string(),
                         resource: normalized.clone(),
                         decision,
                         source,
+                        rule,
                     });
                 };
-                match snapshot.evaluate(action, &normalized) {
-                    Effect::Deny => {
-                        resolved("deny", "ruleset");
+                match snapshot.evaluate_with_rule(action, &normalized) {
+                    (Effect::Deny, rule) => {
+                        resolved("deny", "ruleset", rule.map(describe_rule));
                         gate_result = Gate::Deny(normalized);
                         break;
                     }
-                    Effect::Ask => pending_ask.push(normalized),
-                    Effect::Allow => {
-                        resolved("allow", "ruleset");
+                    (Effect::Ask, _) => pending_ask.push(normalized),
+                    (Effect::Allow, rule) => {
+                        resolved("allow", "ruleset", rule.map(describe_rule));
                     }
                 }
             }
@@ -1219,6 +1232,8 @@ async fn execute_tool_calls(
                             resource: resource.clone(),
                             decision,
                             source,
+                            // R-183:会话层/策略层决策无规则原文可归属。
+                            rule: None,
                         });
                     };
                     if session_approved.contains(&key) {
