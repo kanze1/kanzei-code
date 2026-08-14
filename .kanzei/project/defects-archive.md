@@ -4015,7 +4015,6 @@
 - 优先级: P1
 - 取活依据: override:用户明确报告更新后 D-348 验收失败，先于 R-241 修复实际可读性与发布边界。
 - 进展: 用户已安装正式版本 build-ddc3ae4 并于 2026-08-14 明确回复“好了”，确认亮色主题实机验收通过；发布物提交、SHA-256、Chromium 明暗主题与全量门禁证据见前序进展。
-- 阻塞: 
 - observed_head: fadca1bb39624d0a77795c1c160265b4c5cfe954
 - observed_worktree_hash: fnv1a64:60d770116d544c70
 - recorded_at: 1786668580363
@@ -4061,3 +4060,22 @@
 - observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
 - observed_worktree_hash: fnv1a64:ca27b1fc4343f6d7
 - recorded_at: 1786670184191
+
+## D-209 对话轮内事实与中断 assistant 草稿无法增量恢复 [fixed] (high)
+- refs: D-208 D-185 D-342 R-236 docs/design/deepseek_harness_upgrade.md
+- 原始描述: 用户 2026-08-09 原话"落库对话粒度太粗"(与活动栏回放问题同时反馈)。
+- 机制现状(供收敛方向): ①对话持久化是 `conversation.updated` 事件整份 messages 快照替换,轮内不落盘,恢复只能回到轮边界;②工具轨迹 run.trace 只在收尾 flush 一次(D-179 补了停止路径,但仍是整轮一包);③episodes 是轮级摘要。三层都是"轮"粒度,轮内的中间态(改到一半、流式输出中断点)不可恢复、不可检索。
+- 待澄清: 已澄清(2026-08-14):用户确认三项都属于真实痛点——恢复会丢轮内进度、工具轨迹缺少可回放顺序、历史只能按整轮获取；同时要求保留生成到一半的可见 assistant 内容，以复盘中断原因。
+- 验收: ①user message、assistant 可见文本、tool call/result 和 turn 终态按原子 sequence 增量持久化，重启投影顺序确定；②强杀发生在流式生成中时，重启可看到已持久化的未完成草稿、明确 interrupted 标识和最后检查点，不能显示为完整回答；③多工具只完成一部分时，已完成结果保留，未完成调用闭合为 interrupted，禁止自动重放有副作用工具；④conversation_get、模型 prior、活动/审计投影对同一事件序列给出一致事实；⑤D-342 正常停止路径回归保持通过。
+- 证据等级: E3(用户再次确认三项痛点和部分生成恢复需求；现有轮级机制已读码核实)
+- 优先级: P1
+- 标签: 核心
+- 进展: 已由 R-241 完整修复。user、assistant 可见草稿/commit、tool call/result、turn terminal 依序增量落 session_events；最近成功草稿批次可在重启后投影为明确 interrupted assistant，模型 surface 不把它伪装成完整回答；open tool 恢复为 interrupted 且不重放副作用；权限拒绝、工具错误和多工具部分完成均有确定结果配对。只读 shadow 与逐轮报告已接入，旧读路径保留。T-1786672324：D-342 停止/Ctrl+C 3 项、全 workspace、clippy all-targets 全绿。
+- 阻塞: 无
+- 修复方向: 以 SQLite typed session events 为运行时会话真源；user/assistant/tool/终态按发生顺序增量落库。可见 assistant 流式内容按有界批次追加 draft chunk，最终追加 committed 或 interrupted 终态；中断草稿可在 UI/审计中回放，但不伪装成完整 assistant message。
+- 影响: 崩溃、停止或异常中断后，已发生的轮内事实和部分生成内容不能被完整恢复；下一轮模型、用户历史与审计视图看到的事实可能不一致。D-342 已修正常停止的整轮写回，但不能替代逐事件持久化和异常中断恢复。
+- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
+- observed_worktree_hash: fnv1a64:aa29e71147a914cf
+- recorded_at: 1786672416153
+- 取活依据: override:用户 2026-08-16 交互轮批准(上一轮 claim 被 autonomous 档位权限拦截,已加白名单 facbca6 并提交);引擎 defect-first 裁决队首即为 D-209,调研已完成,按 R-241 第一批实现 typed events + shadow projector
+- 批次: 4/4

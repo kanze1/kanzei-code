@@ -288,24 +288,6 @@
 - 标签: 流程
 - 验收: 可按需求类型与复杂度查看运行及完成过程指标，并统计所用 token，支持上下文与 harness 优化分析。
 
-## R-241 Session 事件真源与 Shadow Projection：typed event、流式草稿恢复、legacy 迁移 [doing]
-- refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
-- 内容: 冻结最小 typed event 词表与 format_version；为每会话分配原子 sequence；user message、assistant draft chunk/commit、tool call/result、turn stop/complete/fail 按发生顺序双写；从最新 legacy conversation.updated 快照生成带 provenance 的 seed；新增只读 shadow projector，与现有 messages 快照逐轮比较，第一批不切换 UI 和模型 prior。
-- 复杂度: 大
-- 批次: 4/4
-- 来源: 2026-08-14 DeepSeek Harness 对照评审与用户边界确认；参考 docs/reference/deepseek_harness_reference_20260814.md。
-- 标签: 核心
-- 边界: SQLite 是运行时会话、事件、线路、运行状态真源；Markdown 只用于需求/缺陷/设计/长期记忆及会话导出，不作为高频事件真源。不逐 token 落库，assistant 可见增量按有界时间/字节批次持久化为 draft；draft 只有 committed 后才成为正式 assistant message，中断则保留为 interrupted 诊断记录。第一批不停止 conversation.updated、不切 UI、不改 Compaction 存储语义。
-- 迁移与回滚: 新增 schema/version 与索引必须提供 Alembic 等价的 Rust SQLite 迁移、升级前备份和旧数据兼容；legacy 导入幂等且不伪造历史细节。Shadow 阶段保留旧读写路径，关闭新双写即可回滚；投影缓存可删除重建，原事件不得依赖缓存。
-- 阻塞: 
-- 验收: ①并发追加 sequence 不重号不丢号；②user/assistant draft/tool/终态每类事件均有 round-trip 测试；③生成中强杀后可回放有界的 interrupted assistant 草稿，且模型 prior 不把它当完整回答；④legacy 导入重复执行幂等并保留 provenance；⑤projector 从同一日志重复回放逐字节一致；⑥shadow comparison 对正常、停止、权限拒绝、工具错误、多工具部分完成路径给出差异报告；⑦SessionInvariant 在提交前拒绝重复 result、跨 step 配对和非法终态。
-- 优先级: P0
-- 取活依据: override:用户确认 D-351 实机验收通过并明确授权取活 R-241，2026-08-14。
-- 进展: B1-B4 已完成。冻结 format_version=1 typed facts，提交前 invariant + SQLite 原子 batch；runner 在 assistant commit/tool results 进入 history 的语义边界发事件，CLI/桌面双写；草稿按 2048字符或750ms 批次持久化，stream restart/进程重启/停止/失败闭合为 interrupted/terminal 且不重放工具；legacy seed 幂等保留 provenance；确定性 surface/transcript projector 与 conversation_shadow_get/逐轮 session.shadow_compared 已交付，旧 conversation_get 和模型 prior 未切换；复用 session_events，无 schema 迁移。T-1786672324：D-342 定向停止、全 workspace 和 clippy all-targets 全绿。
-- observed_head: 1550b9ceb9229ef1512b89d8f1e05543bdf38af9
-- observed_worktree_hash: fnv1a64:aa29e71147a914cf
-- recorded_at: 1786672415435
-
 ## R-242 会话真源切换、确定性清空删除与投影恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
 - 依赖: R-241
