@@ -3589,3 +3589,9 @@
 - 关联: D-366
 - 收尾: 1786748277
 - 源码指纹: 107d059216338161
+
+## T-1786748359 cargo test -p kanzei-memory (D-366 B2) [passed]
+- 命令: cargo test -p kanzei-memory
+- 摘要: D-366 B2 验证:memory crate 129 测试全绿(128+新增 decision_weight 边界测试;含检索行为快照 top-k 对照、零采纳沉底/preference 豁免经 index、失步守护/shadow 过滤经候选集);grep 机械核验通过(decision_weight 定义与调用、score 加权只在 index.rs)
+- 关联: D-366
+- 收尾: 1786748359
