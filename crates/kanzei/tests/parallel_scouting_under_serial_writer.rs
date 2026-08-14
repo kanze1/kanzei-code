@@ -22,7 +22,11 @@ use tokio::net::TcpListener;
 
 /// 收一个请求、回一条 SSE 响应,返回原始请求字节(用于断言发出去的工具清单)。
 async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
-    let (mut stream, _) = listener.accept().await.unwrap();
+    // 桩服务器绝不无限等待:请求数一旦对不上,要的是变红而不是挂死整个门禁。
+    let (mut stream, _) = tokio::time::timeout(std::time::Duration::from_secs(20), listener.accept())
+        .await
+        .expect("等待模型请求超时。多半是生产侧的轮次数变了(例如权限被拒导致本轮提前收口),桩服务器还在等下一次请求——改测试对齐新契约,不要让 cargo test --workspace 静默挂死")
+        .unwrap();
     let mut request = Vec::new();
     let mut chunk = [0_u8; 4096];
     let header_end = loop {

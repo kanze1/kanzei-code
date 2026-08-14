@@ -39,7 +39,11 @@ async fn read_request(stream: &mut TcpStream) -> Value {
 async fn serve_sequence(listener: TcpListener, responses: Vec<Value>) -> Vec<Value> {
     let mut requests = Vec::new();
     for response in responses {
-        let (mut stream, _) = listener.accept().await.unwrap();
+        // 桩服务器绝不无限等待:请求数一旦对不上,要的是变红而不是挂死整个门禁。
+        let (mut stream, _) = tokio::time::timeout(std::time::Duration::from_secs(20), listener.accept())
+        .await
+        .expect("等待模型请求超时。多半是生产侧的轮次数变了(例如权限被拒导致本轮提前收口),桩服务器还在等下一次请求——改测试对齐新契约,不要让 cargo test --workspace 静默挂死")
+        .unwrap();
         requests.push(read_request(&mut stream).await);
         let body = format!("data: {response}\n\ndata: [DONE]\n\n");
         let head = format!(

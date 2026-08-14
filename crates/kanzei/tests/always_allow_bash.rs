@@ -9,6 +9,32 @@ use tokio::process::Command;
 
 mod common;
 
+/// 桩服务器等一次模型请求的上限。
+///
+/// 没有它的时候,这几个测试的 `server.await` 是**无条件**等第 N 次请求的:一旦生产侧
+/// 的轮次数变了(R-183 B1 把「无 TTY = 非交互 = 默认拒绝」立成契约,被拒的那一轮直接
+/// 收口,第二次请求再也不会来),`accept()` 就永远挂在那里。后果不是某个测试变红,
+/// 是 `cargo test --workspace` 整个卡死、一行输出都没有——门禁从「会报错」退化成
+/// 「会静默挂起」,比测试失败危险得多。超时之后至少能指着名字说是谁没等到。
+const SERVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// 等一次模型请求并回一段 SSE。超时即 panic,绝不无限等待。
+async fn serve_response_within(
+    listener: &TcpListener,
+    response: serde_json::Value,
+    label: &str,
+) -> Vec<u8> {
+    match tokio::time::timeout(SERVE_TIMEOUT, serve_response(listener, response)).await {
+        Ok(request) => request,
+        Err(_) => panic!(
+            "等待「{label}」模型请求超过 {}s 仍未到达。多半是生产侧的轮次数变了\
+             (例如权限被拒导致本轮提前收口),桩服务器还在等下一次请求——\
+             改测试对齐新契约,不要靠加时间蒙混过去。",
+            SERVE_TIMEOUT.as_secs()
+        ),
+    }
+}
+
 async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> Vec<u8> {
     let (mut stream, _) = listener.accept().await.unwrap();
     let mut request = Vec::new();
@@ -46,8 +72,24 @@ async fn serve_response(listener: &TcpListener, response: serde_json::Value) -> 
     request
 }
 
+/// R-183 的非交互执行通道走通一整轮:无 TTY 下按 `allow_listed` 档 + `--allow` 放行,
+/// bash 真的执行、文件真的落地、本轮正常收口。
+///
+/// 这条测试原来叫 `cli_always_allow_persists_structured_bash_rule_and_executes_it`,
+/// 走的是「喂 `a\n` → 交互式 always-allow → 持久化规则 → 执行」。R-183 B1(caa9d62)
+/// 把契约改成 **stdin 不是 TTY 就一律非交互**,而测试用的是 `Stdio::piped()`——
+/// 那条路从此走不到:`a` 永远不会被读,权限按缺省 deny 拒掉,bash 不执行,本轮提前收口,
+/// 于是桩服务器永远等不到第二次请求,`cargo test --workspace` 整个挂死。
+/// (契约变了却没同批改测试,这是 R-183 B1 的遗留。)
+///
+/// 交互式 always-allow 需要真 PTY/ConPTY 才能端到端跑,不是这套夹具能覆盖的;
+/// 它的**持久化与规则形态**已由 main.rs 的两个单测钉住
+/// (`persist_always_allow_returns_always_only_after_successful_write` /
+/// `persist_always_allow_does_not_grant_when_config_write_fails`)。
+/// 所以这里改测同一条链路上今天真实存在、且此前只有单测覆盖的那一段:
+/// 非交互放行 → bash 执行 → 收口。断言强度不降(仍然验「真的执行了」与「本轮成功」)。
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
+async fn cli_allow_listed_executes_bash_without_tty() {
     let suffix = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -65,7 +107,7 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
     std::fs::write(
         project.join(".kanzei/kanzei.toml"),
         format!(
-            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address}/v1\"\n"
+            "[models]\nprimary = \"mock:test-model\"\n\n[providers.mock]\nprotocol = \"openai\"\nbase_url = \"http://{address}/v1\"\n\n[permissions]\nnon_interactive = \"allow_listed\"\n"
         ),
     )
     .unwrap();
@@ -97,12 +139,15 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
     let server = tokio::spawn(async move {
-        serve_response(&listener, first_response).await;
-        serve_response(&listener, second_response).await;
+        serve_response_within(&listener, first_response, "第一轮 · 派发 bash").await;
+        serve_response_within(&listener, second_response, "第二轮 · 工具结果回喂").await;
     });
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
-    cmd.args(["run", "执行 bash E2"]).current_dir(&project);
+    // `--allow bash:*` = 操作员对本次运行显式放行 bash。这是 R-183 给无人值守留的正门:
+    // 不改配置里的常驻规则、不落盘,只对这一次进程有效。
+    cmd.args(["run", "--allow", "bash:*", "执行 bash E2"])
+        .current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
     home_guard.apply(&mut cmd);
     let mut child = cmd
@@ -115,9 +160,8 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let mut stdin = child.stdin.take().unwrap();
-    stdin.write_all(b"a\n").await.unwrap();
-    drop(stdin);
+    // stdin 立刻关掉:非 TTY 且无输入,正是脚手架/CI 派发 kz 的形态。
+    drop(child.stdin.take().unwrap());
     let output = child.wait_with_output().await.unwrap();
     server.await.unwrap();
 
@@ -131,22 +175,21 @@ async fn cli_always_allow_persists_structured_bash_rule_and_executes_it() {
         std::fs::read_to_string(project.join("marker.txt"))
             .unwrap()
             .trim(),
-        "kz-e2"
+        "kz-e2",
+        "非交互放行档下 bash 必须真的执行(这是 R-183 无人值守通道的全部意义)"
     );
 
+    // 反证:本次放行是**一次性**的,不得偷偷落成常驻规则。--allow 的语义是
+    // 「这一次运行」,写进 kanzei.toml 就等于把临时授权变成永久授权。
     let config_text = std::fs::read_to_string(project.join(".kanzei/kanzei.toml")).unwrap();
     let saved: KanzeiConfig = toml::from_str(&config_text).unwrap();
-    let rule = saved
-        .permissions
-        .rules
-        .iter()
-        .find(|rule| rule.action == "bash")
-        .expect("CLI should persist the bash permission");
-    let resource: serde_json::Value = serde_json::from_str(&rule.resource).unwrap();
-    assert_eq!(resource["command"], "echo kz-e2 > marker.txt");
-    assert_eq!(
-        resource["workdir"],
-        kanzei_harness::permission::normalize_resource(&project.display().to_string())
+    assert!(
+        !saved
+            .permissions
+            .rules
+            .iter()
+            .any(|rule| rule.action == "bash"),
+        "--allow 是本次运行的一次性放行,不该被持久化成 bash 规则:{config_text}"
     );
 
     std::fs::remove_dir_all(root).unwrap();
@@ -203,7 +246,8 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         }],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
-    let server = tokio::spawn(async move { serve_response(&listener, response).await });
+    let server =
+        tokio::spawn(async move { serve_response_within(&listener, response, "单轮").await });
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd.args(["run", "拒绝第二个工具"]).current_dir(&project);
@@ -303,7 +347,9 @@ async fn cli_declined_permission_persists_paired_tool_results() {
         }],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
-    let server2 = tokio::spawn(async move { serve_response(&listener2, response2).await });
+    let server2 = tokio::spawn(async move {
+        serve_response_within(&listener2, response2, "第二次运行").await
+    });
     let mut cmd2 = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd2.args(["run", "拒绝后继续对话"]).current_dir(&project);
     // 全局根隔离(见 tests/common/mod.rs,R-200):三连缺一即退回读开发者真实配置(D-292)。
@@ -386,7 +432,8 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
         }],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1}
     });
-    let server = tokio::spawn(async move { serve_response(&listener, response).await });
+    let server =
+        tokio::spawn(async move { serve_response_within(&listener, response, "单轮").await });
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_kz"));
     cmd.args(["run", "继续旧会话"]).current_dir(&project);

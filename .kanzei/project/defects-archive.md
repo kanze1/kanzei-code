@@ -4196,7 +4196,6 @@
 - 验收: ①只含删除行的占位符 diff 放行(单测:diff 仅 `-` 行带占位符 → Ok);②新增行占位符仍被拒(既有断言保持绿);③diff 文件头 `--- a/xxx` `+++ b/xxx` 不参与判定;④同一 diff 里既删旧占位符又加新占位符时仍拒。
 - 优先级: P2
 - 进展: 2026-08-14 修复完成。git.rs placeholder_id_gate 的扫描面从「diff 全部行」收窄到「新增行」:先 strip_prefix('+'),再剔掉以 ++ 开头的文件头(+++ b/path),剩下的才过占位符判据。原来的写法连删除行和上下文行都扫——删除行里的占位符正是这次提交要清掉的东西,连它一起拒等于门禁把自己配套的清理通道(archive_fill 回填)堵死;更隐蔽的是 hunk 上下文行(空格开头)也在扫描面里,一条恰好落在改动附近的历史占位符就能让无关提交一直被拒。四条验收逐条对照:①只含删除行的占位符 diff 放行——新测试用例 cleanup(删带占位符的旧行、加带真值的新行,正是 archive_fill 之后的形态)断言 is_ok;②新增行占位符仍被拒——原用例的内容行改成正确的 diff 形态(+ 开头)后照旧断言 unwrap_err 且点名 T-1786565xxx;③diff 文件头不参与判定——新用例 header_only 把占位符放进 --- a/ 与 +++ b/ 的路径里,断言 is_ok;④同一 diff 既删旧占位符又加新占位符仍拒——新用例 mixed 断言错误里点名新增的 T-1786566xxx 而**不**含被删掉的 T-1786565xxx(只该为新增的那个负责)。真实验证:本轮 D-360/D-361/D-362 与本条的提交都经结构化 git 工具的同一条门禁路径。验证:cargo test --workspace exit=0、942 passed / 0 failed;fmt --check、clippy -D warnings 全过。注:kz CLI 无 test_record 入口,命令与结果如实记在此处。
-- 阻塞: 
 - observed_head: 43e7f4525d20171d1967866a6e989d03dfe99c59
 - observed_worktree_hash: fnv1a64:6b06bee3090ca272
 - recorded_at: 1786726123595
@@ -4211,7 +4210,6 @@
 - 验收: ①apply 输出的 fix 计数与「已修复」段包含归档 dedupe 结果(单测:构造归档重复字段 → apply 输出 fix(es) >= 1 且列出条目 id);②findings 文案改为指向 apply 可修,不再说「需手动整理归档」;③dry-run 仍不写盘(既有断言保持);④非进展字段的 dedupe 只保首条这一取舍在文案里写明(D-180 两条内容不同的「验证」字段会因此丢一条)。
 - 优先级: P3
 - 进展: 2026-08-14 修复完成,两半都改。①少报修复数:actions.rs normalize 里的写盘段(活动区 save + 归档区 dedupe_archived_fields 循环)原本排在 content 拼装**之后**,循环里 push 进 fixed 的条目一条也进不了输出——实测修了 6 条却报「0 fix(es)」、连「已修复」段都没有。把整段写盘移到 header/body/content 拼装之前,计数与清单自然如实。②文案否认自身能力:归档重复字段的 finding 原文是「需手动整理归档」,那是 apply 还不会去重时留下的说法,能力补上后没跟着改;现改为「apply 可自动收敛(进展合并内容,其余保留首个非空:同名字段内容不同则后者丢弃)」。四条验收逐条对照:①apply 的 fix 计数与「已修复」段包含归档 dedupe 结果——新测试 normalize_apply_如实报出归档去重条数(构造带两份「进展」的归档条目,断言输出不含 "0 fix(es)"、含「已修复」与条目 id,再跑一次 dry-run 断言重复字段真的没了,即报告与事实一致而不是只改了输出);②findings 文案改为指向 apply 可修——同一测试断言 dry-run 含「apply 可自动收敛」且不含「需手动整理归档」;③dry-run 仍不写盘——既有断言保持绿(kanzei-tools 242 passed);④非进展字段只保首个非空这一取舍写进文案——已写进 finding 原文,真库上实测可见:kz defect normalize 现在对 D-180 打出「duplicate field 验证(2026-08-08) — apply 可自动收敛(…同名字段内容不同则后者丢弃)」,正是提醒不要对 defects 侧盲目 apply(那两条「验证」内容不同,apply 会丢掉 v7 那条)。因此 defects 侧本轮仍不 apply,留作用户可见的取舍。验证:cargo test --workspace exit=0、942 passed / 0 failed;fmt --check、clippy -D warnings 全过。注:kz CLI 无 test_record 入口,命令与结果如实记在此处。
-- 阻塞: 
 - observed_head: 43e7f4525d20171d1967866a6e989d03dfe99c59
 - observed_worktree_hash: fnv1a64:6b06bee3090ca272
 - recorded_at: 1786726149264
@@ -4226,7 +4224,20 @@
 - 验收: ①`kz req reopen <id> --reason "..."` 能落 reason 并把状态退回初始态(集成测试或 CLI 单测);②缺 --reason 时仍报错拒绝(不许空理由绕过);③--reason 解析下沉为公共 flag,fix_terminal 与 reopen 共用一处,void_id 等同族动作的必填参数一并核对补齐;④R-183 用修好的通道退回 todo,阻塞字段清空。
 - 优先级: P2
 - 进展: 2026-08-14 修复完成。main.rs 的 parse_tracker_flags 新增公共 flag `--reason`,fix_terminal 分支里那段自己扫 args 找 --reason 的重复实现删除。原来的形态是:reason 解析只写在 fix_terminal 一个分支里,而 reopen 与 void_id 同样**强制必填** reason —— 它们的 CLI 分支只取位置参数 id,--reason 及其取值被当成普通 positional 丢在后面,input["reason"] 从未被填,于是 `kz req reopen R-183 --reason "..."` 永远回一句 "`reason` is required"。下沉为公共 flag 后三处共用一套解析,顺带修掉一个隐患:--reason 的取值不再混进 positional,update/close/fix_terminal 不会再把它误当成 status。四条验收逐条对照(用 target/debug/kz.exe 实测):①`kz req reopen R-183 --reason "..."` 落 reason 并退回初始态——实测输出「reopened R-183 [todo]」并把理由写进进展([reopen 2026-08-14] 前缀);②缺 --reason 仍拒——实测 `kz req reopen R-101` 报 "`reason` is required for reopen: say why this item is being pulled back";③--reason 下沉为公共 flag、同族动作的必填参数一并核对——fix_terminal 改为共用(已删自有实现),void_id 的必填 reason(actions.rs:228)同一条通道现在也能传;新单测 reason_是公共flag_不再被当成位置参数 覆盖三态(有 reason / 无 reason 不凭空造 / --reason 插在 id 与 status 中间时位置参数不错位);④R-183 用修好的通道退回 todo 且阻塞清空——已执行,`kz work next` 复查为 resume R-202(唯一可执行 WIP),无 wip_violation,R-183 按 P0 回到队列。验证:cargo test --workspace exit=0、942 passed / 0 failed;fmt --check、clippy -D warnings 全过。注:kz CLI 无 test_record 入口,命令与结果如实记在此处。
-- 阻塞: 
 - observed_head: 43e7f4525d20171d1967866a6e989d03dfe99c59
 - observed_worktree_hash: fnv1a64:6b06bee3090ca272
 - recorded_at: 1786726171572
+
+## D-363 测试门禁静默挂死:契约变更后桩服务器无条件等下一次请求,cargo test --workspace 永不返回 [fixed] (high)
+- refs: R-183
+- 复杂度: 小
+- 复现: 2026-08-14 自举线跑 R-183 批3 全量时发现:cargo test --workspace 卡死不返回,一行输出都没有,单次 600s 超时被杀,分 crate 定位到 crates/kanzei/tests/always_allow_bash.rs 的 cli_always_allow_persists_structured_bash_rule_and_executes_it 超过 60s 不结束。时间线可核:我在本会话内多次跑过全量(940/942 passed 全绿),R-183 B1(caa9d62)与 B2(ba0726f)是在那之后才落的,所以这是新引入而非存量。
+- 影响: 门禁从「会报错」退化成「会静默挂起」。直接后果:R-183 批3 的全量验证跑不出来,发版十步门禁(verify.ps1 第三步 cargo test)会永久卡住,整条发版链路停摆。更远的后果是这类失败无法归因——下一个撞上的人只看到「测试很慢/卡住」,不会想到是契约变更。
+- 标签: 流程
+- 根因: 两层叠加。①契约变了没同批改测试:R-183 B1 把「stdin 不是 TTY 就一律非交互」立成契约(main.rs interactive_stdin),而该测试用 Stdio::piped() 喂 a\n 想走交互式 always-allow——那条路从此走不到:a 永远不被读,权限按缺省 deny 拒掉(config.rs 缺键=Deny),bash 不执行,本轮提前收口。②门禁没有失败模式,只有挂死:桩服务器 tokio::spawn 里**无条件** await 第二次模型请求,而第二次请求永远不会来,accept() 就永远挂在那里。于是本该「某个测试变红」的事故,表现成「cargo test --workspace 整个静默挂起」——没有输出、没有失败名字、没有退出码,比测试失败危险得多。全仓另有 6 个集成测试文件、8 处 accept().await 是同一形态,零超时保护。
+- 验收: ①always_allow_bash 三个测试全部在秒级完成且通过;②该文件的桩服务器等待带超时,超时文案点名是哪一轮没等到并指出「改测试对齐新契约」;③全仓其余 6 个集成测试文件的 8 处 accept().await 一并加上超时,不留同形态隐患;④交互式 always-allow 的持久化与规则形态仍有覆盖(main.rs 两个单测),不因删 E2E 而丢;⑤cargo test --workspace 恢复可完成并全绿。
+- 优先级: P0
+- 进展: 2026-08-14 修复完成,两层都堵。①桩服务器不再无限等:always_allow_bash 新增 SERVE_TIMEOUT(20s)+ serve_response_within,五处等待全部走它,超时即 panic 并点名是哪一轮没等到、直说「改测试对齐新契约,不要靠加时间蒙混过去」;全仓其余 6 个集成测试文件的 8 处 accept().await 一并包上 20s 超时(context_overflow_recovery 1、cooperative_halt 2、max_tasks_parallel_dispatch 1、memory_hints_not_persisted 1、parallel_scouting_under_serial_writer 1、task_cancel_parallel 2)。从此请求数对不上是**变红**,不是挂死。②测试对齐新契约:cli_always_allow_persists_structured_bash_rule_and_executes_it 改名并重写为 cli_allow_listed_executes_bash_without_tty——配置 [permissions] non_interactive = "allow_listed" + 命令行 --allow bash:*,无 TTY 下走 R-183 的无人值守正门,断言 bash 真的执行(marker.txt 落地)、本轮成功收口,外加一条反证:--allow 是一次性放行,不得被持久化成 kanzei.toml 里的常驻 bash 规则。交互式 always-allow 端到端需要真 PTY/ConPTY,不是这套夹具能覆盖的,其持久化与规则形态由 main.rs 的 persist_always_allow_returns_always_only_after_successful_write 与 persist_always_allow_does_not_grant_when_config_write_fails 两个单测钉住,覆盖不因删 E2E 而丢。五条验收逐条对照:①always_allow_bash 三测全过,1.31s(原第三条永不结束);②③见上;④两个单测在册未动;⑤cargo test --workspace exit=0、964 passed / 0 failed,恢复可完成。fmt 已收敛。注:kz CLI 无 test_record 入口,命令与结果如实记在此处。
+- observed_head: 966caf03c3ff26a3076c64be280457d69b4be163
+- observed_worktree_hash: fnv1a64:b917ea298cefb913
+- recorded_at: 1786736892434
