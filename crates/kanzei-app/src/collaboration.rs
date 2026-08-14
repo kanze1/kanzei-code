@@ -17,6 +17,8 @@ pub(crate) struct CollaborationLine {
     pub(crate) branch: String,
     pub(crate) worktree_path: Option<String>,
     pub(crate) claim: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) claim_error: Option<String>,
     pub(crate) phase: String,
     pub(crate) current_tool: Option<String>,
     pub(crate) running: bool,
@@ -95,6 +97,9 @@ impl CollaborationProbe {
             .cloned()
             .collect::<Vec<_>>();
         let runtimes = self.runtimes.lock().unwrap().clone();
+        // R-247:整份快照只读一次 tracker；取得关系来自「取得线」字段，不再逐线
+        // 解析 prompt。读失败也要明示，不能回退到猜测路径。
+        let tracker_claims = kanzei_tools::active_claims_by_line(&self.origin_project);
         let mut lines = handles
             .into_iter()
             .filter_map(|process| {
@@ -106,18 +111,17 @@ impl CollaborationProbe {
                 if running_only && !running {
                     return None;
                 }
-                let (claim, current_tool, steps, input_tokens, output_tokens) = runtime
+                let (current_tool, steps, input_tokens, output_tokens) = runtime
                     .map(|runtime| {
                         let live = runtime.live.lock().unwrap();
                         (
-                            claim_from_prompt(&live.prompt_head),
                             current_tool(&live.trace),
                             live.steps,
                             live.input_tokens,
                             live.output_tokens,
                         )
                     })
-                    .unwrap_or_else(|| ("未声明条目".into(), None, 0, 0, 0));
+                    .unwrap_or((None, 0, 0, 0));
                 let phase = runtime
                     .map(|runtime| runtime.stage.lock().unwrap().clone())
                     .unwrap_or_else(|| "空闲".into());
@@ -147,12 +151,25 @@ impl CollaborationProbe {
                         .filter(|value| !value.is_empty())
                         .unwrap_or_else(|| "(主工作树)".into())
                 });
+                let owner = process.worktree_path.as_ref().map(|_| branch.clone());
+                let (claim, claim_error) = match &tracker_claims {
+                    Ok(claims) => (
+                        claims
+                            .get(&owner)
+                            .filter(|ids| !ids.is_empty())
+                            .map(|ids| ids.join(", "))
+                            .unwrap_or_else(|| "未取得条目".into()),
+                        None,
+                    ),
+                    Err(error) => ("取得线读取失败".into(), Some(error.clone())),
+                };
                 Some(CollaborationLine {
                     label: process_label(&process),
                     process_id: process.id,
                     branch,
                     worktree_path: process.worktree_path,
                     claim,
+                    claim_error,
                     phase,
                     current_tool,
                     running,
@@ -200,27 +217,6 @@ fn process_label(process: &ProcessHandle) -> String {
     } else {
         process.id.split('|').next().unwrap_or("进程").into()
     }
-}
-
-fn claim_from_prompt(prompt: &str) -> String {
-    let item = prompt
-        .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '-')
-        .find(|word| {
-            let Some((prefix, digits)) = word.split_once('-') else {
-                return false;
-            };
-            matches!(prefix, "R" | "D" | "G" | "S" | "F" | "T")
-                && !digits.is_empty()
-                && digits.chars().all(|ch| ch.is_ascii_digit())
-        });
-    item.map(str::to_string).unwrap_or_else(|| {
-        let head = prompt.trim().chars().take(100).collect::<String>();
-        if head.is_empty() {
-            "未声明条目".into()
-        } else {
-            head
-        }
-    })
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -427,16 +423,6 @@ mod tests {
         assert_eq!(parsed, ["dst.rs", "new.txt", "src.rs", "src/a.rs"]);
     }
 
-    #[test]
-    fn claimed_item_prefers_tracker_id_and_falls_back_to_prompt_head() {
-        assert_eq!(claim_from_prompt("继续修 R-184 的 A 面"), "R-184");
-        assert_eq!(
-            claim_from_prompt("实现并行协作上下文"),
-            "实现并行协作上下文"
-        );
-        assert_eq!(claim_from_prompt("  "), "未声明条目");
-    }
-
     fn run_git(root: &Path, args: &[&str]) {
         let output = hidden_command("git")
             .arg("-C")
@@ -476,6 +462,15 @@ mod tests {
             ],
         );
         let canonical = crate::normalized_project_root(&root);
+        kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+            .save(&[kanzei_tools::docstore::Entry {
+                id: "R-184".into(),
+                title: "并行协作".into(),
+                status: "doing".into(),
+                severity: None,
+                fields: vec![("取得线".into(), "kanzei/thread-r184".into())],
+            }])
+            .unwrap();
         let state = AppState::default();
         let current = ensure_default_process(&state, &canonical);
         let current_runtime =
@@ -486,7 +481,9 @@ mod tests {
             id: format!("p1|{}", canonical.display()),
             origin_project: canonical.display().to_string(),
             project_dir: canonical.display().to_string(),
-            worktree_path: None,
+            // 该测试不需要另建真实 worktree，但必须标成分支线，才能验证
+            // 「取得线=分支名」而非默认线(None)的 tracker 归属。
+            worktree_path: Some(canonical.display().to_string()),
             branch: Some("kanzei/thread-r184".into()),
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
@@ -503,7 +500,13 @@ mod tests {
         let other_runtime = runtime_for(&state, &process_session_id(&canonical, Some(&other.id)));
         {
             let mut live = other_runtime.live.lock().unwrap();
-            live.begin("run-r184", "input-r184", "继续推进 R-184", "test", "test");
+            live.begin(
+                "run-r184",
+                "input-r184",
+                "实现并行协作上下文",
+                "test",
+                "test",
+            );
             live.steps = 3;
             live.input_tokens = 1200;
             live.output_tokens = 300;
@@ -554,7 +557,7 @@ mod tests {
         let first = snapshot.refreshable_system_baseline_with_report().0;
         assert!(
             first.contains("R-184"),
-            "认领条目必须来自 live prompt:{first}"
+            "认领条目必须来自 tracker 取得线:{first}"
         );
         assert!(first.contains("kanzei/thread-r184"), "{first}");
         assert!(first.contains("first.rs"), "{first}");

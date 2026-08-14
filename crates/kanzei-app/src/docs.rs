@@ -241,13 +241,20 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     .copied();
                 let (batch_done, batch_total) =
                     kanzei_tools::docstore::batch_progress_with_derived_done(&e, derived_done);
+                // R-247:backlog 的「被取得」直接读 tracker 字段。None 对 doing/fixing
+                // 的含义由 D-354 定义为默认线持有；前端不得再解析 prompt 猜条目。
+                let claimed_by = e
+                    .fields
+                    .iter()
+                    .find(|(key, _)| key == "取得线")
+                    .map(|(_, value)| value.clone());
                 json!({
                     "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
                     "priority": e.fields.iter().find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority")).map(|(_, value)| value),
                     "complexity": e.fields.iter().find(|(key, _)| key == "复杂度" || key.eq_ignore_ascii_case("complexity")).map(|(_, value)| value),
                     "batches": { "done": batch_done, "total": batch_total },
                     "closed": kind.terminal.contains(&e.status.as_str()), "blocked": !block_reasons.is_empty(),
-                    "block_reasons": block_reasons, "fields": e.fields,
+                    "block_reasons": block_reasons, "claimed_by": claimed_by, "fields": e.fields,
                     "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
                     "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
                     "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),

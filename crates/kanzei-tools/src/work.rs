@@ -165,6 +165,88 @@ fn current_unix_ms() -> u128 {
         .unwrap_or_default()
 }
 
+/// R-247:按「取得线」字段汇总当前活动 WIP，供桌面协作快照和 backlog 共用。
+///
+/// 无「取得线」字段的 `doing/fixing` 属于默认线；分支线以 git 分支名为身份。
+/// 这里只读取 tracker 事实，不从 prompt、排序或运行态推断持有关系。
+pub fn active_claims_by_line(
+    project_root: &std::path::Path,
+) -> Result<BTreeMap<Option<String>, Vec<String>>, String> {
+    let mut claims = BTreeMap::<Option<String>, Vec<String>>::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let store = DocStore::open(project_root, kind);
+        let entries = store
+            .load()
+            .map_err(|error| format!("读取 {} 的取得线失败: {error}", kind.rel_path))?;
+        let wip_status = kind.statuses[1];
+        for entry in entries
+            .into_iter()
+            .filter(|entry| entry.status == wip_status)
+        {
+            let owner = field(&entry, "取得线")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            claims.entry(owner).or_default().push(entry.id);
+        }
+    }
+    Ok(claims)
+}
+
+/// R-247:释放某条分支线持有的 tracker 条目。
+///
+/// release 是明确的生命周期动作：`doing/fixing` 回到各自初始态，同时删除「取得线」
+/// 并写入一条可审计的最后释放记录。终态或手工异常状态只清持有字段，不倒退状态。
+/// 每份文档沿用 DocStore 的跨进程锁和原子保存，不另开旁路写入。
+pub fn release_line_claims(
+    project_root: &std::path::Path,
+    line: &str,
+    reason: &str,
+) -> Result<Vec<String>, String> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Err("释放取得线时 line 不能为空".into());
+    }
+    let mut released = Vec::new();
+    for kind in [&REQUIREMENTS, &DEFECTS] {
+        let store = DocStore::open(project_root, kind);
+        let _lock = store
+            .lock()
+            .map_err(|error| format!("锁定 {} 以释放取得线失败: {error}", kind.rel_path))?;
+        let mut entries = store
+            .load()
+            .map_err(|error| format!("读取 {} 以释放取得线失败: {error}", kind.rel_path))?;
+        let mut changed = false;
+        for entry in &mut entries {
+            let held_here = field(entry, "取得线").is_some_and(|owner| owner.trim() == line);
+            if !held_here {
+                continue;
+            }
+            if entry.status == kind.statuses[1] {
+                entry.status = kind.statuses[0].to_string();
+            }
+            entry.fields.retain(|(key, _)| key != "取得线");
+            let audit = format!(
+                "line={line};reason={};at_ms={}",
+                reason.trim(),
+                current_unix_ms()
+            );
+            match entry.fields.iter_mut().find(|(key, _)| key == "取活释放") {
+                Some((_, value)) => *value = audit,
+                None => entry.fields.push(("取活释放".into(), audit)),
+            }
+            released.push(entry.id.clone());
+            changed = true;
+        }
+        if changed {
+            store
+                .save(&entries)
+                .map_err(|error| format!("保存 {} 的取得线释放失败: {error}", kind.rel_path))?;
+        }
+    }
+    Ok(released)
+}
+
 fn command_output(cwd: &std::path::Path, args: &[&str]) -> Vec<u8> {
     let mut command = Command::new("git");
     command.current_dir(cwd).args(args);
@@ -960,6 +1042,45 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn r247_tracker_claim_snapshot_and_release_are_line_scoped() {
+        let dir = fixture("r247-release");
+        let mut requirement = entry("R-247", "doing");
+        requirement
+            .fields
+            .push(("取得线".into(), "kanzei/line-r247".into()));
+        let mut other = entry("D-001", "fixing");
+        other.fields.push(("取得线".into(), "kanzei/other".into()));
+        DocStore::open(&dir, &REQUIREMENTS)
+            .save(&[requirement])
+            .unwrap();
+        DocStore::open(&dir, &DEFECTS).save(&[other]).unwrap();
+
+        let before = active_claims_by_line(&dir).unwrap();
+        assert_eq!(
+            before.get(&Some("kanzei/line-r247".into())),
+            Some(&vec!["R-247".into()])
+        );
+        assert_eq!(
+            release_line_claims(&dir, "kanzei/line-r247", "test-close").unwrap(),
+            ["R-247"]
+        );
+
+        let released = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
+        assert_eq!(released[0].status, "todo", "release 必须回到可领取态");
+        assert_eq!(field(&released[0], "取得线"), None);
+        assert!(
+            field(&released[0], "取活释放").is_some_and(|value| {
+                value.contains("kanzei/line-r247") && value.contains("test-close")
+            }),
+            "release 必须留下线身份与原因审计"
+        );
+        let untouched = DocStore::open(&dir, &DEFECTS).load().unwrap();
+        assert_eq!(untouched[0].status, "fixing");
+        assert_eq!(field(&untouched[0], "取得线"), Some("kanzei/other"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

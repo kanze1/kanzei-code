@@ -355,10 +355,16 @@
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
 
-## R-247 开线即绑定:选条目起线、「被取得」标记接取得线真源、线级取活写权限口径 [todo]
+## R-247 开线即绑定:选条目起线、「被取得」标记接取得线真源、线级取活写权限口径 [doing]
 - 内容: D-354 已落引擎层线级 claim(「取得线」字段)。本需求补 UI 与流程面:①开线区选条目→起线时即以该线身份 claim(设计 parallel_lines_ui P7 的绑定动作);②backlog「被取得」标记与泳道 claim 显示改读「取得线」字段,替代 claim_from_prompt 的 prompt 头猜测(D-304 口径:协作快照是唯一事实源);③线级取活写权限口径:work claim 属于取活动作,评估对分支线默认放行 write:claim(或开线绑定时由主进程代 claim),不再要求先手动开「允许写主根追踪器」才能取活;④线停机/关闭/合并收活时「取得线」的释放流程
 - 前置: D-354
 - 复杂度: 中
 - 标签: 流程
 - 验收: ①从并行视图选一个未被持有的条目起线,该条目立即带该线「取得线」标记;②backlog 与泳道显示的持有关系与 tracker 字段一致,prompt 猜测路径删除;③新开的线不需要手动开 tracker 写开关即可完成取活绑定;④线关闭或收活合并后条目持有释放或转终态,有断言
 - 优先级: P1
+- 取活依据: override:override:用户已认可推进 R-247 到适合自举的阶段；先完成开线绑定、取得线真源与收线释放闭环。
+- 批次: 1/3
+- 进展: 2026-08-14 B1 完成:主进程在 process_create 建树注册后以新分支身份复用 WorkTool 原子 claim，失败整体回滚；分支 tracker_writes 仍默认关闭；关闭/放弃在统一注销出口 release，合并成功后立即 release 且保留线路供后置门禁；协作快照改读 tracker 取得线并删除 prompt 猜测。反证:kanzei-tools release 测试 1 passed；kanzei-app 开线绑定/失败回滚/合并释放 3 passed；协作快照真源测试 1 passed。
+- observed_head: 3f152c985c469bc7a76f03f219476a4c17c921d8
+- observed_worktree_hash: fnv1a64:2ad99976f744883c
+- recorded_at: 1786675259874

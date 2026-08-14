@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
+use kanzei_harness::{Tool, ToolCtx};
 use kanzei_llm::{Message, Part};
 use kanzei_tools::docstore::DocStore;
 use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
@@ -248,6 +249,9 @@ pub async fn process_create(
     // 给定则同时建一棵工作树并绑到这条线上;缺省(Tauri 对未传的 Option 参数解析为
     // None)保持今天的行为,worktree_path 恒 None。
     worktree_name: Option<String>,
+    // R-247:并行视图选中的 R/D 条目。由桌面主进程在建树后以新分支身份执行真实
+    // work claim；不因此放开该分支线的通用 tracker 写权限。
+    work_item_id: Option<String>,
 ) -> Result<ProcessInfo, String> {
     create_process_with_tracker(
         &state,
@@ -258,6 +262,7 @@ pub async fn process_create(
         phase_pipeline,
         tracker_writes,
         worktree_name,
+        work_item_id,
     )
     .await
 }
@@ -322,6 +327,7 @@ pub(crate) async fn create_process(
         phase_pipeline,
         None,
         worktree_name,
+        None,
     )
     .await
 }
@@ -336,12 +342,17 @@ pub(crate) async fn create_process_with_tracker(
     phase_pipeline: Option<bool>,
     tracker_writes: Option<bool>,
     worktree_name: Option<String>,
+    work_item_id: Option<String>,
 ) -> Result<ProcessInfo, String> {
     let root = normalized_project_root(Path::new(project_dir));
     ensure_default_process(state, &root);
     // 恒主根:见本文件头的「字段口径」。worktree 路径只进 worktree_path。
     let project = root.display().to_string();
     let worktree_name = worktree_name.filter(|value| !value.trim().is_empty());
+    let work_item_id = work_item_id.filter(|value| !value.trim().is_empty());
+    if work_item_id.is_some() && worktree_name.is_none() {
+        return Err("条目绑定只适用于带独立工作树的并行线".into());
+    }
 
     // ① 建树只排 Git 工作树元数据闸，不排主线源码写租约。guard 持有到绑定落库结束，
     //    让「建 ref/目录 → 注册线路」在同一应用内保持原子顺序。
@@ -382,7 +393,7 @@ pub(crate) async fn create_process_with_tracker(
     // ④ 编号 + 落库 + 插内存表(一个临界区内完成)。任一步失败就整体回滚,
     //    绝不留半绑定态——磁盘上有树、库里没线是最坏结局:界面上看不见它,
     //    也就没有任何入口能把它收掉。
-    match register_process(
+    let registered = register_process(
         state,
         &root,
         &project,
@@ -398,13 +409,80 @@ pub(crate) async fn create_process_with_tracker(
             phase_pipeline,
             tracker_writes,
         },
-    ) {
-        Ok(info) => Ok(info),
-        Err(error) => Err(match receipt {
-            Some(receipt) => with_residue(error, rollback_worktree(&root, &receipt)),
-            None => error,
-        }),
+    );
+    let info = match registered {
+        Ok(info) => info,
+        Err(error) => {
+            return Err(match receipt.as_ref() {
+                Some(receipt) => with_residue(error, rollback_worktree(&root, receipt)),
+                None => error,
+            });
+        }
+    };
+    if let Some(work_item_id) = work_item_id.as_deref() {
+        if let Err(error) = claim_work_item_for_process(&root, &info, work_item_id).await {
+            let cleanup = unregister_parallel_process(state, &root, &info.id)
+                .map(|_| ())
+                .map_err(|cleanup| format!("注销半绑定线路失败: {cleanup}"));
+            let error = with_residue(error, cleanup);
+            return Err(match receipt.as_ref() {
+                Some(receipt) => with_residue(error, rollback_worktree(&root, receipt)),
+                None => error,
+            });
+        }
     }
+    Ok(info)
+}
+
+/// R-247 的权限边界：建线绑定是主进程编排动作，不要求用户先给新线打开
+/// `tracker_writes`。这里仍复用 WorkTool 的 WIP、阻塞、接管与跨进程锁语义，
+/// 没有第二套“看起来像 claim”的字段直写。
+async fn claim_work_item_for_process(
+    root: &Path,
+    process: &ProcessInfo,
+    work_item_id: &str,
+) -> Result<(), String> {
+    let cwd = process
+        .worktree_path
+        .as_deref()
+        .map(PathBuf::from)
+        .ok_or_else(|| "条目绑定缺少并行线工作树".to_string())?;
+    let output = kanzei_tools::WorkTool
+        .execute(
+            json!({
+                "action": "claim",
+                "id": work_item_id,
+                "reason": "parallel-line-create:用户从并行视图选择条目开线"
+            }),
+            &ToolCtx::new(cwd, root.to_path_buf()),
+        )
+        .await;
+    if output.is_error {
+        Err(format!("新线路未能绑定 {work_item_id}: {}", output.content))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+async fn create_process_with_work_item(
+    state: &AppState,
+    project_dir: &str,
+    worktree_name: String,
+    work_item_id: String,
+) -> Result<ProcessInfo, String> {
+    create_process_with_tracker(
+        state,
+        project_dir,
+        None,
+        None,
+        None,
+        Some(false),
+        Some(false),
+        Some(worktree_name),
+        Some(work_item_id),
+    )
+    .await
 }
 
 /// 一树一线被拒时的文案:必须点名是哪条线绑着它,否则用户无从下手。
@@ -706,7 +784,7 @@ async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<Stri
         // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
         // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
         // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
-        unregister_parallel_process(state, &root, &process_id)?;
+        let released = unregister_parallel_process(state, &root, &process_id)?;
         let killed = kanzei_tools::kill_background_processes_for_process(&root, &process_id).await;
         let disposal = process
             .worktree_path
@@ -725,18 +803,21 @@ async fn close_process(state: &AppState, process: &ProcessHandle) -> Result<Stri
             );
         }
         let background = (killed > 0).then(|| format!("；已回收 {killed} 个后台进程"));
+        let release = (!released.is_empty())
+            .then(|| format!("；已释放取活绑定 {}", released.join(", ")))
+            .unwrap_or_default();
         match disposal {
             Some(Ok(())) => Ok(format!(
-                "已关闭线路 {process_id} 并回收已合并的干净工作树{}",
-                background.unwrap_or_default()
+                "已关闭线路 {process_id} 并回收已合并的干净工作树{}{release}",
+                background.unwrap_or_default(),
             )),
             Some(Err(kept)) => Ok(format!(
-                "已关闭线路 {process_id}；{kept}{}",
-                background.unwrap_or_default()
+                "已关闭线路 {process_id}；{kept}{}{release}",
+                background.unwrap_or_default(),
             )),
             None => Ok(format!(
-                "已关闭线路 {process_id}{}",
-                background.unwrap_or_default()
+                "已关闭线路 {process_id}{}{release}",
+                background.unwrap_or_default(),
             )),
         }
     }
@@ -748,13 +829,19 @@ pub(crate) fn unregister_parallel_process(
     state: &AppState,
     root: &Path,
     process_id: &str,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     if process_id.starts_with("d|") {
         return Err("默认进程不能注销".into());
     }
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(root, Some(process_id));
+    let branch = state
+        .processes
+        .lock()
+        .unwrap()
+        .get(process_id)
+        .and_then(|process| process.branch.clone());
     let runtime = state.runtimes.lock().unwrap().get(&session_id).cloned();
     if let Some(runtime) = runtime {
         if runtime.running.load(Ordering::SeqCst) {
@@ -768,15 +855,22 @@ pub(crate) fn unregister_parallel_process(
             runtime.asks.lock().unwrap().clear();
         }
     }
-    // finalize 成功后才退役身份；若持久化失败，保留已停止的内存线路供用户重试，
-    // 不制造“后台仍跑但线路入口消失”的半截状态。
+    // 运行收口后、身份退役前释放 tracker 持有。释放失败时保留一条已停止的线路供
+    // 用户重试，不能制造「线已消失、条目仍被幽灵分支持有」的半截状态。
+    let released = match branch.as_deref() {
+        Some(branch) => {
+            kanzei_tools::release_line_claims(root, branch, "parallel-line-unregister")?
+        }
+        None => Vec::new(),
+    };
+    // finalize + release 成功后才退役身份；若持久化失败，保留已停止的内存线路。
     store
         .delete_process(process_id)
         .map_err(|e| format!("删除进程注册失败: {e}"))?;
     state.runtimes.lock().unwrap().remove(&session_id);
     state.auto_runs.lock().unwrap().remove(&session_id);
     state.processes.lock().unwrap().remove(process_id);
-    Ok(())
+    Ok(released)
 }
 
 /// 高频列表刷新也要修复本运行期里被外部删除的树。恢复阶段只处理 state.db；这里
@@ -1890,10 +1984,35 @@ pub async fn worktree_merge(
     let root = normalized_project_root(Path::new(&project_dir));
     // R-171 批4:worktree 合并是项目级写操作,接入写仲裁。
     let _lease = acquire_project_write_lease(&state, &root, "worktree merge").await?;
-    let worktree = validate_worktree_path(&root, &worktree_path)?;
-    with_idle_bound_process(&state, &root, &worktree, "合并", || {
-        merge_worktree(&root, &worktree_path)
-    })
+    merge_worktree_and_release(&state, &root, &worktree_path)
+}
+
+/// 合并与取得线释放的可测试内核。Git 合并已经成功后，release 失败不能伪装成
+/// “合并失败”诱导用户重试 merge；结果保留成功事实并带明确警告，关线仍可重试释放。
+fn merge_worktree_and_release(
+    state: &AppState,
+    root: &Path,
+    worktree_path: &str,
+) -> Result<String, String> {
+    let worktree = validate_worktree_path(root, worktree_path)?;
+    let project = root.display().to_string();
+    let bound = bound_thread_for_worktree(state, root, &project, &worktree_key(&worktree))?;
+    let branch = worktree_current_branch(&worktree)?;
+    let merged = with_idle_bound_process(state, root, &worktree, "合并", || {
+        merge_worktree(root, worktree_path)
+    })?;
+    if bound.is_none() {
+        return Ok(merged);
+    }
+    match kanzei_tools::release_line_claims(root, &branch, "worktree-merged") {
+        Ok(released) if !released.is_empty() => {
+            Ok(format!("{merged};已释放取活绑定 {}", released.join(", ")))
+        }
+        Ok(_) => Ok(merged),
+        Err(error) => Ok(format!(
+            "{merged};警告:合并已完成，但取得线释放失败({error})，请关闭线路重试释放"
+        )),
+    }
 }
 
 /// 在绑定线路的 lifecycle 临界区内检查并执行工作树破坏性操作。检查通过后，
