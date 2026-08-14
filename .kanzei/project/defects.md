@@ -113,3 +113,28 @@
 - 阻塞: 等待 R-244 Tool Pipeline 结果阶段稳定并由 R-245 实施；当前先作为事实丢失缺陷登记。
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
+
+## D-355 切项目时 process_list 单飞跨项目错等导致目标对话不恢复 [open] (high)
+- refs: R-197 R-242 docs/design/session_state_and_line_runtime.md
+- 复杂度: 中
+- 复现: 项目 A 的 process_list 请求仍在途时切到项目 B：renderProjects 先清空 activeProcessId/activeSessionId；B 的 refreshProcesses 命中全局 processRefreshInFlight 后返回 A 的 Promise；loadConversation 也误等该 Promise，A 响应因 currentProject 已变化被丢弃，调用方随后因 B 仍无 activeProcessId 直接返回；排队的 B 刷新只恢复线路列表，不再次触发 conversation_get。项目切换路径又在目标历史返回前 clearChat，最终显示空白或旧上下文。
+- 影响: 切仓库后目标对话可能完全不恢复，用户看到空白、旧快照或上下文回滚；SQLite 数据仍在但 UI 不可达，需要再次切换或重载才能恢复，容易被误判为真实数据丢失。
+- 来源: 用户报告(2026-08-14 切换并行线路/仓库后上下文丢失回滚)+只读代码与双项目 state.db 核查。
+- 标签: 前端
+- 根因: processRefreshInFlight/processRefreshQueued 是跨项目全局单飞，不携带请求所属项目与目标 generation；项目切换没有把目标 process_list→选定 active session→conversation_get 组成同一个可等待的原子切换事务。
+- 证据等级: E2：静态调用链可确定复现；Kanzei 与 Akashic-AgentOS 两个 state.db 均保有完整快照，排除物理删除。
+- 验收: ①UI runtime 用闸门卡住项目 A 的 process_list 后切 B，必须实际等待 B 自己的 process_list，并以 B 的 projectDir/processId 调 conversation_get；②目标历史完整返回前不清空旧消息，迟到的 A 响应不能覆盖 B；③侧栏、Workspace、文档页、添加/移除/初始化项目全部复用同一切换事务；④删除任一项目/generation 守卫时冒烟判红，既有 D-250/D-251 跨项目回归保持通过。
+- 优先级: P1
+
+## D-356 运行中切线路只恢复旧快照且轮末不回灌导致对话上下文回滚 [open] (high)
+- refs: R-241 R-242 D-342 docs/design/session_state_and_line_runtime.md
+- 复杂度: 中
+- 复现: 线路仍在运行时切走再切回：后台 kz:text/reasoning 因 sessionId 非活动会话被前端路由层过滤；switchProcess 调 loadConversation→conversation_get，而后端只读最新 legacy conversation.updated。完整 snapshot 仅在整个 run 收尾时写入，故页面恢复到本轮开始前；kz:done 又只追加完成提示/刷新历史列表，不重新加载刚落库的完整快照，缺口可持续到再次切线或重载。
+- 影响: 正常切线/切仓库时 UI 确定性显示旧上下文；同进程内模型 prior 通常仍由 SessionRuntime 保留，但若运行中崩溃或重启，当前恢复路径会把模型与 UI 真正回退到上一份 conversation.updated，原始 typed facts虽在 SQLite 中却暂不可达。
+- 来源: 用户报告(2026-08-14)+实时 state.db 证据：16:04 legacy seq=36485/224 条消息时 typed facts 已推进至 seq=37475；16:20 run 收尾后 snapshot 自动追平至 seq=38270/584 条消息，期间 conversation.reset=0、空 snapshot=0。
+- 标签: 核心
+- 根因: 实时 SessionRuntime、typed session facts 与 UI 恢复读源分裂：conversation_get/recover_messages_raw 仍以轮末 legacy snapshot 为唯一读源，运行中后台增量没有 per-session 可回放投影；R-241 typed events 目前仅 shadow，R-242 尚未切换五条读路径。
+- 证据等级: E2：数据库时序与源码写入边界一致，已排除物理删除并确认恢复源滞后。
+- 边界: 不绕过 R-242 的 30 个真实 shadow turn 门槛直接切 typed 真源；可先交付前端运行中状态提示、per-session 切换缓存与 kz:done 轮末原子回灌，typed surface 正式接管仍由 R-242 feature gate 完成。
+- 验收: ①运行线路产生 snapshot 后增量时切走再切回，已发生的 user/assistant/tool 事实不缺失、不重复、不串 session；②目标完整历史返回前不清空当前 DOM，运行中若只能提供旧快照必须显式标注边界而非伪装为完整；③活动线路收到 kz:done 后原子重载该 session 的最新完整投影，工具调用/结果仍配对；④安全边界强杀重启后按 R-242 投影恢复已发生事实，未知差异可独立回退 legacy；⑤增加线路切换、后台完成、重启恢复反证，D-342 停止路径回归保持通过。
+- 优先级: P1
