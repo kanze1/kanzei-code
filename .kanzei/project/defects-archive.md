@@ -4517,3 +4517,16 @@
 - 标签: 前端
 - 验收: ①修复后 ui-runtime-smoke 六条断言全绿;②#status-fast 在服务未就绪时显示「服务未运行」并标 warn-text,就绪时显示正常态;③不回归 R-267 批2 消息窗口化与 D-375/376 轮询降耗。
 - 优先级: P2
+
+## D-383 排他取锁尝试毒化同进程共享取锁:D-382 后另一线跑长 bash 时,本进程只读 bash 仍会偶发 cannot lock managed path 被拒 [fixed] (high)
+- 复杂度: 中
+- 复现: P1 进程的长 bash 围栏持 9 把共享锁(分钟级)。P2 进程内任一排他写者尝试(tracker 写 3s 预算、docs 面板幂等归档 200ms、memory telemetry 50ms)在开 OS 句柄之前就占住进程内注册表槽位(owner/depth=1/acquiring=true),open_exclusive 被 P1 共享句柄以 SHARING_VIOLATION 拒绝后按 5ms 轮询烧满整个预算才归还槽位。这期间本进程围栏的 try_lock_shared 卡在 depth==0 且 !acquiring 门上等 condvar,500ms 预算(managed.rs LOCK_ACQUIRE_BUDGET)耗尽返回 None,bash.rs 报 bash refused before execution。写者被模型重试时拒绝窗口逐次续期,可覆盖对面整个 cargo check 时长
+- 影响: 两线并行时只读 bash 偶发被拒(一次工具调用作废,重试可过);围栏取锁被 docs 面板/记忆检索的排他尝试叠加拖延,最坏逼近逐路 500ms 预算。这是 D-382 修完围栏互斥后残余的最后一类「只读被写者尝试挡住」路径
+- 期望: 围栏共享取锁不再被注定失败的排他尝试整预算期挡住;共享/排他获取成功后 notify_all 唤醒等待者;等待者超时前重查一次槽位。修法方向:排他尝试轮询 OS 期间不独占注册表槽(只留意向标记,允许共享请求并行走 OS 层仲裁),或排他尝试先快速探测外部共享句柄在场即让路。注意别把写者饿得更死:外部共享在场时写者本就注定失败,让路不改变其结局
+- 标签: 核心
+- 根因: atomic_file.rs 三个叠加缺陷:①注定失败的排他尝试不区分成败地占住注册表槽位整个预算期(try_lock_exclusive 先置 acquiring 再轮询 OS);②try_lock_shared/try_lock_exclusive 的成功分支不 notify_all(只有失败分支与 Drop 有广播),等待者只能睡到自己 deadline;③等待者 deadline 到点直接返回 None,不重查一次槽位状态。同族放大:同进程另一线程 DocStore::load(3s 预算)恰为首个共享获取者且正对外部写者轮询时,围栏同样被 acquiring 挡满 500ms
+- 优先级: P1
+- 进展: 2026-08-16 修复完成(三处):①try_lock_shared 在另一线程 acquiring 期间直接探测 OS(围栏不再被写线程占位干等,探测失败才回等待循环);②try_lock_exclusive/try_lock_shared 成功分支补 notify_all(此前只有失败分支与 Drop 广播,成功路径漏了——等待者只能睡到 deadline);③预算耗尽后不直接 None,重试一次直接探测 OS(acquiring 线程已让位,此刻能拿到就是拿到)。2 新回归测试(预算耗尽重试_外部释放后能拿到 / acquiring期间_shared直接探测不被干等),kanzei-base 17 测试全绿,clippy 零警告。提交后关。
+- observed_head: 4c55c6b5e418f9219dcc2902adddb5abba2c0b4a
+- observed_worktree_hash: fnv1a64:9f87f4be6c57f4f9
+- recorded_at: 1786821877120
