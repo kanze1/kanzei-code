@@ -32,7 +32,54 @@ pub fn completed_batches_for_entries(
         .collect())
 }
 
+/// D-377:提交标题缓存,键是**解析出来的 HEAD sha**。
+///
+/// `git log HEAD --format=%s` 扫全history(本仓 1,527 条),实测 73~107ms,而它挂在
+/// `docs_snapshot` 上——文档面板每次刷新、每轮 `kz:done`、每次勾选都要付一遍。
+/// Windows 上单是 spawn 一个 git 进程就 ~45ms,所以缓存必须做到「命中时一个进程都不起」:
+/// 键取自直接读 `.git/HEAD` 与它指向的 ref 文件(纯文件读,微秒级),sha 没变则历史没变。
+/// 解析不出 sha(packed-refs、异常 .git 布局)时不缓存,老实起 git——宁可慢也不给旧答案。
+static SUBJECTS_CACHE: std::sync::Mutex<Option<(std::path::PathBuf, String, String)>> =
+    std::sync::Mutex::new(None);
+
+/// 直接从 `.git` 读出 HEAD 指向的 sha。返回 None = 无法确定,调用方必须回落到起进程。
+fn head_sha(project_root: &Path) -> Option<String> {
+    let dot_git = project_root.join(".git");
+    // worktree 里 .git 是文件:`gitdir: <路径>`。
+    let git_dir = if dot_git.is_file() {
+        let pointer = std::fs::read_to_string(&dot_git).ok()?;
+        let raw = pointer.strip_prefix("gitdir:")?.trim();
+        let path = std::path::Path::new(raw);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            project_root.join(path)
+        }
+    } else {
+        dot_git
+    };
+    let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    let Some(reference) = head.strip_prefix("ref:") else {
+        // detached HEAD:内容本身就是 sha。
+        return (!head.is_empty()).then(|| head.to_string());
+    };
+    // 松散 ref 文件存在就用它;不存在说明被打包进 packed-refs,不猜,返回 None。
+    let sha = std::fs::read_to_string(git_dir.join(reference.trim())).ok()?;
+    let sha = sha.trim();
+    (!sha.is_empty()).then(|| sha.to_string())
+}
+
 fn commit_subjects(project_root: &Path) -> Result<String, String> {
+    let head = head_sha(project_root);
+    if let Some(head) = head.as_deref() {
+        let cache = SUBJECTS_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((root, sha, subjects)) = cache.as_ref() {
+            if root == project_root && sha == head {
+                return Ok(subjects.clone());
+            }
+        }
+    }
     let mut command = Command::new("git");
     command
         .args(["log", "HEAD", "--format=%s"])
@@ -47,7 +94,12 @@ fn commit_subjects(project_root: &Path) -> Result<String, String> {
             String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let subjects = String::from_utf8_lossy(&output.stdout).into_owned();
+    if let Some(head) = head {
+        *SUBJECTS_CACHE.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((project_root.to_path_buf(), head, subjects.clone()));
+    }
+    Ok(subjects)
 }
 
 /// 纯解析入口，供单测覆盖混编、乱序与误匹配边界。
@@ -158,7 +210,7 @@ fn parse_number(chars: &[char], index: usize) -> Option<(u32, usize)> {
 
 #[cfg(test)]
 mod tests {
-    use super::completed_batches_from_subjects;
+    use super::{completed_batches, completed_batches_from_subjects, head_sha};
 
     #[test]
     fn parses_mixed_out_of_order_and_compact_batch_markers() {
@@ -204,5 +256,54 @@ R-164 B4: ... kanzei-tools 172 全绿\n\
 chore: 测试归档同步(R-164 B1 定向测试 passed 归档)\n";
         // 只有 B1/B2/B3/B4 四个标记;S 结尾单词后的数字不再计入。
         assert_eq!(completed_batches_from_subjects(subjects, "R-164"), 4);
+    }
+
+    fn git_in(root: &std::path::Path, args: &[&str]) {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .status()
+            .unwrap();
+    }
+
+    /// D-377:缓存的唯一风险是**给旧答案**。这里钉住失效键:新提交落地后,
+    /// 同一个 project_root 必须立刻反映出来,而不是命中上一次的 subjects。
+    #[test]
+    fn 提交标题缓存在head变动后失效() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-batches-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        git_in(&root, &["init", "-q"]);
+        git_in(&root, &["config", "user.email", "test@example.invalid"]);
+        git_in(&root, &["config", "user.name", "Kanzei Test"]);
+        std::fs::write(root.join("a.txt"), "1").unwrap();
+        git_in(&root, &["add", "a.txt"]);
+        git_in(&root, &["commit", "-q", "-m", "R-900 B1 第一批"]);
+
+        assert_eq!(completed_batches(&root, "R-900").unwrap(), 1);
+        // 命中缓存:同一 HEAD 重复问,答案一致。
+        assert_eq!(completed_batches(&root, "R-900").unwrap(), 1);
+
+        std::fs::write(root.join("a.txt"), "2").unwrap();
+        git_in(&root, &["add", "a.txt"]);
+        git_in(&root, &["commit", "-q", "-m", "R-900 B2 第二批"]);
+        assert_eq!(
+            completed_batches(&root, "R-900").unwrap(),
+            2,
+            "HEAD 变了却还在返回旧的提交标题:缓存失效键失灵(D-377)"
+        );
+
+        // head_sha 必须真的解析得出来,否则缓存全程不生效、判据也就成了摆设。
+        assert!(
+            head_sha(&root).is_some(),
+            "松散 ref 布局下 head_sha 应解析成功"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

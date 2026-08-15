@@ -27,20 +27,41 @@
     } catch {}
   }, 3000);
   // 启动链任一步失败都不能静默中断后半段(否则界面停在初始态,用户看不到任何原因)。
-  for (const [label, step] of [
-    ["项目列表", async () => renderProjects(await invoke("projects_get"))],
-    ["历史对话", loadConversation],
-    ["项目文档", refreshDocs],
-    ["模型列表", loadModels],
-    ["git 状态", refreshGit],
-    ["排队输入", refreshPendingInputs],
-  ]) {
+  const runStep = async ([label, step]) => {
     try {
       await step();
     } catch (err) {
       log(`启动步骤「${label}」失败:${err}`, "err");
       toastError(`${label}加载失败:${err}`);
     }
-  }
+  };
+  // 项目列表必须先落地:后面每一步都要 currentProject(历史对话还要等它选出主会话),
+  // 这一条是真依赖,串行。
+  await runStep(["项目列表", async () => renderProjects(await invoke("projects_get"))]);
+  // 线路列表是「历史对话」与「模型列表」的**共同前置**:前者要它选出主会话才知道
+  // conversation_get 带哪个 processId,后者要按当前线路已选模型收敛紧凑列表。
+  // 原实现靠"历史对话排在模型列表前面"隐式满足,并发后必须显式提出来——否则
+  // loadModels 拿到空的 processItems,当前线路已选模型不进紧凑列表(冒烟实测捕获)。
+  // refreshProcesses 自己按项目单飞去重,这里先拉一次不会让后面重复请求。
+  await runStep([
+    "线路列表",
+    async () => {
+      if (typeof refreshProcesses === "function") await refreshProcesses();
+    },
+  ]);
+  // 其余五步彼此无依赖,原实现却是串行 await,于是冷启动 = 五次 IPC 往返首尾相接,
+  // 其中「历史对话」要渲染整段会话(实测主会话 993 条消息/1665 个 part)、「项目文档」
+  // 要解析 ~1.25MB 归档 —— 后面三步只是排在它们后面干等。改并发后总时长按最慢的一步
+  // 算而不是求和。每步仍各自 try/catch(runStep 内),一步失败不影响其余;
+  // 顺序无关:五步各写各的视图区,无共享中间态(refreshProcesses 自己按项目单飞去重)。
+  await Promise.all(
+    [
+      ["历史对话", loadConversation],
+      ["项目文档", refreshDocs],
+      ["模型列表", loadModels],
+      ["git 状态", refreshGit],
+      ["排队输入", refreshPendingInputs],
+    ].map(runStep),
+  );
   setStatus("空闲", false);
 })();

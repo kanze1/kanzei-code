@@ -220,7 +220,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS retired_processes_origin
                      ON retired_processes(origin_project);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '14')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '15')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。
@@ -299,7 +299,30 @@ impl SessionStore {
                 "v6 迁移:遗留 promoted 输入按迁移推断回填为 completed"
             );
         }
+        // v15(D-375):存量 legacy_seeded 里那份整包 messages 副本就地丢弃,改回引用。
+        // **只在源快照仍然存在时丢**——源没了就无从回读,那份副本是仅存的内容,不能删
+        // (工作机无异地备份,宁可留着这点冗余)。实测本仓主库:33 条 seed 占 29.4MB,
+        // 而被它影子的 82 条 conversation.updated 才 13.3MB。
+        let reclaimed = tx.execute(
+            "UPDATE session_events AS seed
+                 SET payload_json = json_remove(seed.payload_json, '$.fact.messages')
+               WHERE seed.event_type = ?1
+                 AND json_extract(seed.payload_json, '$.fact.messages') IS NOT NULL
+                 AND EXISTS (
+                     SELECT 1 FROM session_events source
+                      WHERE source.event_id =
+                            json_extract(seed.payload_json, '$.fact.source_event_id')
+                 )",
+            params![super::LEGACY_SEEDED],
+        )?;
         tx.commit()?;
+        if reclaimed > 0 {
+            tracing::info!(reclaimed, "v15 迁移:legacy_seeded 整包副本改回引用");
+            // 一次性大批量收缩,页面全进 freelist。housekeeping 的 50% 阈值够不着
+            // (实测占比约 22%),不在这里回收就要等下一次真正的膨胀才顺带整理。
+            // VACUUM 不能在事务内,故放在 commit 之后。
+            let _ = self.connection.execute("VACUUM", []);
+        }
         Ok(())
     }
 }
@@ -350,7 +373,9 @@ mod tests {
                      WHERE name NOT LIKE 'sqlite_%' ORDER BY name",
             )
             .unwrap();
-        let rows = statement.query_map([], |row| row.get::<_, String>(0)).unwrap();
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap();
         rows.map(Result::unwrap).collect()
     }
 
@@ -359,8 +384,7 @@ mod tests {
         let store = SessionStore::open_in_memory().unwrap();
         let actual = user_objects(&store.connection);
         assert_eq!(
-            actual,
-            SCHEMA_OBJECTS,
+            actual, SCHEMA_OBJECTS,
             "建表批的对象集合变了。改动本身没问题,但**必须同时把 SCHEMA_VERSION +1** \
              并更新 SCHEMA_OBJECTS——否则 migrate 的 `version == SCHEMA_VERSION` 早退会让 \
              所有存量库永远拿不到新对象(D-297/D-373)。"
@@ -411,7 +435,11 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(version, SCHEMA_VERSION.to_string(), "迁移后版本号未落到当前版");
+        assert_eq!(
+            version,
+            SCHEMA_VERSION.to_string(),
+            "迁移后版本号未落到当前版"
+        );
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
     }

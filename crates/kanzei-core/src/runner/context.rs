@@ -116,7 +116,7 @@ pub(crate) fn estimate_prompt_tokens(
                     Part::Image { .. } | Part::Document { .. } => {
                         (ATTACHMENT_TOKEN_COST * 4) as usize
                     }
-                    other => serde_json::to_string(other).map_or(0, |text| text.len()),
+                    other => json_bytes(other),
                 })
                 .sum::<usize>()
                 // 消息外壳(role 字段与括号)的近似,对齐旧的整段序列化口径。
@@ -125,9 +125,34 @@ pub(crate) fn estimate_prompt_tokens(
         .sum();
     let spec_bytes: usize = specs
         .iter()
-        .map(|spec| spec.name.len() + spec.description.len() + spec.input_schema.to_string().len())
+        .map(|spec| spec.name.len() + spec.description.len() + json_bytes(&spec.input_schema))
         .sum();
     ((system_bytes + message_bytes + spec_bytes) / 4) as u64
+}
+
+/// 序列化后的字节数,**不产出字符串**。
+///
+/// 这个函数每步至少调一次、每个 part 一次,而它要的只是长度:原实现
+/// `to_string().len()` 为了量一下就把整段 JSON 物化再丢掉——实测本仓主会话
+/// (993 条消息 / 1665 个 part / 189 万字符)每次调用白分配约 2MB。
+/// `to_writer` 往只计数的 Writer 里写,字节数与 `to_string().len()` **逐字节相同**
+/// (同一个序列化器、同一份输出),口径不变,分配为零。
+fn json_bytes<T: serde::Serialize + ?Sized>(value: &T) -> usize {
+    struct ByteCounter(usize);
+    impl std::io::Write for ByteCounter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut counter = ByteCounter(0);
+    // 序列化失败与旧实现的 map_or(0, ..) 同样计 0。
+    serde_json::to_writer(&mut counter, value)
+        .map(|()| counter.0)
+        .unwrap_or(0)
 }
 
 /// 用 provider 返回的真实 input token 数做滑动校准,修正 len/4 估算的

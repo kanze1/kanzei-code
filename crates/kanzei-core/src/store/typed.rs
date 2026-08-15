@@ -54,6 +54,18 @@ pub enum SessionFact {
         source_event_id: String,
         source_sequence: i64,
         source_hash: String,
+        /// D-375:**不落库**——seed 是对 `conversation.updated` 的引用,不是它的副本。
+        ///
+        /// 旧实现把整份 messages 抄进 seed,于是影子层比它影子的对象还贵:实测主库里
+        /// 33 条 legacy_seeded 占 29.4MB,而被影子的 82 条 conversation.updated 只有
+        /// 13.3MB(全库 132MB 的 22% 花在这份副本上),且每出现一个新快照就再抄一份。
+        ///
+        /// 现在写入端置空、`skip_serializing_if` 让它根本不进 JSON;读取端
+        /// `list_session_facts` 按 source_event_id 回读源事件填回来(见 `rehydrate_seed`)。
+        /// 投影器 `project_session_facts` 保持纯函数,签名与行为都不变。
+        /// `serde(default)` 让**存量**带 messages 的 seed 继续读得出来(非空即直接用,
+        /// 不回读),新旧共存不需要停机。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         messages: Vec<Message>,
     },
     TurnStarted {
@@ -532,18 +544,66 @@ impl SessionStore {
     }
 
     /// 读取本会话所有已知 format 的 typed facts；其它 session.* 事件原样跳过。
+    ///
+    /// D-375:LegacySeeded 只存引用,这里按 source_event_id 回读源快照把 messages 填回,
+    /// 于是 `project_session_facts` 依旧是拿到完整 fact 的纯函数,调用方零改动。
     pub fn list_session_facts(
         &self,
         session_id: &str,
     ) -> Result<Vec<(StoredEvent, SessionFactEnvelope)>, SessionFactError> {
-        self.list_events(session_id, 0)?
+        let mut facts: Vec<(StoredEvent, SessionFactEnvelope)> = self
+            .list_events(session_id, 0)?
             .into_iter()
             .filter_map(|event| match decode_session_fact(&event) {
                 Ok(Some(fact)) => Some(Ok((event, fact))),
                 Ok(None) => None,
                 Err(error) => Some(Err(error)),
             })
-            .collect()
+            .collect::<Result<_, _>>()?;
+        for (_, envelope) in facts.iter_mut() {
+            self.rehydrate_seed(&mut envelope.fact)?;
+        }
+        Ok(facts)
+    }
+
+    /// D-375:把只存引用的 LegacySeeded 补回 messages。
+    ///
+    /// 非空(存量 seed 自带副本)直接返回,不回读。源事件已被删除时留空并**不报错**:
+    /// `clear_conversation` 与按序号删快照都会合法地抹掉源,那时这条 seed 本来就失去
+    /// 意义,下一个快照会生成新的 seed;报错会让整条读路径为一条历史垃圾崩掉。
+    fn rehydrate_seed(&self, fact: &mut SessionFact) -> Result<(), SessionFactError> {
+        let SessionFact::LegacySeeded {
+            source_event_id,
+            messages,
+            ..
+        } = fact
+        else {
+            return Ok(());
+        };
+        if !messages.is_empty() {
+            return Ok(());
+        }
+        let payload: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT payload_json FROM session_events WHERE event_id = ?1",
+                params![source_event_id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(StoreError::from)?;
+        let Some(payload) = payload else {
+            return Ok(());
+        };
+        let value: serde_json::Value = serde_json::from_str(&payload).map_err(StoreError::from)?;
+        *messages = serde_json::from_value(
+            value
+                .get("messages")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!([])),
+        )
+        .map_err(StoreError::from)?;
+        Ok(())
     }
 
     /// 从最新 legacy conversation.updated 生成带 provenance 的 seed。同一 source event
@@ -594,8 +654,11 @@ impl SessionStore {
             SessionFact::LegacySeeded {
                 source_event_id: source.event_id,
                 source_sequence: source.sequence,
+                // hash 仍按真实 messages 算:它是 provenance 的完整性锚点,
+                // 回读源事件后可以据此发现源被改写(事件本应只追加)。
                 source_hash: stable_json_hash(&messages),
-                messages,
+                // D-375:引用而非副本——空 Vec 经 skip_serializing_if 不进 JSON。
+                messages: Vec::new(),
             },
         );
         let tx = self
@@ -1519,6 +1582,110 @@ mod tests {
         );
         assert_eq!(first.interrupted_assistants[0].text, "生成到一半");
         assert!(!first.interrupted_assistants[0].materialized);
+    }
+
+    /// D-375 验收①②:seed 落库是**引用**,读出来才补回 messages。
+    #[test]
+    fn legacy_seed_落库不含整包副本但读出来完整() {
+        let store = store();
+        let history: Vec<Message> = (0..40)
+            .map(|i| Message::user_text(format!("第 {i} 条历史消息,凑出可观测的体积差")))
+            .collect();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({ "messages": history }),
+            )
+            .unwrap();
+        let seed = store
+            .seed_latest_legacy_snapshot("ses_test")
+            .unwrap()
+            .unwrap();
+
+        // ① 落库形态:payload 里根本没有 messages 这个键。
+        assert!(
+            seed.payload["fact"].get("messages").is_none(),
+            "seed 又把整包 messages 抄进了落库形态(D-375):{}",
+            seed.payload
+        );
+        let source_bytes = store
+            .latest_event("ses_test", "conversation.updated")
+            .unwrap()
+            .unwrap()
+            .payload
+            .to_string()
+            .len();
+        let seed_bytes = seed.payload.to_string().len();
+        assert!(
+            seed_bytes * 10 < source_bytes,
+            "seed({seed_bytes}B)相对源快照({source_bytes}B)没有数量级收缩,副本大概率又回来了"
+        );
+
+        // ② 读出来必须完整:投影器是纯函数,拿到的 fact 要跟从前一样带全 messages。
+        let facts = store.list_session_facts("ses_test").unwrap();
+        match &facts[0].1.fact {
+            SessionFact::LegacySeeded { messages, .. } => {
+                assert_eq!(messages.len(), 40, "回读没有把 messages 填回来");
+                assert_eq!(messages[7], history[7]);
+            }
+            other => panic!("首条应为 LegacySeeded,实得 {other:?}"),
+        }
+        let projection = project_session_facts(&facts);
+        assert_eq!(projection.surface_messages.len(), 40, "投影基线丢了");
+        assert_eq!(projection.transcript_messages.len(), 40);
+    }
+
+    /// D-375 验收③:存量 seed 自带整包副本,必须照旧读得出来(不回读、不报错)。
+    #[test]
+    fn 存量带副本的seed照旧可读() {
+        let store = store();
+        let messages = vec![Message::user_text("存量副本")];
+        // 手工写一条旧形态 seed:fact.messages 在 payload 里。
+        let envelope = SessionFactEnvelope::new(
+            "legacy:legacy-old".to_string(),
+            None,
+            SessionFact::LegacySeeded {
+                source_event_id: "evt_不存在的源".to_string(),
+                source_sequence: 1,
+                source_hash: stable_json_hash(&messages),
+                messages: messages.clone(),
+            },
+        );
+        store
+            .append_event(
+                "ses_test",
+                LEGACY_SEEDED,
+                &serde_json::to_value(&envelope).unwrap(),
+            )
+            .unwrap();
+        let facts = store.list_session_facts("ses_test").unwrap();
+        match &facts[0].1.fact {
+            // 源事件根本不存在,却仍然读得出内容 —— 副本没被回读逻辑覆盖掉。
+            SessionFact::LegacySeeded { messages: m, .. } => assert_eq!(m, &messages),
+            other => panic!("实得 {other:?}"),
+        }
+    }
+
+    /// D-375 验收④:源快照被合法删除(clear_conversation / 按序号删)后,
+    /// 读路径留空并继续,不为一条历史垃圾整体报错。
+    #[test]
+    fn 源快照被删后seed留空且不报错() {
+        let store = store();
+        store
+            .append_event(
+                "ses_test",
+                "conversation.updated",
+                &serde_json::json!({"messages":[Message::user_text("会被清掉")]}),
+            )
+            .unwrap();
+        store.seed_latest_legacy_snapshot("ses_test").unwrap();
+        store.clear_conversation("ses_test").unwrap();
+        let facts = store.list_session_facts("ses_test").expect("不得整体报错");
+        match &facts[0].1.fact {
+            SessionFact::LegacySeeded { messages, .. } => assert!(messages.is_empty()),
+            other => panic!("实得 {other:?}"),
+        }
     }
 
     #[test]

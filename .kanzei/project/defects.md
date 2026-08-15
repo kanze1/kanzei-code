@@ -97,3 +97,63 @@
 - 标签: 核心
 - 进展: 已修。TraceSink 增 `store: Mutex<Option<SessionStore>>`,new 时开一次;record 走复用路径,None 时回落原路径。kanzei-core 增 `store_open_count(path)`(按库路径分桶计数——最初写成全局计数,实测单跑绿、并跑红,因为 cargo test 多线程并行时别的测试的 open 会算进差值,遂改按路径)。新测试「轨迹落库整轮只开一条连接」:20 条事件断言 open 次数为 1 且事件全部落库;反例实测(改回 record_live_trace_at_path)报「20 条轨迹事件开了 21 条连接」。workspace 全量 1028 passed,clippy 零警告,fmt 干净。
 - observed_head: c8db0da
+
+## D-375 typed 影子层整包复制对话:legacy_seeded 比它影子的快照还贵,占全库 22% [fixed] (high)
+- refs: D-297 R-241 R-242 R-243
+- 复现: 查库按事件类型统计。实测主库:session.legacy_seeded 33 条 = 29.4MB(单条最大 2.2MB),而被它影子的 conversation.updated 82 条 = 13.3MB —— 影子层是被影子对象的 2.2 倍,占 132MB 全库的 22%。每出现一个新快照就再抄一份整包 messages。
+- 根因: SessionFact::LegacySeeded 直接内嵌 `messages: Vec<Message>`。seed 的语义是「指向某个 conversation.updated 的带 provenance 引用」(它自己就存了 source_event_id/source_sequence/source_hash),内容却又抄了一份。R-242 真源切换、R-243 Surface Compaction 都还是 todo,于是这个「过渡态」已经是稳态。
+- 影响: 库体积按 14.6MB/天增长,其中最大的一块是一份谁也没在读的副本(只有只读诊断 conversation_shadow_get 消费)。open/备份/VACUUM 全部按这个体积付钱。
+- 边界: 源快照已被删除(clear_conversation / 按序号删历史)的 seed **不能**丢副本——那份副本是仅存内容,工作机无异地备份。
+- 来源: 2026-08-15 用户要求三维度审视,按事件类型统计库体积时发现。
+- 证据等级: E1(真库副本执行迁移实测:19/33 条改成引用,seed 29.4→16.5MB,payload 总量 87.4→74.5MB,文件 132.0→110.3MB,悬空引用 0)
+- 验收: ①新 seed 落库不含 messages(payload 里没有该键);②读路径按 source_event_id 回读补回,project_session_facts 保持纯函数、调用方零改动;③存量带副本的 seed 照旧可读(不回读、不报错);④源快照被删后留空且不整体报错;⑤存量库经迁移就地改回引用,只在源仍在时丢;⑥迁移后 VACUUM 回收。
+- 优先级: P1
+- 标签: 核心
+- 进展: 已修。SessionFact::LegacySeeded.messages 加 serde(default, skip_serializing_if=Vec::is_empty),写入端置空;list_session_facts 新增 rehydrate_seed 按 source_event_id 回读。schema v15 迁移就地 json_remove 存量副本(EXISTS 守卫源仍在)+ 一次 VACUUM。三条新测试:落库不含整包副本但读出来完整(含体积数量级断言)/存量带副本的 seed 照旧可读/源快照被删后留空且不报错。真库副本实测见证据等级。workspace 全绿,clippy 零警告。
+- observed_head: b2a25d2
+
+## D-376 空闲时仍按 3 秒轮询重建侧栏任务列表 [fixed] (low)
+- refs: R-260
+- 复现: 应用空闲放着不动。process_list 每 3 秒一次 IPC + 一次 renderProcesses 全量重建侧栏任务列表,一天约 28,800 次,而这段时间列表根本不会变。
+- 根因: R-260 补轮询定时器时取了「运行中需要的分辨率」作为常量节律,没有区分空闲。
+- 影响: 纯空转(不是正确性问题)。3s 分辨率在运行时是必要的,空闲时是白付。
+- 来源: 2026-08-15 三维度审视。
+- 验收: ①运行中(starting/running/stopping/auto_pending)保持 3 秒;②全空闲降到 15 秒,兜底本意不变(事件丢失/外部创建注销进程最迟 15 秒被纠正);③实现不得改变定时器身份——递归 setTimeout 会让冒烟 harness 的定时器排空自我续命(实测搅红三条断言),必须是单个 setInterval 跳拍。
+- 优先级: P3
+- 标签: 核心
+- 进展: 已修。01-core.js 单 setInterval + anySessionBusy() 跳拍(空闲每 5 拍拉一次)。递归 setTimeout 方案实测搅红三条冒烟断言,已改回跳拍并写进注释。六条前端冒烟全绿。
+- observed_head: b2a25d2
+
+## D-377 文档快照每次重付 git 全历史 + 归档全解析 [fixed] (medium)
+- refs: D-296 R-193
+- 复现: 每次 docs_snapshot(文档面板刷新、每轮 kz:done、每次勾选)都跑 `git log HEAD --format=%s` 扫全历史(本仓 1,527 条,实测 73~107ms;Windows 上单 spawn 就 ~45ms),并重新解析两份归档(defects-archive 699KB/367 条 4.9ms + requirements-archive 522KB/244 条 3.3ms)。
+- 根因: D-296 修掉了「一次快照解析 6 遍」,但没处理「每次快照都从头来一遍」——两份输入在两次快照之间通常一个字节都没变。
+- 影响: R-193「勾选响应延迟」的机制底座之一:一次勾选要等 ~110ms 的重复计算才回到界面。
+- 来源: 2026-08-15 三维度审视(实测 git log 与解析耗时后定位)。
+- 证据等级: E1(逐项计时:git log 73~107ms / rev-parse 43~47ms / 归档解析 8.2ms、克隆 1.6ms)
+- 验收: ①提交标题按解析出的 HEAD sha 缓存,命中时一个 git 进程都不起(直接读 .git/HEAD 与 ref 文件);②解析不出 sha(packed-refs/异常布局)时不缓存,老实起进程;③归档解析按 (mtime, 长度) 缓存;④两个缓存都有失效键回归——HEAD 变动/归档改写后必须立刻反映新内容。
+- 优先级: P2
+- 标签: 核心
+- 进展: 已修。git_batches.rs 加 SUBJECTS_CACHE(键=project_root+head_sha,head_sha 直接读 .git/HEAD 与 ref 文件,worktree 的 gitdir: 指针也处理;解析不出则不缓存);docstore.rs 加 ARCHIVE_CACHE(键=路径→(mtime,长度));两条失效键测试(提交标题缓存在head变动后失效 / 归档解析缓存在文件改动后失效)。workspace 全绿。
+- observed_head: b2a25d2
+
+## D-378 启动链六步串行,后四步只是排队等前两步 [fixed] (low)
+- 复现: 冷启动。18-startup.js 用 for + await 串行跑六步,其中「历史对话」要渲染整段会话(实测主会话 993 条消息/1665 个 part)、「项目文档」要解析 ~1.25MB 归档,后面的模型列表/git 状态/排队输入只能干等。
+- 根因: 依赖被顺序隐式表达。真依赖只有两条:项目列表 → 其余;线路列表 → 历史对话与模型列表。
+- 影响: 冷启动时长 = 六步求和而不是最慢一步。
+- 来源: 2026-08-15 三维度审视。
+- 验收: ①项目列表串行在前;②线路列表作为显式前置(原先靠"历史对话排在模型列表前面"隐式满足);③其余五步并发,每步各自 try/catch,一步失败不影响其余;④冒烟仍绿。
+- 优先级: P3
+- 标签: 核心
+- 进展: 已修。18-startup.js 改为「项目列表 → 线路列表 → Promise.all(五步)」。并发第一版直接暴露了那条隐式依赖(冒烟报「当前线路已选的 DeepSeek 未保留在紧凑模型列表」——loadModels 拿到空 processItems),遂把 refreshProcesses 显式提前。六条前端冒烟全绿。
+- observed_head: b2a25d2
+
+## D-379 token 估算为了量长度把整段 JSON 物化再丢掉 [fixed] (low)
+- 复现: estimate_prompt_tokens 每步至少调一次、每个 part 一次,实现是 `serde_json::to_string(part).len()`。本仓主会话 993 条消息/1665 个 part/189 万字符,每次调用白分配约 2MB。
+- 影响: 相对 LLM 往返不是瓶颈(毫秒级),但是零风险可改。
+- 边界: drive.rs 每步的 `messages.clone()` **不改**——LlmRequest 持有 Vec<Message> 所有权,改借用要穿透 anthropic/openai/openai_responses 三套协议实现,而收益同样是毫秒级。
+- 验收: ①改为往只计数的 Writer 序列化,零分配;②字节数与 to_string().len() 逐字节相同(同一序列化器同一输出),估算口径不变;③既有 context 测试不变绿。
+- 优先级: P3
+- 标签: 核心
+- 进展: 已修。context.rs 新增 json_bytes(serde_json::to_writer + ByteCounter),messages 与 tool schema 两处改用;序列化失败与旧实现同样计 0。runner::context 10 passed。
+- observed_head: b2a25d2

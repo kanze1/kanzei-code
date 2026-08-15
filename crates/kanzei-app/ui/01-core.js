@@ -183,6 +183,28 @@ const promptBox = $("prompt");// R-260:process_list 定时轮询。01-core 事�
 // 投影 + 用户操作刷新,事件一丢或列表结构一变就滞留到下一次手动操作。3s 一轮:
 // 工具执行期间能及时看到运行状态变化;process_list 后端是内存 + stat 轻量查询,
 // refreshProcesses 内部已按项目单飞去重(processRefreshInFlight),频繁调用安全。
+// D-376:节律随运行态自适应。3s 是**运行中**需要的分辨率(工具执行期间要及时看到
+// 状态变化);全空闲时它变成纯消耗——每 3 秒一次 IPC + 一次 renderProcesses 全量
+// 重建侧栏任务列表,一天两万八千次,而这段时间里列表根本不会变。空闲降到 15s 仍然
+// 保住这条兜底的本意(事件丢失、外部创建/注销进程最迟 15 秒被纠正),代价只是
+// 「别的进程刚建了一条线」这种低频事件晚几秒出现在列表里。
+// 实现上保留**单个** setInterval 跳拍,而不是按需重排的递归 setTimeout:后者每次
+// 触发都新建一个定时器,冒烟 harness 的「排空待处理定时器」会因此自我续命(实测三条
+// 断言被搅红)。跳拍方案对外只是"少调几次",定时器身份与节拍都不变。
+const PROCESS_POLL_MS = 3000;
+const PROCESS_POLL_IDLE_EVERY = 5; // 空闲时每 5 拍拉一次 = 15s
+let processPollTick = 0;
+function anySessionBusy() {
+  // 取状态机而不是上一次轮询的 item.running:新一轮由 kz:turn 立刻拨到 running,
+  // 不必等下一次轮询才把节律提上来。auto_pending 也算忙——鞭挞正等着下一轮。
+  if (typeof sessionStates === "undefined") return false;
+  for (const state of sessionStates.values()) {
+    if (["starting", "running", "stopping", "auto_pending"].includes(state.phase)) return true;
+  }
+  return false;
+}
 setInterval(() => {
+  processPollTick += 1;
+  if (!anySessionBusy() && processPollTick % PROCESS_POLL_IDLE_EVERY !== 0) return;
   if (typeof refreshProcesses === "function") refreshProcesses();
-}, 3000);
+}, PROCESS_POLL_MS);

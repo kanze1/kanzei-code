@@ -31,9 +31,12 @@ use serde_json::Value;
 //     行再过滤 event_type);同时丢弃与 UNIQUE 自动索引完全重复的
 //     session_events_session_sequence。
 //
+// v15:D-375——存量 legacy_seeded 丢弃整包 messages 副本改回引用(源快照仍在才丢),
+//     随后 VACUUM 一次回收(实测占比约 22%,够不着 housekeeping 的 50% 阈值)。
+//
 // **改建表批 = 同时 +1 本常量并更新 SCHEMA_OBJECTS**(schema.rs 的机械判据会拦):
 // 早退分支让「代码里有、存量库里没有」不产生任何编译或测试信号,只能靠判据站岗。
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

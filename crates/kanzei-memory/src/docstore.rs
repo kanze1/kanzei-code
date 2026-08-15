@@ -346,6 +346,27 @@ struct ParsedDocument {
     template: DocumentTemplate,
 }
 
+/// D-377:归档解析缓存,见 [`DocStore::load_archive`]。键 = 路径 → (mtime, 长度, 解析结果)。
+/// 条目数上界 = 项目数 × 归档种类数,不需要淘汰策略。
+type ArchiveStamp = (std::time::SystemTime, u64);
+#[allow(clippy::type_complexity)]
+static ARCHIVE_CACHE: Mutex<
+    Option<std::collections::HashMap<PathBuf, (ArchiveStamp, ParsedDocument)>>,
+> = Mutex::new(None);
+
+fn archive_cache_get(path: &std::path::Path, stamp: ArchiveStamp) -> Option<ParsedDocument> {
+    let cache = ARCHIVE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let (cached_stamp, parsed) = cache.as_ref()?.get(path)?;
+    (*cached_stamp == stamp).then(|| parsed.clone())
+}
+
+fn archive_cache_put(path: &std::path::Path, stamp: ArchiveStamp, parsed: &ParsedDocument) {
+    let mut cache = ARCHIVE_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    cache
+        .get_or_insert_with(std::collections::HashMap::new)
+        .insert(path.to_path_buf(), (stamp, parsed.clone()));
+}
+
 pub struct DocStore {
     pub kind: &'static DocKind,
     pub path: PathBuf,
@@ -450,11 +471,33 @@ impl DocStore {
         }
     }
 
+    /// D-377:按 (mtime, 长度) 命中解析缓存。
+    ///
+    /// 归档是**只增不改**的大文件(本仓 defects-archive 699KB/367 条、
+    /// requirements-archive 522KB/244 条),实测解析一遍 4.9 + 3.3 = 8.2ms;
+    /// 而 `docs_snapshot` 每次刷新、每轮 `kz:done`、每次勾选都要读它一遍,
+    /// 只为算依赖状态。文件没动就没必要重新分词。
+    ///
+    /// 键用 (mtime, 长度) 而不是内容 hash:hash 要先把 1.2MB 读进来,那正是要省的。
+    /// 归档只被 append/rewrite,两者都同时改这两个量;取不到元数据就不缓存。
     pub fn load_archive(&self) -> std::io::Result<Vec<Entry>> {
-        match std::fs::read_to_string(self.archive_file()) {
+        let path = self.archive_file();
+        let stamp = std::fs::metadata(&path)
+            .ok()
+            .and_then(|meta| Some((meta.modified().ok()?, meta.len())));
+        if let Some(stamp) = stamp {
+            if let Some(parsed) = archive_cache_get(&path, stamp) {
+                *self.preserved_archive.lock().unwrap() = Some(parsed.template.clone());
+                return Ok(parsed.entries);
+            }
+        }
+        match std::fs::read_to_string(&path) {
             Ok(text) => {
                 let parsed = parse_document(self.kind, &text);
                 *self.preserved_archive.lock().unwrap() = Some(parsed.template.clone());
+                if let Some(stamp) = stamp {
+                    archive_cache_put(&path, stamp, &parsed);
+                }
                 Ok(parsed.entries)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
@@ -1437,6 +1480,57 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         }
+    }
+
+    /// D-377:归档解析缓存的唯一风险是**给旧内容**。这里钉住失效键(mtime+长度):
+    /// 归档被改写后,下一次 load_archive 必须看到新内容而不是命中上一次的解析结果。
+    #[test]
+    fn 归档解析缓存在文件改动后失效() {
+        let root = std::env::temp_dir().join(format!(
+            "kz-archive-cache-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        let store = DocStore::open(&root, &DEFECTS);
+        let archive = store.archive_file();
+        std::fs::create_dir_all(archive.parent().unwrap()).unwrap();
+
+        std::fs::write(
+            &archive,
+            "# Defects
+
+## D-001 头一条 [fixed] (low)
+- 优先级: P3
+",
+        )
+        .unwrap();
+        let first = store.load_archive().unwrap();
+        assert_eq!(first.len(), 1, "前置:归档应解析出一条");
+        // 命中缓存:同一份文件重复读,结果一致。
+        assert_eq!(store.load_archive().unwrap().len(), 1);
+
+        std::fs::write(
+            &archive,
+            "# Defects
+
+## D-001 头一条 [fixed] (low)
+- 优先级: P3
+
+## D-002 又一条 [fixed] (low)
+- 优先级: P3
+",
+        )
+        .unwrap();
+        assert_eq!(
+            store.load_archive().unwrap().len(),
+            2,
+            "归档改了却还在返回旧解析:缓存失效键失灵(D-377)"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
