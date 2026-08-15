@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::ui_probe;
 use kanzei_harness::{ResolveCtx, ToolCtx};
-use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
+use kanzei_tools::docstore::{DEFECTS, IDEAS, REQUIREMENTS};
 
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct UiProbeInput {
@@ -236,6 +236,49 @@ impl kanzei_harness::Component for QuickCaptureComponent {
             "*",
             kanzei_harness::Effect::Allow,
         ));
+        Ok(())
+    }
+}
+
+/// R-252 验收③/⑤:想法拆解子代理的工具面——req/defect 可写(产出拆解条目),
+/// idea 可读写(读原想法全文、拆解后把该想法 update 成 split + refs)。
+pub(crate) struct IdeaSplitComponent;
+impl kanzei_harness::Component for IdeaSplitComponent {
+    fn contribute(
+        &self,
+        draft: &mut kanzei_harness::HarnessDraft,
+        _ctx: &ResolveCtx,
+    ) -> anyhow::Result<()> {
+        for (tool_name, noun, kind) in [
+            (
+                "req",
+                "requirement",
+                &REQUIREMENTS as &'static kanzei_tools::docstore::DocKind,
+            ),
+            (
+                "defect",
+                "defect",
+                &DEFECTS as &'static kanzei_tools::docstore::DocKind,
+            ),
+            (
+                "idea",
+                "idea",
+                &IDEAS as &'static kanzei_tools::docstore::DocKind,
+            ),
+        ] {
+            let tool = kanzei_tools::tracker::TrackerTool {
+                tool_name,
+                noun,
+                kind,
+                requires_refs: None,
+            };
+            draft.tools.insert(tool_name, Arc::new(tool));
+            draft.permissions.push(kanzei_harness::rule(
+                tool_name,
+                "*",
+                kanzei_harness::Effect::Allow,
+            ));
+        }
         Ok(())
     }
 }

@@ -170,6 +170,7 @@ fn main() {
             update::update_check_command,
             update::update_install_command,
             subagents::quick_req,
+            subagents::idea_split,
             subagents::defect_review,
             memory::memory_overview,
             memory::memory_entries,
