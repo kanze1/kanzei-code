@@ -119,8 +119,13 @@ Set-Content $bundle_config '{"bundle":{"externalBin":["binaries/kz"]}}' -Encodin
 
 Step "cargo tauri build($hash)—— 最长的一步,输出会持续滚动"
 Push-Location "$root\crates\kanzei-app"
-try { cargo tauri build --config $bundle_config 2>&1 | ForEach-Object { $_ } } finally { Pop-Location }
-if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
+$tauri_log = Join-Path $env:TEMP "kanzei-tauri-build-$hash.log"
+try {
+    cargo tauri build --config $bundle_config *> $tauri_log
+    $tauri_exit_code = $LASTEXITCODE
+} finally { Pop-Location }
+Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
+if ($tauri_exit_code -ne 0) { throw "tauri build failed" }
 
 Step "收集安装包产物"
 $setup = Get-ChildItem "$root\target\release\bundle\nsis\*-setup.exe" | Sort-Object LastWriteTime | Select-Object -Last 1
@@ -147,7 +152,10 @@ if ($Publish) {
     # HEAD 上建它,而我们从 dev 发版。实测 build-ecdab96 因此指向了 5dcf469——发布 tag
     # 对不上真正构建的提交,更要命的是上面那段 D-183 区间判据从此一直从 main 起算,
     # 每次发版都把同一批 dev 提交重新数一遍,守卫的精度就没了。
-    gh release create $tag $out --repo kanze1/kanzei-code --target $full_hash --title "kanzei $date ($hash)" --notes-file $notesFile 2>&1 | ForEach-Object { $_ }
-    if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+    $gh_log = Join-Path $env:TEMP "kanzei-gh-release-$hash.log"
+    gh release create $tag $out --repo kanze1/kanzei-code --target $full_hash --title "kanzei $date ($hash)" --notes-file $notesFile *> $gh_log
+    $gh_exit_code = $LASTEXITCODE
+    Get-Content $gh_log | ForEach-Object { Write-Host $_ }
+    if ($gh_exit_code -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
 }
