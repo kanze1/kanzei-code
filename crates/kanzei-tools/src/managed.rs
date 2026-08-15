@@ -296,7 +296,10 @@ pub(crate) fn acquire_managed_locks(project_root: &Path) -> Result<ManagedLocks,
         let mut locks: Vec<crate::atomic_file::FileLock> = Vec::new();
         let outcome = (|| -> Result<(), String> {
             for path in &paths {
-                let lock = crate::atomic_file::try_lock_exclusive(path, LOCK_ACQUIRE_BUDGET)
+                // D-382:围栏取**共享档**。它要的是「窗口内没有写者」,不是「没有
+                // 别的围栏」——两条并行线的围栏诉求完全相同,互斥纯属误伤。改共享
+                // 之后 D-364 的不变式一字不动:写者要排他,照样被挡在窗口外。
+                let lock = crate::atomic_file::try_lock_shared(path, LOCK_ACQUIRE_BUDGET)
                     .map_err(|e| format!("cannot lock managed path {}: {e}", path.display()))?
                     .ok_or_else(|| {
                         format!(
@@ -419,6 +422,93 @@ pub(crate) fn enforce_managed_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// D-382 回归:两条并行线的 bash 围栏必须能同时持有。
+    ///
+    /// 改造前这条会红——围栏取排他锁,第二条线按 500ms 预算必然拿不到,报
+    /// "bash refused before execution: cannot lock managed path"。实测现场是一条线
+    /// 跑 cargo check(持锁分钟级),另一条线连着十次被拒。
+    #[test]
+    fn 两条线的围栏可以同时持有() {
+        let root = temp_project("parallel-fence");
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "# Requirements\n",
+        )
+        .unwrap();
+        let 线一 = acquire_managed_locks(&root).expect("第一条线取围栏");
+        let root2 = root.clone();
+        let 线二 = std::thread::spawn(move || acquire_managed_locks(&root2))
+            .join()
+            .unwrap();
+        assert!(
+            线二.is_ok(),
+            "第二条线的围栏被拒:并行线又被串行化了(D-382)。实得:{:?}",
+            线二.err()
+        );
+        drop(线一);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// D-364 的不变式不能因为改共享档而松动:围栏在场时,**写者**必须仍被挡住。
+    #[test]
+    fn 围栏在场时写者仍被挡住() {
+        let root = temp_project("fence-blocks-writer");
+        let doc = root.join(".kanzei/project/requirements.md");
+        std::fs::write(&doc, "# Requirements\n").unwrap();
+        let 围栏 = acquire_managed_locks(&root).expect("取围栏");
+        let doc2 = doc.clone();
+        let 写者拿到 = std::thread::spawn(move || {
+            crate::atomic_file::try_lock_exclusive(&doc2, std::time::Duration::from_millis(150))
+                .unwrap()
+                .is_some()
+        })
+        .join()
+        .unwrap();
+        assert!(
+            !写者拿到,
+            "围栏窗口内写者拿到了排他锁:D-364 的归因前提失守,别人的合法写入会被回滚"
+        );
+        drop(围栏);
+        // 围栏走后写者必须立刻能进(靠 Drop 里的广播唤醒,不是轮询)。
+        let 之后 = std::thread::spawn(move || {
+            crate::atomic_file::try_lock_exclusive(&doc, std::time::Duration::from_secs(2))
+                .unwrap()
+                .is_some()
+        })
+        .join()
+        .unwrap();
+        assert!(之后, "围栏释放后写者仍拿不到");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 读路径(DocStore::load 走共享档)不得被围栏挡住——这正是"文档面板不再刷新"。
+    #[test]
+    fn 围栏在场时文档仍读得出来() {
+        let root = temp_project("fence-allows-read");
+        std::fs::write(
+            root.join(".kanzei/project/requirements.md"),
+            "# Requirements\n\n## R-001 一条 [doing]\n- 优先级: P1\n",
+        )
+        .unwrap();
+        let 围栏 = acquire_managed_locks(&root).expect("取围栏");
+        let root2 = root.clone();
+        let 读到 = std::thread::spawn(move || {
+            crate::docstore::DocStore::open(&root2, &crate::docstore::REQUIREMENTS)
+                .load()
+                .map(|entries| entries.len())
+        })
+        .join()
+        .unwrap();
+        match 读到 {
+            Ok(count) => assert_eq!(count, 1, "围栏在场时读到的条目数不对:期望 1,实得 {count}"),
+            Err(error) => {
+                panic!("围栏在场时读不出文档:桌面端文档面板会停在「刷新失败」。实得 {error}")
+            }
+        }
+        drop(围栏);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     fn temp_project(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

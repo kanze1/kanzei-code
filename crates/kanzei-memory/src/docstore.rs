@@ -407,14 +407,18 @@ impl DocStore {
     }
 
     pub fn load(&self) -> std::io::Result<Vec<Entry>> {
-        // D-338:load 与 save 同一把锁互斥。save 是 tmp+rename 原子替换,但
-        // Windows 上 rename 覆盖目标与读者 open 目标之间有竞态窗口——读者在
-        // 替换瞬间 open 会 NotFound,load 对 NotFound 宽容返回 Ok(vec![]) =
-        // 「读到 0 条」的假空快照(D-338 压测 20 轮 1 次失败,条目数 0)。
-        // 持同一把 FileLock 后,读者在 save 持锁期间等待,rename 完成后才读,
-        // 永远看到完整快照(3 或 30),不再有中间态窗口。FileLock 同线程重入
-        // 安全(depth 计数),内部持锁路径调 load 不会自锁死。
-        let _lock = self.lock()?;
+        // D-338:load 与 save 必须互斥。save 是 tmp+rename 原子替换,但 Windows 上
+        // rename 覆盖目标与读者 open 目标之间有竞态窗口——读者在替换瞬间 open 会
+        // NotFound,load 对 NotFound 宽容返回 Ok(vec![]) =「读到 0 条」的假空快照
+        // (D-338 压测 20 轮 1 次失败,条目数 0)。
+        //
+        // D-382:这里改**共享档**。原先取排他锁,于是"读一下文档"要和 bash 围栏
+        // (持全部托管文档排他锁直到命令结束,上限 600s)抢同一把锁——一条线跑
+        // cargo check,桌面端文档面板就按 3s 预算取锁失败,界面停在"刷新失败"。
+        // 读者之间、读者与围栏之间本来就不冲突;真正要挡的只有 save。共享档下
+        // D-338 的保证一字不改:save 持排他,读者在它期间照样等,永远看不到中间态。
+        // 排他持有者内部调 load 走重入(见 atomic_file 的 try_lock_shared),不自锁。
+        let _lock = crate::atomic_file::lock_shared(&self.path)?;
         match std::fs::read_to_string(&self.path) {
             Ok(text) => {
                 let parsed = parse_document(self.kind, &text);

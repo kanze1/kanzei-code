@@ -197,16 +197,51 @@ const LOCK_STALE_AFTER: Duration = Duration::from_secs(30);
 ///   拿到 ERROR_SHARING_VIOLATION;句柄随进程退出由 OS 关闭,**崩溃不留死锁**。
 pub struct FileLock {
     key: String,
+    mode: LockMode,
     /// `!Send` 标记:锁必须在获取它的线程上释放,也不允许跨 await 存活。
     _not_send: std::marker::PhantomData<*const ()>,
+}
+
+/// D-382:锁模式。加共享档的理由不是"更快",是**保住并行**。
+///
+/// 原先只有排他一档,于是三类互不冲突的动作被迫排成一队:
+///   - bash 围栏(D-364)要在命令窗口内挡住托管文档的写者,于是持全部 8 份文档的
+///     排他锁,**持有到命令结束**(默认 120s、上限 600s);
+///   - 另一条并行线的 bash 围栏要的是同一件事,两者之间本无冲突,却互斥;
+///   - 桌面端只是**读**文档(D-338 为避开 rename/open 竞态也取了排他锁)。
+///
+/// 实测后果:一条线跑 `cargo check`,另一条线的 bash 按 500ms 预算取锁必然失败
+/// (持锁 600s vs 抢锁 500ms = 1200:1),文档面板按 3s 预算也拿不到——两条线互为
+/// 对方的阻塞源,不会自愈。
+///
+/// 共享档让"读者与围栏"彼此共存,只把**真正的写者**挡在外面,两条不变式都不松:
+/// D-364 要的"窗口内没有写者"仍然成立(写者要排他),D-338 要的"读者看不到 rename
+/// 中间态"也仍然成立(写者持排他时读者等)。
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum LockMode {
+    Shared,
+    Exclusive,
 }
 
 #[derive(Default)]
 struct SlotState {
     owner: Option<ThreadId>,
     depth: usize,
-    /// 独占句柄。`depth > 0` 且已完成获取时为 `Some`;置 `None` 即释放跨进程锁。
+    /// 共享持有者:线程 → 重入计数。非空 = 本进程有人持共享档。
+    shared: HashMap<ThreadId, usize>,
+    /// 有线程已占住槽位、正在开 OS 句柄。此刻 `handle` 还是 `None`,但锁**不是**
+    /// 空闲的——后来者必须等它落定,不能把"句柄还没开"误判成"没人持锁"。
+    acquiring: bool,
+    /// OS 句柄。排他档是 `share_mode(0)`;共享档由第一个共享持有者开、最后一个
+    /// 释放者关。置 `None` 即释放跨进程锁。
     handle: Option<std::fs::File>,
+}
+
+impl SlotState {
+    /// 本进程内是否有人持锁(含正在获取)。
+    fn busy(&self) -> bool {
+        self.depth > 0 || !self.shared.is_empty() || self.acquiring
+    }
 }
 
 struct Registry {
@@ -263,21 +298,24 @@ pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Op
     let mut slots = registry.slots.lock().unwrap();
     loop {
         let state = slots.entry(key.clone()).or_default();
-        if state.depth == 0 {
+        if !state.busy() {
             // 先把槽位占住再放开注册表锁:OS 句柄可能要轮询几十毫秒,
             // 拿着全局锁去 sleep 会连累其它文件的加锁路径。
             state.owner = Some(me);
             state.depth = 1;
+            state.acquiring = true;
             drop(slots);
             let outcome = open_exclusive_until(&path, deadline);
             let mut slots = registry.slots.lock().unwrap();
             let state = slots.entry(key.clone()).or_default();
+            state.acquiring = false;
             return match outcome {
                 Ok(Some(file)) => {
                     state.handle = Some(file);
                     drop(slots);
                     Ok(Some(FileLock {
                         key,
+                        mode: LockMode::Exclusive,
                         _not_send: std::marker::PhantomData,
                     }))
                 }
@@ -296,6 +334,111 @@ pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Op
             state.depth += 1;
             return Ok(Some(FileLock {
                 key,
+                mode: LockMode::Exclusive,
+                _not_send: std::marker::PhantomData,
+            }));
+        }
+        if state.shared.contains_key(&me) {
+            // 共享升排他会自锁:本线程的共享句柄(share_mode=READ)正好挡住自己的
+            // 排他 open,再等也等不到。快速失败并说清怎么改,好过等到预算耗尽只报
+            // 一句"另一个进程在写"——那会把调用点的真实错误藏起来。
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Deadlock,
+                format!(
+                    "{} 已被本线程以共享档持有,不能在其上升级为排他锁:\
+                     先释放共享锁再取排他,或把外层直接改成排他档。",
+                    target.display()
+                ),
+            ));
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Ok(None);
+        }
+        let (guard, timeout) = registry
+            .released
+            .wait_timeout(slots, deadline - now)
+            .unwrap();
+        slots = guard;
+        if timeout.timed_out() && Instant::now() >= deadline {
+            return Ok(None);
+        }
+    }
+}
+
+/// 取共享锁,按默认预算等待;超时返回 `WouldBlock`(带可读文本)。
+pub fn lock_shared(target: &Path) -> std::io::Result<FileLock> {
+    match try_lock_shared(target, DEFAULT_LOCK_BUDGET)? {
+        Some(lock) => Ok(lock),
+        None => Err(std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            format!(
+                "等待 {:?} 仍拿不到 {} 的读锁:有进程正持排他写锁。\
+                 稍后重试;若确认没有别的进程在跑,删掉锁文件即可。",
+                DEFAULT_LOCK_BUDGET,
+                target.display()
+            ),
+        )),
+    }
+}
+
+/// 取共享锁,最多等 `budget`;等不到返回 `Ok(None)`。
+///
+/// 共享档之间彼此相容,只与排他档互斥。用于**不改内容**的持有者:文档读取
+/// (`DocStore::load`)与 bash 围栏(它要的是"窗口内没有写者",不是"没有别的围栏")。
+/// 见 [`LockMode`] 的说明。
+pub fn try_lock_shared(target: &Path, budget: Duration) -> std::io::Result<Option<FileLock>> {
+    let path = lock_path_for(target);
+    let key = lock_key(&path);
+    let registry = registry();
+    let me = std::thread::current().id();
+    let deadline = Instant::now() + budget;
+
+    let mut slots = registry.slots.lock().unwrap();
+    loop {
+        let state = slots.entry(key.clone()).or_default();
+        if state.owner == Some(me) {
+            // 已持排他:共享请求当排他重入处理(排他本就更强),释放时减 depth。
+            state.depth += 1;
+            return Ok(Some(FileLock {
+                key,
+                mode: LockMode::Exclusive,
+                _not_send: std::marker::PhantomData,
+            }));
+        }
+        if state.depth == 0 && !state.acquiring {
+            if state.shared.is_empty() {
+                // 本进程第一个共享持有者:要真去开 OS 句柄。占住槽位再放锁。
+                state.shared.insert(me, 1);
+                state.acquiring = true;
+                drop(slots);
+                let outcome = open_shared_until(&path, deadline);
+                let mut slots = registry.slots.lock().unwrap();
+                let state = slots.entry(key.clone()).or_default();
+                state.acquiring = false;
+                return match outcome {
+                    Ok(Some(file)) => {
+                        state.handle = Some(file);
+                        drop(slots);
+                        Ok(Some(FileLock {
+                            key,
+                            mode: LockMode::Shared,
+                            _not_send: std::marker::PhantomData,
+                        }))
+                    }
+                    other => {
+                        state.shared.remove(&me);
+                        drop(slots);
+                        registry.released.notify_all();
+                        other.map(|_| None)
+                    }
+                };
+            }
+            // 已有共享持有者:句柄现成的,直接挂号,不再碰 OS。
+            *state.shared.entry(me).or_insert(0) += 1;
+            return Ok(Some(FileLock {
+                key,
+                mode: LockMode::Shared,
                 _not_send: std::marker::PhantomData,
             }));
         }
@@ -319,13 +462,29 @@ impl Drop for FileLock {
         let registry = registry();
         let mut slots = registry.slots.lock().unwrap();
         if let Some(state) = slots.get_mut(&self.key) {
-            state.depth = state.depth.saturating_sub(1);
-            if state.depth == 0 {
-                state.owner = None;
-                // 关句柄 = 释放跨进程锁。必须在通知等待者之前发生,否则被唤醒的
-                // 线程会立刻撞上还没关掉的句柄,白转一圈。
-                // 锁文件本身留在盘上:删它会与另一个进程正在进行的 open 赛跑,
-                // 而一个零字节的 .lock 文件没有任何成本(已进 .gitignore)。
+            match self.mode {
+                LockMode::Exclusive => {
+                    state.depth = state.depth.saturating_sub(1);
+                    if state.depth == 0 {
+                        state.owner = None;
+                    }
+                }
+                LockMode::Shared => {
+                    let me = std::thread::current().id();
+                    if let Some(count) = state.shared.get_mut(&me) {
+                        *count -= 1;
+                        if *count == 0 {
+                            state.shared.remove(&me);
+                        }
+                    }
+                }
+            }
+            // 关句柄 = 释放跨进程锁。必须在通知等待者之前发生,否则被唤醒的
+            // 线程会立刻撞上还没关掉的句柄,白转一圈。
+            // 共享档要等**最后一个**持有者走才关:句柄是全体共享持有者共用的。
+            // 锁文件本身留在盘上:删它会与另一个进程正在进行的 open 赛跑,
+            // 而一个零字节的 .lock 文件没有任何成本(已进 .gitignore)。
+            if state.depth == 0 && state.shared.is_empty() {
                 state.handle = None;
             }
         }
@@ -351,6 +510,71 @@ fn open_exclusive_until(path: &Path, deadline: Instant) -> std::io::Result<Optio
             Err(error) => return Err(error),
         }
     }
+}
+
+/// 轮询式获取共享句柄,直到 `deadline`。`Ok(None)` = 一直被排他持有者占着。
+fn open_shared_until(path: &Path, deadline: Instant) -> std::io::Result<Option<std::fs::File>> {
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    loop {
+        match open_shared(path) {
+            Ok(file) => return Ok(Some(file)),
+            Err(error) if is_contended(&error) => {
+                if Instant::now() >= deadline {
+                    return Ok(None);
+                }
+                std::thread::sleep(Duration::from_millis(LOCK_POLL_MS));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Windows:只要**读**权限 + `FILE_SHARE_READ`。
+///
+/// 两条都不能松:
+/// - 若一并请求写权限,后来的共享者会被拒——它的 share_mode 不允许已有句柄的写访问;
+/// - 若 share_mode 放开写,排他者(share_mode=0)仍会被拒(它不允许任何既有句柄),
+///   但语义就从"读写锁"退化成"谁先到谁赢",失去意义。
+///
+/// 反向也自动成立:排他者持 `share_mode(0)` 时,任何共享 open 都被 OS 拒绝。
+#[cfg(windows)]
+fn open_shared(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ)
+        .open(path)
+    {
+        Ok(file) => Ok(file),
+        // 锁文件还没被谁建过:先建出来(建的这一下允许共享,免得两个共享者互相挤掉),
+        // 再按共享档打开。排他者此刻若在场,这一步会以争用形态失败并回到轮询。
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(path)?;
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ)
+                .open(path)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// 非 Windows:std 没有 flock 绑定,`O_EXCL` 锁文件表达不了共享档。
+/// 降级为排他——**语义仍然正确**(共享档的约束比排他弱,用强的顶替不会放过任何
+/// 该挡的),只是并发度退回改造前。本仓主跑 Windows,这条分支的定位与
+/// [`open_exclusive`] 的注释一致:可编译且语义合理,不是主战场。
+#[cfg(not(windows))]
+fn open_shared(path: &Path) -> std::io::Result<std::fs::File> {
+    open_exclusive(path)
 }
 
 /// 别的进程占着锁的错误形态。Windows 上共享冲突有三个码,漏一个就会把"正常
@@ -452,6 +676,166 @@ mod tests {
 
     fn 指纹(s: &str) -> String {
         format!("hash:{}", s.len())
+    }
+
+    // ---- D-382 共享档语义 ----
+    // 这一组钉的是「读者/围栏彼此共存、写者仍被完全挡住」。每条都直指改造前那个
+    // 活锁:一条线的 bash 围栏持排他 600s,另一条线按 500ms 预算必然拿不到。
+
+    #[test]
+    fn 共享档彼此相容_跨线程也相容() {
+        let dir = 临时目录("shared-compat");
+        let target = dir.join("doc.md");
+        let a = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .expect("首个共享档应立刻拿到");
+        // 同线程再取一次:重入计数,不自锁。
+        let b = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .expect("同线程共享重入应立刻拿到");
+        // 另一个线程同时取共享:这正是「两条线的 bash 围栏」的形态。
+        let target2 = target.clone();
+        let 另一条线 = std::thread::spawn(move || {
+            try_lock_shared(&target2, Duration::from_millis(200))
+                .unwrap()
+                .is_some()
+        });
+        assert!(
+            另一条线.join().unwrap(),
+            "另一线程取共享档失败:围栏之间又互斥了(D-382 的活锁就是这么来的)"
+        );
+        drop(b);
+        drop(a);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 排他档挡住共享档_释放后共享立刻拿到() {
+        let dir = 临时目录("excl-blocks-shared");
+        let target = dir.join("doc.md");
+        let 写锁 = lock_exclusive(&target).unwrap();
+        let target2 = target.clone();
+        let 读者 = std::thread::spawn(move || {
+            // 写者在场时拿不到(写者是毫秒级的,这里给 80ms 预算足够表达"被挡住")。
+            let 被挡 = try_lock_shared(&target2, Duration::from_millis(80))
+                .unwrap()
+                .is_none();
+            // 写者走后必须能拿到——释放走的是 notify_all 广播,不是轮询。
+            let 之后 = try_lock_shared(&target2, Duration::from_secs(2)).unwrap();
+            (被挡, 之后.is_some())
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        drop(写锁);
+        let (被挡, 之后拿到) = 读者.join().unwrap();
+        assert!(
+            被挡,
+            "排他档在场时共享档不该拿到:D-338 的 rename 中间态会漏出来"
+        );
+        assert!(之后拿到, "排他档释放后共享档仍拿不到:广播唤醒没生效");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 共享档挡住排他档_最后一个释放后写者才进() {
+        let dir = 临时目录("shared-blocks-excl");
+        let target = dir.join("doc.md");
+        let 读锁一 = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .unwrap();
+        let 读锁二 = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .unwrap();
+        let target2 = target.clone();
+        let 写者 = std::thread::spawn(move || {
+            let 被挡 = try_lock_exclusive(&target2, Duration::from_millis(80))
+                .unwrap()
+                .is_none();
+            let 之后 = try_lock_exclusive(&target2, Duration::from_secs(2)).unwrap();
+            (被挡, 之后.is_some())
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        drop(读锁一);
+        // 只走了一个共享持有者,写者仍然必须等——句柄是全体共用的。
+        std::thread::sleep(Duration::from_millis(100));
+        drop(读锁二);
+        let (被挡, 之后拿到) = 写者.join().unwrap();
+        assert!(被挡, "有共享持有者时排他档不该拿到:D-364 的窗口就失守了");
+        assert!(之后拿到, "共享档全部释放后排他档仍拿不到");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 排他持有者内部取共享算重入不自锁() {
+        let dir = 临时目录("excl-reenter-shared");
+        let target = dir.join("doc.md");
+        let 外层 = lock_exclusive(&target).unwrap();
+        // archive_terminal(持排他)内部调 load(取共享)就是这条路径。
+        let 内层 = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .expect("排他持有者内部取共享应按重入放行,否则自锁死");
+        drop(内层);
+        drop(外层);
+        // 全部释放后别的线程应能立刻取排他。
+        let target2 = target.clone();
+        assert!(
+            std::thread::spawn(move || try_lock_exclusive(&target2, Duration::from_secs(1))
+                .unwrap()
+                .is_some())
+            .join()
+            .unwrap(),
+            "重入释放后锁没还干净"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn 共享升排他快速失败而不是等到超时() {
+        let dir = 临时目录("no-upgrade");
+        let target = dir.join("doc.md");
+        let _读锁 = try_lock_shared(&target, Duration::from_millis(50))
+            .unwrap()
+            .unwrap();
+        let 起点 = Instant::now();
+        let 结果 = try_lock_exclusive(&target, Duration::from_secs(5));
+        let 用时 = 起点.elapsed();
+        let error = match 结果 {
+            Err(error) => error,
+            Ok(_) => panic!("同线程共享升排他必须报错,不能装作在等"),
+        };
+        assert!(
+            error.to_string().contains("共享档持有"),
+            "错误文本要说清是升级自锁,实得:{error}"
+        );
+        assert!(
+            用时 < Duration::from_secs(1),
+            "应当快速失败,实际等了 {用时:?}——那会把真实原因藏在超时后面"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 绕过进程内注册表,直接验 OS 句柄层的读写锁语义——跨进程争用最终落在这里,
+    /// 注册表那层挡不住别的 kanzei 进程。
+    #[test]
+    fn os句柄层共享与排他互斥() {
+        let dir = 临时目录("os-share-mode");
+        let lock_file = dir.join("doc.lock");
+        let 共享一 = open_shared(&lock_file).expect("首个共享句柄");
+        let 共享二 = open_shared(&lock_file).expect("第二个共享句柄应能共存");
+        assert!(
+            open_exclusive(&lock_file).is_err(),
+            "有共享句柄时排他 open 必须被 OS 拒绝"
+        );
+        drop(共享一);
+        drop(共享二);
+        let 排他 = open_exclusive(&lock_file).expect("共享句柄全关后排他应可开");
+        // 非 Windows 分支里 open_shared 就是 open_exclusive,自然互斥;
+        // Windows 上靠 share_mode(0) 拒绝。两条路径都必须挡住。
+        assert!(
+            open_shared(&lock_file).is_err(),
+            "有排他句柄时共享 open 必须被 OS 拒绝"
+        );
+        drop(排他);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
