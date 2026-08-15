@@ -2,8 +2,8 @@
 
 use super::{pending_ask_payload, PendingAsk};
 // R-153 批10:总是允许的落库迁到 run 模块。
+use crate::commands::run::persist_always_allow;
 use crate::run::assembly::build_run_harness;
-use crate::run::persist_always_allow;
 use kanzei_harness::{Effect, KanzeiConfig, ProfileKind, ResolveCtx, Rule};
 use std::sync::Arc;
 use tokio::sync::oneshot;
