@@ -108,15 +108,18 @@
 - 退回原因: 2026-08-07 验收核查发现验收三条一条都未实质达成(验收原文要求"在移动端完成")。①双向通信未实现:InMemoryBroker 只被测试使用,生产代码零调用;POST /v1/messages 只把 payload 写成 mobile.message 事件(main.rs:1881),全仓库无任何消费方,消息进库即死信;且该端点因 Content-Length 解析缺陷恒返回 400(见 D-063),从未真正工作过。②移动端实时显示未实现:不存在任何移动端工程,只有本机轮询端点无推送;通知 agent_id 硬编码 "primary"(2532),次级代理从不产生通知。③"子代理升级为项目容器"是空壳:agent_container_*(1944-2013)只往 manifest.json 写字符串,无任何运行时读取,与 SubagentRuntime 零关联,前端"升级到 2"硬编码版本号。
 - 下一步: 已完成的属"阶段 B 桌面桥接",应作为独立子需求单独验收;本需求保留移动端三条验收,待用户排期。
 - 遗留质量问题: HTTP 桥接与 agent_container 三命令零测试;通知端点要求 thread_id 但无任何端点可枚举 thread,客户端无法自举。
-- refs: D-063
+- refs: D-063 R-269 R-270 R-271
 - 阶段: 5
 - 证据等级: E4
 - 设计定位: 功能需求(2026-08-08 用户定调:R-093 的"质量先行"阶段门槛作废,按普通优先级参与取活)
 
 - 标签: 后端
 
-- 进展: 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
-- 阻塞: 用户: 需对移动端三条验收(双向通信/通知推送/子代理升级容器)排期并确认交付载体(真实手机端工程或 web 模拟端)。解除动作:用户拍板移动端交付形态与排期,再按新载体拆子需求动工。
+- 进展: 2026-08-16 交付形态已拍板:PWA+现成通知桥(手机为 Android),原生壳不做(息屏通知由 LAN 推送桥零开发补齐);双向通信与通知推送两条验收的实施载体为 R-270(服务端)+R-271(PWA 界面),本条在其交付后按新载体核销;第三条『子代理升级为管理项目容器』与移动端无关,待用户重估是否保留。 || 2026-08-08 复核:验收三条原文要求「在移动端完成」,本仓库不存在移动端工程;2026-08-07 退回原因明确本需求保留移动端三条验收、待用户排期。桌面桥接(阶段 B)属既有能力,按退回意见应拆为独立子需求,不在本条验收范围内。
+- 阻塞: 等 R-270/R-271 交付后核销双向通信与通知推送两条验收;第三条『子代理升级为项目容器』需用户重估是否仍要。解除动作: R-270 R-271 关闭后核销并收口本条。解除人: 依赖自然解除(R-270 R-271)/用户(第三条)。
+- observed_head: 2fffa0829d54c008df04af3941bf7c3e31d6612d
+- observed_worktree_hash: fnv1a64:1bbe2535e877fb93
+- recorded_at: 1786819036617
 
 ## R-242 会话投影真源切换与分段清空恢复 [todo]
 - refs: D-209 D-342 R-236 docs/design/deepseek_harness_upgrade.md
@@ -170,11 +173,11 @@
 - 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
-- 进展: 批2 完成:LineRuntime 子代理等待退出机制——Inner 新增 child_agent_joins:Mutex<Vec<JoinHandle<()>>>,新增 track_child_agent(登记已 spawn 子代理),dispose_once 在 cancel_all 后 drain 全部 join 并 await(三种终态——完成/失败/被停——都在 run_subagent 返回时释放读槽,await join 保证 dispose 返回前子代理已静止)。4 单测全绿(新增:dispose 等待已登记子代理退出——自然完成与被停子代理都须在 dispose 返回前结束)。drive.rs 后台 spawn 接线(track_child_agent 调用点)并入批3 与后台进程收口一起做。kanzei-core 202 全绿,clippy 零警告。批3:非 persistent 资源回收(后台进程/通知/artifact/租约)+ drive.rs spawn 接线;批4:终态落库+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+全量。
+- 进展: 批1+批2 已完成(此前轮次落地,本批复核确认代码在库):line_runtime.rs 骨架——Inner 持有 cancellation/child_agents(TaskCancellations)/child_agent_joins/background_processes,dispose 幂等(AtomicBool CAS 首调 + Mutex<Option<Shared future>> 复用,并发共享同一完成 future,performed 只归赢家),dispose_once 顺序:cancel token → cancel_all 子代理 → drain+await 全部 join(三种终态在 run_subagent 返回时释放读槽)→ 清空后台进程 id;4 单测全绿(并发幂等/取消令牌触发/new 默认不取消/等待子代理退出)。drive.rs 后台 spawn 接线(track_child_agent 调用点)并入批3 与后台进程收口一起做。批3:非 persistent 资源回收(后台进程真实 kill + 通知订阅 + artifact + 租约)+ drive.rs spawn 接线;批4:终态落库+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+全量。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
-- observed_head: 446beca939eeaa490afd6a02111ccdb858cde76e
-- observed_worktree_hash: fnv1a64:24fe885f87333632
-- recorded_at: 1786818695295
+- observed_head: 2fffa0829d54c008df04af3941bf7c3e31d6612d
+- observed_worktree_hash: fnv1a64:f942ffb698473c93
+- recorded_at: 1786818826147
 
 ## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
 - refs: R-221 docs/design/research_mode.md
@@ -244,4 +247,27 @@
 - 标签: 核心
 - 边界: 不 attach WebView2(R-101 的 CDP 路线另论);不做多 tab/多上下文并发;不做网络拦截与请求 mock;无 Node 或无 Edge/Chrome 时给明确诊断,不静默降级;截图体积口径沿用 R-249。
 - 验收: ①打开本地 HTML 与 http URL 各有实测轨迹;②移动 viewport 截图被模型真实消费(实测轨迹,不是单测断言);③click/type 后 DOM 变化可读回;④页面 console 错误可读;⑤缺 Node/缺浏览器时诊断明确;⑥工具生命周期结束后无残留辅进程与 headless 实例(实测进程列表);⑦附带给出 e2e-smoke 切本路线绕开 D-319 的可行性结论(只要结论,不要求实施)。
+- 优先级: P1
+
+## R-270 桥接移动化:LAN 配对/SSE/approval/PWA serve 与通知桥 [todo]
+- refs: R-059 D-063 R-269 docs/design/r059_mobile_agent_communication.md
+- 内容: 现状 mobile.rs 只绑 127.0.0.1、Connection: close 单线程 accept、三个 JSON 端点、单一共享 token。本条:①监听可切 LAN(默认仍回环,桌面设置页开关+显示地址);②设备配对:桌面端生成配对码/二维码(地址+一次性配对 token),每设备独立 token,设备列表可单独撤销(替换现单一共享 token);③SSE 端点 GET /v1/events 长连接实时推送,断线重连沿用既有 delivery_cursor 补发,每连接独立线程,不阻塞其它请求;④approval 通道:GET pending 权限询问(脱敏摘要)+ POST 回答,接 runner 既有 ask 流,最终门禁仍在 harness 侧;⑤静态页 serve:桥接直接 serve PWA 页面(随桌面端发版分发,不另起服务);⑥息屏通知出口:approval/失败/完成等关键事件经现成 LAN 推送桥(KDE Connect 类,具体工具实施时定)发手机系统通知。拆批:批1 LAN+配对/撤销;批2 SSE;批3 approval;批4 PWA serve+通知桥出口。
+- 复杂度: 大
+- 批次: 0/4
+- 来源: 2026-08-16 移动端方案定案(用户逐项拍板):形态 PWA+现成通知桥(手机为 Android);实时通道 SSE;第一批含 approval 远程回答;原生壳不做——息屏通知由 LAN 推送桥零开发补齐,不为舒适性引入 Android 工具链。必要性口径:本条是移动端唯一的硬必要部分,无替代。
+- 标签: 后端
+- 边界: 公网监听禁止(既有定调不变);不做 TLS(LAN 自用威胁模型,token 即门);不自研推送协议,不接 FCM/Web Push 等公网推送;不开放远程 shell/write——approval 只回答既有询问,不新增能力面;协议契约沿用 docs/design/r059_mobile_agent_communication.md 阶段A字段定义。
+- 验收: ①LAN 另一设备实测连通,默认回环行为不变;②撤销某设备后其 token 立即 401,其它设备不受影响;③SSE 断线重连 cursor 补发无丢终态,长连接挂着时其它端点仍可用;④移动端回答 approval 后 runner 真实放行/拒绝各有实测轨迹,harness 门禁无旁路;⑤手机浏览器打开桥接地址能加载 PWA 页面;⑥手机息屏状态收到 approval 事件的系统通知(实测);⑦既有回环+token 行为与 D-063 回归全绿。
+- 优先级: P1
+
+## R-271 移动端 PWA:配对/通知流/发消息/approval 界面 [todo]
+- refs: R-059 R-269 R-270 R-267
+- 依赖: R-269 R-270
+- 内容: ①PWA 静态工程(与桌面 ui/ 同纪律:原生 JS、零构建、零框架),由 R-270 桥接 serve;②页面:配对(扫码/输码)、线程/会话列表与运行状态、通知流(SSE 订阅+cursor 补发)、发消息、approval 卡片(脱敏摘要+批准/拒绝);③PWA manifest+service worker:可添加到主屏、全屏打开、离线时给明确提示(不做离线数据);④移动 viewport 布局,长列表窗口化沿用 R-267 模式。拆批:批1 配对+通知流只读;批2 发消息;批3 approval 卡片+PWA manifest。开发期每批用 R-269 浏览器工具按移动 viewport 自检(截图+DOM),真机验收由用户执行。
+- 复杂度: 大
+- 批次: 0/3
+- 来源: 2026-08-16 移动端方案定案:形态 PWA+现成通知桥(Android),承接 R-059 双向通信与通知推送两条验收的实际载体。用户手机用途定调:给电脑发消息、看运行状态、批权限——轻交互遥控器,不做重界面。
+- 标签: 前端
+- 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
+- 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
 - 优先级: P1
