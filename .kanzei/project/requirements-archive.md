@@ -3206,3 +3206,22 @@
 - 批次: 3/5
 
 - 阻塞: 2026-08-14 前置已满足:新版 build-9a06e05 已发布(dist/kanzei-setup-9a06e05.exe),原阻塞「先不装,等下次发版一起实测」的等待对象到位。剩验收⑦一条实测动作:装新版后在桌面端主对话发一个会派子代理的任务,看独立 Running/Finished 面板是否真出现子代理条目(以及单条停止与完整 transcript 是否可用)。解除动作: 用户实测并确认后关闭本条。解除人: 用户。
+
+## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [done]
+- refs: R-216 R-195 R-235 R-155 D-366 docs/design/memory_control_plane.md docs/design/monolith_decomposition_round2.md(批次地图:B 节)
+- 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
+- 内容: 分三刀,每刀独立可提交可回滚。第一刀(零行为变更,最容易):inbox 一族、migrate_legacy、hit_profile/hits_map 三块迁出成 memory/inbox.rs、memory/migration.rs、memory/telemetry.rs。第二刀:准入策略从 add 提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹与新颖度),生命周期从 promote/deprecate 提成 MemoryLifecycle(candidate 老化、晋升、清退、provenance 门禁),Store 只接 save/load。第三刀:检索与排序迁进 retrieval 子目录并与 memory/index.rs 收口(见配套缺陷:index 反过来调 store.search 取 BM25,排序有两个落点)。最终 MemoryStore 只剩 load/save/archive/事务原子性。
+- 复杂度: 大
+- 来源: 2026-08-15 第二轮巨石扫描 R2。
+- 标签: 核心
+- 现状(2026-08-15 实测): crates/kanzei-memory/src/memory/store.rs 总 4085 行,其中同文件测试 2012 行、生产码 2073 行(生产行数全仓第三)。名字叫 Store,实际至少七种变更理由同居:①文件持久化与归档(L1-212);②add(L232 起)不是 CRUD 而是 校验→准入策略→指纹/新颖度→同名判重→subject 冲突→落盘→派生索引刷新 一条链;③promote(L533 起)带 provenance 硬门禁(episode 必须真实存在、证据先落库才转 active);④candidate→active→deprecated 生命周期状态机;⑤检索与排序(search L960:BM25 + 状态加权 + 采纳率决策加权 + 命中追踪 + snippet);⑥ID ledger/void/重复合并/完整性审计;⑦效果画像 hit_profile(L1529)/hits_map(L1551);⑧收件箱 read_inbox/clear_inbox/append_note/pending_notes(L1569-1727);⑨migrate_legacy(L1728)迁旧版 memory.md。
+- 边界: 不改记忆的对外语义与 CLI/桌面/工具契约(kz memory、Memory 页、memory 工具一字不动);不动 SQLite schema 与派生索引结构;不趁机改召回排序权重(那是 R-150 系的独立话题,混进来无法归因);不删零调用 pub 方法。
+- 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
+- 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
+- 批次: 3/3
+- 现状(2026-08-16 实测复核): store.rs 现 2741 行(生产码 586、测试 729 起)。七域已全部分家:admission(准入)/lifecycle(生命周期)/retrieval(检索+召回观测)/telemetry(效果画像+novelty 遥测)/inbox(收件箱)/migration(legacy 迁移)/ledger(ID 台账+merge+integrity)/preference(用户偏好)。D-366 已修:排序在 index.rs。store.rs 只剩 load/save/archive/事务原子性与 CRUD 薄壳。
+- 进展: 全部批次完成。批3 收尾:批3b(9a0a70d)ledger 域(merge 保守闸/void_id 台账/integrity_issues 迁 ledger.rs),批3c(d81499a)preference.rs/topic_overlap→admission/to_shadow+candidate_index_count→lifecycle/next_id→ledger,store.rs 生产码 602→586(验收①≤600)。验收逐项:①store.rs 生产码 586(原 1742)→≤600;②准入 MemoryAdmission(validate_basic/subject 不变式/交付状态拒收/指纹一致性/精确+近似判重)与生命周期 MemoryLifecycle(promote_guard/should_promote/should_deprecate)独立可测入口,8 个新测试不经 store 直接构造场景(B2 680baf8);③机械核验:BM25/状态加权只在 retrieval/index 侧,store.rs 仅 SearchCandidate 数据定义与 schema(无排序逻辑);④memory 138 + workspace 15 段全 ok(T-1786799180);⑤召回对照:index.rs 拆解期间零提交(排序门面未变)+ 检索测试 search_ranks_and_records_hits 断言(query 发版更新→M-002、CRLF→M-001)在拆解前(2e6ecae)与拆解后逐字相同且 worktree 实跑双双 passed;⑥真实记忆实验:调准入门槛 TITLE_DUP_THRESHOLD(admission.rs L21)只改一处,store.add 仅转发 MemoryAdmission 方法(252-292)。边界核对:零行为变更(138+workspace 全绿)、未改对外语义/CLI/工具契约、未动 SQLite schema 与派生索引、未改召回权重(R-150 系独立)、未删零调用 pub 方法。关闭。
+- observed_head: d81499a936fa72c651b7479cabdb808d1dc8dcb8
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786799357856

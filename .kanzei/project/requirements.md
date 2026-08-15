@@ -217,25 +217,6 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-255 MemoryStore 收缩回仓储:准入/生命周期/合并/检索/效果画像/收件箱/迁移七域迁出(2073 行生产码) [doing]
-- refs: R-216 R-195 R-235 R-155 D-366 docs/design/memory_control_plane.md docs/design/monolith_decomposition_round2.md(批次地图:B 节)
-- 为什么是这个形态: 它比 run.rs 更迷惑,因为"都和 memory 有关"看起来内聚——但语义相关不等于同一个抽象。真正的危害在可迭代性:准入(什么有资格成为记忆)、压缩、合并、episodic 到 semantic 固化,是记忆研究里变更最频繁的一层;把它锁在 Repository 私有逻辑里等于让 research policy 与 storage mechanics 强耦合,每做一次记忆实验都要动仓储。
-- 内容: 分三刀,每刀独立可提交可回滚。第一刀(零行为变更,最容易):inbox 一族、migrate_legacy、hit_profile/hits_map 三块迁出成 memory/inbox.rs、memory/migration.rs、memory/telemetry.rs。第二刀:准入策略从 add 提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹与新颖度),生命周期从 promote/deprecate 提成 MemoryLifecycle(candidate 老化、晋升、清退、provenance 门禁),Store 只接 save/load。第三刀:检索与排序迁进 retrieval 子目录并与 memory/index.rs 收口(见配套缺陷:index 反过来调 store.search 取 BM25,排序有两个落点)。最终 MemoryStore 只剩 load/save/archive/事务原子性。
-- 复杂度: 大
-- 来源: 2026-08-15 第二轮巨石扫描 R2。
-- 标签: 核心
-- 现状(2026-08-15 实测): crates/kanzei-memory/src/memory/store.rs 总 4085 行,其中同文件测试 2012 行、生产码 2073 行(生产行数全仓第三)。名字叫 Store,实际至少七种变更理由同居:①文件持久化与归档(L1-212);②add(L232 起)不是 CRUD 而是 校验→准入策略→指纹/新颖度→同名判重→subject 冲突→落盘→派生索引刷新 一条链;③promote(L533 起)带 provenance 硬门禁(episode 必须真实存在、证据先落库才转 active);④candidate→active→deprecated 生命周期状态机;⑤检索与排序(search L960:BM25 + 状态加权 + 采纳率决策加权 + 命中追踪 + snippet);⑥ID ledger/void/重复合并/完整性审计;⑦效果画像 hit_profile(L1529)/hits_map(L1551);⑧收件箱 read_inbox/clear_inbox/append_note/pending_notes(L1569-1727);⑨migrate_legacy(L1728)迁旧版 memory.md。
-- 边界: 不改记忆的对外语义与 CLI/桌面/工具契约(kz memory、Memory 页、memory 工具一字不动);不动 SQLite schema 与派生索引结构;不趁机改召回排序权重(那是 R-150 系的独立话题,混进来无法归因);不删零调用 pub 方法。
-- 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
-- 优先级: P0
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
-- 批次: 2/3
-- 现状(2026-08-16 实测复核): store.rs 现 3836 行(生产码 1506、测试 1824 起)。七域同居确认:add(252-461)/promote(557-634)/reconcile_candidates(635-710)/search_candidates(993-1066)/merge(1343-1446)/inbox(1593-1750 已迁)/migrate_legacy(1754-1804 已迁)/hit_profile(1553-1591 已迁)。D-366 已修:检索排序在 index.rs,store 只产 SearchCandidate(见 SearchCandidate 注释)。
-- 进展: 批2 完成已 push(680baf8):第二刀——准入策略从 store.add 提纯为 memory/admission.rs(MemoryAdmission:validate_basic/subject 不变式/交付状态拒收/指纹一致性/精确+近似判重+机械辅助 has_tracker_id/normalize_title/title_containment 等),生命周期从 promote/reconcile_candidates 提纯为 memory/lifecycle.rs(MemoryLifecycle:promote_guard provenance 硬门禁/should_promote/should_deprecate);store 的 add/promote/reconcile_candidates 变薄壳(只查条目+分流+落盘),行为零变更;admission/lifecycle 各带独立可测入口(8 个新测试不经 store 直接构造场景,验收②证据);store.rs 生产码 1506→1346;kanzei-memory 138 passed(T-1786791658),clippy 零警告。批3 下一步:第三刀——检索/排序迁进 retrieval 子目录并与 memory/index.rs 收口(D-366 已修,store 只产 SearchCandidate,机械核验 BM25/状态加权只在 retrieval 侧,验收③)+ novelty 域(classify_novelty/record_novelty/bump_recurrence/recurrence_count)与 ID ledger 域(merge/voided/integrity)迁出,store.rs 生产码 ≤600(验收①);批3 收尾:memory crate 全量+workspace 全量(验收④)+ 召回质量对照 top-k 一致(验收⑤)+ 真实记忆实验 diff(验收⑥)+ close。
-- observed_head: 680baf83830e6ae1b0003fc5f84c3138ce1bd4cd
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786791718350
-
 ## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
 - refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
 - 为什么是这个形态: 两端各写一遍编排的直接代价是 每加一个运行期能力就要改两处,而且只有一处会被真正验证(桌面端有人用、CLI 靠自举跑);R-183 的非交互放行、R-186 的越界回滚、记忆召回这些都落在编排层,双份实现会持续漂移。把 main.rs 切成 8 个文件解决不了这个,共用 service 才能。
