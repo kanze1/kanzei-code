@@ -7,9 +7,11 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
 
-use super::{
-    date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, CATEGORIES, STATUSES,
+use super::admission::{
+    is_cjk, normalize_title, title_containment, MemoryAdmission, TITLE_DUP_THRESHOLD,
 };
+use super::lifecycle::MemoryLifecycle;
+use super::{date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, STATUSES};
 
 /// 检索结果(含派生指标)。
 #[derive(Debug, Clone)]
@@ -264,91 +266,38 @@ impl MemoryStore {
         // 树锁,与 bash 围栏窗口互斥。内层 write_entry/refresh_derived 的 tree_lock
         // 同线程重入,由 FileLock 重入计数放行。
         let _tree_lock = self.tree_lock()?;
-        if !CATEGORIES.contains(&category) {
-            anyhow::bail!(
-                "invalid category `{category}`; valid: {}",
-                CATEGORIES.join(" | ")
-            );
-        }
+        // R-255 第二刀:准入链(枚举/必填/subject 不变式/交付拒收/指纹/判重)提纯到
+        // MemoryAdmission,store 只做「查全部条目 + 依结果分流」。
+        MemoryAdmission::validate_basic(category, title, description, body)?;
         let title = title.trim();
         let description = description.trim();
-        if title.is_empty() {
-            anyhow::bail!("title must not be empty");
-        }
-        if description.is_empty() {
-            anyhow::bail!("description must not be empty — it is the retrieval hook");
-        }
-        // 空正文条目是纯噪声:占编号、进 FTS、召回出来啥也没有。2026-08-12 清理时
-        // 库里躺着 3 条只有 frontmatter 的条目(M-039/M-048/M-049),都是 manager
-        // 在权限受限的自动轮里批量写记忆时产的。写入侧直接拒。
-        if body.trim().is_empty() {
-            anyhow::bail!(
-                "body must not be empty — an entry with only frontmatter is unusable: \
-                 put the actual finding (what happened, what to do instead) in the body"
-            );
-        }
-        // 状态不变量先于标题去重与 R-216 语义闸,且不受 force 影响:状态就地覆盖,
-        // 绝不并存。同 scope+category+subject 至多一条 active——同 subject 的 add
-        // 必须先报 SubjectConflict,不能先被语义闸拦成 Uncertain(测试锚点)。
         let subject = subject.map(str::trim).filter(|s| !s.is_empty());
         let entries = self.load_all();
-        if let Some(subject) = subject {
-            if let Some((_, existing)) = entries.iter().find(|(_, e)| {
-                e.status == "active"
-                    && e.category == category
-                    && e.extras.iter().any(|(k, v)| k == "subject" && v == subject)
-            }) {
-                return Ok(AddOutcome::SubjectConflict(existing.clone()));
-            }
+        if let Some(existing) = MemoryAdmission::find_subject_conflict(&entries, category, subject)
+        {
+            return Ok(AddOutcome::SubjectConflict(existing.clone()));
         }
-        // R-216 三闸:记忆写入侧质量闸门,全部为硬拒。force=true = 显式跳过
-        // (用户/调用方声明「这是新知识,不查重不查指纹」),与既有 duplicate
-        // 去重的 force 语义一致。
-        // ① 交付状态拒收:标题/subject 命中「R-/D- 编号 + 已交付/勿重复/验收边界」
-        //    形态时,这是 tracker 的状态,不是记忆——拒绝并指路 tracker。
-        let title_lc = title.to_lowercase();
-        let subject_lc = subject.map(str::to_lowercase).unwrap_or_default();
-        let is_delivery_state = ["已交付", "勿重复", "验收边界", "delivered", "do not repeat"]
-            .iter()
-            .any(|kw| {
-                title_lc.contains(&kw.to_lowercase()) || subject_lc.contains(&kw.to_lowercase())
-            });
-        if !force && is_delivery_state && has_tracker_id(title) {
-            anyhow::bail!(
-                "标题/subject 命中交付状态形态(R-/D- 编号 + 已交付/勿重复/验收边界)——\
-                 这是 tracker 条目的状态,不是记忆。\
-                 记忆记「怎么做」的约束,不记「哪个条目交付了」;交付状态请写在 requirements/defects 里,refs 引用即可。"
-            );
-        }
-        // ② 指纹一致性:新条目携带 [fp:] 必须与来源 note 中引擎生成的指纹逐字一致。
-        //    拒绝自造指纹(实证:M-055/M-056 编造 [fp:...] 冒充引擎生成)。
-        let fp_markers = super::fp_markers(body);
-        if !force && !fp_markers.is_empty() {
-            let inbox = self.read_inbox();
-            let existing_fps = {
-                let mut fps = Vec::new();
-                for (_, e) in self.load_all() {
-                    fps.extend(super::fp_markers(&e.body));
-                }
-                if let Some(global) = MemoryStore::global() {
-                    for (_, e) in global.load_all() {
+        MemoryAdmission::check_delivery_state(title, subject, force)?;
+        if !force {
+            let fp_markers = super::fp_markers(body);
+            if !fp_markers.is_empty() {
+                let inbox = self.read_inbox();
+                let existing_fps = {
+                    let mut fps = Vec::new();
+                    for (_, e) in self.load_all() {
                         fps.extend(super::fp_markers(&e.body));
                     }
-                }
-                fps
-            };
-            for fp in &fp_markers {
-                let legit = inbox.contains(fp.as_str()) || existing_fps.contains(fp);
-                if !legit {
-                    anyhow::bail!(
-                        "body 携带指纹 {fp} 但该指纹不存在于 inbox 来源 note 或任何既有条目——\
-                         指纹是引擎从失败信号生成的,禁止自造(实证 M-055/M-056)。\
-                         去掉自造指纹,或先用 memory_note 记录真实来源。"
-                    );
-                }
+                    if let Some(global) = MemoryStore::global() {
+                        for (_, e) in global.load_all() {
+                            fps.extend(super::fp_markers(&e.body));
+                        }
+                    }
+                    fps
+                };
+                MemoryAdmission::check_fingerprint(body, force, &inbox, existing_fps.into_iter())?;
             }
         }
-        // ③ 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选。
+        // 语义探测下沉:Uncertain(有 FTS 命中但非精确)即拒并返回候选(force 跳过)。
         if !force {
             let (novelty, candidates) = self.classify_novelty(title, description, body);
             if novelty == Novelty::Uncertain {
@@ -358,33 +307,9 @@ impl MemoryStore {
                 }
             }
         }
-        if !force {
-            let normalized = normalize_title(title);
-            if let Some((_, existing)) = entries.iter().find(|(_, e)| {
-                (e.status == "active" || e.status == "candidate")
-                    && e.category == category
-                    && normalize_title(&e.title) == normalized
-            }) {
-                return Ok(AddOutcome::Duplicate(existing.clone()));
-            }
-            // 近似去重(2026-08-12):标题一字不差才算重复太弱了——同一个坑换个
-            // 说法、换个 category 就能再落一条。实测一个「tracker update 字段语义」
-            // 的坑堆出 8 条 sop、一个「bash 里 git mutation 被拒」堆出 5 条(fact
-            // 与 sop 混着),标题两两都不相同,旧闸门一条都没拦住。
-            // 判据:标题切词后的包含度(交集 / 较短一侧),跨 category 也查。
-            if let Some(existing) = entries
-                .iter()
-                .map(|(_, e)| e)
-                .filter(|e| e.status == "active" || e.status == "candidate")
-                .filter(|e| title_containment(title, &e.title) >= TITLE_DUP_THRESHOLD)
-                .max_by(|a, b| {
-                    title_containment(title, &a.title)
-                        .partial_cmp(&title_containment(title, &b.title))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-            {
-                return Ok(AddOutcome::Duplicate(existing.clone()));
-            }
+        // 精确 + 近似标题判重(force 跳过;判据含跨 category,见 MemoryAdmission)。
+        if let Some(existing) = MemoryAdmission::find_duplicate(&entries, category, title, force) {
+            return Ok(AddOutcome::Duplicate(existing.clone()));
         }
         let now = today();
         let extras = {
@@ -560,6 +485,7 @@ impl MemoryStore {
         sources: &[(i64, Option<i64>, Option<i64>)],
         source_hash: Option<&str>,
     ) -> anyhow::Result<MemoryEntry> {
+        // 保持原错误顺序:sources 空先报(历史行为,测试锚定)。
         if sources.is_empty() {
             anyhow::bail!(
                 "cannot promote `{id}`: no memory_sources evidence — R-165 provenance \
@@ -570,54 +496,9 @@ impl MemoryStore {
         let Some((path, mut entry)) = entries.into_iter().find(|(_, e)| e.id == id) else {
             anyhow::bail!("unknown memory id `{id}`");
         };
-        if entry.status != "candidate" && entry.status != "shadow" {
-            anyhow::bail!(
-                "cannot promote `{id}`: status is `{}`, only candidate|shadow can be promoted",
-                entry.status
-            );
-        }
-        // 证据落 state.db memory_sources 表(与 episodes 同库,可 join)。
-        // 仅 project scope 有 state.db(global 记忆无 episode 证据源)。
-        let hash = source_hash.unwrap_or("compiler").to_string();
-        let store = if self.scope == MemoryScope::Project {
-            let db_path = self.root.join("..").join("state.db");
-            match kanzei_core::SessionStore::open(&db_path) {
-                Ok(store) => Some(store),
-                Err(e) => anyhow::bail!(
-                    "cannot promote `{id}`: cannot open state.db for provenance check ({e}) — \
-                     证据落库失败,拒绝晋升"
-                ),
-            }
-        } else {
-            None
-        };
-        // R-213:promote 前校验每个 episode_id 真实存在——「无来源不入 active」必须是
-        // 「来源指向真实轮次」,而不是只看数组非空,否则 manager 编造 id 也能蒙混过关。
-        if let Some(store) = &store {
-            for (episode_id, _, _) in sources {
-                if !store.episode_exists(*episode_id)? {
-                    anyhow::bail!(
-                        "cannot promote `{id}`: episode_id {episode_id} does not exist in \
-                         state.db episodes — provenance requires real episodes, not fabricated ids"
-                    );
-                }
-            }
-        }
-        // R-213:证据先落库、全部成功才置 active——写证据失败不产生 active 条目,
-        // 也不留下「active 却无证据」的半成品(回滚由顺序天然保证,无需手动回滚)。
-        if let Some(store) = &store {
-            for (episode_id, event_start, event_end) in sources {
-                if let Err(e) =
-                    store.record_memory_source(id, *episode_id, *event_start, *event_end, &hash)
-                {
-                    anyhow::bail!(
-                        "cannot promote `{id}`: failed to record memory_source evidence \
-                         (episode {episode_id}): {e} — promotion aborted, entry stays {}",
-                        entry.status
-                    );
-                }
-            }
-        }
+        // R-255 第二刀:provenance 门禁(状态机/episode 真实/证据先落库)提纯到
+        // MemoryLifecycle::promote_guard;store 只做查条目 + 置 active + 落盘。
+        MemoryLifecycle.promote_guard(id, &entry, sources, source_hash, self.scope, &self.root)?;
         entry.status = "active".into();
         entry.updated = today();
         self.write_entry(&entry, Some(&path))?;
@@ -647,7 +528,6 @@ impl MemoryStore {
             ..Default::default()
         };
         let today_days = date_days(&today());
-        let age_limit = max_age_days.max(1);
         for (path, entry) in before {
             if entry.status != "candidate" {
                 continue;
@@ -657,29 +537,29 @@ impl MemoryStore {
                 .as_deref()
                 .map(|fingerprint| self.recurrence_count(fingerprint))
                 .unwrap_or(0);
-            if current_episode_id.is_some_and(|episode_id| {
-                recurrence >= 3
-                    && entry.fingerprint().is_some()
-                    && self
+            let age = today_days
+                .zip(date_days(&entry.updated))
+                .map(|(now, updated)| now.saturating_sub(updated));
+            // R-255 第二刀:晋升/清退判定提纯到 MemoryLifecycle(should_promote/
+            // should_deprecate),store 只执行;promote 失败落回清退判定(与原一致)。
+            if MemoryLifecycle.should_promote(&entry, recurrence, current_episode_id) {
+                if let Some(episode_id) = current_episode_id {
+                    if self
                         .promote(
                             &entry.id,
                             &[(episode_id, None, None)],
                             Some("candidate-reconcile"),
                         )
                         .is_ok()
-            }) {
-                report.promoted.push(entry.id);
-                continue;
+                    {
+                        report.promoted.push(entry.id);
+                        continue;
+                    }
+                }
             }
-            let age = today_days
-                .zip(date_days(&entry.updated))
-                .map(|(now, updated)| now.saturating_sub(updated));
-            if age.is_some_and(|days| days >= age_limit) {
-                let reason = format!(
-                    "(auto-deprecated: candidate 超过 {age_limit} 个日历日未完成晋升，\
-                     无满足条件的 recurrence/provenance；原路径 {})",
-                    path.display()
-                );
+            if let Some(reason) =
+                MemoryLifecycle.should_deprecate(age, max_age_days, &path.display().to_string())
+            {
                 let body = format!("{}\n\n{reason}", entry.body.trim_end());
                 if self
                     .update(
@@ -1531,81 +1411,6 @@ impl MemoryStore {
     }
 }
 
-/// R-216:标题是否含 tracker 条目编号(R-xxx / D-xxx)。
-fn has_tracker_id(title: &str) -> bool {
-    let upper = title.to_uppercase();
-    for prefix in ["R-", "D-"] {
-        if let Some(rest) = upper.strip_prefix(prefix) {
-            if rest.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-        // 也可能编号在中间:「关于 R-012 的交付状态」。
-        for (idx, _) in upper.match_indices(prefix) {
-            let after = &upper[idx + 2..];
-            if after.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn normalize_title(title: &str) -> String {
-    title
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect()
-}
-
-/// 近似重复的判定阈值:两个标题切词后的包含度。0.55 是拿实测样本卡的——
-/// 2026-08-12 归档的那 8 条「tracker update 字段语义」两两在 0.57~0.75,
-/// 而 M-011《repair_reused_id 修复》与 M-012《完整性门禁拒绝写操作》这种
-/// 同子系统但确属两条知识的只有 0.32,阈值落在中间。
-const TITLE_DUP_THRESHOLD: f64 = 0.55;
-
-/// 光看比例会误杀短标题:「安装通道切换 SOP」与「安装通道改为便携版」共享
-/// 「安装通道」四个字就到 0.57,但那是两条知识。所以再加一道绝对量下限——
-/// 真重复的那 8 条两两共享 12~16 个词,短标题的偶然同名到不了 8。
-const TITLE_DUP_MIN_COMMON: usize = 8;
-
-/// 标题切词:CJK 按单字、ASCII 按词(小写),标点丢弃。CJK 不分词就没法比,
-/// 单字粒度对中文标题足够——记忆标题短,长词的顺序信息不重要。
-fn title_tokens(title: &str) -> std::collections::BTreeSet<String> {
-    let mut out = std::collections::BTreeSet::new();
-    let mut word = String::new();
-    for ch in title.chars() {
-        if is_cjk(ch) {
-            if !word.is_empty() {
-                out.insert(std::mem::take(&mut word));
-            }
-            out.insert(ch.to_string());
-        } else if ch.is_alphanumeric() {
-            word.extend(ch.to_lowercase());
-        } else if !word.is_empty() {
-            out.insert(std::mem::take(&mut word));
-        }
-    }
-    if !word.is_empty() {
-        out.insert(word);
-    }
-    out
-}
-
-/// 包含度 = 交集 / 较短一侧。用包含度而不是 Jaccard:同一个坑的重复条目
-/// 常常一条写得长、一条写得短,Jaccard 会被长的那条稀释掉。
-/// 比例与绝对量两道都要过,少一道就会误杀短标题(见 TITLE_DUP_MIN_COMMON)。
-fn title_containment(a: &str, b: &str) -> f64 {
-    let (ta, tb) = (title_tokens(a), title_tokens(b));
-    let shorter = ta.len().min(tb.len());
-    let common = ta.intersection(&tb).count();
-    if shorter < 6 || common < TITLE_DUP_MIN_COMMON {
-        return 0.0;
-    }
-    common as f64 / shorter as f64
-}
-
 /// unicode61 把连续 CJK 当单个整词,子串查不到(拍板点③的即时实证)。
 /// 零依赖解法:索引与查询两侧都做 CJK 单字切分;查询侧每个用户词作为
 /// 相邻单字的短语匹配,保住精度;词间 OR 联接靠 bm25 排相关度。
@@ -1664,11 +1469,6 @@ const STOP_CHARS: &[char] = &[
     '太', '仅', '只', '已', '未', '无', '有', '没', '别', '自', '各', '每', '某', '几', '两', '多',
     '少', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '百', '千', '万', '零',
 ];
-
-fn is_cjk(ch: char) -> bool {
-    matches!(ch as u32,
-        0x2E80..=0x9FFF | 0xF900..=0xFAFF | 0x20000..=0x2FA1F)
-}
 
 /// 展示用:把切分产生的 CJK 字间空格收回去。
 fn unsegment_cjk(text: &str) -> String {
