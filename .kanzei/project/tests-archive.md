@@ -4219,3 +4219,10 @@
 - 关联: R-264 D-384
 - 收尾: 1786820662
 - 源码指纹: f0a14b25dd533bb5
+
+## T-1786821024 verify.ps1 六条前端冒烟 (R-264 批3 勘察回退) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批3 勘察回退后验证:六条前端冒烟全绿(ui-runtime 21 文件/ui-lint 608/parallel-lines/a11y/i18n 157 key/markdown);B2 兼容桥(ESM export 挂 context 全局)保留,无 ESM 文件时行为不变。
+- 关联: R-264
+- 收尾: 1786821024
+- 源码指纹: 46fdd1265a8228bf

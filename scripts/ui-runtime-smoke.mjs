@@ -1139,6 +1139,20 @@ async function linkAndEvaluate(specifier, filename, instrumentedSource, sandbox,
   });
   esmModuleCache.set(filename, module);
   await module.evaluate();
+  // R-264 批3 兼容桥:ESM 模块的 export 同步挂到 context 全局——渐进迁移期间,
+  // 已迁文件(ESM)的符号对未迁文件(classic)仍全局可见(经典脚本共享全局语义)。
+  // 全部迁完后此桥不再被触发(文件不再有裸全局读写),冒烟语义与浏览器一致。
+  try {
+    const ns = module.namespace;
+    // 经 runInContext 拿真实全局对象赋值——sandbox 参数可能是普通对象,
+    // 直接给它加属性不保证对 vm context 可见(createContext 返回值被丢弃)。
+    const globalObj = vm.runInContext("globalThis", sandbox);
+    for (const key of Object.keys(ns)) {
+      if (typeof ns[key] !== "undefined") globalObj[key] = ns[key];
+    }
+  } catch {
+    // namespace 尚未实例化或不可读:忽略,由显式 import 兜底。
+  }
   return module;
 }
 
