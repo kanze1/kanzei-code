@@ -8,6 +8,7 @@
 mod admission;
 mod inbox;
 mod index;
+mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;

@@ -3869,3 +3869,18 @@
 - 关联: R-255
 - 收尾: 1786792176
 - 源码指纹: 7431a174b1bf04a3
+
+## T-1786792227 cargo test -p kanzei-memory (R-255 B3a fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.6s
+- 摘要: R-255 B3a fmt 后复测:138 passed, 0 failed
+- 关联: R-255
+- 收尾: 1786792227
+- 源码指纹: be7717e30bb533a2
+
+## T-1786798574 cargo test -p kanzei-memory (R-255 B3b ledger 域迁移) [passed]
+- 命令: cargo test -p kanzei-memory
+- 时长: 1.9s
+- 摘要: R-255 B3b ledger 域迁移后:138 passed, 0 failed; clippy 零警告; store.rs 生产码 936→707
+- 关联: R-255
+- 收尾: 1786798582

@@ -96,34 +96,6 @@
 - recorded_at: 1786656932641
 - 阻塞: 用户: R-193 缺内容/来源/交互定义,验收仅一句『plan勾选项点击后即时视觉反馈和状态更新』;需用户澄清:①plan 指哪个面板(当前计划 todo 面板还是其它);②勾选动作状态写哪里(前端视觉 / 后端命令持久化);③当前『响应延迟』的具体场景。解除动作:用户给出澄清后实现。解除人: 用户。
 
-## R-174 子代理面板与并发度口径:独立 Running/Finished 面板、单条停止与完整 transcript [doing]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 前端
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(现状逐点读码核实,行号为 2026-08-10 dev HEAD)
-- 来源: 2026-08-10 用户看过 Claude Code 的后台子代理面板后定调:kanzei 的子代理要走这个执行模型,而且比它更激进。四个轴——①后台化(跨轮存活、主代理派完不阻塞、完成发通知)②子代理能写(打破只读白名单、自持写租约)③并发度放开(远不止现在的 8)④可对话(给正在跑的子代理发消息带原上下文续跑)——**都要,但必须分级实现**(用户原话:「都要,但是你说的这些点得分级实现,确实改动大,风险多」)。参照物形态(Claude Code 面板实测):独立 Background tasks 面板,分 Running / Finished N 两区;每条显示名称、类型、已运行时长、累计 token、工具调用次数、当前正在用的工具名、View transcript 链接、单条停止按钮;面板有 Clear。本条是四轴里最便宜、可独立交付的一段(可观察 + 并发度口径),不依赖后台化。
-- 设计定位: 四轴分级第 1 级——先把子代理变成「看得见、停得住、查得到」的对象;后台化(R-175)与写权(R-176)在此之上叠加
-- 既有能力(§1.25 显式标注,不得重复申报为本次产出): 并发度**已经是可配项**——`max_tasks_per_turn` 在 crates/kanzei-harness/src/config.rs:59 是 `Option<usize>` 字段,:90-92 `unwrap_or(8).max(1)` 给默认 8 且**无上限钳制**;设置页已有「单轮子代理数上限」输入框(crates/kanzei-app/ui/index.html:469-470 `set-max-tasks`、ui/16-settings.js:187 与 :420、crates/kanzei-app/src/settings.rs:287-288/497/519/531);往返单测已钉死「没填的键不写进文件 / 没填走内置默认 8」(settings.rs:749-752)、serde default 单测已存在(config.rs:918-920、:936-939 越界回落 1)。因此「从固定 8 改为可配」这件事**无需再做**。
-- 关键现状(本组三条需求的共同前置): 桌面端主对话**根本不注册 task 工具**——crates/kanzei-core/src/runner/drive.rs:57 只在 `subagent.is_some() && !config.execution_policy.is_serial_writer()` 时 push `task_spec()`,而 crates/kanzei-app/src/run.rs:107-108 给主对话**无条件**设 `ExecutionPolicy::ReadParallelWriteSerial`(`is_serial_writer()==true`,见 crates/kanzei-harness/src/orchestration.rs:21-23)。所以并行子代理在桌面端当前是**全禁**状态:drive.rs:410-503 的轮内并发批与 crates/kanzei-core/src/runner/subagent.rs:163-176 的读槽登记代码不可达,`max_tasks_per_turn` 配了也没有生效路径。该回归由 **R-173**(阶段编排对象)的阶段感知策略修复,是本条与 R-175/R-176 的共同前置——本条的面板与并发度实测必须在 R-173 修复后才能在桌面端取证。
-- 内容: ①并发度口径收口(**不是重做配置**):复核默认 8 是否上调(用户要「远不止 8」),并在设置页把该值与「桌面端当前不生效」的事实对用户说清;溢出分支文案沿用 drive.rs:441-444 既有实现。②新增**独立「子代理」面板**——不再只作为活动面板(#bg-panel,ui/index.html:630-650)里 `bg-type-filter=agent` 的一个筛选项:Running / Finished N 分区,每条显示 名称 / 类型 / 已运行时长 / 累计 token / 工具调用次数 / **当前正在用的工具名** / 单条停止 / 打开 transcript,面板有 Clear。③单条停止通道:现状 ui/06-activity.js:261 注释明写「子代理没有单条停止通道,只能停整轮」,本条要消灭这个缺口。④可查看单个子代理的**完整 transcript**(工具调用序列 + 每次调用的入参与输出),不再只有 R-095 的摘要维度(内部调用数 / 当前步骤 / 成败 / 耗时)。
-- 边界: 不做后台化(R-175)、不做写权(R-176);面板本条只需渲染**轮内并发**的子代理,跨轮存活条目待 R-175 提供数据后再接。不改 `max_tasks_per_turn` 的配置通道本身(已可用),只调默认值口径与设置页说明。
-- 验收: ①并发度实测:`kanzei.toml [limits] max_tasks_per_turn = N`(N 取远大于 8 的值)后,同轮派发 N 个 task 全部执行、第 N+1 个才落 drive.rs:441-444 的溢出错误,有轨迹或日志证据;②旧配置无该键时行为不变——config.rs 既有 serde default 单测保持绿(若本条上调默认值,须同步更新 :918-920 断言并保留「缺键=内置默认」语义),settings.rs:745-752 往返单测保持绿(保存不丢字段);③面板存在且分区正确,每条的 名称/类型/时长/token/工具调用数/当前工具名 六个字段**均取自真实 RunEvent**(ToolStart/TaskProgress/ToolEnd),冒烟脚本用桩事件逐字段断言渲染出真实值而非常量占位;④单条停止真能停:点击后该子代理不再产出 TaskProgress、以「被停」终态收尾、读槽被释放,有实测证据(仅改 UI 类名/状态不算通过);⑤transcript 有真实数据源:能查看单个子代理的完整工具调用序列与每次调用的入参/输出——§1.25 明令「只展示但未接入真实数据源的界面壳不算完成」,不得以摘要冒充 transcript;⑥前端改动有冒烟断言:`node --check` + `node scripts/ui-runtime-smoke.mjs`,分区切换、单条停止、打开 transcript 三个新交互各有对应断言(§1.3);⑦桌面端可达性:R-173 修复前置回归后,在桌面端主对话实测面板真出现子代理条目(不能只在 CLI 或单测里成立)。
-- refs: R-095 R-117 R-173 R-175 R-176
-- 依赖: 
-- 进展: 批1-3已提交(9179ae8/68ee84ec/25ea2c0),cargo test --workspace 全量全绿。验收①并发度实测✓(集成测试+轨迹)、②旧配置无键行为不变✓(serde default 测试绿)、③面板分区与六字段真实数据✓(冒烟逐字段断言)、④单条停止✓(stop_task + task_cancel_parallel.rs 实测)、⑤transcript 真实数据源✓(TaskTrace.input 渲染,冒烟断言入参)、⑥冒烟断言✓(分区切换/停止/transcript/被停终态/Clear 均有断言)。仅剩验收⑦「桌面端主对话实测面板真出现子代理条目」未闭环——需要构建新版 kzapp 安装,2026-08-11 用户定调:先不装,等下次发版一起实测。本条保持 doing 待发版,不占可执行槽位。
-  2026-08-11 本次发布补齐面板生命周期：停止→已完成→已关闭→删除；关闭/删除只改变当前 UI 条目，后端 transcript/审计保留，真实 stop_task 仍是停止通道。主代理权限边界在系统提示与子代理 task_spec 中显式固化：子代理仅 read/glob/grep，写入、比对、合并和发版由主代理负责。发版后验收⑦转为用户桌面实测。
-  ①**前置回归已解除**——「桌面端主对话根本不注册 task 工具」那条(本条与 R-175/R-176 共同记录的前置)已由 R-173 批4.5 修掉(`e933262`),验收⑦现在可以真去桌面端取证了。
-  ②**验收③已部分交付**——R-173 收尾时把编排派发的勘察/复核子代理接上了活动面板(`ff287c4`):按 `input.phase` 分「勘察/复核」两组、显示角色名与**当前工具名**(取 `kz:task-progress` 的 `trace.name`)、运行时长、内部调用数,超时与失败分开成两种终态,冒烟有 6 组反证锁死。**它刻意复用 `#bg-list` 没有新建平行面板**——本条要做的独立面板应当在此之上演进,不是另起炉灶。仍缺:累计 token、Clear、Running/Finished 两区(现在是按阶段分组,不是按运行状态)。
-  ③**验收④单条停止的最小改法已备**:目前 `dispatch_roles` 的 future 集合由屏障统一驱动,没有对外暴露的 per-role cancel handle。改法 = 每角色配一个 `CancellationToken` + 新 Tauri 命令按 role 触发,取消后该角色以 `ScoutOutcome::Failed("cancelled")` 进终态——屏障照常收敛,不会挂住。
-  ④**两条形态决策留给本条拍**:(a) 编排派发的 8 条同时也会在**主对话**里各生成一个工具块(`chatToolStart` 无条件调用),信息没丢但每个自主推进轮多 8 个块,可能偏吵;(b) 前端条目的 `id` 就是角色名,而角色跨轮复用,所以当前实现是**每角色只留最新一轮**(跨轮定格的 bug 已修成"原地复位")。要保住历史轮次得让后端给 `role@round` 之类的唯一键。
-  另:验收①②的「并发度可配」部分是**既有能力**(见本条「既有能力」字段),不要重做。
-
-- 批次: 3/5
-
-- 阻塞: 2026-08-14 前置已满足:新版 build-9a06e05 已发布(dist/kanzei-setup-9a06e05.exe),原阻塞「先不装,等下次发版一起实测」的等待对象到位。剩验收⑦一条实测动作:装新版后在桌面端主对话发一个会派子代理的任务,看独立 Running/Finished 面板是否真出现子代理条目(以及单条停止与完整 transcript 是否可用)。解除动作: 用户实测并确认后关闭本条。解除人: 用户。
-
 ## R-101 桌面端/前端 E2 测试 harness 与延期 E2 清单 [doing]
 - 复杂度: 大
 - 优先级: P0
@@ -144,15 +116,6 @@
 - 阻塞: 2026-08-14 分成两半看:①「重建 kzapp」这一半已达成——build-9a06e05 已发布,含 CDP 注入提交 695305d 之后的全部代码,不再是 08-12 的旧构建;②真正卡住的是 D-319——WebView2 Runtime 151 在本机 DevTools 端口不绑定(9 轮实验证据链),e2e-smoke connectOverCDP 20 秒超时,换新构建也绕不过环境问题。另有用户 2026-08-13 的 park 定调(专注 D-318,D-318 现已 fixed 归档)。解除动作: 先解决 D-319(重装/更新 WebView2 Runtime,或拍板改 WebDriver/tauri-driver 路线),再用新版跑 node scripts/e2e-smoke.mjs 验证 B1 基座。解除人: 用户(D-319 那条)。
 
 - 批次: 0/8
-
-## R-135 开发与缺陷修复进度动画显示 [todo]
-- 优先级: P0
-
-- 标签: 前端
-
-- 进展: 2026-08-11 扫描:本条仅存标题/优先级/标签,缺 内容/验收/背景——边界不清无法开工(无验收就无从交付,违反 §1.25)。待用户补全条目内容后按序恢复取活,不占可执行槽位。
-
-- 阻塞: 用户: 本条条目内容缺失(仅存标题/优先级/标签,缺 内容/验收/背景),边界不清无法开工(无验收就无从交付,违反 §1.25)。解除动作: 用户补全条目内容(至少验收原文)后按序恢复取活。解除人: 用户。
 
 ## R-059 子代理独立升级与移动端通知交互支持 [todo]
 - 复杂度: 大
@@ -266,12 +229,12 @@
 - 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
 - 优先级: P0
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
-- 批次: 1/3
+- 批次: 2/3
 - 现状(2026-08-16 实测复核): store.rs 现 3836 行(生产码 1506、测试 1824 起)。七域同居确认:add(252-461)/promote(557-634)/reconcile_candidates(635-710)/search_candidates(993-1066)/merge(1343-1446)/inbox(1593-1750 已迁)/migrate_legacy(1754-1804 已迁)/hit_profile(1553-1591 已迁)。D-366 已修:检索排序在 index.rs,store 只产 SearchCandidate(见 SearchCandidate 注释)。
-- 进展: 批1 完成已 push(47e48f3):第一刀零行为变更——inbox 族(7 fn)→ memory/inbox.rs、效果画像(record_hits/hit_profile/hits_map)→ memory/telemetry.rs、migrate_legacy → memory/migration.rs;三文件带 //! 独立理由头(树锁 R-215/D-368、命中可跳可丢、幂等);tree_lock/write_entry/open_db/now_ms pub(crate) 化;store.rs 生产码 1742→1506;kanzei-memory 130 passed(T-1786773385/3433),clippy 零警告。批2 下一步:第二刀——准入策略从 add(252-461)提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹新颖度),生命周期从 promote/reconcile_candidates 提成 MemoryLifecycle(candidate 老化/晋升/清退/provenance 门禁),Store 只接 save/load;准入与生命周期独立可测入口(验收②);最终 store.rs ≤600(验收①)。批3:检索 retrieval 子目录收口(验收③机械核验)+ 全量验证(验收④)+ 召回质量对照(验收⑤)+ 真实记忆实验 diff(验收⑥)+ close。
-- observed_head: 47e48f346ae0a29e657e184997c54d5949ed3894
+- 进展: 批2 完成已 push(680baf8):第二刀——准入策略从 store.add 提纯为 memory/admission.rs(MemoryAdmission:validate_basic/subject 不变式/交付状态拒收/指纹一致性/精确+近似判重+机械辅助 has_tracker_id/normalize_title/title_containment 等),生命周期从 promote/reconcile_candidates 提纯为 memory/lifecycle.rs(MemoryLifecycle:promote_guard provenance 硬门禁/should_promote/should_deprecate);store 的 add/promote/reconcile_candidates 变薄壳(只查条目+分流+落盘),行为零变更;admission/lifecycle 各带独立可测入口(8 个新测试不经 store 直接构造场景,验收②证据);store.rs 生产码 1506→1346;kanzei-memory 138 passed(T-1786791658),clippy 零警告。批3 下一步:第三刀——检索/排序迁进 retrieval 子目录并与 memory/index.rs 收口(D-366 已修,store 只产 SearchCandidate,机械核验 BM25/状态加权只在 retrieval 侧,验收③)+ novelty 域(classify_novelty/record_novelty/bump_recurrence/recurrence_count)与 ID ledger 域(merge/voided/integrity)迁出,store.rs 生产码 ≤600(验收①);批3 收尾:memory crate 全量+workspace 全量(验收④)+ 召回质量对照 top-k 一致(验收⑤)+ 真实记忆实验 diff(验收⑥)+ close。
+- observed_head: 680baf83830e6ae1b0003fc5f84c3138ce1bd4cd
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786773469652
+- recorded_at: 1786791718350
 
 ## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
 - refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
@@ -348,3 +311,14 @@
 - 边界: 不删 vendor/monaco/basic-languages(独立决策,与本条无关);不引入打包器/TypeScript;不借机重构业务逻辑,迁移期间只改模块边界。
 - 来源: 2026-08-15 用户提出「前端改成打包呢」。勘察(21 文件逐文件审计 + index.html 专项 + 外部依赖专项)结论:前端本身不是障碍(587 个真顶层符号、零重名冲突、零内联事件处理器),阻塞全在测试 harness——ui-runtime-smoke.mjs 的 6799 行断言建立在 vm.runInContext 逐文件跑经典脚本之上,ESM 下整体作废;且 ui-sources.mjs 修好正则后会出现「三个冒烟静默变绿」的失效模式。同轮用户问「做了对自举有收益吗」,结论是没有:ESM 不影响 cargo 任何耗时,前端六个冒烟合计约 4 秒;唯一收益(模型读代码时 import 自带溯源)已被 20467db 修好白名单后大体覆盖。故降为 P3 留档。
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
+
+## R-266 workspace crate 清单与 README 项目结构表机械同步 [todo]
+- refs: R-258
+- 为什么是这个形态: 只校验清单一致性,不生成 README。生成会把人写的职责描述冲掉,而实际漂移的一向是「新 crate 忘了写进表」而非「描述过期」——本次漏的正是 kanzei-base 与 kanzei-memory 两个新成员,表里六行描述本身都还准。校验是集合比对,零新依赖、零耗时,属于本仓一贯的做法:能确定性执行的事不靠人记。
+- 内容: Cargo.toml [workspace] members 现有 8 个 crate,README ## 项目结构 表只列 6 个——缺 kanzei-base 与 kanzei-memory。①先把这两行补进表并写清职责;②加一道机械校验:从 Cargo.toml members 取 crate 名,与 README 表格第一列反引号里的 crate 名做集合比对,不一致即失败并点名缺/多的那个;③校验同时挂进 scripts/verify.ps1 与 .github/workflows/ci.yml,两处口径机械一致(CI 配置里本就要求 checklist 与 verify.ps1 同步)。
+- 复杂度: 小
+- 来源: 2026-08-15 第三方对 dev 分支的仓库评审指出 README 结构表落后于 Cargo.toml,实测属实(members 8 个,表里 6 个)。同轮机器核对该评审提出的另四条建议,结论是均不新增条目:①拆 git.rs 已在 R-257 ③,且在册版本定性更准(真问题是 finalize 从 git 适配器长成交付工作流,不是行数);②前端迁 ESM 已在 R-264,附完整勘察与设计文档并已明确降 P3;③coverage 阈值正踩 R-258 记的负向激励陷阱(测试与生产码同文件,搬走测试即可过线);④settings.rs 实测 857 生产行/671 测试行,够不上 R-257 第二梯队门槛(1218)。该评审的热点排名整体建立在 GitHub 页面行数上,即 R-258 明令禁用的口径——其点名的 permission.rs 1147 行里 698 行是测试,生产码仅 449;真正的生产码前二 drive.rs 1851 与 main.rs 1640 反而没被它看见。故只本条落地。
+- 标签: 流程
+- 边界: 不校验职责描述的内容是否准确;不扩到 docs/design 下的其它清单;不引入任何文档生成器或模板引擎。
+- 验收: ①README ## 项目结构 表含全部 8 个 crate,kanzei-base 与 kanzei-memory 各有职责描述;②校验脚本存在且真能拦:临时给 Cargo.toml 加一个假 member(或从 README 删一行)后校验必须失败并点名该 crate,给出实测输出,不接受「应该会失败」;③verify.ps1 与 ci.yml 两处都跑到该校验;④对表格行顺序差异、crate 名大小写、多余空格不误报(各给一个反证用例)。
+- 优先级: P2
