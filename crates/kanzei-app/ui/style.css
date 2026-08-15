@@ -1841,3 +1841,10 @@ button.mini { font-size: var(--fs-11); padding: 2px 8px; }
    同时只显示一个,切线 = 换 hidden,不重建 DOM。 */
 .msg-pane { display: flex; flex-direction: column; }
 .msg-pane.hidden { display: none; }
+/* R-267 批2:窗口化的顶部入口——还有多少条没渲染,点它(或滚到顶)补齐一窗。 */
+.earlier-hint {
+  align-self: center; margin: 8px 0 4px; padding: 4px 12px;
+  background: var(--panel2); color: var(--dim); border: 1px solid var(--border-soft);
+  border-radius: 999px; font-size: var(--fs-11); cursor: pointer;
+}
+.earlier-hint:hover { color: var(--fg-strong); border-color: var(--border); }

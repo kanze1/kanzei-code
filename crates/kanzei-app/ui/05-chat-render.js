@@ -20,6 +20,9 @@ function updateLatestButton() {
 messages.addEventListener("scroll", () => {
   followLatest = nearBottom();
   updateLatestButton();
+  // R-267 批2:触顶自动补齐上一窗。按钮仍在(可点),但滚上去就该出来,
+  // 不该让人先找到按钮再点——这是「更丝滑」的一部分。
+  if (messages.scrollTop < 80 && typeof loadEarlierMessages === "function") loadEarlierMessages();
 });
 function scrollBottom(force = false) {
   if (force || followLatest) messages.scrollTop = messages.scrollHeight;

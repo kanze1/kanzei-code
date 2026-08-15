@@ -1,6 +1,6 @@
 # Requirements
 
-## R-267 每会话渲染面:后台会话的渲染不再丢失,切线不再重建 DOM [doing]
+## R-267 每会话渲染面:后台会话的渲染不再丢失,切线不再重建 DOM [done]
 - refs: D-356 R-241
 - 优先级: P1
 - 复杂度: 中
@@ -10,8 +10,8 @@
 - 边界: 后台会话只渲染**消息流**;状态栏、轮次、活动面板、工具进度条等全局 UI 归活动会话(BACKGROUND_RENDER_EVENTS 刻意不含 kz:status/step/meta/task-progress/tool-progress,另有 renderingBackground 标志让 setStatus/markFirstSignal 自我屏蔽)。pane 常驻有内存代价,故设 MESSAGE_PANE_MAX 上限并只淘汰**非运行中**会话;窗口化(批2)落地前上限取小。
 - 来源: 2026-08-16 用户看到「运行中 · 快照截至上次切走时,本轮完成后自动补齐」提问「这个能修吗?能让主对话渲染不丢失,切换更丝滑吗?」
 - 验收: ①切走后 pane 留在 DOM;②后台会话的 kz:text 渲染进它自己的 pane 且不串进活动 pane;③后台渲染不改写状态栏(全局 UI 归活动会话);④切回时不再发 conversation_get(零重建)且含切走期间到达的内容;⑤不再出现「快照截至」字样;⑥kz:done 不再回灌;⑦批2:长会话只渲染尾部 N 条,向上滚动补齐,pane 常驻内存可控。
-- 批次: 1/2
-- 进展: 批1 完成(572a2f0):per-session pane + withSessionRender 渲染上下文 + BACKGROUND_RENDER_EVENTS + renderingBackground 全局 UI 屏蔽 + appendToPane/resetPane 显式 hasContent 标志(不靠数子节点或找 .empty-state——空状态本身就是子节点,且冒烟假 DOM 对类选择器支持有限,判空不准会把「已完整」误判成「空 pane」再重建);sessionDomCache 整套与 D-356 的回灌/notice 删除;冒烟原 D-356 组重写为 R-267 六条断言,反例实测(恢复「整条丢弃」后三条判红);断言选择器改 `[data-active]` 限定当前 pane(假 DOM 不支持 :not())。六条前端冒烟全绿。注:572a2f0 的提交信息里「R-195 交还 WIP 槽」未发生——自举已先行把 R-195 与 R-265 做完归档,槽位自然空出。
+- 批次: 2/2
+- 进展: 批1 完成(572a2f0):per-session pane + withSessionRender 渲染上下文 + BACKGROUND_RENDER_EVENTS + renderingBackground 全局 UI 屏蔽 + appendToPane/resetPane 显式 hasContent 标志(不靠数子节点或找 .empty-state——空状态本身就是子节点,且冒烟假 DOM 对类选择器支持有限,判空不准会把「已完整」误判成「空 pane」再重建);sessionDomCache 整套与 D-356 的回灌/notice 删除;冒烟原 D-356 组重写为 R-267 六条断言,反例实测(恢复「整条丢弃」后三条判红);断言选择器改 `[data-active]` 限定当前 pane(假 DOM 不支持 :not())。六条前端冒烟全绿。注:572a2f0 的提交信息里「R-195 交还 WIP 槽」未发生——自举已先行把 R-195 与 R-265 做完归档,槽位自然空出。 批2 完成:renderRecoveredMessages 只渲染尾部 PANE_WINDOW_SIZE=120 条,其余留在 paneHistory(存数据不存 DOM);renderMessageParts 抽出为首屏与补齐**共用**的唯一渲染实现(两份实现迟早长歪);loadEarlierMessages 前插一窗并按高度差回补 scrollTop(否则每次触顶都被弹走);顶部 .earlier-hint 同时是入口与状态(还剩多少条),滚到距顶 80px 自动补齐。窗口边界可能把 tool_call/tool_result 切开,落在既有的「配对不上独立成块」分支上,补齐后重新配上。新增回归:400 条会话首屏只渲染一窗、含最新不含最早、有补齐入口、补齐后条数增长;反例实测(把窗口调到 100000)两条判红。六条前端冒烟全绿。
 
 ## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [doing]
 - 优先级: P0

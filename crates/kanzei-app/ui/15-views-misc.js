@@ -277,12 +277,94 @@ function refreshGitSoon() {
   }, 600);
 }
 
+// R-267 批2:消息窗口化。
+//
+// 恢复历史时**只渲染尾部一窗**,其余留在内存里,向上滚到顶再按窗补齐。
+// 两个理由缺一不可:
+//   - 长会话的全量渲染本身就贵(实测主会话 993 条消息 / 1665 个 part,其中 272 处
+//     要走 renderMarkdown),切一次线卡一次;
+//   - 批1 之后 pane 常驻,多个长会话叠起来的 DOM 是新的内存来源——不窗口化的话,
+//     批1 省下的重渲染会换成常驻内存,拆东墙补西墙。
+const PANE_WINDOW_SIZE = 120;
+/// 每条会话的完整历史与「已渲染到哪」:sessionId → { items, rendered }。
+/// 存的是数据不是 DOM,长会话的未渲染部分只占它自己那点 JSON。
+const paneHistory = new Map();
+
+/// 把 `items` 渲染进 `container`。复用同一套配对/思考块/markdown 逻辑——
+/// 窗口化不能有第二份渲染实现,否则「首屏」与「补齐」两段迟早长歪。
+function renderMessagesInto(container, items) {
+  const savedPane = activePane;
+  activePane = container;
+  try {
+    renderMessageParts(items);
+  } finally {
+    activePane = savedPane;
+  }
+}
+
+/// 向上补齐一窗。保持滚动位置:前插会把内容顶下去,按高度差回补 scrollTop,
+/// 否则用户每次触顶都会被弹到别处。
+function loadEarlierMessages() {
+  const history = paneHistory.get(activeSessionId || "");
+  if (!history) return false;
+  const remaining = history.items.length - history.rendered;
+  if (remaining <= 0) return false;
+  const start = Math.max(0, remaining - PANE_WINDOW_SIZE);
+  const chunk = history.items.slice(start, remaining);
+  const holder = document.createElement("div");
+  renderMessagesInto(holder, chunk);
+  const before = messages.scrollHeight;
+  activePane.prepend(...[...holder.childNodes]);
+  history.rendered += chunk.length;
+  messages.scrollTop += messages.scrollHeight - before;
+  renderEarlierHint();
+  return true;
+}
+
+/// 顶部提示条:还剩多少条没渲染。它同时是入口(点它补齐)与状态(还剩多少)。
+function renderEarlierHint() {
+  const history = paneHistory.get(activeSessionId || "");
+  const remaining = history ? history.items.length - history.rendered : 0;
+  const existing = activePane.querySelector(".earlier-hint");
+  if (remaining <= 0) {
+    if (existing) existing.remove();
+    return;
+  }
+  const label = `${t("载入更早的消息")} · ${t("还有")} ${remaining} ${t("条")}`;
+  if (existing) {
+    existing.textContent = label;
+    return;
+  }
+  const hint = document.createElement("button");
+  hint.type = "button";
+  hint.className = "earlier-hint";
+  hint.textContent = label;
+  hint.addEventListener("click", () => loadEarlierMessages());
+  activePane.prepend(hint);
+}
+
 function renderRecoveredMessages(items) {
   followLatest = true;
   resetPane();
   currentAssistant = null;
   currentReasoning = null;
   currentReasoningHead = null;
+  const all = items ?? [];
+  paneHistory.set(activeSessionId || "", { items: all, rendered: 0 });
+  const tail = all.slice(Math.max(0, all.length - PANE_WINDOW_SIZE));
+  paneHistory.get(activeSessionId || "").rendered = tail.length;
+  renderMessageParts(tail);
+  if (!all.length) {
+    resetPane();
+    activePane.innerHTML = `<div class="empty-state"><div class="logo-mark">K</div><div class="hint">${t("输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送")}</div></div>`;
+  }
+  renderEarlierHint();
+  scrollBottom(true);
+}
+
+/// 渲染一段消息(配对 tool_call/tool_result、思考块、markdown)。
+/// 首屏与向上补齐共用它。
+function renderMessageParts(items) {
   // 调用与结果按 call_id 配对成一块渲染:原先每个 part 各占一行,
   // 结果行只显示原始 call id,对人毫无信息量(用户 2026-08-08 反馈"太丑")。
   const pending = new Map();
@@ -331,17 +413,13 @@ function renderRecoveredMessages(items) {
       }
     }
   }
-  // 没等到结果的调用(轮次被中断):标出来,不要停在"运行中"的假象上。
+  // 没等到结果的调用(轮次被中断,或**窗口边界**把调用与结果切开了):标出来,
+  // 不要停在"运行中"的假象上。窗口边界这一侧补齐后会重新配上,不影响最终形态。
   for (const { block } of pending.values()) {
     block.wrap.classList.remove("running");
     block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
     block.result.classList.remove("hidden");
   }
-  if (!items?.length) {
-    resetPane();
-    activePane.innerHTML = `<div class="empty-state"><div class="logo-mark">K</div><div class="hint">${t("输入任务开始 · 权限请求会弹窗询问 · Ctrl+Enter 发送")}</div></div>`;
-  }
-  scrollBottom(true);
 }
 
 async function loadConversation(sequence = null, switchGeneration = null) {

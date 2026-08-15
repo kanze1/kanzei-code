@@ -734,6 +734,8 @@ const I18N_DYNAMIC_EN = {
   "鞭挞启动,2 秒后开始…": "Auto-run starts in 2 seconds…",
   "鞭挞未续跑": "Auto-run did not continue",
   "当前模式不是自主推进": "Current mode is not self-directed progress",
+  "载入更早的消息": "Load earlier messages",
+  "还有": "remaining",
   "上一轮尚未结束": "The previous round has not finished",
   "本地运行态与后端不符,按后端空闲继续": "Local run state disagrees with the backend; continuing on the backend's idle state",
   "已暂停": "Paused",

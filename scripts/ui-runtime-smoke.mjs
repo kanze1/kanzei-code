@@ -6893,6 +6893,50 @@ const docsB = {
     "kz:done 之后 pane 内容被冲掉了",
   );
 
+  // ---------- R-267 批2:长会话只渲染尾部一窗,向上补齐 ----------
+  // 不窗口化的话,批1 省下的重渲染会换成常驻内存(pane 常驻 × 993 条消息),
+  // 属于拆东墙补西墙。这里钉住「首屏只渲染一窗 + 补齐能拿到更早的」。
+  {
+    const LONG = 400;
+    const savedConv = payloads.conversation_get;
+    payloads.conversation_get = Array.from({ length: LONG }, (_, i) => ({
+      role: i % 2 === 0 ? "user" : "assistant",
+      parts: [{ type: "text", text: `窗口化消息${i}` }],
+    }));
+    // 清掉 pane 逼出装载路径(pane 已有内容时按设计不重建)。
+    vm.runInContext(
+      'for (const [id, pane] of [...messagePanes]) { pane.remove(); messagePanes.delete(id); }; activePane = paneFor(activeSessionId || "");',
+      sandbox,
+    );
+    await sandbox.loadConversation();
+    await flush();
+    const rendered = () => document.querySelectorAll("#messages [data-active] .msg").length;
+    const firstScreen = rendered();
+    assert(
+      firstScreen > 0 && firstScreen < LONG,
+      `首屏应只渲染尾部一窗,实得 ${firstScreen}/${LONG}——不窗口化则长会话每次切线都全量重建`,
+    );
+    const paneText = vm.runInContext("activePane.textContent", sandbox);
+    assert(
+      paneText.includes(`窗口化消息${LONG - 1}`),
+      "首屏没有渲染**最新**那条:窗口取的应是尾部,不是头部",
+    );
+    assert(
+      !paneText.includes("窗口化消息0"),
+      "首屏把最早的消息也渲染了:窗口没生效",
+    );
+    assert(
+      vm.runInContext('!!activePane.querySelector(".earlier-hint")', sandbox),
+      "有未渲染的历史却没有「载入更早的消息」入口:内容被静默藏起来了",
+    );
+    // 向上补齐一窗:更早的消息进来,且不重复。
+    const grew = vm.runInContext("loadEarlierMessages()", sandbox);
+    await flush();
+    assert(grew === true, "loadEarlierMessages 没有补齐(还有未渲染的历史)");
+    assert(rendered() > firstScreen, `补齐后渲染条数没增加(${firstScreen} → ${rendered()})`);
+    payloads.conversation_get = savedConv;
+  }
+
   await handlers.get("kz:idle")({ payload: { reason: "completed", sessionId: "sess-smoke" } });
   await flush();
   vm.runInContext('transitionSession("sess-smoke", "idle")', sandbox);
