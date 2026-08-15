@@ -5,6 +5,73 @@ import fs from "node:fs";
 
 const uiDir = "crates/kanzei-app/ui";
 
+// 0) 特殊修复点(幂等):gen-esm-migrate/fixheaders 从 HEAD 生成会覆盖手动修复,
+//    这些修复必须每次跑 defer 时自动重新应用,否则重跑迁移即回退。
+// 02-i18n languageSelect:求值期 `$`(01-core)在环内 TDZ,须 let + defer 初始化。
+{
+  const p = `${uiDir}/02-i18n.js`;
+  let src = fs.readFileSync(p, "utf8");
+  const need = 'export let languageSelect = null;\ndefer(() => { languageSelect = $("language-select"); });';
+  if (src.includes('export const languageSelect = $("language-select");')) {
+    src = src.replace('export const languageSelect = $("language-select");', need);
+    fs.writeFileSync(p, src);
+    console.log("02-i18n: languageSelect const→let+defer 修复(幂等)");
+  } else if (!src.includes('export let languageSelect = null;')) {
+    // 兜底:若 const 变体已不在且 let 也不在,追加。
+    src = src.replace('export const LANGUAGE_PREFERENCES = new Set', `export let languageSelect = null;\ndefer(() => { languageSelect = $("language-select"); });\nexport const LANGUAGE_PREFERENCES = new Set`);
+    fs.writeFileSync(p, src);
+    console.log("02-i18n: languageSelect 修复追加");
+  }
+  // languageSelect.value 初始化并入 defer(否则 languageSelect 为 null 时求值报错)。
+  const valueInit = 'languageSelect.value = normalizeLanguagePreference(localStorage.getItem("kz-language"));';
+  if (src.includes(valueInit + "\ndefer(() => {\n  languageSelect.addEventListener")) {
+    src = src.replace(
+      valueInit + "\ndefer(() => {\n  languageSelect.addEventListener",
+      'defer(() => {\n  ' + valueInit + "\n  languageSelect.addEventListener"
+    );
+    fs.writeFileSync(p, src);
+    console.log("02-i18n: languageSelect.value 并入 defer(幂等)");
+  }
+}
+// 09-sessions:renderProjects 用 setter(setCurrentProject/setActiveProcessId/setActiveSessionId)
+// 但 import 头重建会丢——幂等补 import。
+{
+  const p = `${uiDir}/09-sessions.js`;
+  let src = fs.readFileSync(p, "utf8");
+  const needSetters = ["setCurrentProject", "setActiveProcessId", "setActiveSessionId"];
+  const missing = needSetters.filter((s) => src.includes(`${s}(`) && !src.includes(`${s},\n`) && !src.includes(`${s}\n`));
+  if (missing.length > 0) {
+    // 在 03-shell import 块内追加缺失 setter(在 `running,` 后插入)。
+    const insert = missing.map((s) => `  ${s},`).join("\n");
+    src = src.replace("  running,\n", `  running,\n${insert}\n`);
+    fs.writeFileSync(p, src);
+    console.log(`09-sessions: 补 setter import ${missing.join(", ")}`);
+  }
+}
+// 14-docs-actions:documentsKind 跨模块写 → setDocumentsKind(12-docs-pages 提供)。
+{
+  const p = `${uiDir}/14-docs-actions.js`;
+  let src = fs.readFileSync(p, "utf8");
+  let changed = false;
+  for (const [from, to] of [
+    ['documentsKind = "req"', 'setDocumentsKind("req")'],
+    ['documentsKind = "defect"', 'setDocumentsKind("defect")'],
+    ['documentsKind = "both"', 'setDocumentsKind("both")'],
+  ]) {
+    if (src.includes(from)) {
+      src = src.replaceAll(from, to);
+      changed = true;
+    }
+  }
+  if (changed) {
+    if (!src.includes("setDocumentsKind,") && !src.includes("setDocumentsKind\n")) {
+      src = src.replace("  selectWorkspaceProject,\n", "  selectWorkspaceProject,\n  setDocumentsKind,\n");
+    }
+    fs.writeFileSync(p, src);
+    console.log("14-docs-actions: documentsKind → setDocumentsKind(幂等)");
+  }
+}
+
 // 1) 恢复 defer 到 01-core(若缺失)。
 const corePath = `${uiDir}/01-core.js`;
 let core = fs.readFileSync(corePath, "utf8");
@@ -50,6 +117,7 @@ for (const f of files) {
        /^for\s*\(/.test(line) ||
        /^if\s*\(/.test(line) ||
        /^\{/.test(line) ||
+       /^\(async\s*\(\)\s*=>/.test(line) ||
        /^(void|await)\s+[A-Za-z_$][\w$]*\s*\(/.test(line));
     if (isTopCall) {
       // 收集本语句(从该行到闭合:括号配平)。
