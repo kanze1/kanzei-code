@@ -3310,3 +3310,20 @@
 - observed_worktree_hash: fnv1a64:f942ffb698473c93
 - recorded_at: 1786815438311
 - 阻塞: 2026-08-16 park(用户指示,零损失):默认线的唯一 WIP 槽改由 R-195 接管。本条是引擎在 addd88f 之后按「无可执行 WIP」自动取的活,批次 0/3、尚未动手,park 不丢任何工作。同线另有 R-186/R-216/R-249 三条前提已达成的条目一并排队(见各自阻塞字段);R-257 由 worktree 线 thread-line-1786805363432-1 持有,属他线 WIP,不占默认线槽位。解除动作: R-195 关闭后按队列自然取回本条(P2)。解除人: 依赖自然解除。
+
+## R-195 candidate 记忆的晋升与清退闭环:存量 5 条无人验收,最后一次晋升停在 2026-08-10 [done]
+- 内容: 给 candidate 定一条会被执行的闸门,形态不在本条强行拍板:或按复发计数自动晋升(计数已可用),或轮末/每 N 轮让 manager 逐条判定晋升与清退,超期未处置的自动 deprecate 归档。同时把存量 5 条走一遍该流程。
+- 复杂度: 中
+- 来源: 2026-08-12 记忆库存清理:22 条 candidate 里 15 条是重复或空正文条目(已置 deprecated 归档,见提交 2bc5899/216120e),剩 5 条 M-034/M-035/M-037/M-038/M-040 自 2026-08-10 起无人处置;最后一次成功晋升是 M-032(2026-08-10 21:31)。
+- 标签: 核心
+- 现状: ①promote 有 provenance 硬约束(store.rs:promote 要求至少一条 episode 证据),但没有任何常规动作会产出这种证据,于是没人晋升得了;②三段晋升(第 2 次建 candidate、第 3 次+带修复证据晋升)依赖跨轮复发计数,而计数此前因指纹里含命令载荷永远停在 1——该病灶已在 f104890 修掉(mask_volatile_payload + normalize_fp_marker),计数从此能涨;③即便计数能涨,晋升仍需一个会真正被执行的判定动作。
+- 边界: 不改「未验证不注入」的取舍(R-165):本条不是要让 candidate 参与召回,而是不让它永远躺着。已在 f104890 落地的部分(candidate 对去重与复发检测可见)不重做。
+- 验收: ①存量 5 条 candidate 全部有归宿(晋升 active 或 deprecated 归档),逐条给出依据;②有机制测试:满足条件的 candidate 能被自动处置,不满足的不动;③candidate 存量不再单调增长——用 index.db 与文件数给出前后对照。
+- 优先级: P2
+- 批次: 2/2
+- 进展: 复核完成(2026-08-16):本条核心机制已由 D-341 完整落地(提交 dd5e5fd)——reconcile_candidates 轮末自动处置共享入口(kanzei-memory/src/memory/mod.rs:943, CANDIDATE_MAX_AGE_DAYS=14),CLI 与桌面双端挂载(kanzei/src/cli/run.rs:627、kanzei-app/src/run/persistence.rs:191),判定逻辑提纯至 MemoryLifecycle(lifecycle.rs:93 should_promote=真实episode+recurrence≥3+指纹 / should_deprecate=超14日历日),机制测试 store.rs:2592(3 candidate:1 promote/1 deprecate/1 keep,文件与索引 before/after 对照断言)。R-255 把 memory 迁入 kanzei-memory(reconcile 现于 kanzei-memory/src/memory/mod.rs)。验收②机制测试 ✅(cargo test -p kanzei-memory reconcile_candidates 通过)。验收③report 含 candidate_files_before/after + candidate_index_before/after(store.rs:93-100),轮末真实执行 ✅。验收①存量核验:9 条 candidate(M-034/037/038/060/064/066/067/068/069)均 2026-08-13 创建 age=3<14 未达自动处置线、无指纹不满足 promote,保持 candidate 正确(符合未验证不注入边界,不永久躺平——到 8-27 自动 deprecated);点名存量 M-035/M-040 已不在 index(已被处置)。本条为纯验证收尾,无代码改动(D-341 已交付全部机制)。关闭依据:功能可用,机制测试+轮末真实挂载+存量状态正确。
+- observed_head: 7555f343a71ab4c41a2e03d830959e5485060048
+- observed_worktree_hash: fnv1a64:bfb9acc5afb53e95
+- recorded_at: 1786815724312
+- 取活依据: engine:唯一可执行 WIP 是 R-195，必须先恢复它
+- 用户挂起: 是；用户明确选择暂存 R-195，待 R-236 完成后恢复。
