@@ -1,29 +1,5 @@
 # Requirements
 
-## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [doing]
-- 优先级: P0
-- 复杂度: 中
-- 标签: 核心
-- 归属: kanzei
-- 阶段: 3
-- 证据等级: E1(D-174 已交付同哲学的实现;本条是范围扩展)
-- refs: D-267(本条是它的替代交付) D-173 D-174 R-183 R-184 R-177 D-258
-- 来源: 2026-08-11 用户定调砍掉 bash 权限中间档后的替代方案。原话:「这些直接砍了,没啥用说真的,并行自举本来就是激进的玩法」。
-- 为什么是这个形态(本条的全部理由): 并行下真正要防的**不是恶意,是串台**——A 线的命令跑进 B 线的树、把人家**未提交**的活覆盖了。而**命令语法闸门恰恰防不住这个**:`cd ../other && rm -rf` 里没有一个可疑 token,`cargo` 也是合法程序、其 `build.rs` 能干任何事。
-  正解沿用本仓既有哲学。设计基线明写着 bash 对托管文档的保护「**在结果侧**(执行前后快照比对 + 隔离留证 + 整体回滚),**不在权限层**」——D-173/D-174 已经把这条路走通并有实现(`crates/kanzei-tools/src/bash.rs` 的 `ManagedSnapshot::capture` / `is_complete`)。它的关键优势是**不关心命令长什么样**,所以 `cd ../other` 与 `cargo run` 里 build.rs 干的坏事**一视同仁抓得到**——这正是闸门做不到的那一半。
-- 内容: ①把 `ManagedSnapshot` 的保护范围从「主根 `.kanzei` 托管文档」扩到「**不属于本线的 worktree**」:执行前拍快照的集合 = 托管文档 ∪ 其它线的工作树;②越界写入的处置沿用 D-174 既有形态(隔离留证 + 整体回滚 + 归因到 owner run),**不新造机制**;③「本线的树」由 `ProcessHandle.worktree_path` 给出(前置 R-177),主树进程的"本线"= 主根;④性能:快照集合可能很大,按**只对其它线的树做 mtime 级粗筛、命中再细查**收敛,不得让每条 bash 都全量哈希(D-233 的教训:同步全量读+哈希会把主线程占死);⑤越界事件进轨迹,**同时作为 R-184 冲突带的数据源**——"谁写了不属于自己的文件"与"谁和谁改了同一个文件"是同一份数据,不要采两次。
-- 边界: **不做事前拦截**(那是被砍掉的 D-267 的路子)。不保护未纳入任何线的目录(用户自己的其它项目不在范围内——本条只管本仓的树之间)。不做跨机器。`ManagedSnapshot` 对**托管文档**的既有行为**一个字不改**(它是 D-173/D-174 的交付,只加范围不改语义)。
-- 验收: ①A 线执行 `cd <B线树> && <写操作>` 后:改动被检测、被隔离留证、被回滚,B 线的工作树**逐字节复原**,有实测轨迹(不是只断言函数返回);②归因正确:轨迹里指出是哪条线(owner run)越的界;③**`cargo run` 里 build.rs 写别人的树**同样被抓——这条是本条相对闸门的核心优势,必须有定向测试;④托管文档的既有保护行为无回归(D-174 既有测试全绿);⑤性能:单条 bash 的快照开销有实测数字,N 条线时不随 N 线性劣化到不可用(给出实测,不接受"看起来还行");⑥越界事件与 R-184 冲突带共用同一份数据,不存在两套采集(机械核验:grep 只有一处采集点)。
-- 依赖: 
-- 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
-- 取活依据: engine:唯一可执行 WIP 是 R-186，必须先恢复它
-- 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。 || 2026-08-16 复核:实质前置全部达成——R-200/R-202 done、缺陷队列 D-357/358/359 全部 fixed、发版多轮执行。原阻塞对象 R-195 已 done 并归档(2026-08-16 复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,恢复可执行。 || 2026-08-16 取活开工。勘察:①现有围栏=ManagedSnapshot(kanzei-tools/src/managed.rs)只拍 .kanzei/project+.kanzei/memory,前/后台 bash_body(kanzei-tools/src/bash.rs:300/410/456)共用;②其它线工作树清单通道已存在:kanzei-tools/src/worktree.rs:225 git_worktrees() 返回全仓 worktree(含主树),bash 用 ctx.cwd 判定本线后排除;③归因身份已在 ToolCtx(run_id/process_id),ProcessHandle.worktree_path(R-177)在 kanzei-app 侧。**批次规划**:批1=前台 bash 跨树保护闭环(执行前拍其它线树快照=git status 清单+变更文件内容,执行后对账,差异隔离留证+回滚)+单测;批2=归因到 owner run(验收②)+越界事件进轨迹+与 R-184 冲突带共用数据(验收⑥);批3=cargo run build.rs 定向测试(验收③)+性能实测(验收⑤)+D-174 回归全绿(验收④)。 || **批1 完成(2026-08-16,提交 e40a93b)**:新增 crates/kanzei-tools/src/cross_tree.rs(OtherTreesSnapshot:执行前全文件镜像,执行后 mtime/len 粗筛+命中细查,差异隔离留证+回滚;非 git 目录空保护面放行;跳过 .git 目录与 worktree 的 .git 指针文件),bash.rs 前台路径接入(capture_other_trees 拍前镜像,enforce_other_trees 在正常结束+超时两处对账并纳入 ok/error 判定;background 分支不接入——命令已脱离本 run 由后台守卫按自己生命周期对账)。单测 5 条全绿:a线bash写b线树检出隔离回滚逐字节复原、worktree线保护面含主树与其它树排除自身、非git目录放行、touch文件内容不变不越界、越界新建文件被删。既有 bash 19+managed 6+background 22 全绿无回归(T-1786836335),clippy/fmt 通过。 || **批2 完成(2026-08-16,提交 d31057a)**:①归因(验收②)——enforce_other_trees 加 owner_run/owner_process 参数,报告首行点名 owner run+process(bash.rs 两处调用传 ctx.run_id/ctx.process_id),单测断言报告含 run-a/proc-a;②越界事件进轨迹(内容⑤前段)——报告经 ToolOutput error 已入轨迹,归因行随之可审计;③验收⑥机械核验——越界采集点唯一(capture_other_trees/collect_tree_files 仅 cross_tree.rs 定义,bash.rs 仅调用;managed.rs 的 BLOCKED 报告是 D-174 托管围栏既有行为,与跨树越界无关;R-184 冲突带 changed_files 走 git status 是既有展示数据,非越界采集);④顺手修 D-264 既有漂移:verify.ps1 的 crate_sync 键(81e6737 引入)漏同步进 git.rs 固定清单与 markers,守护测试 gate_checklists_align_across_git_verify_and_ci 从红转绿。验证:T-1786836931 kanzei-tools 全量 284 passed。 || **批3 完成(2026-08-16,提交待定)**:①验收③ build.rs 定向测试——cargo_build的build_rs写b线树_同样被抓:主树 A 放最小 cargo 项目(无网络依赖),build.rs 构建期写 B 线树 victim.txt,cargo build 触发后对账检出越界、victim 被删、B 线自有文件逐字节保留——证明结果侧快照对比抓到命令闸门抓不到的行为;②验收⑤性能实测——快照性能_多线树耗时上界:5 worktree × 31 文件 = 155 镜像文件单次 capture 实测 73.9ms(远低于 2s 上界,单条 bash 开销可用,不随 N 线性劣化到不可用);③验收④——workspace 全量 15 段全 ok(T-1786837373),kanzei-tools 286 passed,D-174 既有测试(managed 6/background 22/bash 19)全绿无回归。clippy/fmt 通过。**关闭前核对**:验收①③⑤⑥证据齐备,④workspace 全绿。按 §1.2 可用即关闭,准备 req update done。
-- 阻塞: 
-- observed_head: d31057a03f6f205c7b38da0110781d6fde5c6f36
-- observed_worktree_hash: fnv1a64:9fb3d8b145a0d5da
-- recorded_at: 1786837384761
-- 批次: 3/3
-
 ## R-221 research 模式重定位:按 docs/design/research_mode.md 分批实施独立深度研究模式(文献+仓库调研,论文级产出) [doing]
 - 优先级: P2
 - 复杂度: 大
@@ -217,7 +193,7 @@
 - 状态: todo
 - 阻塞: 队列让位(2026-08-16):R-186(P0 队首)本轮推进中,单 WIP 槽不足,本条让位等待队列轮转。解除动作: R-186 关闭后清本字段,做剩余批4(withSessionRender setter 化、B3、defer 时序与冒烟断言适配、删补偿)。P3 留档。解除人: agent。
 
-## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
+## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [doing]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
 - 复杂度: 大
 - 方向: 专用工具写入走写日志(路径+写后内容指纹,必要时含内容):围栏窗口收口时对 diff 逐路径对账,终态与日志一致的吸收进基线(同 D-258 absorb_paths 的按路径吸收口径),不一致的按越界回滚到最后一次合法日志内容(不是窗口开点快照)。写者从此不取跨窗口互斥,只保留毫秒级文件锁。远期与「tracker 事件化:append-only event store + 物化投影」同向(该方向另行立项),本条只做到写日志+吸收即可交付吞吐
@@ -225,6 +201,12 @@
 - 背景: D-364 不变式「窗口内没有写者」靠锁实现:围栏共享锁贯穿整个 bash 窗口(默认 120s/上限 600s),排他写者(req/defect/idea/decision/test_record/memory)预算仅 3s,撞上任一线的长 bash 即报错。两线 bash 窗口交叠时写者可长期挤不进去——轮末 test_record/req update 被外线 cargo build 拖住,是 D-382 修完围栏互斥后并行吞吐被吃掉的主要残余。设计基线 parallel_read_serial_write_orchestration.md §285 已预言「等全局静默会被后来的写者饿死,需要另设策略」,策略至今未落地
 - 验收: 一条线 cargo build(分钟级)期间,另一条线 req update/test_record/memory_add 毫秒级完成且不被围栏误回滚;bash 越界写照旧被检出并回滚(D-364/D-368 全部回归绿);窗口内合法写+越界写混合场景回滚到合法日志终态而非窗口开点
 - 优先级: P1
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-268
+- 批次: 1/3
+- 进展: 2026-08-16 取活开工(复杂度大,设计冻结先行)。**勘察结论**:①现状机制——bash 围栏(D-364)持**共享档**(D-382)贯穿命令窗口(120s/600s),写者(req/defect/idea/decision/test_record/memory)在 tracker.rs:312/work-selection 与 store.lock() 处取**排他锁**(预算 3s),撞上长 bash 即报错;后台守卫(background.rs reconcile:405)用 managed_fence::write_in_progress 分流合法/越界,窗口关闭时 absorb_paths 按路径精确吸收(D-258);②锁语义——atomic_file.rs FileLock 双层(进程内互斥+OS 独占句柄),Shared/Exclusive 二档;③设计基线 parallel_read_serial_write_orchestration.md:285 已预言「等全局静默会被后来的写者饿死,需要另设策略」。**设计冻结**:不变式——把「窗口内没有写者」(靠锁)换成「窗口内的变化可归因」(靠写日志);权威数据源——写日志(路径+写后内容指纹,必要时含内容)为唯一合法写入凭据,围栏收口对账,终态与日志一致的吸收进基线,不一致的回滚到最后一次合法日志内容;预期改动文件——kanzei-tools/src/write_log.rs(新)、managed.rs(吸收口径扩展)、bash.rs(围栏收口对账)、tracker.rs/test_record.rs/memory 写入口(写日志替代跨窗口互斥)、background.rs(守卫对账同源);最小测试——写者撞长 bash 不阻塞、越界写照旧回滚、混合场景回滚到合法日志终态。 || **批1 完成(2026-08-16,提交待定)**:①write_log.rs 新模块——JSONL 条目(路径+sha256 指纹+内容+run/process 身份)落盘 .kanzei/.write-log/(不在托管根内,天然免疫围栏快照),record/entries_after/prune_before/fingerprint 四函数,先写文档再记日志(「写后」凭据);②managed.rs 新增 enforce_managed_files_with_writer_log——围栏收口按写日志分区:日志命中且终态一致→吸收(不误回滚),未命中→隔离回滚;既有 enforce_managed_files 保留(D-174 语义不动,标注非测试期 allow dead_code);③bash.rs 前台两处(正常结束+超时)接入带日志对账,传 fence_window_start_ms(拍 before 快照时刻);④单测 6 条全绿:write_log 3(记录/时间过滤+升序/清理/指纹)+围栏对账 3(合法写不误回滚/越界写回滚/混合只回滚越界侧),kanzei-tools 全量 292 passed,clippy/fmt 通过(T-1786837811)。**下一批**:批2 写者侧接入——tracker.rs 写入口(req/defect 写文档后 record 写日志,移除对围栏共享锁的排他依赖)+test_record/memory 写入口,写日志替代跨窗口互斥,并适配 D-364/D-368 回归(围栏不再拦写者,锁语义从「排他挡窗口」退化为「毫秒级文件锁」)。
+- observed_head: a13cbb62d18c03c499f2bd203cec0f10c39af45a
+- observed_worktree_hash: fnv1a64:a6996455f50ecc84
+- recorded_at: 1786837820776
 
 ## R-269 浏览器工具:playwright-core 辅进程 headless 自检通道 [todo]
 - refs: R-101 D-319 R-249 R-059

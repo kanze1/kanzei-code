@@ -376,6 +376,10 @@ fn collect_files(dir: &Path, project_root: &Path, snapshot: &mut ManagedSnapshot
 }
 
 /// 比对执行前后的托管目录镜像。有改动就隔离留证 + 整体回滚,并生成回喂模型的报告。
+///
+/// R-268 之后前台 bash 改用 [`enforce_managed_files_with_writer_log`](带写日志对账);
+/// 本函数保留为无日志场景的退化形态与既有测试的锚点(D-174 语义不动)。
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn enforce_managed_files(
     project_root: &Path,
     before: ManagedSnapshot,
@@ -415,6 +419,86 @@ pub(crate) fn enforce_managed_files(
          entries, `architecture` for the architecture index, `memory_note` for memory). If no \
          tool covers what you need, that is an unimplemented capability: record it and tell the \
          user — do not look for another shell route.{incomplete}",
+        MANAGED_ROOTS.join(" and "),
+        quarantine.display(),
+    ))
+}
+
+/// R-268:带**写日志对账**的托管围栏(前台 bash 用)。
+///
+/// 与 [`enforce_managed_files`] 的区别:窗口内变化逐路径查写日志——日志命中且
+/// 终态一致的路径视为**专用工具的合法写入**(吸收进基线,不回滚);未命中的路径
+/// 照旧隔离回滚。这打破 D-364「窗口内没有写者」的锁依赖:写者不再需要跨窗口
+/// 互斥,只要自己的写入留下日志,围栏收口时就能与越界写区分。
+///
+/// `window_start_ms` 是命令窗口起点(拍 `before` 快照的时刻):只认这个时刻之后
+/// 的日志,窗口之前的历史写入不参与本次对账。
+///
+/// 返回:与 [`enforce_managed_files`] 同形态(有越界回滚时返回报告)。合法写入
+/// 只吸收、不回滚,不产生报告。
+pub(crate) fn enforce_managed_files_with_writer_log(
+    project_root: &Path,
+    before: ManagedSnapshot,
+    window_start_ms: u128,
+) -> Option<String> {
+    let after = ManagedSnapshot::capture(project_root);
+    if after == before {
+        return None;
+    }
+    let after_incomplete = !after.is_complete();
+    let change = diff(&before, &after)?;
+    let logs = crate::write_log::entries_after(project_root, window_start_ms);
+    // 日志命中判据:窗口内对该路径有过写入,且写后指纹 == 当前快照指纹
+    // (终态一致 = 专用工具的最后一次写就是我们看到的形态;此后没有人再动它)。
+    let covered = |path: &str| -> bool {
+        logs.iter().any(|entry| {
+            entry.path == path && {
+                let fingerprint = crate::write_log::fingerprint(
+                    after
+                        .files
+                        .get(path)
+                        .map(|content| content.as_deref().unwrap_or_default())
+                        .unwrap_or_default(),
+                );
+                entry.sha256 == fingerprint
+            }
+        })
+    };
+    let (legitimate, breach) = change.partition(covered);
+    if breach.is_empty() {
+        // 全部变化都有合法写日志解释:吸收进基线,不算越界。
+        let paths: Vec<&str> = legitimate.touched().iter().map(|s| s.as_str()).collect();
+        // before 是本次窗口的基线;吸收后本函数丢弃,调用方(前台 bash)无需保留。
+        let _absorbed = before;
+        let _ = paths;
+        return None;
+    }
+    let listed = breach
+        .touched()
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let (quarantine, restored) =
+        quarantine_and_restore(project_root, &before, &breach, "shell-with-log");
+
+    let incomplete = if after_incomplete {
+        format!(
+            "\nWARNING: the post-command snapshot exceeded its safety bound. Known changes were \
+             rolled back, but the managed tree must be inspected manually before any further shell \
+             command (limit: {MANAGED_SNAPSHOT_MAX_FILES} files / {MANAGED_SNAPSHOT_FILE_LIMIT} bytes per file)."
+        )
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
+         paths are policy-managed and the shell is not a write channel for them, no matter which \
+         mechanism is used. Paths with a matching dedicated-tool write log were absorbed as \
+         legitimate; the following had no such explanation and were rolled back:\n\
+         touched: {listed}\n\
+         restored {restored} file(s) to their pre-command contents; your versions were kept at \
+         {} so nothing is lost.{incomplete}",
         MANAGED_ROOTS.join(" and "),
         quarantine.display(),
     ))
@@ -652,6 +736,138 @@ mod tests {
         };
         assert!(contended.join().unwrap(), "释放后写者必须能拿到树锁");
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-268 批1 核心:围栏收口按写日志对账——**有写日志解释的合法写入不误回滚**。
+    ///
+    /// 场景:窗口开点拍 before 快照;窗口内专用工具(`req add`)写了 requirements.md
+    /// 并留下写日志;围栏收口时必须吸收(不报越界),而不是把 req 的合法写入回滚掉。
+    /// 这正是 D-364 锁方案要防的误伤,现在由写日志替代锁来归因。
+    #[test]
+    fn 围栏收口_有写日志的合法写入不误回滚() {
+        let root = temp_project("r268-log-ok");
+        let req = root.join(".kanzei/project/requirements.md");
+        std::fs::write(&req, "# Requirements\n\n## R-001 既存 [todo]\n").unwrap();
+
+        // 窗口开点(拍 before 之前取时间,与 bash_body 的 fence_window_start_ms 同序)。
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let before = ManagedSnapshot::capture(&root);
+
+        // 窗口内:专用工具 `req add` 写文档(真实顺序:先写文档,再记写日志)。
+        let new_content = "# Requirements\n\n## R-001 既存 [todo]\n\n## R-268 新增 [todo]\n";
+        std::fs::write(&req, new_content).unwrap();
+        crate::write_log::record(
+            &root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: window_start + 1,
+                path: ".kanzei/project/requirements.md".into(),
+                sha256: crate::write_log::fingerprint(new_content.as_bytes()),
+                content: new_content.as_bytes().to_vec(),
+                run_id: Some("run-a".into()),
+                process_id: Some("proc-a".into()),
+            },
+        )
+        .unwrap();
+
+        // 围栏收口:有日志解释 → 不报越界。
+        let report = enforce_managed_files_with_writer_log(&root, before, window_start);
+        assert!(
+            report.is_none(),
+            "有写日志的合法写入不应被围栏回滚,实得: {report:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&req).unwrap(),
+            new_content,
+            "合法写入必须保留(吸收进基线,不回滚)"
+        );
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-268 批1:同窗口**越界写**(无写日志解释)照旧被检出并回滚——围栏本职不丢。
+    #[test]
+    fn 围栏收口_无写日志的越界写照旧回滚() {
+        let root = temp_project("r268-log-breach");
+        let req = root.join(".kanzei/project/requirements.md");
+        std::fs::write(&req, "# Requirements\n\n## R-001 既存 [todo]\n").unwrap();
+
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let before = ManagedSnapshot::capture(&root);
+
+        // 窗口内:bash 越界写(无写日志)。
+        std::fs::write(&req, "# Requirements\n\n## R-999 越界写入 [todo]\n").unwrap();
+
+        let report = enforce_managed_files_with_writer_log(&root, before, window_start)
+            .expect("无日志解释的越界写必须被检出并回滚");
+        assert!(
+            report.contains("requirements.md"),
+            "报告要点名被回滚的文件: {report}"
+        );
+        let after = std::fs::read_to_string(&req).unwrap();
+        assert!(after.contains("R-001"), "回滚必须恢复执行前内容: {after}");
+        assert!(!after.contains("R-999"), "越界写不得残留: {after}");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// R-268 批1:混合场景——合法写(有日志)与越界写(无日志)同窗口,回滚只动越界侧。
+    #[test]
+    fn 围栏收口_合法写与越界写混合_只回滚越界侧() {
+        let root = temp_project("r268-log-mixed");
+        let req = root.join(".kanzei/project/requirements.md");
+        let defects = root.join(".kanzei/project/defects.md");
+        std::fs::write(&req, "# Requirements\n\n## R-001 既存 [todo]\n").unwrap();
+        std::fs::write(&defects, "# Defects\n").unwrap();
+
+        let window_start = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let before = ManagedSnapshot::capture(&root);
+
+        // 窗口内:req 合法写(有日志)+ bash 越界写 defects(无日志)。
+        let req_new = "# Requirements\n\n## R-001 既存 [todo]\n\n## R-268 新增 [todo]\n";
+        std::fs::write(&req, req_new).unwrap();
+        crate::write_log::record(
+            &root,
+            &crate::write_log::WriteLogEntry {
+                at_ms: window_start + 1,
+                path: ".kanzei/project/requirements.md".into(),
+                sha256: crate::write_log::fingerprint(req_new.as_bytes()),
+                content: req_new.as_bytes().to_vec(),
+                run_id: Some("run-a".into()),
+                process_id: Some("proc-a".into()),
+            },
+        )
+        .unwrap();
+        std::fs::write(&defects, "# Defects\n\n## D-999 越界 [open]\n").unwrap();
+
+        let report = enforce_managed_files_with_writer_log(&root, before, window_start)
+            .expect("存在无日志解释的越界写,必须报");
+        assert!(
+            report.contains("defects.md"),
+            "报告要点名越界文件: {report}"
+        );
+        assert!(
+            !report.contains("requirements.md"),
+            "有日志的合法写不应出现在越界报告: {report}"
+        );
+        // 合法写保留、越界写回滚。
+        assert_eq!(
+            std::fs::read_to_string(&req).unwrap(),
+            req_new,
+            "合法写(有日志)必须保留"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&defects).unwrap(),
+            "# Defects\n",
+            "越界写必须回滚到窗口开点"
+        );
         std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -3392,3 +3392,27 @@
 - observed_head: c8e4ca748693a5d11259f55c72ea4375e8721ed8
 - observed_worktree_hash: fnv1a64:cb38942f21061b5b
 - recorded_at: 1786822056815
+
+## R-186 跨树越界检测与回滚:ManagedSnapshot 范围从托管文档扩到「不属于本线的 worktree」 [done]
+- 优先级: P0
+- 复杂度: 中
+- 标签: 核心
+- 归属: kanzei
+- 阶段: 3
+- 证据等级: E1(D-174 已交付同哲学的实现;本条是范围扩展)
+- refs: D-267(本条是它的替代交付) D-173 D-174 R-183 R-184 R-177 D-258
+- 来源: 2026-08-11 用户定调砍掉 bash 权限中间档后的替代方案。原话:「这些直接砍了,没啥用说真的,并行自举本来就是激进的玩法」。
+- 为什么是这个形态(本条的全部理由): 并行下真正要防的**不是恶意,是串台**——A 线的命令跑进 B 线的树、把人家**未提交**的活覆盖了。而**命令语法闸门恰恰防不住这个**:`cd ../other && rm -rf` 里没有一个可疑 token,`cargo` 也是合法程序、其 `build.rs` 能干任何事。
+  正解沿用本仓既有哲学。设计基线明写着 bash 对托管文档的保护「**在结果侧**(执行前后快照比对 + 隔离留证 + 整体回滚),**不在权限层**」——D-173/D-174 已经把这条路走通并有实现(`crates/kanzei-tools/src/bash.rs` 的 `ManagedSnapshot::capture` / `is_complete`)。它的关键优势是**不关心命令长什么样**,所以 `cd ../other` 与 `cargo run` 里 build.rs 干的坏事**一视同仁抓得到**——这正是闸门做不到的那一半。
+- 内容: ①把 `ManagedSnapshot` 的保护范围从「主根 `.kanzei` 托管文档」扩到「**不属于本线的 worktree**」:执行前拍快照的集合 = 托管文档 ∪ 其它线的工作树;②越界写入的处置沿用 D-174 既有形态(隔离留证 + 整体回滚 + 归因到 owner run),**不新造机制**;③「本线的树」由 `ProcessHandle.worktree_path` 给出(前置 R-177),主树进程的"本线"= 主根;④性能:快照集合可能很大,按**只对其它线的树做 mtime 级粗筛、命中再细查**收敛,不得让每条 bash 都全量哈希(D-233 的教训:同步全量读+哈希会把主线程占死);⑤越界事件进轨迹,**同时作为 R-184 冲突带的数据源**——"谁写了不属于自己的文件"与"谁和谁改了同一个文件"是同一份数据,不要采两次。
+- 边界: **不做事前拦截**(那是被砍掉的 D-267 的路子)。不保护未纳入任何线的目录(用户自己的其它项目不在范围内——本条只管本仓的树之间)。不做跨机器。`ManagedSnapshot` 对**托管文档**的既有行为**一个字不改**(它是 D-173/D-174 的交付,只加范围不改语义)。
+- 验收: ①A 线执行 `cd <B线树> && <写操作>` 后:改动被检测、被隔离留证、被回滚,B 线的工作树**逐字节复原**,有实测轨迹(不是只断言函数返回);②归因正确:轨迹里指出是哪条线(owner run)越的界;③**`cargo run` 里 build.rs 写别人的树**同样被抓——这条是本条相对闸门的核心优势,必须有定向测试;④托管文档的既有保护行为无回归(D-174 既有测试全绿);⑤性能:单条 bash 的快照开销有实测数字,N 条线时不随 N 线性劣化到不可用(给出实测,不接受"看起来还行");⑥越界事件与 R-184 冲突带共用同一份数据,不存在两套采集(机械核验:grep 只有一处采集点)。
+- 依赖: 
+- 前置(不写进依赖,按 D-239 教训): **R-177**(要有 `worktree_path` 才知道"本线的树"是哪棵)。R-177 之前可以先做托管文档侧的重构与 mtime 粗筛。
+- 取活依据: engine:唯一可执行 WIP 是 R-186，必须先恢复它
+- 进展: 自动运行已认领(doing)。2026-08-13 用户明确指示暂停本条、先交付 R-200(测试隔离夹具)并按其批次发版——本条 park,不占可执行槽位。未开工。 || 2026-08-16 复核:实质前置全部达成——R-200/R-202 done、缺陷队列 D-357/358/359 全部 fixed、发版多轮执行。原阻塞对象 R-195 已 done 并归档(2026-08-16 复核时仍为 doing,现确认已归档),阻塞解除条件全部满足,当场清空阻塞字段,恢复可执行。 || 2026-08-16 取活开工。勘察:①现有围栏=ManagedSnapshot(kanzei-tools/src/managed.rs)只拍 .kanzei/project+.kanzei/memory,前/后台 bash_body(kanzei-tools/src/bash.rs:300/410/456)共用;②其它线工作树清单通道已存在:kanzei-tools/src/worktree.rs:225 git_worktrees() 返回全仓 worktree(含主树),bash 用 ctx.cwd 判定本线后排除;③归因身份已在 ToolCtx(run_id/process_id),ProcessHandle.worktree_path(R-177)在 kanzei-app 侧。**批次规划**:批1=前台 bash 跨树保护闭环;批2=归因到 owner run(验收②)+越界事件进轨迹+与 R-184 冲突带共用数据(验收⑥);批3=cargo run build.rs 定向测试(验收③)+性能实测(验收⑤)+D-174 回归全绿(验收④)。 || **批1 完成(2026-08-16,提交 e40a93b)**:新增 crates/kanzei-tools/src/cross_tree.rs, bash.rs 前台路径接入。单测 5 条全绿,既有 bash 19+managed 6+background 22 全绿无回归。 || **批2 完成(2026-08-16,提交 d31057a)**:归因(验收②)+越界事件进轨迹+验收⑥机械核验+顺手修 D-264 既有漂移(crate_sync 键同步)。kanzei-tools 全量 284 passed。 || **批3 完成(2026-08-16,提交 a13cbb6)**:验收③ build.rs 定向测试、验收⑤性能实测(5×31 文件 155 镜像 73.9ms)、验收④ workspace 全量 15 段全 ok(T-1786837373)。 || **关闭(2026-08-16)**:六条验收逐项核对证据——①A线bash写b线树检出隔离回滚逐字节复原(cross_tree.rs:346 测试,bash.rs:315/424/481 接入);②归因正确(enforce_other_trees 报告首行 attributed to owner run/process,bash.rs 传 ctx.run_id/process_id,测试断言含 run-a);③cargo build 的 build.rs 写 B 线树被抓(cross_tree.rs:471 定向测试,victim 被删、B 线自有文件保留);④托管文档既有保护无回归(managed 6/background 22/bash 19 全绿,workspace 全量 15 段 ok,managed.rs 零改动);⑤性能实测(5 worktree×31 文件=155 镜像文件 capture 73.9ms,远低于 2s 上界);⑥越界采集点唯一(capture_other_trees/collect_tree_files 仅 cross_tree.rs 定义,R-184 冲突带 changed_files 是 git status 既有展示数据,非越界采集)。交付物:crates/kanzei-tools/src/cross_tree.rs(新模块)+ bash.rs 前台接入 + git.rs 门禁清单同步;三批提交 e40a93b/d31057a/a13cbb6 已 push。按 §1.2 可用即关闭,本条 done。
+- 阻塞: 
+- observed_head: a13cbb62d18c03c499f2bd203cec0f10c39af45a
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786837432394
+- 批次: 3/3

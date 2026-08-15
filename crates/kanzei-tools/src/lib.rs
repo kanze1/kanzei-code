@@ -37,6 +37,7 @@ pub mod work;
 /// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。
 pub mod worktree;
 mod write;
+mod write_log;
 
 pub mod profiles;
 pub mod subagent;

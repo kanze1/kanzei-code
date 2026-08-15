@@ -4319,3 +4319,9 @@
 - 摘要: R-186 批3:workspace 全量 15 段全 ok。新增 build.rs 定向测试(验收③:cargo build 的 build.rs 写 B 线树被检出回滚,victim 文件被删、B 线自有文件逐字节保留)与性能实测(验收⑤:5 worktree×31 文件=155 镜像文件快照 73.9ms,远低于 2s 上界)。kanzei-tools 286 passed。clippy/fmt 通过
 - 关联: R-186
 - 收尾: 1786837373
+
+## T-1786837811 R-268 批1 写日志机制+围栏收口对账 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-268 批1:写日志机制(write_log.rs:JSONL 落盘 .kanzei/.write-log, 路径+sha256+身份, 按时间过滤/清理)+围栏收口对账(enforce_managed_files_with_writer_log:日志命中且终态一致→吸收, 未命中→隔离回滚;bash 前台两处接入传窗口起点)。新增测试 6 条:write_log 3(记录/过滤/清理/指纹)+围栏对账 3(合法写不误回滚/越界写回滚/混合只回滚越界侧)。kanzei-tools 全量 292 passed, clippy/fmt 通过
+- 关联: R-268
+- 收尾: 1786837811

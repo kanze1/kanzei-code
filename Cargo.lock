@@ -2310,6 +2310,7 @@ dependencies = [
  "schemars 0.8.22",
  "serde",
  "serde_json",
+ "sha2",
  "similar",
  "thiserror 2.0.19",
  "tokio",

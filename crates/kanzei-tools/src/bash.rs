@@ -12,8 +12,8 @@ use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
 use crate::managed::{
-    acquire_managed_locks, enforce_managed_files, managed_scope_exists, ManagedSnapshot,
-    MANAGED_SNAPSHOT_FILE_LIMIT, MANAGED_SNAPSHOT_MAX_FILES,
+    acquire_managed_locks, enforce_managed_files_with_writer_log, managed_scope_exists,
+    ManagedSnapshot, MANAGED_SNAPSHOT_FILE_LIMIT, MANAGED_SNAPSHOT_MAX_FILES,
 };
 use crate::shell::{detected_shell, kill_tree};
 
@@ -297,6 +297,11 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     // 跑完再比一次。改了就先把改后的版本隔离留证,再整体回滚,并按错误回喂模型。
     // 快照必须拍在持锁之后:锁文件(运行时产物,已进 .gitignore)要同时出现在前后
     // 两张镜像里,否则会被围栏当成命令新建的文件误删。
+    // R-268:窗口起点(ms)供写日志对账——围栏收口时只认这个时刻之后的专用工具写日志。
+    let fence_window_start_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
     let managed_before = ManagedSnapshot::capture(&ctx.project_root);
     if !managed_before.is_complete() {
         return ToolOutput::error(format!(
@@ -414,7 +419,13 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 "exit code: {}\n{text}",
                 code.map_or("unknown".into(), |c| c.to_string())
             );
-            let breach = enforce_managed_files(&ctx.project_root, managed_before);
+            // R-268:前台 bash 围栏按写日志对账——窗口内专用工具的合法写入(有日志且
+            // 终态一致)吸收进基线,未命中的越界写照旧隔离回滚。
+            let breach = enforce_managed_files_with_writer_log(
+                &ctx.project_root,
+                managed_before,
+                fence_window_start_ms,
+            );
             if let Some(report) = &breach {
                 rendered.push('\n');
                 rendered.push_str(report);
@@ -472,8 +483,13 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                     text.push_str(&partial_err);
                 }
             }
-            // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑。
-            if let Some(report) = enforce_managed_files(&ctx.project_root, managed_before) {
+            // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑(R-268 同口径:
+            // 有写日志解释的合法写入吸收,其余回滚)。
+            if let Some(report) = enforce_managed_files_with_writer_log(
+                &ctx.project_root,
+                managed_before,
+                fence_window_start_ms,
+            ) {
                 text.push('\n');
                 text.push_str(&report);
             }
