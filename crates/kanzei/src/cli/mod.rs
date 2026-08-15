@@ -330,14 +330,14 @@ pub(crate) fn cli_identity_keys(cwd: &Path, project_root: &Path) -> (String, Str
 
 #[cfg(test)]
 mod tests {
+    use super::lock::lock_status_report;
+    use super::memory::persist_always_allow;
+    use super::tracker::parse_tracker_flags;
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
         main_project_root, non_interactive_decision, parse_allowlist, parse_run_args,
         resolve_run_prompt, usage_text, RunArgs, PROJECT_ROOT_ENV,
     };
-    use super::lock::lock_status_report;
-    use super::memory::persist_always_allow;
-    use super::tracker::parse_tracker_flags;
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
 
