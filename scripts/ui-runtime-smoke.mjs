@@ -6604,11 +6604,33 @@ const docsB = {
   assert(/\.tool-display\.term[^{]*\{[^}]*color:\s*var\(--fg\)/.test(style), "D-348:运行输出未使用主题前景 token");
   assert(/#statusbar[^{]*\{[^}]*color:\s*var\(--statusbar-fg\)/.test(style), "D-351:状态栏未使用独立前景 token");
   assert(/#statusbar\.running[^{]*\{[^}]*color:\s*var\(--statusbar-run-fg\)/.test(style), "D-351:运行态状态栏未使用可读前景 token");
-  assert(/\.msg\.assistant[^{]*\{[^}]*font-size:\s*15px/.test(style), "D-351:assistant 正文字号未提升到 15px");
-  assert(/#log-lines[^{]*\{[^}]*font-size:\s*13px/.test(style), "D-351:运行日志字号低于 13px");
-  assert(/\.tool-chip\s*\{[^}]*font-size:\s*13px/.test(style), "D-351:旧式工具卡片字号低于 13px");
-  assert(/\.tool-msg-result[^{]*\{[^}]*font-size:\s*13px/.test(style), "D-351:工具结果字号低于 13px");
-  assert(/\.replay-tool-body[^{]*\{[^}]*font:\s*13px\//.test(style), "D-351:历史工具详情字号低于 13px");
+  // D-351 的可读性下限:断言**解析出来的字号数值**,不是源码里那串字面量。
+  // D-380 把字号 1:1 token 化之后,原来的 /font-size:\s*15px/ 全部落空——而可读性
+  // 一点没变。写死字面量的断言拦不住"改小了但换了写法",还会把纯重构判成回归;
+  // 解析 token 再比数值,两头都稳。
+  const fontTokens = Object.fromEntries(
+    [...style.matchAll(/(--fs-[0-9-]+):\s*([0-9.]+)px/g)].map((m) => [m[1], Number(m[2])]),
+  );
+  // 选择器用正则字面量传,不用字符串再拼——字符串里的 \. \s 会被 JS 先吃掉一层,
+  // 变成「任意字符」和字面 s(本次改造实测踩中,报"找不到 .tool-chips* 的字号声明")。
+  const resolvedFontSize = (blockPattern) => {
+    const block = style.match(blockPattern);
+    if (!block) return null;
+    const declared = block[1].match(/font(?:-size)?:\s*(?:var\((--fs-[0-9-]+)\)|([0-9.]+)px)/);
+    if (!declared) return null;
+    return declared[1] ? fontTokens[declared[1]] : Number(declared[2]);
+  };
+  for (const [pattern, floor, label] of [
+    [/\.msg\.assistant[^{]*\{([^}]*)\}/, 15, "assistant 正文"],
+    [/#log-lines[^{]*\{([^}]*)\}/, 13, "运行日志"],
+    [/\.tool-chip\s*\{([^}]*)\}/, 13, "旧式工具卡片"],
+    [/\.tool-msg-result[^{]*\{([^}]*)\}/, 13, "工具结果"],
+    [/\.replay-tool-body[^{]*\{([^}]*)\}/, 13, "历史工具详情"],
+  ]) {
+    const size = resolvedFontSize(pattern);
+    assert(size !== null, `D-351:找不到 ${label} 的字号声明(${pattern})`);
+    assert(size >= floor, `D-351:${label}字号 ${size}px 低于可读下限 ${floor}px`);
+  }
   assert(/\.tool-chip\.replay[^{]*\{[^}]*opacity:\s*1/.test(style), "D-351:历史工具块仍被整体淡化");
   assert(!/\.tool-msg-raw\.args[^{]*\{[^}]*opacity:\s*0?\.[0-9]+/.test(style), "D-351:工具入参仍被透明度二次淡化");
   // 默认暗色(现状零回归)。
