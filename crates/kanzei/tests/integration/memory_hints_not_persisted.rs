@@ -208,3 +208,144 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         summary.context_report
     );
 }
+
+const BRIEF_BLOCK: &str = "<scout-brief>\narchitecture_scout: 本次任务涉及 kanzei-tools/src/managed.rs\n</scout-brief>";
+
+/// 勘察简报与 memory_hints 同病同治:原先被 `run_prompt = format!("{brief}\n\n{run_prompt}")`
+/// 拼进 prompt,于是随 User message 进 summary.messages → 落 conversations → 下轮
+/// prior 回灌。而流水线**每轮都会重新勘察**,回灌的那份旧简报在任何情况下都不是最新
+/// 可用信息——agent 只能先花推理分辨「这看起来是上个会话的残留」再决定忽略。
+///
+/// 断言与 D-185 四层同构:本轮 system 里有、User prompt 里没有、summary.messages
+/// 里没有、context_report 有独立条目。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn 勘察简报只进本轮system_不进messages_不落历史() {
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let project =
+        std::env::temp_dir().join(format!("kz-scoutbrief-{}-{suffix}", std::process::id()));
+    std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server =
+        tokio::spawn(async move { serve_response(&listener, text_response("收到。")).await });
+
+    let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
+    let rctx = ResolveCtx {
+        profile: ProfileKind::Dev,
+        cwd: project.clone(),
+        project_root: project.clone(),
+        config: config.clone(),
+    };
+    let snapshot = Harness::default().resolve(&rctx).unwrap();
+    let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
+    let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let agent = kanzei_harness::AgentDef {
+        name: "dev-pair".into(),
+        profile: kanzei_harness::ProfileScope::Dev,
+        model: "mock".into(),
+        mode: kanzei_harness::AgentMode::Primary,
+        steps: 1,
+        system: "test".into(),
+    };
+    let runner_config = kanzei_core::RunnerConfig {
+        model: "mock".into(),
+        max_tokens: 256,
+        reasoning: kanzei_llm::ReasoningEffort::Off,
+        service_tier: None,
+        context_limit: None,
+        limits: config.limits.clone(),
+        recall: None,
+        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        ask_policy: kanzei_core::AskPolicy::Interactive,
+        halt: None,
+    };
+    let ctx = ToolCtx::new(project.clone(), project.clone());
+    let mut on_event = |_event: kanzei_core::RunEvent| {};
+    let mut ask = |_request: kanzei_core::AskRequest| -> kanzei_core::AskFuture {
+        Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
+    };
+
+    let summary = kanzei_core::run_once_with_parts(
+        &client,
+        &route,
+        &snapshot,
+        &agent,
+        &runner_config,
+        &ctx,
+        USER_PROMPT,
+        None,
+        Some(BRIEF_BLOCK),
+        &[],
+        None,
+        None,
+        &mut on_event,
+        &mut ask,
+    )
+    .await
+    .expect("运行应当成功");
+
+    let first_request = server.await.unwrap();
+    let body = String::from_utf8_lossy(&first_request);
+    let parsed: serde_json::Value = body
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .and_then(|raw| serde_json::from_str(raw).ok())
+        .expect("请求体应为合法 JSON");
+    let messages_arr = parsed["messages"]
+        .as_array()
+        .expect("请求 messages 应为数组");
+
+    let system_text = messages_arr
+        .iter()
+        .filter(|m| m["role"] == "system")
+        .filter_map(|m| {
+            m["content"].as_str().or_else(|| {
+                m["content"]
+                    .as_array()
+                    .and_then(|items| items.first())
+                    .and_then(|v| v["text"].as_str())
+            })
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        system_text.contains("<scout-brief>"),
+        "请求 system 未含勘察简报,本轮模型看不到它: {system_text}"
+    );
+
+    let user_text = messages_arr
+        .iter()
+        .filter(|m| m["role"] == "user")
+        .filter_map(|m| m["content"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        !user_text.contains("<scout-brief>"),
+        "简报被拼进了 User prompt,会随 messages 落库并在下轮回灌: {user_text}"
+    );
+
+    let persisted = summary.messages.iter().flat_map(|m| &m.parts).any(|part| {
+        if let kanzei_llm::Part::Text { text } = part {
+            text.contains("<scout-brief>")
+        } else {
+            false
+        }
+    });
+    assert!(
+        !persisted,
+        "summary.messages 里出现了勘察简报,下一轮会被当成 prior 回灌"
+    );
+
+    assert!(
+        summary
+            .context_report
+            .iter()
+            .any(|(name, _)| name == "scout/brief"),
+        "context_report 缺 scout/brief 条目,简报的 token 占比无法核账,实际: {:?}",
+        summary.context_report
+    );
+}

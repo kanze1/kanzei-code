@@ -965,7 +965,8 @@ async fn run_execution_loop(
             .ok()
             .flatten(),
     );
-    let mut run_prompt = prompt.to_string();
+    let run_prompt = prompt.to_string();
+    let mut scout_brief: Option<String> = None;
     // R-173 批6 · 勘察阶段:按角色表并行派发只读代理 → 汇总屏障 → 取写租约。
     // 顺序不是靠这里写对,是靠状态机——`begin_implementation` 只能从 synthesis 进,
     // 而 synthesis 的唯一入边是 `scout` 里的汇总屏障(不变量 2)。
@@ -985,7 +986,12 @@ async fn run_execution_loop(
                 {
                     Ok(brief) => {
                         stage("屏障", "勘察全部进入终态,开始申请写租约".into());
-                        run_prompt = format!("{brief}\n\n{run_prompt}");
+                        // 简报只进本轮 system(同 D-185 的 memory_hints),不拼进
+                        // prompt。拼进去就随 User message 落 conversations,下一轮
+                        // 作为 prior 回灌——而这里每轮都会重新勘察,回灌的旧简报
+                        // 永远不是最新可用信息。实测代价:agent 得先推理「这看起来
+                        // 是上个会话的残留」再决定忽略,分辨成本与 token 都照付。
+                        scout_brief = Some(brief);
                     }
                     Err(error) => {
                         // 勘察失败不该让这一轮跑不成:按无勘察继续,但**不静默**——
@@ -1015,6 +1021,7 @@ async fn run_execution_loop(
         ctx,
         &run_prompt,
         memory_hints.as_deref(),
+        scout_brief.as_deref(),
         prior,
         (!initial_parts.is_empty()).then_some(initial_parts),
         subagent_rt.as_ref(),
@@ -1940,6 +1947,8 @@ pub(crate) async fn run_review_and_fixup(
         ctx,
         &crate::phase_pipeline::fixup_prompt(&findings),
         // 修正段不注入新记忆提示:同一轮内的第二段,提示已含于实现段的 system。
+        None,
+        // 修正段同理不再注入勘察简报:实现段的 system 里已经有了。
         None,
         // 历史接续:修正段的 prior 就是实现段跑完的完整 messages。
         &summary.messages,

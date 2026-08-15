@@ -265,6 +265,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         &ctx,
         "跑一个会挂住的勘察任务",
         None,
+        None,
         &[],
         None,
         Some(&subagent_rt),

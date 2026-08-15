@@ -380,6 +380,7 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String, current_episod
             &tool_ctx,
             &prompt,
             None,
+            None,
             &[],
             None,
             None,
