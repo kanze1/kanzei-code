@@ -1111,16 +1111,29 @@ let probeHits = 0;
 const esmModuleCache = new Map();
 
 /**
- * 递归链接并执行一个 ESM 模块(处理任意深度相对 import 图)。
- * `sourcesByName`:文件名 → 源码;`esmModuleCache`:已链接模块缓存(浏览器
- * 语义:同 context 多次 import 同一模块返回同一实例)。共享同一 context,
- * 跨文件绑定经 context 全局变量——与经典脚本语义一致(设计文档 §二 B2 路线①)。
+ * 创建 ESM 模块实例并入缓存(不 link、不 evaluate)。供两阶段加载的第一阶段使用:
+ * 所有模块先创建(unlinked 状态),link 回调遇到缓存实例直接返回——vm 会处理
+ * unlinked 模块的链接顺序,循环依赖 a↔b 因此可行(实测:先创建再 link 成功)。
  */
-async function linkAndEvaluate(specifier, filename, instrumentedSource, sandbox, sourcesByName) {
+function createEsmModule(filename, instrumentedSource, sandbox) {
+  const existing = esmModuleCache.get(filename);
+  if (existing) return existing;
   const module = new vm.SourceTextModule(instrumentedSource, {
     context: sandbox,
     filename,
   });
+  esmModuleCache.set(filename, module);
+  return module;
+}
+
+/**
+ * 链接并求值一个 ESM 模块(两阶段:先创建全部,再逐个 link+evaluate)。
+ * link 回调返回缓存中的模块实例(可能 unlinked)——vm 按依赖图自动链接,
+ * 循环依赖 a↔b 时 b 的 link 拿到 a 实例,求值顺序由 ESM 规范(TDZ)决定。
+ */
+async function linkAndEvaluate(filename, instrumentedSource, sandbox, sourcesByName) {
+  const module = createEsmModule(filename, instrumentedSource, sandbox);
+  if (module.status === "evaluated") return module;
   await module.link(async (childSpec) => {
     const match = /^\.\/([^/]+\.js)$/.exec(childSpec);
     if (!match) {
@@ -1133,33 +1146,18 @@ async function linkAndEvaluate(specifier, filename, instrumentedSource, sandbox,
     if (childSource === undefined) {
       throw new Error(`import "${childSpec}" in ${filename}: target ${target} not in ui/`);
     }
-    const linked = await linkAndEvaluate(childSpec, target, childSource, sandbox, sourcesByName);
-    esmModuleCache.set(target, linked);
-    return linked;
+    // 创建后返回——vm 自动链接该依赖及其子依赖。
+    return createEsmModule(target, childSource, sandbox);
   });
-  esmModuleCache.set(filename, module);
   await module.evaluate();
-  // R-264 批3 兼容桥:ESM 模块的 export 同步挂到 context 全局——渐进迁移期间,
-  // 已迁文件(ESM)的符号对未迁文件(classic)仍全局可见(经典脚本共享全局语义)。
-  // 全部迁完后此桥不再被触发(文件不再有裸全局读写),冒烟语义与浏览器一致。
-  try {
-    const ns = module.namespace;
-    // 经 runInContext 拿真实全局对象赋值——sandbox 参数可能是普通对象,
-    // 直接给它加属性不保证对 vm context 可见(createContext 返回值被丢弃)。
-    const globalObj = vm.runInContext("globalThis", sandbox);
-    for (const key of Object.keys(ns)) {
-      if (typeof ns[key] !== "undefined") globalObj[key] = ns[key];
-    }
-  } catch {
-    // namespace 尚未实例化或不可读:忽略,由显式 import 兜底。
-  }
   return module;
 }
 
 /**
  * 执行一个 ui 源文件(经典脚本或 ESM)。
  * - classic:vm.runInContext(现状,逐文件执行保 TDZ)。
- * - ESM(vm.SourceTextModule):await link + evaluate,共享同一 context。
+ * - ESM:见 linkAndEvaluate——实例创建后立即入缓存,link 回调按依赖图递归接上,
+ *   循环依赖返回缓存实例;evaluate 按需(依赖在 link 时已 evaluate)。
  * 抛错向上传播,由调用方统一 fail。
  */
 async function executeUiSource(instrumented, filename, sandbox, sourcesByName) {
@@ -1168,13 +1166,17 @@ async function executeUiSource(instrumented, filename, sandbox, sourcesByName) {
     vm.runInContext(instrumented, sandbox, { filename });
     return;
   }
-  await linkAndEvaluate(filename, filename, instrumented, sandbox, sourcesByName);
+  await linkAndEvaluate(filename, instrumented, sandbox, sourcesByName);
 }
 
 async function runUiSources() {
   const sourcesByName = new Map();
   sources.forEach((src, i) => sourcesByName.set(scriptSrcs[i], src));
   try {
+    // R-264 批3:两阶段加载。第一阶段:创建+link 全部 ESM 模块(link 回调按依赖
+    // 图递归,循环依赖返回缓存实例——不在 link 期间 evaluate,避免「请求未入缓存」)。
+    // classic 文件仍即时 runInContext(无依赖,保逐文件 TDZ 语义)。
+    const esmOrder = [];
     for (let i = 0; i < sources.length; i += 1) {
       let instrumented = sources[i].replace(
         PROBE_INIT,
@@ -1187,7 +1189,46 @@ async function runUiSources() {
         "function reportPersistentError(text, { retry = null } = {}) { __reportPersistentError?.(text);"
       );
       if (instrumented !== beforePersist) probeHits += 1;
-      await executeUiSource(instrumented, scriptSrcs[i], sandbox, sourcesByName);
+      sources[i] = instrumented;
+      sourcesByName.set(scriptSrcs[i], instrumented);
+      const isEsm = /^\s*(import|export)\b/m.test(instrumented);
+      if (!isEsm) {
+        vm.runInContext(instrumented, sandbox, { filename: scriptSrcs[i] });
+      } else {
+        // 第一阶段:创建+link 模块(link 回调按依赖图递归,循环依赖返回缓存实例;
+        // evaluate 在 linkAndEvaluate 内完成,幂等)。
+        await linkAndEvaluate(scriptSrcs[i], instrumented, sandbox, sourcesByName);
+        esmOrder.push(scriptSrcs[i]);
+      }
+    }
+    // 第二阶段:ESM 模块按 index.html 顺序 evaluate(link 已完成,依赖实例就绪;
+    // 循环依赖的 TDZ 由 ESM 实例化顺序处理,与浏览器一致)。
+    for (const name of esmOrder) {
+      const module = esmModuleCache.get(name);
+      if (module) {
+        try {
+          await module.evaluate();
+        } catch (err) {
+          console.log(`DEBUG eval ${name} FAILED: ${err?.message?.slice(0, 120)}`);
+          throw err;
+        }
+      }
+    }
+    // 兼容桥:ESM export 挂 context 全局(渐进迁移期对 classic 消费者可见)。
+    // 直接给 sandbox 对象赋值——Node contextify 后该对象属性变化对 vm 可见,
+    // 冒烟断言(sandbox.refreshManual / runInContext)都走同一份。
+    for (const [name, module] of esmModuleCache) {
+      try {
+        const ns = module.namespace;
+        for (const key of Object.keys(ns)) {
+          if (typeof ns[key] !== "undefined") sandbox[key] = ns[key];
+        }
+        if (name === "15-views-misc.js" || name === "09-sessions.js") {
+          console.log(`DEBUG compat-bridge ${name}: ns keys=${Object.keys(ns).length} hasRefreshManual=${"refreshManual" in ns}`);
+        }
+      } catch (err) {
+        console.log(`DEBUG compat-bridge ${name} FAILED: ${err?.message}`);
+      }
     }
   } catch (err) {
     fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);

@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)。**批3 两条路径均已实证(2026-08-16)**:①逐文件迁移不可行——01-core 的 invoke/listen 被 17 文件裸引用,ESM 模块作用域不共享,单基建文件迁移立即断链;②全量 export 渐进不可行——21 文件全 export 后兼容桥虽挂全局,但 ESM 模块 evaluate 的异步时序破坏逐文件执行语义(TDZ/顶层副作用顺序),14 条断言红。**结论:批3 唯一正确形态是整体一次性迁移**(21 文件同时 export+import、index.html 全改 module、冒烟执行器整批 ESM 链接保顺序)——设计文档 §四 完整工程,需专用批次连续执行。已回退全部批3 残留(ui 文件 0 export,eslint/globals 还原,临时脚本删除),B1/B2 保持交付(六冒烟全绿)。gen-ui-lint-globals.mjs 增强 export const/let 识别(向前兼容,迁移时有用)。R-264 保持 doing,B3/批3/批4 待专用批次(设计文档自述对自举无收益,P3 留档)。
-- observed_head: 9eaf30accfd3cbbdaa432871be485fa17774b628
-- observed_worktree_hash: fnv1a64:0406d21833af5cc6
-- recorded_at: 1786821317174
+- 进展: 批2 完成(6c90aba)。**批3 完整实证(2026-08-16)**:整体迁移已推进——依赖图工具链(gen-esm-graph/migrate/rebuild/fixheaders/fiximports + ui-esm-graph.json,21 文件 608 导出 147 导入零冲突)、全量 export+import、index.html 全 module、runtime-smoke 两阶段 link 执行器(创建即入缓存支持循环依赖)。**三层不可行实证**:①逐文件迁移断链(01-core invoke 被 17 文件裸引用);②全量 export 渐进时序破坏(14 断言红);③整体迁移到 TDZ 层——循环依赖的顶层立即执行跨模块引用(agentPanelSetup 用 `$`、withSessionRender 读写 5 个跨模块 let)需逐处改 DOMContentLoaded + setter 封装,冒烟桩需适配 DOMContentLoaded 事件,是设计文档 §四 完整工程的持续攻坚。**本轮回退**全部 ui/index.html 到 HEAD(批2 状态恢复,六冒烟全绿),保留 runtime-smoke 两阶段执行器(classic no-op,B2 增强)与 5 个工具链脚本(后续批次资产)。R-264 保持 doing,批3/批4 待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: 81e67378e37c83bf01d9c6a3edddc72cf62b3407
+- observed_worktree_hash: fnv1a64:a21dd35f8d714137
+- recorded_at: 1786823538486
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)

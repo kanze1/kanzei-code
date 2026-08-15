@@ -4246,3 +4246,9 @@
 - 关联: R-266
 - 收尾: 1786822073
 - 源码指纹: 0808a3fd0280480b
+
+## T-1786823530 verify.ps1 六条前端冒烟 (R-264 批3 回退) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs
+- 摘要: R-264 批3 回退后六条前端冒烟全绿(ui-runtime 21 文件 classic 路径/ui-lint 37 文件 globals 同步 608/parallel-lines/a11y/i18n 157 key/markdown);批3 迁移中间态已回退,批2 状态恢复。
+- 关联: R-264
+- 收尾: 1786823530
