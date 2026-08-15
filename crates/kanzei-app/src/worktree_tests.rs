@@ -1290,7 +1290,7 @@ fn 认领失败时零回滚_git状态逐字节不变() {
 #[tokio::test]
 async fn project_dir恒主根_三个构造点逐处成立() {
     let sources = [
-        include_str!("processes.rs"),
+        include_str!("processes/registry.rs"),
         include_str!("state.rs"),
         // 未来若新增构造点所在的文件,加进来一起数。
     ];
