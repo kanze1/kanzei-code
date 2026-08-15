@@ -77,22 +77,6 @@ body {
 }
 #messages, #prompt, input, textarea, .doc-item, code { user-select: text; }
 #app { display: flex; position: relative; min-width: 0; }
-@media (max-width: 1400px) {
-  #app { --right-drawer-width: min(360px, 42vw); }
-  #todo-panel, #bg-panel, #agent-panel {
-    position: absolute; top: 0; right: 0; bottom: 24px; z-index: 20;
-    width: var(--right-drawer-width); max-height: none;
-    box-shadow: -5px 0 18px #0008;
-  }
-  /* 两个面板同时有数据时共享同一右侧栏宽度并上下分区，不能再横向并排
-     覆盖 84% 的 800px 主区。单面板仍使用完整抽屉高度。 */
-  #todo-panel:not(.hidden):has(~ #bg-panel:not(.hidden)) { bottom: 50%; }
-  #todo-panel:not(.hidden) ~ #bg-panel:not(.hidden) { top: 50%; right: 0; }
-  /* 子代理面板与活动面板互斥切换(agent-toggle/bg-toggle),不会同屏,但 todo 与任一
-     面板上下分区共用右侧栏的规则同样适用。 */
-  #todo-panel:not(.hidden):has(~ #agent-panel:not(.hidden)) { bottom: 50%; }
-  #todo-panel:not(.hidden) ~ #agent-panel:not(.hidden) { top: 50%; right: 0; }
-}
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
 ::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); background-clip: content-box; border: 2px solid transparent; }
@@ -892,7 +876,10 @@ button:disabled { opacity: .45; cursor: default; }
 #todo-panel.hidden { display: none; }
 #todo-panel .bg-head { display: flex; align-items: center; gap: 8px; }
 #todo-panel .bg-head #todo-close { margin-left: auto; }
-#todo-list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
+/* flex:1 + min-height:0:右栏三个滚动区里这个原先漏了 flex:1,列表只按内容
+   高撑开,面板下方留死白而列表自己被父级 max-height 切掉。min-height:0 是
+   flex 子项能真正滚动的前提(默认 min-height:auto 会让内容撑破容器)。 */
+#todo-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 5px; }
 .todo-entry { display: flex; gap: 7px; align-items: baseline; padding: 5px 7px; background: var(--panel2); border-radius: 4px; font-size: 11.5px; }
 .todo-entry .todo-status { flex-shrink: 0; color: var(--dim); }
 .todo-entry.doing .todo-status { color: var(--warn); }
@@ -910,7 +897,7 @@ button:disabled { opacity: .45; cursor: default; }
   padding: 8px 14px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
   color: var(--dim); border-bottom: 1px solid var(--border-soft); flex-shrink: 0;
 }
-#bg-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
+#bg-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
 /* 三段:运行中常驻置顶,需要关注次之,已完成折叠在最后。长跑任务不会被一串
    已完成刷走,而失败的也不会被自动收走——收错地方比不收更糟。 */
 #bg-list > .bg-section { display: flex; flex-direction: column; gap: 6px; }
@@ -943,7 +930,7 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
   border-bottom: 1px solid var(--border-soft); white-space: normal; word-break: break-word;
 }
 #agent-panel .agent-panel-status.warn-text { color: var(--warn); }
-#agent-panel .bg-sections { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
+#agent-panel .bg-sections { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 10px; }
 #agent-panel .bg-section { display: flex; flex-direction: column; gap: 6px; }
 #agent-panel .bg-section-title {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim);
@@ -960,6 +947,32 @@ button.bg-section-toggle:focus-visible { outline: 2px solid var(--accent); outli
 #agent-panel .bg-entry { flex-shrink: 0; }
 #agent-panel .bg-entry.timeout { border-left-color: var(--warn); }
 #agent-panel .bg-entry[data-bg-status="stopped"] .bg-title::before { content: "⏹ "; color: var(--warn); }
+/* 右栏抽屉:本块必须留在三个面板的基础规则**之后**。媒体查询不增加特异度,
+   同特异度下由源序定胜负——它原先写在 #todo-panel/#bg-panel/#agent-panel
+   之前,于是 position:absolute 与 max-height:none 被后面的 position:relative
+   与 max-height:42%/58% 覆盖,而这里的 top/bottom/z-index 没被重新声明、照样
+   生效。结果是抽屉模式只生效了一半:定位偏移作用在 relative 元素上变成相对
+   位移,两面板同开时下面那个被推出视口(1366x768 实测 bottom=829 > 768),
+   被 body{overflow:hidden} 裁掉——就是「下部文字被挤占」。 */
+@media (max-width: 1400px) {
+  #app { --right-drawer-width: min(360px, 42vw); }
+  #todo-panel, #bg-panel, #agent-panel {
+    position: absolute; top: 0; right: 0; bottom: 24px; z-index: 20;
+    /* !important:03-shell.js 的 setupResize 会把 localStorage 里记住的并排宽度
+       写成 element.style.width 行内样式,行内压过任何选择器。抽屉模式下那个宽度
+       没有意义,必须强制回到抽屉宽。 */
+    width: var(--right-drawer-width) !important; max-height: none;
+    box-shadow: -5px 0 18px #0008;
+  }
+  /* 两个面板同时有数据时共享同一右侧栏宽度并上下分区，不能再横向并排
+     覆盖 84% 的 800px 主区。单面板仍使用完整抽屉高度。 */
+  #todo-panel:not(.hidden):has(~ #bg-panel:not(.hidden)) { bottom: 50%; }
+  #todo-panel:not(.hidden) ~ #bg-panel:not(.hidden) { top: 50%; right: 0; }
+  /* 子代理面板与活动面板互斥切换(agent-toggle/bg-toggle),不会同屏,但 todo 与任一
+     面板上下分区共用右侧栏的规则同样适用。 */
+  #todo-panel:not(.hidden):has(~ #agent-panel:not(.hidden)) { bottom: 50%; }
+  #todo-panel:not(.hidden) ~ #agent-panel:not(.hidden) { top: 50%; right: 0; }
+}
 .parallel-task-status { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .parallel-line { position: relative; display: flex; flex-direction: column; gap: 2px; }
 .parallel-line-close { position: absolute; right: 5px; top: 5px; opacity: .72; }
