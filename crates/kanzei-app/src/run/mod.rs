@@ -1,3 +1,14 @@
+//! 桌面 Agent Runtime 运行主链路(R-153 从 main.rs 拆出,R-253 二次拆解)。
+//!
+//! 独立理由:run.rs 承载「运行编排」这一整棵 application service 树——装配、
+//! 事件归约、执行流水线、落库与协调;与编排零耦合的 IPC 已迁至 `crate::commands`,
+//! 输入准入迁至 `run::input`,后续批次按生命周期继续拆(assembly/persistence/
+//! execution/events/coordinator)。本文件最终收敛为 mod 声明与再导出。
+
+pub(crate) mod input;
+
+pub(crate) use input::{admit_input, code_root_for, parse_delivery, promote_next_input};
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -2434,45 +2445,6 @@ pub(crate) fn stop_task(
     Ok(true)
 }
 
-fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core::Delivery> {
-    match value.unwrap_or("queue") {
-        "steer" => Ok(kanzei_core::Delivery::Steer),
-        "queue" => Ok(kanzei_core::Delivery::Queue),
-        other => Err(anyhow::anyhow!("未知输入交付模式: {other}")),
-    }
-}
-
-fn admit_input(
-    project_dir: &str,
-    session_id: &str,
-    prompt: &str,
-    delivery: kanzei_core::Delivery,
-) -> anyhow::Result<kanzei_core::AdmittedInput> {
-    let project_root = crate::normalized_project_root(Path::new(project_dir));
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
-    store.create_session(session_id, &project_root.display().to_string(), None)?;
-    let input_id = format!(
-        "input_{}",
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
-    );
-    let input = store.admit_input(session_id, &input_id, prompt, delivery)?;
-    store.append_event(session_id, "prompt.admitted", &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
-    Ok(input)
-}
-
-fn promote_next_input(
-    project_dir: &str,
-    session_id: &str,
-) -> anyhow::Result<Option<kanzei_core::AdmittedInput>> {
-    let project_root = crate::normalized_project_root(Path::new(project_dir));
-    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
-    let Some(input) = store.promote_next_input(session_id)? else {
-        return Ok(None);
-    };
-    store.append_event(session_id, "prompt.promoted", &json!({ "input_id": input.input_id, "delivery": if matches!(input.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }))?;
-    Ok(Some(input))
-}
-
 pub(crate) fn report_persistence_failure(
     window: &Window,
     session_id: &str,
@@ -2496,19 +2468,6 @@ pub(crate) fn append_run_notification(
 ) -> anyhow::Result<()> {
     store.append_notification_atomic(session_id, status, &summary.into(), requires_action)?;
     Ok(())
-}
-
-/// 本轮代码树:线绑了 worktree 就在那棵树上跑,否则就是项目目录本身。
-///
-/// **这是唯一让 `cwd` 真正指向 worktree 的地方**(R-177 内容②)。`main_root`
-/// 一路不变——托管文档、state.db、记忆、配置全部仍落主根,两者第一次真正分叉。
-/// 抽成纯函数是为了让这条判定可以直接测,不必去构造 `Window` 与整条运行链。
-pub(crate) fn code_root_for(worktree_path: Option<&str>, project_dir: &str) -> String {
-    worktree_path
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| project_dir.to_string())
 }
 
 #[allow(clippy::too_many_arguments)] // Tauri command 参数名是前端 IPC 契约，不能合并为不兼容对象。
@@ -2903,19 +2862,6 @@ mod worktree_run_tests {
         ));
         std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
         dir
-    }
-
-    /// R-177 验收② 前半:线上运行时 cwd = worktree、project_root = 主根,两者**不相等**。
-    #[test]
-    fn 线上运行cwd是worktree_project_root是主根() {
-        let main_root = "C:/proj/kanzei";
-        let worktree = "C:/proj/.kanzei-worktree-kanzei.f6";
-        let cwd = super::code_root_for(Some(worktree), main_root);
-        assert_eq!(cwd, worktree, "线绑了树就必须在那棵树上跑");
-        assert_ne!(cwd, main_root, "cwd 与主根必须分叉,否则线没有物理隔离");
-        // 主树进程一个字节都不变:worktree_path 为 None(或空串)时恒等于项目目录。
-        assert_eq!(super::code_root_for(None, main_root), main_root);
-        assert_eq!(super::code_root_for(Some("   "), main_root), main_root);
     }
 
     /// R-177 验收③:配置取**主根**那一份,worktree 里的分支副本改了也不生效。
