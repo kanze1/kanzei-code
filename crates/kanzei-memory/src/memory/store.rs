@@ -148,6 +148,21 @@ impl MemoryStore {
         ))
     }
 
+    /// D-368:记忆树互斥锁(跨进程 + 跨线程)。锁目标 = 记忆根目录本身,锁文件 =
+    /// 同目录 `<root>.lock`(project scope = `.kanzei/memory.lock`)。
+    ///
+    /// bash 围栏(kanzei-tools managed.rs `acquire_managed_locks`)在命令窗口内持同一
+    /// 把锁——窗口内并发 memory 写入(条目/INDEX.md/inbox.md/voided-ids.md/归档搬移/
+    /// index.db 重建)被挡到窗口外落盘,不被围栏误回滚;超过预算(默认 3s)则写者明确
+    /// 报错,绝不假成功(验收②)。
+    ///
+    /// 为什么锁目录而不是逐文件:动态条目文件(M-xxx.md、inbox.md)创建前无法预锁,
+    /// 锁整树一劳永逸;写操作毫秒级,持有窗口极短。锁文件落在 `.kanzei/`(非托管根,
+    /// 不进围栏镜像)且被 `.kanzei/**/*.lock` 忽略,围栏快照对它无感。
+    fn tree_lock(&self) -> anyhow::Result<crate::atomic_file::FileLock> {
+        Ok(crate::atomic_file::lock_exclusive(&self.root)?)
+    }
+
     fn archive_dir(&self) -> PathBuf {
         self.root.join("archive")
     }
@@ -245,6 +260,10 @@ impl MemoryStore {
         subject: Option<&str>,
         force: bool,
     ) -> anyhow::Result<AddOutcome> {
+        // D-368:整个 add(含 classify_novelty 的 FTS 探测——首次会建 index.db)持记忆
+        // 树锁,与 bash 围栏窗口互斥。内层 write_entry/refresh_derived 的 tree_lock
+        // 同线程重入,由 FileLock 重入计数放行。
+        let _tree_lock = self.tree_lock()?;
         if !CATEGORIES.contains(&category) {
             anyhow::bail!(
                 "invalid category `{category}`; valid: {}",
@@ -701,6 +720,9 @@ impl MemoryStore {
     }
 
     fn write_entry(&self, entry: &MemoryEntry, existing_path: Option<&Path>) -> anyhow::Result<()> {
+        // D-368:所有条目落盘统一持记忆树锁——围栏窗口内并发写入等锁、窗口结束落盘,
+        // 不被误回滚;超过预算则明确报错。
+        let _tree_lock = self.tree_lock()?;
         std::fs::create_dir_all(&self.root)?;
         let path = match existing_path {
             Some(p) => p.to_path_buf(),
@@ -737,6 +759,9 @@ impl MemoryStore {
     /// 重建全部派生物:INDEX.md 与 FTS 索引。任何写操作后调用;损坏时可手动全量重建。
     /// R-165 批3:先归档失效条目,再以归档后的集合重建(主目录只含 active/candidate)。
     pub fn refresh_derived(&self) -> anyhow::Result<()> {
+        // D-368:派生物重建(归档搬移 + INDEX.md + FTS index.db)整体持记忆树锁——
+        // 一次重建对围栏窗口原子可见,窗口内并发写者等锁、窗口结束才落盘。
+        let _tree_lock = self.tree_lock()?;
         let _archived = self.archive_dead();
         let entries = self.load_all();
         // INDEX.md:一行一条(仅 active),candidate 折叠为计数(未验证不占索引面)。
@@ -1040,6 +1065,16 @@ impl MemoryStore {
     /// hits 不参与排序(R-150 自增强退役),只作效果画像;由检索门面在
     /// 决策排序完成后调用(纯探测不记,避免污染观测)。
     pub fn record_hits(&self, ids: &[String]) {
+        // D-368:检索的观测副作用(命中计数)可跳可丢——bash 围栏窗口(持有记忆树锁)
+        // 内直接跳过记录,绝不让一次只读检索把 index.db 改出窗口、被围栏当越界回滚
+        // (那会让 bash 误报 [managed-files],命中计数也照样丢,两边都亏)。可丢性
+        // 成立:hits 是效果画像(观测),不参与排序(R-150 自增强退役)。
+        let Ok(Some(_tree_lock)) = crate::atomic_file::try_lock_exclusive(
+            &self.root,
+            std::time::Duration::from_millis(50),
+        ) else {
+            return;
+        };
         let Ok(conn) = self.open_db() else { return };
         let now = now_ms();
         for id in ids {
@@ -1253,6 +1288,8 @@ impl MemoryStore {
     /// 主动注销一个缺失编号(如误删后确认无法恢复)。理由必填,且该编号当前必须真的
     /// 不存在于活动/归档——拿它去"清掉"一个还活着的条目是删数据,不是记账。
     pub fn void_id(&self, id: &str, reason: &str) -> anyhow::Result<()> {
+        // D-368:voided-ids.md 是记忆树内文件,写入口同样持树锁。
+        let _tree_lock = self.tree_lock()?;
         let reason = reason.trim();
         if reason.len() < 4 {
             anyhow::bail!("废弃编号必须写明理由(为什么这个号不该有条目、依据是什么)");
@@ -1560,9 +1597,11 @@ impl MemoryStore {
     /// manager 消化完毕后清空草稿箱(整箱内容已在触发 prompt 里,清空即"已消费")。
     pub fn clear_inbox(&self) -> anyhow::Result<()> {
         let path = self.root.join("inbox.md");
-        // R-215:与 append_note 同锁——整箱清空是兜底操作,锁内执行避免与并发
-        // append 交错(append 持锁读-拼-写回,clear 持锁覆盖,不会互吃)。
-        let _lock = crate::atomic_file::lock_exclusive(&path)?;
+        // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/discard_note 共用
+        // 同一把锁,整箱清空锁内执行避免与并发 append 交错(append 持锁读-拼-写回,
+        // clear 持锁覆盖,不会互吃);同时树锁与 bash 围栏窗口互斥,窗口内清空不被
+        // 围栏误回滚。
+        let _lock = self.tree_lock()?;
         if path.is_file() {
             crate::atomic_file::write_atomic(&path, "# Memory Inbox\n")?;
         }
@@ -1581,10 +1620,10 @@ impl MemoryStore {
     ) -> anyhow::Result<PathBuf> {
         std::fs::create_dir_all(&self.root)?;
         let path = self.root.join("inbox.md");
-        // R-215:读-拼接-写回必须整体持锁——并发 append 若各读各的再各自写回,
-        // 后写者覆盖先写者,note 无痕丢失(store.rs 原实现)。锁与 discard_note/
-        // clear_inbox 共用同一把,消化与追加互斥。
-        let _lock = crate::atomic_file::lock_exclusive(&path)?;
+        // R-215 语义不变 + D-368:改用记忆树锁——读-拼接-写回整体持锁,并发 append
+        // 各读各的再各自写回时后写者不会覆盖先写者(note 无痕丢失);同时树锁与
+        // bash 围栏窗口互斥,窗口内 memory_note 落盘不被围栏误回滚。
+        let _lock = self.tree_lock()?;
         let mut text = std::fs::read_to_string(&path).unwrap_or_else(|_| "# Memory Inbox\n".into());
         let refs_line = {
             let refs: Vec<&str> = refs
@@ -1658,10 +1697,10 @@ impl MemoryStore {
 
     /// 丢弃一条草稿(按其摘要里的指纹定位)。用户说不要的候选不该再进 manager 的消化范围。
     pub fn discard_note(&self, fingerprint: &str) -> anyhow::Result<bool> {
-        // R-215:与 append_note 共用同一把锁,消化与追加互斥——锁内读-改-写回,
-        // 不会把并发 append 的内容当旧快照覆盖掉。
-        let path = self.root.join("inbox.md");
-        let _lock = crate::atomic_file::lock_exclusive(&path)?;
+        // R-215 语义不变 + D-368:改用记忆树锁——与 append_note/clear_inbox 共用
+        // 同一把锁,锁内读-改-写回,不会把并发 append 的内容当旧快照覆盖掉;同时
+        // 树锁与 bash 围栏窗口互斥。
+        let _lock = self.tree_lock()?;
         let text = self.read_inbox();
         if !text.contains(fingerprint) {
             return Ok(false);

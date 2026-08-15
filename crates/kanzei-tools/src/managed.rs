@@ -190,9 +190,9 @@ pub(crate) fn quarantine_and_restore(
 /// 路径,同时罩住活动文件、归档文件与编号账本」、test_record 同源。所以这里只锁
 /// 活动文件,归档/`-archive.md`/账本的写者走的都是同一把锁。
 ///
-/// 清单之外的新文件(如 `.kanzei/memory/` 下动态创建的条目文件)无法预锁,是
-/// 已知残留(见 D-364 关闭说明);对 tracker/tests/conventions/architecture 四族,
-/// 本清单已完整覆盖。source/finding 零写入方(见 docs.rs D-296 注释),不入列。
+/// 对 tracker/tests/conventions/architecture 四族,本清单已完整覆盖;source/finding
+/// 零写入方(见 docs.rs D-296 注释),不入列。`.kanzei/memory/` 下的**动态条目文件**
+/// 创建前无法预锁,由 D-368 的 memory 树锁(见 [`memory_tree_lock_path`])整树罩住。
 fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
     use crate::architecture::ARCHITECTURE_REL;
     use crate::conventions::CONVENTIONS_REL;
@@ -213,6 +213,18 @@ fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
     .collect()
 }
 
+/// D-368:`.kanzei/memory/` 动态条目树的互斥锁目标(memory 写入口持同一把锁,
+/// 见 kanzei-memory store.rs `MemoryStore::tree_lock`)。
+///
+/// 为什么锁**整树**而不是逐个文件:动态条目文件(M-xxx.md、inbox.md、voided-ids.md
+/// 等)在创建前无法预锁,逐个枚举必然漏;锁目标 = memory 根目录本身,锁文件 =
+/// 同目录 `<root>.lock`(`.kanzei/memory.lock`,由 [`crate::atomic_file::lock_path_for`]
+/// 派生)。锁文件落在 `.kanzei/`(不是任何托管根,不进镜像),且被 `.kanzei/**/*.lock`
+/// 忽略——围栏快照对它无感,前后两张镜像都不会因锁文件而误报。
+fn memory_tree_lock_path(project_root: &Path) -> PathBuf {
+    project_root.join(".kanzei").join("memory")
+}
+
 /// 单个文档的取锁预算。正常情况对面是毫秒级事务,几百毫秒足够;异常(对方卡死)
 /// 快速失败,不让一次 bash 被锁获取拖垮。
 const LOCK_ACQUIRE_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
@@ -225,6 +237,11 @@ const LOCK_ACQUIRE_BUDGET: std::time::Duration = std::time::Duration::from_milli
 /// 于是出现「added 成功但条目整体消失」(D-364)。修复 = 把并发写者挡在窗口之外:
 /// 命令执行期间持有全部已知托管文档的 FileLock,写者在窗口内等锁、命令结束才落盘、
 /// 因此不被围栏误回滚;超过预算则写者明确报错,绝不假成功。
+///
+/// D-368 同族残余:`.kanzei/memory/` 下的动态条目文件(M-xxx.md、inbox.md 等)创建前
+/// 无法逐个预锁,围栏额外持一把 **memory 树锁**(锁目标 = memory 根目录,锁文件 =
+/// `.kanzei/memory.lock`),memory 写入口(write_entry/refresh_derived/inbox/账本)持
+/// 同一把锁——窗口内并发 memory_add 同样被挡到窗口外落盘,不被误回滚。
 ///
 /// 为什么用独立线程持有:`FileLock` 被刻意做成 `!Send`,禁止跨 await 存活(毫秒级
 /// 持有纪律);而 bash 命令执行是秒级的 async 窗口,锁必须跨过整个窗口。折中 = 锁
@@ -269,7 +286,10 @@ pub(crate) fn acquire_managed_locks(project_root: &Path) -> Result<ManagedLocks,
     if !managed_scope_exists(project_root) {
         return Ok(ManagedLocks::noop());
     }
-    let paths = known_active_doc_paths(project_root);
+    let paths = known_active_doc_paths(project_root)
+        .into_iter()
+        .chain(std::iter::once(memory_tree_lock_path(project_root)))
+        .collect::<Vec<_>>();
     let (result_tx, result_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
     let join = std::thread::spawn(move || {
@@ -277,10 +297,10 @@ pub(crate) fn acquire_managed_locks(project_root: &Path) -> Result<ManagedLocks,
         let outcome = (|| -> Result<(), String> {
             for path in &paths {
                 let lock = crate::atomic_file::try_lock_exclusive(path, LOCK_ACQUIRE_BUDGET)
-                    .map_err(|e| format!("cannot lock managed doc {}: {e}", path.display()))?
+                    .map_err(|e| format!("cannot lock managed path {}: {e}", path.display()))?
                     .ok_or_else(|| {
                         format!(
-                            "cannot lock managed doc {} within {:?}: another process is writing \
+                            "cannot lock managed path {} within {:?}: another process is writing \
                              it. Wait for it to finish and retry the command.",
                             path.display(),
                             LOCK_ACQUIRE_BUDGET
@@ -491,6 +511,57 @@ mod tests {
                 "清单缺 {expected}: {paths:?}"
             );
         }
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// D-368 核心回归:围栏持锁窗口内,并发 memory 写者(另一线程模拟另一进程的
+    /// `memory_add`)被 memory 树锁挡在窗外;命令自身不走锁的越界写照旧被围栏检出
+    /// 并整体回滚(围栏本职不丢);释放后写者拿到树锁、落盘不被误回滚。
+    #[test]
+    fn 围栏持memory树锁挡并发写者_越界写仍回滚_释放后写者成功() {
+        let root = temp_project("mem-lock");
+        std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
+        let mem_root = root.join(".kanzei/memory");
+
+        // 真实顺序与 bash_body 一致:先持锁(含 D-368 memory 树锁)、再拍 before 快照。
+        let locks = acquire_managed_locks(&root).unwrap();
+        let before = ManagedSnapshot::capture(&root);
+
+        // ① 窗口内并发 memory 写者(线程模拟另一进程 memory_add 的写阶段)拿不到树锁。
+        let contended = {
+            let mem_root = mem_root.clone();
+            std::thread::spawn(move || {
+                crate::atomic_file::try_lock_exclusive(
+                    &mem_root,
+                    std::time::Duration::from_millis(150),
+                )
+                .unwrap()
+                .is_none()
+            })
+        };
+        assert!(
+            contended.join().unwrap(),
+            "围栏窗口内并发 memory 写者必须被树锁挡住"
+        );
+
+        // ② 命令自身越界写 .kanzei/memory/(不走锁,shell 绕行的形态)仍被围栏检出并回滚。
+        let rogue = mem_root.join("M-999-越界.md");
+        std::fs::write(&rogue, "# M-999 越界\n").unwrap();
+        let report = enforce_managed_files(&root, before).expect("越界写必须被围栏检出并回滚");
+        assert!(
+            report.contains("M-999-越界.md"),
+            "报告要点名越界文件: {report}"
+        );
+        assert!(!rogue.exists(), "越界写不得残留");
+
+        // ③ 释放后并发写者能拿到树锁(命令结束,外部写者随后落盘、不被误回滚)。
+        drop(locks);
+        let contended = {
+            let mem_root = mem_root.clone();
+            std::thread::spawn(move || crate::atomic_file::lock_exclusive(&mem_root).is_ok())
+        };
+        assert!(contended.join().unwrap(), "释放后写者必须能拿到树锁");
+
         std::fs::remove_dir_all(&root).ok();
     }
 }

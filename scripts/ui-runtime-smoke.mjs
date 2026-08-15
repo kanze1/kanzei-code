@@ -1338,13 +1338,18 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     }
   }
 }
-// ---------- 侧栏「当前在做」焦点卡片:单条,不是列表、不是集合 ----------
-// 用户定调:侧栏只显示 agent 当前在做的那一条,且显示得完整一点。完整列表连同筛选、
-// 排序、分组、批量、测试记录全部搬进单页视图。
+// ---------- 侧栏「各线当前在做」焦点卡片:每条线路一组 ----------
+// 完整列表连同筛选、排序、分组、批量、测试记录全部搬进单页视图;焦点区只显示
+// 每条在线路自己的当前条目,不把后台线路的 claimed_by 或运行证据投影到主线。
 {
   const cards = document.querySelectorAll("#focus-body .focus-card");
-  assert(cards.length === 1, `侧栏焦点区应恰好一张卡片(单条,不是集合),实得 ${cards.length}`);
+  assert(cards.length === 1, `当前夹具只有主线有焦点时应有一张卡片,实得 ${cards.length}`);
   assert(cards[0]?.dataset.docId === "R-001", `焦点卡片指错条目:${cards[0]?.dataset.docId}`);
+  const lineFocuses = document.querySelectorAll("#focus-body .line-focus");
+  assert(lineFocuses.length === 2, `两条线路应各有一个焦点区,实得 ${lineFocuses.length}`);
+  const backgroundFocus = [...lineFocuses].find((node) => node.dataset.processId === "p|bg");
+  assert(backgroundFocus?.querySelector(".line-focus-empty"), "没有 claimed_by 的后台线路必须显示自己的空态,不能借用主线焦点");
+  assert(listText("focus-body").includes("后台会话"), "焦点区没有显示后台线路身份");
   const focusText = listText("focus-body");
   for (const needle of ["R-001", "冒烟需求", "doing", "3/11", "P1", "复杂度"]) {
     assert(focusText.includes(needle), `焦点卡片缺少「${needle}」(侧栏要显示得完整一点):${focusText.slice(0, 160)}`);
@@ -1366,6 +1371,29 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
   assert(!document.querySelector("#focus-body .focus-next"), "焦点区不应渲染前端推断的下一个");
   // 待办计数补回被删列表的信息量。
   assert(/\d/.test(listText("focus-backlog")), "焦点区未给出待办计数");
+}
+// 线路取得事实:同一项目快照里同时存在主线与分支线条目时,两张卡片必须按
+// claimed_by 分开,且分支线卡片说明依据是「取得线」而不是主线的运行/顺序推断。
+{
+  const savedFocusDocs = structuredClone(payloads.docs_snapshot);
+  payloads.docs_snapshot = {
+    ...savedFocusDocs,
+    requirements: [
+      docEntry("R-MAIN", "主线条目", "doing"),
+      docEntry("R-BG", "后台线路条目", "doing", { claimed_by: "kanzei/thread-smoke" }),
+    ],
+    defects: [],
+  };
+  await sandbox.refreshDocs();
+  const focusBlocks = [...document.querySelectorAll("#focus-body .line-focus")];
+  const mainBlock = focusBlocks.find((node) => node.dataset.processId === "d|smoke");
+  const backgroundBlock = focusBlocks.find((node) => node.dataset.processId === "p|bg");
+  assert(mainBlock?.querySelector('[data-doc-id="R-MAIN"]'), "主线焦点没有从未取得条目中选出主线条目");
+  assert(backgroundBlock?.querySelector('[data-doc-id="R-BG"]'), "后台线路没有按 claimed_by 选出自己的条目");
+  assert(backgroundBlock?.textContent.includes("取得线"), "后台线路焦点没有说明它来自线路取得事实");
+  assert(!mainBlock?.querySelector('[data-doc-id="R-BG"]'), "后台线路条目串到了主线焦点卡片");
+  payloads.docs_snapshot = savedFocusDocs;
+  await sandbox.refreshDocs();
 }
 // 待办计数的加法树:总数 = Σ(可执行 + 阻塞)。原来这里只断言「有个数字」,
 // 于是三个数字用三种分母(只需求 / 只缺陷 / 需求∪缺陷)一路绿着——用户读成
@@ -1461,7 +1489,8 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     "#focus-open-documents 未触发 refreshDocs",
   );
 }
-// D-207 单线程语义:active 是单条(取活序第一个可执行 doing/fixing),不是集合。
+// 每条线路内部仍保持单焦点语义:active 是该线路取活序第一个可执行 doing/fixing,
+// 不是把同一条线路的多个历史 doing/fixing 全部画成当前在做。
 // 多条 doing/fixing 只是"已取未动"的历史状态,只有取活序第一条才是 agent 正在推的。
 {
   const savedFocusDocs = structuredClone(payloads.docs_snapshot);
@@ -1562,7 +1591,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
     "无运行证据时应按取活序推断(defect-first 指 fixing 缺陷)",
   );
-  handlers.get("kz:tool-end")({ payload: { id: "F1", name: "req", ok: true, preview: "updated: R-001 [doing] 批次推进", display: null } });
+  handlers.get("kz:tool-end")({ payload: { id: "F1", name: "req", ok: true, preview: "updated: R-001 [doing] 批次推进", display: null, sessionId: "sess-smoke" } });
   await flush();
   await sandbox.refreshDocs();
   assert(
@@ -1579,7 +1608,7 @@ assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查�
     "运行证据生效后,挂着 fixing 的旧缺陷不该再标「正在做」",
   );
   // 新一轮 run 开跑(kz:turn step 1):上一轮证据作废,回落推断。
-  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0 } });
+  handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 0, sessionId: "sess-smoke" } });
   await sandbox.refreshDocs();
   assert(
     document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]')?.classList.contains("agent-active"),
@@ -2683,9 +2712,9 @@ const toolEnd = handlers.get("kz:tool-end");
 const taskProgress = handlers.get("kz:task-progress");
 assert(toolStart && toolEnd, "工具事件未订阅");
 assert(taskProgress, "子代理进度事件未订阅");
-toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." } } });
-toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" } } });
-toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" } } });
+toolStart({ payload: { id: "T1", name: "bash", summary: "cargo test --workspace", input: { command: "cargo test --workspace", workdir: "." }, sessionId: "sess-smoke" } });
+toolStart({ payload: { id: "T2", name: "edit", summary: "main.js", input: { path: "ui/main.js" }, sessionId: "sess-smoke" } });
+toolStart({ payload: { id: "T3", name: "task", summary: "审查子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
 await flush();
 const bashEntry = document.querySelector("#bg-list .bg-entry[data-bg-tool=bash]");
 assert(bashEntry, "活动面板缺少终端类条目");
@@ -2706,8 +2735,8 @@ assert(
   bashEntry.querySelectorAll(".bg-actions button").some((b) => b.textContent === "停止"),
   "运行中的终端条目缺少单独停止入口",
 );
-toolEnd({ payload: { id: "T1", name: "bash", ok: true, preview: "test result: ok", display: null } });
-toolEnd({ payload: { id: "T3", name: "task", ok: false, preview: "子代理失败", display: null } });
+toolEnd({ payload: { id: "T1", name: "bash", ok: true, preview: "test result: ok", display: null, sessionId: "sess-smoke" } });
+toolEnd({ payload: { id: "T3", name: "task", ok: false, preview: "子代理失败", display: null, sessionId: "sess-smoke" } });
 await flush();
 assert(bashEntry.querySelector(".bg-meta")?.textContent.includes("成功"), "结束后未在元信息里给出成败");
 assert(/\d+(\.\d+)?(ms|s)/.test(bashEntry.querySelector(".bg-meta")?.textContent ?? ""), "结束后未给出耗时");
@@ -2720,14 +2749,14 @@ assert(
 // D-234:批次格由 Git 提交标题推导。直接 agent 与子 agent 提交都必须立即刷新快照，
 // 不能等整轮结束才看到进度变化。
 const docsBeforeBatchCommit = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
-toolEnd({ payload: { id: "T4", name: "git", ok: true, preview: "committed verified staged set (abc123)", display: null } });
+toolEnd({ payload: { id: "T4", name: "git", ok: true, preview: "committed verified staged set (abc123)", display: null, sessionId: "sess-smoke" } });
 await flush();
 assert(
   invokeLog.filter((cmd) => cmd === "docs_snapshot").length > docsBeforeBatchCommit,
   "agent 提交后未即时刷新 Git 推导的批次进度",
 );
 const docsBeforeChildBatchCommit = invokeLog.filter((cmd) => cmd === "docs_snapshot").length;
-taskProgress({ payload: { id: "T3", text: "子代理已提交", trace: { name: "git", phase: "end", ok: true, preview: "committed verified staged set (def456)" } } });
+taskProgress({ payload: { id: "T3", text: "子代理已提交", trace: { name: "git", phase: "end", ok: true, preview: "committed verified staged set (def456)" }, sessionId: "sess-smoke" } });
 await flush();
 assert(
   invokeLog.filter((cmd) => cmd === "docs_snapshot").length > docsBeforeChildBatchCommit,
@@ -2771,10 +2800,10 @@ const orchGroupHead = (phase) => orchGroups(phase)
 const scoutRoles = ["architecture_scout", "runtime_scout", "test_scout"];
 // ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
 for (const role of scoutRoles) {
-  toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role } } });
+  toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role }, sessionId: "sess-smoke" } });
 }
 // 同一批里混一条模型自己派的 task(不带 phase):R-168 的静默口径不能被顺手打破。
-toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" } } });
+toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
 await flush();
 for (const role of scoutRoles) {
   assert(orchEntry(role), `编排派发的勘察子代理 ${role} 没进活动面板(内部进度整批丢掉)`);
@@ -2802,29 +2831,29 @@ assert(/运行中 · \d+s · 内部调用 \d+/.test(scout.querySelector(".bg-met
   `运行中未给出状态/已运行时长/内部调用数,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
 assert(scout.dataset.bgStatus === "running", `运行中状态未落到条目上,实得 "${scout.dataset.bgStatus}"`);
 // ④ 执行期进度:纯轮次进度(trace 为 null)与工具进度都要落到对应角色。
-taskProgress({ payload: { id: "architecture_scout", text: "第 3/12 轮", trace: null } });
+taskProgress({ payload: { id: "architecture_scout", text: "第 3/12 轮", trace: null, sessionId: "sess-smoke" } });
 await flush();
 assert(scout.querySelector(".bg-prog")?.textContent === "第 3/12 轮",
   `轮次进度未挂回角色条目,实得 "${scout.querySelector(".bg-prog")?.textContent}"`);
 // ⑤ 当前正在用的工具名 —— 用户点名要的那一项。值与写入去向都断言:
 // 只断言文本看不出"写对了内容却写错了元素",dataset 探针把去向也钉死。
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "start", name: "grep", summary: "phase_pipeline" } } });
+taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "start", name: "grep", summary: "phase_pipeline" }, sessionId: "sess-smoke" } });
 await flush();
 assert(scout.querySelector(".bg-current")?.textContent.includes("grep"),
   `当前工具名未显示,实得 "${scout.querySelector(".bg-current")?.textContent}"`);
 assert(scout.dataset.bgCurrentTool === "grep", `当前工具名写错了地方,实得 "${scout.dataset.bgCurrentTool}"`);
 assert(!scout.querySelector(".bg-current")?.classList.contains("hidden"), "当前工具名所在行仍是隐藏的");
 assert(!scout.querySelector(".bg-current")?.classList.contains("idle"), "工具正在跑却标成了空闲态");
-taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "end", name: "grep", ok: true, preview: "命中 12 处" } } });
-taskProgress({ payload: { id: "architecture_scout", text: "第 5/12 轮", trace: { child_id: "c2", phase: "start", name: "read", summary: "phase_pipeline.rs" } } });
+taskProgress({ payload: { id: "architecture_scout", text: "第 4/12 轮", trace: { child_id: "c1", phase: "end", name: "grep", ok: true, preview: "命中 12 处" }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "第 5/12 轮", trace: { child_id: "c2", phase: "start", name: "read", summary: "phase_pipeline.rs" }, sessionId: "sess-smoke" } });
 await flush();
 assert(scout.dataset.bgCurrentTool === "read", `当前工具名未跟着换到下一个工具,实得 "${scout.dataset.bgCurrentTool}"`);
 assert(/内部调用 2/.test(scout.querySelector(".bg-meta")?.textContent ?? ""),
   `工具调用次数未累计,实得 "${scout.querySelector(".bg-meta")?.textContent}"`);
 // ⑥ 终态:成功/失败/超时三分,完成的条目继续可见。
-toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "勘察简报首行", display: null } });
-toolEnd({ payload: { id: "runtime_scout", name: "task", ok: false, preview: "(超时,未产出结果)", display: null } });
-toolEnd({ payload: { id: "test_scout", name: "task", ok: false, preview: "子代理内部报错", display: null } });
+toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "勘察简报首行", display: null, sessionId: "sess-smoke" } });
+toolEnd({ payload: { id: "runtime_scout", name: "task", ok: false, preview: "(超时,未产出结果)", display: null, sessionId: "sess-smoke" } });
+toolEnd({ payload: { id: "test_scout", name: "task", ok: false, preview: "子代理内部报错", display: null, sessionId: "sess-smoke" } });
 await flush();
 assert(orchEntry("architecture_scout")?.dataset.bgStatus === "ok", "成功角色终态不对");
 assert(orchEntry("test_scout")?.dataset.bgStatus === "err", "失败角色终态不对");
@@ -2842,7 +2871,7 @@ for (const role of scoutRoles) {
 assert(orchGroupHead("scouting").includes("3/3"), `勘察分组标题未跟随完成数,实得 "${orchGroupHead("scouting")}"`);
 // ⑦ 复核阶段单独一区,与勘察分开。
 for (const role of ["spec_reviewer", "risk_reviewer"]) {
-  toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role } } });
+  toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role }, sessionId: "sess-smoke" } });
 }
 await flush();
 assert(orchGroup("review"), "复核子代理未单独分区");
@@ -2854,13 +2883,13 @@ assert(
   "复核条目串进了勘察分组",
 );
 // ⑧ 角色名跨轮复用:同名角色再次派发要原地复位,否则第二轮的进度全写进上一轮那条终态行。
-toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" } } });
+toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" }, sessionId: "sess-smoke" } });
 await flush();
 assert(orchEntry("architecture_scout")?.dataset.bgStatus === "running",
   `同名角色第二轮派发未复位,实得 "${orchEntry("architecture_scout")?.dataset.bgStatus}"(面板会定格在上一轮)`);
 assert(orchPhaseEntries("scouting").length === 3, "同名角色复位时把条目复制了一份");
 assert(orchGroupHead("scouting").includes("2/3"), `复位后完成数未回退,实得 "${orchGroupHead("scouting")}"`);
-toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null } });
+toolEnd({ payload: { id: "architecture_scout", name: "task", ok: true, preview: "第二轮简报", display: null, sessionId: "sess-smoke" } });
 await flush();
 
 // ---------- R-184 P2:活动记录按 agent 归属与折叠 ----------
@@ -2916,10 +2945,10 @@ for (const role of scoutRoles.slice(1)) {
 // ---------- D-237 活动面板:diff 汇总着色 + bash 完整输出可展开 ----------
 const d237ToolStart = handlers.get("kz:tool-start");
 const editEnd = handlers.get("kz:tool-end");
-d237ToolStart({ payload: { id: "T5", name: "edit", summary: "ui/main.js", input: { path: "ui/main.js" } } });
-d237ToolStart({ payload: { id: "T6", name: "bash", summary: "cargo test -p kanzei-app", input: { command: "cargo test -p kanzei-app" } } });
-editEnd({ payload: { id: "T5", name: "edit", ok: true, preview: "replaced 1 occurrence", display: { kind: "diff", path: "ui/main.js", additions: 3, deletions: 1, language: "js", lines: [] } } });
-editEnd({ payload: { id: "T6", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "cargo test -p kanzei-app", output: "短输出(截断版)", full: "长输出…".repeat(100) } } });
+d237ToolStart({ payload: { id: "T5", name: "edit", summary: "ui/main.js", input: { path: "ui/main.js" }, sessionId: "sess-smoke" } });
+d237ToolStart({ payload: { id: "T6", name: "bash", summary: "cargo test -p kanzei-app", input: { command: "cargo test -p kanzei-app" }, sessionId: "sess-smoke" } });
+editEnd({ payload: { id: "T5", name: "edit", ok: true, preview: "replaced 1 occurrence", display: { kind: "diff", path: "ui/main.js", additions: 3, deletions: 1, language: "js", lines: [] }, sessionId: "sess-smoke" } });
+editEnd({ payload: { id: "T6", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "cargo test -p kanzei-app", output: "短输出(截断版)", full: "长输出…".repeat(100) }, sessionId: "sess-smoke" } });
 await flush();
 const diffRow = document.querySelector("#diff-summary");
 assert(diffRow && diffRow.textContent.includes("+3") && diffRow.textContent.includes("−1"), "diff 汇总未收录文件的增删计数");
@@ -2938,8 +2967,8 @@ assert(
 // R-133:diff 汇总为目录树——多路径文件按层级归入目录,目录行可折叠。
 {
   // 再投两个分属不同目录的文件,验证树形分组而不是平铺。
-  editEnd({ payload: { id: "T7", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-app/src/docs.rs", additions: 5, deletions: 2, language: "rust", lines: [] } } });
-  editEnd({ payload: { id: "T8", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-tools/src/tracker.rs", additions: 1, deletions: 0, language: "rust", lines: [] } } });
+  editEnd({ payload: { id: "T7", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-app/src/docs.rs", additions: 5, deletions: 2, language: "rust", lines: [] }, sessionId: "sess-smoke" } });
+  editEnd({ payload: { id: "T8", name: "edit", ok: true, preview: "replaced", display: { kind: "diff", path: "crates/kanzei-tools/src/tracker.rs", additions: 1, deletions: 0, language: "rust", lines: [] }, sessionId: "sess-smoke" } });
   await flush();
   const tree = document.querySelector("#diff-summary .diff-tree");
   assert(tree, "diff 汇总未构建目录树容器");
@@ -2967,12 +2996,12 @@ assert(
 // ---------- 完整活动流 + bash 实时输出 + rail 侧栏开合 ----------
 // ① 成功工具也进入活动流,失败仍保留失败态。
 const quietBefore = document.querySelectorAll("#bg-list .bg-entry").length;
-toolStart({ payload: { id: "Q1", name: "read", summary: "crates/kanzei/src/main.rs", input: { path: "crates/kanzei/src/main.rs" } } });
-toolEnd({ payload: { id: "Q1", name: "read", ok: true, preview: "1 //! kz", display: null } });
+  toolStart({ payload: { id: "Q1", name: "read", summary: "crates/kanzei/src/main.rs", input: { path: "crates/kanzei/src/main.rs" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "Q1", name: "read", ok: true, preview: "1 //! kz", display: null, sessionId: "sess-smoke" } });
 await flush();
 assert(document.querySelectorAll("#bg-list .bg-entry").length === quietBefore + 1, "成功的 read 未进入完整活动流");
-toolStart({ payload: { id: "Q2", name: "req", summary: "update R-999", input: { action: "update" } } });
-toolEnd({ payload: { id: "Q2", name: "req", ok: false, preview: "找不到 R-999", display: null } });
+  toolStart({ payload: { id: "Q2", name: "req", summary: "update R-999", input: { action: "update" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "Q2", name: "req", ok: false, preview: "找不到 R-999", display: null, sessionId: "sess-smoke" } });
 await flush();
 const quietErrEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "Q2");
 assert(quietErrEntry, "失败的静默工具没有补建条目(错误被吞掉)");
@@ -2980,14 +3009,14 @@ assert(quietErrEntry.classList.contains("err"), "补建的静默条目未标失�
 // ② bash 增量输出:执行中逐段追加,收起时进度行跟到最后一行,结束后让位终态输出。
 const toolProgress = handlers.get("kz:tool-progress");
 assert(toolProgress, "工具增量输出事件未订阅");
-toolStart({ payload: { id: "S1", name: "bash", summary: "scripts/package.ps1", input: { command: "powershell scripts/package.ps1" } } });
-toolProgress({ payload: { id: "S1", chunk: "[1/6] 发布范围核对\n" } });
-toolProgress({ payload: { id: "S1", chunk: "[4/6] cargo tauri build\n" } });
+  toolStart({ payload: { id: "S1", name: "bash", summary: "scripts/package.ps1", input: { command: "powershell scripts/package.ps1" }, sessionId: "sess-smoke" } });
+  toolProgress({ payload: { id: "S1", chunk: "[1/6] 发布范围核对\n", sessionId: "sess-smoke" } });
+  toolProgress({ payload: { id: "S1", chunk: "[4/6] cargo tauri build\n", sessionId: "sess-smoke" } });
 await flush();
 const streamEntry = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "S1");
 assert(streamEntry?.querySelector(".bg-live")?.textContent.includes("[4/6]"), "bash 执行中未实时追加输出");
 assert(streamEntry?.querySelector(".bg-prog")?.textContent.includes("[4/6]"), "收起状态的进度行未跟到最后一行");
-toolEnd({ payload: { id: "S1", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "powershell scripts/package.ps1", output: "全部完成", full: "全部完成" } } });
+  toolEnd({ payload: { id: "S1", name: "bash", ok: true, preview: "exit code: 0", display: { kind: "terminal", command: "powershell scripts/package.ps1", output: "全部完成", full: "全部完成" }, sessionId: "sess-smoke" } });
 await flush();
 assert(!streamEntry.querySelector(".bg-live"), "结束后实时流未让位给终态输出(同一份输出双份并存)");
 // ③ rail 上的常驻侧栏开合:窄视口悬浮模式下顶栏开关会被盖住,rail 开关必须存在且可切换。
@@ -3012,8 +3041,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 
   // ① 失败的长摘要:同一段文案在一个块里只能出现一次。
   let index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "X1", name: "edit", summary: "crates/kanzei-tools/src/edit.rs", input: { path: "crates/kanzei-tools/src/edit.rs" } } });
-  toolEnd({ payload: { id: "X1", name: "edit", ok: false, preview: LIVE_PREVIEW, display: null } });
+  toolStart({ payload: { id: "X1", name: "edit", summary: "crates/kanzei-tools/src/edit.rs", input: { path: "crates/kanzei-tools/src/edit.rs" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "X1", name: "edit", ok: false, preview: LIVE_PREVIEW, display: null, sessionId: "sess-smoke" } });
   await flush();
   const x1 = toolMsgAt(index);
   assert(x1, "实时失败工具块未建出");
@@ -3035,8 +3064,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 
   // ② 成功的短结果:零退化——⎿ 行原样,不出展开区,不加 has-detail。
   index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js" } });
-  toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null } });
+  toolStart({ payload: { id: "X2", name: "edit", summary: "ui/x.js", sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "X2", name: "edit", ok: true, preview: "replaced 1 occurrence", display: null, sessionId: "sess-smoke" } });
   await flush();
   const x2 = toolMsgAt(index);
   assert(x2?.querySelector(".tool-msg-result")?.textContent === "⎿ replaced 1 occurrence", `成功短结果的 ⎿ 行变了:"${x2?.querySelector(".tool-msg-result")?.textContent}"`);
@@ -3045,16 +3074,16 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 
   // 结构化终态:no-op/受控拒绝/真实故障必须三分，不能继续全部画成红叉。
   index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "XNOOP", name: "edit", summary: "ui/noop.js" } });
-  toolEnd({ payload: { id: "XNOOP", name: "edit", ok: false, outcome: "noop", code: "EDIT_IDENTICAL_INPUT", preview: "无需修改", display: null } });
+  toolStart({ payload: { id: "XNOOP", name: "edit", summary: "ui/noop.js", sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "XNOOP", name: "edit", ok: false, outcome: "noop", code: "EDIT_IDENTICAL_INPUT", preview: "无需修改", display: null, sessionId: "sess-smoke" } });
   await flush();
   const xNoop = toolMsgAt(index);
   assert(xNoop.classList.contains("noop") && !xNoop.classList.contains("err"), "no-op 仍被渲染成真实失败");
   assert(xNoop.querySelector(".tool-msg-status")?.textContent === "↪", "no-op 缺少独立形状标记");
 
   index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "XWARN", name: "edit", summary: "ui/warn.js" } });
-  toolEnd({ payload: { id: "XWARN", name: "edit", ok: false, outcome: "needs_correction", code: "EDIT_ANCHOR_NOT_FOUND", preview: "请重读锚点", display: null } });
+  toolStart({ payload: { id: "XWARN", name: "edit", summary: "ui/warn.js", sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "XWARN", name: "edit", ok: false, outcome: "needs_correction", code: "EDIT_ANCHOR_NOT_FOUND", preview: "请重读锚点", display: null, sessionId: "sess-smoke" } });
   await flush();
   const xWarn = toolMsgAt(index);
   assert(xWarn.classList.contains("warn") && !xWarn.classList.contains("err"), "受控拒绝仍被渲染成真实失败");
@@ -3063,8 +3092,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(warnActivity?.dataset.bgStatus === "warn", "活动栏没有保留受控拒绝终态");
 
   index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "XFAIL", name: "edit", summary: "ui/fail.js" } });
-  toolEnd({ payload: { id: "XFAIL", name: "edit", ok: false, outcome: "failed", code: "EDIT_WRITE_FAILED", preview: "磁盘写入失败", display: null } });
+  toolStart({ payload: { id: "XFAIL", name: "edit", summary: "ui/fail.js", sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "XFAIL", name: "edit", ok: false, outcome: "failed", code: "EDIT_WRITE_FAILED", preview: "磁盘写入失败", display: null, sessionId: "sess-smoke" } });
   await flush();
   const xFail = toolMsgAt(index);
   assert(xFail.classList.contains("err"), "真实执行故障没有保留失败态");
@@ -3072,8 +3101,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 
   // ③ ⎿ 行截断点与剩余部分的切分必须严丝合缝:一个字要么在摘要里、要么在详情里。
   index = document.querySelectorAll("#messages .tool-msg").length;
-  toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js" } });
-  toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null } });
+  toolStart({ payload: { id: "X3", name: "edit", summary: "ui/y.js", sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "X3", name: "edit", ok: true, preview: "x".repeat(200), display: null, sessionId: "sess-smoke" } });
   await flush();
   const x3 = toolMsgAt(index);
   const x3Result = x3?.querySelector(".tool-msg-result")?.textContent ?? "";
@@ -3091,7 +3120,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 {
   const bgEntry = (id) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === id);
   // ① 终端直入列:后端 summary 是裸 JSON,标题必须显示命令本身。
-  toolStart({ payload: { id: "BGJ1", name: "bash", summary: '{"command":"cargo test -p kanzei-app","workdir":"."}', input: { command: "cargo test -p kanzei-app", workdir: "." } } });
+  toolStart({ payload: { id: "BGJ1", name: "bash", summary: '{"command":"cargo test -p kanzei-app","workdir":"."}', input: { command: "cargo test -p kanzei-app", workdir: "." }, sessionId: "sess-smoke" } });
   await flush();
   const j1 = bgEntry("BGJ1");
   assert(j1, "终端条目未入列");
@@ -3105,8 +3134,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   );
 
   // ③ 失败补建路径(复现用户截图那条):edit 的 summary 是 new_string/old_string 的整坨 JSON。
-  toolStart({ payload: { id: "BGJ2", name: "edit", summary: '{"new_string":"pub fn append_episode","old_string":"old"}', input: { path: "crates/kanzei-core/src/store.rs", new_string: "pub fn append_episode", old_string: "old" } } });
-  toolEnd({ payload: { id: "BGJ2", name: "edit", ok: false, preview: "old_string not found", display: null } });
+  toolStart({ payload: { id: "BGJ2", name: "edit", summary: '{"new_string":"pub fn append_episode","old_string":"old"}', input: { path: "crates/kanzei-core/src/store.rs", new_string: "pub fn append_episode", old_string: "old" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "BGJ2", name: "edit", ok: false, preview: "old_string not found", display: null, sessionId: "sess-smoke" } });
   await flush();
   const j2 = bgEntry("BGJ2");
   assert(j2, "失败的静默工具没有补建条目(R-168 回归)");
@@ -3122,7 +3151,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
     "运行日志里仍直接拼后端 summary(edit 在日志里还是一坨入参 JSON)",
   );
   // summary 缺省时不能抛:事件里 summary 并非必填,`summary.slice()` 会把整条事件链打断。
-  toolStart({ payload: { id: "BGJ2b", name: "read", input: { path: "crates/kanzei/src/main.rs" } } });
+  toolStart({ payload: { id: "BGJ2b", name: "read", input: { path: "crates/kanzei/src/main.rs" }, sessionId: "sess-smoke" } });
   await flush();
   assert(
     bgEntry("BGJ2b")?.querySelector(".bg-target")?.textContent.includes("crates/kanzei/src/main.rs"),
@@ -3130,7 +3159,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   );
 
   // ④ 回落链第二级:挑不出字段就用后端 summary(回放事件不带 input,靠的就是这一级)。
-  toolStart({ payload: { id: "BGJ3", name: "bash", summary: "人类可读的后端摘要", input: {} } });
+  toolStart({ payload: { id: "BGJ3", name: "bash", summary: "人类可读的后端摘要", input: {}, sessionId: "sess-smoke" } });
   await flush();
   assert(
     bgEntry("BGJ3")?.querySelector(".bg-target")?.textContent === "人类可读的后端摘要",
@@ -3138,7 +3167,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   );
 
   // ⑤ 回落链第三级:两级都空就是空标题,不能抛异常、也不能凭空编一句。
-  toolStart({ payload: { id: "BGJ4", name: "bash", summary: "", input: {} } });
+  toolStart({ payload: { id: "BGJ4", name: "bash", summary: "", input: {}, sessionId: "sess-smoke" } });
   await flush();
   const j4 = bgEntry("BGJ4");
   assert(j4, "summary 与 input 都为空时条目建不出来了");
@@ -3147,8 +3176,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
 
   // ⑥ diff 终态不得把两段式标题拍平:对整个 title 按钮做 textContent += 会把
   // .bg-tool/.bg-target 两个 span 压成单个文本节点,工具名/目标的分栏当场消失。
-  toolStart({ payload: { id: "BGJ5", name: "edit", summary: "x.rs", input: { path: "x.rs" } } });
-  toolEnd({ payload: { id: "BGJ5", name: "edit", ok: false, preview: "写坏了", display: { kind: "diff", path: "x.rs", additions: 3, deletions: 1, language: "rust", lines: [] } } });
+  toolStart({ payload: { id: "BGJ5", name: "edit", summary: "x.rs", input: { path: "x.rs" }, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "BGJ5", name: "edit", ok: false, preview: "写坏了", display: { kind: "diff", path: "x.rs", additions: 3, deletions: 1, language: "rust", lines: [] }, sessionId: "sess-smoke" } });
   await flush();
   const j5 = bgEntry("BGJ5");
   assert(j5?.querySelector(".bg-tool") && j5?.querySelector(".bg-target"), "diff 终态把 .bg-tool/.bg-target 两段式结构拍平了(工具名/目标的分栏消失)");
@@ -3156,7 +3185,7 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   assert(j5Target.includes("x.rs") && j5Target.includes("+3"), `diff 增删数未追加到目标列:"${j5Target.slice(0, 60)}"`);
 
   // ⑦ 「重跑」填回输入框的首行也不能是裸 JSON(entry.summary 存的是显示值)。
-  toolEnd({ payload: { id: "BGJ1", name: "bash", ok: true, preview: "test result: ok", display: null } });
+  toolEnd({ payload: { id: "BGJ1", name: "bash", ok: true, preview: "test result: ok", display: null, sessionId: "sess-smoke" } });
   await flush();
   const rerun = [...bgEntry("BGJ1").querySelectorAll(".bg-actions button")].find((b) => b.textContent === "重跑");
   assert(rerun, "结束的终端条目缺少重跑入口");
@@ -3171,8 +3200,8 @@ assert(sidebarEl.classList.contains("collapsed") === collapsedBefore, "rail 开�
   byId.get("prompt").value = "";
 
   // ⑧ 回放路径不能被改坏:回放事件不带 input,标题只能来自后端 summary。
-  toolEnd({ payload: { id: "BGJ3", name: "bash", ok: true, preview: "done", display: null } });
-  toolEnd({ payload: { id: "BGJ4", name: "bash", ok: true, preview: "done", display: null } });
+  toolEnd({ payload: { id: "BGJ3", name: "bash", ok: true, preview: "done", display: null, sessionId: "sess-smoke" } });
+  toolEnd({ payload: { id: "BGJ4", name: "bash", ok: true, preview: "done", display: null, sessionId: "sess-smoke" } });
   await flush();
   sandbox.renderRecoveredTraces([{
     events: [
@@ -3838,7 +3867,7 @@ assert(!byId.get("stop").classList.contains("hidden"), "非终态错误期间停
 assert(document.querySelectorAll(".error-level").length === nonterminalErrorCount, "非终态错误不应渲染为对话中的错误卡");
 assert(expectedPersistentHits > persistentWarningHitsBefore, "非终态错误应进入持久化告警通道");
 expectedPersistentError = null;
-handlers.get("kz:error")?.({ payload: { message: "smoke backend failure" } });
+  handlers.get("kz:error")?.({ payload: { message: "smoke backend failure", sessionId: "sess-smoke" } });
 await flush();
 assert(listText("status-text").includes("Error"), `英文动态错误状态未翻译: "${listText("status-text")}"`);
 assert(document.querySelector(".error-level")?.textContent === "Fatal error", "英文错误等级未翻译");
@@ -3957,6 +3986,15 @@ const thirdLineStatus = [...document.querySelectorAll("#parallel-task-status .pa
 assert(thirdLineStatus.includes("第三线路") && !thirdLineStatus.includes("测试"), `空闲第三线路未显示或仍残留旧阶段:${thirdLineStatus}`);
 sandbox.renderProcesses(twoProcesses);
 await flush();
+// 运行事件没有 session_id 时不能猜当前线路:猜错一次就会把后台输出投到主对话。
+// 全局辅助事件(fast-setup/ui-probe)另有无会话契约,不在这里测试。
+const statusBeforeMissingSession = byId.get("status-text").textContent;
+handlers.get("kz:status")?.({ payload: { stage: "无身份串线", detail: "不应投影" } });
+await flush();
+assert(
+  byId.get("status-text").textContent === statusBeforeMissingSession,
+  "缺少 session_id 的运行事件不应投影到当前线路",
+);
 // 后台会话的权限询问到达:不弹当前窗口,但进入该会话自己的待答队列。
 askHandler?.({
   payload: { id: 501, sessionId: "sess-bg", kind: "permission", action: "后台进程要写文件", resource: "后台/路径", remember: "后台/路径" },
@@ -3995,6 +4033,11 @@ await flush();
 const bgLine = document.querySelector("#parallel-task-status .parallel-task-row.active");
 assert(bgLine?.textContent.includes("后台会话"), "切换到后台会话后活动线路按钮未更新");
 assert(bgLine?.textContent.includes("kanzei/thread-smoke"), `分支线按钮未显示真实分支名:${bgLine?.textContent}`);
+const bgGitStatusCall = invokeArgs.findLast(({ cmd }) => cmd === "git_status");
+assert(
+  bgGitStatusCall?.args?.worktreePath === "C:/smoke-wt",
+  `切到后台线路后 git_status 未绑定该线路 worktree:${JSON.stringify(bgGitStatusCall)}`,
+);
 const trackerToggle = byId.get("process-tracker-writes");
 assert(trackerToggle && !trackerToggle.checked, "分支线 tracker 写入必须默认关闭");
 assert(!byId.get("process-tracker-writes-wrap").classList.contains("hidden"), "分支线未显示 tracker 写入开关");
@@ -4192,7 +4235,7 @@ assert(sandbox.__kzTest.rounds() === 4, "用户拒绝后推进计数应保持原
     `前置失败:Continue 未挂起/开跑下一轮, phase=${ph2}`,
   );
   expectedPersistentError = "持久化告警(非致命)";
-  handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false } });
+  handlers.get("kz:error")?.({ payload: { message: "持久化告警(非致命)", terminal: false, sessionId: whipSession } });
   const ph3 = sandbox.sessionState(whipSession).phase;
   assert(
     ph3 === "auto_pending" || ph3 === "starting",
@@ -5497,7 +5540,7 @@ const docsB = {
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
-  sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" } } });
+  sA({ payload: { id: "my_scout", name: "task", summary: "勘察文件结构", input: { prompt: "review the repo", phase: "scouting", role: "my_scout" }, sessionId: "sess-smoke" } });
   await flush();
   const a1 = document.querySelector('#agent-running .bg-entry[data-agent-id="my_scout"]');
   assert(a1, "运行中的子代理未进入 Running 区");
@@ -5505,11 +5548,11 @@ const docsB = {
   assert(a1.querySelector(".bg-phase-badge")?.textContent.includes("Scouting"), "子代理缺少类型(阶段)徽章");
   assert(a1.dataset.agentElapsed === "0", "子代理缺少已运行时长字段");
   // 六字段中的 token/工具调用数/当前工具名必须来自真实 trace(usage/start 事件)。
-  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } } } });
+  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } }, sessionId: "sess-smoke" } });
   await flush();
   assert(a1.dataset.agentCurrentTool === "read", "子代理未显示当前正在用的工具名(trace 数据源)");
-  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "end", name: "read", ok: true, preview: "ok" } } });
-  pA({ payload: { id: "my_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 100, output: 50, cache_read: 10, cache_write: 5 } } } });
+  pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "end", name: "read", ok: true, preview: "ok" }, sessionId: "sess-smoke" } });
+  pA({ payload: { id: "my_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 100, output: 50, cache_read: 10, cache_write: 5 } }, sessionId: "sess-smoke" } });
   await flush();
   assert(a1.dataset.agentCurrentTool === "read", "工具结束后当前工具名应保留(idle 态)");
   assert(a1.querySelector(".bg-meta")?.textContent.includes("tokens"), "子代理元信息未显示累计 token");
@@ -5530,7 +5573,7 @@ const docsB = {
   );
   assert(invokeLog.filter((cmd) => cmd === "stop_run").length === beforeStop, "单条停止误调用了 stop_run(整轮停止)");
   // 被停终态:tool-end ok=false +「被停」文案 → 移到 Finished 区、标 stopped、读槽释放由后端负责。
-  eA({ payload: { id: "my_scout", name: "task", ok: false, preview: "子代理已被停止", display: null } });
+  eA({ payload: { id: "my_scout", name: "task", ok: false, preview: "子代理已被停止", display: null, sessionId: "sess-smoke" } });
   await flush();
   const a1f = document.querySelector('#agent-finished .bg-entry[data-agent-id="my_scout"]');
   assert(a1f, "被停的子代理未移入 Finished 区");
@@ -5591,7 +5634,7 @@ const docsB = {
   const eA2 = handlers.get("kz:tool-end");
   eA2({
     payload: {
-      id: "todo-d350", name: "todowrite", ok: true, preview: "计划",
+      id: "todo-d350", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
       display: { kind: "todo", items: [{ status: "doing", content: "第一步" }], done: 0, total: 1 },
     },
   });
@@ -5603,7 +5646,7 @@ const docsB = {
   // 同轮后续工具事件(同一份/新 todo 内容)不应把用户主动关闭的面板弹回。
   eA2({
     payload: {
-      id: "todo-d350b", name: "todowrite", ok: true, preview: "计划",
+      id: "todo-d350b", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
       display: { kind: "todo", items: [{ status: "doing", content: "第一步" }, { status: "todo", content: "第二步" }], done: 0, total: 2 },
     },
   });
@@ -5612,7 +5655,7 @@ const docsB = {
   // 计划清空(新会话/历史重放)后复位标志:下轮新计划应能再次自动弹出。
   eA2({
     payload: {
-      id: "todo-d350c", name: "todowrite", ok: true, preview: "计划",
+      id: "todo-d350c", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
       display: { kind: "todo", items: [], done: 0, total: 0 },
     },
   });
@@ -5620,7 +5663,7 @@ const docsB = {
   assert(todoPanel.classList.contains("hidden"), "D-350:计划清空后 #todo-panel 应保持隐藏");
   eA2({
     payload: {
-      id: "todo-d350d", name: "todowrite", ok: true, preview: "计划",
+      id: "todo-d350d", name: "todowrite", ok: true, preview: "计划", sessionId: "sess-smoke",
       display: { kind: "todo", items: [{ status: "doing", content: "新一轮第一步" }], done: 0, total: 1 },
     },
   });

@@ -58,18 +58,18 @@
           <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="并行任务状态" data-i18n-aria-label="并行任务状态"></div>
         </div>
       </div>
-      <!-- 当前在做(用户定调):侧栏不再罗列完整需求/缺陷,只呈现取活焦点这一条,
-           但要比原来的列表行显示得充分;完整列表、测试记录整体收进「需求与工作 / 缺陷 / 测试」单页视图。 -->
+      <!-- 当前在做:按在线路分别呈现各自取得的焦点条目;完整列表、测试记录整体收进
+           「需求与工作 / 缺陷 / 测试」单页视图。 -->
       <div class="sidebar-section" data-collapse-key="focus" id="focus-section">
         <div class="section-title">
-          <span data-i18n-key="当前在做">当前在做</span>
+          <span data-i18n-key="各线当前在做">各线当前在做</span>
           <span>
             <button id="req-quick" class="ghost mini" title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="快速记需求:自然语言描述交给独立子代理结构化落库,不打断当前对话">记需求</button>
             <button id="defect-quick" class="ghost mini" title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="快速记缺陷:自然语言描述交给独立子代理结构化落库,不打断当前对话">记缺陷</button>
             <button id="focus-open-documents" class="icon-btn" title="打开完整需求与缺陷列表" data-i18n-title="打开完整需求与缺陷列表" aria-label="打开完整需求与缺陷列表">☷</button>
           </span>
         </div>
-        <div id="focus-body" role="region" aria-label="当前在做" data-i18n-aria-label="当前在做"></div>
+        <div id="focus-body" role="region" aria-label="各线当前在做" data-i18n-aria-label="各线当前在做"></div>
         <div id="focus-backlog" class="dim" role="group" title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。" data-i18n-title="可执行 = 引擎取活时能立刻推进的条数(未关闭、无阻塞字段、依赖已完成、无阶段门槛、不在依赖环上);阻塞 = 未关闭但被其中任一条挡住;总数 = 两队可执行与阻塞之和。口径与 kz work next / 自主推进完全一致。"></div>
       </div>
       <div class="sidebar-section" data-collapse-key="worktrees" id="worktrees-section">

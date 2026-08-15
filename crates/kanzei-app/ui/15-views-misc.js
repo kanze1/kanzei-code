@@ -232,16 +232,36 @@ $("change-bar-toggle")?.addEventListener("click", () => {
   void refreshGit();
 });
 
-async function refreshGit() {
+let gitRefreshGeneration = 0;
+async function refreshGit(processId = activeProcessId) {
   if (!currentProject) return;
+  const forProject = currentProject;
+  const forProcessId = processId || null;
+  const target = processItems.find((item) => item.id === forProcessId);
+  const worktreePath = target?.worktree_path || null;
+  const generation = ++gitRefreshGeneration;
   try {
-    const g = await invoke("git_status", { projectDir: currentProject });
+    const g = await invoke("git_status", {
+      projectDir: forProject,
+      worktreePath,
+    });
+    // Git 查询是异步的;切线或切项目后,旧线路的迟到结果不得覆盖当前线路。
+    if (
+      currentProject !== forProject
+      || activeProcessId !== forProcessId
+      || generation !== gitRefreshGeneration
+    ) return;
     $("status-git").textContent = g.branch
       ? `⎇ ${g.branch}${g.changes ? ` +${g.changes}` : ""}`
       : "";
     $("status-git").title = g.last ? `${t("最近提交")}:${g.last}` : "";
     renderChangeBar(g);
   } catch {
+    if (
+      currentProject !== forProject
+      || activeProcessId !== forProcessId
+      || generation !== gitRefreshGeneration
+    ) return;
     $("status-git").textContent = "";
     renderChangeBar(null);
   }
@@ -634,4 +654,3 @@ async function refreshManual() {
     body.innerHTML = "";
   }
 }
-

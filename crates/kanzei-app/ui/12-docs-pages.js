@@ -271,7 +271,10 @@ function renderDocuments(snapshot) {
   latestDocsSnapshot = snapshot;
   if (typeof renderLineWorkItemOptions === "function") renderLineWorkItemOptions(snapshot);
   // tab 直调不经 renderDocsSnapshot,work-priority 可能刚切过——重算一次,幂等。
-  agentFocus = computeAgentFocus(snapshot);
+  agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
+  // 文档列表的「被取得」标记必须按主线焦点计算,不能因为用户当前查看并行线
+  // 就把主线的 WIP 口径换掉。
+  computeLineAgentFocuses(snapshot);
   const reqList = $("documents-req-list");
   const defectList = $("documents-defect-list");
   if (!reqList || !defectList) return;
@@ -426,33 +429,52 @@ function highlightDependencyChain(clicked, entry, byId) {
   }
   clicked.scrollIntoView({ block: "nearest" });
 }
-// 取活焦点(D-207):只保留当前在做的条目。排队顺序由后端真实 claim 决定,
-// 前端不再从状态和排序推断「下一个」。
-// 口径:active 是取活序第一个可执行的 doing/fixing(单条)——单线程下 agent 一次只推
-// 一条,多余的可执行 doing/fixing 只是"已取未动"的历史状态,不是正在做;blocked
-// 条目不计 WIP、不占运行焦点。
+// 取活焦点按**线路**计算。项目文档快照仍是共享真源,但 claimed_by 将条目归到
+// 具体分支线;默认线则只消费未被分支线取得的条目。运行证据也按 session_id 保存,
+// 避免切线后上一条线的运行焦点留在当前侧栏。
 let agentFocus = { active: null, activeSource: null };
-// 运行事实(D-207 三修):本轮里 agent 实际动过谁——req/defect 更新与批次提交都带
-// 条目 ID,这是"正在做"的真源。文件状态推断只是兜底:缺陷优先下一条挂着 fixing
-// 的旧缺陷(如 D-202)会永远赢得指针,而 agent 实际在推别的条目(用户实测指着
-// 缺陷、实做 R-117/R-122)。运行证据一到就覆盖推断;run 结束或新一轮开跑时清空。
-let runtimeFocusId = null;
-function setRuntimeFocus(id) {
-  if (id) runtimeFocusId = id;
+const runtimeFocusBySession = new Map();
+const lineAgentFocusByProcessId = new Map();
+function activeProcessItem() {
+  return typeof processItems !== "undefined"
+    ? processItems.find((item) => item.id === activeProcessId) ?? null
+    : null;
 }
-function clearRuntimeFocus() {
-  runtimeFocusId = null;
+function setRuntimeFocus(id, sessionId = activeSessionId) {
+  if (sessionId && id) runtimeFocusBySession.set(sessionId, id);
 }
-function computeAgentFocus(snapshot) {
+function clearRuntimeFocus(sessionId = activeSessionId) {
+  if (sessionId) runtimeFocusBySession.delete(sessionId);
+}
+function processIsPrimary(process) {
+  return !process
+    || process.authority === "primary"
+    || process.id?.startsWith("d|")
+    || (!process.authority && !process.worktree_path);
+}
+function focusEntriesForProcess(snapshot, process) {
+  const entries = [...(snapshot?.requirements ?? []), ...(snapshot?.defects ?? [])];
+  if (!process) return entries;
+  const branch = String(process.branch ?? "").trim();
+  if (processIsPrimary(process)) {
+    return entries.filter((entry) => !String(entry.claimed_by ?? "").trim());
+  }
+  return branch
+    ? entries.filter((entry) => String(entry.claimed_by ?? "").trim() === branch)
+    : [];
+}
+function computeAgentFocus(snapshot, sessionId = activeSessionId, process = null) {
   // activeSource:焦点卡片要能说出「凭什么指这一条」——runtime = 本轮运行证据命中,
-  // order = 按取活序推断,null = 没有在做的条目。纯追加字段,不改单条语义。
+  // order = 按取活序推断,claim = 线路取得事实,null = 没有在做的条目。
   const focus = { active: null, activeSource: null };
   if (!snapshot) return focus;
-  const reqs = snapshot.requirements ?? [];
-  const defs = snapshot.defects ?? [];
-  // 运行事实优先:证据指向的条目仍开放才算数(已关闭说明那条刚收尾,回落推断)。
+  const scopedEntries = focusEntriesForProcess(snapshot, process);
+  const reqs = scopedEntries.filter((entry) => (snapshot.requirements ?? []).includes(entry));
+  const defs = scopedEntries.filter((entry) => (snapshot.defects ?? []).includes(entry));
+  const runtimeFocusId = sessionId ? runtimeFocusBySession.get(sessionId) : null;
+  // 运行事实优先:证据指向的条目仍开放且属于当前线路才算数。
   if (runtimeFocusId) {
-    const evidence = [...reqs, ...defs].find(
+    const evidence = scopedEntries.find(
       (entry) => entry.id === runtimeFocusId && !entry.closed
     );
     if (evidence) {
@@ -464,6 +486,7 @@ function computeAgentFocus(snapshot) {
     selectedWorkPriority() === "requirement-first"
       ? [[reqs, "doing"], [defs, "fixing"]]
       : [[defs, "fixing"], [reqs, "doing"]];
+  // 线路已有 claimed_by 时,只在该线路的条目里按取活序选一条;默认线只看未取得项。
   // 正在做 = 取活序里第一个可执行的 doing/fixing(单条)。blocked 不计:§1.1 阻塞项
   // 不进 WIP、不占运行焦点——agent 会跳过它继续取下一个可开工条目,渲染必须与
   // 取活一致(否则 R-157 类阻塞 doing 会被标成「agent 正在做」,而实际它推不动)。
@@ -472,7 +495,7 @@ function computeAgentFocus(snapshot) {
       const hit = list.find((entry) => entry.status === status && !entry?.blocked);
       if (hit) {
         focus.active = hit.id;
-        focus.activeSource = "order";
+        focus.activeSource = process && !processIsPrimary(process) ? "claim" : "order";
         break;
       }
     }
@@ -480,9 +503,21 @@ function computeAgentFocus(snapshot) {
   return focus;
 }
 
-// ---------- 侧栏焦点卡片(用户定调:侧栏只显示当前在做,且要显示得完整一点) ----------
-// 数据全部来自 docs_snapshot 已有字段,不需要后端配合;渲染只依赖 agentFocus,
-// 与单页视图的排序/分组/筛选无关——用户怎么调视图,这里指的都是 agent 真会走的那条。
+function computeLineAgentFocuses(snapshot) {
+  const lines = typeof processItems !== "undefined" && processItems.length ? processItems : [null];
+  lineAgentFocusByProcessId.clear();
+  return lines.map((line) => {
+    const focus = computeAgentFocus(snapshot, line?.session_id, line);
+    if (line?.id) lineAgentFocusByProcessId.set(line.id, focus);
+    return { line, focus };
+  });
+}
+function focusForProcess(processId) {
+  return lineAgentFocusByProcessId.get(processId) ?? null;
+}
+
+// ---------- 侧栏焦点卡片(按线路显示各自当前条目) ----------
+// 数据全部来自 docs_snapshot + 当前 process_list,不把一条线路的运行事实投影到另一条。
 function focusEntryOf(snapshot, id) {
   if (!id) return null;
   const req = (snapshot?.requirements ?? []).find((entry) => entry.id === id);
@@ -498,7 +533,7 @@ function focusMetaChip(text, title) {
   if (title) chip.title = title;
   return chip;
 }
-function buildFocusCard(entry, kind) {
+function buildFocusCard(entry, kind, focusSource = agentFocus.activeSource) {
   const card = document.createElement("div");
   const pri = (entry.priority || "").toUpperCase();
   const blocked = entryBlocked(entry);
@@ -574,7 +609,9 @@ function buildFocusCard(entry, kind) {
   const source = document.createElement("div");
   source.className = "focus-source";
   source.textContent = `${t("依据")}: ${
-    agentFocus.activeSource === "runtime" ? t("本轮运行证据") : t("取活顺序推断")
+    focusSource === "runtime" ? t("本轮运行证据")
+      : focusSource === "claim" ? t("取得线")
+        : t("取活顺序推断")
   }`;
   card.appendChild(source);
 
@@ -691,11 +728,40 @@ function backlogRow(kindKey, kind, tally) {
 function renderFocusPanel(snapshot) {
   const body = $("focus-body");
   if (!body) return;
+  agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
   body.replaceChildren();
-  const active = focusEntryOf(snapshot, agentFocus.active);
-  if (active) {
-    body.appendChild(buildFocusCard(active.entry, active.kind));
-  } else {
+  const lineFocuses = computeLineAgentFocuses(snapshot);
+  let hasAnyActive = false;
+  for (const { line, focus } of lineFocuses) {
+    const section = document.createElement("section");
+    section.className = "line-focus";
+    if (line?.id) section.dataset.processId = line.id;
+    const heading = document.createElement("div");
+    heading.className = "line-focus-head";
+    const authority = line && processIsPrimary(line)
+      ? t("主代理") : t("并行线路");
+    heading.textContent = line
+      ? `${authority} · ${line.label}${line.branch ? ` · ${line.branch}` : ""}`
+      : t("主代理");
+    section.appendChild(heading);
+    const active = focusEntryOf(snapshot, focus.active);
+    if (active) {
+      hasAnyActive = true;
+      section.appendChild(buildFocusCard(active.entry, active.kind, focus.activeSource));
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "focus-empty line-focus-empty";
+      const line = document.createElement("div");
+      line.textContent = t("未取得条目");
+      const why = document.createElement("div");
+      why.className = "dim";
+      why.textContent = t("当前没有在做的条目");
+      empty.append(line, why);
+      section.appendChild(empty);
+    }
+    body.appendChild(section);
+  }
+  if (!hasAnyActive) {
     const empty = document.createElement("div");
     empty.className = "focus-empty";
     const line = document.createElement("div");
@@ -737,7 +803,7 @@ function renderFocusPanel(snapshot) {
 
 /// 只重绘文档列表与计数(不含历史/测试/工作树):供运行中高频刷新使用。
 function renderDocsSnapshot(snapshot) {
-  agentFocus = computeAgentFocus(snapshot);
+  agentFocus = computeAgentFocus(snapshot, activeSessionId, activeProcessItem());
   renderFocusPanel(snapshot);
   renderDocList($("goal-list"), snapshot.goals ?? [], "goal", snapshot.archived?.goal ?? 0, NEUTRAL_DOC_FILTERS, snapshot.archived_entries?.goal ?? []);
   renderDocuments(snapshot);

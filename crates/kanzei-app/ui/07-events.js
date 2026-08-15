@@ -14,7 +14,7 @@ on("kz:meta", (e) => {
 on("kz:turn", (e) => {
   const p = e.payload;
   // 新一轮 run 开跑:上一轮的「在做」运行证据作废,重新从本轮动作里取。
-  if (p.step === 1) clearRuntimeFocus();
+  if (p.step === 1) clearRuntimeFocus(p.sessionId);
   if (p.step > 1) {
     clearEmptyState();
     // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
@@ -202,7 +202,7 @@ on("kz:task-progress", (e) => {
   // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
   // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
   if (isBatchCommit(payload.trace)) {
-    setRuntimeFocus(workItemIdFrom(payload.trace?.preview));
+    setRuntimeFocus(workItemIdFrom(payload.trace?.preview), payload.sessionId);
     refreshDocsSoon();
   }
 });
@@ -220,7 +220,7 @@ on("kz:tool-end", (e) => {
     // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
     // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
     if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {
-      setRuntimeFocus(workItemIdFrom(p.preview));
+      setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
     }
     // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
     refreshDocsSoon();
@@ -228,7 +228,7 @@ on("kz:tool-end", (e) => {
   // Git 提交标题是批次进度的真源，成功提交后立即重拉文档快照。
   // 「在做」运行证据②:批次提交标题以条目 ID 开头,是最强的"实际在推谁"信号。
   if (isBatchCommit(p)) {
-    setRuntimeFocus(workItemIdFrom(p.preview));
+    setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
     refreshDocsSoon();
   }
   // 测试记录同理:跑完测试后左侧应立即出现结果。

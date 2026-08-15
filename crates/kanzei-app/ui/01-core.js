@@ -33,9 +33,18 @@ const SESSION_PROGRESS_EVENTS = new Set([
   "kz:meta", "kz:status", "kz:text", "kz:reasoning",
   "kz:tool-start", "kz:tool-progress", "kz:task-progress", "kz:step",
 ]);
+// 这些是全局辅助事件,不是某一条运行会话的进度投影:权限询问由自身
+// 的队列归属,快速模型安装与 UI 探针也没有运行 session。
+const SESSIONLESS_EVENTS = new Set(["kz:ask", "kz:fast-setup", "kz:ui-probe"]);
 function on(event, handler) {
   listen(event, (eventPayload) => {
     const sessionId = eventPayload.payload?.sessionId;
+    // 除了权限询问(它有专门的缺省会话归属逻辑),所有运行事件都必须带 sessionId。
+    // 没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实也不能串线。
+    if (!SESSIONLESS_EVENTS.has(event) && !sessionId) {
+      log(`丢弃无 session_id 的运行事件:${event}`, "warn");
+      return;
+    }
     // R-086:kz:turn 是每轮开头必发的信号,拿它把会话状态机拨回运行中并解除
     // converged。后端一次运行可以跨多轮(排队输入 promote 后接着跑),轮末的
     // kz:done 之后会话仍在跑,只有这条能把被前一轮 idle 焊住的状态解开。
@@ -81,7 +90,7 @@ function on(event, handler) {
       event === "kz:error" ||
       event === "kz:stopped" ||
       event === "kz:idle";
-    if (!controlEvent && sessionId && activeSessionId && sessionId !== activeSessionId) return;
+    if (!controlEvent && !SESSIONLESS_EVENTS.has(event) && sessionId !== activeSessionId) return;
     if (controlEvent) {
       // R-086:控制事件先按 sessionId 更新对应会话状态机,再决定是否投影视图——
       // 后台会话的终态也必须收敛,不能只靠 refreshProcesses 间接拉后端
@@ -104,7 +113,7 @@ function on(event, handler) {
       }
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
-      if (event !== "kz:ask" && sessionId && activeSessionId && sessionId !== activeSessionId) {
+      if (event !== "kz:ask" && sessionId !== activeSessionId) {
         // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
         if (event === "kz:done" && typeof handleBackgroundSessionDone === "function") {
           handleBackgroundSessionDone(eventPayload.payload);

@@ -145,7 +145,8 @@ const I18N_EN = {
   "架构索引读取失败": "Failed to load architecture index",
   "先选择一个项目": "Select a project first",
   "运行中 · 快照截至上次切走时,本轮完成后自动补齐": "Running · snapshot restored from when you last switched away; completed automatically at end of round",
-  // 侧栏「当前在做」焦点卡片:完整列表搬进单页视图后,侧栏只保留取活焦点这一条。
+  // 侧栏各线路焦点卡片:完整列表搬进单页视图后,这里按线路呈现各自取得的条目。
+  "各线当前在做": "In progress by line",
   "当前在做": "In progress now",
   "记需求": "Log item",
   "记缺陷": "Log defect",

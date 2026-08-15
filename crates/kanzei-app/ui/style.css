@@ -216,10 +216,12 @@ body {
   0%, 100% { border-left-color: var(--ok); }
   50% { border-left-color: color-mix(in srgb, var(--ok) 35%, transparent); }
 }
-/* 「当前在做」焦点卡片(用户定调:侧栏只留这一条,但要显示得比列表行完整)。
+/* 「各线当前在做」焦点卡片:每条在线路独立显示,但要比列表行完整。
    D-105:状态、阻塞、焦点依据一律用文字 + 边框表达,绿色只是装饰性冗余,
    把颜色全部去掉后信息量不减。 */
 #focus-body { padding: 0 10px 2px; display: flex; flex-direction: column; gap: 6px; }
+.line-focus { display: flex; flex-direction: column; gap: 3px; }
+.line-focus-head { color: var(--dim); font-size: 10.5px; padding: 1px 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-card {
   border: 1px solid var(--border); border-left: 3px solid var(--ok);
   border-radius: var(--radius); background: var(--panel2);

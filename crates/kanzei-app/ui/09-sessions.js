@@ -451,6 +451,9 @@ function renderProcesses(items) {
   if (activeStopping) setStopping(t("停止中…"));
   if (activePending) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
   renderParallelTaskStatus(processItems);
+  if (typeof renderFocusPanel === "function" && typeof latestDocsSnapshot !== "undefined" && latestDocsSnapshot) {
+    renderFocusPanel(latestDocsSnapshot);
+  }
   // 「勘察复核」= 阶段流水线总闸,默认关(后端 ProcessInfo.phase_pipeline 同默认)。
   $("process-phase-pipeline").checked = active?.phase_pipeline ?? false;
   // 分支线写主根 tracker 必须由用户显式打开；默认线直接写主根，不展示无意义开关。
@@ -561,7 +564,7 @@ async function switchProcess(processId, forceReload = false) {
   if (!isCurrentSwitch()) return;
   // 模型下拉按进程回显:未设置覆盖时回到 agent 默认(空值),不保留上一个进程的选择。
   $("model-select").value = target.model || "";
-  refreshGit();
+  void refreshGit(activeProcessId);
   refreshPendingInputs();
   void refreshProcesses();
   log(`${t("已切换到进程")} ${target.label}`);

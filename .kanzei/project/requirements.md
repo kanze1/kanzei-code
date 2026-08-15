@@ -259,8 +259,8 @@
 - 标签: 流程
 - 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
 - 优先级: P2
-- 取活依据: override:parallel-line-create:用户从并行视图选择条目开线
-- 取活释放: line=kanzei/thread-line-1786740134961-1;reason=parallel-line-unregister;at_ms=1786740473264
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-251
+- 取活释放: line=kanzei/thread-line-1786750035674-1;reason=parallel-line-unregister;at_ms=1786750192782
 
 ## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [todo]
 - 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。

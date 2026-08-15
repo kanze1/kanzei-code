@@ -10,12 +10,25 @@ pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
 use crate::{normalized_project_root, state::hidden_command};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
+use kanzei_tools::worktree as wt;
 
 /// git 概览:分支 + 未提交改动数(状态栏显示)。
 #[tauri::command]
-pub async fn git_status(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
+pub async fn git_status(
+    project_dir: String,
+    worktree_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
+    // project_dir 恒为项目主根;线路的 Git 状态必须显式绑定到它自己的工作树。
+    // 复用统一校验,拒绝把任意目录当成线路工作树传进来。
+    let root = match worktree_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    {
+        Some(path) => wt::validate_worktree_path(&project_root, path)?,
+        None => project_root,
+    };
     tokio::task::spawn_blocking(move || {
         let run = |args: &[&str]| -> Option<String> {
             let out = hidden_command("git")

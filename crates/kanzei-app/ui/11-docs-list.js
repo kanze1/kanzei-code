@@ -223,11 +223,14 @@ function claimedCollaborationLineFor(entry) {
   //   ② 这一条正是默认线占着的那个 WIP。单线程下 agent 一次只推一条,其余可执行
   //      doing 只是「已取未动」的历史状态;原来的代码按 status ∈ {doing,fixing} 一刀切,
   //      于是 5 条 doing 同时归属同一条线——而一条线最多持有一条。
-  // 判据直接用 agentFocus.active(12-docs-pages.js 的取活焦点真源,与 agent-active
-  // 高亮同源),不在这里另写一套「谁是当前 WIP」的推断。
+  // 判据直接用主线的线路焦点(12-docs-pages.js 的取活焦点真源),不在这里另写一套
+  // 「谁是当前 WIP」的推断。即使用户当前查看并行线,主线的标记也不能跟着漂移。
   const primary = lines.find((candidate) => !candidate?.worktree_path);
   if (!primary) return null;
-  const focused = typeof agentFocus !== "undefined" && agentFocus?.active === entry.id;
+  const primaryFocus = typeof globalThis.focusForProcess === "function"
+    ? globalThis.focusForProcess(primary.process_id)
+    : null;
+  const focused = primaryFocus?.active === entry.id;
   if (!focused) return null;
   return {
     line: primary,
