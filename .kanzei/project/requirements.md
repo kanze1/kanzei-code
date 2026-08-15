@@ -254,15 +254,7 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-251 试用手册配置移至设置模块 [todo]
-- 复杂度: 小
-- 标签: 流程
-- 验收: 试验相关配置已迁移至主界面→设置→高级功能区域
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-251
-- 取活释放: line=kanzei/thread-line-1786750035674-1;reason=parallel-line-unregister;at_ms=1786750192782
-
-## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [todo]
+## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [doing]
 - 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。
 - 备注: 本条与其余九条一起勘察,唯独它需要动 13 个文件,其中 crates/kanzei-app/src/run.rs 的动作表有一行 goal→idea——那是与后端自举线唯一抢文件的地方。用户 2026-08-14 拍板:其余九条本轮做完发版,本条另登需求进队列,等 R-202 收尾后单独做。完整勘察(文件锚点/DOM/状态机/门禁设计)见会话记录。
 - 复杂度: 大
@@ -270,6 +262,12 @@
 - 标签: 核心
 - 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
 - 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-252
+- 批次: 1/7
+- 进展: B1 完成(1b24966,已 push):IDEAS DocKind+状态机测试、全后端 goal→idea 替换,五 crate 全绿(T-1786759741/9860/9937)。B2 刚起步即被用户暂停(2026-08-16 用户要自己调整代码):tracker.rs 已插入 check_idea_split_gate 方法(R-252 验收④硬门禁:想法转 split 时 refs 非空 + 每个 ID 在 requirements/defects 活跃或归档真实存在,仅在 prefix==I 时触发),但尚未接线到 actions.rs update_close、未写正反测试、未提交——工作树里 crates/kanzei-tools/src/tracker.rs 有未提交改动。恢复点:B2 剩余工作 = ①actions.rs update_close 在 transition_allowed 前调用 check_idea_split_gate(target_status==split 时)②正反测试(refs 空拒/指向不存在 ID 拒/指向归档放行)③定向测试+提交。用户调整代码期间本条目暂停,不占用执行槽。
+- observed_head: 1b24966d13e7238bb90bcc209c76f63d9fc64fdc
+- observed_worktree_hash: fnv1a64:7593f185bc3f65f9
+- recorded_at: 1786760056377
 
 ## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [todo]
 - refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md docs/design/monolith_decomposition_round2.md(批次地图:A 节)
@@ -358,6 +356,17 @@
 - 标签: 前端
 - 验收: ①设置页出现「子代理并行上限」输入(带说明:同轮并行 task 数上限,默认 16);②保存后写入 kanzei.toml [limits] max_tasks_per_turn,重读配置生效;③已存在的其它 limits 字段不被覆盖(向后兼容);④前端冒烟 + kanzei-app 定向测试全绿。
 - 优先级: P2
+
+## R-265 symbols 加「符号名 → 定义位置」反查,穿透跨 crate re-export [todo]
+- refs: R-234
+- 优先级: P2
+- 复杂度: 中
+- 标签: harness 流程
+- 内容: symbols 现在只能「给定文件 → 列符号」与「给定符号 → 列引用点(callers)」,缺第三问「这个符号定义在哪」。新增 define 参数:输入裸名或限定路径(crate::atomic_file::try_lock_exclusive),全树按名精确命中后再解释模块路径为何对不上。**跨 crate re-export 是核心情形不是边角**,要吃下三型:①模块整体跨 crate 再导出(kanzei-tools/src/lib.rs:6 pub use kanzei_base::atomic_file);②带 as 改名(lib.rs:43/:45 pub use background::kill_process as kill_background_processes_for_process——搜新名时定义名根本不叫这个);③跨行花括号列表(tracker.rs:25-29)。配套需要 crate ident → 源码目录映射(读 workspace members 的 [package].name,`-`→`_`),toml 依赖已有不新增。
+- 为什么是这个形态: 不新建工具。symbols 已注册进主代理 BaseComponent 与勘察子代理 SubagentBase,并有三处「只读快照 6 件套」硬断言(subagent.rs:170、parallel_scouting_under_serial_writer.rs:169、state_tests.rs:141);新建工具要动这些加 explore_agent 的工具清单,纯收税且与列表模式共享 90% 解析代码,拆开后两份解析器迟早漂移。callers(R-234 B2)已确立「symbols 是符号查询入口」,define 是同族第三问。
+- 边界: 不引入 syn 等语法解析依赖(与 R-154 轻量哲学一致,行级扫描够用);不做 IDE 级跳转;模块路径只参与输出解释、不参与命中判定——事故成因正是「按路径字面解析→扑空」。
+- 来源: 2026-08-15 自举勘察实测事故:agent 在 managed.rs:299 看到 `crate::atomic_file::try_lock_exclusive`,按字面去 crates/kanzei-tools/src/atomic_file.rs 找,扑空;真实定义在 crates/kanzei-base/src/atomic_file.rs:256,kanzei-tools 只是 lib.rs:6 再导出。同轮另修两个前置缺陷(关键字词边界假符号、表头无条件入队把命中埋掉,见提交 a26df63)——那两个不修,反查会直接给出错误答案。
+- 验收: ①`symbols` 传 define=try_lock_exclusive 能定位到 crates/kanzei-base/src/atomic_file.rs 并给出经 kanzei-tools/src/lib.rs:6 的再导出链;②对 as 改名(kill_background_processes_for_process)能回落原名找到定义;③对跨行花括号再导出(tracker.rs:25-29)不漏;④define 与 callers 同时给出时显式报错而非静默取其一;⑤输出带上限与「已截断」提示,与 grep 的 DEFAULT_LIMIT 口径一致(现 callers 无上限,`callers: "self"` 能灌上万行);⑥description 的 Params 补齐 define 与 callers(callers 自 B2 起就没进描述)。
 
 ## R-264 前端迁移原生 ESM(勘察已完成,方案见 docs/design/ui_esm_migration.md) [todo]
 - refs: docs/design/ui_esm_migration.md R-142 R-154
