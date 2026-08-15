@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)+工具链(ef89d20)。**批3 TDZ 逐处修复实证(2026-08-16)**:冒烟桩加 DOMContentLoaded 支持(readyState:'loading' + 回调收集/evaluate 后手动触发,模拟浏览器 deferred module 语义,classic 时 no-op);06-agent-panel agentPanelSetup 顶层调用延迟到 DOMContentLoaded 后 TDZ 解决(错误从 module 7 前进到 module 14);14-docs-actions 的顶层 $()addEventListener 调用(10+ 处,设计文档 §三 表格点名的跨文件读)同样需延迟。**结论:TDZ 修复是逐文件逐处工程**(21 文件 × 多处顶层 $()/跨模块调用 → DOMContentLoaded),单轮不可完成——设计文档 §四 完整工程。已回退 ui 到 HEAD(批2 稳定,六冒烟全绿);冒烟桩 DOMContentLoaded 增强保留(classic no-op,后续批次直接可用)。R-264 保持 doing,批3 待专用批次。
-- observed_head: ef89d2020c82ff68f50d226191917e814f4c0b54
-- observed_worktree_hash: fnv1a64:c637013cb6fbf6ee
-- recorded_at: 1786824067054
+- 进展: 批2 完成(6c90aba)+工具链(ef89d20)+冒烟桩 DOMContentLoaded(e80114a)。**批3 TDZ 完整结论(2026-08-16)**:defer 工具(01-core export)+顶层调用清单扫描发现——**顶层跨模块调用 100+ 处**(07-events 42、08-compose 31、03-shell 19、14-docs-actions 20+,含大量跨行 $().addEventListener),远超设计文档 §三 预估的 10 处;且**浏览器 `<script type=module>` 同样 TDZ**(环内求值顺序,01-core 闭包含全部 20 文件=强连通大环,非 vm 执行器缺陷)。完整迁移 = 100+ 处 defer 包裹(单行+跨行)+ 冒烟桩适配 + B3 + 删补偿,是持续工程。已验证 06-agent-panel defer 修复有效(错误前进到 module 14)。已回退 ui 到 HEAD(批2 稳定,六冒烟全绿);defer 为迁移期工具不留生产代码。R-264 保持 doing,批3 待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: e80114a6d89248d467721d0f50309bc150d1ea07
+- observed_worktree_hash: fnv1a64:4a215ad5bd45fdfb
+- recorded_at: 1786824418088
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)
