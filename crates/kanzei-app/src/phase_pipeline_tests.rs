@@ -350,7 +350,7 @@ async fn 七阶段闭环轨迹落库可回放() {
     .expect("实现段应当成功");
 
     // ---- 集成 → 复核屏障 → 复核 → 修正 ----
-    let merged = crate::run::run_review_and_fixup(
+    let merged = crate::run::execution::run_review_and_fixup(
         &mut pipeline,
         &fx.client,
         &fx.route,
@@ -885,7 +885,7 @@ async fn 复核有发现时修正段接续历史且用量合并() {
     };
     let stage = |_n: &str, _d: String| {};
 
-    let merged = crate::run::run_review_and_fixup(
+    let merged = crate::run::execution::run_review_and_fixup(
         &mut pipeline,
         &fx.client,
         &fx.route,
@@ -1010,7 +1010,7 @@ async fn 复核无发现时不额外跑一段() {
 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(20),
-        crate::run::run_review_and_fixup(
+        crate::run::execution::run_review_and_fixup(
             &mut pipeline,
             &fx.client,
             &fx.route,
@@ -1077,7 +1077,7 @@ async fn 子代理关闭时阶段序列仍完整且空屏障留痕() {
         Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
     };
     let stage = |_n: &str, _d: String| {};
-    let result = crate::run::run_review_and_fixup(
+    let result = crate::run::execution::run_review_and_fixup(
         &mut pipeline,
         &fx.client,
         &fx.route,
