@@ -584,10 +584,11 @@ fn modified_secs(path: &Path) -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-/// 编译诊断回退(R-210):正常提交路径不再串行跑 cargo check——clippy_gate 的
-/// `cargo clippy --workspace --all-targets` 走同一编译管线(全 workspace 编译 +
-/// 类型检查),编译错误会被 clippy 拦截并带 `-->` 位置,双份全仓分析是纯冗余。
-/// 本函数只在 clippy 失败输出**缺位置信息**时作为诊断回退调用。
+/// 编译底线门禁。R-210 曾把它降级成诊断回退(理由:clippy 的 `--all-targets` 走同一
+/// 编译管线,双份全仓分析是冗余)。现已复位成**主门禁**:实测 `clippy --all-targets`
+/// 37.9s 而 `check --all-targets` 只要 7.2s——同样的编译覆盖,四分之一的价钱。lint 那半
+/// 由 clippy_gate 用不含测试目标的轻量形态接手。R-210 的判断没错,只是方向反了:
+/// 该让便宜的那个覆盖编译,而不是让贵的那个顺带覆盖。
 ///
 /// 为什么不能只看测试记录:记录是 agent 自己写的。实测 2026-08-09 夜里,run.rs 里连续
 /// 混入四处「插入却把签名吃掉」的破损(`async fn fast_summarize -> ...` 少了参数、
@@ -683,27 +684,37 @@ async fn fmt_gate(cwd: &Path) -> Result<(), String> {
     }
 }
 
-/// clippy 门禁:提交源码前由工具**亲自**跑 `cargo clippy --workspace --all-targets -- -D warnings`(D-264)。
+/// 提交前的编译 + lint 硬门禁(D-264)。两条命令串起来跑,比原先单条
+/// `cargo clippy --workspace --all-targets -- -D warnings` 便宜得多,而底线一分没丢:
 ///
-/// 2026-08-11 实例:新增集成测试落在 crates/kanzei/tests/,而自举只跑了「改动最多的
-/// crate」的定向测试,`-p kanzei` 从未被 clippy 覆盖——6 条 lint 红灯随提交进库。
-/// 教训:lint 可能只在**别的 crate**(新增测试所在的 crate、被改动 crate 的依赖方)
-/// 暴露,定向 `-p <改动 crate>` 不够;全 workspace 才能兜住。命令与 CI/verify.ps1
-/// 完全同参数(守护测试比对)。
+///   1. `cargo check --workspace --all-targets --quiet`(compile_gate)——**编译底线**,
+///      含测试代码。这条不可省:见 compile_gate 注释里 2026-08-09 的事故(四处破损
+///      签名配着自写 passed 记录进库),编译必须由工具亲自验。
+///   2. `cargo clippy --workspace -- -D warnings`——lint,**不含**测试目标。
+///
+/// 实测(碰 kanzei-harness/src/lib.rs 后,rust-lld 链接):
+///   原 `clippy --all-targets` 37.9s  vs  `check --all-targets` 7.2s + `clippy` 5.0s = 12.2s
+/// 省 25.7s。丢掉的只有**测试代码的 lint**,那份覆盖由 CI 每次 push 跑的
+/// `cargo clippy --workspace --all-targets` 兜住(ci.yml)。
+///
+/// 这是刻意的三处分工——提交门禁(此处)与 verify.ps1 走轻量 lint,CI 走全量——
+/// 由守护测试 gate_checklists_align_across_git_verify_and_ci 显式断言,不是漂移。
+/// 代价明写:测试代码的 lint 违规会本地绿、push 后 CI 红。
+///
+/// 2026-08-11 实例(为什么 lint 仍必须全 workspace,不能退成 `-p <改动 crate>`):
+/// 新增集成测试落在 crates/kanzei/tests/,自举只跑了「改动最多的 crate」的定向测试,
+/// 6 条 lint 红灯随提交进库。所以这里保持 `--workspace`,只是不再 `--all-targets`。
 async fn clippy_gate(cwd: &Path) -> Result<(), String> {
     if !cwd.join("Cargo.toml").is_file() {
         return Ok(());
     }
+    // 编译底线先跑:编译不过时,报带 `-->` 的编译错误远比报 lint 有用,
+    // 也省下在编译不了的代码上再跑一遍 lint 分析的时间。
+    compile_gate(cwd).await?;
+
     let mut command = tokio::process::Command::new("cargo");
     command
-        .args([
-            "clippy",
-            "--workspace",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ])
+        .args(["clippy", "--workspace", "--", "-D", "warnings"])
         .current_dir(cwd);
     crate::hide_console_async(&mut command);
     let output = command.output().await;
@@ -716,19 +727,10 @@ async fn clippy_gate(cwd: &Path) -> Result<(), String> {
                 .filter(|l| l.starts_with("error") || l.trim_start().starts_with("-->"))
                 .take(16)
                 .collect();
-            let mut message = format!(
-                "提交被拦下:`cargo clippy --workspace --all-targets -- -D warnings` 不过。\n{}",
+            Err(format!(
+                "提交被拦下:`cargo clippy --workspace -- -D warnings` 不过。\n{}",
                 head.join("\n")
-            );
-            // R-210:clippy 全 workspace 编译覆盖 check,正常路径不再跑 check;
-            // 仅当 clippy 失败输出缺位置信息(编译错误应带 `-->`,缺了说明诊断
-            // 没透出来)时,降级跑 cargo check 补位置诊断。
-            if !stderr.contains("-->") {
-                if let Err(diag) = compile_gate(cwd).await {
-                    message.push_str(&format!("\n--- cargo check 诊断回退 ---\n{diag}"));
-                }
-            }
-            Err(message)
+            ))
         }
         Err(error) => Err(format!(
             "提交被拦下:无法执行 cargo clippy({error})。装好 cargo/clippy 或在非 Rust 仓库里提交。"
@@ -879,9 +881,8 @@ async fn commit(
     if paths.iter().any(|p| is_source_path(p)) {
         // 顺序有讲究:先验门禁(机械真值),再看测试记录(自报证据)。编译不过时
         // 报编译错误比报"没有测试背书"有用得多。D-264:fmt/clippy 为提交前硬门禁
-        // ——规则层写过但自举漏了三次,必须代码强制。R-210:不再串行跑 cargo check
-        // (clippy 全 workspace 编译覆盖 check,双份全仓分析是纯冗余;clippy 输出
-        // 缺位置信息时才降级跑 check 补诊断)。
+        // ——规则层写过但自举漏了三次,必须代码强制。clippy_gate 内部先跑
+        // compile_gate(check --all-targets,含测试代码的编译底线)再跑轻量 clippy。
         // R-261:fmt 与 clippy 互不依赖,并行执行——fmt --check 只读不写 target,
         // 与 clippy 的增量编译无资源竞争,串行只会让门禁多等一份时间。
         let (fmt_result, clippy_result) = tokio::join!(fmt_gate(cwd), clippy_gate(cwd));
@@ -1972,9 +1973,31 @@ prunable gitdir file points to non-existent location
             this.contains("cargo fmt --all -- --check"),
             "fmt_gate 命令与 CI 不一致"
         );
+
+        // ⑤ clippy 的三处分工是**刻意**的,不是漂移——所以逐处正向断言,而不是
+        //    断言三处相同。省下的是 25.7s(37.9s → 12.2s)编译时间,代价是测试代码
+        //    的 lint 违规会本地绿、push 后 CI 红。任何一处改动都必须回到这里改。
+        //
+        //    提交门禁(git.rs):check --all-targets 保编译底线 + 轻量 clippy 做 lint
         assert!(
-            this.contains("cargo clippy --workspace --all-targets -- -D warnings"),
-            "clippy_gate 命令与 CI 不一致"
+            this.contains("cargo check --workspace --all-targets"),
+            "compile_gate 必须保留 --all-targets:它是测试代码的编译底线,\
+             clippy 变轻之后没有别的东西覆盖测试代码能不能编译"
+        );
+        assert!(
+            this.contains("cargo clippy --workspace -- -D warnings"),
+            "clippy_gate 应为不含 --all-targets 的轻量形态"
+        );
+        //    verify.ps1:轻量 clippy(编译覆盖由紧随其后的 test 步骤提供)
+        assert!(
+            verify.contains("cargo clippy --workspace --manifest-path"),
+            "verify.ps1 的 clippy 应为轻量形态(不带 --all-targets)"
+        );
+        //    ci.yml:全量 clippy——测试代码的 lint 覆盖只剩这一处,丢了就真没人管了
+        assert!(
+            ci.contains("cargo clippy --workspace --all-targets -- -D warnings"),
+            "ci.yml 必须保留 --all-targets 全量 clippy:本地两处都已转轻量,\
+             测试代码的 lint 覆盖只由 CI 承担"
         );
     }
 
@@ -2039,8 +2062,9 @@ prunable gitdir file points to non-existent location
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-210 验收①:删掉串行 cargo check 后,编译错误仍被 clippy_gate 拦下,
-    /// 且报错含 `-->` 位置——clippy 全 workspace 编译覆盖 check 的实证。
+    /// 编译错误必须被 clippy_gate 拦下,且报错含 `-->` 位置。
+    /// (原为 R-210 验收①「clippy 覆盖 check」的实证;clippy 转轻量后,这条覆盖
+    /// 改由 clippy_gate 内先跑的 compile_gate 提供,断言不变、机制换了。)
     #[tokio::test]
     async fn clippy_gate_rejects_compile_error_with_position() {
         let dir = std::env::temp_dir().join(format!(
@@ -2071,6 +2095,51 @@ prunable gitdir file points to non-existent location
             "报错必须含 --> 位置(clippy 编译覆盖 check 的实证): {err}"
         );
         assert!(err.contains("lib.rs"), "应点名出错文件: {err}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// clippy 转轻量之后的护栏:**测试代码**的编译错误必须仍被拦下。
+    ///
+    /// clippy 去掉 `--all-targets` 后就不再看测试目标了,测试代码能不能编译完全
+    /// 靠 clippy_gate 内先跑的 compile_gate(`check --all-targets`)。这条测试盯的
+    /// 就是那条底线:它一旦红,说明有人把 compile_gate 也改轻了——而那正是
+    /// 2026-08-09 事故的形态(破损代码配着自写的 passed 记录进库)。
+    #[tokio::test]
+    async fn clippy_gate_rejects_compile_error_in_test_code() {
+        let dir = std::env::temp_dir().join(format!(
+            "kz-clippytestcomp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("tests")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname = \"clippy-testcomp-probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+        )
+        .unwrap();
+        // 库代码干净——轻量 clippy 看不出任何问题。
+        std::fs::write(dir.join("src/lib.rs"), "pub fn probe() -> i32 { 1 }\n").unwrap();
+        // 破损只在集成测试里:未定义符号。只有 --all-targets 的编译才会碰到它。
+        std::fs::write(
+            dir.join("tests/broken.rs"),
+            "#[test]\nfn t() { let _: i32 = undefined_symbol_in_test_code(); }\n",
+        )
+        .unwrap();
+
+        let err = clippy_gate(&dir).await.unwrap_err();
+        assert!(
+            err.contains("提交被拦下"),
+            "测试代码编译不过必须拦下提交: {err}"
+        );
+        assert!(
+            err.contains("broken.rs"),
+            "应点名出错的测试文件(证明 --all-targets 编译覆盖仍在): {err}"
+        );
+        assert!(err.contains("-->"), "报错必须含 --> 位置: {err}");
         std::fs::remove_dir_all(&dir).ok();
     }
 
