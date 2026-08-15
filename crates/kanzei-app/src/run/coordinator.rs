@@ -12,127 +12,62 @@
 //! ⑨`stage` 闭包签名保持 `&(dyn Fn(&str, String) + Sync)`。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use tauri::Emitter;
 
-use crate::{
-    conversation, record_live_trace, with_session_id, LiveRun, PendingAsk, PromptAttachment,
-};
+use crate::{conversation, record_live_trace, with_session_id};
 
-use super::assembly::{assemble_run, RunAssembly, RuntimeDeps};
-use super::events::{build_ask_handler, build_event_handler};
+use super::assembly::{assemble_run, RoundRequest, RunAssembly, RunMode, RuntimeHandles};
+use super::events::{
+    build_ask_handler, build_event_handler, MetricsSink, TraceSink, TypedEventSink, UiEventSink,
+};
 use super::execution::{build_subagent_runtime, run_execution_loop};
-use super::persistence::{finalize_round, persist_round_outcome};
+use super::persistence::{
+    finalize_round, persist_round_outcome, FinalizeOutcome, FinalizeRound, FinalizeSession,
+    RoundReport,
+};
 use super::{emit_stage, maybe_push_after_commit};
 
 /// R-202 批2:run_task(原 run.rs 的 Round Coordinator)。装配 → 事件循环 → 轮末收尾。
-#[allow(clippy::too_many_arguments)] // 运行时依赖均由 AppState 拆分持有，改参会扰动 Tauri 调度链。
+/// R-253 批7b:调用参数按生命周期三分——`RoundRequest`(本轮输入)/`RunMode`(运行档位)/
+/// `RuntimeHandles`(会话级句柄),共 4 参,消 too_many。三组均见 assembly.rs 的
+/// 生命周期说明,禁止再退化成 30+ 扁平参数。
 pub(crate) async fn run_task(
     window: &tauri::Window,
-    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
-    ask_seq: Arc<AtomicU64>,
-    prompt: String,
-    attachments: Option<Vec<PromptAttachment>>,
-    project_dir: String,
-    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
-    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
-    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
-    main_root: PathBuf,
-    session_id: String,
-    // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
-    // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
-    phase_pipeline_enabled: bool,
-    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
-    block_tracker_writes: bool,
-    collaboration_probe: crate::collaboration::CollaborationProbe,
-    current_stage: Arc<Mutex<String>>,
-    profile: Option<String>,
-    agent_name: Option<String>,
-    model_override: Option<String>,
-    work_priority: Option<String>,
-    reasoning_override: Option<String>,
-    conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
-    live_run: Arc<Mutex<LiveRun>>,
-    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
-    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
-    task_cancellations: Arc<kanzei_core::TaskCancellations>,
-    auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
-    delivery: kanzei_core::Delivery,
-    promoted_input: Option<kanzei_core::AdmittedInput>,
-    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
-    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
-    coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
-    process_id: String,
-    autonomous: bool,
-    auto_allow: bool,
-    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
-    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
-    halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
-    run_generation: Arc<AtomicU64>,
+    request: RoundRequest,
+    mode: RunMode,
+    handles: RuntimeHandles,
 ) -> anyhow::Result<()> {
     // 阶段汇报:让前端每一步都有着落(用户反馈:要详细指示)。
+    // session_id/process_id 在 request 整体移入装配后仍需使用,先克隆供全程引用;
+    // phase_pipeline_enabled/autonomous 是运行档位中轮末/执行段仍要消费的残留位。
+    let session_id = request.session_id.clone();
+    let process_id = request.process_id.clone();
+    let phase_pipeline_enabled = mode.phase_pipeline_enabled;
+    let autonomous = mode.autonomous;
     let stage = |name: &str, detail: String| {
-        *current_stage.lock().unwrap() = name.to_string();
+        *handles.current_stage.lock().unwrap() = name.to_string();
         emit_stage(window, &session_id, name, detail);
     };
 
     // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
     // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
-    run_generation.fetch_add(1, Ordering::SeqCst);
+    handles.run_generation.fetch_add(1, Ordering::SeqCst);
     let halt_token = kanzei_core::CancellationToken::new();
-    *halt_slot.lock().unwrap() = Some(halt_token.clone());
+    *handles.halt_slot.lock().unwrap() = Some(halt_token.clone());
 
     let RunAssembly {
         deps,
         session,
-        round,
-    } = assemble_run(
-        window,
-        &stage,
-        &project_dir,
-        main_root,
-        attachments,
-        prompt,
-        &session_id,
-        phase_pipeline_enabled,
-        block_tracker_writes,
-        collaboration_probe,
-        profile,
-        agent_name,
-        model_override,
-        work_priority,
-        reasoning_override,
-        delivery,
-        promoted_input,
-        &coordinator,
-        &process_id,
-        autonomous,
-        auto_allow,
-        halt_token,
-    )
-    .await?;
+        mut round,
+    } = assemble_run(window, &stage, request, mode, &handles, halt_token).await?;
 
-    // R-253 批7:RunAssembly 三分后按需展开——move 型字段(typed_flush_task/pipeline)
-    // 经分组变量取,其余字段经引用访问,避免部分 move 破坏整体借用。
-    let RuntimeDeps {
-        project_root,
-        config,
-        profile,
-        rctx,
-        snapshot,
-        agent,
-        work_priority,
-        resolved,
-        proxy,
-        route,
-        client,
-        runner_config,
-        ask_source,
-    } = deps;
+    // R-253 批7:RunAssembly 三分后按需取字段——session 的 move 型字段(store/
+    // typed_flush_task)取出,其余经引用访问;deps/round 保持整体(不再解构),
+    // 供执行循环与轮末收尾按生命周期分组传入。
     let state_path = session.state_path.clone();
     // SessionStore 非 Sync:recover_messages 同步用后即弃,不跨 await 持引用
     // (危险点③——跨 await 持引用会破坏 future Send 约束)。move owned 而非借用。
@@ -142,13 +77,11 @@ pub(crate) async fn run_task(
     let initial_parts = &session.initial_parts;
     let typed_writer = session.typed_writer.clone();
     let typed_flush_task = session.typed_flush_task;
+    // round 在 run_execution_loop 期间整体被 &mut 借用(执行循环驱动 round.pipeline),
+    // 轮末字段(ctx/_write_lease/run_started/run_epoch_ms)在调用返回后移出;
+    // 这里只 clone 调用前后都要用的身份字段。
     let run_id = round.run_id.clone();
-    let run_started = round.run_started;
-    let run_epoch_ms = round.run_epoch_ms;
     let orchestration_trace = round.orchestration_trace.clone();
-    let mut pipeline = round.pipeline;
-    let _write_lease = round._write_lease;
-    let ctx = round.ctx;
 
     let event_window = window.clone();
     let session_id_for_events = session_id.clone();
@@ -163,13 +96,13 @@ pub(crate) async fn run_task(
         orchestration_trace.observe(&event);
     };
     // 轨迹与统计写进 runtime 的 live 画像,停止路径才够得着(D-179)。
-    let live = live_run.clone();
+    let live = handles.live_run.clone();
     live.lock().unwrap().begin(
         &run_id,
         &promoted_input_id,
         &prompt,
-        &resolved.provider_name,
-        &resolved.model,
+        &deps.resolved.provider_name,
+        &deps.resolved.model,
     );
     let trace_log = live.clone();
     // D-173 可观测性:主代理的工具调用原先只实时发给 UI,一条也不落库——
@@ -186,24 +119,26 @@ pub(crate) async fn run_task(
     // 画像——委派出去的活也是活,不能因为主轮只留下一个 task 调用就判成空转。
     let subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>> =
         Arc::new(Mutex::new(std::collections::BTreeSet::new()));
+    // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
+    // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
     let mut on_event = build_event_handler(
-        emit_event,
-        tool_started,
-        trace_log,
-        state_path.clone(),
-        session_id.clone(),
-        typed_writer.clone(),
-        committed_this_round.clone(),
-        pending_commit_call,
-        subagent_tools.clone(),
+        UiEventSink::new(emit_event),
+        TypedEventSink::new(typed_writer.clone()),
+        TraceSink::new(trace_log, state_path.clone(), session_id.clone()),
+        MetricsSink::new(
+            tool_started,
+            committed_this_round.clone(),
+            pending_commit_call,
+            subagent_tools.clone(),
+        ),
     );
 
     let mut ask = build_ask_handler(
-        asks,
-        ask_seq,
-        ask_source,
+        handles.asks.clone(),
+        handles.ask_seq.clone(),
+        deps.ask_source,
         window,
-        ctx.project_root.clone(),
+        round.ctx.project_root.clone(),
         session_id.clone(),
     );
 
@@ -211,7 +146,7 @@ pub(crate) async fn run_task(
     // (同步完成——SessionStore 非 Sync,跨 await 持引用会破坏 future Send 约束,
     // 故 prior 在 run_task 恢复、run_execution_loop 只消费它,行为与内联时一致。)
     let persisted = conversation::recover_messages(&store, &session_id)?;
-    let prior = conversation::conversation_prior(&conversation, &session_id, persisted);
+    let prior = conversation::conversation_prior(&handles.conversation, &session_id, persisted);
     if !prior.is_empty() {
         stage("会话", format!("延续对话({} 条历史消息)", prior.len()));
     }
@@ -221,37 +156,35 @@ pub(crate) async fn run_task(
     // 「勘察复核」开关控制。构造与 prior 恢复无数据依赖(顺序互换行为不变,失败
     // 同样提前终止本轮),故先构造再进 run_execution_loop。
     let subagent_rt = build_subagent_runtime(
-        &rctx,
-        &config,
-        &proxy,
-        &resolved,
-        &route,
-        &coordinator,
-        task_cancellations,
+        &deps.rctx,
+        &deps.config,
+        &deps.proxy,
+        &deps.resolved,
+        &deps.route,
+        &handles.coordinator,
+        handles.task_cancellations.clone(),
     )
     .await?;
 
     // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环
     // (run_once_with_parts)→ 复核修正(run_review_and_fixup),收敛为独立函数。
-    let run_result = run_execution_loop(
-        &stage,
+    // R-253 批7b:执行输入打包(ExecutionInput)+ 生命周期分组(deps/round)。
+    let execution_input = crate::run::execution::ExecutionInput {
+        stage: &stage,
         initial_parts,
-        &prompt,
-        &ctx,
+        prompt: &prompt,
         autonomous,
-        &config,
-        &mut pipeline,
-        &subagent_rt,
-        &client,
-        &route,
-        &snapshot,
-        &agent,
-        &runner_config,
-        &mut on_event,
-        &mut ask,
-        &prior,
-    )
-    .await;
+        subagent_rt: &subagent_rt,
+        prior: &prior,
+    };
+    let run_result =
+        run_execution_loop(&deps, &mut round, &execution_input, &mut on_event, &mut ask).await;
+    // R-253 批7b:调用返回后 round 可整体取回——执行循环只借用了 round.ctx 与
+    // round.pipeline(不相交字段),其余轮末字段在此移出供收尾段使用。
+    let run_started = round.run_started;
+    let run_epoch_ms = round.run_epoch_ms;
+    let ctx = round.ctx;
+    let _write_lease = round._write_lease;
     // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
     let final_store = persist_round_outcome(
         &state_path,
@@ -262,7 +195,7 @@ pub(crate) async fn run_task(
         &prior,
         &ctx,
         &prompt,
-        &resolved,
+        &deps.resolved,
         &run_id,
         &promoted_input_id,
         &run_started,
@@ -278,7 +211,7 @@ pub(crate) async fn run_task(
         kanzei_core::summarize_tools(&summary.messages[prior.len().min(summary.messages.len())..]);
     // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
     // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
-    let backlog = crate::auto_run::backlog_status(&project_root);
+    let backlog = crate::auto_run::backlog_status(&deps.project_root);
     // D-361:主轮画像 + 本轮子代理内部用过的工具。前者只切主 conversation,派出去的
     // 活在它里面只剩一个 task 调用;两者合并后,「委派」按子代理实际干了什么判定,
     // 而不是按主轮留下的那一行痕迹判定。子代理确实什么也没干时,合并后仍只有 task,
@@ -290,7 +223,7 @@ pub(crate) async fn run_task(
         names.into_iter().collect()
     };
     let auto_action_json = {
-        let mut controllers = auto_runs.lock().unwrap();
+        let mut controllers = handles.auto_runs.lock().unwrap();
         let ctrl = controllers.entry(session_id.clone()).or_default();
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
             backlog,
@@ -300,19 +233,19 @@ pub(crate) async fn run_task(
             // R-199:档位条件下沉引擎——只有 dev-auto(profile=dev + agent=dev)
             // 允许自动推进;research/结对模式引擎判 Stop(ProfileMismatch),前端
             // 不再持有私有否决(armAutoContinue 的 autoContinueAllowed 已移除)。
-            auto_allowed: matches!(profile, kanzei_harness::ProfileKind::Dev)
-                && agent.name == "dev",
+            auto_allowed: matches!(deps.profile, kanzei_harness::ProfileKind::Dev)
+                && deps.agent.name == "dev",
             // R-144:本轮关闭条目数(工具画像里 req/defect close 成功计数)。
             closed_this_round: crate::auto_run::closed_count_this_round(&summary),
             // R-144:核查阈值取自 cadence 配置;0 = 关闭该机制。
-            verify_every_n: kanzei_harness::KanzeiConfig::load_at_root(&project_root)
+            verify_every_n: kanzei_harness::KanzeiConfig::load_at_root(&deps.project_root)
                 .map(|c| c.cadence.verify_every_n)
                 .unwrap_or(0),
         };
         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
         let mut payload = crate::auto_run::serialize_action(
             action,
-            crate::auto_run::work_priority_enum(work_priority),
+            crate::auto_run::work_priority_enum(deps.work_priority),
         );
         // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
         payload["rounds"] = json!(ctrl.state.rounds);
@@ -336,30 +269,38 @@ pub(crate) async fn run_task(
     )
     .await;
     // R-202 批2:轮末收尾段后半(对话落库/轮末压缩/kz:done/租约释放/令牌回收)收敛。
+    // R-253 批7b:参数按生命周期分组(FinalizeSession/FinalizeRound/FinalizeOutcome/
+    // RoundReport + deps/handles/subagent_rt)。
     finalize_round(
-        &conversation,
-        &session_id,
-        &summary,
-        &resolved,
-        &config,
-        &stage,
-        &client,
+        &deps,
+        &handles,
+        FinalizeSession {
+            conversation: &handles.conversation,
+            session_id: &session_id,
+            typed_writer: &typed_writer,
+            typed_flush_task,
+            final_store,
+        },
+        FinalizeRound {
+            ctx: &ctx,
+            run_id: &run_id,
+            process_id: &process_id,
+            _write_lease: &_write_lease,
+            writer_event: &writer_event,
+            phase_pipeline_enabled,
+        },
+        FinalizeOutcome {
+            summary: &summary,
+            history_len,
+            this_run_tools: &this_run_tools,
+            auto_action_json: &auto_action_json,
+        },
+        RoundReport {
+            window,
+            stage: &stage,
+            live: &live,
+        },
         &subagent_rt,
-        final_store,
-        &live,
-        &typed_writer,
-        typed_flush_task,
-        window,
-        history_len,
-        &this_run_tools,
-        &auto_action_json,
-        phase_pipeline_enabled,
-        &writer_event,
-        &ctx,
-        &run_id,
-        &process_id,
-        &_write_lease,
-        &halt_slot,
     )
     .await?;
     Ok(())

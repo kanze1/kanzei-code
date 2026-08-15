@@ -17,6 +17,35 @@ use std::sync::Arc;
 use kanzei_core::{run_once_with_parts, AskFuture, RunEvent};
 use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ResolveCtx, ToolCtx};
 
+use super::assembly::{RoundContext, RuntimeDeps};
+
+/// R-253 批7b:执行循环的输入打包(本轮执行输入,不含生命周期分组)。
+pub(crate) struct ExecutionInput<'a> {
+    pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
+    pub(crate) initial_parts: &'a [kanzei_llm::Part],
+    pub(crate) prompt: &'a str,
+    pub(crate) autonomous: bool,
+    pub(crate) subagent_rt: &'a Option<kanzei_core::SubagentRuntime>,
+    pub(crate) prior: &'a [kanzei_llm::Message],
+}
+
+/// R-253 批7b:复核/修正段的模型调用参数包——run_once 复核段真正消费的参数收成一包:
+/// `client/route/snapshot/agent/runner_config/ctx` 是 RuntimeDeps 与 RoundContext 中
+/// 模型调用层的子集,`prompt/subagent_rt/stage` 来自本轮执行输入。
+/// 生命周期 = 执行层单次模型调用;不与装配(RuntimeDeps)或协调(RoundContext)整体
+/// 绑定——复核段不背整棵树,测试也不必伪造未消费的字段(resolved/provider 等)。
+pub(crate) struct ReviewExec<'a> {
+    pub(crate) client: &'a kanzei_llm::LlmClient,
+    pub(crate) route: &'a kanzei_llm::Route,
+    pub(crate) snapshot: &'a Arc<kanzei_harness::HarnessSnapshot>,
+    pub(crate) agent: &'a kanzei_harness::AgentDef,
+    pub(crate) runner_config: &'a kanzei_core::RunnerConfig,
+    pub(crate) ctx: &'a ToolCtx,
+    pub(crate) prompt: &'a str,
+    pub(crate) subagent_rt: Option<&'a kanzei_core::SubagentRuntime>,
+    pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
+}
+
 /// 装配 task 子代理运行时(原 run.rs build_subagent_runtime)。
 pub(crate) async fn build_subagent_runtime(
     rctx: &ResolveCtx,
@@ -101,25 +130,31 @@ pub(crate) async fn build_subagent_runtime(
 /// 行为零变更:先恢复 prior,再注入记忆提示,再按流水线状态机 scout/begin_implementation,
 /// 最后 run_once + 复核。返回 (run_result, prior):prior 供轮末 typed shadow 报告与
 /// 本轮切片使用。
-#[allow(clippy::too_many_arguments)]
+/// R-253 批7b:按层收参(deps+round+execution input+on_event/ask),消 too_many。
+/// round 收 `&mut RoundContext`:执行循环要就地驱动 `round.pipeline` 状态机,
+/// 与 `round.ctx` 是**不相交字段借用**(ctx 只读、pipeline 独占),可同时成立;
+/// 协调器在调用期间不再触碰 round,返回后仍可整体取回字段。
 pub(crate) async fn run_execution_loop(
-    stage: &(dyn Fn(&str, String) + Sync),
-    initial_parts: &[kanzei_llm::Part],
-    prompt: &str,
-    ctx: &ToolCtx,
-    autonomous: bool,
-    config: &kanzei_harness::KanzeiConfig,
-    pipeline: &mut Option<crate::phase_pipeline::PhasePipeline>,
-    subagent_rt: &Option<kanzei_core::SubagentRuntime>,
-    client: &kanzei_llm::LlmClient,
-    route: &kanzei_llm::Route,
-    snapshot: &Arc<kanzei_harness::HarnessSnapshot>,
-    agent: &kanzei_harness::AgentDef,
-    runner_config: &kanzei_core::RunnerConfig,
+    deps: &RuntimeDeps,
+    round: &mut RoundContext,
+    input: &ExecutionInput<'_>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     ask: &mut (dyn FnMut(kanzei_core::AskRequest) -> AskFuture + Send),
-    prior: &[kanzei_llm::Message],
 ) -> Result<kanzei_core::RunSummary, anyhow::Error> {
+    let stage = input.stage;
+    let initial_parts = input.initial_parts;
+    let prompt = input.prompt;
+    let ctx = &round.ctx;
+    let pipeline = &mut round.pipeline;
+    let autonomous = input.autonomous;
+    let config = &deps.config;
+    let subagent_rt = input.subagent_rt;
+    let client = &deps.client;
+    let route = &deps.route;
+    let snapshot = &deps.snapshot;
+    let agent = &deps.agent;
+    let runner_config = &deps.runner_config;
+    let prior = input.prior;
     if !initial_parts.is_empty() {
         let image_count = initial_parts
             .iter()
@@ -223,8 +258,7 @@ pub(crate) async fn run_execution_loop(
     // run_once 次数与引入前一样是 1 次。
     let run_result = match (pipeline.as_mut(), run_result) {
         (Some(pipeline), Ok(summary)) => {
-            let merged = run_review_and_fixup(
-                pipeline,
+            let review_exec = ReviewExec {
                 client,
                 route,
                 snapshot,
@@ -232,13 +266,10 @@ pub(crate) async fn run_execution_loop(
                 runner_config,
                 ctx,
                 prompt,
-                subagent_rt.as_ref(),
-                summary,
-                on_event,
-                ask,
+                subagent_rt: subagent_rt.as_ref(),
                 stage,
-            )
-            .await;
+            };
+            let merged = run_review_and_fixup(&review_exec, pipeline, summary, on_event, ask).await;
             pipeline.finish();
             merged
         }
@@ -259,22 +290,26 @@ pub(crate) async fn run_execution_loop(
 /// - 有复核发现:跑一段修正 run_once,`prior` 接实现段的完整 `messages`,
 ///   所以返回的 `messages` 是「实现段 + 修正段」的连续历史,
 ///   `prior.len()` 之后的切片仍然正好是本轮全部内容(轮末统计口径不变)。
-#[allow(clippy::too_many_arguments)] // 复核/修正要重放整条 run_once 参数链,收拢成参数对象只会多一层壳。
+///
+/// R-253 批7b:按层收参(`ReviewExec`/pipeline/summary/on_event/ask),消 too_many。
+/// `ReviewExec` 见上:模型调用参数链(run_once 复核段真正消费的子集),生命周期 =
+/// 执行层单次模型调用,不与 RuntimeDeps/RoundContext 整体绑定。
 pub(crate) async fn run_review_and_fixup(
+    exec: &ReviewExec<'_>,
     pipeline: &mut crate::phase_pipeline::PhasePipeline,
-    client: &kanzei_llm::LlmClient,
-    route: &kanzei_llm::Route,
-    snapshot: &Arc<kanzei_harness::HarnessSnapshot>,
-    agent: &kanzei_harness::AgentDef,
-    runner_config: &kanzei_core::RunnerConfig,
-    ctx: &ToolCtx,
-    prompt: &str,
-    subagent_rt: Option<&kanzei_core::SubagentRuntime>,
     summary: kanzei_core::RunSummary,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
     ask: &mut (dyn FnMut(kanzei_core::AskRequest) -> AskFuture + Send),
-    stage: &(dyn Fn(&str, String) + Sync),
 ) -> anyhow::Result<kanzei_core::RunSummary> {
+    let client = exec.client;
+    let route = exec.route;
+    let snapshot = exec.snapshot;
+    let agent = exec.agent;
+    let runner_config = exec.runner_config;
+    let ctx = exec.ctx;
+    let prompt = exec.prompt;
+    let subagent_rt = exec.subagent_rt;
+    let stage = exec.stage;
     if let Err(error) = pipeline.begin_integration() {
         tracing::warn!(%error, "进入集成阶段失败,跳过复核");
         return Ok(summary);

@@ -4339,3 +4339,15 @@
 - observed_head: f5d0178662ae2d7df5903689cd118adfc3f85ec3
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786757954260
+
+## D-370 goal 线退役后 goals.md 无删除/编辑写通道:write/edit 与 bash 双拒,退役数据文件只能用户手删 [fixed] (low)
+- 复现: R-252 B5 数据迁移时尝试删除 .kanzei/project/goals.md:write/edit 被 ruleset 拒('用户手写的项目资产,模型只读' + 无专用工具),bash Remove-Item 被 managed fence 检测并回滚(quarantine 留副本)。
+- 影响: goal 线退役(R-252 B1)删除了 goal 工具与 GOALS DocKind,但存量数据文件 goals.md/goals-archive.md 留在磁盘上——引擎对 .kanzei/project 的托管围栏不区分'已退役文件'与'活跃 tracker 文档',退役文件的删除/编辑成了无工具可走的死路。当前只能由用户手动删除(用户手改不受围栏限制)。
+- 来源: self-found R-252 B5
+- 标签: 后端
+- 进展: 2026-08-16 结论:①具体实例已解决——用户按拍板手动删除 goals.md/goals-archive.md(R-252 B5),磁盘无滞留;sources/findings 本就不在磁盘,quarantine 无残留。②机制判断:write/edit 对 .kanzei/project 硬 deny + bash managed fence 回滚是安全模型的有意设计(防模型绕过专用工具改项目资产,profiles.rs 兜底 deny 注释原文'用户手写的项目资产,模型只读');为'退役文件'开模型写豁免,等于给模型开任意删托管文件的漏洞,破坏面大于收益。退役文件的清理是用户所有权动作(用户手改不受围栏限制),这是合理边界而非 bug。处置:wontfix——不为退役文件开放模型写通道;退役文档线的数据迁移应在退役批次内由用户手动完成(参照 R-252 B5 流程)。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-370
+- observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786765467260

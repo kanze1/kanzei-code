@@ -254,22 +254,7 @@
 - 验收: ①read 读 PNG/JPEG/WebP/GIF 各有定向测试,media_type 正确,非图片文件走原文本路径无回归;②ui_probe screenshot 返回的图片能被模型消费,桌面端实测有轨迹;③provider 不支持图片时有显式降级诊断;④图片 artifact 走 R-245 spill,ToolOutput 不内联超阈值 base64;⑤R-014 既有附件路径逐条无回归;⑥ToolOutput 结构变更后既有全部工具返回路径编译通过且行为不变(机械核验)。
 - 优先级: P1
 
-## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [doing]
-- 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。
-- 备注: 本条与其余九条一起勘察,唯独它需要动 13 个文件,其中 crates/kanzei-app/src/run.rs 的动作表有一行 goal→idea——那是与后端自举线唯一抢文件的地方。用户 2026-08-14 拍板:其余九条本轮做完发版,本条另登需求进队列,等 R-202 收尾后单独做。完整勘察(文件锚点/DOM/状态机/门禁设计)见会话记录。
-- 复杂度: 大
-- 来源: 2026-08-14 用户提的十条前端改造之六。原话:目标现在似乎没用?目标区可以改成我们用户侧输入的一些比较原始的设计需求想法,也就是待拆解成需求和缺陷的源。勘察证实 goals 线确实零消费者:取活引擎(work.rs)不看目标,鞭挞的推进指令(auto_run.rs)只点名 requirements.md/defects.md,前端除了渲染三条也没有别的用途。
-- 标签: 核心
-- 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
-- 优先级: P2
-- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-252
-- 批次: 5/5
-- 进展: 全部批次完成。B1(1b24966)IDEAS DocKind+状态机+全后端 goal→idea;B2(b7eef3a)split refs 硬门禁接线+3 正反测试;B3(47c5755)前端想法区+拆解按钮+i18n;B4(b3cd502)idea_split 子代理命令+fake server 集成测试;B5(2026-08-16)goal 线数据退役:goals.md/goals-archive.md 由用户手动删除(goal 工具已退役,无写通道——见 D-370),遗留 G-001~G-003 随文件删除不再存在。关闭前全量 cargo test --workspace 全绿(T-1786765114)。验收逐项:①IDEAS 可增删改查+状态机测试(docstore.rs IDEAS/ideas_state_machine_inbox_to_split_or_dropped、profiles.rs idea 工具、main.rs CLI、docs.rs);②goal 退役+全仓 grep 零残留(goals.md 已删、G 条目不存在);③refs 硬门禁正反测试(tracker.rs idea_split_refs_gate_*);④前端想法区+录入+拆解按钮+refs 展示(index.html/11-docs-list.js/ui-runtime-smoke 断言);⑤idea_split fake server 集成测试(subagents.rs idea_split_runs_subagent_and_marks_idea_split_with_real_refs);⑥work.rs 未动、auto_run 不点名想法(profiles.rs dev/ideas 只注入计数+标题)。
-- observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
-- observed_worktree_hash: fnv1a64:cbf29ce484222325
-- recorded_at: 1786765134704
-
-## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [todo]
+## R-253 run.rs 二次拆解:2885 行生产码切成装配/协调/执行/事件汇/持久化,models_list 与 summarize_chat 等非编排 IPC 迁出 [doing]
 - refs: R-153 R-155 R-202 docs/design/monolith_decomposition.md docs/design/monolith_decomposition_round2.md(批次地图:A 节)
 - 为什么是这个形态: 不是"文件大",是整个桌面 Agent Runtime 的 application service 树被压进一个 .rs。call tree 本身合理(run_prompt 到 run_task 到 assemble/execution/persist),问题在于旁边还夹着 models_list/summarize_chat 这类与运行编排无关的 IPC;而 build_event_handler 把 UI 投影/typed event 持久化/trace/metrics/LiveRun 五种投影揉成一个 giant reducer——加一个 RunEvent 就要读懂整个 runtime。R-153 把 app/main.rs 6413 行拆出 run.rs 时它还只是"运行主链路",此后 memory/scout/review/phase pipeline/write lease/子代理/autonomous 逐个叠进来,重新长成 attractor。
 - 内容: ①先迁非编排 IPC(纯搬迁零风险):app_info/models_list/summarize_chat/stop_run/stop_task/pending_asks_get/answer_ask/run_metrics 移出到 commands 侧模块;②build_event_handler 按投影拆 sink——UiEventSink/TypedEventSink/TraceSink/MetricsSink/LiveRunSink + 一个 fanout 广播,新增 RunEvent 只碰对应 sink;③assemble_run 按生命周期切三层——RuntimeDeps(不变依赖:config/profile/harness/agent/model/route/client/RunnerConfig)、SessionContext(会话事务:SessionStore/create session/admit input/attachment/TypedEventWriter/flush task)、RoundContext(单轮:run id/timing/trace/pipeline/write lease/身份);严禁做成一个 28 字段的 RunContext,那只是把 parameter monolith 换成 context monolith;④persist_round_outcome + finalize_round 独立成 persistence 模块(怎么跑 与 跑完怎么落库 是两个变更理由);⑤run_execution_loop 的隐式流水线(recovery→attachment→memory 预检索→scout→run_once→review/fixup)与 review/fixup 的 primary→critic→corrective 复合阶段,给出显式输入输出边界;⑥build_subagent_runtime 独立成模块。
@@ -280,6 +265,12 @@
 - 边界: 零行为变更、零 IPC 契约变更(命令名与入参返回结构一字不动,ui/*.js 不改);不做 Desktop/CLI 合流(另立条目);不改 phase_pipeline / write lease / 记忆召回语义;不引入新的 async 抽象层或 trait 体操,普通函数与结构体能表达就不要 trait;搬迁批 diff 只允许 move + use + 可见性调整,出现逻辑 diff 即回退重来(沿用 monolith_decomposition.md 执行纪律 4)。
 - 验收: ①run.rs 生产行数 ≤ 400(只留 mod 声明与装配),按生产行数口径核,不用 wc -l;②每个新模块文件头 //! 写清独立理由(照抄 files_view.rs 模式);③本文件 9 处 too_many_arguments 至少消掉 6 处,且不得靠塞进一个大 context struct——必须能指出每个新参数组对应哪一层生命周期;④kanzei-app 全量 + 四条前端冒烟 + cargo test --workspace 全绿;⑤可局部推理实测:新增一个 RunEvent 变体的改动面只落在对应 sink,给出实际 diff 作为证据,不接受"看起来更清楚了"。
 - 优先级: P0
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-253
+- 批次: 8/10
+- 进展: 批0-6b 完成已 push;批7a(293aa51,已 push)RunAssembly 三分:RuntimeDeps/SessionContext/RoundContext,coordinator 三分解构+按需展开(SessionStore move 规避非 Sync),run_task 零行为变更。kanzei-app 166 passed,clippy 零警告。批7b 下一步:深度 too_many 消减——finalize_round/run_execution_loop 收三分组引用,assemble_run/run_task 参数打包(消至≤7 参数/处),达成验收③(需消 6 处:persist_round_outcome 已保留 allow 因 SessionStore 非 Sync 不能收 struct 整体,改消 assemble_run/run_task/run_execution_loop/finalize_round/run_review_and_fixup/build_event_handler 六处)。批8(events 拆 sink)与批7b 合并推进,最后批9 全量+验收逐项。
+- observed_head: 293aa51679a924c074cda9b43a3e770d506962db
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786770227620
 
 ## R-254 processes.rs 拆解:进程注册/生命周期 与 工作树生命周期/门禁/合并/收割分家,主根与工作树根类型化 [todo]
 - refs: R-207 R-177 R-182 D-176 D-267 D-365 D-367 docs/design/parallel_lines_ui.md docs/design/monolith_decomposition_round2.md(批次地图:C 节)

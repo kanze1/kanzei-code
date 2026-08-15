@@ -20,8 +20,48 @@ use tauri::Emitter;
 
 use crate::{flush_live_run, flush_live_trace, memory, typed_events, with_session_id, LiveRun};
 
-use super::assembly::WriterLeaseTrace;
+use super::assembly::{RuntimeDeps, RuntimeHandles, WriterLeaseTrace};
 use super::{append_run_notification, compaction_input_tokens, report_persistence_failure};
+
+/// R-253 批7b:`finalize_round` 参数分组——**会话事务层**:对话历史/会话身份/
+/// typed 写入器与弱引用 flush 任务/轮末打开的 store。生命周期:会话级。
+pub(crate) struct FinalizeSession<'a> {
+    pub(crate) conversation: &'a Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    pub(crate) session_id: &'a str,
+    pub(crate) typed_writer: &'a Arc<Mutex<typed_events::TypedEventWriter>>,
+    pub(crate) typed_flush_task: tauri::async_runtime::JoinHandle<()>,
+    pub(crate) final_store: Option<kanzei_core::SessionStore>,
+}
+
+/// R-253 批7b:`finalize_round` 参数分组——**单轮收尾层**:执行身份/写租约/轨迹出口/
+/// 路径判定。生命周期:本轮级。
+pub(crate) struct FinalizeRound<'a> {
+    pub(crate) ctx: &'a kanzei_harness::ToolCtx,
+    pub(crate) run_id: &'a str,
+    pub(crate) process_id: &'a str,
+    pub(crate) _write_lease: &'a Option<WriterLeaseTrace>,
+    pub(crate) writer_event: &'a (dyn Fn(kanzei_harness::orchestration::OrchestrationEvent) + Sync),
+    /// 本轮是否流水线路径:决定写租约 Released 事件是否由本函数补发——流水线路径的
+    /// 租约归编排对象管(复核屏障/收尾已各发一次),再发一条会在轨迹里重复释放。
+    pub(crate) phase_pipeline_enabled: bool,
+}
+
+/// R-253 批7b:`finalize_round` 参数分组——**本轮结果层**:摘要/历史长/工具画像/
+/// kz:done 载荷。生命周期:本轮级,轮末一次性消费。
+pub(crate) struct FinalizeOutcome<'a> {
+    pub(crate) summary: &'a kanzei_core::RunSummary,
+    pub(crate) history_len: usize,
+    pub(crate) this_run_tools: &'a std::collections::BTreeMap<String, usize>,
+    pub(crate) auto_action_json: &'a serde_json::Value,
+}
+
+/// R-253 批7b:`finalize_round` 参数分组——**UI 汇报层**:事件投影窗口/进度闭包/
+/// live 画像。生命周期:会话级,与运行域之外的 AppState 共享。
+pub(crate) struct RoundReport<'a> {
+    pub(crate) window: &'a tauri::Window,
+    pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
+    pub(crate) live: &'a Arc<Mutex<LiveRun>>,
+}
 
 /// 轮末落库:状态/事件/episode/通知(原 run.rs persist_round_outcome)。
 /// 注:不能收 SessionContext/RoundContext 整体——run_task 内部分字段被 move 给
@@ -215,32 +255,41 @@ pub(crate) fn persist_round_outcome(
 /// R-202 批2:run_task 轮末收尾段后半——对话落库 → 轮末压缩(R-236 B1/B4)→
 /// conversation.updated 与 typed shadow 报告 → kz:done → 写租约 Released →
 /// 停止令牌回收。行为零变更:压缩触发线/口径/事件顺序与内联时一致。
-#[allow(clippy::too_many_arguments)]
+/// R-253 批7b:按生命周期分组收参——`&RuntimeDeps`(不变依赖)/`&RuntimeHandles`
+/// (会话级句柄:conversation/live/halt_slot)/`FinalizeSession`(会话事务)/
+/// `FinalizeRound`(单轮收尾)/`FinalizeOutcome`(本轮结果)/`RoundReport`(UI 汇报)/
+/// `subagent_rt`(压缩用的执行上下文),共 7 参,消 too_many。
 pub(crate) async fn finalize_round(
-    conversation: &Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
-    session_id: &str,
-    summary: &kanzei_core::RunSummary,
-    resolved: &kanzei_harness::config::ResolvedModel,
-    config: &kanzei_harness::KanzeiConfig,
-    stage: &(dyn Fn(&str, String) + Sync),
-    client: &kanzei_llm::LlmClient,
+    deps: &RuntimeDeps,
+    handles: &RuntimeHandles,
+    session: FinalizeSession<'_>,
+    round: FinalizeRound<'_>,
+    outcome: FinalizeOutcome<'_>,
+    report: RoundReport<'_>,
     subagent_rt: &Option<kanzei_core::SubagentRuntime>,
-    final_store: Option<kanzei_core::SessionStore>,
-    live: &Arc<Mutex<LiveRun>>,
-    typed_writer: &Arc<Mutex<typed_events::TypedEventWriter>>,
-    typed_flush_task: tauri::async_runtime::JoinHandle<()>,
-    window: &tauri::Window,
-    history_len: usize,
-    this_run_tools: &std::collections::BTreeMap<String, usize>,
-    auto_action_json: &serde_json::Value,
-    phase_pipeline_enabled: bool,
-    writer_event: &(dyn Fn(kanzei_harness::orchestration::OrchestrationEvent) + Sync),
-    ctx: &kanzei_harness::ToolCtx,
-    run_id: &str,
-    process_id: &str,
-    _write_lease: &Option<WriterLeaseTrace>,
-    halt_slot: &Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
 ) -> anyhow::Result<()> {
+    let conversation = session.conversation;
+    let session_id = session.session_id;
+    let summary = outcome.summary;
+    let window = report.window;
+    let stage = report.stage;
+    let live = report.live;
+    let typed_writer = session.typed_writer;
+    let ctx = round.ctx;
+    let run_id = round.run_id;
+    let process_id = round.process_id;
+    let _write_lease = round._write_lease;
+    let writer_event = round.writer_event;
+    let phase_pipeline_enabled = round.phase_pipeline_enabled;
+    let final_store = session.final_store;
+    let typed_flush_task = session.typed_flush_task;
+    let history_len = outcome.history_len;
+    let this_run_tools = outcome.this_run_tools;
+    let auto_action_json = outcome.auto_action_json;
+    let config = &deps.config;
+    let resolved = &deps.resolved;
+    let client = &deps.client;
+    let halt_slot = &handles.halt_slot;
     conversation
         .lock()
         .unwrap()

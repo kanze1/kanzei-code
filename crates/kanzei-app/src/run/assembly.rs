@@ -13,7 +13,9 @@
 //! spawn 出来的弱引用定时任务,跨模块传递时不能被当成没人用的字段删掉;⑨stage 闭包
 //! 签名保持 `&(dyn Fn(&str, String) + Sync)`,不各自改成泛型 impl Fn。
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -22,7 +24,70 @@ use kanzei_harness::{Component, Effect, HarnessDraft, KanzeiConfig, ResolveCtx, 
 use serde_json::json;
 use tauri::Emitter;
 
-use crate::{prompt_attachment_parts, typed_events, with_session_id, PromptAttachment};
+use crate::{
+    prompt_attachment_parts, typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment,
+};
+
+/// R-253 批7b:进入运行域的调用契约三分组之一——**本轮输入**(`RoundRequest`)。
+/// IPC 入口(run_prompt)解析后的「这一轮要跑什么」:提示词、附件、工作目录/主根/
+/// 会话身份、投递方式、已准入输入、进程身份。
+/// 生命周期:一次性——随本轮产生、随本轮消费,不跨轮复用。
+pub(crate) struct RoundRequest {
+    pub(crate) prompt: String,
+    pub(crate) attachments: Option<Vec<PromptAttachment>>,
+    pub(crate) project_dir: String,
+    // R-141:项目主根由调用方(run_prompt)在 IPC 入口解析一次后显式传入,
+    // 线路径内不再做根发现。worktree 线上线后 project_dir 是代码树、main_root
+    // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
+    pub(crate) main_root: PathBuf,
+    pub(crate) session_id: String,
+    pub(crate) delivery: kanzei_core::Delivery,
+    pub(crate) promoted_input: Option<kanzei_core::AdmittedInput>,
+    pub(crate) process_id: String,
+}
+
+/// R-253 批7b:调用契约三分组之二——**运行档位**(`RunMode`)。
+/// 决定这一轮怎么跑:勘察复核总闸、tracker 写开关、模型/档位覆盖、自主推进与放行。
+/// 生命周期:本轮级模式配置——装配期消费;轮末仍有残留用途(`phase_pipeline_enabled`
+/// 决定写租约释放路径),故 run_task 先拷贝 bool 再整体移入装配。
+pub(crate) struct RunMode {
+    // 进程级「勘察复核」开关 = 阶段流水线总闸(2026-08-11 用户定调)。
+    // 开 → 本轮强制走七阶段;关 → 一问一答。它**不**决定有没有子代理。
+    pub(crate) phase_pipeline_enabled: bool,
+    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
+    pub(crate) block_tracker_writes: bool,
+    pub(crate) profile: Option<String>,
+    pub(crate) agent_name: Option<String>,
+    pub(crate) model_override: Option<String>,
+    pub(crate) work_priority: Option<String>,
+    pub(crate) reasoning_override: Option<String>,
+    pub(crate) autonomous: bool,
+    pub(crate) auto_allow: bool,
+}
+
+/// R-253 批7b:调用契约三分组之三——**运行时句柄**(`RuntimeHandles`)。
+/// AppState/SessionRuntime 里跨轮存活的共享句柄(asks 表、会话历史、live 画像、
+/// 停止令牌槽、项目协调器……),Arc 克隆即持有,装配与轮末收尾共用同一批句柄。
+/// 生命周期:会话级——跨轮存活,不随本轮结束而销毁。
+pub(crate) struct RuntimeHandles {
+    pub(crate) asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
+    pub(crate) ask_seq: Arc<AtomicU64>,
+    pub(crate) collaboration_probe: crate::collaboration::CollaborationProbe,
+    pub(crate) current_stage: Arc<Mutex<String>>,
+    pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
+    pub(crate) live_run: Arc<Mutex<LiveRun>>,
+    // R-174:本会话的单条停止注册表。塞进 SubagentRuntime.cancellations 供
+    // run_subagent 挂取消 token;stop_task 命令从 SessionRuntime 拿同一实例命中。
+    pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
+    pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
+    // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
+    // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
+    pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
+    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
+    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
+    pub(crate) halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
+    pub(crate) run_generation: Arc<AtomicU64>,
+}
 
 /// R-202 批1:run_task 装配段的产物聚合。装配(配置/harness/模型/鉴权/会话/typed/
 /// 写租约/执行身份)收敛为一次函数调用返回,run_task 主体只管三段编排
@@ -79,45 +144,32 @@ pub(crate) struct RunAssembly {
 /// 独立函数。行为零变更:时序、阶段汇报、错误信息、状态机转移与事件顺序与内联时
 /// 完全一致;所有装配产物经 [`RunAssembly`] 一次返回,run_task 解构后继续三段编排。
 /// stage 闭包由调用方传入(捕获 current_stage/window/session_id,装配与轮末共用)。
-#[allow(clippy::too_many_arguments)] // 装配输入来自 run_task 参数,拆 struct 会改调用链;R-202 收尾段再收敛参数。
+/// R-253 批7b:调用参数按生命周期分组打包——`RoundRequest`(本轮输入)/`RunMode`
+/// (运行档位)/`&RuntimeHandles`(会话级句柄,装配只借用:collaboration_probe 经
+/// Clone 进 harness,coordinator 经 Arc::clone),加 window/stage/halt_token 三个
+/// 装配独有输入,共 6 参,消 too_many。禁止再退化成 20+ 扁平参数。
 pub(crate) async fn assemble_run(
     window: &tauri::Window,
     stage: &(dyn Fn(&str, String) + Sync),
-    project_dir: &str,
-    main_root: PathBuf,
-    attachments: Option<Vec<PromptAttachment>>,
-    prompt: String,
-    session_id: &str,
-    phase_pipeline_enabled: bool,
-    block_tracker_writes: bool,
-    collaboration_probe: crate::collaboration::CollaborationProbe,
-    profile: Option<String>,
-    agent_name: Option<String>,
-    model_override: Option<String>,
-    work_priority: Option<String>,
-    reasoning_override: Option<String>,
-    delivery: kanzei_core::Delivery,
-    promoted_input: Option<kanzei_core::AdmittedInput>,
-    coordinator: &Arc<kanzei_core::orchestration::MemoryCoordinator>,
-    process_id: &str,
-    autonomous: bool,
-    auto_allow: bool,
+    request: RoundRequest,
+    mode: RunMode,
+    handles: &RuntimeHandles,
     halt_token: kanzei_core::CancellationToken,
 ) -> anyhow::Result<RunAssembly> {
-    let cwd = PathBuf::from(project_dir);
-    anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {project_dir}");
+    let cwd = PathBuf::from(&request.project_dir);
+    anyhow::ensure!(cwd.is_dir(), "工作目录不存在: {}", request.project_dir);
 
     // R-050 D1「运行时重定向主根」的落点:cwd 是代码工作树(线上线后 = worktree),
     // project_root 恒为主根——托管文档、state.db、记忆全部走它。
     // 取根必须在**加载配置之前**:R-177 内容⑧,配置是主根资产,worktree 里的
     // `.kanzei/kanzei.toml` 是被 git checkout 出来的分支副本,读它等于让线的行为
     // 取决于分支停在哪一代。
-    let project_root = main_root;
+    let project_root = request.main_root;
     stage("配置", format!("加载 {}", project_root.display()));
     let (config, config_warnings) = KanzeiConfig::load_with_warnings_at_root(&project_root)?;
     let config = Arc::new(config);
-    report_config_warnings(window, session_id, &config, &config_warnings);
-    let profile = resolve_profile(profile.as_deref(), &config)?;
+    report_config_warnings(window, &request.session_id, &config, &config_warnings);
+    let profile = resolve_profile(mode.profile.as_deref(), &config)?;
     let rctx = ResolveCtx {
         profile,
         cwd: cwd.clone(),
@@ -125,10 +177,13 @@ pub(crate) async fn assemble_run(
         config: config.clone(),
     };
 
-    let harness = build_run_harness(block_tracker_writes, Some(collaboration_probe));
+    let harness = build_run_harness(
+        mode.block_tracker_writes,
+        Some(handles.collaboration_probe.clone()),
+    );
     let snapshot = harness.resolve(&rctx)?;
-    let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
-    let work_priority = normalize_work_priority(work_priority.as_deref());
+    let mut agent = snapshot.select_agent(mode.agent_name.as_deref())?.clone();
+    let work_priority = normalize_work_priority(mode.work_priority.as_deref());
     append_dev_guidance(&mut agent.system, profile, work_priority, &config);
     // 裁决**一轮只算一次**:它内部有 4 次 git 调用(含 git diff --binary HEAD)。
     // 同一份快照既进 system prompt,也作为任务上下文灌给勘察/复核角色——同源同刻,
@@ -157,8 +212,11 @@ pub(crate) async fn assemble_run(
     // 界面模型下拉直选优先于 agent 定义(R-178 P2 五层链 ①②③:本轮直选 → 线持久
     // 选择 → agent 默认;④⑤ 由 config.resolve_model 承担)。桌面与 CLI 共用
     // kanzei_harness::config::resolve_model_chain,同一真源。
-    let model_ref =
-        kanzei_harness::config::resolve_model_chain(model_override.as_deref(), None, &agent.model);
+    let model_ref = kanzei_harness::config::resolve_model_chain(
+        mode.model_override.as_deref(),
+        None,
+        &agent.model,
+    );
     let resolved = config.resolve_model(&model_ref)?;
     let proxy = resolve_proxy(&config);
     stage(
@@ -176,13 +234,13 @@ pub(crate) async fn assemble_run(
     let runner_config = build_runner_config(
         &resolved,
         &config,
-        reasoning_override.as_deref(),
+        mode.reasoning_override.as_deref(),
         &ctx.project_root,
         // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
         // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
         // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
-        if autonomous || process_id.starts_with("p|") {
-            if auto_allow {
+        if mode.autonomous || request.process_id.starts_with("p|") {
+            if mode.auto_allow {
                 kanzei_core::AskPolicy::AutoAllow
             } else {
                 kanzei_core::AskPolicy::NonInteractive
@@ -193,9 +251,9 @@ pub(crate) async fn assemble_run(
         // D-342:主对话 run 全部接停止令牌(协作式停止的接收端)。
         Some(halt_token),
     );
-    let ask_source = if autonomous {
+    let ask_source = if mode.autonomous {
         "autonomous"
-    } else if process_id.starts_with("p|") {
+    } else if request.process_id.starts_with("p|") {
         "parallel"
     } else {
         "primary"
@@ -210,34 +268,43 @@ pub(crate) async fn assemble_run(
 
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state_path)?;
-    store.create_session(session_id, &ctx.project_root.display().to_string(), None)?;
-    let is_new_input = promoted_input.is_none();
-    let promoted = if let Some(input) = promoted_input {
+    store.create_session(
+        &request.session_id,
+        &ctx.project_root.display().to_string(),
+        None,
+    )?;
+    let is_new_input = request.promoted_input.is_none();
+    let promoted = if let Some(input) = request.promoted_input {
         input
     } else {
         let input_id = format!(
             "input_{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
         );
-        store.admit_input(session_id, &input_id, &prompt, delivery)?;
+        store.admit_input(
+            &request.session_id,
+            &input_id,
+            &request.prompt,
+            request.delivery,
+        )?;
         store.append_event(
-            session_id,
+            &request.session_id,
             "prompt.admitted",
-            &json!({ "input_id": input_id, "delivery": if matches!(delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
+            &json!({ "input_id": input_id, "delivery": if matches!(request.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
         )?;
         store
-            .promote_next_input(session_id)?
+            .promote_next_input(&request.session_id)?
             .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
     };
     if is_new_input {
         store.append_event(
-            session_id,
+            &request.session_id,
             "prompt.promoted",
             &json!({ "input_id": promoted.input_id, "delivery": if matches!(promoted.delivery, kanzei_core::Delivery::Steer) { "steer" } else { "queue" } }),
         )?;
     }
     let prompt = promoted.prompt;
-    let initial_parts = prompt_attachment_parts(attachments.unwrap_or_default())?;
+    let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
     let mut typed_user_parts = initial_parts.clone();
     if !prompt.is_empty() {
         typed_user_parts.insert(
@@ -262,10 +329,10 @@ pub(crate) async fn assemble_run(
     // open draft/tool；再提交本轮 user fact。失败只留在 writer report，不改变旧主路径。
     let typed_writer = Arc::new(Mutex::new(typed_events::TypedEventWriter::new(
         &state_path,
-        session_id,
+        &request.session_id,
         &run_id,
     )));
-    if let Err(error) = typed_events::prepare_session(&store, session_id) {
+    if let Err(error) = typed_events::prepare_session(&store, &request.session_id) {
         typed_writer.lock().unwrap().record_error(error);
     }
     typed_writer.lock().unwrap().user_message(
@@ -299,10 +366,10 @@ pub(crate) async fn assemble_run(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or_default();
-    store.set_status(session_id, "running")?;
-    super::append_run_notification(&store, session_id, "running", "任务已开始", false)?;
+    store.set_status(&request.session_id, "running")?;
+    super::append_run_notification(&store, &request.session_id, "running", "任务已开始", false)?;
     store.append_event(
-        session_id,
+        &request.session_id,
         "session.status_changed",
         &json!({ "status": "running" }),
     )?;
@@ -316,7 +383,7 @@ pub(crate) async fn assemble_run(
     // 编译器不会提醒,两边必然漂移。现在类型名与 payload 都由事件自己给出。
     let orchestration_trace = Arc::new(crate::orchestration_trace::SessionEventObserver::open(
         &state_path,
-        session_id,
+        &request.session_id,
     )?);
     // 阶段流水线的装配闸门 = 进程级「勘察复核」开关(2026-08-11 用户定调)。
     // 开着 → 每个任务都走七阶段(手动对话也走);关着 → 不构造编排对象,与引入前
@@ -326,16 +393,16 @@ pub(crate) async fn assemble_run(
     // 这里以前读的是 auto_runs[session].enabled(自主推进/鞭挞)。换掉之后自主推进
     // **不再**自带流水线——它只管「轮末要不要自动发下一条」。
     let pipeline = crate::phase_pipeline::start_if_enabled(
-        phase_pipeline_enabled,
+        mode.phase_pipeline_enabled,
         &config,
         &proxy,
-        Arc::clone(coordinator) as Arc<dyn ProjectExecutionCoordinator>,
+        Arc::clone(&handles.coordinator) as Arc<dyn ProjectExecutionCoordinator>,
         Arc::clone(&orchestration_trace) as Arc<dyn kanzei_harness::orchestration::PhaseObserver>,
         ctx.project_root.clone(),
         // R-182 内容①:流水线路径的写租约同样按代码树仲裁。
         ctx.cwd.clone(),
         &run_id,
-        process_id,
+        &request.process_id,
         stage,
     )
     .await
@@ -362,15 +429,15 @@ pub(crate) async fn assemble_run(
     }
     let plain_lease = crate::phase_pipeline::acquire_plain_lease_if_needed(
         pipeline.is_some(),
-        coordinator.as_ref(),
+        handles.coordinator.as_ref(),
         orchestration_trace.as_ref(),
         &ctx.project_root,
         // R-182 内容①:仲裁范围 = 本轮代码树。线绑了 worktree 就在自己那棵树上
         // 仲裁写权,两条线互不排队——这是「同一项目 N 条线能同时跑」的落点。
         &ctx.cwd,
         &run_id,
-        process_id,
-        session_id,
+        &request.process_id,
+        &request.session_id,
     )
     .await
     .map_err(|e| anyhow::anyhow!("无法获取写租约: {e}"))?;
@@ -383,7 +450,7 @@ pub(crate) async fn assemble_run(
             Arc::clone(&orchestration_trace),
             ctx.project_root.clone(),
             run_id.clone(),
-            process_id.to_string(),
+            request.process_id.to_string(),
         )
     });
     // 注入执行身份:两把键**必须分开取**,serial 策略下普通工具 FIFO 串行 +
@@ -413,7 +480,7 @@ pub(crate) async fn assemble_run(
         worktree_key,
         project_write_key,
         run_id.clone(),
-        process_id.to_string(),
+        request.process_id.to_string(),
     );
     let _ = window.emit(
         "kz:meta",
@@ -424,7 +491,7 @@ pub(crate) async fn assemble_run(
                 "model": format!("{}:{}", resolved.provider_name, resolved.model),
                 "contextLimit": resolved.provider.context_limit,
             }),
-            session_id,
+            &request.session_id,
         ),
     );
 

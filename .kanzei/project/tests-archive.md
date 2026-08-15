@@ -3725,3 +3725,65 @@
 - 摘要: R-252 关闭前全量:cargo test --workspace 全绿(kanzei-tools 262 + kanzei-app 166 + kanzei-memory 130 + 其余 crate 全部 passed),goal 退役后零回归
 - 关联: R-252
 - 收尾: 1786765114
+
+## T-1786766325 cargo test -p kanzei-app (R-253 批0) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批0)
+- 摘要: R-253 批0:models_list/push_ollama_models/build_model_route 迁至 commands/models.rs,summarize_chat/fast_summarize 迁至 commands/summarize.rs(纯搬迁,main.rs invoke_handler 改全路径),run.rs 删 5 符号;kanzei-app 166 passed
+- 关联: R-253
+- 收尾: 1786766325
+
+## T-1786766555 cargo test -p kanzei-app (R-253 批1) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批1)
+- 摘要: R-253 批1:run.rs 拆壳为 run/mod.rs,parse_delivery/admit_input/promote_next_input/code_root_for 迁至 run/input.rs(code_root_for 测试跟随),mod.rs 加 mod input+再导出;kanzei-app 166 passed
+- 关联: R-253
+- 收尾: 1786766555
+
+## T-1786767393 cargo test -p kanzei-app (R-253 批2) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批2)
+- 摘要: R-253 批2:run/assembly.rs 建立(RunAssembly+assemble_run+WriterLeaseTrace+13 个装配辅助,模块头含危险点注释),mod.rs 删搬迁段,append_dev_guidance/cadence_guidance 测试跟随下沉,permission_tests 改全路径;kanzei-app 166 passed,clippy -D warnings 零警告
+- 关联: R-253
+- 收尾: 1786767393
+
+## T-1786767655 cargo test -p kanzei-app (R-253 批3) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批3)
+- 摘要: R-253 批3:run/persistence.rs 建立(persist_round_outcome+finalize_round,模块头写明危险点⑤_write_lease RAII 三处配对⑥typed_flush_task 跨模块⑨stage 闭包),mod.rs 删搬迁段+加 mod persistence 与 re-export,orchestration_trace.rs 改全路径;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786767655
+
+## T-1786767985 cargo test -p kanzei-app (R-253 批4) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批4)
+- 摘要: R-253 批4:run/execution.rs 建立(build_subagent_runtime+run_execution_loop+run_review_and_fixup,模块头危险点③prior 恢复留 run_task④双 &mut FnMut 不抽函数⑨stage 闭包),mod.rs 删搬迁段+加 mod execution 与 re-export,phase_pipeline_tests 改全路径,孤儿注释清理;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786767985
+
+## T-1786768248 cargo test -p kanzei-app (R-253 批5) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批5)
+- 摘要: R-253 批5:run/events/mod.rs 建立(build_event_handler 原样搬迁+build_ask_handler,模块头写明危险点⑦AtomicBool swap 语义⑧subagent_tools 跨模块状态,拆 sink 留批9),mod.rs 删搬迁段+加 mod events 与 re-export,孤儿注释与 unused import 清理;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786768248
+
+## T-1786768774 cargo test -p kanzei-app (R-253 批6a) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批6a run_task→coordinator)
+- 摘要: R-253 批6a:run/coordinator.rs 建立(run_task Round Coordinator,模块头危险点③prior 恢复留此⑤RAII⑨stage),mod.rs 删 run_task+re-export 收敛为共享 helper;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786768774
+- 源码指纹: 870ad285e39fc20e
+
+## T-1786769300 cargo test -p kanzei-app (R-253 批6b) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批6b)
+- 摘要: R-253 批6b:commands/run.rs 建立(run_prompt/stop_run/stop_task/pending_asks_get/answer_ask/run_metrics/run_metrics_by_category+persist_always_allow+指标辅助,模块头写明独立理由),main.rs invoke_handler 改全路径,mod.rs 收敛为共享 helper+测试;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786769300
+
+## T-1786769419 cargo test -p kanzei-app (R-253 批6b fmt 后) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批6b fmt 后复测)
+- 摘要: R-253 批6b fmt 后复测:kanzei-app 166 passed,与提交暂存内容一致
+- 关联: R-253
+- 收尾: 1786769419
+- 源码指纹: f2822cfc32247ba9
+
+## T-1786770193 cargo test -p kanzei-app (R-253 批7a) [passed]
+- 命令: cargo test -p kanzei-app (R-253 批7a RunAssembly 三分)
+- 摘要: R-253 批7a:RunAssembly 三分为 RuntimeDeps/SessionContext/RoundContext(装配产物按生命周期分组),coordinator 三分解构+按需展开(SessionStore move 规避 Send 约束),run_task 体内零行为变更;kanzei-app 166 passed,clippy 零警告
+- 关联: R-253
+- 收尾: 1786770193

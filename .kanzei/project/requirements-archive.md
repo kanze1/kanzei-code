@@ -3118,3 +3118,18 @@
 - observed_head: d590d9ea992c2c3932f54f7f48b85902126c43b0
 - observed_worktree_hash: fnv1a64:cbf29ce484222325
 - recorded_at: 1786758751043
+
+## R-252 目标区改造成原始想法收件箱:新建 IDEAS 文档线、退役 goal、拆解由人点触发子代理 [done]
+- 内容: 把「目标」区改造成用户侧的原始想法收件箱:录入未经拆解的设计需求/想法,再由人点一下派子代理拆成 R-xxx / D-xxx。①新建 IDEAS 文档线(前缀 I,状态 inbox/split/dropped),不复用 GOALS 换语义——goals 线同批退役(现存 G-001~G-003 推 dropped 并归档);②录入不过模型,原样收下(用户想法的原话就是最有价值的部分,过一遍 fast 模型只会磨平);③拆解由人点按钮派子代理(idea_split 命令,照 quick_req 的模式:写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID),不做自动拆解;④转 split 时硬门禁:refs 必须非空且每个 ID 在 requirements/defects 的活跃或归档里真实存在,否则「已拆解」就是一句空话;⑤想法只把计数与标题注入 agent 每轮上下文,不注全文(避免未拆解的想法污染取活)。
+- 备注: 本条与其余九条一起勘察,唯独它需要动 13 个文件,其中 crates/kanzei-app/src/run.rs 的动作表有一行 goal→idea——那是与后端自举线唯一抢文件的地方。用户 2026-08-14 拍板:其余九条本轮做完发版,本条另登需求进队列,等 R-202 收尾后单独做。完整勘察(文件锚点/DOM/状态机/门禁设计)见会话记录。
+- 复杂度: 大
+- 来源: 2026-08-14 用户提的十条前端改造之六。原话:目标现在似乎没用?目标区可以改成我们用户侧输入的一些比较原始的设计需求想法,也就是待拆解成需求和缺陷的源。勘察证实 goals 线确实零消费者:取活引擎(work.rs)不看目标,鞭挞的推进指令(auto_run.rs)只点名 requirements.md/defects.md,前端除了渲染三条也没有别的用途。
+- 标签: 核心
+- 验收: ①IDEAS 文档线可增删改查,状态机 inbox→split/dropped 有测试;②goal 线退役:现存三条推 dropped 并归档,tracker/CLI/前端/managed_fence/记忆控制平面里的 goal 全部改指 idea,全仓 grep 零残留;③转 split 的 refs 硬门禁有正反测试(refs 空拒、指向不存在的 ID 拒、指向归档条目放行);④前端:侧栏「目标」区换成「想法」,有录入入口与「拆解」按钮,拆解后显示产出的 R/D 编号;⑤idea_split 子代理跑通一次真实拆解(fake server 集成测试即可);⑥取活引擎不看想法(work.rs 不动),鞭挞的推进指令也不点名想法队列——想法不是待办。
+- 优先级: P2
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-252
+- 批次: 5/5
+- 进展: 全部批次完成。B1(1b24966)IDEAS DocKind+状态机+全后端 goal→idea;B2(b7eef3a)split refs 硬门禁接线+3 正反测试;B3(47c5755)前端想法区+拆解按钮+i18n;B4(b3cd502)idea_split 子代理命令+fake server 集成测试;B5(2026-08-16)goal 线数据退役:goals.md/goals-archive.md 由用户手动删除(goal 工具已退役,无写通道——见 D-370),遗留 G-001~G-003 随文件删除不再存在。关闭前全量 cargo test --workspace 全绿(T-1786765114)。验收逐项:①IDEAS 可增删改查+状态机测试(docstore.rs IDEAS/ideas_state_machine_inbox_to_split_or_dropped、profiles.rs idea 工具、main.rs CLI、docs.rs);②goal 退役+全仓 grep 零残留(goals.md 已删、G 条目不存在);③refs 硬门禁正反测试(tracker.rs idea_split_refs_gate_*);④前端想法区+录入+拆解按钮+refs 展示(index.html/11-docs-list.js/ui-runtime-smoke 断言);⑤idea_split fake server 集成测试(subagents.rs idea_split_runs_subagent_and_marks_idea_split_with_real_refs);⑥work.rs 未动、auto_run 不点名想法(profiles.rs dev/ideas 只注入计数+标题)。
+- observed_head: b3cd5029a12118365def9fe5a4e6e63e05aca2b6
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786765134704

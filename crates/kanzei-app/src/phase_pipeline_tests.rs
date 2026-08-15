@@ -351,19 +351,21 @@ async fn 七阶段闭环轨迹落库可回放() {
 
     // ---- 集成 → 复核屏障 → 复核 → 修正 ----
     let merged = crate::run::execution::run_review_and_fixup(
+        &crate::run::execution::ReviewExec {
+            client: &fx.client,
+            route: &fx.route,
+            snapshot: &fx.snapshot,
+            agent: &fx.agent,
+            runner_config: &fx.runner_config(),
+            ctx: &fx.ctx,
+            prompt: "修 R-173",
+            subagent_rt: Some(&rt),
+            stage: &stage,
+        },
         &mut pipeline,
-        &fx.client,
-        &fx.route,
-        &fx.snapshot,
-        &fx.agent,
-        &fx.runner_config(),
-        &fx.ctx,
-        "修 R-173",
-        Some(&rt),
         summary,
         &mut on_event,
         &mut ask,
-        &stage,
     )
     .await
     .expect("复核+修正应当成功");
@@ -886,19 +888,21 @@ async fn 复核有发现时修正段接续历史且用量合并() {
     let stage = |_n: &str, _d: String| {};
 
     let merged = crate::run::execution::run_review_and_fixup(
+        &crate::run::execution::ReviewExec {
+            client: &fx.client,
+            route: &fx.route,
+            snapshot: &fx.snapshot,
+            agent: &fx.agent,
+            runner_config: &fx.runner_config(),
+            ctx: &fx.ctx,
+            prompt: "修 R-173",
+            subagent_rt: Some(&rt),
+            stage: &stage,
+        },
         &mut pipeline,
-        &fx.client,
-        &fx.route,
-        &fx.snapshot,
-        &fx.agent,
-        &fx.runner_config(),
-        &fx.ctx,
-        "修 R-173",
-        Some(&rt),
         impl_summary,
         &mut on_event,
         &mut ask,
-        &stage,
     )
     .await
     .expect("复核+修正应当成功");
@@ -1011,19 +1015,21 @@ async fn 复核无发现时不额外跑一段() {
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(20),
         crate::run::execution::run_review_and_fixup(
+            &crate::run::execution::ReviewExec {
+                client: &fx.client,
+                route: &fx.route,
+                snapshot: &fx.snapshot,
+                agent: &fx.agent,
+                runner_config: &fx.runner_config(),
+                ctx: &fx.ctx,
+                prompt: "修 R-173",
+                subagent_rt: Some(&rt),
+                stage: &stage,
+            },
             &mut pipeline,
-            &fx.client,
-            &fx.route,
-            &fx.snapshot,
-            &fx.agent,
-            &fx.runner_config(),
-            &fx.ctx,
-            "修 R-173",
-            Some(&rt),
             impl_summary,
             &mut on_event,
             &mut ask,
-            &stage,
         ),
     )
     .await
@@ -1078,19 +1084,21 @@ async fn 子代理关闭时阶段序列仍完整且空屏障留痕() {
     };
     let stage = |_n: &str, _d: String| {};
     let result = crate::run::execution::run_review_and_fixup(
+        &crate::run::execution::ReviewExec {
+            client: &fx.client,
+            route: &fx.route,
+            snapshot: &fx.snapshot,
+            agent: &fx.agent,
+            runner_config: &fx.runner_config(),
+            ctx: &fx.ctx,
+            prompt: "修 R-173",
+            subagent_rt: None, // 子代理关闭
+            stage: &stage,
+        },
         &mut pipeline,
-        &fx.client,
-        &fx.route,
-        &fx.snapshot,
-        &fx.agent,
-        &fx.runner_config(),
-        &fx.ctx,
-        "修 R-173",
-        None, // 子代理关闭
         implementation_summary(),
         &mut on_event,
         &mut ask,
-        &stage,
     )
     .await
     .unwrap();

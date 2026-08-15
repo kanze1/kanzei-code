@@ -22,6 +22,7 @@ use crate::{
     PromptAttachment, SessionRuntime,
 };
 
+use crate::run::assembly::{RoundRequest, RunMode, RuntimeHandles};
 use crate::run::coordinator::run_task;
 use crate::run::input::{admit_input, code_root_for, parse_delivery, promote_next_input};
 
@@ -322,34 +323,40 @@ pub(crate) async fn run_prompt(
         loop {
             let result = run_task(
                 &window,
-                asks.clone(),
-                ask_seq.clone(),
-                next_prompt,
-                next_attachments.take(),
-                code_root.clone(),
-                main_root.clone(),
-                session_id.clone(),
-                phase_pipeline_enabled,
-                block_tracker_writes,
-                collaboration_probe.clone(),
-                current_stage.clone(),
-                profile.clone(),
-                agent.clone(),
-                model.clone(),
-                work_priority.clone(),
-                reasoning.clone(),
-                conversation.clone(),
-                live_run.clone(),
-                task_cancellations.clone(),
-                auto_runs.clone(),
-                delivery,
-                next_input.take(),
-                coordinator.clone(),
-                process_id_for_run.clone(),
-                autonomous,
-                auto_allow,
-                halt_slot.clone(),
-                run_generation.clone(),
+                RoundRequest {
+                    prompt: next_prompt,
+                    attachments: next_attachments.take(),
+                    project_dir: code_root.clone(),
+                    main_root: main_root.clone(),
+                    session_id: session_id.clone(),
+                    delivery,
+                    promoted_input: next_input.take(),
+                    process_id: process_id_for_run.clone(),
+                },
+                RunMode {
+                    phase_pipeline_enabled,
+                    block_tracker_writes,
+                    profile: profile.clone(),
+                    agent_name: agent.clone(),
+                    model_override: model.clone(),
+                    work_priority: work_priority.clone(),
+                    reasoning_override: reasoning.clone(),
+                    autonomous,
+                    auto_allow,
+                },
+                RuntimeHandles {
+                    asks: asks.clone(),
+                    ask_seq: ask_seq.clone(),
+                    collaboration_probe: collaboration_probe.clone(),
+                    current_stage: current_stage.clone(),
+                    conversation: conversation.clone(),
+                    live_run: live_run.clone(),
+                    task_cancellations: task_cancellations.clone(),
+                    auto_runs: auto_runs.clone(),
+                    coordinator: coordinator.clone(),
+                    halt_slot: halt_slot.clone(),
+                    run_generation: run_generation.clone(),
+                },
             )
             .await;
             if let Err(e) = &result {
