@@ -1,4 +1,5 @@
-# kanzei 安装包构建:cargo tauri build → NSIS setup.exe → dist/
+﻿# kanzei 安装包构建:cargo tauri build → NSIS setup.exe → dist/
+# 该脚本必须以 UTF-8 BOM 保存,以兼容 Windows PowerShell 5.1 对中文字符串的解析。
 # 用法: .\scripts\package.ps1 -Ack <本次要发的提交数> [-Publish]
 #       -Publish = 同时发到 GitHub Releases,应用内"检查更新"即以此为源
 #       -Ack     = 你认为自上个 build-* 标签以来应当发出去的提交条数。
