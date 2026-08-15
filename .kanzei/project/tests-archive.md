@@ -4287,3 +4287,10 @@
 - 关联: R-264
 - 收尾: 1786834996
 - 源码指纹: 05b5437af7b6c255
+
+## T-1786835419 ui-runtime-smoke (R-264 工具链固化背书) [passed]
+- 命令: node --experimental-vm-modules scripts/ui-runtime-smoke.mjs
+- 摘要: R-264 批3 工具链固化背书:ui-runtime 21 文件全绿;gen-esm-defer.mjs 特殊修复点(setter 定义/import/赋值)与冒烟 flush 适配(3 行)保留;renderProjects/documentsKind/dependencyViewOpen setter 化实证。
+- 关联: R-264
+- 收尾: 1786835419
+- 源码指纹: 97b9034c770f3062

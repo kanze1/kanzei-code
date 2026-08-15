@@ -203,10 +203,10 @@
 - 验收: ①B1 ui-sources.mjs 改为遍历 ui/*.js 目录并带文件数下限断言,不再解析 HTML 取清单;②B2 ui-runtime-smoke.mjs 换用可跑 ESM 的执行模型,且保住「逐文件执行以复刻浏览器多 script TDZ 语义」这一能力(设计文档 §二 B2 说明为何不能丢);③B3 __kzTest 钩子改为 08-compose.js 显式 export,冒烟改 import 取用;④以上三条完成且 6799 行断言全绿之后,才开始逐文件迁移,每迁一个文件跑一次全套六个冒烟;⑤迁移完成后删除 gen-ui-lint-globals.mjs、ui-lint-globals.json 及 ui-lint-smoke.mjs 的清单同步校验,eslint.config.js 改 sourceType: "module";⑥设计文档 §三 表格里 10 处顶层跨文件读与 6 处 typeof 守卫逐条改为显式 import 并在验收中点名。
 - 取活依据: engine:无可执行 WIP，按 requirement-first 选择队首 R-264
 - 批次: 2/4
-- 进展: 批2 完成(6c90aba)+工具链(ef89d20/e80114a/66098a6/634c9dc)。**批3 重大突破(2026-08-16)**:①兼容桥修复——refreshManual 等 export 成功挂到 sandbox(PROBE 验证:15-views-misc evaluated + refreshManual 在 namespace);②跨模块写 setter 化推进——renderProjects setter 化(01-core/09-sessions)、14-docs-actions documentsKind/dependencyViewOpen 改 setDocumentsKind/setDependencyViewOpen,冒烟从 Assignment 错误前进;③18-startup IIFE defer 支持;④工具链固化——gen-esm-defer.mjs 特殊修复点(languageSelect const→let+defer + value 并入 defer + 09 setter import + 14 documentsKind),重跑迁移不丢失修复。**剩余**:defer 时序与冒烟断言适配(18 处渲染/交互断言:defer 延迟初始化后 docs_snapshot 失败时序、D-256 批量、跳转高亮等,设计文档 §四 的冒烟桩适配)、B3、删补偿。已回退 ui 到 HEAD(批2 稳定六冒烟全绿)。R-264 保持 doing,冒烟适配待专用批次(设计文档自述对自举无收益,P3 留档)。
-- observed_head: 942ca0c87c2243f9adf60803e7eecd8fe2e8f179
-- observed_worktree_hash: fnv1a64:b9e8a8e742343dfa
-- recorded_at: 1786834937607
+- 进展: 批2 完成(6c90aba)+工具链(ef89d20/e80114a/66098a6/634c9dc/b9ac558)。**批3 跨模块写全覆盖推进(2026-08-16)**:①renderProjects 完整 setter 化(currentProject/activeProcessId/activeSessionId,03-shell setter 定义+09 import 固化);②14-docs-actions documentsKind/dependencyViewOpen setter 化(12-docs-pages setter 定义固化);③工具链特殊修复点完善(languageSelect const→let+defer/value 并入 defer/09 setter import+赋值/03-shell setter 定义/12-docs-pages setter 定义,迁移重跑不丢失);④冒烟时序适配:DOMContentLoaded 触发后 await flush(20) 让 async 初始化推进。**新定位**:withSessionRender(R-267,01-core)写 5 个跨模块状态(currentAssistant/currentReasoning/currentReasoningHead/renderingBackground/activePane)——设计文档 §三 只列了读没列写,是深层持续工程。已回退 ui 到 HEAD(批2 稳定六冒烟全绿)。R-264 保持 doing,withSessionRender setter 化待专用批次(设计文档自述对自举无收益,P3 留档)。
+- observed_head: b9ac5585d5b98d855edaec78c4643dc212fa900a
+- observed_worktree_hash: fnv1a64:cba7c801b211881c
+- recorded_at: 1786835386660
 
 ## R-268 写者与 bash 围栏窗口解耦:托管文档写入不再等全局 bash 静默,不变式从「窗口内没有写者」换成「窗口内的变化可归因」 [todo]
 - 关联: D-382(围栏共享档,已修)、D-383(注册表毒化,残余机械缺陷)、D-364/D-368(围栏归因不变式)、D-258(absorb_paths 按路径吸收)

@@ -38,14 +38,29 @@ const uiDir = "crates/kanzei-app/ui";
 {
   const p = `${uiDir}/09-sessions.js`;
   let src = fs.readFileSync(p, "utf8");
+  // renderProjects 的直接赋值改 setter(迁移重跑会覆盖)。先改赋值,再补 import——
+  // 否则 import 补齐时看不到 setter 调用,漏补。
+  let changed2 = false;
+  if (src.includes("  currentProject = prefs.current;")) {
+    src = src.replace("  currentProject = prefs.current;", "  setCurrentProject(prefs.current);");
+    changed2 = true;
+  }
   const needSetters = ["setCurrentProject", "setActiveProcessId", "setActiveSessionId"];
   const missing = needSetters.filter((s) => src.includes(`${s}(`) && !src.includes(`${s},\n`) && !src.includes(`${s}\n`));
+  // renderProjects 里 activeProcessId/activeSessionId 直接赋 null → setter。
+  if (src.includes("    activeProcessId = null;") && src.includes("    activeSessionId = null;")) {
+    src = src.replace("    activeProcessId = null;\n    activeSessionId = null;", "    setActiveProcessId(null);\n    setActiveSessionId(null);");
+    changed2 = true;
+  }
   if (missing.length > 0) {
     // 在 03-shell import 块内追加缺失 setter(在 `running,` 后插入)。
     const insert = missing.map((s) => `  ${s},`).join("\n");
     src = src.replace("  running,\n", `  running,\n${insert}\n`);
     fs.writeFileSync(p, src);
     console.log(`09-sessions: 补 setter import ${missing.join(", ")}`);
+  } else if (changed2) {
+    fs.writeFileSync(p, src);
+    console.log("09-sessions: currentProject 赋值→setter(幂等)");
   }
 }
 // 14-docs-actions:documentsKind 跨模块写 → setDocumentsKind(12-docs-pages 提供)。
@@ -69,6 +84,46 @@ const uiDir = "crates/kanzei-app/ui";
     }
     fs.writeFileSync(p, src);
     console.log("14-docs-actions: documentsKind → setDocumentsKind(幂等)");
+  }
+}
+// 12-docs-pages:documentsKind/dependencyViewOpen 的 setter 定义(迁移重跑会覆盖)。
+{
+  const p = `${uiDir}/12-docs-pages.js`;
+  let src = fs.readFileSync(p, "utf8");
+  let changed = false;
+  if (/^export let documentsKind = "req";/m.test(src) && !src.includes("export function setDocumentsKind")) {
+    src = src.replace('export let documentsKind = "req";', 'export let documentsKind = "req";\nexport function setDocumentsKind(v) { documentsKind = v; }');
+    changed = true;
+  }
+  if (/^export let dependencyViewOpen = false;/m.test(src) && !src.includes("export function setDependencyViewOpen")) {
+    src = src.replace('export let dependencyViewOpen = false;', 'export let dependencyViewOpen = false;\nexport function setDependencyViewOpen(v) { dependencyViewOpen = v; }');
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(p, src);
+    console.log("12-docs-pages: 补 setter 定义(幂等)");
+  }
+}
+// 03-shell:currentProject/activeProcessId/activeSessionId 的 setter 定义(迁移重跑会覆盖)。
+{
+  const p = `${uiDir}/03-shell.js`;
+  let src = fs.readFileSync(p, "utf8");
+  let changed = false;
+  if (/^export let currentProject = null;/m.test(src) && !src.includes("export function setCurrentProject")) {
+    src = src.replace('export let currentProject = null;', 'export let currentProject = null;\nexport function setCurrentProject(v) { currentProject = v; }');
+    changed = true;
+  }
+  if (/^export let activeProcessId = null;/m.test(src) && !src.includes("export function setActiveProcessId")) {
+    src = src.replace('export let activeProcessId = null;', 'export let activeProcessId = null;\nexport function setActiveProcessId(v) { activeProcessId = v; }');
+    changed = true;
+  }
+  if (/^export let activeSessionId = null;/m.test(src) && !src.includes("export function setActiveSessionId")) {
+    src = src.replace('export let activeSessionId = null;', 'export let activeSessionId = null;\nexport function setActiveSessionId(v) { activeSessionId = v; }');
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(p, src);
+    console.log("03-shell: 补 setter 定义(幂等)");
   }
 }
 

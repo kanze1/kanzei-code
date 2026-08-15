@@ -1234,6 +1234,9 @@ async function runUiSources() {
     for (const fn of domReadyCallbacks.splice(0)) {
       fn();
     }
+    // R-264 冒烟适配:defer 延迟的初始化是 async(18-startup IIFE 等),触发后需
+    // 让微任务/定时器推进,否则断言在初始化未完成时执行。多次 flush 覆盖异步链。
+    await flush(20);
   } catch (err) {
     fail(`ui/*.js 顶层执行抛异常: ${err.stack ?? err}`);
   }
