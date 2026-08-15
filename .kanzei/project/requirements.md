@@ -266,6 +266,12 @@
 - 验收: ①store.rs 生产行数 ≤ 600;②准入策略有独立可测入口(不经 add 也能构造场景测),生命周期同理;③检索/排序实现只有一处(机械核验:BM25 与状态加权代码只出现在 retrieval 侧);④memory crate 全量 + workspace 全量绿;⑤召回质量无回归:同一组 query 在拆解前后 top-k 命中集合一致(给出对照,不接受"应该没变");⑥迁出后做一次真实记忆实验(如调准入门槛)只需改 admission 一处,给出 diff 为证。
 - 优先级: P0
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-255
+- 批次: 1/3
+- 现状(2026-08-16 实测复核): store.rs 现 3836 行(生产码 1506、测试 1824 起)。七域同居确认:add(252-461)/promote(557-634)/reconcile_candidates(635-710)/search_candidates(993-1066)/merge(1343-1446)/inbox(1593-1750 已迁)/migrate_legacy(1754-1804 已迁)/hit_profile(1553-1591 已迁)。D-366 已修:检索排序在 index.rs,store 只产 SearchCandidate(见 SearchCandidate 注释)。
+- 进展: 批1 完成已 push(47e48f3):第一刀零行为变更——inbox 族(7 fn)→ memory/inbox.rs、效果画像(record_hits/hit_profile/hits_map)→ memory/telemetry.rs、migrate_legacy → memory/migration.rs;三文件带 //! 独立理由头(树锁 R-215/D-368、命中可跳可丢、幂等);tree_lock/write_entry/open_db/now_ms pub(crate) 化;store.rs 生产码 1742→1506;kanzei-memory 130 passed(T-1786773385/3433),clippy 零警告。批2 下一步:第二刀——准入策略从 add(252-461)提成 MemoryAdmission(枚举校验/description 必填/近似标题判重/refs 契约/subject 不变式/指纹新颖度),生命周期从 promote/reconcile_candidates 提成 MemoryLifecycle(candidate 老化/晋升/清退/provenance 门禁),Store 只接 save/load;准入与生命周期独立可测入口(验收②);最终 store.rs ≤600(验收①)。批3:检索 retrieval 子目录收口(验收③机械核验)+ 全量验证(验收④)+ 召回质量对照(验收⑤)+ 真实记忆实验 diff(验收⑥)+ close。
+- observed_head: 47e48f346ae0a29e657e184997c54d5949ed3894
+- observed_worktree_hash: fnv1a64:cbf29ce484222325
+- recorded_at: 1786773469652
 
 ## R-256 Desktop 与 CLI 共用 RunService:kz main.rs 的第二套 application layer 收敛,两端只剩 EventSink/AskRouter/RuntimePolicy 之差 [todo]
 - refs: R-253 R-254 R-255 R-183 docs/design/monolith_decomposition.md
