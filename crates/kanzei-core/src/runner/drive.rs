@@ -89,6 +89,8 @@ pub fn run_once<'a>(
     memory_hints: Option<&'a str>,
     prior: &'a [Message],
     subagent: Option<&'a SubagentRuntime>,
+    // R-246:统一资源 owner(可选),见 run_once_with_parts。
+    line_runtime: Option<&'a LineRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
@@ -106,6 +108,7 @@ pub fn run_once<'a>(
         prior,
         None,
         subagent,
+        line_runtime,
         on_event,
         ask,
     )
@@ -134,6 +137,9 @@ pub fn run_once_with_parts<'a>(
     initial_parts: Option<&'a [Part]>,
     // Some = 注册 task 工具,模型可派生并行子代理;子代理自身传 None(禁嵌套)。
     subagent: Option<&'a SubagentRuntime>,
+    // R-246:统一资源 owner(可选)。Some 时后台子代理 spawn 的 JoinHandle 登记
+    // 进 LineRuntime,dispose 时 cancel 后 await 全部退出;None(测试/无)跳过。
+    line_runtime: Option<&'a LineRuntime>,
     on_event: &'a mut (dyn FnMut(RunEvent) + Send),
     ask: &'a mut (dyn FnMut(AskRequest) -> AskFuture + Send),
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
@@ -295,7 +301,17 @@ pub fn run_once_with_parts<'a>(
             // R-202 批4:task 子代理段(并行/后台两种派发 + 溢出上限 + 取消占位补齐)
             // 抽离为 run_subagent_calls,返回本步 task 结果表。
             let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
-                run_subagent_calls(subagent, client, ctx, config, &calls, halt, on_event).await;
+                run_subagent_calls(
+                    subagent,
+                    client,
+                    ctx,
+                    config,
+                    &calls,
+                    halt,
+                    line_runtime,
+                    on_event,
+                )
+                .await;
 
             // R-202 批5:普通工具执行段(并行预检 + wave/串行两条路径)抽离为
             // execute_tool_calls。提前退出(串行路径停止 / 权限用户拒绝)以
@@ -628,6 +644,7 @@ async fn stream_request_step(
 /// - 后台模式:立即 spawn 每个 task,本轮 ToolResult 填「已后台派发」占位,
 ///   生命周期事件与终态通知按 R-175 落 session_events / background_results。
 /// - 溢出数量上限(max_tasks_per_turn)的调用以 ToolOutput::error 即时回喂。
+#[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202);R-246 增 line_runtime。
 async fn run_subagent_calls(
     subagent: Option<&SubagentRuntime>,
     client: &LlmClient,
@@ -635,6 +652,7 @@ async fn run_subagent_calls(
     config: &RunnerConfig,
     calls: &[(String, String, serde_json::Value, String)],
     halt: Option<&CancellationToken>,
+    line_runtime: Option<&LineRuntime>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> std::collections::HashMap<String, kanzei_harness::ToolOutput> {
     // ---- task 子代理:同轮多个 task 并行执行。只读快照无副作用,与任何工具并发都安全 ----
@@ -712,7 +730,9 @@ async fn run_subagent_calls(
                     let events = rt.background_events.clone();
                     let notifications = rt.background_notifications.clone();
                     let timeout_secs = rt.timeout_secs;
-                    tokio::spawn(async move {
+                    // R-246 批3:后台 spawn 的 JoinHandle 交给 LineRuntime 登记,
+                    // dispose 时 cancel 后 await 全部退出(验收②三种终态静止)。
+                    let handle = tokio::spawn(async move {
                         // R-175 B5:派发即记 running 事件——重启后从 session_events
                         // 找「有 running 无后续终态」的 id,即上次未终结的子代理
                         // (验收③:注册表能列出并给确定处置,不留幽灵条目)。
@@ -768,6 +788,12 @@ async fn run_subagent_calls(
                             notify(&call_id, if output.is_error { "failed" } else { "done" });
                         }
                     });
+                    // R-246 批3:登记 spawn 句柄——dispose 时 cancel 后 await 全部
+                    // join,保证返回前子代理已静止(三种终态都在 run_subagent
+                    // 返回时释放读槽)。LineRuntime 为 None(测试/CLI 无)时跳过。
+                    if let Some(line_rt) = line_runtime {
+                        line_rt.track_child_agent(handle);
+                    }
                     task_results.insert(
                         id.clone(),
                         kanzei_harness::ToolOutput::ok(format!(

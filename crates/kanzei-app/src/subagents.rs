@@ -140,6 +140,8 @@ pub(crate) async fn quick_req(
             &[],
             None,
             None,
+            // R-246:子代理探索 run 不持有 LineRuntime(子代理禁嵌套 owner)。
+            None,
             &mut on_event,
             &mut ask,
         )
@@ -308,6 +310,8 @@ pub(crate) async fn idea_split_with_coordinator(
             None,
             &[],
             None,
+            None,
+            // R-246:子代理探索 run 不持有 LineRuntime(子代理禁嵌套 owner)。
             None,
             &mut on_event,
             &mut ask,
@@ -726,6 +730,8 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
             None,
             &[],
             None,
+            None,
+            // R-246:子代理探索 run 不持有 LineRuntime(子代理禁嵌套 owner)。
             None,
             &mut on_event,
             &mut ask,

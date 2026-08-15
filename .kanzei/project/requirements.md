@@ -167,17 +167,17 @@
 - 内容: 建立 LineRuntime，统一持有 cancellation token、active run、child agents、transcript projection、background results、notifications、background processes、writer/read leases、worktree binding 和 temporary artifacts。dispose 幂等且并发调用共享同一完成 future；persistent 服务必须通过 adoption 事件显式移交 ProjectRuntime。
 - 前置: R-241 R-244
 - 复杂度: 大
-- 批次: 2/5
+- 批次: 3/5
 - 来源: DeepSeek Harness Scope 生命周期约束；Kanzei 已有 cancellation、子代理、transcript、notification、background process 多注册表。
 - 标签: 核心
 - 边界: 不重做 R-180 已交付的长驻服务注册表和日志；以适配/收口方式接入。普通资源生命周期不超过 LineRuntime；persistent 只能显式 adopt，不接受布尔值或 drop 泄漏式脱离 owner。
 - 验收: ①并发两次 dispose 共享完成结果且只收尾一次；②取消子代理并等待退出，三种终态均释放读槽；③非 persistent 后台进程、通知订阅、临时 artifact 和租约全部回收；④dispose 返回前工具 wrapper 已静止且生命周期终态落库；⑤persistent 服务显式 adopt 后跨 run 存活并有 adoption 事件，未 adopt 的全部收回；⑥强杀重启后无幽灵 owner，能确定恢复或标失败；⑦R-174/R-180 现有测试保持通过。
 - 优先级: P2
-- 进展: 批1+批2 已完成(此前轮次落地,本批复核确认代码在库):line_runtime.rs 骨架——Inner 持有 cancellation/child_agents(TaskCancellations)/child_agent_joins/background_processes,dispose 幂等(AtomicBool CAS 首调 + Mutex<Option<Shared future>> 复用,并发共享同一完成 future,performed 只归赢家),dispose_once 顺序:cancel token → cancel_all 子代理 → drain+await 全部 join(三种终态在 run_subagent 返回时释放读槽)→ 清空后台进程 id;4 单测全绿(并发幂等/取消令牌触发/new 默认不取消/等待子代理退出)。drive.rs 后台 spawn 接线(track_child_agent 调用点)并入批3 与后台进程收口一起做。批3:非 persistent 资源回收(后台进程真实 kill + 通知订阅 + artifact + 租约)+ drive.rs spawn 接线;批4:终态落库+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+全量。
+- 进展: 批3 完成:drive.rs spawn 接线——run_once/run_once_with_parts/run_subagent_calls 均加 line_runtime: Option<&LineRuntime> 参数(None=测试/CLI 无时行为不变),background 分支 tokio::spawn 返回 JoinHandle 后经 track_child_agent 登记(dispose 时 cancel 后 await 全部 join);CLI run.rs、桌面 execution.rs(实现段+修正段)、cli/memory.rs、app/memory.rs、app/subagents.rs(3 处)、phase_pipeline_tests、write.rs、7 个 integration 测试全部补 None;kanzei-core 203 + kanzei-app 169 + kanzei-tools 279 全绿,clippy 零警告。批4:终态落库(dispose 生命周期事件 typed.rs)+wrapper 静止;批5:persistent adopt+幽灵 owner 恢复+workspace 全量+close。
 - 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 R-246
-- observed_head: 2fffa0829d54c008df04af3941bf7c3e31d6612d
-- observed_worktree_hash: fnv1a64:f942ffb698473c93
-- recorded_at: 1786818826147
+- observed_head: 1c1ff1ebbb6f41567df702f1e83ad4d03838025b
+- observed_worktree_hash: fnv1a64:fcab924cdff50757
+- recorded_at: 1786819411656
 
 ## R-248 先行调研内建:新方向开工前默认产出「已有方案对照」,不靠用户开口 [todo]
 - refs: R-221 docs/design/research_mode.md
@@ -271,3 +271,14 @@
 - 边界: 不引前端框架与构建步骤;不做息屏推送(R-270 通知桥承担);不做 iOS 专属适配(Android Chrome 优先);第一批绑桥接当前项目,不做多项目切换;不做桌面端功能面的完整复刻——只做遥控器三件事。
 - 验收: ①Android 真机全链路实测:配对→看通知流→发消息→批 approval,有实测记录;②锁屏/切后台再回,SSE 恢复后 cursor 补齐无丢终态;③添加到主屏后全屏打开;④每批有 R-269 移动 viewport 自检轨迹(开发期证据);⑤长通知流滚动不卡(窗口化生效);⑥R-059 双向通信与通知推送两条验收在本条+R-270 交付后可核销。
 - 优先级: P1
+
+## R-272 UI 连通性与跳转评估:可达性/死链/跳转断裂自动巡检 [todo]
+- refs: R-269 R-271 R-101
+- 依赖: R-269
+- 内容: ①基于 R-269 浏览器工具的自动巡检:从入口页出发遍历可点击导航,记录可达视图集合,报告孤岛视图(注册了但无入口可达)与死链(入口存在但跳转失败/console 报错);②关键路径评估:桌面端(侧栏切换/设置/会话切换)与移动 PWA(配对→通知流→发消息→approval)逐条走通,跳转后断言目标视图标识存在;③产出机器可读评估报告(可达图+失败清单),作为 UI 改动后的回归巡检入口;④桌面 ui/ 与移动 PWA(R-271)双端适用。
+- 复杂度: 中
+- 来源: 2026-08-16 用户提出「加一个UI连通性与跳转评估」,与移动端 PWA 及浏览器工具同批规划。
+- 标签: 前端
+- 边界: 不做视觉回归像素比对;不做性能量化(D-202/R-101 范围);不替代 R-101 E2 harness 的事件路由类用例;巡检遍历深度设上限,防状态爆炸;不巡检需要真实模型运行的状态。
+- 验收: ①人为造一个孤岛视图与一个死链,巡检各能点名(定向反证,给实测输出);②桌面端与 PWA 各有一份真实巡检报告轨迹;③关键路径清单以配置文件维护,增删路径不改巡检代码;④单次巡检耗时有实测数字。
+- 优先级: P2

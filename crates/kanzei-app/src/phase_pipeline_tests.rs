@@ -343,6 +343,8 @@ async fn 七阶段闭环轨迹落库可回放() {
         &[],
         None,
         Some(&rt),
+        // R-246:测试夹具不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut ask,
     )

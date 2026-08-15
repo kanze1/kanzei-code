@@ -681,6 +681,8 @@ pub(crate) async fn run_subagent(
                 None,
                 &prior,
                 None,
+                // R-246:子代理嵌套 run 不持有 LineRuntime(子代理禁嵌套资源 owner)。
+                None,
                 &mut on_event,
                 &mut ask,
             );

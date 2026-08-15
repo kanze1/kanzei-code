@@ -139,6 +139,8 @@ async fn 停止先置位_步首收尾_prior与用户消息完整交还() {
         &prior,
         None,
         None,
+        // R-246:测试不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut ask,
     )
@@ -266,6 +268,8 @@ async fn 执行中停止_取消占位配对_历史无孤儿() {
         &[],
         None,
         Some(&subagent_rt),
+        // R-246:测试不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut ask,
     ));

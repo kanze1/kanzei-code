@@ -224,6 +224,8 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         None,
         &[],
         Some(&subagent_rt),
+        // R-246:测试不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut |_| {
             Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })

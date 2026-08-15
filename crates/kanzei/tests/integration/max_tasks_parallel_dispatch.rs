@@ -250,6 +250,8 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         &[],
         None,
         Some(&subagent_rt),
+        // R-246:测试不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut ask,
     )

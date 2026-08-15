@@ -469,6 +469,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             memory_hints.as_deref(),
             &prior,
             subagent_rt.as_ref(),
+            // R-246:CLI 单运行暂无 LineRuntime(dispose 由调用方负责;CLI 进程
+            // 生命周期即 line 生命周期,进程退出即全部资源收回)。
+            None,
             &mut on_event,
             &mut ask,
         ) => result,

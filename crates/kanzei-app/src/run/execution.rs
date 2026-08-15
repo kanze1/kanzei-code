@@ -168,6 +168,9 @@ pub(crate) async fn run_execution_loop(
         prior,
         (!initial_parts.is_empty()).then_some(initial_parts),
         subagent_rt.as_ref(),
+        // R-246:桌面侧 LineRuntime 由 run/mod.rs 持有并注入(本批先传 None,
+        // 批5 桌面接线 persistent adopt 时连入;行为与引入前一致)。
+        None,
         on_event,
         ask,
     )
@@ -278,6 +281,8 @@ pub(crate) async fn run_review_and_fixup(
         &summary.messages,
         None,
         subagent_rt,
+        // R-246:同实现段,LineRuntime 注入留批5。
+        None,
         on_event,
         ask,
     )

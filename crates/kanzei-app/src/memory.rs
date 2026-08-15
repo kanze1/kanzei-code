@@ -384,6 +384,8 @@ pub(crate) async fn consolidate_memory_inbox(project_dir: String, current_episod
             &[],
             None,
             None,
+            // R-246:记忆整理 run 不持有 LineRuntime。
+            None,
             &mut on_event,
             &mut ask,
         )

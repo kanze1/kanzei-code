@@ -269,6 +269,8 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         &[],
         None,
         Some(&subagent_rt),
+        // R-246:测试不持有 LineRuntime。
+        None,
         &mut on_event,
         &mut ask,
     ));
