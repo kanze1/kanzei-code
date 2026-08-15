@@ -4259,3 +4259,10 @@
 - 关联: R-264
 - 收尾: 1786824104
 - 源码指纹: dc3d8ef0a616b269
+
+## T-1786824856 ui-runtime-smoke (R-264 gen-esm-defer 工具链背书) [passed]
+- 命令: node scripts/ui-runtime-smoke.mjs
+- 摘要: R-264 批3 回退后验证(提交背书):ui-runtime 21 文件全绿,gen-esm-defer.mjs 工具链(单行顶层调用 defer 包裹)保留,defer 方法已验证有效。
+- 关联: R-264
+- 收尾: 1786824856
+- 源码指纹: e8ee8ea578b5518b
