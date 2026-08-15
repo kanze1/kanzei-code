@@ -420,10 +420,13 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 rendered.push_str(report);
             }
             // R-186:跨树越界(改了其它线工作树)与托管文档越界同样按错误回喂。
+            // 归因身份来自 ToolCtx:run_id/process_id 是这条命令的 owner(R-171 双键)。
             let cross_tree = crate::cross_tree::enforce_other_trees(
                 &ctx.project_root,
                 &ctx.cwd,
                 &other_trees_before,
+                ctx.run_id.as_deref(),
+                ctx.process_id.as_deref(),
             );
             if let Some(report) = &cross_tree {
                 rendered.push('\n');
@@ -479,6 +482,8 @@ async fn bash_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
                 &ctx.project_root,
                 &ctx.cwd,
                 &other_trees_before,
+                ctx.run_id.as_deref(),
+                ctx.process_id.as_deref(),
             ) {
                 text.push('\n');
                 text.push_str(&report);

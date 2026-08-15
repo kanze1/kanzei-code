@@ -4307,3 +4307,9 @@
 - 关联: R-186
 - 收尾: 1786836412
 - 源码指纹: a160f7933b285a0a
+
+## T-1786836931 R-186 批2 归因+轨迹+门禁清单同步 [passed]
+- 命令: cargo test -p kanzei-tools --lib
+- 摘要: R-186 批2:kanzei-tools 全量 284 passed 全绿。归因(owner run/process 进 cross-tree 报告)5 测试绿;顺手修 D-264 既有漂移:verify.ps1 crate_sync 键同步进 git.rs 固定清单+markers(守护测试当场从红转绿)。clippy/fmt 通过
+- 关联: R-186
+- 收尾: 1786836931

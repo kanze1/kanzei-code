@@ -139,10 +139,15 @@ fn collect_tree_files(root: &Path, files: &mut BTreeMap<String, FileImage>) {
 ///
 /// `before` 为空快照时同样直接返回 None:执行前就拍不到任何树,执行后也拍不到,
 /// 无从对账——这时静默放行比编一个「保护了一切」的假报告诚实。
+///
+/// `owner_run` / `owner_process` 是执行这条命令的线身份(R-186 验收②归因):
+/// 越界报告必须点名是哪条线越的界,轨迹(ToolOutput error)里据此可审计。
 pub(crate) fn enforce_other_trees(
     project_root: &Path,
     self_tree: &Path,
     before: &OtherTreesSnapshot,
+    owner_run: Option<&str>,
+    owner_process: Option<&str>,
 ) -> Option<String> {
     if before.is_empty() {
         return None;
@@ -198,12 +203,28 @@ pub(crate) fn enforce_other_trees(
         return None;
     }
 
+    let owner_line = match (owner_run, owner_process) {
+        (Some(run), Some(proc)) => format!(
+            "  attributed to owner run: {run} (process {proc}) — this command crossed into \
+             another line's worktree"
+        ),
+        (Some(run), None) => {
+            format!("  attributed to owner run: {run} — this command crossed into another line's worktree")
+        }
+        (None, Some(proc)) => format!(
+            "  attributed to process: {proc} — this command crossed into another line's worktree"
+        ),
+        (None, None) => {
+            "  attributed to: unknown owner (no run/process identity bound)".to_string()
+        }
+    };
     let mut lines = vec![
         "[cross-tree] BLOCKED AND ROLLED BACK. This command modified files in another line's \
          worktree — those trees are protected (R-186): another line's uncommitted work must \
          not be overwritten, no matter which mechanism is used (redirect, cp/mv, cargo build.rs, \
          python/node one-liner, git checkout of a single file)."
             .to_string(),
+        owner_line,
     ];
     let mut restored = 0usize;
     let mut quota = std::collections::BTreeMap::new();
@@ -339,10 +360,15 @@ mod tests {
         std::fs::write(b.join("seed.txt"), "A 线覆盖!\n").unwrap();
         std::fs::write(b.join("new-file.txt"), "A 线追加\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before).expect("必须检出越界");
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出越界");
         assert!(
             report.contains("seed.txt") && report.contains("new-file.txt"),
             "报告要点名被改文件: {report}"
+        );
+        assert!(
+            report.contains("run-a") && report.contains("proc-a"),
+            "归因必须点名 owner run/process(验收②): {report}"
         );
         assert_eq!(
             std::fs::read_to_string(b.join("seed.txt")).unwrap(),
@@ -389,7 +415,7 @@ mod tests {
         assert!(before.is_err() || before.unwrap().is_empty());
         // 没有树可保护:enforce 直接 None,不报假成功。
         let before = capture_other_trees(&dir, &dir).unwrap_or_default();
-        assert!(enforce_other_trees(&dir, &dir, &before).is_none());
+        assert!(enforce_other_trees(&dir, &dir, &before, None, None).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -409,7 +435,7 @@ mod tests {
         // 只 open 不改写,内容不变;再确保 mtime 前进。
         std::fs::write(&file, "未提交内容\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before);
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"));
         assert!(
             report.is_none(),
             "内容相同的 touch 不应算越界,实得: {report:?}"
@@ -427,7 +453,8 @@ mod tests {
         let before = capture_other_trees(&root, &root).expect("快照失败");
         std::fs::write(b.join("intruder.txt"), "A 线塞进来的\n").unwrap();
 
-        let report = enforce_other_trees(&root, &root, &before).expect("必须检出");
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("必须检出");
         assert!(report.contains("intruder.txt"), "{report}");
         assert!(!b.join("intruder.txt").exists(), "新建越界文件必须被删");
         let _ = std::fs::remove_dir_all(&root);
