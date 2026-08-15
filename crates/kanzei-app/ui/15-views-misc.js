@@ -635,10 +635,34 @@ for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["goa
 // ---------- R-147 使用手册:读取 docs/目录.md 并渲染到对话区顶部 ----------
 // 内容来源是项目根下 docs/目录.md(项目使用手册与作者说明文字),不存在时不显示区块。
 // 启动与切换项目都会触发(见 09-sessions.js renderProjects 与 18-startup.js),此处只负责读与渲染。
+// R-251:是否在对话顶部展示手册由设置页「高级功能→对话顶部显示使用手册」控制(localStorage,
+// 本地显示偏好,不进 kanzei.toml;参照 R-187 sound 的持久化模式)。
+const MANUAL_SHOW_KEY = "kz-show-manual";
+function readManualShowPref() {
+  try {
+    const raw = localStorage.getItem(MANUAL_SHOW_KEY);
+    return raw === null ? true : raw !== "0";
+  } catch {
+    return true;
+  }
+}
+function saveManualShowPref(show) {
+  try {
+    localStorage.setItem(MANUAL_SHOW_KEY, show ? "1" : "0");
+  } catch {
+    /* localStorage 不可用时仅本次会话生效 */
+  }
+}
 async function refreshManual() {
   const panel = $("manual-panel");
   const body = $("manual-body");
   if (!panel || !body || !currentProject) return;
+  // R-251:设置里关掉「对话顶部显示使用手册」后,区块直接隐藏,也不读手册文件。
+  if (!readManualShowPref()) {
+    panel.classList.add("hidden");
+    body.innerHTML = "";
+    return;
+  }
   try {
     const r = await invoke("file_preview", { projectDir: currentProject, path: "docs/目录.md" });
     if (r.binary) throw new Error(t("手册文件不是文本"));

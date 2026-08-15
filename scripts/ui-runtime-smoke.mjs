@@ -1146,6 +1146,27 @@ assert(invokeLog.includes("docs_snapshot"), "初始化未调用 docs_snapshot");
   await flush();
   assert(!manualPanel.classList.contains("hidden"), "恢复读取后区块未重新显示");
 }
+// R-251:设置页「高级功能→对话顶部显示使用手册」控制手册区块显隐。
+// 关闭后 refreshManual 直接隐藏且不读手册文件;重新打开后恢复读取与显示。
+{
+  const manualPanel = byId.get("manual-panel");
+  const manualBody = byId.get("manual-body");
+  const filePreviewCount = () => invokeArgs.filter(({ cmd }) => cmd === "file_preview").length;
+  const before = filePreviewCount();
+  sandbox.saveManualShowPref(false);
+  await sandbox.refreshManual();
+  await flush();
+  assert(manualPanel.classList.contains("hidden"), "关闭「对话顶部显示使用手册」后区块应隐藏");
+  assert(
+    filePreviewCount() === before,
+    "关闭开关后 refreshManual 不应再读取手册文件(file_preview 被调用)",
+  );
+  sandbox.saveManualShowPref(true);
+  await sandbox.refreshManual();
+  await flush();
+  assert(!manualPanel.classList.contains("hidden"), "重新打开开关后区块应恢复显示");
+  assert(filePreviewCount() > before, "重新打开开关后应重新读取手册文件");
+}
 // D-317:空配置必须停在明确的「未选择项目」状态，不能因渲染而触发项目级请求。
 // 后端另有纯函数反证锁死「不拿 current_dir 造项目」；这里验证 classic-script 的空态承载。
 {
