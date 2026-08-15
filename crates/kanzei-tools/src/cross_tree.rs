@@ -459,4 +459,109 @@ mod tests {
         assert!(!b.join("intruder.txt").exists(), "新建越界文件必须被删");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// 验收③(本条相对命令闸门的核心优势):**`cargo run` 里 build.rs 写别人的树**
+    /// 同样被抓。命令语法闸门对这条完全无效——`cargo` 是合法程序、命令文本里没有
+    /// 任何可疑 token;只有结果侧快照对比能发现「命令窗口内别的线工作树变了」。
+    ///
+    /// 构造:主树 A 里放一个 cargo 项目,build.rs 在构建期写 B 线树文件;跑
+    /// `cargo build`(与 cargo run 共享同一构建期,build.rs 在两者中都会执行),
+    /// 再对账——必须检出越界并回滚,新建的 victim 文件被删。
+    #[test]
+    fn cargo_build的build_rs写b线树_同样被抓() {
+        let root = git_repo("kz-ct-cargo");
+        let b = add_worktree(&root, "line-b");
+        std::fs::write(b.join("b-own.txt"), "B 线自己的活\n").unwrap();
+
+        // 主树 A 里造一个最小 cargo 项目,无网络依赖,本地冷编译几秒内完成。
+        let proj = root.join("cargo-proj");
+        std::fs::create_dir_all(proj.join("src")).unwrap();
+        std::fs::write(
+            proj.join("Cargo.toml"),
+            "[package]\nname = \"buildrs-cross\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        std::fs::write(proj.join("src/main.rs"), "fn main() {}\n").unwrap();
+        // build.rs 用绝对路径写 B 线树(temp 路径不含引号,raw string 安全)。
+        let b_path = b.display().to_string();
+        std::fs::write(
+            proj.join("build.rs"),
+            format!(
+                "fn main() {{ std::fs::write(r#\"{b_path}/victim.txt\"#, \"build.rs 越界写入\\n\").unwrap(); }}\n"
+            ),
+        )
+        .unwrap();
+
+        // A 线(主树)执行前拍快照,保护面应含 B 树。
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        assert!(before.contains_tree(&b), "B 线工作树必须在保护面内");
+
+        // 跑 cargo build 触发 build.rs(命令窗口 = build 全程)。
+        let build = std::process::Command::new("cargo")
+            .arg("build")
+            .arg("--quiet")
+            .current_dir(&proj)
+            .output()
+            .expect("cargo 启动失败");
+        assert!(
+            build.status.success(),
+            "cargo build 应成功: {}",
+            String::from_utf8_lossy(&build.stderr)
+        );
+
+        let report = enforce_other_trees(&root, &root, &before, Some("run-a"), Some("proc-a"))
+            .expect("build.rs 写别的树必须被抓");
+        assert!(
+            report.contains("victim.txt"),
+            "报告必须点名 build.rs 写入的文件: {report}"
+        );
+        assert!(
+            !b.join("victim.txt").exists(),
+            "build.rs 越界新建必须被回滚删除"
+        );
+        assert_eq!(
+            std::fs::read_to_string(b.join("b-own.txt")).unwrap(),
+            "B 线自己的活\n",
+            "B 线自己的未提交活必须逐字节保留"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 验收⑤性能:快照开销随其它线树数量增长,给出实测数字并断言上界
+    /// (不随 N 线性劣化到不可用)。
+    ///
+    /// 构造:git 仓 + 5 棵 worktree,每棵塞 30 个小文件(共 150 个 f-文件
+    /// 加 5 个 seed commit 的 seed.txt = 155 个镜像文件),量单次
+    /// `capture_other_trees` 的耗时。上界取 2s(远宽于正常机器上的
+    /// 几十毫秒),防的是"快照把每条 bash 拖到秒级以上"这类不可用劣化;
+    /// 实测数字通过 test_record 的 summary 落档。
+    #[test]
+    fn 快照性能_多线树耗时上界() {
+        let root = git_repo("kz-ct-perf");
+        let mut trees = Vec::new();
+        for i in 0..5 {
+            let t = add_worktree(&root, &format!("line-{i}"));
+            for f in 0..30 {
+                std::fs::write(t.join(format!("f-{f:02}.txt")), format!("content {f}\n")).unwrap();
+            }
+            trees.push(t);
+        }
+        let started = std::time::Instant::now();
+        let before = capture_other_trees(&root, &root).expect("快照失败");
+        let elapsed = started.elapsed();
+        assert_eq!(
+            before.file_count(),
+            5 * 31,
+            "5 棵树 × (30 个 f-文件 + seed commit 的 seed.txt) 应全部镜像"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "5 棵线树快照耗时 {elapsed:?} 超过 2s 上界——快照随 N 线性劣化到不可用"
+        );
+        eprintln!(
+            "[cross-tree perf] 5 worktrees × 30 files snapshot took {:?}",
+            elapsed
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

@@ -4313,3 +4313,9 @@
 - 摘要: R-186 批2:kanzei-tools 全量 284 passed 全绿。归因(owner run/process 进 cross-tree 报告)5 测试绿;顺手修 D-264 既有漂移:verify.ps1 crate_sync 键同步进 git.rs 固定清单+markers(守护测试当场从红转绿)。clippy/fmt 通过
 - 关联: R-186
 - 收尾: 1786836931
+
+## T-1786837373 R-186 批3 workspace 全量(build.rs 定向 + 性能实测) [passed]
+- 命令: cargo test --workspace
+- 摘要: R-186 批3:workspace 全量 15 段全 ok。新增 build.rs 定向测试(验收③:cargo build 的 build.rs 写 B 线树被检出回滚,victim 文件被删、B 线自有文件逐字节保留)与性能实测(验收⑤:5 worktree×31 文件=155 镜像文件快照 73.9ms,远低于 2s 上界)。kanzei-tools 286 passed。clippy/fmt 通过
+- 关联: R-186
+- 收尾: 1786837373
