@@ -252,7 +252,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let _trace = crate::run::WriterLeaseTrace::new(
+        let _trace = crate::run::assembly::WriterLeaseTrace::new(
             lease,
             observer,
             std::path::PathBuf::from("C:/proj"),
