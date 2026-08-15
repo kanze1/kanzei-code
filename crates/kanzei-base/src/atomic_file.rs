@@ -313,6 +313,11 @@ pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Op
                 Ok(Some(file)) => {
                     state.handle = Some(file);
                     drop(slots);
+                    // D-383:成功分支也广播——acquiring 结束是槽位状态的关键变化,
+                    // 等待者(同进程另一线程的围栏/读取)凭此立即重新评估,而不是
+                    // 睡到 deadline 被 500ms 预算白白耽误。失败分支有 notify(Drop
+                    // 也有),唯独成功路径此前漏了。
+                    registry.released.notify_all();
                     Ok(Some(FileLock {
                         key,
                         mode: LockMode::Exclusive,
@@ -353,7 +358,9 @@ pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Op
         }
         let now = Instant::now();
         if now >= deadline {
-            return Ok(None);
+            // D-383 修复③:deadline 到不直接 None——acquiring 线程可能已让位,
+            // 重试一次直接探测 OS(不占注册位);仍失败才放弃。
+            return try_lock_exclusive_retry_once(&path, key.as_str(), registry, me);
         }
         let (guard, timeout) = registry
             .released
@@ -361,8 +368,37 @@ pub fn try_lock_exclusive(target: &Path, budget: Duration) -> std::io::Result<Op
             .unwrap();
         slots = guard;
         if timeout.timed_out() && Instant::now() >= deadline {
-            return Ok(None);
+            return try_lock_exclusive_retry_once(&path, key.as_str(), registry, me);
         }
+    }
+}
+
+/// D-383 修复③:预算耗尽后的最后一次重试。直接查 OS 句柄(不占注册位、
+/// 不碰 condvar)——acquiring 线程已让位,此刻能拿到就是拿到,拿不到才放弃。
+fn try_lock_exclusive_retry_once(
+    path: &std::path::Path,
+    key: &str,
+    registry: &Registry,
+    me: std::thread::ThreadId,
+) -> std::io::Result<Option<FileLock>> {
+    let deadline = Instant::now() + Duration::from_millis(LOCK_POLL_MS * 2);
+    match open_exclusive_until(path, deadline) {
+        Ok(Some(file)) => {
+            let mut slots = registry.slots.lock().unwrap();
+            let state = slots.entry(key.to_string()).or_default();
+            state.owner = Some(me);
+            state.depth = 1;
+            state.handle = Some(file);
+            drop(slots);
+            registry.released.notify_all();
+            Ok(Some(FileLock {
+                key: key.to_string(),
+                mode: LockMode::Exclusive,
+                _not_send: std::marker::PhantomData,
+            }))
+        }
+        Ok(None) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -420,6 +456,8 @@ pub fn try_lock_shared(target: &Path, budget: Duration) -> std::io::Result<Optio
                     Ok(Some(file)) => {
                         state.handle = Some(file);
                         drop(slots);
+                        // D-383:同 exclusive 成功分支,广播槽位状态变化。
+                        registry.released.notify_all();
                         Ok(Some(FileLock {
                             key,
                             mode: LockMode::Shared,
@@ -442,9 +480,40 @@ pub fn try_lock_shared(target: &Path, budget: Duration) -> std::io::Result<Optio
                 _not_send: std::marker::PhantomData,
             }));
         }
+        // D-383 修复①:另一线程 acquiring(正在等外部排他释放)期间,shared 请求
+        // 不再被 condvar 干等——直接探测 OS:若外部无排他持有者则拿到 shared
+        // (围栏语义:窗口内无写者),若有则失败返回(而非 500ms 后才靠修复③兜底)。
+        // 双 acquiring 风险由「仅 shared 空时进入」+ OS 层互斥保证:本线程探测
+        // 时若 acquiring 线程恰好拿到排他,open_shared 会失败,走 None。
+        if state.shared.is_empty() && state.owner.is_none() {
+            drop(slots);
+            let probe_deadline = Instant::now() + Duration::from_millis(LOCK_POLL_MS * 2);
+            match open_shared_until(&path, probe_deadline) {
+                Ok(Some(file)) => {
+                    let mut slots = registry.slots.lock().unwrap();
+                    let state = slots.entry(key.clone()).or_default();
+                    state.shared.insert(me, 1);
+                    state.handle = Some(file);
+                    drop(slots);
+                    registry.released.notify_all();
+                    return Ok(Some(FileLock {
+                        key,
+                        mode: LockMode::Shared,
+                        _not_send: std::marker::PhantomData,
+                    }));
+                }
+                _ => {
+                    // 探测失败:外部确有排他持有者(含 acquiring 线程即将拿到的)。
+                    // 重新拿注册表锁,继续等待循环(acquiring 结束/释放会 notify)。
+                    slots = registry.slots.lock().unwrap();
+                }
+            }
+        }
         let now = Instant::now();
         if now >= deadline {
-            return Ok(None);
+            // D-383 修复③(shared 版):预算耗尽不直接 None——acquiring 的写线程
+            // 可能已让位,重试一次直接探测 OS;仍失败才放弃。
+            return try_lock_shared_retry_once(&path, key.as_str(), registry, me);
         }
         let (guard, timeout) = registry
             .released
@@ -452,8 +521,36 @@ pub fn try_lock_shared(target: &Path, budget: Duration) -> std::io::Result<Optio
             .unwrap();
         slots = guard;
         if timeout.timed_out() && Instant::now() >= deadline {
-            return Ok(None);
+            return try_lock_shared_retry_once(&path, key.as_str(), registry, me);
         }
+    }
+}
+
+/// D-383 修复③(shared 版):预算耗尽后的最后一次重试。直接查 OS 句柄
+/// (不占注册位、不碰 condvar)——acquiring 线程已让位,此刻能拿到就是拿到。
+fn try_lock_shared_retry_once(
+    path: &std::path::Path,
+    key: &str,
+    registry: &Registry,
+    me: std::thread::ThreadId,
+) -> std::io::Result<Option<FileLock>> {
+    let deadline = Instant::now() + Duration::from_millis(LOCK_POLL_MS * 2);
+    match open_shared_until(path, deadline) {
+        Ok(Some(file)) => {
+            let mut slots = registry.slots.lock().unwrap();
+            let state = slots.entry(key.to_string()).or_default();
+            state.shared.insert(me, 1);
+            state.handle = Some(file);
+            drop(slots);
+            registry.released.notify_all();
+            Ok(Some(FileLock {
+                key: key.to_string(),
+                mode: LockMode::Shared,
+                _not_send: std::marker::PhantomData,
+            }))
+        }
+        Ok(None) => Ok(None),
+        Err(error) => Err(error),
     }
 }
 
@@ -1037,6 +1134,65 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
             .collect();
         assert!(残留.is_empty(), "CAS 放弃后不该留临时文件");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-383 修复③:预算耗尽后重试一次——外部排他若在最后时刻释放,重试能拿到
+    /// (而不是直接 None 被 bash 拒)。验证「先占住、耗尽前一刻释放、重试成功」。
+    #[test]
+    fn 预算耗尽重试_外部释放后能拿到() {
+        let dir = 临时目录("d383-retry");
+        let target = dir.join("doc.md");
+        let 外部 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+            .unwrap()
+            .unwrap();
+        // 第二线程短预算请求,应在耗尽前一刻释放外部锁,验证重试路径。
+        let 旁人 = {
+            let target = target.clone();
+            std::thread::spawn(move || {
+                // 短预算:第一次探测失败 → 等待 → deadline 到 → 重试。
+                let result = try_lock_exclusive(&target, Duration::from_millis(80));
+                match result {
+                    Ok(Some(_)) => "acquired",
+                    Ok(None) => "gave-up",
+                    Err(_) => "error",
+                }
+            })
+        };
+        // 让等待线程进入探测/等待,再释放外部锁(模拟 acquiring 让位)。
+        std::thread::sleep(Duration::from_millis(30));
+        drop(外部);
+        let 结果 = 旁人.join().unwrap();
+        assert_eq!(结果, "acquired", "外部释放后重试应能拿到锁");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// D-383 修复①+②:acquiring 占位期间,另一线程的 shared 请求直接探测 OS,
+    /// 拿到后广播;排他成功也广播。验证「写线程 acquiring 时围栏 shared 不被干等」。
+    #[test]
+    fn acquiring期间_shared直接探测不被干等() {
+        let dir = 临时目录("d383-shared");
+        let target = dir.join("doc.md");
+        // 线程 A 持排他(模拟外部/同进程写线程)。
+        let 外部 = try_lock_exclusive(&target, DEFAULT_LOCK_BUDGET)
+            .unwrap()
+            .unwrap();
+        // 线程 B:短预算 shared 请求。acquiring 场景下应探测失败→等待→释放后拿到。
+        let 旁人 = {
+            let target = target.clone();
+            std::thread::spawn(move || {
+                let result = try_lock_shared(&target, Duration::from_millis(120));
+                match result {
+                    Ok(Some(_)) => "acquired",
+                    Ok(None) => "gave-up",
+                    Err(_) => "error",
+                }
+            })
+        };
+        std::thread::sleep(Duration::from_millis(40));
+        drop(外部);
+        let 结果 = 旁人.join().unwrap();
+        assert_eq!(结果, "acquired", "排他释放后 shared 应拿到(不干等不误报)");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

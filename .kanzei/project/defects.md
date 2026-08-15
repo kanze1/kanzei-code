@@ -93,3 +93,7 @@
 - 标签: 核心
 - 根因: atomic_file.rs 三个叠加缺陷:①注定失败的排他尝试不区分成败地占住注册表槽位整个预算期(try_lock_exclusive 先置 acquiring 再轮询 OS);②try_lock_shared/try_lock_exclusive 的成功分支不 notify_all(只有失败分支与 Drop 有广播),等待者只能睡到自己 deadline;③等待者 deadline 到点直接返回 None,不重查一次槽位状态。同族放大:同进程另一线程 DocStore::load(3s 预算)恰为首个共享获取者且正对外部写者轮询时,围栏同样被 acquiring 挡满 500ms
 - 优先级: P1
+- 进展: 2026-08-16 修复完成(三处):①try_lock_shared 在另一线程 acquiring 期间直接探测 OS(围栏不再被写线程占位干等,探测失败才回等待循环);②try_lock_exclusive/try_lock_shared 成功分支补 notify_all(此前只有失败分支与 Drop 广播,成功路径漏了——等待者只能睡到 deadline);③预算耗尽后不直接 None,重试一次直接探测 OS(acquiring 线程已让位,此刻能拿到就是拿到)。2 新回归测试(预算耗尽重试_外部释放后能拿到 / acquiring期间_shared直接探测不被干等),kanzei-base 17 测试全绿,clippy 零警告。提交后关。
+- observed_head: 4c55c6b5e418f9219dcc2902adddb5abba2c0b4a
+- observed_worktree_hash: fnv1a64:9f87f4be6c57f4f9
+- recorded_at: 1786821877120

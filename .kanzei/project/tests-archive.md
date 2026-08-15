@@ -4233,3 +4233,9 @@
 - 关联: R-264
 - 收尾: 1786821353
 - 源码指纹: 4dfa76c45e375ffa
+
+## T-1786821876 cargo test -p kanzei-base (D-383 锁自锁死修复) [passed]
+- 命令: cargo test -p kanzei-base
+- 摘要: D-383 修复:①acquiring 期间 shared 请求直接探测 OS(不再被 condvar 干等);②try_lock_exclusive/shared 成功分支补 notify_all;③预算耗尽后重试一次直接探测(不直接 None)。kanzei-base 17 测试全绿(含 2 新回归),clippy 零警告。
+- 关联: D-383
+- 收尾: 1786821876
