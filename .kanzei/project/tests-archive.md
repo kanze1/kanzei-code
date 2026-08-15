@@ -3913,3 +3913,18 @@
 - 摘要: R-255 关闭前全量:15 段全 ok(含 kanzei-memory 138),0 failed
 - 关联: R-255
 - 收尾: 1786799282
+
+## T-1786799656 cargo test -p kanzei-tools (D-371 冒烟声称校验) [passed]
+- 命令: cargo test -p kanzei-tools test_record
+- 时长: 7.4s
+- 摘要: D-371 冒烟声称校验:test_record 39 passed(含 5 个新 D-371 测试),kanzei-tools 269 全绿,clippy 零警告,下游 workspace check 全过
+- 关联: D-371
+- 收尾: 1786799679
+
+## T-1786799746 cargo test -p kanzei-tools (D-371 fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-tools test_record
+- 时长: 7.9s
+- 摘要: D-371 fmt 后复测:39 passed, 0 failed
+- 关联: D-371
+- 收尾: 1786799746
+- 源码指纹: 21e6e2fd539cf15b

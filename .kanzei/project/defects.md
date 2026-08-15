@@ -85,7 +85,7 @@
 - 验收: ①超过阈值的 bash/git/test_record/web 类结果完整原文进入 durable artifact，事件只存 preview+artifact_id+bytes+sha256+retrieval_hint；②重启后按引用取回内容与工具原始字节 sha256 一致；③artifact 写失败时不得提交成功引用事件，事件写失败时无引用 artifact 可由整理入口识别；④UI/模型明确显示结果已外置而非已丢弃；⑤read 的原文件 offset/limit 回读不重复复制；⑥现有工具权限与错误码不变。
 - 优先级: P1
 
-## D-371 门禁跑子集却宣布「全绿」:自举只跑四条前端冒烟,崩掉的那条红了十几个提交无人察觉 [open] (medium)
+## D-371 门禁跑子集却宣布「全绿」:自举只跑四条前端冒烟,崩掉的那条红了十几个提交无人察觉 [fixing] (medium)
 - refs: D-264 R-209
 - 复现: 检出 e06a226(R-253 B1「run.rs 整体改名 run/mod.rs」)之后的任一提交,跑 `node scripts/parallel-lines-regression.mjs` —— ENOENT 崩溃(脚本第 31 行硬编码读 crates/kanzei-app/src/run.rs,该文件已改名)。而 e06a226 到 cfe9f64 之间十余个提交的提交信息里,R-253 B9 关闭写的是「四条前端冒烟全过(ui-runtime/i18n/a11y/markdown)」——六条只跑了四条,漏掉的正是崩掉的这条与 ui-lint。
 - 影响: verify.ps1 的门禁清单是确定的十步(含六条前端冒烟),自举跑其中一个子集就宣布「全绿」,于是 dev 分支带着一条红门禁前进了十几个提交无人察觉,期间每条提交信息都写着全绿。**这是 D-264 的同族复发**:那条的标题是「cargo test 全绿但 fmt/clippy 从未跑到」,同样是「跑了子集、报了全称」。D-264 的修法是把 fmt/clippy 做成代码强制的提交门禁;本条说明该模式在**前端冒烟**这一侧还没有对应的强制,规则层写过也拦不住。
@@ -95,3 +95,4 @@
 - 验收: ①存在机械判据,能在「声称跑过前端冒烟」时比对实际跑过的条目与 verify.ps1 清单,差集非空即判红(形态不限:test_record 的 coverage 字段校验、专用门禁、或收尾时强制跑 verify.ps1 全套皆可);②构造反例——只跑四条冒烟就宣布完成,该判据必须拦下;③正例不误伤:六条全跑时正常通过;④修复后回溯核查 e06a226..cfe9f64 区间,确认此类声称在新判据下会被识别;⑤conventions 或提示词侧同步写明「全绿」的定义是 verify.ps1 十步,不是任意子集。
 - 优先级: P2
 - 标签: 流程
+- 取活依据: engine:无可执行 WIP，按 defect-first 选择队首 D-371

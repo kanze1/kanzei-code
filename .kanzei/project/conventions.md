@@ -37,7 +37,7 @@
 - 本仓库是 Rust workspace:`crates/kanzei-{harness,llm,core,tools,app}` + `crates/kanzei`(bin `kz`)。
 - **分支流程**:日常开发(含 agent 自举)一律提交到 `dev` 分支;`main` 只接收来自 dev 的合并,保持随时可发布。**main 常驻发布树**(`C:\Users\kanzei\Documents\kanzei-release`),主工作树里 `git checkout main` 会因分支被占而失败——合并发布一律在发布树执行:`git -C <发布树> fetch origin && git -C <发布树> merge origin/dev --ff-only && git -C <发布树> push`,再跑发布树里的 `package.ps1 -Publish`。禁止直接在 main 上做开发提交。
 - **提交身份铁律**:commit 的 author/committer 必须且只能是 kanzei 本人(`kanzei <vraniumzwt@gmail.com>`);message 不得包含任何 `Co-Authored-By` 尾注(GitHub 会把共同作者计入贡献者头像墙)。任何工具/AI 不得以自己的身份出现在 git 历史里,发现异常身份立即改写修正并强推。
-- 测试:批内定向(`cargo test -p <改动 crate>`),全量 `cargo test --workspace` 的触发点按 §1.4(中/大条目关闭前 + 发版前),全量必须全绿才算条目完成;单 crate 快速检查用 `cargo build -p <crate>`。
+- 测试:批内定向(`cargo test -p <改动 crate>`),全量 `cargo test --workspace` 的触发点按 §1.4(中/大条目关闭前 + 发版前),全量必须全绿才算条目完成;单 crate 快速检查用 `cargo build -p <crate>`。**「全绿」的定义是 verify.ps1 十步(含六条前端冒烟:ui-runtime/ui-lint/parallel-lines/ui-a11y/ui-i18n/ui-markdown),不是任意子集**(D-371):声称「前端冒烟全过」必须六条全跑——test_record 会对声称「冒烟」且 status=passed 的记录强制比对六条清单,差集非空即拒(机械判据,不靠自觉)。
 - **发版安装(用户可见的”构建”)**:`.\scripts\release.ps1`
   - 流程 = 全量测试 → 安装 `kz` 到 `~\.cargo\bin` → release 构建桌面端 kzapp 并复制安装;
   - **桌面端只有一个安装位:`%LOCALAPPDATA%\kanzei\kzapp.exe`**(应用内更新与开始菜单都指向它)。`~\.cargo\bin` 只放 `kz` CLI 与转发启动器 `kzapp.cmd`,**绝不能再放 kzapp.exe**——两份副本各自更新就会出现"发布了但仍在跑旧版"(D-145)。判断当前跑的是哪份:`Get-Process kzapp | Select-Object Path`。

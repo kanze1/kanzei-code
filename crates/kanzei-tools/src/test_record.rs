@@ -496,12 +496,14 @@ pub fn record_test_run_with_duration(
             .and_then(|f| f["value"].as_str())
             .map(|v| v.to_string())
     };
-    if let Some(command) = command
+    let final_command = command
         .filter(|v| !v.trim().is_empty())
         .map(|v| v.trim().to_string())
-        .or_else(|| inherited("命令"))
-    {
+        .or_else(|| inherited("命令"));
+    if let Some(command) = final_command.as_deref() {
         block.push_str(&format!("- 命令: {command}\n"));
+        // D-371:声称前端冒烟全过时,命令必须覆盖 verify.ps1 六条冒烟(差集非空判红)。
+        check_frontend_smoke_claim(title, Some(command), status)?;
     }
     if let Some(secs) = duration_secs {
         block.push_str(&format!("- 时长: {secs:.1}s\n"));
@@ -578,6 +580,8 @@ pub fn append_test_run_with_duration(
     if !VALID_STATUS.contains(&status) {
         return Err(format!("测试状态必须是 {} 之一", VALID_STATUS.join("、")));
     }
+    // D-371:声称前端冒烟全过时,命令必须覆盖 verify.ps1 六条冒烟(差集非空判红)。
+    check_frontend_smoke_claim(title, command, status)?;
     let path = root.join(TEST_RUNS_REL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -909,6 +913,54 @@ fn is_frontend_smoke(command: &str) -> bool {
         return false;
     }
     !command.contains("--check")
+}
+
+/// verify.ps1 十步门禁中的六条前端冒烟(与 scripts/verify.ps1 逐条对应)。
+/// D-371:声称「前端冒烟全过/冒烟集/冒烟四连」时,必须覆盖这六条——差集非空即判红,
+/// 与 D-264 同一族(「跑了子集、报了全称」),机械判据补上「声称不可核」这一侧。
+const FRONTEND_SMOKE_LIST: &[&str] = &[
+    "ui-runtime-smoke.mjs",
+    "ui-lint-smoke.mjs",
+    "parallel-lines-regression.mjs",
+    "ui-a11y-smoke.mjs",
+    "ui-i18n-smoke.mjs",
+    "ui-markdown-smoke.mjs",
+];
+
+/// D-371 机械判据:title 声称「冒烟」且 status=passed 时,command 必须覆盖
+/// verify.ps1 的六条前端冒烟,差集非空即拒绝写入——「全绿」的定义是 verify.ps1
+/// 十步,不是任意子集。未提供命令时同样拒绝(无法核验 = 判红)。
+fn check_frontend_smoke_claim(
+    title: &str,
+    command: Option<&str>,
+    status: &str,
+) -> Result<(), String> {
+    if status != "passed" || !title.contains("冒烟") {
+        return Ok(());
+    }
+    let Some(command) = command.map(str::trim).filter(|c| !c.is_empty()) else {
+        return Err(format!(
+            "声称「{title}」是前端冒烟全过,但未提供命令,无法核验覆盖。\
+             verify.ps1 十步含六条冒烟({}),差集非空即判红(D-371)",
+            FRONTEND_SMOKE_LIST.join(" ")
+        ));
+    };
+    let missing: Vec<&str> = FRONTEND_SMOKE_LIST
+        .iter()
+        .copied()
+        .filter(|script| !command.contains(script))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "声称「{title}」是前端冒烟,但命令只覆盖 {}/{} 条,缺:{}。\
+         verify.ps1 十步含六条冒烟,差集非空即判红(D-371)。请补跑:{}",
+        FRONTEND_SMOKE_LIST.len() - missing.len(),
+        FRONTEND_SMOKE_LIST.len(),
+        missing.join("、"),
+        FRONTEND_SMOKE_LIST.join(" ")
+    ))
 }
 
 /// R-130:批量初始化/回填测试→条目映射。
@@ -2293,6 +2345,79 @@ mod tests {
 
     /// R-228 验收②:前端冒烟识别——`node scripts/ui-*.mjs` 运行型冒烟算,
     /// `node --check`(纯语法)不算,`cargo test` 不算。取最近一条 passed。
+    // D-371:声称「前端冒烟全过」必须覆盖 verify.ps1 六条冒烟,差集非空即判红。
+    #[test]
+    fn d371_声称冒烟但只跑四条被拒() {
+        let root = temp_project("d371-subset");
+        let err = append_test_run(
+            &root,
+            "R-999 四条前端冒烟全过",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("差集非空"), "{err}");
+        assert!(err.contains("ui-lint-smoke"), "{err}");
+        assert!(err.contains("parallel-lines-regression"), "{err}");
+    }
+
+    #[test]
+    fn d371_六条全跑通过() {
+        let root = temp_project("d371-full");
+        let ok = append_test_run(
+            &root,
+            "R-999 前端冒烟六连全过",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs; node scripts/ui-lint-smoke.mjs; node scripts/parallel-lines-regression.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-markdown-smoke.mjs"),
+            None,
+            None,
+        );
+        assert!(ok.is_ok(), "{:?}", ok.err());
+    }
+
+    #[test]
+    fn d371_非冒烟标题与running状态不受影响() {
+        let root = temp_project("d371-other");
+        // cargo 记录 title 不含「冒烟」,即使没命令也不触发六条校验。
+        let ok = append_test_run(
+            &root,
+            "cargo test -p kanzei-memory",
+            "passed",
+            None,
+            None,
+            None,
+        );
+        assert!(ok.is_ok(), "{:?}", ok.err());
+        // running 状态不触发(在跑,不是声称全过)。
+        let ok2 = append_test_run(&root, "前端冒烟收集中", "running", None, None, None);
+        assert!(ok2.is_ok(), "{:?}", ok2.err());
+    }
+
+    #[test]
+    fn d371_声称冒烟但无命令被拒() {
+        let root = temp_project("d371-nocmd");
+        let err = append_test_run(&root, "前端冒烟全过", "passed", None, None, None).unwrap_err();
+        assert!(err.contains("无法核验"), "{err}");
+    }
+
+    // D-371 验收④:回溯核查——历史「只跑四条却报全绿」的声称(R-253 B9 的形态)在新判据下会被拦下。
+    #[test]
+    fn d371_历史声称四条的记录会被新判据拦下() {
+        let root = temp_project("d371-replay");
+        let err = append_test_run(
+            &root,
+            "R-253 批9 四条前端冒烟(ui-runtime/i18n/a11y/markdown)",
+            "passed",
+            Some("node scripts/ui-runtime-smoke.mjs; node scripts/ui-i18n-smoke.mjs; node scripts/ui-a11y-smoke.mjs; node scripts/ui-markdown-smoke.mjs"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("差集非空"), "{err}");
+    }
+
     #[test]
     fn frontend_smoke_passed_recognizes_ui_smoke_and_ignores_syntax_and_cargo() {
         let root = temp_project("frontend-gate");
