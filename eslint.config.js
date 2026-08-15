@@ -56,6 +56,10 @@ export default [
         invoke: "readonly",
         listen: "readonly",
         __TAURI_INTERNALS__: "readonly",
+        // vendor/monaco/loader.js 在运行时挂上的全局(03-shell.js:513 使用)。
+        // 它是**宿主全局**,不是 ui/*.js 的顶层声明,所以声明在这里而不是进
+        // 生成清单。收紧生成器(只认列 0 声明)后它是唯一暴露出来的真实缺口。
+        monaco: "readonly",
       },
     },
     rules: {

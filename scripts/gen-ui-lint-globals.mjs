@@ -16,7 +16,15 @@ const names = new Set();
 for (const file of fs.readdirSync(uiDir).filter((f) => f.endsWith(".js")).sort()) {
   const src = fs.readFileSync(path.join(uiDir, file), "utf8");
   for (const line of src.split(/\r?\n/)) {
-    const t = line.trim();
+    // 只认**列 0** 的声明。经典 script 里共享全局作用域的只有顶层声明;函数体内
+    // 缩进的 const/let 是局部的,不该进全局白名单。
+    // 原先这里先 trim 再匹配,于是 `  const el = ...` 一类局部声明也被收进清单——
+    // 实测 1364 个条目里 777 个(57%)是这么来的,而它们都是 el/row/text/id/key/
+    // value/item/list/btn/head 这种极常见的名字。后果是 no-undef 对这些名字全线失效:
+    // 打错任何一个都当成"已知全局"静默放行。这道 lint 本来就是用来弥补"没有模块
+    // 系统"的,被这样掏空之后基本不设防。
+    if (/^\s/.test(line)) continue;
+    const t = line;
     let m;
     if ((m = t.match(/^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/))) {
       names.add(m[1]);
