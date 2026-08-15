@@ -820,7 +820,17 @@ pub fn resolved_control_prompt(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> String {
-    let state = resolve_work_decision(cwd, project_root, priority)
+    resolved_control_prompt_of(resolve_work_decision(cwd, project_root, priority))
+}
+
+/// 把**已算好**的裁决渲染成注入块。
+///
+/// 拆出来是为了让一轮之内只算一次:`resolve_work_decision` 内部有 4 次 git 调用
+/// (含 `git diff --binary HEAD`),而同一份裁决既要进 system prompt,也要作为
+/// 任务上下文灌给勘察/复核角色。算两次除了浪费,还会出现主代理与角色看到不同
+/// 条目的可能——尤其复核发生在实现段之后,重算会选到下一条。
+pub fn resolved_control_prompt_of(state: Result<ResolvedControlState, String>) -> String {
+    let state = state
         .map(compact_for_context)
         .map(|state| serde_json::to_string_pretty(&state).unwrap_or_else(|_| "{}".into()))
         .unwrap_or_else(|error| json!({"decision": "error", "reason": error}).to_string());

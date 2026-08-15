@@ -126,14 +126,20 @@ async fn assemble_run(
     let mut agent = snapshot.select_agent(agent_name.as_deref())?.clone();
     let work_priority = normalize_work_priority(work_priority.as_deref());
     append_dev_guidance(&mut agent.system, profile, work_priority, &config);
-    if profile == kanzei_harness::ProfileKind::Dev {
+    // 裁决**一轮只算一次**:它内部有 4 次 git 调用(含 git diff --binary HEAD)。
+    // 同一份快照既进 system prompt,也作为任务上下文灌给勘察/复核角色——同源同刻,
+    // 主代理与 8 个角色看到的必然是同一条条目。
+    let control_state = (profile == kanzei_harness::ProfileKind::Dev).then(|| {
+        kanzei_tools::resolve_work_decision(
+            &cwd,
+            &project_root,
+            crate::auto_run::work_priority_enum(work_priority),
+        )
+    });
+    if let Some(state) = control_state.as_ref() {
         agent
             .system
-            .push_str(&kanzei_tools::resolved_control_prompt(
-                &cwd,
-                &project_root,
-                crate::auto_run::work_priority_enum(work_priority),
-            ));
+            .push_str(&kanzei_tools::resolved_control_prompt_of(state.clone()));
     }
     stage(
         "装配",
@@ -328,7 +334,18 @@ async fn assemble_run(
         process_id,
         stage,
     )
-    .await;
+    .await
+    // 把本轮冻结的裁决快照灌给勘察/复核角色。角色表的 brief 是写死的通用描述
+    // (「本次任务会写到哪里」),没有「本次任务」的指代物它就只能回答本仓库的
+    // 写入面——D-368 那轮 write_surface_scout 返回 store/processes.rs 即此。
+    .map(|pipeline| {
+        pipeline.with_task_context(
+            control_state
+                .as_ref()
+                .and_then(|state| state.as_ref().ok())
+                .and_then(crate::phase_pipeline::render_task_context),
+        )
+    });
     // 写租约的取得时机是两条路的**唯一实质差异**,判定抽在 phase_pipeline 里
     // 以便直接测(见 `acquire_plain_lease_if_needed` 的文档与它的定向测试)。
     // 不带独立 worktree 的并行线与主线共用同一棵代码树,必须先等写入槽。

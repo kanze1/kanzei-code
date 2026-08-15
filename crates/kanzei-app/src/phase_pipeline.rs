@@ -99,6 +99,17 @@ pub(crate) struct PhasePipeline {
     roster_cap: usize,
     /// `[models] scout` 解析出的路由;None = 沿用模板的 fast。
     scout_route: Option<ScoutRoute>,
+    /// 本轮开跑那一刻的裁决快照,**整轮冻结**。勘察与复核读同一份,与
+    /// `agent.system` 里的 `<resolved-control-state>` 同源同刻。
+    ///
+    /// 存在的理由:角色表的 brief 是写死的通用描述(「本次任务会写到哪里」),
+    /// 没有「本次任务」的指代物,于是 scout 回答的是**本仓库**的写入面。实测
+    /// D-368 那轮,write_surface_scout 返回了 kanzei-core/src/store/processes.rs
+    /// ——与 memory 树锁毫无关系,但它忠实回答了那个通用问题。
+    ///
+    /// 必须冻结而不是各阶段现算:复核发生在实现段之后,条目此刻可能已被推进或
+    /// 关闭,重算会选到**下一条**,复核代理就拿着 B 条的验收去审 A 条的改动。
+    task_context: Option<String>,
 }
 
 /// 一个角色的产出。
@@ -211,7 +222,17 @@ impl PhasePipeline {
             orchestrator,
             roster_cap: limits.max_tasks_per_turn(),
             scout_route,
+            task_context: None,
         }
+    }
+
+    /// 灌入本轮冻结的任务上下文(引擎裁决的 selected 条目快照)。
+    ///
+    /// 走 builder 而不是加进 `start` 的参数表:`start` 已经 8 个参数并带
+    /// too_many_arguments 豁免,再加一个只会逼所有测试跟着改签名。
+    pub(crate) fn with_task_context(mut self, context: Option<String>) -> Self {
+        self.task_context = context;
+        self
     }
 
     /// 勘察阶段:按角色表并行派发只读代理,过汇总屏障,返回给模型看的勘察简报。
@@ -229,9 +250,12 @@ impl PhasePipeline {
         self.orchestrator.enter_scouting()?;
         let roles: Vec<(&'static str, &'static str)> =
             SCOUT_ROLES.iter().take(self.roster_cap).copied().collect();
+        // 先 clone 出来:闭包对 self 的不可变借用会与随后的 `self.dispatch_roles`
+        // (&mut self)打架。
+        let task_context = self.task_context.clone();
         let prompts: Vec<String> = roles
             .iter()
-            .map(|(role, brief)| scout_prompt(role, brief, task_prompt))
+            .map(|(role, brief)| scout_prompt(role, brief, task_prompt, task_context.as_deref()))
             .collect();
         let (reports, outcome) = self
             .dispatch_roles(
@@ -424,9 +448,14 @@ impl PhasePipeline {
         self.orchestrator.enter_review()?;
         let roles: Vec<(&'static str, &'static str)> =
             REVIEW_ROLES.iter().take(self.roster_cap).copied().collect();
+        // 用**冻结**的那份,不在这里重算裁决:复核发生在实现段之后,条目此刻可能
+        // 已被推进或关闭,重算会选到下一条,复核代理就拿着 B 条的验收去审 A 条。
+        let task_context = self.task_context.clone();
         let prompts: Vec<String> = roles
             .iter()
-            .map(|(role, brief)| review_prompt(role, brief, task_prompt, run_summary))
+            .map(|(role, brief)| {
+                review_prompt(role, brief, task_prompt, run_summary, task_context.as_deref())
+            })
             .collect();
         let (reports, outcome) = self
             .dispatch_roles(
@@ -522,20 +551,62 @@ impl PhasePipeline {
     }
 }
 
-fn scout_prompt(role: &str, brief: &str, task_prompt: &str) -> String {
+/// 把裁决快照渲染成给角色看的「本轮条目」块。没有 selected 就没有块。
+///
+/// 只挑对「这次要动什么」有信息量的字段:全量字段会把角色的注意力冲散,而角色
+/// 要回答的是「本任务碰哪里」,不是复述条目。
+pub(crate) fn render_task_context(state: &kanzei_tools::ResolvedControlState) -> Option<String> {
+    let item = state.selected.as_ref()?;
+    let mut out = format!("{} [{}] {}", item.id, item.lifecycle_status, item.title);
+    for field in &item.fields {
+        if matches!(
+            field.name.as_str(),
+            "进展" | "内容" | "验收" | "复现" | "改动面"
+        ) {
+            out.push_str(&format!("\n- {}: {}", field.name, field.value));
+        }
+    }
+    Some(out)
+}
+
+/// 角色提示里的指代锚。没有它,固定角色表的 brief(「本次任务会写到哪里」)就没有
+/// 指代物,scout 只能回答**本仓库**的写入面——D-368 那轮 write_surface_scout 返回
+/// kanzei-core/src/store/processes.rs 就是这么来的:它忠实回答了一个通用问题。
+const TASK_ANCHOR: &str = "下面这一条 tracker 条目就是「本次任务」。判断「与本次任务相关」时以它为准;下方 prompt 原文在自主推进轮里可能只是通用推进指令,与用户显式指令冲突时以指令为准。";
+
+fn task_context_block(task_context: Option<&str>) -> String {
+    match task_context {
+        Some(context) => format!("{TASK_ANCHOR}\n[本轮条目]\n{context}\n\n"),
+        None => String::new(),
+    }
+}
+
+fn scout_prompt(role: &str, brief: &str, task_prompt: &str, task_context: Option<&str>) -> String {
+    let context_block = task_context_block(task_context);
     format!(
         "你是只读勘察代理 `{role}`,工具只有 read/glob/grep。\n\
          职责:{brief}\n\n\
+         {context_block}\
          本轮任务(原文):\n{task_prompt}\n\n\
          只回事实,每条都带文件路径与行号。不要提改动建议,不要下结论说该怎么做。\n\
          与本轮任务无关的发现不要写。什么都没找到就直接说没找到。"
     )
 }
 
-fn review_prompt(role: &str, brief: &str, task_prompt: &str, run_summary: &str) -> String {
+fn review_prompt(
+    role: &str,
+    brief: &str,
+    task_prompt: &str,
+    run_summary: &str,
+    task_context: Option<&str>,
+) -> String {
+    // 有了条目上下文,复核方向从「自述是否属实」升级为「自述是否兑现了这一条的
+    // 验收」——验收字段本来就在上下文块里。
+    let context_block = task_context_block(task_context);
     format!(
         "你是只读复核代理 `{role}`,工具只有 read/glob/grep。\n\
          职责:{brief}\n\n\
+         {context_block}\
          本轮任务(原文):\n{task_prompt}\n\n\
          本轮执行方的自述结果:\n{run_summary}\n\n\
          去代码里核对上面的自述是否属实。只报**确有问题**的地方,每条带文件路径与行号。\n\
@@ -752,9 +823,41 @@ mod tests {
     }
 
     #[test]
+    /// 角色提示必须带上「本次任务」的指代物。
+    ///
+    /// 角色表的 brief 是写死的通用描述(「本次任务会写到哪里」),没有指代物时
+    /// scout 只能回答**本仓库**的写入面——D-368 那轮 write_surface_scout 返回了
+    /// kanzei-core/src/store/processes.rs,与 memory 树锁毫无关系,但它忠实回答了
+    /// 那个通用问题。
+    #[test]
+    fn 角色提示带上本轮条目与指代锚() {
+        let context = "D-368 [fixing] 围栏窗口内 .kanzei/memory 并发写被误回滚\n- 进展: 批次 0/1";
+        for (role, brief) in SCOUT_ROLES {
+            let prompt = scout_prompt(role, brief, "继续推进", Some(context));
+            assert!(prompt.contains("D-368"), "{role} 提示里必须有条目 id");
+            assert!(prompt.contains("[本轮条目]"), "{role} 缺条目块");
+            assert!(prompt.contains("就是「本次任务」"), "{role} 缺指代锚");
+            assert!(
+                prompt.contains("批次 0/1"),
+                "{role} 应看到进展字段——「已经做到哪」是判断相关性的关键"
+            );
+        }
+        for (role, brief) in REVIEW_ROLES {
+            let prompt = review_prompt(role, brief, "继续推进", "改完了", Some(context));
+            assert!(
+                prompt.contains("D-368"),
+                "{role} 复核同样要看到条目,否则只能核对自述而非验收"
+            );
+        }
+        // 无裁决(非 dev 档或队列为空)时不拼空块,免得给角色一段空壳。
+        let bare = scout_prompt("architecture_scout", "b", "任务", None);
+        assert!(!bare.contains("[本轮条目]"), "无上下文时不应出现空块: {bare}");
+    }
+
+    #[test]
     fn 勘察角色提示是自足的只读指令() {
         for (role, brief) in SCOUT_ROLES {
-            let prompt = scout_prompt(role, brief, "修 R-173");
+            let prompt = scout_prompt(role, brief, "修 R-173", None);
             assert!(
                 prompt.contains("只有 read/glob/grep"),
                 "{role} 必须声明只读"
