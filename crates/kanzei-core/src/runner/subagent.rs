@@ -56,6 +56,16 @@ impl TaskCancellations {
     pub fn unregister(&self, id: &str) {
         self.inner.lock().unwrap().remove(id);
     }
+    /// R-246:取消全部在册子代理,返回被取消的 id 列表(供 LineRuntime dispose 收口)。
+    pub fn cancel_all(&self) -> Vec<String> {
+        let mut guard = self.inner.lock().unwrap();
+        let ids: Vec<String> = guard.keys().cloned().collect();
+        for token in guard.values() {
+            token.cancel();
+        }
+        guard.clear();
+        ids
+    }
 }
 
 impl TaskCancellationGuard {

@@ -31,9 +31,11 @@ mod recall;
 /// R-250:子代理结构化返回的 schema 校验(聚焦子集,精确到字段的诊断)。
 mod schema_check;
 pub use recall::{RecallHit, RecallOutcome, RecallPolicy, RecallTrigger, RecallWatch};
+mod line_runtime;
 mod subagent;
 mod tool_exec;
 pub use drive::{run_once, run_once_with_parts};
+pub use line_runtime::*;
 
 pub use subagent::*;
 pub(crate) use subagent::{run_subagent, task_spec};

@@ -4092,3 +4092,69 @@
 - 摘要: R-265 批3 关闭前全量(复杂度中):workspace 15 段全 ok(kanzei 37+31、kanzei-app 169、harness 199、core 147、memory 139、tools 279 等),零失败。
 - 关联: R-265
 - 收尾: 1786815425
+
+## T-1786816375 R-257 B4 cargo test -p kanzei-tools(git.rs 切分) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: B4 git.rs 切分后定向测试:270 passed,0 failed(四域迁出零行为变更)
+- 关联: R-257
+- 收尾: 1786816375
+
+## T-1786816457 R-257 B4 cargo test -p kanzei-tools(fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: B4 fmt 后复测:270 passed,0 failed
+- 关联: R-257
+- 收尾: 1786816457
+- 源码指纹: e050f150b323be63
+
+## T-1786816523 R-257 B4 cargo test -p kanzei-tools(staged 指纹对齐) [passed]
+- 命令: cargo test -p kanzei-tools
+- 摘要: B4 staged 指纹对齐后复测:270 passed,0 failed
+- 关联: R-257
+- 收尾: 1786816523
+- 源码指纹: e651a8d2536bd75c
+
+## T-1786816906 R-257 B5 cargo test -p kanzei-harness(config.rs 切分) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: B5 config.rs 切分后定向测试:144 passed,0 failed(五域迁出零行为变更)
+- 关联: R-257
+- 收尾: 1786816906
+
+## T-1786816954 R-257 B5 cargo test -p kanzei-harness(fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: B5 fmt 后复测:144 passed,0 failed
+- 关联: R-257
+- 收尾: 1786816954
+- 源码指纹: 8cc0329602b44c05
+
+## T-1786817003 R-257 B5 cargo test -p kanzei-harness(clippy 修复) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: B5 clippy 修复后复测:144 passed,0 failed
+- 关联: R-257
+- 收尾: 1786817003
+- 源码指纹: 9e0a51e8eb50191a
+
+## T-1786817038 R-257 B5 cargo test -p kanzei-harness(staged 指纹对齐) [passed]
+- 命令: cargo test -p kanzei-harness
+- 摘要: B5 staged 指纹对齐后复测:144 passed,0 failed
+- 关联: R-257
+- 收尾: 1786817038
+- 源码指纹: 2f2fc1f5d352104c
+
+## T-1786817157 R-257 B6 cargo test --workspace(全量) [passed]
+- 命令: cargo test --workspace
+- 摘要: B6 workspace 全量:1033 passed,1 ignored,0 failed(四个文件切分后全绿)
+- 关联: R-257
+- 收尾: 1786817157
+
+## T-1786818400 cargo test -p kanzei-core (R-246 B1 LineRuntime 骨架) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-246 批1 LineRuntime 骨架:kanzei-core 202 passed 全绿(含 line_runtime 3 单测:并发 dispose 只收尾一次/取消令牌触发/默认不取消),clippy 零警告。
+- 关联: R-246
+- 收尾: 1786818400
+
+## T-1786818476 cargo test -p kanzei-core (R-246 B1 fmt 后复测) [passed]
+- 命令: cargo test -p kanzei-core
+- 摘要: R-246 批1 fmt 后复测:kanzei-core 202 passed 全绿(含 line_runtime 3 单测),clippy 零警告。
+- 关联: R-246
+- 收尾: 1786818476
+- 源码指纹: c4d80f14f78be791
